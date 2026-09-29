@@ -172,12 +172,12 @@ def classify_tool_call(body: Any, parameters: dict[str, Any], validate: Callable
     if call is None:
         return "no_tool_call", None
     arguments = call["function"].get("arguments")
+    if not isinstance(arguments, str):
+        return "invalid_json", f"arguments are not JSON text: {str(arguments)[:SAMPLE_CHARS]}"
     try:
-        values = json.loads(arguments) if isinstance(arguments, str) else None
+        values = json.loads(arguments)
     except json.JSONDecodeError as error:
         return "invalid_json", f"{error}: {arguments[:SAMPLE_CHARS]}"
-    if values is None:
-        return "invalid_json", f"arguments are not JSON text: {str(arguments)[:SAMPLE_CHARS]}"
     violation = next(iter(jsonschema.Draft202012Validator(parameters).iter_errors(values)), None)
     if violation is not None:
         return "schema_violation", f"{violation.json_path}: {violation.message}"[:SAMPLE_CHARS]

@@ -162,7 +162,7 @@ def test_requests_use_the_host_conclude_tool_and_stage_parameters() -> None:
     (400, {"error": {"message": "Model Not Exist"}}, "rejected_other"),
     (503, "Service Unavailable", "error"),
     (0, "ConnectionError: refused", "error"),
-])
+], ids=["ok", "schema-400", "other-400", "server-503", "transport-failure"])
 def test_strict_response_outcomes(status: int, body: object, outcome: str) -> None:
     """(a) 的分类：200 为照常受理；4xx 且错误提到 Schema 才算 Schema 校验错误；其他 4xx、5xx 与传输失败分开记。"""
     result = probe.classify_strict_response(status, body)
@@ -210,6 +210,62 @@ def test_main_reads_the_worldmock_key_pool_prints_and_writes_the_report(monkeypa
     assert _KEY not in printed and "sk-probe-test-0002" not in printed
     assert {call["headers"]["Authorization"] for call in transport.calls} == {f"Bearer {_KEY}"}
     assert json.loads(printed)["beta_thinking_conclusions"]["requests"] == 2
+
+
+@pytest.mark.parametrize(("reply", "kind"), [
+    (_tool_reply("null"), "schema_violation"),
+    ({"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+        {"id": "c", "type": "function", "function": {"name": "conclude_activity", "arguments": {"summary": "x"}}}]}}]},
+     "invalid_json"),
+    ({"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+        {"id": "c", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}]}}]},
+     "no_tool_call"),
+    ({"error": {"message": "overloaded"}}, "no_tool_call"),
+], ids=["json-null", "arguments-not-text", "other-tool", "no-choices"])
+def test_tool_call_classification_edges(reply: dict, kind: str) -> None:
+    """合法 JSON 但不是对象记形状错误；参数不是 JSON 文本记非法 JSON；调了别的工具或没有候选都记没有收尾调用。"""
+    tool, validate, _ = probe.host_conclusion_tool()
+    assert probe.classify_tool_call(reply, tool["function"]["parameters"], validate)[0] == kind
+
+
+def test_default_transport_posts_json_and_records_failures(monkeypatch) -> None:
+    """缺省传输用 requests.post 发 JSON：JSON 回复解析成对象、非 JSON 回复保留文本、网络错误记为状态 0（不连网）。"""
+    import requests
+
+    sent = []
+
+    class Reply:
+        """requests 回复的替身。"""
+
+        def __init__(self, status: int, body: object):
+            """状态码与回复体。"""
+            self.status_code, self.body = status, body
+            self.text = body if isinstance(body, str) else json.dumps(body)
+
+        def json(self):
+            """JSON 回复体；文本回复按 requests 的行为抛 ValueError。"""
+            if isinstance(self.body, str):
+                raise ValueError("not JSON")
+            return self.body
+
+    replies = [Reply(400, {"error": {"message": "bad schema"}}), Reply(502, "Bad Gateway")]
+
+    def post(url, headers, json, timeout):
+        """记录请求并依次回放；第三次模拟连接失败。"""
+        sent.append((url, headers, json, timeout))
+        if not replies:
+            raise requests.ConnectionError("refused")
+        return replies.pop(0)
+
+    monkeypatch.setattr(requests, "post", post)
+    headers = {"Authorization": f"Bearer {_KEY}"}
+    assert probe.requests_transport("https://example.test/chat/completions", headers, {"a": 1}, 3.0) == (
+        400, {"error": {"message": "bad schema"}})
+    assert probe.requests_transport("https://example.test/chat/completions", headers, {"a": 2}, 3.0) == (
+        502, "Bad Gateway")
+    status, body = probe.requests_transport("https://example.test/chat/completions", headers, {"a": 3}, 3.0)
+    assert status == 0 and body.startswith("ConnectionError")
+    assert [item[2] for item in sent] == [{"a": 1}, {"a": 2}, {"a": 3}] and all(item[3] == 3.0 for item in sent)
 
 
 def test_main_reports_a_missing_key_without_sending_requests(monkeypatch, tmp_path, capsys) -> None:
