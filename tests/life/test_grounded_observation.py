@@ -134,7 +134,7 @@ def test_observation_keeps_full_goal_text_in_the_todo_layer(engine_factory) -> N
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     assert observation["todo_layer"]["day_plan"]["goals"] == [
-        {"intent_kind": kind, "goal": "目" * 300, "progressed": False, "remind_time": None}
+        {"intent_kind": kind, "goal": "目" * 300, "progressed": False, "remind_time": None, "around_time": None}
         for kind in INTENT_KINDS[:8]]
     assert _rendered(observation).count("目" * 300) == 8
 

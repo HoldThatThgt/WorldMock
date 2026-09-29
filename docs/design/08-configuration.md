@@ -135,7 +135,8 @@ flowchart LR
 与同世界人物重复的场景联系人（仓库双人场景中的李凡、陈曦）显式为 `null`，同世界人物按其所在地点收货。
 同秒续接开关不是场景字段，是运行参数：新建运行由 `worldmock run --same-second-continuation on|off`（缺省 `on`）给出，
 冻结进运行清单 `stage_model_identity.stages.action` 与人物配置，恢复与重放继承父清单的值（见[接口合同「思考回传」](../CONTRACTS.md#思考回传)）。
-目标条目只接收 `remind_time`（必填、可为 null，场景本地 `HH:MM`），不接收时长或其他调度参数；
+目标条目只接收提醒时刻 `remind_time` 与大致时刻 `around_time`（都必填、可为 null，场景本地 `HH:MM`；大致时刻只用于
+推进判定，不触发决策），不接收时长或其他调度参数；
 当日目标由零点计划生成，人物以 `revise_day_plan` 修订，规则见[当日目标请求](../CONTRACTS.md#当日目标请求)。
 
 场景使用整数 `schema_version`，人物清单为 `agents`，时间字段为 `start_at`、`end_at`；
@@ -144,7 +145,7 @@ flowchart LR
 
 | 格式 | 当前版本 | 拒绝边界 |
 | --- | --- | --- |
-| 地图文件 `schema_version` | 1 | 声明与文件身份、完整路线关系共同校验 |
+| 地图文件 `schema_version` | 2 | 地点可带分店标签 `branch_label`；数据集声明与三个目录文件同用此版本，结构 1 的地图直接拒绝；声明与文件身份、完整路线关系共同校验 |
 | 商品目录 `version_major` | 4 | 原生品类对象与独立供给共同发布；两条分支旧目录 3.0 均不作为新身份 |
 | 品类与交换规则 `contract_version` | 2 | 购买规则删除商品价格槽，保留动态供给报价的闭集求值 |
 | 生活场景 `schema_version` | 3 | 地点、商品与供给按身份引用，旧内嵌地点和路线拒绝；含旧键 `max_consecutive_rejections` 拒绝 |
@@ -181,6 +182,14 @@ flowchart LR
 地点名称、坐标、营业、路线和供给定义从固定资料装配，不在场景手抄副本，也不添加额外配置层。
 人物 `qualifications` 显式声明；访问与供给资格不能从人物画像推断。
 
+地图地点可选 `branch_label`（非空字符串）区分同名地点：显示名为「名称（branch_label）」，例如「全家（东昌路店）」，
+不要把坐标或内部标识写进名称来避开重名。运行时场景的地点以显示名为名称，工具层、环境层、拒绝原因、会话名、事件与导出
+都用它；没有 `branch_label` 的地点名称不变。场景加载在目录准入之后另做三项世界准入：所选地点的 `kind` 属于环境层的场所
+类型闭集（[地点类词表](../CONTRACTS.md#地点类词表)）；所选地点显示名唯一，同名而没有不同的 `branch_label` 即拒绝；
+每个人物可能同时看到的对象名称唯一（地点、门店商品、持有物、商品目录、内容、游戏、生活活动、工作、人物、联系人、邮件与
+「自己」，写法与观察投影同一来源）。任一不满足都以 `IntegrityError` 拒绝加载并写明原因，不再等到运行中途才由环境层或
+观察投影报错。
+
 完整运行时场景包含解析后的地图、地点、路线、商品和供给。地图和场景选区共同校验账户、产品、
 供给组合和有向路线覆盖。每个端点/方式组合必须有可达、不可达或带来源的未知记录；漏项拒绝。
 营业与报价的有效期、核对日期、可信截止日及来源在发布前验证。旧整点营业和旧商品单店字段直接拒绝。
@@ -215,6 +224,10 @@ flowchart LR
 | `initial_energy_kcal` | 可用能量初值，单位 kcal；成为 `BodyState.energy_kcal`，受目录能量上界约束 |
 | `initial_sleep_debt_hours` | 当前场景输入使用的键名；其值初始化唯一的睡眠不足账 `BodyState.sleep_deficit_hours`，不新增另一份睡眠状态 |
 | `initial_entertainment_need` | 当前场景声明的娱乐需要初值，范围为零到一；见下文实现差异 |
+| `entertainment_relief_preference_floor` | 可选，娱乐缓解的下限偏好 `f`，缺省 0.5，取开区间 (0, 1)，0、1、负数与非有限值在场景加载时拒绝；经场景语义组装并入 `BodyConfig`，观看与游戏的实际缓解按有效偏好 `f + (1 − f)·w` 调幅度。实验假设（敏感区间 0.3–0.7），说明写在字段 `description`，见[一日运行保真规格 1.2](../dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径) |
+
+上面的正式场景摘录没有声明 `entertainment_relief_preference_floor`，取缺省 0.5：字段带缺省值，现有场景文件不必改，
+场景 `schema_version` 仍为 3，目录与数据集副本都不变。
 
 **当前实现差异**：场景准入读取 `initial_entertainment_need`，但运行时初始化仍把娱乐需要设为零，
 非零声明尚未接通。上面的摘录使用零值，不将非零初值描述为已生效能力。
@@ -226,6 +239,11 @@ flowchart LR
 人物的 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`
 分别驱动睡眠节律、睡眠不足累积和饥饿体感的餐时项；完整约束引用
 [人物档案合同](../CONTRACTS.md#人格与卡片字段) 与 `AgentConfig`。
+场景显式声明的这四个字段与 `bedtime_window` 也覆盖画像编译从背景故事抽取的卡片值（场景优先，
+[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md) 2.1）：人设层、卡片渲染文本与冻结的结构化卡片取覆盖后的值，
+身体结算、零点计划与每轮人设层读同一组值；未声明的字段仍取卡片值，AgentConfig 的缺省值不进卡片。
+覆盖量化到卡片格点，覆盖后锚点乱序的槽保留卡片值；每处覆盖与冲突都记运行输入警告
+（`CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT`，见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)）。
 
 初始睡眠压力按惯常起床时刻反推。饥饿与困意由资源、时刻和人物参数派生，
 场景不另存可自由改写的饥饿条或疲劳条；身体变化与体感的执行边界见
@@ -233,7 +251,8 @@ flowchart LR
 
 ### 3.5 规则来源与配置边界
 
-能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 `BodyConfig`。
+能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 `BodyConfig`；
+娱乐缓解的下限偏好例外，由场景 `body.entertainment_relief_preference_floor` 提供，不进目录，改它不触发目录版本变更。
 睡眠压力、睡眠不足累积与恢复及食品利用效率由
 [睡眠模型实现](../../src/worldmock/life/sleep.py)按冻结规格计算。
 工作效率因子从合同对象目录装配到 `work_efficiency_factors`，由身体结算按输入资源曲线计算区间平均；
@@ -307,12 +326,16 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | Schema 版本 | 满足当前场景模型的整数版本约束 | 拒绝启动，说明不受支持的版本 |
 | 必填字段 | 所有必填字段存在且类型正确 | 拒绝启动，列出缺失字段 |
 | 时间窗口 | `end_at > start_at` | 拒绝启动 |
-| 初始状态 | 按资源单位与目录边界校验能量、睡眠不足、娱乐需要；运行时继续满足各状态约束 | 拒绝启动 |
+| 初始状态 | 按资源单位与目录边界校验能量、睡眠不足、娱乐需要；娱乐缓解的下限偏好须在开区间 (0, 1) 内；运行时继续满足各状态约束 | 拒绝启动 |
 | 地点引用 | `agents[].home_location_id` 指向已声明地点 | 拒绝启动 |
+| 地点类别 | 所选地点的 `kind` 属于环境层场所类型闭集（与 `PLACE_TYPES` 同源） | 场景加载以 `IntegrityError` 拒绝，逐一写明越界的地点与类别 |
+| 可见名称 | 所选地点显示名唯一（同名以地图 `branch_label` 消歧）；每个人物可能同时看到的对象名称唯一 | 场景加载以 `IntegrityError` 拒绝，逐一写明重复的显示名与地点，或写明重复的对象名称与来源 |
 | 交互菜单 | 地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项 | 以 `IntegrityError` 拒绝启动，保留英文校验原因 |
 | 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
 | 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
 | 规则完整性 | 所有规则文件存在且可解析 | 拒绝启动 |
+| 人物卡片覆盖率 | 卡片习惯与口味映射到世界可执行目标的比例不低于 0.8；App 名只在媒介条目上精确命中，不以子串算习惯或题材命中 | `validate` 失败并列出缺失项；新建运行只记输入警告 `COVERAGE_BELOW_THRESHOLD`，不失败 |
+| 运行输入警告 | 口味与内容题材、权重全零、没有内容却有看刷听、游戏权重条目、覆盖率、场景作息覆盖与冲突、画像编译一致性、配送路线可达、地点显示名（警告码闭集见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)） | 只警告：`validate` 在结果 `input_warnings` 中列出并逐条写到标准错误流；新建运行冻结进清单与质量报告并逐条写 ops 警告，永不因此失败 |
 | 运行凭据 | 固定文件存在且非符号链接；仅含 `DEEPSEEK_NODE_KEYS`，值及密钥段非空 | 文件缺失或不安全时报 `FileNotFoundError`，内容无效时报 `IntegrityError`；`0600` 仅为推荐权限 |
 
 ### 8.3 校验报告
@@ -330,9 +353,13 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 字段缺失 | 缺少 `agents` | "Required field 'agents' is missing" |
 | 类型错误 | `initial_balance_fen: "invalid"` | "Field 'initial_balance_fen' must be an integer" |
 | 引用错误 | `home_location_id: "unknown"` | "Location 'unknown' is not declared" |
+| 地点类别越界 | 地图把所选地点的 `kind` 写成 `fuel` | "Selected locations use kinds that are not place types: <地点> kind 'fuel'; …; allowed kinds: …"（逐一列出全部越界地点） |
+| 地点重名 | 两处所选地点同名且没有不同的 `branch_label` | "Selected locations share display names: '<显示名>' (<地点>, <地点>); …; declare distinct branch_label values in the map"（逐一列出全部重名） |
+| 对象名称重复 | 同一人物名下两项工作同名、两位联系人同称谓等 | "Agent <人物> would see non-unique object labels: '<名称>' from <来源>, <来源>" |
 | 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
 | 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
 | 凭据内容错误 | 未知键、空值或空密钥段 | "DeepSeek credential file has an invalid schema" |
+| 运行输入警告（不是错误） | 卡片口味「B站视频」与内容题材对不上；配送路线 `unknown`；显示名带坐标 | 标准错误流 "Input warning TASTE_GENRES_UNMATCHED (agent 1): …"；`validate` 结果与运行清单的 `input_warnings` 带 `details`，由数据集决定改卡片、补题材或补路线 |
 
 ## 9. 配置版本与运行绑定
 

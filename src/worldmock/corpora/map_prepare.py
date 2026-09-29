@@ -15,7 +15,7 @@ import requests
 
 from worldmock.errors import IntegrityError
 from worldmock.life.map_data import load_map_dataset
-from worldmock.life.map_models import MapDatasetDeclaration, MapDatasetReference
+from worldmock.life.map_models import MAP_SCHEMA_VERSION, MapDatasetDeclaration, MapDatasetReference
 
 
 def prepare_map(destination: Path, frozen_root: Path) -> MapDatasetReference:
@@ -38,7 +38,7 @@ def prepare_map(destination: Path, frozen_root: Path) -> MapDatasetReference:
 
     fare = load_catalog(source.parent / "catalog")
     routes = _prepare_routes(target, dataset, fare)
-    _write_json(target / dataset.routes_file.path, {"schema_version": 1, "routes": routes})
+    _write_json(target / dataset.routes_file.path, {"schema_version": MAP_SCHEMA_VERSION, "routes": routes})
     payload = declaration.model_dump(mode="json")
     payload.update(version=declaration.version + 1, prepared_at=datetime.now(ZoneInfo(dataset.timezone)).isoformat())
     for name in ("locations", "supplies", "routes"):

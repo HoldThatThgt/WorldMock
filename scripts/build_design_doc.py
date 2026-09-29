@@ -2,11 +2,12 @@
 """docs/design/ 汇编版设计说明书构建脚本（仅标准库，确定性）。
 
 @file     build_design_doc.py
-@brief    把 docs/design/00-overview.md … 09-io-formats.md 十章汇编为单文件自包含 HTML
-          docs/design/worldmock-design.html：封面与章节一览（各章版本、日期、状态取自章节文件头）
-          → 修订历史（各章版本表的最新一行）→ 目录（章与二级标题自动生成）→ 正文（Markdown 子集的
-          确定性转换；mermaid 图由页内脚本在打开时渲染，离线时显示图源）。
-@note     输出只由章节源决定，不含时间戳或提交哈希，同一源两次构建逐字节相同。`--check` 只比对
+@brief    把 docs/design/00-overview.md … 09-io-formats.md 十章与附录 A（从 docs/CONTRACTS.md 逐字摘录的
+          人物工具、模型请求与命令行接口各节）汇编为单文件自包含 HTML docs/design/worldmock-design.html：
+          封面与章节一览（各章版本、日期、状态取自章节文件头）→ 修订历史（各章版本表的最新一行）
+          → 目录（章与二级标题自动生成）→ 正文（Markdown 子集的确定性转换；mermaid 图由页内脚本在打开时
+          渲染，离线时显示图源）。
+@note     输出只由章节源与合同源决定，不含时间戳或提交哈希，同一源两次构建逐字节相同。`--check` 只比对
           已提交的汇编文件与源是否一致，不写文件，是 docs/VERIFICATION.md「工程门禁」的
           「设计说明书汇编与源一致」整行的机器判定；用法与 scripts/documentation_gate.py 一致。
 
@@ -27,6 +28,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = REPO_ROOT / "docs" / "design"
+CONTRACTS_PATH = REPO_ROOT / "docs" / "CONTRACTS.md"
 OUT_HTML = DESIGN_DIR / "worldmock-design.html"
 OUT_PDF = DESIGN_DIR / "worldmock-design.pdf"
 #: 章节装配顺序；文件名前两位是章号，正文里以「第 N 章」呈现。
@@ -34,6 +36,14 @@ CHAPTERS: tuple[str, ...] = (
     "00-overview", "01-architecture", "02-exchange-engine", "03-resource-engine",
     "04-simulation-engine", "05-recording-engine", "06-delivery", "07-evaluation",
     "08-configuration", "09-io-formats",
+)
+#: 附录 A：从接口合同逐字摘录的节（按此顺序装配；标题须与合同里的标题逐字相同）。
+APPENDIX_STEM = "10-contract-excerpts"
+APPENDIX_TITLE = "接口合同摘录：人物工具、模型请求与命令行"
+APPENDIX_SECTIONS: tuple[str, ...] = (
+    "人物工具与管理接口", "当日目标请求", "请求字段与结算检查", "请求模型的闭集与字面边界",
+    "动作状态与动作结果", "社交拒绝错误码", "七层字段", "七层 Schema", "请求组成", "工具返回通道",
+    "回合预算", "生成参数", "模型身份", "思考回传", "CLI 命令接口",
 )
 TITLE_PREFIX = "WorldMock 产品设计说明书 — "
 DOC_TITLE = "WorldMock 产品设计说明书（汇编版）"
@@ -59,25 +69,40 @@ _PARA_CLASSES = (
 
 @dataclass
 class Chapter:
-    """@brief 一个设计章节：章号、文件名、标题、文件头元信息、版本表最新一行与正文。"""
+    """@brief 一个装配单元：章号、文件名、标题、显示标签、文件头元信息、版本表最新一行、正文与链接基准。
+
+    `link_base` 是源文件相对 docs/design/ 的目录前缀（章节源为空，合同摘录为 `../`）；
+    `source_href` 是本文内找不到的同文件锚点应回退到的源文件路径。
+    """
 
     number: int
     stem: str
     title: str
+    label: str
     meta: dict[str, str]
     latest_revision: list[str]
     text: str
+    link_base: str = ""
+    source_href: str = ""
 
 
 @dataclass
 class Context:
-    """@brief 转换上下文：当前章号、全局已用锚点、章节间链接映射与目录收集。"""
+    """@brief 转换上下文：当前章的章号、标签与链接基准，全局已用锚点、锚点映射、锚点队列与目录收集。"""
 
     chapter: int = 0
+    label: str = ""
+    link_base: str = ""
+    source_href: str = ""
     used_ids: set[str] = field(default_factory=set)
     anchors: dict[tuple[int, str], str] = field(default_factory=dict)
     queued_ids: dict[int, list[str]] = field(default_factory=dict)
     headings: list[tuple[int, str, str]] = field(default_factory=list)
+
+    def enter(self, chapter: Chapter) -> None:
+        """@brief 切换到某一章：章号、显示标签与链接基准随之变化。"""
+        self.chapter, self.label = chapter.number, chapter.label
+        self.link_base, self.source_href = chapter.link_base, chapter.source_href
 
 
 def esc(text: str) -> str:
@@ -92,23 +117,19 @@ def slugify(text: str) -> str:
 
 
 def fence_mask(lines: list[str]) -> list[bool]:
-    """@brief 逐行标记是否处于代码围栏内（含围栏行本身），供标题预扫描与目录跳过。"""
+    """@brief 逐行标记是否处于代码围栏内（含围栏行本身），供标题预扫描、摘录与目录跳过。"""
     mask: list[bool] = []
     inside = False
     for line in lines:
         if line.strip().startswith("```"):
-            if not inside:
-                inside = True
-                mask.append(True)
-                continue
-            inside = False
+            inside = not inside
             mask.append(True)
             continue
         mask.append(inside)
     return mask
 
 
-def parse_chapter(stem: str, text: str) -> Chapter:
+def parse_chapter(stem: str, text: str, label: str | None = None) -> Chapter:
     """@brief 解析章节源：章号取文件名前两位，标题取首个 h1，元信息取文件头引用块，版本取版本表末行。"""
     lines = text.replace("\r\n", "\n").split("\n")
     number = int(stem[:2])
@@ -120,7 +141,8 @@ def parse_chapter(stem: str, text: str) -> Chapter:
         match = _META_RE.match(line)
         if match:
             meta[match.group(1)] = match.group(2)
-    return Chapter(number, stem, title, meta, latest_revision(lines), "\n".join(lines))
+    return Chapter(number, stem, title, label or f"第 {number} 章", meta, latest_revision(lines),
+                   "\n".join(lines))
 
 
 def latest_revision(lines: list[str]) -> list[str]:
@@ -140,6 +162,48 @@ def latest_revision(lines: list[str]) -> list[str]:
             break
         i += 1
     return rows[-1] if rows else []
+
+
+def extract_sections(text: str, titles: tuple[str, ...]) -> str:
+    """@brief 按标题逐字摘录合同里的节（到下一同级或更高级标题为止，跳过围栏内的伪标题），并把每节顶级标题提升为 h2。
+
+    找不到的标题直接报错：摘录以合同标题为键，合同改名时汇编必须随之修改。
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    mask = fence_mask(lines)
+    heads = [(i, len(m.group(1)), m.group(2)) for i, (line, fenced) in enumerate(zip(lines, mask))
+             if not fenced and (m := _HEADING_RE.match(line))]
+    out: list[str] = []
+    for title in titles:
+        hit = next(((i, level) for i, level, text_ in heads if text_ == title), None)
+        if hit is None:
+            raise SystemExit(f"contract section not found: {title}")
+        start, level = hit
+        end = next((i for i, lv, _ in heads if i > start and lv <= level), len(lines))
+        shift = 2 - level
+        for line, fenced in zip(lines[start:end], mask[start:end]):
+            match = None if fenced else _HEADING_RE.match(line)
+            out.append(f"{'#' * (len(match.group(1)) + shift)} {match.group(2)}" if match else line)
+        out.append("")
+    return "\n".join(out)
+
+
+def contract_appendix(contracts: str) -> Chapter:
+    """@brief 附录 A：合同摘录章。文件头写明来源与权威，正文是逐字摘录；链接基准为上级目录。"""
+    version = latest_revision(contracts.replace("\r\n", "\n").split("\n"))
+    header = (f"# {TITLE_PREFIX}{APPENDIX_TITLE}\n\n"
+              f"> **状态**：摘录；正文逐字取自 [接口合同](../CONTRACTS.md)，以合同为准，改动请改合同并重新汇编  \n"
+              f"> **日期**：{version[1] if len(version) > 1 else '—'}  \n"
+              f"> **版本**：{version[0] if version else '—'}\n\n"
+              "本附录把人物能调用的工具、请求字段与结算检查、拒绝码、人物看到的七层输入、请求组成与生成参数、"
+              "模型身份以及命令行接口从接口合同里逐字摘录到一处，方便在同一份文件里查阅；"
+              "合同其余各节（状态字段、地图与门店供给、社交接口、记录引擎、品类与语料、LabelKit 交付）仍在 "
+              "[接口合同](../CONTRACTS.md) 中。收录的节：" + "、".join(f"「{t}」" for t in APPENDIX_SECTIONS) + "。\n\n")
+    body = extract_sections(contracts, APPENDIX_SECTIONS)
+    tail = "\n## 版本表\n\n| 版本 | 日期 | 修订内容 |\n| --- | --- | --- |\n| " + " | ".join(version) + " |\n" if version else ""
+    chapter = parse_chapter(APPENDIX_STEM, header + body + tail, label="附录 A")
+    chapter.link_base, chapter.source_href = "../", "../CONTRACTS.md"
+    return chapter
 
 
 def split_row(line: str) -> list[str]:
@@ -173,7 +237,7 @@ def prescan_anchors(chapters: list[Chapter]) -> Context:
     """
     ctx = Context()
     for chapter in chapters:
-        ctx.chapter = chapter.number
+        ctx.enter(chapter)
         queue = ctx.queued_ids.setdefault(chapter.number, [])
         lines = chapter.text.split("\n")
         seen_h1 = False
@@ -201,20 +265,22 @@ def lookup_anchor(ctx: Context, number: int, anchor: str) -> str | None:
 
 
 def map_href(href: str, ctx: Context) -> str:
-    """@brief 本章与章节间的标题链接改为文内锚点；其余链接（上级目录的合同与规格、外部网址）原样保留。"""
+    """@brief 链接改写：本章与章节间的标题链接改为文内锚点；其余相对链接按链接基准改写；外部网址原样保留。
+
+    同文件锚点在本文内找不到时回退到源文件（合同摘录里指向未收录节的链接）；
+    `design/0N-*.md` 形状的链接（合同指向设计章节）同样映射为文内锚点。
+    """
     if href.startswith("#"):
         target = lookup_anchor(ctx, ctx.chapter, href[1:])
-        return f"#{target}" if target else href
-    match = _SIBLING_RE.match(href)
-    if not match:
+        return f"#{target}" if target else (f"{ctx.source_href}{href}" if ctx.source_href else href)
+    if href.startswith(("http://", "https://", "../", "/")):
         return href
-    number = int(match.group(1))
-    anchor = match.group(2)
-    if anchor:
-        target = lookup_anchor(ctx, number, anchor)
-        if target:
-            return f"#{target}"
-    return f"#c{number}"
+    match = _SIBLING_RE.match(href.removeprefix("design/"))
+    if not match:
+        return ctx.link_base + href
+    number, anchor = int(match.group(1)), match.group(2)
+    target = lookup_anchor(ctx, number, anchor) if anchor else None
+    return f"#{target}" if target else f"#c{number}"
 
 
 def inline(text: str, ctx: Context) -> str:
@@ -324,14 +390,14 @@ def take_paragraph(lines: list[str], i: int, ctx: Context) -> tuple[str, int]:
 
 
 def take_heading(line: str, ctx: Context, seen_h1: bool) -> tuple[str, bool]:
-    """@brief 标题：章标题写成「第 N 章」，同章内多余的 h1 降为 h2；h1、h2 收进目录。"""
+    """@brief 标题：章标题加显示标签（「第 N 章」或「附录 A」），同章内多余的 h1 降为 h2；h1、h2 收进目录。"""
     match = _HEADING_RE.match(line)
     assert match is not None
     level, text = len(match.group(1)), match.group(2)
     if level == 1 and seen_h1:
         level = 2
     if level == 1:
-        text = f"第 {ctx.chapter} 章　{text.removeprefix(TITLE_PREFIX)}"
+        text = f"{ctx.label}　{text.removeprefix(TITLE_PREFIX)}"
     queue = ctx.queued_ids.get(ctx.chapter)
     hid = queue.pop(0) if queue else heading_id(ctx, level, text)
     if level <= 2:
@@ -374,28 +440,30 @@ def convert(text: str, ctx: Context) -> str:
     return "\n".join(out)
 
 
-def load_chapters(design_dir: Path = DESIGN_DIR) -> list[Chapter]:
-    """@brief 按装配顺序读取十章源文件。"""
-    return [parse_chapter(stem, (design_dir / f"{stem}.md").read_text(encoding="utf-8"))
-            for stem in CHAPTERS]
+def load_chapters(design_dir: Path = DESIGN_DIR, contracts_path: Path = CONTRACTS_PATH) -> list[Chapter]:
+    """@brief 按装配顺序读取十章源文件，再附上从接口合同摘录的附录 A。"""
+    chapters = [parse_chapter(stem, (design_dir / f"{stem}.md").read_text(encoding="utf-8"))
+                for stem in CHAPTERS]
+    chapters.append(contract_appendix(contracts_path.read_text(encoding="utf-8")))
+    return chapters
 
 
 def build_cover(chapters: list[Chapter], ctx: Context) -> str:
     """@brief 封面、章节一览与修订历史：全部取自章节文件头与版本表，不含时间戳。"""
     overview = "".join(
-        f"<tr><td>{c.number}</td><td><a href=\"#c{c.number}\">{esc(c.title)}</a></td>"
+        f"<tr><td>{esc(c.label)}</td><td><a href=\"#c{c.number}\">{esc(c.title)}</a></td>"
         f"<td>{inline(c.meta.get('版本', '—'), ctx)}</td><td>{inline(c.meta.get('日期', '—'), ctx)}</td>"
         f"<td>{inline(c.meta.get('状态', '—').split('；')[0], ctx)}</td></tr>" for c in chapters)
     revisions = "".join(
-        f"<tr><td>{c.number}</td><td>{inline(c.latest_revision[0], ctx)}</td>"
+        f"<tr><td>{esc(c.label)}</td><td>{inline(c.latest_revision[0], ctx)}</td>"
         f"<td>{inline(c.latest_revision[1], ctx)}</td><td>{inline(c.latest_revision[-1], ctx)}</td></tr>"
         for c in chapters if len(c.latest_revision) >= 3)
     return f"""<div class="cover">
   <h1 class="no-break">WorldMock<br>数字人生活模拟与数据生产</h1>
   <div class="sub">产品设计说明书（汇编版）</div>
   <table class="meta-table kv">
-    <tr><td>文档定位</td><td>由 <code>docs/design/</code> 十章汇编生成的单文件设计说明书；接口与字段以 <code>docs/CONTRACTS.md</code> 为准，行为规则以 <code>docs/dev/SPEC-*.md</code> 为准</td></tr>
-    <tr><td>生成方式</td><td><code>python scripts/build_design_doc.py</code>；请修改章节源后重新汇编，勿直接编辑本文件</td></tr>
+    <tr><td>文档定位</td><td>由 <code>docs/design/</code> 十章与接口合同摘录（附录 A）汇编生成的单文件设计说明书；接口与字段以 <code>docs/CONTRACTS.md</code> 为准，行为规则以 <code>docs/dev/SPEC-*.md</code> 为准</td></tr>
+    <tr><td>生成方式</td><td><code>python scripts/build_design_doc.py</code>；请修改章节源或合同后重新汇编，勿直接编辑本文件</td></tr>
     <tr><td>图示</td><td>mermaid 图在联网打开时渲染；离线时显示图源</td></tr>
   </table>
 </div>
@@ -482,18 +550,20 @@ MERMAID_SCRIPT = f"""<script type="module">
 
 
 def assemble(chapters: list[Chapter]) -> str:
-    """@brief 汇编完整 HTML：封面、章节一览、修订历史、目录与十章正文。"""
+    """@brief 汇编完整 HTML：封面、章节一览、修订历史、目录、十章正文与附录。"""
     ctx = prescan_anchors(chapters)
     sections: list[str] = []
     for chapter in chapters:
-        ctx.chapter = chapter.number
+        ctx.enter(chapter)
         sections.append(f'<section class="chapter" id="chapter-{chapter.number}">'
                         + convert(chapter.text, ctx) + "</section>")
+    ctx.enter(chapters[0])
     body = build_cover(chapters, ctx) + build_toc(ctx.headings) + "\n" + "\n".join(sections)
     return (f"<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n"
             f"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             f"<title>{esc(DOC_TITLE)}</title>\n<style>{CSS}</style>\n</head>\n"
-            f"<!-- 本文件由 scripts/build_design_doc.py 从 docs/design/0*.md 汇编生成；请修改章节源后重新构建，勿直接编辑。 -->\n"
+            f"<!-- 本文件由 scripts/build_design_doc.py 从 docs/design/0*.md 与 docs/CONTRACTS.md 汇编生成；"
+            f"请修改源后重新构建，勿直接编辑。 -->\n"
             f"<body>\n{body}\n{MERMAID_SCRIPT}\n</body>\n</html>\n")
 
 

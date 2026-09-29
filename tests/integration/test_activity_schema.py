@@ -122,10 +122,10 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
     assert _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"])) == (
-        "start_activity target is not a visible interactive object")
+        "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])")
     for verb, way in (("等待", "等待"), ("interact", "interact"), ("sleep", "等待")):
         assert _host_error("start_activity", start_arguments(["自己"], [verb], [way])) == (
-            "start_activity verb and way are not offered by the chosen target")
+            "WAY_NOT_OFFERED: start_activity verb and way are not offered by the chosen target (targets[0])")
     assert list(Draft202012Validator(schema).iter_errors({"targets": ["自己"], "actions": ["interact"]}))
     with pytest.raises(ValidationError):
         REQUEST_MODELS["start_activity"].model_validate({"targets": ["自己"], "actions": ["interact"]})
@@ -148,7 +148,7 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
     REQUEST_MODELS[name].model_validate(valid)
     assert _host_error(name, valid) == ""
     assert _host_error(name, _control_payload(name, [("别的活动", "继续。")])) == (
-        f"{name} activity_name names an activity that is not visible")
+        f"NAME_NOT_FOUND: {name} activity_name names an activity that is not visible")
     for invalid in ({"items": []}, _control_payload(name, [(_WAIT, "a"), (_WAIT, "b")]),
                     _control_payload(name, [(_WAIT, " ")]), {"items": [{"activity_name": _WAIT}]},
                     {"task": [_WAIT], "summary": ["继续。"]}):
@@ -187,36 +187,40 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     deliverable = {"summary": "要点。", "decisions": ["推进。"], "action_items": ["复盘。"]}
     assert _host_error("submit_work", {"task_name": _TASK, "deliverable": deliverable}) == ""
     assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
-    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == "recipient_name is not visible"
+    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == (
+        "NAME_NOT_FOUND: recipient_name is not visible")
     for name in (_TASK, _WAIT):
         assert _host_error("recall_task_summary", {"task_name": name}) == ""
     for name in ("同事", "自己家（1月4日 18:00 起）"):
-        assert _host_error("recall_task_summary", {"task_name": name}) == "task_name is not visible"
+        assert _host_error("recall_task_summary", {"task_name": name}) == "NAME_NOT_FOUND: task_name is not visible"
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
-    """人物工具面没有 plan_day；修订的目标内联意图、文字与必填可空的场景本地 HH:MM 提醒，
-    不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
+    """人物工具面没有 plan_day；修订的目标内联意图、文字与两个必填可空的场景本地 HH:MM——提醒 remind_time 与大致时刻
+    around_time（docs/dev/SPEC-dayrun-fidelity.md 8.2），不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
     agent = _prepared_agent(revise=True)
     tools = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
     assert "revise_day_plan" in tools and "plan_day" not in tools
     schema = _function("revise_day_plan")["parameters"]
     assert set(schema["properties"]) == {"goals"}
     item = schema["properties"]["goals"]["items"]
-    assert set(item["properties"]) == set(item["required"]) == {"intent_kind", "goal", "remind_time"}
+    assert set(item["properties"]) == set(item["required"]) == {"intent_kind", "goal", "remind_time", "around_time"}
     assert item["properties"]["goal"]["pattern"] == r"\S"
-    assert {"remind_at", "reminded_at", "registered_at", "planned_duration_seconds"}.isdisjoint(item["properties"])
+    assert item["properties"]["around_time"]["anyOf"] == item["properties"]["remind_time"]["anyOf"]
+    assert {"remind_at", "reminded_at", "around_at", "registered_at",
+            "planned_duration_seconds"}.isdisjoint(item["properties"])
     model = REQUEST_MODELS["revise_day_plan"]
-    for remind_time in (None, "00:00", "08:15", "23:59"):
-        valid = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": remind_time}]}
-        assert list(Draft202012Validator(schema).iter_errors(valid)) == []
-        model.model_validate(valid)
-    for goal in ({"intent_kind": "休息", "goal": "歇一会儿"},
-                 *({"intent_kind": "休息", "goal": "歇一会儿", "remind_time": text}
-                   for text in ("8:15", "24:00", "12:60", "08:15:00"))):
-        assert list(Draft202012Validator(schema).iter_errors({"goals": [goal]}))
-        with pytest.raises(ValidationError):
-            model.model_validate({"goals": [goal]})
+    base = {"intent_kind": "休息", "goal": "歇一会儿", "remind_time": None, "around_time": None}
+    for field in ("remind_time", "around_time"):
+        for clock in (None, "00:00", "08:15", "23:59"):
+            valid = {"goals": [{**base, field: clock}]}
+            assert list(Draft202012Validator(schema).iter_errors(valid)) == []
+            model.model_validate(valid)
+        missing = {key: value for key, value in base.items() if key != field}
+        for goal in (missing, *({**base, field: text} for text in ("8:15", "24:00", "12:60", "08:15:00"))):
+            assert list(Draft202012Validator(schema).iter_errors({"goals": [goal]}))
+            with pytest.raises(ValidationError, match=field):
+                model.model_validate({"goals": [goal]})
 
 
 def test_provider_array_cardinality_gap_is_locally_rejected() -> None:

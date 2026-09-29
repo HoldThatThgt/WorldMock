@@ -12,7 +12,9 @@ fail-open（不注入、不崩），结算路径完全不感知本模块。
 家族至多两条候选，娱乐需要低于 0.3 时不生成娱乐候选；生活活动只从
 人物启用集采样并按 effects 折算缓解；近 24 小时已食用商品按 1/(1+次数)
 降权（Rolls 1981 感官特异性饱足）；候选偏好权重来自 taste_weights
-（画像编译 v2 的确定性口味匹配，无缺省抬升）。
+（画像编译 v2 的确定性口味匹配，无缺省抬升），排序用原始权重，观看与游戏的
+缓解预演按有效偏好 f + (1 − f)·w、有缓解时不再累积，与结算同式
+（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
 
 通用变换形状（前景指数、归一尺度、时间价值、习惯权重）来自
 catalog/rules/motivation.toml；个体参数（weights/tau/beta/loss_aversion/
@@ -37,9 +39,10 @@ from worldmock.catalog.affordances import (
 )
 from worldmock.errors import IntegrityError
 from worldmock.life import sleep
-from worldmock.life.activities import lifestyle_relief_rates
+from worldmock.life.activities import lifestyle_relief_rates, relief_preference
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
+    entertainment_need_rate,
     interpolate,
     maximum_energy_duration_seconds,
     minimum_energy_cost,
@@ -799,26 +802,48 @@ def _entertainment_accrual(context: MotivationContext, hours: float) -> float:
 
 
 def _preference(context: MotivationContext, item_id: str) -> float:
-    """@brief 条目的口味权重（taste_weights 查表，缺项 0——不做 0.5 缺省抬升）。"""
+    """@brief 条目的原始口味权重（taste_weights 查表，缺项 0——不做 0.5 缺省抬升），只用于排序与采样。"""
     return context.taste_weights.get(item_id, 0.0)
+
+
+def _relief_preference(context: MotivationContext, item_id: str) -> float:
+    """@brief 缓解预演用的有效偏好 f + (1 − f)·w，与结算的 activities._entertainment_relief 同式
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2）；排序与采样仍用 _preference 的原始权重。"""
+    return relief_preference(_preference(context, item_id),
+                             context.body.entertainment_relief_preference_floor)
+
+
+def _entertainment_change(context: MotivationContext, relief_per_hour: float,
+                          hours: float) -> float:
+    """@brief 与共同身体结算（body._shared_entries）同式的娱乐需要变化：有缓解时只按缓解下降、
+    不再累积，没有缓解时按清醒累积，结果限在 [0, 1]。"""
+    need = context.agent.body.entertainment_need
+    rate = entertainment_need_rate(relief_per_hour, context.body)
+    return min(1.0, max(0.0, need + rate * hours)) - need
 
 
 def _entertainment_delta(context: MotivationContext, activity: ActivityState,
                          hours: float) -> float:
-    """@brief 活动引起的娱乐需要变化：观看/游戏按实际缓解速率，其余累积。"""
-    preference = _preference(context, activity.target_id or "")
+    """@brief 进行中活动引起的娱乐需要变化：有缓解的活动按实际缓解速率下降、不再累积，其余累积。"""
+    return _entertainment_change(context, _continue_relief_rate(context, activity), hours)
+
+
+def _continue_relief_rate(context: MotivationContext, activity: ActivityState) -> float:
+    """@brief 进行中活动的缓解速率，与 activities._entertainment_relief 同式：观看为条目费率 ×
+    有效偏好 ÷ 接触次数，游戏为有效偏好 × 目录费率（裁决 S1），生活活动为条目 effects 折算速率；
+    观看证据不全与其余活动为 0（按累积预演）。"""
+    if activity.kind == ActivityKind.LIFESTYLE:
+        return lifestyle_relief_rates(activity.target_id or "")[0]
+    preference = _relief_preference(context, activity.target_id or "")
     if activity.kind == ActivityKind.WATCH:
         rate = activity.data.get("entertainment_relief_per_hour")
         count = activity.data.get("exposure_count", 1)
         if isinstance(rate, (int, float)) and isinstance(count, int) and count >= 1:
-            relief = min(float(rate) * preference / count * hours,
-                         context.agent.body.entertainment_need)
-            return -relief
+            return float(rate) * preference / count
+        return 0.0
     if activity.kind == ActivityKind.PLAY_GAME:
-        base = context.body.entertainment_relief_per_hour.get(ActivityKind.PLAY_GAME.value, 0)
-        relief = min(preference * base * hours, context.agent.body.entertainment_need)
-        return -relief
-    return _entertainment_accrual(context, hours)
+        return preference * context.body.entertainment_relief_per_hour.get(ActivityKind.PLAY_GAME.value, 0)
+    return 0.0
 
 
 def _travel_candidate(context: MotivationContext, label: str,
@@ -932,8 +957,8 @@ def _entertainment_candidates(context: MotivationContext,
     （内容品类）至多两条候选（代码侧钳制 ENTERTAINMENT_FAMILY_CAP，注册表
     per_kind 更大时仍按 2 截断）。偏好权重只来自 taste_weights（确定性
     口味匹配），无缺省抬升。时长槽按分段语义给：一次约两段典型时长，
-    看完的内容从头再来；缓解速率与引擎口径一致（条目费率 x 口味 ÷ 当前
-    接触次数，首次与重复同式）。
+    看完的内容从头再来；缓解速率与引擎口径一致（条目费率 x 有效偏好 ÷ 当前
+    接触次数，首次与重复同式；有效偏好见 activities.relief_preference，排序仍用原始口味）。
     """
     agent = context.agent
     if agent.body.entertainment_need < ENTERTAINMENT_NEED_FLOOR:
@@ -989,9 +1014,10 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
         return None
     summary, lead = _watch_texts(item, position, typical, boundaries, slot)
     hours = slot / 3600
-    relief_rate = item.entertainment_relief_per_hour * _preference(context, item.item_id) / divisor
-    relief = min(relief_rate * hours, agent.body.entertainment_need)
-    fun_after = agent.body.entertainment_need - relief
+    # 缓解预演与结算同式：条目费率 × 有效偏好 ÷ 接触次数，有缓解时不再累积（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    relief_rate = item.entertainment_relief_per_hour * _relief_preference(context, item.item_id) / divisor
+    fun_delta = _entertainment_change(context, relief_rate, hours)
+    fun_after = agent.body.entertainment_need + fun_delta
     burn = minimum_energy_cost(ActivityKind.WATCH, slot, context.body)
     return _Candidate(
         family=family.name,
@@ -1001,7 +1027,7 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
         duration_seconds=slot,
         energy_delta=-burn,
         sleep_deficit_delta=_awake_deficit_delta(agent.body, hours),
-        entertainment_delta=-relief,
+        entertainment_delta=fun_delta,
         comfort_type=True)
 
 

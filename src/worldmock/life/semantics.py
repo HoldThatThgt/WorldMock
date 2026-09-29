@@ -266,13 +266,19 @@ class ScenarioSemantics:
 def load_runtime_scenario(
     scenario_path: Path, catalog_dir: Path | None = None,
 ) -> tuple[ScenarioSemantics, str]:
-    """@brief 完整加载：文档校验、目录组装、路线费率核验与目录准入。
+    """@brief 完整加载：文档校验、目录组装、路线费率核验、目录准入与世界准入。
+
+    世界准入（docs/dev/SPEC-dayrun-fidelity.md 8.1）：所选地点的 kind 属于环境层场所类型表，所选地点显示名唯一，
+    每个人物可能同时看到的对象名称唯一；越界或重名在加载时拒绝，不留到运行中途。
 
     :param scenario_path: 瘦身场景 JSON 路径。
     :param catalog_dir: 目录根；缺省取场景兄弟目录 catalog/。
     :returns: 组装结果与场景文件 SHA-256。
-    :raises IntegrityError: 文档、目录、组装或准入任一环节失败。
+    :raises IntegrityError: 文档、目录、组装、准入或世界准入任一环节失败。
     """
+    # 世界准入依赖环境层与呈现层，二者都间接导入本模块（经工具层、准入层）：模块级导入会成环，所以在此处导入。
+    from worldmock.life.load_checks import check_location_kinds, check_visible_labels
+
     document, digest = parse_scenario_document(scenario_path)
     directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
     try:
@@ -283,7 +289,10 @@ def load_runtime_scenario(
     affordances = load_affordances(directory / AFFORDANCES_FILE)
     root = (Path(scenario_path).resolve().parent / document.corpus_root).resolve()
     dataset = load_map_dataset(root, document.map_dataset)
-    return assemble_semantics(document, catalog, dataset, motivation_transforms, affordances), digest
+    semantics = assemble_semantics(document, catalog, dataset, motivation_transforms, affordances)
+    check_location_kinds(semantics.scenario)
+    check_visible_labels(semantics.scenario, root)
+    return semantics, digest
 
 
 def resolve_catalog_dir(scenario_path: Path) -> Path:
@@ -370,7 +379,8 @@ def _contract_value(task, slot: str) -> int:
 def _assemble_body(document: LifeScenario, catalog: Catalog,
                    view: AffordanceView) -> BodyConfig:
     """@brief 从三个 level 资源与合同效率参数组装身体运行配置（封闭键集
-    对照可供性注册表派生集校验）。"""
+    对照可供性注册表派生集校验）；娱乐缓解的下限偏好取场景 body 的声明（缺省 0.5），
+    目录不含该常量（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）。"""
     energy = _resource(catalog, ENERGY_RESOURCE)
     sleep = _resource(catalog, SLEEP_RESOURCE)
     entertainment = _resource(catalog, ENTERTAINMENT_RESOURCE)
@@ -401,6 +411,7 @@ def _assemble_body(document: LifeScenario, catalog: Catalog,
         "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET", view),
         "entertainment_relief_per_hour": _closed_map(
             fun_rules.entertainment_relief_per_hour, view.relief_keys, "entertainment relief"),
+        "entertainment_relief_preference_floor": instance.entertainment_relief_preference_floor,
         "work_notes_multiplier": _contract_efficiency(catalog, "work_notes_multiplier"),
         "source_kind": f"catalog:{catalog.version_major}.{catalog.version_minor}",
     })
@@ -475,7 +486,7 @@ def _runtime_payload(
     document: LifeScenario, body: BodyConfig, items: RuntimeItems,
     accounts: tuple[str, str], dataset: MapDataset,
 ) -> RuntimeScenario:
-    """@brief 构造运行时场景的载荷字典并执行模型校验。"""
+    """@brief 构造运行时场景的载荷字典并执行模型校验；人物只搬运场景写出的字段，model_fields_set 仍是场景声明。"""
     locations, routes, supplies = select_map(dataset, document)
     return RuntimeScenario.model_validate({
         "schema_version": 3,
@@ -497,7 +508,7 @@ def _runtime_payload(
         "phone_simulation_config": document.phone_simulation_config,
         "phone_simulation_config_sha256": document.phone_simulation_config_sha256,
         "body": body.model_dump(mode="python"),
-        "agents": [item.model_dump(mode="python") for item in document.agents],
+        "agents": [item.model_dump(mode="python", exclude_unset=True) for item in document.agents],
         "locations": locations,
         "interaction_menus_by_location_kind": {
             kind: menu.model_dump(mode="python")

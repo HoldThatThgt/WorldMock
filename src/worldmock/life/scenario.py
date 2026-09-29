@@ -49,6 +49,11 @@ RECONSIDERATION_INTERVAL_SECONDS = 5400
 CANDIDATE_PRESENTATION_LIMIT_MAX = 1000
 CANDIDATE_POOL_LIMIT_MAX = 100_000
 
+#: 娱乐缓解的下限偏好 f 缺省值（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：实际缓解按有效偏好
+#: f + (1 − f)·w 调幅度，不喜欢的内容（w = 0）也按 f 缓解。实验假设（敏感区间 0.3–0.7，文献只能确定 0 < f < 1），
+#: 登记在 docs/EXPERIMENT.md「实验假设声明」；放场景层以免触发目录版本变更。
+DEFAULT_ENTERTAINMENT_RELIEF_PREFERENCE_FLOOR = 0.5
+
 #: 长期未呈现判定阈值的缺省（秒）＝一周。取值理由：轮转按人物的作息周期产生可观测效果，
 #: 而作息以周为节律；单池 1000 条、每次呈现 20 条时换新名额 k = floor(20 × 0.15) = 3，
 #: 实测每天决策点中位 71、范围 9–112.5（.work/object-model-reanalysis/REPORT.md 2.8），
@@ -74,6 +79,8 @@ class BodyConfig(FrozenModel):
     food_efficiency_curve: tuple[CurvePoint, ...]
     activity_met: dict[str, float]
     entertainment_relief_per_hour: dict[str, float]
+    # 下限偏好 f 取自场景 body（semantics._assemble_body 搬运），不从目录解析。
+    entertainment_relief_preference_floor: float = Field(gt=0, lt=1, allow_inf_nan=False)
     work_notes_multiplier: float = Field(ge=1)
     source_kind: str = Field(min_length=1)
 
@@ -517,12 +524,18 @@ class ProductReference(FrozenModel):
 
 
 class BodyInstanceConfig(FrozenModel):
-    """@brief 身体三类 level 资源的实例初值。"""
+    """@brief 身体三类 level 资源的实例初值与场景层身体常量（娱乐缓解的下限偏好）。"""
 
     mass_kg: float = Field(gt=0, le=300)
     initial_energy_kcal: float = Field(ge=0)
     initial_sleep_debt_hours: float = Field(ge=0)
     initial_entertainment_need: float = Field(default=0, ge=0, le=1)
+    entertainment_relief_preference_floor: float = Field(
+        default=DEFAULT_ENTERTAINMENT_RELIEF_PREFERENCE_FLOOR, gt=0, lt=1, allow_inf_nan=False,
+        description=("娱乐缓解的下限偏好 f，缺省 0.5，取值开区间 (0, 1)：观看与游戏的实际缓解按有效偏好 "
+                     "f + (1 − f)·w 调幅度（w 为口味权重），不喜欢的内容也按 f 缓解，排序仍用原始口味权重。"
+                     "实验假设，敏感区间 0.3–0.7，文献只能确定 0 < f < 1"
+                     "（docs/dev/SPEC-dayrun-fidelity.md 1.2，docs/EXPERIMENT.md「实验假设声明」）。"))
 
 
 class LifeScenario(FrozenModel):

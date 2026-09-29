@@ -30,6 +30,7 @@ from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
 from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent, _conclusion_memories, life_action_tool_names
+from custom.agents.life_feedback import FEEDBACK_INSTRUCTION
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import (
     _Environment,
@@ -238,7 +239,9 @@ _LIMIT_CASES = {
                                for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")]}, "one or two items"),
     "repeated_activity": (_conclude_args(_WAIT, _WAIT), "must be distinct"),
     "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}]},
-                      "summary must be nonblank"),
+                      "should match pattern"),
+    "summary_over_500_characters": ({"items": [{"activity_name": _WAIT, "summary": "长" * 501, "memories": [],
+                                                "views": []}]}, "within 500 characters"),
     "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}]}, "Field required"),
     "nine_memories_and_views_in_total": (_nine_entries(), "exceed eight"),
     "memory_with_a_subject": (_single(subject=None), "Extra inputs are not permitted"),
@@ -259,6 +262,18 @@ _LIMIT_CASES = {
     "model_supplied_source": (_single(source="decision_observation"), "Extra inputs are not permitted"),
     "model_supplied_refs": (_single(refs=["observation-current"]), "Extra inputs are not permitted"),
     "model_supplied_status": (_single(epistemic_status="subjective"), "Extra inputs are not permitted"),
+}
+#: 一项一个对象的形状下，协议纠错的原因（经宿主的 ARGUMENTS_INVALID 逐字段写出，不带校验库转储）。
+_LIMIT_REASONS = {
+    "three_items": "items：conclude_activity takes one or two items",
+    "repeated_activity": "items：conclude_activity activity names must be distinct",
+    "blank_summary": "items[0].summary 不能是空白",
+    "summary_over_500_characters": "items[0].summary：must be within 500 characters",
+    "views_missing": "items[0].views 没有写",
+    "nine_memories_and_views_in_total": "items：conclude_activity memories and views exceed eight entries in total",
+    "memory_with_a_subject": "items[0].memories[0].subject 不是这个工具的参数，要去掉",
+    "view_without_about": "items[0].views[0].about 不能是空白",
+    "view_text_over_1000_characters": "items[0].views[0]：memory text exceeds 1000 characters",
 }
 
 
@@ -284,10 +299,15 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     assert result == "conclude_activity registered"
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(valid)]
     error = _response_errors(environment)[0]
-    assert error.startswith("invalid conclude_activity arguments") and message in error
+    assert error.startswith("ARGUMENTS_INVALID: invalid conclude_activity arguments") and message in error
     correction = [item for item in dispatcher.requests if "tools" in item][1]
-    feedback = json.loads(correction["messages"][-1]["content"])
-    assert feedback["executed"] is False and feedback["error"] == error
+    content = correction["messages"][-1]["content"]
+    feedback = json.loads(content)
+    assert (feedback["error_code"], feedback["instruction"]) == ("ARGUMENTS_INVALID", FEEDBACK_INSTRUCTION)
+    assert feedback["reason"] and "error" not in feedback
+    assert feedback["reason"] == _LIMIT_REASONS.get(case, feedback["reason"])
+    assert not any(dump in content for dump in ("input_value", "errors.pydantic", "Input should be",
+                                                "Extra inputs are not permitted", "should match pattern"))
     assert agent._last_finish_memories == _stored_memories(valid)
 
 
@@ -587,7 +607,7 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     episodes = [episode for payload in returned for episode in payload.get("episodes", [])]
     assert len(episodes) >= 3
     assert all(set(episode) == {"type", "text", "time", "epistemic_status"} for episode in episodes)
-    assert any(payload.get("executed") is False for payload in returned)
+    assert any(payload.get("instruction") == FEEDBACK_INSTRUCTION for payload in returned)
     assert len(returned) == 3 and person._react_messages[-1]["role"] == "assistant"
     assert f'"name":"{name}","kind":"activity","phase":"刚结束"' in model.requests[0]["messages"][1]["content"]
     assert [_offered_activity(request) for request in model.requests[2:]] == [name, name]
@@ -697,7 +717,8 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
     assert _response_errors(environment) == ["finish must be the only tool call in a response", None]
     feedback = [json.loads(message["content"]) for message in dispatcher.requests[1]["messages"]
                 if message.get("role") == "tool"]
-    assert [item["executed"] for item in feedback] == [False, False]
+    assert [(item["error_code"], item["reason"]) for item in feedback] == [
+        ("TOOL_CALL_REQUIRED", "finish 要单独调用")] * 2
 
 
 #: 结束活动写下的主观记忆（类型各异、正文互不相似，避免按相似度合并）。

@@ -900,12 +900,15 @@ class ConsumeRequest(FrozenModel):
 
 
 class PlanGoalInput(FrozenModel):
-    """@brief 当日目标条目：意图、目标文字与必填可空的 remind_time（场景本地 HH:MM，要在那一刻被提醒时填写，否则为 null）。"""
+    """@brief 当日目标条目：意图、目标文字与两个必填可空的场景本地 HH:MM——remind_time（要在那一刻被提醒时填写，
+    否则为 null）与 around_time（打算在几点前后做，docs/dev/SPEC-dayrun-fidelity.md 8.2；不提醒、不要求晚于登记时刻）。"""
 
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema("今日计划的一个目标：意图、目标文字与提醒时刻。"))
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema(
+        "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。"))
     intent_kind: IntentKind
     goal: str = Field(pattern=r"\S")
     remind_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
+    around_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
 
     @model_validator(mode="after")
     def validate_goal_length(self) -> "PlanGoalInput":
@@ -1044,27 +1047,39 @@ class RecallTaskSummaryRequest(FrozenModel):
 _ACTIVITY_NAME_FORMAT = "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。"
 
 
-def _validate_control_items(tool: str, items: list[Any]) -> None:
-    """@brief 控制工具的逐项上限：一至两项，活动名互不相同且非空，自述非空且不超过 500 字符（DeepSeek strict 禁
-    minItems、maxItems 与 maxLength，由本地校验兜住）。"""
+def _validate_control_items(tool: str, items: list[Any]) -> list[Any]:
+    """@brief 控制工具 items 的上限：一至两项、活动名互不相同（DeepSeek strict 禁 minItems 与 maxItems，由本地校验
+    兜住）；作为 items 的字段校验，协议纠错的原因落在 items 上。"""
     names = [item.activity_name for item in items]
     if not 1 <= len(items) <= 2:
         _LOGGER.error("Activity control request does not carry one or two items")
-        raise ValueError(f"{tool} requires one or two items")
-    if len(set(names)) != len(names) or any(not name.strip() for name in names):
-        _LOGGER.error("Activity control request names are invalid")
-        raise ValueError(f"{tool} activity names must be distinct and nonblank")
-    if any(not item.summary.strip() or len(item.summary) > SESSION_SUMMARY_MAX_CHARS for item in items):
-        _LOGGER.error("Activity control request summary is invalid")
-        raise ValueError(f"{tool} summary must be nonblank and within 500 characters")
+        raise ValueError(f"{tool} takes one or two items")
+    if len(set(names)) != len(names):
+        _LOGGER.error("Activity control request names the same activity twice")
+        raise ValueError(f"{tool} activity names must be distinct")
+    return items
+
+
+def _validate_summary(summary: str) -> str:
+    """@brief 自述不超过 500 字符（DeepSeek strict 禁 maxLength，由本地校验兜住；非空白由 Schema 的 pattern 约束）。"""
+    if len(summary) > SESSION_SUMMARY_MAX_CHARS:
+        _LOGGER.error("Activity control summary exceeds its character limit")
+        raise ValueError("must be within 500 characters")
+    return summary
 
 
 class ActivityProgressItem(FrozenModel):
     """@brief 播报或暂停的一项：活动名与人物自述。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("一项活动：活动名与进展。"))
-    activity_name: str = Field(description=_ACTIVITY_NAME_FORMAT)
-    summary: str = Field(description="用自己的话写这项活动到此刻的进展。")
+    activity_name: str = Field(pattern=r"\S", description=_ACTIVITY_NAME_FORMAT)
+    summary: str = Field(pattern=r"\S", description="用自己的话写这项活动到此刻的进展。")
+
+    @field_validator("summary")
+    @classmethod
+    def validate_summary(cls, summary: str) -> str:
+        """@brief 自述长度受控。"""
+        return _validate_summary(summary)
 
 
 #: 播报与暂停的 items 字段 Schema（内联，不用 $ref）。
@@ -1082,11 +1097,11 @@ class ReportStatusRequest(FrozenModel):
     items: Annotated[list[ActivityProgressItem], WithJsonSchema(_PROGRESS_ITEMS_SCHEMA)] = Field(
         description="要播报进展的活动，一项一个对象。")
 
-    @model_validator(mode="after")
-    def validate_items(self) -> "ReportStatusRequest":
-        """@brief 保证一至两项、活动名互不相同且自述长度受控。"""
-        _validate_control_items("report_status", self.items)
-        return self
+    @field_validator("items")
+    @classmethod
+    def validate_items(cls, items: list[ActivityProgressItem]) -> list[ActivityProgressItem]:
+        """@brief 保证一至两项、活动名互不相同。"""
+        return _validate_control_items("report_status", items)
 
 
 class PauseActivityRequest(FrozenModel):
@@ -1099,11 +1114,11 @@ class PauseActivityRequest(FrozenModel):
     items: Annotated[list[ActivityProgressItem], WithJsonSchema(_PROGRESS_ITEMS_SCHEMA)] = Field(
         description="要暂停的进行中活动，一项一个对象。")
 
-    @model_validator(mode="after")
-    def validate_items(self) -> "PauseActivityRequest":
-        """@brief 保证一至两项、活动名互不相同且自述长度受控。"""
-        _validate_control_items("pause_activity", self.items)
-        return self
+    @field_validator("items")
+    @classmethod
+    def validate_items(cls, items: list[ActivityProgressItem]) -> list[ActivityProgressItem]:
+        """@brief 保证一至两项、活动名互不相同。"""
+        return _validate_control_items("pause_activity", items)
 
 
 #: 一次 conclude_activity 写入的记忆与看法合计上限、单条文字字符上限与关键词个数上限（docs/dev/SPEC-time-and-energy.md
@@ -1170,8 +1185,8 @@ class ActivityConclusionItem(FrozenModel):
     """@brief 结束的一项：活动名、总结、普通记忆与看法（两者都必填，可以为空列表）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("结束的一项活动：活动名、总结、想记住的事与看法。"))
-    activity_name: str = Field(description=_ACTIVITY_NAME_FORMAT)
-    summary: str = Field(description="用自己的话写这项活动的总结。")
+    activity_name: str = Field(pattern=r"\S", description=_ACTIVITY_NAME_FORMAT)
+    summary: str = Field(pattern=r"\S", description="用自己的话写这项活动的总结。")
     memories: Annotated[
         list[ConclusionMemory],
         WithJsonSchema({"type": "array", "items": ConclusionMemory.model_json_schema(mode="validation")}),
@@ -1180,6 +1195,12 @@ class ActivityConclusionItem(FrozenModel):
         list[ConclusionView],
         WithJsonSchema({"type": "array", "items": ConclusionView.model_json_schema(mode="validation")}),
     ] = Field(description="这项活动让你形成的对人的看法或对事物的偏好，一条一个对象，没有就写空列表。")
+
+    @field_validator("summary")
+    @classmethod
+    def validate_summary(cls, summary: str) -> str:
+        """@brief 总结长度受控。"""
+        return _validate_summary(summary)
 
 
 class ConcludeActivityRequest(FrozenModel):
@@ -1195,14 +1216,15 @@ class ConcludeActivityRequest(FrozenModel):
         WithJsonSchema({"type": "array", "items": ActivityConclusionItem.model_json_schema(mode="validation")}),
     ] = Field(description="要结束的活动，一项一个对象。")
 
-    @model_validator(mode="after")
-    def validate_items(self) -> "ConcludeActivityRequest":
-        """@brief 保证一至两项、活动名互不相同、总结长度受控，记忆与看法合计不超过八条。"""
-        _validate_control_items("conclude_activity", self.items)
-        if sum(len(item.memories) + len(item.views) for item in self.items) > CONCLUSION_MEMORIES_MAX:
+    @field_validator("items")
+    @classmethod
+    def validate_items(cls, items: list[ActivityConclusionItem]) -> list[ActivityConclusionItem]:
+        """@brief 保证一至两项、活动名互不相同，全部项的记忆与看法合计不超过八条。"""
+        _validate_control_items("conclude_activity", items)
+        if sum(len(item.memories) + len(item.views) for item in items) > CONCLUSION_MEMORIES_MAX:
             _LOGGER.error("Conclude activity carries too many memories and views")
             raise ValueError("conclude_activity memories and views exceed eight entries in total")
-        return self
+        return items
 
 
 ActionRequest = Annotated[
@@ -1237,11 +1259,10 @@ class ActionResult(FrozenModel):
 
 
 def rejection_reason_text(error: Exception) -> str:
-    """@brief 拒绝原因文本：业务错误码加完整链式底层原因，只清除十六进制身份。
+    """@brief 拒绝的英文日志文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
-    拒绝消息随公开结果进入进度层 tool_call.result（docs/dev/SPEC-persona-prompt.md「进度层」），模型据此
-    修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
-    等），不含任何十六进制事件/请求身份。
+    只写进运行日志，不进入结果：拒绝结果的 message 与 details 取 life.guidance 生成的公开原因
+    （docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
     """
     reason = str(error)
     cause = error.__cause__

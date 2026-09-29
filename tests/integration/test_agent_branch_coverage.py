@@ -256,7 +256,7 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
         _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]})], False) == ""
     assert "not visible" in person.validate_react_decisions([
         _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}]})], False)
-    assert "recipient_name is not visible" == person.validate_react_decisions([
+    assert "NAME_NOT_FOUND: recipient_name is not visible" == person.validate_react_decisions([
         _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})], False)
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)

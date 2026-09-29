@@ -18,7 +18,10 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
+from worldmock.profile.injection import INPUT_WARNING_CODES
+from worldmock.footprints.timeline_labels import timeline_label_report
 from worldmock.life.control_items import control_items
+from worldmock.life.reply_guard import GUARD_PATTERNS
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -49,7 +52,7 @@ _PRICING = {
 
 
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 汇总完成、异常、内容、效率、记忆、模型用量与实测加速比。
+    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比与运行输入警告。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -58,7 +61,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     """
     _validate_inputs(events, activities, manifest)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": manifest["run_id"],
         "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
         "event_range": {
@@ -80,6 +83,9 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
             [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events],
             manifest["window"]["timezone"],
         ),
+        "input_warnings": _input_warning_quality(manifest),
+        "timeline_labels": timeline_label_report(events, manifest),
+        "contact_reply_guard": _contact_reply_guard_quality(events),
     }
 
 
@@ -816,6 +822,28 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
             for purpose in sorted(set(counts) | set(groups))]
 
 
+def _contact_reply_guard_quality(events: list[Event]) -> dict:
+    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/dev/SPEC-dayrun-fidelity.md 7.3、第九章）。
+
+    命中按尝试计（首次与重试各算一次），类别也按尝试计；重试与兜底按回复计。没有 attempts 证据的回复单列，
+    不当作未命中。
+    """
+    replies = [event.data for event in events if event.event_type == "environment_event"
+               and event.data.get("kind") == "model_npc_reply"]
+    guarded = [data for data in replies if isinstance(data.get("attempts"), list)]
+    attempts = [item for data in guarded for item in data["attempts"] if isinstance(item, dict)]
+    matched = [item["matched"] if isinstance(item.get("matched"), list) else [] for item in attempts]
+    return {
+        "replies": len(replies),
+        "replies_without_guard_evidence": len(replies) - len(guarded),
+        "attempts": len(attempts),
+        "hits": sum(bool(codes) for codes in matched),
+        "retries": sum(len(data["attempts"]) > 1 for data in guarded),
+        "fallbacks": sum(data.get("guard_applied") is True for data in guarded),
+        "hits_by_category": {code: sum(code in codes for codes in matched) for code in GUARD_PATTERNS},
+    }
+
+
 def _acceleration(events: list[Event], manifest: dict) -> dict:
     """@brief 用每个运行分支观察到的最大墙钟耗时计算实际模拟加速比。"""
     start = manifest["window"]["start"]
@@ -842,6 +870,32 @@ def _acceleration(events: list[Event], manifest: dict) -> dict:
         "unavailable_reason": reason,
         "wall_seconds_by_run": {key: round(value / 1000, 3) for key, value in sorted(by_run.items())},
         "method": "Sum of maximum persisted wall_elapsed_ms for each represented run branch",
+    }
+
+
+def _input_warning_quality(manifest: dict) -> dict:
+    """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3）：按警告码闭集、按人物统计清单冻结的 input_warnings。
+
+    清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
+    只报告，不放行。
+    """
+    frozen = manifest.get("input_warnings")
+    method = "Warnings frozen into the run manifest input_warnings at run creation; reported, never gating"
+    if not isinstance(frozen, list):
+        return {"recorded": False, "warning_count": None, "code_counts": None, "unrecognized_code_counts": None,
+                "agent_counts": None, "scenario_warning_count": None, "method": method}
+    rows = [item for item in frozen if isinstance(item, dict)]
+    codes = Counter(str(item.get("code")) for item in rows)
+    agents = Counter(str(item["agent_id"]) for item in rows if item.get("agent_id") is not None)
+    return {
+        "recorded": True,
+        "warning_count": len(rows),
+        "code_counts": {code: codes[code] for code in INPUT_WARNING_CODES},
+        "unrecognized_code_counts": {code: count for code, count in sorted(codes.items())
+                                     if code not in INPUT_WARNING_CODES},
+        "agent_counts": dict(sorted(agents.items())),
+        "scenario_warning_count": sum(item.get("agent_id") is None for item in rows),
+        "method": method,
     }
 
 

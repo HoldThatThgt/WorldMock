@@ -266,9 +266,12 @@ def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
 
 def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) -> None:
     """实验截止时所有 session 结束：最后一段停留以截止时刻为 recorded_at 进入记忆层；按计划结束的等待与被实验截止截断、
-    没有收尾的睡眠都在这段停留里结束，各写一句（活动句按结束提交归属，不看是否收尾）。"""
+    没有收尾的睡眠都在这段停留里结束，各写一句（活动句按结束提交归属，不看是否收尾）。
+
+    窗口取 22:10–22:40：人物在这段时间里困意一直是「困」（22:06:41 刚越过 0.93 档界，docs/dev/SPEC-dayrun-fidelity.md
+    1.4），等待不会被体感跨档打断。"""
     def window(document: dict) -> None:
-        document.update(start_at="2026-01-05T22:00:00+08:00", end_at="2026-01-05T22:30:00+08:00", tasks=[],
+        document.update(start_at="2026-01-05T22:10:00+08:00", end_at="2026-01-05T22:40:00+08:00", tasks=[],
                         messages=[], bills=[], payrolls=[])
 
     engine = _custom_engine("white-collar-12-weeks.json", window, tmp_path, run_id="memory-end")
@@ -286,9 +289,9 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
         assert engine.state.activities[slept.activity_id].status == ActivityStatus.TRUNCATED
         view = memory_view(engine._layer_context(engine.state.agents[1], (), []), engine.store)
         assert view.layer["earlier_today"] == [{
-            "recorded_at": "2026-01-05T22:30:00+08:00",
-            "settled": [f"22:00 给{friend}发消息：我先睡了", "等待（1月5日 22:00 起）：22:00–22:15，按计划结束",
-                        f"{activity_name(engine, slept.activity_id)}：22:15–22:30，提前结束"],
+            "recorded_at": "2026-01-05T22:40:00+08:00",
+            "settled": [f"22:10 给{friend}发消息：我先睡了", "等待（1月5日 22:10 起）：22:10–22:25，按计划结束",
+                        f"{activity_name(engine, slept.activity_id)}：22:25–22:40，提前结束"],
             "self_notes": [{"activity": "等待", "text": "收尾。"}]}]
         assert [item.ended_at for item in _ended_sessions(engine)] == [engine.state.end_time]
     finally:
@@ -324,7 +327,7 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=wait))[1].status \
         == "completed"
     _act(engine, "d-revise", "revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
     call = {"id": "call-memory", "type": "function",
             "function": {"name": "memory_search", "arguments": json.dumps({"query": "x"})}}
     _model_pair(engine, "decision-memory", call, json.dumps({"epistemic_status": "subjective", "episodes": []}))
@@ -515,7 +518,8 @@ def test_chat_invitation_is_not_carried_into_the_memory_layer(engine_factory) ->
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     friend = engine.state.agents[1].name
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),))
     submit_round(engine, {1: ("revise_day_plan", revise),
                           2: ("start_activity", start_activity("交谈", f"人物：{friend}"))}, "i-invite")
     home = _observe(engine, "i-home")

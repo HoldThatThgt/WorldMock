@@ -1,9 +1,10 @@
 """指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」、裁决 #19 与 #26）。
 
 真实 LifeEngine 与 SQLite 上：被轮转隐藏但存在的商品按标签或唯一商品名可买，按当前报价在同一秒结算，不查可见凭据；
-不存在的名称以 SUPPLY_NOT_FOUND 拒绝，details.candidates 给至多 3 个确定性的近似标签，不换成别的商品；多店同名且未限定
-门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出全部门店；完整标签又写了门店（from）以 ACTION_REQUEST_INVALID 拒绝。宿主本地校验只对 obtain（到店、远程下单）放行未列出的名称，其余动词的
-未列名称仍是协议错误，在本轮纠正。
+不存在的名称以 SUPPLY_NOT_FOUND 拒绝，逐项明细 details.items 的候选是至多 3 个确定性的近似标签，写成可照填的请求
+（docs/dev/SPEC-dayrun-fidelity.md 第四章），不换成别的商品；多店同名且未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝，原因列出
+全部门店；完整标签又写了门店（from）以 ACTION_REQUEST_INVALID 拒绝。宿主本地校验只对 obtain（到店、远程下单）放行未列出的
+名称，其余动词的未列名称仍是协议错误（NAME_NOT_FOUND），在本轮纠正。
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ from worldmock.errors import BusinessRuleError  # noqa: E402
 from worldmock.life import projection  # noqa: E402
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, resolve_interaction_menu, resolve_selection  # noqa: E402
 from worldmock.life.models import StartActivityRequest  # noqa: E402
-from worldmock.life.named_purchase import near_candidates, resolve_named_supply, supply_label  # noqa: E402
+from worldmock.life.named_purchase import (near_candidates, resolve_named_rows, resolve_named_supply,  # noqa: E402
+                                           supply_label)
 from worldmock.life.readable import money_phrase  # noqa: E402
 from worldmock.life.storefront_state import current_quote  # noqa: E402
 from worldmock.life.tool_layer import LayerContext  # noqa: E402
@@ -108,8 +110,9 @@ def test_rotation_hidden_supply_is_bought_by_name_at_the_current_quote(engine_fa
 
 
 def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substituted(engine_factory) -> None:
-    """不存在的名称以 SUPPLY_NOT_FOUND 拒绝：details.candidates 给至多 3 个确定性的近似标签（名称相近的真实供给），
-    原因与下一步可读；不自动换成近似商品，余额、库存与订单都不变。"""
+    """不存在的名称以 SUPPLY_NOT_FOUND 拒绝：逐项明细的候选是至多 3 个确定性的近似标签（名称相近的真实供给），各写成
+    可照填的请求 {target, action, way, from, to}；原因、改法与下一步可读，message 就是原因；不自动换成近似商品，余额、
+    库存与订单都不变。"""
     engine = engine_factory()
     _browsed(engine)
     before = _world(engine)
@@ -117,14 +120,19 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
     _, result = _round(engine, "unknown", _obtain(name))
     assert (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     labels = {supply_label(_layer_context(engine), supply) for supply in engine.scenario.supplies}
-    candidates = result.data["candidates"]
+    [item] = result.data["items"]
+    candidates = [row["target"] for row in item["candidates"]]
+    assert (item["index"], item["field"], item["written"], item["error_code"]) == (0, "targets", name, "SUPPLY_NOT_FOUND")
     assert 1 <= len(candidates) <= 3 and set(candidates) <= labels
     assert candidates == near_candidates(_layer_context(engine), name)
     assert all(_MILK in label for label in candidates)
+    assert all((row["action"], row["from"], row["to"]) == ("obtain", None, "自己") and row["way"] in ("到店", "远程下单")
+               for row in item["candidates"])
     assert _world(engine) == before
     details = last_result(engine.observe(context(engine, "unknown-seen")))["details"]
-    assert details == {"reason": "没有找到这个名字的商品", "next_step": "从候选或本轮列出的商品里选",
-                       "candidates": candidates}
+    assert details == {"reason": f"「{name}」：没有找到这个名字的商品", "next_step": "从候选或本轮列出的商品里选",
+                       "fix": "改用候选里的完整标签，或者照本轮列出的写法写商品", "items": [item]}
+    assert result.message == details["reason"]
 
 
 def _home_supply(engine):
@@ -147,7 +155,7 @@ def test_named_purchase_at_a_closed_store_is_a_business_rejection_and_nothing_is
     assert (result.status, result.error_code) == ("rejected", "MERCHANT_CLOSED")
     assert "orders" not in result.data and _world(engine) == before
     details = last_result(engine.observe(context(engine, "closed-seen")))["details"]
-    assert details["reason"] and "candidates" not in details
+    assert details["reason"] and "items" not in details
 
 
 def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_is_substituted(engine_factory) -> None:
@@ -165,12 +173,12 @@ def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_i
     assert (result.status, result.error_code) == ("rejected", "INSUFFICIENT_FUNDS")
     assert "orders" not in result.data and _world(engine) == before
     details = last_result(engine.observe(context(engine, "broke-seen")))["details"]
-    assert details["reason"] and "candidates" not in details
+    assert details["reason"] and "items" not in details
 
 
 def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_factory) -> None:
-    """多家店都能送到家的同名商品（纯牛奶）：未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出全部门店（按名称排序）；
-    写成标签或限定门店时解析为那家店的供给。"""
+    """多家店都能送到家的同名商品（纯牛奶）：未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝，原因列出全部门店（按名称排序），
+    候选是各店的完整标签（可照填，至多 3 个）；写成标签或限定门店时解析为那家店的供给。"""
     engine = engine_factory()
     _browsed(engine)
     layer = _layer_context(engine)
@@ -180,9 +188,10 @@ def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_
     assert len(stores) >= 2
     before = _world(engine)
     _, result = _round(engine, "ambiguous", _obtain(_MILK))
-    assert (result.status, result.error_code, result.data["candidates"]) == (
-        "rejected", "SUPPLY_NAME_AMBIGUOUS", stores)
-    assert result.data["reason"] == "好几家店都卖这个名字的商品"
+    assert (result.status, result.error_code) == ("rejected", "SUPPLY_NAME_AMBIGUOUS")
+    [item] = result.data["items"]
+    assert [row["target"] for row in item["candidates"]] == [f"{store}出售的{_MILK}" for store in stores][:3]
+    assert result.data["reason"] == f"「{_MILK}」：好几家店都卖这个名字的商品（{'、'.join(stores)}）"
     assert _world(engine) == before
     for supply in milk:
         store = supply_label(layer, supply).removesuffix(f"出售的{_MILK}")
@@ -244,14 +253,25 @@ def test_near_candidates_are_deterministic_term_similarity() -> None:
 
 
 def test_ambiguous_name_lists_every_store_not_just_three() -> None:
-    """多店同名且 from 为空：SUPPLY_NAME_AMBIGUOUS 列出全部门店（按名称排序），不像近似候选那样截到 3 个。"""
+    """多店同名且 from 为空：SUPPLY_NAME_AMBIGUOUS 的原因列出全部门店（按名称排序），不像近似候选那样截到 3 个；合并进
+    逐项明细时候选是可照填的完整标签，按错误结构至多 3 个（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
     stores = {"s1": "好德", "s2": "集市", "s3": "农工商超市", "s4": "盒马"}
     supplies = [_Supply(store, "p1", fulfillment_modes=("delivery",), delivery_destination_ids=("home",))
                 for store in stores]
     layer = _Layer(_Scenario(supplies, stores, {"p1": _MILK}))
     with pytest.raises(BusinessRuleError, match="SUPPLY_NAME_AMBIGUOUS") as ambiguous:
         resolve_named_supply(layer, _MILK, "远程下单", None, "home")
-    assert ambiguous.value.suggested["candidates"] == sorted(stores.values())
+    ordered = sorted(stores.values())
+    assert ambiguous.value.public_reason == f"好几家店都卖这个名字的商品（{'、'.join(ordered)}）"
+    assert ambiguous.value.suggested["candidates"] == [f"{store}出售的{_MILK}" for store in ordered]
+    row = {"kind": NAMED_SUPPLY_KIND, "object": _MILK, "selected_action": {"label": "远程下单"}, "to": "自己"}
+    with pytest.raises(BusinessRuleError, match="SUPPLY_NAME_AMBIGUOUS") as merged:
+        resolve_named_rows(layer, [row], lambda item: resolve_named_supply(layer, item["object"], "远程下单", None,
+                                                                            "home"))
+    [item] = merged.value.suggested["items"]
+    assert [candidate["target"] for candidate in item["candidates"]] == [f"{store}出售的{_MILK}"
+                                                                         for store in ordered[:3]]
+    assert all(store in merged.value.public_reason for store in ordered)
 
 
 class _Supply:
@@ -328,8 +348,10 @@ def test_host_lets_unlisted_obtain_names_through_and_corrects_other_verbs() -> N
     assert person.validate_react_decisions([_decision(["自己", "纯牛奶"], ["interact", "obtain"],
                                                       ["等待", "远程下单"])], False) == ""
     for verb, way in (("consume", "食用"), ("interact", "观看"), ("travel", "步行"), ("obtain", "制作")):
-        assert person.validate_react_decisions([_decision(["纯牛奶"], [verb], [way])], False) == (
-            "start_activity target is not a visible interactive object")
+        error = person.validate_react_decisions([_decision(["纯牛奶"], [verb], [way])], False)
+        assert error == "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])"
+        assert [(item.field, item.written) for item in error.report.items] == [("targets", "纯牛奶")]
     closed = _host(("sleep", "wait"))
-    assert closed.validate_react_decisions([_decision(["纯牛奶"], ["obtain"], ["到店"])], False) == (
-        "interaction menu denies start_activity")
+    denied = closed.validate_react_decisions([_decision(["纯牛奶"], ["obtain"], ["到店"])], False)
+    assert denied == "WAY_NOT_OFFERED: interaction menu denies start_activity (targets[0])"
+    assert denied.report.reason == "「纯牛奶」在这里不能「obtain：到店」"

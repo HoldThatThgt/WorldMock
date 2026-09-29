@@ -141,7 +141,8 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 }
 
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
-                 "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
+                 "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+                 "around_time": {"type": ["string", "null"], "pattern": r"^约 ([01][0-9]|2[0-3]):[0-5][0-9]$"}})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
     **_object({

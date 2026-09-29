@@ -424,9 +424,10 @@ def test_playback_speed_only_for_change_speed_operation() -> None:
 def test_plan_goal_rejects_blank_text_and_old_time_fields() -> None:
     """目标必须有文字，旧绝对时段请求严格拒绝。"""
     with pytest.raises(ValidationError, match="pattern"):
-        PlanGoalInput(intent_kind="工作", goal=" ", remind_time=None)
+        PlanGoalInput(intent_kind="工作", goal=" ", remind_time=None, around_time=None)
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "remind_time": None, "start": 100})
+        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "remind_time": None,
+                                      "around_time": None, "start": 100})
 
 
 def test_meeting_minutes_fields_reject_whitespace_only_text() -> None:
@@ -1313,7 +1314,7 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     assert result.status.value == "rejected"
     assert result.error_code == "WORK_REQUIRES_REWORK"
     assert "work_review" in result.data
-    assert result.message == "Work submission requires rework: WORK_REQUIRES_REWORK"
+    assert result.message == result.data["reason"] == "提交的成果还需要返工"
     assert result.data["same_moment_round"] == limit
     assert result.data["max_same_moment_decisions"] == limit
     assert result.data["next_decision_at"] == engine.state.current_time
@@ -1443,7 +1444,7 @@ def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
     assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
     with pytest.raises(ProtocolError, match="already generated"):
         engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
-    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标", remind_time=None)
+    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标", remind_time=None, around_time=None)
     forged = ReviseDayPlanRequest.model_construct(goals=(invalid_goal,))
     invalid = _act(engine, "revise-invalid", "revise_day_plan", forged)
     assert invalid.status.value == "rejected"
@@ -1462,7 +1463,7 @@ def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
     """无当日目标时修订被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "revise-none", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None, around_time=None),)))
     assert result.status.value == "rejected"
     assert result.error_code == "PLAN_NOT_FOUND"
 

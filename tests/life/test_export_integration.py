@@ -254,7 +254,8 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     spec.loader.exec_module(module)
     assert payload.decode("utf-8") == module.render_day_markdown(
         engine.store.connection, 1, day)
-    assert "wait" in payload.decode("utf-8") or "空档" in payload.decode("utf-8")
+    # 时间线只写中文种类名（docs/dev/SPEC-dayrun-fidelity.md 7.4）：等待是「空档」，不写英文的 wait。
+    assert "空档" in payload.decode("utf-8") and "wait" not in payload.decode("utf-8")
 
 
 def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_path: Path) -> None:
@@ -481,6 +482,10 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
     assert evidence[0].data["request"] == request_payload
     assert evidence[0].data["usage"]["prompt_tokens"] == 21
     assert evidence[0].data["response"]["model"] == "deepseek-flash"
+    # 后验守卫没有命中：只有一次尝试，不用兜底句（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    assert [(item["request"], item["text"], item["matched"]) for item in evidence[0].data["attempts"]] == [
+        (request_payload, "好啊，老地方见。", [])]
+    assert evidence[0].data["guard_applied"] is False
     pending = [item for item in events if item.data.get("kind") == "model_npc_reply_pending"]
     assert len(pending) == 1 and evidence[0].caused_by == [pending[0].event_id]
     assert not [item for item in events if item.data.get("kind") == "message_arrival"

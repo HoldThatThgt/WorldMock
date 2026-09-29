@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -43,9 +44,9 @@ def _at(day: int, hour: int, minute: int = 0) -> int:
     return int(datetime(2026, 1, day, hour, minute, tzinfo=ZONE).timestamp())
 
 
-def _goal(intent: str, goal: str, remind: str | None = None) -> dict:
-    """零点计划输出中的一条目标。"""
-    return {"intent_kind": intent, "goal": goal, "remind_time": remind}
+def _goal(intent: str, goal: str, remind: str | None = None, around: str | None = None) -> dict:
+    """零点计划输出中的一条目标（提醒时刻与大致时刻都是场景本地 HH:MM 或 null）。"""
+    return {"intent_kind": intent, "goal": goal, "remind_time": remind, "around_time": around}
 
 
 def _late_engine(tmp_path, start: str, run_id: str, base: str = SCENARIO, **params) -> LifeEngine:
@@ -144,9 +145,10 @@ def _run_until(engine: LifeEngine, moment: int) -> None:
 
 
 def _revise(*goals: tuple) -> tuple:
-    """修订当日目标的请求（意图、文字、提醒）。"""
+    """修订当日目标的请求（意图、文字、提醒，可选第四项大致时刻，缺省为 null）。"""
     return ("revise_day_plan", ReviseDayPlanRequest(goals=tuple(
-        PlanGoalInput(intent_kind=intent, goal=goal, remind_time=remind) for intent, goal, remind in goals)))
+        PlanGoalInput(intent_kind=intent, goal=goal, remind_time=remind, around_time=(around or [None])[0])
+        for intent, goal, remind, *around in goals)))
 
 
 def _forbid_client(monkeypatch) -> None:
@@ -165,15 +167,17 @@ def test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched(
               "pending_wake_reasons", "next_decision_at")
     before = {name: getattr(engine.state.agents[1], name) for name in fields}
     seq = engine.store.last_event_seq
-    client = StubPlanDayClient(goals=[_goal("工作", "上午把周报写完", "09:30"), _goal("用餐", "中午去楼下吃面")])
+    client = StubPlanDayClient(goals=[_goal("工作", "上午把周报写完", "09:30", "10:00"),
+                                      _goal("用餐", "中午推迟到十二点一刻去楼下吃面", None, "12:15")])
 
     assert drive(settle_pending_day_plans(engine, client=client)) == [
         {"agent_id": 1, "date": "2026-01-05", "goals": 2}]
 
     agent = engine.state.agents[1]
     assert agent.plan_submitted_dates == {"2026-01-05"} and agent.day_plan.day_end == _at(6, 0)
-    assert [(goal.intent_kind, goal.registered_at, goal.remind_at, goal.reminded_at)
-            for goal in agent.day_plan.goals] == [("工作", start, _at(5, 9, 30), None), ("用餐", start, None, None)]
+    assert [(goal.intent_kind, goal.registered_at, goal.remind_at, goal.reminded_at, goal.around_at)
+            for goal in agent.day_plan.goals] == [("工作", start, _at(5, 9, 30), None, _at(5, 10)),
+                                                  ("用餐", start, None, None, _at(5, 12, 15))]
     assert {name: getattr(agent, name) for name in fields} == before
     request, response, registered = _events(engine, seq)
     assert (request.event_type, response.event_type, registered.event_type) == (
@@ -197,8 +201,8 @@ def test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched(
     observed = engine.observe(decision)
     assert "run_start" in observed["wake_reasons"]
     goals = observed["todo_layer"]["day_plan"]["goals"]
-    assert [(row["intent_kind"], row["progressed"], row["remind_time"]) for row in goals] == [
-        ("工作", False, "09:30"), ("用餐", False, None)]
+    assert [(row["intent_kind"], row["progressed"], row["remind_time"], row["around_time"]) for row in goals] == [
+        ("工作", False, "09:30", "约 10:00"), ("用餐", False, None, "约 12:15")]
     assert not [event for event in _events(engine, seq)
                 if event.event_type in {"decision_started", "memory_updated", "action_requested"}]
 
@@ -250,7 +254,8 @@ def test_system_entry_refuses_a_second_registration_and_an_invalid_plan(engine_f
     """系统登记入口不进人物工具面：目标不合法与同日重复登记都是协议错误（调用方先按纯函数与 plan_submitted_dates
     拦下）；没有待执行的零点判定段时零点节律入口拒绝；只有设了提醒的目标才有触发时刻。"""
     engine = engine_factory()
-    early = PlanDayRequest(goals=(PlanGoalInput(intent_kind="工作", goal="写周报", remind_time="00:00"),))
+    early = PlanDayRequest(goals=(PlanGoalInput(intent_kind="工作", goal="写周报", remind_time="00:00",
+                                                around_time=None),))
 
     with pytest.raises(ProtocolError, match="Generated day plan is invalid"):
         engine.register_day_plan(1, early, [], [])
@@ -491,7 +496,7 @@ def test_revision_keeps_replaces_and_cancels_reminders(engine_factory):
     assert (goals["用餐"].registered_at, goals["用餐"].remind_at) == (start, start + 3600)
     assert start + 7200 not in reminders.boundary_candidates(engine.state, engine.scenario.timezone)
     bad = ReviseDayPlanRequest.model_construct(goals=(
-        PlanGoalInput.model_construct(intent_kind="工作", goal="写周报", remind_time="8:15"),))
+        PlanGoalInput.model_construct(intent_kind="工作", goal="写周报", remind_time="8:15", around_time=None),))
     assert _decide(engine, "bad-format", ("revise_day_plan", bad))[1].error_code == "ACTION_REQUEST_INVALID"
     late = _revise(("工作", "写周报", "00:20"), ("用餐", "吃夜宵", "00:00"))
     assert _decide(engine, "too-early", late)[1].error_code == "PLAN_REMIND_TIME_INVALID"
@@ -503,6 +508,116 @@ def test_revision_keeps_replaces_and_cancels_reminders(engine_factory):
     assert _decide(engine, "resend", same)[1].status == "completed"
     kept = engine.state.agents[1].day_plan.goals[0]
     assert (kept.registered_at, kept.remind_at, kept.reminded_at) == (start, start + 1200, start + 1200)
+
+
+def test_revision_carries_around_time_and_changing_only_it_keeps_registration(engine_factory):
+    """revise_day_plan 的条目带大致时刻（docs/dev/SPEC-dayrun-fidelity.md 8.2）：登记为当日绝对时刻 around_at，不进提醒候选、
+    不触发决策；格式错误以 ACTION_REQUEST_INVALID 拒绝；四字段比较中只改大致时刻的修订保留登记时刻与已触发的提醒状态
+    （早于修订时刻的大致时刻也受理，提醒不重校、不再触发），待办层写「约 HH:MM」。"""
+    engine = engine_factory()
+    start, zone = engine.state.current_time, engine.scenario.timezone
+    stage_day_plan(engine, submitted=True, goals=(
+        PlanGoal(intent_kind="用餐", goal="午饭推迟到一点", registered_at=start, remind_at=start + 1200),))
+    _, revised = _decide(engine, "around", _revise(("用餐", "午饭推迟到一点", "00:20", "13:00")))
+    assert revised.status == "completed"
+    [goal] = engine.state.agents[1].day_plan.goals
+    assert (goal.registered_at, goal.remind_at, goal.around_at) == (start, start + 1200, _at(5, 13))
+    assert _at(5, 13) not in reminders.boundary_candidates(engine.state, zone)
+    bad = ReviseDayPlanRequest.model_construct(goals=(PlanGoalInput.model_construct(
+        intent_kind="用餐", goal="午饭推迟到一点", remind_time="00:20", around_time="13"),))
+    assert _decide(engine, "bad-around", ("revise_day_plan", bad))[1].error_code == "ACTION_REQUEST_INVALID"
+    _decide(engine, "wait")
+    _run_until(engine, start + 1200)
+    assert engine.state.agents[1].day_plan.goals[0].reminded_at == start + 1200
+    _, moved = _decide(engine, "earlier", _revise(("用餐", "午饭推迟到一点", "00:20", "00:05")))
+    assert moved.status == "completed"
+    [goal] = engine.state.agents[1].day_plan.goals
+    assert (goal.registered_at, goal.remind_at, goal.reminded_at, goal.around_at) == (
+        start, start + 1200, start + 1200, _at(5, 0, 5))
+    assert reminders.reminder_times(engine.state.agents[1], engine.state.current_time) == ()
+    row = engine.observe(context(engine, "around-shown"))["todo_layer"]["day_plan"]["goals"][0]
+    assert (row["remind_time"], row["around_time"]) == ("00:20", "约 00:05")
+
+
+def test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried(tmp_path):
+    """零点计划的条目带大致时刻（docs/dev/SPEC-dayrun-fidelity.md 8.2）：格式错误或缺了 around_time 的输出附回英文错误重试；
+    早于生成时刻的大致时刻不是错误（不像提醒），登记为当日绝对时刻。"""
+    engine = _late_engine(tmp_path, "2026-01-05T08:00:00+08:00", "around-plan")
+    invalid = [plan_day_response([_goal("用餐", "午饭推迟到一点", None, "13")]),
+               plan_day_response([{"intent_kind": "用餐", "goal": "午饭推迟到一点", "remind_time": None}])]
+    client = StubPlanDayClient(goals=[_goal("用餐", "午饭推迟到一点", None, "13:00"),
+                                      _goal("通勤", "今天晚半小时出门", None, "07:30")], responses=invalid)
+
+    assert settle_day_plans(engine, client)[0]["goals"] == 2
+
+    errors = [event.data["error"] for event in _plan_events(engine) if event.data.get("phase") == "response"]
+    assert "around_time" in errors[0] and "around_time" in errors[1] and errors[2] is None
+    assert [(goal.intent_kind, goal.around_at, goal.remind_at) for goal in engine.state.agents[1].day_plan.goals] == [
+        ("用餐", _at(5, 13), None), ("通勤", _at(5, 7, 30), None)]
+
+
+def _contract_plan_template() -> str:
+    """接口合同「请求组成」逐字登记的零点计划中文模板。"""
+    text = (Path(__file__).resolve().parents[2] / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")
+    block = re.search(r"```text\n(.*?)\n```", text.split("零点计划的中文模板（system）：", 1)[1], flags=re.DOTALL)
+    assert block is not None
+    return block.group(1)
+
+
+def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times(engine_factory):
+    """零点计划模板（docs/dev/SPEC-dayrun-fidelity.md 2.3、8.2，裁决 S11、D12）：真实零点计划请求的 system 就是接口合同逐字
+    登记的模板。第五条：人物档案作息里已有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒，写明哪里不同；
+    第六条：每条目标写大致时刻 around_time；第三条的起床、出门提醒不变，模板不要求为就寝写提醒（S2 撤回）。user 输入带人物档案
+    的作息窗口，输出 Schema 要求 around_time。"""
+    engine = engine_factory()
+    client = StubPlanDayClient()
+    settle_day_plans(engine, client)
+    [request] = client.calls
+    system = request["messages"][0]["content"]
+    assert system == day_planning.PLAN_DAY_PROMPT == _contract_plan_template()
+    items = {chunk[0]: chunk.replace("\n", "") for chunk in re.split(r"\n(?=[一二三四五六]、)", system)[1:]}
+    assert list(items) == ["一", "二", "三", "四", "五", "六"]
+    assert items["五"] == ("五、人物档案的作息里已经有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒；"
+                          "写的时候写清楚哪里不同。")
+    assert items["六"].startswith("六、每条目标都写大致时刻 around_time") and "时段的中点" in items["六"]
+    assert "写零到八条目标" in items["一"]
+    assert "几点起床或几点出门的，就给对应的目标定这个时刻的提醒" in items["三"]
+    assert "就寝" not in system and "睡前" not in system
+    payload = json.loads(request["messages"][1]["content"])
+    assert {"午饭时段", "晚饭时段", "就寝时段"} <= set(payload["人物"])
+    goal_schema = request["tools"][0]["function"]["parameters"]["properties"]["goals"]["items"]
+    assert set(goal_schema["required"]) == {"intent_kind", "goal", "remind_time", "around_time"}
+    assert engine.state.agents[1].day_plan.goals == ()
+
+
+def test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep(tmp_path):
+    """模板用例（docs/dev/SPEC-dayrun-fidelity.md 2.3 验收）：平常的一天可以是零条目标；作息里已有的事不进计划，但收尾时记下
+    的起床时刻仍按第三条生成提醒——零点计划的输入带这句收尾记录，照模板写出的计划只有这一条与平常不同的起床目标（带提醒与
+    大致时刻），登记后提醒到点结束跨零点的睡眠；计划里没有就寝目标，也没有就寝提醒。"""
+    engine = _late_engine(tmp_path, "2026-01-05T23:30:00+08:00", "wake-reminder")
+    try:
+        settle_day_plans(engine)
+        assert engine.state.agents[1].day_plan.goals == ()
+        waited = _start(engine, "等待", "evening-wait")
+        assert advance_until_ready(engine)
+        memory = {**_MEMORY, "text": "明早六点半起床，比平常早"}
+        _decide(engine, "note-wake", ("conclude_activity", conclude_request(
+            engine.state.activities[waited].name, summary="歇好了，明早六点半起床。", memories=[[memory]])))
+        slept = _start(engine, "睡觉", "bedtime")
+        boundary = engine.scheduling_state().next_event_at
+        engine.advance(int(boundary.timestamp()) - engine.state.current_time, boundary)
+        client = StubPlanDayClient(goals=[_goal("晨间例程", "六点半起床，比平常早", "06:30", "06:30")])
+        settle_day_plans(engine, client)
+        payload = json.loads(client.calls[0]["messages"][1]["content"])
+        assert [row["收尾说明"] for row in payload["收尾记录"]] == ["歇好了，明早六点半起床。"]
+        [goal] = engine.state.agents[1].day_plan.goals
+        assert (goal.intent_kind, goal.remind_at, goal.around_at) == ("晨间例程", _at(6, 6, 30), _at(6, 6, 30))
+        assert engine.state.activities[slept].planned_end_at > _at(6, 6, 30)
+        assert advance_until_ready(engine) and engine.state.current_time == _at(6, 6, 30)
+        sleep = engine.state.activities[slept]
+        assert (sleep.status, sleep.ended_at, sleep.interruption_reason) == ("completed", _at(6, 6, 30), "plan_reminder")
+    finally:
+        engine.close()
 
 
 def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(engine_factory, monkeypatch):

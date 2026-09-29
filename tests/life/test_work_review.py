@@ -380,7 +380,8 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert public["work_review"] == visible
     assert public["error_code"] == "WORK_REQUIRES_REWORK"
     # 返工拒绝同样带一句原因与下一步（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
-    assert public["details"] == {"reason": "提交的成果还需要返工", "next_step": "按评审意见修改后再提交"}
+    assert public["details"] == {"reason": "提交的成果还需要返工", "next_step": "按评审意见修改后再提交", "fix": None}
+    assert public["message"] == "提交的成果还需要返工"
     assert (result.data["reason"], result.data["next_step"]) == ("提交的成果还需要返工", "按评审意见修改后再提交")
     assert summaries[-1]["message"] in messages
     assert "Supported by the transcript." in messages
@@ -489,7 +490,7 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
     assert not active_activities(engine.state, 1)
     public = progress_calls(engine.observe(context(engine, f"late-work-{limit}-feedback")))[-1]["result"]
     assert public["error_code"] == "ACTIVITY_DURATION_INVALID"
-    assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分"}
+    assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分", "fix": None}
     assert not any(event.event_type == "run_failed"
                    for event in engine.store.read_events(engine.store.last_event_seq))
 

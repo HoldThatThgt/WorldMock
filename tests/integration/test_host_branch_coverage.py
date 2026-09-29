@@ -206,9 +206,12 @@ def test_read_deepseek_key_enforces_private_schema(tmp_path, monkeypatch):
     try:
         link.symlink_to(real)
     except OSError as error:
-        if getattr(error, 'winerror', None) == 1314:
-            pytest.skip('Windows symlink privilege is unavailable')
-        raise
+        if getattr(error, 'winerror', None) != 1314:
+            raise
+        # 没有符号链接权限的 Windows：以同名普通文件加 is_symlink 桩呈现同一形态，拒绝分支照样执行。
+        link.write_text("DEEPSEEK_NODE_KEYS=node-secret-1\n")
+        is_symlink = Path.is_symlink
+        monkeypatch.setattr(Path, "is_symlink", lambda path: path == link or is_symlink(path))
     with pytest.raises(FileNotFoundError, match="missing or unsafe"):
         _read_deepseek_key()
 
@@ -623,10 +626,14 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     assert society is not None
     weights = captured["spec"].env_kwargs["LifeEnv"]["create_options"]["agent_taste_weights"]
     assert set(weights) == {agent.agent_id for agent in scenario.agents}
+    games = {item.game_id for item in scenario.games}
     for row in weights.values():
-        assert row and set(row) == {item.item_id for item in scenario.contents}
+        # 游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：正式场景的 TextWorld 游戏
+        # 在题材表里没有声明，权重为 0，实际缓解走下限偏好。
+        assert row and set(row) == {item.item_id for item in scenario.contents} | games
         assert all(0.0 <= value <= 1.0 for value in row.values())
         assert any(value == 1.0 for value in row.values())
+        assert games and all(row[game] == 0.0 for game in games)
 
 
 def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
@@ -644,7 +651,7 @@ def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
 
 
 def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
-    """无背景故事不编译；有故事经编译得到卡片，渲染文本取自同一张卡片。"""
+    """无背景故事不编译；有故事经编译得到编译产物（卡片与编译警告一起返回，警告不再丢弃），渲染文本取自同一张卡片。"""
     from worldmock.profile import compile as compile_module
     from worldmock.profile import textgen as textgen_module
     import worldmock.runtime as runtime
@@ -652,10 +659,12 @@ def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
     quiet = SimpleNamespace(background_story=None)
     assert runtime._compile_persona(quiet) is None
     card = SimpleNamespace()
-    monkeypatch.setattr(compile_module, "compile_persona", lambda story: SimpleNamespace(card=card))
+    compiled = SimpleNamespace(card=card, warnings=("field_agreement_below_two_thirds: ['coping']",))
+    monkeypatch.setattr(compile_module, "compile_persona", lambda story: compiled)
     monkeypatch.setattr(textgen_module, "render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
-    assert runtime._compile_persona(story_agent) is card
+    assert runtime._compile_persona(story_agent) is compiled
+    assert runtime._compiled_parts(compiled) == (card, compiled.warnings)
     assert runtime._render_card(card) == "rendered-card"
 
 
@@ -736,21 +745,28 @@ def test_parse_contact_reply_accepts_single_choice_text_only():
 
 
 def test_prepare_contact_reply_builds_disabled_thinking_request():
-    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带双方往来与对方收到的物品。"""
+    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带来信事实（发件人姓名、场景本地
+    时刻、presence=remote、收货地名）、双方往来与对方收到的物品；system 提示写明联系人只通过消息来往。"""
     from worldmock.life.social import ReceivedItem, ReplyHistoryEntry
+    from worldmock.runtime import _CONTACT_REPLY_PROMPT
 
     history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
     received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="11:05"),)
     request = SimpleNamespace(contact_id="contact-1", incoming_text="周五晚上一起吃饭？",
-                              max_chars=200, history=history, received=received)
+                              sender_name="陈曦", now="2026-01-05T11:10:00+08:00", presence="remote",
+                              receive_location="公司", max_chars=200, history=history, received=received)
     payload = prepare_contact_reply(request, None, "deepseek-flash")
     assert payload["model"] == "deepseek-flash"
     assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
     assert payload["max_retries"] == 0 and payload["stream"] is False
     assert payload["max_tokens"] == 8000
     assert [message["role"] for message in payload["messages"]] == ["system", "user"]
+    assert payload["messages"][0]["content"] == _CONTACT_REPLY_PROMPT
+    assert "只通过消息" in _CONTACT_REPLY_PROMPT and "不约当面" in _CONTACT_REPLY_PROMPT
     body = json.loads(payload["messages"][1]["content"])
     assert body["contact"] == {"contact_id": "contact-1"}
+    assert (body["sender_name"], body["now"], body["presence"], body["receive_location"]) == (
+        "陈曦", "2026-01-05T11:10:00+08:00", "remote", "公司")
     assert body["incoming_message"] == "周五晚上一起吃饭？"
     assert body["history"] == [{"speaker": "陈曦", "time": "10:00", "text": "在吗"}]
     assert body["received"] == [{"item": "牛肉炒面", "quantity": "1 份", "time": "11:05"}]
@@ -785,7 +801,8 @@ class _ReplyEvent:
 def test_pending_reply_requests_deduplicate_settled_replies():
     """pending 扫描只保留尚未回复的请求（幂等去重）。"""
     request = {"contact_id": "contact-1", "reply_to_message_id": "message-1",
-               "recipient_id": "agent:1", "incoming_text": "在吗？", "history": [], "received": []}
+               "recipient_id": "agent:1", "incoming_text": "在吗？", "sender_name": "陈曦",
+               "now": "2026-01-05T10:00:00+08:00", "receive_location": None, "history": [], "received": []}
     second = dict(request, reply_to_message_id="message-2")
     events = [
         _ReplyEvent("model_npc_reply_pending", {"request": request}),
@@ -1076,17 +1093,18 @@ def test_validate_project_requires_installed_labelkit_cli(tmp_path, monkeypatch)
 
 
 def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agents(tmp_path):
-    """绝对语料根可用；未声明背景故事的人物跳过。"""
+    """绝对语料根可用；未声明背景故事的人物跳过（没有卡片，也没有内容与游戏，不产生输入警告）。"""
+    from worldmock.life.scenario import load_scenario
     from worldmock.validation import validate_persona_coverage
 
+    plain = load_scenario(SCENARIO)[0].agents[0].model_copy(update={"background_story": None})
     scenario = SimpleNamespace(
-        scenario_id="probe", corpus_root="unused",
-        agents=[SimpleNamespace(agent_id=1, background_story=None)],
-        locations=(), contents=(), games=None, phone_simulation_config=None)
+        scenario_id="probe", corpus_root=str(ROOT / "corpora"), agents=[plain],
+        locations=(), contents=(), games=(), routes=(), supplies=(), phone_simulation_config=None)
     document = validate_persona_coverage(
         SCENARIO, _scenario=scenario, _corpus_root=ROOT / "corpora",
         coverage_out=tmp_path / "persona_coverage.json")
-    assert document["agents"] == []
+    assert document["agents"] == [] and document["input_warnings"] == []
     assert json.loads((tmp_path / "persona_coverage.json").read_text())["threshold"] == 0.8
 
 

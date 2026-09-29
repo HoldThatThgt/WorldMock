@@ -2,10 +2,12 @@
 
 暂停的活动按暂停时刻从老到新排列（先开始、后暂停的排在后面；同一秒两次决策先后暂停的按暂停事件顺序），带暂停时刻、只能
 回去恢复的地点、客观进度（进食只写「已吃 X 份，剩 Y 份」）与恢复、结束两个工具；人在别处时恢复不可用，原因点名地点。今日计划在零点计划生成前与当日结束后为 null，之后按计划顺序列出至多八个目标的
-意图、文字、是否已推进与提醒时刻，目标行不显示人物自述。
+意图、文字、是否已推进、提醒时刻与大致时刻（「约 HH:MM」），目标行不显示人物自述。
 """
 
 from __future__ import annotations
+
+import pytest
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  stage_day_plan, start_activity, start_request, submit_round, target_tools,
@@ -161,18 +163,20 @@ def test_day_plan_is_null_before_the_plan_and_after_the_day_ends(engine_factory)
 
 def test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders(engine_factory) -> None:
     """计划之后 day_plan 为 {date, goals}：八个目标保持计划顺序，progressed 只看推进证据，remind_time 为 HH:MM 或 null，
-    目标行不带人物自述（progress_note 照存，不进提示）。"""
+    around_time 为「约 HH:MM」或 null（docs/dev/SPEC-dayrun-fidelity.md 8.2），目标行不带人物自述（progress_note 照存，
+    不进提示）。"""
     engine = engine_factory()
     now = engine.state.current_time
     zone = engine.scenario.timezone
     day_end = day_end_seconds(now, zone)
     kinds = INTENT_KINDS[:8]
-    remind_at = now + 3600
+    remind_at, around_at = now + 3600, now + 12 * 3600 + 1800
     goals = tuple(PlanGoal(intent_kind=kind, goal=f"目标{index}", registered_at=now - 120,
                            progressed_at=now - 60 if index == 2 else None,
                            progress_activity_id="activity-progressed" if index == 2 else None,
                            progress_note="人物自己写的进展" if index == 2 else "",
-                           remind_at=remind_at if index == 5 else None)
+                           remind_at=remind_at if index == 5 else None,
+                           around_at=around_at if index in (4, 5) else None)
                   for index, kind in enumerate(kinds))
     _stage_plan(engine, DayPlan(day_end=day_end, goals=goals))
     todo = engine.observe(context(engine, "plan-full"))["todo_layer"]
@@ -184,5 +188,13 @@ def test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders(en
     assert [goal["progressed"] for goal in plan["goals"]] == [index == 2 for index in range(8)]
     reminder = iso_time(remind_at, zone)[11:16]
     assert [goal["remind_time"] for goal in plan["goals"]] == [reminder if index == 5 else None for index in range(8)]
-    assert all(set(goal) == {"intent_kind", "goal", "progressed", "remind_time"} for goal in plan["goals"])
+    assert iso_time(around_at, zone)[11:16] == "12:30"
+    assert [goal["around_time"] for goal in plan["goals"]] == [
+        "约 12:30" if index in (4, 5) else None for index in range(8)]
+    assert all(set(goal) == {"intent_kind", "goal", "progressed", "remind_time", "around_time"}
+               for goal in plan["goals"])
     assert "人物自己写的进展" not in str(todo)
+    validate_layer({**todo, "day_plan": {**plan, "goals": [plan["goals"][4]]}})
+    bare = {**todo, "day_plan": {**plan, "goals": [{**plan["goals"][4], "around_time": "12:30"}]}}
+    with pytest.raises(ValueError, match="day_plan"):
+        validate_layer(bare)

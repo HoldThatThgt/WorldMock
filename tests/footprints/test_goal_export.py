@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 from tests.life.conftest import (StubPlanDayClient, advance_next, context, engine_factory, settle_day_plans,
                                  start_request)
+from tests.life.test_day_planning import _goal, _late_engine
+from tests.life.test_meal_outcome import _food, _run_out, _stage_holding, _start_eating
 
 from agentsociety2.society import DirectToolCall
 from worldmock.cli import main
@@ -83,7 +85,8 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     engine = engine_factory()
     midnight = engine.state.end_time
     _stage_midnight_round(engine, midnight - 120)
-    client = StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "睡前休息", "remind_time": None}])
+    client = StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "睡前休息", "remind_time": None,
+                                        "around_time": None}])
     assert settle_day_plans(engine, client)[0]["goals"] == 1
     registered = engine.store.read_agent_events("environment_event", 1)[-1]
     assert registered.data["kind"] == "day_plan_generated"
@@ -109,3 +112,33 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     assert goals["goals"][0]["registration_event_id"] == registered.event_id
     assert goals["goals"][0]["progress_event_id"] == evidence.event_id
     assert goals["goals"][0]["progressed_at"] == midnight
+
+
+def test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress(tmp_path):
+    """导出的 quality.json 与引擎推进同一判定（docs/dev/SPEC-dayrun-fidelity.md 2.3、8.2）：10:20–10:45 的进食推进大致时刻
+    12:00 的例行午饭目标，大致时刻 23:00 的娱乐目标未推进；目标推进率只计非例行意图，例行意图的目标另计 routine_goals；
+    导出的推进时刻与活动身份与引擎的推进证据相同。"""
+    engine = _late_engine(tmp_path, "2026-01-05T10:20:00+08:00", "export-around")
+    try:
+        settle_day_plans(engine, StubPlanDayClient(goals=[_goal("用餐", "午饭提前到十点多吃", None, "12:00"),
+                                                          _goal("娱乐", "睡前看会儿剧", None, "23:00")]))
+        food = _food(engine)
+        _stage_holding(engine, food.product_id, 1.0)
+        _, eating = _start_eating(engine, food, "early-lunch")
+        _run_out(engine, eating.activity_id, "early-lunch")
+        lunch, evening = engine.state.agents[1].day_plan.goals
+        assert (lunch.progress_activity_id, evening.progressed_at) == (eating.activity_id, None)
+        destination = tmp_path / "export"
+        export_run(engine.store, engine.store.last_event_seq, destination)
+        quality = json.loads((destination / "quality.json").read_bytes())
+        goals = quality["day_plan_metrics"][engine.store.manifest["code_sha256"]]["deliberate_goals"]
+        day = goals["per_agent_day"][f"{engine.state.run_id}:1:2026-01-05"]
+        assert [(item["intent_kind"], item["routine"], item["status"], item["progressed_at"],
+                 item["progress_activity_id"]) for item in day["goals"]] == [
+            ("用餐", True, "progressed", lunch.progressed_at, eating.activity_id), ("娱乐", False, "pending", None, None)]
+        assert (day["goal_count"], day["progressed_count"], day["family_progress_rate"]) == (1, 0, 0)
+        assert day["routine_goals"] == {"goal_count": 1, "progressed_count": 1, "discarded_count": 0,
+                                        "family_progress_rate": 1}
+        assert goals["summary"]["family_progress_rate"] == 0 and goals["summary"]["routine_goals"]["goal_count"] == 1
+    finally:
+        engine.close()

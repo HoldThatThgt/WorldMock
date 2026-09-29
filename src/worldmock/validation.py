@@ -57,7 +57,8 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     新增（修订合同）：世界素材品类准入、任务受理人校验、清单阶段身份
     一致性（validate_manifest_stage_identity）与 persona_coverage.json 覆盖率门禁（<80% 拒绝）。
     先核对实际导入的 AS2：包目录为空、导入失败或与锁定源码摘要不符即以 IntegrityError 拒绝
-    （docs/dev/SPEC-time-and-energy.md「运行身份」）。
+    （docs/dev/SPEC-time-and-energy.md「运行身份」）。结果另带 input_warnings：与新建运行同一组运行输入警告
+    （docs/dev/SPEC-dayrun-fidelity.md 1.3），覆盖率门禁判定之前已逐条写到标准错误流。
     """
     from worldmock.runtime import _configure_process, require_locked_as2
 
@@ -95,7 +96,7 @@ def validate_project(project_root: Path, scenario_path: Path, *,
             "corpus_entries": len(corpus.entries), "checked_schemas": len(schemas),
             "dependencies": versions, "model_identity": {"stages": sorted(identity["stages"]),
                                                           "consistent": True},
-            "persona_coverage": coverage["agents"]}
+            "persona_coverage": coverage["agents"], "input_warnings": coverage["input_warnings"]}
 
 
 def _require_ray_worker_import() -> None:
@@ -197,12 +198,17 @@ def validate_persona_coverage(scenario_path: Path, *,
                               persona_compiler=None,
                               coverage_out: Path | None = None,
                               _scenario: Any = None, _corpus_root: Path | None = None) -> dict:
-    """@brief 校验场景人物卡片口味/习惯的世界可执行覆盖并写 persona_coverage.json。
+    """@brief 校验场景人物卡片口味/习惯的世界可执行覆盖并写 persona_coverage.json，并给出运行输入警告。
 
     每个声明 background_story 的人物经画像编译（默认真实三次一致性抽取，
     persona_compiler 供确定性测试注入）得到 PersonaCard；可执行比例低于
-    80% 时抛 PersonaCoverageError（校验失败），缺失项列在报告与文件中。
+    80% 时抛 PersonaCoverageError（校验失败，裁决 D4），缺失项列在报告与文件中。
+    同一份编译结果经 runtime.creation_inputs 计算与新建运行同一组输入警告（场景作息覆盖走同一个 apply_scenario_rhythm；
+    docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1）：先逐条写到标准错误流，再做覆盖率门禁；返回值另带 input_warnings，
+    persona_coverage.json 的结构不变。
     """
+    from worldmock.runtime import creation_inputs
+
     scenario = _scenario if _scenario is not None else load_scenario(
         Path(scenario_path).resolve())[0]
     corpus_root = _corpus_root
@@ -213,24 +219,22 @@ def validate_persona_coverage(scenario_path: Path, *,
     catalog_dir = Path(scenario_path).resolve().parent.parent / "catalog"
     targets = build_coverage_targets(scenario, load_catalog(catalog_dir), corpus_root)
     compile_story = persona_compiler or _compile_persona
-    reports = []
-    checked = []
-    for agent in scenario.agents:
-        if agent.background_story is None:
-            continue
-        card = compile_story(agent.background_story).card
-        report = validate_coverage(card, targets)
-        checked.append(report)
-        reports.append({"agent_id": agent.agent_id, **report.model_dump()})
+    compiled = {agent.agent_id: compile_story(agent.background_story)
+                for agent in scenario.agents if agent.background_story is not None}
+    checked = [(agent_id, validate_coverage(result.card, targets)) for agent_id, result in compiled.items()]
+    reports = [{"agent_id": agent_id, **report.model_dump()} for agent_id, report in checked]
     document = {"schema_version": 1, "scenario_id": scenario.scenario_id,
                 "threshold": 0.8, "agents": reports}
     destination = Path(coverage_out) if coverage_out is not None else (
         Path(scenario_path).resolve().parent / "persona_coverage.json")
     atomic_write(destination, (json.dumps(document, ensure_ascii=False, indent=2)
                                + "\n").encode("utf-8"))
-    for report in checked:
+    warnings = creation_inputs(Path(scenario_path), scenario, compiled)[1]
+    for warning in warnings:
+        logging.warning("Input warning %s (agent %s): %s", warning["code"], warning["agent_id"], warning["message"])
+    for _, report in checked:
         require_coverage(report)
-    return document
+    return {**document, "input_warnings": warnings}
 
 
 def _compile_persona(story: str) -> Any:

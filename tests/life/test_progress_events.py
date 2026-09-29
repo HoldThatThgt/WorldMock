@@ -54,7 +54,7 @@ def _events(observed: dict, kind: str | None = None) -> list[dict]:
 def _revise(engine, round_id: str):
     """一次成功的瞬时世界请求：修订当日目标。"""
     return _act(engine, round_id, "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
 
 
 def _walk_to_office(engine, round_id: str):
@@ -334,7 +334,7 @@ def _evening_at_the_office(engine) -> tuple[str, int]:
     soon = engine.state.current_time + 5400
     remind = datetime.fromtimestamp(soon, ZoneInfo(engine.scenario.timezone)).strftime("%H:%M")
     _act(engine, "evening-plan", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind, around_time=None),)))
     order = _order_to_the_office(engine)
     assert order["expected_at"] < soon
     _reschedule_delivery(engine, order["order_id"], soon)
@@ -520,7 +520,8 @@ def test_a_rejection_without_a_next_step_writes_null(engine_factory) -> None:
     assert (unknown.status, unknown.error_code) == ("rejected", "TASK_NOT_FOUND")
     assert "next_step" in unknown.data and unknown.data["next_step"] is None
     (record,) = progress_calls(_observe(engine, "null-step-seen"), "recall_task_summary")
-    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None}
+    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None,
+                                           "fix": "照工具层、待办层或记忆层中的写法填写任务、目标或活动的名称"}
     _, invalid = _act(engine, "null-step-invalid", "start_activity", start_activity("观看", "不存在的对象"))
     assert invalid.data["next_step"] == "从本轮列出的对象和方式里选"
 
@@ -644,7 +645,8 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     friend = f"人物：{engine.state.agents[2].name}"
     preview = _observe(engine, "read-preview", 2)
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),))
     _, first = submit_round(engine, {1: ("send_message", SendMessageActionRequest(recipient_name=friend, text="第一条")),
                                      2: ("revise_day_plan", revise)}, "read-first")
     shown = next(item.data["message_id"] for item in first if item.agent_id == 1)

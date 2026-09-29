@@ -51,7 +51,7 @@ def _metrics(run_dir: Path) -> tuple[dict, list[str]]:
 def _live_day(engine) -> dict:
     """@brief 真实一天：零点计划带 08:00 提醒；同一秒先被拒再入睡；步行去餐馆、等开门、到店买饭、吃完收尾。"""
     settle_day_plans(engine, StubPlanDayClient(goals=[
-        {"intent_kind": "工作", "goal": "八点前出门去吃早饭", "remind_time": "08:00"}]))
+        {"intent_kind": "工作", "goal": "八点前出门去吃早饭", "remind_time": "08:00", "around_time": "08:00"}]))
     decision = context(engine, "unlisted")
     engine.begin_decision_round([decision])
     engine.observe(decision)

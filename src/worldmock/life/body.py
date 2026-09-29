@@ -4,6 +4,8 @@
 体感分级」重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
 纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
 曲线输入改为 sleep_deficit_hours（sleep.work_efficiency / food_utilization）。
+娱乐需要在有缓解的活动进行时只按缓解下降、不再累积，共同区间与单活动两条路径同一口径
+（entertainment_need_rate，docs/dev/SPEC-dayrun-fidelity.md 1.2）。
 能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md「事件正文与资源证据」）；社交需要账本（felt.apply_
 social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
 valence）由引擎在结算边界调用本模块的包装函数驱动。
@@ -218,9 +220,21 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
     return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None, efficiency)
 
 
+def entertainment_need_rate(relief_per_hour: float, config: BodyConfig) -> float:
+    """@brief 清醒区间娱乐需要的每小时净变化，两条结算路径与动机评分共用同一口径。
+
+    有缓解的活动进行时只按缓解下降、不再累积清醒增长；没有缓解时按清醒速率累积
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2「累积口径统一为有缓解的活动进行时不再累积娱乐需要」）。
+    睡眠区间不走本函数：娱乐需要在睡眠中不变。
+    """
+    if relief_per_hour > 0:
+        return -relief_per_hour
+    return config.entertainment_need_per_awake_hour
+
+
 def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
                     hours: float, cost: float, config: BodyConfig) -> list[FlowEntry]:
-    """@brief 同一身体通道先汇总效果再限幅，生成一份资源分录。"""
+    """@brief 同一身体通道先汇总效果再限幅，生成一份资源分录；娱乐缓解先求和，有缓解时不再累积。"""
     entries = []
     if cost > 0 and body.energy_kcal > 0:
         entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION,
@@ -229,7 +243,7 @@ def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, Activ
     if any(kind == ActivityKind.SLEEP for kind, _ in activities):
         return entries
     relief = sum(factors.entertainment_relief_per_hour for _, factors in activities)
-    change = (config.entertainment_need_per_awake_hour - relief) * hours
+    change = entertainment_need_rate(relief, config) * hours
     actual = min(1.0, max(0.0, body.entertainment_need + change)) - body.entertainment_need
     if actual:
         direction = SOURCE_DIRECTION if actual > 0 else DRAIN_DIRECTION
@@ -310,9 +324,10 @@ def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
     return body.model_copy(update={"mood_valence": valence}, deep=True)
 
 
-def apply_discomfort_pulse(body: BodyState, continuous_hours: float) -> BodyState:
-    """@brief 叠加连续饿/困的不适脉冲（不足 2 小时时 felt 返回 0，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    amplitude = felt.discomfort_pulse(continuous_hours)
+def apply_discomfort_pulse(body: BodyState, billed_hours: float) -> BodyState:
+    """@brief 叠加连续饿/困的不适脉冲：−0.1/小时 × 本次计费小时，两小时门槛由 rhythm 判定一次，计费为 0 时不变
+    （「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
+    amplitude = felt.discomfort_pulse(billed_hours)
     if amplitude == 0:
         return body
     valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
@@ -536,20 +551,24 @@ def _energy_cost_entry(kind: ActivityKind, amount: float) -> FlowEntry | None:
 
 def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config: BodyConfig,
                            relief_per_hour: float) -> tuple[list[FlowEntry], bool]:
-    """@brief 娱乐需要分录：实际接触计 drain，其余清醒活动计 source。
+    """@brief 娱乐需要分录：实际接触计 drain（有缓解时不再累积），其余清醒活动计 source。
+
+    与共同区间路径同用 entertainment_need_rate 判定口径，同一活动在两条路径上的净效果相同
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2）。
 
     :returns: (分录列表, 累积是否触及上限 1 需要钳制)。
     """
     if kind == ActivityKind.SLEEP:
         return [], False
-    if relief_per_hour:
-        amount = min(relief_per_hour * hours, need)
+    rate = entertainment_need_rate(relief_per_hour, config)
+    if rate < 0:
+        amount = min(-rate * hours, need)
         if amount > 0:
             return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
                               f"settle:{kind.value}:entertainment_relief",
                               BODY_FLOW_OCCURRED_AT)], False
         return [], False
-    accrual = config.entertainment_need_per_awake_hour * hours
+    accrual = rate * hours
     projected = need + accrual
     if projected <= 1:
         if accrual > 0:

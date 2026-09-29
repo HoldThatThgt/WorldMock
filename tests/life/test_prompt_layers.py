@@ -85,7 +85,8 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     stage_day_plan(engine)
     _stage(engine, "market", 700)
     submit_round(engine, {1: ("revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="用餐", goal="中午好好吃一顿", remind_time="12:00"),)))}, "layers-plan")
+        PlanGoalInput(intent_kind="用餐", goal="中午好好吃一顿", remind_time="12:00",
+                      around_time="12:30"),)))}, "layers-plan")
     shop = _checked(engine, "layers-shop")
     target, way = next((row["object"], action["label"]) for row in shop["interaction_bindings"]
                        if row["kind"] == "supply" for action in row["actions"]

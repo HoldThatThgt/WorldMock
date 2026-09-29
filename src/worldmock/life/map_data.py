@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.life.map_models import (
-    FileReference, MapDataset, MapDatasetDeclaration, MapDatasetReference, RouteConfig,
+    MAP_SCHEMA_VERSION, FileReference, LocationConfig, MapDataset, MapDatasetDeclaration, MapDatasetReference,
+    RouteConfig,
 )
 
 
@@ -24,7 +25,7 @@ def load_map_dataset(root: Path, reference: MapDatasetReference) -> MapDataset:
         data = declaration.model_dump(mode="python")
         for name in ("locations", "supplies", "routes"):
             payload = _read_file(root, getattr(declaration, f"{name}_file"))
-            if set(payload) != {"schema_version", name} or payload["schema_version"] != 1:
+            if set(payload) != {"schema_version", name} or payload["schema_version"] != MAP_SCHEMA_VERSION:
                 _fail(f"Map {name} file schema is invalid")
             data[name] = payload[name]
         dataset = MapDataset.model_validate(data)
@@ -144,7 +145,10 @@ def _validate_route_response(root: Path, route: RouteConfig) -> None:
 
 
 def select_map(dataset: MapDataset, document) -> tuple[tuple, tuple, tuple]:
-    """@brief 将地图投影为场景选择的地点、路线与供给，并拒绝不完整引用。"""
+    """@brief 将地图投影为场景选择的地点、路线与供给，并拒绝不完整引用。
+
+    选中的地点以显示名为名称（runtime_location）；地图本身保留原名与分店标签。
+    """
     pin = document.map_dataset
     if (dataset.dataset_id, dataset.version) != (pin.dataset_id, pin.version):
         _fail("Selected map identity disagrees with the scenario pin")
@@ -153,7 +157,7 @@ def select_map(dataset: MapDataset, document) -> tuple[tuple, tuple, tuple]:
         _fail("Scenario timezone disagrees with the selected map")
     location_ids = {item.location_id for item in document.locations}
     supply_ids = {item.supply_id for item in document.supplies}
-    locations = tuple(item for item in dataset.locations if item.location_id in location_ids)
+    locations = tuple(runtime_location(item) for item in dataset.locations if item.location_id in location_ids)
     supplies = tuple(item for item in dataset.supplies if item.supply_id in supply_ids)
     if len(locations) != len(location_ids) or len(supplies) != len(supply_ids):
         _fail("Scenario references an unknown map location or supply")
@@ -165,6 +169,17 @@ def select_map(dataset: MapDataset, document) -> tuple[tuple, tuple, tuple]:
     supplies = tuple(item if overrides[item.supply_id] is None else item.model_copy(
         update={"initial_stock": overrides[item.supply_id]}) for item in supplies)
     return locations, routes, supplies
+
+
+def runtime_location(location: LocationConfig) -> LocationConfig:
+    """@brief 运行时地点视图：名称换成显示名「名称（branch_label）」，分店标签已并入名称故置空。
+
+    提示、拒绝原因、会话名、事件与导出都读运行时地点的 name，因此同名地点处处以显示名区分；没有分店标签的
+    地点原样保留。
+    """
+    if location.branch_label is None:
+        return location
+    return location.model_copy(update={"name": location.display_name, "branch_label": None})
 
 
 def _validate_selected_routes(dataset: MapDataset, locations: set[str], routes: tuple) -> None:

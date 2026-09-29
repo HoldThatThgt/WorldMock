@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 
 from worldmock.errors import BusinessRuleError
 from worldmock.life import (activity_control, admission, giving, memory_layer, order_routing, request_linking, routing,
@@ -45,7 +46,7 @@ from worldmock.life.models import (
     SubmitWorkActionRequest,
     WorldState,
 )
-from worldmock.life.named_purchase import resolve_named_supply
+from worldmock.life.named_purchase import resolve_named_rows, resolve_named_supply
 from worldmock.life.readable import iso_time
 from worldmock.life.recipients import recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
@@ -135,8 +136,9 @@ class SessionActionMixin:
         """@brief 指名购买的占位项按名称解析为门店供给的绑定行，其余项原样：来源（from）限定门店，收货地取该项收货人的
         收货地点（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」），解析出的绑定行保留来源、去向与关联。
 
-        解析不出或同名多店时以 SUPPLY_NOT_FOUND、SUPPLY_NAME_AMBIGUOUS 业务拒绝（第五章「指名购买」）；远程下单而收货人
-        没有收货地点时以「暂时送不到<名>那里」拒绝；按当前报价解析，价格、余额、营业与库存由整单结算照常检查。
+        解析不出或同名多店时以 SUPPLY_NOT_FOUND、SUPPLY_NAME_AMBIGUOUS 业务拒绝（第五章「指名购买」），几项都解析不出时
+        逐项写进一次拒绝的 items[]（docs/dev/SPEC-dayrun-fidelity.md 第四章）；远程下单而收货人没有收货地点时以
+        「暂时送不到<名>那里」拒绝；按当前报价解析，价格、余额、营业与库存由整单结算照常检查。
         """
         if all(row["kind"] != NAMED_SUPPLY_KIND for row in selection):
             return selection
@@ -147,7 +149,7 @@ class SessionActionMixin:
             bindings=self._frozen_observation(pending)["interaction_bindings"],
             menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
             lifestyle_items=self.lifestyle_items)
-        return [self._resolved_named(context, row) if row["kind"] == NAMED_SUPPLY_KIND else row for row in selection]
+        return resolve_named_rows(context, selection, partial(self._resolved_named, context))
 
     def _resolved_named(self, context: LayerContext, row: dict) -> dict:
         """@brief 一项指名购买按名称、来源与收货人的收货地点解析出的供给绑定行（带该项的来源、去向与关联）。"""
@@ -445,7 +447,7 @@ class SessionActionMixin:
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
         if mode == "use" and len(targets) != 1:
             _LOGGER.error("Only one held item can be used at a time")
-            raise guided("ACTION_REQUEST_INVALID", "一次只能使用一件东西", "一次只选其中一件")
+            raise guided("ACTION_REQUEST_INVALID", "一次只能使用一件东西", "一次只选其中一件", fix="这次只写其中一件")
         if any(portion <= 0 for portion, _ in portions):
             _LOGGER.error("Selected food is not held at hand")
             raise BusinessRuleError("PRODUCT_NOT_HELD")

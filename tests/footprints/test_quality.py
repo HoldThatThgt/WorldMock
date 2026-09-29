@@ -475,7 +475,7 @@ def test_progress_sources_must_be_this_persons_prior_events(source, valid):
 
 
 def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
-    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除，报告版本为 2。"""
+    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 3（一日运行保真的新节）。"""
     events = [
         _event(1, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
@@ -495,7 +495,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 2
+    assert report["schema_version"] == 3
     assert rhythm["decision_budget_exhausted_events"] == 1
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -587,6 +587,32 @@ def test_invalid_quality_inputs_are_rejected(events):
         build_quality_report(events, [], _manifest())
 
 
+def test_input_warnings_section_counts_the_frozen_manifest_warnings():
+    """input_warnings 一节（docs/dev/SPEC-dayrun-fidelity.md 1.3、九）：按警告码闭集与人物统计清单冻结的警告，场景级警告
+    另计；清单没有记录（引擎直驱为 null，或旧清单没有这个键）时计数为 null 而不是 0；只报告，不放行。"""
+    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings, game_weight_warnings
+
+    scenario_level = {"code": "LOCATION_NAME_SUSPICIOUS", "agent_id": None, "message": "显示名带坐标",
+                      "details": {"location_id": "poi", "name": "全家（31.2, 121.5）", "patterns": ["coordinates"]}}
+    warnings = [*game_weight_warnings(1, ("g1",), None), *agreement_warnings(2, ("a", "b")), scenario_level]
+    events = [_event(1, "run_ended", occurred_at=200)]
+
+    section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings})["input_warnings"]
+
+    expected_codes = dict.fromkeys(INPUT_WARNING_CODES, 0)
+    expected_codes.update(GAMES_WITHOUT_TASTE_WEIGHTS=1, PERSONA_AGREEMENT_LOW=2, LOCATION_NAME_SUSPICIOUS=1)
+    assert section["recorded"] is True and section["warning_count"] == 4
+    assert section["code_counts"] == expected_codes and list(section["code_counts"]) == list(INPUT_WARNING_CODES)
+    assert section["agent_counts"] == {"1": 1, "2": 2} and section["scenario_warning_count"] == 1
+    assert section["unrecognized_code_counts"] == {}
+    for manifest in (_manifest(end=200), {**_manifest(end=200), "input_warnings": None}):
+        missing = build_quality_report(events, [], manifest)["input_warnings"]
+        assert missing["recorded"] is False
+        assert missing["warning_count"] is None and missing["code_counts"] is None
+    empty = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": []})["input_warnings"]
+    assert empty["warning_count"] == 0 and set(empty["code_counts"].values()) == {0}
+
+
 def test_quality_report_is_deterministic_for_the_same_authenticated_input():
     events = [_event(1, "run_ended", occurred_at=200)]
 
@@ -608,3 +634,53 @@ def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
               _event(2, "memory_updated", agent_id=1, decision_id="decision", data=update)]
     memory = build_quality_report(events, [], _manifest())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == codes
+
+
+def _progress(sequence, snapshot, start, end):
+    """人物 1 一段活动进度：结算区间 [start, end) 与活动快照。"""
+    return _event(sequence, "activity_progress", occurred_at=end, agent_id=1, activity_id=snapshot["activity_id"],
+                  data={"activity": snapshot, "interval_start": start, "interval_end": end})
+
+
+def _timeline_events(place, lifestyle, subject):
+    """一条命名观察加四段进度：步行去某地、一项生活活动、读一封邮件、空档；地名、活动名与邮件主题由参数给出。"""
+    names = {"locations": [{"location_id": "loc-x", "name": place}],
+             "messages": [{"message_id": "mail-1", "subject": subject}]}
+    return [
+        _event(1, "observation", occurred_at=100, agent_id=1, data=names),
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "travel_mode": "walking", "destination_id": "loc-x"},
+                  100, 200),
+        _progress(3, {"activity_id": "a-life", "kind": "lifestyle", "target_id": "x", "title": lifestyle}, 200, 300),
+        _progress(4, {"activity_id": "a-mail", "kind": "read_mail", "target_id": "mail-1"}, 300, 400),
+        _progress(5, {"activity_id": "a-wait", "kind": "wait"}, 400, 500),
+    ]
+
+
+def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline():
+    """时间线标签检查（docs/dev/SPEC-dayrun-fidelity.md 7.4）：用唯一的时间线渲染器投影同批事件，标签里恰为英文种类名的
+    片段与内部标识形态的片段各计一项；书名号与引号里的作品标题、邮件主题不查；名称都是中文时两项为零。"""
+    crafted = build_quality_report(_timeline_events("poi-node-11991340957", "call", "work"), [],
+                                   _manifest())["timeline_labels"]
+    assert (crafted["rows_checked"], crafted["english_kind_names"], crafted["internal_ids"]) == (4, 1, 1)
+    assert [(item["agent_id"], item["date"], item["interval"], item["label"], item["item"], item["text"])
+            for item in crafted["findings"]] == [
+        (1, "1970-01-01", "08:01–08:03", "步行去poi-node-11991340957", "internal_id", "poi-node-11991340957"),
+        (1, "1970-01-01", "08:03–08:05", "call", "english_kind_name", "call")]
+    clean = build_quality_report(_timeline_events("中山公园", "瑜伽", "周报"), [], _manifest())["timeline_labels"]
+    assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
+
+
+def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately():
+    """联系人回复守卫（docs/dev/SPEC-dayrun-fidelity.md 7.3）：命中与类别按尝试计，重试与兜底按回复计；没有 attempts
+    证据的回复单列，不算未命中。"""
+    replies = [
+        {"attempts": [{"matched": ["arriving"]}, {"matched": []}], "guard_applied": False},
+        {"attempts": [{"matched": ["taking_over", "guaranteeing"]}, {"matched": ["arriving"]}], "guard_applied": True},
+        {"attempts": [{"matched": []}], "guard_applied": False},
+        {},
+    ]
+    events = [_event(index, "environment_event", agent_id=1, data={"kind": "model_npc_reply", **fields})
+              for index, fields in enumerate(replies, start=1)]
+    assert build_quality_report(events, [], _manifest())["contact_reply_guard"] == {
+        "replies": 4, "replies_without_guard_evidence": 1, "attempts": 5, "hits": 3, "retries": 2, "fallbacks": 1,
+        "hits_by_category": {"arriving": 2, "done_or_bringing": 0, "taking_over": 1, "guaranteeing": 1}}

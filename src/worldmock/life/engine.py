@@ -38,6 +38,7 @@ from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_re
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
 from worldmock.life.activity_validation import validate_activity_targets
+from worldmock.life.activity_titles import activity_title, title_index
 from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
 from worldmock.life.control_items import control_items
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
@@ -227,6 +228,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self.lifestyle_items = load_lifestyle_items(
             self.corpus_root, self.scenario.body.activity_met)
         self._lifestyle_names = {item.activity_id: item.name for item in self.lifestyle_items}
+        self._titles = title_index(self.scenario, self._lifestyle_names, self.rules.content_titles)
         self.state = WorldState.model_validate(store.state)
         self._round: DecisionRoundState | None = None
         self._pending_decision_starts: dict[int, dict] = {}
@@ -242,15 +244,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     @classmethod
     def create(cls, scenario_path: Path, run_dir: Path, run_identity: RunIdentity,
-               stage_identity: dict | None = None, agent_taste_weights: dict | None = None) -> "LifeEngine":
-        """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件；口味权重按注入值入态。"""
+               stage_identity: dict | None = None, create_options: dict | None = None) -> "LifeEngine":
+        """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件；create_options 的口味权重 agent_taste_weights 按注入值入态，
+        运行输入警告 input_warnings 冻结进清单（缺省 null：引擎直驱不计算警告）。"""
+        options = create_options or {}
         semantics, digest = load_runtime_scenario(scenario_path)
         scenario = semantics.scenario
         corpus_root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
         load_manifest(corpus_root, scenario.corpus_manifest_sha256)
         _validate_run_identity(scenario, run_identity)
-        state = _initial_state(semantics, digest, run_identity.run_id, agent_taste_weights or {})
-        manifest = _run_manifest(semantics, digest, run_identity, stage_identity)
+        state = _initial_state(semantics, digest, run_identity.run_id, options.get("agent_taste_weights") or {})
+        manifest = _run_manifest(semantics, digest, run_identity, stage_identity, options.get("input_warnings"))
         store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
         changes = {f"account:{key}": value for key, value in state.accounts.items()}
         changes["account:external:scenario"] = -sum(state.accounts.values())
@@ -980,7 +984,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
-        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。"""
+        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。结果 message 就是
+        公开原因 reason，data 带 reason、fix、next_step 与逐项明细（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
         agent = same_moment.count_round(state.agents[pending.agent_id])
         next_decision_at, reasons, stage = self._round_schedule(state, agent, str(error))
         pulse_key = same_moment.refusal_pulse_key(str(error))
@@ -993,13 +998,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                                   "same_moment_stage": stage,
                                                   "body": body}, deep=True)
         changed = _put_agent_and_defer_game_turn(state, changed_agent)
-        message = "Action rejected: " + rejection_reason_text(error)
+        logging.info("Action rejected: %s", rejection_reason_text(error))
+        guidance = rejection_guidance(error)
+        message = guidance["reason"]
         data = {"same_moment_round": changed_agent.same_moment_rounds,
                 "max_same_moment_decisions": self.scenario.max_same_moment_decisions,
-                "next_decision_at": next_decision_at, **rejection_guidance(error)}
+                "next_decision_at": next_decision_at, **guidance}
         if str(error) == "WORK_REQUIRES_REWORK":
             data["work_review"] = self._public_work_review(pending)
-            message = f"Work submission requires rework: {rejection_reason_text(error)}"
         if isinstance(error, PreconditionError):
             data["unmet"] = error.unmet
             if error.suggested is not None:
@@ -1109,14 +1115,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return activity_control.RecordContext(snapshot=self._activity_snapshot, title=self._activity_title)
 
     def _activity_title(self, activity) -> str | None:
-        """@brief 解析有内容目标活动的展示标题，无标题活动返回 None。"""
-        if activity.target_id is None:
-            return None
-        if activity.kind == ActivityKind.LIFESTYLE:
-            return self._lifestyle_names.get(activity.target_id)
-        if activity.kind in (ActivityKind.WATCH, ActivityKind.PLAY_GAME):
-            return self.rules.content_titles.get(activity.target_id)
-        return None
+        """@brief 活动关联对象的展示标题（生活活动、内容、游戏、工作、通话、交谈），没有时返回 None（activity_titles）。"""
+        return activity_title(activity, self._titles)
 
     def _activity_snapshot(self, activity) -> dict:
         """@brief 导出活动权威快照并为内容型活动附查看器直显标题。"""
@@ -1740,19 +1740,24 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
 
 
 def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: RunIdentity,
-                  stage_identity: dict | None = None) -> dict:
-    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）与各阶段请求形状。"""
+                  stage_identity: dict | None = None, input_warnings: list | None = None) -> dict:
+    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）、各阶段请求形状与运行输入警告。
+
+    清单版本 2 起带 input_warnings（docs/dev/SPEC-dayrun-fidelity.md 1.3：创建时计算的输入警告，按闭集形状冻结；
+    引擎直驱为 null）。
+    """
+    from worldmock.profile.injection import frozen_input_warnings
     from worldmock.validation import validate_manifest_stage_identity
     validate_manifest_stage_identity({"stage_model_identity": stage_identity})
     scenario = semantics.scenario
     category_fields = category_identity(semantics)
-    return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
+    return {"schema_version": 2, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
             "scenario_id": scenario.scenario_id, "map_dataset": map_provenance(scenario),
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
             "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
             "git_commit": identity.git_commit, "git_dirty": identity.git_dirty,
             "model_identity": identity.model_identity.model_dump(mode="json"),
-            "stage_model_identity": stage_identity,
+            "stage_model_identity": stage_identity, "input_warnings": frozen_input_warnings(input_warnings),
             "window": {"start": int(scenario.start_at.timestamp()), "end": int(scenario.end_at.timestamp()),
                        "timezone": scenario.timezone}, **category_fields}
 

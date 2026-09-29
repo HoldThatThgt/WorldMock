@@ -16,6 +16,12 @@ from worldmock.profile.extractor import (
     PersonaExtraction,
     extract_persona,
 )
+from worldmock.profile.injection import (
+    INPUT_WARNING_CODES,
+    InputWarning,
+    RhythmOverride,
+    apply_scenario_rhythm,
+)
 from worldmock.profile.mapper import (
     DETERMINISTIC_SOURCE_MODEL,
     load_mapping_config,
@@ -33,17 +39,21 @@ from worldmock.profile.textgen import render_card
 
 __all__ = [
     "DETERMINISTIC_SOURCE_MODEL",
+    "INPUT_WARNING_CODES",
     "SCHEMA_VERSION",
     "BigFiveProfile",
     "CompiledPersona",
     "CoverageTargets",
     "ExtractionError",
+    "InputWarning",
     "LegacyTemplateFieldError",
     "PersonaCard",
     "PersonaCoverageError",
     "PersonaCoverageReport",
     "PersonaExtraction",
+    "RhythmOverride",
     "WorldDynamics",
+    "apply_scenario_rhythm",
     "compile_persona",
     "compute_taste_weights",
     "extract_persona",
