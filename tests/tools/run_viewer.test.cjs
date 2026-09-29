@@ -860,7 +860,7 @@ test('directory loading ignores external items.json names', async t => {
     reads++;
     callback({text: async () => JSON.stringify([{item_id: 'movie-0001', title: '外部片名'}])});
   }};
-  await view.run('loadMemFiles')([entry]);
+  await view.run('loadRunFiles')([], [entry]);
   assert.equal(reads, 0);
   assert.deepEqual(targets(view.activities()), ['名称缺失（movie-0001）']);
 });
