@@ -784,7 +784,8 @@ flowchart LR
   与手边同名持有物不重名。
 - 人物写下的内容（`self_note`、`self_notes`、人设层的看法与偏好）是否经核验，由系统层规则统一说明，各字段不逐条标注。
 
-**工具层** `{layer, targets}`：`targets` 是本轮展示的目标，可以为空（空列表是合法状态，决策照常）；工具定义只在原生 `tools` 中。
+**工具层** `{layer, targets, callable_index}`：`targets` 是本轮展示的目标，可以为空（空列表是合法状态，决策照常）；`callable_index`
+是只列名称的可调用索引（见下文「可调用索引」），不是目标；工具定义只在原生 `tools` 中。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -820,6 +821,18 @@ flowchart LR
   与工具层可用性同一判定，可以做时为 `null`，`note` 是候选说明的时长）、地点按冻结地点表、`obtain` 的商品按指名购买解析，受理时照常做
   资格与准入判定（地点类不符的生活活动以 `ELIGIBILITY_LOCATION_KIND_MISMATCH` 拒绝）；所填名称不是任何可以操作的对象时由宿主按协议
   错误在本轮纠正，`items[].candidates` 是可以照填的请求 `{target, action, way, from, to}`（可另带 `note`），此刻可行的在前。
+- **可调用索引。** `callable_index` 恰好三键（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#52-只列名称的可调用索引) 5.2，裁决 S5）：
+  `lifestyle` 是此地此刻可做的生活活动名称（不带「活动：」前缀），取生活活动窗口资格段保留的全部条目，即窗口的呈现项与
+  `ROTATION_DEFERRED` 项，以 `ELIGIBILITY_LOCATION_KIND_MISMATCH` 等原因码排除的不在其中；`contents` 与 `goods` 都是
+  `[{category, count, examples}]`，按 `category` 排序。`contents` 取内容与游戏两个窗口资格段保留、有标题的条目，`category` 为内容
+  品类的中文名（游戏会话与可玩游戏同为「游戏」）；`goods` 取此刻从这里能得到的商品：门店开着、报价已知、有货、人物有资格且购买规则
+  已定义，并且到店时人就在这家店、或远程下单能送到这里（这里在配送范围内、门店到这里有能走的配送路线），`category` 为目录品类的名称。
+  `count` 是该品类可以写的名称个数（同名只计一次）；`examples` 至多 3 个名称（商品写商品名，不带门店），先取本轮没有列为目标的；
+  同组的示例与 `lifestyle` 的名称都按决胜键（场景、人物、本地日期与对象标识的 `sha256`，见「排序键与游标」）排列，与另一件内容或
+  游戏同名（只写名称会有歧义）的不作示例。有效菜单不许做生活活动、观看（可玩游戏为游玩）或买东西时，对应部分为空。索引不带动作、
+  条件与内部身份，不是候选条目：不计入单次呈现上限，也不写 `last_presented_at`；它在 user 消息的工具层里，计入整次请求的容量计数
+  （工具层不浓缩，见「可见期与提示预算」）。索引里的名称按上一条按名调用：生活活动、内容与游戏就是私有绑定与 `catalog_bindings` 中的
+  对象（名称解析按动词与方式补回类别前缀），商品名按指名购买解析；受理时照常做资格与准入判定。
 - **`to` 的候选**是本层的人物目标与「自己」，写目标的名称。同世界的其他人物不在本层时也可以写「人物：<名>」（私有 `person_bindings`，工具层仍只列同处的人物）：给予他以不同处拒绝（`unmet=recipient_present`），配送给他送到其所在地点。
 
 **人设层**（宿主渲染；来源、合并与原地更新见「人格与卡片字段」）：
@@ -956,6 +969,7 @@ flowchart LR
 | --- | --- |
 | `SYSTEM_LAYER_SCHEMA`、`TOOL_LAYER_SCHEMA`、`PERSONA_LAYER_SCHEMA`、`MEMORY_LAYER_SCHEMA`、`TODO_LAYER_SCHEMA`、`ENVIRONMENT_LAYER_SCHEMA`、`PROGRESS_LAYER_SCHEMA` | 七层各自的 Schema，形状见「七层字段」 |
 | `TOOL_DEFINITION_SCHEMA` | 原生工具定义的一项，`function.strict` 恒为 `true` |
+| `INDEX_EXAMPLES_MAX` | 工具层可调用索引每个品类至多给出的示例名数 3（`life.callable_index.MAX_EXAMPLES` 的字面副本）；索引的 Schema 在 `TOOL_LAYER_SCHEMA` 内，随它进入提示指纹 |
 | `USER_LAYER_NAMES` | user 数组的层序：工具层、人设层、记忆层、待办层、环境层、进度层 |
 | `LAYER_SCHEMAS` | 层名（含系统层）到 Schema 的映射 |
 | `validate_layer(layer)` | 按 `layer` 取 Schema 校验一层，不合规时抛出 `ValueError` |
@@ -971,6 +985,7 @@ Schema 固定的闭集与格式：
 | 工具层 `actions[].way` | 方式闭集，同「请求模型的闭集与字面边界」的 `ways`（含「给予」） |
 | 工具层与待办层 `tools[].tool` | `report_status`、`pause_activity`、`conclude_activity`、`submit_work`、`send_message`；待办项只有 `report_status`（恢复）与 `conclude_activity`（结束） |
 | 工具层 `contract` | 恰好 `deadline`、`remaining`、`outlook` 三键，只在 `kind` 为 `task` 时出现 |
+| 工具层 `callable_index` | 必填，恰好 `lifestyle`、`contents`、`goods` 三键：`lifestyle` 为不重复的非空名称；`contents`、`goods` 的每项恰好 `category`（非空文本）、`count`（不小于 1 的整数）、`examples`（至多 `INDEX_EXAMPLES_MAX` = 3 个不重复的非空名称）；没有动作、条件与身份键 |
 | 人设层 | `habits` 至多五条；`relationships[]` 为 `{person, role, closeness, channels, view}`；`preferences[]` 为 `{subject, preference, noted_on}` |
 | 记忆层 `self_notes[]` | `{activity, text}` |
 | 待办层 `day_plan.goals[]` | 至多八条；`intent_kind` 取「当日目标请求」的十一种意图；五键 `intent_kind`、`goal`、`progressed`、`remind_time`、`around_time` 必填 |
@@ -1142,7 +1157,7 @@ ExclusionReason = Literal[
 
 | 常量 | 含义 | 默认值 |
 | --- | --- | --- |
-| `candidate_presentation_limit` | 单次呈现上限 | 20 |
+| `candidate_presentation_limit` | 单次呈现上限；上限只约束目标条目：工具层的可调用索引 `callable_index` 不是候选条目，不计入（它计入整次请求的容量计数，[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#52-只列名称的可调用索引) 5.2） | 20 |
 | `candidate_pool_limit` | 单个检索分区池上限，只用于计数与下推 | 1000 |
 | `rotation_quota_ratio` | 每次呈现留给长期未呈现对象的换新名额比例；名额按上次呈现时刻从早到晚留给该分区内的长期未呈现对象，从未呈现的最先 | 0.15 |
 | `rotation_stale_seconds` | "长期未呈现"的判定阈值 | 无缺省，必须声明 |
