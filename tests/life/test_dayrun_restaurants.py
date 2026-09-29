@@ -16,6 +16,7 @@ from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import delivery_expected_at
+from worldmock.life.guidance import DELIVERY_ROUTE_REASON
 from worldmock.life.models import ReportStatusRequest, active_activities
 from worldmock.life.projection import visible_supplies
 from worldmock.life.readable import clock_phrase, iso_time
@@ -293,4 +294,5 @@ def test_delivery_is_unavailable_here_without_destination_or_route(engine_factor
     _commit(engine, browsed)
     observed = engine._observation_data(engine.state.agents[1])
     remote = target_actions(observed, _supply_target(observed, supply.supply_id))["远程下单"]
-    assert (remote["available"], remote["reason"], remote["note"]) == (False, "暂时送不到这里", None)
+    # 家在配送范围内、门店到家的配送路线未知：原因写配送路线缺失（docs/dev/SPEC-dayrun-fidelity.md 5.3）。
+    assert (remote["available"], remote["reason"], remote["note"]) == (False, DELIVERY_ROUTE_REASON, None)

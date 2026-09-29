@@ -133,10 +133,11 @@ def _stage_refusal(context: LayerContext, candidate: Candidate) -> Refusal | Non
 
 
 def _admission_context(context: LayerContext) -> admission.Context:
-    """@brief 准入判定的世界与可读名称（地点名、本轮活动名），与受理一致。"""
+    """@brief 准入判定的世界、可读名称（地点名、本轮活动名）与冻结路线（下一步只指向可达地点），与受理一致。"""
     return admission.Context(state=context.state, agent_id=context.agent_id,
                              place_names={item.location_id: item.name for item in context.scenario.locations},
-                             activity_names=context.names["activities"], tasks=context.rules.tasks)
+                             activity_names=context.names["activities"], tasks=context.rules.tasks,
+                             routes=context.scenario.routes)
 
 
 def _world_facts(context: LayerContext) -> admission.WorldFacts:

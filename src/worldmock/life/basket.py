@@ -27,6 +27,7 @@ from worldmock.life.scenario import BodyConfig, InventoryItemConfig, RuntimeScen
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
 from worldmock.life.storefront_state import current_quote
+from worldmock.life.wayfinding import delivery_route_code
 from worldmock.scheduling.events import ScheduledKind
 
 
@@ -190,19 +191,15 @@ def delivery_expected_at(semantics: ScenarioSemantics, supply: SupplyConfig,
 
 
 def _delivery_route(scenario: RuntimeScenario, origin: str, destination: str) -> RouteConfig | None:
-    """@brief 同地点无道路行程，其余配送只允许明确可达的冻结驾车路线。"""
+    """@brief 同地点无道路行程，其余配送只允许明确可达的冻结驾车路线（判定与准入共用 wayfinding.delivery_route_code，
+    拒绝码即其结果）。"""
+    code = delivery_route_code(scenario.routes, origin, destination)
+    if code is not None:
+        raise BusinessRuleError(code)
     if origin == destination:
         return None
-    matches = [route for route in scenario.routes if route.origin_id == origin
-               and route.destination_id == destination and route.mode.value == "driving"]
-    if len(matches) != 1:
-        raise BusinessRuleError("DELIVERY_ROUTE_NOT_FOUND")
-    route = matches[0]
-    if route.status == "unreachable":
-        raise BusinessRuleError("DELIVERY_ROUTE_UNREACHABLE")
-    if route.status == "unknown":
-        raise BusinessRuleError("DELIVERY_ROUTE_INFORMATION_UNKNOWN")
-    return route
+    return next(route for route in scenario.routes if route.origin_id == origin
+                and route.destination_id == destination and route.mode.value == "driving")
 
 
 def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: PurchaseOrderRequest,

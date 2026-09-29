@@ -20,6 +20,10 @@ from worldmock.life.error_contract import ErrorItem, items_fix, numbered
 
 #: 没有专门说明的业务拒绝的通用原因（兜底句；会被抛出的码都另有默认原因）。
 GENERIC_REASON = "这件事现在做不了"
+#: 远程下单的送达地不在该供给的配送范围内（unmet=delivery_destination，docs/dev/SPEC-dayrun-fidelity.md 5.3）。
+DELIVERY_DESTINATION_REASON = "这里不在这家店的配送范围内"
+#: 送达地在配送范围内、门店到送达地的配送路线却缺失（未知或不可达，unmet=delivery_route）。
+DELIVERY_ROUTE_REASON = "这家店到这里没有能走的配送路线"
 #: 抛出处没有写明原因时按错误码取的原因（只写世界事实，不含内部身份）。
 _DEFAULT_REASONS = {
     "ACTION_REQUEST_INVALID": "所选的对象或方式不在这一轮列出的范围内",
@@ -30,10 +34,10 @@ _DEFAULT_REASONS = {
     "PRODUCT_NOT_HELD": "手边没有这件东西",
     "PRODUCT_USE_LOCATION_REQUIRED": "这件东西只能在它所在的地方用",
     "FULFILLMENT_NOT_SUPPORTED": "这件商品不能用这种方式买",
-    "DELIVERY_DESTINATION_NOT_SUPPORTED": "暂时送不到这里",
-    "DELIVERY_ROUTE_NOT_FOUND": "暂时送不到这里",
-    "DELIVERY_ROUTE_UNREACHABLE": "暂时送不到这里",
-    "DELIVERY_ROUTE_INFORMATION_UNKNOWN": "暂时送不到这里",
+    "DELIVERY_DESTINATION_NOT_SUPPORTED": DELIVERY_DESTINATION_REASON,
+    "DELIVERY_ROUTE_NOT_FOUND": DELIVERY_ROUTE_REASON,
+    "DELIVERY_ROUTE_UNREACHABLE": DELIVERY_ROUTE_REASON,
+    "DELIVERY_ROUTE_INFORMATION_UNKNOWN": DELIVERY_ROUTE_REASON,
     "INSUFFICIENT_FUNDS": "钱不够",
     "INSUFFICIENT_TRAVEL_FUNDS": "钱不够付这段路费",
     "OUT_OF_STOCK": "卖完了",

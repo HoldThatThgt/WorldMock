@@ -1316,7 +1316,9 @@ def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) 
     shown = [pin for pin in pins if pin in order]
     assert shown and order[:len(shown)] == shown
     browsed = next(row for row in progress_calls(first, "start_activity") if "browse_items" in row["result"]["details"])
-    assert all(isinstance(name, str) for name in browsed["result"]["details"]["browse_items"])
+    labels = {row["object_id"]: row["object"] for row in first["interaction_bindings"] if row["kind"] == "supply"}
+    assert all("出售的" in label for label in browsed["result"]["details"]["browse_items"])
+    assert all(label in browsed["result"]["details"]["browse_items"] for label in (labels[pin] for pin in shown))
     engine.submit_action(DirectToolCall(decision, "action-pin-first", "conclude_activity", conclude_request(
         activity_name(engine, browse.activity_id), summary="看完了。")))
     assert engine.commit_decision_round("pin-first")[0].status == "completed"

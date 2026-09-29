@@ -958,8 +958,13 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"catalog/\*\* text=auto eol=lf", [".gitattributes"]),
         (r"2026-09-25-time-and-energy-stage-4", [_CONTRACTS, _EXPERIMENT]),
         (r"def test_", ["tests/life/test_parallel_admission.py", "tests/life/test_social_rounds.py"]),
-        # 评审修复：送达地判定、迟到的接受、显式公开原因、游戏会话的观看行与合入提交的台账行。
-        (r"暂时送不到这里", [_ADMISSION_MODULE, _CONTRACTS]),
+        # 评审修复：送达地判定、迟到的接受、显式公开原因、游戏会话的观看行与合入提交的台账行。送达地判定自一日运行保真
+        # 5.3 起分成送达地不在配送范围（delivery_destination）与配送路线缺失（delivery_route）两个条件，各一句原因，
+        # 取代共用的「暂时送不到这里」（tests/life/test_parallel_admission.py 的送达地用例与 test_browse_and_hints.py）。
+        (r'"delivery_destination"', [_ADMISSION_MODULE]),
+        (r'"delivery_route"', [_ADMISSION_MODULE]),
+        (r"这里不在这家店的配送范围内", ["src/worldmock/life/guidance.py", _CONTRACTS]),
+        (r"这家店到这里没有能走的配送路线", ["src/worldmock/life/guidance.py", _CONTRACTS]),
         (r"def late_acceptance_refusal", [_SOCIAL_ACTIONS]),
         (r"对方的交谈快结束了", [_SOCIAL_ACTIONS, _CONTRACTS]),
         (r"public_reason", ["src/worldmock/life/guidance.py", "src/worldmock/errors.py"]),

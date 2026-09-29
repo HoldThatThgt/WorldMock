@@ -646,9 +646,12 @@ def test_pickup_and_remote_order_stay_listed_away_from_the_store(engine_factory)
 
 
 def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_where_to_go(engine_factory) -> None:
-    """远程下单的送达地取 agent.location_id：这里不在该供给的可配送目的地时，动作照常列出并带「暂时送不到这里」，
-    选了以 ACTIVITY_PRECONDITION_UNMET 返回同一原因与能送达的地点；说明与拒绝出自同一判定（第八章「呈现」）。"""
+    """远程下单的送达地取 agent.location_id：这里不在该供给的可配送目的地时，动作照常列出并带「这里不在这家店的配送范围内」，
+    选了以 ACTIVITY_PRECONDITION_UNMET（unmet=delivery_destination）返回同一原因与能送达、从这里可达的地点；送达地在范围内
+    而门店到这里的配送路线缺失时换成 delivery_route 与另一句原因；说明与拒绝出自同一判定（第八章「呈现」，
+    docs/dev/SPEC-dayrun-fidelity.md 5.3）。"""
     from worldmock.life import admission
+    from worldmock.life.guidance import DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON
 
     engine = _engine(engine_factory, location="home", market=True)
     observed = _observe(engine, "reach-preview")
@@ -657,7 +660,7 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
     action = next(action for action in row["actions"] if action["label"] == "远程下单")
     supply = engine.rules.supplies[row["object_id"]]
     places = {item.location_id: item.name for item in engine.scenario.locations}
-    context_ = admission.Context(state=engine.state, agent_id=1, place_names=places)
+    context_ = admission.Context(state=engine.state, agent_id=1, place_names=places, routes=engine.scenario.routes)
 
     def item_for(destinations: tuple[str, ...]) -> admission.Item:
         """@brief 可配送目的地换成 destinations 的同一项远程下单。"""
@@ -666,10 +669,20 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
         return admission.selection_item(row, action, facts)
 
     refusal = admission.group_refusal(context_, [item_for(("office", "market"))])
-    assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, "暂时送不到这里", ("delivery_destination",))
+    assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, DELIVERY_DESTINATION_REASON,
+                                                             ("delivery_destination",))
     assert refusal.next_step == f"去{places['office']}或{places['market']}再下单"
-    assert admission.group_refusal(context_, [item_for(("office",))]).reason == "暂时送不到这里"
+    assert admission.group_refusal(context_, [item_for(("office",))]).reason == DELIVERY_DESTINATION_REASON
     assert admission.group_refusal(context_, [item_for(("home",))]) is None
+    blocked = tuple(route.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
+                                             "fare_fen": None, "reason": "no_route_record"})
+                    if (route.origin_id, route.destination_id, route.mode.value) == (supply.location_id, "home",
+                                                                                     "driving") else route
+                    for route in engine.scenario.routes)
+    routed = admission.Context(state=engine.state, agent_id=1, place_names=places, routes=blocked)
+    refusal = admission.group_refusal(routed, [item_for(("home", "office"))])
+    assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, DELIVERY_ROUTE_REASON, ("delivery_route",))
+    assert refusal.next_step == f"去{places['office']}再下单"
 
 
 @pytest.mark.parametrize("companion", ["步行", "等待"])

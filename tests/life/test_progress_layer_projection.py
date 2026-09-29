@@ -91,8 +91,9 @@ def _layer_context(state: WorldState) -> LayerContext:
                         menu=SimpleNamespace(allowed_actions=()))
 
 
-#: 控制动作与工具层只需要的场景切片：地点名。
-_PLACES = SimpleNamespace(timezone=_ZONE, locations=(SimpleNamespace(location_id="private-office", name="办公室"),))
+#: 控制动作与工具层只需要的场景切片：地点名与冻结路线（没有路线：下一步提示按可达性写，这里用不到）。
+_PLACES = SimpleNamespace(timezone=_ZONE, locations=(SimpleNamespace(location_id="private-office", name="办公室"),),
+                          routes=())
 
 
 def _goal_plan() -> DayPlan:
@@ -248,7 +249,7 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
 
         rules = SimpleNamespace(task=lambda _identity: task, tasks={task.task_id: task})
         scenario = SimpleNamespace(timezone=_ZONE, locations=(
-            SimpleNamespace(location_id="private-office", name="办公室"),))
+            SimpleNamespace(location_id="private-office", name="办公室"),), routes=())
 
         def _frozen_observation(self, _pending: PendingAction) -> dict:
             names = visible_names(state, 1, ["工作：1月5日项目会议纪要"])
@@ -466,7 +467,8 @@ def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
 
 
 def test_result_details_keep_only_new_readable_facts() -> None:
-    """details 的闭集键：开始活动写计划时长，到达写地点与能否进入，浏览只列商品名称，回看、原因、下一步、逐项明细、名称
+    """details 的闭集键：开始活动写计划时长，到达写地点与能否进入，浏览只列名称（完整标签「<门店>出售的<商品>」），
+    回看、原因、下一步、逐项明细、名称
     归一、说明与终局原样（私有的候选标签不进入）；读完的邮件写主题与正文（正文只在阅读动作的结果中），恢复的活动写恢复
     后的计划时长；不复述参数、不含内部身份；工作结果另带只含公开字段的 work_review。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),)
@@ -478,6 +480,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
         {"target": "办公室出售的牛肉面", "action": "obtain", "way": "到店", "from": None, "to": "自己"}]}
     resolved = [{"written": "办公室", "as": "地点：办公室"}]
     started = {**_result({"activity": activity, "browse_result": {"items": [{"product_id": "p1", "supply_id": "s1",
+                                                                              "location_id": "private-office",
                                                                               "price_fen": 1200}]},
                           "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"], "items": [item],
                           "resolved": resolved, "notes": ["from 可以写 null"],
@@ -486,7 +489,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                "status": "in_progress", "error_code": None}
     details = public_result(started, _scenario(products, places))["details"]
     assert details == {"planned": [{"name": activity["name"], "duration": "约 12 分钟"}],
-                       "arrival": {"place": "办公室", "access": "没能进去"}, "browse_items": ["牛肉面"],
+                       "arrival": {"place": "办公室", "access": "没能进去"}, "browse_items": ["办公室出售的牛肉面"],
                        "recall": {"name": "工作：会议纪要"}, "items": [item], "resolved": resolved,
                        "notes": ["from 可以写 null"],
                        "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}]}
