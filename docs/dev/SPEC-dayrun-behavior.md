@@ -198,7 +198,7 @@ flowchart LR
 
 ### 主观记忆与巩固
 
-- `conclude_activity.memories[i]` 对应 `task[i]`，合计零至八条；模型写入、记忆查询返回和反思的
+- `conclude_activity` 每项的 `memories` 与 `views` 属于该项的 `activity_name`（一日运行保真规格第六章，原为 `memories[i]` 对应 `task[i]`），合计零至八条；模型写入、记忆查询返回和反思的
   自由文字一律标明为人物自述，持久记录和工具结果均固定 epistemic_status=subjective。
   WorldMock 可写类型为 commitment、relationship、preference、goal、conflict、resolution、
   identity、routine、reflection；删除 event、observation 两种 WorldMock 输入。
@@ -273,3 +273,4 @@ flowchart LR
 | `2026-09-27-persona-prompt-stage-3` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 12 行修订（人物 Prompt 台账 DR3，随阶段 3 代码），修订部分待实现：「主观记忆与巩固」中 relationship、preference 带 `subject`，只在人设层原地更新、不进记忆层；「本轮观察五条为唯一近期事实窗口」与 `MEMORY.md` 事实窗口改为记忆层（`earlier_today`、`earlier_days`，8000 字符窗口）；巩固摘要不进人物决策提示 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「给予」行写明方式须为「给予」、`to` 写人物目标的名称（食用、使用配人物以 `ACTION_REQUEST_INVALID` 拒绝）；当地餐食一条改为每份热量在商品目标的 `state`、营业情况在地点目标的 `state`，闭店等不能买的动作标不可用 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 11、22、27 行修订（一日运行保真 DR1，随该规格冻结）：「共同时间与身体结算」的 `body_settlement.activity_ids` 一条注明被该规格 1.1 引作社交账与共同用餐的唯一来源（条款不改）；「餐馆的实际进食路径」通用地图一条注明被该规格 8.1 引作配送路线只警告的依据（条款不改），到店指名购买补方式「购买」与分段匹配的报码、候选可照填；文件头补修订说明 |
+| `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码核对）：「主观记忆与巩固」的记忆归属改为 `conclude_activity` 各项的 `memories` 与 `views` 属于该项的 `activity_name`（该规格第六章，冻结时漏改）；到店指名购买口径的修订随该规格 3.2、3.5 的实现落地，文件头不变 |

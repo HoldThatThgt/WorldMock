@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -40,6 +43,7 @@ from tests.integration.test_life_agent_protocol import (
     _with_activities,
 )
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_request  # noqa: F401
+from tests.life.test_presentation_fidelity import _stage
 from worldmock.life import prompt_capacity
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
@@ -511,4 +515,65 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     changed = {**prompt_schemas.LAYER_SCHEMAS, "人设层": {**prompt_schemas.LAYER_SCHEMAS["人设层"], "title": "改"}}
     monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", changed)
     assert life_prompt_sha256() != original
+
+
+def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:
+    """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2）：它是工具层的必填键，形状为
+    lifestyle、contents、goods 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
+    from custom.agents import life_prompt
+    from worldmock.life import prompt_schemas
+    from worldmock.runtime import _model_identity
+
+    schema = prompt_schemas.TOOL_LAYER_SCHEMA
+    assert "callable_index" in schema["required"]
+    assert set(schema["properties"]["callable_index"]["properties"]) == {"lifestyle", "contents", "goods"}
+    current = life_prompt.life_prompt_sha256()
+    assert _model_identity().prompt_sha256 == current
+    tools = copy.deepcopy(schema)
+    tools["properties"].pop("callable_index")
+    tools["required"].remove("callable_index")
+    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "工具层": tools})
+    assert life_prompt.life_prompt_sha256() != current
+
+
+@pytest.mark.asyncio
+async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity(_engine_factory, monkeypatch,
+                                                                                  caplog) -> None:
+    """工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）随真实观察原样进入 user 消息的工具层，计入整次请求的容量
+    计数（第四章预算不变）：同一请求去掉索引后计数更小；把窗口定在两者之间时，宿主在发送前以容量故障停止——不删减索引、
+    不发请求——容量故障的分层记录单列索引的用量。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    _stage(engine, int(datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.scenario.timezone)).timestamp()), "home")
+    decision = context(engine, "index-capacity")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+
+    def observations() -> list[dict]:
+        """@brief 这次真实观察交给宿主的一条结构化观察记录（每次决策各一份）。"""
+        return [{"turn": 0, "action": "observe", "ok": True, "data": copy.deepcopy(observed)}]
+
+    responses = [_ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))]
+    dispatcher = _GroundedCorrectionDispatcher(responses=list(responses))
+    agent, _ = _agent(dispatcher)
+    await _run(agent, observations())
+
+    [request] = dispatcher.requests
+    layers = json.loads(request["messages"][1]["content"])
+    assert layers[0] == observed["tool_layer"] and list(layers[0]) == ["layer", "targets", "callable_index"]
+    assert len(layers[0]["callable_index"]["lifestyle"]) == 107 and layers[5]["events"] == []
+    bare = [{key: value for key, value in layers[0].items() if key != "callable_index"}, *layers[1:]]
+    without = prompt_capacity.request_token_count({**request, "messages": [request["messages"][0],
+                                                                           user_message(bare)]})
+    full = prompt_capacity.request_token_count(request)
+    assert full > without
+    window = int((full + without) / 2 / prompt_capacity.CONTEXT_THRESHOLD)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: window)
+    tight = _GroundedCorrectionDispatcher(responses=list(responses))
+    agent, environment = _agent(tight)
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="model request capacity exceeded"):
+        await _run(agent, observations())
+    assert tight.requests == [] and environment.calls == []
+    message = next(record.message for record in caplog.records if "capacity exceeded" in record.message)
+    assert "'工具层'" in message and "'工具层.callable_index'" in message
 

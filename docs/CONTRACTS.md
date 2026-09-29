@@ -1,6 +1,6 @@
 # WorldMock 接口合同
 
-> 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](dev/SPEC-persona-prompt.md#冻结条款修订)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。
+> 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](dev/SPEC-persona-prompt.md#冻结条款修订)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。2026-09-29 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#文档同步作业)的【同】作业 C1–C19 修订，除指名购买的 `from` 约束与分段匹配、购买渠道与订单 `channel_id`、请求级 `prefer` 与方式「购买」（该规格 3.2、3.3、3.5）和工具层可调用索引 `callable_index`（5.2）外已实现并通过离线验收；修订内容见「版本表」`2026-09-29-dayrun-fidelity` 行。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -51,16 +51,17 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 观察版本与本轮顺序；这些上下文由 runner 与路由绑定，不出现在模型可填写的参数中。
 工具 Schema 由对应请求模型直接生成，全部字段必填，数组数量边界由本地校验器执行，不能静默截取。
 工具定义只经原生 `tools` 发送，整次运行不变：参数不带逐轮名称枚举，description 只写用途，世界交互规则只在系统层写一次
-（见「请求组成」）；参数 Schema 的字段级说明是 Schema 的一部分、不是 description：每个字段写一句「格式与来源」（如活动名
+（见「请求组成」）；参数 Schema 的字段级说明是 Schema 的一部分、不是 description：三个活动控制工具的参数逐字段写一句「格式与来源」（如活动名
 「照工具层、待办层或进度层写出的名称原样抄写，包括『（9月28日 12:05 起）』这样的开始时刻」），不写规则与上限（上限由本地校验执行）；
 名称的合法性由宿主本地校验与环境受理判定：两边在同一冻结观察上调用同一个统一名称解析（`src/worldmock/life/name_resolution.py`，
 [一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 3.1），宿主判为可受理的，环境也受理。
 模型只看人类可理解且能唯一定位的对象名称、五个动词与方式；本轮私有 `interaction_bindings` 将（对象，动词，方式）
 绑定到内部身份、标准动作、出行方式、履约方式与冻结报价，绝不进入模型提示。全部目录类对象（商品与供给、生活活动、内容、游戏、
-地点、联系人与人物、任务、活动）都可以直接写名称，即使本轮没有列出：精确匹配或无损归一后唯一即受理，归一写进结果
-`details.resolved`（见「请求模型的闭集与字面边界」）；本轮没有列出的生活活动、内容与游戏取观察私有的目录绑定 `catalog_bindings`，
-地点取冻结地点表，受理时照常做资格与准入判定；`obtain` 以到店、远程下单或「购买」写出的其余名称按指名购买解析（见「请求字段与结算检查」）。
-名称不是任何可以操作的对象、归一后不止一个或动词与方式不相配时，由宿主按协议错误在本轮纠正，候选写成可以照填的请求，从不替换。
+地点、联系人与人物、任务、活动）都可以直接写名称：精确匹配或无损归一后唯一即受理，归一写进结果
+`details.resolved`（见「请求模型的闭集与字面边界」）；商品、生活活动、内容、游戏与地点即使本轮没有列出也可以写：本人启用的生活活动、
+内容与游戏取观察私有的目录绑定 `catalog_bindings`，地点取冻结地点表，受理时照常做资格与准入判定；`obtain` 以到店、远程下单或「购买」
+写出的其余名称按指名购买解析（见「请求字段与结算检查」）。名称不是任何可以操作的对象、归一后不止一个或动词与方式不相配时，由宿主按协议错误
+在本轮纠正，从不替换：`start_activity` 的候选写成可以照填的请求，其余名称参数的原因写出最接近的几个名称（见「工具返回通道」）。
 LifeEnv 不为每个模型工具另建同名 RPC 方法。
 
 | 工具 | 参数 | 返回 |
@@ -327,13 +328,13 @@ M3 多于一个时按请求级 `prefer` 选定一家，不以 `SUPPLY_NAME_AMBIG
 `items`，明细的码为 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` 或 `WAY_NOT_OFFERED`，带可照填的候选，原因逐项相连。
 
 **名称类拒绝码。** 闭集（`worldmock.life.error_contract.NAME_REJECTION_CODES`，宿主与环境同一口径，
-[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 3.4）：宿主的 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS`、`WAY_NOT_OFFERED`、
-`SUPPLY_SOURCE_MISMATCH`、`SUBJECT_NOT_KNOWN`（协议纠错，只耗本次决策的回合、不进引擎）；环境的 `SUPPLY_NOT_FOUND`、
+[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 3.4）：宿主的 `HOST_NAME_CODES` 为 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS`、`WAY_NOT_OFFERED`、
+`SUPPLY_SOURCE_MISMATCH`、`SUBJECT_NOT_KNOWN`（协议纠错，只耗本次决策的回合、不进引擎）；环境的 `ENVIRONMENT_NAME_CODES` 为 `SUPPLY_NOT_FOUND`、
 `SUPPLY_NOT_AT_STORE`、`SUPPLY_NAME_AMBIGUOUS`、`FULFILLMENT_NOT_SUPPORTED`、`SOURCE_NOT_FOUND`、`SUPPLY_SOURCE_MISMATCH`、
 `TASK_NOT_FOUND`（业务拒绝，每人每模拟秒前两次不计同刻轮数、不施加 `service_refused` 情绪脉冲，第 3 次起照常，见「动作状态与动作
-结果」）。`SUPPLY_SOURCE_MISMATCH` 两边都有：本轮列出的标签由宿主纠正，按名写的标签由环境拒绝（`ENVIRONMENT_NAME_CODES` 含它）；
-`SUPPLY_NAME_AMBIGUOUS` 已不再抛出（3.5），留在闭集里归类旧运行的拒绝。一个请求中的名称类问题逐项报全部；质量报告 `name_rejections`
-按这个闭集与其余协议错误分开计数（环境一侧按 `ENVIRONMENT_NAME_CODES` 逐码列出）。
+结果」）。`SUPPLY_SOURCE_MISMATCH` 两边都有：本轮列出的标签由宿主纠正，按名写的标签由环境拒绝；`SUPPLY_NAME_AMBIGUOUS` 已不再抛出
+（3.5），留在闭集里归类旧运行的拒绝。一个请求中的名称类问题逐项报全部；质量报告 `name_rejections` 按这个闭集与其余协议错误分开
+计数（环境一侧按 `ENVIRONMENT_NAME_CODES` 逐码列出）。
 
 **拒绝结构。** 业务拒绝与宿主协议纠错（见「工具返回通道」）共用一个错误结构 `{error_code, reason, fix, items, unmet}`
 （[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#四错误合同)第四章，`src/worldmock/life/error_contract.py`）：`error_code` 为拒绝码
@@ -398,7 +399,7 @@ M3 多于一个时按请求级 `prefer` 选定一家，不以 `SUPPLY_NAME_AMBIG
 门店。`obtain`、`consume` 的 `to` 写的人物名按人物名称无损归一后唯一时换成它（记进 `details.resolved`），不是任何人物时仍为
 `RECIPIENT_NOT_FOUND`。
 
-**方式同义闭集表**（`name_resolution.WAY_SYNONYMS`）。每个方式只属于一个动词（`interaction_menu.WAYS`）：写的方式不在方式闭集中时按
+**方式同义闭集表**（`name_resolution.WAY_SYNONYMS`）。每个方式只属于一个动词（`interaction_menu.WAYS`）：写的方式不是目标列出的方式时按
 下表取它可能指的方式，只有在目标列出的方式里恰好命中一个时才受理（写进 `details.resolved`），动词仍须是该方式所属的动词；动词与方式
 不一致时不替人物改、不由方式反推动词，报 `WAY_NOT_OFFERED`，候选为该目标列出的（动词，方式）写成的可照填请求；表外的写法不受理。
 指向「购买」的写法（与「购买」本身）不看目标列出的方式：`obtain` 写在任何商品目标上都是由系统定方式的指名购买；指向到店或远程下单
@@ -824,14 +825,16 @@ flowchart LR
   精确到秒的 ISO 8601（如 `2026-09-28T10:33:00+08:00`）；`date` 与 `noted_on` 为场景本地日期 `YYYY-MM-DD`；`remind_time` 为 `HH:MM`，
   与 `revise_day_plan` 同名同形。
 - 数量、价格与时长写成人读短语，数字与单位之间一个空格，不给原始秒数或以分为单位的整数：时长「不到 1 分钟」「约 12 分钟」「约 1.5 小时」
-  （一小时及以上取到半小时）；金额「32 元」「32.5 元」；份数「0.25 份」「1 份」（金额与份数至多两位小数）。短语里的时刻用场景本地 `HH:MM`，
+  （一小时及以上取到半小时）；金额「32 元」「32.5 元」；份数「0.25 份」「1 份」（金额与份数至多两位小数）；个数「90 个」（工具层可调用索引的
+  品类计数）。短语里的时刻用场景本地 `HH:MM`，
   与观察日期不同的加「M月D日」。
 - 没有内容的列表写 `[]`，允许为空的写 `null`，不填编造的值。
 - 名称沿用现行的唯一可读标签：交互对象标签须唯一，活动名重名时追加「（第二次）」；他处持有物的名称带地点（`持有物：<商品>（<地点>）`），
   与手边同名持有物不重名。
 - 人物写下的内容（`self_note`、`self_notes`、人设层的看法与偏好）是否经核验，由系统层规则统一说明，各字段不逐条标注。
 
-**工具层** `{layer, targets}`：`targets` 是本轮展示的目标，可以为空（空列表是合法状态，决策照常）；工具定义只在原生 `tools` 中。
+**工具层** `{layer, targets, callable_index}`：`targets` 是本轮展示的目标，可以为空（空列表是合法状态，决策照常）；`callable_index`
+是只列名称的可调用索引（见下文「可调用索引」），不是目标；工具定义只在原生 `tools` 中。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -862,11 +865,24 @@ flowchart LR
   [一日行为规格](dev/SPEC-dayrun-behavior.md)。
 - **任务。** 未付款的逾期任务保留到截止当日的本地日结束：`outlook` 写「已过截止」，`submit_work` 标不可用并写原因。
   工时达标写在 `contract.remaining`，正在做写在活动目标的 `state`，提交条件写在 `submit_work` 的 `available`、`reason`，各说一件事。
-- **展示不是资格上限。** 全部目录类对象都可以写名称：本轮没有列出的生活活动、内容与游戏按观察私有的目录绑定 `catalog_bindings`
+- **展示不是资格上限。** 全部目录类对象都可以写名称：本轮没有列出的生活活动（限本人启用的）、内容与游戏按观察私有的目录绑定 `catalog_bindings`
   （每项 `{object, kind, object_id, way, reason, note}`：`way` 是它此刻会列出的方式，`reason` 是单独提交这一项时的第一条拒绝原因，
   与工具层可用性同一判定，可以做时为 `null`，`note` 是候选说明的时长）、地点按冻结地点表、`obtain` 的商品按指名购买解析，受理时照常做
   资格与准入判定（地点类不符的生活活动以 `ELIGIBILITY_LOCATION_KIND_MISMATCH` 拒绝）；所填名称不是任何可以操作的对象时由宿主按协议
   错误在本轮纠正，`items[].candidates` 是可以照填的请求 `{target, action, way, from, to}`（可另带 `note`），此刻可行的在前。
+- **可调用索引。** `callable_index` 恰好三键（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#52-只列名称的可调用索引) 5.2，裁决 S5）：
+  `lifestyle` 是此地此刻可做的生活活动名称（不带「活动：」前缀），取生活活动窗口资格段保留的全部条目，即窗口的呈现项与
+  `ROTATION_DEFERRED` 项，以 `ELIGIBILITY_LOCATION_KIND_MISMATCH` 等原因码排除的不在其中；`contents` 与 `goods` 都是
+  `[{category, count, examples}]`，按 `category` 排序。`contents` 取内容与游戏两个窗口资格段保留、有标题的条目，`category` 为内容
+  品类的中文名（游戏会话与可玩游戏同为「游戏」）；`goods` 取此刻从这里能得到的商品：门店开着、报价已知、有货、人物有资格且购买规则
+  已定义，并且到店时人就在这家店、或远程下单能送到这里（这里在配送范围内、门店到这里有能走的配送路线），`category` 为目录品类的名称。
+  `count` 是该品类可以写的名称个数（同名只计一次），与其余数量一样写成人读短语「N 个」；`examples` 至多 3 个名称（商品写商品名，
+  不带门店），先取本轮没有列为目标的；
+  同组的示例与 `lifestyle` 的名称都按决胜键（场景、人物、本地日期与对象标识的 `sha256`，见「排序键与游标」）排列，与另一件内容或
+  游戏同名（只写名称会有歧义）的不作示例。有效菜单不许做生活活动、观看（可玩游戏为游玩）或买东西时，对应部分为空。索引不带动作、
+  条件与内部身份，不是候选条目：不计入单次呈现上限，也不写 `last_presented_at`；它在 user 消息的工具层里，计入整次请求的容量计数
+  （工具层不浓缩，见「可见期与提示预算」）。索引里的名称按上一条按名调用：生活活动、内容与游戏就是私有绑定与 `catalog_bindings` 中的
+  对象（名称解析按动词与方式补回类别前缀），商品名按指名购买解析；受理时照常做资格与准入判定。
 - **`to` 的候选**是本层的人物目标与「自己」，写目标的名称。同世界的其他人物不在本层时也可以写「人物：<名>」（私有 `person_bindings`，工具层仍只列同处的人物）：给予他以不同处拒绝（`unmet=recipient_present`），配送给他送到其所在地点。
 
 **人设层**（宿主渲染；来源、合并与原地更新见「人格与卡片字段」）：
@@ -874,7 +890,7 @@ flowchart LR
 | 字段 | 含义 |
 | --- | --- |
 | `identity` | `{name, age, occupation, living_arrangement}` |
-| `rhythm` | 起床、出门、午餐、晚餐、就寝窗口与睡眠中点、睡眠需要：`{wake, leave_home, lunch, dinner, bedtime, sleep_midpoint, sleep_need}`，均为可读短语（刻钟也要写对）；没有结构化卡片时为 `null` |
+| `rhythm` | 起床、出门、午餐、晚餐、就寝窗口与睡眠中点、睡眠需要：`{wake, leave_home, lunch, dinner, bedtime, sleep_midpoint, sleep_need}`，均为可读短语（刻钟也要写对）；取经场景作息覆盖后的卡片：场景显式声明的作息字段优先于抽取值（见「人格与卡片字段」的场景作息覆盖）；没有结构化卡片时为 `null` |
 | `habits` | 至多五条 `{trigger, response, time_window}` |
 | `tastes` | `{content_genres, food_preferences, media}` 或 `null` |
 | `coping` | 压力时的应对方式，或 `null` |
@@ -946,7 +962,7 @@ flowchart LR
 | `reason`、`next_step` | 业务拒绝的一句原因（结果的 `message` 与它相同）与可读的下一步（要先处理的活动名、要去的地点名或做法；没有可读的下一步时 `next_step` 为 `null`） |
 | `fix` | 业务拒绝的一句改法：怎样改这次请求；没有可照做的改法时为 `null`（与 `reason`、`next_step` 一起恒写） |
 | `items` | 业务拒绝的逐项明细 `[{index, field, written, error_code, candidates}]`（`index` 从 0 起），`candidates` 为至多 3 个可照填的请求 `{target, action, way, from, to}`（可另带 `note`），如指名购买的近似标签、同名门店的完整标签；没有逐项明细时没有该键 |
-| `resolved` | 受理时名称经无损归一的 `[{written, as}]`：人物写的原文与归一后的名称；没有归一时没有该键 |
+| `resolved` | 受理时的名称归一 `[{written, as}]`：人物写的原文与解析出的写法（名称与 `to`、`answering` 按无损归一，方式按归一与同义闭集表；指名购买写的名称记为解析出的完整标签）；没有归一时没有该键 |
 | `notes` | 受理或拒绝附带的说明（字符串列表），如「from 可以写 null」；没有时没有该键 |
 | `outcome` | `[{activity, outcome, items, note}]`：进食与未完成的浏览的收尾结果逐项写终局（「完成」「提前结束」「失败」），进食的 `items[{product, eaten, discarded, remaining}]` 写已吃、丢弃、剩余份量，未完成的浏览 `note` 为「未取得浏览结果」（进食的 `note` 为 `null`）；其他活动的收尾没有该键；人物写「吃完了」不能覆盖结算结果 |
 | `episodes` | 记忆查询返回的条数（整数）；条目本身只在本秒续接消息的 tool 消息中 |
@@ -998,11 +1014,15 @@ flowchart LR
 七层 Schema 的机器可读形式是 `src/worldmock/life/prompt_schemas.py` 中的 Python 常量（JSON Schema 2020-12），由运行清单的
 `code_sha256` 覆盖；提示指纹 `prompt_sha256` 绑定两份系统层与各层 Schema。`docs/dev/research/persona-prompt-schemas/` 只是提案时的快照，
 与本节不一致处以本节与该模块为准。发送前不做逐层 Schema 校验，测试用它校验各层构建器的输出。
+`prompt_sha256` 与工具 Schema 指纹 `tool_schema_sha256`（见「模型身份」）都在新建运行时计算、不钉常量：系统层增至十八条、待办层目标增
+`around_time` 使前者重钉，`revise_day_plan` 的 `around_time` 与三个活动控制工具的 `items` 形状（含字段说明）使后者重钉
+（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 2.2、第六章、8.2）；旧运行按模型身份与 `code_sha256` 拒绝恢复。
 
 | 常量或函数 | 内容 |
 | --- | --- |
 | `SYSTEM_LAYER_SCHEMA`、`TOOL_LAYER_SCHEMA`、`PERSONA_LAYER_SCHEMA`、`MEMORY_LAYER_SCHEMA`、`TODO_LAYER_SCHEMA`、`ENVIRONMENT_LAYER_SCHEMA`、`PROGRESS_LAYER_SCHEMA` | 七层各自的 Schema，形状见「七层字段」 |
 | `TOOL_DEFINITION_SCHEMA` | 原生工具定义的一项，`function.strict` 恒为 `true` |
+| `INDEX_EXAMPLES_MAX` | 工具层可调用索引每个品类至多给出的示例名数 3（`life.callable_index.MAX_EXAMPLES` 的字面副本）；索引的 Schema 在 `TOOL_LAYER_SCHEMA` 内，随它进入提示指纹 |
 | `USER_LAYER_NAMES` | user 数组的层序：工具层、人设层、记忆层、待办层、环境层、进度层 |
 | `LAYER_SCHEMAS` | 层名（含系统层）到 Schema 的映射 |
 | `validate_layer(layer)` | 按 `layer` 取 Schema 校验一层，不合规时抛出 `ValueError` |
@@ -1018,6 +1038,7 @@ Schema 固定的闭集与格式：
 | 工具层 `actions[].way` | 方式闭集，同「请求模型的闭集与字面边界」的 `ways`（含「给予」） |
 | 工具层与待办层 `tools[].tool` | `report_status`、`pause_activity`、`conclude_activity`、`submit_work`、`send_message`；待办项只有 `report_status`（恢复）与 `conclude_activity`（结束） |
 | 工具层 `contract` | 恰好 `deadline`、`remaining`、`outlook` 三键，只在 `kind` 为 `task` 时出现 |
+| 工具层 `callable_index` | 必填，恰好 `lifestyle`、`contents`、`goods` 三键：`lifestyle` 为不重复的非空名称；`contents`、`goods` 的每项恰好 `category`（非空文本）、`count`（人读短语 `^[1-9][0-9]* 个$`）、`examples`（至多 `INDEX_EXAMPLES_MAX` = 3 个不重复的非空名称）；没有动作、条件与身份键 |
 | 人设层 | `habits` 至多五条；`relationships[]` 为 `{person, role, closeness, channels, view}`；`preferences[]` 为 `{subject, preference, noted_on}` |
 | 记忆层 `self_notes[]` | `{activity, text}` |
 | 待办层 `day_plan.goals[]` | 至多八条；`intent_kind` 取「当日目标请求」的十一种意图；五键 `intent_kind`、`goal`、`progressed`、`remind_time`、`around_time` 必填 |
@@ -1072,7 +1093,7 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 `body` 分两组：`levels` 是进入提示的体感分级短语，恰好五键 `appetite`、`sleepiness`、`entertainment`、`social`、`mood`，
 原样成为环境层 `body`；`values` 是只进事件的数值，含 `appetite`、`sleepiness`、`entertainment_need`、`social_need`、`mood_valence`、`sleep_pressure`、`energy_kcal`、`sleep_deficit_hours`。动机评分器继续计算并写入 `motivation_internal`，只供评估与研究，不进提示。
 
-人物身体常量 `chronotype_midsleep` 与 `sleep_need_hours` 属于人物状态与人物档案，驱动世界层结算，不是观察投影字段，数值不进提示（人设层 `rhythm` 以可读短语写睡眠中点与睡眠需要）；确定性口味权重 `taste_weights` 属于人物状态，由卡片口味与内容、游戏条目的题材精确匹配得到（游戏按 `game_id` 查同一张题材表，没有题材声明的条目为 0），不进提示。原始权重是排序信号：内部评分器、浏览与候选排序都用它，零权重照旧排在全部非零之后；观看与游戏的实际缓解（以及评分器里同口径的缓解预演）另按有效偏好 `f + (1 − f)·w` 调幅度，`f` 取场景 `body.entertainment_relief_preference_floor`（缺省 0.5，开区间 (0, 1)），不喜欢的内容也按 `f` 缓解；有缓解的活动进行时娱乐需要不再累积（[一日运行保真规格 1.2](dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径)）。
+人物身体常量 `chronotype_midsleep` 与 `sleep_need_hours` 属于人物状态与人物档案，驱动世界层结算，不是观察投影字段，数值不进提示（人设层 `rhythm` 以可读短语写睡眠中点与睡眠需要，场景显式声明的值优先于卡片抽取值，见「人格与卡片字段」）；确定性口味权重 `taste_weights` 属于人物状态，由卡片口味与内容、游戏条目的题材精确匹配得到（游戏按 `game_id` 查同一张题材表，没有题材声明的条目为 0），不进提示。原始权重是排序信号：内部评分器、浏览与候选排序都用它，零权重照旧排在全部非零之后；观看与游戏的实际缓解（以及评分器里同口径的缓解预演）另按有效偏好 `f + (1 − f)·w` 调幅度，`f` 取场景 `body.entertainment_relief_preference_floor`（缺省 0.5，开区间 (0, 1)），不喜欢的内容也按 `f` 缓解；有缓解的活动进行时娱乐需要不再累积（[一日运行保真规格 1.2](dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径)）。
 
 ### 可见期与提示预算
 
@@ -1155,7 +1176,7 @@ ExclusionReason = Literal[
 | 量 | 字段 | 说明 |
 | --- | --- | --- |
 | 排序键 | `taste_weight`（定点整数，四位小数口径与 `taste_weights` 一致）、`attention_prior`（定点整数）、`relevance`（整数）、`tiebreak`（决胜键：场景身份、人物编号、场景时区的本地日期与对象标识以竖线相连后的 `sha256` 十六进制摘要） | 排序键为（非零口味，−口味×注意力，−相关度，决胜键）：零口味排在全部非零口味之后，其后口味 × 注意力降序、相关度降序，决胜键保证全序；零口味时的顺序因此不是对象标识的字母序，并随场景时区的本地日期变化 |
-| 相关度 | `relevance` | 只取人物自己的事实与目录事实，三项相加：目录 `time_window` 覆盖此刻 +2；条目属于当日未推进目标的活动家族 +2（家族取推进判定的同一张意图 → 活动家族表；目标取该秒开始时的今日计划，同一秒内修订计划或推进目标从下一秒起才计入，同一秒各轮的呈现窗口因此不变）；人设层习惯签名的反应文本逐字包含条目名或品类 +1（反应文本冻结在运行清单 `persona_habit_responses`）。不设「今天已做过」「在家务类」加减分，也不设例行名额（裁决 S4） |
+| 相关度 | `relevance` | 只取人物自己的事实与目录事实，三项相加：目录 `time_window` 覆盖此刻 +2；条目属于当日未推进目标的活动家族 +2（家族取推进判定的同一张意图 → 活动家族表；目标取该秒开始时的今日计划，同一秒内修订计划或推进目标从下一秒起才计入，同一秒各轮的呈现窗口因此不变）；人设层习惯签名的反应文本包含条目名或品类（逐字、不分大小写）+1（反应文本冻结在运行清单 `persona_habit_responses`）。不设「今天已做过」「在家务类」加减分，也不设例行名额（裁决 S4） |
 | 游标 | `cursor` | 上一页返回的稳定游标；首屏显式为 `null`，后续原样传回，不解析内部结构 |
 | 排序键版本 | `order_key_version` | 排序键口径的版本号，现为 2（加相关度、决胜键改哈希），只参与游标的身份；升版使在途游标失效 |
 
@@ -1189,7 +1210,7 @@ ExclusionReason = Literal[
 
 | 常量 | 含义 | 默认值 |
 | --- | --- | --- |
-| `candidate_presentation_limit` | 单次呈现上限 | 20 |
+| `candidate_presentation_limit` | 单次呈现上限；上限只约束目标条目：工具层的可调用索引 `callable_index` 不是候选条目，不计入（它计入整次请求的容量计数，[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#52-只列名称的可调用索引) 5.2） | 20 |
 | `candidate_pool_limit` | 单个检索分区池上限，只用于计数与下推 | 1000 |
 | `rotation_quota_ratio` | 每次呈现留给长期未呈现对象的换新名额比例；名额按上次呈现时刻从早到晚留给该分区内的长期未呈现对象，从未呈现的最先 | 0.15 |
 | `rotation_stale_seconds` | "长期未呈现"的判定阈值 | 无缺省，必须声明 |
@@ -1416,16 +1437,16 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 
 | 错误码 | 何时 |
 | --- | --- |
-| `ARGUMENTS_NOT_JSON` | 工具参数不是可解析的 JSON 对象；原因写出所在的行与列 |
+| `ARGUMENTS_NOT_JSON` | 工具参数不是可解析的 JSON 对象；解析失败时原因写出所在的行与列 |
 | `ARGUMENTS_INVALID` | 参数形状不符合工具的参数定义（缺字段、多字段、类型、格式、界限、取值闭集与请求模型自己的校验），原因按字段逐条写，明细写参数名与所写的原文；`targets` 为空、`targets`、`actions`、`ways` 不等长；修订今日计划超过八条或重交已推进的目标 |
-| `TOOL_CALL_REQUIRED` | 回复没有可执行的工具调用：没有工具调用、调用了这次没有提供的工具、一次回复含多个世界请求、世界请求与别的工具同时调用、本次决策已登记过世界请求，或只读问答的 `finish` 没有单独调用 |
+| `TOOL_CALL_REQUIRED` | 回复没有可执行的工具调用：没有工具调用、工具调用缺少名称或编号、调用了这次没有提供的工具、一次回复含多个世界请求、世界请求与别的工具同时调用、本次决策已登记过世界请求，或只读问答的 `finish` 没有单独调用 |
 | `TOO_MANY_TARGETS` | `start_activity` 的目标超过两个 |
 | `NAME_NOT_FOUND` | 名称在本轮冻结观察中无损归一后找不到（见「请求模型的闭集与字面边界」）：`start_activity` 的对象（本轮列出的对象、目录绑定与冻结地点表；`obtain` 以到店、远程下单或「购买」写的其余名称交给指名购买）、控制工具的活动名、`recall_task_summary` 与 `submit_work` 的 `task_name`、`send_message` 的收件人；`start_activity` 的候选跨类别按相似度给出（此刻可行的在前），其余名称参数的原因写出最接近的几个名称 |
 | `NAME_AMBIGUOUS` | 名称无损归一后对应不止一个对象（如两项活动去掉开始时刻后同名）：`start_activity` 的候选为这些对象写成的可照填请求，其余名称参数的原因列出这些完整名称 |
 | `WAY_NOT_OFFERED` | 对象没有列出所写的动词与方式（方式同义表也没有在它列出的方式里恰好命中一个；写的方式相配而动词不对时明细的参数名为 `actions`），候选为该对象列出的（动词，方式）写成的可照填请求；映射后的内部动作不在本地交互菜单里 |
 | `ROUTE_FIELDS_INVALID` | `from`、`to` 或 `answering` 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；`to` 写的名称不是任何人物时不纠正，由环境以 `RECIPIENT_NOT_FOUND` 拒绝 |
 | `SUPPLY_SOURCE_MISMATCH` | 本轮列出的目标已写明门店「<门店>出售的<商品>」却在 `from` 写了冻结地点表里的另一个地点（写的正是这家店是冗余的 `from`，照常受理并说明；App 称呼与不认识的写法不纠正，由环境按渠道与来源解析：包含该门店的渠道照常受理，其余以同一码或 `SOURCE_NOT_FOUND` 拒绝），候选为同一项 `from` 写 `null` |
-| `SUBJECT_NOT_KNOWN` | `conclude_activity` 的 relationship 看法（`items[].views[].about`，存储为 `subject`）不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）；明细的 `index` 为所在的一项、`field` 为 `about` |
+| `SUBJECT_NOT_KNOWN` | `conclude_activity` 的 relationship 看法（`items[].views[].about`，存储为 `subject`）不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）；每个不认识的对象各一条明细（同一项写了几个就报几个，同一项重复写的同一个名字只报一次），`index` 为所在的一项、`field` 为 `about`；与各项活动名的 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` 合并成一次纠错，不因活动名先出错而漏报 |
 | `OUTPUT_TRUNCATED` | 输出在思考阶段用尽、尚未调用工具：回复 `finish_reason=length`、正文为空且没有工具调用（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」）；证据中的协议错误串为「OUTPUT_TRUNCATED: <英文说明>」，处理见「回合预算」 |
 
 ### 回合预算
@@ -1509,7 +1530,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。提示指纹 `prompt_sha256` 绑定两份系统层与七层 Schema，工具 Schema 指纹
 `tool_schema_sha256` 绑定原生工具定义，二者随七层模板、只写用途的 description 与 `from`、`to` 重钉。新建、打开既有运行（含从工作区加载）、
 恢复、反事实重放与 `validate` 五个入口经同一校验拒绝阶段中含 `decision_statement` 的清单，不提供别名或迁移；恢复与重放继承父清单的
-`same_second_continuation`，不能覆盖。显式无模型身份的引擎直驱路径不生成替代模型身份。
+`same_second_continuation`，不能覆盖。同一校验要求阶段身份的 `base_url` 是上表的 strict 端点，冻结在主站 `https://api.deepseek.com` 的清单
+（端点切换之前建立的运行）因此不能再打开、恢复或重放。显式无模型身份的引擎直驱路径不生成替代模型身份。
 运行清单 `schema_version` 为 2：新建运行的清单另带 `input_warnings`，即创建运行时计算的运行输入警告（条目形状与警告码闭集见「运行输入警告」），
 按闭集形状校验后冻结，恢复与重放随父清单继承、不重算；引擎直驱建立的运行没有计算警告，该键为 `null`。警告只记录，不参与恢复比对，也不使运行失败。
 新建运行的清单另带 `persona_habit_responses`：编译卡片（经场景作息覆盖后）的习惯签名反应文本，人物编号（字符串）→ 文本列表（按卡片顺序；没有卡片的人物不出现），供候选排序的相关度使用（见「排序键与游标」）；冻结时校验形状，恢复与重放随父清单继承，引擎直驱建立的运行为 `null`。
@@ -1547,7 +1569,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 **折叠。** 时间推进后，进度层从事件重建：调用来自 `action_requested`，结果来自 `action_result`，`self_note` 来自
 `action_requested.data.self_note`；思考从不读取，纠错回合丢弃；记忆查询返回的条目只在本秒续接消息中，折叠后只留条数。
 
-**上界与自检。** 链长不超过同刻上限加受限轮（交谈对方结束另加的轮次照旧计入），每次决策另受 16 个回合约束。发送前检查续接链中
+**上界与自检。** 链长不超过同刻上限加受限轮（交谈对方结束另加的轮次照旧计入），每次决策另受 16 个回合约束；名称类拒绝每人每秒前 2 次
+不计同刻轮数（见「活动受理拒绝码」），链长上界相应至多另加这 2 次。发送前检查续接链中
 每个 assistant 都带 `reasoning_content`，缺失就断链；带续接链的请求中本次决策内的 assistant 缺思考时以明确的英文错误失败。
 
 **开关。** 运行参数 `same_second_continuation`（缺省开；新建运行由 `worldmock run --same-second-continuation on|off` 给出）
@@ -1670,16 +1693,16 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | `identity` | `Identity` | 身份：`age` 取 16–100，`occupation` 不超过 20 字，`living_arrangement` 不超过 30 字 |
 | `relationships` | `Relationship[]`，1–4 条 | 关系：`name_or_appellation` 不超过 12 字、`role` 不超过 12 字、`intimacy` 取 0–30 整数、`channels` 取 1–3 项非空文本 |
 | `situation` | `Situation` | 当下处境：`busy_this_week`（本周在忙什么）与 `cares_about`（在意什么），各不超过 60 字；卡片编译照旧，不进提示 |
-| `time_anchors` | `TimeAnchors` | 时间锚点：`wake`、`leave_home`、`lunch`、`dinner`、`bedtime` 五个时间窗口，按起点排列为起床 < 出门 < 午餐 < 晚餐 < 就寝；递增序列后的回绕小值构造时确定性 +24 归一为次日锚点（1.0→25.0，落在字段值里），归一后仍不单调的（同日乱序，如 8→7）拒绝 |
+| `time_anchors` | `TimeAnchors` | 时间锚点：`wake`、`leave_home`、`lunch`、`dinner`、`bedtime` 五个时间窗口，按起点排列为起床 < 出门 < 午餐 < 晚餐 < 就寝；递增序列后的回绕小值构造时确定性 +24 归一为次日锚点（1.0→25.0，落在字段值里），归一后仍不单调的（同日乱序，如 8→7）拒绝；`lunch`、`dinner`、`bedtime` 在场景显式声明时取场景窗口，落不下的槽保留卡片值（见下文「场景作息覆盖」） |
 | `chronotype_midsleep` | 浮点，小时 | 时型（自由日睡眠中点），取 [0, 24)，吸附 0.25 小时格点；场景显式声明时取场景值（量化到同一格点，24 点写成 0 点） |
-| `sleep_need_hours` | 浮点，小时 | 睡眠需要，取 7.0–9.0，吸附 0.25 小时格点，默认 7.5 |
+| `sleep_need_hours` | 浮点，小时 | 睡眠需要，取 7.0–9.0，吸附 0.25 小时格点，默认 7.5；场景显式声明时取场景值（量化到同一格点） |
 | `habits` | `HabitSignature[]`，至多 5 条 | 习惯签名：`trigger` 不超过 30 字、`response` 不超过 40 字、`time_window` |
 | `tastes` | `Tastes` | 口味：`content_genres` 至多 6 项、`food_preferences` 至多 6 项、`media` 至多 4 项，条目非空且去重；内容题材与内容、游戏条目的 `genre[]` 确定性精确匹配得到 `taste_weights`（没有题材声明的条目为 0）；原始权重只作排序信号，实际缓解另按有效偏好 `f + (1 − f)·w` 调幅度（见「体感与动机证据」） |
 | `coping` | 文本 | 应对方式（压力时做什么），不超过 60 字 |
 
 时间窗口（`TimeWindow`）取自午夜起的小时数，半开区间：`start_hour` 取 [0, 30)，`end_hour` 取 (0, 30]，两者吸附 0.5 小时格点，跨度不超过 12 小时。就寝窗口允许跨午夜：`end_hour` 可大于 24（如 23–25 表示到次日 01:00）；锚点回绕归一后 `start_hour` 亦可大于 24（25 表示次日 01:00），上限为次日 06:00 地平线（30 小时）。这些字段属于人物作息，不构成当日目标的时间计划。
 
-**场景作息覆盖**（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 2.1）。场景人物显式声明的作息字段覆盖卡片的抽取值，未声明的字段仍取卡片值，身体结算、零点计划与每轮人设层因此读同一组值。只覆盖场景文档里显式写出且非空的
+**场景作息覆盖**（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 2.1）。场景人物显式声明的作息字段覆盖卡片的抽取值，身体结算、零点计划与每轮人设层因此对这些字段读同一组值（人设层取量化到卡片格点的值，落不下而保留卡片值的槽除外）；未声明的字段仍取卡片值。只覆盖场景文档里显式写出且非空的
 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、`bedtime_window`（按场景人物的已声明字段判定，覆盖作用在加载所得的场景人物上），分别写进卡片的
 `chronotype_midsleep`、`sleep_need_hours` 与 `time_anchors.lunch`、`dinner`、`bedtime`；取值量化到卡片格点（中点与睡眠需要 0.25 小时，窗口 0.5 小时）。窗口覆盖后经回绕归一与起点非递减的顺序校验重建锚点，
 按锚点顺序反复尝试直到没有槽能再落下；落不下（顺序冲突）或量化后写不成合法窗口的槽保留卡片值并记 `CARD_FIELD_CONFLICT`，每处实际改变卡片值的覆盖记 `CARD_FIELD_OVERRIDDEN`（见「运行输入警告」）。
@@ -1939,11 +1962,11 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 | --- | --- |
 | 产出文件 | `persona_coverage.json`，默认写在场景文件同目录，可由参数改写路径 |
 | 触发命令 | `worldmock validate` 与 `worldmock profile validate` 都执行该校验；新建运行按同一规则与目标集计算（手机配置核验失败时目标集不含应用别名，见下文），只记运行输入警告 `COVERAGE_BELOW_THRESHOLD`（见「运行输入警告」），不写文件 |
-| 可执行比例阈值 | 0.8；任一人物低于阈值即校验失败并列出缺失项，此时不写出文件；新建运行低于阈值只警告，不失败 |
+| 可执行比例阈值 | 0.8；任一人物低于阈值即校验失败并列出缺失项，文件在判定之前照常写出（该人物 `passed` 为假）；新建运行低于阈值只警告，不失败 |
 | 文件结构版本 | 1 |
-| 匹配规则 | 口味条目与目标品类集精确相等；习惯反应与目标关键词互为子串，目标关键词不含 App 名；App 名只在媒介条目上精确命中，不以子串给习惯反应或内容题材算命中（「B站视频」不因应用名「B站」算覆盖） |
+| 匹配规则 | 内容题材、媒介条目与目标品类集精确相等；习惯反应、饮食喜好与目标关键词互为子串，目标关键词不含 App 名；App 名只在媒介条目上精确命中，不以子串给习惯反应或内容题材算命中（「B站视频」不因应用名「B站」算覆盖） |
 
-下列为产出示例。文件只在全部人物通过时写出，因此 `passed` 为真、`missing` 为空。
+下列为全部条目命中时的产出示例（`passed` 为真、`missing` 为空）；未命中的条目列在 `missing`，比例低于阈值的人物 `passed` 为假。
 
 ```json
 {
@@ -1981,9 +2004,12 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 
 注入即核对（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 1.3、2.1、8.1）：人物卡片、场景内容与地图数据对不上时逐条发出警告，而不是静默算成零。
 新建运行在装配人物工作区时计算（画像编译、场景作息覆盖与口味权重之后），按闭集形状冻结进运行清单键 `input_warnings`（见「模型身份」），
-每条另写一条 `runtime` 组件、`warn` 级的操作日志（`code` 为警告码，带 `agent_id`、`message`、`details`），导出时计入 `quality.json` 的
+每条另写一条 `runtime` 组件、`warn` 级的操作日志（`code` 为警告码，带 `message`、`details` 与人物级警告的 `agent_id`），导出时计入 `quality.json` 的
 `input_warnings` 一节（见[记录引擎的质量报告](design/05-recording-engine.md#质量报告)）。恢复与重放不重算，随父清单继承。
 `worldmock validate` 用同一函数对同一份编译结果计算同一组警告，列在结果的 `input_warnings` 中并逐条写到标准错误流。
+运行查看器 `tools/run-viewer.html` 的总览列出同一组警告：读取与 `footprints.sqlite` 一起拖入或选择的 `manifest.json`（运行清单本身，或导出清单中的
+`frozen_run_manifest`；以库中世界状态的 `run_id` 认定），人物的警告按人物编号在前、场景级在后，逐条给警告码与 `message`；
+`input_warnings` 为 `null` 或清单没有这个键时写明未计算，空列表写明没有警告，没有读到清单时说明怎样提供。
 **运行路径永不因警告失败**，计算警告本身也不使创建失败（手机配置核验失败时覆盖率按没有应用别名计算，见「人物卡片覆盖率产出」）；
 `validate` 在覆盖率低于 0.8 时照旧失败（先写出警告），手机配置核验失败时同样照旧失败。
 
@@ -2076,7 +2102,7 @@ RunPhase = Literal[
 实际埋点包括 `DECISION_ROUND_COMMITTED`、`ACTION_ACCEPTED`、`ACTION_REJECTED`、`FUNDS_CHANGED`、
 `MODEL_EXCHANGE`、`MEMORY_UPDATED` 与 `CHECKPOINT_COMMITTED`，它们和持久事件类型是不同字段。
 新建运行冻结的每条运行输入警告另写一条组件 `runtime`、级别 `warn` 的记录，`code` 取警告码闭集（见「运行输入警告」），
-关联键为 `agent_id`、`message` 与 `details`。
+关联键为 `message`、`details` 与人物级警告的 `agent_id`（场景级警告的 `agent_id` 为 null，不落盘）。
 
 操作日志逐条 flush，未作逐条 fsync；写入或关闭失败只报告到 stderr，属于当前诊断输出行为。
 必要模型留证、记忆或数据库写入失败仍按[模拟引擎的失败处理](design/04-simulation-engine.md#失败处理)停止运行，不因诊断日志的处理方式而放宽。
@@ -2128,3 +2154,4 @@ RunPhase = Literal[
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按人物 Prompt 规格修订（人物 Prompt 台账 C2–C19、C21–C30 的【同】作业，裁决 #21–#38 取推荐；修订部分待实现，实现后按实施台账复核）：「状态归属」「当日目标的配置与质量输出」「动作状态与动作结果」「活动受理拒绝码」删 `wait_only` 阶段及其升级，受限只经工具层 `available`、`reason` 表达，受限轮用完仍无进行中活动时写 `decision_budget_exhausted` 并技术停顿（C2）；`start_activity` 改为五个等长数组 `targets`、`actions`、`ways`、`from`、`to` 与请求级 `answering`，登记各动词的合法组合，方式闭集增「给予」，工具定义整次运行不变、不带逐轮名称枚举、description 只写用途（C3）；「下一次观察的 `facts.progress.results[]`」一律改为进度层 `tool_call.result`，本 session 内持续保留，`details` 不复述参数并登记键闭集（增 `outcome`、`candidates`、`linked_orders`），回看结果同秒随续接返回（C4）；目标 `progress_note` 照存不呈现，当日计划只在待办层 `day_plan`，summary 在本 session 内是进度层参数、结束后进入记忆层 `self_notes`（C5）；记忆条目增必填可空的 `subject`（C6）；「交互菜单声明与有效菜单」的 `scene`、`facts` 改为工具层 `targets`，只读查询只开放三个记忆工具（C7）；可见期只管展示与比较，`obtain` 可指名未展示的商品并按当前报价结算，登记 `SUPPLY_NOT_FOUND`、`SUPPLY_NAME_AMBIGUOUS`，不自动替换，其余动词的未列名称仍按协议纠错（C8）；合成一餐只限各项 `to` 都是自己，`consume` 指向他人为给予（瞬时、同处、只转移），订单唯一收货人 `recipient_id` 与 `request_message_id`，登记 `REQUEST_ALREADY_HANDLED`，`ACTIVITY_PRECONDITION_UNMET`、`PRODUCT_NOT_HELD`、`RECIPIENT_NOT_FOUND` 覆盖给予（C9）；世界状态结构版本 7 改 8（「领域枚举」「冻结地图与场景引用」「持久化当下事实」），登记版本 8 的新字段（C10）；`Contact.receive_location_id`、`WorldState.contact_holdings`、`AgentState.outbox`，联系人回复请求增 `history`（至多 20 条）与 `received`（C11）；开工与恢复使用同一截止约束，未付款的逾期任务保留到截止当日结束，登记 `WORK_SUBMISSION_LATE`，达标、活动状态与提交条件分开说明（C12）；`PRODUCT_NOT_HELD` 改为可消费量为零，食用按实际持有份量，开吃份量暂停保留、结束丢弃（C13）；「观察投影字段」重写总述与流程图，「场景段落与事实清单」改名为「七层字段」并逐字段迁移、删除旧键，新增「七层 Schema」登记 `src/worldmock/life/prompt_schemas.py`（C14–C16）；「活动控制行」「体感与动机证据」「禁止进入提示的字段」改为工具层活动目标、`levels` 五键与覆盖七层、原生 `tools` 与续接消息的禁止键表，删「在动态工具说明中关联物品身份与公开名称」（C17）；删除「已核验经历与当地餐食」，`verified_experiences` 只作私有证据，播客句移入「七层字段」（C18）；「可见期与提示预算」删收件头条数与决策自述汉字上限，结果在本 session 内保留，计数范围改为原生 `tools`、系统层、六层 JSON、续接消息与预留输出，新增记忆层 8000 字符窗口，浓缩改为先提前结束续接、再去 `self_note`、再折叠为 `condensed`（C19）；「请求组成」删决策自述阶段、身份前言、只读前言与「怎样过一天」全文，行动与只读请求改为七层 JSON，逐字登记生活决策与只读问答的系统层全文（C21、C22）；同秒续接：链首 user 逐字节固定，后续决策追加原生 assistant 与一条 tool 消息 `{result, changes, events}`，缓冲由环境从模型证据重建，写明断链、折叠、上界、自检与运行参数 `same_second_continuation`，登记回执不回给模型，记忆查询条目只在续接消息中（C23）；回合预算全部归行动阶段，预算 JSON 与低预算提示不再追加到 system，单次与跨决策预算分开计（C24）；「生成参数」「模型身份」删决策自述行，行动请求按「带生活工具且 thinking 开启」识别，`two_stage_model_identity` 改名 `stage_model_identity`，阶段键只剩 `action`、`work_review`（`action` 增 `same_second_continuation`），五个入口拒绝含 `decision_statement` 的清单，提示与工具指纹重钉，删「决策自述证据」整节（C25）；零点计划输入的已核验经历写明句式，删「决策自述」字样（C26）；卡片以人设层 JSON 呈现（去掉 `situation`、加姓名、合并关系、`view` 与 `preferences`），登记 `persona_card_struct`，600 汉字上限只约束卡片派生字段，`profile compile` 的输出说明同步（C27）；「记忆字段」改为人设层与记忆层承载（派生、零点分区、8000 字符窗口），主观归纳不呈现、阈值巩固保留，被拒 conclude 的记忆照存不呈现，就寝反思带来源与归属日期（C28、C29）；「窗口声明与字段字典编码」注明续接消息与 `reasoning_content` 原样保留，「人物卡片、记忆或场景」改为七层名称，dreaming 读 `self_note` 与层 JSON（C30） |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「状态归属」受限轮阶段注明 `conclude_only` 留在闭集中而不再被进入；决策节律参数与「动作状态与动作结果」写明受限轮用完仍有待收尾活动时同样写 `decision_budget_exhausted`（待收尾就要同秒再决策，否则这一秒没有上界）；「请求模型的闭集与字面边界」的 `to` 写人物目标的名称（带类别前缀），不在本层的同世界人物可写「人物：<名>」（私有 `person_bindings`），名称不是人物时 `RECIPIENT_NOT_FOUND`；「七层字段」补可用性判定中的决策是否到期、技能不够的任务整个不列、内容动作的时长在 `duration`、活动客观进度的「还剩」、`to` 的候选、交谈邀请的回应方式、同秒推导记录排在事件记录之前、送达记录只给付款人、路程中 `fixed_rules` 取出发地菜单、`progress_event_ids` 的来源、`details` 增 `given` 与 `episodes`、`outcome` 只给进食与未完成的浏览、`recall` 的逐键形状（首键 `kind`），session 下界的提交按 `state_version_before` 与 `state_version_after` 识别；「体感与动机证据」写明人设层以短语写睡眠中点与睡眠需要；「可见期与提示预算」注明工作材料揭示尚无提示呈现（规格范围外），折叠并入紧挨着的 `condensed`；「禁止进入提示的字段」写明 `session_bindings` 不再产生、`message_bindings` 与 `person_bindings` 的内容、校验覆盖范围与代码键表是本段的超集；「生成参数」增只读问答行（与行动相同）；「联系人回复」写明 `history` 不含本次来信、`received` 的时刻口径；「人格与卡片字段」写明无卡片人物只是卡片派生字段为空、按联系人称谓合并、`render_card` 输出不变；「记忆字段」写明边界提交的识别、活动句按结束提交归属、返工的提交句、归属今天的反思次日出现、巩固输入；「思考回传」写明断链的补充条件、反事实分支在起点断链、`events` 只带上一决策观察之后的新记录、暂停项 `added` 含内容有变的项、发送前自检的范围、开关的命令行参数与人物配置；「窗口声明与字段字典编码」增 dreaming 的 `input.decision_layers` 与 `provenance.decision_layer_sources`，写明裁去记忆只作用于动作请求事件的投影、实际请求原样保留；「CLI 命令接口」的 `run` 增 `--same-second-continuation on\|off`。理由：规格实现后以代码为事实核对接口合同，行为以人物 Prompt 规格为准 |
 | `2026-09-28-persona-prompt-spec-fixes` | 2026-09-28 | 人物 Prompt 七层规格最后一批代码与规格出入的修复（见[人物 Prompt 验收记录](dev/persona-prompt-verification.md#代码与规格的出入)）：`recall_task_summary` 的当日目标名称就是待办层写出的目标文字（私有 `goal_bindings` 不再拼「目标：<意图>：<目标文字>」），活动也可按记忆层 `self_notes` 所写的活动名回看（活动绑定另带 `note_labels`），名称对应不止一项时报 `TASK_NOT_FOUND`；受限轮的收尾阶段每项待收尾活动的 `conclude_activity` 都可用，只收尾其中几项也受理；业务拒绝没有可读的下一步时 `next_step` 为 `null`；`details.purchases` 删 `way`（请求参数，不复述）；门店商品目标第一个动作的 `note` 写来源标记；`browse_items` 在同一请求的多项活动全部结束后的结果中照写，工具层置顶取同一份浏览结果 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#文档同步作业)的【同】作业 C1–C19 修订（一日运行保真 C20：条款随阶段 1–5 的代码落地，实现后按 `34a41ee` 的代码逐节核对并补齐）：「人物工具与管理接口」全部目录类对象可写名称、无损归一后唯一即受理（本轮未列出的只限商品、本人启用的生活活动、内容、游戏与地点），名称类纠错只在 `start_activity` 带可照填的候选、其余名称参数在原因里列出最接近的名称，三个活动控制工具改为 `items[{activity_name, summary, memories, views}]`（`views.about` 即存储的 `subject`，旧形状经 `control_items` 读出），只有这三个工具的参数逐字段写「格式与来源」说明（C1）；「当日目标请求」等处目标条目增必填可空的 `around_time`，推进要求同家族活动在其前后 90 分钟内进行，修订等价比较改为四字段，零点计划模板增第五、六条，例行意图闭集 `ROUTINE_INTENT_KINDS` 与只计非例行意图的推进比例（C2）；「请求字段与结算检查」名称类错误逐项报、其余条件仍报第一条，控制工具行改 `items`（C3）；「活动受理拒绝码」拒绝与受理共用错误结构（`error_code`、`reason`、`fix`、`items`、`unmet`，受理写 `details.resolved`、`notes`），每个会抛出的码都有具体原因，`ACTIVITY_PRECONDITION_UNMET` 的 `unmet` 增 `delivery_destination`、`delivery_route` 各一句原因，登记宿主与环境的名称类闭集 `HOST_NAME_CODES`、`ENVIRONMENT_NAME_CODES`（C4）；「请求模型的闭集与字面边界」可见投影唯一放宽为无损归一后唯一，方式同义闭集表 `WAY_SYNONYMS`（写的方式不是目标列出的方式时查表，唯一命中才受理）与 `WAY_NOT_OFFERED`，控制工具三行改 `items`（C5）；「动作状态与动作结果」名称类拒绝每人每秒前 2 次不计同刻轮数、不施加脉冲（C6）；「联系人回复」请求增 `sender_name`、`now`、`presence`、`receive_location`，登记中文模板、守卫正则闭集、同一结算内重试一次与兜底句，事件增 `attempts[]`、`guard_applied`（C7）；「七层字段」待办层目标增 `around_time`（显示「约 HH:MM」），「展示不是资格上限」推广到全部目录类，人设层 `rhythm` 取场景作息覆盖后的卡片，睡眠中不记已读，`result.details` 增 `fix`、`items`、`resolved`、`notes`，`browse_items` 列完整标签，候选写成可照填的请求，生活活动窗口施加地点类资格（C8）；「七层 Schema」两个指纹在新建运行时计算、不钉常量，18 条规则、`around_time` 与控制工具的 `items` 使之重钉（C9）；「体感与动机证据」「人格与卡片字段」`taste_weights` 是排序信号，实际缓解用有效偏好 `f + (1 − f)·w`（场景层 `entertainment_relief_preference_floor`，游戏同一算法，有缓解时不累积），场景显式声明的作息字段覆盖卡片抽取值、`render_card` 的输入先经覆盖（C10）；「可见期与提示预算」补离开后凭完整标签按名下单（C11）；候选与轮转各节：生活活动窗口施加 `ELIGIBILITY_LOCATION_KIND_MISMATCH`，排序键加相关度（时间窗 +2、未推进目标家族 +2、习惯签名逐字不分大小写命中 +1）与 `sha256(场景\|人物\|日期\|对象)` 决胜、`order_key_version` 2，轮转按每个对象的 `last_presented_at`（C12）；「地点类词表」另立地点 `kind` 闭集，与 `PLACE_TYPES` 同源、与 `location_kinds` 区分，越界与重名在加载时拒绝（C13）；「请求组成」系统层 18 条逐字登记，零点计划模板第五、六条（C14）；「回合预算」「生成参数」「模型身份」「思考回传」「工具返回通道」截断回合丢弃、纠错替换不叠加、关闭思考并 `tool_choice=required` 重试一次（只开放世界请求，只读问答只剩 `finish`），`base_url` 改为 `https://api.deepseek.com/beta`（冻结在主站的清单不能再打开、恢复或重放），清单增 `input_warnings`，链长上界补免计的名称类拒绝，宿主错误码闭集十一码与共用结构（C15）；「记忆字段」「窗口声明与字段字典编码」`subject` 由 `views.about` 供给，`self_notes` 取各项，裁剪按新形状（C16）；「人物卡片覆盖率产出」不按 App 名子串计命中，新建运行只警告，新增「运行输入警告」小节（十个警告码、清单键与质量报告节），并改正同节两处既有漂移（`persona_coverage.json` 在判定之前照常写出，饮食喜好按子串匹配）（C17）；「CLI 命令接口」「运行诊断输出」`validate` 打印输入警告，场景级警告的 ops 记录不带 `agent_id`（C19）；C18（订单 `channel_id` 与由手机配置派生的渠道）以及 C1、C3–C5、C8、C9、C12 中涉及该规格 3.2、3.3、3.5 与 5.2 的部分随其实现落地；文件头补修订说明 |

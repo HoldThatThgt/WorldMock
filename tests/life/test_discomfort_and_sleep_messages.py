@@ -17,9 +17,9 @@ from tests.life.conftest import (advance_next, conclude_request, settle_day_plan
 from tests.life.test_day_planning import _late_engine
 from tests.life.test_same_moment_decisions import _message_to, _with_inbox
 from tests.life.test_sleep_billing import _settlement, _stage_body
-from worldmock.life import same_moment
+from worldmock.life import rhythm, same_moment
 from worldmock.life.activity_control import is_pending_conclusion
-from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, active_activities
+from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState, active_activities
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
 from worldmock.life.schedule import PlanGoal
 from worldmock.life.social import Message
@@ -59,6 +59,51 @@ def test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies(tmp_
     assert rows[8][1:] == (0.0, 0.0) and rows[9][1:] == (0.0, 0.0)
     assert all(rows[step][1:] == (0.0, 0.0) for step in range(1, 10))
     assert rows[10][1] == pytest.approx(-0.025) and rows[10][2] == pytest.approx(0.25)
+
+
+#: 直接调用节律结算段的不适计费用的边界时刻（任意纪元秒）。
+_NOW = 1_767_600_000
+
+
+def _uneasy(hours: float) -> AgentState:
+    """连续不适已 hours 小时、尚未计费、情绪为 0（神经质 0）的人物。"""
+    return AgentState(agent_id=1, name="Lin", location_id="home", balance_account_id="agent:1", body_settled_at=0,
+                      next_decision_at=0, discomfort_started_at=_NOW - round(hours * 3600),
+                      body=BodyState(energy_kcal=1600, entertainment_need=0.0))
+
+
+@pytest.mark.parametrize(("appetite", "sleepiness", "counts"), [
+    ("不饿", "清醒", False), ("有点想吃", "有点乏", False),
+    ("饿", "清醒", True), ("很饿", "清醒", True), ("饿得难受", "清醒", True), ("饿得发慌", "有点乏", True),
+    ("有点想吃", "困", True), ("不饿", "很困", True), ("不饿", "撑不住", True),
+])
+def test_discomfort_counts_only_the_hungry_and_sleepy_bands(appetite: str, sleepiness: str, counts: bool) -> None:
+    """不适档不变（规格 1.5）：饥饿从「饿」起（饿、很饿、饿得难受、饿得发慌），困意从「困」起（困、很困、撑不住），
+    「有点想吃」「有点乏」不算。已连续不适 2.25 小时的人物在不适档里按新增的 0.25 小时施加 −0.025 并记下这些计费小时；
+    落在不适档之外时起点与已计费小时一并清零，不施加脉冲（下一次不适重新从两小时门槛算起）。"""
+    settled = rhythm._settle_discomfort(_uneasy(2.25), {"appetite": appetite, "sleepiness": sleepiness}, _NOW)
+    if counts:
+        assert settled.discomfort_started_at == _NOW - 8100
+        assert settled.discomfort_pulse_hours == pytest.approx(0.25)
+        assert settled.body.mood_valence == pytest.approx(-0.025)
+    else:
+        assert (settled.discomfort_started_at, settled.discomfort_pulse_hours) == (None, 0.0)
+        assert settled.body.mood_valence == 0.0
+
+
+def test_each_boundary_is_billed_only_for_its_new_hours_past_the_threshold() -> None:
+    """门槛只判一次、每个边界只施加新增的计费小时：连续不适 2.25 小时时计费 0.25 小时、施加 −0.025；下一个边界（2.5 小时）
+    只再施加新增的 0.25 小时，不按累计的 0.5 小时重复施加；一个边界一次跨到 2.5 小时则按新增的 0.5 小时施加 −0.05；
+    1.75 小时不施加、不计费。"""
+    levels = {"appetite": "很饿", "sleepiness": "清醒"}
+    first = rhythm._settle_discomfort(_uneasy(2.25), levels, _NOW)
+    second = rhythm._settle_discomfort(first, levels, _NOW + 900)
+    assert (first.discomfort_pulse_hours, second.discomfort_pulse_hours) == (pytest.approx(0.25), pytest.approx(0.5))
+    assert (first.body.mood_valence, second.body.mood_valence) == (pytest.approx(-0.025), pytest.approx(-0.05))
+    jumped = rhythm._settle_discomfort(_uneasy(2.5), levels, _NOW)
+    assert (jumped.discomfort_pulse_hours, jumped.body.mood_valence) == (pytest.approx(0.5), pytest.approx(-0.05))
+    early = rhythm._settle_discomfort(_uneasy(1.75), levels, _NOW)
+    assert (early.discomfort_pulse_hours, early.body.mood_valence) == (0.0, 0.0)
 
 
 def test_the_boundary_decision_segment_reads_no_message_while_asleep(engine_factory) -> None:

@@ -6,6 +6,9 @@
 2. 把最旧一段连续的未受保护记录（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；
 每步之后重新计数。受保护记录从不改变；工具层、人设层、记忆层、待办层与环境层不浓缩。仍超限时按层记录 token 用量
 并以容量故障停止，不静默删减。
+
+工具层的可调用索引 callable_index 在 user 消息里，照样计入整次请求的容量计数（阈值与浓缩步骤不变），也从不被浓缩或删减；
+它不计入单次呈现上限（docs/dev/SPEC-dayrun-fidelity.md 5.2）。容量故障的分层记录另单列它的 token 用量。
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ TOKENIZER_MODEL = f"deepseek/{DEEPSEEK_MODEL}"
 #: 进度层的层名与折叠记录的类型。
 _PROGRESS_LAYER = "进度层"
 _CONDENSED = "condensed"
+#: 工具层中可调用索引的键（容量故障记录单列它的用量）。
+_INDEX_KEY = "callable_index"
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,13 +150,17 @@ def _with_user_layers(request: dict[str, Any], layers: list[dict], user_index: i
 
 
 def _log_capacity_failure(request: dict[str, Any], layers: list[dict], measured: int, limit: float) -> None:
-    """@brief 按系统层、工具定义、各 user 层、此后的原生消息与预留输出分层记录 token 用量。"""
+    """@brief 按系统层、工具定义、各 user 层（工具层的可调用索引另单列，它已含在工具层之内）、此后的原生消息与预留输出
+    分层记录 token 用量。"""
     counts: dict[str, int] = {
         "system": token_counter(model=TOKENIZER_MODEL, messages=request["messages"][:1]),
         "tools": token_counter(model=TOKENIZER_MODEL, messages=[], tools=request.get("tools")),
     }
     for layer in layers:
         counts[str(layer.get("layer"))] = token_counter(model=TOKENIZER_MODEL, text=render_layer_json(layer))
+        if isinstance(layer.get(_INDEX_KEY), dict):
+            counts[f"{layer['layer']}.{_INDEX_KEY}"] = token_counter(model=TOKENIZER_MODEL,
+                                                                     text=render_layer_json(layer[_INDEX_KEY]))
     counts["continuation_messages"] = token_counter(model=TOKENIZER_MODEL, messages=request["messages"][2:])
     counts["reserved_output"] = request["max_tokens"]
     logging.error("Model request capacity exceeded: total=%s threshold=%s parts=%s", measured, limit, counts)

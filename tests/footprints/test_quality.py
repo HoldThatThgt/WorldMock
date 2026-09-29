@@ -765,6 +765,19 @@ def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_render
     assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
 
 
+def test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids():
+    """内部标识形态还包括十二位以上的十六进制串与 # 加六位十六进制（docs/dev/SPEC-dayrun-fidelity.md 7.4）：地名与活动名里
+    漏出的这两种形态经唯一的渲染器投影后各计一项内部标识；十一位的十六进制串与 # 加五位不是标识形态，不计。"""
+    crafted = build_quality_report(_timeline_events("便利店#a1b2c3", "3e71a031bb3d", "周报"), [],
+                                   _manifest())["timeline_labels"]
+    assert (crafted["english_kind_names"], crafted["internal_ids"]) == (0, 2)
+    assert [(item["label"], item["item"], item["text"]) for item in crafted["findings"]] == [
+        ("步行去便利店#a1b2c3", "internal_id", "#a1b2c3"), ("3e71a031bb3d", "internal_id", "3e71a031bb3d")]
+    near = build_quality_report(_timeline_events("便利店#a1b2c", "3e71a031bb3", "周报"), [],
+                                _manifest())["timeline_labels"]
+    assert (near["english_kind_names"], near["internal_ids"], near["findings"]) == (0, 0, [])
+
+
 def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately():
     """联系人回复守卫（docs/dev/SPEC-dayrun-fidelity.md 7.3）：命中与类别按尝试计，重试与兜底按回复计；没有 attempts
     证据的回复单列，不算未命中。"""

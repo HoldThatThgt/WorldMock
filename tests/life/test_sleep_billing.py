@@ -21,7 +21,7 @@ from tests.life.test_day_planning import _decide, _late_engine, _start
 from worldmock.footprints.models import EventDraft
 from worldmock.life import rhythm
 from worldmock.life.activity_control import is_pending_conclusion
-from worldmock.life.felt import SOCIAL_NEED_AWAKE_RATE, SOCIAL_NEED_SHARED_MEAL_RATE
+from worldmock.life.felt import SOCIAL_NEED_AWAKE_RATE, SOCIAL_NEED_CALL_RATE, SOCIAL_NEED_SHARED_MEAL_RATE
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, BodyState, active_activities
 from worldmock.life.schedule import PlanGoal
 from worldmock.life.sleep import SLEEP_TIME_CONSTANT_H
@@ -232,6 +232,32 @@ def test_meal_finished_exactly_at_the_boundary_still_counts_as_shared(engine_fac
     meal_state = engine.state.activities[meal]
     assert len(ends) >= 2 and ends[-1] == end
     assert (meal_state.status, meal_state.ended_at) == (ActivityStatus.COMPLETED, end)
+
+
+def test_a_call_ending_at_the_boundary_is_billed_once_by_the_call_ledger(engine_factory) -> None:
+    """通话在边界按计划结束：每个区间（含结束的那一段）的社交需要只按通话结算推进一次（清醒 +0.04、通话 −0.4，
+    每小时）。节律结算段按本区间共同身体结算的 activity_ids 判定交谈与通话覆盖，不按推进后的状态：通话在本边界
+    已结束，节律结算段也不再叠加一次清醒增长。"""
+    engine = engine_factory()
+    settle_day_plans(engine)
+    _stage_body(engine, social_need=0.8)
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("通话", "联系人：陈母"))}, "call")
+    assert results[0].status == "in_progress", results[0].error_code
+    called = results[0].activity_id
+    end = engine.state.activities[called].planned_end_at
+    rate = SOCIAL_NEED_AWAKE_RATE - SOCIAL_NEED_CALL_RATE
+    intervals = []
+    while engine.state.activities[called].status == ActivityStatus.ACTIVE:
+        while engine.scheduling_state().ready_agent_ids:
+            _decide(engine, f"call-{engine.state.version}")
+        before, after, settlement = _advance(engine)
+        assert called in settlement["activity_ids"]
+        assert after.social_need - before.social_need == pytest.approx(rate * _hours(settlement)), settlement
+        intervals.append((settlement["interval_start"], settlement["interval_end"]))
+
+    call = engine.state.activities[called]
+    assert (call.status, call.ended_at, engine.state.current_time) == (ActivityStatus.COMPLETED, end, end)
+    assert intervals[-1][1] == end and not active_activities(engine.state, 1)
 
 
 def _sleep_activity(engine, status: ActivityStatus, ended_at: int | None) -> ActivityState:

@@ -127,11 +127,13 @@ def test_equivalent_old_and_current_requests_read_the_same_items() -> None:
     ("conclude_activity", {"items": [{"activity_name": _WAIT, "summary": "等完了。", "memories": [],
                                       "views": [{**_FRIEND, "about": None}]}]}),
     ("conclude_activity", {"task": [_WAIT, _WORK], "summary": ["等完了。"], "memories": [[], []]}),
+    ("conclude_activity", {"task": [_WAIT], "summary": ["等完了。"], "memories": [[_PLAIN], [_PLAIN]]}),
     ("conclude_activity", {"task": [_WAIT], "summary": ["等完了。"], "memories": [[{**_PLAIN, "subject": 3}]]}),
     ("report_status", {"task": [7], "summary": ["继续。"]}),
 ])
 def test_unrecognised_or_malformed_requests_fail_as_integrity_errors(tool: str, request_body) -> None:
-    """认不出的形状（含最早的 session_ids 形状与非控制工具）与缺字段、类型不符的记录按数据不一致失败，不猜测。"""
+    """认不出的形状（含最早的 session_ids 形状与非控制工具）与缺字段、类型不符、平行数组逐项对不齐（记忆组数与活动数
+    不同也不按 zip 截断）的记录按数据不一致失败，不猜测。"""
     with pytest.raises(IntegrityError):
         control_items(tool, request_body)
 

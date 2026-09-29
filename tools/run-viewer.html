@@ -163,10 +163,11 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
     <h1>拖入 footprints.sqlite</h1>
     <p>将运行产生的 SQLite 足迹文件拖到此处，或点击选择文件。<br>
        记忆正文从 SQLite 事件读取；拖入整个 run 目录还可读取人物的 <code>MEMORY.md</code> 总结。<br>
+       同一 run 目录的运行清单 <code>manifest.json</code> 一起拖入或选择时，总览列出运行输入警告。<br>
        地点名称和活动标题直接读取运行记录。<br>
        所有数据只在本地浏览器内解析，不会上传。</p>
   </div>
-  <input type="file" id="file-input" accept=".sqlite,.db,.sqlite3">
+  <input type="file" id="file-input" accept=".sqlite,.db,.sqlite3,.json" multiple>
   <div id="drop-err"></div>
   <div id="drop-log"></div>
 </div>
@@ -249,6 +250,8 @@ const S = {
   obs: [],               // {seq,t,agent,bal,en,sl,et}
   acts: [],              // 合并后的活动段
   memFiles: {},          // agentId -> {memoryMd, episodes:[]}
+  runManifest: null,     // {path, frozen, manifest}：随库提供的本运行冻结清单（frozen 表示取自导出清单）
+  ignoredManifests: 0,   // 随库提供、却不是本库所属运行清单的 manifest.json 个数
   nameIdx: null,         // {locations:Map, targets:Map} 来自本次运行记录
   missingNames: new Set(), // 已报告名称缺失的对象
   fmt: null, tzOff: 28800,
@@ -883,6 +886,7 @@ function renderOverview(){
       ${accounts || '<div class="empty">无 world_state</div>'}
     </div>
   </div>
+  ${renderInputWarnings(agent)}
   <div class="card">
     <h3 style="margin-top:0">事件类型分布</h3>
     ${types.map(([t,n])=>`
@@ -890,6 +894,72 @@ function renderOverview(){
         <div class="bar-bg"><div class="bar" style="width:${n/maxN*100}%;background:${typeColor(t)}"></div></div>
         <span class="n">${nf(n)}</span></div>`).join('')}
   </div>`;
+}
+
+/* ---------- 运行输入警告 ---------- */
+/** @brief 本库所属运行的冻结运行清单：清单本身，或导出清单 frozen_run_manifest 中的那一份。以世界状态的 run_id 认定
+ *  （引擎打开运行时核对二者一致；恢复分支的库以父运行的事件开头，首个事件的 run_id 不是本运行）；带 agent_ids 才是
+ *  运行清单，同一 run 目录里 LabelKit 输入、手机来源等清单也写着同一个 run_id。 */
+function ownRunManifest(value){
+  const runId = S.world?.run_id;
+  const own = m => runId!=null && m!==null && typeof m==='object' && m.run_id===runId && Array.isArray(m.agent_ids);
+  if (own(value)) return {manifest:value, frozen:false};
+  if (own(value?.frozen_run_manifest)) return {manifest:value.frozen_run_manifest, frozen:true};
+  return null;
+}
+/** @brief 在随库提供的 manifest.json 中找出本库所属运行的运行清单；运行清单本身优先于导出清单中冻结的副本（导出逐字
+ *  复制，内容相同）。读不出或解析失败的文件记英文错误日志，与其余不属于本库运行的清单一起计入忽略数。 */
+async function loadRunManifest(candidates){
+  let found = null, ignored = 0;
+  for (const candidate of candidates){
+    let own = null;
+    try{ own = ownRunManifest(JSON.parse(await candidate.read())); }
+    catch(error){ console.error('Unreadable manifest file:', candidate.path, error.message); }
+    if (!own){ ignored++; continue; }
+    if (!found || (found.frozen && !own.frozen)) found = {...own, path:candidate.path};
+  }
+  S.runManifest = found;
+  S.ignoredManifests = ignored;
+}
+/** @brief 运行输入警告卡片（docs/dev/SPEC-dayrun-fidelity.md 1.3、九）：来源清单与警告；没有读到清单时说明怎样提供。 */
+function renderInputWarnings(agent){
+  const head = '<h3 style="margin-top:0">运行输入警告</h3>';
+  const found = S.runManifest;
+  if (!found){
+    const ignored = S.ignoredManifests
+      ? `随库提供的 ${S.ignoredManifests} 个 manifest.json 都不是本库所属运行的运行清单。` : '';
+    return `<div class="card">${head}<div class="hint">未读取本库所属运行的运行清单：与 footprints.sqlite 一起拖入或选择` +
+      `同一 run 目录的 <code>manifest.json</code>（也可拖入导出目录），即可列出运行输入警告。${ignored}</div></div>`;
+  }
+  return `<div class="card">${head}
+    <div class="kv"><span class="k">来源</span><span class="v">${esc(found.path)}${found.frozen?' · frozen_run_manifest':''}</span></div>
+    ${inputWarningBody(found.manifest, agent)}</div>`;
+}
+/** @brief 清单 input_warnings 的四种情形：没有这个键（清单早于运行输入警告）与 null（引擎直驱）都写明未计算，空列表写明
+ *  没有警告；其余逐条列出警告码与说明，人物的警告按编号在前、场景级（agent_id 为 null）在后，按人物筛选时只列该人物与场景级。 */
+function inputWarningBody(manifest, agent){
+  const note = text => `<div class="empty">${text}</div>`;
+  if (!('input_warnings' in manifest)) return note('未计算：运行清单没有 input_warnings 键（清单早于运行输入警告）');
+  const list = manifest.input_warnings;
+  if (list===null) return note('未计算：清单的 input_warnings 为 null（引擎直驱建立的运行）');
+  if (!Array.isArray(list)){
+    console.error('Run manifest input_warnings is neither a list nor null');
+    return note('清单的 input_warnings 不是列表，无法列出');
+  }
+  if (!list.length) return note('无输入警告');
+  const scenario = item => item?.agent_id==null;
+  const rows = list.filter(item=>!agent || scenario(item) || String(item.agent_id)===agent)
+    .sort((x,y)=>scenario(x)-scenario(y) || (x.agent_id??0)-(y.agent_id??0));
+  const persons = list.filter(item=>!scenario(item)).length;
+  const count = `<div class="kv"><span class="k">条数</span><span class="v">共 ${list.length} 条：人物 ${persons} 条、` +
+    `场景级 ${list.length-persons} 条${agent?`；当前筛选 ${rows.length} 条`:''}</span></div>`;
+  if (!rows.length) return count + note('所选人物没有输入警告');
+  return count + `<table class="warning-table"><thead><tr><th>归属</th><th>警告码</th><th>说明</th></tr></thead><tbody>
+    ${rows.map(item=>`<tr><td style="white-space:nowrap">${scenario(item)? '<span class="tl-agent badge-a0">场景级</span>'
+        : `<span class="tl-agent ${agentCls(item.agent_id)}">${esc(agentName(item.agent_id))}</span>`}</td>
+      <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${esc(item?.code)}</td>
+      <td>${esc(item?.message)}</td></tr>`).join('')}
+    </tbody></table>`;
 }
 
 /* ---------- 时间线 ---------- */
@@ -1552,11 +1622,9 @@ async function handleFiles(fileList, dirEntries){
 
     buildIndex();
 
-    if (dirEntries && dirEntries.length){
-      log('· 读取记忆文件 …');
-      await loadMemFiles(dirEntries);
-      log(`· 记忆文件：${Object.keys(S.memFiles).length} 个 agent`);
-    }
+    log('· 读取随库提供的记忆文件与运行清单 …');
+    await loadRunFiles(files, dirEntries||[]);
+    log(`· 记忆文件：${Object.keys(S.memFiles).length} 个 agent · 运行清单：${S.runManifest?.path||'未读取'}`);
 
     $('#run-meta').textContent = `${S.runId.slice(0,8)} · ${fmtT(S.t0)} ~ ${fmtT(S.t1)} · ${nf(S.events.length)} 事件`;
     const sel = $('#agent-filter');
@@ -1575,15 +1643,25 @@ async function handleFiles(fileList, dirEntries){
   }
 }
 
-/* 目录拖入 → MEMORY.md / episodes.jsonl */
-async function loadMemFiles(entries){
+/** @brief 读入与足迹库一起拖入或选择的运行文件：目录中的人物记忆文件；顶层与各层目录中的 manifest.json 作运行清单候选。 */
+async function loadRunFiles(files, dirEntries){
+  const manifests = Array.from(files).filter(file=>file.name==='manifest.json')
+    .map(file=>({path:file.name, read:()=>file.text()}));
+  if (dirEntries.length) await loadDirFiles(dirEntries, manifests);
+  await loadRunManifest(manifests);
+}
+
+/* 目录拖入 → MEMORY.md / episodes.jsonl；各层的 manifest.json 记入 manifests（运行清单候选，见 loadRunManifest） */
+async function loadDirFiles(entries, manifests){
   const walk = async (entry, path='')=>{
     if (entry.isFile){
+      const file = ()=>new Promise((res,rej)=>entry.file(res,rej));
+      if (entry.name==='manifest.json')
+        manifests.push({path:(path+'/'+entry.name).slice(1), read:async ()=>(await file()).text()});
       if (entry.name==='MEMORY.md' || entry.name==='episodes.jsonl'){
         const m = (path+'/'+entry.name).match(/agent_?0*(\d+)/i);
         const aid = m? String(+m[1]) : String(Object.keys(S.memFiles).length+1);
-        const file = await new Promise((res,rej)=>entry.file(res,rej));
-        const text = await file.text();
+        const text = await (await file()).text();
         S.memFiles[aid] = S.memFiles[aid] || {};
         if (entry.name==='MEMORY.md') S.memFiles[aid].memoryMd = text;
         else S.memFiles[aid].episodes = text.split('\n').filter(Boolean)
@@ -1631,6 +1709,7 @@ function bindDnd(){
     if (S.db) S.db.close();
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
+    S.runManifest=null; S.ignoredManifests=0;
     S.nameIdx=null; S.missingNames=new Set(); S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;

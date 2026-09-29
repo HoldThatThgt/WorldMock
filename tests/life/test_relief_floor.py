@@ -218,6 +218,22 @@ def test_single_and_shared_paths_settle_the_same_net_effect(body_config, case: s
         assert relief == pytest.approx(lifestyle_relief_rates("jogging")[0]) and relief > 0
 
 
+def test_parallel_relieving_activities_add_up_in_the_shared_settlement(body_config) -> None:
+    """共同身体结算先汇总各活动的缓解再限幅（同一身体通道先汇总，docs/dev/SPEC-dayrun-behavior.md「共同时间与身体结算」）：
+    观看不喜欢的网文（按下限 f 缓解）与慢跑（生活活动 effects 的缓解）同一区间进行时，一小时按两者缓解之和下降，不取
+    其中较大的一项，也不叠加清醒累积。"""
+    agent = _agent(0.9, {})
+    _, watching = _watch(agent, body_config)
+    _, jogging = _running(agent, ActivityKind.LIFESTYLE, "jogging", body_config)
+    parts = tuple((item.kind, shared_activity_factors(item, agent, body_config)) for item in (watching, jogging))
+    reliefs = [factors.entertainment_relief_per_hour for _, factors in parts]
+    assert reliefs == [pytest.approx(_NOVEL_RATE * 0.5), pytest.approx(lifestyle_relief_rates("jogging")[0])]
+    settled = settle_shared_body(agent.body, parts, 3600, body_config)
+    assert settled.after.entertainment_need == pytest.approx(0.9 - sum(reliefs)) and 0.9 - sum(reliefs) > 0
+    flows = [entry for entry in last_flows() if entry.resource == "entertainment_need"]
+    assert [(entry.direction, entry.amount) for entry in flows] == [("drain", pytest.approx(sum(reliefs)))]
+
+
 # ---------------------------------------------------------------------------
 # 数值核对：经引擎的共同身体结算，从 1.0 降到「有点想放松」
 # ---------------------------------------------------------------------------

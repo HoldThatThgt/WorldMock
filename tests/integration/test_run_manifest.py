@@ -16,6 +16,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError
+from worldmock.footprints.quality import build_quality_report
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.scenario import load_scenario
@@ -182,3 +183,21 @@ def test_engine_created_without_stage_identity_keeps_null_slot(tmp_path) -> None
         assert engine.store.manifest["stage_model_identity"] is None
     finally:
         engine.close()
+
+
+def test_engine_direct_runs_keep_input_warnings_null_and_unrecorded(tmp_path) -> None:
+    """运行输入警告只在新建运行时计算（docs/dev/SPEC-dayrun-fidelity.md 1.3）：引擎直驱没有计算，清单的 input_warnings
+    是 null 而不是空列表，质量报告据此把这一节记为未记录、计数为 null（不记为零）；新建运行算出的空列表照样冻结为 []。"""
+    scenario, _ = load_scenario(_SCENARIO)
+    direct = LifeEngine.create(_SCENARIO, tmp_path / "direct", _run_identity(scenario))
+    created = LifeEngine.create(_SCENARIO, tmp_path / "created", _run_identity(scenario),
+                                create_options={"input_warnings": []})
+    try:
+        frozen = (direct.store.manifest["input_warnings"], created.store.manifest["input_warnings"])
+        section = build_quality_report(direct.store.read_events(direct.store.last_event_seq), [],
+                                       direct.store.manifest)["input_warnings"]
+    finally:
+        direct.close()
+        created.close()
+    assert frozen == (None, [])
+    assert (section["recorded"], section["warning_count"], section["code_counts"]) == (False, None, None)

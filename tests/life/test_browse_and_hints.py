@@ -219,6 +219,25 @@ def test_remote_order_without_a_delivery_route_says_so_in_its_own_sentence(engin
     assert DELIVERY_ROUTE_REASON != DELIVERY_DESTINATION_REASON
 
 
+def test_remote_order_hint_skips_reachable_places_the_store_cannot_deliver_to(engine_factory) -> None:
+    """下一步只列能送达的地点：办公室在配送范围内、从家直达，但门店到办公室的驾车路线不可达（配送路线走不通，与整单
+    结算同一判定），就不列为去处；同样在范围内、配送路线走得通的公园照列。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    places = _places(engine)
+    supply = _market_delivery_supply(engine)
+    _retarget(engine, supply, ("home", "office", _PARK))
+    _block(engine, lambda route: (route.origin_id, route.mode.value) == ("market", "driving")
+           and route.destination_id in {"home", "office"})
+    _show(engine, supply)
+    assert "office" in {row["object_id"] for row in engine.observe(context(engine, "skip-preview"))[
+        "interaction_bindings"] if row["kind"] == "location"}
+    refused = _refused(engine, "skip-order", start_request(targets=[_label(engine, supply)], actions=["obtain"],
+                                                           ways=["远程下单"]))
+    assert (refused.data["reason"], refused.data["unmet"]) == (DELIVERY_ROUTE_REASON, ["delivery_route"])
+    assert refused.data["next_step"] == f"去{places[_PARK]}再下单"
+
+
 def test_held_elsewhere_hint_also_points_only_to_reachable_places(engine_factory) -> None:
     """同一套下一步说法也用于他处持有物：在办公室要吃家里的东西，办公室到家的路线都走不通时，下一步写「可经<某处>
     前往<家>」，第一站是办公室此刻可达、列为地点目标的地点；原因不变。"""

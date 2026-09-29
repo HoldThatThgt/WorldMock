@@ -189,6 +189,22 @@ def test_item_reasons_and_fixes_carry_the_one_based_item_number_only_for_several
     assert items_fix(mixed, 2, {}) is None
 
 
+def test_a_mixed_item_rejection_takes_the_first_items_code_and_next_step() -> None:
+    """逐项拒绝合并成一次时码取第一项的码（与宿主合并纠错同一规则），下一步取该码的默认做法；原因逐项写，改法按码首次
+    出现的先后各写一句；经公开 guidance 原样给出，逐项明细各带自己的码。"""
+    label = f"好德出售的{_MILK}"
+    entries = [(ErrorItem(0, "targets", "咖啡加冰", "SUPPLY_NOT_FOUND"), default_reason("SUPPLY_NOT_FOUND")),
+               (ErrorItem(1, "targets", label, "FULFILLMENT_NOT_SUPPORTED"), default_reason("FULFILLMENT_NOT_SUPPORTED"))]
+    refusal = items_refusal(entries, 2)
+    assert (refusal.code, refusal.next_step) == ("SUPPLY_NOT_FOUND", "从候选或本轮列出的商品里选")
+    assert refusal.reason == f"第 1 项「咖啡加冰」：没有找到这个名字的商品；第 2 项「{label}」：这件商品不能用这种方式买"
+    assert refusal.fix == "第 1 项改用候选里的完整标签，或者照本轮列出的写法写商品；第 2 项改用这件商品支持的取得方式"
+    guidance = rejection_guidance(refusal.error())
+    assert (guidance["reason"], guidance["next_step"], guidance["fix"]) == (refusal.reason, refusal.next_step,
+                                                                          refusal.fix)
+    assert [item["error_code"] for item in guidance["items"]] == ["SUPPLY_NOT_FOUND", "FULFILLMENT_NOT_SUPPORTED"]
+
+
 def test_guidance_passes_fix_items_resolved_and_notes_from_the_refusal() -> None:
     """引导性拒绝写明的改法、逐项明细、名称归一与说明原样进入公开的 guidance；没有写明改法时取该码的默认改法；世界条件
     造成的拒绝没有改法，fix 为 null。"""

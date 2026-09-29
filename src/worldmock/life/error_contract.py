@@ -153,8 +153,8 @@ def numbered(index: int, total: int) -> str:
 
 
 def numbered_items(indices: Sequence[int], total: int) -> str:
-    """@brief 多项请求中几项的合称「第 1、2 项」；请求只有一项时为空串。"""
-    return f"第 {'、'.join(str(index + 1) for index in indices)} 项" if total > 1 else ""
+    """@brief 多项请求中几项的合称「第 1、2 项」（同一项有几条明细也只写一次）；请求只有一项时为空串。"""
+    return f"第 {'、'.join(str(index + 1) for index in dict.fromkeys(indices))} 项" if total > 1 else ""
 
 
 def items_fix(items: Sequence[ErrorItem], total: int, fixes: Mapping[str, str | None]) -> str | None:

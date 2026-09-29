@@ -1,7 +1,7 @@
 # WorldMock 产品设计说明书 — 记录引擎
 
-> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
-> **日期**：2026-09-28  
+> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），除指名购买的解析口径与订单的 `channel_id`（该规格 3.2、3.3、3.5）外已实现  
+> **日期**：2026-09-29  
 > **版本**：v1.2  
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
@@ -214,13 +214,13 @@ EventType = Literal[
 | 事件 | 正文用途与约束 |
 | --- | --- |
 | `observation` | `data` 是环境构建的层数据、看法偏好与私有证据，进度层只存 `progress_event_ids`；不额外保存一份 JSON 字符串副本 |
-| `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前，引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
+| `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前，引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计；引擎用于同刻上限的计数 `same_moment_rounds` 不计每人每秒前两次以名称类拒绝结束的轮次（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#34-名称类拒绝不计同刻轮数) 3.4），可少于该数 |
 | `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应 |
 | `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验。三个控制工具的 `request` 是现行形状 `{"items": [{activity_name, summary}]}`（结束每项另带 `memories` 与 `views`），读者一律经 `control_items` 读取，旧运行的三代形状（`task[]`、`summary[]` 与逐项 `memories[][]`）读出同一结果；看法与偏好的对象（`views[].about`，旧形状为 `subject`）只随请求原文保存在这里，不写入 AS2 记忆条目 |
-| `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#四错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，有逐项明细时带 `items[{index, field, written, error_code, candidates}]`，拒绝附带名称归一时带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`）与说明 `notes`，都原样进入公开结果 |
+| `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#四错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，有逐项明细时带 `items[{index, field, written, error_code, candidates}]`，不带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`），冗余的 `from`、`to` 换成 null 时带说明 `notes`，都原样进入公开结果 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id` 与请求关联 `request_message_id`，被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数；未完成的浏览 `note` 为「未取得浏览结果」）；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
-| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`，`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近的拒绝码 `error_code`（本秒没有拒绝时为 `null`）与下次决策时刻 `next_decision_at` |
+| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`、`around_at`（大致时刻 `around_time` 换算出的当日绝对时刻，可为 null），`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近一次计入同刻轮数的拒绝码 `error_code`（免计的名称类拒绝不算，没有时为 `null`）与下次决策时刻 `next_decision_at` |
 | `environment_event` 的联系人回复 | 发给 `model` 策略联系人的消息登记一条 `data.kind="model_npc_reply_pending"`（`request` 为回复请求字段面，含发件人姓名、场景本地时刻、`presence=remote`、收货地名、双方往来与对方收到的物品）；回复生成时写一条 `data.kind="model_npc_reply"`：`visibility=system`、`source_kind=model`（原值 `model_npc` 在 `data.source_kind`），`caused_by` 为待回复登记；`data.request`、`data.response`、`data.usage` 取最后一次尝试，`data.attempts[{request, response, text, matched}]` 按顺序记每次尝试（后验守卫命中时同一次结算内重试一次），`data.guard_applied` 为 true 表示两次都命中、回复是固定兜底句；重试也只写这一条，幂等键仍是来信的消息身份（[接口合同「联系人回复」](../CONTRACTS.md#联系人回复)） |
 | `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；就寝反思的快照条目带来源标记，引擎据此识别反思并确定其归属日期；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
@@ -606,7 +606,7 @@ flowchart TD
 检查点还须封存地点会话与名额所依赖的状态：`WorldState.sessions`（每段地点停留或路上的会话及其活动），以及活动的
 `concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述；待收尾的活动（终态且
 `concluded_at` 为空）从检查点恢复后仍占名额，人物在同一秒照常收尾。
-检查点还须封存计划与提醒状态：每个人物的 `day_plan`（目标的 `remind_at`、`reminded_at`）与既有字段
+检查点还须封存计划与提醒状态：每个人物的 `day_plan`（目标的 `remind_at`、`reminded_at` 与大致时刻 `around_at`）与既有字段
 `plan_submitted_dates`（已生成当日计划的场景本地日期，零点计划的幂等键）。恢复、重放与反事实分支据此判定：当日已生成的
 不重复生成计划与提醒，已触发的提醒不再触发；未生成的在首次决策之前生成。零点边界的计划在该边界的共同检查点之前提交；
 启动路径的计划在初始或反事实干预检查点之后、普通恢复的计划在 `LifeEnv.init` 中提交，都由下一个共同检查点封存。
@@ -778,10 +778,11 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 ### 质量报告
 
 当日目标的登记、修订和实际推进由模拟引擎裁决。记录引擎在零点计划的 `day_plan_generated`、修订的动作结果和结算事件中
-保存完整目标清单（含各目标的 `remind_at` 与 `reminded_at`），与世界状态原子提交；目标的活动证据、登记时刻与推进时刻进入共同检查点，
+保存完整目标清单（含各目标的 `remind_at`、`reminded_at` 与大致时刻 `around_at`），与世界状态原子提交；目标的活动证据、登记时刻与推进时刻进入共同检查点，
 恢复不得重复生成零点计划，也不得重复发放推进脉冲。
 `quality.json.day_plan_metrics` 保存按代码摘要分组的习惯、外部约束、刻意目标三层度量及受阻门禁，
-只读取本批已认证截止事件；字段与判据见 [当日目标规格](../dev/SPEC-day-plan-goals.md#度量输出合同)。
+只读取本批已认证截止事件；刻意目标层的 `family_progress_rate` 只计非例行意图的目标，例行意图另计 `routine_goals`，
+推进与引擎同一判定（带大致时刻的目标只认其前后 90 分钟内进行的活动）；字段与判据见 [当日目标规格](../dev/SPEC-day-plan-goals.md#度量输出合同)。
 
 
 `quality.json` 是同一批冻结事实的只读统计：动作结果计数、已记录活动与内容接触区间汇总（重复观看只计从头重看）、
@@ -815,7 +816,8 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 这些判断由对应规则、行为评估与数据交付负责。
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
 当前报告按 `event_range`、`run_outcome`、`actions`、`activities`、`content_contact`、
-`conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`input_warnings`、`truncations` 分组，
+`conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`day_plan_metrics`、
+`input_warnings`、`timeline_labels`、`contact_reply_guard`、`name_rejections`、`truncations` 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 `memory_references` 分组保留名称，内容按 `memory_updated.data.trigger` 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；`write_points_checked` 为核对的写入点总数）：`activity_conclusion` 对应同一决策已登记的
@@ -834,7 +836,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 按回复计的 `retries` 与 `fallbacks`。两组都只报告，不放行。
 `name_rejections` 把名称类拒绝与其余协议错误分开计数（[同一规格 3.4](../dev/SPEC-dayrun-fidelity.md#34-名称类拒绝不计同刻轮数)）：
 宿主一侧取人物决策（没有 `purpose` 的调用，按调用身份去重后的终态响应）的协议错误串，按 `life_feedback.feedback_report` 判定错误码，
-名称类纠错码逐码计 `host_codes`（合计 `host_protocol_errors`），其余协议错误计 `other_protocol_errors` 与按码的 `other_protocol_codes`；
+名称类纠错码逐码计 `host_codes`（全部码列出，没有记 0；合计 `host_protocol_errors`），其余协议错误计 `other_protocol_errors` 与按码的 `other_protocol_codes`；
 环境一侧取不含重放的 `action_rejected`，名称类拒绝码逐码计 `environment_codes`（全部码列出，没有记 0；合计 `environment_rejections`），
 并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻轮数、不施加脉冲）的 `environment_free_rejections`。只报告，不放行。
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
@@ -985,3 +987,4 @@ flowchart LR
 | `2026-09-27-persona-prompt-stage-4` | 2026-09-27 | 人物 Prompt 规格阶段 4 同批作业：`action_result` 的订单记 `recipient_id` 与 `request_message_id`，结束进食写已吃、丢弃与剩余份量（E5-7）；检查点封存进食活动数据的 `opened`、订单的收货人与请求关联、`contact_holdings` 与 `outbox`（E5-11） |
 | `2026-09-27-persona-prompt-stage-5` | 2026-09-27 | 人物 Prompt 规格阶段 5 同批作业：`environment_event` 增 `data.kind="decision_budget_exhausted"`（`visibility=system`，`data` 为 `kind`、`error_code`、`next_decision_at`）（E5-7）；受限轮阶段不再有 `wait_only`（E5-11）；导出新增 `purchases.jsonl`，导出清单 `schema_version` 为 2，质量报告增 `decision_budget_exhausted_events`（E5-12） |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 规格实现后文档（人物 Prompt 台账 E5-13、E5-14 与阶段 8 核对）：文件头注明修订部分已实现；「记录生活全过程的实现差距」删去冻结时登记的本规格八项差距，改为已闭合；「记录生活全过程的验收」的「经历句子」行改为记忆层 `settled`，增续接证据、记忆层、订单收货人三行，证据指向人物 Prompt 验收记录；按最终代码核对：必须保存的内容写明记忆层构建结果随观察事件与只读问答快照保存，`progress_event_ids` 写明两类来源，`action_result` 补给予 `data.given`、下单的 `answering`、进食的 `discarded` 与收尾 `data.outcome`，`decision_budget_exhausted` 补待收尾情形与可为 null 的 `error_code`，导出文件表补 `verified-experiences.jsonl`、`purchases.jsonl` 的逐行字段，导出清单 `artifacts` 恰好四键，质量报告补 `invalid_observed_result_reference`，调试工具补只读子命令 `continuation` 及其输出字段；版本号不变 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 RE1–RE6，随阶段 1–5 的代码落地，按 `34a41ee` 核对）：「共同身体结算与决策证据」`activity_ids` 是社交账与共同用餐的口径来源；「事件正文与资源证据」`action_requested.request` 为控制工具的 `items` 形状（旧形状经 `control_items` 读出），`action_rejected` 与同一拒绝的 `action_result` 按共用错误结构带 `error_code`、`reason`、`fix`、`next_step` 与逐项 `items[]`（`resolved`、`notes` 只在受理结果中），`model_npc_reply.data` 增 `attempts[]` 与 `guard_applied`，`decision_budget_exhausted` 的 `error_code` 取最近一次计入同刻轮数的拒绝，`decision_started` 一行注明引擎的同刻计数不计免计的名称类拒绝；三处目标字段列表增 `around_at`；「地图与门店供给证据」浏览结果列完整标签；「已核验经历与主观记忆」`views`→`subject` 由宿主转换、存储形状不变；「导出行为」「调试工具」时间线标签取 `readable.py` 中文种类表，工作、通话、交谈有标题；「质量报告」新节 `input_warnings`、`truncations`、`timeline_labels`、`contact_reply_guard`、`name_rejections`，`schema_version` 3，分组列表补齐（含此前漏列的 `day_plan_metrics`），`host_codes` 全部码列出，刻意目标的推进比例只计非例行意图；订单载荷与 `purchases.jsonl` 的 `channel_id` 及指名购买解析口径随 3.2、3.3、3.5 的实现落地；文件头补修订说明，日期改写 |
