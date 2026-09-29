@@ -466,24 +466,29 @@ def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
 
 
 def test_result_details_keep_only_new_readable_facts() -> None:
-    """details 的闭集键：开始活动写计划时长，到达写地点与能否进入，浏览只列商品名称，回看、原因、下一步、候选与终局
-    原样；读完的邮件写主题与正文（正文只在阅读动作的结果中），恢复的活动写恢复后的计划时长；不复述参数、不含内部身份；
-    工作结果另带只含公开字段的 work_review。"""
+    """details 的闭集键：开始活动写计划时长，到达写地点与能否进入，浏览只列商品名称，回看、原因、下一步、逐项明细、名称
+    归一、说明与终局原样（私有的候选标签不进入）；读完的邮件写主题与正文（正文只在阅读动作的结果中），恢复的活动写恢复
+    后的计划时长；不复述参数、不含内部身份；工作结果另带只含公开字段的 work_review。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),)
     places = (SimpleNamespace(location_id="private-office", name="办公室"),)
     activity = {"activity_id": "internal-activity-1", "name": "步行前往办公室（1月5日 00:00 起）",
                 "planned_duration_seconds": 750, "data": {"arrival": {"location_id": "private-office",
                                                                      "access_status": "denied"}}}
+    item = {"index": 0, "field": "targets", "written": "牛肉", "error_code": "SUPPLY_NOT_FOUND", "candidates": [
+        {"target": "办公室出售的牛肉面", "action": "obtain", "way": "到店", "from": None, "to": "自己"}]}
+    resolved = [{"written": "办公室", "as": "地点：办公室"}]
     started = {**_result({"activity": activity, "browse_result": {"items": [{"product_id": "p1", "supply_id": "s1",
                                                                               "price_fen": 1200}]},
-                          "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"],
+                          "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"], "items": [item],
+                          "resolved": resolved, "notes": ["from 可以写 null"],
                           "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}],
                           "request": {"targets": ["地点：办公室"]}}),
                "status": "in_progress", "error_code": None}
     details = public_result(started, _scenario(products, places))["details"]
     assert details == {"planned": [{"name": activity["name"], "duration": "约 12 分钟"}],
                        "arrival": {"place": "办公室", "access": "没能进去"}, "browse_items": ["牛肉面"],
-                       "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"],
+                       "recall": {"name": "工作：会议纪要"}, "items": [item], "resolved": resolved,
+                       "notes": ["from 可以写 null"],
                        "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}]}
     allowed = {**activity, "data": {"arrival": {"location_id": "private-office", "access_status": "allowed"}}}
     arrived = public_result({**_result({"activity": allowed}), "status": "completed", "error_code": None},

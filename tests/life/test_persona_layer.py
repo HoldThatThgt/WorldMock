@@ -164,7 +164,7 @@ def test_subject_is_required_for_relationship_and_preference_and_stripped_before
     request = ConcludeActivityRequest(task=["等待"], summary=["收尾"], memories=[[
         _memo("relationship", "新认识的", subject="王五"), _memo("preference", "爱吃面", subject="午饭")]])
     assert _validate_prepared_action("conclude_activity", request, names) == (
-        "conclude_activity relationship subject is not a known person: 王五")
+        "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 王五")
     fine = ConcludeActivityRequest(task=["等待"], summary=["收尾"], memories=[[
         _memo("relationship", "靠谱", subject="沈昊")]])
     assert _validate_prepared_action("conclude_activity", fine, names) == ""

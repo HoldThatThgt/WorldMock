@@ -113,10 +113,10 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
     assert _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"])) == (
-        "start_activity target is not a visible interactive object")
+        "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])")
     for verb, way in (("等待", "等待"), ("interact", "interact"), ("sleep", "等待")):
         assert _host_error("start_activity", start_arguments(["自己"], [verb], [way])) == (
-            "start_activity verb and way are not offered by the chosen target")
+            "WAY_NOT_OFFERED: start_activity verb and way are not offered by the chosen target (targets[0])")
     assert list(Draft202012Validator(schema).iter_errors({"targets": ["自己"], "actions": ["interact"]}))
     with pytest.raises(ValidationError):
         REQUEST_MODELS["start_activity"].model_validate({"targets": ["自己"], "actions": ["interact"]})
@@ -135,7 +135,7 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
     REQUEST_MODELS[name].model_validate(valid)
     assert _host_error(name, valid) == ""
     assert _host_error(name, _control_payload(name, ["别的活动"], ["继续。"])) == (
-        f"{name} task names an activity that is not visible")
+        f"NAME_NOT_FOUND: {name} task names an activity that is not visible")
     for invalid in (_control_payload(name, [_WAIT], []),
                     _control_payload(name, [_WAIT, _WAIT], ["a", "b"]),
                     _control_payload(name, [_WAIT], [" "])):
@@ -158,11 +158,12 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     deliverable = {"summary": "要点。", "decisions": ["推进。"], "action_items": ["复盘。"]}
     assert _host_error("submit_work", {"task_name": _TASK, "deliverable": deliverable}) == ""
     assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
-    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == "recipient_name is not visible"
+    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == (
+        "NAME_NOT_FOUND: recipient_name is not visible")
     for name in (_TASK, _WAIT):
         assert _host_error("recall_task_summary", {"task_name": name}) == ""
     for name in ("同事", "自己家（1月4日 18:00 起）"):
-        assert _host_error("recall_task_summary", {"task_name": name}) == "task_name is not visible"
+        assert _host_error("recall_task_summary", {"task_name": name}) == "NAME_NOT_FOUND: task_name is not visible"
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:

@@ -1201,11 +1201,10 @@ class ActionResult(FrozenModel):
 
 
 def rejection_reason_text(error: Exception) -> str:
-    """@brief 拒绝原因文本：业务错误码加完整链式底层原因，只清除十六进制身份。
+    """@brief 拒绝的英文日志文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
-    拒绝消息随公开结果进入进度层 tool_call.result（docs/dev/SPEC-persona-prompt.md「进度层」），模型据此
-    修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
-    等），不含任何十六进制事件/请求身份。
+    只写进运行日志，不进入结果：拒绝结果的 message 与 details 取 life.guidance 生成的公开原因
+    （docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
     """
     reason = str(error)
     cause = error.__cause__

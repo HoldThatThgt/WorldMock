@@ -123,7 +123,7 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
     decision = ReactDecision("", "conclude_activity", {"task": ["不存在的活动"], "summary": ["收尾。"],
                                                        "memories": [[]]}, "")
     assert agent.validate_react_decisions([decision], False) == (
-        "conclude_activity task names an activity that is not visible")
+        "NAME_NOT_FOUND: conclude_activity task names an activity that is not visible")
 
     damaged = copy.deepcopy(observation)
     damaged.pop("activity_bindings")
@@ -163,8 +163,9 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
                                                        "memories": [[memory]]}, "")
 
     assert agent.validate_react_decisions([conclude("李凡")], False) == ""
-    assert agent.validate_react_decisions([conclude("陌生人")], False) == (
-        "conclude_activity relationship subject is not a known person: 陌生人")
+    unknown = agent.validate_react_decisions([conclude("陌生人")], False)
+    assert unknown == "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 陌生人"
+    assert [(item.index, item.field, item.written) for item in unknown.report.items] == [(0, "memories", "陌生人")]
 
 
 def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
@@ -347,7 +348,7 @@ def test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer(_engine_
     shown = [goal["goal"] for goal in observation["todo_layer"]["day_plan"]["goals"]]
     assert [row["task_name"] for row in observation["goal_bindings"]] == shown == ["好好吃顿午饭", "歇一歇", "歇一歇"]
     old, _ = _recall_round(engine, "goal-names-old", "目标：用餐：好好吃顿午饭")
-    assert old == "task_name is not visible"
+    assert old == "NAME_NOT_FOUND: task_name is not visible"
     checked, found = _recall_round(engine, "goal-names-shown", "好好吃顿午饭")
     assert checked == "" and found.status == "completed", (found.error_code, found.message)
     assert found.data["recall"] == {"kind": "goal", "goal": "好好吃顿午饭", "intent_kind": "用餐", "progressed": False}

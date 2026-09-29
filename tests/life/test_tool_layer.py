@@ -621,7 +621,7 @@ def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_the
     person = _host(engine, decision, after)
     travel = start_arguments([place_name], ["travel"], ["步行"])
     assert person.validate_react_decisions([ReactDecision("", "start_activity", travel, "")], False) == (
-        "start_activity target is not a visible interactive object")
+        "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])")
     submit = _arguments("submit_work", task_name, {}, None)
     assert person.validate_react_decisions([ReactDecision("", "submit_work", submit, "")], False) == (
-        "task_name is not visible")
+        "NAME_NOT_FOUND: task_name is not visible")

@@ -3,7 +3,9 @@
 一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求由原生 tools、系统层
 system 与六层 user 组成；可以先做记忆查询，世界请求登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
-在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。
+在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。本地校验失败写成
+宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/dev/SPEC-dayrun-fidelity.md 第四章，
+custom/agents/life_feedback.py）。
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from agentsociety2.agent import PersonAgent
 from agentsociety2.agent.base import (
@@ -30,16 +32,19 @@ from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import persona_card_text
 from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
+from custom.agents.life_feedback import (HostFeedback, HostIssue, argument_feedback, feedback_content, host_feedback,
+                                         merged_feedback)
 from custom.agents.life_memory import memory_update_evidence
 from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
                                        user_message)
 from worldmock.life.continuation import CONTINUATION_KEY
-from worldmock.life.interaction_menu import WAYS, is_named_purchase
+from worldmock.life.error_contract import HOST_NAME_CODES, Candidate, ErrorItem, host_report, numbered
+from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR, WAYS, is_named_purchase
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
-from worldmock.life.routing import RECIPIENT_NOT_FOUND, combination_error, routing_names
+from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, fill_route, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
 
 
@@ -163,10 +168,18 @@ class LifeAgent(PersonAgent):
         return "LifeAgent: autonomous person using typed life tools through DirectRouter."
 
     async def _record_model_evidence(self, evidence: ModelCallEvidence) -> None:
-        """@brief 保存模型调用证据并对照实际输入 token 量。"""
+        """@brief 保存模型调用证据并对照实际输入 token 量；协议错误串以普通字符串落库（HostFeedback 的结构只回给模型）。"""
+        if isinstance(evidence.error, HostFeedback):
+            evidence = replace(evidence, error=str(evidence.error))
         await super()._record_model_evidence(evidence)
         if evidence.phase == "response":
             compare_usage(evidence.request, evidence.response)
+
+    @staticmethod
+    def _protocol_feedback_content(error: str) -> str:
+        """@brief 协议纠错正文（覆写 AS2 同名静态方法，锁定提交不改）：共用错误结构 {error_code, reason, fix, items,
+        unmet} 加固定 instruction，不带英文校验转储（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
+        return feedback_content(error)
 
     @classmethod
     def init_description(cls) -> str:
@@ -323,29 +336,34 @@ class LifeAgent(PersonAgent):
         decisions: list[ReactDecision],
         readonly: bool,
     ) -> str:
-        """@brief 在执行任何工具前验证闭集参数、原子动作数量与名称（名称只按私有绑定核对，不查可用性）。"""
+        """@brief 在执行任何工具前验证闭集参数、原子动作数量与名称（名称只按私有绑定核对，不查可用性）。
+
+        不成立时返回 HostFeedback：证据文字为「<错误码>: <英文说明>」，AS2 把它原样交给 _protocol_feedback_content 写成
+        共用错误结构（docs/dev/SPEC-dayrun-fidelity.md 第四章）；成立时为空串。
+        """
         if readonly != self._life_readonly:
             raise RuntimeError("LifeAgent readonly decision state is inconsistent")
-        models = self._life_request_models
-        business = [item for item in decisions if item.action in REQUEST_MODELS]
-        if len(business) > 1:
-            return "one model response cannot contain multiple life actions"
-        if business and len(decisions) != 1:
-            return "a life action must be the only tool call in its model response"
-        if business and self._life_action_count:
-            return "this decision already submitted its life action"
+        error = _batch_error(decisions, self._life_action_count)
         for decision in decisions:
-            model = models.get(decision.action)
-            if model is None:
-                return f"unknown LifeAgent tool: {decision.action}"
-            try:
-                validated = _validate_request(model, decision.args)
-                error = self._prepared_action_error(decision.action, validated)
-            except Exception as exc:
-                return f"invalid {decision.action} arguments: {exc}"
-            if error:
-                return error
-        return ""
+            error = error or self._decision_error(decision)
+        return error
+
+    def _decision_error(self, decision: ReactDecision) -> str:
+        """@brief 一个工具调用：工具不在本次提供之列为 TOOL_CALL_REQUIRED，参数形状不符为 ARGUMENTS_INVALID（按字段写
+        原因），再按冻结观察核对名称与菜单。"""
+        model = self._life_request_models.get(decision.action)
+        if model is None:
+            return host_feedback(host_report("TOOL_CALL_REQUIRED", f"「{decision.action}」不是这次提供的工具",
+                                             "只调用这次请求里提供的工具"), f"unknown LifeAgent tool: {decision.action}")
+        try:
+            validated = _validate_request(model, decision.args)
+        except ValidationError as exc:
+            return argument_feedback(decision.action, exc)
+        try:
+            return self._prepared_action_error(decision.action, validated)
+        except Exception as exc:
+            logging.error("LifeAgent could not check %s arguments: %s", decision.action, exc)
+            return host_feedback(host_report("ARGUMENTS_INVALID"), f"invalid {decision.action} arguments: {exc}")
 
     def _prepared_action_error(self, action: str, request: BaseModel) -> str:
         """@brief 用同一冻结观察核对名称与菜单；非生活动作（记忆查询、finish）不核对名称。"""
@@ -354,8 +372,10 @@ class LifeAgent(PersonAgent):
         error = _validate_prepared_action(action, request, self._life_names)
         if error:
             return error
-        return life_menu.menu_action_error(
-            self._life_interaction_menu, action, _selected_actions(action, request, self._life_names["objects"]))
+        objects = self._life_names["objects"]
+        denied = life_menu.menu_action_error(
+            self._life_interaction_menu, action, _selected_actions(action, request, objects))
+        return _menu_feedback(denied, request, objects, self._life_interaction_menu.allowed_actions) if denied else ""
 
     async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
         """@brief 生活决策的一个模型回合：世界请求登记即结束本轮（取消 finish，AS2 锁定提交不改）。
@@ -595,19 +615,25 @@ def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
-    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。"""
+    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）；
+    不成立的名称逐项写成 NAME_NOT_FOUND（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
     if action == "start_activity":
         return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
-        if any(name not in names["activity_names"] for name in request.task):
-            return f"{action} task names an activity that is not visible"
-        return _memory_subject_error(request, names["known_persons"]) if action == "conclude_activity" else ""
+        unknown = _unknown_names(("task", "活动"), request.task, names["activity_names"],
+                                 f"{action} task names an activity that is not visible")
+        if unknown or action != "conclude_activity":
+            return unknown
+        return _subject_feedback(request, _memory_subject_error(request, names["known_persons"]))
     if action == "recall_task_summary":
-        return "" if request.task_name in names["recall_names"] else "task_name is not visible"
+        return _unknown_names(("task_name", "任务、目标或活动"), [request.task_name], names["recall_names"],
+                              "task_name is not visible")
     if action == "submit_work":
-        return "" if request.task_name in names["task_names"] else "task_name is not visible"
+        return _unknown_names(("task_name", "任务"), [request.task_name], names["task_names"],
+                              "task_name is not visible")
     if action == "send_message":
-        return "" if request.recipient_name in names["recipient_names"] else "recipient_name is not visible"
+        return _unknown_names(("recipient_name", "收件人"), [request.recipient_name], names["recipient_names"],
+                              "recipient_name is not visible")
     return _validate_plan_goals(request.goals, names["progressed_intents"])
 
 
@@ -618,28 +644,155 @@ def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
     return f"conclude_activity relationship subject is not a known person: {unknown[0]}" if unknown else ""
 
 
+def _batch_error(decisions: list[ReactDecision], submitted: int) -> str:
+    """@brief 一次回复的工具调用组合：至多一个世界请求，世界请求单独调用，且本次决策还没有登记过世界请求；不成立时为
+    TOOL_CALL_REQUIRED。"""
+    business = [item for item in decisions if item.action in REQUEST_MODELS]
+    if len(business) > 1:
+        return host_feedback(host_report("TOOL_CALL_REQUIRED", f"一次回复只能提交一个世界请求，这次有 {len(business)} 个",
+                                         "只保留一个世界请求重新提交"),
+                             "one model response cannot contain multiple life actions")
+    if business and len(decisions) != 1:
+        return host_feedback(host_report("TOOL_CALL_REQUIRED", "世界请求要单独调用，这次还同时调用了别的工具",
+                                         "先单独查记忆，或者只提交世界请求"),
+                             "a life action must be the only tool call in its model response")
+    if business and submitted:
+        return host_feedback(host_report("TOOL_CALL_REQUIRED", "这次决策已经提交过世界请求", "不再调用世界请求工具"),
+                             "this decision already submitted its life action")
+    return ""
+
+
+def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: str) -> str:
+    """@brief 名称类参数逐项核对：不在本轮可见名称中的逐项写成 NAME_NOT_FOUND 明细，全部报出；都在时为空串。
+
+    :param field: （参数名，名称所指的东西），如 ("task", "活动")。
+    :param detail: 英文说明（证据用）。
+    """
+    total = len(written)
+    issues = [HostIssue(ErrorItem(index, field[0], name, "NAME_NOT_FOUND"),
+                        f"{numbered(index, total)}「{name}」不是本轮列出的{field[1]}", detail)
+              for index, name in enumerate(written) if name not in visible]
+    fix = "照工具层、待办层或记忆层中的写法填写名称" + ("，或者去掉这一项" if total > 1 else "")
+    return merged_feedback(issues, total, {"NAME_NOT_FOUND": fix}) if issues else ""
+
+
+def _subject_feedback(request: BaseModel, error: str) -> str:
+    """@brief 把 _memory_subject_error 的失败包成 SUBJECT_NOT_KNOWN：对象（英文说明末尾「: 」之后的名字）写在原因里，
+    所在一项按请求中写着该名字的记忆对象（subject 或 about）定位到顶层数组的那一项；没有失败时为空串。"""
+    if not error:
+        return ""
+    name = error.rsplit(": ", 1)[1] if ": " in error else ""
+    located = _subject_location(request.model_dump(mode="json", by_alias=True), name) if name else None
+    items = [ErrorItem(located[1], located[0], name, "SUBJECT_NOT_KNOWN")] if located else []
+    reason = f"关系记忆写的对象「{name}」不是认识的人" if name else None
+    return host_feedback(host_report("SUBJECT_NOT_KNOWN", reason, items=items), error)
+
+
+def _subject_location(arguments: dict[str, Any], name: str) -> tuple[str, int] | None:
+    """@brief 写着该对象名的（顶层参数名，项序号）：在各顶层数组的每一项里找 subject 或 about 等于该名字的记忆对象。"""
+    def mentions(value: Any) -> bool:
+        """@brief 值里是否有 subject 或 about 等于该名字的对象。"""
+        if isinstance(value, dict):
+            return any(value.get(key) == name for key in ("subject", "about")) or any(map(mentions, value.values()))
+        return isinstance(value, list) and any(map(mentions, value))
+
+    return next(((key, index) for key, rows in arguments.items() if isinstance(rows, list)
+                 for index, row in enumerate(rows) if mentions(row)), None)
+
+
 def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
     """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作；来源、去向与 answering 的组合合法
     （worldmock.life.routing，与环境受理同一判定）。
 
     obtain 以到店或远程下单写本轮未列出的名称时放行（指名购买，由环境按名称解析）；其余动词的目标仍须是本轮列出的
-    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。去向不是任何人物
-    （RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（第五章「来源与去向」）。
+    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。名称类错误（对象不在本轮、
+    对象没有列出所写的动词与方式、目标已写明门店却写了 from）逐项报全部，其余条件报第一条
+    （docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章）。去向不是任何人物（RECIPIENT_NOT_FOUND）是拒绝码，宿主
+    放行，由环境以业务拒绝回给模型（第五章「来源与去向」）。
     """
-    if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
-        return "start_activity accepts one or two targets"
-    if len(request.targets) != len(request.actions) or len(request.actions) != len(request.ways):
-        return "start_activity targets, actions and ways must have equal lengths"
-    for target, verb, way in zip(request.targets, request.actions, request.ways):
-        actions = names["objects"].get(target)
-        if actions is None and is_named_purchase(verb, way):
+    count = len(request.targets)
+    if not 1 <= count <= _START_ACTIVITY_MAX_TARGETS:
+        report = (host_report("TOO_MANY_TARGETS", f"一次最多选两个目标，这次写了 {count} 个") if count
+                  else host_report("ARGUMENTS_INVALID", "targets 至少要写一个目标", "targets、actions、ways 各写一项"))
+        return host_feedback(report, "start_activity accepts one or two targets")
+    if count != len(request.actions) or len(request.actions) != len(request.ways):
+        return host_feedback(host_report(
+            "ARGUMENTS_INVALID", f"targets、actions、ways 要逐项对应、一样长，这次分别有 {count}、"
+            f"{len(request.actions)}、{len(request.ways)} 项", "每个目标各写一个动词和一个方式"),
+            "start_activity targets, actions and ways must have equal lengths")
+    route = combination_issues(request, names["routing"])
+    issues = [*_target_issues(request, names["objects"]), *_source_issues(request, route)]
+    if issues:
+        return merged_feedback(issues, count)
+    first = next((issue for issue in route if issue.code != RECIPIENT_NOT_FOUND), None)
+    return _route_feedback(first, count) if first is not None else ""
+
+
+def _target_issues(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> list[HostIssue]:
+    """@brief start_activity 逐项核对对象与（动词，方式）：对象不在本轮列出（指名购买除外）为 NAME_NOT_FOUND，对象没有
+    列出所写的动词与方式为 WAY_NOT_OFFERED（候选为该对象列出的动词与方式，照填 from 与 to）。"""
+    total, issues = len(request.targets), []
+    for index, (target, verb, way) in enumerate(zip(request.targets, request.actions, request.ways)):
+        listed = objects.get(target)
+        if listed is None and not is_named_purchase(verb, way):
+            issues.append(HostIssue(ErrorItem(index, "targets", target, "NAME_NOT_FOUND"),
+                                    f"{numbered(index, total)}「{target}」不是本轮列出的对象",
+                                    f"start_activity target is not a visible interactive object (targets[{index}])"))
+        elif listed is not None and not any(item[:2] == (verb, way) for item in listed):
+            written_to = request.to[index] if index < len(request.to) else None
+            offered = tuple(dict.fromkeys(item[:2] for item in listed))[:3]
+            candidates = tuple(Candidate(target, pair[0], pair[1], *fill_route(pair[0], pair[1], written_to))
+                               for pair in offered)
+            issues.append(HostIssue(
+                ErrorItem(index, "ways", way, "WAY_NOT_OFFERED", candidates),
+                f"{numbered(index, total)}「{target}」没有列出「{verb}{VERB_WAY_SEPARATOR}{way}」这种做法",
+                f"start_activity verb and way are not offered by the chosen target (targets[{index}])"))
+    return issues
+
+
+def _source_issues(request: BaseModel, route: list[RouteIssue]) -> list[HostIssue]:
+    """@brief 来源与去向中的名称类问题（目标已写明门店却写了 from，SUPPLY_SOURCE_MISMATCH）逐项写成明细，候选为同一项
+    改 from 为 null；其余问题（ROUTE_FIELDS_INVALID）不在此列，只报第一条。"""
+    total, issues = len(request.targets), []
+    for issue in route:
+        if issue.host_code not in HOST_NAME_CODES:
             continue
-        if actions is None:
-            return "start_activity target is not a visible interactive object"
-        if not any(item[:2] == (verb, way) for item in actions):
-            return "start_activity verb and way are not offered by the chosen target"
-    error = combination_error(request, names["routing"])
-    return error[1] if error is not None and error[0] != RECIPIENT_NOT_FOUND else ""
+        index = issue.index
+        candidate = Candidate(request.targets[index], request.actions[index], request.ways[index], None,
+                              request.to[index])
+        issues.append(HostIssue(ErrorItem(index, issue.field, issue.written, issue.host_code, (candidate,)),
+                                f"{numbered(index, total)}「{request.targets[index]}」已经写明了门店，from 要写 null",
+                                f"{issue.detail} (targets[{index}])"))
+    return issues
+
+
+def _route_feedback(issue: RouteIssue, total: int) -> HostFeedback:
+    """@brief 来源、去向或 answering 不相配（ROUTE_FIELDS_INVALID）：报第一条，逐项的问题带该项明细。"""
+    items = [] if issue.index is None else [ErrorItem(issue.index, issue.field, issue.written, issue.host_code)]
+    lead = "" if issue.index is None else numbered(issue.index, total)
+    reason = f"{lead}：{issue.reason}" if lead else issue.reason
+    return host_feedback(host_report(issue.host_code, reason, issue.fix, items), issue.detail)
+
+
+def _menu_feedback(denied: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]],
+                   allowed: tuple[str, ...]) -> HostFeedback:
+    """@brief 本地交互菜单不允许的项包成 WAY_NOT_OFFERED：逐项写出这里不能那样做的项（映射后的内部动作不在菜单里）。"""
+    total, issues = len(request.targets), []
+    for index, (target, verb, way) in enumerate(zip(request.targets, request.actions, request.ways)):
+        actions = _item_actions((target, verb, way), objects)
+        if not actions or any(action not in allowed for action in actions):
+            issues.append(HostIssue(ErrorItem(index, "ways", way, "WAY_NOT_OFFERED"),
+                                    f"{numbered(index, total)}「{target}」在这里不能「{verb}{VERB_WAY_SEPARATOR}{way}」",
+                                    f"{denied} (targets[{index}])"))
+    return merged_feedback(issues, total, {"WAY_NOT_OFFERED": "改选这里能做的事，或者先去能这样做的地方"})
+
+
+def _item_actions(item: tuple[str, str, str], objects: dict[str, tuple[tuple[str, str, str], ...]]) -> list[str]:
+    """@brief 一项（对象，动词，方式）经本轮私有绑定映射后的内部标准动作；未列出的指名购买计为购买。"""
+    target, verb, way = item
+    if target not in objects and is_named_purchase(verb, way):
+        return [WAYS[way][1]]
+    return [action[2] for action in objects.get(target, ()) if action[:2] == (verb, way)]
 
 
 def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
@@ -647,12 +800,8 @@ def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[
     """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入，指名购买计为购买）。"""
     if action != "start_activity":
         return []
-    selected = []
-    for target, verb, way in zip(request.targets, request.actions, request.ways):
-        if target not in objects and is_named_purchase(verb, way):
-            selected.append(WAYS[way][1])
-        selected.extend(item[2] for item in objects.get(target, ()) if item[:2] == (verb, way))
-    return selected
+    return [name for item in zip(request.targets, request.actions, request.ways)
+            for name in _item_actions(item, objects)]
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
@@ -669,13 +818,21 @@ def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
 
 
 def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
-    """@brief 修订仅包含未推进目标，合并后保持容量和意图唯一性。"""
+    """@brief 修订仅包含未推进目标，合并后保持容量和意图唯一性；不成立时为 ARGUMENTS_INVALID（重交已推进的目标逐项写出）。"""
     if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:
         logging.error("Day plan exceeds eight goals after preserving progressed goals")
-        return "day plan requires at most eight goals including progressed goals"
-    if set(progressed_intents).intersection(goal.intent_kind for goal in goals):
+        return host_feedback(host_report(
+            "ARGUMENTS_INVALID", f"今日计划连同已推进的目标最多八条，这次合计 {len(goals) + len(progressed_intents)} 条",
+            "删掉几条目标，使连同已推进的不超过八条"), "day plan requires at most eight goals including progressed goals")
+    total = len(goals)
+    resubmitted = [ErrorItem(index, "goals", goal.intent_kind, "ARGUMENTS_INVALID")
+                   for index, goal in enumerate(goals) if goal.intent_kind in progressed_intents]
+    if resubmitted:
         logging.error("Day plan revision resubmits a progressed intent")
-        return "revise_day_plan cannot resubmit progressed goals"
+        reason = "；".join(f"{numbered(item.index, total)}意图「{item.written}」的目标今天已经推进过，不能再提交"
+                          for item in resubmitted)
+        return host_feedback(host_report("ARGUMENTS_INVALID", reason, "修订时只写还没推进的目标", resubmitted),
+                             "revise_day_plan cannot resubmit progressed goals")
     return ""
 
 

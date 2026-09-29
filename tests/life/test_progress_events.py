@@ -514,7 +514,8 @@ def test_a_rejection_without_a_next_step_writes_null(engine_factory) -> None:
     assert (unknown.status, unknown.error_code) == ("rejected", "TASK_NOT_FOUND")
     assert "next_step" in unknown.data and unknown.data["next_step"] is None
     (record,) = progress_calls(_observe(engine, "null-step-seen"), "recall_task_summary")
-    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None}
+    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None,
+                                           "fix": "照工具层、待办层或记忆层中的写法填写任务、目标或活动的名称"}
     _, invalid = _act(engine, "null-step-invalid", "start_activity", start_activity("观看", "不存在的对象"))
     assert invalid.data["next_step"] == "从本轮列出的对象和方式里选"
 

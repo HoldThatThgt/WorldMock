@@ -97,7 +97,7 @@ def test_parallel_start_accepts_two_independent_human_readable_pairs() -> None:
                        ways=["步行", "接着看"])
     assert agent.validate_react_decisions([choice], False) == ""
     assert agent.validate_react_decisions([choice, choice], False) == (
-        "one model response cannot contain multiple life actions")
+        "TOOL_CALL_REQUIRED: one model response cannot contain multiple life actions")
 
 
 def test_frozen_observation_does_not_change_until_next_round() -> None:
@@ -197,7 +197,7 @@ def test_revision_follows_current_day_plan_without_plan_tool() -> None:
         "intent_kind", "goal", "remind_time", "around_time"}
     resubmitted = {"goals": [{"intent_kind": "工作", "goal": "再写一次", "remind_time": None, "around_time": None}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **resubmitted)], False) == (
-        "revise_day_plan cannot resubmit progressed goals")
+        "ARGUMENTS_INVALID: revise_day_plan cannot resubmit progressed goals")
     fresh = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": "21:30", "around_time": "21:30"}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **fresh)], False) == ""
 

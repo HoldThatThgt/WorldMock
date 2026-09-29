@@ -127,7 +127,8 @@ def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label
 def test_host_checks_from_to_and_answering_against_private_bindings():
     """宿主按私有绑定本地校验来源、去向与 answering（与环境同一判定，docs/dev/SPEC-persona-prompt.md 第五章）：去向是
     「自己」、本轮的人物或不在身边的同世界人物（私有绑定 person_bindings），answering 是本轮可见的直接消息且至少一项送给
-    发件人；不合法时返回英文协议错误原文。去向不是任何人物是拒绝码 RECIPIENT_NOT_FOUND：宿主放行，由环境业务拒绝。"""
+    发件人；不合法时返回以宿主错误码开头的协议错误串（ROUTE_FIELDS_INVALID，目标已写明门店却写了 from 为
+    SUPPLY_SOURCE_MISMATCH）。去向不是任何人物是拒绝码 RECIPIENT_NOT_FOUND：宿主放行，由环境业务拒绝。"""
     observed = _observed_offer()
     data = observed[0]["data"]
     _add_objects(data, _visible_object("联系人：王磊", "contact", "contact-wanglei", _offer("interact", "通话", "call")))
@@ -145,10 +146,12 @@ def test_host_checks_from_to_and_answering_against_private_bindings():
     assert error(to=["人物：李凡"], answering="李凡 10:40 的消息") == ""
     assert error(to=["联系人：陌生人"]) == ""
     assert error(answering="王磊 10:35 的消息") == (
-        "start_activity answering needs an item whose to is the message sender")
-    assert error(to=["联系人：王磊"], answering="王磊 9:00 的消息") == "start_activity answering is not a visible message"
-    assert error(**{"from": ["家门口便利店"]}) == "start_activity from is null when the target already names its store"
-    assert error(to=[None]) == "start_activity obtain and consume need to"
+        "ROUTE_FIELDS_INVALID: start_activity answering needs an item whose to is the message sender")
+    assert error(to=["联系人：王磊"], answering="王磊 9:00 的消息") == (
+        "ROUTE_FIELDS_INVALID: start_activity answering is not a visible message")
+    assert error(**{"from": ["家门口便利店"]}) == (
+        "SUPPLY_SOURCE_MISMATCH: start_activity from is null when the target already names its store (targets[0])")
+    assert error(to=[None]) == "ROUTE_FIELDS_INVALID: start_activity obtain and consume need to"
 
 
 def test_supply_fulfillment_is_bound_per_visible_object():

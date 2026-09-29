@@ -250,8 +250,9 @@ flowchart LR
 
 **指名购买。** `obtain` 的目标不在本轮列出时，环境按名称解析：先精确匹配标签「<门店>出售的<商品>」，再按商品名找满足所选方式的
 唯一供给（到店：当前地点的门店；远程下单：配送到收货地的门店），`from` 可限定门店。零个匹配报 `SUPPLY_NOT_FOUND`，
-`details.candidates` 给至多 3 个确定性的近似标签（词项相似度，不用向量检索与近似最近邻）；多店同名且 `from` 为空报
-`SUPPLY_NAME_AMBIGUOUS`，`details.candidates` 列出门店；恰好一个时按当前报价在同一秒批量结算，价格、余额、营业与库存照常检查。
+该项明细 `details.items[].candidates` 是至多 3 个确定性的近似标签（词项相似度，不用向量检索与近似最近邻）写成的可照填请求；
+多店同名且 `from` 为空报 `SUPPLY_NAME_AMBIGUOUS`，原因列出全部门店，候选为各店的完整标签；一个请求中几项都解析不出时逐项写进
+同一次拒绝（见「活动受理拒绝码」的拒绝结构）；恰好一个时按当前报价在同一秒批量结算，价格、余额、营业与库存照常检查。
 不自动换成别的商品。指名路径不查可见凭据；浏览与轮转本身不变，可见期只管展示与比较。
 
 **来源与去向。** 收货地点不作参数：自己的收货地是当前地点，同世界人物是其所在地点，场景联系人取 `Contact.receive_location_id`
@@ -281,15 +282,27 @@ flowchart LR
 | `ACTIVITY_CONCLUSION_REQUIRED` | 有刚结束、待收尾的活动时做别的事（包括只结束其他活动）；原因为「先给刚结束的某事收尾」，点名待收尾活动 |
 | `ACTIVITY_PAUSE_UNAVAILABLE` | 暂停路上的活动（回不到那段路）；可以直接结束。交谈、通话沿用 `SOCIAL_ACTIVITY_CANNOT_PAUSE` |
 | `PRODUCT_NOT_HELD` | 食用、使用、给予或制作的持有物此刻不在手边（此刻所在地点没有这件东西，即可消费量为零；食用不足一份时按实际持有份量受理）；途中没有可用的持有物（原因「路上没有可用的持有物」，下一步「到达后再用」）；与出行同一请求时出发后手边也没有（原因「出发后手边没有可用的持有物」，下一步「先用完再出发」），与组内先后无关 |
-| `SUPPLY_NOT_FOUND` | `obtain` 的目标不在本轮列出，按指名购买找不到满足所选方式的供给；`details.candidates` 给至多 3 个确定性的近似标签，不自动替换 |
-| `SUPPLY_NAME_AMBIGUOUS` | 指名购买按商品名匹配到多家门店的供给且 `from` 为空；`details.candidates` 列出门店 |
+| `SUPPLY_NOT_FOUND` | `obtain` 的目标不在本轮列出，按指名购买找不到满足所选方式的供给；该项明细的 `candidates` 是至多 3 个确定性的近似标签写成的可照填请求，不自动替换 |
+| `SUPPLY_NAME_AMBIGUOUS` | 指名购买按商品名匹配到多家门店的供给且 `from` 为空；原因列出全部门店，该项明细的 `candidates` 为各店的完整标签（至多 3 个） |
 | `REQUEST_ALREADY_HANDLED` | `answering` 关联的同一（消息，收货人，商品）已有未取消的关联订单；`details.linked_orders` 列出已关联订单与预计送达时刻 |
 
 `start_activity` 的数组不合法、`targets`、`actions`、`ways`、`from`、`to` 不等长、目标重复（只有 `to` 不同的除外），
 `from`、`to` 的组合不在「请求模型的闭集与字面边界」所列之内，或（对象，动词，方式）映射不唯一、
-不在本轮闭集中，报 `ACTION_REQUEST_INVALID`。每次业务拒绝的结果 `data` 另带 `reason`（一句中文原因）与 `next_step`
-（可读的下一步：要先处理的活动名、要去的地点名或做法，不含内部身份；没有可读的下一步时为 `null`），由确定性代码从拒绝生成，写进进度层该调用的
-`result.details`；占用冲突 `RESOURCE_CONFLICT` 同样带原因与下一步。引导性拒绝码
+不在本轮闭集中，报 `ACTION_REQUEST_INVALID`。
+
+**拒绝结构。** 业务拒绝与宿主协议纠错（见「工具返回通道」）共用一个错误结构 `{error_code, reason, fix, items, unmet}`
+（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#四错误合同)第四章，`src/worldmock/life/error_contract.py`）：`error_code` 为拒绝码
+（结果的 `error_code`）；`reason` 一句原因；`fix` 一句怎样改这次请求，没有可照做的改法（世界条件造成的拒绝）时为 `null`；`items`
+逐项明细；`unmet` 沿用 `ACTIVITY_PRECONDITION_UNMET` 的未满足条件名称（只在私有 `data.unmet`，不进公开结果）。逐项明细为
+`{index, field, written, error_code, candidates}`：`index` 从 0 起是请求中的第几项，`field` 为出错的参数名，`written` 为人物所写的原文，
+`candidates` 至多 3 个可照填的请求 `{target, action, way, from, to}`（可另带 `note`，如「约 20 分钟」）。一个请求中的名称类问题逐项报全部，
+原因与改法写「第 N 项」（请求只有一项时不写序号），其余条件仍报第一条，整组受理仍原子。键名英文，值是人物能照着改的自然语言
+（语言不作要求），不含内部身份、校验库原文与网址。每次业务拒绝的结果 `message` 就是 `reason`，`data` 另带 `reason`、`next_step`
+（世界里下一步做什么：要先处理的活动名、要去的地点名或做法，不含内部身份；没有可读的下一步时为 `null`）与 `fix`，有逐项明细时带
+`items`；`fix` 是「怎样改这次请求」，`next_step` 是「世界里下一步做什么」，两者可以同时出现。这些由确定性代码从拒绝生成
+（`life.guidance`：源码中会抛出的每个拒绝码都有具体的默认原因，默认改法只给请求本身可以改的码），写进进度层该调用的
+`result.details`；占用冲突 `RESOURCE_CONFLICT` 同样带原因与下一步。受理时名称经归一的写进 `data.resolved`（`[{written, as}]`，
+如 `[{"written": "沈昊", "as": "联系人：沈昊"}]`），附带的说明写进 `data.notes`（字符串列表），两者原样进入 `result.details`。引导性拒绝码
 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 是人物选了带说明的动作，
 计入当日目标度量的 `other_rejections`，不入外部约束闭集。合同本无 `INSUFFICIENT_ENERGY`，删除只发生在代码。
 
@@ -766,7 +779,8 @@ flowchart LR
   `state_version_before` 与 `state_version_after` 都相同的一组事件，与记忆层「session 与归属」同一区间，同一事件只在两层之一出现）。
   结果游标及其文本嗅探已删除。
 - **截止与提醒**由截止时刻与提醒写入时刻推导，不新增事件类型。
-- **业务拒绝**照常记录，带 `error_code` 与 `details` 中的原因和下一步；协议纠错回合不记录。调用与结果合为一条记录，不给模型任何调用编号。
+- **业务拒绝**照常记录，带 `error_code` 与 `details` 中的原因、改法、下一步与逐项明细（`message` 就是原因，见「活动受理拒绝码」的拒绝结构）；
+  协议纠错回合不记录。调用与结果合为一条记录，不给模型任何调用编号。
 - **直接消息**以全文进入进度层，「已读」指全文已经呈现。睡眠中不「已读」：人物在睡时，结算边界的判定段与决策轮提交都不把
   消息记为已读，睡眠中送达的消息保持未读，也不施加阅读效果；醒来后的第一个边界（睡眠在该边界结束，人物已不在睡）才记已读，
   每条社交需要 −0.05、情绪 +0.1，该边界同时以 `message_arrival` 提供决策机会（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 1.5）。
@@ -785,8 +799,11 @@ flowchart LR
 | `browse_items` | 浏览得到的商品名称；浏览与同一请求的另一项活动一起开始时，写在全部子活动结束后的那条结果中，只写一次（工具层的置顶取同一份浏览结果） |
 | `mail` | `{subject, body}`：读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现） |
 | `recall` | 回看结果（见下文） |
-| `reason`、`next_step` | 业务拒绝的一句中文原因与可读的下一步（要先处理的活动名、要去的地点名或做法；没有可读的下一步时 `next_step` 为 `null`） |
-| `candidates` | 指名购买的近似候选（至多 3 个标签）或同名门店 |
+| `reason`、`next_step` | 业务拒绝的一句原因（结果的 `message` 与它相同）与可读的下一步（要先处理的活动名、要去的地点名或做法；没有可读的下一步时 `next_step` 为 `null`） |
+| `fix` | 业务拒绝的一句改法：怎样改这次请求；没有可照做的改法时为 `null`（与 `reason`、`next_step` 一起恒写） |
+| `items` | 业务拒绝的逐项明细 `[{index, field, written, error_code, candidates}]`（`index` 从 0 起），`candidates` 为至多 3 个可照填的请求 `{target, action, way, from, to}`（可另带 `note`），如指名购买的近似标签、同名门店的完整标签；没有逐项明细时没有该键 |
+| `resolved` | 受理时名称经无损归一的 `[{written, as}]`：人物写的原文与归一后的名称；没有归一时没有该键 |
+| `notes` | 受理或拒绝附带的说明（字符串列表），如「from 可以写 null」；没有时没有该键 |
 | `outcome` | `[{activity, outcome, items, note}]`：进食与未完成的浏览的收尾结果逐项写终局（「完成」「提前结束」「失败」），进食的 `items[{product, eaten, discarded, remaining}]` 写已吃、丢弃、剩余份量，未完成的浏览 `note` 为「未取得浏览结果」（进食的 `note` 为 `null`）；其他活动的收尾没有该键；人物写「吃完了」不能覆盖结算结果 |
 | `episodes` | 记忆查询返回的条数（整数）；条目本身只在本秒续接消息的 tool 消息中 |
 | `linked_orders` | `[{order, expected_at}]`：`REQUEST_ALREADY_HANDLED` 时已关联的订单与预计送达时刻（带时区 ISO 8601） |
@@ -1235,10 +1252,29 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 | 生活动作登记 | 完整 `ActionReceipt`，含请求身份与哈希，用于审计与幂等 | 无：登记即结束本次决策，登记后不追加任何 tool 消息，登记确认与登记回执都不回给模型 |
 | 即时记忆查询 | 实际查询输入与结果 | 当轮 tool 消息返回的记忆内容，每条只含 {type, text, time, epistemic_status}，不含条目身份，只序列化一次；同一秒的续接中原样保留，时间推进后进度层只留条数 |
 | 已结算世界结果 | 完整动作结算事件 | 进度层该调用的公开结果投影，在本 session 内持续保留；同一秒接着决策时另作为续接 tool 消息的 `result`；不在提交时提前回流 |
+| 协议纠错 | `model_response.data.error` 的协议错误串：宿主本地校验为「<错误码>: <英文说明>」，AS2 自身的协议错误串（参数不是 JSON、没有工具调用、调用了未提供的工具）照原文 | 纠错正文 `{error_code, reason, fix, items, unmet, instruction}`：与业务拒绝同一错误结构（见「活动受理拒绝码」的拒绝结构），`unmet` 恒为 `[]`，`instruction` 固定为「本次没有登记到世界；按 fix 修改后重新提交」；不带英文校验转储、`input_value` 与网址。模型响应带工具调用时作为这些调用的 tool 消息，没有工具调用时作为一条 user 消息（AS2 `_append_react_protocol_feedback`）；本次没有登记到世界，不进引擎、不计同刻轮数，只耗本次决策的一个回合（见「回合预算」） |
 
 工作验收可在提交期间准备，仍只在批量结算后对人物可见。原生工具配对身份不属于内部世界身份，
 不能为删除句柄而删除 `tool_call_id`：同一秒续接时，tool 消息对应上一决策世界请求的 `tool_call_id`。
 登记回执在 observation 与 data 两处均不得进入模型正文。
+
+协议纠错正文由 `LifeAgent` 覆写 AS2 的 `_protocol_feedback_content` 生成（锁定提交不改，`custom/agents/life_feedback.py`），
+错误码取宿主闭集（`worldmock.life.error_contract.HOST_ERROR_CODES`）；多项请求逐项报全部名称类错误（`NAME_NOT_FOUND`、
+`NAME_AMBIGUOUS`、`WAY_NOT_OFFERED`、`SUPPLY_SOURCE_MISMATCH`、`SUBJECT_NOT_KNOWN`），其余条件报第一条：
+
+| 错误码 | 何时 |
+| --- | --- |
+| `ARGUMENTS_NOT_JSON` | 工具参数不是可解析的 JSON 对象；原因写出所在的行与列 |
+| `ARGUMENTS_INVALID` | 参数形状不符合工具的参数定义（缺字段、多字段、类型、格式、界限、取值闭集与请求模型自己的校验），原因按字段逐条写，明细写参数名与所写的原文；`targets` 为空、`targets`、`actions`、`ways` 不等长；修订今日计划超过八条或重交已推进的目标 |
+| `TOOL_CALL_REQUIRED` | 回复没有可执行的工具调用：没有工具调用、调用了这次没有提供的工具、一次回复含多个世界请求、世界请求与别的工具同时调用、本次决策已登记过世界请求，或只读问答的 `finish` 没有单独调用 |
+| `TOO_MANY_TARGETS` | `start_activity` 的目标超过两个 |
+| `NAME_NOT_FOUND` | 名称不在本轮可见名称中：`start_activity` 的对象（`obtain` 以到店或远程下单写未列出的名称除外，交给指名购买）、控制工具的活动名、`recall_task_summary` 与 `submit_work` 的 `task_name`、`send_message` 的收件人 |
+| `NAME_AMBIGUOUS` | 名称对应不止一个对象，候选为完整名称 |
+| `WAY_NOT_OFFERED` | 对象没有列出所写的动词与方式，候选为该对象列出的（动词，方式）写成的可照填请求；映射后的内部动作不在本地交互菜单里 |
+| `ROUTE_FIELDS_INVALID` | `from`、`to` 或 `answering` 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；`to` 写的名称不是任何人物时不纠正，由环境以 `RECIPIENT_NOT_FOUND` 拒绝 |
+| `SUPPLY_SOURCE_MISMATCH` | 目标已写明门店「<门店>出售的<商品>」却在 `from` 写了门店，候选为同一项 `from` 写 `null` |
+| `SUBJECT_NOT_KNOWN` | relationship 记忆的对象不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名） |
+| `OUTPUT_TRUNCATED` | 输出在思考阶段用尽、尚未调用工具（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」） |
 
 ### 回合预算
 
