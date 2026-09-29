@@ -92,6 +92,27 @@ def test_a_way_the_matching_store_does_not_offer_is_fulfillment_not_supported(en
     assert (order["fulfillment"], order["location_id"], order["channel_id"]) == ("pickup", _SOUP, None)
 
 
+def test_system_purchase_and_a_null_from_each_skip_only_their_own_stage(engine_factory) -> None:
+    """3.5「收敛」第 4 条：方式为「购买」只跳过方式一段（M2），名称（M0）与门店（M1）两段照常报码——名称找不到报
+    SUPPLY_NOT_FOUND（参数名 targets），from 写的门店不卖报 SUPPLY_NOT_AT_STORE（参数名 from）；from 为 null 只跳过门店一段
+    （M1），方式一段照常报码——菜饭骨头汤只到店出售的鸡汤面按完整标签、from 为 null 写远程下单报 FULFILLMENT_NOT_SUPPORTED
+    （参数名 ways）。宿主都放行，拒绝时余额、库存与订单都不变。"""
+    engine = _world(engine_factory, hour=11)
+    sichuan, label = _place(engine, _SICHUAN), f"{_place(engine, _SOUP)}出售的{_NOODLES}"
+    before = _world_facts(engine)
+    stages = []
+    for round_id, request in (("system-unknown", ("并不存在的神秘商品", "购买", None)),
+                              ("system-not-at-store", (_MILK, "购买", sichuan)),
+                              ("null-from-way", (label, "远程下单", None))):
+        _, error, refused = decide(engine, round_id, _buy(request))
+        [item] = refused.data["items"]
+        stages.append((error, refused.status, refused.error_code, item["field"], item["written"]))
+    assert stages == [("", "rejected", "SUPPLY_NOT_FOUND", "targets", "并不存在的神秘商品"),
+                      ("", "rejected", "SUPPLY_NOT_AT_STORE", "from", sichuan),
+                      ("", "rejected", "FULFILLMENT_NOT_SUPPORTED", "ways", "远程下单")]
+    assert _world_facts(engine) == before
+
+
 def test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable(engine_factory) -> None:
     """「购买」由系统定方式（3.5「收敛」第 2 条）：人在出售它的集市里就到店；在家时能送到家就远程下单，多家都能送时按最快
     选定；受理说明写明定下的方式与所选门店。"""
