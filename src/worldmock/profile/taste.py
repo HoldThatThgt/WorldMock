@@ -1,8 +1,9 @@
 """@brief 卡片口味 x 内容 genre[] -> taste_weights（确定性匹配，零随机，docs/dev/SPEC-life-realism.md「画像编译」）。
 
 取代已删除的 entertainment_preferences 随机浮点：权重由卡片 content_genres
-与每个内容条目的 genre[] 精确匹配得到，只供内部评分器与浏览排序使用，
-不进提示。匹配规则：weight = |条目 genre 与卡片口味的交集| / |条目 genre|；
+与每个内容、游戏条目的 genre[] 精确匹配得到，不进提示。原始权重是内部评分器与
+浏览的排序信号；实际缓解另按有效偏好 f + (1 − f)·w 调幅度（activities.relief_preference，
+docs/dev/SPEC-dayrun-fidelity.md 1.2）。匹配规则：weight = |条目 genre 与卡片口味的交集| / |条目 genre|；
 无 genre 的条目权重 0；卡片无口味则全部条目权重 0（不默认抬升）。
 """
 
