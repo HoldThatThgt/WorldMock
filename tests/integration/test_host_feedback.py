@@ -254,7 +254,7 @@ def _obtain_arguments(target: str, candidate: dict | None = None) -> dict:
     if candidate is None:
         return start_arguments([target], ["obtain"], ["远程下单"])
     return {"targets": [candidate["target"]], "actions": [candidate["action"]], "ways": [candidate["way"]],
-            "from": [candidate["from"]], "to": [candidate["to"]], "answering": None}
+            "from": [candidate["from"]], "to": [candidate["to"]], "answering": None, "prefer": None}
 
 
 @pytest.mark.asyncio

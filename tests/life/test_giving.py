@@ -19,6 +19,7 @@ from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, DUPLICATE_
                                          place, routed, run_until, stage, supply_target)
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, same_moment
+from worldmock.life.basket import delivery_expected_at
 from worldmock.life.interaction_menu import GIVE_WAY, merged_selection
 from worldmock.life.routing import require_recipients
 from worldmock.life.scenario import load_scenario
@@ -391,16 +392,23 @@ def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None
 
 
 def test_named_purchase_takes_from_as_the_store_and_the_recipient_place_as_destination(engine_factory) -> None:
-    """指名购买（本轮没有列出的名称）按收货人的收货地点找能送到的门店、from 限定门店：送给联系人时多店同名先报歧义，
-    写上门店名后解析为那家店、订单收货人是联系人、送到其收货地点；收货人没有收货地点时「暂时送不到<人>那里」。"""
+    """指名购买（本轮没有列出的名称）按收货人的收货地点找能送到的门店、from 限定门店：送给联系人时多店同名按最快选定一家
+    （到其收货地点的预计送达最早，docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条），不再报歧义；写上门店名后解析为
+    那家店、订单收货人是联系人、送到其收货地点；收货人没有收货地点时「暂时送不到<人>那里」。"""
     engine = open_world(engine_factory)
     milk = [item for item in engine.scenario.supplies if engine.rules.items[item.product_id].name == "纯牛奶"
             and OFFICE in item.delivery_destination_ids]
     stores = {item.supply_id: next(place.name for place in engine.scenario.locations
                                    if place.location_id == item.location_id) for item in milk}
     assert len(set(stores.values())) >= 2
-    ambiguous = act(engine, "milk-ambiguous", routed(("纯牛奶", "obtain", "远程下单", None, COLLEAGUE_TARGET)))
-    assert ambiguous.error_code == "SUPPLY_NAME_AMBIGUOUS"
+    now = engine.state.current_time
+    fastest = min(milk, key=lambda item: (delivery_expected_at(engine.semantics, item, OFFICE, now),
+                                          item.location_id))
+    chosen = act(engine, "milk-chosen", routed(("纯牛奶", "obtain", "远程下单", None, COLLEAGUE_TARGET)))
+    assert chosen.status == "completed", (chosen.error_code, chosen.message)
+    assert [(order["supply_id"], order["destination_id"]) for order in chosen.data["orders"]] == [
+        (fastest.supply_id, OFFICE)]
+    assert "按最快选了" in chosen.data["notes"][0]
     supply_id, store = next(iter(stores.items()))
     named = act(engine, "milk-from-store", routed(("纯牛奶", "obtain", "远程下单", store, COLLEAGUE_TARGET)))
     assert named.status == "completed", (named.error_code, named.message)

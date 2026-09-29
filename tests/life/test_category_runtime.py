@@ -427,7 +427,7 @@ def test_recipe_completes_once_after_readable_use(tmp_path: Path) -> None:
     try:
         request, started = _consume(engine, "start")
         assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["obtain"], "ways": ["制作"],
-                                        "from": [None], "to": ["自己"], "answering": None}
+                                        "from": [None], "to": ["自己"], "answering": None, "prefer": None}
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
         _advance_to_completion(engine, started.activity_id)

@@ -118,7 +118,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     home_requests = await _decide(environment, first, home, "start_activity", walk)
     assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
     assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == (
-        {"targets", "actions", "ways", "from", "to", "answering"})
+        {"targets", "actions", "ways", "from", "to", "answering", "prefer"})
     assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"

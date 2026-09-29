@@ -18,7 +18,7 @@ from worldmock.footprints.models import EventDraft
 from worldmock.footprints.purchases import BROWSE_ACTIVITY_KIND, ORDER_WAYS, project_purchase_facts
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
-from worldmock.life.interaction_menu import PURCHASE_WAYS, WAYS
+from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS, PURCHASE_WAYS, WAYS
 from worldmock.life.models import ActionResult, ActionStatus, ActivityKind, DeliveryState, active_activities
 from worldmock.life.session_actions import _parallel_result_data
 
@@ -109,9 +109,27 @@ def _ids(events: list[dict], event_type: str, action_id: str) -> list[str]:
 
 
 def test_order_ways_and_browse_kind_are_the_interaction_menu_values() -> None:
-    """投影在记录层自带的方式与活动类型常量，与交互菜单的下单方式、浏览活动类型一致。"""
-    assert set(ORDER_WAYS) == set(PURCHASE_WAYS.values())
+    """投影在记录层自带的方式与活动类型常量，与交互菜单的下单方式（到店、远程下单与由系统定方式的「购买」）、浏览活动
+    类型一致。"""
+    assert set(ORDER_WAYS) == NAMED_PURCHASE_WAYS == {*PURCHASE_WAYS.values(), "购买"}
     assert BROWSE_ACTIVITY_KIND == ActivityKind.BROWSE.value == WAYS["浏览"][1]
+
+
+def test_purchase_rows_carry_the_order_channel_and_old_orders_read_as_null() -> None:
+    """purchases.jsonl 每行记订单载荷的 channel_id（from 解析为渠道时的 App 标识，docs/dev/SPEC-dayrun-fidelity.md 3.3
+    解析规则 4）；旧运行的订单载荷没有这一列时记 null；方式为「购买」的请求计为尝试下单。"""
+    request = {"event_type": "action_requested", "agent_id": 1, "action_id": "buy", "event_id": "request-buy",
+               "occurred_at": 110, "data": {"tool_name": "start_activity", "reused": False,
+                                            "request": {"ways": ["购买"]}}}
+    orders = [{**_ORDER, "channel_id": "hema"}, {key: value for key, value in {**_ORDER, "order_id": "old"}.items()
+                                                 if key != "channel_id"}]
+    result = {"event_type": "action_result", "agent_id": 1, "action_id": "buy", "event_id": "result-buy",
+              "data": {"status": "completed", "error_code": None, "data": {"orders": orders}}}
+    facts = project_purchase_facts([request, result])
+    assert [(row["order_id"], row["channel_id"]) for row in facts if row["fact_kind"] == "purchase"] == [
+        ("order-beef-noodles", "hema"), ("old", None)]
+    assert [(row["way"], row["status"]) for row in facts if row["fact_kind"] == "order_attempt"] == [
+        ("购买", "completed")]
 
 
 def test_mixed_eat_and_buy_in_progress_result_counts_its_order_once(purchase_store) -> None:
@@ -124,8 +142,8 @@ def test_mixed_eat_and_buy_in_progress_result_counts_its_order_once(purchase_sto
     assert purchases == [{
         "fact_kind": "purchase", "agent_id": 1, "order_id": "order-beef-noodles", "product_id": "beef-noodles",
         "supply_id": "supply-beef-noodles", "quantity": 1, "total_price_fen": 2800, "fulfillment": "delivery",
-        "recipient_id": "contact-wanglei", "request_message_id": "reply-message-1", "created_at": 110,
-        "action_id": "eat-and-buy",
+        "recipient_id": "contact-wanglei", "request_message_id": "reply-message-1", "channel_id": None,
+        "created_at": 110, "action_id": "eat-and-buy",
         "source_event_id": _ids(events, "action_result", "eat-and-buy")[0]}]
 
 
@@ -251,8 +269,9 @@ def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engi
     assert [row for row in rows if row["fact_kind"] == "purchase"] == [{
         "fact_kind": "purchase", "agent_id": 1, "order_id": order["order_id"], "product_id": order["product_id"],
         "supply_id": order["supply_id"], "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
-        "fulfillment": "delivery", "recipient_id": "agent:1", "request_message_id": None,
+        "fulfillment": "delivery", "recipient_id": "agent:1", "request_message_id": None, "channel_id": None,
         "created_at": order["created_at"], "action_id": "action-mixed", "source_event_id": results[0].event_id}]
+    assert order["channel_id"] is None
     assert [(row["action_id"], row["way"], row["status"], row["request_event_id"]) for row in rows
             if row["fact_kind"] == "order_attempt"] == [("action-mixed", "远程下单", "in_progress",
                                                           requested[0].event_id)]

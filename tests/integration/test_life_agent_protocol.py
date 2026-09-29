@@ -315,7 +315,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert "finish" not in functions and not {"memory_step_range", "memory_tick_range"} & set(functions)
     start_fields = functions["start_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
-    assert set(start_fields) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(start_fields) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
     assert '"enum"' not in json.dumps({name: functions[name] for name in ("start_activity", "submit_work",

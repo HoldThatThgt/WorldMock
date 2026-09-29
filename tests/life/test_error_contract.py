@@ -26,8 +26,8 @@ from worldmock.life.error_contract import (CANDIDATE_KEYS, ERROR_KEYS, HOST_ERRO
 from worldmock.life.guidance import (GENERIC_REASON, Refusal, default_reason, items_refusal,  # noqa: E402
                                      refusal_for_code, rejection_guidance)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND  # noqa: E402
-from worldmock.life.named_purchase import (near_labels, resolve_named_rows, resolve_named_supply,  # noqa: E402
-                                           supply_label)
+from worldmock.life.named_purchase import (PurchaseAsk, near_labels, resolve_named_rows,  # noqa: E402
+                                           resolve_named_supply, supply_label)
 from worldmock.life.result_projection import public_result  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +65,8 @@ _DYNAMIC_SITES: dict[str, tuple[str, ...] | set[str]] = {
     "src/worldmock/life/guidance.py:refusal_for_code": (),
     "src/worldmock/life/guidance.py:items_refusal": (),
     "src/worldmock/life/named_purchase.py:_refusal": (),
+    # 指名购买逐项拒绝合并时取第一个名称类拒绝的码（原样传下各项的码，一日运行保真规格 3.2（d））。
+    "src/worldmock/life/named_purchase.py:_merged": (),
     "src/worldmock/life/tool_layer.py:_start_refusal": (),
     "src/worldmock/life/travel.py:route_for": ("ROUTE_UNREACHABLE", "ROUTE_INFORMATION_UNKNOWN"),
     # 配送道路判定与准入共用 wayfinding.delivery_route_code，整单结算按它返回的码抛出（一日运行保真规格 5.3）。
@@ -252,19 +254,20 @@ def test_every_failing_named_item_is_reported_in_one_rejection(engine_factory) -
 
 
 def test_named_item_candidates_use_a_way_the_supply_supports() -> None:
-    """按标签找到的供给不支持所写的方式（FULFILLMENT_NOT_SUPPORTED）：该项候选是同一标签换成它支持的方式，from 为 null、
-    to 照写，可以照填；原因写出这一项的原文。"""
+    """按标签找到的供给不支持所写的方式（分段匹配 M2，FULFILLMENT_NOT_SUPPORTED）：原因写明它只能用哪种方式（「只能到店」），
+    该项候选是同一标签换成它支持的方式，from 为 null、to 照写，可以照填；明细的参数名是 ways（一日运行保真规格 3.2（c））。"""
     layer = _Layer(_Scenario([_Supply("s1", "p1", fulfillment_modes=("pickup",))], {"s1": "好德"}, {"p1": _MILK}))
     label = f"好德出售的{_MILK}"
     row = {"kind": NAMED_SUPPLY_KIND, "object": label, "selected_action": {"label": "远程下单"}, "to": "人物：李凡"}
     with pytest.raises(BusinessRuleError, match="FULFILLMENT_NOT_SUPPORTED") as refused:
-        resolve_named_rows(layer, [row], lambda item: resolve_named_supply(layer, item["object"], "远程下单", None,
-                                                                            "home"))
+        resolve_named_rows(layer, [row], lambda item: resolve_named_supply(
+            layer, PurchaseAsk(item["object"], "远程下单", None, "home")))
     [item] = refused.value.suggested["items"]
+    assert (item["field"], item["written"]) == ("ways", "远程下单")
     assert item["candidates"] == [{"target": label, "action": "obtain", "way": "到店", "from": None,
                                    "to": "人物：李凡"}]
-    assert refused.value.public_reason == f"「{label}」：这件商品不能用这种方式买"
-    assert refused.value.suggested["fix"] == "改用这件商品支持的取得方式"
+    assert refused.value.public_reason == f"「远程下单」：{label}只能到店"
+    assert refused.value.suggested["fix"] == "改用这件商品支持的取得方式，或者方式写「购买」"
 
 
 def test_accepted_results_pass_resolved_and_notes_into_public_details(engine_factory) -> None:

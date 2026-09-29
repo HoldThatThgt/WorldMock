@@ -338,7 +338,7 @@ def test_candidates_are_feasible_first_and_submittable_verbatim(engine_factory) 
     candidate = _check(host, "start_activity", _start(["收拾碗筷与厨房"], ["interact"], ["进行"])).report.items[0]
     chosen = candidate.candidates[0].payload()
     arguments = {"targets": [chosen["target"]], "actions": [chosen["action"]], "ways": [chosen["way"]],
-                 "from": [chosen["from"]], "to": [chosen["to"]], "answering": None}
+                 "from": [chosen["from"]], "to": [chosen["to"]], "answering": None, "prefer": None}
     assert _check(host, "start_activity", arguments) == ""
     engine.submit_action(DirectToolCall(ctx, "action-candidates", "start_activity",
                                         StartActivityRequest.model_validate(arguments)))
@@ -501,19 +501,22 @@ def test_a_name_rejection_beside_other_rejections_follows_the_same_count(engine_
 
 
 def test_host_and_environment_share_one_name_class_closed_set() -> None:
-    """名称类拒绝码闭集是规格 3.4 的十一个码：宿主五个都在宿主错误码闭集里，环境六个都有具体的默认原因且不是宿主码；每个码
+    """名称类拒绝码闭集是规格 3.4 的十一个码：宿主五个都在宿主错误码闭集里，环境七个都有具体的默认原因；其中
+    SUPPLY_SOURCE_MISMATCH 两边都有（列出的标签由宿主纠正，按名写的标签由环境拒绝，3.2（b）），其余环境码不是宿主码；每个码
     在同刻规则里本秒前两次免计；宿主写进证据的名称类纠错串经 feedback_report 判定为同一个码。"""
     assert HOST_NAME_CODES == {"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED", "SUPPLY_SOURCE_MISMATCH",
                                "SUBJECT_NOT_KNOWN"}
     assert ENVIRONMENT_NAME_CODES == {"SUPPLY_NOT_FOUND", "SUPPLY_NOT_AT_STORE", "SUPPLY_NAME_AMBIGUOUS",
-                                      "FULFILLMENT_NOT_SUPPORTED", "SOURCE_NOT_FOUND", "TASK_NOT_FOUND"}
+                                      "FULFILLMENT_NOT_SUPPORTED", "SOURCE_NOT_FOUND", "SUPPLY_SOURCE_MISMATCH",
+                                      "TASK_NOT_FOUND"}
     assert NAME_REJECTION_CODES == HOST_NAME_CODES | ENVIRONMENT_NAME_CODES and len(NAME_REJECTION_CODES) == 11
-    assert HOST_NAME_CODES <= set(HOST_ERROR_CODES) and not ENVIRONMENT_NAME_CODES & set(HOST_ERROR_CODES)
+    assert HOST_NAME_CODES <= set(HOST_ERROR_CODES)
+    assert ENVIRONMENT_NAME_CODES & set(HOST_ERROR_CODES) == {"SUPPLY_SOURCE_MISMATCH"}
     for code in NAME_REJECTION_CODES:
         assert same_moment.free_rejection_flags([code] * 3) == [True, True, False]
         if code in HOST_NAME_CODES:
             assert feedback_report(f"{code}: start_activity target is not visible").error_code == code
-    for code in ENVIRONMENT_NAME_CODES - {"SUPPLY_NOT_AT_STORE", "SOURCE_NOT_FOUND"}:
+    for code in ENVIRONMENT_NAME_CODES:
         assert default_reason(code) != GENERIC_REASON
 
 
