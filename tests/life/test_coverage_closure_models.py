@@ -48,14 +48,16 @@ _RAW_MENU = {"allowed_actions": ["sleep", "wait"]}
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("base_url", "https://api.openai.com/v1"), ("requested_model", "deepseek-reasoner")],
-    ids=["foreign-base-url", "foreign-model"],
+    [("base_url", "https://api.openai.com/v1"), ("base_url", "https://api.deepseek.com"),
+     ("requested_model", "deepseek-reasoner")],
+    ids=["foreign-base-url", "main-site-base-url", "foreign-model"],
 )
 def test_model_identity_accepts_only_the_configured_deepseek_endpoint(
     field: str, value: str, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """冻结身份只认单一官方端点：换地址或换模型都以英文原因拒绝并记错误日志。"""
-    assert ModelIdentity.model_validate(_IDENTITY).base_url == DEEPSEEK_BASE_URL
+    """冻结身份只认单一官方端点，即 strict 所在的 /beta（docs/dev/SPEC-dayrun-fidelity.md 7.5）：换地址（含主站）或换模型
+    都以英文原因拒绝并记错误日志。"""
+    assert ModelIdentity.model_validate(_IDENTITY).base_url == DEEPSEEK_BASE_URL == "https://api.deepseek.com/beta"
     with caplog.at_level(logging.ERROR), pytest.raises(ValidationError, match=_ENDPOINT_MISMATCH):
         ModelIdentity.model_validate({**_IDENTITY, field: value})
     assert _ENDPOINT_MISMATCH in caplog.messages
