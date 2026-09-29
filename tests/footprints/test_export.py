@@ -132,7 +132,8 @@ def test_export_writes_hash_bound_timeline_projections(tmp_path):
     payload = (tmp_path / 'export' / record['path']).read_bytes()
     assert record['size_bytes'] == len(payload)
     assert record['sha256'] == hashlib.sha256(payload).hexdigest()
-    assert '工作' in payload.decode('utf-8')
+    # 时间线只写中文种类名（docs/dev/SPEC-dayrun-fidelity.md 7.4），不写英文的 work。
+    assert '工作' in payload.decode('utf-8') and 'work' not in payload.decode('utf-8')
 
     tampered = b'# forged timeline\n'
     (tmp_path / 'export' / record['path']).write_bytes(tampered)

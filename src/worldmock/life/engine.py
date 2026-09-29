@@ -38,6 +38,7 @@ from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_re
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
 from worldmock.life.activity_validation import validate_activity_targets
+from worldmock.life.activity_titles import activity_title, title_index
 from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_action_request_start, pop_decision_start, response_self_note)
@@ -226,6 +227,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self.lifestyle_items = load_lifestyle_items(
             self.corpus_root, self.scenario.body.activity_met)
         self._lifestyle_names = {item.activity_id: item.name for item in self.lifestyle_items}
+        self._titles = title_index(self.scenario, self._lifestyle_names, self.rules.content_titles)
         self.state = WorldState.model_validate(store.state)
         self._round: DecisionRoundState | None = None
         self._pending_decision_starts: dict[int, dict] = {}
@@ -1112,14 +1114,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return activity_control.RecordContext(snapshot=self._activity_snapshot, title=self._activity_title)
 
     def _activity_title(self, activity) -> str | None:
-        """@brief 解析有内容目标活动的展示标题，无标题活动返回 None。"""
-        if activity.target_id is None:
-            return None
-        if activity.kind == ActivityKind.LIFESTYLE:
-            return self._lifestyle_names.get(activity.target_id)
-        if activity.kind in (ActivityKind.WATCH, ActivityKind.PLAY_GAME):
-            return self.rules.content_titles.get(activity.target_id)
-        return None
+        """@brief 活动关联对象的展示标题（生活活动、内容、游戏、工作、通话、交谈），没有时返回 None（activity_titles）。"""
+        return activity_title(activity, self._titles)
 
     def _activity_snapshot(self, activity) -> dict:
         """@brief 导出活动权威快照并为内容型活动附查看器直显标题。"""

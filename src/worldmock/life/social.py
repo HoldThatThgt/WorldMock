@@ -188,17 +188,34 @@ class ReceivedItem(_SocialModel):
     time: str
 
 
+class ReplyFacts(_SocialModel):
+    """@brief 回复请求里这次来信的事实：发件人姓名、场景本地时刻与联系人的收货地名（没有收货地点时为空）。
+
+    now 是带时区的 ISO 8601（秒精度、场景时区）。联系人只通过消息来往，另由请求的 presence 固定为 remote
+    （docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    """
+
+    sender_name: str = Field(min_length=1)
+    now: str = Field(min_length=1)
+    receive_location: str | None = None
+
+
 class ModelReplyRequest(_SocialModel):
     """@brief model 策略回复请求：引擎据此发起独立 DeepSeek 调用并存档。
 
     history 是双方此前的消息（按时间排序，至多 HISTORY_LIMIT 条），received 是联系人实际收到的物品
-    （docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）。
+    （docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）；sender_name 是写这条来信的人物、now 是场景本地时刻、
+    presence 固定 remote（联系人只通过消息来往）、receive_location 是联系人的收货地名（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
     """
 
     contact_id: str
     reply_to_message_id: str
     recipient_id: str
     incoming_text: str
+    sender_name: str
+    now: str
+    presence: Literal["remote"] = "remote"
+    receive_location: str | None
     history: tuple[ReplyHistoryEntry, ...]
     received: tuple[ReceivedItem, ...]
     thinking: Literal["disabled"] = "disabled"
@@ -326,13 +343,16 @@ def needs_reply(policy: ReplyPolicy, message_id: str,
 
 
 def model_reply_request(incoming: IncomingMessage, history: tuple[ReplyHistoryEntry, ...],
-                        received: tuple[ReceivedItem, ...]) -> ModelReplyRequest:
-    """@brief 产出 model 策略的独立模型调用请求（实际调用由引擎层负责），带双方往来与对方收到的物品。"""
+                        received: tuple[ReceivedItem, ...], facts: ReplyFacts) -> ModelReplyRequest:
+    """@brief 产出 model 策略的独立模型调用请求（实际调用由引擎层负责），带来信事实、双方往来与对方收到的物品。"""
     return ModelReplyRequest(
         contact_id=incoming.contact_id,
         reply_to_message_id=incoming.message_id,
         recipient_id=incoming.sender_id,
         incoming_text=incoming.text,
+        sender_name=facts.sender_name,
+        now=facts.now,
+        receive_location=facts.receive_location,
         history=history,
         received=received,
     )
