@@ -8,7 +8,8 @@
    方式增补或去掉「地点：」「活动：」「内容：」「持有物：」「工作：」「联系人：」等类别前缀（object_labels 的唯一写法）；
    「家」「住处」指本人的住处（home_location_id），其余写法只给候选；方式按闭集同义表 WAY_SYNONYMS 在目标列出的方式里
    恰好命中一个时受理，动词仍须是该方式所属的动词——动词与方式不一致时不替人物改，报 WAY_NOT_OFFERED，候选为该目标
-   列出的（动词，方式），不由方式反推动词；与目标或当前所在地点一致的冗余 from、to 照样受理并在 details.notes 说明；
+   列出的（动词，方式），不由方式反推动词；商品目标写「购买」（或它的同义写法）时不论是否列出都是由系统定到店或远程
+   下单的指名购买占位行（3.5）；与目标或当前所在地点一致的冗余 from、to 照样受理并在 details.notes 说明；
 3. 相似度永不自动替换（人物 Prompt 规格裁决 #19）：跨类别按单字加二字的 Dice 系数排名，此刻可行的在前，至多 3 个候选，
    每个候选写成可以照填的请求 {target, action, way, from, to}（error_contract.Candidate，可另带 note，如「约 20 分钟」）。
 
@@ -16,7 +17,8 @@
 （tests/life/test_name_resolution.py 的性质测试）。分工：本轮私有绑定、目录绑定（catalog_bindings：本轮没有列出的生活
 活动、内容与游戏，named_catalog）与冻结地点表（observation.locations）都在冻结观察里，名称是否存在由宿主判定，重试不花钱；
 存在但没有列出的对象（目录绑定里的生活活动、内容与游戏，没有列出路线的地点）的资格与准入由环境受理时判定；指名购买的商品
-（named_kind 为 supply）只由环境按名称解析（named_purchase）。本模块只读名称与观察的私有绑定，不读世界状态。
+（named_kind 为 supply）只由环境按名称解析（named_purchase，分段匹配与来源约束）。本模块只读名称与观察的私有绑定，不读世界
+状态；names_store 与 written_place 供来源约束判定 from 写的门店（宿主 routing 与环境 purchase_offers 共用）。
 """
 
 from __future__ import annotations
@@ -29,8 +31,8 @@ from functools import lru_cache
 from typing import Any, TypeVar
 
 from worldmock.life.error_contract import MAX_CANDIDATES, Candidate, ErrorItem, numbered
-from worldmock.life.interaction_menu import (CONTENT_WAYS, PURCHASE_WAYS, VERB_WAY_SEPARATOR, WAYS, binding_action,
-                                             named_supply_row)
+from worldmock.life.interaction_menu import (CONTENT_WAYS, NAMED_PURCHASE_WAYS, SYSTEM_PURCHASE_WAY,
+                                             VERB_WAY_SEPARATOR, WAYS, binding_action, named_supply_row)
 from worldmock.life.object_labels import OBJECT_PREFIXES, object_label
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.routing import fill_route
@@ -73,6 +75,8 @@ WAY_SYNONYMS: dict[str, frozenset[str]] = {key: frozenset(value) for key, value 
     "等": {"等待"}, "等着": {"等待"}, "等候": {"等待"},
     "到店购买": {"到店"}, "到店点单": {"到店"}, "堂食": {"到店"}, "自取": {"到店"},
     "外卖": {"远程下单"}, "点外卖": {"远程下单"}, "配送": {"远程下单"}, "送货上门": {"远程下单"},
+    "网上下单": {"远程下单"}, "线上下单": {"远程下单"},
+    "买": {"购买"}, "下单": {"购买"}, "下单购买": {"购买"}, "点单": {"购买"}, "订购": {"购买"},
     "做饭": {"制作"},
     "吃": {"食用"}, "吃饭": {"食用"}, "用餐": {"食用"}, "进食": {"食用"},
     "用": {"使用"},
@@ -89,6 +93,7 @@ _WAY_KINDS: dict[str, frozenset[str]] = {
     "游玩": frozenset({"game"}), "交谈": frozenset({"person"}), "通话": frozenset({"contact"}),
     "阅读": frozenset({"mail"}), "浏览": frozenset({"catalog"}), "进行": frozenset({"lifestyle"}),
     "等待": frozenset({"self"}), "到店": frozenset({"supply"}), "远程下单": frozenset({"supply"}),
+    "购买": frozenset({"supply"}),
     "制作": frozenset({"holding"}), "食用": frozenset({"holding"}), "使用": frozenset({"holding"}),
     "给予": frozenset({"holding"}), "睡觉": frozenset({"self"}),
 }
@@ -96,8 +101,9 @@ _WAY_KINDS: dict[str, frozenset[str]] = {
 _VERB_KINDS: dict[str, frozenset[str]] = {
     verb: frozenset().union(*(_WAY_KINDS[way] for way, (owner, _) in WAYS.items() if owner == verb))
     for verb in {owner for owner, _ in WAYS.values()}}
-#: 本轮没有列出也能按名调用的方式 → 类别（named_kind，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）。
-_NAMED_WAYS: dict[str, str] = {**{way: "content" for way in _WATCH_WAYS}, "到店": "supply", "远程下单": "supply",
+#: 本轮没有列出也能按名调用的方式 → 类别（named_kind，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条；「购买」见 3.5）。
+_NAMED_WAYS: dict[str, str] = {**{way: "content" for way in _WATCH_WAYS},
+                               **{way: "supply" for way in NAMED_PURCHASE_WAYS},
                                "进行": "lifestyle", "游玩": "game", "步行": "location", "驾车": "location"}
 #: named_kind 的全部取值：商品、生活活动、内容、游戏与地点。
 NAMED_KINDS = ("supply", "lifestyle", "content", "game", "location")
@@ -249,9 +255,9 @@ def way_options(way: str) -> frozenset[str]:
 
 
 def named_kind(verb: str, way: str) -> str | None:
-    """@brief 按「动词加方式」推出的按名调用类别（取代 is_named_purchase）：supply（取得的到店、远程下单）、lifestyle（进行）、
-    content（观看与四种续看）、game（游玩）或 location（步行、驾车）；动词不是该方式所属的动词、方式不在闭集与同义表中，
-    或推出不止一类时为 None。"""
+    """@brief 按「动词加方式」推出的按名调用类别（取代 is_named_purchase）：supply（取得的到店、远程下单与由系统定方式的
+    「购买」）、lifestyle（进行）、content（观看与四种续看）、game（游玩）或 location（步行、驾车）；动词不是该方式所属的
+    动词、方式不在闭集与同义表中，或推出不止一类时为 None。"""
     kinds = {_NAMED_WAYS[option] for option in way_options(way) if option in _NAMED_WAYS and WAYS[option][0] == verb}
     return next(iter(kinds)) if len(kinds) == 1 else None
 
@@ -463,14 +469,15 @@ def resolve_start(book: NameBook, request: Any) -> StartOutcome:
 
 
 def _resolve_item(book: NameBook, request: Any, index: int) -> _Item:
-    """@brief 一项：对象唯一时再核对（动词，方式）；找不到而方式是到店或远程下单时是指名购买（占位行）；其余为名称类失败。"""
+    """@brief 一项：对象唯一时再核对（动词，方式）；找不到而方式是到店、远程下单或「购买」时是指名购买（占位行）；其余为
+    名称类失败。"""
     written, verb, way = request.targets[index], request.actions[index], request.ways[index]
     matches = lookup(written, book.targets, _hint(verb, way), book.home)
     if len(matches) == 1:
         return _chosen(matches[0], request, index)
     if matches:
         return _Item(None, _ambiguous(matches, request, index))
-    purchase = way_options(way) & set(PURCHASE_WAYS.values())
+    purchase = way_options(way) & NAMED_PURCHASE_WAYS
     if named_kind(verb, way) == "supply" and len(purchase) == 1:
         chosen = next(iter(purchase))
         return _Item(named_supply_row(written, chosen), resolved=_record(way, chosen))
@@ -478,9 +485,14 @@ def _resolve_item(book: NameBook, request: Any, index: int) -> _Item:
 
 
 def _chosen(target: Target, request: Any, index: int) -> _Item:
-    """@brief 对象已唯一：动词与方式相配时选中该动作（名称或方式经归一的记一条），否则 WAY_NOT_OFFERED。"""
+    """@brief 对象已唯一：动词与方式相配时选中该动作（名称或方式经归一的记一条）；商品目标写「购买」（或它的同义写法）时
+    是由系统定方式的占位行（docs/dev/SPEC-dayrun-fidelity.md 3.5：对任何商品目标都受理，工具层不列出它）；否则
+    WAY_NOT_OFFERED。"""
     written, verb, way = request.targets[index], request.actions[index], request.ways[index]
     chosen = pick_way(target, verb, way)
+    if chosen is None and target.kind == "supply" and verb == "obtain" and SYSTEM_PURCHASE_WAY in way_options(way):
+        return _Item(named_supply_row(target.label, SYSTEM_PURCHASE_WAY),
+                     resolved=(*_record(written, target.label), *_record(way, SYSTEM_PURCHASE_WAY)))
     if chosen is None:
         return _Item(None, _way_failure(target, request, index))
     return _Item(selection_row(target, verb, chosen), resolved=(*_record(written, target.label), *_record(way, chosen)))
@@ -571,7 +583,7 @@ def _redundant_source(book: NameBook, verb: str, label: str, source: str | None)
     换成 null 并给一句说明，否则原样（其余写法由 routing 判定）。"""
     if source is None:
         return None, None
-    if verb == "obtain" and fold(label).startswith(f"{fold(source)}{_SOLD_BY}"):
+    if verb == "obtain" and names_store(label, source):
         return None, f"from「{source}」就是目标写明的门店，可以写 null"
     if verb in _NULL_ROUTED_VERBS and _same_place(book, source, book.here):
         return None, f"from「{source}」就是现在所在的地点，可以写 null"
@@ -588,6 +600,29 @@ def _redundant_destination(book: NameBook, verb: str, label: str,
     if verb != "travel" and _same_place(book, destination, book.here):
         return None, f"to「{destination}」就是现在所在的地点，可以写 null"
     return destination, None
+
+
+def channel_key(name: str) -> str:
+    """@brief 渠道称呼（App 名）的比较写法（docs/dev/SPEC-dayrun-fidelity.md 3.3 解析规则 1）：去掉全部空白、不分大小写，
+    其余逐字比较（不做全半角与括号归一）。"""
+    return "".join(name.split()).casefold()
+
+
+def names_store(label: str, store: str) -> bool:
+    """@brief 所写的门店名是否就是标签「<门店>出售的<商品>」写明的门店（按归一写法比较，也认去掉「地点：」前缀的写法）。"""
+    folded = fold(label)
+    return any(folded.startswith(f"{key}{_SOLD_BY}") for key in (fold(store), bare_name(store)) if key)
+
+
+def written_place(written: str, places: Sequence[str], home: str | None = None) -> str | None:
+    """@brief 所写的地点名唯一对应的地点显示名：精确，再按归一写法与去掉「地点：」前缀逐级比对（resolve_name，第一级
+    有匹配就停）；「家」「住处」指本人住处 home。对应不上或不止一个时为 None。
+
+    :param places: 场景地点的显示名（冻结地点表）。
+    """
+    if bare_name(written) in HOME_WORDS and home is not None:
+        return home
+    return resolve_name(written, places).name
 
 
 def _same_place(book: NameBook, written: str, anchor: str | None) -> bool:

@@ -86,21 +86,25 @@ def _obtain(target: str, way: str = "到店", **extra) -> ReactDecision:
 
 
 def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
-    """购买模型入参只有对象、动词与方式；商品目标只在工具层，报价身份、履约方式和内部供给身份不进入请求。"""
+    """购买模型入参只有对象、动词与方式（另有请求级 prefer）；商品目标只在工具层，报价身份、履约方式和内部供给身份不进入
+    请求。工具层的商品目标只列到店与远程下单，不列「购买」；「购买」写在列出的商品目标上宿主照样放行
+    （docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条：工具层呈现不变）。"""
     observed = _observed_offer()
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
     tools = _functions(person)
     assert "purchase" not in tools and "discover_places" not in tools
     action = tools["start_activity"]["parameters"]
-    assert set(action["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(action["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
+    assert action["properties"]["prefer"]["enum"] == ["fastest", "cheapest", None]
+    assert "「购买」" in action["properties"]["prefer"]["description"]
     user = person.build_react_messages(ReactLoopRequest(0, _context().observed_at, observed))[1]["content"]
     [target] = [row for row in json.loads(user)[0]["targets"] if row["name"] == _OFFER]
     assert target["kind"] == "product"
     assert [(item["action"], item["way"]) for item in target["actions"]] == [("obtain", "到店"), ("obtain", "远程下单")]
     for text in ("pickup", "delivery", "price-private", "supply-private"):
         assert text not in str(action) and text not in user
-    for way in ("到店", "远程下单"):
+    for way in ("到店", "远程下单", "购买"):
         assert person.validate_react_decisions([_obtain(_OFFER, way)], False) == ""
     assert "not offered" in person.validate_react_decisions([
         ReactDecision("", "start_activity", start_arguments([_OFFER], ["consume"], ["到店"]), ""),
@@ -127,8 +131,9 @@ def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label
 def test_host_checks_from_to_and_answering_against_private_bindings():
     """宿主按私有绑定本地校验来源、去向与 answering（与环境同一判定，docs/dev/SPEC-persona-prompt.md 第五章）：去向是
     「自己」、本轮的人物或不在身边的同世界人物（私有绑定 person_bindings），answering 是本轮可见的直接消息且至少一项送给
-    发件人；不合法时返回以宿主错误码开头的协议错误串（ROUTE_FIELDS_INVALID，目标已写明门店却写了另一家的 from 为
-    SUPPLY_SOURCE_MISMATCH；写的正是标签里的门店是冗余的 from，照常放行，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 2 条）。
+    发件人；不合法时返回以宿主错误码开头的协议错误串（ROUTE_FIELDS_INVALID；列出的标签写明了门店而 from 是冻结地点表里的
+    另一个地点为 SUPPLY_SOURCE_MISMATCH，原因写明那个地点、候选为同一项 from 写 null；写的正是标签里的门店是冗余的 from，
+    照常放行；App 称呼与不认识的写法宿主放行，交给环境按渠道与来源解析，docs/dev/SPEC-dayrun-fidelity.md 3.2（b）、3.3）。
     去向不是任何人物是拒绝码 RECIPIENT_NOT_FOUND：宿主放行，由环境业务拒绝。"""
     observed = _observed_offer()
     data = observed[0]["data"]
@@ -136,6 +141,8 @@ def test_host_checks_from_to_and_answering_against_private_bindings():
     data["person_bindings"] = [{"name": "人物：李凡", "person_id": "agent:2"}]
     data["message_bindings"] = [{"name": "王磊 10:35 的消息", "message_id": "reply-1", "sender_id": "contact-wanglei"},
                                 {"name": "李凡 10:40 的消息", "message_id": "direct-2", "sender_id": "agent:2"}]
+    data["locations"] = [*data["locations"], {"location_id": "corner-shop", "name": "街角超市"},
+                         {"location_id": "doorstep-shop", "name": "家门口便利店"}]
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
 
@@ -150,9 +157,15 @@ def test_host_checks_from_to_and_answering_against_private_bindings():
         "ROUTE_FIELDS_INVALID: start_activity answering needs an item whose to is the message sender")
     assert error(to=["联系人：王磊"], answering="王磊 9:00 的消息") == (
         "ROUTE_FIELDS_INVALID: start_activity answering is not a visible message")
-    assert error(**{"from": ["街角超市"]}) == (
-        "SUPPLY_SOURCE_MISMATCH: start_activity from is null when the target already names its store (targets[0])")
-    assert error(**{"from": ["家门口便利店"]}) == ""
+    mismatch = error(**{"from": ["街角超市"]})
+    assert mismatch == (
+        "SUPPLY_SOURCE_MISMATCH: start_activity from names another place than the store in the target (targets[0])")
+    assert mismatch.report.reason == f"「{_OFFER}」已经写明了门店，from「街角超市」是另一个地点"
+    [item] = mismatch.report.items
+    assert (item.field, item.written, [candidate.source for candidate in item.candidates]) == ("from", "街角超市",
+                                                                                               [None])
+    for source in ("家门口便利店", "地点：家门口便利店", "盒马App", "没听说过的地方"):
+        assert error(**{"from": [source]}) == ""
     assert error(to=[None]) == "ROUTE_FIELDS_INVALID: start_activity obtain and consume need to"
 
 
@@ -191,7 +204,7 @@ def test_each_selected_supply_keeps_its_own_frozen_quote():
             self.request = None
             self.named = None
 
-        def _purchase(self, state, pending, request, named=frozenset()):
+        def _purchase(self, state, pending, request, named=frozenset(), channels=None):
             self.request, self.named = request, named
             return state, ActionResult(action_id="a", agent_id=1, status="completed", occurred_at=0,
                                        message="Purchase accepted", data={"orders": []})
@@ -224,7 +237,7 @@ def test_real_storefront_purchase_uses_observation_quote(_engine_factory):
     assert (action["verb"], action["canonical_action"]) == ("obtain", "purchase")
     assert action["label"] in {"到店", "远程下单"}
     request = start_request(targets=[offer["object"]], actions=["obtain"], ways=[action["label"]])
-    assert set(request.model_dump()) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(request.model_dump()) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     before_stock = engine.state.supply_stock[offer["object_id"]]
     account = engine.state.agents[current.agent_id].balance_account_id
     before_balance = engine.state.accounts[account]

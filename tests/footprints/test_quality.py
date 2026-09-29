@@ -834,5 +834,5 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
     assert report["environment_rejections"] == 4
     assert report["environment_codes"] == {"FULFILLMENT_NOT_SUPPORTED": 0, "SOURCE_NOT_FOUND": 0,
                                            "SUPPLY_NAME_AMBIGUOUS": 1, "SUPPLY_NOT_AT_STORE": 0,
-                                           "SUPPLY_NOT_FOUND": 2, "TASK_NOT_FOUND": 1}
+                                           "SUPPLY_NOT_FOUND": 2, "SUPPLY_SOURCE_MISMATCH": 0, "TASK_NOT_FOUND": 1}
     assert report["environment_free_rejections"] == 3

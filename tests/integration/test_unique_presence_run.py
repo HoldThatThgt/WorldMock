@@ -168,7 +168,7 @@ def _start(seen: dict, phase: str) -> dict:
         "office": lambda name, item: name == "自己" and item["way"] == "等待",
     }
     name, verb, way = pick(accepts[phase])
-    return {"targets": [name], "actions": [verb], "ways": [way], "from": [None], "to": [None], "answering": None}
+    return {"targets": [name], "actions": [verb], "ways": [way], "from": [None], "to": [None], "answering": None, "prefer": None}
 
 
 def _engine(engine_factory):

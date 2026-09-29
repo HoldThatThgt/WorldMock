@@ -51,10 +51,13 @@ HOST_ERROR_CODES: tuple[str, ...] = tuple(_HOST_DEFAULTS)
 #: 宿主的名称类纠错码：多项请求逐项报全部，其余条件仍报第一条（第三章 3.1 第 5 条、3.4）。
 HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED", "SUPPLY_SOURCE_MISMATCH",
                              "SUBJECT_NOT_KNOWN"})
-#: 环境的名称类拒绝码（3.4）：指名购买找不到商品、那家店不卖、不支持所写方式、同名多店、来源不是门店或渠道，以及回看
-#: 找不到名称。
+#: 环境的名称类拒绝码（3.4）：指名购买找不到商品、那家店不卖、不支持所写方式、来源不是门店或渠道、目标已写明门店而 from
+#: 是另一家（SUPPLY_SOURCE_MISMATCH 也是宿主码：列出的标签由宿主纠正，按名写的标签由环境拒绝，3.2），以及回看找不到名称；
+#: SUPPLY_NAME_AMBIGUOUS 对商品已不再抛出（3.5「收敛」第 5 条：多于一个可服务的匹配按 prefer 选定），留在闭集里按码归类
+#: 旧运行的拒绝。
 ENVIRONMENT_NAME_CODES = frozenset({"SUPPLY_NOT_FOUND", "SUPPLY_NOT_AT_STORE", "SUPPLY_NAME_AMBIGUOUS",
-                                    "FULFILLMENT_NOT_SUPPORTED", "SOURCE_NOT_FOUND", "TASK_NOT_FOUND"})
+                                    "FULFILLMENT_NOT_SUPPORTED", "SOURCE_NOT_FOUND", "SUPPLY_SOURCE_MISMATCH",
+                                    "TASK_NOT_FOUND"})
 #: 名称类拒绝码闭集（宿主与环境同一口径，3.4）：宿主的只耗本次决策的回合、不进引擎；环境的每人每秒至多 2 次不计同刻
 #: 轮数、不施加情绪脉冲（worldmock.life.same_moment），第 3 次起照常；质量报告 name_rejections 按它分列。
 NAME_REJECTION_CODES = HOST_NAME_CODES | ENVIRONMENT_NAME_CODES

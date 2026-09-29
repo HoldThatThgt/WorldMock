@@ -93,7 +93,7 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     assert len(dispatcher.requests) == 1
     action_request = dispatcher.requests[0]
     assert set(_action_schema(action_request)["parameters"]["properties"]) == (
-        {"targets", "actions", "ways", "from", "to", "answering"})
+        {"targets", "actions", "ways", "from", "to", "answering", "prefer"})
     assert binding["object"] in action_request["messages"][1]["content"]
     assert product_id not in action_request["messages"][1]["content"]
     return observation, engine.commit_decision_round(round_id)[0]

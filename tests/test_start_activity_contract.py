@@ -35,9 +35,9 @@ class _ActionHarness(SessionActionMixin):
         self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []
 
-    def _purchase(self, state, pending, request, named=frozenset()):
-        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份），返回只含订单数的最小结果。"""
-        assert named == frozenset()
+    def _purchase(self, state, pending, request, named=frozenset(), channels=None):
+        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份，也不经渠道），返回只含订单数的最小结果。"""
+        assert named == frozenset() and set((channels or {}).values()) <= {None}
         self.calls.append(request)
         return state, ActionResult(action_id="action", agent_id=1, status="completed", occurred_at=100,
                                    message="Purchase accepted", data={"orders": [], "count": len(request.items)})
@@ -119,7 +119,7 @@ SPEC_WAYS_BY_VERB = {
     "travel": {"步行", "驾车"},
     "interact": {"工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待",
                  "接着看", "从头再看", "接着听", "从头再听"},
-    "obtain": {"到店", "远程下单", "制作"},
+    "obtain": {"到店", "远程下单", "购买", "制作"},
     "consume": {"食用", "使用", "给予"},
     "sleep": {"睡觉"},
 }
@@ -134,21 +134,24 @@ def _office_and_self_bindings() -> list[dict]:
 
 
 def _request(targets, actions, ways, **fields):
-    """@brief 三个数组之外的来源、去向与 answering 缺省为 null（非 obtain、consume 动词的合法值）。"""
+    """@brief 三个数组之外的来源、去向、answering 与 prefer 缺省为 null（非 obtain、consume 动词的合法值）。"""
     payload = {"targets": targets, "actions": actions, "ways": ways, "from": [None] * len(targets),
-               "to": [None] * len(targets), "answering": None}
+               "to": [None] * len(targets), "answering": None, "prefer": None}
     return StartActivityRequest.model_validate({**payload, **fields})
 
 
 def test_start_activity_schema_rejects_model_supplied_calculation():
-    """人物提交对象、动词、方式、来源、去向五个等长数组与 answering（都必填，来源、去向、answering 可空）；不能回填
-    金额、版本、精确时长或内部目的地。来源的字段名是 from（Python 属性 from_），序列化也写 from。"""
+    """人物提交对象、动词、方式、来源、去向五个等长数组与请求级 answering、prefer（都必填，来源、去向、answering 与
+    prefer 可空，prefer 只取 fastest 或 cheapest，docs/dev/SPEC-dayrun-fidelity.md 3.5）；不能回填金额、版本、精确时长或
+    内部目的地。来源的字段名是 from（Python 属性 from_），序列化也写 from。"""
     request = _request(["城西办公室"], ["travel"], ["步行"])
-    assert list(request.model_dump()) == ["targets", "actions", "ways", "from", "to", "answering"]
-    assert request.from_ == [None] and request.to == [None] and request.answering is None
+    assert list(request.model_dump()) == ["targets", "actions", "ways", "from", "to", "answering", "prefer"]
+    assert request.from_ == [None] and request.to == [None] and request.answering is None and request.prefer is None
     assert StartActivityRequest(targets=["x"], actions=["obtain"], ways=["到店"], from_=[None], to=["自己"],
-                                answering=None).model_dump()["from"] == [None]
-    for missing in ("ways", "from", "to", "answering"):
+                                answering=None, prefer="cheapest").model_dump()["from"] == [None]
+    with pytest.raises(ValidationError):
+        _request(["x"], ["obtain"], ["购买"], prefer="slowest")
+    for missing in ("ways", "from", "to", "answering", "prefer"):
         payload = _request(["城西办公室"], ["travel"], ["步行"]).model_dump()
         del payload[missing]
         with pytest.raises(ValidationError):
@@ -219,7 +222,7 @@ _MESSAGE = "王磊 10:35 的消息"
 
 def _routing_observation() -> dict:
     """@brief 本轮私有绑定：一件供给、两件手边持有物（可吃的与可制作的）、办公室、同处的人、同事联系人、「自己」，
-    同世界全部其他人物（同处的李凡与不在身边的赵敏），以及王磊的一条可见直接消息。"""
+    同世界全部其他人物（同处的李凡与不在身边的赵敏），王磊的一条可见直接消息，以及冻结地点表里的两家门店（集市、好德）。"""
     rows = [
         {"object": _SUPPLY, "object_id": "supply-noodles", "kind": "supply",
          "actions": [binding_action("远程下单", "purchase", fulfillment="delivery")]},
@@ -233,7 +236,8 @@ def _routing_observation() -> dict:
          "actions": [binding_action("通话", "call")]}]
     return {"interaction_bindings": rows,
             "person_bindings": [{"name": _PERSON, "person_id": "agent:2"}, {"name": _ELSEWHERE, "person_id": "agent:3"}],
-            "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}]}
+            "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}],
+            "locations": [{"location_id": "market", "name": "集市"}, {"location_id": "haode", "name": "好德"}]}
 
 
 def _items(*items, answering=None):
@@ -282,8 +286,6 @@ def test_legal_from_to_answering_combinations_route_each_item(request_items, ans
     ([(_NOODLES, "consume", "给予", "自己", None)], None, "start_activity obtain and consume need to"),
     ([(_FLOUR, "obtain", "制作", None, _PERSON)], None, "start_activity 制作 takes from null and to 自己"),
     ([(_FLOUR, "obtain", "制作", "自己", "自己")], None, "start_activity 制作 takes from null and to 自己"),
-    ([(_SUPPLY, "obtain", "远程下单", "好德", "自己")], None,
-     "start_activity from is null when the target already names its store"),
     ([(_SUPPLY, "obtain", "远程下单", None, None)], None, "start_activity obtain and consume need to"),
     ([(_SUPPLY, "obtain", "远程下单", None, _COLLEAGUE)], "王磊 9:00 的消息",
      "start_activity answering is not a visible message"),
@@ -292,11 +294,30 @@ def test_legal_from_to_answering_combinations_route_each_item(request_items, ans
     ([("城西办公室", "travel", "步行", None, None)], _MESSAGE,
      "start_activity answering needs an item whose to is the message sender"),
 ], ids=["repeat-same-to", "to-on-travel", "from-on-travel", "consume-from-null", "eat-to-person",
-        "give-to-self", "give-to-null", "make-to-person", "make-from-self", "from-with-store-label", "obtain-to-null",
+        "give-to-self", "give-to-null", "make-to-person", "make-from-self", "obtain-to-null",
         "answering-unknown", "answering-no-sender-item", "answering-on-travel"])
 def test_illegal_combinations_are_protocol_errors_and_invalid_requests(request_items, answering, message):
     """非法组合：宿主得到英文协议错误原文；绕过宿主时环境解析不出选择，以 ACTION_REQUEST_INVALID 业务拒绝。"""
     _assert_invalid(_items(*request_items, answering=answering), message)
+
+
+def test_listed_label_with_another_known_place_in_from_is_a_source_mismatch():
+    """列出的标签「<门店>出售的<商品>」写了另一个已知地点（冻结地点表里的门店名）作 from：共用判定给 SUPPLY_SOURCE_MISMATCH
+    （宿主据此在本轮纠正，tests/integration/test_storefront_tools.py）；绕过宿主时环境照常解析出选择，由指名购买带候选拒绝。
+    App 称呼与不认识的写法不在此列，交给环境按渠道与来源解析；写的正是标签里的门店（含带「地点：」前缀的写法）在名称解析中按
+    冗余换成 null（docs/dev/SPEC-dayrun-fidelity.md 3.2（b）、3.3）。"""
+    observation = _routing_observation()
+    names = routing_names(observation)
+    other = _items((_SUPPLY, "obtain", "远程下单", "好德", "自己"))
+    assert combination_error(other, names) == (
+        "SUPPLY_SOURCE_MISMATCH", "start_activity from names another place than the store in the target")
+    [row] = _ActionHarness(observation)._start_selection(_pending(other), other)
+    assert (row["object"], row["from"], row["recipient_id"]) == (_SUPPLY, "好德", "agent:1")
+    for source in ("盒马App", "饿了么"):
+        assert combination_error(_items((_SUPPLY, "obtain", "远程下单", source, "自己")), names) is None
+    own = _items((_SUPPLY, "obtain", "远程下单", "地点：集市", "自己"))
+    assert combination_error(own, names) is None
+    assert [row["from"] for row in _ActionHarness(observation)._start_selection(_pending(own), own)] == [None]
 
 
 def test_from_and_to_need_one_item_per_target():

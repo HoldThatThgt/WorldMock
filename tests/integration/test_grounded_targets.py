@@ -63,7 +63,7 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
     properties = start["parameters"]["properties"]
     assert start["strict"] is True
     assert start["parameters"]["additionalProperties"] is False
-    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
     user = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": data}]))[1]["content"]

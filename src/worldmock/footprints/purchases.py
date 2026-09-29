@@ -1,14 +1,16 @@
 """@brief 从已提交事件投影购买事实：成功购买、尝试下单与应用浏览（docs/dev/SPEC-persona-prompt.md 第七章「导出」）。
 
 成功购买取动作结果顶层 data.orders 与逐项结果 activity_results[*].orders 中的订单，按订单去重，与动作的整体状态
-无关（并行的「吃＋买」整体为 in_progress 时订单同样计入），重放回执带着同一订单，不重复计。尝试下单是方式为
-到店或远程下单的请求，带首个结算结果的状态与错误码；应用浏览是方式为浏览的活动，带最后一次快照的状态。
+无关（并行的「吃＋买」整体为 in_progress 时订单同样计入），重放回执带着同一订单，不重复计；每行另记订单载荷的
+channel_id（from 解析为渠道时的 App 标识，否则与旧运行没有这一列的订单都为 null，docs/dev/SPEC-dayrun-fidelity.md 3.3，
+数据集手机合成优先读它、卖家映射作为回退）。尝试下单是方式为到店、远程下单或「购买」的请求，带首个结算结果的状态与
+错误码；应用浏览是方式为浏览的活动，带最后一次快照的状态。
 """
 
 from __future__ import annotations
 
-#: 下单的取得方式短语（与 life.interaction_menu.PURCHASE_WAYS 的取值相同）。
-ORDER_WAYS = ("到店", "远程下单")
+#: 下单的取得方式短语（与 life.interaction_menu.NAMED_PURCHASE_WAYS 的取值相同：到店、远程下单与由系统定方式的「购买」）。
+ORDER_WAYS = ("到店", "远程下单", "购买")
 #: 方式「浏览」开始的活动类型。
 BROWSE_ACTIVITY_KIND = "browse"
 
@@ -33,8 +35,9 @@ def _purchases(events: list[dict]) -> list[dict]:
                          "product_id": order["product_id"], "supply_id": order["supply_id"],
                          "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
                          "fulfillment": order["fulfillment"], "recipient_id": order["recipient_id"],
-                         "request_message_id": order["request_message_id"], "created_at": order["created_at"],
-                         "action_id": event["action_id"], "source_event_id": event["event_id"]})
+                         "request_message_id": order["request_message_id"], "channel_id": order.get("channel_id"),
+                         "created_at": order["created_at"], "action_id": event["action_id"],
+                         "source_event_id": event["event_id"]})
     return rows
 
 
@@ -45,7 +48,7 @@ def _result_orders(data: dict) -> list[dict]:
 
 
 def _order_attempts(events: list[dict]) -> list[dict]:
-    """@brief 方式为到店或远程下单的请求（重放请求不另计），状态与错误码取该动作首个结算结果，尚无结果时为空。"""
+    """@brief 方式为到店、远程下单或「购买」的请求（重放请求不另计），状态与错误码取该动作首个结算结果，尚无结果时为空。"""
     results: dict[str, dict] = {}
     for event in events:
         if event["event_type"] == "action_result":

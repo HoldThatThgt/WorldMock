@@ -97,7 +97,7 @@ def test_actual_tool_schema_is_stable_whatever_the_menu() -> None:
     assert functions == _functions(opened)
     assert set(REQUEST_MODELS) <= set(functions) and "plan_day" not in functions
     properties = functions["start_activity"]["parameters"]["properties"]
-    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "interaction menu" in closed.validate_react_decisions([decision], False)

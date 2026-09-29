@@ -19,7 +19,7 @@ from worldmock.life.content import restarts_from_beginning
 from worldmock.life.control_items import control_items
 from worldmock.life.guidance import Refusal, guided, refusal_for_code
 from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
-                                             merged_selection, resolve_interaction_menu)
+                                             merged_selection, named_supply_row, resolve_interaction_menu)
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
@@ -47,9 +47,10 @@ from worldmock.life.models import (
     WorldState,
 )
 from worldmock.life.name_resolution import StartOutcome, name_book, resolution_data, resolve_name, resolve_start
-from worldmock.life.named_purchase import resolve_named_rows, resolve_named_supply
+from worldmock.life.named_purchase import PurchaseAsk, resolve_named_rows, resolve_named_supply
+from worldmock.life.purchase_offers import DEFAULT_PREFERENCE
 from worldmock.life.readable import iso_time
-from worldmock.life.recipients import recipient_location
+from worldmock.life.recipients import person_name, recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
 from worldmock.life.tool_layer import LayerContext
 from worldmock.life.travel import route_for
@@ -61,6 +62,8 @@ _LOGGER = logging.getLogger(__name__)
 DERIVED_DURATION_CAP_SECONDS = 86_400
 #: 回看的自述仍在记忆层时代替正文的说法（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。
 RECALL_IN_MEMORY_LAYER = "已在记忆层"
+#: 来源与去向判定中由受理时带说明拒绝、解析时照常选中的码：去向不是任何人物，与列出的标签写了另一个地点作 from。
+_ENVIRONMENT_ROUTE_CODES = frozenset({routing.RECIPIENT_NOT_FOUND, routing.SUPPLY_SOURCE_MISMATCH})
 
 
 class SessionActionMixin:
@@ -117,15 +120,18 @@ class SessionActionMixin:
         """@brief start_activity 各项经统一名称解析的绑定行，菜单判定、受限轮复核与受理共用这一次解析；其他工具为空。
 
         名称类失败（找不到、有歧义、动词与方式不相配），或来源、去向与 answering 不合法（routing.combination_error，去向
-        写了本轮没有的人物除外）时为 None：不作菜单判定，待收尾要求之后由 start_activity 以 ACTION_REQUEST_INVALID 拒绝
-        （名称类失败逐项写进 items，_unresolved_start）。解析出的各行写上去向与关联（routing.routed_selection）。
+        写了本轮没有的人物、列出的标签写了另一个地点作 from 除外）时为 None：不作菜单判定，待收尾要求之后由 start_activity
+        以 ACTION_REQUEST_INVALID 拒绝（名称类失败逐项写进 items，_unresolved_start）。解析出的各行写上去向与关联
+        （routing.routed_selection）。
         """
         return self._offered_selection(pending, request) if pending.tool_name == "start_activity" else []
 
     def _offered_selection(self, pending: PendingAction, request: StartActivityRequest) -> list[dict] | None:
         """@brief 在本轮冻结观察上逐项解析（对象，动词，方式）并写上去向（docs/dev/SPEC-dayrun-fidelity.md 3.1）：列出的对象、
         目录绑定与冻结地点表中的名称精确或无损归一后唯一即选中（与宿主本地校验同一函数 name_resolution.resolve_start），
-        指名购买为占位行；名称类失败或组合不合法时为 None。组合按归一后的请求判定（冗余的 from、to 已换成 null）。"""
+        指名购买为占位行；名称类失败或组合不合法时为 None。组合按归一后的请求判定（冗余的 from、to 已换成 null）；去向不是
+        任何人物（RECIPIENT_NOT_FOUND）与列出的标签写了另一个地点作 from（SUPPLY_SOURCE_MISMATCH）照常选中，由受理时带
+        说明拒绝。"""
         observation = self._frozen_observation(pending)
         outcome = resolve_start(name_book(observation), request)
         if outcome.request is None or outcome.failures:
@@ -133,7 +139,7 @@ class SessionActionMixin:
             return None
         names = routing.routing_names(observation)
         error = routing.combination_error(outcome.request, names)
-        if error is not None and error[0] != "RECIPIENT_NOT_FOUND":
+        if error is not None and error[0] not in _ENVIRONMENT_ROUTE_CODES:
             _LOGGER.error("Start activity from, to or answering is invalid: %s", error[1])
             return None
         return routing.routed_selection(list(outcome.rows), outcome.request, names)
@@ -158,21 +164,26 @@ class SessionActionMixin:
     def _start_resolution(self, pending: PendingAction, placeholders: list[dict], selection: list[dict],
                           result: ActionResult) -> ActionResult:
         """@brief 受理结果写上名称归一（details.resolved：对象、方式、去向与所回应消息，指名购买的商品名与解析出的完整标签）
-        与说明（details.notes：冗余的 from、to）；没有归一与说明时结果不变。"""
+        与说明（details.notes：冗余的 from、to，以及指名购买按「购买」定下的方式与按 prefer 选定的门店）；没有归一与说明时
+        结果不变。"""
         outcome = self._start_outcome(pending)
         named = [{"written": row["object"], "as": resolved["object"]} for row, resolved in zip(placeholders, selection)
                  if row["kind"] == NAMED_SUPPLY_KIND and row["object"] != resolved["object"]]
+        chosen = [row["purchase_note"] for row in selection if row.get("purchase_note")]
         return result.model_copy(update={"data": resolution_data(result.data, [*outcome.resolved, *named],
-                                                                  outcome.notes)})
+                                                                  [*outcome.notes, *chosen])})
 
     def _named_selection(self, state: WorldState, pending: PendingAction, selection: list[dict]) -> list[dict]:
-        """@brief 指名购买的占位项按名称解析为门店供给的绑定行，其余项原样：来源（from）限定门店，收货地取该项收货人的
-        收货地点（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」），解析出的绑定行保留来源、去向与关联。
+        """@brief 指名购买的占位项按名称解析为门店供给的绑定行，其余项原样：from 是可选约束（null、门店名或渠道称呼），收货地
+        取该项收货人的收货地点（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」），多家可服务时按请求级 prefer 选定
+        （docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5，named_purchase），解析出的绑定行保留来源、去向与关联。列出的
+        商品目标写了 from（渠道称呼、不认识的写法，或绕过宿主的另一个地点）时换成同名的占位项，一并按来源约束解析。
 
-        解析不出或同名多店时以 SUPPLY_NOT_FOUND、SUPPLY_NAME_AMBIGUOUS 业务拒绝（第五章「指名购买」），几项都解析不出时
-        逐项写进一次拒绝的 items[]（docs/dev/SPEC-dayrun-fidelity.md 第四章）；远程下单而收货人没有收货地点时以
-        「暂时送不到<名>那里」拒绝；按当前报价解析，价格、余额、营业与库存由整单结算照常检查。
+        各段拒绝（SUPPLY_NOT_FOUND、SOURCE_NOT_FOUND、SUPPLY_SOURCE_MISMATCH、SUPPLY_NOT_AT_STORE、
+        FULFILLMENT_NOT_SUPPORTED 与 M3 的 ACTIVITY_PRECONDITION_UNMET）逐项写进一次拒绝的 items[]（第四章）；远程下单而
+        收货人没有收货地点时以「暂时送不到<名>那里」拒绝；按当前报价解析，价格、余额、营业与库存由整单结算照常检查。
         """
+        selection = [_source_placeholder(row) for row in selection]
         if all(row["kind"] != NAMED_SUPPLY_KIND for row in selection):
             return selection
         agent = state.agents[pending.agent_id]
@@ -182,17 +193,21 @@ class SessionActionMixin:
             bindings=self._frozen_observation(pending)["interaction_bindings"],
             menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
             lifestyle_items=self.lifestyle_items)
-        return resolve_named_rows(context, selection, partial(self._resolved_named, context))
+        prefer = StartActivityRequest.model_validate(pending.request).prefer or DEFAULT_PREFERENCE
+        return resolve_named_rows(context, selection, partial(self._resolved_named, context, prefer))
 
-    def _resolved_named(self, context: LayerContext, row: dict) -> dict:
-        """@brief 一项指名购买按名称、来源与收货人的收货地点解析出的供给绑定行（带该项的来源、去向与关联）。"""
+    def _resolved_named(self, context: LayerContext, prefer: str, row: dict) -> dict:
+        """@brief 一项指名购买按名称、来源、方式、收货人的收货地点与偏好解析出的供给绑定行（带该项的来源、去向与关联）。"""
         way = row["selected_action"]["label"]
         destination = recipient_location(context.state, self.scenario, context.agent_id, row["recipient_id"])
         if destination is None and way == PURCHASE_WAYS["delivery"]:
             _LOGGER.error("Named purchase recipient has no receiving place")
             raise order_routing.undeliverable(context.state, self.scenario, context.agent_id, row["recipient_id"])
-        resolved = resolve_named_supply(context, row["object"], way, row["from"], destination)
-        return {**resolved, **{key: row[key] for key in routing.ROUTE_KEYS}}
+        receiver = (self._place_names[destination] if destination is not None
+                    else f"{person_name(context.state, self.scenario, context.agent_id, row['recipient_id'])}那里")
+        ask = PurchaseAsk(row["object"], way, row["from"], destination, prefer, receiver,
+                          None if row["to_self"] else row["recipient_id"])
+        return {**resolve_named_supply(context, ask), **{key: row[key] for key in routing.ROUTE_KEYS}}
 
     def _start_parallel_actions(self, state: WorldState, pending: PendingAction, bindings: list[dict]
                                 ) -> tuple[WorldState, ActionResult, list[tuple[str, list[dict]]]]:
@@ -449,14 +464,16 @@ class SessionActionMixin:
                                 bindings: list[dict]) -> tuple[WorldState, ActionResult]:
         """@brief 使用各供给冻结报价和人物选择的履约方式，系统确定单件数量；按收货地拆成几笔整单依次结算。
 
-        被 answering 关联、且已有同一（消息，收货人，商品）未取消订单的项以 REQUEST_ALREADY_HANDLED 拒绝。
+        被 answering 关联、且已有同一（消息，收货人，商品）未取消订单的项以 REQUEST_ALREADY_HANDLED 拒绝。from 解析为渠道
+        的项，订单载荷记该渠道的 channel_id（docs/dev/SPEC-dayrun-fidelity.md 3.3 解析规则 4），其余为 null。
         """
         request_linking.require_unhandled(state, self.scenario, self.rules.supplies, bindings)
         named = frozenset(item["object_id"] for item in bindings if item.get("named"))
+        channels = {(item["object_id"], item["recipient_id"]): item.get("channel_id") for item in bindings}
         changed, results = state, []
         for purchase in order_routing.order_requests(state, self.semantics, self.rules.supplies,
                                                      pending.agent_id, bindings):
-            changed, result = self._purchase(changed, pending, purchase, named)
+            changed, result = self._purchase(changed, pending, purchase, named, channels)
             results.append(result)
         answering = next((item["answering"] for item in bindings if item.get("answering")), None)
         return changed, order_routing.merged_result(results, answering)
@@ -793,6 +810,16 @@ class SessionActionMixin:
                  "verified_event_ids": list(dict.fromkeys(row["source_event_id"] for row in experiences
                                                           if row["activity_id"] == activity.activity_id))}
                 for name, activity in zip(names, selected, strict=True)]
+
+
+def _source_placeholder(row: dict) -> dict:
+    """@brief 列出的商品目标写了 from（与标签同一家店的已在名称解析中换成 null）：换成同名的指名购买占位行（保留来源、去向
+    与关联），由受理时按来源约束解析（包含该门店的渠道照常受理并记下 channel_id，其余以 SUPPLY_SOURCE_MISMATCH 或
+    SOURCE_NOT_FOUND 拒绝，docs/dev/SPEC-dayrun-fidelity.md 3.2（b）、3.3 解析规则 2）；其余行原样。"""
+    if row["kind"] != "supply" or row.get("from") is None:
+        return row
+    return {**named_supply_row(row["object"], row["selected_action"]["label"]),
+            **{key: row[key] for key in routing.ROUTE_KEYS}}
 
 
 def _with_names(result: ActionResult, pairs) -> ActionResult:

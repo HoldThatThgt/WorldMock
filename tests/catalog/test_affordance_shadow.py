@@ -75,6 +75,7 @@ EXPECTED_HABIT_ROUTES = [
     ("wait", "等待", "continue"),
     ("purchase", "到店", "eat"),
     ("purchase", "远程下单", "eat"),
+    ("purchase", "购买", "eat"),
     ("consume", "制作", "eat"),
     ("consume", "食用", "eat"),
     ("consume", "使用", "eat"),

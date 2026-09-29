@@ -109,12 +109,20 @@ def _host_error(tool: str, arguments: dict) -> str:
 
 
 def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """模型只填可读对象、动词和方式三个等长数组；Schema 不带逐轮枚举，名称与（动词，方式）配对由宿主按私有绑定校验。"""
+    """模型只填可读对象、动词和方式三个等长数组（另有来源、去向与请求级 answering、prefer）；Schema 不带逐轮枚举，名称与
+    （动词，方式）配对由宿主按私有绑定校验；请求级 prefer 必填可空，只取 fastest 或 cheapest，带一句「格式与来源」的字段级
+    说明（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 1 条），整个 Schema 仍不含 $ref 与 $defs。"""
     schema = _function("start_activity")["parameters"]
     assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
-    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
-    assert schema["required"] == ["targets", "actions", "ways", "from", "to", "answering"]
+    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
+    assert schema["required"] == ["targets", "actions", "ways", "from", "to", "answering", "prefer"]
     assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
+    prefer = schema["properties"]["prefer"]
+    assert (prefer["type"], prefer["enum"]) == (["string", "null"], ["fastest", "cheapest", None])
+    assert "空值按最快" in prefer["description"] and "「购买」" in prefer["description"]
+    assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
+    assert list(Draft202012Validator(schema).iter_errors({**start_arguments(["自己"], ["interact"], ["等待"]),
+                                                         "prefer": "slowest"}))
     assert {"agent_id", "decision_id", "action_id", "target_id", "planned_duration_seconds",
             "price_fen", "price_version", "quantity", "travel_mode", "fulfillment"}.isdisjoint(schema["properties"])
     valid = start_arguments(["自己", _TASK], ["interact", "interact"], ["等待", "工作"])

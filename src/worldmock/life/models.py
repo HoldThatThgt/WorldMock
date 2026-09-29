@@ -992,20 +992,30 @@ class SubmitWorkRequest(FrozenModel):
 #: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
 SESSION_SUMMARY_MAX_CHARS = 500
 
-class StartActivityRequest(FrozenModel):
-    """@brief 逐项选择至多两个可见对象、动词、方式、来源与去向；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md
-    第五章，docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
+#: start_activity 请求级偏好 prefer 的取值（docs/dev/SPEC-dayrun-fidelity.md 3.5）：null 按 fastest。
+PURCHASE_PREFERENCES = ("fastest", "cheapest")
+#: prefer 的字段级「格式与来源」说明（参数 Schema 的一部分，不是工具 description），并说明由系统定方式的「购买」；
+#: 与其他参数说明一样只写用途（一句中文，不带拉丁字母单词与规则说法，tests/integration/test_tool_description_references.py）。
+_PREFER_FORMAT = ("取得商品有几家店都能买时挑哪家的偏好：枚举依次表示最快拿到与到手价最低，空值按最快；取得方式写「购买」时，"
+                  "按你是否在出售它的店里、能否送到收货地来定到店还是远程下单。")
 
-    targets、actions、ways、from、to 五个数组等长、一至二项，逐项对应，另有请求级 answering；私有绑定把（对象，动词，
-    方式）映射为内部标准动作，来源与去向按动词的合法组合判定（worldmock.life.routing），不合法时业务拒绝
-    ACTION_REQUEST_INVALID，去向不是任何人物时 RECIPIENT_NOT_FOUND。
+
+class StartActivityRequest(FrozenModel):
+    """@brief 逐项选择至多两个可见对象、动词、方式、来源与去向，另有请求级偏好；执行参数由引擎确定
+    （docs/dev/SPEC-time-and-energy.md 第五章，docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
+
+    targets、actions、ways、from、to 五个数组等长、一至二项，逐项对应，另有请求级 answering 与 prefer（一日运行保真规格
+    3.5：五个数组不变，只加这一个请求级字段）；私有绑定把（对象，动词，方式）映射为内部标准动作，来源与去向按动词的合法
+    组合判定（worldmock.life.routing），不合法时业务拒绝 ACTION_REQUEST_INVALID，去向不是任何人物时 RECIPIENT_NOT_FOUND。
 
     :param targets: 本次活动的可见对象名称，至多两项（obtain 可写未列出的名称，指名购买）。
     :param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。
-    :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。
-    :param from_: 与对象逐项对应的来源（字段名 from，str|null）：obtain 为门店名或 null，consume 为「自己」，其他为 null。
+    :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填；取得商品另可写「购买」。
+    :param from_: 与对象逐项对应的来源（字段名 from，str|null）：obtain 为可选约束（null、门店名或 App 称呼），consume
+        为「自己」，其他为 null。
     :param to: 与对象逐项对应的去向（str|null）：obtain、consume 为「自己」或人物名，其他为 null。
     :param answering: 所回应的可见直接消息的规范名称，不回应时为 null。
+    :param prefer: 请求级偏好 fastest 或 cheapest（必填可空，null 按 fastest）：多家可服务时按它选定一家。
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, validate_by_name=True, validate_by_alias=True,
@@ -1017,6 +1027,8 @@ class StartActivityRequest(FrozenModel):
         Field(alias="from"))
     to: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})]
     answering: str | None
+    prefer: Annotated[Literal["fastest", "cheapest"] | None, WithJsonSchema(
+        {"type": ["string", "null"], "enum": [*PURCHASE_PREFERENCES, None], "description": _PREFER_FORMAT})]
 
 
 class SubmitWorkActionRequest(FrozenModel):

@@ -761,10 +761,11 @@ def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
     同一函数）；来源、去向与 answering 按归一后的请求判定组合（worldmock.life.routing，与环境受理同一判定）。
 
     本轮列出的对象、目录绑定（没有列出的生活活动、内容与游戏）与冻结地点表中的名称精确或无损归一后唯一即受理，存在
-    但没有列出的由环境受理时判定资格与准入；obtain 以到店或远程下单（含同义写法）写出的其余名称放行，由环境按指名购买
-    解析商品（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）。名称类错误（找不到、有歧义、对象没有列出所写的动词与方式、
-    目标已写明门店却写了另一家的 from）逐项报全部，候选可以照填，其余条件报第一条（3.1 第 5 条、第四章）。去向不是任何
-    人物（RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（人物 Prompt 规格第五章「来源与去向」）。
+    但没有列出的由环境受理时判定资格与准入；obtain 以到店、远程下单或「购买」（含同义写法）写出的其余名称放行，商品目标
+    写「购买」也放行，由环境按指名购买解析商品（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条、3.5）。名称类错误（找不到、
+    有歧义、对象没有列出所写的动词与方式、列出的标签写明了门店而 from 是另一个已知地点）逐项报全部，候选可以照填，其余
+    条件报第一条（3.1 第 5 条、第四章）；from 写 App 称呼或不认识的写法时放行，由环境按渠道与来源解析（3.3）。去向不是
+    任何人物（RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（人物 Prompt 规格第五章「来源与去向」）。
     """
     count = len(request.targets)
     if not 1 <= count <= _START_ACTIVITY_MAX_TARGETS:
@@ -792,9 +793,9 @@ _START_NAME_FIXES = {"NAME_NOT_FOUND": "改用候选里的请求，或者照工�
 
 
 def _source_issues(request, route: list[RouteIssue]) -> list[HostIssue]:
-    """@brief 来源与去向中的名称类问题（目标已写明门店、from 却是另一家，SUPPLY_SOURCE_MISMATCH；写的正是这家店时已在
-    名称解析中按冗余受理）逐项写成明细，候选为同一项改 from 为 null；其余问题（ROUTE_FIELDS_INVALID）不在此列，只报
-    第一条。
+    """@brief 来源与去向中的名称类问题（本轮列出的标签写明了门店，from 却是另一个已知地点，SUPPLY_SOURCE_MISMATCH；写的
+    正是这家店时已在名称解析中按冗余受理，App 称呼与不认识的写法交给环境，docs/dev/SPEC-dayrun-fidelity.md 3.2（b））逐项
+    写成明细，候选为同一项改 from 为 null；其余问题（ROUTE_FIELDS_INVALID）不在此列，只报第一条。
 
     :param request: 归一后的 start_activity 请求（name_resolution.StartRequest）。
     """
@@ -806,8 +807,8 @@ def _source_issues(request, route: list[RouteIssue]) -> list[HostIssue]:
         candidate = Candidate(request.targets[index], request.actions[index], request.ways[index], None,
                               request.to[index])
         issues.append(HostIssue(ErrorItem(index, issue.field, issue.written, issue.host_code, (candidate,)),
-                                f"{numbered(index, total)}「{request.targets[index]}」已经写明了门店，from 要写 null",
-                                f"{issue.detail} (targets[{index}])"))
+                                f"{numbered(index, total)}「{request.targets[index]}」已经写明了门店，"
+                                f"from「{issue.written}」是另一个地点", f"{issue.detail} (targets[{index}])"))
     return issues
 
 
