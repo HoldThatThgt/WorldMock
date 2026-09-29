@@ -29,6 +29,13 @@ FEED_PREFERENCE = 0.6
 SCENARIOS = ("multi-person.json", "white-collar-12-weeks.json")
 
 
+def _feed_relief_rate(body) -> float:
+    """刷屏的实际缓解速率：费率 × 有效偏好 f + (1 − f)·w，f 取场景 body 的下限偏好
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2）；有缓解时不再累积清醒增长。"""
+    floor = body.entertainment_relief_preference_floor
+    return FEED_RATE * (floor + (1 - floor) * FEED_PREFERENCE)
+
+
 def _items() -> list[dict]:
     """读取冻结的信息流条目。"""
     return json.loads(Path("corpora/feed/items.json").read_text(encoding="utf-8"))
@@ -179,7 +186,7 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
     expected_cost = (body.basal_kcal_per_hour + max(met - 1, 0) * body.mass_kg) * hours
     assert energy_before - engine.state.agents[1].body.energy_kcal == pytest.approx(expected_cost)
     assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
-        (FEED_RATE * FEED_PREFERENCE - body.entertainment_need_per_awake_hour) * hours)
+        _feed_relief_rate(body) * hours)
 
 
 def test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate(engine_factory) -> None:
@@ -190,7 +197,7 @@ def test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate(engi
     engine = engine_factory()
     _seed_feed_taste(engine)
     _wait_awake(engine)
-    awake = engine.semantics.body.entertainment_need_per_awake_hour
+    feed_rate = _feed_relief_rate(engine.semantics.body)
     need_before = engine.state.agents[1].body.entertainment_need
     relief = 0.0
     idle_growth = 0.0
@@ -213,13 +220,13 @@ def test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate(engi
         advance_next(engine)
         _act(engine, f"scroll-stop-{n}", "conclude_activity",
              conclude_request(activity_name(engine, activity.activity_id), summary="阅读到当前段落。"))
-        step = (FEED_RATE * FEED_PREFERENCE - awake) * (duration / 3600)
+        step = feed_rate * (duration / 3600)
         assert need_at_step - engine.state.agents[1].body.entertainment_need == pytest.approx(step)
         relief += step
     assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
         relief - idle_growth)
     total = sum(durations) / 3600
-    assert relief == pytest.approx(FEED_RATE * FEED_PREFERENCE * total - awake * total)
+    assert relief == pytest.approx(feed_rate * total)
     progress = engine.state.agents[1].content_progress[FEED_ID]
     assert progress.position_seconds == sum(durations)
     assert progress.exposure_count == 1
@@ -229,7 +236,7 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     """一次可中断的连续刷屏按总接触时长乘现行费率结算。"""
     engine = engine_factory()
     # 6 轮 wait（5400s）按清醒增长累积需求，高于 950s 刷屏的未钳制缓解量
-    # 0.25×0.6×950/3600≈0.0396——保证断言观测的是未触底的总接触费率结算。
+    # 0.25×(0.5+0.5×0.6)×950/3600≈0.0528——保证断言观测的是未触底的总接触费率结算。
     _seed_feed_taste(engine)
     _wait_awake(engine, rounds=6)
     need_before = engine.state.agents[1].body.entertainment_need
@@ -272,9 +279,10 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     assert sorted(set(ids)) == list(range(1, len(set(ids)) + 1))
     assert 20 <= len(set(ids)) <= 30
     assert len(cues) - len(set(ids)) <= 1
+    # 刷屏的 950 秒只按缓解下降、不再累积；暂停期间等待的 900 秒照常按清醒累积。
     assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
-        FEED_RATE * FEED_PREFERENCE * 950 / 3600
-        - body.entertainment_need_per_awake_hour * (950 + 900) / 3600)
+        _feed_relief_rate(body) * 950 / 3600
+        - body.entertainment_need_per_awake_hour * 900 / 3600)
 
 
 _PODCAST = "podcast-nasa-space-habitat-excerpt"

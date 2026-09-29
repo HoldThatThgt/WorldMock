@@ -181,6 +181,47 @@ def test_body_instance_and_rejection_ranges_are_enforced(
     _assert_invalid(_replace(path, value), message)
 
 
+def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files() -> None:
+    """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：正式场景不声明，
+    文档与组装后的身体参数都取缺省 0.5；场景结构版本仍为 3，目录钉扎不变。"""
+    for path in (_FORMAL, Path("scenarios/multi-person.json"), Path("scenarios/multi-person-half-day.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert "entertainment_relief_preference_floor" not in payload["body"]
+        assert LifeScenario.model_validate(payload).body.entertainment_relief_preference_floor == 0.5
+        scenario, _ = load_scenario(path)
+        assert scenario.schema_version == 3
+        assert scenario.body.entertainment_relief_preference_floor == 0.5
+
+
+@pytest.mark.parametrize("floor", [0.3, 0.7])
+def test_declared_relief_preference_floor_is_assembled_into_body_config(floor: float) -> None:
+    """场景声明的下限偏好经 _assemble_body 原样并入 BodyConfig，目录与其余身体参数不受影响。"""
+    payload = _replace(("body", "entertainment_relief_preference_floor"), floor)
+    document = LifeScenario.model_validate(payload)
+    body = assemble_semantics(document, load_catalog(_CATALOG), _map(document)).body
+    assert body.entertainment_relief_preference_floor == floor
+    assert body.entertainment_relief_per_hour == load_scenario(_FORMAL)[0].body.entertainment_relief_per_hour
+
+
+@pytest.mark.parametrize(("value", "message"), [
+    (0, "greater than 0"), (1, "less than 1"), (-0.2, "greater than 0"), (1.5, "less than 1"),
+    (float("nan"), "finite number"),
+])
+def test_relief_preference_floor_outside_the_open_unit_interval_is_rejected(value: float, message: str) -> None:
+    """f 取开区间 (0, 1)：0、1、负数、大于 1 与非有限值都在场景加载时拒绝。"""
+    _assert_invalid(_replace(("body", "entertainment_relief_preference_floor"), value), message)
+
+
+def test_relief_preference_floor_field_states_value_meaning_and_hypothesis() -> None:
+    """场景层字段说明登记取值、含义与实验假设（敏感区间 0.3–0.7），是 f 在场景层的唯一登记处。"""
+    from worldmock.life.scenario import BodyInstanceConfig
+
+    field = BodyInstanceConfig.model_fields["entertainment_relief_preference_floor"]
+    assert field.default == 0.5
+    for fragment in ("缺省 0.5", "(0, 1)", "f + (1 − f)·w", "实验假设", "0.3–0.7"):
+        assert fragment in field.description
+
+
 def test_account_identities_are_unique_and_seller_roles_can_repeat() -> None:
     """账户实例身份唯一；不同卖方允许声明相同业务角色。"""
     duplicated = _payload()

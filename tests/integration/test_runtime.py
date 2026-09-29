@@ -1147,18 +1147,21 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     specs = _agent_specs(scenario, content_genres=genres)
 
     weights = specs[0]["profile"]["taste_weights"]
+    # 游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：游戏按 game_id 查同一张题材表，没有声明的为空。
     expected = compute_taste_weights(
         ("剧情", "科幻"),
         [{"item_id": item.item_id, "genre": genres[item.item_id]}
-         for item in scenario.contents])
+         for item in scenario.contents]
+        + [{"item_id": item.game_id, "genre": ()} for item in scenario.games])
     assert compiled == [1]
     assert specs[0]["profile"]["persona_card"] == render_card(card)
     assert weights == expected
     assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
+    assert scenario.games and all(weights[item.game_id] == 0.0 for item in scenario.games)
 
 
 def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) -> None:
-    """无口味卡片：全内容目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
+    """无口味卡片：全内容与游戏目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
 
@@ -1173,7 +1176,8 @@ def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) ->
                                                    for item in scenario.contents})
 
     weights = specs[0]["profile"]["taste_weights"]
-    assert set(weights) == {item.item_id for item in scenario.contents}
+    assert set(weights) == ({item.item_id for item in scenario.contents}
+                            | {item.game_id for item in scenario.games})
     assert weights and all(value == 0.0 for value in weights.values())
 
 
