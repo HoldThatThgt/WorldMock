@@ -6,7 +6,8 @@
 - 活动名称是「<做什么><对象>（<M月D日> HH:MM 起）」；同一轮可见的名称重复时追加「（第二次）」这类序号，不抛错；
 - 工具层活动目标与待办层写活动客观进度的人读短语（docs/dev/SPEC-persona-prompt.md「工具层」「待办层」）：工作不写
   「还差」，剩余只在任务目标的 contract；刚结束的活动另写终局说法；
-- 控制工具（播报与恢复、暂停、结束）的准入由 control_refusal 判定，受理与工具层可用性共用同一 Refusal；
+- 控制工具（播报与恢复、暂停、结束）的准入由 control_refusal 判定，受理与工具层可用性共用同一 Refusal；所写的活动名
+  逐项按统一名称解析，解析不出的各项合并成一次拒绝（activity_name_refusal，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条）；
 - conclude_activity、pause_activity 与 report_status 的恢复每改变一项活动就写一条 environment_event
   （activity_concluded、activity_paused、activity_resumed，带活动快照与含本次请求事件的 caused_by）；
   原始动作的全部子活动都终结时按自然结束的同一路径写一次终态并更新 processed_actions；
@@ -19,19 +20,21 @@ ACTIVITY_PAUSE_UNAVAILABLE）以链式原因写出要先处理的活动或地点
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activities import at_decision_boundary
-from worldmock.life.guidance import Refusal, refusal_for_code
+from worldmock.life.error_contract import ErrorItem, items_fix
+from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
 from worldmock.life.interaction_menu import GIVE_WAY
 from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
+from worldmock.life.name_resolution import near_names, resolve_name
 from worldmock.life.readable import duration_phrase, portion_phrase
 from worldmock.life.sessions import at_stay, moment_label, on_road
 from worldmock.life.work import work_start_blocker, work_totals
@@ -194,6 +197,55 @@ def conclusion_refusal(activities: Iterable[ActivityState], names: dict[str, str
 def conclusion_required(activities: Iterable[ActivityState], names: dict[str, str]) -> BusinessRuleError:
     """@brief conclusion_refusal 换成可抛出的业务拒绝（受理路径）。"""
     return conclusion_refusal(activities, names).error()
+
+
+def activity_name_refusal(written: Sequence[str], visible: Sequence[str]) -> Refusal | None:
+    """@brief 控制工具（播报、暂停、结束）逐项所写的活动名在本轮可见的活动名中按统一名称解析（精确或无损归一后唯一，
+    name_resolution.resolve_name，与宿主本地校验同一函数）；解析不出的各项合并成的一次拒绝，都唯一解析时为 None。
+
+    名称类失败逐项报全部（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，原因
+    列出最接近的几个活动名；归一后（如没写开始时刻）对应不止一项的为 NAME_AMBIGUOUS，原因列出它们。明细的参数名为
+    activity_name、原文照录，不带候选（可照填的候选是 start_activity 形状的请求），与宿主纠错中活动名的明细相同；原因逐项写
+    「第 N 项「原文」：…」（guidance.items_refusal），改法按码各写一句。宿主已在本轮纠正这些名称，这里只防绕过宿主的请求，
+    所以顶层码与 start_activity 的防御拒绝（session_actions._unresolved_start）一样取 ACTION_REQUEST_INVALID，下一步取该码的
+    默认做法：它不在名称类拒绝码闭集（error_contract.NAME_REJECTION_CODES）中，照常计入同刻轮数、照常施加情绪脉冲。
+
+    :param written: 请求逐项所写的活动名，按请求中的先后。
+    :param visible: 本轮冻结观察中人物所见的活动名（activity_bindings 的 name）。
+    """
+    total = len(written)
+    entries = [entry for index, name in enumerate(written)
+               if (entry := _name_entry(index, name, visible)) is not None]
+    if not entries:
+        return None
+    merged = items_refusal(entries, total)
+    default = refusal_for_code("ACTION_REQUEST_INVALID")
+    return Refusal("ACTION_REQUEST_INVALID", merged.reason, default.next_step,
+                   fix=items_fix(merged.items, total, _name_fixes(total)) or "", items=merged.items)
+
+
+def _name_entry(index: int, written: str, visible: Sequence[str]) -> tuple[ErrorItem, str] | None:
+    """@brief 一项所写活动名的名称类失败：（明细，这一项的一句原因）；唯一解析时为 None。"""
+    match = resolve_name(written, visible)
+    if match.name is not None:
+        return None
+    if match.matches:
+        return ErrorItem(index, "activity_name", written, "NAME_AMBIGUOUS"), f"对应不止一个活动（{_quoted(match.matches)}）"
+    near = near_names(written, visible)
+    closest = f"，最接近的是{_quoted(near)}" if near else ""
+    return ErrorItem(index, "activity_name", written, "NAME_NOT_FOUND"), f"不是本轮列出的活动{closest}"
+
+
+def _name_fixes(total: int) -> dict[str, str]:
+    """@brief 活动名的名称类失败按明细码的改法：找不到的照工具层、待办层中的活动名填写，多项请求也可以去掉这一项（与宿主
+    纠错一样）；有歧义的改写成原因里列出的某一个完整名称。"""
+    drop = "，或者去掉这一项" if total > 1 else ""
+    return {"NAME_NOT_FOUND": f"照工具层、待办层中的活动名填写{drop}", "NAME_AMBIGUOUS": "改写成原因里列出的某一个完整名称"}
+
+
+def _quoted(names: Iterable[str]) -> str:
+    """@brief 几个名称的说法「A」、「B」。"""
+    return "、".join(f"「{name}」" for name in names)
 
 
 def control_refusal(context: Context, tool: str, activity: ActivityState) -> Refusal | None:

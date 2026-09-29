@@ -199,9 +199,10 @@ class ObservationMixin:
 
         这三类没有在场与库存这样的当下事实，可见性由曝光轮转决定；它们与商品窗口
         共用同一候选契约，只有实际进入窗口的身份才更新呈现凭据（docs/dev/SPEC-life-runtime.md
-        「曝光轮转」）。生活活动窗口按人物当前地点与此刻取候选：地点类不符的条目不进窗口，排除项记
-        ELIGIBILITY_LOCATION_KIND_MISMATCH（世界事实，不是软偏好；docs/dev/SPEC-dayrun-fidelity.md 5.1）。
-        各分区的排序带相关度（此刻、当日目标与习惯签名），轮转各按本分区对象的上次呈现时刻。
+        「曝光轮转」）。生活活动窗口另按人物当前地点施加地点类资格（只此一项，此刻不作排除：目录时间窗覆盖此刻只进
+        相关度）：地点类不符的条目不进窗口，排除项记 ELIGIBILITY_LOCATION_KIND_MISMATCH（世界事实，不是软偏好；
+        docs/dev/SPEC-dayrun-fidelity.md 5.1）。各分区的排序带相关度（此刻、当日目标与习惯签名），轮转各按本分区对象的
+        上次呈现时刻。
         旧的目录下钻工具已随工具面收敛删除，因此窗口是这三类对象成为工具层目标的唯一通道；工具层的可调用索引只列名称，
         取同一窗口资格段保留的全部条目（presented 与 deferred，life.callable_index），不是另一条呈现链路。
         """

@@ -616,18 +616,28 @@ class SessionActionMixin:
     def _named_activities(self, state: WorldState, pending: PendingAction,
                           names: list[str]) -> tuple[list[str], list[ActivityState]]:
         """@brief 所写的活动名逐项在本轮可见的活动名中按统一名称解析（精确或无损归一后唯一，如没写开始时刻「（9月28日
-        08:25 起）」），再唯一对应人物自己的权威活动；找不到、有歧义或不是本人的活动时以 ACTION_REQUEST_INVALID 拒绝。
+        08:25 起）」），再唯一对应人物自己的权威活动。
+
+        名称类失败（找不到、有歧义）逐项收集，合并成一次 ACTION_REQUEST_INVALID，逐项写进 items
+        （activity_control.activity_name_refusal，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条；宿主已在本轮纠正，这里只防
+        绕过宿主的请求，与 start_activity 的 _unresolved_start 同一顶层码，照常计入同刻轮数）；名称都解析出来、对应的却不是
+        本人的权威活动时（观察与世界对不上）只报这一条不带明细的 ACTION_REQUEST_INVALID。
 
         :returns: （解析出的活动名，权威活动），按请求顺序。
         """
         rows = self._frozen_observation(pending).get("activity_bindings", [])
+        visible = [row["name"] for row in rows]
+        refusal = activity_control.activity_name_refusal(names, visible)
+        if refusal is not None:
+            _LOGGER.error("Activity names are unavailable or ambiguous")
+            raise refusal.error()
         resolved, selected = [], []
         for name in names:
-            canonical = resolve_name(name, [row["name"] for row in rows]).name
+            canonical = resolve_name(name, visible).name
             matches = [row for row in rows if row["name"] == canonical]
             activity = state.activities.get(matches[0]["activity_id"]) if len(matches) == 1 else None
             if activity is None or activity.agent_id != pending.agent_id:
-                _LOGGER.error("Activity name is unavailable or ambiguous")
+                _LOGGER.error("Resolved activity name is not an activity of this person")
                 raise BusinessRuleError("ACTION_REQUEST_INVALID")
             resolved.append(canonical)
             selected.append(activity)
