@@ -47,7 +47,7 @@ _PRICING = {
 
 
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比与运行输入警告。
+    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、运行输入警告与输出截断。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -79,6 +79,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
             manifest["window"]["timezone"],
         ),
         "input_warnings": _input_warning_quality(manifest),
+        "truncations": _truncation_quality(events),
     }
 
 
@@ -868,6 +869,52 @@ def _input_warning_quality(manifest: dict) -> dict:
         "scenario_warning_count": sum(item.get("agent_id") is None for item in rows),
         "method": method,
     }
+
+
+def _truncation_quality(events: list[Event]) -> dict:
+    """@brief 输出截断（docs/dev/SPEC-dayrun-fidelity.md 7.2、九）：提供商回复 finish_reason=length 的次数与按用途分列，
+    以及这些回复实报的输出 token（截断回合整段丢弃，全部浪费）与其中的思考 token（completion_tokens_details.reasoning_tokens）。
+
+    与 model_usage 同一去重：每个调用身份取一条终态。某次截断缺少对应计数时该合计为 null 并单列缺失次数，不记为零；
+    没有截断时合计为 0。只报告，不放行。
+    """
+    terminals: dict[str, list[Event]] = defaultdict(list)
+    for event in events:
+        if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
+            terminals[event.data["call_id"]].append(event)
+    truncated = [event for event in (_select_terminal(rows) for _, rows in sorted(terminals.items()))
+                 if _finish_reason(event.data.get("response")) == "length"]
+    output = [_usage_count(event.data["response"], ("completion_tokens",)) for event in truncated]
+    reasoning = [_usage_count(event.data["response"], ("completion_tokens_details", "reasoning_tokens"))
+                 for event in truncated]
+    purposes = Counter(event.data.get("purpose") or _DECISION_PURPOSE for event in truncated)
+    return {
+        "truncated_responses": len(truncated),
+        "purpose_counts": dict(sorted(purposes.items())),
+        "wasted_output_tokens": None if None in output else sum(output),
+        "reasoning_tokens": None if None in reasoning else sum(reasoning),
+        "responses_missing_output_tokens": output.count(None),
+        "responses_missing_reasoning_tokens": reasoning.count(None),
+        "method": "Provider responses with finish_reason=length in model_response evidence, one terminal per call id; "
+                  "tokens are the provider-reported completion_tokens and completion_tokens_details.reasoning_tokens; "
+                  "reported, never gating",
+    }
+
+
+def _finish_reason(response: Any) -> str | None:
+    """@brief 提供商回复第一个候选的 finish_reason；回复缺失或形状不符时为 None。"""
+    choices = response.get("choices") if isinstance(response, dict) else None
+    first = choices[0] if isinstance(choices, list) and choices else None
+    reason = first.get("finish_reason") if isinstance(first, dict) else None
+    return reason if isinstance(reason, str) else None
+
+
+def _usage_count(response: dict, path: tuple[str, ...]) -> int | None:
+    """@brief 沿键路径读取回复 usage 中提供商实报的非负整数计数；缺失或不是非负整数时为 None。"""
+    value: Any = response.get("usage")
+    for key in path:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value if _is_nonnegative_int(value) else None
 
 
 def _is_int(value: Any) -> bool:
