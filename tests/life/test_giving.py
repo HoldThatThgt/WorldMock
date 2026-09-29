@@ -23,6 +23,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, same_moment
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.interaction_menu import GIVE_WAY, merged_selection
+from worldmock.life.readable import clock_phrase
 from worldmock.life.routing import require_recipients
 from worldmock.life.scenario import load_scenario
 
@@ -443,6 +444,52 @@ def test_pickup_for_someone_else_needs_them_at_the_store(engine_factory) -> None
     assert food not in engine.state.agents[1].inventory.get(MARKET, {})
     refused = act(engine, "pickup-for-colleague", routed((row["object"], "obtain", "到店", None, COLLEAGUE_TARGET)))
     assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到王磊那里")
+
+
+def test_system_purchase_for_someone_goes_in_store_only_when_they_are_there(engine_factory) -> None:
+    """「购买」由系统定到店或远程下单，定下的方式要交得到收货人手上（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）：
+    人站在出售它的集市里，同在集市的李凡按到店即时入他在集市的库存；收货地点是办公室的王磊不在店里，改按远程下单送到办公室
+    （不再定为到店、再在结算时以「暂时送不到王磊那里」拒绝），受理说明写明定下的方式；显式写到店照旧由结算拒绝。"""
+    engine = open_world(engine_factory)
+    place(engine, 1, MARKET)
+    place(engine, 2, MARKET)
+    row = _remote_supply(engine)
+    label, food = row["object"], row["object_id"].removeprefix("supply-market-")
+    for_li = act(engine, "system-for-li", routed((label, "obtain", "购买", None, PERSON_TARGET)))
+    assert for_li.status == "completed", (for_li.error_code, for_li.message)
+    [handed] = for_li.data["orders"]
+    assert (handed["fulfillment"], handed["recipient_id"], handed["location_id"]) == ("pickup", "agent:2", MARKET)
+    assert engine.state.agents[2].inventory[MARKET][food] == 1.0
+    assert for_li.data["notes"] == [f"「{label}」「购买」定为到店：{label}"]
+    for_colleague = act(engine, "system-for-colleague", routed((label, "obtain", "购买", None, COLLEAGUE_TARGET)))
+    assert for_colleague.status == "completed", (for_colleague.error_code, for_colleague.message)
+    [sent] = for_colleague.data["orders"]
+    assert (sent["fulfillment"], sent["recipient_id"], sent["destination_id"]) == ("delivery", COLLEAGUE, OFFICE)
+    moment = clock_phrase(sent["expected_at"], sent["created_at"], engine.scenario.timezone)
+    assert for_colleague.data["notes"] == [f"「{label}」「购买」定为远程下单：{label}（预计 {moment} 送到）"]
+    chosen = act(engine, "pickup-chosen-for-colleague", routed((label, "obtain", "到店", None, COLLEAGUE_TARGET)))
+    assert (chosen.error_code, chosen.data["reason"]) == (_UNMET, "暂时送不到王磊那里")
+
+
+@pytest.mark.parametrize("where", [MARKET, HOME])
+def test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first(engine_factory, where) -> None:
+    """「购买」送给王磊，集市这家店却送不到他的收货地点（办公室），他也不在店里（东西只有他在店里时才能在店里交给他）：人在
+    集市还是在家，都以 ACTIVITY_PRECONDITION_UNMET 拒绝，原因与远程下单送给他同一说法「王磊那里不在这家店的配送范围内」，
+    下一步「先送到自己这里，再当面给」——不说人不在出售它的门店里，也不指向人已经在、或去了也交不到他手上的门店；候选里没有
+    交不到他手上的到店，世界不变（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）。"""
+    engine = open_world(engine_factory)
+    row = _remote_supply(engine)
+    _retarget(engine, row["object_id"], (HOME,))
+    place(engine, 1, where)
+    before = _world(engine)
+    refused = act(engine, f"system-unreachable-{where}", routed((row["object"], "obtain", "购买", None,
+                                                                   COLLEAGUE_TARGET)))
+    assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
+        _UNMET, f"「{row['object']}」：王磊那里不在这家店的配送范围内", ["delivery_destination"])
+    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+    [item] = refused.data["items"]
+    assert (item["field"], item["written"], item["candidates"]) == ("targets", row["object"], [])
+    assert _world(engine)[:4] == before[:4]
 
 
 def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None:

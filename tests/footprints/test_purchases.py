@@ -1,7 +1,8 @@
 """购买事实导出（docs/dev/SPEC-persona-prompt.md 第七章「导出」、第六章「混合动作的购买记录遗漏」）。
 
 purchases.jsonl 的成功购买取动作结果顶层与逐项结果的订单，按订单去重、与整体状态无关、重放回执不重复计；
-尝试下单是方式为到店或远程下单的请求；应用浏览是方式为浏览的活动。导出清单升 2，校验从事件重算并逐行核对。
+尝试下单是方式为到店、远程下单或「购买」的请求，所写方式按宿主与环境同一张方式同义表归一（「外卖」「自取」等同义写法同样
+计入，way 记归一后的方式）；应用浏览是方式为浏览的活动。导出清单升 2，校验从事件重算并逐行核对。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
 from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS, PURCHASE_WAYS, WAYS
 from worldmock.life.models import ActionResult, ActionStatus, ActivityKind, DeliveryState, active_activities
+from worldmock.life.name_resolution import WAY_SYNONYMS, way_options
 from worldmock.life.session_actions import _parallel_result_data
 
 _WINDOW = {"start": 100, "end": 2000, "timezone": "UTC"}
@@ -204,6 +206,35 @@ def test_export_writes_purchase_facts_under_manifest_version_two(purchase_store,
     assert validate_export(directory)[0]["schema_version"] == 2
 
 
+def _until_noon(document: dict) -> None:
+    """实验截到当日中午：去掉任务、账单与工资，只留一封与任务无关、改到窗口内清晨的邮件（供唤醒引用）。"""
+    mail = next(item for item in document["messages"] if item.get("related_task_id") is None)
+    document.update(end_at="2026-01-05T12:00:00+08:00", tasks=[], bills=[], payrolls=[],
+                    messages=[{**mail, "sent_at": "2026-01-05T06:00:00+08:00"}])
+
+
+def _run_to_end_and_export(engine, directory) -> tuple[list[dict], list[dict]]:
+    """人物照常等到实验结束（就绪时收尾、播报或开始等待），封存检查点后导出并完整校验：（导出事件，purchases.jsonl 各行）。"""
+    from tests.life.conftest import advance_next
+    from tests.life.test_dayrun_restaurants import _keep_waiting
+    from tests.life.test_meal_outcome import _round
+
+    for step in range(64):
+        if engine.state.current_time == engine.state.end_time:
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            _round(engine, f"day-{step}", *_keep_waiting(engine))
+        else:
+            advance_next(engine)
+    assert engine.state.current_time == engine.state.end_time
+    point = engine.checkpoint({"agent:1": engine.store.assets.put_json({"agent_id": 1}, {"kind": "purchases"})})
+    export_run(engine.store, point.last_event_seq, directory)
+    _, events, _ = validate_export(directory)
+    rows = [json.loads(line) for line in (directory / "purchases.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert rows == project_purchase_facts(events)
+    return events, rows
+
+
 def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engine_factory, tmp_path) -> None:
     """真实 LifeEngine 与 SQLite（场景截到 1月5日 12:00）：同一请求里吃手边的食物并远程下单（整体 in_progress，订单在顶层
     与逐项结果里），邮件唤醒时（还在吃）同一动作身份重放一次（重放回执再带同一订单），随后过到实验结束；导出的 purchases.jsonl
@@ -212,16 +243,10 @@ def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engi
     from agentsociety2.society import DirectToolCall
 
     from tests.life.conftest import advance_next, context, stage_day_plan, start_request, wake_by_mail
-    from tests.life.test_dayrun_restaurants import _keep_waiting, _stage
-    from tests.life.test_meal_outcome import _food, _round
+    from tests.life.test_dayrun_restaurants import _stage
+    from tests.life.test_meal_outcome import _food
 
-    def window(document: dict) -> None:
-        """实验截到当日中午：去掉任务、账单与工资，只留一封与任务无关、改到窗口内清晨的邮件（供唤醒引用）。"""
-        mail = next(item for item in document["messages"] if item.get("related_task_id") is None)
-        document.update(end_at="2026-01-05T12:00:00+08:00", tasks=[], bills=[], payrolls=[],
-                        messages=[{**mail, "sent_at": "2026-01-05T06:00:00+08:00"}])
-
-    engine = _engine_factory(mutate=window)
+    engine = _engine_factory(mutate=_until_noon)
     stage_day_plan(engine)
     food = _food(engine)
     _stage(engine, "market", 1500, inventory={"market": {food.product_id: 2.0}})
@@ -244,14 +269,7 @@ def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engi
     engine.observe(decision)
     engine.submit_action(DirectToolCall(decision, "action-mixed", "start_activity", request))
     engine.commit_decision_round("replay")
-    for step in range(64):
-        if engine.state.current_time == engine.state.end_time:
-            break
-        if engine.scheduling_state().ready_agent_ids:
-            _round(engine, f"day-{step}", *_keep_waiting(engine))
-        else:
-            advance_next(engine)
-    assert engine.state.current_time == engine.state.end_time
+    _, rows = _run_to_end_and_export(engine, tmp_path / "real-export")
     results = [event for event in engine.store.read_agent_events("action_result", 1)
                if event.action_id == "action-mixed"]
     [replayed] = [event for event in results if event.decision_id == "decision-replay-1"]
@@ -260,12 +278,6 @@ def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engi
     requested = [event for event in engine.store.read_agent_events("action_requested", 1)
                  if event.action_id == "action-mixed"]
     assert [event.data["reused"] for event in requested] == [False, True]
-    point = engine.checkpoint({"agent:1": engine.store.assets.put_json({"agent_id": 1}, {"kind": "purchases"})})
-    directory = tmp_path / "real-export"
-    export_run(engine.store, point.last_event_seq, directory)
-    _, events, _ = validate_export(directory)
-    rows = [json.loads(line) for line in (directory / "purchases.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert rows == project_purchase_facts(events)
     assert [row for row in rows if row["fact_kind"] == "purchase"] == [{
         "fact_kind": "purchase", "agent_id": 1, "order_id": order["order_id"], "product_id": order["product_id"],
         "supply_id": order["supply_id"], "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
@@ -275,6 +287,66 @@ def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engi
     assert [(row["action_id"], row["way"], row["status"], row["request_event_id"]) for row in rows
             if row["fact_kind"] == "order_attempt"] == [("action-mixed", "远程下单", "in_progress",
                                                           requested[0].event_id)]
+
+
+def test_real_run_export_counts_orders_written_with_way_synonyms(_engine_factory, tmp_path) -> None:
+    """真实 LifeEngine 与 SQLite（场景截到 1月5日 12:00），人在家：同一次冻结观察先经宿主本地校验、再由环境受理，人物用方式
+    同义表里的写法下单——「外卖」（远程下单，受理并送到家）与「自取」（到店，人不在店里被拒）——另用「等着」开始等待；宿主都
+    放行（与环境同一张同义表）。随后过到实验结束，导出的 purchases.jsonl 把两次下单与原词写的一样计为尝试下单，way 记归一后的
+    「远程下单」「到店」，带各自的状态与错误码；等待不是下单，不计。逐行等于从导出事件的重算，并通过完整校验
+    （docs/dev/SPEC-dayrun-fidelity.md 3.1 方式同义、第九章导出）。"""
+    from tests.life.conftest import stage_day_plan, start_arguments
+    from tests.life.purchase_worlds import decide
+    from tests.life.test_dayrun_restaurants import _stage
+
+    engine = _engine_factory(mutate=_until_noon)
+    stage_day_plan(engine)
+    _stage(engine, "home", 1500)
+    _, error, takeout = decide(engine, "takeout", start_arguments(["纯牛奶"], ["obtain"], ["外卖"]))
+    assert error == "" and (takeout.status, takeout.error_code) == ("completed", None)
+    [order] = takeout.data["orders"]
+    assert (order["fulfillment"], order["destination_id"]) == ("delivery", "home")
+    _, error, pickup = decide(engine, "self-pickup", start_arguments(["纯牛奶"], ["obtain"], ["自取"]))
+    assert error == "" and (pickup.status, pickup.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
+    _, error, waiting = decide(engine, "waiting", start_arguments(["自己"], ["interact"], ["等着"]))
+    assert error == "" and waiting.status == "in_progress"
+    events, rows = _run_to_end_and_export(engine, tmp_path / "synonym-export")
+    requested = {event["action_id"]: event["event_id"] for event in events
+                 if event["event_type"] == "action_requested" and event["agent_id"] == 1}
+    assert [(row["order_id"], row["action_id"]) for row in rows if row["fact_kind"] == "purchase"] == [
+        (order["order_id"], "action-takeout")]
+    assert [(row["action_id"], row["request_event_id"], row["way"], row["status"], row["error_code"]) for row in rows
+            if row["fact_kind"] == "order_attempt"] == [
+        ("action-takeout", requested["action-takeout"], "远程下单", "completed", None),
+        ("action-self-pickup", requested["action-self-pickup"], "到店", "rejected", "ACTIVITY_PRECONDITION_UNMET")]
+
+
+#: 同义表里指向下单方式的写法（与原词、去空白与全角的写法）→ 归一后的下单方式。
+_ORDER_SPELLINGS = {
+    "到店": "到店", "自取": "到店", "堂食": "到店", "到店购买": "到店", "到店点单": "到店",
+    "远程下单": "远程下单", "外卖": "远程下单", "点外卖": "远程下单", "配送": "远程下单", "送货上门": "远程下单",
+    "网上下单": "远程下单", "线上下单": "远程下单", " 远程 下单 ": "远程下单", "外　卖": "远程下单",
+    "购买": "购买", "买": "购买", "下单": "购买", "下单购买": "购买", "点单": "购买", "订购": "购买",
+}
+
+
+def test_order_attempts_classify_written_ways_through_the_way_synonym_table() -> None:
+    """尝试下单按宿主与环境同一张方式同义表归一所写方式（docs/dev/SPEC-dayrun-fidelity.md 3.1）：原词、同义写法与去空白、
+    全角的写法都计入并记归一后的下单方式；同义表里其余写法（指向吃、逛、等待、制作等）、其余方式与不是方式的写法都不计；
+    一项请求里第一项不是下单方式时取其后第一个下单方式。表里每个指向下单方式的写法都在上面列出。"""
+    others = [way for way in {*WAYS, *WAY_SYNONYMS, "随便买点", "Takeout"} if way not in _ORDER_SPELLINGS]
+    ways = [*_ORDER_SPELLINGS, *others]
+    events = [{"event_type": "action_requested", "agent_id": 1, "action_id": f"action-{index}",
+               "event_id": f"request-{index}", "occurred_at": 100 + index,
+               "data": {"tool_name": "start_activity", "reused": False, "request": {"ways": [way]}}}
+              for index, way in enumerate(ways)]
+    mixed = {**events[0], "action_id": "action-mixed", "event_id": "request-mixed",
+             "data": {**events[0]["data"], "request": {"ways": ["吃", "外卖"]}}}
+    attempts = [row for row in project_purchase_facts([*events, mixed]) if row["fact_kind"] == "order_attempt"]
+    assert [(row["action_id"], row["way"]) for row in attempts] == [
+        *((f"action-{index}", way) for index, way in enumerate(_ORDER_SPELLINGS.values())),
+        ("action-mixed", "远程下单")]
+    assert {way for way in WAY_SYNONYMS if way_options(way) & NAMED_PURCHASE_WAYS} <= set(_ORDER_SPELLINGS)
 
 
 @pytest.mark.parametrize("rehash", [False, True])
