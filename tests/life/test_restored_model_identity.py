@@ -85,6 +85,10 @@ def _tamper_manifest(run_dir, corruption):
         manifest["stage_model_identity"] = []
     elif corruption == "wrong_action_parameters":
         stages["action"]["max_tokens"] = 4000
+    elif corruption == "main_site_endpoint":
+        # 切换到 strict 端点之前冻结的运行：两处身份都记着主站（docs/dev/SPEC-dayrun-fidelity.md 7.5）。
+        manifest["stage_model_identity"]["base_url"] = "https://api.deepseek.com"
+        manifest["model_identity"]["base_url"] = "https://api.deepseek.com"
     path.write_text(json.dumps(manifest))
 
 
@@ -97,11 +101,12 @@ def _tamper_manifest(run_dir, corruption):
     ("missing_stage_identity", "decision stage identity is missing"),
     ("invalid_stage_identity", "identity must be an object"),
     ("wrong_action_parameters", "identity is inconsistent"),
+    ("main_site_endpoint", r"base_url='https://api\.deepseek\.com' must be the DeepSeek strict endpoint"),
 ))
 async def test_environment_lifecycles_reject_invalid_saved_stage_identity(
     saved_environment, lifecycle, corruption, message, caplog,
 ):
-    """打开、恢复和工作区重建均拒绝无效阶段清单（含退役阶段与旧键名），并留下英文错误日志。"""
+    """打开、恢复和工作区重建均拒绝无效阶段清单（含退役阶段、旧键名与切换 strict 端点之前冻结在主站的清单），并留下英文错误日志。"""
     _tamper_manifest(saved_environment[0], corruption)
 
     with pytest.raises(IntegrityError, match=message):

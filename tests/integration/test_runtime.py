@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime_module
@@ -68,7 +68,7 @@ def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
     """运行身份记录完整节点 URL 和唯一 strict 请求参数。"""
     identity = _model_identity().model_dump(mode="json")
 
-    assert identity["base_url"] == "https://api.deepseek.com"
+    assert identity["base_url"] == "https://api.deepseek.com/beta"
     assert identity["provider"] == "openai_compatible"
     assert identity["requested_model"] == "deepseek-flash"
     assert identity["tool_choice"] == "auto"
@@ -104,7 +104,7 @@ def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
                                 "same_second_continuation": True}
     assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
-    assert identity["base_url"] == "https://api.deepseek.com"
+    assert identity["base_url"] == "https://api.deepseek.com/beta"
     assert identity["max_retries"] == 0 and identity["strict"] is True
     assert identity["reasoning_effort"] is None
 

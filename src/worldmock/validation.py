@@ -174,13 +174,14 @@ def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dic
 
 
 def _identity_problems(actual: dict[str, Any]) -> list[str]:
-    """@brief 核对阶段身份的端点、重试、回合预算、严格声明与 reasoning_effort 顶层字段。"""
+    """@brief 核对阶段身份的端点（DeepSeek strict 端点，主站地址即拒绝）、重试、回合预算、严格声明与 reasoning_effort 顶层字段。"""
     from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
     from worldmock.runtime import MAX_REACT_TURNS
 
     problems: list[str] = []
     if actual.get("base_url") != DEEPSEEK_BASE_URL:
-        problems.append(f"base_url={actual.get('base_url')!r} must be the DeepSeek OpenAI endpoint")
+        problems.append(f"base_url={actual.get('base_url')!r} must be the DeepSeek strict endpoint "
+                        f"{DEEPSEEK_BASE_URL!r}")
     if actual.get("max_retries") != 0:
         problems.append(f"max_retries={actual.get('max_retries')!r} must be 0")
     if type(actual.get("transport_max_retries")) is not int or actual["transport_max_retries"] != TRANSPORT_MAX_RETRIES:

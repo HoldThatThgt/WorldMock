@@ -80,7 +80,7 @@ def _identity(document: dict, run_id: str) -> RunIdentity:
         agent_ids=tuple(item["agent_id"] for item in document["agents"]),
         start_at=document["start_at"], end_at=document["end_at"], timezone=document["timezone"],
         code_sha256="2" * 64,
-        model_identity=ModelIdentity(provider="openai_compatible", base_url="https://api.deepseek.com",
+        model_identity=ModelIdentity(provider="openai_compatible", base_url="https://api.deepseek.com/beta",
                                      requested_model="deepseek-flash", thinking="enabled", tool_choice="auto",
                                      max_retries=0, prompt_sha256="0" * 64, tool_schema_sha256="1" * 64))
 

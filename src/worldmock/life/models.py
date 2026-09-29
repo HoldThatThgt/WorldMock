@@ -71,7 +71,7 @@ class ModelIdentity(FrozenModel):
 
     @model_validator(mode="after")
     def validate_endpoint(self) -> "ModelIdentity":
-        """@brief 冻结模型身份必须使用单一官方端点。"""
+        """@brief 冻结模型身份必须使用单一官方端点：DeepSeek strict 端点与配置的模型（主站地址即拒绝）。"""
         if self.base_url != DEEPSEEK_BASE_URL or self.requested_model != DEEPSEEK_MODEL:
             _LOGGER.error("Model identity endpoint does not match the configured DeepSeek model")
             raise ValueError("Model identity endpoint does not match the configured DeepSeek model")
