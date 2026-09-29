@@ -22,6 +22,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 from tests.life.conftest import stage_day_plan, start_arguments  # noqa: E402
 from tests.life.purchase_worlds import at_clock, build_world, decide, phone_config  # noqa: E402
 from tests.life.routing_fixtures import place, stage  # noqa: E402
+from tests.life.test_browse_and_hints import _show  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.footprints.purchases import project_purchase_facts  # noqa: E402
@@ -148,6 +149,23 @@ def test_each_from_form_resolves_to_its_source_scope(engine_factory, world, sour
     assert (order["location_id"], order["channel_id"]) == (store, channel)
 
 
+@pytest.mark.parametrize(("source", "channel"), [
+    ("盒马app", "hema"), ("美团 外卖", "meituan-takeaway"), ("盒马ＡＰＰ", None),
+], ids=["case-insensitive", "spaces-removed", "full-width-compared-verbatim"])
+def test_a_channel_name_is_compared_without_spaces_or_case(engine_factory, world, source, channel) -> None:
+    """渠道称呼的比较（3.3 解析规则 1）：去掉空白、不分大小写，其余逐字比较——「盒马app」「美团 外卖」都是那个渠道（成员门店
+    按最快选定，订单记 channel_id）；「盒马ＡＰＰ」的全角字母不做全半角归一，不是任何门店或渠道的名称，报 SOURCE_NOT_FOUND。
+    宿主都放行。"""
+    engine = _engine(engine_factory, world)
+    _, error, result = decide(engine, "channel-key", _buy(source=source))
+    assert error == ""
+    if channel is None:
+        assert (result.status, result.error_code) == ("rejected", "SOURCE_NOT_FOUND")
+        return
+    assert (result.status, result.error_code) == ("completed", None)
+    assert [order["channel_id"] for order in result.data["orders"]] == [channel]
+
+
 def test_an_unknown_source_is_source_not_found_with_near_stores_and_apps(engine_factory, world) -> None:
     """from 既不是门店名也不是渠道称呼（「美团App」）：宿主放行，环境以 SOURCE_NOT_FOUND 拒绝（名称类，3.4），逐项明细的
     参数名是 from，候选为最相近的门店名与 App 称呼写成的可照填请求（目标与方式照写，换 from）；不下单。"""
@@ -249,3 +267,25 @@ def test_a_full_label_accepts_a_channel_that_contains_its_store_and_rejects_one_
     assert (item["field"], item["written"]) == ("from", "盒马App")
     assert item["candidates"] == [{"target": label, "action": "obtain", "way": "远程下单", "from": None, "to": "自己"}]
     assert refused.data["reason"] == "「盒马App」：目标写明的是好德，它不在这个 App 里"
+
+
+def test_a_listed_label_with_an_app_in_from_is_resolved_against_that_channel(engine_factory, world) -> None:
+    """本轮列出的商品目标写了 App 称呼作 from（3.3 解析规则 2 对列出的标签同样成立）：宿主放行 App 称呼，环境按来源约束解析
+    ——包含该门店的渠道照常受理并记下 channel_id；不含该门店的渠道以 SUPPLY_SOURCE_MISMATCH 拒绝，候选就是这个标签，不按
+    列出的绑定行忽略 from 直接下单。"""
+    engine = _engine(engine_factory, world)
+    haode = _supply(engine, _HAODE)
+    label = _label(engine, haode)
+    _show(engine, haode.supply_id)
+    observed, error, accepted = decide(engine, "listed-in-channel", _buy(label, source="美团"))
+    assert label in {row["object"] for row in observed["interaction_bindings"]}
+    assert error == "" and accepted.status == "completed"
+    assert [(row["supply_id"], row["channel_id"]) for row in accepted.data["orders"]] == [
+        (haode.supply_id, "meituan-takeaway")]
+    _show(engine, haode.supply_id)
+    observed, error, refused = decide(engine, "listed-outside-channel", _buy(label, source="盒马App"))
+    assert label in {row["object"] for row in observed["interaction_bindings"]}
+    assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
+    [item] = refused.data["items"]
+    assert (item["field"], item["written"]) == ("from", "盒马App")
+    assert item["candidates"] == [{"target": label, "action": "obtain", "way": "远程下单", "from": None, "to": "自己"}]
