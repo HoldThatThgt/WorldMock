@@ -1,6 +1,6 @@
 # 特性规格：数字人交互（会话层、上下文分层与稳定工具面）
 
-> 状态：**FROZEN**；2026-09-23 按 issue #1 的运行证据及用户裁决修订；2026-09-24 按[时间与能量规格](SPEC-time-and-energy.md)修订，修订部分已实现并通过离线验收（证据见[时间与能量验收记录](research/time-and-energy-verification.md)）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 7、8、12、13、15、16、20–22、24、26 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订（「冻结条款修订」第 10、11、13、14、18 行与其 3.5：控制工具改为 `items`、按名调用、指名购买与 `prefer`、名称类拒绝不计轮、公开结果键），定稿不等于已实现。
+> 状态：**FROZEN**；2026-09-23 按 issue #1 的运行证据及用户裁决修订；2026-09-24 按[时间与能量规格](SPEC-time-and-energy.md)修订，修订部分已实现并通过离线验收（证据见[时间与能量验收记录](research/time-and-energy-verification.md)）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 7、8、12、13、15、16、20–22、24、26 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订（「冻结条款修订」第 10、11、13、14、18 行与其 3.5：控制工具改为 `items`、按名调用、指名购买与 `prefer`、名称类拒绝不计轮、公开结果键），其中控制工具的 `items`、按名调用、名称类拒绝不计轮与公开结果键已实现并通过离线验收；`start_activity` 的请求级 `prefer`、方式「购买」与指名购买的 `from` 约束、分段匹配（该规格 3.2、3.3、3.5）尚未实现。
 > 来源：[数字人交互方案](PROPOSAL-agent-interaction.md)。裁决后本规格取代该提案的全部行为定义。
 > 字段与 Schema 由 [接口合同](../CONTRACTS.md) 承载；设计职责由既有设计文档承载。
 > 本规格显式修订与旧交互工具、观察结果、预算和业务拒绝相关的冻结条款，见「冻结条款修订」。
@@ -157,7 +157,7 @@ stateDiagram-v2
 
 | 容量 | 上限 | 承载物 |
 | --- | --- | --- |
-| **进展自述** | 500 字符 | **活动级**：`ActivityState.progress_note`，由模型在 `report_status` / `pause_activity` / `conclude_activity` 的对应 `summary[]` 项里撰写 |
+| **进展自述** | 500 字符 | **活动级**：`ActivityState.progress_note`，由模型在 `report_status` / `pause_activity` / `conclude_activity` 对应活动那一项的 `items[].summary` 里撰写 |
 | **目标单句进展** | 500 字符 | **目标级**：关联当日 `PlanGoal.progress_note`（保留）；控制工具提交时写入同一段原文，仍是独立字段；照存，不进提示，待办层的目标行不显示人物自述 |
 | 记忆层 | 8000 字符 | 记忆层 JSON 的窗口（新常量），**不删任何记录**（见下）；与整次请求的 85% 阈值分开 |
 
@@ -189,7 +189,7 @@ stateDiagram-v2
 | `send_message` | 可联系人物可见时 | `recipient_name: str`、`text: str` | 发送人物撰写的正文，执行现有通讯结算；结果归进度层 |
 | `revise_day_plan` | 当日已有计划时（**含空清单**） | `goals[]`（替换全部未推进目标；每条带必填可空的 `remind_time`） | **修订**当日目标及其提醒；提醒按时间与能量规格第四章保留、换成新提醒或取消 |
 
-八个工具始终都在原生 `tools` 中，定义整次运行不变（唯一的例外是本次决策只剩最后一个回合时去掉记忆查询工具），参数不带逐轮名称枚举；「可用条件」不满足时，工具层把该工具标为
+八个工具始终都在原生 `tools` 中，定义整次运行不变（例外是本次决策只剩最后一个回合时与输出截断后的那次重试时去掉记忆查询工具，后者见[一日运行保真规格](SPEC-dayrun-fidelity.md) 7.2），参数不带逐轮名称枚举；「可用条件」不满足时，工具层把该工具标为
 `available=false` 并写 `reason`，提交时以同一原因业务拒绝。名称的合法性由宿主本地校验与环境受理判定。
 
 `task_name`、各项的 `activity_name` 与 `recipient_name` 都取本轮七层中出现的唯一可读名称。
@@ -531,7 +531,7 @@ if snap.is_asleep:
 | 会话的开始与结束 | 由系统随出发与到达开始和结束，只进世界状态（`WorldState.sessions`，随 `life` 快照保存），不写事件；活动所属会话由活动快照的 `session_ids` 记录 |
 | 活动的开始 / 暂停 / 恢复 / 结束 | `action_requested`（`tool_name` + `request`）；暂停、恢复与结束另逐活动写一条 `environment_event`（`data.kind` 取 `activity_paused`、`activity_resumed`、`activity_concluded`，带活动快照 `data.activity`，`caused_by` 含本次请求事件） |
 | 活动的实验截止截断 | 不经人物请求；每项被截断的活动（进行中或暂停）写一条 `environment_event`（`data.kind` 取 `activity_truncated`，带截断后的活动快照 `data.activity`，`caused_by` 为开始该活动的请求事件）；同源两项的聚合终态不带快照，导出据逐活动快照重建，与最终检查点逐项一致 |
-| 模型的进展自述 | 同上；播报、暂停、结束都写 `request.task[]` 与等长 `request.summary[]`（结束另带等长 `request.memories[]`） |
+| 模型的进展自述 | 同上；播报、暂停、结束都写 `request.items[]`，每项 `{activity_name, summary}`（结束另带该项的 `memories` 与 `views`；旧运行的等长 `task[]`、`summary[]`、`memories[]` 经 `control_items` 读出同一结果） |
 | 活动的客观结算 | 既有 `activity_progress` |
 | 零点计划 | `model_request`、`model_response` 带 `data.purpose="plan_day"`（`visibility=system`，不带 `decision_id` 与 `action_id`）；计划写 `environment_event`（`data.kind="day_plan_generated"`，带 `data.day_plan` 与输入来源 `data.source_event_ids`），与世界状态中的计划、提醒和 `plan_submitted_dates` 同一次提交 |
 | 会话快照 | 世界状态，随 `life` 快照保存 |
@@ -640,3 +640,4 @@ flowchart LR
 | 1.12 | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；受限轮一节写明 `conclude_only` 只留在闭集中（开始或恢复被拒后留在原阶段，名额占满时进入或留在 `resume_or_conclude`），受限轮用完仍有待收尾活动时同样写 `decision_budget_exhausted`；稳定工具面注明最后一个回合去掉记忆查询工具；`to` 写人物目标的名称，不在工具层的同世界人物可写「人物：<名>」；续接的 tool 消息只带上一决策观察之后的新记录；`details` 指向接口合同的键闭集；禁止键校验的覆盖范围按代码写明；验收台账「业务拒绝」行补待收尾情形 |
 | 1.13 | 2026-09-28 | 人物 Prompt 七层规格最后一批代码与规格出入的修复（见[人物 Prompt 验收记录](persona-prompt-verification.md#代码与规格的出入)）：受限轮 `conclude_pending` 每项待收尾活动都可以收尾、一次收尾其中几项也受理；私有 `goal_bindings` 的名称是待办层写出的目标文字，`activity_bindings` 另带 `note_labels`，更早的 summary 可按记忆层 `self_notes` 所写的活动名回看 |
 | 1.14 | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 10、11、13、14、18 行与其 3.5 修订（一日运行保真 AI1，随该规格冻结）：「稳定工具面」`start_activity` 增请求级 `prefer` 与 `obtain` 的方式「购买」，`report_status`、`pause_activity` 改为 `items[{activity_name, summary}]`，`conclude_activity` 改为 `items[{activity_name, summary, memories, views}]`（看法与偏好放 `views`，`about` 对应存储的 `subject`）；名称一段改为控制工具取 `items[].activity_name`，写得不准的名称无损归一后唯一即受理、否则以名称类错误给候选（:196「同名对象由自然语义消歧」不变）；「对象与动作选择」`obtain` 的 `from` 改为可选约束并可写渠道称呼，私有绑定一段的指名购买改为分段匹配与按 `prefer` 选定、不再报 `SUPPLY_NAME_AMBIGUOUS`，其余动词也按名调用；「保护项修订」补名称类拒绝不计同刻轮数、不施加脉冲；「上下文分层」的公开结果补 `details` 的 `fix`、`items`、`resolved`、`notes` 与 `message` 取 `reason`；验收台账会话与活动生命周期、模型工具 Schema、名称绑定、业务拒绝四行改写；文件头补修订说明 |
+| 1.15 | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码核对）：「稳定工具面」原生工具的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2）；「会话字段」容量表的「进展自述」与「事件与重建约束」的「模型的进展自述」改为控制工具各项的 `items[].summary`（旧形状经 `control_items` 读出，冻结时漏改）；文件头改为控制工具 `items`、按名调用、名称类拒绝不计轮与公开结果键已实现并通过离线验收，`start_activity` 的 `prefer`、方式「购买」与指名购买的 `from` 约束、分段匹配尚未实现；验收台账不改 |
