@@ -514,6 +514,38 @@ def test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_fir
     assert _world(engine)[:4] == before[:4]
 
 
+def test_system_purchase_for_someone_of_goods_sold_only_in_store_cannot_reach_them(engine_factory) -> None:
+    """「购买」送给不在店里的王磊，而范围内的供给都只能到店（菜饭骨头汤的鸡汤面）：东西只有他也在店里时才能在店里交给他，又
+    送不出去——与到店买给不在店里的人同一说法「暂时送不到王磊那里」，下一步先送到自己这里再当面给；不按配送范围说「王磊那里
+    不在这家店的配送范围内」（这家店本来就不配送）。世界不变（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）。"""
+    engine = open_world(engine_factory)
+    store = next(item.name for item in engine.scenario.locations if item.location_id == "poi-3538660453")
+    before = _world(engine)
+    refused = act(engine, "system-pickup-only-for-colleague", routed(("鸡汤面", "obtain", "购买", store,
+                                                                      COLLEAGUE_TARGET)))
+    assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
+        _UNMET, "「鸡汤面」：暂时送不到王磊那里", ["delivery_destination"])
+    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+    assert _world(engine)[:4] == before[:4]
+
+
+def test_a_pickup_candidate_for_someone_not_at_the_store_is_not_ranked_as_feasible(engine_factory) -> None:
+    """候选此刻可行的在前（3.1 第 3 条），送给别人的到店按东西交不交得到收货人手上判定（purchase_offers.serves，与整单结算同一
+    判定）：人在集市、王磊不在，把纯牛奶写错成「纯牛奶加冰」到店送给王磊，以 SUPPLY_NOT_FOUND 拒绝；三家的纯牛奶此刻都交不到
+    他手上，候选按名称相似度与标签排序，集市这家不因人站在店里就排到最前。"""
+    engine = open_world(engine_factory)
+    place(engine, 1, MARKET)
+    products = {item.product_id: item.name for item in engine.scenario.products}
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    milk = sorted(f"{places[item.location_id]}出售的纯牛奶" for item in engine.scenario.supplies
+                  if products[item.product_id] == "纯牛奶")
+    assert len(milk) == 3 and milk[0] != f"{places[MARKET]}出售的纯牛奶"
+    refused = act(engine, "pickup-typo-for-colleague", routed(("纯牛奶加冰", "obtain", "到店", None, COLLEAGUE_TARGET)))
+    assert (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
+    [item] = refused.data["items"]
+    assert [row["target"] for row in item["candidates"]] == milk
+
+
 def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None:
     """自己收货后再给予：订单只入自己的持有，给予只转出真实持有的量，东西只转移一次（总量守恒为 1）。"""
     engine = open_world(engine_factory)
