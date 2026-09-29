@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, stage_day_plan, start_request, wake_by_mail
+from tests.life.conftest import advance_next, bring_to_window, context, stage_day_plan, start_request, wake_by_mail
 from tests.profile.conftest import make_card
 from worldmock.footprints.models import EventDraft
 from worldmock.life import felt
@@ -235,7 +235,9 @@ def _stage_agent(engine, need: float, weights: dict[str, float]) -> None:
 
 
 def _start_watching(engine, item_id: str) -> str:
-    """真实决策轮：按本轮列出的方式开始观看一条内容，返回受理的活动标识。"""
+    """真实决策轮：按本轮列出的方式开始观看一条内容，返回受理的活动标识（先让它成为内容分区最久未呈现的对象，
+    换新名额把它放进本轮窗口）。"""
+    bring_to_window(engine, (item_id,))
     round_id = f"watch-{item_id}"
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])

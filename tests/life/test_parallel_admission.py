@@ -539,8 +539,12 @@ def test_two_foods_are_one_meal_and_only_same_way_obtains_are_one_order(engine_f
     foods = tuple(item.product_id for item in engine.scenario.products if "eat" in item.use_modes)[:2]
     _hold(engine, foods)
     observed = _observe(engine, "order-preview")
-    rows = [(row["object"], row["object_id"]) for row in observed["interaction_bindings"] if row["kind"] == "supply"
-            and engine.rules.supplies[row["object_id"]].location_id == "market"][:2]
+    listed = [(row["object"], row["object_id"]) for row in observed["interaction_bindings"] if row["kind"] == "supply"
+              and engine.rules.supplies[row["object_id"]].location_id == "market"]
+    sellers = [engine.rules.supplies[supply].seller_account_id for _, supply in listed]
+    seller = max(sorted(set(sellers)), key=sellers.count)  # 一单只能买同一个卖家的东西：取窗口里同一卖家的两项
+    rows = [pair for pair, owner in zip(listed, sellers) if owner == seller][:2]
+    assert len(rows) == 2
     one_order = _act(engine, "one-order", "start_activity",
                      _request(*((name, "obtain", "远程下单") for name, _ in rows)))
     assert one_order.status == "completed", (one_order.error_code, one_order.message)

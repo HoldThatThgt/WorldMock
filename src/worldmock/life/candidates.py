@@ -9,8 +9,11 @@
   激活集在本次场景中激活的对象（`activated`）。输出未收窄的候选全集，并逐来源给
   出命中计数。
 - **资格**：逐条排除理由对应闭集里的一个稳定原因码；保留项加被排除项的计数等于
-  候选全集的规模（docs/dev/SPEC-life-runtime.md「两条排除纪律」）。
-- **排序**：主键是口味权重 × 注意力先验（定点整数），决胜键是对象标识，保证全序。
+  候选全集的规模（docs/dev/SPEC-life-runtime.md「两条排除纪律」）。生活活动窗口按人物
+  当前地点施加地点类资格（`apply_location_kinds`，docs/dev/SPEC-dayrun-fidelity.md 5.1，裁决 S8）。
+- **排序**：排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（定点整数与
+  `sha256(场景|人物|日期|对象)`，裁决 S4）；相关度由调用方按人物自己的事实与目录事实给出，
+  决胜键使零口味时的顺序不退化为对象标识的字母序，且随日期变化。
 
 **两条纪律在本模块内被硬编码为形状**：
 
@@ -81,8 +84,9 @@ EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ROTATION_DEFERRED",
 )
 
-#: 排序键版本（docs/CONTRACTS.md「候选与呈现合同」的「排序键与游标」）：参与游标身份。
-ORDER_KEY_VERSION = 1
+#: 排序键版本（docs/CONTRACTS.md「候选与呈现合同」的「排序键与游标」）：只参与游标身份，升版使在途游标失效。
+#: 2 起排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（docs/dev/SPEC-dayrun-fidelity.md 5.1）。
+ORDER_KEY_VERSION = 2
 #: 定点份额度：四位小数，与 `taste_weights` 的口径一致。
 FIXED_POINT_SCALE = 10_000
 #: 本轮可取候选的时间窗（秒），截至世界当前时刻加该值；候选只在此窗内自足。
@@ -187,12 +191,19 @@ class CandidateInputs:
     rotation_constants: Any = None
     #: 是否要求条目声明的具体地点实例（人必须站在该地点）；目录浏览时为 False。
     require_location_instance: bool = True
-    #: 轮转游标：本分区沿池单向绕回走到哪儿（只前进、不回退，不记录互动次数）。
-    rotation_offset: int = 0
+    #: 是否按人物当前地点判定地点类资格（生活活动窗口，docs/dev/SPEC-dayrun-fidelity.md 5.1）：目录浏览面的
+    #: 其余类别不判定营业时段与地点实例，生活活动窗口仍按当前地点的地点类排除不相容的条目。
+    apply_location_kinds: bool = False
     #: 按对象标识记录的「上次呈现时刻」（纪元秒）：缺失表示从未呈现（轮转判据）。
     last_presented_at: Mapping[str, int] = field(default_factory=dict)
     #: 轮转层本轮推迟呈现的对象标识：这些对象不呈现，但**不是排除**。
     withheld_object_ids: frozenset[str] = frozenset()
+    #: 相关度（对象标识 → 整数分，缺项为 0）：只取人物自己的事实与目录事实（life.relevance）。
+    relevance: Mapping[str, int] = field(default_factory=dict)
+    #: 决胜键 `sha256(场景|人物|日期|对象)` 的前三段：场景身份、人物编号与场景时区的本地日期（YYYY-MM-DD）。
+    scenario_id: str = ""
+    agent_id: int = 0
+    local_date: str = ""
     state_version: int = 0
     catalog_digest: str = ""
     profile_digest: str = ""
@@ -229,22 +240,28 @@ class OrderedCandidate:
     kind: CandidateKind
     taste_weight: int
     attention_prior: int
+    #: 相关度（整数分，docs/dev/SPEC-dayrun-fidelity.md 5.1）：只在口味 × 注意力相同时区分先后。
+    relevance: int = 0
+    #: 决胜键 `sha256(场景|人物|日期|对象)` 的十六进制摘要。
+    tiebreak: str = ""
 
-    def order_key(self) -> tuple[int, int, str]:
-        """@brief 完整稳定排序键：非零口味在前，其后口味 × 注意力降序，决胜键为对象标识。
+    def order_key(self) -> tuple[int, int, int, str]:
+        """@brief 完整稳定排序键：非零口味在前，其后口味 × 注意力降序、相关度降序，决胜键为哈希。
 
         首项是「口味权重非零」的存在标记（0 在前），它保证零权重对象排在全部非零
         权重对象之后——这是「软偏好只改序、不出局」在排序键上的落点，不是第二把
-        主键。主键本身按口味 × 注意力降序取负值，比较结果全为整数。
+        主键。主键本身按口味 × 注意力降序取负值，相关度同样取负值，比较结果全为整数；
+        决胜键不是对象标识，零口味时的顺序因此不退化为字母序，且随本地日期变化。
         """
         return (0 if self.taste_weight else 1,
-                -(self.taste_weight * self.attention_prior), self.object_id)
+                -(self.taste_weight * self.attention_prior), -self.relevance, self.tiebreak)
 
     def as_row(self) -> dict[str, Any]:
-        """@brief 保留项的返回体行（含完整稳定排序键）。"""
+        """@brief 保留项的返回体行（含完整稳定排序键的原料：定点口味与注意力、相关度与决胜键）。"""
         return {"object_id": self.object_id, "kind": self.kind,
                 "taste_weight": self.taste_weight,
-                "attention_prior": self.attention_prior}
+                "attention_prior": self.attention_prior,
+                "relevance": self.relevance, "tiebreak": self.tiebreak}
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,7 +298,7 @@ def recall(inputs: CandidateInputs) -> CandidatePage:
     """
     generated = generate_candidates(inputs)
     retained, excluded = filter_candidates(generated, inputs)
-    ordered = sorted((_ordered(item) for item in retained), key=OrderedCandidate.order_key)
+    ordered = sorted((_ordered(item, inputs) for item in retained), key=OrderedCandidate.order_key)
     deferred = tuple(item.object_id for item in ordered
                      if item.object_id in inputs.withheld_object_ids)
     presented = [item for item in ordered if item.object_id not in inputs.withheld_object_ids]
@@ -363,10 +380,26 @@ def _cursor(inputs: CandidateInputs, presented: Sequence[OrderedCandidate],
     return cursor_identity(inputs, json.dumps(list(last.order_key()), separators=(",", ":")))
 
 
-def _ordered(item: GeneratedCandidate) -> OrderedCandidate:
-    """@brief 生成段产物投影为排序段一行（排序键原料原样带过）。"""
-    return OrderedCandidate(object_id=item.entry.object_id, kind=item.entry.kind,
-                            taste_weight=item.taste_weight, attention_prior=item.attention_prior)
+def tiebreak_digest(scenario_id: str, agent_id: int, local_date: str, object_id: str) -> str:
+    """@brief 决胜键 `sha256(场景|人物|日期|对象)`（十六进制）：同分时的先后只由这四项决定，跨日期变化，与对象标识的
+    字母序无关（docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+    text = f"{scenario_id}|{agent_id}|{local_date}|{object_id}"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def ordered_candidate(entry: CandidateEntry, inputs: CandidateInputs) -> OrderedCandidate:
+    """@brief 一个候选条目的排序段一行：定点口味与注意力、相关度（缺项为 0）与哈希决胜键；排序段与呈现窗口共用。"""
+    return OrderedCandidate(object_id=entry.object_id, kind=entry.kind,
+                            taste_weight=_taste_weight(entry, inputs),
+                            attention_prior=_attention_prior(entry, inputs),
+                            relevance=int(inputs.relevance.get(entry.object_id, 0)),
+                            tiebreak=tiebreak_digest(inputs.scenario_id, inputs.agent_id, inputs.local_date,
+                                                     entry.object_id))
+
+
+def _ordered(item: GeneratedCandidate, inputs: CandidateInputs) -> OrderedCandidate:
+    """@brief 生成段产物投影为排序段一行（口味与注意力与生成段同一口径，另加相关度与决胜键）。"""
+    return ordered_candidate(item.entry, inputs)
 
 
 def _bucket(entry: CandidateEntry) -> str:
@@ -403,8 +436,11 @@ def _exclusion_reason(item: GeneratedCandidate,
 
 
 def _location_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 地点不可用：人不在指定地点实例，或地点类交集为空。"""
-    if inputs.local_hour is None and not inputs.require_location_instance:
+    """@brief 地点不可用：人不在指定地点实例，或地点类交集为空。
+
+    目录浏览面（不判定营业时段、不要求地点实例）只在 apply_location_kinds 时判定地点类（生活活动窗口）。
+    """
+    if inputs.local_hour is None and not inputs.require_location_instance and not inputs.apply_location_kinds:
         return None
     place = inputs.location
     if place is None:
@@ -512,5 +548,7 @@ __all__ = [
     "filter_candidates",
     "fixed_point",
     "generate_candidates",
+    "ordered_candidate",
     "source_counts",
+    "tiebreak_digest",
 ]

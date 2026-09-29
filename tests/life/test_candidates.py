@@ -35,6 +35,7 @@ from worldmock.life.candidates import (
     fixed_point,
     generate_candidates,
     source_counts,
+    tiebreak_digest,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -133,6 +134,20 @@ class TestClosedSets:
     def test_order_key_version_is_int(self) -> None:
         assert isinstance(ORDER_KEY_VERSION, int)
         assert FIXED_POINT_SCALE == 10_000
+
+    def test_order_key_version_is_two_and_enters_the_cursor_identity(self) -> None:
+        """排序键加相关度、决胜键改哈希后 `ORDER_KEY_VERSION` 为 2；它只参与游标身份（docs/dev/SPEC-dayrun-fidelity.md
+        5.1），升版使在途游标失效：同一游标在版本 1 下的身份与现行身份不同。"""
+        import hashlib as _hashlib
+
+        assert ORDER_KEY_VERSION == 2
+        inputs = _inputs()
+        page = recall(inputs)
+        assert page.order_key_version == 2
+        legacy = json.dumps({"catalog_digest": inputs.catalog_digest, "cursor": "k", "order_key_version": 1,
+                             "world_state_version": inputs.state_version},
+                            ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        assert cursor_identity(inputs, "k") != _hashlib.sha256(legacy.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +306,7 @@ class TestSoftPreferenceOnlyReorders:
         ids = [item.object_id for item in page.retained]
         assert sorted(ids) == [f"food-{index}" for index in range(4)]
         assert set(ids[:2]) == {"food-0", "food-1"}
-        assert ids[2:] == ["food-2", "food-3"]
+        assert set(ids[2:]) == {"food-2", "food-3"}
         assert page.excluded == ()
 
     def test_zero_weight_sorts_after_every_non_zero_weight(self) -> None:
@@ -469,6 +484,25 @@ class TestExclusionDiscipline:
         rejected = recall(_inputs(sources={"on_site": (fitness,)}))
         assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
 
+    def test_catalog_view_applies_location_kinds_only_when_asked(self) -> None:
+        """目录浏览面（不判定营业时段与地点实例）只在 apply_location_kinds 时按当前地点判定地点类：生活活动窗口里
+        地点类不符的条目以 ELIGIBILITY_LOCATION_KIND_MISMATCH 排除，其余照常保留（docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+        home = LocationView("home", frozenset({"home"}), opening_status="unknown")
+        entries = (CandidateEntry(object_id="dishes", kind="lifestyle", location_kinds=frozenset({"home"}),
+                                  minimum_seconds=60, maximum_seconds=1200),
+                   CandidateEntry(object_id="gym", kind="lifestyle", location_kinds=frozenset({"fitness"}),
+                                  minimum_seconds=60, maximum_seconds=1200),
+                   CandidateEntry(object_id="call", kind="lifestyle", location_kinds=frozenset({"anywhere"}),
+                                  minimum_seconds=60, maximum_seconds=1200))
+        catalog = _inputs(location=home, locations={"home": home}, sources={"carried": entries}, local_hour=None,
+                          require_location_instance=False)
+        assert sorted(item.object_id for item in recall(catalog).retained) == ["call", "dishes", "gym"]
+        located = recall(dataclasses.replace(catalog, apply_location_kinds=True))
+        assert sorted(item.object_id for item in located.retained) == ["call", "dishes"]
+        assert [item.as_row() for item in located.excluded] == [
+            {"object_id": "gym", "kind": "lifestyle", "reason": "ELIGIBILITY_LOCATION_KIND_MISMATCH"}]
+        assert located.exclusion_counts["ELIGIBILITY_LOCATION_KIND_MISMATCH"] == 1
+
     def test_every_exclusion_reason_is_inside_the_closed_set(self) -> None:
         inputs = _inputs(location=None, occupied_resources=SLEEP_CLAIMS)
         page = recall(inputs)
@@ -592,7 +626,7 @@ class TestRotationDeferralIsNotExclusion:
 # ---------------------------------------------------------------------------
 
 class TestOrdering:
-    """主键是口味 × 注意力先验，决胜键是对象标识，保证全序。"""
+    """排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键），保证全序（docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
 
     def test_primary_key_is_taste_times_attention(self) -> None:
         entries = (CandidateEntry(object_id="a", kind="product", minimum_seconds=600,
@@ -604,17 +638,42 @@ class TestOrdering:
                          attention_priors={"a": 0.9, "b": 0.2})
         page = recall(inputs)
         assert page.retained[0].taste_weight * page.retained[0].attention_prior == 2000 * 9000
-        assert [item.object_id for item in page.retained] == ["a", "b"]
+        # 两者的口味 × 注意力相同（0.2 × 0.9 = 0.9 × 0.2），先后交给哈希决胜键，不是对象标识。
+        assert [item.object_id for item in page.retained] == sorted(
+            ("a", "b"), key=lambda name: tiebreak_digest("", 0, "", name))
+        heavier = recall(_inputs(sources={"on_site": entries}, taste_weights={"a": 0.2, "b": 0.9},
+                                 attention_priors={"a": 0.9, "b": 0.3}))
+        assert [item.object_id for item in heavier.retained] == ["b", "a"]
 
-    def test_object_id_breaks_ties(self) -> None:
+    def test_hash_of_scenario_person_date_and_object_breaks_ties(self) -> None:
+        """同分时按 `sha256(场景|人物|日期|对象)` 决胜：顺序不是对象标识的字母序，换一个本地日期（或人物）就变。"""
+        names = ("zeta", "alpha", "mid", "kappa", "beta")
         entries = tuple(CandidateEntry(object_id=name, kind="content", bucket="feature_film",
-                                       minimum_seconds=600, maximum_seconds=3600)
-                        for name in ("zeta", "alpha", "mid"))
-        inputs = _inputs(sources={"browsed": entries},
-                         taste_weights={name: 0.5 for name in ("zeta", "alpha", "mid")},
-                         attention_priors={"feature_film": 0.5})
+                                       minimum_seconds=600, maximum_seconds=3600) for name in names)
+        orders = {}
+        for day in ("2026-09-28", "2026-09-29"):
+            inputs = _inputs(sources={"browsed": entries}, taste_weights={name: 0.5 for name in names},
+                             attention_priors={"feature_film": 0.5}, scenario_id="scene", agent_id=1, local_date=day)
+            page = recall(inputs)
+            orders[day] = [item.object_id for item in page.retained]
+            assert orders[day] == sorted(names, key=lambda name: tiebreak_digest("scene", 1, day, name))
+            assert all(item.tiebreak == tiebreak_digest("scene", 1, day, item.object_id) for item in page.retained)
+        assert orders["2026-09-28"] != sorted(names)
+        assert orders["2026-09-28"] != orders["2026-09-29"]
+        assert tiebreak_digest("scene", 1, "2026-09-28", "mid") != tiebreak_digest("scene", 2, "2026-09-28", "mid")
+
+    def test_relevance_orders_after_taste_and_before_the_hash(self) -> None:
+        """相关度是第三段：口味 × 注意力相同时相关度高的在前，但不越过口味 × 注意力，也不把零口味抬到非零口味之前。"""
+        entries = tuple(CandidateEntry(object_id=name, kind="lifestyle", minimum_seconds=600, maximum_seconds=3600)
+                        for name in ("low", "high", "liked", "zero-relevant"))
+        inputs = _inputs(sources={"carried": entries},
+                         taste_weights={"low": 0.5, "high": 0.5, "liked": 0.9},
+                         attention_priors={"low": 0.5, "high": 0.5, "liked": 0.5},
+                         relevance={"high": 3, "zero-relevant": 5})
         page = recall(inputs)
-        assert [item.object_id for item in page.retained] == ["alpha", "mid", "zeta"]
+        assert [item.object_id for item in page.retained] == ["liked", "high", "low", "zero-relevant"]
+        assert [item.relevance for item in page.retained] == [0, 3, 0, 5]
+        assert page.retained[1].order_key()[:3] == (0, -(5000 * 5000), -3)
 
     def test_order_key_is_json_serialisable_integers_only(self) -> None:
         page = recall(_inputs())

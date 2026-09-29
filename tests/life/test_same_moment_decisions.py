@@ -1276,28 +1276,29 @@ def _supply_order(observed: dict) -> list[str]:
 
 
 def test_same_second_rounds_keep_presentation_window_and_rotation(engine_factory) -> None:
-    """同一秒各轮沿用该秒首轮的呈现窗口与轮转游标；时钟推进时留痕并入，游标才前进（「同一秒内的呈现」）。"""
+    """同一秒各轮沿用该秒首轮的呈现窗口与轮转判据（各对象的上次呈现时刻）；时钟推进时留痕并入，轮转判据才变
+    （「同一秒内的呈现」；轮转按每个对象的 last_presented_at，docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    now, offset = engine.state.current_time, engine._rotation_offset(1)
+    now, last = engine.state.current_time, engine._last_presented(1)
     first, _ = _observed_act(engine, "window-1", "start_activity", start_activity("观看", "不存在的对象"))
     second, _ = _observed_act(engine, "window-2", "start_activity", start_activity("观看", "不存在的对象"))
     assert engine.state.current_time == now
     assert _presented(second) == _presented(first)
-    assert engine._rotation_offset(1) == offset
+    assert engine._last_presented(1) == last
     staged = engine.state.same_moment_presentation[1].stamps
     assert staged and set(staged.values()) == {now}
     _wait(engine, "window-wait")
     advance_next(engine)
     assert engine.state.same_moment_presentation == {}
     assert set(staged) <= set(engine.state.presentation_state[1])
-    assert engine._rotation_offset(1) > offset
+    assert engine._last_presented(1) != last and all(engine._last_presented(1)[item] == now for item in staged)
 
 
 def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) -> None:
     """本 session 最近一次浏览结果在其后的观察中置顶，同一秒后续各轮动作与首轮相同（可选的仍可选，按世界事实没有取得
-    方式的照常列出、动作为空）；结果在整个 session 内保留，浏览调用的结果只列商品名称（「同一秒内的呈现」、
-    docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    方式的照常列出、动作为空）；结果在整个 session 内保留，浏览调用的结果只列名称，写完整标签「<门店>出售的<商品>」
+    （「同一秒内的呈现」、docs/dev/SPEC-persona-prompt.md「唯一出现原则」、docs/dev/SPEC-dayrun-fidelity.md 5.3）。"""
     from tests.life.test_commerce import _choice, _stage_open
 
     engine = engine_factory()

@@ -9,8 +9,8 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (advance_next, advance_until_ready, conclude_pending, context, stage_day_plan,
-                                 start_activity, start_request)
+from tests.life.conftest import (advance_next, advance_until_ready, bring_to_window, conclude_pending, context,
+                                 stage_day_plan, start_activity, start_request)
 from tests.life.test_money_settlement import _conclude_round
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import deliver_order
@@ -106,9 +106,10 @@ def test_browse_purchase_replay_uses_one_canonical_payment(engine_factory) -> No
     stage_day_plan(engine)
     before = engine.observe(context(engine, "before-browse"))
     assert before["supplies"] == []
-    _browse(engine)
     product = engine.scenario.products[0]
     supply = _selected_supply(engine, product.product_id)
+    bring_to_window(engine, (supply.supply_id,))  # 浏览窗口的换新名额留给这条最久未呈现的供给
+    _browse(engine)
     request = _choice(engine.observe(context(engine, "purchase-preview")),
                       "purchase", supply.supply_id, "delivery")
     balances = dict(engine.state.accounts)

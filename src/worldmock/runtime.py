@@ -800,6 +800,7 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     options = prepared.env_kwargs["create_options"]
     options["agent_taste_weights"] = {item["id"]: item["profile"].get("taste_weights", {}) for item in specs}
     options["input_warnings"] = warnings
+    options["persona_habit_responses"] = habit_responses(specs)
     writer = OpsLogger(prepared.run_dir, prepared.scenario.timezone)
     try:
         for warning in warnings:
@@ -809,6 +810,14 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     finally:
         writer.close()
     return specs
+
+
+def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
+    """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里经场景作息覆盖后的结构化卡片，
+    没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给相关度
+    （docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+    return {spec["id"]: [habit["response"] for habit in spec["profile"]["persona_card_struct"]["habits"]]
+            for spec in specs if "persona_card_struct" in spec["profile"]}
 
 
 def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
