@@ -225,7 +225,9 @@ def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
         _decision("start_activity", _choice(_TASK, "interact", "工作"))], False) == ""
     assert "not offered by the chosen target" in person.validate_react_decisions([
         _decision("start_activity", _choice(_SUPPLY, "obtain", "到店"))], False)
-    assert '"enum"' not in json.dumps(_functions(person)["start_activity"])
+    start = copy.deepcopy(_functions(person)["start_activity"])
+    assert start["parameters"]["properties"].pop("prefer")["enum"] == ["fastest", "cheapest", None]  # 固定的请求级偏好
+    assert '"enum"' not in json.dumps(start)
 
 
 @pytest.mark.parametrize("stage", ["open", "start_or_resume", "resume_or_conclude", "conclude_only",

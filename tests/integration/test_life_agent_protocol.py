@@ -307,7 +307,8 @@ def _prepared(observations: list[dict] | None = None) -> LifeAgent:
 
 
 def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
-    """正式决策的 Schema 是八个人物工具与三个记忆查询，没有 finish、没有宿主身份字段、没有逐轮名称枚举。"""
+    """正式决策的 Schema 是八个人物工具与三个记忆查询，没有 finish、没有宿主身份字段、没有逐轮名称枚举（唯一的枚举是
+    start_activity 请求级 prefer 固定的两个取值与空值）。"""
     functions = _functions(_prepared())
 
     assert set(functions) == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
@@ -318,8 +319,10 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert set(start_fields) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
-    assert '"enum"' not in json.dumps({name: functions[name] for name in ("start_activity", "submit_work",
-                                                                           "send_message", "report_status")})
+    closed = copy.deepcopy({name: functions[name] for name in ("start_activity", "submit_work", "send_message",
+                                                                "report_status")})
+    assert closed["start_activity"]["parameters"]["properties"].pop("prefer")["enum"] == ["fastest", "cheapest", None]
+    assert '"enum"' not in json.dumps(closed)
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
 

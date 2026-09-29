@@ -994,10 +994,10 @@ SESSION_SUMMARY_MAX_CHARS = 500
 
 #: start_activity 请求级偏好 prefer 的取值（docs/dev/SPEC-dayrun-fidelity.md 3.5）：null 按 fastest。
 PURCHASE_PREFERENCES = ("fastest", "cheapest")
-#: prefer 的字段级「格式与来源」说明（参数 Schema 的一部分，不是工具 description），并说明由系统定方式的「购买」。
-_PREFER_FORMAT = ("请求级取值 fastest、cheapest 或 null（null 按 fastest）：obtain 有几家店都能买时按它挑一家，fastest 取最快"
-                  "拿到的，cheapest 取到手价最低的。取得商品的方式可以写「购买」，由系统按你在不在出售它的店里、能不能送到"
-                  "收货地定到店还是远程下单；from 可以写 null、门店名或 App 名。")
+#: prefer 的字段级「格式与来源」说明（参数 Schema 的一部分，不是工具 description），并说明由系统定方式的「购买」；
+#: 与其他参数说明一样只写用途（一句中文，不带拉丁字母单词与规则说法，tests/integration/test_tool_description_references.py）。
+_PREFER_FORMAT = ("取得商品有几家店都能买时挑哪家的偏好：枚举依次表示最快拿到与到手价最低，空值按最快；取得方式写「购买」时，"
+                  "按你是否在出售它的店里、能否送到收货地来定到店还是远程下单。")
 
 
 class StartActivityRequest(FrozenModel):

@@ -132,12 +132,22 @@ def _twin_news() -> LifeAgent:
     return _prepared(observed)
 
 
+def _offer_beside_another_store() -> LifeAgent:
+    """本轮列出一件标签写明门店的供给，冻结地点表里另有一家「街角超市」（from 写它是另一个已知地点）。"""
+    observed = _observed_offer()
+    data = observed[0]["data"]
+    data["locations"] = [*data["locations"], {"location_id": "corner-shop", "name": "街角超市"}]
+    offer = LifeAgent()
+    offer.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
+    return offer
+
+
 def _host_cases() -> dict[str, tuple[str, str]]:
     """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）：截断经 LifeAgent 覆写的 _parse_react_responses 判定
-    （docs/dev/SPEC-dayrun-fidelity.md 7.2），名称歧义经统一名称解析（同名的内容与游戏，3.1）。"""
+    （docs/dev/SPEC-dayrun-fidelity.md 7.2），名称歧义经统一名称解析（同名的内容与游戏，3.1），来源不一致是列出的标签配
+    冻结地点表里的另一个地点（3.2（b））。"""
     agent = _prepared()
-    offer = LifeAgent()
-    offer.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observed_offer()))
+    offer = _offer_beside_another_store()
     concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
     unknown = _conclude_args(_WAIT, memories=[[]], views=[[_view("陌生人")]])
     produced = {
@@ -183,7 +193,7 @@ def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
     assert cases["NAME_NOT_FOUND"][1] == "「不存在的对象」不是可以操作的对象"
     assert cases["WAY_NOT_OFFERED"][1] == "「自己」没有列出「interact：观看」这种做法"
     assert cases["ROUTE_FIELDS_INVALID"][1] == "interact 的 from 与 to 都要写 null"
-    assert cases["SUPPLY_SOURCE_MISMATCH"][1] == f"「{_OFFER}」已经写明了门店，from 要写 null"
+    assert cases["SUPPLY_SOURCE_MISMATCH"][1] == f"「{_OFFER}」已经写明了门店，from「街角超市」是另一个地点"
     assert cases["SUBJECT_NOT_KNOWN"][1] == "关系看法写的对象「陌生人」不是认识的人"
     assert cases["NAME_AMBIGUOUS"][1] == "「晚间新闻」对应不止一个对象：「内容：晚间新闻」、「游戏：晚间新闻」"
     assert host_defaults("NAME_AMBIGUOUS")[0] not in {reason for _, reason in cases.values()}

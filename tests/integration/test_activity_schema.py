@@ -119,7 +119,7 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
     assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
     prefer = schema["properties"]["prefer"]
     assert (prefer["type"], prefer["enum"]) == (["string", "null"], ["fastest", "cheapest", None])
-    assert "null 按 fastest" in prefer["description"] and "「购买」" in prefer["description"]
+    assert "空值按最快" in prefer["description"] and "「购买」" in prefer["description"]
     assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
     assert list(Draft202012Validator(schema).iter_errors({**start_arguments(["自己"], ["interact"], ["等待"]),
                                                          "prefer": "slowest"}))
