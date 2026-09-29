@@ -121,18 +121,21 @@ def test_six_hundred_hanzi_cap_checks_only_card_derived_fields() -> None:
 
 
 def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_path) -> None:
-    """新建运行：卡片渲染文本与结构化字段（去掉当下处境）都存进 profile；恢复时结构化字段按 PersonaCardStruct 校验，
-    带当下处境或格点不对的字段阻止分支发布；没有卡片的人物不带该键。"""
+    """新建运行：卡片渲染文本与结构化字段（去掉当下处境）都存进 profile，两者取经场景作息覆盖后的卡片
+    （docs/dev/SPEC-dayrun-fidelity.md 2.1）；恢复时结构化字段按 PersonaCardStruct 校验，带当下处境或格点不对的字段
+    阻止分支发布；没有卡片的人物不带该键。"""
     from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest, _agent_workspace,
                                                              _parent_store, _prepare_resume)
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.runtime import _agent_specs
 
     scenario, _ = load_scenario(SCENARIO)
     card = make_card()
+    overridden = apply_scenario_rhythm(card, scenario.agents[0]).card
     profile = _agent_specs(scenario, persona_compiler=lambda agent: card)[0]["profile"]
-    assert profile["persona_card"] == render_card(card)
-    assert profile["persona_card_struct"] == persona_card_struct(card) and "situation" not in profile[
+    assert profile["persona_card"] == render_card(overridden)
+    assert profile["persona_card_struct"] == persona_card_struct(overridden) and "situation" not in profile[
         "persona_card_struct"]
     assert "persona_card_struct" not in _agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"]
     broken = {**persona_card_struct(card), "situation": {"busy_this_week": "赶工", "cares_about": "体检"}}

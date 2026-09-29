@@ -238,6 +238,11 @@ flowchart LR
 人物的 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`
 分别驱动睡眠节律、睡眠不足累积和饥饿体感的餐时项；完整约束引用
 [人物档案合同](../CONTRACTS.md#人格与卡片字段) 与 `AgentConfig`。
+场景显式声明的这四个字段与 `bedtime_window` 也覆盖画像编译从背景故事抽取的卡片值（场景优先，
+[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md) 2.1）：人设层、卡片渲染文本与冻结的结构化卡片取覆盖后的值，
+身体结算、零点计划与每轮人设层读同一组值；未声明的字段仍取卡片值，AgentConfig 的缺省值不进卡片。
+覆盖量化到卡片格点，覆盖后锚点乱序的槽保留卡片值；每处覆盖与冲突都记运行输入警告
+（`CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT`，见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)）。
 
 初始睡眠压力按惯常起床时刻反推。饥饿与困意由资源、时刻和人物参数派生，
 场景不另存可自由改写的饥饿条或疲劳条；身体变化与体感的执行边界见
@@ -328,6 +333,8 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
 | 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
 | 规则完整性 | 所有规则文件存在且可解析 | 拒绝启动 |
+| 人物卡片覆盖率 | 卡片习惯与口味映射到世界可执行目标的比例不低于 0.8；App 名只在媒介条目上精确命中，不以子串算习惯或题材命中 | `validate` 失败并列出缺失项；新建运行只记输入警告 `COVERAGE_BELOW_THRESHOLD`，不失败 |
+| 运行输入警告 | 口味与内容题材、权重全零、没有内容却有看刷听、游戏权重条目、覆盖率、场景作息覆盖与冲突、画像编译一致性、配送路线可达、地点显示名（警告码闭集见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)） | 只警告：`validate` 在结果 `input_warnings` 中列出并逐条写到标准错误流；新建运行冻结进清单与质量报告并逐条写 ops 警告，永不因此失败 |
 | 运行凭据 | 固定文件存在且非符号链接；仅含 `DEEPSEEK_NODE_KEYS`，值及密钥段非空 | 文件缺失或不安全时报 `FileNotFoundError`，内容无效时报 `IntegrityError`；`0600` 仅为推荐权限 |
 
 ### 8.3 校验报告
@@ -351,6 +358,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
 | 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
 | 凭据内容错误 | 未知键、空值或空密钥段 | "DeepSeek credential file has an invalid schema" |
+| 运行输入警告（不是错误） | 卡片口味「B站视频」与内容题材对不上；配送路线 `unknown`；显示名带坐标 | 标准错误流 "Input warning TASTE_GENRES_UNMATCHED (agent 1): …"；`validate` 结果与运行清单的 `input_warnings` 带 `details`，由数据集决定改卡片、补题材或补路线 |
 
 ## 9. 配置版本与运行绑定
 

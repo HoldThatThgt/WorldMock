@@ -486,7 +486,7 @@ def _runtime_payload(
     document: LifeScenario, body: BodyConfig, items: RuntimeItems,
     accounts: tuple[str, str], dataset: MapDataset,
 ) -> RuntimeScenario:
-    """@brief 构造运行时场景的载荷字典并执行模型校验。"""
+    """@brief 构造运行时场景的载荷字典并执行模型校验；人物只搬运场景写出的字段，model_fields_set 仍是场景声明。"""
     locations, routes, supplies = select_map(dataset, document)
     return RuntimeScenario.model_validate({
         "schema_version": 3,
@@ -508,7 +508,7 @@ def _runtime_payload(
         "phone_simulation_config": document.phone_simulation_config,
         "phone_simulation_config_sha256": document.phone_simulation_config_sha256,
         "body": body.model_dump(mode="python"),
-        "agents": [item.model_dump(mode="python") for item in document.agents],
+        "agents": [item.model_dump(mode="python", exclude_unset=True) for item in document.agents],
         "locations": locations,
         "interaction_menus_by_location_kind": {
             kind: menu.model_dump(mode="python")

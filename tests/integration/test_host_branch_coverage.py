@@ -651,7 +651,7 @@ def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
 
 
 def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
-    """无背景故事不编译；有故事经编译得到卡片，渲染文本取自同一张卡片。"""
+    """无背景故事不编译；有故事经编译得到编译产物（卡片与编译警告一起返回，警告不再丢弃），渲染文本取自同一张卡片。"""
     from worldmock.profile import compile as compile_module
     from worldmock.profile import textgen as textgen_module
     import worldmock.runtime as runtime
@@ -659,10 +659,12 @@ def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
     quiet = SimpleNamespace(background_story=None)
     assert runtime._compile_persona(quiet) is None
     card = SimpleNamespace()
-    monkeypatch.setattr(compile_module, "compile_persona", lambda story: SimpleNamespace(card=card))
+    compiled = SimpleNamespace(card=card, warnings=("field_agreement_below_two_thirds: ['coping']",))
+    monkeypatch.setattr(compile_module, "compile_persona", lambda story: compiled)
     monkeypatch.setattr(textgen_module, "render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
-    assert runtime._compile_persona(story_agent) is card
+    assert runtime._compile_persona(story_agent) is compiled
+    assert runtime._compiled_parts(compiled) == (card, compiled.warnings)
     assert runtime._render_card(card) == "rendered-card"
 
 
@@ -1083,17 +1085,18 @@ def test_validate_project_requires_installed_labelkit_cli(tmp_path, monkeypatch)
 
 
 def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agents(tmp_path):
-    """绝对语料根可用；未声明背景故事的人物跳过。"""
+    """绝对语料根可用；未声明背景故事的人物跳过（没有卡片，也没有内容与游戏，不产生输入警告）。"""
+    from worldmock.life.scenario import load_scenario
     from worldmock.validation import validate_persona_coverage
 
+    plain = load_scenario(SCENARIO)[0].agents[0].model_copy(update={"background_story": None})
     scenario = SimpleNamespace(
-        scenario_id="probe", corpus_root="unused",
-        agents=[SimpleNamespace(agent_id=1, background_story=None)],
-        locations=(), contents=(), games=None, phone_simulation_config=None)
+        scenario_id="probe", corpus_root=str(ROOT / "corpora"), agents=[plain],
+        locations=(), contents=(), games=(), routes=(), supplies=(), phone_simulation_config=None)
     document = validate_persona_coverage(
         SCENARIO, _scenario=scenario, _corpus_root=ROOT / "corpora",
         coverage_out=tmp_path / "persona_coverage.json")
-    assert document["agents"] == []
+    assert document["agents"] == [] and document["input_warnings"] == []
     assert json.loads((tmp_path / "persona_coverage.json").read_text())["threshold"] == 0.8
 
 

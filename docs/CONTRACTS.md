@@ -1291,6 +1291,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 `tool_schema_sha256` 绑定原生工具定义，二者随七层模板、只写用途的 description 与 `from`、`to` 重钉。新建、打开既有运行（含从工作区加载）、
 恢复、反事实重放与 `validate` 五个入口经同一校验拒绝阶段中含 `decision_statement` 的清单，不提供别名或迁移；恢复与重放继承父清单的
 `same_second_continuation`，不能覆盖。显式无模型身份的引擎直驱路径不生成替代模型身份。
+运行清单 `schema_version` 为 2：新建运行的清单另带 `input_warnings`，即创建运行时计算的运行输入警告（条目形状与警告码闭集见「运行输入警告」），
+按闭集形状校验后冻结，恢复与重放随父清单继承、不重算；引擎直驱建立的运行没有计算警告，该键为 `null`。警告只记录，不参与恢复比对，也不使运行失败。
 
 ### 思考回传
 
@@ -1434,9 +1436,9 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `background_story` | str | 人物背景故事；正式人物的作息、消费与风险倾向写在各自的背景里并由卡片承载 |
+| `background_story` | str | 人物背景故事；正式人物的作息、消费与风险倾向写在各自的背景里并由卡片承载，场景显式声明的作息字段优先（见下文「场景作息覆盖」） |
 | `PersonaCard` | 编译产物 | 由 `background_story` 确定性渲染出的结构化人物卡片 |
-| `persona_card_struct` | 人物 `profile` 中的卡片结构化字段 | 新建运行时另存（`PersonaCard` 去掉 `situation` 的 JSON 形式），恢复时校验；宿主据此渲染人设层 |
+| `persona_card_struct` | 人物 `profile` 中的卡片结构化字段 | 新建运行时另存（经场景作息覆盖后的 `PersonaCard` 去掉 `situation` 的 JSON 形式），恢复时校验结构并核对作息与场景声明一致；宿主据此渲染人设层 |
 | 卡片长度 | - | 卡片以人设层 JSON 进入实际模型请求（见「七层字段」）；600 汉字上限只约束卡片派生的字段 |
 | 删除字段 | - | `occupation`, `routine_preference`, `consumption_preference`, `risk_preference` 模板字段与 `entertainment_preferences` 随机浮点删除 |
 
@@ -1446,13 +1448,19 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | `relationships` | `Relationship[]`，1–4 条 | 关系：`name_or_appellation` 不超过 12 字、`role` 不超过 12 字、`intimacy` 取 0–30 整数、`channels` 取 1–3 项非空文本 |
 | `situation` | `Situation` | 当下处境：`busy_this_week`（本周在忙什么）与 `cares_about`（在意什么），各不超过 60 字；卡片编译照旧，不进提示 |
 | `time_anchors` | `TimeAnchors` | 时间锚点：`wake`、`leave_home`、`lunch`、`dinner`、`bedtime` 五个时间窗口，按起点排列为起床 < 出门 < 午餐 < 晚餐 < 就寝；递增序列后的回绕小值构造时确定性 +24 归一为次日锚点（1.0→25.0，落在字段值里），归一后仍不单调的（同日乱序，如 8→7）拒绝 |
-| `chronotype_midsleep` | 浮点，小时 | 时型（自由日睡眠中点），取 [0, 24)，吸附 0.25 小时格点 |
+| `chronotype_midsleep` | 浮点，小时 | 时型（自由日睡眠中点），取 [0, 24)，吸附 0.25 小时格点；场景显式声明时取场景值（量化到同一格点，24 点写成 0 点） |
 | `sleep_need_hours` | 浮点，小时 | 睡眠需要，取 7.0–9.0，吸附 0.25 小时格点，默认 7.5 |
 | `habits` | `HabitSignature[]`，至多 5 条 | 习惯签名：`trigger` 不超过 30 字、`response` 不超过 40 字、`time_window` |
 | `tastes` | `Tastes` | 口味：`content_genres` 至多 6 项、`food_preferences` 至多 6 项、`media` 至多 4 项，条目非空且去重；内容题材与内容、游戏条目的 `genre[]` 确定性精确匹配得到 `taste_weights`（没有题材声明的条目为 0）；原始权重只作排序信号，实际缓解另按有效偏好 `f + (1 − f)·w` 调幅度（见「体感与动机证据」） |
 | `coping` | 文本 | 应对方式（压力时做什么），不超过 60 字 |
 
 时间窗口（`TimeWindow`）取自午夜起的小时数，半开区间：`start_hour` 取 [0, 30)，`end_hour` 取 (0, 30]，两者吸附 0.5 小时格点，跨度不超过 12 小时。就寝窗口允许跨午夜：`end_hour` 可大于 24（如 23–25 表示到次日 01:00）；锚点回绕归一后 `start_hour` 亦可大于 24（25 表示次日 01:00），上限为次日 06:00 地平线（30 小时）。这些字段属于人物作息，不构成当日目标的时间计划。
+
+**场景作息覆盖**（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 2.1）。场景人物显式声明的作息字段覆盖卡片的抽取值，未声明的字段仍取卡片值，身体结算、零点计划与每轮人设层因此读同一组值。只覆盖场景文档里显式写出且非空的
+`chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、`bedtime_window`（按场景人物的已声明字段判定，覆盖作用在加载所得的场景人物上），分别写进卡片的
+`chronotype_midsleep`、`sleep_need_hours` 与 `time_anchors.lunch`、`dinner`、`bedtime`；取值量化到卡片格点（中点与睡眠需要 0.25 小时，窗口 0.5 小时）。窗口覆盖后经回绕归一与起点非递减的顺序校验重建锚点，
+按锚点顺序反复尝试直到没有槽能再落下；落不下（顺序冲突）或量化后写不成合法窗口的槽保留卡片值并记 `CARD_FIELD_CONFLICT`，每处实际改变卡片值的覆盖记 `CARD_FIELD_OVERRIDDEN`（见「运行输入警告」）。
+覆盖结果是不动点：对覆盖后的卡片再覆盖一次不改任何值，恢复时据此核对 `persona_card_struct` 与场景声明一致。`validate` 与新建运行调用同一个覆盖函数。
 
 编译产物（`CompiledPersona`）除卡片外还包含 `big_five`（大五五维各取 1–7 整数）、`world_dynamics`（大五到世界层动力学参数）、`source`（`background_story` 指纹、抽取模型、提示版本，以及三次一致性的运行次数与逐字段平均众数占比）、`schema_version` 与 `warnings`。抽取提示版本为 `card-v1`，卡片结构版本为 2。出现 `occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 四个已删除模板字段的旧档案明确报错，不静默兼容。
 
@@ -1477,7 +1485,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 大五分数、九参数与任何权重不进入模型提示。
 
 人设层（字段见「七层字段」）由宿主用 `persona_card_struct`、人物姓名与场景联系人渲染，环境只下发由事件派生的看法与偏好
-（观察私有键 `persona_views`）。卡片编译、三次一致性、`render_card`（输出与本特性之前逐字节相同）、卡片结构版本 2 与冻结恢复不变。没有结构化卡片的人物，
+（观察私有键 `persona_views`）。卡片编译、三次一致性与卡片结构版本 2 不变；`render_card` 不变（输出与本特性之前逐字节相同），输入的卡片先经场景作息覆盖（见上文「场景作息覆盖」），
+渲染文本 `persona_card` 与 `persona_card_struct` 都取覆盖后的卡片；冻结恢复另核对卡片作息与场景声明一致。没有结构化卡片的人物，
 卡片派生的字段只填姓名，其余为 `null` 或 `[]`；场景联系人与看法、偏好照常呈现。卡片关系与场景联系人按名称精确合并（卡片 `name_or_appellation` 等于联系人称谓 `salutation`），对不上的各占一项；
 只来自场景联系人的项 `closeness` 为 `null`、`channels` 为 `[]`，场景联系人的亲密度与渠道仍不进提示；只凭看法出现的已知人物
 （不在卡片与场景联系人中的同世界人物）另占一项，`role`、`closeness` 为 `null`、`channels` 为 `[]`，不填编造的值。`view` 与 `preferences`
@@ -1702,10 +1711,10 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 | 项 | 合同 |
 | --- | --- |
 | 产出文件 | `persona_coverage.json`，默认写在场景文件同目录，可由参数改写路径 |
-| 触发命令 | `worldmock validate` 与 `worldmock profile validate` 都执行该校验 |
-| 可执行比例阈值 | 0.8；任一人物低于阈值即校验失败并列出缺失项，此时不写出文件 |
+| 触发命令 | `worldmock validate` 与 `worldmock profile validate` 都执行该校验；新建运行按同一规则与目标集计算，只记运行输入警告 `COVERAGE_BELOW_THRESHOLD`（见「运行输入警告」），不写文件 |
+| 可执行比例阈值 | 0.8；任一人物低于阈值即校验失败并列出缺失项，此时不写出文件；新建运行低于阈值只警告，不失败 |
 | 文件结构版本 | 1 |
-| 匹配规则 | 口味条目与目标品类集精确相等；习惯反应与目标关键词互为子串 |
+| 匹配规则 | 口味条目与目标品类集精确相等；习惯反应与目标关键词互为子串，目标关键词不含 App 名；App 名只在媒介条目上精确命中，不以子串给习惯反应或内容题材算命中（「B站视频」不因应用名「B站」算覆盖） |
 
 下列为产出示例。文件只在全部人物通过时写出，因此 `passed` 为真、`missing` 为空。
 
@@ -1737,7 +1746,36 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 | `passed` | 比例是否达到阈值 |
 | `missing` | 未命中的条目，每条含 `kind` 与 `value`；失败时随错误消息与返回值列出 |
 
-`missing[].kind` 取 `habit_response`（习惯反应）、`content_genre`（内容题材）、`food_preference`（饮食喜好）或 `media`（媒介）。目标集由场景、目录与语料确定性派生：习惯反应关键词取生活活动目录条目名与场景地点名，内容题材取内容语料条目的题材闭集，饮食喜好取正餐语料名与目录中可进食商品名，媒介取世界实际可观看或可游玩的品类词。
+`missing[].kind` 取 `habit_response`（习惯反应）、`content_genre`（内容题材）、`food_preference`（饮食喜好）或 `media`（媒介）。目标集由场景、目录与语料确定性派生：习惯反应关键词取生活活动目录条目名与场景地点名，内容题材取内容语料条目的题材闭集，饮食喜好取正餐语料名与目录中可进食商品名，媒介取世界实际可观看或可游玩的品类词；场景钉定的手机配置中有执行证据的应用别名只作媒介条目的精确命中。
+
+### 运行输入警告
+
+注入即核对（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 1.3、2.1、8.1）：人物卡片、场景内容与地图数据对不上时逐条发出警告，而不是静默算成零。
+新建运行在装配人物工作区时计算（画像编译、场景作息覆盖与口味权重之后），按闭集形状冻结进运行清单键 `input_warnings`（见「模型身份」），
+每条另写一条 `runtime` 组件、`warn` 级的操作日志（`code` 为警告码，带 `agent_id`、`message`、`details`），导出时计入 `quality.json` 的
+`input_warnings` 一节（见[记录引擎的质量报告](design/05-recording-engine.md#质量报告)）。恢复与重放不重算，随父清单继承。
+`worldmock validate` 用同一函数对同一份编译结果计算同一组警告，列在结果的 `input_warnings` 中并逐条写到标准错误流。
+**运行路径永不因警告失败**；`validate` 在覆盖率低于 0.8 时照旧失败（先写出警告）。
+
+| 条目键 | 说明 |
+| --- | --- |
+| `code` | 警告码，取下表闭集 |
+| `agent_id` | 人物编号；场景级警告（配送路线、地点显示名）为 `null` |
+| `message` | 给数据集维护者的一句说明，列出核对所用的原值 |
+| `details` | 按警告码固定的键，见下表 |
+
+| 警告码 | 条件 | `details` 键 |
+| --- | --- | --- |
+| `TASTE_GENRES_UNMATCHED` | 卡片 `content_genres` 非空，与场景内容条目的题材没有交集（只按 `content_genres` 精确匹配；平台词无论写在哪个字段都对不上题材，`media` 不参与） | `card_content_genres`、`card_media`、`top_content_genres`（场景内容最常见的题材，至多五个，按条目数降序）、`content_items` |
+| `CONTENT_WEIGHTS_ALL_ZERO` | 场景有内容，但实际注入的口味权重对全部内容都为 0（没有卡片的人物没有权重，同样计入） | 同上 |
+| `CONTENT_EMPTY_WITH_MEDIA_TASTES` | 场景没有内容，但卡片口味题材非空，或卡片媒介、习惯签名里有「看」「刷」「听」 | `content_genres`、`media`、`habits`（带看、刷、听的条目） |
+| `GAMES_WITHOUT_TASTE_WEIGHTS` | 场景有游戏，但实际注入的口味权重表里没有这些游戏的条目 | `games`、`missing_game_ids` |
+| `COVERAGE_BELOW_THRESHOLD` | 覆盖率校验（上文规则与目标集）的可执行比例低于 0.8 | `executable_ratio`、`threshold`、`total_items`、`covered_items`、`missing` |
+| `CARD_FIELD_OVERRIDDEN` | 场景显式声明的作息字段改变了卡片值（见「人格与卡片字段」的场景作息覆盖） | `field`、`card_value`、`scenario_value`、`applied_value` |
+| `CARD_FIELD_CONFLICT` | 场景窗口覆盖后锚点乱序，或量化到 0.5 小时格点后不是合法窗口，保留卡片值 | `field`、`card_value`、`scenario_value`、`reason`（`anchor_order` 或 `window_off_grid`） |
+| `PERSONA_AGREEMENT_LOW` | 画像编译的警告（三次一致性众数占比低于 2/3 的字段），逐条透传 | `compiler_warning` |
+| `DELIVERY_ROUTE_UNAVAILABLE` | 配送供给到声明的目的地没有唯一一条 `reachable` 的驾车路线（门店就在目的地时不需路线）；按门店、目的地与路线状态合并，不拒绝场景 | `location_id`、`destination_id`、`route_status`（`missing`、`unreachable` 或 `unknown`）、`supply_ids` |
+| `LOCATION_NAME_SUSPICIOUS` | 地点显示名带坐标（成对的小数经纬度或带经纬前缀的数值）或标识形态（小写 ASCII 段以连字符或下划线相连，且带纯数字段或至少三段，如 `-sim-01`），不拒绝场景 | `location_id`、`name`、`patterns`（`coordinates`、`identifier`） |
 
 ## CLI 命令接口
 
@@ -1746,7 +1784,7 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 | 命令 | 参数 | 行为 |
 | --- | --- | --- |
 | `prepare-corpora` | - | 获取明确来源子集、核对文件、形成规范化目录与来源清单 |
-| `validate` | `scenario_path` | 校验场景、语料、依赖、规则和目标数据合同，不启动人物 |
+| `validate` | `scenario_path` | 校验场景、语料、依赖、规则和目标数据合同，不启动人物；结果的 `input_warnings` 列出与新建运行同一组运行输入警告（见「运行输入警告」），并逐条写到标准错误流，覆盖率低于 0.8 失败时也先写出 |
 | `run` | `scenario_path`, `output_dir`，可选 `--same-second-continuation on\|off`（缺省 `on`） | 从明确场景新建运行目录，经 AS2 执行到场景终点；已存在的运行目录不能被覆盖；同秒续接开关冻结进清单 `stages.action.same_second_continuation` 与人物配置（见「思考回传」），`resume`、`replay` 不接受该参数，继承父清单的值 |
 | `resume` | `parent_checkpoint`, `output_dir` | 指定父运行和完整检查点，在新的运行目录恢复；不允许隐式新建 |
 | `replay` | `parent_checkpoint`, `intervention`, `output_dir` | 指定父运行、共同检查点及一次余额条件干预，在新反事实分支实际执行 |
@@ -1756,7 +1794,7 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 | `evaluate` | `baseline_dir`, `experiment_dir`, `output_dir` | 核对两套数据身份与可比范围，产出机器报告、图表和中文结论 |
 | `profile compile` | `text`, `runs`, `out` | 编译指定文本的人物卡片、大五与世界层动力学，输出卡片、卡片渲染文本（`render_card`，不再进入模型请求；进入请求的是人设层 JSON）与溯源 |
 | `profile check` | `text`, `runs` | 重复编译并断言卡片一致性与大五众数稳定 |
-| `profile validate` | `scenario_path`, `coverage_out` | 校验场景人物卡片的世界可执行覆盖并写 `persona_coverage.json` |
+| `profile validate` | `scenario_path`, `coverage_out` | 校验场景人物卡片的世界可执行覆盖并写 `persona_coverage.json`；与 `validate` 共用覆盖率校验，同样把运行输入警告逐条写到标准错误流 |
 | `category check` | `--catalog`，可选 `--queries`、`--run-dir` | 严格加载目录，报告三态配对查询与真实规则触达次数 |
 | `category refine` | `--catalog`、`--candidate`、`--parent-category`，可选 `--run-dir` | 列出对象归属建议、规则与配对变化；不改旧目录 |
 | `category publish` | `--catalog`、`--candidate`、`--output`、`--assignments`、可重复的 `--scenario` | 检查完整候选与场景，将递增版本原子发布到新路径 |
@@ -1797,7 +1835,7 @@ RunPhase = Literal[
 
 | 输出 | 当前格式与用途 |
 | --- | --- |
-| 标准错误流 | Python 标准 logging 输出英文运行错误及诊断信息；日志级别用于排查问题 |
+| 标准错误流 | Python 标准 logging 输出英文运行错误及诊断信息；日志级别用于排查问题；`validate` 与 `profile validate` 以 warning 级逐条写运行输入警告，格式为 `Input warning <警告码> (agent <人物编号>): <message>`（场景级警告的人物编号为 `None`） |
 | `logs/ops-YYYYMMDD.jsonl` | 按场景时区的模拟日追加操作日志，字段为 `at`、`sim_time`、`component`、`level`、`code`、`detail` 及可用关联键 |
 | `status.json` | 运行边界写入的 `status`、`phase`、`error_type`，不是世界状态快照 |
 | `worldmock status` | 从已提交数据库汇总 `run_id`、`state_version`、`current_time`、`active_activities`、`event_counts`、`recent_checkpoints`、`runtime`、`token_stats`、`observed_model_usage`、`people` 与 `wall_time` |
@@ -1807,6 +1845,8 @@ RunPhase = Literal[
 级别常量为 `info`、`warn`、`error`。当前 `OpsLogger` 不在运行时验证组件或事件码闭集，不能把示例码当成强制 Schema。
 实际埋点包括 `DECISION_ROUND_COMMITTED`、`ACTION_ACCEPTED`、`ACTION_REJECTED`、`FUNDS_CHANGED`、
 `MODEL_EXCHANGE`、`MEMORY_UPDATED` 与 `CHECKPOINT_COMMITTED`，它们和持久事件类型是不同字段。
+新建运行冻结的每条运行输入警告另写一条组件 `runtime`、级别 `warn` 的记录，`code` 取警告码闭集（见「运行输入警告」），
+关联键为 `agent_id`、`message` 与 `details`。
 
 操作日志逐条 flush，未作逐条 fsync；写入或关闭失败只报告到 stderr，属于当前诊断输出行为。
 必要模型留证、记忆或数据库写入失败仍按[模拟引擎的失败处理](design/04-simulation-engine.md#失败处理)停止运行，不因诊断日志的处理方式而放宽。

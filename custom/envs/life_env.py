@@ -30,7 +30,8 @@ class LifeEnv(EnvBase):
                  create_options: dict | None = None):
         """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。
 
-        create_options 是新建运行的附加输入：agent_taste_weights（人物口味权重）与 same_second_continuation
+        create_options 是新建运行的附加输入：agent_taste_weights（人物口味权重）、input_warnings（运行输入警告，
+        冻结进清单；docs/dev/SPEC-dayrun-fidelity.md 1.3）与 same_second_continuation
         （同秒续接开关，缺省开，冻结进清单 stages.action；docs/dev/SPEC-persona-prompt.md 第二章「同秒续接」）。
         """
         super().__init__()
@@ -68,7 +69,7 @@ class LifeEnv(EnvBase):
             from worldmock.runtime import stage_model_identity
             identity = stage_model_identity(self.create_options.get("same_second_continuation", True))
             self.engine = LifeEngine.create(self.scenario_path, self.run_dir, self.run_identity,
-                                            identity, self.create_options.get("agent_taste_weights"))
+                                            identity, self.create_options)
         if int(start_datetime.timestamp()) != self.engine.state.current_time:
             self.engine.close()
             self.engine = None

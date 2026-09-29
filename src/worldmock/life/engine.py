@@ -241,15 +241,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     @classmethod
     def create(cls, scenario_path: Path, run_dir: Path, run_identity: RunIdentity,
-               stage_identity: dict | None = None, agent_taste_weights: dict | None = None) -> "LifeEngine":
-        """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件；口味权重按注入值入态。"""
+               stage_identity: dict | None = None, create_options: dict | None = None) -> "LifeEngine":
+        """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件；create_options 的口味权重 agent_taste_weights 按注入值入态，
+        运行输入警告 input_warnings 冻结进清单（缺省 null：引擎直驱不计算警告）。"""
+        options = create_options or {}
         semantics, digest = load_runtime_scenario(scenario_path)
         scenario = semantics.scenario
         corpus_root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
         load_manifest(corpus_root, scenario.corpus_manifest_sha256)
         _validate_run_identity(scenario, run_identity)
-        state = _initial_state(semantics, digest, run_identity.run_id, agent_taste_weights or {})
-        manifest = _run_manifest(semantics, digest, run_identity, stage_identity)
+        state = _initial_state(semantics, digest, run_identity.run_id, options.get("agent_taste_weights") or {})
+        manifest = _run_manifest(semantics, digest, run_identity, stage_identity, options.get("input_warnings"))
         store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
         changes = {f"account:{key}": value for key, value in state.accounts.items()}
         changes["account:external:scenario"] = -sum(state.accounts.values())
@@ -1739,19 +1741,24 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
 
 
 def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: RunIdentity,
-                  stage_identity: dict | None = None) -> dict:
-    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）与各阶段请求形状。"""
+                  stage_identity: dict | None = None, input_warnings: list | None = None) -> dict:
+    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）、各阶段请求形状与运行输入警告。
+
+    清单版本 2 起带 input_warnings（docs/dev/SPEC-dayrun-fidelity.md 1.3：创建时计算的输入警告，按闭集形状冻结；
+    引擎直驱为 null）。
+    """
+    from worldmock.profile.injection import frozen_input_warnings
     from worldmock.validation import validate_manifest_stage_identity
     validate_manifest_stage_identity({"stage_model_identity": stage_identity})
     scenario = semantics.scenario
     category_fields = category_identity(semantics)
-    return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
+    return {"schema_version": 2, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
             "scenario_id": scenario.scenario_id, "map_dataset": map_provenance(scenario),
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
             "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
             "git_commit": identity.git_commit, "git_dirty": identity.git_dirty,
             "model_identity": identity.model_identity.model_dump(mode="json"),
-            "stage_model_identity": stage_identity,
+            "stage_model_identity": stage_identity, "input_warnings": frozen_input_warnings(input_warnings),
             "window": {"start": int(scenario.start_at.timestamp()), "end": int(scenario.end_at.timestamp()),
                        "timezone": scenario.timezone}, **category_fields}
 

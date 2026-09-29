@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +38,8 @@ from worldmock.life.run_identity import require_category_identity
 from worldmock.life.continuation import continuation_enabled
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.opslog import OpsLogger
-from worldmock.profile.models import PersonaCardStruct, persona_card_struct
+from worldmock.profile.injection import apply_scenario_rhythm
+from worldmock.profile.models import PersonaCard, PersonaCardStruct, persona_card_struct
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +410,7 @@ def _prepare_resume(
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
         _require_runtime_identity(parent.manifest, Path(request.project_root))
         require_category_identity(parent.manifest, semantics)
-        manifest, state = _restore_branch(parent, checkpoint, destination, metadata)
+        manifest, state = _restore_branch(parent, checkpoint, destination, metadata, scenario)
     finally:
         parent.close()
     continuation = continuation_enabled(manifest)
@@ -577,15 +579,16 @@ def _restore_branch(
     checkpoint: Any,
     destination: Path,
     branch_metadata: dict[str, str] | None = None,
+    scenario: RuntimeScenario | None = None,
 ) -> tuple[dict, dict]:
-    """@brief 在外层临时目录恢复数据库和人物，完整后才发布子目录。"""
+    """@brief 在外层临时目录恢复数据库和人物，完整后才发布子目录；给出场景时另核对结构化卡片与场景作息一致。"""
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(tempfile.mkdtemp(prefix=".worldmock-resume-", dir=destination.parent))
     staged_run = stage_root / "run"
     child: FootprintStore | None = None
     try:
         child = parent.restore(checkpoint.checkpoint_id, staged_run, branch_metadata)
-        _restore_agents(checkpoint, child, staged_run)
+        _restore_agents(checkpoint, child, staged_run, scenario)
         manifest, state = dict(child.manifest), child.state
         child.close()
         child = None
@@ -611,20 +614,25 @@ def _transfer_status_shell(destination: Path, staged_run: Path) -> None:
     destination.rmdir()
 
 
-def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path) -> None:
-    """@brief 从同一权威检查点恢复清单中的全部人物工作区；人物配置的续接开关须与清单一致。"""
+def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path,
+                    scenario: RuntimeScenario | None = None) -> None:
+    """@brief 从同一权威检查点恢复清单中的全部人物工作区；人物配置的续接开关须与清单一致，
+    给出场景时结构化卡片的作息须与场景显式声明的作息一致。"""
     agent_ids = tuple(sorted(int(item) for item in child.manifest["agent_ids"]))
+    configs = {item.agent_id: item for item in scenario.agents} if scenario is not None else {}
     for agent_id in agent_ids:
         reference = checkpoint.snapshots.get(f"agent:{agent_id}")
         if reference is None:
             raise IntegrityError("Checkpoint is missing an agent workspace snapshot")
         destination = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}"
         restore_directory(reference, child.assets, destination)
-        _validate_agent_workspace(destination, agent_id, continuation_enabled(child.manifest))
+        _validate_agent_workspace(destination, agent_id, continuation_enabled(child.manifest),
+                                  configs.get(agent_id))
 
 
-def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool) -> None:
-    """@brief 发布恢复分支前严格验证人物身份、配置、冻结的续接开关（与父清单相同）和已用记忆。"""
+def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool,
+                              agent_config: Any = None) -> None:
+    """@brief 发布恢复分支前严格验证人物身份、配置、冻结的续接开关（与父清单相同）、结构化卡片和已用记忆。"""
     from agentsociety2.agent.memory import AgentMemoryStore
 
     agent_path = workspace / "AGENT.json"
@@ -647,7 +655,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
         raise IntegrityError("Restored agent same_second_continuation must match the parent manifest")
     if not bool(config.get("enable_memory", True)):
         raise IntegrityError("Restored LifeAgent must keep memory enabled")
-    _validate_persona_card_struct(agent.get("profile"))
+    _validate_persona_card_struct(agent.get("profile"), agent_config)
     if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != MAX_REACT_TURNS:
         logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
         raise IntegrityError("Restored LifeAgent max_react_turns must match the frozen runtime budget")
@@ -660,16 +668,23 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
             raise IntegrityError("Restored agent memory is invalid") from exc
 
 
-def _validate_persona_card_struct(profile: Any) -> None:
-    """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。"""
+def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> None:
+    """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。
+
+    新建运行保存的是经场景作息覆盖后的卡片（docs/dev/SPEC-dayrun-fidelity.md 2.1），覆盖是不动点：给出场景人物声明时，
+    对恢复的卡片再覆盖一次必须不改任何值，否则说明卡片作息与场景显式声明的作息不一致。
+    """
     struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
     if struct is None:
         return
     try:
-        PersonaCardStruct.model_validate(struct)
+        card = PersonaCardStruct.model_validate(struct)
     except ValidationError as exc:
         logger.error("Restored persona card structure is invalid")
         raise IntegrityError("Restored persona card structure is invalid") from exc
+    if agent_config is not None and apply_scenario_rhythm(card, agent_config).card != card:
+        logger.error("Restored persona card rhythm disagrees with the scenario-declared rhythm")
+        raise IntegrityError("Restored persona card rhythm disagrees with the scenario-declared rhythm")
 
 
 async def _execute(prepared: _PreparedRun) -> RunResult:
@@ -750,18 +765,7 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
-    create_mode = prepared.workspace_mode == "create"
-    specs = _agent_specs(
-        prepared.scenario,
-        persona_compiler=(None if create_mode else _no_persona_compilation),
-        content_genres=(_content_genre_catalog(prepared.scenario_path, prepared.scenario)
-                        if create_mode else None),
-        same_second_continuation=prepared.same_second_continuation,
-    )
-    if create_mode:
-        prepared.env_kwargs["create_options"]["agent_taste_weights"] = {
-            spec_id: profile.get("taste_weights", {})
-            for spec_id, profile in ((item["id"], item["profile"]) for item in specs)}
+    specs = _society_specs(prepared)
     spec = DirectEnvActorSpec(
         ("LifeEnv",), {"LifeEnv": prepared.env_kwargs}, str(prepared.run_dir),
         str(prepared.project_root), clients,
@@ -779,6 +783,89 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
     except BaseException as error:
         _terminate_failed_actor(actor, error)
         raise
+
+
+def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
+    """@brief 人物工作区输入。新建运行：编译卡片、经场景作息覆盖渲染、注入口味权重，并计算运行输入警告——警告经
+    create_options 冻结进运行清单 input_warnings，另逐条写一条 ops 警告，永不使创建失败
+    （docs/dev/SPEC-dayrun-fidelity.md 1.3）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
+    """
+    if prepared.workspace_mode != "create":
+        return _agent_specs(prepared.scenario, persona_compiler=_no_persona_compilation,
+                            same_second_continuation=prepared.same_second_continuation)
+    compiled = {agent.agent_id: _compile_persona(agent)
+                for agent in sorted(prepared.scenario.agents, key=lambda item: item.agent_id)}
+    specs, warnings = creation_inputs(prepared.scenario_path, prepared.scenario, compiled,
+                                      prepared.same_second_continuation)
+    options = prepared.env_kwargs["create_options"]
+    options["agent_taste_weights"] = {item["id"]: item["profile"].get("taste_weights", {}) for item in specs}
+    options["input_warnings"] = warnings
+    writer = OpsLogger(prepared.run_dir, prepared.scenario.timezone)
+    try:
+        for warning in warnings:
+            writer.log(prepared.start_time, "runtime", "warn", warning["code"],
+                       "Input warning frozen into the run manifest", agent_id=warning["agent_id"],
+                       message=warning["message"], details=warning["details"])
+    finally:
+        writer.close()
+    return specs
+
+
+def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
+                    same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
+    """@brief 新建运行与 validate 共用：由已编译的画像形成人物工作区输入并计算同一组运行输入警告。
+
+    工作区输入经 _agent_specs（卡片先经场景作息覆盖 apply_scenario_rhythm，再渲染、存结构化卡片与算口味权重）；
+    警告见 input_warnings。validate 用同一函数，所以两条路径对同一份编译结果给出相同的覆盖与警告。
+    @param scenario_path 冻结场景路径（解析语料根与目录）
+    @param scenario 原始加载的运行时场景（人物的 model_fields_set 可靠）
+    @param compiled 人物编号 → 编译结果（CompiledPersona，测试桩可给 PersonaCard；没有背景故事的人物为 None 或缺席）
+    @param same_second_continuation 同秒续接开关（冻结进人物配置）
+    @return（工作区输入, 输入警告）
+    """
+    specs = _agent_specs(scenario, persona_compiler=lambda agent: compiled.get(agent.agent_id),
+                         content_genres=_content_genre_catalog(scenario_path, scenario),
+                         same_second_continuation=same_second_continuation)
+    return specs, input_warnings(scenario_path, scenario, compiled, specs)
+
+
+def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
+                   specs: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1、8.1）：逐人物按编号，再场景级。
+
+    人物：场景作息覆盖（CARD_FIELD_OVERRIDDEN / CARD_FIELD_CONFLICT）、口味与内容（按实际注入的口味权重）、游戏权重条目、
+    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译的一致性警告；场景：配送路线与地点显示名。
+    """
+    from worldmock.profile import injection
+    from worldmock.profile.coverage import validate_coverage
+
+    genres = _content_genre_catalog(scenario_path, scenario)
+    contents = tuple({"item_id": item.item_id, "genre": tuple(genres.get(item.item_id) or ())}
+                     for item in scenario.contents)
+    games = tuple(item.game_id for item in scenario.games)
+    targets = _coverage_targets(scenario_path, scenario)
+    weights = {spec["id"]: spec["profile"].get("taste_weights") for spec in specs}
+    warnings: list[dict[str, Any]] = []
+    for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
+        card, notes = _compiled_parts(compiled.get(agent.agent_id))
+        taste = weights.get(agent.agent_id)
+        warnings += injection.taste_warnings(agent.agent_id, card, contents, taste)
+        warnings += injection.game_weight_warnings(agent.agent_id, games, taste)
+        if card is not None:
+            warnings += injection.coverage_warnings(agent.agent_id, validate_coverage(card, targets))
+            warnings += apply_scenario_rhythm(card, agent).warnings
+        warnings += injection.agreement_warnings(agent.agent_id, notes)
+    return [*warnings, *injection.delivery_route_warnings(scenario), *injection.location_name_warnings(scenario)]
+
+
+def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario) -> Any:
+    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。"""
+    from worldmock.catalog.loader import load_catalog
+    from worldmock.life.semantics import resolve_catalog_dir
+    from worldmock.validation import build_coverage_targets
+
+    root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
+    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root)
 
 
 def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:
@@ -1076,9 +1163,12 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
     profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-persona-prompt.md「人设层」），
     并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
     docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容与游戏目录，经 compute_taste_weights
-    匹配；写入工作区档案随检查点原样携带）。恢复运行不重新编译也不重算——
+    匹配；写入工作区档案随检查点原样携带）。卡片先经场景作息覆盖（apply_scenario_rhythm，
+    docs/dev/SPEC-dayrun-fidelity.md 2.1：场景显式声明的作息字段优先），渲染文本与结构化字段都取覆盖后的卡片，
+    render_card 本身不变。恢复运行不重新编译也不重算——
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
-    persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 PersonaCard 或 None，不触发真实模型调用）。
+    persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 CompiledPersona、PersonaCard 或 None，
+    不触发真实模型调用）。
     """
     entries = _taste_entries(scenario, content_genres)
     specs = []
@@ -1086,8 +1176,10 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
         profile = agent.model_dump(mode="json")
         profile["id"] = agent.agent_id
         profile["same_second_continuation"] = same_second_continuation
-        card = persona_compiler(agent) if persona_compiler is not None else _compile_persona(agent)
+        compiled = persona_compiler(agent) if persona_compiler is not None else _compile_persona(agent)
+        card = _compiled_parts(compiled)[0]
         if card is not None:
+            card = apply_scenario_rhythm(card, agent).card
             profile["persona_card"] = _render_card(card)
             profile["persona_card_struct"] = persona_card_struct(card)
             profile["taste_weights"] = _card_taste_weights(card, entries)
@@ -1110,12 +1202,25 @@ def _render_card(card: Any) -> str:
 
 
 def _compile_persona(agent: Any) -> Any:
-    """@brief 场景 background_story -> 结构化 PersonaCard（真实调用走三次一致性抽取）。"""
+    """@brief 场景 background_story -> CompiledPersona（卡片与编译警告；真实调用走三次一致性抽取）。
+
+    编译警告（三次一致性低于 2/3 的字段）经输入警告 PERSONA_AGREEMENT_LOW 透传，不再丢弃。
+    """
     if agent.background_story is None:
         return None
     from worldmock.profile.compile import compile_persona
 
-    return compile_persona(agent.background_story).card
+    return compile_persona(agent.background_story)
+
+
+def _compiled_parts(result: Any) -> tuple[PersonaCard | None, tuple[str, ...]]:
+    """@brief 编译结果 → (卡片, 编译警告)：CompiledPersona 与带 card 的对象取其卡片与 warnings；
+    测试桩可直接给 PersonaCard（没有编译警告）或 None（没有背景故事）。"""
+    if result is None:
+        return None, ()
+    if isinstance(result, PersonaCard):
+        return result, ()
+    return result.card, tuple(getattr(result, "warnings", ()))
 
 
 def _taste_entries(scenario: RuntimeScenario,

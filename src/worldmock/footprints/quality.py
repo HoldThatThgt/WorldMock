@@ -18,6 +18,7 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
+from worldmock.profile.injection import INPUT_WARNING_CODES
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -46,7 +47,7 @@ _PRICING = {
 
 
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 汇总完成、异常、内容、效率、记忆、模型用量与实测加速比。
+    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比与运行输入警告。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -55,7 +56,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     """
     _validate_inputs(events, activities, manifest)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": manifest["run_id"],
         "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
         "event_range": {
@@ -77,6 +78,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
             [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events],
             manifest["window"]["timezone"],
         ),
+        "input_warnings": _input_warning_quality(manifest),
     }
 
 
@@ -839,6 +841,32 @@ def _acceleration(events: list[Event], manifest: dict) -> dict:
         "unavailable_reason": reason,
         "wall_seconds_by_run": {key: round(value / 1000, 3) for key, value in sorted(by_run.items())},
         "method": "Sum of maximum persisted wall_elapsed_ms for each represented run branch",
+    }
+
+
+def _input_warning_quality(manifest: dict) -> dict:
+    """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3）：按警告码闭集、按人物统计清单冻结的 input_warnings。
+
+    清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
+    只报告，不放行。
+    """
+    frozen = manifest.get("input_warnings")
+    method = "Warnings frozen into the run manifest input_warnings at run creation; reported, never gating"
+    if not isinstance(frozen, list):
+        return {"recorded": False, "warning_count": None, "code_counts": None, "unrecognized_code_counts": None,
+                "agent_counts": None, "scenario_warning_count": None, "method": method}
+    rows = [item for item in frozen if isinstance(item, dict)]
+    codes = Counter(str(item.get("code")) for item in rows)
+    agents = Counter(str(item["agent_id"]) for item in rows if item.get("agent_id") is not None)
+    return {
+        "recorded": True,
+        "warning_count": len(rows),
+        "code_counts": {code: codes[code] for code in INPUT_WARNING_CODES},
+        "unrecognized_code_counts": {code: count for code, count in sorted(codes.items())
+                                     if code not in INPUT_WARNING_CODES},
+        "agent_counts": dict(sorted(agents.items())),
+        "scenario_warning_count": sum(item.get("agent_id") is None for item in rows),
+        "method": method,
     }
 
 

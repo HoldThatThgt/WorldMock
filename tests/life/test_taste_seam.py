@@ -87,7 +87,7 @@ async def test_engine_open_restores_checkpoint_weights_without_recompute(tmp_pat
     sentinel = {scenario.contents[0].item_id: 0.123}  # 非可推导值：重算必失真
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run",
                                _run_identity(scenario, "taste-seam-restore"), None,
-                               {1: sentinel})
+                               {"agent_taste_weights": {1: sentinel}})
     engine.close()
     reopened = LifeEngine.open(_SCENARIO, tmp_path / "run")
     try:
@@ -103,7 +103,8 @@ async def test_life_env_open_existing_uses_checkpoint_weights(tmp_path) -> None:
     scenario, _ = load_scenario(_SCENARIO)
     sentinel = {scenario.contents[0].item_id: 0.123}
     seed = LifeEngine.create(_SCENARIO, tmp_path / "run",
-                             _run_identity(scenario, "taste-seam-open"), None, {1: sentinel})
+                             _run_identity(scenario, "taste-seam-open"), None,
+                             {"agent_taste_weights": {1: sentinel}})
     seed.close()
     env = LifeEnv(scenario_path=str(_SCENARIO), run_dir=str(tmp_path / "run"),
                   open_existing=True)
@@ -120,7 +121,8 @@ async def test_card_without_tastes_carries_all_zero_weights(tmp_path) -> None:
     scenario, _ = load_scenario(_SCENARIO)
     zeroed = {item.item_id: 0.0 for item in scenario.contents}
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run",
-                               _run_identity(scenario, "taste-seam-zero"), None, {1: zeroed})
+                               _run_identity(scenario, "taste-seam-zero"), None,
+                               {"agent_taste_weights": {1: zeroed}})
     try:
         assert engine.state.agents[1].taste_weights == zeroed
         assert set(engine.state.agents[1].taste_weights) == {
@@ -134,7 +136,8 @@ async def test_motivation_context_reads_non_empty_taste_weights(tmp_path) -> Non
     scenario, _ = load_scenario(_SCENARIO)
     weights = _weights(scenario)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run",
-                               _run_identity(scenario, "taste-seam-observe"), None, {1: weights})
+                               _run_identity(scenario, "taste-seam-observe"), None,
+                               {"agent_taste_weights": {1: weights}})
     try:
         profile = next(item.motivation for item in engine.scenario.agents
                        if item.agent_id == 1 and item.motivation is not None)
