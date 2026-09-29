@@ -17,6 +17,7 @@ from worldmock.categories import refresh_manifest_identity
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS
+from worldmock.life.map_models import MAP_SCHEMA_VERSION
 from worldmock.life.models import (
     ModelIdentity,
     RunIdentity,
@@ -237,7 +238,7 @@ def _replace_map_file(root: Path, scenario: dict, kind: str, rows: list[dict]) -
     shutil.copytree("corpora", corpus)
     relative = f"zhangjiang-map/{kind}.json"
     data_path = corpus / relative
-    _write_json(data_path, {"schema_version": 1, kind: rows})
+    _write_json(data_path, {"schema_version": MAP_SCHEMA_VERSION, kind: rows})
     dataset_path = corpus / scenario["map_dataset"]["path"]
     dataset = _read_json(dataset_path)
     dataset[f"{kind}_file"]["sha256"] = hashlib.sha256(data_path.read_bytes()).hexdigest()

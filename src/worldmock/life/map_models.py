@@ -12,6 +12,9 @@ from pydantic import Field, model_validator
 from worldmock.life.models import FrozenModel, TravelMode
 
 LOCATION_KINDS = frozenset({"home", "office", "outdoor", "fitness", "venue", "anywhere"})
+#: 地图文件结构版本：数据集声明与地点、供给、路线三个目录文件共用；2 起地点可带分店标签 branch_label。
+#: 旧版本直接拒绝，不保留兼容解析（docs/CONTRACTS.md「冻结地图与场景引用」）。
+MAP_SCHEMA_VERSION = 2
 
 
 def reject(message: str) -> None:
@@ -142,10 +145,15 @@ class BrandConfig(FrozenModel):
 
 
 class LocationConfig(FrozenModel):
-    """@brief 单一权威地点定义，明确区分菜单分类、业态与活动环境。"""
+    """@brief 单一权威地点定义，明确区分菜单分类、业态与活动环境。
+
+    branch_label 是可选的分店标签，用来区分同名地点：显示名为「名称（branch_label）」。场景选图后的运行时地点
+    已把它并入 name（map_data.select_map），给模型与导出的地点名一律是显示名。
+    """
 
     location_id: str = Field(pattern=r"\S")
     name: str = Field(pattern=r"\S")
+    branch_label: str | None = Field(default=None, pattern=r"\S")
     kind: str = Field(pattern=r"\S")
     business_kind: str = Field(pattern=r"\S")
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
@@ -168,6 +176,11 @@ class LocationConfig(FrozenModel):
         validate_names(self.required_qualifications, "Location qualifications")
         validate_declarations(self.opening_calendars, "Opening calendar")
         return self
+
+    @property
+    def display_name(self) -> str:
+        """@brief 显示名：有分店标签时为「名称（branch_label）」，否则就是名称。"""
+        return self.name if self.branch_label is None else f"{self.name}（{self.branch_label}）"
 
 
 class SupplyConfig(FrozenModel):
@@ -285,7 +298,7 @@ class SupplyReference(FrozenModel):
 class MapDatasetDeclaration(FrozenModel):
     """@brief 地图发布身份、区域、来源及三个冻结目录文件。"""
 
-    schema_version: Literal[1]
+    schema_version: Literal[MAP_SCHEMA_VERSION]
     dataset_id: str = Field(pattern=r"\S")
     version: int = Field(ge=1)
     coordinate_system: Literal["WGS84"]
