@@ -4,7 +4,8 @@
 收件人不存在、手边没有、不同处各有拒绝码，身边没有任何能给的人时工具层的给予动作标不可用、原因与拒绝一字不差；同世界
 人物不在身边也是去向（给予被拒、配送送到其所在地点）；订单只有一个收货人，送达只入收货人的持有（同世界人物的库存或
 联系人的 contact_holdings），付款人仍是下单的人；同一请求里同一商品可以分给两人，订单按（方式，收货地）拆分；自己收货
-后再给予只转移一次；与同世界人物同名的场景联系人没有收货地点。
+后再给予只转移一次；与同世界人物同名的场景联系人没有收货地点；远程下单送给别人却送不到时，收货地点不在配送范围与
+配送路线缺失各一句原因（docs/dev/SPEC-dayrun-fidelity.md 5.3）。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from tests.life.conftest import start_request, submit_round
 from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, DUPLICATE_CONTACT, DUPLICATE_TARGET, HOME, MARKET,
                                          OFFICE, PERSON_TARGET, act, food_product, holding_name, observe, open_world,
                                          place, routed, run_until, stage, supply_target)
+from tests.life.test_browse_and_hints import _block, _rescenario, _retarget
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, same_moment
 from worldmock.life.interaction_menu import GIVE_WAY, merged_selection
@@ -320,6 +322,54 @@ def test_direct_delivery_to_a_contact_who_cannot_receive_is_refused(engine_facto
     assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到沈昊那里")
     assert refused.data["next_step"] == "先送到自己这里，再当面给"
     assert _world(engine)[:4] == before[:4]
+
+
+def _remote_supply(engine) -> dict:
+    """@brief 本轮一个能远程下单的集市供给的私有绑定行（门店在集市）。"""
+    return next(row for row in observe(engine, "remote-supply")["interaction_bindings"] if row["kind"] == "supply"
+                and any(action["label"] == "远程下单" for action in row["actions"]))
+
+
+def _order_for_colleague(engine, name: str, target: str):
+    """@brief 远程下单一件商品送给同事联系人王磊（收货地点是办公室），返回结果。"""
+    return act(engine, name, routed((target, "obtain", "远程下单", None, COLLEAGUE_TARGET)))
+
+
+def test_remote_order_for_someone_outside_the_delivery_area_is_a_destination_refusal(engine_factory) -> None:
+    """王磊的收货地点（办公室）不在该供给的可配送目的地：以 ACTIVITY_PRECONDITION_UNMET（unmet=delivery_destination）拒绝，
+    原因「王磊那里不在这家店的配送范围内」（本人送达地的原因同一说法，「这里」换成收货人那里），不再是笼统的「暂时送不到
+    王磊那里」；下一步先送到自己这里再当面给，世界不变。"""
+    engine = open_world(engine_factory)
+    row = _remote_supply(engine)
+    _retarget(engine, row["object_id"], (HOME,))
+    before = _world(engine)
+    refused = _order_for_colleague(engine, "order-outside-area", row["object"])
+    assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
+        _UNMET, "王磊那里不在这家店的配送范围内", ["delivery_destination"])
+    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+    assert _world(engine)[:4] == before[:4]
+
+
+def test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal(engine_factory) -> None:
+    """王磊的收货地点在配送范围内，门店到办公室的驾车路线却不可达：unmet=delivery_route，原因「这家店到王磊那里没有能走的
+    配送路线」，与送达地不对的原因不同；下一步先送到自己这里再当面给，世界不变；路线恢复后同一请求照常成单。"""
+    engine = open_world(engine_factory)
+    row = _remote_supply(engine)
+    _retarget(engine, row["object_id"], (HOME, OFFICE))
+    routes = engine.scenario.routes
+    _block(engine, lambda route: (route.origin_id, route.destination_id, route.mode.value) == (MARKET, OFFICE,
+                                                                                            "driving"))
+    before = _world(engine)
+    refused = _order_for_colleague(engine, "order-without-route", row["object"])
+    assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
+        _UNMET, "这家店到王磊那里没有能走的配送路线", ["delivery_route"])
+    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+    assert _world(engine)[:4] == before[:4]
+    _rescenario(engine, routes=routes)
+    accepted = _order_for_colleague(engine, "order-with-route", row["object"])
+    assert accepted.status == "completed", (accepted.error_code, accepted.message)
+    assert [(order["recipient_id"], order["destination_id"]) for order in accepted.data["orders"]] == [
+        (COLLEAGUE, OFFICE)]
 
 
 def test_same_product_for_two_recipients_splits_orders_by_destination(engine_factory) -> None:
