@@ -155,6 +155,30 @@ def test_reviewer_acceptance_still_requires_the_excerpt_check() -> None:
     assert decision.accepted
 
 
+@pytest.mark.parametrize(("reference", "delivery", "accepted"), [
+    ("我们下周三之前", "我们下周三之前把报价单发过来", True),
+    ("我们下周三", "我们下周三之前把报价单发过来", False),
+    ("我们下周三之前", "我们下周三", False),
+], ids=["both-long-enough", "short-reference", "short-delivery"])
+def test_every_assessment_excerpt_is_checked_whatever_the_reviewer_decides(reference: str, delivery: str,
+                                                                           accepted: bool) -> None:
+    """评审模型判接受、逐项结论也都通过时，必需事实与交付项的摘录都要经本地核对：任一条只有 5 个汉字就拒绝，
+    该条的 source_excerpt 不回给人物；两条都至少 6 个汉字时接受。"""
+    submission = {"reference_ids": ["summary:0"], "delivery_paths": ["summary"]}
+    row = {"source_supported": True, "contradiction": False, "rationale": "summary ok"}
+    arguments = {"reference_assessments": [{**row, "reference_id": "summary:0", "required_fact_covered": True,
+                                            "source_excerpt": reference}],
+                 "delivery_assessments": [{**row, "delivery_path": "summary", "source_excerpt": delivery}],
+                 "accepted": True}
+    decision = parse_work_review(_raw(json.dumps(arguments, ensure_ascii=False)), _prepared(_SOURCE, submission))
+    assert decision.reported_accepted and decision.accepted is accepted
+    feedback = public_work_review(decision, _SOURCE)
+    assert feedback["accepted"] is accepted
+    shown = (feedback["required_fact_assessments"][0]["source_excerpt"],
+             feedback["delivery_assessments"][0]["source_excerpt"])
+    assert shown == tuple(None if text == "我们下周三" else text for text in (reference, delivery))
+
+
 @pytest.mark.parametrize(("number", "accepted", "total"), [
     (1, False, 18), (2, True, 17), (3, True, 17), (4, True, 17), (5, False, 19), (6, True, 18)],
     ids=[f"submission-{number}" for number in range(1, 7)])
