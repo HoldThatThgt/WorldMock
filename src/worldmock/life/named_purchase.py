@@ -14,8 +14,9 @@ docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5）。
   商品」），候选为出售它的门店的标签；
 - M2 = M1 ∩ 所写方式（方式为「购买」时跳过）：为空报 FULFILLMENT_NOT_SUPPORTED 并说明原因（如「只能远程下单」）；
 - M3 = M2 ∩ 此刻能服务（到店：人在店里；远程下单：能送到收货地；「购买」：人在出售它的店里就到店，否则能送到就远程下单）：
-  为空以 ACTIVITY_PRECONDITION_UNMET 说明要去哪里（从当前地点出发路线最短的出售门店）或哪家送不到哪里，并附此刻能服务的同名
-  候选；多于一个时按请求级 prefer 选定一家（purchase_offers.choose），所选写进 details.notes，商品购买不再以
+  为空以 ACTIVITY_PRECONDITION_UNMET 说明要去哪里（从当前地点出发路线最短的出售门店）或哪家送不到哪里（只有一家出售门店时
+  与非指名的远程下单同一说法，5.3：送给自己为「这里…」，送给别人为 order_routing.undeliverable 的「<名>那里…」），并附此刻
+  能服务的同名候选；多于一个时按请求级 prefer 选定一家（purchase_offers.choose），所选写进 details.notes，商品购买不再以
   SUPPLY_NAME_AMBIGUOUS 拒绝（3.5「收敛」第 5 条）。
 
 恰好选定一条时返回该供给按当前报价的绑定行（named 标记：购买时不查可见凭据，storefront_runtime），另带私有的 channel_id
@@ -34,9 +35,11 @@ from typing import TYPE_CHECKING
 from worldmock.errors import PreconditionError
 from worldmock.life.discovery import DiscoveryContext, supply_row
 from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, Candidate, ErrorItem
-from worldmock.life.guidance import Refusal, default_reason, items_refusal, refusal_for_code
+from worldmock.life.guidance import (DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal, default_reason,
+                                     items_refusal, refusal_for_code)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, binding_action
 from worldmock.life.name_resolution import rank, resolve_name
+from worldmock.life.order_routing import undeliverable
 from worldmock.life.purchase_offers import (DELIVERY_WAY, PICKUP_WAY, Offer, SourceScope, choose, near_sources,
                                             nearest_store, offers, order_key, serves, source_scope)
 from worldmock.life.readable import clock_phrase, money_phrase
@@ -66,7 +69,8 @@ class PurchaseAsk:
     :param destination_id: 收货地（收货人的收货地点）；没有时为 None（只能到店）。
     :param prefer: 请求级偏好 fastest 或 cheapest（null 已按 fastest 换好）。
     :param receiver: 收货地的可读说法（地点显示名，或「<收货人>那里」），只用于原因。
-    :param to_self: 收货人是不是自己（送给别人时送不到的下一步是先送到自己这里）。
+    :param recipient_id: 送给别人时收货人的身份（送不到时的原因与下一步按收货人写，order_routing.undeliverable）；送给
+        自己时为 None。
     """
 
     written: str
@@ -75,7 +79,7 @@ class PurchaseAsk:
     destination_id: str | None
     prefer: str = "fastest"
     receiver: str = "这里"
-    to_self: bool = True
+    recipient_id: str | None = None
 
 
 def resolve_named_supply(context: LayerContext, ask: PurchaseAsk) -> dict:
@@ -278,28 +282,42 @@ def _unsupported(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> Pre
 
 
 def _unserved(context: LayerContext, ask: PurchaseAsk, kept: Sequence, matches: Sequence) -> PreconditionError:
-    """@brief M3 为空：ACTIVITY_PRECONDITION_UNMET，说明要去哪里（从当前地点出发路线最短的出售门店）或哪家送不到哪里；
-    候选为此刻能服务的同名供给（到店的在前，其次预计送达早的）。"""
+    """@brief M3 为空：ACTIVITY_PRECONDITION_UNMET，说明要去哪里（从当前地点出发路线最短的出售门店）或哪家送不到哪里
+    （只有一家出售门店时与非指名的远程下单同一说法，_undeliverable）；候选为此刻能服务的同名供给（到店的在前，其次预计
+    送达早的）。"""
     places = {item.location_id: item.name for item in context.scenario.locations}
     origin = context.state.agents[context.agent_id].location_id
     nearest = nearest_store(context, (supply.location_id for supply in kept))
     store_step = go_step(context.scenario.routes, places, origin, nearest, UNREACHABLE_STORE_STEP)
     gap = _delivery_gap(context, ask, kept)
+    several = len({supply.location_id for supply in kept}) > 1
     if ask.way == PICKUP_WAY:
-        several = len({supply.location_id for supply in kept}) > 1
         reason = (f"要人在出售它的门店里才能到店买，最近的是{places[nearest]}" if several
                   else f"要人在{places[nearest]}才能到店买")
         step, unmet = store_step, ("required_location_id",)
+    elif ask.way == DELIVERY_WAY and not several:
+        reason, step, unmet = _undeliverable(context, ask, kept[0])
     elif ask.way == DELIVERY_WAY:
-        stores = {supply.location_id for supply in kept}
-        reason = (f"{places[nearest]}送不到{ask.receiver}" if len(stores) == 1
-                  else f"出售它的门店都送不到{ask.receiver}")
+        reason = f"出售它的门店都送不到{ask.receiver}"
         step, unmet = _delivery_next_step(context, ask, kept, nearest), (gap,)
     else:
         reason = f"不在出售它的门店里，也送不到{ask.receiver}"
         step, unmet = store_step, ("required_location_id", gap)
     return _refusal(_UNMET, _Item("targets", ask.written, _served_specs(context, ask, matches)), reason,
                     step, unmet)
+
+
+def _undeliverable(context: LayerContext, ask: PurchaseAsk, supply) -> tuple[str, str, tuple[str, ...]]:
+    """@brief 只有一家出售门店、远程下单却送不到收货地时的（原因，下一步，未满足条件），与非指名的远程下单同一说法
+    （docs/dev/SPEC-dayrun-fidelity.md 5.3）：送给自己时为「这里不在这家店的配送范围内」（delivery_destination）或「这家店
+    到这里没有能走的配送路线」（delivery_route），下一步只指向那家店能送达、且从此地可达的地点；送给别人时把解析出的供给
+    交给 order_routing.undeliverable，「这里」换成收货人那里，下一步先送到自己这里再当面给。"""
+    if ask.recipient_id is not None:
+        error = undeliverable(context.state, context.scenario, context.agent_id, ask.recipient_id, supply)
+        return error.public_reason, error.suggested["next_step"], tuple(error.unmet)
+    gap = _delivery_gap(context, ask, (supply,))
+    reason = DELIVERY_ROUTE_REASON if gap == "delivery_route" else DELIVERY_DESTINATION_REASON
+    return reason, _delivery_next_step(context, ask, (supply,), supply.location_id), (gap,)
 
 
 def _delivery_gap(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> str:
@@ -316,7 +334,7 @@ def _delivery_gap(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> st
 def _delivery_next_step(context: LayerContext, ask: PurchaseAsk, kept: Sequence, nearest: str) -> str:
     """@brief 远程下单送不到时的下一步：送给自己时只指向那家店能送达、且从此地可达的地点（wayfinding.delivery_step）；送给
     别人时先送到自己这里再当面给。"""
-    if not ask.to_self:
+    if ask.recipient_id is not None:
         return "先送到自己这里，再当面给"
     supply = next(item for item in kept if item.location_id == nearest)
     places = {item.location_id: item.name for item in context.scenario.locations}

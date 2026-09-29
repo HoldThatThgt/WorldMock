@@ -87,11 +87,12 @@ def test_wc_named_purchase_requests_are_accepted_in_an_offline_replay(engine_fac
                                         for index in (1, 2)]
 
 
-def test_goods_that_cannot_reach_the_receiving_place_name_the_store_and_where_it_delivers(
+def test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store_delivers(
         engine_factory, wc_world) -> None:
-    """分段匹配的 M3 为空（3.2（c）第 4 步）：人在办公室时番茄只送到家，远程下单以 ACTIVITY_PRECONDITION_UNMET 拒绝，原因写哪家
-    送不到哪里（unmet 为 delivery_destination），下一步只指向那家店能送达、且从此地可达的家；方式为「购买」时两者都不行，下一步
-    写出售它的门店（「收敛」第 2 条）。没有别处能送到的同名商品，候选为空；不下单。"""
+    """分段匹配的 M3 为空（3.2（c）第 4 步）：人在办公室时番茄只送到家，远程下单以 ACTIVITY_PRECONDITION_UNMET 拒绝；只有
+    一家出售门店，原因与非指名的远程下单同一说法（5.3）「这里不在这家店的配送范围内」（unmet 为 delivery_destination），
+    下一步只指向那家店能送达、且从此地可达的家；方式为「购买」时两者都不行，下一步写出售它的门店（「收敛」第 2 条）。没有
+    别处能送到的同名商品，候选为空；不下单。"""
     request = _FIXTURE["requests"][0]
     engine = _engine(engine_factory, wc_world, request["occurred_at"], "office")
     store, office = _FIXTURE["store"]["name"], next(item.name for item in engine.scenario.locations
@@ -102,7 +103,8 @@ def test_goods_that_cannot_reach_the_receiving_place_name_the_store_and_where_it
               "to": ["自己"], "prefer": None}
     _, error, refused = decide(engine, "wc-office-remote", remote)
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
-    assert refused.data["reason"] == f"「番茄」：{store}送不到{office}"
+    assert (refused.data["reason"], refused.data["unmet"]) == ("「番茄」：这里不在这家店的配送范围内",
+                                                           ["delivery_destination"])
     assert refused.data["next_step"] == f"去{home}再下单"
     [item] = refused.data["items"]
     assert (item["field"], item["written"], item["candidates"]) == ("targets", "番茄", [])

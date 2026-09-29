@@ -205,7 +205,8 @@ class SessionActionMixin:
             raise order_routing.undeliverable(context.state, self.scenario, context.agent_id, row["recipient_id"])
         receiver = (self._place_names[destination] if destination is not None
                     else f"{person_name(context.state, self.scenario, context.agent_id, row['recipient_id'])}那里")
-        ask = PurchaseAsk(row["object"], way, row["from"], destination, prefer, receiver, bool(row["to_self"]))
+        ask = PurchaseAsk(row["object"], way, row["from"], destination, prefer, receiver,
+                          None if row["to_self"] else row["recipient_id"])
         return {**resolve_named_supply(context, ask), **{key: row[key] for key in routing.ROUTE_KEYS}}
 
     def _start_parallel_actions(self, state: WorldState, pending: PendingAction, bindings: list[dict]

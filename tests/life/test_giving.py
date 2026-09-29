@@ -373,6 +373,33 @@ def test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal(en
         (COLLEAGUE, OFFICE)]
 
 
+@pytest.mark.parametrize(("destinations", "blocked", "unmet", "reason"), [
+    ((HOME,), False, "delivery_destination", "王磊那里不在这家店的配送范围内"),
+    ((HOME, OFFICE), True, "delivery_route", "这家店到王磊那里没有能走的配送路线")], ids=["destination", "route"])
+def test_named_remote_order_for_someone_it_cannot_reach_says_why_like_a_listed_one(
+        engine_factory, destinations, blocked, unmet, reason) -> None:
+    """指名购买（商品名配门店名，本轮没有列出）远程下单送给王磊，这家店却送不到他的收货地点（办公室）：分段匹配 M3 以
+    ACTIVITY_PRECONDITION_UNMET 拒绝，原因与列出的供给送给别人同一说法（解析出的供给交给 order_routing.undeliverable，
+    docs/dev/SPEC-dayrun-fidelity.md 3.2、5.3）：不在配送范围为 delivery_destination，路线缺失为 delivery_route；下一步先送到
+    自己这里再当面给，逐项明细的候选不含这家店，世界不变。"""
+    engine = open_world(engine_factory)
+    row = _remote_supply(engine)
+    store, product = row["object"].split("出售的", 1)
+    _retarget(engine, row["object_id"], destinations)
+    if blocked:
+        _block(engine, lambda route: (route.origin_id, route.destination_id, route.mode.value) == (
+            MARKET, OFFICE, "driving"))
+    before = _world(engine)
+    refused = act(engine, f"named-{unmet}", routed((product, "obtain", "远程下单", store, COLLEAGUE_TARGET)))
+    assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
+        _UNMET, f"「{product}」：{reason}", [unmet])
+    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+    [item] = refused.data["items"]
+    assert (item["field"], item["written"]) == ("targets", product)
+    assert row["object"] not in [candidate["target"] for candidate in item["candidates"]]
+    assert _world(engine)[:4] == before[:4]
+
+
 def test_same_product_for_two_recipients_splits_orders_by_destination(engine_factory) -> None:
     """同一请求里同一商品分给自己与联系人（收货地不同）拆成两笔整单；分给自己与同处的人（收货地相同）是一笔整单里
     的两个订单（去重键为供给与收货人）；各自只入自己的收货人。"""
