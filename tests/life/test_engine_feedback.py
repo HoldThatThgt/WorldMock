@@ -146,7 +146,9 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     shown = call["result"]
     assert shown["error_code"] == "ACTION_REQUEST_INVALID" and shown["status"] == "rejected"
     assert shown["details"] == {"reason": "所选的对象或方式不在这一轮列出的范围内",
-                                "next_step": "从本轮列出的对象和方式里选"}
+                                "next_step": "从本轮列出的对象和方式里选",
+                                "fix": "照工具层列出的名称、动词与方式重填这个请求"}
+    assert shown["message"] == shown["details"]["reason"]
     assert call["arguments"]["targets"] == ["不存在的对象"]
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == "wait")

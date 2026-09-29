@@ -769,12 +769,14 @@ def test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_lengt
 
 def test_malformed_request_gets_the_default_reason_without_the_validation_text(engine_factory) -> None:
     """绕过构造期校验的请求以 ACTION_REQUEST_INVALID 拒绝，公开原因取该码的默认说法，不把请求模型的校验转储（其中含
-    所填的中文）当作原因；原因只取引导性拒绝写明的那一句（第五章「动作照常列出，做错了再说明」）。"""
+    所填的中文）当作原因；原因只取引导性拒绝写明的那一句（第五章「动作照常列出，做错了再说明」）；结果 message 就是这句
+    原因，也不再拼接英文码与校验转储（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
     engine = _engine(engine_factory)
     malformed = StartActivityRequest.model_construct(targets="自己", actions=["interact"], ways=["等待"])
     result = _act(engine, "malformed", "start_activity", malformed)
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
-    assert "validation" in result.message and "自己" in result.message
+    assert result.message == result.data["reason"]
+    assert not any(text in result.message for text in ("validation", "Action rejected", "ACTION_REQUEST_INVALID"))
     assert result.data["reason"] == "所选的对象或方式不在这一轮列出的范围内"
     assert result.data["next_step"] == "从本轮列出的对象和方式里选"
     shown = last_result(_observe(engine, "malformed-shown"))["details"]

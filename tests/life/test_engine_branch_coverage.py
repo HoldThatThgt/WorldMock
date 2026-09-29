@@ -1336,7 +1336,7 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     assert result.status.value == "rejected"
     assert result.error_code == "WORK_REQUIRES_REWORK"
     assert "work_review" in result.data
-    assert result.message == "Work submission requires rework: WORK_REQUIRES_REWORK"
+    assert result.message == result.data["reason"] == "提交的成果还需要返工"
     assert result.data["same_moment_round"] == limit
     assert result.data["max_same_moment_decisions"] == limit
     assert result.data["next_decision_at"] == engine.state.current_time

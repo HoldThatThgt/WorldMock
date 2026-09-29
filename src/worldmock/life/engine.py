@@ -979,7 +979,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
-        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。"""
+        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。结果 message 就是
+        公开原因 reason，data 带 reason、fix、next_step 与逐项明细（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
         agent = same_moment.count_round(state.agents[pending.agent_id])
         next_decision_at, reasons, stage = self._round_schedule(state, agent, str(error))
         pulse_key = same_moment.refusal_pulse_key(str(error))
@@ -992,13 +993,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                                   "same_moment_stage": stage,
                                                   "body": body}, deep=True)
         changed = _put_agent_and_defer_game_turn(state, changed_agent)
-        message = "Action rejected: " + rejection_reason_text(error)
+        logging.info("Action rejected: %s", rejection_reason_text(error))
+        guidance = rejection_guidance(error)
+        message = guidance["reason"]
         data = {"same_moment_round": changed_agent.same_moment_rounds,
                 "max_same_moment_decisions": self.scenario.max_same_moment_decisions,
-                "next_decision_at": next_decision_at, **rejection_guidance(error)}
+                "next_decision_at": next_decision_at, **guidance}
         if str(error) == "WORK_REQUIRES_REWORK":
             data["work_review"] = self._public_work_review(pending)
-            message = f"Work submission requires rework: {rejection_reason_text(error)}"
         if isinstance(error, PreconditionError):
             data["unmet"] = error.unmet
             if error.suggested is not None:
