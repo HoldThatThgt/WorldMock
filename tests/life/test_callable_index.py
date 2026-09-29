@@ -2,7 +2,8 @@
 「索引名称都可按名调用」）。
 
 全部经真实 LifeEngine、SQLite 与 LifeAgent：索引里的每个名称（全部生活活动名称、内容与商品各品类的示例名）都能按名调用——
-各在一份已提交状态的独立副本上单独提交，宿主本地校验放行，经宿主派发交给环境后被受理并落到同名对象；索引只含此地此刻可做的
+各在一份已提交状态的独立副本上单独提交，宿主本地校验放行，经宿主派发交给环境后被受理并落到同名对象（商品名有几家门店都能
+送到时按请求级 prefer 的缺省选预计送达最早的一家，3.5）；索引只含此地此刻可做的
 生活活动（地点类不符的不在其中，与生活活动窗口资格段保留的条目逐项相同），内容与商品只给品类计数与至多 3 个示例名；商品取
 此刻从这里能得到的（门店开着、有货、能送到这里或人就在店里）；有效菜单不许的动作使对应部分为空；索引不是目标，不计入单次
 呈现上限、不写呈现留痕。容量计数含索引见 tests/integration/test_seven_layer_request.py，Schema 见 test_prompt_layers.py。
@@ -22,6 +23,7 @@ from tests.life.conftest import advance_next, context, drive, stage_day_plan, st
 from tests.life.test_presentation_fidelity import _allowed, _hashed, _stage
 from tests.life.test_tool_layer import _branch, _host, _without_routes
 from worldmock.footprints.models import EventDraft
+from worldmock.life.basket import delivery_expected_at
 from worldmock.life.callable_index import MAX_EXAMPLES, obtainable_here
 from worldmock.life.candidates import tiebreak_digest
 from worldmock.life.discovery import DiscoveryContext
@@ -130,9 +132,35 @@ def _assert_every_name_is_called(engine: LifeEngine, tmp_path, monkeypatch, labe
         elif section == "contents":
             assert titles[target] == name
         else:
-            [purchase] = [row for row in result.data["resolved"] if row["written"] == name]
-            assert purchase["as"].endswith(f"出售的{name}"), purchase
+            _assert_goods_choice(engine, result, name, call[3])
     return len(calls)
+
+
+def _assert_goods_choice(engine: LifeEngine, result, name: str, way: str) -> None:
+    """商品名按名取得落到出售这个商品的门店（details.resolved 写 {written: 名称, as: <门店>出售的<名称>}，与订单的门店
+    一致）：到店落在人所在的这家店；远程下单落在能送到这里的供给中预计送达最早的一家（请求级 prefer 为空按最快，
+    docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条），几家都能送到时 details.notes 写明按最快选了哪家，只有一家时
+    不写；同名多家不以 SUPPLY_NAME_AMBIGUOUS 拒绝。"""
+    [purchase] = [row for row in result.data["resolved"] if row["written"] == name]
+    [order] = result.data["orders"]
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    assert purchase["as"] == f"{places[order['location_id']]}出售的{name}", (purchase, order)
+    notes = [note for note in result.data.get("notes", []) if note.startswith(f"「{name}」")]
+    here, now = engine.state.agents[1].location_id, engine.state.current_time
+    if way == "到店":
+        assert (order["location_id"], order["fulfillment"], notes) == (here, "pickup", []), order
+        return
+    products = _products(engine)
+    expected = {supply.supply_id: delivery_expected_at(engine.semantics, supply, here, now)
+                for supply in engine.scenario.supplies
+                if products[supply.product_id].name == name and "delivery" in supply.fulfillment_modes}
+    served = {supply_id: moment for supply_id, moment in expected.items() if moment is not None}
+    assert order["supply_id"] in served and order["expected_at"] == min(served.values()), (order, served)
+    if len(served) > 1:
+        [note] = notes
+        assert note.startswith(f"「{name}」有 {len(served)} 处都能远程下单，按最快选了{purchase['as']}（预计 "), note
+    else:
+        assert notes == [], notes
 
 
 def test_every_name_in_the_index_is_callable_by_name_and_accepted(engine_factory, tmp_path, monkeypatch) -> None:
@@ -160,6 +188,24 @@ def test_goods_named_in_a_store_are_bought_in_store(engine_factory, tmp_path, mo
     assert all(_purchase_way(engine, name) == "到店" for row in index["goods"] for name in row["examples"])
     called = _assert_every_name_is_called(engine, tmp_path, monkeypatch, "store", ("goods",), 1)
     assert called == len(index["goods"]) == 13
+
+
+def test_a_name_several_stores_deliver_is_called_by_name_and_chosen_by_prefer(engine_factory, tmp_path,
+                                                                              monkeypatch) -> None:
+    """同一商品名有几家门店都能送到（12:30 在家，集市到家的配送路线断了之后，索引的商品只剩另两家门店送得到的纯牛奶）：
+    这个示例名按名调用照样被宿主放行、环境受理，不以 SUPPLY_NAME_AMBIGUOUS 拒绝；请求级 prefer 为空按最快，落到预计送达
+    最早的那家，details.notes 写明按最快选了它（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _at(engine, 12, "home")
+    _without_routes(engine, _MARKET, "home")
+    _, index = _index(engine, "several-stores")
+    assert [name for row in index["goods"] for name in row["examples"]] == ["纯牛奶"]
+    products, now = _products(engine), engine.state.current_time
+    stores = {supply.location_id for supply in engine.scenario.supplies if products[supply.product_id].name == "纯牛奶"
+              and delivery_expected_at(engine.semantics, supply, "home", now) is not None}
+    assert len(stores) == 2
+    assert _assert_every_name_is_called(engine, tmp_path, monkeypatch, "several-stores", ("goods",)) == 1
 
 
 def test_every_index_name_resolves_by_name_in_the_host_at_several_places(engine_factory) -> None:
