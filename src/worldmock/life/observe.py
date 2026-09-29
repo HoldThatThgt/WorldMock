@@ -13,8 +13,8 @@ from dataclasses import replace
 from typing import Any
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import (activity_control, discovery, felt, memory_layer, named_catalog, presentation,
-                            progress_layer, projection, relevance, request_linking)
+from worldmock.life import (activity_control, callable_index, discovery, felt, memory_layer, named_catalog,
+                            presentation, progress_layer, projection, relevance, request_linking)
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
@@ -38,6 +38,8 @@ class ObservationMixin:
 
         商品呈现经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，同一秒各轮沿用该秒首轮的
         呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/dev/SPEC-persona-prompt.md「进度层」）。
+        工具层另附只列名称的可调用索引（callable_index：内容、游戏与生活活动窗口资格段保留的全部条目，此刻从这里能得到的
+        商品，docs/dev/SPEC-dayrun-fidelity.md 5.2）：它不是候选条目，不计入单次呈现上限，也不写呈现留痕。
         """
         config = self._agent_config(agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
@@ -63,7 +65,8 @@ class ObservationMixin:
         data.update(named_catalog.name_bindings(context, self._enabled_lifestyle_items(agent), config.home_location_id))
         memory = memory_layer.memory_view(context, self.store)
         data.update(self._name_bindings(agent, task_rows, context.names, memory.note_labels))
-        data.update(self._layer_data(context, data["body"]["levels"], memory))
+        index = callable_index.callable_index(context, callable_index.index_sources(menu))
+        data.update(self._layer_data(context, data["body"]["levels"], memory, index))
         data.update(self._observation_evidence(agent, experiences))
         data.update(self._event_tool_support(agent, rows["window"].presented))
         return data
@@ -80,14 +83,16 @@ class ObservationMixin:
             lifestyle_items=self.lifestyle_items)
         return with_bindings(context, annotated_bindings(context))
 
-    def _layer_data(self, context: LayerContext, levels: dict[str, str], memory: memory_layer.MemoryView) -> dict:
-        """@brief 环境侧构建的层数据与私有配套：记忆层（memory，由已提交事件派生）与看法偏好，全文已呈现的消息含进度层与
-        记忆层两处；answering 可关联的直接消息（message_bindings）只含进度层 message_arrival 与记忆层中未回复的，按收到先后。"""
+    def _layer_data(self, context: LayerContext, levels: dict[str, str], memory: memory_layer.MemoryView,
+                    index: dict) -> dict:
+        """@brief 环境侧构建的层数据与私有配套：工具层（附只列名称的可调用索引 index）、记忆层（memory，由已提交事件派生）
+        与看法偏好，全文已呈现的消息含进度层与记忆层两处；answering 可关联的直接消息（message_bindings）只含进度层
+        message_arrival 与记忆层中未回复的，按收到先后。"""
         view = progress_layer.progress_view(context, self.store, memory.facts)
         presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
         answerable = [*memory.open_message_ids, *view.presented_message_ids]
         return {"message_bindings": request_linking.message_bindings(context, self.store, answerable),
-                "tool_layer": tool_layer(context), "todo_layer": todo_layer(context, self.store),
+                "tool_layer": tool_layer(context, index), "todo_layer": todo_layer(context, self.store),
                 "environment_layer": environment_layer(context, levels),
                 "memory_layer": memory.layer, "persona_views": memory_layer.persona_views(context, self.store),
                 "progress_layer": view.layer, "progress_meta": view.meta,
@@ -197,7 +202,8 @@ class ObservationMixin:
         「曝光轮转」）。生活活动窗口按人物当前地点与此刻取候选：地点类不符的条目不进窗口，排除项记
         ELIGIBILITY_LOCATION_KIND_MISMATCH（世界事实，不是软偏好；docs/dev/SPEC-dayrun-fidelity.md 5.1）。
         各分区的排序带相关度（此刻、当日目标与习惯签名），轮转各按本分区对象的上次呈现时刻。
-        旧的目录下钻工具已随工具面收敛删除，因此窗口是模型看到这三类对象的唯一通道。
+        旧的目录下钻工具已随工具面收敛删除，因此窗口是这三类对象成为工具层目标的唯一通道；工具层的可调用索引只列名称，
+        取同一窗口资格段保留的全部条目（presented 与 deferred，life.callable_index），不是另一条呈现链路。
         """
         context = self._presentation_context(agent)
         last = self._last_presented(agent.agent_id)

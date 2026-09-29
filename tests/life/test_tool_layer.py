@@ -320,7 +320,21 @@ def test_tool_layer_fails_closed_when_an_activity_takes_a_target_name(engine_fac
     assert activity_name(engine, waiting) in tool_targets(observed)
     clashing = {**layer_context.names, "activities": {**layer_context.names["activities"], waiting: "自己"}}
     with pytest.raises(IntegrityError, match="Tool layer target names must be unique"):
-        tool_layer(replace(layer_context, names=clashing))
+        tool_layer(replace(layer_context, names=clashing), observed["tool_layer"]["callable_index"])
+
+
+def test_tool_layer_carries_the_callable_index_beside_the_targets(engine_factory) -> None:
+    """工具层 JSON 依次是 layer、targets 与只列名称的可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2）：
+    观察里的索引就是工具层附上的那一份，目标照旧；索引不是目标，不参与目标名称的唯一性判定——索引里写上与目标同名的
+    名称，工具层也不失败关闭。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    observed = engine.observe(context(engine, "index-beside"))
+    assert list(observed["tool_layer"]) == ["layer", "targets", "callable_index"]
+    layer_context = engine._layer_context(engine.state.agents[1], (), observed["interaction_bindings"])
+    clashing = {"lifestyle": list(tool_targets(observed)), "contents": [], "goods": []}
+    layer = tool_layer(layer_context, clashing)
+    assert layer["callable_index"] is clashing and layer["targets"] == observed["tool_layer"]["targets"]
 
 
 def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_path, monkeypatch) -> None:

@@ -305,7 +305,8 @@ def test_activity_targets_carry_only_readable_objective_progress() -> None:
     paused = _activity("paused", "阅读邮件", kind=ActivityKind.READ_MAIL, status=ActivityStatus.PAUSED,
                        started_at=_START + 3, elapsed=300, planned=900, paused_at=_START + 300)
     state = _world([work, waiting, ended, paused], now=_START + 7200)
-    targets = {row["name"]: row for row in tool_layer(_layer_context(state))["targets"]}
+    index = {"lifestyle": [], "contents": [], "goods": []}
+    targets = {row["name"]: row for row in tool_layer(_layer_context(state), index)["targets"]}
     assert set(targets) == {work.name, waiting.name, ended.name}
     assert targets[work.name] == {"name": work.name, "kind": "activity", "phase": "进行中",
                                   "state": "已做约 2 小时，有效约 1.5 小时，还剩约 1 小时", "actions": [],

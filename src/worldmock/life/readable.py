@@ -1,4 +1,4 @@
-"""@brief 七层提示共用的人读短语与中文种类表：带时区的时刻、本地日期、钟点、时长、金额与份数。
+"""@brief 七层提示共用的人读短语与中文种类表：带时区的时刻、本地日期、钟点、时长、金额、份数与个数。
 
 依据 docs/dev/SPEC-persona-prompt.md 第一章「通用格式」：时刻字段用带时区的 ISO 8601（秒精度、场景时区）；
 短语里的时刻用场景本地 HH:MM，跨日时加「M月D日」；数量、价格与时长写成人读短语（「约 12 分钟」「32 元」
@@ -85,3 +85,8 @@ def money_phrase(fen: int) -> str:
 def portion_phrase(quantity: float) -> str:
     """@brief 份数写成「1 份」「0.25 份」。"""
     return f"{_decimal(quantity)} 份"
+
+
+def count_phrase(count: int) -> str:
+    """@brief 个数写成「90 个」（工具层可调用索引的品类计数，docs/dev/SPEC-dayrun-fidelity.md 5.2）。"""
+    return f"{count} 个"

@@ -4,6 +4,7 @@
 工具都带 available 与 reason：reason 由 refusal_for 按环境受理的同一顺序判定（菜单→决策到期→同刻阶段→待收尾→名额与出发前
 →准入组→对象自身条件；名称工具为阶段→待收尾→控制或驾车→提交或收件人条件），取拒绝时的原文，所以提示与拒绝一字不差；
 列出即可提交，不可用的由环境以同一原因业务拒绝。受理路径不调用本模块，而是共用这里调用的各个判定函数。
+层里另附只列名称的可调用索引 callable_index（由 life.callable_index 构建）：它不是目标，不带动作与可用性。
 """
 
 from __future__ import annotations
@@ -351,15 +352,17 @@ def annotated_bindings(context: LayerContext) -> list[dict]:
     return result
 
 
-def tool_layer(context: LayerContext) -> dict:
-    """@brief 工具层 JSON：绑定目标（按绑定顺序）之后是进行中与刚结束的活动目标；名称全局唯一。"""
+def tool_layer(context: LayerContext, index: dict[str, Any]) -> dict:
+    """@brief 工具层 JSON：绑定目标（按绑定顺序）之后是进行中与刚结束的活动目标，名称全局唯一；另附只列名称的可调用索引
+    callable_index（life.callable_index 按本轮呈现窗口构建，docs/dev/SPEC-dayrun-fidelity.md 5.2）：它不是目标，不带
+    动作与条件，不参与目标名称的唯一性判定。"""
     targets = [_binding_target(context, row) for row in context.bindings]
     targets.extend(_activity_target(context, activity) for activity in _activity_rows(context))
     names = [target["name"] for target in targets]
     if len(names) != len(set(names)):
         logging.error("Tool layer target names are ambiguous")
         raise IntegrityError("Tool layer target names must be unique")
-    return {"layer": "工具层", "targets": targets}
+    return {"layer": "工具层", "targets": targets, "callable_index": index}
 
 
 def _binding_target(context: LayerContext, row: dict) -> dict:
