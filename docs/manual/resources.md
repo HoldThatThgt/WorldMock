@@ -95,12 +95,13 @@ PY
 
 地图主文件声明身份、版本、坐标系、时区、边界和三个子文件的路径与哈希。
 现有完整模板见[地图声明](../../corpora/zhangjiang-map/dataset.json)和[地点文件](../../corpora/zhangjiang-map/locations.json)。
-地点文件的顶层必须是 `{"schema_version": 1, "locations": [...]}`。
+地点文件的顶层必须是 `{"schema_version": 2, "locations": [...]}`；地图声明与三个子文件都用结构版本 2，结构 1 的地图直接拒绝。
 
 | 地点字段 | 必填与取值 | 含义和关联 |
 | --- | --- | --- |
-| `location_id`、`name` | 必填非空字符串；身份唯一 | 场景、路线、供给、人物住处和任务地点用这个身份关联 |
-| `kind` | 必填字符串 | 对应场景 `interaction_menus_by_location_kind` 的键；新增分类要同步菜单 |
+| `location_id`、`name` | 必填非空字符串；身份唯一 | 场景、路线、供给、人物住处和任务地点用这个身份关联；`name` 是人物看到并照抄的名称 |
+| `branch_label` | 可选非空字符串，缺省 `null` | 分店标签：显示名为「名称（branch_label）」，提示、事件与导出都用显示名；所选地点的显示名必须互不相同，同名地点靠它区分 |
+| `kind` | 必填，只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一 | 对应场景 `interaction_menus_by_location_kind` 的键，也是人物看到的场所类型（家、办公室、商户、餐馆、便利店、超市、菜市场、健身房、公园）；场景选中的地点用了其他值即加载拒绝；改类别要同步菜单 |
 | `business_kind` | 必填字符串 | 地点业态说明，与活动环境不同 |
 | `longitude`、`latitude` | 必填有限数值，WGS84 经度/纬度 | 还必须落在地图 `bounds` 内 |
 | `location_kinds` | 必填非空列表，无重复 | 只允许 `home`、`office`、`outdoor`、`fitness`、`venue`；地点不能写 `anywhere` |
@@ -109,6 +110,10 @@ PY
 | `brand` | 必填，可为 `null` | 有可靠品牌身份时才填 `brand_id`、`name`、`source` |
 | `source` | 必填来源对象 | 区分事实和实验假设，见下文 |
 | `affordances` | 必填对象 | 保留现有住所、办公室等世界素材要求；任意新增键不会自动创造运行能力 |
+
+显示名要写人物会说的店名或地名；同名分店用 `branch_label` 区分，例如「全家（东昌路店）」，不要把坐标或内部标识写进名称。
+显示名（连同分店标签）带坐标（如「31.2, 121.5」）或标识形态（如「sim-01」「poi-node-1」）时，
+新建运行与 `worldmock validate` 报输入警告 `LOCATION_NAME_SUSPICIOUS`，场景照常加载。
 
 营业日历中 `weekly` 必须包含字符串键 `"0"` 至 `"6"`，依次对应周一至周日。
 每日区间用当地零点起算的**分钟数**：`540` 是 09:00，`1320` 是 22:00。
@@ -176,7 +181,7 @@ uv run python scripts/prepare_map.py \
 同一商品可以出现在多家门店；各门店的价格和库存由各自的 `supply_id` 区分。
 商品对象不能内嵌价格、商家或库存。
 
-供给文件顶层是 `{"schema_version": 1, "supplies": [...]}`，完整模板见[门店供给](../../corpora/zhangjiang-map/supplies.json)。
+供给文件顶层是 `{"schema_version": 2, "supplies": [...]}`，完整模板见[门店供给](../../corpora/zhangjiang-map/supplies.json)。
 
 | 供给字段 | 必填与约束 |
 | --- | --- |
@@ -185,9 +190,12 @@ uv run python scripts/prepare_map.py \
 | `quotes` | 必填报价列表；每条有唯一 `price_version`、正整数 `price_fen` 及完整有效期和来源 |
 | `initial_stock` | 非负整数；场景同名字段可覆盖这次运行的初值 |
 | `fulfillment_modes` | 非空列表，只允许 `pickup`、`delivery`，不能重复 |
-| `delivery_destination_ids` | 支持配送时必须非空；不支持配送时必须为空；所有目的地都要选入场景 |
-| `delivery_delay_seconds` | 非负整数秒；是备货时长。人物看到的是人读送达时刻（例如「约 13 小时后送达，明天 11:16」），按整单最慢备货加出发时刻的驾车规划时长求得，与实际送达一致；送达地不在可配送目的地或配送路线未知、不可达时写「暂时送不到这里」 |
+| `delivery_destination_ids` | 支持配送时必须非空；不支持配送时必须为空；所有目的地都要选入场景；门店到每个目的地还要有一条 `reachable` 的驾车路线（门店就是目的地时不需要），缺了只报输入警告 `DELIVERY_ROUTE_UNAVAILABLE`，那个目的地实际送不到 |
+| `delivery_delay_seconds` | 非负整数秒；是备货时长。人物看到的是人读送达时刻（例如「预计 11:16 送到」，不是当天时写「预计 1月6日 11:16 送到」），按整单最慢备货加出发时刻的驾车规划时长求得，与实际送达一致；送不到时远程下单标为不可用，下单也被拒，原因分两句：送达地不在可配送目的地写「这里不在这家店的配送范围内」，配送路线缺失、不可达或未知写「这家店到这里没有能走的配送路线」，下一步只指向能送达、且从此地去得了的地点 |
 | `required_qualifications`、`source` | 显式资格列表和来源对象 |
+
+人物看到的门店商品名是完整标签「<门店显示名>出售的<商品名>」，浏览结果也逐条列这个标签。
+离开浏览地点后这些商品不再作为目标列出，人物仍可照记下的标签按名下单，受理照常核对到店或配送条件。
 
 已有报价的局部修改示例：
 
@@ -271,9 +279,10 @@ uv run python scripts/prepare_map.py \
 | `needs_partner` | 布尔值 |
 | `effects` | 恰好包含 `entertainment`、`social`、`health`，每项 0–1 |
 
-当前 `location_kinds` 参与活动地点准入；`time_window` 和 `needs_partner` 已做数据形状校验，
-但尚未接成运行时的时间或伙伴受理限制。`effects` 分别折算为娱乐缓解、社交缓解和健康相关情绪变化，
-读取位置受上文的仓库固定路径限制；健康效果并不创建独立的“健康值”资源。
+当前 `location_kinds` 参与活动地点准入，也决定生活活动窗口列不列它：与人物所在地点环境不合适的活动不列出，
+按名写它时以「这里不适合做这件事」拒绝。`time_window` 只参与排序（此刻落在窗口内的排得更靠前），`needs_partner` 只做了
+数据形状校验，二者都没有接成运行时的时间或伙伴受理限制。`effects` 分别折算为娱乐缓解、社交缓解和健康相关情绪变化
+（娱乐缓解不按人物口味调整），读取位置受上文的仓库固定路径限制；健康效果并不创建独立的“健康值”资源。
 
 下面是 `enrichment.json` 的 `entries` 中一个**完整条目值**，可替换已有 `3d-printing` 条目的值：
 
@@ -326,6 +335,9 @@ uv run python scripts/build_catalog.py --check
 内容元数据至少包含非空 `title`、非空列表 `genre`、非空 `language`、非负整数 `age_rating`。
 检索还需要 `duration_seconds`；新闻、段子等阅读条目可用 `estimated_read_seconds`。
 `genres` 这样的展示文本不能代替机器读取的 `genre` 列表。
+`genre` 也是人物口味的匹配词表：人物卡片的口味题材（`content_genres`）与条目 `genre` 按字面精确匹配，
+口味权重是两者相同的题材数除以条目的题材数；平台名（如「B站视频」）不是题材。
+两边要用同一套题材词，否则 `worldmock validate` 报 `TASTE_GENRES_UNMATCHED` 或 `CONTENT_WEIGHTS_ALL_ZERO`。
 当前世界素材准入要求剧集 `language: "zh"`，并执行目录清单中声明的年龄分级上限。
 
 场景 `contents[]` 的完整条目形状如下；哈希必须从实际时间轴计算，不能照抄其他文件的值：
@@ -344,6 +356,8 @@ uv run python scripts/build_catalog.py --check
 
 `kind` 只接受 `feature_film`、`drama_series`、`podcast_episode`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
 `subtitle_experience`、`game_session`。时长为正整数秒，娱乐缓解率为每小时 0–1。
+观看的实际缓解是缓解率 × 有效偏好 ÷ 接触次数，有效偏好为 f + (1 − f) × 口味权重，f 取场景 `body.entertainment_relief_preference_floor`
+（缺省 0.5）：口味对不上的内容也按 f 缓解；玩游戏按目录的游戏缓解费率乘同一有效偏好。
 时间轴使用 SRT：片段编号、`HH:MM:SS,mmm --> HH:MM:SS,mmm`、正文，片段间空行；必须非空且不重叠。
 人物按实际接触进度看到正文，不会直接看到整份文件。
 内容对象的方式为「接着看」或「从头再看」（播客为「接着听」或「从头再听」）：未看完的（含没看过的）从上次位置接着看、
@@ -379,6 +393,8 @@ uv run python scripts/build_catalog.py --check
 游戏文件必须是能够被 TextWorld 启动的 JSON，并包含 `metadata.walkthrough`。
 更改场景 `seed` 不会重新生成游戏；需要先准备对应的可执行文件。
 `game_sha256` 是完整游戏文件的字节哈希，`walkthrough_sha256` 是攻略值规范序列化后的哈希，两者不同。
+游戏与内容同样按题材取口味权重：题材取内容元数据（含 `games/library/items.json`）中 `item_id` 等于该 `game_id` 的条目的 `genre`；
+没有这种题材声明的游戏权重为 0，缓解按下限偏好 f。现有 `textworld-*` 游戏都没有题材声明。
 
 计算两个哈希的完整命令：
 
@@ -536,16 +552,25 @@ uv run worldmock validate --scenario scenarios/my-resources.json
 
 人物有 `background_story` 时，完整校验会调用模型编译画像并检查素材覆盖率，还会写出覆盖率报告。
 它不属于纯离线检查。模型配置见[运行配置](runtime.md)。
+完整校验还逐条打印运行输入警告 `Input warning <警告码> …`；警告本身不让校验失败，新建运行时冻结进运行清单。
+下表中地点类别、显示名与对象名称的错误，在前面的离线加载时就会出现。
 
 | 常见错误 | 应检查什么 |
 | --- | --- |
 | `Corpus entry identity mismatch` | 清单中的大小、哈希是否对应修改后的文件 |
 | `Map file hash mismatch` | 地图子文件和场景地图引用是否按依赖顺序更新 |
+| `Map locations file schema is invalid`（供给、路线文件同理），或 `Map dataset validation failed` 提到 `schema_version` | 地图声明与三个子文件的 `schema_version` 是否都是 `2`，子文件顶层是否只有版本与列表两个键 |
 | `Selected map route coverage is incomplete` | 新增地点后的每个有向地点对、每个方式是否都有状态 |
 | `Selected supply references an unselected product` | 场景是否同时选择了供给、商品、地点和卖方账户 |
+| `Selected locations use kinds that are not place types` | 所选地点的 `kind` 是否是九个场所类型之一 |
+| `Selected locations share display names` | 同名地点是否各有不同的 `branch_label` |
+| `Agent <编号> would see non-unique object labels` | 人物会同时看到的名称是否重复，例如两件所选商品同名、两条内容或游戏同标题 |
 | `Lifestyle catalog ids do not match activity_met lifestyle keys` | 活动生成结果与资源目录是否同步重建 |
 | `CATALOG_CONTENT_IDENTITY_MISMATCH` | 规则或对象改变后是否刷新了目录清单 |
 | `CATEGORY_*` 素材准入错误 | 固定路径、必填元数据、世界素材数量或可达性要求是否满足 |
+| `DELIVERY_ROUTE_UNAVAILABLE` 警告 | 配送门店到每个声明目的地是否有 `reachable` 的驾车路线；补路线，或删去送不到的目的地 |
+| `LOCATION_NAME_SUSPICIOUS` 警告 | 地点显示名（连同 `branch_label`）是否带坐标或标识形态；改成人物会说的名字 |
+| `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO` 警告 | 内容 `genre` 是否与人物卡片的口味题材用同一套词 |
 
 实现细节可查[地图模型](../../src/worldmock/life/map_models.py)、[地图加载器](../../src/worldmock/life/map_data.py)、
 [语料清单模型](../../src/worldmock/corpora/manifest.py)、[世界素材准入](../../src/worldmock/catalog/admission.py)
