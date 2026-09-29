@@ -412,8 +412,14 @@ flowchart LR
 ### 轮转与可达性
 
 候选数量受 `candidate_pool_limit` 与 `candidate_presentation_limit` 约束。
-轮转按检索分区、`last_presented_at`、单向游标、`rotation_quota_ratio` 与
-`rotation_stale_seconds` 工作，给长期未呈现对象保留名额。
+资格先于排序：生活活动窗口按人物当前地点施加地点类资格，地点类不符的条目不进窗口，以
+`ELIGIBILITY_LOCATION_KIND_MISMATCH` 记为排除项（一日运行保真规格 5.1，裁决 S8）。
+排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）：相关度只取目录时间窗、当日未推进目标的活动家族与人设层习惯签名
+（目标取该秒开始时的今日计划，同一秒各轮的呈现窗口不变），
+决胜键是场景、人物、本地日期与对象标识的 `sha256`，零偏好时的顺序不是对象标识的字母序，并随日期变化；排序键版本为 2（裁决 S4）。
+轮转按检索分区内每个对象的 `last_presented_at`、`rotation_quota_ratio` 与 `rotation_stale_seconds` 工作：
+换新名额按上次呈现时刻从早到晚留给该分区内长期未呈现的对象（从未呈现的最先），其余名额按排序键；
+不用人物级共享偏移量，也不设分区游标，`⌈N ÷ k⌉` 的上界按分区成立。
 本次没有进入窗口的条目仍在目录内，排除原因包含 `ROTATION_DEFERRED`。
 
 轮转只改变呈现窗口，不按点击次数、偏好分或互动次数永久移除对象；它也不限制指名购买，
