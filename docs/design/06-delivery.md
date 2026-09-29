@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 数据交付
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
-> **日期**：2026-09-28  
-> **版本**：v1.7
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 DL1），已实现  
+> **日期**：2026-09-29  
+> **版本**：v1.8
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -964,6 +964,7 @@ flowchart TB
 | v1.5 | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：dreaming 窗口示意代码补人物可见性过滤，与零点计划登记等系统可见事件不进窗口一致 |
 | v1.6 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E6-1–E6-7，E6-2、E6-7 为阶段 1 同批作业）：文件头注明修订部分待实现；交付不再用当前代码的场景渲染重建已存观察，按层数据与实际请求投影，世界结构版本门禁为 8，交付清单 `schema_version` 为 2（7.3 示例同步）；动作窗口的续接请求含本秒前序决策的消息；事件可见性删决策自述，`self_note` 随实际请求进入动作与意图输入并进入 dreaming 输入；实际 prompt 行写明续接 assistant 的 `reasoning_content` 原样保留、其他事件与目标不额外混入；「人物卡片、记忆与场景」改为人设层、记忆层、环境层；dreaming 读 `self_note` 与层 JSON，`DREAMING_PRIVATE_EVENTS` 等于私有事件集 |
 | v1.7 | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账 E6-8 与阶段 8 核对）：「4.2 编码示例」改用现存的观察字段（两次观察相同的 `memory_layer`），编码声明与字典项的键按代码（`schema_version`、`standard`、`field`、`sha256`），4.1 与 4.3 随之改（收益不足时照写声明、字典为空）；dreaming 窗口写明 `input.decision_layers` 与 `provenance.decision_layer_sources`、缺少层 JSON 时失败、重演分支同样附层 JSON，裁去记忆只作用于动作请求事件的投影；事件可见性写明私有事件集含 `decision_started`；文件头注明修订部分已实现 |
+| v1.8 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 DL1，随阶段 5 的代码落地，按 `34a41ee` 核对）：「dreaming 窗口提取规则」与意图窗口中三个控制工具的请求经 `control_items` 读出，只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`（旧形状读出后同样只留这两项），动作窗口与实际请求原文照原样保留；文件头补修订说明，日期改写 |
 
 ---
 
