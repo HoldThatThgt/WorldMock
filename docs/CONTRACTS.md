@@ -777,7 +777,8 @@ flowchart LR
   精确到秒的 ISO 8601（如 `2026-09-28T10:33:00+08:00`）；`date` 与 `noted_on` 为场景本地日期 `YYYY-MM-DD`；`remind_time` 为 `HH:MM`，
   与 `revise_day_plan` 同名同形。
 - 数量、价格与时长写成人读短语，数字与单位之间一个空格，不给原始秒数或以分为单位的整数：时长「不到 1 分钟」「约 12 分钟」「约 1.5 小时」
-  （一小时及以上取到半小时）；金额「32 元」「32.5 元」；份数「0.25 份」「1 份」（金额与份数至多两位小数）。短语里的时刻用场景本地 `HH:MM`，
+  （一小时及以上取到半小时）；金额「32 元」「32.5 元」；份数「0.25 份」「1 份」（金额与份数至多两位小数）；个数「90 个」（工具层可调用索引的
+  品类计数）。短语里的时刻用场景本地 `HH:MM`，
   与观察日期不同的加「M月D日」。
 - 没有内容的列表写 `[]`，允许为空的写 `null`，不填编造的值。
 - 名称沿用现行的唯一可读标签：交互对象标签须唯一，活动名重名时追加「（第二次）」；他处持有物的名称带地点（`持有物：<商品>（<地点>）`），
@@ -827,7 +828,8 @@ flowchart LR
   `[{category, count, examples}]`，按 `category` 排序。`contents` 取内容与游戏两个窗口资格段保留、有标题的条目，`category` 为内容
   品类的中文名（游戏会话与可玩游戏同为「游戏」）；`goods` 取此刻从这里能得到的商品：门店开着、报价已知、有货、人物有资格且购买规则
   已定义，并且到店时人就在这家店、或远程下单能送到这里（这里在配送范围内、门店到这里有能走的配送路线），`category` 为目录品类的名称。
-  `count` 是该品类可以写的名称个数（同名只计一次）；`examples` 至多 3 个名称（商品写商品名，不带门店），先取本轮没有列为目标的；
+  `count` 是该品类可以写的名称个数（同名只计一次），与其余数量一样写成人读短语「N 个」；`examples` 至多 3 个名称（商品写商品名，
+  不带门店），先取本轮没有列为目标的；
   同组的示例与 `lifestyle` 的名称都按决胜键（场景、人物、本地日期与对象标识的 `sha256`，见「排序键与游标」）排列，与另一件内容或
   游戏同名（只写名称会有歧义）的不作示例。有效菜单不许做生活活动、观看（可玩游戏为游玩）或买东西时，对应部分为空。索引不带动作、
   条件与内部身份，不是候选条目：不计入单次呈现上限，也不写 `last_presented_at`；它在 user 消息的工具层里，计入整次请求的容量计数
@@ -985,7 +987,7 @@ Schema 固定的闭集与格式：
 | 工具层 `actions[].way` | 方式闭集，同「请求模型的闭集与字面边界」的 `ways`（含「给予」） |
 | 工具层与待办层 `tools[].tool` | `report_status`、`pause_activity`、`conclude_activity`、`submit_work`、`send_message`；待办项只有 `report_status`（恢复）与 `conclude_activity`（结束） |
 | 工具层 `contract` | 恰好 `deadline`、`remaining`、`outlook` 三键，只在 `kind` 为 `task` 时出现 |
-| 工具层 `callable_index` | 必填，恰好 `lifestyle`、`contents`、`goods` 三键：`lifestyle` 为不重复的非空名称；`contents`、`goods` 的每项恰好 `category`（非空文本）、`count`（不小于 1 的整数）、`examples`（至多 `INDEX_EXAMPLES_MAX` = 3 个不重复的非空名称）；没有动作、条件与身份键 |
+| 工具层 `callable_index` | 必填，恰好 `lifestyle`、`contents`、`goods` 三键：`lifestyle` 为不重复的非空名称；`contents`、`goods` 的每项恰好 `category`（非空文本）、`count`（人读短语 `^[1-9][0-9]* 个$`）、`examples`（至多 `INDEX_EXAMPLES_MAX` = 3 个不重复的非空名称）；没有动作、条件与身份键 |
 | 人设层 | `habits` 至多五条；`relationships[]` 为 `{person, role, closeness, channels, view}`；`preferences[]` 为 `{subject, preference, noted_on}` |
 | 记忆层 `self_notes[]` | `{activity, text}` |
 | 待办层 `day_plan.goals[]` | 至多八条；`intent_kind` 取「当日目标请求」的十一种意图；五键 `intent_kind`、`goal`、`progressed`、`remind_time`、`around_time` 必填 |
