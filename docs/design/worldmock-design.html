@@ -3742,6 +3742,11 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。</p>
 <code>from</code>、<code>to</code> 的组合不在「请求模型的闭集与字面边界」所列之内，或（对象，动词，方式）映射不唯一、
 不在本轮闭集中，报 <code>ACTION_REQUEST_INVALID</code>；其中名称解析不出的各项（宿主已在本轮纠正，这里只防绕过宿主的请求）逐项写进
 <code>items</code>，明细的码为 <code>NAME_NOT_FOUND</code>、<code>NAME_AMBIGUOUS</code> 或 <code>WAY_NOT_OFFERED</code>，带可照填的候选，原因逐项相连。</p>
+<p><code>report_status</code>、<code>pause_activity</code>、<code>conclude_activity</code> 各项的 <code>activity_name</code> 同样逐项按统一名称解析（与宿主本地校验同一函数）：
+解析不出的各项（宿主已在本轮纠正，这里只防绕过宿主的请求）合并成一次 <code>ACTION_REQUEST_INVALID</code>，逐项写进 <code>items</code>，与宿主纠错中
+活动名的明细相同：参数名为 <code>activity_name</code>，码为 <code>NAME_NOT_FOUND</code>（原因写出最接近的几个活动名）或 <code>NAME_AMBIGUOUS</code>（原因列出
+这些完整活动名），不带候选；名称都解析出来之后，状态、地点与决策边界等其余条件仍报第一条。这两种防御拒绝的顶层码都是
+<code>ACTION_REQUEST_INVALID</code>，不在下文的名称类拒绝码闭集中，照常计入同刻轮数、照常施加情绪脉冲。</p>
 <p><b>名称类拒绝码。</b> 闭集（<code>worldmock.life.error_contract.NAME_REJECTION_CODES</code>，宿主与环境同一口径，
 <a href="../dev/SPEC-dayrun-fidelity.md">一日运行保真规格</a> 3.4）：宿主的 <code>NAME_NOT_FOUND</code>、<code>NAME_AMBIGUOUS</code>、<code>WAY_NOT_OFFERED</code>、
 <code>SUPPLY_SOURCE_MISMATCH</code>、<code>SUBJECT_NOT_KNOWN</code>（协议纠错，只耗本次决策的回合、不进引擎）；环境的 <code>SUPPLY_NOT_FOUND</code>、
