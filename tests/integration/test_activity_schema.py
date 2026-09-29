@@ -157,6 +157,20 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
+def test_control_summaries_are_limited_to_500_characters_by_the_local_check(name: str) -> None:
+    """自述长度上限由本地校验兜住（strict 禁 maxLength，docs/dev/SPEC-dayrun-fidelity.md 第六章）：恰好 500 字的自述经
+    请求模型与宿主本地校验受理，501 字的在 Schema 上合法、却被请求模型拒绝，宿主按 ARGUMENTS_INVALID 纠错。"""
+    schema = _function(name)["parameters"]
+    boundary, over = (_control_payload(name, [(_WAIT, "长" * length)]) for length in (500, 501))
+    assert list(Draft202012Validator(schema).iter_errors(over)) == []
+    REQUEST_MODELS[name].model_validate(boundary)
+    assert _host_error(name, boundary) == ""
+    with pytest.raises(ValidationError, match="within 500 characters"):
+        REQUEST_MODELS[name].model_validate(over)
+    assert _host_error(name, over).startswith(f"ARGUMENTS_INVALID: invalid {name} arguments")
+
+
+@pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_control_tool_fields_carry_format_and_source_descriptions(name: str) -> None:
     """控制工具参数的每个字段都带一句「格式与来源」说明（字段级说明是参数 Schema 的一部分，不是工具 description）：活动名
     照工具层、待办层或进度层原样抄写并带开始时刻，看法写对象；参数对象本身不写说明，工具 description 仍只写用途。"""

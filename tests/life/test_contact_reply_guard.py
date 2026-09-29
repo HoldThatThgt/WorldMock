@@ -98,6 +98,27 @@ def test_real_harmless_reply_passes_the_guard(sample) -> None:
     assert guard_matches(sample["reply"]) == []
 
 
+#: 登记的四类正则里每个分支各一句最短的越界说法（合成句，不是运行记录），按正则里分支的先后排列。
+_SHORT_FORMS = {
+    "arriving": ("我马上过来。", "我已经到了，你出来吧。", "到门口了，出来拿一下。", "我在路上，别急。", "别急，我路上了。",
+                 "我出发了。", "我这边动身了。", "我正往你那赶。", "三点我去找你。", "我九点到公司。"),
+    "done_or_bringing": ("材料都整理好了。", "我帮你把表格改好了。", "材料都带着。", "我给你带了两杯咖啡。"),
+    "taking_over": ("核对这块我来。", "这份纪要我来写吧。", "剩下的交给我。", "这事包在我身上。", "我替你跟客户说。",
+                    "我帮你整理一下。", "替你交上去吧。", "你负责总结。", "对策部分我负责。", "你只管去睡。"),
+    "guaranteeing": ("五点前肯定能交。", "这次我打包票。", "放心，肯定行。"),
+}
+#: （类别，说法）逐条展开，用例名为「类别-序号」。
+_SHORT_FORM_CASES = [pytest.param(code, text, id=f"{code}-{index}")
+                     for code, texts in _SHORT_FORMS.items() for index, text in enumerate(texts)]
+
+
+@pytest.mark.parametrize(("category", "reply"), _SHORT_FORM_CASES)
+def test_each_registered_alternative_catches_its_short_form(category: str, reply: str) -> None:
+    """登记闭集的每个正则分支都有一句只靠它命中的最短说法，且只命中自己的类别：去掉任何一个分支都会漏掉对应的一句
+    （真实样本只覆盖部分分支，例如揽活一类的两处说法落在同一条回复里）。"""
+    assert guard_matches(reply) == [category]
+
+
 def test_contract_registers_the_template_guard_closed_set_and_fallback_verbatim() -> None:
     """接口合同「联系人回复」逐字登记 system 中文模板、四类正则闭集、纠正句与各类说法、兜底句。"""
     text = (_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")

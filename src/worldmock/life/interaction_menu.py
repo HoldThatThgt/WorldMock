@@ -132,34 +132,26 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
 
 
 def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> list[dict[str, Any]] | None:
-    """@brief 按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作；映射不唯一或不在本轮闭集时返回 None。
+    """@brief 只按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作：经统一名称解析（worldmock.life.name_resolution，
+    精确或无损归一后唯一、方式按同义表恰好命中一个）；映射不出、有歧义或（动词，方式）不相配时返回 None。
 
-    obtain 以到店或远程下单指名本轮没有列出的名称时是指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）：
-    该项为 NAMED_SUPPLY_KIND 的占位行（所选动作已映射为购买），由环境在受理时按名称解析为门店供给。
+    本轮没有列出的名称只在按「动词加方式」推出指名购买（named_kind 为 supply）时解析为 NAMED_SUPPLY_KIND 的占位行（所选动作
+    已映射为购买），由环境在受理时按名称解析为门店供给；目录绑定与冻结地点表不在这里（受理按整份冻结观察解析，
+    name_resolution.name_book）。
 
     :returns: 与 targets 逐项对应的绑定行副本，selected_action 为所选动作。
     """
+    from types import SimpleNamespace
+
+    from worldmock.life.name_resolution import name_book, resolve_start
+
     if not isinstance(bindings, list) or not all(isinstance(item, list) for item in (targets, actions, ways)):
         return None
-    if not 1 <= len(targets) <= 2 or len(targets) != len(actions) or len(actions) != len(ways):
-        return None
-    selected = []
-    for name, verb, way in zip(targets, actions, ways):
-        rows = [row for row in bindings if isinstance(row, dict) and row.get("object") == name]
-        if not rows and is_named_purchase(verb, way):
-            selected.append(named_supply_row(name, way))
-            continue
-        choices = [item for item in rows[0].get("actions", []) if item.get("verb") == verb
-                   and item.get("label") == way] if len(rows) == 1 else []
-        if len(choices) != 1:
-            return None
-        selected.append({**rows[0], "selected_action": choices[0]})
-    return selected
-
-
-def is_named_purchase(verb: Any, way: Any) -> bool:
-    """@brief 动词与方式是否构成指名购买：obtain 配到店或远程下单（制作只对手边的持有物）。"""
-    return verb == "obtain" and way in PURCHASE_WAYS.values()
+    empty = [None for _ in targets]
+    request = SimpleNamespace(targets=targets, actions=actions, ways=ways, from_=empty, to=empty, answering=None)
+    outcome = resolve_start(name_book({"interaction_bindings": [row for row in bindings if isinstance(row, dict)]}),
+                            request)
+    return None if outcome.request is None or outcome.failures else [dict(row) for row in outcome.rows]
 
 
 def named_supply_row(name: str, way: str) -> dict[str, Any]:

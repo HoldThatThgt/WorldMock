@@ -603,8 +603,9 @@ def _without_routes(engine: LifeEngine, origin: str, destination: str) -> None:
 
 def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them(engine_factory) -> None:
     """永久不能满足的不列（「工具层」「列出即可提交」）：人物在办公室，到一家饭店没有路线、技能够不上当日任务时，这家饭店与
-    这项任务都不是工具层目标，名称不出现在工具层中；按这两个名称提交时宿主以协议纠错（本轮纠正，不交给环境）。此前两者
-    照常列出（饭店有步行与驾车），其余地点目标不受影响。"""
+    这项任务都不是工具层目标，名称不出现在工具层中。此前两者照常列出（饭店有步行与驾车），其余地点目标不受影响。按这两个
+    名称提交时按统一名称解析的分工（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）：任务名不在本轮私有绑定中，宿主以协议
+    纠错（本轮纠正，不交给环境）；饭店在冻结地点表中，名称成立，宿主放行，没有路线由环境以业务拒绝说明原因。"""
     engine = parallel_admission._engine(engine_factory, location=OFFICE, task=True)
     restaurant = next(item for item in engine.scenario.locations if item.location_id == _CLOSED_AT_TEN)
     task = engine.scenario.tasks[0]
@@ -615,6 +616,7 @@ def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_the
     _without_routes(engine, OFFICE, restaurant.location_id)
     stage(engine, lambda state: state.agents[1].skill_levels.update({task.required_skill: task.minimum_skill - 0.1}))
     decision = context(engine, "impossible-after")
+    engine.begin_decision_round([decision])
     after = engine.observe(decision)
     places = {row["name"] for row in after["tool_layer"]["targets"] if row["kind"] == "location"}
     assert places == {row["name"] for row in before["tool_layer"]["targets"] if row["kind"] == "location"} - {
@@ -624,8 +626,11 @@ def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_the
     assert task.title not in json.dumps(after["tool_layer"], ensure_ascii=False)
     person = _host(engine, decision, after)
     travel = start_arguments([place_name], ["travel"], ["步行"])
-    assert person.validate_react_decisions([ReactDecision("", "start_activity", travel, "")], False) == (
-        "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])")
     submit = _arguments("submit_work", task_name, {}, None)
     assert person.validate_react_decisions([ReactDecision("", "submit_work", submit, "")], False) == (
         "NAME_NOT_FOUND: task_name is not visible")
+    assert person.validate_react_decisions([ReactDecision("", "start_activity", travel, "")], False) == ""
+    drive(person.dispatch_react_tool("start_activity", travel))
+    [refused] = engine.commit_decision_round(decision.round_id)
+    assert (refused.status, refused.error_code) == ("rejected", "ROUTE_UNREACHABLE")
+    assert refused.data["reason"] == refusal_for_code("ROUTE_UNREACHABLE").reason

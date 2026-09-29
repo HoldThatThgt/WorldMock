@@ -827,6 +827,11 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 （[同一规格 7.3](../dev/SPEC-dayrun-fidelity.md#73-联系人回复不虚构到场)）：`replies`、没有 `attempts` 证据的
 `replies_without_guard_evidence`、`attempts`，按尝试计的 `hits` 与 `hits_by_category`（四个类别码全列，没有命中记 0），
 按回复计的 `retries` 与 `fallbacks`。两组都只报告，不放行。
+`name_rejections` 把名称类拒绝与其余协议错误分开计数（[同一规格 3.4](../dev/SPEC-dayrun-fidelity.md#34-名称类拒绝不计同刻轮数)）：
+宿主一侧取人物决策（没有 `purpose` 的调用，按调用身份去重后的终态响应）的协议错误串，按 `life_feedback.feedback_report` 判定错误码，
+名称类纠错码逐码计 `host_codes`（合计 `host_protocol_errors`），其余协议错误计 `other_protocol_errors` 与按码的 `other_protocol_codes`；
+环境一侧取不含重放的 `action_rejected`，名称类拒绝码逐码计 `environment_codes`（全部码列出，没有记 0；合计 `environment_rejections`），
+并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻轮数、不施加脉冲）的 `environment_free_rejections`。只报告，不放行。
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
 

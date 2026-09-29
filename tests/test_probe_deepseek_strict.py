@@ -102,6 +102,23 @@ class FakeTransport:
         return self.replies.pop(0)
 
 
+class _UnrelatedFailures(FakeTransport):
+    """(a1) 两个端点都不是以 Schema 校验错误作答：主站 503，/beta 以与 Schema 无关的原因 400（模型不存在）；(c) 思考开启的
+    required 请求两个端点都 503；其余请求同 FakeTransport。"""
+
+    def __call__(self, url: str, headers: dict, payload: dict, timeout: float) -> tuple[int, object]:
+        """先拦下这两类请求（同样记录），其余交给 FakeTransport 回放。"""
+        name = payload["tools"][0]["function"]["name"]
+        thinking_required = name == "conclude_activity" and payload["tool_choice"] == "required" and (
+            payload["thinking"]["type"] == "enabled")
+        if name != probe.RULE_FUNCTION and not thinking_required:
+            return super().__call__(url, headers, payload, timeout)
+        self.calls.append({"url": url, "headers": dict(headers), "payload": payload, "timeout": timeout})
+        if name == probe.RULE_FUNCTION and url.startswith(f"{_BETA}/"):
+            return 400, {"error": {"message": "Model Not Exist", "type": "invalid_request_error"}}
+        return 503, {"error": {"message": "Service Unavailable"}}
+
+
 def _series_replies() -> list[tuple[int, object]]:
     """六次收尾回复：合法两次、裸字符串的非法 JSON、不合 Schema 的形状（参数不是对象）、截断而没有工具调用、HTTP 500。"""
     return [(200, _tool_reply(_valid_arguments())),
@@ -172,6 +189,20 @@ def test_report_sends_every_probe_request_and_classifies_the_results() -> None:
     assert len(transport.calls) == 2 + 2 + 3 * 2 + 6 + 4
     assert all(call["headers"]["Authorization"] == f"Bearer {_KEY}" for call in transport.calls)
     assert _KEY not in json.dumps(report, ensure_ascii=False)
+
+
+def test_conclusions_need_the_specific_outcomes_not_just_any_failure() -> None:
+    """汇总结论只认规格要求的具体结果（7.5）：主站 5xx 不等于「主站不执行 strict」，/beta 以与 Schema 无关的原因拒绝不等于
+    「/beta 执行 strict」，思考模式下 required 请求 5xx 也不等于「返回 400」；这些失败照样按原样记在对应的行里。"""
+    report = probe.build_report(probe.Probe(transport=_UnrelatedFailures(_series_replies()[:1]), api_key=_KEY), runs=1)
+    strict, required = report["strict_enforcement"], report["required_tool_choice"]
+    assert (strict["main"]["outcome"], strict["beta"]["outcome"]) == ("error", "rejected_other")
+    assert strict["beta"]["error"] == "Model Not Exist"
+    assert [required[name]["thinking_enabled"]["status"] for name in ("main", "beta")] == [503, 503]
+    conclusions = report["conclusions"]
+    assert (conclusions["main_ignores_strict"], conclusions["beta_enforces_strict"]) == (False, False)
+    assert conclusions["required_rejected_in_thinking"] == {"main": False, "beta": False}
+    assert conclusions["required_works_without_thinking"] == {"main": True, "beta": True}
 
 
 def test_requests_use_the_host_conclude_tool_and_stage_parameters() -> None:

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from weakref import WeakKeyDictionary
@@ -33,6 +32,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life import progress_layer
 from worldmock.life.control_items import control_items
 from worldmock.life.models import ActivityKind, SessionState, SessionStatus
+from worldmock.life.name_resolution import START_SUFFIX
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
@@ -48,8 +48,6 @@ _EVENT_TYPES = ("action_requested", "action_result", "environment_event", "memor
 #: 成功的即时结果状态与未了结的订单状态。
 _SETTLED_STATUSES = frozenset({"completed", "in_progress"})
 _OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
-#: 活动名中的开始时刻后缀「（M月D日 HH:MM 起）」。
-_START_SUFFIX = re.compile(r"（\d{1,2}月\d{1,2}日 \d{2}:\d{2} 起）")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +169,7 @@ def persona_views(context: LayerContext, store: FootprintStore) -> dict:
 def noted_label(layer: dict, name: str, text: str) -> str | None:
     """@brief 这段人物自述若仍在记忆层 self_notes 中（按活动名标注，标注可去掉开始时刻后缀），返回它所用的活动标注，
     否则为 None；回看据此不重复正文（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。"""
-    labels = {name, _START_SUFFIX.sub("", name, count=1)}
+    labels = {name, START_SUFFIX.sub("", name, count=1)}
     return next((note["activity"] for entry in (*layer["earlier_days"], *layer["earlier_today"])
                  for note in entry["self_notes"] if note["activity"] in labels and note["text"] == text), None)
 
@@ -344,7 +342,7 @@ def _self_notes(build: _Build, bounds: tuple[int, int | None]) -> tuple[list[dic
 
 def _labels(names: list[str]) -> dict[str, str]:
     """@brief 条目内的活动标注：去掉开始时刻后缀后不与条目内其他活动重名时用短名，否则保留原名。"""
-    short = {name: _START_SUFFIX.sub("", name, count=1) for name in dict.fromkeys(names)}
+    short = {name: START_SUFFIX.sub("", name, count=1) for name in dict.fromkeys(names)}
     counts = list(short.values())
     return {name: value if counts.count(value) == 1 else name for name, value in short.items()}
 

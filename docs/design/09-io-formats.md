@@ -132,8 +132,10 @@ flowchart TB
 非定义配对保留原始报价，系数及实际金额为空且不允许购买；报价未知时价格字段也保留 `null`。订单行 `total_price_fen` 按原价、数量、系数的整行乘积取整，整单同名字段保存各行合计，
 不能由已取整的一份金额乘数量。商品的使用定义继承 `InventoryItemConfig`，保留 `category_id/inventory_unit`，
 已持有但未上架的物品仍可按使用合同消费或转换，不要求补造供给。
-展示不是购买资格上限：工具层的商品目标只是本轮展示的供给，`obtain` 可以按名称购买本轮未展示但存在的商品，按当前报价结算，
-不存在时返回至多 3 个近似候选且不替换。
+展示不是资格上限：工具层的目标只是本轮展示的对象，全部目录类对象都可以按名称调用（本轮未展示的生活活动、内容与游戏取观察
+私有的 `catalog_bindings`，`obtain` 可以按名称购买本轮未展示但存在的商品，按当前报价结算）；名称找不到时返回至多 3 个候选且不替换，
+候选此刻可行的在前，形状为可以照填的请求 `{target, action, way, from, to}`（可另带 `note`，如「约 20 分钟」），受理时的名称归一
+写进 `details.resolved`（`[{written, as}]`），冗余的 `from`、`to` 的说明写进 `details.notes`。
 同次发现或浏览结果优先占用共同呈现窗口；浏览得到的供给只作为工具层商品目标出现一次，浏览调用的结果（进度层
 `details.browse_items`）只列名称，写完整标签「<门店>出售的<商品>」、不标可得性（一日运行保真规格 5.3），
 不用 `based_on_action_id/changes` 引用结果；完成的浏览另在记忆层 `settled` 的活动句末写浏览到的完整标签。
@@ -156,7 +158,7 @@ flowchart TB
 | `delivered_warning_signatures` | set[str] | 是 | 当前持续威胁中已实际交付的签名 |
 | `next_decision_at` | int | 是 | 下次决策时间；等于当前时刻即同一秒再决策 |
 | `consecutive_rejections` | int | 是 | 连续业务拒绝次数，受理即归零；只作动机层挫败感的输入，不参与唤醒与冷却 |
-| `same_moment_rounds` | int | 是 | 本秒已进行的决策轮数，ge=0；受理、业务拒绝与重放各加一，时钟推进归零 |
+| `same_moment_rounds` | int | 是 | 本秒已进行的决策轮数，ge=0；受理、业务拒绝与重放各加一，名称类拒绝每人每秒前两次不加（第 3 次起照加，一日运行保真规格 3.4），时钟推进归零 |
 | `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`（世界结构版本 8 删去 `wait_only`；开始或恢复被拒后留在原阶段，现行阶梯不再进入 `conclude_only`，它只留在闭集中）；时钟推进复位为 `open` |
 | `pending_wake_reasons` | list[str] | 是 | 本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；人物消息送达而获得同刻机会时记 `message_arrival`；上一轮原因不带入 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
