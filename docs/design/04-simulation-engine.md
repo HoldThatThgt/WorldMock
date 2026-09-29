@@ -223,7 +223,10 @@ flowchart LR
 不要求模型回填价格、报价版本或精确秒数。暂停活动的地点、进度与控制工具只在待办层；工作合同的截止、有效工时的达标情况与前景只在 task 目标的 `contract`。
 模型为每个对象选五个动词（`travel`、`interact`、`obtain`、`consume`、`sleep`）之一，并选该对象列出的方式；
 `start_activity` 另有与目标等长的 `from[]`、`to[]`：`obtain` 与 `consume` 用 `from` 写来源、`to` 写去向（「自己」或人物名），
-其他动词为 null；请求级 `answering` 写所回应的直接消息。
+其他动词为 null；`obtain` 的 `from` 是可选约束，写 null、门店名或渠道称呼（App 名，由场景钉定的手机配置派生，解析为该渠道的成员
+门店，[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#33-购买渠道app-名解析为成员门店) 3.3）。请求级 `answering` 写所回应的
+直接消息，请求级 `prefer` 写取得商品时的偏好（`fastest` 或 `cheapest`，null 按最快，多家都能买时按它挑一家）；取得商品的方式另可写
+「购买」，由系统按人在不在出售它的店里、能不能送到收货地定到店或远程下单（3.5），工具层的商品目标不列出它。
 宿主私有 `interaction_bindings` 把（对象，动词，方式）绑定到内部身份、标准动作、出行方式、履约方式、`use_mode`
 和冻结报价，模型仅见对象名称、动词与方式短语。提交工作成果与发送消息使用独立工具，任务与收件人同样以可读名称定位。
 每次实际模型请求都计算整次请求的 token 占用（原生 `tools`、系统层、六层 JSON、续接消息与预留输出）；达到所用模型上下文窗口的百分之八十五时，
@@ -370,9 +373,12 @@ sequenceDiagram
 列出的方式里恰好命中一个时受理；与当前所在地点或目标一致的冗余 `from`、`to` 照样受理并在 `details.notes` 说明；动词与方式不一致
 时不替人物改，报 `WAY_NOT_OFFERED`。本轮没有列出的生活活动、内容与游戏按观察私有的目录绑定、地点按冻结地点表解析，受理时照常做
 资格与准入判定（地点类不符的生活活动以 `ELIGIBILITY_LOCATION_KIND_MISMATCH` 拒绝，没有路线的地点以路线拒绝说明）。
-`obtain` 以到店或远程下单写的商品名按指名购买解析：环境按名称解析场景中的供给，按当前报价在同一秒批量结算，
-价格、余额、营业与库存照常检查，指名路径不查可见凭据；不存在时以 `SUPPLY_NOT_FOUND` 拒绝，候选是至多 3 个确定性近似标签，
-多店同名且 `from` 为空时以 `SUPPLY_NAME_AMBIGUOUS` 拒绝、原因列出门店。相似度永不自动替换：找不到的名称只给跨类别的候选，
+`obtain` 以到店、远程下单或「购买」写的商品名按指名购买解析：环境按名称解析场景中的供给，按当前报价在同一秒批量结算，
+价格、余额、营业与库存照常检查，指名路径不查可见凭据；分段匹配依次报「没有这件商品」`SUPPLY_NOT_FOUND`（候选是至多 3 个确定性
+近似标签）、`from` 不是门店或渠道 `SOURCE_NOT_FOUND`、标签的门店不在 `from` 里 `SUPPLY_SOURCE_MISMATCH`、那家店不卖
+`SUPPLY_NOT_AT_STORE`、不支持所写方式 `FULFILLMENT_NOT_SUPPORTED` 与此刻服务不了 `ACTIVITY_PRECONDITION_UNMET`（写明去哪里或哪家
+送不到哪里）；多家都能服务时按请求级 `prefer` 选定一家并写进 `details.notes`，不以 `SUPPLY_NAME_AMBIGUOUS` 拒绝
+（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#32-指名购买from-是约束不是语法) 3.2、3.5）。相似度永不自动替换：找不到的名称只给跨类别的候选，
 此刻可行的在前，至多 3 个，写成可以照填的请求；一个请求中几项名称都有问题时逐项写进同一次拒绝，整组仍原子。
 规则见[人物 Prompt 规格](../dev/SPEC-persona-prompt.md#五交互语义)第五章。
 

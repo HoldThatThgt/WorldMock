@@ -234,13 +234,18 @@ EventType = Literal[
 | 发现请求 | `start_activity` 的可读发现对象与动作、私有绑定中的实际筛选、分页游标、宿主绑定动作身份与观察版本；登记不回显，不包含未结算结果 |
 | 发现结果 | 实际返回的有序地点与供给、道路状态、路线身份/分时耗时/费用、营业与资格、原始报价和版本、购买系数及一份实际金额、库存、履约、来源及假设标记 |
 | 比较与选择 | 观察实际呈现的可读供给与公开事实；模型请求使用可读名称，内部事件经冻结绑定保留当时可见的 `supply_id`、`product_id` |
-| 购买与交付 | 供给、商品、地点、卖方、实际报价版本、数量、行 `total_price_fen` 与整单合计、收货人与所回应的消息、履约目的地（收货人的收货地点）、准备/运输依据及来源；付款人是执行人物，送达只入收货人的持有；付款和交付分别记录 |
+| 购买与交付 | 供给、商品、地点、卖方、实际报价版本、数量、行 `total_price_fen` 与整单合计、收货人与所回应的消息、履约目的地（收货人的收货地点）、准备/运输依据及来源；受理结果 `action_result.data.orders[]` 的每个订单另记 `channel_id`（`from` 解析为购买渠道时的 App 标识，否则 `null`），它不进世界状态的订单，导出的 `purchases.jsonl` 同一列；付款人是执行人物，送达只入收货人的持有；付款和交付分别记录 |
 | 世界变化 | 按供给的库存与报价、营业例外、交付队列、人物可见供给与轮转随状态提交，拒绝不写购买副作用 |
 
 发现沿用 `action_requested`、`action_accepted`/`action_rejected` 和 `action_result` 事件，
 不新增同步世界查询通道。返回结果保存当时快照，导出不得用当前目录重建历史。
 只能公开实际返回供给的库存，不能把全量 `WorldState` 库存、未接触供给或未来报价注入人物窗口。
 指名购买按场景供给解析并按当前报价结算，不查可见凭据；它不因此把未呈现供给的库存或报价写进人物窗口，人物只见该次购买的公开结果。
+解析按分段匹配依次判定、各报各的码（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#32-指名购买from-是约束不是语法) 3.2、3.3、3.5）：
+名称（`SUPPLY_NOT_FOUND`）、`from` 的来源范围（`null` 为全部门店，门店名为该门店，渠道称呼为由场景钉定的手机配置派生的成员门店；否则
+`SOURCE_NOT_FOUND`，标签的门店不在范围内 `SUPPLY_SOURCE_MISMATCH`，那家店不卖 `SUPPLY_NOT_AT_STORE`）、所写方式
+（`FULFILLMENT_NOT_SUPPORTED`，方式为「购买」时跳过）与此刻能否服务（`ACTIVITY_PRECONDITION_UNMET`）；多家都能服务时按请求级
+`prefer` 选定，所选门店与「购买」定下的方式写进受理结果 `data.notes`，拒绝的逐项明细写进 `action_rejected` 与结果的 `items`。
 已取得物品按商品合并，记录仍保留取得来源，不把购买或到达视为已经消费；给予只转移持有，不计任何人的摄入。
 
 同地点、零处理时长的配送即时交付，仍记录 `fulfillment=delivery`、`status=delivered` 和实际 `inventory_changes`，
@@ -730,7 +735,7 @@ flowchart TD
 | `activities.jsonl` | 从截止事件重建活动与实际区间，暂停时长不计作活动；主动结束、暂停、恢复与实验截止的截断也逐活动写活动快照（同源两项的聚合终态不带快照，不据它重建），导出的活动与最终检查点逐项一致 |
 | `verified-experiences.jsonl` | 按固定截止前缀重建的全部人物已核验经历（见「已核验经历与主观记忆」），消费端从 `events.jsonl` 独立重算并逐行核对 |
 | `asset-index.jsonl`、`assets/<sha256>` | 事件及完整最终检查点引用的素材索引与原始字节 |
-| `purchases.jsonl` | 从截止事件投影的购买事实，每行首键 `fact_kind`，依次为全部 `purchase`、全部 `order_attempt`、全部 `app_browse`：`purchase` 取结果顶层与各活动结果的订单，按订单去重，与整体状态无关，重放回执不重复计，字段 `agent_id`、`order_id`、`product_id`、`supply_id`、`quantity`、`total_price_fen`、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`action_id`、`source_event_id`；`order_attempt` 为方式是到店或远程下单的非重放请求，字段 `agent_id`、`action_id`、`request_event_id`、`way`（请求中第一个下单方式）、`status`、`error_code`（取该动作首个结算结果，尚无结果为 `null`）、`occurred_at`；`app_browse` 为方式是浏览的活动，字段 `agent_id`、`activity_id`、`started_at`、`status`、`source_event_id`（取截止前最后一次快照）。属于导出工件闭集，消费端从 `events.jsonl` 独立重算并逐行核对 |
+| `purchases.jsonl` | 从截止事件投影的购买事实，每行首键 `fact_kind`，依次为全部 `purchase`、全部 `order_attempt`、全部 `app_browse`：`purchase` 取结果顶层与各活动结果的订单，按订单去重，与整体状态无关，重放回执不重复计，字段 `agent_id`、`order_id`、`product_id`、`supply_id`、`quantity`、`total_price_fen`、`fulfillment`、`recipient_id`、`request_message_id`、`channel_id`（订单载荷的渠道标识，不是经渠道买的与旧运行没有这一列的订单为 `null`）、`created_at`、`action_id`、`source_event_id`；`order_attempt` 为方式是到店、远程下单或「购买」的非重放请求，字段 `agent_id`、`action_id`、`request_event_id`、`way`（请求中第一个下单方式）、`status`、`error_code`（取该动作首个结算结果，尚无结果为 `null`）、`occurred_at`；`app_browse` 为方式是浏览的活动，字段 `agent_id`、`activity_id`、`started_at`、`status`、`source_event_id`（取截止前最后一次快照）。属于导出工件闭集，消费端从 `events.jsonl` 独立重算并逐行核对 |
 | `quality.json` | 从同批冻结事件和活动确定性计算的质量报告 |
 | `timeline/<agent>-<date>.md` | 按人物和日期呈现的时间线，只写中文名称：种类名取 `src/worldmock/life/readable.py` 的中文种类表，对象名取活动快照的标题（工作、通话、交谈也有标题）或名称索引，不写英文种类名与内部标识（见「调试工具」）；当前截止与消费端认证缺口见「固定截止导出的实现差距」 |
 | `manifest.json` | 运行身份、截止、来源、覆盖、完成状态、各文件摘要与冻结运行清单 |

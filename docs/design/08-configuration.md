@@ -190,6 +190,15 @@ flowchart LR
 「自己」，写法与观察投影同一来源）。任一不满足都以 `IntegrityError` 拒绝加载并写明原因，不再等到运行中途才由环境层或
 观察投影报错。
 
+购买渠道由场景钉定的手机配置派生，不新增场景字段（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#33-购买渠道app-名解析为成员门店)
+3.3，裁决 S7）：场景可选填 `phone_simulation_config`（语料根内、登记进语料清单的冻结文件）与它的 `phone_simulation_config_sha256`，
+两者同时出现或同时缺省。加载时按身份（语料清单与场景钉定的摘要）、结构、场景身份与执行证据核验这份配置，再从它的卖家账户→App
+与 App→称呼派生渠道：`channel_id` 取 App 标识，称呼取该 App 的显示名，成员门店取映射到它的卖家有供给的所选地点；渠道只是门店集合的
+称呼，不带交付语义。渠道准入与世界准入同一时机：称呼在渠道之间不重复（去掉空白、不分大小写比较），也不等于任何所选地点的显示名；
+每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即以 `IntegrityError` 拒绝加载并写明渠道、称呼与地点。
+手机配置核验失败时不派生渠道（与覆盖率同一口径：新建运行不因此失败，加载写一条英文 warning 日志，`validate` 照旧失败）；
+没有钉定手机配置的场景没有渠道，人物把 App 名写在 `from` 时以 `SOURCE_NOT_FOUND` 拒绝。配置已由摘要钉进场景与运行清单，运行身份不变。
+
 完整运行时场景包含解析后的地图、地点、路线、商品和供给。地图和场景选区共同校验账户、产品、
 供给组合和有向路线覆盖。每个端点/方式组合必须有可达、不可达或带来源的未知记录；漏项拒绝。
 营业与报价的有效期、核对日期、可信截止日及来源在发布前验证。旧整点营业和旧商品单店字段直接拒绝。
@@ -330,6 +339,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 地点引用 | `agents[].home_location_id` 指向已声明地点 | 拒绝启动 |
 | 地点类别 | 所选地点的 `kind` 属于环境层场所类型闭集（与 `PLACE_TYPES` 同源） | 场景加载以 `IntegrityError` 拒绝，逐一写明越界的地点与类别 |
 | 可见名称 | 所选地点显示名唯一（同名以地图 `branch_label` 消歧）；每个人物可能同时看到的对象名称唯一 | 场景加载以 `IntegrityError` 拒绝，逐一写明重复的显示名与地点，或写明重复的对象名称与来源 |
+| 购买渠道 | 由钉定的手机配置派生的渠道：称呼在渠道之间不重复（去掉空白、不分大小写）、不等于任何所选地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给 | 场景加载以 `IntegrityError` 拒绝，逐一写明渠道、称呼与地点；手机配置核验失败时不派生渠道，加载照常并写一条英文 warning 日志 |
 | 交互菜单 | 地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项 | 以 `IntegrityError` 拒绝启动，保留英文校验原因 |
 | 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
 | 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
@@ -356,6 +366,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 地点类别越界 | 地图把所选地点的 `kind` 写成 `fuel` | "Selected locations use kinds that are not place types: <地点> kind 'fuel'; …; allowed kinds: …"（逐一列出全部越界地点） |
 | 地点重名 | 两处所选地点同名且没有不同的 `branch_label` | "Selected locations share display names: '<显示名>' (<地点>, <地点>); …; declare distinct branch_label values in the map"（逐一列出全部重名） |
 | 对象名称重复 | 同一人物名下两项工作同名、两位联系人同称谓等 | "Agent <人物> would see non-unique object labels: '<名称>' from <来源>, <来源>" |
+| 渠道准入不成立 | 两个 App 的称呼只差空白或大小写；App 称呼与所选地点同名；渠道没有有供给的成员门店 | "Purchase channels are not admissible: name '<称呼>' is shared by channels <渠道>, <渠道>; channel <渠道> name '<称呼>' equals location <地点>; …"（逐一列出全部不成立之处） |
 | 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
 | 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
 | 凭据内容错误 | 未知键、空值或空密钥段 | "DeepSeek credential file has an invalid schema" |
