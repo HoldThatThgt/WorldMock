@@ -42,7 +42,7 @@ from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, read
 from custom.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, retry_due, thinking_enabled, truncated,
                                            truncation_feedback, with_feedback)
 from worldmock.life.continuation import CONTINUATION_KEY
-from worldmock.life.control_items import control_items
+from worldmock.life.control_items import ControlItem, control_items
 from worldmock.life.error_contract import HOST_NAME_CODES, Candidate, ErrorItem, host_report, numbered
 from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
@@ -653,16 +653,11 @@ def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
     """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）：精确或
     无损归一后唯一即受理（docs/dev/SPEC-dayrun-fidelity.md 3.1，worldmock.life.name_resolution），找不到的逐项写成
-    NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）。"""
+    NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）；控制工具的活动名与结束工具关系看法的对象一并逐项报全部。"""
     if action == "start_activity":
         return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
-        written = [item.activity_name for item in control_items(action, request)]
-        unknown = _unknown_names(("activity_name", "活动"), written, names["activity_names"],
-                                 f"{action} activity_name names an activity that is not visible")
-        if unknown or action != "conclude_activity":
-            return unknown
-        return _subject_feedback(request, _memory_subject_error(request, names["known_persons"]))
+        return _control_feedback(action, control_items(action, request), names)
     if action == "recall_task_summary":
         return _unknown_names(("task_name", "任务、目标或活动"), [request.task_name], names["recall_names"],
                               "task_name is not visible")
@@ -675,12 +670,28 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     return _validate_plan_goals(request.goals, names["progressed_intents"])
 
 
-def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
+def _control_feedback(action: str, items: tuple[ControlItem, ...], names: dict[str, Any]) -> str:
+    """@brief 控制工具（播报、暂停、结束）逐项核对名称，全部名称类错误合并成一次纠错（docs/dev/SPEC-dayrun-fidelity.md
+    3.1 第 5 条、第四章）：各项的活动名（NAME_NOT_FOUND、NAME_AMBIGUOUS）与各项关系看法的对象（SUBJECT_NOT_KNOWN，只有结束
+    工具带看法），明细按项的先后排列，码取第一项的码；都成立时为空串。"""
+    total = len(items)
+    issues = [*_name_issues(("activity_name", "活动"), [item.activity_name for item in items], names["activity_names"],
+                            f"{action} activity_name names an activity that is not visible"),
+              *_subject_issues(items, names["known_persons"])]
+    return merged_feedback(issues, total, _name_fixes(total)) if issues else ""
+
+
+def _subject_issues(items: tuple[ControlItem, ...], known: frozenset[str]) -> list[HostIssue]:
     """@brief relationship 看法的对象（views 的 about，存储为 subject）须是已知人物：卡片关系名、场景联系人称谓或同世界
-    人物姓名（规格第一章「人设层」）。"""
-    unknown = [memory["subject"] for item in control_items("conclude_activity", request) for memory in item.views
-               if memory["type"] == "relationship" and memory["subject"] not in known]
-    return f"conclude_activity relationship subject is not a known person: {unknown[0]}" if unknown else ""
+    人物姓名（规格第一章「人设层」）。不认识的逐条写成 SUBJECT_NOT_KNOWN：明细的序号为所在的一项、参数名为 about、原文为所写
+    的名字（同一项重复写同一个名字只报一次）；英文说明为「conclude_activity relationship subject is not a known person: <名字>」。"""
+    total = len(items)
+    unknown = dict.fromkeys((index, view["subject"]) for index, item in enumerate(items) for view in item.views
+                            if view["type"] == "relationship" and view["subject"] not in known)
+    return [HostIssue(ErrorItem(index, "about", name, "SUBJECT_NOT_KNOWN"),
+                      f"{numbered(index, total)}关系看法写的对象「{name}」不是认识的人",
+                      f"conclude_activity relationship subject is not a known person: {name}")
+            for index, name in unknown]
 
 
 def _batch_error(decisions: list[ReactDecision], submitted: int) -> str:
@@ -702,9 +713,15 @@ def _batch_error(decisions: list[ReactDecision], submitted: int) -> str:
 
 
 def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: str) -> str:
+    """@brief 名称类参数逐项解析后的纠错（_name_issues），逐项全部报出、合并成一次；都成立时为空串。"""
+    issues = _name_issues(field, written, visible, detail)
+    return merged_feedback(issues, len(written), _name_fixes(len(written))) if issues else ""
+
+
+def _name_issues(field: tuple[str, str], written: list[str], visible, detail: str) -> list[HostIssue]:
     """@brief 名称类参数逐项解析（精确或无损归一后唯一即受理，worldmock.life.name_resolution.resolve_name，环境受理用同一
     函数）：找不到的写成 NAME_NOT_FOUND（原因列出最接近的几个名称），归一后不止一个的写成 NAME_AMBIGUOUS（原因列出它们），
-    逐项全部报出；都成立时为空串。
+    逐项全部列出；都成立时为空列表。
 
     :param field: （参数名，名称所指的东西），如 ("activity_name", "活动")。
     :param detail: 找不到时的英文说明（证据用）。
@@ -724,40 +741,19 @@ def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: 
         issues.append(HostIssue(ErrorItem(index, field[0], name, "NAME_NOT_FOUND"),
                                 f"{lead}不是本轮列出的{field[1]}" + (f"，最接近的是{_quoted(near)}" if near else ""),
                                 detail))
+    return issues
+
+
+def _name_fixes(total: int) -> dict[str, str]:
+    """@brief 名称类参数纠错的改法：照各层中的写法填写（多项时也可以去掉这一项），有歧义时改写成列出的某一个完整名称；
+    其余码（如 SUBJECT_NOT_KNOWN）取默认改法。"""
     fix = "照工具层、待办层或记忆层中的写法填写名称" + ("，或者去掉这一项" if total > 1 else "")
-    fixes = {"NAME_NOT_FOUND": fix, "NAME_AMBIGUOUS": "改写成原因里列出的某一个完整名称"}
-    return merged_feedback(issues, total, fixes) if issues else ""
+    return {"NAME_NOT_FOUND": fix, "NAME_AMBIGUOUS": "改写成原因里列出的某一个完整名称"}
 
 
 def _quoted(names) -> str:
     """@brief 几个名称的说法「A」、「B」。"""
     return "、".join(f"「{name}」" for name in names)
-
-
-def _subject_feedback(request: BaseModel, error: str) -> str:
-    """@brief 把 _memory_subject_error 的失败包成 SUBJECT_NOT_KNOWN：对象（英文说明末尾「: 」之后的名字）写在原因里，
-    所在一项按请求中写着该名字的看法（views 的 about）定位到 items 的那一项，明细的参数名为 about；没有失败时为空串。"""
-    if not error:
-        return ""
-    name = error.rsplit(": ", 1)[1] if ": " in error else ""
-    located = _subject_location(request.model_dump(mode="json", by_alias=True), name) if name else None
-    items = [ErrorItem(located[1], located[0], name, "SUBJECT_NOT_KNOWN")] if located else []
-    reason = f"关系看法写的对象「{name}」不是认识的人" if name else None
-    return host_feedback(host_report("SUBJECT_NOT_KNOWN", reason, items=items), error)
-
-
-def _subject_location(arguments: dict[str, Any], name: str) -> tuple[str, int] | None:
-    """@brief 写着该对象名的（参数名，项序号）：在各顶层数组的每一项里找 about（旧形状为 subject）等于该名字的对象，
-    参数名取写着它的那个键。"""
-    def key_of(value: Any) -> str | None:
-        """@brief 值里 about 或 subject 等于该名字的那个键名；没有时为 None。"""
-        if isinstance(value, dict):
-            direct = next((key for key in ("about", "subject") if value.get(key) == name), None)
-            return direct or next(filter(None, map(key_of, value.values())), None)
-        return next(filter(None, map(key_of, value)), None) if isinstance(value, list) else None
-
-    return next(((found, index) for rows in arguments.values() if isinstance(rows, list)
-                 for index, row in enumerate(rows) if (found := key_of(row))), None)
 
 
 def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
