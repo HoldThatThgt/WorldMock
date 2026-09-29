@@ -850,7 +850,7 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 命令输入和输出见<a href="../CONTRACTS.md#cli-命令接口">接口合同</a>。</p>
 <p>调用方以 <code>catalog_version.major/minor</code> 指定目录；条目使用自己的整数 <code>version</code>。
 当前目录为 <code>4.1</code>（与 <code>catalog/manifest.json</code> 的 <code>version_major</code>、<code>version_minor</code> 一致；时间与能量规格阶段 4 改可供性注册表后
-升次版本），品类契约和交换规则绑定版本为 <code>2</code>；商品已删除门店购买价格与供给库存语义，购买仍编译品类 <code>RuleEdge</code>。生活场景结构为 3、地图结构为 1、世界状态结构为 8。
+升次版本），品类契约和交换规则绑定版本为 <code>2</code>；商品已删除门店购买价格与供给库存语义，购买仍编译品类 <code>RuleEdge</code>。生活场景结构为 3、地图结构为 2（地点可带分店标签 <code>branch_label</code>）、世界状态结构为 8。
 这些格式直接拒绝旧输入，不保留旧场景转换脚本，也不能以重建目录代替创建新格式运行。
 加载器拒绝同一标识的非递增条目版本，也拒绝新引用使用已退役条目。
 已加载的目录视图保持固定。发布物同时绑定版本与内容摘要，加载和运行恢复会核对文件内容；
@@ -3261,7 +3261,7 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 <p>场景使用整数 <code>schema_version</code>，人物清单为 <code>agents</code>，时间字段为 <code>start_at</code>、<code>end_at</code>；
 身体资源初值放在顶层 <code>body</code>，人物档案常量放在各自的 <code>agents</code> 条目。
 本文不重新定义完整场景 Schema。</p>
-<table><tr><th>格式</th><th>当前版本</th><th>拒绝边界</th></tr><tr><td>地图文件 <code>schema_version</code></td><td>1</td><td>声明与文件身份、完整路线关系共同校验</td></tr><tr><td>商品目录 <code>version_major</code></td><td>4</td><td>原生品类对象与独立供给共同发布；两条分支旧目录 3.0 均不作为新身份</td></tr><tr><td>品类与交换规则 <code>contract_version</code></td><td>2</td><td>购买规则删除商品价格槽，保留动态供给报价的闭集求值</td></tr><tr><td>生活场景 <code>schema_version</code></td><td>3</td><td>地点、商品与供给按身份引用，旧内嵌地点和路线拒绝；含旧键 <code>max_consecutive_rejections</code> 拒绝</td></tr><tr><td>世界状态 <code>schema_version</code></td><td>8</td><td>旧检查点（含版本 7）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 <code>remind_at</code>、<code>reminded_at</code> 与已生成计划的日期 <code>plan_submitted_dates</code>）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 <code>opened_by_action_id</code>、活动的暂停时刻 <code>paused_at</code> 与进食的开吃份量 <code>opened</code>、订单的 <code>recipient_id</code> 与 <code>request_message_id</code>、联系人持有 <code>contact_holdings</code> 与人物发给场景联系人的 <code>outbox</code></td></tr></table>
+<table><tr><th>格式</th><th>当前版本</th><th>拒绝边界</th></tr><tr><td>地图文件 <code>schema_version</code></td><td>2</td><td>地点可带分店标签 <code>branch_label</code>；数据集声明与三个目录文件同用此版本，结构 1 的地图直接拒绝；声明与文件身份、完整路线关系共同校验</td></tr><tr><td>商品目录 <code>version_major</code></td><td>4</td><td>原生品类对象与独立供给共同发布；两条分支旧目录 3.0 均不作为新身份</td></tr><tr><td>品类与交换规则 <code>contract_version</code></td><td>2</td><td>购买规则删除商品价格槽，保留动态供给报价的闭集求值</td></tr><tr><td>生活场景 <code>schema_version</code></td><td>3</td><td>地点、商品与供给按身份引用，旧内嵌地点和路线拒绝；含旧键 <code>max_consecutive_rejections</code> 拒绝</td></tr><tr><td>世界状态 <code>schema_version</code></td><td>8</td><td>旧检查点（含版本 7）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 <code>remind_at</code>、<code>reminded_at</code> 与已生成计划的日期 <code>plan_submitted_dates</code>）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 <code>opened_by_action_id</code>、活动的暂停时刻 <code>paused_at</code> 与进食的开吃份量 <code>opened</code>、订单的 <code>recipient_id</code> 与 <code>request_message_id</code>、联系人持有 <code>contact_holdings</code> 与人物发给场景联系人的 <code>outbox</code></td></tr></table>
 <p>目录通过 <code>scripts/build_catalog.py</code> 生成，地图通过 <code>scripts/prepare_map.py</code> 从显式输入准备与发布。
 地图准备的发布流程见<a href="#c3-冻结地图的准备与发布">资源引擎</a>。不保留旧场景迁移脚本或兼容输入层。</p>
 <h3 id="c8-32-交互菜单声明">3.2 交互菜单声明</h3>
@@ -3285,6 +3285,13 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 <code>locations</code> 只写 <code>location_id</code>，<code>products</code> 只写 <code>product_id</code>，<code>supplies</code> 写 <code>supply_id</code> 及可选 <code>initial_stock</code>。
 地点名称、坐标、营业、路线和供给定义从固定资料装配，不在场景手抄副本，也不添加额外配置层。
 人物 <code>qualifications</code> 显式声明；访问与供给资格不能从人物画像推断。</p>
+<p>地图地点可选 <code>branch_label</code>（非空字符串）区分同名地点：显示名为「名称（branch_label）」，例如「全家（东昌路店）」，
+不要把坐标或内部标识写进名称来避开重名。运行时场景的地点以显示名为名称，工具层、环境层、拒绝原因、会话名、事件与导出
+都用它；没有 <code>branch_label</code> 的地点名称不变。场景加载在目录准入之后另做三项世界准入：所选地点的 <code>kind</code> 属于环境层的场所
+类型闭集（<a href="../CONTRACTS.md#地点类词表">地点类词表</a>）；所选地点显示名唯一，同名而没有不同的 <code>branch_label</code> 即拒绝；
+每个人物可能同时看到的对象名称唯一（地点、门店商品、持有物、商品目录、内容、游戏、生活活动、工作、人物、联系人、邮件与
+「自己」，写法与观察投影同一来源）。任一不满足都以 <code>IntegrityError</code> 拒绝加载并写明原因，不再等到运行中途才由环境层或
+观察投影报错。</p>
 <p>完整运行时场景包含解析后的地图、地点、路线、商品和供给。地图和场景选区共同校验账户、产品、
 供给组合和有向路线覆盖。每个端点/方式组合必须有可达、不可达或带来源的未知记录；漏项拒绝。
 营业与报价的有效期、核对日期、可信截止日及来源在发布前验证。旧整点营业和旧商品单店字段直接拒绝。
@@ -3367,14 +3374,14 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 <h3 id="c8-82-校验清单">8.2 校验清单</h3>
 <p>运行凭据项在模拟启动器中检查，不由 <code>worldmock validate</code> 执行。
 画像抽取和 LabelKit 的凭据读取边界见<a href="../manual/runtime.md">运行配置手册</a>，不能视为执行同一套文件校验。</p>
-<table><tr><th>校验项</th><th>检查内容</th><th>失败行为</th></tr><tr><td>Schema 版本</td><td>满足当前场景模型的整数版本约束</td><td>拒绝启动，说明不受支持的版本</td></tr><tr><td>必填字段</td><td>所有必填字段存在且类型正确</td><td>拒绝启动，列出缺失字段</td></tr><tr><td>时间窗口</td><td><code>end_at &gt; start_at</code></td><td>拒绝启动</td></tr><tr><td>初始状态</td><td>按资源单位与目录边界校验能量、睡眠不足、娱乐需要；娱乐缓解的下限偏好须在开区间 (0, 1) 内；运行时继续满足各状态约束</td><td>拒绝启动</td></tr><tr><td>地点引用</td><td><code>agents[].home_location_id</code> 指向已声明地点</td><td>拒绝启动</td></tr><tr><td>交互菜单</td><td>地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项</td><td>以 <code>IntegrityError</code> 拒绝启动，保留英文校验原因</td></tr><tr><td>目录准入</td><td>满足 <code>category_requirements</code>，内容摘要一致，全部可能触达配对已定义或已审核不作用</td><td>未定义、歧义或文件篡改拒绝启动，给出具体来源</td></tr><tr><td>语料哈希</td><td>文件 SHA-256 与清单一致</td><td>拒绝启动，列出不匹配文件</td></tr><tr><td>规则完整性</td><td>所有规则文件存在且可解析</td><td>拒绝启动</td></tr><tr><td>运行凭据</td><td>固定文件存在且非符号链接；仅含 <code>DEEPSEEK_NODE_KEYS</code>，值及密钥段非空</td><td>文件缺失或不安全时报 <code>FileNotFoundError</code>，内容无效时报 <code>IntegrityError</code>；<code>0600</code> 仅为推荐权限</td></tr></table>
+<table><tr><th>校验项</th><th>检查内容</th><th>失败行为</th></tr><tr><td>Schema 版本</td><td>满足当前场景模型的整数版本约束</td><td>拒绝启动，说明不受支持的版本</td></tr><tr><td>必填字段</td><td>所有必填字段存在且类型正确</td><td>拒绝启动，列出缺失字段</td></tr><tr><td>时间窗口</td><td><code>end_at &gt; start_at</code></td><td>拒绝启动</td></tr><tr><td>初始状态</td><td>按资源单位与目录边界校验能量、睡眠不足、娱乐需要；娱乐缓解的下限偏好须在开区间 (0, 1) 内；运行时继续满足各状态约束</td><td>拒绝启动</td></tr><tr><td>地点引用</td><td><code>agents[].home_location_id</code> 指向已声明地点</td><td>拒绝启动</td></tr><tr><td>地点类别</td><td>所选地点的 <code>kind</code> 属于环境层场所类型闭集（与 <code>PLACE_TYPES</code> 同源）</td><td>场景加载以 <code>IntegrityError</code> 拒绝，逐一写明越界的地点与类别</td></tr><tr><td>可见名称</td><td>所选地点显示名唯一（同名以地图 <code>branch_label</code> 消歧）；每个人物可能同时看到的对象名称唯一</td><td>场景加载以 <code>IntegrityError</code> 拒绝，逐一写明重复的显示名与地点，或写明重复的对象名称与来源</td></tr><tr><td>交互菜单</td><td>地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项</td><td>以 <code>IntegrityError</code> 拒绝启动，保留英文校验原因</td></tr><tr><td>目录准入</td><td>满足 <code>category_requirements</code>，内容摘要一致，全部可能触达配对已定义或已审核不作用</td><td>未定义、歧义或文件篡改拒绝启动，给出具体来源</td></tr><tr><td>语料哈希</td><td>文件 SHA-256 与清单一致</td><td>拒绝启动，列出不匹配文件</td></tr><tr><td>规则完整性</td><td>所有规则文件存在且可解析</td><td>拒绝启动</td></tr><tr><td>运行凭据</td><td>固定文件存在且非符号链接；仅含 <code>DEEPSEEK_NODE_KEYS</code>，值及密钥段非空</td><td>文件缺失或不安全时报 <code>FileNotFoundError</code>，内容无效时报 <code>IntegrityError</code>；<code>0600</code> 仅为推荐权限</td></tr></table>
 <h3 id="c8-83-校验报告">8.3 校验报告</h3>
 <p>交互菜单准入由场景加载完成：<code>load_scenario</code> 成功即已通过菜单字段与覆盖检查，失败由
 <code>IntegrityError</code> 和英文日志给出原因；现有报告不另加独立菜单结果字段。
 报告只记录实际结果，不能用固定数量或示例 <code>passed</code> 值冒充一次真实校验。可复现的命令、源码身份和精确输出进入
 <a href="../dev/research/interaction-menu-verification.md">交互菜单验收记录</a>。</p>
 <h3 id="c8-84-错误分类与提示">8.4 错误分类与提示</h3>
-<table><tr><th>错误类型</th><th>示例</th><th>用户提示</th></tr><tr><td>Schema 版本错误</td><td>不受支持的 <code>schema_version</code></td><td>"Unsupported scenario schema version"</td></tr><tr><td>字段缺失</td><td>缺少 <code>agents</code></td><td>"Required field 'agents' is missing"</td></tr><tr><td>类型错误</td><td><code>initial_balance_fen: "invalid"</code></td><td>"Field 'initial_balance_fen' must be an integer"</td></tr><tr><td>引用错误</td><td><code>home_location_id: "unknown"</code></td><td>"Location 'unknown' is not declared"</td></tr><tr><td>菜单声明错误</td><td>地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项</td><td><code>IntegrityError</code> 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码</td></tr><tr><td>哈希不匹配</td><td>语料文件被修改</td><td>"Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布</td></tr><tr><td>凭据内容错误</td><td>未知键、空值或空密钥段</td><td>"DeepSeek credential file has an invalid schema"</td></tr></table>
+<table><tr><th>错误类型</th><th>示例</th><th>用户提示</th></tr><tr><td>Schema 版本错误</td><td>不受支持的 <code>schema_version</code></td><td>"Unsupported scenario schema version"</td></tr><tr><td>字段缺失</td><td>缺少 <code>agents</code></td><td>"Required field 'agents' is missing"</td></tr><tr><td>类型错误</td><td><code>initial_balance_fen: "invalid"</code></td><td>"Field 'initial_balance_fen' must be an integer"</td></tr><tr><td>引用错误</td><td><code>home_location_id: "unknown"</code></td><td>"Location 'unknown' is not declared"</td></tr><tr><td>地点类别越界</td><td>地图把所选地点的 <code>kind</code> 写成 <code>fuel</code></td><td>"Selected locations use kinds that are not place types: &lt;地点&gt; kind 'fuel'; …; allowed kinds: …"（逐一列出全部越界地点）</td></tr><tr><td>地点重名</td><td>两处所选地点同名且没有不同的 <code>branch_label</code></td><td>"Selected locations share display names: '&lt;显示名&gt;' (&lt;地点&gt;, &lt;地点&gt;); …; declare distinct branch_label values in the map"（逐一列出全部重名）</td></tr><tr><td>对象名称重复</td><td>同一人物名下两项工作同名、两位联系人同称谓等</td><td>"Agent &lt;人物&gt; would see non-unique object labels: '&lt;名称&gt;' from &lt;来源&gt;, &lt;来源&gt;"</td></tr><tr><td>菜单声明错误</td><td>地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项</td><td><code>IntegrityError</code> 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码</td></tr><tr><td>哈希不匹配</td><td>语料文件被修改</td><td>"Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布</td></tr><tr><td>凭据内容错误</td><td>未知键、空值或空密钥段</td><td>"DeepSeek credential file has an invalid schema"</td></tr></table>
 <h2 id="c8-9-配置版本与运行绑定">9. 配置版本与运行绑定</h2>
 <p>场景使用当前定义并在运行前校验，资源与可供性的发布边界见
 <a href="#c3-构建与版本">资源引擎设计</a>。
