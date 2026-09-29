@@ -21,7 +21,9 @@ from worldmock.footprints.models import (
 from worldmock.profile.injection import INPUT_WARNING_CODES
 from worldmock.footprints.timeline_labels import timeline_label_report
 from worldmock.life.control_items import control_items
+from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, HOST_NAME_CODES
 from worldmock.life.reply_guard import GUARD_PATTERNS
+from worldmock.life.same_moment import free_rejection_flags
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -86,6 +88,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "input_warnings": _input_warning_quality(manifest),
         "timeline_labels": timeline_label_report(events, manifest),
         "contact_reply_guard": _contact_reply_guard_quality(events),
+        "name_rejections": _name_rejection_quality(events),
     }
 
 
@@ -842,6 +845,50 @@ def _contact_reply_guard_quality(events: list[Event]) -> dict:
         "fallbacks": sum(data.get("guard_applied") is True for data in guarded),
         "hits_by_category": {code: sum(code in codes for codes in matched) for code in GUARD_PATTERNS},
     }
+
+
+def _name_rejection_quality(events: list[Event]) -> dict:
+    """@brief 名称类拒绝与其余协议错误分开计数（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）。
+
+    宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的协议错误串，按 life_feedback.feedback_report
+    判定错误码：名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
+    重放）按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
+    轮数、不施加脉冲）的次数。只报告，不放行。
+    """
+    from custom.agents.life_feedback import feedback_report
+
+    host: Counter[str] = Counter()
+    other: Counter[str] = Counter()
+    for event in _terminal_responses(events):
+        if event.data.get("error") and not event.data.get("purpose"):
+            code = feedback_report(str(event.data["error"])).error_code
+            (host if code in HOST_NAME_CODES else other)[code] += 1
+    rejected = [event for event in events
+                if event.event_type == "action_rejected" and event.data.get("reused") is not True]
+    codes = Counter(event.data.get("error_code") for event in rejected)
+    moments: dict[tuple, list] = defaultdict(list)
+    for event in rejected:
+        moments[(event.agent_id, event.occurred_at)].append(event.data.get("error_code"))
+    return {
+        "host_protocol_errors": sum(host.values()),
+        "host_codes": {code: host[code] for code in sorted(HOST_NAME_CODES)},
+        "other_protocol_errors": sum(other.values()),
+        "other_protocol_codes": dict(sorted(other.items())),
+        "environment_rejections": sum(codes[code] for code in ENVIRONMENT_NAME_CODES),
+        "environment_codes": {code: codes[code] for code in sorted(ENVIRONMENT_NAME_CODES)},
+        "environment_free_rejections": sum(sum(free_rejection_flags(row)) for row in moments.values()),
+        "method": "Host codes from decision protocol-error evidence via life_feedback.feedback_report; environment "
+                  "codes from non-replayed action_rejected; free = first two name rejections per agent and second",
+    }
+
+
+def _terminal_responses(events: list[Event]) -> list[Event]:
+    """@brief 按调用身份去重后的模型终态响应（重复终态取最早含提供商响应的一条，与模型用量同一口径）。"""
+    terminals: dict[str, list[Event]] = defaultdict(list)
+    for event in events:
+        if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
+            terminals[event.data["call_id"]].append(event)
+    return [_select_terminal(rows) for _, rows in sorted(terminals.items())]
 
 
 def _acceleration(events: list[Event], manifest: dict) -> dict:
