@@ -163,6 +163,8 @@ flowchart TB
 `body_settlement`、`resource_flows`、`decision_offered` 和 `wake_reasons`。同一边界的各
 `activity_progress.data.body_settlement_event_id` 引用这条已提交事件；各自只保存本活动的
 进度、效率、消费和内容接触，不复制共同身体变化或将联合代谢成本分摊给某条活动。
+`activity_ids` 同时是该区间社交账的唯一口径来源：节律结算按它判定这段区间是否在睡、是否由交谈或通话记账、是否共同用餐，
+不按推进后的活动状态重新推断，所以在边界结束的睡眠整段按睡眠计、在边界吃完的一餐仍算共同用餐；事件结构不因此增加字段。
 
 场景本地零点（不是运行终点）的边界分两次提交：推进先提交旧日的结算，即带旧计划快照 `data.day_plan` 的
 `activity_progress` 与终态结果，随后由零点计划为人物登记新计划（`day_plan_generated`）；该边界的共同身体结算

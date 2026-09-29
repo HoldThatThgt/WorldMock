@@ -30,7 +30,7 @@ from worldmock.life.body import (
     decay_mood,
     next_shared_body_boundary_seconds,
 )
-from worldmock.life.models import (ActivityKind, ActivityStatus, AgentState, WorldState,
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, AgentState, WorldState,
                                    active_activities)
 from worldmock.life.projection import felt_values
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
@@ -68,7 +68,7 @@ class RhythmInputs:
     meal_windows_by_agent: dict[int, felt.MealWindows] = field(default_factory=dict)
     #: 本 tick 由预排事件触发的唤醒旗标：agent_id -> {wake_reason 名}。
     arrival_flags: dict[int, set[str]] = field(default_factory=dict)
-    #: 待注解的本人活动进度及唯一共同身体草稿。
+    #: 待注解的本人活动进度及唯一共同身体草稿；草稿的 activity_ids 也是本区间社交账所按的活动集合。
     progress_data: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
 
@@ -252,15 +252,17 @@ def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentS
 def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     """@brief 清醒社交需要增长 +0.04/h 与共同用餐 −0.3/h（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
-    CHAT/CALL 活动区间的账本由 life.social_actions.advance_social 在活动结算内
-    推进（含清醒增长），此处跳过避免重复计数。
+    是否在睡、交谈与通话覆盖、共同用餐都按本区间共同身体结算所用的活动集合判定（_interval_activities，
+    docs/dev/SPEC-dayrun-fidelity.md 1.1），不在推进后重新推断：在本边界结束的睡眠整段仍按睡眠计，不计清醒增长；
+    计费小时取本边界的区间（inputs.interval_seconds）。CHAT/CALL 活动区间的账本由 life.social_actions.advance_social
+    在活动结算内推进（含清醒增长），此处跳过避免重复计数。
     """
-    if _social_activity_covered(agent, inputs):
+    activities = _interval_activities(agent, inputs)
+    if _social_activity_covered(activities):
         return agent
-    asleep = any(item.kind == ActivityKind.SLEEP
-                 for item in active_activities(inputs.state, agent.agent_id))
+    asleep = any(item.kind == ActivityKind.SLEEP for item in activities)
     hours = 0.0 if asleep else inputs.interval_seconds / 3600
-    shared = (hours if _shared_meal(agent, inputs) else 0.0)
+    shared = (hours if _shared_meal(agent, inputs, activities) else 0.0)
     if hours <= 0 and shared <= 0:
         return agent
     body = apply_social_ledger(agent.body, felt.SocialExposure(
@@ -268,26 +270,49 @@ def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> Agent
     return agent.model_copy(update={"body": body}, deep=True)
 
 
-def _social_activity_covered(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 本区间是否由 CHAT/CALL 活动结算推进（其内部已应用账本）。"""
-    now = inputs.state.current_time
-    for activity in inputs.state.activities.values():
-        if activity.agent_id != agent.agent_id:
-            continue
-        ended_here = (activity.status == ActivityStatus.COMPLETED
-                      and activity.ended_at == now)
-        active_now = activity.status == ActivityStatus.ACTIVE
-        if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL} and (ended_here or active_now):
-            return True
-    return False
+def _interval_activities(agent: AgentState, inputs: RhythmInputs) -> list[ActivityState]:
+    """@brief 本结算区间的本人活动集合（docs/dev/SPEC-dayrun-fidelity.md 1.1「区间事实只有一个来源」）。
+
+    取本边界共同身体结算草稿（RhythmInputs.progress_data，零点路径同样携带）的 activity_ids：推进前进行中、结算
+    本区间共同身体所用的活动。_next_epoch 把每个活动的计划结束、未触发的提醒与预排事件都当作边界，区间内集合恒定。
+    没有草稿时（直接调用或单测）兜底为进行中或恰在本边界结束（COMPLETED 且 ended_at == now）的本人活动，
+    与 _woke_from_sleep 同一口径。
+
+    @param agent 人物状态
+    @param inputs 本边界的节律输入
+    @return 本区间的活动（推进后的权威状态，按草稿顺序或活动身份顺序）
+    """
+    state = inputs.state
+    for data in inputs.progress_data.get(agent.agent_id, []):
+        if data.get("kind") == "body_settlement":
+            return [state.activities[activity_id] for activity_id in data["activity_ids"]]
+    now = state.current_time
+    return [item for item in state.activities.values()
+            if item.agent_id == agent.agent_id
+            and (item.status == ActivityStatus.ACTIVE
+                 or item.status == ActivityStatus.COMPLETED and item.ended_at == now)]
 
 
-def _shared_meal(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 本区间是否共同用餐：进食活动进行中且同地点有他人在场。"""
+def _social_activity_covered(activities: list[ActivityState]) -> bool:
+    """@brief 本区间是否由 CHAT/CALL 活动结算推进（其内部已应用账本）：区间活动集合里有交谈或通话。"""
+    return any(item.kind in {ActivityKind.CHAT, ActivityKind.CALL} for item in activities)
+
+
+def _shared_meal(agent: AgentState, inputs: RhythmInputs, activities: list[ActivityState]) -> bool:
+    """@brief 本区间是否共同用餐：区间活动集合里有堂食的进食（在本边界吃完的一餐也算），且此刻同地点有他人在场。"""
     eating = any(item.kind == ActivityKind.CONSUME
                  and item.data.get("request", {}).get("use_mode") == "eat"
-                 for item in active_activities(inputs.state, agent.agent_id))
+                 for item in activities)
     return eating and bool(_people_here(inputs.state, agent))
+
+
+def is_asleep(state: WorldState, agent_id: int) -> bool:
+    """@brief 人物此刻是否在睡：有进行中的睡眠活动（边界判定段与决策轮提交记已读共用这一口径，睡眠中不读消息）。
+
+    @param state 世界状态（边界判定段取推进后的状态，决策轮取轮前观察所用的状态）
+    @param agent_id 人物身份
+    """
+    return any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent_id))
 
 
 def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:

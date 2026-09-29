@@ -195,7 +195,7 @@ flowchart TB
 | `sleep_deficit_hours` | float | [0, 24] | 睡眠不足账，小时；决定工作和食品利用效率 |
 | `sleep_need_hours` | float | [7.0, 9.0] | 睡眠需要，小时 |
 | `chronotype_midsleep` | float | [0, 24) | 时型（睡眠中点），小时 |
-| `social_need` | float | [0, 1] | 社交需要 |
+| `social_need` | float | [0, 1] | 社交需要：清醒每小时 +0.04，是否清醒按本区间共同身体结算 `body_settlement.activity_ids` 所用的活动集合判定（集合含睡眠即整段不增长，在边界结束的睡眠也一样）；交谈、通话、共同用餐与读消息减少 |
 | `mood_valence` | float | [-1, 1] | 情绪效价 |
 | `neuroticism_norm` | float | [-1, 1] | 神经质归一化 |
 | `entertainment_need` | float | [0, 1] | 娱乐需要 |
