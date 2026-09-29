@@ -14,7 +14,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, context, last_result, stage_day_plan, submit_round, target_actions,
-                                 tool_targets, start_request)
+                                 tool_targets, start_request, report_request)
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import order_routing
@@ -311,7 +311,6 @@ def _live_until(engine: LifeEngine, moment: int) -> None:
     """@brief 真实推进到 moment：到达或活动结束后当秒收尾，有进行中活动时照常播报，空闲时等待。"""
     from tests.life.conftest import activity_name, conclude_pending, start_activity
     from worldmock.life import activity_control
-    from worldmock.life.models import ReportStatusRequest
 
     for step in range(64):
         if engine.state.current_time >= moment:
@@ -322,7 +321,7 @@ def _live_until(engine: LifeEngine, moment: int) -> None:
             conclude_pending(engine, f"live-conclude-{step}")
         elif active_activities(engine.state, 1):
             name = activity_name(engine, active_activities(engine.state, 1)[0].activity_id)
-            _act(engine, f"live-report-{step}", "report_status", ReportStatusRequest(task=[name], summary=["继续。"]))
+            _act(engine, f"live-report-{step}", "report_status", report_request(name, summary="继续。"))
         else:
             _act(engine, f"live-wait-{step}", "start_activity", start_activity("等待", "自己"))
     raise AssertionError("the run did not reach the moment")

@@ -9,11 +9,16 @@ from zoneinfo import ZoneInfo
 
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
+from worldmock.footprints.timeline_labels import label_findings
+from worldmock.life.models import ActivityKind
+from worldmock.life.readable import ACTIVITY_KIND_LABELS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TZ = ZoneInfo("Asia/Shanghai")
 DAY = date(2026, 1, 5)
 DAY0 = int(datetime(2026, 1, 5, 0, 0, tzinfo=TZ).timestamp())
+#: BIZ 商务一日运行（4a5b0e6）两段通话与一段工作的原始进度记录、给它们命名的观察行，以及修复前导出的时间线行。
+BIZ_TIMELINE = json.loads((REPO_ROOT / "tests" / "fixtures" / "dayrun-biz-timeline.json").read_text(encoding="utf-8"))
 
 
 def _load_script(name):
@@ -179,14 +184,68 @@ def test_resolves_names_from_seven_layer_observation_evidence_keys(tmp_path):
     assert "office" not in markdown and "noodle-01" not in markdown
 
 
-def test_unresolvable_target_uses_readable_short_label(tmp_path):
-    """标题缺失时回退可读短标签，不输出裸 hex 标识。"""
+def test_unresolvable_targets_show_only_the_chinese_kind_name(tmp_path):
+    """名称解析不到时只写中文种类名：每个活动种类都不输出英文种类名、内部标识或其片段（docs/dev/SPEC-dayrun-fidelity.md
+    7.4）。"""
     hex_id = "a1b2c3d4" * 4
-    watch = _snapshot("act-watch", "watch", target_id=hex_id)
-    events = [_observation({}), _progress("act-watch", watch, _at(19, 13), _at(19, 53))]
+    targets = {"watch": hex_id, "play_game": "game-0001", "read_mail": "mail-9", "consume": "noodle-01",
+               "browse": "catalog-x", "lifestyle": "lifestyle:yoga", "work": "task-zhaoming-client-a"}
+    data = {"call": {"contact_id": "contact-zhaoming-colleague"}, "chat": {"partner_id": "agent:2"}}
+    kinds = [kind.value for kind in ActivityKind]
+    events = [_observation({})]
+    for index, kind in enumerate(kinds):
+        snapshot = _snapshot(f"act-{kind}", kind, target_id=targets.get(kind), data=data.get(kind, {}),
+                             travel_mode="teleport" if kind == "travel" else None, destination_id="loc-x")
+        events.append(_progress(f"act-{kind}", snapshot, _at(8, index * 2), _at(8, index * 2 + 1)))
+    events.append(_progress("act-odd", _snapshot("act-odd", "levitate"), _at(9, 0), _at(9, 5)))
     markdown = _render(_build_store(tmp_path, events), 1)
-    assert f"看（#{hex_id[-6:]}）" in markdown
-    assert hex_id not in markdown
+    labels = [line.split(" | ")[1] for line in markdown.splitlines()[4:]]
+    assert labels == [ACTIVITY_KIND_LABELS[kind] for kind in kinds] + ["活动"]
+    for text in (*targets.values(), *data["call"].values(), *data["chat"].values(), "#b2c3d4", "loc-x", "teleport"):
+        assert text not in markdown
+    assert not [(label, found) for label in labels for found in label_findings(label)]
+
+
+def test_work_call_and_chat_rows_name_the_task_contact_and_person(tmp_path):
+    """工作、通话、交谈写任务标题、联系人称谓与人物姓名：先取引擎写在快照上的标题；旧运行的快照没有标题时，由名称索引
+    （观察的 tasks、联系人与人物的私有绑定）解析。"""
+    observation = _observation({
+        "tasks": [{"task_id": "task-2026-01-05", "title": "1月5日项目会议纪要"}],
+        "interaction_bindings": [{"object": "联系人：王磊", "kind": "contact", "object_id": "contact-wanglei",
+                                  "actions": []}],
+        "person_bindings": [{"name": "人物：李凡", "person_id": "agent:2"}],
+    })
+    titled = [_snapshot("act-work", "work", target_id="task-2026-01-05", title="1月5日项目会议纪要"),
+              _snapshot("act-call", "call", data={"contact_id": "contact-mother"}, title="陈母"),
+              _snapshot("act-chat", "chat", data={"partner_id": "agent:2"}, title="李凡")]
+    indexed = [_snapshot("old-work", "work", target_id="task-2026-01-05"),
+               _snapshot("old-call", "call", data={"contact_id": "contact-wanglei"}),
+               _snapshot("old-chat", "chat", data={"partner_id": "agent:2"})]
+    events = [observation] + [_progress(item["activity_id"], item, _at(9, index * 10), _at(9, index * 10 + 5))
+                              for index, item in enumerate(titled + indexed)]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    labels = [line.split(" | ")[1] for line in markdown.splitlines()[4:]]
+    assert labels == ["工作「1月5日项目会议纪要」", "和陈母通话", "和李凡交谈",
+                      "工作「1月5日项目会议纪要」", "和王磊通话", "和李凡交谈"]
+
+
+def test_real_biz_run_rows_name_the_calls_and_the_work_task(tmp_path):
+    """BIZ 一日运行的原始记录（快照不带标题）重新投影：修复前导出的「call」「工作（task-zhaoming-client-a）」写成联系人
+    称谓与任务标题；标签检查对修复前的行报英文种类名与内部标识，对重新投影的行为零（docs/dev/SPEC-dayrun-fidelity.md 7.4）。"""
+    observation = BIZ_TIMELINE["observation"]
+    drafts = [_observation(observation["data"], occurred_at=observation["occurred_at"], agent=5)]
+    drafts += [EventDraft(event_type="activity_progress", occurred_at=item["occurred_at"], agent_id=5,
+                          activity_id=item["data"]["activity"]["activity_id"], data=item["data"])
+               for item in BIZ_TIMELINE["progress"]]
+    sqlite_path = _build_store(tmp_path, sorted(drafts, key=lambda item: item.occurred_at), agent_ids=(5,))
+    rows = [line.split(" | ")[:2] for line in _render(sqlite_path, 5, date(2026, 9, 28)).splitlines()[4:]]
+    assert [(interval.removeprefix("| "), label) for interval, label in rows] == [
+        ("09:15–09:30", "和刘洋通话"), ("09:48–10:03", "和张总通话"), ("10:40–11:15", "工作「整理客户A拜访纪要」")]
+    old = [line.split(" | ")[1] for line in BIZ_TIMELINE["exported_rows"]]
+    assert old == ["call", "call", "工作（task-zhaoming-client-a）"]
+    assert [label_findings(label) for label in old] == [
+        [("english_kind_name", "call")], [("english_kind_name", "call")], [("internal_id", "task-zhaoming-client-a")]]
+    assert not [found for _, label in rows for found in label_findings(label)]
 
 
 def test_output_is_byte_identical_for_same_inputs(tmp_path):

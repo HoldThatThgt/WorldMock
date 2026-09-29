@@ -2,9 +2,12 @@
 """@brief 从 footprints.sqlite 确定性投影人物一天的 timeline/<agent>-<date>.md。
 
 同一 activity_id 的连续 activity_progress 合并为一行（起止与总时长），
-静默边界产生的分段折叠不单列；活动目标解析为标题/品名/地名，无法解析时
-使用可读短标签而不是裸 hex 标识；按 agent_id 与场景时区（Asia/Shanghai）
-的模拟日期过滤。同库同参数输出逐字节相同。
+静默边界产生的分段折叠不单列；活动目标先取快照标题，再按名称索引解析为品名、地名、
+邮件主题、内容标题、生活活动名、任务标题与人名；种类名取 worldmock.life.readable 的中文种类表
+（单一来源），解析不到名称时只写中文种类名：时间线里不出现英文种类名与内部标识
+（docs/dev/SPEC-dayrun-fidelity.md 7.4）。按 agent_id 与场景时区（Asia/Shanghai）
+的模拟日期过滤。同库同参数输出逐字节相同；name_index 与 day_rows 也接受已排序的事件正文，
+质量报告的时间线标签检查据此投影同一张时间线。
 
 用法：
   python3 scripts/render_day.py <sqlite> --agent N --date YYYY-MM-DD [--out DIR]
@@ -15,25 +18,26 @@ import argparse
 import json
 import re
 import sqlite3
+import sys
+from collections.abc import Callable, Iterable, Iterator
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(_SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SOURCE_ROOT))
+
+from worldmock.life.readable import ACTIVITY_KIND_LABELS, BROWSE_LABELS, TRAVEL_WAYS  # noqa: E402
+
 #: 场景时区（修订合同：模拟日期按 Asia/Shanghai 切日）。
 SCENARIO_TIMEZONE = ZoneInfo("Asia/Shanghai")
-
-#: 无目标活动的一行标签；带目标活动的标签由各解析函数给出。
-_PLAIN_KIND_LABELS = {"wait": "空档", "sleep": "睡觉", "work": "工作"}
-
-#: 出行方式与浏览目录的中文标签（browse 目标闭集见引擎 activity_summary）。
-TRAVEL_MODES = {"driving": "驾车", "walking": "步行"}
-BROWSE_LABELS = {"product_catalog": "商品目录", "foods": "食品目录", "feature_film": "电影",
-                 "drama_series": "剧集", "webnovel_excerpt": "网文", "news_feed": "新闻",
-                 "joke_feed": "段子", "subtitle_experience": "字幕体验", "game_session": "游戏",
-                 "podcast_episode": "播客"}
+#: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、生活活动名、任务标题、人名（联系人与同世界人物）。
+NAME_KINDS = ("products", "locations", "messages", "contents", "lifestyles", "tasks", "people")
+#: 种类表之外的活动种类的中文名。
+_UNKNOWN_KIND_LABEL = "活动"
 
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
-_HEX_ID = re.compile(r"^[0-9a-f]{16,}$")
 _DATE_ARG = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -51,23 +55,36 @@ def _day_bounds(day: date) -> tuple[int, int]:
     return int(start.timestamp()), int((start + timedelta(days=1)).timestamp())
 
 
-def _segments_for_day(conn: sqlite3.Connection, agent_id: int, bounds: tuple[int, int]) -> list[dict]:
-    """@brief 读取该人物全部 activity_progress 并裁剪到当日区间。
+def _progress_bodies(conn: sqlite3.Connection, agent_id: int) -> Iterator[dict]:
+    """@brief 逐条读取该人物全部 activity_progress 事件正文（按 event_seq）。"""
+    sql = ("SELECT body FROM events WHERE json_extract(body,'$.agent_id')=? "
+           "AND json_extract(body,'$.event_type')='activity_progress' ORDER BY event_seq")
+    return (json.loads(body) for (body,) in conn.execute(sql, (agent_id,)))
+
+
+def _name_bodies(conn: sqlite3.Connection) -> Iterator[dict]:
+    """@brief 逐条读取全库 observation/action_result 事件正文（按 event_seq），名称索引的来源。"""
+    sql = ("SELECT body FROM events WHERE json_extract(body,'$.event_type') IN "
+           "('observation','action_result') ORDER BY event_seq")
+    return (json.loads(body) for (body,) in conn.execute(sql))
+
+
+def _segments_for_day(progress: Iterable[dict], bounds: tuple[int, int]) -> list[dict]:
+    """@brief 把 activity_progress 正文裁剪到当日区间。
 
     区间取事件 data 的 interval_start/interval_end（结算权威区间），
     与当日边界相交为空的事件丢弃；跨零点的区间被裁到 00:00。
     """
     day_start, day_end = bounds
     segments = []
-    sql = ("SELECT body FROM events WHERE json_extract(body,'$.agent_id')=? "
-           "AND json_extract(body,'$.event_type')='activity_progress' ORDER BY event_seq")
-    for (body,) in conn.execute(sql, (agent_id,)):
-        data = json.loads(body).get("data") or {}
+    for body in progress:
+        data = body.get("data") if isinstance(body.get("data"), dict) else {}
         start = min(max(int(data.get("interval_start", 0)), day_start), day_end)
         end = min(max(int(data.get("interval_end", 0)), day_start), day_end)
         if end <= start:
             continue
-        segments.append({"start": start, "end": end, "snapshot": data.get("activity") or {}})
+        snapshot = data.get("activity") if isinstance(data.get("activity"), dict) else {}
+        segments.append({"start": start, "end": end, "snapshot": snapshot})
     return segments
 
 
@@ -96,108 +113,147 @@ def _merge_runs(segments: list[dict]) -> list[dict]:
     return runs
 
 
+def _dict_rows(value: object) -> list[dict]:
+    """@brief 列表里的对象条目；不是列表时为空。"""
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _remember(bucket: dict, key: object, name: object) -> None:
+    """@brief 同一标识先出现者胜：非空标识与非空名称才登记。"""
+    if isinstance(key, str) and key and isinstance(name, str) and name and key not in bucket:
+        bucket[key] = name
+
+
+def _object_name(label: object) -> object:
+    """@brief 私有绑定的对象名去掉类别前缀：「联系人：王磊」→「王磊」。"""
+    return label.split("：", 1)[-1] if isinstance(label, str) else label
+
+
 def _absorb_observation(names: dict, data: dict) -> None:
     """@brief 吸收一条 observation/action_result 里的公开名称索引。"""
-    for product in data.get("products") or []:
+    for product in _dict_rows(data.get("products")):
         pid = product.get("product_id")
         if pid and pid not in names["products"] and product.get("name"):
             names["products"][pid] = {"name": product["name"],
                                       "use_modes": product.get("use_modes") or []}
-    for location in data.get("locations") or []:
-        lid = location.get("location_id")
-        if lid and lid not in names["locations"] and location.get("name"):
-            names["locations"][lid] = location["name"]
-    for message in data.get("messages") or []:
-        mid = message.get("message_id")
-        if mid and mid not in names["messages"] and message.get("subject"):
-            names["messages"][mid] = message["subject"]
-    for item_id, progress in (data.get("content_progress") or {}).items():
-        title = progress.get("title") if isinstance(progress, dict) else None
-        if title and item_id not in names["contents"]:
-            names["contents"][item_id] = title
-    for item in data.get("items") or []:
-        _absorb_catalog_item(names, item)
+    for location in _dict_rows(data.get("locations")):
+        _remember(names["locations"], location.get("location_id"), location.get("name"))
+    for message in _dict_rows(data.get("messages")):
+        _remember(names["messages"], message.get("message_id"), message.get("subject"))
+    progress = data.get("content_progress") if isinstance(data.get("content_progress"), dict) else {}
+    for item_id, row in progress.items():
+        _remember(names["contents"], item_id, row.get("title") if isinstance(row, dict) else None)
+    for item in _dict_rows(data.get("items")):
+        _remember(names["contents"], item.get("item_id"), item.get("title"))
+        _remember(names["lifestyles"], item.get("activity_id"), item.get("name"))
+    for task in _dict_rows(data.get("tasks")):
+        _remember(names["tasks"], task.get("task_id"), task.get("title"))
+    for binding in _dict_rows(data.get("interaction_bindings")):
+        if binding.get("kind") in ("contact", "person"):
+            _remember(names["people"], binding.get("object_id"), _object_name(binding.get("object")))
+    for binding in _dict_rows(data.get("person_bindings")):
+        _remember(names["people"], binding.get("person_id"), _object_name(binding.get("name")))
 
 
-def _absorb_catalog_item(names: dict, item: object) -> None:
-    """@brief 吸收 browse 结果目录条目（内容标题与生活活动名称）。"""
-    if not isinstance(item, dict):
-        return
-    item_id = item.get("item_id")
-    if item_id and item.get("title") and item_id not in names["contents"]:
-        names["contents"][item_id] = item["title"]
-    entry_id = item.get("activity_id")
-    if entry_id and item.get("name") and entry_id not in names["lifestyles"]:
-        names["lifestyles"][entry_id] = item["name"]
+def name_index(bodies: Iterable[dict]) -> dict:
+    """@brief 从 observation/action_result 事件正文（按 event_seq）建立确定性的名称索引。
 
-
-def _scan_names(conn: sqlite3.Connection) -> dict:
-    """@brief 扫描全库 observation/action_result 建立确定性的名称索引。
-
-    同一标识先出现者胜（按 event_seq 升序），名称是世界静态事实，
-    与过滤人物无关；解析不到时由标签回退路径处理。
+    同一标识先出现者胜，名称是世界静态事实，与过滤人物无关；其他事件类型忽略。
+    解析不到名称时，标签只写中文种类名。
     """
-    names = {"products": {}, "locations": {}, "messages": {}, "contents": {}, "lifestyles": {}}
-    sql = ("SELECT body FROM events WHERE json_extract(body,'$.event_type') IN "
-           "('observation','action_result') ORDER BY event_seq")
-    for (body,) in conn.execute(sql):
-        _absorb_observation(names, json.loads(body).get("data") or {})
+    names: dict = {kind: {} for kind in NAME_KINDS}
+    for body in bodies:
+        if body.get("event_type") in ("observation", "action_result") and isinstance(body.get("data"), dict):
+            _absorb_observation(names, body["data"])
     return names
 
 
-def _short_ref(value: object) -> str:
-    """@brief 生成可读短标签：长 hex 标识折叠为 # 尾 6 位，可读 id 原样保留。"""
-    text = str(value or "")
-    if _HEX_ID.match(text):
-        return "#" + text[-6:]
-    return text
+def _title(snapshot: dict) -> str | None:
+    """@brief 活动快照上引擎写的标题（活动关联对象的名称），没有时为 None。"""
+    title = snapshot.get("title")
+    return title if isinstance(title, str) and title else None
+
+
+def _snapshot_data(snapshot: dict) -> dict:
+    """@brief 活动快照的数据字典（通话、交谈的对象身份在这里）。"""
+    return snapshot.get("data") if isinstance(snapshot.get("data"), dict) else {}
 
 
 def _travel_label(snapshot: dict, names: dict) -> str:
-    """@brief 出行标签：方式加目的地地名。"""
-    mode = TRAVEL_MODES.get(snapshot.get("travel_mode"), "出行")
+    """@brief 出行标签：方式加目的地地名，地名解析不到时只写方式。"""
+    mode = TRAVEL_WAYS.get(str(snapshot.get("travel_mode")), ACTIVITY_KIND_LABELS["travel"])
     destination = names["locations"].get(snapshot.get("destination_id"))
     return f"{mode}去{destination}" if destination else mode
 
 
-def _media_label(kind: str, target: object, snapshot: dict, names: dict) -> str:
-    """@brief 内容标签：快照标题优先，其次观察目录标题，最后短标签回退。"""
-    name = snapshot.get("title") or names["contents"].get(target)
+def _media_label(snapshot: dict, names: dict) -> str:
+    """@brief 观看与游戏标签：快照标题优先，其次观察目录标题；都没有时只写种类名。"""
+    kind = str(snapshot.get("kind"))
+    name = _title(snapshot) or names["contents"].get(snapshot.get("target_id"))
     verb = "看" if kind == "watch" else "玩游戏"
-    if name:
-        return f"{verb}《{name}》"
-    return f"{verb}（{_short_ref(target)}）" if target else verb
+    return f"{verb}《{name}》" if name else ACTIVITY_KIND_LABELS[kind]
 
 
-def _consume_label(target: object, names: dict) -> str:
+def _mail_label(snapshot: dict, names: dict) -> str:
+    """@brief 读邮件标签：带邮件主题。"""
+    subject = names["messages"].get(snapshot.get("target_id"))
+    return f"读邮件「{subject}」" if subject else ACTIVITY_KIND_LABELS["read_mail"]
+
+
+def _consume_label(snapshot: dict, names: dict) -> str:
     """@brief 进食/使用标签：按商品 use_modes 区分动词。"""
-    product = names["products"].get(target) or {}
+    product = names["products"].get(snapshot.get("target_id")) or {}
+    if not product.get("name"):
+        return ACTIVITY_KIND_LABELS["consume"]
     verb = "吃" if "eat" in (product.get("use_modes") or []) else "用"
-    if product.get("name"):
-        return f"{verb} {product['name']}"
-    return f"用（{_short_ref(target)}）" if target else "消费"
+    return f"{verb} {product['name']}"
+
+
+def _browse_label(snapshot: dict, names: dict) -> str:
+    """@brief 浏览标签：带目录的中文名。"""
+    catalog = BROWSE_LABELS.get(str(snapshot.get("target_id")))
+    return f"浏览{catalog}" if catalog else ACTIVITY_KIND_LABELS["browse"]
+
+
+def _lifestyle_label(snapshot: dict, names: dict) -> str:
+    """@brief 生活活动标签：活动名称本身。"""
+    return (_title(snapshot) or names["lifestyles"].get(snapshot.get("target_id"))
+            or ACTIVITY_KIND_LABELS["lifestyle"])
+
+
+def _work_label(snapshot: dict, names: dict) -> str:
+    """@brief 工作标签：带任务标题。"""
+    title = _title(snapshot) or names["tasks"].get(snapshot.get("target_id"))
+    return f"工作「{title}」" if title else ACTIVITY_KIND_LABELS["work"]
+
+
+def _call_label(snapshot: dict, names: dict) -> str:
+    """@brief 通话标签：和联系人通话（称谓取快照标题或名称索引）。"""
+    name = _title(snapshot) or names["people"].get(_snapshot_data(snapshot).get("contact_id"))
+    return f"和{name}通话" if name else ACTIVITY_KIND_LABELS["call"]
+
+
+def _chat_label(snapshot: dict, names: dict) -> str:
+    """@brief 交谈标签：和同世界人物当面交谈（姓名取快照标题或名称索引）。"""
+    name = _title(snapshot) or names["people"].get(_snapshot_data(snapshot).get("partner_id"))
+    return f"和{name}交谈" if name else ACTIVITY_KIND_LABELS["chat"]
+
+
+#: 带对象的活动种类 → 标签函数；等待与睡眠只写种类名。
+_LABELERS: dict[str, Callable[[dict, dict], str]] = {
+    "travel": _travel_label, "watch": _media_label, "play_game": _media_label, "read_mail": _mail_label,
+    "consume": _consume_label, "browse": _browse_label, "lifestyle": _lifestyle_label, "work": _work_label,
+    "call": _call_label, "chat": _chat_label,
+}
 
 
 def _activity_label(snapshot: dict, names: dict) -> str:
-    """@brief 把活动快照解析为中文一行标签，不暴露裸 hex 标识。"""
+    """@brief 把活动快照解析为中文一行标签，不写英文种类名与内部标识。"""
     kind = str(snapshot.get("kind") or "")
-    target = snapshot.get("target_id")
-    base = _PLAIN_KIND_LABELS.get(kind, kind if kind else "活动")
-    if kind == "travel":
-        return _travel_label(snapshot, names)
-    if kind in ("watch", "play_game"):
-        return _media_label(kind, target, snapshot, names)
-    if kind == "read_mail":
-        subject = names["messages"].get(target)
-        return f"读邮件「{subject}」" if subject else "读邮件"
-    if kind == "consume":
-        return _consume_label(target, names)
-    if kind == "browse":
-        return f"浏览{BROWSE_LABELS.get(str(target), _short_ref(target))}" if target else "浏览"
-    if kind == "lifestyle":
-        name = snapshot.get("title") or names["lifestyles"].get(target)
-        return str(name) if name else (f"生活活动（{_short_ref(target)}）" if target else "生活活动")
-    return f"{base}（{_short_ref(target)}）" if target else base
+    labeler = _LABELERS.get(kind)
+    if labeler is not None:
+        return labeler(snapshot, names)
+    return ACTIVITY_KIND_LABELS.get(kind, _UNKNOWN_KIND_LABEL)
 
 
 def _fmt_clock(epoch: int) -> str:
@@ -216,21 +272,33 @@ def _fmt_duration(seconds: int) -> str:
     return f"{rest} 分钟"
 
 
-def render_day_markdown(conn: sqlite3.Connection, agent_id: int, day: date) -> str:
-    """@brief 生成该人物该日的确定性时间线 markdown 全文。"""
-    segments = _segments_for_day(conn, agent_id, _day_bounds(day))
-    runs = sorted(_merge_runs(segments),
+def day_rows(progress: Iterable[dict], names: dict, day: date) -> list[dict]:
+    """@brief 该人物该日时间线的各行：起止、活动标签、总时长与段数，按起止与活动身份排序。
+
+    :param progress: 该人物的 activity_progress 事件正文（按 event_seq）。
+    :param names: name_index 建立的名称索引。
+    """
+    runs = sorted(_merge_runs(_segments_for_day(progress, _day_bounds(day))),
                   key=lambda run: (run["start"], run["end"], run["activity_id"]))
-    names = _scan_names(conn)
+    return [{"interval": f"{_fmt_clock(run['start'])}–{_fmt_clock(run['end'])}",
+             "label": _activity_label(run["snapshot"], names), "duration": _fmt_duration(run["seconds"]),
+             "count": run["count"]} for run in runs]
+
+
+def _markdown(agent_id: int, day: date, rows: list[dict]) -> str:
+    """@brief 时间线 markdown 全文：标题行、表头与各行；当日没有活动时写空标记。"""
     lines = [f"# 人物 {agent_id} · {day.isoformat()} 周{WEEKDAYS[day.weekday()]}", "",
              "| 起止 | 活动 | 总时长 | 段数 |", "| --- | --- | --- | --- |"]
-    for run in runs:
-        lines.append(f"| {_fmt_clock(run['start'])}–{_fmt_clock(run['end'])} | "
-                     f"{_activity_label(run['snapshot'], names)} | "
-                     f"{_fmt_duration(run['seconds'])} | {run['count']} |")
-    if not runs:
+    lines.extend(f"| {row['interval']} | {row['label']} | {row['duration']} | {row['count']} |" for row in rows)
+    if not rows:
         lines.append("当日无活动记录。")
     return "\n".join(lines) + "\n"
+
+
+def render_day_markdown(conn: sqlite3.Connection, agent_id: int, day: date) -> str:
+    """@brief 生成该人物该日的确定性时间线 markdown 全文。"""
+    names = name_index(_name_bodies(conn))
+    return _markdown(agent_id, day, day_rows(_progress_bodies(conn, agent_id), names, day))
 
 
 def main(argv: list[str] | None = None) -> None:

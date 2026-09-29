@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
-                                 start_activity, start_request)
+from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan, start_activity,
+                                 start_request, report_request)
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.interaction_menu import CONTENT_WAYS
-from worldmock.life.models import ReportStatusRequest
 
 #: 播客的续听方式：只占耳朵，本文件的「观看」只取占眼睛和耳朵的内容（第五章占用表）。
 _LISTEN_WAYS = frozenset({CONTENT_WAYS[(True, False)], CONTENT_WAYS[(True, True)]})
@@ -53,7 +52,7 @@ def _control_request(observed: dict) -> tuple[str, object]:
         return "conclude_activity", conclude_request(*pending)
     running = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_ACTIVE]
     if running:
-        return "report_status", ReportStatusRequest(task=running[:1], summary=["仍在继续"])
+        return "report_status", report_request(*running[:1], summary="仍在继续")
     return "start_activity", start_activity("等待", "自己")
 
 

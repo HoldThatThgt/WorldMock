@@ -39,7 +39,7 @@ from worldmock.profile.models import (
     quantize,
 )
 
-#: 画像抽取使用与运行相同的官方模型端点。
+#: 画像抽取使用与运行相同的官方模型端点（DEEPSEEK_BASE_URL，即 strict 所在的 /beta）。
 API_URL = f"{DEEPSEEK_BASE_URL}/chat/completions"
 DEFAULT_MODEL = DEEPSEEK_MODEL
 #: 三次一致性口径：默认 3 次独立采样（docs/dev/SPEC-life-realism.md「画像编译」）。

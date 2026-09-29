@@ -216,11 +216,12 @@ EventType = Literal[
 | `observation` | `data` 是环境构建的层数据、看法偏好与私有证据，进度层只存 `progress_event_ids`；不额外保存一份 JSON 字符串副本 |
 | `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前，引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
 | `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应 |
-| `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验；relationship、preference 记忆的 `subject` 只随请求原文保存在这里，不写入 AS2 记忆条目 |
+| `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验。三个控制工具的 `request` 是现行形状 `{"items": [{activity_name, summary}]}`（结束每项另带 `memories` 与 `views`），读者一律经 `control_items` 读取，旧运行的三代形状（`task[]`、`summary[]` 与逐项 `memories[][]`）读出同一结果；看法与偏好的对象（`views[].about`，旧形状为 `subject`）只随请求原文保存在这里，不写入 AS2 记忆条目 |
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#四错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，有逐项明细时带 `items[{index, field, written, error_code, candidates}]`，拒绝附带名称归一时带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`）与说明 `notes`，都原样进入公开结果 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id` 与请求关联 `request_message_id`，被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数；未完成的浏览 `note` 为「未取得浏览结果」）；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
 | `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`，`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近的拒绝码 `error_code`（本秒没有拒绝时为 `null`）与下次决策时刻 `next_decision_at` |
+| `environment_event` 的联系人回复 | 发给 `model` 策略联系人的消息登记一条 `data.kind="model_npc_reply_pending"`（`request` 为回复请求字段面，含发件人姓名、场景本地时刻、`presence=remote`、收货地名、双方往来与对方收到的物品）；回复生成时写一条 `data.kind="model_npc_reply"`：`visibility=system`、`source_kind=model`（原值 `model_npc` 在 `data.source_kind`），`caused_by` 为待回复登记；`data.request`、`data.response`、`data.usage` 取最后一次尝试，`data.attempts[{request, response, text, matched}]` 按顺序记每次尝试（后验守卫命中时同一次结算内重试一次），`data.guard_applied` 为 true 表示两次都命中、回复是固定兜底句；重试也只写这一条，幂等键仍是来信的消息身份（[接口合同「联系人回复」](../CONTRACTS.md#联系人回复)） |
 | `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；就寝反思的快照条目带来源标记，引擎据此识别反思并确定其归属日期；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
 | `run_ended`、`run_failed` | 正常结束或运行故障，仍需结合最终检查点判定可交付性 |
@@ -301,7 +302,9 @@ EventType = Literal[
 `events.jsonl` 独立重算并逐行核对，不将观察五条窗口误作完整历史。
 
 记忆写入点为 `conclude_activity` 与就寝反思两处，阈值巩固不变；写入的条目是 `epistemic_status=subjective`
-的自述。`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。记忆来源由系统登记，模型不填身份。
+的自述。结束活动的记忆由宿主经 `control_items` 按项展平（每项先 `memories`、后 `views`）：`views` 的 `about` 转成存储形状的
+`subject`，写入 AS2 前去掉，落盘的条目与旧形状写 `subject` 的同一条记忆逐字节相同，存储形状不变。
+`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。记忆来源由系统登记，模型不填身份。
 `MEMORY.md` 由冻结身份、当轮已核验经历和单独
 持久的主观归纳确定性装配；模型不能整篇重写完成事实章节。`MEMORY.md`、主观归纳与五条经历窗口都不再装配进人物提示：
 提示中的记忆只在记忆层，阈值巩固保留，其摘要不进提示。记忆更新记录本轮观察身份、该轮观察私有证据窗口的事实来源、新增与
@@ -320,7 +323,7 @@ EventType = Literal[
 | `episodes` | 与上述身份集合恰好对应的 `{id,type,text,epistemic_status}` 快照；每项固定 `subjective`；就寝反思条目另带来源标记 |
 | `observation_event_id` | 本轮观察：本次决策中实际交付给该人物的观察身份 |
 | `verified_event_ids` | 系统登记的来源：该轮观察私有证据窗口 `verified_experiences` 的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
-| `trigger` | 本步实际发生的写入点，有序列表，顺序为 `activity_conclusion`、`reflection`：同一决策已登记（`action_requested`）带非空 `memories` 的 `conclude_activity` 时含 `activity_conclusion`（登记后结算被拒时记忆照写），绑定观察的唤醒原因含 `wake_from_sleep` 时含 `reflection`；醒来那一轮的收尾记忆与就寝反思可同在一步，两项都列。AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导；写入了条目却没有任何写入点按协议违约拒绝 |
+| `trigger` | 本步实际发生的写入点，有序列表，顺序为 `activity_conclusion`、`reflection`：同一决策已登记（`action_requested`）带记忆或看法的 `conclude_activity`（经 `control_items` 读出，`items[].memories` 或 `items[].views` 非空）时含 `activity_conclusion`（登记后结算被拒时记忆照写），绑定观察的唤醒原因含 `wake_from_sleep` 时含 `reflection`；醒来那一轮的收尾记忆与就寝反思可同在一步，两项都列。AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导；写入了条目却没有任何写入点按协议违约拒绝 |
 | `decision_id` | 本步所属决策，与事件顶层一致 |
 | `memory_before_sha256`、`memory_sha256` | 写入前和写入后 `MEMORY.md` 的内容身份 |
 | `episodes_sha256`、`state_sha256` | 写入后主观条目文件和记忆状态文件的内容身份 |
@@ -729,7 +732,7 @@ flowchart TD
 | `asset-index.jsonl`、`assets/<sha256>` | 事件及完整最终检查点引用的素材索引与原始字节 |
 | `purchases.jsonl` | 从截止事件投影的购买事实，每行首键 `fact_kind`，依次为全部 `purchase`、全部 `order_attempt`、全部 `app_browse`：`purchase` 取结果顶层与各活动结果的订单，按订单去重，与整体状态无关，重放回执不重复计，字段 `agent_id`、`order_id`、`product_id`、`supply_id`、`quantity`、`total_price_fen`、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`action_id`、`source_event_id`；`order_attempt` 为方式是到店或远程下单的非重放请求，字段 `agent_id`、`action_id`、`request_event_id`、`way`（请求中第一个下单方式）、`status`、`error_code`（取该动作首个结算结果，尚无结果为 `null`）、`occurred_at`；`app_browse` 为方式是浏览的活动，字段 `agent_id`、`activity_id`、`started_at`、`status`、`source_event_id`（取截止前最后一次快照）。属于导出工件闭集，消费端从 `events.jsonl` 独立重算并逐行核对 |
 | `quality.json` | 从同批冻结事件和活动确定性计算的质量报告 |
-| `timeline/<agent>-<date>.md` | 按人物和日期呈现的时间线；当前截止与消费端认证缺口见「固定截止导出的实现差距」 |
+| `timeline/<agent>-<date>.md` | 按人物和日期呈现的时间线，只写中文名称：种类名取 `src/worldmock/life/readable.py` 的中文种类表，对象名取活动快照的标题（工作、通话、交谈也有标题）或名称索引，不写英文种类名与内部标识（见「调试工具」）；当前截止与消费端认证缺口见「固定截止导出的实现差距」 |
 | `manifest.json` | 运行身份、截止、来源、覆盖、完成状态、各文件摘要与冻结运行清单 |
 
 活动开始时固定 `location_id`，导出活动记录保留该地点，结算不改写；出行活动的 `location_id` 是出发地，
@@ -794,21 +797,36 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 `recorded` 表示清单是否记录了警告；记录时给出 `warning_count`、按全部警告码列出的 `code_counts`（未出现的码为 0）、
 闭集外的 `unrecognized_code_counts`、按人物编号的 `agent_counts` 与场景级（`agent_id` 为 `null`）的 `scenario_warning_count`；
 清单没有记录（引擎直驱建立的运行为 `null`，旧清单没有这个键）时各计数为 `null`，不记为零。
+`truncations` 一节统计输出截断（[一日运行保真规格 7.2](../dev/SPEC-dayrun-fidelity.md#72-输出截断与思考螺旋)），只读已记录的
+`model_response`，不需要新证据：每个调用身份取一条终态（与 `model_usage` 同一去重），提供商回复 `finish_reason` 为 `length` 的计为
+一次截断；给出 `truncated_responses`、按用途分列的 `purpose_counts`（人物决策记为 `decision`）、这些回复实报的
+`usage.completion_tokens` 之和 `wasted_output_tokens`（截断回合整段丢弃，输出全部浪费）与其中
+`usage.completion_tokens_details.reasoning_tokens` 之和 `reasoning_tokens`；某次截断缺少对应计数时该合计为 `null`，
+缺失次数记于 `responses_missing_output_tokens`、`responses_missing_reasoning_tokens`，不记为零，没有截断时两项合计为 0。
+宿主判定的截断回合另在该响应的 `error` 记协议错误串「OUTPUT_TRUNCATED: <英文说明>」。
 进食多样性也只取 `consume` 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
 商品不计入进食次数或偏好证据。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
 这些判断由对应规则、行为评估与数据交付负责。
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
 当前报告按 `event_range`、`run_outcome`、`actions`、`activities`、`content_contact`、
-`conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`input_warnings` 分组，
+`conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`input_warnings`、`truncations` 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 `memory_references` 分组保留名称，内容按 `memory_updated.data.trigger` 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；`write_points_checked` 为核对的写入点总数）：`activity_conclusion` 对应同一决策已登记的
-`conclude_activity`，`reflection` 对应醒来那一轮的观察。问题码按写入点：`conclusion_without_memory_update` 指带非空
-`memories` 的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有
+`conclude_activity`，`reflection` 对应醒来那一轮的观察。问题码按写入点：`conclusion_without_memory_update` 指经 `control_items` 读出
+带记忆或看法的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有
 `trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_source` 指 `memory_updated` 的某个写入点
 找不到对应登记（写入了条目却没有写入点同样计入）；观察的进度层来源 `progress_event_ids` 中任一身份不能解析到本人更早提交的事件时记
 `invalid_observed_result_reference`。记忆不再带模型填写的引用，不核对条目身份引用。
+`timeline_labels` 检查投影出的时间线只出现中文名称（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#74-时间线只出现中文名称)）：
+用唯一的时间线渲染器从同批已认证事件逐人逐日（运行窗口内）投影时间线并逐行检查活动标签，书名号与引号内的作品标题、邮件主题不查；
+其余由英文与数字连成的片段恰为 `readable.py` 中文种类表的英文键时计一项 `english_kind_names`，形如内部标识（小写片段以
+`-`、`_`、`:` 相连，十二位以上十六进制串，`#` 加六位十六进制）时计一项 `internal_ids`；另给 `rows_checked` 与逐项 `findings`
+（`agent_id`、`date`、`interval`、`label`、`item`、`text`）。`contact_reply_guard` 统计联系人回复的后验守卫
+（[同一规格 7.3](../dev/SPEC-dayrun-fidelity.md#73-联系人回复不虚构到场)）：`replies`、没有 `attempts` 证据的
+`replies_without_guard_evidence`、`attempts`，按尝试计的 `hits` 与 `hits_by_category`（四个类别码全列，没有命中记 0），
+按回复计的 `retries` 与 `fallbacks`。两组都只报告，不放行。
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
 
@@ -890,6 +908,11 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 `--baseline` 先核对两份清单：去掉运行身份键（`run_id`、`source_group_id`、`source_run_ids`）与续接开关后必须完全相同，且两臂开关不同，
 否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
 日程工具读取已发生事件，`--out DIR` 将投影写入 `DIR/timeline/<agent>-<date>.md`，不把输出目录再写成 `DIR/timeline`。
+时间线每行的活动只写中文：种类名取 `readable.py` 的中文种类表（活动种类、出行方式、浏览目录，与环境层、交互菜单同表，单一来源）；
+对象名先取引擎写在活动快照上的标题（生活活动名、内容或游戏标题、工作的任务标题、通话的联系人称谓、交谈的对象姓名），
+再取渲染器按观察与动作结果建立的名称索引（品名、地名、邮件主题、内容标题、生活活动名、任务标题、联系人与人物的姓名，同一标识先出现者胜）；
+工作写「工作「<任务标题>」」，通话写「和<称谓>通话」，交谈写「和<姓名>交谈」。解析不到名称时只写中文种类名，不写英文种类名，
+也不写内部标识或其片段。渲染器的 `name_index` 与 `day_rows` 也接受已排序的事件正文，质量报告的时间线标签检查用同一实现投影。
 中文时间线用于阅读，英文日志用于故障定位，投影不能充当人物当时的观察。
 
 ### 完整性诊断边界

@@ -14,10 +14,9 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import (
-    activity_name, advance_next, advance_until_ready, conclude_request, context, progress_calls, stage_day_plan,
-    start_activity, submit_round, wake_by_mail,
-)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
+                                 pause_request, report_request)
 from worldmock.errors import BusinessRuleError
 from worldmock.life.activity_control import activity_phase, objective_progress, visible_names
 from worldmock.life.models import (
@@ -124,24 +123,26 @@ def _pending() -> PendingAction:
 
 
 @pytest.mark.parametrize("request_type", [ReportStatusRequest, PauseActivityRequest, ConcludeActivityRequest])
-def test_activity_control_uses_parallel_task_and_summary_lists(request_type) -> None:
-    """每项点名的活动各有一条自述，结束另带等长的记忆数组；模型接口不接受内部会话或活动定位字段。"""
+def test_activity_control_takes_one_object_per_activity(request_type) -> None:
+    """每项点名的活动是一个对象，活动名与自述写在同一对象里，结束另带该项的记忆与看法；模型接口不接受内部会话或活动定位
+    字段（docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
     concluding = request_type is ConcludeActivityRequest
-    memories = {"memories": [[], []]} if concluding else {}
-    assert set(request_type.model_fields) == {"task", "summary", *memories}
+    extra = {"memories": [], "views": []} if concluding else {}
+    assert set(request_type.model_fields) == {"items"}
     names = ["观看Space Habitat（1月5日 09:00 起）", "等待（1月5日 09:00 起）"]
-    request = request_type(task=names, summary=["看到一半", "还在等"], **memories)
-    assert len(request.task) == len(request.summary) == 2
+    items = [{"activity_name": name, "summary": summary, **extra} for name, summary in zip(names, ["看到一半", "还在等"])]
+    request = request_type(items=items)
+    assert [(item.activity_name, item.summary) for item in request.items] == list(zip(names, ["看到一半", "还在等"]))
     with pytest.raises(ValidationError):
-        request_type(task=names, summary=["只写了一项"], **memories)
-    with pytest.raises(ValidationError):
-        request_type(task=[], summary=[], **({"memories": []} if concluding else {}))
+        request_type(items=[])
     for leaked in ("session_id", "activity_id"):
         with pytest.raises(ValidationError):
-            request_type(task=names, summary=["看到一半", "还在等"], **memories, **{leaked: "internal-7"})
+            request_type(items=items, **{leaked: "internal-7"})
+        with pytest.raises(ValidationError):
+            request_type(items=[{**items[0], leaked: "internal-7"}])
     if concluding:
         with pytest.raises(ValidationError):
-            request_type(task=names, summary=["看到一半", "还在等"], memories=[[]])
+            request_type(items=[{"activity_name": names[0], "summary": "看到一半"}])
 
 
 def test_report_status_maps_each_activity_to_its_own_note_and_goal_note() -> None:
@@ -150,8 +151,8 @@ def test_report_status_maps_each_activity_to_its_own_note_and_goal_note() -> Non
                      task_ref="工作", plan_goal_intent_kind="工作", report_anchor_at=_START)
     leisure = _activity("leisure", "观看Space Habitat", kind=ActivityKind.WATCH, report_anchor_at=_START)
     state = _world([work, leisure], plan=_goal_plan())
-    changed, result = _Controller(state)._report_status(state, _pending(), ReportStatusRequest(
-        task=[work.name, leisure.name], summary=["已完成提纲", "刚看到开头"]))
+    changed, result = _Controller(state)._report_status(state, _pending(), report_request(
+        work.name, leisure.name, summary=["已完成提纲", "刚看到开头"]))
     assert changed.activities[work.activity_id].progress_note == "已完成提纲"
     assert changed.activities[leisure.activity_id].progress_note == "刚看到开头"
     assert {changed.activities[item.activity_id].report_anchor_at for item in (work, leisure)} == {
@@ -176,15 +177,14 @@ def test_control_names_resolve_to_one_own_activity_of_this_round() -> None:
     names = {row["activity_id"]: row["name"] for row in controller.rows}
     assert earlier.name == later.name
     assert names == {earlier.activity_id: earlier.name, later.activity_id: f"{later.name}（第二次）"}
-    changed, _ = controller._report_status(state, _pending(), ReportStatusRequest(
-        task=[names[later.activity_id]], summary=["第二段也在等"]))
+    changed, _ = controller._report_status(state, _pending(), report_request(
+        names[later.activity_id], summary="第二段也在等"))
     assert changed.activities[later.activity_id].progress_note == "第二段也在等"
     assert changed.activities[earlier.activity_id] == earlier
     forged = controller.rows + [{"name": outsider.name, "activity_id": outsider.activity_id, "phase": "进行中"}]
     for task, rows in (([earlier.name], controller.rows), (["等待"], controller.rows), ([outsider.name], forged)):
         with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-            _Controller(state, rows)._report_status(state, _pending(), ReportStatusRequest(
-                task=task, summary=["继续"]))
+            _Controller(state, rows)._report_status(state, _pending(), report_request(*task, summary="继续"))
     assert state.activities[later.activity_id].progress_note == ""
 
 
@@ -210,8 +210,8 @@ def test_conclude_marks_named_just_ended_activities_and_keeps_their_status() -> 
     assert result.data == {"task": [work.name], "activity_ids": [work.activity_id], "memory_sources": [
         {"task": work.name, "activity_id": work.activity_id, "session_id": work.session_ids[-1],
          "verified_event_ids": []}]}
-    both, _ = controller._conclude_activity(state, _pending(), ConcludeActivityRequest(
-        task=[work.name, road.name], summary=["纪要已收尾", "路上没看完"], memories=[[], []]))
+    both, _ = controller._conclude_activity(state, _pending(), conclude_request(
+        work.name, road.name, summary=["纪要已收尾", "路上没看完"], memories=[[], []]))
     assert all(both.activities[item.activity_id].concluded_at == state.current_time for item in (work, road))
     assert both.activities[road.activity_id].status == ActivityStatus.CANCELLED
     assert both.activities[road.activity_id].interruption_reason == "route_ended"
@@ -342,8 +342,8 @@ def _advance_until(engine, done, round_id: str) -> None:
             return
         if engine.scheduling_state().ready_agent_ids:
             running = active_activities(engine.state, 1)
-            _act(engine, f"{round_id}-{step}", "report_status", ReportStatusRequest(
-                task=[item.name for item in running], summary=["继续。"] * len(running)))
+            _act(engine, f"{round_id}-{step}", "report_status", report_request(
+                *(item.name for item in running), summary="继续。"))
         else:
             advance_next(engine)
     pytest.fail("Condition was not reached at the declared boundaries")
@@ -363,16 +363,15 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     assert _activity_target(opened, name)["state"] == "已做不到 1 分钟，还剩约 15 分钟"
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    assert _act(engine, "phase-pause", "pause_activity", PauseActivityRequest(
-        task=[name], summary=["先处理邮件"])).status == "completed"
+    assert _act(engine, "phase-pause", "pause_activity", pause_request(name, summary="先处理邮件")).status == "completed"
     paused = _observe(engine, "phase-paused")
     assert _activity_target(paused, name) is None
     (item,) = paused["todo_layer"]["paused_activities"]
     assert (item["name"], item["progress"]) == (name, "已做约 1 分钟，还剩约 14 分钟")
     assert "先处理邮件" not in json.dumps([paused["tool_layer"], paused["todo_layer"]], ensure_ascii=False)
-    assert progress_calls(paused, "pause_activity")[0]["arguments"]["summary"] == ["先处理邮件"]
-    assert _act(engine, "phase-resume", "report_status", ReportStatusRequest(
-        task=[name], summary=["回到等待"])).status == "completed"
+    assert progress_calls(paused, "pause_activity")[0]["arguments"] == {
+        "items": [{"activity_name": name, "summary": "先处理邮件"}]}
+    assert _act(engine, "phase-resume", "report_status", report_request(name, summary="回到等待")).status == "completed"
     assert engine.state.activities[activity_id].note_history[-1]["note"] == "先处理邮件"
     resumed = _observe(engine, "phase-resumed")
     assert _activity_target(resumed, name)["phase"] == "进行中" and not resumed["todo_layer"]["paused_activities"]

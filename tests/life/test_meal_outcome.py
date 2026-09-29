@@ -13,16 +13,15 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 last_result, layer_start, stage_day_plan, start_activity, target_actions,
-                                 wake_by_mail)
+                                 last_result, layer_start, stage_day_plan, start_activity, target_actions, wake_by_mail,
+                                 pause_request, report_request)
 from tests.life.test_domain_branch_coverage import _agent, _consume, _product, _use_activity
 from tests.life.test_export_integration import _stage_final_interval
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened
 from worldmock.life.basket import meal_duration, meal_portion, open_meal, portion_duration
-from worldmock.life.models import (ActivityStatus, ConsumeItem, ConsumeRequest, PauseActivityRequest,
-                                   ReportStatusRequest, active_activities)
+from worldmock.life.models import ActivityStatus, ConsumeItem, ConsumeRequest, active_activities
 from worldmock.life.readable import duration_phrase
 from worldmock.life.sleep import food_utilization_efficiency
 
@@ -72,8 +71,8 @@ def _run_out(engine, activity_id: str, label: str) -> None:
             return
         if engine.scheduling_state().ready_agent_ids:
             running = active_activities(engine.state, 1)
-            _round(engine, f"{label}-report-{step}", "report_status", ReportStatusRequest(
-                task=[item.name for item in running], summary=["继续。"] * len(running)))
+            _round(engine, f"{label}-report-{step}", "report_status", report_request(
+                *(item.name for item in running), summary="继续。"))
         else:
             advance_next(engine)
     pytest.fail("Activity did not end at its declared boundaries")
@@ -167,7 +166,7 @@ def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_
     wake_by_mail(engine, offset=750)
     advance_next(engine)
     name_a = activity_name(engine, first.activity_id)
-    _round(engine, "meal-a-pause", "pause_activity", PauseActivityRequest(task=[name_a], summary=["先停一下。"]))
+    _round(engine, "meal-a-pause", "pause_activity", pause_request(name_a, summary="先停一下。"))
     paused = engine.state.activities[first.activity_id]
     assert (paused.status, paused.data["consumed"], _held(engine, food.product_id)) == (
         ActivityStatus.PAUSED, {food.product_id: 0.5}, 0.5)
@@ -183,7 +182,7 @@ def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_
     assert done_b.data["outcome"] == [{"activity": name_b, "outcome": "完成",
                                        "items": _items(food, "0.5 份", "0 份", "0 份"), "note": None}]
     _, resumed = _round(engine, "meal-a-resume", "report_status",
-                        ReportStatusRequest(task=[name_a], summary=["接着吃。"]))
+                        report_request(name_a, summary="接着吃。"))
     assert resumed.status == "completed", resumed.error_code
     _run_out(engine, first.activity_id, "meal-a")
     assert engine.state.activities[first.activity_id].status == ActivityStatus.COMPLETED
@@ -207,7 +206,7 @@ def test_ending_a_paused_meal_discards_the_opened_remainder_without_intake(engin
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     name = activity_name(engine, started.activity_id)
-    _, paused = _round(engine, "held-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _, paused = _round(engine, "held-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     assert paused.status == "completed"
     _, waited = _round(engine, "held-wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)

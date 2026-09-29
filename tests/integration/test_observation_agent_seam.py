@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E402
@@ -98,8 +98,8 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     assert activity["name"] == activity_name(engine, control["activity_id"])
     assert [item["tool"] for item in activity["tools"]] == ["report_status", "pause_activity", "conclude_activity"]
     for tool in ("report_status", "pause_activity"):
-        assert "enum" not in schemas[tool]["parameters"]["properties"]["task"]["items"]
-        decision = ReactDecision("", tool, {"task": [activity["name"]], "summary": ["继续。"]}, "")
+        assert "enum" not in schemas[tool]["parameters"]["properties"]["items"]["items"]["properties"]["activity_name"]
+        decision = ReactDecision("", tool, {"items": [{"activity_name": activity["name"], "summary": "继续。"}]}, "")
         assert agent.validate_react_decisions([decision], False) == ""
     user = agent.build_react_messages(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))[1]
     session_id = next(iter(engine.state.sessions))
@@ -120,10 +120,10 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
     observation, ctx = _observe_active_wait(engine)
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
-    decision = ReactDecision("", "conclude_activity", {"task": ["不存在的活动"], "summary": ["收尾。"],
-                                                       "memories": [[]]}, "")
+    decision = ReactDecision("", "conclude_activity", {"items": [
+        {"activity_name": "不存在的活动", "summary": "收尾。", "memories": [], "views": []}]}, "")
     assert agent.validate_react_decisions([decision], False) == (
-        "NAME_NOT_FOUND: conclude_activity task names an activity that is not visible")
+        "NAME_NOT_FOUND: conclude_activity activity_name names an activity that is not visible")
 
     damaged = copy.deepcopy(observation)
     damaged.pop("activity_bindings")
@@ -155,17 +155,17 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
                                               _observation_records(observation)))
     [waiting] = [row["name"] for row in observation["activity_bindings"]]
 
-    def conclude(subject: str) -> ReactDecision:
-        """收尾等待并写一条关于 subject 的 relationship 记忆。"""
-        memory = {"type": "relationship", "text": "他最近在办公室很忙。", "importance": 0.5, "keywords": ["同事"],
-                  "subject": subject}
-        return ReactDecision("", "conclude_activity", {"task": [waiting], "summary": ["先收个尾。"],
-                                                       "memories": [[memory]]}, "")
+    def conclude(about: str) -> ReactDecision:
+        """收尾等待并写一条关于 about 的 relationship 看法（写在 views）。"""
+        view = {"type": "relationship", "about": about, "text": "他最近在办公室很忙。", "importance": 0.5,
+                "keywords": ["同事"]}
+        return ReactDecision("", "conclude_activity", {"items": [
+            {"activity_name": waiting, "summary": "先收个尾。", "memories": [], "views": [view]}]}, "")
 
     assert agent.validate_react_decisions([conclude("李凡")], False) == ""
     unknown = agent.validate_react_decisions([conclude("陌生人")], False)
     assert unknown == "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 陌生人"
-    assert [(item.index, item.field, item.written) for item in unknown.report.items] == [(0, "memories", "陌生人")]
+    assert [(item.index, item.field, item.written) for item in unknown.report.items] == [(0, "about", "陌生人")]
 
 
 def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:

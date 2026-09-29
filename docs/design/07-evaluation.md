@@ -114,6 +114,9 @@ flowchart TB
 同秒续接轮的思考 token（`reasoning_tokens`，缺失时报字符数，两者不混算）与缓存命中由 `scripts/inspect_run.py continuation`
 逐决策报告（链位置、请求数、协议错误与 400、计价成本、话题命中与按订单去重后的重复下单），`--baseline` 先核对两臂清单只差续接开关，
 输出字段见[记录引擎设计「调试工具」](05-recording-engine.md#调试工具)；只报告，不参与放行。
+输出截断（提供商回复 `finish_reason=length`）的次数、按用途分列、浪费的输出 token 与其中的思考 token 计入 `quality.json` 的
+`truncations` 一节（字段见[记录引擎设计「质量报告」](05-recording-engine.md#质量报告)）；行动决策的截断率以其中 `decision` 的次数除以
+`model_usage.by_purpose` 中 `decision` 的 `provider_responses`，只报告，不参与放行。
 
 **2018 年全国时间利用调查参照**（城镇/工作日口径，居民均值）：
 
@@ -255,8 +258,8 @@ class ActivitySession:
 - `start_activity` 的可读 `targets[]` 与 `actions[]`（动词）、`ways[]`（方式）逐项配对；细分交互取结果中
   活动快照的 `kind`；同一请求启动两项活动时，按结果中对应顺序的 `data.activities[]` 快照投影两项证据，
   不把另一项动作的结果或付款记到本项
-- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `task[]` 逐活动投影；从真实活动快照读取
-  对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
+- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `items[].activity_name` 逐活动投影（旧运行为 `task[]`），
+  活动身份取结果逐项回报的 `activity_ids`；从真实活动快照读取对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
 - 区分订单、付款、履约三个独立状态
 
 **不变量**：

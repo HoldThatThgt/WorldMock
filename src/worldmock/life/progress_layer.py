@@ -19,6 +19,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import schedule, sessions
+from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.models import WorldState
 from worldmock.life.readable import iso_time
 from worldmock.life.recipients import agent_identity, person_name
@@ -130,7 +131,7 @@ def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> l
 
 
 def _tool_record(context: LayerContext, request: Event, results: list[Event]) -> dict:
-    """@brief tool_call 记录：工具、参数（conclude_activity 略去关系与偏好记忆）、最新结果与可选的 self_note。
+    """@brief tool_call 记录：工具、参数（conclude_activity 略去看法与偏好）、最新结果与可选的 self_note。
 
     开始活动的请求其后的终态结果不带当时的订单，公开结果的 purchases 取即时结果的订单。
     """
@@ -147,12 +148,11 @@ def _tool_record(context: LayerContext, request: Event, results: list[Event]) ->
 
 
 def _arguments(tool: str, request: dict) -> dict:
-    """@brief 请求参数原文；conclude_activity 的 memories 略去 relationship 与 preference 条目（只在人设层出现）。"""
-    if tool != "conclude_activity":
+    """@brief 请求参数原文；三个控制工具经 control_items 读出后按现行形状写出（每项活动名、自述，结束另带普通记忆），
+    看法与偏好（views，旧形状里带 subject 的 relationship 与 preference 记忆）略去，只在人设层出现。"""
+    if tool not in CONTROL_TOOLS:
         return request
-    memories = [[item for item in group if item.get("type") not in {"relationship", "preference"}]
-                for group in request.get("memories", [])]
-    return {**request, "memories": memories}
+    return control_request(tool, request, memories=True)
 
 
 def _order_ids(results: list[Event]) -> tuple[str, ...]:

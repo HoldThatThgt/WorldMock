@@ -13,13 +13,13 @@ from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE
 from worldmock.life.interaction_menu import (
     LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, WAYS, binding_action,
 )
-from worldmock.life.models import (
-    ActionResult, ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
-    ReportStatusRequest, SessionTaskKind, StartActivityRequest,
-)
+from worldmock.life.models import (ActionResult, ActivityKind, ActivityState, ActivityStatus,
+                                   ConcludeActivityRequest, PauseActivityRequest, ReportStatusRequest, SessionTaskKind,
+                                   StartActivityRequest)
 from worldmock.life.routing import combination_error, require_recipients, routing_names
 from worldmock.life.schedule import DayPlan, PlanGoal
 from worldmock.life.session_actions import SessionActionMixin
+from tests.life.conftest import conclude_request, report_request
 
 
 class _ActionHarness(SessionActionMixin):
@@ -402,7 +402,7 @@ def test_report_two_activities_validates_all_before_updating_anything():
     first = _activity("morning", "工作写会议纪要（1月5日 09:00 起）")
     second = _activity("afternoon", "工作核对决议（1月5日 09:00 起）")
     harness = _ActionHarness(_bindings(first, second))
-    request = ReportStatusRequest(task=[first.name, second.name], summary=["先整理议题", "再核对决议"])
+    request = report_request(first.name, second.name, summary=["先整理议题", "再核对决议"])
     changed, result = harness._report_status(
         _State({first.activity_id: first, second.activity_id: second}), _pending(), request)
     assert result.status == "completed"
@@ -420,19 +420,27 @@ def test_report_two_activities_validates_all_before_updating_anything():
 
 
 def test_control_requests_pair_each_task_with_its_summary():
-    """三条控制工具都要求任务与人物摘要逐项对应；conclude_activity 另要求等长的 memories（可为空组）。"""
+    """三条控制工具一项一个对象：活动名与自述写在同一对象里，不再靠下标对齐三组数组；一至两项、活动名互不相同且非空、
+    自述非空；结束工具每项另有必填的 memories 与 views（都可以是空列表）；旧的平行数组形状不再受理
+    （docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    item = {"activity_name": "工作写会议纪要（1月5日 09:00 起）", "summary": "先写完提纲"}
+    other = {"activity_name": "休息（1月5日 10:00 起）", "summary": "歇一会儿"}
+    for model in (ReportStatusRequest, PauseActivityRequest):
+        assert model(items=[item, other]).model_dump(mode="json") == {"items": [item, other]}
+        for items in ([], [item, other, {**other, "activity_name": "吃饭"}], [item, item], [{**item, "summary": " "}],
+                      [{**item, "activity_name": " "}], [{"activity_name": item["activity_name"]}],
+                      [{**item, "memories": []}]):
+            with pytest.raises(ValidationError):
+                model(items=items)
+        with pytest.raises(ValidationError):
+            model(task=[item["activity_name"]], summary=[item["summary"]])
+    concluded = {**item, "memories": [], "views": []}
+    assert ConcludeActivityRequest(items=[concluded]).model_dump(mode="json") == {"items": [concluded]}
+    for missing in ("memories", "views"):
+        with pytest.raises(ValidationError):
+            ConcludeActivityRequest(items=[{key: value for key, value in concluded.items() if key != missing}])
     with pytest.raises(ValidationError):
-        ReportStatusRequest(task=["工作", "休息"], summary=["先写完提纲"])
-    with pytest.raises(ValidationError):
-        PauseActivityRequest(task=["工作"], summary=[])
-    assert set(ConcludeActivityRequest(task=["工作"], summary=["今天已完成"], memories=[[]]).model_dump()) == {
-        "task", "summary", "memories"}
-    with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=["工作", "休息"], summary=["只写一个摘要"], memories=[[], []])
-    with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=["工作", "休息"], summary=["先停下", "也停下"], memories=[[]])
-    with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=["工作"], summary=["今天已完成"])
+        ConcludeActivityRequest(task=[item["activity_name"]], summary=[item["summary"]], memories=[[]])
 
 
 def test_report_writes_original_summary_to_independent_day_goal_note():
@@ -445,7 +453,7 @@ def test_report_writes_original_summary_to_independent_day_goal_note():
     harness = _ActionHarness(_bindings(waiting))
     changed, _ = harness._report_status(
         _State({waiting.activity_id: waiting}, _Agent(plan)), _pending(),
-        ReportStatusRequest(task=[waiting.name], summary=["还想再歇一会儿"]))
+        report_request(waiting.name, summary="还想再歇一会儿"))
     result = changed.agents[1].day_plan.goals[0]
     assert result.progress_note == "还想再歇一会儿"
     assert changed.activities[waiting.activity_id].progress_note == "还想再歇一会儿"
@@ -466,8 +474,7 @@ def test_conclude_ends_only_selected_activities_with_own_summaries():
                    {"source_event_id": "event-watched", "activity_id": "running"}]
     harness = _ActionHarness(_bindings(ended, running, paused, verified_experiences=experiences))
     state = _State({item.activity_id: item for item in (ended, running, paused)})
-    request = ConcludeActivityRequest(task=[ended.name, paused.name], summary=["等完了", "先不写了"],
-                                      memories=[[], []])
+    request = conclude_request(ended.name, paused.name, summary=["等完了", "先不写了"], memories=[[], []])
     changed, result = harness._conclude_activity(state, _pending(), request)
     done, stopped = changed.activities["ended"], changed.activities["paused"]
     assert (done.status, done.concluded_at, done.progress_note) == (ActivityStatus.COMPLETED, 200, "等完了")
@@ -491,6 +498,6 @@ def test_conclude_naming_none_of_the_just_ended_activities_is_rejected():
     state = _State({item.activity_id: item for item in (ended, paused)})
     with pytest.raises(BusinessRuleError, match="ACTIVITY_CONCLUSION_REQUIRED") as raised:
         _ActionHarness(_bindings(ended, paused))._conclude_activity(
-            state, _pending(), ConcludeActivityRequest(task=[paused.name], summary=["先不写了"], memories=[[]]))
+            state, _pending(), conclude_request(paused.name, summary="先不写了", memories=[[]]))
     assert str(raised.value.__cause__) == f"先给刚结束的{ended.name}收尾"
     assert state.activities == {"ended": ended, "paused": paused}

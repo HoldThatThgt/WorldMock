@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -34,8 +35,9 @@ def _memory(text="我以为自己已经吃过一顿饭。"):
 
 
 def _conclusion(*memories):
-    """结束一项活动的 conclude_activity 请求；memories 与 task 等长，空组表示这次不写记忆。"""
-    return {"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
+    """结束一项活动的 conclude_activity 请求（一项一个对象）；没有记忆与看法表示这次不写记忆。"""
+    return {"items": [
+        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}]}
 
 
 def _tool_response(call_id, usage=None):
@@ -304,6 +306,37 @@ def test_memory_quality_reports_conclusion_without_memory_update():
     assert memory == {"memory_update_events": 0, "persisted_episode_ids": 0, "write_points_checked": 0,
                       "problem_count": 1, "problems": [
                           {"code": "conclusion_without_memory_update", "event_id": "event-6", "agent_id": 1}]}
+
+
+def test_memory_quality_reads_every_control_request_shape():
+    """质量报告经 control_items 读收尾请求，不直接读 task、memories：只写看法（views）的收尾也要求写记忆；旧运行的三代形状
+    （记忆带 subject、记忆没有 subject、不带记忆）读出与改形前相同的结果；提到 views 字段的协议错误同样是记忆协议错误
+    （docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+    view = {"type": "relationship", "about": "王磊", "text": "王磊人不错。", "importance": 0.5, "keywords": ["同事"]}
+    name = "等待（1月5日 00:00 起）"
+    requests = {
+        "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}]},
+        "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}]},
+        "with_subject": {"task": [name], "summary": ["等完了。"], "memories": [[{**_memory(), "subject": None}]]},
+        "without_subject": {"task": [name], "summary": ["等完了。"], "memories": [[_memory()]]},
+        "empty_groups": {"task": [name], "summary": ["等完了。"], "memories": [[]]},
+        "no_memories": {"task": [name], "summary": ["等完了。"]},
+    }
+    events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
+                     data={"tool_name": "conclude_activity", "request": request})
+              for index, (label, request) in enumerate(requests.items())]
+    views_error = _tool_response("call", _usage())
+    views_error["error"] = "invalid conclude_activity arguments: items.0.views.0.about Field required"
+    events += [_event(len(events) + 1, "model_response", agent_id=1, decision_id="protocol", data=views_error),
+               _event(len(events) + 2, "run_ended", occurred_at=200)]
+
+    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+
+    assert memory["problems"] == [
+        *({"code": "memory_protocol_error", "event_id": f"event-{len(requests) + 1}", "agent_id": 1},),
+        *({"code": "conclusion_without_memory_update", "event_id": f"event-{index + 1}", "agent_id": 1}
+          for index, label in enumerate(requests) if label in {"views_only", "with_subject", "without_subject"}),
+    ]
 
 
 def test_non_memory_tool_json_error_is_counted_without_memory_warning():
@@ -581,6 +614,100 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     assert empty["warning_count"] == 0 and set(empty["code_counts"].values()) == {0}
 
 
+#: 截断回合写进模型响应证据的协议错误串（custom/agents/life_truncation.py）。
+_TRUNCATION_ERROR = ("OUTPUT_TRUNCATED: model output reached max_tokens while reasoning, before any tool call "
+                     "(finish_reason=length)")
+#: 4a5b0e6 两次全天运行的真实截断记录（只省略请求与思考正文）。
+_TRUNCATION_RUNS = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "dayrun_truncations.json")
+                              .read_text(encoding="utf-8"))
+
+
+def _truncated_response(call_id, usage, purpose=None):
+    """思考用尽输出上限的模型响应：finish_reason=length，正文为空，没有工具调用，协议错误为 OUTPUT_TRUNCATED。"""
+    data = {"phase": "response", "call_id": call_id, "attempt": 1, "error": _TRUNCATION_ERROR,
+            "response": {"model": "deepseek-flash", "usage": usage, "choices": [
+                {"finish_reason": "length", "index": 0, "message": {"content": "", "tool_calls": None}}]}}
+    return {**data, "purpose": purpose} if purpose else data
+
+
+def _truncation_usage(output, reasoning):
+    """截断回复的 usage：输出 token 与其中的思考 token。"""
+    return {"prompt_tokens": 100, "completion_tokens": output, "total_tokens": 100 + output,
+            "completion_tokens_details": {"reasoning_tokens": reasoning}}
+
+
+def test_truncations_count_length_responses_with_their_output_and_reasoning_tokens():
+    """truncations 一节（docs/dev/SPEC-dayrun-fidelity.md 7.2、九）：只计 finish_reason=length 的提供商回复，每个调用身份
+    一条（重复终态不重复计），按用途分列（人物决策记为 decision）；浪费的输出 token 与思考 token 取提供商实报的
+    completion_tokens 与 completion_tokens_details.reasoning_tokens；正常回复与没有回复的传输失败不计入。"""
+    events = [
+        _event(1, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-1"}),
+        _event(2, "model_response", agent_id=1, decision_id="d1",
+               data=_truncated_response("call-1", _truncation_usage(8000, 8000))),
+        _event(3, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-2"}),
+        _event(4, "model_response", agent_id=1, decision_id="d1", data=_tool_response("call-2", _usage())),
+        _event(5, "model_request", agent_id=1, decision_id="d2", data={"call_id": "call-3"}),
+        _event(6, "model_response", agent_id=1, decision_id="d2",
+               data=_truncated_response("call-3", _truncation_usage(8001, 7990))),
+        _event(7, "model_response", agent_id=1, decision_id="d2",
+               data=_truncated_response("call-3", _truncation_usage(8001, 7990))),
+        _event(8, "model_request", agent_id=1, data={"call_id": "plan-1", "purpose": "plan_day"}),
+        _event(9, "model_response", agent_id=1,
+               data=_truncated_response("plan-1", _truncation_usage(500, 0), "plan_day")),
+        _event(10, "model_request", agent_id=1, decision_id="d3", data={"call_id": "call-4"}),
+        _event(11, "model_response", agent_id=1, decision_id="d3",
+               data={"phase": "failure", "call_id": "call-4", "attempt": 1, "error": "TimeoutError()"}),
+    ]
+
+    report = build_quality_report(events, [], _manifest(end=200))
+
+    section = report["truncations"]
+    assert section == {"truncated_responses": 3, "purpose_counts": {"decision": 2, "plan_day": 1},
+                       "wasted_output_tokens": 16501, "reasoning_tokens": 15990,
+                       "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
+                       "method": section["method"]}
+    assert "finish_reason=length" in section["method"] and report["memory_references"]["problem_count"] == 0
+
+
+def test_truncation_tokens_missing_from_a_response_stay_unknown_instead_of_zero():
+    """某次截断的回复没有实报 token（没有 usage，或没有思考 token 明细）时对应合计为 null，缺失次数单列，不记为零；
+    没有截断的运行次数与两项合计都是 0。"""
+    no_details = {"prompt_tokens": 10, "completion_tokens": 8000, "total_tokens": 8010}
+    events = [
+        _event(1, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-1"}),
+        _event(2, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-1", None)),
+        _event(3, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-2"}),
+        _event(4, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-2", no_details)),
+    ]
+
+    section = build_quality_report(events, [], _manifest(end=200))["truncations"]
+
+    assert section["truncated_responses"] == 2
+    assert (section["wasted_output_tokens"], section["reasoning_tokens"]) == (None, None)
+    assert (section["responses_missing_output_tokens"], section["responses_missing_reasoning_tokens"]) == (1, 2)
+    none = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))["truncations"]
+    assert (none["truncated_responses"], none["purpose_counts"], none["wasted_output_tokens"],
+            none["reasoning_tokens"]) == (0, {}, 0, 0)
+
+
+@pytest.mark.parametrize(("label", "count", "tokens"), [pytest.param("white_collar", 3, 24001, id="white_collar"),
+                                                        pytest.param("business", 26, 208000, id="business")])
+def test_truncations_match_the_recorded_day_runs(label, count, tokens):
+    """4a5b0e6 两次全天运行的真实模型响应记录（tests/fixtures/dayrun_truncations.json，只省略请求与思考正文）：
+    truncations 与运行记录一致，WC 3 次、BIZ 26 次截断（规格 7.2「现状」3/177、26/599 的分子），全部是行动决策；截断回复
+    的输出全是思考（浪费的输出 token 等于思考 token，WC 其中一次为 8001）；同一决策中截断之后的非截断回复不计入。"""
+    run = _TRUNCATION_RUNS[label]
+    events = [Event.model_validate(row) for row in run["events"]]
+
+    section = build_quality_report(events, [], {"run_id": run["run_id"], "window": run["window"]})["truncations"]
+
+    assert section["truncated_responses"] == run["summary"]["truncated_responses"] == count < len(events)
+    assert section["purpose_counts"] == {"decision": count}
+    assert section["wasted_output_tokens"] == section["reasoning_tokens"] == tokens
+    assert tokens == run["summary"]["truncated_output_tokens"] == run["summary"]["truncated_reasoning_tokens"]
+    assert run["summary"]["finish_reasons"]["length"] == count
+
+
 def test_quality_report_is_deterministic_for_the_same_authenticated_input():
     events = [_event(1, "run_ended", occurred_at=200)]
 
@@ -602,3 +729,53 @@ def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
               _event(2, "memory_updated", agent_id=1, decision_id="decision", data=update)]
     memory = build_quality_report(events, [], _manifest())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == codes
+
+
+def _progress(sequence, snapshot, start, end):
+    """人物 1 一段活动进度：结算区间 [start, end) 与活动快照。"""
+    return _event(sequence, "activity_progress", occurred_at=end, agent_id=1, activity_id=snapshot["activity_id"],
+                  data={"activity": snapshot, "interval_start": start, "interval_end": end})
+
+
+def _timeline_events(place, lifestyle, subject):
+    """一条命名观察加四段进度：步行去某地、一项生活活动、读一封邮件、空档；地名、活动名与邮件主题由参数给出。"""
+    names = {"locations": [{"location_id": "loc-x", "name": place}],
+             "messages": [{"message_id": "mail-1", "subject": subject}]}
+    return [
+        _event(1, "observation", occurred_at=100, agent_id=1, data=names),
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "travel_mode": "walking", "destination_id": "loc-x"},
+                  100, 200),
+        _progress(3, {"activity_id": "a-life", "kind": "lifestyle", "target_id": "x", "title": lifestyle}, 200, 300),
+        _progress(4, {"activity_id": "a-mail", "kind": "read_mail", "target_id": "mail-1"}, 300, 400),
+        _progress(5, {"activity_id": "a-wait", "kind": "wait"}, 400, 500),
+    ]
+
+
+def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline():
+    """时间线标签检查（docs/dev/SPEC-dayrun-fidelity.md 7.4）：用唯一的时间线渲染器投影同批事件，标签里恰为英文种类名的
+    片段与内部标识形态的片段各计一项；书名号与引号里的作品标题、邮件主题不查；名称都是中文时两项为零。"""
+    crafted = build_quality_report(_timeline_events("poi-node-11991340957", "call", "work"), [],
+                                   _manifest())["timeline_labels"]
+    assert (crafted["rows_checked"], crafted["english_kind_names"], crafted["internal_ids"]) == (4, 1, 1)
+    assert [(item["agent_id"], item["date"], item["interval"], item["label"], item["item"], item["text"])
+            for item in crafted["findings"]] == [
+        (1, "1970-01-01", "08:01–08:03", "步行去poi-node-11991340957", "internal_id", "poi-node-11991340957"),
+        (1, "1970-01-01", "08:03–08:05", "call", "english_kind_name", "call")]
+    clean = build_quality_report(_timeline_events("中山公园", "瑜伽", "周报"), [], _manifest())["timeline_labels"]
+    assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
+
+
+def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately():
+    """联系人回复守卫（docs/dev/SPEC-dayrun-fidelity.md 7.3）：命中与类别按尝试计，重试与兜底按回复计；没有 attempts
+    证据的回复单列，不算未命中。"""
+    replies = [
+        {"attempts": [{"matched": ["arriving"]}, {"matched": []}], "guard_applied": False},
+        {"attempts": [{"matched": ["taking_over", "guaranteeing"]}, {"matched": ["arriving"]}], "guard_applied": True},
+        {"attempts": [{"matched": []}], "guard_applied": False},
+        {},
+    ]
+    events = [_event(index, "environment_event", agent_id=1, data={"kind": "model_npc_reply", **fields})
+              for index, fields in enumerate(replies, start=1)]
+    assert build_quality_report(events, [], _manifest())["contact_reply_guard"] == {
+        "replies": 4, "replies_without_guard_evidence": 1, "attempts": 5, "hits": 3, "retries": 2, "fallbacks": 1,
+        "hits_by_category": {"arriving": 2, "done_or_bringing": 0, "taking_over": 1, "guaranteeing": 1}}

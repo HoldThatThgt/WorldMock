@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError, ProtocolError
@@ -236,9 +236,9 @@ def test_require_loaded_config_rejects_diverged_as2_configuration(monkeypatch):
         "LLM_API_BASE", "LLM_MODEL", "CODER_LLM_API_BASE", "CODER_LLM_MODEL",
         "EMBEDDING_MODEL")}
     try:
-        monkeypatch.setattr(Config, "LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "LLM_API_BASE", "https://api.deepseek.com/beta")
         monkeypatch.setattr(Config, "LLM_MODEL", "deepseek-flash")
-        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://api.deepseek.com/beta")
         monkeypatch.setattr(Config, "CODER_LLM_MODEL", "deepseek-flash")
         monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
         _require_loaded_config()
@@ -269,13 +269,16 @@ def test_configure_process_sets_worker_environment(tmp_path, monkeypatch):
                "AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "MEM0_TELEMETRY", "ANONYMIZED_TELEMETRY")
     saved_env = {name: os.environ.get(name) for name in touched}
     try:
-        monkeypatch.setattr(Config, "LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "LLM_API_BASE", "https://api.deepseek.com/beta")
         monkeypatch.setattr(Config, "LLM_MODEL", "deepseek-flash")
-        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://api.deepseek.com/beta")
         monkeypatch.setattr(Config, "CODER_LLM_MODEL", "deepseek-flash")
         monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
         _configure_process(ROOT)
         assert os.environ["AGENTSOCIETY_LLM_MODEL"] == "deepseek-flash"
+        # AS2 的默认与 CODER 角色都指向 strict 所在的 /beta（docs/dev/SPEC-dayrun-fidelity.md 7.5）。
+        assert (os.environ["AGENTSOCIETY_LLM_API_BASE"], os.environ["AGENTSOCIETY_CODER_LLM_API_BASE"]) == (
+            "https://api.deepseek.com/beta", "https://api.deepseek.com/beta")
         assert os.environ["AGENTSOCIETY_LLM_API_KEY"] == "secret-a,secret-b"
         entries = os.environ["PYTHONPATH"].split(os.pathsep)
         assert entries[0] == str(ROOT) and entries[1] == str(ROOT / "src")
@@ -677,7 +680,7 @@ class _StubAS2Client:
     """AS2 客户端桩：返回脚本化响应形态。"""
 
     model_name = "deepseek-flash"
-    base_url = "https://api.deepseek.com"
+    base_url = "https://api.deepseek.com/beta"
 
     def __init__(self, responses):
         self._responses = list(responses)
@@ -691,18 +694,18 @@ def test_contact_reply_client_enforces_manifest_identity(monkeypatch):
     from worldmock.runtime import ContactReplyClient
 
     identity = {"requested_model": "deepseek-flash",
-                "base_url": "https://api.deepseek.com", "max_retries": 0}
+                "base_url": "https://api.deepseek.com/beta", "max_retries": 0}
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="deepseek-flash", base_url="https://api.deepseek.com",
+        model_name="deepseek-flash", base_url="https://api.deepseek.com/beta",
         call=None))
     client = ContactReplyClient(identity)
     assert client.model_name == "deepseek-flash"
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="other-model", base_url="https://api.deepseek.com", call=None))
+        model_name="other-model", base_url="https://api.deepseek.com/beta", call=None))
     with pytest.raises(ProtocolError, match="identity disagrees"):
         ContactReplyClient(identity)
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="deepseek-flash", base_url="https://api.deepseek.com", call=None))
+        model_name="deepseek-flash", base_url="https://api.deepseek.com/beta", call=None))
     with pytest.raises(ProtocolError, match="parameters disagree"):
         ContactReplyClient({**identity, "max_retries": 3})
 
@@ -713,7 +716,7 @@ async def test_contact_reply_client_serializes_model_responses(monkeypatch):
     from worldmock.runtime import ContactReplyClient
 
     identity = {"requested_model": "deepseek-flash",
-                "base_url": "https://api.deepseek.com", "max_retries": 0}
+                "base_url": "https://api.deepseek.com/beta", "max_retries": 0}
     as2_client = _StubAS2Client([
         SimpleNamespace(model_dump=lambda mode: {"choices": []}),
         {"choices": []},
@@ -745,21 +748,28 @@ def test_parse_contact_reply_accepts_single_choice_text_only():
 
 
 def test_prepare_contact_reply_builds_disabled_thinking_request():
-    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带双方往来与对方收到的物品。"""
+    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带来信事实（发件人姓名、场景本地
+    时刻、presence=remote、收货地名）、双方往来与对方收到的物品；system 提示写明联系人只通过消息来往。"""
     from worldmock.life.social import ReceivedItem, ReplyHistoryEntry
+    from worldmock.runtime import _CONTACT_REPLY_PROMPT
 
     history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
     received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="11:05"),)
     request = SimpleNamespace(contact_id="contact-1", incoming_text="周五晚上一起吃饭？",
-                              max_chars=200, history=history, received=received)
+                              sender_name="陈曦", now="2026-01-05T11:10:00+08:00", presence="remote",
+                              receive_location="公司", max_chars=200, history=history, received=received)
     payload = prepare_contact_reply(request, None, "deepseek-flash")
     assert payload["model"] == "deepseek-flash"
     assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
     assert payload["max_retries"] == 0 and payload["stream"] is False
     assert payload["max_tokens"] == 8000
     assert [message["role"] for message in payload["messages"]] == ["system", "user"]
+    assert payload["messages"][0]["content"] == _CONTACT_REPLY_PROMPT
+    assert "只通过消息" in _CONTACT_REPLY_PROMPT and "不约当面" in _CONTACT_REPLY_PROMPT
     body = json.loads(payload["messages"][1]["content"])
     assert body["contact"] == {"contact_id": "contact-1"}
+    assert (body["sender_name"], body["now"], body["presence"], body["receive_location"]) == (
+        "陈曦", "2026-01-05T11:10:00+08:00", "remote", "公司")
     assert body["incoming_message"] == "周五晚上一起吃饭？"
     assert body["history"] == [{"speaker": "陈曦", "time": "10:00", "text": "在吗"}]
     assert body["received"] == [{"item": "牛肉炒面", "quantity": "1 份", "time": "11:05"}]
@@ -794,7 +804,8 @@ class _ReplyEvent:
 def test_pending_reply_requests_deduplicate_settled_replies():
     """pending 扫描只保留尚未回复的请求（幂等去重）。"""
     request = {"contact_id": "contact-1", "reply_to_message_id": "message-1",
-               "recipient_id": "agent:1", "incoming_text": "在吗？", "history": [], "received": []}
+               "recipient_id": "agent:1", "incoming_text": "在吗？", "sender_name": "陈曦",
+               "now": "2026-01-05T10:00:00+08:00", "receive_location": None, "history": [], "received": []}
     second = dict(request, reply_to_message_id="message-2")
     events = [
         _ReplyEvent("model_npc_reply_pending", {"request": request}),
@@ -879,16 +890,16 @@ def test_plan_day_client_enforces_manifest_identity(monkeypatch):
     from worldmock.runtime import PlanDayClient
 
     identity = {"requested_model": "deepseek-flash",
-                "base_url": "https://api.deepseek.com", "max_retries": 0}
+                "base_url": "https://api.deepseek.com/beta", "max_retries": 0}
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="deepseek-flash", base_url="https://api.deepseek.com", call=None))
+        model_name="deepseek-flash", base_url="https://api.deepseek.com/beta", call=None))
     assert PlanDayClient(identity).model_name == "deepseek-flash"
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
         model_name="deepseek-flash", base_url="https://example.invalid", call=None))
     with pytest.raises(ProtocolError, match="Plan day client identity disagrees"):
         PlanDayClient(identity)
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="deepseek-flash", base_url="https://api.deepseek.com", call=None))
+        model_name="deepseek-flash", base_url="https://api.deepseek.com/beta", call=None))
     with pytest.raises(ProtocolError, match="Plan day request parameters disagree"):
         PlanDayClient({**identity, "max_retries": 3})
 
@@ -899,7 +910,7 @@ async def test_plan_day_client_serializes_model_responses(monkeypatch):
     from worldmock.runtime import PlanDayClient
 
     identity = {"requested_model": "deepseek-flash",
-                "base_url": "https://api.deepseek.com", "max_retries": 0}
+                "base_url": "https://api.deepseek.com/beta", "max_retries": 0}
     as2_client = _StubAS2Client([
         SimpleNamespace(model_dump=lambda mode: {"choices": []}),
         {"choices": []},

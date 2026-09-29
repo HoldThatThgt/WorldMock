@@ -19,7 +19,8 @@ from agentsociety2.agent.base import ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, start_request, wake_by_mail)
+                                 progress_calls, stage_day_plan, start_activity, start_request, wake_by_mail,
+                                 pause_request, report_request)
 from tests.life.test_day_planning import _late_engine
 from tests.life.test_dayrun_restaurants import _keep_waiting, _stage
 from tests.life.test_progress_events import _model_pair
@@ -28,9 +29,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, memory_layer
 from worldmock.life.memory_layer import MEMORY_WINDOW_CHARS, _Entry, _fit, _Line, memory_view, reflection_date
 from worldmock.life.interaction_menu import WAYS
-from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest,
-                                   PauseActivityRequest, PlanGoalInput, RecallTaskSummaryRequest,
-                                   ReportStatusRequest, ReviseDayPlanRequest, SendMessageActionRequest)
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, PlanGoalInput, RecallTaskSummaryRequest,
+                                   ReviseDayPlanRequest, SendMessageActionRequest)
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import duration_phrase, iso_time, local_date
 from worldmock.life.settled_text import activity_sentence, purchase_sentence
@@ -80,9 +80,14 @@ def _memory(engine, round_id: str, agent_id: int = 1) -> dict:
     return layer
 
 
-def _memo(kind: str, text: str, subject: str | None = None) -> dict:
-    """结束活动时写下的一条记忆（relationship 与 preference 带对象）。"""
-    return {"type": kind, "text": text, "importance": 0.5, "keywords": [text[:2]], "subject": subject}
+def _memo(kind: str, text: str) -> dict:
+    """结束活动时写下的一条普通记忆（没有对象字段）。"""
+    return {"type": kind, "text": text, "importance": 0.5, "keywords": [text[:2]]}
+
+
+def _view(kind: str, text: str, about: str) -> dict:
+    """结束活动时写下的一条看法或偏好（relationship 或 preference，about 写对象）。"""
+    return {"type": kind, "about": about, "text": text, "importance": 0.5, "keywords": [text[:2]]}
 
 
 def _walk(engine, round_id: str, destination: str = "office"):
@@ -120,14 +125,14 @@ def _ended_sessions(engine, agent_id: int = 1) -> list:
                   key=lambda item: (item.started_at, item.session_id))
 
 
-def _concluding_wait(engine, round_id: str, summary: str, memories: list) -> str:
-    """开始等待、被邮件唤醒后带记忆提前结束它，返回活动名。"""
+def _concluding_wait(engine, round_id: str, summary: str, memories: list, views: tuple = ()) -> str:
+    """开始等待、被邮件唤醒后带记忆与看法提前结束它，返回活动名。"""
     _, waited = _act(engine, f"{round_id}-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     name = activity_name(engine, waited.activity_id)
     _act(engine, f"{round_id}-conclude", "conclude_activity",
-         ConcludeActivityRequest(task=[name], summary=[summary], memories=[memories]))
+         conclude_request(name, summary=summary, memories=[memories], views=[list(views)]))
     return name
 
 
@@ -141,8 +146,8 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     friend = engine.scenario.agents[0].contacts[0].salutation
     start = engine.state.current_time
     _act(engine, "a-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="晚上见"))
-    wait = _concluding_wait(engine, "a", "歇好了", [_memo("routine", "每天歇一会儿"),
-                                                   _memo("relationship", "沈昊靠谱", subject=friend)])
+    wait = _concluding_wait(engine, "a", "歇好了", [_memo("routine", "每天歇一会儿")],
+                            views=(_view("relationship", "沈昊靠谱", friend),))
     departed = engine.state.current_time
     walk = _walk(engine, "a-walk")
     home = _memory(engine, "a-road")["earlier_today"]
@@ -156,7 +161,7 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     mail_at = wake_by_mail(engine, offset=120)
     advance_next(engine)
     walk_name = activity_name(engine, walk.activity_id)
-    _act(engine, "a-report", "report_status", ReportStatusRequest(task=[walk_name], summary=["快到了"]))
+    _act(engine, "a-report", "report_status", report_request(walk_name, summary="快到了"))
     assert advance_until_ready(engine)
     arrived = engine.state.current_time
     _act(engine, "a-arrive", "conclude_activity", conclude_request(walk_name, summary="到了"))
@@ -593,13 +598,13 @@ def test_paused_interval_appears_in_the_concluded_activity_sentence(engine_facto
     name = activity_name(engine, first.activity_id)
     paused_at = wake_by_mail(engine, offset=120)
     advance_next(engine)
-    _act(engine, "p-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下"]))
+    _act(engine, "p-pause", "pause_activity", pause_request(name, summary="先停一下"))
     _, second = _act(engine, "p-other", "start_activity", start_activity("等待", "自己"))
     other = activity_name(engine, second.activity_id)
     resumed_at = wake_by_mail(engine, offset=180)
     advance_next(engine)
     _act(engine, "p-other-end", "conclude_activity", conclude_request(other))
-    _act(engine, "p-resume", "report_status", ReportStatusRequest(task=[name], summary=["接着等"]))
+    _act(engine, "p-resume", "report_status", report_request(name, summary="接着等"))
     closed = wake_by_mail(engine, offset=120)
     advance_next(engine)
     _act(engine, "p-conclude", "conclude_activity", conclude_request(name, summary="等完了"))
@@ -732,7 +737,7 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
     stage_day_plan(engine)
     friend = engine.scenario.agents[0].contacts[0].salutation
     _act(engine, "r-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="出门了"))
-    _concluding_wait(engine, "r", "歇好了", [_memo("preference", "喜欢安静", subject="环境")])
+    _concluding_wait(engine, "r", "歇好了", [], views=(_view("preference", "喜欢安静", "环境"),))
     walk = _walk(engine, "r-walk")
     assert advance_until_ready(engine)
     _act(engine, "r-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
@@ -818,8 +823,8 @@ def _arrive(engine, round_id: str, travel_id: str) -> None:
         if engine.state.activities[travel_id].status != ActivityStatus.ACTIVE:
             break
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"{round_id}-{step}", "report_status", ReportStatusRequest(
-                task=[activity_name(engine, travel_id)], summary=["还在路上。"]))
+            _act(engine, f"{round_id}-{step}", "report_status", report_request(
+                activity_name(engine, travel_id), summary="还在路上。"))
         else:
             advance_next(engine)
     _act(engine, round_id, "conclude_activity", conclude_request(activity_name(engine, travel_id), summary="到了"))
@@ -874,8 +879,8 @@ def _finish_waiting(engine, round_id: str, activity_id: str) -> None:
         if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             break
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"{round_id}-{step}", "report_status", ReportStatusRequest(
-                task=[activity_name(engine, activity_id)], summary=["接着等。"]))
+            _act(engine, f"{round_id}-{step}", "report_status", report_request(
+                activity_name(engine, activity_id), summary="接着等。"))
         else:
             advance_next(engine)
     _act(engine, round_id, "conclude_activity", conclude_request(activity_name(engine, activity_id)))

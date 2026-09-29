@@ -59,7 +59,7 @@ test('the fixture holds a seven-layer action, a continuation-shaped request and 
   assert.deepEqual(Object.keys(fixture), ['action', 'continuation', 'legacy_prelude', 'legacy_action']);
   const system = JSON.parse(fixture.action.messages[0].content);
   assert.equal(system.layer, '系统层');
-  assert.equal(system.rules.length, 17);
+  assert.equal(system.rules.length, 18);
   assert.deepEqual(layers().map(layer => layer.layer), LAYER_NAMES);
   assert.equal(fixture.action.messages.length, 2);
   assert.ok(fixture.continuation.messages.length > 2);

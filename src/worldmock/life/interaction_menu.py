@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
 from worldmock.life.models import FrozenModel, START_ACTIVITY_ACTIONS
+from worldmock.life.readable import TRAVEL_WAYS
 
 #: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md「保护项修订」）：每份菜单必须保留，
 #: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。
@@ -38,7 +39,8 @@ ACTION_WAYS = {
     "work": "工作", "browse": "浏览", "watch": "观看", "play": "游玩", "chat": "交谈", "call": "通话",
     "read": "阅读", "do": "进行", "wait": "等待", "sleep": "睡觉",
 }
-TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
+# 出行方式 → 方式短语 TRAVEL_WAYS 的唯一来源是 readable 的中文种类表（docs/dev/SPEC-dayrun-fidelity.md 7.4），
+# 文件头导入的就是那张表，照旧从本模块导出。
 PURCHASE_WAYS = {"pickup": "到店", "delivery": "远程下单"}
 USE_WAYS = {"eat": "食用", "use": "使用"}
 #: 把手边的持有物交给人物的方式（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：内部标准动作仍是 consume，

@@ -6,9 +6,9 @@
   收到的消息、送达与发出的消息归路程 session；同一事件只在进度层或记忆层之一出现。
 - earlier_today：结束时刻落在今天（场景本地日期）的已结束 session 各一条，recorded_at 为结束时刻；settled 取
   settled_text 的句子，在本 session 结束的活动按结束提交各一句（到达时结束的出行归路程，实验截止截断的活动归最后一段），
-  self_notes 取成功的 pause_activity、conclude_activity 写下的 summary 与记忆原文（relationship 与 preference 只在
-  人设层），按活动名标注，条目内不重名时去掉开始时刻后缀（note_labels 记下这类短名对应的完整活动名，回看按记忆层所见的
-  名称解析）；没有内容的条目不出现。
+  self_notes 取成功的 pause_activity、conclude_activity 写下的 summary 与记忆原文（看法与偏好只在人设层；请求一律经
+  control_items 读出，新旧形状同一口径），按活动名标注，条目内不重名时去掉开始时刻后缀（note_labels 记下这类短名对应的
+  完整活动名，回看按记忆层所见的名称解析）；没有内容的条目不出现。
 - earlier_days：今天之前结束的 session 中此刻仍未了结的事项（本人 pending 或 ready 的订单；收到后没有成功 send_message
   回复发件人的直接消息，通话不算回复），按起源日期归入；另加归属该日的就寝反思（睡眠开始时刻前推 6 小时的本地日期）。
 - 窗口：记忆层 JSON 不超过 8000 字符；超出时依次删去最旧日期的反思、再把最旧的今日条目缩成只剩未了结的 settled 句；
@@ -31,6 +31,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import progress_layer
+from worldmock.life.control_items import control_items
 from worldmock.life.models import ActivityKind, SessionState, SessionStatus
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
@@ -42,8 +43,6 @@ from worldmock.life.tool_layer import LayerContext
 MEMORY_WINDOW_CHARS = 8000
 #: 反思归属日期：睡眠开始时刻前推的秒数（裁决 #34）。
 REFLECTION_SHIFT_SECONDS = 6 * 3600
-#: 只在人设层出现的记忆类型（不进记忆层与进度层参数）。
-VIEW_MEMORY_TYPES = frozenset({"relationship", "preference"})
 #: 派生记忆层读取的本人事件类型。
 _EVENT_TYPES = ("action_requested", "action_result", "environment_event", "memory_updated")
 #: 成功的即时结果状态与未了结的订单状态。
@@ -148,16 +147,17 @@ def _note_labels(entries: list[_Entry]) -> dict[str, tuple[str, ...]]:
 
 
 def persona_views(context: LayerContext, store: FootprintStore) -> dict:
-    """@brief 人设层的看法与偏好：成功的 conclude_activity 写下的带 subject 的 relationship 与 preference 记忆，
-    同一对象按事件顺序取最后一条（事件照旧只追加，两条都保留，裁决 #33）。"""
+    """@brief 人设层的看法与偏好：成功的 conclude_activity 写下的看法与偏好（经 control_items 读出的带 subject 的
+    relationship 与 preference 记忆：现行请求的 views，旧形状带 subject 的记忆），同一对象按事件顺序取最后一条（事件照旧
+    只追加，两条都保留，裁决 #33）。"""
     build = _build(context, store)
     relationships: dict[str, str] = {}
     preferences: dict[str, dict] = {}
     for request in _successful(build.cached, build.results, "conclude_activity", (0, None)):
         noted_on = local_date(request.occurred_at, context.scenario.timezone)
-        for group in request.data["request"]["memories"]:
-            for memory in group:
-                if memory.get("subject") is None or memory.get("type") not in VIEW_MEMORY_TYPES:
+        for item in control_items("conclude_activity", request.data["request"]):
+            for memory in item.views:
+                if memory["subject"] is None:
                     continue
                 if memory["type"] == "relationship":
                     relationships[memory["subject"]] = memory["text"]
@@ -327,20 +327,16 @@ def _world_lines(build: _Build, event: Event) -> list[_Line]:
 
 
 def _self_notes(build: _Build, bounds: tuple[int, int | None]) -> tuple[list[dict], dict[str, str]]:
-    """@brief 区间内成功的 pause_activity 与 conclude_activity 写下的 summary 与记忆原文，按活动名标注；另返回各标注 →
-    完整活动名。"""
+    """@brief 区间内成功的 pause_activity 与 conclude_activity 写下的 summary 与普通记忆原文（经 control_items 读出，
+    看法与偏好不写），按活动名标注；另返回各标注 → 完整活动名。"""
     requests = sorted(_successful(build.cached, build.results, "pause_activity", bounds)
                       + _successful(build.cached, build.results, "conclude_activity", bounds),
                       key=lambda event: event.event_seq)
     notes: list[tuple[str, str]] = []
     for request in requests:
-        body = request.data["request"]
-        memories = body.get("memories", [])
-        for index, task in enumerate(body["task"]):
-            group = memories[index] if index < len(memories) else []
-            texts = [body["summary"][index], *(item["text"] for item in group
-                                               if item.get("type") not in VIEW_MEMORY_TYPES)]
-            notes.extend((task, text) for text in texts if text.strip())
+        for item in control_items(request.data["tool_name"], request.data["request"]):
+            texts = [item.summary, *(memory["text"] for memory in item.plain_memories)]
+            notes.extend((item.activity_name, text) for text in texts if text.strip())
     labels = _labels([task for task, _ in notes])
     return [{"activity": labels[task], "text": text} for task, text in notes], {
         label: task for task, label in labels.items()}

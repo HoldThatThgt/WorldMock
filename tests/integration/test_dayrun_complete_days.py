@@ -160,17 +160,16 @@ class DayModel:
         return next(name for name in self._objects() if name.startswith("地点：") and label in name)
 
     def _control(self, action, names):
-        return action, {"task": list(names), "summary": ["按当前进展继续。"] * len(names)}
+        return action, {"items": [{"activity_name": name, "summary": "按当前进展继续。"} for name in names]}
 
     def _conclude(self, names):
-        """收尾点名的活动；第一次收尾顺带写下唯一一条主观记忆（来源由系统登记，记忆不带任何身份）。"""
-        memories = [[] for _ in names]
+        """收尾点名的活动（一项一个对象）；第一次收尾顺带写下唯一一条主观记忆（来源由系统登记，记忆不带任何身份）。"""
+        items = [{"activity_name": name, "summary": "这件事先到这里。", "memories": [], "views": []} for name in names]
         if not self.subjective_written:
-            memories[0] = [{"type": "reflection", "importance": 0.2, "keywords": ["猜想"],
-                            "text": "我以为自己已经吃过一顿饭。", "subject": None}]
+            items[0]["memories"] = [{"type": "reflection", "importance": 0.2, "keywords": ["猜想"],
+                                     "text": "我以为自己已经吃过一顿饭。"}]
             self.subjective_written = True
-        return "conclude_activity", {"task": list(names), "summary": ["这件事先到这里。"] * len(names),
-                                     "memories": memories}
+        return "conclude_activity", {"items": items}
 
     def _before_lunch(self, hour):
         running = self._running()

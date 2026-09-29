@@ -11,7 +11,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 import worldmock.life.engine as engine_module
-from tests.life.conftest import activity_name, advance_next, context
+from tests.life.conftest import activity_name, advance_next, context, report_request
 from tests.life.test_export_integration import _stage_final_interval, _wait_request
 from tests.life.test_work_review import (
     _at_task_start,
@@ -23,7 +23,6 @@ from worldmock.errors import ProtocolError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import ReportStatusRequest
 
 
 class SequenceReviewer:
@@ -320,8 +319,7 @@ def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dic
             engine.begin_decision_round([ctx])
             engine.observe(ctx)
             engine.submit_action(DirectToolCall(ctx, f"review-export-report-{engine.state.current_time}",
-                                                "report_status", ReportStatusRequest(
-                                                    task=[waiting], summary=["继续等待。"])))
+                                                "report_status", report_request(waiting, summary="继续等待。")))
             engine.commit_decision_round(ctx.round_id)
         else:
             advance_next(engine)

@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -156,10 +156,11 @@ def test_activity_controls_bind_current_readable_activity(phase) -> None:
     functions = _functions(agent)
     assert {"report_status", "pause_activity", "conclude_activity"} <= set(functions)
     for name in ("report_status", "pause_activity", "conclude_activity"):
-        assert "enum" not in functions[name]["parameters"]["properties"]["task"]["items"]
-        memories = {"memories": [[]]} if name == "conclude_activity" else {}
+        assert "enum" not in functions[name]["parameters"]["properties"]["items"]["items"]["properties"][
+            "activity_name"]
+        extra = {"memories": [], "views": []} if name == "conclude_activity" else {}
         assert agent.validate_react_decisions([_decision(
-            name, task=[_WORK], summary=["继续推进。"], **memories)], False) == ""
+            name, items=[{"activity_name": _WORK, "summary": "继续推进。", **extra}])], False) == ""
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)
 

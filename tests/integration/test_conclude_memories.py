@@ -22,14 +22,14 @@ from typing import Any
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
 from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall
-from custom.agents.life_agent import LifeAgent, life_action_tool_names
+from custom.agents.life_agent import LifeAgent, _conclusion_memories, life_action_tool_names
 from custom.agents.life_feedback import FEEDBACK_INSTRUCTION
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import (
@@ -51,21 +51,16 @@ from tests.integration.test_life_agent_protocol import (
     _observations,
     _service,
     _stored_memories,
+    _view,
     _wire_agent,
     _with_activities,
 )
 from tests.integration.test_verified_memory import _runtime
-from tests.life.conftest import (
-    activity_name,
-    advance_until_ready,
-    context,
-    engine_factory as _engine_factory,  # noqa: F401
-    stage_day_plan,
-    start_activity,
-    wake_by_mail,
-)
+from tests.life.conftest import (activity_name, advance_until_ready, context, engine_factory as _engine_factory,
+                                 stage_day_plan, start_activity, wake_by_mail, pause_request)
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
-from worldmock.life.models import ConcludeActivityRequest, PauseActivityRequest, REQUEST_MODELS, SameMomentStage
+from worldmock.life.control_items import control_items
+from worldmock.life.models import ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage
 
 
 @pytest.fixture(autouse=True)
@@ -149,11 +144,13 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
 
 @pytest.mark.asyncio
 async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
-    """宿主按 task 顺序展平 memories，来源固定为 activity_conclusion、认知状态 subjective、没有 refs；其他世界请求不写记忆。"""
+    """宿主按项的顺序展平（每项先 memories、后 views，看法的 about 在写入前去掉），来源固定为 activity_conclusion、认知状态
+    subjective、没有 refs；其他世界请求不写记忆。"""
     first = _memory("会议纪要整理完了，松了口气。", kind="resolution", importance=0.6)
     second = _memory("下次要早点动笔。", kind="goal", importance=0.4, keywords=("写作", "计划"))
+    taste = _view("会议室", "小会议室开会最安静。", kind="preference", importance=0.2, keywords=("开会",))
     third = _memory("等人的时候心里有点急。", kind="conflict", importance=0.3)
-    conclusion = _conclude_args(_WORK, _WAIT, memories=[[first, second], [third]])
+    conclusion = _conclude_args(_WORK, _WAIT, memories=[[first, second], [third]], views=[[taste], []])
     written = []
     for tool, arguments in (("conclude_activity", conclusion), ("start_activity", _WAIT_CHOICE)):
         dispatcher = _GroundedCorrectionDispatcher(responses=[
@@ -164,30 +161,72 @@ async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
         assert await agent.run_react_loop(request) == f"{tool} registered"
         written.append(agent._last_finish_memories)
 
-    assert written[0] == [{**{key: value for key, value in item.items() if key != "subject"},
+    assert written[0] == [{**{key: value for key, value in item.items() if key != "about"},
                            "source": "activity_conclusion", "epistemic_status": "subjective"}
-                          for item in (first, second, third)]
+                          for item in (first, second, taste, third)]
     assert written[1] == []
 
 
+@pytest.mark.asyncio
+async def test_views_persist_as_memories_byte_identical_to_the_subject_shape(tmp_path) -> None:
+    """看法写在 views、对象写在 about：经 control_items 读出的记忆带 subject，与旧形状（memories[][] 里带 subject 的
+    relationship、preference）写下的同一组记忆逐字节相同；宿主写入 AS2 前去掉 subject，展平结果与旧宿主逐字节相同，经真实
+    记忆运行时落盘的 episodes.jsonl 也逐字节相同（docs/dev/SPEC-dayrun-fidelity.md 第六章验收）。"""
+    plain = _memory("等了一刻钟，心里平静了。", importance=0.3)
+    mother = _view("陈母", "想起还没回妈妈的消息。", importance=0.4, keywords=("妈妈",))
+    taste = _view("拿铁", "下午想喝拿铁。", kind="preference", keywords=("咖啡",))
+    current = _conclude_args(_WAIT, memories=[[plain]], views=[[mother, taste]])
+    legacy = {"task": [_WAIT], "summary": ["先收个尾。"], "memories": [[
+        {**plain, "subject": None},
+        *({"type": view["type"], "text": view["text"], "importance": view["importance"],
+           "keywords": view["keywords"], "subject": view["about"]} for view in (mother, taste))]]}
+    read = control_items("conclude_activity", ConcludeActivityRequest.model_validate(current))
+    assert read == control_items("conclude_activity", legacy)
+    assert json.dumps(read[0].memories, ensure_ascii=False) == json.dumps(legacy["memories"][0], ensure_ascii=False)
+    assert [memory["subject"] for memory in read[0].views] == ["陈母", "拿铁"]
+    before = [{**{key: value for key, value in memory.items() if key != "subject"},
+               "source": "activity_conclusion", "epistemic_status": "subjective"}
+              for group in legacy["memories"] for memory in group]
+    flattened = _conclusion_memories("conclude_activity", current)
+    assert json.dumps(flattened, ensure_ascii=False) == json.dumps(before, ensure_ascii=False)
+    persisted = []
+    for label, memories in (("current", flattened), ("legacy", before)):
+        runtime, _ = _runtime(tmp_path / label)
+        await runtime.after_step(tick=60, t=_OBSERVED_AT, step_count=1, finish_memories=memories)
+        persisted.append(runtime.store.episodes_path.read_bytes())
+    assert persisted[0] == persisted[1] and "拿铁".encode() in persisted[0] and b'"subject"' not in persisted[0]
+
+
 def test_only_conclude_activity_carries_memories() -> None:
-    """结束工具逐项带记忆；播报与暂停不带记忆，多给 memories 按协议错误拒绝（第七章）。"""
+    """结束工具每项带记忆与看法；播报与暂停不带，多给 memories 按协议错误拒绝（第七章，一项一个对象）。"""
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, _observed((_WORK, PHASE_ACTIVE))))
     functions = {item["function"]["name"]: item["function"] for item in agent.build_react_tool_schemas(readonly=False)}
-    assert set(functions["conclude_activity"]["parameters"]["properties"]) == {"task", "summary", "memories"}
+
+    def item_fields(tool: str) -> set[str]:
+        """工具参数里每一项对象的字段。"""
+        return set(functions[tool]["parameters"]["properties"]["items"]["items"]["properties"])
+
+    assert item_fields("conclude_activity") == {"activity_name", "summary", "memories", "views"}
     for tool in ("report_status", "pause_activity"):
-        assert set(functions[tool]["parameters"]["properties"]) == {"task", "summary"}
-        arguments = {"task": [_WORK], "summary": ["还在做。"], "memories": [[_memory()]]}
+        assert item_fields(tool) == {"activity_name", "summary"}
+        arguments = {"items": [{"activity_name": _WORK, "summary": "还在做。", "memories": [_memory()], "views": []}]}
         error = agent.validate_react_decisions([_decision(tool, arguments)], False)
         assert f"invalid {tool} arguments" in error and "Extra inputs are not permitted" in error
 
 
-def _nine_memories() -> list[list[dict]]:
-    """两项合计九条记忆（超过八条上限）。"""
+def _nine_entries() -> dict:
+    """两项合计九条记忆与看法（超过八条上限）：七条普通记忆、两条偏好。"""
     texts = ("早上的阳光很好。", "路上有点堵。", "午饭吃得很满足。", "同事帮了我一把。", "下午有点犯困。",
-             "会开得比预想顺利。", "晚上想早点睡。", "想给家里打个电话。", "周末想去爬山。")
-    return [[_memory(text) for text in texts[:5]], [_memory(text) for text in texts[5:]]]
+             "会开得比预想顺利。", "晚上想早点睡。")
+    views = [_view("面馆", "楼下面馆的面好吃。", kind="preference"), _view("散步", "晚上散步很舒服。", kind="preference")]
+    return _conclude_args(_WORK, _WAIT, memories=[[_memory(text) for text in texts[:4]],
+                                                  [_memory(text) for text in texts[4:]]], views=[views, []])
+
+
+def _single_view(**changes: Any) -> dict:
+    """结束一项活动，没有普通记忆，唯一一条看法按 changes 改动字段。"""
+    return _conclude_args(_WAIT, memories=[[]], views=[[{**_view("沈昊"), **changes}]])
 
 
 def _single(**changes: Any) -> dict:
@@ -196,8 +235,22 @@ def _single(**changes: Any) -> dict:
 
 
 _LIMIT_CASES = {
-    "memories_shorter_than_task": (_conclude_args(_WORK, _WAIT, memories=[[_memory()]]), "equally sized"),
-    "nine_memories_in_total": (_conclude_args(_WORK, _WAIT, memories=_nine_memories()), "exceed eight"),
+    "three_items": ({"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}
+                               for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")]}, "one or two items"),
+    "repeated_activity": (_conclude_args(_WAIT, _WAIT), "must be distinct"),
+    "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}]},
+                      "should match pattern"),
+    "summary_over_500_characters": ({"items": [{"activity_name": _WAIT, "summary": "长" * 501, "memories": [],
+                                                "views": []}]}, "within 500 characters"),
+    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}]}, "Field required"),
+    "nine_memories_and_views_in_total": (_nine_entries(), "exceed eight"),
+    "memory_with_a_subject": (_single(subject=None), "Extra inputs are not permitted"),
+    "memory_of_a_view_type": (_single(type="relationship"), "Input should be"),
+    "view_without_about": (_single_view(about=" "), "should match pattern"),
+    "view_of_a_plain_type": (_single_view(type="routine"), "Input should be"),
+    "view_text_over_1000_characters": (_single_view(text="长" * 1001), "exceeds 1000 characters"),
+    "view_with_thirteen_keywords": (_single_view(keywords=[f"词{index}" for index in range(13)]),
+                                    "more than twelve keywords"),
     "empty_text": (_single(text=""), "should match pattern"),
     "blank_text": (_single(text="   "), "should match pattern"),
     "text_over_1000_characters": (_single(text="长" * 1001), "exceeds 1000 characters"),
@@ -210,13 +263,26 @@ _LIMIT_CASES = {
     "model_supplied_refs": (_single(refs=["observation-current"]), "Extra inputs are not permitted"),
     "model_supplied_status": (_single(epistemic_status="subjective"), "Extra inputs are not permitted"),
 }
+#: 一项一个对象的形状下，协议纠错的原因（经宿主的 ARGUMENTS_INVALID 逐字段写出，不带校验库转储）。
+_LIMIT_REASONS = {
+    "three_items": "items：conclude_activity takes one or two items",
+    "repeated_activity": "items：conclude_activity activity names must be distinct",
+    "blank_summary": "items[0].summary 不能是空白",
+    "summary_over_500_characters": "items[0].summary：must be within 500 characters",
+    "views_missing": "items[0].views 没有写",
+    "nine_memories_and_views_in_total": "items：conclude_activity memories and views exceed eight entries in total",
+    "memory_with_a_subject": "items[0].memories[0].subject 不是这个工具的参数，要去掉",
+    "view_without_about": "items[0].views[0].about 不能是空白",
+    "view_text_over_1000_characters": "items[0].views[0]：memory text exceeds 1000 characters",
+}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", sorted(_LIMIT_CASES))
 async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision(case: str) -> None:
-    """memories 与 task 等长、合计不超过八条、text 非空不超 1000 字符且无十六进制身份、关键词不超 12 个、重要度 0–1：
-    越界由本地请求模型拒绝，按协议错误在本轮重试，只有改正后的请求到达环境（不计同刻轮数）。"""
+    """一至两项且活动名互不相同、总结非空、memories 与 views 都必填且合计不超过八条、普通记忆没有对象且不是看法类型、看法
+    写对象、text 非空不超 1000 字符且无十六进制身份、关键词不超 12 个、重要度 0–1：越界由本地请求模型拒绝，按协议错误在
+    本轮重试，只有改正后的请求到达环境（不计同刻轮数）。"""
     invalid, message = _LIMIT_CASES[case]
     valid = _conclude_args(_WAIT)
     dispatcher = _GroundedCorrectionDispatcher(responses=[
@@ -239,27 +305,31 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     feedback = json.loads(content)
     assert (feedback["error_code"], feedback["instruction"]) == ("ARGUMENTS_INVALID", FEEDBACK_INSTRUCTION)
     assert feedback["reason"] and "error" not in feedback
+    assert feedback["reason"] == _LIMIT_REASONS.get(case, feedback["reason"])
     assert not any(dump in content for dump in ("input_value", "errors.pydantic", "Input should be",
                                                 "Extra inputs are not permitted", "should match pattern"))
     assert agent._last_finish_memories == _stored_memories(valid)
 
 
 def test_conclusion_memory_limits_accept_the_boundaries() -> None:
-    """边界值都受理：合计恰好八条、text 恰好 1000 字符、12 个关键词、重要度 0 与 1、某项零条记忆。"""
+    """边界值都受理：记忆与看法合计恰好八条、text 恰好 1000 字符、12 个关键词、重要度 0 与 1、某项零条记忆与零条看法。"""
     boundary = [
         _memory("长" * 1000),
         _memory("关键词正好十二个。", keywords=tuple(f"词{index}" for index in range(12))),
         _memory("一件不太要紧的小事。", importance=0.0),
         _memory("一件最要紧的大事。", importance=1.0),
-        *(_memory(text) for text in ("晚风很舒服。", "楼下新开了面馆。", "想换个新杯子。", "明天要早起。")),
+        *(_memory(text) for text in ("晚风很舒服。", "楼下新开了面馆。")),
     ]
-    arguments = _conclude_args(_WORK, _WAIT, memories=[boundary, []])
+    views = [_view("面馆", "长" * 1000, kind="preference", importance=1.0),
+             _view("晚风", "晚风很舒服。", kind="preference", keywords=tuple(f"词{index}" for index in range(12)))]
+    arguments = _conclude_args(_WORK, _WAIT, memories=[boundary, []], views=[views, []])
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, _observed((_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE))))
     agent.build_react_tool_schemas(readonly=False)
 
     assert agent.validate_react_decisions([_decision("conclude_activity", arguments)], False) == ""
-    assert sum(len(group) for group in ConcludeActivityRequest.model_validate(arguments).memories) == 8
+    items = ConcludeActivityRequest.model_validate(arguments).items
+    assert sum(len(item.memories) + len(item.views) for item in items) == 8
 
 
 @pytest.mark.asyncio
@@ -353,7 +423,7 @@ def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, Lif
     wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     watch_name = activity_name(engine, watch.activity_id)
-    paused = _settle(engine, "pause", "pause_activity", PauseActivityRequest(task=[watch_name], summary=["先停一下。"]))
+    paused = _settle(engine, "pause", "pause_activity", pause_request(watch_name, summary="先停一下。"))
     assert paused.status.value == "completed"
     wait = _settle(engine, "wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
@@ -391,9 +461,9 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     """带记忆收尾：环境只校验形状并随 action_requested 留证，来源（活动、会话、已核验经历）与写入点由系统登记。"""
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
-    memories = [_memory("等了一刻钟，心里平静了。", importance=0.3),
-                _memory("想起还没回妈妈的消息。", kind="relationship", importance=0.4, subject="陈母")]
-    conclusion = {"task": [name], "summary": ["等完了。"], "memories": [memories]}
+    memories = [_memory("等了一刻钟，心里平静了。", importance=0.3)]
+    views = [_view("陈母", "想起还没回妈妈的消息。", importance=0.4, keywords=("妈妈",))]
+    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}]}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
     person = await _person(environment, tmp_path / "agent_0001", model)
@@ -409,7 +479,7 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     assert result.data["memory_sources"] == [{"task": name, "activity_id": wait_id,
                                               "session_id": activity.session_ids[-1], "verified_event_ids": waited}]
     [requested] = _events(engine, "action_requested", decision.decision_id)
-    assert requested.data["request"]["memories"] == [memories]
+    assert requested.data["request"] == conclusion
     [update] = _events(engine, "memory_updated", decision.decision_id)
     assert update.data["trigger"] == ["activity_conclusion"]
     assert update.data["decision_id"] == decision.decision_id
@@ -417,7 +487,11 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     assert set(update.data["created_episode_ids"]) == {item["id"] for item in stored}
     assert [(item["type"], item["text"], item["source"], item["epistemic_status"], item["refs"])
             for item in stored] == [(memory["type"], memory["text"], "activity_conclusion", "subjective", [])
-                                    for memory in memories]
+                                    for memory in (*memories, *views)]
+    assert all("subject" not in item and "about" not in item for item in stored)
+    after = context(engine, "after-conclusion")
+    engine.begin_decision_round([after])
+    assert engine.observe(after)["persona_views"]["relationships"] == [{"person": "陈母", "view": views[0]["text"]}]
 
 
 @pytest.mark.asyncio
@@ -425,7 +499,8 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
     """登记后结算被拒的 conclude_activity（有刚结束的等待却只结束暂停的观看），其记忆仍作为人物自述保留，写入点记为该动作。"""
     engine, environment, watch_id, wait_id = _engine_with_paused_watch_and_pending_wait(_engine_factory)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
-    conclusion = {"task": [activity_name(engine, watch_id)], "summary": ["不看了。"], "memories": [memories]}
+    conclusion = {"items": [
+        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}]}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
     person = await _person(environment, tmp_path / "agent_0001", model)
@@ -436,7 +511,7 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
     assert activity_name(engine, wait_id) in result.message
     assert engine.state.activities[watch_id].status.value == "paused"
     [requested] = _events(engine, "action_requested", decision.decision_id)
-    assert requested.data["request"]["memories"] == [memories]
+    assert requested.data["request"] == conclusion
     [update] = _events(engine, "memory_updated", decision.decision_id)
     assert update.data["trigger"] == ["activity_conclusion"]
     assert update.data["decision_id"] == decision.decision_id
@@ -500,16 +575,17 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     model = _ScriptedModel([
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-search", "memory_search", json.dumps({"query": "散步", "limit": 5}, ensure_ascii=False)),
-        _naming_offered("call-mismatch", lambda offered: {"task": [offered], "summary": ["等完了。"], "memories": []}),
+        _naming_offered("call-mismatch", lambda offered: {"items": [
+            {"activity_name": offered, "summary": "等完了。", "memories": []}]}),
         _naming_offered("call-conclude", lambda offered: _conclude_args(
             offered, memories=[[_memory("等完这一刻钟，决定出门散步。", importance=0.2)]])),
     ])
     person = await _person(environment, tmp_path / "agent_0001", model)
     store = person._memory_runtime.store
-    earlier = [_memory("晚饭后在小区里散步很舒服。", kind="preference", importance=0.2, subject="散步"),
-               _memory("答应周末陪朋友去散步。", kind="commitment", importance=0.2)]
-    store.append_episodes(_stored_memories(_conclude_args("散步（1月4日 19:00 起）", memories=[earlier])),
-                          tick=0, t=_OBSERVED_AT - timedelta(hours=10), step_count=0)
+    earlier = _conclude_args("散步（1月4日 19:00 起）",
+                             memories=[[_memory("答应周末陪朋友去散步。", kind="commitment", importance=0.2)]],
+                             views=[[_view("散步", "晚饭后在小区里散步很舒服。", kind="preference", importance=0.2)]])
+    store.append_episodes(_stored_memories(earlier), tick=0, t=_OBSERVED_AT - timedelta(hours=10), step_count=0)
 
     decision, result = await _decide(engine, environment, person, "scan")
 
@@ -543,9 +619,9 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     参数略去 relationship、preference 记忆；记忆条目正文不出现在进度层。"""
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
-    memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2),
-                _memory("想给老朋友打个电话。", kind="relationship", importance=0.3, subject="沈昊")]
-    conclusion = {"task": [name], "summary": ["等完了。"], "memories": [memories]}
+    memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2)]
+    views = [_view("沈昊", "想给老朋友打个电话。", importance=0.3)]
+    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}]}
     model = _ScriptedModel([
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False),
@@ -569,7 +645,8 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     assert "散步很舒服" not in json.dumps(records, ensure_ascii=False)
     concluded = next(record for record in records if record["tool"] == "conclude_activity")
     assert concluded["self_note"] == "等够了，收个尾。"
-    assert concluded["arguments"]["memories"] == [[memories[0]]]
+    assert concluded["arguments"] == {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories}]}
+    assert views[0]["text"] not in json.dumps(records, ensure_ascii=False)
 
 
 def _society(monkeypatch, tmp_path: Path, environment: _StepEnvironment, dispatcher) -> AgentSociety:
@@ -726,10 +803,12 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     unconsolidated_after_step = []
     for index, (wake, groups) in enumerate(days, start=1):
         environment.wake_reasons = wake
-        memories = [[_memory(text, kind=kind, importance=0.2, subject=_SUBJECTS.get(kind))
-                     for kind, text in islice(texts, count)]
-                    for _, count in groups]
-        model.conclusions.append(_conclude_args(*(name for name, _ in groups), memories=memories))
+        chunks = [list(islice(texts, count)) for _, count in groups]
+        memories = [[_memory(text, kind=kind, importance=0.2) for kind, text in chunk if kind not in _SUBJECTS]
+                    for chunk in chunks]
+        views = [[_view(_SUBJECTS[kind], text, kind=kind, importance=0.2) for kind, text in chunk if kind in _SUBJECTS]
+                 for chunk in chunks]
+        model.conclusions.append(_conclude_args(*(name for name, _ in groups), memories=memories, views=views))
         agent.bind_decision_context(DecisionContext("run", f"round-{index}", f"decision-{index}", 7, _OBSERVED_AT, 3))
         assert await agent.step(0, _OBSERVED_AT) == "conclude_activity registered"
         unconsolidated_after_step.append(agent._memory_runtime.store.unconsolidated())

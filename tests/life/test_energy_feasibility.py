@@ -10,17 +10,16 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (activity_name, advance_next, context, settle_day_plans, stage_day_plan,
-                               start_activity, submit_round, target_actions, tool_targets, travel_quote,
-                               wake_by_mail, start_request)
+from tests.life.conftest import (activity_name, advance_next, context, settle_day_plans, stage_day_plan, start_activity,
+                                 submit_round, target_actions, tool_targets, travel_quote, wake_by_mail, start_request,
+                                 pause_request, report_request)
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, ReportStatusRequest,
-                                   ReviseDayPlanRequest)
+from worldmock.life.models import ActivityKind, ActivityStatus, ReviseDayPlanRequest
 from worldmock.life.social_actions import CALL_MET, CHAT_MET
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -188,13 +187,13 @@ def test_zero_energy_resume_is_accepted(engine_factory) -> None:
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     paused = _act(engine, "pause-watch", "pause_activity",
-                  PauseActivityRequest(task=[activity_name(engine, watch)], summary=["先停一下。"]))
+                  pause_request(activity_name(engine, watch), summary="先停一下。"))
     assert paused.status == "completed" and engine.state.activities[watch].status == ActivityStatus.PAUSED
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     assert engine.state.agents[1].body.energy_kcal == 0
     resumed = _act(engine, "resume-watch", "report_status",
-                   ReportStatusRequest(task=[activity_name(engine, watch)], summary=["接着看。"]))
+                   report_request(activity_name(engine, watch), summary="接着看。"))
     assert resumed.status == "completed", resumed.error_code
     assert engine.state.activities[watch].status == ActivityStatus.ACTIVE
 

@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import custom.agents.life_agent as life_agent_module
@@ -54,7 +54,7 @@ def _identity(scenario, tag: str) -> RunIdentity:
         code_sha256="4" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://api.deepseek.com",
+            base_url="https://api.deepseek.com/beta",
             requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",

@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime  # noqa: E402
@@ -74,6 +74,13 @@ def _platform_card():
     return make_card(sleep_need_hours=8.0,
                      habits=(HabitSignature(trigger="睡前", response="刷B站", time_window=make_window(22.0, 24.0)),),
                      tastes=Tastes(content_genres=("B站视频",), food_preferences=("冰美式咖啡",), media=("B站",)))
+
+
+def _app_card():
+    """媒介只写应用名「B站」、习惯与其余口味在世界里都有的卡片：应用别名计入时四项全覆盖，不计时 3/4 低于 80%。"""
+    return make_card(habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步",
+                                            time_window=make_window(19.0, 20.0)),),
+                     tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",), media=("B站",)))
 
 
 async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extraction: PersonaExtraction) -> dict:
@@ -132,6 +139,43 @@ def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[s
     shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
     (tmp_path / "scenarios").mkdir()
     path = tmp_path / "scenarios" / "map-variant.json"
+    _rewrite(path, document)
+    return path
+
+
+#: 登记进隔离语料的手机配置（语料根内的相对路径）。
+_PHONE = "scenario-phone/phone-simulation.json"
+
+
+def _phone_variant(tmp_path: Path, failure: str) -> Path:
+    """正式场景的副本，改用一份隔离语料并钉定一份手机配置（观看应用的别名是「B站」），按真实准入重新钉扎语料清单。
+
+    failure 是数据集改了一边、没同步另一边的两种核验失败：stale-pin 为场景钉的是配置重生成之前的哈希（身份核验失败），
+    seller-without-supply 为配置把购买应用映射到本场景没有供给的卖方（执行证据核验失败）。
+    """
+    corpus = tmp_path / "corpora"
+    shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
+    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    sellers = {"merchant:grocery": "hema"}
+    if failure == "seller-without-supply":
+        sellers["merchant:closed-last-month"] = "meituan-takeaway"
+    config = {"schema_version": 1, "scenario_id": document["scenario_id"], "agent_id": 1,
+              "timezone": document["timezone"], "activity_apps": {"watch": "bilibili"},
+              "purchase_apps_by_seller": sellers,
+              "app_display_names": {"bilibili": ["B站", "哔哩哔哩"], "hema": ["盒马App"], "meituan-takeaway": ["美团外卖"]}}
+    (corpus / _PHONE).parent.mkdir()
+    digest = _rewrite(corpus / _PHONE, config)
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    manifest["entries"].append({
+        "entry_id": "scenario-phone:phone-simulation.json", "path": _PHONE, "sha256": digest,
+        "size_bytes": (corpus / _PHONE).stat().st_size, "media_type": "application/json", "purpose": "phone simulation",
+        "source": {"kind": "scenario", "license": "WorldMock-project", "selector": "complete frozen file"}})
+    pin = hashlib.sha256(b"phone config before regeneration").hexdigest() if failure == "stale-pin" else digest
+    document.update(corpus_root=str(corpus), corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest),
+                    phone_simulation_config=_PHONE, phone_simulation_config_sha256=pin)
+    shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
+    (tmp_path / "scenarios").mkdir()
+    path = tmp_path / "scenarios" / "phone-variant.json"
     _rewrite(path, document)
     return path
 
@@ -293,6 +337,52 @@ def test_validate_still_fails_below_the_coverage_threshold_after_printing_the_wa
                        for item in warnings]
     failures = [record for record in caplog.records if record.exc_info]
     assert failures and isinstance(failures[-1].exc_info[1], PersonaCoverageError)
+
+
+@pytest.mark.parametrize(("failure", "reason"), [
+    ("stale-pin", "Phone simulation config identity is invalid"),
+    ("seller-without-supply", "Phone purchase app is not executable"),
+], ids=["stale-pin", "seller-without-supply"])
+async def test_a_phone_config_that_fails_verification_never_fails_run_creation(
+        tmp_path, monkeypatch, capsys, caplog, failure: str, reason: str) -> None:
+    """运行路径永不因输入警告失败（规格 1.3，实施计划「不新增故障路径」）：场景钉定的手机配置核验失败时，真实新建照常
+    建立运行——覆盖率按没有应用别名计算，只写应用名「B站」的媒介不算覆盖，清单冻结 COVERAGE_BELOW_THRESHOLD（ops 记录
+    逐条相同），并写一条英文 warning 日志；同一场景的 worldmock validate 照旧因手机配置核验失败而失败（非零退出、
+    不输出结果）。"""
+    import worldmock.validation as validation
+    from worldmock.cli import main
+
+    extraction = _extraction(_app_card())
+    path = _phone_variant(tmp_path, failure)
+    with caplog.at_level(logging.WARNING):
+        created = await _create_run(tmp_path, monkeypatch, path, extraction)
+    try:
+        frozen = created["env"].engine.store.manifest["input_warnings"]
+    finally:
+        await created["env"].close()
+    degraded = [record for record in caplog.records if record.name == "worldmock.runtime"]
+    assert [(record.levelname, record.getMessage()) for record in degraded] == [
+        ("WARNING", f"Phone simulation config failed verification; run coverage counts no app names: {reason}")]
+    assert frozen == created["warnings"]
+    coverage = [item["details"] for item in frozen if item["code"] == "COVERAGE_BELOW_THRESHOLD"]
+    assert [(item["executable_ratio"], item["missing"]) for item in coverage] == [
+        (0.75, [{"kind": "media", "value": "B站"}])]
+    logged = [json.loads(line) for day in sorted((tmp_path / "run" / "logs").glob("ops-*.jsonl"))
+              for line in day.read_text(encoding="utf-8").splitlines()]
+    assert [row["code"] for row in logged if row["component"] == "runtime" and row["level"] == "warn"] == [
+        item["code"] for item in frozen]
+
+    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(validation, "_compile_persona", lambda story: _compiled(extraction))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        code = main(["--project-root", str(_validate_root(tmp_path)), "validate", "--scenario", str(path),
+                     "--coverage-out", str(tmp_path / "coverage.json")])
+
+    assert code == 1 and capsys.readouterr().out == ""
+    failures = [record.exc_info[1] for record in caplog.records if record.exc_info]
+    assert failures and type(failures[-1]) is IntegrityError and str(failures[-1]) == reason
+    assert not (tmp_path / "coverage.json").exists()
 
 
 async def test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request(

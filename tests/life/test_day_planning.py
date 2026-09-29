@@ -18,9 +18,9 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 import worldmock.runtime as runtime_module
-from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context,
-                                 drive, pending_names, plan_day_response, settle_day_plans, stage_day_plan,
-                                 start_activity, submit_round)
+from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context, drive,
+                                 pending_names, plan_day_response, settle_day_plans, stage_day_plan, start_activity,
+                                 submit_round, report_request)
 from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
@@ -28,8 +28,7 @@ from worldmock.life import day_planning, reminders
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (PlanDayRequest, PlanGoalInput, ReportStatusRequest, ReviseDayPlanRequest,
-                                   SendMessageActionRequest)
+from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.schedule import NextDecisionQuery, PlanGoal, next_decision_time
 from worldmock.life.settled_text import activity_endings
 from worldmock.runtime import settle_pending_day_plans
@@ -37,7 +36,7 @@ from worldmock.runtime import settle_pending_day_plans
 SCENARIO = "white-collar-12-weeks.json"
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 睡前在收尾里写下的一条记忆（人物自述）。
-_MEMORY = {"type": "commitment", "text": "明早七点半起床", "importance": 0.6, "keywords": ["起床"], "subject": None}
+_MEMORY = {"type": "commitment", "text": "明早七点半起床", "importance": 0.6, "keywords": ["起床"]}
 
 
 def _at(day: int, hour: int, minute: int = 0) -> int:
@@ -128,7 +127,7 @@ def _decide(engine: LifeEngine, name: str, call: tuple | None = None):
     if call is None and pending_names(observed):
         call = ("conclude_activity", conclude_request(*pending_names(observed)))
     elif call is None and active:
-        call = ("report_status", ReportStatusRequest(task=active[:1], summary=["还在歇着。"]))
+        call = ("report_status", report_request(*active[:1], summary="还在歇着。"))
     elif call is None:
         call = ("start_activity", start_activity("等待", "自己"))
     engine.submit_action(DirectToolCall(decision, f"action-{name}", *call))

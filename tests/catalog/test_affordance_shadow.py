@@ -11,7 +11,7 @@ import pytest
 # life_agent 的导入链（agentsociety2）在导入期读取 LLM 环境变量（与
 # tests/integration 的处理一致）。
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.catalog.affordances import (
