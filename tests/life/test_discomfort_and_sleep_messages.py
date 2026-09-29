@@ -14,7 +14,7 @@ import pytest
 
 from tests.life.conftest import (advance_next, conclude_request, settle_day_plans, stage_day_plan, start_activity,
                                  submit_round)
-from tests.life.test_day_planning import _decide, _late_engine
+from tests.life.test_day_planning import _late_engine
 from tests.life.test_same_moment_decisions import _message_to, _with_inbox
 from tests.life.test_sleep_billing import _settlement, _stage_body
 from worldmock.life import same_moment
