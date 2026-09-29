@@ -45,7 +45,7 @@ from worldmock.life.scenario import load_scenario  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
 #: 上一决策修订今日计划（瞬时请求，人物同一秒再决策）；思考里提到咖啡。
-_PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None}]}
+_PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None, "around_time": None}]}
 _WAIT = start_arguments(["自己"], ["interact"], ["等待"])
 _THINK_PLAN = "上午有点困，先把下午喝咖啡写进计划。"
 _THINK_WAIT = "计划写好了，先歇一会儿。"

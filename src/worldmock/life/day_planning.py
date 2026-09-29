@@ -45,6 +45,9 @@ PLAN_DAY_PROMPT = """
 三、remind_time 只在他需要在某个时刻被提醒或叫醒时填写，取当天本地时间 HH:MM，必须晚于生成时刻、早于当天结束；
 不需要提醒就填 null。他收尾时写明了第二天几点起床或几点出门的，就给对应的目标定这个时刻的提醒。
 四、只调用一次 submit_day_plan，提交完整清单。
+五、人物档案的作息里已经有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒；写的时候写清楚哪里不同。
+六、每条目标都写大致时刻 around_time：他打算在当天几点前后做这件事，取当天本地时间 HH:MM，只知道大致时段的写时段的中点；
+大致时刻不会提醒他，需要提醒的照第三条填 remind_time。
 """.strip()
 #: 附回重试时的英文指令。
 _CORRECTION_INSTRUCTION = "Return a complete new submit_day_plan tool call using the unchanged schema."
@@ -53,7 +56,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class PlanDayOutputError(ValueError):
-    """@brief 模型输出不是合法计划（JSON、条数、意图唯一性、文字长度、remind_time 格式或时刻）；英文说明附回重试。"""
+    """@brief 模型输出不是合法计划（JSON、条数、意图唯一性、文字长度、remind_time 格式或时刻、around_time 格式）；
+    英文说明附回重试。"""
 
 
 def plan_date(now: int, timezone_name: str) -> str:
@@ -129,7 +133,8 @@ def parse_plan_day(raw: dict[str, Any], now: int, timezone_name: str) -> PlanDay
 
 
 def generated_plan(request: PlanDayRequest, now: int, timezone_name: str) -> DayPlan:
-    """@brief 以生成时刻登记目标：提醒换算为当日绝对时刻并须晚于生成时刻、早于次日零点（纯函数，登记与重试共用）。"""
+    """@brief 以生成时刻登记目标：提醒换算为当日绝对时刻并须晚于生成时刻、早于次日零点；大致时刻只换算、不另校验
+    （纯函数，登记与重试共用）。"""
     return initial_day_plan(registered_goals(request.goals, now, timezone_name), day_end_seconds(now, timezone_name))
 
 

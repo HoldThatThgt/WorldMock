@@ -1192,10 +1192,13 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 <h3 id="c4-接收当日目标并记录实际推进">接收当日目标并记录实际推进</h3>
 <p>场景本地零点先结算旧日区间、使旧计划失效，再由运行时后台任务 <code>plan_day</code>（同联系人回复）为每个人物生成有序目标，
 经引擎的系统登记入口写入世界状态，并写 <code>environment_event</code>（<code>data.kind="day_plan_generated"</code>）；
+计划只写今天与平常不同的事和要办的事，作息在人设层，不在计划里重述。
 目标文字不转换成时间边界或自动活动。目标的 <code>remind_time</code> 登记为一次性提醒边界：到期以 <code>plan_reminder_due</code>
-提供决策，睡眠中则结束睡眠，结束原因为 <code>plan_reminder</code>。人物修订计划时，原样重发的目标保留提醒，
-只改提醒时刻的换成新提醒，被替换或删除的目标取消提醒。
-实际正时长结算按家族匹配一条尚未推进目标，原子保存推进证据并发放一次情绪脉冲；
+提供决策，睡眠中则结束睡眠，结束原因为 <code>plan_reminder</code>；每条目标的大致时刻 <code>around_time</code> 登记为当日绝对时刻
+<code>around_at</code>，不触发决策，只用于推进判定。人物修订计划时，原样重发的目标保留提醒，只改提醒时刻的换成新提醒，
+只改大致时刻的保留登记时刻与提醒状态，被替换或删除的目标取消提醒。
+实际正时长结算按家族匹配一条尚未推进目标；目标带大致时刻时，活动在当日内的进行区间（从活动实际开始到结算止点）
+还须与大致时刻前后 90 分钟有交集。匹配到的目标原子保存推进证据并发放一次情绪脉冲；
 记录引擎负责保存事实，不负责判断目标推进。
 目标与修订合同见 <a href="../dev/SPEC-day-plan-goals.md">当日目标规格</a>，零点计划与提醒见
 <a href="../dev/SPEC-time-and-energy.md#四零点计划与计划提醒">时间与能量规格</a>。</p>
@@ -2799,7 +2802,7 @@ content = "full"</code></pre>
 <p>报告项只进报告，不参与放行。并行活动的各自时长允许重叠，人的经过时间取区间并集；
 用餐指标仅消费 eat 正实际进度，按活动身份去重，购买或受理不算吃过。
 记忆重复率只比较明确主观 episodes，不把其文字作为客观完成事实。</p>
-<table><tr><th>报告项键</th><th>说明</th><th>目标参照</th></tr><tr><td><code>decision_prompt_token_median</code></td><td>决策 prompt token 中位数：每个 <code>phase=request</code>、不带 <code>purpose</code> 的 <code>model_request</code> 计一个值（行动请求含同秒续接的请求；记忆巩固与就寝反思的请求同样不带 <code>purpose</code>，一并计入），排除 <code>purpose="work_review"</code> 与 <code>purpose="plan_day"</code> 的请求</td><td>15000（对照值）</td></tr><tr><td><code>effective_autonomous_decision_rate</code></td><td>最终动作非 continue/等待的占比；continue 与等待算被动，等待按结果活动 <code>kind=wait</code> 判定；只做结束、暂停或修订的控制轮单列</td><td>无固定阈值</td></tr><tr><td><code>wake_reason_distribution</code></td><td>各唤醒原因计数，分两份：边界取共同身体结算，决策轮取 <code>decision_started</code></td><td>覆盖所有唤醒类型</td></tr><tr><td><code>wait_minutes</code></td><td>本人真实等待活动的实际区间累计分钟</td><td>只报告，不设占比上限</td></tr><tr><td><code>unknown_wait_minutes</code></td><td>未有可核验原因的等待活动实际区间累计分钟</td><td>不根据自由叙述推断目的</td></tr><tr><td><code>content_contact_minutes</code></td><td>实际 watch 播放活动的执行区间累计分钟</td><td>不把等待或开始播放计为已接触</td></tr><tr><td><code>early_arrival_minutes</code></td><td>早于开门时间到达的分钟</td><td>最小化</td></tr><tr><td><code>sleep_schedule</code></td><td>就寝/起床时刻与时长</td><td>人物卡片就寝窗口</td></tr><tr><td><code>meal_diversity</code></td><td>Simpson 集中度与 24h 重复率</td><td>低集中度、低重复</td></tr><tr><td><code>activity_distribution</code></td><td>十类活动日时间分布与参照 JS 距离</td><td>2018 年全国时间利用调查</td></tr><tr><td><code>persona_distinguishability</code></td><td>留一最近邻人物识别准确率</td><td>≥3 次运行、≥2 人</td></tr><tr><td><code>social</code></td><td>交谈/通话分钟、消息数</td><td>人物社交需求</td></tr><tr><td><code>habitual_consistency</code></td><td>同人物地点与本地小时的活动家族一致率</td><td>只报告情境重复性，不识别心理习惯</td></tr><tr><td><code>deliberate_goals</code></td><td>曾登记目标中的家族实际推进率，保留丢弃条目；登记来源为零点计划的 <code>day_plan_generated</code> 与修订结果</td><td>只报告，外部参照未接入时为 null</td></tr><tr><td><code>external_constraints</code></td><td>去重后的外部约束受阻与动作接受率；引导性拒绝码 <code>ACTIVITY_PRECONDITION_UNMET</code>、<code>ACTIVITY_CONCLUSION_REQUIRED</code>、<code>SESSION_LIMIT_EXCEEDED</code> 计入 <code>other_rejections</code>；外部约束闭集不含 <code>PICKUP_LOCATION_REQUIRED</code> 与工作地点、技能不符</td><td>受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷</td></tr></table>
+<table><tr><th>报告项键</th><th>说明</th><th>目标参照</th></tr><tr><td><code>decision_prompt_token_median</code></td><td>决策 prompt token 中位数：每个 <code>phase=request</code>、不带 <code>purpose</code> 的 <code>model_request</code> 计一个值（行动请求含同秒续接的请求；记忆巩固与就寝反思的请求同样不带 <code>purpose</code>，一并计入），排除 <code>purpose="work_review"</code> 与 <code>purpose="plan_day"</code> 的请求</td><td>15000（对照值）</td></tr><tr><td><code>effective_autonomous_decision_rate</code></td><td>最终动作非 continue/等待的占比；continue 与等待算被动，等待按结果活动 <code>kind=wait</code> 判定；只做结束、暂停或修订的控制轮单列</td><td>无固定阈值</td></tr><tr><td><code>wake_reason_distribution</code></td><td>各唤醒原因计数，分两份：边界取共同身体结算，决策轮取 <code>decision_started</code></td><td>覆盖所有唤醒类型</td></tr><tr><td><code>wait_minutes</code></td><td>本人真实等待活动的实际区间累计分钟</td><td>只报告，不设占比上限</td></tr><tr><td><code>unknown_wait_minutes</code></td><td>未有可核验原因的等待活动实际区间累计分钟</td><td>不根据自由叙述推断目的</td></tr><tr><td><code>content_contact_minutes</code></td><td>实际 watch 播放活动的执行区间累计分钟</td><td>不把等待或开始播放计为已接触</td></tr><tr><td><code>early_arrival_minutes</code></td><td>早于开门时间到达的分钟</td><td>最小化</td></tr><tr><td><code>sleep_schedule</code></td><td>就寝/起床时刻与时长</td><td>人物卡片就寝窗口</td></tr><tr><td><code>meal_diversity</code></td><td>Simpson 集中度与 24h 重复率</td><td>低集中度、低重复</td></tr><tr><td><code>activity_distribution</code></td><td>十类活动日时间分布与参照 JS 距离</td><td>2018 年全国时间利用调查</td></tr><tr><td><code>persona_distinguishability</code></td><td>留一最近邻人物识别准确率</td><td>≥3 次运行、≥2 人</td></tr><tr><td><code>social</code></td><td>交谈/通话分钟、消息数</td><td>人物社交需求</td></tr><tr><td><code>habitual_consistency</code></td><td>同人物地点与本地小时的活动家族一致率</td><td>只报告情境重复性，不识别心理习惯</td></tr><tr><td><code>deliberate_goals</code></td><td>曾登记的非例行意图目标中的家族实际推进率，保留丢弃条目；推进口径与模拟引擎相同（同家族、登记后的正时长结算，带大致时刻的目标还须在其前后 90 分钟内进行）；例行意图（睡眠、晨间例程、通勤、用餐）的目标照常判定，另计 <code>routine_goals</code>，不入推进比例；登记来源为零点计划的 <code>day_plan_generated</code> 与修订结果</td><td>只报告，外部参照未接入时为 null</td></tr><tr><td><code>external_constraints</code></td><td>去重后的外部约束受阻与动作接受率；引导性拒绝码 <code>ACTIVITY_PRECONDITION_UNMET</code>、<code>ACTIVITY_CONCLUSION_REQUIRED</code>、<code>SESSION_LIMIT_EXCEEDED</code> 计入 <code>other_rejections</code>；外部约束闭集不含 <code>PICKUP_LOCATION_REQUIRED</code> 与工作地点、技能不符</td><td>受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷</td></tr></table>
 <p>同秒续接轮的思考 token（<code>reasoning_tokens</code>，缺失时报字符数，两者不混算）与缓存命中由 <code>scripts/inspect_run.py continuation</code>
 逐决策报告（链位置、请求数、协议错误与 400、计价成本、话题命中与按订单去重后的重复下单），<code>--baseline</code> 先核对两臂清单只差续接开关，
 输出字段见<a href="#c5-调试工具">记录引擎设计「调试工具」</a>；只报告，不参与放行。</p>
@@ -3261,7 +3264,8 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 与同世界人物重复的场景联系人（仓库双人场景中的李凡、陈曦）显式为 <code>null</code>，同世界人物按其所在地点收货。
 同秒续接开关不是场景字段，是运行参数：新建运行由 <code>worldmock run --same-second-continuation on|off</code>（缺省 <code>on</code>）给出，
 冻结进运行清单 <code>stage_model_identity.stages.action</code> 与人物配置，恢复与重放继承父清单的值（见<a href="../CONTRACTS.md#思考回传">接口合同「思考回传」</a>）。
-目标条目只接收 <code>remind_time</code>（必填、可为 null，场景本地 <code>HH:MM</code>），不接收时长或其他调度参数；
+目标条目只接收提醒时刻 <code>remind_time</code> 与大致时刻 <code>around_time</code>（都必填、可为 null，场景本地 <code>HH:MM</code>；大致时刻只用于
+推进判定，不触发决策），不接收时长或其他调度参数；
 当日目标由零点计划生成，人物以 <code>revise_day_plan</code> 修订，规则见<a href="../CONTRACTS.md#当日目标请求">当日目标请求</a>。</p>
 <p>场景使用整数 <code>schema_version</code>，人物清单为 <code>agents</code>，时间字段为 <code>start_at</code>、<code>end_at</code>；
 身体资源初值放在顶层 <code>body</code>，人物档案常量放在各自的 <code>agents</code> 条目。

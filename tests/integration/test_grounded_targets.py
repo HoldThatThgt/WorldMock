@@ -182,22 +182,23 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
 
 def test_revision_follows_current_day_plan_without_plan_tool() -> None:
     """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订整次运行都在，目标只收意图、正文与必填可空的
-    remind_time；待办层已推进的目标不能重交（时间与能量规格第四章）。"""
+    remind_time、around_time；待办层已推进的目标不能重交（时间与能量规格第四章；docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
     data = _data()
     unplanned = _functions(_prepare(data))
     assert "plan_day" not in unplanned and "revise_day_plan" in unplanned
     data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": [
-        {"intent_kind": "工作", "goal": "写周报", "progressed": True, "remind_time": None}]}
+        {"intent_kind": "工作", "goal": "写周报", "progressed": True, "remind_time": None, "around_time": "约 09:30"}]}
     agent = _prepare(data)
     revising = _functions(agent)
     assert revising == unplanned
     parameters = revising["revise_day_plan"]["parameters"]
     assert set(parameters["properties"]) == {"goals"}
-    assert set(parameters["properties"]["goals"]["items"]["properties"]) == {"intent_kind", "goal", "remind_time"}
-    resubmitted = {"goals": [{"intent_kind": "工作", "goal": "再写一次", "remind_time": None}]}
+    assert set(parameters["properties"]["goals"]["items"]["properties"]) == {
+        "intent_kind", "goal", "remind_time", "around_time"}
+    resubmitted = {"goals": [{"intent_kind": "工作", "goal": "再写一次", "remind_time": None, "around_time": None}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **resubmitted)], False) == (
         "revise_day_plan cannot resubmit progressed goals")
-    fresh = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": "21:30"}]}
+    fresh = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": "21:30", "around_time": "21:30"}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **fresh)], False) == ""
 
 

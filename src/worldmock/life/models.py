@@ -900,12 +900,15 @@ class ConsumeRequest(FrozenModel):
 
 
 class PlanGoalInput(FrozenModel):
-    """@brief 当日目标条目：意图、目标文字与必填可空的 remind_time（场景本地 HH:MM，要在那一刻被提醒时填写，否则为 null）。"""
+    """@brief 当日目标条目：意图、目标文字与两个必填可空的场景本地 HH:MM——remind_time（要在那一刻被提醒时填写，
+    否则为 null）与 around_time（打算在几点前后做，docs/dev/SPEC-dayrun-fidelity.md 8.2；不提醒、不要求晚于登记时刻）。"""
 
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema("今日计划的一个目标：意图、目标文字与提醒时刻。"))
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema(
+        "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。"))
     intent_kind: IntentKind
     goal: str = Field(pattern=r"\S")
     remind_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
+    around_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
 
     @model_validator(mode="after")
     def validate_goal_length(self) -> "PlanGoalInput":

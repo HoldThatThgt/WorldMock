@@ -348,7 +348,8 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
 
 
 def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
-    """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订工具整次运行都在，条目必须给出可为 null 的 remind_time。"""
+    """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订工具整次运行都在，条目必须给出可为 null 的 remind_time
+    与 around_time（docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
     from custom.envs.life_env import _STABLE_TOOL_SURFACE
 
     assert len(_STABLE_TOOL_SURFACE) == 8 and "plan_day" not in _STABLE_TOOL_SURFACE
@@ -364,11 +365,12 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
     assert tool["description"] == "用完整的新清单替换今日计划中尚未推进的目标。"
     assert set(tool["parameters"]["properties"]) == {"goals"}
     fields = tool["parameters"]["properties"]["goals"]["items"]["properties"]
-    assert set(fields) == {"intent_kind", "goal", "remind_time"}
+    assert set(fields) == {"intent_kind", "goal", "remind_time", "around_time"}
     assert tool["parameters"] == deepseek_strict_schema(REQUEST_MODELS["revise_day_plan"])
     assert fields["goal"]["pattern"] == r"\S"
-    assert fields["remind_time"]["anyOf"] == [{"pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$", "type": "string"},
-                                              {"type": "null"}]
+    for clock in ("remind_time", "around_time"):
+        assert fields[clock]["anyOf"] == [{"pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$", "type": "string"},
+                                          {"type": "null"}]
     assert "day_start_epoch" not in json.dumps(tool)
 
 
@@ -385,9 +387,9 @@ def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> 
     assert action_system == render_layer_json(LIFE_SYSTEM_LAYER)
     assert readonly_system == render_layer_json(READONLY_SYSTEM_LAYER)
     rules = json.loads(action_system)["rules"]
-    assert len(rules) == 17
-    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒。", "能送到这里的都算",
-                     "说打算做或说已经做过，都不等于做了。"):
+    assert len(rules) == 18
+    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒，早睡也就早醒。", "能送到这里的都算",
+                     "说打算做或说已经做过，都不等于做了。", "今日计划写明今天与平常不同的安排时，按计划"):
         assert sum(sentence in rule for rule in rules) == 1
     for system in (action_system, readonly_system):
         assert "怎样过一天" not in system and "你不是AI助手" not in system

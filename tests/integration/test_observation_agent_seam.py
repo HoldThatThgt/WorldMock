@@ -56,7 +56,8 @@ def _submit(engine, round_id: str, tool_name: str, request) -> None:
 def _observe_active_wait(engine) -> tuple[dict, object]:
     """用真实邮件事件唤醒仍在等待的人物，验证非空活动控制行。"""
     # 启动路径的零点计划后台任务（确定性桩）登记当日计划，不占决策；首个决策仍带 run_start（时间与能量规格第四章）。
-    settle_day_plans(engine, StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "稍作休息", "remind_time": None}]))
+    settle_day_plans(engine, StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "稍作休息", "remind_time": None,
+                                                       "around_time": None}]))
     wake_by_mail(engine, offset=300)
     _submit(engine, "seam-wait", "start_activity",
             start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
@@ -253,7 +254,9 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
 
 @pytest.mark.asyncio
 async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_engine_factory) -> None:
-    """零点计划登记的空清单经原生人物修订、环境、SQLite和恢复观察，完整贯通追加与实际推进（时间与能量规格第四章）。"""
+    """零点计划登记的空清单经原生人物修订、环境、SQLite和恢复观察，完整贯通追加与实际推进（时间与能量规格第四章）；
+    修订的条目带大致时刻 around_time，登记为 around_at，恢复后的待办层写「约 HH:MM」（docs/dev/SPEC-dayrun-fidelity.md
+    8.2）。"""
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
@@ -267,13 +270,14 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert generated == [engine.state.agents[1].day_plan.model_dump(mode="json")]
     before_revision, revision, tools = await _agent_action(
         engine, "goals-append", "revise_day_plan",
-        {"goals": [{"intent_kind": "休息", "goal": "缓一缓", "remind_time": None}]})
+        {"goals": [{"intent_kind": "休息", "goal": "缓一缓", "remind_time": None, "around_time": "00:30"}]})
     # 运行开始的首个决策照常开放生活工具与修订，没有先登记计划的门控。
     assert "run_start" in before_revision["wake_reasons"]
     assert "plan_day" not in tools and {"start_activity", "revise_day_plan"} <= set(tools)
     assert set(tools["revise_day_plan"]["parameters"]["properties"]) == {"goals"}
     assert before_revision["todo_layer"]["day_plan"]["goals"] == []
     assert revision.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
+    assert engine.state.agents[1].day_plan.goals[0].around_at == submitted_at + 1800
     assert engine.state.current_time == submitted_at
     _, started, _ = await _agent_action(
         engine, "goals-wait", "start_activity",
@@ -304,7 +308,8 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
         observation, _, restored_tools = await _agent_action(
             restored, "goals-preserve", "revise_day_plan", {"goals": []})
         assert observation["todo_layer"]["day_plan"]["goals"] == [
-            {"intent_kind": "休息", "goal": "缓一缓", "progressed": True, "remind_time": None}]
+            {"intent_kind": "休息", "goal": "缓一缓", "progressed": True, "remind_time": None,
+             "around_time": "约 00:30"}]
         assert [row["task_name"] for row in observation["goal_bindings"]] == ["缓一缓"]
         assert "plan_day" not in restored_tools
         assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
@@ -334,9 +339,9 @@ def test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer(_engine_
     不猜是哪一个。"""
     engine = _engine_factory()
     settle_day_plans(engine, StubPlanDayClient(goals=[
-        {"intent_kind": "用餐", "goal": "好好吃顿午饭", "remind_time": None},
-        {"intent_kind": "休息", "goal": "歇一歇", "remind_time": None},
-        {"intent_kind": "娱乐", "goal": "歇一歇", "remind_time": None}]))
+        {"intent_kind": "用餐", "goal": "好好吃顿午饭", "remind_time": None, "around_time": "12:00"},
+        {"intent_kind": "休息", "goal": "歇一歇", "remind_time": None, "around_time": None},
+        {"intent_kind": "娱乐", "goal": "歇一歇", "remind_time": None, "around_time": None}]))
     assert advance_until_ready(engine)
     observation = engine.observe(context(engine, "goal-names-preview"))
     shown = [goal["goal"] for goal in observation["todo_layer"]["day_plan"]["goals"]]
