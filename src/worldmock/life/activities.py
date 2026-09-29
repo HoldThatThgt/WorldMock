@@ -295,27 +295,42 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
     return ActivityFactors(met, relief, skill, tool, food)
 
 
-def _entertainment_relief(activity: ActivityState, preference: float, config: BodyConfig) -> float:
-    """@brief 按注册表缓解通道（kinds.*.relief.channel 四值）计算娱乐缓解速率。
+def relief_preference(weight: float, floor: float) -> float:
+    """@brief 实际缓解用的有效偏好 f + (1 − f)·w（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
 
-    content_rate：watch 按条目费率、偏好和接触次数。preference_rate/none：
-    偏好 x 目录费率（无费率
-    键的活动得 0）。lifestyle 在通道为 none 时按条目 effects 折算缓解
-    （docs/dev/SPEC-life-realism.md「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
-    none——effects 是条目级数据，不在目录活动费率表内）。
+    偏好只调幅度、不决定有无：w = 0（不喜欢或没有题材声明）按下限 f 缓解，w = 1 不变，对 w 严格单调；
+    不用 max(w, f)，那会把低于 f 的权重拉成并列。只作用于实际缓解与评分器里同口径的缓解预演，
+    全部排序仍用原始口味权重 w。
+
+    @param weight 原始口味权重 w（taste_weights，缺项按 0）
+    @param floor 下限偏好 f，取值 (0, 1)（场景 body.entertainment_relief_preference_floor）
+    @return 有效偏好
     """
-    if (activity.kind == ActivityKind.LIFESTYLE
-            and _AFFORDANCES.relief_channel(activity.kind.value) == "none"):
-        return lifestyle_relief_rates(activity.target_id or "")[0]
+    return floor + (1 - floor) * weight
+
+
+def _entertainment_relief(activity: ActivityState, preference: float, config: BodyConfig) -> float:
+    """@brief 按注册表缓解通道（kinds.*.relief.channel 三值）计算娱乐缓解速率。
+
+    content_rate：watch 按条目费率 × 有效偏好 ÷ 接触次数。preference_rate：有效偏好 × 目录费率（play_game）。
+    有效偏好由原始口味权重经 relief_preference 与场景下限偏好折算（docs/dev/SPEC-dayrun-fidelity.md 1.2，
+    裁决 S1：游戏与内容同一算法）。none：lifestyle 按条目 effects 折算缓解
+    （docs/dev/SPEC-life-realism.md「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
+    none——effects 是条目级数据，不在目录活动费率表内），其余活动没有缓解。
+    """
     channel = _AFFORDANCES.relief_channel(activity.kind.value)
+    if channel == "none":
+        if activity.kind == ActivityKind.LIFESTYLE:
+            return lifestyle_relief_rates(activity.target_id or "")[0]
+        return 0.0
+    effective = relief_preference(preference, config.entertainment_relief_preference_floor)
     if channel == "content_rate":
         rate = activity.data.get("entertainment_relief_per_hour")
         count = activity.data.get("exposure_count")
         if not isinstance(rate, (int, float)) or not isinstance(count, int) or count < 1:
             raise ValueError("watch activity entertainment evidence is incomplete")
-        return float(rate) * preference / count
-    base = config.entertainment_relief_per_hour.get(activity.kind.value, 0)
-    return preference * base
+        return float(rate) * effective / count
+    return effective * config.entertainment_relief_per_hour.get(activity.kind.value, 0)
 
 
 def _work_factors(activity: ActivityState, agent: AgentState,

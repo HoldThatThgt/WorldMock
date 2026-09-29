@@ -370,7 +370,8 @@ def _contract_value(task, slot: str) -> int:
 def _assemble_body(document: LifeScenario, catalog: Catalog,
                    view: AffordanceView) -> BodyConfig:
     """@brief 从三个 level 资源与合同效率参数组装身体运行配置（封闭键集
-    对照可供性注册表派生集校验）。"""
+    对照可供性注册表派生集校验）；娱乐缓解的下限偏好取场景 body 的声明（缺省 0.5），
+    目录不含该常量（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）。"""
     energy = _resource(catalog, ENERGY_RESOURCE)
     sleep = _resource(catalog, SLEEP_RESOURCE)
     entertainment = _resource(catalog, ENTERTAINMENT_RESOURCE)
@@ -401,6 +402,7 @@ def _assemble_body(document: LifeScenario, catalog: Catalog,
         "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET", view),
         "entertainment_relief_per_hour": _closed_map(
             fun_rules.entertainment_relief_per_hour, view.relief_keys, "entertainment relief"),
+        "entertainment_relief_preference_floor": instance.entertainment_relief_preference_floor,
         "work_notes_multiplier": _contract_efficiency(catalog, "work_notes_multiplier"),
         "source_kind": f"catalog:{catalog.version_major}.{catalog.version_minor}",
     })

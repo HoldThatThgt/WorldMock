@@ -176,6 +176,7 @@ def _body() -> BodyConfig:
                          "play_game": 1.3, "travel:driving": 1.5, "travel:walking": 2.5,
                          "read_mail": 1.1, "browse": 1.2, "consume": 1.3},
         "entertainment_relief_per_hour": {"watch": 0.15, "play_game": 0.2},
+        "entertainment_relief_preference_floor": 0.5,
         "work_notes_multiplier": 1.2, "source_kind": "test"})
 
 

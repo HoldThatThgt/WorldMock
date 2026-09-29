@@ -1075,14 +1075,12 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
     （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
     profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-persona-prompt.md「人设层」），
     并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
-    docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容目录，经 compute_taste_weights
+    docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容与游戏目录，经 compute_taste_weights
     匹配；写入工作区档案随检查点原样携带）。恢复运行不重新编译也不重算——
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
     persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 PersonaCard 或 None，不触发真实模型调用）。
     """
-    contents = tuple({"item_id": item.item_id,
-                      "genre": tuple((content_genres or {}).get(item.item_id) or ())}
-                     for item in scenario.contents)
+    entries = _taste_entries(scenario, content_genres)
     specs = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
         profile = agent.model_dump(mode="json")
@@ -1092,7 +1090,7 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
         if card is not None:
             profile["persona_card"] = _render_card(card)
             profile["persona_card_struct"] = persona_card_struct(card)
-            profile["taste_weights"] = _card_taste_weights(card, contents)
+            profile["taste_weights"] = _card_taste_weights(card, entries)
         config = {
             "enable_memory": True,
             "enable_todo_list": False,
@@ -1120,11 +1118,30 @@ def _compile_persona(agent: Any) -> Any:
     return compile_persona(agent.background_story).card
 
 
-def _card_taste_weights(card: Any, contents: tuple[dict, ...]) -> dict[str, float]:
-    """@brief 卡片口味 x 场景内容目录 -> 确定性权重（compute_taste_weights 生产接线）。"""
+def _taste_entries(scenario: RuntimeScenario,
+                   content_genres: dict[str, tuple[str, ...]] | None) -> tuple[dict, ...]:
+    """@brief 口味匹配的条目表：场景内容按 item_id、游戏按 game_id 在同一张题材表里取 genre。
+
+    游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：题材表即 _content_genre_catalog
+    （内容语料条目 item_id -> genre，游戏库 games/library 的条目同在其中）；没有题材声明的条目 genre 为空，
+    权重为零，实际缓解走下限偏好。
+    """
+    genres = content_genres or {}
+    identities = ([item.item_id for item in scenario.contents]
+                  + [item.game_id for item in scenario.games])
+    return tuple({"item_id": identity, "genre": tuple(genres.get(identity) or ())}
+                 for identity in identities)
+
+
+def _card_taste_weights(card: Any, entries: tuple[dict, ...]) -> dict[str, float]:
+    """@brief 卡片口味 x 场景内容与游戏条目 -> 确定性权重（compute_taste_weights 生产接线）。
+
+    游戏条目与内容条目同算（精确交集 / 条目题材数），键为 game_id；没有题材声明的游戏权重为 0.0
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）。
+    """
     from worldmock.profile.taste import compute_taste_weights
 
-    return compute_taste_weights(card.tastes.content_genres, contents)
+    return compute_taste_weights(card.tastes.content_genres, entries)
 
 
 def _content_genre_catalog(scenario_path: Path,

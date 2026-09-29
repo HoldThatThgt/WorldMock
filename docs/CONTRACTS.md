@@ -888,7 +888,7 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 `body` 分两组：`levels` 是进入提示的体感分级短语，恰好五键 `appetite`、`sleepiness`、`entertainment`、`social`、`mood`，
 原样成为环境层 `body`；`values` 是只进事件的数值，含 `appetite`、`sleepiness`、`entertainment_need`、`social_need`、`mood_valence`、`sleep_pressure`、`energy_kcal`、`sleep_deficit_hours`。动机评分器继续计算并写入 `motivation_internal`，只供评估与研究，不进提示。
 
-人物身体常量 `chronotype_midsleep` 与 `sleep_need_hours` 属于人物状态与人物档案，驱动世界层结算，不是观察投影字段，数值不进提示（人设层 `rhythm` 以可读短语写睡眠中点与睡眠需要）；确定性口味权重 `taste_weights` 属于人物状态，由卡片口味与内容题材匹配得到，只供内部评分器与浏览排序使用，不进提示。
+人物身体常量 `chronotype_midsleep` 与 `sleep_need_hours` 属于人物状态与人物档案，驱动世界层结算，不是观察投影字段，数值不进提示（人设层 `rhythm` 以可读短语写睡眠中点与睡眠需要）；确定性口味权重 `taste_weights` 属于人物状态，由卡片口味与内容、游戏条目的题材精确匹配得到（游戏按 `game_id` 查同一张题材表，没有题材声明的条目为 0），不进提示。原始权重是排序信号：内部评分器、浏览与候选排序都用它，零权重照旧排在全部非零之后；观看与游戏的实际缓解（以及评分器里同口径的缓解预演）另按有效偏好 `f + (1 − f)·w` 调幅度，`f` 取场景 `body.entertainment_relief_preference_floor`（缺省 0.5，开区间 (0, 1)），不喜欢的内容也按 `f` 缓解；有缓解的活动进行时娱乐需要不再累积（[一日运行保真规格 1.2](dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径)）。
 
 ### 可见期与提示预算
 
@@ -1426,7 +1426,7 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | `chronotype_midsleep` | 浮点，小时 | 时型（自由日睡眠中点），取 [0, 24)，吸附 0.25 小时格点 |
 | `sleep_need_hours` | 浮点，小时 | 睡眠需要，取 7.0–9.0，吸附 0.25 小时格点，默认 7.5 |
 | `habits` | `HabitSignature[]`，至多 5 条 | 习惯签名：`trigger` 不超过 30 字、`response` 不超过 40 字、`time_window` |
-| `tastes` | `Tastes` | 口味：`content_genres` 至多 6 项、`food_preferences` 至多 6 项、`media` 至多 4 项，条目非空且去重；内容题材与内容条目 `genre[]` 确定性匹配得到 `taste_weights`，只供内部评分器与浏览排序使用 |
+| `tastes` | `Tastes` | 口味：`content_genres` 至多 6 项、`food_preferences` 至多 6 项、`media` 至多 4 项，条目非空且去重；内容题材与内容、游戏条目的 `genre[]` 确定性精确匹配得到 `taste_weights`（没有题材声明的条目为 0）；原始权重只作排序信号，实际缓解另按有效偏好 `f + (1 − f)·w` 调幅度（见「体感与动机证据」） |
 | `coping` | 文本 | 应对方式（压力时做什么），不超过 60 字 |
 
 时间窗口（`TimeWindow`）取自午夜起的小时数，半开区间：`start_hour` 取 [0, 30)，`end_hour` 取 (0, 30]，两者吸附 0.5 小时格点，跨度不超过 12 小时。就寝窗口允许跨午夜：`end_hour` 可大于 24（如 23–25 表示到次日 01:00）；锚点回绕归一后 `start_hour` 亦可大于 24（25 表示次日 01:00），上限为次日 06:00 地平线（30 小时）。这些字段属于人物作息，不构成当日目标的时间计划。

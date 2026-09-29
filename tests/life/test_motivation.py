@@ -15,6 +15,8 @@ from tests.life.conftest import context as round_context
 from tests.life.conftest import submit_round
 
 from worldmock.errors import IntegrityError
+from worldmock.life.activities import shared_activity_factors
+from worldmock.life.body import settle_shared_body
 from worldmock.life.models import (
     ActivityKind,
     ActivityState,
@@ -111,6 +113,7 @@ def _body() -> BodyConfig:
                          "play_game": 1.3, "travel:driving": 1.5, "travel:walking": 2.5,
                          "read_mail": 1.1, "browse": 1.2, "consume": 1.3},
         "entertainment_relief_per_hour": {"watch": 0.15, "play_game": 0.2},
+        "entertainment_relief_preference_floor": 0.5,
         "work_notes_multiplier": 1.2, "source_kind": "test"})
 
 
@@ -712,10 +715,12 @@ class TestEntertainmentSegmentSlots:
         resumed, resumed_rate = watch(1800)
         finished, finished_rate = watch(6780)
         tail, tail_rate = watch(6780 - 30)
-        assert first_rate == pytest.approx(0.35 * 0.8)
-        assert resumed_rate == pytest.approx(0.35 * 0.8 / 2)
+        # 缓解预演按有效偏好 f + (1 − f)·w（f = 0.5，w = 0.8）：docs/dev/SPEC-dayrun-fidelity.md 1.2。
+        effective = 0.5 + 0.5 * 0.8
+        assert first_rate == pytest.approx(0.35 * effective)
+        assert resumed_rate == pytest.approx(0.35 * effective / 2)
         assert resumed.summary == "Continue movie-0001 from minute 30 (~83 min)"
-        assert finished_rate == pytest.approx(0.35 * 0.8 / 3) and tail_rate == pytest.approx(0.35 * 0.8 / 3)
+        assert finished_rate == pytest.approx(0.35 * effective / 3) and tail_rate == pytest.approx(0.35 * effective / 3)
         assert first.summary == finished.summary == tail.summary == "Watch movie-0001 (~113 min)"
 
     def test_finished_novel_restarts_from_chapter_one(self, transforms):
@@ -969,6 +974,88 @@ class TestScorerContract:
         # 新累积标度 need/(24-need)（7.5h -> 约 0.4545 h/h），与结算同式。
         body = _agent().body
         assert _awake_deficit_delta(body, 2.0) == pytest.approx(7.5 / 16.5 * 2.0)
+
+
+def _running(kind: ActivityKind, target_id: str, seconds: int, data: dict) -> ActivityState:
+    """刚开始、还剩 seconds 秒的进行中活动（缓解证据写在 data）。"""
+    return ActivityState(
+        activity_id=f"activity-{kind.value}", agent_id=1, location_id="home", kind=kind,
+        status=ActivityStatus.ACTIVE, started_at=CURRENT, planned_end_at=CURRENT + seconds,
+        last_settled_at=CURRENT, elapsed_seconds=0, planned_duration_seconds=seconds,
+        target_id=target_id, origin_action_id="a", origin_decision_id="d",
+        origin_request_event_id="e", data=dict(data))
+
+
+class TestReliefFloorPreview:
+    """@brief 评分器的缓解预演与引擎实际结算同式（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+
+    预演用有效偏好 f + (1 − f)·w、有缓解时不再累积；以同一身体参数经引擎的共同身体结算
+    （shared_activity_factors → settle_shared_body）求同一时长的实际变化逐一核对。
+    """
+
+    #: 带生活活动 MET 的测试身体参数（继续生活活动的候选按条目查 MET）。
+    BODY = _body().model_copy(update={"activity_met": {**_body().activity_met, "lifestyle:jogging": 7.0}})
+
+    @classmethod
+    def _engine_delta(cls, activity: ActivityState, agent: AgentState, seconds: int) -> float:
+        factors = shared_activity_factors(activity, agent, cls.BODY)
+        settled = settle_shared_body(agent.body, ((activity.kind, factors),), seconds, cls.BODY)
+        return settled.after.entertainment_need - agent.body.entertainment_need
+
+    @pytest.mark.parametrize("weight", [0.0, 0.3, 1.0])
+    @pytest.mark.parametrize("need", [0.3, 0.6, 1.0])
+    def test_watch_candidate_preview_equals_engine_settlement(self, transforms, weight, need):
+        agent = _agent(need=need, preferences={"movie-0001": weight})
+        context = _context(agent=agent, contents=(_content(),), taste_weights={"movie-0001": weight},
+                           body=self.BODY)
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=MAX_CANDIDATES)
+        watch = next(item.candidate for item in scored if item.candidate.family == "entertainment")
+        activity = _running(ActivityKind.WATCH, "movie-0001", int(watch.duration_seconds),
+                            {"entertainment_relief_per_hour": 0.2, "exposure_count": 1})
+        expected = self._engine_delta(activity, agent, int(watch.duration_seconds))
+        assert watch.entertainment_delta == pytest.approx(expected, abs=1e-12)
+        # 不喜欢的内容也按下限缓解：预演与结算都只降不升。
+        assert watch.entertainment_delta < 0
+
+    @pytest.mark.parametrize("kind", [ActivityKind.WATCH, ActivityKind.PLAY_GAME, ActivityKind.LIFESTYLE])
+    @pytest.mark.parametrize("weight", [0.0, 0.5, 1.0])
+    @pytest.mark.parametrize("need", [0.01, 0.5, 1.0])
+    def test_continue_preview_equals_engine_settlement(self, transforms, kind, weight, need):
+        target = {ActivityKind.WATCH: "movie-0001", ActivityKind.PLAY_GAME: "game-x",
+                  ActivityKind.LIFESTYLE: "jogging"}[kind]
+        data = ({"entertainment_relief_per_hour": 0.2, "exposure_count": 2}
+                if kind == ActivityKind.WATCH else {})
+        activity = _running(kind, target, 1800, data)
+        agent = _agent(need=need, preferences={target: weight})
+        context = _context(agent=agent, active_activities=(activity,), contents=(_content(),),
+                           taste_weights={target: weight}, body=self.BODY)
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=MAX_CANDIDATES)
+        keep = next(item.candidate for item in scored if item.candidate.family == "continue")
+        expected = self._engine_delta(activity, agent, int(keep.duration_seconds))
+        assert keep.entertainment_delta == pytest.approx(expected, abs=1e-12)
+        assert keep.entertainment_delta <= 0
+
+    def test_zero_rate_content_previews_awake_accrual_like_the_engine(self, transforms):
+        """没有缓解（条目费率为 0）时不算「有缓解的活动」：预演与结算都按清醒累积。"""
+        agent = _agent(need=0.5, preferences={"movie-0001": 1.0})
+        context = _context(agent=agent, contents=(_content(relief=0.0),), taste_weights={"movie-0001": 1.0},
+                           body=self.BODY)
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=MAX_CANDIDATES)
+        watch = next(item.candidate for item in scored if item.candidate.family == "entertainment")
+        activity = _running(ActivityKind.WATCH, "movie-0001", int(watch.duration_seconds),
+                            {"entertainment_relief_per_hour": 0.0, "exposure_count": 1})
+        accrual = self.BODY.entertainment_need_per_awake_hour * watch.duration_seconds / 3600
+        assert watch.entertainment_delta == pytest.approx(accrual)
+        assert self._engine_delta(activity, agent, int(watch.duration_seconds)) == pytest.approx(accrual)
+
+    def test_continue_watch_without_relief_evidence_previews_accrual(self, transforms):
+        """观看证据不全时评分器照旧失败开放：按清醒累积预演，不臆造缓解。"""
+        activity = _running(ActivityKind.WATCH, "movie-0001", 1800, {})
+        context = _context(agent=_agent(need=0.5), active_activities=(activity,), contents=(_content(),),
+                           taste_weights={"movie-0001": 1.0}, body=self.BODY)
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=MAX_CANDIDATES)
+        keep = next(item.candidate for item in scored if item.candidate.family == "continue")
+        assert keep.entertainment_delta == pytest.approx(self.BODY.entertainment_need_per_awake_hour * 0.5)
 
 
 class TestBrowseCandidate:
