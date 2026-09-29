@@ -74,7 +74,7 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
 
 @pytest.mark.parametrize("targets,actions,ways,error", [
     ([_FILM], ["travel"], ["步行"], "not offered"),
-    ([_FILM], ["interact"], ["观看"], "not offered"),
+    ([_FILM], ["interact"], ["从头再看"], "not offered"),
     ([_FILM], ["travel"], ["接着看"], "not offered"),
     (["content-hidden"], ["interact"], ["接着看"], "not a visible"),
     ([_FILM, _PARK], ["interact"], ["接着看"], "equal lengths"),

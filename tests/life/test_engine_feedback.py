@@ -124,7 +124,8 @@ def test_terminal_feedback_keeps_original_action_identity(engine_factory):
 
 
 def test_business_rejection_is_reported_in_progress_and_run_continues(engine_factory):
-    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因与下一步（时间与能量规格第一章规则 2、第五章）。"""
+    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因、下一步、改法与逐项明细（时间与能量规格第一章规则 2、
+    第五章；绕过宿主的名称类失败逐项写进 items，候选可以照填，docs/dev/SPEC-dayrun-fidelity.md 3.1）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.state.current_time
@@ -141,9 +142,14 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     (call,) = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"]
     shown = call["result"]
     assert shown["error_code"] == "ACTION_REQUEST_INVALID" and shown["status"] == "rejected"
-    assert shown["details"] == {"reason": "所选的对象或方式不在这一轮列出的范围内",
+    [item] = shown["details"]["items"]
+    assert shown["details"] == {"reason": "「不存在的对象」不是可以操作的对象",
                                 "next_step": "从本轮列出的对象和方式里选",
-                                "fix": "照工具层列出的名称、动词与方式重填这个请求"}
+                                "fix": "照工具层列出的名称、动词与方式重填这个请求", "items": [item]}
+    assert (item["index"], item["field"], item["written"], item["error_code"]) == (
+        0, "targets", "不存在的对象", "NAME_NOT_FOUND")
+    assert 1 <= len(item["candidates"]) <= 3
+    assert all({"target", "action", "way", "from", "to"} <= set(row) for row in item["candidates"])
     assert shown["message"] == shown["details"]["reason"]
     assert call["arguments"]["targets"] == ["不存在的对象"]
     choice = next((row, action) for row in observed["interaction_bindings"]

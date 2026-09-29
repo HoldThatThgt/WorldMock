@@ -1,10 +1,11 @@
 """指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」、裁决 #19 与 #26）。
 
 真实 LifeEngine 与 SQLite 上：被轮转隐藏但存在的商品按标签或唯一商品名可买，按当前报价在同一秒结算，不查可见凭据；
-不存在的名称以 SUPPLY_NOT_FOUND 拒绝，逐项明细 details.items 的候选是至多 3 个确定性的近似标签，写成可照填的请求
-（docs/dev/SPEC-dayrun-fidelity.md 第四章），不换成别的商品；多店同名且未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝，原因列出
-全部门店；完整标签又写了门店（from）以 ACTION_REQUEST_INVALID 拒绝。宿主本地校验只对 obtain（到店、远程下单）放行未列出的
-名称，其余动词的未列名称仍是协议错误（NAME_NOT_FOUND），在本轮纠正。
+不存在的名称以 SUPPLY_NOT_FOUND 拒绝，逐项明细 details.items 的候选是至多 3 个确定性的近似标签（此刻能送到的在前），写成
+可照填的请求（docs/dev/SPEC-dayrun-fidelity.md 第四章、3.1），不换成别的商品；多店同名且未限定门店以 SUPPLY_NAME_AMBIGUOUS
+拒绝，原因列出全部门店；完整标签又写了另一家门店（from）以 ACTION_REQUEST_INVALID 拒绝，写的正是标签里的门店按冗余受理并
+写一句说明（3.1 第 2 条）。宿主本地校验对 obtain（到店、远程下单）放行不在本轮对象中的名称（named_kind 为 supply），其余
+动词写的名称不是任何对象时是协议错误（NAME_NOT_FOUND），在本轮纠正。
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from worldmock.errors import BusinessRuleError  # noqa: E402
 from worldmock.life import projection  # noqa: E402
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, resolve_interaction_menu, resolve_selection  # noqa: E402
 from worldmock.life.models import StartActivityRequest  # noqa: E402
-from worldmock.life.named_purchase import (near_candidates, resolve_named_rows, resolve_named_supply,  # noqa: E402
+from worldmock.life.named_purchase import (near_labels, resolve_named_rows, resolve_named_supply,  # noqa: E402
                                            supply_label)
 from worldmock.life.readable import money_phrase  # noqa: E402
 from worldmock.life.storefront_state import current_quote  # noqa: E402
@@ -124,7 +125,7 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
     candidates = [row["target"] for row in item["candidates"]]
     assert (item["index"], item["field"], item["written"], item["error_code"]) == (0, "targets", name, "SUPPLY_NOT_FOUND")
     assert 1 <= len(candidates) <= 3 and set(candidates) <= labels
-    assert candidates == near_candidates(_layer_context(engine), name)
+    assert candidates == near_labels(_layer_context(engine), name, "delivery", "home")
     assert all(_MILK in label for label in candidates)
     assert all((row["action"], row["from"], row["to"]) == ("obtain", None, "自己") and row["way"] in ("到店", "远程下单")
                for row in item["candidates"])
@@ -201,21 +202,31 @@ def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_
 
 
 def test_full_label_with_a_store_in_from_is_an_invalid_request(engine_factory) -> None:
-    """目标已是完整标签「<门店>出售的<商品>」时 from 须为 null：本轮没有列出的标签又写了门店，与列出的标签一样以
-    ACTION_REQUEST_INVALID 拒绝，不下单、不扣款（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。"""
+    """目标已是完整标签「<门店>出售的<商品>」时 from 只能是 null 或标签里的那家店：本轮没有列出的标签又写了另一家门店，
+    与列出的标签一样以 ACTION_REQUEST_INVALID 拒绝，不下单、不扣款（docs/dev/SPEC-persona-prompt.md 第五章「来源与
+    去向」）；写的正是标签里的门店是冗余的 from，照常受理，details.notes 说明可以写 null（docs/dev/SPEC-dayrun-fidelity.md
+    3.1 第 2 条）。"""
     engine = engine_factory()
     listed = _browsed(engine)
     supply = _hidden(engine, listed, unique_name=False)
     layer = _layer_context(engine)
     label = supply_label(layer, supply)
     store = label.removesuffix(f"出售的{engine.rules.items[supply.product_id].name}")
+    other = next(item.name for item in engine.scenario.locations if item.name != store)
     before = _world(engine)
     _, result = _round(engine, "label-with-from", start_request(
-        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[store], to=["自己"]))
+        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[other], to=["自己"]))
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     assert _world(engine) == before
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        resolve_named_supply(layer, label, "远程下单", store, "home")
+        resolve_named_supply(layer, label, "远程下单", other, "home")
+    _, same = _round(engine, "label-with-own-store", start_request(
+        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[store], to=["自己"]))
+    assert (same.status, same.error_code) == ("completed", None)
+    assert [order["supply_id"] for order in same.data["orders"]] == [supply.supply_id]
+    assert same.data["notes"] == [f"from「{store}」就是目标写明的门店，可以写 null"] and "resolved" not in same.data
+    shown = last_result(engine.observe(context(engine, "label-with-own-store-seen")))["details"]
+    assert shown["notes"] == same.data["notes"]
 
 
 def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(engine_factory) -> None:
@@ -226,7 +237,7 @@ def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(
     layer = _layer_context(engine)
     with pytest.raises(BusinessRuleError, match="SUPPLY_NOT_FOUND") as missing:
         resolve_named_supply(layer, _MILK, "到店", None, "home")
-    assert missing.value.suggested["candidates"] == near_candidates(layer, _MILK)
+    assert missing.value.suggested["candidates"] == near_labels(layer, _MILK, "pickup", "home")
     pickup_only = next(supply for supply in engine.scenario.supplies if set(supply.fulfillment_modes) == {"pickup"})
     with pytest.raises(BusinessRuleError, match="FULFILLMENT_NOT_SUPPORTED"):
         resolve_named_supply(layer, supply_label(layer, pickup_only), "远程下单", None, "home")
@@ -241,15 +252,23 @@ def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(
 
 
 def test_near_candidates_are_deterministic_term_similarity() -> None:
-    """近似候选只按词项（单字与相邻二字）的 Dice 系数排序，相同得分按标签排序，至多 3 个；毫不相干的名称没有候选。"""
+    """近似候选按词项（单字与相邻二字）的 Dice 系数排序（名称与标签、商品名两者取大），相同得分按标签排序，至多 3 个；
+    毫不相干的名称没有候选；此刻能按所选方式送到收货地的排在前面（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 3 条），
+    从不替换人物写的名称。"""
     stores = {"s1": "好德", "s2": "集市", "s3": "农工商超市", "s4": "菜饭骨头汤"}
     products = {"p1": _MILK, "p2": "有机纯牛奶", "p3": "鸡汤面", "p4": "花都牧场有机纯牛奶"}
     scenario = _Scenario([_Supply(s, p) for s, p in (("s1", "p1"), ("s2", "p2"), ("s3", "p4"), ("s4", "p3"))],
                          stores, products)
     layer = _Layer(scenario)
-    assert near_candidates(layer, "牛奶") == [f"好德出售的{_MILK}", "集市出售的有机纯牛奶", "农工商超市出售的花都牧场有机纯牛奶"]
-    assert near_candidates(layer, "Zero Cola") == []
-    assert near_candidates(layer, "汤面") == ["菜饭骨头汤出售的鸡汤面"]
+    assert near_labels(layer, "牛奶", "delivery", "home") == [
+        f"好德出售的{_MILK}", "集市出售的有机纯牛奶", "农工商超市出售的花都牧场有机纯牛奶"]
+    assert near_labels(layer, "Zero Cola", "delivery", "home") == []
+    assert near_labels(layer, "汤面", "delivery", "home") == ["菜饭骨头汤出售的鸡汤面"]
+    deliverable = _Supply("s3", "p4", fulfillment_modes=("delivery",), delivery_destination_ids=("home",))
+    feasible = _Layer(_Scenario([*scenario.supplies[:2], deliverable, scenario.supplies[3]], stores, products))
+    assert near_labels(feasible, "牛奶", "delivery", "home") == [
+        "农工商超市出售的花都牧场有机纯牛奶", f"好德出售的{_MILK}", "集市出售的有机纯牛奶"]
+    assert near_labels(feasible, "牛奶", "delivery", "office")[0] == f"好德出售的{_MILK}"
 
 
 def test_ambiguous_name_lists_every_store_not_just_three() -> None:
@@ -340,10 +359,10 @@ def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactD
 
 
 def test_host_lets_unlisted_obtain_names_through_and_corrects_other_verbs() -> None:
-    """宿主本地校验：obtain 以到店或远程下单写未列出的名称放行（与列出的等待同一请求也可）；其余动词、制作写未列出的名称
-    按协议错误在本轮纠正；指名购买按购买受菜单判定，菜单不开放购买时同样纠正。"""
+    """宿主本地校验：obtain 以到店或远程下单（含同义写法「外卖」「堂食」）写未列出的名称放行（与列出的等待同一请求也可）；
+    其余动词、制作写的名称不是任何对象时按协议错误在本轮纠正；指名购买按购买受菜单判定，菜单不开放购买时同样纠正。"""
     person = _host()
-    for way in ("到店", "远程下单"):
+    for way in ("到店", "远程下单", "外卖", "堂食"):
         assert person.validate_react_decisions([_decision(["纯牛奶"], ["obtain"], [way])], False) == ""
     assert person.validate_react_decisions([_decision(["自己", "纯牛奶"], ["interact", "obtain"],
                                                       ["等待", "远程下单"])], False) == ""

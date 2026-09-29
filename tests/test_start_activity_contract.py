@@ -89,10 +89,11 @@ class _State:
         return _State(update.get("activities", self.activities), update.get("agents", self.agents)[1])
 
 
-def _pending():
-    """@brief 返回与冻结观察对应的 start_activity 动作身份。"""
+def _pending(request: StartActivityRequest | None = None):
+    """@brief 返回与冻结观察对应的 start_activity 动作身份（给出请求时带登记的请求参数，拒绝时环境按它重算名称解析）。"""
     return SimpleNamespace(agent_id=1, decision_id="decision", observed_at=100, action_id="action",
-                           tool_name="start_activity")
+                           tool_name="start_activity",
+                           request=request.model_dump(mode="json") if request is not None else None)
 
 
 def _activity(identity, name, status=ActivityStatus.ACTIVE, **fields):
@@ -179,17 +180,24 @@ def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
     (["城东公园"], ["travel"], ["步行"]),
     (["城西办公室"], ["interact"], ["步行"]),
     (["城西办公室"], ["travel"], ["驾车"]),
-    (["城西办公室"], ["travel"], ["步行前往"]),
+    (["城西办公室"], ["travel"], ["沿着河边慢慢走"]),
     (["自己"], ["sleep"], ["等待"]),
 ], ids=["fewer-ways", "fewer-verbs", "duplicate-target", "empty", "three-items", "unlisted-object",
-        "verb-not-offered", "way-not-offered", "retired-phrase", "verb-way-mismatch"])
+        "verb-not-offered", "way-not-offered", "free-text-way", "verb-way-mismatch"])
 def test_unresolvable_selection_is_rejected_as_invalid_request(targets, actions, ways):
-    """三数组不等长、目标重复、项数不在一至二、对象未列出或（动词，方式）不在本轮闭集，都报 ACTION_REQUEST_INVALID。"""
+    """三数组不等长、目标重复、项数不在一至二、对象不是任何可以操作的对象或（动词，方式）不相配（方式不在闭集与同义表中，
+    或同义表没有恰好命中一个列出的方式），都报 ACTION_REQUEST_INVALID；名称类失败逐项写进 items（宿主已在本轮纠正，这里
+    只防绕过宿主的请求，docs/dev/SPEC-dayrun-fidelity.md 3.1）。"""
     harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
-    selection = harness._start_selection(_pending(), _request(targets, actions, ways))
+    request = _request(targets, actions, ways)
+    selection = harness._start_selection(_pending(request), request)
     assert selection is None
-    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        harness._start_activity(None, _pending(), selection)
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID") as rejected:
+        harness._start_activity(None, _pending(request), selection)
+    shaped = 1 <= len(targets) <= 2 and len(targets) == len(actions) == len(ways) and len(set(targets)) == len(targets)
+    items = (getattr(rejected.value, "suggested", None) or {}).get("items", [])
+    assert bool(items) == shaped
+    assert all(item["error_code"] in {"NAME_NOT_FOUND", "WAY_NOT_OFFERED"} for item in items)
 
 
 def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
@@ -273,7 +281,7 @@ def test_legal_from_to_answering_combinations_route_each_item(request_items, ans
     ([(_NOODLES, "consume", "给予", "自己", None)], None, "start_activity obtain and consume need to"),
     ([(_FLOUR, "obtain", "制作", None, _PERSON)], None, "start_activity 制作 takes from null and to 自己"),
     ([(_FLOUR, "obtain", "制作", "自己", "自己")], None, "start_activity 制作 takes from null and to 自己"),
-    ([(_SUPPLY, "obtain", "远程下单", "集市", "自己")], None,
+    ([(_SUPPLY, "obtain", "远程下单", "好德", "自己")], None,
      "start_activity from is null when the target already names its store"),
     ([(_SUPPLY, "obtain", "远程下单", None, None)], None, "start_activity obtain and consume need to"),
     ([(_SUPPLY, "obtain", "远程下单", None, _COLLEAGUE)], "王磊 9:00 的消息",
@@ -303,9 +311,9 @@ def _assert_invalid(request, message: str) -> None:
     observation = _routing_observation()
     assert combination_error(request, routing_names(observation)) == ("ACTION_REQUEST_INVALID", message)
     harness = _ActionHarness(observation)
-    assert harness._start_selection(_pending(), request) is None
+    assert harness._start_selection(_pending(request), request) is None
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        harness._start_activity(None, _pending(), None)
+        harness._start_activity(None, _pending(request), None)
 
 
 def test_unknown_recipient_is_recipient_not_found_before_admission():

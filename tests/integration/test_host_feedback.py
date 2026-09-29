@@ -26,8 +26,9 @@ from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOICE,  # noqa: E402
                                                         _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
-                                                        _conclude_args, _context, _memory, _prepared,
-                                                        _step_observation, _view, _wire_agent)
+                                                        _add_objects, _conclude_args, _context, _memory, _observations,
+                                                        _offer, _prepared, _step_observation, _view,
+                                                        _visible_object, _wire_agent)
 from tests.integration.test_same_second_continuation import _environment, _reply, _single  # noqa: E402
 from tests.integration.test_storefront_tools import _OFFER, _observed_offer  # noqa: E402
 from tests.life.conftest import engine_factory as _engine_factory, last_result, start_arguments  # noqa: E402,F401
@@ -120,8 +121,17 @@ async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruct
     assert errors[2] == "native tool_calls are required"
 
 
+def _twin_news() -> LifeAgent:
+    """本轮列出同名的内容「内容：晚间新闻」与只能观看的游戏「游戏：晚间新闻」：只写「晚间新闻」归一后对应两个对象。"""
+    observed = _observations()
+    _add_objects(observed[0]["data"],
+                 _visible_object("内容：晚间新闻", "content", "content-news", _offer("interact", "接着看", "watch")),
+                 _visible_object("游戏：晚间新闻", "game", "game-news", _offer("interact", "接着看", "watch")))
+    return _prepared(observed)
+
+
 def _host_cases() -> dict[str, tuple[str, str]]:
-    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）；名称歧义与截断还没有宿主产生方，取登记的默认说法。"""
+    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）；截断还没有宿主产生方（截断处理另立），取登记的默认说法。"""
     agent = _prepared()
     offer = LifeAgent()
     offer.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observed_offer()))
@@ -137,13 +147,14 @@ def _host_cases() -> dict[str, tuple[str, str]]:
             ["自己"] * 3, ["interact"] * 3, ["等待"] * 3))], False),
         "NAME_NOT_FOUND": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["不存在的对象"], ["interact"], ["等待"]))], False),
-        "NAME_AMBIGUOUS": host_feedback(host_report("NAME_AMBIGUOUS"), "name matches several objects"),
+        "NAME_AMBIGUOUS": _twin_news().validate_react_decisions([_decision("start_activity", start_arguments(
+            ["晚间新闻"], ["interact"], ["接着看"]))], False),
         "WAY_NOT_OFFERED": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["自己"], ["interact"], ["观看"]))], False),
         "ROUTE_FIELDS_INVALID": agent.validate_react_decisions([_decision("start_activity", start_arguments(
             ["自己"], ["interact"], ["等待"], **{"from": ["自己"]}))], False),
         "SUPPLY_SOURCE_MISMATCH": offer.validate_react_decisions([_decision("start_activity", start_arguments(
-            [_OFFER], ["obtain"], ["远程下单"], **{"from": ["家门口便利店"]}))], False),
+            [_OFFER], ["obtain"], ["远程下单"], **{"from": ["街角超市"]}))], False),
         "SUBJECT_NOT_KNOWN": concluding.validate_react_decisions([_decision("conclude_activity", unknown)], False),
         "OUTPUT_TRUNCATED": host_feedback(host_report("OUTPUT_TRUNCATED"), "output truncated before any tool call"),
     }
@@ -166,12 +177,13 @@ def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
     assert cases["ARGUMENTS_INVALID"][1] == "targets 要写成数组"
     assert cases["TOOL_CALL_REQUIRED"][1] == "一次回复只能提交一个世界请求，这次有 2 个"
     assert cases["TOO_MANY_TARGETS"][1] == "一次最多选两个目标，这次写了 3 个"
-    assert cases["NAME_NOT_FOUND"][1] == "「不存在的对象」不是本轮列出的对象"
+    assert cases["NAME_NOT_FOUND"][1] == "「不存在的对象」不是可以操作的对象"
     assert cases["WAY_NOT_OFFERED"][1] == "「自己」没有列出「interact：观看」这种做法"
     assert cases["ROUTE_FIELDS_INVALID"][1] == "interact 的 from 与 to 都要写 null"
     assert cases["SUPPLY_SOURCE_MISMATCH"][1] == f"「{_OFFER}」已经写明了门店，from 要写 null"
     assert cases["SUBJECT_NOT_KNOWN"][1] == "关系看法写的对象「陌生人」不是认识的人"
-    assert cases["NAME_AMBIGUOUS"][1] == host_defaults("NAME_AMBIGUOUS")[0]
+    assert cases["NAME_AMBIGUOUS"][1] == "「晚间新闻」对应不止一个对象：「内容：晚间新闻」、「游戏：晚间新闻」"
+    assert host_defaults("NAME_AMBIGUOUS")[0] not in {reason for _, reason in cases.values()}
     assert cases["OUTPUT_TRUNCATED"][1] == "输出在思考阶段用尽，尚未调用工具"
 
 
@@ -202,8 +214,8 @@ def test_all_name_errors_are_reported_and_other_conditions_report_the_first() ->
     assert both["error_code"] == "NAME_NOT_FOUND"
     assert [(item["index"], item["error_code"]) for item in both["items"]] == [(0, "NAME_NOT_FOUND"),
                                                                                (1, "WAY_NOT_OFFERED")]
-    assert both["reason"] == "第 1 项「不存在的对象」不是本轮列出的对象；第 2 项「自己」没有列出「interact：观看」这种做法"
-    assert both["fix"] == ("第 1 项照工具层、待办层中的写法填写名称，或者去掉这一项；"
+    assert both["reason"] == "第 1 项「不存在的对象」不是可以操作的对象；第 2 项「自己」没有列出「interact：观看」这种做法"
+    assert both["fix"] == ("第 1 项改用候选里的请求，或者照工具层、待办层中的写法重写这一项，或者去掉这一项；"
                            "第 2 项改用该对象列出的动词与方式（见候选），或者去掉这一项")
     mixed = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
         ["自己", "不存在的对象"], ["interact", "interact"], ["等待", "等待"], **{"from": ["自己", None]}))], False))
