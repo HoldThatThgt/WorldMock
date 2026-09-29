@@ -511,6 +511,22 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
         rhythm)
 
 
+def test_report_sections_are_the_documented_grouping_without_a_language_count():
+    """报告的分组恰是记录引擎设计「质量报告」登记的十六组（docs/design/05-recording-engine.md），另有版本与运行身份；
+    其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里计数
+    （docs/dev/SPEC-dayrun-fidelity.md 2.4），新增的五节是输入警告、时间线标签、联系人回复守卫、名称类拒绝与截断。"""
+    report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))
+    design = Path(__file__).resolve().parents[2] / "docs" / "design" / "05-recording-engine.md"
+    grouping = design.read_text(encoding="utf-8").split("当前报告按 ", 1)[1].split(" 分组", 1)[0]
+    documented = [name.strip().strip("`") for name in grouping.replace("\n", "").split("、")]
+    assert len(documented) == len(set(documented)) == 16
+    assert documented[-5:] == ["input_warnings", "timeline_labels", "contact_reply_guard", "name_rejections",
+                               "truncations"]
+    assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
+    assert report["schema_version"] == 3
+    assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
+
+
 def test_decision_rhythm_counts_same_moment_rounds():
     """时间与能量规格第一章：同刻轮数按（人物, 模拟秒）计 decision_started，轮次原因取 decision_started。"""
     first, later = 200, 300

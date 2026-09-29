@@ -222,6 +222,26 @@ def test_relief_preference_floor_field_states_value_meaning_and_hypothesis() -> 
         assert fragment in field.description
 
 
+def test_relief_preference_floor_is_registered_once_in_the_experiment_hypotheses() -> None:
+    """docs/EXPERIMENT.md「实验假设声明」恰有一条登记下限偏好 f（docs/dev/SPEC-dayrun-fidelity.md 1.2 验收：f 在场景层字段
+    与 docs/EXPERIMENT.md 各登记一次）：取值是场景层字段的缺省值，写明敏感区间、有效偏好公式、取值范围与场景层字段名；
+    除版本表外，其余章节不再写 f 的取值或字段名（「需求状态」只指向这一条）。"""
+    from worldmock.life.scenario import BodyInstanceConfig
+
+    sections = Path("docs/EXPERIMENT.md").read_text(encoding="utf-8").split("\n## ")
+    hypotheses = next(part for part in sections if part.startswith("实验假设声明"))
+    registered = [item for item in hypotheses.split("\n- ") if "entertainment_relief_preference_floor" in item]
+    assert len(registered) == 1
+    field = BodyInstanceConfig.model_fields["entertainment_relief_preference_floor"]
+    for fragment in (f"`f = {field.default}`", "敏感区间 0.3–0.7", "`f + (1 − f)·w`", "(0, 1)",
+                     "`entertainment_relief_preference_floor`"):
+        assert fragment in registered[0], fragment
+    others = [part for part in sections if not part.startswith(("实验假设声明", "版本表"))]
+    assert [part.splitlines()[0] for part in others
+            if "entertainment_relief_preference_floor" in part or "f = " in part] == []
+    assert "下限偏好 `f` 见「实验假设声明」" in next(part for part in sections if part.startswith("场景参数"))
+
+
 def test_account_identities_are_unique_and_seller_roles_can_repeat() -> None:
     """账户实例身份唯一；不同卖方允许声明相同业务角色。"""
     duplicated = _payload()
