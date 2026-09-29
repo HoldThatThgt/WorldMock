@@ -1,6 +1,6 @@
 # WorldMock 产品设计说明书 — 配置规格
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），除由手机配置派生的购买渠道（该规格 3.3）外已实现  
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现  
 > **日期**：2026-09-29\
 > **版本**：v1.13\
 > **目标读者**：算法工程师、开发工程师、实验设计者
@@ -24,7 +24,7 @@
 | v1.10 | 2026-09-25 | Claude | 按时间与能量规格阶段 5：目标条目只接收必填可空的 `remind_time`（场景本地 `HH:MM`），不接收时长或其他调度参数，当日目标由零点计划生成；世界状态保存当日计划与提醒（`remind_at`、`reminded_at`）及已生成计划的日期 `plan_submitted_dates` |
 | v1.11 | 2026-09-27 | Claude | 按人物 Prompt 七层规格（人物 Prompt 台账 E8-1–E8-3，E8-2 为阶段 1、4 同批作业）：文件头注明修订部分待实现；世界状态结构版本改为 8，旧检查点（含版本 7）以版本不符拒绝，另存会话 `opened_by_action_id`、活动 `paused_at` 与开吃份量、订单收货人与请求关联、联系人持有与发件箱；场景联系人可填可空的 `receive_location_id`；「7.2 格式与加载边界」的凭据链接改指接口合同「模型身份」 |
 | v1.12 | 2026-09-28 | Claude | 人物 Prompt 七层规格实现后文档：文件头注明修订部分已实现；联系人 `receive_location_id` 须为场景声明的地点，与同世界人物重复的联系人为 `null`；写明同秒续接开关是运行参数（`worldmock run --same-second-continuation on\|off`）而不是场景字段 |
-| v1.13 | 2026-09-29 | Claude | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 CF1，随阶段 1–3、5 的代码落地，按 `34a41ee` 核对）：目标条目字段增 `around_time`，世界状态的计划目标增 `around_at`；场景层身体实例字段 `entertainment_relief_preference_floor`（缺省 0.5，取值 (0, 1)）；地图结构 2 与可选 `branch_label`，显示名规则与加载校验（地点 `kind` 属于环境层地点类型表、可见标签唯一，否则加载时拒绝）；场景显式声明的作息字段覆盖卡片抽取值；校验清单与错误分类补加载拒绝与运行输入警告；由手机配置派生的购买渠道随 3.3 的实现落地；文件头补修订说明，日期改写 |
+| v1.13 | 2026-09-29 | Claude | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 CF1，随阶段 1–3、5 的代码落地，按 `e377669` 核对）：目标条目字段增 `around_time`，世界状态的计划目标增 `around_at`；场景层身体实例字段 `entertainment_relief_preference_floor`（缺省 0.5，取值 (0, 1)）；地图结构 2 与可选 `branch_label`，显示名规则与加载校验（地点 `kind` 属于环境层地点类型表、可见标签唯一，否则加载时拒绝）；场景显式声明的作息字段覆盖卡片抽取值；场景可选钉定手机配置 `phone_simulation_config` 与其摘要，购买渠道由它派生（称呼、成员门店与准入），渠道准入违规在加载时以 `IntegrityError` 拒绝，手机配置核验失败时加载照常、不派生渠道并写 warning 日志；校验清单与错误分类补加载拒绝、渠道准入与运行输入警告；文件头补修订说明，日期改写 |
 
 ## 1. 模块概述
 
@@ -142,6 +142,8 @@ flowchart LR
 
 场景使用整数 `schema_version`，人物清单为 `agents`，时间字段为 `start_at`、`end_at`；
 身体资源初值放在顶层 `body`，人物档案常量放在各自的 `agents` 条目。
+场景可选钉定手机配置 `phone_simulation_config` 与其 `phone_simulation_config_sha256`（两者同时出现或同时缺省）；购买渠道由它派生，
+不新增场景字段，生活场景结构版本不变（见下文「地图引用与门店供给初值」）。
 本文不重新定义完整场景 Schema。
 
 | 格式 | 当前版本 | 拒绝边界 |
@@ -194,9 +196,10 @@ flowchart LR
 购买渠道由场景钉定的手机配置派生，不新增场景字段（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#33-购买渠道app-名解析为成员门店)
 3.3，裁决 S7）：场景可选填 `phone_simulation_config`（语料根内、登记进语料清单的冻结文件）与它的 `phone_simulation_config_sha256`，
 两者同时出现或同时缺省。加载时按身份（语料清单与场景钉定的摘要）、结构、场景身份与执行证据核验这份配置，再从它的卖家账户→App
-与 App→称呼派生渠道：`channel_id` 取 App 标识，称呼取该 App 的显示名，成员门店取映射到它的卖家有供给的所选地点；渠道只是门店集合的
-称呼，不带交付语义。渠道准入与世界准入同一时机：称呼在渠道之间不重复（去掉空白、不分大小写比较），也不等于任何所选地点的显示名；
-每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即以 `IntegrityError` 拒绝加载并写明渠道、称呼与地点。
+与 App→称呼派生渠道：`channel_id` 取 App 标识，称呼取该 App 的显示名（可以有几个），成员门店取映射到它的卖家有供给的所选地点；渠道只是
+门店集合的称呼，不带交付语义。渠道准入与世界准入同一时机：称呼非空，在渠道之间不重复（去掉空白、不分大小写比较），也不等于任何所选地点
+的显示名（按同一比较或无损归一比较）；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即以 `IntegrityError` 拒绝
+加载并写明渠道、称呼与地点。
 手机配置核验失败时不派生渠道（与覆盖率同一口径：新建运行不因此失败，加载写一条英文 warning 日志，`validate` 照旧失败）；
 没有钉定手机配置的场景没有渠道，人物把 App 名写在 `from` 时以 `SOURCE_NOT_FOUND` 拒绝。配置已由摘要钉进场景与运行清单，运行身份不变。
 
@@ -340,7 +343,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 地点引用 | `agents[].home_location_id` 指向已声明地点 | 拒绝启动 |
 | 地点类别 | 所选地点的 `kind` 属于环境层场所类型闭集（与 `PLACE_TYPES` 同源） | 场景加载以 `IntegrityError` 拒绝，逐一写明越界的地点与类别 |
 | 可见名称 | 所选地点显示名唯一（同名以地图 `branch_label` 消歧）；每个人物可能同时看到的对象名称唯一 | 场景加载以 `IntegrityError` 拒绝，逐一写明重复的显示名与地点，或写明重复的对象名称与来源 |
-| 购买渠道 | 由钉定的手机配置派生的渠道：称呼在渠道之间不重复（去掉空白、不分大小写）、不等于任何所选地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给 | 场景加载以 `IntegrityError` 拒绝，逐一写明渠道、称呼与地点；手机配置核验失败时不派生渠道，加载照常并写一条英文 warning 日志 |
+| 购买渠道 | 由钉定的手机配置派生的渠道：称呼非空，在渠道之间不重复（去掉空白、不分大小写）、不等于任何所选地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给 | 场景加载以 `IntegrityError` 拒绝，逐一写明渠道、称呼与地点；手机配置核验失败时不派生渠道，加载照常并写一条英文 warning 日志（App 名写在 `from` 时因此报 `SOURCE_NOT_FOUND`），`validate` 照旧因同一核验失败（见「人物卡片覆盖率」行） |
 | 交互菜单 | 地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项 | 以 `IntegrityError` 拒绝启动，保留英文校验原因 |
 | 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
 | 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
@@ -367,7 +370,8 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 地点类别越界 | 地图把所选地点的 `kind` 写成 `fuel` | "Selected locations use kinds that are not place types: <地点> kind 'fuel'; …; allowed kinds: …"（逐一列出全部越界地点） |
 | 地点重名 | 两处所选地点同名且没有不同的 `branch_label` | "Selected locations share display names: '<显示名>' (<地点>, <地点>); …; declare distinct branch_label values in the map"（逐一列出全部重名） |
 | 对象名称重复 | 同一人物名下两项工作同名、两位联系人同称谓等 | "Agent <人物> would see non-unique object labels: '<名称>' from <来源>, <来源>" |
-| 渠道准入不成立 | 两个 App 的称呼只差空白或大小写；App 称呼与所选地点同名；渠道没有有供给的成员门店 | "Purchase channels are not admissible: name '<称呼>' is shared by channels <渠道>, <渠道>; channel <渠道> name '<称呼>' equals location <地点>; …"（逐一列出全部不成立之处） |
+| 渠道准入不成立 | 两个 App 的称呼只差空白或大小写；App 称呼与所选地点同名；渠道没有成员门店，或成员门店没有供给 | "Purchase channels are not admissible: name '<称呼>' is shared by channels <渠道> and <渠道>; channel <渠道> name '<称呼>' equals location <地点>; channel <渠道> has no member store; channel <渠道> member store <地点> has no supply; …"（逐一列出全部不成立之处，另有 "channel <渠道> has an empty name" 与 "channel <渠道> member store <地点> is not a selected location"） |
+| 手机配置核验失败（不使加载失败） | 场景钉定的手机配置路径越出语料根、与语料清单或场景摘要对不上、结构不符、指向别的场景或人物，或映射的应用没有执行证据、称呼缺失或重复 | 加载照常、不派生购买渠道，英文 warning 日志 "Phone simulation config failed verification; no purchase channels are derived: <原因>"（原因如 "Phone simulation config identity is invalid"）；新建运行按没有应用别名计算覆盖率；`validate` 以同一原因的 `IntegrityError` 失败 |
 | 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
 | 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
 | 凭据内容错误 | 未知键、空值或空密钥段 | "DeepSeek credential file has an invalid schema" |

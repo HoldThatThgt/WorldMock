@@ -175,6 +175,30 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
     assert "最接近的候选，不会替你改" in rules[11]
 
 
+@pytest.mark.asyncio
+async def test_the_system_layer_asks_for_no_particular_language() -> None:
+    """不作语言要求（docs/dev/SPEC-dayrun-fidelity.md 2.4，裁决 D18）：真实生活决策请求与只读问答的系统层都没有要人物用某种
+    语言写的规则——role 与每条 rules 都不提中文、英文或语言；人物用英文写的收尾总结与记忆照常登记，不被纠错。"""
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
+    agent, _ = _agent(dispatcher)
+    await _run(agent, _observations())
+
+    for system in (json.loads(dispatcher.requests[0]["messages"][0]["content"]),
+                   json.loads(system_message(True)["content"])):
+        texts = [system["role"], *system["rules"]]
+        assert [text for text in texts if re.search("中文|英文|汉语|语言|Chinese|English|language", text)] == []
+    memory = {"type": "routine", "text": "I took a short break after lunch.", "importance": 0.2, "keywords": ["break"]}
+    english = _GroundedCorrectionDispatcher(responses=[_ModelResponse("action", "conclude_activity", json.dumps(
+        {"items": [{"activity_name": _WAIT, "summary": "Waited a while and rested.", "memories": [memory],
+                    "views": []}]}, ensure_ascii=False))])
+    agent, environment = _agent(english)
+    assert await _run(agent, _second_observation()) == "conclude_activity registered"
+    assert len(english.requests) == 1
+    [item] = environment.calls[0].request.items
+    assert (item.summary, [entry.text for entry in item.memories]) == ("Waited a while and rested.", [memory["text"]])
+
+
 #: 系统层第 15 条用「」点名的饥饿档与第 16 条列举的困意档（docs/dev/SPEC-dayrun-fidelity.md 2.2：档位名与 felt.py 的
 #: 分级文本逐字一致；仲裁档饥饿取「很饿」、困意取「很困」）。
 _RULE_HUNGER_BANDS = ["有点想吃", "饿", "很饿"]

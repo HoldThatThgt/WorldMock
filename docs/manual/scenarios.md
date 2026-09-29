@@ -48,6 +48,17 @@ flowchart TB
 | `calendar` | 必填；特殊日期与生活情境 |
 | `bills`、`payrolls`、`price_changes`、`product_releases` | 可省略，默认空数组；显式预排事件 |
 | `recipe_output_bindings` | 可省略，默认 `{}`；有库存配方时把输出品类绑定到输出对象 |
+| `phone_simulation_config`、`phone_simulation_config_sha256` | 可省略，默认 `null`，两者同写或同省；语料根内手机配置的相对路径与 SHA-256，购买渠道与画像覆盖率的 App 名都取自它 |
+
+购买渠道就是手机配置里的购买 App：称呼取 `app_display_names` 中该 App 的显示名，成员门店是 `purchase_apps_by_seller` 映射到它的
+卖家有供给的所选地点。人物在 `from` 写 App 称呼（去掉空白、不分大小写比较）时只在成员门店里买，几家都能服务时按请求的 `prefer`
+选定一家，订单记下 App 标识 `channel_id`；渠道没有自己的送达时长和服务范围，送达仍按选定门店的备货加路线，
+见[世界素材](resources.md#编写门店供给与商品)。
+配置文件要登记进语料清单，场景钉定的 SHA-256 与清单一致；配置的 `scenario_id`、`timezone` 与场景相同，`agent_id` 是场景中的人物。
+不钉定就没有渠道，`from` 写 App 名以 `SOURCE_NOT_FOUND` 拒绝；配置核验失败（身份、结构、场景身份或执行证据不符）时同样没有渠道：
+加载照常并写一条 warning 日志，`worldmock validate` 则以同一原因失败。加载时另查渠道准入：称呼在渠道之间不重复，也不等于任何所选
+地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即拒绝加载，报错见[校验自己的场景](#校验自己的场景)。
+现成场景都没有钉定手机配置。
 
 ## 修改日期与模拟节奏
 
@@ -93,6 +104,8 @@ flowchart TB
 窗口内先按口味权重乘注意力排序，再按相关度：生活活动的时间窗覆盖此刻 +2，对应当日计划里尚未推进的目标 +2，
 条目名或品类出现在人物卡片的习惯里 +1；仍同分时按含日期的哈希决胜，所以顺序随日期变化，也不是名称的字母序。
 生活活动窗口只列当前地点环境合适的活动；环境不合适的不列出，按名写它时以「这里不适合做这件事」拒绝。
+每轮工具层还附一份只列名称的可调用索引 `callable_index`：此地此刻可做的生活活动全部列名，内容与此刻从这里能得到的商品按品类给个数和
+至多 3 个示例名；它不是候选，不带动作，不受 `candidate_presentation_limit` 限制，有效菜单不允许的部分为空。
 
 不要把反馈间隔当作“人物每十五分钟行动一次”。决策本身不耗时：没有进行中活动的人物在同一秒接着决策，
 只有人人都有事在做时，时间才根据活动完成、消息、任务、身体变化和其他事件推进。
@@ -165,6 +178,8 @@ flowchart LR
 例如从菜单的 `allowed_actions` 中移除 `watch`，人物在该地点就不能发起观看活动；
 工作等其他动作仍按各自的菜单准入判断。场景配置使用稳定的内部英文动作名；模型在本轮交互对象中看到的是
 五个动词（`travel`、`interact`、`obtain`、`consume`、`sleep`）与方式（如「interact：接着看」），经本轮私有绑定映射回内部动作。
+取得商品的「到店」「远程下单」与不列出的「购买」（由系统定到店或远程下单）都映射为 `purchase`，按名写的商品也计为它；
+移除 `purchase`，人物在该地点既不能到店买，也不能远程下单。
 
 下面是完整的最小菜单对象，可作为一个地点类或一个人物的 `interaction_menu` 值。
 它只保留等待、睡眠；不适合作为需要正常工作和购物的日常场景菜单。
@@ -290,6 +305,9 @@ flowchart LR
 | `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#编写地点与营业时间) |
 | `Selected locations share display names` | 同名地点在地图中写互不相同的 `branch_label` |
 | `Agent <编号> would see non-unique object labels` | 同一人物会同时看到两个相同的名称，例如两项工作同名、两位联系人同称谓；改掉其中一个 |
+| `Purchase channels are not admissible: …`，其后逐条列出 `name '<称呼>' is shared by channels <App 标识> and <App 标识>`、`channel <App 标识> name '<称呼>' equals location <地点标识>` 或 `channel <App 标识> has an empty name` | App 称呼在渠道之间去掉空白、不分大小写后重复，与所选地点的显示名相同，或为空；改手机配置 `app_display_names` 里的称呼并更新它在语料清单和场景里的 SHA-256，或改地点显示名 |
+| `Purchase channels are not admissible: …`，其后逐条列出 `channel <App 标识> member store <地点标识> has no supply`、`channel <App 标识> member store <地点标识> is not a selected location` 或 `channel <App 标识> has no member store` | 成员门店必须是所选地点并至少有一条供给；核对 `purchase_apps_by_seller` 里的卖家账户在场景 `supplies` 中的门店 |
+| 日志 `Phone simulation config failed verification; no purchase channels are derived: <原因>`；`worldmock validate` 以同一原因失败 | 手机配置核验失败，本次没有渠道：核对配置路径、语料清单登记与场景钉定的 SHA-256，配置的 `scenario_id`、`timezone`、`agent_id`，每条 App 映射都能执行（购买 App 的卖家有有货的供给，观看 App 要场景有内容，驾车 App 要有可达的驾车路线），每个 App 都有不重复的非空称呼 |
 | `candidate_presentation_limit and rotation_quota_ratio leave no rotation quota` | 调整二者，保证乘积向下取整至少为 1 |
 | 旧场景含 `max_consecutive_rejections` 被拒（未知字段） | 删掉该键（同刻上限取缺省 3），或改写为 `max_same_moment_decisions` |
 | 警告 `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO` | 卡片口味题材与内容 `genre` 按字面精确匹配，平台名不是题材；改画像正文的口味写法，或给内容补同一套题材词；没写 `background_story` 的人物没有口味权重，也报后者 |
