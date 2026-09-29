@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence

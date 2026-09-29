@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError
@@ -54,7 +54,7 @@ def _run_identity(scenario) -> RunIdentity:
         code_sha256="3" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://api.deepseek.com",
+            base_url="https://api.deepseek.com/beta",
             requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",

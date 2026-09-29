@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
@@ -822,7 +822,7 @@ def _switch_off_engine(tmp_path: Path) -> LifeEngine:
         run_id="switch-off", source_group_id="switch-off", agent_ids=tuple(item.agent_id for item in scenario.agents),
         start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(), timezone=scenario.timezone,
         code_sha256="2" * 64, model_identity=ModelIdentity(
-            provider="openai_compatible", base_url="https://api.deepseek.com", requested_model="deepseek-flash",
+            provider="openai_compatible", base_url="https://api.deepseek.com/beta", requested_model="deepseek-flash",
             thinking="enabled", tool_choice="auto", max_retries=0, prompt_sha256="0" * 64,
             tool_schema_sha256="1" * 64))
     return LifeEngine.create(SCENARIO, tmp_path / "switch-off", identity, stage_model_identity(False))

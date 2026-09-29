@@ -325,7 +325,7 @@ def _identity(scenario_path: Path, run_id: str) -> RunIdentity:
         code_sha256="4" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://api.deepseek.com",
+            base_url="https://api.deepseek.com/beta",
             requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",
