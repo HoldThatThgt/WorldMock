@@ -5,7 +5,8 @@
           两张表，逐行判定：登记表与台账各行一一对应（规格增删行而登记表不跟随即失败）；裁决除 D13（登记）与 S2（撤回）外全部
           已定，每条有要建之物的已定裁决都登记了测试；只报告的行在规格中仍写明只报告；输入警告的闭集逐码各有一例；每个登记的
           节点都解析到存在、会被收集且未被跳过的测试（按 AST 解析，含类中的测试与参数化节点）；本特性新增或改动的生产文件与
-          新增测试文件中没有延期标记、没有空壳函数；docs/ 里不再留有本特性冻结时写下的临时待验收标记。
+          新增测试文件中没有延期标记、没有空壳函数；docs/ 里不再留有本特性冻结时写下的临时待验收标记，带锚点的文档链接都指向
+          目标文档里现有的标题（台账「文档一致性」行；文件本身是否存在由 scripts/documentation_gate.py 判定）。
 @note     表格解析、节点解析、延期标记正则与空壳判定取自共用模块 tests/acceptance_guard.py（与人物 Prompt 七层的守卫同用）；
           延期标记与待验收标记的字符串都由片段拼成（见 _PENDING_MARKERS），本文件自身不含任何标记字面量。
           文档标记指本特性冻结时写下的三个待验收状态词与文档地图的「修订条款」未实现说法；一行含标记且满足三者之一即判为
@@ -20,6 +21,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -57,6 +59,10 @@ _VERSION_HEADING = re.compile(r"^## 版本(?:表|历史)?\s*$")
 #: 研究与验收记录的目录：其中的表格叙述各特性标记的来龙去脉，不扫描。
 _RESEARCH = "docs/dev/research/"
 _CELL = re.compile(r"(?<!\\)\|")
+#: 带锚点的 Markdown 链接：目标为空（本文件）或相对路径，锚点在 # 之后；标题行与代码围栏。
+_ANCHORED_LINK = re.compile(r"\[[^\]]*\]\(([^)\s#]*)#([^)\s]+)\)")
+_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
+_FENCE = "```"
 
 
 def _ledger_rows() -> list[tuple[str, str]]:
@@ -128,6 +134,45 @@ def _pending_markers(root: Path) -> list[str]:
     documents = {path.relative_to(root).as_posix(): path for path in (root / "docs").rglob("*.md")}
     return [marker for relative in sorted(documents) if not relative.startswith(_RESEARCH)
             for marker in _document_markers(documents[relative], relative)]
+
+
+def _prose_lines(path: Path) -> list[tuple[int, str]]:
+    """文档中代码围栏之外的行（行号，正文）。"""
+    lines, fenced = [], False
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.strip().startswith(_FENCE):
+            fenced = not fenced
+        elif not fenced:
+            lines.append((number, line))
+    return lines
+
+
+def _heading_anchors(path: Path) -> set[str]:
+    """文档各标题的 GitHub 口径锚点：去掉链接写法与标点、小写、每个空白换成连字符（汉字保留），重名的依次加 -1、-2。"""
+    anchors, seen = set(), {}
+    for _, line in _prose_lines(path):
+        if match := _HEADING.match(line):
+            text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", match.group(1))
+            base = re.sub(r"\s", "-", re.sub(r"[^\w\s-]", "", text.strip().lower()))
+            anchors.add(f"{base}-{seen[base]}" if base in seen else base)
+            seen[base] = seen.get(base, 0) + 1
+    return anchors
+
+
+def _broken_anchors(root: Path) -> list[str]:
+    """root/docs 下 Markdown 文档里带锚点、指向本文件或另一份存在的 Markdown 文档的链接中，锚点不是目标标题的，逐条写成
+    「路径:行号: 目标#锚点」。"""
+    broken, cache = [], {}
+    for path in sorted((root / "docs").rglob("*.md"), key=lambda item: item.relative_to(root).as_posix()):
+        for number, line in _prose_lines(path):
+            for target, anchor in _ANCHORED_LINK.findall(line):
+                document = (path.parent / target).resolve() if target else path
+                if target and (not target.endswith(".md") or not document.is_file()):
+                    continue
+                anchors = cache.setdefault(document, _heading_anchors(document))
+                if unquote(anchor) not in anchors and unquote(anchor).lower() not in anchors:
+                    broken.append(f"{path.relative_to(root).as_posix()}:{number}: {target}#{anchor}")
+    return broken
 
 
 def test_every_ledger_row_is_registered_and_every_registered_row_exists() -> None:
@@ -225,6 +270,15 @@ def test_docs_carry_no_pending_markers_of_this_feature() -> None:
     assert not markers, "\n".join(markers)
 
 
+def test_anchored_links_in_docs_point_to_existing_headings() -> None:
+    """台账「文档一致性」的「带锚点的链接指向现有标题」：docs/ 下每个带锚点、指向本文件或另一份存在的 Markdown 文档的链接，
+    锚点都是目标文档里现有标题的 GitHub 口径锚点（本规格各章、「验收台账」「冻结条款修订」等被大量引用的锚点在内）。"""
+    assert len([None for path in (REPO_ROOT / "docs").rglob("*.md")
+                for _, line in _prose_lines(path) for _ in _ANCHORED_LINK.findall(line)]) > 100
+    broken = _broken_anchors(REPO_ROOT)
+    assert not broken, "\n".join(broken)
+
+
 def test_resolver_rejects_missing_uncollected_and_skipped_tests(tmp_path: Path) -> None:
     """解析器有牙齿：文件、类或函数不存在，模块不会被收集，函数或类上的跳过装饰器、参数化里的跳过、列表形式的 pytestmark、
     测试体里的预期失败都判为问题；模块级测试、异步测试、类中的测试与参数化节点都能解析。"""
@@ -319,3 +373,22 @@ def test_pending_marker_scan_catches_every_form_and_leaves_history_alone(tmp_pat
     assert found == ["docs/INDEX.md:7", "docs/INDEX.md:9", "docs/dev/SPEC-a.md:3", "docs/dev/SPEC-a.md:12",
                      "docs/dev/SPEC-a.md:14", "docs/dev/SPEC-a.md:15", "docs/dev/SPEC-a.md:18",
                      "docs/dev/notes.md:1", "docs/dev/notes.md:2"]
+
+
+def test_anchor_check_resolves_github_anchors_and_reports_missing_headings(tmp_path: Path) -> None:
+    """锚点判定有牙齿：编号标题去掉点号、代码片段与链接写法只留文字、重名标题加 -1、按百分号编码写的锚点都能解析；目标文档
+    没有这个标题、同一文件里没有这个标题都报出；代码围栏里的伪标题不算标题，围栏里的链接不检查；目标文件不存在与非
+    Markdown 目标交给文档链接门禁，不在这里报。"""
+    _write_docs(tmp_path, {
+        "dev/SPEC-b.md": ("# 乙规格\n\n## 验收台账\n\n### 7.2 输出截断与思考螺旋\n\n## `prefer` 与[渠道](x.md)\n\n"
+                          "## 重复\n\n## 重复\n\n```\n## 围栏里的伪标题\n```\n"),
+        "dev/SPEC-a.md": (
+            "# 甲规格\n\n## 本章\n\n"
+            "[a](#本章) [b](SPEC-b.md#验收台账) [c](SPEC-b.md#72-输出截断与思考螺旋) [d](SPEC-b.md#prefer-与渠道)\n"
+            "[e](SPEC-b.md#重复-1) [f](SPEC-b.md#%E9%AA%8C%E6%94%B6%E5%8F%B0%E8%B4%A6) [g](gone.md#x) [h](a.txt#x)\n"
+            "[i](SPEC-b.md#不存在) [j](#别处的标题) [k](SPEC-b.md#围栏里的伪标题) [l](SPEC-b.md#重复-2)\n"
+            "```\n[m](#围栏里不查)\n```\n"),
+    })
+    assert _broken_anchors(tmp_path) == [
+        "docs/dev/SPEC-a.md:7: SPEC-b.md#不存在", "docs/dev/SPEC-a.md:7: #别处的标题",
+        "docs/dev/SPEC-a.md:7: SPEC-b.md#围栏里的伪标题", "docs/dev/SPEC-a.md:7: SPEC-b.md#重复-2"]

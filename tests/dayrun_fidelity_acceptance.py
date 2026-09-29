@@ -13,6 +13,8 @@
           要读的质量报告各节（输入警告、截断、时间线标签、联系人回复守卫、名称类拒绝、零点计划的非例行推进比例）的测试。
           「strict 端点」行的「探针在主站与 /beta 的结果写入验收记录」一半：登记探针脚本与端点切换的测试，真实探针结果由
           实现后文档写进本特性的验收记录。「更简单的购买请求」一行是冻结后补登的台账行（规格版本表 0.6），判据取 3.5 的验收句。
+          「文档一致性」行除文档链接门禁与设计说明书汇编外，另登记本守卫的两项文档判定：冻结时写下的临时待验收标记不再留在
+          docs/，带锚点的文档链接都指向现有标题。
 """
 
 from __future__ import annotations
@@ -69,6 +71,7 @@ _ENDPOINT = "tests/integration/test_strict_endpoint.py::"
 _IDENTITY = "tests/integration/test_runtime.py::test_model_identity_freezes_complete_strict_endpoint_and_request"
 _DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
 _DOCS_MARKERS = "tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature"
+_DOCS_ANCHORS = "tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings"
 _VIEWER = "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
 
 #: 「输入警告」行按警告码闭集逐码各一例（码 → 在测试体里断言该码的用例；闭集取 worldmock.profile.injection）。
@@ -565,6 +568,7 @@ LEDGER: dict[str, list[str]] = {
         "tests/test_design_doc_build.py::"
         "test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current",
         _DOCS_MARKERS,
+        _DOCS_ANCHORS,
     ],
     "工程门禁": [
         "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
