@@ -1,6 +1,6 @@
 # WorldMock 架构设计
 
-> 状态：设计冻结（FROZEN）。分层、职责边界、核心决策与数据流理由以本文件为准；实现状态见 `docs/dev/implementation-status.md`。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）。「核心决策」的人物设计一行按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md)补一句（一日运行保真 AR1），定稿不等于已实现。
+> 状态：设计冻结（FROZEN）。分层、职责边界、核心决策与数据流理由以本文件为准；实现状态见 `docs/dev/implementation-status.md`。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）。「核心决策」的人物设计一行按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md)补一句（一日运行保真 AR1），已随该规格的名称解析与错误合同实现。
 > 日期：2026-09-29
 > 实施基线：AgentSociety 2 提交 `670c94f`（在线文档版本 2.8.7）；LabelKit 提交 `5a359ca`
 > 范围：AgentSociety 2 驱动的数字人生活模拟，以及数字足迹向 LabelKit 的交付
@@ -216,3 +216,4 @@ dreaming 可以对已知经历做归纳，或提出「若未获得报酬是否�
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 七层规格](dev/SPEC-persona-prompt.md)「冻结条款修订」第 30 行修订，修订部分待实现：「活动与经历的唯一归属」的长期记忆视图改为记忆层（由已提交事件与世界状态派生，结算事实与人物自述分开），关系与偏好的当前看法在人设层，行为引用补该规格；「核心决策」人物设计行改为提示按七层 JSON 组织并同秒续接，AS2 人物循环照旧复用；「AS2 的差距与集成策略」经核对不改（续接由宿主在准备阶段之后注入，锁定的 AS2 不改）；文件头状态句补修订说明，日期改写。 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头「修订部分待实现」改为已实现并通过离线验收，链接人物 Prompt 验收记录；正文不变 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md)「文档同步作业」AR1 修订（随该规格冻结）：「核心决策」的人物设计一行补一句：宿主与环境共用同一套名称解析与错误结构，人物写的名称在两边得到相同的受理结果与可照填的候选；文件头补修订说明，日期改写 |
+| `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码核对）：宿主与环境共用的名称解析（`src/worldmock/life/name_resolution.py`）与错误结构（`src/worldmock/life/error_contract.py`）已落地，文件头「定稿不等于已实现」改为已随实现落地；正文不变 |

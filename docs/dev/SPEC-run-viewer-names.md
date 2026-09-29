@@ -1,6 +1,6 @@
 # 运行查看器对象名称
 
-> 状态：FROZEN；「活动标题」按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 21 行修订（一日运行保真 RV1），定稿不等于已实现；修订记录见「版本表」。
+> 状态：FROZEN；「活动标题」按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 21 行修订（一日运行保真 RV1），修订部分已实现并通过离线验收（`tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py`、`tests/footprints/test_render_day.py`）；修订记录见「版本表」。
 > 日期：2026-09-29
 > 验收记录：[查看器名称验收](run-viewer-names-verification.md)（修订前的行为）。
 
@@ -60,3 +60,4 @@
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 新增文件头与版本表。按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 21 行修订（一日运行保真 RV1，随该规格冻结）：「活动标题」补工作、通话与交谈也有中文标题，种类说法以 `src/worldmock/life/readable.py` 为单一来源，活动表与时间线不出现英文种类名与内部标识形态 |
+| `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码与测试核对）：工作、通话与交谈的中文标题已实现，文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收，列出证据测试 `tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py` 与 `tests/footprints/test_render_day.py`；条款正文不变 |
