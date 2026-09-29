@@ -221,6 +221,71 @@ def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_
         (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
 
 
+#: relationship 看法的对象不是已知人物时写进证据的英文说明（证据串为「SUBJECT_NOT_KNOWN: <说明>: <名字>」）。
+_SUBJECT_DETAIL = "conclude_activity relationship subject is not a known person"
+
+
+def _two_activities(*people: str) -> LifeAgent:
+    """当前停留里工作与等待两项都在进行；people 是同世界人物（私有绑定 person_bindings，都是认识的人）。"""
+    data = _with_activities(_observations()[0]["data"], (_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE))
+    data["person_bindings"] = [{"name": f"人物：{name}", "person_id": f"agent:{index + 8}"}
+                               for index, name in enumerate(people)]
+    return _prepared([{"turn": 0, "action": "observe", "ok": True, "data": data}])
+
+
+def _concluded(agent: LifeAgent, arguments: dict) -> tuple[str, dict]:
+    """一次 conclude_activity 经宿主本地校验：（写进证据的协议错误串，回给模型的纠错正文）。"""
+    error = agent.validate_react_decisions([_decision("conclude_activity", arguments)], False)
+    return error, _feedback(error)
+
+
+def test_every_unknown_relationship_view_is_reported_at_its_own_item() -> None:
+    """结束两项活动，两项的关系看法各写了一个不认识的人（第一项另有一条写认识的人、一条偏好）：SUBJECT_NOT_KNOWN 逐项报全部，
+    明细是 index 0 与 1、参数名 about、原文为所写的名字，原因逐项写「第 N 项」，改法一句写「第 1、2 项」；同一项里写了两个
+    不认识的人时两个都报、改法只写一次这一项；证据串仍是「<错误码>: <英文说明>」，逐条说明以「; 」相连
+    （docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章：全部名称类失败项都报）。"""
+    agent = _two_activities("沈昊")
+    error, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
+        [_view("王五"), _view("沈昊"), _view("拿铁", "下午想喝拿铁。", kind="preference")], [_view("陌生人")]]))
+    assert payload["error_code"] == "SUBJECT_NOT_KNOWN"
+    assert [(item["index"], item["field"], item["written"], item["error_code"]) for item in payload["items"]] == [
+        (0, "about", "王五", "SUBJECT_NOT_KNOWN"), (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
+    assert payload["reason"] == "第 1 项关系看法写的对象「王五」不是认识的人；第 2 项关系看法写的对象「陌生人」不是认识的人"
+    assert payload["fix"] == f"第 1、2 项{host_defaults('SUBJECT_NOT_KNOWN')[1]}"
+    assert error == f"SUBJECT_NOT_KNOWN: {_SUBJECT_DETAIL}: 王五; {_SUBJECT_DETAIL}: 陌生人"
+    error, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
+        [_view("王五"), _view("陌生人"), _view("王五", "又想起他。")], []]))
+    assert [(item["index"], item["field"], item["written"]) for item in payload["items"]] == [
+        (0, "about", "王五"), (0, "about", "陌生人")]
+    assert payload["reason"] == "第 1 项关系看法写的对象「王五」不是认识的人；第 1 项关系看法写的对象「陌生人」不是认识的人"
+    assert payload["fix"] == f"第 1 项{host_defaults('SUBJECT_NOT_KNOWN')[1]}"
+    assert error == f"SUBJECT_NOT_KNOWN: {_SUBJECT_DETAIL}: 王五; {_SUBJECT_DETAIL}: 陌生人"
+    _, single = _concluded(agent, _conclude_args(_WAIT, memories=[[]], views=[[_view("王五"), _view("陌生人")]]))
+    assert [(item["index"], item["written"]) for item in single["items"]] == [(0, "王五"), (0, "陌生人")]
+    assert single["reason"] == "关系看法写的对象「王五」不是认识的人；关系看法写的对象「陌生人」不是认识的人"
+    assert single["fix"] == host_defaults("SUBJECT_NOT_KNOWN")[1]
+
+
+def test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item() -> None:
+    """第一项的活动名不是本轮列出的活动、第二项的关系看法写了不认识的人：两项合并成一次纠错都报出（NAME_NOT_FOUND 在 index 0
+    的 activity_name，SUBJECT_NOT_KNOWN 在 index 1 的 about），码取第一项的码，原因逐项写、改法每码一句；证据串以第一项的码
+    开头，两条英文说明以「; 」相连（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条：名称类错误逐项报全部）。"""
+    agent = _two_activities()
+    error, payload = _concluded(agent, _conclude_args("散步", _WAIT, memories=[[], []], views=[[], [_view("陌生人")]]))
+    assert payload["error_code"] == "NAME_NOT_FOUND"
+    assert [(item["index"], item["field"], item["written"], item["error_code"]) for item in payload["items"]] == [
+        (0, "activity_name", "散步", "NAME_NOT_FOUND"), (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
+    assert payload["reason"].startswith("第 1 项「散步」不是本轮列出的活动")
+    assert payload["reason"].endswith("；第 2 项关系看法写的对象「陌生人」不是认识的人")
+    assert payload["fix"] == ("第 1 项照工具层、待办层或记忆层中的写法填写名称，或者去掉这一项；"
+                              f"第 2 项{host_defaults('SUBJECT_NOT_KNOWN')[1]}")
+    assert error == ("NAME_NOT_FOUND: conclude_activity activity_name names an activity that is not visible; "
+                     f"{_SUBJECT_DETAIL}: 陌生人")
+    _, both = _concluded(agent, _conclude_args("散步", _WAIT, memories=[[], []], views=[[_view("王五")], []]))
+    assert [(item["index"], item["field"], item["error_code"]) for item in both["items"]] == [
+        (0, "activity_name", "NAME_NOT_FOUND"), (0, "about", "SUBJECT_NOT_KNOWN")]
+
+
 def test_all_name_errors_are_reported_and_other_conditions_report_the_first() -> None:
     """名称类错误逐项报全部（两项都不成立时两项都在 items 里，码各自写，改法每码一句）；来源与去向这类其余条件只报第一条，
     且名称类错误在前（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条）。"""

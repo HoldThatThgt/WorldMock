@@ -1378,7 +1378,7 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 | `WAY_NOT_OFFERED` | 对象没有列出所写的动词与方式（方式同义表也没有在它列出的方式里恰好命中一个；写的方式相配而动词不对时明细的参数名为 `actions`），候选为该对象列出的（动词，方式）写成的可照填请求；映射后的内部动作不在本地交互菜单里 |
 | `ROUTE_FIELDS_INVALID` | `from`、`to` 或 `answering` 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；`to` 写的名称不是任何人物时不纠正，由环境以 `RECIPIENT_NOT_FOUND` 拒绝 |
 | `SUPPLY_SOURCE_MISMATCH` | 目标已写明门店「<门店>出售的<商品>」却在 `from` 写了另一家门店（写的正是这家店是冗余的 `from`，照常受理并说明），候选为同一项 `from` 写 `null` |
-| `SUBJECT_NOT_KNOWN` | `conclude_activity` 的 relationship 看法（`items[].views[].about`，存储为 `subject`）不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）；明细的 `index` 为所在的一项、`field` 为 `about` |
+| `SUBJECT_NOT_KNOWN` | `conclude_activity` 的 relationship 看法（`items[].views[].about`，存储为 `subject`）不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）；每个不认识的对象各一条明细（同一项写了几个就报几个，同一项重复写的同一个名字只报一次），`index` 为所在的一项、`field` 为 `about`；与各项活动名的 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` 合并成一次纠错，不因活动名先出错而漏报 |
 | `OUTPUT_TRUNCATED` | 输出在思考阶段用尽、尚未调用工具：回复 `finish_reason=length`、正文为空且没有工具调用（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」）；证据中的协议错误串为「OUTPUT_TRUNCATED: <英文说明>」，处理见「回合预算」 |
 
 ### 回合预算
