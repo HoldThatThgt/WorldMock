@@ -75,6 +75,25 @@ def test_habit_response_keyword_substring_matching():
     assert report_miss.missing[0].value == "冥想二十分钟"
 
 
+def test_app_name_substrings_no_longer_count_as_coverage_hits():
+    """App 名子串不算覆盖命中（docs/dev/SPEC-dayrun-fidelity.md 1.3）：WC 白领卡片的口味「B站视频」与习惯「刷B站」
+    不因应用名「B站」算覆盖（旧规则按双向子串判为命中，覆盖率 0.92 而口味权重全零）；媒介「B站」与已核验的应用名
+    精确相等，仍算命中。"""
+    card = make_card(
+        habits=(HabitSignature(trigger="睡前", response="刷B站", time_window=make_window(22.0, 24.0)),),
+        tastes=Tastes(content_genres=("B站视频",), food_preferences=("川菜",), media=("B站",)))
+    targets = CoverageTargets(habit_response_keywords=("慢跑",), content_genres=("剧情",), food_kinds=("川菜",),
+                              app_names=("B站", "哔哩哔哩"))
+
+    report = validate_coverage(card, targets)
+
+    assert [(item.kind, item.value) for item in report.missing] == [
+        ("habit_response", "刷B站"), ("content_genre", "B站视频")]
+    assert report.covered_items == 2 and report.executable_ratio == 0.5 and report.passed is False
+    assert validate_coverage(make_card(habits=(), tastes=Tastes(
+        content_genres=(), food_preferences=(), media=("哔哩哔哩",))), targets).passed is True
+
+
 def test_empty_card_is_vacuously_covered():
     """@brief 无习惯且无口味：无可校验项，按缺省通过（两列表均可为空）。"""
     card = make_card(habits=(), tastes=Tastes(content_genres=(), food_preferences=(),
