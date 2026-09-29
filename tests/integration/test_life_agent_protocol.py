@@ -385,9 +385,9 @@ def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> 
     assert action_system == render_layer_json(LIFE_SYSTEM_LAYER)
     assert readonly_system == render_layer_json(READONLY_SYSTEM_LAYER)
     rules = json.loads(action_system)["rules"]
-    assert len(rules) == 17
-    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒。", "能送到这里的都算",
-                     "说打算做或说已经做过，都不等于做了。"):
+    assert len(rules) == 18
+    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒，早睡也就早醒。", "能送到这里的都算",
+                     "说打算做或说已经做过，都不等于做了。", "今日计划写明今天与平常不同的安排时，按计划"):
         assert sum(sentence in rule for rule in rules) == 1
     for system in (action_system, readonly_system):
         assert "怎样过一天" not in system and "你不是AI助手" not in system
