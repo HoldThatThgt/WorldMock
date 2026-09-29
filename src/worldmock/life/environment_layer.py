@@ -2,7 +2,9 @@
 
 体感取现有分级文字（felt.summarize_felt_levels），数值不进提示。停留时 name 为地点名、place_type 为场所类型的中文标签；
 路程中 name 为路段标签「去<目的地>的路上」、place_type 为出行方式（步行、驾车）。fixed_rules 是场所的固定规则：
-本轮有效菜单排除的每个动作写一句「这里不能<动作说法>」，菜单完整时为 []。
+本轮有效菜单排除的每个动作写一句「这里不能<动作说法>」，菜单完整时为 []。场所类型、动作说法与出行方式三张中文表
+的唯一来源是 worldmock.life.readable（docs/dev/SPEC-dayrun-fidelity.md 7.4）；本模块的 PLACE_TYPES、ACTION_PHRASES
+就是那里的对象，照旧可从这里导入。
 """
 
 from __future__ import annotations
@@ -12,20 +14,10 @@ import logging
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.errors import IntegrityError
 from worldmock.life import sessions
-from worldmock.life.interaction_menu import TRAVEL_WAYS
 from worldmock.life.models import ActivityKind, SessionKind
-from worldmock.life.readable import iso_time
+from worldmock.life.readable import ACTION_PHRASES, PLACE_TYPES, TRAVEL_WAYS, iso_time
 from worldmock.life.tool_layer import LayerContext
 
-#: 场所类型（地点 kind）→ 中文标签；覆盖仓库场景的全部地点类型，未知类型是场景缺陷。
-PLACE_TYPES = {"home": "家", "office": "办公室", "merchant": "商户", "restaurant": "餐馆",
-               "convenience_store": "便利店", "supermarket": "超市", "wet_market": "菜市场", "fitness": "健身房",
-               "park": "公园"}
-#: 内部标准动作的说法（fixed_rules 句子「这里不能<说法>」），按此顺序列出。
-ACTION_PHRASES = {"travel_to": "出发去别处", "work": "工作", "watch": "看内容或听播客", "play": "玩游戏",
-                  "chat": "当面交谈", "call": "打电话", "read": "看邮件", "browse": "浏览商品",
-                  "do": "做生活活动", "purchase": "买东西", "consume": "吃东西或用东西", "wait": "等待",
-                  "sleep": "睡觉"}
 #: 体感五键的固定顺序。
 _BODY_KEYS = ("appetite", "sleepiness", "entertainment", "social", "mood")
 

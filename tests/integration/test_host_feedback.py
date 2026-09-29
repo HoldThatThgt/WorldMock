@@ -27,7 +27,8 @@ from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host
 from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOICE,  # noqa: E402
                                                         _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
                                                         _conclude_args, _context, _memory, _prepared,
-                                                        _step_observation, _wire_agent)
+                                                        _step_observation, _view, _wire_agent)
+from tests.integration.test_output_truncation import _Truncated  # noqa: E402
 from tests.integration.test_same_second_continuation import _environment, _reply, _single  # noqa: E402
 from tests.integration.test_storefront_tools import _OFFER, _observed_offer  # noqa: E402
 from tests.life.conftest import engine_factory as _engine_factory, last_result, start_arguments  # noqa: E402,F401
@@ -121,12 +122,13 @@ async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruct
 
 
 def _host_cases() -> dict[str, tuple[str, str]]:
-    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）；名称歧义与截断还没有宿主产生方，取登记的默认说法。"""
+    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）：截断经 LifeAgent 覆写的 _parse_react_responses 判定
+    （docs/dev/SPEC-dayrun-fidelity.md 7.2）；名称歧义还没有宿主产生方，取登记的默认说法。"""
     agent = _prepared()
     offer = LifeAgent()
     offer.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observed_offer()))
     concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
-    unknown = _conclude_args(_WAIT, memories=[[_memory(kind="relationship", subject="陌生人")]])
+    unknown = _conclude_args(_WAIT, memories=[[]], views=[[_view("陌生人")]])
     produced = {
         "ARGUMENTS_NOT_JSON": _feedback("invalid tool arguments for start_activity: Expecting value: line 1 column 1"
                                         " (char 0)"),
@@ -145,7 +147,7 @@ def _host_cases() -> dict[str, tuple[str, str]]:
         "SUPPLY_SOURCE_MISMATCH": offer.validate_react_decisions([_decision("start_activity", start_arguments(
             [_OFFER], ["obtain"], ["远程下单"], **{"from": ["家门口便利店"]}))], False),
         "SUBJECT_NOT_KNOWN": concluding.validate_react_decisions([_decision("conclude_activity", unknown)], False),
-        "OUTPUT_TRUNCATED": host_feedback(host_report("OUTPUT_TRUNCATED"), "output truncated before any tool call"),
+        "OUTPUT_TRUNCATED": agent._parse_react_responses(_Truncated("思考写满了输出上限。"))[1],
     }
     return {code: _as_report(value) for code, value in produced.items()}
 
@@ -170,7 +172,7 @@ def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
     assert cases["WAY_NOT_OFFERED"][1] == "「自己」没有列出「interact：观看」这种做法"
     assert cases["ROUTE_FIELDS_INVALID"][1] == "interact 的 from 与 to 都要写 null"
     assert cases["SUPPLY_SOURCE_MISMATCH"][1] == f"「{_OFFER}」已经写明了门店，from 要写 null"
-    assert cases["SUBJECT_NOT_KNOWN"][1] == "关系记忆写的对象「陌生人」不是认识的人"
+    assert cases["SUBJECT_NOT_KNOWN"][1] == "关系看法写的对象「陌生人」不是认识的人"
     assert cases["NAME_AMBIGUOUS"][1] == host_defaults("NAME_AMBIGUOUS")[0]
     assert cases["OUTPUT_TRUNCATED"][1] == "输出在思考阶段用尽，尚未调用工具"
 
@@ -219,20 +221,20 @@ def test_argument_errors_are_written_per_field_without_any_validation_dump() -> 
     """参数形状错误按字段写原因（缺字段、多字段、类型、界限与请求模型自己的校验说明），明细写参数名与所写的原文；纠错正文
     不含校验库转储、input_value 与网址，证据串保留英文完整说明。"""
     concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
-    memory = _memory("我记得 3e71a031bb3d4103 那会儿很累。", importance=1.5, subject="沈昊")
+    memory = _memory("我记得 3e71a031bb3d4103 那会儿很累。", importance=1.5)
     arguments = {**_conclude_args(_WAIT, memories=[[memory]]), "extra": 1}
     error = concluding.validate_react_decisions([_decision("conclude_activity", arguments)], False)
     payload = _feedback(error)
     assert payload["error_code"] == "ARGUMENTS_INVALID"
-    assert payload["reason"] == ("memories[0][0].importance 要不大于 1；extra 不是这个工具的参数，要去掉")
+    assert payload["reason"] == ("items[0].memories[0].importance 要不大于 1；extra 不是这个工具的参数，要去掉")
     assert [(item["index"], item["field"], item["written"]) for item in payload["items"]] == [
-        (0, "memories", "1.5"), (0, "extra", "1")]
+        (0, "items", "1.5"), (0, "extra", "1")]
     content = LifeAgent._protocol_feedback_content(error)
     assert not any(marker in content for marker in _DUMP_MARKERS), content
     assert "input_value" in error and error.startswith("ARGUMENTS_INVALID: invalid conclude_activity arguments")
-    subject = _conclude_args(_WAIT, memories=[[_memory(subject="沈昊")]])
-    reason = _feedback(concluding.validate_react_decisions([_decision("conclude_activity", subject)], False))["reason"]
-    assert reason == "memories[0][0]：memory subject is required exactly for relationship and preference"
+    limited = _conclude_args(_WAIT, memories=[[_memory("长" * 1001)]])
+    reason = _feedback(concluding.validate_react_decisions([_decision("conclude_activity", limited)], False))["reason"]
+    assert reason == "items[0].memories[0]：memory text exceeds 1000 characters"
 
 
 def _obtain_arguments(target: str, candidate: dict | None = None) -> dict:

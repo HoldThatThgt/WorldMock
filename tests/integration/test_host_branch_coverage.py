@@ -748,21 +748,28 @@ def test_parse_contact_reply_accepts_single_choice_text_only():
 
 
 def test_prepare_contact_reply_builds_disabled_thinking_request():
-    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带双方往来与对方收到的物品。"""
+    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带来信事实（发件人姓名、场景本地
+    时刻、presence=remote、收货地名）、双方往来与对方收到的物品；system 提示写明联系人只通过消息来往。"""
     from worldmock.life.social import ReceivedItem, ReplyHistoryEntry
+    from worldmock.runtime import _CONTACT_REPLY_PROMPT
 
     history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
     received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="11:05"),)
     request = SimpleNamespace(contact_id="contact-1", incoming_text="周五晚上一起吃饭？",
-                              max_chars=200, history=history, received=received)
+                              sender_name="陈曦", now="2026-01-05T11:10:00+08:00", presence="remote",
+                              receive_location="公司", max_chars=200, history=history, received=received)
     payload = prepare_contact_reply(request, None, "deepseek-flash")
     assert payload["model"] == "deepseek-flash"
     assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
     assert payload["max_retries"] == 0 and payload["stream"] is False
     assert payload["max_tokens"] == 8000
     assert [message["role"] for message in payload["messages"]] == ["system", "user"]
+    assert payload["messages"][0]["content"] == _CONTACT_REPLY_PROMPT
+    assert "只通过消息" in _CONTACT_REPLY_PROMPT and "不约当面" in _CONTACT_REPLY_PROMPT
     body = json.loads(payload["messages"][1]["content"])
     assert body["contact"] == {"contact_id": "contact-1"}
+    assert (body["sender_name"], body["now"], body["presence"], body["receive_location"]) == (
+        "陈曦", "2026-01-05T11:10:00+08:00", "remote", "公司")
     assert body["incoming_message"] == "周五晚上一起吃饭？"
     assert body["history"] == [{"speaker": "陈曦", "time": "10:00", "text": "在吗"}]
     assert body["received"] == [{"item": "牛肉炒面", "quantity": "1 份", "time": "11:05"}]
@@ -797,7 +804,8 @@ class _ReplyEvent:
 def test_pending_reply_requests_deduplicate_settled_replies():
     """pending 扫描只保留尚未回复的请求（幂等去重）。"""
     request = {"contact_id": "contact-1", "reply_to_message_id": "message-1",
-               "recipient_id": "agent:1", "incoming_text": "在吗？", "history": [], "received": []}
+               "recipient_id": "agent:1", "incoming_text": "在吗？", "sender_name": "陈曦",
+               "now": "2026-01-05T10:00:00+08:00", "receive_location": None, "history": [], "received": []}
     second = dict(request, reply_to_message_id="message-2")
     events = [
         _ReplyEvent("model_npc_reply_pending", {"request": request}),

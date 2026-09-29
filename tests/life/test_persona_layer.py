@@ -26,15 +26,16 @@ from custom.agents.life_persona import (PROMPT_SNAPSHOT_FILE, card_struct, known
                                         readonly_layers, write_prompt_snapshot)
 from custom.agents.life_prompt import empty_memory_layer, readonly_messages  # noqa: E402
 from tests.integration.test_life_agent_protocol import _context, _observations  # noqa: E402
-from tests.life.conftest import (activity_name, advance_next, advance_until_ready, stage_day_plan,  # noqa: E402
-                                 start_activity)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, stage_day_plan, start_activity,
+                                 conclude_request)
 from tests.life.test_memory_layer import (_act, _jump, _memo, _next_morning, _observe,  # noqa: E402
-                                          _remote_order, _walk)
+                                          _remote_order, _view, _walk)
 from tests.life.test_dayrun_restaurants import _keep_waiting, _stage  # noqa: E402
 from tests.profile.conftest import make_card  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life.activity_control import slot_activities  # noqa: E402
-from worldmock.life.models import ConcludeActivityRequest, ConclusionMemory  # noqa: E402
+from worldmock.life.control_items import control_items  # noqa: E402
+from worldmock.life.models import ConclusionMemory, ConclusionView  # noqa: E402
 from worldmock.life.narration import RenderBudgetExceededError  # noqa: E402
 from worldmock.life.prompt_schemas import validate_layer  # noqa: E402
 from worldmock.life.readable import local_date  # noqa: E402
@@ -152,22 +153,28 @@ def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_p
 
 
 def test_subject_is_required_for_relationship_and_preference_and_stripped_before_memory() -> None:
-    """subject 必填可空：relationship 与 preference 必须写对象，其他类型为 null；relationship 的对象须是已知人物（卡片关系名、
-    联系人称谓或本轮列出的同世界人物）；写入主观记忆前去掉 subject。"""
+    """看法与偏好写在 views，对象 about 必填（请求里叫 about、存储里叫 subject，指同一件事）；普通记忆没有对象字段，类型也不能
+    是 relationship 或 preference；relationship 的对象须是已知人物（卡片关系名、联系人称谓或本轮列出的同世界人物）；宿主把
+    about 转为 subject、写入主观记忆前去掉（docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    view = _view("preference", "爱吃面", "午饭")
+    with pytest.raises(ValueError, match="about"):
+        ConclusionView.model_validate({key: value for key, value in view.items() if key != "about"})
+    with pytest.raises(ValueError, match="about"):
+        ConclusionView.model_validate({**view, "about": " "})
     with pytest.raises(ValueError, match="subject"):
+        ConclusionMemory.model_validate({**_memo("goal", "明天早起"), "subject": "早起"})
+    with pytest.raises(ValueError, match="type"):
         ConclusionMemory.model_validate(_memo("preference", "爱吃面"))
-    with pytest.raises(ValueError, match="subject"):
-        ConclusionMemory.model_validate(_memo("goal", "明天早起", subject="早起"))
     known = known_persons(_profile(make_card()), ["李凡"])
     assert known == {"母亲", "老周", "沈昊", "李凡"}
     names = {"activity_names": ("等待",), "known_persons": known}
-    request = ConcludeActivityRequest(task=["等待"], summary=["收尾"], memories=[[
-        _memo("relationship", "新认识的", subject="王五"), _memo("preference", "爱吃面", subject="午饭")]])
+    request = conclude_request("等待", summary="收尾", views=[[_view("relationship", "新认识的", "王五"), view]])
     assert _validate_prepared_action("conclude_activity", request, names) == (
         "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 王五")
-    fine = ConcludeActivityRequest(task=["等待"], summary=["收尾"], memories=[[
-        _memo("relationship", "靠谱", subject="沈昊")]])
+    fine = conclude_request("等待", summary="收尾", views=[[_view("relationship", "靠谱", "沈昊")]])
     assert _validate_prepared_action("conclude_activity", fine, names) == ""
+    assert control_items("conclude_activity", fine)[0].memories == ({
+        "type": "relationship", "text": "靠谱", "importance": 0.5, "keywords": ["靠谱"], "subject": "沈昊"},)
     written = _conclusion_memories("conclude_activity", fine.model_dump(mode="json"))
     assert written == [{"type": "relationship", "text": "靠谱", "importance": 0.5, "keywords": ["靠谱"],
                         "source": "activity_conclusion", "epistemic_status": "subjective"}]
@@ -182,19 +189,20 @@ def test_later_view_replaces_earlier_while_events_keep_both(engine_factory) -> N
     for index, (view, taste) in enumerate((("靠谱", "爱吃面"), ("最近很忙", None))):
         _, waited = _act(engine, f"v-wait-{index}", "start_activity", start_activity("等待", "自己"))
         assert advance_until_ready(engine)
-        memories = [_memo("relationship", view, subject=friend)]
-        memories += [_memo("preference", taste, subject="午饭")] if taste else []
-        _act(engine, f"v-conclude-{index}", "conclude_activity", ConcludeActivityRequest(
-            task=[activity_name(engine, waited.activity_id)], summary=["收尾"], memories=[memories]))
-    rejected = _act(engine, "v-rejected", "conclude_activity", ConcludeActivityRequest(
-        task=["不存在的活动"], summary=["收尾"], memories=[[_memo("relationship", "骗子", subject=friend)]]))[1]
+        views = [_view("relationship", view, friend)]
+        views += [_view("preference", taste, "午饭")] if taste else []
+        _act(engine, f"v-conclude-{index}", "conclude_activity", conclude_request(
+            activity_name(engine, waited.activity_id), summary="收尾", views=[views]))
+    rejected = _act(engine, "v-rejected", "conclude_activity", conclude_request(
+        "不存在的活动", summary="收尾", views=[[_view("relationship", "骗子", friend)]]))[1]
     assert rejected.status == "rejected"
     observed = _observe(engine, "v-seen")
     day = local_date(engine.state.current_time, engine.scenario.timezone)
     assert observed["persona_views"] == {"relationships": [{"person": friend, "view": "最近很忙"}],
                                          "preferences": [{"subject": "午饭", "preference": "爱吃面", "noted_on": day}]}
     written = [memory["text"] for event in engine.store.read_agent_events("action_requested", 1)
-               for group in event.data["request"].get("memories", []) for memory in group]
+               if event.data["tool_name"] == "conclude_activity"
+               for item in control_items("conclude_activity", event.data["request"]) for memory in item.views]
     assert written == ["靠谱", "爱吃面", "最近很忙", "骗子"]
     _walk(engine, "v-walk")
     road = _observe(engine, "v-road")
@@ -217,12 +225,12 @@ def test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_
         else:
             advance_next(engine)
     names = [activity_name(engine, item.activity_id) for item in slot_activities(engine.state, 1)]
-    _act(engine, "p-conclude", "conclude_activity", ConcludeActivityRequest(
-        task=names, summary=["吃过了" for _ in names], memories=[[_memo("commitment", "明天还想吃")] for _ in names]))
+    _act(engine, "p-conclude", "conclude_activity", conclude_request(
+        *names, summary="吃过了", memories=[[_memo("commitment", "明天还想吃")] for _ in names]))
     walk = _walk(engine, "p-walk")
     assert advance_until_ready(engine)
-    _act(engine, "p-arrive", "conclude_activity", ConcludeActivityRequest(
-        task=[activity_name(engine, walk.activity_id)], summary=["到了"], memories=[[]]))
+    _act(engine, "p-arrive", "conclude_activity", conclude_request(
+        activity_name(engine, walk.activity_id), summary="到了", memories=[[]]))
     today = _observe(engine, "p-today")
     assert today["persona_views"]["preferences"] == []
     assert product in json.dumps(today["memory_layer"], ensure_ascii=False)

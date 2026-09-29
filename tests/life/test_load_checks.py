@@ -2,7 +2,7 @@
 
 越界的地点类别（不在环境层 PLACE_TYPES）与重复的可见名称都经真实的 load_runtime_scenario 在加载时以 IntegrityError
 拒绝并写明原因，不再等到运行中途由环境层或观察投影抛出；同名地点由地图字段 branch_label 消歧，显示名「名称（分店）」
-进入工具层、提示与事件；没有 branch_label 的现有地图照常加载、名称不变。
+进入工具层、提示与事件，并连同分店标签受可疑显示名检查（只警告）；没有 branch_label 的现有地图照常加载、名称不变。
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from worldmock.life.environment_layer import PLACE_TYPES
 from worldmock.life.load_checks import visible_object_labels
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.semantics import load_runtime_scenario
+from worldmock.runtime import input_warnings
 
 _ROOT = Path(__file__).resolve().parents[2]
 _SCENARIO = "white-collar-12-weeks.json"
@@ -199,6 +200,35 @@ def test_branch_labels_make_same_named_locations_load_and_distinguishable_in_the
         assert bindings <= set(visible_object_labels(engine.scenario, engine.corpus_root)[1])
     finally:
         engine.close()
+
+
+def test_branch_labels_are_checked_as_part_of_the_display_name(tmp_path: Path, corpus: Path) -> None:
+    """可疑显示名查的是运行时地点名「名称（branch_label）」（规格 8.1，裁决 D19）：新建运行计算输入警告时，普通分店标签
+    「张江店」「张江高科店」「B1层」不算可疑；标识形态的分店标签「sim-01」与坐标形态的「31.2, 121.5」随显示名各报一条
+    场景级 LOCATION_NAME_SUSPICIOUS，只警告，场景照常加载。"""
+    plain = {_BONE_SOUP: "张江店", "poi-3538682402": "张江高科店", "poi-3538763552": "B1层"}
+
+    def branches(rows: dict) -> None:
+        """五处地点各带一个分店标签：三个普通店名，一个标识形态，一个坐标形态。"""
+        for identity, label in plain.items():
+            rows[identity]["branch_label"] = label
+        rows[_SICHUAN]["branch_label"] = "sim-01"
+        rows[_CLAYPOT]["branch_label"] = "31.2, 121.5"
+
+    path = _scenario(tmp_path, corpus, _map_variant(corpus, "suspicious-branches", branches))
+    semantics, _ = load_runtime_scenario(path)
+    raw = {item.location_id: item.name for item in semantics.scenario.map_dataset.locations}
+    names = {item.location_id: item.name for item in semantics.scenario.locations}
+    assert {identity: names[identity] for identity in plain} == {
+        identity: f"{raw[identity]}（{label}）" for identity, label in plain.items()}
+
+    warnings = [item for item in input_warnings(path, semantics.scenario, {}, ())
+                if item["code"] == "LOCATION_NAME_SUSPICIOUS"]
+
+    assert [(item["agent_id"], item["details"]) for item in warnings] == [
+        (None, {"location_id": _SICHUAN, "name": f"{raw[_SICHUAN]}（sim-01）", "patterns": ["identifier"]}),
+        (None, {"location_id": _CLAYPOT, "name": f"{raw[_CLAYPOT]}（31.2, 121.5）", "patterns": ["coordinates"]})]
+    assert names[_SICHUAN] in warnings[0]["message"] and names[_CLAYPOT] in warnings[1]["message"]
 
 
 def test_existing_map_without_branch_labels_loads_unchanged() -> None:

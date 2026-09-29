@@ -2,7 +2,7 @@
 
 一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求为原生 tools、系统层 system
 与六层 user；生活决策没有 finish，世界请求登记即结束本轮且不追加 tool 消息，记忆查询是观察、不结束本轮；人物记忆
-只经 conclude_activity.memories 写入，来源由系统登记。只读问答保留 finish。
+只经 conclude_activity 逐项的 memories 与 views 写入，来源由系统登记。只读问答保留 finish。
 """
 
 from __future__ import annotations
@@ -156,20 +156,36 @@ def _context() -> DecisionContext:
 
 
 def _memory(text: str = "我歇了一会儿，心里踏实了些。", *, kind: str = "routine", importance: float = 0.5,
-            keywords: tuple[str, ...] = ("休息",), subject: str | None = None) -> dict:
-    """一条收尾记忆 {type, text, importance, keywords, subject}（relationship 与 preference 带对象，其余为 null）；
-    来源与认知状态由系统填写，模型不填任何身份。"""
-    return {"type": kind, "text": text, "importance": importance, "keywords": list(keywords), "subject": subject}
+            keywords: tuple[str, ...] = ("休息",)) -> dict:
+    """一条普通收尾记忆 {type, text, importance, keywords}（没有对象字段，看法与偏好另写在 views）；来源与认知状态由系统
+    填写，模型不填任何身份。"""
+    return {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
 
 
-def _conclude_args(*names: str, memories: list[list[dict]] | None = None) -> dict:
-    """conclude_activity 的参数：task、summary 与 memories 三数组等长（缺省每项各写一条记忆）。"""
+def _view(about: str, text: str = "和同事处得不错。", *, kind: str = "relationship", importance: float = 0.5,
+          keywords: tuple[str, ...] = ("同事",)) -> dict:
+    """一条看法（relationship，对人）或偏好（preference，对事物）{type, about, text, importance, keywords}。"""
+    return {"type": kind, "about": about, "text": text, "importance": importance, "keywords": list(keywords)}
+
+
+def _conclude_args(*names: str, memories: list[list[dict]] | None = None,
+                   views: list[list[dict]] | None = None) -> dict:
+    """conclude_activity 的参数：一项一个对象 {activity_name, summary, memories, views}（缺省每项各写一条普通记忆、没有
+    看法）。"""
     groups = memories if memories is not None else [[_memory()] for _ in names]
-    return {"task": list(names), "summary": ["先收个尾。" for _ in names], "memories": groups}
+    seen = views if views is not None else [[] for _ in names]
+    return {"items": [{"activity_name": name, "summary": "先收个尾。", "memories": group, "views": opinions}
+                      for name, group, opinions in zip(names, groups, seen, strict=True)]}
+
+
+def _control_args(tool: str, *names: str, summary: str = "写完提纲") -> dict:
+    """三个控制工具的参数：一项一个对象；结束工具每项另带空的 memories 与 views。"""
+    extra = {"memories": [], "views": []} if tool == "conclude_activity" else {}
+    return {"items": [{"activity_name": name, "summary": summary, **extra} for name in names]}
 
 
 def _stored_memories(args: dict) -> list[dict]:
-    """宿主把 conclude_activity.memories 按 task 展平成的本步记忆（来源 activity_conclusion，认知状态 subjective）。"""
+    """宿主把 conclude_activity 逐项的记忆与看法展平成的本步记忆（来源 activity_conclusion，认知状态 subjective）。"""
     return _conclusion_memories("conclude_activity", args)
 
 
@@ -421,17 +437,20 @@ def test_feedback_boundary_exposes_readable_activity_controls() -> None:
 
     for name in ("report_status", "pause_activity", "conclude_activity"):
         fields = functions[name]["parameters"]["properties"]
+        assert set(fields) == {"items"}
+        item = fields["items"]["items"]["properties"]
         with_memories = name == "conclude_activity"
-        assert set(fields) == ({"task", "summary", "memories"} if with_memories else {"task", "summary"})
-        assert "enum" not in fields["task"]["items"]
+        assert set(item) == ({"activity_name", "summary", "memories", "views"} if with_memories
+                             else {"activity_name", "summary"})
+        assert "enum" not in item["activity_name"]
         for activity in (_WORK, _NEWS):
-            arguments = {"task": [activity], "summary": ["写完提纲"], **({"memories": [[]]} if with_memories else {})}
+            arguments = _control_args(name, activity)
             assert agent.validate_react_decisions([ReactDecision("", name, arguments, "")], False) == ""
-        unknown = {"task": ["虚构活动"], "summary": ["写完提纲"], **({"memories": [[]]} if with_memories else {})}
+        unknown = _control_args(name, "虚构活动")
         assert agent.validate_react_decisions([ReactDecision("", name, unknown, "")], False) == (
-            f"NAME_NOT_FOUND: {name} task names an activity that is not visible")
-        repeated = {"task": [_WORK, _WORK], "summary": ["a", "b"], **({"memories": [[], []]} if with_memories else {})}
-        assert "task names must be distinct" in agent.validate_react_decisions(
+            f"NAME_NOT_FOUND: {name} activity_name names an activity that is not visible")
+        repeated = _control_args(name, _WORK, _WORK)
+        assert "activity names must be distinct" in agent.validate_react_decisions(
             [ReactDecision("", name, repeated, "")], False)
     assert "activity-private-1" not in json.dumps(functions, ensure_ascii=False)
 
@@ -1169,7 +1188,7 @@ async def test_invalid_conclusion_memories_are_corrected_before_registration() -
     assert len(dispatcher.requests) == 2
     feedback = json.loads(dispatcher.requests[1]["messages"][-1]["content"])
     assert (feedback["error_code"], feedback["reason"]) == (
-        "ARGUMENTS_INVALID", "memories[0][0]：memory text contains a hexadecimal identifier")
+        "ARGUMENTS_INVALID", "items[0].memories[0]：memory text contains a hexadecimal identifier")
     assert "error" not in feedback and "input_value" not in json.dumps(feedback, ensure_ascii=False)
     names = _react_tool_names(dispatcher.requests)
     assert names[0] == names[1]

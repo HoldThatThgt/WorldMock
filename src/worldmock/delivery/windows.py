@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
+from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.prompt_schemas import USER_LAYER_NAMES
 
 #: 任何窗口输入都不进入的私有事件（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
@@ -210,8 +211,9 @@ def _public_event_data(event: dict) -> dict:
     """@brief 证据行仅提供人物可见语义，私有状态保留在认证导出。
 
     观察只提供原样保存的工具层、待办层、环境层与记忆层，不重新渲染；动作请求带人物回复正文 self_note。
-    conclude_activity.memories 属于记忆写入：意图与 dreaming 窗口输入中的动作请求裁去 request.memories，
-    只保留 task 与 summary；动作窗口的目标仍保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章）。
+    结束活动写下的记忆与看法属于记忆写入：意图与 dreaming 窗口输入中三个控制工具的请求经 control_items 读出后
+    按现行形状只留每项的 activity_name 与 summary（items[].memories 与 items[].views 裁去，旧形状同样只留这两项）；
+    动作窗口的目标仍保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章，docs/dev/SPEC-dayrun-fidelity.md 第六章）。
     """
     data = event["data"]
     kind = event["event_type"]
@@ -219,8 +221,8 @@ def _public_event_data(event: dict) -> dict:
         return {key: data[key] for key in OBSERVATION_LAYER_KEYS if key in data}
     if kind == "action_requested":
         public = {key: data[key] for key in ("tool_name", "request", "self_note") if key in data}
-        if data.get("tool_name") == "conclude_activity" and isinstance(public.get("request"), dict):
-            public["request"] = {key: value for key, value in public["request"].items() if key != "memories"}
+        if data.get("tool_name") in CONTROL_TOOLS and "request" in public:
+            public["request"] = control_request(data["tool_name"], public["request"], memories=False)
         return public
     if kind in {"action_result", "action_accepted", "action_rejected", "activity_progress"}:
         return {key: data[key] for key in ("status", "error_code", "message") if key in data}

@@ -16,7 +16,7 @@ from worldmock.catalog.affordances import default_affordances
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, target_actions,
-                                 tool_targets, wake_by_mail, start_request)
+                                 tool_targets, wake_by_mail, start_request, pause_request, report_request)
 from tests.life.test_work_contracts import (
     AcceptingReviewer,
     _completed_work_state,
@@ -26,15 +26,8 @@ from tests.life.test_work_contracts import (
 )
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.models import (
-    active_activities,
-    ActivityState,
-    MeetingMinutes,
-    PauseActivityRequest,
-    ReportStatusRequest,
-    SubmitWorkActionRequest,
-    SubmitWorkRequest,
-)
+from worldmock.life.models import (active_activities, ActivityState, MeetingMinutes, SubmitWorkActionRequest,
+                                   SubmitWorkRequest)
 from worldmock.life.scenario import load_scenario
 from worldmock.life.result_projection import public_result
 from worldmock.life.work import WorkMetrics, WorkSubmission, load_work_input, load_work_oracle
@@ -147,7 +140,7 @@ def _complete_required_work(engine) -> None:
             advance_next(engine)
             continue
         feedback_index += 1
-        feedback = ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续完成工作。"])
+        feedback = report_request(activity_name(engine, activity_id), summary="继续完成工作。")
         submit_round(engine, {1: ("report_status", feedback)}, f"work-feedback-{feedback_index}")
     assert conclude_pending(engine, "work-time-end").status == "completed"
     assert engine.state.activities[activity_id].concluded_at == engine.state.current_time
@@ -285,7 +278,7 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id
     assert advance_until_ready(engine)
-    pause = PauseActivityRequest(task=[activity_name(engine, activity_id)], summary=["工作进行到一半，先暂停。"])
+    pause = pause_request(activity_name(engine, activity_id), summary="工作进行到一半，先暂停。")
     _, paused = submit_round(engine, {1: ("pause_activity", pause)}, "pause-work")
     assert paused[0].status == "completed"
     assert advance_until_ready(engine)

@@ -19,6 +19,9 @@ from worldmock.footprints.models import (
     Event,
 )
 from worldmock.profile.injection import INPUT_WARNING_CODES
+from worldmock.footprints.timeline_labels import timeline_label_report
+from worldmock.life.control_items import control_items
+from worldmock.life.reply_guard import GUARD_PATTERNS
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -30,6 +33,8 @@ _SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal
                               "resolution", "identity", "routine", "reflection"})
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 _WRITE_POINTS = ("activity_conclusion", "reflection")
+#: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
+_MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 模型用量按用途分列时，无 purpose 的请求（人物决策的行动请求与记忆巩固、反思）的分组名。
 _DECISION_PURPOSE = "decision"
 _PRICING = {
@@ -47,7 +52,7 @@ _PRICING = {
 
 
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比与运行输入警告。
+    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、运行输入警告与输出截断。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -79,6 +84,9 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
             manifest["window"]["timezone"],
         ),
         "input_warnings": _input_warning_quality(manifest),
+        "timeline_labels": timeline_label_report(events, manifest),
+        "contact_reply_guard": _contact_reply_guard_quality(events),
+        "truncations": _truncation_quality(events),
     }
 
 
@@ -451,26 +459,26 @@ def _memory_quality(events: list[Event]) -> dict:
 
 
 def _inspect_conclusion_request(event: Event, state: dict) -> None:
-    """@brief 登记每个决策的 conclude_activity 请求；带非空 memories 的应在同一决策写出收尾记忆。"""
+    """@brief 登记每个决策的 conclude_activity 请求；经 control_items 读出（新旧形状同一口径）后带任何记忆或看法的，
+    应在同一决策写出收尾记忆。"""
     if event.data.get("tool_name") != "conclude_activity":
         return
     key = (event.agent_id, event.decision_id)
     state["requests"].add(key)
-    request = event.data.get("request")
-    groups = request.get("memories") if isinstance(request, dict) else None
-    if isinstance(groups, list) and any(isinstance(group, list) and group for group in groups):
+    if any(item.memories for item in control_items("conclude_activity", event.data.get("request"))):
         state["conclusions"].setdefault(key, event.event_id)
 
 
 def _inspect_memory_response(event: Event, state: dict) -> None:
-    """@brief 人物决策的模型响应的协议错误提到记忆时记为记忆协议问题（记忆不再带引用，不核对身份）。
+    """@brief 人物决策的模型响应的协议错误提到记忆（含结束工具的 memories、views 字段）时记为记忆协议问题（记忆不再带
+    引用，不核对身份）。
 
     带 purpose 的系统请求（工作验收、零点计划 plan_day）不是记忆写入点，其响应错误不计入记忆问题。
     """
     if event.data.get("purpose"):
         return
     error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
+    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])
 
 
@@ -621,7 +629,7 @@ def _valid_subjective_snapshots(episodes: list, identities: list[str]) -> bool:
 def _inspect_memory_failure(event: Event, state: dict) -> None:
     """@brief 将持久化的记忆相关运行故障纳入质量问题。"""
     error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
+    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
         _add_memory_problem(state, "memory_run_failure", event.event_id, event.agent_id, [])
 
 
@@ -815,6 +823,28 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
             for purpose in sorted(set(counts) | set(groups))]
 
 
+def _contact_reply_guard_quality(events: list[Event]) -> dict:
+    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/dev/SPEC-dayrun-fidelity.md 7.3、第九章）。
+
+    命中按尝试计（首次与重试各算一次），类别也按尝试计；重试与兜底按回复计。没有 attempts 证据的回复单列，
+    不当作未命中。
+    """
+    replies = [event.data for event in events if event.event_type == "environment_event"
+               and event.data.get("kind") == "model_npc_reply"]
+    guarded = [data for data in replies if isinstance(data.get("attempts"), list)]
+    attempts = [item for data in guarded for item in data["attempts"] if isinstance(item, dict)]
+    matched = [item["matched"] if isinstance(item.get("matched"), list) else [] for item in attempts]
+    return {
+        "replies": len(replies),
+        "replies_without_guard_evidence": len(replies) - len(guarded),
+        "attempts": len(attempts),
+        "hits": sum(bool(codes) for codes in matched),
+        "retries": sum(len(data["attempts"]) > 1 for data in guarded),
+        "fallbacks": sum(data.get("guard_applied") is True for data in guarded),
+        "hits_by_category": {code: sum(code in codes for codes in matched) for code in GUARD_PATTERNS},
+    }
+
+
 def _acceleration(events: list[Event], manifest: dict) -> dict:
     """@brief 用每个运行分支观察到的最大墙钟耗时计算实际模拟加速比。"""
     start = manifest["window"]["start"]
@@ -868,6 +898,52 @@ def _input_warning_quality(manifest: dict) -> dict:
         "scenario_warning_count": sum(item.get("agent_id") is None for item in rows),
         "method": method,
     }
+
+
+def _truncation_quality(events: list[Event]) -> dict:
+    """@brief 输出截断（docs/dev/SPEC-dayrun-fidelity.md 7.2、九）：提供商回复 finish_reason=length 的次数与按用途分列，
+    以及这些回复实报的输出 token（截断回合整段丢弃，全部浪费）与其中的思考 token（completion_tokens_details.reasoning_tokens）。
+
+    与 model_usage 同一去重：每个调用身份取一条终态。某次截断缺少对应计数时该合计为 null 并单列缺失次数，不记为零；
+    没有截断时合计为 0。只报告，不放行。
+    """
+    terminals: dict[str, list[Event]] = defaultdict(list)
+    for event in events:
+        if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
+            terminals[event.data["call_id"]].append(event)
+    truncated = [event for event in (_select_terminal(rows) for _, rows in sorted(terminals.items()))
+                 if _finish_reason(event.data.get("response")) == "length"]
+    output = [_usage_count(event.data["response"], ("completion_tokens",)) for event in truncated]
+    reasoning = [_usage_count(event.data["response"], ("completion_tokens_details", "reasoning_tokens"))
+                 for event in truncated]
+    purposes = Counter(event.data.get("purpose") or _DECISION_PURPOSE for event in truncated)
+    return {
+        "truncated_responses": len(truncated),
+        "purpose_counts": dict(sorted(purposes.items())),
+        "wasted_output_tokens": None if None in output else sum(output),
+        "reasoning_tokens": None if None in reasoning else sum(reasoning),
+        "responses_missing_output_tokens": output.count(None),
+        "responses_missing_reasoning_tokens": reasoning.count(None),
+        "method": "Provider responses with finish_reason=length in model_response evidence, one terminal per call id; "
+                  "tokens are the provider-reported completion_tokens and completion_tokens_details.reasoning_tokens; "
+                  "reported, never gating",
+    }
+
+
+def _finish_reason(response: Any) -> str | None:
+    """@brief 提供商回复第一个候选的 finish_reason；回复缺失或形状不符时为 None。"""
+    choices = response.get("choices") if isinstance(response, dict) else None
+    first = choices[0] if isinstance(choices, list) and choices else None
+    reason = first.get("finish_reason") if isinstance(first, dict) else None
+    return reason if isinstance(reason, str) else None
+
+
+def _usage_count(response: dict, path: tuple[str, ...]) -> int | None:
+    """@brief 沿键路径读取回复 usage 中提供商实报的非负整数计数；缺失或不是非负整数时为 None。"""
+    value: Any = response.get("usage")
+    for key in path:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value if _is_nonnegative_int(value) else None
 
 
 def _is_int(value: Any) -> bool:

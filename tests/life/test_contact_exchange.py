@@ -12,7 +12,7 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.contact_exchange import reply_request
 from worldmock.life.interaction_menu import GIVE_WAY
 from worldmock.life.models import SendMessageActionRequest, active_activities
-from worldmock.life.readable import clock_phrase
+from worldmock.life.readable import clock_phrase, iso_time
 from worldmock.life.social import HISTORY_LIMIT, Message
 
 _FRIEND = "contact-chenxi-oldfriend"
@@ -54,6 +54,9 @@ def test_messages_to_contacts_go_to_the_outbox_and_the_reply_request_carries_bot
     zone, now = engine.scenario.timezone, engine.state.current_time
     request = _pending_request(engine)
     assert request["incoming_text"] == "去公园走走吧"
+    # 来信事实（docs/dev/SPEC-dayrun-fidelity.md 7.3）：写信人物的姓名、此刻、对方在远程，沈昊没有收货地点。
+    assert (request["sender_name"], request["now"], request["presence"], request["receive_location"]) == (
+        engine.state.agents[1].name, iso_time(now, zone), "remote", None)
     assert request["history"] == [
         {"speaker": "陈曦", "time": clock_phrase(next(iter(outbox.values())).created_at, now, zone),
          "text": "周末有空吗？"},
@@ -104,6 +107,8 @@ def test_received_lists_delivered_orders_and_gifts_to_the_contact(engine_factory
     assert given.status == "completed", (given.error_code, given.message)
     zone, now = engine.scenario.timezone, engine.state.current_time
     request = reply_request(engine.state, engine.store, engine.scenario, message, colleague)
+    assert request.receive_location == next(item.name for item in engine.scenario.locations
+                                            if item.location_id == OFFICE)
     assert [item.model_dump() for item in request.received] == [
         {"item": engine.rules.items[food].name, "quantity": "1 份",
          "time": clock_phrase(order["expected_at"], now, zone)},

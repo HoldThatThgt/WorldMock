@@ -3,8 +3,8 @@
 输入全部来自世界状态与足迹记录，不读人物工作区与记忆运行时：人物档案与场景背景原文（background_story）、
 回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收、结束的活动），二者都取
 settled_text 的共享句式（docs/dev/SPEC-persona-prompt.md 第三章「settled 的写法」）、
-回顾时段里已受理的 conclude_activity 请求记下的 summary 与 memories（标「你自己记下的，未经核验」；被拒与重放的
-请求不列），以及此刻可见的事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。
+回顾时段里已受理的 conclude_activity 请求记下的 summary 与记忆（经 control_items 读出，含看法与偏好；标「你自己记下的，
+未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。
 不读身体数值、交互对象、私有绑定、未到期的预排事件与人物的主观记忆库，也不含内部身份。
 
 回顾时段自 day_start 至 now：零点边界上是刚结束的本地日（前一日零点至本次零点），启动路径上是生成时刻所在
@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life import progress_layer, projection
+from worldmock.life.control_items import control_items
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, experience_sentence,
                                          pause_intervals, record_lines, tool_record)
@@ -166,7 +167,8 @@ def _place(engine: Any, location_id: str) -> str:
 
 
 def _conclusion_records(engine: Any, agent_id: int, window: _Window) -> tuple[list[dict], list[str]]:
-    """@brief 回顾时段里已受理的 conclude_activity 请求记下的 summary 与 memories（人物自述，未经核验）。
+    """@brief 回顾时段里已受理的 conclude_activity 请求逐项记下的 summary 与记忆原文（人物自述，未经核验；经 control_items
+    读出，每项先普通记忆、后看法与偏好，旧形状保持原来的顺序）。
 
     只取结果为 completed 的首次请求：被拒的请求与重放（reused）的请求不列，与动作结果的口径一致。
     """
@@ -178,10 +180,9 @@ def _conclusion_records(engine: Any, agent_id: int, window: _Window) -> tuple[li
         if (event.data.get("tool_name") != "conclude_activity" or event.data.get("reused")
                 or event.action_id not in completed or not window.covers(event.occurred_at)):
             continue
-        body = event.data["request"]
-        for task, summary, memories in zip(body["task"], body["summary"], body["memories"]):
-            records.append({"时间": window.clock(event.occurred_at), "活动": task, "收尾说明": summary,
-                            "想记住的": [item["text"] for item in memories], "说明": SELF_REPORT_NOTE})
+        for item in control_items("conclude_activity", event.data["request"]):
+            records.append({"时间": window.clock(event.occurred_at), "活动": item.activity_name, "收尾说明": item.summary,
+                            "想记住的": [memory["text"] for memory in item.memories], "说明": SELF_REPORT_NOTE})
         sources.append(event.event_id)
     return records, sources
 

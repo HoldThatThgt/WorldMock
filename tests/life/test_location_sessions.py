@@ -13,7 +13,8 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, advance_until_ready, context, progress_calls, stage_day_plan,
-                                 target_actions, target_tools, tool_targets, wake_by_mail, start_request)
+                                 target_actions, target_tools, tool_targets, wake_by_mail, start_request,
+                                 conclude_request, pause_request, report_request)
 from tests.life.test_export_integration import _stage_final_interval
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.export import export_run
@@ -21,11 +22,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.readable import duration_phrase, iso_time
-from worldmock.life.models import (
-    ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, RecallTaskSummaryRequest, ReportStatusRequest,
-    SameMomentStage,
-    SessionKind, SessionStatus, active_activities,
-)
+from worldmock.life.models import (ActivityStatus, RecallTaskSummaryRequest, SameMomentStage, SessionKind,
+                                   SessionStatus, active_activities)
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
 
@@ -78,9 +76,9 @@ def _name(engine: LifeEngine, activity_id: str) -> str:
 
 def _conclude(engine: LifeEngine, name: str, *activity_ids: str, memories: list[list[dict]] | None = None):
     """@brief 一次结束点名的活动，每项写一句总结，记忆默认空。"""
-    request = ConcludeActivityRequest(task=[_name(engine, item) for item in activity_ids],
-                                      summary=["收个尾。"] * len(activity_ids),
-                                      memories=memories or [[] for _ in activity_ids])
+    request = conclude_request(
+        *(_name(engine, item) for item in activity_ids), summary="收个尾。",
+        memories=memories or [[] for _ in activity_ids])
     return _round(engine, name, "conclude_activity", request)[1]
 
 
@@ -98,8 +96,8 @@ def _until_ended(engine: LifeEngine, activity_id: str, name: str) -> None:
             return
         if engine.scheduling_state().ready_agent_ids:
             running = active_activities(engine.state, 1)
-            _round(engine, f"{name}-report-{step}", "report_status", ReportStatusRequest(
-                task=[item.name for item in running], summary=["继续。"] * len(running)))
+            _round(engine, f"{name}-report-{step}", "report_status", report_request(
+                *(item.name for item in running), summary="继续。"))
         else:
             advance_next(engine)
     pytest.fail("Activity did not end at its declared boundaries")
@@ -205,8 +203,8 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     assert tool_targets(observed)[sleep.name]["phase"] == "刚结束"
     assert target_tools(observed, sleep.name)["conclude_activity"]["available"] is True
     assert target_actions(observed, "自己")["等待"]["reason"] == f"先给刚结束的{sleep.name}收尾"
-    engine.submit_action(DirectToolCall(decision, "action-wake-no-plan", "conclude_activity", ConcludeActivityRequest(
-        task=[sleep.name], summary=["睡醒了。"], memories=[[]])))
+    engine.submit_action(DirectToolCall(decision, "action-wake-no-plan", "conclude_activity", conclude_request(
+        sleep.name, summary="睡醒了。", memories=[[]])))
     assert engine.commit_decision_round("wake-no-plan")[0].status == "completed"
     assert engine.state.activities[slept.activity_id].concluded_at == engine.state.current_time
 
@@ -277,8 +275,7 @@ def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -
     assert rejected.data["next_step"] == f"先结束或暂停{name}"
     assert name in rejected.message
     assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
-    paused = _round(engine, "pause-before-leaving", "pause_activity", PauseActivityRequest(
-        task=[name], summary=["出门前先停下。"]))[1]
+    paused = _round(engine, "pause-before-leaving", "pause_activity", pause_request(name, summary="出门前先停下。"))[1]
     assert paused.status == "completed"
     assert _depart(engine, "depart-after-pause").status == "in_progress"
     activity = engine.state.activities[watched.activity_id]
@@ -294,12 +291,11 @@ def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> N
     waited = _wait(engine, "wait-home")
     _wake(engine)
     name = _name(engine, waited.activity_id)
-    _round(engine, "pause-home", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _round(engine, "pause-home", "pause_activity", pause_request(name, summary="先停一下。"))
     travel = _depart(engine, "to-office")
     _until_ended(engine, travel.activity_id, "to-office")
     assert _conclude(engine, "arrive-office", travel.activity_id).status == "completed"
-    elsewhere = _round(engine, "resume-elsewhere", "report_status", ReportStatusRequest(
-        task=[name], summary=["想接着等。"]))[1]
+    elsewhere = _round(engine, "resume-elsewhere", "report_status", report_request(name, summary="想接着等。"))[1]
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
     assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert elsewhere.data["suggested"] == {"travel_to": home}
@@ -313,8 +309,7 @@ def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> N
     assert current.location_id == "home" and waited.activity_id in current.activity_ids
     assert engine.state.activities[waited.activity_id].session_ids[-1] == current.session_id
     assert _conclude(engine, "arrive-home", back.activity_id).status == "completed"
-    resumed = _round(engine, "resume-home", "report_status", ReportStatusRequest(
-        task=[name], summary=["回家接着等。"]))[1]
+    resumed = _round(engine, "resume-home", "report_status", report_request(name, summary="回家接着等。"))[1]
     assert resumed.status == "completed"
     activity = engine.state.activities[waited.activity_id]
     assert activity.status == ActivityStatus.ACTIVE
@@ -329,8 +324,8 @@ def test_paused_activity_can_be_concluded_elsewhere(engine_factory) -> None:
     stage_day_plan(engine)
     waited = _wait(engine, "wait-then-leave")
     _wake(engine)
-    _round(engine, "pause-then-leave", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, waited.activity_id)], summary=["先停。"]))
+    _round(engine, "pause-then-leave", "pause_activity", pause_request(
+        _name(engine, waited.activity_id), summary="先停。"))
     travel = _depart(engine, "leave")
     _until_ended(engine, travel.activity_id, "leave")
     assert _conclude(engine, "conclude-both", travel.activity_id, waited.activity_id).status == "completed"
@@ -349,8 +344,8 @@ def test_pausing_an_activity_on_the_road_is_unavailable(engine_factory) -> None:
     travel_id, watch_id = _started_ids(_depart(engine, "road", content))
     _wake(engine)
     for index, activity_id in enumerate((travel_id, watch_id)):
-        rejected = _round(engine, f"road-pause-{index}", "pause_activity", PauseActivityRequest(
-            task=[_name(engine, activity_id)], summary=["停一下。"]))[1]
+        rejected = _round(engine, f"road-pause-{index}", "pause_activity", pause_request(
+            _name(engine, activity_id), summary="停一下。"))[1]
         assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PAUSE_UNAVAILABLE"
         name = _name(engine, activity_id)
         assert name in rejected.message
@@ -390,14 +385,12 @@ def test_two_slots_full_block_new_activities_until_conclusion(engine_factory) ->
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "full")
     _wake(engine)
-    _round(engine, "pause-wait", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, waited)], summary=["停。"]))
+    _round(engine, "pause-wait", "pause_activity", pause_request(_name(engine, waited), summary="停。"))
     _wake(engine)
     blocked = _wait(engine, "third")
     assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
     assert _name(engine, waited) in blocked.message and _name(engine, watched) in blocked.message
-    _round(engine, "pause-watch", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, watched)], summary=["也停。"]))
+    _round(engine, "pause-watch", "pause_activity", pause_request(_name(engine, watched), summary="也停。"))
     still = _wait(engine, "third-again")
     assert still.status == "rejected" and still.error_code == "SESSION_LIMIT_EXCEEDED"
     assert engine.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
@@ -414,7 +407,7 @@ def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_fac
     waited = _wait(engine, "one-slot-wait")
     _wake(engine)
     name = _name(engine, waited.activity_id)
-    _round(engine, "one-slot-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停。"]))
+    _round(engine, "one-slot-pause", "pause_activity", pause_request(name, summary="先停。"))
     content = _pick(_preview(engine, "one-slot"), "watch", kind="content")
     blocked = _start(engine, "one-slot-two", ("自己", "interact", "等待"), content)
     assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
@@ -439,8 +432,7 @@ def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check
         activity_control.require_start_admission(engine.state, 1, (["travel_to"], ["步行"]), {})
     assert raised.value.unmet == []
     _wake(engine)
-    _round(engine, "pause-the-wait", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, waited)], summary=["先停。"]))
+    _round(engine, "pause-the-wait", "pause_activity", pause_request(_name(engine, waited), summary="先停。"))
     _wake(engine)
     observed = _preview(engine, "listed-full-depart")
     office = _pick(observed, "travel_to", mode="walking", place="office")[0]
@@ -477,15 +469,14 @@ def test_both_paused_redecide_same_second_until_one_resumes(engine_factory) -> N
     stage_day_plan(engine)
     first, second = _two_parallel(engine, "both")
     now = _wake(engine)
-    paused = _round(engine, "pause-both", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, first), _name(engine, second)], summary=["都停一下。", "也停。"]))[1]
+    paused = _round(engine, "pause-both", "pause_activity", pause_request(
+        _name(engine, first), _name(engine, second), summary=["都停一下。", "也停。"]))[1]
     assert paused.status == "completed"
     agent = engine.state.agents[1]
     assert agent.next_decision_at == now and agent.pending_wake_reasons == ["no_active_activity"]
     assert _conclude(engine, "end-one", first).status == "completed"
     assert engine.state.agents[1].next_decision_at == now
-    resumed = _round(engine, "resume-other", "report_status", ReportStatusRequest(
-        task=[_name(engine, second)], summary=["接着看。"]))[1]
+    resumed = _round(engine, "resume-other", "report_status", report_request(_name(engine, second), summary="接着看。"))[1]
     assert resumed.status == "completed" and engine.state.agents[1].next_decision_at > now
     advance_next(engine)
     assert engine.state.current_time > now
@@ -545,8 +536,7 @@ def test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "end-pair")
     _wake(engine)
-    _round(engine, "end-pause", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, watched)], summary=["先停。"]))
+    _round(engine, "end-pause", "pause_activity", pause_request(_name(engine, watched), summary="先停。"))
     running = waited
     if peer == "concluded":
         _wake(engine)
@@ -588,8 +578,8 @@ def test_same_named_activities_get_ordinals_instead_of_failing(engine_factory) -
     rows = [row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "activity"]
     assert rows == [names[second.activity_id]]
     _wake(engine)
-    reported = _round(engine, "report-second", "report_status", ReportStatusRequest(
-        task=[names[second.activity_id]], summary=["第二段也在等。"]))[1]
+    reported = _round(engine, "report-second", "report_status", report_request(
+        names[second.activity_id], summary="第二段也在等。"))[1]
     assert reported.status == "completed"
     assert engine.state.activities[second.activity_id].progress_note == "第二段也在等。"
 
@@ -626,8 +616,8 @@ def test_cross_day_duplicate_activity_names_get_ordinals(engine_factory) -> None
     assert recalled.status == "completed"
     assert (recalled.data["recall"]["kind"], recalled.data["recall"]["phase"]) == ("activity", "进行中")
     _wake(engine)
-    reported = _round(engine, "report-duplicate", "report_status", ReportStatusRequest(
-        task=[activities_by_id[waited.activity_id]], summary=["今天的这段还在等。"]))[1]
+    reported = _round(engine, "report-duplicate", "report_status", report_request(
+        activities_by_id[waited.activity_id], summary="今天的这段还在等。"))[1]
     assert reported.status == "completed"
     assert engine.state.activities[waited.activity_id].progress_note == "今天的这段还在等。"
     assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
@@ -642,12 +632,13 @@ def test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument(eng
     waited = _wait(engine, "self-report")
     _wake(engine)
     claim = "我已经吃过晚饭了。"
-    assert _round(engine, "claim", "report_status", ReportStatusRequest(
-        task=[_name(engine, waited.activity_id)], summary=[claim]))[1].status == "completed"
+    assert _round(engine, "claim", "report_status", report_request(
+        _name(engine, waited.activity_id), summary=claim))[1].status == "completed"
     observed = _preview(engine, "after-claim")
     layers = [observed[key] for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer")]
     assert claim not in json.dumps(layers, ensure_ascii=False)
-    assert progress_calls(observed, "report_status")[-1]["arguments"]["summary"] == [claim]
+    assert progress_calls(observed, "report_status")[-1]["arguments"] == {
+        "items": [{"activity_name": _name(engine, waited.activity_id), "summary": claim}]}
     row = tool_targets(observed)[_name(engine, waited.activity_id)]
     assert row["phase"] == "进行中" and row["state"].startswith("已做")
 
@@ -683,7 +674,7 @@ def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_f
         "kind": "activity", "name": name, "place": home, "phase": "进行中"}
     assert before["objective_progress"].startswith("已做") and "progress_note" not in before
     _wake(engine)
-    _round(engine, "recall-note", "report_status", ReportStatusRequest(task=[name], summary=["等得有点久。"]))
+    _round(engine, "recall-note", "report_status", report_request(name, summary="等得有点久。"))
     after = _recall(engine, "recall-activity-again", name)
     assert after["progress_note"] == "等得有点久。" and "subjective_status" not in after
     _wake(engine)
@@ -734,11 +725,9 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
     stage_day_plan(engine)
     first, second = _two_parallel(engine, "records")
     _wake(engine)
-    _round(engine, "records-pause", "pause_activity", PauseActivityRequest(
-        task=[_name(engine, first)], summary=["停。"]))
+    _round(engine, "records-pause", "pause_activity", pause_request(_name(engine, first), summary="停。"))
     _wake(engine)
-    _round(engine, "records-resume", "report_status", ReportStatusRequest(
-        task=[_name(engine, first)], summary=["接着等。"]))
+    _round(engine, "records-resume", "report_status", report_request(_name(engine, first), summary="接着等。"))
     _wake(engine)
     _conclude(engine, "records-end", first, second)
     events = _lifecycle_events(engine)

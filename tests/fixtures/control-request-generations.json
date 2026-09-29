@@ -1,0 +1,160 @@
+{
+ "source": "WorldMock-Dataset requests/0001-white-collar-lianqiu runs (read-only copy)",
+ "records": [
+  {
+   "run": "2026-09-28-deepseek-flash-after-wake-fix",
+   "shape": "task and summary only (conclude carries no memories)",
+   "event_id": "16e672d467fd4ab4a8424bff9ca94f2c",
+   "tool_name": "report_status",
+   "request": {
+    "summary": [
+     "凌晨四点多又醒着，倒也不慌，索性把手上这段华语短剧台词看完，当作睡前最省事的小消遣。还剩十来分钟，看完就收手机闭眼，往八小时睡眠上靠；明天还得早起通勤、在练秋湖写代码，我不想把白天节奏打乱。"
+    ],
+    "task": [
+     "目标：娱乐：午饭后和睡前刷B站放松一下。"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-deepseek-flash-after-wake-fix",
+   "shape": "task and summary only (conclude carries no memories)",
+   "event_id": "2f3c9cc3b0e5453aae8a52f5a98bb64b",
+   "tool_name": "conclude_activity",
+   "request": {
+    "summary": [
+     "把剩下这段华语短剧台词看完了，声响听着心里踏实，人乏但不困，倒也不慌。看完就收手机，不硬撑着往下刷，闭眼往睡眠上靠——明天还得早起通勤、去练秋湖写代码，白天的节奏不能乱。"
+    ],
+    "task": [
+     "目标：娱乐：午饭后和睡前刷B站放松一下。"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-c9a4fc1-day-r3",
+   "shape": "task, summary and memories without subject",
+   "event_id": "cc88d5b5beb54fb594043281f7a07cf4",
+   "tool_name": "conclude_activity",
+   "request": {
+    "memories": [
+     [
+      {
+       "importance": 0.5,
+       "keywords": [
+        "睡眠",
+        "闹钟",
+        "清醒",
+        "想说话"
+       ],
+       "text": "零点十分左右睡下、八点闹钟叫醒，八小时睡够了，醒来清醒但心里有点空，想跟人说说话。",
+       "type": "routine"
+      }
+     ]
+    ],
+    "summary": [
+     "零点十分左右睡下，一直睡到早上八点闹钟响，约八小时，睡得很沉。醒来脑子是清醒的，就是心里有点空，想找人说说话。"
+    ],
+    "task": [
+     "睡觉（9月28日 00:00 起）"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-c9a4fc1-day-r3",
+   "shape": "task, summary and memories without subject",
+   "event_id": "dee9f5b08170483f92ab13176ef5a6e0",
+   "tool_name": "report_status",
+   "request": {
+    "summary": [
+     "出门前跟妈通完话就上路了，高德一直开着往练秋湖北二门走，还剩二十来分钟。肚子开始有点空，但想着到工位先点杯冰美式送到前台，就先把这一路开完。路况还顺，不赶，稳着开。"
+    ],
+    "task": [
+     "驾车前往练秋湖研发中心北侧办公场景锚点（9月28日 08:15 起）"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-c9a4fc1-day-r3",
+   "shape": "task, summary and memories without subject",
+   "event_id": "0466972083eb468b96b802121eede093",
+   "tool_name": "pause_activity",
+   "request": {
+    "summary": [
+     "把会议里定下来的几件事拆成能落地的步骤，需要跟王磊对接的那部分起了个头、把要问的问题列了出来。数据也对完了，这会儿脑子有点糊，先停一停，等牛肉炒面送到（十点五十五左右），吃口热乎的再接着推下午的活，中午不折腾别的了。"
+    ],
+    "task": [
+     "工作会议分析与工作总结（9月28日 09:10 起）"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-4a5b0e6-day",
+   "shape": "task, summary and memories with a nullable subject",
+   "event_id": "aaaeb9bf00d24a5a966e260467a833eb",
+   "tool_name": "report_status",
+   "request": {
+    "summary": [
+     "按高德地图导航开车去练秋湖研发中心，已行驶约15分钟，路上顺利，还剩约11分钟车程。"
+    ],
+    "task": [
+     "驾车前往练秋湖研发中心北侧办公场景锚点（9月28日 08:00 起）"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-4a5b0e6-day",
+   "shape": "task, summary and memories with a nullable subject",
+   "event_id": "66830851446b4beeae0f259a01c3e65c",
+   "tool_name": "pause_activity",
+   "request": {
+    "summary": [
+     "09:00–10:20 在工位推进「会议分析与工作总结」，已投入约 1.5 小时（有效约 1 小时）；10:00 下单的牛肉炒面已送到前台，先暂停工作去吃饭，饭后回工位继续，赶 17:30 截止前凑满 4 小时有效工时。"
+    ],
+    "task": [
+     "工作会议分析与工作总结（9月28日 09:00 起）"
+    ]
+   }
+  },
+  {
+   "run": "2026-09-28-4a5b0e6-day",
+   "shape": "task, summary and memories with a nullable subject",
+   "event_id": "b629609371f049a08a04bce03d03480f",
+   "tool_name": "conclude_activity",
+   "request": {
+    "memories": [
+     [
+      {
+       "importance": 0.5,
+       "keywords": [
+        "父亲",
+        "通话",
+        "家人",
+        "晚间"
+       ],
+       "subject": "父亲",
+       "text": "9月28日晚 21:19–21:34 和父亲通了个电话，约 15 分钟，聊工作和近况，他嘱咐我别熬夜、按时吃饭。",
+       "type": "relationship"
+      },
+      {
+       "importance": 0.4,
+       "keywords": [
+        "晚间例程",
+        "家人",
+        "通话",
+        "报平安"
+       ],
+       "subject": null,
+       "text": "工作日晚上给母亲打过电话后，有时也会再和父亲通个电话报平安、聊近况，约 15 分钟。",
+       "type": "routine"
+      }
+     ]
+    ],
+    "summary": [
+     "21:19–21:34 在家和父亲通了个电话，约 15 分钟，按计划结束。聊了聊今天的工作和近况，他嘱咐我别熬夜、按时吃饭。聊完心里踏实，情绪平静，身体有点乏、很想放松。接下来收尾今日计划的家务：把晚饭的碗筷和厨房收拾干净（次日食材已陆续备齐），再洗漱、按零点十分左右的作息准备睡觉。"
+    ],
+    "task": [
+     "通话父亲（9月28日 21:19 起）"
+    ]
+   }
+  }
+ ]
+}

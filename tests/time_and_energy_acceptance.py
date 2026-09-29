@@ -922,7 +922,9 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"_consolidation_due", ["custom/agents/life_memory.py"]),
         (r"pending_conclusions", ["src/worldmock/life/projection.py", _CONTRACTS]),
         (r"def request_kind", ["src/worldmock/life/same_moment.py"]),
-        (r'!= "memories"', ["src/worldmock/delivery/windows.py"]),
+        # 意图与 dreaming 窗口裁去收尾记忆：一日运行保真规格第六章起经 control_items 按现行形状只留活动名与自述。
+        (r'control_request\(data\["tool_name"\], public\["request"\], memories=False\)',
+         ["src/worldmock/delivery/windows.py"]),
         (r"\| `sessions` \| dict\[str, SessionState\]", [_IO_FORMATS]),
         (r"\| 地点会话 \| `sessions`", [_CONTRACTS]),
         (r"def test_", ["tests/life/test_location_sessions.py", "tests/integration/test_conclude_memories.py"]),

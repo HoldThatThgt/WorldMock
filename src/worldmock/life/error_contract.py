@@ -43,7 +43,7 @@ _HOST_DEFAULTS: dict[str, tuple[str, str]] = {
     "WAY_NOT_OFFERED": ("这个对象没有列出这种动词与方式", "改用该对象列出的动词与方式（见候选），或者去掉这一项"),
     "ROUTE_FIELDS_INVALID": ("from、to 或 answering 与动词、方式不相配", "按动词与方式重填 from、to 与 answering"),
     "SUPPLY_SOURCE_MISMATCH": ("目标已经写明了门店，from 与它不一致", "from 写 null"),
-    "SUBJECT_NOT_KNOWN": ("关系记忆写的对象不是认识的人", "对象改写认识的人的名字，或者把这条记忆改成其他类型"),
+    "SUBJECT_NOT_KNOWN": ("关系看法写的对象不是认识的人", "about 改写认识的人的名字，或者把这条看法改写成普通记忆放进 memories"),
     "OUTPUT_TRUNCATED": ("输出在思考阶段用尽，尚未调用工具", "只调用一个工具"),
 }
 #: 宿主协议纠错码闭集（docs/dev/SPEC-dayrun-fidelity.md 第四章）。

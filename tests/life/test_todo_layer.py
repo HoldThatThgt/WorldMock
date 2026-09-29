@@ -11,13 +11,12 @@ import pytest
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  stage_day_plan, start_activity, start_request, submit_round, target_tools,
-                                 tool_targets, wake_by_mail)
+                                 tool_targets, wake_by_mail, pause_request)
 from tests.life.test_meal_outcome import _food, _round, _stage_holding, _start_eating
 from tests.life.test_same_moment_decisions import _act, _content, _start
 from worldmock.footprints.models import EventDraft
 from worldmock.life.interaction_menu import WAYS
-from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, SendMessageActionRequest,
-                                   paused_activities)
+from worldmock.life.models import ActivityKind, ActivityStatus, SendMessageActionRequest, paused_activities
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.schedule import INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds
@@ -25,8 +24,8 @@ from worldmock.life.schedule import INTENT_KINDS, DayPlan, PlanGoal, day_end_sec
 
 def _pause(engine, round_id: str, activity_id: str) -> int:
     """暂停一项进行中的活动，返回暂停时刻。"""
-    paused = _act(engine, round_id, "pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, activity_id)], summary=["先停一下。"]))
+    paused = _act(engine, round_id, "pause_activity", pause_request(
+        activity_name(engine, activity_id), summary="先停一下。"))
     assert paused.status == "completed"
     return engine.state.current_time
 
@@ -83,11 +82,11 @@ def test_same_second_pauses_from_two_decisions_follow_the_pause_event_order(engi
     wake_by_mail(engine, 1, offset=120)
     wake_by_mail(engine, 2, offset=120)
     advance_next(engine)
-    pause = PauseActivityRequest(task=[activity_name(engine, wait)], summary=["先停一下。"])
+    pause = pause_request(activity_name(engine, wait), summary="先停一下。")
     message = SendMessageActionRequest(recipient_name=f"人物：{engine.state.agents[1].name}", text="在吗")
     submit_round(engine, {1: ("pause_activity", pause), 2: ("send_message", message)}, "tie-first")
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    pause = PauseActivityRequest(task=[activity_name(engine, listen)], summary=["也停一下。"])
+    pause = pause_request(activity_name(engine, listen), summary="也停一下。")
     submit_round(engine, {1: ("pause_activity", pause)}, "tie-second")
     moments = {engine.state.activities[activity_id].paused_at for activity_id in ids}
     assert moments == {engine.state.current_time}
@@ -106,7 +105,7 @@ def test_paused_meal_progress_is_only_the_eaten_and_left_portions(engine_factory
     wake_by_mail(engine, offset=750)
     advance_next(engine)
     name = activity_name(engine, started.activity_id)
-    _round(engine, "todo-meal-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _round(engine, "todo-meal-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     (item,) = engine.observe(context(engine, "todo-meal-seen"))["todo_layer"]["paused_activities"]
     assert (item["name"], item["progress"]) == (name, "已吃 0.5 份，剩 0.5 份")
 

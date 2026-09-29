@@ -18,6 +18,7 @@ from worldmock.life.social import (
     finalize_model_reply,
     model_reply_request,
     ReceivedItem,
+    ReplyFacts,
     ReplyHistoryEntry,
     needs_reply,
     people_here,
@@ -181,11 +182,20 @@ def test_template_reply_is_placeholder_with_model_npc_source() -> None:
 
 
 def test_model_reply_request_and_finalize_validate_200_chars() -> None:
-    """model 策略产出独立调用请求（带双方往来与对方收到的物品）；回复文本 200 汉字边界并标记 model_npc。"""
+    """model 策略产出独立调用请求（带来信事实、双方往来与对方收到的物品，presence 固定 remote）；
+    回复文本 200 汉字边界并标记 model_npc。"""
     history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
     received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="10:40"),)
-    request = model_reply_request(_incoming(), history, received)
+    facts = ReplyFacts(sender_name="陈曦", now="2026-01-05T10:45:00+08:00", receive_location="公司")
+    request = model_reply_request(_incoming(), history, received, facts)
     assert (request.history, request.received) == (history, received)
+    assert (request.sender_name, request.now, request.receive_location) == (
+        "陈曦", "2026-01-05T10:45:00+08:00", "公司")
+    assert request.presence == "remote"
+    assert model_reply_request(_incoming(), history, received,
+                               ReplyFacts(sender_name="陈曦", now="2026-01-05T10:45:00+08:00")).receive_location is None
+    with pytest.raises(ValidationError):
+        ReplyFacts(sender_name="", now="2026-01-05T10:45:00+08:00")
     assert request.thinking == "disabled"
     assert request.max_chars == 200
     assert request.reply_to_message_id == "m-9"
