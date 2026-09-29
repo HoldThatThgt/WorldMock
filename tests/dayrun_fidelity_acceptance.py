@@ -12,7 +12,9 @@
           「复跑指标（只报告）」按规格只报告、不作门禁：WC 与 BIZ 全天复跑需要用户的模型账号，不在测试中执行；登记的是复跑
           要读的质量报告各节（输入警告、截断、时间线标签、联系人回复守卫、名称类拒绝、零点计划的非例行推进比例）的测试。
           「strict 端点」行的「探针在主站与 /beta 的结果写入验收记录」一半：登记探针脚本与端点切换的测试，真实探针结果由
-          实现后文档写进本特性的验收记录。「更简单的购买请求」一行是冻结后补登的台账行（规格版本表 0.6），判据取 3.5 的验收句。
+          实现后文档写进本特性的验收记录。「更简单的购买请求」一行是冻结后补登的台账行（规格版本表 0.6），判据取 3.5 的验收句；
+          实现复核后 3.5「收敛」第 2 条细化（版本表 0.7：「购买」不定交不到收货人手上的方式，都不行时只指向能到店买的出售门店，
+          送给别人时先送到自己这里），该行与验收句同步，登记的测试随之覆盖细化后的行为。
           「文档一致性」行除文档链接门禁与设计说明书汇编外，另登记本守卫的两项文档判定：冻结时写下的临时待验收标记不再留在
           docs/，带锚点的文档链接都指向现有标题。
 """
@@ -99,8 +101,15 @@ _SIMPLER_PURCHASE = [
     _NAMED + "test_same_name_in_several_stores_is_chosen_by_prefer_unless_a_store_is_named",
     _CHANNELS + "test_member_store_ties_break_by_landed_price_then_store_identity",
     _CHANNELS + "test_several_member_stores_choose_the_nearest_and_note_it",
+    _NAMED + "test_a_store_whose_price_is_unknown_is_never_the_cheapest",
     _STAGES + "test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable",
+    _STAGES + "test_system_purchase_on_the_road_is_not_buying_in_the_store_just_left",
     _STAGES + "test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_store",
+    _STAGES + "test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_store",
+    _STAGES + "test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route",
+    _GIVING + "test_system_purchase_for_someone_goes_in_store_only_when_they_are_there",
+    _GIVING + "test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first",
+    _GIVING + "test_system_purchase_for_someone_of_goods_sold_only_in_store_cannot_reach_them",
     _STAGES + "test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed",
     "tests/integration/test_storefront_tools.py::test_model_chooses_named_offer_and_fulfillment_without_echoing_quote",
     "tests/life/test_prompt_layers.py::test_schema_enums_are_literal_copies_of_the_source_closed_sets",
@@ -242,8 +251,17 @@ LEDGER: dict[str, list[str]] = {
             "test_every_name_failure_of_a_two_item_request_is_reported",
             "test_unlisted_catalog_objects_are_callable_by_name_with_the_usual_checks",
             "test_redundant_from_and_to_are_accepted_with_notes",
+            "test_redundancy_is_judged_against_the_current_place_not_home",
+            "test_simulated_marks_and_other_brackets_are_normalised_away",
+            "test_a_mail_written_in_other_brackets_is_that_mail_and_a_bare_subject_is_ambiguous",
+            "test_the_verb_and_way_decide_the_prefix_so_a_shared_bare_name_stays_unique",
+            "test_candidates_for_unlisted_activities_carry_the_catalog_duration_as_their_note",
+            "test_places_without_a_listed_route_are_never_candidates",
         )
     ] + [
+        _GIVING + "test_a_recipient_written_without_the_prefix_is_resolved_to_that_person",
+        _GIVING + "test_a_pickup_candidate_for_someone_not_at_the_store_is_not_ranked_as_feasible",
+        "tests/life/test_request_linking.py::test_an_answering_name_written_without_spaces_is_resolved_to_that_message",
         _HOST_FEEDBACK + "test_all_name_errors_are_reported_and_other_conditions_report_the_first",
         _HOST_FEEDBACK + "test_every_unknown_relationship_view_is_reported_at_its_own_item",
         _HOST_FEEDBACK + "test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item",
@@ -269,7 +287,10 @@ LEDGER: dict[str, list[str]] = {
         _REPLAY + "test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store_delivers",
         _GIVING + "test_named_remote_order_for_someone_it_cannot_reach_says_why_like_a_listed_one",
         _NAMED + "test_label_scope_decides_before_the_way_and_names_the_mismatch",
+        _STAGES + "test_the_name_stage_is_judged_before_the_source",
+        _STAGES + "test_an_unservable_source_offers_the_same_goods_that_can_be_served_elsewhere",
         _STAGES + "test_multi_item_purchases_report_every_item_and_stay_atomic",
+        _STAGES + "test_a_name_class_item_leads_the_merged_rejection_even_when_it_comes_second",
         _ERRORS + "test_second_named_item_failing_is_reported_at_index_one_and_the_group_stays_atomic",
         _ERRORS + "test_every_failing_named_item_is_reported_in_one_rejection",
         _REPLAY + "test_wc_named_purchase_requests_are_accepted_in_an_offline_replay",
@@ -283,8 +304,10 @@ LEDGER: dict[str, list[str]] = {
     "购买渠道": [
         _CHANNELS + name for name in (
             "test_each_from_form_resolves_to_its_source_scope",
+            "test_a_channel_name_is_compared_without_spaces_or_case",
             "test_an_unknown_source_is_source_not_found_with_near_stores_and_apps",
             "test_a_full_label_accepts_a_channel_that_contains_its_store_and_rejects_one_that_does_not",
+            "test_a_listed_label_with_an_app_in_from_is_resolved_against_that_channel",
             "test_several_member_stores_choose_the_nearest_and_note_it",
             "test_member_store_ties_break_by_landed_price_then_store_identity",
             "test_an_app_name_without_a_phone_config_is_source_not_found",
@@ -301,6 +324,9 @@ LEDGER: dict[str, list[str]] = {
     ],
     "名称类预算": [
         _NAMES + "test_two_name_rejections_in_one_second_are_free_and_the_third_counts",
+        _NAMES + "test_each_person_has_their_own_two_free_name_rejections",
+        _NAMES + "test_the_two_free_name_rejections_start_again_in_the_next_second",
+        _NAMES + "test_a_replayed_name_rejection_always_counts_a_round",
         _NAMES + "test_a_name_rejection_beside_other_rejections_follows_the_same_count",
         _NAMES + "test_host_and_environment_share_one_name_class_closed_set",
         _QUALITY + "test_name_rejections_are_counted_apart_from_other_protocol_errors",
@@ -562,6 +588,8 @@ LEDGER: dict[str, list[str]] = {
         _QUALITY + "test_report_sections_are_the_documented_grouping_without_a_language_count",
         _GOAL_METRICS + "test_routine_goals_are_reported_apart_from_the_progress_ratio",
         _GOAL_EXPORT,
+        _PURCHASES + "test_real_run_export_counts_orders_written_with_way_synonyms",
+        _PURCHASES + "test_order_attempts_classify_written_ways_through_the_way_synonym_table",
     ],
     "文档一致性": [
         _DOC_GATE,
@@ -581,8 +609,8 @@ LEDGER: dict[str, list[str]] = {
 #: 只报告的台账行：规格写明不作门禁；登记的测试只验证它所读的质量报告各节，行本身的真实运行不在测试中执行。
 REPORT_ONLY: dict[str, str] = {
     "复跑指标（只报告）": "WC 与 BIZ 全天复跑按规格只报告、不作门禁，需要用户的模型账号与修复后的数据集；登记的测试验证复跑要读的"
-                        "质量报告各节：输入警告、截断、时间线标签、联系人回复守卫、名称类拒绝、收尾形状类协议错误与零点计划的"
-                        "非例行推进比例。",
+                        "质量报告各节（输入警告、截断、时间线标签、联系人回复守卫、名称类拒绝、收尾形状类协议错误与零点计划的"
+                        "非例行推进比例）与导出的 purchases.jsonl 购买事实（按方式同义表计入的尝试下单，「规格消费全部可成交」据此核对）。",
 }
 
 #: 「裁决记录」两张表中状态为已定、定下了要建之物的裁决：编号 → 验证其定下的做法（推荐列或结论列）的测试节点。
@@ -641,11 +669,13 @@ RULINGS: dict[str, list[str]] = {
     ],
     "D7": [
         _NAMES + "test_two_name_rejections_in_one_second_are_free_and_the_third_counts",
+        _NAMES + "test_each_person_has_their_own_two_free_name_rejections",
         _NAMES + "test_a_name_rejection_beside_other_rejections_follows_the_same_count",
         _NAMES + "test_host_and_environment_share_one_name_class_closed_set",
     ],
     "D8": [
         _CHANNELS + "test_each_from_form_resolves_to_its_source_scope",
+        _CHANNELS + "test_a_channel_name_is_compared_without_spaces_or_case",
         _CHANNELS + "test_several_member_stores_choose_the_nearest_and_note_it",
         _CHANNELS + "test_member_store_ties_break_by_landed_price_then_store_identity",
         _REPLAY + "test_wc_named_purchase_requests_are_accepted_in_an_offline_replay",
@@ -754,6 +784,9 @@ RULINGS: dict[str, list[str]] = {
         _NAMED + "test_several_servable_matches_follow_prefer_and_never_report_ambiguity",
         _STAGES + "test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable",
         _STAGES + "test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_store",
+        _STAGES + "test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_store",
+        _GIVING + "test_system_purchase_for_someone_goes_in_store_only_when_they_are_there",
+        _GIVING + "test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first",
         _STAGES + "test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed",
         _STAGES + "test_system_purchase_and_a_null_from_each_skip_only_their_own_stage",
         _SCHEMA + "test_start_activity_uses_readable_frozen_objects_and_paired_actions",
