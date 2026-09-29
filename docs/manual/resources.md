@@ -191,11 +191,17 @@ uv run python scripts/prepare_map.py \
 | `initial_stock` | 非负整数；场景同名字段可覆盖这次运行的初值 |
 | `fulfillment_modes` | 非空列表，只允许 `pickup`、`delivery`，不能重复 |
 | `delivery_destination_ids` | 支持配送时必须非空；不支持配送时必须为空；所有目的地都要选入场景；门店到每个目的地还要有一条 `reachable` 的驾车路线（门店就是目的地时不需要），缺了只报输入警告 `DELIVERY_ROUTE_UNAVAILABLE`，那个目的地实际送不到 |
-| `delivery_delay_seconds` | 非负整数秒；是备货时长。人物看到的是人读送达时刻（例如「预计 11:16 送到」，不是当天时写「预计 1月6日 11:16 送到」），按整单最慢备货加出发时刻的驾车规划时长求得，与实际送达一致；送不到时远程下单标为不可用，下单也被拒，原因分两句：送达地不在可配送目的地写「这里不在这家店的配送范围内」，配送路线缺失、不可达或未知写「这家店到这里没有能走的配送路线」，下一步只指向能送达、且从此地去得了的地点 |
+| `delivery_delay_seconds` | 非负整数秒；是备货时长。人物看到的是人读送达时刻（例如「预计 11:16 送到」，不是当天时写「预计 1月6日 11:16 送到」），按整单最慢备货加出发时刻的驾车规划时长求得，与实际送达一致；`from` 写 App 称呼（购买渠道）或方式写「购买」下的单同样按这条规则送达，渠道没有自己的送达时长和服务范围；送不到时远程下单标为不可用，下单也被拒，原因分两句：送达地不在可配送目的地写「这里不在这家店的配送范围内」，配送路线缺失、不可达或未知写「这家店到这里没有能走的配送路线」，下一步只指向能送达、且从此地去得了的地点；送给别人时同样分两句，「这里」换成收货人那里（「<名>那里不在这家店的配送范围内」「这家店到<名>那里没有能走的配送路线」），下一步是「先送到自己这里，再当面给」，收货人此刻没有收货地点（联系人没填 `receive_location_id`、同世界人物在途中）时写「暂时送不到<名>那里」 |
 | `required_qualifications`、`source` | 显式资格列表和来源对象 |
 
 人物看到的门店商品名是完整标签「<门店显示名>出售的<商品名>」，浏览结果也逐条列这个标签。
 离开浏览地点后这些商品不再作为目标列出，人物仍可照记下的标签按名下单，受理照常核对到店或配送条件。
+按名下单也可以只写商品名：方式写「购买」，`to` 写自己或收货人，请求级 `prefer` 写 `fastest` 或 `cheapest`（`null` 按 `fastest`），
+`from` 留 `null`，系统就在全部门店里找能服务的，人在出售它的店里就到店，否则在能送到收货地的门店里远程下单。`from` 是可选约束：
+门店显示名限定这家店，App 称呼限定该 App 的成员门店（见[生活场景](scenarios.md#看懂场景的组成)），其他写法以 `SOURCE_NOT_FOUND` 拒绝。
+几家都能服务不算重名，按 `prefer` 选定一家：`fastest` 到店就是人所在的这家、远程下单取预计送达最早的，`cheapest` 取到手价最低的，
+并列先比到手价、再比门店标识；所选门店写进受理结果的 `details.notes`。选定只看能否服务，营业、库存、报价与余额在结算时照常检查；
+哪家都服务不了时拒绝并写明该去哪家店或哪家送不到，不替人物换商品。
 
 已有报价的局部修改示例：
 
@@ -553,7 +559,7 @@ uv run worldmock validate --scenario scenarios/my-resources.json
 人物有 `background_story` 时，完整校验会调用模型编译画像并检查素材覆盖率，还会写出覆盖率报告。
 它不属于纯离线检查。模型配置见[运行配置](runtime.md)。
 完整校验还逐条打印运行输入警告 `Input warning <警告码> …`；警告本身不让校验失败，新建运行时冻结进运行清单。
-下表中地点类别、显示名与对象名称的错误，在前面的离线加载时就会出现。
+下表中地点类别、显示名、对象名称与购买渠道的错误，在前面的离线加载时就会出现。
 
 | 常见错误 | 应检查什么 |
 | --- | --- |
@@ -565,6 +571,7 @@ uv run worldmock validate --scenario scenarios/my-resources.json
 | `Selected locations use kinds that are not place types` | 所选地点的 `kind` 是否是九个场所类型之一 |
 | `Selected locations share display names` | 同名地点是否各有不同的 `branch_label` |
 | `Agent <编号> would see non-unique object labels` | 人物会同时看到的名称是否重复，例如两件所选商品同名、两条内容或游戏同标题 |
+| `Purchase channels are not admissible: …`，或日志 `Phone simulation config failed verification; …` | 场景钉定了手机配置时：改过的地点显示名是否与某个 App 称呼相同（去掉空白、不分大小写比较），App 的卖家是否仍有有货的供给；见[生活场景](scenarios.md#校验自己的场景) |
 | `Lifestyle catalog ids do not match activity_met lifestyle keys` | 活动生成结果与资源目录是否同步重建 |
 | `CATALOG_CONTENT_IDENTITY_MISMATCH` | 规则或对象改变后是否刷新了目录清单 |
 | `CATEGORY_*` 素材准入错误 | 固定路径、必填元数据、世界素材数量或可达性要求是否满足 |
