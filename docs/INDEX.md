@@ -1,7 +1,7 @@
 # WorldMock 文档入口
 
 > 状态：文档集整体处于实现中——此前确定性基线已有验收，新特性以各自实施台账为准，三项真实验收（正式十二周运行、三次隔离盲评、LabelKit 完整自然日交付）未完成。
-> 日期：2026-09-28
+> 日期：2026-09-29
 > 范围：文档地图、按任务阅读路径、权威层级与文件归属。本文件不定义任何接口与行为，只回答「该读哪一份」。
 
 ## 这是什么
@@ -59,7 +59,8 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [一日行为特性规格](dev/SPEC-dayrun-behavior.md) | 并行生命周期、共同身体区间、餐食、音频、已核验经历与主观记忆、预警交付 | FROZEN |
 | [一日行为实施台账](dev/research/dayrun-behavior/verification.md) | 文件修改责任、逐条生产与测试映射、完整自然日及独立审查证据 | 实施台账 |
 | [一日运行修复核查与验收](dev/research/dayrun-reconciliation/verification.md) | dayrun 清单到主线修复、回归与独立突变证据 | 验收记录 |
-| [一日运行保真修复方案](dev/PROPOSAL-dayrun-fidelity.md) | `4a5b0e6` 白领与商务全天运行暴露的系统问题：睡眠计费、下限缓解与注入警告、困意档界、守作息规则、卡片作息、按名调用与指名购买、App 与门店、错误合同、呈现排序、控制工具改形、中文摘录、输出上限、联系人回复、strict 端点；数据集侧见 WorldMock-Dataset 的 `PROPOSAL_2026-09-29_DATASET_FIXES.md` | 提案，待裁决 |
+| [一日运行保真修复方案](dev/PROPOSAL-dayrun-fidelity.md) | `4a5b0e6` 白领与商务全天运行暴露的系统问题：睡眠计费、下限缓解与注入警告、困意档界、守作息规则、卡片作息、按名调用与指名购买、App 与门店、错误合同、呈现排序、控制工具改形、中文摘录、输出上限、联系人回复、strict 端点，另含不适脉冲与睡眠中读消息、浏览与提示的可达性、英文与内部名称外泄、当日目标推进、场景加载校验、工作材料正文（范围外），共 G1–G22；数据集侧见 WorldMock-Dataset 的 `PROPOSAL_2026-09-29_DATASET_FIXES.md` | 未冻结提案 |
+| [一日运行保真特性规格](dev/SPEC-dayrun-fidelity.md) | 由保真修复方案收敛的开发规格（草稿）：区间事实单一来源、下限缓解与输入警告、困意档界、系统层守作息、场景作息优先、按名调用与指名购买的分段匹配、购买渠道、错误合同、呈现资格与轮转、可调用索引、控制工具改形、中文摘录、截断处理、联系人守卫、加载校验；裁决记录 D2–D19、S1–S9 待裁定，冻结条款修订、文档同步作业与文件修改清单随文 | 未冻结提案 |
 | `docs/dev/SPEC-life-realism.md` | 人物的两阶段决策调用、记忆写入与巩固、动机层、当日目标、世界素材品类准入、素材可达性与呈现轮转、候选与呈现、画像编译、商品数量合同、运行呈现与导出投影；两阶段决策改为单一行动阶段，卡片与记忆的提示呈现改为人设层与记忆层，由人物 Prompt 七层规格修订，修订条款已实现 | FROZEN |
 | `docs/dev/SPEC-day-plan-goals.md` | 当日目标、实际推进证据、修订、环境威胁、三层质量报告与完整验收；生成方式、提醒与部分节律由时间与能量规格修订 | FROZEN |
 | `docs/dev/PROPOSAL-day-plan-goals.md` | 目标与时间职责分离的裁决依据，现行行为引用最终规格 | 已裁决 |
@@ -171,6 +172,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 查看模拟引擎如何组织并推进实际运行 | `docs/design/04-simulation-engine.md` | 初始化、观察与动作受理、时钟与活动、结算、唤醒和恢复编排 |
 | 查看交换引擎设计与尚未闭合的实现差距 | `docs/design/02-exchange-engine.md` | 当前实现与验收 |
 | 查看记录引擎的接口、行为与实现差距 | `docs/design/05-recording-engine.md` | 同一文档内的存储、恢复、导出、诊断与验收章节 |
+| 审查一日运行保真修复方案与草稿规格（未裁决） | `docs/dev/SPEC-dayrun-fidelity.md` | 「裁决记录」取待裁决项与推荐，「冻结条款修订」取被改写的冻结条款，「文档同步作业」「文件修改清单」取影响面；设计依据与运行证据见 `docs/dev/PROPOSAL-dayrun-fidelity.md`，数据集侧见 WorldMock-Dataset 的 `PROPOSAL_2026-09-29_DATASET_FIXES.md` 与 `RUN_REPORT_2026-09-29.md` |
 | 找某个文件归谁管、代码在哪 | 本文件「文件归属」 | `docs/ARCHITECTURE.md` 看该模块的职责边界 |
 
 ## 权威层级
@@ -186,7 +188,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 - **验收**（什么算通过、门禁键、测试矩阵、证据层级、report-only 边界）看 `docs/VERIFICATION.md`。
 - **实现状态**（现在到哪一步、已有哪些证据、还剩哪些阻塞）看 `docs/dev/implementation-status.md`；它只写现状，变更过程由 Git 承载。
 - **覆盖率口径与基线**看 `docs/dev/coverage-baseline.md` 与它写出的 `docs/dev/coverage-report.json`。
-- **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`、草稿规格及其实施计划。它们在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的交互菜单、品类契约及地图与门店供给提案仅保留设计记录，实施依据为对应冻结规格；已裁决的决策上下文提案原文归档于 `docs/dev/research/decision-context-proposal-2026-09-20.md`，同名提案路径现为人物 Prompt 七层方案：已裁决，实施依据为冻结规格 `docs/dev/SPEC-persona-prompt.md`。
+- **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`、草稿规格及其实施计划。它们在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的交互菜单、品类契约及地图与门店供给提案仅保留设计记录，实施依据为对应冻结规格；已裁决的决策上下文提案原文归档于 `docs/dev/research/decision-context-proposal-2026-09-20.md`，同名提案路径现为人物 Prompt 七层方案：已裁决，实施依据为冻结规格 `docs/dev/SPEC-persona-prompt.md`。一日运行保真修复方案与其草稿规格 `docs/dev/SPEC-dayrun-fidelity.md` 均未冻结。
 - **历史证据**看 `docs/dev/research/`。这些文件是当时快照下的依据，不构成当前规范。
 
 ```mermaid
@@ -321,3 +323,4 @@ flowchart TB
 | `2026-09-27-persona-prompt-spec` | 2026-09-27 | 登记人物 Prompt 七层特性规格与实施计划（均为未冻结提案）并补审查阅读路径；提案一行的状态由词表外的「审阅稿」改为 `未冻结提案`，并指向草稿规格；「权威层级」注明草稿规格路径 |
 | `2026-09-27-persona-prompt-freeze` | 2026-09-27 | 冻结人物 Prompt 七层特性规格：用户指示实施本方案、不延后任何待实现项，裁决 #21–#38 按推荐定稿，规格状态改 `FROZEN`，实施计划改 `实施台账`，提案改 `已裁决`；`SPEC-life-realism.md`、`SPEC-decision-context.md`、`SPEC-agent-interaction.md` 与 `SPEC-time-and-energy.md` 各行注明被该规格取代或修订的部分、修订条款待实现；「按任务读」数字人交互一行注明「上下文分层」被取代，人物 Prompt 一行改为实现与审查入口并指向实施台账与验收门禁；「权威层级」改为提案已裁决、实施依据为该规格；补登既有漂移：查看器上下文解析规格（`FROZEN`）及其验收记录（`验收记录`） |
 | `2026-09-28-persona-prompt-verification` | 2026-09-28 | 人物 Prompt 七层实现后文档（人物 Prompt 台账 IX8）：文档地图登记本特性验收记录 `docs/dev/persona-prompt-verification.md`（`验收记录`）；查看器上下文解析、人物规格、决策上下文规格、数字人交互规格、时间与能量规格与人物 Prompt 规格六行的「修订条款待实现」改为已实现；「按任务读」人物 Prompt 一行改为已实现并补验收记录入口；文件头日期改写 |
+| `2026-09-29-dayrun-fidelity-spec` | 2026-09-29 | 登记一日运行保真特性规格 `docs/dev/SPEC-dayrun-fidelity.md`（未冻结提案）并补审查阅读路径；提案一行的状态由词表外的「提案，待裁决」改为 `未冻结提案`，职责列补齐 G1–G22；「权威层级」注明草稿规格路径；文件头日期改写 |
