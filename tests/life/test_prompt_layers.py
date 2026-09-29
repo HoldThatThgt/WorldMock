@@ -3,7 +3,8 @@
 工具层、待办层、环境层、进度层与记忆层在真实引擎的各种状态下逐一通过 prompt_schemas 校验；Schema 中的
 体感分级、方式、动词、动作状态、意图与目标类别是源头闭集的字面副本，由本文件锁定一致。唯一出现性质（「唯一出现原则」）：
 直接消息全文只在进度层；暂停活动的进度只在待办层，它不是工具层目标；工作合同的截止与剩余只在任务目标的 contract，
-工作活动的状态不写「还差」，暂停的工作在待办层也不重复合同；浏览得到的供给只在工具层，浏览结果只列名称。系统层、人设层、user 消息与原生 tools 由宿主侧
+工作活动的状态不写「还差」，暂停的工作在待办层也不重复合同；浏览得到的供给只在工具层，浏览结果只列名称。工具层的可调用索引
+callable_index 只有名称、品类计数与至多 3 个示例名（docs/dev/SPEC-dayrun-fidelity.md 5.2）。系统层、人设层、user 消息与原生 tools 由宿主侧
 tests/integration/test_seven_layer_request.py 覆盖。
 """
 
@@ -11,6 +12,8 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -19,14 +22,18 @@ from tests.life.conftest import (activity_name, advance_next, conclude_request, 
                                  report_request)
 from tests.life.test_commerce import _choice, _stage_open
 from tests.life.test_dayrun_restaurants import _stage
+from tests.life.test_presentation_fidelity import _stage as _stage_moment
 from tests.life.test_same_moment_decisions import _act, _finish, _observed_act
 from tests.life.test_work_review import _at_task_start
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, felt, schedule
+from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
 from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
-from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INTENT_KINDS, LAYER_SCHEMAS, TARGET_KINDS,
-                                           USER_LAYER_NAMES, VERBS, WAY_LABELS, validate_layer)
+from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INDEX_EXAMPLES_MAX, INTENT_KINDS,
+                                           LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES, VERBS,
+                                           WAY_LABELS, validate_layer)
+from worldmock.life.readable import count_phrase
 from worldmock.life.tool_layer import BINDING_KINDS
 
 #: 环境构建的五层（人设层由宿主构建）。
@@ -66,6 +73,8 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
     assert INTENT_KINDS == schedule.INTENT_KINDS
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
+    index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
+    assert INDEX_EXAMPLES_MAX == MAX_EXAMPLES and tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
 
 
 def test_memory_layer_and_persona_views_are_empty_at_run_start(engine_factory) -> None:
@@ -130,6 +139,43 @@ def test_schema_validation_rejects_unknown_layers_extra_keys_and_unexplained_ref
     with pytest.raises(ValueError, match=rf"Prompt layer 工具层 violates its schema at "
                                          rf"\['targets', {index}, 'actions', 0, 'reason'\]"):
         validate_layer(tools)
+
+
+#: 可调用索引的反例：（改法，Schema 报出的位置）。
+_BROKEN_INDEXES = (
+    (lambda index: index.clear(), r"\['callable_index'\]: 'lifestyle' is a required property"),
+    (lambda index: index["lifestyle"].append({"name": "洗碗", "actions": []}), r"\['callable_index', 'lifestyle', \d+\]"),
+    (lambda index: index["lifestyle"].append(index["lifestyle"][0]), r"\['callable_index', 'lifestyle'\]"),
+    (lambda index: index["goods"][0]["examples"].extend(["甲", "乙", "丙"]), r"\['callable_index', 'goods', 0, 'examples'\]"),
+    (lambda index: index["contents"][0].update(available=True), r"\['callable_index', 'contents', 0\]"),
+    (lambda index: index["goods"][0].update(count=22), r"\['callable_index', 'goods', 0, 'count'\]"),
+    (lambda index: index["goods"][0].update(count="0 个"), r"\['callable_index', 'goods', 0, 'count'\]"),
+    (lambda index: index.update(targets=[]), r"\['callable_index'\]"),
+)
+
+
+def test_callable_index_schema_takes_names_counts_and_up_to_three_examples(engine_factory) -> None:
+    """工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）按工具层 Schema 校验：12:30 在家的真实索引通过，lifestyle 是不重复的
+    名称，contents 与 goods 每项只有 category、人读计数 count（「N 个」）与至多 3 个不重复的示例名；工具层缺少索引、名称带上
+    动作、名称重复、多给示例、品类行多出可用性、计数写成裸整数或零个、索引多出键都以 ValueError 指明位置。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    moment = datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.scenario.timezone))
+    _stage_moment(engine, int(moment.timestamp()), "home")
+    observed = _checked(engine, "index-schema")
+    index = observed["tool_layer"]["callable_index"]
+    assert list(index) == list(INDEX_KEYS) and all(index[key] for key in INDEX_KEYS)
+    assert all(set(row) == {"category", "count", "examples"} for key in ("contents", "goods") for row in index[key])
+    assert all(row["count"] == count_phrase(int(row["count"].split()[0])) for row in index["goods"])
+    missing = copy.deepcopy(observed["tool_layer"])
+    del missing["callable_index"]
+    with pytest.raises(ValueError, match=r"violates its schema at \[\]: 'callable_index' is a required property"):
+        validate_layer(missing)
+    for breaking, where in _BROKEN_INDEXES:
+        layer = copy.deepcopy(observed["tool_layer"])
+        breaking(layer["callable_index"])
+        with pytest.raises(ValueError, match=rf"Prompt layer 工具层 violates its schema at {where}"):
+            validate_layer(layer)
 
 
 def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine_factory) -> None:
