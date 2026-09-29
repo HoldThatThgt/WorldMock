@@ -121,13 +121,15 @@ def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factor
 
 
 def _settlement_rhythm(engine, monkeypatch, verdict):
-    """以一份共同身体结算草稿驱动 apply_decision_rhythm，verdict 非空时替换唤醒判定结果。"""
+    """以一份共同身体结算草稿驱动 apply_decision_rhythm，verdict 非空时替换唤醒判定结果。
+
+    草稿照真实结算带 activity_ids（节律结算按它记社交账，docs/dev/SPEC-dayrun-fidelity.md 1.1）；此处区间为空。"""
     from worldmock.life import rhythm
 
     if verdict is not None:
         monkeypatch.setattr(rhythm.rhythm_schedule, "evaluate_wake_reasons", lambda snapshot: verdict)
     now = engine.state.current_time
-    settlement = {"kind": "body_settlement", "interval_start": now, "interval_end": now}
+    settlement = {"kind": "body_settlement", "interval_start": now, "interval_end": now, "activity_ids": []}
     rhythm.apply_decision_rhythm(rhythm.engine_rhythm_inputs(
         engine, engine.state, progress_data={1: [settlement]}))
     return settlement
