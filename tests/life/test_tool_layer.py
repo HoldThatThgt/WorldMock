@@ -294,8 +294,13 @@ def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path)
     engine = _custom_engine("white-collar-12-weeks.json", lambda document: None, tmp_path / "runtime", "runtime-names")
     try:
         stage_day_plan(engine)
-        renamed = (engine.scenario.games[0], engine.scenario.games[1].model_copy(
-            update={"title": engine.scenario.games[0].title}), *engine.scenario.games[2:])
+        # 两款都在本轮游戏窗口里的游戏改成同名（窗口顺序由排序键与轮转决定，改名不改变顺序）。
+        shown = [row["game_id"] for row in engine._menu_windows(engine.state.agents[1])["game"].items
+                 if "game_id" in row]
+        assert len(shown) >= 2
+        first = next(game for game in engine.scenario.games if game.game_id == shown[0])
+        renamed = tuple(game.model_copy(update={"title": first.title}) if game.game_id == shown[1] else game
+                        for game in engine.scenario.games)
         engine.scenario = engine.scenario.model_copy(update={"games": renamed})
         with pytest.raises(ValueError, match="interactive object labels must be unique"):
             engine.observe(context(engine, "repeated-names"))

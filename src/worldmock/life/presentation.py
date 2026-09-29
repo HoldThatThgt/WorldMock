@@ -16,16 +16,21 @@
 意力先验只进排序键，零权重条目仍然留在候选里并排在非零权重之后
 （docs/dev/SPEC-life-runtime.md「两条排除纪律」）。
 
-**呈现顺序由轮转决定**：首屏的换新名额来自 `rotate_candidates`，长期未呈现的对象因此能
-与排序键头名并列进窗；本次未进窗的对象以 `ROTATION_DEFERRED` 记入排除项——合同明文规定
-它是闭集成员、计入排除计数，但不改对象状态、不写目录。
+**呈现顺序由轮转决定**：首屏的换新名额来自 `rotate_candidates`，按每个对象的上次呈现时刻
+留给该分区内最久未呈现的对象，因此它们能与排序键头名并列进窗；不设人物级共享偏移量，也不设
+分区游标（docs/dev/SPEC-dayrun-fidelity.md 5.1）。本次未进窗的对象以 `ROTATION_DEFERRED` 记入
+排除项——合同明文规定它是闭集成员、计入排除计数，但不改对象状态、不写目录。
+
+**排序键**：（非零口味，−口味×注意力，−相关度，哈希决胜键），由 `candidates.ordered_candidate`
+唯一给出；相关度由调用方按人物自己的事实与目录事实算好传入（`life.relevance`）。
 
 **两级上限分开**：`candidate_pool_limit` 只进 `total`，`candidate_presentation_limit` 才
 是单次呈现条数上限（docs/dev/SPEC-life-runtime.md「两级上限」）。
 
 **两个观察面共用一条链路**：呈现窗口与观察投影（`observe`）从同
 一组 `*_entries` 装配候选；区别只在是否施加地点、营业、占用这三类当下的可行性事实——
-呈现窗口是目录浏览（菜单级视角），观察是「此刻能不能做」。
+呈现窗口是目录浏览（菜单级视角），观察是「此刻能不能做」。生活活动窗口另按当前地点施加
+地点类资格（地点类不符的条目不进窗口，排除项带 `ELIGIBILITY_LOCATION_KIND_MISMATCH`）。
 
 **禁止向量检索**：本模块与两个纯函数模块都不含 ANN 索引、embedding 或浮点距离比较；检
 索分区键取条目属性，全序由整数排序键给出（docs/dev/SPEC-life-runtime.md「检索」）。
@@ -49,6 +54,7 @@ from worldmock.life.candidates import (
 from worldmock.life.models import ActivityKind, active_activities
 from worldmock.life.projection import hour_of_day
 from worldmock.life.opening_hours import opening_status
+from worldmock.life.readable import local_date
 
 #: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md「候选对象与来源」）。
 FOOD_CATEGORY = "foods"
@@ -105,16 +111,6 @@ class PoolEntry:
 
 
 @dataclass(frozen=True, slots=True)
-class RankedMember:
-    """@brief 轮转协议的池成员视图：排序键特征与去重标签，不含任何交互计数。"""
-
-    object_id: str
-    subtype: str
-    tags: tuple[str, ...]
-    rank_features: tuple[int, int]
-
-
-@dataclass(frozen=True, slots=True)
 class PresentationWindow:
     """@brief 一次呈现窗口：本次呈现行、分区总数、下一页游标与被排除项。"""
 
@@ -160,24 +156,9 @@ def local_hour(context: PresentationContext) -> float:
     return hour_of_day(int(context.state.current_time), context.scenario.timezone)
 
 
-def _rank_features(entry: PoolEntry, inputs: CandidateInputs) -> tuple[int, int]:
-    """@brief 排序键特征（定点整数）：口味权重与注意力先验，缺项一律与 0 同义。"""
-    key = entry.bucket if entry.kind == "product" and entry.bucket else entry.object_id
-    weight = candidates.fixed_point(inputs.taste_weights.get(key, 0.0))
-    prior = candidates.fixed_point(
-        inputs.attention_priors.get(entry.bucket or entry.object_id, 0.0))
-    return (weight, prior)
-
-
-def _order_key(entry: PoolEntry, inputs: CandidateInputs) -> tuple[int, int, str]:
-    """@brief 该条目的完整稳定排序键（游标即上一页最后一条的该键）。"""
-    weight, prior = _rank_features(entry, inputs)
-    return candidates.OrderedCandidate(object_id=entry.object_id, kind=entry.kind,
-                                       taste_weight=weight,
-                                       attention_prior=prior).order_key()
-
-
-
+def _order_key(entry: PoolEntry, inputs: CandidateInputs) -> tuple[int, int, int, str]:
+    """@brief 该条目的完整稳定排序键（游标即上一页最后一条的该键），与候选契约排序段同一口径。"""
+    return candidates.ordered_candidate(entry.as_candidate(), inputs).order_key()
 
 
 def subtype_of(kind: CandidateKind, category: str = "", object_id: str = "") -> str:
@@ -202,8 +183,8 @@ def _object_prefix(object_id: str) -> str:
     return head or object_id
 
 
-def _member(entry: PoolEntry, inputs: CandidateInputs) -> RankedMember:
-    """@brief 池条目投影为轮转成员（子类按内容品类细分，供反塌缩去重使用）。
+def _member(entry: PoolEntry, inputs: CandidateInputs) -> rotation.RotationMember:
+    """@brief 池条目投影为轮转成员（子类按内容品类细分，供反塌缩去重使用；排序键与候选契约同一口径）。
 
     反塌缩去重的相似度对只由「同子类」的条目构成，所以子类粒度必须与题材粒度相称：
     品类级标签把同品类的全部条目放进一个去重桶，桶内条目并没有可比的题材标签，
@@ -212,22 +193,22 @@ def _member(entry: PoolEntry, inputs: CandidateInputs) -> RankedMember:
     于是同一子类的条目必然同类，缺失题材标签时也不会互相压制。
     """
     label = str(entry.row.get("kind") or entry.kind)
-    return RankedMember(object_id=entry.object_id,
-                        subtype=subtype_of(entry.kind, label, entry.object_id),
-                        tags=entry.tags, rank_features=_rank_features(entry, inputs))
+    return rotation.RotationMember(object_id=entry.object_id,
+                                   subtype=subtype_of(entry.kind, label, entry.object_id),
+                                   tags=entry.tags, order_key=_order_key(entry, inputs))
 
 
 def rotate_window(entries: tuple[PoolEntry, ...], inputs: CandidateInputs
                   ) -> rotation.RotationDecision:
-    """@brief 对候选池跑一次曝光轮转：换新名额只给「长期未呈现」者，游标单向绕池。
+    """@brief 对候选池跑一次曝光轮转：换新名额按每个对象的上次呈现时刻留给该分区内最久未呈现者。
 
-    游标取「该人物已留痕的对象数」对池规模取模：它随每次呈现单调前进，因此换新名额沿池
-    单向绕回，单对象的最坏等待间隔有界（docs/dev/SPEC-life-runtime.md「曝光轮转」的
-    `⌈N ÷ k⌉ ÷ D`）。这里绝不把互动次数当判据——池成员视图里根本没有计数字段。
+    判据只有本分区各对象自己的 `last_presented_at`（docs/dev/SPEC-life-runtime.md「曝光轮转」）：不用人物级共享
+    偏移量，也不设分区游标，别的分区呈现了多少对象不影响本分区，`⌈N ÷ k⌉ ÷ D` 的界按分区成立。这里绝不把互动
+    次数当判据——池成员视图里根本没有计数字段。
 
     @param entries 该分区的池条目。
     @param inputs 候选输入（换新名额比例与呈现上限经场景常量给出）。
-    @return 本次呈现序列、换入清单、顺延清单与下一次游标。
+    @return 本次呈现序列、换入清单与顺延清单。
     """
     constants = inputs.rotation_constants
     config = rotation.RotationConfig(
@@ -236,27 +217,7 @@ def rotate_window(entries: tuple[PoolEntry, ...], inputs: CandidateInputs
         stale_seconds=int(constants.rotation_stale_seconds),
         now=int(inputs.current_time))
     pool = tuple(_member(entry, inputs) for entry in entries)
-    cursor = int(inputs.rotation_offset) % len(pool) if pool else 0
-    decision = rotation.rotate_candidates(pool, dict(inputs.last_presented_at), cursor, config)
-    if not decision.rotated_in:
-        return decision
-    # 换新名额由轮转决定，但窗口顺序与条数上限归本模块：把放行清单与其余条目的排序键
-    # 序列合并成完整序列，再用轮转的「上限」给定窗口长度（docs/dev/SPEC-life-runtime.md
-    # 「两级上限」：池上限只进计数，单次呈现上限才是窗口长度）。
-    fresh = decision.rotated_in
-    dropped = set(fresh)
-    ranked = sorted(entries, key=lambda entry: _order_key(entry, inputs))
-    limit = max(1, int(inputs.presentation_limit))
-    kept = [object_id for object_id in fresh]
-    kept.extend(entry.object_id for entry in ranked
-                if entry.object_id not in dropped and len(kept) < limit)
-    return rotation.RotationDecision(
-        presented=tuple((object_id, True) for object_id in kept),
-        rotated_in=fresh,
-        deferred=tuple(entry.object_id for entry in sorted(
-            entries, key=lambda item: item.object_id) if entry.object_id not in set(kept)),
-        next_cursor=decision.next_cursor, capped_counts=decision.capped_counts,
-        capped_total=decision.capped_total)
+    return rotation.rotate_candidates(pool, dict(inputs.last_presented_at), config)
 
 
 def _deferred(entries: tuple[PoolEntry, ...], presented: frozenset[str],
@@ -278,30 +239,31 @@ def _deferred(entries: tuple[PoolEntry, ...], presented: frozenset[str],
                  if entry.object_id not in already)
 
 
-def _next_cursor(inputs: CandidateInputs, key: tuple[int, int, str] | None,
+def _next_cursor(inputs: CandidateInputs, key: tuple[int, int, int, str] | None,
                  has_more: bool) -> str | None:
     """@brief 下一页游标：上一页最后一条的完整稳定排序键；最后一页为空。
 
     游标是（排序键, 游标身份）的 JSON 对象：前半段是可定位的有序键，后半段由
     `cursor_identity` 给出——身份只由（冻结目录摘要、世界状态版本、排序键版本、游标）
-    决定，不含模型输出、会话状态或墙钟时间。
+    决定，不含模型输出、会话状态或墙钟时间。游标不承载轮转偏移：轮转只看各对象的上次呈现时刻，
+    同一世界状态版本下序列不变。
     """
     if not has_more or key is None:
         return None
     raw = json.dumps(list(key), separators=(",", ":"))
-    return json.dumps({"key": list(key), "offset": int(inputs.rotation_offset),
-                       "identity": candidates.cursor_identity(inputs, raw)},
+    return json.dumps({"key": list(key), "identity": candidates.cursor_identity(inputs, raw)},
                       separators=(",", ":"))
 
 
-def _page_bounds(ids: tuple[str, ...], cursor: str | None,
+def _page_bounds(ids: tuple[str, ...], keys: dict[str, tuple[int, int, int, str]], cursor: str | None,
                  inputs: CandidateInputs) -> tuple[int, int]:
     """@brief 本次下推在有序候选里的起止位置：游标给起点，页长由单次呈现上限给出。
 
-    游标承载上一页最后一条的完整稳定排序键，因此起点取「序列里该键之后的第一个位置」；
-    游标不在本次序列里时退到末尾，绝不从头重来（重复读比读得更少更难发现）。
+    游标承载上一页最后一条的完整稳定排序键，因此起点取「序列里该键之后的第一个位置」（按各对象的排序键定位，
+    决胜键是哈希而不是对象标识）；游标不在本次序列里时退到末尾，绝不从头重来（重复读比读得更少更难发现）。
 
     @param ids 本次呈现口径下的完整有序对象标识序列。
+    @param keys 各对象的完整稳定排序键。
     @param cursor 上一页游标；None 表示首屏。
     @param inputs 一次取候选的全部只读输入（页长取单次呈现上限）。
     @return `(起点, 终点)` 的半开区间。
@@ -309,47 +271,35 @@ def _page_bounds(ids: tuple[str, ...], cursor: str | None,
     limit = max(1, int(inputs.presentation_limit))
     if cursor is None or not cursor.strip():
         return (0, limit)
-    key, _offset = _cursor_key(cursor)
-    index = {entry_id: position for position, entry_id in enumerate(ids)}
-    anchor = min(index.get(key[2], len(ids) - 1) + 1, len(ids))
+    key = cursor_key(cursor)
+    position = next((index for index, entry_id in enumerate(ids) if keys[entry_id] == key), len(ids) - 1)
+    anchor = min(position + 1, len(ids))
     return (anchor, anchor + limit)
 
 
-def cursor_offset(cursor: str | None) -> int:
-    """@brief 游标承载的轮转偏移：下推续页必须沿用同一偏移，否则序列会重新决定。"""
-    if cursor is None or not cursor.strip():
-        return 0
-    _key, offset = _cursor_key(cursor)
-    return offset
-
-
-def _cursor_key(cursor: str) -> tuple[tuple[int, int, str], int]:
-    """@brief 解出游标承载的排序键与轮转偏移；载荷形状不合法即报错，不静默从头开始。"""
+def cursor_key(cursor: str) -> tuple[int, int, int, str]:
+    """@brief 解出游标承载的完整稳定排序键（三项整数与一项非空哈希决胜键）；载荷形状不合法即报错，不静默从头开始。"""
     try:
         payload = json.loads(cursor)
     except json.JSONDecodeError as error:
         logging.error("Candidate cursor is not valid JSON")
         raise ValueError("candidate cursor is not valid JSON") from error
-    if not isinstance(payload, dict) or set(payload) != {"key", "offset", "identity"}:
+    if not isinstance(payload, dict) or set(payload) != {"key", "identity"}:
         logging.error("Candidate cursor fields do not match the generated shape")
         raise ValueError("candidate cursor fields do not match the generated shape")
-    values, offset, identity = payload["key"], payload["offset"], payload["identity"]
-    if (not isinstance(values, list) or len(values) != 3
-            or any(type(value) is not int for value in values[:2])
-            or not isinstance(values[2], str) or not values[2].strip()
-            or type(offset) is not int or offset < 0
+    values, identity = payload["key"], payload["identity"]
+    if (not isinstance(values, list) or len(values) != 4
+            or any(type(value) is not int for value in values[:3])
+            or not isinstance(values[3], str) or not values[3].strip()
             or not isinstance(identity, str) or not identity.strip()):
-        logging.error("Candidate cursor contains an invalid order key, offset or identity")
+        logging.error("Candidate cursor contains an invalid order key or identity")
         raise ValueError("candidate cursor payload is not a stable order key")
-    return ((values[0], values[1], values[2]), offset)
+    return (values[0], values[1], values[2], values[3])
 
 
 def present(entries: tuple[PoolEntry, ...], inputs: CandidateInputs, kind: CandidateKind,
             cursor: str | None) -> PresentationWindow:
     """@brief 三段式取候选后裁出呈现窗口：首屏按轮转重排，后续页按同一序列下推。
-
-    续页必须沿用上一页游标里承载的轮转偏移（`cursor_offset`），否则序列会被重新决定，
-    下推出现重复或遗漏。
 
     呈现序列只由（池、排序键、上次呈现时刻、世界状态版本）决定：它先按轮转为「长期未
     呈现」的对象留出换新名额，其余名额按排序键取件，再做反塌缩去重。同一世界状态版本
@@ -365,12 +315,13 @@ def present(entries: tuple[PoolEntry, ...], inputs: CandidateInputs, kind: Candi
     index = {entry.object_id: entry for entry in entries}
     retained = [entry for entry in entries
                 if entry.object_id not in {item.object_id for item in page.excluded}]
-    ordered = _ordered_ids(tuple(retained), inputs)
-    start, stop = _page_bounds(ordered, cursor, inputs)
+    keys = {entry.object_id: _order_key(entry, inputs) for entry in retained}
+    ordered = _ordered_ids(tuple(retained), keys, inputs)
+    start, stop = _page_bounds(ordered, keys, cursor, inputs)
     shown = list(ordered[start:stop])
     excluded = _exclusions(retained, page.excluded, shown, kind)
     rows = tuple(index[object_id].row for object_id in shown if object_id in index)
-    cursor_after = (_order_key(index[shown[-1]], inputs) if shown else None)
+    cursor_after = keys[shown[-1]] if shown else None
     return PresentationWindow(
         items=rows, total=len(entries),
         next_cursor=_next_cursor(inputs, cursor_after, stop < len(ordered)),
@@ -400,30 +351,32 @@ def _exclusions(entries: tuple[PoolEntry, ...], filtered: tuple[Exclusion, ...],
     return tuple(sorted(excluded, key=lambda item: (item.kind, item.object_id)))
 
 
-def _ordered_ids(entries: tuple[PoolEntry, ...], inputs: CandidateInputs) -> tuple[str, ...]:
+def _ordered_ids(entries: tuple[PoolEntry, ...], keys: dict[str, tuple[int, int, int, str]],
+                 inputs: CandidateInputs) -> tuple[str, ...]:
     """@brief 本次呈现口径下的完整有序序列：轮转换新名额 + 排序键补位 + 反塌缩去重。
 
     池为空时返回空序列。轮转常量缺席（纯候选调用）时退化为纯排序键序列——候选集身份
-    仍只由（冻结目录摘要、画像摘要、世界状态版本、选择器版本）四项决定。
+    仍只由（冻结目录摘要、画像摘要、世界状态版本、选择器版本）四项决定。换新名额放在序列最前，
+    不参与反塌缩顺延（它们计入各子类的条数），所以最久未呈现的对象一定进窗。
 
     @param entries 该分区的池条目。
+    @param keys 各对象的完整稳定排序键。
     @param inputs 一次取候选的全部只读输入。
     @return 完整有序对象标识序列（覆盖池内全部条目，无重、无漏）。
     """
     if not entries:
         return ()
-    ranked = tuple(entry.object_id for entry in sorted(
-        entries, key=lambda entry: _order_key(entry, inputs)))
+    ranked = tuple(sorted((entry.object_id for entry in entries), key=keys.__getitem__))
     if inputs.rotation_constants is None:
         return ranked
-    decision = rotate_window(entries, inputs)
-    fresh = set(decision.rotated_in)
-    ordered = (*decision.rotated_in, *(item for item in ranked if item not in fresh))
-    return _diversified(entries, ordered, inputs)
+    fresh = rotate_window(entries, inputs).rotated_in
+    taken = set(fresh)
+    rest = tuple(item for item in ranked if item not in taken)
+    return (*fresh, *_diversified(entries, rest, inputs, fresh))
 
 
 def _diversified(entries: tuple[PoolEntry, ...], sorted_ids: tuple[str, ...],
-                 inputs: CandidateInputs) -> tuple[str, ...]:
+                 inputs: CandidateInputs, seeded: tuple[str, ...] = ()) -> tuple[str, ...]:
     """@brief 反塌缩：稳定排序键序列里同一子类在窗口内优先不超过 `ROTATION_SUBTYPE_CAP_IN_WINDOW` 条。
 
     它是**顺序纪律而不是出局条件**：优先放行子类条数未满上限的条目，被压下的条目原样
@@ -432,15 +385,19 @@ def _diversified(entries: tuple[PoolEntry, ...], sorted_ids: tuple[str, ...],
     「不存在」可区分）。
 
     @param entries 该分区的池条目。
-    @param sorted_ids 稳定排序键下的完整对象序列。
+    @param sorted_ids 稳定排序键下的完整对象序列（不含已由换新名额放在最前的对象）。
     @param inputs 一次取候选的全部只读输入。
-    @return 重塑后的有序对象标识序列（长度与输入相同）。
+    @param seeded 已放在序列最前的换新名额对象：只计入各子类条数，不再重排。
+    @return 重塑后的有序对象标识序列（长度与 sorted_ids 相同）。
     """
     index = {entry.object_id: entry for entry in entries}
     cap = rotation.ROTATION_SUBTYPE_CAP_IN_WINDOW
     preferred: list[str] = []
     overflow: list[str] = []
     counts: dict[str, int] = {}
+    for object_id in seeded:
+        subtype = _member(index[object_id], inputs).subtype
+        counts[subtype] = counts.get(subtype, 0) + 1
     for object_id in sorted_ids:
         subtype = _member(index[object_id], inputs).subtype
         if counts.get(subtype, 0) < cap:
@@ -470,22 +427,23 @@ def entry_sources(entries: tuple[PoolEntry, ...], on_site: frozenset[str] = froz
             "activated": ()}
 
 
-def candidate_inputs(context: PresentationContext, sources: dict,
-                     moment: bool = True, rotation_offset: int = 0,
-                     last_presented_at: dict[str, int] | None = None) -> CandidateInputs:
+def candidate_inputs(context: PresentationContext, sources: dict, moment: bool = True,
+                     last_presented_at: dict[str, int] | None = None,
+                     relevance: dict[str, int] | None = None) -> CandidateInputs:
     """@brief 组装一次取候选的全部只读输入（世界状态、人物状态与画像权重）。
 
-    只有世界事实进资格段；口味权重取人物持久化映射、注意力先验取场景声明的画像，
-    两者都只进排序键。`moment` 区分两个观察面：观察投影问「此刻能不能做」，因此施加
-    全部可行性事实（地点、营业时段、资源占用）；目录下钻是菜单级视角，只施加
-    目录级事实（库存、下架、启用集、时长窗口、地点类与具体地点实例），不把「现在正在
-    忙」当成条目不存在。能量不构成排除（docs/dev/SPEC-time-and-energy.md「删除的机制」）。
+    只有世界事实进资格段；口味权重取人物持久化映射、注意力先验取场景声明的画像，相关度由调用方按人物自己的事实与
+    目录事实算好（life.relevance），三者都只进排序键。`moment` 区分两个观察面：观察投影问「此刻能不能做」，因此
+    施加全部可行性事实（地点实例与地点类、营业时段、资源占用）；目录浏览面是菜单级视角，只施加目录级事实（库存、
+    下架、启用集、时长窗口），不判定营业时段与地点实例，不把「现在正在忙」当成条目不存在。生活活动窗口另按
+    人物当前地点判定地点类（调用方置 `apply_location_kinds`，docs/dev/SPEC-dayrun-fidelity.md 5.1）。
+    能量不构成排除（docs/dev/SPEC-time-and-energy.md「删除的机制」）。决胜键取场景、人物与场景时区的本地日期。
 
     @param context 只读世界切片。
     @param sources 生成段的四来源映射（`entry_sources` 的产物）。
     @param moment 是否施加当下可行性事实（地点、营业时段、资源占用）。
-    @param rotation_offset 该人物在该分区的轮转游标位置（沿池单向绕回，只前进）。
     @param last_presented_at 按对象标识记录的上次呈现时刻（纪元秒），即轮转的判据。
+    @param relevance 相关度（对象标识 → 整数分），缺省为全 0。
     @return 候选契约的完整输入。
     """
     constants = context.semantics.candidate_constants
@@ -505,7 +463,9 @@ def candidate_inputs(context: PresentationContext, sources: dict,
         attention_priors=dict(getattr(motivation, "attention_prior", {}) or {}),
         presentation_limit=int(constants.presentation_limit),
         rotation_constants=constants, require_location_instance=moment,
-        rotation_offset=int(rotation_offset), last_presented_at=dict(last_presented_at or {}),
+        last_presented_at=dict(last_presented_at or {}), relevance=dict(relevance or {}),
+        scenario_id=str(context.scenario.scenario_id), agent_id=int(context.agent.agent_id),
+        local_date=local_date(now, context.scenario.timezone),
         state_version=int(context.state.version),
         catalog_digest=str(context.state.content_manifest_sha256),
         profile_digest=str(context.scenario.scenario_id))

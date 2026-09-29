@@ -29,7 +29,8 @@ class _ActionHarness(SessionActionMixin):
         """@brief 绑定一条已提交观察，捕获不改状态的领域调用。"""
         event = SimpleNamespace(decision_id="decision", occurred_at=100, data=observation)
         self.store = SimpleNamespace(read_agent_events=lambda *_: [event])
-        self.scenario = SimpleNamespace(locations=())  # 控制判定的地点名表；本组用例都在同一停留内
+        # 控制判定的地点名表与受理提示所用的路线；本组用例都在同一停留内
+        self.scenario = SimpleNamespace(locations=(), routes=())
         self.semantics = SimpleNamespace(scenario=self.scenario)
         self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []

@@ -67,6 +67,9 @@ _DYNAMIC_SITES: dict[str, tuple[str, ...] | set[str]] = {
     "src/worldmock/life/named_purchase.py:_refusal": (),
     "src/worldmock/life/tool_layer.py:_start_refusal": (),
     "src/worldmock/life/travel.py:route_for": ("ROUTE_UNREACHABLE", "ROUTE_INFORMATION_UNKNOWN"),
+    # 配送道路判定与准入共用 wayfinding.delivery_route_code，整单结算按它返回的码抛出（一日运行保真规格 5.3）。
+    "src/worldmock/life/basket.py:_delivery_route": ("DELIVERY_ROUTE_NOT_FOUND", "DELIVERY_ROUTE_UNREACHABLE",
+                                                     "DELIVERY_ROUTE_INFORMATION_UNKNOWN"),
     "src/worldmock/life/inventory_recipe.py:prepare_inventory_recipe": _SCALE_CODES,
     "src/worldmock/life/inventory_recipe.py:_apply_inventory_ledger": _LEDGER_CODES,
 }
@@ -120,7 +123,8 @@ def test_every_business_rejection_code_raised_in_the_source_has_a_specific_reaso
     literal, dynamic = _raised_codes()
     assert dynamic == set(_DYNAMIC_SITES), "register every variable-code raise site with the codes it can raise"
     codes = literal | {code for values in _DYNAMIC_SITES.values() for code in values}
-    assert len(literal) >= 99 and {"ROUTE_UNREACHABLE", "NEGATIVE_BALANCE", "CATEGORY_NUMBER_INVALID"} <= codes
+    # 字面量与登记的变量构造处合计（配送道路的三个码自 5.3 起经 basket._delivery_route 按判定结果抛出）。
+    assert len(codes) >= 99 and {"ROUTE_UNREACHABLE", "NEGATIVE_BALANCE", "CATEGORY_NUMBER_INVALID"} <= codes
     assert sorted(code for code in codes if default_reason(code) == GENERIC_REASON) == []
     for code in sorted(codes):
         guidance = rejection_guidance(BusinessRuleError(code))

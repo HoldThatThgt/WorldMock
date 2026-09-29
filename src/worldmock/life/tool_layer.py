@@ -133,10 +133,11 @@ def _stage_refusal(context: LayerContext, candidate: Candidate) -> Refusal | Non
 
 
 def _admission_context(context: LayerContext) -> admission.Context:
-    """@brief 准入判定的世界与可读名称（地点名、本轮活动名），与受理一致。"""
+    """@brief 准入判定的世界、可读名称（地点名、本轮活动名）与冻结路线（下一步只指向可达地点），与受理一致。"""
     return admission.Context(state=context.state, agent_id=context.agent_id,
                              place_names={item.location_id: item.name for item in context.scenario.locations},
-                             activity_names=context.names["activities"], tasks=context.rules.tasks)
+                             activity_names=context.names["activities"], tasks=context.rules.tasks,
+                             routes=context.scenario.routes)
 
 
 def _world_facts(context: LayerContext) -> admission.WorldFacts:
@@ -208,7 +209,12 @@ def _timed_check(context: LayerContext, binding: dict, action: dict) -> Refusal 
 
 
 def _lifestyle_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
-    """@brief 生活活动：在冻结目录中、时长不短于一分钟、此地环境合适。"""
+    """@brief 生活活动：在冻结目录中、时长不短于一分钟、此地环境合适。
+
+    生活活动窗口已按当前地点施加地点类资格（地点类不符的条目不进窗口，docs/dev/SPEC-dayrun-fidelity.md 5.1），
+    窗口里的条目不会再标「这里不适合做这件事」；这里仍与受理（rules.validate_activity_location）同一判定，
+    给不经窗口的绑定（按名调用）同样的原因。
+    """
     item = next((entry for entry in context.lifestyle_items if entry.activity_id == binding["object_id"]), None)
     if item is None:
         return refusal_for_code("LIFESTYLE_ACTIVITY_NOT_FOUND")

@@ -2,9 +2,9 @@
 
 这些接口此前只被部分执行（有的没有生产调用方，只有文档化的行为）。本文件按各自文档说明的行为，
 经最自然的入口逐一断言可观察结果：
-- `presentation.local_hour` / `cursor_offset`：观察面带场景时区的本地时刻；续页沿用游标里的轮转偏移。
+- `presentation.local_hour` / `cursor_key`：观察面带场景时区的本地时刻；续页只凭游标里的完整排序键定位，游标不承载轮转偏移。
 - `discovery.route_row` / `range_status`：只用已准入的道路记录，范围只比较分时预计时长，未知不算超范围。
-- `candidates.OrderedCandidate.as_row`：保留项返回行带定点排序键原料，零权重照常保留。
+- `candidates.OrderedCandidate.as_row`：保留项返回行带排序键原料（定点口味与注意力、相关度与哈希决胜键），零权重照常保留。
 - `result_projection.public_supply_row`：报价未知时显式为空，来源只给可回溯引用。
 - `prompt_capacity`：上下文长度只认冻结模型合同，计量失败与缺少输出预留都失败关闭。
 - `rhythm.decide_engine_rhythm`：被唤醒人物的反馈活动对齐决策边界，游戏回合保持到期。
@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import replace
 from datetime import datetime
@@ -27,7 +28,7 @@ from worldmock.catalog.affordances import default_affordances
 from worldmock.categories import PairingState
 from worldmock.footprints.models import EventDraft
 from worldmock.life import discovery, presentation, prompt_capacity
-from worldmock.life.candidates import CandidateEntry, CandidateInputs, LocationView, recall
+from worldmock.life.candidates import CandidateEntry, CandidateInputs, LocationView, recall, tiebreak_digest
 from worldmock.life.models import (
     ActivityKind, ActivityState, ActivityStatus, AgentState, SupplyQuoteState, WorldState,
 )
@@ -80,8 +81,8 @@ def test_moment_view_carries_the_local_hour_of_the_scenario_timezone(engine_fact
         assert catalog.local_hour is None and catalog.require_location_instance is False
 
 
-def test_continuation_pages_reuse_the_rotation_offset_carried_by_the_cursor():
-    """续页沿用上一页游标承载的轮转偏移：同一偏移下两页不重不漏；换用别的偏移，序列被重新决定而出现重复或遗漏。"""
+def _four_supplies() -> tuple[tuple[PoolEntry, ...], CandidateInputs]:
+    """四条供给、每页两条的一次取候选输入（换新名额比例 0.5，即每次一个）。"""
     identities = ("supply-a", "supply-b", "supply-c", "supply-d")
     entries = tuple(PoolEntry(object_id=identity, kind="product", bucket=identity, row={"supply_id": identity})
                     for identity in identities)
@@ -90,34 +91,46 @@ def test_continuation_pages_reuse_the_rotation_offset_carried_by_the_cursor():
                                    rotation_stale_seconds=3600, retrieval_index_threshold=100)
     inputs = CandidateInputs(location=place, locations={"home": place}, sources=presentation.entry_sources(entries),
                              current_time=NOW, window_end_time=NOW + 1000, presentation_limit=2, local_hour=None,
-                             rotation_constants=constants, rotation_offset=2)
+                             rotation_constants=constants, scenario_id="scene", agent_id=1, local_date="2026-01-06")
+    return entries, inputs
+
+
+def test_continuation_pages_follow_the_cursor_without_a_rotation_offset():
+    """续页只凭游标承载的完整排序键定位（游标不承载轮转偏移）：同一世界状态下两页不重不漏；轮转只看各对象的
+    上次呈现时刻，续页照同一组时刻重算出同一序列。"""
+    entries, inputs = _four_supplies()
     first = presentation.present(entries, inputs, "product", None)
-    assert first.presented == ("supply-c", "supply-a")
-    offset = presentation.cursor_offset(first.next_cursor)
-    assert offset == 2
-    second = presentation.present(entries, replace(inputs, rotation_offset=offset), "product", first.next_cursor)
+    assert set(json.loads(first.next_cursor)) == {"key", "identity"}
+    assert len(presentation.cursor_key(first.next_cursor)) == 4
+    second = presentation.present(entries, inputs, "product", first.next_cursor)
     assert second.next_cursor is None
-    assert sorted(first.presented + second.presented) == list(identities)
-    reordered = presentation.present(entries, replace(inputs, rotation_offset=0), "product", first.next_cursor)
-    assert set(first.presented) | set(reordered.presented) != set(identities)
+    assert sorted(first.presented + second.presented) == sorted(entry.object_id for entry in entries)
+    assert presentation.present(entries, inputs, "product", first.next_cursor) == second
+    stamped = replace(inputs, last_presented_at={object_id: NOW - 60 for object_id in first.presented})
+    again = presentation.present(entries, stamped, "product", None)
+    assert again.presented[0] in second.presented  # 换新名额移到尚未呈现的对象
 
 
 @pytest.mark.parametrize("cursor", [None, "", "   "])
-def test_first_page_cursor_has_no_rotation_offset(cursor):
-    """首屏（空游标或空白游标）没有承载的轮转偏移，偏移为 0。"""
-    assert presentation.cursor_offset(cursor) == 0
+def test_blank_cursor_starts_the_first_page(cursor):
+    """首屏（空游标或空白游标）从序列开头取一页。"""
+    entries, inputs = _four_supplies()
+    assert presentation.present(entries, inputs, "product", cursor).presented == presentation.present(
+        entries, inputs, "product", None).presented
 
 
 @pytest.mark.parametrize("cursor,message", [
     ("not-json", "not valid JSON"),
-    ('{"key": [0, 0, "supply-a"], "offset": 1}', "fields do not match"),
-    ('{"key": [0, 0, "supply-a"], "offset": -1, "identity": "abc"}', "not a stable order key"),
-    ('{"key": [0, 0, " "], "offset": 1, "identity": "abc"}', "not a stable order key"),
+    ('{"key": [1, 0, 0, "ab"]}', "fields do not match"),
+    ('{"key": [1, 0, "supply-a"], "offset": 1, "identity": "abc"}', "fields do not match"),
+    ('{"key": [1, 0, "supply-a"], "identity": "abc"}', "not a stable order key"),
+    ('{"key": [1, 0, true, "ab"], "identity": "abc"}', "not a stable order key"),
+    ('{"key": [1, 0, 0, " "], "identity": "abc"}', "not a stable order key"),
 ])
 def test_malformed_cursor_is_refused_instead_of_restarting(cursor, message, caplog):
-    """游标载荷不合法即报错并留日志，不静默按偏移 0 从头开始。"""
+    """游标载荷不合法即报错并留日志，不静默从头开始；旧形状（三段键、带偏移）同样拒绝。"""
     with caplog.at_level(logging.ERROR), pytest.raises(ValueError, match=message):
-        presentation.cursor_offset(cursor)
+        presentation.cursor_key(cursor)
     assert "Candidate cursor" in caplog.text
 
 
@@ -158,20 +171,24 @@ def test_range_status_compares_planned_duration_and_never_reads_unknown_as_outsi
 
 
 def test_retained_rows_carry_fixed_point_rank_features_in_order_key_order():
-    """保留项返回行带完整排序键原料（定点口味权重与注意力先验）；零权重对象照常保留，排在非零权重之后。"""
+    """保留项返回行带完整排序键原料（定点口味权重与注意力先验、相关度与哈希决胜键）；零权重对象照常保留，排在非零权重
+    之后。"""
     place = LocationView("home", frozenset({"home"}), opening_status="open")
     entries = tuple(CandidateEntry(name, "lifestyle", location_kinds=frozenset({"anywhere"}))
                     for name in ("walk", "tea", "yoga"))
     inputs = CandidateInputs(location=place, locations={"home": place}, sources={"activated": entries},
                              current_time=NOW, window_end_time=NOW + 600, local_hour=None,
-                             require_location_instance=False,
+                             require_location_instance=False, relevance={"walk": 2},
                              taste_weights={"yoga": 0.5, "tea": 0.25}, attention_priors={"yoga": 0.6, "tea": 0.8})
     page = recall(inputs)
     assert page.excluded == ()
     assert [item.as_row() for item in page.retained] == [
-        {"object_id": "yoga", "kind": "lifestyle", "taste_weight": 5000, "attention_prior": 6000},
-        {"object_id": "tea", "kind": "lifestyle", "taste_weight": 2500, "attention_prior": 8000},
-        {"object_id": "walk", "kind": "lifestyle", "taste_weight": 0, "attention_prior": 0},
+        {"object_id": "yoga", "kind": "lifestyle", "taste_weight": 5000, "attention_prior": 6000, "relevance": 0,
+         "tiebreak": tiebreak_digest("", 0, "", "yoga")},
+        {"object_id": "tea", "kind": "lifestyle", "taste_weight": 2500, "attention_prior": 8000, "relevance": 0,
+         "tiebreak": tiebreak_digest("", 0, "", "tea")},
+        {"object_id": "walk", "kind": "lifestyle", "taste_weight": 0, "attention_prior": 0, "relevance": 2,
+         "tiebreak": tiebreak_digest("", 0, "", "walk")},
     ]
 
 
