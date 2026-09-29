@@ -111,6 +111,13 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/research/interaction-menu-bob-environment.md` | 菜单声明、交集、观察与环境执行的隔离源码突变、补强复验及恢复证据 | 验收记录 |
 | `docs/dev/research/interaction-menu-bob-host.md` | 人物工具与参数、恢复身份和提示字段的隔离源码突变、补强复验及恢复证据 | 验收记录 |
 
+### 汇编版设计说明书
+
+[汇编版设计说明书](design/worldmock-design.html)是 `docs/design/` 十章（概述、总体架构、交换引擎、资源引擎、模拟引擎、记录引擎、数据交付、
+行为评估、配置规格、输入输出格式）汇编成的单文件，由 `scripts/build_design_doc.py` 生成，状态为 `生成物`：想一次看完整个系统的现行设计先读它；
+它不另立权威，接口与字段仍看 `docs/CONTRACTS.md`，行为规则仍看对应 `docs/dev/SPEC-*.md`。章节改动后必须重新汇编并一并提交，
+`scripts/build_design_doc.py --check` 是工程门禁的一部分。
+
 ### 资源引擎设计
 
 [资源引擎设计](design/03-resource-engine.md)统一承载资源定义、内容与语料、目录发布、检索和提供，
@@ -153,6 +160,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 
 | 你想做的事 | 从这里读 | 接着读 |
 | --- | --- | --- |
+| 一份文件看完整个系统的现行设计 | [汇编版设计说明书](design/worldmock-design.html)（`scripts/build_design_doc.py` 生成） | 需要接口字段时跳到 `docs/CONTRACTS.md`，行为细节跳到对应 `docs/dev/SPEC-*.md`，章节源在 `docs/design/` |
 | 编写自己的配置、自定义人物与生活环境 | [用户配置手册](manual/README.md) | 对应手册页的示例、字段说明与校验命令 |
 | 了解系统怎么分层、为什么这样设计 | `docs/ARCHITECTURE.md` | 对应 `docs/dev/SPEC-*.md` 看具体行为 |
 | 实现或修改某个特性的行为 | `docs/dev/SPEC-*.md` 中对应那一份 | `docs/CONTRACTS.md` 取接口，`docs/VERIFICATION.md` 取门禁 |
@@ -188,6 +196,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 - **验收**（什么算通过、门禁键、测试矩阵、证据层级、report-only 边界）看 `docs/VERIFICATION.md`。
 - **实现状态**（现在到哪一步、已有哪些证据、还剩哪些阻塞）看 `docs/dev/implementation-status.md`；它只写现状，变更过程由 Git 承载。
 - **覆盖率口径与基线**看 `docs/dev/coverage-baseline.md` 与它写出的 `docs/dev/coverage-report.json`。
+- **汇编版设计说明书**（`docs/design/worldmock-design.html`）是设计章节的生成物，不构成新的权威；与章节源不一致时以源为准并重新汇编。
 - **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`、草稿规格及其实施计划。它们在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的交互菜单、品类契约及地图与门店供给提案仅保留设计记录，实施依据为对应冻结规格；已裁决的决策上下文提案原文归档于 `docs/dev/research/decision-context-proposal-2026-09-20.md`，同名提案路径现为人物 Prompt 七层方案：已裁决，实施依据为冻结规格 `docs/dev/SPEC-persona-prompt.md`。一日运行保真修复方案与其草稿规格 `docs/dev/SPEC-dayrun-fidelity.md` 均未冻结。
 - **历史证据**看 `docs/dev/research/`。这些文件是当时快照下的依据，不构成当前规范。
 
@@ -302,6 +311,7 @@ flowchart TB
 | `验收记录` | 固定源码身份下的实际命令、测试结果和审查证据，不定义新行为 |
 
 接口或行为变更先更新所属合同再改代码；记录引擎统一修改模块设计，其他特性修改对应合同与 SPEC，并在本文件登记阅读入口。
+设计章节（`docs/design/0*.md`）改动后运行 `scripts/build_design_doc.py` 重新汇编 `docs/design/worldmock-design.html`，与章节同一提交。
 
 ## 版本表
 
@@ -324,3 +334,4 @@ flowchart TB
 | `2026-09-27-persona-prompt-freeze` | 2026-09-27 | 冻结人物 Prompt 七层特性规格：用户指示实施本方案、不延后任何待实现项，裁决 #21–#38 按推荐定稿，规格状态改 `FROZEN`，实施计划改 `实施台账`，提案改 `已裁决`；`SPEC-life-realism.md`、`SPEC-decision-context.md`、`SPEC-agent-interaction.md` 与 `SPEC-time-and-energy.md` 各行注明被该规格取代或修订的部分、修订条款待实现；「按任务读」数字人交互一行注明「上下文分层」被取代，人物 Prompt 一行改为实现与审查入口并指向实施台账与验收门禁；「权威层级」改为提案已裁决、实施依据为该规格；补登既有漂移：查看器上下文解析规格（`FROZEN`）及其验收记录（`验收记录`） |
 | `2026-09-28-persona-prompt-verification` | 2026-09-28 | 人物 Prompt 七层实现后文档（人物 Prompt 台账 IX8）：文档地图登记本特性验收记录 `docs/dev/persona-prompt-verification.md`（`验收记录`）；查看器上下文解析、人物规格、决策上下文规格、数字人交互规格、时间与能量规格与人物 Prompt 规格六行的「修订条款待实现」改为已实现；「按任务读」人物 Prompt 一行改为已实现并补验收记录入口；文件头日期改写 |
 | `2026-09-29-dayrun-fidelity-spec` | 2026-09-29 | 登记一日运行保真特性规格 `docs/dev/SPEC-dayrun-fidelity.md`（未冻结提案）并补审查阅读路径；提案一行的状态由词表外的「提案，待裁决」改为 `未冻结提案`，职责列补齐 G1–G22；「权威层级」注明草稿规格路径；文件头日期改写 |
+| `2026-09-29-design-aio` | 2026-09-29 | 登记汇编版设计说明书 `docs/design/worldmock-design.html`（`scripts/build_design_doc.py` 生成，状态 `生成物`）：文档地图新增小节、「按任务读」首行、「权威层级」注明生成物不另立权威、「状态与变更约定」补重新汇编的要求 |
