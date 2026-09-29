@@ -101,9 +101,22 @@ SYSTEM_LAYER_SCHEMA: dict[str, Any] = {
                "rules": {"type": "array", "minItems": 1, "uniqueItems": True, "items": _TEXT}}),
 }
 
+#: 可调用索引每个品类至多给出的示例名数（callable_index.MAX_EXAMPLES 的字面副本）。
+INDEX_EXAMPLES_MAX = 3
+_INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
+                           "examples": {"type": "array", "maxItems": INDEX_EXAMPLES_MAX, "uniqueItems": True,
+                                        "items": _TEXT}})
+#: 工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）：只有名称、品类与计数，不带动作与条件。
+_CALLABLE_INDEX = _object({
+    "lifestyle": {"type": "array", "uniqueItems": True, "items": _TEXT},
+    "contents": {"type": "array", "items": _INDEX_CATEGORY},
+    "goods": {"type": "array", "items": _INDEX_CATEGORY},
+})
+
 TOOL_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "工具层",
-    **_object({"layer": {"const": "工具层"}, "targets": {"type": "array", "items": _TARGET}}),
+    **_object({"layer": {"const": "工具层"}, "targets": {"type": "array", "items": _TARGET},
+               "callable_index": _CALLABLE_INDEX}),
 }
 
 _RHYTHM = _object({key: _TEXT for key in ("wake", "leave_home", "lunch", "dinner", "bedtime", "sleep_midpoint",

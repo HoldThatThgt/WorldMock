@@ -53,6 +53,18 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
         "1 份", "0.25 份", "0.2 份", "0.33 份", "2 份", "0 份"]
 
 
+def test_count_phrase_and_content_category_labels_for_the_callable_index() -> None:
+    """工具层可调用索引的品类计数写成「N 个」（数字与量词之间一个空格，docs/dev/SPEC-dayrun-fidelity.md 5.2）；内容品类的中文名
+    取 BROWSE_LABELS，覆盖场景内容品类闭集的每一个值（游戏会话为「游戏」）。"""
+    from typing import get_args
+
+    from worldmock.life.readable import BROWSE_LABELS, count_phrase
+    from worldmock.life.scenario import CONTENT_KINDS
+
+    assert [count_phrase(count) for count in (1, 3, 90, 110)] == ["1 个", "3 个", "90 个", "110 个"]
+    assert set(get_args(CONTENT_KINDS)) <= set(BROWSE_LABELS) and BROWSE_LABELS["game_session"] == "游戏"
+
+
 def test_chinese_kind_tables_have_a_single_source() -> None:
     """中文种类表只在 readable 定义（docs/dev/SPEC-dayrun-fidelity.md 7.4）：环境层的 PLACE_TYPES、ACTION_PHRASES 与交互
     菜单的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表的值都是不带英文字母的中文，英文键
