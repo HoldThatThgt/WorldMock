@@ -216,7 +216,7 @@ EventType = Literal[
 | `observation` | `data` 是环境构建的层数据、看法偏好与私有证据，进度层只存 `progress_event_ids`；不额外保存一份 JSON 字符串副本 |
 | `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前，引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
 | `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应 |
-| `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验；relationship、preference 记忆的 `subject` 只随请求原文保存在这里，不写入 AS2 记忆条目 |
+| `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验。三个控制工具的 `request` 是现行形状 `{"items": [{activity_name, summary}]}`（结束每项另带 `memories` 与 `views`），读者一律经 `control_items` 读取，旧运行的三代形状（`task[]`、`summary[]` 与逐项 `memories[][]`）读出同一结果；看法与偏好的对象（`views[].about`，旧形状为 `subject`）只随请求原文保存在这里，不写入 AS2 记忆条目 |
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#四错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，有逐项明细时带 `items[{index, field, written, error_code, candidates}]`，拒绝附带名称归一时带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`）与说明 `notes`，都原样进入公开结果 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id` 与请求关联 `request_message_id`，被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数；未完成的浏览 `note` 为「未取得浏览结果」）；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
@@ -300,7 +300,9 @@ EventType = Literal[
 `events.jsonl` 独立重算并逐行核对，不将观察五条窗口误作完整历史。
 
 记忆写入点为 `conclude_activity` 与就寝反思两处，阈值巩固不变；写入的条目是 `epistemic_status=subjective`
-的自述。`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。记忆来源由系统登记，模型不填身份。
+的自述。结束活动的记忆由宿主经 `control_items` 按项展平（每项先 `memories`、后 `views`）：`views` 的 `about` 转成存储形状的
+`subject`，写入 AS2 前去掉，落盘的条目与旧形状写 `subject` 的同一条记忆逐字节相同，存储形状不变。
+`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。记忆来源由系统登记，模型不填身份。
 `MEMORY.md` 由冻结身份、当轮已核验经历和单独
 持久的主观归纳确定性装配；模型不能整篇重写完成事实章节。`MEMORY.md`、主观归纳与五条经历窗口都不再装配进人物提示：
 提示中的记忆只在记忆层，阈值巩固保留，其摘要不进提示。记忆更新记录本轮观察身份、该轮观察私有证据窗口的事实来源、新增与
@@ -319,7 +321,7 @@ EventType = Literal[
 | `episodes` | 与上述身份集合恰好对应的 `{id,type,text,epistemic_status}` 快照；每项固定 `subjective`；就寝反思条目另带来源标记 |
 | `observation_event_id` | 本轮观察：本次决策中实际交付给该人物的观察身份 |
 | `verified_event_ids` | 系统登记的来源：该轮观察私有证据窗口 `verified_experiences` 的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
-| `trigger` | 本步实际发生的写入点，有序列表，顺序为 `activity_conclusion`、`reflection`：同一决策已登记（`action_requested`）带非空 `memories` 的 `conclude_activity` 时含 `activity_conclusion`（登记后结算被拒时记忆照写），绑定观察的唤醒原因含 `wake_from_sleep` 时含 `reflection`；醒来那一轮的收尾记忆与就寝反思可同在一步，两项都列。AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导；写入了条目却没有任何写入点按协议违约拒绝 |
+| `trigger` | 本步实际发生的写入点，有序列表，顺序为 `activity_conclusion`、`reflection`：同一决策已登记（`action_requested`）带记忆或看法的 `conclude_activity`（经 `control_items` 读出，`items[].memories` 或 `items[].views` 非空）时含 `activity_conclusion`（登记后结算被拒时记忆照写），绑定观察的唤醒原因含 `wake_from_sleep` 时含 `reflection`；醒来那一轮的收尾记忆与就寝反思可同在一步，两项都列。AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导；写入了条目却没有任何写入点按协议违约拒绝 |
 | `decision_id` | 本步所属决策，与事件顶层一致 |
 | `memory_before_sha256`、`memory_sha256` | 写入前和写入后 `MEMORY.md` 的内容身份 |
 | `episodes_sha256`、`state_sha256` | 写入后主观条目文件和记忆状态文件的内容身份 |
@@ -803,8 +805,8 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 `memory_references` 分组保留名称，内容按 `memory_updated.data.trigger` 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；`write_points_checked` 为核对的写入点总数）：`activity_conclusion` 对应同一决策已登记的
-`conclude_activity`，`reflection` 对应醒来那一轮的观察。问题码按写入点：`conclusion_without_memory_update` 指带非空
-`memories` 的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有
+`conclude_activity`，`reflection` 对应醒来那一轮的观察。问题码按写入点：`conclusion_without_memory_update` 指经 `control_items` 读出
+带记忆或看法的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有
 `trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_source` 指 `memory_updated` 的某个写入点
 找不到对应登记（写入了条目却没有写入点同样计入）；观察的进度层来源 `progress_event_ids` 中任一身份不能解析到本人更早提交的事件时记
 `invalid_observed_result_reference`。记忆不再带模型填写的引用，不核对条目身份引用。

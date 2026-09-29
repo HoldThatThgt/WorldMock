@@ -13,21 +13,14 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
                                  pending_names, progress_calls, start_activity, target_tools, tool_targets,
-                                 wake_by_mail)
+                                 wake_by_mail, pause_request, report_request)
 from tests.life.routing_fixtures import stage
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import sessions
-from worldmock.life.models import (
-    ActivityState,
-    MeetingMinutes,
-    PauseActivityRequest,
-    ReportStatusRequest,
-    SubmitWorkActionRequest,
-    SubmitWorkRequest,
-    active_activities,
-)
+from worldmock.life.models import (ActivityState, MeetingMinutes, SubmitWorkActionRequest, SubmitWorkRequest,
+                                   active_activities)
 from worldmock.life.scenario import load_scenario
 from worldmock.life.readable import duration_phrase
 from worldmock.life.schedule import WakeReason
@@ -282,7 +275,7 @@ def _shared_work_control(engine, activity_id: str) -> tuple[str, object]:
     activity = engine.state.activities[activity_id]
     name = activity_name(engine, activity_id)
     if activity.status == "active":
-        return "report_status", ReportStatusRequest(task=[name], summary=["继续完成工作。"])
+        return "report_status", report_request(name, summary="继续完成工作。")
     if activity.concluded_at is None:
         return "conclude_activity", conclude_request(name, summary="工作做完了。")
     return "start_activity", start_activity("等待", "自己")
@@ -403,8 +396,7 @@ def _keep_going(engine, observed: dict) -> tuple[str, object]:
     if not running:
         return "start_activity", start_activity("等待", "自己")
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
-    return "report_status", ReportStatusRequest(task=[names[item.activity_id] for item in running],
-                                                summary=["继续。"] * len(running))
+    return "report_status", report_request(*(names[item.activity_id] for item in running), summary="继续。")
 
 
 def _drive(engine, name: str, done) -> None:
@@ -454,14 +446,14 @@ def _pause(engine, name: str, activity_id: str):
     """暂停点名的工作。"""
     names = _named(activity_id)
     return _decide(engine, name, "pause_activity",
-                   lambda observed: PauseActivityRequest(task=names(observed), summary=["先停一下。"]))
+                   lambda observed: pause_request(*names(observed), summary="先停一下。"))
 
 
 def _resume(engine, name: str, activity_id: str):
     """播报点名的暂停工作，即在开始地点恢复它。"""
     names = _named(activity_id)
     return _decide(engine, name, "report_status",
-                   lambda observed: ReportStatusRequest(task=names(observed), summary=["接着做。"]))
+                   lambda observed: report_request(*names(observed), summary="接着做。"))
 
 
 def _resumed_work(engine) -> tuple[str, object]:

@@ -34,8 +34,9 @@ def _memory(text="我以为自己已经吃过一顿饭。"):
 
 
 def _conclusion(*memories):
-    """结束一项活动的 conclude_activity 请求；memories 与 task 等长，空组表示这次不写记忆。"""
-    return {"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
+    """结束一项活动的 conclude_activity 请求（一项一个对象）；没有记忆与看法表示这次不写记忆。"""
+    return {"items": [
+        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}]}
 
 
 def _tool_response(call_id, usage=None):
@@ -304,6 +305,37 @@ def test_memory_quality_reports_conclusion_without_memory_update():
     assert memory == {"memory_update_events": 0, "persisted_episode_ids": 0, "write_points_checked": 0,
                       "problem_count": 1, "problems": [
                           {"code": "conclusion_without_memory_update", "event_id": "event-6", "agent_id": 1}]}
+
+
+def test_memory_quality_reads_every_control_request_shape():
+    """质量报告经 control_items 读收尾请求，不直接读 task、memories：只写看法（views）的收尾也要求写记忆；旧运行的三代形状
+    （记忆带 subject、记忆没有 subject、不带记忆）读出与改形前相同的结果；提到 views 字段的协议错误同样是记忆协议错误
+    （docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+    view = {"type": "relationship", "about": "王磊", "text": "王磊人不错。", "importance": 0.5, "keywords": ["同事"]}
+    name = "等待（1月5日 00:00 起）"
+    requests = {
+        "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}]},
+        "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}]},
+        "with_subject": {"task": [name], "summary": ["等完了。"], "memories": [[{**_memory(), "subject": None}]]},
+        "without_subject": {"task": [name], "summary": ["等完了。"], "memories": [[_memory()]]},
+        "empty_groups": {"task": [name], "summary": ["等完了。"], "memories": [[]]},
+        "no_memories": {"task": [name], "summary": ["等完了。"]},
+    }
+    events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
+                     data={"tool_name": "conclude_activity", "request": request})
+              for index, (label, request) in enumerate(requests.items())]
+    views_error = _tool_response("call", _usage())
+    views_error["error"] = "invalid conclude_activity arguments: items.0.views.0.about Field required"
+    events += [_event(len(events) + 1, "model_response", agent_id=1, decision_id="protocol", data=views_error),
+               _event(len(events) + 2, "run_ended", occurred_at=200)]
+
+    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+
+    assert memory["problems"] == [
+        *({"code": "memory_protocol_error", "event_id": f"event-{len(requests) + 1}", "agent_id": 1},),
+        *({"code": "conclusion_without_memory_update", "event_id": f"event-{index + 1}", "agent_id": 1}
+          for index, label in enumerate(requests) if label in {"views_only", "with_subject", "without_subject"}),
+    ]
 
 
 def test_non_memory_tool_json_error_is_counted_without_memory_warning():

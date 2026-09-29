@@ -40,7 +40,7 @@ from custom.agents.life_persona import persona_layer  # noqa: E402
 from custom.agents.life_prompt import life_user_layers, system_message, user_message  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_ModelResponse, _TextResponse, _conclude_args,  # noqa: E402
-                                                        _memory, _stored_memories)
+                                                        _memory, _stored_memories, _view as _opinion)
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan  # noqa: E402,F401
 from tests.life.routing_fixtures import stage  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
@@ -104,12 +104,11 @@ class _Script:
         """陈曦：刚结束的先收尾，否则按阶段行动。"""
         pending, running = _activities(seen, "刚结束"), _activities(seen, "进行中")
         if pending:
-            memories = [[_memory(_VIEW, kind="relationship", subject="李凡"),
-                         _memory(_PREFERENCE, kind="preference", subject="咖啡")]] if self.phase == "browsing" else [[]]
+            views = [_opinion("李凡", _VIEW), _opinion("咖啡", _PREFERENCE, kind="preference")] if (
+                self.phase == "browsing") else []
             if self.phase in {"browsing", "reading", "walking"}:
                 self._advance()
-            return "conclude_activity", {"task": pending, "summary": ["这件事先到这里。"] * len(pending),
-                                         "memories": memories + [[]] * (len(pending) - 1)}
+            return "conclude_activity", _items("conclude_activity", pending, "这件事先到这里。", views)
         phase = self.phase
         if phase == "query":
             self._advance()
@@ -119,9 +118,9 @@ class _Script:
             return "start_activity", _start(seen, phase)
         if phase == "watching" and running and any(name.startswith("邮件：") for name in seen["targets"]):
             self._advance()
-            return "pause_activity", {"task": running, "summary": ["先看邮件。"]}
+            return "pause_activity", _items("pause_activity", running, "先看邮件。")
         if running:
-            return "report_status", {"task": running, "summary": ["接着做。"] * len(running)}
+            return "report_status", _items("report_status", running, "接着做。")
         return "start_activity", _start(seen, "office")
 
     def _second(self, seen: dict) -> tuple[str, dict]:
@@ -131,11 +130,21 @@ class _Script:
             return "send_message", {"recipient_name": "人物：陈曦", "text": _MESSAGE}
         pending, running = _activities(seen, "刚结束"), _activities(seen, "进行中")
         if pending:
-            return "conclude_activity", {"task": pending, "summary": ["收尾。"] * len(pending),
-                                         "memories": [[] for _ in pending]}
+            return "conclude_activity", _items("conclude_activity", pending, "收尾。")
         if running:
-            return "report_status", {"task": running, "summary": ["接着做。"] * len(running)}
+            return "report_status", _items("report_status", running, "接着做。")
         return "start_activity", _start(seen, "office")
+
+
+def _items(tool: str, names: list[str], summary: str, views: list[dict] | None = None) -> dict:
+    """控制工具参数：一项一个对象、写同一句自述；结束工具每项另带空的普通记忆，看法只写在第一项。"""
+    rows = []
+    for index, name in enumerate(names):
+        row: dict = {"activity_name": name, "summary": summary}
+        if tool == "conclude_activity":
+            row.update(memories=[], views=list(views or []) if index == 0 else [])
+        rows.append(row)
+    return {"items": rows}
 
 
 def _activities(seen: dict, phase: str) -> list[str]:

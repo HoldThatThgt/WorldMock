@@ -1,6 +1,6 @@
 """WorldMock 人物记忆的已核验事实和主观自述隔离。
 
-主观条目只经 conclude_activity.memories 写入，宿主按 task 展平并由系统固定来源（docs/dev/SPEC-time-and-energy.md 第七章）。
+主观条目只经 conclude_activity 逐项的记忆与看法写入，宿主按项展平并由系统固定来源（docs/dev/SPEC-time-and-energy.md 第七章）。
 """
 
 import hashlib
@@ -47,11 +47,13 @@ def _runtime(tmp_path, dispatch=None, config=None):
 
 
 def _concluded(text: str, kind: str = "goal", importance: float = 0.5,
-               keywords: tuple[str, ...] = (), subject: str | None = None) -> list[dict]:
-    """结束一项活动时写下的一条记忆，经宿主按 task 展平（来源 activity_conclusion，认知状态 subjective，subject 去掉）。"""
-    memory = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords), "subject": subject}
-    return _conclusion_memories("conclude_activity", {
-        "task": ["等待（9月21日 16:00 起）"], "summary": ["收尾。"], "memories": [[memory]]})
+               keywords: tuple[str, ...] = (), about: str | None = None) -> list[dict]:
+    """结束一项活动时写下的一条记忆（about 非空时是写在 views 的看法），经宿主展平（来源 activity_conclusion，认知状态
+    subjective，看法的对象去掉）。"""
+    entry = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
+    memories, views = ([entry], []) if about is None else ([], [{"type": kind, "about": about, **entry}])
+    return _conclusion_memories("conclude_activity", {"items": [
+        {"activity_name": "等待（9月21日 16:00 起）", "summary": "收尾。", "memories": memories, "views": views}]})
 
 
 def _wait_fact(event_id="progress-1", seq=1):
@@ -168,7 +170,7 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
     runtime, owner = _runtime(tmp_path, dispatch)
     holder["runtime"] = runtime
     outcome = await runtime.after_step(
-        tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想多联系朋友", "relationship", 0.6, subject="朋友"),
+        tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想多联系朋友", "relationship", 0.6, about="朋友"),
         sleep_boundary=True)
     assert holder["calls"] == 2
     assert len(outcome.created_episodes) == 2
@@ -179,7 +181,8 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
     assert conclusion["source"] == "activity_conclusion"
     assert outcome.consolidated is True
     assert runtime.store.read_subjective_summary() == "我想和朋友保持联系。"
-    assert "subject" not in conclusion and "我想和朋友保持联系" not in json.dumps(runtime.build_context(), ensure_ascii=False)
+    assert "subject" not in conclusion and "about" not in conclusion
+    assert "我想和朋友保持联系" not in json.dumps(runtime.build_context(), ensure_ascii=False)
 
 
 @pytest.mark.asyncio

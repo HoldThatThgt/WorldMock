@@ -289,8 +289,9 @@ sequenceDiagram
 必要决策失败时，停止本轮未执行提案，不能补造动作或结束结果继续推进。
 人物请求与决策协议见[人物 Prompt 规格](../dev/SPEC-persona-prompt.md#二决策回复正文与思考)，记忆见
 [记忆合同](../dev/SPEC-life-realism.md#记忆合同)。
-人物在生活决策中只经 `conclude_activity` 的 `memories` 写记忆，此外只有就寝反思与阈值巩固；
-来源由系统登记，零点计划 `plan_day` 不写记忆。relationship 与 preference 记忆带 `subject`，只在人设层按对象原地呈现最新一条。
+人物在生活决策中只经 `conclude_activity` 各项的 `items[].memories`（普通记忆）与 `items[].views`（看法与偏好）写记忆，此外只有
+就寝反思与阈值巩固；来源由系统登记，零点计划 `plan_day` 不写记忆。看法与偏好用 `about` 写对象，宿主经 `control_items` 读出后
+存为带 `subject` 的 relationship、preference 记忆，只在人设层按对象原地呈现最新一条。
 记忆层在构建提示时由环境从已提交事件与世界状态派生，不新增持久状态：每个 session（一段地点停留或一段路程）结束时派生一条记忆
 （系统写的 `settled` 与人物写的 `self_notes`），今天的条目按 session 列出；零点之后按本地日期并入更早日期，
 只保留起源于该日且仍未了结的事项与归属该日的就寝反思。

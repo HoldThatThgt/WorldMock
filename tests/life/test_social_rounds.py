@@ -10,12 +10,11 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 stage_day_plan, start_activity, submit_round, wake_by_mail)
+                                 stage_day_plan, start_activity, submit_round, wake_by_mail, report_request)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.life import social_actions
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (ActivityKind, ActivityStatus, ReportStatusRequest, SendMessageActionRequest,
-                                   active_activities)
+from worldmock.life.models import ActivityKind, ActivityStatus, SendMessageActionRequest, active_activities
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS, TEMPLATE_REPLY_TEXT
 
 
@@ -84,7 +83,7 @@ def test_repeated_chat_between_the_same_pair_is_chat_already_active(engine_facto
     _people(engine)
     submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "invite")
     waiting = activity_name(engine, active_activities(engine.state, 2)[0].activity_id)
-    submit_round(engine, {2: ("report_status", ReportStatusRequest(task=[waiting], summary=["先等等。"]))}, "later")
+    submit_round(engine, {2: ("report_status", report_request(waiting, summary="先等等。"))}, "later")
     wake_by_mail(engine, agent_id=1, offset=60)
     assert advance_until_ready(engine) and engine.scheduling_state().ready_agent_ids == (1,)
     observed = engine.observe(context(engine, "again-preview"))
@@ -132,7 +131,7 @@ def test_accepted_chat_relief_uses_seconds_both_chats_run_regardless_of_order(en
     engine.state = staged
     submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "invite")
     waiting = activity_name(engine, active_activities(engine.state, 2)[0].activity_id)
-    submit_round(engine, {2: ("report_status", ReportStatusRequest(task=[waiting], summary=["等会儿。"]))}, "later")
+    submit_round(engine, {2: ("report_status", report_request(waiting, summary="等会儿。"))}, "later")
     invite = _chats(engine)[1]
     assert social_actions.shared_chat_seconds(engine.state, invite, invite.planned_end_at) == 0
     wake_by_mail(engine, agent_id=2, offset=300)
@@ -164,7 +163,7 @@ def _keep_going(engine: LifeEngine) -> None:
     requests = {}
     for agent_id in ready:
         names = [activity_name(engine, item.activity_id) for item in active_activities(engine.state, agent_id)][:2]
-        requests[agent_id] = ("report_status", ReportStatusRequest(task=names, summary=["继续。" for _ in names]))
+        requests[agent_id] = ("report_status", report_request(*names, summary="继续。"))
     submit_round(engine, requests, f"keep-{engine.state.current_time}-{engine.state.version}")
 
 
@@ -278,7 +277,7 @@ def _invited_and_busy(engine: LifeEngine) -> object:
     """@brief 人物 1 发起交谈，人物 2 先等待并播报继续（不接受）；返回人物 1 的交谈。"""
     submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "invite")
     waiting = activity_name(engine, active_activities(engine.state, 2)[0].activity_id)
-    submit_round(engine, {2: ("report_status", ReportStatusRequest(task=[waiting], summary=["等会儿。"]))}, "later")
+    submit_round(engine, {2: ("report_status", report_request(waiting, summary="等会儿。"))}, "later")
     return _chats(engine)[1]
 
 

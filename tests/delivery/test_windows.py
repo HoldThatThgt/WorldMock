@@ -6,6 +6,7 @@ from worldmock.delivery.windows import (
     _action_windows,
     _dream_windows,
     _expand_observed_results,
+    _public_event_data,
     _window_identity,
     prepare_windows,
 )
@@ -434,21 +435,19 @@ def test_dreaming_rejects_an_action_without_the_recorded_layer_json(broken):
         _dreaming_day(*rows)
 
 
-def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
-    """带记忆的 conclude_activity 不泄露记忆正文（docs/dev/SPEC-time-and-energy.md 第九章交付链；交付设计「证据窗口与输入结构」）。
+_SECRET = '其实我一直在想辞职的事。'
+_OPINION = '王磊做事总拖，下次不找他了。'
+_MINUTES = '工作写会议纪要（1月5日 09:00 起）'
 
-    意图与 dreaming 窗口输入里的动作请求裁去 request.memories，只保留 task 与 summary；动作窗口的目标保留完整请求，
-    写入记忆的 memory_updated 仍是私有事件，既不进输入也不进 target.outcomes。
-    """
-    secret = '其实我一直在想辞职的事。'
-    request = {'task': ['工作写会议纪要（1月5日 09:00 起）'], 'summary': ['纪要写完了。'],
-               'memories': [[{'type': 'reflection', 'text': secret, 'importance': 0.6, 'keywords': ['辞职']}]]}
+
+def _conclusion_windows(tmp_path, request: dict) -> tuple[dict, dict, dict, list[dict]]:
+    """带记忆的收尾请求所在决策的动作、意图与 dreaming 窗口：返回请求事件、动作窗口、意图窗口与三个 dreaming 窗口。"""
     observed = _layered_observation('visible', 1)
     requested = event('target', 2, 'action_requested', {'tool_name': 'conclude_activity', 'request': request})
     requested['action_id'] = 'conclude'
     written = event('memory', 3, 'memory_updated', {
         'operation': 'append_episodes', 'trigger': ['activity_conclusion'], 'decision_id': 'decision',
-        'episodes': [{'id': 'm1', 'type': 'reflection', 'text': secret, 'epistemic_status': 'subjective'}]},
+        'episodes': [{'id': 'm1', 'type': 'reflection', 'text': _SECRET, 'epistemic_status': 'subjective'}]},
         visibility='system')
     completed = event('completed', 4, 'action_result', {'status': 'completed', 'message': 'Activities concluded'})
     completed['action_id'] = 'conclude'
@@ -459,21 +458,62 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
                 'window': {'start': '1970-01-01T08:00:00+08:00', 'end': '1970-01-02T08:00:00+08:00',
                            'timezone': 'Asia/Shanghai'},
                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
-
     action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
                                      (manifest, tmp_path, indexed))
-    dreams = _dream_windows(list(rows), manifest, tmp_path, indexed)
+    return requested, action, intent, _dream_windows(list(rows), manifest, tmp_path, indexed)
+
+
+def _trimmed_shown(action: dict, intent: dict, dreams: list[dict]) -> list[dict]:
+    """意图与 dreaming 窗口输入里显示的收尾请求；三类窗口的输入都不含记忆与看法正文。"""
+    for record in (action, intent, *dreams):
+        assert _SECRET not in str(record['input']) and _OPINION not in str(record['input'])
+    return [next(row for row in record['input']['events'] if row['event_id'] == 'target')['data']
+            for record in (intent, *dreams)]
+
+
+def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
+    """带记忆与看法的 conclude_activity 不泄露记忆正文（docs/dev/SPEC-time-and-energy.md 第九章交付链；交付设计「证据窗口与
+    输入结构」）。
+
+    意图与 dreaming 窗口输入里的动作请求经 control_items 读出，每项只保留 activity_name 与 summary（items[].memories 与
+    items[].views 裁去，docs/dev/SPEC-dayrun-fidelity.md 第六章）；动作窗口的目标保留完整请求，写入记忆的
+    memory_updated 仍是私有事件，既不进输入也不进 target.outcomes。
+    """
+    request = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。',
+                          'memories': [{'type': 'reflection', 'text': _SECRET, 'importance': 0.6, 'keywords': ['辞职']}],
+                          'views': [{'type': 'relationship', 'about': '王磊', 'text': _OPINION, 'importance': 0.5,
+                                     'keywords': ['同事']}]}]}
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, request)
 
     assert action['target']['request'] == requested
-    assert action['target']['request']['data']['request']['memories'][0][0]['text'] == secret
-    assert action['target']['outcomes'] == [completed]
-    trimmed = {'tool_name': 'conclude_activity', 'request': {'task': request['task'], 'summary': request['summary']}}
+    assert action['target']['request']['data']['request']['items'][0]['memories'][0]['text'] == _SECRET
+    assert [row['event_id'] for row in action['target']['outcomes']] == ['completed']
     assert len(dreams) == 3
-    for record in (intent, *dreams):
-        shown = next(row for row in record['input']['events'] if row['event_id'] == 'target')
-        assert shown['data'] == trimmed
-    for record in (action, intent, *dreams):
-        assert secret not in str(record['input'])
+    trimmed = {'tool_name': 'conclude_activity', 'request': {'items': [{'activity_name': _MINUTES,
+                                                                        'summary': '纪要写完了。'}]}}
+    assert _trimmed_shown(action, intent, dreams) == [trimmed] * 4
+
+
+def test_earlier_control_request_shapes_are_trimmed_to_the_same_items(tmp_path):
+    """旧运行的控制工具请求经 control_items 读出同一结果：4a5b0e6 起的平行数组（记忆带 subject）走完整的窗口路径后，意图与
+    dreaming 输入与现行形状完全相同；更早的三代（记忆没有 subject、结束不带记忆）与播报、暂停同样只留每项的活动名与自述
+    （docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+    legacy = {'task': [_MINUTES], 'summary': ['纪要写完了。'], 'memories': [[
+        {'type': 'reflection', 'text': _SECRET, 'importance': 0.6, 'keywords': ['辞职'], 'subject': None},
+        {'type': 'relationship', 'text': _OPINION, 'importance': 0.5, 'keywords': ['同事'], 'subject': '王磊'}]]}
+    _, action, intent, dreams = _conclusion_windows(tmp_path, legacy)
+    items = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。'}]}
+    assert _trimmed_shown(action, intent, dreams) == [{'tool_name': 'conclude_activity', 'request': items}] * 4
+    earlier = ({**legacy, 'memories': [[{key: value for key, value in memory.items() if key != 'subject'}
+                                         for memory in legacy['memories'][0]]]},
+               {'task': legacy['task'], 'summary': legacy['summary']})
+    for tool, request in [*(('conclude_activity', body) for body in earlier),
+                          *((tool, {'task': legacy['task'], 'summary': legacy['summary']})
+                            for tool in ('report_status', 'pause_activity')),
+                          *((tool, items) for tool in ('report_status', 'pause_activity'))]:
+        shown = _public_event_data({'event_type': 'action_requested', 'data': {
+            'tool_name': tool, 'request': request, 'self_note': '收个尾。'}})
+        assert shown == {'tool_name': tool, 'request': items, 'self_note': '收个尾。'}
 
 
 def test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started(tmp_path):
@@ -579,8 +619,8 @@ def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_win
 
     observed = _layered_observation('observed', 1)
     requested = event('requested', 3, 'action_requested', {
-        'tool_name': 'conclude_activity', 'request': {'task': ['等待（1月5日 07:30 起）'], 'summary': ['歇好了。'],
-                                                      'memories': [[]]},
+        'tool_name': 'conclude_activity', 'request': {'items': [
+            {'activity_name': '等待（1月5日 07:30 起）', 'summary': '歇好了。', 'memories': [], 'views': []}]},
         'request_sha256': 'e' * 64, 'reused': False, 'self_note': None})
     requested['action_id'] = 'conclude'
     prompt = decision_prompt(requested, (observed, requested))

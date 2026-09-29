@@ -89,8 +89,7 @@ def _wait_request(observation: dict) -> StartActivityRequest:
     return start_request(targets=[own["object"]], actions=[action["verb"]], ways=[action["label"]])
 
 
-_MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"],
-           "subject": None}
+_MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"]}
 #: 每轮模型响应的回复正文；引擎把它登记为 action_requested.data.self_note。
 _SELF_NOTE = "先歇一会儿，再看下一步。"
 _OBSERVATION_LAYERS = {"tool_layer", "todo_layer", "environment_layer", "memory_layer"}
@@ -183,7 +182,7 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert action["input"]["decision_prompt"] == recorded_prompt
     assert windows["intent"] and windows["dreaming"] and events[-1]["event_type"] == "checkpoint_created"
     concluded = next(item for item in windows["action"] if item["target"]["request"]["action_id"] == "action-wait-end")
-    assert concluded["target"]["request"]["data"]["request"]["memories"] == [[_MEMORY]]
+    assert concluded["target"]["request"]["data"]["request"]["items"][0]["memories"] == [_MEMORY]
     updated = [event for event in events if event["event_type"] == "memory_updated"]
     assert [(event["decision_id"], event["data"]["trigger"]) for event in updated] == [
         (conclusion.decision_id, ["activity_conclusion"])]
@@ -327,7 +326,7 @@ def _next_opportunity(engine, offset: int = 60) -> None:
 
 def _control(activity_id: str, model, summary: str):
     """@brief 按本轮可见活动名点名一项活动的播报或暂停请求。"""
-    return lambda observed: model(task=[_named(observed, activity_id)], summary=[summary])
+    return lambda observed: model(items=[{"activity_name": _named(observed, activity_id), "summary": summary}])
 
 
 def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:
@@ -382,7 +381,7 @@ def test_person_conclusion_keeps_memories_in_request_and_registers_private_sourc
     assert len(requested) == 1
     assert requested[0].data["request"] == conclude_request(
         name, summary="不等了。", memories=[[_MEMORY]]).model_dump(mode="json")
-    assert requested[0].data["request"]["memories"] == [[_MEMORY]]
+    assert requested[0].data["request"]["items"][0]["memories"] == [_MEMORY]
     result = next(event for event in _events(engine, "action_result", "action-conclude")
                   if event.data["status"] == "completed")
     verified = list(dict.fromkeys(row["source_event_id"] for row in observed["conclude"]["verified_experiences"]

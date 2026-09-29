@@ -40,6 +40,7 @@ from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_re
 from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.activity_titles import activity_title, title_index
 from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
+from worldmock.life.control_items import control_items
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_action_request_start, pop_decision_start, response_self_note)
 from worldmock.life.activities import (
@@ -1103,8 +1104,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
         actions = [row["selected_action"]["canonical_action"] for row in selection]
         ways = [row["selected_action"]["label"] for row in selection]
-        named = (self._activities_for_names(state, pending, request.task)
-                 if pending.tool_name in {"report_status", "conclude_activity"} else [])
+        named = (self._activities_for_names(state, pending, [item.activity_name for item in control_items(
+            pending.tool_name, request)]) if pending.tool_name in {"report_status", "conclude_activity"} else [])
         waiting = frozenset(item.activity_id for item in activity_control.pending_conclusions(state, pending.agent_id))
         return same_moment.request_kind(pending.tool_name, actions, named, waiting, ways)
 

@@ -39,6 +39,7 @@ from custom.agents.life_persona import known_persons, persona_layer, readonly_la
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
                                        user_message)
 from worldmock.life.continuation import CONTINUATION_KEY
+from worldmock.life.control_items import control_items
 from worldmock.life.error_contract import HOST_NAME_CODES, Candidate, ErrorItem, host_report, numbered
 from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR, WAYS, is_named_purchase
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
@@ -380,8 +381,8 @@ class LifeAgent(PersonAgent):
     async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
         """@brief 生活决策的一个模型回合：世界请求登记即结束本轮（取消 finish，AS2 锁定提交不改）。
 
-        记忆查询是观察，不结束本轮；世界请求登记后，conclude_activity 的 memories 按 task 展平交给本步
-        after_step 写入（其余请求写入空列表）。只读问答沿用 AS2 的 finish 回合。
+        记忆查询是观察，不结束本轮；世界请求登记后，conclude_activity 逐项的记忆与看法展平交给本步 after_step 写入
+        （其余请求写入空列表）。只读问答沿用 AS2 的 finish 回合。
         """
         if request.readonly:
             return await super()._run_react_turn(request, turn)
@@ -527,16 +528,18 @@ def _progress_meta(data: dict[str, Any], progress: dict[str, Any]) -> list[dict[
 
 
 def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 把 conclude_activity.memories 按 task 展平为本步写入的记忆；其余世界请求不写记忆。
+    """@brief 把 conclude_activity 逐项的记忆与看法展平为本步写入的记忆（经 control_items 读出：每项先 memories、后
+    views，views 的 about 转为 subject）；其余世界请求不写记忆。
 
-    来源由系统按写入点固定为 activity_conclusion，认知状态固定为 subjective，模型不填、不选任何身份。
+    subject 只在 WorldMock 的请求与事件中，写入 AS2 前剥掉，于是与旧形状写下的同一条记忆逐字节相同；来源由系统按写入点
+    固定为 activity_conclusion，认知状态固定为 subjective，模型不填、不选任何身份。
     """
     if action != "conclude_activity":
         return []
     request = _validate_request(ConcludeActivityRequest, args)
-    return [{**memory.model_dump(mode="json", exclude={"subject"}), "source": _CONCLUSION_MEMORY_SOURCE,
+    return [{**{key: value for key, value in memory.items() if key != "subject"}, "source": _CONCLUSION_MEMORY_SOURCE,
              "epistemic_status": "subjective"}
-            for group in request.memories for memory in group]
+            for item in control_items(action, request) for memory in item.memories]
 
 
 def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]:
@@ -620,8 +623,9 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     if action == "start_activity":
         return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
-        unknown = _unknown_names(("task", "活动"), request.task, names["activity_names"],
-                                 f"{action} task names an activity that is not visible")
+        written = [item.activity_name for item in control_items(action, request)]
+        unknown = _unknown_names(("activity_name", "活动"), written, names["activity_names"],
+                                 f"{action} activity_name names an activity that is not visible")
         if unknown or action != "conclude_activity":
             return unknown
         return _subject_feedback(request, _memory_subject_error(request, names["known_persons"]))
@@ -638,9 +642,10 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
 
 
 def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
-    """@brief relationship 记忆的对象须是已知人物：卡片关系名、场景联系人称谓或同世界人物姓名（规格第一章「人设层」）。"""
-    unknown = [memory.subject for group in request.memories for memory in group
-               if memory.type == "relationship" and memory.subject not in known]
+    """@brief relationship 看法的对象（views 的 about，存储为 subject）须是已知人物：卡片关系名、场景联系人称谓或同世界
+    人物姓名（规格第一章「人设层」）。"""
+    unknown = [memory["subject"] for item in control_items("conclude_activity", request) for memory in item.views
+               if memory["type"] == "relationship" and memory["subject"] not in known]
     return f"conclude_activity relationship subject is not a known person: {unknown[0]}" if unknown else ""
 
 
@@ -678,26 +683,28 @@ def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: 
 
 def _subject_feedback(request: BaseModel, error: str) -> str:
     """@brief 把 _memory_subject_error 的失败包成 SUBJECT_NOT_KNOWN：对象（英文说明末尾「: 」之后的名字）写在原因里，
-    所在一项按请求中写着该名字的记忆对象（subject 或 about）定位到顶层数组的那一项；没有失败时为空串。"""
+    所在一项按请求中写着该名字的看法（views 的 about）定位到 items 的那一项，明细的参数名为 about；没有失败时为空串。"""
     if not error:
         return ""
     name = error.rsplit(": ", 1)[1] if ": " in error else ""
     located = _subject_location(request.model_dump(mode="json", by_alias=True), name) if name else None
     items = [ErrorItem(located[1], located[0], name, "SUBJECT_NOT_KNOWN")] if located else []
-    reason = f"关系记忆写的对象「{name}」不是认识的人" if name else None
+    reason = f"关系看法写的对象「{name}」不是认识的人" if name else None
     return host_feedback(host_report("SUBJECT_NOT_KNOWN", reason, items=items), error)
 
 
 def _subject_location(arguments: dict[str, Any], name: str) -> tuple[str, int] | None:
-    """@brief 写着该对象名的（顶层参数名，项序号）：在各顶层数组的每一项里找 subject 或 about 等于该名字的记忆对象。"""
-    def mentions(value: Any) -> bool:
-        """@brief 值里是否有 subject 或 about 等于该名字的对象。"""
+    """@brief 写着该对象名的（参数名，项序号）：在各顶层数组的每一项里找 about（旧形状为 subject）等于该名字的对象，
+    参数名取写着它的那个键。"""
+    def key_of(value: Any) -> str | None:
+        """@brief 值里 about 或 subject 等于该名字的那个键名；没有时为 None。"""
         if isinstance(value, dict):
-            return any(value.get(key) == name for key in ("subject", "about")) or any(map(mentions, value.values()))
-        return isinstance(value, list) and any(map(mentions, value))
+            direct = next((key for key in ("about", "subject") if value.get(key) == name), None)
+            return direct or next(filter(None, map(key_of, value.values())), None)
+        return next(filter(None, map(key_of, value)), None) if isinstance(value, list) else None
 
-    return next(((key, index) for key, rows in arguments.items() if isinstance(rows, list)
-                 for index, row in enumerate(rows) if mentions(row)), None)
+    return next(((found, index) for rows in arguments.values() if isinstance(rows, list)
+                 for index, row in enumerate(rows) if (found := key_of(row))), None)
 
 
 def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:

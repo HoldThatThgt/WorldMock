@@ -87,10 +87,9 @@ def _wait(observation: dict) -> tuple[str, dict]:
 def _conclude_just_ended(observation: dict) -> tuple[str, dict]:
     """给本轮刚结束、待收尾的活动收尾，并写一条记忆。"""
     names = pending_names(observation)
-    memory = {"type": "routine", "text": "歇了一会儿，精神好些了。", "importance": 0.3, "keywords": ["休息"],
-              "subject": None}
-    return "conclude_activity", {"task": names, "summary": ["歇好了。" for _ in names],
-                                 "memories": [[memory] for _ in names]}
+    memory = {"type": "routine", "text": "歇了一会儿，精神好些了。", "importance": 0.3, "keywords": ["休息"]}
+    return "conclude_activity", {"items": [{"activity_name": name, "summary": "歇好了。", "memories": [memory],
+                                            "views": []} for name in names]}
 
 
 def _tool_calls(observation: dict) -> list[dict]:
@@ -144,9 +143,8 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     actions = [event for event in events if event.event_type == "action_requested"]
     assert len(actions) == 2
     assert all(len(event.data["request_sha256"]) == 64 and event.data["self_note"] == _REPLY for event in actions)
-    assert actions[1].data["request"]["memories"] == [[{
-        "type": "routine", "text": "歇了一会儿，精神好些了。", "importance": 0.3, "keywords": ["休息"],
-        "subject": None}]]
+    assert [item["memories"] for item in actions[1].data["request"]["items"]] == [[{
+        "type": "routine", "text": "歇了一会儿，精神好些了。", "importance": 0.3, "keywords": ["休息"]}]]
     observed = [event for event in events if event.event_type == "observation"]
     assert len(observed) == 2
     assert all(not {"progress_layer", "progress_meta"} & set(event.data) for event in observed)

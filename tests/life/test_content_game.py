@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import (activity_name, advance_until_ready, context, stage_day_plan, start_activity,
-                                 submit_round, wake_by_mail)
+                                 submit_round, wake_by_mail, report_request)
 from tests.life.test_scheduling import _custom_engine
 from tests.life.test_social_rounds import _chat, _contact_name, _people, _person, _template_contact, _wait
 from worldmock.errors import BusinessRuleError
 from worldmock.life.content import mail_headers, reveal_mail
-from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityState, ReportStatusRequest,
-                                   SendMessageActionRequest, active_activities)
+from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityState, SendMessageActionRequest,
+                                   active_activities)
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS, TEMPLATE_REPLY_TEXT
 
 
@@ -89,7 +89,7 @@ def test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_
     submit_round(engine, {2: ("send_message", message)}, "inbox-person")
     assert engine.scheduling_state().ready_agent_ids == (1,)
     waiting = activity_name(engine, active_activities(engine.state, 1)[0].activity_id)
-    submit_round(engine, {1: ("report_status", ReportStatusRequest(task=[waiting], summary=["接着等。"]))},
+    submit_round(engine, {1: ("report_status", report_request(waiting, summary="接着等。"))},
                  "inbox-keep")
     wake_by_mail(engine, agent_id=1, offset=replied_at - engine.state.current_time)
     assert advance_until_ready(engine) and engine.state.current_time == replied_at

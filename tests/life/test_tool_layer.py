@@ -25,7 +25,7 @@ from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
                                  stage_day_plan, start_activity, start_arguments, submit_round, target_actions,
-                                 target_tools, tool_targets, wake_by_mail)
+                                 target_tools, tool_targets, wake_by_mail, pause_request)
 from tests.life import test_parallel_admission as parallel_admission
 from tests.life import test_same_moment_decisions as same_moment_decisions
 from tests.life import test_work_contracts as work_contracts
@@ -39,7 +39,7 @@ from worldmock.life import engine as engine_module
 from worldmock.life.engine import LifeEngine
 from worldmock.life.guidance import refusal_for_code
 from worldmock.life.map_models import RouteConfig
-from worldmock.life.models import PauseActivityRequest, SameMomentPresentation, SameMomentStage
+from worldmock.life.models import SameMomentPresentation, SameMomentStage
 from worldmock.life.storefront_state import current_quote
 from worldmock.life.tool_layer import tool_layer
 
@@ -78,9 +78,9 @@ def _arguments(tool: str, name: str, item: dict, recipient: str | None) -> dict:
         routing = {"to": [recipient]} if item["way"] == "给予" else {}
         return start_arguments([name], [item["action"]], [item["way"]], **routing)
     if tool in {"report_status", "pause_activity"}:
-        return {"task": [name], "summary": ["继续。" if tool == "report_status" else "先停一下。"]}
+        return {"items": [{"activity_name": name, "summary": "继续。" if tool == "report_status" else "先停一下。"}]}
     if tool == "conclude_activity":
-        return {"task": [name], "summary": ["收尾。"], "memories": [[]]}
+        return {"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}]}
     if tool == "submit_work":
         return {"task_name": name, "deliverable": _paraphrased_submission().deliverable.model_dump(mode="json")}
     return {"recipient_name": name, "text": "你好"}
@@ -258,8 +258,8 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     waiting = results[0].activity_id
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    submit_round(engine, {1: ("pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, waiting)], summary=["先出门。"]))}, "away-pause")
+    submit_round(engine, {1: ("pause_activity", pause_request(
+        activity_name(engine, waiting), summary="先出门。"))}, "away-pause")
     preview = engine.observe(context(engine, "away-preview"))
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
     _, walking = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "away-walk")
@@ -391,8 +391,7 @@ def _start_then_pause(engine: LifeEngine, label: str, request) -> str:
     wake_by_mail(engine, offset=120)
     advance_next(engine)
     name = activity_name(engine, started.activity_id)
-    _, [paused] = submit_round(engine, {1: ("pause_activity", PauseActivityRequest(
-        task=[name], summary=["先停一下。"]))}, f"{label}-pause")
+    _, [paused] = submit_round(engine, {1: ("pause_activity", pause_request(name, summary="先停一下。"))}, f"{label}-pause")
     assert paused.status == "completed", (paused.error_code, paused.message)
     return name
 
