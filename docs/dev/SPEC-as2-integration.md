@@ -1,7 +1,7 @@
 # 特性规格：AgentSociety 2 集成与改动
 
-> 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）
-> 日期：2026-09-27
+> 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 14 行补登三个 LifeAgent 覆写点（AS2 锁定提交不改），定稿不等于已实现
+> 日期：2026-09-29
 > 实施基线：WorldMock `9b7fbc8`；AS2 分支 `vendor/agentsociety2` 的 `worldmock-life`（锁定提交 `8768e14`，基线提交 `670c94ff`）；人物 Prompt 修订的代码基线 `3ea5b06`
 > 范围：WorldMock 对 AgentSociety 2（下称 AS2）的选型理由与复用边界、分层职责，以及 AS2 核心链路为本次场景必须发生的确定性改动
 
@@ -231,7 +231,7 @@ AS2 每次决策从工作区重建人物对象，消息在准备阶段清空，�
 **问题**：AS2 原实现把空记忆列表当作错误，巩固触发只认单条偏好记忆，巩固提示携带示例身份，相似的同类记忆被重复追加。
 
 **改动行为**：记忆规则本身见 `docs/dev/SPEC-life-realism.md`「记忆合同」，本节只登记 AS2 侧改动：
-1. AS2 侧不再为时间与能量特性改动：`conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 原路径写入，空数组合法（`agent/memory_runtime.py`、`agent/memory.py` 已允许空记忆列表）；AS2 记忆条目字段是闭集，relationship、preference 记忆的 `subject` 只存在于 WorldMock 的请求与事件中，宿主写入 AS2 前剥掉
+1. AS2 侧不再为时间与能量特性改动：`conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 原路径写入，空数组合法（`agent/memory_runtime.py`、`agent/memory.py` 已允许空记忆列表）；AS2 记忆条目字段是闭集，relationship、preference 记忆的 `subject` 只存在于 WorldMock 的请求与事件中，宿主写入 AS2 前剥掉。一日运行保真规格第六章把请求改为 `items[{activity_name, summary, memories, views}]` 后，宿主把各项的 `memories` 与由 `views` 转回（`about` 即 `subject`）的条目按 `activity_name` 展平，仍经同一路径写入，AS2 侧不改
 2. 巩固触发改按「记忆合同」的条件判定，不再由单条偏好记忆触发
 3. 巩固提示改传人物卡片、改用人物语言、去掉示例身份
 4. 写入前改按「记忆合同」的相似度窗口合并
@@ -302,6 +302,15 @@ observation_record = {
 **锁定提交**：`8768e14`（子模块指针，运行身份按它的源码摘要比对）；人物 Prompt 七层与同秒续接不改锁定提交，运行身份不变
 
 **运行身份**：哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与锁定提交不符即拒绝启动
+
+**覆写点**（锁定提交不改，改动只在 WorldMock 的子类中）：本规格各节已登记的 LifeAgent 与记忆运行时覆写点——`_run_react_turn`
+（「失败传播改动」，世界请求登记即结束本次决策）、`prepare_react_loop` 之后注入续接消息（「同秒续接与推理内容保留」）与记忆快照记录
+（「记忆运行时改动」）——之外，[一日运行保真规格](SPEC-dayrun-fidelity.md)第四章与 7.2 补登三个 LifeAgent 覆写：
+- `_protocol_feedback_content`（AS2 `agent_runtime.py:808-822` 的静态方法）：宿主协议纠错改为与环境共用的错误结构
+  （`error_code`、`reason`、`fix`、`items`、`unmet`），`instruction` 改为「本次没有登记到世界；按 fix 修改后重新提交」，不回传 Pydantic 转储；
+- `_parse_react_responses`（`agent_runtime.py:1086-1106`）：`finish_reason=length` 且正文为空时丢弃截断的回合，改发 `OUTPUT_TRUNCATED` 纠错；
+- `_append_react_protocol_feedback`（`agent_runtime.py:754-777`）：相同的纠错替换、不叠加；随后的一次重试关闭思考并 `tool_choice=required`，
+  `max_tokens` 不变，`reasoning_effort` 仍不发送
 
 **锁定依赖**：使用该上游提交的锁文件
 - MCP 1.26.0
@@ -405,3 +414,4 @@ observation_record = {
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：「决策调度改动」算法按锁定 AS2 `society/society.py:224-240` 改为每步一个共同检查点（执行一轮后再查询，无人就绪才在同一步推进）；验收矩阵「记忆运行时改动」的证据位置由阶段 3 占位说明改为已落地用例。改动归属、技术结论与验收标准未变 |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 5、17 行修订，修订部分待实现（人物 Prompt 台账 AS1–AS4）；AS2 锁定提交 `8768e14` 与运行身份不变。理由：决策自述阶段删除，一次决策只有一个行动阶段；同一秒的相邻决策按提供商协议续接，须原样回传思考。改动：文件头；复用边界、分层职责图与流程图删决策自述节点，写明世界请求登记即结束本次决策、续接消息由 LifeAgent 在准备阶段之后注入；「失败传播改动」登记后不追加 tool 消息；「决策自述与推理内容保留」改为「同秒续接与推理内容保留」（删自述钩子覆写，AS2 基类钩子返回 `None`；续接缓冲由环境从模型证据重建，宿主在 `prepare_react_loop` 之后注入 `_react_messages`；缺思考断链）；「记忆运行时改动」补 `subject` 在写入 AS2 前剥掉、记忆层与看法偏好由环境派生、零条最近记忆返回空列表、巩固摘要不进提示、反思快照带来源；「观察记录单写」补续接时观察仍每次决策一次、单写；锁定提交与 LifeAgent 职责相应改写；验收矩阵「工具面与证据回调」「同秒续接与推理内容保留」「观察记录单写」三行的观察项与测试名改写，状态记「本次离线验收待执行」，状态列增加该档 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；验收矩阵「工具面与证据回调」「同秒续接与推理内容保留」「观察记录单写」三行在最终代码上复跑通过，状态由「本次离线验收待执行」改为「代码层已验证」，状态说明随之补一句；「工具面与证据回调」注明最后一个回合去掉记忆查询工具。AS2 锁定提交 `8768e14` 与运行身份不变 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 14 行修订（一日运行保真 AS1，随该规格冻结）：「AS2 基线与分支」新增「覆写点」一段，列出本规格已登记的 `_run_react_turn`、`prepare_react_loop` 之后的续接注入与记忆快照记录，并补登 `_protocol_feedback_content`（统一错误结构与新的 `instruction`）、`_parse_react_responses`（截断回合丢弃并发 `OUTPUT_TRUNCATED`）、`_append_react_protocol_feedback`（相同纠错替换不叠加，随后关闭思考并 `tool_choice=required` 重试一次）三个 LifeAgent 覆写；「记忆运行时改动」第 1 条注明控制工具改为 `items` 后宿主仍按同一路径展平写入；AS2 锁定提交 `8768e14` 与运行身份不变；文件头补修订说明，日期改写 |
