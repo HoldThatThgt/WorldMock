@@ -109,9 +109,9 @@ class SessionActionMixin:
 
     def _admission_context(self, state: WorldState, agent_id: int,
                            names: dict[str, str] | None = None) -> admission.Context:
-        """@brief 准入判定的世界与可读名称（地点名、本轮活动名）。"""
+        """@brief 准入判定的世界、可读名称（地点名、本轮活动名）与冻结路线（下一步只指向可达地点）。"""
         return admission.Context(state=state, agent_id=agent_id, place_names=self._place_names,
-                                 activity_names=names or {}, tasks=self.rules.tasks)
+                                 activity_names=names or {}, tasks=self.rules.tasks, routes=self.scenario.routes)
 
     def _start_selection(self, pending: PendingAction, request) -> list[dict] | None:
         """@brief start_activity 各项经统一名称解析的绑定行，菜单判定、受限轮复核与受理共用这一次解析；其他工具为空。

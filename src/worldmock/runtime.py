@@ -803,6 +803,7 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     options = prepared.env_kwargs["create_options"]
     options["agent_taste_weights"] = {item["id"]: item["profile"].get("taste_weights", {}) for item in specs}
     options["input_warnings"] = warnings
+    options["persona_habit_responses"] = habit_responses(specs)
     writer = OpsLogger(prepared.run_dir, prepared.scenario.timezone)
     try:
         for warning in warnings:
@@ -812,6 +813,14 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     finally:
         writer.close()
     return specs
+
+
+def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
+    """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里经场景作息覆盖后的结构化卡片，
+    没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给相关度
+    （docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+    return {spec["id"]: [habit["response"] for habit in spec["profile"]["persona_card_struct"]["habits"]]
+            for spec in specs if "persona_card_struct" in spec["profile"]}
 
 
 def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
@@ -862,13 +871,24 @@ def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Map
 
 
 def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario) -> Any:
-    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。"""
+    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。
+
+    场景钉定的手机配置核验失败（身份、结构或执行证据，verified_app_names 抛 IntegrityError）时不使创建失败：
+    按没有应用别名计算，覆盖率因此低于 80% 时照常记 COVERAGE_BELOW_THRESHOLD，另写一条英文 warning 日志
+    （docs/dev/SPEC-dayrun-fidelity.md 1.3「运行路径永不因警告失败」）；validate 用自己的目标集，照旧因同一核验失败。
+    """
     from worldmock.catalog.loader import load_catalog
     from worldmock.life.semantics import resolve_catalog_dir
+    from worldmock.profile.coverage_apps import verified_app_names
     from worldmock.validation import build_coverage_targets
 
     root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root)
+    try:
+        app_names = verified_app_names(scenario, root)
+    except IntegrityError as error:
+        logger.warning("Phone simulation config failed verification; run coverage counts no app names: %s", error)
+        app_names = ()
+    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root, app_names)
 
 
 def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:

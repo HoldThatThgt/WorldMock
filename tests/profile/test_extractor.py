@@ -191,11 +191,11 @@ def test_rejects_empty_story_and_bad_runs():
 
 
 def test_request_payload_shape():
-    """@brief 请求载荷：温度 0.3、json_object 输出、system+user 双消息、思考关闭。"""
+    """@brief 请求载荷：发到与运行相同的 strict 端点（/beta），温度 0.3、json_object 输出、system+user 双消息、思考关闭。"""
     session = FakeSession([FakeResponse(content=make_payload())])
     extractor.extract_persona("某段背景故事", n_runs=1, session=session)
     call = session.calls[0]
-    assert call["url"] == extractor.API_URL
+    assert call["url"] == extractor.API_URL == "https://api.deepseek.com/beta/chat/completions"
     payload = call["json"]
     assert payload["temperature"] == 0.3
     assert payload["max_tokens"] == extractor.MAX_COMPLETION_TOKENS == 8000

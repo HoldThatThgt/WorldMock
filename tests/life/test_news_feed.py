@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
-                                 stage_day_plan, wake_by_mail, start_request, pause_request, report_request)
+from tests.life.conftest import (activity_name, advance_next, bring_to_window, conclude_pending, conclude_request,
+                                 context, pause_request, report_request, stage_day_plan, wake_by_mail,
+                                 start_request)
 from tests.life.test_day_planning import _decide
 from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
@@ -313,7 +314,9 @@ def _stage_content_progress(engine, progress: dict[str, tuple[tuple[str, int], i
 
 
 def _start_listed_content(engine, round_id: str, item_id: str) -> tuple[str, list[dict], object]:
-    """真实决策轮：按本轮列出的唯一方式开始观看一条内容，返回（对象名，工具层动作行，受理结果）。"""
+    """真实决策轮：按本轮列出的唯一方式开始观看一条内容，返回（对象名，工具层动作行，受理结果）；先让它成为内容分区
+    最久未呈现的对象，换新名额把它放进本轮窗口。"""
+    bring_to_window(engine, (item_id,))
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)

@@ -22,10 +22,12 @@ from worldmock.life.scenario import load_scenario  # noqa: E402
 
 @pytest.fixture
 def engine_factory(tmp_path: Path):
-    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本。"""
+    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本；create_options 原样交给
+    LifeEngine.create（例如 persona_habit_responses，缺省为引擎直驱：不带新建运行的附加输入）。"""
     created = []
 
-    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None) -> LifeEngine:
+    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None,
+               create_options: dict | None = None) -> LifeEngine:
         scenario_path = Path("scenarios") / scenario_name
         if mutate is not None:
             scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
@@ -41,7 +43,7 @@ def engine_factory(tmp_path: Path):
             code_sha256="2" * 64,
             model_identity=ModelIdentity(
                 provider="openai_compatible",
-                base_url="https://api.deepseek.com",
+                base_url="https://api.deepseek.com/beta",
                 requested_model="deepseek-flash",
                 thinking="enabled",
                 tool_choice="auto",
@@ -50,7 +52,7 @@ def engine_factory(tmp_path: Path):
                 tool_schema_sha256="1" * 64,
             ),
         )
-        engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity)
+        engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
         created.append(engine)
         return engine
 
@@ -101,6 +103,26 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_day_plan_staged"})])
+    engine.state = staged
+
+
+def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
+    """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
+    给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
+    （docs/dev/SPEC-dayrun-fidelity.md 5.1），每个分区至多三个。经存储落盘并保持版本连续。"""
+    from worldmock.footprints.models import EventDraft
+
+    wanted = set(object_ids)
+    everything = {*(item.item_id for item in engine.scenario.contents), *(item.game_id for item in engine.scenario.games),
+                  *(item.activity_id for item in engine.lifestyle_items),
+                  *(item.supply_id for item in engine.scenario.supplies)}
+    staged = engine.state.model_copy(deep=True)
+    staged.presentation_state = {**staged.presentation_state,
+                                 agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        data={"kind": "test_brought_to_window"})])
     engine.state = staged
 
 

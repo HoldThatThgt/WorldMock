@@ -256,7 +256,9 @@ EventType = Literal[
 可见凭据只管展示与比较，指名购买不依赖它。
 
 发现或浏览回灌与当前供给事实共用一个身份窗口：回灌优先，其他候选只填剩余名额。
-浏览得到的供给只作为工具层商品目标出现一次，浏览调用的结果只列商品名称，不用 `based_on_action_id/changes` 引用结果。
+浏览得到的供给只作为工具层商品目标出现一次，浏览调用的结果只列名称，写完整标签「<门店>出售的<商品>」（一日运行保真规格 5.3），
+不标可得性，不用 `based_on_action_id/changes` 引用结果；完成的浏览在记忆层 `settled` 的活动句末写浏览到的完整标签，
+离开浏览地点后人物照这些标签按名下单，可见凭据不因此放宽。
 原始观察和结算证据不采用这种省略。
 公开 `excluded` 按全部非身份属性分组为 `object_ids`，完整事件仍逐项保存，不损失任何排除事实。
 到达访问失败的终态结果包含 `error_code=LOCATION_ACCESS_DENIED`；公开 `arrival` 保存实际地点、
@@ -795,13 +797,20 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 `recorded` 表示清单是否记录了警告；记录时给出 `warning_count`、按全部警告码列出的 `code_counts`（未出现的码为 0）、
 闭集外的 `unrecognized_code_counts`、按人物编号的 `agent_counts` 与场景级（`agent_id` 为 `null`）的 `scenario_warning_count`；
 清单没有记录（引擎直驱建立的运行为 `null`，旧清单没有这个键）时各计数为 `null`，不记为零。
+`truncations` 一节统计输出截断（[一日运行保真规格 7.2](../dev/SPEC-dayrun-fidelity.md#72-输出截断与思考螺旋)），只读已记录的
+`model_response`，不需要新证据：每个调用身份取一条终态（与 `model_usage` 同一去重），提供商回复 `finish_reason` 为 `length` 的计为
+一次截断；给出 `truncated_responses`、按用途分列的 `purpose_counts`（人物决策记为 `decision`）、这些回复实报的
+`usage.completion_tokens` 之和 `wasted_output_tokens`（截断回合整段丢弃，输出全部浪费）与其中
+`usage.completion_tokens_details.reasoning_tokens` 之和 `reasoning_tokens`；某次截断缺少对应计数时该合计为 `null`，
+缺失次数记于 `responses_missing_output_tokens`、`responses_missing_reasoning_tokens`，不记为零，没有截断时两项合计为 0。
+宿主判定的截断回合另在该响应的 `error` 记协议错误串「OUTPUT_TRUNCATED: <英文说明>」。
 进食多样性也只取 `consume` 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
 商品不计入进食次数或偏好证据。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
 这些判断由对应规则、行为评估与数据交付负责。
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
 当前报告按 `event_range`、`run_outcome`、`actions`、`activities`、`content_contact`、
-`conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`input_warnings` 分组，
+`conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`input_warnings`、`truncations` 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 `memory_references` 分组保留名称，内容按 `memory_updated.data.trigger` 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；`write_points_checked` 为核对的写入点总数）：`activity_conclusion` 对应同一决策已登记的

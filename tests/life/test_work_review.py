@@ -848,7 +848,7 @@ def _review_model_identity(**updates) -> dict:
     """形成 WorkReviewer 客户端身份测试使用的冻结参数。"""
     identity = {
         "requested_model": "deepseek-flash",
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.deepseek.com/beta",
         "thinking": "enabled",
         "tool_choice": "auto",
         "max_retries": 0,
@@ -872,8 +872,8 @@ def _bind_review_client(monkeypatch, model_name: str, base_url: str):
 @pytest.mark.parametrize(
     ("model_name", "base_url"),
     [
-        ("deepseek-chat", "https://api.deepseek.com"),
-        ("deepseek-flash", "https://api.deepseek.com/beta"),
+        ("deepseek-chat", "https://api.deepseek.com/beta"),
+        ("deepseek-flash", "https://api.deepseek.com"),
     ],
 )
 def test_work_reviewer_rejects_model_or_full_base_url_mismatch(
@@ -881,7 +881,7 @@ def test_work_reviewer_rejects_model_or_full_base_url_mismatch(
     model_name: str,
     base_url: str,
 ) -> None:
-    """实际客户端的模型或完整 beta URL 不符时分别拒绝。"""
+    """实际客户端的模型或完整 URL 不符时分别拒绝：身份记录 strict 所在的 /beta，指向主站的客户端也拒绝。"""
     _bind_review_client(monkeypatch, model_name, base_url)
 
     with pytest.raises(ProtocolError, match="identity disagrees"):
@@ -893,7 +893,7 @@ def test_work_reviewer_accepts_exact_client_and_request_identity(monkeypatch) ->
     client = _bind_review_client(
         monkeypatch,
         "deepseek-flash",
-        "https://api.deepseek.com",
+        "https://api.deepseek.com/beta",
     )
 
     reviewer = WorkReviewer(_review_model_identity())
@@ -903,7 +903,7 @@ def test_work_reviewer_accepts_exact_client_and_request_identity(monkeypatch) ->
 
 def test_work_reviewer_accepts_person_channel_thinking_divergence(monkeypatch) -> None:
     """运行身份记录人物通道思考参数，验收通道自身请求保持 disabled+required。"""
-    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com")
+    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com/beta")
 
     reviewer = WorkReviewer(_review_model_identity())
 
@@ -912,7 +912,7 @@ def test_work_reviewer_accepts_person_channel_thinking_divergence(monkeypatch) -
 
 def test_work_reviewer_rejects_request_parameter_drift(monkeypatch) -> None:
     """重试参数偏离冻结合同时拒绝。"""
-    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com")
+    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com/beta")
 
     with pytest.raises(ProtocolError, match="parameters disagree"):
         WorkReviewer(_review_model_identity(max_retries=1))

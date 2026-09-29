@@ -1,18 +1,19 @@
 """下限缓解与累积口径（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3、S1）。
 
 偏好只调幅度、不决定有无：实际缓解用有效偏好 f + (1 − f)·w（f 取场景 body 的下限偏好，缺省 0.5），
-全部排序仍用原始口味权重；有缓解的活动进行时不再累积娱乐需要，共同区间与单活动两条结算路径净效果相同；
-游戏与内容同一口味算法，没有题材声明的游戏权重为零、按下限缓解。
+全部排序仍用原始口味权重；有缓解的活动进行时不再累积娱乐需要，共同区间与单活动两条结算路径净效果相同，
+引擎的边界预测也按同一口径（观看时没有娱乐升档边界）；游戏与内容同一口味算法，没有题材声明的游戏权重为零、按下限缓解。
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, stage_day_plan, start_request, wake_by_mail
+from tests.life.conftest import advance_next, bring_to_window, context, stage_day_plan, start_request, wake_by_mail
 from tests.profile.conftest import make_card
 from worldmock.footprints.models import EventDraft
 from worldmock.life import felt
@@ -235,7 +236,9 @@ def _stage_agent(engine, need: float, weights: dict[str, float]) -> None:
 
 
 def _start_watching(engine, item_id: str) -> str:
-    """真实决策轮：按本轮列出的方式开始观看一条内容，返回受理的活动标识。"""
+    """真实决策轮：按本轮列出的方式开始观看一条内容，返回受理的活动标识（先让它成为内容分区最久未呈现的对象，
+    换新名额把它放进本轮窗口）。"""
+    bring_to_window(engine, (item_id,))
     round_id = f"watch-{item_id}"
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
@@ -309,3 +312,80 @@ def test_watching_from_full_need_reaches_the_lower_band_in_the_specified_time(
     assert settlement["body_settlement"]["after"]["entertainment_need"] == pytest.approx(after)
     assert after == pytest.approx(1.0 - rate * crossed)
     assert (1.0 - 0.6) / rate == pytest.approx(8 / 3 if weight == 0.0 else 4 / 3)
+
+
+# ---------------------------------------------------------------------------
+# 边界预测与结算同一口径：有缓解的活动进行时没有娱乐升档边界
+# ---------------------------------------------------------------------------
+
+#: 距「很想放松」下界 0.6 还差 120.5 秒清醒累积（目录 0.08/小时）的娱乐需要：清醒时第 121 秒升档，是最早的身体边界
+#: （跨档落在两个整秒之间，前后一秒的分级不受浮点舍入影响）。
+_NEAR_BAND = 0.6 - 0.08 * 120.5 / 3600
+
+
+def _start_waiting(engine) -> str:
+    """真实决策轮：开始一段等待（清醒、没有缓解的活动），返回受理的活动标识。"""
+    decision = context(engine, "wait")
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
+    engine.submit_action(DirectToolCall(decision, "action-wait", "start_activity", request))
+    result = engine.commit_decision_round("wait")[0]
+    assert result.status == "in_progress", result.error_code
+    return result.activity_id
+
+
+def _next_boundary(engine) -> int:
+    """引擎报告的下一个严格未来边界（与 AS2 调度同一来源：活动、提醒、预排事件、下一决策时刻与身体边界）。"""
+    return int(engine.scheduling_state().next_event_at.timestamp())
+
+
+def test_plain_awake_time_still_predicts_the_upward_entertainment_crossing(engine_factory) -> None:
+    """没有缓解的清醒时间（等待）照常预测升档：引擎的下一边界恰是娱乐需要按清醒 0.08/小时升入「很想放松」的整秒
+    （前一秒仍是「有点想放松」），推进到该边界时身体已升档，并以体感跨档给出决策机会。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _stage_agent(engine, _NEAR_BAND, {})
+    activity_id = _start_waiting(engine)
+    start = engine.state.current_time
+    rate = engine.semantics.body.entertainment_need_per_awake_hour
+    elapsed = _next_boundary(engine) - start
+    assert elapsed == 121 < engine.state.activities[activity_id].planned_end_at - start
+    assert felt.entertainment_need_level(_NEAR_BAND + rate * (elapsed - 1) / 3600) == "有点想放松"
+    assert felt.entertainment_need_level(_NEAR_BAND + rate * elapsed / 3600) == "很想放松"
+
+    advance_next(engine)
+
+    agent = engine.state.agents[1]
+    assert engine.state.current_time == start + elapsed
+    assert agent.body.entertainment_need == pytest.approx(_NEAR_BAND + rate * elapsed / 3600)
+    assert felt.entertainment_need_level(agent.body.entertainment_need) == "很想放松"
+    assert "felt_band_change" in agent.pending_wake_reasons
+
+
+def test_a_watch_session_creates_no_upward_entertainment_band_boundary(engine_factory) -> None:
+    """规格 1.2 统一口径「有缓解的活动进行时不再累积娱乐需要」也管边界预测：同样的娱乐需要下改为观看，引擎不再在
+    按清醒速率外推的升档时刻（121 秒后）设边界；推进到实际的下一边界时需要只按缓解下降，仍是「有点想放松」，
+    本区间的娱乐分录只有缓解的 drain。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _stage_agent(engine, _NEAR_BAND, {})
+    activity_id = _start_watching(engine, _NOVEL)
+    start = engine.state.current_time
+    rate = engine.semantics.body.entertainment_need_per_awake_hour
+    awake_crossing = math.ceil((0.6 - _NEAR_BAND) / rate * 3600)
+    assert awake_crossing == 121
+
+    boundary = _next_boundary(engine)
+    advance_next(engine)
+
+    assert boundary > start + awake_crossing
+    need = engine.state.agents[1].body.entertainment_need
+    relief = _NOVEL_RATE * relief_preference(0.0, engine.semantics.body.entertainment_relief_preference_floor)
+    assert need == pytest.approx(_NEAR_BAND - relief * (boundary - start) / 3600)
+    assert felt.entertainment_need_level(need) == "有点想放松"
+    settlement = [event for event in engine.store.read_agent_events("environment_event", 1)
+                  if event.data.get("kind") == "body_settlement"][-1]
+    assert settlement.data["interval_end"] == boundary and activity_id in settlement.data["activity_ids"]
+    flows = [row for row in settlement.data["resource_flows"] if row["resource"] == "entertainment_need"]
+    assert [row["direction"] for row in flows] == ["drain"]

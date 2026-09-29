@@ -221,8 +221,8 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
 
 
 def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(engine_factory) -> None:
-    """浏览完成后：结果的 browse_items 只是商品名称（没有价格、库存或供给身份）；浏览得到的供给作为工具层商品目标列出，
-    价格与方式只在那里。"""
+    """浏览完成后：结果的 browse_items 只是名称，写完整标签「<门店>出售的<商品>」（没有价格、库存、可得性或供给身份，
+    docs/dev/SPEC-dayrun-fidelity.md 5.3）；浏览得到的供给作为工具层商品目标列出，名称与标签相同，价格与方式只在那里。"""
     engine = engine_factory()
     _stage_open(engine)
     stage_day_plan(engine)
@@ -230,12 +230,18 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
                               _choice(engine.observe(context(engine, "browse-preview")), "browse"))
     assert browse.status == "in_progress"
     _finish(engine, browse.activity_id, "browse")
-    revealed = [row["supply_id"] for row in engine.state.activities[browse.activity_id].data["revealed"]["items"]]
+    rows = engine.state.activities[browse.activity_id].data["revealed"]["items"]
+    revealed = [row["supply_id"] for row in rows]
     observed = _checked(engine, "browse-seen")
     (record,) = [row for row in progress_calls(observed, "start_activity")
                  if "browse_items" in row["result"]["details"]]
     items = record["result"]["details"]["browse_items"]
-    assert items and all(isinstance(name, str) for name in items)
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    names = {item.product_id: item.name for item in engine.scenario.products}
+    assert items and items == [f"{places[row['location_id']]}出售的{names[row['product_id']]}" for row in rows]
+    listed = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
+    assert [listed[row["supply_id"]] for row in rows if row["supply_id"] in listed] == [
+        label for label, row in zip(items, rows) if row["supply_id"] in listed]
     assert not {"price", "supply_id", "stock", "price_fen"} & set(json.dumps(record, ensure_ascii=False).split('"'))
     assert not any(identity in _rendered(observed) for identity in revealed)
     shown = [row["object"] for row in observed["interaction_bindings"] if row["object_id"] in revealed]
@@ -276,7 +282,9 @@ def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pi
     (record,) = progress_calls(observed, "start_activity")
     assert record["result"]["message"] == "Activities finished"
     names = {item.product_id: item.name for item in engine.scenario.products}
-    assert record["result"]["details"]["browse_items"] == [names[item["product_id"]] for item in revealed]
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    assert record["result"]["details"]["browse_items"] == [
+        f"{places[item['location_id']]}出售的{names[item['product_id']]}" for item in revealed]
     assert _rendered(observed).count('"browse_items"') == 1
     pinned = tuple(dict.fromkeys(item["supply_id"] for item in revealed))
     assert pinned and engine._pending_presentation[1].pinned_supply_ids == pinned

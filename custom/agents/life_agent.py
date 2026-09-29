@@ -5,7 +5,8 @@ system 与六层 user 组成；可以先做记忆查询，世界请求登记即�
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
 在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。本地校验失败写成
 宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/dev/SPEC-dayrun-fidelity.md 第四章，
-custom/agents/life_feedback.py）。
+custom/agents/life_feedback.py）。思考用尽输出上限的截断回合丢弃并纠错，随后以关闭思考、强制工具调用的请求重试一次
+（7.2，custom/agents/life_truncation.py）。
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ from custom.agents.life_memory import memory_update_evidence
 from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
                                        user_message)
+from custom.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, retry_due, thinking_enabled, truncated,
+                                           truncation_feedback, with_feedback)
 from worldmock.life.continuation import CONTINUATION_KEY
 from worldmock.life.control_items import control_items
 from worldmock.life.error_contract import HOST_NAME_CODES, Candidate, ErrorItem, host_report, numbered
@@ -183,6 +186,27 @@ class LifeAgent(PersonAgent):
         unmet} 加固定 instruction，不带英文校验转储（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
         return feedback_content(error)
 
+    def _parse_react_responses(self, response: Any, *, readonly: bool = False) -> tuple[list[ReactDecision], str]:
+        """@brief 解析原生工具调用（覆写 AS2 同名方法，锁定提交不改）：思考用尽输出上限的截断回合（finish_reason=length、
+        正文为空、没有工具调用）不按「没有工具调用」处理，改为 OUTPUT_TRUNCATED 纠错（docs/dev/SPEC-dayrun-fidelity.md
+        7.2）；其余照 AS2 解析。"""
+        if truncated(response):
+            return [], truncation_feedback()
+        return super()._parse_react_responses(response, readonly=readonly)
+
+    def _append_react_protocol_feedback(self, messages: list[dict[str, Any]], response: Any, error: str) -> None:
+        """@brief 把协议纠错加入下一回合的消息历史（覆写 AS2 同名方法，锁定提交不改，docs/dev/SPEC-dayrun-fidelity.md 7.2）。
+
+        没有工具调用的回复（含截断回合）与截断重试（关闭思考的请求）的回合都不留在历史中：纠错作为一条 user 消息，本次
+        决策中已有的相同纠错替换、不叠加，续接链前缀不动；这样本次决策此后带思考的请求里没有缺思考的 assistant。带工具
+        调用的其余回复照 AS2 配对 assistant（原样带思考）与 tool 消息。
+        """
+        if thinking_enabled(self._last_model_request) and self._feedback_tool_calls(response) is not None:
+            super()._append_react_protocol_feedback(messages, response, error)
+            return
+        self._react_messages = with_feedback(messages, self._protocol_feedback_content(error),
+                                             self._life_budget.chain_length)
+
     @classmethod
     def init_description(cls) -> str:
         """@brief 返回场景人物配置说明。"""
@@ -202,7 +226,7 @@ class LifeAgent(PersonAgent):
         return await self._env.observe(self.require_decision_context())
 
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
-        """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合时去掉记忆查询工具。
+        """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合或截断重试时去掉记忆查询工具。
 
         生活决策为八个人物工具与记忆查询（没有 finish），只读问答为记忆查询与 finish；参数不带逐轮名称枚举。
         """
@@ -219,13 +243,16 @@ class LifeAgent(PersonAgent):
 
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400："Thinking mode does not support this
         tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
-        兜底（"native tool_calls are required"）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；
-        预算第 0 步结束续接后，本决策此后的回合都从新快照续写。
+        兜底（"native tool_calls are required"）。截断之后的那一次重试按状态判定（上一回合的思考请求被截断，行动与
+        只读问答相同）：关闭思考并 tool_choice=required，max_tokens 不变，其余请求不变（docs/dev/SPEC-dayrun-fidelity.md
+        7.2）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；预算第 0 步结束续接后，本决策此后的回合
+        都从新快照续写。
         """
         request = super()._model_request(messages, tools)
-        request["tool_choice"] = ACTION_TOOL_CHOICE
+        retry = retry_due(messages, self._last_model_request)
+        request["tool_choice"] = RETRY_TOOL_CHOICE if retry else ACTION_TOOL_CHOICE
         request["max_tokens"] = ACTION_MAX_TOKENS
-        request["extra_body"] = dict(ACTION_THINKING)
+        request["extra_body"] = dict(RETRY_THINKING if retry else ACTION_THINKING)
         self._life_budget = send_check(messages, self._life_budget)
         fitted = fit_request(request, self._life_budget)
         if len(fitted["messages"]) < len(messages):
@@ -242,8 +269,10 @@ class LifeAgent(PersonAgent):
         return remaining
 
     def _request_tool_models(self, readonly: bool) -> dict[str, type[BaseModel]]:
-        """@brief 当前请求的工具模型：为世界请求（只读为 finish）保留 1 个回合，剩余不少于 2 个时才开放记忆查询。"""
-        memory = _MEMORY_TOOL_MODELS if self._remaining_turns() > 1 else {}
+        """@brief 当前请求的工具模型：为世界请求（只读为 finish）保留 1 个回合，剩余不少于 2 个时才开放记忆查询；截断重试
+        同样不开放记忆查询，只能给出世界请求（只读为 finish，docs/dev/SPEC-dayrun-fidelity.md 7.2）。"""
+        retry = retry_due(self._react_messages, self._last_model_request)
+        memory = _MEMORY_TOOL_MODELS if self._remaining_turns() > 1 and not retry else {}
         if readonly:
             return {**memory, "finish": ReadonlyFinishRequest}
         return {**REQUEST_MODELS, **memory}

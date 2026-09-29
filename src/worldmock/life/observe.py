@@ -14,7 +14,7 @@ from typing import Any
 
 from worldmock.footprints.experiences import recent_verified_experiences
 from worldmock.life import (activity_control, discovery, felt, memory_layer, named_catalog, presentation,
-                            progress_layer, projection, request_linking)
+                            progress_layer, projection, relevance, request_linking)
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
@@ -182,8 +182,8 @@ class ObservationMixin:
         entries = self._product_pool(agent)
         sources = presentation.entry_sources(entries, on_site=_on_site_supplies(self, agent))
         inputs = presentation.candidate_inputs(
-            context, sources, moment=False, rotation_offset=self._rotation_offset(agent.agent_id),
-            last_presented_at=self._last_presented(agent.agent_id))
+            context, sources, moment=False, last_presented_at=self._last_presented(agent.agent_id),
+            relevance=self._relevance(entries, self._relevance_facts(self.state, agent)))
         window = presentation.present(entries, inputs, "product", None)
         window = _shared_supply_window(self._discovery_context(agent), window, pinned)
         products = [public_supply_row(row) for row in window.items]
@@ -192,23 +192,56 @@ class ObservationMixin:
     def _menu_windows(self, agent) -> dict[str, PresentationWindow]:
         """@brief 内容、游戏与生活活动三类对象的本轮呈现窗口（交互对象层来源）。
 
-        这三类没有在场与库存这样的当下事实，可见性只由曝光轮转决定；它们与商品窗口
+        这三类没有在场与库存这样的当下事实，可见性由曝光轮转决定；它们与商品窗口
         共用同一候选契约，只有实际进入窗口的身份才更新呈现凭据（docs/dev/SPEC-life-runtime.md
-        「曝光轮转」）。旧的目录下钻工具已随工具面收敛删除，因此窗口是模型看到
-        这三类对象的唯一通道。
+        「曝光轮转」）。生活活动窗口按人物当前地点与此刻取候选：地点类不符的条目不进窗口，排除项记
+        ELIGIBILITY_LOCATION_KIND_MISMATCH（世界事实，不是软偏好；docs/dev/SPEC-dayrun-fidelity.md 5.1）。
+        各分区的排序带相关度（此刻、当日目标与习惯签名），轮转各按本分区对象的上次呈现时刻。
+        旧的目录下钻工具已随工具面收敛删除，因此窗口是模型看到这三类对象的唯一通道。
         """
         context = self._presentation_context(agent)
-        offset = self._rotation_offset(agent.agent_id)
         last = self._last_presented(agent.agent_id)
+        facts = self._relevance_facts(self.state, agent)
         windows: dict[str, PresentationWindow] = {}
         for kind, entries in (("content", self._content_pool(agent)),
                               ("game", self._game_pool(agent)),
                               ("lifestyle", self._lifestyle_pool(agent))):
             inputs = presentation.candidate_inputs(
-                context, presentation.entry_sources(entries), moment=False,
-                rotation_offset=offset, last_presented_at=last)
+                context, presentation.entry_sources(entries), moment=False, last_presented_at=last,
+                relevance=self._relevance(entries, facts))
+            if kind == "lifestyle":
+                inputs = replace(inputs, apply_location_kinds=True)
             windows[kind] = presentation.present(entries, inputs, kind, None)
         return windows
+
+    def _relevance(self, entries: tuple[PoolEntry, ...], facts: relevance.RelevanceFacts) -> dict[str, int]:
+        """@brief 池内条目的相关度（docs/dev/SPEC-dayrun-fidelity.md 5.1）：此刻落在目录时间窗内、属于当日未推进目标的
+        活动家族、人设层习惯签名的反应文本命中条目名或品类；时间窗取生活活动目录的声明。"""
+        windows = {item.activity_id: item.time_window for item in self.lifestyle_items
+                   if item.time_window is not None}
+        return relevance.pool_relevance(entries, facts, windows)
+
+    def _relevance_facts(self, state, agent) -> relevance.RelevanceFacts:
+        """@brief 一次取候选的相关度原料：场景时区的本地时刻、该秒开始时当日未推进目标的活动家族、运行清单冻结的
+        习惯签名反应文本（persona_habit_responses）。"""
+        return relevance.RelevanceFacts(
+            hour=projection.hour_of_day(state.current_time, self.scenario.timezone),
+            goal_families=self._second_start_families(state, agent.agent_id),
+            habit_texts=relevance.manifest_habit_texts(self.store.manifest, agent.agent_id))
+
+    def _second_start_families(self, state, agent_id: int) -> frozenset[str]:
+        """@brief 该秒开始时当日未推进目标的活动家族。
+
+        同一秒各轮沿用该秒首轮的呈现窗口（docs/dev/SPEC-time-and-energy.md 第一章「同一秒内的呈现与「刚才」」），
+        相关度同轮转判据一样取该秒开始时的值：本秒已有本人观察时，取其中最早一次待办层写出的今日计划（意图与是否已推进），
+        本秒内修订计划或推进目标从下一秒起才进入排序；本秒首次观察取当前计划。
+        """
+        after = self.store.last_event_seq_before(state.current_time)
+        first = next(iter(self.store.read_agent_events("observation", agent_id, after)), None)
+        if first is None:
+            return relevance.goal_families(visible_goals(state, agent_id))
+        plan = first.data["todo_layer"]["day_plan"] or {"goals": ()}
+        return relevance.intent_families(row["intent_kind"] for row in plan["goals"] if not row["progressed"])
 
     def _event_tool_support(self, agent, presented: tuple[str, ...]) -> dict:
         """@brief 事件级工具支持与既有目录投影（私有证据，不进任何一层）。"""
@@ -492,7 +525,8 @@ class ObservationMixin:
         entries = _supply_entries(discovery_context, {item.supply_id for item in self.scenario.supplies})
         previous = state.presentation_state.get(agent.agent_id, {})
         inputs = presentation.candidate_inputs(context, presentation.entry_sources(entries), moment=False,
-                                               rotation_offset=len(previous), last_presented_at=dict(previous))
+                                               last_presented_at=dict(previous),
+                                               relevance=self._relevance(entries, self._relevance_facts(state, agent)))
         window = presentation.present(entries, inputs, "product", None)
         staged = _stage_presentation(state, agent.agent_id, window)
         staged = discovery.stage_visible_supplies(staged, agent.agent_id, set(window.presented), self.scenario)
@@ -508,16 +542,9 @@ class ObservationMixin:
                                    semantics=self.semantics, agent=agent)
 
     def _last_presented(self, agent_id: int) -> dict[str, int]:
-        """@brief 该人物各对象的上次呈现时刻（轮转判据，不含任何偏好推断）。"""
+        """@brief 该人物各对象的上次呈现时刻（轮转的唯一判据，逐对象记录，不含任何偏好推断；不设共享偏移量或分区
+        游标，docs/dev/SPEC-life-runtime.md「曝光轮转」）。"""
         return dict(self.state.presentation_state.get(agent_id, {}))
-
-    def _rotation_offset(self, agent_id: int) -> int:
-        """@brief 该人物本次轮转的池内起点：取已留痕的呈现次数（单调前进、不折返）。
-
-        游标只前进，因此任一对象的最坏等待间隔有界；它不记录「谁更受欢迎」，只记录
-        绕池走到哪儿（docs/dev/SPEC-life-runtime.md「曝光轮转」）。
-        """
-        return len(self.state.presentation_state.get(agent_id, {}))
 
     def _product_pool(self, agent, menu: bool = False) -> tuple[PoolEntry, ...]:
         """@brief 购买候选以供给为身份，口味按商品读取，窗口外供给不授予购买资格。"""
