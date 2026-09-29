@@ -156,7 +156,8 @@ def test_reviewer_acceptance_still_requires_the_excerpt_check() -> None:
 
 
 @pytest.mark.parametrize(("number", "accepted", "total"), [
-    (1, False, 18), (2, True, 17), (3, True, 17), (4, True, 17), (5, False, 19), (6, True, 18)])
+    (1, False, 18), (2, True, 17), (3, True, 17), (4, True, 17), (5, False, 19), (6, True, 18)],
+    ids=[f"submission-{number}" for number in range(1, 7)])
 def test_business_day_run_reviews_recomputed(number: int, accepted: bool, total: int) -> None:
     """BIZ 纪要 6 次提交的真实评审响应重算：评审模型判接受的第 2、3、4、6 次摘录全部通过（17/17、17/17、17/17、
     18/18）并被接受；第 1、5 次评审模型判不接受，仍拒。运行时记录的结论 6 次全是拒绝（旧规则下中文整句算 1 个词）。"""
@@ -185,7 +186,7 @@ def test_business_reviews_failed_under_the_old_word_count() -> None:
         assert not all(_legacy_excerpt_in_source(item, business["source"]) for item in excerpts)
 
 
-@pytest.mark.parametrize(("number", "total"), [(1, 18), (2, 17)])
+@pytest.mark.parametrize(("number", "total"), [(1, 18), (2, 17)], ids=["submission-1", "submission-2"])
 def test_white_collar_english_reviews_are_unchanged(number: int, total: int) -> None:
     """WC 两次英文评审：每条摘录的核对结论与改动前相同且全部通过，最终接受与否与运行记录一致（拒、收）。"""
     source = _white_collar_source()

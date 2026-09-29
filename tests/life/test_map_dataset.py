@@ -112,7 +112,7 @@ def test_old_map_structure_version_is_rejected(tmp_path):
     assert "schema_version" in str(failure.value)
 
 
-@pytest.mark.parametrize("label", ["", " "])
+@pytest.mark.parametrize("label", ["", " "], ids=["empty", "space"])
 def test_branch_label_must_be_nonblank_when_declared(label):
     """@brief 分店标签可选；声明了就不能是空白（空白标签无法区分同名地点）。"""
     assert location().branch_label is None

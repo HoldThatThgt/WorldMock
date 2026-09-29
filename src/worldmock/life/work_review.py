@@ -31,8 +31,8 @@ WORK_REVIEW_MAX_MODEL_CALLS = 3
 #: 纯英文即「至少 3 个词」，中文即至少 6 个字。
 EXCERPT_MINIMUM_LENGTH = 3
 #: 汉字（含兼容区、扩展区与「々〇」等）与平假名、片假名：按字计长度，与它们相邻的空格在归一时删除。
-_HAN_KANA = ("々〇〡-〩〸-〻぀-ヿㇰ-ㇿ㐀-䶿一-鿿"
-             "豈-﫿\U00020000-\U0003ffff")
+_HAN_KANA = ("\u3005\u3007\u3021-\u3029\u3038-\u303b\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff"
+             "\uf900-\ufaff\U00020000-\U0003ffff")
 _HAN_KANA_CHARACTER = re.compile(f"[{_HAN_KANA}]")
 _SPACE_BESIDE_HAN_KANA = re.compile(f" (?=[{_HAN_KANA}])|(?<=[{_HAN_KANA}]) ")
 _ALPHANUMERIC_RUN = re.compile(f"[^ {_HAN_KANA}]+")
