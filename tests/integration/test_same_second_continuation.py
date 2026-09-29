@@ -613,7 +613,7 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     assert [item["role"] for item in last["messages"]] == ["system", "user", "assistant", "tool", "assistant", "tool"]
     assert [item.get("reasoning_content") for item in last["messages"][2::2]] == ["先翻翻记忆。", "那就先等一会儿。"]
     assert "散步时想好了喝咖啡。" in last["messages"][3]["content"]
-    assert json.loads(last["messages"][5]["content"])["error_type"] == "protocol_validation_error"
+    assert json.loads(last["messages"][5]["content"])["error_code"] == "NAME_NOT_FOUND"
 
     person, second = await _workspace_person(environment, workspace, _wait_reply())
     assert await _step(environment, person, "wait") == "start_activity registered"
@@ -855,7 +855,8 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
 
     call = {"id": "call-earlier", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}
     earlier = {"result": {"status": "completed"}, "changes": {"body": {"appetite": "有点饿"}}}
-    feedback = {"ok": False, "executed": False, "error_type": "protocol_validation_error", "error": "bad"}
+    feedback = {"error_code": "NAME_NOT_FOUND", "reason": "bad", "fix": "fix", "items": [], "unmet": [],
+                "instruction": "本次没有登记到世界；按 fix 修改后重新提交"}
     chain = {"messages": [
         {"role": "system", "content": "系统层"},
         {"role": "user", "content": json.dumps(layers("营业", "不饿"), ensure_ascii=False)},

@@ -30,6 +30,7 @@ from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
 from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent, life_action_tool_names
+from custom.agents.life_feedback import FEEDBACK_INSTRUCTION
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import (
     _Environment,
@@ -232,10 +233,14 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     assert result == "conclude_activity registered"
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(valid)]
     error = _response_errors(environment)[0]
-    assert error.startswith("invalid conclude_activity arguments") and message in error
+    assert error.startswith("ARGUMENTS_INVALID: invalid conclude_activity arguments") and message in error
     correction = [item for item in dispatcher.requests if "tools" in item][1]
-    feedback = json.loads(correction["messages"][-1]["content"])
-    assert feedback["executed"] is False and feedback["error"] == error
+    content = correction["messages"][-1]["content"]
+    feedback = json.loads(content)
+    assert (feedback["error_code"], feedback["instruction"]) == ("ARGUMENTS_INVALID", FEEDBACK_INSTRUCTION)
+    assert feedback["reason"] and "error" not in feedback
+    assert not any(dump in content for dump in ("input_value", "errors.pydantic", "Input should be",
+                                                "Extra inputs are not permitted", "should match pattern"))
     assert agent._last_finish_memories == _stored_memories(valid)
 
 
@@ -526,7 +531,7 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     episodes = [episode for payload in returned for episode in payload.get("episodes", [])]
     assert len(episodes) >= 3
     assert all(set(episode) == {"type", "text", "time", "epistemic_status"} for episode in episodes)
-    assert any(payload.get("executed") is False for payload in returned)
+    assert any(payload.get("instruction") == FEEDBACK_INSTRUCTION for payload in returned)
     assert len(returned) == 3 and person._react_messages[-1]["role"] == "assistant"
     assert f'"name":"{name}","kind":"activity","phase":"刚结束"' in model.requests[0]["messages"][1]["content"]
     assert [_offered_activity(request) for request in model.requests[2:]] == [name, name]
@@ -635,7 +640,8 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
     assert _response_errors(environment) == ["finish must be the only tool call in a response", None]
     feedback = [json.loads(message["content"]) for message in dispatcher.requests[1]["messages"]
                 if message.get("role") == "tool"]
-    assert [item["executed"] for item in feedback] == [False, False]
+    assert [(item["error_code"], item["reason"]) for item in feedback] == [
+        ("TOOL_CALL_REQUIRED", "finish 要单独调用")] * 2
 
 
 #: 结束活动写下的主观记忆（类型各异、正文互不相似，避免按相似度合并）。
