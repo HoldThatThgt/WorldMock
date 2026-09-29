@@ -24,17 +24,18 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E4
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
-from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOICE,  # noqa: E402
+from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOICE, _WORK,  # noqa: E402
                                                         _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
                                                         _add_objects, _conclude_args, _context, _memory, _observations,
                                                         _offer, _prepared, _step_observation, _view,
-                                                        _visible_object, _wire_agent)
+                                                        _visible_object, _wire_agent, _with_activities)
 from tests.integration.test_output_truncation import _Truncated  # noqa: E402
 from tests.integration.test_same_second_continuation import _environment, _reply, _single  # noqa: E402
 from tests.integration.test_storefront_tools import _OFFER, _observed_offer  # noqa: E402
 from tests.life.conftest import engine_factory as _engine_factory, last_result, start_arguments  # noqa: E402,F401
 from tests.life.test_named_purchase import _browsed, _hidden, _layer_context  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
+from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
 from worldmock.life.error_contract import ERROR_KEYS, HOST_ERROR_CODES, host_defaults, host_report  # noqa: E402
 from worldmock.life.guidance import GENERIC_REASON  # noqa: E402
 from worldmock.life.named_purchase import supply_label  # noqa: E402
@@ -205,6 +206,19 @@ def test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates(
         {"target": "自己", "action": "sleep", "way": "睡觉", "from": None, "to": None}]
     assert payload["reason"] == "第 2 项「自己」没有列出「sleep：观看」这种做法"
     assert payload["fix"] == "第 2 项改用该对象列出的动词与方式（见候选），或者去掉这一项"
+
+
+def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one() -> None:
+    """结束两项活动，第一项只写偏好、第二项的关系看法写了不认识的人：SUBJECT_NOT_KNOWN 的明细指向第二项（index 1），参数名
+    是 about、原文是所写的名字（docs/dev/SPEC-dayrun-fidelity.md 第四章 items、第六章 views）。"""
+    data = _with_activities(_observations()[0]["data"], (_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE))
+    agent = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": data}])
+    arguments = _conclude_args(_WORK, _WAIT, memories=[[], []],
+                               views=[[_view("拿铁", "下午想喝拿铁。", kind="preference")], [_view("陌生人")]])
+    payload = _feedback(agent.validate_react_decisions([_decision("conclude_activity", arguments)], False))
+    assert payload["error_code"] == "SUBJECT_NOT_KNOWN"
+    assert [(item["index"], item["field"], item["written"], item["error_code"]) for item in payload["items"]] == [
+        (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
 
 
 def test_all_name_errors_are_reported_and_other_conditions_report_the_first() -> None:

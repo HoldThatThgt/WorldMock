@@ -120,6 +120,20 @@ def test_biz_has_no_content_but_the_card_and_habits_listen_and_scroll() -> None:
     assert taste_warnings(5, None, [], None) == []
 
 
+def test_a_habit_whose_trigger_watches_or_scrolls_counts_as_a_media_habit() -> None:
+    """「习惯里有看、刷、听」看触发与反应两处：反应里没有这三个字、只在触发里刷手机的习惯也算，场景没有内容时照样
+    CONTENT_EMPTY_WITH_MEDIA_TASTES，证据列出该习惯的反应；两处都没有时不出现。"""
+    habit = HabitSignature(trigger="睡前刷手机时", response="提醒自己早点睡", time_window=make_window(22.0, 23.0))
+    card = make_card(habits=(habit,), tastes=Tastes(content_genres=(), food_preferences=("川菜",), media=("钉钉",)))
+
+    warnings = taste_warnings(3, card, [], None)
+
+    assert _codes(warnings) == ["CONTENT_EMPTY_WITH_MEDIA_TASTES"]
+    assert warnings[0]["details"] == {"content_genres": [], "media": [], "habits": ["提醒自己早点睡"]}
+    quiet = card.model_copy(update={"habits": (habit.model_copy(update={"trigger": "睡前"}),)})
+    assert taste_warnings(3, quiet, [], None) == []
+
+
 def test_games_without_weight_entries_are_reported_from_the_explicit_table() -> None:
     """GAMES_WITHOUT_TASTE_WEIGHTS：场景有游戏、权重表里没有它们的条目才警告；权重为 0 的条目也算已有。"""
     warnings = game_weight_warnings(1, ("textworld-1201", "textworld-1202"), {"movie-0001": 0.5})
