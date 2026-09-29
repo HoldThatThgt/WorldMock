@@ -15,12 +15,16 @@ import os
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from tests.life.conftest import context, stage_day_plan, start_arguments  # noqa: E402
+from tests.life.conftest import (advance_until_ready, context, stage_day_plan, start_arguments,  # noqa: E402
+                                 wake_by_mail)
 from tests.life.purchase_worlds import at_clock, decide  # noqa: E402
 from tests.life.routing_fixtures import place  # noqa: E402
-from tests.life.test_browse_and_hints import _rescenario  # noqa: E402
+from tests.life.test_browse_and_hints import _rescenario, _retarget  # noqa: E402
 from tests.life.test_commerce import _browse  # noqa: E402
+from worldmock.life.basket import delivery_expected_at  # noqa: E402
+from worldmock.life.guidance import refusal_for_code  # noqa: E402
 from worldmock.life.readable import clock_phrase  # noqa: E402
+from worldmock.life.wayfinding import shortest_paths  # noqa: E402
 
 _MILK, _NOODLES = "纯牛奶", "鸡汤面"
 _MARKET_NAME = "张江日用集市与配送取货点（冻结场景锚点）"
@@ -75,6 +79,21 @@ def test_goods_from_a_store_that_does_not_sell_them_are_supply_not_at_store(engi
     candidate = item["candidates"][0]
     _, _, retried = decide(engine, "not-at-store-retry", _buy((candidate["target"], candidate["way"], None)))
     assert retried.status == "completed"
+
+
+def test_the_name_stage_is_judged_before_the_source(engine_factory) -> None:
+    """分段匹配依次判定（3.2（c）第 1 步先于来源，3.3 解析规则 1）：名称不是任何商品时报 SUPPLY_NOT_FOUND（只表示没有这件
+    商品，逐项明细的参数名是 targets），即使 from 也不是门店或 App 的名称；名称对得上而 from 不认识时才报 SOURCE_NOT_FOUND，
+    参数名是 from。宿主都放行（App 称呼与不认识的写法交给环境），不下单。"""
+    engine = _world(engine_factory)
+    before = _world_facts(engine)
+    _, error, missing = decide(engine, "no-such-goods", _buy(("不存在的商品", "远程下单", "不存在的App")))
+    assert error == "" and (missing.status, missing.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
+    assert [(item["field"], item["written"]) for item in missing.data["items"]] == [("targets", "不存在的商品")]
+    _, error, unknown = decide(engine, "no-such-source", _buy((_MILK, "远程下单", "不存在的App")))
+    assert error == "" and (unknown.status, unknown.error_code) == ("rejected", "SOURCE_NOT_FOUND")
+    assert [(item["field"], item["written"]) for item in unknown.data["items"]] == [("from", "不存在的App")]
+    assert _world_facts(engine) == before
 
 
 def test_a_way_the_matching_store_does_not_offer_is_fulfillment_not_supported(engine_factory) -> None:
@@ -133,6 +152,24 @@ def test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable(eng
     [delivered] = remote.data["orders"]
     assert (delivered["fulfillment"], delivered["destination_id"]) == ("delivery", "home")
     assert remote.data["notes"][0].startswith(f"「{_MILK}」「购买」定为远程下单，有 3 处都能远程下单，按最快选了")
+
+
+def test_system_purchase_on_the_road_is_not_buying_in_the_store_just_left(engine_factory) -> None:
+    """「购买」只在人此刻就在出售它的门店里时到店（3.5「收敛」第 2 条；途中不在任何店里）：从集市步行回家的路上写「购买」，
+    即使出发地集市就卖纯牛奶也不定为到店，而是能送到收货地就远程下单（远程下单的送达地途中取出发地，与列出的远程下单同一
+    口径），受理说明写明定为远程下单。"""
+    engine = _world(engine_factory)
+    place(engine, 1, "market")
+    _, error, walking = decide(engine, "walk-home", start_arguments([f"地点：{_place(engine, 'home')}"], ["travel"],
+                                                                    ["步行"]))
+    assert error == "" and walking.status == "in_progress"
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    assert engine.state.activities[walking.activity_id].status == "active"
+    _, error, bought = decide(engine, "buy-on-the-road", _buy((_MILK, "购买", None)))
+    assert error == "" and (bought.status, bought.error_code) == ("completed", None)
+    assert [order["fulfillment"] for order in bought.data["orders"]] == ["delivery"]
+    assert bought.data["notes"][0].startswith(f"「{_MILK}」「购买」定为远程下单")
 
 
 def test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_store(engine_factory) -> None:
@@ -222,3 +259,68 @@ def test_multi_item_purchases_report_every_item_and_stay_atomic(engine_factory) 
         (1, "ACTIVITY_PRECONDITION_UNMET")]
     assert mixed.data["next_step"] == f"去{soup}" and "orders" not in mixed.data
     assert _world_facts(engine) == before
+
+
+def test_a_name_class_item_leads_the_merged_rejection_even_when_it_comes_second(engine_factory) -> None:
+    """多件购买合并成一次拒绝时码取第一个名称类拒绝的码（名称类优先，3.1 第 5 条、3.2（d）；其余条件才报第一条）：第 1 项
+    此刻服务不了（ACTIVITY_PRECONDITION_UNMET）、第 2 项没有这件商品（SUPPLY_NOT_FOUND）时，一次拒绝的码是 SUPPLY_NOT_FOUND、
+    下一步取它的默认做法，items 按项序各写各的码；它是名称类拒绝，本秒前两次不计同刻轮数（3.4）。"""
+    engine = _world(engine_factory, hour=11)
+    rounds = engine.state.agents[1].same_moment_rounds
+    soup = _place(engine, _SOUP)
+    _, error, result = decide(engine, "unmet-then-missing",
+                              _buy((_NOODLES, "购买", soup), ("不存在的商品", "远程下单", None)))
+    assert error == "" and (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
+    assert [(item["index"], item["error_code"]) for item in result.data["items"]] == [
+        (0, "ACTIVITY_PRECONDITION_UNMET"), (1, "SUPPLY_NOT_FOUND")]
+    assert result.data["next_step"] == refusal_for_code("SUPPLY_NOT_FOUND").next_step
+    assert engine.state.agents[1].same_moment_rounds == rounds
+
+
+def _milk_supplies(engine) -> dict[str, object]:
+    """各家门店出售的纯牛奶（门店身份 → 供给）。"""
+    return {supply.location_id: supply for supply in engine.scenario.supplies
+            if engine.rules.items[supply.product_id].name == _MILK}
+
+
+def test_an_unservable_source_offers_the_same_goods_that_can_be_served_elsewhere(engine_factory) -> None:
+    """M3 为空时附此刻能服务的同名候选，不限于 from 的范围（3.2（c）第 4 步）：好德的纯牛奶送不到家时写 from「好德」远程下单，
+    以 ACTIVITY_PRECONDITION_UNMET 拒绝（「这里不在这家店的配送范围内」）；候选是别家能送到家的纯牛奶（完整标签、from 为
+    null、远程下单，按预计送达排序），照填即受理。"""
+    engine = _world(engine_factory)
+    milk = _milk_supplies(engine)
+    haode = milk[_HAODE]
+    _retarget(engine, haode.supply_id, tuple(spot for spot in haode.delivery_destination_ids if spot != "home"))
+    _, error, refused = decide(engine, "unservable-source", _buy((_MILK, "远程下单", _place(engine, _HAODE))))
+    assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
+    assert refused.data["reason"] == f"「{_MILK}」：这里不在这家店的配送范围内"
+    arrival = {store: delivery_expected_at(engine.semantics, supply, "home", engine.state.current_time)
+               for store, supply in milk.items() if store != _HAODE}
+    assert len(set(arrival.values())) == len(arrival) == 2
+    [item] = refused.data["items"]
+    assert item["candidates"] == [{"target": f"{_place(engine, store)}出售的{_MILK}", "action": "obtain",
+                                   "way": "远程下单", "from": None, "to": "自己"}
+                                  for store in sorted(arrival, key=arrival.get)]
+    _, _, retried = decide(engine, "unservable-source-retry", _buy((item["candidates"][0]["target"], "远程下单", None)))
+    assert retried.status == "completed"
+
+
+def test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route(engine_factory) -> None:
+    """「购买」两者都不行而几家门店都卖（3.5「收敛」第 2 条）：人在紫薇公园，三家的纯牛奶都送不到这里，以
+    ACTIVITY_PRECONDITION_UNMET 拒绝，next_step 写从这里出发路线最短的出售门店（不是身份在前、也不是路线最长的那家）；到店
+    时原因同样说最近的是这一家。"""
+    engine = _world(engine_factory)
+    milk = _milk_supplies(engine)
+    for supply in milk.values():
+        _retarget(engine, supply.supply_id, tuple(spot for spot in supply.delivery_destination_ids if spot != _PARK))
+    place(engine, 1, _PARK)
+    paths = shortest_paths(engine.scenario.routes, _PARK)
+    nearest = min(milk, key=lambda store: paths[store][0])
+    assert nearest not in {min(milk), max(milk, key=lambda store: paths[store][0])}
+    _, error, system = decide(engine, "system-several", _buy((_MILK, "购买", None)))
+    assert error == "" and (system.status, system.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
+    assert system.data["reason"] == f"「{_MILK}」：不在出售它的门店里，也送不到{_place(engine, _PARK)}"
+    assert system.data["next_step"] == f"去{_place(engine, nearest)}"
+    _, _, pickup = decide(engine, "pickup-several", _buy((_MILK, "到店", None)))
+    assert pickup.data["reason"] == f"「{_MILK}」：要人在出售它的门店里才能到店买，最近的是{_place(engine, nearest)}"
+    assert pickup.data["next_step"] == system.data["next_step"]

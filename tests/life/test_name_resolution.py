@@ -26,8 +26,8 @@ from custom.agents.life_feedback import feedback_report  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_add_objects, _observations, _offer, _prepared,  # noqa: E402
                                                         _visible_object)
 from tests.life.conftest import (advance_until_ready, context, last_result, stage_day_plan,  # noqa: E402
-                                 start_arguments)
-from tests.life.routing_fixtures import place, stage  # noqa: E402
+                                 start_arguments, start_request, submit_round)
+from tests.life.routing_fixtures import DUPLICATE_TARGET, PERSON_TARGET, open_world, place, stage  # noqa: E402
 from worldmock.footprints.quality import build_quality_report  # noqa: E402
 from worldmock.life import same_moment  # noqa: E402
 from worldmock.life.error_contract import (ENVIRONMENT_NAME_CODES, HOST_ERROR_CODES, HOST_NAME_CODES,  # noqa: E402
@@ -37,6 +37,7 @@ from worldmock.life.interaction_menu import WAYS, resolve_selection  # noqa: E40
 from worldmock.life.models import REQUEST_MODELS, StartActivityRequest  # noqa: E402
 from worldmock.life.name_resolution import (WAY_SYNONYMS, name_book, named_kind, resolve_name,  # noqa: E402
                                             resolve_start, way_options)
+from worldmock.life.readable import duration_phrase  # noqa: E402
 from worldmock.life.result_projection import public_result  # noqa: E402
 
 #: 候选请求照填的键（另可带 note）。
@@ -187,6 +188,50 @@ def test_each_prefix_and_the_mail_stamp_are_added_or_stripped(engine_factory, ca
         assert outcome.resolved == ({"written": form, "as": label},)
 
 
+#: 首日两封同主题的回信（13:00 与 19:00 送达）。
+_REPLY_IDS = ("week-01-work-plan-2", "week-01-work-plan-3")
+_REPLY_LABELS = tuple(f"邮件：Re: Work planning（2026年01月05日 {clock}:00:00）" for clock in ("13", "19"))
+
+
+def _evening_mails(engine_factory):
+    """white-collar 场景：首日 19:30 在家，两封同主题的回信都可见。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    now = int(datetime(2026, 1, 5, 19, 30, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+
+    def change(state):
+        """@brief 推到 19:30，两封回信都已送达、可见。"""
+        state.current_time = now
+        state.pending_events = [event for event in state.pending_events if event.due_at > now]
+        agent = state.agents[1]
+        agent.body_settled_at = now
+        agent.next_decision_at = now
+        agent.visible_message_ids = set(_REPLY_IDS)
+    stage(engine, change)
+    return engine
+
+
+def test_a_mail_written_in_other_brackets_is_that_mail_and_a_bare_subject_is_ambiguous(engine_factory) -> None:
+    """逐级放宽、第一级有匹配就停（3.1 第 2 条）：同一天两封「Re: Work planning」都可见时，照抄其中一封的名称、只把括号写成
+    半角，统一全半角后唯一就是那一封——宿主受理、环境解析到同一封并开始阅读、归一记进 details.resolved，不因去掉到达时刻后
+    两封同名而报歧义；只写主题不带时刻才对应两封，宿主报 NAME_AMBIGUOUS，候选是两封的完整名称，从不替人物挑一封。"""
+    engine = _evening_mails(engine_factory)
+    ctx, observed, host = _open(engine, "two-replies")
+    assert set(_REPLY_LABELS) <= {row["object"] for row in observed["interaction_bindings"]}
+    written = _REPLY_LABELS[0].replace("（", "(").replace("）", ")")
+    arguments = _start([written], ["interact"], ["阅读"])
+    assert _check(host, "start_activity", arguments) == ""
+    assert [row["object"] for row in _selection(engine, ctx, arguments)] == [_REPLY_LABELS[0]]
+    bare = _check(host, "start_activity", _start(["Re: Work planning"], ["interact"], ["阅读"]))
+    assert bare.report.error_code == "NAME_AMBIGUOUS"
+    assert sorted(candidate.target for candidate in bare.report.items[0].candidates) == list(_REPLY_LABELS)
+    engine.submit_action(DirectToolCall(ctx, "action-two-replies", "start_activity",
+                                        StartActivityRequest.model_validate(arguments)))
+    [result] = engine.commit_decision_round("two-replies")
+    assert (result.status, result.data["resolved"]) == ("in_progress", [{"written": written, "as": _REPLY_LABELS[0]}])
+    assert engine.state.activities[result.activity_id].target_id == _REPLY_IDS[0]
+
+
 def test_start_suffix_task_prefix_and_recall_names_resolve_for_the_other_tools(engine_factory) -> None:
     """活动名去掉开始时刻「（1月5日 09:30 起）」、全角括号写成半角都唯一对应本轮活动；任务名不写「工作：」、回看名称不写
     前缀都唯一解析；宿主受理，环境按同一解析受理并在结果 details.resolved 记下（控制工具、回看与提交成果同一口径）。"""
@@ -226,8 +271,9 @@ def test_start_suffix_task_prefix_and_recall_names_resolve_for_the_other_tools(e
 
 def test_home_words_map_to_the_home_location_and_other_spellings_only_get_candidates(engine_factory) -> None:
     """「家」「住处」指本人的住处（home_location_id）：在办公室时写「家」出行，宿主与环境都解析为住处并受理，归一记下；
-    「家（张江居所）」这类其余写法不受理，候选里有住处；人在家时写「家」同样解析为住处，环境以没有路线的业务拒绝说明，
-    不崩溃。"""
+    「家（张江居所）」这类其余写法不受理，候选里有住处；「家」只在动词与方式指向地点时才是住处（按动词与方式增补前缀），
+    做生活活动（interact：进行）时写「家」不是任何对象，报 NAME_NOT_FOUND 并按相似度给候选，不把住处当成对象；人在家时写
+    「家」同样解析为住处，环境以没有路线的业务拒绝说明，不崩溃。"""
     engine = _morning(engine_factory)
     place(engine, 1, "office")
     ctx, observed, host = _open(engine, "home-words")
@@ -239,6 +285,10 @@ def test_home_words_map_to_the_home_location_and_other_spellings_only_get_candid
     other = _check(host, "start_activity", _start(["家（张江居所）"], ["travel"], ["步行"]))
     assert other.report.error_code == "NAME_NOT_FOUND"
     assert _HOME_LABEL in [candidate.target for candidate in other.report.items[0].candidates]
+    doing = _check(host, "start_activity", _start(["家"], ["interact"], ["进行"]))
+    assert doing.report.error_code == "NAME_NOT_FOUND" and _selection(engine, ctx, _start(["家"], ["interact"],
+                                                                                          ["进行"])) is None
+    assert _HOME_LABEL not in [candidate.target for candidate in doing.report.items[0].candidates]
     engine.submit_action(DirectToolCall(ctx, "action-home-words", "start_activity",
                                         StartActivityRequest.model_validate(_start(["家"], ["travel"], ["步行"]))))
     [going] = engine.commit_decision_round("home-words")
@@ -271,6 +321,25 @@ def test_verb_and_way_mismatch_is_way_not_offered_with_the_targets_pairs(engine_
     [refused] = engine.commit_decision_round("mismatch")
     assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     assert [row["error_code"] for row in refused.data["items"]] == ["WAY_NOT_OFFERED"]
+
+
+def test_the_verb_and_way_decide_the_prefix_so_a_shared_bare_name_stays_unique(engine_factory) -> None:
+    """按动词与方式增补前缀（3.1 第 2 条）：多人场景里「联系人：李凡」（通讯录里的同事）与「人物：李凡」（同处的同世界人物）
+    去掉前缀后同名；只写「李凡」时，通话只列在联系人上、交谈只列在人物上，各自唯一解析——宿主受理，环境解析到同一对象；所写
+    方式不是方式时按动词推出类别，两者都可能，宿主报 NAME_AMBIGUOUS、候选是两者的完整名称，不替人物挑一个。"""
+    engine = open_world(engine_factory)
+    ctx = context(engine, "shared-name")
+    observed = engine.observe(ctx)
+    host = _host(ctx, observed)
+    assert {DUPLICATE_TARGET, PERSON_TARGET} <= {row["object"] for row in observed["interaction_bindings"]}
+    for way, label in (("通话", DUPLICATE_TARGET), ("交谈", PERSON_TARGET)):
+        arguments = _start(["李凡"], ["interact"], [way])
+        assert _check(host, "start_activity", arguments) == "", way
+        assert [row["object"] for row in _selection(engine, ctx, arguments)] == [label]
+    either = _check(host, "start_activity", _start(["李凡"], ["interact"], ["聊聊近况"]))
+    assert either.report.error_code == "NAME_AMBIGUOUS"
+    assert sorted(candidate.target for candidate in either.report.items[0].candidates) == sorted(
+        [DUPLICATE_TARGET, PERSON_TARGET])
 
 
 def test_way_synonym_is_accepted_only_on_a_unique_hit(engine_factory) -> None:
@@ -317,6 +386,58 @@ def test_a_synonym_hitting_two_listed_ways_is_not_accepted() -> None:
     assert all(options and options <= set(WAYS) for options in WAY_SYNONYMS.values())
     assert way_options("看") == {"观看", "接着看", "从头再看"} and way_options("溜达过去") == frozenset()
     assert named_kind("obtain", "外卖") == "supply" and named_kind("interact", "外卖") is None
+
+
+def test_simulated_marks_and_other_brackets_are_normalised_away() -> None:
+    """无损归一（3.1 第 2 条）：比对时忽略「（模拟）」，方头括号、方括号统一成圆括号——列出的「地点：社区菜市场（模拟）」写成
+    「社区菜市场」，列出的「内容：纪录片【高清】」写成「纪录片[高清]」或「纪录片(高清)」，都唯一解析到它们：宿主受理，同一
+    函数解析出同一绑定并把归一记成一条 {written, as}；写成别的名字（「纪录片高清版」）仍不受理。"""
+    observed = _observations()
+    _add_objects(observed[0]["data"],
+                 _visible_object("地点：社区菜市场（模拟）", "location", "market-simulated",
+                                 _offer("travel", "步行", "travel_to", travel_mode="walking")),
+                 _visible_object("内容：纪录片【高清】", "content", "documentary-hd", _offer("interact", "接着看", "watch")))
+    host = _prepared(observed)
+    book = name_book(observed[0]["data"])
+    for written, verb, way, label in (("社区菜市场", "travel", "步行", "地点：社区菜市场（模拟）"),
+                                      ("纪录片[高清]", "interact", "接着看", "内容：纪录片【高清】"),
+                                      ("纪录片(高清)", "interact", "接着看", "内容：纪录片【高清】")):
+        arguments = _start([written], [verb], [way])
+        assert _check(host, "start_activity", arguments) == "", written
+        outcome = resolve_start(book, StartActivityRequest.model_validate(arguments))
+        assert ([row["object"] for row in outcome.rows], outcome.resolved) == (
+            [label], ({"written": written, "as": label},)), written
+    assert _check(host, "start_activity", _start(["纪录片高清版"], ["interact"], ["接着看"])).report.error_code == (
+        "NAME_NOT_FOUND")
+
+
+def test_candidates_for_unlisted_activities_carry_the_catalog_duration_as_their_note(engine_factory) -> None:
+    """候选另带一句说明（3.1 第 3 条、第四章示例「约 20 分钟」）：写错的生活活动名给出的候选里，本轮没有列出的生活活动（目录
+    绑定）此刻能做时以目录的典型时长作说明，不能做时以单独提交会得到的原因作说明，与列出的目标同一口径。"""
+    engine = _morning(engine_factory)
+    _, observed, host = _open(engine, "candidate-notes")
+    catalog = {row["object"]: row for row in observed["catalog_bindings"] if row["kind"] == "lifestyle"}
+    minutes = {f"活动：{item.name}": item.typical_duration_minutes for item in engine.lifestyle_items}
+    error = _check(host, "start_activity", _start(["收拾碗筷与厨房"], ["interact"], ["进行"]))
+    unlisted = [candidate for candidate in error.report.items[0].candidates if candidate.target in catalog]
+    assert any(catalog[candidate.target]["reason"] is None for candidate in unlisted), unlisted
+    for candidate in unlisted:
+        assert candidate.note == (catalog[candidate.target]["reason"]
+                                  or duration_phrase(minutes[candidate.target] * 60)), candidate
+
+
+def test_places_without_a_listed_route_are_never_candidates() -> None:
+    """没有列出路线的地点不作候选（3.1 第 3 条：候选是可以照填的请求，照填也去不了的地方不给）：冻结地点表里有「远方书店」，
+    本轮却没有列出去那里的路线；出行写成「远方书店分店」时宿主报 NAME_NOT_FOUND，候选里没有它；照写它的名称时宿主放行，由
+    环境按所写方式找路线判定。"""
+    observed = _observations()
+    data = observed[0]["data"]
+    data["locations"] = [*data["locations"], {"location_id": "far-bookstore", "name": "远方书店"}]
+    host = _prepared(observed)
+    wrong = _check(host, "start_activity", _start(["远方书店分店"], ["travel"], ["步行"]))
+    assert wrong.report.error_code == "NAME_NOT_FOUND"
+    assert "地点：远方书店" not in [candidate.target for candidate in wrong.report.items[0].candidates]
+    assert _check(host, "start_activity", _start(["远方书店"], ["travel"], ["步行"])) == ""
 
 
 def test_candidates_are_feasible_first_and_submittable_verbatim(engine_factory) -> None:
@@ -460,6 +581,28 @@ def test_redundant_from_and_to_are_accepted_with_notes(engine_factory) -> None:
     assert last_result(engine.observe(context(engine, "redundant-seen")))["details"]["notes"] == started.data["notes"]
 
 
+def test_redundancy_is_judged_against_the_current_place_not_home(engine_factory) -> None:
+    """冗余与否以此刻所在的地点判定（3.1 第 2 条末项）：人在办公室时，出行写 from「办公室」是冗余的，宿主与环境照样受理并在
+    details.notes 说明可以写 null；写 from「家」（住处，此刻不在那里）不冗余，宿主按组合不合法纠正（ROUTE_FIELDS_INVALID）；
+    出行的 to 写成此刻所在的地点也不冗余（出行的去向就是目标本身），同样纠正。"""
+    engine = _morning(engine_factory)
+    place(engine, 1, "office")
+    ctx, observed, host = _open(engine, "redundant-office")
+    office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
+    home = _HOME_LABEL.split("：", 1)[1]
+    row = next(row for row in observed["interaction_bindings"] if row["kind"] == "location")
+    target, way = row["object"], row["actions"][0]["label"]
+    for fields in ({"from": [home]}, {"to": [office]}):
+        refused = _check(host, "start_activity", _start([target], ["travel"], [way], **fields))
+        assert refused and refused.report.error_code == "ROUTE_FIELDS_INVALID", fields
+    arguments = _start([target], ["travel"], [way], **{"from": [office]})
+    assert _check(host, "start_activity", arguments) == ""
+    engine.submit_action(DirectToolCall(ctx, "action-redundant-office", "start_activity",
+                                        StartActivityRequest.model_validate(arguments)))
+    [result] = engine.commit_decision_round("redundant-office")
+    assert (result.status, result.data["notes"]) == ("in_progress", [f"from「{office}」就是现在所在的地点，可以写 null"])
+
+
 def _unknown_purchase(index: int) -> dict:
     """远程下单一件不存在的商品（环境按指名购买解析，SUPPLY_NOT_FOUND 是名称类拒绝码）。"""
     return _start([f"不存在的商品{index}号"], ["obtain"], ["远程下单"])
@@ -498,6 +641,59 @@ def test_a_name_rejection_beside_other_rejections_follows_the_same_count(engine_
     assert same_moment.latest_rejection_code(engine.state, 1) == "ACTION_REQUEST_INVALID"
     assert same_moment.free_rejection_flags(["ACTION_REQUEST_INVALID", "SUPPLY_NOT_FOUND", "TASK_NOT_FOUND",
                                              "SOURCE_NOT_FOUND"]) == [False, True, True, False]
+
+
+def _rejected_rounds(engine, label: str, count: int) -> list[int]:
+    """人物 1 连续 count 次在同一秒提交不存在的商品（SUPPLY_NOT_FOUND）：逐次之后的同刻轮数。"""
+    rounds = []
+    for index in range(count):
+        error, result = _decide(engine, f"{label}-{index}", "start_activity", _unknown_purchase(index))
+        assert error == "" and result.error_code == "SUPPLY_NOT_FOUND"
+        rounds.append(engine.state.agents[1].same_moment_rounds)
+    return rounds
+
+
+def test_the_two_free_name_rejections_start_again_in_the_next_second(engine_factory) -> None:
+    """「每人每秒至多 2 次」按模拟秒计（3.4）：09:30 两次名称类拒绝免计，时钟到 09:31 后又有两次免计（前一秒的两次不占这一秒
+    的名额），这一秒第三次才照常计轮。"""
+    engine = _morning(engine_factory)
+    assert _rejected_rounds(engine, "first-second", 2) == [0, 0]
+    later = engine.state.current_time + 60
+
+    def next_minute(state) -> None:
+        """@brief 时钟推进到 09:31，人物即刻有决策机会。"""
+        state.current_time = later
+        state.pending_events = [event for event in state.pending_events if event.due_at > later]
+        state.agents[1].body_settled_at = later
+        state.agents[1].next_decision_at = later
+    stage(engine, next_minute)
+    assert _rejected_rounds(engine, "next-second", 3) == [0, 0, 1]
+
+
+def test_each_person_has_their_own_two_free_name_rejections(engine_factory) -> None:
+    """免计按人计（3.4「每人每秒至多 2 次」）：多人场景里两人在同一秒各有两次名称类拒绝，都不计同刻轮数——另一人的拒绝不占
+    本人的名额；各自的第三次才照常计轮。"""
+    engine = open_world(engine_factory)
+    for index in range(3):
+        request = start_request(targets=[f"不存在的商品{index}号"], actions=["obtain"], ways=["远程下单"])
+        _, results = submit_round(engine, {1: ("start_activity", request), 2: ("start_activity", request)},
+                                  f"both-{index}")
+        assert {result.error_code for result in results} == {"SUPPLY_NOT_FOUND"}
+        rounds = {agent_id: agent.same_moment_rounds for agent_id, agent in engine.state.agents.items()}
+        assert rounds == ({1: 0, 2: 0} if index < 2 else {1: 1, 2: 1}), index
+
+
+def test_a_replayed_name_rejection_always_counts_a_round(engine_factory) -> None:
+    """重放照常计轮（3.4：免计只看本秒新结算的名称类拒绝，受理、拒绝与重放计轮的规则对重放不变）：本秒第一次名称类拒绝免计；
+    同一动作原样重放时返回存档的同一结果、计一轮、不重做情绪脉冲。"""
+    engine = _morning(engine_factory)
+    request = StartActivityRequest.model_validate(_unknown_purchase(0))
+    _, [first] = submit_round(engine, {1: ("start_activity", request)}, "replayed")
+    assert first.error_code == "SUPPLY_NOT_FOUND" and engine.state.agents[1].same_moment_rounds == 0
+    body = engine.state.agents[1].body
+    _, [again] = submit_round(engine, {1: ("start_activity", request)}, "replayed")
+    assert again == first
+    assert (engine.state.agents[1].same_moment_rounds, engine.state.agents[1].body) == (1, body)
 
 
 def test_host_and_environment_share_one_name_class_closed_set() -> None:
