@@ -127,8 +127,11 @@ def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, 
         verdict = rhythm_schedule.evaluate_wake_reasons(
             _wake_snapshot(agent, inputs, warning_facts, delivered))
         # 收件箱在唤醒判定之后才记为已读（docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）：
-        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。到点的提醒记为已触发，只触发一次。
-        agent = reminders.mark_reminded(read_new_messages(agent), state.current_time)
+        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。睡眠中也不读（docs/dev/SPEC-dayrun-fidelity.md 1.5）：
+        # 睡眠中送达的消息保持未读，醒来后的第一个边界才记已读并施加阅读效果。到点的提醒记为已触发，只触发一次。
+        if not is_asleep(state, agent_id):
+            agent = read_new_messages(agent)
+        agent = reminders.mark_reminded(agent, state.current_time)
         if _game_turn_due(inputs.state, agent):
             # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策，
             # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
@@ -202,29 +205,39 @@ def _body_boundary_seconds(agent: AgentState, activities: list, inputs: RhythmIn
 def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
-    新收件箱消息的已读与脉冲不在此处，而在唤醒判定之后结算（read_new_messages）。
+    新收件箱消息的已读与脉冲不在此处，而在唤醒判定之后结算（read_new_messages），睡眠中不读。
     """
     now = inputs.state.current_time
     if agent.mood_updated_at is not None:
         agent = agent.model_copy(update={
             "body": decay_mood(agent.body, (now - agent.mood_updated_at) / 60)}, deep=True)
     agent = _apply_awake_social_ledger(agent, inputs)
-    levels = _felt_levels(agent, inputs)
-    uncomfortable = levels["appetite"] in HUNGRY_BANDS or levels["sleepiness"] in SLEEPY_BANDS
-    if uncomfortable:
-        started = agent.discomfort_started_at if agent.discomfort_started_at is not None else now
-        chargeable = max(0.0, (now - started) / 3600 - felt.MOOD_DISCOMFORT_TRIGGER_HOURS)
-        new_charge = max(0.0, chargeable - agent.discomfort_pulse_hours)
-        if new_charge > 0:
-            agent = agent.model_copy(update={
-                "body": apply_discomfort_pulse(agent.body, new_charge),
-                "discomfort_pulse_hours": agent.discomfort_pulse_hours + new_charge}, deep=True)
-        agent = agent.model_copy(update={"discomfort_started_at": started}, deep=True)
-    else:
-        agent = agent.model_copy(update={"discomfort_started_at": None,
-                                         "discomfort_pulse_hours": 0.0}, deep=True)
+    agent = _settle_discomfort(agent, _felt_levels(agent, inputs), now)
     agent = _goal_and_deadline_pulses(agent, inputs)
     return agent.model_copy(update={"mood_updated_at": now}, deep=True)
+
+
+def _settle_discomfort(agent: AgentState, levels: dict[str, str], now: int) -> AgentState:
+    """@brief 连续饿或困的不适脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」，docs/dev/SPEC-dayrun-fidelity.md 1.5）。
+
+    两小时门槛（felt.MOOD_DISCOMFORT_TRIGGER_HOURS）只在这里按连续不适时长判定一次：超出门槛的小时数减去已计费的，
+    即本边界新增的计费小时，按 −0.1/小时施加（felt.discomfort_pulse 不再判门槛）；只有实际施加了脉冲（新增计费小时
+    为正）才把这些小时记为已计费。不适解除时起点与已计费小时一并清零。
+
+    @param agent 人物状态（已衰减情绪、已记社交账）
+    @param levels 边界时刻的体感分级
+    @param now 当前边界时刻
+    """
+    if levels["appetite"] not in HUNGRY_BANDS and levels["sleepiness"] not in SLEEPY_BANDS:
+        return agent.model_copy(update={"discomfort_started_at": None, "discomfort_pulse_hours": 0.0}, deep=True)
+    started = agent.discomfort_started_at if agent.discomfort_started_at is not None else now
+    chargeable = max(0.0, (now - started) / 3600 - felt.MOOD_DISCOMFORT_TRIGGER_HOURS)
+    new_charge = chargeable - agent.discomfort_pulse_hours
+    update: dict[str, Any] = {"discomfort_started_at": started}
+    if new_charge > 0:
+        update.update(body=apply_discomfort_pulse(agent.body, new_charge),
+                      discomfort_pulse_hours=agent.discomfort_pulse_hours + new_charge)
+    return agent.model_copy(update=update, deep=True)
 
 
 def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentState:
@@ -233,7 +246,8 @@ def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentS
     边界在唤醒判定之后调用，使未读消息先成立 message_arrival
     （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。决策轮提交时以 only 限定为本轮观察全文已呈现的
     消息（观察的 presented_message_ids 与轮前收件箱的交集，docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）：
-    全文看过的消息不在其后的边界再次唤醒，没有全文呈现的与本轮内送达的消息仍未读。
+    全文看过的消息不在其后的边界再次唤醒，没有全文呈现的与本轮内送达的消息仍未读。人物在睡时两条路径都不调用
+    （is_asleep，docs/dev/SPEC-dayrun-fidelity.md 1.5）：睡眠中送达的消息在醒来后的第一个边界才读。
 
     :param agent: 人物状态
     :param only: 只读这些消息身份；None 表示全部未读消息

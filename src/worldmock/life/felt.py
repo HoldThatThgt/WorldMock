@@ -123,7 +123,8 @@ MOOD_HALFLIFE_MINUTES = 45.0
 MOOD_HALFLIFE_NEUROTICISM_FACTOR = 0.3
 #: 脉冲幅度神经质调制系数（× (1 + 0.5·N_norm)）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 MOOD_PULSE_NEUROTICISM_FACTOR = 0.5
-#: 连续饿/困的不适脉冲触发时长的下界（小时，≥ 该值才计脉冲）。
+#: 连续饿/困的不适脉冲门槛（小时）：连续不适超出该时长的部分按小时计脉冲；门槛只在 rhythm 的边界结算中判定一次，
+#: discomfort_pulse 不再判定（docs/dev/SPEC-dayrun-fidelity.md 1.5）。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结值。
 MOOD_DISCOMFORT_TRIGGER_HOURS = 2.0
 
@@ -342,7 +343,7 @@ def apply_mood_pulse(
     """@brief 叠加一次情绪脉冲并夹到 [−1, 1]（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     幅度调制 × (1 + 0.5·N_norm)；base_amplitude 取 MOOD_PULSES 的基础幅度
-    （不适脉冲取 discomfort_pulse(连续小时数)）。
+    （不适脉冲取 discomfort_pulse(本次计费小时数)）。
     """
     if not -1.0 <= mood_valence <= 1.0:
         raise ValueError("mood_valence must be within [-1, 1]")
@@ -351,13 +352,15 @@ def apply_mood_pulse(
     return _clamp(mood_valence + base_amplitude * factor, -1.0, 1.0)
 
 
-def discomfort_pulse(continuous_hours: float) -> float:
-    """@brief 连续饿/困的不适脉冲基础幅度：不足 2 小时为 0，否则 −0.1/小时（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
-    if continuous_hours < 0:
-        raise ValueError("continuous_hours must be non-negative")
-    if continuous_hours < MOOD_DISCOMFORT_TRIGGER_HOURS:
-        return 0.0
-    return MOOD_PULSES["discomfort_hourly"] * continuous_hours
+def discomfort_pulse(billed_hours: float) -> float:
+    """@brief 连续饿/困的不适脉冲基础幅度：−0.1/小时 × 本次计费小时数（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
+
+    计费小时是连续不适时长超出两小时门槛（MOOD_DISCOMFORT_TRIGGER_HOURS）后本边界新增的部分；门槛只在 rhythm 的
+    边界结算中判定一次，本函数不再判门槛（docs/dev/SPEC-dayrun-fidelity.md 1.5）。
+    """
+    if billed_hours < 0:
+        raise ValueError("billed_hours must be non-negative")
+    return MOOD_PULSES["discomfort_hourly"] * billed_hours
 
 
 def decay_mood_valence(

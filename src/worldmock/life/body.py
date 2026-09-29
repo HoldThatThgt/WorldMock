@@ -310,9 +310,10 @@ def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
     return body.model_copy(update={"mood_valence": valence}, deep=True)
 
 
-def apply_discomfort_pulse(body: BodyState, continuous_hours: float) -> BodyState:
-    """@brief 叠加连续饿/困的不适脉冲（不足 2 小时时 felt 返回 0，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    amplitude = felt.discomfort_pulse(continuous_hours)
+def apply_discomfort_pulse(body: BodyState, billed_hours: float) -> BodyState:
+    """@brief 叠加连续饿/困的不适脉冲：−0.1/小时 × 本次计费小时，两小时门槛由 rhythm 判定一次，计费为 0 时不变
+    （「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
+    amplitude = felt.discomfort_pulse(billed_hours)
     if amplitude == 0:
         return body
     valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)

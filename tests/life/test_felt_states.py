@@ -498,14 +498,16 @@ class TestMood:
         assert valence == pytest.approx(-0.3)
         assert mood_level(valence) == "有点烦"
 
-    def test_discomfort_pulse_threshold(self) -> None:
-        # 不足 2 小时无脉冲；≥ 2 小时按 −0.1/小时。
+    def test_discomfort_pulse_is_linear_in_billed_hours(self) -> None:
+        # 门槛只在 rhythm 的边界结算中判定一次（docs/dev/SPEC-dayrun-fidelity.md 1.5）：传入的是超出两小时后新增的
+        # 计费小时，幅度按 −0.1/小时线性给出，0.25 小时也有脉冲，不再对计费小时重复施加门槛。
         assert MOOD_DISCOMFORT_TRIGGER_HOURS == 2.0
-        assert discomfort_pulse(1.9) == 0.0
+        assert discomfort_pulse(0.0) == 0.0
+        assert discomfort_pulse(0.25) == pytest.approx(-0.025)
+        assert discomfort_pulse(1.9) == pytest.approx(-0.19)
         assert discomfort_pulse(2.0) == pytest.approx(-0.2)
-        assert discomfort_pulse(3.0) == pytest.approx(-0.3)
-        assert apply_mood_pulse(-0.1, discomfort_pulse(2.0), 0.0) == pytest.approx(-0.3)
-        with pytest.raises(ValueError, match="continuous_hours"):
+        assert apply_mood_pulse(-0.1, discomfort_pulse(0.25), 0.0) == pytest.approx(-0.125)
+        with pytest.raises(ValueError, match="billed_hours"):
             discomfort_pulse(-1.0)
 
     def test_mood_input_validation(self) -> None:
