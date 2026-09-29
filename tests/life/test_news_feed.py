@@ -10,6 +10,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
                                  stage_day_plan, wake_by_mail, start_request)
+from tests.life.test_day_planning import _decide
 from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
 from worldmock.life.readable import duration_phrase
@@ -64,9 +65,7 @@ def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
         advance_next(engine)
         while active_activities(engine.state, 1):
             if engine.scheduling_state().ready_agent_ids:
-                running = activity_name(engine, active_activities(engine.state, 1)[0].activity_id)
-                _act(engine, f"wait-{n}-report-{engine.state.version}", "report_status",
-                     ReportStatusRequest(task=[running], summary=["接着等。"]))
+                _decide(engine, f"wait-{n}-report-{engine.state.version}")
             advance_next(engine)
         assert conclude_pending(engine, f"wait-{n}-end").status == "completed"
 
