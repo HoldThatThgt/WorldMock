@@ -91,12 +91,12 @@ def test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store
         engine_factory, wc_world) -> None:
     """分段匹配的 M3 为空（3.2（c）第 4 步）：人在办公室时番茄只送到家，远程下单以 ACTIVITY_PRECONDITION_UNMET 拒绝；只有
     一家出售门店，原因与非指名的远程下单同一说法（5.3）「这里不在这家店的配送范围内」（unmet 为 delivery_destination），
-    下一步只指向那家店能送达、且从此地可达的家；方式为「购买」时两者都不行，下一步写出售它的门店（「收敛」第 2 条）。没有
-    别处能送到的同名商品，候选为空；不下单。"""
+    下一步只指向那家店能送达、且从此地可达的家。方式为「购买」时两者都不行，而出售番茄的门店只能远程下单（去了也买不到）：
+    下一步不指向那家店（「收敛」第 2 条只指向能到店买的出售门店），与远程下单同一原因与下一步。没有别处能送到的同名商品，
+    候选为空；不下单。"""
     request = _FIXTURE["requests"][0]
     engine = _engine(engine_factory, wc_world, request["occurred_at"], "office")
-    store, office = _FIXTURE["store"]["name"], next(item.name for item in engine.scenario.locations
-                                                   if item.location_id == "office")
+    store = _FIXTURE["store"]["name"]
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
     before = dict(engine.state.deliveries)
     remote = {**request["request"], "targets": ["番茄"], "actions": ["obtain"], "ways": ["远程下单"], "from": [None],
@@ -110,6 +110,9 @@ def test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store
     assert (item["field"], item["written"], item["candidates"]) == ("targets", "番茄", [])
     _, error, system = decide(engine, "wc-office-system", {**remote, "ways": ["购买"]})
     assert error == "" and system.error_code == "ACTIVITY_PRECONDITION_UNMET"
-    assert system.data["reason"] == f"「番茄」：不在出售它的门店里，也送不到{office}"
-    assert store in system.data["next_step"]
+    assert (system.data["reason"], system.data["unmet"]) == ("「番茄」：这里不在这家店的配送范围内",
+                                                         ["delivery_destination"])
+    assert system.data["next_step"] == f"去{home}再下单" and store not in system.data["next_step"]
+    [item] = system.data["items"]
+    assert (item["field"], item["written"], item["candidates"]) == ("targets", "番茄", [])
     assert dict(engine.state.deliveries) == before

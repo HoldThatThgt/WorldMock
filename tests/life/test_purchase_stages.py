@@ -4,8 +4,9 @@
 白领场景的真实 LifeEngine、SQLite 与 LifeAgent 上，同一次冻结观察先经宿主本地校验、再由环境受理：from 是可选约束——
 写的门店不卖这件商品报 SUPPLY_NOT_AT_STORE（那家店完全没有供给时原因写「这里没有可买的商品」），范围内同名的供给都不支持
 所写方式报 FULFILLMENT_NOT_SUPPORTED 并说明只能用哪种方式，此刻服务不了报 ACTIVITY_PRECONDITION_UNMET 并写明去哪里；方式
-「购买」由系统定到店或远程下单（人在出售它的店里就到店，否则能送到就远程下单，都不行就拒绝并在 next_step 写路线最短的出售
-门店），跳过方式一段（M2），对本轮列出与按名写的商品目标都受理，工具层的商品目标从不列出它；多件购买逐项报错、整组原子。
+「购买」由系统定到店或远程下单（人在出售它的店里就到店，否则能送到就远程下单，都不行就拒绝并在 next_step 写路线最短的那家
+能到店买的出售门店），跳过方式一段（M2），对本轮列出与按名写的商品目标都受理，工具层的商品目标从不列出它；多件购买逐项报错、
+整组原子。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 from tests.life.conftest import context, stage_day_plan, start_arguments  # noqa: E402
 from tests.life.purchase_worlds import at_clock, decide  # noqa: E402
 from tests.life.routing_fixtures import place  # noqa: E402
+from tests.life.test_browse_and_hints import _rescenario  # noqa: E402
 from tests.life.test_commerce import _browse  # noqa: E402
 from worldmock.life.readable import clock_phrase  # noqa: E402
 
@@ -24,6 +26,8 @@ _MILK, _NOODLES = "纯牛奶", "鸡汤面"
 _MARKET_NAME = "张江日用集市与配送取货点（冻结场景锚点）"
 #: 菜饭骨头汤只到店出售鸡汤面（10:00–21:00 营业）；鼎盛川菜不卖纯牛奶；紫薇公园没有任何供给。
 _SOUP, _SICHUAN, _PARK = "poi-3538660453", "poi-3538682404", "poi-337936012"
+#: 出售纯牛奶的另两家门店：离家最近的农工商超市，与更远一些的好德（集市最远）。
+_SUPERMARKET, _HAODE = "poi-3538763552", "poi-3538682402"
 
 
 def _world(engine_factory, hour: int = 10):
@@ -127,6 +131,33 @@ def test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_
     [stored] = [event for event in engine.store.read_agent_events("action_rejected", 1)
                 if event.action_id == "action-system-none"]
     assert stored.data["unmet"] == ["required_location_id", "delivery_destination"]
+
+
+def test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_store(engine_factory) -> None:
+    """「购买」两者都不行时 next_step 写路线最短的那家能到店买的出售门店（3.5「收敛」第 2 条）：三家出售纯牛奶的门店都送不到
+    家，离家最近的农工商超市只远程下单（去了也买不到），好德与集市到店、远程下单都行；拒绝的下一步是好德，不是农工商超市，
+    未满足条件是要在那里与送不到这里，不下单；照着去了好德再写「购买」就按到店成单。"""
+    engine = _world(engine_factory)
+    milk = next(item.product_id for item in engine.scenario.products if item.name == _MILK)
+    _rescenario(engine, supplies=tuple(
+        item.model_copy(update={"delivery_destination_ids": ("office",), "fulfillment_modes": (
+            ("delivery",) if item.location_id == _SUPERMARKET else item.fulfillment_modes)})
+        if item.product_id == milk else item for item in engine.scenario.supplies))
+    before = _world_facts(engine)
+    home, haode, supermarket = _place(engine, "home"), _place(engine, _HAODE), _place(engine, _SUPERMARKET)
+    _, error, refused = decide(engine, "system-pickup-store", _buy((_MILK, "购买", None)))
+    assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
+    assert refused.data["reason"] == f"「{_MILK}」：不在出售它的门店里，也送不到{home}"
+    assert refused.data["next_step"] == f"去{haode}" and supermarket not in refused.data["next_step"]
+    [stored] = [event for event in engine.store.read_agent_events("action_rejected", 1)
+                if event.action_id == "action-system-pickup-store"]
+    assert stored.data["unmet"] == ["required_location_id", "delivery_destination"]
+    assert _world_facts(engine) == before
+    place(engine, 1, _HAODE)
+    _, error, bought = decide(engine, "system-at-haode", _buy((_MILK, "购买", None)))
+    assert error == "" and (bought.status, bought.error_code) == ("completed", None)
+    [order] = bought.data["orders"]
+    assert (order["fulfillment"], order["location_id"]) == ("pickup", _HAODE)
 
 
 def test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed(engine_factory) -> None:

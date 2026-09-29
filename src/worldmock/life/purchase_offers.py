@@ -6,10 +6,11 @@
 
 可服务（offers，分段匹配的 M3）：到店要人此刻就在那家店里（途中不在任何店里）且供给支持到店；远程下单要供给支持配送且能
 送到收货地（在配送范围内、配送路线走得通，送达时刻按 basket.delivery_expected_at：最慢备货加出发时刻的计划驾车时长）；
-「购买」人在出售它的店里就到店，否则能送到收货地就远程下单。多于一个可服务的供给时按请求级 prefer 选定（choose）：
-fastest 远程下单取预计送达最早者、到店取从当前地点出发路线最短者，cheapest 取到手价最低者（一份按当前报价与购买配对计价）；
-并列时先比到手价、再比门店标识，最后比供给标识（确定性）。价格、余额、营业与库存仍由整单结算照常检查。本模块只读世界、
-场景与语义，不改状态。
+「购买」人在出售它的店里、且东西在那里交得到收货人手上（handed_over：收货人是自己，或此刻也在那家店里）就到店，否则能送到
+收货地就远程下单（系统不定一个交不到收货人手上的方式）；显式写的到店照所写处理。多于一个可服务的供给时按请求级 prefer
+选定（choose）：fastest 远程下单取预计送达最早者、到店取从当前地点出发路线最短者，cheapest 取到手价最低者（一份按当前报价
+与购买配对计价）；并列时先比到手价、再比门店标识，最后比供给标识（确定性）。价格、余额、营业与库存仍由整单结算照常检查。
+本模块只读世界、场景与语义，不改状态。
 """
 
 from __future__ import annotations
@@ -105,11 +106,15 @@ def near_sources(context: LayerContext, written: str, feasible: Callable[[frozen
 
 def offers(context: LayerContext, supplies: Iterable[Any], way: str,
            destination_id: str | None) -> tuple[str, list[Offer]]:
-    """@brief 可服务的供给与定下的方式（分段匹配的 M3）：到店、远程下单按所写方式；「购买」人在出售它的店里就到店，
-    否则远程下单。"""
+    """@brief 可服务的供给与定下的方式（分段匹配的 M3）：到店、远程下单按所写方式；「购买」人在出售它的店里、且东西在那里
+    交得到收货人手上（handed_over）就到店，否则远程下单到收货地。显式写的到店只看人在不在店里（人物自己选的方式；送给不在
+    店里的人由整单结算以「暂时送不到<名>那里」拒绝）。
+
+    :param destination_id: 收货地（收货人此刻的收货地点：送给自己为人此刻所在的地点）；收货人此刻没有收货地点时为 None。
+    """
     candidates = list(supplies)
     if way == SYSTEM_PURCHASE_WAY:
-        here = _pickups(context, candidates)
+        here = handed_over(_pickups(context, candidates), destination_id)
         return (PICKUP_WAY, here) if here else (DELIVERY_WAY, _deliveries(context, candidates, destination_id))
     if way == PICKUP_WAY:
         return way, _pickups(context, candidates)
@@ -117,8 +122,17 @@ def offers(context: LayerContext, supplies: Iterable[Any], way: str,
 
 
 def serves(context: LayerContext, supply: Any, way: str, destination_id: str | None) -> bool:
-    """@brief 一条供给此刻能不能按所写方式（「购买」为到店或远程下单之一）服务（候选排序：可行的在前）。"""
-    return bool(offers(context, (supply,), way, destination_id)[1])
+    """@brief 一条供给此刻能不能按所写方式（「购买」为到店或远程下单之一）把东西交到收货人手上（候选排序：可行的在前）：
+    到店另要东西在店里交得到收货人手上（handed_over），与整单结算同一判定。"""
+    chosen, served = offers(context, (supply,), way, destination_id)
+    return bool(handed_over(served, destination_id) if chosen == PICKUP_WAY else served)
+
+
+def handed_over(pickups: Iterable[Offer], destination_id: str | None) -> list[Offer]:
+    """@brief 到店可服务的供给中，东西在店里就交得到收货人手上的：收货地就是那家店。送给自己时收货地是人此刻所在的地点，
+    人在店里即成立；送给别人时是收货人此刻的收货地点——同世界人物此刻也在那家店里，或联系人的收货地点就是那家店（与给予的
+    同处规则一致）——与整单结算（order_routing）到店时的核对同一判定。"""
+    return [offer for offer in pickups if offer.supply.location_id == destination_id]
 
 
 def choose(served: Sequence[Offer], prefer: str) -> Offer:
