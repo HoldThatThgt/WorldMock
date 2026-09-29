@@ -70,7 +70,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "recall_task_summary": "按名称回看一项任务、目标或活动的进展，不改变世界。",
     "report_status": "按活动名写下一两项活动的进展。",
     "pause_activity": "按活动名暂停一两项进行中的活动并写下进展。",
-    "conclude_activity": "按活动名结束一两项活动，写下总结与想记住的事。",
+    "conclude_activity": "按活动名结束一两项活动，写下总结、想记住的事与形成的看法。",
     "revise_day_plan": "用完整的新清单替换今日计划中尚未推进的目标。",
     "memory_recent": "读取自己最近的记忆。",
     "memory_search": "按关键词检索自己的记忆。",

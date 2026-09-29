@@ -35,6 +35,7 @@ from custom.agents.life_persona import known_persons, persona_layer, readonly_la
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
                                        user_message)
 from worldmock.life.continuation import CONTINUATION_KEY
+from worldmock.life.control_items import control_items
 from worldmock.life.interaction_menu import WAYS, is_named_purchase
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
@@ -360,8 +361,8 @@ class LifeAgent(PersonAgent):
     async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
         """@brief 生活决策的一个模型回合：世界请求登记即结束本轮（取消 finish，AS2 锁定提交不改）。
 
-        记忆查询是观察，不结束本轮；世界请求登记后，conclude_activity 的 memories 按 task 展平交给本步
-        after_step 写入（其余请求写入空列表）。只读问答沿用 AS2 的 finish 回合。
+        记忆查询是观察，不结束本轮；世界请求登记后，conclude_activity 逐项的记忆与看法展平交给本步 after_step 写入
+        （其余请求写入空列表）。只读问答沿用 AS2 的 finish 回合。
         """
         if request.readonly:
             return await super()._run_react_turn(request, turn)
@@ -507,16 +508,18 @@ def _progress_meta(data: dict[str, Any], progress: dict[str, Any]) -> list[dict[
 
 
 def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 把 conclude_activity.memories 按 task 展平为本步写入的记忆；其余世界请求不写记忆。
+    """@brief 把 conclude_activity 逐项的记忆与看法展平为本步写入的记忆（经 control_items 读出：每项先 memories、后
+    views，views 的 about 转为 subject）；其余世界请求不写记忆。
 
-    来源由系统按写入点固定为 activity_conclusion，认知状态固定为 subjective，模型不填、不选任何身份。
+    subject 只在 WorldMock 的请求与事件中，写入 AS2 前剥掉，于是与旧形状写下的同一条记忆逐字节相同；来源由系统按写入点
+    固定为 activity_conclusion，认知状态固定为 subjective，模型不填、不选任何身份。
     """
     if action != "conclude_activity":
         return []
     request = _validate_request(ConcludeActivityRequest, args)
-    return [{**memory.model_dump(mode="json", exclude={"subject"}), "source": _CONCLUSION_MEMORY_SOURCE,
+    return [{**{key: value for key, value in memory.items() if key != "subject"}, "source": _CONCLUSION_MEMORY_SOURCE,
              "epistemic_status": "subjective"}
-            for group in request.memories for memory in group]
+            for item in control_items(action, request) for memory in item.memories]
 
 
 def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]:
@@ -599,8 +602,8 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     if action == "start_activity":
         return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
-        if any(name not in names["activity_names"] for name in request.task):
-            return f"{action} task names an activity that is not visible"
+        if any(item.activity_name not in names["activity_names"] for item in control_items(action, request)):
+            return f"{action} activity_name names an activity that is not visible"
         return _memory_subject_error(request, names["known_persons"]) if action == "conclude_activity" else ""
     if action == "recall_task_summary":
         return "" if request.task_name in names["recall_names"] else "task_name is not visible"
@@ -612,9 +615,10 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
 
 
 def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
-    """@brief relationship 记忆的对象须是已知人物：卡片关系名、场景联系人称谓或同世界人物姓名（规格第一章「人设层」）。"""
-    unknown = [memory.subject for group in request.memories for memory in group
-               if memory.type == "relationship" and memory.subject not in known]
+    """@brief relationship 看法的对象（views 的 about，存储为 subject）须是已知人物：卡片关系名、场景联系人称谓或同世界
+    人物姓名（规格第一章「人设层」）。"""
+    unknown = [memory["subject"] for item in control_items("conclude_activity", request) for memory in item.views
+               if memory["type"] == "relationship" and memory["subject"] not in known]
     return f"conclude_activity relationship subject is not a known person: {unknown[0]}" if unknown else ""
 
 

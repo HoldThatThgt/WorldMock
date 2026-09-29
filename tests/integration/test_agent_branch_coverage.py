@@ -40,13 +40,8 @@ from tests.integration.test_life_agent_protocol import (
     _with_activities,
 )
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED
-from worldmock.life.models import (
-    ConcludeActivityRequest,
-    ConclusionMemory,
-    REQUEST_MODELS,
-    RecallTaskSummaryRequest,
-)
-from tests.life.conftest import start_arguments
+from worldmock.life.models import ConclusionMemory, REQUEST_MODELS, RecallTaskSummaryRequest
+from tests.life.conftest import start_arguments, conclude_request
 
 
 def _prepared(data: dict | None = None, *, readonly: bool = False) -> LifeAgent:
@@ -98,11 +93,10 @@ def test_memory_entries_and_finish_keep_content_limits() -> None:
     for extra in ({"refs": ["observation-current"]}, {"source": "decision_observation"}):
         with pytest.raises(ValidationError):
             ConclusionMemory(**memory, **extra)
-    request = ConcludeActivityRequest(task=[_WAIT], summary=["收尾。"], memories=[[]])
-    assert request.memories == [[]]
+    request = conclude_request(_WAIT, summary="收尾。", memories=[[]])
+    assert [(item.memories, item.views) for item in request.items] == [([], [])]
     with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=[_WAIT], summary=["收尾。"],
-                                memories=[[ConclusionMemory(**memory) for _ in range(9)]])
+        conclude_request(_WAIT, summary="收尾。", memories=[[ConclusionMemory(**memory) for _ in range(9)]])
     with pytest.raises(ValidationError):
         ReadonlyFinishRequest(answer="word " * 801)
 
@@ -211,8 +205,8 @@ def _choice(target: str, verb: str, way: str) -> dict:
 
 
 def _conclusion(*names: str) -> dict:
-    """点名活动结束的参数（逐项自述，不写记忆）。"""
-    return {"task": list(names), "summary": ["先收尾。" for _ in names], "memories": [[] for _ in names]}
+    """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法）。"""
+    return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names]}
 
 
 def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
@@ -243,8 +237,8 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
     for decision in (_decision("start_activity", _choice(_SUPPLY, "obtain", "远程下单")),
                      _decision("start_activity", _choice("商品目录", "interact", "浏览")),
-                     _decision("pause_activity", {"task": [_WORK], "summary": ["先停。"]}),
-                     _decision("report_status", {"task": [_NEWS], "summary": ["接着看。"]}),
+                     _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]}),
+                     _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}]}),
                      _decision("conclude_activity", _conclusion(_WORK, _NEWS)),
                      _decision("recall_task_summary", {"task_name": _NEWS})):
         assert person.validate_react_decisions([decision], False) == ""
@@ -259,9 +253,9 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
     assert set(REQUEST_MODELS) <= set(functions)
     assert not {"purchase", "consume", "set_activity_state", "discover_places", "finish"} & set(functions)
     assert person.validate_react_decisions([
-        _decision("pause_activity", {"task": [_WORK], "summary": ["先停。"]})], False) == ""
+        _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]})], False) == ""
     assert "not visible" in person.validate_react_decisions([
-        _decision("pause_activity", {"task": [_NEWS], "summary": ["先停。"]})], False)
+        _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}]})], False)
     assert "recipient_name is not visible" == person.validate_react_decisions([
         _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})], False)
     assert "activity-private-1" not in str(functions)

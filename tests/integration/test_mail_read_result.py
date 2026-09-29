@@ -19,12 +19,12 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_minimum_complete_path import _decide  # noqa: E402
-from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending,  # noqa: E402
-                                 conclude_request, context, engine_factory as _engine_factory, pending_names,
-                                 progress_calls, stage_day_plan, start_activity, submit_round, tool_targets,
-                                 wake_by_mail)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request,
+                                 context, engine_factory as _engine_factory, pending_names, progress_calls,
+                                 stage_day_plan, start_activity, submit_round, tool_targets, wake_by_mail,
+                                 report_request)
 from worldmock.life.activity_control import pending_conclusions  # noqa: E402
-from worldmock.life.models import ActivityStatus, ReportStatusRequest, active_activities  # noqa: E402
+from worldmock.life.models import ActivityStatus, active_activities  # noqa: E402
 
 
 def _read_to_the_end(engine, reading_id: str) -> None:
@@ -38,8 +38,8 @@ def _read_to_the_end(engine, reading_id: str) -> None:
             conclude_pending(engine, f"mail-other-{step}")
         else:
             running = [activity_name(engine, item.activity_id) for item in active_activities(engine.state, 1)]
-            submit_round(engine, {1: ("report_status", ReportStatusRequest(
-                task=running, summary=["接着读。"] * len(running)))}, f"mail-report-{step}")
+            submit_round(engine, {1: ("report_status", report_request(
+                *running, summary="接着读。"))}, f"mail-report-{step}")
     raise AssertionError("the mail was not read to the end")
 
 

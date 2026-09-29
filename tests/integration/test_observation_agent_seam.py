@@ -97,8 +97,8 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     assert activity["name"] == activity_name(engine, control["activity_id"])
     assert [item["tool"] for item in activity["tools"]] == ["report_status", "pause_activity", "conclude_activity"]
     for tool in ("report_status", "pause_activity"):
-        assert "enum" not in schemas[tool]["parameters"]["properties"]["task"]["items"]
-        decision = ReactDecision("", tool, {"task": [activity["name"]], "summary": ["继续。"]}, "")
+        assert "enum" not in schemas[tool]["parameters"]["properties"]["items"]["items"]["properties"]["activity_name"]
+        decision = ReactDecision("", tool, {"items": [{"activity_name": activity["name"], "summary": "继续。"}]}, "")
         assert agent.validate_react_decisions([decision], False) == ""
     user = agent.build_react_messages(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))[1]
     session_id = next(iter(engine.state.sessions))
@@ -119,10 +119,10 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
     observation, ctx = _observe_active_wait(engine)
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
-    decision = ReactDecision("", "conclude_activity", {"task": ["不存在的活动"], "summary": ["收尾。"],
-                                                       "memories": [[]]}, "")
+    decision = ReactDecision("", "conclude_activity", {"items": [
+        {"activity_name": "不存在的活动", "summary": "收尾。", "memories": [], "views": []}]}, "")
     assert agent.validate_react_decisions([decision], False) == (
-        "conclude_activity task names an activity that is not visible")
+        "conclude_activity activity_name names an activity that is not visible")
 
     damaged = copy.deepcopy(observation)
     damaged.pop("activity_bindings")
@@ -154,12 +154,12 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
                                               _observation_records(observation)))
     [waiting] = [row["name"] for row in observation["activity_bindings"]]
 
-    def conclude(subject: str) -> ReactDecision:
-        """收尾等待并写一条关于 subject 的 relationship 记忆。"""
-        memory = {"type": "relationship", "text": "他最近在办公室很忙。", "importance": 0.5, "keywords": ["同事"],
-                  "subject": subject}
-        return ReactDecision("", "conclude_activity", {"task": [waiting], "summary": ["先收个尾。"],
-                                                       "memories": [[memory]]}, "")
+    def conclude(about: str) -> ReactDecision:
+        """收尾等待并写一条关于 about 的 relationship 看法（写在 views）。"""
+        view = {"type": "relationship", "about": about, "text": "他最近在办公室很忙。", "importance": 0.5,
+                "keywords": ["同事"]}
+        return ReactDecision("", "conclude_activity", {"items": [
+            {"activity_name": waiting, "summary": "先收个尾。", "memories": [], "views": [view]}]}, "")
 
     assert agent.validate_react_decisions([conclude("李凡")], False) == ""
     assert agent.validate_react_decisions([conclude("陌生人")], False) == (

@@ -10,12 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
-                                 start_request, submit_round)
+from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan, start_request,
+                                 submit_round, report_request)
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import PHASE_ACTIVE, pending_conclusions
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ReportStatusRequest
 
 #: 夹具加给陈曦的同事联系人王磊：不是同世界人物，收货地点是办公室。
 COLLEAGUE = "contact-chenxi-wanglei"
@@ -129,7 +128,7 @@ def _keep_busy(engine: LifeEngine, agent_id: int, label: str) -> tuple:
         return "conclude_activity", conclude_request(*names)
     running = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_ACTIVE]
     if running:
-        return "report_status", ReportStatusRequest(task=running[:1], summary=["接着做。"])
+        return "report_status", report_request(*running[:1], summary="接着做。")
     return "start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"])
 
 

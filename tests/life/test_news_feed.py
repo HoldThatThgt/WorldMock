@@ -9,18 +9,13 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
-                                 stage_day_plan, wake_by_mail, start_request)
+                                 stage_day_plan, wake_by_mail, start_request, pause_request, report_request)
 from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
 from worldmock.life.readable import duration_phrase
 from worldmock.life.content import load_subtitles
 from worldmock.life.observe import _content_catalog
-from worldmock.life.models import (
-    active_activities,
-    ContentProgress,
-    PauseActivityRequest,
-    ReportStatusRequest,
-)
+from worldmock.life.models import active_activities, ContentProgress
 from worldmock.life.scenario import load_scenario
 
 FEED_ID = "news-feed"
@@ -243,7 +238,7 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     advance_next(engine)
     assert engine.state.current_time == int(engine.scenario.start_at.timestamp()) + 5400 + 900
     _act(engine, "pause-scroll", "pause_activity",
-         PauseActivityRequest(task=[activity_name(engine, activity_id)], summary=["稍后继续阅读。"]))
+         pause_request(activity_name(engine, activity_id), summary="稍后继续阅读。"))
     paused_at = engine.state.current_time
     # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）。
     _act(engine, "wait-while-paused", "start_activity", ("wait", "agent:1"))
@@ -253,7 +248,7 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     # 等待在这一边界按计划结束：先当秒收尾，再恢复暂停的刷屏（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "wait-while-paused-end").status == "completed"
     _act(engine, "resume-scroll", "report_status",
-         ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续阅读。"]))
+         report_request(activity_name(engine, activity_id), summary="继续阅读。"))
     wake_by_mail(engine, offset=50)
     advance_next(engine)
     _act(engine, "finish-scroll", "conclude_activity",

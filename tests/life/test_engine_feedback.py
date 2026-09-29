@@ -9,16 +9,12 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (
-    activity_name, advance_next, advance_until_ready, conclude_request, context, stage_day_plan, wake_by_mail,
-    start_request)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 stage_day_plan, wake_by_mail, start_request, pause_request, report_request)
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (
-    ActivityStatus, PauseActivityRequest,
-    ReportStatusRequest,
-)
+from worldmock.life.models import ActivityStatus
 
 
 def _observed_action(engine, round_id: str, tool_name: str, request):
@@ -69,7 +65,7 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
 
     assert advance_until_ready(engine)
     _, paused = _observed_action(engine, "pause-wait", "pause_activity",
-                                 PauseActivityRequest(task=[name], summary=["先处理来信"]))
+                                 pause_request(name, summary="先处理来信"))
     assert paused.status == "completed", paused.error_code
     assert paused.data == {"task": [name], "activity_ids": [started.activity_id]}
     activity = engine.state.activities[started.activity_id]
@@ -77,7 +73,7 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
     assert engine.scheduling_state().ready_agent_ids == (1,)  # 没有进行中活动，同一秒再决策
 
     _, reported = _observed_action(engine, "resume-wait", "report_status",
-                                   ReportStatusRequest(task=[name], summary=["继续休息"]))
+                                   report_request(name, summary="继续休息"))
     assert reported.status == "completed", reported.error_code
     activity = engine.state.activities[started.activity_id]
     assert activity.status == ActivityStatus.ACTIVE and activity.progress_note == "继续休息"

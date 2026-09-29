@@ -14,9 +14,9 @@ import json
 
 import pytest
 
-from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls,
-                                 stage_day_plan, start_activity, start_request, submit_round, tool_targets,
-                                 wake_by_mail)
+from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls, stage_day_plan,
+                                 start_activity, start_request, submit_round, tool_targets, wake_by_mail, pause_request,
+                                 report_request)
 from tests.life.test_commerce import _choice, _stage_open
 from tests.life.test_dayrun_restaurants import _stage
 from tests.life.test_same_moment_decisions import _act, _finish, _observed_act
@@ -24,8 +24,7 @@ from tests.life.test_work_review import _at_task_start
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, felt, schedule
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
-from worldmock.life.models import (ActionStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
-                                   ReviseDayPlanRequest, SendMessageActionRequest)
+from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INTENT_KINDS, LAYER_SCHEMAS, TARGET_KINDS,
                                            USER_LAYER_NAMES, VERBS, WAY_LABELS, validate_layer)
 from worldmock.life.tool_layer import BINDING_KINDS
@@ -98,8 +97,8 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     waited = _act(engine, "layers-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=60)
     advance_next(engine)
-    _act(engine, "layers-pause", "pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, waited.activity_id)], summary=["先出门。"]))
+    _act(engine, "layers-pause", "pause_activity", pause_request(
+        activity_name(engine, waited.activity_id), summary="先出门。"))
     paused = _checked(engine, "layers-paused")
     assert paused["todo_layer"]["paused_activities"] and paused["todo_layer"]["day_plan"]["goals"]
     home = next(row["object"] for row in paused["interaction_bindings"] if row["object_id"] == "home")
@@ -144,7 +143,7 @@ def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine
     _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
                                        2: ("send_message", message)}, "unique-message")
     waiting = next(item.activity_id for item in results if item.agent_id == 1)
-    report = ReportStatusRequest(task=[activity_name(engine, waiting)], summary=["看到消息了。"])
+    report = report_request(activity_name(engine, waiting), summary="看到消息了。")
     submit_round(engine, {1: ("report_status", report), 2: ("start_activity", start_activity("交谈", f"人物：{me}"))},
                  "unique-invite")
     observed = _checked(engine, "unique-seen")
@@ -166,14 +165,15 @@ def test_paused_activity_progress_appears_only_in_the_todo_layer(engine_factory)
     wake_by_mail(engine, offset=120)
     advance_next(engine)
     name = activity_name(engine, waited.activity_id)
-    _act(engine, "paused-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _act(engine, "paused-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     observed = _checked(engine, "paused-seen")
     (item,) = observed["todo_layer"]["paused_activities"]
     assert item["name"] == name and name not in tool_targets(observed)
     assert _rendered(observed).count(item["progress"]) == 1
     assert item["progress"] in json.dumps(observed["todo_layer"], ensure_ascii=False)
     (pause,) = progress_calls(observed, "pause_activity")
-    assert pause["arguments"]["task"] == [name] and item["progress"] not in json.dumps(pause, ensure_ascii=False)
+    assert pause["arguments"] == {"items": [{"activity_name": name, "summary": "先停一下。"}]}
+    assert item["progress"] not in json.dumps(pause, ensure_ascii=False)
 
 
 def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
@@ -208,7 +208,7 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
     wake_by_mail(engine, offset=600)
     advance_next(engine)
     name = activity_name(engine, results[0].activity_id)
-    _act(engine, "paused-contract-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _act(engine, "paused-contract-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     observed = _checked(engine, "paused-contract-seen")
     (item,) = observed["todo_layer"]["paused_activities"]
     assert item["name"] == name and name not in tool_targets(observed)

@@ -95,7 +95,8 @@ async def test_system_layer_is_byte_identical_across_turns_and_decisions() -> No
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
     second = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "conclude_activity", json.dumps(
-            {"task": [_WAIT], "summary": ["等完了。"], "memories": [[]]}, ensure_ascii=False))])
+            {"items": [
+                {"activity_name": _WAIT, "summary": "等完了。", "memories": [], "views": []}]}, ensure_ascii=False))])
     agent, _ = _agent(first)
     await _run(agent, _observations())
     agent._dispatcher = second

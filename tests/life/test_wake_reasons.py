@@ -9,10 +9,8 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import (
-    activity_name, advance_next, advance_until_ready, conclude_request, context, stage_day_plan, start_activity,
-    wake_by_mail,
-)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 stage_day_plan, start_activity, wake_by_mail, pause_request, report_request)
 from tests.life.test_commerce import _stage_open
 from tests.life.test_day_plan import act, goal
 from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
@@ -20,10 +18,8 @@ from tests.life.test_scheduling import _custom_engine
 from worldmock.life import schedule as schedule_module
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
-    ReviseDayPlanRequest, active_activities,
-)
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, PlanGoalInput, ReviseDayPlanRequest,
+                                   active_activities)
 from worldmock.life.rhythm import (
     _has_commitments, _next_progress_report_at, _progress_report_due, engine_rhythm_inputs, next_decision_candidates,
 )
@@ -293,8 +289,8 @@ def _keep_waiting(engine, name: str) -> None:
         request = ("conclude_activity", conclude_request(*(activity_name(engine, item.activity_id)
                                                            for item in waiting)))
     elif running:
-        request = ("report_status", ReportStatusRequest(
-            task=[activity_name(engine, item.activity_id) for item in running], summary=["继续。"] * len(running)))
+        request = ("report_status", report_request(
+            *(activity_name(engine, item.activity_id) for item in running), summary="继续。"))
     else:
         request = ("start_activity", start_activity("等待", "自己"))
     assert act(engine, name, *request).status in {"completed", "in_progress"}
@@ -793,8 +789,8 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
         assert engine.state.activities[watch_id].report_anchor_at == start + 300
         assert _wake_at(engine, start + 600, "anchor-due") == ["progress_report_due"]
         names = [activity_name(engine, wait_id), activity_name(engine, watch_id)]
-        assert act(engine, "anchor-pause", "pause_activity", PauseActivityRequest(
-            task=[names[0]], summary=["先停下。"])).status == "completed"
+        assert act(engine, "anchor-pause", "pause_activity", pause_request(
+            names[0], summary="先停下。")).status == "completed"
         assert engine.state.activities[wait_id].report_anchor_at == start
         wake_by_mail(engine, offset=100)
         assert _wake_at(engine, start + 700, "anchor-paused") == ["message_arrival"]
@@ -803,8 +799,7 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
         assert _next_progress_report_at(agent, engine.state, 600) == start + 900
         assert act(engine, "anchor-note", "revise_day_plan", _REVISE).status == "completed"
         assert _wake_at(engine, start + 900, "anchor-watch-due") == ["progress_report_due"]
-        resumed = act(engine, "anchor-resume", "report_status", ReportStatusRequest(
-            task=names, summary=["接着等。", "接着看。"]))
+        resumed = act(engine, "anchor-resume", "report_status", report_request(*names, summary=["接着等。", "接着看。"]))
         assert resumed.status == "completed"
         now = engine.state.current_time
         assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE

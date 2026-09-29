@@ -1,7 +1,7 @@
 """@brief 稳定工具面的活动动作处理器：开始、回看、播报（含恢复）、暂停与结束活动。
 
 活动是生命周期单位（docs/dev/SPEC-time-and-energy.md 第七章）：每人两个名额；播报、暂停与结束逐项点名活动
-（「做什么＋对象＋开始时刻」）；会话是一段地点停留或一段路，由系统随出发与到达切换（life.sessions）。
+（「做什么＋对象＋开始时刻」，请求一项一个对象，经 control_items 读出活动名与自述）；会话是一段地点停留或一段路，由系统随出发与到达切换（life.sessions）。
 名额、待收尾、名称与控制记录的规则在 life.activity_control，本模块只做处理器接线。
 """
 
@@ -15,6 +15,7 @@ from worldmock.life import (activity_control, admission, giving, memory_layer, o
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened, is_eating
 from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
+from worldmock.life.control_items import control_items
 from worldmock.life.guidance import guided
 from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
                                              merged_selection, resolve_interaction_menu, resolve_selection)
@@ -597,10 +598,12 @@ class SessionActionMixin:
         剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。恢复的活动在结果中登记
         resumed：活动名与恢复后的计划时长（秒，公开结果写成 details.planned）。
         """
-        selected = self._activities_for_names(state, pending, request.task)
+        items = control_items("report_status", request)
+        requested = [item.activity_name for item in items]
+        selected = self._activities_for_names(state, pending, requested)
         names = self._control_names(pending)
         changed, resumed = state, []
-        for name, activity in zip(request.task, selected, strict=True):
+        for name, activity in zip(requested, selected, strict=True):
             current = changed.activities[activity.activity_id]
             refusal = activity_control.control_refusal(
                 self._admission_context(changed, pending.agent_id, names), "report_status", current)
@@ -610,8 +613,8 @@ class SessionActionMixin:
                 changed = self._resume_at_start_location(changed, pending, current)
                 planned = changed.activities[activity.activity_id].planned_end_at - changed.current_time
                 resumed.append({"name": name, "planned_duration_seconds": planned})
-        changed = self._with_notes(changed, selected, request.summary, anchor=True)
-        result = self._control_result(state, pending, "Activity status reported", request.task, selected)
+        changed = self._with_notes(changed, selected, [item.summary for item in items], anchor=True)
+        result = self._control_result(state, pending, "Activity status reported", requested, selected)
         if resumed:
             result = result.model_copy(update={"data": {**result.data, "resumed": resumed}})
         return changed, result
@@ -646,7 +649,9 @@ class SessionActionMixin:
 
         每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。
         """
-        selected = self._activities_for_names(state, pending, request.task)
+        items = control_items("pause_activity", request)
+        requested = [item.activity_name for item in items]
+        selected = self._activities_for_names(state, pending, requested)
         context = self._admission_context(state, pending.agent_id, self._control_names(pending))
         for activity in selected:
             refusal = activity_control.control_refusal(context, "pause_activity", activity)
@@ -656,8 +661,8 @@ class SessionActionMixin:
         for activity in selected:
             changed, _ = self._change(changed, pending, ChangeActivityRequest(
                 activity_id=activity.activity_id, operation=ActivityChange.PAUSE))
-        changed = self._with_notes(changed, selected, request.summary)
-        return changed, self._control_result(state, pending, "Activity paused", request.task, selected)
+        changed = self._with_notes(changed, selected, [item.summary for item in items])
+        return changed, self._control_result(state, pending, "Activity paused", requested, selected)
 
     def _conclude_activity(self, state: WorldState, pending: PendingAction,
                             request: ConcludeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -668,7 +673,9 @@ class SessionActionMixin:
         并在结果中登记私有来源 memory_sources。进食收尾时丢弃开吃份量中没吃的部分，结果的 outcome 逐项写终局与份量，
         未完成的浏览写未取得浏览结果（docs/dev/SPEC-persona-prompt.md 第五章「进食」、第六章）。
         """
-        selected = self._activities_for_names(state, pending, request.task)
+        items = control_items("conclude_activity", request)
+        requested, summaries = [item.activity_name for item in items], [item.summary for item in items]
+        selected = self._activities_for_names(state, pending, requested)
         if not all(activity_control.occupies_slot(item) for item in selected):
             _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
@@ -682,17 +689,17 @@ class SessionActionMixin:
                 changed, _ = self._change(changed, pending, ChangeActivityRequest(
                     activity_id=activity.activity_id, operation=ActivityChange.CANCEL))
         activities = dict(changed.activities)
-        for activity, summary in zip(selected, request.summary, strict=True):
+        for activity, summary in zip(selected, summaries, strict=True):
             activities[activity.activity_id] = activity_control.concluded(
                 discard_opened(activities[activity.activity_id]), summary, state.current_time)
         changed = self._with_goal_summaries(changed.model_copy(update={"activities": activities}),
-                                            list(zip(selected, request.summary, strict=True)))
+                                            list(zip(selected, summaries, strict=True)))
         if departed:
             changed, _ = sessions.end_transit(changed, pending.agent_id, self._place_names,
                                               opened_by_action_id=pending.action_id)
-        result = self._control_result(state, pending, "Activities concluded", request.task, selected)
-        data = {**result.data, "memory_sources": self._memory_sources(pending, request.task, selected)}
-        outcome = self._conclusion_outcome(changed, pending.agent_id, request.task, selected)
+        result = self._control_result(state, pending, "Activities concluded", requested, selected)
+        data = {**result.data, "memory_sources": self._memory_sources(pending, requested, selected)}
+        outcome = self._conclusion_outcome(changed, pending.agent_id, requested, selected)
         if outcome:
             data["outcome"] = outcome
         return changed, result.model_copy(update={"data": data})

@@ -264,19 +264,44 @@ def start_activity(way: str, *targets: str, **fields):
 
 
 def activity_name(engine: LifeEngine, activity_id: str) -> str:
-    """活动的可读名称「做什么＋对象（M月D日 HH:MM 起）」；控制工具的 task[] 按它点名活动。
+    """活动的可读名称「做什么＋对象（M月D日 HH:MM 起）」；控制工具每项的 activity_name 按它点名活动。
 
     同一轮可见的名称重复时观察另加「（第二次）」这类序号，这类用例改从观察的 activity_bindings 取名。
     """
     return engine.state.activities[activity_id].name
 
 
-def conclude_request(*names: str, summary: str = "收尾。", memories=None):
-    """结束所点名活动的请求：task、summary 与 memories 三数组等长，默认不写记忆。"""
+def _summaries(names: tuple[str, ...], summary) -> list[str]:
+    """逐项自述：一句话用于全部点名活动，列表则逐项对应。"""
+    return list(summary) if isinstance(summary, (list, tuple)) else [summary for _ in names]
+
+
+def report_request(*names: str, summary="继续。"):
+    """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}。"""
+    from worldmock.life.models import ReportStatusRequest
+
+    return ReportStatusRequest(items=[{"activity_name": name, "summary": text}
+                                      for name, text in zip(names, _summaries(names, summary), strict=True)])
+
+
+def pause_request(*names: str, summary="先停一下。"):
+    """暂停所点名活动的请求：一项一个对象 {activity_name, summary}。"""
+    from worldmock.life.models import PauseActivityRequest
+
+    return PauseActivityRequest(items=[{"activity_name": name, "summary": text}
+                                       for name, text in zip(names, _summaries(names, summary), strict=True)])
+
+
+def conclude_request(*names: str, summary="收尾。", memories=None, views=None):
+    """结束所点名活动的请求：一项一个对象 {activity_name, summary, memories, views}；memories 与 views 逐项给出
+    （与 names 等长的列表的列表），默认都不写。"""
     from worldmock.life.models import ConcludeActivityRequest
 
-    return ConcludeActivityRequest(task=list(names), summary=[summary for _ in names],
-                                   memories=memories if memories is not None else [[] for _ in names])
+    memories = memories if memories is not None else [[] for _ in names]
+    views = views if views is not None else [[] for _ in names]
+    return ConcludeActivityRequest(items=[
+        {"activity_name": name, "summary": text, "memories": list(group), "views": list(seen)}
+        for name, text, group, seen in zip(names, _summaries(names, summary), memories, views, strict=True)])
 
 
 def pending_names(observed: dict) -> list[str]:

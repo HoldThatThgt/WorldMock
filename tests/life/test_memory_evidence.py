@@ -15,18 +15,15 @@ import pytest
 from agentsociety2.agent.base import MemoryUpdateEvidence
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (
-    advance_next, conclude_pending, conclude_request, context, pending_names, stage_day_plan, start_activity,
-    submit_round, wake_by_mail,
-    start_arguments,
-)
+from tests.life.conftest import (advance_next, conclude_pending, conclude_request, context, pending_names,
+                                 stage_day_plan, start_activity, submit_round, wake_by_mail, start_arguments,
+                                 report_request)
 from worldmock.errors import ProtocolError
 from worldmock.life.activity_control import PHASE_CONCLUDED
 from worldmock.life.memory_evidence import MEMORY_WRITE_POINTS, memory_write_points
-from worldmock.life.models import ActivityStatus, ReportStatusRequest
+from worldmock.life.models import ActivityStatus
 
-_MEMORY = {"type": "reflection", "text": "等得有点久，下次先带本书。", "importance": 0.3, "keywords": ["等待"],
-           "subject": None}
+_MEMORY = {"type": "reflection", "text": "等得有点久，下次先带本书。", "importance": 0.3, "keywords": ["等待"]}
 
 
 @pytest.mark.parametrize("wrong_observation", [False, True])
@@ -53,7 +50,8 @@ def test_memory_update_rejects_omitted_observed_source(engine_factory, wrong_obs
 
 def _requested(decision_id: str, tool_name: str = "conclude_activity", memories: tuple = (_MEMORY,)):
     """@brief 本人已持久化的 action_requested 事件（只含写入点推导读取的字段）。"""
-    request = ({"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
+    request = ({"items": [
+        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}]}
                if tool_name == "conclude_activity" else start_arguments(["自己"], ["interact"], ["等待"]))
     return SimpleNamespace(decision_id=decision_id, data={"tool_name": tool_name, "request": request})
 
@@ -72,6 +70,27 @@ def test_write_points_follow_the_registered_conclusion_and_the_wake_from_sleep_r
     observation = SimpleNamespace(data={"wake_reasons": wake_reasons})
     assert memory_write_points(requests, "decision", observation, written=bool(expected)) == expected
     assert MEMORY_WRITE_POINTS == ("activity_conclusion", "reflection")
+
+
+_VIEW = {"type": "relationship", "about": "沈昊", "text": "沈昊一向靠谱。", "importance": 0.5, "keywords": ["朋友"]}
+_NAME = "等待（1月5日 00:00 起）"
+
+
+@pytest.mark.parametrize("request_body,expected", [
+    ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": [_VIEW]}]},
+     ["activity_conclusion"]),
+    ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": []}]}, []),
+    ({"task": [_NAME], "summary": ["等完了。"], "memories": [[{**_MEMORY, "subject": None}]]}, ["activity_conclusion"]),
+    ({"task": [_NAME], "summary": ["等完了。"], "memories": [[_MEMORY]]}, ["activity_conclusion"]),
+    ({"task": [_NAME], "summary": ["等完了。"], "memories": [[]]}, []),
+    ({"task": [_NAME], "summary": ["等完了。"]}, []),
+], ids=["views-only", "nothing", "old-with-subject", "old-without-subject", "old-empty-groups", "old-no-memories"])
+def test_write_points_read_every_control_request_shape(request_body: dict, expected: list[str]) -> None:
+    """收尾写入点经 control_items 读收尾请求：只写看法（views）的收尾同样是写入点；旧运行的三代形状读出与改形前相同的
+    写入点（docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+    event = SimpleNamespace(decision_id="decision", data={"tool_name": "conclude_activity", "request": request_body})
+    observation = SimpleNamespace(data={"wake_reasons": ["planned_end"]})
+    assert memory_write_points([event], "decision", observation, written=bool(expected)) == expected
 
 
 def test_episodes_written_without_any_write_point_are_a_protocol_violation() -> None:
@@ -100,7 +119,7 @@ def _until_ended(engine, activity_id: str, name: str) -> None:
         if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             return
         if engine.scheduling_state().ready_agent_ids:
-            report = ReportStatusRequest(task=[engine.state.activities[activity_id].name], summary=["继续。"])
+            report = report_request(engine.state.activities[activity_id].name, summary="继续。")
             submit_round(engine, {1: ("report_status", report)}, f"{name}-report-{step}")
         else:
             advance_next(engine)

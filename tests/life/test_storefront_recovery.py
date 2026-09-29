@@ -14,16 +14,13 @@ from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
 from tests.life.conftest import (advance_next, advance_until_ready, conclude_request, context, stage_day_plan,
-                                 start_request)
+                                 start_request, report_request)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.engine import LifeEngine
 from worldmock.life.map_models import QuoteConfig
-from worldmock.life.models import (
-    ReportStatusRequest,
-)
 from worldmock.life.projection import visible_supplies
 from worldmock.life.scenario import PriceChangeConfig
 from worldmock.life.storefront_state import initial_supply_state, map_provenance, validate_storefront_state
@@ -122,7 +119,7 @@ def _run_activity(engine, identity, phase):
             return
         if engine.scheduling_state().ready_agent_ids:
             _action(engine, f"{phase}-continue-{step}", "report_status", _named(
-                identity, lambda name: ReportStatusRequest(task=[name], summary=["继续进行。"])))
+                identity, lambda name: report_request(name, summary="继续进行。")))
         else:
             advance_next(engine)
     pytest.fail("Activity did not complete through its declared event boundaries")
