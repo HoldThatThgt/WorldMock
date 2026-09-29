@@ -206,9 +206,12 @@ def test_read_deepseek_key_enforces_private_schema(tmp_path, monkeypatch):
     try:
         link.symlink_to(real)
     except OSError as error:
-        if getattr(error, 'winerror', None) == 1314:
-            pytest.skip('Windows symlink privilege is unavailable')
-        raise
+        if getattr(error, 'winerror', None) != 1314:
+            raise
+        # 没有符号链接权限的 Windows：以同名普通文件加 is_symlink 桩呈现同一形态，拒绝分支照样执行。
+        link.write_text("DEEPSEEK_NODE_KEYS=node-secret-1\n")
+        is_symlink = Path.is_symlink
+        monkeypatch.setattr(Path, "is_symlink", lambda path: path == link or is_symlink(path))
     with pytest.raises(FileNotFoundError, match="missing or unsafe"):
         _read_deepseek_key()
 
@@ -623,10 +626,14 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     assert society is not None
     weights = captured["spec"].env_kwargs["LifeEnv"]["create_options"]["agent_taste_weights"]
     assert set(weights) == {agent.agent_id for agent in scenario.agents}
+    games = {item.game_id for item in scenario.games}
     for row in weights.values():
-        assert row and set(row) == {item.item_id for item in scenario.contents}
+        # 游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：正式场景的 TextWorld 游戏
+        # 在题材表里没有声明，权重为 0，实际缓解走下限偏好。
+        assert row and set(row) == {item.item_id for item in scenario.contents} | games
         assert all(0.0 <= value <= 1.0 for value in row.values())
         assert any(value == 1.0 for value in row.values())
+        assert games and all(row[game] == 0.0 for game in games)
 
 
 def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
