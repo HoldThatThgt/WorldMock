@@ -994,7 +994,7 @@ D1–D14 沿用提案编号，D15–D19 是提案正文里标了待裁决却没�
 | IX1 | `docs/INDEX.md` | 登记本规格（未冻结提案→冻结时改 FROZEN）、验收记录入口与阅读路径；版本表 | 【冻】【后】 |
 | IS1 | `docs/dev/implementation-status.md` | 新增「一日运行保真开发状态」一节 | 【后】 |
 | AR1 | `docs/ARCHITECTURE.md`「核心决策」:74 | 一句：宿主与环境共用名称解析与错误结构 | 【冻】 |
-| DD1 | `docs/design/worldmock-design.html` | 任一设计章节作业落地后运行 `scripts/build_design_doc.py` 重新汇编并同一提交；`--check` 是工程门禁 | 随各阶段 |
+| DD1 | `docs/design/worldmock-design.html` | 任一设计章节或接口合同作业落地后运行 `scripts/build_design_doc.py` 重新汇编并同一提交（附录 A 随合同变化）；`--check` 是工程门禁 | 随各阶段 |
 
 ## 文件修改清单
 

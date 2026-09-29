@@ -105,10 +105,45 @@ def test_cover_and_toc_take_chapter_metadata():
     assert '<a href="#c0-甲">甲</a>' in html and '<a href="#c0-乙">乙</a>' in html
 
 
+def test_contract_sections_are_excerpted_verbatim_with_promoted_headings():
+    """@brief 摘录按标题取到下一同级标题为止，跳过围栏内的伪标题，每节顶级标题提升为 h2；标题找不到即报错。"""
+    contracts = ("# 合同\n\n## 甲\n\n### 工具\n\n表格。\n\n#### 子节\n\n细则。\n\n```text\n### 假标题\n```\n\n"
+                 "### 其他\n\n略。\n\n## 命令行\n\n命令。\n\n### 枚举\n\n值。\n\n## 尾\n")
+    excerpt = builder.extract_sections(contracts, ("工具", "命令行"))
+    assert excerpt.startswith("## 工具\n\n表格。\n\n### 子节\n\n细则。\n\n```text\n### 假标题\n```\n")
+    assert "## 其他" not in excerpt and "## 命令行\n\n命令。\n\n### 枚举\n\n值。" in excerpt
+    try:
+        builder.extract_sections(contracts, ("不存在",))
+    except SystemExit as error:
+        assert "不存在" in str(error)
+    else:
+        raise AssertionError("missing section must abort the build")
+
+
+def test_contract_appendix_rewrites_links_relative_to_the_assembled_page():
+    """@brief 附录里指向上级目录的相对链接加 `../`；指向设计章节的链接与本附录内的锚点改为文内锚点；未收录节的锚点回退到合同文件。"""
+    contracts = ("# 合同\n\n### 工具\n\n见[规格](dev/SPEC-x.md#节)、[记录](design/05-recording-engine.md#事件)、"
+                 "[本节](#工具)与[别处](#别处)。\n\n### 别处\n\n略。\n\n## 版本表\n\n| 版本 | 日期 | 修订内容 |\n"
+                 "| --- | --- | --- |\n| `v` | 2026-09-29 | 初稿 |\n")
+    chapters = [_chapter("05-recording-engine", "## 事件\n\n正文。")]
+    builder.APPENDIX_SECTIONS, saved = ("工具",), builder.APPENDIX_SECTIONS
+    try:
+        chapters.append(builder.contract_appendix(contracts))
+        html = builder.assemble(chapters)
+    finally:
+        builder.APPENDIX_SECTIONS = saved
+    assert 'href="../dev/SPEC-x.md#节">规格</a>' in html
+    assert 'href="#c5-事件">记录</a>' in html
+    assert 'href="#c10-工具">本节</a>' in html
+    assert 'href="../CONTRACTS.md#别处">别处</a>' in html
+    assert '<a href="#c10">附录 A　接口合同摘录：人物工具、模型请求与命令行</a>' in html
+    assert "<td>附录 A</td><td><code>v</code></td><td>2026-09-29</td><td>初稿</td>" in html
+
+
 def test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current():
-    """@brief 真实十章：两次汇编相同、每章与每个二级标题都进目录；已提交的汇编文件与源一致。"""
+    """@brief 真实十章加附录：两次汇编相同、每章与每个二级标题都进目录、附录含工具表；已提交的汇编文件与源一致。"""
     chapters = builder.load_chapters()
-    assert [c.number for c in chapters] == list(range(10))
+    assert [c.number for c in chapters] == list(range(11))
     document = builder.assemble(chapters)
     assert document == builder.assemble(builder.load_chapters())
     for chapter in chapters:
@@ -117,4 +152,8 @@ def test_repository_chapters_assemble_deterministically_and_the_committed_html_i
         for line, fenced in zip(lines, builder.fence_mask(lines)):
             if not fenced and line.startswith("## "):
                 assert builder.esc(line[3:].strip()) in document
+    appendix = document[document.index('id="chapter-10"'):]
+    for tool in ("start_activity", "recall_task_summary", "report_status", "pause_activity", "conclude_activity",
+                 "revise_day_plan", "submit_work", "send_message", "memory_recent"):
+        assert f"<code>{tool}</code>" in appendix
     assert builder.check_current(document) == []
