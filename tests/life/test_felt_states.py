@@ -19,6 +19,8 @@ from worldmock.life.felt import (
     APPETITE_STARVING_LEVEL,
     MOOD_DISCOMFORT_TRIGGER_HOURS,
     MOOD_PULSES,
+    SLEEPINESS_BANDS,
+    SLEEPINESS_BASE_LEVEL,
     EnergyReading,
     MealWindows,
     SocialExposure,
@@ -287,19 +289,32 @@ def test_scenario_with_emergency_threshold_at_starving_constant_fails_to_load(tm
     ("sleepiness", "expected"),
     [
         (0.0, "清醒"),
-        (0.49, "清醒"),
-        (0.5, "有点乏"),
-        (0.74, "有点乏"),
-        (0.75, "困"),
-        (0.89, "困"),
-        (0.9, "很困"),
-        (0.99, "很困"),
-        (1.0, "撑不住"),
+        (0.79, "清醒"),
+        (0.8, "有点乏"),
+        (0.92, "有点乏"),
+        (0.93, "困"),
+        (1.06, "困"),
+        (1.07, "很困"),
+        (1.17, "很困"),
+        (1.18, "撑不住"),
         (1.2, "撑不住"),
+        # 旧档界 0.5 / 0.75 / 0.9 / 1.0 按 KSS 等价刻度重标定后各落回低一到两档（docs/dev/SPEC-dayrun-fidelity.md 1.4）。
+        (0.5, "清醒"),
+        (0.75, "清醒"),
+        (0.9, "有点乏"),
+        (1.0, "困"),
     ],
 )
 def test_sleepiness_level_boundaries(sleepiness: float, expected: str) -> None:
     assert sleepiness_level(sleepiness) == expected
+
+
+def test_sleepiness_band_names_and_count_are_unchanged() -> None:
+    """只改档界，五档的名称与个数不变（人物 Prompt 规格裁决 #10，docs/dev/SPEC-dayrun-fidelity.md 1.4）。"""
+    assert SLEEPINESS_BASE_LEVEL == "清醒"
+    assert SLEEPINESS_BANDS == ((0.80, "有点乏"), (0.93, "困"), (1.07, "很困"), (1.18, "撑不住"))
+    levels = {sleepiness_level(step / 100) for step in range(121)}
+    assert levels == {"清醒", "有点乏", "困", "很困", "撑不住"}
 
 
 @pytest.mark.parametrize(
@@ -506,7 +521,7 @@ class TestSummarizeAndHysteresis:
     """分级汇总与滞回判定（决策参照，非结算参照，docs/dev/SPEC-life-runtime.md「滞回规则」）。"""
 
     def test_summarize_felt_levels(self) -> None:
-        summary = _summary(0.585, 0.8, 0.4, 0.65, 0.2)
+        summary = _summary(0.585, 0.95, 0.4, 0.65, 0.2)
         assert summary == {
             "appetite": "饿",
             "sleepiness": "困",

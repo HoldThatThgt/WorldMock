@@ -38,12 +38,13 @@ DEFAULT_CHRONOTYPE_MIDSLEEP_H = 4.0
 #: 困意截断上界（experiment_assumption：规格冻结截断窗口 [0, 1.2]）。
 SLEEPINESS_CLIP_MAX = 1.2
 
-#: 困意分级边界（experiment_assumption：规格五档分级，区间左闭右开）：
-#: <0.5 清醒、0.5–0.75 有点乏、0.75–0.9 困、0.9–1.0 很困、>=1.0 撑不住。
-GRADE_TIRED_MIN = 0.5
-GRADE_SLEEPY_MIN = 0.75
-GRADE_VERY_SLEEPY_MIN = 0.9
-GRADE_CANNOT_STAY_AWAKE_MIN = 1.0
+#: 困意分级边界（experiment_assumption：与 felt.SLEEPINESS_BANDS 同一组档界，由测试锁定一致；KSS 等价刻度的标定见
+#: 该表注释与 docs/dev/SPEC-dayrun-fidelity.md 1.4），区间左闭右开：
+#: <0.80 清醒、0.80–0.93 有点乏、0.93–1.07 困、1.07–1.18 很困、>=1.18 撑不住。
+GRADE_TIRED_MIN = 0.80
+GRADE_SLEEPY_MIN = 0.93
+GRADE_VERY_SLEEPY_MIN = 1.07
+GRADE_CANNOT_STAY_AWAKE_MIN = 1.18
 
 #: 默认每日睡眠需要量（experiment_assumption：规格默认 7.5h）。
 DEFAULT_SLEEP_NEED_H = 7.5
@@ -102,7 +103,7 @@ def sleepiness(pressure: float, hour: float,
 
 
 def sleepiness_grade(value: float) -> SleepinessGrade:
-    """@brief 把困意数值映射到五档分级（区间左闭右开，>=1.0 撑不住）。"""
+    """@brief 把困意数值映射到五档分级（区间左闭右开，>=1.18 撑不住；档界与 felt.SLEEPINESS_BANDS 相同）。"""
     if value < GRADE_TIRED_MIN:
         return SleepinessGrade.AWAKE
     if value < GRADE_SLEEPY_MIN:

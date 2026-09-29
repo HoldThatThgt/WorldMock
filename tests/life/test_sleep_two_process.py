@@ -1,8 +1,9 @@
 """两过程睡眠与睡眠不足账的公式数值点测试（修订合同 2026-09-18）。
 
 期望值一律用测试内独立推导的原始公式（raw_*）或冻结字面量表达，不复用
-被测模块的组合逻辑。docs/dev/SPEC-life-runtime.md「两过程睡眠模型」的锚点示例中 22:00 与约 22:45 两档与冻结
-公式存在小差异（见 test_anchor_trajectory_07_waker 注释），按合同以公式为准。
+被测模块的组合逻辑。困意档界按 docs/dev/SPEC-dayrun-fidelity.md 1.4 的 KSS 等价刻度重标定为 0.80 / 0.93 / 1.07 / 1.18：
+07:00 起床者的锚点轨迹（TestAnchorTrajectory）与两个真实人物的工作日稳态（TestWeekdaySteadyStateOnsets）都按新档界
+计算各档起点；困意公式本身不变。
 """
 
 from __future__ import annotations
@@ -22,6 +23,10 @@ from worldmock.life.models import ActivityKind, AgentState, BodyState
 from worldmock.life.scenario import load_scenario
 from worldmock.life.sleep import (
     DEFAULT_CHRONOTYPE_MIDSLEEP_H,
+    GRADE_CANNOT_STAY_AWAKE_MIN,
+    GRADE_SLEEPY_MIN,
+    GRADE_TIRED_MIN,
+    GRADE_VERY_SLEEPY_MIN,
     EfficiencyCurvePoint,
     FOOD_UTILIZATION_CURVE,
     WORK_EFFICIENCY_CURVE,
@@ -189,27 +194,78 @@ class TestSleepinessClipping:
         assert sleepiness(0.0, 4.0) == 0.0
 
 
+#: 困意五档的分级文本与 SleepinessGrade 成员，按档序一一对应（名称与个数不变，人物 Prompt 规格裁决 #10）。
+_GRADES = (("清醒", SleepinessGrade.AWAKE), ("有点乏", SleepinessGrade.SLIGHTLY_TIRED),
+           ("困", SleepinessGrade.SLEEPY), ("很困", SleepinessGrade.VERY_SLEEPY),
+           ("撑不住", SleepinessGrade.CANNOT_STAY_AWAKE))
+#: 清醒以上四档的名称（各档起点按此顺序比较）。
+_RISING_BANDS = ("有点乏", "困", "很困", "撑不住")
+
+
+def band_onsets(wake_hour: float, pressure_at_wake: float, midsleep: float) -> dict[str, int]:
+    """从 wake_hour 起一直清醒，按 felt.sleepiness_level 逐秒扫描，返回每档首次出现距起床的秒数（至多扫 30 小时）。"""
+    onsets: dict[str, int] = {}
+    for second in range(30 * 3600):
+        pressure = pressure_after_awake(pressure_at_wake, second / 3600)
+        onsets.setdefault(felt.sleepiness_level(sleepiness(pressure, wake_hour + second / 3600, midsleep)), second)
+        if len(onsets) == len(_GRADES):
+            break
+    return onsets
+
+
+def clock_text(wake_hour: float, seconds: int, with_seconds: bool = False) -> str:
+    """起床后 seconds 秒的本地钟点：缺省按最近整分钟写「HH:MM」，with_seconds 时写「HH:MM:SS」。"""
+    total = round(wake_hour * 3600) + seconds
+    if not with_seconds:
+        minutes = round(total / 60) % (24 * 60)
+        return f"{minutes // 60:02d}:{minutes % 60:02d}"
+    total %= 24 * 3600
+    return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
+
+
 class TestSleepinessGradeBands:
-    """困意五档分级的区间边界（左闭右开）。"""
+    """困意五档分级的区间边界（左闭右开，docs/dev/SPEC-dayrun-fidelity.md 1.4）。"""
 
     @pytest.mark.parametrize("value,expected", [
         (0.0, SleepinessGrade.AWAKE),
-        (0.4999, SleepinessGrade.AWAKE),
-        (0.5, SleepinessGrade.SLIGHTLY_TIRED),
-        (0.7499, SleepinessGrade.SLIGHTLY_TIRED),
-        (0.75, SleepinessGrade.SLEEPY),
-        (0.8999, SleepinessGrade.SLEEPY),
-        (0.9, SleepinessGrade.VERY_SLEEPY),
-        (0.9999, SleepinessGrade.VERY_SLEEPY),
-        (1.0, SleepinessGrade.CANNOT_STAY_AWAKE),
+        (0.7999, SleepinessGrade.AWAKE),
+        (0.8, SleepinessGrade.SLIGHTLY_TIRED),
+        (0.9299, SleepinessGrade.SLIGHTLY_TIRED),
+        (0.93, SleepinessGrade.SLEEPY),
+        (1.0699, SleepinessGrade.SLEEPY),
+        (1.07, SleepinessGrade.VERY_SLEEPY),
+        (1.1799, SleepinessGrade.VERY_SLEEPY),
+        (1.18, SleepinessGrade.CANNOT_STAY_AWAKE),
         (1.2, SleepinessGrade.CANNOT_STAY_AWAKE),
+        # 旧档界 0.5 / 0.75 / 0.9 / 1.0 各落回低一到两档：模型自身的入睡点（f = 1）只是「困」。
+        (0.5, SleepinessGrade.AWAKE),
+        (0.75, SleepinessGrade.AWAKE),
+        (0.9, SleepinessGrade.SLIGHTLY_TIRED),
+        (1.0, SleepinessGrade.SLEEPY),
     ])
     def test_grade_boundaries(self, value, expected):
         assert sleepiness_grade(value) is expected
 
+    def test_sleep_grades_and_felt_bands_are_one_table(self):
+        # sleep.py 的 GRADE_* 与 felt.SLEEPINESS_BANDS 是同一组档界，逐值分到同序的档。
+        edges = [GRADE_TIRED_MIN, GRADE_SLEEPY_MIN, GRADE_VERY_SLEEPY_MIN, GRADE_CANNOT_STAY_AWAKE_MIN]
+        assert edges == [lower for lower, _ in felt.SLEEPINESS_BANDS] == [0.80, 0.93, 1.07, 1.18]
+        assert [name for _, name in felt.SLEEPINESS_BANDS] == [name for name, _ in _GRADES[1:]]
+        assert felt.SLEEPINESS_BASE_LEVEL == _GRADES[0][0]
+        order = {grade: index for index, (_, grade) in enumerate(_GRADES)}
+        names = [name for name, _ in _GRADES]
+        for value in [step / 1000 for step in range(1201)] + [edge - 1e-9 for edge in edges]:
+            assert names.index(felt.sleepiness_level(value)) == order[sleepiness_grade(value)], value
+
+    def test_band_edges_sit_on_the_kss_equivalent_cuts(self):
+        # KSS 等价刻度 K = 7 + 7.6·(f − 1)：四个档界落在 K = 5.5、6.5、7.5、8.4（两位小数取整的档界，误差不到 0.05）。
+        kss = [7 + 7.6 * (lower - 1) for lower, _ in felt.SLEEPINESS_BANDS]
+        assert kss == pytest.approx([5.5, 6.5, 7.5, 8.4], abs=0.05)
+        assert felt.SLEEPINESS_BANDS[-1][0] == pytest.approx(1.2 - 0.02)
+
 
 class TestAnchorTrajectory:
-    """07:00 起床者的规格锚点轨迹（以冻结公式为准）。"""
+    """07:00 起床者的锚点轨迹（默认中点 04:00，起床时压力等于当时的醒来阈值；以冻结公式为准）。"""
 
     @staticmethod
     def anchor_sleepiness(hour: float) -> float:
@@ -224,32 +280,86 @@ class TestAnchorTrajectory:
         assert self.anchor_sleepiness(22.0) == pytest.approx(0.857498, rel=1e-6)
         assert self.anchor_sleepiness(22.75) == pytest.approx(0.936718, rel=1e-6)
 
-    def test_anchor_grades_20_and_21_match_spec(self):
-        # 规格锚点：20:00 有点乏；21:00 困（0.750054，恰好越过 0.75 档界）。
-        assert sleepiness_grade(self.anchor_sleepiness(20.0)) is SleepinessGrade.SLIGHTLY_TIRED
-        assert sleepiness_grade(self.anchor_sleepiness(21.0)) is SleepinessGrade.SLEEPY
+    def test_anchor_trajectory_reads_awake_awake_tired_sleepy(self):
+        # 新档界下 20:00（0.644）与 21:00（0.750）仍清醒，22:00（0.857）有点乏，22:45（0.937）困。
+        hours = (20.0, 21.0, 22.0, 22.75)
+        assert [sleepiness_grade(self.anchor_sleepiness(hour)) for hour in hours] == [
+            SleepinessGrade.AWAKE, SleepinessGrade.AWAKE, SleepinessGrade.SLIGHTLY_TIRED, SleepinessGrade.SLEEPY]
+        assert [felt.sleepiness_level(self.anchor_sleepiness(hour)) for hour in hours] == ["清醒", "清醒", "有点乏", "困"]
 
-    def test_anchor_grades_22_and_2245_follow_formula_not_spec(self):
-        # 规格锚点写 22:00 很困、约 22:45 撑不住；冻结公式给出 22:00 困
-        # （0.8575 < 0.9）、22:45 很困（0.9367 < 1.0）。按合同以公式为准，
-        # 差异在交付报告中如实记录。
-        assert sleepiness_grade(self.anchor_sleepiness(22.0)) is SleepinessGrade.SLEEPY
-        assert sleepiness_grade(self.anchor_sleepiness(22.75)) is SleepinessGrade.VERY_SLEEPY
+    def test_band_onsets_under_the_default_assumption(self):
+        # 各档首次出现的整秒：21:27:53 有点乏、22:41:08 困、次日 00:05:47 很困、01:23:25 撑不住；
+        # 与 docs/dev/SPEC-dayrun-fidelity.md 1.4 所写的「约 21:30、22:40、00:05、01:25」相差都不到 3 分钟。
+        onsets = band_onsets(7.0, wake_threshold(7.0), 4.0)
+        assert [clock_text(7.0, onsets[name], with_seconds=True) for name in _RISING_BANDS] == [
+            "21:27:53", "22:41:08", "00:05:47", "01:23:25"]
+        approximate = (21.5, 22 + 40 / 60, 24 + 5 / 60, 25 + 25 / 60)
+        for name, hour in zip(_RISING_BANDS, approximate):
+            assert abs(7.0 + onsets[name] / 3600 - hour) < 3 / 60, name
 
-    def test_cannot_stay_awake_onset_about_23_22(self):
-        # 公式下"撑不住"（困意=1.0）实际出现在约 23.37h（23:22），
-        # 比规格示例的"约 22:45"晚约 37 分钟。
-        lo, hi = 23.0, 23.5
-        for _ in range(60):
-            mid = (lo + hi) / 2.0
-            if self.anchor_sleepiness(mid) < 1.0:
-                lo = mid
-            else:
-                hi = mid
-        onset = (lo + hi) / 2.0
-        assert 23.3 < onset < 23.4
-        assert sleepiness_grade(self.anchor_sleepiness(onset + 0.01)) is (
-            SleepinessGrade.CANNOT_STAY_AWAKE)
+
+#: 两个真实人物的作息，抄自 WorldMock-Dataset 的 4a5b0e6 全天运行冻结场景 agents[0]：
+#: requests/0001-white-collar-lianqiu/runs/2026-09-28-4a5b0e6-day/frozen-inputs/scenarios/
+#: qingpu-lianqiu-white-collar.json 与 requests/0002-business-sales-zhaoming/runs/2026-09-28-4a5b0e6-day/
+#: frozen-inputs/scenarios/shanghai-zhaoming-business-2026-09-28.json。chronotype_midsleep、sleep_need_hours 取字段值；
+#: 工作日的就寝与起床取同一人物 background_story 的原句（白领「工作日 08:00 闹钟叫醒」「大约零点十分就寝，需要八小时
+#: 睡眠」，商务「工作日通常七点起床」「午夜十二点就寝，需要七小时睡眠」）。商务工作日睡满需要量；白领的闹钟让工作日
+#: 只睡 7 小时 50 分。
+_WEEKDAY_RHYTHMS = {
+    "WC": {"chronotype_midsleep": 4.75, "sleep_need_hours": 8.0, "bedtime": 10 / 60, "wake": 8.0},
+    "BIZ": {"chronotype_midsleep": 4.5, "sleep_need_hours": 7.0, "bedtime": 0.0, "wake": 7.0},
+}
+
+
+def steady_wake_pressure(bedtime_hour: float, wake_hour: float) -> float:
+    """工作日稳态：每天从 bedtime 睡到 wake、其余时间清醒，按真实两过程步进迭代到周期不动点，返回起床时的压力。"""
+    asleep = (wake_hour - bedtime_hour) % 24
+    pressure = 0.0
+    for _ in range(100):
+        pressure = pressure_after_sleep(pressure_after_awake(pressure, 24 - asleep), asleep)
+    return pressure
+
+
+class TestWeekdaySteadyStateOnsets:
+    """WC、BIZ 工作日稳态的各档起点与 docs/dev/SPEC-dayrun-fidelity.md 1.4 验收（提案 G3 表）一致。
+
+    稳态：人物每天从惯常就寝睡到工作日起床，其余时间清醒，起床时的压力取这一日程的周期不动点；此后一直醒着，
+    阈值相位取人物的 chronotype_midsleep。起点为 felt.sleepiness_level 首次给出该档的整秒，按最近整分钟比较。
+    """
+
+    @pytest.mark.parametrize(("person", "expected"), [
+        ("WC", ("22:13", "23:26", "00:51", "02:09")),
+        ("BIZ", ("21:25", "22:40", "00:04", "01:18")),
+    ])
+    def test_band_onsets_match_the_spec(self, person, expected):
+        rhythm = _WEEKDAY_RHYTHMS[person]
+        pressure = steady_wake_pressure(rhythm["bedtime"], rhythm["wake"])
+        onsets = band_onsets(rhythm["wake"], pressure, rhythm["chronotype_midsleep"])
+        assert tuple(clock_text(rhythm["wake"], onsets[name]) for name in _RISING_BANDS) == expected
+        # 早晨不受影响：稳态起床时困意远低于 0.4，两套档界都是「清醒」。
+        assert sleepiness(pressure, rhythm["wake"], rhythm["chronotype_midsleep"]) < 0.4
+
+    @pytest.mark.parametrize(("person", "expected"), [
+        ("WC", ("19:17", "21:45", "23:09", "00:07")),
+        ("BIZ", ("18:15", "20:56", "22:23", "23:21")),
+    ])
+    def test_the_same_steady_state_reproduces_the_retired_edges_row(self, person, expected):
+        # 同一稳态定义在旧档界 0.5 / 0.75 / 0.9 / 1.0 下复现提案表的「现行」行：新档界的起点不是另凑的日程。
+        rhythm = _WEEKDAY_RHYTHMS[person]
+        pressure = steady_wake_pressure(rhythm["bedtime"], rhythm["wake"])
+        onsets, second = [], 0
+        for edge in (0.5, 0.75, 0.9, 1.0):
+            while sleepiness(pressure_after_awake(pressure, second / 3600), rhythm["wake"] + second / 3600,
+                             rhythm["chronotype_midsleep"]) < edge:
+                second += 1
+            onsets.append(clock_text(rhythm["wake"], second))
+        assert tuple(onsets) == expected
+
+    def test_weekday_sleep_against_the_declared_need(self):
+        # 商务工作日（00:00→07:00）正好睡满 7 小时需要量；白领工作日（00:10→08:00）比 8 小时需要量少 10 分钟。
+        asleep = {name: (item["wake"] - item["bedtime"]) % 24 for name, item in _WEEKDAY_RHYTHMS.items()}
+        assert asleep["BIZ"] == _WEEKDAY_RHYTHMS["BIZ"]["sleep_need_hours"]
+        assert asleep["WC"] == pytest.approx(_WEEKDAY_RHYTHMS["WC"]["sleep_need_hours"] - 10 / 60)
 
 
 class TestInitialSleepPressure:
@@ -523,12 +633,15 @@ def _levels_after(body: BodyState, config, clock: BoundaryClock, seconds: int) -
 
 
 class TestSleepinessCrossingPrediction:
-    """困意跨档从当前压力扫描：候选恰为真实结算首次变档的整秒，升档、降档都有。"""
+    """困意跨档从当前压力扫描：候选恰为真实结算首次变档的整秒，升档、降档都有（按 0.80 / 0.93 / 1.07 / 1.18 档界）。"""
 
     @pytest.mark.parametrize(("hour", "pressure", "midsleep", "expected"), [
-        (20.0, 0.45, 4.0, ("清醒", "有点乏")),
-        (7.0, 0.6, 4.0, ("撑不住", "很困")),
-        (0.0, 0.13, 4.75, ("清醒", "有点乏")),
+        # 20:00 困意 2·(0.6 − 0.23) = 0.74，约半小时后升到 0.80「有点乏」。
+        (20.0, 0.6, 4.0, ("清醒", "有点乏")),
+        # 07:00 困意截断在 1.2「撑不住」；上午醒来阈值升得比压力快，困意回落到 1.18 以下即「很困」。
+        (7.0, 0.7, 4.0, ("撑不住", "很困")),
+        # 中点 04:45 的人物午夜困意 0.74，凌晨升到 0.80。
+        (0.0, 0.5, 4.75, ("清醒", "有点乏")),
     ])
     def test_prediction_from_current_pressure_is_not_later_than_actual(self, body_config, hour, pressure,
                                                                         midsleep, expected):
@@ -543,6 +656,6 @@ class TestSleepinessCrossingPrediction:
         after = _levels_after(body, quiet, clock, predicted)
         assert (before["sleepiness"], after["sleepiness"]) == expected
         if hour == 0.0:
-            # 本机运行的症状：旧近似在 00:00 预测 08:44 才「有点乏」，从当前压力扫描得到凌晨的实际时刻。
+            # 本机运行的症状：旧近似在 00:00 按惯常作息外推到早上才「有点乏」，从当前压力扫描得到凌晨的实际时刻。
             assert predicted < 5 * 3600
 

@@ -2,7 +2,7 @@
 
 纯函数库（stdlib + pydantic），不 import 本项目其他模块：
 - 饥饿体感含昼夜因子（Scheer、Morris 与 Shea 2013 内源饥饿节律）与餐时项；
-- 困意只做分级：原始压力值（两过程睡眠压力演化）由调用方传入，演化归 sleep.py；
+- 困意只做分级：输入是 sleep.sleepiness 按两过程压力与昼夜阈值归一后的困意，演化与归一归 sleep.py；
 - 社交需要按账本速率推进并夹到 [0, 1]；
 - 情绪按事件加脉冲并以半衰期衰减：只影响体感呈现与记忆重要度加权，不直接
   改变任何动作可行性（docs/dev/SPEC-life-runtime.md「其他体感分级」）——本模块不耦合可行性判断，由调用方保证；
@@ -54,15 +54,19 @@ APPETITE_BANDS: tuple[tuple[float, str], ...] = (
 #: 饥饿分级基档（低于首下界）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 APETITE_BASE_LEVEL = "不饿"
 
-#: 困意分级阈值表（输入为 sleep.py 演化的原始压力值，域约 0-1.2）。
-#: experiment_assumption：修订合同冻结阈值，无文献出处。
+#: 困意分级阈值表：输入是 sleep.sleepiness 归一后的困意 f = (S − L(t)) / (H(t) − L(t))，截断到 [0, 1.2]
+#: （body 与 projection 先按两过程压力 S 与昼夜阈值算出 f 再分级）；f = 1 即模型自身的入睡条件。
+#: experiment_assumption：档界按 KSS 等价刻度 K = 7 + 7.6·(f − 1) 在 K = 5.5、6.5、7.5、8.4 处切档，斜率 7.6 由
+#: Shochat 等 2021 的两个锚点（就寝前 4 小时 KSS 约 4、入睡时约 7）对工作日稳态拟合（7.47–7.81）而来，是实验假设，
+#: 登记在 docs/EXPERIMENT.md「实验假设声明」；「撑不住」取 1.18，留 0.02 余量不与截断上界 1.2 重合
+#: （docs/dev/SPEC-dayrun-fidelity.md 1.4）。sleep.py 的 GRADE_* 常数是同一组档界，由测试锁定一致。
 SLEEPINESS_BANDS: tuple[tuple[float, str], ...] = (
-    (0.5, "有点乏"),
-    (0.75, "困"),
-    (0.9, "很困"),
-    (1.0, "撑不住"),
+    (0.80, "有点乏"),
+    (0.93, "困"),
+    (1.07, "很困"),
+    (1.18, "撑不住"),
 )
-#: 困意分级基档。experiment_assumption：修订合同冻结阈值。
+#: 困意分级基档（低于首档下界 0.80）。
 SLEEPINESS_BASE_LEVEL = "清醒"
 
 #: 娱乐需要分级阈值表。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结阈值，无文献出处。
@@ -261,7 +265,7 @@ def appetite_level(appetite: float, energy_kcal: float, emergency_kcal: float) -
 
 
 def sleepiness_level(sleepiness: float) -> str:
-    """@brief 困意分级文本：清醒/有点乏/困/很困/撑不住（原始压力值由 sleep.py 传入）。"""
+    """@brief 困意分级文本：清醒/有点乏/困/很困/撑不住（输入为 sleep.sleepiness 归一后的困意，档界见 SLEEPINESS_BANDS）。"""
     return _band_level(sleepiness, SLEEPINESS_BASE_LEVEL, SLEEPINESS_BANDS)
 
 

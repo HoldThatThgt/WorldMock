@@ -55,11 +55,19 @@ def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
     """用完成的 wait 活动积累娱乐需要（边等边刷：净累积=清醒累积−被动缓解）。
 
     等待按计划结束即成待收尾，人物在同一秒给它收尾后再做别的（时间与能量规格第七章「活动一结束就要结束它」）。
+    等待中途的体感跨档（午夜起点的人物约 00:51 困意升到「撑不住」，docs/dev/SPEC-dayrun-fidelity.md 1.4）也提供决策：
+    播报后接着等，不影响娱乐需要的累积。
     """
     for n in range(rounds):
         assert seconds == engine.scenario.activity_feedback_seconds
         _act(engine, f"wait-{n}", "start_activity", ("wait", "agent:1"))
         advance_next(engine)
+        while active_activities(engine.state, 1):
+            if engine.scheduling_state().ready_agent_ids:
+                running = activity_name(engine, active_activities(engine.state, 1)[0].activity_id)
+                _act(engine, f"wait-{n}-report-{engine.state.version}", "report_status",
+                     ReportStatusRequest(task=[running], summary=["接着等。"]))
+            advance_next(engine)
         assert conclude_pending(engine, f"wait-{n}-end").status == "completed"
 
 
