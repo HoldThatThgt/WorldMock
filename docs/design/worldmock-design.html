@@ -612,7 +612,7 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 身体计算结果、实际活动区间和有效工作量都是模拟引擎提供的输入；交换引擎使用这些事实求值规则。
 用于受理的预计投入（能量除外）与用于结算的实际投入必须区分，计划尚未执行的部分不能计入实际产出。</p>
 <h4 id="c2-不同交换的计算依据">不同交换的计算依据</h4>
-<table><tr><th>交换</th><th>接收的事实</th><th>返回的计算结果与条件</th></tr><tr><td>购买</td><td>当前有效报价、数量、交换双方与交付方式</td><td>整单金额、取得数量、交付条件</td></tr><tr><td>进食</td><td>开吃份量、实际消耗份量、食品属性与适用的食品利用效率</td><td>食品消耗与对应能量输入；不把购买本身算作进食；暂停保留开吃份量的剩余，结束丢弃未吃的部分，不补算摄入，其他份数不动</td></tr><tr><td>给予</td><td>本人手边的持有量、收件人与是否同处</td><td>每件转移 min(1, 持有) 到对方持有；不产生付款，任何人都不增加摄入</td></tr><tr><td>工作</td><td>合同、实际投入、有效工作量、验收结果与付款记录</td><td>满足合同条件时的报酬；已付款任务不重复计款</td></tr><tr><td>出行</td><td>路线、方式、适用时段与报价依据</td><td>应付费用与取消条件；现行规则为启程预付一次，取消不退</td></tr><tr><td>内容使用</td><td>实际接触的内容、偏好、接触次数与时长；接触次数只在首次与从头重看时加一，接着看不加</td><td>本次内容体验对应的需要缓解量</td></tr></table>
+<table><tr><th>交换</th><th>接收的事实</th><th>返回的计算结果与条件</th></tr><tr><td>购买</td><td>当前有效报价、数量、交换双方与交付方式</td><td>整单金额、取得数量、交付条件</td></tr><tr><td>进食</td><td>开吃份量、实际消耗份量、食品属性与适用的食品利用效率</td><td>食品消耗与对应能量输入；不把购买本身算作进食；暂停保留开吃份量的剩余，结束丢弃未吃的部分，不补算摄入，其他份数不动</td></tr><tr><td>给予</td><td>本人手边的持有量、收件人与是否同处</td><td>每件转移 min(1, 持有) 到对方持有；不产生付款，任何人都不增加摄入</td></tr><tr><td>工作</td><td>合同、实际投入、有效工作量、验收结果与付款记录</td><td>满足合同条件时的报酬；已付款任务不重复计款</td></tr><tr><td>出行</td><td>路线、方式、适用时段与报价依据</td><td>应付费用与取消条件；现行规则为启程预付一次，取消不退</td></tr><tr><td>内容使用</td><td>实际接触的内容、口味权重、接触次数与时长；接触次数只在首次与从头重看时加一，接着看不加</td><td>本次内容体验对应的需要缓解量：内容费率 × 有效偏好 <code>f + (1 − f)·w</code> ÷ 接触次数，<code>f</code> 为场景下限偏好（缺省 0.5），不喜欢的内容也按 <code>f</code> 缓解；有缓解时娱乐需要不再累积（<a href="../dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径">一日运行保真规格 1.2</a>）</td></tr></table>
 <p>工作报酬按计时、计件或包干合同计算；实际投入充分仍须满足交付验收条件。
 交换引擎使用验收结果，不组织验收过程；合同不额外乘质量分数，也不重复扣减身体效率已经影响的产出。
 涉及身体资源时，只返回本次交换对应的输入或消耗；持续身体演化与体感更新由模拟引擎负责。
@@ -1324,6 +1324,11 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 其中的 <code>after</code> 不是包含全部食品效果的最终身体状态；食品能量流入须结合
 <code>resource_flows</code> 与最终世界状态核验。睡眠演化由对应规则验证；
 模拟引擎核对共享时钟与实际结算区间，并行活动时长不能直接相加。</p>
+<p>娱乐需要在共同身体结算里先汇总各活动的缓解：有缓解的活动（观看、游戏、带娱乐效果的生活活动）进行时只按缓解下降、
+不再累积清醒增长，没有缓解时按清醒速率累积，睡眠中不变；单活动结算路径用同一口径，两条路径对同一活动的净效果相同。
+观看与游戏的缓解按有效偏好 <code>f + (1 − f)·w</code> 调幅度（<code>w</code> 为口味权重，<code>f</code> 为场景 <code>body.entertainment_relief_preference_floor</code>，
+缺省 0.5），不喜欢的内容与没有题材声明的游戏也按 <code>f</code> 缓解；排序仍用原始口味权重，规则见
+<a href="../dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径">一日运行保真规格 1.2</a>。</p>
 <p>模拟引擎将实际食品利用效率写入进食活动的 <code>activity_progress.data.consumption.food_efficiency</code>，
 对应同一区间的真实食用增量。记录引擎读取已提交测量；字段缺失时只能标为未知，不能自行补算。</p>
 <h3 id="c4-反馈续行与结束">反馈、续行与结束</h3>
@@ -3295,7 +3300,9 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
     "initial_entertainment_need": 0
   }
 }</code></pre>
-<table><tr><th>配置内容</th><th>含义与运行时去向</th></tr><tr><td><code>mass_kg</code></td><td>体重，单位 kg；用于活动额外能量消耗</td></tr><tr><td><code>initial_energy_kcal</code></td><td>可用能量初值，单位 kcal；成为 <code>BodyState.energy_kcal</code>，受目录能量上界约束</td></tr><tr><td><code>initial_sleep_debt_hours</code></td><td>当前场景输入使用的键名；其值初始化唯一的睡眠不足账 <code>BodyState.sleep_deficit_hours</code>，不新增另一份睡眠状态</td></tr><tr><td><code>initial_entertainment_need</code></td><td>当前场景声明的娱乐需要初值，范围为零到一；见下文实现差异</td></tr></table>
+<table><tr><th>配置内容</th><th>含义与运行时去向</th></tr><tr><td><code>mass_kg</code></td><td>体重，单位 kg；用于活动额外能量消耗</td></tr><tr><td><code>initial_energy_kcal</code></td><td>可用能量初值，单位 kcal；成为 <code>BodyState.energy_kcal</code>，受目录能量上界约束</td></tr><tr><td><code>initial_sleep_debt_hours</code></td><td>当前场景输入使用的键名；其值初始化唯一的睡眠不足账 <code>BodyState.sleep_deficit_hours</code>，不新增另一份睡眠状态</td></tr><tr><td><code>initial_entertainment_need</code></td><td>当前场景声明的娱乐需要初值，范围为零到一；见下文实现差异</td></tr><tr><td><code>entertainment_relief_preference_floor</code></td><td>可选，娱乐缓解的下限偏好 <code>f</code>，缺省 0.5，取开区间 (0, 1)，0、1、负数与非有限值在场景加载时拒绝；经场景语义组装并入 <code>BodyConfig</code>，观看与游戏的实际缓解按有效偏好 <code>f + (1 − f)·w</code> 调幅度。实验假设（敏感区间 0.3–0.7），说明写在字段 <code>description</code>，见<a href="../dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径">一日运行保真规格 1.2</a></td></tr></table>
+<p>上面的正式场景摘录没有声明 <code>entertainment_relief_preference_floor</code>，取缺省 0.5：字段带缺省值，现有场景文件不必改，
+场景 <code>schema_version</code> 仍为 3，目录与数据集副本都不变。</p>
 <p><b>当前实现差异</b>：场景准入读取 <code>initial_entertainment_need</code>，但运行时初始化仍把娱乐需要设为零，
 非零声明尚未接通。上面的摘录使用零值，不将非零初值描述为已生效能力。
 依据为 <a href="../../src/worldmock/life/semantics.py">场景语义组装</a> 与
@@ -3308,7 +3315,8 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 场景不另存可自由改写的饥饿条或疲劳条；身体变化与体感的执行边界见
 <a href="#c4-实际区间身体变化与效率">模拟引擎</a>。人物余额使用 <code>initial_balance_fen</code>，单位为整数分。</p>
 <h3 id="c8-35-规则来源与配置边界">3.5 规则来源与配置边界</h3>
-<p>能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 <code>BodyConfig</code>。
+<p>能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 <code>BodyConfig</code>；
+娱乐缓解的下限偏好例外，由场景 <code>body.entertainment_relief_preference_floor</code> 提供，不进目录，改它不触发目录版本变更。
 睡眠压力、睡眠不足累积与恢复及食品利用效率由
 <a href="../../src/worldmock/life/sleep.py">睡眠模型实现</a>按冻结规格计算。
 工作效率因子从合同对象目录装配到 <code>work_efficiency_factors</code>，由身体结算按输入资源曲线计算区间平均；
@@ -3353,7 +3361,7 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 <h3 id="c8-82-校验清单">8.2 校验清单</h3>
 <p>运行凭据项在模拟启动器中检查，不由 <code>worldmock validate</code> 执行。
 画像抽取和 LabelKit 的凭据读取边界见<a href="../manual/runtime.md">运行配置手册</a>，不能视为执行同一套文件校验。</p>
-<table><tr><th>校验项</th><th>检查内容</th><th>失败行为</th></tr><tr><td>Schema 版本</td><td>满足当前场景模型的整数版本约束</td><td>拒绝启动，说明不受支持的版本</td></tr><tr><td>必填字段</td><td>所有必填字段存在且类型正确</td><td>拒绝启动，列出缺失字段</td></tr><tr><td>时间窗口</td><td><code>end_at &gt; start_at</code></td><td>拒绝启动</td></tr><tr><td>初始状态</td><td>按资源单位与目录边界校验能量、睡眠不足、娱乐需要；运行时继续满足各状态约束</td><td>拒绝启动</td></tr><tr><td>地点引用</td><td><code>agents[].home_location_id</code> 指向已声明地点</td><td>拒绝启动</td></tr><tr><td>交互菜单</td><td>地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项</td><td>以 <code>IntegrityError</code> 拒绝启动，保留英文校验原因</td></tr><tr><td>目录准入</td><td>满足 <code>category_requirements</code>，内容摘要一致，全部可能触达配对已定义或已审核不作用</td><td>未定义、歧义或文件篡改拒绝启动，给出具体来源</td></tr><tr><td>语料哈希</td><td>文件 SHA-256 与清单一致</td><td>拒绝启动，列出不匹配文件</td></tr><tr><td>规则完整性</td><td>所有规则文件存在且可解析</td><td>拒绝启动</td></tr><tr><td>运行凭据</td><td>固定文件存在且非符号链接；仅含 <code>DEEPSEEK_NODE_KEYS</code>，值及密钥段非空</td><td>文件缺失或不安全时报 <code>FileNotFoundError</code>，内容无效时报 <code>IntegrityError</code>；<code>0600</code> 仅为推荐权限</td></tr></table>
+<table><tr><th>校验项</th><th>检查内容</th><th>失败行为</th></tr><tr><td>Schema 版本</td><td>满足当前场景模型的整数版本约束</td><td>拒绝启动，说明不受支持的版本</td></tr><tr><td>必填字段</td><td>所有必填字段存在且类型正确</td><td>拒绝启动，列出缺失字段</td></tr><tr><td>时间窗口</td><td><code>end_at &gt; start_at</code></td><td>拒绝启动</td></tr><tr><td>初始状态</td><td>按资源单位与目录边界校验能量、睡眠不足、娱乐需要；娱乐缓解的下限偏好须在开区间 (0, 1) 内；运行时继续满足各状态约束</td><td>拒绝启动</td></tr><tr><td>地点引用</td><td><code>agents[].home_location_id</code> 指向已声明地点</td><td>拒绝启动</td></tr><tr><td>交互菜单</td><td>地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项</td><td>以 <code>IntegrityError</code> 拒绝启动，保留英文校验原因</td></tr><tr><td>目录准入</td><td>满足 <code>category_requirements</code>，内容摘要一致，全部可能触达配对已定义或已审核不作用</td><td>未定义、歧义或文件篡改拒绝启动，给出具体来源</td></tr><tr><td>语料哈希</td><td>文件 SHA-256 与清单一致</td><td>拒绝启动，列出不匹配文件</td></tr><tr><td>规则完整性</td><td>所有规则文件存在且可解析</td><td>拒绝启动</td></tr><tr><td>运行凭据</td><td>固定文件存在且非符号链接；仅含 <code>DEEPSEEK_NODE_KEYS</code>，值及密钥段非空</td><td>文件缺失或不安全时报 <code>FileNotFoundError</code>，内容无效时报 <code>IntegrityError</code>；<code>0600</code> 仅为推荐权限</td></tr></table>
 <h3 id="c8-83-校验报告">8.3 校验报告</h3>
 <p>交互菜单准入由场景加载完成：<code>load_scenario</code> 成功即已通过菜单字段与覆盖检查，失败由
 <code>IntegrityError</code> 和英文日志给出原因；现有报告不另加独立菜单结果字段。
