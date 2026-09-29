@@ -544,6 +544,8 @@ test('interaction bindings name catalog activity without overriding a recorded t
 
 test('session requests display each task with its own progress sentence', t => {
   const memory = text => ({type: 'routine', text});
+  const opinion = (about, text) => ({type: 'relationship', about, text});
+  const item = (activity_name, summary, extra = {}) => ({activity_name, summary, ...extra});
   const view = viewer([
     event('action_requested', {tool_name: 'report_status', request: {
       task: ['整理访谈', '准备周会'], summary: ['完成提纲', '列出议题'],
@@ -557,13 +559,41 @@ test('session requests display each task with its own progress sentence', t => {
     event('action_requested', {tool_name: 'pause_activity', request: {
       task: ['准备周会'], summary: ['先放一放'],
     }}),
+    event('action_requested', {tool_name: 'conclude_activity', request: {
+      task: ['午饭'], summary: ['吃完了'],
+    }}),
+    event('action_requested', {tool_name: 'report_status', request: {items: [
+      item('整理访谈', '完成提纲'), item('准备周会', '列出议题'),
+    ]}}),
+    event('action_requested', {tool_name: 'conclude_activity', request: {items: [
+      item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
+      item('午饭', '吃完了', {memories: [], views: []}),
+    ]}}),
+    event('action_requested', {tool_name: 'pause_activity', request: {items: [item('准备周会', '先放一放')]}}),
+    event('action_requested', {tool_name: 'conclude_activity', request: {items: [
+      item('准备周会', '议题定了', {memories: [], views: []}),
+    ]}}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '请求 播报进展 · 整理访谈：完成提纲；准备周会：列出议题');
   assert.equal(view.summary(2), '请求 结束活动 · 整理访谈：已经提交纪要 · 记忆 2 条');
   assert.equal(view.summary(3), '请求 结束活动 · 准备周会：议题定了；午饭：吃完了 · 记忆 1 条');
   assert.equal(view.summary(4), '请求 暂停活动 · 准备周会：先放一放');
+  assert.equal(view.summary(5), '请求 结束活动 · 午饭：吃完了');
   assert.ok(!view.summary(1).includes('task='));
+  // 现行一项一个对象的请求经 controlItems 读出同样的逐项配对，看法与普通记忆合计计数（第六章「一项一个对象」）。
+  assert.equal(view.summary(6), view.summary(1));
+  assert.equal(view.summary(7), '请求 结束活动 · 整理访谈：已经提交纪要；午饭：吃完了 · 记忆 2 条');
+  assert.equal(view.summary(8), view.summary(4));
+  assert.equal(view.summary(9), '请求 结束活动 · 准备周会：议题定了 · 记忆 0 条');
+  const read = request => JSON.parse(JSON.stringify(view.run(`controlItems('conclude_activity', ${
+    JSON.stringify(request)}).map(entry => [entry.name, entry.summary, entry.memories.map(one => one.text)])`)));
+  assert.deepEqual(read({task: ['整理访谈'], summary: ['已经提交纪要'], memories: [[memory('纪要要当天交'),
+    {type: 'relationship', text: '王磊很靠谱', subject: '王磊'}]]}), read({items: [
+    item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
+  ]}));
+  assert.deepEqual(view.errors, []);
+  for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined/);
 });
 
 test('activity end reasons name reminders route and partner endings pauses and cancellations', t => {

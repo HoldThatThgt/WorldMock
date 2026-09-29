@@ -35,7 +35,7 @@ _ACTION_OF_KIND = {
     "browse": "browse", "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
     "wait": "wait", "sleep": "sleep",
 }
-#: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」），按 task[] 逐活动投影。
+#: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」），按请求 items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
     "report_status": "report",
     "pause_activity": "pause",
@@ -332,7 +332,7 @@ def _control_actions(
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
 ) -> tuple[_Action, ...]:
-    """@brief 按请求 task[] 逐活动投影：结果逐项回报的活动身份绑定到导出的真实活动快照。"""
+    """@brief 按请求 items[] 逐活动投影（旧形状为 task[]）：结果逐项回报的活动身份绑定到导出的真实活动快照。"""
     selected: list[_Action] = []
     for event in related:
         if event.event_type != "action_result":

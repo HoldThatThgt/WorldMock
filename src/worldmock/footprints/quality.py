@@ -18,6 +18,7 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
+from worldmock.life.control_items import control_items
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -29,6 +30,8 @@ _SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal
                               "resolution", "identity", "routine", "reflection"})
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 _WRITE_POINTS = ("activity_conclusion", "reflection")
+#: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
+_MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 模型用量按用途分列时，无 purpose 的请求（人物决策的行动请求与记忆巩固、反思）的分组名。
 _DECISION_PURPOSE = "decision"
 _PRICING = {
@@ -449,26 +452,26 @@ def _memory_quality(events: list[Event]) -> dict:
 
 
 def _inspect_conclusion_request(event: Event, state: dict) -> None:
-    """@brief 登记每个决策的 conclude_activity 请求；带非空 memories 的应在同一决策写出收尾记忆。"""
+    """@brief 登记每个决策的 conclude_activity 请求；经 control_items 读出（新旧形状同一口径）后带任何记忆或看法的，
+    应在同一决策写出收尾记忆。"""
     if event.data.get("tool_name") != "conclude_activity":
         return
     key = (event.agent_id, event.decision_id)
     state["requests"].add(key)
-    request = event.data.get("request")
-    groups = request.get("memories") if isinstance(request, dict) else None
-    if isinstance(groups, list) and any(isinstance(group, list) and group for group in groups):
+    if any(item.memories for item in control_items("conclude_activity", event.data.get("request"))):
         state["conclusions"].setdefault(key, event.event_id)
 
 
 def _inspect_memory_response(event: Event, state: dict) -> None:
-    """@brief 人物决策的模型响应的协议错误提到记忆时记为记忆协议问题（记忆不再带引用，不核对身份）。
+    """@brief 人物决策的模型响应的协议错误提到记忆（含结束工具的 memories、views 字段）时记为记忆协议问题（记忆不再带
+    引用，不核对身份）。
 
     带 purpose 的系统请求（工作验收、零点计划 plan_day）不是记忆写入点，其响应错误不计入记忆问题。
     """
     if event.data.get("purpose"):
         return
     error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
+    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])
 
 
@@ -619,7 +622,7 @@ def _valid_subjective_snapshots(episodes: list, identities: list[str]) -> bool:
 def _inspect_memory_failure(event: Event, state: dict) -> None:
     """@brief 将持久化的记忆相关运行故障纳入质量问题。"""
     error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
+    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
         _add_memory_problem(state, "memory_run_failure", event.event_id, event.agent_id, [])
 
 

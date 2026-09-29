@@ -66,7 +66,8 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
     ) -> MemoryStepOutcome:
         """@brief 保存结束活动写下的主观条目、按阈值归纳，再确定性渲染当前事实窗口。
 
-        finish_memories 承载宿主按 task 展平的 conclude_activity.memories（签名沿用 AS2，不改锁定提交）；
+        finish_memories 承载宿主展平的 conclude_activity 逐项记忆与看法（经 control_items 读出，看法的 about 即存储的
+        subject，写入 AS2 前剥掉；签名沿用 AS2，不改锁定提交）；
         阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/dev/SPEC-time-and-energy.md 第七章）。
         """
         store = self.store

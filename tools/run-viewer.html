@@ -596,20 +596,36 @@ function buildIndex(){
   log(`· 索引完成：${S.events.length} 事件 / ${S.agentIds.length} agent / ${S.obs.length} 观测 / ${S.acts.length} 活动段`);
 }
 
-/** @brief 将会话工具的任务和逐项自述配对展示。 */
-function pairedSummaries(req){
-  return (req.task||[]).map((task,i)=>`${task}：${(req.summary||[])[i]||''}`).join('；');
+/** @brief 控制工具请求的逐项内容，与 worldmock.life.control_items 同一规则：现行一项一个对象
+ *  items[{activity_name, summary, memories, views}]，旧形状为 task[]、summary[] 与逐项的 memories[][]；
+ *  返回 [{name, summary, memories}]：结束工具的 memories 含看法与偏好（先普通记忆、后 views），最早不带记忆字段的
+ *  结束请求为 null，播报与暂停为空。 */
+function controlItems(tool, req){
+  const list = value => Array.isArray(value)? value : [];
+  const concluding = tool==='conclude_activity';
+  if (Array.isArray(req.items)){
+    return req.items.map(item=>({name:item?.activity_name||'', summary:item?.summary||'',
+      memories: concluding? [...list(item?.memories), ...list(item?.views)] : []}));
+  }
+  const groups = Array.isArray(req.memories)? req.memories : null;
+  return list(req.task).map((task,i)=>({name:task, summary:list(req.summary)[i]||'',
+    memories: !concluding? [] : groups? list(groups[i]) : null}));
+}
+/** @brief 将控制工具逐项的活动名与自述配对展示（新旧形状都经 controlItems 读取）。 */
+function pairedSummaries(tool, req){
+  return controlItems(tool, req).map(item=>`${item.name}：${item.summary}`).join('；');
 }
 /** @brief start_activity 逐项显示「对象 · 动词：方式」；缺方式的旧请求只显示动作短语。 */
 function verbWay(verb, way){
   const label = VERB_LABELS[verb]||verb||'';
   return way? `${label}：${way}` : label;
 }
-/** @brief conclude_activity 随收尾写下的记忆条数（memories 与 task 等长，逐项零至多条）。 */
+/** @brief conclude_activity 随收尾写下的记忆条数（经 controlItems 读出的逐项记忆与看法合计）；没有记忆字段的最早形状
+ *  不显示。 */
 function memoryCount(req){
-  if (!Array.isArray(req.memories)) return '';
-  const n = req.memories.reduce((total,group)=>total+(Array.isArray(group)?group.length:0),0);
-  return ` · 记忆 ${n} 条`;
+  const items = controlItems('conclude_activity', req);
+  if (items.some(item=>item.memories===null)) return '';
+  return ` · 记忆 ${items.reduce((total,item)=>total+item.memories.length,0)} 条`;
 }
 /** @brief 零点计划的目标数与提醒时刻（场景时区）。 */
 function dayPlanText(goalsRaw){
@@ -632,9 +648,9 @@ function readableReq(tool, reqRaw){
       return req.task_name||'';
     case 'report_status':
     case 'pause_activity':
-      return pairedSummaries(req);
+      return pairedSummaries(tool, req);
     case 'conclude_activity':
-      return pairedSummaries(req) + memoryCount(req);
+      return pairedSummaries(tool, req) + memoryCount(req);
     case 'send_message':
       return `${req.recipient_name||''} · ${req.text||''}`;
     case 'revise_day_plan':
