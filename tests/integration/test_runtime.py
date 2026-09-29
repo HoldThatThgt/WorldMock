@@ -863,7 +863,7 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         env = LifeEnv()
         env.engine = engine
         client = _plan_day_client(monkeypatch, [{"intent_kind": "工作", "goal": "上午把周报写完",
-                                                 "remind_time": "09:30"}])
+                                                 "remind_time": "09:30", "around_time": "09:30"}])
         request = _checkpoint_request(engine, tmp_path, "initial")
         before = {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces}
 
@@ -899,7 +899,7 @@ async def test_life_env_step_plans_midnight_before_the_step_checkpoint(tmp_path,
         env = LifeEnv()
         env.engine = engine
         client = _plan_day_client(monkeypatch, [{"intent_kind": "晨间例程", "goal": "起床洗漱",
-                                                 "remind_time": "07:00"}])
+                                                 "remind_time": "07:00", "around_time": "07:00"}])
         state = await env.scheduling_state()
 
         await env.step(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)

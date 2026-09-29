@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
+from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, ROUTINE_INTENT_KINDS, ran_in_goal_window
 
 UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 外部约束闭集只保留营业、到达准入、路线与工作可用性；引导性拒绝（ACTIVITY_PRECONDITION_UNMET、
@@ -84,7 +84,7 @@ def _activity_token(snapshot: dict) -> str | None:
 
 
 def _progress_evidence(event: dict) -> dict | None:
-    """@brief 核对实际正时长区间、人物、活动身份与可用活动快照。"""
+    """@brief 核对实际正时长区间、人物、活动身份与可用活动快照；活动开始时刻（大致时刻判定用）不是数值时为 None。"""
     if event.get("event_type") != "activity_progress":
         return None
     data = event.get("data", {})
@@ -98,7 +98,9 @@ def _progress_evidence(event: dict) -> dict | None:
         return None
     if activity.get("status") not in {"active", "paused", "completed", "truncated"}:
         return None
-    return {"start": start, "end": end, "activity": activity, "token": _activity_token(activity)}
+    started = activity.get("started_at")
+    return {"start": start, "end": end, "activity": activity, "token": _activity_token(activity),
+            "started_at": started if _number(started) and started <= start else None}
 
 
 def _habitual_consistency(events: list[dict], zone: ZoneInfo) -> dict:
@@ -211,23 +213,33 @@ def _plan_snapshot(event: dict) -> tuple[dict | None, bool]:
     return plan, registration
 
 
+def _around_at(goal: dict) -> int | None:
+    """@brief 登记快照里目标的大致时刻（当日绝对时刻）；没有或不是数值时为 None（不限时刻）。"""
+    value = goal.get("around_at")
+    return value if _number(value) else None
+
+
 def _new_goal(event: dict, goal: dict, priority: int) -> dict:
-    """@brief 每次成功登记的新承诺保存初始优先级和不可洗掉的首次登记身份。"""
+    """@brief 每次成功登记的新承诺保存初始优先级、不可洗掉的首次登记身份、大致时刻与是否例行意图。"""
     return {"goal_instance_id": f"{event.get('event_id')}:{goal['intent_kind']}",
             "intent_kind": goal["intent_kind"], "goal": goal["goal"], "initial_priority": priority,
+            "routine": goal["intent_kind"] in ROUTINE_INTENT_KINDS, "around_at": _around_at(goal),
             "registered_at": event["occurred_at"], "registration_event_id": event.get("event_id"),
             "progressed_at": None, "progress_activity_id": None, "progress_event_id": None,
             "status": "pending"}
 
 
 def _revise_goals(day: dict, plan: dict, event: dict) -> None:
-    """@brief 相同未推进条目保留实例，删除或改写的实例保留为丢弃历史。"""
+    """@brief 相同未推进条目保留实例（只改提醒或大致时刻的也保留，大致时刻取本次登记的值），删除或改写的实例保留为
+    丢弃历史。"""
     current = {(goal["intent_kind"], goal["goal"]): goal for goal in day["goals"]
                if goal["status"] != "discarded"}
-    incoming = {(goal["intent_kind"], goal["goal"]) for goal in plan["goals"]}
+    incoming = {(goal["intent_kind"], goal["goal"]): goal for goal in plan["goals"]}
     for key, goal in current.items():
         if key not in incoming and goal["status"] == "pending":
             goal["status"] = "discarded"
+        elif key in incoming and goal["status"] == "pending":
+            goal["around_at"] = _around_at(incoming[key])
     for priority, goal in enumerate(plan["goals"], start=1):
         key = (goal["intent_kind"], goal["goal"])
         if key not in current:
@@ -243,7 +255,12 @@ def _matching_goal(day: dict, snapshot: dict) -> dict | None:
 
 
 def _record_progress(day: dict, plan: dict, event: dict, used: set) -> None:
-    """@brief 将首次家族匹配目标关联到同人物同日本次实际正时长活动证据。"""
+    """@brief 将首个匹配目标关联到同人物同日本次实际正时长活动证据。
+
+    匹配与推进判定同一口径（schedule.progress_day_plan）：按清单顺序取首个未推进、同家族、登记后正时长结算、且带大致
+    时刻时活动在其前后容差内进行（schedule.ran_in_goal_window）的目标；该目标的推进快照须指向本次活动与区间，否则
+    不记推进。
+    """
     evidence = _progress_evidence(event)
     if evidence is None or not evidence["token"]:
         return
@@ -256,8 +273,10 @@ def _record_progress(day: dict, plan: dict, event: dict, used: set) -> None:
             continue
         lower = max(evidence["start"], goal["registered_at"])
         upper = min(evidence["end"], plan["day_end"])
+        if not (lower < upper and ran_in_goal_window(goal["around_at"], evidence["started_at"], upper)):
+            continue
         progressed = snapshot.get("progressed_at")
-        if not (_number(progressed) and lower < upper and lower < progressed <= upper
+        if not (_number(progressed) and lower < progressed <= upper
                 and snapshot.get("progress_activity_id") == event["activity_id"]):
             return
         goal.update(status="progressed", progressed_at=progressed, progress_activity_id=event["activity_id"],
@@ -276,11 +295,13 @@ def _goal_counts(goals: list[dict]) -> dict:
 
 
 def _goal_summary(goals: list[dict]) -> dict:
-    """@brief 按首次登记的清单优先级输出推进率，不从修订后的名次重排历史。"""
-    priorities = sorted({goal["initial_priority"] for goal in goals})
-    return {**_goal_counts(goals), "by_priority": {
-        str(priority): _goal_counts([goal for goal in goals if goal["initial_priority"] == priority])
-        for priority in priorities}}
+    """@brief 推进比例只计非例行意图的目标，按首次登记的清单优先级输出，不从修订后的名次重排历史；例行意图
+    （schedule.ROUTINE_INTENT_KINDS）的目标照常判定与记录，另计一行 routine_goals（docs/dev/SPEC-dayrun-fidelity.md 2.3）。"""
+    counted = [goal for goal in goals if not goal["routine"]]
+    priorities = sorted({goal["initial_priority"] for goal in counted})
+    return {**_goal_counts(counted), "by_priority": {
+        str(priority): _goal_counts([goal for goal in counted if goal["initial_priority"] == priority])
+        for priority in priorities}, "routine_goals": _goal_counts([goal for goal in goals if goal["routine"]])}
 
 
 def _deliberate_goals(events: list[dict], zone: ZoneInfo) -> dict:
@@ -306,4 +327,6 @@ def _deliberate_goals(events: list[dict], zone: ZoneInfo) -> dict:
             "reference": None,
             "notes": ["Family progress is actual activity evidence, not natural-language goal completion",
                       "No external empirical goal distribution is connected",
-                      *([] if goals else ["No registered goals; family_progress_rate is null"])]}
+                      "family_progress_rate counts non-routine intents only; routine intents are in routine_goals",
+                      *([] if any(not goal["routine"] for goal in goals)
+                        else ["No registered non-routine goals; family_progress_rate is null"])]}

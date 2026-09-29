@@ -35,8 +35,8 @@ from worldmock.runtime import stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
 #: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
-_DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None},
-              {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None}]
+_DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None, "around_time": None},
+              {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None, "around_time": None}]
 
 
 class _PlanDayClient(StubPlanDayClient):

@@ -478,6 +478,29 @@ def test_system_layers_persona_memory_and_tools_validate_against_the_layer_schem
         validator.validate(tool)
 
 
+def test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_the_around_time_schema(
+        monkeypatch) -> None:
+    """prompt_sha256 只计算、不钉常量，随系统层与待办层 Schema 重钉（docs/dev/SPEC-dayrun-fidelity.md 2.2、8.2）：新运行的
+    模型身份记录的提示指纹就是按现行十八条系统层与带 around_time 的待办层 Schema 算出的值；去掉新第 14 条回到十七条、
+    或去掉待办层目标的 around_time，指纹都不同。"""
+    from custom.agents import life_prompt
+    from worldmock.life import prompt_schemas
+    from worldmock.runtime import _model_identity
+
+    current = life_prompt.life_prompt_sha256()
+    assert _model_identity().prompt_sha256 == current
+    rules = [rule for index, rule in enumerate(LIFE_SYSTEM_LAYER["rules"]) if index != 13]
+    monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", {**LIFE_SYSTEM_LAYER, "rules": rules})
+    assert len(rules) == 17 and life_prompt.life_prompt_sha256() != current
+    monkeypatch.undo()
+    todo = copy.deepcopy(prompt_schemas.TODO_LAYER_SCHEMA)
+    goal = todo["properties"]["day_plan"]["oneOf"][1]["properties"]["goals"]["items"]
+    assert goal["properties"].pop("around_time") and "around_time" in goal["required"]
+    goal["required"].remove("around_time")
+    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "待办层": todo})
+    assert life_prompt.life_prompt_sha256() != current
+
+
 def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     """提示指纹绑定七层 Schema：任何一层的 Schema 改动都改变运行指纹。"""
     from custom.agents.life_prompt import life_prompt_sha256

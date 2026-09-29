@@ -181,7 +181,7 @@ def test_shared_family_uses_one_activity_once_and_first_matching_goal():
               progress(3, clock(0, 9), clock(0, 10), "travel", both, activity_id="travel")]
     day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
     assert [item["status"] for item in day["goals"]] == ["progressed", "pending"]
-    assert day["progressed_count"] == 1
+    assert day["routine_goals"]["progressed_count"] == 1 and day["progressed_count"] == 0
 
 
 def test_later_valid_interval_cannot_reuse_activity_for_another_goal():
@@ -193,9 +193,81 @@ def test_later_valid_interval_cannot_reuse_activity_for_another_goal():
               progress(3, clock(0, 9), clock(0, 10), "travel", [first, second], activity_id="travel")]
     day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
     assert [item["status"] for item in day["goals"]] == ["progressed", "pending"]
-    assert day["progressed_count"] == 1
+    assert day["routine_goals"]["progressed_count"] == 1 and day["progressed_count"] == 0
     assert day["goals"][0]["progress_event_id"] == "e2"
     assert day["goals"][1]["progress_event_id"] is None
+
+
+def _started(event: dict, started: int | None) -> dict:
+    """给推进事件的活动快照写上实际开始时刻（None 表示快照没有这个键）。"""
+    if started is not None:
+        event["data"]["activity"]["started_at"] = started
+    return event
+
+
+@pytest.mark.parametrize(("started", "interval", "counted"), [
+    (clock(0, 8, 40), (clock(0, 8, 40), clock(0, 8, 55)), False),
+    (clock(0, 21), (clock(0, 21, 15), clock(0, 21, 45)), True),
+    (None, (clock(0, 21, 15), clock(0, 21, 45)), False),
+    (clock(0, 21, 50), (clock(0, 21, 45), clock(0, 22)), False),
+])
+def test_goal_with_an_around_time_counts_only_activity_that_ran_near_it(started, interval, counted):
+    """大致时刻（docs/dev/SPEC-dayrun-fidelity.md 8.2）与引擎同一判定：目标的 around_at 取自登记，活动在当日内的进行区间
+    （快照的实际开始时刻至结算止点）须与 [around − 90 分钟, around + 90 分钟] 有正时长交集；08:40 的浏览即使快照声称推进了
+    大致时刻为 23:00 的娱乐目标也不计，21:00 开始的观看计入；快照没有开始时刻或开始时刻晚于结算起点时不计。"""
+    registered = goal("娱乐", "睡前刷会儿", around_at=clock(0, 23))
+    claimed = dict(registered, progressed_at=interval[1], progress_activity_id="browse")
+    events = [plan_result(1, [registered], generated=True),
+              _started(progress(2, *interval, "browse", [claimed], activity_id="browse"), started)]
+    day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
+    assert day["goals"][0]["around_at"] == clock(0, 23)
+    assert (day["goals"][0]["status"] == "progressed") is counted and day["progressed_count"] == int(counted)
+
+
+def test_changing_only_the_around_time_keeps_the_instance_and_moves_its_window():
+    """只改大致时刻的修订保留原实例（不丢弃、不新建），窗口换成新的大致时刻：旧窗口内的活动不再计入，新窗口内的计入。"""
+    noon = goal("运动", "散步", around_at=clock(0, 12))
+    evening = dict(noon, around_at=clock(0, 20))
+    early = dict(evening, progressed_at=clock(0, 11, 45), progress_activity_id="walk-noon")
+    late = dict(evening, progressed_at=clock(0, 19, 15), progress_activity_id="walk-evening")
+    events = [plan_result(1, [noon], generated=True), plan_result(2, [evening], clock(0, 11)),
+              _started(progress(3, clock(0, 11, 30), clock(0, 11, 45), "lifestyle", [early],
+                                activity_id="walk-noon"), clock(0, 11, 30)),
+              _started(progress(4, clock(0, 19), clock(0, 19, 15), "lifestyle", [late],
+                                activity_id="walk-evening"), clock(0, 19))]
+    for item in events[2:]:
+        item["data"]["activity"]["category"] = "sport"
+    day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
+    [instance] = day["goals"]
+    assert (instance["registration_event_id"], instance["around_at"], instance["status"]) == (
+        "e1", clock(0, 20), "progressed")
+    assert (instance["progress_activity_id"], instance["progressed_at"]) == ("walk-evening", clock(0, 19, 15))
+
+
+def test_routine_goals_are_reported_apart_from_the_progress_ratio():
+    """推进比例只计非例行意图的目标（docs/dev/SPEC-dayrun-fidelity.md 2.3）：睡眠、晨间例程、通勤、用餐照常判定与记录，
+    另计一行 routine_goals；按优先级的分组也只计非例行意图。"""
+    goals = [goal("用餐", "午饭"), goal("工作", "写报告"), goal("通勤", "去公司"), goal("运动", "跑步")]
+    worked = dict(goals[1], progressed_at=clock(0, 9), progress_activity_id="work")
+    commuted = dict(goals[2], progressed_at=clock(0, 10), progress_activity_id="travel")
+    events = [plan_result(1, goals, generated=True),
+              progress(2, clock(), clock(0, 9), goals=[goals[0], worked, goals[2], goals[3]], activity_id="work"),
+              progress(3, clock(0, 9), clock(0, 10), "travel", [goals[0], worked, commuted, goals[3]],
+                       activity_id="travel")]
+    result = report(events)["deliberate_goals"]
+    day = result["per_agent_day"]["run:1:2026-09-21"]
+    assert [(item["intent_kind"], item["routine"], item["status"]) for item in day["goals"]] == [
+        ("用餐", True, "pending"), ("工作", False, "progressed"), ("通勤", True, "progressed"),
+        ("运动", False, "pending")]
+    for summary in (day, result["summary"]):
+        assert (summary["goal_count"], summary["progressed_count"], summary["family_progress_rate"]) == (2, 1, 0.5)
+        assert summary["routine_goals"] == {"goal_count": 2, "progressed_count": 1, "discarded_count": 0,
+                                            "family_progress_rate": 0.5}
+        assert set(summary["by_priority"]) == {"2", "4"}
+    only_routine = report([plan_result(1, [goals[0]], generated=True)])["deliberate_goals"]
+    assert only_routine["summary"]["family_progress_rate"] is None
+    assert only_routine["summary"]["routine_goals"]["goal_count"] == 1
+    assert "No registered non-routine goals; family_progress_rate is null" in only_routine["notes"]
 
 
 def test_lifestyle_uses_actual_category_and_cross_midnight_interval_stays_in_old_day():

@@ -29,7 +29,7 @@ from worldmock.life.prompt_capacity import ProgressBudget
 from worldmock.life.readable import iso_time
 
 _ZONE = "Asia/Shanghai"
-_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),))
 
 
 def _first_result_seq(engine, agent_id: int, action_id: str) -> int:

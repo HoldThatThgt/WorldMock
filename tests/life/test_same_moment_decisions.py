@@ -61,7 +61,7 @@ def _invalid_start(engine: LifeEngine, name: str, agent_id: int = 1):
 def _revise(engine: LifeEngine, name: str):
     """@brief 修订当日目标：一次成功的瞬时动作。"""
     return _act(engine, name, "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
 
 
 def _stage_agent(engine: LifeEngine, agent_id: int = 1, **updates) -> None:
@@ -706,7 +706,7 @@ def _other_requests() -> tuple[tuple[str, object], ...]:
     """@brief 两种「做别的」：开始等待与修订当日目标。"""
     return (("start_activity", start_activity("等待", "自己")),
             ("revise_day_plan", ReviseDayPlanRequest(
-                goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))))
+                goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),))))
 
 
 def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three(engine_factory) -> None:
@@ -1385,7 +1385,7 @@ def test_same_second_results_stay_in_the_progress_layer(engine_factory) -> None:
     assert refused["result"]["details"] == {"reason": rejected.data["reason"], "next_step": rejected.data["next_step"]}
     assert sent.status == "completed"
     third, revised = _observed_act(engine, "now-revise", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
     assert [row["tool"] for row in progress_calls(third)] == ["start_activity", "send_message"]
     assert progress_calls(third)[-1]["result"]["status"] == "completed" and revised.status == "completed"
     fourth, waited = _observed_act(engine, "now-wait", "start_activity", start_activity("等待", "自己"))

@@ -166,28 +166,31 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
-    """人物工具面没有 plan_day；修订的目标内联意图、文字与必填可空的场景本地 HH:MM 提醒，
-    不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
+    """人物工具面没有 plan_day；修订的目标内联意图、文字与两个必填可空的场景本地 HH:MM——提醒 remind_time 与大致时刻
+    around_time（docs/dev/SPEC-dayrun-fidelity.md 8.2），不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
     agent = _prepared_agent(revise=True)
     tools = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
     assert "revise_day_plan" in tools and "plan_day" not in tools
     schema = _function("revise_day_plan")["parameters"]
     assert set(schema["properties"]) == {"goals"}
     item = schema["properties"]["goals"]["items"]
-    assert set(item["properties"]) == set(item["required"]) == {"intent_kind", "goal", "remind_time"}
+    assert set(item["properties"]) == set(item["required"]) == {"intent_kind", "goal", "remind_time", "around_time"}
     assert item["properties"]["goal"]["pattern"] == r"\S"
-    assert {"remind_at", "reminded_at", "registered_at", "planned_duration_seconds"}.isdisjoint(item["properties"])
+    assert item["properties"]["around_time"]["anyOf"] == item["properties"]["remind_time"]["anyOf"]
+    assert {"remind_at", "reminded_at", "around_at", "registered_at",
+            "planned_duration_seconds"}.isdisjoint(item["properties"])
     model = REQUEST_MODELS["revise_day_plan"]
-    for remind_time in (None, "00:00", "08:15", "23:59"):
-        valid = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": remind_time}]}
-        assert list(Draft202012Validator(schema).iter_errors(valid)) == []
-        model.model_validate(valid)
-    for goal in ({"intent_kind": "休息", "goal": "歇一会儿"},
-                 *({"intent_kind": "休息", "goal": "歇一会儿", "remind_time": text}
-                   for text in ("8:15", "24:00", "12:60", "08:15:00"))):
-        assert list(Draft202012Validator(schema).iter_errors({"goals": [goal]}))
-        with pytest.raises(ValidationError):
-            model.model_validate({"goals": [goal]})
+    base = {"intent_kind": "休息", "goal": "歇一会儿", "remind_time": None, "around_time": None}
+    for field in ("remind_time", "around_time"):
+        for clock in (None, "00:00", "08:15", "23:59"):
+            valid = {"goals": [{**base, field: clock}]}
+            assert list(Draft202012Validator(schema).iter_errors(valid)) == []
+            model.model_validate(valid)
+        missing = {key: value for key, value in base.items() if key != field}
+        for goal in (missing, *({**base, field: text} for text in ("8:15", "24:00", "12:60", "08:15:00"))):
+            assert list(Draft202012Validator(schema).iter_errors({"goals": [goal]}))
+            with pytest.raises(ValidationError, match=field):
+                model.model_validate({"goals": [goal]})
 
 
 def test_provider_array_cardinality_gap_is_locally_rejected() -> None:

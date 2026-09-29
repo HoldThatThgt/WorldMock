@@ -319,7 +319,7 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=wait))[1].status \
         == "completed"
     _act(engine, "d-revise", "revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
     call = {"id": "call-memory", "type": "function",
             "function": {"name": "memory_search", "arguments": json.dumps({"query": "x"})}}
     _model_pair(engine, "decision-memory", call, json.dumps({"epistemic_status": "subjective", "episodes": []}))
@@ -510,7 +510,8 @@ def test_chat_invitation_is_not_carried_into_the_memory_layer(engine_factory) ->
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     friend = engine.state.agents[1].name
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),))
     submit_round(engine, {1: ("revise_day_plan", revise),
                           2: ("start_activity", start_activity("交谈", f"人物：{friend}"))}, "i-invite")
     home = _observe(engine, "i-home")
