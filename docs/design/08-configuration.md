@@ -215,6 +215,10 @@ flowchart LR
 | `initial_energy_kcal` | 可用能量初值，单位 kcal；成为 `BodyState.energy_kcal`，受目录能量上界约束 |
 | `initial_sleep_debt_hours` | 当前场景输入使用的键名；其值初始化唯一的睡眠不足账 `BodyState.sleep_deficit_hours`，不新增另一份睡眠状态 |
 | `initial_entertainment_need` | 当前场景声明的娱乐需要初值，范围为零到一；见下文实现差异 |
+| `entertainment_relief_preference_floor` | 可选，娱乐缓解的下限偏好 `f`，缺省 0.5，取开区间 (0, 1)，0、1、负数与非有限值在场景加载时拒绝；经场景语义组装并入 `BodyConfig`，观看与游戏的实际缓解按有效偏好 `f + (1 − f)·w` 调幅度。实验假设（敏感区间 0.3–0.7），说明写在字段 `description`，见[一日运行保真规格 1.2](../dev/SPEC-dayrun-fidelity.md#12-下限缓解与累积口径) |
+
+上面的正式场景摘录没有声明 `entertainment_relief_preference_floor`，取缺省 0.5：字段带缺省值，现有场景文件不必改，
+场景 `schema_version` 仍为 3，目录与数据集副本都不变。
 
 **当前实现差异**：场景准入读取 `initial_entertainment_need`，但运行时初始化仍把娱乐需要设为零，
 非零声明尚未接通。上面的摘录使用零值，不将非零初值描述为已生效能力。
@@ -233,7 +237,8 @@ flowchart LR
 
 ### 3.5 规则来源与配置边界
 
-能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 `BodyConfig`。
+能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 `BodyConfig`；
+娱乐缓解的下限偏好例外，由场景 `body.entertainment_relief_preference_floor` 提供，不进目录，改它不触发目录版本变更。
 睡眠压力、睡眠不足累积与恢复及食品利用效率由
 [睡眠模型实现](../../src/worldmock/life/sleep.py)按冻结规格计算。
 工作效率因子从合同对象目录装配到 `work_efficiency_factors`，由身体结算按输入资源曲线计算区间平均；
@@ -307,7 +312,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | Schema 版本 | 满足当前场景模型的整数版本约束 | 拒绝启动，说明不受支持的版本 |
 | 必填字段 | 所有必填字段存在且类型正确 | 拒绝启动，列出缺失字段 |
 | 时间窗口 | `end_at > start_at` | 拒绝启动 |
-| 初始状态 | 按资源单位与目录边界校验能量、睡眠不足、娱乐需要；运行时继续满足各状态约束 | 拒绝启动 |
+| 初始状态 | 按资源单位与目录边界校验能量、睡眠不足、娱乐需要；娱乐缓解的下限偏好须在开区间 (0, 1) 内；运行时继续满足各状态约束 | 拒绝启动 |
 | 地点引用 | `agents[].home_location_id` 指向已声明地点 | 拒绝启动 |
 | 交互菜单 | 地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项 | 以 `IntegrityError` 拒绝启动，保留英文校验原因 |
 | 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
