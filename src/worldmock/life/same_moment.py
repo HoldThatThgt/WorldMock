@@ -8,7 +8,8 @@
 有进行中活动且没有待收尾活动时瞬时动作成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的
 唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；人物消息送达时清醒且
 未达上限的收件人在同一秒获得机会，决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；
-docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。引擎只接线，计数、阶梯与预算判定都在本模块。
+docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」），轮前在睡的人物不记已读（docs/dev/SPEC-dayrun-fidelity.md 1.5）。
+引擎只接线，计数、阶梯与预算判定都在本模块。
 """
 
 from __future__ import annotations
@@ -20,9 +21,9 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import occupies_slot, pending_conclusions
 from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.interaction_menu import GIVE_WAY
-from worldmock.life.models import (ActionStatus, ActivityKind, ActivityState, ActivityStatus, AgentState,
+from worldmock.life.models import (ActionStatus, ActivityState, ActivityStatus, AgentState,
                                    SameMomentStage, WorldState, active_activities)
-from worldmock.life.rhythm import read_new_messages
+from worldmock.life.rhythm import is_asleep, read_new_messages
 from worldmock.life.schedule import WakeReason
 from worldmock.life.social_actions import PARTNER_ENDED
 
@@ -261,7 +262,8 @@ def read_observed_messages(state: WorldState, observed: WorldState,
     看过的消息不在其后的边界再以 message_arrival 唤醒；没有出现在本 session 进度层的消息保持未读。本轮内送达的消息仍未读，
     由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）与轮前有待收尾活动的轮次
     （只接受收尾，docs/dev/SPEC-time-and-energy.md 第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
-    照常在其后的轮次或下一边界获得消息机会。
+    照常在其后的轮次或下一边界获得消息机会。轮前在睡的人物（睡眠中只因睡眠允许的原因得到决策轮）也不记已读：睡眠中不读
+    （docs/dev/SPEC-dayrun-fidelity.md 1.5），消息留到醒来后的第一个边界；本轮才开始睡的人物轮前醒着，照常记已读。
 
     :param state: 本轮全部动作结算后的世界副本
     :param observed: 本轮观察所用的轮前世界状态
@@ -270,7 +272,8 @@ def read_observed_messages(state: WorldState, observed: WorldState,
     read = {}
     for agent_id, message_ids in presented.items():
         before = observed.agents[agent_id]
-        if before.same_moment_stage != SameMomentStage.OPEN or pending_conclusions(observed, agent_id):
+        if (before.same_moment_stage != SameMomentStage.OPEN or pending_conclusions(observed, agent_id)
+                or is_asleep(observed, agent_id)):
             continue
         agent = read_new_messages(state.agents[agent_id], only=set(message_ids) & set(before.inbox))
         if agent is not state.agents[agent_id]:
@@ -290,8 +293,7 @@ def merge_message_readiness(state: WorldState, recipient_ids: Iterable[int], lim
     ready = {}
     for agent_id in sorted(set(recipient_ids)):
         agent = state.agents[agent_id]
-        asleep = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent_id))
-        if asleep or agent.same_moment_rounds >= limit:
+        if is_asleep(state, agent_id) or agent.same_moment_rounds >= limit:
             continue
         reasons = {*agent.pending_wake_reasons, WakeReason.MESSAGE_ARRIVAL.value}
         ready[agent_id] = agent.model_copy(update={

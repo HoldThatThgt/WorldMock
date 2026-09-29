@@ -1194,13 +1194,15 @@ def test_conclusion_only_round_does_not_use_up_message_opportunity(engine_factor
 
 
 def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> None:
-    """同轮开始睡觉的收件人不因人物消息在同一秒或其后的边界被唤醒（「人物之间的消息」，睡眠中过滤）。"""
+    """同轮开始睡觉的收件人不因人物消息在同一秒或其后的边界被唤醒（「人物之间的消息」，睡眠中过滤）；睡眠中也不读，
+    消息保持未读（docs/dev/SPEC-dayrun-fidelity.md 1.5）。"""
     engine = engine_factory("multi-person.json")
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     now = engine.state.current_time
-    submit_round(engine, {1: _message_to(engine, 2, "早点休息"),
-                          2: ("start_activity", start_activity("睡觉", "自己"))}, "person-sleep")
+    _, results = submit_round(engine, {1: _message_to(engine, 2, "早点休息"),
+                                       2: ("start_activity", start_activity("睡觉", "自己"))}, "person-sleep")
+    message_id = next(item.data["message_id"] for item in results if item.agent_id == 1)
     assert engine.state.agents[2].next_decision_at > now and engine.scheduling_state().ready_agent_ids == (1,)
     _wait(engine, "person-sleep-sender-wait")
     advance_next(engine)
@@ -1208,6 +1210,7 @@ def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> No
                   if event.data.get("kind") == "body_settlement"][-1]
     assert settlement.data["decision_offered"] is False and settlement.data["wake_reasons"] == []
     assert 2 not in engine.scheduling_state().ready_agent_ids
+    assert message_id in engine.state.agents[2].inbox and message_id not in engine.state.agents[2].read_inbox_ids
 
 
 def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
@@ -1235,7 +1238,8 @@ def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
 
 @pytest.mark.asyncio
 async def test_contact_reply_arrival_filtered_during_sleep(engine_factory) -> None:
-    """联系人回复在 CONTACT_REPLY_DELAY_SECONDS 后送达收件箱并留送达记录；收件人在睡眠中不被唤醒（裁决 #21）。"""
+    """联系人回复在 CONTACT_REPLY_DELAY_SECONDS 后送达收件箱并留送达记录；收件人在睡眠中不被唤醒（裁决 #21），
+    也不读（docs/dev/SPEC-dayrun-fidelity.md 1.5）。"""
     from tests.life.test_export_integration import _StubReplyClient, _send_message_to_model_contact
     from worldmock.runtime import settle_pending_model_replies
 
@@ -1249,7 +1253,7 @@ async def test_contact_reply_arrival_filtered_during_sleep(engine_factory) -> No
         assert engine.scheduling_state().ready_agent_ids == ()
         advance_next(engine)
     assert engine.state.current_time == due and reply_id in engine.state.agents[1].inbox
-    assert engine.scheduling_state().ready_agent_ids == ()
+    assert engine.scheduling_state().ready_agent_ids == () and reply_id not in engine.state.agents[1].read_inbox_ids
     events = engine.store.read_agent_events("environment_event", 1)
     assert [event.occurred_at for event in events if event.data.get("kind") == "message_arrival"
             and event.data.get("message_id") == reply_id] == [due]

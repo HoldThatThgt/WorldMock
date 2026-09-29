@@ -10,6 +10,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
                                  stage_day_plan, wake_by_mail, start_request)
+from tests.life.test_day_planning import _decide
 from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
 from worldmock.life.readable import duration_phrase
@@ -62,11 +63,17 @@ def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
     """用完成的 wait 活动积累娱乐需要（边等边刷：净累积=清醒累积−被动缓解）。
 
     等待按计划结束即成待收尾，人物在同一秒给它收尾后再做别的（时间与能量规格第七章「活动一结束就要结束它」）。
+    等待中途的体感跨档（午夜起点的人物约 00:51 困意升到「撑不住」，docs/dev/SPEC-dayrun-fidelity.md 1.4）也提供决策：
+    播报后接着等，不影响娱乐需要的累积。
     """
     for n in range(rounds):
         assert seconds == engine.scenario.activity_feedback_seconds
         _act(engine, f"wait-{n}", "start_activity", ("wait", "agent:1"))
         advance_next(engine)
+        while active_activities(engine.state, 1):
+            if engine.scheduling_state().ready_agent_ids:
+                _decide(engine, f"wait-{n}-report-{engine.state.version}")
+            advance_next(engine)
         assert conclude_pending(engine, f"wait-{n}-end").status == "completed"
 
 
