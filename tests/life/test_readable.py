@@ -51,3 +51,22 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
         "32 元", "32.5 元", "32.55 元", "0.05 元", "0 元"]
     assert [portion_phrase(quantity) for quantity in (1, 0.25, 0.2, 1 / 3, 2.0, 0)] == [
         "1 份", "0.25 份", "0.2 份", "0.33 份", "2 份", "0 份"]
+
+
+def test_chinese_kind_tables_have_a_single_source() -> None:
+    """中文种类表只在 readable 定义（docs/dev/SPEC-dayrun-fidelity.md 7.4）：环境层的 PLACE_TYPES、ACTION_PHRASES 与交互
+    菜单的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表的值都是不带英文字母的中文，英文键
+    合成 ENGLISH_KIND_NAMES。"""
+    import re
+
+    from worldmock.life import environment_layer, interaction_menu, readable
+    from worldmock.life.models import ActivityKind
+
+    assert environment_layer.PLACE_TYPES is readable.PLACE_TYPES
+    assert environment_layer.ACTION_PHRASES is readable.ACTION_PHRASES
+    assert interaction_menu.TRAVEL_WAYS is readable.TRAVEL_WAYS
+    assert set(readable.ACTIVITY_KIND_LABELS) == {kind.value for kind in ActivityKind}
+    tables = (readable.ACTIVITY_KIND_LABELS, readable.PLACE_TYPES, readable.ACTION_PHRASES, readable.TRAVEL_WAYS,
+              readable.BROWSE_LABELS)
+    assert all(re.fullmatch(r"[一-鿿]+", label) for table in tables for label in table.values())
+    assert readable.ENGLISH_KIND_NAMES == {key for table in tables for key in table}

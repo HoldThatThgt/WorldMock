@@ -1,0 +1,458 @@
+{
+ "source": "0002-business-sales-zhaoming/runs/2026-09-28-4a5b0e6-day worldmock-export (events.jsonl.gz and timeline/5-2026-09-28.md)",
+ "observation": {
+  "event_type": "observation",
+  "agent_id": 5,
+  "occurred_at": 1790561700,
+  "data": {
+   "tasks": [
+    {
+     "task_id": "task-zhaoming-client-a",
+     "title": "整理客户A拜访纪要"
+    }
+   ],
+   "interaction_bindings": [
+    {
+     "actions": [
+      {
+       "canonical_action": "call",
+       "label": "通话",
+       "note": null,
+       "travel_mode": null,
+       "verb": "interact"
+      }
+     ],
+     "kind": "contact",
+     "object": "联系人：刘洋",
+     "object_id": "contact-zhaoming-colleague"
+    },
+    {
+     "actions": [
+      {
+       "canonical_action": "call",
+       "label": "通话",
+       "note": null,
+       "travel_mode": null,
+       "verb": "interact"
+      }
+     ],
+     "kind": "contact",
+     "object": "联系人：张总",
+     "object_id": "contact-zhaoming-client"
+    }
+   ]
+  }
+ },
+ "progress": [
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790559000,
+   "data": {
+    "interval_start": 1790558100,
+    "interval_end": 1790559000,
+    "activity": {
+     "activity_id": "activity-5ff00c9454ee43fea732d98ddf670e87:round:1790558100:40:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": "planned_end",
+     "concluded_at": null,
+     "data": {
+      "contact_id": "contact-zhaoming-colleague"
+     },
+     "destination_id": null,
+     "effective_work_seconds": 0.0,
+     "elapsed_seconds": 900,
+     "ended_at": 1790559000,
+     "interruption_reason": null,
+     "kind": "call",
+     "last_settled_at": 1790559000,
+     "location_id": "office",
+     "media_position_seconds": 0.0,
+     "name": "通话刘洋（9月28日 09:15 起）",
+     "next_interaction_at": null,
+     "note_history": [],
+     "note_updated_at": null,
+     "origin_action_id": "5ff00c9454ee43fea732d98ddf670e87:round:1790558100:40:agent:5:order:0:action:0001",
+     "origin_decision_id": "5ff00c9454ee43fea732d98ddf670e87:round:1790558100:40:agent:5:order:0",
+     "origin_request_event_id": "aa2df912bb95435a9fc40ac70e3adee5",
+     "paused_at": null,
+     "plan_goal_intent_kind": "社交",
+     "planned_duration_seconds": 900,
+     "planned_end_at": 1790559000,
+     "playback_speed": 1.0,
+     "progress_note": "",
+     "report_anchor_at": 1790558100,
+     "resource_claims": [
+      "ears",
+      "voice"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0003"
+     ],
+     "started_at": 1790558100,
+     "status": "completed",
+     "target_id": null,
+     "task_kind": "goal",
+     "task_ref": "社交",
+     "travel_mode": null
+    }
+   }
+  },
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790561016,
+   "data": {
+    "interval_start": 1790560116,
+    "interval_end": 1790561016,
+    "activity": {
+     "activity_id": "activity-9afefdca25a741e1bfc530fd60a5a835:round:1790560116:48:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": "planned_end",
+     "concluded_at": null,
+     "data": {
+      "contact_id": "contact-zhaoming-client"
+     },
+     "destination_id": null,
+     "effective_work_seconds": 0.0,
+     "elapsed_seconds": 900,
+     "ended_at": 1790561016,
+     "interruption_reason": null,
+     "kind": "call",
+     "last_settled_at": 1790561016,
+     "location_id": "client-a",
+     "media_position_seconds": 0.0,
+     "name": "通话张总（9月28日 09:48 起）",
+     "next_interaction_at": null,
+     "note_history": [],
+     "note_updated_at": null,
+     "origin_action_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790560116:48:agent:5:order:0:action:0001",
+     "origin_decision_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790560116:48:agent:5:order:0",
+     "origin_request_event_id": "5f7731d6dd5f41f081753645fff433e1",
+     "paused_at": null,
+     "plan_goal_intent_kind": null,
+     "planned_duration_seconds": 900,
+     "planned_end_at": 1790561016,
+     "playback_speed": 1.0,
+     "progress_note": "",
+     "report_anchor_at": 1790560116,
+     "resource_claims": [
+      "ears",
+      "voice"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0005"
+     ],
+     "started_at": 1790560116,
+     "status": "completed",
+     "target_id": null,
+     "task_kind": "none",
+     "task_ref": null,
+     "travel_mode": null
+    }
+   }
+  },
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790563501,
+   "data": {
+    "interval_start": 1790563215,
+    "interval_end": 1790563501,
+    "activity": {
+     "activity_id": "activity-9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": null,
+     "concluded_at": null,
+     "data": {
+      "material_position_chars": 46,
+      "required_skill": "sales",
+      "skill_level": 0.9,
+      "task_id": "task-zhaoming-client-a",
+      "work_notes_multiplier": 1.1
+     },
+     "destination_id": null,
+     "effective_work_seconds": 257.40000000000003,
+     "elapsed_seconds": 286,
+     "ended_at": null,
+     "interruption_reason": null,
+     "kind": "work",
+     "last_settled_at": 1790563501,
+     "location_id": "client-a",
+     "media_position_seconds": 0.0,
+     "name": "工作整理客户A拜访纪要（9月28日 10:40 起）",
+     "next_interaction_at": 1790564115,
+     "note_history": [],
+     "note_updated_at": null,
+     "origin_action_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "origin_decision_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0",
+     "origin_request_event_id": "0e86105190b240ceafef25c107d11b96",
+     "paused_at": null,
+     "plan_goal_intent_kind": "工作",
+     "planned_duration_seconds": 4785,
+     "planned_end_at": 1790568000,
+     "playback_speed": 1.0,
+     "progress_note": "",
+     "report_anchor_at": 1790563215,
+     "resource_claims": [
+      "idle",
+      "work"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0009"
+     ],
+     "started_at": 1790563215,
+     "status": "active",
+     "target_id": "task-zhaoming-client-a",
+     "task_kind": "work_task",
+     "task_ref": "task-zhaoming-client-a",
+     "travel_mode": null
+    }
+   }
+  },
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790563834,
+   "data": {
+    "interval_start": 1790563501,
+    "interval_end": 1790563834,
+    "activity": {
+     "activity_id": "activity-9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": null,
+     "concluded_at": null,
+     "data": {
+      "material_position_chars": 99,
+      "required_skill": "sales",
+      "skill_level": 0.9,
+      "task_id": "task-zhaoming-client-a",
+      "work_notes_multiplier": 1.1
+     },
+     "destination_id": null,
+     "effective_work_seconds": 557.0999999685898,
+     "elapsed_seconds": 619,
+     "ended_at": null,
+     "interruption_reason": null,
+     "kind": "work",
+     "last_settled_at": 1790563834,
+     "location_id": "client-a",
+     "media_position_seconds": 0.0,
+     "name": "工作整理客户A拜访纪要（9月28日 10:40 起）",
+     "next_interaction_at": 1790564115,
+     "note_history": [],
+     "note_updated_at": 1790563501,
+     "origin_action_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "origin_decision_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0",
+     "origin_request_event_id": "0e86105190b240ceafef25c107d11b96",
+     "paused_at": null,
+     "plan_goal_intent_kind": "工作",
+     "planned_duration_seconds": 4785,
+     "planned_end_at": 1790568000,
+     "playback_speed": 1.0,
+     "progress_note": "回到满松科技园后继续整理客户A（张总）拜访纪要：已把上午通话与拜访要点归拢——主题为两园区工单试用，待确认三项（项目看板字段与权限范围、表格导入格式与责任人、报价待功能边界与采购流程确认），先出初稿。截止12:00，有效工时还差约26分钟，抓紧做完手上部分；预算口径统一写「待确认」，不写成已成交。",
+     "report_anchor_at": 1790563501,
+     "resource_claims": [
+      "idle",
+      "work"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0009"
+     ],
+     "started_at": 1790563215,
+     "status": "active",
+     "target_id": "task-zhaoming-client-a",
+     "task_kind": "work_task",
+     "task_ref": "task-zhaoming-client-a",
+     "travel_mode": null
+    }
+   }
+  },
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790564115,
+   "data": {
+    "interval_start": 1790563834,
+    "interval_end": 1790564115,
+    "activity": {
+     "activity_id": "activity-9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": "feedback",
+     "concluded_at": null,
+     "data": {
+      "material_position_chars": 144,
+      "required_skill": "sales",
+      "skill_level": 0.9,
+      "task_id": "task-zhaoming-client-a",
+      "work_notes_multiplier": 1.1
+     },
+     "destination_id": null,
+     "effective_work_seconds": 809.5185854998398,
+     "elapsed_seconds": 900,
+     "ended_at": null,
+     "interruption_reason": null,
+     "kind": "work",
+     "last_settled_at": 1790564115,
+     "location_id": "client-a",
+     "media_position_seconds": 0.0,
+     "name": "工作整理客户A拜访纪要（9月28日 10:40 起）",
+     "next_interaction_at": 1790564115,
+     "note_history": [],
+     "note_updated_at": 1790563501,
+     "origin_action_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "origin_decision_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0",
+     "origin_request_event_id": "0e86105190b240ceafef25c107d11b96",
+     "paused_at": null,
+     "plan_goal_intent_kind": "工作",
+     "planned_duration_seconds": 4785,
+     "planned_end_at": 1790568000,
+     "playback_speed": 1.0,
+     "progress_note": "回到满松科技园后继续整理客户A（张总）拜访纪要：已把上午通话与拜访要点归拢——主题为两园区工单试用，待确认三项（项目看板字段与权限范围、表格导入格式与责任人、报价待功能边界与采购流程确认），先出初稿。截止12:00，有效工时还差约26分钟，抓紧做完手上部分；预算口径统一写「待确认」，不写成已成交。",
+     "report_anchor_at": 1790563501,
+     "resource_claims": [
+      "idle",
+      "work"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0009"
+     ],
+     "started_at": 1790563215,
+     "status": "active",
+     "target_id": "task-zhaoming-client-a",
+     "task_kind": "work_task",
+     "task_ref": "task-zhaoming-client-a",
+     "travel_mode": null
+    }
+   }
+  },
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790565015,
+   "data": {
+    "interval_start": 1790564115,
+    "interval_end": 1790565015,
+    "activity": {
+     "activity_id": "activity-9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": "feedback",
+     "concluded_at": null,
+     "data": {
+      "material_position_chars": 288,
+      "required_skill": "sales",
+      "skill_level": 0.9,
+      "task_id": "task-zhaoming-client-a",
+      "work_notes_multiplier": 1.1
+     },
+     "destination_id": null,
+     "effective_work_seconds": 1611.4996417498398,
+     "elapsed_seconds": 1800,
+     "ended_at": null,
+     "interruption_reason": null,
+     "kind": "work",
+     "last_settled_at": 1790565015,
+     "location_id": "client-a",
+     "media_position_seconds": 0.0,
+     "name": "工作整理客户A拜访纪要（9月28日 10:40 起）",
+     "next_interaction_at": 1790565015,
+     "note_history": [],
+     "note_updated_at": 1790563501,
+     "origin_action_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "origin_decision_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0",
+     "origin_request_event_id": "0e86105190b240ceafef25c107d11b96",
+     "paused_at": null,
+     "plan_goal_intent_kind": "工作",
+     "planned_duration_seconds": 4785,
+     "planned_end_at": 1790568000,
+     "playback_speed": 1.0,
+     "progress_note": "回到满松科技园后继续整理客户A（张总）拜访纪要：已把上午通话与拜访要点归拢——主题为两园区工单试用，待确认三项（项目看板字段与权限范围、表格导入格式与责任人、报价待功能边界与采购流程确认），先出初稿。截止12:00，有效工时还差约26分钟，抓紧做完手上部分；预算口径统一写「待确认」，不写成已成交。",
+     "report_anchor_at": 1790563501,
+     "resource_claims": [
+      "idle",
+      "work"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0009"
+     ],
+     "started_at": 1790563215,
+     "status": "active",
+     "target_id": "task-zhaoming-client-a",
+     "task_kind": "work_task",
+     "task_ref": "task-zhaoming-client-a",
+     "travel_mode": null
+    }
+   }
+  },
+  {
+   "event_type": "activity_progress",
+   "agent_id": 5,
+   "occurred_at": 1790565301,
+   "data": {
+    "interval_start": 1790565015,
+    "interval_end": 1790565301,
+    "activity": {
+     "activity_id": "activity-9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "agent_id": 5,
+     "boundary_type": null,
+     "concluded_at": null,
+     "data": {
+      "material_position_chars": 322,
+      "required_skill": "sales",
+      "skill_level": 0.9,
+      "task_id": "task-zhaoming-client-a",
+      "work_notes_multiplier": 1.1
+     },
+     "destination_id": null,
+     "effective_work_seconds": 1864.2844239998399,
+     "elapsed_seconds": 2086,
+     "ended_at": null,
+     "interruption_reason": null,
+     "kind": "work",
+     "last_settled_at": 1790565301,
+     "location_id": "client-a",
+     "media_position_seconds": 0.0,
+     "name": "工作整理客户A拜访纪要（9月28日 10:40 起）",
+     "next_interaction_at": 1790565915,
+     "note_history": [],
+     "note_updated_at": 1790563501,
+     "origin_action_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0:action:0001",
+     "origin_decision_id": "9afefdca25a741e1bfc530fd60a5a835:round:1790563215:64:agent:5:order:0",
+     "origin_request_event_id": "0e86105190b240ceafef25c107d11b96",
+     "paused_at": null,
+     "plan_goal_intent_kind": "工作",
+     "planned_duration_seconds": 4785,
+     "planned_end_at": 1790568000,
+     "playback_speed": 1.0,
+     "progress_note": "回到满松科技园后继续整理客户A（张总）拜访纪要：已把上午通话与拜访要点归拢——主题为两园区工单试用，待确认三项（项目看板字段与权限范围、表格导入格式与责任人、报价待功能边界与采购流程确认），先出初稿。截止12:00，有效工时还差约26分钟，抓紧做完手上部分；预算口径统一写「待确认」，不写成已成交。",
+     "report_anchor_at": 1790563501,
+     "resource_claims": [
+      "idle",
+      "work"
+     ],
+     "route_progress_meters": 0.0,
+     "session_ids": [
+      "session-5-0009"
+     ],
+     "started_at": 1790563215,
+     "status": "active",
+     "target_id": "task-zhaoming-client-a",
+     "task_kind": "work_task",
+     "task_ref": "task-zhaoming-client-a",
+     "travel_mode": null
+    }
+   }
+  }
+ ],
+ "exported_rows": [
+  "| 09:15–09:30 | call | 15 分钟 | 1 |",
+  "| 09:48–10:03 | call | 15 分钟 | 1 |",
+  "| 10:40–11:15 | 工作（task-zhaoming-client-a） | 35 分钟 | 5 |"
+ ]
+}
