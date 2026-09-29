@@ -275,6 +275,20 @@ def test_direct_delivery_to_a_contact_goes_to_their_receive_location(engine_fact
     assert records[-1]["message"] == "已送到张江高科技园区办公室（冻结场景锚点），收货人王磊"
 
 
+def test_a_recipient_written_without_the_prefix_is_resolved_to_that_person(engine_factory) -> None:
+    """to 写收货人时按人物名称统一解析（docs/dev/SPEC-dayrun-fidelity.md 3.1）：只写「王磊」无损归一唯一就是「联系人：王磊」，
+    宿主不纠错、环境受理并送到他的收货地点，受理结果 details.resolved 记 {written: 王磊, as: 联系人：王磊}；与同名的人物、
+    联系人都对得上的「李凡」不唯一，不替人物挑一个，环境以 RECIPIENT_NOT_FOUND 拒绝。"""
+    engine = open_world(engine_factory)
+    target, _ = supply_target(observe(engine, "supply-bare-recipient"))
+    result = act(engine, "order-for-bare-name", routed((target, "obtain", "远程下单", None, "王磊")))
+    assert (result.status, result.error_code) == ("completed", None)
+    assert [(order["recipient_id"], order["destination_id"]) for order in result.data["orders"]] == [(COLLEAGUE, OFFICE)]
+    assert {"written": "王磊", "as": COLLEAGUE_TARGET} in result.data["resolved"]
+    shared = act(engine, "order-for-shared-name", routed((target, "obtain", "远程下单", None, "李凡")))
+    assert (shared.status, shared.error_code) == ("rejected", "RECIPIENT_NOT_FOUND")
+
+
 def test_direct_delivery_to_a_same_world_person_elsewhere_goes_to_where_they_are(engine_factory) -> None:
     """远程下单送给不在身边（不在工具层）的同世界人物：收货地点是其所在地点，送达只入对方在那里的库存；付款人是下单的
     人，两人都没有摄入（没有吃的活动、能量没有增加）。"""
@@ -375,13 +389,16 @@ def test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal(en
 
 @pytest.mark.parametrize(("destinations", "blocked", "unmet", "reason"), [
     ((HOME,), False, "delivery_destination", "王磊那里不在这家店的配送范围内"),
-    ((HOME, OFFICE), True, "delivery_route", "这家店到王磊那里没有能走的配送路线")], ids=["destination", "route"])
+    ((HOME, OFFICE), True, "delivery_route", "这家店到王磊那里没有能走的配送路线"),
+    ((HOME,), True, "delivery_destination", "王磊那里不在这家店的配送范围内")],
+    ids=["destination", "route", "destination-before-route"])
 def test_named_remote_order_for_someone_it_cannot_reach_says_why_like_a_listed_one(
         engine_factory, destinations, blocked, unmet, reason) -> None:
     """指名购买（商品名配门店名，本轮没有列出）远程下单送给王磊，这家店却送不到他的收货地点（办公室）：分段匹配 M3 以
     ACTIVITY_PRECONDITION_UNMET 拒绝，原因与列出的供给送给别人同一说法（解析出的供给交给 order_routing.undeliverable，
-    docs/dev/SPEC-dayrun-fidelity.md 3.2、5.3）：不在配送范围为 delivery_destination，路线缺失为 delivery_route；下一步先送到
-    自己这里再当面给，逐项明细的候选不含这家店，世界不变。"""
+    docs/dev/SPEC-dayrun-fidelity.md 3.2、5.3）：不在配送范围为 delivery_destination，路线缺失为 delivery_route，两者都不成立时
+    与本人送达地（admission._delivery_refusal）同一顺序先报配送范围；下一步先送到自己这里再当面给，逐项明细的候选不含这家店，
+    世界不变。"""
     engine = open_world(engine_factory)
     row = _remote_supply(engine)
     store, product = row["object"].split("出售的", 1)
@@ -429,7 +446,8 @@ def test_same_product_for_two_recipients_splits_orders_by_destination(engine_fac
 
 
 def test_pickup_for_someone_else_needs_them_at_the_store(engine_factory) -> None:
-    """到店买给同在店里的人即时入对方在店里的库存；买给不在店里的联系人以「暂时送不到<人>那里」拒绝。"""
+    """到店买给同在店里的人即时入对方在店里的库存；买给不在店里的联系人以「暂时送不到<人>那里」拒绝——到店与配送范围无关，
+    这家店送不到他的收货地点时也是这一句，不按远程下单的两种配送原因细分（order_routing.undeliverable 只对远程下单细分）。"""
     engine = open_world(engine_factory)
     place(engine, 1, MARKET)
     place(engine, 2, MARKET)
@@ -443,6 +461,10 @@ def test_pickup_for_someone_else_needs_them_at_the_store(engine_factory) -> None
     assert food not in engine.state.agents[1].inventory.get(MARKET, {})
     refused = act(engine, "pickup-for-colleague", routed((row["object"], "obtain", "到店", None, COLLEAGUE_TARGET)))
     assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到王磊那里")
+    _retarget(engine, row["object_id"], (HOME,))
+    outside = act(engine, "pickup-outside-area", routed((row["object"], "obtain", "到店", None, COLLEAGUE_TARGET)))
+    assert (outside.error_code, outside.data["reason"], outside.data["unmet"]) == (
+        _UNMET, "暂时送不到王磊那里", ["delivery_destination"])
 
 
 def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None:
