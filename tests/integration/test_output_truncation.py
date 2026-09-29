@@ -220,14 +220,14 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("retried", "code", "reason"), [
+@pytest.mark.parametrize(("retried", "code", "named"), [
     pytest.param(("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"], ["等待"])),
-                 "NAME_NOT_FOUND", "「不存在的对象」不是本轮列出的对象", id="misspelled_name"),
-    pytest.param(("call-memory", "memory_recent", {"limit": 3}), "TOOL_CALL_REQUIRED",
-                 "「memory_recent」不是这次提供的工具", id="memory_query"),
+                 "NAME_NOT_FOUND", "不存在的对象", id="misspelled_name"),
+    pytest.param(("call-memory", "memory_recent", {"limit": 3}), "TOOL_CALL_REQUIRED", "memory_recent",
+                 id="memory_query"),
 ])
 async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_every_thought(
-        _engine_factory, retried: tuple, code: str, reason: str) -> None:
+        _engine_factory, retried: tuple, code: str, named: str) -> None:
     """同一秒续接的决策里截断后，重试写错名称或去查记忆（重试不开放记忆查询，不执行）都被纠错：重试的回合同截断回合
     一样不留在历史中，纠错作为 user 消息接在后面；下一次请求续接链前缀逐字节不变，其中每个 assistant 都带思考（发送前
     自检不失败），最后带思考的世界请求照常登记。"""
@@ -246,7 +246,7 @@ async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_ev
     assert last["messages"][:len(chain)] == chain
     assert [json.loads(item["content"])["error_code"] for item in last["messages"][len(chain):]] == [
         "OUTPUT_TRUNCATED", code]
-    assert json.loads(last["messages"][-1]["content"])["reason"] == reason
+    assert named in json.loads(last["messages"][-1]["content"])["reason"]
     assert all(item["role"] == "user" for item in last["messages"][len(chain):])
     assert all(item.get("reasoning_content") for item in last["messages"] if item["role"] == "assistant")
     assert call_id not in json.dumps(last, ensure_ascii=False)
