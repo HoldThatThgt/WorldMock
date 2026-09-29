@@ -85,27 +85,32 @@ def _identity(document: dict, run_id: str) -> RunIdentity:
 
 
 def test_location_kind_outside_the_place_types_is_rejected_at_load(tmp_path: Path, corpus: Path) -> None:
-    """地图把一家餐馆的类别写成 fuel、场景也声明了 fuel 菜单：加载时拒绝，原因写明地点、类别与允许的类别（环境层
-    PLACE_TYPES 的键，唯一来源）。"""
-    pin = _map_variant(corpus, "fuel-kind", lambda rows: rows[_CLAYPOT].update(kind="fuel"))
+    """地图把两家餐馆的类别写成 fuel、cafe，场景也声明了这两个菜单：加载时拒绝，原因逐一写明地点与类别，并列出允许的
+    类别（环境层 PLACE_TYPES 的键，唯一来源）。"""
+    def kinds(rows: dict) -> None:
+        """两家餐馆改成场所类型表之外的类别。"""
+        rows[_CLAYPOT]["kind"] = "fuel"
+        rows[_SICHUAN]["kind"] = "cafe"
 
-    def fuel_menu(document: dict) -> None:
+    def menus(document: dict) -> None:
         """场景为越界类别补声明菜单，使菜单键与地点类别一致（菜单校验不先拒绝）。"""
-        menus = document["interaction_menus_by_location_kind"]
-        menus["fuel"] = dict(menus["restaurant"])
+        declared = document["interaction_menus_by_location_kind"]
+        declared.update(fuel=dict(declared["restaurant"]), cafe=dict(declared["restaurant"]))
 
-    path = _scenario(tmp_path, corpus, pin, fuel_menu)
+    path = _scenario(tmp_path, corpus, _map_variant(corpus, "outside-kinds", kinds), menus)
     with pytest.raises(IntegrityError) as failure:
         load_runtime_scenario(path)
-    message = str(failure.value)
-    assert message.startswith(f"Location {_CLAYPOT} kind 'fuel' is not a place type")
-    assert all(kind in message for kind in PLACE_TYPES)
+    assert str(failure.value) == (
+        f"Selected locations use kinds that are not place types: {_SICHUAN} kind 'cafe'; {_CLAYPOT} kind 'fuel';"
+        f" allowed kinds: {', '.join(sorted(PLACE_TYPES))}")
+    assert sorted(PLACE_TYPES) == ["convenience_store", "fitness", "home", "merchant", "office", "park", "restaurant",
+                                   "supermarket", "wet_market"]
 
 
 @pytest.mark.parametrize(("labels", "shared"), [
     ({}, "菜饭骨头汤"),
     ({_BONE_SOUP: "张江路店", _SICHUAN: "张江路店"}, "菜饭骨头汤（张江路店）"),
-])
+], ids=["no-branch-labels", "same-branch-label"])
 def test_same_named_locations_that_cannot_be_told_apart_are_rejected_at_load(
         tmp_path: Path, corpus: Path, labels: dict, shared: str) -> None:
     """两家餐馆同名且没有分店标签、或分店标签也相同：显示名重复，加载时拒绝并点名两处地点与消歧办法。"""
@@ -118,7 +123,7 @@ def test_same_named_locations_that_cannot_be_told_apart_are_rejected_at_load(
     pin = _map_variant(corpus, f"same-name-{len(labels)}", rename)
     with pytest.raises(IntegrityError) as failure:
         load_runtime_scenario(_scenario(tmp_path, corpus, pin))
-    assert str(failure.value) == (f"Selected locations share the display name {shared!r}: {_BONE_SOUP}, {_SICHUAN};"
+    assert str(failure.value) == (f"Selected locations share display names: {shared!r} ({_BONE_SOUP}, {_SICHUAN});"
                                   " declare distinct branch_label values in the map")
 
 
@@ -130,7 +135,7 @@ def test_branch_label_equal_to_another_name_suffix_is_still_a_duplicate(tmp_path
         rows[_SICHUAN].update(name="菜饭骨头汤", branch_label="张江路店")
 
     pin = _map_variant(corpus, "suffix-collision", collide)
-    with pytest.raises(IntegrityError, match="share the display name '菜饭骨头汤（张江路店）'"):
+    with pytest.raises(IntegrityError, match="share display names: '菜饭骨头汤（张江路店）'"):
         load_runtime_scenario(_scenario(tmp_path, corpus, pin))
 
 
@@ -148,7 +153,7 @@ def _duplicate_contact(document: dict) -> tuple[str, str]:
     return f"联系人：{first['salutation']}", f"contact:{first['contact_id']}, contact:contact-duplicate-salutation"
 
 
-@pytest.mark.parametrize("duplicate", [_duplicate_task, _duplicate_contact])
+@pytest.mark.parametrize("duplicate", [_duplicate_task, _duplicate_contact], ids=["work-title", "contact-salutation"])
 def test_duplicate_object_labels_are_rejected_at_load(tmp_path: Path, corpus: Path, duplicate) -> None:
     """同一人物名下两项工作同名、或两位联系人同称谓：人物会同时看到两个相同名称（运行中观察投影会因此崩溃），
     加载时拒绝并写明名称与两处来源。"""

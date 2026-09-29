@@ -27,16 +27,16 @@ _REPORTED_DUPLICATES = 3
 
 
 def check_location_kinds(scenario: RuntimeScenario) -> None:
-    """@brief 所选地点的 kind 必须属于环境层的场所类型表 PLACE_TYPES，越界即拒绝并写明地点与类别。
+    """@brief 所选地点的 kind 必须属于环境层的场所类型表 PLACE_TYPES，越界即拒绝并逐一写明地点与类别。
 
     kind 是交互菜单与环境层的场所分类，与活动环境 location_kinds 不是同一个概念。
     """
-    for location in scenario.locations:
-        if location.kind not in PLACE_TYPES:
-            message = (f"Location {location.location_id} kind {location.kind!r} is not a place type;"
-                       f" allowed kinds: {', '.join(sorted(PLACE_TYPES))}")
-            logging.error(message)
-            raise IntegrityError(message)
+    outside = [f"{item.location_id} kind {item.kind!r}" for item in scenario.locations if item.kind not in PLACE_TYPES]
+    if outside:
+        message = (f"Selected locations use kinds that are not place types: {'; '.join(outside)};"
+                   f" allowed kinds: {', '.join(sorted(PLACE_TYPES))}")
+        logging.error(message)
+        raise IntegrityError(message)
 
 
 def check_visible_labels(scenario: RuntimeScenario, corpus_root: Path) -> None:
@@ -71,16 +71,17 @@ def visible_object_labels(scenario: RuntimeScenario, corpus_root: Path) -> dict[
 
 
 def _check_place_names(scenario: RuntimeScenario) -> None:
-    """@brief 所选地点的显示名（运行时地点的 name）唯一；重名且无法以分店标签区分即拒绝。"""
+    """@brief 所选地点的显示名（运行时地点的 name）唯一；重名且无法以分店标签区分即拒绝，逐一写明重名与地点。"""
     places: dict[str, list[str]] = defaultdict(list)
     for location in scenario.locations:
         places[location.name].append(location.location_id)
-    for name, identities in sorted(places.items()):
-        if len(identities) > 1:
-            message = (f"Selected locations share the display name {name!r}: {', '.join(sorted(identities))};"
-                       " declare distinct branch_label values in the map")
-            logging.error(message)
-            raise IntegrityError(message)
+    shared = [f"{name!r} ({', '.join(sorted(identities))})"
+              for name, identities in sorted(places.items()) if len(identities) > 1]
+    if shared:
+        message = (f"Selected locations share display names: {'; '.join(shared)};"
+                   " declare distinct branch_label values in the map")
+        logging.error(message)
+        raise IntegrityError(message)
 
 
 def _world_labels(scenario: RuntimeScenario, titles: dict[str, str]) -> list[tuple[str, str]]:
