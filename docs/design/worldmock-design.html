@@ -1112,7 +1112,7 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
     K[同秒续接：上一请求的消息、assistant 与 tool 消息] -.-&gt; A</pre>
 <table><tr><th>人物阶段</th><th>使用的上下文</th><th>当前可做之事</th></tr><tr><td>行动</td><td>system 为系统层 JSON，user 为六层 JSON，工具定义走原生 <code>tools</code>；同一秒接着决策时追加续接消息</td><td>按预算查询记忆后提交恰好一个世界请求，登记即结束；回复正文可以留空</td></tr></table>
 <p>请求中，system 为系统层 JSON，整次运行逐字节不变；user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组，
-每个时间点构造一次；工具定义只经原生 <code>tools</code>，整次运行不变，唯一的例外是本次决策只剩最后一个回合时去掉记忆查询工具。
+每个时间点构造一次；工具定义只经原生 <code>tools</code>，整次运行不变，例外只有本次决策只剩最后一个回合与截断重试时去掉记忆查询工具。
 同一行动循环的 user 逐字节保持不变；记忆查询与协议纠错的模型与工具消息单独追加，回合预算不追加到 system。
 同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的最终 assistant 消息（含 <code>reasoning_content</code>）
 与一条 tool 消息（结算结果、改动的条目与同秒新事件）；时间推进、session 切换、反事实干预或缺少思考时断链，下一次请求从新快照构造。
@@ -1188,7 +1188,11 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 只保留起源于该日且仍未了结的事项与归属该日的就寝反思。</p>
 <p>一次决策只有一个行动阶段，可以先做记忆查询，也可能有协议纠错回合；正常无查询、无纠错时恰好一次行动请求。
 查询与协议重试消耗同一回合预算（每次决策至多 16 个回合）。世界请求登记后不追加任何 tool 消息；
-完整内部回执留给宿主审计与幂等，不能把它复制进人物提示。</p>
+完整内部回执留给宿主审计与幂等，不能把它复制进人物提示。
+思考用尽输出上限（<code>finish_reason=length</code>、正文为空、没有工具调用）的截断回合丢弃，不进入后续请求，改给结构化纠错
+<code>OUTPUT_TRUNCATED</code>，相同的纠错替换、不叠加；紧接着以关闭思考、<code>tool_choice=required</code> 的请求重试一次（<code>max_tokens</code> 不变，
+只开放世界请求）。重试的回合没有思考：它给出的世界请求结束本次决策，被纠错时该回合同样丢弃；重试仍没有工具调用时照常按回合预算处理
+（<a href="../dev/SPEC-dayrun-fidelity.md#72-输出截断与思考螺旋">一日运行保真规格 7.2</a>，参数见<a href="../CONTRACTS.md#生成参数">接口合同「生成参数」</a>）。</p>
 <p>只读提问的 system 为只读系统层，user 为人设层与记忆层（取最近一次生活决策保存在人物工作区的快照），外部问题作为其后一条 user 消息，
 不触发生活决策的观察。只读路径只开放预算允许的记忆查询与结束工具，不写世界或人物记忆。</p>
 <h3 id="c4-接收当日目标并记录实际推进">接收当日目标并记录实际推进</h3>
@@ -1942,13 +1946,20 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 <code>recorded</code> 表示清单是否记录了警告；记录时给出 <code>warning_count</code>、按全部警告码列出的 <code>code_counts</code>（未出现的码为 0）、
 闭集外的 <code>unrecognized_code_counts</code>、按人物编号的 <code>agent_counts</code> 与场景级（<code>agent_id</code> 为 <code>null</code>）的 <code>scenario_warning_count</code>；
 清单没有记录（引擎直驱建立的运行为 <code>null</code>，旧清单没有这个键）时各计数为 <code>null</code>，不记为零。
+<code>truncations</code> 一节统计输出截断（<a href="../dev/SPEC-dayrun-fidelity.md#72-输出截断与思考螺旋">一日运行保真规格 7.2</a>），只读已记录的
+<code>model_response</code>，不需要新证据：每个调用身份取一条终态（与 <code>model_usage</code> 同一去重），提供商回复 <code>finish_reason</code> 为 <code>length</code> 的计为
+一次截断；给出 <code>truncated_responses</code>、按用途分列的 <code>purpose_counts</code>（人物决策记为 <code>decision</code>）、这些回复实报的
+<code>usage.completion_tokens</code> 之和 <code>wasted_output_tokens</code>（截断回合整段丢弃，输出全部浪费）与其中
+<code>usage.completion_tokens_details.reasoning_tokens</code> 之和 <code>reasoning_tokens</code>；某次截断缺少对应计数时该合计为 <code>null</code>，
+缺失次数记于 <code>responses_missing_output_tokens</code>、<code>responses_missing_reasoning_tokens</code>，不记为零，没有截断时两项合计为 0。
+宿主判定的截断回合另在该响应的 <code>error</code> 记协议错误串「OUTPUT_TRUNCATED: &lt;英文说明&gt;」。
 进食多样性也只取 <code>consume</code> 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
 商品不计入进食次数或偏好证据。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
 这些判断由对应规则、行为评估与数据交付负责。
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
 当前报告按 <code>event_range</code>、<code>run_outcome</code>、<code>actions</code>、<code>activities</code>、<code>content_contact</code>、
-<code>conversion_efficiency</code>、<code>decision_rhythm</code>、<code>memory_references</code>、<code>model_usage</code>、<code>acceleration</code>、<code>input_warnings</code> 分组，
+<code>conversion_efficiency</code>、<code>decision_rhythm</code>、<code>memory_references</code>、<code>model_usage</code>、<code>acceleration</code>、<code>input_warnings</code>、<code>truncations</code> 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 <code>memory_references</code> 分组保留名称，内容按 <code>memory_updated.data.trigger</code> 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；<code>write_points_checked</code> 为核对的写入点总数）：<code>activity_conclusion</code> 对应同一决策已登记的
@@ -2812,7 +2823,10 @@ content = "full"</code></pre>
 <table><tr><th>报告项键</th><th>说明</th><th>目标参照</th></tr><tr><td><code>decision_prompt_token_median</code></td><td>决策 prompt token 中位数：每个 <code>phase=request</code>、不带 <code>purpose</code> 的 <code>model_request</code> 计一个值（行动请求含同秒续接的请求；记忆巩固与就寝反思的请求同样不带 <code>purpose</code>，一并计入），排除 <code>purpose="work_review"</code> 与 <code>purpose="plan_day"</code> 的请求</td><td>15000（对照值）</td></tr><tr><td><code>effective_autonomous_decision_rate</code></td><td>最终动作非 continue/等待的占比；continue 与等待算被动，等待按结果活动 <code>kind=wait</code> 判定；只做结束、暂停或修订的控制轮单列</td><td>无固定阈值</td></tr><tr><td><code>wake_reason_distribution</code></td><td>各唤醒原因计数，分两份：边界取共同身体结算，决策轮取 <code>decision_started</code></td><td>覆盖所有唤醒类型</td></tr><tr><td><code>wait_minutes</code></td><td>本人真实等待活动的实际区间累计分钟</td><td>只报告，不设占比上限</td></tr><tr><td><code>unknown_wait_minutes</code></td><td>未有可核验原因的等待活动实际区间累计分钟</td><td>不根据自由叙述推断目的</td></tr><tr><td><code>content_contact_minutes</code></td><td>实际 watch 播放活动的执行区间累计分钟</td><td>不把等待或开始播放计为已接触</td></tr><tr><td><code>early_arrival_minutes</code></td><td>早于开门时间到达的分钟</td><td>最小化</td></tr><tr><td><code>sleep_schedule</code></td><td>就寝/起床时刻与时长</td><td>人物卡片就寝窗口</td></tr><tr><td><code>meal_diversity</code></td><td>Simpson 集中度与 24h 重复率</td><td>低集中度、低重复</td></tr><tr><td><code>activity_distribution</code></td><td>十类活动日时间分布与参照 JS 距离</td><td>2018 年全国时间利用调查</td></tr><tr><td><code>persona_distinguishability</code></td><td>留一最近邻人物识别准确率</td><td>≥3 次运行、≥2 人</td></tr><tr><td><code>social</code></td><td>交谈/通话分钟、消息数</td><td>人物社交需求</td></tr><tr><td><code>habitual_consistency</code></td><td>同人物地点与本地小时的活动家族一致率</td><td>只报告情境重复性，不识别心理习惯</td></tr><tr><td><code>deliberate_goals</code></td><td>曾登记的非例行意图目标中的家族实际推进率，保留丢弃条目；推进口径与模拟引擎相同（同家族、登记后的正时长结算，带大致时刻的目标还须在其前后 90 分钟内进行）；例行意图（睡眠、晨间例程、通勤、用餐）的目标照常判定，另计 <code>routine_goals</code>，不入推进比例；登记来源为零点计划的 <code>day_plan_generated</code> 与修订结果</td><td>只报告，外部参照未接入时为 null</td></tr><tr><td><code>external_constraints</code></td><td>去重后的外部约束受阻与动作接受率；引导性拒绝码 <code>ACTIVITY_PRECONDITION_UNMET</code>、<code>ACTIVITY_CONCLUSION_REQUIRED</code>、<code>SESSION_LIMIT_EXCEEDED</code> 计入 <code>other_rejections</code>；外部约束闭集不含 <code>PICKUP_LOCATION_REQUIRED</code> 与工作地点、技能不符</td><td>受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷</td></tr></table>
 <p>同秒续接轮的思考 token（<code>reasoning_tokens</code>，缺失时报字符数，两者不混算）与缓存命中由 <code>scripts/inspect_run.py continuation</code>
 逐决策报告（链位置、请求数、协议错误与 400、计价成本、话题命中与按订单去重后的重复下单），<code>--baseline</code> 先核对两臂清单只差续接开关，
-输出字段见<a href="#c5-调试工具">记录引擎设计「调试工具」</a>；只报告，不参与放行。</p>
+输出字段见<a href="#c5-调试工具">记录引擎设计「调试工具」</a>；只报告，不参与放行。
+输出截断（提供商回复 <code>finish_reason=length</code>）的次数、按用途分列、浪费的输出 token 与其中的思考 token 计入 <code>quality.json</code> 的
+<code>truncations</code> 一节（字段见<a href="#c5-质量报告">记录引擎设计「质量报告」</a>）；行动决策的截断率以其中 <code>decision</code> 的次数除以
+<code>model_usage.by_purpose</code> 中 <code>decision</code> 的 <code>provider_responses</code>，只报告，不参与放行。</p>
 <p><b>2018 年全国时间利用调查参照</b>（城镇/工作日口径，居民均值）：</p>
 <table><tr><th>活动类别</th><th>参照时长（分钟）</th></tr><tr><td>睡觉休息</td><td>553</td></tr><tr><td>个人卫生护理</td><td>50</td></tr><tr><td>用餐</td><td>104</td></tr><tr><td>就业工作</td><td>460</td></tr><tr><td>交通</td><td>44</td></tr><tr><td>社会交往</td><td>21</td></tr><tr><td>健身锻炼</td><td>41</td></tr><tr><td>屏幕娱乐（看电视 100 + 休闲 65）</td><td>165</td></tr><tr><td>无参照（休息 + 家务）</td><td>0</td></tr></table>
 <p><b>口径约定</b>：</p>
@@ -3795,7 +3809,7 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。</p>
 <p>Schema 固定的闭集与格式：</p>
 <table><tr><th>位置</th><th>闭集或格式</th></tr><tr><td><code>layer</code></td><td><code>系统层</code>、<code>工具层</code>、<code>人设层</code>、<code>记忆层</code>、<code>待办层</code>、<code>环境层</code>、<code>进度层</code></td></tr><tr><td>工具层 <code>targets[].kind</code></td><td><code>location</code>、<code>product</code>、<code>person</code>、<code>content</code>、<code>game</code>、<code>catalog</code>、<code>lifestyle</code>、<code>task</code>、<code>activity</code>、<code>message</code>、<code>self</code></td></tr><tr><td>工具层 <code>targets[].phase</code></td><td><code>进行中</code>、<code>刚结束</code>；非活动目标为 <code>null</code></td></tr><tr><td>工具层 <code>actions[].action</code></td><td><code>travel</code>、<code>interact</code>、<code>obtain</code>、<code>consume</code>、<code>sleep</code></td></tr><tr><td>工具层 <code>actions[].way</code></td><td>方式闭集，同「请求模型的闭集与字面边界」的 <code>ways</code>（含「给予」）</td></tr><tr><td>工具层与待办层 <code>tools[].tool</code></td><td><code>report_status</code>、<code>pause_activity</code>、<code>conclude_activity</code>、<code>submit_work</code>、<code>send_message</code>；待办项只有 <code>report_status</code>（恢复）与 <code>conclude_activity</code>（结束）</td></tr><tr><td>工具层 <code>contract</code></td><td>恰好 <code>deadline</code>、<code>remaining</code>、<code>outlook</code> 三键，只在 <code>kind</code> 为 <code>task</code> 时出现</td></tr><tr><td>人设层</td><td><code>habits</code> 至多五条；<code>relationships[]</code> 为 <code>{person, role, closeness, channels, view}</code>；<code>preferences[]</code> 为 <code>{subject, preference, noted_on}</code></td></tr><tr><td>记忆层 <code>self_notes[]</code></td><td><code>{activity, text}</code></td></tr><tr><td>待办层 <code>day_plan.goals[]</code></td><td>至多八条；<code>intent_kind</code> 取「当日目标请求」的十一种意图；五键 <code>intent_kind</code>、<code>goal</code>、<code>progressed</code>、<code>remind_time</code>、<code>around_time</code> 必填</td></tr><tr><td>环境层 <code>body</code></td><td>恰好五键：<code>appetite</code> 取 不饿、有点想吃、饿、很饿、饿得难受、饿得发慌；<code>sleepiness</code> 取 清醒、有点乏、困、很困、撑不住；<code>entertainment</code> 取 不闷、有点想放松、很想放松；<code>social</code> 取 不想找人、想和人说说话、有点孤单；<code>mood</code> 取 很烦、有点烦、平静、挺好、很开心</td></tr><tr><td>环境层 <code>location.session_kind</code></td><td><code>stay</code>、<code>transit</code></td></tr><tr><td>进度层 <code>events[].type</code></td><td><code>tool_call</code>、<code>message_arrival</code>、<code>delivery</code>、<code>task_deadline</code>、<code>plan_reminder</code>、<code>condensed</code></td></tr><tr><td>进度层 <code>message_arrival.kind</code></td><td><code>direct</code>、<code>chat_invite</code>、<code>mail</code></td></tr><tr><td>进度层 <code>task_deadline.stage</code></td><td><code>due_soon</code>、<code>expired</code></td></tr><tr><td>进度层 <code>delivery.status</code></td><td><code>ready</code>、<code>delivered</code>、<code>cancelled</code></td></tr><tr><td>进度层 <code>tool_call.result.status</code></td><td><code>ActionStatus</code> 取值</td></tr><tr><td>时刻与日期</td><td>时刻 <code>^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$</code>；日期 <code>^\d{4}-\d{2}-\d{2}$</code>；<code>remind_time</code> 为 <code>HH:MM</code> 或 <code>null</code>；待办层 <code>around_time</code> 为 <code>约 HH:MM</code> 或 <code>null</code></td></tr></table>
 <h2 id="c10-请求组成">请求组成</h2>
-<table><tr><th>阶段</th><th>消息</th><th>工具</th></tr><tr><td>行动</td><td>system 为生活决策系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组（见「七层字段」）；同一秒续接时其后依次追加原生 assistant 与 tool 消息（见「思考回传」）</td><td>原生 <code>tools</code>：八个人物工具（见「人物工具与管理接口」）与记忆查询 <code>memory_recent</code>、<code>memory_search</code>、<code>memory_time_range</code>，整次运行不变，唯一的例外是本次决策只剩最后一个回合时去掉记忆查询工具；世界请求登记即结束本次决策，没有 <code>finish</code></td></tr><tr><td>只读问答</td><td>system 为只读系统层 JSON；user 为人设层与记忆层两个对象组成的 JSON 数组，外部问题作为其后一条 user 消息原样给出</td><td><code>memory_recent</code>、<code>memory_search</code>、<code>memory_time_range</code>（最后一个回合去掉）与只读 <code>finish</code></td></tr><tr><td>零点计划</td><td>system 为零点计划的中文模板；user 为一份 JSON 输入（见下文）</td><td>唯一严格工具 <code>submit_day_plan</code>，<code>tool_choice=required</code></td></tr></table>
+<table><tr><th>阶段</th><th>消息</th><th>工具</th></tr><tr><td>行动</td><td>system 为生活决策系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组（见「七层字段」）；同一秒续接时其后依次追加原生 assistant 与 tool 消息（见「思考回传」）</td><td>原生 <code>tools</code>：八个人物工具（见「人物工具与管理接口」）与记忆查询 <code>memory_recent</code>、<code>memory_search</code>、<code>memory_time_range</code>，整次运行不变，例外只有本次决策只剩最后一个回合与截断重试（见「回合预算」）时去掉记忆查询工具；世界请求登记即结束本次决策，没有 <code>finish</code></td></tr><tr><td>只读问答</td><td>system 为只读系统层 JSON；user 为人设层与记忆层两个对象组成的 JSON 数组，外部问题作为其后一条 user 消息原样给出</td><td><code>memory_recent</code>、<code>memory_search</code>、<code>memory_time_range</code>（最后一个回合与截断重试去掉）与只读 <code>finish</code></td></tr><tr><td>零点计划</td><td>system 为零点计划的中文模板；user 为一份 JSON 输入（见下文）</td><td>唯一严格工具 <code>submit_day_plan</code>，<code>tool_choice=required</code></td></tr></table>
 <p>生活决策不开放 <code>memory_step_range</code>、<code>memory_tick_range</code>：提示中没有步号与秒数坐标。工具 description 只写用途，不含协议与阶段规则；
 数值上限由 Schema 与本地校验报错。只读问答的人设层与记忆层取自最近一次生活决策保存在人物工作区的快照，运行开始后尚无决策时
 记忆层的两个列表都为空；只读问答不写世界与记忆，不产生决策事件。</p>
@@ -3869,25 +3883,38 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。</p>
 <code>{goals: [{intent_kind, goal, remind_time, around_time}]}</code>，四键必填（<code>intent_kind</code> 取十一种意图闭集，<code>remind_time</code>、<code>around_time</code> 为 <code>HH:MM</code> 或 null），
 没有记忆字段；条数零至八、意图唯一、文字长度与提醒时刻（晚于生成时刻、早于次日零点）由本地校验执行，大致时刻只校验格式，同「当日目标请求」。</p>
 <h2 id="c10-工具返回通道">工具返回通道</h2>
-<table><tr><th>返回语义</th><th>宿主证据</th><th>人物模型可见内容</th></tr><tr><td>生活动作登记</td><td>完整 <code>ActionReceipt</code>，含请求身份与哈希，用于审计与幂等</td><td>无：登记即结束本次决策，登记后不追加任何 tool 消息，登记确认与登记回执都不回给模型</td></tr><tr><td>即时记忆查询</td><td>实际查询输入与结果</td><td>当轮 tool 消息返回的记忆内容，每条只含 {type, text, time, epistemic_status}，不含条目身份，只序列化一次；同一秒的续接中原样保留，时间推进后进度层只留条数</td></tr><tr><td>已结算世界结果</td><td>完整动作结算事件</td><td>进度层该调用的公开结果投影，在本 session 内持续保留；同一秒接着决策时另作为续接 tool 消息的 <code>result</code>；不在提交时提前回流</td></tr><tr><td>协议纠错</td><td><code>model_response.data.error</code> 的协议错误串：宿主本地校验为「&lt;错误码&gt;: &lt;英文说明&gt;」，AS2 自身的协议错误串（参数不是 JSON、没有工具调用、调用了未提供的工具）照原文</td><td>纠错正文 <code>{error_code, reason, fix, items, unmet, instruction}</code>：与业务拒绝同一错误结构（见「活动受理拒绝码」的拒绝结构），<code>unmet</code> 恒为 <code>[]</code>，<code>instruction</code> 固定为「本次没有登记到世界；按 fix 修改后重新提交」；不带英文校验转储、<code>input_value</code> 与网址。模型响应带工具调用时作为这些调用的 tool 消息，没有工具调用时作为一条 user 消息（AS2 <code>_append_react_protocol_feedback</code>）；本次没有登记到世界，不进引擎、不计同刻轮数，只耗本次决策的一个回合（见「回合预算」）</td></tr></table>
+<table><tr><th>返回语义</th><th>宿主证据</th><th>人物模型可见内容</th></tr><tr><td>生活动作登记</td><td>完整 <code>ActionReceipt</code>，含请求身份与哈希，用于审计与幂等</td><td>无：登记即结束本次决策，登记后不追加任何 tool 消息，登记确认与登记回执都不回给模型</td></tr><tr><td>即时记忆查询</td><td>实际查询输入与结果</td><td>当轮 tool 消息返回的记忆内容，每条只含 {type, text, time, epistemic_status}，不含条目身份，只序列化一次；同一秒的续接中原样保留，时间推进后进度层只留条数</td></tr><tr><td>已结算世界结果</td><td>完整动作结算事件</td><td>进度层该调用的公开结果投影，在本 session 内持续保留；同一秒接着决策时另作为续接 tool 消息的 <code>result</code>；不在提交时提前回流</td></tr><tr><td>协议纠错</td><td><code>model_response.data.error</code> 的协议错误串：宿主本地校验与截断回合为「&lt;错误码&gt;: &lt;英文说明&gt;」，AS2 自身的协议错误串（参数不是 JSON、没有工具调用、调用了未提供的工具）照原文</td><td>纠错正文 <code>{error_code, reason, fix, items, unmet, instruction}</code>：与业务拒绝同一错误结构（见「活动受理拒绝码」的拒绝结构），<code>unmet</code> 恒为 <code>[]</code>，<code>instruction</code> 固定为「本次没有登记到世界；按 fix 修改后重新提交」；不带英文校验转储、<code>input_value</code> 与网址。模型响应带工具调用时作为这些调用的 tool 消息（AS2 <code>_append_react_protocol_feedback</code>）；没有工具调用（含截断回合）或回合来自截断重试时，该回合不留在历史中，纠错作为一条 user 消息，本次决策中相同的纠错替换、不叠加（<code>LifeAgent</code> 覆写，见「回合预算」）；本次没有登记到世界，不进引擎、不计同刻轮数，只耗本次决策的一个回合（见「回合预算」）</td></tr></table>
 <p>工作验收可在提交期间准备，仍只在批量结算后对人物可见。原生工具配对身份不属于内部世界身份，
 不能为删除句柄而删除 <code>tool_call_id</code>：同一秒续接时，tool 消息对应上一决策世界请求的 <code>tool_call_id</code>。
 登记回执在 observation 与 data 两处均不得进入模型正文。</p>
-<p>协议纠错正文由 <code>LifeAgent</code> 覆写 AS2 的 <code>_protocol_feedback_content</code> 生成（锁定提交不改，<code>custom/agents/life_feedback.py</code>），
+<p>协议纠错正文由 <code>LifeAgent</code> 覆写 AS2 的 <code>_protocol_feedback_content</code> 生成（锁定提交不改，<code>custom/agents/life_feedback.py</code>）；
+截断回合由覆写的 <code>_parse_react_responses</code> 判定，纠错进入消息历史的方式由覆写的 <code>_append_react_protocol_feedback</code> 决定
+（<code>custom/agents/life_truncation.py</code>，见「回合预算」）。
 错误码取宿主闭集（<code>worldmock.life.error_contract.HOST_ERROR_CODES</code>）；多项请求逐项报全部名称类错误（<code>NAME_NOT_FOUND</code>、
 <code>NAME_AMBIGUOUS</code>、<code>WAY_NOT_OFFERED</code>、<code>SUPPLY_SOURCE_MISMATCH</code>、<code>SUBJECT_NOT_KNOWN</code>），其余条件报第一条：</p>
-<table><tr><th>错误码</th><th>何时</th></tr><tr><td><code>ARGUMENTS_NOT_JSON</code></td><td>工具参数不是可解析的 JSON 对象；原因写出所在的行与列</td></tr><tr><td><code>ARGUMENTS_INVALID</code></td><td>参数形状不符合工具的参数定义（缺字段、多字段、类型、格式、界限、取值闭集与请求模型自己的校验），原因按字段逐条写，明细写参数名与所写的原文；<code>targets</code> 为空、<code>targets</code>、<code>actions</code>、<code>ways</code> 不等长；修订今日计划超过八条或重交已推进的目标</td></tr><tr><td><code>TOOL_CALL_REQUIRED</code></td><td>回复没有可执行的工具调用：没有工具调用、调用了这次没有提供的工具、一次回复含多个世界请求、世界请求与别的工具同时调用、本次决策已登记过世界请求，或只读问答的 <code>finish</code> 没有单独调用</td></tr><tr><td><code>TOO_MANY_TARGETS</code></td><td><code>start_activity</code> 的目标超过两个</td></tr><tr><td><code>NAME_NOT_FOUND</code></td><td>名称不在本轮可见名称中：<code>start_activity</code> 的对象（<code>obtain</code> 以到店或远程下单写未列出的名称除外，交给指名购买）、控制工具的活动名、<code>recall_task_summary</code> 与 <code>submit_work</code> 的 <code>task_name</code>、<code>send_message</code> 的收件人</td></tr><tr><td><code>NAME_AMBIGUOUS</code></td><td>名称对应不止一个对象，候选为完整名称</td></tr><tr><td><code>WAY_NOT_OFFERED</code></td><td>对象没有列出所写的动词与方式，候选为该对象列出的（动词，方式）写成的可照填请求；映射后的内部动作不在本地交互菜单里</td></tr><tr><td><code>ROUTE_FIELDS_INVALID</code></td><td><code>from</code>、<code>to</code> 或 <code>answering</code> 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；<code>to</code> 写的名称不是任何人物时不纠正，由环境以 <code>RECIPIENT_NOT_FOUND</code> 拒绝</td></tr><tr><td><code>SUPPLY_SOURCE_MISMATCH</code></td><td>目标已写明门店「&lt;门店&gt;出售的&lt;商品&gt;」却在 <code>from</code> 写了门店，候选为同一项 <code>from</code> 写 <code>null</code></td></tr><tr><td><code>SUBJECT_NOT_KNOWN</code></td><td>relationship 记忆的对象不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）</td></tr><tr><td><code>OUTPUT_TRUNCATED</code></td><td>输出在思考阶段用尽、尚未调用工具（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」）</td></tr></table>
+<table><tr><th>错误码</th><th>何时</th></tr><tr><td><code>ARGUMENTS_NOT_JSON</code></td><td>工具参数不是可解析的 JSON 对象；原因写出所在的行与列</td></tr><tr><td><code>ARGUMENTS_INVALID</code></td><td>参数形状不符合工具的参数定义（缺字段、多字段、类型、格式、界限、取值闭集与请求模型自己的校验），原因按字段逐条写，明细写参数名与所写的原文；<code>targets</code> 为空、<code>targets</code>、<code>actions</code>、<code>ways</code> 不等长；修订今日计划超过八条或重交已推进的目标</td></tr><tr><td><code>TOOL_CALL_REQUIRED</code></td><td>回复没有可执行的工具调用：没有工具调用、调用了这次没有提供的工具、一次回复含多个世界请求、世界请求与别的工具同时调用、本次决策已登记过世界请求，或只读问答的 <code>finish</code> 没有单独调用</td></tr><tr><td><code>TOO_MANY_TARGETS</code></td><td><code>start_activity</code> 的目标超过两个</td></tr><tr><td><code>NAME_NOT_FOUND</code></td><td>名称不在本轮可见名称中：<code>start_activity</code> 的对象（<code>obtain</code> 以到店或远程下单写未列出的名称除外，交给指名购买）、控制工具的活动名、<code>recall_task_summary</code> 与 <code>submit_work</code> 的 <code>task_name</code>、<code>send_message</code> 的收件人</td></tr><tr><td><code>NAME_AMBIGUOUS</code></td><td>名称对应不止一个对象，候选为完整名称</td></tr><tr><td><code>WAY_NOT_OFFERED</code></td><td>对象没有列出所写的动词与方式，候选为该对象列出的（动词，方式）写成的可照填请求；映射后的内部动作不在本地交互菜单里</td></tr><tr><td><code>ROUTE_FIELDS_INVALID</code></td><td><code>from</code>、<code>to</code> 或 <code>answering</code> 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；<code>to</code> 写的名称不是任何人物时不纠正，由环境以 <code>RECIPIENT_NOT_FOUND</code> 拒绝</td></tr><tr><td><code>SUPPLY_SOURCE_MISMATCH</code></td><td>目标已写明门店「&lt;门店&gt;出售的&lt;商品&gt;」却在 <code>from</code> 写了门店，候选为同一项 <code>from</code> 写 <code>null</code></td></tr><tr><td><code>SUBJECT_NOT_KNOWN</code></td><td>relationship 记忆的对象不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）</td></tr><tr><td><code>OUTPUT_TRUNCATED</code></td><td>输出在思考阶段用尽、尚未调用工具：回复 <code>finish_reason=length</code>、正文为空且没有工具调用（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」）；证据中的协议错误串为「OUTPUT_TRUNCATED: &lt;英文说明&gt;」，处理见「回合预算」</td></tr></table>
 <h2 id="c10-回合预算">回合预算</h2>
 <p>每次决策至多 16 个回合（<code>max_react_turns</code>），全部归行动阶段，记忆查询、协议纠错回合与世界请求共用：为世界请求保留 1 个回合，
 剩余回合（含本回合）不少于 2 时才开放记忆查询，只剩最后一个回合时原生 <code>tools</code> 去掉记忆查询工具。预算 JSON 与低预算提示不再追加到 system。
 只读问答（<code>readonly</code>）为只读 <code>finish</code> 保留 1 个回合。剩余回合不足以完成本阶段时明确终止本次决策，不发注定失败的请求。
 单次决策的回合预算与同刻的跨决策预算（受限轮与 <code>decision_budget_exhausted</code>，见「动作状态与动作结果」）分开计，前者耗尽时的处理不变。</p>
+<p><b>截断回合。</b> 回复 <code>finish_reason=length</code>、正文为空且没有工具调用（思考用尽了同时覆盖思考与输出的 <code>max_tokens</code>）时，该回合丢弃，
+不进入后续请求（思考只留在模型证据中），纠错为 <code>OUTPUT_TRUNCATED</code>（见「工具返回通道」）。紧接着的一次请求是截断重试（参数见「生成参数」），
+同样消耗一个回合，只开放世界请求（只读问答为只读 <code>finish</code>），不开放记忆查询；重试的回复被纠错时该回合同样丢弃。没有工具调用的回复
+与这两种回合的纠错作为一条 user 消息接在历史末尾，本次决策中已有的相同纠错去掉（替换、不叠加），同一秒续接链的前缀不动。
+重试仍没有工具调用时，此后的请求照常开启思考、不再重试，按本节预算处理，耗尽仍无登记的世界请求即人物决策失败；之后的请求再截断，
+另按本段重试一次。</p>
 <h2 id="c10-生成参数">生成参数</h2>
-<table><tr><th>阶段</th><th><code>thinking</code></th><th><code>temperature</code></th><th><code>max_tokens</code></th><th><code>tool_choice</code></th><th><code>tools</code></th></tr><tr><td>行动</td><td><code>enabled</code></td><td>不发送</td><td>8000</td><td><code>auto</code></td><td>原生生活工具</td></tr><tr><td>只读问答</td><td><code>enabled</code></td><td>不发送</td><td>8000</td><td><code>auto</code></td><td>三个记忆工具与只读 <code>finish</code></td></tr><tr><td>工作验收</td><td><code>disabled</code></td><td>不发送</td><td>不发送</td><td><code>required</code></td><td>单个验收工具</td></tr><tr><td>联系人回复</td><td><code>disabled</code></td><td>不发送</td><td>8000</td><td>不发送</td><td>不发送</td></tr><tr><td>零点计划</td><td><code>disabled</code></td><td>不发送</td><td>8000</td><td><code>required</code></td><td>单个 <code>submit_day_plan</code> 工具</td></tr><tr><td>画像抽取</td><td><code>disabled</code></td><td>0.3</td><td>8000</td><td>不发送</td><td>不发送</td></tr></table>
+<table><tr><th>阶段</th><th><code>thinking</code></th><th><code>temperature</code></th><th><code>max_tokens</code></th><th><code>tool_choice</code></th><th><code>tools</code></th></tr><tr><td>行动</td><td><code>enabled</code></td><td>不发送</td><td>8000</td><td><code>auto</code></td><td>原生生活工具</td></tr><tr><td>只读问答</td><td><code>enabled</code></td><td>不发送</td><td>8000</td><td><code>auto</code></td><td>三个记忆工具与只读 <code>finish</code></td></tr><tr><td>截断重试（行动与只读问答）</td><td><code>disabled</code></td><td>不发送</td><td>8000（不变）</td><td><code>required</code></td><td>行动为八个人物工具，只读问答为只读 <code>finish</code>；不含记忆查询</td></tr><tr><td>工作验收</td><td><code>disabled</code></td><td>不发送</td><td>不发送</td><td><code>required</code></td><td>单个验收工具</td></tr><tr><td>联系人回复</td><td><code>disabled</code></td><td>不发送</td><td>8000</td><td>不发送</td><td>不发送</td></tr><tr><td>零点计划</td><td><code>disabled</code></td><td>不发送</td><td>8000</td><td><code>required</code></td><td>单个 <code>submit_day_plan</code> 工具</td></tr><tr><td>画像抽取</td><td><code>disabled</code></td><td>0.3</td><td>8000</td><td>不发送</td><td>不发送</td></tr></table>
 <p><code>thinking</code> 经请求的扩展体发送。联系人回复、零点计划与画像抽取关闭思考；行动阶段开启思考，
-使用 <code>tool_choice=auto</code>，模型未产出工具调用时由 ReAct 协议纠错回合处理。只读问答与行动经 LifeAgent 同一个请求入口发送，
-生成参数与行动相同，发送前同样按整次请求计数。
+使用 <code>tool_choice=auto</code>，模型未产出工具调用时由 ReAct 协议纠错回合处理，输出在思考阶段用尽（截断）时按「回合预算」丢弃该回合并重试一次。
+只读问答与行动经 LifeAgent 同一个请求入口发送，生成参数与行动相同，发送前同样按整次请求计数。
 工作验收与零点计划关闭思考，使用 <code>tool_choice=required</code>。各阶段不发送 OpenRouter 的 <code>reasoning</code> 扩展参数。</p>
+<p>截断重试只在截断之后的那一次请求发送，按状态而不是按请求种类判定：本次决策的消息历史以截断纠错结尾，且产生这次截断的请求开启了思考
+（重试自己再截断时不再重试）；行动与只读问答经同一请求入口，判定相同，其余请求（含只读问答）的参数不变。思考模式拒收
+<code>tool_choice=required</code>（HTTP 400 "Thinking mode does not support this tool_choice"），关闭思考后可用，所以重试与工作验收、零点计划同为
+关闭思考加 <code>required</code>；DeepSeek 没有独立的思考预算，这是限制思考并强制给出结果的唯一办法。<code>max_tokens</code> 仍为 8000，<code>reasoning_effort</code>
+仍不发送；重试参数是代码常量（<code>custom/agents/life_truncation.py</code>，由 <code>code_sha256</code> 覆盖），阶段身份 <code>action</code> 的键不变。</p>
 <p>零点计划与联系人回复一样使用独立客户端：模型与端点取运行清单的模型身份并逐项核对，客户端 <code>max_retries=0</code>，
 不流式输出。输出不合法（JSON、条数、意图唯一性、文字长度、<code>remind_time</code> 的格式或时刻有误）时，在原请求之后追加
 一条 user 消息附回英文错误（JSON 键 <code>PREVIOUS_INVALID_RESPONSE</code>、<code>VALIDATION_ERROR</code>、<code>INSTRUCTION</code>）重试，
@@ -3897,7 +3924,8 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。</p>
 <p>模型请求证据按 <code>data.purpose</code> 区分：工作验收为 <code>work_review</code>，零点计划为 <code>plan_day</code>，人物决策的请求不带 <code>purpose</code>。
 交付窗口、决策 token 统计与行为指标的决策请求排除带 <code>purpose</code> 的请求，质量报告的 <code>model_usage</code> 仍计入它们。
 人物请求之中，行动请求按「不带 <code>purpose</code>、<code>tools</code> 中有生活工具 <code>start_activity</code>、thinking 开启」识别，写入 <code>decision_started</code>、
-交付窗口与决策统计共用这一判定；记忆巩固与反思的模型调用不带工具，只读问答的工具中没有生活工具，因此都可与行动请求区分。</p>
+交付窗口与决策统计共用这一判定；记忆巩固与反思的模型调用不带工具，只读问答的工具中没有生活工具，因此都可与行动请求区分。
+截断重试的请求关闭思考，按这一判定不是行动请求；它总在本次决策的截断回合之后，<code>decision_started</code> 仍随首个行动请求写入。</p>
 <h2 id="c10-模型身份">模型身份</h2>
 <table><tr><th>键</th><th>值</th></tr><tr><td><code>provider</code></td><td><code>openai_compatible</code></td></tr><tr><td><code>base_url</code></td><td><code>https://api.deepseek.com</code></td></tr><tr><td><code>requested_model</code></td><td><code>deepseek-flash</code></td></tr><tr><td><code>max_retries</code></td><td>0；非传输错误不在客户端内重试</td></tr><tr><td><code>transport_max_retries</code></td><td>3；仿真调度器独立的瞬时传输重试预算</td></tr><tr><td><code>max_react_turns</code></td><td>16；记忆查询、工具纠错与世界请求共享的有限预算，全部归行动阶段（见「回合预算」）</td></tr><tr><td>工具声明</td><td>每个函数声明 <code>strict=true</code></td></tr><tr><td><code>reasoning_effort</code></td><td>不发送</td></tr></table>
 <p>运行凭据来自唯一私密文件 <code>~/.config/worldmock/deepseek.env</code>，schema 仅允许 <code>DEEPSEEK_NODE_KEYS</code> 一个键：值为逗号分隔的至少一个非空密钥段，读取时逐段去除首尾空白、按出现顺序去重后以逗号连接传给仿真 LLM 与 CODER 角色；拒绝符号链接、未知键、空值与空段。多把密钥在 LiteLLM Router 中按 deployment 负载分摊。</p>
@@ -3922,7 +3950,10 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 <h2 id="c10-思考回传">思考回传</h2>
 <p>思考只在同一秒的连续决策中按提供商协议原样回传：本次决策内与同一秒续接链中的每个 assistant 工具消息必须完整回传模型给出的
 <code>reasoning_content</code>，与 <code>content</code>、<code>tool_calls</code> 一起进入后续带工具的请求；时间推进后丢弃，思考不进入七层中的任何一层。
-被拒绝的工具调用整批不执行，在现有 ReAct 剩余回合内把协议错误反馈给模型自行重新提交。</p>
+被拒绝的工具调用整批不执行，在现有 ReAct 剩余回合内把协议错误反馈给模型自行重新提交。
+截断回合的思考随该回合丢弃，只留在模型证据中，不回传（见「回合预算」）。截断重试关闭思考，回复没有 <code>reasoning_content</code>，不伪造、不回传：
+重试给出的世界请求结束本次决策，同一秒的下一次决策按无思考回合断链（见下文成链条件）；重试被纠错时该回合同样不留在历史中，
+所以本次决策此后带思考的请求里没有缺思考的 assistant。</p>
 <p><b>成链条件。</b> 同一人物在同一模拟秒内的相邻两次决策，同一 session；两者之间没有反事实干预；此前各 assistant 回合都带非空
 <code>reasoning_content</code>；上一决策以恰好一个世界请求结束。条件不满足即断链：下一次请求从新快照构造，进度层写到此刻，此前的思考不再出现。</p>
 <p><b>缓冲来源。</b> 环境从模型证据重建上一决策的末次请求与响应，在观察事件提交后挂到观察返回体的私有键 <code>continuation</code> 上交给宿主
