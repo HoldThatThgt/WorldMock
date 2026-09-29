@@ -26,7 +26,7 @@ from worldmock.life.error_contract import (CANDIDATE_KEYS, ERROR_KEYS, HOST_ERRO
 from worldmock.life.guidance import (GENERIC_REASON, Refusal, default_reason, items_refusal,  # noqa: E402
                                      refusal_for_code, rejection_guidance)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND  # noqa: E402
-from worldmock.life.named_purchase import (near_candidates, resolve_named_rows, resolve_named_supply,  # noqa: E402
+from worldmock.life.named_purchase import (near_labels, resolve_named_rows, resolve_named_supply,  # noqa: E402
                                            supply_label)
 from worldmock.life.result_projection import public_result  # noqa: E402
 
@@ -223,7 +223,8 @@ def test_second_named_item_failing_is_reported_at_index_one_and_the_group_stays_
     [item] = result.data["items"]
     assert (item["index"], item["field"], item["written"], item["error_code"]) == (1, "targets", unknown,
                                                                                     "SUPPLY_NOT_FOUND")
-    assert [row["target"] for row in item["candidates"]] == near_candidates(_layer_context(engine), unknown)
+    assert [row["target"] for row in item["candidates"]] == near_labels(_layer_context(engine), unknown, "delivery",
+                                                                         "home")
     assert all(tuple(row) == ("target", "action", "way", "from", "to") for row in item["candidates"])
     assert result.data["reason"] == f"第 2 项「{unknown}」：没有找到这个名字的商品"
     assert result.data["fix"] == "第 2 项改用候选里的完整标签，或者照本轮列出的写法写商品"

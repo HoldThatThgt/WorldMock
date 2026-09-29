@@ -779,3 +779,47 @@ def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separa
     assert build_quality_report(events, [], _manifest())["contact_reply_guard"] == {
         "replies": 4, "replies_without_guard_evidence": 1, "attempts": 5, "hits": 3, "retries": 2, "fallbacks": 1,
         "hits_by_category": {"arriving": 2, "done_or_bringing": 0, "taking_over": 1, "guaranteeing": 1}}
+
+
+def _protocol_error(sequence, call_id, error, purpose=None):
+    """一次带协议错误串的模型终态响应（人物决策没有 purpose）。"""
+    response = _tool_response(call_id, _usage())
+    response["error"] = error
+    if purpose is not None:
+        response["purpose"] = purpose
+    return _event(sequence, "model_response", agent_id=1, decision_id=f"decision-{call_id}", data=response)
+
+
+def _rejected(sequence, code, occurred_at, reused=False):
+    """一条业务拒绝事件（action_rejected，重放带 reused）。"""
+    data = {"error_code": code, **({"reused": True} if reused else {})}
+    return _event(sequence, "action_rejected", occurred_at=occurred_at, agent_id=1, action_id=f"action-{sequence}",
+                  data=data)
+
+
+def test_name_rejections_are_counted_apart_from_other_protocol_errors():
+    """名称类拒绝一节（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）：宿主的名称类纠错按 feedback_report 判定的码逐码计数，
+    其余协议错误（非法 JSON、没有工具调用、参数形状）另计，工作验收等有 purpose 的调用不算；环境的名称类拒绝按码计数（不含
+    重放），同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
+    events = [
+        _protocol_error(1, "c1", "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])"),
+        _protocol_error(2, "c2", "WAY_NOT_OFFERED: start_activity verb and way are not offered by the chosen target"),
+        _protocol_error(3, "c3", "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 王五"),
+        _protocol_error(4, "c4", "invalid tool arguments for start_activity: Expecting value: line 1 column 1"),
+        _protocol_error(5, "c5", "native tool_calls are required"),
+        _protocol_error(6, "c6", "ARGUMENTS_INVALID: invalid start_activity arguments"),
+        _protocol_error(7, "c7", "NAME_NOT_FOUND: task_name is not visible", purpose="work_review"),
+        _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_NAME_AMBIGUOUS", 500),
+        _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
+        _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
+    ]
+    report = build_quality_report(events, [], _manifest(end=1100))["name_rejections"]
+    assert (report["host_protocol_errors"], report["other_protocol_errors"]) == (3, 3)
+    assert report["host_codes"] == {"NAME_AMBIGUOUS": 0, "NAME_NOT_FOUND": 1, "SUBJECT_NOT_KNOWN": 1,
+                                    "SUPPLY_SOURCE_MISMATCH": 0, "WAY_NOT_OFFERED": 1}
+    assert report["other_protocol_codes"] == {"ARGUMENTS_INVALID": 1, "ARGUMENTS_NOT_JSON": 1, "TOOL_CALL_REQUIRED": 1}
+    assert report["environment_rejections"] == 4
+    assert report["environment_codes"] == {"FULFILLMENT_NOT_SUPPORTED": 0, "SOURCE_NOT_FOUND": 0,
+                                           "SUPPLY_NAME_AMBIGUOUS": 1, "SUPPLY_NOT_AT_STORE": 0,
+                                           "SUPPLY_NOT_FOUND": 2, "TASK_NOT_FOUND": 1}
+    assert report["environment_free_rejections"] == 3

@@ -1385,7 +1385,8 @@ def test_same_second_results_stay_in_the_progress_layer(engine_factory) -> None:
     (refused,) = progress_calls(second)
     assert refused["result"]["status"] == "rejected"
     assert refused["result"]["details"] == {"reason": rejected.data["reason"], "next_step": rejected.data["next_step"],
-                                            "fix": rejected.data["fix"]}
+                                            "fix": rejected.data["fix"], "items": rejected.data["items"]}
+    assert [item["error_code"] for item in rejected.data["items"]] == ["NAME_NOT_FOUND"]
     assert sent.status == "completed"
     third, revised = _observed_act(engine, "now-revise", "revise_day_plan", ReviseDayPlanRequest(
         goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))

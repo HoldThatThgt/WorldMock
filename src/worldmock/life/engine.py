@@ -954,13 +954,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return _put_agent(state, changed)
 
     def _round_schedule(self, state: WorldState, agent, rejection: str | None,
-                        rhythm_next=None) -> tuple[int, list[str], SameMomentStage]:
+                        rhythm_next=None, free: bool = False) -> tuple[int, list[str], SameMomentStage]:
         """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-time-and-energy.md 第一章规则 2–4、7）。
 
         受限轮用完仍要同一秒再决策时，暂存 decision_budget_exhausted 事件并技术停顿（docs/dev/SPEC-persona-prompt.md
-        第五章「失败后强制等待与跨决策预算」），随本动作的结果一起提交。
+        第五章「失败后强制等待与跨决策预算」），随本动作的结果一起提交；事件带最近一次计入同刻轮数的拒绝码。
 
         :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
+        :param free: 本轮的拒绝是免计的名称类拒绝（docs/dev/SPEC-dayrun-fidelity.md 3.4，不计同刻轮数）。
         """
         now = state.current_time
 
@@ -976,7 +977,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
             slots_full=activity_control.free_slots(state, agent.agent_id) == 0)
         if same_moment.budget_exhausted(outcome):
-            code = rejection or same_moment.latest_rejection_code(state, agent.agent_id)
+            code = (None if free else rejection) or same_moment.latest_rejection_code(state, agent.agent_id)
             schedule, draft = same_moment.exhausted_schedule(outcome, self.scenario.activity_feedback_seconds, code)
             self._pending_event_drafts.append(draft)
             return schedule
@@ -984,13 +985,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
-        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。结果 message 就是
-        公开原因 reason，data 带 reason、fix、next_step 与逐项明细（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
-        agent = same_moment.count_round(state.agents[pending.agent_id])
-        next_decision_at, reasons, stage = self._round_schedule(state, agent, str(error))
-        pulse_key = same_moment.refusal_pulse_key(str(error))
-        if pulse_key == same_moment.SERVICE_REFUSED and same_moment.refusal_pulse_applied(state, agent.agent_id):
-            pulse_key = None
+        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次；名称类拒绝每人每秒
+        前两次不计同刻轮数、不施加脉冲（docs/dev/SPEC-dayrun-fidelity.md 3.4，same_moment.rejection_counts）。结果 message
+        就是公开原因 reason，data 带 reason、fix、next_step 与逐项明细（第四章）。"""
+        counted = same_moment.rejection_counts(state, pending.agent_id, str(error))
+        agent = state.agents[pending.agent_id]
+        agent = same_moment.count_round(agent) if counted else agent
+        next_decision_at, reasons, stage = self._round_schedule(state, agent, str(error), free=not counted)
+        pulse_key = same_moment.rejection_pulse(state, agent.agent_id, str(error))
         body = agent.body if pulse_key is None else apply_mood_pulse(agent.body, pulse_key)
         changed_agent = agent.model_copy(update={"next_decision_at": next_decision_at,
                                                   "consecutive_rejections": agent.consecutive_rejections + 1,
@@ -1097,11 +1099,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                   selection: list[dict] | None) -> str:
         """@brief 按已解析的对象与点名活动，交给 same_moment.request_kind 判定受限轮请求类。
 
-        start_activity 的选择解析不出时以 ACTION_REQUEST_INVALID 拒绝（与受理同一判定）。
+        start_activity 的选择解析不出时以 ACTION_REQUEST_INVALID 拒绝（与受理同一判定，名称类失败逐项写进 items）。
         """
         if selection is None:
             logging.error("Start activity selection is not offered in this round")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+            raise self._unresolved_start(pending)
         actions = [row["selected_action"]["canonical_action"] for row in selection]
         ways = [row["selected_action"]["label"] for row in selection]
         named = (self._activities_for_names(state, pending, [item.activity_name for item in control_items(

@@ -93,15 +93,20 @@ def test_scenario_menus_admit_only_current_start_actions():
 
 
 def test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions():
-    """（对象，动词，方式）只按本轮绑定映射：内部动作名、旧短语、动词不符都不解析；菜单按映射后的内部动作判定。"""
+    """（对象，动词，方式）只按本轮绑定映射：内部动作名、表外短语、动词不符都不解析；旧短语「步行前往」只作方式同义表
+    （docs/dev/SPEC-dayrun-fidelity.md 3.1）在目标列出的方式里恰好命中「步行」时受理，不是方式闭集的成员；菜单按映射后的
+    内部动作判定。"""
     bindings = _bindings()
     walked = resolve_selection(bindings, ["地点：办公室"], ["travel"], ["步行"])
     assert [row["selected_action"]["canonical_action"] for row in walked] == ["travel_to"]
     assert walked[0]["selected_action"]["travel_mode"] == "walking" and walked[0]["object_id"] == "office"
+    [synonym] = resolve_selection(bindings, ["办公室"], ["travel"], ["步行前往"])
+    assert (synonym["object"], synonym["selected_action"]["label"]) == ("地点：办公室", "步行")
+    assert "步行前往" not in WAYS
     pair = resolve_selection(bindings, ["地点：办公室", "自己"], ["travel", "interact"], ["驾车", "等待"])
     assert [row["selected_action"]["label"] for row in pair] == ["驾车", "等待"]
     for targets, verbs, ways in (
-            (["地点：办公室"], ["travel"], ["步行前往"]), (["地点：办公室"], ["travel"], ["travel_to"]),
+            (["地点：办公室"], ["travel"], ["走着去办公室"]), (["地点：办公室"], ["travel"], ["travel_to"]),
             (["地点：办公室"], ["interact"], ["步行"]), (["地点：公园"], ["travel"], ["步行"]),
             (["自己"], ["interact"], ["睡觉"]), (["自己"], ["interact", "sleep"], ["等待", "睡觉"]),
             (["自己", "自己", "自己"], ["sleep"] * 3, ["睡觉"] * 3), ([], [], [])):

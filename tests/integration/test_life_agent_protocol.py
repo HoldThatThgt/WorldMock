@@ -325,7 +325,8 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 
 
 def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
-    """工具层标为不可用的提交照样可以提交：宿主只核对任务名，环境以同一原因业务拒绝。"""
+    """工具层标为不可用的提交照样可以提交：宿主只核对任务名（没写「工作：」前缀的也按统一名称解析唯一受理，
+    docs/dev/SPEC-dayrun-fidelity.md 3.1），环境以同一原因业务拒绝；不是任何任务的名称按协议错误纠正。"""
     observations = _observations()
     task = observations[0]["data"]["tool_layer"]["targets"][1]
     task["tools"] = [{"tool": "submit_work", "available": False, "reason": "有效工时还没达到要求"}]
@@ -335,7 +336,9 @@ def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
     deliverable = {"summary": "整理了会议要点。", "decisions": ["按计划推进。"], "action_items": ["下周复盘。"]}
     submit = ReactDecision("", "submit_work", {"task_name": _TASK, "deliverable": deliverable}, "")
     assert agent.validate_react_decisions([submit], False) == ""
-    unknown = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
+    bare = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
+    assert agent.validate_react_decisions([bare], False) == ""
+    unknown = ReactDecision("", "submit_work", {"task_name": "写周报", "deliverable": deliverable}, "")
     assert agent.validate_react_decisions([unknown], False) == "NAME_NOT_FOUND: task_name is not visible"
 
 

@@ -135,9 +135,9 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
             """执行生产拒绝节律，不替换反馈结果逻辑。"""
             return LifeEngine._after_rejection(self, state, pending, error)
 
-        def _round_schedule(self, state, agent, rejected, rhythm_next=None):
-            """执行生产同刻排期。"""
-            return LifeEngine._round_schedule(self, state, agent, rejected, rhythm_next)
+        def _round_schedule(self, state, agent, rejected, rhythm_next=None, free=False):
+            """执行生产同刻排期（free 为免计的名称类拒绝，本用例的拒绝码不是名称类）。"""
+            return LifeEngine._round_schedule(self, state, agent, rejected, rhythm_next, free)
 
         def _drain_pending_drafts(self):
             """本用例没有通讯送达事件。"""
