@@ -55,12 +55,20 @@ chmod 600 ~/.config/worldmock/deepseek.env
 
 ## 哪些模型参数可配置
 
-当前生活模拟固定使用 DeepSeek 官方 OpenAI 格式端点 `https://api.deepseek.com` 和模型
-`deepseek-flash`。DeepSeek 的 Anthropic 格式端点使用同一平台密钥，但 WorldMock 的
+当前生活模拟固定使用 DeepSeek 官方 OpenAI 格式的 strict 端点 `https://api.deepseek.com/beta` 和模型
+`deepseek-flash`。每个工具函数都声明 `strict: true`：探针实测主站 `https://api.deepseek.com` 不执行这个声明，
+`/beta` 在请求时校验函数 Schema、不合规即返回 400，但不保证模型给出的取值都受约束，宿主本地的严格校验仍是最终判定。
+`validate` 核对的模型身份含这个端点，不是 `/beta` 即拒绝；清单冻结在主站的旧运行不能恢复或重放。
+DeepSeek 的 Anthropic 格式端点使用同一平台密钥，但 WorldMock 的
 AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI 格式端点。
 启动器会设置仿真和代码角色的模型、端点及请求参数，没有场景级 `model` 或 `base_url` 覆盖字段。
 自行设置 AS2 的同名环境变量会在 WorldMock 启动时被覆盖。
 需要更换模型属于运行合同与代码变更，不能靠向场景 JSON 增加字段实现。
+
+人物决策的请求开启思考，输出上限 `max_tokens` 为 8000，思考也计入这个上限。思考用完上限、
+还没调用工具的回合（`finish_reason=length`）被丢弃，只留在模型证据里；紧接着以关闭思考、`tool_choice=required`、
+上限不变的请求重试一次，重试再被截断时不再重试，其后照常按本次决策的回合预算继续。上限与这一处理都不可配置；
+导出的 `quality.json` 在 `truncations` 一节按用途统计截断的回复次数、浪费的输出 token 与其中的思考 token。
 
 | 使用入口 | 凭据来源 |
 | --- | --- |
@@ -68,7 +76,7 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 | `profile compile`、`profile check`、画像覆盖率校验 | 优先环境变量 `DEEPSEEK_NODE_KEYS`，其次私密文件，取池中第一把密钥 |
 | LabelKit 数据生成 | 使用其项目配置和凭据引用，见[数据生成](delivery.md) |
 
-画像抽取通过独立客户端请求 `https://api.deepseek.com/chat/completions`，默认模型同为
+画像抽取通过独立客户端请求 `https://api.deepseek.com/beta/chat/completions`，默认模型同为
 `deepseek-flash`，只使用密钥池第一把；直接调用抽取接口时可显式传入密钥。
 画像编译可用不等于模拟启动凭据已经齐备，两者的读取顺序与完整文件校验不同。
 当前读取与请求身份依据为[运行启动器](../../src/worldmock/runtime.py)、
@@ -97,10 +105,19 @@ uv run worldmock run \
 uv run worldmock status --run-dir runs/my-persona-day
 ```
 
+`validate` 通过时在标准输出打印一个 JSON 对象，含 `valid`、`scenario_id`、`model_identity`、`persona_coverage` 与
+`input_warnings` 等键。`input_warnings` 是运行输入警告清单，每条为 `{code, agent_id, message, details}`，
+场景级警告（配送路线不可达、地点显示名可疑）的 `agent_id` 为 `null`；同一组警告也逐条写到标准错误流，
+格式为 `Input warning <警告码> (agent <人物编号>): <说明>`。警告不让校验失败，但人物卡片的可执行覆盖率低于 80% 时
+`validate` 仍然失败、标准输出为空，失败前照样写出警告；与人物有关的警告码和改法见[人物画像](personas.md#常见错误)。
+
 `run` 会调用模型并持续模拟到场景结束；已存在的输出目录不能被覆盖。`run` 另接受 `--same-second-continuation on|off`（缺省 `on`）：
 关闭时同一秒的相邻决策不续接思考，每次决策都从新快照构造请求，只用于对比运行；开关冻结进运行清单，`resume` 与 `replay`
 继承父运行的值、不接受该参数。除人物决策外，零点计划也调用模型：
 运行开始时和每个场景本地零点，为每个人物生成当日计划（同一人物同一天只生成一次），它的请求与人物决策分开记录。
+`run` 创建运行时按同一规则重新计算运行输入警告（画像会重新编译），冻结进运行目录 `manifest.json` 的 `input_warnings`，
+每条另写一条 `logs/ops-YYYYMMDD.jsonl` 的 `warn` 记录，导出的 `quality.json` 在 `input_warnings` 一节按警告码计数；
+警告不会让 `run` 失败，覆盖率不足时也只记 `COVERAGE_BELOW_THRESHOLD`。`resume` 与 `replay` 不重算，沿用父运行清单里的警告。
 `status` 只读已确认状态，不推进时间。查看状态可在另一个终端进行。
 配置和依赖在运行开始时绑定，不能通过编辑文件让正在运行的人物采用新设定。
 
@@ -193,6 +210,7 @@ uv run worldmock replay \
 | 只设置环境变量，模拟仍报凭据缺失 | 模拟启动器读取私密文件；画像抽取的读取顺序不同 |
 | 输出目录已经存在 | 改用新的运行或导出目录，保留原记录 |
 | 改了场景或代码后恢复被拒绝 | 使用匹配身份的原始配置恢复，或为新条件新建运行；升级代码后旧检查点不能恢复 |
+| `Stage model identity is inconsistent: base_url='https://api.deepseek.com' must be the DeepSeek strict endpoint 'https://api.deepseek.com/beta'` | 父运行在端点改为 `/beta` 之前创建，清单冻结着主站，不能恢复或重放；改为新建运行 |
 | `Model identity stage decision_statement is retired` | 运行清单仍含旧的决策自述阶段键，由旧版本代码创建；这样的运行不能打开、恢复或重放，改为新建运行 |
 
 命令参数以[命令入口](../../src/worldmock/cli.py)为准；更多数据生成与评估步骤见对应手册页。
