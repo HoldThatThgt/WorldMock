@@ -198,7 +198,8 @@ def test_a_mixed_item_rejection_takes_the_first_items_code_and_next_step() -> No
     refusal = items_refusal(entries, 2)
     assert (refusal.code, refusal.next_step) == ("SUPPLY_NOT_FOUND", "从候选或本轮列出的商品里选")
     assert refusal.reason == f"第 1 项「咖啡加冰」：没有找到这个名字的商品；第 2 项「{label}」：这件商品不能用这种方式买"
-    assert refusal.fix == "第 1 项改用候选里的完整标签，或者照本轮列出的写法写商品；第 2 项改用这件商品支持的取得方式"
+    assert refusal.fix == ("第 1 项改用候选里的完整标签，或者照本轮列出的写法写商品；"
+                           "第 2 项改用这件商品支持的取得方式，或者方式写「购买」")
     guidance = rejection_guidance(refusal.error())
     assert (guidance["reason"], guidance["next_step"], guidance["fix"]) == (refusal.reason, refusal.next_step,
                                                                           refusal.fix)

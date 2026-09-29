@@ -28,7 +28,7 @@ from tests.life.test_work_review import _at_task_start
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, felt, schedule
 from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
-from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
+from worldmock.life.interaction_menu import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
 from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INDEX_EXAMPLES_MAX, INTENT_KINDS,
                                            LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES, VERBS,
@@ -56,7 +56,8 @@ def _rendered(observed: dict) -> str:
 
 
 def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
-    """体感分级、方式、动词、动作状态、意图与目标类别的 Schema 枚举与源头闭集一致；七个层名各有一份 Schema。"""
+    """体感分级、方式、动词、动作状态、意图与目标类别的 Schema 枚举与源头闭集一致（工具层的方式不含只写在请求里、由系统
+    定方式的「购买」，工具层从不列出它，docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）；七个层名各有一份 Schema。"""
     def levels(base: str, bands: tuple, *extra: str) -> tuple[str, ...]:
         """基档、各档文本与表外的档。"""
         return (base, *(text for _, text in bands), *extra)
@@ -68,7 +69,7 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
         "social": levels(felt.SOCIAL_BASE_LEVEL, felt.SOCIAL_BANDS),
         "mood": levels(felt.MOOD_BASE_LEVEL, felt.MOOD_BANDS),
     }
-    assert WAY_LABELS == tuple(WAYS) and VERBS == LIFE_VERBS
+    assert WAY_LABELS == tuple(way for way in WAYS if way != SYSTEM_PURCHASE_WAY) and VERBS == LIFE_VERBS
     assert ACTION_STATUSES == tuple(item.value for item in ActionStatus)
     assert INTENT_KINDS == schedule.INTENT_KINDS
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}

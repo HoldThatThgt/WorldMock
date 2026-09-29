@@ -25,6 +25,7 @@ from custom.agents.life_agent import LifeAgent  # noqa: E402
 from tests.integration.test_life_agent_protocol import _context, _observations  # noqa: E402
 from tests.life.conftest import context, last_result, stage_day_plan, start_arguments, start_request  # noqa: E402
 from tests.life.routing_fixtures import place  # noqa: E402
+from tests.life.test_browse_and_hints import _retarget  # noqa: E402
 from tests.life.test_commerce import _browse, _stage_open  # noqa: E402
 from worldmock.errors import BusinessRuleError  # noqa: E402
 from worldmock.life import projection  # noqa: E402
@@ -307,6 +308,34 @@ def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(
         "supply", supply.supply_id, True, "pickup")
     assert row["quote"]["price_version"] == quote.price_version
     assert (row["channel_id"], row["purchase_note"]) == (None, None)
+
+
+def test_remote_orders_no_selling_store_can_deliver_say_so_like_listed_ones(engine_factory) -> None:
+    """远程下单此刻服务不了（M3）时的说法：人在不卖纯牛奶的紫薇公园，把它从各家纯牛奶的配送范围里去掉；只有一家出售门店
+    （完整标签）时与非指名的远程下单同一句「这里不在这家店的配送范围内」（docs/dev/SPEC-dayrun-fidelity.md 5.3），几家出售
+    门店（纯牛奶）都送不到时写「出售它的门店都送不到<收货地>」；unmet 都是 delivery_destination，下一步都只指向从此地可达、
+    能送达的地点（同一门店、同一此地时两者相同），没有此刻能服务的同名候选。"""
+    engine = engine_factory()
+    _stage_open(engine)
+    here = "poi-337936012"
+    milk = [supply for supply in engine.scenario.supplies
+            if next(item.name for item in engine.scenario.products if item.product_id == supply.product_id) == _MILK]
+    assert len({supply.location_id for supply in milk}) > 1 and here not in {supply.location_id for supply in milk}
+    for supply in milk:
+        _retarget(engine, supply.supply_id, tuple(spot for spot in supply.delivery_destination_ids if spot != here))
+    place(engine, 1, here)
+    layer = _layer_context(engine)
+    name = next(item.name for item in engine.scenario.locations if item.location_id == here)
+    refusals = []
+    for written in (_MILK, *(supply_label(layer, supply) for supply in milk)):
+        with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as refused:
+            resolve_named_supply(layer, PurchaseAsk(written, "远程下单", None, here, receiver=name))
+        assert (refused.value.unmet, refused.value.suggested["item"]["candidates"]) == (["delivery_destination"], [])
+        refusals.append((refused.value.public_reason, refused.value.suggested["next_step"]))
+    several, *single = refusals
+    assert several[0] == f"出售它的门店都送不到{name}"
+    assert {reason for reason, _ in single} == {"这里不在这家店的配送范围内"}
+    assert several[1] in {step for _, step in single} and several[1].endswith(("再下单", "能送达的地方"))
 
 
 def test_near_candidates_are_deterministic_term_similarity(monkeypatch) -> None:
