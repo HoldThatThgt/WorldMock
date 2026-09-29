@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -278,15 +279,24 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
 
 
 def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path) -> None:
-    """名称唯一：场景只要求身份唯一，两款游戏同名时观察投影在给出任何绑定之前以 ValueError 失败关闭，不让人物用一个名称
-    指向两个对象。"""
+    """名称唯一：两款游戏同名的场景在加载时就被拒绝，原因写明重复的名称与两处来源（docs/dev/SPEC-dayrun-fidelity.md
+    8.1，不再等到运行中途）；绕过加载直接把运行时场景改成同名时，观察投影仍在给出任何绑定之前以 ValueError 失败关闭，
+    不让人物用一个名称指向两个对象。"""
     def mutate(document: dict) -> None:
         """第二款游戏改用第一款的名称。"""
         document["games"][1]["title"] = document["games"][0]["title"]
 
-    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "repeated-names")
+    games = json.loads(Path("scenarios/white-collar-12-weeks.json").read_text(encoding="utf-8"))["games"]
+    with pytest.raises(IntegrityError) as failure:
+        _custom_engine("white-collar-12-weeks.json", mutate, tmp_path / "load", "repeated-names")
+    assert str(failure.value) == (f"Agent 1 would see non-unique object labels: '游戏：{games[0]['title']}' from "
+                                  f"game:{games[0]['game_id']}, game:{games[1]['game_id']}")
+    engine = _custom_engine("white-collar-12-weeks.json", lambda document: None, tmp_path / "runtime", "runtime-names")
     try:
         stage_day_plan(engine)
+        renamed = (engine.scenario.games[0], engine.scenario.games[1].model_copy(
+            update={"title": engine.scenario.games[0].title}), *engine.scenario.games[2:])
+        engine.scenario = engine.scenario.model_copy(update={"games": renamed})
         with pytest.raises(ValueError, match="interactive object labels must be unique"):
             engine.observe(context(engine, "repeated-names"))
     finally:

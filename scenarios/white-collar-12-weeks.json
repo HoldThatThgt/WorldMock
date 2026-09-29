@@ -13,7 +13,7 @@
   "rotation_stale_seconds": 604800,
   "retrieval_index_threshold": 1000,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "965c9fafd40845e40a449e497f1ed40b97f20c8a064ed5526c910f81254ff5bf",
+  "corpus_manifest_sha256": "000036b9092feea66a362443929999e6715c5df375d68be9b67e9c0964f15efb",
   "catalog_version": {
     "major": 4,
     "minor": 1
@@ -5410,7 +5410,7 @@
     "dataset_id": "zhangjiang-map",
     "version": 2,
     "path": "zhangjiang-map/dataset.json",
-    "sha256": "5adabfd2aade46211b8d71045b47342694166ca1bc1eb44af2107ff52f91d0f6"
+    "sha256": "4f90c2e7b9a12af78429f1d39642382a6d37cc4fee838925b3709bbce75dddbf"
   },
   "supplies": [
     {

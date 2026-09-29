@@ -11919,7 +11919,7 @@
       },
       "entry_id": "zhangjiang-map:dataset.json",
       "path": "zhangjiang-map/dataset.json",
-      "sha256": "5adabfd2aade46211b8d71045b47342694166ca1bc1eb44af2107ff52f91d0f6",
+      "sha256": "4f90c2e7b9a12af78429f1d39642382a6d37cc4fee838925b3709bbce75dddbf",
       "size_bytes": 1275,
       "media_type": "application/json",
       "purpose": "frozen map declarations"
@@ -11927,7 +11927,7 @@
     {
       "entry_id": "zhangjiang-map:locations.json",
       "path": "zhangjiang-map/locations.json",
-      "sha256": "42c9a5967356ba5fd4a548f32891621dbea217f9bf469de61c52df0971017ea5",
+      "sha256": "46cf28c9fefe7d82b755431ea896b85fab37cc281f70027b7d26cb63159713ca",
       "size_bytes": 29983,
       "media_type": "application/json",
       "purpose": "frozen map declarations",
@@ -11951,7 +11951,7 @@
       },
       "entry_id": "zhangjiang-map:routes.json",
       "path": "zhangjiang-map/routes.json",
-      "sha256": "258c74ed3638a97b9cc607299ff908985362b4d2c541201a45ac5b8bcf1488a3",
+      "sha256": "30c8f05a94c39f079e92cbe45c73f573251b53fb37069b63675a458bf9b9fc52",
       "size_bytes": 299324,
       "media_type": "application/json",
       "purpose": "frozen map declarations"
@@ -15487,7 +15487,7 @@
       },
       "entry_id": "zhangjiang-map:supplies.json",
       "path": "zhangjiang-map/supplies.json",
-      "sha256": "becd4e906c2e8b0fe8d95c73f6ee9bd386c647ac4be504a9fe63625b32eb1f88",
+      "sha256": "4bd4a09591d71471bf088b2e2bae88d655514989939aab22e35fecf1a15239cd",
       "size_bytes": 368311,
       "media_type": "application/json",
       "purpose": "offline map and storefront simulation"

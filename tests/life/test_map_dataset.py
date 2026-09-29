@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError
 from worldmock.life.map_data import load_map_dataset, select_map
-from worldmock.life.map_models import LocationConfig, MapDatasetReference, RouteConfig
+from worldmock.life.map_models import MAP_SCHEMA_VERSION, LocationConfig, MapDatasetReference, RouteConfig
 from tests.life.test_opening_hours import location, source
 
 
@@ -43,13 +43,14 @@ def create_dataset(tmp_path, edit=None, metadata_changes=None):
             "routes": [route("home", "store"), route("store", "home")]}
     if edit:
         edit(data)
-    metadata = {"schema_version": 1, "dataset_id": "test", "version": 1, "coordinate_system": "WGS84",
-                "timezone": "Asia/Shanghai", "bounds": [121, 31, 122, 32],
+    metadata = {"schema_version": MAP_SCHEMA_VERSION, "dataset_id": "test", "version": 1,
+                "coordinate_system": "WGS84", "timezone": "Asia/Shanghai", "bounds": [121, 31, 122, 32],
                 "prepared_at": "2026-09-20T12:00:00+08:00", "source": source(), "route_modes": ["walking"]}
     if metadata_changes is not None:
         metadata.update(metadata_changes)
     for name, rows in data.items():
-        metadata[f"{name}_file"] = write(tmp_path / f"{name}.json", {"schema_version": 1, name: rows})
+        payload = {"schema_version": MAP_SCHEMA_VERSION, name: rows}
+        metadata[f"{name}_file"] = write(tmp_path / f"{name}.json", payload)
     ref = write(tmp_path / "dataset.json", metadata)
     return MapDatasetReference.model_validate({**ref, "dataset_id": "test", "version": 1})
 
@@ -88,9 +89,10 @@ def test_map_identity_pin_is_checked(tmp_path):
 
 
 @pytest.mark.parametrize("name", ["locations", "supplies", "routes"])
-@pytest.mark.parametrize("change", [{"schema_version": 2}, {"unrecognized_section": []}])
+@pytest.mark.parametrize("change", [{"schema_version": 1}, {"schema_version": MAP_SCHEMA_VERSION + 1},
+                                    {"unrecognized_section": []}])
 def test_frozen_directory_envelope_is_closed_even_with_correct_hash(tmp_path, name, change):
-    """@brief 文件哈希正确也不能发布未知结构或未支持的目录版本。"""
+    """@brief 文件哈希正确也不能发布未知结构或未支持的目录版本：旧版本 1 与未来版本都拒绝，不做兼容解析。"""
     ref = create_dataset(tmp_path)
     metadata = json.loads((tmp_path / ref.path).read_text())
     payload = json.loads((tmp_path / f"{name}.json").read_text())
@@ -99,6 +101,42 @@ def test_frozen_directory_envelope_is_closed_even_with_correct_hash(tmp_path, na
                                             "dataset_id": ref.dataset_id, "version": ref.version})
     with pytest.raises(IntegrityError, match=f"Map {name} file schema is invalid"):
         load_map_dataset(tmp_path, ref)
+
+
+def test_old_map_structure_version_is_rejected(tmp_path):
+    """@brief 地图文件结构随 branch_label 升到 2：结构 1 的数据集声明直接拒绝，不做兼容解析或迁移。"""
+    assert MAP_SCHEMA_VERSION == 2
+    ref = create_dataset(tmp_path, metadata_changes={"schema_version": 1})
+    with pytest.raises(IntegrityError, match="Map dataset validation failed") as failure:
+        load_map_dataset(tmp_path, ref)
+    assert "schema_version" in str(failure.value)
+
+
+@pytest.mark.parametrize("label", ["", " "], ids=["empty", "space"])
+def test_branch_label_must_be_nonblank_when_declared(label):
+    """@brief 分店标签可选；声明了就不能是空白（空白标签无法区分同名地点）。"""
+    assert location().branch_label is None
+    with pytest.raises(ValidationError, match="branch_label"):
+        LocationConfig.model_validate({**location().model_dump(), "branch_label": label})
+
+
+def test_selected_locations_use_display_names_and_the_map_keeps_branch_labels(tmp_path):
+    """@brief 同名的两处地点各带分店标签：场景选图后的运行时地点名是「名称（分店）」且不再带标签（不会重复拼接），
+    地图本身仍保留原名与标签；没有标签的地点原样选出。"""
+    def branches(data):
+        """@brief 两处地点同名，各带不同的分店标签。"""
+        data["locations"][0].update(name="全家", branch_label="东昌路店")
+        data["locations"][1].update(name="全家", branch_label="张江路店")
+    dataset = load_map_dataset(tmp_path, create_dataset(tmp_path, branches))
+    assert [(item.name, item.branch_label, item.display_name) for item in dataset.locations] == [
+        ("全家", "东昌路店", "全家（东昌路店）"), ("全家", "张江路店", "全家（张江路店）")]
+    places, _, _ = select_map(dataset, scenario())
+    assert {item.location_id: (item.name, item.branch_label) for item in places} == {
+        "store": ("全家（东昌路店）", None), "home": ("全家（张江路店）", None)}
+    assert all(item.display_name == item.name for item in places)
+    plain = load_map_dataset(tmp_path / "plain", create_dataset(tmp_path / "plain"))
+    places, _, _ = select_map(plain, scenario())
+    assert {item.location_id: item for item in places} == {item.location_id: item for item in plain.locations}
 
 
 @pytest.mark.parametrize("change,reason", [
