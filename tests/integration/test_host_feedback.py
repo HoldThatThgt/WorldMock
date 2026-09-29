@@ -28,6 +28,7 @@ from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOI
                                                         _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
                                                         _conclude_args, _context, _memory, _prepared,
                                                         _step_observation, _view, _wire_agent)
+from tests.integration.test_output_truncation import _Truncated  # noqa: E402
 from tests.integration.test_same_second_continuation import _environment, _reply, _single  # noqa: E402
 from tests.integration.test_storefront_tools import _OFFER, _observed_offer  # noqa: E402
 from tests.life.conftest import engine_factory as _engine_factory, last_result, start_arguments  # noqa: E402,F401
@@ -121,7 +122,8 @@ async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruct
 
 
 def _host_cases() -> dict[str, tuple[str, str]]:
-    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）；名称歧义与截断还没有宿主产生方，取登记的默认说法。"""
+    """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）：截断经 LifeAgent 覆写的 _parse_react_responses 判定
+    （docs/dev/SPEC-dayrun-fidelity.md 7.2）；名称歧义还没有宿主产生方，取登记的默认说法。"""
     agent = _prepared()
     offer = LifeAgent()
     offer.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observed_offer()))
@@ -145,7 +147,7 @@ def _host_cases() -> dict[str, tuple[str, str]]:
         "SUPPLY_SOURCE_MISMATCH": offer.validate_react_decisions([_decision("start_activity", start_arguments(
             [_OFFER], ["obtain"], ["远程下单"], **{"from": ["家门口便利店"]}))], False),
         "SUBJECT_NOT_KNOWN": concluding.validate_react_decisions([_decision("conclude_activity", unknown)], False),
-        "OUTPUT_TRUNCATED": host_feedback(host_report("OUTPUT_TRUNCATED"), "output truncated before any tool call"),
+        "OUTPUT_TRUNCATED": agent._parse_react_responses(_Truncated("思考写满了输出上限。"))[1],
     }
     return {code: _as_report(value) for code, value in produced.items()}
 

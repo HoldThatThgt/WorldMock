@@ -1181,8 +1181,8 @@ PlaceKind = Literal["home", "office", "merchant", "restaurant", "convenience_sto
 
 | 阶段 | 消息 | 工具 |
 | --- | --- | --- |
-| 行动 | system 为生活决策系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组（见「七层字段」）；同一秒续接时其后依次追加原生 assistant 与 tool 消息（见「思考回传」） | 原生 `tools`：八个人物工具（见「人物工具与管理接口」）与记忆查询 `memory_recent`、`memory_search`、`memory_time_range`，整次运行不变，唯一的例外是本次决策只剩最后一个回合时去掉记忆查询工具；世界请求登记即结束本次决策，没有 `finish` |
-| 只读问答 | system 为只读系统层 JSON；user 为人设层与记忆层两个对象组成的 JSON 数组，外部问题作为其后一条 user 消息原样给出 | `memory_recent`、`memory_search`、`memory_time_range`（最后一个回合去掉）与只读 `finish` |
+| 行动 | system 为生活决策系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组（见「七层字段」）；同一秒续接时其后依次追加原生 assistant 与 tool 消息（见「思考回传」） | 原生 `tools`：八个人物工具（见「人物工具与管理接口」）与记忆查询 `memory_recent`、`memory_search`、`memory_time_range`，整次运行不变，例外只有本次决策只剩最后一个回合与截断重试（见「回合预算」）时去掉记忆查询工具；世界请求登记即结束本次决策，没有 `finish` |
+| 只读问答 | system 为只读系统层 JSON；user 为人设层与记忆层两个对象组成的 JSON 数组，外部问题作为其后一条 user 消息原样给出 | `memory_recent`、`memory_search`、`memory_time_range`（最后一个回合与截断重试去掉）与只读 `finish` |
 | 零点计划 | system 为零点计划的中文模板；user 为一份 JSON 输入（见下文） | 唯一严格工具 `submit_day_plan`，`tool_choice=required` |
 
 生活决策不开放 `memory_step_range`、`memory_tick_range`：提示中没有步号与秒数坐标。工具 description 只写用途，不含协议与阶段规则；
@@ -1291,13 +1291,15 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 | 生活动作登记 | 完整 `ActionReceipt`，含请求身份与哈希，用于审计与幂等 | 无：登记即结束本次决策，登记后不追加任何 tool 消息，登记确认与登记回执都不回给模型 |
 | 即时记忆查询 | 实际查询输入与结果 | 当轮 tool 消息返回的记忆内容，每条只含 {type, text, time, epistemic_status}，不含条目身份，只序列化一次；同一秒的续接中原样保留，时间推进后进度层只留条数 |
 | 已结算世界结果 | 完整动作结算事件 | 进度层该调用的公开结果投影，在本 session 内持续保留；同一秒接着决策时另作为续接 tool 消息的 `result`；不在提交时提前回流 |
-| 协议纠错 | `model_response.data.error` 的协议错误串：宿主本地校验为「<错误码>: <英文说明>」，AS2 自身的协议错误串（参数不是 JSON、没有工具调用、调用了未提供的工具）照原文 | 纠错正文 `{error_code, reason, fix, items, unmet, instruction}`：与业务拒绝同一错误结构（见「活动受理拒绝码」的拒绝结构），`unmet` 恒为 `[]`，`instruction` 固定为「本次没有登记到世界；按 fix 修改后重新提交」；不带英文校验转储、`input_value` 与网址。模型响应带工具调用时作为这些调用的 tool 消息，没有工具调用时作为一条 user 消息（AS2 `_append_react_protocol_feedback`）；本次没有登记到世界，不进引擎、不计同刻轮数，只耗本次决策的一个回合（见「回合预算」） |
+| 协议纠错 | `model_response.data.error` 的协议错误串：宿主本地校验与截断回合为「<错误码>: <英文说明>」，AS2 自身的协议错误串（参数不是 JSON、没有工具调用、调用了未提供的工具）照原文 | 纠错正文 `{error_code, reason, fix, items, unmet, instruction}`：与业务拒绝同一错误结构（见「活动受理拒绝码」的拒绝结构），`unmet` 恒为 `[]`，`instruction` 固定为「本次没有登记到世界；按 fix 修改后重新提交」；不带英文校验转储、`input_value` 与网址。模型响应带工具调用时作为这些调用的 tool 消息（AS2 `_append_react_protocol_feedback`）；没有工具调用（含截断回合）或回合来自截断重试时，该回合不留在历史中，纠错作为一条 user 消息，本次决策中相同的纠错替换、不叠加（`LifeAgent` 覆写，见「回合预算」）；本次没有登记到世界，不进引擎、不计同刻轮数，只耗本次决策的一个回合（见「回合预算」） |
 
 工作验收可在提交期间准备，仍只在批量结算后对人物可见。原生工具配对身份不属于内部世界身份，
 不能为删除句柄而删除 `tool_call_id`：同一秒续接时，tool 消息对应上一决策世界请求的 `tool_call_id`。
 登记回执在 observation 与 data 两处均不得进入模型正文。
 
-协议纠错正文由 `LifeAgent` 覆写 AS2 的 `_protocol_feedback_content` 生成（锁定提交不改，`custom/agents/life_feedback.py`），
+协议纠错正文由 `LifeAgent` 覆写 AS2 的 `_protocol_feedback_content` 生成（锁定提交不改，`custom/agents/life_feedback.py`）；
+截断回合由覆写的 `_parse_react_responses` 判定，纠错进入消息历史的方式由覆写的 `_append_react_protocol_feedback` 决定
+（`custom/agents/life_truncation.py`，见「回合预算」）。
 错误码取宿主闭集（`worldmock.life.error_contract.HOST_ERROR_CODES`）；多项请求逐项报全部名称类错误（`NAME_NOT_FOUND`、
 `NAME_AMBIGUOUS`、`WAY_NOT_OFFERED`、`SUPPLY_SOURCE_MISMATCH`、`SUBJECT_NOT_KNOWN`），其余条件报第一条：
 
@@ -1313,7 +1315,7 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 | `ROUTE_FIELDS_INVALID` | `from`、`to` 或 `answering` 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；`to` 写的名称不是任何人物时不纠正，由环境以 `RECIPIENT_NOT_FOUND` 拒绝 |
 | `SUPPLY_SOURCE_MISMATCH` | 目标已写明门店「<门店>出售的<商品>」却在 `from` 写了门店，候选为同一项 `from` 写 `null` |
 | `SUBJECT_NOT_KNOWN` | `conclude_activity` 的 relationship 看法（`items[].views[].about`，存储为 `subject`）不是已知人物（卡片关系名、场景联系人称谓或同世界人物姓名）；明细的 `index` 为所在的一项、`field` 为 `about` |
-| `OUTPUT_TRUNCATED` | 输出在思考阶段用尽、尚未调用工具（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」） |
+| `OUTPUT_TRUNCATED` | 输出在思考阶段用尽、尚未调用工具：回复 `finish_reason=length`、正文为空且没有工具调用（原因「输出在思考阶段用尽，尚未调用工具」，改法「只调用一个工具」）；证据中的协议错误串为「OUTPUT_TRUNCATED: <英文说明>」，处理见「回合预算」 |
 
 ### 回合预算
 
@@ -1322,21 +1324,35 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 只读问答（`readonly`）为只读 `finish` 保留 1 个回合。剩余回合不足以完成本阶段时明确终止本次决策，不发注定失败的请求。
 单次决策的回合预算与同刻的跨决策预算（受限轮与 `decision_budget_exhausted`，见「动作状态与动作结果」）分开计，前者耗尽时的处理不变。
 
+**截断回合。** 回复 `finish_reason=length`、正文为空且没有工具调用（思考用尽了同时覆盖思考与输出的 `max_tokens`）时，该回合丢弃，
+不进入后续请求（思考只留在模型证据中），纠错为 `OUTPUT_TRUNCATED`（见「工具返回通道」）。紧接着的一次请求是截断重试（参数见「生成参数」），
+同样消耗一个回合，只开放世界请求（只读问答为只读 `finish`），不开放记忆查询；重试的回复被纠错时该回合同样丢弃。没有工具调用的回复
+与这两种回合的纠错作为一条 user 消息接在历史末尾，本次决策中已有的相同纠错去掉（替换、不叠加），同一秒续接链的前缀不动。
+重试仍没有工具调用时，此后的请求照常开启思考、不再重试，按本节预算处理，耗尽仍无登记的世界请求即人物决策失败；之后的请求再截断，
+另按本段重试一次。
+
 ### 生成参数
 
 | 阶段 | `thinking` | `temperature` | `max_tokens` | `tool_choice` | `tools` |
 | --- | --- | --- | --- | --- | --- |
 | 行动 | `enabled` | 不发送 | 8000 | `auto` | 原生生活工具 |
 | 只读问答 | `enabled` | 不发送 | 8000 | `auto` | 三个记忆工具与只读 `finish` |
+| 截断重试（行动与只读问答） | `disabled` | 不发送 | 8000（不变） | `required` | 行动为八个人物工具，只读问答为只读 `finish`；不含记忆查询 |
 | 工作验收 | `disabled` | 不发送 | 不发送 | `required` | 单个验收工具 |
 | 联系人回复 | `disabled` | 不发送 | 8000 | 不发送 | 不发送 |
 | 零点计划 | `disabled` | 不发送 | 8000 | `required` | 单个 `submit_day_plan` 工具 |
 | 画像抽取 | `disabled` | 0.3 | 8000 | 不发送 | 不发送 |
 
 `thinking` 经请求的扩展体发送。联系人回复、零点计划与画像抽取关闭思考；行动阶段开启思考，
-使用 `tool_choice=auto`，模型未产出工具调用时由 ReAct 协议纠错回合处理。只读问答与行动经 LifeAgent 同一个请求入口发送，
-生成参数与行动相同，发送前同样按整次请求计数。
+使用 `tool_choice=auto`，模型未产出工具调用时由 ReAct 协议纠错回合处理，输出在思考阶段用尽（截断）时按「回合预算」丢弃该回合并重试一次。
+只读问答与行动经 LifeAgent 同一个请求入口发送，生成参数与行动相同，发送前同样按整次请求计数。
 工作验收与零点计划关闭思考，使用 `tool_choice=required`。各阶段不发送 OpenRouter 的 `reasoning` 扩展参数。
+
+截断重试只在截断之后的那一次请求发送，按状态而不是按请求种类判定：本次决策的消息历史以截断纠错结尾，且产生这次截断的请求开启了思考
+（重试自己再截断时不再重试）；行动与只读问答经同一请求入口，判定相同，其余请求（含只读问答）的参数不变。思考模式拒收
+`tool_choice=required`（HTTP 400 "Thinking mode does not support this tool_choice"），关闭思考后可用，所以重试与工作验收、零点计划同为
+关闭思考加 `required`；DeepSeek 没有独立的思考预算，这是限制思考并强制给出结果的唯一办法。`max_tokens` 仍为 8000，`reasoning_effort`
+仍不发送；重试参数是代码常量（`custom/agents/life_truncation.py`，由 `code_sha256` 覆盖），阶段身份 `action` 的键不变。
 
 零点计划与联系人回复一样使用独立客户端：模型与端点取运行清单的模型身份并逐项核对，客户端 `max_retries=0`，
 不流式输出。输出不合法（JSON、条数、意图唯一性、文字长度、`remind_time` 的格式或时刻有误）时，在原请求之后追加
@@ -1349,6 +1365,7 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 交付窗口、决策 token 统计与行为指标的决策请求排除带 `purpose` 的请求，质量报告的 `model_usage` 仍计入它们。
 人物请求之中，行动请求按「不带 `purpose`、`tools` 中有生活工具 `start_activity`、thinking 开启」识别，写入 `decision_started`、
 交付窗口与决策统计共用这一判定；记忆巩固与反思的模型调用不带工具，只读问答的工具中没有生活工具，因此都可与行动请求区分。
+截断重试的请求关闭思考，按这一判定不是行动请求；它总在本次决策的截断回合之后，`decision_started` 仍随首个行动请求写入。
 
 ### 模型身份
 
@@ -1390,6 +1407,9 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 思考只在同一秒的连续决策中按提供商协议原样回传：本次决策内与同一秒续接链中的每个 assistant 工具消息必须完整回传模型给出的
 `reasoning_content`，与 `content`、`tool_calls` 一起进入后续带工具的请求；时间推进后丢弃，思考不进入七层中的任何一层。
 被拒绝的工具调用整批不执行，在现有 ReAct 剩余回合内把协议错误反馈给模型自行重新提交。
+截断回合的思考随该回合丢弃，只留在模型证据中，不回传（见「回合预算」）。截断重试关闭思考，回复没有 `reasoning_content`，不伪造、不回传：
+重试给出的世界请求结束本次决策，同一秒的下一次决策按无思考回合断链（见下文成链条件）；重试被纠错时该回合同样不留在历史中，
+所以本次决策此后带思考的请求里没有缺思考的 assistant。
 
 **成链条件。** 同一人物在同一模拟秒内的相邻两次决策，同一 session；两者之间没有反事实干预；此前各 assistant 回合都带非空
 `reasoning_content`；上一决策以恰好一个世界请求结束。条件不满足即断链：下一次请求从新快照构造，进度层写到此刻，此前的思考不再出现。

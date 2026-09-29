@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -611,6 +612,100 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
         assert missing["warning_count"] is None and missing["code_counts"] is None
     empty = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": []})["input_warnings"]
     assert empty["warning_count"] == 0 and set(empty["code_counts"].values()) == {0}
+
+
+#: 截断回合写进模型响应证据的协议错误串（custom/agents/life_truncation.py）。
+_TRUNCATION_ERROR = ("OUTPUT_TRUNCATED: model output reached max_tokens while reasoning, before any tool call "
+                     "(finish_reason=length)")
+#: 4a5b0e6 两次全天运行的真实截断记录（只省略请求与思考正文）。
+_TRUNCATION_RUNS = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "dayrun_truncations.json")
+                              .read_text(encoding="utf-8"))
+
+
+def _truncated_response(call_id, usage, purpose=None):
+    """思考用尽输出上限的模型响应：finish_reason=length，正文为空，没有工具调用，协议错误为 OUTPUT_TRUNCATED。"""
+    data = {"phase": "response", "call_id": call_id, "attempt": 1, "error": _TRUNCATION_ERROR,
+            "response": {"model": "deepseek-flash", "usage": usage, "choices": [
+                {"finish_reason": "length", "index": 0, "message": {"content": "", "tool_calls": None}}]}}
+    return {**data, "purpose": purpose} if purpose else data
+
+
+def _truncation_usage(output, reasoning):
+    """截断回复的 usage：输出 token 与其中的思考 token。"""
+    return {"prompt_tokens": 100, "completion_tokens": output, "total_tokens": 100 + output,
+            "completion_tokens_details": {"reasoning_tokens": reasoning}}
+
+
+def test_truncations_count_length_responses_with_their_output_and_reasoning_tokens():
+    """truncations 一节（docs/dev/SPEC-dayrun-fidelity.md 7.2、九）：只计 finish_reason=length 的提供商回复，每个调用身份
+    一条（重复终态不重复计），按用途分列（人物决策记为 decision）；浪费的输出 token 与思考 token 取提供商实报的
+    completion_tokens 与 completion_tokens_details.reasoning_tokens；正常回复与没有回复的传输失败不计入。"""
+    events = [
+        _event(1, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-1"}),
+        _event(2, "model_response", agent_id=1, decision_id="d1",
+               data=_truncated_response("call-1", _truncation_usage(8000, 8000))),
+        _event(3, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-2"}),
+        _event(4, "model_response", agent_id=1, decision_id="d1", data=_tool_response("call-2", _usage())),
+        _event(5, "model_request", agent_id=1, decision_id="d2", data={"call_id": "call-3"}),
+        _event(6, "model_response", agent_id=1, decision_id="d2",
+               data=_truncated_response("call-3", _truncation_usage(8001, 7990))),
+        _event(7, "model_response", agent_id=1, decision_id="d2",
+               data=_truncated_response("call-3", _truncation_usage(8001, 7990))),
+        _event(8, "model_request", agent_id=1, data={"call_id": "plan-1", "purpose": "plan_day"}),
+        _event(9, "model_response", agent_id=1,
+               data=_truncated_response("plan-1", _truncation_usage(500, 0), "plan_day")),
+        _event(10, "model_request", agent_id=1, decision_id="d3", data={"call_id": "call-4"}),
+        _event(11, "model_response", agent_id=1, decision_id="d3",
+               data={"phase": "failure", "call_id": "call-4", "attempt": 1, "error": "TimeoutError()"}),
+    ]
+
+    report = build_quality_report(events, [], _manifest(end=200))
+
+    section = report["truncations"]
+    assert section == {"truncated_responses": 3, "purpose_counts": {"decision": 2, "plan_day": 1},
+                       "wasted_output_tokens": 16501, "reasoning_tokens": 15990,
+                       "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
+                       "method": section["method"]}
+    assert "finish_reason=length" in section["method"] and report["memory_references"]["problem_count"] == 0
+
+
+def test_truncation_tokens_missing_from_a_response_stay_unknown_instead_of_zero():
+    """某次截断的回复没有实报 token（没有 usage，或没有思考 token 明细）时对应合计为 null，缺失次数单列，不记为零；
+    没有截断的运行次数与两项合计都是 0。"""
+    no_details = {"prompt_tokens": 10, "completion_tokens": 8000, "total_tokens": 8010}
+    events = [
+        _event(1, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-1"}),
+        _event(2, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-1", None)),
+        _event(3, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-2"}),
+        _event(4, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-2", no_details)),
+    ]
+
+    section = build_quality_report(events, [], _manifest(end=200))["truncations"]
+
+    assert section["truncated_responses"] == 2
+    assert (section["wasted_output_tokens"], section["reasoning_tokens"]) == (None, None)
+    assert (section["responses_missing_output_tokens"], section["responses_missing_reasoning_tokens"]) == (1, 2)
+    none = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))["truncations"]
+    assert (none["truncated_responses"], none["purpose_counts"], none["wasted_output_tokens"],
+            none["reasoning_tokens"]) == (0, {}, 0, 0)
+
+
+@pytest.mark.parametrize(("label", "count", "tokens"), [pytest.param("white_collar", 3, 24001, id="white_collar"),
+                                                        pytest.param("business", 26, 208000, id="business")])
+def test_truncations_match_the_recorded_day_runs(label, count, tokens):
+    """4a5b0e6 两次全天运行的真实模型响应记录（tests/fixtures/dayrun_truncations.json，只省略请求与思考正文）：
+    truncations 与运行记录一致，WC 3 次、BIZ 26 次截断（规格 7.2「现状」3/177、26/599 的分子），全部是行动决策；截断回复
+    的输出全是思考（浪费的输出 token 等于思考 token，WC 其中一次为 8001）；同一决策中截断之后的非截断回复不计入。"""
+    run = _TRUNCATION_RUNS[label]
+    events = [Event.model_validate(row) for row in run["events"]]
+
+    section = build_quality_report(events, [], {"run_id": run["run_id"], "window": run["window"]})["truncations"]
+
+    assert section["truncated_responses"] == run["summary"]["truncated_responses"] == count < len(events)
+    assert section["purpose_counts"] == {"decision": count}
+    assert section["wasted_output_tokens"] == section["reasoning_tokens"] == tokens
+    assert tokens == run["summary"]["truncated_output_tokens"] == run["summary"]["truncated_reasoning_tokens"]
+    assert run["summary"]["finish_reasons"]["length"] == count
 
 
 def test_quality_report_is_deterministic_for_the_same_authenticated_input():
