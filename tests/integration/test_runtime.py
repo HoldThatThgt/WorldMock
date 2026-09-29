@@ -133,9 +133,11 @@ def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
 
 
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
-    """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境）；恢复模式不重新编译。"""
+    """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境），两者都取经场景作息覆盖后的卡片
+    （docs/dev/SPEC-dayrun-fidelity.md 2.1）；恢复模式不重新编译。"""
     from tests.profile.conftest import make_card
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.models import persona_card_struct
     from worldmock.profile.textgen import render_card
 
@@ -149,8 +151,10 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
 
     specs = _agent_specs(scenario, persona_compiler=fake_compiler)
 
-    assert specs[0]["profile"]["persona_card"] == render_card(card)
-    assert specs[0]["profile"]["persona_card_struct"] == persona_card_struct(card)
+    overridden = apply_scenario_rhythm(card, scenario.agents[0]).card
+    assert overridden != card
+    assert specs[0]["profile"]["persona_card"] == render_card(overridden)
+    assert specs[0]["profile"]["persona_card_struct"] == persona_card_struct(overridden)
     assert specs[0]["config"]["max_react_turns"] == 16
     assert compiled == [1]
     restored = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
@@ -1125,6 +1129,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md「画像编译」）。"""
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.taste import compute_taste_weights
 
     from tests.profile.conftest import make_card
@@ -1152,7 +1157,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
         [{"item_id": item.item_id, "genre": genres[item.item_id]}
          for item in scenario.contents])
     assert compiled == [1]
-    assert specs[0]["profile"]["persona_card"] == render_card(card)
+    assert specs[0]["profile"]["persona_card"] == render_card(apply_scenario_rhythm(card, scenario.agents[0]).card)
     assert weights == expected
     assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
 

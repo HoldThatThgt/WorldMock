@@ -690,3 +690,20 @@ def test_three_scenarios_share_the_v2_schema() -> None:
         scenario, digest = load_scenario(path)
         assert len(digest) == 64
     assert len(manifests) == 1
+
+
+def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
+    """组装后的运行时人物只把场景显式写出的字段记为已设（缺省值照旧由模型补齐，值不变），场景作息覆盖卡片据此只覆盖
+    显式声明的作息字段（docs/dev/SPEC-dayrun-fidelity.md 2.1）；声明全部五个字段的正式场景五个都记为已设。"""
+    rhythm = {"chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_window", "bedtime_window"}
+    payload = _payload()
+    for name in rhythm - {"chronotype_midsleep"}:
+        del payload["agents"][0][name]
+    document = LifeScenario.model_validate(payload)
+
+    agent = assemble_semantics(document, load_catalog(_CATALOG), _map(document)).scenario.agents[0]
+
+    assert agent.model_fields_set & rhythm == {"chronotype_midsleep"}
+    assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
+    assert agent.model_dump() == document.agents[0].model_dump()
+    assert load_scenario(_FORMAL)[0].agents[0].model_fields_set & rhythm == rhythm
