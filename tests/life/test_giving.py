@@ -284,7 +284,8 @@ def test_a_recipient_written_without_the_prefix_is_resolved_to_that_person(engin
     target, _ = supply_target(observe(engine, "supply-bare-recipient"))
     result = act(engine, "order-for-bare-name", routed((target, "obtain", "远程下单", None, "王磊")))
     assert (result.status, result.error_code) == ("completed", None)
-    assert [(order["recipient_id"], order["destination_id"]) for order in result.data["orders"]] == [(COLLEAGUE, OFFICE)]
+    assert [(order["recipient_id"], order["destination_id"]) for order in result.data["orders"]] == [
+        (COLLEAGUE, OFFICE)]
     assert {"written": "王磊", "as": COLLEAGUE_TARGET} in result.data["resolved"]
     shared = act(engine, "order-for-shared-name", routed((target, "obtain", "远程下单", None, "李凡")))
     assert (shared.status, shared.error_code) == ("rejected", "RECIPIENT_NOT_FOUND")
