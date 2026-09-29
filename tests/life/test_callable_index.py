@@ -192,7 +192,7 @@ def test_every_index_name_resolves_by_name_in_the_host_at_several_places(engine_
 def test_the_index_leaves_out_activities_excluded_by_location_kind(engine_factory) -> None:
     """索引只列此地可做的生活活动：在家、在办公室、在集市，名称恰是地点类允许的全部条目（按决胜键排列），就是生活活动
     窗口资格段保留的条目（presented 与 deferred）；以 ELIGIBILITY_LOCATION_KIND_MISMATCH 排除的条目一个都不在索引里，
-    窗口里的条目都在索引里。"""
+    窗口里的条目都在索引里。在家是 107 个名称、415 字（规格 5.2 的估算）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     names = {item.activity_id: item.name for item in engine.lifestyle_items}
@@ -208,8 +208,8 @@ def test_the_index_leaves_out_activities_excluded_by_location_kind(engine_factor
         assert mismatched and not mismatched & set(index["lifestyle"])
         assert set(index["lifestyle"]) == {names[item] for item in (*window.presented, *window.deferred)}
         assert {row["name"] for row in window.items} <= set(index["lifestyle"])
-        sizes[place] = len(index["lifestyle"])
-    assert sizes == {"home": 107, "office": 20, _MARKET: 92}
+        sizes[place] = (len(index["lifestyle"]), sum(len(name) for name in index["lifestyle"]))
+    assert sizes == {"home": (107, 415), "office": (20, 85), _MARKET: (92, 373)}
 
 
 def _deny(engine: LifeEngine, *actions: str) -> None:
