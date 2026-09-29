@@ -18,6 +18,8 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
+from worldmock.footprints.timeline_labels import timeline_label_report
+from worldmock.life.reply_guard import GUARD_PATTERNS
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -77,6 +79,8 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
             [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events],
             manifest["window"]["timezone"],
         ),
+        "timeline_labels": timeline_label_report(events, manifest),
+        "contact_reply_guard": _contact_reply_guard_quality(events),
     }
 
 
@@ -811,6 +815,28 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
              "token_usage": _aggregate_tokens(groups[purpose],
                                               [item for item in groups[purpose] if item["tokens"] is not None])}
             for purpose in sorted(set(counts) | set(groups))]
+
+
+def _contact_reply_guard_quality(events: list[Event]) -> dict:
+    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/dev/SPEC-dayrun-fidelity.md 7.3、第九章）。
+
+    命中按尝试计（首次与重试各算一次），类别也按尝试计；重试与兜底按回复计。没有 attempts 证据的回复单列，
+    不当作未命中。
+    """
+    replies = [event.data for event in events if event.event_type == "environment_event"
+               and event.data.get("kind") == "model_npc_reply"]
+    guarded = [data for data in replies if isinstance(data.get("attempts"), list)]
+    attempts = [item for data in guarded for item in data["attempts"] if isinstance(item, dict)]
+    matched = [item["matched"] if isinstance(item.get("matched"), list) else [] for item in attempts]
+    return {
+        "replies": len(replies),
+        "replies_without_guard_evidence": len(replies) - len(guarded),
+        "attempts": len(attempts),
+        "hits": sum(bool(codes) for codes in matched),
+        "retries": sum(len(data["attempts"]) > 1 for data in guarded),
+        "fallbacks": sum(data.get("guard_applied") is True for data in guarded),
+        "hits_by_category": {code: sum(code in codes for codes in matched) for code in GUARD_PATTERNS},
+    }
 
 
 def _acceleration(events: list[Event], manifest: dict) -> dict:

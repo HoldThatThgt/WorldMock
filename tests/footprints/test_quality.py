@@ -576,3 +576,53 @@ def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
               _event(2, "memory_updated", agent_id=1, decision_id="decision", data=update)]
     memory = build_quality_report(events, [], _manifest())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == codes
+
+
+def _progress(sequence, snapshot, start, end):
+    """人物 1 一段活动进度：结算区间 [start, end) 与活动快照。"""
+    return _event(sequence, "activity_progress", occurred_at=end, agent_id=1, activity_id=snapshot["activity_id"],
+                  data={"activity": snapshot, "interval_start": start, "interval_end": end})
+
+
+def _timeline_events(place, lifestyle, subject):
+    """一条命名观察加四段进度：步行去某地、一项生活活动、读一封邮件、空档；地名、活动名与邮件主题由参数给出。"""
+    names = {"locations": [{"location_id": "loc-x", "name": place}],
+             "messages": [{"message_id": "mail-1", "subject": subject}]}
+    return [
+        _event(1, "observation", occurred_at=100, agent_id=1, data=names),
+        _progress(2, {"activity_id": "a-go", "kind": "travel", "travel_mode": "walking", "destination_id": "loc-x"},
+                  100, 200),
+        _progress(3, {"activity_id": "a-life", "kind": "lifestyle", "target_id": "x", "title": lifestyle}, 200, 300),
+        _progress(4, {"activity_id": "a-mail", "kind": "read_mail", "target_id": "mail-1"}, 300, 400),
+        _progress(5, {"activity_id": "a-wait", "kind": "wait"}, 400, 500),
+    ]
+
+
+def test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline():
+    """时间线标签检查（docs/dev/SPEC-dayrun-fidelity.md 7.4）：用唯一的时间线渲染器投影同批事件，标签里恰为英文种类名的
+    片段与内部标识形态的片段各计一项；书名号与引号里的作品标题、邮件主题不查；名称都是中文时两项为零。"""
+    crafted = build_quality_report(_timeline_events("poi-node-11991340957", "call", "work"), [],
+                                   _manifest())["timeline_labels"]
+    assert (crafted["rows_checked"], crafted["english_kind_names"], crafted["internal_ids"]) == (4, 1, 1)
+    assert [(item["agent_id"], item["date"], item["interval"], item["label"], item["item"], item["text"])
+            for item in crafted["findings"]] == [
+        (1, "1970-01-01", "08:01–08:03", "步行去poi-node-11991340957", "internal_id", "poi-node-11991340957"),
+        (1, "1970-01-01", "08:03–08:05", "call", "english_kind_name", "call")]
+    clean = build_quality_report(_timeline_events("中山公园", "瑜伽", "周报"), [], _manifest())["timeline_labels"]
+    assert clean == {"rows_checked": 4, "english_kind_names": 0, "internal_ids": 0, "findings": []}
+
+
+def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately():
+    """联系人回复守卫（docs/dev/SPEC-dayrun-fidelity.md 7.3）：命中与类别按尝试计，重试与兜底按回复计；没有 attempts
+    证据的回复单列，不算未命中。"""
+    replies = [
+        {"attempts": [{"matched": ["arriving"]}, {"matched": []}], "guard_applied": False},
+        {"attempts": [{"matched": ["taking_over", "guaranteeing"]}, {"matched": ["arriving"]}], "guard_applied": True},
+        {"attempts": [{"matched": []}], "guard_applied": False},
+        {},
+    ]
+    events = [_event(index, "environment_event", agent_id=1, data={"kind": "model_npc_reply", **fields})
+              for index, fields in enumerate(replies, start=1)]
+    assert build_quality_report(events, [], _manifest())["contact_reply_guard"] == {
+        "replies": 4, "replies_without_guard_evidence": 1, "attempts": 5, "hits": 3, "retries": 2, "fallbacks": 1,
+        "hits_by_category": {"arriving": 2, "done_or_bringing": 0, "taking_over": 1, "guaranteeing": 1}}
