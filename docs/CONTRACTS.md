@@ -1372,7 +1372,7 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 | 键 | 值 |
 | --- | --- |
 | `provider` | `openai_compatible` |
-| `base_url` | `https://api.deepseek.com/beta`；DeepSeek 的 strict 端点：探针（`scripts/probe_deepseek_strict.py`）实测主站不执行函数的 `strict` 声明，`/beta` 校验 strict 函数的 Schema、关闭思考时约束枚举取值，思考模式的输出不受约束，本地严格校验仍是权威 |
+| `base_url` | `https://api.deepseek.com/beta`；DeepSeek 的 strict 端点：探针（`scripts/probe_deepseek_strict.py`）实测主站不执行函数的 `strict` 声明，`/beta` 在请求时校验 strict 函数的 Schema（不合规的 Schema 返回 400），输出取值不保证受约束（关闭思考时枚举仍可能越界），本地严格校验仍是权威 |
 | `requested_model` | `deepseek-flash` |
 | `max_retries` | 0；非传输错误不在客户端内重试 |
 | `transport_max_retries` | 3；仿真调度器独立的瞬时传输重试预算 |
