@@ -86,6 +86,17 @@ def test_delivery_step_lists_reachable_served_places_then_a_via_then_nowhere() -
     assert UNREACHABLE_DELIVERY_STEP == "这里去不了能送达的地方"
 
 
+@pytest.mark.parametrize("status", ["unknown", "unreachable", None])
+def test_delivery_step_skips_places_without_a_working_delivery_route(status) -> None:
+    """能送达还要配送路线走得通：此地直达的枢纽若门店到那里的驾车路线未知、不可达或缺失，就不作为去处；只剩这样的地点时
+    说「这里去不了能送达的地方」。"""
+    routes = (*_ROUTES, _route("depot", "side"),
+              *(() if status is None else (_route("depot", "hub", status=status),)))
+    names = {**_NAMES, "depot": "仓库"}
+    assert delivery_step(routes, names, "here", "depot", ("hub", "side")) == "去侧门再下单"
+    assert delivery_step(routes, names, "here", "depot", ("hub",)) == UNREACHABLE_DELIVERY_STEP
+
+
 def test_the_four_delivery_codes_use_the_two_delivery_reasons() -> None:
     """「暂时送不到这里」一句不再覆盖四个配送码：送达地不在范围一句，配送路线缺失（没有、不可达、未知）另一句。"""
     assert default_reason("DELIVERY_DESTINATION_NOT_SUPPORTED") == DELIVERY_DESTINATION_REASON
