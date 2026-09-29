@@ -292,6 +292,19 @@ def test_never_presented_members_are_treated_as_longest_unpresented() -> None:
     assert after.rotated_in == ("ob-002", "ob-001")  # 越过阈值者按上次呈现时刻从早到晚
 
 
+def test_quota_is_capped_by_subtype_count_only_not_by_tag_similarity() -> None:
+    """换新名额只受子类条数上限约束，不做标签相似度去重（否则最久未呈现者会被同题材的另一对象挡下，`⌈N ÷ k⌉` 的界
+    不再精确）：三个同子类、同一组标签的从未呈现对象一起拿到三个换新名额；标签相似度去重只作用于按排序键取的其余名额。"""
+    now = 1_000_000
+    similar = [_member(index, "film", tags=("comedy", "romance")) for index in range(3)]
+    fresh = [_member(index, f"kind-{index}") for index in range(3, 12)]
+    decision = rotate_candidates([*similar, *fresh], {member.object_id: now - 60 for member in fresh},
+                                 _config(now=now))
+    assert decision.rotated_in == ("ob-000", "ob-001", "ob-002")
+    assert [object_id for object_id, rotated in decision.presented if rotated] == ["ob-000", "ob-001", "ob-002"]
+    assert len(decision.presented) == 12 and not decision.deferred
+
+
 def test_rotation_is_non_destructive_and_defers_without_delisting() -> None:
     """非破坏性：轮转前后池内容逐字节相同；未呈现者只说 ROTATION_DEFERRED，无下架语义。"""
     pool = _pool(60)
