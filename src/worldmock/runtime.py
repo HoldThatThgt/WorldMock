@@ -35,6 +35,7 @@ from worldmock.life.state_commit import commit_state
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.run_identity import require_category_identity
 from worldmock.life.continuation import continuation_enabled
+from worldmock.life.reply_guard import FALLBACK_REPLY, REPLY_ATTEMPT_LIMIT, guard_matches, retry_request
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.opslog import OpsLogger
 from worldmock.profile.models import PersonaCardStruct, persona_card_struct
@@ -56,11 +57,13 @@ AS2_LOCKED_SOURCE_SHA256 = "65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa59
 _AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
 #: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000
-#: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字）。
+#: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字；
+#: docs/dev/SPEC-dayrun-fidelity.md 7.3：联系人只通过消息来往）。中文模板逐字登记在 docs/CONTRACTS.md「联系人回复」。
 _CONTACT_REPLY_PROMPT = (
-    "你是消息收件人通讯录里的一名联系人。根据你的联系人档案与收到的消息，"
-    "以你本人的口吻写一条自然、简短的中文回复。只输出回复正文，不超过 200 个汉字，"
-    "不要解释、不要客套开场。")
+    "你是消息收件人通讯录里的一名联系人，只通过消息和对方来往：你不在对方身边，也不会去找对方。"
+    "根据你的联系人档案、这次来信与你们此前的往来，以你本人的口吻写一条自然、简短的中文回复。"
+    "不说自己正在赶来、已经到了或几点到哪里，不约当面见；不说已经替对方做完了什么，也不揽下对方的活、不替对方分工；"
+    "要做的事只写成打算，不替结果打包票。只输出回复正文，不超过 200 个汉字，不要解释、不要客套开场。")
 
 
 @dataclass(frozen=True, slots=True)
@@ -831,9 +834,17 @@ class ContactReplyClient:
 
 def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
                           model_name: str) -> dict[str, Any]:
-    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无重试），带双方往来与对方实际收到的物品。"""
+    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无传输重试）。
+
+    载荷带来信与它的事实（发件人姓名、场景本地时刻、presence 固定 remote、联系人的收货地名），以及双方往来与对方
+    实际收到的物品（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    """
     payload = {"contact": contact if contact is not None
                else {"contact_id": request.contact_id},
+               "sender_name": request.sender_name,
+               "now": request.now,
+               "presence": request.presence,
+               "receive_location": request.receive_location,
                "incoming_message": request.incoming_text,
                "history": [item.model_dump(mode="json") for item in request.history],
                "received": [item.model_dump(mode="json") for item in request.received],
@@ -865,8 +876,9 @@ async def settle_pending_model_replies(engine: Any, client: Any | None = None) -
     每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
     独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
     事件证据，回复经 social.finalize_model_reply 登记为 CONTACT_REPLY_DELAY_SECONDS
-    后到期的预排送达，到期只进入收件箱（不改资源或任务）。传输与结构异常按运行故障传播
-    （与工作验收同边界）；同一消息最多回复一次（幂等键 reply_to_message_id）。
+    后到期的预排送达，到期只进入收件箱（不改资源或任务）。回复经后验守卫：命中越界说法时在本次结算内
+    重试一次，仍命中则用固定兜底句（docs/dev/SPEC-dayrun-fidelity.md 7.3）。传输与结构异常按运行故障传播
+    （与工作验收同边界）；同一消息最多回复一次（幂等键 reply_to_message_id），重试也只写一条回复事件。
     """
     from worldmock.life import social as social_domain
 
@@ -879,12 +891,29 @@ async def settle_pending_model_replies(engine: Any, client: Any | None = None) -
     for event, request in pending:
         model_request = prepare_contact_reply(
             request, _contact_profile(engine, request), caller.model_name)
-        raw = await caller.call(model_request)
-        text = parse_contact_reply(raw)
+        text, attempts = await _guarded_contact_reply(caller, model_request)
         reply = social_domain.finalize_model_reply(
             request, text, f"reply-{request.reply_to_message_id}", engine.state.current_time)
-        settled.append(_commit_contact_reply(engine, event, model_request, raw, reply))
+        settled.append(_commit_contact_reply(engine, event, attempts, reply))
     return settled
+
+
+async def _guarded_contact_reply(caller: Any, model_request: dict[str, Any]) -> tuple[str, list[dict]]:
+    """@brief 守卫下的一条回复：命中越界说法时以附回纠正的请求重试一次，仍命中则取固定兜底句。
+
+    :returns: 回复正文与每次尝试的记录（请求、原始响应、回复正文与命中的类别码）。
+    """
+    attempts: list[dict] = []
+    request = model_request
+    while len(attempts) < REPLY_ATTEMPT_LIMIT:
+        raw = await caller.call(request)
+        text = parse_contact_reply(raw)
+        matched = guard_matches(text)
+        attempts.append({"request": request, "response": raw, "text": text, "matched": matched})
+        if not matched:
+            return text, attempts
+        request = retry_request(model_request, text, matched)
+    return FALLBACK_REPLY, attempts
 
 
 def _pending_reply_requests(engine: Any) -> list[tuple[Any, Any]]:
@@ -919,11 +948,11 @@ def _contact_profile(engine: Any, request: Any) -> dict[str, Any] | None:
     return None
 
 
-def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
-                          raw: dict, reply: Any) -> dict:
+def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict], reply: Any) -> dict:
     """@brief 一次事务提交回复证据并登记预排送达（版本 +1，资源零变动）。
 
-    回复生成时即留 model_npc_reply 证据；收件箱条目在 CONTACT_REPLY_DELAY_SECONDS 后由预排事件
+    回复生成时即留 model_npc_reply 证据：request、response、usage 取最后一次尝试，attempts 保存每次尝试，
+    guard_applied 表示两次都命中而改用了兜底句；收件箱条目在 CONTACT_REPLY_DELAY_SECONDS 后由预排事件
     message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/CONTRACTS.md「联系人回复」）。
     """
     from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
@@ -938,15 +967,17 @@ def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
         data={"message": reply.message.model_dump(mode="json")}))
     staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
     staged.version = engine.state.version + 1
+    last = attempts[-1]
     drafts = [
         EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                    agent_id=recipient, source_kind="model", visibility="system",
                    caused_by=[pending_event.event_id],
                    data={"kind": "model_npc_reply", "source_kind": reply.source_kind,
                          "reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
-                         "request": model_request, "response": raw,
-                         "usage": raw.get("usage"),
-                         "reply": reply.message.model_dump(mode="json")}),
+                         "request": last["request"], "response": last["response"],
+                         "usage": last["response"].get("usage"),
+                         "reply": reply.message.model_dump(mode="json"),
+                         "attempts": attempts, "guard_applied": bool(last["matched"])}),
     ]
     commit_state(engine.store, staged, drafts)
     engine.state = staged
