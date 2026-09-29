@@ -862,13 +862,24 @@ def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Map
 
 
 def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario) -> Any:
-    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。"""
+    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。
+
+    场景钉定的手机配置核验失败（身份、结构或执行证据，verified_app_names 抛 IntegrityError）时不使创建失败：
+    按没有应用别名计算，覆盖率因此低于 80% 时照常记 COVERAGE_BELOW_THRESHOLD，另写一条英文 warning 日志
+    （docs/dev/SPEC-dayrun-fidelity.md 1.3「运行路径永不因警告失败」）；validate 用自己的目标集，照旧因同一核验失败。
+    """
     from worldmock.catalog.loader import load_catalog
     from worldmock.life.semantics import resolve_catalog_dir
+    from worldmock.profile.coverage_apps import verified_app_names
     from worldmock.validation import build_coverage_targets
 
     root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root)
+    try:
+        app_names = verified_app_names(scenario, root)
+    except IntegrityError as error:
+        logger.warning("Phone simulation config failed verification; run coverage counts no app names: %s", error)
+        app_names = ()
+    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root, app_names)
 
 
 def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:
