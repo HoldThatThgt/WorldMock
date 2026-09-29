@@ -57,6 +57,10 @@ _DEFAULT_REASONS = {
     "TASK_NOT_FOUND": "找不到这个名称",
     "SUPPLY_NOT_FOUND": "没有找到这个名字的商品",
     "SUPPLY_NAME_AMBIGUOUS": "好几家店都卖这个名字的商品",
+    # 指名购买的分段匹配与来源约束（docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3）
+    "SUPPLY_NOT_AT_STORE": "from 写的门店不卖这件商品",
+    "SUPPLY_SOURCE_MISMATCH": "目标已经写明了门店，from 与它不一致",
+    "SOURCE_NOT_FOUND": "from 写的不是门店或 App 的名称",
     "REQUEST_ALREADY_HANDLED": "这条消息要的东西已经下过单了",
     # 活动的开始、控制与名额
     "ACTION_NOT_SUPPORTED": "这种做法这里不支持",
@@ -176,9 +180,12 @@ _DEFAULT_FIXES = {
     "FROZEN_ROUTE_NOT_FOUND": "改选工具层列出的地点与出行方式",
     "WORK_TASK_NOT_FOUND": "照工具层写工作任务的名称",
     "WORK_TASK_NOT_VISIBLE": "只选工具层列出的工作",
-    "FULFILLMENT_NOT_SUPPORTED": "改用这件商品支持的取得方式",
+    "FULFILLMENT_NOT_SUPPORTED": "改用这件商品支持的取得方式，或者方式写「购买」",
     "SUPPLY_NOT_FOUND": "改用候选里的完整标签，或者照本轮列出的写法写商品",
     "SUPPLY_NAME_AMBIGUOUS": "改用候选里写明门店的完整标签",
+    "SUPPLY_NOT_AT_STORE": "把 from 写成 null，或者改用候选里出售它的门店",
+    "SUPPLY_SOURCE_MISMATCH": "把 from 写成 null，或者写这家店所在的 App",
+    "SOURCE_NOT_FOUND": "把 from 写成 null，或者照候选写门店名或 App 名",
     "SUPPLY_NOT_VISIBLE": "写商品名或完整标签按名下单",
     "ORDER_ITEM_COUNT_OUT_OF_RANGE": "一单只写一到五样",
     "ORDER_DUPLICATE_SUPPLY": "去掉重复的一项",
@@ -206,6 +213,7 @@ _DEFAULT_NEXT_STEPS = {
     "SOCIAL_ACTIVITY_CANNOT_PAUSE": "可以直接结束",
     "SUPPLY_NOT_FOUND": "从候选或本轮列出的商品里选",
     "SUPPLY_NAME_AMBIGUOUS": "写明是哪家店出售的",
+    "SUPPLY_NOT_AT_STORE": "从候选里选出售它的门店",
     "REQUEST_ALREADY_HANDLED": "等已下的订单送到",
 }
 #: 原样进入公开结果的可读建议：逐项明细（带可照填候选）、重复的代点请求已关联的订单、名称归一与附带说明（都不含内部身份）。

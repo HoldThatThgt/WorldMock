@@ -1,91 +1,121 @@
-"""@brief 指名购买：obtain 的目标不在本轮列出时按名称解析门店供给（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
+"""@brief 指名购买：obtain 的目标按名称解析为门店供给（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」，
+docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5）。
 
-环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。名称按统一名称解析的逐级归一比对（docs/dev/SPEC-dayrun-fidelity.md
-3.1，worldmock.life.name_resolution：精确，再按全半角、括号、空白与「（模拟）」归一，第一级有匹配就停）：先匹配标签
-「<门店>出售的<商品>」（目标已写明门店，source 须为 null——与标签同一家店的 source 已在名称解析中按冗余换成 null——否则
-与列出的标签一样以 ACTION_REQUEST_INVALID 拒绝），再按商品名找满足所选方式的供给：到店是人物所在地点的门店，远程下单是
-配送到收货地的门店；source 可限定门店。零个匹配以 SUPPLY_NOT_FOUND 拒绝，候选为至多 3 个确定性的近似标签（name_resolution
-.rank：此刻能按所选方式送到的在前，再按单字加二字的 Dice 系数，不用向量检索与近似最近邻）；多店同名且未限定门店以
-SUPPLY_NAME_AMBIGUOUS 拒绝，原因列出全部门店，候选为各店的完整标签；恰好一个时返回该供给按当前报价的绑定行，价格、余额、
-营业与库存由整单结算照常检查。从不自动换成别的商品。解析出的绑定行带 named 标记，购买时不查可见凭据（storefront_runtime）。
+环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。名称按统一名称解析的逐级归一比对（worldmock.life.name_resolution：
+精确，再按全半角、括号、空白与「（模拟）」归一，第一级有匹配就停）。from 是可选约束，不是语法：null（全部门店）、门店名
+（该门店）或渠道称呼（该渠道的成员门店，记下 channel_id；purchase_offers.source_scope）。分段匹配是错误骨架，依次判定、
+各报各的码：
 
-一个请求中的几项指名购买逐项解析（resolve_named_rows）：名称类拒绝逐项收集，合并成一次拒绝，逐项明细 items[] 的候选写成
-可以照填的请求 {target, action, way, from, to}（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」）；其余拒绝报第一条。
+- M0 按名称匹配：先匹配完整标签「<门店>出售的<商品>」，再按商品名；为空报 SUPPLY_NOT_FOUND（只表示没有这件商品），候选为
+  至多 3 个近似标签（此刻能按所写方式服务的在前，name_resolution.rank：单字加二字的 Dice 系数，不用向量检索）；
+- 来源：from 不是门店名也不是渠道称呼时报 SOURCE_NOT_FOUND，候选为最相近的门店名与 App 称呼；
+- M1 = M0 ∩ from 的范围（from 为 null 时跳过）：完整标签的门店不在范围内（from 是另一家门店、或不含该门店的渠道）报
+  SUPPLY_SOURCE_MISMATCH，候选就是这个标签；商品名为空报 SUPPLY_NOT_AT_STORE（那家店完全没有供给时原因写「这里没有可买的
+  商品」），候选为出售它的门店的标签；
+- M2 = M1 ∩ 所写方式（方式为「购买」时跳过）：为空报 FULFILLMENT_NOT_SUPPORTED 并说明原因（如「只能远程下单」）；
+- M3 = M2 ∩ 此刻能服务（到店：人在店里；远程下单：能送到收货地；「购买」：人在出售它的店里就到店，否则能送到就远程下单）：
+  为空以 ACTIVITY_PRECONDITION_UNMET 说明要去哪里（从当前地点出发路线最短的出售门店）或哪家送不到哪里，并附此刻能服务的同名
+  候选；多于一个时按请求级 prefer 选定一家（purchase_offers.choose），所选写进 details.notes，商品购买不再以
+  SUPPLY_NAME_AMBIGUOUS 拒绝（3.5「收敛」第 5 条）。
+
+恰好选定一条时返回该供给按当前报价的绑定行（named 标记：购买时不查可见凭据，storefront_runtime），另带私有的 channel_id
+（订单载荷与 purchases.jsonl 各记一列）与 purchase_note（受理结果的 details.notes）；价格、余额、营业与库存由整单结算照常
+检查，从不自动换成别的商品。一个请求中的几项逐项解析（resolve_named_rows）：各段拒绝逐项收集、合并成一次拒绝，逐项明细
+items[] 的候选写成可以照填的请求 {target, action, way, from, to}（第四章「错误合同」），整组受理仍原子。
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any
 
-from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.errors import PreconditionError
 from worldmock.life.discovery import DiscoveryContext, supply_row
-from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, Candidate, ErrorItem
+from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, Candidate, ErrorItem
 from worldmock.life.guidance import Refusal, default_reason, items_refusal, refusal_for_code
-from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, PURCHASE_WAYS, binding_action
-from worldmock.life.name_resolution import fold, rank, resolve_name
+from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, binding_action
+from worldmock.life.name_resolution import rank, resolve_name
+from worldmock.life.purchase_offers import (DELIVERY_WAY, PICKUP_WAY, Offer, SourceScope, choose, near_sources,
+                                            nearest_store, offers, order_key, serves, source_scope)
+from worldmock.life.readable import clock_phrase, money_phrase
+from worldmock.life.wayfinding import UNREACHABLE_STORE_STEP, delivery_route_code, delivery_step, go_step
 
 if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
 
 _LOGGER = logging.getLogger(__name__)
 #: SUPPLY_NOT_FOUND 至多列出的近似标签数，也是逐项明细中至多给出的候选数。
-MAX_CANDIDATES = 3
-#: 指名解析中逐项收集、合并报告的名称类拒绝码：环境的名称类拒绝码中属于商品的（docs/dev/SPEC-dayrun-fidelity.md 3.4）。
-NAMED_ITEM_CODES = ENVIRONMENT_NAME_CODES - {"TASK_NOT_FOUND"}
+MAX_NEAR = MAX_CANDIDATES
+#: 分段匹配 M3 为空时的拒绝码（引导性拒绝，不是名称类）。
+_UNMET = "ACTIVITY_PRECONDITION_UNMET"
+#: 偏好的说法（受理说明用）。
+_PREFER_PHRASES = {"fastest": "最快", "cheapest": "最便宜"}
+#: 方式短语 → 履约方式。
+_MODES = {way: mode for mode, way in PURCHASE_WAYS.items()}
 
 
-def resolve_named_supply(context: LayerContext, name: str, way: str, source: str | None,
-                         destination_id: str) -> dict:
-    """@brief 把指名购买的名称解析为唯一门店供给的绑定行（selected_action 为所选方式的购买，quote 为当前报价）。
+@dataclass(frozen=True, slots=True)
+class PurchaseAsk:
+    """@brief 一项指名购买的请求事实。
 
-    :param name: 人物在 targets 中写的名称（标签「<门店>出售的<商品>」或商品名）。
-    :param way: 取得方式「到店」或「远程下单」。
-    :param source: 限定的门店名，没有时为 None。
-    :param destination_id: 收货地（远程下单按它筛选能配送到的门店）。
-    :raises PreconditionError: SUPPLY_NOT_FOUND（带近似标签）、SUPPLY_NAME_AMBIGUOUS（原因列出全部门店，带各店标签）、
-        FULFILLMENT_NOT_SUPPORTED（按标签找到的供给不支持所选方式，带该标签）；标签写在私有 suggested.candidates。
-    :raises BusinessRuleError: ACTION_REQUEST_INVALID（名称是完整标签却又写了 source）。
+    :param written: 人物在 targets 中写的名称（完整标签「<门店>出售的<商品>」或商品名）。
+    :param way: 到店、远程下单或「购买」。
+    :param source: from：null、门店名或渠道称呼（其余写法报 SOURCE_NOT_FOUND）。
+    :param destination_id: 收货地（收货人的收货地点）；没有时为 None（只能到店）。
+    :param prefer: 请求级偏好 fastest 或 cheapest（null 已按 fastest 换好）。
+    :param receiver: 收货地的可读说法（地点显示名，或「<收货人>那里」），只用于原因。
+    :param to_self: 收货人是不是自己（送给别人时送不到的下一步是先送到自己这里）。
     """
-    fulfillment = next(mode for mode, label in PURCHASE_WAYS.items() if label == way)
+
+    written: str
+    way: str
+    source: str | None
+    destination_id: str | None
+    prefer: str = "fastest"
+    receiver: str = "这里"
+    to_self: bool = True
+
+
+def resolve_named_supply(context: LayerContext, ask: PurchaseAsk) -> dict:
+    """@brief 把一项指名购买按分段匹配解析为选定的门店供给的绑定行（selected_action 为定下的到店或远程下单，quote 为当前
+    报价，另带私有的 channel_id 与 purchase_note）。
+
+    :raises PreconditionError: SUPPLY_NOT_FOUND、SOURCE_NOT_FOUND、SUPPLY_SOURCE_MISMATCH、SUPPLY_NOT_AT_STORE、
+        FULFILLMENT_NOT_SUPPORTED 或 ACTIVITY_PRECONDITION_UNMET；逐项明细（参数名、原文与候选）写在私有
+        suggested.item，合并时换成可照填的请求（resolve_named_rows）。
+    """
     supplies = context.scenario.supplies
-    matches = _named(name, supplies, lambda supply: supply_label(context, supply))
-    if matches and source is not None:
-        _LOGGER.error("Named purchase gives a store for a label that already names its store")
-        raise BusinessRuleError("ACTION_REQUEST_INVALID")
-    if not matches:
-        matches = _named(name, [supply for supply in supplies if _serves(context, supply, fulfillment, destination_id)
-                                and (source is None or fold(_store_name(context, supply)) == fold(source))],
-                         lambda supply: _product_name(context, supply))
+    labelled = _named(ask.written, supplies, lambda supply: supply_label(context, supply))
+    matches = labelled or _named(ask.written, supplies, lambda supply: _product_name(context, supply))
     if not matches:
         _LOGGER.error("Named purchase matches no supply")
-        raise _refusal("SUPPLY_NOT_FOUND", near_labels(context, name, fulfillment, destination_id))
-    if len(matches) > 1:
-        _LOGGER.error("Named purchase matches supplies of several stores")
-        ordered = sorted(matches, key=lambda supply: (_store_name(context, supply), supply_label(context, supply)))
-        stores = "、".join(dict.fromkeys(_store_name(context, supply) for supply in ordered))
-        raise _refusal("SUPPLY_NAME_AMBIGUOUS", [supply_label(context, supply) for supply in ordered],
-                       f"{default_reason('SUPPLY_NAME_AMBIGUOUS')}（{stores}）")
-    supply = matches[0]
-    if fulfillment not in supply.fulfillment_modes:
-        _LOGGER.error("Named supply does not support the chosen fulfillment")
-        raise _refusal("FULFILLMENT_NOT_SUPPORTED", [supply_label(context, supply)])
-    return _binding(context, supply, way, fulfillment)
+        raise _refusal("SUPPLY_NOT_FOUND", _Item("targets", ask.written, _near_specs(context, ask)))
+    scope = source_scope(context, ask.source)
+    if scope is None:
+        _LOGGER.error("Named purchase source is neither a store nor a channel")
+        raise _source_not_found(context, ask, matches)
+    kept = [supply for supply in matches if scope.contains(supply.location_id)]
+    if not kept:
+        _LOGGER.error("Named purchase source does not cover the named supply")
+        raise _mismatch(context, ask, labelled[0], scope) if labelled else _not_at_store(context, ask, matches, scope)
+    return _staged(context, ask, (kept, matches), scope)
 
 
 def resolve_named_rows(context: LayerContext, selection: list[dict], resolve: Callable[[dict], dict]) -> list[dict]:
     """@brief 逐项把指名购买的占位行解析为门店供给的绑定行（resolve 解析一项），其余行原样。
 
-    名称类拒绝（NAMED_ITEM_CODES）逐项收集，合并成一次拒绝：码取第一项，items[] 逐项写出错项的序号（从 0 起）、原文与
-    至多 3 个可以照填的候选请求；其余拒绝报第一条，名称类拒绝优先（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、
-    第四章）。
+    分段匹配的拒绝（带逐项明细的名称类拒绝与 M3 的 ACTIVITY_PRECONDITION_UNMET）逐项收集，合并成一次拒绝：items[] 逐项写出
+    错项的序号（从 0 起）、参数名、原文与至多 3 个可以照填的候选请求，原因与改法逐项写「第 N 项」；码取第一个名称类拒绝的码
+    （名称类优先，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、3.2（d）），没有名称类时取 ACTIVITY_PRECONDITION_UNMET 并带
+    第一项的下一步与未满足条件；其余拒绝报第一条。整组受理仍原子：有一项解析不出就整组拒绝。
 
     :param selection: start_activity 各项解析好的绑定行（指名购买为占位行），按请求中的先后排列。
     :param resolve: 把一项占位行解析为供给绑定行的函数（按收货人的收货地点解析，见 session_actions）。
     """
     rows: list[dict] = []
-    failures: list[tuple[ErrorItem, str]] = []
+    failures: list[tuple[int, dict, PreconditionError]] = []
     other: PreconditionError | None = None
     for index, row in enumerate(selection):
         if row["kind"] != NAMED_SUPPLY_KIND:
@@ -94,27 +124,67 @@ def resolve_named_rows(context: LayerContext, selection: list[dict], resolve: Ca
         try:
             rows.append(resolve(row))
         except PreconditionError as error:
-            if str(error) not in NAMED_ITEM_CODES:
+            if (error.suggested or {}).get("item") is None:
                 other = other or error
                 continue
-            failures.append((_named_item(context, index, row, error),
-                             error.public_reason or default_reason(str(error))))
+            failures.append((index, row, error))
     if failures:
-        _LOGGER.error("Named purchase items failed name resolution: %s", [item.error_code for item, _ in failures])
-        raise items_refusal(failures, len(selection)).error()
+        _LOGGER.error("Named purchase items failed resolution: %s", [str(error) for _, _, error in failures])
+        raise _merged(failures, len(selection)).error()
     if other is not None:
         raise other
     return rows
 
 
-def near_labels(context: LayerContext, name: str, fulfillment: str, destination_id: str | None) -> list[str]:
-    """@brief 至多 3 个与名称最相近的供给标签（name_resolution.rank，跨全部供给）：此刻能按所选方式送到的在前（到店要人在
-    那家店，远程下单要能配送到收货地），其次按名称与标签、商品名两者 Dice 系数的较大者降序、标签升序；相似度为 0 的不列。
-    确定性，不用向量检索与近似最近邻，从不自动替换。"""
+def near_labels(context: LayerContext, name: str, fulfillment: str | None, destination_id: str | None) -> list[str]:
+    """@brief 至多 3 个与名称最相近的供给标签（name_resolution.rank，跨全部供给）：此刻能按所写方式服务的在前（到店要人在
+    那家店，远程下单要能送到收货地；fulfillment 为 None 表示「购买」，两者之一即可），其次按名称与标签、商品名两者 Dice
+    系数的较大者降序、标签升序；相似度为 0 的不列。确定性，不用向量检索与近似最近邻，从不自动替换。"""
+    way = PURCHASE_WAYS.get(fulfillment, SYSTEM_PURCHASE_WAY)
     chosen = rank(name, context.scenario.supplies,
                   lambda supply: (supply_label(context, supply), _product_name(context, supply)),
-                  lambda supply: _serves(context, supply, fulfillment, destination_id))
+                  lambda supply: serves(context, supply, way, destination_id))
     return [supply_label(context, supply) for supply in chosen]
+
+
+def supply_label(context: LayerContext, supply) -> str:
+    """@brief 供给的可读标签「<门店>出售的<商品>」（与工具层的商品目标名称同一写法）。"""
+    return f"{_store_name(context, supply)}出售的{_product_name(context, supply)}"
+
+
+@dataclass(frozen=True, slots=True)
+class _Item:
+    """@brief 一项拒绝的逐项明细（私有 suggested.item）：出错的参数名、原文与候选（{target, way, from}，合并时补上动词与
+    去向）。"""
+
+    field: str
+    written: str
+    candidates: tuple[dict, ...] = ()
+
+    def payload(self) -> dict:
+        """@brief 写进私有 suggested.item 的形状。"""
+        return {"field": self.field, "written": self.written, "candidates": list(self.candidates[:MAX_NEAR])}
+
+
+def _staged(context: LayerContext, ask: PurchaseAsk, pools: tuple[list, list], scope: SourceScope) -> dict:
+    """@brief M2 与 M3：所写方式（「购买」跳过）与此刻能服务；恰好一条受理，多于一条按 prefer 选定。
+
+    :param pools: （M1，M0）：来源范围内按名称匹配到的供给，与全部按名称匹配到的供给（M3 为空时的同名候选）。
+    """
+    kept, matches = pools
+    if ask.way != SYSTEM_PURCHASE_WAY:
+        supported = [supply for supply in kept if _MODES[ask.way] in supply.fulfillment_modes]
+        if not supported:
+            _LOGGER.error("Named supply does not support the chosen way")
+            raise _unsupported(context, ask, kept)
+        kept = supported
+    way, served = offers(context, kept, ask.way, ask.destination_id)
+    if not served:
+        _LOGGER.error("Named supply cannot be served here and now")
+        raise _unserved(context, ask, kept, matches)
+    chosen = choose(served, ask.prefer)
+    return {**_binding(context, chosen.supply, way), "channel_id": scope.channel_id,
+            "purchase_note": _note(context, ask, chosen, len(served))}
 
 
 def _named(name: str, supplies, naming) -> list:
@@ -124,14 +194,14 @@ def _named(name: str, supplies, naming) -> list:
     return [supply for supply, value in zip(supplies, names) if value in match.matches]
 
 
-def supply_label(context: LayerContext, supply) -> str:
-    """@brief 供给的可读标签「<门店>出售的<商品>」（与工具层的商品目标名称同一写法）。"""
-    return f"{_store_name(context, supply)}出售的{_product_name(context, supply)}"
-
-
 def _store_name(context: LayerContext, supply) -> str:
-    """@brief 供给所在门店（地点）的名称。"""
-    return next(item.name for item in context.scenario.locations if item.location_id == supply.location_id)
+    """@brief 供给所在门店（地点）的显示名。"""
+    return _place(context, supply.location_id)
+
+
+def _place(context: LayerContext, location_id: str) -> str:
+    """@brief 地点身份的显示名。"""
+    return next(item.name for item in context.scenario.locations if item.location_id == location_id)
 
 
 def _product_name(context: LayerContext, supply) -> str:
@@ -139,49 +209,192 @@ def _product_name(context: LayerContext, supply) -> str:
     return next(item.name for item in context.scenario.products if item.product_id == supply.product_id)
 
 
-def _serves(context: LayerContext, supply, fulfillment: str, destination_id: str) -> bool:
-    """@brief 供给是否满足所选方式：到店要门店在人物所在地点，远程下单要能配送到收货地。"""
-    if fulfillment not in supply.fulfillment_modes:
-        return False
-    if fulfillment == "pickup":
-        return supply.location_id == context.state.agents[context.agent_id].location_id
-    return destination_id in supply.delivery_destination_ids
+def _way_for(supply, way: str) -> str:
+    """@brief 候选请求的方式：写的是「购买」或该供给支持所写方式时照用，否则取它支持的第一种方式。"""
+    if way == SYSTEM_PURCHASE_WAY or _MODES.get(way) in supply.fulfillment_modes:
+        return way
+    return next((PURCHASE_WAYS[mode] for mode in PURCHASE_WAYS if mode in supply.fulfillment_modes), way)
 
 
-def _binding(context: LayerContext, supply, way: str, fulfillment: str) -> dict:
-    """@brief 解析出的供给的绑定行：与观察中的供给绑定同形（报价取当前世界报价），另带 named 标记。"""
+def _spec(context: LayerContext, supply, way: str) -> dict:
+    """@brief 以完整标签写成的候选（from 为 null：标签已写明门店）。"""
+    return {"target": supply_label(context, supply), "way": way, "from": None}
+
+
+def _near_specs(context: LayerContext, ask: PurchaseAsk) -> tuple[dict, ...]:
+    """@brief SUPPLY_NOT_FOUND 的候选：至多 3 个近似标签，方式按该供给支持的取。"""
+    supplies = {supply_label(context, supply): supply for supply in context.scenario.supplies}
+    fulfillment = _MODES.get(ask.way)
+    return tuple(_spec(context, supplies[label], _way_for(supplies[label], ask.way))
+                 for label in near_labels(context, ask.written, fulfillment, ask.destination_id))
+
+
+def _source_not_found(context: LayerContext, ask: PurchaseAsk, matches: Sequence) -> PreconditionError:
+    """@brief SOURCE_NOT_FOUND：from 不是门店名也不是渠道称呼；候选为最相近的门店名与 App 称呼（范围内此刻能服务的在前），
+    写成同一目标与方式、换了 from 的请求。"""
+    def feasible(stores: frozenset[str]) -> bool:
+        """@brief 这个来源范围里此刻有没有能服务的同名供给。"""
+        return any(supply.location_id in stores and serves(context, supply, ask.way, ask.destination_id)
+                   for supply in matches)
+
+    specs = tuple({"target": ask.written, "way": ask.way, "from": name}
+                  for name in near_sources(context, ask.source, feasible))
+    return _refusal("SOURCE_NOT_FOUND", _Item("from", ask.source, specs), "不是门店或 App 的名称")
+
+
+def _mismatch(context: LayerContext, ask: PurchaseAsk, supply, scope: SourceScope) -> PreconditionError:
+    """@brief SUPPLY_SOURCE_MISMATCH：完整标签写明的门店不在 from 的范围内（另一家门店，或不含该门店的渠道）；候选就是
+    这个标签（from 为 null）。原因接在所写的 from 之后（合并时写成「「from」：原因」）。"""
+    store = _store_name(context, supply)
+    reason = (f"目标写明的是{store}，它不在这个 App 里" if scope.channel_id is not None
+              else f"目标写明的是{store}，from 是另一个地点")
+    return _refusal("SUPPLY_SOURCE_MISMATCH",
+                    _Item("from", ask.source, (_spec(context, supply, _way_for(supply, ask.way)),)), reason)
+
+
+def _not_at_store(context: LayerContext, ask: PurchaseAsk, matches: Sequence, scope: SourceScope
+                  ) -> PreconditionError:
+    """@brief SUPPLY_NOT_AT_STORE：from 的范围里没有这件商品；那家店完全没有供给时原因写「这里没有可买的商品」；候选为出售
+    它的门店的标签（此刻能服务的在前）。原因接在所写的 from 之后。"""
+    stocked = any(scope.contains(supply.location_id) for supply in context.scenario.supplies)
+    if not stocked:
+        reason = "这里没有可买的商品"
+    else:
+        reason = f"这个 App 的门店不卖「{ask.written}」" if scope.channel_id else f"这家店不卖「{ask.written}」"
+    chosen = rank(ask.written, matches, lambda supply: (supply_label(context, supply), _product_name(context, supply)),
+                  lambda supply: serves(context, supply, ask.way, ask.destination_id))
+    specs = tuple(_spec(context, supply, _way_for(supply, ask.way)) for supply in chosen)
+    return _refusal("SUPPLY_NOT_AT_STORE", _Item("from", ask.source, specs), reason)
+
+
+def _unsupported(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> PreconditionError:
+    """@brief FULFILLMENT_NOT_SUPPORTED：范围内同名的供给都不支持所写方式；原因写它们支持的方式（如「番茄只能远程下单」，
+    接在所写的方式之后），候选为同一标签换成它支持的方式。"""
+    modes = {mode for supply in kept for mode in supply.fulfillment_modes}
+    reason = (f"{ask.written}只能{PURCHASE_WAYS[next(iter(modes))]}" if len(modes) == 1
+              else default_reason("FULFILLMENT_NOT_SUPPORTED"))
+    specs = tuple(_spec(context, supply, _way_for(supply, ask.way)) for supply in kept if supply.fulfillment_modes)
+    return _refusal("FULFILLMENT_NOT_SUPPORTED", _Item("ways", ask.way, specs), reason)
+
+
+def _unserved(context: LayerContext, ask: PurchaseAsk, kept: Sequence, matches: Sequence) -> PreconditionError:
+    """@brief M3 为空：ACTIVITY_PRECONDITION_UNMET，说明要去哪里（从当前地点出发路线最短的出售门店）或哪家送不到哪里；
+    候选为此刻能服务的同名供给（到店的在前，其次预计送达早的）。"""
+    places = {item.location_id: item.name for item in context.scenario.locations}
+    origin = context.state.agents[context.agent_id].location_id
+    nearest = nearest_store(context, (supply.location_id for supply in kept))
+    store_step = go_step(context.scenario.routes, places, origin, nearest, UNREACHABLE_STORE_STEP)
+    gap = _delivery_gap(context, ask, kept)
+    if ask.way == PICKUP_WAY:
+        several = len({supply.location_id for supply in kept}) > 1
+        reason = (f"要人在出售它的门店里才能到店买，最近的是{places[nearest]}" if several
+                  else f"要人在{places[nearest]}才能到店买")
+        step, unmet = store_step, ("required_location_id",)
+    elif ask.way == DELIVERY_WAY:
+        stores = {supply.location_id for supply in kept}
+        reason = (f"{places[nearest]}送不到{ask.receiver}" if len(stores) == 1
+                  else f"出售它的门店都送不到{ask.receiver}")
+        step, unmet = _delivery_next_step(context, ask, kept, nearest), (gap,)
+    else:
+        reason = f"不在出售它的门店里，也送不到{ask.receiver}"
+        step, unmet = store_step, ("required_location_id", gap)
+    return _refusal(_UNMET, _Item("targets", ask.written, _served_specs(context, ask, matches)), reason,
+                    step, unmet)
+
+
+def _delivery_gap(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> str:
+    """@brief 送不到的原因类别：收货地在某条供给的配送范围内而配送路线走不通时为 delivery_route，否则为
+    delivery_destination（docs/dev/SPEC-dayrun-fidelity.md 5.3 的两个未满足条件）。"""
+    destination = ask.destination_id
+    covered = [supply for supply in kept if destination is not None and destination in supply.delivery_destination_ids]
+    if any(delivery_route_code(context.scenario.routes, supply.location_id, destination) is not None
+           for supply in covered):
+        return "delivery_route"
+    return "delivery_destination"
+
+
+def _delivery_next_step(context: LayerContext, ask: PurchaseAsk, kept: Sequence, nearest: str) -> str:
+    """@brief 远程下单送不到时的下一步：送给自己时只指向那家店能送达、且从此地可达的地点（wayfinding.delivery_step）；送给
+    别人时先送到自己这里再当面给。"""
+    if not ask.to_self:
+        return "先送到自己这里，再当面给"
+    supply = next(item for item in kept if item.location_id == nearest)
+    places = {item.location_id: item.name for item in context.scenario.locations}
+    here = context.state.agents[context.agent_id].location_id
+    return delivery_step(context.scenario.routes, places, here, nearest, supply.delivery_destination_ids)
+
+
+def _served_specs(context: LayerContext, ask: PurchaseAsk, matches: Sequence) -> tuple[dict, ...]:
+    """@brief 此刻能服务的同名供给写成的候选（不论 from 与所写方式）：人在店里的写到店，其余能送到收货地的写远程下单；
+    按最快排序，至多 3 个。"""
+    pickups = offers(context, matches, PICKUP_WAY, ask.destination_id)[1]
+    taken = {offer.supply.supply_id for offer in pickups}
+    deliveries = [offer for offer in offers(context, matches, DELIVERY_WAY, ask.destination_id)[1]
+                  if offer.supply.supply_id not in taken]
+    ordered = sorted(pickups, key=lambda offer: order_key(offer, "fastest")) + sorted(
+        deliveries, key=lambda offer: order_key(offer, "fastest"))
+    return tuple(_spec(context, offer.supply, offer.way) for offer in ordered[:MAX_NEAR])
+
+
+def _note(context: LayerContext, ask: PurchaseAsk, chosen: Offer, count: int) -> str | None:
+    """@brief 受理说明（details.notes）：方式为「购买」时写定下的方式，多于一处可服务时写按偏好选了哪家（完整标签），并附
+    预计送达（远程下单）与到手价（按最便宜选时）；两者都没有时为 None。"""
+    label = supply_label(context, chosen.supply)
+    clauses = [f"「购买」定为{chosen.way}"] if ask.way == SYSTEM_PURCHASE_WAY else []
+    if count > 1:
+        clauses.append(f"有 {count} 处都能{chosen.way}，按{_PREFER_PHRASES[ask.prefer]}选了{label}")
+    elif clauses:
+        clauses[-1] += f"：{label}"
+    if not clauses:
+        return None
+    details = []
+    if chosen.expected_at is not None:
+        details.append(f"预计 {clock_phrase(chosen.expected_at, context.state.current_time, context.scenario.timezone)}"
+                       " 送到")
+    if chosen.price is not None and ask.prefer == "cheapest":
+        details.append(f"到手价 {money_phrase(chosen.price)}")
+    return f"「{ask.written}」{'，'.join(clauses)}" + (f"（{'，'.join(details)}）" if details else "")
+
+
+def _binding(context: LayerContext, supply, way: str) -> dict:
+    """@brief 选定的供给的绑定行：与观察中的供给绑定同形（报价取当前世界报价，方式为定下的到店或远程下单），另带 named
+    标记。"""
     agent = context.state.agents[context.agent_id]
     row = supply_row(DiscoveryContext(context.state, context.scenario, context.semantics, agent), supply)
-    action = binding_action(way, "purchase", fulfillment=fulfillment)
+    action = binding_action(way, "purchase", fulfillment=_MODES[way])
     return {"object": supply_label(context, supply), "kind": "supply", "object_id": supply.supply_id,
             "actions": [action], "named": True, "selected_action": action,
             "quote": {"price_version": row["price_version"], "price_fen": row["price_fen"],
                       "purchase_price_fen": row["purchase_price_fen"]}}
 
 
-def _refusal(code: str, labels: list[str], reason: str | None = None) -> PreconditionError:
-    """@brief 带候选标签的一项业务拒绝：原因缺省取该码的默认说法，下一步与改法取默认说法；标签写在私有
-    suggested.candidates，合并时换成可照填的请求（resolve_named_rows）。"""
+def _refusal(code: str, item: _Item, reason: str | None = None, next_step: str | None = None,
+             unmet: tuple[str, ...] = ()) -> PreconditionError:
+    """@brief 一项分段匹配的拒绝：原因缺省取该码的默认说法，下一步缺省取默认做法，改法取默认改法；逐项明细写在私有
+    suggested.item，合并时换成可照填的请求（resolve_named_rows）。"""
     default = refusal_for_code(code)
-    return Refusal(code, reason or default.reason, default.next_step,
-                   suggested={"next_step": default.next_step, "candidates": labels}, fix=default.fix).error()
+    step = next_step if next_step is not None else default.next_step
+    return Refusal(code, reason or default.reason, step, unmet,
+                   suggested={"next_step": step, "item": item.payload()}, fix=default.fix).error()
 
 
-def _named_item(context: LayerContext, index: int, row: dict, error: PreconditionError) -> ErrorItem:
-    """@brief 一项名称类拒绝的明细：field 为 targets，written 为人物写的名称，候选为该项拒绝带出的标签（至多 3 个），
-    各写成可以照填的请求。"""
-    labels = (error.suggested or {}).get("candidates", [])
-    by_label = {supply_label(context, supply): supply for supply in context.scenario.supplies}
-    way = row["selected_action"]["label"]
-    candidates = tuple(_candidate(by_label[label], label, way, row["to"])
-                       for label in labels if label in by_label)[:MAX_CANDIDATES]
-    return ErrorItem(index, "targets", row["object"], str(error), candidates)
+def _merged(failures: list[tuple[int, dict, PreconditionError]], total: int) -> Refusal:
+    """@brief 逐项拒绝合并成一次：items[] 按请求先后逐项写出；码取第一个名称类拒绝的码（名称类优先），没有名称类时取
+    ACTIVITY_PRECONDITION_UNMET，带该项的下一步与未满足条件。"""
+    entries = [(_error_item(index, row, error), error.public_reason or default_reason(str(error)))
+               for index, row, error in failures]
+    lead = next((error for _, _, error in failures if str(error) in NAME_REJECTION_CODES), failures[0][2])
+    merged = items_refusal(entries, total)
+    if str(lead) in NAME_REJECTION_CODES:
+        return replace(merged, code=str(lead), next_step=refusal_for_code(str(lead)).next_step)
+    return replace(merged, code=str(lead), next_step=(lead.suggested or {}).get("next_step") or "",
+                   unmet=tuple(lead.unmet or ()))
 
 
-def _candidate(supply, label: str, way: str, recipient: str | None) -> Candidate:
-    """@brief 可以照填的指名购买：目标为完整标签、动词 obtain、方式取所写的方式（该供给不支持时取它支持的方式）、
-    from 为 null（标签已写明门店）、to 为所写的收货人。"""
-    offered = [PURCHASE_WAYS[mode] for mode in PURCHASE_WAYS if mode in supply.fulfillment_modes]
-    chosen = way if way in offered or not offered else offered[0]
-    return Candidate(label, "obtain", chosen, None, recipient)
-
+def _error_item(index: int, row: dict, error: PreconditionError) -> ErrorItem:
+    """@brief 一项拒绝的明细：参数名与原文取私有 suggested.item，候选补上动词 obtain 与该项所写的去向，写成可以照填的
+    请求（至多 3 个）。"""
+    item = error.suggested["item"]
+    candidates = tuple(Candidate(spec["target"], "obtain", spec["way"], spec["from"], row["to"])
+                       for spec in item["candidates"])[:MAX_NEAR]
+    return ErrorItem(index, item["field"], item["written"], str(error), candidates)

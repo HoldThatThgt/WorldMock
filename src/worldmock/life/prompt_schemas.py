@@ -23,7 +23,7 @@ TARGET_KINDS = ("location", "product", "person", "content", "game", "catalog", "
                 "message", "self")
 #: 五个生活动词（interaction_menu.LIFE_VERBS 的字面副本）。
 VERBS = ("travel", "interact", "obtain", "consume", "sleep")
-#: 方式短语闭集（interaction_menu.WAYS 键的字面副本）。
+#: 工具层可列出的方式短语（interaction_menu.WAYS 键的字面副本，不含只写在请求里、由系统定方式的「购买」）。
 WAY_LABELS = ("步行", "驾车", "工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待", "到店", "远程下单",
               "制作", "食用", "使用", "给予", "接着看", "从头再看", "接着听", "从头再听", "睡觉")
 #: 以目标名称为参数的其他工具。
