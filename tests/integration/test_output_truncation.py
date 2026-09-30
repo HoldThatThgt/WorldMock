@@ -3,7 +3,7 @@
 真实 LifeEngine、LifeEnv 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（AS2 锁定提交的 ReAct 循环，只替换远程传输）：
 思考用尽输出上限的截断回合（finish_reason=length、正文为空、没有工具调用）不进入后续请求，纠错为 OUTPUT_TRUNCATED 且在
 本次决策中只出现一次（相同的纠错替换、不叠加，续接链前缀不动）；截断之后的那一次重试关闭思考并 tool_choice=required，max_tokens 不变、只开放
-世界请求，其余请求（含只读问答）的参数不变；正文写到上限、空的 stop 回复与参数被截断的工具调用都不是截断回合，照现行
+世界请求，其余请求（含只读问答）的参数不变；正文写到上限、空的 stop 回复、参数被截断的工具调用与没有选项的回复都不是截断回合，照现行
 协议纠错、不重试；重试仍没有工具调用时按现行回合预算处理；重试的回合不留下缺思考的 assistant，
 重试给出的世界请求结束本次决策、同一秒下一次决策断链；导出的质量报告 truncations 与运行记录的模型响应一致。
 """
@@ -106,6 +106,18 @@ class _Finished:
         return {"model": "deepseek-flash", "choices": [{"finish_reason": self._finish, "index": 0, "message": message}]}
 
 
+class _NoChoices:
+    """一个选项也没有的回复（choices 为空）：不是截断回合，AS2 报 missing response choices。"""
+
+    def __init__(self) -> None:
+        self.choices: list = []
+
+    def model_dump(self, *, mode: str) -> dict:
+        """提供商形状的回复。"""
+        assert mode == "json"
+        return {"model": "deepseek-flash", "choices": []}
+
+
 def _is_retry(request: dict) -> bool:
     """请求是截断重试：关闭思考、tool_choice=required；另核对两类请求共有的参数不变。"""
     assert request["max_tokens"] == 8000 and request["max_retries"] == 0
@@ -170,11 +182,12 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     pytest.param(_Finished("stop", ""), "TOOL_CALL_REQUIRED", id="empty_stop"),
     pytest.param(_Finished("length", "", '{"targets": ["自己"], "actions": ["inter'), "ARGUMENTS_NOT_JSON",
                  id="length_with_cut_tool_call"),
+    pytest.param(_NoChoices(), "TOOL_CALL_REQUIRED", id="no_choices"),
 ])
 async def test_only_a_reply_that_ran_out_while_thinking_is_a_truncation(_engine_factory, reply, code: str) -> None:
-    """截断回合只指 finish_reason=length、正文为空且没有工具调用的回复（规格 7.2）：写到上限的正文、空的 stop 回复与
-    参数被截断的工具调用都不是思考写满——按现行协议纠错（没有工具调用、参数不是 JSON），证据不记 OUTPUT_TRUNCATED，
-    下一次请求照常开启思考、tool_choice=auto，不发截断重试。"""
+    """截断回合只指 finish_reason=length、正文为空且没有工具调用的回复（规格 7.2）：写到上限的正文、空的 stop 回复、
+    参数被截断的工具调用与一个选项也没有的回复都不是思考写满——按现行协议纠错（没有工具调用、参数不是 JSON），证据不记
+    OUTPUT_TRUNCATED，下一次请求照常开启思考、tool_choice=auto，不发截断重试。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     _, requests, _ = await _single(_environment(engine), "not-truncated", [reply, *_wait_reply()])

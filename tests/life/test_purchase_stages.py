@@ -277,6 +277,64 @@ def test_a_name_class_item_leads_the_merged_rejection_even_when_it_comes_second(
     assert engine.state.agents[1].same_moment_rounds == rounds
 
 
+def _listed_remote_rows(engine, round_id: str) -> list[dict]:
+    """本轮列出的、能远程下单的商品绑定行（先浏览过，工具层列出集市与各家的供给）。"""
+    observed = engine.observe(context(engine, round_id))
+    return [row for row in observed["interaction_bindings"] if row["kind"] == "supply"
+            and any(action["label"] == "远程下单" for action in row["actions"])]
+
+
+def test_home_written_as_from_is_the_persons_home_where_nothing_is_sold(engine_factory) -> None:
+    """from 写「家」「住处」时指本人的住处（3.1 第 2 条的「家」映射，来源约束同一口径）：按名写的纯牛奶写 from「家」或
+    「住处」远程下单，以 SUPPLY_NOT_AT_STORE 拒绝，原因写「这里没有可买的商品」，候选是出售它的门店的完整标签（from 为
+    null）；列出的标签写明了门店、from 却写「家」时，宿主与环境都以 SUPPLY_SOURCE_MISMATCH 拒绝，说明 from 是另一个地点。
+    都不下单。"""
+    engine = _world(engine_factory)
+    before = _world_facts(engine)
+    for word in ("家", "住处"):
+        _, error, refused = decide(engine, f"from-{word}", _buy((_MILK, "远程下单", word)))
+        assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_AT_STORE")
+        [item] = refused.data["items"]
+        assert (item["field"], item["written"]) == ("from", word)
+        assert refused.data["reason"] == f"「{word}」：这里没有可买的商品"
+        assert item["candidates"] and all(row["target"].endswith(f"出售的{_MILK}") and row["from"] is None
+                                          for row in item["candidates"])
+    assert _world_facts(engine) == before
+    _browse(engine)
+    listed = _listed_remote_rows(engine, "look-before-home")[0]["object"]
+    before = _world_facts(engine)
+    _, error, mismatch = decide(engine, "listed-from-home", _buy((listed, "远程下单", "家")))
+    assert error.report.error_code == "SUPPLY_SOURCE_MISMATCH"
+    assert [(item.field, item.written) for item in error.report.items] == [("from", "家")]
+    assert (mismatch.status, mismatch.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
+    store = listed.split("出售的", 1)[0]
+    assert mismatch.data["reason"] == f"「家」：目标写明的是{store}，from 是另一个地点"
+    assert _world_facts(engine) == before
+
+
+def test_a_listed_item_and_a_named_item_resolve_item_by_item_and_are_bought_together(engine_factory) -> None:
+    """一次请求里一项照本轮列出的标签写、一项按名写（3.2（d）逐项解析）：列出的那一项照它的绑定行受理，只有按名写的那一项
+    按名称与来源约束（from 写集市）解析；两项是集市里同一个卖家的供给，同一秒一起成单、都送到家，受理结果只为按名写的
+    那一项记下归一。"""
+    engine = _world(engine_factory)
+    _browse(engine)
+    sellers = {supply.supply_id: supply.seller_account_id for supply in engine.scenario.supplies}
+    market: dict[str, list[str]] = {}
+    for row in _listed_remote_rows(engine, "look-before-buying"):
+        if row["object"].startswith(f"{_MARKET_NAME}出售的"):
+            market.setdefault(sellers[row["object_id"]], []).append(row["object"])
+    listed, other = next(labels for labels in market.values() if len(labels) > 1)[:2]
+    written = other.split("出售的", 1)[1]
+    _, error, bought = decide(engine, "listed-and-named", _buy((listed, "远程下单", None),
+                                                                (written, "远程下单", _MARKET_NAME)))
+    assert error == "" and (bought.status, bought.error_code) == ("completed", None)
+    assert [(order["location_id"], order["fulfillment"]) for order in bought.data["orders"]] == [
+        ("market", "delivery"), ("market", "delivery")]
+    products = [engine.rules.items[order["product_id"]].name for order in bought.data["orders"]]
+    assert products == [listed.split("出售的", 1)[1], written]
+    assert [row["written"] for row in bought.data["resolved"]] == [written]
+
+
 def _milk_supplies(engine) -> dict[str, object]:
     """各家门店出售的纯牛奶（门店身份 → 供给）。"""
     return {supply.location_id: supply for supply in engine.scenario.supplies
