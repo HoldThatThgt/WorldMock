@@ -17,12 +17,13 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail)
+                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
+                                 report_request)
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
-from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, RecallTaskSummaryRequest,
-                                   ReportStatusRequest, ReviseDayPlanRequest, SendMessageActionRequest, SessionStatus)
+from worldmock.life.models import (PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
+                                   SendMessageActionRequest, SessionStatus)
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
 from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -53,7 +54,7 @@ def _events(observed: dict, kind: str | None = None) -> list[dict]:
 def _revise(engine, round_id: str):
     """一次成功的瞬时世界请求：修订当日目标。"""
     return _act(engine, round_id, "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
 
 
 def _walk_to_office(engine, round_id: str):
@@ -150,7 +151,8 @@ def test_arrival_session_is_time_bound_and_excludes_the_departure(engine_factory
     _act(engine, "arrive-conclude", "conclude_activity", conclude_request(name))
     observed = _observe(engine, "arrive-after")
     assert [row["tool"] for row in progress_calls(observed)] == ["conclude_activity"]
-    assert progress_calls(observed)[0]["arguments"]["task"] == [name]
+    assert progress_calls(observed)[0]["arguments"] == {
+        "items": [{"activity_name": name, "summary": "收尾。", "memories": []}]}
 
 
 def test_en_route_conclusion_opens_a_session_bounded_by_the_conclusion_result(engine_factory) -> None:
@@ -332,7 +334,7 @@ def _evening_at_the_office(engine) -> tuple[str, int]:
     soon = engine.state.current_time + 5400
     remind = datetime.fromtimestamp(soon, ZoneInfo(engine.scenario.timezone)).strftime("%H:%M")
     _act(engine, "evening-plan", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind, around_time=None),)))
     order = _order_to_the_office(engine)
     assert order["expected_at"] < soon
     _reschedule_delivery(engine, order["order_id"], soon)
@@ -483,23 +485,27 @@ def test_successful_memory_query_is_recorded_with_its_count_and_failures_are_not
 
 
 def test_conclude_arguments_omit_relationship_and_preference_memories(engine_factory) -> None:
-    """conclude_activity 的参数原样进入进度层，只略去 relationship 与 preference 记忆（它们只在人设层出现）。"""
+    """conclude_activity 的参数经 control_items 读出后按原样进入进度层（一项一个对象），只略去 views：看法与偏好只在人设层
+    出现（docs/dev/SPEC-dayrun-fidelity.md 第六章）；旧形状记录里带 subject 的 relationship、preference 记忆同样略去，
+    读出的参数相同。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _, waited = _act(engine, "memo-wait", "start_activity", start_activity("等待", "自己"))
     name = activity_name(engine, waited.activity_id)
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    memories = [[{"type": "relationship", "text": "和同事处得不错", "importance": 0.5, "keywords": ["同事"],
-                  "subject": "沈昊"},
-                 {"type": "preference", "text": "喜欢安静", "importance": 0.5, "keywords": ["安静"], "subject": "环境"},
-                 {"type": "routine", "text": "每天等一会儿", "importance": 0.4, "keywords": ["等待"], "subject": None}]]
-    _act(engine, "memo-conclude", "conclude_activity", ConcludeActivityRequest(
-        task=[name], summary=["等完了"], memories=memories))
+    routine = {"type": "routine", "text": "每天等一会儿", "importance": 0.4, "keywords": ["等待"]}
+    views = [{"type": "relationship", "about": "沈昊", "text": "和同事处得不错", "importance": 0.5, "keywords": ["同事"]},
+             {"type": "preference", "about": "环境", "text": "喜欢安静", "importance": 0.5, "keywords": ["安静"]}]
+    _act(engine, "memo-conclude", "conclude_activity", conclude_request(
+        name, summary="等完了", memories=[[routine]], views=[views]))
     seen = _observe(engine, "memo-seen")
     (record,) = progress_calls(seen, "conclude_activity")
-    assert record["arguments"]["summary"] == ["等完了"]
-    assert [item["type"] for item in record["arguments"]["memories"][0]] == ["routine"]
+    assert record["arguments"] == {"items": [{"activity_name": name, "summary": "等完了", "memories": [routine]}]}
+    legacy = {"task": [name], "summary": ["等完了"], "memories": [[
+        *({"type": view["type"], "text": view["text"], "importance": view["importance"],
+           "keywords": view["keywords"], "subject": view["about"]} for view in views), {**routine, "subject": None}]]}
+    assert progress_layer._arguments("conclude_activity", legacy) == record["arguments"]
     ended, zone, now = engine.state.activities[waited.activity_id], engine.scenario.timezone, engine.state.current_time
     span = f"{clock_phrase(ended.started_at, now, zone)}–{clock_phrase(ended.ended_at, now, zone)}"
     assert _lines(seen, record) == [f"{name}：{span}，提前结束"]
@@ -514,7 +520,8 @@ def test_a_rejection_without_a_next_step_writes_null(engine_factory) -> None:
     assert (unknown.status, unknown.error_code) == ("rejected", "TASK_NOT_FOUND")
     assert "next_step" in unknown.data and unknown.data["next_step"] is None
     (record,) = progress_calls(_observe(engine, "null-step-seen"), "recall_task_summary")
-    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None}
+    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None,
+                                           "fix": "照工具层、待办层或记忆层中的写法填写任务、目标或活动的名称"}
     _, invalid = _act(engine, "null-step-invalid", "start_activity", start_activity("观看", "不存在的对象"))
     assert invalid.data["next_step"] == "从本轮列出的对象和方式里选"
 
@@ -638,7 +645,8 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     friend = f"人物：{engine.state.agents[2].name}"
     preview = _observe(engine, "read-preview", 2)
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),))
     _, first = submit_round(engine, {1: ("send_message", SendMessageActionRequest(recipient_name=friend, text="第一条")),
                                      2: ("revise_day_plan", revise)}, "read-first")
     shown = next(item.data["message_id"] for item in first if item.agent_id == 1)
@@ -650,7 +658,7 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     assert presented == [shown] and shown in engine.state.agents[2].read_inbox_ids
     assert hidden in engine.state.agents[2].inbox and hidden not in engine.state.agents[2].read_inbox_ids
     walking = next(item.activity_id for item in second if item.agent_id == 2)
-    report = ReportStatusRequest(task=[activity_name(engine, walking)], summary=["路上看看消息。"])
+    report = report_request(activity_name(engine, walking), summary="路上看看消息。")
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")), 2: ("report_status", report)},
                  "read-road")
     road = engine.store.read_agent_events("observation", 2)[-1].data

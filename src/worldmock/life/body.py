@@ -4,6 +4,8 @@
 体感分级」重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
 纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
 曲线输入改为 sleep_deficit_hours（sleep.work_efficiency / food_utilization）。
+娱乐需要在有缓解的活动进行时只按缓解下降、不再累积，共同区间与单活动两条路径以及边界预测同一口径
+（entertainment_need_rate，docs/dev/SPEC-dayrun-fidelity.md 1.2）。
 能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md「事件正文与资源证据」）；社交需要账本（felt.apply_
 social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
 valence）由引擎在结算边界调用本模块的包装函数驱动。
@@ -218,9 +220,21 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
     return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None, efficiency)
 
 
+def entertainment_need_rate(relief_per_hour: float, config: BodyConfig) -> float:
+    """@brief 清醒区间娱乐需要的每小时净变化，两条结算路径与动机评分共用同一口径。
+
+    有缓解的活动进行时只按缓解下降、不再累积清醒增长；没有缓解时按清醒速率累积
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2「累积口径统一为有缓解的活动进行时不再累积娱乐需要」）。
+    睡眠区间不走本函数：娱乐需要在睡眠中不变。
+    """
+    if relief_per_hour > 0:
+        return -relief_per_hour
+    return config.entertainment_need_per_awake_hour
+
+
 def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
                     hours: float, cost: float, config: BodyConfig) -> list[FlowEntry]:
-    """@brief 同一身体通道先汇总效果再限幅，生成一份资源分录。"""
+    """@brief 同一身体通道先汇总效果再限幅，生成一份资源分录；娱乐缓解先求和，有缓解时不再累积。"""
     entries = []
     if cost > 0 and body.energy_kcal > 0:
         entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION,
@@ -229,7 +243,7 @@ def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, Activ
     if any(kind == ActivityKind.SLEEP for kind, _ in activities):
         return entries
     relief = sum(factors.entertainment_relief_per_hour for _, factors in activities)
-    change = (config.entertainment_need_per_awake_hour - relief) * hours
+    change = entertainment_need_rate(relief, config) * hours
     actual = min(1.0, max(0.0, body.entertainment_need + change)) - body.entertainment_need
     if actual:
         direction = SOURCE_DIRECTION if actual > 0 else DRAIN_DIRECTION
@@ -310,11 +324,10 @@ def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
     return body.model_copy(update={"mood_valence": valence}, deep=True)
 
 
-def apply_discomfort_pulse(body: BodyState, continuous_hours: float) -> BodyState:
-    """@brief 叠加连续饿/困的不适脉冲（不足 2 小时时 felt 返回 0，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    amplitude = felt.discomfort_pulse(continuous_hours)
-    if amplitude == 0:
-        return body
+def apply_discomfort_pulse(body: BodyState, billed_hours: float) -> BodyState:
+    """@brief 叠加连续饿/困的不适脉冲：−0.1/小时 × 本次计费小时，两小时门槛由 rhythm 判定一次，计费为 0 时不变
+    （「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
+    amplitude = felt.discomfort_pulse(billed_hours)
     valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
     return body.model_copy(update={"mood_valence": valence}, deep=True)
 
@@ -355,9 +368,10 @@ def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: Body
     """@brief 预测能量阈值、体感分级、餐时窗口或效率曲线的首个未来整秒边界。
 
     能量阈值为饥饿、紧急阈值与 felt.APPETITE_STARVING_KCAL（800、400、100 kcal）；困意与饥饿从当前状态
-    做跨档扫描（升档、降档都给候选），午餐、晚餐窗口的起止是候选，娱乐与社交按清醒增长速率求下一档；
+    做跨档扫描（升档、降档都给候选），午餐、晚餐窗口的起止是候选，娱乐按与结算同一口径的净速率、社交按清醒增长速率
+    求下一档（有缓解的活动进行时娱乐需要不累积，不给升档候选，docs/dev/SPEC-dayrun-fidelity.md 1.2）；
     效率曲线沿用 sleep_deficit_hours 轴上的节点（docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、
-    第八章「节律」）。clock 为 None 或睡眠时跳过依赖时刻的体感候选。
+    第八章「节律」）。clock 为 None 或睡眠时跳过依赖时刻的体感候选（娱乐需要在睡眠中不增长）。
     """
     actual = factors or ActivityFactors(config.activity_met[kind.value])
     net_burn = _net_burn_per_hour(actual, config)
@@ -367,7 +381,8 @@ def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: Body
     candidates.extend(_curve_boundaries(body.sleep_deficit_hours, deficit_rate,
                                          _deficit_curve_points(kind)))
     if clock is not None and kind != ActivityKind.SLEEP:
-        candidates.extend(_felt_band_boundaries(_FeltProjection(body, net_burn, clock, config)))
+        candidates.extend(_felt_band_boundaries(_FeltProjection(
+            body, net_burn, clock, config, actual.entertainment_relief_per_hour)))
     return min(candidates) if candidates else None
 
 
@@ -411,12 +426,14 @@ def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
 
 @dataclass(frozen=True, slots=True)
 class _FeltProjection:
-    """@brief 从当前状态外推的体感：能量按当前共同净消耗推进，睡眠压力按清醒过程推进。"""
+    """@brief 从当前状态外推的体感：能量按当前共同净消耗推进，睡眠压力按清醒过程推进，娱乐需要按
+    entertainment_need_rate 与结算同一口径推进（entertainment_relief_per_hour 为本区间活动的合并缓解速率）。"""
 
     body: BodyState
     net_burn_per_hour: float
     clock: BoundaryClock
     config: BodyConfig
+    entertainment_relief_per_hour: float = 0
 
     def hour_after(self, seconds: int) -> float:
         """@brief 距现在 seconds 秒后的场景本地小时（按 24 小时取模）。"""
@@ -446,7 +463,7 @@ def _felt_band_boundaries(projection: _FeltProjection) -> list[int]:
                                           _first_band_change(projection.appetite_level, meal_edges))
                   if seconds is not None]
     candidates.extend(meal_edges)
-    candidates.extend(_need_band_boundaries(projection.body, projection.config))
+    candidates.extend(_need_band_boundaries(projection))
     return candidates
 
 
@@ -489,11 +506,17 @@ def _meal_window_boundaries(clock: BoundaryClock) -> list[int]:
     return candidates
 
 
-def _need_band_boundaries(body: BodyState, config: BodyConfig) -> list[int]:
-    """@brief 娱乐与社交需要按清醒增长速率到达更高一档的整秒。"""
+def _need_band_boundaries(projection: _FeltProjection) -> list[int]:
+    """@brief 娱乐与社交需要到达更高一档的整秒。
+
+    娱乐取与两条结算路径同一口径的净速率 entertainment_need_rate：有缓解的活动（观看、游戏、带缓解的生活活动）
+    进行时只按缓解下降、不再累积，没有升档候选；没有缓解时按清醒速率累积（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    睡眠中娱乐需要不增长，调用方在睡眠时不做体感预测。社交按清醒增长速率。
+    """
+    body = projection.body
     candidates: list[int] = []
     rates = ((body.entertainment_need, felt.ENTERTAINMENT_BANDS,
-              config.entertainment_need_per_awake_hour),
+              entertainment_need_rate(projection.entertainment_relief_per_hour, projection.config)),
              (body.social_need, felt.SOCIAL_BANDS, felt.SOCIAL_NEED_AWAKE_RATE))
     for value, bands, rate in rates:
         if rate <= 0:
@@ -536,20 +559,24 @@ def _energy_cost_entry(kind: ActivityKind, amount: float) -> FlowEntry | None:
 
 def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config: BodyConfig,
                            relief_per_hour: float) -> tuple[list[FlowEntry], bool]:
-    """@brief 娱乐需要分录：实际接触计 drain，其余清醒活动计 source。
+    """@brief 娱乐需要分录：实际接触计 drain（有缓解时不再累积），其余清醒活动计 source。
+
+    与共同区间路径同用 entertainment_need_rate 判定口径，同一活动在两条路径上的净效果相同
+    （docs/dev/SPEC-dayrun-fidelity.md 1.2）。
 
     :returns: (分录列表, 累积是否触及上限 1 需要钳制)。
     """
     if kind == ActivityKind.SLEEP:
         return [], False
-    if relief_per_hour:
-        amount = min(relief_per_hour * hours, need)
+    rate = entertainment_need_rate(relief_per_hour, config)
+    if rate < 0:
+        amount = min(-rate * hours, need)
         if amount > 0:
             return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
                               f"settle:{kind.value}:entertainment_relief",
                               BODY_FLOW_OCCURRED_AT)], False
         return [], False
-    accrual = config.entertainment_need_per_awake_hour * hours
+    accrual = rate * hours
     projected = need + accrual
     if projected <= 1:
         if accrual > 0:

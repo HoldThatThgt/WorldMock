@@ -1,10 +1,19 @@
-"""@brief 用冻结手机映射证明画像中的应用名称对应可执行行为。"""
+"""@brief 用冻结手机映射证明画像中的应用名称对应可执行行为，并从同一投影派生购买渠道。
+
+场景可选钉定手机配置（phone_simulation_config 与其 sha256）；WorldMock 只读它的投影 PhoneSimulationCoverage。覆盖率
+核验取有执行证据的应用别名（verified_app_names）；购买渠道（docs/dev/SPEC-dayrun-fidelity.md 3.3，裁决 S7）由卖家账户→
+App（purchase_apps_by_seller）与 App→称呼（app_display_names）派生（purchase_channels）：channel_id 取 App 标识，names
+取其称呼，成员门店取该 App 的卖家有供给的场景地点。渠道只是门店集合的称呼，不带交付语义；配置已由 sha256 钉进场景与
+清单，运行身份不变。核验（verified_phone_config）依次检查身份（语料清单登记与场景钉定的 sha256）、结构、场景身份与执行
+证据，任一不成立即 IntegrityError。
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,7 +24,7 @@ from worldmock.errors import IntegrityError
 
 
 class PhoneSimulationCoverage(BaseModel):
-    """@brief 手机配置中与人物覆盖核验有关的冻结投影。"""
+    """@brief 手机配置中与人物覆盖核验、购买渠道有关的冻结投影。"""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -28,11 +37,29 @@ class PhoneSimulationCoverage(BaseModel):
     app_display_names: dict[str, tuple[str, ...]]
 
 
-def verified_app_names(scenario: Any, corpus_root: Path) -> tuple[str, ...]:
-    """@brief 仅返回具有场景执行证据的应用别名。"""
+@dataclass(frozen=True, slots=True)
+class PurchaseChannel:
+    """@brief 一个购买渠道（docs/dev/SPEC-dayrun-fidelity.md 3.3）：App 是门店的入口，不是交付对象。
+
+    :param channel_id: App 标识（订单载荷与 purchases.jsonl 的 channel_id）。
+    :param names: App 的称呼（from 写它时解析为成员门店，去掉空白、不分大小写比较）。
+    :param store_location_ids: 成员门店：该 App 的卖家有供给的场景地点，按身份排序。
+    """
+
+    channel_id: str
+    names: tuple[str, ...]
+    store_location_ids: tuple[str, ...]
+
+
+def verified_phone_config(scenario: Any, corpus_root: Path) -> PhoneSimulationCoverage | None:
+    """@brief 场景钉定的手机配置经身份、结构、场景身份与执行证据核验后的投影；场景没有钉定时为 None。
+
+    :raises IntegrityError: 路径越出语料根、语料清单与场景钉定的 sha256 对不上、结构不符、指向别的场景或人物、映射的
+        行为没有执行证据，或应用别名为空或重复。
+    """
     relative = scenario.phone_simulation_config
     if relative is None:
-        return ()
+        return None
     root = Path(corpus_root).resolve()
     path = _validated_path(root, relative)
     content = path.read_bytes()
@@ -53,12 +80,36 @@ def verified_app_names(scenario: Any, corpus_root: Path) -> tuple[str, ...]:
             or config.agent_id not in {agent.agent_id for agent in scenario.agents}):
         logging.error("Phone simulation config references a different scenario or person")
         raise IntegrityError("Phone simulation config scenario identity is invalid")
-    app_ids = _executable_apps(config, scenario)
-    aliases = [alias for app_id in app_ids for alias in config.app_display_names.get(app_id, ())]
+    aliases = [alias for app_id in _executable_apps(config, scenario)
+               for alias in config.app_display_names.get(app_id, ())]
     if any(not alias.strip() for alias in aliases) or len(aliases) != len(set(aliases)):
         logging.error("Phone simulation app names are empty or duplicated")
         raise IntegrityError("Phone simulation app names are invalid")
-    return tuple(sorted(aliases))
+    return config
+
+
+def verified_app_names(scenario: Any, corpus_root: Path) -> tuple[str, ...]:
+    """@brief 仅返回具有场景执行证据的应用别名（场景没有钉定手机配置时为空）。"""
+    config = verified_phone_config(scenario, corpus_root)
+    if config is None:
+        return ()
+    return tuple(sorted(alias for app_id in _executable_apps(config, scenario)
+                        for alias in config.app_display_names.get(app_id, ())))
+
+
+def purchase_channels(config: PhoneSimulationCoverage, scenario: Any) -> tuple[PurchaseChannel, ...]:
+    """@brief 从手机配置投影派生购买渠道：每个购买 App 一个渠道，称呼取 app_display_names，成员门店取映射到它的卖家
+    在场景中有供给的地点（选入的地点），按 App 标识排序；准入（称呼唯一、不与地点重名、成员门店有供给）由加载时的
+    life.load_checks 判定。"""
+    sellers: dict[str, set[str]] = {}
+    for seller, app_id in config.purchase_apps_by_seller.items():
+        sellers.setdefault(app_id, set()).add(seller)
+    selected = {location.location_id for location in scenario.locations}
+    return tuple(PurchaseChannel(
+        channel_id=app_id, names=tuple(config.app_display_names.get(app_id, ())),
+        store_location_ids=tuple(sorted({supply.location_id for supply in scenario.supplies
+                                         if supply.seller_account_id in owners and supply.location_id in selected})))
+        for app_id, owners in sorted(sellers.items()))
 
 
 def _validated_path(root: Path, relative: str) -> Path:

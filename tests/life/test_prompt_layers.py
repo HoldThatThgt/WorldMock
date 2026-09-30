@@ -3,7 +3,8 @@
 工具层、待办层、环境层、进度层与记忆层在真实引擎的各种状态下逐一通过 prompt_schemas 校验；Schema 中的
 体感分级、方式、动词、动作状态、意图与目标类别是源头闭集的字面副本，由本文件锁定一致。唯一出现性质（「唯一出现原则」）：
 直接消息全文只在进度层；暂停活动的进度只在待办层，它不是工具层目标；工作合同的截止与剩余只在任务目标的 contract，
-工作活动的状态不写「还差」，暂停的工作在待办层也不重复合同；浏览得到的供给只在工具层，浏览结果只列名称。系统层、人设层、user 消息与原生 tools 由宿主侧
+工作活动的状态不写「还差」，暂停的工作在待办层也不重复合同；浏览得到的供给只在工具层，浏览结果只列名称。工具层的可调用索引
+callable_index 只有名称、品类计数与至多 3 个示例名（docs/dev/SPEC-dayrun-fidelity.md 5.2）。系统层、人设层、user 消息与原生 tools 由宿主侧
 tests/integration/test_seven_layer_request.py 覆盖。
 """
 
@@ -11,23 +12,28 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls,
-                                 stage_day_plan, start_activity, start_request, submit_round, tool_targets,
-                                 wake_by_mail)
+from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls, stage_day_plan,
+                                 start_activity, start_request, submit_round, tool_targets, wake_by_mail, pause_request,
+                                 report_request)
 from tests.life.test_commerce import _choice, _stage_open
 from tests.life.test_dayrun_restaurants import _stage
+from tests.life.test_presentation_fidelity import _stage as _stage_moment
 from tests.life.test_same_moment_decisions import _act, _finish, _observed_act
 from tests.life.test_work_review import _at_task_start
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, felt, schedule
-from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
-from worldmock.life.models import (ActionStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
-                                   ReviseDayPlanRequest, SendMessageActionRequest)
-from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INTENT_KINDS, LAYER_SCHEMAS, TARGET_KINDS,
-                                           USER_LAYER_NAMES, VERBS, WAY_LABELS, validate_layer)
+from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
+from worldmock.life.interaction_menu import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
+from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
+from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INDEX_EXAMPLES_MAX, INTENT_KINDS,
+                                           LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES, VERBS,
+                                           WAY_LABELS, validate_layer)
+from worldmock.life.readable import count_phrase
 from worldmock.life.tool_layer import BINDING_KINDS
 
 #: 环境构建的五层（人设层由宿主构建）。
@@ -50,7 +56,8 @@ def _rendered(observed: dict) -> str:
 
 
 def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
-    """体感分级、方式、动词、动作状态、意图与目标类别的 Schema 枚举与源头闭集一致；七个层名各有一份 Schema。"""
+    """体感分级、方式、动词、动作状态、意图与目标类别的 Schema 枚举与源头闭集一致（工具层的方式不含只写在请求里、由系统
+    定方式的「购买」，工具层从不列出它，docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）；七个层名各有一份 Schema。"""
     def levels(base: str, bands: tuple, *extra: str) -> tuple[str, ...]:
         """基档、各档文本与表外的档。"""
         return (base, *(text for _, text in bands), *extra)
@@ -62,11 +69,13 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
         "social": levels(felt.SOCIAL_BASE_LEVEL, felt.SOCIAL_BANDS),
         "mood": levels(felt.MOOD_BASE_LEVEL, felt.MOOD_BANDS),
     }
-    assert WAY_LABELS == tuple(WAYS) and VERBS == LIFE_VERBS
+    assert WAY_LABELS == tuple(way for way in WAYS if way != SYSTEM_PURCHASE_WAY) and VERBS == LIFE_VERBS
     assert ACTION_STATUSES == tuple(item.value for item in ActionStatus)
     assert INTENT_KINDS == schedule.INTENT_KINDS
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
+    index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
+    assert INDEX_EXAMPLES_MAX == MAX_EXAMPLES and tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
 
 
 def test_memory_layer_and_persona_views_are_empty_at_run_start(engine_factory) -> None:
@@ -86,7 +95,8 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     stage_day_plan(engine)
     _stage(engine, "market", 700)
     submit_round(engine, {1: ("revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="用餐", goal="中午好好吃一顿", remind_time="12:00"),)))}, "layers-plan")
+        PlanGoalInput(intent_kind="用餐", goal="中午好好吃一顿", remind_time="12:00",
+                      around_time="12:30"),)))}, "layers-plan")
     shop = _checked(engine, "layers-shop")
     target, way = next((row["object"], action["label"]) for row in shop["interaction_bindings"]
                        if row["kind"] == "supply" for action in row["actions"]
@@ -98,8 +108,8 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     waited = _act(engine, "layers-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=60)
     advance_next(engine)
-    _act(engine, "layers-pause", "pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, waited.activity_id)], summary=["先出门。"]))
+    _act(engine, "layers-pause", "pause_activity", pause_request(
+        activity_name(engine, waited.activity_id), summary="先出门。"))
     paused = _checked(engine, "layers-paused")
     assert paused["todo_layer"]["paused_activities"] and paused["todo_layer"]["day_plan"]["goals"]
     home = next(row["object"] for row in paused["interaction_bindings"] if row["object_id"] == "home")
@@ -132,6 +142,43 @@ def test_schema_validation_rejects_unknown_layers_extra_keys_and_unexplained_ref
         validate_layer(tools)
 
 
+#: 可调用索引的反例：（改法，Schema 报出的位置）。
+_BROKEN_INDEXES = (
+    (lambda index: index.clear(), r"\['callable_index'\]: 'lifestyle' is a required property"),
+    (lambda index: index["lifestyle"].append({"name": "洗碗", "actions": []}), r"\['callable_index', 'lifestyle', \d+\]"),
+    (lambda index: index["lifestyle"].append(index["lifestyle"][0]), r"\['callable_index', 'lifestyle'\]"),
+    (lambda index: index["goods"][0]["examples"].extend(["甲", "乙", "丙"]), r"\['callable_index', 'goods', 0, 'examples'\]"),
+    (lambda index: index["contents"][0].update(available=True), r"\['callable_index', 'contents', 0\]"),
+    (lambda index: index["goods"][0].update(count=22), r"\['callable_index', 'goods', 0, 'count'\]"),
+    (lambda index: index["goods"][0].update(count="0 个"), r"\['callable_index', 'goods', 0, 'count'\]"),
+    (lambda index: index.update(targets=[]), r"\['callable_index'\]"),
+)
+
+
+def test_callable_index_schema_takes_names_counts_and_up_to_three_examples(engine_factory) -> None:
+    """工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）按工具层 Schema 校验：12:30 在家的真实索引通过，lifestyle 是不重复的
+    名称，contents 与 goods 每项只有 category、人读计数 count（「N 个」）与至多 3 个不重复的示例名；工具层缺少索引、名称带上
+    动作、名称重复、多给示例、品类行多出可用性、计数写成裸整数或零个、索引多出键都以 ValueError 指明位置。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    moment = datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.scenario.timezone))
+    _stage_moment(engine, int(moment.timestamp()), "home")
+    observed = _checked(engine, "index-schema")
+    index = observed["tool_layer"]["callable_index"]
+    assert list(index) == list(INDEX_KEYS) and all(index[key] for key in INDEX_KEYS)
+    assert all(set(row) == {"category", "count", "examples"} for key in ("contents", "goods") for row in index[key])
+    assert all(row["count"] == count_phrase(int(row["count"].split()[0])) for row in index["goods"])
+    missing = copy.deepcopy(observed["tool_layer"])
+    del missing["callable_index"]
+    with pytest.raises(ValueError, match=r"violates its schema at \[\]: 'callable_index' is a required property"):
+        validate_layer(missing)
+    for breaking, where in _BROKEN_INDEXES:
+        layer = copy.deepcopy(observed["tool_layer"])
+        breaking(layer["callable_index"])
+        with pytest.raises(ValueError, match=rf"Prompt layer 工具层 violates its schema at {where}"):
+            validate_layer(layer)
+
+
 def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine_factory) -> None:
     """同伴发来的直接消息与交谈邀请全文在五层中各恰好出现一次，就在进度层的 message_arrival；工具层没有这两种消息的
     目标（只有邮件是阅读对象）；各层通过 Schema。"""
@@ -144,7 +191,7 @@ def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine
     _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
                                        2: ("send_message", message)}, "unique-message")
     waiting = next(item.activity_id for item in results if item.agent_id == 1)
-    report = ReportStatusRequest(task=[activity_name(engine, waiting)], summary=["看到消息了。"])
+    report = report_request(activity_name(engine, waiting), summary="看到消息了。")
     submit_round(engine, {1: ("report_status", report), 2: ("start_activity", start_activity("交谈", f"人物：{me}"))},
                  "unique-invite")
     observed = _checked(engine, "unique-seen")
@@ -166,14 +213,15 @@ def test_paused_activity_progress_appears_only_in_the_todo_layer(engine_factory)
     wake_by_mail(engine, offset=120)
     advance_next(engine)
     name = activity_name(engine, waited.activity_id)
-    _act(engine, "paused-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _act(engine, "paused-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     observed = _checked(engine, "paused-seen")
     (item,) = observed["todo_layer"]["paused_activities"]
     assert item["name"] == name and name not in tool_targets(observed)
     assert _rendered(observed).count(item["progress"]) == 1
     assert item["progress"] in json.dumps(observed["todo_layer"], ensure_ascii=False)
     (pause,) = progress_calls(observed, "pause_activity")
-    assert pause["arguments"]["task"] == [name] and item["progress"] not in json.dumps(pause, ensure_ascii=False)
+    assert pause["arguments"] == {"items": [{"activity_name": name, "summary": "先停一下。"}]}
+    assert item["progress"] not in json.dumps(pause, ensure_ascii=False)
 
 
 def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
@@ -208,7 +256,7 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
     wake_by_mail(engine, offset=600)
     advance_next(engine)
     name = activity_name(engine, results[0].activity_id)
-    _act(engine, "paused-contract-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    _act(engine, "paused-contract-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     observed = _checked(engine, "paused-contract-seen")
     (item,) = observed["todo_layer"]["paused_activities"]
     assert item["name"] == name and name not in tool_targets(observed)
@@ -220,8 +268,8 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
 
 
 def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(engine_factory) -> None:
-    """浏览完成后：结果的 browse_items 只是商品名称（没有价格、库存或供给身份）；浏览得到的供给作为工具层商品目标列出，
-    价格与方式只在那里。"""
+    """浏览完成后：结果的 browse_items 只是名称，写完整标签「<门店>出售的<商品>」（没有价格、库存、可得性或供给身份，
+    docs/dev/SPEC-dayrun-fidelity.md 5.3）；浏览得到的供给作为工具层商品目标列出，名称与标签相同，价格与方式只在那里。"""
     engine = engine_factory()
     _stage_open(engine)
     stage_day_plan(engine)
@@ -229,12 +277,18 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
                               _choice(engine.observe(context(engine, "browse-preview")), "browse"))
     assert browse.status == "in_progress"
     _finish(engine, browse.activity_id, "browse")
-    revealed = [row["supply_id"] for row in engine.state.activities[browse.activity_id].data["revealed"]["items"]]
+    rows = engine.state.activities[browse.activity_id].data["revealed"]["items"]
+    revealed = [row["supply_id"] for row in rows]
     observed = _checked(engine, "browse-seen")
     (record,) = [row for row in progress_calls(observed, "start_activity")
                  if "browse_items" in row["result"]["details"]]
     items = record["result"]["details"]["browse_items"]
-    assert items and all(isinstance(name, str) for name in items)
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    names = {item.product_id: item.name for item in engine.scenario.products}
+    assert items and items == [f"{places[row['location_id']]}出售的{names[row['product_id']]}" for row in rows]
+    listed = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
+    assert [listed[row["supply_id"]] for row in rows if row["supply_id"] in listed] == [
+        label for label, row in zip(items, rows) if row["supply_id"] in listed]
     assert not {"price", "supply_id", "stock", "price_fen"} & set(json.dumps(record, ensure_ascii=False).split('"'))
     assert not any(identity in _rendered(observed) for identity in revealed)
     shown = [row["object"] for row in observed["interaction_bindings"] if row["object_id"] in revealed]
@@ -275,7 +329,9 @@ def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pi
     (record,) = progress_calls(observed, "start_activity")
     assert record["result"]["message"] == "Activities finished"
     names = {item.product_id: item.name for item in engine.scenario.products}
-    assert record["result"]["details"]["browse_items"] == [names[item["product_id"]] for item in revealed]
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    assert record["result"]["details"]["browse_items"] == [
+        f"{places[item['location_id']]}出售的{names[item['product_id']]}" for item in revealed]
     assert _rendered(observed).count('"browse_items"') == 1
     pinned = tuple(dict.fromkeys(item["supply_id"] for item in revealed))
     assert pinned and engine._pending_presentation[1].pinned_supply_ids == pinned

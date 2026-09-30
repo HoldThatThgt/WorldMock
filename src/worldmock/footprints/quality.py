@@ -18,6 +18,12 @@ from worldmock.footprints.models import (
     WAKE_REASONS_FIELD,
     Event,
 )
+from worldmock.profile.injection import INPUT_WARNING_CODES
+from worldmock.footprints.timeline_labels import timeline_label_report
+from worldmock.life.control_items import control_items
+from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, HOST_NAME_CODES
+from worldmock.life.reply_guard import GUARD_PATTERNS
+from worldmock.life.same_moment import free_rejection_flags
 
 _ACTION_STATUSES = (
     "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
@@ -29,6 +35,8 @@ _SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal
                               "resolution", "identity", "routine", "reflection"})
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 _WRITE_POINTS = ("activity_conclusion", "reflection")
+#: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
+_MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 模型用量按用途分列时，无 purpose 的请求（人物决策的行动请求与记忆巩固、反思）的分组名。
 _DECISION_PURPOSE = "decision"
 _PRICING = {
@@ -46,7 +54,7 @@ _PRICING = {
 
 
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 汇总完成、异常、内容、效率、记忆、模型用量与实测加速比。
+    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、运行输入警告与输出截断。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -55,7 +63,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     """
     _validate_inputs(events, activities, manifest)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": manifest["run_id"],
         "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
         "event_range": {
@@ -77,6 +85,11 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
             [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events],
             manifest["window"]["timezone"],
         ),
+        "input_warnings": _input_warning_quality(manifest),
+        "timeline_labels": timeline_label_report(events, manifest),
+        "contact_reply_guard": _contact_reply_guard_quality(events),
+        "name_rejections": _name_rejection_quality(events),
+        "truncations": _truncation_quality(events),
     }
 
 
@@ -449,26 +462,26 @@ def _memory_quality(events: list[Event]) -> dict:
 
 
 def _inspect_conclusion_request(event: Event, state: dict) -> None:
-    """@brief 登记每个决策的 conclude_activity 请求；带非空 memories 的应在同一决策写出收尾记忆。"""
+    """@brief 登记每个决策的 conclude_activity 请求；经 control_items 读出（新旧形状同一口径）后带任何记忆或看法的，
+    应在同一决策写出收尾记忆。"""
     if event.data.get("tool_name") != "conclude_activity":
         return
     key = (event.agent_id, event.decision_id)
     state["requests"].add(key)
-    request = event.data.get("request")
-    groups = request.get("memories") if isinstance(request, dict) else None
-    if isinstance(groups, list) and any(isinstance(group, list) and group for group in groups):
+    if any(item.memories for item in control_items("conclude_activity", event.data.get("request"))):
         state["conclusions"].setdefault(key, event.event_id)
 
 
 def _inspect_memory_response(event: Event, state: dict) -> None:
-    """@brief 人物决策的模型响应的协议错误提到记忆时记为记忆协议问题（记忆不再带引用，不核对身份）。
+    """@brief 人物决策的模型响应的协议错误提到记忆（含结束工具的 memories、views 字段）时记为记忆协议问题（记忆不再带
+    引用，不核对身份）。
 
     带 purpose 的系统请求（工作验收、零点计划 plan_day）不是记忆写入点，其响应错误不计入记忆问题。
     """
     if event.data.get("purpose"):
         return
     error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
+    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])
 
 
@@ -619,7 +632,7 @@ def _valid_subjective_snapshots(episodes: list, identities: list[str]) -> bool:
 def _inspect_memory_failure(event: Event, state: dict) -> None:
     """@brief 将持久化的记忆相关运行故障纳入质量问题。"""
     error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
+    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
         _add_memory_problem(state, "memory_run_failure", event.event_id, event.agent_id, [])
 
 
@@ -813,6 +826,72 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
             for purpose in sorted(set(counts) | set(groups))]
 
 
+def _contact_reply_guard_quality(events: list[Event]) -> dict:
+    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/dev/SPEC-dayrun-fidelity.md 7.3、第九章）。
+
+    命中按尝试计（首次与重试各算一次），类别也按尝试计；重试与兜底按回复计。没有 attempts 证据的回复单列，
+    不当作未命中。
+    """
+    replies = [event.data for event in events if event.event_type == "environment_event"
+               and event.data.get("kind") == "model_npc_reply"]
+    guarded = [data for data in replies if isinstance(data.get("attempts"), list)]
+    attempts = [item for data in guarded for item in data["attempts"] if isinstance(item, dict)]
+    matched = [item["matched"] if isinstance(item.get("matched"), list) else [] for item in attempts]
+    return {
+        "replies": len(replies),
+        "replies_without_guard_evidence": len(replies) - len(guarded),
+        "attempts": len(attempts),
+        "hits": sum(bool(codes) for codes in matched),
+        "retries": sum(len(data["attempts"]) > 1 for data in guarded),
+        "fallbacks": sum(data.get("guard_applied") is True for data in guarded),
+        "hits_by_category": {code: sum(code in codes for codes in matched) for code in GUARD_PATTERNS},
+    }
+
+
+def _name_rejection_quality(events: list[Event]) -> dict:
+    """@brief 名称类拒绝与其余协议错误分开计数（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）。
+
+    宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的协议错误串，按 life_feedback.feedback_report
+    判定错误码：名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
+    重放）按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
+    轮数、不施加脉冲）的次数。只报告，不放行。
+    """
+    from custom.agents.life_feedback import feedback_report
+
+    host: Counter[str] = Counter()
+    other: Counter[str] = Counter()
+    for event in _terminal_responses(events):
+        if event.data.get("error") and not event.data.get("purpose"):
+            code = feedback_report(str(event.data["error"])).error_code
+            (host if code in HOST_NAME_CODES else other)[code] += 1
+    rejected = [event for event in events
+                if event.event_type == "action_rejected" and event.data.get("reused") is not True]
+    codes = Counter(event.data.get("error_code") for event in rejected)
+    moments: dict[tuple, list] = defaultdict(list)
+    for event in rejected:
+        moments[(event.agent_id, event.occurred_at)].append(event.data.get("error_code"))
+    return {
+        "host_protocol_errors": sum(host.values()),
+        "host_codes": {code: host[code] for code in sorted(HOST_NAME_CODES)},
+        "other_protocol_errors": sum(other.values()),
+        "other_protocol_codes": dict(sorted(other.items())),
+        "environment_rejections": sum(codes[code] for code in ENVIRONMENT_NAME_CODES),
+        "environment_codes": {code: codes[code] for code in sorted(ENVIRONMENT_NAME_CODES)},
+        "environment_free_rejections": sum(sum(free_rejection_flags(row)) for row in moments.values()),
+        "method": "Host codes from decision protocol-error evidence via life_feedback.feedback_report; environment "
+                  "codes from non-replayed action_rejected; free = first two name rejections per agent and second",
+    }
+
+
+def _terminal_responses(events: list[Event]) -> list[Event]:
+    """@brief 按调用身份去重后的模型终态响应（重复终态取最早含提供商响应的一条，与模型用量同一口径）。"""
+    terminals: dict[str, list[Event]] = defaultdict(list)
+    for event in events:
+        if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
+            terminals[event.data["call_id"]].append(event)
+    return [_select_terminal(rows) for _, rows in sorted(terminals.items())]
+
+
 def _acceleration(events: list[Event], manifest: dict) -> dict:
     """@brief 用每个运行分支观察到的最大墙钟耗时计算实际模拟加速比。"""
     start = manifest["window"]["start"]
@@ -840,6 +919,78 @@ def _acceleration(events: list[Event], manifest: dict) -> dict:
         "wall_seconds_by_run": {key: round(value / 1000, 3) for key, value in sorted(by_run.items())},
         "method": "Sum of maximum persisted wall_elapsed_ms for each represented run branch",
     }
+
+
+def _input_warning_quality(manifest: dict) -> dict:
+    """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3）：按警告码闭集、按人物统计清单冻结的 input_warnings。
+
+    清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
+    只报告，不放行。
+    """
+    frozen = manifest.get("input_warnings")
+    method = "Warnings frozen into the run manifest input_warnings at run creation; reported, never gating"
+    if not isinstance(frozen, list):
+        return {"recorded": False, "warning_count": None, "code_counts": None, "unrecognized_code_counts": None,
+                "agent_counts": None, "scenario_warning_count": None, "method": method}
+    rows = [item for item in frozen if isinstance(item, dict)]
+    codes = Counter(str(item.get("code")) for item in rows)
+    agents = Counter(str(item["agent_id"]) for item in rows if item.get("agent_id") is not None)
+    return {
+        "recorded": True,
+        "warning_count": len(rows),
+        "code_counts": {code: codes[code] for code in INPUT_WARNING_CODES},
+        "unrecognized_code_counts": {code: count for code, count in sorted(codes.items())
+                                     if code not in INPUT_WARNING_CODES},
+        "agent_counts": dict(sorted(agents.items())),
+        "scenario_warning_count": sum(item.get("agent_id") is None for item in rows),
+        "method": method,
+    }
+
+
+def _truncation_quality(events: list[Event]) -> dict:
+    """@brief 输出截断（docs/dev/SPEC-dayrun-fidelity.md 7.2、九）：提供商回复 finish_reason=length 的次数与按用途分列，
+    以及这些回复实报的输出 token（截断回合整段丢弃，全部浪费）与其中的思考 token（completion_tokens_details.reasoning_tokens）。
+
+    与 model_usage 同一去重：每个调用身份取一条终态。某次截断缺少对应计数时该合计为 null 并单列缺失次数，不记为零；
+    没有截断时合计为 0。只报告，不放行。
+    """
+    terminals: dict[str, list[Event]] = defaultdict(list)
+    for event in events:
+        if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
+            terminals[event.data["call_id"]].append(event)
+    truncated = [event for event in (_select_terminal(rows) for _, rows in sorted(terminals.items()))
+                 if _finish_reason(event.data.get("response")) == "length"]
+    output = [_usage_count(event.data["response"], ("completion_tokens",)) for event in truncated]
+    reasoning = [_usage_count(event.data["response"], ("completion_tokens_details", "reasoning_tokens"))
+                 for event in truncated]
+    purposes = Counter(event.data.get("purpose") or _DECISION_PURPOSE for event in truncated)
+    return {
+        "truncated_responses": len(truncated),
+        "purpose_counts": dict(sorted(purposes.items())),
+        "wasted_output_tokens": None if None in output else sum(output),
+        "reasoning_tokens": None if None in reasoning else sum(reasoning),
+        "responses_missing_output_tokens": output.count(None),
+        "responses_missing_reasoning_tokens": reasoning.count(None),
+        "method": "Provider responses with finish_reason=length in model_response evidence, one terminal per call id; "
+                  "tokens are the provider-reported completion_tokens and completion_tokens_details.reasoning_tokens; "
+                  "reported, never gating",
+    }
+
+
+def _finish_reason(response: Any) -> str | None:
+    """@brief 提供商回复第一个候选的 finish_reason；回复缺失或形状不符时为 None。"""
+    choices = response.get("choices") if isinstance(response, dict) else None
+    first = choices[0] if isinstance(choices, list) and choices else None
+    reason = first.get("finish_reason") if isinstance(first, dict) else None
+    return reason if isinstance(reason, str) else None
+
+
+def _usage_count(response: dict, path: tuple[str, ...]) -> int | None:
+    """@brief 沿键路径读取回复 usage 中提供商实报的非负整数计数；缺失或不是非负整数时为 None。"""
+    value: Any = response.get("usage")
+    for key in path:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value if _is_nonnegative_int(value) else None
 
 
 def _is_int(value: Any) -> bool:

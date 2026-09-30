@@ -2,7 +2,9 @@
 
 > 状态：FROZEN——条款已裁决。既有测试证据保留原源码身份；正式地点活动环境、供给候选与交易由地图特性完整实现并重新验收，不能沿用历史数字宣称完成。正式十二周、隔离盲评与 LabelKit 完整自然日交付仍待真实运行。
 > 部分条款按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；修订记录见「版本表」。
-> 日期：2026-09-19
+> 「候选与呈现」「画像编译」「地图、门店供给与活动环境」「呈现与导出」「默认裁决与备选」与验收矩阵中的相应条款按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订
+> （一日运行保真 RL1–RL4）；修订部分已实现并通过离线验收，验收矩阵中改动的三行已改记 `代码层已验证`。
+> 日期：2026-09-29
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
 > 范围：人物的记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
@@ -98,7 +100,7 @@ flowchart TD
 
 | 阶段 | 请求 | 输出 |
 | --- | --- | --- |
-| 行动 | 原生 `tools`（整次运行不变，只剩最后一个回合时去掉记忆查询工具）；system 为系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六层 JSON；同一秒接着决策时追加上一决策的原生 assistant 与 tool 消息 | 可选的回复正文与恰好一个世界请求，登记即结束；同秒续接时此前各 assistant 回合原样回传 `reasoning_content` |
+| 行动 | 原生 `tools`（整次运行不变，只剩最后一个回合时与输出截断后的那次重试时去掉记忆查询工具，见一日运行保真规格 7.2）；system 为系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六层 JSON；同一秒接着决策时追加上一决策的原生 assistant 与 tool 消息 | 可选的回复正文与恰好一个世界请求，登记即结束；同秒续接时此前各 assistant 回合原样回传 `reasoning_content` |
 
 七层各自的字段与唯一出现原则见[人物 Prompt 规格](SPEC-persona-prompt.md)第一章，禁止进入提示的字段见
 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」；请求组成、生成参数、模型身份与工具面只在
@@ -305,8 +307,9 @@ flowchart LR
 
 **行为规则**：
 
-- 排序键是整数或有限格点，沿用 `compute_taste_weights` 的四位小数取整口径；同分时以稳定的对象标识决胜，
-  不以字典序、插入序或内存地址决胜
+- 排序键是整数或有限格点，沿用 `compute_taste_weights` 的四位小数取整口径，另含相关度一项；同分时以
+  `sha256(场景|人物|日期|对象)` 决胜（[一日运行保真规格](SPEC-dayrun-fidelity.md) 5.1：以对象标识决胜会使零口味时的顺序退化为字母序），
+  不以对象标识、字典序、插入序或内存地址决胜
 - 分桶与游标派生使用 `hashlib`，不得使用内建 `hash()`——后者受进程哈希种子影响，跨进程不稳定
 - 可见性的变更必须是事件。若某对象的可见性依赖「世界发生过什么」，那个「什么」必须是调度器里的一条已排定事件，
   有事件序号与变更前后的证据
@@ -322,6 +325,8 @@ flowchart LR
   超过上限是运行故障，不是截断到上限；被截掉的部分不得静默丢弃
 - **上限分两级，不合成一个数**：池规模上限（某人物在某地点理论可互动的对象总数）只用于计数与下推，
   不直接进提示；单次呈现上限才是「可交换 object」那一节。一个 `1k` 或更大的数不得直接充当呈现条数
+- 单次呈现上限只约束目标条目：工具层的可调用索引 `callable_index` 只列名称、不是候选条目，不计入单次呈现上限，
+  但计入整次请求的容量计数（[一日运行保真规格](SPEC-dayrun-fidelity.md) 5.2）
 - **下推用游标，不用页码。** 游标由上一页最后一条的完整稳定排序键构成，且只由
   `(冻结目录, 世界状态版本, 排序键版本, 游标)` 决定；偏移量式分页在深分页时不稳定，且会随目录变动出重漏
 - **全量遍历必须等于一次全量的有序子序列，无重无漏。** 逐页取尽后，得到的序列与一次性全量取出的有序序列逐项相同
@@ -338,9 +343,11 @@ flowchart LR
 
 - 每次呈现留若干换新名额给长期未呈现的对象，换新名额数与「长期」的阈值是场景参数，确定性且可断言
 - 轮转必须**非破坏性**：只改呈现顺序与换新名额，不产生目录变更、不产生下架事件、不改任何对象状态
-- 轮转与可见期只管展示与比较，不限制购买：`obtain` 可以按名称指名本轮未展示的商品，按场景供给解析与当前报价结算；
-  不存在时以 `SUPPLY_NOT_FOUND` 拒绝并附至多 3 个近似候选，多店同名且未限定门店时以 `SUPPLY_NAME_AMBIGUOUS` 拒绝，
-  不自动换成别的商品（[人物 Prompt 规格](SPEC-persona-prompt.md)第五章「指名购买」）
+- 轮转与可见期只管展示与比较，不限制按名调用：所有目录类对象都可以直接写名称，无损归一后唯一即受理，
+  否则给至多 3 个可照填、此刻可行的候选，不自动替换（[一日运行保真规格](SPEC-dayrun-fidelity.md) 3.1）。`obtain` 按场景供给解析、按当前报价结算：
+  `from` 是可选约束，分段匹配依次以 `SUPPLY_NOT_FOUND`、`SUPPLY_NOT_AT_STORE`、`FULFILLMENT_NOT_SUPPORTED`、`ACTIVITY_PRECONDITION_UNMET` 拒绝，
+  多于一个可服务的匹配时按请求级 `prefer` 选定一家，不再以 `SUPPLY_NAME_AMBIGUOUS` 拒绝；不自动换成别的商品
+  （[人物 Prompt 规格](SPEC-persona-prompt.md)第五章「指名购买」，按一日运行保真规格 3.2、3.3、3.5 修订）
 - **最大未呈现间隔必须有界。** 给定池规模 `N` 与每次换新名额 `k`，最坏等待间隔不超过闭式上界
   `⌈N ÷ k⌉ ÷ D`，其中 `D` 是每天决策点数。写测试断言时必须用这个精确形式，
   不使用它的连续松弛 `N ÷ (k × D)`
@@ -350,7 +357,8 @@ flowchart LR
   分区之后每个小池的规模才可控，最坏等待间隔才有界
 - 轮转不改变候选集的内容，只改变它的顺序与换新名额的分配：轮转前后两次投影里，同一会话内对象的相对顺序可不同，
   但同一输入两次投影必须逐字节相同
-- 禁止把互动次数当作「受欢迎程度」使用；轮转的输入只有上次呈现时刻这一个计数器
+- 禁止把互动次数当作「受欢迎程度」使用；轮转的输入只有上次呈现时刻这一个计数器，每个对象各记自己的上次呈现时刻，
+  不用人物级的共享偏移量，也不设分区游标；换新名额留给该分区内最久未呈现的对象
 - 若需要「按最优替换这一周该换谁」这类离线基准，它是只读诊断工具，放在 `scripts/` 下，
   不是轮转的必要条件
 
@@ -364,14 +372,17 @@ flowchart LR
 
 画像编译从 `background_story` 产出结构化人物卡片 `PersonaCard`（类型名；主观归纳请求里的字段名是 `persona_card`，
 两者与中文正文所说的「人物卡片」是同一产物），抽取沿用三次一致性口径。新建运行时卡片的结构化字段另存进人物 `profile` 的
-`persona_card_struct`，恢复时校验；宿主用它与人物姓名、场景联系人渲染人设层 JSON 进入提示。卡片编译、三次一致性、
-`render_card` 与冻结恢复不变；600 汉字上限只约束卡片派生的字段；当下处境 `situation` 不进提示。卡片必须承载：身份（年龄、职业、居住方式）、关系（姓名或称谓、角色、
+`persona_card_struct`，恢复时校验；宿主用它与人物姓名、场景联系人渲染人设层 JSON 进入提示。卡片编译、三次一致性与冻结恢复不变，
+`render_card` 不变、输入的卡片先经场景作息覆盖（见下）；600 汉字上限只约束卡片派生的字段；当下处境 `situation` 不进提示。卡片必须承载：身份（年龄、职业、居住方式）、关系（姓名或称谓、角色、
 亲密度、渠道）、当下处境（本周在忙什么、在意什么）、时间锚点（起床、出门、午餐、晚餐、就寝窗口）、
 时型中点 `chronotype_midsleep`、睡眠需要 `sleep_need_hours`、习惯签名（触发—反应—时段三元组）、
 口味（内容题材、饮食喜好、常用媒介）与压力时的应对方式。字段的名称、类型与取值范围只在
 `docs/CONTRACTS.md`「人格与卡片字段」定义。
 
-作息、消费与风险倾向记录在各自的 `background_story` 中，由卡片承载；这些是 `experiment_assumption`，
+作息、消费与风险倾向记录在各自的 `background_story` 中，由卡片承载，场景显式声明的作息字段优先：场景人物显式声明的
+`chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、`bedtime_window` 覆盖卡片的抽取值（按卡片格点量化；覆盖后锚点乱序时
+冲突的那一槽保留卡片值），未声明的字段仍取卡片值，每处覆盖与冲突各记一条输入警告；`persona_card_struct` 保存覆盖后的值，身体结算、零点计划与每轮人设层
+读同一组作息（[一日运行保真规格](SPEC-dayrun-fidelity.md) 2.1）。这些是 `experiment_assumption`，
 不宣称来自旧数据中未提供的个体特征，也不规定行动时刻、数量或必须完成的日程。零点计划生成的当日目标不是
 日程脚本，不给固定的“先吃饭再工作”行为脚本。模型选择和提示使用 AS2 现有配置，正式运行固定端点、模型版本
 与参数。
@@ -381,11 +392,12 @@ flowchart LR
 大五分数、九参数与权重不进提示。
 
 **删除与替换**：`entertainment_preferences` 随机浮点删除；内容偏好改由卡片口味与内容 `genre[]` 的匹配结果决定，该结果即
-`taste_weights`，只在内部评分器与浏览排序里使用。`occupation`、`routine_preference`、`consumption_preference`、
+`taste_weights`：它是内部评分器与浏览排序的排序信号，另按有效偏好 `f + (1 − f)·w` 调实际缓解的幅度（下限偏好 `f` 在场景层，
+[一日运行保真规格](SPEC-dayrun-fidelity.md) 1.2）；游戏条目同一算法。`occupation`、`routine_preference`、`consumption_preference`、
 `risk_preference` 四个模板字段删除，其内容并入卡片。
 
 **口味权重是排序信号，不是准入条件。** `taste_weights` 以及任何由画像派生的偏好量，只允许改变候选的先后次序，
-不允许把候选从集合里去掉。候选生成阶段出现任何以偏好权重为条件的剔除都是违规：
+不允许把候选从集合里去掉；偏好只调缓解的幅度，不决定有无，零权重的条目也有下限缓解。候选生成阶段出现任何以偏好权重为条件的剔除都是违规：
 
 - `compute_taste_weights`（`src/worldmock/profile/taste.py`）的取值域必须包含零而语义不是「不可选」；
   卡片未声明某题材时该题材条目的权重为零，零权重必须排在非零权重之后，而不是在枚举时被丢弃
@@ -403,7 +415,8 @@ flowchart LR
 
 **覆盖率校验**：`validate` 输出 `persona_coverage.json`，逐条记录每条习惯签名的反应与每个口味条目是否映射到
 世界中至少一个可执行目标或条目；可执行比例低于 80% 时校验失败，并列出缺失项。这一校验防止人物卡片写了播客
-而世界里没有播客。
+而世界里没有播客。匹配不允许用 App 名子串算命中（「B站视频」不因应用名「B站」算覆盖）；创建运行的路径不因覆盖率失败，只发输入警告
+`COVERAGE_BELOW_THRESHOLD`，与口味对不上题材、权重全零等其余输入警告一起冻结进运行清单与质量报告（[一日运行保真规格](SPEC-dayrun-fidelity.md) 1.3）。
 
 **覆盖率与可达性不是同一件事，两者不得互相替代**：覆盖率问的是「卡片声明的口味在世界里有没有对应条目」，
 是画像侧的完备性，允许按阈值放宽；可达性问的是「世界里的条目有没有一条到达人物的路径」，
@@ -415,7 +428,8 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 ## 地图、门店供给与活动环境
 
 [地图与门店供给规格](SPEC-map-and-storefront.md) 将商品定义与购买候选分离。
-同商品不同地点的供给分别呈现价差、道路路程、营业和库存；人物自己选择，不预设近店或低价店必胜。
+同商品不同地点的供给分别呈现价差、道路路程、营业和库存；人物自己选择，不预设近店或低价店必胜。人物也可以只写商品、收货人与
+请求级 `prefer`（最快或最便宜）把挑店交给系统，系统按该偏好选定并写明所选门店（[一日运行保真规格](SPEC-dayrun-fidelity.md) 3.5）。
 候选仍使用原类型闭集，购买身份取供给，消费与商品多样性取商品；不能把两家门店计成两种商品。
 
 活动环境来自唯一地图地点目录的显式非空声明，按场景选中地点装配；不再依靠缺失声明时的放行路径。
@@ -445,7 +459,9 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 - `scripts/inspect_run.py` 读取 `tool_name`
 - `export` 增加确定性投影 `timeline/<agent>-<date>.md`，合并静默边界与同一活动、显示名称而非标识，
-  由 `scripts/render_day.py` 生成；并行进度交错时仍按活动身份独立合并，重叠活动分别显示
+  由 `scripts/render_day.py` 生成；并行进度交错时仍按活动身份独立合并，重叠活动分别显示；时间线只出现中文名称：
+  生活活动、观看、游戏、工作、通话与交谈都有标题，种类名取 `src/worldmock/life/readable.py` 的中文种类表（单一来源），
+  不出现 `call`、`work` 等英文种类名与 `task-` 一类内部标识形态，质量报告另查时间线标签（[一日运行保真规格](SPEC-dayrun-fidelity.md) 7.4）
 - `verified-experiences.jsonl` 从已提交事件的固定截止完整前缀导出，摘要绑定并由消费端重算；
   观察每轮只在私有证据中保存本人最近五条，不再写成句子发给模型。等待、原因未知的等待、真实内容接触与人物经过时间并集分别报告
 - `tools/run-viewer.html` 增加同一投影的“一天”视图
@@ -465,10 +481,10 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | 决策阶段 | 单一行动阶段：决策就是所选的世界请求，回复正文可有可无；原决策自述阶段被[人物 Prompt 规格](SPEC-persona-prompt.md)取代 | 无；原备选「只恢复身份前言，不加决策自述」同被取代，身份前言删除 |
 | 重估间隔 | 5400 秒 | 3600 或 7200 秒 |
 | 社交需要 | 作为第四项需要进入身体模型 | 不加资源，只靠人物卡片签名与消息驱动 |
-| 联系人回复 | 老友与家人 `reply_policy=model`，同事映射到真实人物 | 全部 `template` |
+| 联系人回复 | 老友与家人 `reply_policy=model`，同事映射到真实人物（现有两份一日场景把同事写成模型联系人，是否改正由数据集决定；模型联系人的回复只通过消息来往，不虚构到场，见[一日运行保真规格](SPEC-dayrun-fidelity.md) 7.3） | 全部 `template` |
 | 动机评分器 | 保留为内部仪表并落库 | 整体删除 |
 | 回复正文的信息范围 | `self_note` 随实际请求进入动作与意图窗口，并进入 dreaming 输入；原「决策自述仅 dreaming 可读」随决策自述删除 | 无 |
-| 人物卡片覆盖率阈值 | 80% | 60%（放宽）或 100%（严格） |
+| 人物卡片覆盖率阈值 | 80%；低于阈值时 `validate` 失败，创建运行只发输入警告 `COVERAGE_BELOW_THRESHOLD`（一日运行保真规格裁决 D4） | 60%（放宽）或 100%（严格） |
 | 提示容量 | 每次实际请求连同预留输出计入模型上下文窗口；达到百分之八十五时先提前结束本秒续接，再只压缩进度层派生投影 | 更换模型窗口须重新验证同一比例与结果保真 |
 
 ## 文件修改清单与实施顺序
@@ -514,6 +530,7 @@ flowchart LR
 下表给出每条条款的观察、证据位置与状态；实际门禁结果与收据见 `docs/dev/implementation-status.md`。
 确定性测试与门禁已通过的记 `代码层已验证`；必须等正式模型运行或真实盲评才能判定的记
 `待真实运行`；已有合同尚未贯通正式输入的记 `既有实现缺口`；按人物 Prompt 规格修订、尚未重新验收的记 `离线验收待执行`（这些行已在最终代码上重新验收，改记 `代码层已验证`）。
+按一日运行保真规格修订的三行在重新验收之前同样另记待验收一档，已在 `34a41ee` 的代码与测试上重新验收，改记 `代码层已验证`。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
@@ -525,14 +542,14 @@ flowchart LR
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重，也没有 `drive_summary`；体感只以环境层五项分级出现；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
 | 当日目标 | 清单、生命周期、修订、证据推进、威胁唤醒与三层度量按专属规格逐项验证 | [当日目标规格](SPEC-day-plan-goals.md)验收台账 | 本特性确定性验收通过 |
 | 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；正式地点能力由地图准入与实际活动测试验证 | 独立地图分支及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
-| 画像编译 | 卡片字段完整；结构化字段存入 `persona_card_struct` 并渲染为人设层 JSON，不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对；大五分数与权重不进提示；四个模板字段与随机浮点已删除 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py`、`tests/life/test_persona_layer.py` | 代码层已验证 |
-| 人物卡片覆盖率 | 可执行比例低于 80% 时校验失败并列出缺失项 | `validate` 输出的 `persona_coverage.json` | 代码层已验证 |
+| 画像编译 | 卡片字段完整；结构化字段存入 `persona_card_struct` 并渲染为人设层 JSON，不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对；大五分数与权重不进提示；四个模板字段与随机浮点已删除；场景只声明部分作息字段时只覆盖这些字段，覆盖后锚点乱序时保留卡片值并记警告，身体结算、零点计划输入与人设层三处同值，`validate` 与运行路径结果一致 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py`、`tests/life/test_persona_layer.py`；场景作息见 `tests/profile/test_injection.py` 的 `test_only_explicitly_declared_fields_are_overridden`、`test_out_of_order_window_keeps_the_card_value_and_records_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request`、`test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_same_rhythm`、`test_restore_verifies_the_frozen_card_rhythm_against_the_scenario`；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「场景作息」 | 代码层已验证 |
+| 人物卡片覆盖率 | 可执行比例低于 80% 时校验失败并列出缺失项；App 名子串不算覆盖命中；创建运行时只发输入警告 `COVERAGE_BELOW_THRESHOLD`、不失败，警告冻结进清单并计入质量报告 | `validate` 输出的 `persona_coverage.json`；`tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits`、`tests/profile/test_injection.py::test_coverage_below_threshold_reuses_the_validate_report`，`tests/integration/test_input_warnings.py` 的 `test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report`、`test_validate_still_fails_below_the_coverage_threshold_after_printing_the_warnings`、`test_a_phone_config_that_fails_verification_never_fails_run_creation`；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「输入警告」 | 代码层已验证 |
 | 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加；4 份里拿 1 份，吃到 300/1500 秒时结束：摄入 0.2、丢弃 0.8、库存 3；暂停保留剩余并可恢复；持有 0.25 份时受理、时长 375 秒、热量按 0.25 份；收尾结果写终局与份量 | `tests/life/test_commerce.py`、`tests/life/test_meal_outcome.py` | 代码层已验证 |
 | 口味权重是排序信号 | 卡片未声明题材的条目仍在候选集里，只是排在非零权重之后；娱乐候选的入选条件不含偏好权重为正这一支 | `tests/life/test_motivation.py`（`TestScorerContract::test_zero_taste_weights_keep_entertainment_ranked_last`、`test_unstated_genre_items_stay_in_candidate_pool`）、`tests/life/test_candidates.py`（`TestSoftPreferenceOnlyReorders`）、`tests/profile/` | 代码层已验证 |
 | 素材可达性 | 每个条目至少属于一个可检索分区且分区可达；分区键缺省或分区在场景里恒不可行的条目被逐条列出并阻断启动 | `tests/catalog/test_reachability_admission.py`（准入侧两个错误码 `CATEGORY_PARTITION_KEY_MISSING`、`CATEGORY_PARTITION_LOCATION_INFEASIBLE` 与阻断启动）、`tests/life/test_retrieval.py`（`reachability_report`）、`scripts/check_reachability.py`（静态守卫） | 历史证据保留；[当前组合守卫](research/map-and-storefront-main-verification.md)确认 7384 条素材、142 个分区全部可达 |
 | 候选与呈现 | 同一（世界状态、人物、场景）两次投影逐字节相同；软偏好不出局；被排除项带原因码；单次呈现不超上限；全量遍历等于一次全量的有序子序列；轮转不改目录、不改对象状态、不产生下架事件；最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D` | `tests/life/test_candidate_wiring.py`、`tests/life/test_candidates.py`、`tests/life/test_rotation.py`；门禁 `scripts/coverage_gate.py` | 代码层已验证 |
-| 呈现与导出 | 时间线投影与 `render_day.py` 输出一致且合并静默边界与同一活动；盲评记录含地点与同伴列 | `tests/footprints/test_export.py` | 代码层已验证（`tools/run-viewer.html` 的“一天”视图按手工核对验收） |
-| 人物卡片落地效果 | 两次同代码运行的作息落在人物卡片声明的就寝窗口内；进食多样性与人格可区分性按报告口径结算 | `docs/dev/implementation-status.md` 的正式运行记录 | 待真实运行 |
+| 呈现与导出 | 时间线投影与 `render_day.py` 输出一致且合并静默边界与同一活动；盲评记录含地点与同伴列；时间线只出现中文名称：没有 `call`、`work` 等英文种类名，没有 `task-` 形态的标识，质量报告的时间线标签检查为零 | `tests/footprints/test_export.py`；`tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`、`tests/footprints/test_render_day.py`（工作、通话与交谈的行写任务、联系人与人物名，无法解析的目标只写中文种类名）、`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「时间线」 | 代码层已验证（`tools/run-viewer.html` 的“一天”视图按手工核对验收） |
+| 人物卡片落地效果 | 两次同代码运行的作息落在场景作息覆盖后的就寝窗口内；进食多样性与人格可区分性按报告口径结算 | `docs/dev/implementation-status.md` 的正式运行记录；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「复跑指标（只报告）」 | 待真实运行 |
 
 三行的复判说明（逐行核对，含未达成的分句）：
 
@@ -607,3 +624,5 @@ flowchart LR
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 3、11、14、15、23–25 行修订（人物 Prompt 台账 RL1–RL3、RL5、RL6），修订部分待实现：删决策自述阶段，「两阶段决策」改为「单一行动阶段」：决策就是所选的世界请求，回复正文可有可无、有则作为该调用的 `self_note`，`decision_started` 在首个行动请求时写入且不带自述，16 个回合全部归行动阶段，删对接口合同「决策自述证据」的引用；范围删「两阶段决策调用」；人物卡片以人设层 JSON 进入提示，`situation` 不进提示，600 汉字上限只约束卡片派生字段；删 `drive_summary`；轮转与可见期只管展示与比较，`obtain` 可以指名购买；进食按开吃份量，暂停保留、结束丢弃、不补算摄入，不足一份也可以吃；已核验经历不再写成句子发给模型；dreaming 读 `self_note` 与实际请求中的层 JSON；设计裁决表「三次同一碗面」的验收覆盖「购买本身不写偏好」的反例，「恢复身份前言」注明被取代；默认裁决表两行、文件修改清单与验收矩阵相应改写，改写的验收行记「离线验收待执行」；文件头注明修订待实现 |
 | `2026-09-27-persona-prompt-stage-3` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 12 行修订（人物 Prompt 台账 RL4，随阶段 3 代码），修订部分待实现：「记忆合同」中 relationship、preference 记忆带 `subject`，只在人设层按对象原地更新，不进记忆层；记忆层取代提示中的主观归纳、最近条目窗口与已核验经历句子，8000 字符窗口；阈值巩固保留，摘要与 `MEMORY.md` 不进人物决策提示；就寝反思仍只写 `reflection`，归属睡眠开始时刻前推 6 小时的本地日期；验收矩阵记忆写入与记忆巩固两行相应改写 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；验收矩阵中记离线验收待执行的七行改为代码层已验证，「单一行动阶段」「记忆写入」「记忆巩固」「画像编译」「商务与进食」五行补实际守卫的测试文件；原生工具注明最后一个回合去掉记忆查询工具；「提示容量」写明先提前结束本秒续接 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 2、4、6、10、11、15、16、21 行修订（一日运行保真 RL1–RL4，随该规格冻结）：「候选确定性」决胜键改为 `sha256(场景\|人物\|日期\|对象)`、排序键含相关度；「呈现上限与下推游标」补可调用索引不计入单次呈现上限；「呈现轮转」的指名购买改为全部目录类按名调用、分段匹配与按 `prefer` 选定，轮转按每个对象的上次呈现时刻、不用共享偏移量；「画像编译」写明场景显式声明的作息字段优先、`render_card` 的输入先经场景作息覆盖，`taste_weights` 另调实际缓解幅度（有效偏好），覆盖率匹配不按 App 名子串、创建运行只警告；「地图、门店供给与活动环境」补可把挑店交给系统（`prefer`）；「呈现与导出」补时间线只出现中文名称；「默认裁决与备选」联系人回复行注明同事映射由数据集决定、覆盖率行注明运行只警告；验收矩阵画像编译、人物卡片覆盖率、呈现与导出三行改写，标注尚待本规格实现后重新验收，人物卡片落地效果改为覆盖后的就寝窗口；文件头补修订说明，日期改写 |
+| `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码与测试核对，`e377669` 复核）：验收矩阵画像编译、人物卡片覆盖率、呈现与导出三行改记 `代码层已验证`，证据位置补场景作息、输入警告与时间线标签的测试，矩阵前的状态说明随之改写；「单一行动阶段」行动行的原生 `tools` 补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；文件头改为修订部分已实现并通过离线验收 |

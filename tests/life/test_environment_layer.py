@@ -70,7 +70,11 @@ def test_fixed_rules_name_every_action_the_menu_excludes(engine_factory) -> None
 
 
 def test_place_types_cover_every_scenario_location_kind_and_unknown_kinds_are_defects(engine_factory) -> None:
-    """仓库全部生活场景的地点类型都有中文标签；当前地点的类型没有标签时以 IntegrityError 报场景缺陷。"""
+    """仓库全部生活场景的地点类型都有中文标签；当前地点的类型没有标签时以 IntegrityError 报场景缺陷。
+
+    越界类别在场景加载时就被拒绝（tests/life/test_load_checks.py，同一张 PLACE_TYPES 表）；这里绕过加载直接改运行时
+    场景，核对环境层仍保留的运行中兜底。
+    """
     kinds = set()
     for name in ("white-collar-12-weeks.json", "multi-person.json", "multi-person-half-day.json"):
         semantics, _ = load_runtime_scenario(Path("scenarios") / name)

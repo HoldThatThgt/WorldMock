@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -63,7 +63,7 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
     properties = start["parameters"]["properties"]
     assert start["strict"] is True
     assert start["parameters"]["additionalProperties"] is False
-    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
     user = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": data}]))[1]["content"]
@@ -74,7 +74,7 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
 
 @pytest.mark.parametrize("targets,actions,ways,error", [
     ([_FILM], ["travel"], ["步行"], "not offered"),
-    ([_FILM], ["interact"], ["观看"], "not offered"),
+    ([_FILM], ["interact"], ["从头再看"], "not offered"),
     ([_FILM], ["travel"], ["接着看"], "not offered"),
     (["content-hidden"], ["interact"], ["接着看"], "not a visible"),
     ([_FILM, _PARK], ["interact"], ["接着看"], "equal lengths"),
@@ -97,7 +97,7 @@ def test_parallel_start_accepts_two_independent_human_readable_pairs() -> None:
                        ways=["步行", "接着看"])
     assert agent.validate_react_decisions([choice], False) == ""
     assert agent.validate_react_decisions([choice, choice], False) == (
-        "one model response cannot contain multiple life actions")
+        "TOOL_CALL_REQUIRED: one model response cannot contain multiple life actions")
 
 
 def test_frozen_observation_does_not_change_until_next_round() -> None:
@@ -156,10 +156,11 @@ def test_activity_controls_bind_current_readable_activity(phase) -> None:
     functions = _functions(agent)
     assert {"report_status", "pause_activity", "conclude_activity"} <= set(functions)
     for name in ("report_status", "pause_activity", "conclude_activity"):
-        assert "enum" not in functions[name]["parameters"]["properties"]["task"]["items"]
-        memories = {"memories": [[]]} if name == "conclude_activity" else {}
+        assert "enum" not in functions[name]["parameters"]["properties"]["items"]["items"]["properties"][
+            "activity_name"]
+        extra = {"memories": [], "views": []} if name == "conclude_activity" else {}
         assert agent.validate_react_decisions([_decision(
-            name, task=[_WORK], summary=["继续推进。"], **memories)], False) == ""
+            name, items=[{"activity_name": _WORK, "summary": "继续推进。", **extra}])], False) == ""
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)
 
@@ -182,22 +183,23 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
 
 def test_revision_follows_current_day_plan_without_plan_tool() -> None:
     """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订整次运行都在，目标只收意图、正文与必填可空的
-    remind_time；待办层已推进的目标不能重交（时间与能量规格第四章）。"""
+    remind_time、around_time；待办层已推进的目标不能重交（时间与能量规格第四章；docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
     data = _data()
     unplanned = _functions(_prepare(data))
     assert "plan_day" not in unplanned and "revise_day_plan" in unplanned
     data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": [
-        {"intent_kind": "工作", "goal": "写周报", "progressed": True, "remind_time": None}]}
+        {"intent_kind": "工作", "goal": "写周报", "progressed": True, "remind_time": None, "around_time": "约 09:30"}]}
     agent = _prepare(data)
     revising = _functions(agent)
     assert revising == unplanned
     parameters = revising["revise_day_plan"]["parameters"]
     assert set(parameters["properties"]) == {"goals"}
-    assert set(parameters["properties"]["goals"]["items"]["properties"]) == {"intent_kind", "goal", "remind_time"}
-    resubmitted = {"goals": [{"intent_kind": "工作", "goal": "再写一次", "remind_time": None}]}
+    assert set(parameters["properties"]["goals"]["items"]["properties"]) == {
+        "intent_kind", "goal", "remind_time", "around_time"}
+    resubmitted = {"goals": [{"intent_kind": "工作", "goal": "再写一次", "remind_time": None, "around_time": None}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **resubmitted)], False) == (
-        "revise_day_plan cannot resubmit progressed goals")
-    fresh = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": "21:30"}]}
+        "ARGUMENTS_INVALID: revise_day_plan cannot resubmit progressed goals")
+    fresh = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": "21:30", "around_time": "21:30"}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **fresh)], False) == ""
 
 

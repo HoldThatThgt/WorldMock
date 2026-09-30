@@ -1,7 +1,7 @@
 # WorldMock 验收标准
 
-> 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）。
-> 日期：2026-09-27
+> 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）。按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 26 行修订（一日运行保真 VF1）：新增「一日运行保真特性门禁」，测试矩阵中补入该规格条款的十四行；该规格已全部实现并通过离线验收（证据见[一日运行保真验收记录](dev/dayrun-fidelity-verification.md)），这十四行已按实现改回 `离线覆盖`。
+> 日期：2026-09-29
 > 范围：放行门禁、report-only 边界、测试矩阵、验收原则、交付阶段与结论边界
 > 记录位置：实际通过的源码身份、命令与收据集中记录在 `docs/dev/implementation-status.md`；本文件只定义判定方式与当前状态，不重复断言其通过
 
@@ -168,6 +168,20 @@ issue #1 绿色基线是实施前置：`uv run pytest tests` 全量无失败之�
 验收台账各行的证据测试登记在 `tests/persona_prompt_acceptance.py`，由 `tests/test_persona_prompt_acceptance.py` 逐行判定；
 证据统一见 [本特性验收记录](dev/persona-prompt-verification.md)。
 
+### 一日运行保真特性门禁
+
+完整判据见 [一日运行保真特性规格](dev/SPEC-dayrun-fidelity.md#验收台账)的验收台账，本节不复述；每行须有实际运行证据，
+纯结构匹配不能替代真实请求或环境结算路径；「复跑指标（只报告）」一行只报告，不作门禁。
+工程放行要求全量测试（含风格门禁与查看器回归）、`scripts/coverage_gate.py`（分支覆盖率不低于 85%，未覆盖公共接口为零）、
+`scripts/documentation_gate.py` 与 `scripts/build_design_doc.py --check` 都通过；还要在同一干净提交的隔离 worktree 上
+用 Uncle Bob 语义突变独立检验该规格「阶段 6 突变审查的目标」所列各项：睡眠计费的清醒分类、有效偏好的单调性与下限、档界常数、
+系统层条数与档位名、名称归一唯一才受理、候选不替换、分段匹配的段序、名称类拒绝不计轮、错误结构键闭集、地点类资格、哈希决胜、轮转判据、
+控制工具的上限校验与 `views`→`subject`、摘录字数门槛、截断回合丢弃、守卫命中即重试、加载拒绝与推进的开始时刻，另加按 `prefer` 选定与其决胜（3.5）。
+存活突变必须补测后以原补丁复验。质量报告新增的 `input_warnings`、`truncations`、`timeline_labels`、`contact_reply_guard`、`name_rejections`
+五节只报告、不放行；运行输入警告永不让运行失败。白领与商务全天的真实复跑只报告，不作门禁。
+验收台账各行与已定裁决的证据测试登记在 `tests/dayrun_fidelity_acceptance.py`，由 `tests/test_dayrun_fidelity_acceptance.py` 逐行判定；
+证据统一见 [本特性验收记录](dev/dayrun-fidelity-verification.md)。
+
 ### 工程门禁
 
 工程门禁与协议门禁一样失败即不放行，由确定性测试层判定。
@@ -263,7 +277,8 @@ issue #1 绿色基线是实施前置：`uv run pytest tests` 全量无失败之�
 | 注释语言 | 每个生产函数的 docstring | 必须含中文（Doxygen 口径） | `DOCSTRING` |
 
 下划线私有函数同受约束，不作豁免；模块级与类级 docstring 不在判定对象内。
-注释使用中文，代码、日志与报错文本使用英文。机器判定只覆盖注释语言一项，
+注释使用中文，代码、日志与报错文本使用英文；这一条只约束日志、异常与内部错误串，面向模型的拒绝原因（`reason`、`fix`）、候选与提示文本
+是提示内容，不在其内（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md)第四章，语言不作要求）。机器判定只覆盖注释语言一项，
 英文代码与日志的证据落在各自失败路径的行为测试上（场景组装失败以稳定英文原因拒绝，见 `tests/life/test_scenario.py`）。
 
 违规处理采用棘轮口径，不设一次性豁免：
@@ -291,15 +306,16 @@ flowchart LR
 
 | 门禁 | 读到什么算通过 | 读到什么算失败 | 层级 |
 | --- | --- | --- | --- |
-| 候选确定性 | 同一（世界状态、人物、场景）两次调用候选生成得到逐字节相同的候选集与相同顺序；两次投影的序列化结果逐字节相同 | 两次结果顺序不同；同分时排序依赖字典序、插入序或内存地址；排序键依赖内建 `hash()`；候选函数读时间戳、缓存或模型输出 | 协议门禁（放行条件） |
+| 候选确定性 | 同一（世界状态、人物、场景）两次调用候选生成得到逐字节相同的候选集与相同顺序；两次投影的序列化结果逐字节相同；同分时以 `sha256(场景、人物、日期、对象)` 的哈希决胜，零口味时顺序不是字母序且随日期变化（一日运行保真规格 5.1） | 两次结果顺序不同；同分时排序依赖对象标识、字典序、插入序或内存地址；排序键依赖内建 `hash()`；候选函数读时间戳、缓存或模型输出 | 协议门禁（放行条件） |
 | 软偏好不出局 | 对卡片未声明题材的条目，候选集里仍然出现该条目，只是排在非零权重条目之后；`taste_weights` 取值为零的条目其候选存在性为真 | 任何条目因偏好权重为零而不生成候选；娱乐候选的入选条件里存在「偏好权重为正」这一支；零权重被实现成「不可选」 | 协议门禁（放行条件） |
-| 排除留痕 | 每个被排除项携带原因码，原因码取自闭集；地点不可行与资源冲突是两个可区分的原因码；被地点门挡下的条目在观察里带原因码出现 | 任一条目被排除而不带原因码；原因码自由拼字符串、非常量；被挡项从列表里静默消失；「没显示」与「不存在」在观察里不可区分 | 协议门禁（放行条件） |
+| 排除留痕 | 每个被排除项携带原因码，原因码取自闭集；地点不可行与资源冲突是两个可区分的原因码；被地点门挡下的条目在观察里带原因码出现；生活活动窗口在生成时施加地点类资格，地点类不符的条目以 `ELIGIBILITY_LOCATION_KIND_MISMATCH` 记为排除项、不进窗口 | 任一条目被排除而不带原因码；原因码自由拼字符串、非常量；被挡项从列表里静默消失；「没显示」与「不存在」在观察里不可区分 | 协议门禁（放行条件） |
 | 呈现上限 | 单次呈现条数不超过场景常量；池规模上限与单次呈现上限是两个独立的量，池上限不直接充当呈现条数 | 呈现条数超限而未被判为运行故障；超限时静默截断到上限；呈现条数直接取池规模上限或更大的数 | 协议门禁（放行条件） |
-| 下推游标 | 逐页取尽后的序列与一次性全量取出的有序序列逐项相同，无重无漏；游标只由 `(冻结目录, 世界状态版本, 排序键版本, 游标)` 决定 | 分页出现重复项或缺项；游标是偏移量式页码且在深分页时不稳定；游标依赖运行时刻或缓存 | 协议门禁（放行条件） |
-| 最大未呈现间隔 | 给定池规模 `N`、每次名额 `k`、每天决策点 `D`（有 `decision_started` 的不同模拟秒数，每人物每天；同一秒的多轮沿用首轮呈现窗口，只计一次，见 `docs/EXPERIMENT.md`「决策点节奏」；同刻轮次出现前两种计法相同），实测最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D`；断言使用该精确形式上界，可达率小于一的分区按有效决策点 `D × 可达率` 计算 | 实测最坏间隔超过闭式上界；断言写成连续松弛 `N ÷ (k × D)` 或硬编码天数；只按理论决策点计算而忽略可达率 | 协议门禁（放行条件） |
+| 下推游标 | 逐页取尽后的序列与一次性全量取出的有序序列逐项相同，无重无漏；游标只由 `(冻结目录, 世界状态版本, 排序键版本, 游标)` 决定，游标身份含 `order_key_version` 2（排序键加相关度、决胜键改哈希后升版，在途游标失效） | 分页出现重复项或缺项；游标是偏移量式页码且在深分页时不稳定；游标依赖运行时刻或缓存 | 协议门禁（放行条件） |
+| 最大未呈现间隔 | 给定池规模 `N`、每次名额 `k`、每天决策点 `D`（有 `decision_started` 的不同模拟秒数，每人物每天；同一秒的多轮沿用首轮呈现窗口，只计一次，见 `docs/EXPERIMENT.md`「决策点节奏」；同刻轮次出现前两种计法相同），实测最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D`，上界按检索分区成立（`N`、`k` 取该分区自己的池规模与换新名额，轮转按每个对象的 `last_presented_at`）；断言使用该精确形式上界，可达率小于一的分区按有效决策点 `D × 可达率` 计算 | 实测最坏间隔超过闭式上界；断言写成连续松弛 `N ÷ (k × D)` 或硬编码天数；只按理论决策点计算而忽略可达率 | 协议门禁（放行条件） |
 | 轮转非破坏性 | 轮转前后目录逐字节不变；世界状态里对象状态不变；不产生下架事件；两次投影里同一会话内可乱序，但同一输入两次投影逐字节相同 | 轮转产生目录变更或下架事件；轮转改写任一对象状态；轮转结果不可复现；轮转判据读取互动次数或任何偏好估计量 | 协议门禁（放行条件） |
 | 工具描述与提示黑名单一致 | 工具描述文本里出现的字段引用（形如 `名称.字段`）全部不在观察黑名单内 | 工具描述里出现黑名单字段引用（当前实存一例：`play_game uses game_catalog[].game_id`，而 `game_catalog` 在黑名单里）；描述与观察合同指向的字段不一致 | 协议门禁（放行条件） |
 | 文档链接可解析 | 仓库内文档互相引用的路径全部存在 | 任一被引用的仓库内路径不存在；引用指向已删除的文件 | 协议门禁（放行条件） |
+| 设计说明书汇编与源一致 | `scripts/build_design_doc.py --check` 通过：已提交的 `docs/design/worldmock-design.html` 与 `docs/design/0*.md` 十章及 `docs/CONTRACTS.md` 摘录节重新汇编的结果逐字节相同（行尾归一后）；机器证据为 `tests/test_design_doc_build.py` | 章节改了而汇编文件没有重建，或汇编文件被直接编辑 | 协议门禁（放行条件） |
 
 素材可达性与地点类声明的准入校验按 `docs/dev/SPEC-life-realism.md`「素材可达性」执行，判定为全有或全无：
 分区键缺省、或分区在场景里恒不可行的条目逐条列出并拒绝启动，**不设比例阈值，不因条目数少而放行**。
@@ -326,7 +342,7 @@ flowchart LR
 | `persona_distinguishability` | 同代码 ≥3 次运行中两人物活动分布的留一最近邻准确率 |
 | `social` | 交谈与通话分钟、发送与收到的消息数 |
 | `habitual_consistency` | 相同可观测情境的活动家族一致率；只报告，不声称识别心理习惯 |
-| `deliberate_goals` | 家族活动证据支持的目标推进率，含修订丢弃项；只报告，缺外部参照为 null |
+| `deliberate_goals` | 家族活动证据支持的目标推进率，含修订丢弃项；带大致时刻 `around_time` 的目标只被该时刻前后 90 分钟内（当日内裁剪）进行的同家族活动推进；推进率只计非例行意图的目标，例行意图（睡眠、晨间例程、通勤、用餐）另计（一日运行保真规格 2.3、8.2）；只报告，缺外部参照为 null |
 | `external_constraints` | 受阻错误码分布与已判定动作接受率；受阻次数另进入质量门禁 |
 | `partition_reachability` | 逐条目的可检索分区归属与不可达条目清单；准入判定本身是全有或全无的门禁（见「工程门禁」的候选与呈现一致性），本键只是把判定过程留在报告里，不额外判定 |
 | `rotation_wait_interval` | 每个检索分区的实测最坏未展示间隔、闭式上界 `⌈N ÷ k⌉ ÷ D` 与可达率取值，`D` 为有 `decision_started` 的不同模拟秒数（每人物每天；同一秒的多轮沿用首轮呈现窗口，只计一次，见 `docs/EXPERIMENT.md`「决策点节奏」；同刻轮次出现前两种计法相同）；上界对照的门禁判定见「工程门禁」，本键只把逐分区取值留在报告里 |
@@ -375,7 +391,8 @@ flowchart LR
 
 「状态」列只说明该观察由哪一层判定：`离线覆盖` 表示已有确定性测试覆盖，位置见同行；
 `离线覆盖，真实运行待执行` 表示该观察的完全通过还需要真实模型运行、完整窗口或盲评收据。
-`离线验收待执行` 表示本次新增确定性实现与测试仍须在最终源码身份运行并登记结果；人物 Prompt 七层修订的各行已按[人物 Prompt 验收记录](dev/persona-prompt-verification.md)改回 `离线覆盖`，当前没有处于该状态的行。
+`离线验收待执行` 表示本次新增确定性实现与测试仍须在最终源码身份运行并登记结果；人物 Prompt 七层修订的各行已按[人物 Prompt 验收记录](dev/persona-prompt-verification.md)改回 `离线覆盖`。
+一日运行保真规格冻结时补入该规格条款的十四行同样在重新验收之前另记待验收一档，其中十二行在 `34a41ee`、「观察投影」「指名购买」两行在 `e377669` 的代码与测试上重新验收，都已改回 `离线覆盖`（证据测试写在各行；判据见[该规格验收台账](dev/SPEC-dayrun-fidelity.md#验收台账)，台账逐行的证据测试见 `docs/dev/ANALYSIS-spec-coverage.md`「一日运行保真增量映射」）。
 实测通过记录一律引 `docs/dev/implementation-status.md`，本表不重复断言。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
@@ -383,29 +400,29 @@ flowchart LR
 | AS2 接入 | 真实注册、实例化、工具 Schema、人物观察和动作调用 | `tests/integration/`、AS2 vendor `test_direct_router.py` 与真实短窗口运行 | 离线覆盖，真实运行待执行 |
 | 时间一致 | 更早结束与多人睡眠、同秒事件、媒体倍速、实验截断、决策不耗时、同秒多轮不推进 | `tests/life/test_engine_feedback.py`、`tests/life/test_activities.py`、AS2 vendor `test_society_decision_round.py` | 离线覆盖 |
 | 自主选择 | 拒绝不改写选择、重复观看、反馈后继续或退出 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py`、`tests/life/test_content_game.py` | 离线覆盖 |
-| 资源结算 | 余额、库存、睡眠与食物、部分消费、重复付款、能量 0 截断；开吃份量（暂停保留剩余，结束丢弃剩余且不补算摄入，其他份数不动）、不足一份可吃且时长按份量折算、给予只转移持有而不增加任何人的摄入 | `tests/life/test_body.py`、`tests/life/test_commerce.py`、`tests/life/test_export_integration.py`、`tests/footprints/test_ledger.py`、`tests/life/test_meal_outcome.py`、`tests/life/test_giving.py` | 离线覆盖 |
+| 资源结算 | 余额、库存、睡眠与食物、部分消费、重复付款、能量 0 截断；开吃份量（暂停保留剩余，结束丢弃剩余且不补算摄入，其他份数不动）、不足一份可吃且时长按份量折算、给予只转移持有而不增加任何人的摄入；两条娱乐结算路径对同一内容净效果相同 | `tests/life/test_body.py`、`tests/life/test_commerce.py`、`tests/life/test_export_integration.py`、`tests/footprints/test_ledger.py`、`tests/life/test_meal_outcome.py`、`tests/life/test_giving.py`、`tests/life/test_relief_floor.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「下限缓解」 | 离线覆盖 |
 | 工作生产 | 原始材料、独立语义验收、有限协议纠正、返工、套餐、计时与计件 | `tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py`、`tests/life/test_work_contracts.py` 与真实 DeepSeek 正反工作审阅收据 | 离线覆盖，真实运行待执行 |
 | 内容知识 | 邮件到达、未来字幕隔离、隐藏参考、游戏恢复 | `tests/life/test_content_game.py`、`tests/corpora/test_corpora.py` | 离线覆盖 |
 | 存储完整 | 素材损坏、事务中断、保存失败、模型未知结果 | `tests/footprints/`、`tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_direct_runner_failures.py` | 离线覆盖 |
-| 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束且登记后不追加 tool 消息、没有决策自述请求、`decision_started` 与首个行动请求同批且在前、记忆无 refs 且查询结果只序列化一次、完整证据、致命异常不返工 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、`tests/integration/test_seven_layer_request.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` | 离线覆盖 |
+| 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束且登记后不追加 tool 消息、没有决策自述请求、`decision_started` 与首个行动请求同批且在前、记忆无 refs 且查询结果只序列化一次、完整证据、致命异常不返工；宿主纠错与环境拒绝共用错误结构 `error_code`、`reason`、`fix`、`items`、`unmet`，纠错不含 Pydantic 转储与网址；输出截断的回合丢弃、纠错替换不叠加，重试关闭思考并 `tool_choice=required`；控制工具 `items` 形状的本地上限校验 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、`tests/integration/test_seven_layer_request.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py`；错误结构见 `tests/life/test_error_contract.py`、`tests/integration/test_host_feedback.py`，截断见 `tests/integration/test_output_truncation.py`，控制工具见 `tests/integration/test_conclude_memories.py`、`tests/life/test_control_items.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「错误合同」「截断处理」「控制工具」 | 离线覆盖 |
 | 共同恢复 | 世界、人物、记忆和游戏一致，坏快照拒绝，父目录不变 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py` 与实际 resume／replay | 离线覆盖，真实运行待执行 |
-| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口中动作请求事件的投影不含 `conclude_activity.memories`，动作窗口保留完整请求，实际请求原文照原样保留；交付不调用提示渲染器，`self_note` 随实际请求进入动作与意图窗口，dreaming 读 `self_note` 与实际请求中的层 JSON（`input.decision_layers`，来源写 `provenance.decision_layer_sources`）；检查点结构版本与当前不符时交付被拒 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py`、`tests/delivery/test_publication.py` | 离线覆盖 |
+| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口中动作请求事件的投影不含 `conclude_activity.memories`，动作窗口保留完整请求，实际请求原文照原样保留；交付不调用提示渲染器，`self_note` 随实际请求进入动作与意图窗口，dreaming 读 `self_note` 与实际请求中的层 JSON（`input.decision_layers`，来源写 `provenance.decision_layer_sources`）；检查点结构版本与当前不符时交付被拒；控制工具新旧两种形状经 `control_items` 读出同一结果，意图与 dreaming 窗口裁去各项的 `memories` 与 `views` | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py`、`tests/delivery/test_publication.py`（`tests/delivery/test_windows.py::test_earlier_control_request_shapes_are_trimmed_to_the_same_items`）；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「控制工具」 | 离线覆盖 |
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `tests/delivery/test_labelkit_process.py`、`tests/delivery/test_training.py` 和真实模型 trace | 离线覆盖，真实运行待执行 |
 | 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `tests/delivery/test_training.py`、`tests/delivery/test_generation.py`、`tests/delivery/test_rules.py` 和完整真实 deliver | 离线覆盖，真实运行待执行 |
 | 长期有效性 | 84 天、多人、行为、失败、吞吐、成本和盲评 | `tests/evaluation/`、`tests/footprints/test_quality.py`、实际十二周 export／quality 与评估报告 | 离线覆盖，真实运行待执行 |
 | 决策节律 | 无唤醒条件的边界不调用人物决策模型且留痕、每类有触发来源的唤醒条件各触发一次（`activity_infeasible`、`discovery_result` 保留在闭集中、当前无来源，验证其不产生）、常规与空闲间隔、精确威胁边界、睡眠只被睡眠允许原因打断、计划提醒与进行中活动的播报 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py`、`tests/life/test_day_planning.py`、`tests/life/test_same_moment_decisions.py`；`discovery_result` 不产生见 `tests/life/test_wake_reasons.py::test_browse_results_return_in_observation_never_as_discovery_result` | 离线覆盖 |
-| 同刻决策 | 运行开始、活动结束、瞬时动作与业务拒绝之后同秒再决策；同秒轮数不超过上限加三；受限轮逐级开放，收尾、结束与等待不被业务拒绝；时钟推进时人人有进行中活动且没有待收尾活动；重放轮计入同刻轮数；同一秒各轮的呈现窗口不变 | `tests/life/test_same_moment_decisions.py` | 离线覆盖 |
-| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减、低能量两档饥饿显示、作息初值 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 离线覆盖 |
-| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败、商品热量与路线费力标签、提示无内部身份 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py`、`tests/life/test_public_observation_contract.py` | 离线覆盖 |
-| 七层提示 | 生活决策请求只有原生 `tools`、系统层 system 与六层 user（工具、人设、记忆、待办、环境、进度），各层通过 `prompt_schemas.py` 校验；system 与原生 `tools` 整次运行逐字节不变（只剩最后一个回合时去掉记忆查询工具），description 只写用途、不含协议句；每项信息在整个请求中只出现一次；工具层 `available=false` 的动作提交后拒绝原因与 `reason` 一字不差；进度层在本 session 内保留调用与结果，300 字直接消息全文可见；请求中没有 `scene`、`facts`、身份前言、「怎样过一天」、预算附录与内部身份 | `tests/integration/test_seven_layer_request.py`、`tests/integration/test_tool_description_references.py`、`tests/life/test_tool_layer.py`、`tests/life/test_todo_layer.py`、`tests/life/test_environment_layer.py`、`tests/life/test_progress_events.py`、`tests/life/test_prompt_layers.py` | 离线覆盖 |
+| 同刻决策 | 运行开始、活动结束、瞬时动作与业务拒绝之后同秒再决策；同秒轮数不超过上限加三；受限轮逐级开放，收尾、结束与等待不被业务拒绝；时钟推进时人人有进行中活动且没有待收尾活动；重放轮计入同刻轮数；同一秒各轮的呈现窗口不变；名称类拒绝不计同刻轮数、不施加情绪脉冲，每人每秒至多 2 次，第 3 次起照常 | `tests/life/test_same_moment_decisions.py`、`tests/life/test_name_resolution.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「名称类预算」 | 离线覆盖 |
+| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减、低能量两档饥饿显示、作息初值；困意档界 0.80、0.93、1.07、1.18 且两份常数一致；社交账的清醒按本区间共同身体结算的活动集合判定，边界结束的睡眠不计清醒；不适脉冲的门槛只判一次；娱乐按有效偏好 `f + (1 − f)·w` 缓解、有缓解时不累积，游戏走下限 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py`、`tests/life/test_sleep_billing.py`、`tests/life/test_relief_floor.py`、`tests/life/test_discomfort_and_sleep_messages.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「睡眠计费」「下限缓解」「困意档界」「不适脉冲与消息」 | 离线覆盖 |
+| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败、商品热量与路线费力标签、提示无内部身份；浏览结果列完整标签；工具层的可调用索引只列名称且都能按名调用；地点类不符的生活活动不进窗口；下一步提示只指向可达地点，两种配送原因分开 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py`、`tests/life/test_public_observation_contract.py`；浏览结果、可达提示与两种配送原因见 `tests/life/test_browse_and_hints.py`、`tests/life/test_wayfinding.py`，地点类资格见 `tests/life/test_presentation_fidelity.py`，工具层的可调用索引见 `tests/life/test_callable_index.py`（索引里的名称都能按名调用、不计入呈现上限、不含地点类不符的活动）与 `tests/integration/test_seven_layer_request.py`（计入容量）；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「呈现」「浏览与提示」 | 离线覆盖 |
+| 七层提示 | 生活决策请求只有原生 `tools`、系统层 system 与六层 user（工具、人设、记忆、待办、环境、进度），各层通过 `prompt_schemas.py` 校验；system 与原生 `tools` 整次运行逐字节不变（只剩最后一个回合时与输出截断后的那次重试时去掉记忆查询工具），description 只写用途、不含协议句；每项信息在整个请求中只出现一次；工具层 `available=false` 的动作提交后拒绝原因与 `reason` 一字不差；进度层在本 session 内保留调用与结果，300 字直接消息全文可见；请求中没有 `scene`、`facts`、身份前言、「怎样过一天」、预算附录与内部身份；系统层 18 条规则与规格、接口合同逐字相同，档位名与 `felt.py` 分级文本逐字一致；零点计划模板不重述作息；待办层写「约 HH:MM」；进度层结果的 `details` 可含 `fix`、`items`、`resolved`、`notes` | `tests/integration/test_seven_layer_request.py`、`tests/integration/test_tool_description_references.py`、`tests/life/test_tool_layer.py`、`tests/life/test_todo_layer.py`、`tests/life/test_environment_layer.py`、`tests/life/test_progress_events.py`、`tests/life/test_prompt_layers.py`、`tests/life/test_day_planning.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「系统层」「目标推进」「错误合同」 | 离线覆盖 |
 | 同秒续接 | 第二次决策的前缀等于上一决策末次请求的消息，assistant 原样带 `reasoning_content`，tool 消息含 `result`、`changes`、`events`，链首 user 字节不变；时间推进后请求中没有原生 assistant 与 tool 回合，上一秒的思考不出现；出发后同秒、反事实分支、缺思考与证据缺失时断链；从中秒检查点普通恢复与不中断运行一致；开关关闭时每次决策首个请求恰好两条消息，开关冻结进清单且恢复继承 | `tests/integration/test_same_second_continuation.py`、`tests/life/test_continuation_metrics.py` | 离线覆盖 |
-| 记忆层 | 四种 session 结束方式与同秒归属；`settled` 句式的份数、金额与跨日写法；失败、重放、回看与查询不进入；空条目不出现；零点分区；未了结订单与消息处理后消失；反思归属日期；8000 字符窗口的删减顺序与豁免；恢复前后逐字节相同 | `tests/life/test_memory_layer.py` | 离线覆盖 |
-| 工作截止与提交 | 恢复不越过合同截止，距截止不足 60 秒的恢复被业务拒绝；工时达标、正在工作与能否提交分开说明；未付款的逾期任务保留到截止当日结束，提交以 `WORK_SUBMISSION_LATE` 业务拒绝且无 `ProtocolError` | `tests/life/test_work_contracts.py` | 离线覆盖 |
-| 指名购买 | 被轮转隐藏但存在的商品按名称可买并按当前报价结算；不存在时给至多 3 个近似候选且不替换；多店同名报歧义；其余动词的未列名称仍按协议纠错；同一消息、同一商品、同一收货人重复提交以 `REQUEST_ALREADY_HANDLED` 拒绝并指向原订单，新需求照常购买；代点场景从请求、下单到实际送达或给予连成一条链 | `tests/life/test_named_purchase.py`、`tests/life/test_request_linking.py`、`tests/integration/test_minimum_complete_path.py` | 离线覆盖 |
-| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、社交需要结算；交谈要求双方在场且都不在途中，对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复；联系人回复预排送达；直接消息全文进入进度层，全文呈现才记为已读；联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；联系人按 `receive_location_id` 收货，为空时不能收实物 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_progress_events.py`、`tests/life/test_giving.py`、`tests/life/test_contact_exchange.py` | 离线覆盖 |
-| 画像编译 | 卡片字段完备、关系与时间锚点、覆盖率不足拒绝、大五与随机浮点不进提示；人设层不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对，同一对象后写的看法替换先写的；首次购买后只写「明天还想吃」时 `preferences` 为空 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_layer.py` | 离线覆盖 |
-| 行为指标 | 指标可复现、按代码摘要分组、协议门禁阈值、行为分布只报告不裁定 | `tests/evaluation/test_behavior_metrics.py` | 离线覆盖 |
-| 候选与呈现一致性 | 候选确定性、软偏好不出局、排除留痕、呈现上限、下推游标、最大未呈现间隔、轮转非破坏性、工具描述与提示黑名单一致、文档链接可解析、素材可达性；轮转与可见期只管展示与比较，不构成购买资格（见「指名购买」行） | `tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_wiring.py`、`test_candidate_contract_boundaries.py`、`test_retrieval.py`、`tests/catalog/test_reachability_admission.py`、`tests/test_documentation_gate.py` | 离线覆盖 |
+| 记忆层 | 四种 session 结束方式与同秒归属；`settled` 句式的份数、金额与跨日写法；失败、重放、回看与查询不进入；空条目不出现；零点分区；未了结订单与消息处理后消失；反思归属日期；8000 字符窗口的删减顺序与豁免；恢复前后逐字节相同；`views` 写入的记忆带 `subject` 且与旧形状逐字节相同 | `tests/life/test_memory_layer.py`、`tests/integration/test_conclude_memories.py::test_views_persist_as_memories_byte_identical_to_the_subject_shape`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「控制工具」 | 离线覆盖 |
+| 工作截止与提交 | 恢复不越过合同截止，距截止不足 60 秒的恢复被业务拒绝；工时达标、正在工作与能否提交分开说明；未付款的逾期任务保留到截止当日结束，提交以 `WORK_SUBMISSION_LATE` 业务拒绝且无 `ProtocolError`；中文逐字摘录按字数核对：五个汉字拒、六个通过，纯英文逐位不变 | `tests/life/test_work_contracts.py`、`tests/life/test_work_review_excerpts.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「中文摘录」 | 离线覆盖 |
+| 指名购买 | 被轮转隐藏但存在的商品按名称可买并按当前报价结算；不存在时给至多 3 个近似候选且不替换；全部目录类对象按名调用，归一后唯一即受理、否则给可照填的可行候选；`from` 为可选约束，分段匹配 M0–M3 各报其码；方式「购买」由系统定到店或远程下单；多于一家可服务时按 `prefer` 选定并写进 `details.notes`，不报歧义；渠道称呼解析为成员门店，订单带 `channel_id`；同一消息、同一商品、同一收货人重复提交以 `REQUEST_ALREADY_HANDLED` 拒绝并指向原订单，新需求照常购买；代点场景从请求、下单到实际送达或给予连成一条链 | `tests/life/test_named_purchase.py`、`tests/life/test_request_linking.py`、`tests/integration/test_minimum_complete_path.py`；全部目录类按名调用与可照填候选见 `tests/life/test_name_resolution.py`，`from` 约束、分段匹配与方式「购买」见 `tests/life/test_purchase_stages.py`、`tests/life/test_wc_named_purchase_replay.py`，按 `prefer` 选定与渠道见 `tests/life/test_purchase_channels.py`、`tests/footprints/test_purchases.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「名称解析」「指名购买」「购买渠道」 | 离线覆盖 |
+| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、社交需要结算；交谈要求双方在场且都不在途中，对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复；联系人回复预排送达；直接消息全文进入进度层，全文呈现才记为已读；联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；联系人按 `receive_location_id` 收货，为空时不能收实物；睡眠中送达的消息醒来后的第一个边界才读；联系人回复请求带 `sender_name`、`now`、`presence`，守卫命中即重试一次，两次都命中用兜底句并带 `guard_applied` | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_progress_events.py`、`tests/life/test_giving.py`、`tests/life/test_contact_exchange.py`、`tests/life/test_discomfort_and_sleep_messages.py`、`tests/life/test_contact_reply_guard.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「不适脉冲与消息」「联系人回复」 | 离线覆盖 |
+| 画像编译 | 卡片字段完备、关系与时间锚点、覆盖率不足拒绝、大五与随机浮点不进提示；人设层不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对，同一对象后写的看法替换先写的；首次购买后只写「明天还想吃」时 `preferences` 为空；场景显式声明的作息字段覆盖卡片、冲突保留卡片值并记警告；创建运行时逐条发出输入警告、不失败，覆盖率不按 App 名子串计 | `tests/profile/`（含 `tests/profile/test_injection.py`）、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_layer.py`、`tests/integration/test_input_warnings.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「场景作息」「输入警告」 | 离线覆盖 |
+| 行为指标 | 指标可复现、按代码摘要分组、协议门禁阈值、行为分布只报告不裁定；目标推进按大致时刻前后 90 分钟判定，推进率只计非例行意图；质量报告新增五节只报告 | `tests/evaluation/test_behavior_metrics.py`、`tests/evaluation/test_goal_metrics.py`、`tests/footprints/test_goal_export.py`、`tests/footprints/test_quality.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「目标推进」 | 离线覆盖 |
+| 候选与呈现一致性 | 候选确定性、软偏好不出局、排除留痕、呈现上限、下推游标、最大未呈现间隔、轮转非破坏性、工具描述与提示黑名单一致、文档链接可解析、素材可达性；轮转与可见期只管展示与比较，不构成购买资格（见「指名购买」行）；决胜键为哈希、`order_key_version` 2，轮转按每个对象的 `last_presented_at`，`⌈N ÷ k⌉` 按分区 | `tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_wiring.py`、`test_candidate_contract_boundaries.py`、`test_retrieval.py`、`tests/catalog/test_reachability_admission.py`、`tests/test_documentation_gate.py`、`tests/life/test_presentation_fidelity.py`；另见[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#验收台账)验收台账「呈现」 | 离线覆盖 |
 | 交互菜单 | 声明闭集、地点与人物交集、冻结观察、动态 Schema、本地与环境重验、控制保护、候选不变、身份恢复和真实跨轮刷新 | 本文件「交互菜单」门禁的对应测试与 `docs/dev/research/interaction-menu-main-verification.md` | 历史组合与本次地图主线组合均已通过离线验收，保留各自固定源码证据 |
 | 地图与门店供给 | 唯一资料、供给身份、时态条件、发现反馈、原子交易、履约、恢复和来源 | 本文件「地图与门店供给」及对应完整开发规格 | 独立特性与本次主线组合均已通过离线验收；本次证据见 `docs/dev/research/map-and-storefront-main-verification.md` |
 
@@ -547,3 +564,7 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格阶段 9（VF12）：「时间与能量特性门禁」末尾补「证据统一见本特性验收记录」并链接该记录；测试矩阵中冻结时改写或新增、记为离线验收待执行的「时间一致」「资源结算」「决策协议」「LabelKit 输入」「同刻决策」「身体语义」「观察投影」「两阶段决策」「社交」九行按本特性验收记录改回离线覆盖，其中「LabelKit 输入」的证据位置补 `tests/delivery/test_publication.py`（检查点结构版本不符时交付被拒），「观察投影」补 `tests/life/test_public_observation_contract.py`（商品热量与路线费力标签）与 `tests/life/test_dayrun_restaurants.py`（饿时吃饭途径句）；「决策节律」行补 `discovery_result` 不产生的引擎级用例 `tests/life/test_wake_reasons.py::test_browse_results_return_in_observation_never_as_discovery_result`（浏览独自进行到计划结束、被本人提前结束、在进行中的等待旁进行，决策开始、观察与共同身体结算的唤醒原因都不含它，浏览结果置顶于随后的观察），证据位置补 `tests/life/test_day_planning.py`、`tests/life/test_same_moment_decisions.py`，同样改回离线覆盖；文件头日期改写 |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 七层规格](dev/SPEC-persona-prompt.md)冻结，修订部分待实现：新增「人物 Prompt 七层特性门禁」，引该规格验收台账并列出独立语义突变的检验点；「决策上下文」门禁删自述重试，含 `decision_statement` 阶段键的清单在五个入口被拒绝；「地图与门店供给」的可见供给行注明只授权实际呈现是该特性验收时的口径；协议门禁的观察重复改按（人物，模拟秒）的续接链计并补两个测试名，MEMORY.md 身份残留改为检查记忆层 JSON；报告项的 prompt token 中位数按单次行动请求（含续接）计，用餐多样性只计本人进食、给予排除；测试矩阵删「两阶段决策」行与观察投影中的吃饭途径句，「资源结算」「决策协议」「LabelKit 输入」「观察投影」「社交」「画像编译」「候选与呈现一致性」按新行为改写，增「七层提示」「同秒续接」「记忆层」「工作截止与提交」「指名购买」五行，改动行记离线验收待执行；「实施顺序」的两阶段决策改为七层提示与单次行动请求；文件头状态句补修订说明，日期改写 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：人物 Prompt 实现后文档（VF10）：状态头改为修订部分已实现并通过离线验收；「人物 Prompt 七层特性门禁」补验收登记表与完整性守卫，并链接本特性验收记录；测试矩阵中冻结时记离线验收待执行的「资源结算」「决策协议」「LabelKit 输入」「观察投影」「七层提示」「同秒续接」「记忆层」「工作截止与提交」「指名购买」「社交」「画像编译」「候选与呈现一致性」十二行按验收记录改回离线覆盖，状态说明注明当前没有该状态的行；按最终代码核对：协议门禁 `memory_md_identity_residue` 仍检查调用方传入的 `MEMORY.md` 文本（冻结时误写为记忆层 JSON，改回），报告项 `decision_prompt_token_median` 按不带 `purpose` 的全部请求计，「七层提示」行注明最后一个回合去掉记忆查询工具，「LabelKit 输入」行写明裁去记忆只作用于动作请求事件的投影并补 dreaming 的层 JSON 字段，「社交」行补 `tests/life/test_contact_exchange.py` |
+| `2026-09-29-design-aio` | 2026-09-29 | 「工程门禁」增「设计说明书汇编与源一致」一行：`scripts/build_design_doc.py --check`，机器证据 `tests/test_design_doc_build.py` |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 26 行修订（一日运行保真 VF1，随该规格冻结）：新增「一日运行保真特性门禁」，指向该规格验收台账，列出工程放行门禁与独立语义突变的检验点（含 `prefer` 的选定与决胜），质量报告新增五节只报告；「源码硬规范」注明英文报错文本的规定只约束日志、异常与内部错误串，面向模型的原因与候选不在其内；候选与呈现一致性的「候选确定性」改为哈希决胜，「排除留痕」补生活活动的地点类资格，「下推游标」写明游标身份含 `order_key_version` 2，「最大未呈现间隔」按分区与逐对象 `last_presented_at`；报告项 `deliberate_goals` 补大致时刻窗口与只计非例行意图；「地图与门店供给」的可见供给行不变（可见性不放宽）；测试矩阵同刻决策、身体语义、资源结算、决策协议、LabelKit 输入、观察投影、七层提示、记忆层、工作截止与提交、指名购买、社交、画像编译、行为指标、候选与呈现一致性十四行补该规格条款，标注尚待本规格实现后重新验收，状态说明随之改写；文件头补修订说明，日期改写 |
+| `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码与测试核对）：测试矩阵中由 VF1 补入该规格条款的资源结算、决策协议、LabelKit 输入、同刻决策、身体语义、观察投影、七层提示、记忆层、工作截止与提交、指名购买、社交、画像编译、行为指标、候选与呈现一致性十四行重新验收（十二行在 `34a41ee`，观察投影与指名购买在 `e377669`），改回 `离线覆盖`，证据位置补实际守卫的测试文件；「七层提示」补输出截断后的那次重试同样去掉记忆查询工具；状态说明与文件头随之改写 |
+| `2026-09-29-dayrun-fidelity-verification` | 2026-09-29 | 一日运行保真实现后文档（随该特性的[验收记录](dev/dayrun-fidelity-verification.md)）：「一日运行保真特性门禁」末尾补验收登记表 `tests/dayrun_fidelity_acceptance.py` 与完整性守卫 `tests/test_dayrun_fidelity_acceptance.py`，并链接本特性验收记录；文件头状态句补证据链接 |

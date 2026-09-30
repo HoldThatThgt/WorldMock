@@ -25,9 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall
 
-from tests.life.conftest import (
-    StubPlanDayClient, activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
-    settle_day_plans, stage_day_plan, submit_round, wake_by_mail, start_request)
+from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next, advance_until_ready, conclude_request,
+                                 context, drive, settle_day_plans, stage_day_plan, submit_round, wake_by_mail,
+                                 start_request, pause_request, report_request)
 from tests.life.test_scenario import _assert_invalid, _payload, _replace
 from tests.life.test_work_review import _at_task_start, _complete_required_work, _paraphrased_submission
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -50,35 +50,12 @@ from worldmock.life.engine import (
     _record_material_reveal,
     _terminal_action_records,
 )
-from worldmock.life.models import (
-    ActionStatus,
-    ActivityKind,
-    ActivityStartParams,
-    ActivityState,
-    ActivityStatus,
-    ActionResult,
-    ChangeActivityRequest,
-    ConsumeRequest,
-    CounterfactualIntervention,
-    CurvePoint,
-    deepseek_strict_schema,
-    MeetingMinutes,
-    ModelIdentity,
-    PendingAction,
-    PlanDayRequest,
-    PlanGoalInput,
-    PurchaseItem,
-    PurchaseOrderRequest,
-    PauseActivityRequest,
-    ReportStatusRequest,
-    ReviseDayPlanRequest,
-    RunIdentity,
-    SameMomentStage,
-    SendMessageActionRequest,
-    SubmitWorkActionRequest,
-    WorldState,
-    active_activities,
-)
+from worldmock.life.models import (ActionStatus, ActivityKind, ActivityStartParams, ActivityState, ActivityStatus,
+                                   ActionResult, ChangeActivityRequest, ConsumeRequest, CounterfactualIntervention,
+                                   CurvePoint, deepseek_strict_schema, MeetingMinutes, ModelIdentity, PendingAction,
+                                   PlanDayRequest, PlanGoalInput, PurchaseItem, PurchaseOrderRequest,
+                                   ReviseDayPlanRequest, RunIdentity, SameMomentStage, SendMessageActionRequest,
+                                   SubmitWorkActionRequest, WorldState, active_activities)
 from worldmock.life.observe import _recent_meal_counts
 from worldmock.life.scenario import (
     BodyConfig,
@@ -174,7 +151,7 @@ def _run_identity(scn, **updates) -> RunIdentity:
         code_sha256="2" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://api.deepseek.com",
+            base_url="https://api.deepseek.com/beta",
             requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",
@@ -447,9 +424,10 @@ def test_playback_speed_only_for_change_speed_operation() -> None:
 def test_plan_goal_rejects_blank_text_and_old_time_fields() -> None:
     """目标必须有文字，旧绝对时段请求严格拒绝。"""
     with pytest.raises(ValidationError, match="pattern"):
-        PlanGoalInput(intent_kind="工作", goal=" ", remind_time=None)
+        PlanGoalInput(intent_kind="工作", goal=" ", remind_time=None, around_time=None)
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "remind_time": None, "start": 100})
+        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "remind_time": None,
+                                      "around_time": None, "start": 100})
 
 
 def test_meeting_minutes_fields_reject_whitespace_only_text() -> None:
@@ -1030,8 +1008,8 @@ async def test_prepare_pending_work_review_while_the_wait_awaits_conclusion(engi
         if engine.state.activities[started.activity_id].status != ActivityStatus.ACTIVE:
             break
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"keep-waiting-{step}", "report_status", ReportStatusRequest(
-                task=[activity_name(engine, started.activity_id)], summary=["继续等。"]))
+            _act(engine, f"keep-waiting-{step}", "report_status", report_request(
+                activity_name(engine, started.activity_id), summary="继续等。"))
         else:
             advance_next(engine)
     waited = engine.state.activities[started.activity_id]
@@ -1336,7 +1314,7 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     assert result.status.value == "rejected"
     assert result.error_code == "WORK_REQUIRES_REWORK"
     assert "work_review" in result.data
-    assert result.message == "Work submission requires rework: WORK_REQUIRES_REWORK"
+    assert result.message == result.data["reason"] == "提交的成果还需要返工"
     assert result.data["same_moment_round"] == limit
     assert result.data["max_same_moment_decisions"] == limit
     assert result.data["next_decision_at"] == engine.state.current_time
@@ -1369,7 +1347,7 @@ def test_boundary_action_requires_owned_current_activity(engine_factory) -> None
     assert engine.scheduling_state().ready_agent_ids == (1,)
     for index, name in enumerate(("不存在的活动", activity_name(engine, other))):
         wrong_owner = _act(engine, f"own-wrong-{index}", "pause_activity",
-                           PauseActivityRequest(task=[name], summary=["先暂停"]))
+                           pause_request(name, summary="先暂停"))
         assert wrong_owner.status.value == "rejected"
         assert wrong_owner.error_code == "ACTION_REQUEST_INVALID"
     assert {item.status for item in engine.state.activities.values()} == {ActivityStatus.ACTIVE}
@@ -1379,8 +1357,8 @@ def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
     """空闲人物播报、暂停或结束未知活动名都以 ACTION_REQUEST_INVALID 业务拒绝，并在同一秒再决策（第一章规则 2）。"""
     engine = engine_factory()
     start = engine.state.current_time
-    requests = [("report_status", ReportStatusRequest(task=["不存在的活动"], summary=["还在进行"])),
-                ("pause_activity", PauseActivityRequest(task=["不存在的活动"], summary=["先暂停"])),
+    requests = [("report_status", report_request("不存在的活动", summary="还在进行")),
+                ("pause_activity", pause_request("不存在的活动", summary="先暂停")),
                 ("conclude_activity", conclude_request("不存在的活动", summary="已结束"))]
     for index, (tool, request) in enumerate(requests):
         ghost = _act(engine, f"own-missing-{index}", tool, request)
@@ -1466,7 +1444,7 @@ def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
     assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
     with pytest.raises(ProtocolError, match="already generated"):
         engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
-    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标", remind_time=None)
+    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标", remind_time=None, around_time=None)
     forged = ReviseDayPlanRequest.model_construct(goals=(invalid_goal,))
     invalid = _act(engine, "revise-invalid", "revise_day_plan", forged)
     assert invalid.status.value == "rejected"
@@ -1485,7 +1463,7 @@ def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
     """无当日目标时修订被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "revise-none", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None, around_time=None),)))
     assert result.status.value == "rejected"
     assert result.error_code == "PLAN_NOT_FOUND"
 

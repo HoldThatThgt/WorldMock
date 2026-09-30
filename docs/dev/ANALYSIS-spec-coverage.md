@@ -10,7 +10,7 @@
 新增特性各有独立完整台账，仍不得把历史比例当作当前全规格覆盖率。
 
 > 状态：分析文档，不拥有规范权威——本文件只回答「每条规格要求是否有测试覆盖、缺口在哪」，不定义、不裁决规格；条款的内容与判定以现行文档树为准
-> 日期：2026-09-28（增量修订；原基线 2026-09-18）
+> 日期：2026-09-29（增量修订；原基线 2026-09-18）
 > 审计：本轮只读审计；终态：独立复核
 > 范围：`tests/`（九个子目录 + 根）与 `vendor/agentsociety2/packages/agentsociety2/tests/`（含 worldmock hooks）的测试函数与现行文档树条款的映射
 
@@ -31,6 +31,78 @@
 与品类契约主线组合后的源码身份和全仓门禁见
 [交互菜单主线合并验收](research/interaction-menu-main-verification.md)，各独立审查保留原快照边界。
 
+
+## 一日运行保真增量映射
+
+[一日运行保真特性规格](SPEC-dayrun-fidelity.md)（FROZEN）已在实施阶段 1–5 全部实现，逐条判据见其[验收台账](SPEC-dayrun-fidelity.md#验收台账)。
+下表按台账逐行列出守卫该行的测试：各实现阶段登记的 198 个测试节点在 `e377669` 上复跑全部通过（阶段 1–5 前期登记的 180 个节点含参数化共
+437 个用例，指名购买、购买渠道、3.5 的购买请求与可调用索引登记的 18 个节点含参数化共 24 个用例），表中按整个文件点名的
+`tests/test_probe_deepseek_strict.py`、`tests/integration/test_strict_endpoint.py` 与 `tests/life/test_activity_title_embedding.py` 另整文件复跑也全部通过。
+源码身份、全量门禁、覆盖率、独立语义突变审查、strict 探针与文档一致性的完整结果由[本特性验收记录](dayrun-fidelity-verification.md)统一承载，新条款不混入本文旧统计分母。
+此后台账各行与「裁决记录」已定裁决的证据测试登记在 `tests/dayrun_fidelity_acceptance.py`（380 个不重复节点，含上表之后的修复与突变审查补测），
+由 `tests/test_dayrun_fidelity_acceptance.py` 逐行判定（节点须解析到会被收集、未被跳过的测试函数，本特性文件没有延期标记与空壳函数），全部在最终代码 `1478436` 的全量测试中通过。
+
+| 台账行 | 证据测试（`e377669` 复跑通过） | 当前证据边界 |
+| --- | --- | --- |
+| 睡眠计费 | `tests/life/test_sleep_billing.py` 六例：边界完成与提醒提前结束的睡眠社交不变、醒后第一段 +0.04 × 0.25、社交账分类与 `body_settlement.activity_ids` 一致、边界吃完的一餐算共同用餐、无草稿走 `ended_at == now` 兜底 | 真实引擎结算 |
+| 下限缓解 | `tests/life/test_relief_floor.py`（下限缓解且不累积、有效偏好的端点与严格单调、权重越高缓解越大、游戏无题材走下限且按内容算法算权重、零权重排最后仍有下限缓解、两条结算路径净效果相同、满需要回落到「有点想放松」以下的时长、观看不产生向上的档界边界）；`tests/life/test_motivation.py` 的 `TestReliefFloorPreview`（观看与继续的预演等于引擎结算）；`tests/integration/test_host_branch_coverage.py::test_build_society_create_mode_injects_taste_weights`；`tests/life/test_scenario.py` 中场景层字段 `entertainment_relief_preference_floor` 的说明、缺省 0.5 与越出 (0, 1) 即拒三例 | `f` 的场景层字段与 `docs/EXPERIMENT.md`「实验假设声明」各登记一次 |
+| 输入警告 | `tests/profile/test_injection.py`（每个警告码各一例，闭集恰为十码）；`tests/integration/test_input_warnings.py`（冻结进清单、ops 与质量报告，地图问题只警告且创建成功，`validate` 打印同一组警告、覆盖率不足仍失败，手机配置核验失败也不让创建失败）；`tests/footprints/test_quality.py::test_input_warnings_section_counts_the_frozen_manifest_warnings`；`tests/profile/test_coverage.py::test_app_name_substrings_no_longer_count_as_coverage_hits`；运行查看器总览逐条列出清单冻结的警告（第九章查看器一行）见 `tests/tools/run_viewer.test.cjs`，由 `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names` 运行 | 警告码为十个：1.3 表的八个码加 8.1 的 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS`（台账「九个」按表行数计，`CARD_FIELD_OVERRIDDEN` 与 `CARD_FIELD_CONFLICT` 同行） |
+| 困意档界 | `tests/life/test_felt_states.py` 的档名与个数不变、档界边界两例；`tests/life/test_sleep_two_process.py` 的 `TestSleepinessGradeBands`（档界、两份常数是一张表、KSS 等价切点）、`TestWeekdaySteadyStateOnsets`、`TestAnchorTrajectory` | WC/BIZ 稳态各档起点按 1.4 的表（WC 用故事作息 00:10–08:00 就寝） |
+| 不适脉冲与消息 | `tests/life/test_discomfort_and_sleep_messages.py` 四例（饿 2.25 小时施加且只计施加的小时、睡眠中送达的消息醒后第一个边界才读、判定段睡眠中不读、睡眠中观察的轮次不记已读）；`tests/life/test_felt_states.py::TestMood::test_discomfort_pulse_is_linear_in_billed_hours` | 真实引擎结算 |
+| 场景作息 | `tests/profile/test_injection.py` 的只覆盖显式声明字段、WC 场景作息覆盖抽取值、乱序窗口保留卡片值并记冲突；`tests/integration/test_input_warnings.py` 的只声明中点只改中点、冲突冻结为警告、身体结算与零点计划输入与人设层同值、恢复时核对冻结的卡片作息 | 创建与恢复路径 |
+| 系统层 | `tests/integration/test_seven_layer_request.py` 的规则与接口合同逐字相同且为 18 条、第 14 条的作息默认与计划优先、档位名是 `felt.py` 的分级文本、记录的 `prompt_sha256` 按 18 条与 `around_time` Schema 重算；`tests/life/test_day_planning.py` 的模板只问差异并带大致时刻、收尾记下的起床时刻仍成提醒；`tests/life/test_day_plan.py::test_empty_plan_is_registered_once_and_can_be_revised` | 真实请求组装 |
+| 名称解析 | `tests/life/test_name_resolution.py` 十一例：精确、归一、候选三段经宿主与引擎，每种前缀与去邮件时间戳，开始时刻后缀、任务前缀与回看名，唯一无损才受理，「家」「住处」映射，动词与方式不符报 `WAY_NOT_OFFERED` 并给（动词，方式）对，方式同义只在唯一命中时受理，候选可行在前且可照填，宿主受理的环境也受理（性质测试），两项请求的名称失败逐项报告，未列出的目录对象可按名调用 | 宿主与真实引擎 |
+| 指名购买 | `from` 四种写法：`tests/life/test_named_purchase.py::test_full_label_with_another_store_in_from_is_a_source_mismatch`、`tests/life/test_purchase_stages.py::test_goods_from_a_store_that_does_not_sell_them_are_supply_not_at_store`、`tests/life/test_purchase_channels.py::test_an_unknown_source_is_source_not_found_with_near_stores_and_apps`；M0–M3 各段：`tests/life/test_named_purchase.py::test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substituted`（M0）、`tests/life/test_purchase_stages.py` 的 `test_goods_from_a_store_that_does_not_sell_them_are_supply_not_at_store`（M1）与 `test_a_way_the_matching_store_does_not_offer_is_fulfillment_not_supported`（M2）、`tests/life/test_wc_named_purchase_replay.py::test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store_delivers`（M3）；多件逐项报错、整组原子：`tests/life/test_purchase_stages.py::test_multi_item_purchases_report_every_item_and_stay_atomic`；WC 18:15 的三次请求：`tests/life/test_wc_named_purchase_replay.py::test_wc_named_purchase_requests_are_accepted_in_an_offline_replay`；3.5（S10，当时台账没有单列的行，规格 0.6 补登为下面的「更简单的购买请求」）：`tests/life/test_purchase_stages.py` 的 `test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable`、`test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_store`、`test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed`，`tests/life/test_named_purchase.py::test_several_servable_matches_follow_prefer_and_never_report_ambiguity` | WC 18:15 按冻结的真实请求离线重放 |
+| 购买渠道 | `tests/life/test_purchase_channels.py`（四种 `from` 各得其来源范围、多家成员门店选最近的一家并写进 `details.notes`、并列时先比到手价再比门店标识、没有钉定手机配置时 App 名报 `SOURCE_NOT_FOUND`、渠道准入违规在加载时拒绝、核验失败的手机配置不派生渠道）；`tests/profile/test_coverage_apps.py`（按 App 归并卖家与其有供给的地点）；`tests/footprints/test_purchases.py::test_purchase_rows_carry_the_order_channel_and_old_orders_read_as_null`（订单载荷与 `purchases.jsonl` 的 `channel_id`，旧订单读作 null） | `channel_id` 不进 `DeliveryState`，世界结构版本不变 |
+| 名称类预算 | `tests/life/test_name_resolution.py` 的同一秒两次名称类拒绝免计而第三次计轮、与其他拒绝混排时同一口径、宿主与环境共用名称类闭集；`tests/footprints/test_quality.py::test_name_rejections_are_counted_apart_from_other_protocol_errors` | 真实引擎计轮与脉冲 |
+| 更简单的购买请求 | 登记表为这一行登记 30 个节点（最终代码 `1478436` 上全部通过），核心判据：`tests/life/test_purchase_stages.py` 的 `test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable`、`test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_store`、`test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed`；`tests/life/test_giving.py` 的 `test_system_purchase_for_someone_goes_in_store_only_when_they_are_there`、`test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first`；`tests/life/test_named_purchase.py::test_several_servable_matches_follow_prefer_and_never_report_ambiguity`；`tests/life/test_purchase_channels.py::test_member_store_ties_break_by_landed_price_then_store_identity` | 规格 0.6 补登的台账行，判据取 3.5 的验收句；按 0.7 细化后的「收敛」第 2 条核对 |
+| 错误合同 | `tests/life/test_error_contract.py`（源码中每个业务拒绝码都有具体原因、宿主码闭集各有原因与改法、第二项出错报在 index 1 且整组原子）；`tests/integration/test_host_feedback.py`（经宿主的每个宿主码有具体原因、第二项出错带候选、原样提交候选被宿主与引擎受理、协议纠错为共用结构与固定指令、参数错误按字段写原因且无校验转储）；`tests/integration/test_activity_schema.py::test_all_action_tools_use_closed_strict_schemas_from_one_model`（`$ref` 禁令不变）；环境对控制工具活动名逐项合并报告见 `tests/life/test_control_name_rejections.py` | 宿主与真实引擎 |
+| 呈现 | `tests/life/test_presentation_fidelity.py`（生活活动窗口排除地点类不符并带原因码、零口味顺序不是字母序且随日期变化、换新名额给最久未呈现的条目、`⌈N ÷ k⌉` 按分区成立、`ORDER_KEY_VERSION` 为 2、相关度三项提前）；`tests/life/test_rotation.py::test_rotation_criterion_is_last_presented_at_not_exposure_count`；`tests/integration/test_presentation_habits.py::test_run_creation_freezes_habit_responses_and_ranks_the_hit_entry_first`；可调用索引：`tests/life/test_callable_index.py`（`test_every_name_in_the_index_is_callable_by_name_and_accepted` 等：索引名称都可按名调用、不含地点类不符的活动、商品只列此刻从这里能得到的、每类至多 3 个示例、不是目标且不计入呈现上限），`tests/integration/test_seven_layer_request.py` 的 `test_prompt_fingerprint_binds_the_callable_index_schema`、`test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity` | 真实引擎与请求组装 |
+| 浏览与提示 | `tests/life/test_browse_and_hints.py` 六例（浏览结果只列完整标签、离开后按名下单、取货提示经可达地点或说明去不了、配送范围外给可下单的可达地点、没有配送路线单独一句、不可达地点不列而提示说明）；`tests/life/test_wayfinding.py::test_go_step_points_only_to_places_reachable_from_here`；送给别人的远程下单同样分两句原因见 `tests/life/test_giving.py` 的 `test_remote_order_for_someone_outside_the_delivery_area_is_a_destination_refusal`、`test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal` | 真实引擎 |
+| 控制工具 | `tests/integration/test_conclude_memories.py`（上限在同一决策内按协议错误重试、边界值受理、`views` 写成的记忆与旧 `subject` 形状逐字节相同、来源由系统登记）；`tests/integration/test_activity_schema.py::test_control_tool_fields_carry_format_and_source_descriptions`；`tests/life/test_progress_layer_projection.py::test_activity_control_takes_one_object_per_activity`；`tests/life/test_control_items.py` 三例（旧平行数组、等价新旧请求、旧运行事件）；`tests/tools/test_run_viewer.py::test_run_viewer_recorded_names`；`tests/delivery/test_windows.py::test_earlier_control_request_shapes_are_trimmed_to_the_same_items`；`tests/footprints/test_quality.py::test_memory_quality_reads_every_control_request_shape`；`tests/life/test_progress_events.py::test_conclude_arguments_omit_relationship_and_preference_memories`；`tests/life/test_memory_evidence.py::test_write_points_read_every_control_request_shape` | 查看器、交付窗口、质量报告、进度层、零点计划输入与记忆层都经 `control_items` |
+| 中文摘录 | `tests/life/test_work_review_excerpts.py` 六例：五个汉字拒、六个通过，改一字不匹配，商务运行六次评审重算，英文归一与核对逐位不变，白领英文评审不变，评审接受仍须经摘录核对 | 商务运行记录重算 |
+| 截断处理 | `tests/integration/test_output_truncation.py`（截断回合丢弃并关闭思考重试一次、连续截断的相同纠错互相替换、被拒的重试回合丢弃而续接保留思考、重试再截断不再重试、续接中的截断不动链前缀、只读问答重试只剩 `finish`、重试仍无工具调用按回合预算、导出的质量报告计数与运行记录一致）；`tests/footprints/test_quality.py` 的两例截断计数 | 重试请求不开放记忆查询工具 |
+| 联系人回复 | `tests/life/test_contact_reply_guard.py` 八例（越界样本命中登记类别、同一结算内重试一次、无害样本放过、两次都命中才用兜底句、请求带发件人、此刻、远程与收货地、每条来信只有一条回复事件、接口合同逐字登记模板与闭集和兜底句、质量报告计数）；`tests/footprints/test_quality.py::test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separately` | 真实回复样本 |
+| 时间线 | `tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`；`tests/footprints/test_render_day.py` 三例；`tests/life/test_activity_title_embedding.py` 的工作、通话、交谈标题；`tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source`；`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline` | 导出与渲染 |
+| 加载校验 | `tests/life/test_load_checks.py` 七例（越界类别、无法区分的同名地点与重复的对象标签加载即拒，`branch_label` 消歧后可加载且提示中可区分，无分店标签的地图照常，投影标签即加载标签，分店标签按显示名检查）；`tests/life/test_map_dataset.py::test_old_map_structure_version_is_rejected`；`tests/integration/test_input_warnings.py::test_map_problems_are_frozen_as_scenario_warnings_and_creation_still_succeeds` | 地图结构 `2` |
+| 目标推进 | `tests/life/test_goal_around_time.py` 三例（零点前开始的睡眠、早间浏览、午餐窗口经真实引擎并与 `goal_metrics` 回放一致）；`tests/life/test_day_plan.py` 五例（窗口推进、窗口外跳过且用实际开始时刻、必填可空 `HH:MM`、四字段等价、例行意图闭集）；`tests/life/test_day_planning.py` 两例；`tests/life/test_todo_layer.py::test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders`；`tests/evaluation/test_goal_metrics.py` 三例；`tests/footprints/test_goal_export.py::test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_progress` | 容差 ±90 分钟为实验假设 |
+| strict 端点 | `tests/test_probe_deepseek_strict.py`（探针请求与判定）；`tests/integration/test_strict_endpoint.py`（`validate` 核对 `/beta` 的阶段身份、拒绝主站，恢复拒绝在主站冻结的父运行）；`tests/integration/test_runtime.py::test_model_identity_freezes_complete_strict_endpoint_and_request` | 真实探针结论见下文 |
+| 复跑指标（只报告） | 只报告、不作门禁，WC 与 BIZ 全天复跑随验收记录登记 | 需要真实模型运行 |
+| 文档一致性 | `tests/test_documentation_gate.py`、`tests/test_design_doc_build.py`；`scripts/documentation_gate.py` 与 `scripts/build_design_doc.py --check` | 随各提交复跑 |
+| 工程门禁 | 全量测试、风格、覆盖率门禁与突变审查由验收记录登记 | 最终源码身份 |
+
+strict 端点的真实探针（`scripts/probe_deepseek_strict.py`，2026-09-29，`--runs 50`，代码 `7d7ed65`）：主站对不合「全部属性必填」的 strict Schema
+照常返回 200，`/beta` 以 400 拒绝（主站不执行 strict，`/beta` 在请求时校验 strict Schema）；`minLength` 两边都接受，只作信息行；
+关闭思考、`tool_choice=required` 时 `/beta` 的枚举取值仍可能越界（输出取值不保证受约束），本地校验仍是最终权威；
+`/beta` 思考模式下按新 `items` 形状收尾 50 次：49 次合法、0 次非法 JSON、1 次形状错误，而此前按旧平行数组形状的快速探针 3 次全部是非法 JSON；
+思考模式下 `tool_choice=required` 两边都返回 400，关闭思考后两边都可用。据此 `base_url` 改为 `https://api.deepseek.com/beta`（规格 7.5）。
+
+该规格经「冻结条款修订」改写了下表各行依据的条款：这些行的条款表述、测试映射与 `covered` 判定只代表当时的审计快照，不再代表现行条款。
+历史行原样保留、不改；现行条款以规格正文为准，现行证据以规格「验收台账」和上表为准，新条款不混入本文旧统计分母。
+表中「1.1」等指规格正文小节，「修订 N」指规格「冻结条款修订」第 N 行。
+
+| 历史行 | 当时的条款（简述） | 取代它的现行条款 |
+| --- | --- | --- |
+| D8 | 人格、模型、提示、规则与代码运行前冻结（映射断言冻结的 strict 端点） | 7.5：探针实测主站不执行 `strict`；`/beta` 在请求时以 HTTP 400 拒绝不合规的 strict Schema，但输出取值不保证受约束；`base_url` 定为 `https://api.deepseek.com/beta` 并冻结进模型身份，本地严格校验仍是权威；修订 19 |
+| E15 | `start_targeted_activity`（观看、游戏、工作、浏览、阅读），目标来自本轮目录 | 3.1：全部目录类对象都可以直接写名称，精确匹配或无损归一后唯一即受理；本轮未列出的商品、生活活动、内容、游戏与地点也可以写，受理时照常做资格与准入判定；否则由宿主给可照填的候选，从不替换；修订 10 |
+| E32 | Pydantic 全字段必填，Schema 由请求模型生成，数组边界在本地执行、不截取 | 第四章：本地校验仍是最终权威；超限与形状错误不再回传 Pydantic 转储，改为按字段写原因，并用统一错误结构；面向模型的 `reason`、`fix` 与候选不属于英文报错文本；7.5：`/beta` 只在请求时校验 strict Schema；修订 14、19、26 |
+| C5 | 娱乐需要归一化，喜好、重复、时长参与（映射含按原始口味权重缓解） | 1.2：实际缓解按有效偏好 `f + (1 − f)·w`（`f` 缺省 0.5，放在场景层）；有缓解的活动进行时不累积娱乐需要，游戏用同一算法；排序仍用原始权重；修订 2 |
+| X7 | 故障路径用英文错误并关联事件，不被通用捕获转成继续猜测 | 第四章：宿主纠错与环境拒绝共用错误结构 `error_code`、`reason`、`fix`、`items`、`unmet`；英文报错的规定只约束日志、异常与内部错误串，面向模型的 `reason`、`fix` 与候选不在其内；故障路径仍保留英文错误与关联事件；修订 14、26 |
+| LA5 | 正式运行固定端点、模型版本与参数（映射断言冻结的 strict 端点） | 7.5：同 D8，固定端点为 `https://api.deepseek.com/beta`，`validate` 核对的模型身份含该端点；修订 19 |
+| DEV4 | 人物生成模型为 DeepSeek `deepseek-flash`，保存返回、参数与用量（锚测试断言冻结端点） | 7.5：同 D8，端点为 `/beta`，探针结论写入验收记录；模型、留证与真实调用豁免不变；修订 19 |
+| DEV44 | 两过程参数、效率曲线、800/400、娱乐 0.08、社交 0.04（映射含困意旧档界） | 1.1、1.2、1.4：各数值不变；两过程参数增加困意档界 0.80、0.93、1.07、1.18；有缓解的活动进行时不累积娱乐需要；社交需要的清醒按本区间 `body_settlement.activity_ids` 判定；修订 1、3、25 |
+| DEV49 | 可见身份约束（购买、使用、工作、出行） | 3.1：同 E15；未列出的商品与地点也可以按名写（地点取冻结地点表，没有路线的地点由环境判定并说明）；持有物与任务仍取本轮私有绑定；修订 10 |
+| DEV51 | 工作速率＝技能等级；笔记倍率 1.10；娱乐减少＝效果×偏好÷接触次数 | 1.2：娱乐减少 = 效果 × 有效偏好 `f + (1 − f)·w` ÷ 接触次数；有缓解时不累积，游戏用同一算法；工作速率与笔记倍率不变；修订 1、2 |
+| RC8 | 困意五级档界（0.5、0.75、0.9、1.0）与锚点时刻 | 1.4：档界改为 0.80、0.93、1.07、1.18（按 KSS 等价刻度标定，属实验假设）；五档名称与个数不变；预期行为示例按公式重算并写明假设；修订 3 |
+| RC12 | 社交需要：清醒每小时 +0.04，交谈、通话、消息、共同用餐缓解，三级 | 1.1、1.5：速率与三级不变；清醒、交谈、通话与共同用餐都按本区间 `body_settlement.activity_ids` 判定，边界结束的睡眠不计清醒；睡眠中不读消息，醒后第一个边界才计 −0.05；修订 1 |
+| RC13 | 情绪：脉冲表、45 分钟半衰期、神经质调制、五级 | 1.5、3.4：脉冲数值不变；不适的两小时门槛只判一次；睡眠中送达的消息醒后阅读时才计 +0.1；名称类拒绝不施加业务拒绝的 −0.05（每人每秒至多 2 次，第 3 次起照常）；修订 1、13 |
+| RC30 | 记忆零至八条，引用放 `refs`，九种主观类型 | 第六章：结束、播报、暂停改为 `items[{activity_name, summary, memories, views}]`；看法与偏好放在 `views`，`about` 存储为 `subject`；`memories` 只取另外七类，没有 `subject`；两者合计不超过八条，都必填、可为空；修订 18 |
+| RC37 | 有序目标、空清单、一次提交、修订、正时长推进；三层报告 | 8.2、2.3：目标条目增加必填可空的 `around_time`；带大致时刻的目标只被该时刻前后 90 分钟内（按当日裁剪）进行的同家族活动推进，修订时的等价比较包含它；推进比例只计非例行意图；修订 9、23 |
+| RC38 | 人物卡片作息保留；当日目标不带绝对时间，本地日界定生命周期 | 2.1：场景显式声明的作息字段覆盖卡片抽取值，身体、零点计划与人设层读同一组值；8.2：目标带大致时刻 `around_time`（换算为当日绝对时刻 `around_at`），生命周期仍按本地日界；修订 6、23 |
+| RC45 | model 联系人每条消息至多回复一次（独立调用、关闭思考、≤200 汉字、完整证据） | 7.3：提示写明联系人只通过消息来往、不虚构到场；请求增加 `sender_name`、`now`、`presence`、`receive_location`；后验守卫命中时在同一结算内重试一次，仍命中则用兜底句；每条消息仍只写一条 `model_npc_reply`，事件增加 `attempts[]`、`guard_applied`；修订 20 |
+| RC64 | 导出时间线投影（合并静默边界与同活动、名称非标识），由 render_day 生成 | 7.4：时间线只出现中文名称，工作、通话、交谈也有标题，种类名取 `readable.py` 的中文种类表；解析不到时只写种类名，不出现英文种类名与 `task-` 等标识形态；质量报告检查时间线标签；修订 21 |
+| CC12 | 零口味条目仍进候选、排在最低档（映射含同档按对象标识排序） | 5.1：零权重仍排最后；排序键为（非零口味，−口味×注意力，−相关度，哈希），同分以 `sha256(场景\|人物\|日期\|对象)` 决胜，零口味时不再是字母序且随日期变化，`ORDER_KEY_VERSION` 为 2；修订 15、26 |
+| CC44 | 远程订购复用交付语义、不新增渠道对象；取货须到店，配送不校验在场 | 3.3：渠道只是门店集合的称呼，不带交付语义，由场景钉定的手机配置派生；`from` 写 App 称呼时解析为成员门店的供给，多家都卖时按 `prefer` 选定（3.5）；订单与 `purchases.jsonl` 记 `channel_id`；取货与配送在场与否的区分不变；修订 12（随指名购买与渠道的实现落地） |
 
 ## 人物 Prompt 七层增量映射
 
@@ -1063,6 +1135,8 @@ felt、observe、projection、rhythm、scenario、schedule 六个文件共 9 处
 | 缺口清零 | 2026-09-19 | 为「候选契约与呈现规则」章余下的 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）逐行补入真实性测试并改判 `covered`，**未改动任何生产代码**。新增与加固共 19 个测试函数：新建 `tests/life/test_candidate_contract_boundaries.py`（9 测，经生产接口建普通分支比对候选集、呈现上限不取 `MAX_CANDIDATES`、下推两层与游标载荷形状），`tests/life/test_candidates.py` 增 2 测（`anywhere` 三形区分、墓碑目录里下架条目出局且仍可读 + 无删除条目的通路扫描），`tests/life/test_retrieval.py` 增 2 测并加固 1 测（禁止 ANN 库与浮点距离的常驻断言），`tests/life/test_rotation.py` 增 6 测（`D` 取实测区间而非单一估计值，不硬编码天数）。条款总数 435 不变，covered 由 414 重算为 **421**，gap 由 7 收窄为 **0**，覆盖率由 98.4% 重算为 **100.0%**（435/435 = covered 421 + exempt 14）。实测证据：全量 `2747 passed`；相关八个测试文件 `180 passed`；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`test_style_gate.py` 1 passed；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：正文原写「复判后仍余九行 `gap`」，与矩阵表的去重终态（8 行，`CC34` 已改判）不符，已按表改正。**如实记录的边界**：`CC29` 断言核对的是「缺省值落在实测区间内」与「上界随 `D` 精确变化」，不钉死某个特定缺省数值；`CC40` 的依赖侧断言范围是本项目自己的依赖声明，vendored 上游 `vendor/agentsociety2` 自带的 `faiss-cpu`（只由上游未使用的 `env/router_codegen.py` 导入）作为已知上游事实写明，本项目运行路径不经它检索 |
 | 时间与能量增量映射 | 2026-09-26 | 时间与能量规格阶段 9（AN1）：新增「时间与能量增量映射」节，列出被该规格「冻结条款修订」改写、历史映射不再代表现行条款的 26 行（A5、A14、E3、E14、E16、E18、E24、R6、R8、C7、C8、T4、T7、X9、DEV38、DEV39、DEV43、DEV48、DEV49、RC1、RC3、RC11、RC17、RC28、RC30、CC10）与「抽样自验（20/20）」第 4 条，逐行注明取代它的规格章节与修订编号；历史行原样保留，新条款不混入旧统计分母；现行证据指向规格「验收台账」与本特性验收记录；文件头日期改写 |
 | 人物 Prompt 七层增量映射 | 2026-09-28 | 人物 Prompt 规格阶段 8（AN1）：新增「人物 Prompt 七层增量映射」节，列出被该规格「冻结条款修订」改写、历史映射不再代表现行条款的 17 行（A13、RC16、RC18、RC19、RC22、RC23、RC24、RC26、RC27、RC29、RC30、RC32、RC35、RC41、RC62、RC67、EX-7）与「抽样自验（20/20）」第 17 条，逐行注明取代它的规格章节与修订编号；历史行原样保留，新条款不混入旧统计分母；现行证据指向规格「验收台账」、`tests/persona_prompt_acceptance.py` 与本特性验收记录；文件头日期改写 |
+| 一日运行保真增量映射 | 2026-09-29 | 一日运行保真规格实现后（AN1，按 `e377669` 核对）：新增「一日运行保真增量映射」节：验收台账逐行列出守卫该行的测试（各实现阶段登记的 198 个测试节点在该提交上复跑全部通过；3.5 的购买请求没有单列的台账行，证据写在「指名购买」行），登记 strict 端点的真实探针结论（主站不执行 strict、`/beta` 在请求时校验 Schema 但不保证取值受约束、思考模式下新 `items` 形状 50 次收尾 49 次合法且无非法 JSON），D8、DEV4 的端点断言随之以 `/beta` 为准；列出被该规格「冻结条款修订」改写、历史映射不再代表现行条款的 20 行，逐行注明取代它的规格小节与修订编号，其中 E32、X7 注明面向模型的原因、改法与候选不在「英文报错」之列；历史行原样保留，新条款不混入旧统计分母；文件头日期改写 |
+| 一日运行保真验收记录 | 2026-09-29 | 一日运行保真实现后文档：「一日运行保真增量映射」链接该特性的[验收记录](dayrun-fidelity-verification.md)，补一句验收登记表 `tests/dayrun_fidelity_acceptance.py`（380 个不重复节点）与完整性守卫；按规格 0.6 补「更简单的购买请求」一行，「指名购买」行的 3.5 证据注明该行已补登 |
 
 ## 当日目标特性追溯
 

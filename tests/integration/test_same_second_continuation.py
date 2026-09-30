@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
@@ -29,7 +29,7 @@ from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_continuation import layer_changes, send_check  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
-                                                        _memory, _stored_memories)
+                                                        _memory, _stored_memories, _view)
 from tests.life.conftest import (advance_next, advance_until_ready, context,  # noqa: E402
                                  engine_factory as _engine_factory, pending_names,  # noqa: F401
                                  stage_day_plan, start_activity, start_arguments, wake_by_mail)
@@ -45,7 +45,7 @@ from worldmock.life.scenario import load_scenario  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
 #: 上一决策修订今日计划（瞬时请求，人物同一秒再决策）；思考里提到咖啡。
-_PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None}]}
+_PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None, "around_time": None}]}
 _WAIT = start_arguments(["自己"], ["interact"], ["等待"])
 _THINK_PLAN = "上午有点困，先把下午喝咖啡写进计划。"
 _THINK_WAIT = "计划写好了，先歇一会儿。"
@@ -289,8 +289,7 @@ async def test_after_time_advances_the_request_has_no_native_turns_or_earlier_th
 
     def conclude(observation: dict) -> list:
         names = pending_names(observation)
-        return [_reply("call-end", "conclude_activity", {"task": names, "summary": ["歇好了。" for _ in names],
-                                                        "memories": [[] for _ in names]}, "等完了，收尾。")]
+        return [_reply("call-end", "conclude_activity", _ended(names, "歇好了。"), "等完了，收尾。")]
 
     observation, [request], _ = await _single(run["environment"], "later", conclude)
     assert observation["continuation"] is None
@@ -326,7 +325,8 @@ async def test_a_same_second_departure_breaks_the_chain(_engine_factory) -> None
 
     def report(observation: dict) -> list:
         walk = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
-        return [_reply("call-road", "report_status", {"task": [walk], "summary": ["在路上了。"]}, "边走边看消息。")]
+        return [_reply("call-road", "report_status", {"items": [
+            {"activity_name": walk, "summary": "在路上了。"}]}, "边走边看消息。")]
 
     contexts = [context(engine, "on-road", agent_id) for agent_id in engine.scheduling_state().ready_agent_ids]
     engine.begin_decision_round(contexts)
@@ -613,7 +613,7 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     assert [item["role"] for item in last["messages"]] == ["system", "user", "assistant", "tool", "assistant", "tool"]
     assert [item.get("reasoning_content") for item in last["messages"][2::2]] == ["先翻翻记忆。", "那就先等一会儿。"]
     assert "散步时想好了喝咖啡。" in last["messages"][3]["content"]
-    assert json.loads(last["messages"][5]["content"])["error_type"] == "protocol_validation_error"
+    assert json.loads(last["messages"][5]["content"])["error_code"] == "NAME_NOT_FOUND"
 
     person, second = await _workspace_person(environment, workspace, _wait_reply())
     assert await _step(environment, person, "wait") == "start_activity registered"
@@ -628,10 +628,14 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     assert json.dumps(request, ensure_ascii=False).count("散步时想好了喝咖啡。") == 1
 
 
-def _view_memories() -> list[list[dict]]:
-    """一次收尾写下的看法与偏好（都带 subject，只在人设层出现）。"""
-    return [[_memory("沈昊一向靠谱。", kind="relationship", subject="沈昊"),
-             _memory("下午想喝拿铁。", kind="preference", subject="咖啡")]]
+def _ended(names: list[str], summary: str) -> dict:
+    """给点名的活动收尾的参数：一项一个对象，写同一句自述，不写记忆与看法。"""
+    return {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []} for name in names]}
+
+
+def _views() -> list[dict]:
+    """一次收尾写下的看法与偏好（写在 views，about 写对象，只在人设层出现）。"""
+    return [_view("沈昊", "沈昊一向靠谱。"), _view("咖啡", "下午想喝拿铁。", kind="preference")]
 
 
 @pytest.mark.asyncio
@@ -647,8 +651,8 @@ async def test_changes_overlay_relationships_and_preferences_so_later_tool_messa
     assert advance_until_ready(engine)
 
     def conclude(observation: dict) -> list:
-        names = pending_names(observation)
-        arguments = {"task": names, "summary": ["等完了。"], "memories": _view_memories()}
+        [name] = pending_names(observation)
+        arguments = {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": _views()}]}
         return [_reply("call-end", "conclude_activity", arguments, "等完了，记下看法。")]
 
     head, _, _ = await _single(environment, "end", conclude)
@@ -696,7 +700,8 @@ async def test_real_pause_and_body_changes_reach_the_next_tool_message_once(_eng
 
     def pause(observation: dict) -> list:
         name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
-        return [_reply("call-pause", "pause_activity", {"task": [name], "summary": ["先停一下。"]}, "邮件来了。")]
+        return [_reply("call-pause", "pause_activity", {"items": [
+            {"activity_name": name, "summary": "先停一下。"}]}, "邮件来了。")]
 
     head, _, _ = await _single(environment, "pause", pause)
     paused, [second], _ = await _single(environment, "refused", _unavailable)
@@ -822,7 +827,7 @@ def _switch_off_engine(tmp_path: Path) -> LifeEngine:
         run_id="switch-off", source_group_id="switch-off", agent_ids=tuple(item.agent_id for item in scenario.agents),
         start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(), timezone=scenario.timezone,
         code_sha256="2" * 64, model_identity=ModelIdentity(
-            provider="openai_compatible", base_url="https://api.deepseek.com", requested_model="deepseek-flash",
+            provider="openai_compatible", base_url="https://api.deepseek.com/beta", requested_model="deepseek-flash",
             thinking="enabled", tool_choice="auto", max_retries=0, prompt_sha256="0" * 64,
             tool_schema_sha256="1" * 64))
     return LifeEngine.create(SCENARIO, tmp_path / "switch-off", identity, stage_model_identity(False))
@@ -855,7 +860,8 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
 
     call = {"id": "call-earlier", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}
     earlier = {"result": {"status": "completed"}, "changes": {"body": {"appetite": "有点饿"}}}
-    feedback = {"ok": False, "executed": False, "error_type": "protocol_validation_error", "error": "bad"}
+    feedback = {"error_code": "NAME_NOT_FOUND", "reason": "bad", "fix": "fix", "items": [], "unmet": [],
+                "instruction": "本次没有登记到世界；按 fix 修改后重新提交"}
     chain = {"messages": [
         {"role": "system", "content": "系统层"},
         {"role": "user", "content": json.dumps(layers("营业", "不饿"), ensure_ascii=False)},
@@ -1062,8 +1068,7 @@ async def test_a_real_continuation_run_passes_delivery_windows_and_the_observati
 
     def conclude(observation: dict) -> list:
         names = pending_names(observation)
-        return [_reply("call-end", "conclude_activity", {"task": names, "summary": ["等完了。"],
-                                                        "memories": [[] for _ in names]}, "等完了，收尾。")]
+        return [_reply("call-end", "conclude_activity", _ended(names, "等完了。"), "等完了，收尾。")]
 
     await _single(run["environment"], "end", conclude)
     _, [final], _ = await _single(run["environment"], "final", _wait_reply("call-final", "再等最后一刻钟。"))

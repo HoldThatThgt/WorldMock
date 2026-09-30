@@ -6,9 +6,12 @@
 或结束；开始或恢复被拒后留在原阶段）；受限轮用完仍要同一秒再决策时，环境不替人物造活动，写 decision_budget_exhausted
 并把下一次决策排在一个结算间隔之后（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」）；
 有进行中活动且没有待收尾活动时瞬时动作成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的
-唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；人物消息送达时清醒且
-未达上限的收件人在同一秒获得机会，决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；
-docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。引擎只接线，计数、阶梯与预算判定都在本模块。
+唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；名称类拒绝
+（error_contract.NAME_REJECTION_CODES）例外：每人每模拟秒的前两次不计同刻轮数、不施加 service_refused 情绪脉冲，第 3 次起
+照常（docs/dev/SPEC-dayrun-fidelity.md 3.4，裁决 D7；免计次数是实验假设）；人物消息送达时清醒且未达上限的收件人在同一秒
+获得机会，决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；docs/dev/SPEC-persona-prompt.md 第六章
+「直接消息截断」），轮前在睡的人物不记已读（docs/dev/SPEC-dayrun-fidelity.md 1.5）。
+引擎只接线，计数、阶梯与预算判定都在本模块。
 """
 
 from __future__ import annotations
@@ -18,11 +21,12 @@ from dataclasses import dataclass
 
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import occupies_slot, pending_conclusions
+from worldmock.life.error_contract import NAME_REJECTION_CODES
 from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.interaction_menu import GIVE_WAY
-from worldmock.life.models import (ActionStatus, ActivityKind, ActivityState, ActivityStatus, AgentState,
+from worldmock.life.models import (ActionStatus, ActivityState, ActivityStatus, AgentState,
                                    SameMomentStage, WorldState, active_activities)
-from worldmock.life.rhythm import read_new_messages
+from worldmock.life.rhythm import is_asleep, read_new_messages
 from worldmock.life.schedule import WakeReason
 from worldmock.life.social_actions import PARTNER_ENDED
 
@@ -30,6 +34,9 @@ from worldmock.life.social_actions import PARTNER_ENDED
 SERVICE_REFUSED = "service_refused"
 _REWORK_CODE = "WORK_REQUIRES_REWORK"
 _NO_PULSE_CODES = frozenset({"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"})
+#: 每人每模拟秒至多几次名称类拒绝不计同刻轮数、不施加情绪脉冲（docs/dev/SPEC-dayrun-fidelity.md 3.4；实验假设，登记在
+#: docs/EXPERIMENT.md「活动节奏与同刻决策上限」）；超出的照常计轮、照常施加脉冲。
+FREE_NAME_REJECTIONS_PER_SECOND = 2
 
 #: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）；方式为给予的
 #: consume 同样瞬时（request_kind 按方式识别）。
@@ -89,8 +96,35 @@ class RoundOutcome:
 
 
 def count_round(agent: AgentState) -> AgentState:
-    """@brief 受理、业务拒绝与重放各使本秒的同刻轮数加一（第一章「实现约定」）。"""
+    """@brief 受理、业务拒绝与重放各使本秒的同刻轮数加一（第一章「实现约定」）；免计的名称类拒绝不经这里
+    （rejection_counts）。"""
     return agent.model_copy(update={"same_moment_rounds": agent.same_moment_rounds + 1}, deep=True)
+
+
+def free_rejection_flags(codes: Sequence[str | None]) -> list[bool]:
+    """@brief 同一人物同一模拟秒内按结算先后的业务拒绝码逐个是否免计（docs/dev/SPEC-dayrun-fidelity.md 3.4）：名称类拒绝码
+    的前 FREE_NAME_REJECTIONS_PER_SECOND 次免计（不计同刻轮数、不施加情绪脉冲），此后的名称类拒绝与其余拒绝一样照常。"""
+    flags, seen = [], 0
+    for code in codes:
+        named = code in NAME_REJECTION_CODES
+        flags.append(named and seen < FREE_NAME_REJECTIONS_PER_SECOND)
+        seen += named
+    return flags
+
+
+def rejection_counts(state: WorldState, agent_id: int, error_code: str) -> bool:
+    """@brief 这次业务拒绝是否计入同刻轮数并照常施加情绪脉冲：本人本秒此前已结算的拒绝（依据已存的动作结果）之后，它是
+    本秒第 3 次起的名称类拒绝或不是名称类拒绝时计入。"""
+    return not free_rejection_flags([*_second_rejections(state, agent_id), error_code])[-1]
+
+
+def rejection_pulse(state: WorldState, agent_id: int, error_code: str) -> str | None:
+    """@brief 这次业务拒绝施加的情绪脉冲键：免计的名称类拒绝不施加；其余按 refusal_pulse_key，其中 service_refused 每人
+    每秒至多一次（「拒绝的情绪代价与重估间隔」）。"""
+    if not rejection_counts(state, agent_id, error_code):
+        return None
+    key = refusal_pulse_key(error_code)
+    return None if key == SERVICE_REFUSED and refusal_pulse_applied(state, agent_id) else key
 
 
 def round_wake_reasons(active: bool, rejected: bool) -> list[str]:
@@ -213,7 +247,8 @@ def require_stage_action(stage: SameMomentStage, request_kind: str) -> None:
 
 
 def refusal_pulse_key(error_code: str) -> str | None:
-    """@brief 业务拒绝的情绪脉冲键：返工记 work_review_returned，品类配对说明不施加，其余记 service_refused。"""
+    """@brief 业务拒绝码对应的情绪脉冲键：返工记 work_review_returned，品类配对说明不施加，其余记 service_refused；免计的
+    名称类拒绝（3.4）是否施加由 rejection_pulse 判定。"""
     if error_code == _REWORK_CODE:
         return "work_review_returned"
     if error_code in _NO_PULSE_CODES:
@@ -221,28 +256,32 @@ def refusal_pulse_key(error_code: str) -> str | None:
     return SERVICE_REFUSED
 
 
+def _second_rejections(state: WorldState, agent_id: int) -> list[str | None]:
+    """@brief 本人在当前模拟秒已结算的业务拒绝码（依据已存的动作结果，按结算先后；重放不另存结果）。"""
+    return [stored.result.get("error_code") for stored in state.processed_actions.values()
+            if stored.result is not None
+            and stored.result.get("agent_id") == agent_id
+            and stored.result.get("occurred_at") == state.current_time
+            and stored.result.get("status") == ActionStatus.REJECTED.value]
+
+
 def latest_rejection_code(state: WorldState, agent_id: int) -> str | None:
-    """@brief 本人在当前模拟秒最近一次业务拒绝的错误码（依据已存的动作结果，按结算先后），没有时为 None。"""
-    codes = [stored.result.get("error_code") for stored in state.processed_actions.values()
-             if stored.result is not None
-             and stored.result.get("agent_id") == agent_id
-             and stored.result.get("occurred_at") == state.current_time
-             and stored.result.get("status") == ActionStatus.REJECTED.value]
-    return codes[-1] if codes else None
+    """@brief 本人在当前模拟秒最近一次计入同刻轮数的业务拒绝的错误码（依据已存的动作结果，按结算先后；免计的名称类拒绝
+    不算，3.4），没有时为 None。"""
+    codes = _second_rejections(state, agent_id)
+    counted = [code for code, free in zip(codes, free_rejection_flags(codes)) if not free]
+    return counted[-1] if counted else None
 
 
 def refusal_pulse_applied(state: WorldState, agent_id: int) -> bool:
     """@brief 本人在当前模拟秒是否已施加过 service_refused 脉冲（「拒绝的情绪代价与重估间隔」：每人每秒至多一次）。
 
-    依据已存的动作结果判定：本人、发生于当前时刻、状态为拒绝且错误码的脉冲键为 service_refused；不另设世界字段。
+    依据已存的动作结果判定：本人、发生于当前时刻、状态为拒绝、不是免计的名称类拒绝且错误码的脉冲键为 service_refused；
+    不另设世界字段。
     """
-    return any(
-        stored.result is not None
-        and stored.result.get("agent_id") == agent_id
-        and stored.result.get("occurred_at") == state.current_time
-        and stored.result.get("status") == ActionStatus.REJECTED.value
-        and refusal_pulse_key(str(stored.result.get("error_code"))) == SERVICE_REFUSED
-        for stored in state.processed_actions.values())
+    codes = _second_rejections(state, agent_id)
+    return any(not free and refusal_pulse_key(str(code)) == SERVICE_REFUSED
+               for code, free in zip(codes, free_rejection_flags(codes)))
 
 
 def reset_same_moment(state: WorldState) -> WorldState:
@@ -261,7 +300,8 @@ def read_observed_messages(state: WorldState, observed: WorldState,
     看过的消息不在其后的边界再以 message_arrival 唤醒；没有出现在本 session 进度层的消息保持未读。本轮内送达的消息仍未读，
     由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）与轮前有待收尾活动的轮次
     （只接受收尾，docs/dev/SPEC-time-and-energy.md 第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
-    照常在其后的轮次或下一边界获得消息机会。
+    照常在其后的轮次或下一边界获得消息机会。轮前在睡的人物（睡眠中只因睡眠允许的原因得到决策轮）也不记已读：睡眠中不读
+    （docs/dev/SPEC-dayrun-fidelity.md 1.5），消息留到醒来后的第一个边界；本轮才开始睡的人物轮前醒着，照常记已读。
 
     :param state: 本轮全部动作结算后的世界副本
     :param observed: 本轮观察所用的轮前世界状态
@@ -270,7 +310,8 @@ def read_observed_messages(state: WorldState, observed: WorldState,
     read = {}
     for agent_id, message_ids in presented.items():
         before = observed.agents[agent_id]
-        if before.same_moment_stage != SameMomentStage.OPEN or pending_conclusions(observed, agent_id):
+        if (before.same_moment_stage != SameMomentStage.OPEN or pending_conclusions(observed, agent_id)
+                or is_asleep(observed, agent_id)):
             continue
         agent = read_new_messages(state.agents[agent_id], only=set(message_ids) & set(before.inbox))
         if agent is not state.agents[agent_id]:
@@ -290,8 +331,7 @@ def merge_message_readiness(state: WorldState, recipient_ids: Iterable[int], lim
     ready = {}
     for agent_id in sorted(set(recipient_ids)):
         agent = state.agents[agent_id]
-        asleep = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent_id))
-        if asleep or agent.same_moment_rounds >= limit:
+        if is_asleep(state, agent_id) or agent.same_moment_rounds >= limit:
             continue
         reasons = {*agent.pending_wake_reasons, WakeReason.MESSAGE_ARRIVAL.value}
         ready[agent_id] = agent.model_copy(update={

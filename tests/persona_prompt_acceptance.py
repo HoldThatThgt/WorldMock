@@ -391,7 +391,7 @@ LEDGER: dict[str, list[str]] = {
         _GIVING + "test_giving_to_a_same_world_person_elsewhere_is_refused_as_not_together",
         _GIVING + "test_direct_delivery_to_a_same_world_person_elsewhere_goes_to_where_they_are",
         _GIVING + "test_scenario_contacts_that_are_same_world_persons_do_not_receive",
-        _NAMED + "test_full_label_with_a_store_in_from_is_an_invalid_request",
+        _NAMED + "test_full_label_with_another_store_in_from_is_a_source_mismatch",
     ],
     "进食": [
         _MEAL + name for name in (
@@ -416,8 +416,8 @@ LEDGER: dict[str, list[str]] = {
         _NAMED + name for name in (
             "test_rotation_hidden_supply_is_bought_by_name_at_the_current_quote",
             "test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substituted",
-            "test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named",
-            "test_ambiguous_name_lists_every_store_not_just_three",
+            "test_same_name_in_several_stores_is_chosen_by_prefer_unless_a_store_is_named",
+            "test_several_servable_matches_follow_prefer_and_never_report_ambiguity",
             "test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids",
             "test_near_candidates_are_deterministic_term_similarity",
             "test_unlisted_obtain_selection_is_a_named_placeholder_other_verbs_are_not",

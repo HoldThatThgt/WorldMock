@@ -22,10 +22,12 @@ from worldmock.life.scenario import load_scenario  # noqa: E402
 
 @pytest.fixture
 def engine_factory(tmp_path: Path):
-    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本。"""
+    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本；create_options 原样交给
+    LifeEngine.create（例如 persona_habit_responses，缺省为引擎直驱：不带新建运行的附加输入）。"""
     created = []
 
-    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None) -> LifeEngine:
+    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None,
+               create_options: dict | None = None) -> LifeEngine:
         scenario_path = Path("scenarios") / scenario_name
         if mutate is not None:
             scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
@@ -41,7 +43,7 @@ def engine_factory(tmp_path: Path):
             code_sha256="2" * 64,
             model_identity=ModelIdentity(
                 provider="openai_compatible",
-                base_url="https://api.deepseek.com",
+                base_url="https://api.deepseek.com/beta",
                 requested_model="deepseek-flash",
                 thinking="enabled",
                 tool_choice="auto",
@@ -50,7 +52,7 @@ def engine_factory(tmp_path: Path):
                 tool_schema_sha256="1" * 64,
             ),
         )
-        engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity)
+        engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
         created.append(engine)
         return engine
 
@@ -101,6 +103,26 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_day_plan_staged"})])
+    engine.state = staged
+
+
+def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
+    """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
+    给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
+    （docs/dev/SPEC-dayrun-fidelity.md 5.1），每个分区至多三个。经存储落盘并保持版本连续。"""
+    from worldmock.footprints.models import EventDraft
+
+    wanted = set(object_ids)
+    everything = {*(item.item_id for item in engine.scenario.contents), *(item.game_id for item in engine.scenario.games),
+                  *(item.activity_id for item in engine.lifestyle_items),
+                  *(item.supply_id for item in engine.scenario.supplies)}
+    staged = engine.state.model_copy(deep=True)
+    staged.presentation_state = {**staged.presentation_state,
+                                 agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        data={"kind": "test_brought_to_window"})])
     engine.state = staged
 
 
@@ -230,22 +252,24 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
 
 
 def routing_defaults(actions: list[str]) -> dict:
-    """@brief 缺省的来源、去向与 answering（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：obtain 送给自己，
-    consume 从自己手边给自己用（给予要显式写人物），其余动词都为 null，不回应消息。"""
+    """@brief 缺省的来源、去向、answering 与 prefer（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」，
+    docs/dev/SPEC-dayrun-fidelity.md 3.5）：obtain 送给自己，consume 从自己手边给自己用（给予要显式写人物），其余动词都为
+    null，不回应消息，不写偏好（null 按最快）。"""
     return {"from_": ["自己" if verb == "consume" else None for verb in actions],
-            "to": ["自己" if verb in {"obtain", "consume"} else None for verb in actions], "answering": None}
+            "to": ["自己" if verb in {"obtain", "consume"} else None for verb in actions], "answering": None,
+            "prefer": None}
 
 
 def start_arguments(targets, actions, ways, **fields) -> dict:
-    """@brief start_activity 的模型参数（JSON 形状，来源的字段名是 from），未写的来源、去向与 answering 取缺省。"""
+    """@brief start_activity 的模型参数（JSON 形状，来源的字段名是 from），未写的来源、去向、answering 与 prefer 取缺省。"""
     defaults = routing_defaults(list(actions))
     return {"targets": list(targets), "actions": list(actions), "ways": list(ways), "from": defaults["from_"],
-            "to": defaults["to"], "answering": None, **fields}
+            "to": defaults["to"], "answering": None, "prefer": None, **fields}
 
 
 def start_request(**fields):
-    """@brief 按对象、动词与方式三个数组构造启动请求，未写的来源、去向与 answering 取 routing_defaults（来源可按字段名
-    from_ 或 JSON 名 from 给出）。"""
+    """@brief 按对象、动词与方式三个数组构造启动请求，未写的来源、去向、answering 与 prefer 取 routing_defaults（来源可按
+    字段名 from_ 或 JSON 名 from 给出）。"""
     from worldmock.life.models import StartActivityRequest
 
     defaults = routing_defaults(list(fields.get("actions", [])))
@@ -264,19 +288,44 @@ def start_activity(way: str, *targets: str, **fields):
 
 
 def activity_name(engine: LifeEngine, activity_id: str) -> str:
-    """活动的可读名称「做什么＋对象（M月D日 HH:MM 起）」；控制工具的 task[] 按它点名活动。
+    """活动的可读名称「做什么＋对象（M月D日 HH:MM 起）」；控制工具每项的 activity_name 按它点名活动。
 
     同一轮可见的名称重复时观察另加「（第二次）」这类序号，这类用例改从观察的 activity_bindings 取名。
     """
     return engine.state.activities[activity_id].name
 
 
-def conclude_request(*names: str, summary: str = "收尾。", memories=None):
-    """结束所点名活动的请求：task、summary 与 memories 三数组等长，默认不写记忆。"""
+def _summaries(names: tuple[str, ...], summary) -> list[str]:
+    """逐项自述：一句话用于全部点名活动，列表则逐项对应。"""
+    return list(summary) if isinstance(summary, (list, tuple)) else [summary for _ in names]
+
+
+def report_request(*names: str, summary="继续。"):
+    """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}。"""
+    from worldmock.life.models import ReportStatusRequest
+
+    return ReportStatusRequest(items=[{"activity_name": name, "summary": text}
+                                      for name, text in zip(names, _summaries(names, summary), strict=True)])
+
+
+def pause_request(*names: str, summary="先停一下。"):
+    """暂停所点名活动的请求：一项一个对象 {activity_name, summary}。"""
+    from worldmock.life.models import PauseActivityRequest
+
+    return PauseActivityRequest(items=[{"activity_name": name, "summary": text}
+                                       for name, text in zip(names, _summaries(names, summary), strict=True)])
+
+
+def conclude_request(*names: str, summary="收尾。", memories=None, views=None):
+    """结束所点名活动的请求：一项一个对象 {activity_name, summary, memories, views}；memories 与 views 逐项给出
+    （与 names 等长的列表的列表），默认都不写。"""
     from worldmock.life.models import ConcludeActivityRequest
 
-    return ConcludeActivityRequest(task=list(names), summary=[summary for _ in names],
-                                   memories=memories if memories is not None else [[] for _ in names])
+    memories = memories if memories is not None else [[] for _ in names]
+    views = views if views is not None else [[] for _ in names]
+    return ConcludeActivityRequest(items=[
+        {"activity_name": name, "summary": text, "memories": list(group), "views": list(seen)}
+        for name, text, group, seen in zip(names, _summaries(names, summary), memories, views, strict=True)])
 
 
 def pending_names(observed: dict) -> list[str]:

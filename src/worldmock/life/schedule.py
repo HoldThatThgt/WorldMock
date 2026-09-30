@@ -27,6 +27,10 @@ TASK_DUE_SOON_SECONDS = 1800
 MAX_PLAN_GOALS = 8
 #: 单条自然语言目标的字符上限。
 PLAN_GOAL_MAX_CHARS = 300
+#: 目标大致时刻的判定容差：同家族活动在当日内的进行区间与 [around − 容差, around + 容差] 有正时长交集才算推进
+#: （docs/dev/SPEC-dayrun-fidelity.md 8.2，裁决 D12）。experiment_assumption：敏感区间 3600–7200 秒，登记在
+#: docs/EXPERIMENT.md「实验假设声明」，复跑后按数据校准。
+GOAL_TIME_TOLERANCE_SECONDS = 5400
 
 
 class WakeReason(str, Enum):
@@ -106,6 +110,10 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
 }
 """意图到实际活动家族的映射；共享家族由目标清单顺序裁决。"""
 
+ROUTINE_INTENT_KINDS: frozenset[str] = frozenset({"睡眠", "晨间例程", "通勤", "用餐"})
+"""例行意图（docs/dev/SPEC-dayrun-fidelity.md 2.3，裁决 S11）：十一种意图闭集中属于人设层作息的四种。这类目标照常受理、
+判定与记录，质量报告的推进比例只计非例行意图的目标，例行意图的目标另计一行。"""
+
 
 def day_end_seconds(now: int, timezone_name: str) -> int:
     """@brief 当日目标失效时刻：场景时区次日零点。"""
@@ -114,18 +122,22 @@ def day_end_seconds(now: int, timezone_name: str) -> int:
     return int((midnight + timedelta(days=1)).timestamp())
 
 
-def remind_epoch(remind_time: str | None, now: int, timezone_name: str) -> int | None:
-    """@brief 把场景本地 HH:MM 换算为 now 所在本地日的绝对时刻；None 表示不设提醒（docs/dev/SPEC-time-and-energy.md 第四章）。"""
-    if remind_time is None:
+def clock_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:
+    """@brief 把场景本地 HH:MM 换算为 now 所在本地日的绝对时刻；None 原样返回。
+
+    提醒时刻 remind_time（None 表示不设提醒，docs/dev/SPEC-time-and-energy.md 第四章）与大致时刻 around_time
+    （None 表示不限时刻，docs/dev/SPEC-dayrun-fidelity.md 8.2）共用这一换算。
+    """
+    if clock is None:
         return None
-    hour, minute = (int(part) for part in remind_time.split(":"))
+    hour, minute = (int(part) for part in clock.split(":"))
     local = datetime.fromtimestamp(now, ZoneInfo(timezone_name))
     return int(local.replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp())
 
 
-def remind_clock(remind_at: int, timezone_name: str) -> str:
-    """@brief 提醒时刻的场景本地 HH:MM（呈现与修订比对用）。"""
-    return f"{datetime.fromtimestamp(remind_at, ZoneInfo(timezone_name)):%H:%M}"
+def epoch_clock(moment: int, timezone_name: str) -> str:
+    """@brief 提醒时刻或大致时刻的场景本地 HH:MM（待办层呈现用，clock_epoch 的逆换算）。"""
+    return f"{datetime.fromtimestamp(moment, ZoneInfo(timezone_name)):%H:%M}"
 
 
 class RemindTimeInvalid(ValueError):
@@ -133,9 +145,13 @@ class RemindTimeInvalid(ValueError):
 
 
 def registered_goals(goals: Sequence[Any], now: int, timezone_name: str) -> tuple["PlanGoal", ...]:
-    """@brief 以 now 登记请求目标（intent_kind、goal、remind_time），提醒换算为该本地日的绝对时刻。"""
+    """@brief 以 now 登记请求目标（intent_kind、goal、remind_time、around_time），提醒与大致时刻换算为该本地日的绝对时刻。
+
+    大致时刻不像提醒：不要求晚于登记时刻，也不触发决策（docs/dev/SPEC-dayrun-fidelity.md 8.2）。
+    """
     return tuple(PlanGoal(intent_kind=goal.intent_kind, goal=goal.goal, registered_at=now,
-                          remind_at=remind_epoch(goal.remind_time, now, timezone_name)) for goal in goals)
+                          remind_at=clock_epoch(goal.remind_time, now, timezone_name),
+                          around_at=clock_epoch(goal.around_time, now, timezone_name)) for goal in goals)
 
 
 class WakeSnapshot(BaseModel):
@@ -207,7 +223,8 @@ class NextDecisionQuery(BaseModel):
 
 
 class PlanGoal(BaseModel):
-    """@brief 已登记的当日目标；推进时刻与活动标识是环境证据，remind_at/reminded_at 是提醒及其触发时刻。"""
+    """@brief 已登记的当日目标；推进时刻与活动标识是环境证据，remind_at/reminded_at 是提醒及其触发时刻，
+    around_at 是大致时刻 around_time 换算出的当日绝对时刻（为空表示不限时刻，docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     intent_kind: IntentKind
@@ -218,6 +235,7 @@ class PlanGoal(BaseModel):
     progress_note: str = Field(default="", max_length=500)
     remind_at: int | None = Field(default=None, ge=0)
     reminded_at: int | None = Field(default=None, ge=0)
+    around_at: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _check_progress(self) -> "PlanGoal":
@@ -251,7 +269,8 @@ class DayPlan(BaseModel):
             raise ValueError("day plan intent and activity evidence must be unique")
         if any(goal.registered_at >= self.day_end or
                (goal.progressed_at is not None and goal.progressed_at > self.day_end)
-               or (goal.remind_at is not None and goal.remind_at >= self.day_end) for goal in self.goals):
+               or (goal.remind_at is not None and goal.remind_at >= self.day_end)
+               or (goal.around_at is not None and goal.around_at >= self.day_end) for goal in self.goals):
             _LOGGER.error("Day plan goal evidence exceeds its local day")
             raise ValueError("goal evidence exceeds day_end")
         return self
@@ -388,13 +407,15 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
 def revise_day_plan(plan: DayPlan, now: int, new_goals: Sequence[PlanGoal]) -> DayPlan:
     """@brief 保留已推进目标，整体替换未推进目标（docs/dev/SPEC-time-and-energy.md 第四章「计划与提醒」）。
 
-    与原条目意图、文字、提醒完全相同的条目保留登记时刻与提醒状态，不重校时刻（原样重发已触发的目标不被拒绝）；
-    只改了提醒的条目保留登记时刻，换成新提醒；被替换或删除的目标，旧提醒随之取消。新登记与改了提醒的条目
-    经 require_remind_window 校验。
+    意图与文字相同的条目是同一个目标，按四个字段（意图、文字、提醒、大致时刻）与原条目比较
+    （docs/dev/SPEC-dayrun-fidelity.md 8.2）：四项都相同的原样保留登记时刻与提醒状态，不重校时刻（原样重发已触发的
+    目标不被拒绝）；只改了大致时刻的保留登记时刻与提醒状态，只换大致时刻（大致时刻不重校、不触发决策）；改了提醒的
+    保留登记时刻，换成新提醒与新的大致时刻；被替换或删除的目标，旧提醒随之取消。新登记与改了提醒的条目经
+    require_remind_window 校验。
 
     @param plan 当日计划
     @param now 修订时刻
-    @param new_goals 以修订时刻登记、提醒已换算为绝对时刻的新未推进目标
+    @param new_goals 以修订时刻登记、提醒与大致时刻已换算为绝对时刻的新未推进目标
     """
     kept = tuple(goal for goal in plan.goals if goal.progressed_at is not None)
     progressed_kinds = {goal.intent_kind for goal in kept}
@@ -402,20 +423,47 @@ def revise_day_plan(plan: DayPlan, now: int, new_goals: Sequence[PlanGoal]) -> D
         _LOGGER.error("A progressed day goal cannot be resubmitted")
         raise ValueError("goal already progressed")
     pending = {(goal.intent_kind, goal.goal): goal for goal in plan.goals if goal.progressed_at is None}
-    changed = []
-    for goal in new_goals:
-        old = pending.get((goal.intent_kind, goal.goal))
-        if old is not None and old.remind_at == goal.remind_at:
-            changed.append(old)
-            continue
-        require_remind_window(goal, now, plan.day_end)
-        changed.append(goal if old is None else old.model_copy(
-            update={"remind_at": goal.remind_at, "reminded_at": None}))
-    return DayPlan(day_end=plan.day_end, goals=kept + tuple(changed))
+    changed = tuple(_revised_goal(pending.get((goal.intent_kind, goal.goal)), goal, now, plan.day_end)
+                    for goal in new_goals)
+    return DayPlan(day_end=plan.day_end, goals=kept + changed)
+
+
+def _revised_goal(old: PlanGoal | None, new: PlanGoal, now: int, day_end: int) -> PlanGoal:
+    """@brief 修订中的一条未推进目标：old 为同一意图与文字的原条目（没有时为 None），规则见 revise_day_plan。"""
+    if old is not None and old.remind_at == new.remind_at:
+        return old if old.around_at == new.around_at else old.model_copy(update={"around_at": new.around_at})
+    require_remind_window(new, now, day_end)
+    if old is None:
+        return new
+    return old.model_copy(update={"remind_at": new.remind_at, "reminded_at": None, "around_at": new.around_at})
+
+
+def ran_in_goal_window(around_at: int | None, started_at: int | None, stop: int) -> bool:
+    """@brief 大致时刻判定（docs/dev/SPEC-dayrun-fidelity.md 8.2）：活动在当日内的进行区间 [started_at, stop] 与
+    [around_at − 容差, around_at + 容差] 的交集时长为正；around_at 为空时不限时刻（沿用家族与登记后正时长结算的判定）。
+
+    started_at 是活动的实际开始时刻，不是结算区间起点；stop 是已按次日零点裁剪的结算止点。当日零点一侧不另裁剪：
+    目标登记不早于当日零点，而结算止点须晚于登记，交集时长是否为正不受零点之前那一段影响。有大致时刻却没有活动开始
+    时刻（残缺快照）时不成立。推进判定（progress_day_plan）与目标度量（evaluation.goal_metrics）共用本函数。
+    """
+    if around_at is None:
+        return True
+    if started_at is None:
+        return False
+    lower = max(started_at, around_at - GOAL_TIME_TOLERANCE_SECONDS)
+    return lower < min(stop, around_at + GOAL_TIME_TOLERANCE_SECONDS)
 
 
 def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> DayPlan:
-    """@brief 正时长结算最多推进一个匹配目标，活动证据在当日只消费一次。"""
+    """@brief 正时长结算最多推进一个匹配目标，活动证据在当日只消费一次。
+
+    匹配：未推进、同家族、登记后的正时长结算，目标带大致时刻时活动须在其前后容差内进行（ran_in_goal_window，
+    以活动快照的 started_at 为活动开始时刻，docs/dev/SPEC-dayrun-fidelity.md 8.2）。
+
+    @param activity 结算后的活动快照
+    @param start 结算区间起点
+    @param end 结算区间终点
+    """
     activity_id = activity["activity_id"]
     if activity["status"] in {"cancelled", "failed"} or end <= start:
         return plan
@@ -432,6 +480,8 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> Da
         if goal.progressed_at is not None or stop <= max(start, goal.registered_at):
             continue
         if family not in INTENT_ACTIVITY_FAMILIES[goal.intent_kind]:
+            continue
+        if not ran_in_goal_window(goal.around_at, activity.get("started_at"), stop):
             continue
         progressed = goal.model_copy(update={"progressed_at": stop, "progress_activity_id": activity_id})
         goals = plan.goals[:index] + (progressed,) + plan.goals[index + 1:]

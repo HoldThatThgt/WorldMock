@@ -1,17 +1,18 @@
 """@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/dev/SPEC-persona-prompt.md「进度层」）。
 
-公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文）与 details（恒写，没有新
-事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、付款、送达地点与
-预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长（开始与恢复），到达，浏览得到的商品名称，
-读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现），回看，拒绝的原因与下一步（没有下一步时为 null），近似候选、
-终局与已关联的订单；不复述参数（购买的方式就是请求的 ways[i]，不写），不含内部身份与资源账户。时刻字段（*_at）是带时区的
-ISO 8601。
+公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文；业务拒绝时就是 reason）
+与 details（恒写，没有新事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、
+付款、送达地点与预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长（开始与恢复），到达，浏览得到的
+商品的完整标签「<门店>出售的<商品>」，读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现），回看，拒绝的原因、改法与下一步（没有时为 null）
+及逐项明细（items，候选为可照填的请求），终局，已关联的订单，名称归一（resolved）与附带说明（notes）；不复述参数（购买
+的方式就是请求的 ways[i]，不写），不含内部身份与资源账户。时刻字段（*_at）是带时区的 ISO 8601。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 
@@ -29,9 +30,10 @@ REFERENCE_ASSESSMENT_FIELDS = (
 DELIVERY_ASSESSMENT_FIELDS = (
     "delivery_path", "source_supported", "contradiction", "source_excerpt", "rationale", "passed",
 )
-#: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因与下一步由 life.guidance 生成，
-#: 近似候选与终局只含可读名称。
-_PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "candidates", "outcome", "linked_orders")
+#: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因、改法、下一步与逐项明细由 life.guidance
+#: 生成（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），终局、名称归一与附带说明只含可读名称。
+_PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
+                        "notes")
 
 
 def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
@@ -77,8 +79,7 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
                               "access": "进入" if arrival["access_status"] == "allowed" else "没能进去"}
     browsed = browse_results(payload)
     if browsed:
-        details["browse_items"] = [names[item["product_id"]]
-                                   for revealed in browsed for item in revealed.get("items", [])]
+        details["browse_items"] = browse_labels(browsed, scenario)
     mail = _read_mail(payload)
     if mail is not None:
         details["mail"] = mail
@@ -90,6 +91,19 @@ def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """@brief 结果中的活动快照：单项结果的 activity；同一请求的多项活动为 activities（开始时的快照，或全部子活动结束后
     聚合终态中的各活动终态快照）。"""
     return [payload["activity"]] if "activity" in payload else payload.get("activities", [])
+
+
+def browse_labels(browsed: list[dict[str, Any]], scenario: RuntimeScenario) -> list[str]:
+    """@brief 浏览结果的完整标签「<门店>出售的<商品>」（docs/dev/SPEC-dayrun-fidelity.md 5.3）：仍只列名称，不另标
+    可得性（可得性在工具层的 available）；门店取场景的地点显示名，写法与工具层商品目标名、指名购买的标签同一来源
+    （object_labels.supply_label），离开浏览地点后可照着按名下单。
+
+    :param browsed: browse_results 取出的浏览结果（各带 items，每行是一条供给的比较行）。
+    """
+    names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
+    places = {item.location_id: item.name for item in scenario.locations}
+    return [supply_label(places[item["location_id"]], names[item["product_id"]])
+            for revealed in browsed for item in revealed.get("items", [])]
 
 
 def browse_results(payload: dict[str, Any]) -> list[dict[str, Any]]:

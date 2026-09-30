@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
@@ -149,7 +149,7 @@ def _order_for_wanglei(state: dict):
         answering = f"王磊 {message['occurred_at'][11:16]} 的消息"
         state.update(target=target, answering=answering)
         return "start_activity", {"targets": [target], "actions": ["obtain"], "ways": ["远程下单"],
-                                  "from": [None], "to": ["联系人：王磊"], "answering": answering}
+                                  "from": [None], "to": ["联系人：王磊"], "answering": answering, "prefer": None}
     return choose
 
 
@@ -171,7 +171,7 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     assert payload["history"] == [] and payload["received"] == []
     await _decide(environment, "wait", lambda _: ("start_activity", {
         "targets": ["自己"], "actions": ["interact"], "ways": ["等待"], "from": [None], "to": [None],
-        "answering": None}))
+        "answering": None, "prefer": None}))
     run_until(engine, lambda current: settled["reply_message_id"] in current.state.agents[1].inbox
               and _ready(current))
 
@@ -226,7 +226,7 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     run_until(engine, lambda current: current.state.agents[1].location_id == "home" and _idle(current))
     home, requests, _ = await _decide(environment, "home", lambda _: ("start_activity", {
         "targets": ["自己"], "actions": ["interact"], "ways": ["等待"], "from": [None], "to": [None],
-        "answering": None}))
+        "answering": None, "prefer": None}))
     assert not _events(home, "delivery") and not [row for row in _events(home, "tool_call")
                                                   if row["arguments"].get("answering")]
     settled_lines = [line for entry in home["memory_layer"]["earlier_today"] for line in entry["settled"]]
@@ -248,4 +248,4 @@ def _walk_home(observation: dict) -> tuple[str, dict]:
     home = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "location"
                 and "张江居所" in row["name"])
     return "start_activity", {"targets": [home], "actions": ["travel"], "ways": ["步行"], "from": [None],
-                              "to": [None], "answering": None}
+                              "to": [None], "answering": None, "prefer": None}

@@ -1,0 +1,169 @@
+{
+  "provenance": {
+    "run": "WorldMock-Dataset requests/0001-white-collar-lianqiu/runs/2026-09-28-4a5b0e6-day",
+    "events": "worldmock-export/events.jsonl.gz (event_seq as listed per request)",
+    "scenario": "frozen-inputs/scenarios/qingpu-lianqiu-white-collar.json",
+    "phone_config": "frozen-inputs/corpora/phone-simulation.json",
+    "map": "frozen-inputs/corpora/qingpu-lianqiu-map (locations.json, supplies.json, routes.json)",
+    "catalog": "frozen-inputs/catalog/objects.jsonl",
+    "spec": "docs/dev/SPEC-dayrun-fidelity.md 3.2, 3.3 (WC 18:15 requests #882, #890, #994)",
+    "note": "Request payloads are copied verbatim; they predate the request-level prefer field (3.5), which a replay fills with null (fastest)."
+  },
+  "scenario_id": "qingpu-lianqiu-white-collar-2026-09-28",
+  "timezone": "Asia/Shanghai",
+  "agent": {
+    "agent_id": 1,
+    "home_location_id": "home"
+  },
+  "channel": {
+    "channel_id": "hema",
+    "seller_account_id": "merchant:grocery",
+    "names": [
+      "盒马App",
+      "盒马"
+    ]
+  },
+  "store": {
+    "location_id": "grocery",
+    "name": "模拟生鲜出货点",
+    "kind": "supermarket"
+  },
+  "goods": [
+    {
+      "supply_id": "supply-grocery-fdc-170457",
+      "product_id": "fdc-170457",
+      "name": "番茄",
+      "seller_account_id": "merchant:grocery",
+      "price_fen": 500,
+      "initial_stock": 20,
+      "fulfillment_modes": [
+        "delivery"
+      ],
+      "delivery_destination_ids": [
+        "home"
+      ],
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "supply_id": "supply-grocery-fdc-171287",
+      "product_id": "fdc-171287",
+      "name": "鸡蛋",
+      "seller_account_id": "merchant:grocery",
+      "price_fen": 600,
+      "initial_stock": 20,
+      "fulfillment_modes": [
+        "delivery"
+      ],
+      "delivery_destination_ids": [
+        "home"
+      ],
+      "delivery_delay_seconds": 1800
+    }
+  ],
+  "delivery_route": {
+    "origin_id": "grocery",
+    "destination_id": "home",
+    "mode": "driving",
+    "status": "reachable",
+    "duration_seconds": 49
+  },
+  "requests": [
+    {
+      "model_response_event_seq": 882,
+      "action_requested_event_seq": 883,
+      "occurred_at": 1790590500,
+      "tool_name": "start_activity",
+      "request": {
+        "actions": [
+          "obtain",
+          "obtain"
+        ],
+        "answering": null,
+        "from": [
+          "盒马App",
+          "盒马App"
+        ],
+        "targets": [
+          "番茄",
+          "鸡蛋"
+        ],
+        "to": [
+          "自己",
+          "自己"
+        ],
+        "ways": [
+          "远程下单",
+          "远程下单"
+        ]
+      },
+      "recorded_rejection": {
+        "error_code": "SUPPLY_NOT_FOUND",
+        "reason": "没有找到这个名字的商品"
+      },
+      "agent_location_id": "home"
+    },
+    {
+      "model_response_event_seq": 890,
+      "action_requested_event_seq": 891,
+      "occurred_at": 1790590500,
+      "tool_name": "start_activity",
+      "request": {
+        "actions": [
+          "obtain",
+          "obtain"
+        ],
+        "answering": null,
+        "from": [
+          "模拟生鲜出货点",
+          "模拟生鲜出货点"
+        ],
+        "targets": [
+          "模拟生鲜出货点出售的番茄",
+          "模拟生鲜出货点出售的鸡蛋"
+        ],
+        "to": [
+          "自己",
+          "自己"
+        ],
+        "ways": [
+          "远程下单",
+          "远程下单"
+        ]
+      },
+      "recorded_rejection": {
+        "error_code": "ACTION_REQUEST_INVALID",
+        "reason": "所选的对象或方式不在这一轮列出的范围内"
+      },
+      "agent_location_id": "home"
+    },
+    {
+      "model_response_event_seq": 994,
+      "action_requested_event_seq": 995,
+      "occurred_at": 1790594295,
+      "tool_name": "start_activity",
+      "request": {
+        "actions": [
+          "obtain"
+        ],
+        "answering": null,
+        "from": [
+          "盒马App"
+        ],
+        "targets": [
+          "模拟生鲜出货点出售的番茄"
+        ],
+        "to": [
+          "自己"
+        ],
+        "ways": [
+          "远程下单"
+        ]
+      },
+      "recorded_rejection": {
+        "error_code": "ACTION_REQUEST_INVALID",
+        "reason": "所选的对象或方式不在这一轮列出的范围内"
+      },
+      "agent_location_id": "home"
+    }
+  ]
+}

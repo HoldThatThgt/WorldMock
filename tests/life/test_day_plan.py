@@ -19,10 +19,20 @@ from worldmock.life.models import (
 )
 from worldmock.life.rhythm import _goal_and_deadline_pulses, engine_rhythm_inputs
 from worldmock.life.schedule import (
-    INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds, day_plan_expired,
-    expired_plan_agent_ids, initial_day_plan, progress_day_plan, revise_day_plan,
+    GOAL_TIME_TOLERANCE_SECONDS, INTENT_KINDS, ROUTINE_INTENT_KINDS, DayPlan, PlanGoal, RemindTimeInvalid,
+    day_end_seconds, day_plan_expired, expired_plan_agent_ids, initial_day_plan, progress_day_plan,
+    ran_in_goal_window, registered_goals, revise_day_plan,
 )
 from worldmock.runtime import settle_pending_day_plans
+
+#: 纯函数用例的当日时刻：以 0 为当日零点，HOUR 为一小时。
+HOUR = 3600
+DAY_END = 24 * HOUR
+
+
+def at(hour: int, minute: int = 0) -> int:
+    """纯函数用例中当日 hour:minute 的时刻（当日零点为 0）。"""
+    return hour * HOUR + minute * 60
 
 
 def goal(kind="工作", text="推进手头工作", registered=100, **evidence):
@@ -31,7 +41,7 @@ def goal(kind="工作", text="推进手头工作", registered=100, **evidence):
 
 def planned(kind, text):
     """零点计划客户端桩：生成只含一条不设提醒的目标的当日计划。"""
-    return StubPlanDayClient(goals=[{"intent_kind": kind, "goal": text, "remind_time": None}])
+    return StubPlanDayClient(goals=[{"intent_kind": kind, "goal": text, "remind_time": None, "around_time": None}])
 
 
 def activity(kind="work", **changes):
@@ -53,36 +63,38 @@ def test_empty_and_eight_goals_are_valid_and_ninth_is_rejected():
     with pytest.raises(ValidationError):
         initial_day_plan(goals + (goal(INTENT_KINDS[8]),), 1000)
     with pytest.raises(ValidationError, match="at most eight unique intents"):
-        PlanDayRequest(goals=[{"intent_kind": kind, "goal": "想推进", "remind_time": None}
+        PlanDayRequest(goals=[{"intent_kind": kind, "goal": "想推进", "remind_time": None, "around_time": None}
                               for kind in INTENT_KINDS[:9]])
 
 
 @pytest.mark.parametrize("text", ["", " ", "\n\t", "字" * 301])
 def test_goal_text_bounds_apply_to_input_and_persisted_state(text):
     with pytest.raises(ValidationError, match="pattern|exceeds 300 characters"):
-        PlanGoalInput(intent_kind="工作", goal=text, remind_time=None)
+        PlanGoalInput(intent_kind="工作", goal=text, remind_time=None, around_time=None)
     with pytest.raises(ValidationError):
         goal(text=text)
 
 
 def test_goal_text_limit_and_closed_intents():
-    assert PlanGoalInput(intent_kind="工作", goal="字" * 300, remind_time=None).goal == "字" * 300
+    assert PlanGoalInput(intent_kind="工作", goal="字" * 300, remind_time=None, around_time=None).goal == "字" * 300
     assert goal(text="字" * 300).goal == "字" * 300
-    for model, fields in ((PlanGoalInput, {"remind_time": None}), (PlanGoal, {"registered_at": 100})):
+    for model, fields in ((PlanGoalInput, {"remind_time": None, "around_time": None}),
+                          (PlanGoal, {"registered_at": 100})):
         with pytest.raises(ValidationError, match="literal_error"):
             model(intent_kind="阅读", goal="看书", **fields)
     with pytest.raises(ValidationError):
         DayPlan(day_end=1000, goals=[goal(), goal()])
     with pytest.raises(ValidationError, match="at most eight unique intents"):
-        PlanDayRequest(goals=[{"intent_kind": "工作", "goal": "甲", "remind_time": None},
-                              {"intent_kind": "工作", "goal": "乙", "remind_time": None}])
+        PlanDayRequest(goals=[{"intent_kind": "工作", "goal": "甲", "remind_time": None, "around_time": None},
+                              {"intent_kind": "工作", "goal": "乙", "remind_time": None, "around_time": None}])
 
 
 @pytest.mark.parametrize("extra", [{"start": 100}, {"end": 300}, {"note": "备注"},
                                   {"duration_seconds": 60}, {"progressed_at": 200}])
 def test_input_rejects_old_fields_and_environment_owned_fields(extra):
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "写报告", "remind_time": None, **extra})
+        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "写报告", "remind_time": None, "around_time": None,
+                                      **extra})
 
 
 def test_old_checkpoint_and_request_shapes_are_rejected():
@@ -160,6 +172,124 @@ def test_lifestyle_family_uses_actual_category_and_midnight_interval_counts():
     result = progress_day_plan(plan, activity("lifestyle", category="sport"), 950, 1050)
     assert result.goals[0].progressed_at == 1000
     assert result.goals[0].progress_activity_id == "activity-a"
+
+
+def _around_plan(kind: str, around: int | None, registered: int = 0) -> DayPlan:
+    """一条带大致时刻（或不带）的当日目标，当日零点登记。"""
+    return DayPlan(day_end=DAY_END, goals=[goal(kind, registered=registered, around_at=around)])
+
+
+def _ran(kind: str, started: int, **changes) -> dict:
+    """开始时刻为 started 的活动快照。"""
+    return activity(kind, started_at=started, **changes)
+
+
+@pytest.mark.parametrize(("kind", "intent", "around", "started", "interval", "progressed"), [
+    # 大致时刻 12:00 的午餐：10:20–10:45 的进食与 [10:30, 13:30] 有交集，推进；09:30–09:55 的不推进。
+    ("consume", "用餐", at(12), at(10, 20), (at(10, 20), at(10, 45)), at(10, 45)),
+    ("consume", "用餐", at(12), at(9, 30), (at(9, 30), at(9, 55)), None),
+    # 08:40 的浏览不推进大致时刻为 23:00 的娱乐目标；同一浏览推进不带大致时刻的目标（沿用现行判定）。
+    ("browse", "娱乐", at(23), at(8, 40), (at(8, 40), at(8, 55)), None),
+    ("browse", "娱乐", None, at(8, 40), (at(8, 40), at(8, 55)), at(8, 55)),
+    # 零点前开始、零点后结算的睡眠不推进大致时刻为 23:30 的睡眠目标；不带大致时刻的照旧推进。
+    ("sleep", "睡眠", at(23, 30), -10 * 60, (0, at(0, 30)), None),
+    ("sleep", "睡眠", None, -10 * 60, (0, at(0, 30)), at(0, 30)),
+    # 零点前开始的睡眠在大致时刻 00:30 的窗口内进行，推进。
+    ("sleep", "睡眠", at(0, 30), -10 * 60, (0, at(0, 15)), at(0, 15)),
+    # 活动开始得早、这次结算落在窗口内：按活动的进行区间判定，推进。
+    ("watch", "娱乐", at(23), at(20), (at(21, 15), at(21, 45)), at(21, 45)),
+    # 窗口两端：进行区间与窗口只相接不算交集，多一秒才算。
+    ("watch", "娱乐", at(12), at(10), (at(10), at(10, 30)), None),
+    ("watch", "娱乐", at(12), at(10), (at(10), at(10, 30) + 1), at(10, 30) + 1),
+    ("watch", "娱乐", at(12), at(13, 30), (at(13, 30), at(13, 45)), None),
+    ("watch", "娱乐", at(12), at(13, 30) - 1, (at(13, 30) - 1, at(13, 45)), at(13, 45)),
+    # 窗口越过次日零点的部分不算：结算止点按次日零点裁剪，次日零点之后才开始的不推进。
+    ("watch", "娱乐", at(23, 30), at(23, 50), (at(23, 50), DAY_END + HOUR), DAY_END),
+    ("watch", "娱乐", at(23, 30), DAY_END + 600, (DAY_END + 600, DAY_END + 1200), None),
+])
+def test_progress_with_an_around_time_requires_the_activity_to_run_near_it(kind, intent, around, started, interval,
+                                                                            progressed):
+    """推进判定（docs/dev/SPEC-dayrun-fidelity.md 8.2）：同家族、登记后的正时长结算，且活动在当日内的进行区间（活动
+    实际开始时刻至结算止点，不是结算区间起点）与 [around − 90 分钟, around + 90 分钟] ∩ 当日有正时长交集；大致时刻为空
+    的目标沿用现行判定。"""
+    assert GOAL_TIME_TOLERANCE_SECONDS == 5400
+    plan = _around_plan(intent, around)
+    result = progress_day_plan(plan, _ran(kind, started), *interval)
+    assert result.goals[0].progressed_at == progressed
+    assert ran_in_goal_window(around, started, min(interval[1], DAY_END)) is (progressed is not None)
+
+
+def test_around_time_skips_a_goal_outside_its_window_and_needs_the_actual_start():
+    """同家族的前一个目标不在窗口内时照清单顺序匹配下一个；有大致时刻的目标需要活动的实际开始时刻，快照残缺时不推进。"""
+    plan = DayPlan(day_end=DAY_END, goals=[goal("娱乐", "睡前刷会儿", 0, around_at=at(23)),
+                                           goal("休息", "歇一歇", 0), goal("外出", "散步", 0, around_at=at(9))])
+    browsed = progress_day_plan(plan, _ran("browse", at(8, 40)), at(8, 40), at(8, 55))
+    assert [item.progressed_at for item in browsed.goals] == [None, None, None]
+    waited = progress_day_plan(plan, _ran("wait", at(8, 40)), at(8, 40), at(8, 55))
+    assert [item.progressed_at for item in waited.goals] == [None, at(8, 55), None]
+    assert progress_day_plan(plan, activity("travel"), at(8, 40), at(8, 55)) == plan
+    walked = progress_day_plan(plan, _ran("travel", at(8, 40)), at(8, 40), at(8, 55))
+    assert walked.goals[2].progress_activity_id == "activity-a"
+    assert not ran_in_goal_window(at(9), None, at(8, 55)) and ran_in_goal_window(None, None, at(8, 55))
+    # 13:40 修订登记的午饭目标（大致时刻 12:00）：13:00 开始的进食在窗口内进行，登记后 13:30–13:45 的结算推进它；
+    # 若按结算区间起点 13:30 判定就落在窗口之外。
+    revised = DayPlan(day_end=DAY_END, goals=[goal("用餐", "午饭", at(13, 40), around_at=at(12))])
+    eaten = progress_day_plan(revised, _ran("consume", at(13)), at(13, 30), at(13, 45))
+    assert eaten.goals[0].progressed_at == at(13, 45)
+    assert not ran_in_goal_window(at(12), at(13, 30), at(13, 45))
+
+
+def test_around_time_is_required_nullable_hh_mm_and_needs_no_later_than_now():
+    """around_time 必填可空、格式同 remind_time；换算为登记日的绝对时刻，不像提醒那样要求晚于登记时刻，状态里不越过
+    次日零点（docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
+    for value in (None, "00:00", "08:15", "23:59"):
+        assert PlanGoalInput(intent_kind="用餐", goal="午饭", remind_time=None, around_time=value).around_time == value
+    for value in ("8:15", "24:00", "12:60", "08:15:00", "约 08:15", ""):
+        with pytest.raises(ValidationError, match="around_time"):
+            PlanGoalInput(intent_kind="用餐", goal="午饭", remind_time=None, around_time=value)
+    with pytest.raises(ValidationError, match="around_time"):
+        PlanGoalInput.model_validate({"intent_kind": "用餐", "goal": "午饭", "remind_time": None})
+    now = 1_767_589_200  # 2026-01-05 13:00（Asia/Shanghai）
+    request = PlanGoalInput(intent_kind="用餐", goal="午饭推迟到一点前后", remind_time=None, around_time="12:00")
+    [registered] = registered_goals([request], now, "Asia/Shanghai")
+    assert (registered.registered_at, registered.around_at, registered.remind_at) == (now, now - HOUR, None)
+    assert initial_day_plan([registered], day_end_seconds(now, "Asia/Shanghai")).goals == (registered,)
+    late = request.model_copy(update={"remind_time": "12:00"})
+    with pytest.raises(RemindTimeInvalid):
+        initial_day_plan(registered_goals([late], now, "Asia/Shanghai"), day_end_seconds(now, "Asia/Shanghai"))
+    with pytest.raises(ValidationError, match="exceeds day_end"):
+        DayPlan(day_end=DAY_END, goals=[goal(around_at=DAY_END)])
+
+
+def test_revision_compares_four_fields_and_changing_only_around_keeps_registration():
+    """修订的等价比较含 around_time（四字段）：四项都相同的原样保留；只改大致时刻的保留登记时刻与提醒状态（已触发的提醒
+    不重校、不再触发），只换大致时刻；改了提醒的保留登记时刻、换新提醒与新大致时刻；改文字的是新登记。"""
+    fired = goal("用餐", "午饭", 0, remind_at=at(11), reminded_at=at(11), around_at=at(12))
+    plan = DayPlan(day_end=DAY_END, goals=[fired, goal("娱乐", "看剧", 0, around_at=at(21))])
+    now = at(13)
+    same = revise_day_plan(plan, now, registered_goals_at(now, ("用餐", "午饭", at(11), at(12)),
+                                                          ("娱乐", "看剧", None, at(21))))
+    assert same.goals == plan.goals
+    moved = revise_day_plan(plan, now, registered_goals_at(now, ("用餐", "午饭", at(11), at(13, 30)),
+                                                           ("娱乐", "看剧", None, None)))
+    assert moved.goals[0] == fired.model_copy(update={"around_at": at(13, 30)})
+    assert (moved.goals[1].registered_at, moved.goals[1].around_at) == (0, None)
+    reminded = revise_day_plan(plan, now, registered_goals_at(now, ("用餐", "午饭", at(14), at(14))))
+    assert (reminded.goals[0].registered_at, reminded.goals[0].remind_at, reminded.goals[0].reminded_at,
+            reminded.goals[0].around_at) == (0, at(14), None, at(14))
+    rewritten = revise_day_plan(plan, now, registered_goals_at(now, ("用餐", "晚点吃午饭", None, at(12))))
+    assert (rewritten.goals[0].registered_at, rewritten.goals[0].around_at) == (now, at(12))
+
+
+def registered_goals_at(now: int, *rows: tuple) -> list[PlanGoal]:
+    """以修订时刻 now 登记的目标（意图、文字、提醒时刻、大致时刻；时刻已是绝对时刻）。"""
+    return [PlanGoal(intent_kind=kind, goal=text, registered_at=now, remind_at=remind, around_at=around)
+            for kind, text, remind, around in rows]
+
+
+def test_routine_intents_are_the_four_routine_kinds_of_the_closed_set():
+    """例行意图是十一种意图闭集中的睡眠、晨间例程、通勤、用餐（docs/dev/SPEC-dayrun-fidelity.md 2.3）。"""
+    assert ROUTINE_INTENT_KINDS == {"睡眠", "晨间例程", "通勤", "用餐"} and ROUTINE_INTENT_KINDS < set(INTENT_KINDS)
 
 
 def test_day_boundary_expiry_and_agent_isolation():
@@ -243,7 +373,7 @@ def test_empty_plan_is_registered_once_and_can_be_revised(engine_factory):
     assert engine.state.agents[1].day_plan.goals == ()
     assert engine.state.agents[1].plan_submitted_dates == {"2026-01-05"}
     revised = act(engine, "add", "revise_day_plan", ReviseDayPlanRequest(
-        goals=[{"intent_kind": "工作", "goal": "写报告", "remind_time": None}]))
+        goals=[{"intent_kind": "工作", "goal": "写报告", "remind_time": None, "around_time": None}]))
     assert revised.status == "completed"
     plan = engine.state.agents[1].day_plan
     assert [item.goal for item in plan.goals] == ["写报告"]
@@ -333,6 +463,6 @@ def test_revision_merged_limit_returns_domain_error_and_preserves_plan(engine_fa
     _commit_staged(engine, staged)
     original = engine.state.agents[1].day_plan
     result = act(engine, "too-many", "revise_day_plan", ReviseDayPlanRequest(
-        goals=[{"intent_kind": INTENT_KINDS[8], "goal": "多一条", "remind_time": None}]))
+        goals=[{"intent_kind": INTENT_KINDS[8], "goal": "多一条", "remind_time": None, "around_time": None}]))
     assert result.error_code == "PLAN_GOALS_INVALID"
     assert engine.state.agents[1].day_plan == original

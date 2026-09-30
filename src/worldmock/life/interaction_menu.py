@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
 from worldmock.life.models import FrozenModel, START_ACTIVITY_ACTIONS
+from worldmock.life.readable import TRAVEL_WAYS
 
 #: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md「保护项修订」）：每份菜单必须保留，
 #: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。
@@ -21,13 +22,15 @@ PROTECTED_SELF_ACTIONS = frozenset({"wait", "sleep"})
 
 #: 人物的五个生活动词（docs/dev/SPEC-time-and-energy.md 第五章「人物选择什么」）。
 LIFE_VERBS = ("travel", "interact", "obtain", "consume", "sleep")
-#: 方式短语闭集 → （动词，内部标准动作）；同一方式只属于一个动词。内容对象的四个续看方式都映射为观看。
+#: 方式短语闭集 → （动词，内部标准动作）；同一方式只属于一个动词。内容对象的四个续看方式都映射为观看。「购买」只写在
+#: 请求里（由系统定到店或远程下单，SYSTEM_PURCHASE_WAY），工具层不列出它。
 WAYS: dict[str, tuple[str, str]] = {
     "步行": ("travel", "travel_to"), "驾车": ("travel", "travel_to"),
     "工作": ("interact", "work"), "观看": ("interact", "watch"), "游玩": ("interact", "play"),
     "交谈": ("interact", "chat"), "通话": ("interact", "call"), "阅读": ("interact", "read"),
     "浏览": ("interact", "browse"), "进行": ("interact", "do"), "等待": ("interact", "wait"),
-    "到店": ("obtain", "purchase"), "远程下单": ("obtain", "purchase"), "制作": ("obtain", "consume"),
+    "到店": ("obtain", "purchase"), "远程下单": ("obtain", "purchase"), "购买": ("obtain", "purchase"),
+    "制作": ("obtain", "consume"),
     "食用": ("consume", "consume"), "使用": ("consume", "consume"), "给予": ("consume", "consume"),
     "接着看": ("interact", "watch"), "从头再看": ("interact", "watch"),
     "接着听": ("interact", "watch"), "从头再听": ("interact", "watch"),
@@ -38,8 +41,14 @@ ACTION_WAYS = {
     "work": "工作", "browse": "浏览", "watch": "观看", "play": "游玩", "chat": "交谈", "call": "通话",
     "read": "阅读", "do": "进行", "wait": "等待", "sleep": "睡觉",
 }
-TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
+# 出行方式 → 方式短语 TRAVEL_WAYS 的唯一来源是 readable 的中文种类表（docs/dev/SPEC-dayrun-fidelity.md 7.4），
+# 文件头导入的就是那张表，照旧从本模块导出。
 PURCHASE_WAYS = {"pickup": "到店", "delivery": "远程下单"}
+#: 由系统定取得方式的「购买」（docs/dev/SPEC-dayrun-fidelity.md 3.5）：人在出售该商品的门店里就到店，否则能送到收货地
+#: 就远程下单；对任何商品目标都受理，工具层的商品目标不列出它。
+SYSTEM_PURCHASE_WAY = "购买"
+#: 按名称取得商品可写的方式：到店、远程下单与「购买」。
+NAMED_PURCHASE_WAYS = frozenset({*PURCHASE_WAYS.values(), SYSTEM_PURCHASE_WAY})
 USE_WAYS = {"eat": "食用", "use": "使用"}
 #: 把手边的持有物交给人物的方式（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：内部标准动作仍是 consume，
 #: 瞬时、不占名额、不增加任何人的摄入；菜单、可供性目录与品类配对不变。
@@ -130,39 +139,34 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
 
 
 def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> list[dict[str, Any]] | None:
-    """@brief 按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作；映射不唯一或不在本轮闭集时返回 None。
+    """@brief 只按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作：经统一名称解析（worldmock.life.name_resolution，
+    精确或无损归一后唯一、方式按同义表恰好命中一个）；映射不出、有歧义或（动词，方式）不相配时返回 None。
 
-    obtain 以到店或远程下单指名本轮没有列出的名称时是指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）：
-    该项为 NAMED_SUPPLY_KIND 的占位行（所选动作已映射为购买），由环境在受理时按名称解析为门店供给。
+    本轮没有列出的名称只在按「动词加方式」推出指名购买（named_kind 为 supply）时解析为 NAMED_SUPPLY_KIND 的占位行（所选动作
+    已映射为购买），由环境在受理时按名称解析为门店供给；方式「购买」写在列出的商品目标上时同样是占位行（由系统定到店或
+    远程下单）；目录绑定与冻结地点表不在这里（受理按整份冻结观察解析，name_resolution.name_book）。
 
     :returns: 与 targets 逐项对应的绑定行副本，selected_action 为所选动作。
     """
+    from types import SimpleNamespace
+
+    from worldmock.life.name_resolution import name_book, resolve_start
+
     if not isinstance(bindings, list) or not all(isinstance(item, list) for item in (targets, actions, ways)):
         return None
-    if not 1 <= len(targets) <= 2 or len(targets) != len(actions) or len(actions) != len(ways):
-        return None
-    selected = []
-    for name, verb, way in zip(targets, actions, ways):
-        rows = [row for row in bindings if isinstance(row, dict) and row.get("object") == name]
-        if not rows and is_named_purchase(verb, way):
-            selected.append(named_supply_row(name, way))
-            continue
-        choices = [item for item in rows[0].get("actions", []) if item.get("verb") == verb
-                   and item.get("label") == way] if len(rows) == 1 else []
-        if len(choices) != 1:
-            return None
-        selected.append({**rows[0], "selected_action": choices[0]})
-    return selected
-
-
-def is_named_purchase(verb: Any, way: Any) -> bool:
-    """@brief 动词与方式是否构成指名购买：obtain 配到店或远程下单（制作只对手边的持有物）。"""
-    return verb == "obtain" and way in PURCHASE_WAYS.values()
+    empty = [None for _ in targets]
+    request = SimpleNamespace(targets=targets, actions=actions, ways=ways, from_=empty, to=empty, answering=None)
+    outcome = resolve_start(name_book({"interaction_bindings": [row for row in bindings if isinstance(row, dict)]}),
+                            request)
+    return None if outcome.request is None or outcome.failures else [dict(row) for row in outcome.rows]
 
 
 def named_supply_row(name: str, way: str) -> dict[str, Any]:
-    """@brief 指名购买的占位绑定行：人物所写的名称与映射为购买的所选动作，供给由环境按名称解析后替换。"""
-    fulfillment = next(mode for mode, label in PURCHASE_WAYS.items() if label == way)
+    """@brief 指名购买的占位绑定行：人物所写的名称与映射为购买的所选动作，供给由环境按名称解析后替换。
+
+    :param way: 到店、远程下单或「购买」；「购买」的履约方式在解析时由系统决定，占位行上为 None。
+    """
+    fulfillment = next((mode for mode, label in PURCHASE_WAYS.items() if label == way), None)
     action = binding_action(way, "purchase", fulfillment=fulfillment)
     return {"object": name, "kind": NAMED_SUPPLY_KIND, "object_id": None, "actions": [action],
             "selected_action": action}
@@ -174,9 +178,9 @@ def activity_phrase(action: dict[str, Any]) -> str:
 
 
 def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
-    """@brief 两项是否合成一次动作（沿用同短语合并）：同为方式相同的取得（都到店或都远程下单）合成一单（再按收货地拆单），
-    同为方式相同的食用或使用合成一餐（各项去向都是自己）；「制作」按一份库存转换配方执行，一次只做一件，「给予」逐项
-    瞬时转移，都不合并；其余两项各自受理。"""
+    """@brief 两项是否合成一次动作（沿用同短语合并，「购买」已在受理前定为到店或远程下单）：同为方式相同的取得（都到店或
+    都远程下单）合成一单（再按收货地拆单），同为方式相同的食用或使用合成一餐（各项去向都是自己）；「制作」按一份库存
+    转换配方执行，一次只做一件，「给予」逐项瞬时转移，都不合并；其余两项各自受理。"""
     if len(canonical) == 1:
         return True
     same = canonical[0] == canonical[1] and ways[0] == ways[1]

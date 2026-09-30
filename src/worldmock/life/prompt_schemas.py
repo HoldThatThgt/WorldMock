@@ -23,7 +23,7 @@ TARGET_KINDS = ("location", "product", "person", "content", "game", "catalog", "
                 "message", "self")
 #: 五个生活动词（interaction_menu.LIFE_VERBS 的字面副本）。
 VERBS = ("travel", "interact", "obtain", "consume", "sleep")
-#: 方式短语闭集（interaction_menu.WAYS 键的字面副本）。
+#: 工具层可列出的方式短语（interaction_menu.WAYS 键的字面副本，不含只写在请求里、由系统定方式的「购买」）。
 WAY_LABELS = ("步行", "驾车", "工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待", "到店", "远程下单",
               "制作", "食用", "使用", "给予", "接着看", "从头再看", "接着听", "从头再听", "睡觉")
 #: 以目标名称为参数的其他工具。
@@ -101,9 +101,22 @@ SYSTEM_LAYER_SCHEMA: dict[str, Any] = {
                "rules": {"type": "array", "minItems": 1, "uniqueItems": True, "items": _TEXT}}),
 }
 
+#: 可调用索引每个品类至多给出的示例名数（callable_index.MAX_EXAMPLES 的字面副本）。
+INDEX_EXAMPLES_MAX = 3
+_INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
+                           "examples": {"type": "array", "maxItems": INDEX_EXAMPLES_MAX, "uniqueItems": True,
+                                        "items": _TEXT}})
+#: 工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）：只有名称、品类与计数，不带动作与条件。
+_CALLABLE_INDEX = _object({
+    "lifestyle": {"type": "array", "uniqueItems": True, "items": _TEXT},
+    "contents": {"type": "array", "items": _INDEX_CATEGORY},
+    "goods": {"type": "array", "items": _INDEX_CATEGORY},
+})
+
 TOOL_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "工具层",
-    **_object({"layer": {"const": "工具层"}, "targets": {"type": "array", "items": _TARGET}}),
+    **_object({"layer": {"const": "工具层"}, "targets": {"type": "array", "items": _TARGET},
+               "callable_index": _CALLABLE_INDEX}),
 }
 
 _RHYTHM = _object({key: _TEXT for key in ("wake", "leave_home", "lunch", "dinner", "bedtime", "sleep_midpoint",
@@ -141,7 +154,8 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 }
 
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
-                 "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
+                 "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+                 "around_time": {"type": ["string", "null"], "pattern": r"^约 ([01][0-9]|2[0-3]):[0-5][0-9]$"}})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
     **_object({

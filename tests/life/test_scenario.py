@@ -181,6 +181,67 @@ def test_body_instance_and_rejection_ranges_are_enforced(
     _assert_invalid(_replace(path, value), message)
 
 
+def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files() -> None:
+    """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：正式场景不声明，
+    文档与组装后的身体参数都取缺省 0.5；场景结构版本仍为 3，目录钉扎不变。"""
+    for path in (_FORMAL, Path("scenarios/multi-person.json"), Path("scenarios/multi-person-half-day.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert "entertainment_relief_preference_floor" not in payload["body"]
+        assert LifeScenario.model_validate(payload).body.entertainment_relief_preference_floor == 0.5
+        scenario, _ = load_scenario(path)
+        assert scenario.schema_version == 3
+        assert scenario.body.entertainment_relief_preference_floor == 0.5
+
+
+@pytest.mark.parametrize("floor", [0.3, 0.7])
+def test_declared_relief_preference_floor_is_assembled_into_body_config(floor: float) -> None:
+    """场景声明的下限偏好经 _assemble_body 原样并入 BodyConfig，目录与其余身体参数不受影响。"""
+    payload = _replace(("body", "entertainment_relief_preference_floor"), floor)
+    document = LifeScenario.model_validate(payload)
+    body = assemble_semantics(document, load_catalog(_CATALOG), _map(document)).body
+    assert body.entertainment_relief_preference_floor == floor
+    assert body.entertainment_relief_per_hour == load_scenario(_FORMAL)[0].body.entertainment_relief_per_hour
+
+
+@pytest.mark.parametrize(("value", "message"), [
+    (0, "greater than 0"), (1, "less than 1"), (-0.2, "greater than 0"), (1.5, "less than 1"),
+    (float("nan"), "finite number"),
+])
+def test_relief_preference_floor_outside_the_open_unit_interval_is_rejected(value: float, message: str) -> None:
+    """f 取开区间 (0, 1)：0、1、负数、大于 1 与非有限值都在场景加载时拒绝。"""
+    _assert_invalid(_replace(("body", "entertainment_relief_preference_floor"), value), message)
+
+
+def test_relief_preference_floor_field_states_value_meaning_and_hypothesis() -> None:
+    """场景层字段说明登记取值、含义与实验假设（敏感区间 0.3–0.7），是 f 在场景层的唯一登记处。"""
+    from worldmock.life.scenario import BodyInstanceConfig
+
+    field = BodyInstanceConfig.model_fields["entertainment_relief_preference_floor"]
+    assert field.default == 0.5
+    for fragment in ("缺省 0.5", "(0, 1)", "f + (1 − f)·w", "实验假设", "0.3–0.7"):
+        assert fragment in field.description
+
+
+def test_relief_preference_floor_is_registered_once_in_the_experiment_hypotheses() -> None:
+    """docs/EXPERIMENT.md「实验假设声明」恰有一条登记下限偏好 f（docs/dev/SPEC-dayrun-fidelity.md 1.2 验收：f 在场景层字段
+    与 docs/EXPERIMENT.md 各登记一次）：取值是场景层字段的缺省值，写明敏感区间、有效偏好公式、取值范围与场景层字段名；
+    除版本表外，其余章节不再写 f 的取值或字段名（「需求状态」只指向这一条）。"""
+    from worldmock.life.scenario import BodyInstanceConfig
+
+    sections = Path("docs/EXPERIMENT.md").read_text(encoding="utf-8").split("\n## ")
+    hypotheses = next(part for part in sections if part.startswith("实验假设声明"))
+    registered = [item for item in hypotheses.split("\n- ") if "entertainment_relief_preference_floor" in item]
+    assert len(registered) == 1
+    field = BodyInstanceConfig.model_fields["entertainment_relief_preference_floor"]
+    for fragment in (f"`f = {field.default}`", "敏感区间 0.3–0.7", "`f + (1 − f)·w`", "(0, 1)",
+                     "`entertainment_relief_preference_floor`"):
+        assert fragment in registered[0], fragment
+    others = [part for part in sections if not part.startswith(("实验假设声明", "版本表"))]
+    assert [part.splitlines()[0] for part in others
+            if "entertainment_relief_preference_floor" in part or "f = " in part] == []
+    assert "下限偏好 `f` 见「实验假设声明」" in next(part for part in sections if part.startswith("场景参数"))
+
+
 def test_account_identities_are_unique_and_seller_roles_can_repeat() -> None:
     """账户实例身份唯一；不同卖方允许声明相同业务角色。"""
     duplicated = _payload()
@@ -690,3 +751,20 @@ def test_three_scenarios_share_the_v2_schema() -> None:
         scenario, digest = load_scenario(path)
         assert len(digest) == 64
     assert len(manifests) == 1
+
+
+def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
+    """组装后的运行时人物只把场景显式写出的字段记为已设（缺省值照旧由模型补齐，值不变），场景作息覆盖卡片据此只覆盖
+    显式声明的作息字段（docs/dev/SPEC-dayrun-fidelity.md 2.1）；声明全部五个字段的正式场景五个都记为已设。"""
+    rhythm = {"chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_window", "bedtime_window"}
+    payload = _payload()
+    for name in rhythm - {"chronotype_midsleep"}:
+        del payload["agents"][0][name]
+    document = LifeScenario.model_validate(payload)
+
+    agent = assemble_semantics(document, load_catalog(_CATALOG), _map(document)).scenario.agents[0]
+
+    assert agent.model_fields_set & rhythm == {"chronotype_midsleep"}
+    assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
+    assert agent.model_dump() == document.agents[0].model_dump()
+    assert load_scenario(_FORMAL)[0].agents[0].model_fields_set & rhythm == rhythm

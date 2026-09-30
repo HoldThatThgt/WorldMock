@@ -35,6 +35,17 @@ class LifestyleItem:
     typical_duration_minutes: int
     description: str
     met_value: float
+    #: 目录声明的时间窗（start_hour, end_hour），场景时区的本地小时，半开区间；没有声明时为 None。
+    #: 只作候选排序的相关度（docs/dev/SPEC-dayrun-fidelity.md 5.1），不构成资格。
+    time_window: tuple[int, int] | None = None
+
+
+def _time_window(row: dict) -> tuple[int, int] | None:
+    """@brief 目录条目的时间窗：{start_hour, end_hour} 两个整数小时写成 (start, end)；没有声明时为 None。"""
+    window = row.get("time_window")
+    if window is None:
+        return None
+    return (int(window["start_hour"]), int(window["end_hour"]))
 
 
 #: 「接着看」的最短剩余：已看完或剩余不足 60 秒的内容给全长并从头派生（docs/dev/SPEC-time-and-energy.md 第八章「呈现」）。
@@ -74,7 +85,7 @@ def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> t
                 category=str(row["category"]),
                 typical_duration_minutes=int(row["typical_duration_minutes"]),
                 description=str(row["description_zh"]),
-                met_value=float(row["met_value"]))
+                met_value=float(row["met_value"]), time_window=_time_window(row))
         except (KeyError, TypeError, ValueError) as error:
             raise IntegrityError(f"Lifestyle catalog row is invalid: {error}") from error
         if item.activity_id in seen:

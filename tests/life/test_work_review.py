@@ -16,7 +16,7 @@ from worldmock.catalog.affordances import default_affordances
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, target_actions,
-                                 tool_targets, wake_by_mail, start_request)
+                                 tool_targets, wake_by_mail, start_request, pause_request, report_request)
 from tests.life.test_work_contracts import (
     AcceptingReviewer,
     _completed_work_state,
@@ -26,15 +26,8 @@ from tests.life.test_work_contracts import (
 )
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.models import (
-    active_activities,
-    ActivityState,
-    MeetingMinutes,
-    PauseActivityRequest,
-    ReportStatusRequest,
-    SubmitWorkActionRequest,
-    SubmitWorkRequest,
-)
+from worldmock.life.models import (active_activities, ActivityState, MeetingMinutes, SubmitWorkActionRequest,
+                                   SubmitWorkRequest)
 from worldmock.life.scenario import load_scenario
 from worldmock.life.result_projection import public_result
 from worldmock.life.work import WorkMetrics, WorkSubmission, load_work_input, load_work_oracle
@@ -147,7 +140,7 @@ def _complete_required_work(engine) -> None:
             advance_next(engine)
             continue
         feedback_index += 1
-        feedback = ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续完成工作。"])
+        feedback = report_request(activity_name(engine, activity_id), summary="继续完成工作。")
         submit_round(engine, {1: ("report_status", feedback)}, f"work-feedback-{feedback_index}")
     assert conclude_pending(engine, "work-time-end").status == "completed"
     assert engine.state.activities[activity_id].concluded_at == engine.state.current_time
@@ -285,7 +278,7 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id
     assert advance_until_ready(engine)
-    pause = PauseActivityRequest(task=[activity_name(engine, activity_id)], summary=["工作进行到一半，先暂停。"])
+    pause = pause_request(activity_name(engine, activity_id), summary="工作进行到一半，先暂停。")
     _, paused = submit_round(engine, {1: ("pause_activity", pause)}, "pause-work")
     assert paused[0].status == "completed"
     assert advance_until_ready(engine)
@@ -387,7 +380,8 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert public["work_review"] == visible
     assert public["error_code"] == "WORK_REQUIRES_REWORK"
     # 返工拒绝同样带一句原因与下一步（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
-    assert public["details"] == {"reason": "提交的成果还需要返工", "next_step": "按评审意见修改后再提交"}
+    assert public["details"] == {"reason": "提交的成果还需要返工", "next_step": "按评审意见修改后再提交", "fix": None}
+    assert public["message"] == "提交的成果还需要返工"
     assert (result.data["reason"], result.data["next_step"]) == ("提交的成果还需要返工", "按评审意见修改后再提交")
     assert summaries[-1]["message"] in messages
     assert "Supported by the transcript." in messages
@@ -496,7 +490,7 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
     assert not active_activities(engine.state, 1)
     public = progress_calls(engine.observe(context(engine, f"late-work-{limit}-feedback")))[-1]["result"]
     assert public["error_code"] == "ACTIVITY_DURATION_INVALID"
-    assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分"}
+    assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分", "fix": None}
     assert not any(event.event_type == "run_failed"
                    for event in engine.store.read_events(engine.store.last_event_seq))
 
@@ -854,7 +848,7 @@ def _review_model_identity(**updates) -> dict:
     """形成 WorkReviewer 客户端身份测试使用的冻结参数。"""
     identity = {
         "requested_model": "deepseek-flash",
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.deepseek.com/beta",
         "thinking": "enabled",
         "tool_choice": "auto",
         "max_retries": 0,
@@ -878,8 +872,8 @@ def _bind_review_client(monkeypatch, model_name: str, base_url: str):
 @pytest.mark.parametrize(
     ("model_name", "base_url"),
     [
-        ("deepseek-chat", "https://api.deepseek.com"),
-        ("deepseek-flash", "https://api.deepseek.com/beta"),
+        ("deepseek-chat", "https://api.deepseek.com/beta"),
+        ("deepseek-flash", "https://api.deepseek.com"),
     ],
 )
 def test_work_reviewer_rejects_model_or_full_base_url_mismatch(
@@ -887,7 +881,7 @@ def test_work_reviewer_rejects_model_or_full_base_url_mismatch(
     model_name: str,
     base_url: str,
 ) -> None:
-    """实际客户端的模型或完整 beta URL 不符时分别拒绝。"""
+    """实际客户端的模型或完整 URL 不符时分别拒绝：身份记录 strict 所在的 /beta，指向主站的客户端也拒绝。"""
     _bind_review_client(monkeypatch, model_name, base_url)
 
     with pytest.raises(ProtocolError, match="identity disagrees"):
@@ -899,7 +893,7 @@ def test_work_reviewer_accepts_exact_client_and_request_identity(monkeypatch) ->
     client = _bind_review_client(
         monkeypatch,
         "deepseek-flash",
-        "https://api.deepseek.com",
+        "https://api.deepseek.com/beta",
     )
 
     reviewer = WorkReviewer(_review_model_identity())
@@ -909,7 +903,7 @@ def test_work_reviewer_accepts_exact_client_and_request_identity(monkeypatch) ->
 
 def test_work_reviewer_accepts_person_channel_thinking_divergence(monkeypatch) -> None:
     """运行身份记录人物通道思考参数，验收通道自身请求保持 disabled+required。"""
-    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com")
+    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com/beta")
 
     reviewer = WorkReviewer(_review_model_identity())
 
@@ -918,7 +912,7 @@ def test_work_reviewer_accepts_person_channel_thinking_divergence(monkeypatch) -
 
 def test_work_reviewer_rejects_request_parameter_drift(monkeypatch) -> None:
     """重试参数偏离冻结合同时拒绝。"""
-    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com")
+    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com/beta")
 
     with pytest.raises(ProtocolError, match="parameters disagree"):
         WorkReviewer(_review_model_identity(max_retries=1))

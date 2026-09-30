@@ -194,7 +194,7 @@ uv run worldmock category publish \
 | --- | --- |
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
-| `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配 |
+| `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配。`content_rate`（观看）为条目费率 × 有效偏好 ÷ 接触次数，`preference_rate`（游戏）为有效偏好 × 目录费率；两个通道都用有效偏好 `f + (1 − f)·w`，游戏的口味权重 `w` 与内容同一算法，没有题材的条目 `w = 0`、按下限 `f` 缓解，见[身体规则](#身体规则) |
 | `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-time-and-energy.md)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
 | `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
@@ -352,6 +352,10 @@ dinner = "18:30-19:30"
 bedtime = "23:00-24:00"
 ```
 
+这些缺省在故事没提到时补进卡片。场景人物写出 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`
+或 `bedtime_window` 时，人设层改取场景值，对应的缺省只在场景没写该字段时进入人设层；`wake` 与 `leave_home`
+没有场景字段，故事不提时总取这里的缺省，见[人物画像](personas.md#正文与实际世界条件要一致)。
+
 独立文件可通过 `WORLDMOCK_PERSONA_MAPPING=/绝对路径/persona-mapping.toml` 选择；
 这不是场景字段，也不会自动跟随另一个自定义 `catalog/` 目录。
 当前运行时主要从编译结果接入人物卡片和口味权重，**尚未把整份 `world_dynamics` 自动应用到世界状态**。
@@ -380,7 +384,8 @@ bedtime = "23:00-24:00"
 | 睡眠需要与昼夜节律 | 人物 `sleep_need_hours`、`chronotype_midsleep` | 当前两过程睡眠算法消费这些人物参数；起点困意由这两项按惯常起床时刻反推，见[人物画像](personas.md#在场景中填写人物) |
 | 目录中的睡眠变化率 | `sleep_debt_hours.drain_rules` | 仍要求正数并装配，但 `awake_sleep_debt_per_hour`、`sleep_recovery_per_hour` 不能覆盖当前睡眠算法 |
 | 目录中的 `food_efficiency_curve` | 能量资源的 `drain_rules` | 仍要求合法曲线并装配，但实际食品利用率由睡眠模型计算，不读取这张目录曲线 |
-| 娱乐需要增长、活动缓解率 | `entertainment_need.drain_rules` | 0–1 的每小时变化率；缓解键与活动声明匹配 |
+| 娱乐需要增长、活动缓解率 | `entertainment_need.drain_rules` | 0–1 的每小时变化率；缓解键与活动声明匹配；有缓解的活动进行时娱乐需要只按缓解下降，不再按清醒速率增长 |
+| 口味不合时的缓解下限 | 场景 `body.entertainment_relief_preference_floor` | 下限偏好 `f`，开区间 (0, 1)，缺省 `0.5`；观看与游戏的实际缓解为缓解速率 × (`f + (1 − f)·w`)，`w` 是口味权重，候选排序仍用 `w`；实验假设，见[实验假设声明](../EXPERIMENT.md#实验假设声明)；目录不含此键，改它不涉及目录版本 |
 | 工作效率因子、笔记倍率 | 合同品类解析后的属性 | 所有合同模板需一致；曲线必须能合法插值 |
 
 正式基线生成器从 `scripts/catalog-snapshot-legacy-scenario.json` 的 `body` 读取基础身体参数，
@@ -391,6 +396,8 @@ bedtime = "23:00-24:00"
 食品利用率曲线和困意分级；这些没有文件配置入口。实际睡眠不足账名为 `sleep_deficit_hours`，
 场景输入和目录部分字段仍使用 `sleep_debt_hours` 字样，不表示存在两份可以分别调节的睡眠状态。
 工作效率曲线的睡眠输入最终读取这份睡眠不足账；食品利用率则直接调用睡眠模型。
+困意分级的下界是「有点乏」0.80、「困」0.93、「很困」1.07、「撑不住」1.18（困意 1 即模型自身的入睡条件），
+按 KSS（卡罗林斯卡困倦量表）等价刻度标定，属实验假设，见[实验假设声明](../EXPERIMENT.md#实验假设声明)。
 
 ## 在独立目录中调参并验证
 

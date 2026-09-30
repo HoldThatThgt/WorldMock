@@ -3,7 +3,9 @@
 订单只有一个收货人，付款人仍是执行人物。同一请求中方式相同的各项按收货地拆成几笔整单（每笔一次付款、一次配送），
 整单的去重键为（供给，收货人）。收货地点不作参数：自己为当前地点，同世界人物为其所在地点，联系人为其收货地点。
 到店都要本人在店里；送给别人时，到店要收货人也在店里，远程下单要能送到收货人那里，否则以 ACTIVITY_PRECONDITION_UNMET
-「暂时送不到<名>那里」拒绝；送给自己时沿用 FULFILLMENT_NOT_SUPPORTED。
+拒绝（undeliverable）：远程下单按原因分「收货地点不在配送范围」（delivery_destination）与「配送路线缺失」（delivery_route）
+两句（docs/dev/SPEC-dayrun-fidelity.md 5.3），收货人此刻没有收货地点或到店时不在店里为「暂时送不到<名>那里」；送给自己时
+沿用 FULFILLMENT_NOT_SUPPORTED。
 """
 
 from __future__ import annotations
@@ -20,8 +22,13 @@ from worldmock.life.models import ActionResult, PurchaseItem, PurchaseOrderReque
 from worldmock.life.recipients import agent_identity, person_name, recipient_location
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
+from worldmock.life.wayfinding import delivery_route_code
 
 _LOGGER = logging.getLogger(__name__)
+#: 远程下单送给别人却送不到时的两种原因（docs/dev/SPEC-dayrun-fidelity.md 5.3）：与本人送达地的
+#: guidance.DELIVERY_DESTINATION_REASON、DELIVERY_ROUTE_REASON 同一说法，「这里」换成收货人那里。
+_RECIPIENT_DESTINATION_REASON = "{name}那里不在这家店的配送范围内"
+_RECIPIENT_ROUTE_REASON = "这家店到{name}那里没有能走的配送路线"
 
 
 def order_requests(state: WorldState, semantics: ScenarioSemantics, supplies: Mapping[str, SupplyConfig],
@@ -84,15 +91,32 @@ def _destination(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
         place is not None and delivery_expected_at(semantics, supply, place, state.current_time) is not None)
     if not reachable:
         _LOGGER.error("Purchase recipient cannot receive goods from the selected supply")
-        raise undeliverable(state, semantics.scenario, agent_id, recipient)
+        raise undeliverable(state, semantics.scenario, agent_id, recipient,
+                            supply if fulfillment == "delivery" else None)
     return place
 
 
-def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient_id: str) -> PreconditionError:
-    """@brief 送不到别的收货人那里：ACTIVITY_PRECONDITION_UNMET「暂时送不到<名>那里」，下一步先送到自己这里再当面给。"""
+def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient_id: str,
+                  supply: SupplyConfig | None = None) -> PreconditionError:
+    """@brief 送不到别的收货人那里：ACTIVITY_PRECONDITION_UNMET，下一步先送到自己这里再当面给。
+
+    给出远程下单的供给、收货人此刻有收货地点时按原因分两句（docs/dev/SPEC-dayrun-fidelity.md 5.3，与本人送达地的
+    admission._delivery_refusal 同一顺序）：收货地点不在该供给的可配送目的地为 delivery_destination「<名>那里不在这家店的
+    配送范围内」；在配送范围内而门店到那里的配送路线缺失（没有、不可达或未知，wayfinding.delivery_route_code）为
+    delivery_route「这家店到<名>那里没有能走的配送路线」。其余情形（收货人此刻没有收货地点：联系人没有收货地点、同世界
+    人物在途中；到店时收货人不在店里，不给供给）为 delivery_destination「暂时送不到<名>那里」。
+
+    :param supply: 远程下单所选的供给；None 时不按配送原因细分。
+    """
     name = person_name(state, scenario, agent_id, recipient_id)
-    return guided("ACTIVITY_PRECONDITION_UNMET", f"暂时送不到{name}那里", "先送到自己这里，再当面给",
-                  ("delivery_destination",))
+    place = recipient_location(state, scenario, agent_id, recipient_id) if supply is not None else None
+    if place is not None and place not in supply.delivery_destination_ids:
+        unmet, reason = "delivery_destination", _RECIPIENT_DESTINATION_REASON.format(name=name)
+    elif place is not None and delivery_route_code(scenario.routes, supply.location_id, place) is not None:
+        unmet, reason = "delivery_route", _RECIPIENT_ROUTE_REASON.format(name=name)
+    else:
+        unmet, reason = "delivery_destination", f"暂时送不到{name}那里"
+    return guided("ACTIVITY_PRECONDITION_UNMET", reason, "先送到自己这里，再当面给", (unmet,))
 
 
 def _item(binding: dict) -> PurchaseItem:

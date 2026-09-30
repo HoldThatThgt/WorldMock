@@ -12,18 +12,15 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
 from agentsociety2.society import DirectToolCall  # noqa: E402
 
-from tests.life.conftest import (  # noqa: E402
-    activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, stage_day_plan,
-    wake_by_mail, start_request)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request,
+                                 context, stage_day_plan, wake_by_mail, start_request, pause_request, report_request)
 from tests.life.test_dayrun_restaurants import RESTAURANT, MEAL, SUPPLY  # noqa: E402
 from tests.life.test_scheduling import _custom_engine  # noqa: E402
 from worldmock.footprints.experiences import project_verified_experiences  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life import sessions  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
-from worldmock.life.models import (  # noqa: E402
-    ActivityStatus, PauseActivityRequest, ReportStatusRequest, SessionKind,
-)
+from worldmock.life.models import ActivityStatus, SessionKind
 
 
 def _action(engine, name: str, tool: str, request):
@@ -65,7 +62,7 @@ def _run_out(engine, activity_id: str) -> None:
             return
         if engine.scheduling_state().ready_agent_ids:
             _action(engine, f"continue-{activity_id}-{step}", "report_status",
-                    ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续进行。"]))
+                    report_request(activity_name(engine, activity_id), summary="继续进行。"))
         else:
             advance_next(engine)
     raise AssertionError("Activity did not complete within its event boundaries")
@@ -104,8 +101,8 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
             advance_next(engine)
         eaten = engine.state.activities[meal.activity_id].data["consumed"][MEAL]
         assert 0 < eaten < 1
-        _action(engine, "pause", "pause_activity", PauseActivityRequest(
-            task=[activity_name(engine, meal.activity_id)], summary=["这顿饭吃到一半，先停一下。"]))
+        _action(engine, "pause", "pause_activity", pause_request(
+            activity_name(engine, meal.activity_id), summary="这顿饭吃到一半，先停一下。"))
         # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）；暂停的餐食仍占一个名额。
         _, waited = _start(engine, "wait-paused-meal", "self", None, "等待")
         restaurant = sessions.current_session(engine.state, 1)
@@ -126,8 +123,8 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == eaten
         _action(engine, "end-wait", "conclude_activity", conclude_request(
             activity_name(engine, waited.activity_id), summary="不等了，回去吃饭。"))
-        _action(engine, "resume", "report_status", ReportStatusRequest(
-            task=[activity_name(engine, meal.activity_id)], summary=["继续吃完这顿饭。"]))
+        _action(engine, "resume", "report_status", report_request(
+            activity_name(engine, meal.activity_id), summary="继续吃完这顿饭。"))
         _run_out(engine, meal.activity_id)
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == 1
         assert engine.state.agents[1].inventory[RESTAURANT][MEAL] == pytest.approx(0)

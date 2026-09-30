@@ -11,7 +11,7 @@ import pytest
 # life_agent 的导入链（agentsociety2）在导入期读取 LLM 环境变量（与
 # tests/integration 的处理一致）。
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.catalog.affordances import (
@@ -75,6 +75,7 @@ EXPECTED_HABIT_ROUTES = [
     ("wait", "等待", "continue"),
     ("purchase", "到店", "eat"),
     ("purchase", "远程下单", "eat"),
+    ("purchase", "购买", "eat"),
     ("consume", "制作", "eat"),
     ("consume", "食用", "eat"),
     ("consume", "使用", "eat"),
@@ -346,14 +347,17 @@ def test_relief_channels_match_activities(view) -> None:
     assert view.relief_channel("watch") == "content_rate"
     assert view.relief_channel("play_game") == "preference_rate"
     assert view.relief_channel("sleep") == "none"
-    config = SimpleNamespace(entertainment_relief_per_hour={"play_game": 0.45})
+    config = SimpleNamespace(entertainment_relief_per_hour={"play_game": 0.45},
+                             entertainment_relief_preference_floor=0.5)
     wait = SimpleNamespace(kind=ActivityKind.WAIT, data={})
     watch = SimpleNamespace(kind=ActivityKind.WATCH,
                             data={"entertainment_relief_per_hour": 0.3, "exposure_count": 2})
     play = SimpleNamespace(kind=ActivityKind.PLAY_GAME, data={})
+    # 两个缓解通道都按有效偏好 f + (1 − f)·w 调幅度（docs/dev/SPEC-dayrun-fidelity.md 1.2）；none 通道没有缓解。
+    effective = 0.5 + 0.5 * 0.5
     assert _entertainment_relief(wait, 1.0, config) == 0
-    assert _entertainment_relief(watch, 0.5, config) == pytest.approx(0.3 * 0.5 / 2)
-    assert _entertainment_relief(play, 0.5, config) == pytest.approx(0.5 * 0.45)
+    assert _entertainment_relief(watch, 0.5, config) == pytest.approx(0.3 * effective / 2)
+    assert _entertainment_relief(play, 0.5, config) == pytest.approx(effective * 0.45)
 
 
 def test_enumeration_order(view) -> None:

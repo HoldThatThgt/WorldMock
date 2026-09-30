@@ -8,7 +8,7 @@ import os
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -53,7 +53,7 @@ def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
                  for row in person.build_react_tool_schemas(readonly=False)}
     assert "start_parallel_activities" not in functions
     schema = functions["start_activity"]["parameters"]
-    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
     assert person.validate_react_decisions([
         _decision([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"]),

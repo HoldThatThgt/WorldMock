@@ -9,16 +9,12 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (
-    activity_name, advance_next, advance_until_ready, conclude_request, context, stage_day_plan, wake_by_mail,
-    start_request)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 stage_day_plan, wake_by_mail, start_request, pause_request, report_request)
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (
-    ActivityStatus, PauseActivityRequest,
-    ReportStatusRequest,
-)
+from worldmock.life.models import ActivityStatus
 
 
 def _observed_action(engine, round_id: str, tool_name: str, request):
@@ -69,7 +65,7 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
 
     assert advance_until_ready(engine)
     _, paused = _observed_action(engine, "pause-wait", "pause_activity",
-                                 PauseActivityRequest(task=[name], summary=["先处理来信"]))
+                                 pause_request(name, summary="先处理来信"))
     assert paused.status == "completed", paused.error_code
     assert paused.data == {"task": [name], "activity_ids": [started.activity_id]}
     activity = engine.state.activities[started.activity_id]
@@ -77,7 +73,7 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
     assert engine.scheduling_state().ready_agent_ids == (1,)  # 没有进行中活动，同一秒再决策
 
     _, reported = _observed_action(engine, "resume-wait", "report_status",
-                                   ReportStatusRequest(task=[name], summary=["继续休息"]))
+                                   report_request(name, summary="继续休息"))
     assert reported.status == "completed", reported.error_code
     activity = engine.state.activities[started.activity_id]
     assert activity.status == ActivityStatus.ACTIVE and activity.progress_note == "继续休息"
@@ -128,7 +124,8 @@ def test_terminal_feedback_keeps_original_action_identity(engine_factory):
 
 
 def test_business_rejection_is_reported_in_progress_and_run_continues(engine_factory):
-    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因与下一步（时间与能量规格第一章规则 2、第五章）。"""
+    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因、下一步、改法与逐项明细（时间与能量规格第一章规则 2、
+    第五章；绕过宿主的名称类失败逐项写进 items，候选可以照填，docs/dev/SPEC-dayrun-fidelity.md 3.1）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.state.current_time
@@ -145,8 +142,15 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     (call,) = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"]
     shown = call["result"]
     assert shown["error_code"] == "ACTION_REQUEST_INVALID" and shown["status"] == "rejected"
-    assert shown["details"] == {"reason": "所选的对象或方式不在这一轮列出的范围内",
-                                "next_step": "从本轮列出的对象和方式里选"}
+    [item] = shown["details"]["items"]
+    assert shown["details"] == {"reason": "「不存在的对象」不是可以操作的对象",
+                                "next_step": "从本轮列出的对象和方式里选",
+                                "fix": "照工具层列出的名称、动词与方式重填这个请求", "items": [item]}
+    assert (item["index"], item["field"], item["written"], item["error_code"]) == (
+        0, "targets", "不存在的对象", "NAME_NOT_FOUND")
+    assert 1 <= len(item["candidates"]) <= 3
+    assert all({"target", "action", "way", "from", "to"} <= set(row) for row in item["candidates"])
+    assert shown["message"] == shown["details"]["reason"]
     assert call["arguments"]["targets"] == ["不存在的对象"]
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == "wait")

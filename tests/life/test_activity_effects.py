@@ -107,8 +107,11 @@ def test_repeat_watch_uses_content_rate_and_exposure_count(body_config) -> None:
 
     second_result = advance_activity(second, repeated_person, 60, body_config)
 
-    assert first_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.35 / 60)
-    assert second_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.175 / 60)
+    # 口味权重 0.7 按有效偏好 f + (1 − f)·w 折算（场景缺省 f = 0.5）：0.5 + 0.5 × 0.7 = 0.85
+    # （docs/dev/SPEC-dayrun-fidelity.md 1.2）；有缓解时不再累积。
+    assert body_config.entertainment_relief_preference_floor == 0.5
+    assert first_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.5 * 0.85 / 60)
+    assert second_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.5 * 0.85 / 2 / 60)
 
 
 def test_paused_activity_is_truncated_at_experiment_end(body_config) -> None:

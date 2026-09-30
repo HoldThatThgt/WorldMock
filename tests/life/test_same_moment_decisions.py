@@ -14,10 +14,10 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
-from tests.life.conftest import (
-    activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, pending_names,
-    progress_calls, settle_day_plans, stage_day_plan, start_activity, submit_round, target_actions, target_tools,
-    wake_by_mail, start_request)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request,
+                                 context, pending_names, progress_calls, settle_day_plans, stage_day_plan,
+                                 start_activity, submit_round, target_actions, target_tools, wake_by_mail,
+                                 start_request, pause_request, report_request)
 from tests.life.test_scheduling import _custom_engine, _document, _write_scenario
 from tests.life.test_progress_layer_projection import _activity
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -27,11 +27,8 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.body import apply_mood_pulse
 from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS
-from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, AgentState, PauseActivityRequest, PlanGoalInput,
-    ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest,
-    active_activities,
-)
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, AgentState, PlanGoalInput,
+                                   ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, active_activities)
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS, Message
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.scenario import LifeScenario, load_scenario
@@ -61,7 +58,7 @@ def _invalid_start(engine: LifeEngine, name: str, agent_id: int = 1):
 def _revise(engine: LifeEngine, name: str):
     """@brief 修订当日目标：一次成功的瞬时动作。"""
     return _act(engine, name, "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
 
 
 def _stage_agent(engine: LifeEngine, agent_id: int = 1, **updates) -> None:
@@ -94,8 +91,8 @@ def _finish(engine: LifeEngine, activity_id: str, name: str) -> None:
         if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             return
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"{name}-continue-{step}", "report_status", ReportStatusRequest(
-                task=[activity_name(engine, activity_id)], summary=["继续。"]))
+            _act(engine, f"{name}-continue-{step}", "report_status", report_request(
+                activity_name(engine, activity_id), summary="继续。"))
         else:
             advance_next(engine)
     pytest.fail("Activity did not end at its declared boundaries")
@@ -271,20 +268,20 @@ def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_f
     assert conclude_pending(engine, "resume-first-conclude").status == "completed"
     _stage_agent(engine, same_moment_rounds=engine.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
-    ended = _act(engine, "resume-ended-report", "report_status", ReportStatusRequest(
-        task=[activity_name(engine, first.activity_id)], summary=["结束了。"]))
+    ended = _act(engine, "resume-ended-report", "report_status", report_request(
+        activity_name(engine, first.activity_id), summary="结束了。"))
     assert ended.status == "rejected" and ended.error_code == _RESTRICTED
     second = _wait(engine, "resume-second-wait")
     assert second.status == "in_progress"
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    paused = _act(engine, "resume-pause", "pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, second.activity_id)], summary=["先停一下。"]))
+    paused = _act(engine, "resume-pause", "pause_activity", pause_request(
+        activity_name(engine, second.activity_id), summary="先停一下。"))
     assert paused.status == "completed" and not active_activities(engine.state, 1)
     _stage_agent(engine, same_moment_rounds=engine.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
-    resumed = _act(engine, "resume-report", "report_status", ReportStatusRequest(
-        task=[activity_name(engine, second.activity_id)], summary=["继续等。"]))
+    resumed = _act(engine, "resume-report", "report_status", report_request(
+        activity_name(engine, second.activity_id), summary="继续等。"))
     assert resumed.status == "completed"
     assert engine.state.activities[second.activity_id].status == ActivityStatus.ACTIVE
     agent = engine.state.agents[1]
@@ -365,8 +362,7 @@ def _keep_going(engine: LifeEngine, agent_id: int) -> tuple[str, object]:
         return "conclude_activity", conclude_request(*(activity_name(engine, item.activity_id) for item in waiting))
     running = active_activities(engine.state, agent_id)
     if running:
-        return "report_status", ReportStatusRequest(task=[activity_name(engine, running[0].activity_id)],
-                                                    summary=["继续。"])
+        return "report_status", report_request(activity_name(engine, running[0].activity_id), summary="继续。")
     return "start_activity", start_activity("等待", "自己")
 
 
@@ -407,8 +403,8 @@ def test_report_with_active_activity_does_not_redecide_in_same_second(engine_fac
     wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     now = engine.state.current_time
-    reported = _act(engine, "report-continue", "report_status", ReportStatusRequest(
-        task=[activity_name(engine, waited.activity_id)], summary=["还在等。"]))
+    reported = _act(engine, "report-continue", "report_status", report_request(
+        activity_name(engine, waited.activity_id), summary="还在等。"))
     assert reported.status == "completed"
     agent = engine.state.agents[1]
     assert agent.next_decision_at > now and agent.pending_wake_reasons == []
@@ -478,8 +474,8 @@ def test_first_decision_includes_reconsideration_candidate(tmp_path) -> None:
         later = engine.state.current_time
         assert later == first + 1200
         assert engine.state.agents[1].pending_wake_reasons == ["reconsideration_interval"]
-        _act(engine, "reconsider-report", "report_status", ReportStatusRequest(
-            task=[activity_name(engine, waited.activity_id)], summary=["接着等。"]))
+        _act(engine, "reconsider-report", "report_status", report_request(
+            activity_name(engine, waited.activity_id), summary="接着等。"))
         assert engine.state.agents[1].next_decision_at == later + 1200
     finally:
         engine.close()
@@ -706,7 +702,7 @@ def _other_requests() -> tuple[tuple[str, object], ...]:
     """@brief 两种「做别的」：开始等待与修订当日目标。"""
     return (("start_activity", start_activity("等待", "自己")),
             ("revise_day_plan", ReviseDayPlanRequest(
-                goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))))
+                goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),))))
 
 
 def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three(engine_factory) -> None:
@@ -767,7 +763,7 @@ def test_conclude_pending_stage_accepts_only_concluding_every_pending_activity(e
     now, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
     name = activity_name(engine, waited.activity_id)
     _stage_agent(engine, same_moment_rounds=limit - 1, same_moment_stage=SameMomentStage.CONCLUDE_PENDING)
-    requests = (*_other_requests(), ("report_status", ReportStatusRequest(task=[name], summary=["等完了。"])))
+    requests = (*_other_requests(), ("report_status", report_request(name, summary="等完了。")))
     for index, (tool, request) in enumerate(requests):
         result = _act(engine, f"only-conclude-{index}", tool, request)
         assert result.status == "rejected" and result.error_code == _RESTRICTED
@@ -822,8 +818,8 @@ def _two_paused(engine: LifeEngine, name: str) -> tuple[str, str, int]:
     first, second = _start(engine, f"{name}-start", ("自己", "等待"), _content(engine, name))
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    paused = _act(engine, f"{name}-pause", "pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, first), activity_name(engine, second)], summary=["先停一下。", "也停。"]))
+    paused = _act(engine, f"{name}-pause", "pause_activity", pause_request(
+        activity_name(engine, first), activity_name(engine, second), summary=["先停一下。", "也停。"]))
     assert paused.status == "completed" and not active_activities(engine.state, 1)
     agent = engine.state.agents[1]
     assert agent.next_decision_at == engine.state.current_time
@@ -859,8 +855,8 @@ def test_both_slots_paused_open_resume_or_conclude(engine_factory, first_move) -
         assert (agent.same_moment_stage, agent.next_decision_at, engine.state.current_time) == (
             SameMomentStage.START_OR_RESUME, now, now)
         assert agent.pending_wake_reasons == ["no_active_activity"]
-    resumed = _act(engine, "ladder-resume", "report_status", ReportStatusRequest(
-        task=[activity_name(engine, second)], summary=["接着看。"]))
+    resumed = _act(engine, "ladder-resume", "report_status", report_request(
+        activity_name(engine, second), summary="接着看。"))
     assert resumed.status == "completed"
     assert engine.state.activities[second].status == ActivityStatus.ACTIVE
     agent = engine.state.agents[1]
@@ -910,8 +906,8 @@ def test_rejected_resume_with_full_slots_stays_in_resume_or_conclude(engine_fact
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     home_name = activity_name(engine, home)
-    assert _act(engine, "away-pause-home", "pause_activity", PauseActivityRequest(
-        task=[home_name], summary=["先出门。"])).status == "completed"
+    assert _act(engine, "away-pause-home", "pause_activity", pause_request(
+        home_name, summary="先出门。")).status == "completed"
     (travel,) = _depart(engine, "away-depart")
     _finish(engine, travel, "away-walk")
     assert conclude_pending(engine, "away-arrive").status == "completed"
@@ -919,11 +915,10 @@ def test_rejected_resume_with_full_slots_stays_in_resume_or_conclude(engine_fact
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     now, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
-    assert _act(engine, "away-pause-office", "pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, office)], summary=["停一下。"])).status == "completed"
+    assert _act(engine, "away-pause-office", "pause_activity", pause_request(
+        activity_name(engine, office), summary="停一下。")).status == "completed"
     _blocked_until_limit(engine, "away")
-    elsewhere = _act(engine, "away-resume-home", "report_status", ReportStatusRequest(
-        task=[home_name], summary=["想接着等。"]))
+    elsewhere = _act(engine, "away-resume-home", "report_status", report_request(home_name, summary="想接着等。"))
     assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert engine.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
     marked = target_tools(engine.observe(context(engine, "away-marked")), home_name)["report_status"]
@@ -1074,7 +1069,7 @@ def test_awake_recipient_gets_same_second_opportunity(engine_factory) -> None:
     assert recipient.next_decision_at == now and recipient.pending_wake_reasons == ["message_arrival"]
     assert recipient.same_moment_rounds == 0 and sorted(engine.scheduling_state().ready_agent_ids) == [1, 2]
     assert message_id in recipient.inbox and message_id not in recipient.read_inbox_ids
-    report = ReportStatusRequest(task=[_running_name(engine, 2)], summary=["看到消息了。"])
+    report = report_request(_running_name(engine, 2), summary="看到消息了。")
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")), 2: ("report_status", report)},
                  "person-read")
     assert _decision_reasons(engine, 2)[-1] == ["message_arrival"]
@@ -1194,13 +1189,15 @@ def test_conclusion_only_round_does_not_use_up_message_opportunity(engine_factor
 
 
 def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> None:
-    """同轮开始睡觉的收件人不因人物消息在同一秒或其后的边界被唤醒（「人物之间的消息」，睡眠中过滤）。"""
+    """同轮开始睡觉的收件人不因人物消息在同一秒或其后的边界被唤醒（「人物之间的消息」，睡眠中过滤）；睡眠中也不读，
+    消息保持未读（docs/dev/SPEC-dayrun-fidelity.md 1.5）。"""
     engine = engine_factory("multi-person.json")
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     now = engine.state.current_time
-    submit_round(engine, {1: _message_to(engine, 2, "早点休息"),
-                          2: ("start_activity", start_activity("睡觉", "自己"))}, "person-sleep")
+    _, results = submit_round(engine, {1: _message_to(engine, 2, "早点休息"),
+                                       2: ("start_activity", start_activity("睡觉", "自己"))}, "person-sleep")
+    message_id = next(item.data["message_id"] for item in results if item.agent_id == 1)
     assert engine.state.agents[2].next_decision_at > now and engine.scheduling_state().ready_agent_ids == (1,)
     _wait(engine, "person-sleep-sender-wait")
     advance_next(engine)
@@ -1208,6 +1205,7 @@ def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> No
                   if event.data.get("kind") == "body_settlement"][-1]
     assert settlement.data["decision_offered"] is False and settlement.data["wake_reasons"] == []
     assert 2 not in engine.scheduling_state().ready_agent_ids
+    assert message_id in engine.state.agents[2].inbox and message_id not in engine.state.agents[2].read_inbox_ids
 
 
 def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
@@ -1235,7 +1233,8 @@ def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
 
 @pytest.mark.asyncio
 async def test_contact_reply_arrival_filtered_during_sleep(engine_factory) -> None:
-    """联系人回复在 CONTACT_REPLY_DELAY_SECONDS 后送达收件箱并留送达记录；收件人在睡眠中不被唤醒（裁决 #21）。"""
+    """联系人回复在 CONTACT_REPLY_DELAY_SECONDS 后送达收件箱并留送达记录；收件人在睡眠中不被唤醒（裁决 #21），
+    也不读（docs/dev/SPEC-dayrun-fidelity.md 1.5）。"""
     from tests.life.test_export_integration import _StubReplyClient, _send_message_to_model_contact
     from worldmock.runtime import settle_pending_model_replies
 
@@ -1249,7 +1248,7 @@ async def test_contact_reply_arrival_filtered_during_sleep(engine_factory) -> No
         assert engine.scheduling_state().ready_agent_ids == ()
         advance_next(engine)
     assert engine.state.current_time == due and reply_id in engine.state.agents[1].inbox
-    assert engine.scheduling_state().ready_agent_ids == ()
+    assert engine.scheduling_state().ready_agent_ids == () and reply_id not in engine.state.agents[1].read_inbox_ids
     events = engine.store.read_agent_events("environment_event", 1)
     assert [event.occurred_at for event in events if event.data.get("kind") == "message_arrival"
             and event.data.get("message_id") == reply_id] == [due]
@@ -1272,28 +1271,29 @@ def _supply_order(observed: dict) -> list[str]:
 
 
 def test_same_second_rounds_keep_presentation_window_and_rotation(engine_factory) -> None:
-    """同一秒各轮沿用该秒首轮的呈现窗口与轮转游标；时钟推进时留痕并入，游标才前进（「同一秒内的呈现」）。"""
+    """同一秒各轮沿用该秒首轮的呈现窗口与轮转判据（各对象的上次呈现时刻）；时钟推进时留痕并入，轮转判据才变
+    （「同一秒内的呈现」；轮转按每个对象的 last_presented_at，docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    now, offset = engine.state.current_time, engine._rotation_offset(1)
+    now, last = engine.state.current_time, engine._last_presented(1)
     first, _ = _observed_act(engine, "window-1", "start_activity", start_activity("观看", "不存在的对象"))
     second, _ = _observed_act(engine, "window-2", "start_activity", start_activity("观看", "不存在的对象"))
     assert engine.state.current_time == now
     assert _presented(second) == _presented(first)
-    assert engine._rotation_offset(1) == offset
+    assert engine._last_presented(1) == last
     staged = engine.state.same_moment_presentation[1].stamps
     assert staged and set(staged.values()) == {now}
     _wait(engine, "window-wait")
     advance_next(engine)
     assert engine.state.same_moment_presentation == {}
     assert set(staged) <= set(engine.state.presentation_state[1])
-    assert engine._rotation_offset(1) > offset
+    assert engine._last_presented(1) != last and all(engine._last_presented(1)[item] == now for item in staged)
 
 
 def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) -> None:
     """本 session 最近一次浏览结果在其后的观察中置顶，同一秒后续各轮动作与首轮相同（可选的仍可选，按世界事实没有取得
-    方式的照常列出、动作为空）；结果在整个 session 内保留，浏览调用的结果只列商品名称（「同一秒内的呈现」、
-    docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    方式的照常列出、动作为空）；结果在整个 session 内保留，浏览调用的结果只列名称，写完整标签「<门店>出售的<商品>」
+    （「同一秒内的呈现」、docs/dev/SPEC-persona-prompt.md「唯一出现原则」、docs/dev/SPEC-dayrun-fidelity.md 5.3）。"""
     from tests.life.test_commerce import _choice, _stage_open
 
     engine = engine_factory()
@@ -1311,7 +1311,9 @@ def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) 
     shown = [pin for pin in pins if pin in order]
     assert shown and order[:len(shown)] == shown
     browsed = next(row for row in progress_calls(first, "start_activity") if "browse_items" in row["result"]["details"])
-    assert all(isinstance(name, str) for name in browsed["result"]["details"]["browse_items"])
+    labels = {row["object_id"]: row["object"] for row in first["interaction_bindings"] if row["kind"] == "supply"}
+    assert all("出售的" in label for label in browsed["result"]["details"]["browse_items"])
+    assert all(label in browsed["result"]["details"]["browse_items"] for label in (labels[pin] for pin in shown))
     engine.submit_action(DirectToolCall(decision, "action-pin-first", "conclude_activity", conclude_request(
         activity_name(engine, browse.activity_id), summary="看完了。")))
     assert engine.commit_decision_round("pin-first")[0].status == "completed"
@@ -1382,10 +1384,12 @@ def test_same_second_results_stay_in_the_progress_layer(engine_factory) -> None:
     second, sent = _observed_act(engine, "now-message", "send_message", _contact_message(first))
     (refused,) = progress_calls(second)
     assert refused["result"]["status"] == "rejected"
-    assert refused["result"]["details"] == {"reason": rejected.data["reason"], "next_step": rejected.data["next_step"]}
+    assert refused["result"]["details"] == {"reason": rejected.data["reason"], "next_step": rejected.data["next_step"],
+                                            "fix": rejected.data["fix"], "items": rejected.data["items"]}
+    assert [item["error_code"] for item in rejected.data["items"]] == ["NAME_NOT_FOUND"]
     assert sent.status == "completed"
     third, revised = _observed_act(engine, "now-revise", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
     assert [row["tool"] for row in progress_calls(third)] == ["start_activity", "send_message"]
     assert progress_calls(third)[-1]["result"]["status"] == "completed" and revised.status == "completed"
     fourth, waited = _observed_act(engine, "now-wait", "start_activity", start_activity("等待", "自己"))

@@ -28,6 +28,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日�
 - [记录引擎](docs/design/05-recording-engine.md)：记录、素材、事务、检查点、分支、导出与诊断的统一设计和合同。
 
 - [docs/design/](docs/design/)：产品设计说明书，提供实现级的完整规格，包含模块详细设计、算法流程、配置规格、数据格式等。参考 LabelKit 设计文档风格组织。
+- [汇编版设计说明书](docs/design/worldmock-design.html)：十章设计文档加接口合同摘录（人物工具、模型请求与命令行）汇编成的单文件，先看这一份；由 `scripts/build_design_doc.py` 生成，章节或合同改动后重新汇编。
 
 ```mermaid
 flowchart LR

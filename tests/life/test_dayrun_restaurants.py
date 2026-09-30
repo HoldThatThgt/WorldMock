@@ -11,12 +11,14 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, target_actions, tool_targets)
+                                 progress_calls, stage_day_plan, start_activity, target_actions, tool_targets,
+                                 report_request)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import delivery_expected_at
-from worldmock.life.models import ReportStatusRequest, active_activities
+from worldmock.life.guidance import DELIVERY_ROUTE_REASON
+from worldmock.life.models import active_activities
 from worldmock.life.projection import visible_supplies
 from worldmock.life.readable import clock_phrase, iso_time
 
@@ -59,7 +61,7 @@ def _run_to_end(engine, activity_id: str) -> None:
             return
         if engine.scheduling_state().ready_agent_ids:
             _action(engine, f"continue-{activity_id}-{step}", "report_status",
-                    ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续进行。"]))
+                    report_request(activity_name(engine, activity_id), summary="继续进行。"))
         else:
             advance_next(engine)
     raise AssertionError("Activity did not complete within its event boundaries")
@@ -229,8 +231,7 @@ def _keep_waiting(engine) -> tuple[str, object]:
         return "conclude_activity", conclude_request(*(activity_name(engine, item.activity_id) for item in waiting))
     running = active_activities(engine.state, 1)
     if running:
-        return "report_status", ReportStatusRequest(task=[activity_name(engine, running[0].activity_id)],
-                                                    summary=["接着等。"])
+        return "report_status", report_request(activity_name(engine, running[0].activity_id), summary="接着等。")
     return "start_activity", start_activity("等待", "自己")
 
 
@@ -293,4 +294,5 @@ def test_delivery_is_unavailable_here_without_destination_or_route(engine_factor
     _commit(engine, browsed)
     observed = engine._observation_data(engine.state.agents[1])
     remote = target_actions(observed, _supply_target(observed, supply.supply_id))["远程下单"]
-    assert (remote["available"], remote["reason"], remote["note"]) == (False, "暂时送不到这里", None)
+    # 家在配送范围内、门店到家的配送路线未知：原因写配送路线缺失（docs/dev/SPEC-dayrun-fidelity.md 5.3）。
+    assert (remote["available"], remote["reason"], remote["note"]) == (False, DELIVERY_ROUTE_REASON, None)

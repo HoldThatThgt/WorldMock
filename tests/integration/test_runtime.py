@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime_module
@@ -68,7 +68,7 @@ def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
     """运行身份记录完整节点 URL 和唯一 strict 请求参数。"""
     identity = _model_identity().model_dump(mode="json")
 
-    assert identity["base_url"] == "https://api.deepseek.com"
+    assert identity["base_url"] == "https://api.deepseek.com/beta"
     assert identity["provider"] == "openai_compatible"
     assert identity["requested_model"] == "deepseek-flash"
     assert identity["tool_choice"] == "auto"
@@ -104,7 +104,7 @@ def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
                                 "same_second_continuation": True}
     assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
-    assert identity["base_url"] == "https://api.deepseek.com"
+    assert identity["base_url"] == "https://api.deepseek.com/beta"
     assert identity["max_retries"] == 0 and identity["strict"] is True
     assert identity["reasoning_effort"] is None
 
@@ -133,9 +133,11 @@ def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
 
 
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
-    """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境）；恢复模式不重新编译。"""
+    """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境），两者都取经场景作息覆盖后的卡片
+    （docs/dev/SPEC-dayrun-fidelity.md 2.1）；恢复模式不重新编译。"""
     from tests.profile.conftest import make_card
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.models import persona_card_struct
     from worldmock.profile.textgen import render_card
 
@@ -149,8 +151,10 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
 
     specs = _agent_specs(scenario, persona_compiler=fake_compiler)
 
-    assert specs[0]["profile"]["persona_card"] == render_card(card)
-    assert specs[0]["profile"]["persona_card_struct"] == persona_card_struct(card)
+    overridden = apply_scenario_rhythm(card, scenario.agents[0]).card
+    assert overridden != card
+    assert specs[0]["profile"]["persona_card"] == render_card(overridden)
+    assert specs[0]["profile"]["persona_card_struct"] == persona_card_struct(overridden)
     assert specs[0]["config"]["max_react_turns"] == 16
     assert compiled == [1]
     restored = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
@@ -863,7 +867,7 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         env = LifeEnv()
         env.engine = engine
         client = _plan_day_client(monkeypatch, [{"intent_kind": "工作", "goal": "上午把周报写完",
-                                                 "remind_time": "09:30"}])
+                                                 "remind_time": "09:30", "around_time": "09:30"}])
         request = _checkpoint_request(engine, tmp_path, "initial")
         before = {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces}
 
@@ -899,7 +903,7 @@ async def test_life_env_step_plans_midnight_before_the_step_checkpoint(tmp_path,
         env = LifeEnv()
         env.engine = engine
         client = _plan_day_client(monkeypatch, [{"intent_kind": "晨间例程", "goal": "起床洗漱",
-                                                 "remind_time": "07:00"}])
+                                                 "remind_time": "07:00", "around_time": "07:00"}])
         state = await env.scheduling_state()
 
         await env.step(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
@@ -1125,6 +1129,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md「画像编译」）。"""
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.taste import compute_taste_weights
 
     from tests.profile.conftest import make_card
@@ -1147,18 +1152,21 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     specs = _agent_specs(scenario, content_genres=genres)
 
     weights = specs[0]["profile"]["taste_weights"]
+    # 游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：游戏按 game_id 查同一张题材表，没有声明的为空。
     expected = compute_taste_weights(
         ("剧情", "科幻"),
         [{"item_id": item.item_id, "genre": genres[item.item_id]}
-         for item in scenario.contents])
+         for item in scenario.contents]
+        + [{"item_id": item.game_id, "genre": ()} for item in scenario.games])
     assert compiled == [1]
-    assert specs[0]["profile"]["persona_card"] == render_card(card)
+    assert specs[0]["profile"]["persona_card"] == render_card(apply_scenario_rhythm(card, scenario.agents[0]).card)
     assert weights == expected
     assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
+    assert scenario.games and all(weights[item.game_id] == 0.0 for item in scenario.games)
 
 
 def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) -> None:
-    """无口味卡片：全内容目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
+    """无口味卡片：全内容与游戏目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
 
@@ -1173,7 +1181,8 @@ def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) ->
                                                    for item in scenario.contents})
 
     weights = specs[0]["profile"]["taste_weights"]
-    assert set(weights) == {item.item_id for item in scenario.contents}
+    assert set(weights) == ({item.item_id for item in scenario.contents}
+                            | {item.game_id for item in scenario.games})
     assert weights and all(value == 0.0 for value in weights.values())
 
 

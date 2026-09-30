@@ -16,20 +16,20 @@ from agentsociety2.agent.base import ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail)
+                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
+                                 pause_request, report_request)
 from tests.life.test_dayrun_restaurants import _stage
 from tests.life.test_memory_layer import (_act, _clock, _contact_message, _mail_line, _observe, _remote_order,
                                           _walk)
 from tests.life.test_progress_events import _stage_task_near_due
 from worldmock.life import prompt_capacity, progress_layer, schedule
 from worldmock.life.day_plan_inputs import plan_inputs
-from worldmock.life.models import (ActivityStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
-                                   ReviseDayPlanRequest, SendMessageActionRequest)
+from worldmock.life.models import ActivityStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.prompt_capacity import ProgressBudget
 from worldmock.life.readable import iso_time
 
 _ZONE = "Asia/Shanghai"
-_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),))
 
 
 def _first_result_seq(engine, agent_id: int, action_id: str) -> int:
@@ -153,12 +153,12 @@ def test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences(en
     name = activity_name(engine, first.activity_id)
     paused_at = wake_by_mail(engine, offset=120)
     advance_next(engine)
-    _act(engine, "plan-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下"]))
+    _act(engine, "plan-pause", "pause_activity", pause_request(name, summary="先停一下"))
     _, second = _act(engine, "plan-other", "start_activity", start_activity("等待", "自己"))
     resumed_at = wake_by_mail(engine, offset=180)
     advance_next(engine)
     _act(engine, "plan-other-end", "conclude_activity", conclude_request(activity_name(engine, second.activity_id)))
-    _act(engine, "plan-resume", "report_status", ReportStatusRequest(task=[name], summary=["接着等"]))
+    _act(engine, "plan-resume", "report_status", report_request(name, summary="接着等"))
     closed = wake_by_mail(engine, offset=120)
     advance_next(engine)
     _act(engine, "plan-conclude", "conclude_activity", conclude_request(name))

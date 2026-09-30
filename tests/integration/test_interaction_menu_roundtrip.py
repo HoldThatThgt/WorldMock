@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactLoopRequest
@@ -118,7 +118,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     home_requests = await _decide(environment, first, home, "start_activity", walk)
     assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
     assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == (
-        {"targets", "actions", "ways", "from", "to", "answering"})
+        {"targets", "actions", "ways", "from", "to", "answering", "prefer"})
     assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
@@ -140,7 +140,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     assert "conclude_activity" in [item["tool"] for item in ended["tools"]]
     assert "工作" not in _ways(arrived) and "等待" in _ways(arrived)
     assert arrived["environment_layer"]["location"]["fixed_rules"]
-    conclusion = {"task": [walked], "summary": ["到公司了。"], "memories": [[]]}
+    conclusion = {"items": [{"activity_name": walked, "summary": "到公司了。", "memories": [], "views": []}]}
     office_requests = await _decide(environment, second, arrived, "conclude_activity", conclusion)
     office_schema = _action_schema(office_requests[0])
     assert office_schema == _action_schema(home_requests[0])

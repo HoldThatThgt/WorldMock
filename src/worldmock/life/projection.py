@@ -23,6 +23,8 @@ from worldmock.life.content import restarts_from_beginning
 from worldmock.life.interaction_menu import (ACTION_WAYS, CONTENT_WAYS, GIVE_WAY, PURCHASE_WAYS, TRAVEL_WAYS,
                                              USE_WAYS, binding_action)
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
+from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
+                                          supply_label)
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
@@ -262,22 +264,22 @@ def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[
 
 
 def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> str:
-    """@brief 用人能区分的类别、名称和场所表达对象，不输出内部编号；他处持有物的名称带地点。"""
+    """@brief 用人能区分的类别、名称和场所表达对象，不输出内部编号；他处持有物的名称带地点。
+
+    写法取 object_labels 的唯一来源，场景加载按同一写法预先核对名称唯一（load_checks）。
+    """
     kind, name = row["kind"], row["name"]
     if kind == "supply":
         supply = next(item for item in inputs.extras["product_rows"]
                       if item["supply_id"] == row["object_id"])
-        return f"{supply['location_name']}出售的{name}"
+        return supply_label(supply["location_name"], name)
     if kind == "catalog":
-        return "商品目录"
+        return CATALOG_LABEL
     if kind == "self":
-        return "自己"
+        return SELF_LABEL
     if kind == "holding" and row.get("location_id") is not None:
-        return f"持有物：{name}（{_location_index(inputs.scenario)[row['location_id']].name}）"
-    prefixes = {"work_task": "工作", "location": "地点", "holding": "持有物",
-                "content": "内容", "game": "游戏", "lifestyle": "活动",
-                "person": "人物", "contact": "联系人", "mail": "邮件"}
-    return f"{prefixes[kind]}：{name}"
+        return remote_holding_label(name, _location_index(inputs.scenario)[row["location_id"]].name)
+    return object_label(kind, name)
 
 
 def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -431,7 +433,6 @@ def _person_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 def _mail_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 场景邮件对象：用标题和到达时间区分同主题邮件；人物消息与交谈邀请不是阅读对象（全文在进度层）。"""
-    zone = ZoneInfo(inputs.scenario.timezone)
     messages = inputs.extras.get("scenario_messages", {})
     rows = []
     for message_id in sorted(inputs.agent.visible_message_ids):
@@ -441,7 +442,7 @@ def _mail_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
         sent = int(config.sent_at.timestamp())
         rows.append((sent, message_id, {
             "object_id": message_id, "kind": "mail", "actions": ["read"],
-            "name": f"{config.subject}（{datetime.fromtimestamp(sent, zone):%Y年%m月%d日 %H:%M:%S}）"}))
+            "name": mail_name(config.subject, sent, inputs.scenario.timezone)}))
     return [row for _, _, row in sorted(rows, key=lambda item: (item[0], item[1]))]
 
 

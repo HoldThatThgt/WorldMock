@@ -13,13 +13,13 @@ from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE
 from worldmock.life.interaction_menu import (
     LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, WAYS, binding_action,
 )
-from worldmock.life.models import (
-    ActionResult, ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
-    ReportStatusRequest, SessionTaskKind, StartActivityRequest,
-)
+from worldmock.life.models import (ActionResult, ActivityKind, ActivityState, ActivityStatus,
+                                   ConcludeActivityRequest, PauseActivityRequest, ReportStatusRequest, SessionTaskKind,
+                                   StartActivityRequest)
 from worldmock.life.routing import combination_error, require_recipients, routing_names
 from worldmock.life.schedule import DayPlan, PlanGoal
 from worldmock.life.session_actions import SessionActionMixin
+from tests.life.conftest import conclude_request, report_request
 
 
 class _ActionHarness(SessionActionMixin):
@@ -29,14 +29,15 @@ class _ActionHarness(SessionActionMixin):
         """@brief 绑定一条已提交观察，捕获不改状态的领域调用。"""
         event = SimpleNamespace(decision_id="decision", occurred_at=100, data=observation)
         self.store = SimpleNamespace(read_agent_events=lambda *_: [event])
-        self.scenario = SimpleNamespace(locations=())  # 控制判定的地点名表；本组用例都在同一停留内
+        # 控制判定的地点名表与受理提示所用的路线；本组用例都在同一停留内
+        self.scenario = SimpleNamespace(locations=(), routes=())
         self.semantics = SimpleNamespace(scenario=self.scenario)
         self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []
 
-    def _purchase(self, state, pending, request, named=frozenset()):
-        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份），返回只含订单数的最小结果。"""
-        assert named == frozenset()
+    def _purchase(self, state, pending, request, named=frozenset(), channels=None):
+        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份，也不经渠道），返回只含订单数的最小结果。"""
+        assert named == frozenset() and set((channels or {}).values()) <= {None}
         self.calls.append(request)
         return state, ActionResult(action_id="action", agent_id=1, status="completed", occurred_at=100,
                                    message="Purchase accepted", data={"orders": [], "count": len(request.items)})
@@ -89,10 +90,11 @@ class _State:
         return _State(update.get("activities", self.activities), update.get("agents", self.agents)[1])
 
 
-def _pending():
-    """@brief 返回与冻结观察对应的 start_activity 动作身份。"""
+def _pending(request: StartActivityRequest | None = None):
+    """@brief 返回与冻结观察对应的 start_activity 动作身份（给出请求时带登记的请求参数，拒绝时环境按它重算名称解析）。"""
     return SimpleNamespace(agent_id=1, decision_id="decision", observed_at=100, action_id="action",
-                           tool_name="start_activity")
+                           tool_name="start_activity",
+                           request=request.model_dump(mode="json") if request is not None else None)
 
 
 def _activity(identity, name, status=ActivityStatus.ACTIVE, **fields):
@@ -117,7 +119,7 @@ SPEC_WAYS_BY_VERB = {
     "travel": {"步行", "驾车"},
     "interact": {"工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待",
                  "接着看", "从头再看", "接着听", "从头再听"},
-    "obtain": {"到店", "远程下单", "制作"},
+    "obtain": {"到店", "远程下单", "购买", "制作"},
     "consume": {"食用", "使用", "给予"},
     "sleep": {"睡觉"},
 }
@@ -132,21 +134,24 @@ def _office_and_self_bindings() -> list[dict]:
 
 
 def _request(targets, actions, ways, **fields):
-    """@brief 三个数组之外的来源、去向与 answering 缺省为 null（非 obtain、consume 动词的合法值）。"""
+    """@brief 三个数组之外的来源、去向、answering 与 prefer 缺省为 null（非 obtain、consume 动词的合法值）。"""
     payload = {"targets": targets, "actions": actions, "ways": ways, "from": [None] * len(targets),
-               "to": [None] * len(targets), "answering": None}
+               "to": [None] * len(targets), "answering": None, "prefer": None}
     return StartActivityRequest.model_validate({**payload, **fields})
 
 
 def test_start_activity_schema_rejects_model_supplied_calculation():
-    """人物提交对象、动词、方式、来源、去向五个等长数组与 answering（都必填，来源、去向、answering 可空）；不能回填
-    金额、版本、精确时长或内部目的地。来源的字段名是 from（Python 属性 from_），序列化也写 from。"""
+    """人物提交对象、动词、方式、来源、去向五个等长数组与请求级 answering、prefer（都必填，来源、去向、answering 与
+    prefer 可空，prefer 只取 fastest 或 cheapest，docs/dev/SPEC-dayrun-fidelity.md 3.5）；不能回填金额、版本、精确时长或
+    内部目的地。来源的字段名是 from（Python 属性 from_），序列化也写 from。"""
     request = _request(["城西办公室"], ["travel"], ["步行"])
-    assert list(request.model_dump()) == ["targets", "actions", "ways", "from", "to", "answering"]
-    assert request.from_ == [None] and request.to == [None] and request.answering is None
+    assert list(request.model_dump()) == ["targets", "actions", "ways", "from", "to", "answering", "prefer"]
+    assert request.from_ == [None] and request.to == [None] and request.answering is None and request.prefer is None
     assert StartActivityRequest(targets=["x"], actions=["obtain"], ways=["到店"], from_=[None], to=["自己"],
-                                answering=None).model_dump()["from"] == [None]
-    for missing in ("ways", "from", "to", "answering"):
+                                answering=None, prefer="cheapest").model_dump()["from"] == [None]
+    with pytest.raises(ValidationError):
+        _request(["x"], ["obtain"], ["购买"], prefer="slowest")
+    for missing in ("ways", "from", "to", "answering", "prefer"):
         payload = _request(["城西办公室"], ["travel"], ["步行"]).model_dump()
         del payload[missing]
         with pytest.raises(ValidationError):
@@ -179,17 +184,24 @@ def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
     (["城东公园"], ["travel"], ["步行"]),
     (["城西办公室"], ["interact"], ["步行"]),
     (["城西办公室"], ["travel"], ["驾车"]),
-    (["城西办公室"], ["travel"], ["步行前往"]),
+    (["城西办公室"], ["travel"], ["沿着河边慢慢走"]),
     (["自己"], ["sleep"], ["等待"]),
 ], ids=["fewer-ways", "fewer-verbs", "duplicate-target", "empty", "three-items", "unlisted-object",
-        "verb-not-offered", "way-not-offered", "retired-phrase", "verb-way-mismatch"])
+        "verb-not-offered", "way-not-offered", "free-text-way", "verb-way-mismatch"])
 def test_unresolvable_selection_is_rejected_as_invalid_request(targets, actions, ways):
-    """三数组不等长、目标重复、项数不在一至二、对象未列出或（动词，方式）不在本轮闭集，都报 ACTION_REQUEST_INVALID。"""
+    """三数组不等长、目标重复、项数不在一至二、对象不是任何可以操作的对象或（动词，方式）不相配（方式不在闭集与同义表中，
+    或同义表没有恰好命中一个列出的方式），都报 ACTION_REQUEST_INVALID；名称类失败逐项写进 items（宿主已在本轮纠正，这里
+    只防绕过宿主的请求，docs/dev/SPEC-dayrun-fidelity.md 3.1）。"""
     harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
-    selection = harness._start_selection(_pending(), _request(targets, actions, ways))
+    request = _request(targets, actions, ways)
+    selection = harness._start_selection(_pending(request), request)
     assert selection is None
-    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        harness._start_activity(None, _pending(), selection)
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID") as rejected:
+        harness._start_activity(None, _pending(request), selection)
+    shaped = 1 <= len(targets) <= 2 and len(targets) == len(actions) == len(ways) and len(set(targets)) == len(targets)
+    items = (getattr(rejected.value, "suggested", None) or {}).get("items", [])
+    assert bool(items) == shaped
+    assert all(item["error_code"] in {"NAME_NOT_FOUND", "WAY_NOT_OFFERED"} for item in items)
 
 
 def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
@@ -210,7 +222,7 @@ _MESSAGE = "王磊 10:35 的消息"
 
 def _routing_observation() -> dict:
     """@brief 本轮私有绑定：一件供给、两件手边持有物（可吃的与可制作的）、办公室、同处的人、同事联系人、「自己」，
-    同世界全部其他人物（同处的李凡与不在身边的赵敏），以及王磊的一条可见直接消息。"""
+    同世界全部其他人物（同处的李凡与不在身边的赵敏），王磊的一条可见直接消息，以及冻结地点表里的两家门店（集市、好德）。"""
     rows = [
         {"object": _SUPPLY, "object_id": "supply-noodles", "kind": "supply",
          "actions": [binding_action("远程下单", "purchase", fulfillment="delivery")]},
@@ -224,7 +236,8 @@ def _routing_observation() -> dict:
          "actions": [binding_action("通话", "call")]}]
     return {"interaction_bindings": rows,
             "person_bindings": [{"name": _PERSON, "person_id": "agent:2"}, {"name": _ELSEWHERE, "person_id": "agent:3"}],
-            "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}]}
+            "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}],
+            "locations": [{"location_id": "market", "name": "集市"}, {"location_id": "haode", "name": "好德"}]}
 
 
 def _items(*items, answering=None):
@@ -273,8 +286,6 @@ def test_legal_from_to_answering_combinations_route_each_item(request_items, ans
     ([(_NOODLES, "consume", "给予", "自己", None)], None, "start_activity obtain and consume need to"),
     ([(_FLOUR, "obtain", "制作", None, _PERSON)], None, "start_activity 制作 takes from null and to 自己"),
     ([(_FLOUR, "obtain", "制作", "自己", "自己")], None, "start_activity 制作 takes from null and to 自己"),
-    ([(_SUPPLY, "obtain", "远程下单", "集市", "自己")], None,
-     "start_activity from is null when the target already names its store"),
     ([(_SUPPLY, "obtain", "远程下单", None, None)], None, "start_activity obtain and consume need to"),
     ([(_SUPPLY, "obtain", "远程下单", None, _COLLEAGUE)], "王磊 9:00 的消息",
      "start_activity answering is not a visible message"),
@@ -283,11 +294,30 @@ def test_legal_from_to_answering_combinations_route_each_item(request_items, ans
     ([("城西办公室", "travel", "步行", None, None)], _MESSAGE,
      "start_activity answering needs an item whose to is the message sender"),
 ], ids=["repeat-same-to", "to-on-travel", "from-on-travel", "consume-from-null", "eat-to-person",
-        "give-to-self", "give-to-null", "make-to-person", "make-from-self", "from-with-store-label", "obtain-to-null",
+        "give-to-self", "give-to-null", "make-to-person", "make-from-self", "obtain-to-null",
         "answering-unknown", "answering-no-sender-item", "answering-on-travel"])
 def test_illegal_combinations_are_protocol_errors_and_invalid_requests(request_items, answering, message):
     """非法组合：宿主得到英文协议错误原文；绕过宿主时环境解析不出选择，以 ACTION_REQUEST_INVALID 业务拒绝。"""
     _assert_invalid(_items(*request_items, answering=answering), message)
+
+
+def test_listed_label_with_another_known_place_in_from_is_a_source_mismatch():
+    """列出的标签「<门店>出售的<商品>」写了另一个已知地点（冻结地点表里的门店名）作 from：共用判定给 SUPPLY_SOURCE_MISMATCH
+    （宿主据此在本轮纠正，tests/integration/test_storefront_tools.py）；绕过宿主时环境照常解析出选择，由指名购买带候选拒绝。
+    App 称呼与不认识的写法不在此列，交给环境按渠道与来源解析；写的正是标签里的门店（含带「地点：」前缀的写法）在名称解析中按
+    冗余换成 null（docs/dev/SPEC-dayrun-fidelity.md 3.2（b）、3.3）。"""
+    observation = _routing_observation()
+    names = routing_names(observation)
+    other = _items((_SUPPLY, "obtain", "远程下单", "好德", "自己"))
+    assert combination_error(other, names) == (
+        "SUPPLY_SOURCE_MISMATCH", "start_activity from names another place than the store in the target")
+    [row] = _ActionHarness(observation)._start_selection(_pending(other), other)
+    assert (row["object"], row["from"], row["recipient_id"]) == (_SUPPLY, "好德", "agent:1")
+    for source in ("盒马App", "饿了么"):
+        assert combination_error(_items((_SUPPLY, "obtain", "远程下单", source, "自己")), names) is None
+    own = _items((_SUPPLY, "obtain", "远程下单", "地点：集市", "自己"))
+    assert combination_error(own, names) is None
+    assert [row["from"] for row in _ActionHarness(observation)._start_selection(_pending(own), own)] == [None]
 
 
 def test_from_and_to_need_one_item_per_target():
@@ -303,9 +333,9 @@ def _assert_invalid(request, message: str) -> None:
     observation = _routing_observation()
     assert combination_error(request, routing_names(observation)) == ("ACTION_REQUEST_INVALID", message)
     harness = _ActionHarness(observation)
-    assert harness._start_selection(_pending(), request) is None
+    assert harness._start_selection(_pending(request), request) is None
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        harness._start_activity(None, _pending(), None)
+        harness._start_activity(None, _pending(request), None)
 
 
 def test_unknown_recipient_is_recipient_not_found_before_admission():
@@ -401,7 +431,7 @@ def test_report_two_activities_validates_all_before_updating_anything():
     first = _activity("morning", "工作写会议纪要（1月5日 09:00 起）")
     second = _activity("afternoon", "工作核对决议（1月5日 09:00 起）")
     harness = _ActionHarness(_bindings(first, second))
-    request = ReportStatusRequest(task=[first.name, second.name], summary=["先整理议题", "再核对决议"])
+    request = report_request(first.name, second.name, summary=["先整理议题", "再核对决议"])
     changed, result = harness._report_status(
         _State({first.activity_id: first, second.activity_id: second}), _pending(), request)
     assert result.status == "completed"
@@ -419,19 +449,27 @@ def test_report_two_activities_validates_all_before_updating_anything():
 
 
 def test_control_requests_pair_each_task_with_its_summary():
-    """三条控制工具都要求任务与人物摘要逐项对应；conclude_activity 另要求等长的 memories（可为空组）。"""
+    """三条控制工具一项一个对象：活动名与自述写在同一对象里，不再靠下标对齐三组数组；一至两项、活动名互不相同且非空、
+    自述非空；结束工具每项另有必填的 memories 与 views（都可以是空列表）；旧的平行数组形状不再受理
+    （docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    item = {"activity_name": "工作写会议纪要（1月5日 09:00 起）", "summary": "先写完提纲"}
+    other = {"activity_name": "休息（1月5日 10:00 起）", "summary": "歇一会儿"}
+    for model in (ReportStatusRequest, PauseActivityRequest):
+        assert model(items=[item, other]).model_dump(mode="json") == {"items": [item, other]}
+        for items in ([], [item, other, {**other, "activity_name": "吃饭"}], [item, item], [{**item, "summary": " "}],
+                      [{**item, "activity_name": " "}], [{"activity_name": item["activity_name"]}],
+                      [{**item, "memories": []}]):
+            with pytest.raises(ValidationError):
+                model(items=items)
+        with pytest.raises(ValidationError):
+            model(task=[item["activity_name"]], summary=[item["summary"]])
+    concluded = {**item, "memories": [], "views": []}
+    assert ConcludeActivityRequest(items=[concluded]).model_dump(mode="json") == {"items": [concluded]}
+    for missing in ("memories", "views"):
+        with pytest.raises(ValidationError):
+            ConcludeActivityRequest(items=[{key: value for key, value in concluded.items() if key != missing}])
     with pytest.raises(ValidationError):
-        ReportStatusRequest(task=["工作", "休息"], summary=["先写完提纲"])
-    with pytest.raises(ValidationError):
-        PauseActivityRequest(task=["工作"], summary=[])
-    assert set(ConcludeActivityRequest(task=["工作"], summary=["今天已完成"], memories=[[]]).model_dump()) == {
-        "task", "summary", "memories"}
-    with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=["工作", "休息"], summary=["只写一个摘要"], memories=[[], []])
-    with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=["工作", "休息"], summary=["先停下", "也停下"], memories=[[]])
-    with pytest.raises(ValidationError):
-        ConcludeActivityRequest(task=["工作"], summary=["今天已完成"])
+        ConcludeActivityRequest(task=[item["activity_name"]], summary=[item["summary"]], memories=[[]])
 
 
 def test_report_writes_original_summary_to_independent_day_goal_note():
@@ -444,7 +482,7 @@ def test_report_writes_original_summary_to_independent_day_goal_note():
     harness = _ActionHarness(_bindings(waiting))
     changed, _ = harness._report_status(
         _State({waiting.activity_id: waiting}, _Agent(plan)), _pending(),
-        ReportStatusRequest(task=[waiting.name], summary=["还想再歇一会儿"]))
+        report_request(waiting.name, summary="还想再歇一会儿"))
     result = changed.agents[1].day_plan.goals[0]
     assert result.progress_note == "还想再歇一会儿"
     assert changed.activities[waiting.activity_id].progress_note == "还想再歇一会儿"
@@ -465,8 +503,7 @@ def test_conclude_ends_only_selected_activities_with_own_summaries():
                    {"source_event_id": "event-watched", "activity_id": "running"}]
     harness = _ActionHarness(_bindings(ended, running, paused, verified_experiences=experiences))
     state = _State({item.activity_id: item for item in (ended, running, paused)})
-    request = ConcludeActivityRequest(task=[ended.name, paused.name], summary=["等完了", "先不写了"],
-                                      memories=[[], []])
+    request = conclude_request(ended.name, paused.name, summary=["等完了", "先不写了"], memories=[[], []])
     changed, result = harness._conclude_activity(state, _pending(), request)
     done, stopped = changed.activities["ended"], changed.activities["paused"]
     assert (done.status, done.concluded_at, done.progress_note) == (ActivityStatus.COMPLETED, 200, "等完了")
@@ -490,6 +527,6 @@ def test_conclude_naming_none_of_the_just_ended_activities_is_rejected():
     state = _State({item.activity_id: item for item in (ended, paused)})
     with pytest.raises(BusinessRuleError, match="ACTIVITY_CONCLUSION_REQUIRED") as raised:
         _ActionHarness(_bindings(ended, paused))._conclude_activity(
-            state, _pending(), ConcludeActivityRequest(task=[paused.name], summary=["先不写了"], memories=[[]]))
+            state, _pending(), conclude_request(paused.name, summary="先不写了", memories=[[]]))
     assert str(raised.value.__cause__) == f"先给刚结束的{ended.name}收尾"
     assert state.activities == {"ended": ended, "paused": paused}

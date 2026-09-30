@@ -159,14 +159,16 @@ def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt()
 
 @pytest.mark.asyncio
 async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_fields(tmp_path) -> None:
-    """记忆巩固与反思读取的人物段（工作区 MEMORY.md 的「身份」）：新建运行编译出卡片的人物取卡片渲染文本；没有卡片的人物
-    由姓名与场景声明的经历、健康习惯、社交风格逐行组装。两者都经真实 LifeAgent 与 WorldMock 记忆运行时写出。"""
+    """记忆巩固与反思读取的人物段（工作区 MEMORY.md 的「身份」）：新建运行编译出卡片的人物取卡片渲染文本（卡片先经场景
+    作息覆盖，docs/dev/SPEC-dayrun-fidelity.md 2.1）；没有卡片的人物由姓名与场景声明的经历、健康习惯、社交风格逐行组装。
+    两者都经真实 LifeAgent 与 WorldMock 记忆运行时写出。"""
     from agentsociety2.agent.base import ReactLoopRequest
     from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 
     from custom.agents.life_agent import LifeAgent
     from tests.integration.test_life_agent_protocol import _observations
     from tests.profile.conftest import make_card
+    from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.textgen import render_card
     from worldmock.runtime import _agent_specs
 
@@ -196,7 +198,7 @@ async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_f
     plain = await identity(_agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"],
                            tmp_path / "plain")
     person = scenario.agents[0]
-    assert carded == quoted(render_card(card).strip())
+    assert carded == quoted(render_card(apply_scenario_rhythm(card, person).card).strip())
     assert plain == quoted("\n".join((f"你是{person.name}。", f"你的经历：{person.background_story.strip()}",
                                       f"你的健康习惯：{person.health_habits.strip()}",
                                       f"你的社交风格：{person.social_style.strip()}")))

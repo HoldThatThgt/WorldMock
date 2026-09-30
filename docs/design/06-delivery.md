@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 数据交付
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
-> **日期**：2026-09-28  
-> **版本**：v1.7
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 DL1），已实现  
+> **日期**：2026-09-29  
+> **版本**：v1.8
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -112,12 +112,12 @@ flowchart LR
 
 | 检查层次 | 规则 |
 | --- | --- |
-| 事件可见性 | 动作与意图输入排除私有事件集（模型请求、模型响应、记忆更新与 `decision_started`，`PRIVATE_EVENTS`）；回复正文 `self_note` 作为实际请求的一部分进入动作与意图输入，并进入 dreaming 输入；`conclude_activity.memories` 属记忆写入，意图与 `dreaming` 输入中动作请求事件的投影裁去该参数（实际请求原文照原样保留，见 3.4 节） |
+| 事件可见性 | 动作与意图输入排除私有事件集（模型请求、模型响应、记忆更新与 `decision_started`，`PRIVATE_EVENTS`）；回复正文 `self_note` 作为实际请求的一部分进入动作与意图输入，并进入 dreaming 输入；`conclude_activity` 各项的 `memories` 与 `views` 属记忆写入，意图与 `dreaming` 输入中控制工具请求事件的投影经 `control_items` 只留每项的 `activity_name` 与 `summary`（实际请求原文照原样保留，见 3.4 节） |
 | 身体字段可见性 | 同一观察中，体感分级可供数字人理解处境；`body.values` 和 `motivation_internal` 只保留在内部证据中 |
 | 结算字段可见性 | `body_settlement` 等内部身体变化不能因所在事件标为 `agent` 就整体复制到输入；只提供当时实际呈现的结果 |
 | 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具；同秒续接中本秒前序 assistant 的 `reasoning_content` 作为实际请求的一部分原样保留（[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)），窗口的其他事件与目标不额外混入；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
 | 前置状态 | 当观察已经出现在窗口事件中，只保留前置观察引用，不复制整份 `events[0].data` |
-| 目标结果 | 只收该动作公开结算事实；私有 `model_request`、`model_response` 和记忆更新不得成为 `target.outcomes`；动作窗口的目标保留完整请求（含 `conclude_activity.memories`），记忆更新事件仍不进 `target.outcomes` |
+| 目标结果 | 只收该动作公开结算事实；私有 `model_request`、`model_response` 和记忆更新不得成为 `target.outcomes`；动作窗口的目标保留完整请求（含 `conclude_activity` 各项的 `memories` 与 `views`），记忆更新事件仍不进 `target.outcomes` |
 | 来源关联 | 裁剪后的输入保留原事件引用，完整事实与内部数值仍可用于审计；不得据此向模型补充隐藏状态 |
 
 事件的 `visibility` 标记不能代替字段级投影。进入 LabelKit 的具体信息范围以训练目标为准，
@@ -145,7 +145,8 @@ dreaming 读回复正文 `self_note` 与实际请求中的层 JSON，不再读�
 同一 prompt 权威），把其首个 user 的六层 JSON 连同该动作请求的事件身份写入 `input.decision_layers`（`[{action_event_id, layers}]`），
 请求事件身份与层 JSON 的 canonical SHA-256 写入 `provenance.decision_layer_sources`（`[{event_id, sha256}]`），请求事件也进入
 `provenance.source_event_ids`；实际请求缺失或首个 user 不是层序正确的六层 JSON 时明确失败（字段见
-[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)）。窗口事件中的动作请求裁去 `conclude_activity.memories`；
+[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)）。窗口事件中三个控制工具的动作请求经 `control_items`
+读出，按现行形状只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`（旧形状读出后同样只留这两项）；
 `decision_layers` 是模型实际收到的原文，照原样保留，其中可以含有进度层参数或记忆层 `self_notes` 里的常规收尾记忆原文。
 重演分支的 dreaming 窗口按同一规则附上层 JSON。生成结果默认不写回运行中的人物。
 零点计划的模型交换与 `day_plan_generated` 登记（系统可见）不进任何窗口；零点及其后的事件归入新一日。
@@ -963,6 +964,7 @@ flowchart TB
 | v1.5 | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：dreaming 窗口示意代码补人物可见性过滤，与零点计划登记等系统可见事件不进窗口一致 |
 | v1.6 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E6-1–E6-7，E6-2、E6-7 为阶段 1 同批作业）：文件头注明修订部分待实现；交付不再用当前代码的场景渲染重建已存观察，按层数据与实际请求投影，世界结构版本门禁为 8，交付清单 `schema_version` 为 2（7.3 示例同步）；动作窗口的续接请求含本秒前序决策的消息；事件可见性删决策自述，`self_note` 随实际请求进入动作与意图输入并进入 dreaming 输入；实际 prompt 行写明续接 assistant 的 `reasoning_content` 原样保留、其他事件与目标不额外混入；「人物卡片、记忆与场景」改为人设层、记忆层、环境层；dreaming 读 `self_note` 与层 JSON，`DREAMING_PRIVATE_EVENTS` 等于私有事件集 |
 | v1.7 | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账 E6-8 与阶段 8 核对）：「4.2 编码示例」改用现存的观察字段（两次观察相同的 `memory_layer`），编码声明与字典项的键按代码（`schema_version`、`standard`、`field`、`sha256`），4.1 与 4.3 随之改（收益不足时照写声明、字典为空）；dreaming 窗口写明 `input.decision_layers` 与 `provenance.decision_layer_sources`、缺少层 JSON 时失败、重演分支同样附层 JSON，裁去记忆只作用于动作请求事件的投影；事件可见性写明私有事件集含 `decision_started`；文件头注明修订部分已实现 |
+| v1.8 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 DL1，随阶段 5 的代码落地，按 `34a41ee` 核对）：「dreaming 窗口提取规则」与意图窗口中三个控制工具的请求经 `control_items` 读出，只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`（旧形状读出后同样只留这两项），动作窗口与实际请求原文照原样保留；文件头补修订说明，日期改写 |
 
 ---
 

@@ -34,6 +34,8 @@ COMPLETION_OUTLOOK_SHORT = "到截止前做不完"
 COMPLETION_OUTLOOK_LATE = "已过截止"
 #: 正在做这项工作时提交的原因：工时达标、活动状态与提交条件分开说明（docs/dev/SPEC-persona-prompt.md 第六章）。
 _IN_PROGRESS_REFUSAL = Refusal("WORK_TASK_IN_PROGRESS", "先结束正在做的工作", "结束或暂停这项工作后再提交")
+#: 开工前提不满足时逐条的原因（docs/dev/SPEC-dayrun-fidelity.md 第四章：拒绝要写出具体原因）。
+_WORK_START_UNMET = {"required_skill": "技能还不够做这项工作", "required_location_id": "要在这项工作的指定地点才能开工"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +84,8 @@ def validate_work_start(agent: AgentState, task: WorkTaskConfig, now: int, prese
     if present_location != task.required_location_id:
         unmet.append("required_location_id")
     if unmet:
-        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", unmet=unmet)
+        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", unmet=unmet,
+                                public_reason="；".join(_WORK_START_UNMET[item] for item in unmet))
 
 
 def work_start_seconds(task: WorkTaskConfig, worked_seconds: int, now: int) -> int:

@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 行为评估
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
-> **日期**：2026-09-28  
-> **版本**：v1.6\
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现  
+> **日期**：2026-09-29  
+> **版本**：v1.7\
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -102,18 +102,22 @@ flowchart TB
 | `unknown_wait_minutes` | 未有可核验原因的等待活动实际区间累计分钟 | 不根据自由叙述推断目的 |
 | `content_contact_minutes` | 实际 watch 播放活动的执行区间累计分钟 | 不把等待或开始播放计为已接触 |
 | `early_arrival_minutes` | 早于开门时间到达的分钟 | 最小化 |
-| `sleep_schedule` | 就寝/起床时刻与时长 | 人物卡片就寝窗口 |
+| `sleep_schedule` | 就寝/起床时刻与时长 | 人物卡片就寝窗口（场景声明的 `bedtime_window` 优先） |
 | `meal_diversity` | Simpson 集中度与 24h 重复率 | 低集中度、低重复 |
 | `activity_distribution` | 十类活动日时间分布与参照 JS 距离 | 2018 年全国时间利用调查 |
 | `persona_distinguishability` | 留一最近邻人物识别准确率 | ≥3 次运行、≥2 人 |
 | `social` | 交谈/通话分钟、消息数 | 人物社交需求 |
 | `habitual_consistency` | 同人物地点与本地小时的活动家族一致率 | 只报告情境重复性，不识别心理习惯 |
-| `deliberate_goals` | 曾登记目标中的家族实际推进率，保留丢弃条目；登记来源为零点计划的 `day_plan_generated` 与修订结果 | 只报告，外部参照未接入时为 null |
+| `deliberate_goals` | 曾登记的非例行意图目标中的家族实际推进率，保留丢弃条目；推进口径与模拟引擎相同（同家族、登记后的正时长结算，带大致时刻的目标还须在其前后 90 分钟内进行）；例行意图（睡眠、晨间例程、通勤、用餐）的目标照常判定，另计 `routine_goals`，不入推进比例；登记来源为零点计划的 `day_plan_generated` 与修订结果 | 只报告，外部参照未接入时为 null |
 | `external_constraints` | 去重后的外部约束受阻与动作接受率；引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`；外部约束闭集不含 `PICKUP_LOCATION_REQUIRED` 与工作地点、技能不符 | 受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷 |
 
 同秒续接轮的思考 token（`reasoning_tokens`，缺失时报字符数，两者不混算）与缓存命中由 `scripts/inspect_run.py continuation`
 逐决策报告（链位置、请求数、协议错误与 400、计价成本、话题命中与按订单去重后的重复下单），`--baseline` 先核对两臂清单只差续接开关，
 输出字段见[记录引擎设计「调试工具」](05-recording-engine.md#调试工具)；只报告，不参与放行。
+输出截断（提供商回复 `finish_reason=length`）的次数、按用途分列、浪费的输出 token 与其中的思考 token 计入 `quality.json` 的
+`truncations` 一节（字段见[记录引擎设计「质量报告」](05-recording-engine.md#质量报告)）；行动决策的截断率以其中 `decision` 的次数除以
+`model_usage.by_purpose` 中 `decision` 的 `provider_responses`（`decision` 组是不带 `purpose` 的全部请求，与决策 prompt token 中位数
+同一口径，含记忆巩固与就寝反思），只报告，不参与放行。
 
 **2018 年全国时间利用调查参照**（城镇/工作日口径，居民均值）：
 
@@ -255,8 +259,8 @@ class ActivitySession:
 - `start_activity` 的可读 `targets[]` 与 `actions[]`（动词）、`ways[]`（方式）逐项配对；细分交互取结果中
   活动快照的 `kind`；同一请求启动两项活动时，按结果中对应顺序的 `data.activities[]` 快照投影两项证据，
   不把另一项动作的结果或付款记到本项
-- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `task[]` 逐活动投影；从真实活动快照读取
-  对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
+- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `items[].activity_name` 逐活动投影（旧运行为 `task[]`），
+  活动身份取结果逐项回报的 `activity_ids`；从真实活动快照读取对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
 - 区分订单、付款、履约三个独立状态
 
 **不变量**：
@@ -775,3 +779,4 @@ plt.savefig('review-preference-heatmap.png')
 | v1.4 | 2026-09-25 | 按时间与能量规格阶段 5：观察重复门禁排除带 `purpose` 的系统请求，除工作验收外也排除零点计划 `purpose="plan_day"` 的请求 |
 | v1.5 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E7-1–E7-5，E7-2 为阶段 1、E7-4 为阶段 2、E7-3 与 E7-5 为阶段 3 同批作业）：文件头注明修订部分待实现；观察重复门禁按（人物，模拟秒）的续接链计，链内复用链首 user 合法，跨秒重复仍失败；示例身份残留改为检查记忆层 JSON；决策 prompt token 中位数按单次行动请求（含续接）计，续接轮的思考 token 与缓存命中由 `inspect_run continuation` 只报告；报告结构示例随之标注 |
 | v1.6 | 2026-09-28 | 人物 Prompt 七层规格实现后文档：按最终代码核对，`memory_md_identity_residue` 仍检查调用方传入的 `MEMORY.md` 文本（冻结时误写为记忆层 JSON，改回），`observation_repetition` 与 `decision_prompt_token_median` 按不带 `purpose` 的全部请求计，`scripts/inspect_run.py continuation` 补报告项、`--baseline` 核对与输出字段链接；报告结构示例同步；文件头注明修订部分已实现 |
+| v1.7 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 EV1，随阶段 2、5 的代码落地，按 `34a41ee` 核对）：「报告项」`deliberate_goals` 的家族推进率只计非例行意图，带大致时刻的目标只认其前后 90 分钟内进行的活动，例行意图另计；作息参照写明场景声明的 `bedtime_window` 优先；输出截断计入 `quality.json` 的 `truncations`，截断率的分母写明 `decision` 组口径；「适配器职责」控制工具按请求的 `items[].activity_name` 逐活动投影（旧运行为 `task[]`，活动身份取结果逐项回报的 `activity_ids`）；文件头补修订说明，日期改写 |

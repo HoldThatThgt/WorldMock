@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -24,7 +25,7 @@ from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
                                  stage_day_plan, start_activity, start_arguments, submit_round, target_actions,
-                                 target_tools, tool_targets, wake_by_mail)
+                                 target_tools, tool_targets, wake_by_mail, pause_request)
 from tests.life import test_parallel_admission as parallel_admission
 from tests.life import test_same_moment_decisions as same_moment_decisions
 from tests.life import test_work_contracts as work_contracts
@@ -38,7 +39,7 @@ from worldmock.life import engine as engine_module
 from worldmock.life.engine import LifeEngine
 from worldmock.life.guidance import refusal_for_code
 from worldmock.life.map_models import RouteConfig
-from worldmock.life.models import PauseActivityRequest, SameMomentPresentation, SameMomentStage
+from worldmock.life.models import SameMomentPresentation, SameMomentStage
 from worldmock.life.storefront_state import current_quote
 from worldmock.life.tool_layer import tool_layer
 
@@ -77,9 +78,9 @@ def _arguments(tool: str, name: str, item: dict, recipient: str | None) -> dict:
         routing = {"to": [recipient]} if item["way"] == "给予" else {}
         return start_arguments([name], [item["action"]], [item["way"]], **routing)
     if tool in {"report_status", "pause_activity"}:
-        return {"task": [name], "summary": ["继续。" if tool == "report_status" else "先停一下。"]}
+        return {"items": [{"activity_name": name, "summary": "继续。" if tool == "report_status" else "先停一下。"}]}
     if tool == "conclude_activity":
-        return {"task": [name], "summary": ["收尾。"], "memories": [[]]}
+        return {"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}]}
     if tool == "submit_work":
         return {"task_name": name, "deliverable": _paraphrased_submission().deliverable.model_dump(mode="json")}
     return {"recipient_name": name, "text": "你好"}
@@ -257,8 +258,8 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     waiting = results[0].activity_id
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    submit_round(engine, {1: ("pause_activity", PauseActivityRequest(
-        task=[activity_name(engine, waiting)], summary=["先出门。"]))}, "away-pause")
+    submit_round(engine, {1: ("pause_activity", pause_request(
+        activity_name(engine, waiting), summary="先出门。"))}, "away-pause")
     preview = engine.observe(context(engine, "away-preview"))
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
     _, walking = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "away-walk")
@@ -278,15 +279,29 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
 
 
 def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path) -> None:
-    """名称唯一：场景只要求身份唯一，两款游戏同名时观察投影在给出任何绑定之前以 ValueError 失败关闭，不让人物用一个名称
-    指向两个对象。"""
+    """名称唯一：两款游戏同名的场景在加载时就被拒绝，原因写明重复的名称与两处来源（docs/dev/SPEC-dayrun-fidelity.md
+    8.1，不再等到运行中途）；绕过加载直接把运行时场景改成同名时，观察投影仍在给出任何绑定之前以 ValueError 失败关闭，
+    不让人物用一个名称指向两个对象。"""
     def mutate(document: dict) -> None:
         """第二款游戏改用第一款的名称。"""
         document["games"][1]["title"] = document["games"][0]["title"]
 
-    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "repeated-names")
+    games = json.loads(Path("scenarios/white-collar-12-weeks.json").read_text(encoding="utf-8"))["games"]
+    with pytest.raises(IntegrityError) as failure:
+        _custom_engine("white-collar-12-weeks.json", mutate, tmp_path / "load", "repeated-names")
+    assert str(failure.value) == (f"Agent 1 would see non-unique object labels: '游戏：{games[0]['title']}' from "
+                                  f"game:{games[0]['game_id']}, game:{games[1]['game_id']}")
+    engine = _custom_engine("white-collar-12-weeks.json", lambda document: None, tmp_path / "runtime", "runtime-names")
     try:
         stage_day_plan(engine)
+        # 两款都在本轮游戏窗口里的游戏改成同名（窗口顺序由排序键与轮转决定，改名不改变顺序）。
+        shown = [row["game_id"] for row in engine._menu_windows(engine.state.agents[1])["game"].items
+                 if "game_id" in row]
+        assert len(shown) >= 2
+        first = next(game for game in engine.scenario.games if game.game_id == shown[0])
+        renamed = tuple(game.model_copy(update={"title": first.title}) if game.game_id == shown[1] else game
+                        for game in engine.scenario.games)
+        engine.scenario = engine.scenario.model_copy(update={"games": renamed})
         with pytest.raises(ValueError, match="interactive object labels must be unique"):
             engine.observe(context(engine, "repeated-names"))
     finally:
@@ -305,7 +320,21 @@ def test_tool_layer_fails_closed_when_an_activity_takes_a_target_name(engine_fac
     assert activity_name(engine, waiting) in tool_targets(observed)
     clashing = {**layer_context.names, "activities": {**layer_context.names["activities"], waiting: "自己"}}
     with pytest.raises(IntegrityError, match="Tool layer target names must be unique"):
-        tool_layer(replace(layer_context, names=clashing))
+        tool_layer(replace(layer_context, names=clashing), observed["tool_layer"]["callable_index"])
+
+
+def test_tool_layer_carries_the_callable_index_beside_the_targets(engine_factory) -> None:
+    """工具层 JSON 依次是 layer、targets 与只列名称的可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2）：
+    观察里的索引就是工具层附上的那一份，目标照旧；索引不是目标，不参与目标名称的唯一性判定——索引里写上与目标同名的
+    名称，工具层也不失败关闭。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    observed = engine.observe(context(engine, "index-beside"))
+    assert list(observed["tool_layer"]) == ["layer", "targets", "callable_index"]
+    layer_context = engine._layer_context(engine.state.agents[1], (), observed["interaction_bindings"])
+    clashing = {"lifestyle": list(tool_targets(observed)), "contents": [], "goods": []}
+    layer = tool_layer(layer_context, clashing)
+    assert layer["callable_index"] is clashing and layer["targets"] == observed["tool_layer"]["targets"]
 
 
 def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_path, monkeypatch) -> None:
@@ -381,8 +410,7 @@ def _start_then_pause(engine: LifeEngine, label: str, request) -> str:
     wake_by_mail(engine, offset=120)
     advance_next(engine)
     name = activity_name(engine, started.activity_id)
-    _, [paused] = submit_round(engine, {1: ("pause_activity", PauseActivityRequest(
-        task=[name], summary=["先停一下。"]))}, f"{label}-pause")
+    _, [paused] = submit_round(engine, {1: ("pause_activity", pause_request(name, summary="先停一下。"))}, f"{label}-pause")
     assert paused.status == "completed", (paused.error_code, paused.message)
     return name
 
@@ -589,8 +617,9 @@ def _without_routes(engine: LifeEngine, origin: str, destination: str) -> None:
 
 def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them(engine_factory) -> None:
     """永久不能满足的不列（「工具层」「列出即可提交」）：人物在办公室，到一家饭店没有路线、技能够不上当日任务时，这家饭店与
-    这项任务都不是工具层目标，名称不出现在工具层中；按这两个名称提交时宿主以协议纠错（本轮纠正，不交给环境）。此前两者
-    照常列出（饭店有步行与驾车），其余地点目标不受影响。"""
+    这项任务都不是工具层目标，名称不出现在工具层中。此前两者照常列出（饭店有步行与驾车），其余地点目标不受影响。按这两个
+    名称提交时按统一名称解析的分工（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）：任务名不在本轮私有绑定中，宿主以协议
+    纠错（本轮纠正，不交给环境）；饭店在冻结地点表中，名称成立，宿主放行，没有路线由环境以业务拒绝说明原因。"""
     engine = parallel_admission._engine(engine_factory, location=OFFICE, task=True)
     restaurant = next(item for item in engine.scenario.locations if item.location_id == _CLOSED_AT_TEN)
     task = engine.scenario.tasks[0]
@@ -601,6 +630,7 @@ def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_the
     _without_routes(engine, OFFICE, restaurant.location_id)
     stage(engine, lambda state: state.agents[1].skill_levels.update({task.required_skill: task.minimum_skill - 0.1}))
     decision = context(engine, "impossible-after")
+    engine.begin_decision_round([decision])
     after = engine.observe(decision)
     places = {row["name"] for row in after["tool_layer"]["targets"] if row["kind"] == "location"}
     assert places == {row["name"] for row in before["tool_layer"]["targets"] if row["kind"] == "location"} - {
@@ -610,8 +640,11 @@ def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_the
     assert task.title not in json.dumps(after["tool_layer"], ensure_ascii=False)
     person = _host(engine, decision, after)
     travel = start_arguments([place_name], ["travel"], ["步行"])
-    assert person.validate_react_decisions([ReactDecision("", "start_activity", travel, "")], False) == (
-        "start_activity target is not a visible interactive object")
     submit = _arguments("submit_work", task_name, {}, None)
     assert person.validate_react_decisions([ReactDecision("", "submit_work", submit, "")], False) == (
-        "task_name is not visible")
+        "NAME_NOT_FOUND: task_name is not visible")
+    assert person.validate_react_decisions([ReactDecision("", "start_activity", travel, "")], False) == ""
+    drive(person.dispatch_react_tool("start_activity", travel))
+    [refused] = engine.commit_decision_round(decision.round_id)
+    assert (refused.status, refused.error_code) == ("rejected", "ROUTE_UNREACHABLE")
+    assert refused.data["reason"] == refusal_for_code("ROUTE_UNREACHABLE").reason

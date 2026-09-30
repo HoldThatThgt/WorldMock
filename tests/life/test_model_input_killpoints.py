@@ -39,7 +39,7 @@ class _MessageHarness(SessionActionMixin):
 
     def __init__(self, bindings: list[dict]) -> None:
         self.bindings = bindings
-        self.scenario = SimpleNamespace(locations=())
+        self.scenario = SimpleNamespace(locations=(), routes=())
         self.rules = SimpleNamespace(tasks={})
         self.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
                                              2: SimpleNamespace(agent_id=2)}, activities={}, current_time=100)
@@ -95,10 +95,10 @@ def test_send_message_rejects_invalid_text_or_recipient(
 def test_plan_goal_keeps_semantic_300_character_limit() -> None:
     """目标内容的领域上限保留，且工具 Schema 仍符合 strict 约束。"""
     boundary = "目" * 300
-    assert PlanGoalInput(intent_kind="工作", goal=boundary, remind_time=None).goal == boundary
+    assert PlanGoalInput(intent_kind="工作", goal=boundary, remind_time=None, around_time=None).goal == boundary
     assert PlanGoal(intent_kind="工作", goal=boundary, registered_at=100).goal == boundary
     with pytest.raises(ValidationError, match="exceeds 300 characters"):
-        PlanGoalInput(intent_kind="工作", goal=boundary + "余", remind_time=None)
+        PlanGoalInput(intent_kind="工作", goal=boundary + "余", remind_time=None, around_time=None)
     with pytest.raises(ValidationError, match="at most 300 characters"):
         PlanGoal(intent_kind="工作", goal=boundary + "余", registered_at=100)
     assert deepseek_strict_schema(PlanDayRequest)["type"] == "object"
@@ -107,7 +107,7 @@ def test_plan_goal_keeps_semantic_300_character_limit() -> None:
 def test_oversized_plan_goal_is_business_rejection_before_world_mutation() -> None:
     """绕过人物请求构造校验的超长目标在领域分派入口仍被拒绝（plan_day 已不是人物工具，人物只经
     revise_day_plan 改当日目标；时间与能量规格第四章「计划与提醒」）。"""
-    payload = {"goals": [{"intent_kind": "工作", "goal": "备注" * 301, "remind_time": None}]}
+    payload = {"goals": [{"intent_kind": "工作", "goal": "备注" * 301, "remind_time": None, "around_time": None}]}
     state = SimpleNamespace()
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
         LifeEngine._dispatch(object(), state, _pending("revise_day_plan", payload))
@@ -135,9 +135,9 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
             """执行生产拒绝节律，不替换反馈结果逻辑。"""
             return LifeEngine._after_rejection(self, state, pending, error)
 
-        def _round_schedule(self, state, agent, rejected, rhythm_next=None):
-            """执行生产同刻排期。"""
-            return LifeEngine._round_schedule(self, state, agent, rejected, rhythm_next)
+        def _round_schedule(self, state, agent, rejected, rhythm_next=None, free=False):
+            """执行生产同刻排期（free 为免计的名称类拒绝，本用例的拒绝码不是名称类）。"""
+            return LifeEngine._round_schedule(self, state, agent, rejected, rhythm_next, free)
 
         def _drain_pending_drafts(self):
             """本用例没有通讯送达事件。"""

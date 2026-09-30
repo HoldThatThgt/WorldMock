@@ -19,7 +19,8 @@ from agentsociety2.agent.base import ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, start_request, wake_by_mail)
+                                 progress_calls, stage_day_plan, start_activity, start_request, wake_by_mail,
+                                 pause_request, report_request)
 from tests.life.test_day_planning import _late_engine
 from tests.life.test_dayrun_restaurants import _keep_waiting, _stage
 from tests.life.test_progress_events import _model_pair
@@ -28,9 +29,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, memory_layer
 from worldmock.life.memory_layer import MEMORY_WINDOW_CHARS, _Entry, _fit, _Line, memory_view, reflection_date
 from worldmock.life.interaction_menu import WAYS
-from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest,
-                                   PauseActivityRequest, PlanGoalInput, RecallTaskSummaryRequest,
-                                   ReportStatusRequest, ReviseDayPlanRequest, SendMessageActionRequest)
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, PlanGoalInput, RecallTaskSummaryRequest,
+                                   ReviseDayPlanRequest, SendMessageActionRequest)
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import duration_phrase, iso_time, local_date
 from worldmock.life.settled_text import activity_sentence, purchase_sentence
@@ -80,9 +80,14 @@ def _memory(engine, round_id: str, agent_id: int = 1) -> dict:
     return layer
 
 
-def _memo(kind: str, text: str, subject: str | None = None) -> dict:
-    """结束活动时写下的一条记忆（relationship 与 preference 带对象）。"""
-    return {"type": kind, "text": text, "importance": 0.5, "keywords": [text[:2]], "subject": subject}
+def _memo(kind: str, text: str) -> dict:
+    """结束活动时写下的一条普通记忆（没有对象字段）。"""
+    return {"type": kind, "text": text, "importance": 0.5, "keywords": [text[:2]]}
+
+
+def _view(kind: str, text: str, about: str) -> dict:
+    """结束活动时写下的一条看法或偏好（relationship 或 preference，about 写对象）。"""
+    return {"type": kind, "about": about, "text": text, "importance": 0.5, "keywords": [text[:2]]}
 
 
 def _walk(engine, round_id: str, destination: str = "office"):
@@ -120,14 +125,14 @@ def _ended_sessions(engine, agent_id: int = 1) -> list:
                   key=lambda item: (item.started_at, item.session_id))
 
 
-def _concluding_wait(engine, round_id: str, summary: str, memories: list) -> str:
-    """开始等待、被邮件唤醒后带记忆提前结束它，返回活动名。"""
+def _concluding_wait(engine, round_id: str, summary: str, memories: list, views: tuple = ()) -> str:
+    """开始等待、被邮件唤醒后带记忆与看法提前结束它，返回活动名。"""
     _, waited = _act(engine, f"{round_id}-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     name = activity_name(engine, waited.activity_id)
     _act(engine, f"{round_id}-conclude", "conclude_activity",
-         ConcludeActivityRequest(task=[name], summary=[summary], memories=[memories]))
+         conclude_request(name, summary=summary, memories=[memories], views=[list(views)]))
     return name
 
 
@@ -141,8 +146,8 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     friend = engine.scenario.agents[0].contacts[0].salutation
     start = engine.state.current_time
     _act(engine, "a-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="晚上见"))
-    wait = _concluding_wait(engine, "a", "歇好了", [_memo("routine", "每天歇一会儿"),
-                                                   _memo("relationship", "沈昊靠谱", subject=friend)])
+    wait = _concluding_wait(engine, "a", "歇好了", [_memo("routine", "每天歇一会儿")],
+                            views=(_view("relationship", "沈昊靠谱", friend),))
     departed = engine.state.current_time
     walk = _walk(engine, "a-walk")
     home = _memory(engine, "a-road")["earlier_today"]
@@ -156,7 +161,7 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     mail_at = wake_by_mail(engine, offset=120)
     advance_next(engine)
     walk_name = activity_name(engine, walk.activity_id)
-    _act(engine, "a-report", "report_status", ReportStatusRequest(task=[walk_name], summary=["快到了"]))
+    _act(engine, "a-report", "report_status", report_request(walk_name, summary="快到了"))
     assert advance_until_ready(engine)
     arrived = engine.state.current_time
     _act(engine, "a-arrive", "conclude_activity", conclude_request(walk_name, summary="到了"))
@@ -261,9 +266,12 @@ def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
 
 def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) -> None:
     """实验截止时所有 session 结束：最后一段停留以截止时刻为 recorded_at 进入记忆层；按计划结束的等待与被实验截止截断、
-    没有收尾的睡眠都在这段停留里结束，各写一句（活动句按结束提交归属，不看是否收尾）。"""
+    没有收尾的睡眠都在这段停留里结束，各写一句（活动句按结束提交归属，不看是否收尾）。
+
+    窗口取 22:10–22:40：人物在这段时间里困意一直是「困」（22:06:41 刚越过 0.93 档界，docs/dev/SPEC-dayrun-fidelity.md
+    1.4），等待不会被体感跨档打断。"""
     def window(document: dict) -> None:
-        document.update(start_at="2026-01-05T22:00:00+08:00", end_at="2026-01-05T22:30:00+08:00", tasks=[],
+        document.update(start_at="2026-01-05T22:10:00+08:00", end_at="2026-01-05T22:40:00+08:00", tasks=[],
                         messages=[], bills=[], payrolls=[])
 
     engine = _custom_engine("white-collar-12-weeks.json", window, tmp_path, run_id="memory-end")
@@ -281,9 +289,9 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
         assert engine.state.activities[slept.activity_id].status == ActivityStatus.TRUNCATED
         view = memory_view(engine._layer_context(engine.state.agents[1], (), []), engine.store)
         assert view.layer["earlier_today"] == [{
-            "recorded_at": "2026-01-05T22:30:00+08:00",
-            "settled": [f"22:00 给{friend}发消息：我先睡了", "等待（1月5日 22:00 起）：22:00–22:15，按计划结束",
-                        f"{activity_name(engine, slept.activity_id)}：22:15–22:30，提前结束"],
+            "recorded_at": "2026-01-05T22:40:00+08:00",
+            "settled": [f"22:10 给{friend}发消息：我先睡了", "等待（1月5日 22:10 起）：22:10–22:25，按计划结束",
+                        f"{activity_name(engine, slept.activity_id)}：22:25–22:40，提前结束"],
             "self_notes": [{"activity": "等待", "text": "收尾。"}]}]
         assert [item.ended_at for item in _ended_sessions(engine)] == [engine.state.end_time]
     finally:
@@ -319,7 +327,7 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=wait))[1].status \
         == "completed"
     _act(engine, "d-revise", "revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
     call = {"id": "call-memory", "type": "function",
             "function": {"name": "memory_search", "arguments": json.dumps({"query": "x"})}}
     _model_pair(engine, "decision-memory", call, json.dumps({"epistemic_status": "subjective", "episodes": []}))
@@ -510,7 +518,8 @@ def test_chat_invitation_is_not_carried_into_the_memory_layer(engine_factory) ->
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     friend = engine.state.agents[1].name
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),))
     submit_round(engine, {1: ("revise_day_plan", revise),
                           2: ("start_activity", start_activity("交谈", f"人物：{friend}"))}, "i-invite")
     home = _observe(engine, "i-home")
@@ -589,13 +598,13 @@ def test_paused_interval_appears_in_the_concluded_activity_sentence(engine_facto
     name = activity_name(engine, first.activity_id)
     paused_at = wake_by_mail(engine, offset=120)
     advance_next(engine)
-    _act(engine, "p-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下"]))
+    _act(engine, "p-pause", "pause_activity", pause_request(name, summary="先停一下"))
     _, second = _act(engine, "p-other", "start_activity", start_activity("等待", "自己"))
     other = activity_name(engine, second.activity_id)
     resumed_at = wake_by_mail(engine, offset=180)
     advance_next(engine)
     _act(engine, "p-other-end", "conclude_activity", conclude_request(other))
-    _act(engine, "p-resume", "report_status", ReportStatusRequest(task=[name], summary=["接着等"]))
+    _act(engine, "p-resume", "report_status", report_request(name, summary="接着等"))
     closed = wake_by_mail(engine, offset=120)
     advance_next(engine)
     _act(engine, "p-conclude", "conclude_activity", conclude_request(name, summary="等完了"))
@@ -728,7 +737,7 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
     stage_day_plan(engine)
     friend = engine.scenario.agents[0].contacts[0].salutation
     _act(engine, "r-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="出门了"))
-    _concluding_wait(engine, "r", "歇好了", [_memo("preference", "喜欢安静", subject="环境")])
+    _concluding_wait(engine, "r", "歇好了", [], views=(_view("preference", "喜欢安静", "环境"),))
     walk = _walk(engine, "r-walk")
     assert advance_until_ready(engine)
     _act(engine, "r-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
@@ -814,8 +823,8 @@ def _arrive(engine, round_id: str, travel_id: str) -> None:
         if engine.state.activities[travel_id].status != ActivityStatus.ACTIVE:
             break
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"{round_id}-{step}", "report_status", ReportStatusRequest(
-                task=[activity_name(engine, travel_id)], summary=["还在路上。"]))
+            _act(engine, f"{round_id}-{step}", "report_status", report_request(
+                activity_name(engine, travel_id), summary="还在路上。"))
         else:
             advance_next(engine)
     _act(engine, round_id, "conclude_activity", conclude_request(activity_name(engine, travel_id), summary="到了"))
@@ -870,8 +879,8 @@ def _finish_waiting(engine, round_id: str, activity_id: str) -> None:
         if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             break
         if engine.scheduling_state().ready_agent_ids:
-            _act(engine, f"{round_id}-{step}", "report_status", ReportStatusRequest(
-                task=[activity_name(engine, activity_id)], summary=["接着等。"]))
+            _act(engine, f"{round_id}-{step}", "report_status", report_request(
+                activity_name(engine, activity_id), summary="接着等。"))
         else:
             advance_next(engine)
     _act(engine, round_id, "conclude_activity", conclude_request(activity_name(engine, activity_id)))

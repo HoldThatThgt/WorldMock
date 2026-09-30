@@ -14,7 +14,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, context, last_result, stage_day_plan, submit_round, target_actions,
-                                 tool_targets, start_request)
+                                 tool_targets, start_request, report_request)
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import order_routing
@@ -311,7 +311,6 @@ def _live_until(engine: LifeEngine, moment: int) -> None:
     """@brief 真实推进到 moment：到达或活动结束后当秒收尾，有进行中活动时照常播报，空闲时等待。"""
     from tests.life.conftest import activity_name, conclude_pending, start_activity
     from worldmock.life import activity_control
-    from worldmock.life.models import ReportStatusRequest
 
     for step in range(64):
         if engine.state.current_time >= moment:
@@ -322,7 +321,7 @@ def _live_until(engine: LifeEngine, moment: int) -> None:
             conclude_pending(engine, f"live-conclude-{step}")
         elif active_activities(engine.state, 1):
             name = activity_name(engine, active_activities(engine.state, 1)[0].activity_id)
-            _act(engine, f"live-report-{step}", "report_status", ReportStatusRequest(task=[name], summary=["继续。"]))
+            _act(engine, f"live-report-{step}", "report_status", report_request(name, summary="继续。"))
         else:
             _act(engine, f"live-wait-{step}", "start_activity", start_activity("等待", "自己"))
     raise AssertionError("the run did not reach the moment")
@@ -539,8 +538,12 @@ def test_two_foods_are_one_meal_and_only_same_way_obtains_are_one_order(engine_f
     foods = tuple(item.product_id for item in engine.scenario.products if "eat" in item.use_modes)[:2]
     _hold(engine, foods)
     observed = _observe(engine, "order-preview")
-    rows = [(row["object"], row["object_id"]) for row in observed["interaction_bindings"] if row["kind"] == "supply"
-            and engine.rules.supplies[row["object_id"]].location_id == "market"][:2]
+    listed = [(row["object"], row["object_id"]) for row in observed["interaction_bindings"] if row["kind"] == "supply"
+              and engine.rules.supplies[row["object_id"]].location_id == "market"]
+    sellers = [engine.rules.supplies[supply].seller_account_id for _, supply in listed]
+    seller = max(sorted(set(sellers)), key=sellers.count)  # 一单只能买同一个卖家的东西：取窗口里同一卖家的两项
+    rows = [pair for pair, owner in zip(listed, sellers) if owner == seller][:2]
+    assert len(rows) == 2
     one_order = _act(engine, "one-order", "start_activity",
                      _request(*((name, "obtain", "远程下单") for name, _ in rows)))
     assert one_order.status == "completed", (one_order.error_code, one_order.message)
@@ -642,9 +645,12 @@ def test_pickup_and_remote_order_stay_listed_away_from_the_store(engine_factory)
 
 
 def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_where_to_go(engine_factory) -> None:
-    """远程下单的送达地取 agent.location_id：这里不在该供给的可配送目的地时，动作照常列出并带「暂时送不到这里」，
-    选了以 ACTIVITY_PRECONDITION_UNMET 返回同一原因与能送达的地点；说明与拒绝出自同一判定（第八章「呈现」）。"""
+    """远程下单的送达地取 agent.location_id：这里不在该供给的可配送目的地时，动作照常列出并带「这里不在这家店的配送范围内」，
+    选了以 ACTIVITY_PRECONDITION_UNMET（unmet=delivery_destination）返回同一原因与能送达、从这里可达的地点；送达地在范围内
+    而门店到这里的配送路线缺失时换成 delivery_route 与另一句原因；说明与拒绝出自同一判定（第八章「呈现」，
+    docs/dev/SPEC-dayrun-fidelity.md 5.3）。"""
     from worldmock.life import admission
+    from worldmock.life.guidance import DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON
 
     engine = _engine(engine_factory, location="home", market=True)
     observed = _observe(engine, "reach-preview")
@@ -653,7 +659,7 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
     action = next(action for action in row["actions"] if action["label"] == "远程下单")
     supply = engine.rules.supplies[row["object_id"]]
     places = {item.location_id: item.name for item in engine.scenario.locations}
-    context_ = admission.Context(state=engine.state, agent_id=1, place_names=places)
+    context_ = admission.Context(state=engine.state, agent_id=1, place_names=places, routes=engine.scenario.routes)
 
     def item_for(destinations: tuple[str, ...]) -> admission.Item:
         """@brief 可配送目的地换成 destinations 的同一项远程下单。"""
@@ -662,10 +668,20 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
         return admission.selection_item(row, action, facts)
 
     refusal = admission.group_refusal(context_, [item_for(("office", "market"))])
-    assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, "暂时送不到这里", ("delivery_destination",))
+    assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, DELIVERY_DESTINATION_REASON,
+                                                             ("delivery_destination",))
     assert refusal.next_step == f"去{places['office']}或{places['market']}再下单"
-    assert admission.group_refusal(context_, [item_for(("office",))]).reason == "暂时送不到这里"
+    assert admission.group_refusal(context_, [item_for(("office",))]).reason == DELIVERY_DESTINATION_REASON
     assert admission.group_refusal(context_, [item_for(("home",))]) is None
+    blocked = tuple(route.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
+                                             "fare_fen": None, "reason": "no_route_record"})
+                    if (route.origin_id, route.destination_id, route.mode.value) == (supply.location_id, "home",
+                                                                                     "driving") else route
+                    for route in engine.scenario.routes)
+    routed = admission.Context(state=engine.state, agent_id=1, place_names=places, routes=blocked)
+    refusal = admission.group_refusal(routed, [item_for(("home", "office"))])
+    assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, DELIVERY_ROUTE_REASON, ("delivery_route",))
+    assert refusal.next_step == f"去{places['office']}再下单"
 
 
 @pytest.mark.parametrize("companion", ["步行", "等待"])
@@ -769,12 +785,14 @@ def test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_lengt
 
 def test_malformed_request_gets_the_default_reason_without_the_validation_text(engine_factory) -> None:
     """绕过构造期校验的请求以 ACTION_REQUEST_INVALID 拒绝，公开原因取该码的默认说法，不把请求模型的校验转储（其中含
-    所填的中文）当作原因；原因只取引导性拒绝写明的那一句（第五章「动作照常列出，做错了再说明」）。"""
+    所填的中文）当作原因；原因只取引导性拒绝写明的那一句（第五章「动作照常列出，做错了再说明」）；结果 message 就是这句
+    原因，也不再拼接英文码与校验转储（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
     engine = _engine(engine_factory)
     malformed = StartActivityRequest.model_construct(targets="自己", actions=["interact"], ways=["等待"])
     result = _act(engine, "malformed", "start_activity", malformed)
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
-    assert "validation" in result.message and "自己" in result.message
+    assert result.message == result.data["reason"]
+    assert not any(text in result.message for text in ("validation", "Action rejected", "ACTION_REQUEST_INVALID"))
     assert result.data["reason"] == "所选的对象或方式不在这一轮列出的范围内"
     assert result.data["next_step"] == "从本轮列出的对象和方式里选"
     shown = last_result(_observe(engine, "malformed-shown"))["details"]

@@ -1,28 +1,31 @@
-"""@brief 曝光轮转：按「上次呈现时刻」给长期未呈现的对象留固定名额（docs/dev/SPEC-life-runtime.md「曝光轮转」）。
+"""@brief 曝光轮转：按每个对象的「上次呈现时刻」给分区内最久未呈现的对象留固定名额（docs/dev/SPEC-life-runtime.md
+「曝光轮转」，docs/dev/SPEC-dayrun-fidelity.md 5.1）。
 
 本模块是**纯函数模块**：不写世界状态、不做 IO、不调模型。它同时是「呈现顺序与名额」
-的唯一实现处，只读输入、只回结果——`last_presented_at` 与游标的落库由引擎侧承担
+的唯一实现处，只读输入、只回结果——`last_presented_at` 的落库由引擎侧承担
 （`docs/CONTRACTS.md`「派生量字段」的 `presentation_state`），因此这里绝不出现
 任何状态写入，也不产生下架事件、不改目录、不改对象状态。
 
 三条判据边界（`docs/CONTRACTS.md`「候选与呈现合同」与规格同章「曝光轮转」「禁止永久退役」）：
 
-- **判据是「上次呈现时刻」**，不是互动次数、不是任何偏好估计量。合同明文禁止把
-  `exposure_count` 一类计数当作「受欢迎程度」参与轮转，所以池成员的行里**根本没有**
+- **判据是每个对象各自的「上次呈现时刻」**，不是互动次数、不是任何偏好估计量，也不是人物级的共享偏移量或
+  分区游标。合同明文禁止把 `exposure_count` 一类计数当作「受欢迎程度」参与轮转，所以池成员的行里**根本没有**
   互动计数字段：想用也用不上，用了就取不到值。
 - **换新名额由场景常量导出**：`k = round(candidate_presentation_limit ×
   rotation_quota_ratio)`，不得写死；`rotation_stale_seconds` 只作「长期未呈现」的阈值，
-  「从未呈现」恒算长期未呈现。
+  「从未呈现」恒算长期未呈现，也恒是最久未呈现的。
 - **最大未呈现间隔由上界函数给出精确形式** `⌈N ÷ k⌉ ÷ (D × 可达率)`，连续松弛
   `N ÷ (k × D)` 只是 Little 定律的均值改写、对任何策略都成立，不作断言口径。
 
-**界来自纪律而非公式**：游标单向绕池、每次放行 `min(k, N)` 个，于是任一对象最多等
-`⌈N ÷ k⌉` 轮；折返（在池两端来回）会让边缘对象的等待明显长于中段，因此游标只前进、
-不回退，`rotation_cursor_after` 是这条纪律的机器证据。
+**界来自纪律而非公式**：每次呈现的换新名额按上次呈现时刻从早到晚放行分区内长期未呈现的 `min(k, N)` 个
+（从未呈现者最先，同一时刻按排序键），被放行者随即成为刚呈现过的对象；于是一个长期未呈现的对象前面至多排着
+分区内其余对象，最多等 `⌈N ÷ k⌉` 次呈现就被放行。界按分区成立：`N` 与 `k` 取该分区自己的池规模与名额，
+别的分区呈现了多少对象不影响本分区（不设共享偏移量）。换新名额只受子类条数上限约束、不做标签相似度去重，
+名额不超过子类上限时从不被挡，界因此精确成立。
 
 **反塌缩不是覆盖率承诺**：`ROTATION_SUBTYPE_CAP_IN_WINDOW` 的标签 Jaccard 贪心去重
 保证「同一子类在呈现窗口内不超过三条」，它不保证「每个对象都会被呈现」；覆盖率由
-轮转名额配额与游标纪律负责，两者不得互相替代。
+轮转名额配额负责，两者不得互相替代。
 
 **单次呈现上限与换新名额是守恒关系**：换新名额从 `candidate_presentation_limit` 中划出，
 因此「呈现条数」这一总量不因轮转而放大——轮转只改顺序与名额分配。
@@ -56,14 +59,14 @@ class RotationMember:
     刻意只含排序键与去重所需的字段：互动计数字段不在其中，轮转因此不可能把它当判据。
     """
 
-    #: 对象标识，同时充当规范池序的排序键与排序键的决胜键。
+    #: 对象标识（留痕与顺延清单的身份）。
     object_id: str
     #: 子类标签，反塌缩去重按它计数。
     subtype: str
     #: 画像标签，用于标签 Jaccard 相似度。
     tags: tuple[str, ...] = ()
-    #: 排序键特征 `(口味权重, 注意力先验)`，均为定点整数。
-    rank_features: tuple[int, int] = (0, 0)
+    #: 完整稳定排序键（candidates.OrderedCandidate.order_key：非零口味、−口味×注意力、−相关度、哈希决胜键）。
+    order_key: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,31 +88,15 @@ class RotationConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class _PoolView:
-    """@brief 一次判定的只读输入束：规范池序、当下时刻与「上次呈现时刻」映射。"""
-
-    ordered: tuple[RotationMember, ...]
-    now: int
-    last_presented_at: dict[str, int]
-    stale_seconds: int
-
-    def is_stale(self, member: RotationMember) -> bool:
-        """@brief 该成员此刻是否算「长期未呈现」。"""
-        return _is_stale(member, self.now, self.last_presented_at, self.stale_seconds)
-
-
-@dataclass(frozen=True, slots=True)
 class RotationDecision:
     """@brief 一次轮转的纯函数结果；不含任何世界状态写入指令，也不含下架语义。"""
 
     #: 本次呈现序列（长度不超过 `presentation_limit`），逐项标出是否来自换新名额。
     presented: tuple[tuple[str, bool], ...]
-    #: 本次被换新名额放行的对象标识（子集于 `presented`）。
+    #: 本次被换新名额放行的对象标识（子集于 `presented`，按上次呈现时刻从早到晚）。
     rotated_in: tuple[str, ...]
-    #: 本次因名额已满而未呈现的对象标识（原因码恒为 `ROTATION_DEFERRED`）。
+    #: 本次因名额已满而未呈现的对象标识（原因码恒为 `ROTATION_DEFERRED`），按排序键。
     deferred: tuple[str, ...]
-    #: 下一次调用应传入的游标，取值域为 `[0, 池规模)`；池为空时为 0。
-    next_cursor: int
     #: `{子类: 因该子类已达反塌缩上限而顺延的条数}`，只作审计计数，不进提示。
     capped_counts: dict[str, int]
     #: 反塌缩顺延的总条数（等于 `capped_counts` 各项之和）。
@@ -140,31 +127,30 @@ def rotation_quota_slots(presentation_limit: int, quota_ratio: float) -> int:
     return max(1, min(presentation_limit, round(presentation_limit * quota_ratio)))
 
 
-def _ordering_key(member: RotationMember) -> tuple[int, int, str]:
-    """@brief 稳定全序键：主键口味 × 注意力先验，决胜键对象标识（合同「排序键与游标」）。"""
-    weight, prior = member.rank_features
-    return (-(int(weight) * int(prior)), -int(prior), member.object_id)
-
-
-def _pool_order(pool: Sequence[RotationMember]) -> list[RotationMember]:
-    """@brief 换新名额所需的规范池序：标识升序的稳定序，供游标按位置前进。"""
-    return sorted(pool, key=lambda member: member.object_id)
+def _ordering_key(member: RotationMember) -> tuple:
+    """@brief 稳定全序键：完整排序键（合同「排序键与游标」），对象标识只作排序键完全相同时的兜底。"""
+    return (tuple(member.order_key), member.object_id)
 
 
 def _is_stale(member: RotationMember, now: int, last_presented_at: dict[str, int], stale_seconds: int) -> bool:
-    """@brief 判定「长期未呈现」：从未呈现恒为真，其余按上次呈现时刻距现在是否超过阈值。"""
+    """@brief 判定「长期未呈现」：从未呈现恒为真，其余按上次呈现时刻距现在是否达到阈值。"""
     last = last_presented_at.get(member.object_id)
     return last is None or now - last >= stale_seconds
 
 
-def _rotation_step(pool_size: int, quota: int) -> int:
-    """@brief 单向绕回的单次前进量 `min(k, N)`，且非零——零步长会让游标卡死在原地。
+def staleness_order(pool: Sequence[RotationMember], last_presented_at: dict[str, int],
+                    now: int, stale_seconds: int) -> list[RotationMember]:
+    """@brief 分区内长期未呈现的成员，按上次呈现时刻从早到晚排列（从未呈现最先，同一时刻按排序键）。
 
-    名额不小于池规模时一次放行全池，前进量取 1 让后续判定仍沿环推进（每圈仍走满全池）。
+    @param pool 一个检索分区的只读成员序列。
+    @param last_presented_at 按对象标识记录的上次呈现时刻；缺失表示从未呈现。
+    @param now 本次判定的模拟时刻。
+    @param stale_seconds 「长期未呈现」的阈值秒数。
+    @return 换新名额的候选次序。
     """
-    if pool_size <= 1:
-        return 1
-    return min(max(1, quota), pool_size)
+    stale = [member for member in pool if _is_stale(member, now, last_presented_at, stale_seconds)]
+    return sorted(stale, key=lambda member: (member.object_id in last_presented_at,
+                                             last_presented_at.get(member.object_id, 0), _ordering_key(member)))
 
 
 def _subtype_jaccard(member: RotationMember, kept: Sequence[RotationMember]) -> float:
@@ -183,35 +169,16 @@ def _subtype_jaccard(member: RotationMember, kept: Sequence[RotationMember]) -> 
     return best
 
 
+def _subtype_full(member: RotationMember, kept: Sequence[RotationMember]) -> bool:
+    """@brief 同子类条数是否已达窗口上限。"""
+    return sum(1 for other in kept if other.subtype == member.subtype) >= ROTATION_SUBTYPE_CAP_IN_WINDOW
+
+
 def _capped_by_windows(member: RotationMember, kept: Sequence[RotationMember]) -> bool:
     """@brief 反塌缩判定：同子类条数已达上限，或与已收同子类条目标签 Jaccard 超过阈值。"""
-    same = [other for other in kept if other.subtype == member.subtype]
-    if len(same) >= ROTATION_SUBTYPE_CAP_IN_WINDOW:
+    if _subtype_full(member, kept):
         return True
     return _subtype_jaccard(member, kept) > SUBTYPE_JACCARD_THRESHOLD
-
-
-def rotation_cursor_after(cursor: int, quota: int, pool_size: int) -> int:
-    """@brief 单向绕回：游标每次前进换新名额条数并对池规模取模，绝不回退或折返。
-
-    折返会让池两端的对象等待长于中段，界随之失效；因此这里只有 `(cursor + k) % N` 一条路径。
-
-    @param cursor 本次调用传入的游标（`presentation_rotation_cursor`）。
-    @param quota 本次换新名额条数。
-    @param pool_size 分区池规模 `N`。
-    @return 下一次调用的游标；池为空时为 0。
-    """
-    if pool_size <= 0:
-        return 0
-    return (cursor + quota) % pool_size
-
-
-def rotation_indices(cursor: int, quota: int, pool_size: int) -> tuple[int, ...]:
-    """@brief 从游标起沿单向绕回取 `min(k, N)` 个位置；允许跨过环回边界，不重复、不回退。"""
-    if pool_size <= 0:
-        return ()
-    count = min(quota, pool_size)
-    return tuple((cursor + step) % pool_size for step in range(count))
 
 
 def rotation_worst_case_wait_days(pool_size: int, quota_slots: int, daily_decision_points: int,
@@ -293,19 +260,17 @@ def wait_bound_finding(pool_size: int, quota_slots: int, daily_decision_points: 
     )
 
 
-def _quota_batch(view: _PoolView, cursor: int, quota: int,
-                 blocked: set[str]) -> list[RotationMember]:
-    """@brief 沿单向绕回取出本批换新名额：只收「长期未呈现」且未触反塌缩上限者。
+def _quota_batch(stale: Sequence[RotationMember], quota: int, blocked: set[str]) -> list[RotationMember]:
+    """@brief 本批换新名额：按上次呈现时刻从早到晚取长期未呈现者，至多 quota 个。
 
-    名额本身按游标单向推进，不受去重影响——被上限挡下的位置下一轮会被游标重新扫过，
-    因此折返不存在，界也不受影响。被挡下的成员只记进 `blocked` 集合，状态不改。
+    只受子类条数上限约束（不做标签相似度去重）：名额不超过子类上限时从不被挡，最久未呈现者一定被放行，
+    `⌈N ÷ k⌉` 的界因此精确成立。被上限挡下的成员只记进 `blocked`，状态不改，下一次仍按上次呈现时刻排在前面。
     """
     batch: list[RotationMember] = []
-    for position in rotation_indices(cursor, quota, len(view.ordered)):
-        member = view.ordered[position]
-        if not view.is_stale(member):
-            continue
-        if _capped_by_windows(member, batch):
+    for member in stale:
+        if len(batch) >= quota:
+            break
+        if _subtype_full(member, batch):
             blocked.add(member.object_id)
             continue
         batch.append(member)
@@ -334,14 +299,15 @@ def _ranked_batch(ordered: Sequence[RotationMember], kept: Sequence[RotationMemb
     多轮推进**：一轮里某子类已占满就顺延到下一轮再考虑它，因此一个被压住的头部条目
     不会把它后面的全部条目一起挡住。被挡下的成员标识写进 `blocked` 供留痕。
 
-    @param ordered 规范池序（标识升序）。
+    @param ordered 按排序键由优到劣排列的池成员。
     @param kept 已由换新名额收下的成员。
     @param limit 单次呈现上限（场景常量）。
     @param blocked 收集因反塌缩上限而未收下的成员标识。
     @return 本批收下的成员，按排序键由优到劣。
     """
     window = min(limit, subtype_capacity(len({member.subtype for member in ordered})))
-    ranked = sorted(ordered, key=_ordering_key)
+    taken = {member.object_id for member in kept}
+    ranked = [member for member in ordered if member.object_id not in taken]
     chosen: list[RotationMember] = []
     while ranked and len(kept) + len(chosen) < window:
         remaining: list[RotationMember] = []
@@ -370,30 +336,28 @@ def subtype_cap_counts(kept: Sequence[RotationMember]) -> dict[str, int]:
 
 
 def rotate_candidates(pool: Sequence[RotationMember], last_presented_at: dict[str, int],
-                      cursor: int, config: RotationConfig) -> RotationDecision:
+                      config: RotationConfig) -> RotationDecision:
     """@brief 一次曝光轮转：按换新名额与排序键给出本次呈现序列，只读池与时刻映射。
 
-    换新名额先沿单向绕回取（只收「长期未呈现」者，从未呈现恒计入），其余名额按排序键取，
+    换新名额先按每个对象的上次呈现时刻从早到晚取长期未呈现者（从未呈现最先，staleness_order），其余名额按排序键取，
     取件时用标签 Jaccard 贪心去重压住同一子类的堆叠。呈现条数不超过
     `config.presentation_limit`，且窗口内同一子类不超过 `ROTATION_SUBTYPE_CAP_IN_WINDOW` 条；
     本次未进序列的池成员以 `ROTATION_DEFERRED` 记入 `deferred`——那只是「本次不呈现」，
     不改对象状态、不写目录、不产生下架事件，故呈现条数加顺延条数恒等于池规模。
-    游标按 `min(k, N)` 单向前进并对池规模取模。
+    不设游标：同一池、同一组上次呈现时刻与同一时刻给出同一结果。
 
-    @param pool 一个检索分区的只读成员序列（空池合法：返回空结果并保持游标为 0）。
+    @param pool 一个检索分区的只读成员序列（空池合法：返回空结果）。
     @param last_presented_at 按对象标识记录的「上次呈现时刻」（纪元秒），缺失表示从未呈现。
-    @param cursor 上一次调用返回的游标（`presentation_rotation_cursor`）。
     @param config 场景层常量。
-    @return 本次呈现序列、换新成员、顺延清单与下一次游标。
+    @return 本次呈现序列、换新成员与顺延清单。
     """
     if not pool:
-        return RotationDecision((), (), (), 0, {}, 0)
-    ordered = tuple(_pool_order(pool))
+        return RotationDecision((), (), (), {}, 0)
+    ordered = sorted(pool, key=_ordering_key)
     quota = rotation_quota_slots(config.presentation_limit, config.quota_ratio)
-    view = _PoolView(ordered=ordered, now=config.now, last_presented_at=last_presented_at,
-                     stale_seconds=config.stale_seconds)
     blocked: set[str] = set()
-    turned = _quota_batch(view, cursor, quota, blocked)
+    turned = _quota_batch(staleness_order(ordered, last_presented_at, config.now, config.stale_seconds),
+                          quota, blocked)
     selected = _ranked_batch(ordered, turned, config.presentation_limit, blocked)
     kept = [*turned, *selected]
     chosen_ids = {member.object_id for member in kept}
@@ -409,8 +373,6 @@ def rotate_candidates(pool: Sequence[RotationMember], last_presented_at: dict[st
         presented=tuple((member.object_id, member.object_id in turn_ids) for member in kept),
         rotated_in=tuple(member.object_id for member in turned),
         deferred=deferred,
-        next_cursor=rotation_cursor_after(cursor, _rotation_step(len(ordered), quota), len(ordered)),
         capped_counts=capped,
         capped_total=sum(capped.values()),
     )
-

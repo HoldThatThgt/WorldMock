@@ -17,6 +17,7 @@ from worldmock.categories import refresh_manifest_identity
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS
+from worldmock.life.map_models import MAP_SCHEMA_VERSION
 from worldmock.life.models import (
     ModelIdentity,
     RunIdentity,
@@ -237,7 +238,7 @@ def _replace_map_file(root: Path, scenario: dict, kind: str, rows: list[dict]) -
     shutil.copytree("corpora", corpus)
     relative = f"zhangjiang-map/{kind}.json"
     data_path = corpus / relative
-    _write_json(data_path, {"schema_version": 1, kind: rows})
+    _write_json(data_path, {"schema_version": MAP_SCHEMA_VERSION, kind: rows})
     dataset_path = corpus / scenario["map_dataset"]["path"]
     dataset = _read_json(dataset_path)
     dataset[f"{kind}_file"]["sha256"] = hashlib.sha256(data_path.read_bytes()).hexdigest()
@@ -324,7 +325,7 @@ def _identity(scenario_path: Path, run_id: str) -> RunIdentity:
         code_sha256="4" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://api.deepseek.com",
+            base_url="https://api.deepseek.com/beta",
             requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",
@@ -426,7 +427,7 @@ def test_recipe_completes_once_after_readable_use(tmp_path: Path) -> None:
     try:
         request, started = _consume(engine, "start")
         assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["obtain"], "ways": ["制作"],
-                                        "from": [None], "to": ["自己"], "answering": None}
+                                        "from": [None], "to": ["自己"], "answering": None, "prefer": None}
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
         _advance_to_completion(engine, started.activity_id)

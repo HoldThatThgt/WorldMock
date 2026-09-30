@@ -102,7 +102,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     expected = canonical_json(wire)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
     fields = start["function"]["parameters"]["properties"]
-    assert set(fields) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert set(fields) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
     for field in ("targets", "actions", "ways"):
         assert "enum" not in fields[field]["items"]
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
@@ -164,8 +164,8 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         messages = events[2].data["request"]["messages"]
         assert [message["role"] for message in messages][-2:] == ["assistant", "tool"]
         feedback = json.loads(messages[-1]["content"])
-        assert feedback["executed"] is False
-        assert "unknown native tool calls" in feedback["error"]
+        assert (feedback["error_code"], feedback["reason"]) == ("TOOL_CALL_REQUIRED", "「invented_tool」不是这次提供的工具")
+        assert feedback["instruction"] == "本次没有登记到世界；按 fix 修改后重新提交" and "error" not in feedback
         first_names = {item["function"]["name"] for item in events[0].data["request"]["tools"]}
         second_names = {item["function"]["name"] for item in events[2].data["request"]["tools"]}
         assert "memory_recent" in first_names

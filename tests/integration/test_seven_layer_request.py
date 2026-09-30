@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
@@ -40,6 +43,7 @@ from tests.integration.test_life_agent_protocol import (
     _with_activities,
 )
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_request  # noqa: F401
+from tests.life.test_presentation_fidelity import _stage
 from worldmock.life import prompt_capacity
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
@@ -95,7 +99,8 @@ async def test_system_layer_is_byte_identical_across_turns_and_decisions() -> No
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
     second = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "conclude_activity", json.dumps(
-            {"task": [_WAIT], "summary": ["等完了。"], "memories": [[]]}, ensure_ascii=False))])
+            {"items": [
+                {"activity_name": _WAIT, "summary": "等完了。", "memories": [], "views": []}]}, ensure_ascii=False))])
     agent, _ = _agent(first)
     await _run(agent, _observations())
     agent._dispatcher = second
@@ -130,7 +135,8 @@ def _spec_life_system_layer() -> tuple[str, list[str]]:
 async def test_system_layers_are_the_contract_registration_verbatim() -> None:
     """系统层文案与接口合同「请求组成」的登记逐字相同（docs/dev/SPEC-persona-prompt.md 验收台账「系统层与工具」）：真实生活
     决策请求的 system、只读问答的 system 各是合同登记全文的紧凑序列化，键依次为 layer、role、rules；生活决策的 role 与
-    十七条 rules 也与本规格第一章定稿逐字相同。"""
+    十八条 rules 也与本规格第一章定稿逐字相同（docs/dev/SPEC-dayrun-fidelity.md 2.2：新第 14 条，第 15、16 条改写，
+    第 4、12、18 条补句）。"""
     life, readonly = _contract_system_layers()
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -142,7 +148,98 @@ async def test_system_layers_are_the_contract_registration_verbatim() -> None:
     assert system_message(True)["content"] == render_layer_json(readonly)
     assert list(life) == list(readonly) == ["layer", "role", "rules"]
     role, rules = _spec_life_system_layer()
-    assert (life["role"], life["rules"]) == (role, rules) and len(rules) == 17
+    assert (life["role"], life["rules"]) == (role, rules) and len(rules) == 18
+
+
+@pytest.mark.asyncio
+async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it() -> None:
+    """系统层第 14 条（docs/dev/SPEC-dayrun-fidelity.md 2.2、2.3，裁决 D6、S3、S11）：真实生活决策请求的系统层在第 13 条之后
+    写作息默认规则——平常照作息，今日计划写明今天与平常不同的安排时按计划，身体的感觉到更强的一档才改作息；饥饿、困意两条
+    顺延为第 15、16 条，按档位与饭点吃、照就寝时间睡；第 4 条补「消息只核验对方说过」，第 18 条补「联系人不会来到身边」
+    （7.3）。"""
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
+    agent, _ = _agent(dispatcher)
+    await _run(agent, _observations())
+
+    rules = json.loads(dispatcher.requests[0]["messages"][0]["content"])["rules"]
+    assert len(rules) == 18 and rules == LIFE_SYSTEM_LAYER["rules"]
+    assert rules[12].startswith("obtain 与 consume") and rules[13].startswith("人设层的作息和习惯是你平常的过法")
+    for sentence in ("到了平常的钟点、在平常的地方，就照平常做", "今日计划写明今天与平常不同的安排时，按计划",
+                     "身体的感觉没到更强的一档，就不为它改作息", "人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来"):
+        assert sentence in rules[13]
+    assert rules[14].startswith("你会饿") and "每个饭点的正餐只吃一次" in rules[14] and "趁早" not in rules[14]
+    assert rules[15].startswith("晚上照人设层作息里的就寝时间去睡") and "困了就去睡" not in rules[15]
+    assert rules[3].endswith("消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。")
+    assert rules[17].endswith("联系人只能发消息或通话，不会来到你身边。")
+    assert "最接近的候选，不会替你改" in rules[11]
+
+
+@pytest.mark.asyncio
+async def test_the_system_layer_asks_for_no_particular_language() -> None:
+    """不作语言要求（docs/dev/SPEC-dayrun-fidelity.md 2.4，裁决 D18）：真实生活决策请求与只读问答的系统层都没有要人物用某种
+    语言写的规则——role 与每条 rules 都不提中文、英文或语言；人物用英文写的收尾总结与记忆照常登记，不被纠错。"""
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
+    agent, _ = _agent(dispatcher)
+    await _run(agent, _observations())
+
+    for system in (json.loads(dispatcher.requests[0]["messages"][0]["content"]),
+                   json.loads(system_message(True)["content"])):
+        texts = [system["role"], *system["rules"]]
+        assert [text for text in texts if re.search("中文|英文|汉语|语言|Chinese|English|language", text)] == []
+    memory = {"type": "routine", "text": "I took a short break after lunch.", "importance": 0.2, "keywords": ["break"]}
+    english = _GroundedCorrectionDispatcher(responses=[_ModelResponse("action", "conclude_activity", json.dumps(
+        {"items": [{"activity_name": _WAIT, "summary": "Waited a while and rested.", "memories": [memory],
+                    "views": []}]}, ensure_ascii=False))])
+    agent, environment = _agent(english)
+    assert await _run(agent, _second_observation()) == "conclude_activity registered"
+    assert len(english.requests) == 1
+    [item] = environment.calls[0].request.items
+    assert (item.summary, [entry.text for entry in item.memories]) == ("Waited a while and rested.", [memory["text"]])
+
+
+#: 系统层第 15 条用「」点名的饥饿档与第 16 条列举的困意档（docs/dev/SPEC-dayrun-fidelity.md 2.2：档位名与 felt.py 的
+#: 分级文本逐字一致；仲裁档饥饿取「很饿」、困意取「很困」）。
+_RULE_HUNGER_BANDS = ["有点想吃", "饿", "很饿"]
+_RULE_SLEEPINESS_BANDS = ["有点乏", "困", "很困", "撑不住"]
+
+
+def _felt_vocabulary() -> tuple[set[str], set[str]]:
+    """felt.py 分级表里的饥饿档与困意档文本（含基档与只由能量决定的第六档），测试不自带词表。"""
+    from worldmock.life import felt
+
+    hunger = {name for _, name in felt.APPETITE_BANDS} | {felt.APETITE_BASE_LEVEL, felt.APPETITE_STARVING_LEVEL}
+    sleepiness = {name for _, name in felt.SLEEPINESS_BANDS} | {felt.SLEEPINESS_BASE_LEVEL}
+    return hunger, sleepiness
+
+
+def _rule_band_mentions(rules: list[str]) -> tuple[list[str], list[str]]:
+    """规则点名的档：第 15 条的「」引语；第 16 条「X、Y是睡前的常态」与「X或Y了可以提前」两处列举。"""
+    hunger = re.findall(r"「([^」]+)」", rules[14])
+    usual = re.search(r"：([^：；]+)是睡前的常态", rules[15])
+    early = re.search(r"；([^；]+)了可以提前", rules[15])
+    assert usual is not None and early is not None
+    return hunger, usual.group(1).split("、") + early.group(1).split("或")
+
+
+def test_felt_bands_named_by_the_rules_are_the_felt_band_texts() -> None:
+    """档位名与 felt.py 分级文本逐字一致（docs/dev/SPEC-dayrun-fidelity.md 2.2 验收）：词表取自 felt.py 的分级表；第 15 条点名的
+    饥饿档是饥饿分级表的前三档，第 16 条依次列出困意分级表的全部四个非基档；把规则里的档改成分级表没有的说法会被抓住。"""
+    from worldmock.life import felt
+
+    hunger_vocabulary, sleepiness_vocabulary = _felt_vocabulary()
+    rules = LIFE_SYSTEM_LAYER["rules"]
+    hunger, sleepiness = _rule_band_mentions(rules)
+    assert (hunger, sleepiness) == (_RULE_HUNGER_BANDS, _RULE_SLEEPINESS_BANDS)
+    assert set(hunger) <= hunger_vocabulary and set(sleepiness) <= sleepiness_vocabulary
+    assert hunger == [name for _, name in felt.APPETITE_BANDS][:3]
+    assert sleepiness == [name for _, name in felt.SLEEPINESS_BANDS]
+    poisoned = list(rules)
+    poisoned[14] = poisoned[14].replace("「很饿」", "「非常饿」")
+    poisoned[15] = poisoned[15].replace("撑不住了", "熬不住了")
+    stale_hunger, stale_sleepiness = _rule_band_mentions(poisoned)
+    assert not set(stale_hunger) <= hunger_vocabulary and not set(stale_sleepiness) <= sleepiness_vocabulary
 
 
 @pytest.mark.asyncio
@@ -410,6 +507,29 @@ def test_system_layers_persona_memory_and_tools_validate_against_the_layer_schem
         validator.validate(tool)
 
 
+def test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_the_around_time_schema(
+        monkeypatch) -> None:
+    """prompt_sha256 只计算、不钉常量，随系统层与待办层 Schema 重钉（docs/dev/SPEC-dayrun-fidelity.md 2.2、8.2）：新运行的
+    模型身份记录的提示指纹就是按现行十八条系统层与带 around_time 的待办层 Schema 算出的值；去掉新第 14 条回到十七条、
+    或去掉待办层目标的 around_time，指纹都不同。"""
+    from custom.agents import life_prompt
+    from worldmock.life import prompt_schemas
+    from worldmock.runtime import _model_identity
+
+    current = life_prompt.life_prompt_sha256()
+    assert _model_identity().prompt_sha256 == current
+    rules = [rule for index, rule in enumerate(LIFE_SYSTEM_LAYER["rules"]) if index != 13]
+    monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", {**LIFE_SYSTEM_LAYER, "rules": rules})
+    assert len(rules) == 17 and life_prompt.life_prompt_sha256() != current
+    monkeypatch.undo()
+    todo = copy.deepcopy(prompt_schemas.TODO_LAYER_SCHEMA)
+    goal = todo["properties"]["day_plan"]["oneOf"][1]["properties"]["goals"]["items"]
+    assert goal["properties"].pop("around_time") and "around_time" in goal["required"]
+    goal["required"].remove("around_time")
+    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "待办层": todo})
+    assert life_prompt.life_prompt_sha256() != current
+
+
 def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     """提示指纹绑定七层 Schema：任何一层的 Schema 改动都改变运行指纹。"""
     from custom.agents.life_prompt import life_prompt_sha256
@@ -419,4 +539,65 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     changed = {**prompt_schemas.LAYER_SCHEMAS, "人设层": {**prompt_schemas.LAYER_SCHEMAS["人设层"], "title": "改"}}
     monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", changed)
     assert life_prompt_sha256() != original
+
+
+def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:
+    """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2）：它是工具层的必填键，形状为
+    lifestyle、contents、goods 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
+    from custom.agents import life_prompt
+    from worldmock.life import prompt_schemas
+    from worldmock.runtime import _model_identity
+
+    schema = prompt_schemas.TOOL_LAYER_SCHEMA
+    assert "callable_index" in schema["required"]
+    assert set(schema["properties"]["callable_index"]["properties"]) == {"lifestyle", "contents", "goods"}
+    current = life_prompt.life_prompt_sha256()
+    assert _model_identity().prompt_sha256 == current
+    tools = copy.deepcopy(schema)
+    tools["properties"].pop("callable_index")
+    tools["required"].remove("callable_index")
+    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "工具层": tools})
+    assert life_prompt.life_prompt_sha256() != current
+
+
+@pytest.mark.asyncio
+async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity(_engine_factory, monkeypatch,
+                                                                                  caplog) -> None:
+    """工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）随真实观察原样进入 user 消息的工具层，计入整次请求的容量
+    计数（第四章预算不变）：同一请求去掉索引后计数更小；把窗口定在两者之间时，宿主在发送前以容量故障停止——不删减索引、
+    不发请求——容量故障的分层记录单列索引的用量。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    _stage(engine, int(datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.scenario.timezone)).timestamp()), "home")
+    decision = context(engine, "index-capacity")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+
+    def observations() -> list[dict]:
+        """@brief 这次真实观察交给宿主的一条结构化观察记录（每次决策各一份）。"""
+        return [{"turn": 0, "action": "observe", "ok": True, "data": copy.deepcopy(observed)}]
+
+    responses = [_ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))]
+    dispatcher = _GroundedCorrectionDispatcher(responses=list(responses))
+    agent, _ = _agent(dispatcher)
+    await _run(agent, observations())
+
+    [request] = dispatcher.requests
+    layers = json.loads(request["messages"][1]["content"])
+    assert layers[0] == observed["tool_layer"] and list(layers[0]) == ["layer", "targets", "callable_index"]
+    assert len(layers[0]["callable_index"]["lifestyle"]) == 107 and layers[5]["events"] == []
+    bare = [{key: value for key, value in layers[0].items() if key != "callable_index"}, *layers[1:]]
+    without = prompt_capacity.request_token_count({**request, "messages": [request["messages"][0],
+                                                                           user_message(bare)]})
+    full = prompt_capacity.request_token_count(request)
+    assert full > without
+    window = int((full + without) / 2 / prompt_capacity.CONTEXT_THRESHOLD)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: window)
+    tight = _GroundedCorrectionDispatcher(responses=list(responses))
+    agent, environment = _agent(tight)
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="model request capacity exceeded"):
+        await _run(agent, observations())
+    assert tight.requests == [] and environment.calls == []
+    message = next(record.message for record in caplog.records if "capacity exceeded" in record.message)
+    assert "'工具层'" in message and "'工具层.callable_index'" in message
 

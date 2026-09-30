@@ -60,6 +60,22 @@ def test_answering_links_only_items_sent_to_the_sender_and_shows_the_link(engine
     assert lines[1].endswith(f"送到张江高科技园区办公室（冻结场景锚点）（回应{name}，收货人王磊）")
 
 
+def test_an_answering_name_written_without_spaces_is_resolved_to_that_message(engine_factory) -> None:
+    """answering 按可见消息的名称统一解析（docs/dev/SPEC-dayrun-fidelity.md 3.1）：规范名称「<发件人> HH:MM 的消息」去掉空白
+    写成「王磊10:01的消息」时无损归一唯一就是那条消息，环境照常关联订单（request_message_id）、结果的 answering 写规范名称，
+    details.resolved 记下 {written, as}。"""
+    engine = open_world(engine_factory)
+    message_id = contact_message(engine, "帮我也点一份吧，谢谢")
+    name = _message_name(engine, message_id)
+    written = name.replace(" ", "")
+    target, _ = supply_target(observe(engine, "supply"))
+    result = act(engine, "order-bare-answering", routed((target, "obtain", "远程下单", None, COLLEAGUE_TARGET),
+                                                        answering=written))
+    assert (result.status, result.error_code) == ("completed", None)
+    assert [item["request_message_id"] for item in result.data["orders"]] == [message_id]
+    assert result.data["answering"] == name and {"written": written, "as": name} in result.data["resolved"]
+
+
 def test_resubmitting_the_same_request_is_rejected_and_points_to_the_order(engine_factory) -> None:
     """已有同一（消息，收货人，商品）的未取消关联订单：再提交以 REQUEST_ALREADY_HANDLED 拒绝，details 列出已关联订单与
     预计送达时刻，不再扣款；换商品、不关联或回应新消息照常购买；关联订单取消后可以重新下单。"""
