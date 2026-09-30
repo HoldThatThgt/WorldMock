@@ -468,6 +468,59 @@ def test_candidates_are_feasible_first_and_submittable_verbatim(engine_factory) 
     assert chosen["target"].split("：", 1)[1] in engine.state.activities[result.activity_id].name
 
 
+def test_a_blank_name_is_no_object_and_gets_no_candidates(engine_factory) -> None:
+    """所写名称归一后什么也不剩（空串、只有空白、只有「（模拟）」）时不是任何对象，也没有相似的对象（没有词项，相似度为 0，
+    3.1 第 3 条）：宿主报 NAME_NOT_FOUND，逐项明细没有候选；绕过宿主时环境同样解析不出，以带逐项明细的
+    ACTION_REQUEST_INVALID 拒绝，也没有候选；取得时写空名是指名购买，宿主放行，环境以 SUPPLY_NOT_FOUND 拒绝、没有候选，
+    不下单。"""
+    host = _prepared(_observations())
+    for written in ("", "   ", "（模拟）"):
+        error = _check(host, "start_activity", _start([written], ["travel"], ["步行"]))
+        [item] = error.report.items
+        assert (error.report.error_code, item.written, item.candidates) == ("NAME_NOT_FOUND", written, ()), written
+    engine = _morning(engine_factory)
+    error, refused = _decide(engine, "blank-place", "start_activity", _start([""], ["travel"], ["步行"]))
+    assert error.report.error_code == "NAME_NOT_FOUND" and not error.report.items[0].candidates
+    assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert refused.data["items"] == [{"index": 0, "field": "targets", "written": "", "error_code": "NAME_NOT_FOUND",
+                                      "candidates": []}]
+    deliveries = dict(engine.state.deliveries)
+    error, missing = _decide(engine, "blank-goods", "start_activity", _start([""], ["obtain"], ["购买"]))
+    assert error == "" and (missing.status, missing.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
+    assert [(item["field"], item["candidates"]) for item in missing.data["items"]] == [("targets", [])]
+    assert "orders" not in missing.data and engine.state.deliveries == deliveries
+
+
+def test_candidates_for_a_held_item_are_filled_with_the_consume_route(engine_factory) -> None:
+    """候选写成可以照填的请求（3.1 第 3 条），from、to 照所选动作填：手边的持有物写成「一盒纯牛奶」时不替换，宿主报
+    NAME_NOT_FOUND；按「食用」写的候选是 consume、食用，from 与 to 都是「自己」；按「给予」写的候选 from 是「自己」、to 照填
+    所写的人物，没写人物（或写「自己」）时 to 留空由人物补上；所写方式这件持有物没有列出（「使用」）时候选取它此刻能用的
+    「食用」。照填「食用」的候选，宿主不纠错，环境受理并开始吃。"""
+    engine = _morning(engine_factory)
+    ctx, observed, host = _open(engine, "held-candidates")
+    label = _binding(observed, "holding")["object"]
+    written = f"一盒{label.split('：', 1)[1]}"
+    cases = {("食用", "自己"): ("食用", "自己"), ("给予", "沈昊"): ("给予", "沈昊"), ("给予", None): ("给予", None),
+             ("给予", "自己"): ("给予", None), ("使用", "自己"): ("食用", "自己")}
+    filled = {}
+    for (way, to), (candidate_way, candidate_to) in cases.items():
+        error = _check(host, "start_activity", _start([written], ["consume"], [way], **{"from": ["自己"], "to": [to]}))
+        [item] = error.report.items
+        assert (error.report.error_code, item.written) == ("NAME_NOT_FOUND", written)
+        filled[way, to] = next(candidate.payload() for candidate in item.candidates if candidate.target == label)
+        assert {key: filled[way, to][key] for key in _FILL_IN} == {
+            "target": label, "action": "consume", "way": candidate_way, "from": "自己", "to": candidate_to}, (way, to)
+    chosen = filled["食用", "自己"]
+    arguments = {"targets": [chosen["target"]], "actions": [chosen["action"]], "ways": [chosen["way"]],
+                 "from": [chosen["from"]], "to": [chosen["to"]], "answering": None, "prefer": None}
+    assert _check(host, "start_activity", arguments) == ""
+    engine.submit_action(DirectToolCall(ctx, "action-held-candidates", "start_activity",
+                                        StartActivityRequest.model_validate(arguments)))
+    [result] = engine.commit_decision_round("held-candidates")
+    assert (result.status, result.error_code) == ("in_progress", None)
+    assert engine.state.activities[result.activity_id].kind == "consume"
+
+
 def _variants(label: str) -> list[str]:
     """一个名称的写法变体：原样、去掉类别前缀、全角括号写成半角、插入空白、多写「（模拟）」。"""
     forms = [label, label.replace("（", "(").replace("）", ")"), f" {label} ", f"{label}（模拟）"]
