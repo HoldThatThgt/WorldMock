@@ -1,9 +1,46 @@
 # WorldMock 实现状态
 
-> 状态：人物 Prompt 七层特性已在特性分支 `persona-prompt-seven-layers` 实现并通过离线验收（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
-> 日期：2026-09-28（增量修订；既有验收记录保留各自基线）
+> 状态：一日运行保真特性已在集成分支 `dayrun-fidelity-impl` 实现并通过离线验收（阶段 7 真实复验未执行）；人物 Prompt 七层特性已在特性分支 `persona-prompt-seven-layers` 实现并通过离线验收（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
+> 日期：2026-09-29（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
+
+## 一日运行保真开发状态
+
+[一日运行保真特性规格](SPEC-dayrun-fidelity.md)（FROZEN，版本表 0.7）已在集成分支 `dayrun-fidelity-impl` 实现：实施阶段 1–6 与阶段 8 完成，阶段 7 未执行（见下）；
+「裁决记录」除 D13（登记，范围外）与 S2（撤回）外全部已定，S10 采纳并按 3.5「收敛」执行。实施基线为 `26d626b59902bccf7b3cdc5ba74037e5feee5f72`（规格与台账的行号取 `4a5b0e6`）；
+各实现分支分三批并行合入，合入过程中的集成核查、实现后文档审计与独立语义突变审查发现的缺陷由四个修复分支修复并补测。
+最终代码提交 `147843655aa00621488a306e68ecf98c5273b3bf`（`1478436`）：覆盖率下六个分片合计 4,987 passed、7 skipped（均为既有的平台或产物条件跳过，本特性新增用例无跳过）、0 failed、25 warnings；
+分支覆盖率 95.05%（7916/8328），未覆盖公共接口为零，门禁报告随 `b7f85f9` 提交；三路独立语义突变共 356 个，除 4 个等价突变外全部被测试杀死（52 个初次存活，补测后杀死）。
+验收台账 26 行、31 条已定裁决与十个输入警告码的证据测试登记在 `tests/dayrun_fidelity_acceptance.py`（380 个不重复节点），由 `tests/test_dayrun_fidelity_acceptance.py` 逐行判定。
+源码身份、评审修复、突变审查、门禁、strict 端点探针与文档一致性见[一日运行保真验收记录](dayrun-fidelity-verification.md)，阶段与文档同步作业见规格「实施计划」「文档同步作业」「文件修改清单」三章。
+
+| 范围 | 现行实现 |
+| --- | --- |
+| 身体与需要 | 社交账与共同用餐按本区间共同身体结算所用的活动集合（`body_settlement.activity_ids`）判定清醒，在边界结束的睡眠不计清醒；不喜欢的内容也按下限偏好缓解（有效偏好 `f + (1 − f)·w`，`f` 缺省 0.5，放在场景层 `entertainment_relief_preference_floor`），有缓解的活动进行时不累积娱乐需要，游戏与内容同一算法；困意档界改为 0.80、0.93、1.07、1.18（KSS 等价刻度），五档名称不变；不适脉冲的两小时门槛只判一次；睡眠中不读消息，醒后第一个边界再读 |
+| 运行输入警告与场景作息 | 创建运行时逐条计算十个警告码（口味与题材对不上、权重全零、没有内容却有观看习惯、游戏没有权重条目、覆盖率不足、卡片作息被覆盖或冲突、画像编译一致性低、配送路线不可用、可疑显示名），冻结进运行清单 `input_warnings`、ops 日志与 `quality.json`，`validate` 打印同一组警告，运行查看器总览列出；运行路径永不因警告失败，手机配置核验失败也不让创建失败；覆盖率不再按 App 名子串计命中；场景显式声明的作息字段覆盖卡片抽取值，身体结算、零点计划与人设层读同一组值 |
+| 系统层与零点计划 | 系统层 18 条规则：新第 14 条照作息过日子（今日计划的具体安排优先，身体只在较强一档才改），第 15 条按档位与饭点吃，第 16 条照作息就寝，第 4、12、17 条补句；零点计划只写与平常不同的事和要办的事，每条目标带大致时刻 `around_time`；例行意图（睡眠、晨间例程、通勤、用餐）照常登记，不入推进比例；带大致时刻的目标只被其前后 90 分钟内进行的同家族活动推进 |
+| 按名调用与指名购买 | 全部目录类对象可直接写名称，无损归一后唯一即受理，相似度只给可照填的候选、从不替换，宿主与环境共用 `name_resolution` 并逐项报全部名称类失败；名称类拒绝每人每秒前 2 次不计同刻轮数、不施加脉冲；指名购买的 `from` 是可选约束，分段匹配 M0–M3 各报其码；App 名按场景钉定的手机配置解析为渠道的成员门店；`start_activity` 增请求级 `prefer`（`fastest`、`cheapest` 或 `null`），方式「购买」由系统定到店或远程下单、不定交不到收货人手上的方式，多于一处能服务时按 `prefer` 选定；订单与 `purchases.jsonl` 记 `channel_id` |
+| 错误合同 | 宿主协议纠错与环境业务拒绝共用 `error_code`、`reason`、`fix`、`items[]`（逐项可照填的候选）、`unmet`，受理时写 `details.resolved`、`notes`；宿主错误码闭集十一码；每个会抛出的业务拒绝码都有具体原因；纠错不带校验转储，拒绝的 `message` 直接取 `reason` |
+| 呈现与浏览 | 生活活动窗口施加地点类资格；排序键加相关度（目录时间窗、未推进目标家族、习惯签名）并以 `sha256(场景\|人物\|日期\|对象)` 决胜，`ORDER_KEY_VERSION` 为 2；轮转按每个对象的 `last_presented_at`；工具层另给只列名称的可调用索引 `callable_index`（不计入呈现上限、计入容量）；浏览结果列完整标签，下一步提示只指向可达地点，配送失败分送达地与路线两种原因 |
+| 控制工具 | `conclude_activity`、`report_status`、`pause_activity` 改为一项一个对象（`items[{activity_name, summary}]`，结束另带 `memories` 与 `views`），看法与偏好放 `views`（`about` 存储为 `subject`），全部读者经 `control_items` 读新旧形状 |
+| 评审、调用与叙述 | 中文逐字摘录按字数核对；输出在思考阶段用尽上限时丢弃截断回合、纠错替换不叠加，关闭思考并 `tool_choice=required` 重试一次（只开放世界请求）；联系人回复只通过消息往来，请求带发件人、此刻、远程与收货地，后验守卫命中重试一次，仍命中用兜底句；时间线只出现中文名称，工作、通话、交谈也有标题；DeepSeek 端点改为 strict 的 `https://api.deepseek.com/beta` |
+| 加载校验 | 地点类别不在环境层地点类表内与无法区分的重名标签加载即拒，同名地点由 `branch_label` 消歧（地图文件结构 2）；配送路线不可达与可疑显示名只发输入警告 |
+| 下游 | 运行清单 `schema_version` 2（`input_warnings`、`persona_habit_responses`）；`quality.json` 的 `schema_version` 3，新节 `input_warnings`、`truncations`、`timeline_labels`、`contact_reply_guard`、`name_rejections` 只报告；`model_npc_reply` 带 `attempts[]` 与 `guard_applied`；世界结构版本不升，仍为 8，`channel_id` 不进 `DeliveryState` |
+
+未完成与出入：
+
+- **阶段 7 真实复验未执行。** 规格「实施计划」阶段 7 的白领与商务全天复跑只报告、不作门禁，需要用户的模型账号，也要等数据集仓库按数据集方案修复：
+  两次运行冻结的数据集输入在现行代码下加载即被拒（地图文件结构为 1，白领另有地点类别越界）。复跑指标与读法见[验收记录「真实复验（阶段 7，只报告）」](dayrun-fidelity-verification.md#真实复验阶段-7只报告)。
+- **数据集仓库的接口改动未做。** `prepare_labelkit_input.py` 与 `simulate_phone.py` 的同步按规格第九章在数据集仓库另行提交，本次不在范围内。
+- **规格字面与实现的出入**（方式「购买」都不行时的下一步按规格 0.7 细化、strict 探针改用能区分两端的判据、截断重试只开放世界请求、台账「九个警告码」与十个码的闭集等）
+  逐项登记在[验收记录「代码与规格的出入」](dayrun-fidelity-verification.md#代码与规格的出入)。
+- AS2 锁定提交 `8768e14` 与运行身份摘要未改动；世界结构、场景结构与目录版本都不升。
+
+被取代的条款：「人物 Prompt 七层开发状态」表中「七层请求」「交互语义」「下游」三行的部分表述由本特性修订（截断重试同样去掉记忆查询工具，商品多于一处能服务时按 `prefer` 选定、
+不再以重名拒绝，质量报告升到 3；该段已注明）；「已冻结条款与确定性证据」的「能量不阻断」行中系统层规则「饿了趁早弄吃的」改为第 15 条的按档位与饭点吃；
+「数据、日志与模型接入」补截断重试的思考与工具选择和 `/beta` 端点；「地图与品类组合的历史结论」记的地图结构 `1` 是那次组合的固定身份，现行地图文件结构为 `2`。
+本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
 
 ## 人物 Prompt 七层开发状态
 
@@ -37,7 +74,8 @@
 
 被取代的条款：本页决策上下文段落所述的决策自述阶段、`scene` 与 `facts` 场景信息和每次决策从新快照构造，已由七层请求、单一行动阶段与同秒续接取代（该段已注明）；
 「当前世界格式」由版本 7 改为 8，6→7 表中的 `wait_only` 已随版本 8 删去；「能量不阻断」行中饿时场景的吃饭途径句与常驻生活提示由工具层与系统层取代；
-「数据、日志与模型接入」补同秒回传思考。本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
+「数据、日志与模型接入」补同秒回传思考。上表「七层请求」「交互语义」「下游」三行的部分表述此后由一日运行保真规格修订（截断重试同样去掉记忆查询工具，
+商品多于一处能服务时按 `prefer` 选定、不再以重名拒绝，质量报告升到 3），现行行为见「一日运行保真开发状态」。本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
 
 ## 时间与能量开发状态
 
@@ -342,7 +380,7 @@ $ uv run pytest -q
 
 | 条款 | 当前实现与边界 | 收据 |
 | --- | --- | --- |
-| 能量不阻断 | 能量不拒绝、不停止任何活动：任何能量下活动都能开始、继续与恢复，结算对所有活动集合以 0 为下限截断；原受理闸门、恢复前的能量核验、拒绝码 `INSUFFICIENT_ENERGY` 与可供性及观察中的 `energy_projection` 已从代码删除。进食由饥饿每跨一档唤醒、工具层列出的吃饭途径（手边的食物、在途订单、这里能买的与能送到这里的）与系统层规则「饿了趁早弄吃的」引导；饿时场景的吃饭途径句与常驻生活提示已被[人物 Prompt 七层特性规格](SPEC-persona-prompt.md)取代 | [时间与能量验收记录](research/time-and-energy-verification.md)「验收台账逐行登记」的「能量不拦人」行（登记用例以 `tests/time_and_energy_acceptance.py` 为准）；原「能量可行性」闸门的 `.work/verification/energy-feasibility-implementation/implementation-receipt.json` 是能量闸门时期的收据，不证明本条 |
+| 能量不阻断 | 能量不拒绝、不停止任何活动：任何能量下活动都能开始、继续与恢复，结算对所有活动集合以 0 为下限截断；原受理闸门、恢复前的能量核验、拒绝码 `INSUFFICIENT_ENERGY` 与可供性及观察中的 `energy_projection` 已从代码删除。进食由饥饿每跨一档唤醒、工具层列出的吃饭途径（手边的食物、在途订单、这里能买的与能送到这里的）与系统层第 15 条引导（按档位与饭点吃：只是「有点想吃」时等平常的饭点，到了「饿」离饭点一小时以内可以提前准备或下单，「很饿」或更饿马上弄吃的；原「饿了趁早弄吃的」已由[一日运行保真规格](SPEC-dayrun-fidelity.md) 2.2 改写）；饿时场景的吃饭途径句与常驻生活提示已被[人物 Prompt 七层特性规格](SPEC-persona-prompt.md)取代 | [时间与能量验收记录](research/time-and-energy-verification.md)「验收台账逐行登记」的「能量不拦人」行（登记用例以 `tests/time_and_energy_acceptance.py` 为准）；原「能量可行性」闸门的 `.work/verification/energy-feasibility-implementation/implementation-receipt.json` 是能量闸门时期的收据，不证明本条 |
 | 工作评审协议 | 最多初次加两次输出纠正，原响应先持久化，语义拒绝与基础设施异常不重评 | `.work/verification/work-review-protocol/receipt.json` |
 | 无损模型输入 | 同窗口重复完整字段使用 RFC 6901 单跳字典，最终训练恢复完整输入；逻辑窗口、编码行与实际 trace 分别绑定 | `.work/verification/evidence-encoding/capacity-receipt.json` |
 | 语义合同 | 三任务共享证据、分类及聚合要求，保留不同因果主题，32 条是上限；完整真实语义交付另行验收 | `labelkit-projects/` 三份项目配置与实际请求合同测试 |
@@ -364,7 +402,8 @@ $ uv run pytest -q
 - 人物模型接入：人物动作调用开启 DeepSeek thinking（`custom/agents/life_agent.py` 覆写
   `extra_body.thinking = enabled`），LabelKit 生成角色关闭 thinking、评审角色开启（`labelkit-projects/config.toml`
   的 `[llm.default]` 与 `[llm.judge]`）。thinking 模式拒绝 `tool_choice=required`，故工具选择用 `auto`，
-  模型不产出工具调用时由 ReAct 协议纠错兜底；推理原文经 `model_response` 数字足迹事件的
+  模型不产出工具调用时由 ReAct 协议纠错兜底；思考用尽输出上限（截断）后的那一次重试关闭思考并用 `tool_choice=required`，只开放世界请求（一日运行保真规格 7.2）；
+  WorldMock 的模型调用走 DeepSeek 的 strict 端点 `https://api.deepseek.com/beta`（7.5，LabelKit 用自己的端点）；推理原文经 `model_response` 数字足迹事件的
   `data.response.choices[0].message.reasoning_content` 落库。思考只在同秒续接中回传：同一人物、同一 session、同一秒的相邻决策，续接请求原样带上此前各 assistant 回合的 `reasoning_content`（思考模式下续接链中任一 assistant 缺该字段会得到 400，`max_retries=0` 不重试），宿主发送前自检，缺失即断链；时间推进、session 切换或反事实分支后请求从新快照构造，此前的思考不再出现；开关 `worldmock run --same-second-continuation on|off`（缺省开）冻结进清单 `stages.action` 与人物配置。模型请求超时为 300 秒
   （`src/worldmock/runtime.py` 设 `AGENTSOCIETY_LLM_REQUEST_TIMEOUT`，AS2 默认 60 秒）。
 - 内容品类：`kind` 取 `feature_film`、`drama_series`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
