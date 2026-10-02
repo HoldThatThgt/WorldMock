@@ -28,8 +28,8 @@ from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, SourceMut
 #: 规格「实施计划」中的全部阶段编号（冻结之外的 0–7）。
 STAGE_IDS = frozenset(str(number) for number in range(8))
 
-#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。
-STAGES_DONE: frozenset[str] = frozenset()
+#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成。
+STAGES_DONE: frozenset[str] = frozenset({"1"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
@@ -84,9 +84,46 @@ _READ_QUERY_TESTS = [
     _READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",
 ]
 
+_REFLECTION = "tests/integration/test_strict_reflection.py::"
+
+#: 「严格反思」：头五个节点经真实记忆运行时（WorldMockMemoryRuntime.after_step 的就寝边界）——恰一次 submit_reflection、
+#: 一至五条与固定的条目字段；每种合同违约（自由文本、其他工具、多次调用、零条或六条、未知引用、引用为空或重复、正文
+#: 超长或含身份串）都附回英文错误重试一次并只写入改正后的那一条；首次之外三次重试耗尽即运行故障且不写入任何洞见；传输
+#: 异常不进校验重试；没有可反思的记忆时不调用模型。第六个守文案：实际发送的 system、模块常量与接口合同登记块逐字相同。
+#: 第七、八个经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 跑醒来那次决策（耗尽：四对请求与响应留证、请求关闭
+#: 思考、没有 memory_updated、中止后动作未结算；改正：恰好一条 memory_updated）。第九个是 Society 层的验收口径（本轮中止、
+#: 不提交、无 memory_updated，原因带最后一次校验错误）。其后三个是既有登记用例与真实日运行：反思条目的字段、巩固不计反思、
+#: 整日运行里反思请求不是行动请求且含反思的决策其交付窗口提示仍是行动请求。再后两个守交付窗口的提示选取与行动请求
+#: 判定。末七个只调用 reflection_insights、reflection_tool、reflection_correction 或只读常量，是补充证据。
+_REFLECTION_TESTS = [
+    _REFLECTION + "test_runtime_submits_reflection_through_the_only_strict_tool",
+    _REFLECTION + "test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection",
+    _REFLECTION + "test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection",
+    _REFLECTION + "test_runtime_propagates_transport_failures_without_validation_retries",
+    _REFLECTION + "test_runtime_makes_no_model_call_when_there_is_nothing_to_reflect_on",
+    _REFLECTION + "test_reflection_prompt_is_the_contract_text",
+    _REFLECTION + "test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database",
+    _REFLECTION + "test_corrected_reflection_is_recorded_once_by_the_real_engine",
+    _PROTOCOL + "test_reflection_contract_failure_aborts_society_before_commit",
+    "tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported",
+    "tests/integration/test_conclude_memories.py::"
+    "test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection",
+    "tests/integration/test_dayrun_complete_days.py::"
+    "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
+    "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
+    "tests/life/test_engine_branch_coverage.py::test_only_action_requests_satisfy_the_predicate",
+    _REFLECTION + "test_reflection_tool_schema_is_inline_strict_and_bound_to_the_as2_limit",
+    _REFLECTION + "test_reflection_records_only_valid_subjective_insights",
+    _REFLECTION + "test_invalid_reflection_cannot_enter_memory",
+    _REFLECTION + "test_reflection_requires_exactly_one_tool_call",
+    _REFLECTION + "test_reflection_tool_arguments_must_be_a_json_string",
+    _REFLECTION + "test_reflection_correction_appends_one_compact_message_without_touching_the_original",
+    _REFLECTION + "test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
-    "严格反思": {"stage": "1", "tests": []},
+    "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
     "只读查询转发": {"stage": "1", "tests": _READ_QUERY_TESTS},
     "计划重复意图": {"stage": "1", "tests": _PLAN_DUPLICATE_TESTS},
     "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
@@ -147,6 +184,28 @@ _ASSEMBLY_KILLERS = (_READ_QUERY + "test_runtime_assembly_builds_life_actor_and_
 _PROXY_KILLERS = (_READ_QUERY + "test_task_recall_crosses_real_ray_without_world_mutation",)
 _ACTOR_KILLERS = (_READ_QUERY + "test_unwrapped_actor_read_query_equals_direct_environment_call",)
 _CONCURRENCY_KILLERS = (_READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",)
+_REFLECTION_MODULE = "custom.agents.life_reflection"
+_REFLECTION_SOURCE = "custom/agents/life_reflection.py"
+_MEMORY_MODULE = "custom.agents.life_memory"
+_MEMORY_SOURCE = "custom/agents/life_memory.py"
+_WINDOWS_MODULE = "worldmock.delivery.windows"
+_WINDOWS_SOURCE = "src/worldmock/delivery/windows.py"
+#: 严格反思的杀手都经真实记忆运行时：前一个逐种合同违约各重试一次（本地校验被放宽、重试上限为 0 时首个响应的去向不同），
+#: 后一个四次都不合合同（不设上限时脚本在第五次调用直接失败；返回空列表时不再抛出；附回逐次累积时消息数不再恒为三）。
+#: 两个模块都按本名导入（记忆运行时由人物类正常导入），经直接导入的 LifeAgent 跑真实引擎的那一例也执行变异后的代码。
+_REFLECTION_CONTRACT_KILLERS = (
+    _REFLECTION + "test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection",
+)
+_REFLECTION_RETRY_KILLERS = (
+    _REFLECTION + "test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection",
+)
+_REFLECTION_FAULT_KILLERS = (
+    *_REFLECTION_RETRY_KILLERS,
+    _REFLECTION + "test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database",
+)
+_WINDOW_KILLERS = (
+    "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
+)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -252,14 +311,104 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "    return ray.remote(max_concurrency=2)(LifeEnvActor)\n",
         _CONCURRENCY_KILLERS,
     ),
+    SourceMutation(
+        "reflection_accepts_free_text",
+        _REFLECTION_MODULE,
+        _REFLECTION_SOURCE,
+        "    arguments = _tool_arguments(response)\n",
+        (
+            "    try:\n"
+            "        arguments = _tool_arguments(response)\n"
+            "    except ReflectionOutputError:\n"
+            '        arguments = json.dumps({"insights": json.loads(response.choices[0].message.content)})\n'
+        ),
+        _REFLECTION_CONTRACT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_accepts_another_tool",
+        _REFLECTION_MODULE,
+        _REFLECTION_SOURCE,
+        '    if getattr(function, "name", None) != REFLECTION_TOOL:\n',
+        "    if False:\n",
+        _REFLECTION_CONTRACT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_skips_unknown_reference_check",
+        _REFLECTION_MODULE,
+        _REFLECTION_SOURCE,
+        "    if problems:\n",
+        "    if False:\n",
+        _REFLECTION_CONTRACT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_count_bound_widened",
+        _REFLECTION_MODULE,
+        _REFLECTION_SOURCE,
+        "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n",
+        "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS + 1:\n",
+        _REFLECTION_CONTRACT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_text_validation_skipped",
+        _REFLECTION_MODULE,
+        _REFLECTION_SOURCE,
+        "        return validate_memory_text(insight)\n",
+        "        return insight\n",
+        _REFLECTION_CONTRACT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_retry_bound_zero",
+        _REFLECTION_MODULE,
+        _REFLECTION_SOURCE,
+        "REFLECTION_VALIDATION_RETRIES = 3\n",
+        "REFLECTION_VALIDATION_RETRIES = 0\n",
+        _REFLECTION_CONTRACT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_retries_without_a_bound",
+        _MEMORY_MODULE,
+        _MEMORY_SOURCE,
+        "                if attempt > REFLECTION_VALIDATION_RETRIES:\n",
+        "                if False:\n",
+        _REFLECTION_RETRY_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_failure_returns_an_empty_list",
+        _MEMORY_MODULE,
+        _MEMORY_SOURCE,
+        (
+            "                    raise ProtocolError(\n"
+            '                        f"memory reflection output remained invalid after three retries: {error}") '
+            "from error\n"
+        ),
+        "                    return []\n",
+        _REFLECTION_FAULT_KILLERS,
+    ),
+    SourceMutation(
+        "reflection_correction_accumulates_messages",
+        _MEMORY_MODULE,
+        _MEMORY_SOURCE,
+        "                messages, attempt = reflection_correction(original, response, error), attempt + 1\n",
+        "                messages, attempt = reflection_correction(messages, response, error), attempt + 1\n",
+        _REFLECTION_RETRY_KILLERS,
+    ),
+    SourceMutation(
+        "decision_prompt_ignores_action_order",
+        _WINDOWS_MODULE,
+        _WINDOWS_SOURCE,
+        '                  and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]\n',
+        '                  and row["agent_id"] == action["agent_id"]\n',
+        _WINDOW_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
 SPEC_MUTATIONS: dict[str, dict[str, object]] = {
-    "反思接受自由文本": {"stage": "1", "mutations": ()},
-    "跳过未知引用校验": {"stage": "1", "mutations": ()},
-    "失败返回空列表": {"stage": "1", "mutations": ()},
-    "重试不设上限": {"stage": "1", "mutations": ()},
+    "反思接受自由文本": {"stage": "1", "mutations": ("reflection_accepts_free_text",
+                                                "reflection_accepts_another_tool")},
+    "跳过未知引用校验": {"stage": "1", "mutations": ("reflection_skips_unknown_reference_check",)},
+    "失败返回空列表": {"stage": "1", "mutations": ("reflection_failure_returns_an_empty_list",)},
+    "重试不设上限": {"stage": "1", "mutations": ("reflection_retries_without_a_bound",)},
     "运行装配改回 AS2 原类": {"stage": "1", "mutations": ("assembly_proxy_reverts_to_the_as2_class",
                                                     "assembly_actor_reverts_to_the_as2_class")},
     "代理不等待远端结果": {"stage": "1", "mutations": ("proxy_returns_without_awaiting_the_remote_result",)},
@@ -324,13 +473,21 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                              "直接调用 actor 的用例杀死）。",
     "actor_class_allows_concurrent_calls": "实施计划阶段 1「突变审查的目标」只读转发：max_concurrency=1 改为 2（杀手为捕获 "
                                            "ray.remote 参数的用例）。",
+    "reflection_count_bound_widened": "实施计划阶段 1「突变审查的目标」严格反思：条数上限放宽（六条洞见被接受）。",
+    "reflection_text_validation_skipped": "实施计划阶段 1「突变审查的目标」严格反思：正文文字校验不执行（超过一千字符或含"
+                                          "条目身份的洞见被接受）。",
+    "reflection_retry_bound_zero": "实施计划阶段 1「突变审查的目标」严格反思：重试上限改为 0（第一次不合合同即运行故障）。",
+    "reflection_correction_accumulates_messages": "实施计划阶段 1「突变审查的目标」严格反思：附回消息逐次累积而不基于原始"
+                                                  "消息。",
+    "decision_prompt_ignores_action_order": "实施计划阶段 1「突变审查的目标」交付窗口：选取决策提示时去掉「早于动作」条件"
+                                            "（杀手为反思请求排在动作之后的一例）。",
 }
 
-#: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；实施计划「台账形态」行给出阶段 1 的清单，
-#: 其中新增的 custom/agents/life_reflection.py 由严格反思的提交加入。
+#: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_memory.py",
+    "custom/agents/life_reflection.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/read_query_runtime.py",
@@ -342,6 +499,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
     "tests/integration/test_read_query_runtime.py",
+    "tests/integration/test_strict_reflection.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
     "tests/life/test_revise_day_plan_json.py",
     "tests/mutation_runner.py",

@@ -1207,13 +1207,20 @@ MEMORY_KEYWORDS_MAX = 12
 _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 
 
-def _validate_memory_text(text: str) -> str:
-    """@brief 记忆与看法共用的上限：文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个。"""
+def validate_memory_text(text: str) -> str:
+    """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
+
+    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/dev/SPEC-errands-workday.md 1.1），不区分条目来源。
+
+    :param text: 模型写下的一条记忆文字。
+    :returns: 通过校验的原文。
+    :raises ValueError: 文字超长或含十六进制身份；英文原因由调用方的校验错误带给模型。
+    """
     if len(text) > MEMORY_TEXT_MAX_CHARS:
-        _LOGGER.error("Conclusion memory text exceeds its character limit")
+        _LOGGER.error("Memory text exceeds its character limit")
         raise ValueError("memory text exceeds 1000 characters")
     if _MEMORY_HEX_IDENTITY.search(text):
-        _LOGGER.error("Conclusion memory text contains a hexadecimal identifier")
+        _LOGGER.error("Memory text contains a hexadecimal identifier")
         raise ValueError("memory text contains a hexadecimal identifier")
     return text
 
@@ -1241,7 +1248,7 @@ class ConclusionMemory(ToolRequestModel):
     @classmethod
     def validate_text(cls, text: str) -> str:
         """@brief 在文字字段上校验长度与身份泄漏。"""
-        return _validate_memory_text(text)
+        return validate_memory_text(text)
 
     @field_validator("keywords")
     @classmethod
@@ -1267,7 +1274,7 @@ class ConclusionView(ToolRequestModel):
     @classmethod
     def validate_text(cls, text: str) -> str:
         """@brief 在文字字段上校验长度与身份泄漏。"""
-        return _validate_memory_text(text)
+        return validate_memory_text(text)
 
     @field_validator("keywords")
     @classmethod

@@ -75,7 +75,11 @@ def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) 
 
 
 def _decision_prompt_source(action: dict, rows: list[dict]) -> dict:
-    """@brief 选择动作前实际发送的最后一份人物行动请求，并核对目标工具。"""
+    """@brief 选取决策提示：取该动作之前最后一份不带 purpose 的请求，并核对其工具含该动作的工具名。
+
+    不满足是完整性故障，不回退到更早的请求。截断重试的请求照此被选中；就寝反思的请求晚于动作登记，事件序号在动作
+    之后，不会被选中（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。
+    """
     candidates = [row for row in rows if row["event_type"] == "model_request"
                   and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]
                   and row["data"].get("phase") == "request" and not row["data"].get("purpose")]

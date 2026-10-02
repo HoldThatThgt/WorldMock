@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING, Any
 
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, MemoryStepOutcome, PersonMemoryRuntime
+from custom.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
+                                           reflection_correction, reflection_insights, reflection_tool)
+from worldmock.errors import ProtocolError
 
 if TYPE_CHECKING:
     from custom.agents.life_agent import LifeAgent
@@ -108,6 +111,44 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
             logging.error("Current verified experience order is invalid")
             raise RuntimeError("Current verified experience order is invalid")
         return facts, observation_id
+
+    async def _run_reflection(self, *, tick: int, t: datetime, step_count: int) -> list[dict[str, Any]]:
+        """@brief 就寝反思经唯一严格工具提交：没有可反思的记忆时不调用模型，校验通过的洞见才交给 AS2 存储。
+
+        输出不合合同且重试耗尽时由 _validated_reflection 抛出运行故障：此前不写入任何洞见，也不返回空列表冒充空反思
+        （docs/dev/SPEC-errands-workday.md 1.1）。
+        """
+        store = self._require_store()
+        episodes = await asyncio.to_thread(self._reflection_episodes, store)
+        if not episodes:
+            return []
+        insights = await self._validated_reflection(episodes, t)
+        return await asyncio.to_thread(store.append_episodes, insights, tick=tick, t=t, step_count=step_count)
+
+    async def _validated_reflection(self, episodes: list[dict[str, Any]], t: datetime) -> list[dict[str, Any]]:
+        """@brief 有界校验重试：输出不合合同时附回英文校验错误重新请求，首次之外至多三次，耗尽即运行故障。
+
+        每次尝试是 AS2 记忆调度下的一次独立模型调用（思考关闭、无内部重试，请求与响应各自留证）；附回消息总是接在原始
+        两条消息之后，不逐次累积。传输异常原样上抛，不进校验重试。
+
+        :param episodes: 本次交给模型的输入记忆。
+        :param t: 当前模拟时间。
+        :returns: 校验通过的洞见条目。
+        :raises ProtocolError: 首次之外第三次重试仍不合合同；消息带最后一次校验错误原文。
+        """
+        original = [{"role": "system", "content": REFLECTION_PROMPT}, self._reflection_messages(episodes, t)[1]]
+        messages, attempt = original, 1
+        while True:
+            response = await self._dispatch_llm(model=self._require_model_name(), messages=messages, stream=False,
+                                                tools=[reflection_tool()], tool_choice="required")
+            try:
+                return reflection_insights(response, episodes)
+            except ReflectionOutputError as error:
+                if attempt > REFLECTION_VALIDATION_RETRIES:
+                    raise ProtocolError(
+                        f"memory reflection output remained invalid after three retries: {error}") from error
+                logging.warning("Memory reflection output is invalid on attempt %d: %s", attempt, error)
+                messages, attempt = reflection_correction(original, response, error), attempt + 1
 
     def _consolidation_due(self, sleep_boundary: bool) -> tuple[bool, str]:
         """@brief 阈值巩固判定：就寝边界照常触发；否则只按未巩固条目中来源不是就寝反思的条目计条数与重要度。

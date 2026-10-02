@@ -685,3 +685,63 @@ def test_plan_day_request_never_becomes_a_decision_prompt_or_window_input(tmp_pa
     assert action['provenance']['decision_prompt_event_id'] == prompt['event_id']
     for record in (action, intent):
         assert '零点计划输入' not in str(record['input']) and 'day_plan_generated' not in str(record['input'])
+
+
+def _reflection_request(identity, sequence, retry_of=None):
+    """就寝反思的一次模型请求：不带 purpose，思考关闭，工具唯一为 submit_reflection；校验重试的请求另带附回的 user 消息。"""
+    messages = [{'role': 'system', 'content': 'Reflect on a simulated person\'s recent memories.'},
+                {'role': 'user', 'content': '<memory_reflection_input>{"episodes":[]}</memory_reflection_input>'}]
+    if retry_of:
+        messages.append({'role': 'user', 'content': '{"VALIDATION_ERROR":"' + retry_of + '"}'})
+    return event(identity, sequence, 'model_request', {'phase': 'request', 'call_id': identity, 'request': {
+        'model': 'fixture', 'messages': messages, 'tool_choice': 'required',
+        'extra_body': {'thinking': {'type': 'disabled'}},
+        'tools': [{'type': 'function', 'function': {'name': 'submit_reflection', 'parameters': {}}}]}},
+        visibility='system')
+
+
+def test_reflection_requests_after_the_action_never_become_the_decision_prompt(tmp_path):
+    """含就寝反思的决策，其交付窗口的决策提示仍是动作之前的行动请求（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。
+
+    醒来那一轮先登记收尾请求，记忆运行时随后才发出就寝反思（一次不合合同、一次重试）：两条反思请求同样不带 purpose、
+    带工具，但事件序号都在 action_requested 之后。动作、意图与 dreaming 窗口取的都是动作之前最后一份不带 purpose 的
+    请求（工具含 conclude_activity 的行动请求）；反思的请求、响应与提示文字不进任何窗口输入。"""
+    observed = _layered_observation('visible', 1)
+    request = {'items': [{'activity_name': _MINUTES, 'summary': '睡醒了。', 'memories': [], 'views': []}]}
+    requested = event('target', 2, 'action_requested', {'tool_name': 'conclude_activity', 'request': request})
+    requested['action_id'] = 'conclude'
+    first = _reflection_request('reflection-1', 3)
+    refused = event('reflection-1-response', 4, 'model_response', {'phase': 'response', 'call_id': 'reflection-1'},
+                    visibility='system')
+    retry = _reflection_request('reflection-2', 5, retry_of='response must contain exactly one tool call')
+    written = event('memory', 6, 'memory_updated', {
+        'operation': 'append_episodes', 'trigger': ['reflection'], 'decision_id': 'decision',
+        'episodes': [{'id': 'm1', 'type': 'reflection', 'text': _SECRET, 'epistemic_status': 'subjective',
+                      'source': 'reflection'}]}, visibility='system')
+    completed = event('completed', 7, 'action_result', {'status': 'completed', 'message': 'Activities concluded'})
+    completed['action_id'] = 'conclude'
+    prompt = decision_prompt(requested, (observed, requested, first, refused, retry, written, completed))
+    rows = (observed, prompt, requested, first, refused, retry, written, completed)
+    assert [row['event_seq'] for row in rows] == list(range(1, 9))
+    assert prompt['event_seq'] < requested['event_seq'] < first['event_seq'] < retry['event_seq']
+    indexed = {row['event_id']: row for row in rows}
+    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': completed['event_seq'],
+                'window': {'start': '1970-01-01T08:00:00+08:00', 'end': '1970-01-02T08:00:00+08:00',
+                           'timezone': 'Asia/Shanghai'},
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+
+    action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
+                                     (manifest, tmp_path, indexed))
+    dreams = _dream_windows(list(rows), manifest, tmp_path, indexed)
+
+    for record in (action, intent):
+        assert record['provenance']['decision_prompt_event_id'] == prompt['event_id']
+        assert record['input']['decision_prompt'] == prompt['data']['request']
+        assert [tool['function']['name'] for tool in record['input']['decision_prompt']['tools']] == [
+            'conclude_activity']
+    assert len(dreams) == 3
+    for record in dreams:
+        assert [source['event_id'] for source in record['provenance']['decision_layer_sources']] == [prompt['event_id']]
+    for record in (action, intent, *dreams):
+        assert 'submit_reflection' not in str(record['input']) and 'memory_reflection_input' not in str(record['input'])
+        assert not {'reflection-1', 'reflection-2'} & set(record['provenance']['source_event_ids'])

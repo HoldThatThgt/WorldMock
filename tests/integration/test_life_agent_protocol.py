@@ -1444,6 +1444,107 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
     assert expected in environment.failures[0]
 
 
+class _WakingStepEnvironment(_StepEnvironment):
+    """醒来那一轮的观察：唤醒原因含 wake_from_sleep，人物步骤在收尾记忆落盘之后做主观归纳与就寝反思。"""
+
+    async def observe(self, context: DecisionContext) -> dict:
+        """在一项进行中等待的观察上写入醒来的唤醒原因。"""
+        data = await super().observe(context)
+        data["wake_reasons"] = ["wake_from_sleep"]
+        return data
+
+
+#: 就寝反思四次不合合同的响应里，最后一次的英文校验错误（正文超过一千字符）。
+_LAST_REFLECTION_ERROR = "insights.0.insight: Value error, memory text exceeds 1000 characters"
+
+
+class _InvalidReflectionDispatcher:
+    """行动请求答一次带记忆的收尾，主观归纳答一句话，其后的就寝反思四次都不合合同：自由文本、别的工具、未知引用、
+    正文超长。校验重试有上限，脚本用尽后再被调用即失败。"""
+
+    model_name = "deepseek-flash"
+
+    def __init__(self) -> None:
+        unknown = json.dumps({"insights": [{"insight": "我想休息。", "refs": ["m_unknown"]}]}, ensure_ascii=False)
+        oversized = json.dumps({"insights": [{"insight": "想" * 1001, "refs": ["m_unknown"]}]}, ensure_ascii=False)
+        self.requests: list[dict] = []
+        self.responses = [
+            _ModelResponse("call-action", "conclude_activity",
+                           json.dumps(_conclude_args(_WAIT), ensure_ascii=False)),
+            _TextResponse("我想把作息稳住。"),
+            _TextResponse('[{"insight":"我想休息。","refs":["m_unknown"]}]'),
+            _ModelResponse("call-other", "memory_recent", '{"limit":1}'),
+            _ModelResponse("call-unknown", "submit_reflection", unknown),
+            _ModelResponse("call-oversized", "submit_reflection", oversized),
+        ]
+
+    async def call(self, **request):
+        """留存实际请求并返回下一个脚本响应。"""
+        self.requests.append(request)
+        if not self.responses:
+            pytest.fail(f"model was called {len(self.requests)} times, beyond the bounded reflection retries")
+        return self.responses.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_reflection_contract_failure_aborts_society_before_commit(monkeypatch, tmp_path) -> None:
+    """就寝反思的输出重试耗尽是运行故障（docs/dev/SPEC-errands-workday.md 1.1「失败」）：反思发生在本步世界请求已登记、
+    收尾记忆已写入人物工作区之后；首次之外三次重试都不合合同时，runner 失败，Society 保存故障并中止本轮——不结算、
+    不建检查点、没有 memory_updated，故障原因带最后一次校验错误原文。
+
+    证据相位为行动一对、主观归纳一对、反思四对；反思的每次请求都由 AS2 记忆调度关闭思考、只带 submit_reflection。
+    没有任何洞见写入，也没有降级为空反思，工作区里只有先前落盘的收尾记忆。"""
+    workspace = tmp_path / "as2" / "agents" / "agent_0007"
+    environment = _WakingStepEnvironment()
+    dispatcher = _InvalidReflectionDispatcher()
+    _create_step_workspace(workspace)
+    project_root = Path(__file__).resolve().parents[2]
+    monkeypatch.setenv("WORKSPACE_PATH", str(project_root))
+
+    def run_actual_batch(request, proxy):
+        async def done():
+            return {"results": await _step_agent_batch_async(request, proxy), "token_stats": {}}
+
+        return done()
+
+    monkeypatch.setattr(society_module, "step_agent_batch",
+                        type("Task", (), {"remote": staticmethod(run_actual_batch)})())
+    society = AgentSociety(AgentSocietyConfig(
+        run_id="run", agent_specs=({"id": 7, "profile": {}, "config": {}},), agent_class_name="LifeAgent",
+        env_router=environment, service_proxy=_service(environment, dispatcher),
+        start_time=environment.current_time, end_time=environment.current_time + timedelta(hours=1),
+        run_dir=tmp_path, custom_root=project_root, workspace_mode="restored"))
+    society._initialized = True
+    society._environment_started = True
+
+    with pytest.raises(RuntimeError, match="Agent decision failed"):
+        await society.run()
+
+    assert dispatcher.responses == [] and len(dispatcher.requests) == 6
+    assert len(environment.calls) == 1
+    assert [item.phase for item in environment.evidence] == ["request", "response"] * 6
+    sent = [item.request for item in environment.evidence if item.phase == "request"]
+    offered = [[tool["function"]["name"] for tool in request.get("tools", [])] for request in sent]
+    assert "start_activity" in offered[0] and offered[1] == []
+    assert offered[2:] == [["submit_reflection"]] * 4
+    for request in sent[2:]:
+        assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+        assert request["tool_choice"] == "required" and request["max_retries"] == 0
+        assert request["messages"][:2] == sent[2]["messages"]
+    assert [len(request["messages"]) for request in sent[2:]] == [2, 3, 3, 3]
+    assert environment.memory_updates == []
+    assert environment.commits == []
+    assert environment.checkpoints == []
+    assert len(environment.aborts) == 1
+    assert "memory reflection output remained invalid after three retries" in environment.aborts[0][1]
+    assert _LAST_REFLECTION_ERROR in environment.aborts[0][1]
+    assert len(environment.failures) == 1
+    assert _LAST_REFLECTION_ERROR in environment.failures[0]
+    episodes = [json.loads(line)
+                for line in (workspace / "memory" / "episodes.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(item["text"], item["source"]) for item in episodes] == [(_memory()["text"], "activity_conclusion")]
+
+
 class _InjectedDecisionFailure(Exception):
     """注入的决策故障：独立的异常类型，用来核对上抛的类型没有被换成别的。"""
 

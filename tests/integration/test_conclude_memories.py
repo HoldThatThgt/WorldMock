@@ -759,18 +759,22 @@ class _DayModel:
         self.reflections = 0
 
     async def call(self, **request):
-        """行动请求取下一条收尾；其余是记忆运行时的反思或巩固。"""
-        if "tools" in request:
-            arguments = self.conclusions.pop(0)
-            return _ModelResponse(f"call-{len(self.conclusions)}", "conclude_activity",
-                                  json.dumps(arguments, ensure_ascii=False))
+        """按工具分流：工具唯一为 submit_reflection 的是就寝反思，以这一个工具调用作答（五条洞见都引用输入里的第一条
+        记忆）；工具中有 start_activity 的是行动请求，取下一条收尾；不带工具的是阈值巩固。"""
+        names = [item["function"]["name"] for item in request.get("tools", [])]
         user = request["messages"][-1]["content"]
-        if "memory_reflection_input" in user:
+        if names == ["submit_reflection"]:
             self.reflections += 1
             body = user.split("<memory_reflection_input>", 1)[1].split("</memory_reflection_input>", 1)[0]
             cited = json.loads(body)["episodes"][0]["id"]
-            return _TextResponse(json.dumps(
-                [{"insight": text, "refs": [cited]} for text in _INSIGHTS], ensure_ascii=False))
+            insights = [{"insight": text, "refs": [cited]} for text in _INSIGHTS]
+            return _ModelResponse(f"reflection-{self.reflections}", "submit_reflection",
+                                  json.dumps({"insights": insights}, ensure_ascii=False))
+        if "start_activity" in names:
+            arguments = self.conclusions.pop(0)
+            return _ModelResponse(f"call-{len(self.conclusions)}", "conclude_activity",
+                                  json.dumps(arguments, ensure_ascii=False))
+        assert not names, names
         self.consolidations.append(json.loads(user))
         return _TextResponse("我在意把日子过得有条理。")
 
