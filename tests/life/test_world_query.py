@@ -149,8 +149,34 @@ def test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes
     assert engine.store.last_event_seq == evidence_seq
 
 
-def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engine_factory):
-    """通过真实环境即时查询，禁止写状态、消费生活轮数或追加世界事件。"""
+def _category_query(observed):
+    """按可调用索引里的第一个品类查询。"""
+    return _request(category=observed["tool_layer"]["callable_index"]["query_categories"][0]["category"])
+
+
+def _name_query(observed):
+    """按冻结事实里一个对象的完整公开名称查询。"""
+    names = sorted(entry["match"]["name"] for entry in observed["world_query_bindings"])
+    return _request(category=None, name=names[0])
+
+
+def _way_query(observed):
+    """按冻结事实里实际出现的一种方式查询。"""
+    ways = sorted({action["way"] for entry in observed["world_query_bindings"] for action in entry["match"]["actions"]})
+    return _request(category=None, way=ways[0])
+
+
+def _rejected_query(observed):
+    """方式与品类都不在闭集内的请求：两处错误在同一份校验报告里。"""
+    del observed
+    return _request(category="并不存在的品类", way="并不存在的方式")
+
+
+@pytest.mark.parametrize("build, accepted", [(_category_query, True), (_name_query, True), (_way_query, True),
+                                             (_rejected_query, False)], ids=["category", "name", "way", "rejected"])
+def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engine_factory, build, accepted):
+    """通过真实环境即时查询，禁止写状态、消费生活轮数或追加世界事件。`query_world` 的两个入口——宿主在本次冻结观察上
+    本地求值的纯函数与环境的 `read_query`——对同一观察、同一请求：受理时结果逐值相等，拒绝时给出同一份校验报告。"""
     import asyncio
 
     from custom.envs.life_env import LifeEnv
@@ -164,9 +190,18 @@ def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engi
     environment = LifeEnv()
     environment.engine = engine
     before, sequence = engine.state.model_dump(mode="json"), engine.store.last_event_seq
-    category = observed["tool_layer"]["callable_index"]["query_categories"][0]["category"]
-    request = _request(category=category)
+    request = build(observed)
+    report = validate_world_query(observed, request)
     result = asyncio.run(environment.read_query(frozen, "query_world", request))
-    assert result == query_world(observed, request)
+    if accepted:
+        assert report is None
+        assert result == query_world(observed, request)
+        assert result["matches"] and result["total_count"] >= len(result["matches"])
+    else:
+        assert report is not None and result == report.payload()
+        assert result["error_code"] == "ARGUMENTS_INVALID"
+        assert [(item["path"][-1], item["written"]) for item in result["items"]] == [
+            ("way", "并不存在的方式"), ("category", "并不存在的品类")]
+        assert all(item["allowed_values"] for item in result["items"])
     assert engine.state.model_dump(mode="json") == before
     assert engine.store.last_event_seq == sequence

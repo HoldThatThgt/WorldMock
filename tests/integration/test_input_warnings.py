@@ -87,7 +87,7 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
     """真实新建：runtime 准备与装配（画像编译走真实 compile_persona，只替换三次一致性抽取、模型客户端与 Ray actor），
     再按捕获的参数在进程内建立 LifeEnv；返回装配出的人物工作区输入与警告。"""
     from agentsociety2.config import llm_dispatcher
-    from agentsociety2.env import direct_env_actor
+    from worldmock.life import read_query_runtime
     from custom.envs.life_env import LifeEnv
 
     import worldmock.profile.compile as compile_module
@@ -103,7 +103,7 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
     monkeypatch.setattr(runtime, "creation_inputs", recording)
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(direct_env_actor, "get_direct_env_actor_class",
+    monkeypatch.setattr(read_query_runtime, "life_env_actor_class",
                         lambda: SimpleNamespace(remote=lambda spec: (captured.__setitem__("actor", spec), "actor")[1]))
     prepared = runtime._prepare_new_run(runtime.RunRequest(ROOT, scenario_path, tmp_path / "run", "warned", "warned"))
     runtime._build_society(prepared)

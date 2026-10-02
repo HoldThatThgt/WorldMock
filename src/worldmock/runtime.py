@@ -759,12 +759,13 @@ async def _cleanup_runtime(society: Any, actor: Any, owned_ray: bool) -> list[Ba
 
 
 def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
-    """@brief 连接 DirectEnvActor、EnvRouterProxy、ServiceProxy 与 AgentSociety。"""
+    """@brief 连接 LifeEnvActor、LifeEnvProxy、ServiceProxy 与 AgentSociety；环境 actor 与代理取带只读查询转发的
+    Life 子类（src/worldmock/life/read_query_runtime.py），装配 AS2 原类时回看任务到不了环境。"""
     from agentsociety2.agent.service_proxy import build_service_proxy
     from agentsociety2.config.llm_dispatcher import build_client_for_role
-    from agentsociety2.env.direct_env_actor import DirectEnvActorSpec, get_direct_env_actor_class
-    from agentsociety2.env.env_router_proxy import EnvRouterProxy
+    from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
     from agentsociety2.society import AgentSociety, AgentSocietyConfig
+    from worldmock.life.read_query_runtime import LifeEnvProxy, life_env_actor_class
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
@@ -773,9 +774,9 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         ("LifeEnv",), {"LifeEnv": prepared.env_kwargs}, str(prepared.run_dir),
         str(prepared.project_root), clients,
     )
-    actor = get_direct_env_actor_class().remote(spec)
+    actor = life_env_actor_class().remote(spec)
     try:
-        env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])
+        env = LifeEnvProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])
         service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)
         config = AgentSocietyConfig(
             prepared.run_id, specs, "LifeAgent", env, service,

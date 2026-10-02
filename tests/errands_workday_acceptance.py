@@ -67,10 +67,27 @@ _PLAN_DUPLICATE_TESTS = [
     _PLAN_DAY + "test_repeated_work_goals_are_located_and_correction_requires_merging",
 ]
 
+_READ_QUERY = "tests/integration/test_read_query_runtime.py::"
+_WORLD_QUERY = "tests/life/test_world_query.py::"
+
+#: 「只读查询转发」：按规格 1.2「证据分工」各类缺一不可。第一个节点守运行装配（worldmock.runtime._build_society 建立的是
+#: LifeEnvActor 与带 read_query 的 LifeEnvProxy）；第二个是真实 Ray：驱动侧与 worker 侧经代理各调用一次，回看任务返回结果
+#: 字典而非对象引用，重新打开运行目录后世界状态逐字节不变、只多出 actor 一侧那一次观察；第三个在主进程内直接构造未经
+#: ray.remote 包装的 LifeEnvActor，两个工具的结果等于环境直调，业务拒绝是返回值，类型不符与找不到唯一观察是协议违约；
+#: 第四个是 query_world 两入口（宿主本地求值的纯函数与环境的 read_query）受理时逐值相等、拒绝时同一份校验报告，它同时
+#: 登记在工具交互台账并由那边的变异守着；末一个不启动 Ray，守并发度为 1 且不提供参数。
+_READ_QUERY_TESTS = [
+    _READ_QUERY + "test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query",
+    _READ_QUERY + "test_task_recall_crosses_real_ray_without_world_mutation",
+    _READ_QUERY + "test_unwrapped_actor_read_query_equals_direct_environment_call",
+    _WORLD_QUERY + "test_environment_read_query_keeps_world_clock_round_and_store_unchanged",
+    _READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": []},
-    "只读查询转发": {"stage": "1", "tests": []},
+    "只读查询转发": {"stage": "1", "tests": _READ_QUERY_TESTS},
     "计划重复意图": {"stage": "1", "tests": _PLAN_DUPLICATE_TESTS},
     "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
     "事务变更与原子受理": {"stage": "2", "tests": []},
@@ -119,6 +136,17 @@ _PLAN_CAPACITY_KILLERS = (
     _REVISION + "test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection",
     _PLAN_DAY + "test_plan_day_reports_over_capacity_together_with_duplicates",
 )
+_RUNTIME_MODULE = "worldmock.runtime"
+_RUNTIME_SOURCE = "src/worldmock/runtime.py"
+_READ_QUERY_MODULE = "worldmock.life.read_query_runtime"
+_READ_QUERY_SOURCE = "src/worldmock/life/read_query_runtime.py"
+#: 只读查询转发五个变异的杀手，全部在主进程执行被变异的代码：装配用例（两个「改回 AS2 原类」）、真实 Ray 用例的驱动侧
+#: 调用（代理不等待；代理在驱动进程里执行，worker 里的 actor 从磁盘导入原文、不受变异影响）、主进程内直调 actor 的用例
+#: （actor 不把查询交给环境；真实 Ray 下 actor 在 worker 里，杀不到）与捕获 ray.remote 参数的用例（并发度）。
+_ASSEMBLY_KILLERS = (_READ_QUERY + "test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query",)
+_PROXY_KILLERS = (_READ_QUERY + "test_task_recall_crosses_real_ray_without_world_mutation",)
+_ACTOR_KILLERS = (_READ_QUERY + "test_unwrapped_actor_read_query_equals_direct_environment_call",)
+_CONCURRENCY_KILLERS = (_READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -178,6 +206,52 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '        raise ValueError("day goals require at most eight entries")\n',
         _PLAN_CAPACITY_KILLERS,
     ),
+    SourceMutation(
+        "assembly_proxy_reverts_to_the_as2_class",
+        _RUNTIME_MODULE,
+        _RUNTIME_SOURCE,
+        '        env = LifeEnvProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])\n',
+        (
+            '        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n'
+            '        env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])\n'
+        ),
+        _ASSEMBLY_KILLERS,
+    ),
+    SourceMutation(
+        "assembly_actor_reverts_to_the_as2_class",
+        _RUNTIME_MODULE,
+        _RUNTIME_SOURCE,
+        "    actor = life_env_actor_class().remote(spec)\n",
+        (
+            "    from agentsociety2.env.direct_env_actor import get_direct_env_actor_class\n\n"
+            "    actor = get_direct_env_actor_class().remote(spec)\n"
+        ),
+        _ASSEMBLY_KILLERS,
+    ),
+    SourceMutation(
+        "proxy_returns_without_awaiting_the_remote_result",
+        _READ_QUERY_MODULE,
+        _READ_QUERY_SOURCE,
+        "        return await self._actor.read_query.remote(context, tool, request)\n",
+        "        return self._actor.read_query.remote(context, tool, request)\n",
+        _PROXY_KILLERS,
+    ),
+    SourceMutation(
+        "actor_answers_without_the_environment",
+        _READ_QUERY_MODULE,
+        _READ_QUERY_SOURCE,
+        "        return await self._router._environment().read_query(context, tool, request)\n",
+        "        return {}\n",
+        _ACTOR_KILLERS,
+    ),
+    SourceMutation(
+        "actor_class_allows_concurrent_calls",
+        _READ_QUERY_MODULE,
+        _READ_QUERY_SOURCE,
+        "    return ray.remote(max_concurrency=1)(LifeEnvActor)\n",
+        "    return ray.remote(max_concurrency=2)(LifeEnvActor)\n",
+        _CONCURRENCY_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -186,8 +260,9 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "跳过未知引用校验": {"stage": "1", "mutations": ()},
     "失败返回空列表": {"stage": "1", "mutations": ()},
     "重试不设上限": {"stage": "1", "mutations": ()},
-    "运行装配改回 AS2 原类": {"stage": "1", "mutations": ()},
-    "代理不等待远端结果": {"stage": "1", "mutations": ()},
+    "运行装配改回 AS2 原类": {"stage": "1", "mutations": ("assembly_proxy_reverts_to_the_as2_class",
+                                                    "assembly_actor_reverts_to_the_as2_class")},
+    "代理不等待远端结果": {"stage": "1", "mutations": ("proxy_returns_without_awaiting_the_remote_result",)},
     "重复意图只报笼统错误": {"stage": "1", "mutations": ("plan_duplicates_report_only_a_generic_error",)},
     "日志后吞掉异常": {"stage": "1", "mutations": ("decision_failure_swallowed_after_log",)},
     "零点清空事务": {"stage": "2", "mutations": ()},
@@ -245,15 +320,20 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                                  "出现不再报告）。",
     "plan_over_capacity_returns_before_duplicates": "实施计划阶段 1「突变审查的目标」计划重复意图：超限提前返回而不与重复意图"
                                                     "同批报告。",
+    "actor_answers_without_the_environment": "实施计划阶段 1「突变审查的目标」只读转发：actor 不把查询交给环境（只能由主进程内"
+                                             "直接调用 actor 的用例杀死）。",
+    "actor_class_allows_concurrent_calls": "实施计划阶段 1「突变审查的目标」只读转发：max_concurrency=1 改为 2（杀手为捕获 "
+                                           "ray.remote 参数的用例）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；实施计划「台账形态」行给出阶段 1 的清单，
-#: 其中新增的 custom/agents/life_reflection.py 与 src/worldmock/life/read_query_runtime.py 由各自的提交加入。
+#: 其中新增的 custom/agents/life_reflection.py 由严格反思的提交加入。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_memory.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/life/models.py",
+    "src/worldmock/life/read_query_runtime.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
 )
@@ -261,6 +341,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 #: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
+    "tests/integration/test_read_query_runtime.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
     "tests/life/test_revise_day_plan_json.py",
     "tests/mutation_runner.py",
