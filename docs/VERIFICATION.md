@@ -2,8 +2,8 @@
 
 > 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）。按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 26 行修订（一日运行保真 VF1）：新增「一日运行保真特性门禁」，测试矩阵中补入该规格条款的十四行；该规格已全部实现并通过离线验收（证据见[一日运行保真验收记录](dev/dayrun-fidelity-verification.md)），这十四行已按实现改回 `离线覆盖`。
 > 工具交互修订：按[工具交互规格](dev/SPEC-tool-interaction.md)冻结新增门禁；本次修订已实现，历史通过证据不覆盖新行为。
-> 个人事务与工作安排修订：随[个人事务与工作安排规格](dev/SPEC-errands-workday.md#实施计划)冻结，按其「实施计划」的冻结约定修订（个人事务与工作安排台账 VF2）：新增「个人事务与工作安排特性门禁」；修订部分未实现，见个人事务与工作安排规格阶段 1–4。测试矩阵在冻结时不动，特性表与各行在实现后补。
-> 日期：2026-10-02
+> 个人事务与工作安排修订：随[个人事务与工作安排规格](dev/SPEC-errands-workday.md#实施计划)冻结，按其「实施计划」的冻结约定修订（个人事务与工作安排台账 VF2）：新增「个人事务与工作安排特性门禁」；阶段 1（运行修复入库）已随代码落地，阶段 2–4 未实现，见个人事务与工作安排规格阶段 2–4。测试矩阵在冻结时不动，特性表与各行在实现后补。
+> 日期：2026-10-03
 > 范围：放行门禁、report-only 边界、测试矩阵、验收原则、交付阶段与结论边界
 > 记录位置：实际通过的源码身份、命令与收据集中记录在 `docs/dev/implementation-status.md`；本文件只定义判定方式与当前状态，不重复断言其通过
 
@@ -331,10 +331,11 @@ issue #1 绿色基线是实施前置：`uv run pytest tests` 全量无失败之�
 
 - 命中运行故障时运行停住并保留已确认部分，不带着故障继续推进。
 - 致命故障与普通拒绝的错误类型不同，且经过工具层与批量返回后这个区别仍然可辨。
-- 故障路径保留英文错误文本与关联事件，不被通用异常处理吸收后重新交给模型试错。
+- 故障路径保留英文错误文本与关联事件，不被通用异常处理吸收后重新交给模型试错；人物决策失败时写一条带完整异常链的英文 error 日志后原样上抛（异常对象与类型不变），工具分发失败先写一条带完整异常链的英文 error 日志、再照现行实现以失败阶段码 `TOOL_SERVICE_FAILED` 抛出（四个失败阶段码 `MODEL_SERVICE_FAILED`、`EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED`、`TOOL_SERVICE_FAILED` 登记在 `docs/CONTRACTS.md`「工具返回通道」的宿主错误码表，只标失败阶段与调用位置，不是对请求参数的协议纠错；其中只有 `MEMORY_QUERY_FAILED` 作为失败的查询结果回给模型）；日志不是持久证据。
 - 归纳记忆或写盘失败同样按运行故障处理；框架不得把运行报告成成功。
+- 就寝反思的输出不合合同属于协议违约：附回英文校验错误重新请求，首次之外至多三次（连同首次至多四次模型调用），与传输重试分开计数；每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证，校验错误随下一次请求的附回消息留证；耗尽即运行故障，最后一次错误写进故障原因，本轮中止、不提交，不写入任何洞见、不登记 `memory_updated`，也不降级为空反思。
 
-验证：`tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_direct_runner_failures.py`。
+验证：`tests/integration/test_life_agent_protocol.py`、`tests/integration/test_host_failure_stages.py`、`tests/integration/test_agent_branch_coverage.py`、`tests/integration/test_strict_reflection.py`、AS2 vendor `test_direct_runner_failures.py`。
 
 **来源可追溯**
 
@@ -416,7 +417,7 @@ flowchart LR
 
 | 报告项键 | 说明 |
 | --- | --- |
-| `decision_prompt_token_median` | 不带 `purpose` 的请求（行动请求含同秒续接的请求，另含同样不带 `purpose` 的记忆巩固与就寝反思请求）的 prompt token 中位数，每次 `phase=request` 的 `model_request` 计一个值，排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求；随附 `target_reference` 15000 只作对照 |
+| `decision_prompt_token_median` | 不带 `purpose` 的请求（行动请求含同秒续接的请求，另含同样不带 `purpose` 的记忆巩固与就寝反思请求；就寝反思经严格工具 `submit_reflection` 提交，它的校验重试请求同样不带 `purpose`，各计一个值）的 prompt token 中位数，每次 `phase=request` 的 `model_request` 计一个值，排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求；随附 `target_reference` 15000 只作对照 |
 | `effective_autonomous_decision_rate` | 最终动作既非 continue 也非等待的决策占比；continue 与等待算被动，等待按结果活动 `kind=wait` 判定；只做结束、暂停或修订的控制轮单列 |
 | `wake_reason_distribution` | 各 `wake_reason` 计数，分两份：边界取共同身体结算，决策轮取 `decision_started` |
 | `wait_minutes` | wait 活动总分钟 |
@@ -661,3 +662,4 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | `2026-09-29-dayrun-fidelity-verification` | 2026-09-29 | 一日运行保真实现后文档（随该特性的[验收记录](dev/dayrun-fidelity-verification.md)）：「一日运行保真特性门禁」末尾补验收登记表 `tests/dayrun_fidelity_acceptance.py` 与完整性守卫 `tests/test_dayrun_fidelity_acceptance.py`，并链接本特性验收记录；文件头状态句补证据链接 |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 工具交互门禁冻结并已实现：英文所有报错无中文例外，精确位置与完整合法值，`items[]`和只读查询预算，任务通知与普通即时开放，完整类别供给及独立种子地图；冻结新发布身份，补行为和独立变异门禁，不复用历史通过声明 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 随[个人事务与工作安排规格](dev/SPEC-errands-workday.md#实施计划)冻结，按其「实施计划」的冻结约定修订（个人事务与工作安排台账 VF2），修订部分未实现，见该规格阶段 1–4：新增「个人事务与工作安排特性门禁」，指向该规格验收台账，列出各阶段独立验收、工程放行门禁、独立语义突变的检验点与只报告项；测试矩阵（导语、特性表与要求表）在冻结时不动，实现后补；版本表顺序顺带更正；协议门禁、报告项与工具交互门禁的口径随对应实施阶段落地，届时另追加版本行；文件头补修订说明，日期改写 |
+| `2026-10-03-errands-workday-stage-1` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 1（运行修复入库）与配套实施计划的【同】作业 VF5–VF7 修订，随阶段 1 的代码落地：「工程门禁」「失败传播」补就寝反思输出不合合同的有界校验重试（首次之外至多三次，与传输重试分开计数，耗尽即运行故障，不写入洞见、不登记 `memory_updated`、不降级为空反思），补人物决策失败与工具分发失败的英文 error 日志及四个失败阶段码的登记位置，验证行补「故障传播」「严格反思」两行登记的测试文件；「报告项」`decision_prompt_token_median` 注明就寝反思经严格工具提交、其校验重试请求同样不带 `purpose` 并各计一个值；协议门禁四项的键名、口径与阈值不变；文件头改为阶段 1 已随代码落地、阶段 2–4 未实现，日期改写 |

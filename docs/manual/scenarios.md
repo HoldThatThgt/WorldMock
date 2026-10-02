@@ -1,7 +1,6 @@
 # 生活场景
 
-> 2026-10-01：[工具交互目标规格](../dev/SPEC-tool-interaction.md)已冻结，生产实现已完成。
-> 本手册现有命令示例仍针对当前实现；下述新规则是实施时必须同步的目标，不能当作已支持的CLI。
+> 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
 
 生活场景决定模拟谁、从什么时候到什么时候、有哪些生活机会，以及世界开始时的状态。
 从[手册首页](README.md#创建自己的第一个场景)复制现有场景开始，按本页调整自己的条件。
@@ -19,7 +18,7 @@
 
 新场景放在仓库的 `scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
 场景中的 `corpus_root` 则相对场景所在目录解析。不要把场景移动到 `scenarios/custom/` 等更深目录而不调整整个项目布局。
-`schema_version` 当前代码基线为3；工具交互目标发布为4，多余字段和旧发布输入都严格拒绝。
+`schema_version` 当前为 4，多余字段和旧结构的输入都严格拒绝。
 
 ## 看懂场景的组成
 
@@ -205,16 +204,16 @@ flowchart LR
 
 ## 配置工作任务和消息
 
-本节配置表描述当前场景结构3；待实现的场景4删除输入开放时间，见[工作通知与目标发布](#工作通知与目标发布)。
+任务不写开放时间：开放时刻由关联通知或预约派生，见[工作通知与目标发布](#工作通知与目标发布)。
 
 工作条目定义一个人物可以选择完成的合同。最稳妥的做法是复制模板中的 `tasks` 条目，
-保留已有输入和验收材料，先修改分配、开放时间、截止时间与报酬。
+保留已有输入和验收材料，先修改分配、通知或预约、截止时间与报酬。
 
 | 任务字段 | 填写规则 |
 | --- | --- |
 | `task_id`、`assignee_agent_id` | 任务标识唯一；受理人写 `agent:1` 或 `1`，必须存在于人物数组 |
 | `contract_kind` | `hourly`、`piece` 或 `package`，各自结算规则来自目录 |
-| `available_at`、`due_at` | 带时区；开始 ≤ 开放 < 截止 ≤ 结束；开工与恢复都不越过截止，距截止不足 60 秒的恢复被拒绝；未付款的逾期任务保留到截止当日结束，逾期提交以 `WORK_SUBMISSION_LATE` 业务拒绝 |
+| `appointment`、`due_at` | `appointment` 必填：普通工作写 `null`，真实预约写 `{starts_at, reason}`；`due_at` 带时区，晚于派生的开放时刻（最早本人关联通知的 `sent_at` 或预约 `starts_at`）、晚于场景开始且不晚于场景结束；开工与恢复都不越过截止，距截止不足 60 秒的恢复被拒绝；未付款的逾期任务保留到截止当日结束，逾期提交以 `WORK_SUBMISSION_LATE` 业务拒绝 |
 | `maximum_duration_seconds` | 正整数秒，任务允许的最大执行时长 |
 | `pay_fen` | 正整数分，具体付款语义由合同类型与交换规则决定 |
 | `employer_account_id`、`required_location_id` | 已声明的雇主账户和地点 |
@@ -305,7 +304,7 @@ flowchart LR
 | --- | --- |
 | `Scenario validation failed` | 查看异常链中的具体字段；排除旧字段、类型错误与跨引用错误 |
 | `Scenario corpus manifest identity is invalid` | 核对 `corpus_root` 与清单真实哈希；不要只改哈希掩盖素材损坏 |
-| `work task is outside the scenario interval` | 同步调整任务开放和截止时间，或移除窗口外任务和有关消息 |
+| `work task is outside the scenario interval` | 同步调整任务通知、预约和截止时间，或移除窗口外任务和有关消息 |
 | `interaction menu location kinds must exactly match declared location kinds` | 根据已选地点的实际 `kind` 补齐或删除菜单键 |
 | `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#编写地点与营业时间) |
 | `Selected locations share display names` | 同名地点在地图中写互不相同的 `branch_label` |

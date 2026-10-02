@@ -1,9 +1,9 @@
 # WorldMock 产品设计说明书 — 数据交付
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 DL1），已实现  
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 DL1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D6 作业），已随代码落地到阶段 1  
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，历史验收不覆盖新的请求、查询与错误证据。
-> **日期**：2026-10-01
-> **版本**：v1.9
+> **日期**：2026-10-03
+> **版本**：v1.10
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -99,7 +99,7 @@ flowchart TB
 
 ### 3.3 动作窗口提取规则
 
-动作窗口读取目标动作前实际发送给该人物模型的行动请求作为 prompt，
+动作窗口读取目标动作前实际发送给该人物模型的请求作为 prompt（选取规则见下表「实际 prompt」行），
 包含当时的 system、user、工具定义与消息历史；同秒续接的请求另含本秒前序决策的原生 assistant 与 tool 消息。
 不能从结构化观察推测人设层或记忆层。
 人物请求中的 `start_activity.items[]` 原样保留每项 `target`、`way`、`from`、`to`，不新增或推测 `actions`，不读取旧平行数组。
@@ -126,7 +126,7 @@ flowchart LR
 | 事件可见性 | 动作与意图输入排除私有事件集（模型请求、模型响应、记忆更新与 `decision_started`，`PRIVATE_EVENTS`）；回复正文 `self_note` 作为实际请求的一部分进入动作与意图输入，并进入 dreaming 输入；`conclude_activity` 各项的 `memories` 与 `views` 属记忆写入，意图与 `dreaming` 输入中控制工具请求事件的投影经 `control_items` 只留每项的 `activity_name` 与 `summary`（实际请求原文照原样保留，见 3.4 节） |
 | 身体字段可见性 | 同一观察中，体感分级可供数字人理解处境；`body.values` 和 `motivation_internal` 只保留在内部证据中 |
 | 结算字段可见性 | `body_settlement` 等内部身体变化不能因所在事件标为 `agent` 就整体复制到输入；只提供当时实际呈现的结果 |
-| 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具；同秒续接中本秒前序 assistant 的 `reasoning_content` 作为实际请求的一部分原样保留（[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)），窗口的其他事件与目标不额外混入；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
+| 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具：取同人物、同决策、目标动作之前最后一份 `phase=request`、不带 `purpose` 的请求，并核对其 `tools` 含该动作的工具名；不满足是完整性故障，不回退到更早的请求（截断后关闭思考、`tool_choice=required` 的重试请求照此被选中）；就寝反思请求只带 `submit_reflection`、晚于动作登记，不会被选中，含反思的决策其窗口 prompt 仍是行动请求；同秒续接中本秒前序 assistant 的 `reasoning_content` 作为实际请求的一部分原样保留（[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)），窗口的其他事件与目标不额外混入；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
 | 前置状态 | 当观察已经出现在窗口事件中，只保留前置观察引用，不复制整份 `events[0].data` |
 | 目标结果 | 只收该动作公开结算事实；私有 `model_request`、`model_response` 和记忆更新不得成为 `target.outcomes`；动作窗口的目标保留完整请求（含 `conclude_activity` 各项的 `memories` 与 `views`），记忆更新事件仍不进 `target.outcomes` |
 | 查询证据 | 世界查询与任务回看的真实交换可在实际 prompt 中出现；不得把查询命中、候选请求或拒绝备忘投影为已执行世界动作；只读工具无需动作结算事件 |
@@ -153,8 +153,8 @@ flowchart LR
 离线 Dreaming 由数据交付负责：从认证导出构造经历窗口，通过 LabelKit 生成经历归纳、反思或假设推演。
 材料按场景时区与人物自然日组织，保留来源事件和知识截止，不混入未来经历；
 dreaming 读回复正文 `self_note` 与实际请求中的层 JSON，不再读决策自述与 `scene`；排除的私有事件与动作、意图任务相同
-（`DREAMING_PRIVATE_EVENTS` 等于私有事件集）。窗口内每个动作请求取同人物、同决策、动作前最后一次实际行动请求（与动作窗口
-同一 prompt 权威），把其首个 user 的六层 JSON 连同该动作请求的事件身份写入 `input.decision_layers`（`[{action_event_id, layers}]`），
+（`DREAMING_PRIVATE_EVENTS` 等于私有事件集）。窗口内每个动作请求取同人物、同决策、动作前最后一份不带 `purpose` 的实际请求（与动作窗口
+同一选取规则与 prompt 权威，见 3.3「实际 prompt」行），把其首个 user 的六层 JSON 连同该动作请求的事件身份写入 `input.decision_layers`（`[{action_event_id, layers}]`），
 请求事件身份与层 JSON 的 canonical SHA-256 写入 `provenance.decision_layer_sources`（`[{event_id, sha256}]`），请求事件也进入
 `provenance.source_event_ids`；实际请求缺失或首个 user 不是层序正确的六层 JSON 时明确失败（字段见
 [接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)）。窗口事件中三个控制工具的动作请求经 `control_items`
@@ -427,7 +427,9 @@ def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
     :param project_root: 项目根目录
     :return: 执行回执（退出码、耗时、配置哈希）
     """
-    binary = project_root / "vendor/labelkit/.venv/bin/labelkit"
+    # 按平台取 LabelKit 独立环境里的入口
+    binary = (project_root / "vendor/labelkit/.venv/Scripts/labelkit.exe" if os.name == "nt"
+              else project_root / "vendor/labelkit/.venv/bin/labelkit")
     command = [
         str(binary), "run",
         "--config", str(workspace / "config.toml"),
@@ -435,10 +437,14 @@ def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
         "--strict", "--console", "plain"
     ]
     
-    # 加载凭据
+    # 加载凭据：凭据文件只有 DEEPSEEK_NODE_KEYS，取逗号分隔的第一段作为子进程的 DEEPSEEK_API_KEY
     credentials = dotenv_values(Path.home() / ".config/worldmock/deepseek.env")
+    pool = credentials.get("DEEPSEEK_NODE_KEYS")
+    first_key = pool.split(",")[0].strip() if isinstance(pool, str) else ""
+    if not first_key:
+        raise IntegrityError("DEEPSEEK_NODE_KEYS is required for LabelKit delivery")
     environment = dict(os.environ)
-    environment["DEEPSEEK_API_KEY"] = credentials["DEEPSEEK_API_KEY"]
+    environment["DEEPSEEK_API_KEY"] = first_key
     
     # 执行
     started = time.monotonic()
@@ -522,7 +528,7 @@ def attach_facts(candidate: dict, window: dict) -> dict:
         "target": {
             **candidate["target"],  # 语义候选
             "action": request["data"]["tool_name"],  # 真实动作名
-            "parameters": request["data"]["arguments"],  # 真实参数
+            "parameters": request["data"]["request"],  # 真实参数
             "timestamp": request["occurred_at"]  # 真实时间
         },
         "provenance": {
@@ -793,15 +799,16 @@ def split_by_source_group(records: list[dict], splits: dict[str, float]) -> dict
 ```json
 {
   "event_id": "e1",
-  "event_type": "content_accessed",
-  "data": {
-    "content_reference": {
+  "event_type": "activity_progress",
+  "data": {},
+  "artifact_refs": [
+    {
       "sha256": "abc123...",
       "size_bytes": 4096,
       "media_type": "text/plain",
-      "source": "file"
+      "source": {"kind": "file"}
     }
-  }
+  ]
 }
 ```
 
@@ -975,7 +982,6 @@ flowchart TB
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
-| v1.9 | 2026-10-01 | 工具交互交付设计冻结并已实现：`items[]`原样保留，回看与世界查询交换不是目标动作或执行结果，英文错误及完整位置和候选原样留证；核对场景 4、地图 3、目录 5.0、品类绑定 3、世界 8及两份种子地图来源，禁止交付补造通知或供给，新增行为与变异验收 |
 | v1.0 | 2026-09-20 | 初版：模块概述、导出流程、证据窗口、字段字典编码、LabelKit 集成、事实组装、发布协议、来源关联、质量保证、端到端流程 |
 | v1.1 | 2026-09-20 | 身体事实示例改为实际可见的体感分级，明确内部数值的交付边界 |
 | v1.2 | 2026-09-20 | 足迹导出的流程与格式归入记录引擎，本文从认证快照的消费开始 |
@@ -985,6 +991,8 @@ flowchart TB
 | v1.6 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E6-1–E6-7，E6-2、E6-7 为阶段 1 同批作业）：文件头注明修订部分待实现；交付不再用当前代码的场景渲染重建已存观察，按层数据与实际请求投影，世界结构版本门禁为 8，交付清单 `schema_version` 为 2（7.3 示例同步）；动作窗口的续接请求含本秒前序决策的消息；事件可见性删决策自述，`self_note` 随实际请求进入动作与意图输入并进入 dreaming 输入；实际 prompt 行写明续接 assistant 的 `reasoning_content` 原样保留、其他事件与目标不额外混入；「人物卡片、记忆与场景」改为人设层、记忆层、环境层；dreaming 读 `self_note` 与层 JSON，`DREAMING_PRIVATE_EVENTS` 等于私有事件集 |
 | v1.7 | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账 E6-8 与阶段 8 核对）：「4.2 编码示例」改用现存的观察字段（两次观察相同的 `memory_layer`），编码声明与字典项的键按代码（`schema_version`、`standard`、`field`、`sha256`），4.1 与 4.3 随之改（收益不足时照写声明、字典为空）；dreaming 窗口写明 `input.decision_layers` 与 `provenance.decision_layer_sources`、缺少层 JSON 时失败、重演分支同样附层 JSON，裁去记忆只作用于动作请求事件的投影；事件可见性写明私有事件集含 `decision_started`；文件头注明修订部分已实现 |
 | v1.8 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 DL1，随阶段 5 的代码落地，按 `34a41ee` 核对）：「dreaming 窗口提取规则」与意图窗口中三个控制工具的请求经 `control_items` 读出，只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`（旧形状读出后同样只留这两项），动作窗口与实际请求原文照原样保留；文件头补修订说明，日期改写 |
+| v1.9 | 2026-10-01 | 工具交互交付设计冻结并已实现：`items[]`原样保留，回看与世界查询交换不是目标动作或执行结果，英文错误及完整位置和候选原样留证；核对场景 4、地图 3、目录 5.0、品类绑定 3、世界 8及两份种子地图来源，禁止交付补造通知或供给，新增行为与变异验收 |
+| v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D6 作业，阶段 1，按 `a1f680b` 核对）：窗口 prompt 取动作之前最后一份不带 `purpose` 的请求并核对其工具含该动作的工具名，不满足是完整性故障、不回退到更早的请求，截断重试请求照此被选中，含反思的决策仍取行动请求（照现行实现表述，不是新行为），3.3 首句与 3.4 中「最后一次实际行动请求」的说法随之改为指向这条选取规则；顺带更正 5.4、6.3、8.3 三处示例与现行实现不符之处（LabelKit 入口按平台取、凭据取 `DEEPSEEK_NODE_KEYS` 的第一段，动作参数读 `action_requested.data.request`，素材引用在事件顶层 `artifact_refs`）；文件头补同步说明，日期改写；版本表改为末行最新 |
 
 ---
 

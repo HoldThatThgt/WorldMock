@@ -1,7 +1,6 @@
 # 用户配置手册
 
-> 2026-10-01：[工具交互目标规格](../dev/SPEC-tool-interaction.md)已冻结，生产实现已完成。
-> 本手册现有命令示例仍针对当前实现；下述新规则是实施时必须同步的目标，不能当作已支持的CLI。
+> 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
 
 从这里开始，把 WorldMock 配置成你想观察的人物与生活环境。
 本手册介绍当前程序实际读取的配置、编写方法和检查步骤；配置格式的正式定义仍由
@@ -36,7 +35,7 @@ flowchart LR
 
 命令均在仓库根目录执行，环境安装见[运行配置](runtime.md)。
 先沿用仓库已有地图、素材和规则，复制一个生活场景，再修改人物；需要扩展世界时再读对应页面。
-以下脚本从白领场景创建一天的场景文件，保留时间范围完全落在当天的任务和有关消息，过滤窗口外预排事件。
+以下脚本从白领场景创建一天的场景文件，保留截止时刻落在当天的任务和有关消息，过滤窗口外预排事件。
 它只写新配置，不调用模型，也不启动模拟。
 
 ```bash
@@ -54,8 +53,7 @@ start = datetime.fromisoformat(scene["start_at"])
 end = datetime.fromisoformat(scene["end_at"])
 scene["tasks"] = [
     task for task in scene["tasks"]
-    if start <= datetime.fromisoformat(task["available_at"])
-    < datetime.fromisoformat(task["due_at"]) <= end
+    if start < datetime.fromisoformat(task["due_at"]) <= end
 ]
 task_ids = {task["task_id"] for task in scene["tasks"]}
 scene["messages"] = [

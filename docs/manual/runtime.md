@@ -1,7 +1,7 @@
 # 运行配置
 
-> 2026-10-01：[工具交互目标规格](../dev/SPEC-tool-interaction.md)已冻结，生产实现已完成。
-> 本手册现有命令示例仍针对当前实现；下述新规则是实施时必须同步的目标，不能当作已支持的CLI。
+> 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步就寝反思的严格工具与校验重试（阶段 1）。
 
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
@@ -72,6 +72,11 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 还没调用工具的回合（`finish_reason=length`）被丢弃，只留在模型证据里；紧接着以关闭思考、`tool_choice=required`、
 上限不变的请求重试一次，重试再被截断时不再重试，其后照常按本次决策的回合预算继续。上限与这一处理都不可配置；
 导出的 `quality.json` 在 `truncations` 一节按用途统计截断的回复次数、浪费的输出 token 与其中的思考 token。
+
+人物睡醒那一轮的就寝反思另发一次模型请求：关闭思考，只带一个 strict 工具 `submit_reflection`、`tool_choice=required`，
+要求一至五条洞见、每条引用本次给出的记忆；没有可反思的主观记忆时不调用模型。输出不合合同（自由文本、其他工具、
+多次调用、条数越界、引用为空、条内重复或不在本次给出的记忆之内、正文超过一千字符或含八位以上十六进制串）时附回英文校验错误重新请求，首次之外至多三次；
+耗尽即运行故障，本轮中止，不写入任何洞见。这一处理不可配置，它的请求不带 `purpose`，在 `quality.json` 里计入 `decision` 用量。
 
 | 使用入口 | 凭据来源 |
 | --- | --- |
@@ -218,9 +223,9 @@ uv run worldmock replay \
 
 命令参数以[命令入口](../../src/worldmock/cli.py)为准；更多数据生成与评估步骤见对应手册页。
 
-## 工具交互实现时的运行检查
+## 工具交互的运行检查
 
-目标原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，
+原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，
 改为items一项一个{target,way,from,to}对象及answering/prefer，旧actions与数组直接拒绝。
 含购买项prefer必须为“最快拿到”或“到手价最低”，非购买必须null；to=null统一本人。
 query_world必填name/way/category/offset，category取公开品类标签，返回matches/total_count/next_offset可遍历全集；

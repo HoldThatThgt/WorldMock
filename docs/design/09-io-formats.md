@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现  
-> **日期**：2026-10-01
-> **版本**：v1.16
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D9 作业），已随代码落地到阶段 1  
+> **日期**：2026-10-03
+> **版本**：v1.17
 > **目标读者**：算法工程师、开发工程师
 
 > 2026-10-01 按[工具交互规格](../dev/SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
@@ -192,6 +192,10 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 
 ### 3.2 AgentState（人物状态）
 
+下表是[当前状态模型](../../src/worldmock/life/models.py)的阅读摘要，未逐一列出 `last_decision_time`、`felt_bands_at_last_decision`、
+`people_at_last_decision`、`known_task_ids`、`mood_updated_at`、`discomfort_started_at`、`discomfort_pulse_hours`、`material_reveals`
+这些节律、体感与素材揭示的内部字段；完整字段由生产模型校验。
+
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `agent_id` | int | 是 | 人物 ID，gt=0 |
@@ -365,7 +369,7 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 
 ## 版本历史
 
-以下记录保留当时的变更与验证证据；当前接口约束以正文和工具交互规格为准。
+以下记录保留当时的变更与验证证据；当前接口约束以正文和各特性规格为准。
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
@@ -387,3 +391,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.15 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 IO1，随阶段 1、3、4 的代码落地，按 `e377669` 核对）：「WorldState」候选写成可照填的 `{target, action, way, from, to}`，工具层另附只列名称的可调用索引 `callable_index`，全部目录类对象按名称调用（未展示的生活活动、内容与游戏取 `catalog_bindings`，没有列出路线的地点取观察私有的地点表），`obtain` 的 `from` 可写门店名或渠道称呼、方式可写「购买」、多家都能服务时按请求级 `prefer` 选定，浏览结果列完整标签、完成的浏览在记忆层写浏览到的完整标签，`DeliveryState` 不带 `channel_id`（只在 `orders[]` 与 `purchases.jsonl`，世界结构仍为 8），`presentation_state` 承载 `last_presented_at`、可调用索引不写它；「AgentState」`same_moment_rounds` 名称类拒绝每人每秒前两次不加，`read_message_ids` 只由阅读动作写入、睡眠中不写，增 `read_inbox_ids` 行（睡眠中不记已读，醒来后的第一个边界再读），`day_plan` 目标增 `around_at`；「BodyState」社交需要的清醒按本区间 `body_settlement.activity_ids` 判定；文件头补修订说明，日期改写 |
 | v1.16 | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
+| v1.17 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D9 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变任何状态字段与结构版本；「AgentState」表前注明该表是当前状态模型的阅读摘要，列出表中未收的节律、体感与素材揭示内部字段；版本历史前的说明句改为以正文和各特性规格为准；文件头补同步说明，日期改写 |
