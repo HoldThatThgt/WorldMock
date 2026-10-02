@@ -50,8 +50,10 @@ def _request(action_id: str, at: int, ways: list[str], reused: bool = False) -> 
     return EventDraft(event_type="action_requested", occurred_at=at, agent_id=1, decision_id=f"decision-{at}",
                       action_id=action_id, source_kind="model", data={
                           "tool_name": "start_activity", "request_sha256": "0" * 64, "reused": reused,
-                          "request": {"targets": [f"对象{index}" for index, _ in enumerate(ways)],
-                                      "actions": ["interact"] * len(ways), "ways": ways}})
+                          "request": {"items": [{"target": f"对象{index}", "way": way, "from": None, "to": None}
+                                                for index, way in enumerate(ways)],
+                                      "answering": None, "prefer": "最快拿到" if any(
+                                          way_options(way) & NAMED_PURCHASE_WAYS for way in ways) else None}})
 
 
 def _result(request: EventDraft, data: dict, event_type: str = "action_result") -> EventDraft:
@@ -117,19 +119,20 @@ def test_order_ways_and_browse_kind_are_the_interaction_menu_values() -> None:
     assert BROWSE_ACTIVITY_KIND == ActivityKind.BROWSE.value == WAYS["浏览"][1]
 
 
-def test_purchase_rows_carry_the_order_channel_and_old_orders_read_as_null() -> None:
+def test_purchase_rows_carry_the_order_channel_or_no_channel() -> None:
     """purchases.jsonl 每行记订单载荷的 channel_id（from 解析为渠道时的 App 标识，docs/dev/SPEC-dayrun-fidelity.md 3.3
-    解析规则 4）；旧运行的订单载荷没有这一列时记 null；方式为「购买」的请求计为尝试下单。"""
+    解析规则）；原生订单未通过应用渠道取得时记 null；方式为「购买」的请求计为尝试下单。"""
     request = {"event_type": "action_requested", "agent_id": 1, "action_id": "buy", "event_id": "request-buy",
                "occurred_at": 110, "data": {"tool_name": "start_activity", "reused": False,
-                                            "request": {"ways": ["购买"]}}}
-    orders = [{**_ORDER, "channel_id": "hema"}, {key: value for key, value in {**_ORDER, "order_id": "old"}.items()
-                                                 if key != "channel_id"}]
+                                            "request": {"items": [{"target": "午餐", "way": "购买",
+                                                                    "from": None, "to": None}],
+                                                        "answering": None, "prefer": "最快拿到"}}}
+    orders = [{**_ORDER, "channel_id": "hema"}, {**_ORDER, "order_id": "direct", "channel_id": None}]
     result = {"event_type": "action_result", "agent_id": 1, "action_id": "buy", "event_id": "result-buy",
               "data": {"status": "completed", "error_code": None, "data": {"orders": orders}}}
     facts = project_purchase_facts([request, result])
     assert [(row["order_id"], row["channel_id"]) for row in facts if row["fact_kind"] == "purchase"] == [
-        ("order-beef-noodles", "hema"), ("old", None)]
+        ("order-beef-noodles", "hema"), ("direct", None)]
     assert [(row["way"], row["status"]) for row in facts if row["fact_kind"] == "order_attempt"] == [
         ("购买", "completed")]
 
@@ -338,10 +341,14 @@ def test_order_attempts_classify_written_ways_through_the_way_synonym_table() ->
     ways = [*_ORDER_SPELLINGS, *others]
     events = [{"event_type": "action_requested", "agent_id": 1, "action_id": f"action-{index}",
                "event_id": f"request-{index}", "occurred_at": 100 + index,
-               "data": {"tool_name": "start_activity", "reused": False, "request": {"ways": [way]}}}
+               "data": {"tool_name": "start_activity", "reused": False,
+                        "request": {"items": [{"target": "午餐", "way": way, "from": None, "to": None}],
+                                    "answering": None, "prefer": "最快拿到"}}}
               for index, way in enumerate(ways)]
     mixed = {**events[0], "action_id": "action-mixed", "event_id": "request-mixed",
-             "data": {**events[0]["data"], "request": {"ways": ["吃", "外卖"]}}}
+             "data": {**events[0]["data"], "request": {
+                 "items": [{"target": "午餐", "way": way, "from": None, "to": None} for way in ["吃", "外卖"]],
+                 "answering": None, "prefer": "最快拿到"}}}
     attempts = [row for row in project_purchase_facts([*events, mixed]) if row["fact_kind"] == "order_attempt"]
     assert [(row["action_id"], row["way"]) for row in attempts] == [
         *((f"action-{index}", way) for index, way in enumerate(_ORDER_SPELLINGS.values())),

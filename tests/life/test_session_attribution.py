@@ -29,7 +29,7 @@ from worldmock.life.prompt_capacity import ProgressBudget
 from worldmock.life.readable import iso_time
 
 _ZONE = "Asia/Shanghai"
-_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),))
+_REVISE = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None)])
 
 
 def _first_result_seq(engine, agent_id: int, action_id: str) -> int:
@@ -195,7 +195,7 @@ def test_open_order_record_stays_uncondensed_while_older_records_fold(engine_fac
     assert [row["tool"] for row in records] == ["revise_day_plan", "start_activity", "send_message", "revise_day_plan"]
     assert engine.state.deliveries[order["order_id"]].status == "pending"
     assert [row["protected"] for row in observed["progress_meta"]] == [False, True, False, True]
-    layers = ({"layer": "工具层", "targets": []}, observed["progress_layer"])
+    layers = (observed["tool_layer"], observed["progress_layer"])
     request = {"model": prompt_capacity.MODEL_ALIAS, "max_tokens": 100, "tools": [],
                "messages": [{"role": "system", "content": "系统层"}, {"role": "user", "content": "[]"}]}
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1000)

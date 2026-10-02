@@ -278,12 +278,12 @@ def _start_shapes(request: Mapping[str, Any], related: Sequence[Event]) -> tuple
     内部动作按结果中的活动快照 kind 分类（购买按实际订单）；没有结果活动的请求（如被拒绝）按私有绑定的方式闭集
     （WAYS）映射，不按动词或短语反解。
     """
-    targets, ways = request.get("targets"), request.get("ways")
-    if (not isinstance(targets, list) or not isinstance(ways, list)
-            or not 1 <= len(targets) == len(ways) <= 2):
+    items = request.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= 2:
         return ()
     selected = []
-    for index, (target, way) in enumerate(zip(targets, ways, strict=True)):
+    for index, item in enumerate(items):
+        target, way = item["target"], item["way"]
         action = _started_action(related, index, way)
         shape = _start_shape(action, way, target, related, index)
         if shape is not None:

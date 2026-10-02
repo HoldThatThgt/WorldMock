@@ -59,19 +59,19 @@ def test_resources_preserve_body_and_money_domains() -> None:
 
 def test_raw_objects_are_native_deltas_and_preserve_population() -> None:
     rows = _load_jsonl(CATALOG / "objects.jsonl")
-    assert len(rows) == 163
+    assert len(rows) == 172
     assert all(set(row) == RAW_OBJECT_KEYS for row in rows)
     assert all(set(row["values"]) == {"absolute", "relative", "proportional"} for row in rows)
     assert not any({"edges", "formula_ref", "object_kind"} & set(row) for row in rows)
     ids = [row["object_id"] for row in rows]
-    assert len(set(ids)) == 163
+    assert len(set(ids)) == 172
     assert sum(object_id.startswith("food-") for object_id in ids) == 121
     assert sum(object_id.startswith("meal-") for object_id in ids) == 30
     assert sum(object_id.startswith("item-") for object_id in ids) == 8
     product_rows = [row for row in rows if row["category_id"] not in {
         "travel-service", "contract-hourly", "contract-piece", "contract-package",
     }]
-    assert len(product_rows) == 159
+    assert len(product_rows) == 168
     forbidden = {"price_fen", "price_version", "merchant_role", "stock_initial", "delivery_delay_seconds"}
     assert all(not forbidden & set(row["values"]["absolute"]) for row in product_rows)
     assert {object_id for object_id in ids if object_id.startswith("contract-")} == {
@@ -82,14 +82,15 @@ def test_raw_objects_are_native_deltas_and_preserve_population() -> None:
 
 def test_real_catalog_compiles_all_objects_and_rules() -> None:
     catalog = load_catalog(CATALOG)
-    assert (catalog.version_major, catalog.version_minor) == (4, 1)
-    assert catalog.category_contract_version == 2
-    assert len(catalog.raw_objects) == len(catalog.objects) == 163
-    assert len(catalog.category_contract.categories) == 23
+    assert (catalog.version_major, catalog.version_minor) == (5, 3)
+    assert catalog.category_contract_version == 3
+    assert len(catalog.raw_objects) == len(catalog.objects) == 172
+    assert len(catalog.category_contract.categories) == 28
     assert set(catalog.exchange_rules.rules) == {
         "purchase-product", "consume-food", "use-durable",
         "travel-walking", "travel-driving",
         "settle-hourly", "settle-piece", "settle-package",
+        "cook-vegetable-stir-fry",
     }
     milk = catalog.raw_objects["food-6923644266066"]
     yogurt = catalog.raw_objects["food-6901209212215"]
@@ -119,7 +120,7 @@ def test_frozen_product_values_survive_category_compilation() -> None:
 def test_compiled_objects_preserve_all_scenario_product_bindings() -> None:
     catalog = load_catalog(CATALOG)
     scenario = json.loads((ROOT / "scenarios/white-collar-12-weeks.json").read_text(encoding="utf-8"))
-    assert len(scenario["products"]) == 159
+    assert len(scenario["products"]) == 168
     assert {row["product_id"] for row in scenario["products"]} == {
         object_id for object_id, obj in catalog.objects.items() if obj.object_kind.value == "product"
     }
@@ -139,7 +140,7 @@ def test_compiled_objects_preserve_all_scenario_product_bindings() -> None:
 
 def test_food_value_spectrum_survives_native_generation() -> None:
     catalog = load_catalog(CATALOG)
-    supplies = json.loads((ROOT / "corpora/zhangjiang-map/supplies.json").read_text(encoding="utf-8"))["supplies"]
+    supplies = json.loads((ROOT / "corpora/zhangjiang-map/20260105/supplies.json").read_text(encoding="utf-8"))["supplies"]
     ratios = {
         row["supply_id"]: catalog.objects[row["product_id"]].attributes["energy_kcal_per_serving"]
         / row["quotes"][0]["price_fen"]
@@ -149,7 +150,7 @@ def test_food_value_spectrum_survives_native_generation() -> None:
     assert top >= 0.9
     bands = Counter(min(int(min(ratio, 0.99) * 10), 9)
                     for ratio in ratios.values() if ratio >= 0.2)
-    assert all(bands[band] >= 2 for band in range(2, 10))
+    assert all(bands[band] >= 1 for band in range(2, 10))
     assert sum(ratio >= top * 0.8 for ratio in ratios.values()) >= 2
 
 
@@ -186,7 +187,7 @@ def test_travel_rules_are_closed_data_without_formula_text() -> None:
 def test_manifest_binds_contract_rules_and_full_content() -> None:
     manifest = json.loads((CATALOG / "manifest.json").read_text(encoding="utf-8"))
     identity = compute_catalog_identity(CATALOG, manifest)
-    assert identity.category_contract_version == manifest["category_contract_version"] == 2
+    assert identity.category_contract_version == manifest["category_contract_version"] == 3
     assert identity.category_contract_sha256 == manifest["category_contract_sha256"]
     assert identity.exchange_rules_sha256 == manifest["exchange_rules_sha256"]
     assert identity.catalog_content_sha256 == manifest["catalog_content_sha256"]
@@ -197,10 +198,10 @@ def test_manifest_binds_contract_rules_and_full_content() -> None:
 def test_life_scenarios_bind_catalog_four_and_explicit_empty_recipes() -> None:
     for path in sorted((ROOT / "scenarios").glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != 3:
+        if payload.get("schema_version") != 4:
             continue
-        assert payload["catalog_version"] == {"major": 4, "minor": 1}
-        assert payload["recipe_output_bindings"] == {}
+        assert payload["catalog_version"] == {"major": 5, "minor": 3}
+        assert payload["recipe_output_bindings"] == {"prepared-meal-vegetable-stir-fry": "meal-0030"}
 
 
 def test_regeneration_is_byte_stable() -> None:

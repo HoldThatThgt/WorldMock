@@ -81,21 +81,25 @@ def test_catalog_activity_met_carries_lifestyle_keys() -> None:
 def test_lifestyle_model_request_only_selects_readable_object_and_action() -> None:
     """人物只写可读活动名称、动词、方式与来源去向（进行活动时为 null），内部子类型与时长不可回填。"""
     request = start_request(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
-    assert set(request.model_dump()) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
+    assert set(request.model_dump()) == {"items", "answering", "prefer"}
+    assert request.model_dump()["items"] == [{"target": "活动：瑜伽", "way": "进行",
+                                            "from": None, "to": None}]
     with pytest.raises(ValidationError):
         start_request(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"], planned_duration_seconds=120)
     schema = deepseek_strict_schema(StartActivityRequest)
-    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
+    assert set(schema["properties"]) == {"items", "answering", "prefer"}
 
 
 def test_start_activity_requires_target_for_lifestyle() -> None:
     """模型入口必须逐项给出可读对象、动词和方式；只有一种方式的对象也要照填方式。"""
     with pytest.raises(ValidationError):
-        StartActivityRequest(actions=["interact"], ways=["进行"])
+        StartActivityRequest(items=[{"way": "进行", "from": None, "to": None}],
+                             answering=None, prefer=None)
     with pytest.raises(ValidationError):
-        StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"])
+        StartActivityRequest(items=[{"target": "活动：瑜伽", "from": None, "to": None}],
+                             answering=None, prefer=None)
     request = start_request(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
-    assert request.targets == ["活动：瑜伽"]
+    assert [item.target for item in request.items] == ["活动：瑜伽"]
 
 
 def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:

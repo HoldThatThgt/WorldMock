@@ -59,7 +59,7 @@ def visible_goals(state: WorldState, agent_id: int) -> tuple[PlanGoal, ...] | No
 
 
 def _day_plan(context: LayerContext) -> dict | None:
-    """@brief 今日计划：计划日期与各目标的意图、文字、是否已推进、提醒时刻（HH:MM 或 null）与大致时刻（「约 HH:MM」或
+    """@brief 今日计划：计划日期与各目标的意图、文字、是否已推进、提醒时刻（HH:MM 或 null）与大致时刻（HH:MM 或
     null，docs/dev/SPEC-dayrun-fidelity.md 8.2）；没有或已过期时为 null。"""
     goals = visible_goals(context.state, context.agent_id)
     if goals is None:
@@ -67,6 +67,6 @@ def _day_plan(context: LayerContext) -> dict | None:
     plan, zone = context.state.agents[context.agent_id].day_plan, context.scenario.timezone
     rows = [{"intent_kind": goal.intent_kind, "goal": goal.goal, "progressed": goal.progressed_at is not None,
              "remind_time": epoch_clock(goal.remind_at, zone) if goal.remind_at is not None else None,
-             "around_time": f"约 {epoch_clock(goal.around_at, zone)}" if goal.around_at is not None else None}
+             "around_time": epoch_clock(goal.around_at, zone) if goal.around_at is not None else None}
             for goal in goals]
     return {"date": local_date(plan.day_end - 1, zone), "goals": rows}

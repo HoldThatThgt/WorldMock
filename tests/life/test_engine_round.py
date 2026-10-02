@@ -222,6 +222,7 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     engine = engine_factory()
     ctx = context(engine, "model-evidence")
     engine.begin_decision_round([ctx])
+    observed = engine.observe(ctx)
     request = {"model": "deepseek-flash", "messages": [], "tools": []}
     first = f"{ctx.decision_id}:model:0001:attempt:1"
     second = f"{ctx.decision_id}:model:0002:attempt:1"
@@ -234,7 +235,9 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     with pytest.raises(ProtocolError, match="no recorded request"):
         engine.record_model_exchange(ModelCallEvidence(ctx, second, "failure", 1, request,
                                                        error="duplicate terminal"))
-    wait = start_activity("等待", "自己")
+    target = next(row["object"] for row in observed["interaction_bindings"]
+                  if row["kind"] == "self" and any(item["label"] == "等待" for item in row["actions"]))
+    wait = start_activity("等待", target)
     engine.submit_action(DirectToolCall(
         ctx, "model-evidence-wait", "start_activity", wait))
     engine.commit_decision_round("model-evidence")

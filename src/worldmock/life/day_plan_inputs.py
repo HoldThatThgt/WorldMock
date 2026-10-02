@@ -168,7 +168,7 @@ def _place(engine: Any, location_id: str) -> str:
 
 def _conclusion_records(engine: Any, agent_id: int, window: _Window) -> tuple[list[dict], list[str]]:
     """@brief 回顾时段里已受理的 conclude_activity 请求逐项记下的 summary 与记忆原文（人物自述，未经核验；经 control_items
-    读出，每项先普通记忆、后看法与偏好，旧形状保持原来的顺序）。
+    读出，每项先普通记忆、后看法与偏好）。
 
     只取结果为 completed 的首次请求：被拒的请求与重放（reused）的请求不列，与动作结果的口径一致。
     """

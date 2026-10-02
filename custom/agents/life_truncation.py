@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from custom.agents.life_feedback import HostFeedback, feedback_content, host_feedback
-from worldmock.life.error_contract import host_report
+from worldmock.life.error_contract import ErrorItem, host_report
 
 #: 截断重试的思考开关与工具选择（接口合同「生成参数」；思考模式拒收 required，关闭思考后可用，真实探针见规格 7.2）。
 RETRY_THINKING = {"thinking": {"type": "disabled"}}
@@ -42,7 +42,10 @@ def truncated(response: Any) -> bool:
 
 def truncation_feedback() -> HostFeedback:
     """@brief 截断回合的纠错：OUTPUT_TRUNCATED 取登记的原因与改法，证据文字带英文说明。"""
-    return host_feedback(host_report("OUTPUT_TRUNCATED"), TRUNCATION_DETAIL)
+    item = ErrorItem(("tool_calls",), None, "OUTPUT_TRUNCATED",
+                     expected="One complete world request is required after the truncated output.",
+                     why=TRUNCATION_DETAIL)
+    return host_feedback(host_report("OUTPUT_TRUNCATED", items=(item,)), TRUNCATION_DETAIL)
 
 
 #: 截断纠错回给模型的正文（固定），用来判定消息历史是否以它结尾。

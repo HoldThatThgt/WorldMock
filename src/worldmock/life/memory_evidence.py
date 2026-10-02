@@ -3,7 +3,7 @@
 记忆写入点只有两处（docs/dev/SPEC-time-and-energy.md 第七章「finish 并入 conclude_activity」）：结束活动
 （activity_conclusion）与就寝反思（reflection），阈值巩固不是写入点。AS2 的 MemoryUpdateEvidence 不带写入点，
 由引擎按登记推导 memory_updated.data.trigger：同一决策已登记带记忆或看法的 conclude_activity（经 control_items
-读出，新旧形状同一口径）时含 activity_conclusion；绑定观察的唤醒原因含 wake_from_sleep 时含 reflection；顺序固定。
+读出，唯一 items 形状）时含 activity_conclusion；绑定观察的唤醒原因含 wake_from_sleep 时含 reflection；顺序固定。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ MEMORY_WRITE_POINTS = ("activity_conclusion", "reflection")
 
 
 def conclusion_has_memories(request: Any) -> bool:
-    """@brief conclude_activity 请求是否带至少一条记忆或看法（items[].memories 与 items[].views，旧形状的 memories[][]）。"""
+    """@brief conclude_activity 请求是否带至少一条记忆或看法（items[].memories 与 items[].views）。"""
     return any(item.memories for item in control_items("conclude_activity", request))
 
 

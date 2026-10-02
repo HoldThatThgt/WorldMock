@@ -1,0 +1,650 @@
+{
+  "schema_version": 1,
+  "source": {
+    "kind": "scenario",
+    "url": "scenario://worldmock/product-price-ranges",
+    "retrieved_at": "2026-10-01T08:00:00-04:00",
+    "license": "WorldMock-project",
+    "notice": "WorldMock scenario bounds are ninety and one hundred ten percent of the previously frozen catalog product price scale, rounded to integer fen. These are build input ranges and are not observed named-store prices.",
+    "fact_cutoff": "2026-10-01",
+    "applicability": "Food and household product price scales from the pre-tool-interaction frozen supply assumptions; independently positioned store quotes are generated from these reviewed simulation bounds."
+  },
+  "objects": {
+    "food-6923644266066": {
+      "purchase_price_fen_min": 612,
+      "purchase_price_fen_max": 748
+    },
+    "food-6928804010114": {
+      "purchase_price_fen_min": 315,
+      "purchase_price_fen_max": 385
+    },
+    "food-6917878044729": {
+      "purchase_price_fen_min": 1080,
+      "purchase_price_fen_max": 1320
+    },
+    "food-6924743919211": {
+      "purchase_price_fen_min": 891,
+      "purchase_price_fen_max": 1089
+    },
+    "food-6920152460061": {
+      "purchase_price_fen_min": 585,
+      "purchase_price_fen_max": 715
+    },
+    "food-6920459902387": {
+      "purchase_price_fen_min": 405,
+      "purchase_price_fen_max": 495
+    },
+    "food-6901209212215": {
+      "purchase_price_fen_min": 522,
+      "purchase_price_fen_max": 638
+    },
+    "food-8935090914864": {
+      "purchase_price_fen_min": 1512,
+      "purchase_price_fen_max": 1848
+    },
+    "food-6901939621738": {
+      "purchase_price_fen_min": 346,
+      "purchase_price_fen_max": 422
+    },
+    "food-6902083881085": {
+      "purchase_price_fen_min": 679,
+      "purchase_price_fen_max": 829
+    },
+    "food-6902538006575": {
+      "purchase_price_fen_min": 512,
+      "purchase_price_fen_max": 626
+    },
+    "food-6907992100272": {
+      "purchase_price_fen_min": 748,
+      "purchase_price_fen_max": 914
+    },
+    "food-6907992500942": {
+      "purchase_price_fen_min": 468,
+      "purchase_price_fen_max": 572
+    },
+    "food-6907992507095": {
+      "purchase_price_fen_min": 614,
+      "purchase_price_fen_max": 750
+    },
+    "food-6909548098880": {
+      "purchase_price_fen_min": 494,
+      "purchase_price_fen_max": 604
+    },
+    "food-6914973603394": {
+      "purchase_price_fen_min": 939,
+      "purchase_price_fen_max": 1147
+    },
+    "food-6916196410414": {
+      "purchase_price_fen_min": 671,
+      "purchase_price_fen_max": 821
+    },
+    "food-6921168593569": {
+      "purchase_price_fen_min": 430,
+      "purchase_price_fen_max": 526
+    },
+    "food-6921351120305": {
+      "purchase_price_fen_min": 1017,
+      "purchase_price_fen_max": 1243
+    },
+    "food-6922577790068": {
+      "purchase_price_fen_min": 557,
+      "purchase_price_fen_max": 681
+    },
+    "food-6923167524186": {
+      "purchase_price_fen_min": 1279,
+      "purchase_price_fen_max": 1563
+    },
+    "food-6923644223458": {
+      "purchase_price_fen_min": 492,
+      "purchase_price_fen_max": 602
+    },
+    "food-6924743919242": {
+      "purchase_price_fen_min": 768,
+      "purchase_price_fen_max": 938
+    },
+    "food-6924773540416": {
+      "purchase_price_fen_min": 1638,
+      "purchase_price_fen_max": 2002
+    },
+    "food-6937003704014": {
+      "purchase_price_fen_min": 372,
+      "purchase_price_fen_max": 454
+    },
+    "food-6937962112714": {
+      "purchase_price_fen_min": 633,
+      "purchase_price_fen_max": 773
+    },
+    "food-6938360357264": {
+      "purchase_price_fen_min": 1540,
+      "purchase_price_fen_max": 1882
+    },
+    "food-6943949415174": {
+      "purchase_price_fen_min": 841,
+      "purchase_price_fen_max": 1027
+    },
+    "food-6948939681928": {
+      "purchase_price_fen_min": 1175,
+      "purchase_price_fen_max": 1436
+    },
+    "food-6948939696106": {
+      "purchase_price_fen_min": 1498,
+      "purchase_price_fen_max": 1830
+    },
+    "food-6950955909610": {
+      "purchase_price_fen_min": 1054,
+      "purchase_price_fen_max": 1288
+    },
+    "food-6972020770130": {
+      "purchase_price_fen_min": 328,
+      "purchase_price_fen_max": 400
+    },
+    "food-6974800253352": {
+      "purchase_price_fen_min": 311,
+      "purchase_price_fen_max": 380
+    },
+    "food-0012256091053": {
+      "purchase_price_fen_min": 626,
+      "purchase_price_fen_max": 765
+    },
+    "food-0077330337335": {
+      "purchase_price_fen_min": 974,
+      "purchase_price_fen_max": 1190
+    },
+    "food-0140141789706": {
+      "purchase_price_fen_min": 788,
+      "purchase_price_fen_max": 963
+    },
+    "food-0654954240991": {
+      "purchase_price_fen_min": 1097,
+      "purchase_price_fen_max": 1341
+    },
+    "food-0690352170508": {
+      "purchase_price_fen_min": 1294,
+      "purchase_price_fen_max": 1582
+    },
+    "food-20917906": {
+      "purchase_price_fen_min": 439,
+      "purchase_price_fen_max": 537
+    },
+    "food-2100315223861": {
+      "purchase_price_fen_min": 460,
+      "purchase_price_fen_max": 562
+    },
+    "food-4045317058593": {
+      "purchase_price_fen_min": 565,
+      "purchase_price_fen_max": 691
+    },
+    "food-4100290005320": {
+      "purchase_price_fen_min": 549,
+      "purchase_price_fen_max": 671
+    },
+    "food-4891028705949": {
+      "purchase_price_fen_min": 495,
+      "purchase_price_fen_max": 605
+    },
+    "food-4897043061138": {
+      "purchase_price_fen_min": 1123,
+      "purchase_price_fen_max": 1373
+    },
+    "food-5400141055900": {
+      "purchase_price_fen_min": 1248,
+      "purchase_price_fen_max": 1526
+    },
+    "food-5410522513257": {
+      "purchase_price_fen_min": 738,
+      "purchase_price_fen_max": 902
+    },
+    "food-5411188132110": {
+      "purchase_price_fen_min": 491,
+      "purchase_price_fen_max": 600
+    },
+    "food-6900082020153": {
+      "purchase_price_fen_min": 725,
+      "purchase_price_fen_max": 886
+    },
+    "food-6900082020177": {
+      "purchase_price_fen_min": 699,
+      "purchase_price_fen_max": 855
+    },
+    "food-6900100204060": {
+      "purchase_price_fen_min": 635,
+      "purchase_price_fen_max": 776
+    },
+    "food-6900873056781": {
+      "purchase_price_fen_min": 663,
+      "purchase_price_fen_max": 811
+    },
+    "food-6901668005946": {
+      "purchase_price_fen_min": 646,
+      "purchase_price_fen_max": 790
+    },
+    "food-6901668008176": {
+      "purchase_price_fen_min": 1067,
+      "purchase_price_fen_max": 1305
+    },
+    "food-6902083814045": {
+      "purchase_price_fen_min": 712,
+      "purchase_price_fen_max": 870
+    },
+    "food-6902083891329": {
+      "purchase_price_fen_min": 313,
+      "purchase_price_fen_max": 383
+    },
+    "food-6902083897765": {
+      "purchase_price_fen_min": 476,
+      "purchase_price_fen_max": 582
+    },
+    "food-6902083922658": {
+      "purchase_price_fen_min": 748,
+      "purchase_price_fen_max": 914
+    },
+    "food-6902890235590": {
+      "purchase_price_fen_min": 1508,
+      "purchase_price_fen_max": 1844
+    },
+    "food-6906839701016": {
+      "purchase_price_fen_min": 429,
+      "purchase_price_fen_max": 525
+    },
+    "food-6907992102764": {
+      "purchase_price_fen_min": 673,
+      "purchase_price_fen_max": 823
+    },
+    "food-6907992513560": {
+      "purchase_price_fen_min": 561,
+      "purchase_price_fen_max": 685
+    },
+    "food-6911988018779": {
+      "purchase_price_fen_min": 323,
+      "purchase_price_fen_max": 395
+    },
+    "food-6911988033413": {
+      "purchase_price_fen_min": 1053,
+      "purchase_price_fen_max": 1287
+    },
+    "food-6917486003286": {
+      "purchase_price_fen_min": 624,
+      "purchase_price_fen_max": 762
+    },
+    "food-6920152497029": {
+      "purchase_price_fen_min": 499,
+      "purchase_price_fen_max": 609
+    },
+    "food-6920202888883": {
+      "purchase_price_fen_min": 332,
+      "purchase_price_fen_max": 406
+    },
+    "food-6920458835617": {
+      "purchase_price_fen_min": 397,
+      "purchase_price_fen_max": 485
+    },
+    "food-6920907810707": {
+      "purchase_price_fen_min": 731,
+      "purchase_price_fen_max": 893
+    },
+    "food-6920912360402": {
+      "purchase_price_fen_min": 828,
+      "purchase_price_fen_max": 1012
+    },
+    "food-6920934800863": {
+      "purchase_price_fen_min": 342,
+      "purchase_price_fen_max": 418
+    },
+    "food-6921355221411": {
+      "purchase_price_fen_min": 544,
+      "purchase_price_fen_max": 664
+    },
+    "food-6921555506035": {
+      "purchase_price_fen_min": 517,
+      "purchase_price_fen_max": 631
+    },
+    "food-6922507005019": {
+      "purchase_price_fen_min": 310,
+      "purchase_price_fen_max": 378
+    },
+    "food-6922577704188": {
+      "purchase_price_fen_min": 520,
+      "purchase_price_fen_max": 636
+    },
+    "food-6923404800974": {
+      "purchase_price_fen_min": 309,
+      "purchase_price_fen_max": 377
+    },
+    "food-6923555239845": {
+      "purchase_price_fen_min": 517,
+      "purchase_price_fen_max": 631
+    },
+    "food-6924743915084": {
+      "purchase_price_fen_min": 640,
+      "purchase_price_fen_max": 782
+    },
+    "food-6924743922570": {
+      "purchase_price_fen_min": 770,
+      "purchase_price_fen_max": 941
+    },
+    "food-6924769700497": {
+      "purchase_price_fen_min": 1565,
+      "purchase_price_fen_max": 1913
+    },
+    "food-6927770903437": {
+      "purchase_price_fen_min": 590,
+      "purchase_price_fen_max": 722
+    },
+    "food-6932009600742": {
+      "purchase_price_fen_min": 794,
+      "purchase_price_fen_max": 970
+    },
+    "food-6934158356785": {
+      "purchase_price_fen_min": 652,
+      "purchase_price_fen_max": 796
+    },
+    "food-6934665095511": {
+      "purchase_price_fen_min": 453,
+      "purchase_price_fen_max": 553
+    },
+    "food-6937962103293": {
+      "purchase_price_fen_min": 515,
+      "purchase_price_fen_max": 629
+    },
+    "food-6937973100212": {
+      "purchase_price_fen_min": 241,
+      "purchase_price_fen_max": 295
+    },
+    "food-6938536200103": {
+      "purchase_price_fen_min": 437,
+      "purchase_price_fen_max": 535
+    },
+    "food-6938866510453": {
+      "purchase_price_fen_min": 569,
+      "purchase_price_fen_max": 695
+    },
+    "food-6938866514680": {
+      "purchase_price_fen_min": 749,
+      "purchase_price_fen_max": 915
+    },
+    "food-6938866540726": {
+      "purchase_price_fen_min": 738,
+      "purchase_price_fen_max": 902
+    },
+    "food-6940471604106": {
+      "purchase_price_fen_min": 294,
+      "purchase_price_fen_max": 360
+    },
+    "food-6941734101356": {
+      "purchase_price_fen_min": 314,
+      "purchase_price_fen_max": 384
+    },
+    "food-6942656601269": {
+      "purchase_price_fen_min": 455,
+      "purchase_price_fen_max": 557
+    },
+    "food-6944839902385": {
+      "purchase_price_fen_min": 300,
+      "purchase_price_fen_max": 366
+    },
+    "food-6944839956548": {
+      "purchase_price_fen_min": 336,
+      "purchase_price_fen_max": 410
+    },
+    "food-6951444610017": {
+      "purchase_price_fen_min": 490,
+      "purchase_price_fen_max": 598
+    },
+    "food-6953367200078": {
+      "purchase_price_fen_min": 427,
+      "purchase_price_fen_max": 521
+    },
+    "food-6954767400785": {
+      "purchase_price_fen_min": 418,
+      "purchase_price_fen_max": 510
+    },
+    "food-6954767420363": {
+      "purchase_price_fen_min": 365,
+      "purchase_price_fen_max": 447
+    },
+    "food-6954767430461": {
+      "purchase_price_fen_min": 319,
+      "purchase_price_fen_max": 389
+    },
+    "food-6955150411456": {
+      "purchase_price_fen_min": 632,
+      "purchase_price_fen_max": 772
+    },
+    "food-6956367338666": {
+      "purchase_price_fen_min": 296,
+      "purchase_price_fen_max": 362
+    },
+    "food-6956511907885": {
+      "purchase_price_fen_min": 1915,
+      "purchase_price_fen_max": 2341
+    },
+    "food-6959090900971": {
+      "purchase_price_fen_min": 1745,
+      "purchase_price_fen_max": 2133
+    },
+    "food-6970561120155": {
+      "purchase_price_fen_min": 861,
+      "purchase_price_fen_max": 1053
+    },
+    "food-6970717330896": {
+      "purchase_price_fen_min": 546,
+      "purchase_price_fen_max": 668
+    },
+    "food-6971196385162": {
+      "purchase_price_fen_min": 476,
+      "purchase_price_fen_max": 582
+    },
+    "food-6971858720102": {
+      "purchase_price_fen_min": 600,
+      "purchase_price_fen_max": 734
+    },
+    "food-6972146801022": {
+      "purchase_price_fen_min": 519,
+      "purchase_price_fen_max": 635
+    },
+    "food-6972316600028": {
+      "purchase_price_fen_min": 1190,
+      "purchase_price_fen_max": 1454
+    },
+    "food-6972333776270": {
+      "purchase_price_fen_min": 707,
+      "purchase_price_fen_max": 865
+    },
+    "food-6972507871909": {
+      "purchase_price_fen_min": 992,
+      "purchase_price_fen_max": 1212
+    },
+    "food-6973989610468": {
+      "purchase_price_fen_min": 1319,
+      "purchase_price_fen_max": 1613
+    },
+    "food-6974348720972": {
+      "purchase_price_fen_min": 491,
+      "purchase_price_fen_max": 601
+    },
+    "food-7610900081738": {
+      "purchase_price_fen_min": 479,
+      "purchase_price_fen_max": 585
+    },
+    "food-7798085680165": {
+      "purchase_price_fen_min": 290,
+      "purchase_price_fen_max": 354
+    },
+    "food-8719132831179": {
+      "purchase_price_fen_min": 462,
+      "purchase_price_fen_max": 564
+    },
+    "food-8850025001023": {
+      "purchase_price_fen_min": 423,
+      "purchase_price_fen_max": 517
+    },
+    "food-8850987101021": {
+      "purchase_price_fen_min": 690,
+      "purchase_price_fen_max": 844
+    },
+    "food-8885013130058": {
+      "purchase_price_fen_min": 772,
+      "purchase_price_fen_max": 944
+    },
+    "food-9300639999005": {
+      "purchase_price_fen_min": 520,
+      "purchase_price_fen_max": 636
+    },
+    "food-9556771007584": {
+      "purchase_price_fen_min": 809,
+      "purchase_price_fen_max": 989
+    },
+    "meal-0001": {
+      "purchase_price_fen_min": 2520,
+      "purchase_price_fen_max": 3080
+    },
+    "meal-0002": {
+      "purchase_price_fen_min": 2340,
+      "purchase_price_fen_max": 2860
+    },
+    "meal-0003": {
+      "purchase_price_fen_min": 2880,
+      "purchase_price_fen_max": 3520
+    },
+    "meal-0004": {
+      "purchase_price_fen_min": 1800,
+      "purchase_price_fen_max": 2200
+    },
+    "meal-0005": {
+      "purchase_price_fen_min": 1620,
+      "purchase_price_fen_max": 1980
+    },
+    "meal-0006": {
+      "purchase_price_fen_min": 1800,
+      "purchase_price_fen_max": 2200
+    },
+    "meal-0007": {
+      "purchase_price_fen_min": 1620,
+      "purchase_price_fen_max": 1980
+    },
+    "meal-0008": {
+      "purchase_price_fen_min": 1500,
+      "purchase_price_fen_max": 1760
+    },
+    "meal-0009": {
+      "purchase_price_fen_min": 2700,
+      "purchase_price_fen_max": 3300
+    },
+    "meal-0010": {
+      "purchase_price_fen_min": 2880,
+      "purchase_price_fen_max": 3520
+    },
+    "meal-0011": {
+      "purchase_price_fen_min": 2880,
+      "purchase_price_fen_max": 3520
+    },
+    "meal-0012": {
+      "purchase_price_fen_min": 2700,
+      "purchase_price_fen_max": 3300
+    },
+    "meal-0013": {
+      "purchase_price_fen_min": 1500,
+      "purchase_price_fen_max": 1650
+    },
+    "meal-0014": {
+      "purchase_price_fen_min": 1980,
+      "purchase_price_fen_max": 2420
+    },
+    "meal-0015": {
+      "purchase_price_fen_min": 1620,
+      "purchase_price_fen_max": 1980
+    },
+    "meal-0016": {
+      "purchase_price_fen_min": 1620,
+      "purchase_price_fen_max": 1980
+    },
+    "meal-0017": {
+      "purchase_price_fen_min": 1500,
+      "purchase_price_fen_max": 1650
+    },
+    "meal-0018": {
+      "purchase_price_fen_min": 1980,
+      "purchase_price_fen_max": 2420
+    },
+    "meal-0019": {
+      "purchase_price_fen_min": 1800,
+      "purchase_price_fen_max": 2200
+    },
+    "meal-0020": {
+      "purchase_price_fen_min": 2520,
+      "purchase_price_fen_max": 3080
+    },
+    "meal-0021": {
+      "purchase_price_fen_min": 1500,
+      "purchase_price_fen_max": 1760
+    },
+    "meal-0022": {
+      "purchase_price_fen_min": 3240,
+      "purchase_price_fen_max": 3960
+    },
+    "meal-0023": {
+      "purchase_price_fen_min": 3780,
+      "purchase_price_fen_max": 4500
+    },
+    "meal-0024": {
+      "purchase_price_fen_min": 2880,
+      "purchase_price_fen_max": 3520
+    },
+    "meal-0025": {
+      "purchase_price_fen_min": 3420,
+      "purchase_price_fen_max": 4180
+    },
+    "meal-0026": {
+      "purchase_price_fen_min": 2340,
+      "purchase_price_fen_max": 2860
+    },
+    "meal-0027": {
+      "purchase_price_fen_min": 2700,
+      "purchase_price_fen_max": 3300
+    },
+    "meal-0028": {
+      "purchase_price_fen_min": 3150,
+      "purchase_price_fen_max": 3850
+    },
+    "meal-0029": {
+      "purchase_price_fen_min": 2520,
+      "purchase_price_fen_max": 3080
+    },
+    "meal-0030": {
+      "purchase_price_fen_min": 1500,
+      "purchase_price_fen_max": 1760
+    },
+    "item-umbrella": {
+      "purchase_price_fen_min": 3591,
+      "purchase_price_fen_max": 4389
+    },
+    "item-notebook": {
+      "purchase_price_fen_min": 1161,
+      "purchase_price_fen_max": 1419
+    },
+    "item-charger": {
+      "purchase_price_fen_min": 5391,
+      "purchase_price_fen_max": 6589
+    },
+    "item-detergent": {
+      "purchase_price_fen_min": 2331,
+      "purchase_price_fen_max": 2849
+    },
+    "item-tissues": {
+      "purchase_price_fen_min": 621,
+      "purchase_price_fen_max": 759
+    },
+    "item-toothbrush": {
+      "purchase_price_fen_min": 1431,
+      "purchase_price_fen_max": 1749
+    },
+    "item-headphones": {
+      "purchase_price_fen_min": 11610,
+      "purchase_price_fen_max": 14190
+    },
+    "item-metro-card": {
+      "purchase_price_fen_min": 4500,
+      "purchase_price_fen_max": 5500
+    }
+  }
+}

@@ -1828,8 +1828,7 @@ def test_world_actions_without_request_or_unknown_tool_leave_no_evidence() -> No
     assert worldmock_public_evidence([unknown], [], {}) == ()
     unmapped = _public_event(
         1, "action_requested",
-        {"tool_name": "start_activity", "request": {"targets": ["活动：冥想"], "actions": ["interact"],
-                                                   "ways": ["冥想"]}}, "t1",
+        {"tool_name": "start_activity", "request": {'items': [{'target': '活动：冥想', 'way': '冥想', 'from': None, 'to': None}], 'answering': None, 'prefer': None}}, "t1",
     )
     assert worldmock_public_evidence([unmapped], [], {}) == ()
     without_ways = _public_event(
@@ -1848,7 +1847,7 @@ def test_world_actions_without_request_or_unknown_tool_leave_no_evidence() -> No
 def test_start_travel_projects_route_identity_mode_and_payment() -> None:
     request = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {"targets": ["地点：公园"], "actions": ["travel"], "ways": ["步行"]}},
+                             "request": {'items': [{'target': '地点：公园', 'way': '步行', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                             "travel-action")
     result = _public_event(2, "action_result",
                            {"status": "completed",
@@ -1866,12 +1865,12 @@ def test_start_travel_projects_route_identity_mode_and_payment() -> None:
 
     unsupported = _public_event(1, "action_requested",
                                 {"tool_name": "start_activity",
-                                 "request": {"targets": ["地点：公园"], "actions": ["travel"], "ways": ["火箭"]}},
+                                 "request": {'items': [{'target': '地点：公园', 'way': '火箭', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                                 "travel-action")
     assert worldmock_public_evidence([unsupported], [], {}) == ()
     retired = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {"targets": ["地点：公园"], "actions": ["travel"], "ways": ["步行前往"]}},
+                             "request": {'items': [{'target': '地点：公园', 'way': '步行前往', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                             "travel-action")
     assert worldmock_public_evidence([retired], [], {}) == ()
 
@@ -1879,15 +1878,15 @@ def test_start_travel_projects_route_identity_mode_and_payment() -> None:
 def test_social_actions_project_chat_and_call_partner_objects() -> None:
     chat = _public_event(1, "action_requested",
                          {"tool_name": "start_activity",
-                          "request": {"targets": ["人物：同事"], "actions": ["interact"], "ways": ["交谈"]}},
+                          "request": {'items': [{'target': '人物：同事', 'way': '交谈', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                          "social-1")
     call = _public_event(2, "action_requested",
                          {"tool_name": "start_activity",
-                          "request": {"targets": ["联系人：朋友"], "actions": ["interact"], "ways": ["通话"]}},
+                          "request": {'items': [{'target': '联系人：朋友', 'way': '通话', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                          "social-2")
     hug = _public_event(3, "action_requested",
                         {"tool_name": "start_activity",
-                         "request": {"targets": ["人物：同事"], "actions": ["interact"], "ways": ["拥抱"]}},
+                         "request": {'items': [{'target': '人物：同事', 'way': '拥抱', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                         "social-3")
     evidence = worldmock_public_evidence([chat, call, hug], [], {})
     assert [(item.interaction, item.object_type, item.object_key) for item in evidence] == [
@@ -1900,7 +1899,7 @@ def test_parallel_start_keeps_supported_evidence_when_other_action_has_no_public
     request = _public_event(
         1, "action_requested",
         {"tool_name": "start_activity",
-         "request": {"targets": ["地点：公园", "自己"], "actions": ["travel", "interact"], "ways": ["步行", "等待"]}},
+         "request": {'items': [{'target': '地点：公园', 'way': '步行', 'from': None, 'to': None}, {'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
         "parallel-action",
     )
     result = _public_event(
@@ -1920,8 +1919,7 @@ def test_parallel_start_keeps_supported_evidence_when_other_action_has_no_public
 def test_game_and_targeted_keys_come_from_actual_activity_data() -> None:
     game_request = _public_event(1, "action_requested",
                                  {"tool_name": "start_activity",
-                                  "request": {"targets": ["游戏：逃脱冒险"], "actions": ["interact"],
-                                              "ways": ["游玩"]}},
+                                  "request": {'items': [{'target': '游戏：逃脱冒险', 'way': '游玩', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                                  "game-action")
     game_result = _public_event(2, "action_result",
                                 {"status": "completed",
@@ -1939,7 +1937,7 @@ def test_game_and_targeted_keys_come_from_actual_activity_data() -> None:
 
     watch = _public_event(1, "action_requested",
                           {"tool_name": "start_activity",
-                           "request": {"targets": ["内容：影片"], "actions": ["interact"], "ways": ["接着看"]}},
+                           "request": {'items': [{'target': '内容：影片', 'way': '接着看', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                           "watch-action")
     watched = _public_event(2, "action_result",
                             {"status": "completed",
@@ -2065,7 +2063,7 @@ def test_activity_shapes_use_real_targets_and_closed_categories() -> None:
 def test_purchase_and_work_results_follow_actual_object_states() -> None:
     request = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {"targets": ["商店出售的午餐"], "actions": ["obtain"], "ways": ["到店"]}},
+                             "request": {'items': [{'target': '商店出售的午餐', 'way': '到店', 'from': None, 'to': None}], 'answering': None, 'prefer': '最快拿到'}},
                             "purchase-1")
     cooked = _public_event(2, "action_result",
                            {"status": "completed",
@@ -2087,7 +2085,7 @@ def test_purchase_and_work_results_follow_actual_object_states() -> None:
 
     consume = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {"targets": ["持有物：午餐"], "actions": ["consume"], "ways": ["食用"]}},
+                             "request": {'items': [{'target': '持有物：午餐', 'way': '食用', 'from': None, 'to': None}], 'answering': None, 'prefer': None}},
                             "consume-1")
     failed = _public_event(2, "action_result",
                            {"status": "rejected", "data": {"activity": {"status": "cancelled"}}},
@@ -2099,7 +2097,7 @@ def test_purchase_and_work_results_follow_actual_object_states() -> None:
 def test_purchase_request_without_object_result_keeps_missing_order_identity() -> None:
     request = _public_event(1, "action_requested",
                             {"tool_name": "start_activity",
-                             "request": {"targets": ["商店出售的午餐"], "actions": ["obtain"], "ways": ["到店"]}},
+                             "request": {'items': [{'target': '商店出售的午餐', 'way': '到店', 'from': None, 'to': None}], 'answering': None, 'prefer': '最快拿到'}},
                             "purchase-1")
     result = _public_event(2, "action_result",
                            {"status": "completed", "data": {"receipt": "no order here"}},

@@ -45,17 +45,21 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
         return _product_release(state, event)
     if event.kind == ScheduledKind.MESSAGE_ARRIVAL:
         return _deliver_message(state, event)
-    return _reveal_event(state, event)
+    return _reveal_event(state, event, semantics)
 
 
-def _reveal_event(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
+def _reveal_event(state: WorldState, event: ScheduledEvent, semantics: ScenarioSemantics) -> ScheduledOutcome:
     """@brief 到达邮件和可用任务只增加对应人物的实际可见身份。"""
     if event.kind not in {ScheduledKind.MAIL_ARRIVAL, ScheduledKind.WORK_AVAILABLE}:
         raise IntegrityError(f"Unsupported scheduled event kind: {event.kind}")
     agent = state.agents[event.agent_id]
     if event.kind == ScheduledKind.MAIL_ARRIVAL:
         visible = set(agent.visible_message_ids) | {event.data["message_id"]}
-        agent = agent.model_copy(update={"visible_message_ids": visible}, deep=True)
+        message = next(item for item in semantics.scenario.messages if item.message_id == event.data["message_id"])
+        tasks = set(agent.visible_task_ids)
+        if message.related_task_id is not None:
+            tasks.add(message.related_task_id)
+        agent = agent.model_copy(update={"visible_message_ids": visible, "visible_task_ids": tasks}, deep=True)
     else:
         visible = set(agent.visible_task_ids) | {event.data["task_id"]}
         agent = agent.model_copy(update={"visible_task_ids": visible}, deep=True)
@@ -144,7 +148,8 @@ def _price_change(state: WorldState, event: ScheduledEvent,
         raise IntegrityError("Scheduled price change references an unknown supply")
     previous = effective_quote(state.supply_quotes[supply_id], event.due_at)
     supply = next(item for item in semantics.scenario.supplies if item.supply_id == supply_id)
-    quote = changed_quote(previous, supply, event)
+    product = next(item for item in semantics.scenario.products if item.product_id == supply.product_id)
+    quote = changed_quote(previous, supply, event, product)
     quotes = dict(state.supply_quotes)
     quotes[supply_id] = quote
     changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)

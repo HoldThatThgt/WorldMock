@@ -4,7 +4,8 @@
 > 部分条款按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；修订记录见「版本表」。
 > 「候选与呈现」「画像编译」「地图、门店供给与活动环境」「呈现与导出」「默认裁决与备选」与验收矩阵中的相应条款按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订
 > （一日运行保真 RL1–RL4）；修订部分已实现并通过离线验收，验收矩阵中改动的三行已改记 `代码层已验证`。
-> 日期：2026-09-29
+> 工具交互修订：按[工具交互规格](SPEC-tool-interaction.md)冻结目标行为；本次修订已实现，历史验收不覆盖新的请求、查询、任务通知与地点供给要求。
+> 日期：2026-10-01
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
 > 范围：人物的记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
@@ -93,14 +94,14 @@ flowchart TD
 
 ## 单一行动阶段
 
-每一次决策机会只有一个行动阶段：人物模型可以先查询自己的记忆，也可能有协议纠错回合，然后恰好提交一个世界请求，
-登记即结束；决策就是所选的世界请求，不另设决策自述阶段。没有记忆查询与纠错时，一次决策恰好一次模型请求；
+每一次决策机会只有一个行动阶段：人物模型可以先查询记忆、回看任务或查询世界，也可能有协议纠错回合，然后恰好提交一个世界请求，
+登记即结束；决策就是所选的世界请求，不另设决策自述阶段。没有只读查询与纠错时，一次决策恰好一次模型请求；
 所有请求与响应都留完整证据。请求组成、同秒续接与只读问答以[人物 Prompt 规格](SPEC-persona-prompt.md)第一、二章为准；
 动作登记、回执隔离与公开结果字段以 [决策上下文规格](SPEC-decision-context.md) 为准。
 
 | 阶段 | 请求 | 输出 |
 | --- | --- | --- |
-| 行动 | 原生 `tools`（整次运行不变，只剩最后一个回合时与输出截断后的那次重试时去掉记忆查询工具，见一日运行保真规格 7.2）；system 为系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六层 JSON；同一秒接着决策时追加上一决策的原生 assistant 与 tool 消息 | 可选的回复正文与恰好一个世界请求，登记即结束；同秒续接时此前各 assistant 回合原样回传 `reasoning_content` |
+| 行动 | 原生 `tools`（整次运行不变，只剩最后一个回合时与输出截断后的那次重试时去掉全部只读查询工具）；system 为系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六层 JSON；同一秒接着决策时追加上一决策的原生 assistant 与 tool 消息 | 可选的回复正文与恰好一个世界请求，登记即结束；同秒续接时此前各 assistant 回合原样回传 `reasoning_content` |
 
 七层各自的字段与唯一出现原则见[人物 Prompt 规格](SPEC-persona-prompt.md)第一章，禁止进入提示的字段见
 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」；请求组成、生成参数、模型身份与工具面只在
@@ -113,11 +114,19 @@ flowchart TD
 - 回复正文可有可无：提交世界请求那一次回复的非空正文写入 `action_requested.data.self_note`，在本段停留或路程的进度层中随该调用出现，
   不进入记忆；不要求、不重问、不代写
 - 回复正文与思考都不是动作，不改变世界；思考只在同一秒的连续决策中原样回传，时间推进后丢弃，不进入七层中的任何一层
-- 每次决策至多 16 个回合，全部归行动阶段：为世界请求保留 1 个回合，剩余不少于 2 个时才开放记忆查询
-  （`memory_recent`、`memory_search`、`memory_time_range`）；非法响应反馈沿用现有条款；无 `finish`，
-  记忆随 `conclude_activity.memories` 写入，允许空
+- 每次决策至多 16 个回合，全部归行动阶段：为世界请求保留 1 个回合，剩余不少于 2 个时才开放只读查询
+  （`memory_recent`、`memory_search`、`memory_time_range`、`recall_task_summary`、`query_world`）；只读查询可同批，
+  不结束决策、不计同刻轮数、不消耗模拟时间，含查询的模型回复仍计十六回合；非法响应反馈沿用现有条款；无 `finish`。
+  世界查询返回 `{matches, total_count, next_offset}`，只保留模型与 tool 交换证据，不写进度层 `events` 或人物记忆。
+  记忆随 `conclude_activity.items[].memories` 写入，允许空
 - 行动阶段的 `start_activity` 动作取冻结观察中的有效交互菜单，列在工具层；动作不按人物状态隐藏，此刻不能做的标
   `available=false` 并写明 `reason`；人物的 `interaction_menu` 是显式场景准入声明，不由人格特征、口味权重或动机评分推导
+- `start_activity.items[]` 只提交一至两项 `{target, way, from, to}` 与请求级字段，删除旧平行数组和 `actions`；
+  目标与方式唯一解析内部动作，本人进食或使用的 `consume` 两端均为 null，给予通过「给予」方式独立表达。
+  取得给本人时 `to=null`；包含购买的请求 `prefer` 必须取「最快拿到」或「到手价最低」，其他请求必须为 null。
+  `query_world(name, way, category, offset)` 只查询人物有权知道的世界事实；筛选键可空，偏移量为非负整数，末页 `next_offset=null`。
+- 接口报错一律返回英文原因与逐项 `items[]`，每项带完整 `path`、`allowed_values` 和 `expected`，
+  合法枚举按该参数位置给出；当天名称与参数拒绝由进度层 `rejected_today` 跨时刻呈现，不能用未经核验的偏好记忆替代。
 
 依据：DeepSeek 思考模式文档规定请求带 `tools` 时此前每个 assistant 回合的 `reasoning_content` 都须原样回传，
 不在消息中的回合不受此约束，这决定了同秒续接与时间推进后丢弃思考的切分；
@@ -125,7 +134,7 @@ Humanoid Agents 与 Sotopia 都把内部状态或私有目标作为显式输入�
 
 ## 记忆合同
 
-记忆随 `conclude_activity.memories` 写入，允许空数组：没有值得记录的新事件时不写记忆，AS2 运行时不以空列表为错误。
+记忆随 `conclude_activity.items[].memories` 写入，允许空数组：没有值得记录的新事件时不写记忆，AS2 运行时不以空列表为错误。
 播报与暂停不带记忆。条数上限与字段面见 `docs/CONTRACTS.md`「记忆字段」。
 
 **写入规则**：
@@ -223,9 +232,22 @@ flowchart LR
 | 办公室的可供性 | 茶水间饮水（免费、5 分钟、微量娱乐缓解）、会议室（会议任务）、同事在场 |
 | 正餐 | 至少 30 个正餐类商品（热食、餐馆菜、外卖套餐），热量来源为中国食物成分表或 USDA FNDDS 并标注来源，门店供给报价 15–45 元为场景假设，用餐时长 20–40 分钟，可堂食或配送 |
 | 内容 | 每个观看条目必须有 `title`、`genre[]`、`language`、`age_rating`；白领场景拒绝 `age_rating ≥ 18` 的条目；现有 `drama` 语料（英文视觉小说脚本）整体替换；此外每个条目必须携带可作检索分区键的条目属性——题材（`genre[]`）、语言（`language`）、时长段（由 `duration_seconds` 落格）三项不得缺省，检索分区即由这三项的组合构成 |
-| 工作 | 84 天至少 20 份互不相同、与人物职业匹配的中文输入材料；`tasks[].assignee_agent_id` 必填，合同按人分配 |
+| 工作 | 84 天至少 20 份互不相同、与人物职业匹配的中文输入材料；`tasks[].assignee_agent_id` 必填，合同按人分配；每项至少有一封关联通知邮件，每封非空 `related_task_id` 均引用存在任务且收件人为该任务受派人物；正式材料在通知前已经有效 |
 | 生活活动 | 条目 Schema 增加 `location_kinds`、`time_window`、`needs_partner`、`effects`（娱乐、社交、健康）；启用集由画像编译产生 |
 | 联系人 | 每个人物都要配到至少两名联系人：同事与其他人物对应，老友或家人由场景联系人担任；联系人与回复策略的行为规则见 `docs/dev/SPEC-life-runtime.md`「社交最小可行版」 |
+
+任务输入的 `appointment` 必填：普通工作为 null，真实预约为 `{starts_at, reason}`，两键必填且原因非空、时刻带时区。
+输入删除 `available_at`、`availability_kind`、`appointment_reason`；普通工作的内部 `RuntimeWorkTask.available_at`
+由最早发给受派人的关联邮件 `sent_at` 编译，通知送达即使人物知道任务，到达要求地点后可以开工，不因九点上班或阅读动作等待。
+必须提前约定时间的活动提供非空预约对象，内部开放时刻取 `appointment.starts_at`，最早关联通知不得晚于该时刻；
+后续关联提醒可以在开始之后送达，不改变已派生的开放时刻。
+提前通知只使任务可知，开工仍带真实时刻的英文不可用原因。合同元信息可以先公开，邮件正文仍须阅读。
+`contract{opens, deadline, place, remaining, outlook}` 只在任务目标出现，邮件结果的任务引用只写关联任务完整名称，不复制合同元信息。
+邮件到达不公开正文，阅读结果保留实际正文，不公开验收答案。
+开放可早于运行起点，截止必须晚于运行起点与开放时刻；已到达通知和已开放事实在首次观察前原子初始化。
+会议分析或纪要整理有现成输入时属于普通工作，不能因标题含会议归为预约。当前没有任务依赖模型，
+本特性不增加依赖接口；未具备的材料应在通知前补齐并验证，不能通过预约时间掩盖。
+工作窗口满足真实截止与合同工时要求；不把有效工时的固定倍数当作所有任务的共同下限。
 
 ### `location_kinds` 的运行期强制语义
 
@@ -432,6 +454,12 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 请求级 `prefer`（最快或最便宜）把挑店交给系统，系统按该偏好选定并写明所选门店（[一日运行保真规格](SPEC-dayrun-fidelity.md) 3.5）。
 候选仍使用原类型闭集，购买身份取供给，消费与商品多样性取商品；不能把两家门店计成两种商品。
 
+正式地点由同一 `category-assignment.json` 的 kind 准入池与逐店类别、对象、价格位置和来源声明分配供给。
+每店取本店类别后代对象全集与显式对象并集，验证全部处于 kind 池；禁止每店复制根池或随机抽样。
+价格按逐店位置与确定性小幅偏移在声明范围内构建一次，随后作为显式 Quote 冻结。
+不能只给每个地点随机分配零星条目，也不能在每轮观察或每次购买时重抽价格。类别分配、价格来源与构建验收
+以[工具交互规格](SPEC-tool-interaction.md)和[地图与门店供给规格](SPEC-map-and-storefront.md)的冻结条款为准。
+
 活动环境来自唯一地图地点目录的显式非空声明，按场景选中地点装配；不再依靠缺失声明时的放行路径。
 经营业态、可选品牌和交互菜单地点类不自动生成活动环境。发现动作进入正常单动作协议，
 结果结算后进入下一次观察；浏览与呈现只管展示与比较，不是购买资格上限，未呈现的商品按指名购买解析。
@@ -439,9 +467,10 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 ## 商务与进食
 
-`purchase.items` 为一至五个不同门店供给与数量，必须同地点、同卖方、同履约方式，一次付款、一次配送；
-同账户跨地点也拒绝，重复供给明确拒绝；任一项不可购则整单无副作用，不自动删件。`consume.items` 为 1–3 件已持有的食品，同一地点一次进食，用餐时长取最长者，
-热量与效果累加；非食品使用仍为单件。家中储备与超市补货按「世界素材品类要求」执行。请求与结果字段见
+人物通过 `start_activity.items[]` 选择至多两项对象与方式；取得商品且门店与履约方式相同的两项可以合单，
+一次付款、一次配送，任一项不可购则整单无副作用、不自动删件。同账户跨地点也拒绝，重复供给明确拒绝。
+两项已持有食品可以同一请求合成一餐，`from`、`to` 均为 null，用餐时长取最长者、热量与效果累加；
+非食品使用仍为单件。给予由「给予」方式表达，只转移持有、不计摄入。家中储备与超市补货按「世界素材品类要求」执行。请求与结果字段见
 `docs/CONTRACTS.md`，动作结算规则见 `docs/dev/SPEC-life-runtime.md`「具体活动结算」。
 
 进食按开吃份量结算：开始进食时，每件取 `min(1, 手边持有)` 从库存移入活动数据的 `opened`，摄入只按 `opened` 与实际进度计算，
@@ -527,6 +556,12 @@ flowchart LR
 
 ## 验收矩阵
 
+工具交互修订已实现；`items[]`请求、只读查询、任务通知与类别供给的历史证据不能充当新行为验收。
+本特性按错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现完成可独立复验的端到端阶段，
+具体门禁见[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)；每阶段只发布自身实际改变的身份，不保留双格式。
+本次必须按[工具交互规格](SPEC-tool-interaction.md)分别完成生产入口行为测试与独立变异测试，
+验证八点通知后的普通工作到公司即能开工、预约例外有真实依据、逐店声明的对象完整可获得且价格在冻结范围内。
+
 下表给出每条条款的观察、证据位置与状态；实际门禁结果与收据见 `docs/dev/implementation-status.md`。
 确定性测试与门禁已通过的记 `代码层已验证`；必须等正式模型运行或真实盲评才能判定的记
 `待真实运行`；已有合同尚未贯通正式输入的记 `既有实现缺口`；按人物 Prompt 规格修订、尚未重新验收的记 `离线验收待执行`（这些行已在最终代码上重新验收，改记 `代码层已验证`）。
@@ -534,9 +569,9 @@ flowchart LR
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
-| 单一行动阶段 | 没有记忆查询的决策恰好一次模型请求，不产生自述请求；`decision_started` 与首个行动请求同批且在前，`data` 为闭集；回复正文有则写入 `action_requested.data.self_note` 并在本 session 的进度层出现，没有时不重问、不代写 | `tests/integration/test_seven_layer_request.py`、`tests/integration/test_life_agent_protocol.py`；[人物 Prompt 规格](SPEC-persona-prompt.md)验收台账「单一行动阶段」「回复正文」 | 代码层已验证 |
+| 单一行动阶段 | 没有只读查询或纠错的决策恰好一次模型请求，不产生自述请求；`decision_started` 与首个行动请求同批且在前，`data` 为闭集；回复正文有则写入 `action_requested.data.self_note` 并在本 session 的进度层出现，没有时不重问、不代写 | `tests/integration/test_seven_layer_request.py`、`tests/integration/test_life_agent_protocol.py`；[人物 Prompt 规格](SPEC-persona-prompt.md)验收台账「单一行动阶段」「回复正文」 | 历史离线覆盖；查询扩展待实现 |
 | 回复正文与交付窗口 | `self_note` 随实际请求进入动作与意图窗口并进入 dreaming 输入；实际请求中的 `reasoning_content` 原样保留；交付不重新渲染 `scene` | `tests/delivery/test_windows.py` | 代码层已验证 |
-| 记忆写入 | `conclude_activity.memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻；relationship、preference 带 `subject`，同一对象后写的看法替换先写的，事件中两条都保留；反例：首次购买后只写「明天还想吃」时人设层 `preferences` 为空 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、`tests/life/test_persona_layer.py`（看法替换与「明天还想吃」反例）、一日行为端到端验收 | 代码层已验证 |
+| 记忆写入 | `conclude_activity.items[].memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻；relationship、preference 带 `subject`，同一对象后写的看法替换先写的，事件中两条都保留；反例：首次购买后只写「明天还想吃」时人设层 `preferences` 为空 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、`tests/life/test_persona_layer.py`（看法替换与「明天还想吃」反例）、一日行为端到端验收 | 代码层已验证 |
 | 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节；巩固摘要不进入人物决策提示；反思按睡眠开始时刻前推 6 小时的本地日期归属（23:00、01:00 入睡与 14:00 小睡） | AS2 分支记忆测试、`tests/integration/test_conclude_memories.py` 的 `test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`、`tests/life/test_memory_layer.py`（反思归属日期）、`tests/life/test_persona_layer.py`（巩固摘要不进提示）、一日行为端到端验收 | 代码层已验证 |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重，也没有 `drive_summary`；体感只以环境层五项分级出现；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
@@ -601,6 +636,7 @@ flowchart LR
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
+| `2026-10-01-tool-interaction` | 2026-10-01 | 工具交互修订冻结并已实现：只读回看与世界查询、`items[]`请求、严格偏好枚举及本人消费空来源去向、英文错误与操作备忘；工作通知完整关联并普通工作收件即开放，预约必须有现实依据；地点按类别提供匹配对象并在构建时冻结范围报价；删除人物面旧购买与消费参数表述，新行为须通过行为与变异测试 |
 | 1 | 2026-09-18 | 人物决策与画像条款从主设计单体拆分并冻结为本规格 |
 | 2 | 2026-09-18 | 接口定义改引 `docs/CONTRACTS.md` 对应章节，本规格只留行为规则与算法理由；日程骨架验收观察按源码补「首次提交」限定；设计裁决表改为一行一个症状并统一条款引用体例；中文正文统一称「人物卡片」 |
 | 3 | 2026-09-18 | 「两阶段决策」的决策自述信息范围改为引用 `docs/CONTRACTS.md`「决策自述证据」，本规格不再复述决策自述的可读任务与可见输入 |

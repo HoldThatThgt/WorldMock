@@ -7,7 +7,7 @@
     "map": "frozen-inputs/corpora/qingpu-lianqiu-map (locations.json, supplies.json, routes.json)",
     "catalog": "frozen-inputs/catalog/objects.jsonl",
     "spec": "docs/dev/SPEC-dayrun-fidelity.md 3.2, 3.3 (WC 18:15 requests #882, #890, #994)",
-    "note": "Request payloads are copied verbatim; they predate the request-level prefer field (3.5), which a replay fills with null (fastest)."
+    "note": "Historical target and source choices are encoded in the current strict items protocol; self is null and purchase preference is 最快拿到. Replay uses published frozen quotes rather than overwriting the historical price metadata."
   },
   "scenario_id": "qingpu-lianqiu-white-collar-2026-09-28",
   "timezone": "Asia/Shanghai",
@@ -74,27 +74,22 @@
       "occurred_at": 1790590500,
       "tool_name": "start_activity",
       "request": {
-        "actions": [
-          "obtain",
-          "obtain"
+        "items": [
+          {
+            "target": "番茄",
+            "way": "远程下单",
+            "from": "盒马App",
+            "to": null
+          },
+          {
+            "target": "鸡蛋",
+            "way": "远程下单",
+            "from": "盒马App",
+            "to": null
+          }
         ],
         "answering": null,
-        "from": [
-          "盒马App",
-          "盒马App"
-        ],
-        "targets": [
-          "番茄",
-          "鸡蛋"
-        ],
-        "to": [
-          "自己",
-          "自己"
-        ],
-        "ways": [
-          "远程下单",
-          "远程下单"
-        ]
+        "prefer": "最快拿到"
       },
       "recorded_rejection": {
         "error_code": "SUPPLY_NOT_FOUND",
@@ -108,27 +103,22 @@
       "occurred_at": 1790590500,
       "tool_name": "start_activity",
       "request": {
-        "actions": [
-          "obtain",
-          "obtain"
+        "items": [
+          {
+            "target": "模拟生鲜出货点出售的番茄",
+            "way": "远程下单",
+            "from": "模拟生鲜出货点",
+            "to": null
+          },
+          {
+            "target": "模拟生鲜出货点出售的鸡蛋",
+            "way": "远程下单",
+            "from": "模拟生鲜出货点",
+            "to": null
+          }
         ],
         "answering": null,
-        "from": [
-          "模拟生鲜出货点",
-          "模拟生鲜出货点"
-        ],
-        "targets": [
-          "模拟生鲜出货点出售的番茄",
-          "模拟生鲜出货点出售的鸡蛋"
-        ],
-        "to": [
-          "自己",
-          "自己"
-        ],
-        "ways": [
-          "远程下单",
-          "远程下单"
-        ]
+        "prefer": "最快拿到"
       },
       "recorded_rejection": {
         "error_code": "ACTION_REQUEST_INVALID",
@@ -142,22 +132,16 @@
       "occurred_at": 1790594295,
       "tool_name": "start_activity",
       "request": {
-        "actions": [
-          "obtain"
+        "items": [
+          {
+            "target": "模拟生鲜出货点出售的番茄",
+            "way": "远程下单",
+            "from": "盒马App",
+            "to": null
+          }
         ],
         "answering": null,
-        "from": [
-          "盒马App"
-        ],
-        "targets": [
-          "模拟生鲜出货点出售的番茄"
-        ],
-        "to": [
-          "自己"
-        ],
-        "ways": [
-          "远程下单"
-        ]
+        "prefer": "最快拿到"
       },
       "recorded_rejection": {
         "error_code": "ACTION_REQUEST_INVALID",

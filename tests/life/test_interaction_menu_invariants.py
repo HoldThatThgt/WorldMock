@@ -8,11 +8,8 @@ import pytest
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.errors import IntegrityError
-from worldmock.life.interaction_menu import (
-    ACTION_WAYS, CONTENT_WAYS, LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS,
-    InteractionMenu, activity_phrase, binding_action, menu_allows_action, merged_selection, public_action,
-    resolve_selection,
-)
+from worldmock.life.interaction_menu import ACTION_WAYS, CONTENT_WAYS, LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS, InteractionMenu, activity_phrase, binding_action, menu_allows_action, merged_selection, public_action
+from tests.life.conftest import select_start, start_arguments
 from worldmock.life.models import REQUEST_MODELS
 from worldmock.life.scenario import load_scenario
 
@@ -97,22 +94,22 @@ def test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_a
     （docs/dev/SPEC-dayrun-fidelity.md 3.1）在目标列出的方式里恰好命中「步行」时受理，不是方式闭集的成员；菜单按映射后的
     内部动作判定。"""
     bindings = _bindings()
-    walked = resolve_selection(bindings, ["地点：办公室"], ["travel"], ["步行"])
+    walked = select_start(bindings, start_arguments(["地点：办公室"], ["travel"], ["步行"]))
     assert [row["selected_action"]["canonical_action"] for row in walked] == ["travel_to"]
     assert walked[0]["selected_action"]["travel_mode"] == "walking" and walked[0]["object_id"] == "office"
-    [synonym] = resolve_selection(bindings, ["办公室"], ["travel"], ["步行前往"])
+    [synonym] = select_start(bindings, start_arguments(["办公室"], ["travel"], ["步行前往"]))
     assert (synonym["object"], synonym["selected_action"]["label"]) == ("地点：办公室", "步行")
     assert "步行前往" not in WAYS
-    pair = resolve_selection(bindings, ["地点：办公室", "自己"], ["travel", "interact"], ["驾车", "等待"])
+    pair = select_start(bindings, start_arguments(["地点：办公室", "自己"], ["travel", "interact"], ["驾车", "等待"]))
     assert [row["selected_action"]["label"] for row in pair] == ["驾车", "等待"]
     for targets, verbs, ways in (
             (["地点：办公室"], ["travel"], ["走着去办公室"]), (["地点：办公室"], ["travel"], ["travel_to"]),
-            (["地点：办公室"], ["interact"], ["步行"]), (["地点：公园"], ["travel"], ["步行"]),
-            (["自己"], ["interact"], ["睡觉"]), (["自己"], ["interact", "sleep"], ["等待", "睡觉"]),
+            (["地点：公园"], ["travel"], ["步行"]),
+
             (["自己", "自己", "自己"], ["sleep"] * 3, ["睡觉"] * 3), ([], [], [])):
-        assert resolve_selection(bindings, targets, verbs, ways) is None
-    assert resolve_selection(None, ["自己"], ["sleep"], ["睡觉"]) is None
-    assert resolve_selection(bindings, "自己", ["sleep"], ["睡觉"]) is None
+        assert select_start(bindings, start_arguments(targets, verbs, ways)) is None
+    assert select_start(None, start_arguments(["自己"], ["sleep"], ["睡觉"])) is None
+    assert select_start(bindings, {"items": "自己", "answering": None, "prefer": None}) is None
     menu = InteractionMenu(allowed_actions=("sleep", "wait"))
     assert not menu_allows_action(menu, "start_activity", ["travel_to"])
     assert not menu_allows_action(menu, "start_activity", ["wait", "travel_to"])

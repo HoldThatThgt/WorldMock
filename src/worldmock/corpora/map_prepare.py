@@ -18,25 +18,33 @@ from worldmock.life.map_data import load_map_dataset
 from worldmock.life.map_models import MAP_SCHEMA_VERSION, MapDatasetDeclaration, MapDatasetReference
 
 
-def prepare_map(destination: Path, frozen_root: Path) -> MapDatasetReference:
+def prepare_map(destination: Path, frozen_root: Path, random_seed: int) -> MapDatasetReference:
     """@brief 复制已审阅的地点和供给，按其完整路线范围重新取得路由响应。"""
     source = Path(frozen_root).resolve()
-    declaration_path = source / "zhangjiang-map/dataset.json"
+    dataset_relative = f"zhangjiang-map/{random_seed}/dataset.json"
+    declaration_path = source / dataset_relative
     declaration = MapDatasetDeclaration.model_validate(json.loads(declaration_path.read_text(encoding="utf-8")))
     reference = MapDatasetReference(dataset_id=declaration.dataset_id, version=declaration.version,
-                                    path="zhangjiang-map/dataset.json", sha256=_sha(declaration_path))
+                                    path=dataset_relative, sha256=_sha(declaration_path))
     dataset = load_map_dataset(source, reference)
     target = Path(destination).resolve()
-    folder = target / "zhangjiang-map"
+    folder = target / f"zhangjiang-map/{random_seed}"
     folder.mkdir(parents=True, exist_ok=True)
     for relative in (dataset.locations_file.path, dataset.supplies_file.path,
+                     "zhangjiang-map/category-assignment.json",
                      "zhangjiang-map/supply-assumptions.json", "zhangjiang-map/zhangjiang-probe.osm"):
         copied = target / relative
         copied.parent.mkdir(parents=True, exist_ok=True)
         copied.write_bytes((source / relative).read_bytes())
     from worldmock.catalog.loader import load_catalog
+    from worldmock.corpora.storefront_build import build_storefront_supplies
 
     fare = load_catalog(source.parent / "catalog")
+    assumptions = json.loads((source / "zhangjiang-map/supply-assumptions.json").read_text(encoding="utf-8"))
+    supplies = build_storefront_supplies(fare, dataset.category_assignment, dataset.locations,
+                                       assumptions, random_seed)
+    _write_json(target / dataset.supplies_file.path,
+                {"schema_version": MAP_SCHEMA_VERSION, "supplies": [item.model_dump(mode="json") for item in supplies]})
     routes = _prepare_routes(target, dataset, fare)
     _write_json(target / dataset.routes_file.path, {"schema_version": MAP_SCHEMA_VERSION, "routes": routes})
     payload = declaration.model_dump(mode="json")
@@ -46,7 +54,9 @@ def prepare_map(destination: Path, frozen_root: Path) -> MapDatasetReference:
         payload[f"{name}_file"]["sha256"] = _sha(target / relative)
     _write_json(folder / "dataset.json", payload)
     result = reference.model_copy(update={"version": payload["version"], "sha256": _sha(folder / "dataset.json")})
-    load_map_dataset(target, result)
+    from worldmock.corpora.storefront import validate_assortments
+
+    validate_assortments(load_map_dataset(target, result), fare)
     return result
 
 

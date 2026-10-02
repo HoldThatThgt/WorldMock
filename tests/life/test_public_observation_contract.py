@@ -114,7 +114,8 @@ def test_products_and_inventory_show_food_energy_and_elsewhere_holdings(engine_f
     assert here["state"] == f"持有 2 份，{label}" and elsewhere["state"] == f"持有 1 份，{label}"
     assert gadget_row["state"] == "持有 1 份"
     assert target_actions(observed, here["name"])["食用"]["available"] is True
-    assert target_actions(observed, elsewhere["name"])["食用"]["reason"] == f"这件东西在{places['home']}，只能在当地用"
+    assert target_actions(observed, elsewhere["name"])["食用"]["reason"] == (
+        f"This item is at {places['home']} and must be used there.")
 
 
 def test_low_energy_prompt_carries_levels_and_labels_but_no_body_numbers(engine_factory) -> None:

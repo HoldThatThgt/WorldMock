@@ -191,15 +191,15 @@ def test_consume_category_uses_actual_closed_use_mode_for_evidence_and_duration(
     events = [
         _public_event(1, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["持有物：午餐"], "actions": ["consume"], "ways": ["食用"]},
+            "request": {'items': [{'target': '持有物：午餐', 'way': '食用', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         }, "eat-action"),
         _public_event(2, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["持有物：雨伞"], "actions": ["consume"], "ways": ["使用"]},
+            "request": {'items': [{'target': '持有物：雨伞', 'way': '使用', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         }, "use-action"),
         _public_event(3, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["持有物：面粉"], "actions": ["obtain"], "ways": ["制作"]},
+            "request": {'items': [{'target': '持有物：面粉', 'way': '制作', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         }, "make-action"),
     ]
     evidence = worldmock_public_evidence(events, [], mapping)
@@ -267,8 +267,7 @@ def test_start_items_follow_the_started_activity_kind_then_the_order_then_the_wa
     """start_activity 逐项证据先按结果里实际开始的活动 kind 分类，其次按实际订单，最后才按所选方式在
     方式闭集（WAYS）中的内部动作；三者都没有时不产生证据，不按动词或短语反解。"""
     def requested(way: str, target: str, verb: str = "interact") -> dict[str, Any]:
-        return _public_event(1, "action_requested", {"tool_name": "start_activity", "request": {
-            "targets": [target], "actions": [verb], "ways": [way]}}, "start-action")
+        return _public_event(1, "action_requested", {"tool_name": "start_activity", "request": {'items': [{'target': target, 'way': way, 'from': None, 'to': None}], 'answering': None, 'prefer': None}}, "start-action")
 
     rejected = _public_event(2, "action_result", {
         "status": "rejected", "error_code": "RESOURCE_CONFLICT", "data": {}}, "start-action")
@@ -296,7 +295,7 @@ def test_start_items_follow_the_started_activity_kind_then_the_order_then_the_wa
 def test_purchase_payment_uses_canonical_resource_changes_and_preserves_actual_states() -> None:
     request = _public_event(1, "action_requested", {
         "tool_name": "start_activity",
-        "request": {"targets": ["商店出售的午餐"], "actions": ["obtain"], "ways": ["远程下单"]},
+        "request": {'items': [{'target': '商店出售的午餐', 'way': '远程下单', 'from': None, 'to': None}], 'answering': None, 'prefer': '最快拿到'},
     }, "purchase-action")
     result_data = {
         "status": "completed",
@@ -360,7 +359,7 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
         }, "pause-action", "activity-private"),
         _public_event(5, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["游戏：拼图"], "actions": ["interact"], "ways": ["游玩"]},
+            "request": {'items': [{'target': '游戏：拼图', 'way': '游玩', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         }, "game-action"),
         _public_event(6, "action_result", {
             "status": "in_progress", "data": {"activity": {
@@ -394,7 +393,7 @@ def test_mail_and_work_deadline_keep_public_facts_without_raw_text_or_failure_in
         }),
         _public_event(2, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["邮件：未读通知"], "actions": ["interact"], "ways": ["阅读"]},
+            "request": {'items': [{'target': '邮件：未读通知', 'way': '阅读', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         }, "mail-action"),
         _public_event(3, "action_result", {
             "status": "completed",
@@ -426,8 +425,7 @@ def test_parallel_travel_and_watch_project_two_actual_activities() -> None:
     """同一人物请求的两项动作分别依真实活动快照形成评估证据。"""
     requested = _public_event(1, "action_requested", {
         "tool_name": "start_activity",
-        "request": {"targets": ["地点：公园", "内容：新闻"], "actions": ["travel", "interact"],
-                    "ways": ["驾车", "接着看"]},
+        "request": {'items': [{'target': '地点：公园', 'way': '驾车', 'from': None, 'to': None}, {'target': '内容：新闻', 'way': '接着看', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
     }, "parallel-action")
     settled = _public_event(2, "action_result", {
         "status": "in_progress",

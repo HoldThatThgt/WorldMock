@@ -106,7 +106,7 @@ PROGRAM_ERRORS: dict[str, list[str]] = {
 GAPS: dict[str, list[str]] = {
     "进食提前结束只显示「已收尾」": [
         _MEAL + "test_ending_a_meal_at_300_of_1500_seconds_eats_0_2_discards_0_8_and_keeps_3",
-        _MEAL + "test_conclusion_outcome_names_failure_and_skips_other_activities",
+        _MEAL + "test_conclusion_outcome_names_failure_and_explicitly_reports_no_item_changes",
         _MEAL + "test_ending_a_paused_meal_discards_the_opened_remainder_without_intake",
         _MEAL + "test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder",
     ],
@@ -176,7 +176,7 @@ LEDGER: dict[str, list[str]] = {
         _LAYERS + "test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pinned_once",
         _LAYERS + "test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer",
         _PROGRESS + "test_conclude_arguments_omit_relationship_and_preference_memories",
-        _PROGRESS + "test_successful_memory_query_is_recorded_with_its_count_and_failures_are_not",
+        _PROGRESS + "test_memory_queries_keep_evidence_without_progress_events",
         _CONCLUDE + "test_memory_queries_and_the_reply_body_reach_the_next_progress_layer",
         _MEMORY + "test_departure_and_arrival_attribute_same_second_calls_to_the_right_session",
         _LOCATION + "test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument",
@@ -259,7 +259,7 @@ LEDGER: dict[str, list[str]] = {
         _BRANCHES + "test_restricted_rounds_do_not_narrow_the_host_tool_surface",
         _BRANCHES + "test_visible_objects_freeze_verb_way_and_bound_internal_action",
         _AGENT + "test_incomplete_work_stays_submittable_for_business_rejection",
-        _WORK + "test_a_task_beyond_the_persons_skill_is_not_listed",
+        _WORK + "test_a_known_task_keeps_its_contract_when_skill_is_insufficient",
         "tests/life/test_parallel_admission.py::test_en_route_person_is_nowhere_with_nothing_at_hand",
         _TOOL + "test_driving_marks_messages_and_submission_unavailable_with_the_admission_reason",
         _TOOL + "test_give_availability_follows_whether_someone_can_be_handed_to",
@@ -402,7 +402,7 @@ LEDGER: dict[str, list[str]] = {
             "test_portion_duration_and_meal_portion_share_one_basis",
             "test_meal_duration_is_validated_against_the_scaled_portion",
             "test_open_meal_moves_the_portion_out_of_stock_only_for_eating",
-            "test_conclusion_outcome_names_failure_and_skips_other_activities",
+            "test_conclusion_outcome_names_failure_and_explicitly_reports_no_item_changes",
         )
     ] + [
         _INVENTORY + "test_meal_partitions_reach_zero_without_losing_quantity_or_energy",

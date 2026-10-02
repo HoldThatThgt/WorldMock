@@ -583,8 +583,9 @@ def test_product_config_rejects_use_mode_and_serving_disagreements() -> None:
 def test_work_task_due_must_follow_availability(formal) -> None:
     """任务截止不得早于开放。"""
     task = formal.tasks[0].model_dump()
-    task["due_at"] = task["available_at"]
-    with pytest.raises(ValidationError, match="follow availability"):
+    task.pop("available_at")
+    task["appointment"] = {"starts_at": task["due_at"], "reason": "Scheduled review"}
+    with pytest.raises(ValidationError, match="follow appointment"):
         from worldmock.life.scenario import WorkTaskConfig
         WorkTaskConfig.model_validate(task)
 
@@ -615,8 +616,8 @@ def test_scenario_rejects_unknown_references() -> None:
                     "Extra inputs are not permitted")
     _assert_invalid(_replace(("tasks", 0, "assignee_agent_id"), "agent:99"),
                     "unknown assignee agent")
-    _assert_invalid(_replace(("tasks", 0, "due_at"), "2026-01-05T09:00:00+08:00"),
-                    "work due time must follow availability")
+    _assert_invalid(_replace(("tasks", 0, "due_at"), "2026-01-05T08:00:00+08:00"),
+                    "work task is outside the scenario interval")
 
 
 def test_schedule_sections_reject_each_invalid_shape(engine_factory) -> None:
@@ -899,6 +900,7 @@ def test_begin_decision_round_rejects_double_open_and_bad_contexts(engine_factor
     engine = engine_factory()
     ctx = context(engine, "one")
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-one", "start_activity",
         start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
@@ -1245,6 +1247,7 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     with pytest.raises(ProtocolError, match="requires an open decision round"):
         engine.submit_action(DirectToolCall(ctx, "a-1", "start_activity", request))
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     with pytest.raises(ProtocolError, match="another decision round"):
         engine.submit_action(DirectToolCall(
             DecisionContext(engine.state.run_id, "other-round", "d-4", 1,
@@ -1314,7 +1317,7 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     assert result.status.value == "rejected"
     assert result.error_code == "WORK_REQUIRES_REWORK"
     assert "work_review" in result.data
-    assert result.message == result.data["reason"] == "提交的成果还需要返工"
+    assert result.message == result.data["reason"] == "The submitted work needs revision before acceptance."
     assert result.data["same_moment_round"] == limit
     assert result.data["max_same_moment_decisions"] == limit
     assert result.data["next_decision_at"] == engine.state.current_time
@@ -1427,7 +1430,7 @@ def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
     """空目标不制造时钟，活动分支所需的精确机会由真实邮件事件提供。"""
     for offset in offsets:
         wake_by_mail(engine, offset=offset)
-    return PlanDayRequest(goals=())
+    return PlanDayRequest(goals=[])
 
 
 def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
@@ -1443,7 +1446,7 @@ def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
     again = StubPlanDayClient()
     assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
     with pytest.raises(ProtocolError, match="already generated"):
-        engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
+        engine.register_day_plan(1, PlanDayRequest(goals=[]), [], [])
     invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标", remind_time=None, around_time=None)
     forged = ReviseDayPlanRequest.model_construct(goals=(invalid_goal,))
     invalid = _act(engine, "revise-invalid", "revise_day_plan", forged)
@@ -1463,7 +1466,7 @@ def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
     """无当日目标时修订被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "revise-none", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None, around_time=None),)))
+        goals=[PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None, around_time=None),]))
     assert result.status.value == "rejected"
     assert result.error_code == "PLAN_NOT_FOUND"
 
@@ -1601,4 +1604,3 @@ def test_ambiguous_decision_observation_is_a_protocol_error(engine_factory, monk
     engine.observe(decision)
     with pytest.raises(ProtocolError, match="Decision observation is ambiguous"):
         engine._presented_messages(_pending_for(decision, engine.state.current_time))
-

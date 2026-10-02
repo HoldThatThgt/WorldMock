@@ -346,7 +346,7 @@ def test_price_change_updates_persisted_quote_and_purchase_uses_new_price(tmp_pa
 
     def mutate(document: dict) -> None:
         document["price_changes"] = [{"change_id": "grocery-promo", "supply_id": supply.supply_id,
-                                      "price_version": "promo-v1", "amount_fen": 1_990,
+                                      "price_version": "promo-v1", "amount_fen": 700,
                                       "due_at": _DUE_TEXT, "source": _scheduled_source()}]
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
@@ -355,14 +355,14 @@ def test_price_change_updates_persisted_quote_and_purchase_uses_new_price(tmp_pa
     _fire(engine, "price-grocery-promo")
     updated = engine.state.supply_quotes[supply.supply_id]
     assert engine.rules.products[supply.product_id] is old_product
-    assert updated.price_fen == 1_990 and updated.price_version == "promo-v1"
+    assert updated.price_fen == 700 and updated.price_version == "promo-v1"
     assert updated.source == _scheduled_source()
     events = _environment_events(engine, "price_change")
-    assert events[0].data["amount_fen"] == 1_990
+    assert events[0].data["amount_fen"] == 700
     assert events[0].data["quote_before"] == old_quote.model_dump(mode="json")
     request = _supply_request(engine, supply)
     outcome = purchase_order(engine.state, engine.semantics, 1, request)
-    assert engine.state.accounts["agent:1"] - outcome.state.accounts["agent:1"] == 1_990
+    assert engine.state.accounts["agent:1"] - outcome.state.accounts["agent:1"] == 700
     stale = request.model_copy(update={"items": (request.items[0].model_copy(
         update={"price_version": old_quote.price_version}),)})
     with pytest.raises(BusinessRuleError, match="PRICE_VERSION_MISMATCH"):
@@ -437,7 +437,7 @@ def test_schedule_refs_cover_new_kinds_in_order() -> None:
                              "agent_id": 1, "amount_fen": 7, "due_at": "2026-01-05T09:40:00+08:00"}]
     supply = _supply_for("item-umbrella")
     document["price_changes"] = [{"change_id": "c1", "supply_id": supply.supply_id,
-                                  "price_version": "v2", "amount_fen": 9, "source": _scheduled_source(),
+                                  "price_version": "v2", "amount_fen": 4_000, "source": _scheduled_source(),
                                   "due_at": "2026-01-05T09:50:00+08:00"}]
     parsed = LifeScenario.model_validate(document)
     baseline, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/multi-person.json")

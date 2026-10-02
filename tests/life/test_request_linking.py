@@ -43,7 +43,7 @@ def test_answering_links_only_items_sent_to_the_sender_and_shows_the_link(engine
     message_id = contact_message(engine, "帮我也点一份吧，谢谢")
     name = _message_name(engine, message_id)
     target, food = supply_target(observe(engine, "supply"))
-    result = act(engine, "order-both", routed((target, "obtain", "远程下单", None, "自己"),
+    result = act(engine, "order-both", routed((target, "obtain", "远程下单", None, None),
                                               (target, "obtain", "远程下单", None, COLLEAGUE_TARGET), answering=name))
     assert result.status == "completed", (result.error_code, result.message)
     assert [(item["recipient_id"], item["request_message_id"], item["destination_id"])
@@ -90,7 +90,7 @@ def test_resubmitting_the_same_request_is_rejected_and_points_to_the_order(engin
     product = engine.rules.items[food].name
     expected = iso_time(order["expected_at"], engine.scenario.timezone)
     assert (repeat.status, repeat.error_code) == ("rejected", "REQUEST_ALREADY_HANDLED")
-    assert repeat.data["reason"] == f"{name}要的{product}已经下过单了" and repeat.data["next_step"] == "等已下的订单送到"
+    assert repeat.data["reason"] == f"An order for {product} has already been placed in response to {name}." and repeat.data["next_step"] == "Wait for the existing order to arrive."
     assert repeat.data["linked_orders"] == [{"order": f"{product} 1 份（10:01 远程下单）", "expected_at": expected}]
     assert engine.state.accounts["agent:1"] == balance and len(engine.state.deliveries) == 1
     observed = observe(engine, "repeat-progress")

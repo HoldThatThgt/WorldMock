@@ -752,7 +752,7 @@ def _report_every_ten_minutes(document: dict) -> None:
     document["activity_feedback_seconds"] = 3600
 
 
-_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),))
+_REVISE = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None)])
 
 
 def _wake_at(engine, moment: int, name: str) -> list[str]:

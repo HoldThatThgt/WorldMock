@@ -20,6 +20,7 @@ from typing import Any
 
 from worldmock.life.narration import render_layer_json
 from worldmock.life.prompt_capacity import ProgressBudget
+from worldmock.life.tool_groups import compact_render, expand_tool_layer
 
 
 def reasoning_complete(messages: Sequence[Mapping[str, Any]]) -> bool:
@@ -107,7 +108,8 @@ def _view(layers: Sequence[dict]) -> dict:
     """@brief 六层中续接会改动的部分：目标、暂停活动（按名称）、今日计划、身体感受、关系（按人物）与偏好（按对象）。"""
     by_name = {layer["layer"]: layer for layer in layers}
     persona, todo = by_name["人设层"], by_name["待办层"]
-    return {"targets": {item["name"]: item for item in by_name["工具层"]["targets"]},
+    tools = expand_tool_layer(compact_render(by_name["工具层"]))
+    return {"targets": {item["name"]: item for item in tools["targets"]},
             "paused_activities": {item["name"]: item for item in todo["paused_activities"]},
             "day_plan": todo["day_plan"], "body": by_name["环境层"]["body"],
             "relationships": {item["person"]: item for item in persona["relationships"]},

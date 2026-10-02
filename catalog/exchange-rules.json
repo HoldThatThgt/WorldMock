@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "contract_version": 2,
+  "contract_version": 3,
   "rules": [
     {
       "rule_id": "purchase-product",
@@ -86,6 +86,20 @@
       "unit": "fen",
       "conservation": "closed",
       "amount_slot": "package_amount_fen"
+    },
+    {
+      "rule_id": "cook-vegetable-stir-fry",
+      "category_id": "ingredient-vegetable-kit",
+      "action": "consume:use",
+      "operator": "inventory_transform",
+      "resource_id": "inventory",
+      "unit": "item",
+      "conservation": "open",
+      "input_category_id": "ingredient-vegetable-kit",
+      "output_category_id": "prepared-meal-vegetable-stir-fry",
+      "input_quantity": 1,
+      "output_quantity": 1,
+      "inventory_unit": "item"
     }
   ],
   "sources": [
@@ -101,6 +115,18 @@
         "/rules/3/fen_per_meter",
         "/rules/4/minimum_fen",
         "/rules/4/fen_per_meter"
+      ]
+    },
+    {
+      "source_id": "complete-vegetable-recipe",
+      "type": "scenario",
+      "producer": "data_source",
+      "source": "https://www.nutrition.gov/recipes/vegetable-stir-fry",
+      "artifact": "corpora/ingredients/items.json",
+      "method": "A complete raw ingredient retail package produces one meal-0030 serving; recipe yields and portions are explicit simulation assumptions",
+      "paths": [
+        "/rules/8/input_quantity",
+        "/rules/8/output_quantity"
       ]
     }
   ],

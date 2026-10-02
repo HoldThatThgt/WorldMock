@@ -17,6 +17,7 @@ from custom.agents.life_agent import (MemoryRecentRequest, MemorySearchRequest, 
 from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
+from worldmock.life.world_query import QueryWorldRequest  # noqa: E402
 
 #: 字段引用形状：`名称.字段`、`名称[].字段`、`名称[0].字段`。
 _FIELD_REFERENCE = re.compile(
@@ -27,9 +28,10 @@ _PROTOCOL_PHRASES = ("exactly one", "only tool call", "registering", "registered
                      "reason")
 #: 规则、上限与校验的说法（旧参数说明来自请求模型的开发 docstring）：出现在任何说明里即违规。
 _RULE_PHRASES = ("不超过", "至多", "合计", "名额", "拒绝", "必填", "照填", "由系统", "不合法", "释放")
-#: 发给模型的全部原生工具参数模型（八个人物工具、三个记忆查询与只读 finish）。
+#: 发给模型的全部原生工具参数模型，包含世界查询、记忆查询与只读结束。
 _PARAMETER_MODELS = {**REQUEST_MODELS, "memory_recent": MemoryRecentRequest, "memory_search": MemorySearchRequest,
-                     "memory_time_range": MemoryTimeRangeRequest, "finish": ReadonlyFinishRequest}
+                     "memory_time_range": MemoryTimeRangeRequest, "query_world": QueryWorldRequest,
+                     "finish": ReadonlyFinishRequest}
 
 
 def _violations(text: str) -> list[str]:
@@ -42,9 +44,8 @@ def _violations(text: str) -> list[str]:
 
 
 def test_every_native_tool_has_a_purpose_only_description() -> None:
-    """八个人物工具、三个记忆查询与只读 finish 都有一句中文用途说明，不含协议句与字段指路。"""
-    assert set(REQUEST_MODELS) | {"memory_recent", "memory_search", "memory_time_range", "finish"} == set(
-        TOOL_DESCRIPTIONS)
+    """所有原生工具都有一句中文用途说明，不含协议句与字段指路。"""
+    assert set(_PARAMETER_MODELS) == set(TOOL_DESCRIPTIONS)
     offenders = {name: _violations(text) for name, text in TOOL_DESCRIPTIONS.items() if _violations(text)}
     assert not offenders
     assert all(text.endswith("。") and text.count("。") == 1 for text in TOOL_DESCRIPTIONS.values())

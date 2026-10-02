@@ -170,7 +170,7 @@ def test_subject_is_required_for_relationship_and_preference_and_stripped_before
     names = {"activity_names": ("等待",), "known_persons": known}
     request = conclude_request("等待", summary="收尾", views=[[_view("relationship", "新认识的", "王五"), view]])
     assert _validate_prepared_action("conclude_activity", request, names) == (
-        "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 王五")
+        "SUBJECT_NOT_KNOWN: The relationship subject 王五 is not a known person.")
     fine = conclude_request("等待", summary="收尾", views=[[_view("relationship", "靠谱", "沈昊")]])
     assert _validate_prepared_action("conclude_activity", fine, names) == ""
     assert control_items("conclude_activity", fine)[0].memories == ({

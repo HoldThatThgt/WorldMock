@@ -53,13 +53,14 @@ def effective_quote(quote: SupplyQuoteState | None, now: int) -> SupplyQuoteStat
 
 
 def changed_quote(previous: SupplyQuoteState | None, supply: SupplyConfig,
-                  event: ScheduledEvent) -> SupplyQuoteState:
+                  event: ScheduledEvent, product) -> SupplyQuoteState:
     """@brief 调价投影与恢复核验共用版本、来源和声明边界规则，不修改输入状态。"""
     previous = effective_quote(previous, event.due_at)
     if previous is None:
         _fail("Scheduled price change requires an effective quote declaration")
     if previous.price_version == event.data["price_version"]:
         _fail("Scheduled price change must use a new quote version")
+    validate_price_bounds(event.data["amount_fen"], product)
     source = DataSource.model_validate(event.data["source"])
     if source.kind != "scenario":
         _fail("Scheduled supply changes require a scenario source")
@@ -80,6 +81,7 @@ def expected_supply_quotes(scenario, now: int) -> dict[str, SupplyQuoteState | N
 
     start = int(scenario.start_at.timestamp())
     supplies = {item.supply_id: item for item in scenario.supplies}
+    products = {item.product_id: item for item in scenario.products}
     quotes = {identity: quote_state(quote_at(supply, start)) for identity, supply in supplies.items()}
     for event in compile_schedule(scenario, start, int(scenario.end_at.timestamp())):
         if event.due_at > now:
@@ -89,7 +91,8 @@ def expected_supply_quotes(scenario, now: int) -> dict[str, SupplyQuoteState | N
             quotes[identity] = quote_state(quote_at(supplies[identity], event.due_at))
         elif event.kind == ScheduledKind.PRICE_CHANGE:
             identity = event.data["supply_id"]
-            quotes[identity] = changed_quote(quotes[identity], supplies[identity], event)
+            supply = supplies[identity]
+            quotes[identity] = changed_quote(quotes[identity], supply, event, products[supply.product_id])
     return quotes
 
 
@@ -98,6 +101,8 @@ def map_provenance(scenario) -> dict:
     dataset = scenario.map_dataset
     return {
         "dataset_id": dataset.dataset_id, "version": dataset.version,
+        "random_seed": dataset.random_seed,
+        "category_assignment_sha256": dataset.category_assignment_sha256,
         "coordinate_system": dataset.coordinate_system, "timezone": dataset.timezone,
         "prepared_at": dataset.prepared_at.isoformat(), "source": dataset.source.model_dump(mode="json"),
         "locations_file": dataset.locations_file.model_dump(mode="json"),
@@ -118,6 +123,11 @@ def validate_storefront_state(state: WorldState, scenario, manifest: dict) -> No
         _fail("Runtime map identity mismatch")
     if state.supply_quotes != expected_supply_quotes(scenario, state.current_time):
         _fail("Runtime supply quotes disagree with the declared quote timeline")
+    products = {item.product_id: item for item in scenario.products}
+    for supply in scenario.supplies:
+        quote = state.supply_quotes[supply.supply_id]
+        if quote is not None:
+            validate_price_bounds(quote.price_fen, products[supply.product_id])
     configurations = {item.agent_id: item for item in scenario.agents}
     for agent in state.agents.values():
         if agent.qualifications != configurations[agent.agent_id].qualifications:
@@ -128,3 +138,9 @@ def _fail(message: str) -> None:
     """@brief 身份损坏使用英文错误并停止恢复。"""
     _LOGGER.error(message)
     raise IntegrityError(message)
+
+
+def validate_price_bounds(amount: int, product) -> None:
+    """@brief 调价和恢复只接受当前商品范围内的整数分，不包括独立配送费。"""
+    if type(amount) is not int or not product.purchase_price_fen_min <= amount <= product.purchase_price_fen_max:
+        _fail("Supply price is outside its product price bounds")

@@ -44,6 +44,8 @@ from tests.integration.test_life_agent_protocol import (
 )
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_request  # noqa: F401
 from tests.life.test_presentation_fidelity import _stage
+from worldmock.life.tool_groups import compact_render, expand_tool_layer
+from worldmock.life.world_query import QueryWorldRequest
 from worldmock.life import prompt_capacity
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
@@ -164,7 +166,7 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
 
     rules = json.loads(dispatcher.requests[0]["messages"][0]["content"])["rules"]
     assert len(rules) == 18 and rules == LIFE_SYSTEM_LAYER["rules"]
-    assert rules[12].startswith("obtain 与 consume") and rules[13].startswith("人设层的作息和习惯是你平常的过法")
+    assert rules[12].startswith("start_activity 一项一个对象") and rules[13].startswith("人设层的作息和习惯是你平常的过法")
     for sentence in ("到了平常的钟点、在平常的地方，就照平常做", "今日计划写明今天与平常不同的安排时，按计划",
                      "身体的感觉没到更强的一档，就不为它改作息", "人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来"):
         assert sentence in rules[13]
@@ -257,8 +259,8 @@ async def test_user_content_is_one_json_array_in_the_fixed_layer_order() -> None
     layers = json.loads(user)
     assert [layer["layer"] for layer in layers] == _LAYER_ORDER
     data = observations[0]["data"]
-    assert layers == life_user_layers(data, layers[1])
-    assert request["messages"][1] == user_message(layers)
+    assert layers == compact_render(life_user_layers(data, layers[1]))
+    assert request["messages"][1] == user_message(life_user_layers(data, layers[1]))
     assert all(list(layer)[0] == "layer" for layer in layers)
     text = request["messages"][0]["content"] + user
     for retired in ('"scene"', '"facts"', "你不是AI助手", "怎样过一天", "事实清单", "Authoritative", "budget",
@@ -300,15 +302,15 @@ async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_
     await _run(agent, _second_observation())
 
     first, last = (item["tools"] for item in dispatcher.requests)
-    assert [item["function"]["name"] for item in first] == [*REQUEST_MODELS, "memory_recent", "memory_search",
-                                                            "memory_time_range"]
-    assert last == first[:8]
+    assert [item["function"]["name"] for item in first] == [*(name for name in REQUEST_MODELS if name != "recall_task_summary"),
+        "recall_task_summary", "query_world", "memory_recent", "memory_search", "memory_time_range"]
+    assert last == first[:7]
     assert all(item["function"]["description"] == TOOL_DESCRIPTIONS[item["function"]["name"]] for item in first)
-    models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS}
+    models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS, "query_world": QueryWorldRequest}
     assert all(item["function"]["parameters"] == deepseek_strict_schema(models[item["function"]["name"]])
                for item in first)
-    for name in ("targets", "actions", "ways"):
-        assert "enum" not in first[0]["function"]["parameters"]["properties"][name]["items"]
+    for name in ("target", "way"):
+        assert "enum" not in first[0]["function"]["parameters"]["properties"]["items"]["items"]["properties"][name]
     assert _MEMORY_TOOL_NAMES.isdisjoint(item["function"]["name"] for item in last)
 
 
@@ -550,7 +552,8 @@ def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None
 
     schema = prompt_schemas.TOOL_LAYER_SCHEMA
     assert "callable_index" in schema["required"]
-    assert set(schema["properties"]["callable_index"]["properties"]) == {"lifestyle", "contents", "goods"}
+    assert set(schema["properties"]["callable_index"]["properties"]) == {
+        "lifestyle", "contents", "goods", "query_categories"}
     current = life_prompt.life_prompt_sha256()
     assert _model_identity().prompt_sha256 == current
     tools = copy.deepcopy(schema)
@@ -584,8 +587,9 @@ async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity
 
     [request] = dispatcher.requests
     layers = json.loads(request["messages"][1]["content"])
-    assert layers[0] == observed["tool_layer"] and list(layers[0]) == ["layer", "targets", "callable_index"]
-    assert len(layers[0]["callable_index"]["lifestyle"]) == 107 and layers[5]["events"] == []
+    assert compact_render(expand_tool_layer(layers[0])) == compact_render(observed["tool_layer"])
+    assert list(layers[0]) == ["layer", "groups", "callable_index"]
+    assert len(layers[0]["callable_index"]["lifestyle"]) == 104 and layers[5]["events"] == []
     bare = [{key: value for key, value in layers[0].items() if key != "callable_index"}, *layers[1:]]
     without = prompt_capacity.request_token_count({**request, "messages": [request["messages"][0],
                                                                            user_message(bare)]})

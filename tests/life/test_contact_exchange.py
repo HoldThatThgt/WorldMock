@@ -102,7 +102,7 @@ def test_received_lists_delivered_orders_and_gifts_to_the_contact(engine_factory
                  and "eat" in engine.rules.items[item.product_id].use_modes)
     run_until(engine, _idle)
     place(engine, 1, OFFICE, {snack: 0.5})
-    given = act(engine, "give-colleague", routed((holding_name(engine, snack), "consume", GIVE_WAY, "自己",
+    given = act(engine, "give-colleague", routed((holding_name(engine, snack), "consume", GIVE_WAY, None,
                                                   COLLEAGUE_TARGET)))
     assert given.status == "completed", (given.error_code, given.message)
     zone, now = engine.scenario.timezone, engine.state.current_time

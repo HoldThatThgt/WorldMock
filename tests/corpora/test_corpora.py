@@ -24,15 +24,15 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     # C23 扩容：材料三件套 195 份（65 材料 × 输入/参考/oracle）+ POI 路由 208 份。
     # 可达性修复：补 5 个流身份条目（news-feed / jokes-feed / weibo-feed / zhihu-feed /
     # movie-reviews-feed），使场景声明的这五条在语料里有可检索的分区键。
-    # 地图发布新增 dataset/routes/supplies/supply-assumptions 四份权威声明。
-    assert len(manifest.entries) == 970
+    # 新增逐店品类、两个种子冻结图、商品价格范围和真实食材包来源。
+    assert len(manifest.entries) == 975
     products = json.loads(Path("corpora/open-food-facts/products.json").read_text(encoding="utf-8"))
     threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text(encoding="utf-8"))
     assert len(products) == 8
     assert len(threads) == 48
     assert all(2 <= len(thread["messages"]) <= 5 for thread in threads)
-    # 修订合同正餐品类：129 种既有食品 + 30 条 meal-* 正餐引用。
-    assert len(scenario.products) == 159
+    # 保留全部既有商品，新增八种食材及一份完整可制作食材包。
+    assert len(scenario.products) == 168
 
 
 def test_manifest_rejects_in_root_symbolic_link(

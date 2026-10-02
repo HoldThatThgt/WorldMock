@@ -22,15 +22,15 @@ def test_every_generated_object_resolves_under_frozen_contract() -> None:
     contract = load_category_contract(CATALOG / "category-contract.json")
     declarations = load_object_declarations(CATALOG / "objects.jsonl")
     resolved = [resolve_object_values(declaration, contract) for declaration in declarations]
-    assert len(resolved) == 163
-    assert len({item.object_id for item in resolved}) == 163
+    assert len(resolved) == 172
+    assert len({item.object_id for item in resolved}) == 172
     assert all(item.category_id in contract.categories for item in resolved)
 
 
 def test_rules_and_pairings_cover_every_formal_object_action() -> None:
     contract = load_category_contract(CATALOG / "category-contract.json")
     rules = load_exchange_rules(CATALOG / "exchange-rules.json", contract)
-    assert len(rules.rules) == 8
+    assert len(rules.rules) == 9
     expected = {
         ("product", "purchase"),
         ("food", "consume:eat"),
@@ -40,6 +40,8 @@ def test_rules_and_pairings_cover_every_formal_object_action() -> None:
         ("contract-hourly", "work:settle"),
         ("contract-piece", "work:settle"),
         ("contract-package", "work:settle"),
+        ("ingredient", "consume:use"),
+        ("ingredient-vegetable-kit", "consume:use"),
     }
     actual = {(item.target_category_id, item.action.value) for item in contract.pairings}
     assert actual == expected
@@ -58,7 +60,7 @@ def test_shared_values_are_not_repeated_in_raw_objects() -> None:
         if row["object_id"].startswith("item-"):
             assert values["effect"]
             assert any(
-                "/values/absolute" in source["paths"] for source in row["provenance"]
+                "/values/absolute/effect" in source["paths"] for source in row["provenance"]
             )
             assert not {"use_modes", "stock_initial", "stock_restock",
                         "use_duration_seconds", "delivery_delay_seconds"} & set(values)
@@ -74,7 +76,7 @@ def test_per_object_numeric_differences_and_source_types_are_preserved() -> None
         types = Counter(source["type"] for source in row["provenance"])
         assert types["fact"] == 1
         if row["object_id"].startswith("meal-"):
-            assert types["scenario"] == 1
+            assert types["scenario"] == 2
         fact = next(source for source in row["provenance"] if source["type"] == "fact")
         assert fact["producer"] == "data_source"
 

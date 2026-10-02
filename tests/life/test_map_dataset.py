@@ -46,6 +46,14 @@ def create_dataset(tmp_path, edit=None, metadata_changes=None):
     metadata = {"schema_version": MAP_SCHEMA_VERSION, "dataset_id": "test", "version": 1,
                 "coordinate_system": "WGS84", "timezone": "Asia/Shanghai", "bounds": [121, 31, 122, 32],
                 "prepared_at": "2026-09-20T12:00:00+08:00", "source": source(), "route_modes": ["walking"]}
+    from worldmock.life.readable import PLACE_TYPES
+
+    kinds = {kind: [] for kind in PLACE_TYPES}
+    kinds["retail"] = ["food"]
+    assignment = {"kinds": kinds, "locations": [{"location_id": "store", "category_ids": [],
+                   "object_ids": ["p"], "price_position_percent": 50, "source": source()}], "source": source()}
+    identity = write(tmp_path / "zhangjiang-map/category-assignment.json", assignment)
+    metadata.update(random_seed=1, category_assignment_sha256=identity["sha256"])
     if metadata_changes is not None:
         metadata.update(metadata_changes)
     for name, rows in data.items():
@@ -56,7 +64,7 @@ def create_dataset(tmp_path, edit=None, metadata_changes=None):
 
 
 def scenario(**changes):
-    result = SimpleNamespace(timezone="Asia/Shanghai", locations=[SimpleNamespace(location_id="store"),
+    result = SimpleNamespace(timezone="Asia/Shanghai", random_seed=1, locations=[SimpleNamespace(location_id="store"),
         SimpleNamespace(location_id="home")], supplies=[SimpleNamespace(supply_id="s", initial_stock=3)],
         products=[SimpleNamespace(product_id="p")], accounts=[SimpleNamespace(account_id="seller")],
         map_dataset=SimpleNamespace(dataset_id="test", version=1))
@@ -105,7 +113,7 @@ def test_frozen_directory_envelope_is_closed_even_with_correct_hash(tmp_path, na
 
 def test_old_map_structure_version_is_rejected(tmp_path):
     """@brief 地图文件结构随 branch_label 升到 2：结构 1 的数据集声明直接拒绝，不做兼容解析或迁移。"""
-    assert MAP_SCHEMA_VERSION == 2
+    assert MAP_SCHEMA_VERSION == 3
     ref = create_dataset(tmp_path, metadata_changes={"schema_version": 1})
     with pytest.raises(IntegrityError, match="Map dataset validation failed") as failure:
         load_map_dataset(tmp_path, ref)
@@ -331,12 +339,20 @@ def test_preparation_fetches_full_selected_set_and_publishes_verifiable_version(
     source_root = tmp_path / "reviewed"
     create_dataset(source_root)
     folder = source_root / "zhangjiang-map"
-    folder.mkdir()
-    (source_root / "dataset.json").rename(folder / "dataset.json")
+    folder.mkdir(exist_ok=True)
+    seed_folder = folder / "1"
+    seed_folder.mkdir()
+    (source_root / "dataset.json").rename(seed_folder / "dataset.json")
     write(folder / "supply-assumptions.json", {"source": "fixture"})
     (folder / "zhangjiang-probe.osm").write_text("<osm/>")
     catalog = load_catalog(Path("catalog"))
     monkeypatch.setattr("worldmock.catalog.loader.load_catalog", lambda path: catalog)
+    monkeypatch.setattr("worldmock.corpora.storefront_build.build_storefront_supplies",
+                        lambda fare, assignment, locations, assumptions, seed:
+                        load_map_dataset(source_root, MapDatasetReference(
+                            dataset_id="test", version=1, path="zhangjiang-map/1/dataset.json",
+                            sha256=hashlib.sha256((seed_folder / "dataset.json").read_bytes()).hexdigest())).supplies)
+    monkeypatch.setattr("worldmock.corpora.storefront.validate_assortments", lambda dataset, fare: None)
     calls, waits = [], []
     def fetch(url, **kwargs):
         calls.append(url)
@@ -345,7 +361,7 @@ def test_preparation_fetches_full_selected_set_and_publishes_verifiable_version(
     monkeypatch.setattr(map_prepare.time, "monotonic", lambda: 0.0)
     monkeypatch.setattr(map_prepare.time, "sleep", waits.append)
     target = tmp_path / "release"
-    reference = map_prepare.prepare_map(target, source_root)
+    reference = map_prepare.prepare_map(target, source_root, 1)
     dataset = load_map_dataset(target, reference)
     assert reference.version == 2 and len(dataset.routes) == 2
     assert len(calls) == 2 and all("/route/v1/foot/" in url for url in calls)

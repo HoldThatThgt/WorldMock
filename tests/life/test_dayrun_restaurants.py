@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 from agentsociety2.society import DirectToolCall
@@ -15,17 +13,19 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  report_request)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.models import EventDraft
+from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.guidance import DELIVERY_ROUTE_REASON
 from worldmock.life.models import active_activities
+from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.life.projection import visible_supplies
 from worldmock.life.readable import clock_phrase, iso_time
 
 SCENARIO = "white-collar-12-weeks.json"
-RESTAURANT = "poi-3538660453"
+RESTAURANT = "poi-3538682404"
 MEAL = "meal-0018"
-SUPPLY = "supply-poi-3538660453-meal-0018"
+SUPPLY = "supply-poi-3538682404-meal-0018"
 
 
 def _action(engine, name: str, tool: str, request):
@@ -102,11 +102,15 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         assert visible_supplies(engine.state, agent, engine.scenario) == []
         # 到达当秒先给出行收尾；这一轮就是到店后的首次观察（第七章「活动一结束就要结束它」）。
         _conclude(engine, started.activity_id)
-        opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+        location = next(item for item in engine.scenario.locations if item.location_id == RESTAURANT)
+        overrides = engine.state.opening_exceptions[RESTAURANT]
+        opening = next_opening_change(location, engine.state.current_time, engine.scenario.timezone, overrides)
+        assert opening is not None
+        assert opening_status(location, opening, engine.scenario.timezone, overrides) == "open"
         if engine.state.current_time < opening:
             closed = engine._observation_data(engine.state.agents[1])
             pickup = target_actions(closed, _supply_target(closed, SUPPLY))["到店"]
-            assert (pickup["available"], pickup["reason"]) == (False, "店没开门")
+            assert (pickup["available"], pickup["reason"]) == (False, "The store is closed at the current time.")
         for step in range(16):
             if engine.state.current_time >= opening:
                 break
@@ -141,24 +145,14 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         engine.close()
 
 
-def test_restaurant_without_selected_supply_is_a_valid_empty_menu(tmp_path: Path) -> None:
-    """@brief 通用地图可以保留餐馆地点而不选择任何餐食供给：人在店里时工具层没有这家店的商品目标。"""
-    def empty_menu(document: dict) -> None:
-        """@brief 只从实验选择中移去餐馆供给。"""
-        document["supplies"] = [item for item in document["supplies"]
-                                if item["supply_id"] != SUPPLY]
+def test_restaurant_requires_its_complete_declared_menu(tmp_path: Path) -> None:
+    """@brief 已选餐馆缺少声明菜单供给时，在生成运行状态前拒绝。"""
+    def incomplete_menu(document: dict) -> None:
+        """@brief 从实验选择中移去餐馆的一条正式供给。"""
+        document["supplies"] = [item for item in document["supplies"] if item["supply_id"] != SUPPLY]
 
-    engine = _custom_engine(SCENARIO, empty_menu, tmp_path, run_id="empty-restaurant")
-    try:
-        assert any(item.location_id == RESTAURANT for item in engine.scenario.locations)
-        assert not any(item.location_id == RESTAURANT for item in engine.scenario.supplies)
-        _commit(engine, lambda staged: staged.agents[1].__setattr__("location_id", RESTAURANT))
-        observed = engine._observation_data(engine.state.agents[1])
-        name = next(item.name for item in engine.scenario.locations if item.location_id == RESTAURANT)
-        assert observed["environment_layer"]["location"]["name"] == name
-        assert not any(row["name"].startswith(f"{name}出售的") for row in observed["tool_layer"]["targets"])
-    finally:
-        engine.close()
+    with pytest.raises(IntegrityError, match="complete declared supply sets"):
+        _custom_engine(SCENARIO, incomplete_menu, tmp_path, run_id="incomplete-restaurant")
 
 
 def _commit(engine, mutate) -> None:
@@ -218,7 +212,7 @@ def test_food_paths_are_discoverable_as_tool_layer_targets(engine_factory) -> No
     _stage(engine, "home", 700, {RESTAURANT: {MEAL: 1}})
     observed = engine._observation_data(engine.state.agents[1])
     away = target_actions(observed, f"持有物：{meal.name}（{restaurant}）")["食用"]
-    assert (away["available"], away["reason"]) == (False, f"这件东西在{restaurant}，只能在当地用")
+    assert (away["available"], away["reason"]) == (False, f"This item is at {restaurant} and must be used there.")
     assert f"持有物：{meal.name}" not in tool_targets(observed)
     assert target_actions(observed, "商品目录")["浏览"]["available"] is True
     assert home == observed["environment_layer"]["location"]["name"]

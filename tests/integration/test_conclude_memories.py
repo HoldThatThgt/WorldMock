@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import expand_tool_layer
+
 import copy
 import json
 import os
@@ -58,6 +60,7 @@ from tests.integration.test_life_agent_protocol import (
 from tests.integration.test_verified_memory import _runtime
 from tests.life.conftest import (activity_name, advance_until_ready, context, engine_factory as _engine_factory,
                                  stage_day_plan, start_activity, wake_by_mail, pause_request)
+from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.control_items import control_items
 from worldmock.life.models import ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage
@@ -104,8 +107,8 @@ def test_life_tool_surface_never_offers_finish(stage: str) -> None:
     names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
 
     assert "finish" not in names
-    assert names - _MEMORY_TOOL_NAMES == set(REQUEST_MODELS)
-    assert life_action_tool_names() == frozenset(REQUEST_MODELS)
+    assert names - _MEMORY_TOOL_NAMES == set(REQUEST_MODELS) | {"query_world"}
+    assert life_action_tool_names() == frozenset(REQUEST_MODELS) | {"query_world"}
     readonly = LifeAgent()
     readonly.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, [], "今天过得怎么样？", True))
     functions = {item["function"]["name"]: item["function"]
@@ -136,7 +139,7 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
     assert len(dispatcher.responses) == 1
     assert len([item for item in dispatcher.requests if "tools" in item]) == 4
     assert all("finish" not in names for names in _tool_names(dispatcher.requests))
-    assert _response_errors(environment) == [None, "unknown native tool calls: ['finish']", None, None]
+    assert _response_errors(environment) == [None, "TOOL_CALL_REQUIRED: The tool call batch is invalid.", None, None]
     assert len(agent._memory_runtime.calls) == 2
     assert [item["action"] for item in request.observations] == [
         "observe", "memory_recent", "memory_recent", "conclude_activity"]
@@ -181,7 +184,8 @@ async def test_views_persist_as_memories_byte_identical_to_the_subject_shape(tmp
         *({"type": view["type"], "text": view["text"], "importance": view["importance"],
            "keywords": view["keywords"], "subject": view["about"]} for view in (mother, taste))]]}
     read = control_items("conclude_activity", ConcludeActivityRequest.model_validate(current))
-    assert read == control_items("conclude_activity", legacy)
+    with pytest.raises(IntegrityError, match="shape is not recognised"):
+        control_items("conclude_activity", legacy)
     assert json.dumps(read[0].memories, ensure_ascii=False) == json.dumps(legacy["memories"][0], ensure_ascii=False)
     assert [memory["subject"] for memory in read[0].views] == ["陈母", "拿铁"]
     before = [{**{key: value for key, value in memory.items() if key != "subject"},
@@ -212,7 +216,7 @@ def test_only_conclude_activity_carries_memories() -> None:
         assert item_fields(tool) == {"activity_name", "summary"}
         arguments = {"items": [{"activity_name": _WORK, "summary": "还在做。", "memories": [_memory()], "views": []}]}
         error = agent.validate_react_decisions([_decision(tool, arguments)], False)
-        assert f"invalid {tool} arguments" in error and "Extra inputs are not permitted" in error
+        assert "not declared" in error
 
 
 def _nine_entries() -> dict:
@@ -239,41 +243,41 @@ _LIMIT_CASES = {
                                for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")]}, "one or two items"),
     "repeated_activity": (_conclude_args(_WAIT, _WAIT), "must be distinct"),
     "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}]},
-                      "should match pattern"),
+                      "matching the declared format"),
     "summary_over_500_characters": ({"items": [{"activity_name": _WAIT, "summary": "长" * 501, "memories": [],
                                                 "views": []}]}, "within 500 characters"),
-    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}]}, "Field required"),
+    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}]}, "required field"),
     "nine_memories_and_views_in_total": (_nine_entries(), "exceed eight"),
-    "memory_with_a_subject": (_single(subject=None), "Extra inputs are not permitted"),
-    "memory_of_a_view_type": (_single(type="relationship"), "Input should be"),
-    "view_without_about": (_single_view(about=" "), "should match pattern"),
-    "view_of_a_plain_type": (_single_view(type="routine"), "Input should be"),
+    "memory_with_a_subject": (_single(subject=None), "not declared"),
+    "memory_of_a_view_type": (_single(type="relationship"), "outside the declared"),
+    "view_without_about": (_single_view(about=" "), "matching the declared format"),
+    "view_of_a_plain_type": (_single_view(type="routine"), "outside the declared"),
     "view_text_over_1000_characters": (_single_view(text="长" * 1001), "exceeds 1000 characters"),
     "view_with_thirteen_keywords": (_single_view(keywords=[f"词{index}" for index in range(13)]),
                                     "more than twelve keywords"),
-    "empty_text": (_single(text=""), "should match pattern"),
-    "blank_text": (_single(text="   "), "should match pattern"),
+    "empty_text": (_single(text=""), "matching the declared format"),
+    "blank_text": (_single(text="   "), "matching the declared format"),
     "text_over_1000_characters": (_single(text="长" * 1001), "exceeds 1000 characters"),
     "hexadecimal_identity_in_text": (_single(text="我还记得 3e71a031bb3d 那一刻。"), "hexadecimal identifier"),
     "thirteen_keywords": (_single(keywords=[f"词{index}" for index in range(13)]), "more than twelve keywords"),
-    "importance_above_one": (_single(importance=1.5), "less than or equal to 1"),
-    "importance_below_zero": (_single(importance=-0.1), "greater than or equal to 0"),
-    "fact_like_type": (_single(type="event"), "Input should be"),
-    "model_supplied_source": (_single(source="decision_observation"), "Extra inputs are not permitted"),
-    "model_supplied_refs": (_single(refs=["observation-current"]), "Extra inputs are not permitted"),
-    "model_supplied_status": (_single(epistemic_status="subjective"), "Extra inputs are not permitted"),
+    "importance_above_one": (_single(importance=1.5), "at most 1"),
+    "importance_below_zero": (_single(importance=-0.1), "at least 0"),
+    "fact_like_type": (_single(type="event"), "outside the declared"),
+    "model_supplied_source": (_single(source="decision_observation"), "not declared"),
+    "model_supplied_refs": (_single(refs=["observation-current"]), "not declared"),
+    "model_supplied_status": (_single(epistemic_status="subjective"), "not declared"),
 }
 #: 一项一个对象的形状下，协议纠错的原因（经宿主的 ARGUMENTS_INVALID 逐字段写出，不带校验库转储）。
 _LIMIT_REASONS = {
-    "three_items": "items：conclude_activity takes one or two items",
-    "repeated_activity": "items：conclude_activity activity names must be distinct",
-    "blank_summary": "items[0].summary 不能是空白",
-    "summary_over_500_characters": "items[0].summary：must be within 500 characters",
-    "views_missing": "items[0].views 没有写",
-    "nine_memories_and_views_in_total": "items：conclude_activity memories and views exceed eight entries in total",
-    "memory_with_a_subject": "items[0].memories[0].subject 不是这个工具的参数，要去掉",
-    "view_without_about": "items[0].views[0].about 不能是空白",
-    "view_text_over_1000_characters": "items[0].views[0]：memory text exceeds 1000 characters",
+    "three_items": "conclude_activity takes one or two items",
+    "repeated_activity": "conclude_activity activity names must be distinct",
+    "blank_summary": "A non-blank string matching the declared format is required.",
+    "summary_over_500_characters": "must be within 500 characters",
+    "views_missing": "This required field was omitted.",
+    "nine_memories_and_views_in_total": "conclude_activity memories and views exceed eight entries in total",
+    "memory_with_a_subject": "This field is not declared and must be removed.",
+    "view_without_about": "A non-blank string matching the declared format is required.",
+    "view_text_over_1000_characters": "memory text exceeds 1000 characters",
 }
 
 
@@ -299,7 +303,7 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     assert result == "conclude_activity registered"
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(valid)]
     error = _response_errors(environment)[0]
-    assert error.startswith("ARGUMENTS_INVALID: invalid conclude_activity arguments") and message in error
+    assert error.startswith("ARGUMENTS_INVALID:") and message in error
     correction = [item for item in dispatcher.requests if "tools" in item][1]
     content = correction["messages"][-1]["content"]
     feedback = json.loads(content)
@@ -368,7 +372,7 @@ class _ScriptedModel:
 
 def _offered_activity(request: dict) -> str:
     """一次模型请求的工具层里唯一的活动目标名：宿主实际列给模型的活动名。"""
-    tool_layer = json.loads(request["messages"][1]["content"])[0]
+    tool_layer = expand_tool_layer(json.loads(request["messages"][1]["content"])[0])
     [name] = [target["name"] for target in tool_layer["targets"] if target["kind"] == "activity"]
     return name
 
@@ -609,7 +613,8 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     assert all(set(episode) == {"type", "text", "time", "epistemic_status"} for episode in episodes)
     assert any(payload.get("instruction") == FEEDBACK_INSTRUCTION for payload in returned)
     assert len(returned) == 3 and person._react_messages[-1]["role"] == "assistant"
-    assert f'"name":"{name}","kind":"activity","phase":"刚结束"' in model.requests[0]["messages"][1]["content"]
+    assert any(row["name"] == name and row["kind"] == "activity" and row["phase"] == "刚结束"
+               for row in expand_tool_layer(json.loads(model.requests[0]["messages"][1]["content"])[0])["targets"])
     assert [_offered_activity(request) for request in model.requests[2:]] == [name, name]
 
 
@@ -639,9 +644,9 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     after = context(engine, "after-query")
     engine.begin_decision_round([after])
     records = [event for event in engine.observe(after)["progress_layer"]["events"] if event["type"] == "tool_call"]
-    query = next(record for record in records if record["tool"] == "memory_recent")
-    assert query["arguments"] == {"limit": 5}
-    assert (query["result"]["status"], query["result"]["details"]) == ("completed", {"episodes": 1})
+    assert not any(record["tool"] == "memory_recent" for record in records)
+    evidence = _events(engine, "model_request", decision.decision_id)
+    assert any("memory_recent" in json.dumps(event.data) for event in evidence)
     assert "散步很舒服" not in json.dumps(records, ensure_ascii=False)
     concluded = next(record for record in records if record["tool"] == "conclude_activity")
     assert concluded["self_note"] == "等够了，收个尾。"
@@ -690,7 +695,7 @@ async def test_budget_exhausted_without_a_registered_world_request_fails_the_run
     assert environment.memory_updates == []
     assert environment.commits == []
     assert environment.checkpoints == []
-    assert _response_errors(environment) == [None, None, None, "unknown native tool calls: ['memory_recent']"]
+    assert _response_errors(environment) == [None, None, None, "TOOL_CALL_REQUIRED: The tool call batch is invalid."]
     assert len(environment.aborts) == 1
     assert "ReAct decision budget exhausted" in environment.aborts[0][1]
     assert len(environment.failures) == 1
@@ -714,11 +719,11 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
     assert answer == "我记得昨天等过人。"
     assert agent._memory_runtime.calls == []
     assert environment.calls == []
-    assert _response_errors(environment) == ["finish must be the only tool call in a response", None]
+    assert _response_errors(environment) == ["TOOL_CALL_REQUIRED: Submit exactly one world request, or a batch containing only read queries.", None]
     feedback = [json.loads(message["content"]) for message in dispatcher.requests[1]["messages"]
                 if message.get("role") == "tool"]
     assert [(item["error_code"], item["reason"]) for item in feedback] == [
-        ("TOOL_CALL_REQUIRED", "finish 要单独调用")] * 2
+        ("TOOL_CALL_REQUIRED", "Submit exactly one world request, or a batch containing only read queries.")] * 2
 
 
 #: 结束活动写下的主观记忆（类型各异、正文互不相似，避免按相似度合并）。

@@ -99,11 +99,12 @@ def test_prepared_map_dataset_keeps_declaration_text_under_a_gbk_locale(monkeypa
         return real_load(root, reference) if len(loaded) == 1 else None
 
     monkeypatch.setattr(map_prepare, "load_map_dataset", load_frozen_only)
+    monkeypatch.setattr("worldmock.corpora.storefront.validate_assortments", lambda dataset, fare: None)
     monkeypatch.setattr(map_prepare, "_prepare_routes", lambda root, dataset, fare: [])
     destination = tmp_path / "prepared"
-    map_prepare.prepare_map(destination, _FROZEN)
-    frozen = json.loads((_FROZEN / "zhangjiang-map/dataset.json").read_text(encoding="utf-8"))
-    published = json.loads((destination / "zhangjiang-map/dataset.json").read_text(encoding="utf-8"))
+    map_prepare.prepare_map(destination, _FROZEN, 20260105)
+    frozen = json.loads((_FROZEN / "zhangjiang-map/20260105/dataset.json").read_text(encoding="utf-8"))
+    published = json.loads((destination / "zhangjiang-map/20260105/dataset.json").read_text(encoding="utf-8"))
     assert "©" in frozen["source"]["notice"]
     assert published["source"] == frozen["source"]
     changed = {"version", "prepared_at", "locations_file", "supplies_file", "routes_file"}

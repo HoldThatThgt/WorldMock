@@ -1,5 +1,9 @@
 # 定义地点、门店供给与世界素材
 
+> 更新日期：2026-10-01。工具交互已实现；当前目录 5.3、品类契约与规则绑定 3、场景结构 4、地图结构 3。
+> 地图按场景种子分别冻结完整供给，商品价格范围和真实料理输入输出均参与加载与行为校验。
+> 合同以[工具交互规格](../dev/SPEC-tool-interaction.md)为准；本页命令使用当前已发布格式。
+
 要让人物去新的地点、买新的商品、参加新的活动或接触自己的内容，需要同时准备**素材定义、场景引用和文件清单**。
 先从现有场景选择素材，确实需要改变素材本身时，再修改对应的目录或语料文件。
 本页命令都在仓库根目录执行；场景基础写法见[场景配置](scenarios.md)。
@@ -23,7 +27,7 @@ flowchart LR
 | --- | --- | --- |
 | 这次实验选哪些地点、商品和供给 | 场景的 `locations`、`products`、`supplies` | 只填写已有身份；供给允许覆盖 `initial_stock` |
 | 地点名称、坐标、营业时间、活动环境 | 地图的 `locations.json` | `locations[].location_id` |
-| 同一商品在某家门店的价格、库存、配送范围 | 地图的 `supplies.json` | `supplies[].supply_id` |
+| 同一商品在某家门店的价格、库存、配送范围 | 对应种子的地图 `supplies.json` | `supplies[].supply_id` |
 | 商品的份量、热量、使用方式 | `catalog/objects.jsonl` 和品类契约 | `products[].product_id`；实际取目录中的 `object_id` |
 | 可参加的生活活动、地点要求、时间窗口 | `corpora/lifestyle/enrichment.json` 与生活活动生成器 | 运行时固定读取 `lifestyle/items.json` |
 | 可观看或阅读的具体内容 | 内容元数据、SRT 时间轴和场景的 `contents` | `item_id`、`timeline_path`、`timeline_sha256` |
@@ -32,7 +36,7 @@ flowchart LR
 
 ### 哪些路径可以换
 
-场景的 `corpus_root` 相对**场景文件所在目录**解析，也可以写绝对路径。
+场景的 `corpus_root` 使用相对**场景文件所在目录**的路径，保证场景可以跨机器复制。
 `map_dataset.path`、内容时间轴、工作材料和游戏路径均相对这个语料根目录解析。
 地图内部的 `locations_file.path`、`supplies_file.path`、`routes_file.path` 也相对语料根目录，
 并不是相对 `dataset.json`。
@@ -59,6 +63,7 @@ flowchart LR
 | `corpora/lifestyle/enrichment.json` | 生活活动的人工补充字段 | `entries` 必须与生成器的活动身份一一对应 |
 | `corpora/lifestyle/items.json` | 生活活动生成结果 | 重建后还要更新语料清单及目录中的活动 MET 表 |
 | 地图 JSON 与路线响应 | 已发布的地图数据 | 修改后发布新的地图版本并更新逐层哈希 |
+| `corpora/zhangjiang-map/category-assignment.json` | 已发布的冻结类别与逐店声明 | kind定义准入池；逐店类别和对象并集完整生成实际供给，不是运行策略开关 |
 | `corpora/manifest.json` | 全部语料的文件身份与来源清单 | 修改现有条目后更新大小、哈希和来源；新增文件必须新增清单条目 |
 
 ## 先完成一个最小修改：减少一家门店的初始库存
@@ -93,9 +98,11 @@ PY
 
 ## 编写地点与营业时间
 
-地图主文件声明身份、版本、坐标系、时区、边界和三个子文件的路径与哈希。
-现有完整模板见[地图声明](../../corpora/zhangjiang-map/dataset.json)和[地点文件](../../corpora/zhangjiang-map/locations.json)。
-地点文件的顶层必须是 `{"schema_version": 2, "locations": [...]}`；地图声明与三个子文件都用结构版本 2，结构 1 的地图直接拒绝。
+地图主文件声明身份、版本、坐标系、时区、边界、生成种子以及三个子文件的路径与哈希。
+完整模板见[种子 20260105 地图](../../corpora/zhangjiang-map/20260105/dataset.json)、
+[种子 20260106 地图](../../corpora/zhangjiang-map/20260106/dataset.json)和[共享地点](../../corpora/zhangjiang-map/locations.json)。
+地图声明与地点、供给、路线文件均使用 `schema_version: 3`，声明必填 `random_seed/category_assignment_sha256`；
+种子必须与场景一致，类别声明的字节哈希必须匹配，旧结构直接拒绝。
 
 | 地点字段 | 必填与取值 | 含义和关联 |
 | --- | --- | --- |
@@ -168,20 +175,81 @@ PY
 ```bash
 uv run python scripts/prepare_map.py \
   --source-root corpora \
-  --destination /tmp/worldmock-map-release
+  --destination experiments/worldmock-map-release-20260105 \
+  --random-seed 20260105
 ```
 
-目标必须不存在。命令固定使用 `zhangjiang-map/dataset.json`，不提供城市搜索或任意地点配置参数，
-也不补齐完整语料目录或更新场景。新增地点前，要先在源地图中补齐对应的显式路线状态；
-准备完地图后，把发布产物纳入完整语料目录，并更新下文的身份引用。
+目标必须不存在。命令读取源目录中的 `zhangjiang-map/20260105/dataset.json` 和相邻的 `catalog/`，
+按完整逐店声明重新生成该种子供给，并联网重新取得已声明范围的路线。
+另一实验种子使用 `--random-seed 20260106` 和独立新目标目录，不能复用前一份报价。
+命令不提供城市搜索或任意地点配置参数，也不补齐完整语料目录或更新场景。
+新增地点前，先在源地图中补齐对应的显式路线状态；准备后纳入完整语料目录并更新下文身份引用。
 
 ## 编写门店供给与商品
 
 **商品描述“它是什么、怎么使用”，供给描述“哪家门店以什么条件出售”。**
 同一商品可以出现在多家门店；各门店的价格和库存由各自的 `supply_id` 区分。
-商品对象不能内嵌价格、商家或库存。
+商品对象不能内嵌实际报价、商家或供给库存。对象有效属性携带有来源的构建价格范围，
+实际交易仍取所选门店的当前 Quote。
 
-供给文件顶层是 `{"schema_version": 2, "supplies": [...]}`，完整模板见[门店供给](../../corpora/zhangjiang-map/supplies.json)。
+供给文件顶层是 `{"schema_version": 3, "supplies": [...]}`，模板见
+[种子 20260105 供给](../../corpora/zhangjiang-map/20260105/supplies.json)和
+[种子 20260106 供给](../../corpora/zhangjiang-map/20260106/supplies.json)。
+供给保持独立报价、库存、卖方和履约定义。
+
+### 完整类别供给与冻结价格
+
+以下合同已由当前离线构建、地图加载及正式场景准入共同执行。
+类别声明使用现有 `LocationConfig.kind` 和品类树 `category_id` 定义准入池：餐馆准入正餐，便利店准入食品，
+超市和商户准入食品、日用品及原料，菜市场准入原料；住宅、办公室、健身场所和公园明确写空集合。
+同一 `category-assignment.json` 恰含必填 `kinds/locations/source`，准入表 `kinds` 将地图中的现有 kind 映射到品类数组，
+包括不售卖地点的空数组，漏配不能视为空集合；逐店恰含必填 `location_id/category_ids/object_ids/price_position_percent/source`。
+顶层与逐店来源均沿用完整 `DataSource` 的 `kind/url/retrieved_at/license/notice/fact_cutoff/applicability`，不另造来源字符串。
+实际供给为逐店类别及全部后代对象与显式对象的并集，仍须全部在kind准入池内，重合只生成一次。
+准入池不等于每店菜单，不能把所有30正餐复制给每家餐馆；包装食品店显式选择食品子类，不借food根包含餐馆正餐。
+`ingredient` 独立于即食食品分支，已发布八种真实原料与蔬菜食材包；
+漏配拒绝构建，不能把缺键当空集合，不能随机只抽几件，也不能让所有地点出售所有商品。
+当前正餐无菜系属性，正式菜单子类或具体对象必须有来源，不从店名猜测；餐馆8正餐/每对菜单各差3项，
+便利店40对象/6品类、超市80/8、商户40/6且含日用品、菜市场8真实原料/2原料子类是本次正式场景验收假设。
+这不是行业事实；素材不足或未知拒绝发布，还须行为验证到店营业、有货、真实购买及制作食用，不随机补齐。
+
+对象有效属性 `purchase_price_fen_min/purchase_price_fen_max` 通过品类继承或对象差异声明，
+两端都必须存在，为同币种正整数分，最小值不大于最大值，两端相等合法，数值来源明确。
+构建对 `[random_seed, location_id, object_id]` 使用
+`json.dumps(..., ensure_ascii=False, separators=(',', ':'))` 后编码为 UTF-8，取 SHA-256 摘要的无符号大端整数 `h`，
+逐店price_position_percent为有来源的整数5至95，固定 `jitter = h % 11 - 5`，
+以 `min + ((max - min) * (price_position_percent + jitter) + 50) // 100` 生成一次报价，不为每商品独立抽整个范围。
+本正式地图中的门店按同一地区比较，所有便利店定位至少高于地图内普通超市10个百分点，
+同商品报价不得更低，整数舍入同价合法；不新增扰动配置或地区字段。
+场景、地图和分类声明共同钉定种子与文件哈希；改变这些输入就发布新身份。
+正式场景 `products/supplies` 显式选择必须包含选中售卖地点全部声明商品及生成供给，
+加载和正式验收核对选择后的实际集合，库存覆盖仍用现有字段，缺项拒绝，不自动补齐旧稀疏列表。
+运行观察、查询、购买和恢复不重新抽价，未来调价仍须在对象范围内，实际付款继续使用当前 Quote。
+
+白领与多人场景既有种子不同，分别发布并引用对应的地图供给集合；地点和路线来源可以共享，
+不能跨种子复用报价，也不为共用一份地图擅改实验种子。正式场景选择全部逐店实际供给，
+单次提示仍分页，呈现上限不减少人物所在地点实际能取得的对象。
+
+```mermaid
+flowchart LR
+    K[冻结地点类别与对象品类] --> A[完整准入池]
+    A --> D[逐店类别和对象实际供给声明]
+    D --> S[每个售卖地点的独立供给]
+    P[对象范围门店定位与场景种子] --> Q[固定小扰动生成一次报价]
+    Q --> S
+    S --> M[按种子分别发布地图]
+    M --> R[运行读取冻结报价与真实库存]
+```
+
+### 只读查询与有时长浏览
+
+`query_world(name, way, category, offset)` 四键必填，前三者可空但至少一个非空，offset为非负整数。
+category使用本轮callable_index已经展示的公开品类标签，非法时返回当轮全部合法标签。
+结果为matches/total_count/next_offset，next_offset必填可空；每页沿用现有上限20，按偏移可遍历同一冻结权限下的全集。
+查询不推进时间、不授予呈现凭据，也不恢复按商品需求搜索门店和路线的旧发现请求；现有有时长商品目录浏览保持真实揭示和留痕。
+人物可通过现行只读工具调用查询；结果只含本轮冻结观察有权知道的对象。
+
+### 当前供给字段与发布注意事项
 
 | 供给字段 | 必填与约束 |
 | --- | --- |
@@ -196,11 +264,12 @@ uv run python scripts/prepare_map.py \
 
 人物看到的门店商品名是完整标签「<门店显示名>出售的<商品名>」，浏览结果也逐条列这个标签。
 离开浏览地点后这些商品不再作为目标列出，人物仍可照记下的标签按名下单，受理照常核对到店或配送条件。
-按名下单也可以只写商品名：方式写「购买」，`to` 写自己或收货人，请求级 `prefer` 写 `fastest` 或 `cheapest`（`null` 按 `fastest`），
+现行请求按名下单也可以只写商品名：items每项为{target,way,from,to}，way写「购买」，to=null为本人、他人写实名，
+请求级prefer必须写“最快拿到”或“到手价最低”，null不默认最快，旧英文值和“自己”字符串拒绝；
 `from` 留 `null`，系统就在全部门店里找能服务的：人在出售它的店里、东西在那里交得到收货人手上（收货人是自己，或此刻也在那家店里）
 就到店，否则在能送到收货地的门店里远程下单。`from` 是可选约束：
 门店显示名限定这家店，App 称呼限定该 App 的成员门店（见[生活场景](scenarios.md#看懂场景的组成)），其他写法以 `SOURCE_NOT_FOUND` 拒绝。
-几家都能服务不算重名，按 `prefer` 选定一家：`fastest` 到店就是人所在的这家、远程下单取预计送达最早的，`cheapest` 取到手价最低的，
+几家都能服务不算重名，按prefer选定一家：“最快拿到”到店就是人所在的这家、远程下单取预计送达最早的，“到手价最低”取到手价最低的，
 并列先比到手价、再比门店标识；所选门店写进受理结果的 `details.notes`。选定只看能否服务，营业、库存、报价与余额在结算时照常检查；
 哪家都服务不了时拒绝并写明该去哪家店（只写能到店买的店，只能远程下单的店去了也买不到）或哪家送不到，送给别人时下一步是先送到自己
 这里再当面给，不替人物换商品。
@@ -210,24 +279,26 @@ uv run python scripts/prepare_map.py \
 ```json
 {
   "price_version": "milk-experiment-price",
-  "price_fen": 750
+  "price_fen": 700
 }
 ```
 
 把这两个字段合并进目标供给的完整报价，同时更新该报价的假设来源。
-`750` 表示 7.50 元；保留原有效期前要确认它覆盖本次模拟。
+`700` 表示 7.00 元；必须处于该商品的有效价格范围内，并确认有效期覆盖本次模拟。
 运行中的定时调价和补货用场景 `price_changes`、`product_releases`，详见[场景配置](scenarios.md)。
 
-三个正式场景选中的餐馆供给均为明确的场景假设，不是实际门店菜单：
+三个正式场景显式选择 168 件可购买商品与每个种子的全部 431 条供给。三家餐馆的菜单均为十种正餐，
+是有来源的场景菜单分配，不能当作真实门店调查结果：
 
-| 餐馆地点 | 选中正餐商品 | 供给身份 |
+| 餐馆地点 | 完整正餐集合 | 履约 |
 | --- | --- | --- |
-| `poi-3538660453` | `meal-0018` 鸡汤面 | `supply-poi-3538660453-meal-0018` |
-| `poi-3538682404` | `meal-0022` 糖醋里脊 | `supply-poi-3538682404-meal-0022` |
-| `poi-3538682408` | `meal-0026` 糖醋肉盖饭 | `supply-poi-3538682408-meal-0026` |
+| `poi-3538660453` | `meal-0001` 至 `meal-0010` | 本店自提 |
+| `poi-3538682404` | `meal-0011` 至 `meal-0020` | 本店自提 |
+| `poi-3538682408` | `meal-0021` 至 `meal-0030` | 本店自提 |
 
-映射与库存依据保存在[供给假设](../../corpora/zhangjiang-map/supply-assumptions.json)。
-这些供给支持本店自提；其他地图地点可以没有餐食，售罄或闭店时也不自动补货。
+完整声明与来源保存在[类别与逐店声明](../../corpora/zhangjiang-map/category-assignment.json)，
+库存、履约和价格派生假设见[供给假设](../../corpora/zhangjiang-map/supply-assumptions.json)。
+逐店完整集合必须通过丰富度和菜单差异门禁；不售卖地点保持无供给，售罄或闭店不自动补货。
 
 ### 新增商品对象
 
@@ -264,12 +335,29 @@ uv run python scripts/prepare_map.py \
 对象不能写编译后的 `edges` 或公式。每个数值必须恰好被一份来源记录覆盖；
 来源路径用 JSON Pointer，例如 `/values/absolute/energy_kcal_per_serving`。
 
-新增对象后还要在地图增加供给、在场景选择商品和供给，并刷新目录身份与地图身份。
+新增对象后，构建按每店的 `category_ids` 后代对象与
+`object_ids` 并集完整生成该店实际供给，并验证全部属于kind准入池，不把准入池全部复制给各地点。
+正式场景显式选择对应全部商品和供给，不继续维护逐对象稀疏手填模式。
+当前发布为目录 5.3、品类和规则绑定 3、场景 4、地图 3，世界状态仍为 8。
+目录 5.0 是已验收冻结的完整供给阶段；真实料理与后续目录变化已发布新版本；
+后续内容变更另发新版本，不同内容不能覆盖同版，最终认证记录实际版本和摘要。
 如果只是初始持有且不可购买，可通过人物 `initial_inventory` 引用对象，无需假造门店供给。
 食品的每份热量会显示给人物：按 5 进位取整到 10 千卡后写成「每份约 N 千卡」，不足 5 千卡写「几乎不含热量」；
 所以份量要按一份实际吃掉的量声明，不要把按 100 克计的热量当成一份。
 不足一份也可以吃：手边只剩零点几份时，份量取实际持有，进食时长按份量折算且不少于 60 秒，显示的份量、时长与热量同一口径。
 正式基线的食品生成器包含冻结白名单和品类映射；向食品语料随意追加一行不会自动得到完整可购买商品。
+
+### 真实制作后再食用
+
+人物习惯写明自己做饭时，正式数据提供一份可真实购买的食材包、单输入单输出库存转换规则和
+`recipe_output_bindings`，明确绑定一个已经发布的可食用正餐对象。输入与输出的 `inventory_unit` 均为 `item`，
+库存资源仍为 `inventory/item`，不把营养规格的克或毫升当成库存单位。
+制作完整结束才真实扣输入、在当前位置加入输出；之后食用才摄入热量。暂停、取消和提前结束不产生半件产物。
+不开发多材料配方，不把无产出的「家常做饭」当成已做出晚饭；公开结果写明消耗、产物和份数，
+没有物品变化时也明确返回相应英文说明。三个正式场景已绑定
+`ingredient-vegetable-kit` → `meal-0030`，输出品类为唯一的 `prepared-meal-vegetable-stir-fry`。
+输入食材、食材包与配方的真实来源见[食材语料](../../corpora/ingredients/items.json)；
+正式行为夹具通过真实购买、制作和食用核对库存及热量，旧无产出料理活动已删除。
 
 ## 编写生活活动
 
@@ -305,9 +393,10 @@ uv run python scripts/prepare_map.py \
 
 补充文件只负责这四组字段；名称、描述、时长、MET 和活动清单仍由
 [`scripts/build_lifestyle_corpus.py`](../../scripts/build_lifestyle_corpus.py) 内的来源映射生成。
-当前生成器约束总量为 180–200 条，并要求 `/tmp/la_hf/` 中存在已核验的
+当前生成器约束总量为 180–200 条，并依赖固定外部输入目录中的已核验
 `hobbies.csv`、`exercises.jsonl`、`meditation-dataset.json`、`events.csv`。
 脚本当前没有可用的 `--hf-dir` 参数，也不会自动下载这些输入。
+这是现有构建工具的跨机器限制；本次供给构建使用仓库或场景基准的相对路径，不继承固定机器路径做法。
 
 输入齐备后执行：
 
@@ -526,7 +615,7 @@ PY
 ```
 
 目前没有“给任意语料目录自动补清单”的通用 CLI。
-`uv run worldmock prepare-corpora --output /tmp/worldmock-corpora` 会联网重新取得固定来源子集，
+`uv run worldmock prepare-corpora --output experiments/worldmock-corpora` 会联网重新取得固定来源子集，
 要求输出不存在；它不是扫描自定义文件并注册素材的命令。
 
 ## 验证修改
@@ -567,7 +656,7 @@ uv run worldmock validate --scenario scenarios/my-resources.json
 | --- | --- |
 | `Corpus entry identity mismatch` | 清单中的大小、哈希是否对应修改后的文件 |
 | `Map file hash mismatch` | 地图子文件和场景地图引用是否按依赖顺序更新 |
-| `Map locations file schema is invalid`（供给、路线文件同理），或 `Map dataset validation failed` 提到 `schema_version` | 地图声明与三个子文件的 `schema_version` 是否都是 `2`，子文件顶层是否只有版本与列表两个键 |
+| `Map locations file schema is invalid`（供给、路线文件同理），或 `Map dataset validation failed` 提到 `schema_version` | 地图声明与三个子文件均必须为 `3`，生成种子与场景一致，类别声明哈希匹配 |
 | `Selected map route coverage is incomplete` | 新增地点后的每个有向地点对、每个方式是否都有状态 |
 | `Selected supply references an unselected product` | 场景是否同时选择了供给、商品、地点和卖方账户 |
 | `Selected locations use kinds that are not place types` | 所选地点的 `kind` 是否是九个场所类型之一 |

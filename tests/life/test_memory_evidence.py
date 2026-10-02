@@ -18,7 +18,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (advance_next, conclude_pending, conclude_request, context, pending_names,
                                  stage_day_plan, start_activity, submit_round, wake_by_mail, start_arguments,
                                  report_request)
-from worldmock.errors import ProtocolError
+from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.life.activity_control import PHASE_CONCLUDED
 from worldmock.life.memory_evidence import MEMORY_WRITE_POINTS, memory_write_points
 from worldmock.life.models import ActivityStatus
@@ -80,17 +80,26 @@ _NAME = "等待（1月5日 00:00 起）"
     ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": [_VIEW]}]},
      ["activity_conclusion"]),
     ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": []}]}, []),
-    ({"task": [_NAME], "summary": ["等完了。"], "memories": [[{**_MEMORY, "subject": None}]]}, ["activity_conclusion"]),
-    ({"task": [_NAME], "summary": ["等完了。"], "memories": [[_MEMORY]]}, ["activity_conclusion"]),
-    ({"task": [_NAME], "summary": ["等完了。"], "memories": [[]]}, []),
-    ({"task": [_NAME], "summary": ["等完了。"]}, []),
-], ids=["views-only", "nothing", "old-with-subject", "old-without-subject", "old-empty-groups", "old-no-memories"])
-def test_write_points_read_every_control_request_shape(request_body: dict, expected: list[str]) -> None:
-    """收尾写入点经 control_items 读收尾请求：只写看法（views）的收尾同样是写入点；旧运行的三代形状读出与改形前相同的
-    写入点（docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+], ids=["views-only", "nothing"])
+def test_write_points_read_current_control_items(request_body: dict, expected: list[str]) -> None:
+    """收尾写入点只读取当前逐项请求；只写看法的收尾同样是写入点。"""
     event = SimpleNamespace(decision_id="decision", data={"tool_name": "conclude_activity", "request": request_body})
     observation = SimpleNamespace(data={"wake_reasons": ["planned_end"]})
     assert memory_write_points([event], "decision", observation, written=bool(expected)) == expected
+
+
+@pytest.mark.parametrize("request_body", [
+    {"task": [_NAME], "summary": ["等完了。"], "memories": [[{**_MEMORY, "subject": None}]]},
+    {"task": [_NAME], "summary": ["等完了。"], "memories": [[_MEMORY]]},
+    {"task": [_NAME], "summary": ["等完了。"], "memories": [[]]},
+    {"task": [_NAME], "summary": ["等完了。"]},
+], ids=["old-with-subject", "old-without-subject", "old-empty-groups", "old-no-memories"])
+def test_write_points_reject_removed_parallel_arrays(request_body: dict) -> None:
+    """已删除的数组请求不能产生任何记忆写入点。"""
+    event = SimpleNamespace(decision_id="decision", data={"tool_name": "conclude_activity", "request": request_body})
+    observation = SimpleNamespace(data={"wake_reasons": ["planned_end"]})
+    with pytest.raises(IntegrityError, match="conclude_activity request shape is not recognised"):
+        memory_write_points([event], "decision", observation, written=False)
 
 
 def test_episodes_written_without_any_write_point_are_a_protocol_violation() -> None:

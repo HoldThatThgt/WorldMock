@@ -48,13 +48,13 @@ def test_shortest_paths_keep_the_first_hop_of_the_shortest_route() -> None:
 
 
 @pytest.mark.parametrize(("target", "unreachable", "expected"), [
-    ("hub", None, "去枢纽"),
-    ("here", None, "去此地"),
-    ("store", None, "可经侧门前往门店"),
-    ("far", None, "可经侧门前往远郊"),
-    ("lone", None, "这里去不了孤岛"),
-    ("lone", UNREACHABLE_STORE_STEP, "这里去不了那家店"),
-    ("nowhere", None, "这里去不了那里"),
+    ("hub", None, "Go to 枢纽."),
+    ("here", None, "Go to 此地."),
+    ("store", None, "Go via 侧门 to 门店."),
+    ("far", None, "Go via 侧门 to 远郊."),
+    ("lone", None, "孤岛 is unreachable from here."),
+    ("lone", UNREACHABLE_STORE_STEP, "This store is unreachable from the current location."),
+    ("nowhere", None, "the required location is unreachable from here."),
 ])
 def test_go_step_points_only_to_places_reachable_from_here(target, unreachable, expected) -> None:
     """下一步只指向从此地可达的地点：直达（或就在那里）、经第一站、到不了三种说法。"""
@@ -79,11 +79,13 @@ def test_delivery_step_lists_reachable_served_places_then_a_via_then_nowhere() -
     routes = (*_ROUTES, _route("depot", "hub"), _route("depot", "side"), _route("depot", "store"),
               _route("depot", "far"), _route("depot", "lone", status="unreachable"))
     names = {**_NAMES, "depot": "仓库"}
-    assert delivery_step(routes, names, "here", "depot", ("hub", "side", "hub", "here")) == "去枢纽或侧门再下单"
-    assert delivery_step(routes, names, "here", "depot", ("far", "store")) == "可经侧门前往门店再下单"
+    assert delivery_step(routes, names, "here", "depot", ("hub", "side", "hub", "here")) == (
+        "Go to 枢纽 or 侧门, then place the order.")
+    assert delivery_step(routes, names, "here", "depot", ("far", "store")) == (
+        "Go via 侧门 to 门店, then place the order.")
     assert delivery_step(routes, names, "here", "depot", ("lone",)) == UNREACHABLE_DELIVERY_STEP
     assert delivery_step(routes, names, "here", "depot", ("depot",)) == UNREACHABLE_DELIVERY_STEP
-    assert UNREACHABLE_DELIVERY_STEP == "这里去不了能送达的地方"
+    assert UNREACHABLE_DELIVERY_STEP == "No eligible receiving location is reachable from here."
 
 
 @pytest.mark.parametrize("status", ["unknown", "unreachable", None])
@@ -93,14 +95,19 @@ def test_delivery_step_skips_places_without_a_working_delivery_route(status) -> 
     routes = (*_ROUTES, _route("depot", "side"),
               *(() if status is None else (_route("depot", "hub", status=status),)))
     names = {**_NAMES, "depot": "仓库"}
-    assert delivery_step(routes, names, "here", "depot", ("hub", "side")) == "去侧门再下单"
+    assert delivery_step(routes, names, "here", "depot", ("hub", "side")) == "Go to 侧门, then place the order."
     assert delivery_step(routes, names, "here", "depot", ("hub",)) == UNREACHABLE_DELIVERY_STEP
 
 
-def test_the_four_delivery_codes_use_the_two_delivery_reasons() -> None:
-    """「暂时送不到这里」一句不再覆盖四个配送码：送达地不在范围一句，配送路线缺失（没有、不可达、未知）另一句。"""
-    assert default_reason("DELIVERY_DESTINATION_NOT_SUPPORTED") == DELIVERY_DESTINATION_REASON
-    assert {default_reason(code) for code in ("DELIVERY_ROUTE_NOT_FOUND", "DELIVERY_ROUTE_UNREACHABLE",
-                                              "DELIVERY_ROUTE_INFORMATION_UNKNOWN")} == {DELIVERY_ROUTE_REASON}
-    assert DELIVERY_DESTINATION_REASON != DELIVERY_ROUTE_REASON
-    assert "暂时送不到这里" not in {DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON}
+def test_delivery_codes_keep_exact_default_reasons_and_current_place_reasons() -> None:
+    """四个配送码保留各自默认接收地点条件；工具面在当前位置描述范围与道路，不把上下文条件混为同一句。"""
+    expected = {
+        "DELIVERY_DESTINATION_NOT_SUPPORTED": "The receiving place is outside this store's delivery area.",
+        "DELIVERY_ROUTE_NOT_FOUND": "No delivery route connects this store to the receiving place.",
+        "DELIVERY_ROUTE_UNREACHABLE": "The delivery route to the receiving place is unreachable.",
+        "DELIVERY_ROUTE_INFORMATION_UNKNOWN": "The delivery route to the receiving place is unknown.",
+    }
+    assert {code: default_reason(code) for code in expected} == expected
+    assert len(set(expected.values())) == 4
+    assert DELIVERY_DESTINATION_REASON == "The current place is outside this store's delivery area."
+    assert DELIVERY_ROUTE_REASON == "No usable delivery route connects this store to the current place."

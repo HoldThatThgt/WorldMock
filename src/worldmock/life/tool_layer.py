@@ -17,8 +17,8 @@ from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
 from worldmock.life.activities import location_kinds_allow
-from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_portion, plan_delivery, purchase_order,
-                                  validate_meal_use)
+from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_portion, plan_delivery,
+                                  validate_meal_use, validate_purchase_order)
 from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.discovery import DiscoveryContext, place_row
@@ -36,7 +36,8 @@ from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.storefront_state import current_quote
 from worldmock.life.travel import route_for
-from worldmock.life.work import contract_view, submission_refusal, work_start_blocker, work_start_seconds, work_totals
+from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_blocker,
+                                 work_start_seconds, work_totals)
 
 #: 私有绑定类别 → 工具层目标类别（场景联系人并入 person，邮件为 message，工作任务为 task）。
 BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
@@ -114,9 +115,9 @@ def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
         activity = context.state.activities[candidate.activity_id]
         return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
     if candidate.tool == "submit_work":
-        return (admission.hands_free_refusal(_admission_context(context), "提交成果")
+        return (admission.hands_free_refusal(_admission_context(context), "submit work")
                 or submission_refusal(context.state, context.agent_id, context.rules.tasks[candidate.task_id]))
-    return admission.hands_free_refusal(_admission_context(context), "发消息")
+    return admission.hands_free_refusal(_admission_context(context), "send a message")
 
 
 def _stage_refusal(context: LayerContext, candidate: Candidate) -> Refusal | None:
@@ -195,10 +196,10 @@ def _work_check(context: LayerContext, binding: dict, action: dict) -> Refusal |
     worked, _ = work_totals(context.state, context.agent_id, task.task_id)
     blocker = work_start_blocker(task, worked, context.state.current_time)
     if blocker is not None:
-        return Refusal("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
+        return Refusal("ACTIVITY_DURATION_INVALID", blocker, "Submit the completed work.")
     now = context.state.current_time
-    if not int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp()):
-        return refusal_for_code("WORK_TASK_NOT_AVAILABLE")
+    validate_work_start(context.state.agents[context.agent_id], task, now,
+                        admission.present_location(context.state, context.agent_id))
     return None
 
 
@@ -279,7 +280,7 @@ def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refus
         return refusal_for_code("INSUFFICIENT_FUNDS")
     item = PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=binding["quote"]["price_version"],
                         recipient_id=f"agent:{context.agent_id}")
-    purchase_order(state, context.semantics, context.agent_id, PurchaseOrderRequest(
+    validate_purchase_order(state, context.semantics, context.agent_id, PurchaseOrderRequest(
         items=(item,), fulfillment=fulfillment, destination_id=agent.location_id))
     return None
 
@@ -372,7 +373,8 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
     if kind == "task":
         task = context.rules.tasks[row["object_id"]]
         target["contract"] = contract_view(task, work_totals(context.state, context.agent_id, task.task_id),
-                                           context.state.current_time, context.scenario.timezone)
+                                           context.state.current_time, (context.scenario.timezone,
+                                           context.rules.locations[task.required_location_id].name))
     target["actions"] = [_verb_action(context, row, action) for action in row["actions"]]
     if row["kind"] == "supply" and target["actions"]:
         first = target["actions"][0]

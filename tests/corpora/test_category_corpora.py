@@ -79,9 +79,10 @@ def test_meals_energy_matches_catalog_objects():
         assert consume.duration_s == meal["meal_duration_minutes"] * 60
         purchase = next(edge for edge in obj.edges if edge.on == "purchase")
         assert purchase.rule_id == "purchase-product"
-        supplies = _load("zhangjiang-map/supplies.json")["supplies"]
+        supplies = _load("zhangjiang-map/20260105/supplies.json")["supplies"]
         matches = [row for row in supplies if row["product_id"] == meal["meal_id"]]
-        assert matches and all(row["quotes"][0]["price_fen"] == meal["price_fen"] for row in matches)
+        assert matches and all(obj.attributes["purchase_price_fen_min"] <= row["quotes"][0]["price_fen"]
+                               <= obj.attributes["purchase_price_fen_max"] for row in matches)
         facts = [source for source in obj.provenance if source.type == "fact"]
         assert any(str(meal["energy_source"]["fdc_id"]) in source.source for source in facts)
 
@@ -296,7 +297,7 @@ def test_lifestyle_items_carry_v2_fields_with_valid_domains():
     document = _load("lifestyle/items.json")
     assert document["schema_version"] == 2
     items = document["items"]
-    assert len(items) == 183
+    assert len(items) == 180
     closed = set(json.loads(
         (CORPORA / "lifestyle/enrichment.json").read_text(encoding="utf-8")
     )["location_kind_closed_set"])

@@ -10,6 +10,7 @@ from worldmock.footprints.models import (
     Event,
 )
 from worldmock.footprints.quality import build_quality_report
+from worldmock.life.error_contract import ErrorItem, ErrorReport
 
 
 def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None, **fields):
@@ -57,6 +58,12 @@ def _tool_response(call_id, usage=None):
 def _usage():
     return {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120,
             "prompt_cache_hit_tokens": 40, "prompt_cache_miss_tokens": 60}
+
+
+def _feedback(code="ARGUMENTS_INVALID", path=("items", 0, "memories")):
+    """与生产协议一致的结构化反馈；错误位置不依赖日志文本。"""
+    return ErrorReport(code, "The parameter is invalid.", "Correct the reported parameter.",
+                       (ErrorItem(path, None, code),)).payload()
 
 
 def _memory_update(identity, observation_id, decision_id, trigger=("activity_conclusion",)):
@@ -219,7 +226,7 @@ def test_model_usage_counts_plan_day_and_lists_it_by_purpose():
 
 def test_plan_day_response_naming_memories_is_no_memory_problem():
     """零点计划不是记忆写入点：它的输出多带 memories 字段时，本地校验错误不记为记忆协议问题；
-    同一句错误出现在人物决策的响应里照旧记入。"""
+    人物决策带实际记忆字段的结构化错误时记入。"""
     from worldmock.life.day_planning import PlanDayOutputError, parse_plan_day
 
     arguments = json.dumps({"goals": [], "memories": ["明早七点起床"]}, ensure_ascii=False)
@@ -230,6 +237,7 @@ def test_plan_day_response_naming_memories_is_no_memory_problem():
     plan = {"phase": "response", "purpose": "plan_day", "call_id": "plan", "attempt": 1,
             "error": str(caught.value), "response": raw}
     decision = {key: value for key, value in plan.items() if key != "purpose"}
+    decision["protocol_feedback"] = _feedback(path=("memories",))
 
     def problems(data):
         event = _event(1, "model_response", agent_id=1, data=data)
@@ -308,25 +316,21 @@ def test_memory_quality_reports_conclusion_without_memory_update():
                           {"code": "conclusion_without_memory_update", "event_id": "event-6", "agent_id": 1}]}
 
 
-def test_memory_quality_reads_every_control_request_shape():
-    """质量报告经 control_items 读收尾请求，不直接读 task、memories：只写看法（views）的收尾也要求写记忆；旧运行的三代形状
-    （记忆带 subject、记忆没有 subject、不带记忆）读出与改形前相同的结果；提到 views 字段的协议错误同样是记忆协议错误
-    （docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+def test_memory_quality_reads_current_control_items_and_structured_errors():
+    """只写看法也要求写记忆；协议问题按结构化路径识别，旧请求字段被直接拒绝。"""
     view = {"type": "relationship", "about": "王磊", "text": "王磊人不错。", "importance": 0.5, "keywords": ["同事"]}
     name = "等待（1月5日 00:00 起）"
     requests = {
         "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}]},
         "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}]},
-        "with_subject": {"task": [name], "summary": ["等完了。"], "memories": [[{**_memory(), "subject": None}]]},
-        "without_subject": {"task": [name], "summary": ["等完了。"], "memories": [[_memory()]]},
-        "empty_groups": {"task": [name], "summary": ["等完了。"], "memories": [[]]},
-        "no_memories": {"task": [name], "summary": ["等完了。"]},
+        "with_memory": _conclusion(_memory()),
     }
     events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
                      data={"tool_name": "conclude_activity", "request": request})
               for index, (label, request) in enumerate(requests.items())]
     views_error = _tool_response("call", _usage())
     views_error["error"] = "invalid conclude_activity arguments: items.0.views.0.about Field required"
+    views_error["protocol_feedback"] = _feedback(path=("items", 0, "views", 0, "about"))
     events += [_event(len(events) + 1, "model_response", agent_id=1, decision_id="protocol", data=views_error),
                _event(len(events) + 2, "run_ended", occurred_at=200)]
 
@@ -335,7 +339,7 @@ def test_memory_quality_reads_every_control_request_shape():
     assert memory["problems"] == [
         *({"code": "memory_protocol_error", "event_id": f"event-{len(requests) + 1}", "agent_id": 1},),
         *({"code": "conclusion_without_memory_update", "event_id": f"event-{index + 1}", "agent_id": 1}
-          for index, label in enumerate(requests) if label in {"views_only", "with_subject", "without_subject"}),
+          for index, label in enumerate(requests) if label in {"views_only", "with_memory"}),
     ]
 
 
@@ -352,6 +356,7 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
 
     oversized = _tool_response("call", _usage())
     oversized["error"] = "invalid conclude_activity arguments: memories exceed eight entries in total"
+    oversized["protocol_feedback"] = _feedback()
     event = _event(1, "model_response", agent_id=1, decision_id="decision", data=oversized)
     memory = build_quality_report([event], [], _manifest())["memory_references"]
     assert memory["problems"] == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
@@ -810,10 +815,11 @@ def test_contact_reply_guard_counts_attempts_and_replies_without_evidence_separa
         "hits_by_category": {"arriving": 2, "done_or_bringing": 0, "taking_over": 1, "guaranteeing": 1}}
 
 
-def _protocol_error(sequence, call_id, error, purpose=None):
-    """一次带协议错误串的模型终态响应（人物决策没有 purpose）。"""
+def _protocol_error(sequence, call_id, code, purpose=None):
+    """一次带结构化协议错误证据的模型终态响应。"""
     response = _tool_response(call_id, _usage())
-    response["error"] = error
+    response["error"] = "Text is not used to classify protocol errors."
+    response["protocol_feedback"] = _feedback(code, ("tool_calls", 0))
     if purpose is not None:
         response["purpose"] = purpose
     return _event(sequence, "model_response", agent_id=1, decision_id=f"decision-{call_id}", data=response)
@@ -827,18 +833,18 @@ def _rejected(sequence, code, occurred_at, reused=False):
 
 
 def test_name_rejections_are_counted_apart_from_other_protocol_errors():
-    """名称类拒绝一节（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）：宿主的名称类纠错按 feedback_report 判定的码逐码计数，
+    """名称类拒绝一节（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）：宿主的名称类纠错按 protocol_feedback 的码逐码计数，
     其余协议错误（非法 JSON、没有工具调用、参数形状）另计，工作验收等有 purpose 的调用不算；环境的名称类拒绝按码计数（不含
     重放），同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
     events = [
-        _protocol_error(1, "c1", "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])"),
-        _protocol_error(2, "c2", "WAY_NOT_OFFERED: start_activity verb and way are not offered by the chosen target"),
-        _protocol_error(3, "c3", "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 王五"),
-        _protocol_error(4, "c4", "invalid tool arguments for start_activity: Expecting value: line 1 column 1"),
-        _protocol_error(5, "c5", "native tool_calls are required"),
-        _protocol_error(6, "c6", "ARGUMENTS_INVALID: invalid start_activity arguments"),
-        _protocol_error(7, "c7", "NAME_NOT_FOUND: task_name is not visible", purpose="work_review"),
-        _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_NAME_AMBIGUOUS", 500),
+        _protocol_error(1, "c1", "NAME_NOT_FOUND"),
+        _protocol_error(2, "c2", "WAY_NOT_OFFERED"),
+        _protocol_error(3, "c3", "SUBJECT_NOT_KNOWN"),
+        _protocol_error(4, "c4", "ARGUMENTS_NOT_JSON"),
+        _protocol_error(5, "c5", "TOOL_CALL_REQUIRED"),
+        _protocol_error(6, "c6", "ARGUMENTS_INVALID"),
+        _protocol_error(7, "c7", "NAME_NOT_FOUND", purpose="work_review"),
+        _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_SOURCE_MISMATCH", 500),
         _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
         _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
     ]
@@ -849,6 +855,21 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
     assert report["other_protocol_codes"] == {"ARGUMENTS_INVALID": 1, "ARGUMENTS_NOT_JSON": 1, "TOOL_CALL_REQUIRED": 1}
     assert report["environment_rejections"] == 4
     assert report["environment_codes"] == {"FULFILLMENT_NOT_SUPPORTED": 0, "SOURCE_NOT_FOUND": 0,
-                                           "SUPPLY_NAME_AMBIGUOUS": 1, "SUPPLY_NOT_AT_STORE": 0,
-                                           "SUPPLY_NOT_FOUND": 2, "SUPPLY_SOURCE_MISMATCH": 0, "TASK_NOT_FOUND": 1}
+                                           "SUPPLY_NOT_AT_STORE": 0, "SUPPLY_NOT_FOUND": 2,
+                                           "SUPPLY_SOURCE_MISMATCH": 1, "TASK_NOT_FOUND": 1}
     assert report["environment_free_rejections"] == 3
+
+
+def test_protocol_quality_uses_structured_evidence_without_log_inference():
+    """误导性错误文本不改变真实分类；没有结构化协议错误的服务日志不冒充名称拒绝。"""
+    response = _tool_response("structured", _usage())
+    response["error"] = "NAME_NOT_FOUND: memories text is misleading"
+    response["protocol_feedback"] = _feedback("ARGUMENTS_NOT_JSON", ("tool_calls", 0, "function", "arguments"))
+    raw = _tool_response("unstructured", _usage())
+    raw["error"] = "NAME_NOT_FOUND: memories is only a log string"
+    events = [_event(1, "model_response", agent_id=1, data=response),
+              _event(2, "model_response", agent_id=1, data=raw)]
+    report = build_quality_report(events, [], _manifest())
+    assert report["name_rejections"]["host_protocol_errors"] == 0
+    assert report["name_rejections"]["other_protocol_codes"] == {"ARGUMENTS_NOT_JSON": 1}
+    assert report["memory_references"]["problem_count"] == 0

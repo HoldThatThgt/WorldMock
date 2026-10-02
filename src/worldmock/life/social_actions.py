@@ -94,7 +94,8 @@ def late_acceptance_refusal(state: WorldState, agent_id: int, partner_id: str) -
     invitation = pair_chat(state, int(partner_id.split(":", 1)[1]), f"agent:{agent_id}")
     if invitation is None or invitation.planned_end_at - state.current_time >= CHAT_DURATION_BOUNDS[0]:
         return None
-    return Refusal("ACTIVITY_TOO_SHORT", "对方的交谈快结束了", "等对方结束后再发起新的交谈")
+    return Refusal("ACTIVITY_TOO_SHORT", "The other person's conversation has less than one minute remaining.",
+                   "Wait for the current conversation to end, then start a new one.")
 
 
 def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivityRequest,

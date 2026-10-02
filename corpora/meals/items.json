@@ -28,7 +28,8 @@
       "meal_duration_minutes": 25,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0002",
@@ -54,7 +55,8 @@
       "meal_duration_minutes": 25,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0003",
@@ -80,7 +82,8 @@
       "meal_duration_minutes": 25,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0004",
@@ -106,7 +109,8 @@
       "meal_duration_minutes": 22,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0005",
@@ -132,7 +136,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0006",
@@ -158,7 +163,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0007",
@@ -184,7 +190,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0008",
@@ -210,7 +217,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0009",
@@ -236,7 +244,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": false,
-      "delivery_delay_seconds": null
+      "delivery_delay_seconds": null,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0010",
@@ -262,7 +271,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0011",
@@ -288,7 +298,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0012",
@@ -314,7 +325,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0013",
@@ -340,7 +352,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0014",
@@ -366,7 +379,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0015",
@@ -392,7 +406,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0016",
@@ -418,7 +433,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0017",
@@ -444,7 +460,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0018",
@@ -470,7 +487,8 @@
       "meal_duration_minutes": 25,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0019",
@@ -496,7 +514,8 @@
       "meal_duration_minutes": 25,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0020",
@@ -522,7 +541,8 @@
       "meal_duration_minutes": 25,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0021",
@@ -548,7 +568,8 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0022",
@@ -574,7 +595,8 @@
       "meal_duration_minutes": 35,
       "dine_in": true,
       "delivery": false,
-      "delivery_delay_seconds": null
+      "delivery_delay_seconds": null,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0023",
@@ -600,7 +622,8 @@
       "meal_duration_minutes": 35,
       "dine_in": true,
       "delivery": false,
-      "delivery_delay_seconds": null
+      "delivery_delay_seconds": null,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0024",
@@ -626,7 +649,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0025",
@@ -652,7 +676,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0026",
@@ -678,7 +703,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0027",
@@ -704,7 +730,8 @@
       "meal_duration_minutes": 30,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0028",
@@ -730,7 +757,8 @@
       "meal_duration_minutes": 35,
       "dine_in": true,
       "delivery": false,
-      "delivery_delay_seconds": null
+      "delivery_delay_seconds": null,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0029",
@@ -756,7 +784,8 @@
       "meal_duration_minutes": 35,
       "dine_in": true,
       "delivery": false,
-      "delivery_delay_seconds": null
+      "delivery_delay_seconds": null,
+      "category_id": "prepared-meal"
     },
     {
       "meal_id": "meal-0030",
@@ -782,7 +811,15 @@
       "meal_duration_minutes": 20,
       "dine_in": true,
       "delivery": true,
-      "delivery_delay_seconds": 1800
+      "delivery_delay_seconds": 1800,
+      "category_id": "prepared-meal-vegetable-stir-fry",
+      "recipe_source": {
+        "url": "https://www.nutrition.gov/recipes/vegetable-stir-fry",
+        "retrieved_at": "2026-10-01T08:00:00-04:00",
+        "license": "USDA public domain",
+        "fact_cutoff": "2026-10-01",
+        "applicability": "Vegetable ingredients and cooking process are based on the USDA recipe; packaged proportions, item yield, serving mass and duration are WorldMock scenario assumptions. The existing FNDDS meal energy estimate remains unchanged."
+      }
     }
   ]
 }

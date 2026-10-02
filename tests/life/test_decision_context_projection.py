@@ -19,6 +19,7 @@ from tests.integration.test_life_agent_protocol import _context, _observations
 from worldmock.life import prompt_capacity
 from worldmock.life.narration import render_layer_json
 from worldmock.life.prompt_capacity import ProgressBudget
+from worldmock.life.tool_groups import expand_tool_layer
 
 
 def _call(minute: int, tool: str, note: str | None) -> dict:
@@ -50,7 +51,9 @@ def _records() -> tuple[list[dict], list[dict]]:
 
 def _budget(records: list[dict], meta: list[dict]) -> tuple[dict, ProgressBudget]:
     """已组装好的请求（system、六层 user 中的工具层与进度层、工具）与对应的可浓缩部分。"""
-    layers = ({"layer": "工具层", "targets": []},
+    tool_layer = copy.deepcopy(_observations()[0]["data"]["tool_layer"])
+    tool_layer["callable_index"] = {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}
+    layers = (tool_layer,
               {"layer": "进度层", "session_started_at": "2026-01-05T07:50:00+08:00", "events": records})
     request = {
         "model": prompt_capacity.MODEL_ALIAS,
@@ -128,7 +131,7 @@ def test_self_notes_are_removed_oldest_first_one_at_a_time_and_protected_notes_s
     assert _events(fitted) == seen[-1]
     assert _events(fitted)[2] == records[2] and _events(fitted)[4] == records[4]
     assert fitted["messages"][0] == request["messages"][0] and fitted["tools"] == request["tools"]
-    assert json.loads(fitted["messages"][1]["content"])[0] == budget.layers[0]
+    assert expand_tool_layer(json.loads(fitted["messages"][1]["content"])[0]) == budget.layers[0]
 
 
 def test_oldest_unprotected_run_folds_into_one_condensed_record_then_the_next(monkeypatch) -> None:

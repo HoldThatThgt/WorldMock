@@ -313,7 +313,31 @@ class InventoryItemConfig(FrozenModel):
 
 
 class ProductConfig(InventoryItemConfig):
-    """@brief 场景声明的商品身份与使用语义，交易事实由独立门店供给保存。"""
+    """@brief 商品使用语义和有来源的价格边界，实际报价由门店供给保存。"""
+
+    purchase_price_fen_min: int = Field(gt=0)
+    purchase_price_fen_max: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_price_bounds(self) -> "ProductConfig":
+        """@brief 允许固定价，拒绝倒置的商品价格范围。"""
+        if self.purchase_price_fen_min > self.purchase_price_fen_max:
+            logging.error("Product purchase price bounds are inverted")
+            raise ValueError("product purchase price bounds must be ordered")
+        return self
+
+
+class WorkAppointment(FrozenModel):
+    """@brief 需要真实预约的活动开始时刻和预约依据。"""
+
+    starts_at: datetime
+    reason: str = Field(min_length=1, pattern=r"\S")
+
+    @model_validator(mode="after")
+    def validate_start(self) -> "WorkAppointment":
+        """@brief 预约时刻必须明确时区。"""
+        _aware(self.starts_at, "starts_at")
+        return self
 
 
 class WorkTaskConfig(FrozenModel):
@@ -327,7 +351,7 @@ class WorkTaskConfig(FrozenModel):
     title: str = Field(min_length=1, pattern=r"\S")
     assignee_agent_id: str = Field(pattern=r"\S")
     contract_kind: ContractKind
-    available_at: datetime
+    appointment: WorkAppointment | None
     due_at: datetime
     maximum_duration_seconds: int = Field(gt=0)
     pay_fen: int = Field(gt=0)
@@ -343,12 +367,33 @@ class WorkTaskConfig(FrozenModel):
 
     @model_validator(mode="after")
     def validate_dates(self) -> "WorkTaskConfig":
-        """@brief 要求任务时刻带时区且截止晚于开放。"""
-        _aware(self.available_at, "available_at")
+        """@brief 截止必须带时区，预约时截止必须晚于开始。"""
         _aware(self.due_at, "due_at")
-        if self.due_at <= self.available_at:
-            raise ValueError("work due time must follow availability")
+        if self.appointment is not None and self.due_at <= self.appointment.starts_at:
+            logging.error("Work deadline must follow appointment start")
+            raise ValueError("work deadline must follow appointment start")
         return self
+
+
+class RuntimeWorkTask(WorkTaskConfig):
+    """@brief 装配出的任务事实，开放时刻仅由通知或预约派生。"""
+
+    available_at: datetime
+
+
+def runtime_tasks(tasks: tuple, messages: tuple) -> tuple[RuntimeWorkTask, ...]:
+    """@brief 普通工作取最早本人通知，预约工作取约定开始。"""
+    result = []
+    for task in tasks:
+        notices = [item for item in messages if item.related_task_id == task.task_id]
+        if not notices:
+            logging.error("Work task has no covering notification: %s", task.task_id)
+            raise ValueError("work task requires a covering notification")
+        opening = (min(item.sent_at for item in notices) if task.appointment is None
+                   else task.appointment.starts_at)
+        payload = task.model_dump(mode="python", exclude={"available_at"})
+        result.append(RuntimeWorkTask.model_validate({**payload, "available_at": opening}))
+    return tuple(result)
 
 
 class MessageConfig(FrozenModel):
@@ -541,7 +586,7 @@ class BodyInstanceConfig(FrozenModel):
 class LifeScenario(FrozenModel):
     """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -690,7 +735,7 @@ class RuntimeScenario(FrozenModel):
     领域模块（commerce/travel/work/rules/body）消费的全部静态语义都在此处。
     """
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -717,7 +762,7 @@ class RuntimeScenario(FrozenModel):
     products: tuple[ProductConfig, ...]
     inventory_items: tuple[InventoryItemConfig, ...] = ()
     supplies: tuple[SupplyConfig, ...]
-    tasks: tuple[WorkTaskConfig, ...]
+    tasks: tuple[RuntimeWorkTask, ...]
     messages: tuple[MessageConfig, ...]
     contents: tuple[ContentItemConfig, ...]
     games: tuple[GameConfig, ...]
@@ -855,7 +900,21 @@ def _check_catalog_references(agents, tasks, messages, targets) -> None:
     if any(message.recipient_agent_id not in agents_by_id for message in messages):
         raise ValueError("message references an unknown agent")
     if any(message.related_task_id not in task_ids for message in messages if message.related_task_id):
+        logging.error("Message references an unknown work task")
         raise ValueError("message references an unknown task")
+    by_id = {task.task_id: task for task in tasks}
+    for message in messages:
+        if not message.related_task_id:
+            continue
+        task = by_id[message.related_task_id]
+        recipient = int(task.assignee_agent_id.removeprefix("agent:"))
+        if message.recipient_agent_id != recipient:
+            logging.error("Work notification recipient differs from the task assignee")
+            raise ValueError("work notification recipient must match the task assignee")
+        if task.title not in message.subject:
+            logging.error("Work notification does not name its full task title")
+            raise ValueError("work notification must name its full task title")
+    runtime_tasks(tasks, messages)
 
 
 def _check_times(zone, start_at, end_at, tasks, messages) -> None:
@@ -863,11 +922,18 @@ def _check_times(zone, start_at, end_at, tasks, messages) -> None:
     values = (start_at, end_at)
     if any(not _matches_zone(value, zone) for value in values):
         raise ValueError("scenario timestamps do not match the declared timezone")
-    for task in tasks:
+    for task in runtime_tasks(tasks, messages):
         if not (_matches_zone(task.available_at, zone) and _matches_zone(task.due_at, zone)):
+            logging.error("Work task timestamps do not match the declared timezone")
             raise ValueError("work task timestamps do not match the declared timezone")
-        if not start_at <= task.available_at < task.due_at <= end_at:
+        if not task.available_at < task.due_at <= end_at or task.due_at <= start_at:
+            logging.error("Work task is outside the scenario interval")
             raise ValueError("work task is outside the scenario interval")
+        if task.appointment is not None:
+            earliest = min(item.sent_at for item in messages if item.related_task_id == task.task_id)
+            if earliest > task.available_at:
+                logging.error("Appointment notification must arrive no later than the start")
+                raise ValueError("appointment notification must arrive no later than the start")
     for message in messages:
         if not _matches_zone(message.sent_at, zone) or message.sent_at >= end_at:
             raise ValueError("message timestamp is invalid for the scenario")

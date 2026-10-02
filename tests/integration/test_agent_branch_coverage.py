@@ -158,8 +158,9 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     """工具层没有目标时决策照常完成：不可见名称在本轮纠正，改提交其他动作，登记即结束本轮且不终止运行。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-unseen", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
-        _ModelResponse("call-recall", "recall_task_summary",
-                       json.dumps({"task_name": _TASK}, ensure_ascii=False)),
+        _ModelResponse("call-submit", "submit_work",
+                       json.dumps({"task_name": _TASK, "deliverable": {"summary": "要点。", "decisions": [],
+                                                                   "action_items": []}}, ensure_ascii=False)),
     ])
     environment = _Environment()
     agent = LifeAgent()
@@ -168,17 +169,17 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     result = await agent.run_react_loop(ReactLoopRequest(
         0, _context().observed_at, _empty_layer_observations()))
 
-    assert result == "recall_task_summary registered"
+    assert result == "submit_work registered"
     assert len(environment.calls) == 1
-    assert environment.calls[0].request == RecallTaskSummaryRequest(task_name=_TASK)
+    assert environment.calls[0].request.task_name == _TASK
     action_responses = [item for item in environment.evidence if item.phase == "response"]
     assert len(action_responses) == 2
-    assert "not a visible interactive object" in action_responses[0].error
+    assert "No known object" in action_responses[0].error
     start = next(item["function"] for item in dispatcher.requests[0]["tools"]
                  if item["function"]["name"] == "start_activity")
     properties = start["parameters"]["properties"]
-    for field in ("targets", "actions", "ways"):
-        assert "enum" not in properties[field]["items"]
+    for field in ("target", "way"):
+        assert "enum" not in properties["items"]["items"]["properties"][field]
 
 
 _SUPPLY = "便利店出售的饭团"
@@ -223,10 +224,10 @@ def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
     assert data["tool_layer"]["targets"][1]["actions"][0]["available"] is False
     assert person.validate_react_decisions([
         _decision("start_activity", _choice(_TASK, "interact", "工作"))], False) == ""
-    assert "not offered by the chosen target" in person.validate_react_decisions([
+    assert "does not support" in person.validate_react_decisions([
         _decision("start_activity", _choice(_SUPPLY, "obtain", "到店"))], False)
     start = copy.deepcopy(_functions(person)["start_activity"])
-    assert start["parameters"]["properties"].pop("prefer")["enum"] == ["fastest", "cheapest", None]  # 固定的请求级偏好
+    assert start["parameters"]["properties"].pop("prefer")["enum"] == ["最快拿到", "到手价最低", None]  # 固定的请求级偏好
     assert '"enum"' not in json.dumps(start)
 
 
@@ -256,9 +257,9 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
     assert not {"purchase", "consume", "set_activity_state", "discover_places", "finish"} & set(functions)
     assert person.validate_react_decisions([
         _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]})], False) == ""
-    assert "not visible" in person.validate_react_decisions([
+    assert "not known" in person.validate_react_decisions([
         _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}]})], False)
-    assert "NAME_NOT_FOUND: recipient_name is not visible" == person.validate_react_decisions([
+    assert "NAME_NOT_FOUND: The name 陌生人 is not known." == person.validate_react_decisions([
         _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})], False)
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)
@@ -269,18 +270,18 @@ def test_action_validation_rejects_unseen_object_wrong_action_and_second_action(
     person = _prepared()
     _functions(person)
     assert person.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)], False) == ""
-    assert "visible interactive object" in person.validate_react_decisions([
+    assert "No known object" in person.validate_react_decisions([
         _decision("start_activity", _choice("object-private", "interact", "等待")),
     ], False)
-    for verb, way in (("interact", "工作"), ("sleep", "等待"), ("interact", "睡觉")):
-        assert "not offered" in person.validate_react_decisions([
+    for verb, way in (("interact", "工作"), ("sleep", "游玩"), ("interact", "未知方式")):
+        assert "WAY_NOT_OFFERED" in person.validate_react_decisions([
             _decision("start_activity", _choice("自己", verb, way)),
         ], False)
-    assert "equal lengths" in person.validate_react_decisions([
+    assert "not declared" in person.validate_react_decisions([
         _decision("start_activity", {**_WAIT_CHOICE, "ways": ["等待", "睡觉"]}),
     ], False)
     person._life_action_count = 1
-    assert "already submitted" in person.validate_react_decisions([
+    assert "world request" in person.validate_react_decisions([
         _decision("start_activity", _WAIT_CHOICE),
     ], False)
 
@@ -331,11 +332,21 @@ def test_tool_messages_follow_memory_queries_only() -> None:
     success = {"epistemic_status": "subjective", "episodes": []}
     person._append_react_tool_result(ReactDecision("", "memory_recent", {"limit": 1}, "", "call-1"),
                                      ReactToolResult(True, json.dumps(success), success))
-    person._append_react_tool_result(ReactDecision("", "memory_search", {"query": "x", "limit": 1}, "", "call-2"),
-                                     ReactToolResult(False, "memory unavailable", {"error": "memory unavailable"}))
-    assert person._react_messages == [
-        {"role": "tool", "tool_call_id": "call-1", "content": '{"epistemic_status":"subjective","episodes":[]}'},
-        {"role": "tool", "tool_call_id": "call-2", "content": '{"error":"memory unavailable"}'}]
+    failure = person._dispatch_strict_memory
+    person._memory_runtime = type("Memory", (), {
+        "dispatch_tool": lambda self, action, args: (False, "memory unavailable", None),
+    })()
+    decision = ReactDecision("", "memory_search", {"query": "x", "limit": 1}, "", "call-2")
+    assert person.validate_react_decisions([
+        ReactDecision("", "memory_recent", {"limit": 1}, "", "call-1"), decision], False) == ""
+    result = failure(decision.action, decision.args)
+    person._append_react_tool_result(decision, result)
+    assert json.loads(person._react_messages[0]["content"]) == success
+    feedback = json.loads(person._react_messages[1]["content"])
+    assert set(feedback) == {"error_code", "reason", "fix", "items", "unmet"}
+    assert feedback["error_code"] == "MEMORY_QUERY_FAILED"
+    assert feedback["items"][0]["path"] == ["tool_calls", 1]
+    assert feedback["items"][0]["allowed_values"] == []
     with pytest.raises(RuntimeError, match="Native tool call id is unavailable"):
         person._append_react_tool_result(_decision("memory_recent", {"limit": 1}),
                                          ReactToolResult(True, json.dumps(success), success))

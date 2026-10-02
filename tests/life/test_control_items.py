@@ -1,8 +1,6 @@
-"""活动控制工具请求的归一读取（docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」与验收台账「控制工具」）。
+"""@brief 活动控制工具只读取现行逐项请求，旧平行数组记录明确拒绝。
 
-control_items 同时读现行一项一个对象的形状与运行记录里的三代旧形状（数据集真实记录拷贝在
-tests/fixtures/control-request-generations.json）；环境侧的读者（记忆层 self_notes、人设层看法与偏好、进度层参数、零点
-计划输入、记忆写入点）对旧运行的事件读出与现行形状相同的结果，不再直接读 task、memories。
+环境侧的记忆、看法与偏好、进度、零点计划和记忆写入点读取同一批真实 items 事件；冻结的旧运行记录仅作为拒绝样本。
 """
 
 from __future__ import annotations
@@ -36,24 +34,6 @@ def _stored(entry: dict, subject: str | None) -> dict:
             "keywords": entry["keywords"], "subject": subject}
 
 
-def _legacy(tool: str, request: dict, *, subject: bool = True, memories: bool = True) -> dict:
-    """把现行请求改写成旧形状：task[]、summary[] 两组平行数组，结束另带 memories[][]（看法并入该项记忆之后，按 subject
-    写对象）；subject 为假时记忆没有这个字段，memories 为假时是最早不带记忆的形状。"""
-    items = request["items"]
-    body = {"task": [item["activity_name"] for item in items], "summary": [item["summary"] for item in items]}
-    if tool != "conclude_activity" or not memories:
-        return body
-
-    def old(entry: dict, about: str | None) -> dict:
-        """一条旧记忆（subject 为假时去掉对象字段）。"""
-        stored = _stored(entry, about)
-        return stored if subject else {key: value for key, value in stored.items() if key != "subject"}
-
-    body["memories"] = [[*(old(entry, None) for entry in item["memories"]),
-                         *(old(view, view["about"]) for view in item["views"])] for item in items]
-    return body
-
-
 def test_current_shape_items_carry_views_as_subject_memories() -> None:
     """现行形状一项一个对象：结束工具每项先普通记忆（subject 为 null）、后看法（about 写作 subject）；播报与暂停没有记忆；
     进度层与交付窗口的现行形状改写只留活动名与自述（进度层另留普通记忆），看法与偏好一律不带。"""
@@ -78,40 +58,37 @@ def test_current_shape_items_carry_views_as_subject_memories() -> None:
             {"activity_name": _WAIT, "summary": model(_WAIT).items[0].summary}]}
 
 
-def test_recorded_generations_read_their_parallel_arrays() -> None:
-    """数据集三代真实记录（只有 task 与 summary、记忆没有 subject、记忆带必填可空的 subject）都读出逐项的活动名与自述；
-    旧记忆按存储形状读出，没有 subject 的更早记录对象为 null，带 subject 的 relationship 读成看法。"""
+def test_recorded_parallel_array_requests_are_rejected() -> None:
+    """@brief 三种冻结旧记录无论记忆字段是否齐全，都按旧请求形状拒绝。"""
     records = json.loads(_FIXTURE.read_text(encoding="utf-8"))["records"]
     assert {record["run"] for record in records} == {
         "2026-09-28-deepseek-flash-after-wake-fix", "2026-09-28-c9a4fc1-day-r3", "2026-09-28-4a5b0e6-day"}
     assert {record["tool_name"] for record in records} == set(CONTROL_TOOLS)
     for record in records:
         tool, request = record["tool_name"], record["request"]
-        items = control_items(tool, request)
-        assert [(item.activity_name, item.summary) for item in items] == list(zip(request["task"], request["summary"]))
-        groups = request.get("memories", [[] for _ in request["task"]]) if tool == "conclude_activity" else [
-            [] for _ in request["task"]]
-        assert [list(item.memories) for item in items] == [
-            [_stored(memory, memory.get("subject")) for memory in group] for group in groups]
-    subjects = [memory["subject"] for record in records if record["tool_name"] == "conclude_activity"
-                for item in control_items("conclude_activity", record["request"]) for memory in item.views]
-    assert subjects == ["父亲"]
+        assert "items" not in request and len(request["task"]) == len(request["summary"])
+        with pytest.raises(IntegrityError, match=f"{tool} request shape is not recognised"):
+            control_items(tool, request)
 
 
-def test_equivalent_old_and_current_requests_read_the_same_items() -> None:
-    """同一内容的现行请求与旧形状读出同一结果：带 subject 的旧形状完全相同；没有 subject 的更早记录只有看法的对象为 null；
-    最早不带记忆的结束请求只有活动名与自述。"""
-    for tool in CONTROL_TOOLS:
-        request = (conclude_request(_WORK, _WAIT, memories=[[_PLAIN], []], views=[[_FRIEND], [_TASTE]])
-                   if tool == "conclude_activity" else report_request(_WORK, _WAIT))
-        current = control_items(tool, request)
-        body = request.model_dump(mode="json")
-        assert control_items(tool, _legacy(tool, body)) == current
-        unnamed = control_items(tool, _legacy(tool, body, subject=False))
-        assert [[{**memory, "subject": None} for memory in item.memories] for item in current] == [
-            list(item.memories) for item in unnamed]
-        assert [(item.activity_name, item.summary, item.memories) for item in control_items(
-            tool, _legacy(tool, body, memories=False))] == [(item.activity_name, item.summary, ()) for item in current]
+@pytest.mark.parametrize("tool", CONTROL_TOOLS)
+def test_current_requests_preserve_each_items_content_and_order(tool: str) -> None:
+    """@brief 三个工具的模型和 JSON 都保留逐项顺序，自述和记忆不会跨活动串用。"""
+    summaries = ["纪要这一项。", "等待这一项。"]
+    if tool == "conclude_activity":
+        request = conclude_request(_WORK, _WAIT, summary=summaries, memories=[[_PLAIN], []],
+                                   views=[[_FRIEND], [_TASTE]])
+    else:
+        builder = report_request if tool == "report_status" else pause_request
+        request = builder(_WORK, _WAIT, summary=summaries)
+    items = control_items(tool, request)
+    assert control_items(tool, request.model_dump(mode="json")) == items
+    assert [(item.activity_name, item.summary) for item in items] == list(zip((_WORK, _WAIT), summaries, strict=True))
+    if tool == "conclude_activity":
+        assert items[0].memories == (_stored(_PLAIN, None), _stored(_FRIEND, "沈昊"))
+        assert items[1].memories == (_stored(_TASTE, "拿铁"),)
+    else:
+        assert all(item.memories == () for item in items)
 
 
 @pytest.mark.parametrize("tool,request_body", [
@@ -132,8 +109,7 @@ def test_equivalent_old_and_current_requests_read_the_same_items() -> None:
     ("report_status", {"task": [7], "summary": ["继续。"]}),
 ])
 def test_unrecognised_or_malformed_requests_fail_as_integrity_errors(tool: str, request_body) -> None:
-    """认不出的形状（含最早的 session_ids 形状与非控制工具）与缺字段、类型不符、平行数组逐项对不齐（记忆组数与活动数
-    不同也不按 zip 截断）的记录按数据不一致失败，不猜测。"""
+    """@brief 旧数组、最早会话形状、非控制工具以及现行形状的缺字段和类型错误都明确拒绝。"""
     with pytest.raises(IntegrityError):
         control_items(tool, request_body)
 
@@ -154,26 +130,8 @@ def _readers(engine) -> dict:
             "has_memories": [conclusion_has_memories(event.data["request"]) for event in conclusions]}
 
 
-def _old_run(engine, monkeypatch, **shape) -> None:
-    """让存储读出的控制请求变成旧形状（旧运行的事件），其余事件原样。"""
-    read = engine.store.read_agent_events
-
-    def legacy_events(event_type, agent_id, after=0):
-        """action_requested 中三个控制工具的请求改写成旧形状。"""
-        events = read(event_type, agent_id, after)
-        if event_type != "action_requested":
-            return events
-        return [event.model_copy(update={"data": {**event.data, "request": _legacy(
-            event.data["tool_name"], event.data["request"], **shape)}})
-                if event.data.get("tool_name") in CONTROL_TOOLS else event for event in events]
-
-    monkeypatch.setattr(engine.store, "read_agent_events", legacy_events)
-
-
-def test_readers_give_old_run_events_the_same_result(engine_factory, monkeypatch) -> None:
-    """真实运行里暂停、恢复并带记忆与看法结束一段等待后出门：记忆层 self_notes、人设层看法与偏好、进度层参数、零点计划的
-    收尾记录与记忆写入点对同一批事件的旧形状读出与现行形状相同的结果；没有 subject 的更早记录不产生看法与偏好（它们在
-    改形前同样读不出对象），其余读者结果不变。"""
+def test_readers_project_current_items_events_consistently(engine_factory) -> None:
+    """@brief 真实暂停、恢复、结束和出门后，各读者从逐项事件提取自述、记忆与看法。"""
     engine = engine_factory()
     stage_day_plan(engine)
     friend = engine.scenario.agents[0].contacts[0].salutation
@@ -196,10 +154,7 @@ def test_readers_give_old_run_events_the_same_result(engine_factory, monkeypatch
     current = _readers(engine)
     notes = [note["text"] for entry in current["memory_layer"]["earlier_today"] for note in entry["self_notes"]]
     assert notes == ["先停一下", "等完了", "每天歇一会儿"]
-    with monkeypatch.context() as patched:
-        _old_run(engine, patched)
-        assert _readers(engine) == current
-    with monkeypatch.context() as patched:
-        _old_run(engine, patched, subject=False)
-        unnamed = _readers(engine)
-    assert unnamed == {**current, "persona_views": {"relationships": [], "preferences": []}}
+    controls = [event for event in engine.store.read_agent_events("action_requested", 1)
+                if event.data["tool_name"] in CONTROL_TOOLS]
+    assert {event.data["tool_name"] for event in controls} == set(CONTROL_TOOLS)
+    assert all("items" in event.data["request"] and "task" not in event.data["request"] for event in controls)

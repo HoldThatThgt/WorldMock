@@ -2,7 +2,7 @@
 
 session 下界：运行开始与到达取 session 开始时刻，出发与途中结束出行取引起切换的那条结果的事件序号；结果在整个 session
 内保留；直接消息与交谈邀请带全文（不再截成 40 字），邮件只有主题；送达、截止预警与到期、目标提醒各只出现一次；同一秒内
-推导记录在前、事件记录按来源序号；记忆查询只写条数；conclude_activity 的参数略去关系与偏好记忆；回复正文作为 self_note。
+推导记录在前、事件记录按来源序号；只读查询只留模型证据；conclude_activity 的参数略去关系与偏好记忆；回复正文作为 self_note。
 私有配套：progress_event_ids、presented_message_ids、progress_meta 的受保护标记与 settled 句。
 """
 
@@ -19,9 +19,10 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
                                  report_request)
-from worldmock.errors import IntegrityError
+from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
+from worldmock.life.guidance import rejection_guidance
 from worldmock.life.models import (PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
                                    SendMessageActionRequest, SessionStatus)
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
@@ -54,7 +55,7 @@ def _events(observed: dict, kind: str | None = None) -> list[dict]:
 def _revise(engine, round_id: str):
     """一次成功的瞬时世界请求：修订当日目标。"""
     return _act(engine, round_id, "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
+        goals=[PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),]))
 
 
 def _walk_to_office(engine, round_id: str):
@@ -87,7 +88,7 @@ def test_run_start_session_is_time_bound_and_keeps_every_result(engine_factory) 
     assert progress_layer.session_bound(engine.store, engine.state, 1) == (start, 0)
     first = _observe(engine, "start-first")
     assert first["progress_layer"] == {"layer": "进度层", "session_started_at": iso_time(start, "Asia/Shanghai"),
-                                       "events": []}
+                                       "events": [], "rejected_today": []}
     _revise(engine, "start-revise")
     _act(engine, "start-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=300)
@@ -222,8 +223,9 @@ def test_mail_arrival_names_only_the_subject(engine_factory) -> None:
     observed = _observe(engine, "mail-seen")
     (mail,) = _events(observed, "message_arrival")
     message = engine.scenario.messages[0]
+    task = next(item for item in engine.scenario.tasks if item.task_id == message.related_task_id)
     assert mail == {"occurred_at": mail["occurred_at"], "type": "message_arrival", "sender": None, "kind": "mail",
-                    "subject": message.subject}
+                    "subject": message.subject, "task": f"工作：{task.title}"}
     assert _lines(observed, mail) == [f"{_clock(mail)} 收到邮件「{message.subject}」"]
 
 
@@ -334,7 +336,7 @@ def _evening_at_the_office(engine) -> tuple[str, int]:
     soon = engine.state.current_time + 5400
     remind = datetime.fromtimestamp(soon, ZoneInfo(engine.scenario.timezone)).strftime("%H:%M")
     _act(engine, "evening-plan", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind, around_time=None),)))
+        goals=[PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind, around_time=None),]))
     order = _order_to_the_office(engine)
     assert order["expected_at"] < soon
     _reschedule_delivery(engine, order["order_id"], soon)
@@ -463,8 +465,8 @@ def _model_pair(engine, decision_id: str, call: dict, tool_content: str) -> list
     return [response[0], following[0]]
 
 
-def test_successful_memory_query_is_recorded_with_its_count_and_failures_are_not(engine_factory) -> None:
-    """此前决策里成功的记忆查询作为 tool_call 记录：参数原文，结果只写条数；失败（工具结果带 error）的查询不记录。"""
+def test_memory_queries_keep_evidence_without_progress_events(engine_factory) -> None:
+    """成功与失败的记忆查询只保留模型证据，不派生进度记录。"""
     engine = engine_factory()
     stage_day_plan(engine)
     call = {"id": "call-memory", "type": "function",
@@ -476,18 +478,16 @@ def test_successful_memory_query_is_recorded_with_its_count_and_failures_are_not
     failed = {**call, "id": "call-memory-failed"}
     _model_pair(engine, "decision-memory-failed", failed, json.dumps({"error": "memory unavailable"}))
     observed = _observe(engine, "memory-seen")
-    (record,) = progress_calls(observed, "memory_search")
-    assert record["arguments"] == {"query": "咖啡"}
-    assert record["result"] == {"occurred_at": record["occurred_at"], "status": "completed", "error_code": None,
-                                "message": "Memory query returned 2 episodes", "details": {"episodes": 2}}
-    assert [event.event_id for event in sources] == observed["progress_event_ids"][:2]
+    assert progress_calls(observed, "memory_search") == []
+    assert not set(event.event_id for event in sources).intersection(observed["progress_event_ids"])
+    assert engine.store.read_agent_events("model_response", 1)[0].data["response"]["choices"][0]["message"][
+        "tool_calls"][0] == call
     assert "喝了咖啡" not in json.dumps(observed["progress_layer"], ensure_ascii=False)
 
 
+
 def test_conclude_arguments_omit_relationship_and_preference_memories(engine_factory) -> None:
-    """conclude_activity 的参数经 control_items 读出后按原样进入进度层（一项一个对象），只略去 views：看法与偏好只在人设层
-    出现（docs/dev/SPEC-dayrun-fidelity.md 第六章）；旧形状记录里带 subject 的 relationship、preference 记忆同样略去，
-    读出的参数相同。"""
+    """conclude_activity 的当前逐项参数进入进度层时略去 views；看法与偏好只在人设层出现，旧数组形状直接拒绝。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _, waited = _act(engine, "memo-wait", "start_activity", start_activity("等待", "自己"))
@@ -505,25 +505,28 @@ def test_conclude_arguments_omit_relationship_and_preference_memories(engine_fac
     legacy = {"task": [name], "summary": ["等完了"], "memories": [[
         *({"type": view["type"], "text": view["text"], "importance": view["importance"],
            "keywords": view["keywords"], "subject": view["about"]} for view in views), {**routine, "subject": None}]]}
-    assert progress_layer._arguments("conclude_activity", legacy) == record["arguments"]
+    with pytest.raises(IntegrityError, match="conclude_activity request shape is not recognised"):
+        progress_layer._arguments("conclude_activity", legacy)
     ended, zone, now = engine.state.activities[waited.activity_id], engine.scenario.timezone, engine.state.current_time
     span = f"{clock_phrase(ended.started_at, now, zone)}–{clock_phrase(ended.ended_at, now, zone)}"
     assert _lines(seen, record) == [f"{name}：{span}，提前结束"]
 
 
 def test_a_rejection_without_a_next_step_writes_null(engine_factory) -> None:
-    """业务拒绝没有可读的下一步时，结果与进度层该调用的 details.next_step 写 null，不写空串（docs/dev/SPEC-persona-prompt.md
-    「通用格式」：允许为空的写 null，不填编造的值）；有下一步的拒绝照常写那一句。"""
+    """即读查询的拒绝保留 null 下一步而不新增进度；真实世界动作的拒绝照常保留可读下一步。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, unknown = _act(engine, "null-step", "recall_task_summary", RecallTaskSummaryRequest(task_name="不存在的名称"))
-    assert (unknown.status, unknown.error_code) == ("rejected", "TASK_NOT_FOUND")
-    assert "next_step" in unknown.data and unknown.data["next_step"] is None
-    (record,) = progress_calls(_observe(engine, "null-step-seen"), "recall_task_summary")
-    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None,
-                                           "fix": "照工具层、待办层或记忆层中的写法填写任务、目标或活动的名称"}
+    observed = _observe(engine, "null-step")
+    before = engine.state.model_dump(), engine.store.last_event_seq
+    with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND") as caught:
+        engine.read_task_summary(1, RecallTaskSummaryRequest(task_name="不存在的名称"), observed)
+    guidance = rejection_guidance(caught.value)
+    assert "next_step" in guidance and guidance["next_step"] is None
+    assert guidance["fix"] == "Use an exact known task, goal or activity name."
+    assert (engine.state.model_dump(), engine.store.last_event_seq) == before
+    assert not progress_calls(_observe(engine, "null-step-seen"), "recall_task_summary")
     _, invalid = _act(engine, "null-step-invalid", "start_activity", start_activity("观看", "不存在的对象"))
-    assert invalid.data["next_step"] == "从本轮列出的对象和方式里选"
+    assert invalid.data["next_step"] == "Choose a known object and an offered way."
 
 
 def _hand_request(engine, action_id: str, self_note: str | None) -> None:
@@ -645,8 +648,8 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     friend = f"人物：{engine.state.agents[2].name}"
     preview = _observe(engine, "read-preview", 2)
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
-                                                       around_time=None),))
+    revise = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),])
     _, first = submit_round(engine, {1: ("send_message", SendMessageActionRequest(recipient_name=friend, text="第一条")),
                                      2: ("revise_day_plan", revise)}, "read-first")
     shown = next(item.data["message_id"] for item in first if item.agent_id == 1)

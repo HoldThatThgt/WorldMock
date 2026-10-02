@@ -44,7 +44,7 @@ def _energy(engine) -> dict[int, float]:
 
 def _give(engine, product: str, recipient: str):
     """@brief 把手边的一件持有物给 recipient 的请求。"""
-    return routed((holding_name(engine, product), "consume", GIVE_WAY, "自己", recipient))
+    return routed((holding_name(engine, product), "consume", GIVE_WAY, None, recipient))
 
 
 def test_giving_to_a_colocated_person_moves_one_portion_and_nobody_eats(engine_factory) -> None:
@@ -68,14 +68,15 @@ def test_giving_to_a_colocated_person_moves_one_portion_and_nobody_eats(engine_f
     observed = observe(engine, "after-give")
     call = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"][0]
     name = engine.rules.items[food].name
-    assert call["arguments"]["to"] == [PERSON_TARGET] and call["arguments"]["from"] == ["自己"]
+    assert call["arguments"]["items"][0]["to"] == PERSON_TARGET
+    assert call["arguments"]["items"][0]["from"] is None
     assert call["result"]["details"]["given"] == [{"product": name, "quantity": "1 份", "recipient": "李凡"}]
     assert observed["progress_meta"][0]["lines"] == [f"10:00 把{name} 1 份给了李凡"]
 
 
 def test_giving_to_a_person_who_left_is_refused_as_not_together(engine_factory) -> None:
     """观察时同处、同一轮里对方先出发了：身边再没有能给的人，给予以 ACTIVITY_PRECONDITION_UNMET
-    （unmet=recipient_present）拒绝，原因「要和对方在同一个地方才能给」，下一步是等和要给的人在一起再给；世界不变。"""
+    （unmet=recipient_present）拒绝，原因「Giving requires the recipient at the same location.」，下一步是等和要给的人在一起再给；世界不变。"""
     engine = open_world(engine_factory)
     food = food_product(engine)
     place(engine, 2, HOME, {food: 1.0})
@@ -87,8 +88,8 @@ def test_giving_to_a_person_who_left_is_refused_as_not_together(engine_factory) 
                                        2: ("start_activity", _give(engine, food, "人物：陈曦"))}, "leave-and-give")
     refused = next(item for item in results if item.agent_id == 2)
     assert (refused.status, refused.error_code) == ("rejected", _UNMET)
-    assert refused.data["reason"] == "要和对方在同一个地方才能给"
-    assert refused.data["next_step"] == "等和要给的人在一起时再给" and refused.data["unmet"] == ["recipient_present"]
+    assert refused.data["reason"] == "Giving requires the recipient at the same location."
+    assert refused.data["next_step"] == "Give the item when both people are together." and refused.data["unmet"] == ["recipient_present"]
     assert engine.state.agents[2].inventory == before
 
 
@@ -106,8 +107,8 @@ def test_giving_to_a_same_world_person_elsewhere_is_refused_as_not_together(engi
     before = _world(engine)
     refused = act(engine, "give-elsewhere", _give(engine, food, PERSON_TARGET))
     assert (refused.status, refused.error_code, refused.data["unmet"]) == ("rejected", _UNMET, ["recipient_present"])
-    assert refused.data["reason"] == "要和李凡在同一个地方才能给他"
-    assert refused.data["next_step"] == "去张江居所（冻结场景锚点）"
+    assert refused.data["reason"] == "Giving to 李凡 requires both people at the same location."
+    assert refused.data["next_step"] == "Go to 张江居所（冻结场景锚点）."
     assert _world(engine)[:4] == before[:4]
 
 
@@ -125,11 +126,11 @@ def test_give_is_listed_available_only_with_someone_to_hand_to(engine_factory) -
     place(engine, 1, HOME, {food: 2.0})
     place(engine, 2, OFFICE)
     alone = _give_action(engine, "alone", food)
-    assert (alone["available"], alone["reason"]) == (False, "要和对方在同一个地方才能给")
+    assert (alone["available"], alone["reason"]) == (False, "Giving requires the recipient at the same location.")
     refused = act(engine, "give-alone", _give(engine, food, PERSON_TARGET))
     assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
         _UNMET, alone["reason"], ["recipient_present"])
-    assert refused.data["next_step"] == "等和要给的人在一起时再给"
+    assert refused.data["next_step"] == "Give the item when both people are together."
     place(engine, 1, OFFICE, {food: 2.0})
     together = _give_action(engine, "together", food)
     assert (together["available"], together["reason"]) == (True, None)
@@ -139,8 +140,8 @@ def test_give_is_listed_available_only_with_someone_to_hand_to(engine_factory) -
 
 
 @pytest.mark.parametrize("contact,target,step", [
-    (COLLEAGUE, COLLEAGUE_TARGET, "去张江高科技园区办公室（冻结场景锚点）"),
-    ("contact-chenxi-oldfriend", "联系人：沈昊", "等和沈昊在一起时再给"),
+    (COLLEAGUE, COLLEAGUE_TARGET, "Go to 张江高科技园区办公室（冻结场景锚点）."),
+    ("contact-chenxi-oldfriend", "联系人：沈昊", "Give the item when you are together with 沈昊."),
 ], ids=["receive-location-elsewhere", "no-receive-location"])
 def test_giving_to_a_contact_needs_being_at_their_receive_location(engine_factory, contact, target, step) -> None:
     """联系人只在其收货地点与本人同处：不在那里（或联系人没有收货地点）时给予被拒，原因同样是「要和<人>在同一个地方
@@ -152,7 +153,7 @@ def test_giving_to_a_contact_needs_being_at_their_receive_location(engine_factor
     refused = act(engine, "give-contact", _give(engine, food, target))
     salutation = target.split("：", 1)[1]
     assert (refused.status, refused.error_code) == ("rejected", _UNMET)
-    assert refused.data["reason"] == f"要和{salutation}在同一个地方才能给他" and refused.data["next_step"] == step
+    assert refused.data["reason"] == f"Giving to {salutation} requires both people at the same location." and refused.data["next_step"] == step
     after = _world(engine)
     assert (after[0], after[1][1], after[2], after[3]) == (before[0], before[1][1], before[2], before[3])
     assert contact not in engine.state.contact_holdings
@@ -183,9 +184,9 @@ def test_giving_needs_the_item_at_hand_and_the_tool_layer_says_why(engine_factor
     away = next(item for item in targets[f"持有物：{name}（张江高科技园区办公室（冻结场景锚点））"]["actions"]
                 if item["way"] == GIVE_WAY)
     assert (here["action"], here["available"], here["quantity"]) == ("consume", True, "0.25 份")
-    assert away["available"] is False and away["reason"] == "这件东西在张江高科技园区办公室（冻结场景锚点），只能在当地用"
+    assert away["available"] is False and away["reason"] == "This item is at 张江高科技园区办公室（冻结场景锚点） and must be used there."
     refused = act(engine, "give-away", routed((f"持有物：{name}（张江高科技园区办公室（冻结场景锚点））", "consume",
-                                                GIVE_WAY, "自己", PERSON_TARGET)))
+                                                GIVE_WAY, None, PERSON_TARGET)))
     assert refused.error_code == "PRODUCT_NOT_HELD" and refused.data["reason"] == away["reason"]
 
 
@@ -200,7 +201,7 @@ def test_recipient_that_is_not_visible_is_rejected_by_the_environment(engine_fac
     assert _world(engine)[:4] == before[:4]
     with pytest.raises(BusinessRuleError, match="RECIPIENT_NOT_FOUND"):
         require_recipients([{"to": "人物：不存在的人", "recipient_id": None}])
-    require_recipients([{"to": None, "recipient_id": None}, {"to": "自己", "recipient_id": "agent:1"}])
+    require_recipients([{"to": None, "recipient_id": None}, {"to": None, "recipient_id": "agent:1"}])
 
 
 def test_giving_is_instant_takes_no_slot_and_is_closed_in_restricted_rounds(engine_factory) -> None:
@@ -210,7 +211,7 @@ def test_giving_is_instant_takes_no_slot_and_is_closed_in_restricted_rounds(engi
     food = food_product(engine)
     place(engine, 1, HOME, {food: 1.0})
     both = routed(("自己", "interact", "等待", None, None),
-                  (holding_name(engine, food), "consume", GIVE_WAY, "自己", PERSON_TARGET))
+                  (holding_name(engine, food), "consume", GIVE_WAY, None, PERSON_TARGET))
     result = act(engine, "wait-and-give", both)
     assert result.status == "in_progress" and result.message == "Activities started"
     assert [row.get("given") for row in result.data["activity_results"]][1][0]["recipient_id"] == "agent:2"
@@ -232,8 +233,8 @@ def test_two_gives_in_one_request_hand_over_real_holdings_only(engine_factory) -
     place(engine, 2, OFFICE)
     name = holding_name(engine, food)
     energy = _energy(engine)
-    result = act(engine, "give-two", routed((name, "consume", GIVE_WAY, "自己", PERSON_TARGET),
-                                            (name, "consume", GIVE_WAY, "自己", COLLEAGUE_TARGET)))
+    result = act(engine, "give-two", routed((name, "consume", GIVE_WAY, None, PERSON_TARGET),
+                                            (name, "consume", GIVE_WAY, None, COLLEAGUE_TARGET)))
     assert result.status == "completed" and result.message == "Items handed over", result.error_code
     assert engine.state.agents[2].inventory[OFFICE][food] == 1.0
     assert engine.state.contact_holdings[COLLEAGUE][food] == 0.5
@@ -316,7 +317,7 @@ def test_direct_delivery_to_a_same_world_person_elsewhere_goes_to_where_they_are
 
 def test_scenario_contacts_that_are_same_world_persons_do_not_receive(engine_factory) -> None:
     """两份多人场景里与同世界人物同名的场景联系人没有收货地点（同世界人物按人物身份收货）：直接配送给通讯录里的
-    「李凡」以「暂时送不到李凡那里」拒绝，世界不变，没有记入联系人持有。"""
+    「李凡」以「李凡 currently has no eligible receiving location.」拒绝，世界不变，没有记入联系人持有。"""
     for name in ("multi-person.json", "multi-person-half-day.json"):
         scenario, _ = load_scenario(Path("scenarios") / name)
         people = {item.name for item in scenario.agents}
@@ -326,7 +327,7 @@ def test_scenario_contacts_that_are_same_world_persons_do_not_receive(engine_fac
     target, _ = supply_target(observe(engine, "supply"))
     before = _world(engine)
     refused = act(engine, "order-for-duplicate", routed((target, "obtain", "远程下单", None, DUPLICATE_TARGET)))
-    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到李凡那里")
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "李凡 currently has no eligible receiving location.")
     assert _world(engine)[:4] == before[:4] and DUPLICATE_CONTACT not in engine.state.contact_holdings
 
 
@@ -336,8 +337,8 @@ def test_direct_delivery_to_a_contact_who_cannot_receive_is_refused(engine_facto
     target, _ = supply_target(observe(engine, "supply"))
     before = _world(engine)
     refused = act(engine, "order-for-friend", routed((target, "obtain", "远程下单", None, "联系人：沈昊")))
-    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到沈昊那里")
-    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "沈昊 currently has no eligible receiving location.")
+    assert refused.data["next_step"] == "Receive the item at your current location, then give it in person."
     assert _world(engine)[:4] == before[:4]
 
 
@@ -354,7 +355,7 @@ def _order_for_colleague(engine, name: str, target: str):
 
 def test_remote_order_for_someone_outside_the_delivery_area_is_a_destination_refusal(engine_factory) -> None:
     """王磊的收货地点（办公室）不在该供给的可配送目的地：以 ACTIVITY_PRECONDITION_UNMET（unmet=delivery_destination）拒绝，
-    原因「王磊那里不在这家店的配送范围内」（本人送达地的原因同一说法，「这里」换成收货人那里），不再是笼统的「暂时送不到
+    原因「The receiving location of 王磊 is outside this store's delivery area.」（本人送达地的原因同一说法，「这里」换成收货人那里），不再是笼统的「暂时送不到
     王磊那里」；下一步先送到自己这里再当面给，世界不变。"""
     engine = open_world(engine_factory)
     row = _remote_supply(engine)
@@ -362,8 +363,8 @@ def test_remote_order_for_someone_outside_the_delivery_area_is_a_destination_ref
     before = _world(engine)
     refused = _order_for_colleague(engine, "order-outside-area", row["object"])
     assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
-        _UNMET, "王磊那里不在这家店的配送范围内", ["delivery_destination"])
-    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+        _UNMET, "The receiving location of 王磊 is outside this store's delivery area.", ["delivery_destination"])
+    assert refused.data["next_step"] == "Receive the item at your current location, then give it in person."
     assert _world(engine)[:4] == before[:4]
 
 
@@ -379,8 +380,8 @@ def test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal(en
     before = _world(engine)
     refused = _order_for_colleague(engine, "order-without-route", row["object"])
     assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
-        _UNMET, "这家店到王磊那里没有能走的配送路线", ["delivery_route"])
-    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+        _UNMET, "No reachable delivery route connects this store to the receiving location of 王磊.", ["delivery_route"])
+    assert refused.data["next_step"] == "Receive the item at your current location, then give it in person."
     assert _world(engine)[:4] == before[:4]
     _rescenario(engine, routes=routes)
     accepted = _order_for_colleague(engine, "order-with-route", row["object"])
@@ -390,9 +391,9 @@ def test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal(en
 
 
 @pytest.mark.parametrize(("destinations", "blocked", "unmet", "reason"), [
-    ((HOME,), False, "delivery_destination", "王磊那里不在这家店的配送范围内"),
-    ((HOME, OFFICE), True, "delivery_route", "这家店到王磊那里没有能走的配送路线"),
-    ((HOME,), True, "delivery_destination", "王磊那里不在这家店的配送范围内")],
+    ((HOME,), False, "delivery_destination", "The receiving location of 王磊 is outside this store's delivery area."),
+    ((HOME, OFFICE), True, "delivery_route", "No reachable delivery route connects this store to the receiving location of 王磊."),
+    ((HOME,), True, "delivery_destination", "The receiving location of 王磊 is outside this store's delivery area.")],
     ids=["destination", "route", "destination-before-route"])
 def test_named_remote_order_for_someone_it_cannot_reach_says_why_like_a_listed_one(
         engine_factory, destinations, blocked, unmet, reason) -> None:
@@ -411,11 +412,11 @@ def test_named_remote_order_for_someone_it_cannot_reach_says_why_like_a_listed_o
     before = _world(engine)
     refused = act(engine, f"named-{unmet}", routed((product, "obtain", "远程下单", store, COLLEAGUE_TARGET)))
     assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
-        _UNMET, f"「{product}」：{reason}", [unmet])
-    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+        _UNMET, reason, [unmet])
+    assert refused.data["next_step"] == "Receive the item at your current location, then give it in person."
     [item] = refused.data["items"]
-    assert (item["field"], item["written"]) == ("targets", product)
-    assert row["object"] not in [candidate["target"] for candidate in item["candidates"]]
+    assert (item["path"][-1], item["written"]) == ("target", product)
+    assert row["object"] not in [candidate["arguments"]["items"][0]["target"] for candidate in item["candidates"]]
     assert _world(engine)[:4] == before[:4]
 
 
@@ -424,7 +425,7 @@ def test_same_product_for_two_recipients_splits_orders_by_destination(engine_fac
     的两个订单（去重键为供给与收货人）；各自只入自己的收货人。"""
     engine = open_world(engine_factory)
     target, food = supply_target(observe(engine, "supply"))
-    split = act(engine, "two-places", routed((target, "obtain", "远程下单", None, "自己"),
+    split = act(engine, "two-places", routed((target, "obtain", "远程下单", None, None),
                                              (target, "obtain", "远程下单", None, COLLEAGUE_TARGET)))
     assert split.status == "completed", (split.error_code, split.message)
     assert [(item["recipient_id"], item["destination_id"]) for item in split.data["orders"]] == [
@@ -432,7 +433,7 @@ def test_same_product_for_two_recipients_splits_orders_by_destination(engine_fac
     assert split.data["total_price_fen"] == sum(item["total_price_fen"] for item in split.data["orders"])
     deliveries = [item for item in engine.state.pending_events if item.kind.value == "delivery_arrival"]
     assert len(deliveries) == 2
-    shared = act(engine, "one-place", routed((target, "obtain", "远程下单", None, "自己"),
+    shared = act(engine, "one-place", routed((target, "obtain", "远程下单", None, None),
                                              (target, "obtain", "远程下单", None, PERSON_TARGET),
                                              ), agent_id=1)
     assert [item["recipient_id"] for item in shared.data["orders"]] == ["agent:1", "agent:2"]
@@ -462,17 +463,17 @@ def test_pickup_for_someone_else_needs_them_at_the_store(engine_factory) -> None
     assert engine.state.agents[2].inventory[MARKET][food] == 1.0
     assert food not in engine.state.agents[1].inventory.get(MARKET, {})
     refused = act(engine, "pickup-for-colleague", routed((row["object"], "obtain", "到店", None, COLLEAGUE_TARGET)))
-    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到王磊那里")
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "王磊 currently has no eligible receiving location.")
     _retarget(engine, row["object_id"], (HOME,))
     outside = act(engine, "pickup-outside-area", routed((row["object"], "obtain", "到店", None, COLLEAGUE_TARGET)))
     assert (outside.error_code, outside.data["reason"], outside.data["unmet"]) == (
-        _UNMET, "暂时送不到王磊那里", ["delivery_destination"])
+        _UNMET, "王磊 currently has no eligible receiving location.", ["delivery_destination"])
 
 
 def test_system_purchase_for_someone_goes_in_store_only_when_they_are_there(engine_factory) -> None:
     """「购买」由系统定到店或远程下单，定下的方式要交得到收货人手上（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）：
     人站在出售它的集市里，同在集市的李凡按到店即时入他在集市的库存；收货地点是办公室的王磊不在店里，改按远程下单送到办公室
-    （不再定为到店、再在结算时以「暂时送不到王磊那里」拒绝），受理说明写明定下的方式；显式写到店照旧由结算拒绝。"""
+    （不再定为到店、再在结算时以「王磊 currently has no eligible receiving location.」拒绝），受理说明写明定下的方式；显式写到店照旧由结算拒绝。"""
     engine = open_world(engine_factory)
     place(engine, 1, MARKET)
     place(engine, 2, MARKET)
@@ -491,14 +492,14 @@ def test_system_purchase_for_someone_goes_in_store_only_when_they_are_there(engi
     moment = clock_phrase(sent["expected_at"], sent["created_at"], engine.scenario.timezone)
     assert for_colleague.data["notes"] == [f"「{label}」「购买」定为远程下单：{label}（预计 {moment} 送到）"]
     chosen = act(engine, "pickup-chosen-for-colleague", routed((label, "obtain", "到店", None, COLLEAGUE_TARGET)))
-    assert (chosen.error_code, chosen.data["reason"]) == (_UNMET, "暂时送不到王磊那里")
+    assert (chosen.error_code, chosen.data["reason"]) == (_UNMET, "王磊 currently has no eligible receiving location.")
 
 
 @pytest.mark.parametrize("where", [MARKET, HOME])
 def test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first(engine_factory, where) -> None:
     """「购买」送给王磊，集市这家店却送不到他的收货地点（办公室），他也不在店里（东西只有他在店里时才能在店里交给他）：人在
-    集市还是在家，都以 ACTIVITY_PRECONDITION_UNMET 拒绝，原因与远程下单送给他同一说法「王磊那里不在这家店的配送范围内」，
-    下一步「先送到自己这里，再当面给」——不说人不在出售它的门店里，也不指向人已经在、或去了也交不到他手上的门店；候选里没有
+    集市还是在家，都以 ACTIVITY_PRECONDITION_UNMET 拒绝，原因与远程下单送给他同一说法「The receiving location of 王磊 is outside this store's delivery area.」，
+    下一步「Receive the item at your current location, then give it in person.」——不说人不在出售它的门店里，也不指向人已经在、或去了也交不到他手上的门店；候选里没有
     交不到他手上的到店，世界不变（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）。"""
     engine = open_world(engine_factory)
     row = _remote_supply(engine)
@@ -508,25 +509,25 @@ def test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_fir
     refused = act(engine, f"system-unreachable-{where}", routed((row["object"], "obtain", "购买", None,
                                                                    COLLEAGUE_TARGET)))
     assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
-        _UNMET, f"「{row['object']}」：王磊那里不在这家店的配送范围内", ["delivery_destination"])
-    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+        _UNMET, "The receiving location of 王磊 is outside this store's delivery area.", ["delivery_destination"])
+    assert refused.data["next_step"] == "Receive the item at your current location, then give it in person."
     [item] = refused.data["items"]
-    assert (item["field"], item["written"], item["candidates"]) == ("targets", row["object"], [])
+    assert (item["path"][-1], item["written"], item["candidates"]) == ("target", row["object"], [])
     assert _world(engine)[:4] == before[:4]
 
 
 def test_system_purchase_for_someone_of_goods_sold_only_in_store_cannot_reach_them(engine_factory) -> None:
     """「购买」送给不在店里的王磊，而范围内的供给都只能到店（菜饭骨头汤的鸡汤面）：东西只有他也在店里时才能在店里交给他，又
-    送不出去——与到店买给不在店里的人同一说法「暂时送不到王磊那里」，下一步先送到自己这里再当面给；不按配送范围说「王磊那里
+    送不出去——与到店买给不在店里的人同一说法「王磊 currently has no eligible receiving location.」，下一步先送到自己这里再当面给；不按配送范围说「王磊那里
     不在这家店的配送范围内」（这家店本来就不配送）。世界不变（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）。"""
     engine = open_world(engine_factory)
     store = next(item.name for item in engine.scenario.locations if item.location_id == "poi-3538660453")
     before = _world(engine)
-    refused = act(engine, "system-pickup-only-for-colleague", routed(("鸡汤面", "obtain", "购买", store,
+    refused = act(engine, "system-pickup-only-for-colleague", routed(("牛肉炒面", "obtain", "购买", store,
                                                                       COLLEAGUE_TARGET)))
     assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
-        _UNMET, "「鸡汤面」：暂时送不到王磊那里", ["delivery_destination"])
-    assert refused.data["next_step"] == "先送到自己这里，再当面给"
+        _UNMET, "王磊 currently has no eligible receiving location.", ["delivery_destination"])
+    assert refused.data["next_step"] == "Receive the item at your current location, then give it in person."
     assert _world(engine)[:4] == before[:4]
 
 
@@ -544,14 +545,14 @@ def test_a_pickup_candidate_for_someone_not_at_the_store_is_not_ranked_as_feasib
     refused = act(engine, "pickup-typo-for-colleague", routed(("纯牛奶加冰", "obtain", "到店", None, COLLEAGUE_TARGET)))
     assert (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     [item] = refused.data["items"]
-    assert [row["target"] for row in item["candidates"]] == milk
+    assert [row["arguments"]["items"][0]["target"] for row in item["candidates"]] == milk
 
 
 def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None:
     """自己收货后再给予：订单只入自己的持有，给予只转出真实持有的量，东西只转移一次（总量守恒为 1）。"""
     engine = open_world(engine_factory)
     target, food = supply_target(observe(engine, "supply"))
-    result = _order_and_wait(engine, "order-self", (target, "obtain", "远程下单", None, "自己"))
+    result = _order_and_wait(engine, "order-self", (target, "obtain", "远程下单", None, None))
     [order] = result.data["orders"]
     assert order["recipient_id"] == "agent:1"
     run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered")
@@ -587,11 +588,11 @@ def test_named_purchase_takes_from_as_the_store_and_the_recipient_place_as_desti
     assert chosen.status == "completed", (chosen.error_code, chosen.message)
     assert [(order["supply_id"], order["destination_id"]) for order in chosen.data["orders"]] == [
         (fastest.supply_id, OFFICE)]
-    assert "按最快选了" in chosen.data["notes"][0]
+    assert "按最快拿到选了" in chosen.data["notes"][0]
     supply_id, store = next(iter(stores.items()))
     named = act(engine, "milk-from-store", routed(("纯牛奶", "obtain", "远程下单", store, COLLEAGUE_TARGET)))
     assert named.status == "completed", (named.error_code, named.message)
     [order] = named.data["orders"]
     assert (order["supply_id"], order["recipient_id"], order["destination_id"]) == (supply_id, COLLEAGUE, OFFICE)
     refused = act(engine, "milk-to-friend", routed(("纯牛奶", "obtain", "远程下单", store, "联系人：沈昊")))
-    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到沈昊那里")
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "沈昊 currently has no eligible receiving location.")

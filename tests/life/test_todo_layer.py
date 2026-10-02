@@ -2,7 +2,7 @@
 
 暂停的活动按暂停时刻从老到新排列（先开始、后暂停的排在后面；同一秒两次决策先后暂停的按暂停事件顺序），带暂停时刻、只能
 回去恢复的地点、客观进度（进食只写「已吃 X 份，剩 Y 份」）与恢复、结束两个工具；人在别处时恢复不可用，原因点名地点。今日计划在零点计划生成前与当日结束后为 null，之后按计划顺序列出至多八个目标的
-意图、文字、是否已推进、提醒时刻与大致时刻（「约 HH:MM」），目标行不显示人物自述。
+意图、文字、是否已推进、提醒时刻与大致时刻（HH:MM），目标行不显示人物自述。
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def test_resume_elsewhere_is_unavailable_and_names_the_place(engine_factory) -> 
     assert (item["name"], item["place"]) == (name, home)
     tools = target_tools(observed, name)
     assert tools["report_status"] == {"tool": "report_status", "available": False,
-                                      "reason": f"{name}要回到{home}才能接着做，在别处可以直接结束"}
+                                      "reason": f"Resume {name} at its start location {home}; it can be concluded elsewhere."}
     assert tools["conclude_activity"]["available"] is True
     assert engine.state.activities[waiting].paused_at is not None
     assert engine.state.activities[waiting].status == ActivityStatus.PAUSED
@@ -163,7 +163,7 @@ def test_day_plan_is_null_before_the_plan_and_after_the_day_ends(engine_factory)
 
 def test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders(engine_factory) -> None:
     """计划之后 day_plan 为 {date, goals}：八个目标保持计划顺序，progressed 只看推进证据，remind_time 为 HH:MM 或 null，
-    around_time 为「约 HH:MM」或 null（docs/dev/SPEC-dayrun-fidelity.md 8.2），目标行不带人物自述（progress_note 照存，
+    around_time 为 HH:MM 或 null，目标行不带人物自述（progress_note 照存，
     不进提示）。"""
     engine = engine_factory()
     now = engine.state.current_time
@@ -190,11 +190,11 @@ def test_day_plan_lists_eight_goals_in_plan_order_with_progress_and_reminders(en
     assert [goal["remind_time"] for goal in plan["goals"]] == [reminder if index == 5 else None for index in range(8)]
     assert iso_time(around_at, zone)[11:16] == "12:30"
     assert [goal["around_time"] for goal in plan["goals"]] == [
-        "约 12:30" if index in (4, 5) else None for index in range(8)]
+        "12:30" if index in (4, 5) else None for index in range(8)]
     assert all(set(goal) == {"intent_kind", "goal", "progressed", "remind_time", "around_time"}
                for goal in plan["goals"])
     assert "人物自己写的进展" not in str(todo)
     validate_layer({**todo, "day_plan": {**plan, "goals": [plan["goals"][4]]}})
-    bare = {**todo, "day_plan": {**plan, "goals": [{**plan["goals"][4], "around_time": "12:30"}]}}
+    bare = {**todo, "day_plan": {**plan, "goals": [{**plan["goals"][4], "around_time": "约 12:30"}]}}
     with pytest.raises(ValueError, match="day_plan"):
         validate_layer(bare)

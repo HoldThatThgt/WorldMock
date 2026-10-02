@@ -1,12 +1,15 @@
 # 特性规格：AgentSociety 2 集成与改动
 
 > 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 14 行补登三个 LifeAgent 覆写点（AS2 锁定提交不改），修订部分已实现并通过离线验收
-> 日期：2026-09-29
+> 日期：2026-10-01
 > 实施基线：WorldMock `9b7fbc8`；AS2 分支 `vendor/agentsociety2` 的 `worldmock-life`（锁定提交 `8768e14`，基线提交 `670c94ff`）；人物 Prompt 修订的代码基线 `3ea5b06`
 > 范围：WorldMock 对 AgentSociety 2（下称 AS2）的选型理由与复用边界、分层职责，以及 AS2 核心链路为本次场景必须发生的确定性改动
 
 本文定义 WorldMock 对 AS2 的改动行为与改动理由。接口签名、字段、枚举与提示词模板只在
 `docs/CONTRACTS.md` 定义，本文引用而不重复。
+
+> 2026-10-01 按[工具交互规格](SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
+> 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 
 ## 选型理由与分层职责
 
@@ -43,7 +46,7 @@ LifeEnv（唯一生活规则环境）
 
 LifeAgent（七层请求与工具约束）
   ├─ 七层请求：系统层 system 与六层 user JSON
-  ├─ 生活动作工具：只暴露生活与记忆工具，整次运行不变；世界请求登记即结束本次决策
+  ├─ 生活动作工具：只暴露七个世界请求工具、两个世界查询工具与三个记忆查询工具，整次运行不变；世界请求登记即结束本次决策
   ├─ 同秒续接：在准备阶段之后注入上一决策的消息
   └─ 证据回调：保留原模型调用与 ReAct 机制
 ```
@@ -307,10 +310,12 @@ observation_record = {
 （「失败传播改动」，世界请求登记即结束本次决策）、`prepare_react_loop` 之后注入续接消息（「同秒续接与推理内容保留」）与记忆快照记录
 （「记忆运行时改动」）——之外，[一日运行保真规格](SPEC-dayrun-fidelity.md)第四章与 7.2 补登三个 LifeAgent 覆写：
 - `_protocol_feedback_content`（AS2 `agent_runtime.py:808-822` 的静态方法）：宿主协议纠错改为与环境共用的错误结构
-  （`error_code`、`reason`、`fix`、`items`、`unmet`），`instruction` 改为「本次没有登记到世界；按 fix 修改后重新提交」，不回传 Pydantic 转储；
-- `_parse_react_responses`（`agent_runtime.py:1086-1106`）：`finish_reason=length` 且正文为空时丢弃截断的回合，改发 `OUTPUT_TRUNCATED` 纠错；
+  （`error_code`、`reason`、`fix`、`items`、`unmet`），`instruction` 使用 `No world request was registered. Correct the reported parameters and submit again.`，不回传 Pydantic 转储；
+- `_parse_react_responses`：保留工具调用完整位置、原文与 JSON 解析行列，覆盖缺调用、缺调用名、无效调用句柄、非对象参数与不完整 JSON；
+  `finish_reason=length` 且正文为空时继续按既有规则丢弃截断回合并发 `OUTPUT_TRUNCATED`；
+- `_validate_react_tool_names`：未知工具定位 `function.name`，返回本次实际提供的工具枚举，不依赖上游英文错误串反解析；
 - `_append_react_protocol_feedback`（`agent_runtime.py:754-777`）：相同的纠错替换、不叠加；随后的一次重试关闭思考并 `tool_choice=required`，
-  `max_tokens` 不变，`reasoning_effort` 仍不发送
+  `max_tokens` 不变，`reasoning_effort` 仍不发送；结构化反馈同时保存于 `model_response.data.protocol_feedback`
 
 **锁定依赖**：使用该上游提交的锁文件
 - MCP 1.26.0
@@ -376,6 +381,24 @@ observation_record = {
 - 保留记忆检索
 - 不重写人物循环
 
+### 工具交互规格的当前覆写边界
+
+LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、格式校验；不转换数字、布尔值、空串或字符串 null。
+请求模型只接受当前逐项对象 `start_activity` 与当前控制 `items` 形状，删除旧 `actions` 和旧控制读取。
+`query_world` 的 `name`、`way`、`category`、`offset` 四键均必填；前三键为 `str|null` 且至少一个非空白。
+`way` 取现有方式闭集，`category` 匹配公开 `callable_index` 的类别标签；`offset` 是严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。
+`prefer` 的错误枚举按已合法的方式判定：含购买项返回 `["最快拿到", "到手价最低"]`，没有购买项返回 `[null]`；
+方式尚不能判定时返回声明的三值类型闭集并说明跨字段条件，不猜后续依赖条件。
+`query_world` 固定返回 `{matches, total_count, next_offset}`，只含权限内公开能力事实与完整请求候选；
+每批沿用现有 `candidate_presentation_limit=20`；`total_count` 为完整权限内匹配数，`next_offset` 必填，剩余结果的下一偏移或 `null`，可遍历权限内全集。
+查询工具集合包括 `query_world`、`recall_task_summary` 与三个记忆查询；同批查询全部校验后即时返回，
+不提交宿主绑定世界动作、不结束本次决策、不改变世界时间或同刻轮数，仍占用实际模型回合预算。
+世界请求仍单独提交，与查询混批及多个世界请求均整批拒绝、不部分执行。
+错误结构保留完整 `path`、`allowed_values`、英文 `expected`、英文 `why` 与完整 `{tool, arguments, note}` 候选，
+包括控制工具的嵌套记忆和关系参数，不能因 Pydantic 校验落在模型根而丢失参数位置。
+`protocol_feedback` 在事件中持久化，操作备忘由本人当天证据推导；AS2 子模块与记忆运行时不增加兼容状态。
+本轮改动的具体生产文件与行为、变异验收见[工具交互规格](SPEC-tool-interaction.md)和[实际验收记录](tool-interaction-verification.md)。
+
 ## 验收矩阵
 
 验收矩阵逐项给出该改动必须通过的可观察结果与取证位置。状态列三档：`代码层已验证` 指确定性测试守卫已在
@@ -388,11 +411,11 @@ observation_record = {
 | 决策调度 | 只对就绪人物执行 batch；收齐动作后按环境顺序结算；有人就绪不推进，无人就绪才取下一时间边界；下一边界必须是未来时刻且不含重复人物 | `AS2 分支测试目录/test_society_decision_round.py`（`test_society_uses_environment_order_then_commits`、`test_society_redecides_before_advancing_when_agent_remains_ready`）、`AS2 分支测试目录/test_decision_round.py`（`test_scheduling_state_requires_future_boundary`、`test_scheduling_state_rejects_duplicate_agents`） | 代码层已验证 |
 | 时间约定统一 | 推进同时满足三条：`tick` 严格为正、**时间对账成立**（见 `docs/CONTRACTS.md`「生命周期」）、且命中下一个调度边界 | `tests/life/test_engine_branch_coverage.py::test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary`、`tests/integration/test_env_lifecycle_coverage.py`（`env.step(tick, next_event_at)` 调用形） | 代码层已验证 |
 | 确定性工具调用与身份绑定 | 决策上下文不可变且身份完整；直接工具调用必须携带已校验请求；一次决策只提交一个宿主绑定动作，宿主字段不出现在工具 Schema | `tests/integration/test_life_agent_protocol.py`（`test_native_react_submits_one_host_bound_life_action`、`test_life_agent_schema_is_closed_and_host_fields_are_hidden`）、`AS2 分支测试目录/test_decision_round.py`（`test_decision_context_is_immutable_and_complete`、`test_direct_tool_call_requires_validated_request`） | 代码层已验证 |
-| 工具面与证据回调 | 只暴露生活与记忆工具，原生工具整次运行逐字节不变（只剩最后一个回合时与输出截断后的那次重试时去掉记忆查询工具）且不带逐轮名称枚举，工具 Schema 指纹与注册表摘要绑定；生活决策请求的 system 为系统层、user 为六层 JSON 数组，观察写一次 | `tests/integration/test_life_agent_protocol.py`（`test_life_tool_schema_fingerprint_pins_registry_digest`、`test_react_messages_are_system_layer_and_six_layer_user`）、`tests/integration/test_seven_layer_request.py`（`test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn`）；截断重试见 `tests/integration/test_output_truncation.py`（`test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`、`test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only`） | 代码层已验证 |
+| 工具面与证据回调 | 只暴露七个世界请求工具、两个世界查询工具与三个记忆查询工具，原生工具整次运行逐字节不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具）且不带逐轮名称枚举，工具 Schema 指纹与注册表摘要绑定；生活决策请求的 system 为系统层、user 为六层 JSON 数组，观察写一次 | `tests/integration/test_life_agent_protocol.py`（`test_life_tool_schema_fingerprint_pins_registry_digest`、`test_react_messages_are_system_layer_and_six_layer_user`）、`tests/integration/test_seven_layer_request.py`（`test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn`）；截断重试见 `tests/integration/test_output_truncation.py`（`test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`、`test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only`） | 代码层已验证 |
 | 失败传播 | 回合预算耗尽仍无登记的世界请求、工具执行失败、证据写入失败均致命且不触发新的模型调用；只读问答的 `finish` 与其他工具同批时整批拒绝且无部分执行 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_loop_exhaustion_is_fatal`、`test_finish_mixed_with_action_is_rejected_atomically`、`test_mixed_batch_is_rejected_without_partial_execution`、`test_tool_execution_failure_is_fatal_without_new_model_call`）、`tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit` | 代码层已验证 |
 | 必要观察与证据保存 | 响应证据写入失败是致命错误且不再发起模型调用；空观察或持久化故障不转换成可继续的普通工具结果 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_response_evidence_failure_is_fatal_without_new_model_call`、`test_unserializable_response_is_fatal_without_protocol_feedback`） | 代码层已验证 |
 | 恢复与检查点 | 缺少快照、校验失败或记忆损坏时立即终止，不发布子分支；完整检查点保留父目录与精确工作区 | `tests/integration/test_runtime.py`（`test_restore_rejects_corrupt_used_memory_before_branch_publish`、`test_counterfactual_branch_freezes_intervention_before_publish`）、`tests/footprints/test_store.py`（`test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`、`test_incomplete_checkpoint_never_creates_child`）、`tests/life/test_counterfactual.py` | 代码层已验证 |
-| 同秒续接与推理内容保留 | 没有决策自述请求，没有记忆查询的决策恰好一次模型请求；带 `tools` 的后续请求与协议反馈保留 `reasoning_content`；无推理时省略该键；推理与回复正文作为模型响应证据落库；同秒续接请求的前缀等于上一决策末次请求的消息，assistant 原样带思考，缺思考时断链；时间推进后请求中没有上一秒的原生回合与思考 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_reasoning_content_survives_into_followup_request`、`test_reasoning_content_survives_protocol_feedback_request`、`test_assistant_message_without_reasoning_omits_key`）、`tests/integration/test_life_agent_protocol.py::test_reasoning_content_is_persisted_in_model_response_evidence`、`tests/integration/test_seven_layer_request.py::test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude`、`tests/integration/test_same_second_continuation.py` | 代码层已验证 |
+| 同秒续接与推理内容保留 | 没有决策自述请求，没有只读查询或协议纠错的决策恰好一次模型请求；带 `tools` 的后续请求与协议反馈保留 `reasoning_content`；无推理时省略该键；推理与回复正文作为模型响应证据落库；同秒续接请求的前缀等于上一决策末次请求的消息，assistant 原样带思考，缺思考时断链；时间推进后请求中没有上一秒的原生回合与思考 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_reasoning_content_survives_into_followup_request`、`test_reasoning_content_survives_protocol_feedback_request`、`test_assistant_message_without_reasoning_omits_key`）、`tests/integration/test_life_agent_protocol.py::test_reasoning_content_is_persisted_in_model_response_evidence`、`tests/integration/test_seven_layer_request.py::test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude`、`tests/integration/test_same_second_continuation.py` | 代码层已验证 |
 | 记忆运行时改动 | `conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 写入，空数组合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`）；`tests/integration/test_conclude_memories.py::test_conclusion_memories_flatten_by_task_with_system_source`、`tests/integration/test_life_agent_protocol.py::test_person_step_records_conclusion_memory_update` | 代码层已验证 |
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `AS2 分支测试目录/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本；续接链内复用链首 user，续接消息不写进观察事件 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_system_layer_and_six_layer_user`、`AS2 分支测试目录/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message`、`tests/integration/test_same_second_continuation.py` | 代码层已验证 |
@@ -400,6 +423,8 @@ observation_record = {
 | 真实端点集成 | 全部改动通过真实 AS2 与 DeepSeek 端点的集成测试，不用模拟模型或手工 JSON 替代 | `docs/dev/implementation-status.md` 记录的正式十二周运行与隔离盲评收据 | 待真实运行 |
 
 ## 版本表
+
+以下记录保留当时的变更与验证证据；当前接口约束以正文和工具交互规格为准。
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
@@ -416,3 +441,5 @@ observation_record = {
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；验收矩阵「工具面与证据回调」「同秒续接与推理内容保留」「观察记录单写」三行在最终代码上复跑通过，状态由「本次离线验收待执行」改为「代码层已验证」，状态说明随之补一句；「工具面与证据回调」注明最后一个回合去掉记忆查询工具。AS2 锁定提交 `8768e14` 与运行身份不变 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 14 行修订（一日运行保真 AS1，随该规格冻结）：「AS2 基线与分支」新增「覆写点」一段，列出本规格已登记的 `_run_react_turn`、`prepare_react_loop` 之后的续接注入与记忆快照记录，并补登 `_protocol_feedback_content`（统一错误结构与新的 `instruction`）、`_parse_react_responses`（截断回合丢弃并发 `OUTPUT_TRUNCATED`）、`_append_react_protocol_feedback`（相同纠错替换不叠加，随后关闭思考并 `tool_choice=required` 重试一次）三个 LifeAgent 覆写；「记忆运行时改动」第 1 条注明控制工具改为 `items` 后宿主仍按同一路径展平写入；AS2 锁定提交 `8768e14` 与运行身份不变；文件头补修订说明，日期改写 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码核对）：三个 LifeAgent 覆写均已落地，文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收；验收矩阵「工具面与证据回调」注明输出截断后的那次重试同样去掉记忆查询工具，证据补 `tests/integration/test_output_truncation.py` 的两个用例；AS2 锁定提交 `8768e14` 与运行身份不变 |
+| `2026-10-01-tool-interaction` | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
+| `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |

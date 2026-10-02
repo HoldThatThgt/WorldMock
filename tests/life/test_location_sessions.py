@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from agentsociety2.society import DirectToolCall
+from pydantic import ValidationError
 
 from tests.life.conftest import (advance_next, advance_until_ready, context, progress_calls, stage_day_plan,
                                  target_actions, target_tools, tool_targets, wake_by_mail, start_request,
@@ -22,8 +23,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.readable import duration_phrase, iso_time
-from worldmock.life.models import (ActivityStatus, RecallTaskSummaryRequest, SameMomentStage, SessionKind,
-                                   SessionStatus, active_activities)
+from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTaskSummaryRequest, SameMomentStage, SessionKind,
+                                   SessionStatus, StartActivityRequest, active_activities)
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
 
@@ -202,7 +203,7 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     assert observed["todo_layer"]["day_plan"] is None
     assert tool_targets(observed)[sleep.name]["phase"] == "刚结束"
     assert target_tools(observed, sleep.name)["conclude_activity"]["available"] is True
-    assert target_actions(observed, "自己")["等待"]["reason"] == f"先给刚结束的{sleep.name}收尾"
+    assert target_actions(observed, "自己")["等待"]["reason"] == f"Conclude the finished activities {sleep.name} first."
     engine.submit_action(DirectToolCall(decision, "action-wake-no-plan", "conclude_activity", conclude_request(
         sleep.name, summary="睡醒了。", memories=[[]])))
     assert engine.commit_decision_round("wake-no-plan")[0].status == "completed"
@@ -266,13 +267,17 @@ def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -
     observed = _preview(engine, "listed-depart")
     office = _pick(observed, "travel_to", mode="walking", place="office")[0]
     walk = target_actions(observed, office)["步行"]
-    assert (walk["available"], walk["reason"]) == (False, f"需要先结束或暂停手上的事：{name}")
+    assert (walk["available"], walk["reason"]) == (
+        False, f"Conclude or pause the current activities {name} before departure.")
     rejected = _depart(engine, "blocked-depart")
     assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert rejected.data["unmet"] == ["activities_before_departure"]
-    assert rejected.data["suggested"] == {"conclude_or_pause": [name]}
-    assert rejected.data["reason"] == f"需要先结束或暂停手上的事：{name}"
-    assert rejected.data["next_step"] == f"先结束或暂停{name}"
+    assert rejected.data["suggested"]["conclude_or_pause"] == [name]
+    assert rejected.data["items"][0]["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "target"]
+    assert rejected.data["items"][0]["written"] == office
+    assert rejected.data["items"][0]["why"] == rejected.data["reason"]
+    assert rejected.data["reason"] == f"Conclude or pause the current activities {name} before departure."
+    assert rejected.data["next_step"] == f"Conclude or pause {name} first."
     assert name in rejected.message
     assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
     paused = _round(engine, "pause-before-leaving", "pause_activity", pause_request(name, summary="出门前先停下。"))[1]
@@ -300,7 +305,7 @@ def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> N
     assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert elsewhere.data["suggested"] == {"travel_to": home}
     assert (elsewhere.data["reason"], elsewhere.data["next_step"]) == (
-        f"{name}要回到{home}才能接着做，在别处可以直接结束", f"去{home}")
+        f"Resume {name} at its start location {home}; it can be concluded elsewhere.", f"Travel to {home}.")
     assert home in elsewhere.message and name in elsewhere.message
     assert engine.state.activities[waited.activity_id].status == ActivityStatus.PAUSED
     back = _depart(engine, "back-home", destination="home")
@@ -349,7 +354,8 @@ def test_pausing_an_activity_on_the_road_is_unavailable(engine_factory) -> None:
         assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PAUSE_UNAVAILABLE"
         name = _name(engine, activity_id)
         assert name in rejected.message
-        assert (rejected.data["reason"], rejected.data["next_step"]) == (f"路上的{name}不能暂停", f"可以直接结束{name}")
+        assert (rejected.data["reason"], rejected.data["next_step"]) == (
+            f"The activity {name} cannot be paused while travelling.", f"Conclude {name}.")
         assert engine.state.activities[activity_id].status == ActivityStatus.ACTIVE
 
 
@@ -411,10 +417,9 @@ def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_fac
     content = _pick(_preview(engine, "one-slot"), "watch", kind="content")
     blocked = _start(engine, "one-slot-two", ("自己", "interact", "等待"), content)
     assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert "只剩一个名额，不能同时开始两项" in blocked.message and name in blocked.message
-    assert "两件事都在做" not in blocked.message
-    assert blocked.data["reason"] == f"只剩一个名额，不能同时开始两项（{name}占着一个）"
-    assert blocked.data["next_step"] == f"先结束一项：{name}"
+    assert blocked.message == blocked.data["reason"] == (
+        f"Only one activity slot remains because {name} occupies a slot.")
+    assert blocked.data["next_step"] == f"Conclude one of {name} first."
     assert _start(engine, "one-slot-one", content).status == "in_progress"
 
 
@@ -437,29 +442,52 @@ def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check
     observed = _preview(engine, "listed-full-depart")
     office = _pick(observed, "travel_to", mode="walking", place="office")[0]
     walk = target_actions(observed, office)["步行"]
-    assert walk["reason"].startswith("两件事都在做，先结束一件：") and _name(engine, watched) in walk["reason"]
+    assert walk["reason"].startswith("Both activity slots are occupied by ") and _name(engine, watched) in walk["reason"]
     rejected = _depart(engine, "depart-with-full-slots")
     assert rejected.status == "rejected" and rejected.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert "两件事都在做，先结束一件" in rejected.message
+    assert rejected.message.startswith("Both activity slots are occupied by ")
     assert _name(engine, waited) in rejected.message and _name(engine, watched) in rejected.message
     assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
     assert engine.state.activities[watched].status == ActivityStatus.ACTIVE
 
 
-@pytest.mark.parametrize("targets,actions,ways", [
-    (["自己"], ["interact", "sleep"], ["等待", "睡觉"]),
-    (["自己", "自己"], ["interact", "sleep"], ["等待", "睡觉"]),
-    (["自己", "商品目录", "内容：Sintel"], ["interact", "interact", "interact"], ["等待", "浏览", "接着看"]),
-], ids=["unequal-lengths", "duplicate-targets", "three-targets"])
-def test_start_request_shape_errors_are_action_request_invalid(engine_factory, targets, actions, ways) -> None:
-    """start_activity 的数组不等长、目标重复或超过两项：以 ACTION_REQUEST_INVALID 业务拒绝（不报 SESSION_LIMIT_EXCEEDED），
-    不开始任何活动，运行继续（第五章「并行准入」）。"""
+@pytest.mark.parametrize("body", [
+    {"targets": ["自己"], "actions": ["interact", "sleep"], "ways": ["等待", "睡觉"]},
+    {"items": [{"target": "自己", "way": way, "from": None, "to": None} for way in ("等待", "睡觉")]},
+    {"items": [{"target": target, "way": "等待", "from": None, "to": None}
+               for target in ("自己", "商品目录", "内容：Sintel")]},
+], ids=["removed-parallel-arrays", "duplicate-targets", "three-items"])
+def test_start_request_shape_errors_are_action_request_invalid(engine_factory, body) -> None:
+    """旧数组、逐项目标重复或超过两项直接违反当前模式；绕过宿主构造的坏模型仍由环境原子拒绝。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    request = start_request(targets=targets, actions=actions, ways=ways)
+    with pytest.raises(ValidationError):
+        StartActivityRequest.model_validate({"answering": None, "prefer": None, **body})
+    constructed = dict(body)
+    if "items" in constructed:
+        constructed["items"] = [ActivityRequestItem.model_validate(item) for item in constructed["items"]]
+    request = StartActivityRequest.model_construct(answering=None, prefer=None, **constructed)
+    before_accounts = dict(engine.state.accounts)
     rejected = _round(engine, "shape", "start_activity", request)[1]
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
+    assert all(set(item) == {"path", "written", "error_code", "allowed_values", "expected", "why", "candidates"}
+               and item["error_code"] == "ACTION_REQUEST_INVALID" and item["expected"] and item["why"]
+               and item["candidates"] == [] for item in rejected.data["items"])
+    if "items" not in body:
+        [item] = rejected.data["items"]
+        assert item["path"] == ["tool_calls", 0, "function", "arguments", "items"]
+        assert item["written"] is None and item["allowed_values"] == []
+        assert item["why"] == "This required field was omitted."
+        assert "This field is required" in item["expected"]
+    else:
+        [item] = rejected.data["items"]
+        assert item["path"] == ["tool_calls", 0, "function", "arguments", "items"]
+        assert item["written"] == request.model_dump(mode="json", by_alias=True)["items"]
+        assert item["why"] == ("a target may repeat only with a different recipient" if len(body["items"]) == 2
+                               else "items requires one or two activity objects; acceptance is atomic")
+    assert rejected.data["fix"] == "Correct every reported parameter."
     assert engine.state.activities == {}
+    assert engine.state.accounts == before_accounts
     assert _wait(engine, "after-shape").status == "in_progress"
 
 
@@ -611,10 +639,8 @@ def test_cross_day_duplicate_activity_names_get_ordinals(engine_factory) -> None
     assert activities_by_id["activity-last-year"] == _name(engine, waited.activity_id)
     assert activities_by_id[waited.activity_id] == f"{_name(engine, waited.activity_id)}（第二次）"
     _wake(engine)
-    recalled = _round(engine, "recall-duplicate", "recall_task_summary",
-                      RecallTaskSummaryRequest(task_name=activities_by_id[waited.activity_id]))[1]
-    assert recalled.status == "completed"
-    assert (recalled.data["recall"]["kind"], recalled.data["recall"]["phase"]) == ("activity", "进行中")
+    recalled = _recall(engine, "recall-duplicate", activities_by_id[waited.activity_id])
+    assert (recalled["kind"], recalled["phase"]) == ("activity", "进行中")
     _wake(engine)
     reported = _round(engine, "report-duplicate", "report_status", report_request(
         activities_by_id[waited.activity_id], summary="今天的这段还在等。"))[1]
@@ -644,14 +670,13 @@ def test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument(eng
 
 
 def _recall(engine: LifeEngine, name: str, task_name: str) -> dict:
-    """@brief 回看一个可读名称，返回下一次观察进度层该调用结果 details.recall 中的公开结果（与私有结果同形、不带身份）。"""
-    _wake(engine)
-    result = _round(engine, name, "recall_task_summary", RecallTaskSummaryRequest(task_name=task_name))[1]
-    assert result.status == "completed"
-    shown = [row["result"]["details"].get("recall")
-             for row in progress_calls(_preview(engine, f"{name}-shown"), "recall_task_summary")]
-    assert result.data["recall"] in shown
-    return result.data["recall"]
+    """@brief 即时回看冻结观察的公开结果，不登记动作、不推进时间、不产生进度事件。"""
+    observed = _preview(engine, name)
+    state, sequence = engine.state.model_dump(), engine.store.last_event_seq
+    result = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=task_name), observed)
+    assert (engine.state.model_dump(), engine.store.last_event_seq) == (state, sequence)
+    assert not progress_calls(observed, "recall_task_summary")
+    return result["recall"]
 
 
 def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_factory) -> None:
@@ -678,8 +703,8 @@ def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_f
     after = _recall(engine, "recall-activity-again", name)
     assert after["progress_note"] == "等得有点久。" and "subjective_status" not in after
     _wake(engine)
-    rejected = _round(engine, "recall-session", "recall_task_summary", RecallTaskSummaryRequest(task_name=stay.name))[1]
-    assert (rejected.status, rejected.error_code) == ("rejected", "TASK_NOT_FOUND")
+    with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
+        _recall(engine, "recall-session", stay.name)
     for recall in (before, after):
         assert not {key for key in recall if key.endswith("_id")}
 

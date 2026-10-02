@@ -201,18 +201,19 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
 
     def recall(observation: dict) -> list:
         goal = observation["goal_bindings"][0]["task_name"]
-        return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。")]
+        return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。"),
+                _reply("call-revision", "revise_day_plan", _PLAN, "回看后保持计划不变。")]
 
     _, recalled, _ = await _single(environment, "recall", recall)
     observation, [third], _ = await _single(environment, "wait", _wait_reply())
-    [second] = recalled
+    second = recalled[-1]
     size = len(second["messages"])
     assert json.dumps(third["messages"][:size], ensure_ascii=False) == json.dumps(second["messages"], ensure_ascii=False)
     first_tool, last_tool = second["messages"][3], third["messages"][-1]
     assert list(json.loads(first_tool["content"])) == ["result", "changes"]
     assert list(json.loads(last_tool["content"])) == ["result"]
-    assert (third["messages"][size]["reasoning_content"], last_tool["tool_call_id"]) == ("回看一下这段停留。",
-                                                                                          "call-recall")
+    assert (third["messages"][size]["reasoning_content"], last_tool["tool_call_id"]) == ("回看后保持计划不变。",
+                                                                                          "call-revision")
     assert observation["continuation"]["messages"][1] == third["messages"][1]
 
 
@@ -254,7 +255,8 @@ async def test_a_message_already_returned_in_the_chain_is_not_repeated_by_a_late
 
     def recall(observation: dict) -> list:
         goal = observation["goal_bindings"][0]["task_name"]
-        return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。")]
+        return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。"),
+                _reply("call-revision", "revise_day_plan", _PLAN, "回看后保持计划不变。")]
 
     await _round(environment, "recall", {1: recall, 2: lambda observation: _wait_reply("call-2b")})
     assert engine.scheduling_state().ready_agent_ids == (1,)
@@ -853,7 +855,8 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
     from custom.agents.life_continuation import continuation_messages
 
     def layers(state: str, body: str) -> list[dict]:
-        return [{"layer": "工具层", "targets": [{"name": "店", "state": state}]},
+        return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
+                                                   "actions": [], "tools": []}], "callable_index": {"query_categories": []}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
                 {"layer": "待办层", "paused_activities": [], "day_plan": None},
                 {"layer": "环境层", "body": {"appetite": body}}, {"layer": "进度层"}]
@@ -877,14 +880,16 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
     messages = continuation_messages(chain, layers("打烊", "有点饿"))
     assert messages[:9] == [*chain["messages"], chain["assistant"]]
     assert json.loads(messages[-1]["content"]) == {"result": {"status": "completed"},
-                                                   "changes": {"targets": {"updated": [{"name": "店", "state": "打烊"}]}}}
+                                                   "changes": {"targets": {"updated": [{"name": "店", "state": "打烊", "kind": "location", "actions": [],
+                                                                                   "tools": [], "phase": None}]}}}
     assert continuation_messages(None, layers("打烊", "有点饿")) is None
 
 
 def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     """changes 相对于模型所见：链首快照依次叠加此前各 changes，以最新为准；没有改动的键不写。"""
     def layers(targets, paused, plan, body, views):
-        return [{"layer": "工具层", "targets": targets}, {"layer": "人设层", "relationships": views, "preferences": []},
+        return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
+                                                   for row in targets], "callable_index": {"query_categories": []}}, {"layer": "人设层", "relationships": views, "preferences": []},
                 {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "day_plan": plan},
                 {"layer": "环境层", "body": body}, {"layer": "进度层"}]
 
@@ -895,7 +900,8 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     current = layers([{**shop, "state": "打烊"}], [], None, {"appetite": "有点饿"},
                      [{"person": "王磊", "view": "靠谱"}])
     assert layer_changes(head, [earlier], current) == {
-        "targets": {"updated": [{"name": "店", "state": "打烊"}]},
+        "targets": {"updated": [{"name": "店", "state": "打烊", "kind": "location", "actions": [],
+                                                                                   "tools": [], "phase": None}]},
         "paused_activities": {"removed": ["读书（9月28日 09:00 起）"]},
         "relationships": [{"person": "王磊", "view": "靠谱"}]}
     assert layer_changes(head, [], head) == {}

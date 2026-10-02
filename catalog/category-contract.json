@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "contract_version": 2,
+  "contract_version": 3,
   "categories": [
     {
       "category_id": "entity",
@@ -98,10 +98,36 @@
           },
           "required": false,
           "unit": "kcal"
+        },
+        "purchase_price_fen_min": {
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "required": true,
+          "unit": "fen"
+        },
+        "purchase_price_fen_max": {
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "required": true,
+          "unit": "fen"
+        },
+        "inventory_unit": {
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required": false
         }
       },
       "values": {
-        "absolute": {},
+        "absolute": {
+          "purchase_price_fen_min": 100,
+          "purchase_price_fen_max": 5000
+        },
         "relative": {},
         "proportional": {}
       }
@@ -131,7 +157,8 @@
           ],
           "use_duration_seconds": 900,
           "serving_quantity": 1,
-          "required_location_id": null
+          "required_location_id": null,
+          "purchase_price_fen_max": 2500
         },
         "relative": {},
         "proportional": {}
@@ -330,7 +357,10 @@
         }
       },
       "values": {
-        "absolute": {},
+        "absolute": {
+          "purchase_price_fen_min": 1000,
+          "purchase_price_fen_max": 4000
+        },
         "relative": {},
         "proportional": {}
       }
@@ -343,7 +373,9 @@
       "slots": {},
       "values": {
         "absolute": {
-          "serving_unit": "g"
+          "serving_unit": "g",
+          "purchase_price_fen_min": 1500,
+          "purchase_price_fen_max": 4500
         },
         "relative": {},
         "proportional": {}
@@ -361,7 +393,9 @@
             "use"
           ],
           "use_duration_seconds": 300,
-          "required_location_id": null
+          "required_location_id": null,
+          "purchase_price_fen_min": 300,
+          "purchase_price_fen_max": 6000
         },
         "relative": {},
         "proportional": {}
@@ -594,6 +628,82 @@
         "relative": {},
         "proportional": {}
       }
+    },
+    {
+      "category_id": "ingredient",
+      "name": "食材",
+      "parent_id": "product",
+      "kind": "product",
+      "slots": {},
+      "values": {
+        "absolute": {
+          "effect": "ingredient",
+          "consumable": true,
+          "use_modes": [
+            "use"
+          ],
+          "use_duration_seconds": 300,
+          "required_location_id": null,
+          "inventory_unit": "item",
+          "purchase_price_fen_max": 2000
+        },
+        "relative": {},
+        "proportional": {}
+      }
+    },
+    {
+      "category_id": "ingredient-vegetable",
+      "name": "蔬菜原料",
+      "parent_id": "ingredient",
+      "kind": "product",
+      "slots": {},
+      "values": {
+        "absolute": {},
+        "relative": {},
+        "proportional": {}
+      }
+    },
+    {
+      "category_id": "ingredient-pantry",
+      "name": "粮油调料",
+      "parent_id": "ingredient",
+      "kind": "product",
+      "slots": {},
+      "values": {
+        "absolute": {},
+        "relative": {},
+        "proportional": {}
+      }
+    },
+    {
+      "category_id": "ingredient-vegetable-kit",
+      "name": "素炒什锦食材包",
+      "parent_id": "ingredient",
+      "kind": "product",
+      "slots": {},
+      "values": {
+        "absolute": {
+          "purchase_price_fen_min": 500,
+          "purchase_price_fen_max": 1500,
+          "use_duration_seconds": 3000
+        },
+        "relative": {},
+        "proportional": {}
+      }
+    },
+    {
+      "category_id": "prepared-meal-vegetable-stir-fry",
+      "name": "素炒什锦成品",
+      "parent_id": "prepared-meal",
+      "kind": "product",
+      "slots": {},
+      "values": {
+        "absolute": {
+          "inventory_unit": "item"
+        },
+        "relative": {},
+        "proportional": {}
+      }
     }
   ],
   "pairings": [
@@ -660,6 +770,27 @@
       "state": "defined",
       "rule_id": "settle-package",
       "coefficient": 1
+    },
+    {
+      "actor_category_id": "person",
+      "target_category_id": "ingredient-vegetable-kit",
+      "action": "consume:use",
+      "state": "defined",
+      "rule_id": "cook-vegetable-stir-fry",
+      "coefficient": 1
+    },
+    {
+      "actor_category_id": "person",
+      "target_category_id": "ingredient",
+      "action": "consume:use",
+      "state": "no_effect",
+      "review": {
+        "reviewer": "Codex storefront data agent",
+        "reviewer_type": "delegated_agent",
+        "evidence": "docs/dev/SPEC-tool-interaction.md and corpora/ingredients/items.json",
+        "reason": "Individual raw ingredients have no standalone use or food-energy conversion. Only the complete ingredient-vegetable-kit has the explicit inventory recipe.",
+        "authorization": "User request to implement the frozen tool interaction specification completely using concurrent agents"
+      }
     }
   ],
   "sources": [
@@ -757,6 +888,57 @@
         "/pairings/5/coefficient",
         "/pairings/6/coefficient",
         "/pairings/7/coefficient"
+      ]
+    },
+    {
+      "source_id": "price-food-coffee",
+      "type": "scenario",
+      "producer": "data_source",
+      "source": "Tool interaction frozen simulation assumptions",
+      "artifact": "docs/dev/SPEC-tool-interaction.md",
+      "method": "Declare positive price bounds and complete raw ingredient package semantics",
+      "paths": [
+        "/categories/12/values/absolute/purchase_price_fen_min",
+        "/categories/12/values/absolute/purchase_price_fen_max"
+      ]
+    },
+    {
+      "source_id": "purchase-price-bounds",
+      "type": "scenario",
+      "producer": "data_source",
+      "source": "Tool interaction frozen simulation assumptions",
+      "artifact": "docs/dev/SPEC-tool-interaction.md",
+      "method": "Declare positive price bounds and complete raw ingredient package semantics",
+      "paths": [
+        "/categories/2/slots/purchase_price_fen_min",
+        "/categories/2/slots/purchase_price_fen_max",
+        "/categories/2/slots/inventory_unit",
+        "/categories/2/values/absolute"
+      ]
+    },
+    {
+      "source_id": "ingredient-categories",
+      "type": "scenario",
+      "producer": "data_source",
+      "source": "Tool interaction frozen simulation assumptions",
+      "artifact": "docs/dev/SPEC-tool-interaction.md",
+      "method": "Declare positive price bounds and complete raw ingredient package semantics",
+      "paths": [
+        "/categories/23",
+        "/categories/24",
+        "/categories/25",
+        "/categories/26"
+      ]
+    },
+    {
+      "source_id": "cooking-quantity-coefficient",
+      "type": "scenario",
+      "producer": "data_source",
+      "source": "One complete raw vegetable package produces one prepared vegetable meal",
+      "artifact": "corpora/ingredients/items.json",
+      "method": "Use the existing single-input single-output inventory transform in item units",
+      "paths": [
+        "/pairings/8/coefficient"
       ]
     }
   ],

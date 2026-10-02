@@ -1,5 +1,9 @@
 # 调整世界规则与人物动机参数
 
+> 更新日期：2026-10-01。[工具交互规格](../dev/SPEC-tool-interaction.md)中的构建价格范围、完整类别供给、
+> 正式食材配方和新发布身份已冻结，尚未实现。下面现有 CLI 命令仍操作当前格式，不支持新增槽位或自动类别供给；
+> 标为目标格式的内容是开发合同，不能当作当前可执行步骤。
+
 要改变人物的初始状态，先改[场景](scenarios.md)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
 再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
 本页命令都在仓库根目录执行。
@@ -136,7 +140,40 @@ flowchart LR
 
 实际购买价格取[门店供给](resources.md#编写门店供给与商品)，再乘购买数量与品类配对系数，最终向上取整为分。
 调整某家店的价格应改供给；调整同一类商品的统一交换系数才改配对。
+目标格式的 `purchase_price_fen_min/purchase_price_fen_max` 只是对象构建边界，不是交易用的 `price_slot`。
+两端通过现有品类槽位和对象差异解析，同币种正整数分、最小值不大于最大值，两端相等合法，每个数值须有来源。
+离线构建对 `[random_seed, location_id, object_id]` 使用
+`json.dumps(..., ensure_ascii=False, separators=(',', ':'))` 后编码为 UTF-8，取 SHA-256 摘要的无符号大端整数 `h`，
+逐店price_position_percent为有来源的整数5至95，固定 `jitter = h % 11 - 5`，
+以 `min + ((max - min) * (price_position_percent + jitter) + 50) // 100` 生成一次独立报价，观察和交换求值不抽价。
+不为每商品独立抽整个范围，不新增扰动配置；本正式地图中的门店按同一地区比较，
+所有便利店定位至少高于地图内普通超市10个百分点，不新增地区字段，
+同商品报价不得更低，整数舍入同价合法，这是有来源的场景假设。
+全部冻结报价及未来调价都须在范围内；订单仍保存实际成交价，不因之后调价重算已付款。
 规则只接受这些算子，不能写 `expression`、Python 表达式或嵌套公式。
+
+### 目标格式中的供给与制作边界
+
+完整供给分类文件为 `corpora/zhangjiang-map/category-assignment.json`，按现有地点kind和品类树定义完整准入池；
+同一文件恰含必填 `kinds/locations/source`，全部地图kind包括不售卖地点的空数组均显式声明；
+逐店恰含必填 `location_id/category_ids/object_ids/price_position_percent/source`，顶层与逐店来源沿用完整 `DataSource`。
+实际供给为逐店类别及全部后代对象与显式对象并集，全体仍须在kind准入池内，重合不重复，缺逐店声明拒绝。
+准入池不是每店菜单，不全量复制到所有门店；包装食品店选择适用食品子类，不自动售卖所有餐馆正餐。
+分类声明是固定数据，不是运行配置层，禁止遗漏时默认补齐、随机只抽几件或跨类别供应一切商品。
+地图结构升为 3，必填 `random_seed/category_assignment_sha256`；地图和场景种子必须相等，
+白领与多人场景分别发布并钉定各自种子的供给，语料清单共同钉定分类文件。
+真实卖方、库存、资格和履约仍显式声明；对象不携带门店实际报价或供给库存。
+正式场景 `products/supplies` 显式包含选中门店全部声明商品及生成供给，加载和正式验收核对实际集合，
+缺项拒绝，不自动选择或补齐旧稀疏列表。
+正式场景还须满足[丰富度和餐馆菜单差异验收](../dev/SPEC-map-and-storefront.md#按地点类别生成完整供给)，
+素材不足或未知拒绝发布，不随机补齐；菜单所需子类或明确对象必须有来源，不从店名猜菜系。
+
+正式做饭复用已存在的 `inventory_transform`，一份食材包作为单输入对象转换为一个已发布正餐对象，
+`recipe_output_bindings` 明确绑定输出对象，双方 `inventory_unit=item`，库存资源仍为 `inventory/item`，不新增多材料算子。
+制作完成才扣输入并入库输出，之后食用才产生食品能量；暂停、取消或提前结束不制造半件产物。
+原料 `ingredient` 是此次新增的真实品类分支，必须有来源、对象和规则；无产出做饭活动直接删除重复绑定。
+目标发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3，世界状态 8 保持；旧输入直接拒绝，不提供迁移或兼容。
+这些正式数据与生成行为尚未实现，不增加当前 `category check/refine/publish` 的假参数或运行开关。
 
 ### 检查与发布品类修改
 
@@ -146,7 +183,7 @@ flowchart LR
 uv run worldmock category check --catalog catalog
 ```
 
-查询某组配对时，先保存以下**完整文件**为 `/tmp/worldmock-pairings.json`：
+查询某组配对时，先保存以下**完整文件**为 `experiments/worldmock-pairings.json`：
 
 ```json
 [
@@ -155,7 +192,7 @@ uv run worldmock category check --catalog catalog
 ```
 
 ```bash
-uv run worldmock category check --catalog catalog --queries /tmp/worldmock-pairings.json
+uv run worldmock category check --catalog catalog --queries experiments/worldmock-pairings.json
 ```
 
 检查报告可以包含 `undefined`；它本身不代表场景准入已通过。
@@ -163,13 +200,13 @@ uv run worldmock category check --catalog catalog --queries /tmp/worldmock-pairi
 
 ```bash
 uv run worldmock category refine \
-  --catalog catalog --candidate /tmp/worldmock-candidate \
+  --catalog catalog --candidate experiments/worldmock-candidate \
   --parent-category food
 
 uv run worldmock category publish \
-  --catalog catalog --candidate /tmp/worldmock-candidate \
-  --output /tmp/worldmock-published \
-  --assignments /tmp/worldmock-assignments.json \
+  --catalog catalog --candidate experiments/worldmock-candidate \
+  --output experiments/worldmock-published \
+  --assignments experiments/worldmock-assignments.json \
   --scenario scenarios/my-life.json
 ```
 
@@ -177,7 +214,7 @@ uv run worldmock category publish \
 `assignments` 是明确确认的 `{"对象身份": "目标品类身份"}` 映射，无归属变化时为 `{}`。
 候选的契约版本和目录版本都必须递增，规则版本同步；所有目标场景应钉定候选目录版本。
 同一对象改挂品类要追加下一对象版本，不能跳过确认。可重复 `--scenario` 检查多个场景；输出目录必须不存在。
-发布不会改写原目录，也不会自动让运行命令找到 `/tmp/worldmock-published`，还需按场景目录布局放置。
+发布不会改写原目录，也不会自动让运行命令找到 `experiments/worldmock-published`，还需按场景目录布局放置。
 
 ## 活动声明
 
@@ -356,7 +393,7 @@ bedtime = "23:00-24:00"
 或 `bedtime_window` 时，人设层改取场景值，对应的缺省只在场景没写该字段时进入人设层；`wake` 与 `leave_home`
 没有场景字段，故事不提时总取这里的缺省，见[人物画像](personas.md#正文与实际世界条件要一致)。
 
-独立文件可通过 `WORLDMOCK_PERSONA_MAPPING=/绝对路径/persona-mapping.toml` 选择；
+独立文件可通过相对路径 `WORLDMOCK_PERSONA_MAPPING=experiments/persona-mapping.toml` 选择；
 这不是场景字段，也不会自动跟随另一个自定义 `catalog/` 目录。
 当前运行时主要从编译结果接入人物卡片和口味权重，**尚未把整份 `world_dynamics` 自动应用到世界状态**。
 改变映射表可以改变编译输出，不能据此声称运行中的情绪、社交和邀约参数都已相应改变。

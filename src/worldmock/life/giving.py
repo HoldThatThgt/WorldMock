@@ -69,8 +69,9 @@ def handover_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: int
     together = here is not None and (
         any(present_location(state, other) == here for other in state.agents if other != agent_id)
         or any(contact.receive_location_id == here for contact in config.contacts))
-    return None if together else Refusal("ACTIVITY_PRECONDITION_UNMET", "要和对方在同一个地方才能给",
-                                         "等和要给的人在一起时再给", ("recipient_present",))
+    return None if together else Refusal("ACTIVITY_PRECONDITION_UNMET",
+                                         "Giving requires the recipient at the same location.",
+                                         "Give the item when both people are together.", ("recipient_present",))
 
 
 def _presence_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient: str) -> Refusal | None:
@@ -80,5 +81,6 @@ def _presence_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: in
         return None
     name = person_name(state, scenario, agent_id, recipient)
     places = {item.location_id: item.name for item in scenario.locations}
-    step = f"去{places[where]}" if where is not None else f"等和{name}在一起时再给"
-    return Refusal("ACTIVITY_PRECONDITION_UNMET", f"要和{name}在同一个地方才能给他", step, ("recipient_present",))
+    step = f"Go to {places[where]}." if where is not None else f"Give the item when you are together with {name}."
+    return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Giving to {name} requires both people at the same location.",
+                   step, ("recipient_present",))

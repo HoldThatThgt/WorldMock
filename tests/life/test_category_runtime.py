@@ -197,11 +197,39 @@ def _fixture(tmp_path: Path, *, input_state: str = "defined",
     if output_held:
         inventory[_OUTPUT_OBJECT] = output_held
     scenario["agents"][0]["initial_inventory"] = {"home": inventory}
-    scenario["recipe_output_bindings"] = {_OUTPUT_CATEGORY: _OUTPUT_OBJECT}
+    scenario["recipe_output_bindings"].update({_OUTPUT_CATEGORY: _OUTPUT_OBJECT})
+    _isolate_inventory_map(root, scenario)
     path = scenarios_dir / "scenario.json"
     _write_json(path, scenario)
     return path
 
+
+
+def _isolate_inventory_map(root: Path, scenario: dict) -> None:
+    """隔离库存对象扩大目录时，门店仍显式选择原发布集合，不伪造新增可售库存。"""
+    corpus = root / "corpora"
+    shutil.copytree("corpora", corpus)
+    dataset_path = corpus / scenario["map_dataset"]["path"]
+    dataset = _read_json(dataset_path)
+    supplies = _read_json(corpus / dataset["supplies_file"]["path"])["supplies"]
+    assignment_path = corpus / "zhangjiang-map/category-assignment.json"
+    assignment = _read_json(assignment_path)
+    for declaration in assignment["locations"]:
+        declaration["category_ids"] = []
+        declaration["object_ids"] = sorted({row["product_id"] for row in supplies
+            if row["location_id"] == declaration["location_id"]})
+    _write_json(assignment_path, assignment)
+    dataset["category_assignment_sha256"] = hashlib.sha256(assignment_path.read_bytes()).hexdigest()
+    _write_json(dataset_path, dataset)
+    scenario["map_dataset"]["sha256"] = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+    manifest_path = corpus / "manifest.json"
+    manifest = _read_json(manifest_path)
+    for entry in manifest["entries"]:
+        if entry["path"] in {"zhangjiang-map/category-assignment.json", scenario["map_dataset"]["path"]}:
+            source = corpus / entry["path"]
+            entry.update(sha256=hashlib.sha256(source.read_bytes()).hexdigest(), size_bytes=source.stat().st_size)
+    _write_json(manifest_path, manifest)
+    scenario.update(corpus_root=str(corpus), corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
 
 def _formal_fixture(tmp_path: Path) -> tuple[Path, Path, dict]:
     """复制正式目录和场景，供启动前门禁变异测试。"""
@@ -270,7 +298,8 @@ def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -
             item["category_id"] = category_id
     assert [item["object_id"] for item in objects if item["category_id"] == category_id] == [product["product_id"]]
     objects_path.write_text("".join(json.dumps(item) + "\n" for item in objects))
-    supplies = _read_json(Path("corpora/zhangjiang-map/supplies.json"))["supplies"]
+    dataset = _read_json(Path("corpora") / scenario["map_dataset"]["path"])
+    supplies = _read_json(Path("corpora") / dataset["supplies_file"]["path"])["supplies"]
     targets = {item["supply_id"] for item in supplies if item["product_id"] == product["product_id"]}
     for item in scenario["supplies"]:
         item["initial_stock"] = 0 if item["supply_id"] in targets else 1
@@ -413,7 +442,8 @@ def test_recipe_fixture_loads_with_output_category_binding(tmp_path: Path) -> No
     path = _fixture(tmp_path)
     engine = _engine(tmp_path, path, "load")
     try:
-        assert engine.scenario.recipe_output_bindings == {_OUTPUT_CATEGORY: _OUTPUT_OBJECT}
+        assert engine.scenario.recipe_output_bindings == {
+            **_read_json(_SCENARIO)["recipe_output_bindings"], _OUTPUT_CATEGORY: _OUTPUT_OBJECT}
         assert {_INPUT_OBJECT, _OUTPUT_OBJECT} <= set(engine.rules.items)
         assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(engine.rules.products)
     finally:
@@ -426,8 +456,9 @@ def test_recipe_completes_once_after_readable_use(tmp_path: Path) -> None:
     engine = _engine(tmp_path, path, "complete")
     try:
         request, started = _consume(engine, "start")
-        assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["obtain"], "ways": ["制作"],
-                                        "from": [None], "to": ["自己"], "answering": None, "prefer": None}
+        assert request.model_dump() == {"items": [{"target": "持有物：sealed-item", "way": "制作",
+                                                  "from": None, "to": None}],
+                                        "answering": None, "prefer": None}
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
         _advance_to_completion(engine, started.activity_id)
@@ -488,7 +519,8 @@ def test_reachable_undefined_category_pairing_refuses_before_run(
     _write_json(directory / "category-contract.json", contract)
     _save_fixture(path, directory, scenario)
     run_dir = tmp_path / "undefined-pairing"
-    with pytest.raises(IntegrityError, match=f"undefined {action}"):
+    with pytest.raises(IntegrityError, match=("defined purchase pairing" if action == "purchase"
+                                             else f"undefined {action}")):
         LifeEngine.create(path, run_dir, _identity(path, f"undefined-{action}"))
     assert not run_dir.exists()
 

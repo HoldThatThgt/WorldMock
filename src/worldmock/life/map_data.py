@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.life.map_models import (
     MAP_SCHEMA_VERSION, FileReference, LocationConfig, MapDataset, MapDatasetDeclaration, MapDatasetReference,
-    RouteConfig,
+    CategoryAssignment, RouteConfig,
 )
 
 
@@ -23,6 +23,9 @@ def load_map_dataset(root: Path, reference: MapDatasetReference) -> MapDataset:
         if (declaration.dataset_id, declaration.version) != (reference.dataset_id, reference.version):
             _fail("Map dataset identity does not match the scenario pin")
         data = declaration.model_dump(mode="python")
+        assignment = FileReference(path="zhangjiang-map/category-assignment.json",
+                                   sha256=declaration.category_assignment_sha256)
+        data["category_assignment"] = CategoryAssignment.model_validate(_read_file(root, assignment))
         for name in ("locations", "supplies", "routes"):
             payload = _read_file(root, getattr(declaration, f"{name}_file"))
             if set(payload) != {"schema_version", name} or payload["schema_version"] != MAP_SCHEMA_VERSION:
@@ -77,6 +80,7 @@ def validate_map_dataset(dataset: MapDataset) -> None:
         if supply.location_id not in locations or not set(supply.delivery_destination_ids) <= locations:
             _fail("Supply references an unknown map location")
         _validate_dates(supply.quotes, dataset)
+    _validate_assignment_locations(dataset)
     keys = [(item.origin_id, item.destination_id, item.mode) for item in dataset.routes]
     if len(keys) != len(set(keys)):
         _fail("Map route lookup keys must be unique")
@@ -106,7 +110,8 @@ def _validate_dates(declarations, dataset: MapDataset) -> None:
 
 def _validate_sources(dataset: MapDataset) -> None:
     """@brief 地图内每份来源必须已经在发布时间前取得。"""
-    sources = [dataset.source]
+    sources = [dataset.source, dataset.category_assignment.source]
+    sources.extend(item.source for item in dataset.category_assignment.locations)
     for location in dataset.locations:
         sources.extend([location.source, *(item.source for item in location.opening_calendars)])
         if location.brand is not None:
@@ -155,12 +160,17 @@ def select_map(dataset: MapDataset, document) -> tuple[tuple, tuple, tuple]:
     validate_map_dataset(dataset)
     if dataset.timezone != document.timezone:
         _fail("Scenario timezone disagrees with the selected map")
+    if dataset.random_seed != document.random_seed:
+        _fail("Scenario random seed disagrees with the selected map")
     location_ids = {item.location_id for item in document.locations}
     supply_ids = {item.supply_id for item in document.supplies}
     locations = tuple(runtime_location(item) for item in dataset.locations if item.location_id in location_ids)
     supplies = tuple(item for item in dataset.supplies if item.supply_id in supply_ids)
     if len(locations) != len(location_ids) or len(supplies) != len(supply_ids):
         _fail("Scenario references an unknown map location or supply")
+    expected = {item.supply_id for item in dataset.supplies if item.location_id in location_ids}
+    if supply_ids != expected:
+        _fail("Selected selling locations require their complete declared supply sets")
     routes = tuple(item for item in dataset.routes
                    if item.origin_id in location_ids and item.destination_id in location_ids)
     _validate_selected_routes(dataset, location_ids, routes)
@@ -180,6 +190,22 @@ def runtime_location(location: LocationConfig) -> LocationConfig:
     if location.branch_label is None:
         return location
     return location.model_copy(update={"name": location.display_name, "branch_label": None})
+
+
+def _validate_assignment_locations(dataset: MapDataset) -> None:
+    """@brief 每种地点类型包括空集合都须显式声明，每个售卖地点须恰有一份商品声明。"""
+    from worldmock.life.readable import PLACE_TYPES
+
+    assignment = dataset.category_assignment
+    kinds = {item.kind for item in dataset.locations} | set(PLACE_TYPES)
+    if set(assignment.kinds) != kinds:
+        _fail("Category assignment must explicitly declare every location kind")
+    selling = {item.location_id for item in dataset.locations if assignment.kinds[item.kind]}
+    declared = {item.location_id for item in assignment.locations}
+    if selling != declared:
+        _fail("Every selling location requires exactly one assortment declaration")
+    if {item.location_id for item in dataset.supplies} != selling:
+        _fail("Map supply locations disagree with selling location declarations")
 
 
 def _validate_selected_routes(dataset: MapDataset, locations: set[str], routes: tuple) -> None:

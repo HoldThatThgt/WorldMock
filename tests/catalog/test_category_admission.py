@@ -165,7 +165,7 @@ def test_meals_catalog_object_missing(real_catalog, tmp_path):
         entry = json.loads(line)
         if entry["object_id"] != "meal-0005":
             objects.append(line)
-    assert len(objects) == 162
+    assert len(objects) == 171
     catalog_dir = tmp_path / "catalog"
     shutil.copytree(ROOT / "catalog", catalog_dir)
     (catalog_dir / "objects.jsonl").write_text("\n".join(objects) + "\n", encoding="utf-8")

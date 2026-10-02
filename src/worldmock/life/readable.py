@@ -30,7 +30,7 @@ ACTION_PHRASES = {"travel_to": "出发去别处", "work": "工作", "watch": "�
                   "sleep": "睡觉"}
 #: 出行方式 → 方式短语（交互菜单的出行方式、环境层路程中的出行方式、时间线出行行的动词）。
 TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
-#: 浏览目录（browse 目标）→ 中文名；只有 product_catalog 仍可浏览，其余键供渲染旧运行的时间线。
+#: 商品目录与内容品类的公开名称，用于可调用索引、查询和时间线。
 BROWSE_LABELS = {"product_catalog": "商品目录", "foods": "食品目录", "feature_film": "电影",
                  "drama_series": "剧集", "webnovel_excerpt": "网文", "news_feed": "新闻",
                  "joke_feed": "段子", "subtitle_experience": "字幕体验", "game_session": "游戏",

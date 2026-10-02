@@ -446,8 +446,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
         message_arrived=any(message_id not in agent.read_inbox_ids
                             for message_id in agent.inbox) or "message_arrival" in flags,
         delivery_arrived="delivery_arrival" in flags,
-        task_newly_visible=bool(set(agent.visible_task_ids) - agent.known_task_ids)
-        or "task_available" in flags,
+        task_newly_visible="task_available" in flags,
         next_task_due_at=_next_task_due(agent, inputs, facts["task"] - delivered),
         work_review_returned="work_review_result" in flags,
         last_decision_time=agent.last_decision_time,

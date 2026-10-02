@@ -21,9 +21,9 @@ from tests.life.test_named_purchase import (_MILK, _Layer, _Scenario, _Supply, _
                                             _layer_context, _round, _world)
 from worldmock.errors import BusinessRuleError  # noqa: E402
 from worldmock.life.error_contract import (CANDIDATE_KEYS, ERROR_KEYS, HOST_ERROR_CODES, HOST_NAME_CODES,  # noqa: E402
-                                           ITEM_KEYS, Candidate, ErrorItem, ErrorReport, host_defaults, host_report,
+                                           ITEM_KEYS, Candidate, activity_candidate, ErrorItem, ErrorReport, host_defaults, host_report,
                                            items_fix)
-from worldmock.life.guidance import (GENERIC_REASON, Refusal, default_reason, items_refusal,  # noqa: E402
+from worldmock.life.guidance import (Refusal, default_reason, items_refusal,  # noqa: E402
                                      refusal_for_code, rejection_guidance)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND  # noqa: E402
 from worldmock.life.named_purchase import (PurchaseAsk, near_labels, resolve_named_rows,  # noqa: E402
@@ -127,65 +127,68 @@ def test_every_business_rejection_code_raised_in_the_source_has_a_specific_reaso
     codes = literal | {code for values in _DYNAMIC_SITES.values() for code in values}
     # 字面量与登记的变量构造处合计（配送道路的三个码自 5.3 起经 basket._delivery_route 按判定结果抛出）。
     assert len(codes) >= 99 and {"ROUTE_UNREACHABLE", "NEGATIVE_BALANCE", "CATEGORY_NUMBER_INVALID"} <= codes
-    assert sorted(code for code in codes if default_reason(code) == GENERIC_REASON) == []
+    assert all(default_reason(code) for code in codes)
     for code in sorted(codes):
         guidance = rejection_guidance(BusinessRuleError(code))
         assert guidance["reason"] == refusal_for_code(code).reason == default_reason(code), code
         assert guidance["next_step"] is None or guidance["next_step"].strip(), code
         assert guidance["fix"] is None or guidance["fix"].strip(), code
-    assert default_reason("NOT_A_RAISED_CODE") == GENERIC_REASON
+    with pytest.raises(ValueError, match="no declared reason"):
+        default_reason("NOT_A_RAISED_CODE")
 
 
 def test_error_structure_keys_and_candidate_shape_are_closed() -> None:
     """共用结构写出 error_code、reason、fix、items、unmet 五个键；逐项明细与可照填候选的键闭集；候选至多 3 个，序号从
     0 起；没有改法时 fix 写 null，没有明细时 items 写 []。"""
-    candidate = Candidate("活动：洗碗", "interact", "进行", note="约 20 分钟")
-    item = ErrorItem(1, "targets", "家务：收拾碗筷与厨房", "NAME_NOT_FOUND", (candidate,))
+    candidate = activity_candidate("活动：洗碗", "进行", (None, None), "About 20 minutes.")
+    item = ErrorItem(("items", 1, "target"), "家务：收拾碗筷与厨房", "NAME_NOT_FOUND", candidates=(candidate,))
     report = ErrorReport("NAME_NOT_FOUND", "第 2 项「家务：收拾碗筷与厨房」不是本轮列出的对象", None, (item,))
     payload = report.payload()
     assert tuple(payload) == ERROR_KEYS and payload["fix"] is None and payload["unmet"] == []
     [row] = payload["items"]
-    assert tuple(row) == ITEM_KEYS and row["index"] == 1
-    assert tuple(row["candidates"][0])[:5] == CANDIDATE_KEYS and row["candidates"][0]["note"] == "约 20 分钟"
-    assert "note" not in Candidate("活动：洗碗", "interact", "进行").payload()
+    assert tuple(row) == ITEM_KEYS and row["path"][5] == 1
+    assert tuple(row["candidates"][0])[:5] == CANDIDATE_KEYS and row["candidates"][0]["note"] == "About 20 minutes."
+    assert activity_candidate("活动：洗碗", "进行").payload()["note"] is None
     with pytest.raises(ValueError, match="at most three"):
-        ErrorItem(0, "targets", "x", "NAME_NOT_FOUND", (candidate,) * 4)
-    with pytest.raises(ValueError, match="non-negative"):
-        ErrorItem(-1, "targets", "x", "NAME_NOT_FOUND")
-    with pytest.raises(ValueError, match="code and a reason"):
+        ErrorItem(("items", 0, "target"), "x", "NAME_NOT_FOUND", candidates=(candidate,) * 4)
+    with pytest.raises(ValueError, match="require a path"):
+        ErrorItem((), "x", "NAME_NOT_FOUND")
+    with pytest.raises(ValueError, match="code and reason"):
         ErrorReport("NAME_NOT_FOUND", "")
     assert ErrorReport("SUPPLY_NOT_FOUND", "没有", items=()).payload()["items"] == []
 
 
 def test_host_codes_are_the_closed_set_with_a_reason_and_a_fix() -> None:
-    """宿主错误码闭集恰为规格列出的 11 个，每个都有具体的默认原因与改法；闭集之外的码是宿主的程序错误；名称类宿主码是
+    """宿主错误码闭集包含协议与实际服务阶段，每个都有具体原因与改法；闭集之外的码是程序错误；名称类宿主码是
     其中五个。"""
     assert HOST_ERROR_CODES == ("ARGUMENTS_NOT_JSON", "ARGUMENTS_INVALID", "TOOL_CALL_REQUIRED", "TOO_MANY_TARGETS",
                                 "NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED", "ROUTE_FIELDS_INVALID",
-                                "SUPPLY_SOURCE_MISMATCH", "SUBJECT_NOT_KNOWN", "OUTPUT_TRUNCATED")
+                                "SUPPLY_SOURCE_MISMATCH", "SUBJECT_NOT_KNOWN", "OUTPUT_TRUNCATED",
+                                "MODEL_SERVICE_FAILED", "EVIDENCE_WRITE_FAILED", "MEMORY_QUERY_FAILED",
+                                "TOOL_SERVICE_FAILED")
     assert HOST_NAME_CODES == {"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED", "SUPPLY_SOURCE_MISMATCH",
                                "SUBJECT_NOT_KNOWN"}
     for code in HOST_ERROR_CODES:
         reason, fix = host_defaults(code)
-        assert reason and fix and reason != GENERIC_REASON
+        assert reason and fix
         assert host_report(code).payload() == {"error_code": code, "reason": reason, "fix": fix, "items": [],
                                                "unmet": []}
-    assert host_defaults("OUTPUT_TRUNCATED") == ("输出在思考阶段用尽，尚未调用工具", "只调用一个工具")
-    with pytest.raises(ValueError, match="closed set"):
+    assert host_defaults("OUTPUT_TRUNCATED") == ("The model output was truncated.", "Submit one complete tool call.")
+    with pytest.raises(ValueError, match="unknown host error code"):
         host_report("ACTION_REQUEST_INVALID")
 
 
 def test_item_reasons_and_fixes_carry_the_one_based_item_number_only_for_several_items() -> None:
     """逐项原因写「第 N 项「原文」：原因」（请求只有一项时不写序号），改法按码写「第 N 项<改法>」；两码混合时各写一句。"""
-    second = ErrorItem(1, "targets", "咖啡加冰", "SUPPLY_NOT_FOUND")
+    second = ErrorItem(("items", 1, "target"), "咖啡加冰", "SUPPLY_NOT_FOUND")
     refusal = items_refusal([(second, default_reason("SUPPLY_NOT_FOUND"))], 2)
-    assert (refusal.code, refusal.reason) == ("SUPPLY_NOT_FOUND", "第 2 项「咖啡加冰」：没有找到这个名字的商品")
-    assert refusal.fix == "第 2 项改用候选里的完整标签，或者照本轮列出的写法写商品"
-    single = items_refusal([(ErrorItem(0, "targets", "咖啡加冰", "SUPPLY_NOT_FOUND"), "没有找到这个名字的商品")], 1)
-    assert single.reason == "「咖啡加冰」：没有找到这个名字的商品"
-    mixed = (ErrorItem(0, "targets", "a", "SUPPLY_NOT_FOUND"), ErrorItem(1, "targets", "b", "SUPPLY_NAME_AMBIGUOUS"))
-    fixes = {"SUPPLY_NOT_FOUND": "改用候选", "SUPPLY_NAME_AMBIGUOUS": "写明门店"}
-    assert items_fix(mixed, 2, fixes) == "第 1 项改用候选；第 2 项写明门店"
+    assert (refusal.code, refusal.reason) == ("SUPPLY_NOT_FOUND", default_reason("SUPPLY_NOT_FOUND"))
+    assert refusal.fix == refusal_for_code("SUPPLY_NOT_FOUND").fix
+    single = items_refusal([(ErrorItem(("items", 0, "target"), "咖啡加冰", "SUPPLY_NOT_FOUND"), "没有找到这个名字的商品")], 1)
+    assert single.reason == "没有找到这个名字的商品"
+    mixed = (ErrorItem(("items", 0, "target"), "a", "SUPPLY_NOT_FOUND"), ErrorItem(("items", 1, "target"), "b", "SOURCE_NOT_FOUND"))
+    fixes = {"SUPPLY_NOT_FOUND": "改用候选", "SOURCE_NOT_FOUND": "写明门店"}
+    assert items_fix(mixed, 2, fixes) == "改用候选; 写明门店"
     assert items_fix(mixed, 2, {}) is None
 
 
@@ -193,13 +196,12 @@ def test_a_mixed_item_rejection_takes_the_first_items_code_and_next_step() -> No
     """逐项拒绝合并成一次时码取第一项的码（与宿主合并纠错同一规则），下一步取该码的默认做法；原因逐项写，改法按码首次
     出现的先后各写一句；经公开 guidance 原样给出，逐项明细各带自己的码。"""
     label = f"好德出售的{_MILK}"
-    entries = [(ErrorItem(0, "targets", "咖啡加冰", "SUPPLY_NOT_FOUND"), default_reason("SUPPLY_NOT_FOUND")),
-               (ErrorItem(1, "targets", label, "FULFILLMENT_NOT_SUPPORTED"), default_reason("FULFILLMENT_NOT_SUPPORTED"))]
+    entries = [(ErrorItem(("items", 0, "target"), "咖啡加冰", "SUPPLY_NOT_FOUND"), default_reason("SUPPLY_NOT_FOUND")),
+               (ErrorItem(("items", 1, "target"), label, "FULFILLMENT_NOT_SUPPORTED"), default_reason("FULFILLMENT_NOT_SUPPORTED"))]
     refusal = items_refusal(entries, 2)
-    assert (refusal.code, refusal.next_step) == ("SUPPLY_NOT_FOUND", "从候选或本轮列出的商品里选")
-    assert refusal.reason == f"第 1 项「咖啡加冰」：没有找到这个名字的商品；第 2 项「{label}」：这件商品不能用这种方式买"
-    assert refusal.fix == ("第 1 项改用候选里的完整标签，或者照本轮列出的写法写商品；"
-                           "第 2 项改用这件商品支持的取得方式，或者方式写「购买」")
+    assert (refusal.code, refusal.next_step) == ("SUPPLY_NOT_FOUND", refusal_for_code("SUPPLY_NOT_FOUND").next_step)
+    assert refusal.reason == "; ".join(reason for _, reason in entries)
+    assert refusal.fix == "; ".join(refusal_for_code(item.error_code).fix for item, _ in entries)
     guidance = rejection_guidance(refusal.error())
     assert (guidance["reason"], guidance["next_step"], guidance["fix"]) == (refusal.reason, refusal.next_step,
                                                                           refusal.fix)
@@ -209,8 +211,7 @@ def test_a_mixed_item_rejection_takes_the_first_items_code_and_next_step() -> No
 def test_guidance_passes_fix_items_resolved_and_notes_from_the_refusal() -> None:
     """引导性拒绝写明的改法、逐项明细、名称归一与说明原样进入公开的 guidance；没有写明改法时取该码的默认改法；世界条件
     造成的拒绝没有改法，fix 为 null。"""
-    item = ErrorItem(0, "targets", "咖啡", "SUPPLY_NOT_FOUND", (Candidate("好德出售的咖啡", "obtain", "远程下单",
-                                                                           None, "自己"),))
+    item = ErrorItem(("items", 0, "target"), "咖啡", "SUPPLY_NOT_FOUND", candidates=(activity_candidate("好德出售的咖啡", "远程下单", (None, None), None),))
     error = Refusal("SUPPLY_NOT_FOUND", "没有", fix="改用候选", items=(item,), suggested={
         "next_step": "从候选里选", "resolved": [{"written": "沈昊", "as": "联系人：沈昊"}], "notes": ["from 可以写 null"]}
                     ).error()
@@ -218,9 +219,8 @@ def test_guidance_passes_fix_items_resolved_and_notes_from_the_refusal() -> None
     assert guidance == {"reason": "没有", "next_step": "从候选里选", "fix": "改用候选", "items": [item.payload()],
                         "resolved": [{"written": "沈昊", "as": "联系人：沈昊"}], "notes": ["from 可以写 null"]}
     assert rejection_guidance(BusinessRuleError("TASK_NOT_FOUND"))["fix"] == (
-        "照工具层、待办层或记忆层中的写法填写任务、目标或活动的名称")
-    assert rejection_guidance(BusinessRuleError("MERCHANT_CLOSED")) == {"reason": "店没开门", "next_step": None,
-                                                                        "fix": None}
+        refusal_for_code("TASK_NOT_FOUND").fix)
+    assert rejection_guidance(BusinessRuleError("MERCHANT_CLOSED")) == {"reason": default_reason("MERCHANT_CLOSED"), "next_step": None, "fix": None}
 
 
 def _two_item_purchase(targets: list[str]):
@@ -240,13 +240,13 @@ def test_second_named_item_failing_is_reported_at_index_one_and_the_group_stays_
     _, result = _round(engine, "second-fails", _two_item_purchase([label, unknown]))
     assert (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     [item] = result.data["items"]
-    assert (item["index"], item["field"], item["written"], item["error_code"]) == (1, "targets", unknown,
+    assert (item["path"][5], item["path"][-1], item["written"], item["error_code"]) == (1, "target", unknown,
                                                                                     "SUPPLY_NOT_FOUND")
-    assert [row["target"] for row in item["candidates"]] == near_labels(_layer_context(engine), unknown, "delivery",
+    assert [row["arguments"]["items"][0]["target"] for row in item["candidates"]] == near_labels(_layer_context(engine), unknown, "delivery",
                                                                          "home")
-    assert all(tuple(row) == ("target", "action", "way", "from", "to") for row in item["candidates"])
-    assert result.data["reason"] == f"第 2 项「{unknown}」：没有找到这个名字的商品"
-    assert result.data["fix"] == "第 2 项改用候选里的完整标签，或者照本轮列出的写法写商品"
+    assert all(tuple(row) == ("tool", "arguments", "note") for row in item["candidates"])
+    assert result.data["reason"] == default_reason("SUPPLY_NOT_FOUND")
+    assert result.data["fix"] == refusal_for_code("SUPPLY_NOT_FOUND").fix
     assert result.message == result.data["reason"] and "Action rejected" not in result.message
     assert _world(engine) == before and "orders" not in result.data
     [rejected] = [event for event in engine.store.read_agent_events("action_rejected", 1)
@@ -264,27 +264,28 @@ def test_every_failing_named_item_is_reported_in_one_rejection(engine_factory) -
     names = [f"{_MILK}加冰", "冰镇菠萝啤"]
     _, result = _round(engine, "both-fail", _two_item_purchase(names))
     assert (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    assert [(item["index"], item["written"]) for item in result.data["items"]] == [(0, names[0]), (1, names[1])]
-    assert result.data["reason"] == "；".join(f"第 {index + 1} 项「{name}」：没有找到这个名字的商品"
-                                              for index, name in enumerate(names))
-    assert result.data["fix"] == "第 1、2 项改用候选里的完整标签，或者照本轮列出的写法写商品"
+    assert [(item["path"][5], item["written"]) for item in result.data["items"]] == [(0, names[0]), (1, names[1])]
+    assert result.data["reason"] == "; ".join(default_reason("SUPPLY_NOT_FOUND") for _ in names)
+    assert result.data["fix"] == refusal_for_code("SUPPLY_NOT_FOUND").fix
 
 
-def test_named_item_candidates_use_a_way_the_supply_supports() -> None:
+def test_named_item_candidates_use_a_way_the_supply_supports(monkeypatch) -> None:
     """按标签找到的供给不支持所写的方式（分段匹配 M2，FULFILLMENT_NOT_SUPPORTED）：原因写明它只能用哪种方式（「只能到店」），
     该项候选是同一标签换成它支持的方式，from 为 null、to 照写，可以照填；明细的参数名是 ways（一日运行保真规格 3.2（c））。"""
+    from worldmock.life import named_purchase
+    monkeypatch.setattr(named_purchase, "_request_candidate", lambda context, row, spec:
+                        activity_candidate(spec["target"], spec["way"], (spec["from"], row["to"])))
     layer = _Layer(_Scenario([_Supply("s1", "p1", fulfillment_modes=("pickup",))], {"s1": "好德"}, {"p1": _MILK}))
     label = f"好德出售的{_MILK}"
     row = {"kind": NAMED_SUPPLY_KIND, "object": label, "selected_action": {"label": "远程下单"}, "to": "人物：李凡"}
     with pytest.raises(BusinessRuleError, match="FULFILLMENT_NOT_SUPPORTED") as refused:
         resolve_named_rows(layer, [row], lambda item: resolve_named_supply(
-            layer, PurchaseAsk(item["object"], "远程下单", None, "home")))
+            layer, PurchaseAsk(item["object"], "远程下单", None, "home", prefer="最快拿到")))
     [item] = refused.value.suggested["items"]
-    assert (item["field"], item["written"]) == ("ways", "远程下单")
-    assert item["candidates"] == [{"target": label, "action": "obtain", "way": "到店", "from": None,
-                                   "to": "人物：李凡"}]
-    assert refused.value.public_reason == f"「远程下单」：{label}只能到店"
-    assert refused.value.suggested["fix"] == "改用这件商品支持的取得方式，或者方式写「购买」"
+    assert (item["path"][-1], item["written"]) == ("way", "远程下单")
+    assert item["candidates"] == [activity_candidate(label, "到店", (None, "人物：李凡")).payload()]
+    assert refused.value.public_reason == f"The only supported way for {label} is 到店."
+    assert refused.value.suggested["fix"] == refusal_for_code("FULFILLMENT_NOT_SUPPORTED").fix
 
 
 def test_accepted_results_pass_resolved_and_notes_into_public_details(engine_factory) -> None:
@@ -296,7 +297,7 @@ def test_accepted_results_pass_resolved_and_notes_into_public_details(engine_fac
                 "message": "Message delivered", "data": {"resolved": resolved, "notes": ["from 可以写 null"]}}
     assert public_result(accepted, engine.scenario)["details"] == {"resolved": resolved,
                                                                     "notes": ["from 可以写 null"]}
-    item = {"index": 0, "field": "targets", "written": "咖啡", "error_code": "SUPPLY_NOT_FOUND", "candidates": []}
+    item = ErrorItem(("items", 0, "target"), "咖啡", "SUPPLY_NOT_FOUND").payload()
     rejected = {"occurred_at": engine.state.current_time, "status": "rejected", "error_code": "SUPPLY_NOT_FOUND",
                 "message": "没有", "data": {"reason": "没有", "next_step": None, "fix": "改用候选", "items": [item],
                                             "unmet": ["x"], "suggested": {"candidates": ["内部"]}}}

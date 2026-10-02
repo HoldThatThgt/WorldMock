@@ -9,17 +9,19 @@ from typing import Any
 from agentsociety2.env import EnvBase
 from agentsociety2.society import SocietyCheckpointRequest
 
-from worldmock.errors import ProtocolError
+from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life.engine import LifeEngine
+from worldmock.life.guidance import rejection_guidance
 from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
+from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
 #: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理八个工具；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/dev/SPEC-time-and-energy.md 第四章）。
 _STABLE_TOOL_SURFACE = frozenset({
     "start_activity", "recall_task_summary", "report_status", "pause_activity",
-    "conclude_activity", "revise_day_plan", "submit_work", "send_message"})
+    "conclude_activity", "revise_day_plan", "submit_work", "send_message", "query_world"})
 
 
 class LifeEnv(EnvBase):
@@ -100,11 +102,12 @@ class LifeEnv(EnvBase):
         """
         from custom.agents.life_agent import life_action_tool_names
 
-        drift = frozenset(REQUEST_MODELS) ^ _STABLE_TOOL_SURFACE
+        registered = frozenset(REQUEST_MODELS) | {"query_world"}
+        drift = registered ^ _STABLE_TOOL_SURFACE
         if drift:
             raise ProtocolError(
                 f"LifeEnv registered tool surface disagrees with the stable tool surface: {sorted(drift)}")
-        if life_action_tool_names() != frozenset(REQUEST_MODELS):
+        if life_action_tool_names() != registered:
             raise ProtocolError(
                 "LifeEnv tool surface disagrees with the LifeAgent action tool set")
 
@@ -125,6 +128,30 @@ class LifeEnv(EnvBase):
         receipt = engine.submit_action(call)
         await engine.prepare_pending_work_review(call.action_id)
         return receipt
+
+    async def read_query(self, context: Any, tool: str, request: Any) -> dict:
+        """@brief 对已冻结观察即时只读派发，不产生世界动作、进度事件或人物记忆。"""
+        engine = self._require_engine()
+        engine._validate_context(context)
+        engine._require_round(context.round_id)
+        expected = QueryWorldRequest if tool == "query_world" else REQUEST_MODELS.get(tool)
+        if tool not in {"query_world", "recall_task_summary"} or type(request) is not expected:
+            raise ProtocolError("Read query tool and request type do not match")
+        events = engine.store.read_agent_events("observation", context.agent_id)
+        rows = [event for event in events if event.decision_id == context.decision_id
+                and event.occurred_at == int(context.observed_at.timestamp())]
+        if len(rows) != 1:
+            raise ProtocolError("Read query requires one frozen decision observation")
+        observed = rows[0].data
+        if tool == "query_world":
+            error = validate_world_query(observed, request)
+            return error.payload() if error else query_world(observed, request)
+        try:
+            return engine.read_task_summary(context.agent_id, request, observed)
+        except BusinessRuleError as error:
+            guidance = rejection_guidance(error)
+            return {"error_code": str(error), "reason": guidance["reason"], "fix": guidance.get("fix"),
+                    "items": guidance.get("items", []), "unmet": list(getattr(error, "unmet", []) or [])}
 
     async def commit_decision_round(self, round_id: str):
         """@brief 原子结算人物批次，随后送达待发的联系人 model 回复（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""

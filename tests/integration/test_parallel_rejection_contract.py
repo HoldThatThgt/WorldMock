@@ -19,7 +19,8 @@ from tests.integration.test_life_agent_protocol import _WAIT_CHOICE, _offer, _vi
 from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_request,
                                  start_arguments)  # noqa: F401
 from worldmock.life import prompt_capacity
-from worldmock.life.interaction_menu import InteractionMenu, resolve_selection
+from worldmock.life.interaction_menu import InteractionMenu
+from tests.life.conftest import select_start, start_arguments
 
 _MILK = "便利店出售的牛奶"
 #: 本轮私有绑定：游戏的游玩与观看、内容的接着看、供给的远程下单都在只含等待与睡觉的菜单之外。
@@ -37,7 +38,7 @@ _DENIED = "interaction menu denies start_activity"
 def _menu_error(targets: list[str], actions: list[str], ways: list[str]) -> str:
     """按本轮私有绑定解析所选各项的内部动作，再由冻结的地点菜单判定整组。"""
     request = start_request(targets=targets, actions=actions, ways=ways)
-    selected = resolve_selection(_BINDINGS, request.targets, request.actions, request.ways)
+    selected = select_start(_BINDINGS, request)
     assert selected is not None
     return menu_action_error(_MENU, "start_activity",
                              [item["selected_action"]["canonical_action"] for item in selected])
@@ -100,7 +101,7 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     assert (result.status.value, result.error_code) == ("rejected", "RESOURCE_CONFLICT")
     assert _world(engine) == before
     reason, next_step = result.data["reason"], result.data["next_step"]
-    assert next_step == "一次只选其中一件"
+    assert next_step == "Choose only one of the conflicting activities."
     assert all(row["object"].split("：", 1)[1] in reason for row in (office, game))
     for text in (reason, next_step):
         assert office["object_id"] not in text and game["object_id"] not in text and "agent:" not in text

@@ -380,9 +380,16 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert public["work_review"] == visible
     assert public["error_code"] == "WORK_REQUIRES_REWORK"
     # 返工拒绝同样带一句原因与下一步（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
-    assert public["details"] == {"reason": "提交的成果还需要返工", "next_step": "按评审意见修改后再提交", "fix": None}
-    assert public["message"] == "提交的成果还需要返工"
-    assert (result.data["reason"], result.data["next_step"]) == ("提交的成果还需要返工", "按评审意见修改后再提交")
+    reason = "The submitted work needs revision before acceptance."
+    next_step = "Revise the work according to the review before resubmission."
+    assert public["details"] == {"reason": reason, "next_step": next_step, "fix": None,
+                                 "items": result.data["items"]}
+    item, = public["details"]["items"]
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", "deliverable"]
+    assert item["written"] == _paraphrased_submission().deliverable.model_dump(mode="json")
+    assert item["why"] == reason
+    assert public["message"] == reason
+    assert (result.data["reason"], result.data["next_step"]) == (reason, next_step)
     assert summaries[-1]["message"] in messages
     assert "Supported by the transcript." in messages
     assert "source_excerpt" in messages and "Hi , I'm David" in messages
@@ -446,8 +453,8 @@ def _work_moment(engine, now: int, worked: int = 0, effective: float = 0.0):
 
 
 @pytest.mark.parametrize(("limit", "reason"), [
-    pytest.param("deadline", "离截止不到一分钟，来不及开始", id="deadline"),
-    pytest.param("contract", "这项工作的合同工时只剩不到一分钟，来不及开始", id="contract"),
+    pytest.param("deadline", "Less than one minute remains before the deadline; work cannot start.", id="deadline"),
+    pytest.param("contract", "Less than one minute remains in the contract; work cannot start.", id="contract"),
 ])
 def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_and_next_step(
     engine_factory, limit: str, reason: str,
@@ -490,7 +497,12 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
     assert not active_activities(engine.state, 1)
     public = progress_calls(engine.observe(context(engine, f"late-work-{limit}-feedback")))[-1]["result"]
     assert public["error_code"] == "ACTIVITY_DURATION_INVALID"
-    assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分", "fix": None}
+    assert public["details"] == {"reason": reason, "next_step": "Submit the completed work.", "fix": None,
+                                 "items": result.data["items"]}
+    item, = public["details"]["items"]
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "target"]
+    assert item["written"] == f"工作：{task.title}" and item["why"] == reason
+    assert item["expected"] == reason
     assert not any(event.event_type == "run_failed"
                    for event in engine.store.read_events(engine.store.last_event_seq))
 

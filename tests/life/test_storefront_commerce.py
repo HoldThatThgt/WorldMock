@@ -50,7 +50,15 @@ def replace_supply(semantics, supply_id, **fields):
     """在指定供给上设置测试条件，保持其他门店供给原样。"""
     supplies = tuple(item.model_copy(update=fields, deep=True) if item.supply_id == supply_id else item
                      for item in semantics.scenario.supplies)
-    return replace(semantics, scenario=semantics.scenario.model_copy(update={'supplies': supplies}, deep=True))
+    product_id = next(item.product_id for item in supplies if item.supply_id == supply_id)
+    products = semantics.scenario.products
+    if 'quotes' in fields:
+        amounts = [item.price_fen for item in fields['quotes']]
+        products = tuple(item.model_copy(update={
+            'purchase_price_fen_min': min(100, *amounts), 'purchase_price_fen_max': max(1000, *amounts)})
+            if item.product_id == product_id else item for item in products)
+    return replace(semantics, scenario=semantics.scenario.model_copy(
+        update={'supplies': supplies, 'products': products}, deep=True))
 
 
 def replace_location(semantics, location_id, **fields):

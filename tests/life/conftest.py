@@ -252,30 +252,32 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
 
 
 def routing_defaults(actions: list[str]) -> dict:
-    """@brief 缺省的来源、去向、answering 与 prefer（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」，
-    docs/dev/SPEC-dayrun-fidelity.md 3.5）：obtain 送给自己，consume 从自己手边给自己用（给予要显式写人物），其余动词都为
-    null，不回应消息，不写偏好（null 按最快）。"""
-    return {"from_": ["自己" if verb == "consume" else None for verb in actions],
-            "to": ["自己" if verb in {"obtain", "consume"} else None for verb in actions], "answering": None,
-            "prefer": None}
+    """@brief 测试帮助函数只构造现行本人 null 路由。"""
+    return {"from_": [None for _ in actions], "to": [None for _ in actions], "answering": None,
+            "prefer": "最快拿到" if "obtain" in actions else None}
 
 
 def start_arguments(targets, actions, ways, **fields) -> dict:
-    """@brief start_activity 的模型参数（JSON 形状，来源的字段名是 from），未写的来源、去向、answering 与 prefer 取缺省。"""
-    defaults = routing_defaults(list(actions))
-    return {"targets": list(targets), "actions": list(actions), "ways": list(ways), "from": defaults["from_"],
-            "to": defaults["to"], "answering": None, "prefer": None, **fields}
+    """@brief 测试输入数组只存在于帮助函数，生产请求严格使用 items。"""
+    sources = fields.pop("from", fields.pop("from_", [None for _ in targets]))
+    destinations = fields.pop("to", [None for _ in targets])
+    from worldmock.life.name_resolution import way_options
+    purchase = any(way_options(way) & {"到店", "远程下单", "购买"} for way in ways)
+    return {"items": [{"target": target, "way": way, "from": source, "to": destination}
+                      for target, way, source, destination in zip(targets, ways, sources, destinations)],
+            "answering": None, "prefer": "最快拿到" if purchase else None, **fields}
 
 
 def start_request(**fields):
-    """@brief 按对象、动词与方式三个数组构造启动请求，未写的来源、去向、answering 与 prefer 取 routing_defaults（来源可按
-    字段名 from_ 或 JSON 名 from 给出）。"""
+    """@brief 既有测试帮助函数名称保留，输出只有现行逐项请求。"""
     from worldmock.life.models import StartActivityRequest
 
-    defaults = routing_defaults(list(fields.get("actions", [])))
-    if "from" in fields:
-        del defaults["from_"]
-    return StartActivityRequest(**{**defaults, **fields})
+    if "items" in fields:
+        return StartActivityRequest.model_validate(fields)
+    targets = fields.pop("targets")
+    actions = fields.pop("actions")
+    ways = fields.pop("ways")
+    return StartActivityRequest.model_validate(start_arguments(targets, actions, ways, **fields))
 
 
 def start_activity(way: str, *targets: str, **fields):
@@ -379,3 +381,18 @@ def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:
 def last_result(observed: dict) -> dict:
     """观察进度层最后一次世界请求（tool_call）的公开结果。"""
     return progress_calls(observed)[-1]["result"]
+
+
+def select_start(bindings, arguments):
+    """当前严格请求和统一名称解析的测试入口。"""
+    from worldmock.life.models import StartActivityRequest
+    from worldmock.life.name_resolution import name_book, resolve_start
+
+    if not isinstance(bindings, list):
+        return None
+    try:
+        request = arguments if isinstance(arguments, StartActivityRequest) else StartActivityRequest.model_validate(arguments)
+    except ValueError:
+        return None
+    outcome = resolve_start(name_book({"interaction_bindings": bindings}), request)
+    return None if outcome.failures else list(outcome.rows)

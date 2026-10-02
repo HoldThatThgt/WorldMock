@@ -21,6 +21,7 @@ from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life import sessions  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import ActivityStatus, SessionKind
+from worldmock.life.opening_hours import next_opening_change, opening_status
 
 
 def _action(engine, name: str, tool: str, request):
@@ -82,7 +83,11 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         stage_day_plan(engine)
         _, trip = _start(engine, "travel", "location", RESTAURANT, "步行")
         _run_out(engine, trip.activity_id)
-        opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+        location = next(item for item in engine.scenario.locations if item.location_id == RESTAURANT)
+        opening = engine.state.current_time
+        if opening_status(location, opening, engine.scenario.timezone) == "closed":
+            opening = next_opening_change(location, opening, engine.scenario.timezone)
+        assert opening is not None
         for step in range(16):
             if engine.state.current_time >= opening:
                 break

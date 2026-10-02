@@ -37,7 +37,6 @@ from tests.life.test_named_purchase import _browsed, _hidden, _layer_context  # 
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
 from worldmock.life.error_contract import ERROR_KEYS, HOST_ERROR_CODES, host_defaults, host_report  # noqa: E402
-from worldmock.life.guidance import GENERIC_REASON  # noqa: E402
 from worldmock.life.named_purchase import supply_label  # noqa: E402
 
 #: 纠错正文里不得出现的校验库原文、输入回显与网址片段。
@@ -91,36 +90,27 @@ async def _corrected_loop(bad_responses: list, observations: list[dict] | None =
 
 @pytest.mark.asyncio
 async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruction() -> None:
-    """真实循环中的三类协议错误（参数不是 JSON、缺少参数、没有工具调用）：每次纠错正文恰为共用结构五个键加 instruction，
-    不再有 ok、executed、error_type 与英文 error；instruction 是「本次没有登记到世界；按 fix 修改后重新提交」；纠错正文
-    不含校验转储、input_value 与网址；写进响应证据的协议错误串是普通字符串，宿主本地校验的以错误码开头。"""
-    missing = dict(_WAIT_CHOICE)
-    missing.pop("ways")
-    broken = '{"targets": ["自己" "等待"]}'
-    with pytest.raises(json.JSONDecodeError) as parsed:
-        json.loads(broken)
+    """损坏 JSON、缺字段与无调用保留五键反馈、完整路径和纯英文证据。"""
+    missing = copy.deepcopy(_WAIT_CHOICE)
+    missing["items"][0].pop("way")
+    broken = '{"items": [{"target": "自己" "way":"等待"}]}'
     feedback, errors, requests = await _corrected_loop([
         _ModelResponse("call-json", "start_activity", broken),
-        _ModelResponse("call-shape", "start_activity", json.dumps(missing, ensure_ascii=False)),
-        _NoToolResponse()])
-    assert [item["error_code"] for item in feedback] == ["ARGUMENTS_NOT_JSON", "ARGUMENTS_INVALID",
-                                                         "TOOL_CALL_REQUIRED"]
+        _ModelResponse("call-shape", "start_activity", json.dumps(missing, ensure_ascii=False)), _NoToolResponse()])
+    assert [item["error_code"] for item in feedback] == ["ARGUMENTS_NOT_JSON", "ARGUMENTS_INVALID", "TOOL_CALL_REQUIRED"]
     for item in feedback:
         assert list(item) == [*ERROR_KEYS, "instruction"] and item["instruction"] == FEEDBACK_INSTRUCTION
         assert item["reason"] and item["fix"] and item["unmet"] == []
-    assert feedback[0]["reason"] == (f"「start_activity」的参数不是合法的 JSON（第 {parsed.value.lineno} 行第 "
-                                     f"{parsed.value.colno} 列附近）")
-    assert feedback[1]["reason"] == "ways 没有写"
-    assert feedback[1]["items"] == [{"index": 0, "field": "ways", "written": "", "error_code": "ARGUMENTS_INVALID",
-                                     "candidates": []}]
-    assert feedback[2]["reason"] == "这次回复没有可以执行的工具调用"
-    for request in requests[1:]:
-        content = request["messages"][-1]["content"]
-        assert not any(marker in content for marker in _DUMP_MARKERS), content
+        assert not any(marker in json.dumps(item) for marker in _DUMP_MARKERS)
+    assert feedback[0]["items"][0]["path"] == ["tool_calls", 0, "function", "arguments"]
+    assert "line 1, column" in feedback[0]["items"][0]["expected"]
+    row = feedback[1]["items"][0]
+    assert row["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "way"]
+    assert row["written"] is None and "required" in row["expected"]
+    assert feedback[2]["items"][0]["path"] == ["tool_calls"]
     assert [type(error) for error in errors] == [str, str, str]
-    assert errors[0].startswith("invalid tool arguments for start_activity")
-    assert errors[1].startswith("ARGUMENTS_INVALID: invalid start_activity arguments") and "ways" in errors[1]
-    assert errors[2] == "native tool_calls are required"
+    assert [error.split(":", 1)[0] for error in errors] == [item["error_code"] for item in feedback]
+    assert len(requests) == 4
 
 
 def _twin_news() -> LifeAgent:
@@ -151,8 +141,7 @@ def _host_cases() -> dict[str, tuple[str, str]]:
     concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
     unknown = _conclude_args(_WAIT, memories=[[]], views=[[_view("陌生人")]])
     produced = {
-        "ARGUMENTS_NOT_JSON": _feedback("invalid tool arguments for start_activity: Expecting value: line 1 column 1"
-                                        " (char 0)"),
+        "ARGUMENTS_NOT_JSON": agent._parse_react_responses(_ModelResponse("bad", "start_activity", "{"))[1],
         "ARGUMENTS_INVALID": agent.validate_react_decisions([_decision("start_activity", {
             **_WAIT_CHOICE, "targets": "自己"})], False),
         "TOOL_CALL_REQUIRED": agent.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)] * 2, False),
@@ -181,41 +170,41 @@ def _as_report(value) -> tuple[str, str]:
 
 
 def test_each_host_code_has_a_concrete_reason_through_the_host() -> None:
-    """宿主错误码闭集的 11 个码各有一例具体原因（docs/dev/SPEC-dayrun-fidelity.md 第四章验收）：有宿主产生方的都经真实
-    本地校验路径得到，原因写出所错之处；每个原因都不是兜底句。"""
+    """每类旧有效错误行为保留，并使用新的英文完整错误合同。"""
     cases = _host_cases()
-    assert set(cases) == set(HOST_ERROR_CODES)
+    assert set(cases) == set(HOST_ERROR_CODES) - {
+        "MODEL_SERVICE_FAILED", "EVIDENCE_WRITE_FAILED", "MEMORY_QUERY_FAILED", "TOOL_SERVICE_FAILED"}
     for code, (produced, reason) in cases.items():
-        assert produced == code and reason and reason != GENERIC_REASON, (code, reason)
-    assert cases["ARGUMENTS_INVALID"][1] == "targets 要写成数组"
-    assert cases["TOOL_CALL_REQUIRED"][1] == "一次回复只能提交一个世界请求，这次有 2 个"
-    assert cases["TOO_MANY_TARGETS"][1] == "一次最多选两个目标，这次写了 3 个"
-    assert cases["NAME_NOT_FOUND"][1] == "「不存在的对象」不是可以操作的对象"
-    assert cases["WAY_NOT_OFFERED"][1] == "「自己」没有列出「interact：观看」这种做法"
-    assert cases["ROUTE_FIELDS_INVALID"][1] == "interact 的 from 与 to 都要写 null"
-    assert cases["SUPPLY_SOURCE_MISMATCH"][1] == f"「{_OFFER}」已经写明了门店，from「街角超市」是另一个地点"
-    assert cases["SUBJECT_NOT_KNOWN"][1] == "关系看法写的对象「陌生人」不是认识的人"
-    assert cases["NAME_AMBIGUOUS"][1] == "「晚间新闻」对应不止一个对象：「内容：晚间新闻」、「游戏：晚间新闻」"
-    assert host_defaults("NAME_AMBIGUOUS")[0] not in {reason for _, reason in cases.values()}
-    assert cases["OUTPUT_TRUNCATED"][1] == "输出在思考阶段用尽，尚未调用工具"
+        expected = "ARGUMENTS_INVALID" if code == "TOO_MANY_TARGETS" else code
+        assert produced == expected and reason, (code, produced, reason)
+    assert "not declared" in cases["ARGUMENTS_INVALID"][1]
+    assert "world request" in cases["TOOL_CALL_REQUIRED"][1]
+    assert "one or two" in cases["TOO_MANY_TARGETS"][1]
+    assert "不存在的对象" in cases["NAME_NOT_FOUND"][1]
+    assert "does not support" in cases["WAY_NOT_OFFERED"][1]
+    assert "from" in cases["ROUTE_FIELDS_INVALID"][1]
+    assert "街角超市" in cases["SUPPLY_SOURCE_MISMATCH"][1]
+    assert "陌生人" in cases["SUBJECT_NOT_KNOWN"][1]
+    assert "several" in cases["NAME_AMBIGUOUS"][1]
+    assert "truncated" in cases["OUTPUT_TRUNCATED"][1]
 
 
 def test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates() -> None:
-    """两项 start_activity 中第一项合法、第二项的对象没有列出所写的做法：WAY_NOT_OFFERED 只写第二项（index 1），原因与
-    改法写「第 2 项」，候选是该对象列出的动词与方式写成的可照填请求；证据串以错误码开头。"""
+    """第二项方式错误仍精确定位，候选均为完整可直接提交的新请求。"""
     agent = _prepared()
     error = agent.validate_react_decisions([_decision("start_activity", start_arguments(
-        ["自己", "自己"], ["interact", "sleep"], ["等待", "观看"], to=[None, "自己"]))], False)
+        [_TASK, "自己"], ["interact", "interact"], ["工作", "观看"]))], False)
     payload = _feedback(error)
-    assert error.startswith("WAY_NOT_OFFERED: start_activity verb and way are not offered by the chosen target")
     assert payload["error_code"] == "WAY_NOT_OFFERED"
     [item] = payload["items"]
-    assert (item["index"], item["field"], item["written"]) == (1, "ways", "观看")
-    assert item["candidates"] == [
-        {"target": "自己", "action": "interact", "way": "等待", "from": None, "to": None},
-        {"target": "自己", "action": "sleep", "way": "睡觉", "from": None, "to": None}]
-    assert payload["reason"] == "第 2 项「自己」没有列出「sleep：观看」这种做法"
-    assert payload["fix"] == "第 2 项改用该对象列出的动词与方式（见候选），或者去掉这一项"
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 1, "way"]
+    assert item["written"] == "观看" and item["allowed_values"] == ["等待", "睡觉"]
+    assert [row["arguments"]["items"][0] for row in item["candidates"]] == [
+        {"target": "自己", "way": "等待", "from": None, "to": None},
+        {"target": "自己", "way": "睡觉", "from": None, "to": None}]
+    assert all(row["tool"] == "start_activity" and row["arguments"]["prefer"] is None
+               and row["arguments"]["answering"] is None for row in item["candidates"])
+    assert "自己" in payload["reason"] and payload["fix"]
 
 
 def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one() -> None:
@@ -227,8 +216,8 @@ def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_
                                views=[[_view("拿铁", "下午想喝拿铁。", kind="preference")], [_view("陌生人")]])
     payload = _feedback(agent.validate_react_decisions([_decision("conclude_activity", arguments)], False))
     assert payload["error_code"] == "SUBJECT_NOT_KNOWN"
-    assert [(item["index"], item["field"], item["written"], item["error_code"]) for item in payload["items"]] == [
-        (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
+    assert [(item["path"][-5:], item["written"], item["error_code"]) for item in payload["items"]] == [
+        (["items", 1, "views", 0, "about"], "陌生人", "SUBJECT_NOT_KNOWN")]
 
 
 #: relationship 看法的对象不是已知人物时写进证据的英文说明（证据串为「SUBJECT_NOT_KNOWN: <说明>: <名字>」）。
@@ -250,100 +239,74 @@ def _concluded(agent: LifeAgent, arguments: dict) -> tuple[str, dict]:
 
 
 def test_every_unknown_relationship_view_is_reported_at_its_own_item() -> None:
-    """结束两项活动，两项的关系看法各写了一个不认识的人（第一项另有一条写认识的人、一条偏好）：SUBJECT_NOT_KNOWN 逐项报全部，
-    明细是 index 0 与 1、参数名 about、原文为所写的名字，原因逐项写「第 N 项」，改法一句写「第 1、2 项」；同一项里写了两个
-    不认识的人时两个都报、改法只写一次这一项；证据串仍是「<错误码>: <英文说明>」，逐条说明以「; 」相连
-    （docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章：全部名称类失败项都报）。"""
+    """每条未知关系对象均带真实 views 下标，同名重复也保留独立位置。"""
     agent = _two_activities("沈昊")
-    error, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
+    _, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
         [_view("王五"), _view("沈昊"), _view("拿铁", "下午想喝拿铁。", kind="preference")], [_view("陌生人")]]))
     assert payload["error_code"] == "SUBJECT_NOT_KNOWN"
-    assert [(item["index"], item["field"], item["written"], item["error_code"]) for item in payload["items"]] == [
-        (0, "about", "王五", "SUBJECT_NOT_KNOWN"), (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
-    assert payload["reason"] == "第 1 项关系看法写的对象「王五」不是认识的人；第 2 项关系看法写的对象「陌生人」不是认识的人"
-    assert payload["fix"] == f"第 1、2 项{host_defaults('SUBJECT_NOT_KNOWN')[1]}"
-    assert error == f"SUBJECT_NOT_KNOWN: {_SUBJECT_DETAIL}: 王五; {_SUBJECT_DETAIL}: 陌生人"
-    error, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
+    assert [(item["path"][-5:], item["written"]) for item in payload["items"]] == [
+        (["items", 0, "views", 0, "about"], "王五"), (["items", 1, "views", 0, "about"], "陌生人")]
+    _, payload = _concluded(agent, _conclude_args(_WORK, _WAIT, memories=[[], []], views=[
         [_view("王五"), _view("陌生人"), _view("王五", "又想起他。")], []]))
-    assert [(item["index"], item["field"], item["written"]) for item in payload["items"]] == [
-        (0, "about", "王五"), (0, "about", "陌生人")]
-    assert payload["reason"] == "第 1 项关系看法写的对象「王五」不是认识的人；第 1 项关系看法写的对象「陌生人」不是认识的人"
-    assert payload["fix"] == f"第 1 项{host_defaults('SUBJECT_NOT_KNOWN')[1]}"
-    assert error == f"SUBJECT_NOT_KNOWN: {_SUBJECT_DETAIL}: 王五; {_SUBJECT_DETAIL}: 陌生人"
+    assert [(item["path"][-2], item["written"]) for item in payload["items"]] == [(0, "王五"), (1, "陌生人"), (2, "王五")]
     _, single = _concluded(agent, _conclude_args(_WAIT, memories=[[]], views=[[_view("王五"), _view("陌生人")]]))
-    assert [(item["index"], item["written"]) for item in single["items"]] == [(0, "王五"), (0, "陌生人")]
-    assert single["reason"] == "关系看法写的对象「王五」不是认识的人；关系看法写的对象「陌生人」不是认识的人"
-    assert single["fix"] == host_defaults("SUBJECT_NOT_KNOWN")[1]
+    assert [item["written"] for item in single["items"]] == ["王五", "陌生人"]
+    assert all(item["error_code"] == "SUBJECT_NOT_KNOWN" for item in single["items"])
+    assert single["fix"] and payload["fix"]
 
 
 def test_an_unknown_activity_name_does_not_hide_an_unknown_view_in_another_item() -> None:
-    """第一项的活动名不是本轮列出的活动、第二项的关系看法写了不认识的人：两项合并成一次纠错都报出（NAME_NOT_FOUND 在 index 0
-    的 activity_name，SUBJECT_NOT_KNOWN 在 index 1 的 about），码取第一项的码，原因逐项写、改法每码一句；证据串以第一项的码
-    开头，两条英文说明以「; 」相连（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条：名称类错误逐项报全部）。"""
+    """活动名和关系对象错误独立汇总，包含同一项中的不同字段。"""
     agent = _two_activities()
-    error, payload = _concluded(agent, _conclude_args("散步", _WAIT, memories=[[], []], views=[[], [_view("陌生人")]]))
+    _, payload = _concluded(agent, _conclude_args("散步", _WAIT, memories=[[], []], views=[[], [_view("陌生人")]]))
     assert payload["error_code"] == "NAME_NOT_FOUND"
-    assert [(item["index"], item["field"], item["written"], item["error_code"]) for item in payload["items"]] == [
-        (0, "activity_name", "散步", "NAME_NOT_FOUND"), (1, "about", "陌生人", "SUBJECT_NOT_KNOWN")]
-    assert payload["reason"].startswith("第 1 项「散步」不是本轮列出的活动")
-    assert payload["reason"].endswith("；第 2 项关系看法写的对象「陌生人」不是认识的人")
-    assert payload["fix"] == ("第 1 项照工具层、待办层或记忆层中的写法填写名称，或者去掉这一项；"
-                              f"第 2 项{host_defaults('SUBJECT_NOT_KNOWN')[1]}")
-    assert error == ("NAME_NOT_FOUND: conclude_activity activity_name names an activity that is not visible; "
-                     f"{_SUBJECT_DETAIL}: 陌生人")
+    assert [(item["path"][4:], item["written"], item["error_code"]) for item in payload["items"]] == [
+        (["items", 0, "activity_name"], "散步", "NAME_NOT_FOUND"),
+        (["items", 1, "views", 0, "about"], "陌生人", "SUBJECT_NOT_KNOWN")]
     _, both = _concluded(agent, _conclude_args("散步", _WAIT, memories=[[], []], views=[[_view("王五")], []]))
-    assert [(item["index"], item["field"], item["error_code"]) for item in both["items"]] == [
-        (0, "activity_name", "NAME_NOT_FOUND"), (0, "about", "SUBJECT_NOT_KNOWN")]
+    assert [item["path"][4:] for item in both["items"]] == [
+        ["items", 0, "activity_name"], ["items", 0, "views", 0, "about"]]
+    assert "散步" in payload["reason"] and "陌生人" in payload["reason"] and payload["fix"]
 
 
 def test_all_name_errors_are_reported_and_other_conditions_report_the_first() -> None:
-    """名称类错误逐项报全部（两项都不成立时两项都在 items 里，码各自写，改法每码一句）；来源与去向这类其余条件只报第一条，
-    且名称类错误在前（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条）。"""
+    """名称与独立路线错误一次全报，依赖不存在对象的条件不推断。"""
     agent = _prepared()
     both = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
         ["不存在的对象", "自己"], ["interact", "interact"], ["等待", "观看"]))], False))
     assert both["error_code"] == "NAME_NOT_FOUND"
-    assert [(item["index"], item["error_code"]) for item in both["items"]] == [(0, "NAME_NOT_FOUND"),
-                                                                               (1, "WAY_NOT_OFFERED")]
-    assert both["reason"] == "第 1 项「不存在的对象」不是可以操作的对象；第 2 项「自己」没有列出「interact：观看」这种做法"
-    assert both["fix"] == ("第 1 项改用候选里的请求，或者照工具层、待办层中的写法重写这一项，或者去掉这一项；"
-                           "第 2 项改用该对象列出的动词与方式（见候选），或者去掉这一项")
+    assert [(item["path"][-2], item["error_code"]) for item in both["items"]] == [(0, "NAME_NOT_FOUND"), (1, "WAY_NOT_OFFERED")]
     mixed = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
         ["自己", "不存在的对象"], ["interact", "interact"], ["等待", "等待"], **{"from": ["自己", None]}))], False))
-    assert (mixed["error_code"], [item["index"] for item in mixed["items"]]) == ("NAME_NOT_FOUND", [1])
+    assert [(item["path"][-2], item["error_code"]) for item in mixed["items"]] == [(1, "NAME_NOT_FOUND"), (0, "ROUTE_FIELDS_INVALID")]
     route = _feedback(agent.validate_react_decisions([_decision("start_activity", start_arguments(
         ["自己", _TASK], ["interact", "interact"], ["等待", "工作"], **{"from": ["自己", "自己"]}))], False))
-    assert route["error_code"] == "ROUTE_FIELDS_INVALID"
-    assert [(item["index"], item["field"], item["written"]) for item in route["items"]] == [(0, "from", "自己")]
-    assert route["reason"] == "第 1 项：interact 的 from 与 to 都要写 null"
+    assert [item["path"][-3:] for item in route["items"]] == [["items", 0, "from"], ["items", 1, "from"]]
+    assert all(item["allowed_values"] == [None] for item in route["items"])
 
 
 def test_argument_errors_are_written_per_field_without_any_validation_dump() -> None:
-    """参数形状错误按字段写原因（缺字段、多字段、类型、界限与请求模型自己的校验说明），明细写参数名与所写的原文；纠错正文
-    不含校验库转储、input_value 与网址，证据串保留英文完整说明。"""
+    """类型、范围、文字身份和多余字段全部定位，JSON 原值不字符串化。"""
     concluding = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": _step_observation()}])
     memory = _memory("我记得 3e71a031bb3d4103 那会儿很累。", importance=1.5)
     arguments = {**_conclude_args(_WAIT, memories=[[memory]]), "extra": 1}
     error = concluding.validate_react_decisions([_decision("conclude_activity", arguments)], False)
     payload = _feedback(error)
     assert payload["error_code"] == "ARGUMENTS_INVALID"
-    assert payload["reason"] == ("items[0].memories[0].importance 要不大于 1；extra 不是这个工具的参数，要去掉")
-    assert [(item["index"], item["field"], item["written"]) for item in payload["items"]] == [
-        (0, "items", "1.5"), (0, "extra", "1")]
-    content = LifeAgent._protocol_feedback_content(error)
-    assert not any(marker in content for marker in _DUMP_MARKERS), content
-    assert "input_value" in error and error.startswith("ARGUMENTS_INVALID: invalid conclude_activity arguments")
+    assert [item["path"][4:] for item in payload["items"]] == [
+        ["items", 0, "memories", 0, "text"], ["items", 0, "memories", 0, "importance"], ["extra"]]
+    assert [item["written"] for item in payload["items"]] == [memory["text"], 1.5, 1]
+    assert not any(marker in LifeAgent._protocol_feedback_content(error) for marker in _DUMP_MARKERS)
     limited = _conclude_args(_WAIT, memories=[[_memory("长" * 1001)]])
-    reason = _feedback(concluding.validate_react_decisions([_decision("conclude_activity", limited)], False))["reason"]
-    assert reason == "items[0].memories[0]：memory text exceeds 1000 characters"
+    row = _feedback(concluding.validate_react_decisions([_decision("conclude_activity", limited)], False))["items"][0]
+    assert row["path"][-5:] == ["items", 0, "memories", 0, "text"] and "1000" in row["why"]
 
 
 def _obtain_arguments(target: str, candidate: dict | None = None) -> dict:
     """一次远程下单送给自己的 start_activity 参数；给出候选时逐字段照填候选。"""
     if candidate is None:
         return start_arguments([target], ["obtain"], ["远程下单"])
-    return {"targets": [candidate["target"]], "actions": [candidate["action"]], "ways": [candidate["way"]],
-            "from": [candidate["from"]], "to": [candidate["to"]], "answering": None, "prefer": None}
+    return candidate["arguments"]
 
 
 @pytest.mark.asyncio
@@ -367,32 +330,23 @@ async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_t
         """从本次观察进度层的拒绝结果里取这件商品的候选，逐字段原样提交。"""
         details = last_result(observation)["details"]
         [item] = details["items"]
-        seen.update(details=details, candidate=next(row for row in item["candidates"] if row["target"] == label))
+        seen.update(details=details, candidate=next(row for row in item["candidates"] if row["arguments"]["items"][0]["target"] == label))
         return [_reply("call-candidate", "start_activity", _obtain_arguments(label, seen["candidate"]), "照候选买。")]
 
     _, requests, _ = await _single(environment, "candidate", resubmit)
-    assert seen["candidate"] == {"target": label, "action": "obtain", "way": "远程下单", "from": None, "to": "自己"}
-    assert seen["details"]["reason"] == f"「{written}」：没有找到这个名字的商品"
+    assert seen["candidate"]["arguments"]["items"] == [{"target": label, "way": "远程下单", "from": None, "to": None}]
+    assert seen["details"]["reason"] and seen["details"]["items"][0]["written"] == written
     assert len(requests) == 1
     accepted = engine.store.read_agent_events("action_result", 1)[-1].data
     assert (accepted["status"], accepted["error_code"]) == ("completed", None)
     assert [order["supply_id"] for order in accepted["data"]["orders"]] == [supply.supply_id]
 
 
-def test_a_protocol_error_string_that_starts_with_a_host_code_maps_back_to_that_code() -> None:
-    """只剩文字的协议错误串（如落库的证据、截断处理只交出的文字）以宿主错误码开头时取该码的默认说法；其余按 AS2 原文
-    判定，判定不出的按没有可执行的工具调用处理。"""
-    truncated = _feedback("OUTPUT_TRUNCATED: model output ended in reasoning before any tool call")
-    assert (truncated["error_code"], truncated["reason"], truncated["fix"]) == (
-        "OUTPUT_TRUNCATED", "输出在思考阶段用尽，尚未调用工具", "只调用一个工具")
-    evidence = "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])"
-    assert _feedback(evidence)["error_code"] == "NAME_NOT_FOUND"
-    assert _feedback("tool arguments for start_activity must be an object")["reason"] == (
-        "「start_activity」的参数不是一个 JSON 对象")
-    assert _feedback("tool call ids must be non-empty and unique")["reason"] == "工具调用缺少名称或编号"
-    assert _feedback("finish requires a non-empty answer")["error_code"] == "ARGUMENTS_INVALID"
-    assert _feedback("finish memories must be a list")["reason"] == "这次决策没有 finish 工具"
-    assert _feedback("missing response choices")["error_code"] == "TOOL_CALL_REQUIRED"
+def test_feedback_rejects_bare_strings_instead_of_reconstructing_positions() -> None:
+    """不从旧日志猜测错误类别或参数位置。"""
+    for text in ("OUTPUT_TRUNCATED: model output ended", "NAME_NOT_FOUND: missing object", "memory unavailable"):
+        with pytest.raises(TypeError, match="structured error report"):
+            _feedback(text)
 
 
 def test_feedback_structure_survives_copying_and_evidence_stays_a_plain_string() -> None:

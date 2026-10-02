@@ -35,9 +35,11 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "reference_id",
     "reference_assessments",
     "oracle",
+    "reference_assessment",
+    "world_query_bindings",
+    "world_query_page_size",
     "oracle_path",
     "input_path",
-    "expected",
     "accounts",
     "account_id",
     "balance_account_id",
@@ -165,5 +167,7 @@ def render_layer_json(value: object) -> str:
     @return 紧凑 JSON 文本
     @exception ForbiddenObservationFieldError value 含黑名单字段
     """
+    from worldmock.life.tool_groups import compact_render
+
     enforce_field_blacklist(value)
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(compact_render(value), ensure_ascii=False, separators=(",", ":"))

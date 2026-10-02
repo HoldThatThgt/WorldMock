@@ -19,6 +19,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import compact_render, expand_tool_layer
+
 import copy
 import json
 import os
@@ -41,9 +43,10 @@ from custom.agents.life_prompt import life_user_layers, system_message, user_mes
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_ModelResponse, _TextResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view as _opinion)
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan  # noqa: E402,F401
+from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_arguments  # noqa: E402,F401
 from tests.life.routing_fixtures import stage  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
+from worldmock.life.error_contract import ITEM_KEYS, ErrorItem, ErrorReport  # noqa: E402
 from worldmock.life.prompt_schemas import validate_layer  # noqa: E402
 
 #: 李凡发给陈曦的直接消息（全文不含 JSON 需要转义的字符）。
@@ -168,7 +171,7 @@ def _start(seen: dict, phase: str) -> dict:
         "office": lambda name, item: name == "自己" and item["way"] == "等待",
     }
     name, verb, way = pick(accepts[phase])
-    return {"targets": [name], "actions": [verb], "ways": [way], "from": [None], "to": [None], "answering": None, "prefer": None}
+    return start_arguments([name], [verb], [way])
 
 
 def _engine(engine_factory):
@@ -259,7 +262,9 @@ def _presented(request: dict) -> list[str]:
     每条 tool 消息；同秒续接里被后续 changes 按名称取代或移除的条目只保留最新的一段。"""
     messages = request["messages"]
     texts, latest = [messages[0]["content"], _compact(request["tools"])], {}
-    for layer in json.loads(messages[1]["content"]):
+    layers = json.loads(messages[1]["content"])
+    layers[0] = expand_tool_layer(layers[0])
+    for layer in layers:
         rest = dict(layer)
         for kind, field, key in _KEYED_LAYERS.get(layer["layer"], ()):
             latest.update({(kind, item[key]): item for item in layer[field]})
@@ -353,24 +358,51 @@ def _identities(engine) -> set[str]:
     return names | {f"agent:{agent_id}" for agent_id in state.agents}
 
 
-#: 允许为数值的字段：人设层的年龄（Schema 为整数）与记忆查询结果的条数（第一章「进度层」：记忆查询的 result 只写条数）。
+#: 固定位置数值字段：人设年龄与记忆查询条数；分页、品类条数、拒绝次数及错误路径另按公开结构扫描。
 _NUMBERS = {("identity", "age"), ("details", "episodes")}
+#: 参数路径中实际声明的数组字段，仅这些字段之后可以出现数组下标。
+_ARRAY_PATH_FIELDS = {"items", "memories", "views", "keywords", "goals", "decisions", "action_items"}
+
+
+def _scan_error_path(value: list) -> None:
+    """完整错误参数路径只允许工具调用下标与实际数组字段下标，不许可任意位置数字。"""
+    assert isinstance(value, list) and value and value[0] == "tool_calls", value
+    if value == ["tool_calls"]:
+        return
+    assert len(value) >= 4 and type(value[1]) is int and value[1] >= 0, value
+    assert value[2] == "function" and value[3] in {"arguments", "name"}, value
+    if value[3] == "name":
+        assert len(value) == 4, value
+    for index, segment in enumerate(value[4:], start=4):
+        if type(segment) is int:
+            assert segment >= 0 and value[index - 1] in _ARRAY_PATH_FIELDS, value
+        else:
+            assert isinstance(segment, str) and segment.strip(), value
+            _scan(segment)
 
 
 def _scan(value, path: tuple = ()) -> None:
-    """层与 tool 消息 JSON 的形状扫描：没有 _seconds、_fen、_id、_ids 结尾或名为 id 的键；数值只有年龄与记忆查询条数；
+    """层与 tool 消息 JSON 的形状扫描：没有 _seconds、_fen、_id、_ids 结尾或名为 id 的键；数值须符合公开字段结构；
     字符串不是纯数字，不写「N 秒」，数字至多两位小数（readable 的口径）。进度层调用记录的 arguments 是模型自己按原生
-    工具 Schema 写下的参数，原样保留，不扫。"""
+    工具 Schema 写下的参数，原样保留，不扫；完整 ErrorItem 中的 path 按真实工具调用与数组结构扫描。"""
     if isinstance(value, dict):
         for key, item in value.items():
             assert key != "id" and not re.search(r"_(seconds|fen|ids?)$", key), path + (key,)
-            if key != "arguments":
+            if key == "path" and set(value) == set(ITEM_KEYS):
+                _scan_error_path(item)
+            elif key == "times" and path[-2:-1] == ("rejected_today",):
+                assert type(path[-1]) is int and path[-1] >= 0, path
+                assert set(value) == {"written", "why", "times", "last", "accepted_as"}, value
+                assert type(item) is int and item >= 1, (path, item)
+            elif key != "arguments":
                 _scan(item, path + (key,))
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _scan(item, path + (index,))
     elif isinstance(value, (int, float)) and not isinstance(value, bool):
-        assert path[-2:] in _NUMBERS, (path, value)
+        query_count = len(path) >= 3 and path[-3] == "query_categories" and path[-1] == "count"
+        query_page = path[-1:] in {("offset",), ("next_offset",), ("total_count",)}
+        assert path[-2:] in _NUMBERS or query_count or query_page, (path, value)
     elif isinstance(value, str):
         assert not re.fullmatch(r"-?\d+(\.\d+)?", value), (path, value)
         assert not re.search(r"\d\s*秒|\d\.\d{3,}", value), (path, value)
@@ -406,6 +438,42 @@ def _where(request: dict, item: str) -> set[str]:
               if item in _compact(layer)}
     return places | {"tool 消息" for message in request["messages"][2:]
                      if message["role"] == "tool" and item in message["content"]}
+
+
+def test_readability_allows_only_complete_error_path_indices() -> None:
+    entry = ErrorItem(("items", 1, "memories", 0, "keywords", 2), False, "ARGUMENTS_INVALID",
+                      expected="A JSON string is required.", why="A JSON string is required.")
+    item = entry.payload()
+    _scan(ErrorReport("ARGUMENTS_INVALID", "Correct the declared field.", items=(entry,)).payload())
+    for path in (["tool_calls"], ["tool_calls", 0, "function", "arguments"],
+                 ["tool_calls", 2, "function", "name"]):
+        _scan({**item, "path": path})
+    for path in (["items", 0, "target"], ["tool_calls", -1, "function", "arguments"],
+                 ["tool_calls", True, "function", "arguments"], ["tool_calls", 0.5, "function", "arguments"],
+                 ["tool_calls", 0, "function", "arguments", "balance", 1],
+                 ["tool_calls", 0, "function", "arguments", "items", -1, "target"],
+                 ["tool_calls", 0, "function", "name", 1]):
+        with pytest.raises(AssertionError):
+            _scan({**item, "path": path})
+    for broken in ({"path": item["path"]}, {"path": 42}, {"items": [item], "price": 3200},
+                   {**item, "quantity": 1}, {**item, "order_id": "order-1"}):
+        with pytest.raises(AssertionError):
+            _scan(broken)
+
+
+def test_readability_allows_only_declared_rejection_counts() -> None:
+    """操作备忘仅允许完整公开结构的正整数重复次数，其他字段与错误类型仍拒绝。"""
+    memo = {"written": "自己", "why": "Repeated target.", "times": 1,
+            "last": "2026-01-05 10:00", "accepted_as": None}
+    for count in (1, 3):
+        _scan({"rejected_today": [{**memo, "times": count}]})
+    for count in (0, -1, True, 1.0, "1"):
+        with pytest.raises(AssertionError):
+            _scan({"rejected_today": [{**memo, "times": count}]})
+    for broken in ({"times": 1}, {"events": [memo]}, {"rejected_today": memo},
+                   {"rejected_today": [{"times": 1}]}, {"rejected_today": [memo], "price": 3200}):
+        with pytest.raises(AssertionError):
+            _scan(broken)
 
 
 @pytest.mark.asyncio
@@ -472,6 +540,7 @@ def _observed_request(engine) -> dict:
 def _with(request: dict, change) -> dict:
     """把 change(layers) 作用到请求 user 六层的深拷贝上，返回新请求。"""
     layers = json.loads(request["messages"][1]["content"])
+    layers[0] = expand_tool_layer(layers[0])
     change(layers)
     return {**request, "messages": [request["messages"][0], user_message(layers)]}
 
@@ -488,7 +557,7 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
     identities = _identities(engine)
     _assert_once_each(request)
     _assert_readable(request, identities)
-    task = next(target for target in json.loads(request["messages"][1]["content"])[0]["targets"]
+    task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
                 if target["kind"] == "task")
     remaining = task["contract"]["remaining"]
     for change in (lambda layers: layers[4]["location"]["fixed_rules"].append(remaining),
@@ -502,6 +571,14 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
         tool = {"role": "tool", "tool_call_id": "call", "content": _compact(payload)}
         return {**request, "messages": [*request["messages"], assistant, tool]}
 
+    error = ErrorReport("ARGUMENTS_INVALID", "A JSON string is required.", items=(ErrorItem(
+        ("items", 1, "memories", 0, "keywords", 2), False, "ARGUMENTS_INVALID"),)).payload()
+    _assert_readable(continued(error), identities)
+    leaked = copy.deepcopy(error)
+    leaked["items"][0]["path"].append(engine.scenario.tasks[0].task_id)
+    with pytest.raises(AssertionError):
+        _assert_readable(continued(leaked), identities)
+
     _assert_once_each(continued({"result": {"details": {}}, "changes": {"targets": {"updated": [task]}}}))
     _assert_once_each(continued({"result": {"occurred_at": task["contract"]["deadline"], "details": {}}}))
     for payload in ({"result": {"details": {"contract": remaining}}},
@@ -510,12 +587,13 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
             _assert_once_each(continued(payload))
     product = {"name": "集市出售的鸡汤面", "kind": "product", "phase": None, "state": None, "actions": [], "tools": []}
     shop = _with(request, lambda layers: layers[0]["targets"].append(product))
-    referenced = {"type": "tool_call", "tool": "start_activity", "arguments": {"targets": [product["name"]]}}
+    referenced = {"type": "tool_call", "tool": "start_activity", "arguments": start_arguments(
+        [product["name"]], ["obtain"], ["远程下单"])}
     _assert_once_each(_with(shop, lambda layers: layers[5]["events"].append(referenced)))
     with pytest.raises(AssertionError):
         _assert_once_each(_with(shop, lambda layers: layers[5]["events"].append(
             {"type": "tool_call", "result": {"details": {"items": [{"name": product["name"], "price": "8 元"}]}}})))
-    target = next(item for item in json.loads(request["messages"][1]["content"])[0]["targets"] if item["actions"])
+    target = next(item for item in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"] if item["actions"])
     priced = {**target, "actions": [{**target["actions"][0], "price": 3200}]}
     for broken in ({**target, "duration_seconds": 720}, priced, {**target, "state": "3600"}, {**target, "state": "约 30 秒"},
                    {"contract": {**task["contract"], "remaining": "有效工时还差约 1 分钟（约 0/0.0166667 小时）"}},

@@ -121,16 +121,24 @@ def test_task_expired_and_calendar_flag_are_zero_state_passthroughs(engine):
 
 def test_mail_and_work_events_extend_agent_visibility(engine):
     before_mail = set(engine.state.agents[1].visible_message_ids)
+    message = next(item for item in engine.scenario.messages
+                   if item.recipient_agent_id == 1 and item.message_id not in before_mail
+                   and item.related_task_id is not None)
     mail = ScheduledEvent(scheduled_id="mail-x", kind=ScheduledKind.MAIL_ARRIVAL,
-                          due_at=1, sequence=1, agent_id=1, data={"message_id": "m-new"})
+                          due_at=int(message.sent_at.timestamp()), sequence=1, agent_id=1,
+                          data={"message_id": message.message_id})
     result = apply_scheduled_effect(engine.state, mail, engine.semantics)
-    assert set(result.state.agents[1].visible_message_ids) == before_mail | {"m-new"}
+    assert set(result.state.agents[1].visible_message_ids) == before_mail | {message.message_id}
+    assert message.related_task_id in result.state.agents[1].visible_task_ids
 
     before_tasks = set(engine.state.agents[1].visible_task_ids)
+    task = next(item for item in engine.scenario.tasks
+                if item.assignee_agent_id in {"1", "agent:1"} and item.task_id not in before_tasks)
     work = ScheduledEvent(scheduled_id="work-x", kind=ScheduledKind.WORK_AVAILABLE,
-                          due_at=1, sequence=1, agent_id=1, data={"task_id": "t-new"})
+                          due_at=int(task.available_at.timestamp()), sequence=1, agent_id=1,
+                          data={"task_id": task.task_id})
     result = apply_scheduled_effect(engine.state, work, engine.semantics)
-    assert set(result.state.agents[1].visible_task_ids) == before_tasks | {"t-new"}
+    assert set(result.state.agents[1].visible_task_ids) == before_tasks | {task.task_id}
 
 def test_unrecognized_scheduled_kind_rejects_instead_of_emitting_success(engine):
     before = engine.state.model_dump(mode="json")
@@ -184,12 +192,14 @@ def test_price_change_persists_world_quote_and_product_release_restocks(engine):
                   if item.location_id == "market" and item.product_id == "food-6923644266066")
     old_version = engine.state.supply_quotes[supply.supply_id].price_version
     source = supply.source.model_dump(mode="json")
+    product = engine.rules.product(supply.product_id)
+    promo_price = product.purchase_price_fen_min
     change = ScheduledEvent(scheduled_id="price-promo", kind=ScheduledKind.PRICE_CHANGE,
                             due_at=engine.state.current_time, sequence=1,
                             data={"supply_id": supply.supply_id, "price_version": "promo-v1",
-                                  "amount_fen": 1_990, "source": source})
+                                  "amount_fen": promo_price, "source": source})
     result = apply_scheduled_effect(engine.state, change, engine.semantics)
-    assert result.state.supply_quotes[supply.supply_id].price_fen == 1_990
+    assert result.state.supply_quotes[supply.supply_id].price_fen == promo_price
     assert result.state.supply_quotes[supply.supply_id].price_version == "promo-v1"
     assert engine.state.supply_quotes[supply.supply_id].price_version == old_version
     assert result.data["quote_before"]["price_version"] == old_version

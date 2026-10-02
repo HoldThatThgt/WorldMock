@@ -89,10 +89,10 @@ def test_repeated_chat_between_the_same_pair_is_chat_already_active(engine_facto
     observed = engine.observe(context(engine, "again-preview"))
     chat = next(action for row in observed["interaction_bindings"] if row["object_id"] == "agent:2"
                 for action in row["actions"] if action["label"] == "交谈")
-    assert chat["note"] == "你们已经在交谈了"
+    assert chat["note"] == "You are already talking together."
     _, results = submit_round(engine, {1: _chat(engine, 1, 2)}, "again")
     assert results[0].status == "rejected" and results[0].error_code == "CHAT_ALREADY_ACTIVE"
-    assert results[0].data["reason"] == "你们已经在交谈了"
+    assert results[0].data["reason"] == "You are already talking together."
 
 
 def test_one_side_ending_ends_the_partner_chat_in_the_same_second(engine_factory) -> None:
@@ -184,7 +184,7 @@ def test_people_on_the_road_are_not_present_and_cannot_be_invited(engine_factory
 
 def test_awake_partner_gets_the_invite_in_the_same_second_and_a_sleeper_is_not_woken(engine_factory) -> None:
     """交谈邀请送达时，清醒的收件人在同一秒以 message_arrival 获得机会；人物消息送达睡着的收件人时不唤醒，睡着的人物
-    照常列出、交谈带「对方现在不方便交谈」（第一章「人物之间的消息」、第五章「动作照常列出，做错了再说明」）。"""
+    照常列出、交谈带「The conversation partner is not available at the caller's place.」（第一章「人物之间的消息」、第五章「动作照常列出，做错了再说明」）。"""
     engine = engine_factory("multi-person.json")
     _people(engine)
     submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "awake-invite")
@@ -197,7 +197,7 @@ def test_awake_partner_gets_the_invite_in_the_same_second_and_a_sleeper_is_not_w
     assert advance_until_ready(sleeper) and sleeper.scheduling_state().ready_agent_ids == (1,)
     row = next(row for row in sleeper.observe(context(sleeper, "msg-preview"))["interaction_bindings"]
                if row["object_id"] == "agent:2")
-    assert [(action["label"], action["note"]) for action in row["actions"]] == [("交谈", "对方现在不方便交谈")]
+    assert [(action["label"], action["note"]) for action in row["actions"]] == [("交谈", "The conversation partner is not available at the caller's place.")]
     message = SendMessageActionRequest(recipient_name=row["object"], text="睡了吗")
     submit_round(sleeper, {1: ("send_message", message)}, "msg")
     assert 2 not in sleeper.scheduling_state().ready_agent_ids
@@ -282,8 +282,8 @@ def _invited_and_busy(engine: LifeEngine) -> object:
 
 
 def test_late_acceptance_is_noted_and_refused_with_a_reason_and_next_step(engine_factory) -> None:
-    """发起方的交谈只剩不足一分钟时，对其选择交谈对齐后不足最短时长：交谈动作照常列出并带说明「对方的交谈快结束了」，
-    选了以 ACTIVITY_TOO_SHORT 返回同一原因与下一步「等对方结束后再发起新的交谈」，不开始交谈、不产生 run_failed
+    """发起方的交谈只剩不足一分钟时，对其选择交谈对齐后不足最短时长：交谈动作照常列出并带说明「The other person's conversation has less than one minute remaining.」，
+    选了以 ACTIVITY_TOO_SHORT 返回同一原因与下一步「Wait for the current conversation to end, then start a new one.」，不开始交谈、不产生 run_failed
     （第五章「交谈」与「动作照常列出，做错了再说明」）。"""
     engine = engine_factory("multi-person.json")
     _people(engine)
@@ -293,10 +293,10 @@ def test_late_acceptance_is_noted_and_refused_with_a_reason_and_next_step(engine
     assert engine.scheduling_state().ready_agent_ids == (2,)
     observed = engine.observe(context(engine, "late-preview", 2))
     assert [action["note"] for row in observed["interaction_bindings"] if row["object_id"] == "agent:1"
-            for action in row["actions"] if action["label"] == "交谈"] == ["对方的交谈快结束了"]
+            for action in row["actions"] if action["label"] == "交谈"] == ["The other person's conversation has less than one minute remaining."]
     _, results = submit_round(engine, {2: _chat(engine, 2, 1)}, "accept-late")
     assert (results[0].status, results[0].error_code) == ("rejected", "ACTIVITY_TOO_SHORT")
-    assert (results[0].data["reason"], results[0].data["next_step"]) == ("对方的交谈快结束了", "等对方结束后再发起新的交谈")
+    assert (results[0].data["reason"], results[0].data["next_step"]) == ("The other person's conversation has less than one minute remaining.", "Wait for the current conversation to end, then start a new one.")
     assert 2 not in _chats(engine) and not engine.store.read_agent_events("run_failed", 2)
 
 

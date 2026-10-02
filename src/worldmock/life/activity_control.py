@@ -191,7 +191,8 @@ def concluded(activity: ActivityState, summary: str, now: int) -> ActivityState:
 def conclusion_refusal(activities: Iterable[ActivityState], names: dict[str, str]) -> Refusal:
     """@brief 有待收尾活动时做别的：ACTIVITY_CONCLUSION_REQUIRED，原因与下一步点名刚结束的活动。"""
     listed = "、".join(names.get(item.activity_id, item.name) for item in activities)
-    return Refusal("ACTIVITY_CONCLUSION_REQUIRED", f"先给刚结束的{listed}收尾", f"给{listed}收尾")
+    return Refusal("ACTIVITY_CONCLUSION_REQUIRED", f"Conclude the finished activities {listed} first.",
+                   f"Conclude {listed}.")
 
 
 def conclusion_required(activities: Iterable[ActivityState], names: dict[str, str]) -> BusinessRuleError:
@@ -230,17 +231,22 @@ def _name_entry(index: int, written: str, visible: Sequence[str]) -> tuple[Error
     if match.name is not None:
         return None
     if match.matches:
-        return ErrorItem(index, "activity_name", written, "NAME_AMBIGUOUS"), f"对应不止一个活动（{_quoted(match.matches)}）"
+        return ErrorItem(("items", index, "activity_name"), written, "NAME_AMBIGUOUS",
+                         expected="An unambiguous known activity name is required.",
+                         why="The activity name matches several activities."), (
+                             f"The name identifies several activities: {_quoted(match.matches)}.")
     near = near_names(written, visible)
-    closest = f"，最接近的是{_quoted(near)}" if near else ""
-    return ErrorItem(index, "activity_name", written, "NAME_NOT_FOUND"), f"不是本轮列出的活动{closest}"
+    closest = f" Nearby known names: {_quoted(near)}." if near else ""
+    return ErrorItem(("items", index, "activity_name"), written, "NAME_NOT_FOUND",
+                     expected="A known activity name is required.", why="The activity name is not known."), (
+                         f"The activity name is not known.{closest}")
 
 
 def _name_fixes(total: int) -> dict[str, str]:
     """@brief 活动名的名称类失败按明细码的改法：找不到的照工具层、待办层中的活动名填写，多项请求也可以去掉这一项（与宿主
     纠错一样）；有歧义的改写成原因里列出的某一个完整名称。"""
-    drop = "，或者去掉这一项" if total > 1 else ""
-    return {"NAME_NOT_FOUND": f"照工具层、待办层中的活动名填写{drop}", "NAME_AMBIGUOUS": "改写成原因里列出的某一个完整名称"}
+    return {"NAME_NOT_FOUND": "Use an exact known activity name.",
+            "NAME_AMBIGUOUS": "Use an unambiguous complete activity name."}
 
 
 def _quoted(names: Iterable[str]) -> str:
@@ -275,18 +281,20 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
     if not at_stay(context.state, activity.agent_id, activity.location_id):
         place = context.place_names[activity.location_id]
         name = context.activity_names.get(activity.activity_id, activity.name)
-        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"{name}要回到{place}才能接着做，在别处可以直接结束",
+        return Refusal("ACTIVITY_PRECONDITION_UNMET",
+                       f"Resume {name} at its start location {place}; it can be concluded elsewhere.",
                        unmet=("activity_location",), suggested={"travel_to": place})
     if activity.kind == ActivityKind.WORK:
         worked, _ = work_totals(context.state, activity.agent_id, activity.target_id)
         blocker = work_start_blocker(context.tasks[activity.target_id], worked, context.state.current_time)
         if blocker is not None:
-            return Refusal("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
+            return Refusal("ACTIVITY_DURATION_INVALID", blocker, "Submit the completed work.")
     blocking = [item.name for item in active_activities(context.state, activity.agent_id)
                 if item.activity_id != activity.activity_id and item.resource_claims & activity.resource_claims]
     if blocking:
         listed = "、".join(blocking)
-        return Refusal("RESOURCE_CONFLICT", f"和正在做的{listed}不能同时进行", f"先结束或暂停{listed}",
+        return Refusal("RESOURCE_CONFLICT", f"This activity conflicts with the running activities {listed}.",
+                       f"Conclude or pause {listed} first.",
                        ("resource_claims",))
     return None
 
@@ -297,7 +305,8 @@ def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
         return refusal_for_code("ACTION_REQUEST_INVALID")
     if on_road(context.state, activity):
         name = context.activity_names.get(activity.activity_id, activity.name)
-        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"路上的{name}不能暂停", f"可以直接结束{name}")
+        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"The activity {name} cannot be paused while travelling.",
+                       f"Conclude {name}.")
     if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
         return refusal_for_code("SOCIAL_ACTIVITY_CANNOT_PAUSE")
     if not at_decision_boundary(activity, context.state.current_time):
@@ -340,13 +349,14 @@ def start_admission_refusal(state: WorldState, agent_id: int, request: tuple[lis
     free = free_slots(state, agent_id)
     if new_activity_count(actions, labels) > free:
         listed = "、".join(names.get(item.activity_id, item.name) for item in slot_activities(state, agent_id))
-        reason = (f"只剩一个名额，不能同时开始两项（{listed}占着一个）" if free > 0
-                  else f"两件事都在做，先结束一件：{listed}")
-        return Refusal("SESSION_LIMIT_EXCEEDED", reason, f"先结束一项：{listed}")
+        reason = (f"Only one activity slot remains because {listed} occupies a slot." if free > 0
+                  else f"Both activity slots are occupied by {listed}; conclude one first.")
+        return Refusal("SESSION_LIMIT_EXCEEDED", reason, f"Conclude one of {listed} first.")
     running = [item for item in _agent_activities(state, agent_id, _is_active)]
     if "travel_to" in actions and running:
         listed = [names.get(item.activity_id, item.name) for item in running]
-        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"需要先结束或暂停手上的事：{'、'.join(listed)}",
+        return Refusal("ACTIVITY_PRECONDITION_UNMET",
+                       f"Conclude or pause the current activities {', '.join(listed)} before departure.",
                        unmet=("activities_before_departure",), suggested={"conclude_or_pause": listed})
     return None
 

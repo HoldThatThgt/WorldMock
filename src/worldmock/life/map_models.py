@@ -7,14 +7,14 @@ from datetime import date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, model_validator
+from pydantic import Field, StrictInt, model_validator
 
 from worldmock.life.models import FrozenModel, TravelMode
 
 LOCATION_KINDS = frozenset({"home", "office", "outdoor", "fitness", "venue", "anywhere"})
-#: 地图文件结构版本：数据集声明与地点、供给、路线三个目录文件共用；2 起地点可带分店标签 branch_label。
+#: 地图文件结构版本：数据集与三个目录共用；3 起固定生成种子与逐店品类声明哈希。
 #: 旧版本直接拒绝，不保留兼容解析（docs/CONTRACTS.md「冻结地图与场景引用」）。
-MAP_SCHEMA_VERSION = 2
+MAP_SCHEMA_VERSION = 3
 
 
 def reject(message: str) -> None:
@@ -301,6 +301,8 @@ class MapDatasetDeclaration(FrozenModel):
     schema_version: Literal[MAP_SCHEMA_VERSION]
     dataset_id: str = Field(pattern=r"\S")
     version: int = Field(ge=1)
+    random_seed: StrictInt
+    category_assignment_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     coordinate_system: Literal["WGS84"]
     timezone: str = Field(pattern=r"\S")
     bounds: tuple[float, float, float, float]
@@ -332,3 +334,44 @@ class MapDataset(MapDatasetDeclaration):
     locations: tuple[LocationConfig, ...]
     supplies: tuple[SupplyConfig, ...]
     routes: tuple[RouteConfig, ...]
+    category_assignment: "CategoryAssignment"
+
+
+class StoreAssortment(FrozenModel):
+    """@brief 一家门店完整的品类、商品、价格定位和来源声明。"""
+
+    location_id: str = Field(pattern=r"\S")
+    category_ids: tuple[str, ...]
+    object_ids: tuple[str, ...]
+    price_position_percent: StrictInt = Field(ge=5, le=95)
+    source: DataSource
+
+    @model_validator(mode="after")
+    def validate_assortment(self) -> "StoreAssortment":
+        """@brief 每个选择身份必须唯一，门店不能发布空商品集合。"""
+        validate_names(self.category_ids, "Store categories")
+        validate_names(self.object_ids, "Store objects")
+        if not self.category_ids and not self.object_ids:
+            reject("Selling locations require a nonempty assortment")
+        return self
+
+
+class CategoryAssignment(FrozenModel):
+    """@brief 地点类型的品类准入和逐店完整商品集合。"""
+
+    kinds: dict[str, tuple[str, ...]]
+    locations: tuple[StoreAssortment, ...]
+    source: DataSource
+
+    @model_validator(mode="after")
+    def validate_assignment(self) -> "CategoryAssignment":
+        """@brief 拒绝重复门店和品类，空集合必须由作者显式声明。"""
+        validate_names(tuple(item.location_id for item in self.locations), "Assortment locations")
+        for kind, values in self.kinds.items():
+            if not kind.strip():
+                reject("Assortment kind must be nonblank")
+            validate_names(values, "Kind admission categories")
+        return self
+
+
+MapDataset.model_rebuild()

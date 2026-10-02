@@ -147,12 +147,12 @@ class _Sources:
         raise AssertionError(f"unexpected source requested: {url}")
 
 
-def _map_stub(calls: list[tuple[Path, Path]]):
+def _map_stub(calls: list[tuple[Path, Path, int]]):
     """@brief 地图路由准备替身：记录调用并写出探针 OSM 文件。"""
 
-    def prepare_map(destination: Path, frozen_root: Path) -> None:
+    def prepare_map(destination: Path, frozen_root: Path, random_seed: int) -> None:
         """@brief 只在给定目录内写出地图产物。"""
-        calls.append((Path(destination), Path(frozen_root)))
+        calls.append((Path(destination), Path(frozen_root), random_seed))
         folder = Path(destination) / "zhangjiang-map"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "zhangjiang-probe.osm").write_bytes(b'<osm version="0.6"/>')
@@ -173,7 +173,7 @@ def pipeline(monkeypatch):
     fetch = importlib.import_module(_FETCH)
     sources = _Sources()
     monkeypatch.setattr("urllib.request.urlopen", sources)
-    map_calls: list[tuple[Path, Path]] = []
+    map_calls: list[tuple[Path, Path, int]] = []
     monkeypatch.setattr("worldmock.corpora.map_prepare.prepare_map", _map_stub(map_calls))
     return SimpleNamespace(prepare=fetch.prepare_corpora, textworld=textworld, sources=sources,
                            map_calls=map_calls)
@@ -196,7 +196,9 @@ def test_prepare_corpora_publishes_verified_tree_through_hidden_staging(pipeline
             "zhangjiang-map/zhangjiang-probe.osm", "textworld/game-1208-options.json",
             "scenario-catalog/catalog.json", "scenario-mail/threads.json", "LICENSES.md"} <= published
     assert load_manifest(destination).model_dump(mode="json") == manifest.model_dump(mode="json")
-    [(staging, frozen_root)] = pipeline.map_calls
+    [(staging, frozen_root, first_seed), (other_staging, other_root, second_seed)] = pipeline.map_calls
+    assert (first_seed, second_seed) == (20260105, 20260106)
+    assert (staging, frozen_root) == (other_staging, other_root)
     assert staging.parent == tmp_path.resolve() and staging.name.startswith(".corpus.staging-")
     assert frozen_root == PROJECT_ROOT / "corpora"
     assert [path.name for path in tmp_path.iterdir()] == ["corpus"]

@@ -2,8 +2,8 @@
 
 成功购买取动作结果顶层 data.orders 与逐项结果 activity_results[*].orders 中的订单，按订单去重，与动作的整体状态
 无关（并行的「吃＋买」整体为 in_progress 时订单同样计入），重放回执带着同一订单，不重复计；每行另记订单载荷的
-channel_id（from 解析为渠道时的 App 标识，否则与旧运行没有这一列的订单都为 null，docs/dev/SPEC-dayrun-fidelity.md 3.3，
-数据集手机合成优先读它、卖家映射作为回退）。尝试下单是方式为到店、远程下单或「购买」的请求：所写方式按宿主与环境同一张
+channel_id（from 解析为渠道时的 App 标识，否则为 null，docs/dev/SPEC-dayrun-fidelity.md 3.3）。
+尝试下单是方式为到店、远程下单或「购买」的请求：所写方式按宿主与环境同一张
 方式同义表归一（name_resolution.way_options），「外卖」「自取」「买」这类同义写法与原词一样计入，way 记归一后的下单方式，
 不指向下单方式的写法不计；带首个结算结果的状态与错误码。应用浏览是方式为浏览的活动，带最后一次快照的状态。
 """
@@ -52,17 +52,19 @@ def _result_orders(data: dict) -> list[dict]:
 
 def _order_attempts(events: list[dict]) -> list[dict]:
     """@brief 方式为到店、远程下单或「购买」（含同义写法）的请求（重放请求不另计），way 为归一后的下单方式；状态与错误码
-    取该动作首个结算结果，尚无结果时为空。"""
+    取该动作首个结算结果，尚无结果时为空；明确非法的请求不解释为下单尝试。"""
     results: dict[str, dict] = {}
     for event in events:
         if event["event_type"] == "action_result":
             results.setdefault(event["action_id"], event["data"])
     rows = []
     for event in events:
+        result = results.get(event["action_id"], {})
+        if result.get("error_code") == "ACTION_REQUEST_INVALID":
+            continue
         way = _order_way(event)
         if way is None:
             continue
-        result = results.get(event["action_id"], {})
         rows.append({"fact_kind": "order_attempt", "agent_id": event["agent_id"], "action_id": event["action_id"],
                      "request_event_id": event["event_id"], "way": way, "status": result.get("status"),
                      "error_code": result.get("error_code"), "occurred_at": event["occurred_at"]})
@@ -78,7 +80,8 @@ def _order_way(event: dict) -> str | None:
     if (event["event_type"] != "action_requested" or data.get("tool_name") != "start_activity"
             or data.get("reused")):
         return None
-    return next((way for way in map(_ordered, data["request"].get("ways", [])) if way is not None), None)
+    ways = (item["way"] for item in data["request"]["items"])
+    return next((way for way in map(_ordered, ways) if way is not None), None)
 
 
 def _ordered(written: str) -> str | None:

@@ -440,14 +440,18 @@ const ViewerContext = {};
   /** @brief 工具层下钻：每个目标一项，其后逐个列出该目标的动作与工具及可用性。 */
   function toolItems(layer) {
     const items = [];
-    for (const target of Array.isArray(layer?.targets) ? layer.targets : []) {
-      items.push({label: `${target.name}（${target.kind}）`, text: JSON.stringify(target, null, 2)});
-      for (const row of Array.isArray(target.actions) ? target.actions : []) {
-        items.push({label: `${target.name} · ${row.action}：${row.way} · ${availability(row)}`,
-          text: JSON.stringify(row, null, 2)});
-      }
-      for (const row of Array.isArray(target.tools) ? target.tools : []) {
-        items.push({label: `${target.name} · ${row.tool} · ${availability(row)}`, text: JSON.stringify(row, null, 2)});
+    for (const group of Array.isArray(layer?.groups) ? layer.groups : []) {
+      for (const entry of group.targets) {
+        const target = {...group.shared, ...entry, kind:group.kind};
+        items.push({label:`${target.name}（${target.kind}）`, text:JSON.stringify(target, null, 2)});
+        if (group.action !== null) {
+          const action = {action:group.action, way:group.way, ...target};
+          items.push({label:`${target.name} · ${group.action}：${group.way} · ${availability(target)}`,
+            text:JSON.stringify(action, null, 2)});
+        }
+        for (const row of Array.isArray(target.tools) ? target.tools : []) {
+          items.push({label:`${target.name} · ${row.tool} · ${availability(row)}`, text:JSON.stringify(row, null, 2)});
+        }
       }
     }
     return items;

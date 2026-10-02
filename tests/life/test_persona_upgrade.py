@@ -291,7 +291,7 @@ def test_real_background_story_compiles_to_v2_card() -> None:
     assert 7.0 <= compiled.card.sleep_need_hours <= 9.0
     assert compiled.card.habits and compiled.card.tastes
     assert compiled.world_dynamics.mood_pulse_amplitude > 0
-    assert compiled.source.prompt_version == "card-v1"
+    assert compiled.source.prompt_version == "card-v2"
 
 
 def test_v2_compilation_is_deterministic_for_real_story() -> None:

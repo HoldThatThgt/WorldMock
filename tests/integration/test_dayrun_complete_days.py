@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import expand_tool_layer
+
 import json
 import os
 import re
@@ -31,6 +33,7 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import REQUEST_MODELS, ActivityStatus
 from worldmock.life.narration import render_layer_json
 from worldmock.life.prompt_schemas import USER_LAYER_NAMES, validate_layer
+from worldmock.life.world_query import QueryWorldRequest
 from worldmock.runtime import stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
@@ -84,6 +87,7 @@ class DayModel:
             return self._text(request)
         functions = {item["function"]["name"]: item["function"] for item in request["tools"]}
         self.layers = json.loads(request["messages"][1]["content"])
+        self.layers[0] = expand_tool_layer(self.layers[0])
         if not self.invalid_action_sent:
             self.invalid_action_sent = True
             return self._response("invented_wait_tool", {})
@@ -248,11 +252,13 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("seed", [17, 54])
+@pytest.mark.parametrize("seed", [20260105, 20260106])
 async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed, monkeypatch):
     monkeypatch.setattr(runtime_module, "PlanDayClient", _PlanDayClient)
     document = _document("multi-person.json")
     document["random_seed"] = seed
+    if seed == 20260105:
+        document["map_dataset"] = _document("white-collar-12-weeks.json")["map_dataset"]
     # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
     # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
     # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。
@@ -387,18 +393,20 @@ _MAX_REACT_TURNS = 16
 
 def _assert_action_requests(requests, identities):
     """第一章「请求组成」与验收台账「七层请求」「系统层与工具」：整次真实日运行（两人、跨检查点恢复）的每个行动请求——
-    system 逐字节相同，就是生活决策系统层的紧凑序列化；原生 tools 等于八个人物工具加三个记忆查询的全量定义（事件按规范
-    JSON 存储，键序不保留，按对象比较），只有本次决策最后一个回合的请求等于去掉记忆查询的前八项；链首 user 是按固定
+    system 逐字节相同，就是生活决策系统层的紧凑序列化；原生 tools 包含世界工具、任务回看、世界查询与记忆查询（事件按规范
+    JSON 存储，键序不保留，按对象比较），本次决策最后一个回合只提供世界工具；链首 user 是按固定
     层序排列的六层 JSON 数组，每一层通过 prompt_schemas 校验。验收台账「唯一出现」：同一批请求（含同秒续接）逐个满足 test_unique_presence_run 的唯一出现
     与人读写法检查（暂停活动进度、任务合同与门店商品目标各恰好一处；没有 _seconds、_fen、身份键、裸数值与内部身份）。"""
-    models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS}
+    world = {name: model for name, model in REQUEST_MODELS.items() if name != "recall_task_summary"}
+    models = {**world, "recall_task_summary": REQUEST_MODELS["recall_task_summary"],
+              "query_world": QueryWorldRequest, **_MEMORY_TOOL_MODELS}
     full = [_tool_schema(name, model) for name, model in models.items()]
     assert requests and {event.data["request"]["messages"][0]["content"] for event in requests} == {
         render_layer_json(LIFE_SYSTEM_LAYER)}
     for event in requests:
         request = event.data["request"]
         turn = int(re.search(r":model:(\d{4}):attempt:", event.data["call_id"]).group(1))
-        expected = full[:len(REQUEST_MODELS)] if turn == _MAX_REACT_TURNS else full
+        expected = full[:len(world)] if turn == _MAX_REACT_TURNS else full
         assert request["tools"] == expected, turn
         layers = json.loads(request["messages"][1]["content"])
         assert [layer["layer"] for layer in layers] == list(USER_LAYER_NAMES)

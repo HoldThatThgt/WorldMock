@@ -46,27 +46,29 @@ def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactD
     return ReactDecision("", "start_activity", start_arguments(targets, actions, ways), "")
 
 
-def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
-    """单工具接收等长逐项的对象、动词与方式，拒绝不等长、错配和重复对象。"""
+def test_parallel_schema_and_local_pairing_use_readable_items() -> None:
+    """单工具接收逐项对象和方式，拒绝缺字段、错配和重复对象。"""
     person = _prepared()
     functions = {row["function"]["name"]: row["function"]
                  for row in person.build_react_tool_schemas(readonly=False)}
     assert "start_parallel_activities" not in functions
     schema = functions["start_activity"]["parameters"]
-    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
-    assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
+    assert set(schema["properties"]) == {"items", "answering", "prefer"}
+    fields = schema["properties"]["items"]["items"]["properties"]
+    assert all("enum" not in fields[name] for name in ("target", "way"))
     assert person.validate_react_decisions([
         _decision([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"]),
     ], False) == ""
-    for actions, ways in ((["travel"], ["步行", "接着看"]), (["travel", "interact"], ["步行"])):
-        assert "equal lengths" in person.validate_react_decisions([
-            _decision([_PLACE, _NEWS], actions, ways),
-        ], False)
+    incomplete = start_arguments([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"])
+    del incomplete["items"][1]["way"]
+    error = person.validate_react_decisions([ReactDecision("", "start_activity", incomplete, "")], False)
+    assert error.report.items[0].path == ("tool_calls", 0, "function", "arguments", "items", 1, "way")
+    assert error.report.items[0].why == "This required field was omitted."
     for actions, ways in ((["interact", "travel"], ["接着看", "步行"]), (["travel", "travel"], ["步行", "步行"])):
-        assert "not offered" in person.validate_react_decisions([
+        assert "does not support" in person.validate_react_decisions([
             _decision([_PLACE, _NEWS], actions, ways),
         ], False)
-    assert "repeat only with different to" in person.validate_react_decisions([
+    assert "different recipient" in person.validate_react_decisions([
         _decision([_PLACE, _PLACE], ["travel", "travel"], ["步行", "步行"]),
     ], False)
 

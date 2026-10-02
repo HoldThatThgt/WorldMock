@@ -123,7 +123,7 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
     decision = ReactDecision("", "conclude_activity", {"items": [
         {"activity_name": "不存在的活动", "summary": "收尾。", "memories": [], "views": []}]}, "")
     assert agent.validate_react_decisions([decision], False) == (
-        "NAME_NOT_FOUND: conclude_activity activity_name names an activity that is not visible")
+        "NAME_NOT_FOUND: The name 不存在的活动 is not known.")
 
     damaged = copy.deepcopy(observation)
     damaged.pop("activity_bindings")
@@ -164,8 +164,9 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
 
     assert agent.validate_react_decisions([conclude("李凡")], False) == ""
     unknown = agent.validate_react_decisions([conclude("陌生人")], False)
-    assert unknown == "SUBJECT_NOT_KNOWN: conclude_activity relationship subject is not a known person: 陌生人"
-    assert [(item.index, item.field, item.written) for item in unknown.report.items] == [(0, "about", "陌生人")]
+    assert unknown == "SUBJECT_NOT_KNOWN: The relationship subject 陌生人 is not a known person."
+    assert [(item.path, item.written) for item in unknown.report.items] == [(
+        ("tool_calls", 0, "function", "arguments", "items", 0, "views", 0, "about"), "陌生人")]
 
 
 def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
@@ -233,7 +234,7 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
         start_arguments([game["object"]], ["interact"], ["游玩"]))
     assert [target["kind"] for target in observation["tool_layer"]["targets"]
             if target["name"] == game["object"]] == ["game"]
-    assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["targets"]["items"]
+    assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
     assert game["object_id"] not in str(schemas["start_activity"])
     activity = engine.state.activities[result.activity_id]
     assert activity.target_id == game["object_id"]
@@ -310,7 +311,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
             restored, "goals-preserve", "revise_day_plan", {"goals": []})
         assert observation["todo_layer"]["day_plan"]["goals"] == [
             {"intent_kind": "休息", "goal": "缓一缓", "progressed": True, "remind_time": None,
-             "around_time": "约 00:30"}]
+             "around_time": "00:30"}]
         assert [row["task_name"] for row in observation["goal_bindings"]] == ["缓一缓"]
         assert "plan_day" not in restored_tools
         assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
@@ -318,19 +319,26 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
         restored.close()
 
 
-def _recall_round(engine, round_id: str, name: str) -> tuple[str, object]:
-    """冻结一次本人观察，宿主（按这次观察准备的 LifeAgent）本地校验按名称回看，再把同一请求交给环境结算；返回（宿主
-    校验结果，环境结果）。"""
+def _recall_round(engine, round_id: str, name: str) -> tuple[str, dict]:
+    """同一冻结观察完成宿主校验和纯回看，查询不登记世界请求。"""
+    from worldmock.errors import BusinessRuleError
+    from worldmock.life.guidance import rejection_guidance
+
     ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
     checked = agent.validate_react_decisions(
         [ReactDecision("", "recall_task_summary", {"task_name": name}, "")], False)
-    engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", "recall_task_summary",
-                                        RecallTaskSummaryRequest(task_name=name)))
-    return checked, engine.commit_decision_round(round_id)[0]
+    before, sequence = engine.state.model_dump(mode="json"), engine.store.last_event_seq
+    try:
+        data = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), observation)
+    except BusinessRuleError as error:
+        guidance = rejection_guidance(error)
+        data = {key: guidance[key] for key in ("reason", "fix", "items")}
+        data.update(error_code=str(error), unmet=list(error.unmet))
+    assert engine.state.model_dump(mode="json") == before and engine.store.last_event_seq == sequence
+    return checked, data
 
 
 def test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer(_engine_factory) -> None:
@@ -348,12 +356,12 @@ def test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer(_engine_
     shown = [goal["goal"] for goal in observation["todo_layer"]["day_plan"]["goals"]]
     assert [row["task_name"] for row in observation["goal_bindings"]] == shown == ["好好吃顿午饭", "歇一歇", "歇一歇"]
     old, _ = _recall_round(engine, "goal-names-old", "目标：用餐：好好吃顿午饭")
-    assert old == "NAME_NOT_FOUND: task_name is not visible"
+    assert "NAME_NOT_FOUND" in old and "not known" in old
     checked, found = _recall_round(engine, "goal-names-shown", "好好吃顿午饭")
-    assert checked == "" and found.status == "completed", (found.error_code, found.message)
-    assert found.data["recall"] == {"kind": "goal", "goal": "好好吃顿午饭", "intent_kind": "用餐", "progressed": False}
+    assert checked == "" and "error_code" not in found, found
+    assert found["recall"] == {"kind": "goal", "goal": "好好吃顿午饭", "intent_kind": "用餐", "progressed": False}
     checked, shared = _recall_round(engine, "goal-names-shared", "歇一歇")
-    assert checked == "" and (shared.status, shared.error_code) == ("rejected", "TASK_NOT_FOUND")
+    assert checked == "" and shared["error_code"] == "TASK_NOT_FOUND"
 
 
 def test_recall_accepts_the_activity_name_as_written_in_self_notes(_engine_factory) -> None:
@@ -369,10 +377,10 @@ def test_recall_accepts_the_activity_name_as_written_in_self_notes(_engine_facto
              for note in entry["self_notes"]]
     assert label != home and {"activity": label, "text": "在家歇好了。"} in notes
     checked, recalled = _recall_round(engine, "label-recall", label)
-    assert checked == "" and recalled.status == "completed", (recalled.error_code, recalled.message)
-    assert recalled.data["recall"] == {"kind": "activity", "activity": label, "progress_note": "已在记忆层"}
+    assert checked == "" and "error_code" not in recalled, recalled
+    assert recalled["recall"] == {"kind": "activity", "activity": label, "progress_note": "已在记忆层"}
     office = memory_tests._concluding_wait(engine, "label-again", "在公司也歇了。", [])
     memory_tests._arrive(engine, "label-back", memory_tests._walk(engine, "label-return", "home").activity_id)
     assert memory_tests._short(office) == label and office != home
     checked, shared = _recall_round(engine, "label-shared", label)
-    assert checked == "" and (shared.status, shared.error_code) == ("rejected", "TASK_NOT_FOUND")
+    assert checked == "" and shared["error_code"] == "TASK_NOT_FOUND"

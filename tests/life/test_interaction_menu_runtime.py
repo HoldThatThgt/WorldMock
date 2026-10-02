@@ -134,4 +134,4 @@ def test_availability_judges_the_menu_first_with_the_admission_reason(engine_fac
     engine.submit_action(DirectToolCall(decision, "action-menu-first", "start_activity", request))
     result = engine.commit_decision_round("menu-first")[0]
     assert result.error_code == "INTERACTION_MENU_DENIED"
-    assert note == result.data["reason"] == "这里不能这样做"
+    assert note == result.data["reason"] == "The current location does not admit this action."

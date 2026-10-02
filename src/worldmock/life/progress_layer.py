@@ -1,7 +1,7 @@
 """@brief 进度层：当前 session 的有序记录（docs/dev/SPEC-persona-prompt.md「进度层」）。
 
-记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、此前决策里成功的记忆查询
-（结果只写条数）、收到的直接消息与交谈邀请（全文）和邮件（主题）、订单送达，以及由截止时刻与提醒写入时刻推导的截止预警
+记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、收到的直接消息
+与交谈邀请（全文）和邮件（主题）、订单送达，以及由截止时刻与提醒写入时刻推导的截止预警
 与目标提醒。session 下界是开启它的边界提交的末事件序号（session_bounds，与记忆层同一区间口径）：运行开始为 0，到达取到达
 所在的时钟推进提交，由决策引起的切换（出发、途中结束出行）取引起切换的那条结果所在的提交；推导记录按时刻取，决策切换的
 session 不含切换那一秒。同一秒内推导记录在前（截止在提醒前），事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：
@@ -21,7 +21,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life import schedule, sessions
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.models import WorldState
-from worldmock.life.readable import iso_time
+from worldmock.life.readable import iso_time, local_date
 from worldmock.life.recipients import agent_identity, person_name
 from worldmock.life.request_linking import order_label
 from worldmock.life.result_projection import public_result
@@ -29,8 +29,6 @@ from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import ActivityFacts, record_lines
 from worldmock.life.tool_layer import LayerContext
 
-#: 记忆查询工具（结果只写条数）。
-MEMORY_TOOLS = frozenset({"memory_recent", "memory_search", "memory_time_range"})
 #: 订单仍在途的状态（相关记录受保护）。
 _OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
 
@@ -80,7 +78,7 @@ def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityF
     meta = [{"protected": _protected(context, item, (request_seq, request_time)),
              "lines": record_lines(context, item.record, list(item.sources), here)} for item in records]
     layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.scenario.timezone),
-             "events": [item.record for item in records]}
+             "events": [item.record for item in records], "rejected_today": rejected_today(context, store)}
     return ProgressView(layer=layer, meta=meta,
                         event_ids=[event.event_id for item in records for event in item.sources],
                         presented_message_ids=[item.message_id for item in records if item.message_id is not None])
@@ -98,7 +96,6 @@ def _session_records(context: LayerContext, store: FootprintStore, bound: tuple[
     """@brief 当前 session 的全部记录（事件序号在下界之后），按发生时刻、推导优先、最小来源序号排序。"""
     started_at, lower = bound
     records = _tool_records(context, store, lower)
-    records += _memory_records(context, store, lower)
     records += _world_records(context, store, lower)
     records += _derived_records(context, started_at)
     return sorted(records, key=lambda item: item.key)
@@ -149,7 +146,7 @@ def _tool_record(context: LayerContext, request: Event, results: list[Event]) ->
 
 def _arguments(tool: str, request: dict) -> dict:
     """@brief 请求参数原文；三个控制工具经 control_items 读出后按现行形状写出（每项活动名、自述，结束另带普通记忆），
-    看法与偏好（views，旧形状里带 subject 的 relationship 与 preference 记忆）略去，只在人设层出现。"""
+    看法与偏好（views 派生的 relationship 与 preference 记忆）略去，只在人设层出现。"""
     if tool not in CONTROL_TOOLS:
         return request
     return control_request(tool, request, memories=True)
@@ -164,27 +161,6 @@ def _order_ids(results: list[Event]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(identities))
 
 
-def _memory_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
-    """@brief 此前决策里成功的记忆查询：模型响应中的查询调用配对下一请求中的工具结果，结果只写条数；失败的不记。"""
-    agent_id, timezone_name = context.agent_id, context.scenario.timezone
-    responses = [event for event in store.read_agent_events("model_response", agent_id, after=lower)
-                 if event.data.get("phase") == "response" and event.data.get("error") is None]
-    requests = store.read_agent_events("model_request", agent_id, after=lower)
-    records = []
-    for response in responses:
-        following = next((event for event in requests if event.decision_id == response.decision_id
-                          and event.event_seq > response.event_seq), None)
-        if following is None:
-            continue
-        for call in _tool_calls(response):
-            count = _episode_count(following, call.get("id"))
-            if call.get("function", {}).get("name") not in MEMORY_TOOLS or count is None:
-                continue
-            records.append(_Record(_memory_record(response, call, count, timezone_name), (response, following),
-                                   _event_key(response.occurred_at, [response, following])))
-    return records
-
-
 def _tool_calls(response: Event) -> list[dict]:
     """@brief 模型响应第一条选择里的工具调用列表（形状不符时为空）。"""
     raw = response.data.get("response")
@@ -192,33 +168,6 @@ def _tool_calls(response: Event) -> list[dict]:
     message = choices[0].get("message") if isinstance(choices, list) and choices else None
     calls = message.get("tool_calls") if isinstance(message, dict) else None
     return [call for call in calls if isinstance(call, dict)] if isinstance(calls, list) else []
-
-
-def _episode_count(request: Event, call_id: str | None) -> int | None:
-    """@brief 下一请求中对应 tool_call_id 的工具消息里的条目数；失败（带 error）或找不到时为 None。"""
-    messages = ((request.data.get("request") or {}).get("messages")) or []
-    content = next((item.get("content") for item in messages if isinstance(item, dict)
-                    and item.get("role") == "tool" and item.get("tool_call_id") == call_id), None)
-    try:
-        payload = json.loads(content) if isinstance(content, str) else None
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict) or "error" in payload or not isinstance(payload.get("episodes"), list):
-        return None
-    return len(payload["episodes"])
-
-
-def _memory_record(response: Event, call: dict, count: int, timezone_name: str) -> dict:
-    """@brief 记忆查询的 tool_call 记录：参数原文，结果只写条数，时刻为该决策时刻。"""
-    try:
-        arguments = json.loads(call["function"].get("arguments") or "{}")
-    except json.JSONDecodeError:
-        arguments = {}
-    moment = iso_time(response.occurred_at, timezone_name)
-    return {"occurred_at": moment, "type": "tool_call", "tool": call["function"]["name"],
-            "arguments": arguments if isinstance(arguments, dict) else {},
-            "result": {"occurred_at": moment, "status": "completed", "error_code": None,
-                       "message": f"Memory query returned {count} episodes", "details": {"episodes": count}}}
 
 
 def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
@@ -244,6 +193,9 @@ def _message_record(context: LayerContext, event: Event) -> _Record:
         subject = context.rules.messages[message_id].subject
         record = {"occurred_at": moment, "type": "message_arrival", "sender": None, "kind": "mail",
                   "subject": subject}
+        task_id = context.rules.messages[message_id].related_task_id
+        if task_id is not None:
+            record["task"] = f"工作：{context.rules.tasks[task_id].title}"
         return _Record(record, (event,), _event_key(event.occurred_at, [event]))
     message = context.state.agents[context.agent_id].inbox[message_id]
     sender = _sender(context, message.sender_id)
@@ -324,3 +276,81 @@ def _protected(context: LayerContext, item: _Record, request: tuple[int, int | N
             return True
     return any(context.state.deliveries[order].status in _OPEN_ORDER_STATUSES
                for order in item.orders if order in context.state.deliveries)
+
+
+def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
+    """@brief 当日真实拒绝由持久证据派生，跨会话保留且不写检查点或人物记忆。"""
+    day = local_date(context.state.current_time, context.scenario.timezone)
+    events = [event for kind in ("model_response", "action_rejected", "action_accepted", "action_requested")
+              for event in store.read_agent_events(kind, context.agent_id)
+              if event.occurred_at <= context.state.current_time
+              and local_date(event.occurred_at, context.scenario.timezone) == day]
+    requests = {event.action_id: event for event in events if event.event_type == "action_requested"}
+    rows: dict[tuple, dict] = {}
+    for event in sorted(events, key=lambda item: item.event_seq):
+        if event.event_type == "action_accepted" and not event.data.get("reused"):
+            _memo_accept(rows, event, requests.get(event.action_id))
+            continue
+        if event.event_type not in {"model_response", "action_rejected"} or event.data.get("reused"):
+            continue
+        report = (event.data.get("protocol_feedback") if event.event_type == "model_response" else event.data)
+        if isinstance(report, dict) and report.get("error_code"):
+            request = requests.get(event.action_id)
+            _memo_reject(rows, event, report, request, context.scenario.timezone)
+    latest = sorted(rows.values(), key=lambda item: item["sequence"], reverse=True)[:8]
+    return [{key: row[key] for key in ("written", "why", "times", "last", "accepted_as")} for row in latest]
+
+
+def _memo_reject(rows: dict, event: Event, report: dict, request: Event | None, zone: str) -> None:
+    """@brief 同一持久拒绝内重复位置只计一次，同位置同写法跨请求累加。"""
+    items = report.get("items") or [{"path": ["tool_calls"], "written": None,
+                                    "why": report.get("reason") or report["error_code"]}]
+    seen = set()
+    for item in items:
+        path = tuple(item.get("path") or ["tool_calls"])
+        written = item.get("written")
+        key = (path, json.dumps(written, ensure_ascii=False, sort_keys=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        prior = rows.get(key)
+        rows[key] = {"path": path, "tool": _memo_tool(event, request, path), "written": written,
+                     "why": str(item.get("why") or report.get("reason") or report["error_code"])[:60],
+                     "times": 1 if prior is None else prior["times"] + 1,
+                     "last": iso_time(event.occurred_at, zone), "accepted_as": None, "sequence": event.event_seq}
+
+
+def _memo_tool(event: Event, request: Event | None, path: tuple) -> str | None:
+    """@brief 取得真实请求工具，协议拒绝从原始工具调用取得。"""
+    if request is not None:
+        return request.data.get("tool_name")
+    calls = _tool_calls(event)
+    index = path[1] if len(path) > 1 and path[0] == "tool_calls" and isinstance(path[1], int) else 0
+    return calls[index].get("function", {}).get("name") if index < len(calls) else None
+
+
+def _memo_accept(rows: dict, event: Event, request: Event | None) -> None:
+    """@brief 后续同工具受理时记录实际修正后的参数值，不从人物自述推测成功。"""
+    if request is None:
+        return
+    tool = request.data.get("tool_name")
+    arguments = request.data.get("request") or {}
+    for row in rows.values():
+        if row["tool"] != tool or row["accepted_as"] is not None:
+            continue
+        path = list(row["path"])
+        if "arguments" in path:
+            path = path[path.index("arguments") + 1:]
+        elif path == ["tool_calls"]:
+            path = []
+        value = arguments
+        for part in path:
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            elif isinstance(value, list) and isinstance(part, int) and 0 <= part < len(value):
+                value = value[part]
+            else:
+                break
+        else:
+            row["accepted_as"] = value
+            row["sequence"] = event.event_seq

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import compact_render, expand_tool_layer
+
 import copy
 import json
 import os
@@ -118,7 +120,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     home_requests = await _decide(environment, first, home, "start_activity", walk)
     assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
     assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == (
-        {"targets", "actions", "ways", "from", "to", "answering", "prefer"})
+        {"items", "answering", "prefer"})
     assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
@@ -144,9 +146,10 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     office_requests = await _decide(environment, second, arrived, "conclude_activity", conclusion)
     office_schema = _action_schema(office_requests[0])
     assert office_schema == _action_schema(home_requests[0])
-    assert "enum" not in office_schema["parameters"]["properties"]["ways"]["items"]
+    assert "enum" not in office_schema["parameters"]["properties"]["items"]["items"]["properties"]["way"]
     layers = json.loads(office_requests[0]["messages"][1]["content"])
-    assert layers[0] == arrived["tool_layer"] and layers[4] == arrived["environment_layer"]
+    assert compact_render(expand_tool_layer(layers[0])) == compact_render(arrived["tool_layer"])
+    assert layers[4] == compact_render(arrived["environment_layer"])
     assert "action_id" not in office_requests[0]["messages"][1]["content"]
     assert engine.commit_decision_round(second.round_id)[0].status.value == "completed"
 

@@ -75,6 +75,7 @@ def require_unhandled(state: Any, scenario: Any, supplies: dict, bindings: list[
             rows = [{"order": order_label(order.model_dump(mode="json"), names, clock),
                      "expected_at": iso_time(order.expected_at, scenario.timezone)}
                     for order in linked]
-            reason = f"{binding['answering']}要的{names[product]}已经下过单了"
+            reason = f"An order for {names[product]} has already been placed in response to {binding['answering']}."
             raise Refusal("REQUEST_ALREADY_HANDLED", reason,
-                          suggested={"next_step": "等已下的订单送到", "linked_orders": rows}).error()
+                          suggested={"next_step": "Wait for the existing order to arrive.",
+                                     "linked_orders": rows}).error()

@@ -9,7 +9,7 @@ from enum import StrEnum
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
-from pydantic import (BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
+from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
                       field_validator, model_validator)
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
@@ -55,6 +55,13 @@ def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]]
             schema["description"] = purpose
 
     return apply
+
+
+class ToolRequestModel(FrozenModel):
+    """@brief 工具参数严格保持 JSON 类型，不影响其他领域输入。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True,
+                              json_schema_extra=purpose_only_schema())
 
 
 class ModelIdentity(FrozenModel):
@@ -910,13 +917,14 @@ class PlanGoalInput(FrozenModel):
     remind_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
     around_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
 
-    @model_validator(mode="after")
-    def validate_goal_length(self) -> "PlanGoalInput":
+    @field_validator("goal")
+    @classmethod
+    def validate_goal_length(cls, goal: str) -> str:
         """@brief 限制目标字符数，同时保持受支持的严格工具 Schema。"""
-        if len(self.goal) > PLAN_GOAL_MAX_CHARS:
+        if len(goal) > PLAN_GOAL_MAX_CHARS:
             _LOGGER.error("Day goal exceeds its character limit")
             raise ValueError(f"day goal exceeds {PLAN_GOAL_MAX_CHARS} characters")
-        return self
+        return goal
 
 
 class PlanDayRequest(FrozenModel):
@@ -930,20 +938,43 @@ class PlanDayRequest(FrozenModel):
         }),
     ]
 
-    @model_validator(mode="after")
-    def validate_goals(self) -> "PlanDayRequest":
+    @field_validator("goals")
+    @classmethod
+    def validate_goals(cls, goals: tuple[PlanGoalInput, ...]) -> tuple[PlanGoalInput, ...]:
         """@brief 请求入口核验容量与意图唯一性。"""
-        kinds = [goal.intent_kind for goal in self.goals]
-        if len(self.goals) > MAX_PLAN_GOALS or len(kinds) != len(set(kinds)):
+        kinds = [goal.intent_kind for goal in goals]
+        if len(goals) > MAX_PLAN_GOALS or len(kinds) != len(set(kinds)):
             _LOGGER.error("Day goals exceed capacity or contain duplicate intents")
             raise ValueError("day goals must contain at most eight unique intents")
-        return self
+        return goals
 
 
-class ReviseDayPlanRequest(PlanDayRequest):
-    """@brief 用请求中的目标替换全部未推进条目，已推进条目由环境保留。"""
+class ReviseDayPlanRequest(ToolRequestModel):
+    """@brief 严格修订请求逐项定位重复意图，已推进目标由环境保留。"""
 
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
+    goals: Annotated[list[PlanGoalInput], WithJsonSchema(
+        {"type": "array", "items": PlanGoalInput.model_json_schema(mode="validation")})]
+
+    @field_validator("goals")
+    @classmethod
+    def validate_goals(cls, goals: list[PlanGoalInput]) -> list[PlanGoalInput]:
+        """@brief 批内重复意图返回每个具体嵌套位置。"""
+        from pydantic import ValidationError
+
+        errors, seen = [], set()
+        if len(goals) > MAX_PLAN_GOALS:
+            _LOGGER.error("Revised day plan exceeds eight goals")
+            raise ValueError("goals requires at most eight entries")
+        for index, goal in enumerate(goals):
+            if goal.intent_kind in seen:
+                errors.append({"type": "value_error", "loc": (index, "intent_kind"),
+                               "input": goal.intent_kind.value,
+                               "ctx": {"error": ValueError("An intent may occur only once in the day plan")}})
+            seen.add(goal.intent_kind)
+        if errors:
+            _LOGGER.error("Revised day plan contains duplicate intents")
+            raise ValidationError.from_exception_data(cls.__name__, errors)
+        return goals
 
 
 class SendMessageRequest(FrozenModel):
@@ -992,46 +1023,65 @@ class SubmitWorkRequest(FrozenModel):
 #: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
 SESSION_SUMMARY_MAX_CHARS = 500
 
-#: start_activity 请求级偏好 prefer 的取值（docs/dev/SPEC-dayrun-fidelity.md 3.5）：null 按 fastest。
-PURCHASE_PREFERENCES = ("fastest", "cheapest")
+#: 购买偏好的唯一中文闭集。
+PURCHASE_PREFERENCES = ("最快拿到", "到手价最低")
 #: prefer 的字段级「格式与来源」说明（参数 Schema 的一部分，不是工具 description），并说明由系统定方式的「购买」；
 #: 与其他参数说明一样只写用途（一句中文，不带拉丁字母单词与规则说法，tests/integration/test_tool_description_references.py）。
-_PREFER_FORMAT = ("取得商品有几家店都能买时挑哪家的偏好：枚举依次表示最快拿到与到手价最低，空值按最快；取得方式写「购买」时，"
-                  "按你是否在出售它的店里、能否送到收货地来定到店还是远程下单。")
+_PREFER_FORMAT = "购买时选择最快拿到或到手价最低，不购买时写空值。"
 
 
-class StartActivityRequest(FrozenModel):
-    """@brief 逐项选择至多两个可见对象、动词、方式、来源与去向，另有请求级偏好；执行参数由引擎确定
-    （docs/dev/SPEC-time-and-energy.md 第五章，docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
+class ActivityRequestItem(ToolRequestModel):
+    """@brief 一次活动的目标、方式、来源和收货人。"""
 
-    targets、actions、ways、from、to 五个数组等长、一至二项，逐项对应，另有请求级 answering 与 prefer（一日运行保真规格
-    3.5：五个数组不变，只加这一个请求级字段）；私有绑定把（对象，动词，方式）映射为内部标准动作，来源与去向按动词的合法
-    组合判定（worldmock.life.routing），不合法时业务拒绝 ACTION_REQUEST_INVALID，去向不是任何人物时 RECIPIENT_NOT_FOUND。
-
-    :param targets: 本次活动的可见对象名称，至多两项（obtain 可写未列出的名称，指名购买）。
-    :param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。
-    :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填；取得商品另可写「购买」。
-    :param from_: 与对象逐项对应的来源（字段名 from，str|null）：obtain 为可选约束（null、门店名或 App 称呼），consume
-        为「自己」，其他为 null。
-    :param to: 与对象逐项对应的去向（str|null）：obtain、consume 为「自己」或人物名，其他为 null。
-    :param answering: 所回应的可见直接消息的规范名称，不回应时为 null。
-    :param prefer: 请求级偏好 fastest 或 cheapest（必填可空，null 按 fastest）：多家可服务时按它选定一家。
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True, validate_by_name=True, validate_by_alias=True,
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True, validate_by_alias=True,
                               serialize_by_alias=True, json_schema_extra=purpose_only_schema())
-    targets: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    actions: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    ways: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    from_: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})] = (
-        Field(alias="from"))
-    to: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})]
+    target: str = Field(pattern=r"\S")
+    way: str = Field(pattern=r"\S")
+    from_: str | None = Field(alias="from")
+    to: str | None
+
+
+class StartActivityRequest(ToolRequestModel):
+    """@brief 一至两项活动原子受理，方式唯一推导内部动作，购买偏好必填可空。"""
+
+    items: Annotated[list[ActivityRequestItem], WithJsonSchema(
+        {"type": "array", "items": ActivityRequestItem.model_json_schema(mode="validation")})]
     answering: str | None
-    prefer: Annotated[Literal["fastest", "cheapest"] | None, WithJsonSchema(
+    prefer: Annotated[Literal["最快拿到", "到手价最低"] | None, WithJsonSchema(
         {"type": ["string", "null"], "enum": [*PURCHASE_PREFERENCES, None], "description": _PREFER_FORMAT})]
 
+    @field_validator("items")
+    @classmethod
+    def validate_items(cls, items: list[ActivityRequestItem]) -> list[ActivityRequestItem]:
+        """@brief 限制原子批次一至两项，重复目标必须有不同收货人。"""
+        if not 1 <= len(items) <= 2:
+            _LOGGER.error("Start activity requires one or two items")
+            raise ValueError("items requires one or two activity objects; acceptance is atomic")
+        pairs = [(item.target, item.to) for item in items]
+        if len(set(pairs)) != len(pairs):
+            _LOGGER.error("Start activity repeats a target and recipient")
+            raise ValueError("a target may repeat only with a different recipient")
+        return items
 
-class SubmitWorkActionRequest(FrozenModel):
+    @field_validator("prefer")
+    @classmethod
+    def validate_prefer(cls, prefer: str | None, info) -> str | None:
+        """@brief 方式合法时要求购买偏好，非购买必须空值。"""
+        from worldmock.life.name_resolution import way_options
+        from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS
+
+        items = info.data.get("items")
+        options = [way_options(item.way) for item in items] if items is not None else []
+        if items is None or any(not option for option in options):
+            return prefer
+        purchase = any(option & NAMED_PURCHASE_WAYS for option in options)
+        if (purchase and prefer is None) or (not purchase and prefer is not None):
+            _LOGGER.error("Purchase preference does not match the activity ways")
+            raise ValueError("purchases require a declared preference; non-purchases require null")
+        return prefer
+
+
+class SubmitWorkActionRequest(ToolRequestModel):
     """@brief 按人物可读任务名称提交工作成果。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1039,7 +1089,7 @@ class SubmitWorkActionRequest(FrozenModel):
     deliverable: Annotated[MeetingMinutes, WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation"))]
 
 
-class SendMessageActionRequest(FrozenModel):
+class SendMessageActionRequest(ToolRequestModel):
     """@brief 按人物可读收件人名称发送人物撰写的消息。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1047,7 +1097,7 @@ class SendMessageActionRequest(FrozenModel):
     text: str
 
 
-class RecallTaskSummaryRequest(FrozenModel):
+class RecallTaskSummaryRequest(ToolRequestModel):
     """@brief 按本轮可见的任务、当日目标或活动名称只读回看进展（会话名不在七层中出现，不可回看）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1068,7 +1118,10 @@ def _validate_control_items(tool: str, items: list[Any]) -> list[Any]:
         raise ValueError(f"{tool} takes one or two items")
     if len(set(names)) != len(names):
         _LOGGER.error("Activity control request names the same activity twice")
-        raise ValueError(f"{tool} activity names must be distinct")
+        duplicates = [{"type": "value_error", "loc": (index, "activity_name"), "input": name,
+                       "ctx": {"error": ValueError(f"{tool} activity names must be distinct")}}
+                      for index, name in enumerate(names) if name in names[:index]]
+        raise ValidationError.from_exception_data(tool, duplicates)
     return items
 
 
@@ -1080,7 +1133,7 @@ def _validate_summary(summary: str) -> str:
     return summary
 
 
-class ActivityProgressItem(FrozenModel):
+class ActivityProgressItem(ToolRequestModel):
     """@brief 播报或暂停的一项：活动名与人物自述。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("一项活动：活动名与进展。"))
@@ -1098,7 +1151,7 @@ class ActivityProgressItem(FrozenModel):
 _PROGRESS_ITEMS_SCHEMA = {"type": "array", "items": ActivityProgressItem.model_json_schema(mode="validation")}
 
 
-class ReportStatusRequest(FrozenModel):
+class ReportStatusRequest(ToolRequestModel):
     """@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它（docs/dev/SPEC-dayrun-fidelity.md
     第六章：一项一个对象）。
 
@@ -1116,7 +1169,7 @@ class ReportStatusRequest(FrozenModel):
         return _validate_control_items("report_status", items)
 
 
-class PauseActivityRequest(FrozenModel):
+class PauseActivityRequest(ToolRequestModel):
     """@brief 逐项写下人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
@@ -1142,7 +1195,7 @@ MEMORY_KEYWORDS_MAX = 12
 _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 
 
-def _validate_memory_text(text: str, keywords: list[str]) -> None:
+def _validate_memory_text(text: str) -> str:
     """@brief 记忆与看法共用的上限：文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个。"""
     if len(text) > MEMORY_TEXT_MAX_CHARS:
         _LOGGER.error("Conclusion memory text exceeds its character limit")
@@ -1150,12 +1203,18 @@ def _validate_memory_text(text: str, keywords: list[str]) -> None:
     if _MEMORY_HEX_IDENTITY.search(text):
         _LOGGER.error("Conclusion memory text contains a hexadecimal identifier")
         raise ValueError("memory text contains a hexadecimal identifier")
+    return text
+
+
+def _validate_memory_keywords(keywords: list[str]) -> list[str]:
+    """@brief 关键词上限在具体字段校验以保留完整位置。"""
     if len(keywords) > MEMORY_KEYWORDS_MAX:
         _LOGGER.error("Conclusion memory has too many keywords")
         raise ValueError("memory has more than twelve keywords")
+    return keywords
 
 
-class ConclusionMemory(FrozenModel):
+class ConclusionMemory(ToolRequestModel):
     """@brief 结束活动时写下的一条普通记忆（看法与偏好另写在 views）；没有对象字段，来源与认知状态（subjective）由系统
     固定，模型不填任何身份。"""
 
@@ -1166,14 +1225,20 @@ class ConclusionMemory(FrozenModel):
     importance: float = Field(ge=0, le=1, description="这件事对自己的重要程度，0 到 1 之间的数。")
     keywords: list[Annotated[str, Field(pattern=r"\S")]] = Field(description="便于日后回想的几个关键词。")
 
-    @model_validator(mode="after")
-    def validate_limits(self) -> "ConclusionMemory":
-        """@brief 文字与关键词的上限（与看法共用）。"""
-        _validate_memory_text(self.text, self.keywords)
-        return self
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, text: str) -> str:
+        """@brief 在文字字段上校验长度与身份泄漏。"""
+        return _validate_memory_text(text)
+
+    @field_validator("keywords")
+    @classmethod
+    def validate_keywords(cls, keywords: list[str]) -> list[str]:
+        """@brief 在关键词字段上校验总数。"""
+        return _validate_memory_keywords(keywords)
 
 
-class ConclusionView(FrozenModel):
+class ConclusionView(ToolRequestModel):
     """@brief 结束活动时写下的一条看法（relationship，对某人）或偏好（preference，对某物）；about 写对象，宿主写入记忆时
     作为 subject 存储（请求里叫 about、存储里叫 subject，指同一件事，接口合同「记忆字段」）。"""
 
@@ -1186,14 +1251,20 @@ class ConclusionView(FrozenModel):
     importance: float = Field(ge=0, le=1, description="这条看法或偏好对自己的重要程度，0 到 1 之间的数。")
     keywords: list[Annotated[str, Field(pattern=r"\S")]] = Field(description="便于日后回想的几个关键词。")
 
-    @model_validator(mode="after")
-    def validate_limits(self) -> "ConclusionView":
-        """@brief 文字与关键词的上限（与普通记忆共用）。"""
-        _validate_memory_text(self.text, self.keywords)
-        return self
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, text: str) -> str:
+        """@brief 在文字字段上校验长度与身份泄漏。"""
+        return _validate_memory_text(text)
+
+    @field_validator("keywords")
+    @classmethod
+    def validate_keywords(cls, keywords: list[str]) -> list[str]:
+        """@brief 在关键词字段上校验总数。"""
+        return _validate_memory_keywords(keywords)
 
 
-class ActivityConclusionItem(FrozenModel):
+class ActivityConclusionItem(ToolRequestModel):
     """@brief 结束的一项：活动名、总结、普通记忆与看法（两者都必填，可以为空列表）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema("结束的一项活动：活动名、总结、想记住的事与看法。"))
@@ -1215,7 +1286,7 @@ class ActivityConclusionItem(FrozenModel):
         return _validate_summary(summary)
 
 
-class ConcludeActivityRequest(FrozenModel):
+class ConcludeActivityRequest(ToolRequestModel):
     """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额；一项一个对象
     （docs/dev/SPEC-dayrun-fidelity.md 第六章）。
 

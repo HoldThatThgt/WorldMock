@@ -246,8 +246,8 @@ def test_message_recipients_come_from_current_observation_identities(engine_fact
 
 def test_social_partners_pair_kind_with_identity_source(engine_factory) -> None:
     """交谈与通话由对象本轮动作闭集配对：同伴只列 interact:交谈，联系人只列 interact:通话；环境按私有绑定解析选择，
-    交换方式、未列出的对象或与方式不符的动词都解析不出（受理以 ACTION_REQUEST_INVALID 拒绝，第五章「请求形状与菜单」）。"""
-    from worldmock.life.interaction_menu import resolve_selection
+    交换方式与未列出的对象解析不出，内部动词由合法方式决定。"""
+    from tests.life.conftest import select_start, start_arguments
 
     _, observed, people = _people_seen(engine_factory)
     person, contact = people[0]["name"], people[-1]["name"]
@@ -255,8 +255,8 @@ def test_social_partners_pair_kind_with_identity_source(engine_factory) -> None:
     assert offered[person] == [("interact", "交谈")] and offered[contact] == [("interact", "通话")]
     bindings = observed["interaction_bindings"]
     for target, way, canonical in ((person, "交谈", "chat"), (contact, "通话", "call")):
-        (row,) = resolve_selection(bindings, [target], ["interact"], [way])
+        (row,) = select_start(bindings, start_arguments([target], ["interact"], [way]))
         assert row["selected_action"]["canonical_action"] == canonical
     for target, verb, way in ((contact, "interact", "交谈"), (person, "interact", "通话"),
-                              ("人物：陌生人", "interact", "交谈"), (person, "obtain", "交谈")):
-        assert resolve_selection(bindings, [target], [verb], [way]) is None
+                              ("人物：陌生人", "interact", "交谈")):
+        assert select_start(bindings, start_arguments([target], [verb], [way])) is None

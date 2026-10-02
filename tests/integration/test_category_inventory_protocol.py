@@ -25,7 +25,7 @@ from worldmock.categories import refresh_manifest_identity
 from worldmock.life import prompt_capacity
 
 #: 单人隔离场景里身边没有能给的人：给予动作标不可用，原因与受理的拒绝一字不差（worldmock.life.giving.handover_refusal）。
-_NOBODY_GIVE = ("consume", "给予", False, "要和对方在同一个地方才能给")
+_NOBODY_GIVE = ("consume", "给予", False, "Giving requires the recipient at the same location.")
 
 
 class _Dispatcher:
@@ -93,7 +93,7 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     assert len(dispatcher.requests) == 1
     action_request = dispatcher.requests[0]
     assert set(_action_schema(action_request)["parameters"]["properties"]) == (
-        {"targets", "actions", "ways", "from", "to", "answering", "prefer"})
+        {"items", "answering", "prefer"})
     assert binding["object"] in action_request["messages"][1]["content"]
     assert product_id not in action_request["messages"][1]["content"]
     return observation, engine.commit_decision_round(round_id)[0]

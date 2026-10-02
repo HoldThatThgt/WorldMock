@@ -51,9 +51,8 @@ class ObservationMixin:
         self._pending_presentation[agent.agent_id] = SameMomentPresentation(
             stamps=_presentation_stamps(self.state, presented), pinned_supply_ids=pinned)
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
-        # 技能够不上的任务永久不能开工，不列目标也不绑定名称（docs/dev/SPEC-persona-prompt.md「工具层」）。
-        task_rows = tuple(row for row in self._visible_task_rows(agent)
-                          if agent.skill_levels.get(row["required_skill"], 0) >= row["minimum_skill"])
+        # 邮件公开本人已知任务合同，技能不足只影响可用性，不抹去任务名称。
+        task_rows = tuple(self._visible_task_rows(agent))
         experiences = recent_verified_experiences(self.store, agent.agent_id, self.store.last_event_seq)
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent, task_rows=task_rows, meal_windows=meal_windows,
@@ -69,6 +68,9 @@ class ObservationMixin:
         data.update(self._layer_data(context, data["body"]["levels"], memory, index))
         data.update(self._observation_evidence(agent, experiences))
         data.update(self._event_tool_support(agent, rows["window"].presented))
+        from worldmock.life.world_query import attach_world_query
+
+        attach_world_query(data, context)
         return data
 
     def _layer_context(self, agent, task_rows: tuple[dict, ...], bindings: list[dict]) -> LayerContext:

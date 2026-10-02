@@ -90,7 +90,18 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
         sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
         discarded = sum(activity.data.get("discarded", {}).values())
         sentence += f"，丢弃 {portion_phrase(discarded)}" if discarded > 0 else ""
-    return sentence + _browse_clause(context, activity)
+    return sentence + _browse_clause(context, activity) + _recipe_clause(context, activity)
+
+
+def _recipe_clause(context: LayerContext, activity: ActivityState) -> str:
+    """@brief 已完成的库存转换附实际输入与产物；没有结算的制作不声称得到菜品。"""
+    recipe = activity.data.get("inventory_recipe")
+    if recipe is None or not activity.data.get("recipe_applied"):
+        return ""
+    source = context.rules.items[recipe["input_object_id"]].name
+    output = context.rules.items[recipe["output_object_id"]].name
+    return (f"，消耗{source} {portion_phrase(float(recipe['input_quantity']))}，"
+            f"制作得到{output} {portion_phrase(float(recipe['output_quantity']))}")
 
 
 def _browse_clause(context: LayerContext, activity: ActivityState) -> str:

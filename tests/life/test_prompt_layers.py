@@ -75,7 +75,8 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
     index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
-    assert INDEX_EXAMPLES_MAX == MAX_EXAMPLES and tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
+    assert INDEX_EXAMPLES_MAX == MAX_EXAMPLES
+    assert tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
 
 
 def test_memory_layer_and_persona_views_are_empty_at_run_start(engine_factory) -> None:
@@ -94,9 +95,9 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     engine = engine_factory()
     stage_day_plan(engine)
     _stage(engine, "market", 700)
-    submit_round(engine, {1: ("revise_day_plan", ReviseDayPlanRequest(goals=(
+    submit_round(engine, {1: ("revise_day_plan", ReviseDayPlanRequest(goals=[
         PlanGoalInput(intent_kind="用餐", goal="中午好好吃一顿", remind_time="12:00",
-                      around_time="12:30"),)))}, "layers-plan")
+                      around_time="12:30")]))}, "layers-plan")
     shop = _checked(engine, "layers-shop")
     target, way = next((row["object"], action["label"]) for row in shop["interaction_bindings"]
                        if row["kind"] == "supply" for action in row["actions"]
@@ -166,6 +167,7 @@ def test_callable_index_schema_takes_names_counts_and_up_to_three_examples(engin
     observed = _checked(engine, "index-schema")
     index = observed["tool_layer"]["callable_index"]
     assert list(index) == list(INDEX_KEYS) and all(index[key] for key in INDEX_KEYS)
+    assert index["query_categories"] and all(isinstance(row["count"], int) for row in index["query_categories"])
     assert all(set(row) == {"category", "count", "examples"} for key in ("contents", "goods") for row in index[key])
     assert all(row["count"] == count_phrase(int(row["count"].split()[0])) for row in index["goods"])
     missing = copy.deepcopy(observed["tool_layer"])

@@ -12,7 +12,7 @@ from tests.life.conftest import (
     start_activity, wake_by_mail,
 )
 from agentsociety2.society import DirectToolCall
-from worldmock.errors import ProtocolError
+from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     PlanDayRequest, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
@@ -335,20 +335,21 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
 
 
 def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
-    """按待办层写出的目标文字回看，返回目标与推进状态，结果随下一次观察进入进度层该调用的 details.recall；未知名称是业务
-    拒绝（时间与能量规格「仍须修复」第 3 条、第七章 recall_task_summary；docs/dev/SPEC-persona-prompt.md 系统层规则 12）。"""
+    """按待办层目标文字即时回看推进状态，不登记动作或进度事件；未知名称是业务拒绝。"""
     engine = engine_factory()
     assert settle_day_plans(engine, planned("休息", "歇一歇"))[0]["goals"] == 1
     assert advance_until_ready(engine)
-    shown = engine.observe(context(engine, "recall-plan"))["todo_layer"]["day_plan"]["goals"][0]["goal"]
+    observed = engine.observe(context(engine, "recall-plan"))
+    shown = observed["todo_layer"]["day_plan"]["goals"][0]["goal"]
     assert shown == "歇一歇"
     recall = RecallTaskSummaryRequest(task_name=shown)
-    before = act(engine, "recall-before", "recall_task_summary", recall)
-    assert before.status == "completed"
+    state, sequence = engine.state.model_dump(), engine.store.last_event_seq
+    before = engine.read_task_summary(1, recall, observed)
     expected = {"kind": "goal", "goal": "歇一歇", "intent_kind": "休息", "progressed": False}
-    assert before.data["recall"] == expected
+    assert before["recall"] == expected
+    assert (engine.state.model_dump(), engine.store.last_event_seq) == (state, sequence)
     shown = engine.observe(context(engine, "recall-shown"))["progress_layer"]["events"]
-    assert {"recall": expected} in [row["result"]["details"] for row in shown if row["type"] == "tool_call"]
+    assert not any(row.get("tool") == "recall_task_summary" for row in shown)
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     act(engine, "recall-rest", "start_activity", start_activity("等待", "自己"))
@@ -356,13 +357,11 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is not None
     # 等待按计划结束即成待收尾：当秒收尾之后才做别的（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "recall-rest-end").status == "completed"
-    after = act(engine, "recall-after", "recall_task_summary", recall)
-    assert after.status == "completed"
-    assert after.data["recall"] == {**expected, "progressed": True}
-    assert advance_until_ready(engine)
-    unknown = act(engine, "recall-unknown", "recall_task_summary",
-                  RecallTaskSummaryRequest(task_name="睡个午觉"))
-    assert unknown.status == "rejected" and unknown.error_code == "TASK_NOT_FOUND"
+    observed = engine.observe(context(engine, "recall-after"))
+    after = engine.read_task_summary(1, recall, observed)
+    assert after["recall"] == {**expected, "progressed": True}
+    with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
+        engine.read_task_summary(1, RecallTaskSummaryRequest(task_name="睡个午觉"), observed)
 
 
 def test_empty_plan_is_registered_once_and_can_be_revised(engine_factory):
@@ -380,7 +379,7 @@ def test_empty_plan_is_registered_once_and_can_be_revised(engine_factory):
     again = StubPlanDayClient()
     assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
     with pytest.raises(ProtocolError, match="already generated"):
-        engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
+        engine.register_day_plan(1, PlanDayRequest(goals=[]), [], [])
     assert engine.state.agents[1].day_plan == plan
 
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "scenario_id": "zhangjiang-white-collar-12-weeks",
   "timezone": "Asia/Shanghai",
   "start_at": "2026-01-05T00:00:00+08:00",
@@ -13,10 +13,10 @@
   "rotation_stale_seconds": 604800,
   "retrieval_index_threshold": 1000,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "000036b9092feea66a362443929999e6715c5df375d68be9b67e9c0964f15efb",
+  "corpus_manifest_sha256": "3e2386c78e96072cd0d2a065023a67ab29fdb02bd1e94237883b1954e80146df",
   "catalog_version": {
-    "major": 4,
-    "minor": 1
+    "major": 5,
+    "minor": 3
   },
   "interaction_menus_by_location_kind": {
     "home": {
@@ -368,105 +368,6 @@
   ],
   "products": [
     {
-      "product_id": "food-6923644266066"
-    },
-    {
-      "product_id": "food-6928804010114"
-    },
-    {
-      "product_id": "food-6917878044729"
-    },
-    {
-      "product_id": "food-6924743919211"
-    },
-    {
-      "product_id": "food-6920152460061"
-    },
-    {
-      "product_id": "food-6920459902387"
-    },
-    {
-      "product_id": "food-6901209212215"
-    },
-    {
-      "product_id": "food-8935090914864"
-    },
-    {
-      "product_id": "food-6901939621738"
-    },
-    {
-      "product_id": "food-6902083881085"
-    },
-    {
-      "product_id": "food-6902538006575"
-    },
-    {
-      "product_id": "food-6907992100272"
-    },
-    {
-      "product_id": "food-6907992500942"
-    },
-    {
-      "product_id": "food-6907992507095"
-    },
-    {
-      "product_id": "food-6909548098880"
-    },
-    {
-      "product_id": "food-6914973603394"
-    },
-    {
-      "product_id": "food-6916196410414"
-    },
-    {
-      "product_id": "food-6921168593569"
-    },
-    {
-      "product_id": "food-6921351120305"
-    },
-    {
-      "product_id": "food-6922577790068"
-    },
-    {
-      "product_id": "food-6923167524186"
-    },
-    {
-      "product_id": "food-6923644223458"
-    },
-    {
-      "product_id": "food-6924743919242"
-    },
-    {
-      "product_id": "food-6924773540416"
-    },
-    {
-      "product_id": "food-6937003704014"
-    },
-    {
-      "product_id": "food-6937962112714"
-    },
-    {
-      "product_id": "food-6938360357264"
-    },
-    {
-      "product_id": "food-6943949415174"
-    },
-    {
-      "product_id": "food-6948939681928"
-    },
-    {
-      "product_id": "food-6948939696106"
-    },
-    {
-      "product_id": "food-6950955909610"
-    },
-    {
-      "product_id": "food-6972020770130"
-    },
-    {
-      "product_id": "food-6974800253352"
-    },
-    {
       "product_id": "food-0012256091053"
     },
     {
@@ -521,13 +422,22 @@
       "product_id": "food-6900873056781"
     },
     {
+      "product_id": "food-6901209212215"
+    },
+    {
       "product_id": "food-6901668005946"
     },
     {
       "product_id": "food-6901668008176"
     },
     {
+      "product_id": "food-6901939621738"
+    },
+    {
       "product_id": "food-6902083814045"
+    },
+    {
+      "product_id": "food-6902083881085"
     },
     {
       "product_id": "food-6902083891329"
@@ -539,16 +449,31 @@
       "product_id": "food-6902083922658"
     },
     {
+      "product_id": "food-6902538006575"
+    },
+    {
       "product_id": "food-6902890235590"
     },
     {
       "product_id": "food-6906839701016"
     },
     {
+      "product_id": "food-6907992100272"
+    },
+    {
       "product_id": "food-6907992102764"
     },
     {
+      "product_id": "food-6907992500942"
+    },
+    {
+      "product_id": "food-6907992507095"
+    },
+    {
       "product_id": "food-6907992513560"
+    },
+    {
+      "product_id": "food-6909548098880"
     },
     {
       "product_id": "food-6911988018779"
@@ -557,7 +482,19 @@
       "product_id": "food-6911988033413"
     },
     {
+      "product_id": "food-6914973603394"
+    },
+    {
+      "product_id": "food-6916196410414"
+    },
+    {
       "product_id": "food-6917486003286"
+    },
+    {
+      "product_id": "food-6917878044729"
+    },
+    {
+      "product_id": "food-6920152460061"
     },
     {
       "product_id": "food-6920152497029"
@@ -569,6 +506,9 @@
       "product_id": "food-6920458835617"
     },
     {
+      "product_id": "food-6920459902387"
+    },
+    {
       "product_id": "food-6920907810707"
     },
     {
@@ -576,6 +516,12 @@
     },
     {
       "product_id": "food-6920934800863"
+    },
+    {
+      "product_id": "food-6921168593569"
+    },
+    {
+      "product_id": "food-6921351120305"
     },
     {
       "product_id": "food-6921355221411"
@@ -590,13 +536,31 @@
       "product_id": "food-6922577704188"
     },
     {
+      "product_id": "food-6922577790068"
+    },
+    {
+      "product_id": "food-6923167524186"
+    },
+    {
       "product_id": "food-6923404800974"
     },
     {
       "product_id": "food-6923555239845"
     },
     {
+      "product_id": "food-6923644223458"
+    },
+    {
+      "product_id": "food-6923644266066"
+    },
+    {
       "product_id": "food-6924743915084"
+    },
+    {
+      "product_id": "food-6924743919211"
+    },
+    {
+      "product_id": "food-6924743919242"
     },
     {
       "product_id": "food-6924743922570"
@@ -605,7 +569,13 @@
       "product_id": "food-6924769700497"
     },
     {
+      "product_id": "food-6924773540416"
+    },
+    {
       "product_id": "food-6927770903437"
+    },
+    {
+      "product_id": "food-6928804010114"
     },
     {
       "product_id": "food-6932009600742"
@@ -617,10 +587,19 @@
       "product_id": "food-6934665095511"
     },
     {
+      "product_id": "food-6937003704014"
+    },
+    {
       "product_id": "food-6937962103293"
     },
     {
+      "product_id": "food-6937962112714"
+    },
+    {
       "product_id": "food-6937973100212"
+    },
+    {
+      "product_id": "food-6938360357264"
     },
     {
       "product_id": "food-6938536200103"
@@ -644,10 +623,22 @@
       "product_id": "food-6942656601269"
     },
     {
+      "product_id": "food-6943949415174"
+    },
+    {
       "product_id": "food-6944839902385"
     },
     {
       "product_id": "food-6944839956548"
+    },
+    {
+      "product_id": "food-6948939681928"
+    },
+    {
+      "product_id": "food-6948939696106"
+    },
+    {
+      "product_id": "food-6950955909610"
     },
     {
       "product_id": "food-6951444610017"
@@ -689,6 +680,9 @@
       "product_id": "food-6971858720102"
     },
     {
+      "product_id": "food-6972020770130"
+    },
+    {
       "product_id": "food-6972146801022"
     },
     {
@@ -705,6 +699,9 @@
     },
     {
       "product_id": "food-6974348720972"
+    },
+    {
+      "product_id": "food-6974800253352"
     },
     {
       "product_id": "food-7610900081738"
@@ -725,16 +722,40 @@
       "product_id": "food-8885013130058"
     },
     {
+      "product_id": "food-8935090914864"
+    },
+    {
       "product_id": "food-9300639999005"
     },
     {
       "product_id": "food-9556771007584"
     },
     {
-      "product_id": "item-umbrella"
+      "product_id": "ingredient-broccoli"
     },
     {
-      "product_id": "item-notebook"
+      "product_id": "ingredient-carrot"
+    },
+    {
+      "product_id": "ingredient-cauliflower"
+    },
+    {
+      "product_id": "ingredient-celery"
+    },
+    {
+      "product_id": "ingredient-cornstarch"
+    },
+    {
+      "product_id": "ingredient-rice"
+    },
+    {
+      "product_id": "ingredient-soy-sauce"
+    },
+    {
+      "product_id": "ingredient-vegetable-kit"
+    },
+    {
+      "product_id": "ingredient-vegetable-oil"
     },
     {
       "product_id": "item-charger"
@@ -743,16 +764,22 @@
       "product_id": "item-detergent"
     },
     {
+      "product_id": "item-headphones"
+    },
+    {
+      "product_id": "item-metro-card"
+    },
+    {
+      "product_id": "item-notebook"
+    },
+    {
       "product_id": "item-tissues"
     },
     {
       "product_id": "item-toothbrush"
     },
     {
-      "product_id": "item-headphones"
-    },
-    {
-      "product_id": "item-metro-card"
+      "product_id": "item-umbrella"
     },
     {
       "product_id": "meal-0001"
@@ -851,7 +878,6 @@
       "title": "1月5日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -863,14 +889,14 @@
       "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
       "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
       "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-06",
       "title": "1月6日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-06T09:00:00+08:00",
       "due_at": "2026-01-06T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -882,14 +908,14 @@
       "input_sha256": "126c8aec295f2a51e7d5c3586079676e70e8822593bd46575420a2415a370624",
       "oracle_path": "scenario-work/references/work-0001.oracle.json",
       "oracle_sha256": "1d01458b3865fe9a15f0540a9230df4a12b68fceca3c664b43b630fff5ac2376",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-07",
       "title": "1月7日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-07T09:00:00+08:00",
       "due_at": "2026-01-07T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -901,14 +927,14 @@
       "input_sha256": "4e6760e60f88339ec3fb7fea98c64cb1850759e2fb73ddeac08441809084fbb4",
       "oracle_path": "scenario-work/references/work-0002.oracle.json",
       "oracle_sha256": "d84366ee5bc56a5179fa2e4422147c117a5692c1d9e1e934dcec4af3bd8ace75",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-08",
       "title": "1月8日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-08T09:00:00+08:00",
       "due_at": "2026-01-08T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -920,14 +946,14 @@
       "input_sha256": "8d4d2506dbf7105540dd593c1ec2969b355fb3693a1ea7ea60ff8b9f2eb415f9",
       "oracle_path": "scenario-work/references/work-0003.oracle.json",
       "oracle_sha256": "69861a4acb16fbdecb03235a8aa37c83529499f641d8b3f12b2b87038591b957",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-09",
       "title": "1月9日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-09T09:00:00+08:00",
       "due_at": "2026-01-09T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -939,14 +965,14 @@
       "input_sha256": "43b5ef91eace52988340977a4990c679b5da7b4d2c8a99c6762479efb23ebccc",
       "oracle_path": "scenario-work/references/work-0004.oracle.json",
       "oracle_sha256": "fa4e11c18c676be487c52f34c2a19a77659e85c112390ccb67c3fade97e16786",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-12",
       "title": "1月12日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-12T09:00:00+08:00",
       "due_at": "2026-01-12T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -958,14 +984,14 @@
       "input_sha256": "6a9bb1f038e5b6d45a15f243dcca70963e939fb2715052f02124d0513d233dff",
       "oracle_path": "scenario-work/references/work-0005.oracle.json",
       "oracle_sha256": "3cf592ac018dbfb02c6cb177466afa6ffd68fcb1a37405b240e435b4d70a1211",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-13",
       "title": "1月13日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-13T09:00:00+08:00",
       "due_at": "2026-01-13T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -977,14 +1003,14 @@
       "input_sha256": "73ae220aef7ac56350921d29b7caab2953f3f0bbf830a87656c079cccd018659",
       "oracle_path": "scenario-work/references/work-0006.oracle.json",
       "oracle_sha256": "ad6f0d220ee98ae1ea545bb6f28639a3e9babfcd56daa604ec0c77cc89e39524",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-14",
       "title": "1月14日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-14T09:00:00+08:00",
       "due_at": "2026-01-14T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -996,14 +1022,14 @@
       "input_sha256": "f6193bcbdc14df5b7245616dbcca329cced98a287ae63188901f66ee9ce27fce",
       "oracle_path": "scenario-work/references/work-0007.oracle.json",
       "oracle_sha256": "466447fd678b79440508dd410911ad18240e616aa9331c0a6ecec30d51bc2f0b",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-15",
       "title": "1月15日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-15T09:00:00+08:00",
       "due_at": "2026-01-15T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1015,14 +1041,14 @@
       "input_sha256": "74051df2b2934254f27acd73c0d2e8664d193814dd7543f7ab7cf17ad07c159c",
       "oracle_path": "scenario-work/references/work-0008.oracle.json",
       "oracle_sha256": "463dc8486b4245266ac3d1edcfdabe7e7ee4f90dd9f8621527b57a8b77cb907c",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-16",
       "title": "1月16日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-16T09:00:00+08:00",
       "due_at": "2026-01-16T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1034,14 +1060,14 @@
       "input_sha256": "7ecb53605dcb6d3a1fe936dc15da5f85ad20dfb6d112eef178938615d371781b",
       "oracle_path": "scenario-work/references/work-0009.oracle.json",
       "oracle_sha256": "19f19482afeb269a53728174c3eb963435760b9926d804f35a873d443d3242fa",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-19",
       "title": "1月19日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-19T09:00:00+08:00",
       "due_at": "2026-01-19T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1053,14 +1079,14 @@
       "input_sha256": "34e2ec138322abdbefab0bcb3789613a388e76648d5cfd9436a66af0ba93979e",
       "oracle_path": "scenario-work/references/work-0010.oracle.json",
       "oracle_sha256": "691aab10f28e75f633b4214b40b23fee826645e5444028e30e053b54706a5262",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-20",
       "title": "1月20日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-20T09:00:00+08:00",
       "due_at": "2026-01-20T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1072,14 +1098,14 @@
       "input_sha256": "77f1d1fee050c53b56e219044ef7a7d3ce98af9bc4736338b5b619bb32cfce87",
       "oracle_path": "scenario-work/references/work-0021.oracle.json",
       "oracle_sha256": "15e64ec6500398879943e855e47c6215a2e005152355c1ddc18d0521cb37e2f5",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-21",
       "title": "1月21日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-21T09:00:00+08:00",
       "due_at": "2026-01-21T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1091,14 +1117,14 @@
       "input_sha256": "6219d37a92f34cc1d4e629d1c23d4e433c438fa843808370b7ecbcac863e2108",
       "oracle_path": "scenario-work/references/work-0022.oracle.json",
       "oracle_sha256": "105e471ac37c18243c81a95ebfe9b9697c0670e64479422b3f81ab06ceae986b",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-22",
       "title": "1月22日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-22T09:00:00+08:00",
       "due_at": "2026-01-22T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1110,14 +1136,14 @@
       "input_sha256": "4bd8648a7c2bd3d292735eee9e87956c4e796dee9fbf49debf0f9eeacb07a020",
       "oracle_path": "scenario-work/references/work-0023.oracle.json",
       "oracle_sha256": "a49003381a845e5d11c3c3d10373116e205d4af42fc3fc7795915eff1e552d77",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-23",
       "title": "1月23日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-23T09:00:00+08:00",
       "due_at": "2026-01-23T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1129,14 +1155,14 @@
       "input_sha256": "9ae79a5ec3bdef4ed0b07a2b06fe941c25118e3a792eeb5ceaf4dd57a0ae8eaf",
       "oracle_path": "scenario-work/references/work-0024.oracle.json",
       "oracle_sha256": "0a8ab3f2c7df6033fa7e4ebd55bc3f8c90082923ee3ce226b4c7fe0b2cc92536",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-24",
       "title": "1月24日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-24T09:00:00+08:00",
       "due_at": "2026-01-24T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1148,14 +1174,14 @@
       "input_sha256": "4c6b55e4151ca48429227e343fdf9a98cd7bb67e62d5f113af8ec4b1b612e32f",
       "oracle_path": "scenario-work/references/work-0025.oracle.json",
       "oracle_sha256": "77b8e5240acae7b9041b7cd1c6cdd01913598b58edd4c3b290ea58a0d05e1863",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-26",
       "title": "1月26日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-26T09:00:00+08:00",
       "due_at": "2026-01-26T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1167,14 +1193,14 @@
       "input_sha256": "9dddefc284e3ceca1bea805089cd1a2c7581a0c06431a849f72dc88186e5b630",
       "oracle_path": "scenario-work/references/work-0026.oracle.json",
       "oracle_sha256": "22f7d6b8768c8d74137ffc8720210e16fc6692c44f3ef05320d98da1d5e4af99",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-27",
       "title": "1月27日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-27T09:00:00+08:00",
       "due_at": "2026-01-27T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1186,14 +1212,14 @@
       "input_sha256": "ea45d941c275823f1963d911d2e4b9254ae31649ed1fa6a19a7eb4993dad7854",
       "oracle_path": "scenario-work/references/work-0027.oracle.json",
       "oracle_sha256": "4f890902b00c673ae4a50ef9abd35afaa224c8ede5dd80821e17b402ef71a0ae",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-28",
       "title": "1月28日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-28T09:00:00+08:00",
       "due_at": "2026-01-28T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1205,14 +1231,14 @@
       "input_sha256": "57d7d8108d1c04ee4c8d4a1f5dd2f983fe425c42f273f157d547eac048ed0696",
       "oracle_path": "scenario-work/references/work-0028.oracle.json",
       "oracle_sha256": "538156615374ada8260170d1c471ae39f951bc52a7187766175a602f973079eb",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-29",
       "title": "1月29日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-29T09:00:00+08:00",
       "due_at": "2026-01-29T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1224,14 +1250,14 @@
       "input_sha256": "9ff7fb0be3ffabcac23678d39b5ad56a3d1653afa02127a63cca0e21c26e8d5f",
       "oracle_path": "scenario-work/references/work-0029.oracle.json",
       "oracle_sha256": "e5802f226f674fa02a5a0f2a2ed157a164acf4483b42ea3da63c47ab21d6f663",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-01-30",
       "title": "1月30日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-30T09:00:00+08:00",
       "due_at": "2026-01-30T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1243,14 +1269,14 @@
       "input_sha256": "6b9e0df3ac19f632802e78cd42efaf7aa1f48708e2af73cac98d68a1cda86a07",
       "oracle_path": "scenario-work/references/work-0030.oracle.json",
       "oracle_sha256": "2e215c8f1cb27d801ec53e19a800c58c12b7e3583153477eaf737acde048f989",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-02",
       "title": "2月2日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-02T09:00:00+08:00",
       "due_at": "2026-02-02T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1262,14 +1288,14 @@
       "input_sha256": "1b9dd2839a35ff59d04e013995f18699f7a6b210f146e51ed0f6377b0e87766c",
       "oracle_path": "scenario-work/references/work-0031.oracle.json",
       "oracle_sha256": "f8355f3e5d233d266a31e84169b42ab43a7efce247260a792d27b97dda768783",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-03",
       "title": "2月3日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-03T09:00:00+08:00",
       "due_at": "2026-02-03T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1281,14 +1307,14 @@
       "input_sha256": "27dac9ac6481b6a7fef099bc67f88b6d61956c6e43d3f016e729de2c4a8cea8f",
       "oracle_path": "scenario-work/references/work-0032.oracle.json",
       "oracle_sha256": "7bf30af69ca0540415d1953a0ff560dc3e8592439ef26d1ad9e5df9c5816a14a",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-04",
       "title": "2月4日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-04T09:00:00+08:00",
       "due_at": "2026-02-04T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1300,14 +1326,14 @@
       "input_sha256": "bad5a8b880421e058b886d20249965cda2e0512554704cbf2fa578a856984602",
       "oracle_path": "scenario-work/references/work-0033.oracle.json",
       "oracle_sha256": "e69e928327b5a3b4bd6afde40954319dbf642a6f5b3e03f6a514bc8c1f529116",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-05",
       "title": "2月5日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-05T09:00:00+08:00",
       "due_at": "2026-02-05T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1319,14 +1345,14 @@
       "input_sha256": "4c0bff6c8ade8df5e3eafc50183cf8b8224db05dd052f851b2811a8d4385b49c",
       "oracle_path": "scenario-work/references/work-0034.oracle.json",
       "oracle_sha256": "3fad315bf1dc827376d9314bf2390d30f634251b67363187e2d07e411c77cef0",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-06",
       "title": "2月6日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-06T09:00:00+08:00",
       "due_at": "2026-02-06T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1338,14 +1364,14 @@
       "input_sha256": "42154d50e2da3e968af9d6454ed230ba0fab271e2bd490f78a907ad901b84aa1",
       "oracle_path": "scenario-work/references/work-0035.oracle.json",
       "oracle_sha256": "337d369892b59ac1dc27ad4bddde78f059d747bcb174eb8808c9e2de3447d579",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-09",
       "title": "2月9日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-09T09:00:00+08:00",
       "due_at": "2026-02-09T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1357,14 +1383,14 @@
       "input_sha256": "c0ce4f371e69c070ff8fdcfbf770aa0e1de7acd25617f268ebeadafaaf027c13",
       "oracle_path": "scenario-work/references/work-0036.oracle.json",
       "oracle_sha256": "d0594f4aec1cbf05be9c3b2a1cc0ffe013dbc5117e587ddf548a4659a6cc8eb3",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-10",
       "title": "2月10日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-10T09:00:00+08:00",
       "due_at": "2026-02-10T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1376,14 +1402,14 @@
       "input_sha256": "5006feb124fc89b2ff7eee3b236db95b956d1aaa0725fdc87321c713e69cfd2d",
       "oracle_path": "scenario-work/references/work-0037.oracle.json",
       "oracle_sha256": "348e14d7cb0676b2bd19b613d8ddd31f805451fea726e8bf0f4cc8e66bf3991f",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-11",
       "title": "2月11日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-11T09:00:00+08:00",
       "due_at": "2026-02-11T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1395,14 +1421,14 @@
       "input_sha256": "0b4441c4b12de8dcbf0d60cf01f2d58b2f2c5e1749df584bb869a6c794dd2ede",
       "oracle_path": "scenario-work/references/work-0038.oracle.json",
       "oracle_sha256": "664812ac13475022796a3f7c7f644543e370090f170aec3c2fa4d6fb1a6812a8",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-12",
       "title": "2月12日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-12T09:00:00+08:00",
       "due_at": "2026-02-12T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1414,14 +1440,14 @@
       "input_sha256": "ce6d9dd66d4e7c1ebccd9ce0b453ab492074d521e719ce4559077b54f24a2ef7",
       "oracle_path": "scenario-work/references/work-0039.oracle.json",
       "oracle_sha256": "77fcf2066cd62e203e34950f2041618fc88249b21a5164f024e38a87393f24ce",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-13",
       "title": "2月13日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-13T09:00:00+08:00",
       "due_at": "2026-02-13T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1433,14 +1459,14 @@
       "input_sha256": "126aef4e1526a72df8f9f46def48405f626884f66c1981a9d3e882b3e9cbee12",
       "oracle_path": "scenario-work/references/work-0040.oracle.json",
       "oracle_sha256": "99477df15f9f07aecaac457b46e672dde79f824eb9e15ffbcad507a360777f17",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-14",
       "title": "2月14日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-14T09:00:00+08:00",
       "due_at": "2026-02-14T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1452,14 +1478,14 @@
       "input_sha256": "608a7628e44a16aee01e525fb8bbfc41350e4c805a0ff953b7c6cb56d3ffe98b",
       "oracle_path": "scenario-work/references/work-0041.oracle.json",
       "oracle_sha256": "6978164ba0d0a6793276f614d3515083ce116272c2761d618b392225ced47353",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-24",
       "title": "2月24日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-24T09:00:00+08:00",
       "due_at": "2026-02-24T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1471,14 +1497,14 @@
       "input_sha256": "80df6aff11bdfb3cdc6771e64336598785d06643bfa0e8e6712c560e69797918",
       "oracle_path": "scenario-work/references/work-0042.oracle.json",
       "oracle_sha256": "b7927313bd82221545ae6bcdc693e456496e9cdbc5205e84ff5431c302ba6326",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-25",
       "title": "2月25日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-25T09:00:00+08:00",
       "due_at": "2026-02-25T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1490,14 +1516,14 @@
       "input_sha256": "9cdedd653932fe41a5f6fb05065f20df0941787a98e7f40affdc80c5e1dfbd6a",
       "oracle_path": "scenario-work/references/work-0043.oracle.json",
       "oracle_sha256": "1d7e90c48bad4dfd84819f09c8fde7c47c0243f5cf559920b59e351b23c9e64e",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-26",
       "title": "2月26日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-26T09:00:00+08:00",
       "due_at": "2026-02-26T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1509,14 +1535,14 @@
       "input_sha256": "f2e9f8de09466ea4c1112df065ae4134a3410a999af8f1cee8fbbd788e11f9c0",
       "oracle_path": "scenario-work/references/work-0044.oracle.json",
       "oracle_sha256": "f629f414e9fcf73bec79c77c5a63e1a7360864c26c780100d6bd2cd0c6cb6dfd",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-27",
       "title": "2月27日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-27T09:00:00+08:00",
       "due_at": "2026-02-27T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1528,14 +1554,14 @@
       "input_sha256": "e4ef1f133493c6c6f683343392b14c58a5da222d84d9bd66878732e2520a9714",
       "oracle_path": "scenario-work/references/work-0045.oracle.json",
       "oracle_sha256": "689bed8d68aef1790099b58b09ec492d9de7b4eb332003a5398761673324bbea",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-02-28",
       "title": "2月28日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-02-28T09:00:00+08:00",
       "due_at": "2026-02-28T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1547,14 +1573,14 @@
       "input_sha256": "f897112dc9ca2813bdbe9e6398dc677acde923697dd77df0a9f2da551e86e32a",
       "oracle_path": "scenario-work/references/work-0046.oracle.json",
       "oracle_sha256": "fd1228d01f133a88add540890964e073f5a326d6a3adfa24bd1677fe525c9c40",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-02",
       "title": "3月2日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-02T09:00:00+08:00",
       "due_at": "2026-03-02T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1566,14 +1592,14 @@
       "input_sha256": "a82fc27ed3c0955c7e1db3496dd436fbdab0661060369f47ca2ef856238583b0",
       "oracle_path": "scenario-work/references/work-0047.oracle.json",
       "oracle_sha256": "cd9ff0032c49d834fdc5eb15cb9908da044474b655df8625f43a69115717cbea",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-03",
       "title": "3月3日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-03T09:00:00+08:00",
       "due_at": "2026-03-03T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1585,14 +1611,14 @@
       "input_sha256": "5bd79afa0b4af1b4151b9affbde19e900565665ee08683cace75a8dbf14489d4",
       "oracle_path": "scenario-work/references/work-0048.oracle.json",
       "oracle_sha256": "217150e47c9b3c5829258dc1e36bc97170f00fc6e28e3fa9af2b188b3d47eb8f",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-04",
       "title": "3月4日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-04T09:00:00+08:00",
       "due_at": "2026-03-04T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1604,14 +1630,14 @@
       "input_sha256": "1fda9719a0374d4cd8ebcca513754b4edd0d4cc77e37ae920357695ba7754e00",
       "oracle_path": "scenario-work/references/work-0049.oracle.json",
       "oracle_sha256": "a0d6eff5f6605c9ea264afd55fbdc58f2f867e5d0c98a6c94feefb2ee0aefd72",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-05",
       "title": "3月5日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-05T09:00:00+08:00",
       "due_at": "2026-03-05T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1623,14 +1649,14 @@
       "input_sha256": "3460cf66713f306ba784a1defa7fe35bd45bbc2524192706a3ce9b7f8c540055",
       "oracle_path": "scenario-work/references/work-0050.oracle.json",
       "oracle_sha256": "8485866f66cc64b77b5872f3f899657c54cd6dce207a5ce46426692f813affdc",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-06",
       "title": "3月6日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-06T09:00:00+08:00",
       "due_at": "2026-03-06T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1642,14 +1668,14 @@
       "input_sha256": "62db856e5ccf8c24fadad45a3b4156216857959c9f07e4488d8f4b3303d871a4",
       "oracle_path": "scenario-work/references/work-0051.oracle.json",
       "oracle_sha256": "f6eecb8cdfb2d63e2df239373ddfe62b4fca0ada9663686f9d24428c4cd03d41",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-09",
       "title": "3月9日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-09T09:00:00+08:00",
       "due_at": "2026-03-09T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1661,14 +1687,14 @@
       "input_sha256": "c7d3f2800c051d04e4cae601be25413581ac59aaf13ba30aceb9a7a878a86996",
       "oracle_path": "scenario-work/references/work-0052.oracle.json",
       "oracle_sha256": "d25edae1fad6f8e9718b054e020a7fe95eeaf0b6f328b2dbf9404d769f7dc4c2",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-10",
       "title": "3月10日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-10T09:00:00+08:00",
       "due_at": "2026-03-10T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1680,14 +1706,14 @@
       "input_sha256": "a55317a4ece76771e7d689ab43c95d56d655b21a82f9b2dedd834c6490a16440",
       "oracle_path": "scenario-work/references/work-0053.oracle.json",
       "oracle_sha256": "6987fbbd36127a7c1c56a42a9c9c52cadb8a5c4be1452584fa734a5ad6c9682c",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-11",
       "title": "3月11日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-11T09:00:00+08:00",
       "due_at": "2026-03-11T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1699,14 +1725,14 @@
       "input_sha256": "d2e5f0ec30730e7b1928c42175cdf5d74c73f70c4b7236e4a8eab83b384ae30f",
       "oracle_path": "scenario-work/references/work-0054.oracle.json",
       "oracle_sha256": "bf5c1b177941926ad8d652cdd1e3c764be06217afdfd2ed1a110bb2998f1d8df",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-13",
       "title": "3月13日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-13T09:00:00+08:00",
       "due_at": "2026-03-13T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1718,14 +1744,14 @@
       "input_sha256": "694c47f34d01198aeb7e120fb281552e80b42460bccc3ef3717252f5692b8769",
       "oracle_path": "scenario-work/references/work-0055.oracle.json",
       "oracle_sha256": "6405b26a2f2dfc03e7f4d46b308a18ea7a79621d3d1cdc99b456222d0795a6a5",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-16",
       "title": "3月16日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-16T09:00:00+08:00",
       "due_at": "2026-03-16T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1737,14 +1763,14 @@
       "input_sha256": "25091421bc85162e790e80ee307f34c9c2841137d87ca96a95d0a3e4bf17e660",
       "oracle_path": "scenario-work/references/work-0056.oracle.json",
       "oracle_sha256": "5f6fc2a702b06d4d2857de5eb034895c30770afe9184fde0b346bfa5fc0b90aa",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-17",
       "title": "3月17日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-17T09:00:00+08:00",
       "due_at": "2026-03-17T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1756,14 +1782,14 @@
       "input_sha256": "c7cf866febdf2ecc9a67bdfa0db78d32f5d6d112d2faaede1cac0b779ce0aab0",
       "oracle_path": "scenario-work/references/work-0057.oracle.json",
       "oracle_sha256": "4b01090486b92b9494a446d209d9612117ecd0f45d08c788b317bf5782ca8339",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-19",
       "title": "3月19日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-19T09:00:00+08:00",
       "due_at": "2026-03-19T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1775,14 +1801,14 @@
       "input_sha256": "9c24b51ebc518b3709d97d91d389790259251c11571c7232162cc946a2e7a9ab",
       "oracle_path": "scenario-work/references/work-0058.oracle.json",
       "oracle_sha256": "a30ffba97c93a6aaeb64f2538d0e0338570547b09718d8d04c62b0c2864d8436",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-20",
       "title": "3月20日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-20T09:00:00+08:00",
       "due_at": "2026-03-20T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1794,14 +1820,14 @@
       "input_sha256": "7205f36813bca30b7bd20d667e04c3c928cff1c80c28ef24f3223117951406fa",
       "oracle_path": "scenario-work/references/work-0059.oracle.json",
       "oracle_sha256": "fc693deabf5f847549ab651c6d9138f85192a48013ed37781300039e15b22e56",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-23",
       "title": "3月23日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-23T09:00:00+08:00",
       "due_at": "2026-03-23T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1813,14 +1839,14 @@
       "input_sha256": "c4016ead19090405b90fbdef852f7ef4ec9be7ba0f94866053f341ba01d92da4",
       "oracle_path": "scenario-work/references/work-0060.oracle.json",
       "oracle_sha256": "ebfef9fd17b92527bc0241b4e027c44fd20ffb8e5711cdd13e146600772709d3",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-24",
       "title": "3月24日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-24T09:00:00+08:00",
       "due_at": "2026-03-24T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1832,14 +1858,14 @@
       "input_sha256": "238b8275cb6cee3f9b17ed771c486450dea8adcb14c49af3d11ac2f1a4101cb7",
       "oracle_path": "scenario-work/references/work-0061.oracle.json",
       "oracle_sha256": "625dd7bf5a88dd630a2ad2f26d18516f2671473f74bec71296c22a7f24d5fd6d",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-25",
       "title": "3月25日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-25T09:00:00+08:00",
       "due_at": "2026-03-25T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1851,14 +1877,14 @@
       "input_sha256": "a446fc8f4258889495210e57d2756a038151ab51933884af7d8f5fffc75210f7",
       "oracle_path": "scenario-work/references/work-0062.oracle.json",
       "oracle_sha256": "c043ad538c00e9f5fcaef1a3fc47e5e2c8da15354a5ade537e20aae378161e95",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-26",
       "title": "3月26日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-26T09:00:00+08:00",
       "due_at": "2026-03-26T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1870,14 +1896,14 @@
       "input_sha256": "0c68505dc38a802dfd8d7641162e265371d9855ecbf01ddddef126740a6c8975",
       "oracle_path": "scenario-work/references/work-0063.oracle.json",
       "oracle_sha256": "7504c7f4fcfb6b62e98c627b2f85393baaf2436247be7292cd3dddc554c14f0c",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-27",
       "title": "3月27日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-27T09:00:00+08:00",
       "due_at": "2026-03-27T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1889,14 +1915,14 @@
       "input_sha256": "cacae38ca6bed6ba7aed6e0aa3c1744d6a72b89034e341677ab269dad6d6bea9",
       "oracle_path": "scenario-work/references/work-0064.oracle.json",
       "oracle_sha256": "c6eaa8b1a26daecd02de7ef82c2a078ed789d4065794819d795c1ca5bfd6a31d",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "task-2026-03-28",
       "title": "3月28日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-03-28T09:00:00+08:00",
       "due_at": "2026-03-28T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1908,7 +1934,8 @@
       "input_sha256": "e7fe347e25cc4554760b093930738aef5a6689ccd8e7306022306a6c068ce7c4",
       "oracle_path": "scenario-work/references/work-0065.oracle.json",
       "oracle_sha256": "2bde81038bf85f2ad55b653b478926788626c024c7500217830cb42eb164b048",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     }
   ],
   "messages": [
@@ -1917,7 +1944,7 @@
       "thread_id": "week-01-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-05T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 1月5日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-01-05",
       "attachment_sha256": null
@@ -1927,7 +1954,7 @@
       "thread_id": "week-01-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-05T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月5日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-01-05",
       "attachment_sha256": null
@@ -1937,7 +1964,7 @@
       "thread_id": "week-01-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-05T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月5日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-01-05",
       "attachment_sha256": null
@@ -2037,7 +2064,7 @@
       "thread_id": "week-02-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-12T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 1月12日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-01-12",
       "attachment_sha256": null
@@ -2047,7 +2074,7 @@
       "thread_id": "week-02-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-12T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月12日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-01-12",
       "attachment_sha256": null
@@ -2057,7 +2084,7 @@
       "thread_id": "week-02-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-12T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月12日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-01-12",
       "attachment_sha256": null
@@ -2157,7 +2184,7 @@
       "thread_id": "week-03-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-19T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 1月19日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-01-19",
       "attachment_sha256": null
@@ -2167,7 +2194,7 @@
       "thread_id": "week-03-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-19T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月19日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-01-19",
       "attachment_sha256": null
@@ -2177,7 +2204,7 @@
       "thread_id": "week-03-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-19T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月19日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-01-19",
       "attachment_sha256": null
@@ -2277,7 +2304,7 @@
       "thread_id": "week-04-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-26T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 1月26日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-01-26",
       "attachment_sha256": null
@@ -2287,7 +2314,7 @@
       "thread_id": "week-04-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-26T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月26日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-01-26",
       "attachment_sha256": null
@@ -2297,7 +2324,7 @@
       "thread_id": "week-04-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-26T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月26日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-01-26",
       "attachment_sha256": null
@@ -2397,7 +2424,7 @@
       "thread_id": "week-05-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-02-02T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 2月2日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-02-02",
       "attachment_sha256": null
@@ -2407,7 +2434,7 @@
       "thread_id": "week-05-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-02-02T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 2月2日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-02-02",
       "attachment_sha256": null
@@ -2417,7 +2444,7 @@
       "thread_id": "week-05-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-02-02T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 2月2日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-02-02",
       "attachment_sha256": null
@@ -2517,7 +2544,7 @@
       "thread_id": "week-06-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-02-09T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 2月9日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-02-09",
       "attachment_sha256": null
@@ -2527,7 +2554,7 @@
       "thread_id": "week-06-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-02-09T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 2月9日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-02-09",
       "attachment_sha256": null
@@ -2537,7 +2564,7 @@
       "thread_id": "week-06-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-02-09T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 2月9日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-02-09",
       "attachment_sha256": null
@@ -2877,7 +2904,7 @@
       "thread_id": "week-09-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-02T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 3月2日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-03-02",
       "attachment_sha256": null
@@ -2887,7 +2914,7 @@
       "thread_id": "week-09-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-02T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月2日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-03-02",
       "attachment_sha256": null
@@ -2897,7 +2924,7 @@
       "thread_id": "week-09-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-02T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月2日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-03-02",
       "attachment_sha256": null
@@ -2997,7 +3024,7 @@
       "thread_id": "week-10-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-09T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 3月9日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-03-09",
       "attachment_sha256": null
@@ -3007,7 +3034,7 @@
       "thread_id": "week-10-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-09T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月9日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-03-09",
       "attachment_sha256": null
@@ -3017,7 +3044,7 @@
       "thread_id": "week-10-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-09T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月9日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-03-09",
       "attachment_sha256": null
@@ -3117,7 +3144,7 @@
       "thread_id": "week-11-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-16T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 3月16日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-03-16",
       "attachment_sha256": null
@@ -3127,7 +3154,7 @@
       "thread_id": "week-11-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-16T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月16日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-03-16",
       "attachment_sha256": null
@@ -3137,7 +3164,7 @@
       "thread_id": "week-11-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-16T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月16日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-03-16",
       "attachment_sha256": null
@@ -3237,7 +3264,7 @@
       "thread_id": "week-12-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-23T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 3月23日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-03-23",
       "attachment_sha256": null
@@ -3247,7 +3274,7 @@
       "thread_id": "week-12-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-23T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月23日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-03-23",
       "attachment_sha256": null
@@ -3257,7 +3284,7 @@
       "thread_id": "week-12-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-03-23T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 3月23日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-03-23",
       "attachment_sha256": null
@@ -3351,6 +3378,466 @@
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": null,
       "attachment_sha256": null
+    },
+    {
+      "message_id": "notice-task-2026-01-06",
+      "thread_id": "notice-task-2026-01-06",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-06T08:00:00+08:00",
+      "subject": "1月6日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-06",
+      "attachment_sha256": "126c8aec295f2a51e7d5c3586079676e70e8822593bd46575420a2415a370624"
+    },
+    {
+      "message_id": "notice-task-2026-01-07",
+      "thread_id": "notice-task-2026-01-07",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-07T08:00:00+08:00",
+      "subject": "1月7日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-07",
+      "attachment_sha256": "4e6760e60f88339ec3fb7fea98c64cb1850759e2fb73ddeac08441809084fbb4"
+    },
+    {
+      "message_id": "notice-task-2026-01-08",
+      "thread_id": "notice-task-2026-01-08",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-08T08:00:00+08:00",
+      "subject": "1月8日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-08",
+      "attachment_sha256": "8d4d2506dbf7105540dd593c1ec2969b355fb3693a1ea7ea60ff8b9f2eb415f9"
+    },
+    {
+      "message_id": "notice-task-2026-01-09",
+      "thread_id": "notice-task-2026-01-09",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-09T08:00:00+08:00",
+      "subject": "1月9日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-09",
+      "attachment_sha256": "43b5ef91eace52988340977a4990c679b5da7b4d2c8a99c6762479efb23ebccc"
+    },
+    {
+      "message_id": "notice-task-2026-01-13",
+      "thread_id": "notice-task-2026-01-13",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-13T08:00:00+08:00",
+      "subject": "1月13日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-13",
+      "attachment_sha256": "73ae220aef7ac56350921d29b7caab2953f3f0bbf830a87656c079cccd018659"
+    },
+    {
+      "message_id": "notice-task-2026-01-14",
+      "thread_id": "notice-task-2026-01-14",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-14T08:00:00+08:00",
+      "subject": "1月14日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-14",
+      "attachment_sha256": "f6193bcbdc14df5b7245616dbcca329cced98a287ae63188901f66ee9ce27fce"
+    },
+    {
+      "message_id": "notice-task-2026-01-15",
+      "thread_id": "notice-task-2026-01-15",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-15T08:00:00+08:00",
+      "subject": "1月15日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-15",
+      "attachment_sha256": "74051df2b2934254f27acd73c0d2e8664d193814dd7543f7ab7cf17ad07c159c"
+    },
+    {
+      "message_id": "notice-task-2026-01-16",
+      "thread_id": "notice-task-2026-01-16",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-16T08:00:00+08:00",
+      "subject": "1月16日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-16",
+      "attachment_sha256": "7ecb53605dcb6d3a1fe936dc15da5f85ad20dfb6d112eef178938615d371781b"
+    },
+    {
+      "message_id": "notice-task-2026-01-20",
+      "thread_id": "notice-task-2026-01-20",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-20T08:00:00+08:00",
+      "subject": "1月20日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-20",
+      "attachment_sha256": "77f1d1fee050c53b56e219044ef7a7d3ce98af9bc4736338b5b619bb32cfce87"
+    },
+    {
+      "message_id": "notice-task-2026-01-21",
+      "thread_id": "notice-task-2026-01-21",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-21T08:00:00+08:00",
+      "subject": "1月21日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-21",
+      "attachment_sha256": "6219d37a92f34cc1d4e629d1c23d4e433c438fa843808370b7ecbcac863e2108"
+    },
+    {
+      "message_id": "notice-task-2026-01-22",
+      "thread_id": "notice-task-2026-01-22",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-22T08:00:00+08:00",
+      "subject": "1月22日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-22",
+      "attachment_sha256": "4bd8648a7c2bd3d292735eee9e87956c4e796dee9fbf49debf0f9eeacb07a020"
+    },
+    {
+      "message_id": "notice-task-2026-01-23",
+      "thread_id": "notice-task-2026-01-23",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-23T08:00:00+08:00",
+      "subject": "1月23日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-23",
+      "attachment_sha256": "9ae79a5ec3bdef4ed0b07a2b06fe941c25118e3a792eeb5ceaf4dd57a0ae8eaf"
+    },
+    {
+      "message_id": "notice-task-2026-01-24",
+      "thread_id": "notice-task-2026-01-24",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-24T08:00:00+08:00",
+      "subject": "1月24日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-24",
+      "attachment_sha256": "4c6b55e4151ca48429227e343fdf9a98cd7bb67e62d5f113af8ec4b1b612e32f"
+    },
+    {
+      "message_id": "notice-task-2026-01-27",
+      "thread_id": "notice-task-2026-01-27",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-27T08:00:00+08:00",
+      "subject": "1月27日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-27",
+      "attachment_sha256": "ea45d941c275823f1963d911d2e4b9254ae31649ed1fa6a19a7eb4993dad7854"
+    },
+    {
+      "message_id": "notice-task-2026-01-28",
+      "thread_id": "notice-task-2026-01-28",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-28T08:00:00+08:00",
+      "subject": "1月28日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-28",
+      "attachment_sha256": "57d7d8108d1c04ee4c8d4a1f5dd2f983fe425c42f273f157d547eac048ed0696"
+    },
+    {
+      "message_id": "notice-task-2026-01-29",
+      "thread_id": "notice-task-2026-01-29",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-29T08:00:00+08:00",
+      "subject": "1月29日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-29",
+      "attachment_sha256": "9ff7fb0be3ffabcac23678d39b5ad56a3d1653afa02127a63cca0e21c26e8d5f"
+    },
+    {
+      "message_id": "notice-task-2026-01-30",
+      "thread_id": "notice-task-2026-01-30",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-30T08:00:00+08:00",
+      "subject": "1月30日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-01-30",
+      "attachment_sha256": "6b9e0df3ac19f632802e78cd42efaf7aa1f48708e2af73cac98d68a1cda86a07"
+    },
+    {
+      "message_id": "notice-task-2026-02-03",
+      "thread_id": "notice-task-2026-02-03",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-03T08:00:00+08:00",
+      "subject": "2月3日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-03",
+      "attachment_sha256": "27dac9ac6481b6a7fef099bc67f88b6d61956c6e43d3f016e729de2c4a8cea8f"
+    },
+    {
+      "message_id": "notice-task-2026-02-04",
+      "thread_id": "notice-task-2026-02-04",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-04T08:00:00+08:00",
+      "subject": "2月4日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-04",
+      "attachment_sha256": "bad5a8b880421e058b886d20249965cda2e0512554704cbf2fa578a856984602"
+    },
+    {
+      "message_id": "notice-task-2026-02-05",
+      "thread_id": "notice-task-2026-02-05",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-05T08:00:00+08:00",
+      "subject": "2月5日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-05",
+      "attachment_sha256": "4c0bff6c8ade8df5e3eafc50183cf8b8224db05dd052f851b2811a8d4385b49c"
+    },
+    {
+      "message_id": "notice-task-2026-02-06",
+      "thread_id": "notice-task-2026-02-06",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-06T08:00:00+08:00",
+      "subject": "2月6日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-06",
+      "attachment_sha256": "42154d50e2da3e968af9d6454ed230ba0fab271e2bd490f78a907ad901b84aa1"
+    },
+    {
+      "message_id": "notice-task-2026-02-10",
+      "thread_id": "notice-task-2026-02-10",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-10T08:00:00+08:00",
+      "subject": "2月10日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-10",
+      "attachment_sha256": "5006feb124fc89b2ff7eee3b236db95b956d1aaa0725fdc87321c713e69cfd2d"
+    },
+    {
+      "message_id": "notice-task-2026-02-11",
+      "thread_id": "notice-task-2026-02-11",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-11T08:00:00+08:00",
+      "subject": "2月11日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-11",
+      "attachment_sha256": "0b4441c4b12de8dcbf0d60cf01f2d58b2f2c5e1749df584bb869a6c794dd2ede"
+    },
+    {
+      "message_id": "notice-task-2026-02-12",
+      "thread_id": "notice-task-2026-02-12",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-12T08:00:00+08:00",
+      "subject": "2月12日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-12",
+      "attachment_sha256": "ce6d9dd66d4e7c1ebccd9ce0b453ab492074d521e719ce4559077b54f24a2ef7"
+    },
+    {
+      "message_id": "notice-task-2026-02-13",
+      "thread_id": "notice-task-2026-02-13",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-13T08:00:00+08:00",
+      "subject": "2月13日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-13",
+      "attachment_sha256": "126aef4e1526a72df8f9f46def48405f626884f66c1981a9d3e882b3e9cbee12"
+    },
+    {
+      "message_id": "notice-task-2026-02-14",
+      "thread_id": "notice-task-2026-02-14",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-14T08:00:00+08:00",
+      "subject": "2月14日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-14",
+      "attachment_sha256": "608a7628e44a16aee01e525fb8bbfc41350e4c805a0ff953b7c6cb56d3ffe98b"
+    },
+    {
+      "message_id": "notice-task-2026-02-24",
+      "thread_id": "notice-task-2026-02-24",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-24T08:00:00+08:00",
+      "subject": "2月24日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-24",
+      "attachment_sha256": "80df6aff11bdfb3cdc6771e64336598785d06643bfa0e8e6712c560e69797918"
+    },
+    {
+      "message_id": "notice-task-2026-02-25",
+      "thread_id": "notice-task-2026-02-25",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-25T08:00:00+08:00",
+      "subject": "2月25日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-25",
+      "attachment_sha256": "9cdedd653932fe41a5f6fb05065f20df0941787a98e7f40affdc80c5e1dfbd6a"
+    },
+    {
+      "message_id": "notice-task-2026-02-26",
+      "thread_id": "notice-task-2026-02-26",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-26T08:00:00+08:00",
+      "subject": "2月26日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-26",
+      "attachment_sha256": "f2e9f8de09466ea4c1112df065ae4134a3410a999af8f1cee8fbbd788e11f9c0"
+    },
+    {
+      "message_id": "notice-task-2026-02-27",
+      "thread_id": "notice-task-2026-02-27",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-27T08:00:00+08:00",
+      "subject": "2月27日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-27",
+      "attachment_sha256": "e4ef1f133493c6c6f683343392b14c58a5da222d84d9bd66878732e2520a9714"
+    },
+    {
+      "message_id": "notice-task-2026-02-28",
+      "thread_id": "notice-task-2026-02-28",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-02-28T08:00:00+08:00",
+      "subject": "2月28日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-02-28",
+      "attachment_sha256": "f897112dc9ca2813bdbe9e6398dc677acde923697dd77df0a9f2da551e86e32a"
+    },
+    {
+      "message_id": "notice-task-2026-03-03",
+      "thread_id": "notice-task-2026-03-03",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-03T08:00:00+08:00",
+      "subject": "3月3日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-03",
+      "attachment_sha256": "5bd79afa0b4af1b4151b9affbde19e900565665ee08683cace75a8dbf14489d4"
+    },
+    {
+      "message_id": "notice-task-2026-03-04",
+      "thread_id": "notice-task-2026-03-04",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-04T08:00:00+08:00",
+      "subject": "3月4日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-04",
+      "attachment_sha256": "1fda9719a0374d4cd8ebcca513754b4edd0d4cc77e37ae920357695ba7754e00"
+    },
+    {
+      "message_id": "notice-task-2026-03-05",
+      "thread_id": "notice-task-2026-03-05",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-05T08:00:00+08:00",
+      "subject": "3月5日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-05",
+      "attachment_sha256": "3460cf66713f306ba784a1defa7fe35bd45bbc2524192706a3ce9b7f8c540055"
+    },
+    {
+      "message_id": "notice-task-2026-03-06",
+      "thread_id": "notice-task-2026-03-06",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-06T08:00:00+08:00",
+      "subject": "3月6日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-06",
+      "attachment_sha256": "62db856e5ccf8c24fadad45a3b4156216857959c9f07e4488d8f4b3303d871a4"
+    },
+    {
+      "message_id": "notice-task-2026-03-10",
+      "thread_id": "notice-task-2026-03-10",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-10T08:00:00+08:00",
+      "subject": "3月10日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-10",
+      "attachment_sha256": "a55317a4ece76771e7d689ab43c95d56d655b21a82f9b2dedd834c6490a16440"
+    },
+    {
+      "message_id": "notice-task-2026-03-11",
+      "thread_id": "notice-task-2026-03-11",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-11T08:00:00+08:00",
+      "subject": "3月11日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-11",
+      "attachment_sha256": "d2e5f0ec30730e7b1928c42175cdf5d74c73f70c4b7236e4a8eab83b384ae30f"
+    },
+    {
+      "message_id": "notice-task-2026-03-13",
+      "thread_id": "notice-task-2026-03-13",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-13T08:00:00+08:00",
+      "subject": "3月13日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-13",
+      "attachment_sha256": "694c47f34d01198aeb7e120fb281552e80b42460bccc3ef3717252f5692b8769"
+    },
+    {
+      "message_id": "notice-task-2026-03-17",
+      "thread_id": "notice-task-2026-03-17",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-17T08:00:00+08:00",
+      "subject": "3月17日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-17",
+      "attachment_sha256": "c7cf866febdf2ecc9a67bdfa0db78d32f5d6d112d2faaede1cac0b779ce0aab0"
+    },
+    {
+      "message_id": "notice-task-2026-03-19",
+      "thread_id": "notice-task-2026-03-19",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-19T08:00:00+08:00",
+      "subject": "3月19日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-19",
+      "attachment_sha256": "9c24b51ebc518b3709d97d91d389790259251c11571c7232162cc946a2e7a9ab"
+    },
+    {
+      "message_id": "notice-task-2026-03-20",
+      "thread_id": "notice-task-2026-03-20",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-20T08:00:00+08:00",
+      "subject": "3月20日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-20",
+      "attachment_sha256": "7205f36813bca30b7bd20d667e04c3c928cff1c80c28ef24f3223117951406fa"
+    },
+    {
+      "message_id": "notice-task-2026-03-24",
+      "thread_id": "notice-task-2026-03-24",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-24T08:00:00+08:00",
+      "subject": "3月24日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-24",
+      "attachment_sha256": "238b8275cb6cee3f9b17ed771c486450dea8adcb14c49af3d11ac2f1a4101cb7"
+    },
+    {
+      "message_id": "notice-task-2026-03-25",
+      "thread_id": "notice-task-2026-03-25",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-25T08:00:00+08:00",
+      "subject": "3月25日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-25",
+      "attachment_sha256": "a446fc8f4258889495210e57d2756a038151ab51933884af7d8f5fffc75210f7"
+    },
+    {
+      "message_id": "notice-task-2026-03-26",
+      "thread_id": "notice-task-2026-03-26",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-26T08:00:00+08:00",
+      "subject": "3月26日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-26",
+      "attachment_sha256": "0c68505dc38a802dfd8d7641162e265371d9855ecbf01ddddef126740a6c8975"
+    },
+    {
+      "message_id": "notice-task-2026-03-27",
+      "thread_id": "notice-task-2026-03-27",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-27T08:00:00+08:00",
+      "subject": "3月27日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-27",
+      "attachment_sha256": "cacae38ca6bed6ba7aed6e0aa3c1744d6a72b89034e341677ab269dad6d6bea9"
+    },
+    {
+      "message_id": "notice-task-2026-03-28",
+      "thread_id": "notice-task-2026-03-28",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-03-28T08:00:00+08:00",
+      "subject": "3月28日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "task-2026-03-28",
+      "attachment_sha256": "e7fe347e25cc4554760b093930738aef5a6689ccd8e7306022306a6c068ce7c4"
     }
   ],
   "contents": [
@@ -5407,10 +5894,10 @@
     }
   ],
   "map_dataset": {
+    "path": "zhangjiang-map/20260105/dataset.json",
+    "sha256": "bc695051216c3aae4a893c249e6e2dfbea0f208a38aff80132f3e016bddb3036",
     "dataset_id": "zhangjiang-map",
-    "version": 2,
-    "path": "zhangjiang-map/dataset.json",
-    "sha256": "4f90c2e7b9a12af78429f1d39642382a6d37cc4fee838925b3709bbce75dddbf"
+    "version": 3
   },
   "supplies": [
     {
@@ -5898,6 +6385,33 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-ingredient-broccoli"
+    },
+    {
+      "supply_id": "supply-market-ingredient-carrot"
+    },
+    {
+      "supply_id": "supply-market-ingredient-cauliflower"
+    },
+    {
+      "supply_id": "supply-market-ingredient-celery"
+    },
+    {
+      "supply_id": "supply-market-ingredient-cornstarch"
+    },
+    {
+      "supply_id": "supply-market-ingredient-rice"
+    },
+    {
+      "supply_id": "supply-market-ingredient-soy-sauce"
+    },
+    {
+      "supply_id": "supply-market-ingredient-vegetable-kit"
+    },
+    {
+      "supply_id": "supply-market-ingredient-vegetable-oil"
+    },
+    {
       "supply_id": "supply-market-item-charger",
       "initial_stock": null
     },
@@ -5930,145 +6444,889 @@
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-meal-0001",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0001"
     },
     {
-      "supply_id": "supply-market-meal-0002",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0002"
     },
     {
-      "supply_id": "supply-market-meal-0003",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0003"
     },
     {
-      "supply_id": "supply-market-meal-0004",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0004"
     },
     {
-      "supply_id": "supply-market-meal-0005",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0005"
     },
     {
-      "supply_id": "supply-market-meal-0006",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0006"
     },
     {
-      "supply_id": "supply-market-meal-0007",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0007"
     },
     {
-      "supply_id": "supply-market-meal-0008",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0008"
     },
     {
-      "supply_id": "supply-market-meal-0009",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0009"
     },
     {
-      "supply_id": "supply-market-meal-0010",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0010"
     },
     {
-      "supply_id": "supply-market-meal-0011",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0012256091053"
     },
     {
-      "supply_id": "supply-market-meal-0012",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0077330337335"
     },
     {
-      "supply_id": "supply-market-meal-0013",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0140141789706"
     },
     {
-      "supply_id": "supply-market-meal-0014",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0654954240991"
     },
     {
-      "supply_id": "supply-market-meal-0015",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0690352170508"
     },
     {
-      "supply_id": "supply-market-meal-0016",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-20917906"
     },
     {
-      "supply_id": "supply-market-meal-0017",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-2100315223861"
     },
     {
-      "supply_id": "supply-market-meal-0018",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4045317058593"
     },
     {
-      "supply_id": "supply-market-meal-0019",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4100290005320"
     },
     {
-      "supply_id": "supply-market-meal-0020",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4891028705949"
     },
     {
-      "supply_id": "supply-market-meal-0021",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4897043061138"
     },
     {
-      "supply_id": "supply-market-meal-0022",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-5400141055900"
     },
     {
-      "supply_id": "supply-market-meal-0023",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-5410522513257"
     },
     {
-      "supply_id": "supply-market-meal-0024",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-5411188132110"
     },
     {
-      "supply_id": "supply-market-meal-0025",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900082020153"
     },
     {
-      "supply_id": "supply-market-meal-0026",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900082020177"
     },
     {
-      "supply_id": "supply-market-meal-0027",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900100204060"
     },
     {
-      "supply_id": "supply-market-meal-0028",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900873056781"
     },
     {
-      "supply_id": "supply-market-meal-0029",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6901209212215"
     },
     {
-      "supply_id": "supply-market-meal-0030",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6901668005946"
     },
     {
-      "supply_id": "supply-poi-3538660453-meal-0018",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6901668008176"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6901939621738"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083814045"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083881085"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083891329"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083897765"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083922658"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902538006575"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902890235590"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6906839701016"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992100272"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992102764"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992500942"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992507095"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992513560"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6909548098880"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6911988018779"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6911988033413"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6914973603394"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6916196410414"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6917486003286"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920152460061"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920152497029"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920202888883"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920458835617"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920459902387"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920907810707"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920912360402"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920934800863"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921168593569"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921351120305"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921355221411"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921555506035"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6922507005019"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6922577704188"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6922577790068"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923167524186"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923404800974"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923555239845"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923644223458"
     },
     {
       "supply_id": "supply-poi-3538682402-food-6923644266066",
       "initial_stock": null
     },
     {
-      "supply_id": "supply-poi-3538682404-meal-0022",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6924743915084"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924743919211"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924743919242"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924743922570"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924769700497"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924773540416"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6927770903437"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6928804010114"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6932009600742"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6934158356785"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6934665095511"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937003704014"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937962103293"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937962112714"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937973100212"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938360357264"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938536200103"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938866510453"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938866514680"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938866540726"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6940471604106"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6941734101356"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6942656601269"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6944839902385"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6944839956548"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6950955909610"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6951444610017"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6953367200078"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6954767400785"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6954767420363"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6954767430461"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6955150411456"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6956367338666"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6956511907885"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6959090900971"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6970561120155"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6970717330896"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6971196385162"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6971858720102"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972020770130"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972146801022"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972316600028"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972333776270"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972507871909"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6973989610468"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6974348720972"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6974800253352"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-7610900081738"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-7798085680165"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8719132831179"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8850025001023"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8850987101021"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8885013130058"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8935090914864"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-9300639999005"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0011"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0012"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0013"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0014"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0015"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0016"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0017"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0018"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0019"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0020"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0021"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0022"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0023"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0024"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0025"
     },
     {
       "supply_id": "supply-poi-3538682408-meal-0026",
       "initial_stock": null
     },
     {
+      "supply_id": "supply-poi-3538682408-meal-0027"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0028"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0029"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0030"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-broccoli"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-carrot"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-cauliflower"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-celery"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-cornstarch"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-rice"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-soy-sauce"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-vegetable-kit"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-vegetable-oil"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0012256091053"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0077330337335"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0140141789706"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0654954240991"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0690352170508"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-20917906"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-2100315223861"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4045317058593"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4100290005320"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4891028705949"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4897043061138"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-5400141055900"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-5410522513257"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-5411188132110"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900082020153"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900082020177"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900100204060"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900873056781"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901209212215"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901668005946"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901668008176"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901939621738"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083814045"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083881085"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083891329"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083897765"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083922658"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902538006575"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902890235590"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6906839701016"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992100272"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992102764"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992500942"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992507095"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992513560"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6909548098880"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6911988018779"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6911988033413"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6914973603394"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6916196410414"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6917486003286"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6917878044729"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920152460061"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920152497029"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920202888883"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920458835617"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920459902387"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920907810707"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920912360402"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920934800863"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921168593569"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921351120305"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921355221411"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921555506035"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6922507005019"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6922577704188"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6922577790068"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923167524186"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923404800974"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923555239845"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923644223458"
+    },
+    {
       "supply_id": "supply-poi-3538763552-food-6923644266066",
       "initial_stock": null
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743915084"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743919211"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743919242"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743922570"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924769700497"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924773540416"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6927770903437"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6928804010114"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6932009600742"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6934158356785"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6934665095511"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937003704014"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937962103293"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937962112714"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937973100212"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938360357264"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938536200103"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938866510453"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938866514680"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938866540726"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6940471604106"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6941734101356"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6942656601269"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6943949415174"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6944839902385"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6944839956548"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6948939681928"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6948939696106"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6950955909610"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6951444610017"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6953367200078"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6954767400785"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6954767420363"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6954767430461"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6955150411456"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6956367338666"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6956511907885"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6959090900971"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6970561120155"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6970717330896"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6971196385162"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6971858720102"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972020770130"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972146801022"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972316600028"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972333776270"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972507871909"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6973989610468"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6974348720972"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6974800253352"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-7610900081738"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-7798085680165"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8719132831179"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8850025001023"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8850987101021"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8885013130058"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8935090914864"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-9300639999005"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-9556771007584"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-broccoli"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-carrot"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-cauliflower"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-celery"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-cornstarch"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-rice"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-soy-sauce"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-vegetable-kit"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-vegetable-oil"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-charger"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-detergent"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-headphones"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-metro-card"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-notebook"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-tissues"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-toothbrush"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-umbrella"
     }
   ],
-  "recipe_output_bindings": {}
+  "recipe_output_bindings": {
+    "prepared-meal-vegetable-stir-fry": "meal-0030"
+  }
 }

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from functools import partial
 
 from worldmock.errors import BusinessRuleError
@@ -17,7 +18,8 @@ from worldmock.life.activity_evidence import conclusion_outcome, discard_opened,
 from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.control_items import control_items
-from worldmock.life.guidance import Refusal, guided, refusal_for_code
+from worldmock.life.guidance import Refusal, guided, items_refusal, refusal_for_code
+from worldmock.life.error_contract import ErrorItem
 from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
                                              merged_selection, named_supply_row, resolve_interaction_menu)
 from worldmock.life.models import (
@@ -48,11 +50,10 @@ from worldmock.life.models import (
 )
 from worldmock.life.name_resolution import StartOutcome, name_book, resolution_data, resolve_name, resolve_start
 from worldmock.life.named_purchase import PurchaseAsk, resolve_named_rows, resolve_named_supply
-from worldmock.life.purchase_offers import DEFAULT_PREFERENCE
 from worldmock.life.readable import iso_time
 from worldmock.life.recipients import person_name, recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
-from worldmock.life.tool_layer import LayerContext
+from worldmock.life.tool_layer import Candidate as ToolCandidate, LayerContext, refusal_for
 from worldmock.life.travel import route_for
 from worldmock.life.social_actions import social_duration_seconds
 from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_seconds, work_totals
@@ -91,6 +92,7 @@ class SessionActionMixin:
         actions = [row["selected_action"]["canonical_action"] for row in selection]
         labels = [row["selected_action"]["label"] for row in selection]
         names = self._control_names(pending)
+        self._require_individual_start(state, pending, selection)
         activity_control.require_start_admission(state, pending.agent_id, (actions, labels), names)
         admission.require_group(self._admission_context(state, pending.agent_id, names),
                                 [admission.selection_item(row, row["selected_action"], self._world_facts)
@@ -103,6 +105,35 @@ class SessionActionMixin:
             changed, result, started = self._start_parallel_actions(state, pending, selection)
         changed, result = self._adopt_started(changed, pending, started, result)
         return changed, self._start_resolution(pending, placeholders, selection, result)
+
+    def _require_individual_start(self, state: WorldState, pending: PendingAction, selection: list[dict]) -> None:
+        """@brief 实际转换前汇总每項可独立判定的世界前置条件。"""
+        agent = state.agents[pending.agent_id]
+        context = LayerContext(state, self.scenario, self.rules, self.semantics, pending.agent_id,
+                               {"sessions": {}, "activities": self._control_names(pending)}, selection,
+                               resolve_interaction_menu(self.scenario, pending.agent_id, agent.location_id),
+                               self.lifestyle_items)
+        request = StartActivityRequest.model_validate(pending.request)
+        entries = []
+        unmet = []
+        refusals = []
+        for index, row in enumerate(selection):
+            refusal = refusal_for(context, ToolCandidate("start_activity", row, row["selected_action"]))
+            if refusal is None:
+                continue
+            item = ErrorItem(("items", index, "target"), request.items[index].target, refusal.code,
+                             expected=refusal.reason, why=refusal.reason)
+            entries.append((item, refusal.reason))
+            unmet.extend(refusal.unmet)
+            refusals.append(refusal)
+        if entries:
+            steps = "; ".join(dict.fromkeys(refusal.next_step for refusal in refusals if refusal.next_step))
+            fixes = "; ".join(dict.fromkeys(refusal.fix for refusal in refusals if refusal.fix))
+            suggested = {**(refusals[0].suggested or {}), "next_step": steps}
+            combined = replace(refusals[0], reason="; ".join(reason for _, reason in entries), next_step=steps,
+                               fix=fixes, suggested=suggested, items=tuple(item for item, _ in entries),
+                               unmet=tuple(dict.fromkeys(unmet)))
+            raise combined.error()
 
     @property
     def _world_facts(self) -> admission.WorldFacts:
@@ -157,7 +188,7 @@ class SessionActionMixin:
         if not outcome.failures:
             return BusinessRuleError("ACTION_REQUEST_INVALID")
         default = refusal_for_code("ACTION_REQUEST_INVALID")
-        return Refusal("ACTION_REQUEST_INVALID", "；".join(failure.sentence for failure in outcome.failures),
+        return Refusal("ACTION_REQUEST_INVALID", "; ".join(failure.sentence for failure in outcome.failures),
                        default.next_step, fix=default.fix,
                        items=tuple(failure.item for failure in outcome.failures)).error()
 
@@ -193,7 +224,7 @@ class SessionActionMixin:
             bindings=self._frozen_observation(pending)["interaction_bindings"],
             menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
             lifestyle_items=self.lifestyle_items)
-        prefer = StartActivityRequest.model_validate(pending.request).prefer or DEFAULT_PREFERENCE
+        prefer = StartActivityRequest.model_validate(pending.request).prefer
         return resolve_named_rows(context, selection, partial(self._resolved_named, context, prefer))
 
     def _resolved_named(self, context: LayerContext, prefer: str, row: dict) -> dict:
@@ -294,7 +325,7 @@ class SessionActionMixin:
                             request: SubmitWorkActionRequest) -> tuple[WorldState, ActionResult]:
         """@brief 将人物可读任务名称（精确或无损归一后唯一）映射为合同身份，交给独立工作验收路径；驾车时不能提交成果
         （第五章「并行准入」）。名称经归一的写进结果 details.resolved。"""
-        admission.require_hands_free(self._admission_context(state, pending.agent_id), "提交成果")
+        admission.require_hands_free(self._admission_context(state, pending.agent_id), "submit work")
         row = self._task_binding(pending, request.task_name)
         changed, result = self._submit_work(state, pending, SubmitWorkRequest(task_id=row["task_id"],
                                                                               deliverable=request.deliverable))
@@ -304,7 +335,7 @@ class SessionActionMixin:
                               request: SendMessageActionRequest) -> tuple[WorldState, ActionResult]:
         """@brief 将人物可读收件人名称（本轮人物与联系人，精确或无损归一后唯一，如「沈昊」即「联系人：沈昊」）映射为联系人
         身份并发送正文；驾车时不能发消息，步行途中照常（第五章「并行准入」）。名称经归一的写进结果 details.resolved。"""
-        admission.require_hands_free(self._admission_context(state, pending.agent_id), "发消息")
+        admission.require_hands_free(self._admission_context(state, pending.agent_id), "send a message")
         rows = [row for row in self._frozen_observation(pending)["interaction_bindings"]
                 if row["kind"] in {"person", "contact"}]
         match = resolve_name(request.recipient_name, [row["object"] for row in rows])
@@ -402,7 +433,7 @@ class SessionActionMixin:
             blocker = work_start_blocker(task, worked, state.current_time)
             if blocker is not None:
                 _LOGGER.error("Work start is closer than one minute to its deadline or contract end")
-                raise guided("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
+                raise guided("ACTIVITY_DURATION_INVALID", blocker, "Submit the completed work.")
             return work_start_seconds(task, worked, state.current_time)
         if kind == ActivityKind.WATCH:
             item = self.rules.content(target)
@@ -508,7 +539,8 @@ class SessionActionMixin:
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
         if mode == "use" and len(targets) != 1:
             _LOGGER.error("Only one held item can be used at a time")
-            raise guided("ACTION_REQUEST_INVALID", "一次只能使用一件东西", "一次只选其中一件", fix="这次只写其中一件")
+            raise guided("ACTION_REQUEST_INVALID", "Only one non-food item can be used at a time.",
+                         "Select one item.", fix="Submit one item.")
         if any(portion <= 0 for portion, _ in portions):
             _LOGGER.error("Selected food is not held at hand")
             raise BusinessRuleError("PRODUCT_NOT_HELD")
@@ -535,16 +567,8 @@ class SessionActionMixin:
                      and goal.registered_at <= state.current_time
                      and family in INTENT_ACTIVITY_FAMILIES[goal.intent_kind]), None)
 
-    def _recall_task_summary(self, state: WorldState, pending: PendingAction,
-                              request: RecallTaskSummaryRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 只读回看任务、当日目标或活动（名称只取七层中出现的，会话名不在其中）；结果随下一次观察进入
-        details.recall，不带身份。
-
-        当日目标按待办层写出的目标文字，活动按本轮活动名或记忆层 self_notes 所写的活动名（note_labels）；所写名称先在这些
-        名称中按统一名称解析（精确或无损归一后唯一，如去掉「工作：」前缀或开始时刻），名称对应不止一项（两个目标文字相同、
-        两个条目的同一标注指不同活动）时与找不到一样以 TASK_NOT_FOUND 拒绝。名称经归一的写进结果 details.resolved。
-        """
-        observed = self._frozen_observation(pending)
+    def read_task_summary(self, agent_id: int, request: RecallTaskSummaryRequest, observed: dict) -> dict:
+        """@brief 即时只读回看冻结观察的任务，不登记动作、不推进世界。"""
         name = resolve_name(request.task_name, _recall_names(observed)).name
         candidates = ([("task", row) for row in observed["task_bindings"] if row["task_name"] == name]
                       + [("goal", row) for row in observed["goal_bindings"] if row["task_name"] == name]
@@ -552,21 +576,21 @@ class SessionActionMixin:
                          if name == row["name"] or name in row["note_labels"]])
         if len(candidates) != 1:
             _LOGGER.error("Recalled task name is unavailable or ambiguous")
-            raise BusinessRuleError("TASK_NOT_FOUND")
+            reason = f"The task name {request.task_name} is unknown or ambiguous in this observation."
+            item = ErrorItem(("task_name",), request.task_name, "TASK_NOT_FOUND",
+                             expected="One exact known task, goal or activity name is required.", why=reason)
+            raise Refusal("TASK_NOT_FOUND", reason, items=(item,)).error()
         kind, row = candidates[0]
         views = {"task": self._recall_task, "goal": self._recall_goal, "activity": self._recall_activity}
-        recall = views[kind](state, pending, row, observed)
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Task summary retrieved", data={"recall": {"kind": kind, **recall}})
-        return state, _with_names(result, [(request.task_name, name)])
+        recall = views[kind](self.state, agent_id, row, observed)
+        return {"recall": {"kind": kind, **recall}}
 
-    def _recall_task(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+    def _recall_task(self, state: WorldState, agent_id: int, row: dict, observed: dict) -> dict:
         """@brief 任务回看：名称、截止（带时区 ISO）与最近一条相关活动自述；该自述仍在记忆层时只写那项活动在记忆层中的
         名称与「已在记忆层」。"""
         task = self.rules.task(row["task_id"])
         notes = [item for item in state.activities.values()
-                 if item.agent_id == pending.agent_id and item.task_kind == SessionTaskKind.WORK_TASK
+                 if item.agent_id == agent_id and item.task_kind == SessionTaskKind.WORK_TASK
                  and item.task_ref == task.task_id and item.progress_note]
         latest = max(notes, key=lambda item: (item.note_updated_at or item.started_at, item.started_at),
                      default=None)
@@ -576,23 +600,23 @@ class SessionActionMixin:
         view = {"name": row["task_name"], "due_at": iso_time(int(task.due_at.timestamp()), self.scenario.timezone)}
         return {**view, **_self_report(latest.progress_note if latest else "")}
 
-    def _recall_goal(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+    def _recall_goal(self, state: WorldState, agent_id: int, row: dict, observed: dict) -> dict:
         """@brief 目标回看：目标文字、意图与是否已推进。"""
         del observed
-        plan = state.agents[pending.agent_id].day_plan
+        plan = state.agents[agent_id].day_plan
         goal = None if plan is None else next(
             (item for item in plan.goals if item.intent_kind == row["intent_kind"]), None)
         if goal is None:
             raise BusinessRuleError("PLAN_NOT_FOUND")
         return {"goal": goal.goal, "intent_kind": goal.intent_kind, "progressed": goal.progressed_at is not None}
 
-    def _recall_activity(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+    def _recall_activity(self, state: WorldState, agent_id: int, row: dict, observed: dict) -> dict:
         """@brief 活动回看：名称、地点、已做与有效时长、阶段与自述。
 
         地点取活动最近所属会话的说法：路上开始的活动（含出行本身）为「去<目的地>的路上」，停留中的为该地点；
         未归入会话的活动取开始地点。自述仍在记忆层时只写活动名与「已在记忆层」。
         """
-        del pending
+        del agent_id
         activity = state.activities[row["activity_id"]]
         remembered = _remembered(observed, activity)
         if remembered is not None:
@@ -792,14 +816,11 @@ class SessionActionMixin:
 
     def _conclusion_outcome(self, state: WorldState, agent_id: int, names: list[str],
                             selected: list[ActivityState]) -> list[dict]:
-        """@brief 收尾结果 details.outcome：点名的进食与未完成浏览逐项写终局（按结算状态，不看人物写的总结）。"""
+        """@brief 逐项投影真实结算终局与物品变化；人物总结不改变库存。"""
         ended = [state.activities[activity.activity_id] for activity in selected]
-        if not any(is_eating(item) or item.kind == ActivityKind.BROWSE for item in ended):
-            return []
         product_names = {item.product_id: item.name for item in self.rules.items.values()}
-        rows = (conclusion_outcome(activity, name, product_names, state.agents[agent_id])
-                for name, activity in zip(names, ended, strict=True))
-        return [row for row in rows if row is not None]
+        return [conclusion_outcome(activity, name, product_names, state.agents[agent_id])
+                for name, activity in zip(names, ended, strict=True)]
 
     def _memory_sources(self, pending: PendingAction, names: list[str],
                         selected: list[ActivityState]) -> list[dict]:

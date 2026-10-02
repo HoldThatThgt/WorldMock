@@ -65,7 +65,8 @@ def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
 _VERB_ACTION = _availability({
     "action": {"enum": list(VERBS)}, "way": {"enum": list(WAY_LABELS)},
     "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT, "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
-_CONTRACT = _object({"deadline": _TIME, "remaining": _TEXT, "outlook": _NULLABLE_TEXT})
+_CONTRACT = _object({"opens": _TIME, "deadline": _TIME, "place": _TEXT,
+                     "remaining": _TEXT, "outlook": _NULLABLE_TEXT})
 
 
 def _tools_for(kind: str, tools: tuple[str, ...]) -> dict[str, Any]:
@@ -111,6 +112,8 @@ _CALLABLE_INDEX = _object({
     "lifestyle": {"type": "array", "uniqueItems": True, "items": _TEXT},
     "contents": {"type": "array", "items": _INDEX_CATEGORY},
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
+    "query_categories": {"type": "array", "items": _object({"category": _TEXT,
+                          "count": {"type": "integer", "minimum": 0}})},
 })
 
 TOOL_LAYER_SCHEMA: dict[str, Any] = {
@@ -118,6 +121,18 @@ TOOL_LAYER_SCHEMA: dict[str, Any] = {
     **_object({"layer": {"const": "工具层"}, "targets": {"type": "array", "items": _TARGET},
                "callable_index": _CALLABLE_INDEX}),
 }
+
+
+_GROUP = _object({"kind": {"enum": list(TARGET_KINDS)}, "action": {"enum": [*VERBS, None]},
+                  "way": {"enum": [*WAY_LABELS, None]}, "shared": {"type": "object"},
+                  "targets": {"type": "array", "minItems": 1, "items": {"type": "object"}}})
+COMPACT_TOOL_LAYER_SCHEMA: dict[str, Any] = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "工具层",
+    **_object({"layer": {"const": "工具层"}, "groups": {"type": "array", "items": _GROUP},
+               "callable_index": _CALLABLE_INDEX}),
+}
+
+TOOL_LAYER_SCHEMA["$defs"] = {"compact": COMPACT_TOOL_LAYER_SCHEMA}
 
 _RHYTHM = _object({key: _TEXT for key in ("wake", "leave_home", "lunch", "dinner", "bedtime", "sleep_midpoint",
                                           "sleep_need")})
@@ -155,7 +170,7 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
-                 "around_time": {"type": ["string", "null"], "pattern": r"^约 ([01][0-9]|2[0-3]):[0-5][0-9]$"}})
+                 "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
     **_object({
@@ -190,8 +205,9 @@ def _record(kind: str, fields: dict[str, Any], optional: tuple[str, ...] = ()) -
 
 
 _MESSAGE_RECORD = _record("message_arrival", {
-    "sender": _NULLABLE_TEXT, "kind": {"enum": ["direct", "chat_invite", "mail"]}, "text": _TEXT, "subject": _TEXT,
-}, optional=("text", "subject"))
+    "sender": _NULLABLE_TEXT, "kind": {"enum": ["direct", "chat_invite", "mail"]},
+    "text": _TEXT, "subject": _TEXT, "task": _TEXT,
+}, optional=("text", "subject", "task"))
 _MESSAGE_RECORD["if"] = {"properties": {"kind": {"const": "mail"}}}
 _MESSAGE_RECORD["then"] = {"required": ["subject"], "not": {"required": ["text"]}}
 _MESSAGE_RECORD["else"] = {"required": ["text"], "not": {"required": ["subject"]},
@@ -200,6 +216,9 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "进度层",
     **_object({
         "layer": {"const": "进度层"}, "session_started_at": _TIME,
+        "rejected_today": {"type": "array", "maxItems": 8, "items": _object({
+            "written": {}, "why": {"type": "string", "maxLength": 60},
+            "times": {"type": "integer", "minimum": 1}, "last": _TIME, "accepted_as": {}})},
         "events": {"type": "array", "items": {"oneOf": [
             _record("tool_call", {"tool": {"type": "string", "pattern": r"^[a-z][a-z0-9_]*$"},
                                   "arguments": {"type": "object"}, "result": _RESULT, "self_note": _TEXT},
@@ -238,7 +257,12 @@ def validate_layer(layer: dict) -> None:
     name = layer.get("layer") if isinstance(layer, dict) else None
     if name not in LAYER_SCHEMAS:
         raise ValueError(f"Unknown prompt layer: {name!r}")
-    errors = sorted(Draft202012Validator(LAYER_SCHEMAS[name]).iter_errors(layer), key=lambda item: list(item.path))
+    schema = COMPACT_TOOL_LAYER_SCHEMA if name == "工具层" and "groups" in layer else LAYER_SCHEMAS[name]
+    errors = sorted(Draft202012Validator(schema).iter_errors(layer), key=lambda item: list(item.path))
+    if name == "工具层" and "groups" in layer and not errors:
+        from worldmock.life.tool_groups import expand_tool_layer
+
+        validate_layer(expand_tool_layer(layer))
     if errors:
         first = errors[0]
         raise ValueError(f"Prompt layer {name} violates its schema at {list(first.path)}: {first.message}")

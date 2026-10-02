@@ -324,10 +324,11 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
         "不存在的活动", summary="收错了", memories=[[_memo("routine", "这条记忆不该出现")]]))[1]
     assert missed.status == "rejected"
     _act(engine, "d-conclude", "conclude_activity", conclude_request(wait, summary="等完了"))
-    assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=wait))[1].status \
-        == "completed"
-    _act(engine, "d-revise", "revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),)))
+    observed = _observe(engine, "d-recall")
+    assert engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=wait), observed)["recall"]["name"] == wait
+    assert not progress_calls(observed, "recall_task_summary")
+    _act(engine, "d-revise", "revise_day_plan", ReviseDayPlanRequest(goals=[
+        PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None, around_time=None),]))
     call = {"id": "call-memory", "type": "function",
             "function": {"name": "memory_search", "arguments": json.dumps({"query": "x"})}}
     _model_pair(engine, "decision-memory", call, json.dumps({"epistemic_status": "subjective", "episodes": []}))
@@ -518,8 +519,8 @@ def test_chat_invitation_is_not_carried_into_the_memory_layer(engine_factory) ->
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     friend = engine.state.agents[1].name
-    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
-                                                       around_time=None),))
+    revise = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None,
+                                                       around_time=None),])
     submit_round(engine, {1: ("revise_day_plan", revise),
                           2: ("start_activity", start_activity("交谈", f"人物：{friend}"))}, "i-invite")
     home = _observe(engine, "i-home")
@@ -795,18 +796,19 @@ def test_recalled_summary_still_in_the_memory_layer_is_not_repeated(engine_facto
     stage_day_plan(engine)
     summary = "歇好了，精神回来了。"
     name = _concluding_wait(engine, "s", summary, [])
-    _act(engine, "s-home", "recall_task_summary", RecallTaskSummaryRequest(task_name=name))
-    (home,) = progress_calls(_observe(engine, "s-home-seen"), "recall_task_summary")
-    at_home = home["result"]["details"]["recall"]
+    home = _observe(engine, "s-home")
+    before = engine.state.model_dump()
+    at_home = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), home)["recall"]
+    assert engine.state.model_dump() == before and not progress_calls(home, "recall_task_summary")
     assert (at_home["kind"], at_home["name"], at_home["progress_note"]) == ("activity", name, summary)
     assert {"place", "phase", "objective_progress"} <= set(at_home) and "subjective_status" not in at_home
     _walk(engine, "s-walk")
     wake_by_mail(engine, offset=120)
     advance_next(engine)
-    _act(engine, "s-road", "recall_task_summary", RecallTaskSummaryRequest(task_name=name))
-    road = _observe(engine, "s-road-seen")
-    (call,) = progress_calls(road, "recall_task_summary")
-    recall = call["result"]["details"]["recall"]
+    road = _observe(engine, "s-road")
+    before = engine.state.model_dump()
+    recall = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), road)["recall"]
+    assert engine.state.model_dump() == before and not progress_calls(road, "recall_task_summary")
     assert recall == {"kind": "activity", "activity": _short(name), "progress_note": "已在记忆层"}
     assert {"activity": _short(name), "text": summary} in road["memory_layer"]["earlier_today"][0]["self_notes"]
     assert json.dumps([road[key] for key in _FIVE_LAYERS], ensure_ascii=False).count(summary) == 1

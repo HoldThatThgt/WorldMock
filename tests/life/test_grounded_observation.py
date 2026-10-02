@@ -85,7 +85,7 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     ways = target_actions(observation, binding["object"])
     assert [(way, row["available"]) for way, row in ways.items()] == [("到店", False), ("远程下单", True)]
     store = next(item.name for item in engine.scenario.locations if item.location_id == supply["location_id"])
-    assert ways["到店"]["reason"] == f"到店{binding['object']}需要在{store}"
+    assert ways["到店"]["reason"] == f"到店{binding['object']} requires presence at {store}."
     assert [(item["label"], item["note"]) for item in binding["actions"]] == [
         (way, row["reason"]) for way, row in ways.items()]
     assert supply["current_stock"] == 1 and "initial_stock" not in supply
@@ -216,8 +216,8 @@ def _stage_progress_limits(engine, tail: str = "contract") -> None:
 
 
 @pytest.mark.parametrize(("tail", "note"), [
-    ("contract", "这项工作的合同工时只剩不到一分钟，来不及开始"),
-    ("deadline", "离截止不到一分钟，来不及开始"),
+    ("contract", "Less than one minute remains in the contract; work cannot start."),
+    ("deadline", "Less than one minute remains before the deadline; work cannot start."),
 ], ids=["contract", "deadline"])
 def test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note(
         engine_factory, tail: str, note: str) -> None:
@@ -254,7 +254,7 @@ def test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note(
                                         start_activity("工作", work["object"])))
     result = engine.commit_decision_round("progress-limits")[0]
     assert result.status == "rejected" and result.error_code == "ACTIVITY_DURATION_INVALID"
-    assert (result.data["reason"], result.data["next_step"]) == (note, "提交已完成的部分")
+    assert (result.data["reason"], result.data["next_step"]) == (note, "Submit the completed work.")
     assert not any(item.kind == "work" and item.status == "active" for item in engine.state.activities.values())
 
 

@@ -24,7 +24,7 @@ from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
-from custom.agents.life_truncation import TRUNCATION_DETAIL  # noqa: E402
+from custom.agents.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_Environment, _GroundedCorrectionDispatcher,  # noqa: E402
                                                         _ModelResponse, _context, _wire_agent)
 from tests.integration.test_same_second_continuation import (_PLAN, _decide, _environment,  # noqa: E402
@@ -40,8 +40,7 @@ _SPIRALS = ("先想想要不要回家，家里没有吃的，外卖要等，还�
 _WAIT = start_arguments(["自己"], ["interact"], ["等待"])
 _MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_time_range"}
 #: 截断纠错回给模型的正文（第四章结构，登记的原因与改法）。
-_TRUNCATION_FEEDBACK = {"error_code": "OUTPUT_TRUNCATED", "reason": "输出在思考阶段用尽，尚未调用工具",
-                        "fix": "只调用一个工具", "items": [], "unmet": [], "instruction": FEEDBACK_INSTRUCTION}
+_TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
 
 
 @pytest.fixture(autouse=True)
@@ -159,7 +158,7 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
         _Truncated(_SPIRALS[0]), _reply("call-wait", "start_activity", _WAIT, None, "先歇一会儿。")])
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
-    assert _tools(first) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS)
+    assert _tools(first) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
     assert retry["messages"][:2] == first["messages"] and len(retry["messages"]) == 3
     feedback = retry["messages"][2]
     assert feedback["role"] == "user" and json.loads(feedback["content"]) == _TRUNCATION_FEEDBACK
@@ -193,7 +192,7 @@ async def test_only_a_reply_that_ran_out_while_thinking_is_a_truncation(_engine_
     _, requests, _ = await _single(_environment(engine), "not-truncated", [reply, *_wait_reply()])
     assert [_is_retry(item) for item in requests] == [False, False]
     assert json.loads(requests[1]["messages"][-1]["content"])["error_code"] == code
-    assert _tools(requests[1]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
+    assert _tools(requests[1]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS
     first, answered = _decision_responses(engine, "decision-not-truncated-1")
     assert not first.data["error"].startswith("OUTPUT_TRUNCATED") and answered.data["error"] is None
 
@@ -215,7 +214,7 @@ async def test_identical_corrections_replace_each_other_across_consecutive_trunc
     wire = json.dumps(requests[1:], ensure_ascii=False)
     assert _SPIRALS[0] not in wire and _SPIRALS[1] not in wire and "我先想一想再说。" not in wire
     errors = [event.data["error"] for event in _decision_responses(engine, "decision-twice-1")]
-    assert errors == [f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}", "native tool_calls are required",
+    assert errors == [f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}", "TOOL_CALL_REQUIRED: At least one complete native tool call is required.",
                       f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}", None]
 
 
@@ -229,7 +228,7 @@ async def test_a_retry_that_is_truncated_again_is_not_retried_again(_engine_fact
     _, requests, _ = await _single(_environment(engine), "again", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False]
     assert [_corrections(item) for item in requests] == [[], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED"]]
-    assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
+    assert _tools(requests[2]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS
     assert requests[2]["messages"] == requests[1]["messages"]
 
 
@@ -249,8 +248,11 @@ async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine
     assert [_is_retry(item) for item in requests] == [False, True, False, False]
     assert [_corrections(item) for item in requests] == [
         [], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED"],
-        ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED"]]
-    assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(requests[3]) == set(REQUEST_MODELS)
+        ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED", "TOOL_CALL_REQUIRED"]]
+    feedback = [json.loads(item["content"]) for item in requests[3]["messages"]
+                if item["role"] == "user" and item["content"].startswith('{"error_code"')]
+    assert feedback[-2]["items"][0]["allowed_values"] != feedback[-1]["items"][0]["allowed_values"]
+    assert _tools(requests[2]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(requests[3]) == set(REQUEST_MODELS) - {"recall_task_summary"}
     assert [event for event in engine.store.read_agent_events("action_requested", 1)
             if event.decision_id == "decision-exhausted-1"] == []
 
@@ -304,7 +306,8 @@ async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_ev
     assert last["messages"][:len(chain)] == chain
     assert [json.loads(item["content"])["error_code"] for item in last["messages"][len(chain):]] == [
         "OUTPUT_TRUNCATED", code]
-    assert named in json.loads(last["messages"][-1]["content"])["reason"]
+    detail = json.loads(last["messages"][-1]["content"])["items"]
+    assert any(item["written"] == named for item in detail)
     assert all(item["role"] == "user" for item in last["messages"][len(chain):])
     assert all(item.get("reasoning_content") for item in last["messages"] if item["role"] == "assistant")
     assert call_id not in json.dumps(last, ensure_ascii=False)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from worldmock.catalog.affordances import default_affordances
@@ -90,6 +91,8 @@ class Item:
     destinations: tuple[str, ...] | None = None
     held_at: str | None = None
     store: str | None = None
+    #: 工作真实开放时刻，普通工作从邮件到达派生，预约使用约定时刻。
+    work_opens: datetime | None = None
 
 
 def en_route(state: WorldState, agent_id: int) -> bool:
@@ -119,7 +122,8 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
                 label=f"{activity_phrase(action)}{activity_control.object_display_name(row)}",
                 claims=_claims(canonical, action, object_id, facts))
     if canonical == "work" and object_id in facts.tasks:
-        return replace(item, place=facts.tasks[object_id].required_location_id)
+        task = facts.tasks[object_id]
+        return replace(item, place=task.required_location_id, work_opens=task.available_at)
     if canonical == "purchase" and action.get("fulfillment") == "pickup" and object_id in facts.supplies:
         return replace(item, place=facts.supplies[object_id].location_id)
     if canonical == "purchase":
@@ -187,6 +191,9 @@ def hands_free_refusal(context: Context, what: str) -> Refusal | None:
 
 def _presence_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
     """@brief 目标在场与实际地点：要在某地做的事需要人在那里，途中与同一请求出发都不算在场；远程下单要能送到这里。"""
+    if item.work_opens is not None and context.state.current_time < int(item.work_opens.timestamp()):
+        return Refusal("WORK_TASK_NOT_AVAILABLE", f"Work opens at {item.work_opens.isoformat()}.",
+                       "Wait until the appointment start.", ("available_at",))
     return (_place_refusal(context, item, present, departs) or _site_refusal(item, present, departs)
             or _delivery_refusal(context, item) or _partner_refusal(context, item, present, departs))
 
@@ -196,14 +203,15 @@ def _place_refusal(context: Context, item: Item, present: str | None, departs: b
     下一步只指向从此地可达的地点（直达「去」、经别处「可经」、到不了的门店「这里去不了那家店」）。"""
     if item.place is None:
         return None
-    place = context.place_names.get(item.place, "指定地点")
+    place = context.place_names[item.place]
     if departs:
-        return Refusal(_UNMET, f"{item.label}需要人在{place}，不能和出行一起开始", f"先在{place}做完再出发",
+        return Refusal(_UNMET, f"{item.label} requires presence at {place} and cannot start with travel.",
+                       f"Complete the activity at {place} before departure.",
                        ("required_location_id",))
     if present != item.place:
         unreachable = UNREACHABLE_STORE_STEP if item.canonical == "purchase" else None
         step = go_step(context.routes, context.place_names, _origin(context), item.place, unreachable)
-        return Refusal(_UNMET, f"{item.label}需要在{place}", step, ("required_location_id",))
+        return Refusal(_UNMET, f"{item.label} requires presence at {place}.", step, ("required_location_id",))
     return None
 
 
@@ -217,9 +225,11 @@ def _site_refusal(item: Item, present: str | None, departs: bool) -> Refusal | N
     if not item.site or present is not None and not departs:
         return None
     if departs:
-        return Refusal(_UNMET, f"{item.label}要停在一个地方做，不能和出行一起开始", "先做完再出发",
+        return Refusal(_UNMET, f"{item.label} requires a stationary location and cannot start with travel.",
+                       "Finish the activity before departure.",
                        ("location_kinds",))
-    return Refusal(_UNMET, f"{item.label}要停在一个地方做，路上做不了", "到达后再做", ("location_kinds",))
+    return Refusal(_UNMET, f"{item.label} requires a stationary location and cannot run during travel.",
+                   "Wait until arrival before starting.", ("location_kinds",))
 
 
 def _delivery_refusal(context: Context, item: Item) -> Refusal | None:
@@ -247,12 +257,14 @@ def _partner_refusal(context: Context, item: Item, present: str | None, departs:
     where = present_location(context.state, item.partner) if partner is not None else None
     if not departs and present is not None and where == present:
         if pair_chat(context.state, context.agent_id, f"agent:{item.partner}") is not None:
-            return Refusal("CHAT_ALREADY_ACTIVE", "你们已经在交谈了", "继续交谈，或先结束这次交谈")
+            return Refusal("CHAT_ALREADY_ACTIVE", "You are already talking together.",
+                           "Continue or conclude the current conversation.")
         return late_acceptance_refusal(context.state, context.agent_id, f"agent:{item.partner}")
-    name = partner.name if partner is not None else "对方"
+    name = partner.name if partner is not None else "the other person"
     step = (go_step(context.routes, context.place_names, _origin(context), where) if where is not None
-            else "等对方到了再说")
-    return Refusal(_UNMET, f"要和{name}当面在一起才能交谈", "先交谈，再出发" if departs else step,
+            else "Wait until the other person arrives.")
+    return Refusal(_UNMET, f"Talking with {name} requires both people at the same location.",
+                   "Talk before departure." if departs else step,
                    ("partner_present",))
 
 
@@ -260,10 +272,11 @@ def _hands_free_refusal(context: Context, item: Item, items: Sequence[Item]) -> 
     """@brief 出行方式：驾车途中或与驾车同一请求时，远程下单这类手动操作的瞬时动作不受理。"""
     if not item.manual:
         return None
-    refusal = _driving_refusal(context, "下单")
+    refusal = _driving_refusal(context, "place an order")
     if refusal is None and any(other.canonical == "travel_to" and other.way == TRAVEL_WAYS["driving"]
                                for other in items):
-        return Refusal(_UNMET, "开车时不能下单", "先下单，再出发", ("hands_free",))
+        return Refusal(_UNMET, "Orders cannot be placed while driving.",
+                       "Place the order before departure.", ("hands_free",))
     return refusal
 
 
@@ -272,8 +285,9 @@ def _driving_refusal(context: Context, what: str) -> Refusal | None:
     destination = driving_destination(context.state, context.agent_id)
     if destination is None:
         return None
-    place = context.place_names.get(destination, "目的地")
-    return Refusal(_UNMET, f"开车时不能{what}", f"到达{place}后再{what}", ("hands_free",))
+    place = context.place_names[destination]
+    return Refusal(_UNMET, f"Cannot {what} while driving.", f"Wait until arrival at {place} to {what}.",
+                   ("hands_free",))
 
 
 def _claims_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
@@ -286,15 +300,15 @@ def _claims_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
         blocking = [activity for activity in running if activity.resource_claims & item.claims]
         if blocking:
             listed = "、".join(context.activity_names.get(activity.activity_id, activity.name) for activity in blocking)
-            return Refusal("RESOURCE_CONFLICT", f"{item.label}和正在做的{listed}不能同时进行",
-                           f"先结束或暂停{listed}", ("resource_claims",))
+            return Refusal("RESOURCE_CONFLICT", f"{item.label} cannot run together with {listed}.",
+                           f"Conclude or pause {listed} first.", ("resource_claims",))
     if merged_selection([item.canonical for item in items], [item.way for item in items]):
         return None
     for index, item in enumerate(items):
         for other in items[index + 1:]:
             if item.claims & other.claims:
-                return Refusal("RESOURCE_CONFLICT", f"{item.label}和{other.label}不能同时进行",
-                               "一次只选其中一件", ("resource_claims",))
+                return Refusal("RESOURCE_CONFLICT", f"{item.label} cannot run together with {other.label}.",
+                               "Choose only one of the conflicting activities.", ("resource_claims",))
     return None
 
 
@@ -303,13 +317,14 @@ def _holding_refusal(context: Context, items: Sequence[Item], present: str | Non
     """@brief 物品状态：持有物只在此刻所在地点可用；途中没有可用的持有物，同一请求出发后手边也没有；
     他处持有物写明只能在当地用。"""
     if departs:
-        return Refusal("PRODUCT_NOT_HELD", "出发后手边没有可用的持有物", "先用完再出发")
+        return Refusal("PRODUCT_NOT_HELD", "Held items cannot be used after departure.",
+                       "Use the item before departure.")
     if present is None:
-        return Refusal("PRODUCT_NOT_HELD", "路上没有可用的持有物", "到达后再用")
+        return Refusal("PRODUCT_NOT_HELD", "Held items cannot be used during travel.", "Use the item after arrival.")
     elsewhere = next((item.held_at for item in items if item.held_at is not None and item.held_at != present), None)
     if elsewhere is not None:
-        place = context.place_names.get(elsewhere, "它所在的地方")
-        return Refusal("PRODUCT_NOT_HELD", f"这件东西在{place}，只能在当地用",
+        place = context.place_names[elsewhere]
+        return Refusal("PRODUCT_NOT_HELD", f"This item is at {place} and must be used there.",
                        go_step(context.routes, context.place_names, _origin(context), elsewhere))
     return None
 

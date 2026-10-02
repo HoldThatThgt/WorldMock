@@ -1,8 +1,9 @@
 # WorldMock 产品设计说明书 — 配置规格
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现  
-> **日期**：2026-09-29\
-> **版本**：v1.13\
+> **日期**：2026-10-01\
+> **版本**：v1.14\
+> **工具交互修订**：地点完整供给、构建价格范围、任务可用类型与请求形状设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-tool-interaction.md)为本次合同。
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
 配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md)。本文维护配置职责与设计边界。
@@ -11,6 +12,7 @@
 
 | 版本 | 日期 | 作者 | 说明 |
 | --- | --- | --- | --- |
+| v1.14 | 2026-10-01 | Codex | 工具交互设计冻结并已实现：目录5.0、契约与规则绑定3、场景4、地图3，世界8保留；逐店真实供给和定位价格、必填可空预约、原料配方、items活动请求、中文购买偏好、null本人、偏移查询与具体英文错误 |
 | v1.0 | 2026-09-20 | Claude | 初版：配置层级、场景文件、目录结构、语料配置、规则配置、凭证管理、校验机制 |
 | v1.1 | 2026-09-20 | Codex | 身体初值、资源目录和规则来源对齐实际输入，明确已有实现差异 |
 | v1.2 | 2026-09-20 | Codex | 资源、内容和语料设计归入资源引擎；配置仅保留场景引用与初值 |
@@ -143,15 +145,17 @@ flowchart LR
 场景使用整数 `schema_version`，人物清单为 `agents`，时间字段为 `start_at`、`end_at`；
 身体资源初值放在顶层 `body`，人物档案常量放在各自的 `agents` 条目。
 场景可选钉定手机配置 `phone_simulation_config` 与其 `phone_simulation_config_sha256`（两者同时出现或同时缺省）；购买渠道由它派生，
-不新增场景字段，生活场景结构版本不变（见下文「地图引用与门店供给初值」）。
-本文不重新定义完整场景 Schema。
+手机配置自身不新增场景结构；本次任务字段按工具交互规格随生活场景结构升为 4。
+本文不重新定义完整场景 Schema。下表列各格式首次受影响的发布目标，目录、地图与场景在各自结构发生实际变更的阶段独立发布，
+不因某个阶段完成而预先提升无关格式；后续内容变更另发新版本，不同内容不得覆盖同版，最终认证记录实际版本及摘要。
+恢复仍核验该阶段真实产物与代码身份。
 
-| 格式 | 当前版本 | 拒绝边界 |
+| 格式 | 首次受影响的发布目标 | 拒绝边界 |
 | --- | --- | --- |
-| 地图文件 `schema_version` | 2 | 地点可带分店标签 `branch_label`；数据集声明与三个目录文件同用此版本，结构 1 的地图直接拒绝；声明与文件身份、完整路线关系共同校验 |
-| 商品目录 `version_major` | 4 | 原生品类对象与独立供给共同发布；两条分支旧目录 3.0 均不作为新身份 |
-| 品类与交换规则 `contract_version` | 2 | 购买规则删除商品价格槽，保留动态供给报价的闭集求值 |
-| 生活场景 `schema_version` | 3 | 地点、商品与供给按身份引用，旧内嵌地点和路线拒绝；含旧键 `max_consecutive_rejections` 拒绝 |
+| 地图文件 `schema_version` | 3 | 当前实现 3；必填 `random_seed/category_assignment_sha256`，分类声明由地图和语料清单共同钉定，旧地图直接拒绝 |
+| 商品目录 `version_major` | 5（首次 5.0，当前 5.3） | 构建价格范围、真实原料对象与单输入单输出配方；内容改变另发版本，旧身份不兼容读取 |
+| 品类与交换规则 `contract_version` | 3 | 当前实现 3；价格范围槽与原料品类，购买仍读取独立供给当前报价 |
+| 生活场景 `schema_version` | 4 | 当前实现 4；显式声明 `appointment` 为 null 或约定对象，开放时刻只在运行时派生，旧场景直接拒绝 |
 | 世界状态 `schema_version` | 8 | 旧检查点（含版本 7）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 `remind_at`、`reminded_at`、大致时刻 `around_at` 与已生成计划的日期 `plan_submitted_dates`）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 `opened_by_action_id`、活动的暂停时刻 `paused_at` 与进食的开吃份量 `opened`、订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox` |
 
 目录通过 `scripts/build_catalog.py` 生成，地图通过 `scripts/prepare_map.py` 从显式输入准备与发布。
@@ -182,6 +186,8 @@ flowchart LR
 
 场景 `map_dataset` 使用 `dataset_id/version/path/sha256` 绑定唯一冻结地图。
 `locations` 只写 `location_id`，`products` 只写 `product_id`，`supplies` 写 `supply_id` 及可选 `initial_stock`。
+正式场景的 `products/supplies` 必须显式包含选中售卖地点全部声明商品及生成供给；
+加载与正式验收核对选择后的实际集合，旧稀疏列表不能裁掉新供给，缺项拒绝，不自动选择或补齐。
 地点名称、坐标、营业、路线和供给定义从固定资料装配，不在场景手抄副本，也不添加额外配置层。
 人物 `qualifications` 显式声明；访问与供给资格不能从人物画像推断。
 
@@ -206,14 +212,59 @@ flowchart LR
 完整运行时场景包含解析后的地图、地点、路线、商品和供给。地图和场景选区共同校验账户、产品、
 供给组合和有向路线覆盖。每个端点/方式组合必须有可达、不可达或带来源的未知记录；漏项拒绝。
 营业与报价的有效期、核对日期、可信截止日及来源在发布前验证。旧整点营业和旧商品单店字段直接拒绝。
-地点发现由 `start_activity` 的可读对象与动作表达；允许发现的正式地点菜单必须显式纳入
+商品目录浏览由 `start_activity` 的可读对象与动作表达；允许浏览的正式地点菜单必须显式纳入
 `browse` 标准动作，人物菜单仍可进一步限制。
 三个正式场景选中的三家餐馆各自选中明确关联的 `prepared-meal` 供给和商品，
-供给初值为正、支持本店自提，且地点与人物的实际菜单允许购买和消费。
-此覆盖属于正式输入验收，不增加通用场景的餐馆必有餐食约束；空菜单依然合法。
+kind仅定义完整准入池，逐店category_ids及全部后代对象与object_ids并集确定实际供给，仍须全部属于准入池。
+供给初值为正、餐馆支持本店自提，且地点与人物的实际菜单允许购买和消费；
+无售卖类别地点可无供给，不能通过逐条手抄只给售卖地点留下零星几件商品。
+分类声明冻结在 `corpora/zhangjiang-map/category-assignment.json`，同一文件逐店包含
+`location_id/category_ids/object_ids/price_position_percent/source`，五键必填，缺项拒绝，不随机抽取或全量复制准入池。
+文件恰含必填 `kinds/locations/source`，`kinds` 为现有地点 kind 到品类数组的准入表，全部地图 kind 包括空集合均显式声明；
+顶层与逐店 `source` 均沿用完整 `DataSource` 的 `kind/url/retrieved_at/license/notice/fact_cutoff/applicability`。
+显式卖方、库存与履约保存在供给假设材料；目录有效属性中的
+`purchase_price_fen_min/purchase_price_fen_max` 给出同币种正整数分范围。构建对 `[random_seed, location_id, object_id]` 使用
+`json.dumps(..., ensure_ascii=False, separators=(',', ':'))` 后编码为 UTF-8，取 SHA-256 摘要的无符号大端整数 `h`，
+逐店 `price_position_percent` 为有来源的整数5至95，固定 `jitter = h % 11 - 5`，
+以 `min + ((max - min) * (price_position_percent + jitter) + 50) // 100` 生成一次初始报价，不为每商品独立抽整个范围。
+本正式地图中的门店按同一地区比较，所有便利店定位至少高于地图内普通超市10个百分点，
+同商品报价不得更低，整数舍入同价合法；不新增地区字段。
+这是有来源场景假设，其他门店定位按事实或明确假设声明，不新增可配置扰动。
+地图结构 3 必填 `random_seed/category_assignment_sha256`，分类文件由地图和语料清单共同钉定，
+加载核对地图种子与场景种子相等、分类哈希与全部逐店实际供给；范围来源保留于对象和报价来源。
+白领与多人场景使用不同既有种子，分别发布并钉定对应的地图供给集合；地点和路线来源可共享，
+不跨种子复用报价，也不为共用一份地图擅改实验种子。
+观察、查询、交易和恢复不抽价，不加重复摘要配置或运行策略开关。
+
+正式场景丰富度门禁为每餐馆8正餐且每对菜单各有至少3项差异、便利店40对象/6最终品类、超市80/8、
+商户40/6且含日用品、菜市场8真实原料/2已发布原料子类。阈值是本次正式场景验收，不是行业事实；
+素材未知或不足拒绝发布，不随机补齐，还须行为验证到店营业、有货、真实购买及餐食制作食用。
+
+任务必填 `appointment`：普通独立工作写null，真实需要提前约定的活动写 `{starts_at, reason}`，
+starts_at带时区、reason为非空约定依据，不能根据标题猜测。删除场景输入的available_at、availability_kind、appointment_reason。
+内部 `RuntimeWorkTask.available_at` 由最早关联通知sent_at或预约starts_at派生；普通邮件工作在收到通知时已开放。
+每封非空 `related_task_id` 邮件必须引用实际任务，收件人必须匹配任务受派人物；每项任务必须有发给受派人物的关联通知。
+预约只要求最早通知不晚于starts_at，之后的提醒可以晚于预约开始，不能改写已派生的开放时刻；due_at必须晚于派生开放时刻。
+邮件到达即已知，正文仍须真实阅读，不用无通知任务作为缺数据回退。
+地点、资格与截止仍真实校验；到公司即可开始已收到的普通工作，不再靠 09:00 之类惯例强制等待。
+习惯写明自己做饭时，场景必须声明真实原料库存、原料对象、转换规则和 `recipe_output_bindings`；
+输入和输出的 `inventory_unit=item`，库存资源仍为 `inventory/item`；输出为能吃的已发布对象，
+不开发多材料引擎，不加无产出过渡活动。
+正式数据集发布须有明确习惯动作夹具验证完整链；运行覆盖警告与 `validate` 的 80% 门禁保持原合同。
 人物如需同时启动两个持续活动，两个名额都须空闲，名额不足报 `SESSION_LIMIT_EXCEEDED`；
-正式地点和人物菜单分别允许这两项映射后的标准动作，本轮等长的请求数组逐项通过冻结菜单与可见性校验，
+正式地点和人物菜单分别允许这两项映射后的标准动作，本轮items对象逐项通过冻结菜单与可见性校验，
 并按注册表占用与准入事实判定，能量不参与，整组原子受理。
+`start_activity` 必填items/answering/prefer，items一至两项，每项恰为全键必填的{target,way,from,to}；
+方式统一解析出动作，旧actions和targets/ways/from/to平行数组直接拒绝。
+含到店、远程下单或购买项时prefer只能为“最快拿到”或“到手价最低”，否则必须为null；null不默认最快，旧英文值拒绝。
+to=null统一为本人、他人写实名，旧“自己”值拒绝；食用、使用、制作及非转移动作两端null，给予from=null且to为其他人物。
+固定 `query_world(name, way, category, offset)` 全键必填，前三者可空但至少一个非空，offset为非负整数；
+category只取callable_index已展示的公开品类标签，错误给当轮全部合法标签。
+结果matches/total_count/next_offset中的next_offset必填可空，每页沿用现有上限20，可按偏移遍历同一冻结全集。
+查询只读冻结观察权限，不推进时间或授予凭据，不新增游标编码或配置，不恢复商品需求路线发现接口。
+全部接口错误均返回英文说明，`items[]` 每项包含 `path/written/error_code/allowed_values/expected/why/candidates`；
+`path` 为从模型工具调用根开始的完整位置数组，`why` 写参数、名称或世界前置条件的英文原因，
+闭集列全部合法值，未知字段与旧形状不回退受理。
 
 
 ### 3.3 身体资源初值
@@ -360,6 +411,13 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 [交互菜单验收记录](../dev/research/interaction-menu-verification.md)。
 
 ### 8.4 错误分类与提示
+
+下表提示只示意英文原因，完整接口错误 `items[]` 每项必须包含
+`path/written/error_code/allowed_values/expected/why/candidates`。`path` 为从模型工具调用根开始、保留所有下标的
+完整位置数组；`why` 为具体参数、名称或世界前置条件的英文原因；`expected` 写类型、长度、范围或前置条件，
+`allowed_values` 列全部合法枚举，无枚举约束时为 []，不省略字段或只返回错误码。
+地点类别错误列出 `PLACE_TYPES` 全部合法值，预约形状错误在expected写明null或starts_at/reason对象约束，价格越界写明冻结两端，
+旧 `actions` 或旧场景版本直接拒绝并指向当前请求或版本约束。
 
 | 错误类型 | 示例 | 用户提示 |
 | --- | --- | --- |

@@ -109,34 +109,29 @@ def _host_error(tool: str, arguments: dict) -> str:
 
 
 def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """模型只填可读对象、动词和方式三个等长数组（另有来源、去向与请求级 answering、prefer）；Schema 不带逐轮枚举，名称与
-    （动词，方式）配对由宿主按私有绑定校验；请求级 prefer 必填可空，只取 fastest 或 cheapest，带一句「格式与来源」的字段级
-    说明（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 1 条），整个 Schema 仍不含 $ref 与 $defs。"""
+    """逐项四字段闭合请求，方式推导动作，购买偏好为中文精确闭集。"""
     schema = _function("start_activity")["parameters"]
     assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
-    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
-    assert schema["required"] == ["targets", "actions", "ways", "from", "to", "answering", "prefer"]
-    assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
-    prefer = schema["properties"]["prefer"]
-    assert (prefer["type"], prefer["enum"]) == (["string", "null"], ["fastest", "cheapest", None])
-    assert "空值按最快" in prefer["description"] and "「购买」" in prefer["description"]
+    assert set(schema["properties"]) == {"items", "answering", "prefer"}
+    assert schema["required"] == ["items", "answering", "prefer"]
+    item = schema["properties"]["items"]["items"]
+    assert set(item["properties"]) == set(item["required"]) == {"target", "way", "from", "to"}
+    assert all("enum" not in item["properties"][field] for field in ("target", "way"))
+    assert schema["properties"]["prefer"]["enum"] == ["最快拿到", "到手价最低", None]
     assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
-    assert list(Draft202012Validator(schema).iter_errors({**start_arguments(["自己"], ["interact"], ["等待"]),
-                                                         "prefer": "slowest"}))
-    assert {"agent_id", "decision_id", "action_id", "target_id", "planned_duration_seconds",
-            "price_fen", "price_version", "quantity", "travel_mode", "fulfillment"}.isdisjoint(schema["properties"])
     valid = start_arguments(["自己", _TASK], ["interact", "interact"], ["等待", "工作"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
-    assert _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"])) == (
-        "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])")
-    for verb, way in (("等待", "等待"), ("interact", "interact"), ("sleep", "等待")):
-        assert _host_error("start_activity", start_arguments(["自己"], [verb], [way])) == (
-            "WAY_NOT_OFFERED: start_activity verb and way are not offered by the chosen target (targets[0])")
-    assert list(Draft202012Validator(schema).iter_errors({"targets": ["自己"], "actions": ["interact"]}))
-    with pytest.raises(ValidationError):
-        REQUEST_MODELS["start_activity"].model_validate({"targets": ["自己"], "actions": ["interact"]})
+    error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"]))
+    assert error.report.error_code == "NAME_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
+    for way in ("interact", "invented_way"):
+        error = _host_error("start_activity", start_arguments(["自己"], ["interact"], [way]))
+        assert error.report.error_code == "WAY_NOT_OFFERED" and error.report.items[0].path[-1] == "way"
+    for deleted in ({"targets": ["自己"], "actions": ["interact"]}, {**valid, "actions": ["interact"]}):
+        assert list(Draft202012Validator(schema).iter_errors(deleted))
+        with pytest.raises(ValidationError):
+            REQUEST_MODELS["start_activity"].model_validate(deleted)
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
@@ -155,8 +150,7 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS[name].model_validate(valid)
     assert _host_error(name, valid) == ""
-    assert _host_error(name, _control_payload(name, [("别的活动", "继续。")])) == (
-        f"NAME_NOT_FOUND: {name} activity_name names an activity that is not visible")
+    assert _host_error(name, _control_payload(name, [("别的活动", "继续。")])).report.error_code == "NAME_NOT_FOUND"
     for invalid in ({"items": []}, _control_payload(name, [(_WAIT, "a"), (_WAIT, "b")]),
                     _control_payload(name, [(_WAIT, " ")]), {"items": [{"activity_name": _WAIT}]},
                     {"task": [_WAIT], "summary": ["继续。"]}):
@@ -175,7 +169,8 @@ def test_control_summaries_are_limited_to_500_characters_by_the_local_check(name
     assert _host_error(name, boundary) == ""
     with pytest.raises(ValidationError, match="within 500 characters"):
         REQUEST_MODELS[name].model_validate(over)
-    assert _host_error(name, over).startswith(f"ARGUMENTS_INVALID: invalid {name} arguments")
+    error = _host_error(name, over)
+    assert error.report.error_code == "ARGUMENTS_INVALID" and error.report.items[0].path[-1] == "summary"
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
@@ -209,12 +204,11 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     deliverable = {"summary": "要点。", "decisions": ["推进。"], "action_items": ["复盘。"]}
     assert _host_error("submit_work", {"task_name": _TASK, "deliverable": deliverable}) == ""
     assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
-    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == (
-        "NAME_NOT_FOUND: recipient_name is not visible")
+    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}).report.error_code == "NAME_NOT_FOUND"
     for name in (_TASK, _WAIT):
         assert _host_error("recall_task_summary", {"task_name": name}) == ""
     for name in ("同事", "自己家（1月4日 18:00 起）"):
-        assert _host_error("recall_task_summary", {"task_name": name}) == "NAME_NOT_FOUND: task_name is not visible"
+        assert _host_error("recall_task_summary", {"task_name": name}) .report.error_code == "NAME_NOT_FOUND"
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:

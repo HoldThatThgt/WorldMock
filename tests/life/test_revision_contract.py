@@ -57,7 +57,7 @@ def _events(engine, event_type: str):
 
 def _goal_plan() -> PlanDayRequest:
     """当日目标采用可读意图和自然语言正文，不设提醒。"""
-    return PlanDayRequest(goals=(PlanGoalInput(intent_kind="工作", goal="推进报告", remind_time=None, around_time=None),))
+    return PlanDayRequest(goals=[PlanGoalInput(intent_kind="工作", goal="推进报告", remind_time=None, around_time=None)])
 
 
 def test_silent_sleep_boundary_settles_without_decision_events(engine_factory) -> None:
@@ -162,8 +162,8 @@ def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None
     assert shown["occurred_at"] == iso_time(rejected.occurred_at, engine.scenario.timezone)
     assert "action_id" not in shown
     assert engine.state.agents[1].day_plan == plan
-    fixed = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="工作", goal="写完报告", remind_time=None,
-                                                      around_time=None),))
+    fixed = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="工作", goal="写完报告", remind_time=None,
+                                                      around_time=None),])
     assert _act(engine, "fixed-plan", "revise_day_plan", fixed).status.value == "completed"
     assert [goal.goal for goal in engine.state.agents[1].day_plan.goals] == ["写完报告"]
 
@@ -180,11 +180,11 @@ def test_revise_day_plan_preserves_progressed_goal(engine_factory) -> None:
     assert conclude_pending(engine, "rest-end").status == "completed"
     original = engine.state.agents[1].day_plan.goals[0]
     rejected = _act(engine, "rewrite", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="改写休息", remind_time=None, around_time=None),)))
+        goals=[PlanGoalInput(intent_kind="休息", goal="改写休息", remind_time=None, around_time=None)]))
     assert rejected.error_code == "PLAN_GOAL_ALREADY_PROGRESSED"
     assert engine.state.agents[1].next_decision_at == engine.state.current_time
     result = _act(engine, "append", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="工作", goal="写报告", remind_time=None, around_time=None),)))
+        goals=[PlanGoalInput(intent_kind="工作", goal="写报告", remind_time=None, around_time=None)]))
     assert result.status.value == "completed"
     assert engine.state.agents[1].day_plan.goals[0] == original
     assert engine.state.agents[1].day_plan.goals[1].intent_kind == "工作"

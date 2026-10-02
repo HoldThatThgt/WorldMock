@@ -305,6 +305,10 @@ def _validate_values(
                 raise CategoryError(
                     "CATEGORY_SLOT_VALUE_INVALID", f"{owner} slot {slot_id}: {error.message}",
                 ) from error
+    lower = values.get("purchase_price_fen_min")
+    upper = values.get("purchase_price_fen_max")
+    if lower is not None and upper is not None and lower > upper:
+        raise CategoryError("CATEGORY_PRICE_RANGE_INVALID", f"{owner} purchase price range is reversed")
 
 
 def _require_slot(slot_id: str, slots: Mapping[str, ResolvedSlot], owner: str) -> None:

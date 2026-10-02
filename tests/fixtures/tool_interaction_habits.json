@@ -1,0 +1,748 @@
+{
+  "source": "Read-only compiled habit declarations from the real DeepSeek strict two-person run; native action mappings are explicit human-authored test fixtures. Brand, temperature and platform details remain persona prose and do not create world facts.",
+  "scenario": "scenarios/multi-person.json",
+  "compiled_personas": [
+    {
+      "agent_id": 1,
+      "source_path": "runs/tool-interaction-final/as2/agents/agent_0001/AGENT.json",
+      "source_sha256": "df88f1ad2718e7583aa1def402b859af5b3096e197aa1631e08c4b833ce6682c",
+      "habits": [
+        {
+          "trigger": "起床后",
+          "response": "喝一杯温水",
+          "time_window": {
+            "start_hour": 7.0,
+            "end_hour": 7.5
+          }
+        },
+        {
+          "trigger": "通勤时",
+          "response": "听播客",
+          "time_window": {
+            "start_hour": 7.5,
+            "end_hour": 9.0
+          }
+        },
+        {
+          "trigger": "午休时间",
+          "response": "看一集短剧或刷微博放松",
+          "time_window": {
+            "start_hour": 12.0,
+            "end_hour": 13.0
+          }
+        },
+        {
+          "trigger": "工作间隙",
+          "response": "去楼下便利店买牛奶和坚果当加餐",
+          "time_window": {
+            "start_hour": 10.0,
+            "end_hour": 16.0
+          }
+        },
+        {
+          "trigger": "压力来临时",
+          "response": "做深呼吸",
+          "time_window": {
+            "start_hour": 9.0,
+            "end_hour": 18.0
+          }
+        }
+      ]
+    },
+    {
+      "agent_id": 2,
+      "source_path": "runs/tool-interaction-final/as2/agents/agent_0002/AGENT.json",
+      "source_sha256": "e9f64ea15fd389dfbc4b6d6f334f2402111f8db2f6900f5977a2458ca96c1d47",
+      "habits": [
+        {
+          "trigger": "饿了",
+          "response": "点外卖",
+          "time_window": {
+            "start_hour": 11.0,
+            "end_hour": 13.0
+          }
+        },
+        {
+          "trigger": "饿了",
+          "response": "点外卖",
+          "time_window": {
+            "start_hour": 17.0,
+            "end_hour": 19.0
+          }
+        },
+        {
+          "trigger": "压力大或 bug 解不掉",
+          "response": "刷知乎和段子",
+          "time_window": {
+            "start_hour": 20.0,
+            "end_hour": 23.0
+          }
+        },
+        {
+          "trigger": "深夜",
+          "response": "打游戏",
+          "time_window": {
+            "start_hour": 23.0,
+            "end_hour": 25.0
+          }
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "morning-drink",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T07:00:00+08:00",
+        "location_id": "poi-3538682402",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "purchase",
+          "object_id": "food-6901939621738",
+          "way": "到店",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6901939621738",
+          "way": "食用"
+        }
+      ],
+      "habit": {
+        "trigger": "起床后",
+        "response": "喝一杯温水",
+        "time_window": {
+          "start_hour": 7.0,
+          "end_hour": 7.5
+        }
+      }
+    },
+    {
+      "name": "commute-podcast",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T07:30:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "parallel",
+          "items": [
+            {
+              "kind": "travel",
+              "object_id": "office",
+              "way": "步行"
+            },
+            {
+              "kind": "media",
+              "object_id": "podcast-nasa-space-habitat-excerpt",
+              "way": "接着听"
+            }
+          ]
+        }
+      ],
+      "habit": {
+        "trigger": "通勤时",
+        "response": "听播客",
+        "time_window": {
+          "start_hour": 7.5,
+          "end_hour": 9.0
+        }
+      }
+    },
+    {
+      "name": "lunch-break-media",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T12:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "media",
+          "object_id": "drama-0001",
+          "way": "接着看",
+          "complete": true
+        },
+        {
+          "kind": "media",
+          "object_id": "news-feed",
+          "way": "接着看",
+          "complete": false
+        }
+      ],
+      "habit": {
+        "trigger": "午休时间",
+        "response": "看一集短剧或刷微博放松",
+        "time_window": {
+          "start_hour": 12.0,
+          "end_hour": 13.0
+        }
+      }
+    },
+    {
+      "name": "convenience-milk-and-nuts",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T10:00:00+08:00",
+        "location_id": "office",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "travel",
+          "object_id": "poi-3538682402",
+          "way": "步行"
+        },
+        {
+          "kind": "purchase",
+          "object_id": "food-6923644266066",
+          "way": "到店",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6923644266066",
+          "way": "食用"
+        },
+        {
+          "kind": "purchase",
+          "object_id": "food-8935090914864",
+          "way": "到店",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-8935090914864",
+          "way": "食用"
+        },
+        {
+          "kind": "travel",
+          "object_id": "office",
+          "way": "步行"
+        }
+      ],
+      "habit": {
+        "trigger": "工作间隙",
+        "response": "去楼下便利店买牛奶和坚果当加餐",
+        "time_window": {
+          "start_hour": 10.0,
+          "end_hour": 16.0
+        }
+      }
+    },
+    {
+      "name": "stress-breathing",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T15:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "lifestyle",
+          "object_id": "yoga",
+          "way": "进行"
+        }
+      ],
+      "habit": {
+        "trigger": "压力来临时",
+        "response": "做深呼吸",
+        "time_window": {
+          "start_hour": 9.0,
+          "end_hour": 18.0
+        }
+      }
+    },
+    {
+      "name": "lunch-delivery",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T11:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "purchase",
+          "object_id": "food-6920152460061",
+          "way": "远程下单",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6920152460061",
+          "way": "食用"
+        }
+      ],
+      "habit": {
+        "trigger": "饿了",
+        "response": "点外卖",
+        "time_window": {
+          "start_hour": 11.0,
+          "end_hour": 13.0
+        }
+      }
+    },
+    {
+      "name": "dinner-delivery",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T17:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "purchase",
+          "object_id": "food-6920152460061",
+          "way": "远程下单",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6920152460061",
+          "way": "食用"
+        }
+      ],
+      "habit": {
+        "trigger": "饿了",
+        "response": "点外卖",
+        "time_window": {
+          "start_hour": 17.0,
+          "end_hour": 19.0
+        }
+      }
+    },
+    {
+      "name": "stress-news-and-jokes",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T20:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "media",
+          "object_id": "news-feed",
+          "way": "接着看",
+          "complete": false
+        },
+        {
+          "kind": "media",
+          "object_id": "jokes-feed",
+          "way": "接着看",
+          "complete": false
+        }
+      ],
+      "habit": {
+        "trigger": "压力大或 bug 解不掉",
+        "response": "刷知乎和段子",
+        "time_window": {
+          "start_hour": 20.0,
+          "end_hour": 23.0
+        }
+      }
+    },
+    {
+      "name": "late-game",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T23:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "game",
+          "object_id": "textworld-1201",
+          "way": "游玩"
+        }
+      ],
+      "habit": {
+        "trigger": "深夜",
+        "response": "打游戏",
+        "time_window": {
+          "start_hour": 23.0,
+          "end_hour": 25.0
+        }
+      }
+    },
+    {
+      "name": "chen-lunch",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T12:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "travel",
+          "object_id": "poi-3538660453",
+          "way": "步行"
+        },
+        {
+          "kind": "purchase",
+          "object_id": "meal-0001",
+          "way": "到店",
+          "from": "poi-3538660453"
+        },
+        {
+          "kind": "consume",
+          "object_id": "meal-0001",
+          "way": "食用"
+        }
+      ],
+      "background_declaration": "工作再忙也会按时吃午饭和晚饭"
+    },
+    {
+      "name": "chen-dinner",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T18:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "travel",
+          "object_id": "poi-3538660453",
+          "way": "步行"
+        },
+        {
+          "kind": "purchase",
+          "object_id": "meal-0010",
+          "way": "到店",
+          "from": "poi-3538660453"
+        },
+        {
+          "kind": "consume",
+          "object_id": "meal-0010",
+          "way": "食用"
+        }
+      ],
+      "background_declaration": "工作再忙也会按时吃午饭和晚饭"
+    },
+    {
+      "name": "colleague-dinner-invitation",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T18:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "message",
+          "object_id": "contact-chenxi-colleague",
+          "way": "send_message",
+          "text": "今天下班后一起吃饭吧。"
+        },
+        {
+          "kind": "travel",
+          "object_id": "poi-3538660453",
+          "way": "步行"
+        },
+        {
+          "kind": "purchase",
+          "object_id": "meal-0001",
+          "way": "到店",
+          "from": "poi-3538660453"
+        },
+        {
+          "kind": "consume",
+          "object_id": "meal-0001",
+          "way": "食用"
+        }
+      ],
+      "background_declaration": "下班后偶尔约同事吃饭"
+    },
+    {
+      "name": "weekend-game",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-10T19:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {},
+        "end_at": "2026-01-11T12:00:00+08:00"
+      },
+      "chain": [
+        {
+          "kind": "game",
+          "object_id": "textworld-1201",
+          "way": "游玩"
+        }
+      ],
+      "background_declaration": "周末打 Switch 或看 Netflix"
+    },
+    {
+      "name": "weekend-film",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-10T19:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {},
+        "end_at": "2026-01-11T12:00:00+08:00"
+      },
+      "chain": [
+        {
+          "kind": "media",
+          "object_id": "movie-0001",
+          "way": "接着看",
+          "complete": false
+        }
+      ],
+      "background_declaration": "周末打 Switch 或看 Netflix"
+    },
+    {
+      "name": "friend-message",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T19:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "message",
+          "object_id": "contact-chenxi-oldfriend",
+          "way": "send_message",
+          "text": "下班了，最近怎么样？"
+        }
+      ],
+      "background_declaration": "社交活跃，微信好友多，喜欢在知乎分享产品心得"
+    },
+    {
+      "name": "product-insight-sharing",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T19:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "message",
+          "object_id": "contact-chenxi-colleague",
+          "way": "send_message",
+          "text": "分享今天的产品心得：先观察用户实际需求。"
+        }
+      ],
+      "background_declaration": "社交活跃，微信好友多，喜欢在知乎分享产品心得"
+    },
+    {
+      "name": "lifan-breakfast-delivery",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T07:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "purchase",
+          "object_id": "food-6920152460061",
+          "way": "远程下单",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6920152460061",
+          "way": "食用"
+        }
+      ],
+      "background_declaration": "习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面"
+    },
+    {
+      "name": "iced-tea",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T11:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "purchase",
+          "object_id": "food-6920459902387",
+          "way": "远程下单",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6920459902387",
+          "way": "食用"
+        }
+      ],
+      "background_declaration": "喜欢喝冰红茶"
+    },
+    {
+      "name": "stress-friend-call",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T20:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "call",
+          "object_id": "contact-lifan-oldfriend",
+          "way": "通话",
+          "agent_id": 2
+        }
+      ],
+      "background_declaration": "压力大时会找老友倾诉而不是憋着"
+    },
+    {
+      "name": "hungry-work-break",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T07:59:00+08:00",
+        "location_id": "office",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "self",
+          "object_id": "self",
+          "way": "等待"
+        },
+        {
+          "kind": "work",
+          "object_id": "backend-task-2026-01-05",
+          "way": "工作",
+          "agent_id": 2,
+          "complete": false
+        },
+        {
+          "kind": "purchase",
+          "object_id": "food-6920152460061",
+          "way": "远程下单",
+          "from": "poi-3538682402"
+        },
+        {
+          "kind": "consume",
+          "object_id": "food-6920152460061",
+          "way": "食用"
+        }
+      ],
+      "background_declaration": "写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛"
+    },
+    {
+      "name": "price-comparison",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-05T12:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "purchase",
+          "object_id": "item-notebook",
+          "way": "远程下单",
+          "prefer": "到手价最低"
+        }
+      ],
+      "background_declaration": "消费偏节俭，比价后才买"
+    },
+    {
+      "name": "chen-stop-working",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T07:59:00+08:00",
+        "location_id": "office",
+        "notifications": [],
+        "inventory": {}
+      },
+      "chain": [
+        {
+          "kind": "self",
+          "object_id": "self",
+          "way": "等待"
+        },
+        {
+          "kind": "work",
+          "object_id": "task-2026-01-05",
+          "way": "工作",
+          "agent_id": 1,
+          "complete": false
+        },
+        {
+          "kind": "travel",
+          "object_id": "home",
+          "way": "步行"
+        }
+      ],
+      "background_declaration": "不会为了赶 deadline 连续加班到深夜"
+    },
+    {
+      "name": "lifan-late-bedtime",
+      "agent_id": 2,
+      "preconditions": {
+        "at": "2026-01-06T01:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {},
+        "end_at": "2026-01-06T12:00:00+08:00"
+      },
+      "chain": [
+        {
+          "kind": "self",
+          "object_id": "self",
+          "way": "睡觉"
+        }
+      ],
+      "background_declaration": "睡眠偏晚，经常凌晨一点才睡"
+    },
+    {
+      "name": "chen-night-rest",
+      "agent_id": 1,
+      "preconditions": {
+        "at": "2026-01-05T22:00:00+08:00",
+        "location_id": "home",
+        "notifications": [],
+        "inventory": {},
+        "end_at": "2026-01-06T12:00:00+08:00"
+      },
+      "chain": [
+        {
+          "kind": "self",
+          "object_id": "self",
+          "way": "睡觉"
+        }
+      ],
+      "background_declaration": "不会为了赶 deadline 连续加班到深夜"
+    }
+  ]
+}

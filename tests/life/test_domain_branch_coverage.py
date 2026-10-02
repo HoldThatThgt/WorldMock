@@ -102,7 +102,7 @@ from worldmock.life.scenario import (
     ProductConfig,
     ProductReference,
     RouteConfig,
-    WorkTaskConfig,
+    RuntimeWorkTask,
     parse_scenario_document,
 )
 from worldmock.life.semantics import (
@@ -197,6 +197,7 @@ def _product(product_id="food-1", kcal=600,
              required_location=None) -> ProductConfig:
     serving = {"serving_quantity": 1.0, "serving_unit": "serving"} if "eat" in use_modes else {}
     return ProductConfig.model_validate({
+        "purchase_price_fen_min": 1, "purchase_price_fen_max": 100_000,
         "product_id": product_id, "name": "Test food",
         "category_id": "food" if "eat" in use_modes else "durable", "inventory_unit": "item",
         "energy_kcal_per_unit": kcal if "eat" in use_modes else 0,
@@ -490,7 +491,7 @@ def test_social_actions_choosing_chat_with_the_inviter_accepts() -> None:
     with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT") as refused:
         start_chat(late, late.agents[1], request, _origin(), "m4")
     assert (refused.value.public_reason, refused.value.suggested) == (
-        "对方的交谈快结束了", {"next_step": "等对方结束后再发起新的交谈"})
+        "The other person's conversation has less than one minute remaining.", {"next_step": "Wait for the current conversation to end, then start a new one."})
 
 
 def test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap() -> None:
@@ -911,12 +912,12 @@ def test_travel_candidate_rejects_short_or_energy_infeasible_legs() -> None:
 
 
 def _work_task(task_id="task-1", pay=50000, location="office", due_day=16,
-               minimum_skill=0.3) -> WorkTaskConfig:
+               minimum_skill=0.3) -> RuntimeWorkTask:
     zone = ZoneInfo(TIMEZONE)
-    return WorkTaskConfig.model_validate({
+    return RuntimeWorkTask.model_validate({
         "task_id": task_id, "title": "完成周会纪要", "assignee_agent_id": "agent:1",
         "contract_kind": "package",
-        "available_at": datetime(2023, 11, 13, tzinfo=zone),
+        "appointment": None, "available_at": datetime(2023, 11, 13, tzinfo=zone),
         "due_at": datetime(2023, 11, due_day, tzinfo=zone),
         "maximum_duration_seconds": 14400, "pay_fen": pay,
         "employer_account_id": "employer:1", "required_location_id": location,
@@ -1102,7 +1103,7 @@ def test_load_work_input_rejects_hash_mismatch_and_non_utf8(tmp_path) -> None:
 def test_load_work_oracle_rejects_broken_payloads(tmp_path) -> None:
     """oracle 非法 JSON/缺 expected/缺参考摘要/坏参考逐项拒绝。"""
 
-    def oracle_task(payload: bytes) -> WorkTaskConfig:
+    def oracle_task(payload: bytes) -> RuntimeWorkTask:
         _write(tmp_path, "work/oracle.json", payload)
         return _work_task().model_copy(update={"oracle_sha256": _sha(payload)})
 
@@ -1142,10 +1143,10 @@ def test_prepare_work_submission_rejects_piece_oracle_without_count(
                          "source_reference": "ref.json"}).encode()
     _write(tmp_path, "work/oracle.json", oracle)
     zone = ZoneInfo(TIMEZONE)
-    task = WorkTaskConfig.model_validate({
+    task = RuntimeWorkTask.model_validate({
         "task_id": "task-piece", "title": "整理项目纪要", "assignee_agent_id": "agent:1",
         "contract_kind": "piece",
-        "available_at": datetime(2023, 11, 1, tzinfo=zone),
+        "appointment": None, "available_at": datetime(2023, 11, 1, tzinfo=zone),
         "due_at": datetime(2023, 11, 30, tzinfo=zone),
         "maximum_duration_seconds": 14400, "pay_fen": 50000,
         "employer_account_id": "employer:1", "required_location_id": "office",
@@ -1320,7 +1321,7 @@ def test_public_work_review_rejects_invalid_reference_category() -> None:
 
 def _submission(oracle: dict):
     from worldmock.life.work import WorkMetrics, WorkSubmission
-    task = WorkTaskConfig.model_construct(input_sha256="0" * 64, oracle_sha256="1" * 64)
+    task = RuntimeWorkTask.model_construct(input_sha256="0" * 64, oracle_sha256="1" * 64)
     from worldmock.life.models import MeetingMinutes, SubmitWorkRequest
     request = SubmitWorkRequest.model_construct(
         task_id="t", deliverable=MeetingMinutes.model_construct(
@@ -1750,7 +1751,7 @@ def test_contract_payment_rejects_a_missing_template() -> None:
     """合同付款必须能取得对应的冻结模板对象。"""
     from worldmock.life.models import ContractKind
     sem = _semantics()
-    shell = WorkTaskConfig.model_construct(
+    shell = RuntimeWorkTask.model_construct(
         contract_kind=ContractKind.HOURLY, pay_fen=60000, maximum_duration_seconds=28800)
     missing = _objects_drifted(sem, lambda data: data.pop("contract-hourly"))
     with pytest.raises(IntegrityError, match="is missing"):

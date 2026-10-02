@@ -9,12 +9,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
-from agentsociety2.society import DirectToolCall
-
+from pydantic import ValidationError
 from tests.life.conftest import (advance_next, context, last_result, stage_day_plan, submit_round, target_actions,
-                                 tool_targets, start_request, report_request)
+                                 tool_targets, report_request)
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import order_routing
@@ -26,6 +26,8 @@ from worldmock.life.recipients import agent_identity
 
 _OPEN = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
 _UNMET, _CONFLICT = "ACTIVITY_PRECONDITION_UNMET", "RESOURCE_CONFLICT"
+_RECIPE_INPUT = "ingredient-vegetable-kit"
+_RECIPE_OUTPUT = "meal-0030"
 
 
 def _stage(engine: LifeEngine, agent_id: int = 1, *, location: str | None = None, task: bool = False,
@@ -83,14 +85,15 @@ def _choice(observed: dict, way: str, *, kind: str | None = None, object_id: str
 
 def _request(*choices: tuple[str, str, str]) -> StartActivityRequest:
     """@brief 由（对象，动词，方式）逐项构造 start_activity 请求。"""
-    return start_request(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
-                                ways=[item[2] for item in choices])
+    purchase = any(item[2] in {"到店", "远程下单", "购买"} for item in choices)
+    return StartActivityRequest(items=[{"target": item[0], "way": item[2], "from": None, "to": None}
+                                       for item in choices], answering=None, prefer="最快拿到" if purchase else None)
 
 
 def _act(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1):
     """@brief 按真实顺序观察、登记并结算一轮，返回该人物的结果；同一秒就绪的其他人物（多人场景）开始等待。"""
     ready = engine.scheduling_state().ready_agent_ids or (agent_id,)
-    others = {other: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
+    others = {other: ("start_activity", _request(("自己", "interact", "等待")))
               for other in ready if other != agent_id}
     _, results = submit_round(engine, {agent_id: (tool, request), **others}, name)
     return next(item for item in results if item.agent_id == agent_id)
@@ -171,7 +174,7 @@ def test_driving_with_eyes_or_hands_activities_is_a_resource_conflict_in_either_
     other = _choice(observed, way, kind=kind)
     pair = (drive, other) if drive_first else (other, drive)
     result = _rejected(engine, "conflict", _request(*pair), _CONFLICT)
-    assert result.data["next_step"] == "一次只选其中一件"
+    assert result.data["next_step"] == "Choose only one of the conflicting activities."
 
 
 def _presence_case(engine_factory, case: str):
@@ -268,16 +271,17 @@ def test_driving_rejects_messages_remote_orders_and_submissions(engine_factory) 
     observed = _observe(engine, "hands-preview")
     order = next((row["object"], action) for row in observed["interaction_bindings"] if row["kind"] == "supply"
                  for action in row["actions"] if action["label"] == "远程下单")
-    assert order[1]["note"] == "开车时不能下单"
+    assert order[1]["note"] == "Cannot place an order while driving."
     contact = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "contact")
     message = _rejected(engine, "hands-message", SendMessageActionRequest(recipient_name=contact, text="在路上"),
                         _UNMET, tool="send_message")
-    assert message.data["reason"] == "开车时不能发消息" and message.data["next_step"].startswith("到达")
+    assert message.data["reason"] == "Cannot send a message while driving."
+    assert message.data["next_step"].startswith("Wait until arrival at ")
     _rejected(engine, "hands-order", _request((order[0], "obtain", "远程下单")), _UNMET)
     minutes = MeetingMinutes(summary="会议纪要", decisions=("按计划推进",), action_items=("整理材料",))
     submission = SubmitWorkActionRequest(task_name=f"工作：{engine.scenario.tasks[0].title}", deliverable=minutes)
     submitted = _rejected(engine, "hands-submit", submission, _UNMET, tool="submit_work")
-    assert submitted.data["reason"] == "开车时不能提交成果"
+    assert submitted.data["reason"] == "Cannot submit work while driving."
 
 
 def test_walking_accepts_messages_and_remote_orders_delivered_to_the_origin(engine_factory) -> None:
@@ -350,7 +354,8 @@ def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None
     assert [row["object"] for row in away] == [f"{name}（{origin_name}）" for name in held]
     assert all(row["location_id"] == engine.state.agents[1].location_id for row in away)
     lifestyle = [row for row in during["interaction_bindings"] if row["kind"] == "lifestyle"]
-    assert lifestyle and all(row["actions"][0]["note"].endswith("要停在一个地方做，路上做不了") for row in lifestyle)
+    assert lifestyle and all(row["actions"][0]["note"].endswith(
+        " requires a stationary location and cannot run during travel.") for row in lifestyle)
     assert all(target_actions(during, row["object"])["进行"]["available"] is False for row in lifestyle)
     origin = engine.state.agents[1].location_id
     assert during["interaction_menu"] == resolve_interaction_menu(engine.scenario, 1, origin).model_dump(mode="json")
@@ -362,7 +367,7 @@ def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None
     staged.activities[walking.activity_id] = walking.model_copy(update={"resource_claims": {"travel", "idle"}})
     staged.activities[walking.activity_id].travel_mode = None
     refusal = admission.group_refusal(admission.Context(state=staged, agent_id=1, place_names={}), [eat])
-    assert refusal.code == "PRODUCT_NOT_HELD" and refusal.reason == "路上没有可用的持有物"
+    assert refusal.code == "PRODUCT_NOT_HELD" and refusal.reason == "Held items cannot be used during travel."
 
 
 def test_departure_with_a_running_activity_names_it_in_reason_and_next_step(engine_factory) -> None:
@@ -378,11 +383,11 @@ def test_departure_with_a_running_activity_names_it_in_reason_and_next_step(engi
     observed = _observe(engine, "busy-preview")
     trip = next(action for row in observed["interaction_bindings"] if row["object_id"] == "office"
                 for action in row["actions"] if action["label"] == "步行")
-    assert trip["note"] == f"需要先结束或暂停手上的事：{name}"
+    assert trip["note"] == f"Conclude or pause the current activities {name} before departure."
     office = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == "office")
     assert target_actions(observed, office)["步行"]["reason"] == trip["note"]
     result = _rejected(engine, "busy-go", _request(_choice(observed, "步行", object_id="office")), _UNMET)
-    assert result.data["next_step"] == f"先结束或暂停{name}"
+    assert result.data["next_step"] == f"Conclude or pause {name} first."
 
 
 def test_zero_stock_supply_is_listed_with_its_ways_marked_sold_out(engine_factory) -> None:
@@ -406,12 +411,12 @@ def test_zero_stock_supply_is_listed_with_its_ways_marked_sold_out(engine_factor
     observed = _observe(engine, "sold-out")
     name = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == supply)
     ways = target_actions(observed, name)
-    assert ways and all((item["available"], item["reason"]) == (False, "卖完了") for item in ways.values())
+    reason = "This supply has no remaining stock for the requested quantity."
+    assert ways and all((item["available"], item["reason"]) == (False, reason) for item in ways.values())
     assert "自己" in tool_targets(observed)
     way = next(iter(ways))
-    refused = _act(engine, "sold-out-buy", "start_activity", start_request(
-        targets=[name], actions=["obtain"], ways=[way]))
-    assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "OUT_OF_STOCK", "卖完了")
+    refused = _act(engine, "sold-out-buy", "start_activity", _request((name, "obtain", way)))
+    assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "OUT_OF_STOCK", reason)
     assert _act(engine, "sold-out-wait", "start_activity", start_activity("等待", "自己")).status == "in_progress"
     assert not engine.store.read_agent_events("run_failed", 1)
 
@@ -436,9 +441,7 @@ def test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwi
     """持有物的 consume:use 规则是库存转换配方时列 obtain「制作」，否则列 consume「使用」；两者都映射回内部动作
     consume（use_mode 为 use），与 prepare_inventory_recipe 同一判据（第五章「请求形状与菜单」）；冻结目录的配对本身
     失败时按完整性错误处理。"""
-    from types import SimpleNamespace
-
-    from worldmock.categories import CategoryError, InventoryTransformRule, PairingState
+    from worldmock.categories import CategoryError
     from worldmock.errors import IntegrityError
     from worldmock.life.inventory_recipe import is_inventory_recipe
 
@@ -448,32 +451,28 @@ def test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwi
     assert [(item["verb"], item["label"], item["canonical_action"], item.get("use_mode"))
             for item in plain["actions"]] == [("consume", "使用", "consume", "use"), ("consume", "给予", "consume", None)]
     assert not is_inventory_recipe(engine.semantics.catalog, engine.rules.items["item-umbrella"])
-    monkeypatch.setattr("worldmock.life.observe.is_inventory_recipe",
-                        lambda catalog, product: product.product_id == "item-umbrella")
+    _hold(engine, (_RECIPE_INPUT,))
     recipe = next(row for row in _observe(engine, "use-recipe")["interaction_bindings"]
-                  if row["object_id"] == "item-umbrella")
+                  if row["object_id"] == _RECIPE_INPUT)
     assert [(item["verb"], item["label"], item["canonical_action"], item.get("use_mode"))
             for item in recipe["actions"]] == [("obtain", "制作", "consume", "use"), ("consume", "给予", "consume", None)]
     made = _act(engine, "use-make", "start_activity", _request((recipe["object"], "obtain", "制作")))
     assert made.status == "in_progress" and engine.state.activities[made.activity_id].kind == ActivityKind.CONSUME
-    rule = InventoryTransformRule.model_validate({
-        "rule_id": "open-item", "category_id": "sealed", "action": "consume:use", "operator": "inventory_transform",
-        "resource_id": "inventory_closed", "unit": "item", "conservation": "closed", "input_category_id": "sealed",
-        "output_category_id": "opened", "input_quantity": 1, "output_quantity": 1, "inventory_unit": "item"})
-    catalog = SimpleNamespace(
-        pairing=lambda *args: SimpleNamespace(state=PairingState.DEFINED, rule_id="open-item", coefficient=1),
-        exchange_rules=SimpleNamespace(require=lambda rule_id: rule))
-    no_effect = SimpleNamespace(pairing=lambda *args: SimpleNamespace(state=PairingState.NO_EFFECT))
-    sealed = SimpleNamespace(category_id="sealed", use_modes=("use",))
-    assert is_inventory_recipe(catalog, sealed) and not is_inventory_recipe(no_effect, sealed)
-    assert not is_inventory_recipe(catalog, SimpleNamespace(category_id="sealed", use_modes=("eat",)))
+    plan = engine.state.activities[made.activity_id].data["inventory_recipe"]
+    assert (plan["input_object_id"], plan["output_object_id"]) == (_RECIPE_INPUT, _RECIPE_OUTPUT)
+    assert Decimal(plan["input_quantity"]) == Decimal(plan["output_quantity"]) == 1
+    product = engine.rules.items[_RECIPE_INPUT]
+    assert is_inventory_recipe(engine.semantics.catalog, product)
+    assert not is_inventory_recipe(engine.semantics.catalog, engine.rules.items["ingredient-broccoli"])
+    assert not is_inventory_recipe(engine.semantics.catalog, engine.rules.items[_food(engine)])
 
     def broken(*args):
         """@brief 冻结目录的品类配对本身失败（目录数据不完整）。"""
         raise CategoryError("CATEGORY_NOT_FOUND", "sealed")
 
+    monkeypatch.setattr(type(engine.semantics.catalog), "pairing", broken)
     with pytest.raises(IntegrityError, match="CATEGORY_NOT_FOUND"):
-        is_inventory_recipe(SimpleNamespace(pairing=broken), sealed)
+        is_inventory_recipe(engine.semantics.catalog, product)
 
 
 def test_content_beyond_one_day_is_accepted_with_the_86400_second_cap(engine_factory, monkeypatch) -> None:
@@ -488,7 +487,8 @@ def test_content_beyond_one_day_is_accepted_with_the_86400_second_cap(engine_fac
     before = _world(engine)
     too_far = _act(engine, "long-trip", "start_activity", _request(trip))
     assert (too_far.status, too_far.error_code) == ("rejected", "ROUTE_DURATION_INVALID")
-    assert too_far.data["reason"] == "这段路太长，一次走不完" and _world(engine) == before
+    assert too_far.data["reason"] == "The route duration exceeds the maximum travel duration."
+    assert _world(engine) == before
     monkeypatch.undo()
     item = next(content for content in engine.scenario.contents if content.item_id == "jokes-feed")
     assert item.duration_seconds == 138264
@@ -586,22 +586,23 @@ def test_order_routing_accepts_only_items_that_share_one_way(engine_factory) -> 
                                      [obtained(rows[0], "pickup"), obtained(rows[1], "delivery")])
 
 
-def test_two_makes_are_not_merged_and_two_uses_are_refused_with_a_reason(engine_factory, monkeypatch) -> None:
-    """「制作」按一份库存转换配方执行，两项不合成一次：各自占 hands，以 RESOURCE_CONFLICT 整组拒绝；两件「使用」合成
-    一次使用但一次只能用一件，以带原因与下一步的 ACTION_REQUEST_INVALID 拒绝，世界不变（第五章「请求形状与菜单」）。"""
+def test_two_makes_are_not_merged_and_two_uses_are_refused_with_a_reason(engine_factory) -> None:
+    """@brief 两次选择同一真实配方不会合并，严格请求直接拒绝重复；两件普通物品使用按单件使用合同整组拒绝。"""
     engine = _engine(engine_factory, location="home")
     items = ("item-umbrella", "item-notebook")
     _hold(engine, items)
     observed = _observe(engine, "use-preview")
     used = _rejected(engine, "use-two", _request(*(_choice(observed, "使用", kind="holding", object_id=item)
                                                    for item in items)), "ACTION_REQUEST_INVALID")
-    assert (used.data["reason"], used.data["next_step"]) == ("一次只能使用一件东西", "一次只选其中一件")
-    monkeypatch.setattr("worldmock.life.observe.is_inventory_recipe",
-                        lambda catalog, product: product.product_id in items)
+    assert (used.data["reason"], used.data["next_step"]) == (
+        "Only one non-food item can be used at a time.", "Select one item.")
+    _hold(engine, (_RECIPE_INPUT,))
     observed = _observe(engine, "make-preview")
-    made = _rejected(engine, "make-two", _request(*(_choice(observed, "制作", kind="holding", object_id=item)
-                                                    for item in items)), _CONFLICT)
-    assert made.data["next_step"] == "一次只选其中一件"
+    recipe = _choice(observed, "制作", kind="holding", object_id=_RECIPE_INPUT)
+    before = _world(engine)
+    with pytest.raises(ValidationError, match="a target may repeat only with a different recipient"):
+        _request(recipe, recipe)
+    assert _world(engine) == before
 
 
 @pytest.mark.parametrize("case", ["eat", "lifestyle"])
@@ -619,9 +620,10 @@ def test_holding_or_lifestyle_with_a_walk_is_refused_in_either_order(engine_fact
         (row["object"], "interact", "进行") for row in observed["interaction_bindings"]
         if row["kind"] == "lifestyle" and row["actions"][0]["note"] is None)
     pair = (walk, other) if walk_first else (other, walk)
-    code, reason, step = (("PRODUCT_NOT_HELD", "出发后手边没有可用的持有物", "先用完再出发") if case == "eat"
-                          else (_UNMET, f"进行{other[0].split('：', 1)[1]}要停在一个地方做，不能和出行一起开始",
-                                "先做完再出发"))
+    code, reason, step = (("PRODUCT_NOT_HELD", "Held items cannot be used after departure.",
+                          "Use the item before departure.") if case == "eat"
+                         else (_UNMET, f"进行{other[0].split('：', 1)[1]} requires a stationary location "
+                               "and cannot start with travel.", "Finish the activity before departure."))
     result = _rejected(engine, "stay", _request(*pair), code)
     assert (result.data["reason"], result.data["next_step"]) == (reason, step)
 
@@ -636,12 +638,13 @@ def test_pickup_and_remote_order_stay_listed_away_from_the_store(engine_factory)
     row = next(row for row in observed["interaction_bindings"] if row["kind"] == "supply"
                and engine.rules.supplies[row["object_id"]].location_id == "market")
     notes = {action["label"]: action["note"] for action in row["actions"]}
-    assert notes == {"到店": f"到店{row['object']}需要在{market}", "远程下单": None}
+    assert notes == {"到店": f"到店{row['object']} requires presence at {market}.", "远程下单": None}
     pickup_only = [row for row in observed["interaction_bindings"] if row["kind"] == "supply" and row["actions"]
                    and engine.rules.supplies[row["object_id"]].fulfillment_modes == ("pickup",)]
     assert pickup_only and all([action["label"] for action in item["actions"]] == ["到店"] for item in pickup_only)
     result = _rejected(engine, "away-pickup", _request((row["object"], "obtain", "到店")), _UNMET)
-    assert (result.data["reason"], result.data["next_step"]) == (f"到店{row['object']}需要在{market}", f"去{market}")
+    assert (result.data["reason"], result.data["next_step"]) == (
+        f"到店{row['object']} requires presence at {market}.", f"Go to {market}.")
 
 
 def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_where_to_go(engine_factory) -> None:
@@ -670,7 +673,7 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
     refusal = admission.group_refusal(context_, [item_for(("office", "market"))])
     assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, DELIVERY_DESTINATION_REASON,
                                                              ("delivery_destination",))
-    assert refusal.next_step == f"去{places['office']}或{places['market']}再下单"
+    assert refusal.next_step == f"Go to {places['office']} or {places['market']}, then place the order."
     assert admission.group_refusal(context_, [item_for(("office",))]).reason == DELIVERY_DESTINATION_REASON
     assert admission.group_refusal(context_, [item_for(("home",))]) is None
     blocked = tuple(route.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
@@ -681,7 +684,7 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
     routed = admission.Context(state=engine.state, agent_id=1, place_names=places, routes=blocked)
     refusal = admission.group_refusal(routed, [item_for(("home", "office"))])
     assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, DELIVERY_ROUTE_REASON, ("delivery_route",))
-    assert refusal.next_step == f"去{places['office']}再下单"
+    assert refusal.next_step == f"Go to {places['office']}, then place the order."
 
 
 @pytest.mark.parametrize("companion", ["步行", "等待"])
@@ -714,23 +717,30 @@ def test_an_instant_obtain_joins_a_timed_activity_in_one_request(engine_factory,
             ("travel", "requested", True), ("travel", "started", True), ("travel", "completed", True)}
 
 
-def test_making_with_a_pickup_at_the_store_places_the_order_and_starts_the_making(engine_factory, monkeypatch) -> None:
+def test_making_with_a_pickup_at_the_store_places_the_order_and_starts_the_making(engine_factory) -> None:
     """在店里「制作」与「到店」同一请求（第五章组合表：到店取得要求人在店里）：到店当场成单、商品进入店里的持有物，
     制作照常开始，只有制作占名额。"""
-    monkeypatch.setattr("worldmock.life.observe.is_inventory_recipe",
-                        lambda catalog, product: product.product_id == "item-umbrella")
     engine = _engine(engine_factory, location="market", market=True)
-    _hold(engine, ("item-umbrella",))
+    _hold(engine, (_RECIPE_INPUT,))
     observed = _observe(engine, "make-pickup-preview")
-    make = _choice(observed, "制作", kind="holding", object_id="item-umbrella")
+    make = _choice(observed, "制作", kind="holding", object_id=_RECIPE_INPUT)
     result = _act(engine, "make-pickup", "start_activity",
                   _request(make, _supply_choice(engine, observed, "到店", "market")))
     assert result.status == "in_progress", (result.error_code, result.message)
     [started] = result.data["activities"]
-    assert engine.state.activities[started["activity_id"]].kind == ActivityKind.CONSUME
+    activity = engine.state.activities[started["activity_id"]]
+    assert activity.kind == ActivityKind.CONSUME
+    recipe = activity.data["inventory_recipe"]
+    assert (recipe["input_object_id"], recipe["output_object_id"]) == (_RECIPE_INPUT, _RECIPE_OUTPUT)
     [order] = result.data["orders"]
     assert order["fulfillment"] == "pickup" and engine.state.agents[1].inventory["market"][order["product_id"]] == 1
     assert [item.kind for item in active_activities(engine.state, 1)] == [ActivityKind.CONSUME]
+    assert engine.state.agents[1].inventory["market"][_RECIPE_INPUT] == 1
+    assert engine.state.agents[1].inventory["market"].get(_RECIPE_OUTPUT, 0) == 0
+    _live_until(engine, activity.planned_end_at)
+    inventory = engine.state.agents[1].inventory["market"]
+    assert inventory.get(_RECIPE_INPUT, 0) == 0 and inventory[_RECIPE_OUTPUT] == 1
+    assert engine.state.activities[activity.activity_id].data["recipe_applied"] is True
 
 
 @pytest.mark.parametrize("drive_first", [True, False])
@@ -743,7 +753,7 @@ def test_driving_with_a_remote_order_in_one_request_says_order_first(engine_fact
     order = _supply_choice(engine, observed, "远程下单", "market")
     result = _rejected(engine, "drive-order", _request(*((drive, order) if drive_first else (order, drive))), _UNMET)
     assert (result.data["reason"], result.data["next_step"], result.data["unmet"]) == (
-        "开车时不能下单", "先下单，再出发", ["hands_free"])
+        "Orders cannot be placed while driving.", "Place the order before departure.", ["hands_free"])
 
 
 def test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_length(engine_factory) -> None:
@@ -783,20 +793,34 @@ def test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_lengt
     assert engine.state.activities[again.activity_id].planned_duration_seconds == item.duration_seconds
 
 
-def test_malformed_request_gets_the_default_reason_without_the_validation_text(engine_factory) -> None:
-    """绕过构造期校验的请求以 ACTION_REQUEST_INVALID 拒绝，公开原因取该码的默认说法，不把请求模型的校验转储（其中含
-    所填的中文）当作原因；原因只取引导性拒绝写明的那一句（第五章「动作照常列出，做错了再说明」）；结果 message 就是这句
-    原因，也不再拼接英文码与校验转储（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
+@pytest.mark.parametrize("fields,path,written,reason", [
+    ({"items": [], "answering": None, "prefer": None}, ["items"], [],
+     "items requires one or two activity objects; acceptance is atomic"),
+    ({"items": [{"target": 7, "way": "等待", "from": None, "to": None}], "answering": None, "prefer": None},
+     ["items", 0, "target"], 7, "A JSON string is required."),
+    ({"items": [{"target": "自己", "way": "等待", "from": None}], "answering": None, "prefer": None},
+     ["items", 0, "to"], None, "This required field was omitted."),
+], ids=["empty-items", "wrong-target-type", "missing-null-field"])
+def test_malformed_request_gets_the_default_reason_without_the_validation_text(
+        engine_factory, fields, path, written, reason) -> None:
+    """@brief 绕过构造期校验仍由真实引擎拒绝，逐项公开完整位置、原始值和英文格式条件，不泄露库转储；世界不变。"""
     engine = _engine(engine_factory)
-    malformed = StartActivityRequest.model_construct(targets="自己", actions=["interact"], ways=["等待"])
+    malformed = StartActivityRequest.model_construct(**fields)
+    before = _world(engine)
     result = _act(engine, "malformed", "start_activity", malformed)
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert _world(engine) == before
     assert result.message == result.data["reason"]
     assert not any(text in result.message for text in ("validation", "Action rejected", "ACTION_REQUEST_INVALID"))
-    assert result.data["reason"] == "所选的对象或方式不在这一轮列出的范围内"
-    assert result.data["next_step"] == "从本轮列出的对象和方式里选"
+    assert result.data["reason"] == reason
+    assert result.data["fix"] == "Correct every reported parameter."
+    [item] = result.data["items"]
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", *path] and item["written"] == written
+    assert item["error_code"] == "ACTION_REQUEST_INVALID" and item["why"] == reason
+    assert item["expected"] and item["allowed_values"] == [] and item["candidates"] == []
     shown = last_result(_observe(engine, "malformed-shown"))["details"]
     assert (shown["reason"], shown["next_step"]) == (result.data["reason"], result.data["next_step"])
+    assert shown["items"] == result.data["items"]
 
 
 def test_a_repeated_observation_of_one_decision_is_ambiguous_on_every_read(engine_factory) -> None:

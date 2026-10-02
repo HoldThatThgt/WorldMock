@@ -54,8 +54,8 @@ def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, par
     watch, other = (_registry_claims(engine, choice) for choice in choices)
     assert watch & other == overlap
     names = [f"{action['label']}{row['object'].partition('：')[2]}" for row, action in choices]
-    assert result.data["reason"] == f"{names[0]}和{names[1]}不能同时进行"
-    assert result.data["next_step"] == "一次只选其中一件"
+    assert result.data["reason"] == f"{names[0]} cannot run together with {names[1]}."
+    assert result.data["next_step"] == "Choose only one of the conflicting activities."
     assert result.data["unmet"] == ["resource_claims"]
     assert engine.state.activities == {}
     sessions = list(engine.state.sessions.values())

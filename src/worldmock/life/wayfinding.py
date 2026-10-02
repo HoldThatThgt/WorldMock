@@ -16,11 +16,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 #: 从此地出发哪里都到不了时，到店取得的门店的说法（docs/dev/SPEC-dayrun-fidelity.md 5.3）。
-UNREACHABLE_STORE_STEP = "这里去不了那家店"
+UNREACHABLE_STORE_STEP = "This store is unreachable from the current location."
 #: 能送达的地点从此地都到不了时的说法。
-UNREACHABLE_DELIVERY_STEP = "这里去不了能送达的地方"
+UNREACHABLE_DELIVERY_STEP = "No eligible receiving location is reachable from here."
 #: 缺少可读名称时的地点说法（不写内部身份）。
-_UNNAMED_PLACE = "那里"
+_UNNAMED_PLACE = "the required location"
 
 
 def reachable_places(routes: Iterable[Any], origin: str) -> frozenset[str]:
@@ -74,11 +74,11 @@ def go_step(routes: Sequence[Any], names: Mapping[str, str], origin: str, target
     """
     name = names.get(target, _UNNAMED_PLACE)
     if origin == target or target in reachable_places(routes, origin):
-        return f"去{name}"
+        return f"Go to {name}."
     path = shortest_paths(routes, origin).get(target)
     if path is not None:
-        return f"可经{names.get(path[1], _UNNAMED_PLACE)}前往{name}"
-    return unreachable if unreachable is not None else f"这里去不了{name}"
+        return f"Go via {names.get(path[1], _UNNAMED_PLACE)} to {name}."
+    return unreachable if unreachable is not None else f"{name} is unreachable from here."
 
 
 def delivery_route_code(routes: Iterable[Any], origin: str, destination: str) -> str | None:
@@ -112,10 +112,12 @@ def delivery_step(routes: Sequence[Any], names: Mapping[str, str], here: str, st
     direct = reachable_places(routes, here)
     nearby = [place for place in served if place in direct]
     if nearby:
-        return f"去{'或'.join(dict.fromkeys(names.get(place, _UNNAMED_PLACE) for place in nearby))}再下单"
+        choices = " or ".join(dict.fromkeys(names.get(place, _UNNAMED_PLACE) for place in nearby))
+        return f"Go to {choices}, then place the order."
     paths = shortest_paths(routes, here)
     reached = sorted((paths[place][0], place) for place in served if place in paths)
     if not reached:
         return UNREACHABLE_DELIVERY_STEP
     place = reached[0][1]
-    return f"可经{names.get(paths[place][1], _UNNAMED_PLACE)}前往{names.get(place, _UNNAMED_PLACE)}再下单"
+    return (f"Go via {names.get(paths[place][1], _UNNAMED_PLACE)} to {names.get(place, _UNNAMED_PLACE)}, "
+            "then place the order.")

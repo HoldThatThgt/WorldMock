@@ -202,7 +202,7 @@ def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) ->
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
     assert away["location_id"] == "home" and away["object"] == f"持有物：{product.name}（{home}）"
     way = away["actions"][0]["label"]
-    reason = f"这件东西在{home}，只能在当地用"
+    reason = f"This item is at {home} and must be used there."
     assert [item["note"] for item in away["actions"]] == [reason] * len(away["actions"])
     _, refused = _observed_action(engine, "remote-use", "start_activity", start_activity(way, away["object"]))
     assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "PRODUCT_NOT_HELD", reason)
@@ -282,6 +282,9 @@ def test_multi_person_stock_competition_uses_seeded_order_not_arrival(engine_fac
     second = engine_factory("multi-person.json")
     for engine in (first, second):
         _stage_open(engine)
+        supply = _selected_supply(engine, engine.scenario.products[0].product_id)
+        for agent_id in engine.state.agents:
+            bring_to_window(engine, (supply.supply_id,), agent_id)
         _multi_browse(engine)
     expected_one, winner_one, statuses_one = _compete_for_last_item(first, (1, 2))
     expected_two, winner_two, statuses_two = _compete_for_last_item(second, (2, 1))

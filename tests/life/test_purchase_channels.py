@@ -61,9 +61,9 @@ def _engine(engine_factory, world, phone: str | None = "channels"):
     return engine
 
 
-def _buy(name: str = _MILK, source: str | None = None, way: str = "远程下单", prefer: str | None = None) -> dict:
+def _buy(name: str = _MILK, source: str | None = None, way: str = "远程下单", prefer: str = "最快拿到") -> dict:
     """一项送给自己的取得请求（start_activity 的模型参数）。"""
-    return start_arguments([name], ["obtain"], [way], **{"from": [source], "to": ["自己"], "prefer": prefer})
+    return start_arguments([name], ["obtain"], [way], **{"from": [source], "to": [None], "prefer": prefer})
 
 
 def _supply(engine, location_id: str):
@@ -88,7 +88,7 @@ def test_channels_are_derived_from_the_pinned_phone_config_at_load(world) -> Non
     称呼，成员门店取映射到它的卖家有供给的地点；没有钉定手机配置的场景没有渠道。"""
     semantics, _ = load_runtime_scenario(world.scenario("derived", phone="channels"))
     assert semantics.purchase_channels == (
-        PurchaseChannel("hema", ("盒马App", "盒马"), (_MARKET,)),
+        PurchaseChannel("hema", ("盒马App", "盒马"), (_MARKET, "poi-3538684972")),
         PurchaseChannel("meituan-takeaway", ("美团外卖", "美团"), (_HAODE, _NONGGONGSHANG)))
     plain, _ = load_runtime_scenario(world.scenario("no-phone"))
     assert plain.purchase_channels == ()
@@ -174,17 +174,17 @@ def test_an_unknown_source_is_source_not_found_with_near_stores_and_apps(engine_
     _, error, result = decide(engine, "unknown-source", _buy(source="美团App"))
     assert error == "" and (result.status, result.error_code) == ("rejected", "SOURCE_NOT_FOUND")
     [item] = result.data["items"]
-    assert (item["field"], item["written"], item["error_code"]) == ("from", "美团App", "SOURCE_NOT_FOUND")
-    sources = [candidate["from"] for candidate in item["candidates"]]
+    assert (item["path"][-1], item["written"], item["error_code"]) == ("from", "美团App", "SOURCE_NOT_FOUND")
+    sources = [candidate["arguments"]["items"][0]["from"] for candidate in item["candidates"]]
     assert sources[0] == "美团外卖" and "盒马App" in sources
-    assert all((candidate["target"], candidate["action"], candidate["way"], candidate["to"]) == (
-        _MILK, "obtain", "远程下单", "自己") for candidate in item["candidates"])
-    assert result.data["reason"] == "「美团App」：不是门店或 App 的名称"
-    assert result.data["fix"] == "把 from 写成 null，或者照候选写门店名或 App 名"
+    assert all((candidate["arguments"]["items"][0]["target"],
+                candidate["arguments"]["items"][0]["way"], candidate["arguments"]["items"][0]["to"]) == (
+        _MILK, "远程下单", None) for candidate in item["candidates"])
+    assert result.data["reason"] == "The source is not a known store or channel name."
+    assert result.data["fix"] == "Set from to null or an exact known store or channel name."
     assert dict(engine.state.deliveries) == before
-    [candidate] = [row for row in item["candidates"] if row["from"] == "美团外卖"]
-    _, retry_error, retried = decide(engine, "unknown-source-retry", {**_buy(), **{
-        "from": [candidate["from"]], "targets": [candidate["target"]], "ways": [candidate["way"]]}})
+    [candidate] = [row for row in item["candidates"] if row["arguments"]["items"][0]["from"] == "美团外卖"]
+    _, retry_error, retried = decide(engine, "unknown-source-retry", candidate["arguments"])
     assert retry_error == "" and retried.status == "completed"
 
 
@@ -199,7 +199,7 @@ def test_an_app_name_without_a_phone_config_is_source_not_found(engine_factory) 
     assert error == "" and (result.status, result.error_code) == ("rejected", "SOURCE_NOT_FOUND")
     [item] = result.data["items"]
     stores = {item.name for item in engine.scenario.locations}
-    assert item["candidates"] and all(candidate["from"] in stores for candidate in item["candidates"])
+    assert item["candidates"] and all(candidate["arguments"]["items"][0]["from"] in stores for candidate in item["candidates"])
 
 
 def test_several_member_stores_choose_the_nearest_and_note_it(engine_factory, world, tmp_path) -> None:
@@ -214,12 +214,12 @@ def test_several_member_stores_choose_the_nearest_and_note_it(engine_factory, wo
     [order] = result.data["orders"]
     assert (order["supply_id"], order["channel_id"]) == (haode.supply_id, "meituan-takeaway")
     moment = clock_phrase(order["expected_at"], engine.state.current_time, engine.scenario.timezone)
-    assert result.data["notes"] == [f"「{_MILK}」有 2 处都能远程下单，按最快选了{_label(engine, haode)}"
+    assert result.data["notes"] == [f"「{_MILK}」有 2 处都能远程下单，按最快拿到选了{_label(engine, haode)}"
                                     f"（预计 {moment} 送到）"]
-    _, _, cheap = decide(engine, "cheapest", _buy(source="美团外卖", prefer="cheapest"))
+    _, _, cheap = decide(engine, "cheapest", _buy(source="美团外卖", prefer="到手价最低"))
     assert [(row["supply_id"], row["channel_id"]) for row in cheap.data["orders"]] == [
         (nonggongshang.supply_id, "meituan-takeaway")]
-    assert "按最便宜选了" in cheap.data["notes"][0] and "到手价" in cheap.data["notes"][0]
+    assert "按到手价最低选了" in cheap.data["notes"][0] and "到手价" in cheap.data["notes"][0]
     stored = [event for event in engine.store.read_agent_events("action_result", 1) if event.action_id == "action-nearest"]
     assert [row["channel_id"] for row in stored[0].data["data"]["orders"]] == ["meituan-takeaway"]
     directory = tmp_path / "export"
@@ -247,7 +247,7 @@ def test_member_store_ties_break_by_landed_price_then_store_identity(engine_fact
     stage(engine, same_price)
     _, _, identity = decide(engine, "tie-identity", _buy(source="美团外卖"))
     assert [row["supply_id"] for row in identity.data["orders"]] == [haode.supply_id]
-    assert identity.data["notes"][0].startswith(f"「{_MILK}」有 2 处都能远程下单，按最快选了{_label(engine, haode)}")
+    assert identity.data["notes"][0].startswith(f"「{_MILK}」有 2 处都能远程下单，按最快拿到选了{_label(engine, haode)}")
 
 
 def test_a_full_label_accepts_a_channel_that_contains_its_store_and_rejects_one_that_does_not(
@@ -264,9 +264,9 @@ def test_a_full_label_accepts_a_channel_that_contains_its_store_and_rejects_one_
     _, error, refused = decide(engine, "label-outside-channel", _buy(label, source="盒马App"))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
     [item] = refused.data["items"]
-    assert (item["field"], item["written"]) == ("from", "盒马App")
-    assert item["candidates"] == [{"target": label, "action": "obtain", "way": "远程下单", "from": None, "to": "自己"}]
-    assert refused.data["reason"] == "「盒马App」：目标写明的是好德，它不在这个 App 里"
+    assert (item["path"][-1], item["written"]) == ("from", "盒马App")
+    assert [candidate["arguments"] for candidate in item["candidates"]] == [_buy(label)]
+    assert refused.data["reason"] == "The target store 好德 is not a member of the requested channel."
 
 
 def test_a_listed_label_with_an_app_in_from_is_resolved_against_that_channel(engine_factory, world) -> None:
@@ -287,5 +287,5 @@ def test_a_listed_label_with_an_app_in_from_is_resolved_against_that_channel(eng
     assert label in {row["object"] for row in observed["interaction_bindings"]}
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
     [item] = refused.data["items"]
-    assert (item["field"], item["written"]) == ("from", "盒马App")
-    assert item["candidates"] == [{"target": label, "action": "obtain", "way": "远程下单", "from": None, "to": "自己"}]
+    assert (item["path"][-1], item["written"]) == ("from", "盒马App")
+    assert [candidate["arguments"] for candidate in item["candidates"]] == [_buy(label)]

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "corpus_id": "life-dayrun-behavior-2026-09-21",
-  "created_at": "2026-09-21T16:00:04+08:00",
-  "transformer_version": "worldmock-dayrun-behavior-1",
+  "created_at": "2026-10-01T08:30:00-04:00",
+  "transformer_version": "worldmock-tool-interaction-1",
   "entries": [
     {
       "entry_id": "LICENSES.md",
@@ -1831,8 +1831,8 @@
     {
       "entry_id": "lifestyle:enrichment.json",
       "path": "lifestyle/enrichment.json",
-      "sha256": "9770454a51119f1b2b6af68e596d8a519b0ebe1e0423167cba5ba79e1c89dbb4",
-      "size_bytes": 56854,
+      "sha256": "1ba9fe0c488586af78e76ac41a12a1f68ded474ff495e5d457dc4eff483a7ca0",
+      "size_bytes": 55944,
       "media_type": "application/json",
       "purpose": "lifestyle v2 field enrichment table",
       "source": {
@@ -1847,8 +1847,8 @@
     {
       "entry_id": "lifestyle:items.json",
       "path": "lifestyle/items.json",
-      "sha256": "c3ef8a3621ab626d62472aebbc2cdfacc07d8b070ccd9dc5263c075146ce8bee",
-      "size_bytes": 138752,
+      "sha256": "559f38463b6ec58e88f9a202cf5e725c05043109f4767a2170bc9dd140211963",
+      "size_bytes": 136508,
       "media_type": "application/json",
       "purpose": "lifestyle",
       "source": {
@@ -1863,8 +1863,8 @@
     {
       "entry_id": "meals:items.json",
       "path": "meals/items.json",
-      "sha256": "557f5eff3d1eeaea34d400e17b949388f9d9b560d5614a1163abf4b289ee94a2",
-      "size_bytes": 34870,
+      "sha256": "e5bce105223d01cff05233687da0b61dcf90743438d3c94c129e52f7d0d2ffb9",
+      "size_bytes": 36519,
       "media_type": "application/json",
       "purpose": "contract meals corpus (USDA FNDDS calories)",
       "source": {
@@ -11909,25 +11909,9 @@
       }
     },
     {
-      "source": {
-        "kind": "derived_geodata",
-        "url": null,
-        "retrieved_at": "2026-09-20T19:08:40.228191+08:00",
-        "license": "ODbL-1.0 AND WorldMock-project",
-        "selector": "derived map facts and explicit scenario declarations; see per-record sources",
-        "fact_cutoff": "2026-09-20"
-      },
-      "entry_id": "zhangjiang-map:dataset.json",
-      "path": "zhangjiang-map/dataset.json",
-      "sha256": "4f90c2e7b9a12af78429f1d39642382a6d37cc4fee838925b3709bbce75dddbf",
-      "size_bytes": 1275,
-      "media_type": "application/json",
-      "purpose": "frozen map declarations"
-    },
-    {
       "entry_id": "zhangjiang-map:locations.json",
       "path": "zhangjiang-map/locations.json",
-      "sha256": "46cf28c9fefe7d82b755431ea896b85fab37cc281f70027b7d26cb63159713ca",
+      "sha256": "4cbae6deac68aab018dcf99e4550ad04660db60fdea8ba0d513f14431215adb0",
       "size_bytes": 29983,
       "media_type": "application/json",
       "purpose": "frozen map declarations",
@@ -11951,7 +11935,7 @@
       },
       "entry_id": "zhangjiang-map:routes.json",
       "path": "zhangjiang-map/routes.json",
-      "sha256": "30c8f05a94c39f079e92cbe45c73f573251b53fb37069b63675a458bf9b9fc52",
+      "sha256": "1b37eebdf02208d5eb832f6241a7c561b3a6bb416c0e4e2d7bfaedb6d36193f3",
       "size_bytes": 299324,
       "media_type": "application/json",
       "purpose": "frozen map declarations"
@@ -15485,26 +15469,10 @@
         "selector": "frozen map and supply publication",
         "fact_cutoff": "2026-09-20"
       },
-      "entry_id": "zhangjiang-map:supplies.json",
-      "path": "zhangjiang-map/supplies.json",
-      "sha256": "4bd4a09591d71471bf088b2e2bae88d655514989939aab22e35fecf1a15239cd",
-      "size_bytes": 368311,
-      "media_type": "application/json",
-      "purpose": "offline map and storefront simulation"
-    },
-    {
-      "source": {
-        "kind": "scenario",
-        "url": "scenario://worldmock/zhangjiang-storefronts",
-        "retrieved_at": "2026-09-20T19:08:40.228191+08:00",
-        "license": "WorldMock-project",
-        "selector": "frozen map and supply publication",
-        "fact_cutoff": "2026-09-20"
-      },
       "entry_id": "zhangjiang-map:supply-assumptions.json",
       "path": "zhangjiang-map/supply-assumptions.json",
-      "sha256": "af06343ead8abedffb9e621528088959e466460d515326217bdb576d7aa6ccde",
-      "size_bytes": 93495,
+      "sha256": "10954d0328b21af9906e08a710827cf660bd0c667f13b51d863aca0c5e92b9e9",
+      "size_bytes": 9485,
       "media_type": "application/json",
       "purpose": "offline map and storefront simulation"
     },
@@ -15522,6 +15490,118 @@
         "license": "ODbL-1.0",
         "selector": "bbox 121.6000,31.1950,121.6400,31.2250",
         "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ingredients:items.json",
+      "path": "ingredients/items.json",
+      "sha256": "697c90540c9b20152351cb9a5a4c0692b0ebaf1b4db1940ed6c5c9c8b6840305",
+      "size_bytes": 9524,
+      "media_type": "application/json",
+      "purpose": "Real raw ingredients and complete cooking package",
+      "source": {
+        "kind": "scenario",
+        "url": "https://www.nutrition.gov/recipes/vegetable-stir-fry",
+        "retrieved_at": "2026-10-01T08:00:00-04:00",
+        "license": "USDA public domain; WorldMock authored simulation packages",
+        "selector": "USDA Vegetable Stir Fry ingredient identities; authored retail packages",
+        "fact_cutoff": "2026-10-01"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:category-assignment.json",
+      "path": "zhangjiang-map/category-assignment.json",
+      "sha256": "7bb1ed6544a22621f962c111565193f7bcfd3895ab49fa19ba7428049c5ae4a9",
+      "size_bytes": 9317,
+      "media_type": "application/json",
+      "purpose": "Frozen full store assortment and scenario seed quotes",
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/tool-interaction-storefronts",
+        "retrieved_at": "2026-10-01T08:30:00-04:00",
+        "license": "ODbL-1.0 AND WorldMock-project",
+        "selector": "Reviewed complete store assortments, bounded deterministic seed quotes; shared frozen map and route provenance",
+        "fact_cutoff": "2026-10-01"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:20260105:dataset.json",
+      "path": "zhangjiang-map/20260105/dataset.json",
+      "sha256": "bc695051216c3aae4a893c249e6e2dfbea0f208a38aff80132f3e016bddb3036",
+      "size_bytes": 1411,
+      "media_type": "application/json",
+      "purpose": "Frozen full store assortment and scenario seed quotes",
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/tool-interaction-storefronts",
+        "retrieved_at": "2026-10-01T08:30:00-04:00",
+        "license": "ODbL-1.0 AND WorldMock-project",
+        "selector": "Reviewed complete store assortments, bounded deterministic seed quotes; shared frozen map and route provenance",
+        "fact_cutoff": "2026-10-01"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:20260105:supplies.json",
+      "path": "zhangjiang-map/20260105/supplies.json",
+      "sha256": "2abb90ce023d39456fa51bc65d0dd632b15e8ceb4eb75b719d15056bdbc27e1f",
+      "size_bytes": 1116317,
+      "media_type": "application/json",
+      "purpose": "Frozen full store assortment and scenario seed quotes",
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/tool-interaction-storefronts",
+        "retrieved_at": "2026-10-01T08:30:00-04:00",
+        "license": "ODbL-1.0 AND WorldMock-project",
+        "selector": "Reviewed complete store assortments, bounded deterministic seed quotes; shared frozen map and route provenance",
+        "fact_cutoff": "2026-10-01"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:20260106:dataset.json",
+      "path": "zhangjiang-map/20260106/dataset.json",
+      "sha256": "aa79768f0e12877c030b18578b8174c8e1507692d7e08a4cdacb80725f54fdb5",
+      "size_bytes": 1411,
+      "media_type": "application/json",
+      "purpose": "Frozen full store assortment and scenario seed quotes",
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/tool-interaction-storefronts",
+        "retrieved_at": "2026-10-01T08:30:00-04:00",
+        "license": "ODbL-1.0 AND WorldMock-project",
+        "selector": "Reviewed complete store assortments, bounded deterministic seed quotes; shared frozen map and route provenance",
+        "fact_cutoff": "2026-10-01"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:20260106:supplies.json",
+      "path": "zhangjiang-map/20260106/supplies.json",
+      "sha256": "e971193a86c05026cc6fe0b5df1ebbaee6569c63501c27acaf223024d2a36cb2",
+      "size_bytes": 1116319,
+      "media_type": "application/json",
+      "purpose": "Frozen full store assortment and scenario seed quotes",
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/tool-interaction-storefronts",
+        "retrieved_at": "2026-10-01T08:30:00-04:00",
+        "license": "ODbL-1.0 AND WorldMock-project",
+        "selector": "Reviewed complete store assortments, bounded deterministic seed quotes; shared frozen map and route provenance",
+        "fact_cutoff": "2026-10-01"
+      }
+    },
+    {
+      "entry_id": "foods:purchase-price-ranges.json",
+      "path": "foods/purchase-price-ranges.json",
+      "sha256": "9e7096a76f4c8e33bdb52c7d9a3d8fd58e74c94ec1dfb0e885516008d87c17bf",
+      "size_bytes": 17690,
+      "media_type": "application/json",
+      "purpose": "Reviewed simulation product purchase price bounds",
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/product-price-ranges",
+        "retrieved_at": "2026-10-01T08:00:00-04:00",
+        "license": "WorldMock-project",
+        "selector": "WorldMock scenario bounds are ninety and one hundred ten percent of the previously frozen catalog product price scale, rounded to integer fen. These are build input ranges and are not observed named-store prices.",
+        "fact_cutoff": "2026-10-01"
       }
     }
   ]

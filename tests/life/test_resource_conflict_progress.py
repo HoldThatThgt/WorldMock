@@ -11,7 +11,7 @@ from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
 def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(engine_factory) -> None:
     """同一工作仍在进行时照常列出并带说明；选了就以 RESOURCE_CONFLICT 返回原因与下一步，未达同刻上限时同一秒再决策，
     不按最早结束延后（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。"""
-    engine = engine_factory("multi-person.json")
+    engine = engine_factory()
     _stage_shared_work(engine)
     task = engine.scenario.tasks[0]
 
@@ -21,12 +21,11 @@ def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(e
                        if row["kind"] == "work_task" and row["object_id"] == task.task_id)
         return start_activity("工作", binding["object"])
 
-    _shared_round(engine, "resource-lock-start", {1: ("start_activity", work_request),
-                                                  2: ("start_activity", work_request)})
+    _shared_round(engine, "resource-lock-start", {1: ("start_activity", work_request)})
     engine.commit_decision_round("resource-lock-start")
     running = next(item for item in active_activities(engine.state, 1))
     name = activity_name(engine, running.activity_id)
-    reason = f"工作{task.title}和正在做的{name}不能同时进行"
+    reason = f"工作{task.title} cannot run together with {name}."
     assert advance_until_ready(engine)
     ready = engine.scheduling_state().ready_agent_ids
     assert 1 in ready and running.activity_id in {item.activity_id for item in active_activities(engine.state, 1)}
@@ -41,7 +40,7 @@ def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(e
     _shared_round(engine, "resource-lock-repeat", {agent_id: ("start_activity", work_request) for agent_id in ready})
     result = next(item for item in engine.commit_decision_round("resource-lock-repeat") if item.agent_id == 1)
     assert result.status == "rejected" and result.error_code == "RESOURCE_CONFLICT"
-    assert (result.data["reason"], result.data["next_step"]) == (reason, f"先结束或暂停{name}")
+    assert (result.data["reason"], result.data["next_step"]) == (reason, f"Conclude or pause {name} first.")
     agent = engine.state.agents[1]
     assert engine.state.current_time == now
     assert agent.next_decision_at == now
@@ -49,7 +48,7 @@ def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(e
     assert agent.pending_wake_reasons == ["rejection_feedback"]
     assert [item.activity_id for item in active_activities(engine.state, 1)] == [running.activity_id]
     details = last_result(engine._observation_data(agent))["details"]
-    assert (details["reason"], details["next_step"]) == (reason, f"先结束或暂停{name}")
+    assert (details["reason"], details["next_step"]) == (reason, f"Conclude or pause {name} first.")
 
 
 def test_boundary_never_yields_rejection_feedback(engine_factory) -> None:

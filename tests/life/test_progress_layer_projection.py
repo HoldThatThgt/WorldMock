@@ -105,7 +105,7 @@ class _Controller(SessionActionMixin):
     """用本轮冻结观察的活动名绑定测试控制动作，不加载场景或语料（地点名取固定切片，没有工作任务）。"""
 
     scenario = _PLACES
-    rules = SimpleNamespace(tasks={})
+    rules = SimpleNamespace(tasks={}, items={})
 
     def __init__(self, state: WorldState, rows: list[dict] | None = None) -> None:
         names = visible_names(state, 1, [])["activities"]
@@ -209,7 +209,8 @@ def test_conclude_marks_named_just_ended_activities_and_keeps_their_status() -> 
     assert changed.agents[1].day_plan.goals[0].progress_note == "纪要已收尾"
     assert result.data == {"task": [work.name], "activity_ids": [work.activity_id], "memory_sources": [
         {"task": work.name, "activity_id": work.activity_id, "session_id": work.session_ids[-1],
-         "verified_event_ids": []}]}
+         "verified_event_ids": []}], "outcome": [
+             {"activity": work.name, "outcome": "完成", "items": [], "note": "No item changes."}]}
     both, _ = controller._conclude_activity(state, _pending(), conclude_request(
         work.name, road.name, summary=["纪要已收尾", "路上没看完"], memories=[[], []]))
     assert all(both.activities[item.activity_id].concluded_at == state.current_time for item in (work, road))
@@ -260,12 +261,14 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
                                           for key, name in names["activities"].items()]}
 
     controller = RecallController()
+    controller.state = state
 
     def recall(name: str) -> dict:
-        unchanged, result = controller._recall_task_summary(state, _pending(), RecallTaskSummaryRequest(
-            task_name=name))
-        assert unchanged is state
-        return result.data
+        before = state.model_dump()
+        result = controller.read_task_summary(1, RecallTaskSummaryRequest(task_name=name),
+                                              controller._frozen_observation(_pending()))
+        assert state.model_dump() == before
+        return result
 
     by_task, by_activity = recall("工作：1月5日项目会议纪要"), recall(first.name)
     assert by_task["recall"] == {"kind": "task", "name": "工作：1月5日项目会议纪要",
@@ -422,7 +425,8 @@ def _scenario(products: tuple = (), locations: tuple = ()) -> SimpleNamespace:
     """公开结果投影所需的场景切片：商品名、地点名与时区。"""
     agents = (SimpleNamespace(agent_id=1, name="林悦",
                               contacts=(SimpleNamespace(contact_id="contact-wanglei", salutation="王磊"),)),)
-    return SimpleNamespace(products=products, inventory_items=(), locations=locations, timezone=_ZONE, agents=agents)
+    return SimpleNamespace(products=products, inventory_items=(), locations=locations, timezone=_ZONE, agents=agents,
+                           tasks=(SimpleNamespace(task_id="internal-task", title="会议纪要"),))
 
 
 def _result(data: dict | None = None) -> dict:
@@ -476,8 +480,12 @@ def test_result_details_keep_only_new_readable_facts() -> None:
     activity = {"activity_id": "internal-activity-1", "name": "步行前往办公室（1月5日 00:00 起）",
                 "planned_duration_seconds": 750, "data": {"arrival": {"location_id": "private-office",
                                                                      "access_status": "denied"}}}
-    item = {"index": 0, "field": "targets", "written": "牛肉", "error_code": "SUPPLY_NOT_FOUND", "candidates": [
-        {"target": "办公室出售的牛肉面", "action": "obtain", "way": "到店", "from": None, "to": "自己"}]}
+    item = {"path": ["tool_calls", 0, "function", "arguments", "items", 0, "target"],
+            "written": "牛肉", "error_code": "SUPPLY_NOT_FOUND", "allowed_values": [],
+            "expected": "An exact known product name is required.", "why": "No product has this name.",
+            "candidates": [{"tool": "start_activity", "arguments": {
+                "items": [{"target": "办公室出售的牛肉面", "way": "到店", "from": None, "to": None}],
+                "answering": None, "prefer": "最快拿到"}, "note": None}]}
     resolved = [{"written": "办公室", "as": "地点：办公室"}]
     started = {**_result({"activity": activity, "browse_result": {"items": [{"product_id": "p1", "supply_id": "s1",
                                                                               "location_id": "private-office",
@@ -485,7 +493,8 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                           "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"], "items": [item],
                           "resolved": resolved, "notes": ["from 可以写 null"],
                           "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}],
-                          "request": {"targets": ["地点：办公室"]}}),
+                          "request": {"items": [{"target": "地点：办公室", "way": "步行", "from": None, "to": None}],
+                                      "answering": None, "prefer": None}}),
                "status": "in_progress", "error_code": None}
     details = public_result(started, _scenario(products, places))["details"]
     assert details == {"planned": [{"name": activity["name"], "duration": "约 12 分钟"}],
@@ -506,7 +515,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                    "body": "周一上午交会议纪要。", "related_task_id": "internal-task", "attachment_sha256": None}}}
     read = public_result({**_result({"activity": reading}), "status": "completed", "error_code": None},
                          _scenario())["details"]
-    assert read == {"mail": {"subject": "工作安排", "body": "周一上午交会议纪要。"}}
+    assert read == {"mail": {"subject": "工作安排", "body": "周一上午交会议纪要。", "task": "工作：会议纪要"}}
     unread = {**reading, "data": {}}
     assert public_result({**_result({"activity": unread}), "status": "in_progress", "error_code": None},
                          _scenario())["details"] == {"planned": [{"name": reading["name"], "duration": "约 5 分钟"}]}

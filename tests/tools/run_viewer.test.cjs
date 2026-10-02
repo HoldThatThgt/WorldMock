@@ -296,7 +296,7 @@ test('context drills into tool layer targets and progress records and marks self
     const layers = JSON.parse(contextRequest().messages[1].content);
     app.get('#ctx-item').value = '0';
     app.get('#ctx-item').onchange();
-    assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), layers[0].targets[0]);
+    assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {...layers[0].groups[0].shared, ...layers[0].groups[0].targets[0], kind:layers[0].groups[0].kind});
     app.get('#ctx-item').value = '';
     app.get('#ctx-item').onchange();
     assert.ok(app.get('#ctx-raw').textContent.startsWith('[{"layer":"工具层"'));
@@ -343,14 +343,12 @@ test('context comparison keeps the slicing note when only the previous input was
 
 test('action request summaries show self_note as unverified only when the reply had text', t => {
   const view = viewer([
-    event('action_requested', {tool_name: 'start_activity', request: {targets: ['自己'], actions: ['interact'],
-      ways: ['等待']}, request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
-    event('action_requested', {tool_name: 'start_activity', request: {targets: ['自己'], actions: ['sleep'],
-      ways: ['睡觉']}, request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
+    event('action_requested', {tool_name: 'start_activity', request: {items: [{target:'自己',way:'等待',from:null,to:null}],answering:null,prefer:null}, request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
+    event('action_requested', {tool_name: 'start_activity', request: {items: [{target:'自己',way:'睡觉',from:null,to:null}],answering:null,prefer:null}, request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '请求 开始活动 · 自己 · 交互：等待 · self_note（未经核验）：先歇一会儿，再去买菜。');
-  assert.equal(view.summary(2), '请求 开始活动 · 自己 · 睡眠：睡觉');
+  assert.equal(view.summary(1), '请求 开始活动 · 自己 · 等待 · self_note（未经核验）：先歇一会儿，再去买菜。');
+  assert.equal(view.summary(2), '请求 开始活动 · 自己 · 睡觉');
   assert.deepEqual(view.errors, []);
 });
 
@@ -383,8 +381,7 @@ function targets(markup) {
 /** @brief 构造 start_activity 请求：对象、动词与方式三个等长数组（第五章「请求形状与菜单」）。 */
 function startRequest(...items) {
   return event('action_requested', {tool_name: 'start_activity', request: {
-    targets: items.map(([target]) => target), actions: items.map(([, verb]) => verb),
-    ways: items.map(([, , way]) => way),
+    items: items.map(([target, , way]) => ({target,way,from:null,to:null})), answering:null,prefer:null,
   }});
 }
 
@@ -410,7 +407,7 @@ test('locations accumulate across people and replace fixed home office market la
   assert.deepEqual(targets(view.activities()), locations.map(place => `→ ${place.name}`));
   locations.forEach((place, index) => {
     for (const offset of [3, 4, 5]) assert.ok(view.summary(index * 3 + offset).includes(place.name));
-    assert.ok(view.summary(index * 3 + 3).endsWith(`${place.name} · 出行：步行`));
+    assert.ok(view.summary(index * 3 + 3).endsWith(`${place.name} · 步行`));
   });
   assert.deepEqual(view.errors, []);
 });
@@ -460,7 +457,7 @@ test('browse results name movies dramas novels games and lifestyle activities wi
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), rows.map(row => row.title || row.name));
   rows.forEach((row, index) => assert.ok(view.summary(index * 2 + 2).endsWith(
-    `${row.title || row.name} · 交互：${row.way}`)));
+    `${row.title || row.name} · ${row.way}`)));
   assert.doesNotMatch(view.activities(), /剧集 #|电影 #|小说 #|游戏 #|第\d+段/);
   assert.deepEqual(view.errors, []);
 });
@@ -508,10 +505,10 @@ test('start activity request displays each object with its verb and way', t => {
     startRequest(['自己', 'sleep', '睡觉']),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(2), '请求 开始活动 · 菜饭 · 取得：远程下单；自己 · 交互：等待');
-  assert.equal(view.summary(3), '请求 开始活动 · 张江公寓 · 出行：驾车');
-  assert.equal(view.summary(4), '请求 开始活动 · 家里的菜饭 · 使用：食用');
-  assert.equal(view.summary(5), '请求 开始活动 · 自己 · 睡眠：睡觉');
+  assert.equal(view.summary(2), '请求 开始活动 · 菜饭 · 远程下单；自己 · 等待');
+  assert.equal(view.summary(3), '请求 开始活动 · 张江公寓 · 驾车');
+  assert.equal(view.summary(4), '请求 开始活动 · 家里的菜饭 · 食用');
+  assert.equal(view.summary(5), '请求 开始活动 · 自己 · 睡觉');
   for (const sequence of [2, 3, 4, 5]) {
     assert.doesNotMatch(view.summary(sequence), /food-rice|obtain|interact|travel|consume|sleep/);
   }
@@ -549,19 +546,19 @@ test('session requests display each task with its own progress sentence', t => {
   const item = (activity_name, summary, extra = {}) => ({activity_name, summary, ...extra});
   const view = viewer([
     event('action_requested', {tool_name: 'report_status', request: {
-      task: ['整理访谈', '准备周会'], summary: ['完成提纲', '列出议题'],
+      items: [item('整理访谈','完成提纲'),item('准备周会','列出议题')],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      task: ['整理访谈'], summary: ['已经提交纪要'], memories: [[memory('纪要要当天交'), memory('先列提纲')]],
+      items: [item('整理访谈','已经提交纪要',{memories:[memory('纪要要当天交'),memory('先列提纲')],views:[]})],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      task: ['准备周会', '午饭'], summary: ['议题定了', '吃完了'], memories: [[], [memory('菜饭偏咸')]],
+      items: [item('准备周会','议题定了',{memories:[],views:[]}),item('午饭','吃完了',{memories:[memory('菜饭偏咸')],views:[]})],
     }}),
     event('action_requested', {tool_name: 'pause_activity', request: {
-      task: ['准备周会'], summary: ['先放一放'],
+      items: [item('准备周会','先放一放')],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      task: ['午饭'], summary: ['吃完了'],
+      items: [item('午饭','吃完了',{memories:[],views:[]})],
     }}),
     event('action_requested', {tool_name: 'report_status', request: {items: [
       item('整理访谈', '完成提纲'), item('准备周会', '列出议题'),
@@ -580,7 +577,7 @@ test('session requests display each task with its own progress sentence', t => {
   assert.equal(view.summary(2), '请求 结束活动 · 整理访谈：已经提交纪要 · 记忆 2 条');
   assert.equal(view.summary(3), '请求 结束活动 · 准备周会：议题定了；午饭：吃完了 · 记忆 1 条');
   assert.equal(view.summary(4), '请求 暂停活动 · 准备周会：先放一放');
-  assert.equal(view.summary(5), '请求 结束活动 · 午饭：吃完了');
+  assert.equal(view.summary(5), '请求 结束活动 · 午饭：吃完了 · 记忆 0 条');
   assert.ok(!view.summary(1).includes('task='));
   // 现行一项一个对象的请求经 controlItems 读出同样的逐项配对，看法与普通记忆合计计数（第六章「一项一个对象」）。
   assert.equal(view.summary(6), view.summary(1));
@@ -589,10 +586,10 @@ test('session requests display each task with its own progress sentence', t => {
   assert.equal(view.summary(9), '请求 结束活动 · 准备周会：议题定了 · 记忆 0 条');
   const read = request => JSON.parse(JSON.stringify(view.run(`controlItems('conclude_activity', ${
     JSON.stringify(request)}).map(entry => [entry.name, entry.summary, entry.memories.map(one => one.text)])`)));
-  assert.deepEqual(read({task: ['整理访谈'], summary: ['已经提交纪要'], memories: [[memory('纪要要当天交'),
-    {type: 'relationship', text: '王磊很靠谱', subject: '王磊'}]]}), read({items: [
+  assert.deepEqual(read({items: [
     item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
-  ]}));
+  ]}), [['整理访谈','已经提交纪要',['纪要要当天交','王磊很靠谱']]]);
+  assert.throws(() => read({task:['整理访谈'],summary:['完成']}), /requires items/);
   assert.deepEqual(view.errors, []);
   for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined/);
 });

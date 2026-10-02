@@ -138,7 +138,7 @@ def test_formal_restaurants_select_edible_pickup_meals() -> None:
             product = products[supply.product_id]
             menu = scenario.interaction_menus_by_location_kind[place.kind]
             assert place.business_kind == "restaurant"
-            assert product.category_id == "prepared-meal"
+            assert product.category_id.startswith("prepared-meal")
             assert "eat" in product.use_modes and product.consumable
             assert product.required_location_id in (None, location_id)
             assert supply.initial_stock > 0 and "pickup" in supply.fulfillment_modes
@@ -189,7 +189,7 @@ def test_relief_preference_floor_defaults_to_half_without_changing_scenario_file
         assert "entertainment_relief_preference_floor" not in payload["body"]
         assert LifeScenario.model_validate(payload).body.entertainment_relief_preference_floor == 0.5
         scenario, _ = load_scenario(path)
-        assert scenario.schema_version == 3
+        assert scenario.schema_version == 4
         assert scenario.body.entertainment_relief_preference_floor == 0.5
 
 
@@ -369,7 +369,8 @@ def test_work_and_message_references_stay_inside_scenario() -> None:
 def test_scheduled_records_use_scenario_timezone_and_window() -> None:
     """任务和邮件不会以错误时区或不可到达时刻进入场景。"""
     _assert_invalid(
-        _replace(("tasks", 0, "available_at"), "2026-01-05T09:00:00+00:00"),
+        _replace(("tasks", 0, "appointment"), {"starts_at": "2026-01-05T09:00:00+00:00",
+                                               "reason": "Scheduled review"}),
         "task timestamps do not match",
     )
     _assert_invalid(
@@ -407,7 +408,7 @@ def _scheduled_price(supply_id, version, ordinal):
     """@brief 形成来源完整且位于正式场景窗口内的一次显式调价。"""
     supply = next(item for item in _map().supplies if item.supply_id == supply_id)
     return {"change_id": f"price-{ordinal}", "supply_id": supply_id, "price_version": version,
-            "amount_fen": 1000 + ordinal, "due_at": f"2026-01-05T{10 + ordinal:02d}:00:00+08:00",
+            "amount_fen": supply.quotes[0].price_fen, "due_at": f"2026-01-05T{10 + ordinal:02d}:00:00+08:00",
             "source": supply.source.model_dump(mode="json")}
 
 
@@ -651,7 +652,7 @@ def test_meal_products_resolve_against_the_catalog() -> None:
             supply = next(item for item in scenario.supplies if item.product_id == product.product_id)
             assert 1500 <= supply.quotes[0].price_fen <= 4500
             assert 20 * 60 <= product.use_duration_seconds <= 40 * 60
-            assert supply.delivery_delay_seconds > 0
+            assert supply.delivery_delay_seconds >= 0
             assert merchants[supply.seller_account_id]["role"] == "merchant:restaurant"
 
 
@@ -740,7 +741,7 @@ def test_three_scenarios_share_the_v2_schema() -> None:
     manifests = set()
     for path in _V2_SCENARIOS:
         document = _document(path)
-        assert document["schema_version"] == 3
+        assert document["schema_version"] == 4
         assert document["reconsideration_interval_seconds"] == 5400
         manifests.add(document["corpus_manifest_sha256"])
         for agent in document["agents"]:

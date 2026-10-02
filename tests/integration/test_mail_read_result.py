@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import compact_render
+
 import json
 import os
 
@@ -66,10 +68,11 @@ async def test_the_mail_body_appears_once_in_the_request_as_the_read_result(_eng
         "conclude_activity", conclude_request(*pending_names(seen)).model_dump(mode="json")))
     assert concluded.status == "completed", (concluded.error_code, concluded.message)
 
-    [call] = [row for row in progress_calls(observation, "start_activity") if row["arguments"]["ways"] == ["阅读"]]
+    [call] = [row for row in progress_calls(observation, "start_activity") if row["arguments"]["items"][0]["way"] == "阅读"]
     assert call["result"]["status"] == "completed"
-    assert call["result"]["details"]["mail"] == {"subject": message.subject, "body": message.body}
-    assert json.loads(request["messages"][1]["content"])[5] == observation["progress_layer"]
+    assert {key: call["result"]["details"]["mail"][key] for key in ("subject", "body")} == {
+        "subject": message.subject, "body": message.body}
+    assert json.loads(request["messages"][1]["content"])[5] == compact_render(observation["progress_layer"])
     body = json.dumps(message.body, ensure_ascii=False)[1:-1]
     assert sum(str(item.get("content") or "").count(body) for item in request["messages"]) == 1
     assert body not in json.dumps(request["tools"], ensure_ascii=False)

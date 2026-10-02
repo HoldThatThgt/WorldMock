@@ -8,13 +8,14 @@
 送到收货地（在配送范围内、配送路线走得通，送达时刻按 basket.delivery_expected_at：最慢备货加出发时刻的计划驾车时长）；
 「购买」人在出售它的店里、且东西在那里交得到收货人手上（handed_over：收货人是自己，或此刻也在那家店里）就到店，否则能送到
 收货地就远程下单（系统不定一个交不到收货人手上的方式）；显式写的到店照所写处理。多于一个可服务的供给时按请求级 prefer
-选定（choose）：fastest 远程下单取预计送达最早者、到店取从当前地点出发路线最短者，cheapest 取到手价最低者（一份按当前报价
+选定（choose）：最快拿到 远程下单取预计送达最早者、到店取从当前地点出发路线最短者，到手价最低 取到手价最低者（一份按当前报价
 与购买配对计价）；并列时先比到手价、再比门店标识，最后比供给标识（确定性）。价格、余额、营业与库存仍由整单结算照常检查。
 本模块只读世界、场景与语义，不改状态。
 """
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
 
 #: 请求级偏好（models.PURCHASE_PREFERENCES）的缺省值：prefer 为 null 时按最快。
-DEFAULT_PREFERENCE = "fastest"
 #: 到店与远程下单两种方式短语。
 PICKUP_WAY, DELIVERY_WAY = PURCHASE_WAYS["pickup"], PURCHASE_WAYS["delivery"]
 
@@ -136,16 +136,19 @@ def handed_over(pickups: Iterable[Offer], destination_id: str | None) -> list[Of
 
 
 def choose(served: Sequence[Offer], prefer: str) -> Offer:
-    """@brief 按偏好选定一条可服务的供给（3.5「收敛」第 5 条）：fastest 先比快慢，cheapest 先比到手价；并列时比到手价、
+    """@brief 按偏好选定一条可服务的供给（3.5「收敛」第 5 条）：最快拿到 先比快慢，到手价最低 先比到手价；并列时比到手价、
     门店标识与供给标识。"""
     return min(served, key=lambda offer: order_key(offer, prefer))
 
 
 def order_key(offer: Offer, prefer: str) -> tuple:
-    """@brief 选定与候选排序的键：fastest 为（快慢，到手价，门店标识，供给标识），cheapest 为（到手价，门店标识，供给标识）；
+    """@brief 选定与候选排序的键：最快拿到 为（快慢，到手价，门店标识，供给标识），到手价最低 为（到手价，门店标识，供给标识）；
     到手价未知的排在最后。"""
+    if prefer not in {"最快拿到", "到手价最低"}:
+        logging.error("Purchase preference is outside the declared set")
+        raise ValueError("purchase preference must be 最快拿到 or 到手价最低")
     tail = (offer.price if offer.price is not None else math.inf, offer.supply.location_id, offer.supply.supply_id)
-    return tail if prefer == "cheapest" else (offer.speed, *tail)
+    return tail if prefer == "到手价最低" else (offer.speed, *tail)
 
 
 def landed_price(context: LayerContext, supply: Any) -> int | None:

@@ -1,5 +1,8 @@
 # 运行配置
 
+> 2026-10-01：[工具交互目标规格](../dev/SPEC-tool-interaction.md)已冻结，生产实现已完成。
+> 本手册现有命令示例仍针对当前实现；下述新规则是实施时必须同步的目标，不能当作已支持的CLI。
+
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
 
@@ -214,3 +217,15 @@ uv run worldmock replay \
 | `Model identity stage decision_statement is retired` | 运行清单仍含旧的决策自述阶段键，由旧版本代码创建；这样的运行不能打开、恢复或重放，改为新建运行 |
 
 命令参数以[命令入口](../../src/worldmock/cli.py)为准；更多数据生成与评估步骤见对应手册页。
+
+## 工具交互实现时的运行检查
+
+目标原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，
+改为items一项一个{target,way,from,to}对象及answering/prefer，旧actions与数组直接拒绝。
+含购买项prefer必须为“最快拿到”或“到手价最低”，非购买必须null；to=null统一本人。
+query_world必填name/way/category/offset，category取公开品类标签，返回matches/total_count/next_offset可遍历全集；
+它与recall_task_summary即时只读，不消耗世界时间或同刻轮数，仍受十六模型回合预算。
+每条错误提供完整path、written、allowed_values、expected、why和完整请求候选，英文报错；
+有限枚举完整列出，无法枚举的范围和格式由expected说明。
+各纵向阶段只发布自己所需的新身份，任务阶段不捆绑新版地图；供给阶段地图生成种子匹配场景。
+已发布目录内容变更不得同版覆盖，旧检查点按已有身份校验拒绝，重新运行。

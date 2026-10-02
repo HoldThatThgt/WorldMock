@@ -21,7 +21,7 @@ from worldmock.life.wayfinding import UNREACHABLE_STORE_STEP
 
 _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 #: 只能到店取餐的饭店（菜饭骨头汤）与它出售的鸡汤面。
-_STORE, _MEAL_SUPPLY = "poi-3538660453", "supply-poi-3538660453-meal-0018"
+_STORE, _MEAL_SUPPLY = "poi-3538660453", "supply-poi-3538660453-meal-0001"
 #: 张江日用集市（配送取货点）出售、能配送的一件食品；紫薇公园是能送达的一处地点。
 _PARK = "poi-337936012"
 
@@ -162,16 +162,16 @@ def test_pickup_hint_goes_direct_via_a_reachable_place_or_says_the_store_cannot_
     places = _places(engine)
     store = places[_STORE]
     direct = _refused(engine, "hint-direct", _pickup(engine))
-    assert (direct.data["next_step"], direct.data["unmet"]) == (f"去{store}", ["required_location_id"])
+    assert (direct.data["next_step"], direct.data["unmet"]) == (f"Go to {store}.", ["required_location_id"])
     _block(engine, lambda route: route.origin_id == "home" and route.destination_id != "office")
     listed = {row["object_id"] for row in engine.observe(context(engine, "hint-listed"))["interaction_bindings"]
               if row["kind"] == "location"}
     assert listed == {"office"}
     via = _refused(engine, "hint-via", _pickup(engine))
-    assert via.data["next_step"] == f"可经{places['office']}前往{store}"
+    assert via.data["next_step"] == f"Go via {places['office']} to {store}."
     _block(engine, lambda route: route.destination_id == _STORE)
     nowhere = _refused(engine, "hint-nowhere", _pickup(engine))
-    assert nowhere.data["next_step"] == UNREACHABLE_STORE_STEP == "这里去不了那家店"
+    assert nowhere.data["next_step"] == UNREACHABLE_STORE_STEP == "This store is unreachable from the current location."
     assert nowhere.data["reason"] == direct.data["reason"]
 
 
@@ -191,11 +191,11 @@ def test_remote_order_outside_the_delivery_area_names_reachable_places_to_order_
     request = start_request(targets=[_label(engine, supply)], actions=["obtain"], ways=["远程下单"])
     refused = _refused(engine, "area-order", request)
     assert (refused.data["reason"], refused.data["unmet"]) == (DELIVERY_DESTINATION_REASON, ["delivery_destination"])
-    assert refused.data["next_step"] == f"去{places['office']}或{places[_PARK]}再下单"
+    assert refused.data["next_step"] == f"Go to {places['office']} or {places[_PARK]}, then place the order."
     _retarget(engine, supply, (_PARK,))
     _block(engine, lambda route: route.origin_id == "home" and route.destination_id != "office")
     via = _refused(engine, "area-via", request)
-    assert via.data["next_step"] == f"可经{places['office']}前往{places[_PARK]}再下单"
+    assert via.data["next_step"] == f"Go via {places['office']} to {places[_PARK]}, then place the order."
 
 
 def test_remote_order_without_a_delivery_route_says_so_in_its_own_sentence(engine_factory) -> None:
@@ -215,7 +215,7 @@ def test_remote_order_without_a_delivery_route_says_so_in_its_own_sentence(engin
     refused = _refused(engine, "route-order", start_request(targets=[_label(engine, supply)], actions=["obtain"],
                                                             ways=["远程下单"]))
     assert (refused.data["reason"], refused.data["unmet"]) == (DELIVERY_ROUTE_REASON, ["delivery_route"])
-    assert refused.data["next_step"] == f"去{places['office']}或{places[_PARK]}再下单"
+    assert refused.data["next_step"] == f"Go to {places['office']} or {places[_PARK]}, then place the order."
     assert DELIVERY_ROUTE_REASON != DELIVERY_DESTINATION_REASON
 
 
@@ -235,7 +235,7 @@ def test_remote_order_hint_skips_reachable_places_the_store_cannot_deliver_to(en
     refused = _refused(engine, "skip-order", start_request(targets=[_label(engine, supply)], actions=["obtain"],
                                                            ways=["远程下单"]))
     assert (refused.data["reason"], refused.data["unmet"]) == (DELIVERY_ROUTE_REASON, ["delivery_route"])
-    assert refused.data["next_step"] == f"去{places[_PARK]}再下单"
+    assert refused.data["next_step"] == f"Go to {places[_PARK]}, then place the order."
 
 
 def test_held_elsewhere_hint_also_points_only_to_reachable_places(engine_factory) -> None:
@@ -261,10 +261,10 @@ def test_held_elsewhere_hint_also_points_only_to_reachable_places(engine_factory
     result = _act(engine, "held-eat", "start_activity",
                   start_request(targets=[target], actions=["consume"], ways=["食用"]))
     assert (result.status, result.error_code, result.data["reason"]) == ("rejected", "PRODUCT_NOT_HELD",
-                                                                         f"这件东西在{home}，只能在当地用")
+                                                                         f"This item is at {home} and must be used there.")
     step = result.data["next_step"]
-    assert step.startswith("可经") and step.endswith(f"前往{home}") and home not in listed
-    assert step.removeprefix("可经").split("前往")[0] in listed
+    assert step.startswith("Go via ") and step.endswith(f" to {home}.") and home not in listed
+    assert step.removeprefix("Go via ").split(" to ")[0] in listed
 
 
 def test_unreachable_places_stay_unlisted_while_the_hint_explains_them(engine_factory) -> None:
@@ -281,6 +281,7 @@ def test_unreachable_places_stay_unlisted_while_the_hint_explains_them(engine_fa
     assert locations == before - {_STORE}
     assert f"地点：{_places(engine)[_STORE]}" not in tool_targets(after)
     refused = _refused(engine, "unlisted-pickup", _pickup(engine))
-    assert refused.data["next_step"].startswith("可经") and refused.data["next_step"].endswith(_places(engine)[_STORE])
-    hop = refused.data["next_step"].removeprefix("可经").split("前往")[0]
+    assert refused.data["next_step"].startswith("Go via ")
+    assert refused.data["next_step"].endswith(f" to {_places(engine)[_STORE]}.")
+    hop = refused.data["next_step"].removeprefix("Go via ").split(" to ")[0]
     assert hop in {_places(engine)[place] for place in locations}

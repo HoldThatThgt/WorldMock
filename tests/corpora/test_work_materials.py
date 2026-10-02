@@ -93,7 +93,7 @@ def test_formal_scenario_inputs_use_distinct_pm_materials_across_84_days() -> No
     assert all(path.startswith("scenario-work/inputs/") for path in chinese)
     assert all(Path(f"corpora/{path}").is_file() for path in chinese)
     scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
-    days = sorted(task["available_at"][:10] for task in document["tasks"])
+    days = sorted(task.available_at.date().isoformat() for task in scenario.tasks)
     assert len(set(days)) == 56  # 84 天窗口内不重复分布（每任务独占一天）
     assert all(task.assignee_agent_id == "agent:1" for task in scenario.tasks)
 

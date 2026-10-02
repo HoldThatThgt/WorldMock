@@ -50,7 +50,7 @@ def _functions(agent: LifeAgent, readonly: bool = False) -> dict[str, dict]:
 
 def _decision(name: str, **arguments) -> ReactDecision:
     """构造一次原生工具选择（start_activity 未写的来源、去向与 answering 取缺省）。"""
-    if name == "start_activity" and "to" not in arguments:
+    if name == "start_activity" and "items" not in arguments:
         arguments = start_arguments(**arguments)
     return ReactDecision("", name, arguments, "")
 
@@ -63,8 +63,8 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
     properties = start["parameters"]["properties"]
     assert start["strict"] is True
     assert start["parameters"]["additionalProperties"] is False
-    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
-    assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
+    assert set(properties) == {"items", "answering", "prefer"}
+    assert all("enum" not in properties["items"]["items"]["properties"][name] for name in ("target", "way"))
     user = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": data}]))[1]["content"]
     assert all(f'"name":"{row["object"]}"' in user for row in data["interaction_bindings"])
@@ -72,21 +72,20 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
         assert private not in str(start) and private not in user
 
 
-@pytest.mark.parametrize("targets,actions,ways,error", [
-    ([_FILM], ["travel"], ["步行"], "not offered"),
-    ([_FILM], ["interact"], ["从头再看"], "not offered"),
-    ([_FILM], ["travel"], ["接着看"], "not offered"),
-    (["content-hidden"], ["interact"], ["接着看"], "not a visible"),
-    ([_FILM, _PARK], ["interact"], ["接着看"], "equal lengths"),
-    ([_FILM, _PARK], ["interact", "travel"], ["接着看"], "equal lengths"),
-    ([_FILM, _FILM], ["interact", "interact"], ["接着看", "接着看"], "repeat only with different to"),
-    (["自己", _FILM, _PARK], ["interact", "interact", "travel"], ["等待", "接着看", "步行"], "one or two"),
+@pytest.mark.parametrize("arguments,error", [
+    (start_arguments([_FILM], ["travel"], ["步行"]), "does not support"),
+    (start_arguments([_FILM], ["interact"], ["从头再看"]), "does not support"),
+    (start_arguments([_FILM], ["interact"], ["未知方式"]), "WAY_NOT_OFFERED"),
+    (start_arguments(["content-hidden"], ["interact"], ["接着看"]), "No known object"),
+    ({"items": [{"target": _FILM, "from": None, "to": None}], "answering": None, "prefer": None}, "required"),
+    ({"items": [{"target": _FILM, "way": "接着看", "to": None}], "answering": None, "prefer": None}, "required"),
+    (start_arguments([_FILM, _FILM], ["interact", "interact"], ["接着看", "接着看"]), "different recipient"),
+    (start_arguments(["自己", _FILM, _PARK], ["interact", "interact", "travel"], ["等待", "接着看", "步行"]),
+     "one or two"),
 ])
-def test_start_rejects_invalid_pairs_before_dispatch(targets, actions, ways, error) -> None:
-    """每项动词与方式必须属于对应对象，三个数组等长，且整个请求共享一个原子校验边界。"""
-    agent = _prepare()
-    actual = agent.validate_react_decisions([
-        _decision("start_activity", targets=targets, actions=actions, ways=ways)], False)
+def test_start_rejects_invalid_pairs_before_dispatch(arguments, error) -> None:
+    """每项独立包含完整字段，方式决定动作，整组共享一个原子校验边界。"""
+    actual = _prepare().validate_react_decisions([_decision("start_activity", **arguments)], False)
     assert error in actual
 
 
@@ -97,7 +96,7 @@ def test_parallel_start_accepts_two_independent_human_readable_pairs() -> None:
                        ways=["步行", "接着看"])
     assert agent.validate_react_decisions([choice], False) == ""
     assert agent.validate_react_decisions([choice, choice], False) == (
-        "TOOL_CALL_REQUIRED: one model response cannot contain multiple life actions")
+        "TOOL_CALL_REQUIRED: Submit exactly one world request, or a batch containing only read queries.")
 
 
 def test_frozen_observation_does_not_change_until_next_round() -> None:
@@ -107,7 +106,7 @@ def test_frozen_observation_does_not_change_until_next_round() -> None:
     _add_objects(data, _visible_object("内容：新电影", "content", "content-new",
                                        _offer("interact", "接着看", "watch")))
     invalid = _decision("start_activity", targets=["内容：新电影"], actions=["interact"], ways=["接着看"])
-    assert "not a visible" in agent.validate_react_decisions([invalid], False)
+    assert "No known object" in agent.validate_react_decisions([invalid], False)
     refreshed = _prepare(data)
     assert refreshed.validate_react_decisions([invalid], False) == ""
 
@@ -129,7 +128,7 @@ def test_menu_closes_actions_without_removing_stable_tools() -> None:
     assert agent.validate_react_decisions([
         _decision("start_activity", targets=["自己"], actions=["sleep"], ways=["睡觉"])], False) == ""
     for target, verb, way in ((_TASK, "interact", "工作"), (_PARK, "travel", "步行")):
-        assert "interaction menu" in agent.validate_react_decisions([
+        assert "not admitted" in agent.validate_react_decisions([
             _decision("start_activity", targets=[target], actions=[verb], ways=[way])], False)
 
 
@@ -143,9 +142,9 @@ def test_visible_task_and_person_names_bind_independent_tools() -> None:
     assert "agent-hidden" not in str(functions["send_message"])
     assert agent.validate_react_decisions([_decision(
         "send_message", recipient_name="人物：小李", text="你好")], False) == ""
-    assert "not visible" in agent.validate_react_decisions([_decision(
+    assert "not known" in agent.validate_react_decisions([_decision(
         "send_message", recipient_name="agent-hidden", text="你好")], False)
-    assert "not visible" in agent.validate_react_decisions([_decision(
+    assert "not known" in agent.validate_react_decisions([_decision(
         "send_message", recipient_name=_FILM, text="你好")], False)
 
 
@@ -178,7 +177,7 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
     assert result.ok is True
     assert len(environment.calls) == 1
     assert isinstance(environment.calls[0].request, StartActivityRequest)
-    assert environment.calls[0].request.model_dump() == payload
+    assert environment.calls[0].request.model_dump(by_alias=True) == payload
 
 
 def test_revision_follows_current_day_plan_without_plan_tool() -> None:
@@ -198,7 +197,7 @@ def test_revision_follows_current_day_plan_without_plan_tool() -> None:
         "intent_kind", "goal", "remind_time", "around_time"}
     resubmitted = {"goals": [{"intent_kind": "工作", "goal": "再写一次", "remind_time": None, "around_time": None}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **resubmitted)], False) == (
-        "ARGUMENTS_INVALID: revise_day_plan cannot resubmit progressed goals")
+        "ARGUMENTS_INVALID: This intent has already progressed and cannot be resubmitted.")
     fresh = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": "21:30", "around_time": "21:30"}]}
     assert agent.validate_react_decisions([_decision("revise_day_plan", **fresh)], False) == ""
 

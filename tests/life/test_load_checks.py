@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -16,16 +17,20 @@ import pytest
 
 from custom.agents.life_prompt import life_user_layers, user_message
 from tests.life.conftest import context, stage_day_plan
+from worldmock.catalog import load_catalog
+from worldmock.corpora.storefront_build import build_storefront_supplies
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.environment_layer import PLACE_TYPES
 from worldmock.life.load_checks import visible_object_labels
+from worldmock.life.map_models import CategoryAssignment, LocationConfig
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.semantics import load_runtime_scenario
 from worldmock.runtime import input_warnings
 
 _ROOT = Path(__file__).resolve().parents[2]
 _SCENARIO = "white-collar-12-weeks.json"
+_MAP_SEED = 20260105
 #: 仓库地图的三家餐馆（场景全选）：两家改成同名做消歧与拒绝样本，第三家改类别做越界样本。
 _BONE_SOUP, _SICHUAN, _CLAYPOT = "poi-3538660453", "poi-3538682404", "poi-3538682408"
 
@@ -43,27 +48,79 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _map_variant(corpus: Path, name: str, edit) -> dict:
-    """把地图地点目录交给 edit(rows) 改写，另存为 name 变体，并发布引用它的数据集声明；返回场景的地图钉扎。"""
-    folder = corpus / "zhangjiang-map"
+def _write_json(path: Path, value: dict) -> None:
+    """@brief 保存隔离的真实地图声明，不修改正式语料。"""
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _variant_manifest(corpus: Path, files: list[Path]) -> None:
+    """@brief 地图变体的每份文件和假设来源都钉入该独立语料清单。"""
+    changed = {path.relative_to(corpus).as_posix(): path for path in files}
+    path = corpus / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    for entry in manifest["entries"]:
+        if entry["path"] in changed:
+            source = changed[entry["path"]]
+            entry.update(sha256=_sha(source), size_bytes=source.stat().st_size)
+            entry["source"].update(kind="scenario", selector="Isolated load-check map fixture")
+    _write_json(path, manifest)
+
+
+def _map_variant(corpus: Path, name: str, edit) -> tuple[Path, dict]:
+    """@brief 完整复制地图后改写地点，按同一种子和逐店声明重建供给与全部引用身份。"""
+    isolated = corpus.parent / name / "corpora"
+    shutil.copytree(corpus, isolated)
+    folder = isolated / "zhangjiang-map"
     payload = json.loads((folder / "locations.json").read_text(encoding="utf-8"))
     edit({row["location_id"]: row for row in payload["locations"]})
-    locations = folder / f"locations-{name}.json"
-    locations.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    declaration = json.loads((folder / "dataset.json").read_text(encoding="utf-8"))
-    declaration["locations_file"] = {"path": f"zhangjiang-map/{locations.name}", "sha256": _sha(locations)}
-    dataset = folder / f"dataset-{name}.json"
-    dataset.write_text(json.dumps(declaration, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"dataset_id": declaration["dataset_id"], "version": declaration["version"],
-            "path": f"zhangjiang-map/{dataset.name}", "sha256": _sha(dataset)}
+    for row in payload["locations"]:
+        row["source"].update(kind="scenario", notice="Isolated labels and location kinds for load checks")
+    locations = folder / "locations.json"
+    _write_json(locations, payload)
+    assignment_path = folder / "category-assignment.json"
+    assignment = json.loads(assignment_path.read_text(encoding="utf-8"))
+    kinds = {row["location_id"]: row["kind"] for row in payload["locations"]}
+    for kind in set(kinds.values()) - set(assignment["kinds"]):
+        assignment["kinds"][kind] = []
+    assignment["locations"] = [row for row in assignment["locations"]
+                               if assignment["kinds"][kinds[row["location_id"]]]]
+    _write_json(assignment_path, assignment)
+    declarations = CategoryAssignment.model_validate(assignment)
+    catalog = load_catalog(_ROOT / "catalog")
+    assumptions_path = folder / "supply-assumptions.json"
+    assumptions = json.loads(assumptions_path.read_text(encoding="utf-8"))
+    selling = {row.location_id for row in declarations.locations}
+    assumptions["locations"] = [row for row in assumptions["locations"] if row["location_id"] in selling]
+    _write_json(assumptions_path, assumptions)
+    supplies = build_storefront_supplies(catalog, declarations,
+                                        tuple(LocationConfig.model_validate(row) for row in payload["locations"]),
+                                        assumptions, _MAP_SEED)
+    supply_file = folder / str(_MAP_SEED) / "supplies.json"
+    _write_json(supply_file, {"schema_version": 3, "supplies": [row.model_dump(mode="json") for row in supplies]})
+    dataset = folder / str(_MAP_SEED) / "dataset.json"
+    declaration = json.loads(dataset.read_text(encoding="utf-8"))
+    declaration["locations_file"]["sha256"] = _sha(locations)
+    declaration["supplies_file"]["sha256"] = _sha(supply_file)
+    declaration["category_assignment_sha256"] = _sha(assignment_path)
+    _write_json(dataset, declaration)
+    _variant_manifest(isolated, [locations, assignment_path, assumptions_path, supply_file, dataset])
+    return isolated, {"dataset_id": declaration["dataset_id"], "version": declaration["version"],
+                      "path": f"zhangjiang-map/{_MAP_SEED}/dataset.json", "sha256": _sha(dataset)}
 
 
-def _scenario(tmp_path: Path, corpus: Path, pin: dict | None = None, mutate=None) -> Path:
+def _scenario(tmp_path: Path, corpus: Path, pin: tuple[Path, dict] | None = None, mutate=None) -> Path:
     """正式场景的副本：语料根指向隔离副本，可换地图钉扎、可交给 mutate(document) 改写；目录随场景复制。"""
     document = json.loads((_ROOT / "scenarios" / _SCENARIO).read_text(encoding="utf-8"))
-    document["corpus_root"] = str(corpus)
     if pin is not None:
-        document["map_dataset"] = pin
+        corpus, reference = pin
+        document["map_dataset"] = reference
+        document["random_seed"] = _MAP_SEED
+        available = json.loads((corpus / reference["path"]).read_text(encoding="utf-8"))
+        supply_file = corpus / available["supplies_file"]["path"]
+        identities = {row["supply_id"] for row in json.loads(supply_file.read_text(encoding="utf-8"))["supplies"]}
+        document["supplies"] = [row for row in document["supplies"] if row["supply_id"] in identities]
+    document["corpus_root"] = os.path.relpath(corpus, tmp_path / "scenarios")
+    document["corpus_manifest_sha256"] = _sha(corpus / "manifest.json")
     if mutate is not None:
         mutate(document)
     (tmp_path / "scenarios").mkdir()
@@ -144,6 +201,10 @@ def _duplicate_task(document: dict) -> tuple[str, str]:
     """同一人物名下追加一项与第一项同名的工作；返回重复名称与两处来源。"""
     first = document["tasks"][0]
     document["tasks"].append({**first, "task_id": "task-duplicate-title"})
+    notice = next(row for row in document["messages"] if row["related_task_id"] == first["task_id"])
+    document["messages"].append({**notice, "message_id": "duplicate-title-notice",
+                                 "thread_id": "duplicate-title-notice", "related_task_id": "task-duplicate-title",
+                                 "subject": f"Duplicate work announcement — {first['title']}"})
     return f"工作：{first['title']}", f"task:{first['task_id']}, task:task-duplicate-title"
 
 

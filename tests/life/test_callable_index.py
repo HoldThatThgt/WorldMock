@@ -3,7 +3,7 @@
 
 全部经真实 LifeEngine、SQLite 与 LifeAgent：索引里的每个名称（全部生活活动名称、内容与商品各品类的示例名）都能按名调用——
 各在一份已提交状态的独立副本上单独提交，宿主本地校验放行，经宿主派发交给环境后被受理并落到同名对象（商品名有几家门店都能
-送到时按请求级 prefer 的缺省选预计送达最早的一家，3.5）；索引只含此地此刻可做的
+送到时按请求级 prefer="最快拿到" 选预计送达最早的一家，3.5）；索引只含此地此刻可做的
 生活活动（地点类不符的不在其中，与生活活动窗口资格段保留的条目逐项相同），内容与商品只给品类计数与至多 3 个示例名；商品取
 此刻从这里能得到的（门店开着、有货、能送到这里或人就在店里）；有效菜单不许的动作使对应部分为空；索引不是目标，不计入单次
 呈现上限、不写呈现留痕。容量计数含索引见 tests/integration/test_seven_layer_request.py，Schema 见 test_prompt_layers.py。
@@ -138,7 +138,7 @@ def _assert_every_name_is_called(engine: LifeEngine, tmp_path, monkeypatch, labe
 
 def _assert_goods_choice(engine: LifeEngine, result, name: str, way: str) -> None:
     """商品名按名取得落到出售这个商品的门店（details.resolved 写 {written: 名称, as: <门店>出售的<名称>}，与订单的门店
-    一致）：到店落在人所在的这家店；远程下单落在能送到这里的供给中预计送达最早的一家（请求级 prefer 为空按最快，
+    一致）：到店落在人所在的这家店；远程下单落在能送到这里的供给中预计送达最早的一家（请求级 prefer="最快拿到"，
     docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条），几家都能送到时 details.notes 写明按最快选了哪家，只有一家时
     不写；同名多家不以 SUPPLY_NAME_AMBIGUOUS 拒绝。"""
     [purchase] = [row for row in result.data["resolved"] if row["written"] == name]
@@ -158,23 +158,23 @@ def _assert_goods_choice(engine: LifeEngine, result, name: str, way: str) -> Non
     assert order["supply_id"] in served and order["expected_at"] == min(served.values()), (order, served)
     if len(served) > 1:
         [note] = notes
-        assert note.startswith(f"「{name}」有 {len(served)} 处都能远程下单，按最快选了{purchase['as']}（预计 "), note
+        assert note.startswith(f"「{name}」有 {len(served)} 处都能远程下单，按最快拿到选了{purchase['as']}（预计 "), note
     else:
         assert notes == [], notes
 
 
 def test_every_name_in_the_index_is_callable_by_name_and_accepted(engine_factory, tmp_path, monkeypatch) -> None:
-    """性质测试（真实场景的一次观察）：12:30 在家，索引里的全部名称——107 个生活活动、内容各品类与商品各品类的示例名——
+    """性质测试（真实场景的一次观察）：12:30 在家，索引里的全部名称——104 个生活活动、内容各品类与商品各品类的示例名——
     逐个写名称单独提交：宿主本地校验都放行（名称按统一名称解析归一唯一，生活活动与内容补回类别前缀，商品按指名购买交给
     环境），环境都受理并落到同名对象（开始的活动的目标就是这个名称的生活活动或内容，取得的门店商品标签以这个商品名结尾）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _at(engine, 12, "home")
     _, index = _index(engine, "count")
-    assert len(index["lifestyle"]) == len(_allowed(engine, "home")) == 107 and index["contents"] and index["goods"]
+    assert len(index["lifestyle"]) == len(_allowed(engine, "home")) == 104 and index["contents"] and index["goods"]
     called = _assert_every_name_is_called(engine, tmp_path, monkeypatch, "home", ("lifestyle", "contents", "goods"))
     examples = sum(len(row["examples"]) for part in ("contents", "goods") for row in index[part])
-    assert called == 107 + examples
+    assert called == 104 + examples
 
 
 def test_goods_named_in_a_store_are_bought_in_store(engine_factory, tmp_path, monkeypatch) -> None:
@@ -187,25 +187,28 @@ def test_goods_named_in_a_store_are_bought_in_store(engine_factory, tmp_path, mo
     _, index = _index(engine, "store")
     assert all(_purchase_way(engine, name) == "到店" for row in index["goods"] for name in row["examples"])
     called = _assert_every_name_is_called(engine, tmp_path, monkeypatch, "store", ("goods",), 1)
-    assert called == len(index["goods"]) == 13
+    assert called == len(index["goods"]) == 15
 
 
 def test_a_name_several_stores_deliver_is_called_by_name_and_chosen_by_prefer(engine_factory, tmp_path,
                                                                               monkeypatch) -> None:
-    """同一商品名有几家门店都能送到（12:30 在家，集市到家的配送路线断了之后，索引的商品只剩另两家门店送得到的纯牛奶）：
-    这个示例名按名调用照样被宿主放行、环境受理，不以 SUPPLY_NAME_AMBIGUOUS 拒绝；请求级 prefer 为空按最快，落到预计送达
-    最早的那家，details.notes 写明按最快选了它（docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条）。"""
+    """@brief 集市配送断路后，完整便利店与超市供给仍可按名调用；真实订单按明确最快偏好选定。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _at(engine, 12, "home")
     _without_routes(engine, _MARKET, "home")
-    _, index = _index(engine, "several-stores")
-    assert [name for row in index["goods"] for name in row["examples"]] == ["纯牛奶"]
+    observed, index = _index(engine, "several-stores")
     products, now = _products(engine), engine.state.current_time
-    stores = {supply.location_id for supply in engine.scenario.supplies if products[supply.product_id].name == "纯牛奶"
-              and delivery_expected_at(engine.semantics, supply, "home", now) is not None}
-    assert len(stores) == 2
-    assert _assert_every_name_is_called(engine, tmp_path, monkeypatch, "several-stores", ("goods",)) == 1
+    examples = [name for row in index["goods"] for name in row["examples"]]
+    assert len(examples) > MAX_EXAMPLES
+    name = next(name for name in examples if len({
+        supply.location_id for supply in engine.scenario.supplies
+        if products[supply.product_id].name == name
+        and delivery_expected_at(engine.semantics, supply, "home", now) is not None}) == 2)
+    call = next(call for call in _calls(engine, observed, index, ("goods",)) if call[1] == name)
+    result, _ = _submitted(engine, tmp_path, monkeypatch, "several-stores-one", index, call)
+    assert result.status == "completed" and result.error_code is None
+    _assert_goods_choice(engine, result, name, call[3])
 
 
 def test_every_index_name_resolves_by_name_in_the_host_at_several_places(engine_factory) -> None:
@@ -238,7 +241,7 @@ def test_every_index_name_resolves_by_name_in_the_host_at_several_places(engine_
 def test_the_index_leaves_out_activities_excluded_by_location_kind(engine_factory) -> None:
     """索引只列此地可做的生活活动：在家、在办公室、在集市，名称恰是地点类允许的全部条目（按决胜键排列），就是生活活动
     窗口资格段保留的条目（presented 与 deferred）；以 ELIGIBILITY_LOCATION_KIND_MISMATCH 排除的条目一个都不在索引里，
-    窗口里的条目都在索引里。在家是 107 个名称、415 字（规格 5.2 的估算）。"""
+    窗口里的条目都在索引里。在家是 104 个名称、405 字（规格 5.2 的估算）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     names = {item.activity_id: item.name for item in engine.lifestyle_items}
@@ -255,7 +258,7 @@ def test_the_index_leaves_out_activities_excluded_by_location_kind(engine_factor
         assert set(index["lifestyle"]) == {names[item] for item in (*window.presented, *window.deferred)}
         assert {row["name"] for row in window.items} <= set(index["lifestyle"])
         sizes[place] = (len(index["lifestyle"]), sum(len(name) for name in index["lifestyle"]))
-    assert sizes == {"home": (107, 415), "office": (20, 85), _MARKET: (92, 373)}
+    assert sizes == {"home": (104, 405), "office": (20, 85), _MARKET: (90, 367)}
 
 
 def _deny(engine: LifeEngine, *actions: str) -> None:
@@ -284,7 +287,10 @@ def test_the_interaction_menu_decides_what_can_be_done_here(engine_factory) -> N
     assert (row["category"], row["count"]) == (BROWSE_LABELS["game_session"], count_phrase(len(games)))
     assert set(row["examples"]) <= games and len(row["examples"]) == MAX_EXAMPLES
     _deny(engine, "play")
-    assert _index(engine, "menu-none")[1] == {"lifestyle": [], "contents": [], "goods": []}
+    empty = _index(engine, "menu-none")[1]
+    assert set(empty) == {"lifestyle", "contents", "goods", "query_categories"}
+    assert all(empty[key] == [] for key in ("lifestyle", "contents", "goods"))
+    assert empty["query_categories"] and all(row["count"] > 0 for row in empty["query_categories"])
 
 
 def _set_stock(engine: LifeEngine, supply_ids: set[str], stock: int) -> None:
@@ -306,7 +312,7 @@ def _category_of(index: dict, name: str) -> dict:
 
 def test_goods_are_only_what_can_be_obtained_from_here_now(engine_factory) -> None:
     """商品只取此刻从这里能得到的：00:30 门店都关着，商品部分为空（生活活动与内容照旧）；12:30 在家都能送到，某件示例商品的
-    全部供给卖完后它离开索引、所在品类计数减一；集市到家的配送路线断了之后，只剩另两家门店送得到的纯牛奶。"""
+    全部供给卖完后它离开索引、所在品类计数减一；集市配送断路后，便利店和超市的完整供给继续可得。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _at(engine, 0, "home")
@@ -326,21 +332,23 @@ def test_goods_are_only_what_can_be_obtained_from_here_now(engine_factory) -> No
         row for row in noon["goods"] if row["category"] != before["category"]]
     _without_routes(engine, _MARKET, "home")
     _, cut = _index(engine, "no-market-route")
-    [dairy] = cut["goods"]
-    assert (dairy["count"], dairy["examples"]) == (count_phrase(1), ["纯牛奶"])
+    assert len(cut["goods"]) == len(sold_out["goods"]) == 15
+    assert {row["category"]: row["count"] for row in cut["goods"]} == {
+        row["category"]: row["count"] for row in sold_out["goods"]}
+    assert all(_number(row) > 0 for row in cut["goods"])
     assert {item.location_id for item in engine.scenario.supplies if products[item.product_id].name == "纯牛奶"} == {
         _MARKET, "poi-3538682402", "poi-3538763552"}
 
 
 def test_a_pickup_only_supply_is_obtainable_only_in_its_open_store(engine_factory) -> None:
-    """只能到店取的饭店供给：人在这家饭店且它开着（12:30）时此刻能得到；09:30 还没开门、或人在家（到不了店也送不过来）
-    时都不能。计数按名称：同名的餐由集市送到饭店，所以饭店开门前后「Prepared meal」都是全部 30 个餐名。"""
+    """@brief 餐馆全部十道正式正餐只在本店营业时可取得，包装食品店不复制餐馆菜单。"""
     engine = engine_factory()
     stage_day_plan(engine)
     products = _products(engine)
-    supply = next(item for item in engine.scenario.supplies if item.location_id == _RESTAURANT)
-    meals = {products[item.product_id].name for item in engine.scenario.supplies
-             if products[item.product_id].category_id == "prepared-meal"}
+    supplies = [item for item in engine.scenario.supplies if item.location_id == _RESTAURANT]
+    assert len(supplies) == 10
+    supply = supplies[0]
+    meals = {products[item.product_id].name for item in supplies}
 
     def here() -> bool:
         """@brief 此刻从人物所在地点能否得到这件供给。"""
@@ -355,11 +363,11 @@ def test_a_pickup_only_supply_is_obtainable_only_in_its_open_store(engine_factor
     _, noon = _index(engine, "restaurant-noon")
     _at(engine, 13, "home")
     assert (closed, opened, here()) == (False, True, False)
-    for index in (early, noon):
-        row = next(row for row in index["goods"] if row["category"] == "Prepared meal")
-        assert row["count"] == count_phrase(len(meals)) and len(meals) == 30
-    assert products[supply.product_id].name in {products[item.product_id].name for item in engine.scenario.supplies
-                                                if item.location_id == _MARKET}
+    assert all(row["category"] != "Prepared meal" for row in early["goods"])
+    row = next(row for row in noon["goods"] if row["category"] == "Prepared meal")
+    assert row["count"] == count_phrase(10) and set(row["examples"]) <= meals
+    assert all(products[item.product_id].name not in meals for item in engine.scenario.supplies
+               if item.location_id == _MARKET)
 
 
 def _order(engine: LifeEngine):
@@ -459,7 +467,7 @@ def test_names_shared_by_two_contents_are_not_given_as_examples(engine_factory, 
 
 
 def test_the_index_is_not_a_target_and_the_presentation_cap_ignores_it(engine_factory) -> None:
-    """索引不是候选条目：在家 107 个生活活动名称远超单次呈现上限 20，工具层每类目标仍不超过上限，生活活动目标恰是窗口里的
+    """索引不是候选条目：在家 104 个生活活动名称远超单次呈现上限 20，工具层每类目标仍不超过上限，生活活动目标恰是窗口里的
     条目；呈现留痕只记进了窗口的对象，索引里没进窗口的名称不留痕，时钟推进后 last_presented_at 也只有窗口里的对象。"""
     engine = engine_factory()
     stage_day_plan(engine)

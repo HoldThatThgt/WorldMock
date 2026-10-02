@@ -196,7 +196,8 @@ def _purchase(at: int, decision: str, action: str, orders: list[dict]) -> list[E
     requested = EventDraft(event_type="action_requested", occurred_at=at, agent_id=1, decision_id=decision,
                            action_id=action, source_kind="model", data={
                                "tool_name": "start_activity", "request_sha256": "0" * 64, "reused": False,
-                               "request": {"targets": ["店"], "actions": ["obtain"], "ways": ["远程下单"]}})
+                               "request": {"items": [{"target": "店", "way": "远程下单", "from": None,
+                                                       "to": None}], "answering": None, "prefer": "最快拿到"}})
     result = EventDraft(event_type="action_result", occurred_at=at, agent_id=1, decision_id=decision,
                         action_id=action, caused_by=[requested.event_id], data={
                             "action_id": action, "agent_id": 1, "status": "completed", "occurred_at": at,

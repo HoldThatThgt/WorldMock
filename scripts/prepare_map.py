@@ -17,6 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare a frozen map release from reviewed inputs")
     parser.add_argument("--source-root", type=Path, required=True, help="Reviewed corpus root")
     parser.add_argument("--destination", type=Path, required=True, help="New corpus root for the map release")
+    parser.add_argument("--random-seed", type=int, required=True, help="Scenario seed for frozen initial quotes")
     arguments = parser.parse_args()
     target = arguments.destination.resolve()
     if target.exists():
@@ -24,7 +25,7 @@ def main() -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
     try:
-        reference = prepare_map(staging, arguments.source_root)
+        reference = prepare_map(staging, arguments.source_root, arguments.random_seed)
         staging.rename(target)
     except Exception:
         logging.exception("Frozen map preparation failed")

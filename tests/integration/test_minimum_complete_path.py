@@ -26,7 +26,7 @@ from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import _ModelResponse  # noqa: E402
-from tests.life.conftest import context, drive, stage_day_plan  # noqa: E402
+from tests.life.conftest import context, drive, stage_day_plan, start_arguments  # noqa: E402
 from tests.life.routing_fixtures import run_until, stage  # noqa: E402
 from tests.life.test_scheduling import _document, _identity, _write_scenario  # noqa: E402
 from worldmock.life.activity_control import pending_conclusions  # noqa: E402
@@ -148,8 +148,7 @@ def _order_for_wanglei(state: dict):
         message = [row for row in _events(observation, "message_arrival") if row["sender"] == "王磊"][-1]
         answering = f"王磊 {message['occurred_at'][11:16]} 的消息"
         state.update(target=target, answering=answering)
-        return "start_activity", {"targets": [target], "actions": ["obtain"], "ways": ["远程下单"],
-                                  "from": [None], "to": ["联系人：王磊"], "answering": answering, "prefer": None}
+        return "start_activity", start_arguments([target], ["obtain"], ["远程下单"], **{'from': [None], 'to': ["联系人：王磊"], 'answering': answering, 'prefer': '最快拿到'})
     return choose
 
 
@@ -169,9 +168,7 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     [settled] = drive(settle_pending_model_replies(engine, client=reply))
     payload = json.loads(reply.calls[0]["messages"][1]["content"])
     assert payload["history"] == [] and payload["received"] == []
-    await _decide(environment, "wait", lambda _: ("start_activity", {
-        "targets": ["自己"], "actions": ["interact"], "ways": ["等待"], "from": [None], "to": [None],
-        "answering": None, "prefer": None}))
+    await _decide(environment, "wait", lambda _: ("start_activity", start_arguments(["自己"], ["interact"], ["等待"], **{'from': [None], 'to': [None], 'answering': None, 'prefer': None})))
     run_until(engine, lambda current: settled["reply_message_id"] in current.state.agents[1].inbox
               and _ready(current))
 
@@ -224,9 +221,7 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     run_until(engine, _idle)
     await _decide(environment, "leave", _walk_home)
     run_until(engine, lambda current: current.state.agents[1].location_id == "home" and _idle(current))
-    home, requests, _ = await _decide(environment, "home", lambda _: ("start_activity", {
-        "targets": ["自己"], "actions": ["interact"], "ways": ["等待"], "from": [None], "to": [None],
-        "answering": None, "prefer": None}))
+    home, requests, _ = await _decide(environment, "home", lambda _: ("start_activity", start_arguments(["自己"], ["interact"], ["等待"], **{'from': [None], 'to': [None], 'answering': None, 'prefer': None})))
     assert not _events(home, "delivery") and not [row for row in _events(home, "tool_call")
                                                   if row["arguments"].get("answering")]
     settled_lines = [line for entry in home["memory_layer"]["earlier_today"] for line in entry["settled"]]
@@ -247,5 +242,4 @@ def _walk_home(observation: dict) -> tuple[str, dict]:
     """步行回住处（离开办公室，这段停留随出发结束）。"""
     home = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "location"
                 and "张江居所" in row["name"])
-    return "start_activity", {"targets": [home], "actions": ["travel"], "ways": ["步行"], "from": [None],
-                              "to": [None], "answering": None, "prefer": None}
+    return "start_activity", start_arguments([home], ["travel"], ["步行"], **{'from': [None], 'to': [None], 'answering': None, 'prefer': None})

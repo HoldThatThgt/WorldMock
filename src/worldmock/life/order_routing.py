@@ -27,8 +27,8 @@ from worldmock.life.wayfinding import delivery_route_code
 _LOGGER = logging.getLogger(__name__)
 #: 远程下单送给别人却送不到时的两种原因（docs/dev/SPEC-dayrun-fidelity.md 5.3）：与本人送达地的
 #: guidance.DELIVERY_DESTINATION_REASON、DELIVERY_ROUTE_REASON 同一说法，「这里」换成收货人那里。
-_RECIPIENT_DESTINATION_REASON = "{name}那里不在这家店的配送范围内"
-_RECIPIENT_ROUTE_REASON = "这家店到{name}那里没有能走的配送路线"
+_RECIPIENT_DESTINATION_REASON = "The receiving location of {name} is outside this store's delivery area."
+_RECIPIENT_ROUTE_REASON = "No reachable delivery route connects this store to the receiving location of {name}."
 
 
 def order_requests(state: WorldState, semantics: ScenarioSemantics, supplies: Mapping[str, SupplyConfig],
@@ -115,8 +115,9 @@ def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int, r
     elif place is not None and delivery_route_code(scenario.routes, supply.location_id, place) is not None:
         unmet, reason = "delivery_route", _RECIPIENT_ROUTE_REASON.format(name=name)
     else:
-        unmet, reason = "delivery_destination", f"暂时送不到{name}那里"
-    return guided("ACTIVITY_PRECONDITION_UNMET", reason, "先送到自己这里，再当面给", (unmet,))
+        unmet, reason = "delivery_destination", f"{name} currently has no eligible receiving location."
+    return guided("ACTIVITY_PRECONDITION_UNMET", reason,
+                  "Receive the item at your current location, then give it in person.", (unmet,))
 
 
 def _item(binding: dict) -> PurchaseItem:

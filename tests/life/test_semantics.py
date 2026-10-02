@@ -75,12 +75,12 @@ def test_products_and_supplies_resolve_their_separate_responsibilities(semantics
     umbrella = next(item for item in semantics.scenario.products
                     if item.product_id == "item-umbrella")
     supplies = {item.product_id: item for item in semantics.scenario.supplies if item.location_id == "market"}
-    assert supplies[milk.product_id].quotes[0].price_fen == 680 and milk.energy_kcal_per_unit == 185
+    assert supplies[milk.product_id].quotes[0].price_fen == 690 and milk.energy_kcal_per_unit == 185
     assert supplies[milk.product_id].seller_account_id == "merchant:grocery"
-    assert supplies[umbrella.product_id].quotes[0].price_fen == 3990 and umbrella.energy_kcal_per_unit == 0
-    assert supplies[umbrella.product_id].seller_account_id == "merchant:general"
+    assert supplies[umbrella.product_id].quotes[0].price_fen == 4022 and umbrella.energy_kcal_per_unit == 0
+    assert supplies[umbrella.product_id].seller_account_id == "merchant:grocery"
     assert umbrella.effect == "weather_protection"
-    assert supplies[milk.product_id].quotes[0].price_version == "supply-market-food-6923644266066:v1"
+    assert supplies[milk.product_id].quotes[0].price_version == "supply-market-food-6923644266066:seed-20260105:v1"
     assert not {"price_fen", "merchant_account_id", "initial_stock"} & type(milk).model_fields.keys()
 
 
@@ -158,7 +158,7 @@ def test_arbitrary_expression_evaluator_is_removed(semantics) -> None:
 def test_admission_refs_cover_accounts_and_objects(semantics) -> None:
     """准入引用包含对象闭集与角色账户绑定。"""
     refs = semantics.refs
-    assert (refs.catalog_major, refs.catalog_minor) == (4, 1)
+    assert (refs.catalog_major, refs.catalog_minor) == (5, 3)
     roles = {account.role for account in refs.accounts}
     assert {"buyer", "traveler", "worker", "merchant:grocery", "merchant:general",
             "employer:zhangjiang", "transport:service", "external:scenario"} <= roles

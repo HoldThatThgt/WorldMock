@@ -119,7 +119,8 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
     agent = AgentState.model_construct(agent_id=1, next_decision_at=100,
                                        consecutive_rejections=1, body=SimpleNamespace())
     state = WorldState.model_construct(current_time=100, agents={1: agent}, activities={})
-    pending = _pending()
+    pending = _pending(request={"answering": None, "prefer": None,
+                                "items": [{"target": "小王", "way": "交谈", "from": None, "to": None}]})
 
     class RejectingEngine:
         """仅隔离实际拒绝处理路径所需的领域分派边界。"""
@@ -130,6 +131,15 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
         def _dispatch(self, state, pending):
             """模拟既有领域处理器的明确业务拒绝。"""
             raise BusinessRuleError("CHAT_PARTNER_NOT_AVAILABLE")
+
+        def _frozen_observation(self, pending):
+            """提供本轮实际聊天对象，公开拒绝从原逐项请求定位目标。"""
+            return {"tool_layer": {"layer": "工具层", "targets": [
+                {"name": "小王", "kind": "person", "phase": None, "state": "睡着", "actions": [
+                    {"action": "interact", "way": "交谈", "available": False,
+                     "reason": "The other person cannot currently participate in a chat.",
+                     "price": None, "duration": None, "quantity": None, "note": None}], "tools": []}],
+                "callable_index": {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}}}
 
         def _after_rejection(self, state, pending, error):
             """执行生产拒绝节律，不替换反馈结果逻辑。"""
@@ -151,3 +161,7 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
     assert result.data["same_moment_round"] == 1 and result.data["next_decision_at"] == 100
     assert [item.event_type for item in drafts] == ["action_rejected", "action_result"]
     assert drafts[0].data["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"
+    item, = result.data["items"]
+    assert item["path"] == ["tool_calls", 0, "function", "arguments", "items", 0, "target"]
+    assert item["written"] == "小王" and item["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"
+    assert drafts[0].data["items"] == result.data["items"]

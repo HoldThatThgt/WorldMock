@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 
 from worldmock.errors import PreconditionError
 from worldmock.life.discovery import DiscoveryContext, supply_row
-from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, Candidate, ErrorItem
+from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, ErrorItem, activity_candidate
 from worldmock.life.guidance import (DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal, default_reason,
                                      items_refusal, refusal_for_code)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, binding_action
@@ -55,8 +55,6 @@ _LOGGER = logging.getLogger(__name__)
 MAX_NEAR = MAX_CANDIDATES
 #: 分段匹配 M3 为空时的拒绝码（引导性拒绝，不是名称类）。
 _UNMET = "ACTIVITY_PRECONDITION_UNMET"
-#: 偏好的说法（受理说明用）。
-_PREFER_PHRASES = {"fastest": "最快", "cheapest": "最便宜"}
 #: 方式短语 → 履约方式。
 _MODES = {way: mode for mode, way in PURCHASE_WAYS.items()}
 
@@ -65,12 +63,12 @@ _MODES = {way: mode for mode, way in PURCHASE_WAYS.items()}
 class PurchaseAsk:
     """@brief 一项指名购买的请求事实。
 
-    :param written: 人物在 targets 中写的名称（完整标签「<门店>出售的<商品>」或商品名）。
+    :param written: 人物在 items[].target 中写的名称（完整标签「<门店>出售的<商品>」或商品名）。
     :param way: 到店、远程下单或「购买」。
     :param source: from：null、门店名或渠道称呼（其余写法报 SOURCE_NOT_FOUND）。
     :param destination_id: 收货地（收货人此刻的收货地点：送给自己为人此刻所在的地点，也是到店时东西交到收货人手上的
         地方）；收货人此刻没有收货地点时为 None（送不到，到店也交不到他手上）。
-    :param prefer: 请求级偏好 fastest 或 cheapest（null 已按 fastest 换好）。
+    :param prefer: 请求级偏好“最快拿到”或“到手价最低”，购买不接受 null。
     :param receiver: 收货地的可读说法（地点显示名，或「<收货人>那里」），只用于原因。
     :param recipient_id: 送给别人时收货人的身份（送不到时的原因与下一步按收货人写，order_routing.undeliverable）；送给
         自己时为 None。
@@ -80,8 +78,8 @@ class PurchaseAsk:
     way: str
     source: str | None
     destination_id: str | None
-    prefer: str = "fastest"
-    receiver: str = "这里"
+    prefer: str
+    receiver: str = "the current place"
     recipient_id: str | None = None
 
 
@@ -98,7 +96,7 @@ def resolve_named_supply(context: LayerContext, ask: PurchaseAsk) -> dict:
     matches = labelled or _named(ask.written, supplies, lambda supply: _product_name(context, supply))
     if not matches:
         _LOGGER.error("Named purchase matches no supply")
-        raise _refusal("SUPPLY_NOT_FOUND", _Item("targets", ask.written, _near_specs(context, ask)))
+        raise _refusal("SUPPLY_NOT_FOUND", _Item("target", ask.written, _near_specs(context, ask)))
     scope = source_scope(context, ask.source)
     if scope is None:
         _LOGGER.error("Named purchase source is neither a store nor a channel")
@@ -137,7 +135,7 @@ def resolve_named_rows(context: LayerContext, selection: list[dict], resolve: Ca
             failures.append((index, row, error))
     if failures:
         _LOGGER.error("Named purchase items failed resolution: %s", [str(error) for _, _, error in failures])
-        raise _merged(failures, len(selection)).error()
+        raise _merged(failures, len(selection), context).error()
     if other is not None:
         raise other
     return rows
@@ -247,15 +245,16 @@ def _source_not_found(context: LayerContext, ask: PurchaseAsk, matches: Sequence
 
     specs = tuple({"target": ask.written, "way": ask.way, "from": name}
                   for name in near_sources(context, ask.source, feasible))
-    return _refusal("SOURCE_NOT_FOUND", _Item("from", ask.source, specs), "不是门店或 App 的名称")
+    return _refusal("SOURCE_NOT_FOUND", _Item("from", ask.source, specs),
+                    "The source is not a known store or channel name.")
 
 
 def _mismatch(context: LayerContext, ask: PurchaseAsk, supply, scope: SourceScope) -> PreconditionError:
     """@brief SUPPLY_SOURCE_MISMATCH：完整标签写明的门店不在 from 的范围内（另一家门店，或不含该门店的渠道）；候选就是
     这个标签（from 为 null）。原因接在所写的 from 之后（合并时写成「「from」：原因」）。"""
     store = _store_name(context, supply)
-    reason = (f"目标写明的是{store}，它不在这个 App 里" if scope.channel_id is not None
-              else f"目标写明的是{store}，from 是另一个地点")
+    reason = (f"The target store {store} is not a member of the requested channel." if scope.channel_id is not None
+              else f"The target names {store}, but from names a different place.")
     return _refusal("SUPPLY_SOURCE_MISMATCH",
                     _Item("from", ask.source, (_spec(context, supply, _way_for(supply, ask.way)),)), reason)
 
@@ -266,9 +265,10 @@ def _not_at_store(context: LayerContext, ask: PurchaseAsk, matches: Sequence, sc
     它的门店的标签（此刻能服务的在前）。原因接在所写的 from 之后。"""
     stocked = any(scope.contains(supply.location_id) for supply in context.scenario.supplies)
     if not stocked:
-        reason = "这里没有可买的商品"
+        reason = "The source has no purchasable supplies."
     else:
-        reason = f"这个 App 的门店不卖「{ask.written}」" if scope.channel_id else f"这家店不卖「{ask.written}」"
+        reason = (f"No store in this channel sells {ask.written}." if scope.channel_id
+                  else f"This store does not sell {ask.written}.")
     chosen = rank(ask.written, matches, lambda supply: (supply_label(context, supply), _product_name(context, supply)),
                   lambda supply: serves(context, supply, ask.way, ask.destination_id))
     specs = tuple(_spec(context, supply, _way_for(supply, ask.way)) for supply in chosen)
@@ -279,10 +279,10 @@ def _unsupported(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> Pre
     """@brief FULFILLMENT_NOT_SUPPORTED：范围内同名的供给都不支持所写方式；原因写它们支持的方式（如「番茄只能远程下单」，
     接在所写的方式之后），候选为同一标签换成它支持的方式。"""
     modes = {mode for supply in kept for mode in supply.fulfillment_modes}
-    reason = (f"{ask.written}只能{PURCHASE_WAYS[next(iter(modes))]}" if len(modes) == 1
+    reason = (f"The only supported way for {ask.written} is {PURCHASE_WAYS[next(iter(modes))]}." if len(modes) == 1
               else default_reason("FULFILLMENT_NOT_SUPPORTED"))
     specs = tuple(_spec(context, supply, _way_for(supply, ask.way)) for supply in kept if supply.fulfillment_modes)
-    return _refusal("FULFILLMENT_NOT_SUPPORTED", _Item("ways", ask.way, specs), reason)
+    return _refusal("FULFILLMENT_NOT_SUPPORTED", _Item("way", ask.way, specs), reason)
 
 
 def _unserved(context: LayerContext, ask: PurchaseAsk, kept: Sequence, matches: Sequence) -> PreconditionError:
@@ -298,7 +298,7 @@ def _unserved(context: LayerContext, ask: PurchaseAsk, kept: Sequence, matches: 
     else:
         deliverable = [supply for supply in kept if "delivery" in supply.fulfillment_modes]
         reason, step, unmet = _undelivered(context, ask, deliverable)
-    return _refusal(_UNMET, _Item("targets", ask.written, _served_specs(context, ask, matches)), reason,
+    return _refusal(_UNMET, _Item("target", ask.written, _served_specs(context, ask, matches)), reason,
                     step, unmet)
 
 
@@ -316,10 +316,11 @@ def _unreached(context: LayerContext, ask: PurchaseAsk, kept: Sequence,
     step = go_step(context.scenario.routes, places, origin, nearest, UNREACHABLE_STORE_STEP)
     if ask.way == SYSTEM_PURCHASE_WAY:
         gap = _delivery_gap(context, ask, kept)
-        return f"不在出售它的门店里，也送不到{ask.receiver}", step, ("required_location_id", gap)
+        return (f"The caller is not at a selling store and delivery cannot reach {ask.receiver}.",
+                step, ("required_location_id", gap))
     several = len({supply.location_id for supply in pickable}) > 1
-    reason = (f"要人在出售它的门店里才能到店买，最近的是{places[nearest]}" if several
-              else f"要人在{places[nearest]}才能到店买")
+    reason = (f"Pickup requires the caller at a selling store; the nearest is {places[nearest]}." if several
+              else f"Pickup requires the caller at {places[nearest]}.")
     return reason, step, ("required_location_id",)
 
 
@@ -338,7 +339,7 @@ def _undelivered(context: LayerContext, ask: PurchaseAsk, deliverable: Sequence)
     if len(stores) == 1:
         return _undeliverable(context, ask, deliverable[0])
     nearest = nearest_store(context, stores)
-    return (f"出售它的门店都送不到{ask.receiver}", _delivery_next_step(context, ask, deliverable, nearest),
+    return (f"No selling store can deliver to {ask.receiver}.", _delivery_next_step(context, ask, deliverable, nearest),
             (_delivery_gap(context, ask, deliverable),))
 
 
@@ -370,7 +371,7 @@ def _delivery_next_step(context: LayerContext, ask: PurchaseAsk, kept: Sequence,
     """@brief 远程下单送不到时的下一步：送给自己时只指向那家店能送达、且从此地可达的地点（wayfinding.delivery_step）；送给
     别人时先送到自己这里再当面给。"""
     if ask.recipient_id is not None:
-        return "先送到自己这里，再当面给"
+        return "Deliver to the caller first, then give the item in person."
     supply = next(item for item in kept if item.location_id == nearest)
     places = {item.location_id: item.name for item in context.scenario.locations}
     here = context.state.agents[context.agent_id].location_id
@@ -385,8 +386,8 @@ def _served_specs(context: LayerContext, ask: PurchaseAsk, matches: Sequence) ->
     taken = {offer.supply.supply_id for offer in pickups}
     deliveries = [offer for offer in offers(context, matches, DELIVERY_WAY, ask.destination_id)[1]
                   if offer.supply.supply_id not in taken]
-    ordered = sorted(pickups, key=lambda offer: order_key(offer, "fastest")) + sorted(
-        deliveries, key=lambda offer: order_key(offer, "fastest"))
+    ordered = sorted(pickups, key=lambda offer: order_key(offer, "最快拿到")) + sorted(
+        deliveries, key=lambda offer: order_key(offer, "最快拿到"))
     return tuple(_spec(context, offer.supply, offer.way) for offer in ordered[:MAX_NEAR])
 
 
@@ -396,7 +397,7 @@ def _note(context: LayerContext, ask: PurchaseAsk, chosen: Offer, count: int) ->
     label = supply_label(context, chosen.supply)
     clauses = [f"「购买」定为{chosen.way}"] if ask.way == SYSTEM_PURCHASE_WAY else []
     if count > 1:
-        clauses.append(f"有 {count} 处都能{chosen.way}，按{_PREFER_PHRASES[ask.prefer]}选了{label}")
+        clauses.append(f"有 {count} 处都能{chosen.way}，按{ask.prefer}选了{label}")
     elif clauses:
         clauses[-1] += f"：{label}"
     if not clauses:
@@ -405,7 +406,7 @@ def _note(context: LayerContext, ask: PurchaseAsk, chosen: Offer, count: int) ->
     if chosen.expected_at is not None:
         details.append(f"预计 {clock_phrase(chosen.expected_at, context.state.current_time, context.scenario.timezone)}"
                        " 送到")
-    if chosen.price is not None and ask.prefer == "cheapest":
+    if chosen.price is not None and ask.prefer == "到手价最低":
         details.append(f"到手价 {money_phrase(chosen.price)}")
     return f"「{ask.written}」{'，'.join(clauses)}" + (f"（{'，'.join(details)}）" if details else "")
 
@@ -432,10 +433,10 @@ def _refusal(code: str, item: _Item, reason: str | None = None, next_step: str |
                    suggested={"next_step": step, "item": item.payload()}, fix=default.fix).error()
 
 
-def _merged(failures: list[tuple[int, dict, PreconditionError]], total: int) -> Refusal:
+def _merged(failures: list[tuple[int, dict, PreconditionError]], total: int, context: LayerContext) -> Refusal:
     """@brief 逐项拒绝合并成一次：items[] 按请求先后逐项写出；码取第一个名称类拒绝的码（名称类优先），没有名称类时取
     ACTIVITY_PRECONDITION_UNMET，带该项的下一步与未满足条件。"""
-    entries = [(_error_item(index, row, error), error.public_reason or default_reason(str(error)))
+    entries = [(_error_item(index, row, error, context), error.public_reason or default_reason(str(error)))
                for index, row, error in failures]
     lead = next((error for _, _, error in failures if str(error) in NAME_REJECTION_CODES), failures[0][2])
     merged = items_refusal(entries, total)
@@ -445,10 +446,26 @@ def _merged(failures: list[tuple[int, dict, PreconditionError]], total: int) -> 
                    unmet=tuple(lead.unmet or ()))
 
 
-def _error_item(index: int, row: dict, error: PreconditionError) -> ErrorItem:
+def _error_item(index: int, row: dict, error: PreconditionError, context: LayerContext) -> ErrorItem:
     """@brief 一项拒绝的明细：参数名与原文取私有 suggested.item，候选补上动词 obtain 与该项所写的去向，写成可以照填的
     请求（至多 3 个）。"""
     item = error.suggested["item"]
-    candidates = tuple(Candidate(spec["target"], "obtain", spec["way"], spec["from"], row["to"])
-                       for spec in item["candidates"])[:MAX_NEAR]
-    return ErrorItem(index, item["field"], item["written"], str(error), candidates)
+    candidates = tuple(_request_candidate(context, row, spec) for spec in item["candidates"])[:MAX_NEAR]
+    allowed = tuple(dict.fromkeys(spec["way"] for spec in item["candidates"])) if item["field"] == "way" else ()
+    return ErrorItem(("items", index, item["field"]), item["written"], str(error), allowed,
+                     "A known product, valid source and serviceable fulfillment are required.",
+                     error.public_reason or default_reason(str(error)), candidates)
+
+
+def _request_candidate(context: LayerContext, row: dict, spec: dict):
+    """@brief 候选完整可提交，冻结业务条件不满足时明确说明。"""
+    from worldmock.life.tool_layer import Candidate, refusal_for
+
+    supplies = [supply for supply in context.scenario.supplies if supply_label(context, supply) == spec["target"]]
+    note = None
+    if len(supplies) == 1 and spec["way"] != SYSTEM_PURCHASE_WAY:
+        binding = {**_binding(context, supplies[0], spec["way"]),
+                   **{key: row[key] for key in ("recipient_id", "to_self", "to") if key in row}}
+        refusal = refusal_for(context, Candidate("start_activity", binding, binding["selected_action"]))
+        note = refusal.reason if refusal else None
+    return activity_candidate(spec["target"], spec["way"], (spec["from"], row["to"]), note)

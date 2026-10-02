@@ -98,7 +98,7 @@ def test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cuto
     observed = event('visible', 2, 'observation', {'progress_event_ids': ['prior-request', 'prior-result']})
     requested = event('target', 3, 'action_requested', {
         'tool_name': 'start_activity',
-        'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}})
+        'request': {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None}})
     requested['action_id'] = 'current-action'
     completed = event('current-result', 4, 'action_result', {'status': 'completed'})
     completed['action_id'] = 'current-action'
@@ -226,7 +226,7 @@ def _agent_action_drafts(agent_id, decision_id, action_id):
         EventDraft(event_type='action_requested', occurred_at=100, agent_id=agent_id,
                    decision_id=decision_id, action_id=action_id,
                    data={'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}}),
+                         'request': {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None}}),
         EventDraft(event_type='action_result', occurred_at=100, agent_id=agent_id,
                    decision_id=decision_id, action_id=action_id, data={'status': 'completed'}),
     ]
@@ -391,7 +391,7 @@ def test_dreaming_window_reads_self_note_and_the_actual_request_layer_json(monke
     first, latest = _action_prompt('prompt-first', 3, head), _action_prompt('prompt-latest', 4, recalled)
     planned = _action_prompt('plan-day', 5, six_layers(), purpose='plan_day')
     requested = event('request-3', 6, 'action_requested', {
-        'tool_name': 'start_activity', 'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']},
+        'tool_name': 'start_activity', 'request': {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         'request_sha256': 'f' * 64, 'reused': False, 'self_note': '先歇一会儿，再去买菜。'})
     requested.update(action_id='action-1')
     after = _action_prompt('prompt-after', 7, six_layers())
@@ -494,25 +494,29 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
     assert _trimmed_shown(action, intent, dreams) == [trimmed] * 4
 
 
-def test_earlier_control_request_shapes_are_trimmed_to_the_same_items(tmp_path):
-    """旧运行的控制工具请求经 control_items 读出同一结果：4a5b0e6 起的平行数组（记忆带 subject）走完整的窗口路径后，意图与
-    dreaming 输入与现行形状完全相同；更早的三代（记忆没有 subject、结束不带记忆）与播报、暂停同样只留每项的活动名与自述
-    （docs/dev/SPEC-dayrun-fidelity.md 第六章「迁移」）。"""
+def test_retired_control_request_shapes_are_rejected_by_delivery(tmp_path):
+    """交付拒绝退役控制请求，不把旧数组或旧记忆字段转换成现行请求。"""
+    import pytest
+
+    from worldmock.errors import IntegrityError
+
     legacy = {'task': [_MINUTES], 'summary': ['纪要写完了。'], 'memories': [[
         {'type': 'reflection', 'text': _SECRET, 'importance': 0.6, 'keywords': ['辞职'], 'subject': None},
         {'type': 'relationship', 'text': _OPINION, 'importance': 0.5, 'keywords': ['同事'], 'subject': '王磊'}]]}
-    _, action, intent, dreams = _conclusion_windows(tmp_path, legacy)
+    with pytest.raises(IntegrityError, match="request shape"):
+        _conclusion_windows(tmp_path, legacy)
     items = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。'}]}
-    assert _trimmed_shown(action, intent, dreams) == [{'tool_name': 'conclude_activity', 'request': items}] * 4
     earlier = ({**legacy, 'memories': [[{key: value for key, value in memory.items() if key != 'subject'}
                                          for memory in legacy['memories'][0]]]},
                {'task': legacy['task'], 'summary': legacy['summary']})
     for tool, request in [*(('conclude_activity', body) for body in earlier),
                           *((tool, {'task': legacy['task'], 'summary': legacy['summary']})
-                            for tool in ('report_status', 'pause_activity')),
-                          *((tool, items) for tool in ('report_status', 'pause_activity'))]:
+                            for tool in ('report_status', 'pause_activity'))]:
+        with pytest.raises(IntegrityError, match="request shape"):
+            _public_event_data({'event_type': 'action_requested', 'data': {'tool_name': tool, 'request': request}})
+    for tool in ('report_status', 'pause_activity'):
         shown = _public_event_data({'event_type': 'action_requested', 'data': {
-            'tool_name': tool, 'request': request, 'self_note': '收个尾。'}})
+            'tool_name': tool, 'request': items, 'self_note': '收个尾。'}})
         assert shown == {'tool_name': tool, 'request': items, 'self_note': '收个尾。'}
 
 
@@ -525,7 +529,7 @@ def test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_
     started = event('decision-start', 2, 'decision_started',
                     {'round_id': 'r1', 'round_order': 0, 'world_state_version': 3, 'wake_reasons': []})
     requested = event('target', 3, 'action_requested', {
-        'tool_name': 'start_activity', 'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']},
+        'tool_name': 'start_activity', 'request': {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         'request_sha256': 'f' * 64, 'reused': False, 'self_note': '有点累，先歇一会儿。'})
     requested['action_id'] = 'wait'
     completed = event('completed', 4, 'action_result', {'status': 'completed', 'message': 'Done'})
@@ -624,7 +628,7 @@ def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_win
         'request_sha256': 'e' * 64, 'reused': False, 'self_note': None})
     requested['action_id'] = 'conclude'
     prompt = decision_prompt(requested, (observed, requested))
-    wait = {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}
+    wait = {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}], 'answering': None, 'prefer': None}
     earlier = {'role': 'assistant', 'content': '先歇一会儿。', 'reasoning_content': '同一秒里先开始等待。',
                'tool_calls': [{'id': 'call-wait', 'type': 'function', 'function': {
                    'name': 'start_activity', 'arguments': json.dumps(wait, ensure_ascii=False)}}]}

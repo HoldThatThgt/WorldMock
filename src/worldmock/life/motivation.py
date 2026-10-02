@@ -70,7 +70,7 @@ from worldmock.life.scenario import (
     MotivationProfile,
     ProductConfig,
     RouteConfig,
-    WorkTaskConfig,
+    RuntimeWorkTask,
 )
 
 #: 可供性注册表视图（冻结文件加载一次；家族闭集、习惯归并路由、枚举序、
@@ -216,16 +216,17 @@ def prospect_value(z: float, transforms: MotivationTransforms, loss_aversion: fl
 def classify_action_event(tool_name: str, request: Mapping) -> tuple[str, ...]:
     """@brief 将请求中的每个动作逐项归入习惯家族；不可判定项不计数。
 
-    归并键是内部标准动作名，不是模型动词：start_activity 逐项取 ways，经私有绑定的方式闭集（WAYS）映射为内部
+    归并键是内部标准动作名，不是模型动词：start_activity 逐项取 items[].way，经方式闭集（WAYS）映射为内部
     动作，其余稳定工具取工具名本身（归并路由自注册表 families.*.habit_members 展开，
     docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
     """
     from worldmock.life.interaction_menu import WAYS
 
     if tool_name == "start_activity":
-        ways = request.get("ways") if isinstance(request, Mapping) else None
-        if not isinstance(ways, list) or not 1 <= len(ways) <= 2:
+        items = request.get("items") if isinstance(request, Mapping) else None
+        if not isinstance(items, list) or not 1 <= len(items) <= 2:
             return ()
+        ways = [item["way"] for item in items]
         names = [WAYS[way][1] for way in ways if isinstance(way, str) and way in WAYS]
     else:
         names = [tool_name]
@@ -273,7 +274,7 @@ class MotivationContext:
     opening_exceptions: Mapping[str, dict]
     locations: Mapping[str, LocationConfig]
     routes: tuple[RouteConfig, ...]
-    tasks: tuple[WorkTaskConfig, ...]
+    tasks: tuple[RuntimeWorkTask, ...]
     task_totals: Mapping[str, tuple[int, float]]
     #: 内容候选是品类摘要 + 每品类 top-2 采样（引擎侧 _sample_contents 装配），
     #: 不是全量目录；评分器对传入列表仍按品类重采样，直接构造全量亦安全。
@@ -914,7 +915,7 @@ def _work_candidates(context: MotivationContext,
     return travel, work
 
 
-def _work_slot_candidate(context: MotivationContext, task: WorkTaskConfig,
+def _work_slot_candidate(context: MotivationContext, task: RuntimeWorkTask,
                          worked: int, effective: float, now: int) -> _Candidate | None:
     """@brief 在任务地点的一个工作候选：时长槽、折现报酬与目标进度。"""
     agent = context.agent

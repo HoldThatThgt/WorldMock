@@ -143,7 +143,7 @@ def test_declaration_boundary_precedes_same_time_explicit_price_change(storefron
 def test_invalid_price_change_rejects_without_world_side_effects(storefront_case, condition, error):
     semantics, state, supply, _, _ = storefront_case
     event = supply_event(ScheduledKind.PRICE_CHANGE, supply, state.current_time,
-                         amount_fen=250, price_version='new')
+                         amount_fen=state.supply_quotes[supply.supply_id].price_fen, price_version='new')
     if condition == 'unknown_supply':
         event.data['supply_id'] = 'missing'
     elif condition == 'unknown_quote':
@@ -180,6 +180,27 @@ def test_release_is_supply_specific_and_can_explicitly_clear_stock(storefront_ca
     assert apply_scheduled_effect(outcome.state, event, semantics).state.supply_stock[supply.supply_id] == 0
 
 
+def test_price_change_bounds_are_atomic_and_preserve_orders(storefront_case):
+    """真实商品范围限定显式调价，已成交订单不会被新报价改写。"""
+    semantics, state, supply, _, _ = storefront_case
+    product = next(item for item in semantics.scenario.products if item.product_id == supply.product_id)
+    state.agents[1].location_id = supply.location_id
+    request = order_request(state, [supply], fulfillment='pickup', destination=supply.location_id)
+    bought = purchase_order(state, semantics, 1, request)
+    orders = {key: item.model_dump(mode='json') for key, item in bought.state.deliveries.items()}
+    event = supply_event(ScheduledKind.PRICE_CHANGE, supply, state.current_time,
+                         amount_fen=product.purchase_price_fen_min, price_version='bounded-change')
+    changed = apply_scheduled_effect(bought.state, event, semantics).state
+    assert changed.supply_quotes[supply.supply_id].price_fen == product.purchase_price_fen_min
+    assert {key: item.model_dump(mode='json') for key, item in changed.deliveries.items()} == orders
+    before = bought.state.model_dump(mode='json')
+    for amount in (product.purchase_price_fen_min - 1, product.purchase_price_fen_max + 1):
+        event.data['amount_fen'] = amount
+        with pytest.raises(IntegrityError, match='outside its product price bounds'):
+            apply_scheduled_effect(bought.state, event, semantics)
+        assert bought.state.model_dump(mode='json') == before
+
+
 @pytest.mark.parametrize('kind', [ScheduledKind.PRODUCT_RELEASE, ScheduledKind.SUPPLY_QUOTE_CHANGE])
 def test_supply_event_cannot_create_undeclared_identity(storefront_case, kind):
     semantics, state, supply, _, _ = storefront_case
@@ -195,7 +216,7 @@ def test_sqlite_reopen_keeps_price_release_opening_and_visibility_world_facts(st
     semantics, initial, supply, _, _ = storefront_case
     state = initial.model_copy(deep=True)
     event = supply_event(ScheduledKind.PRICE_CHANGE, supply, state.current_time,
-                         amount_fen=321, price_version='persisted-discount')
+                         amount_fen=700, price_version='persisted-discount')
     state = apply_scheduled_effect(state, event, semantics).state
     event = supply_event(ScheduledKind.PRODUCT_RELEASE, supply, state.current_time, stock=7)
     state = apply_scheduled_effect(state, event, semantics).state
@@ -213,8 +234,8 @@ def test_sqlite_reopen_keeps_price_release_opening_and_visibility_world_facts(st
     restored = WorldState.model_validate(reopened.state)
     reopened.close()
     assert restored.model_dump(mode='json') == state.model_dump(mode='json')
-    assert current_quote(restored, supply.supply_id).price_fen == 321
+    assert current_quote(restored, supply.supply_id).price_fen == 700
     outcome = purchase_order(restored, semantics, 1, order_request(restored, [supply], quantity=2))
-    assert outcome.total_price_fen == 642
+    assert outcome.total_price_fen == 1400
     assert outcome.state.supply_stock[supply.supply_id] == 5
     assert outcome.orders[0].price_version == 'persisted-discount'

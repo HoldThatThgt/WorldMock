@@ -138,29 +138,6 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
     return {"action": f"{action['verb']}{VERB_WAY_SEPARATOR}{action['label']}", "note": action["note"]}
 
 
-def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> list[dict[str, Any]] | None:
-    """@brief 只按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作：经统一名称解析（worldmock.life.name_resolution，
-    精确或无损归一后唯一、方式按同义表恰好命中一个）；映射不出、有歧义或（动词，方式）不相配时返回 None。
-
-    本轮没有列出的名称只在按「动词加方式」推出指名购买（named_kind 为 supply）时解析为 NAMED_SUPPLY_KIND 的占位行（所选动作
-    已映射为购买），由环境在受理时按名称解析为门店供给；方式「购买」写在列出的商品目标上时同样是占位行（由系统定到店或
-    远程下单）；目录绑定与冻结地点表不在这里（受理按整份冻结观察解析，name_resolution.name_book）。
-
-    :returns: 与 targets 逐项对应的绑定行副本，selected_action 为所选动作。
-    """
-    from types import SimpleNamespace
-
-    from worldmock.life.name_resolution import name_book, resolve_start
-
-    if not isinstance(bindings, list) or not all(isinstance(item, list) for item in (targets, actions, ways)):
-        return None
-    empty = [None for _ in targets]
-    request = SimpleNamespace(targets=targets, actions=actions, ways=ways, from_=empty, to=empty, answering=None)
-    outcome = resolve_start(name_book({"interaction_bindings": [row for row in bindings if isinstance(row, dict)]}),
-                            request)
-    return None if outcome.request is None or outcome.failures else [dict(row) for row in outcome.rows]
-
-
 def named_supply_row(name: str, way: str) -> dict[str, Any]:
     """@brief 指名购买的占位绑定行：人物所写的名称与映射为购买的所选动作，供给由环境按名称解析后替换。
 

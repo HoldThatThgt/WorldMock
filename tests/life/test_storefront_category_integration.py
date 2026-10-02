@@ -10,11 +10,11 @@ import pytest
 from pydantic import ValidationError
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import (advance_next, conclude_pending, context, start_activity, submit_round,
+from tests.life.conftest import (advance_next, bring_to_window, conclude_pending, context, start_activity, submit_round,
                                  target_actions, tool_targets)
 from tests.life.test_category_runtime import (
-    _engine, _formal_fixture, _read_json, _replace_map_file, _save_fixture,
-    _scenario_source, _set_pairing_coefficient, _set_pairing_undefined,
+    _engine, _formal_fixture, _read_json, _save_fixture,
+    _set_pairing_coefficient, _set_pairing_undefined,
     _stage_open_market, _write_json,
 )
 from worldmock.categories import load_category_contract
@@ -27,7 +27,7 @@ from worldmock.life.readable import money_phrase
 
 
 PRODUCT = "food-6923644266066"
-PRICES = {"supply-market-" + PRODUCT: 101, "supply-poi-3538682402-" + PRODUCT: 203}
+PRICES = {"supply-market-" + PRODUCT: 690, "supply-poi-3538682402-" + PRODUCT: 713}
 
 
 @pytest.fixture
@@ -35,16 +35,10 @@ def priced_engine(tmp_path, request):
     """两家真实门店的同一商品有独立报价，购买系数为二分之一。"""
     path, directory, scenario = _formal_fixture(tmp_path)
     scenario["start_at"] = "2026-01-05T08:00:00+08:00"
-    scenario["supplies"] = [row for row in scenario["supplies"] if row["supply_id"] in PRICES]
     contract = _read_json(directory / "category-contract.json")
     configured = getattr(request, "param", {})
     _set_pairing_coefficient(contract, "product", "purchase", configured.get("coefficient", 0.5))
     _write_json(directory / "category-contract.json", contract)
-    supplies = _read_json(Path("corpora/zhangjiang-map/supplies.json"))["supplies"]
-    for supply in supplies:
-        if supply["supply_id"] in PRICES:
-            supply["quotes"][0].update(price_fen=PRICES[supply["supply_id"]], source=_scenario_source())
-    _replace_map_file(path.parent.parent, scenario, "supplies", supplies)
     _save_fixture(path, directory, scenario)
     engine = _engine(tmp_path, path, "storefront-coefficient")
     yield engine, directory
@@ -53,6 +47,7 @@ def priced_engine(tmp_path, request):
 
 def _offer(engine, identity: str, round_id: str):
     """从本轮真实观察取指定门店的可读供给、公开价格和冻结绑定。"""
+    bring_to_window(engine, [identity])
     current = context(engine, round_id)
     engine.begin_decision_round([current])
     observed = engine.observe(current)

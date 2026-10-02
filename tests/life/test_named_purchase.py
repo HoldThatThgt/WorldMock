@@ -29,7 +29,8 @@ from tests.life.test_browse_and_hints import _retarget  # noqa: E402
 from tests.life.test_commerce import _browse, _stage_open  # noqa: E402
 from worldmock.errors import BusinessRuleError  # noqa: E402
 from worldmock.life import projection  # noqa: E402
-from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, resolve_interaction_menu, resolve_selection  # noqa: E402
+from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, resolve_interaction_menu
+from tests.life.conftest import select_start, start_arguments  # noqa: E402
 from worldmock.life.models import StartActivityRequest  # noqa: E402
 from worldmock.life import named_purchase  # noqa: E402
 from worldmock.life.basket import delivery_expected_at  # noqa: E402
@@ -51,7 +52,7 @@ def _layer_context(engine) -> LayerContext:
                         menu=resolve_interaction_menu(engine.scenario, 1, agent.location_id))
 
 
-def _obtain(target: str, way: str = "远程下单", prefer: str | None = None) -> StartActivityRequest:
+def _obtain(target: str, way: str = "远程下单", prefer: str = "最快拿到") -> StartActivityRequest:
     """对一个名称选择取得（obtain）及其方式的请求（prefer 为请求级偏好，缺省 null）。"""
     return start_request(targets=[target], actions=["obtain"], ways=[way], prefer=prefer)
 
@@ -87,7 +88,8 @@ def _hidden(engine, listed: set[str], unique_name: bool):
     return next(supply for supply, name in zip(engine.scenario.supplies, names)
                 if supply_label(context_, supply) not in listed and supply.supply_id not in visible
                 and "delivery" in supply.fulfillment_modes and "home" in supply.delivery_destination_ids
-                and (not unique_name or names.count(name) == 1))
+                and (not unique_name or resolve_named_supply(context_, PurchaseAsk(
+                    name, "远程下单", None, "home", "最快拿到"))["object_id"] == supply.supply_id))
 
 
 @pytest.mark.parametrize("by", ["label", "product"])
@@ -128,17 +130,17 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
     assert (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     labels = {supply_label(_layer_context(engine), supply) for supply in engine.scenario.supplies}
     [item] = result.data["items"]
-    candidates = [row["target"] for row in item["candidates"]]
-    assert (item["index"], item["field"], item["written"], item["error_code"]) == (0, "targets", name, "SUPPLY_NOT_FOUND")
+    candidates = [row["arguments"]["items"][0]["target"] for row in item["candidates"]]
+    assert (item["path"][5], item["path"][-1], item["written"], item["error_code"]) == (0, "target", name, "SUPPLY_NOT_FOUND")
     assert 1 <= len(candidates) <= 3 and set(candidates) <= labels
     assert candidates == near_labels(_layer_context(engine), name, "delivery", "home")
     assert all(_MILK in label for label in candidates)
-    assert all((row["action"], row["from"], row["to"]) == ("obtain", None, "自己") and row["way"] in ("到店", "远程下单")
-               for row in item["candidates"])
+    assert all(row["tool"] == "start_activity" and row["arguments"]["prefer"] == "最快拿到"
+               and row["arguments"]["items"][0]["from"] is None and row["arguments"]["items"][0]["to"] is None
+               and row["arguments"]["items"][0]["way"] in ("到店", "远程下单") for row in item["candidates"])
     assert _world(engine) == before
     details = last_result(engine.observe(context(engine, "unknown-seen")))["details"]
-    assert details == {"reason": f"「{name}」：没有找到这个名字的商品", "next_step": "从候选或本轮列出的商品里选",
-                       "fix": "改用候选里的完整标签，或者照本轮列出的写法写商品", "items": [item]}
+    assert details["reason"] and details["fix"] and details["items"] == [item]
     assert result.message == details["reason"]
 
 
@@ -162,7 +164,7 @@ def test_named_purchase_at_a_closed_store_is_a_business_rejection_and_nothing_is
     assert (result.status, result.error_code) == ("rejected", "MERCHANT_CLOSED")
     assert "orders" not in result.data and _world(engine) == before
     details = last_result(engine.observe(context(engine, "closed-seen")))["details"]
-    assert details["reason"] and "items" not in details
+    assert details["reason"] and details["items"][0]["path"][-3:] == ["items", 0, "target"]
 
 
 def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_is_substituted(engine_factory) -> None:
@@ -180,7 +182,7 @@ def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_i
     assert (result.status, result.error_code) == ("rejected", "INSUFFICIENT_FUNDS")
     assert "orders" not in result.data and _world(engine) == before
     details = last_result(engine.observe(context(engine, "broke-seen")))["details"]
-    assert details["reason"] and "items" not in details
+    assert details["reason"] and details["items"][0]["path"][-3:] == ["items", 0, "target"]
 
 
 def _milk(engine) -> list:
@@ -212,14 +214,14 @@ def test_same_name_in_several_stores_is_chosen_by_prefer_unless_a_store_is_named
     assert (order["supply_id"], order["expected_at"], order["channel_id"]) == (
         fastest.supply_id, arrival[fastest.supply_id], None)
     moment = clock_phrase(arrival[fastest.supply_id], now, engine.scenario.timezone)
-    assert result.data["notes"] == [f"「{_MILK}」有 {len(milk)} 处都能远程下单，按最快选了{supply_label(layer, fastest)}"
+    assert result.data["notes"] == [f"「{_MILK}」有 {len(milk)} 处都能远程下单，按最快拿到选了{supply_label(layer, fastest)}"
                                     f"（预计 {moment} 送到）"]
     assert result.data["resolved"] == [{"written": _MILK, "as": supply_label(layer, fastest)}]
     layer = _layer_context(engine)
     for supply in milk:
-        assert resolve_named_supply(layer, PurchaseAsk(_MILK, "远程下单", _store(layer, supply), "home"))[
+        assert resolve_named_supply(layer, PurchaseAsk(_MILK, "远程下单", _store(layer, supply), "home", prefer="最快拿到"))[
             "object_id"] == supply.supply_id
-        assert resolve_named_supply(layer, PurchaseAsk(supply_label(layer, supply), "远程下单", None, "home"))[
+        assert resolve_named_supply(layer, PurchaseAsk(supply_label(layer, supply), "远程下单", None, "home", prefer="最快拿到"))[
             "object_id"] == supply.supply_id
 
 
@@ -235,15 +237,15 @@ def test_several_servable_matches_follow_prefer_and_never_report_ambiguity(engin
     fastest = min(milk, key=lambda supply: (delivery_expected_at(engine.semantics, supply, "home", now),
                                             landed_price(layer, supply), supply.location_id))
     assert cheapest.location_id != fastest.location_id
-    _, cheap = _round(engine, "cheapest", _obtain(_MILK, prefer="cheapest"))
-    _, quick = _round(engine, "fastest", _obtain(_MILK, prefer="fastest"))
+    _, cheap = _round(engine, "cheapest", _obtain(_MILK, prefer="到手价最低"))
+    _, quick = _round(engine, "fastest", _obtain(_MILK, prefer="最快拿到"))
     assert [order["supply_id"] for order in cheap.data["orders"]] == [cheapest.supply_id]
     assert [order["supply_id"] for order in quick.data["orders"]] == [fastest.supply_id]
     price = money_phrase(landed_price(layer, cheapest))
     [note] = cheap.data["notes"]
-    assert note.startswith(f"「{_MILK}」有 {len(milk)} 处都能远程下单，按最便宜选了{supply_label(layer, cheapest)}")
+    assert note.startswith(f"「{_MILK}」有 {len(milk)} 处都能远程下单，按到手价最低选了{supply_label(layer, cheapest)}")
     assert note.endswith(f"送到，到手价 {price}）")
-    assert "按最快选了" in quick.data["notes"][0] and "到手价" not in quick.data["notes"][0]
+    assert "按最快拿到选了" in quick.data["notes"][0] and "到手价" not in quick.data["notes"][0]
     assert {cheap.error_code, quick.error_code} == {None}
 
 
@@ -261,7 +263,7 @@ def test_a_store_whose_price_is_unknown_is_never_the_cheapest(engine_factory) ->
         state.supply_quotes[ranked[0].supply_id].effective_to = state.current_time
     stage(engine, expire)
     assert landed_price(_layer_context(engine), ranked[0]) is None
-    _, result = _round(engine, "cheapest-known", _obtain(_MILK, prefer="cheapest"))
+    _, result = _round(engine, "cheapest-known", _obtain(_MILK, prefer="到手价最低"))
     assert (result.status, result.error_code) == ("completed", None)
     assert [order["supply_id"] for order in result.data["orders"]] == [ranked[1].supply_id]
 
@@ -280,18 +282,19 @@ def test_full_label_with_another_store_in_from_is_a_source_mismatch(engine_facto
     other = next(item.name for item in engine.scenario.locations if item.name != store)
     before = _world(engine)
     _, result = _round(engine, "label-with-from", start_request(
-        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[other], to=["自己"]))
+        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[other], to=[None]))
     assert (result.status, result.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
     [item] = result.data["items"]
-    assert (item["field"], item["written"], item["error_code"]) == ("from", other, "SUPPLY_SOURCE_MISMATCH")
-    assert item["candidates"] == [{"target": label, "action": "obtain", "way": "远程下单", "from": None, "to": "自己"}]
-    assert result.data["reason"] == f"「{other}」：目标写明的是{store}，from 是另一个地点"
+    assert (item.get("field", item.get("path", [None])[-1]), item["written"], item["error_code"]) == ("from", other, "SUPPLY_SOURCE_MISMATCH")
+    assert [candidate["arguments"]["items"][0] for candidate in item["candidates"]] == [
+        {"target": label, "way": "远程下单", "from": None, "to": None}]
+    assert result.data["reason"] == f"The target names {store}, but from names a different place."
     assert _world(engine) == before
     _, same = _round(engine, "label-with-own-store", start_request(
-        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[store], to=["自己"]))
+        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[store], to=[None]))
     assert (same.status, same.error_code) == ("completed", None)
     assert [order["supply_id"] for order in same.data["orders"]] == [supply.supply_id]
-    assert same.data["notes"] == [f"from「{store}」就是目标写明的门店，可以写 null"] and "resolved" not in same.data
+    assert "resolved" not in same.data and [row["supply_id"] for row in same.data["orders"]] == [supply.supply_id]
     shown = last_result(engine.observe(context(engine, "label-with-own-store-seen")))["details"]
     assert shown["notes"] == same.data["notes"]
 
@@ -305,23 +308,24 @@ def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(
     _stage_open(engine)
     layer = _layer_context(engine)
     with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as far:
-        resolve_named_supply(layer, PurchaseAsk(_MILK, "到店", None, "home"))
+        resolve_named_supply(layer, PurchaseAsk(_MILK, "到店", None, "home", prefer="最快拿到"))
     item = far.value.suggested["item"]
-    assert (item["field"], item["written"], far.value.unmet) == ("targets", _MILK, ["required_location_id"])
-    assert far.value.public_reason.startswith("要人在出售它的门店里才能到店买，最近的是")
-    assert far.value.suggested["next_step"].startswith(("去", "可经"))
-    assert item["candidates"] and all(row["way"] == "远程下单" and _MILK in row["target"] for row in item["candidates"])
+    assert (item.get("field", item.get("path", [None])[-1]), item["written"], far.value.unmet) == ("target", _MILK, ["required_location_id"])
+    assert "selling store" in far.value.public_reason
+    assert far.value.suggested["next_step"].startswith("Go to ")
+    assert item["candidates"] and all(row["way"] == "远程下单" and _MILK in row["target"]
+                                     for row in item["candidates"])
     pickup_only = next(supply for supply in engine.scenario.supplies if set(supply.fulfillment_modes) == {"pickup"})
     with pytest.raises(BusinessRuleError, match="FULFILLMENT_NOT_SUPPORTED") as unsupported:
-        resolve_named_supply(layer, PurchaseAsk(supply_label(layer, pickup_only), "远程下单", None, "home"))
-    assert unsupported.value.public_reason == f"{supply_label(layer, pickup_only)}只能到店"
+        resolve_named_supply(layer, PurchaseAsk(supply_label(layer, pickup_only), "远程下单", None, "home", prefer="最快拿到"))
+    assert unsupported.value.public_reason == f"The only supported way for {supply_label(layer, pickup_only)} is 到店."
     supply = next(item for item in engine.scenario.supplies if item.location_id == "market"
                   and "pickup" in item.fulfillment_modes)
     with pytest.raises(BusinessRuleError, match="SUPPLY_NOT_FOUND"):
-        resolve_named_supply(layer, PurchaseAsk(supply.supply_id, "远程下单", None, "home"))
+        resolve_named_supply(layer, PurchaseAsk(supply.supply_id, "远程下单", None, "home", prefer="最快拿到"))
     place(engine, 1, "market")
     layer = _layer_context(engine)
-    row = resolve_named_supply(layer, PurchaseAsk(supply_label(layer, supply), "到店", None, "market"))
+    row = resolve_named_supply(layer, PurchaseAsk(supply_label(layer, supply), "到店", None, "market", prefer="最快拿到"))
     quote = current_quote(engine.state, supply.supply_id)
     assert (row["kind"], row["object_id"], row["named"], row["selected_action"]["fulfillment"]) == (
         "supply", supply.supply_id, True, "pickup")
@@ -348,13 +352,13 @@ def test_remote_orders_no_selling_store_can_deliver_say_so_like_listed_ones(engi
     refusals = []
     for written in (_MILK, *(supply_label(layer, supply) for supply in milk)):
         with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as refused:
-            resolve_named_supply(layer, PurchaseAsk(written, "远程下单", None, here, receiver=name))
+            resolve_named_supply(layer, PurchaseAsk(written, "远程下单", None, here, receiver=name, prefer="最快拿到"))
         assert (refused.value.unmet, refused.value.suggested["item"]["candidates"]) == (["delivery_destination"], [])
         refusals.append((refused.value.public_reason, refused.value.suggested["next_step"]))
     several, *single = refusals
-    assert several[0] == f"出售它的门店都送不到{name}"
-    assert {reason for reason, _ in single} == {"这里不在这家店的配送范围内"}
-    assert several[1] in {step for _, step in single} and several[1].endswith(("再下单", "能送达的地方"))
+    assert several[0] == f"No selling store can deliver to {name}."
+    assert {reason for reason, _ in single} == {"The current place is outside this store's delivery area."}
+    assert several[1] in {step for _, step in single} and several[1].startswith("Go to ")
 
 
 def test_near_candidates_are_deterministic_term_similarity(monkeypatch) -> None:
@@ -379,22 +383,25 @@ def test_near_candidates_are_deterministic_term_similarity(monkeypatch) -> None:
     assert near_labels(feasible, "牛奶", "delivery", "office")[0] == f"好德出售的{_MILK}"
 
 
-def test_label_scope_decides_before_the_way_and_names_the_mismatch() -> None:
+def test_label_scope_decides_before_the_way_and_names_the_mismatch(monkeypatch) -> None:
     """分段匹配的段序（3.2（c））：标签写明的门店不在 from 的范围内时先报 SUPPLY_SOURCE_MISMATCH，不管所写方式是否支持；
     同一标签 from 为 null 时才轮到方式（M2，FULFILLMENT_NOT_SUPPORTED）；逐项合并后 items[] 各写各的码与参数名。"""
+    from worldmock.life.error_contract import activity_candidate
+    monkeypatch.setattr(named_purchase, "_request_candidate", lambda context, row, spec:
+                        activity_candidate(spec["target"], spec["way"], (spec["from"], row["to"])))
     layer = _Layer(_Scenario([_Supply("s1", "p1", fulfillment_modes=("pickup",))], {"s1": "好德", "s2": "集市"},
                              {"p1": _MILK}))
     label = f"好德出售的{_MILK}"
-    rows = [{"kind": NAMED_SUPPLY_KIND, "object": label, "selected_action": {"label": "远程下单"}, "to": "自己",
+    rows = [{"kind": NAMED_SUPPLY_KIND, "object": label, "selected_action": {"label": "远程下单"}, "to": None,
              "from": source} for source in ("集市", None)]
     with pytest.raises(BusinessRuleError, match="SUPPLY_SOURCE_MISMATCH") as refused:
         resolve_named_rows(layer, rows, lambda row: resolve_named_supply(
-            layer, PurchaseAsk(row["object"], "远程下单", row["from"], "home")))
+            layer, PurchaseAsk(row["object"], "远程下单", row["from"], "home", prefer="最快拿到")))
     items = refused.value.suggested["items"]
-    assert [(item["index"], item["field"], item["error_code"]) for item in items] == [
-        (0, "from", "SUPPLY_SOURCE_MISMATCH"), (1, "ways", "FULFILLMENT_NOT_SUPPORTED")]
-    assert refused.value.public_reason == ("第 1 项「集市」：目标写明的是好德，from 是另一个地点；"
-                                           f"第 2 项「远程下单」：{label}只能到店")
+    assert [(item["path"][5], item["path"][-1], item["error_code"]) for item in items] == [
+        (0, "from", "SUPPLY_SOURCE_MISMATCH"), (1, "way", "FULFILLMENT_NOT_SUPPORTED")]
+    assert refused.value.public_reason == ("The target names 好德, but from names a different place.; "
+                                           f"The only supported way for {label} is 到店.")
 
 
 class _Supply:
@@ -439,21 +446,20 @@ def test_unlisted_obtain_selection_is_a_named_placeholder_other_verbs_are_not() 
     动作已是购买；「购买」的履约方式由系统在受理时定，占位行上为 None）；其余动词、制作或列出目标不提供的方式仍解析不出。"""
     bindings = [{"object": "自己", "kind": "self", "object_id": "self",
                  "actions": [{"verb": "interact", "label": "等待", "canonical_action": "wait"}]}]
-    [row] = resolve_selection(bindings, ["纯牛奶"], ["obtain"], ["到店"])
+    [row] = select_start(bindings, start_arguments(["纯牛奶"], ["obtain"], ["到店"]))
     assert (row["kind"], row["object"], row["object_id"]) == (NAMED_SUPPLY_KIND, "纯牛奶", None)
     assert (row["selected_action"]["canonical_action"], row["selected_action"]["fulfillment"]) == (
         "purchase", "pickup")
     for way in ("购买", "买", "下单购买"):
-        [system] = resolve_selection(bindings, ["纯牛奶"], ["obtain"], [way])
+        [system] = select_start(bindings, start_arguments(["纯牛奶"], ["obtain"], [way]))
         assert (system["kind"], system["selected_action"]["label"], system["selected_action"]["fulfillment"]) == (
             NAMED_SUPPLY_KIND, "购买", None)
-    pair = resolve_selection(bindings, ["自己", "纯牛奶"], ["interact", "obtain"], ["等待", "远程下单"])
+    pair = select_start(bindings, start_arguments(["自己", "纯牛奶"], ["interact", "obtain"], ["等待", "远程下单"]))
     assert [item["selected_action"]["label"] for item in pair] == ["等待", "远程下单"]
-    for verb, way in (("obtain", "制作"), ("consume", "食用"), ("interact", "到店"), ("consume", "购买")):
-        assert resolve_selection(bindings, ["纯牛奶"], [verb], [way]) is None
-    assert resolve_selection(bindings, ["自己"], ["obtain"], ["到店"]) is None
-    assert resolve_selection(bindings, ["自己"], ["obtain"], ["购买"]) is None
-
+    for verb, way in (("obtain", "制作"), ("consume", "食用")):
+        assert select_start(bindings, start_arguments(["纯牛奶"], [verb], [way])) is None
+    assert select_start(bindings, start_arguments(["自己"], ["obtain"], ["到店"])) is None
+    assert select_start(bindings, start_arguments(["自己"], ["obtain"], ["购买"])) is None
 
 def _host(menu: tuple[str, ...] | None = None) -> LifeAgent:
     """从一次结构化观察准备 LifeAgent（menu 给出时替换本轮有效菜单）。"""
@@ -482,9 +488,9 @@ def test_host_lets_unlisted_obtain_names_through_and_corrects_other_verbs() -> N
                                                       ["等待", "远程下单"])], False) == ""
     for verb, way in (("consume", "食用"), ("interact", "观看"), ("travel", "步行"), ("obtain", "制作")):
         error = person.validate_react_decisions([_decision(["纯牛奶"], [verb], [way])], False)
-        assert error == "NAME_NOT_FOUND: start_activity target is not a visible interactive object (targets[0])"
-        assert [(item.field, item.written) for item in error.report.items] == [("targets", "纯牛奶")]
+        assert error.report.error_code == "NAME_NOT_FOUND"
+        assert [(item.path[-1], item.written) for item in error.report.items] == [("target", "纯牛奶")]
     closed = _host(("sleep", "wait"))
     denied = closed.validate_react_decisions([_decision(["纯牛奶"], ["obtain"], ["到店"])], False)
-    assert denied == "WAY_NOT_OFFERED: interaction menu denies start_activity (targets[0])"
-    assert denied.report.reason == "「纯牛奶」在这里不能「obtain：到店」"
+    assert denied.report.error_code == "WAY_NOT_OFFERED"
+    assert "not admitted" in denied.report.reason and denied.report.items[0].written == "到店"

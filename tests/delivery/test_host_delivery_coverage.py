@@ -107,7 +107,8 @@ def _single_agent_export(tmp_path):
         EventDraft(event_id='fixture-request-1', event_type='action_requested', occurred_at=100,
                    agent_id=1, decision_id='decision', action_id='request',
                    data={'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}}),
+                         'request': {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}],
+                                     'answering': None, 'prefer': None}}),
     ]
     store.commit(store.state, drafts)
     store.commit({'schema_version': WORLD_SCHEMA_VERSION, 'version': 1, 'current_time': 200},
@@ -140,7 +141,8 @@ def _replay_export_pair(tmp_path):
         EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
                    decision_id='decision', action_id='request',
                    data={'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}}),
+                         'request': {'items': [{'target': '自己', 'way': '等待', 'from': None, 'to': None}],
+                                     'answering': None, 'prefer': None}}),
         EventDraft(event_type='action_result', occurred_at=100, agent_id=1,
                    decision_id='decision', action_id='request', data={'status': 'completed'}),
     ]
@@ -174,8 +176,9 @@ def _replay_export_pair(tmp_path):
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
                                           decision_id='branch-decision', action_id='wait', data={
                                               'tool_name': 'start_activity',
-                                              'request': {'targets': ['自己'], 'actions': ['interact'],
-                                                          'ways': ['等待']}})])
+                                              'request': {'items': [{'target': '自己', 'way': '等待',
+                                                                     'from': None, 'to': None}],
+                                                          'answering': None, 'prefer': None}})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     _finish_export(parent, source_dir)
     _finish_export(child, replay_dir)
@@ -321,8 +324,9 @@ def _fake_labelkit_cli(monkeypatch, calls):
 # ---------------------------------------------------------------------------
 
 
-def test_deliver_success_path_publishes_full_manifest(tmp_path, monkeypatch):
+def test_deliver_success_path_publishes_full_manifest(dataset_tmp_path, monkeypatch):
     """成功发布：真实管线 + 打桩 CLI 产物，发布完整 manifest 且不写 failure。"""
+    tmp_path = dataset_tmp_path
     calls: list[str] = []
     _fake_labelkit_cli(monkeypatch, calls)
     destination = tmp_path / 'delivery'
@@ -362,8 +366,9 @@ def test_deliver_success_path_publishes_full_manifest(tmp_path, monkeypatch):
     assert training['splits'] and sum(training['splits'].values()) == 5
 
 
-def test_deliver_success_path_binds_counterfactual_replay_export(tmp_path, monkeypatch):
+def test_deliver_success_path_binds_counterfactual_replay_export(dataset_tmp_path, monkeypatch):
     """成功发布携带反事实重演：真实 replay_windows 认证 + 来源绑定进清单。"""
+    tmp_path = dataset_tmp_path
     calls: list[str] = []
     _fake_labelkit_cli(monkeypatch, calls)
     source_dir, replay_dir = _replay_export_pair(tmp_path)
@@ -1145,8 +1150,9 @@ def test_training_rejects_empty_records_and_foreign_fields(tmp_path):
         load_training([record], tmp_path / 'training')
 
 
-def test_training_rejects_loader_and_disk_tampering(tmp_path, monkeypatch):
+def test_training_rejects_loader_and_disk_tampering(dataset_tmp_path, monkeypatch):
     """加载器与磁盘回读被篡改时守恒校验失败关闭。"""
+    tmp_path = dataset_tmp_path
     from datasets import Dataset, DatasetDict, Features, Json, Value
 
     import worldmock.delivery.training as training

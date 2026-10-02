@@ -71,6 +71,7 @@ from worldmock.life.scenario import (
     ProductConfig,
     RuntimeScenario,
     parse_scenario_document,
+    runtime_tasks,
 )
 from worldmock.life.travel_time import TravelTimeProfile, parse_travel_time_profile
 from worldmock.scheduling.compile import compile_schedule
@@ -296,8 +297,24 @@ def load_runtime_scenario(
     semantics = assemble_semantics(document, catalog, dataset, motivation_transforms, affordances)
     check_location_kinds(semantics.scenario)
     check_visible_labels(semantics.scenario, root)
+    _check_work_material(semantics.scenario, root)
     return replace(semantics, purchase_channels=load_purchase_channels(semantics.scenario, root)), digest
 
+
+
+def _check_work_material(scenario: RuntimeScenario, root: Path) -> None:
+    """@brief 首次世界保存前核验每个任务的输入、验收材料和参考身份。"""
+    from worldmock.life.work import load_work_input, load_work_oracle
+
+    for task in scenario.tasks:
+        try:
+            load_work_input(root, task)
+            load_work_oracle(root, task)
+        except IntegrityError:
+            import logging
+
+            logging.error("Work material validation failed for task %s", task.task_id)
+            raise
 
 def resolve_catalog_dir(scenario_path: Path) -> Path:
     """@brief 场景文件的默认目录位置：scenarios/ 的兄弟目录 catalog/。"""
@@ -314,6 +331,9 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: Ma
     load_runtime_scenario 按场景目录加载后显式传入，使目录表键集
     （MET/缓解）对照该场景钉定版本的注册表派生集校验。
     """
+    from worldmock.corpora.storefront import validate_assortments
+
+    validate_assortments(map_dataset, catalog)
     view = default_affordances() if affordances is None else affordances
     pinned = (document.catalog_version.major, document.catalog_version.minor)
     loaded = (catalog.version_major, catalog.version_minor)
@@ -327,6 +347,7 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: Ma
     employer_id = _employer_account(document, services)
     transport_id = _role_account(services, "transport:service")
     scenario = _build_runtime(document, body, items, (employer_id, transport_id), map_dataset)
+    _check_scheduled_prices(scenario)
     admit_reachable_categories(scenario, catalog)
     semantics = ScenarioSemantics(
         document=document, catalog=catalog, scenario=scenario, body=body,
@@ -344,6 +365,16 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: Ma
         raise IntegrityError(f"Scenario admission rejected by catalog: {detail}")
     return semantics
 
+
+
+def _check_scheduled_prices(scenario: RuntimeScenario) -> None:
+    """@brief 正式构建时拒绝超出商品有来源价格边界的调价事件。"""
+    from worldmock.life.storefront_state import validate_price_bounds
+
+    supplies = {item.supply_id: item for item in scenario.supplies}
+    products = {item.product_id: item for item in scenario.products}
+    for change in scenario.price_changes:
+        validate_price_bounds(change.amount_fen, products[supplies[change.supply_id].product_id])
 
 def _check_contract_bindings(semantics: ScenarioSemantics) -> None:
     """@brief 在创建运行产物前确认每条合同规则的命名槽能由任务实例提供。"""
@@ -430,7 +461,10 @@ def _assemble_items(document: LifeScenario, catalog: Catalog) -> RuntimeItems:
             raise IntegrityError(f"scenario product {reference.product_id} is not in the catalog")
         if obj.object_kind != ObjectKind.PRODUCT:
             raise IntegrityError(f"catalog object {obj.object_id} is not a product")
-        products.append(ProductConfig.model_validate(_inventory_values(obj, _consume_edge(obj))))
+        payload = _inventory_values(obj, _consume_edge(obj))
+        payload.update({name: obj.attributes[name] for name in
+                        ("purchase_price_fen_min", "purchase_price_fen_max")})
+        products.append(ProductConfig.model_validate(payload))
     product_ids = {item.product_id for item in products}
     inventory_ids = _inventory_object_ids(document) - product_ids
     inventory = tuple(_inventory_payload(_product_object(catalog, object_id))
@@ -493,7 +527,7 @@ def _runtime_payload(
     """@brief 构造运行时场景的载荷字典并执行模型校验；人物只搬运场景写出的字段，model_fields_set 仍是场景声明。"""
     locations, routes, supplies = select_map(dataset, document)
     return RuntimeScenario.model_validate({
-        "schema_version": 3,
+        "schema_version": 4,
         "map_dataset": dataset,
         "scenario_id": document.scenario_id,
         "timezone": document.timezone,
@@ -522,7 +556,7 @@ def _runtime_payload(
         "supplies": supplies,
         "products": [item.model_dump(mode="python") for item in items.products],
         "inventory_items": [item.model_dump(mode="python") for item in items.inventory],
-        "tasks": [item.model_dump(mode="python") for item in document.tasks],
+        "tasks": runtime_tasks(document.tasks, document.messages),
         "messages": [item.model_dump(mode="python") for item in document.messages],
         "contents": [item.model_dump(mode="python") for item in document.contents],
         "games": [item.model_dump(mode="python") for item in document.games],

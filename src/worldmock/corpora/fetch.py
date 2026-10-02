@@ -197,7 +197,8 @@ def _fetch_geodata(root: Path) -> None:
     from worldmock.corpora.map_prepare import prepare_map
 
     frozen_root = Path(__file__).resolve().parents[3] / "corpora"
-    prepare_map(root, frozen_root)
+    for random_seed in (20260105, 20260106):
+        prepare_map(root, frozen_root, random_seed)
 
 
 def _generate_games(root: Path) -> None:
@@ -306,12 +307,14 @@ def _source_for(relative: str, retrieved_at: datetime) -> tuple[CorpusSource, st
         return CorpusSource(kind="external_geodata", url=_ROUTE_BASES[mode], retrieved_at=retrieved_at,
                             license="ODbL-1.0", selector=f"frozen Zhangjiang route {Path(relative).stem}",
                             fact_cutoff=date), "offline route"
-    if relative in {"zhangjiang-map/supplies.json", "zhangjiang-map/supply-assumptions.json"}:
+    if (relative in {"zhangjiang-map/supply-assumptions.json", "zhangjiang-map/category-assignment.json"}
+            or relative.startswith("zhangjiang-map/") and relative.endswith("/supplies.json")):
         return CorpusSource(kind="scenario", url="scenario://worldmock/zhangjiang-storefronts",
                             retrieved_at=retrieved_at, license="WorldMock-project",
                             selector="reviewed simulation supply assumptions",
                             fact_cutoff=date), "storefront assumptions"
-    if relative in {"zhangjiang-map/dataset.json", "zhangjiang-map/locations.json", "zhangjiang-map/routes.json"}:
+    if (relative in {"zhangjiang-map/locations.json", "zhangjiang-map/routes.json"}
+            or relative.startswith("zhangjiang-map/") and relative.endswith("/dataset.json")):
         return CorpusSource(kind="derived_geodata", url=None, retrieved_at=retrieved_at,
                             license="ODbL-1.0 AND WorldMock-project",
                             selector="derived map facts and explicit scenario declarations; see per-record sources",

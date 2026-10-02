@@ -50,7 +50,7 @@ from worldmock.life.scenario import (
     MotivationProfile,
     ProductConfig,
     RouteConfig,
-    WorkTaskConfig,
+    RuntimeWorkTask,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -149,6 +149,7 @@ class FoodOffer:
 
 def _food_offer(product_id="food-1", price=800, kcal=600, location="market", duration=900, stock=10):
     product = ProductConfig.model_validate({
+        "purchase_price_fen_min": 1, "purchase_price_fen_max": 100_000,
         "product_id": product_id, "name": "Test meal", "category_id": "food", "serving_quantity": 1.0, "serving_unit": "serving",
         "energy_kcal_per_unit": kcal, "use_duration_seconds": duration,
         "use_modes": ["eat"], "consumable": True, "effect": "fed", "source_kind": "test"})
@@ -171,11 +172,11 @@ def _route(route_id, origin, destination, mode="driving", seconds=600, fare=600)
         "source": SOURCE})
 
 
-def _task(task_id="task-1", pay=50000, location="office", required=3600.0) -> WorkTaskConfig:
+def _task(task_id="task-1", pay=50000, location="office", required=3600.0) -> RuntimeWorkTask:
     zone = ZoneInfo(TIMEZONE)
-    return WorkTaskConfig.model_validate({
+    return RuntimeWorkTask.model_validate({
         "task_id": task_id, "title": "测试工作合同", "assignee_agent_id": "agent:1", "contract_kind": "package",
-        "available_at": datetime(2023, 11, 13, tzinfo=zone),
+        "appointment": None, "available_at": datetime(2023, 11, 13, tzinfo=zone),
         "due_at": datetime(2023, 11, 16, tzinfo=zone),
         "maximum_duration_seconds": 14400, "pay_fen": pay,
         "employer_account_id": "employer:1", "required_location_id": location,
@@ -356,8 +357,9 @@ class TestHomeostatic:
 
 def _start(*pairs: tuple[str, str]) -> tuple[str, dict]:
     """@brief 一条 start_activity 请求足迹：逐项的动词与方式（对象名不参与习惯归并）。"""
-    return ("start_activity", {"targets": [f"对象{index}" for index, _ in enumerate(pairs)],
-                               "actions": [verb for verb, _ in pairs], "ways": [way for _, way in pairs]})
+    return ("start_activity", {"items": [{"target": f"对象{index}", "way": way, "from": None, "to": None}
+                                         for index, (_, way) in enumerate(pairs)],
+                               "answering": None, "prefer": None})
 
 
 class TestHabit:

@@ -28,7 +28,7 @@ from worldmock.life.activities import (
 )
 from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
 from worldmock.life.interaction_menu import WAYS
-from worldmock.life.models import ActivityKind, TravelMode
+from worldmock.life.models import ActivityKind, StartActivityRequest, TravelMode
 from worldmock.life.motivation import (
     ENTERTAINMENT_PER_KIND,
     FAMILIES,
@@ -265,7 +265,10 @@ def test_attention_required_keys(view) -> None:
 def test_habit_routing_matches_classify_action_event(view, tool, way,
                                                      expected) -> None:
     """@brief 习惯路由逐项按方式映射出的内部标准动作归并，与注册表的 habit_members 一致。"""
-    request = {"targets": ["对象"], "actions": [WAYS[way][0]], "ways": [way]} if way is not None else {}
+    purchase = way in {"到店", "远程下单", "购买"}
+    request = (StartActivityRequest(items=[{"target": "对象", "way": way, "from": None, "to": None}],
+                                    answering=None, prefer="最快拿到" if purchase else None).model_dump(mode="json")
+               if way is not None else {})
     tool_name = "start_activity" if way is not None else tool
     if way is not None:
         assert WAYS[way][1] == tool
@@ -279,14 +282,28 @@ def test_habit_routes_cover_every_way() -> None:
 
 
 def test_habit_routing_reads_ways_not_verbs_or_retired_phrases() -> None:
-    """@brief 两项逐项归并；只有动词、旧整句短语（步行前往、到店购买）或项数越界时不计数。"""
-    parallel = {"targets": ["城西办公室", "播客"], "actions": ["travel", "interact"], "ways": ["驾车", "接着听"]}
+    """@brief 现行两项按方式逐项归并；旧请求、旧整句短语或项数越界不计数。"""
+    parallel = StartActivityRequest(items=[
+        {"target": "城西办公室", "way": "驾车", "from": None, "to": None},
+        {"target": "播客", "way": "接着听", "from": None, "to": None}],
+        answering=None, prefer=None).model_dump(mode="json")
     assert classify_action_event("start_activity", parallel) == ("travel", "entertainment")
-    assert classify_action_event("start_activity", {"targets": ["城西办公室"], "actions": ["travel"]}) == ()
-    assert classify_action_event("start_activity", {"actions": ["travel"], "ways": ["步行前往"]}) == ()
-    assert classify_action_event("start_activity", {"actions": ["obtain"], "ways": ["到店购买"]}) == ()
-    assert classify_action_event("start_activity", {"ways": ["步行", "等待", "睡觉"]}) == ()
-    assert classify_action_event("start_activity", {"ways": []}) == ()
+    for retired in ("步行前往", "到店购买"):
+        request = {**parallel, "items": [{"target": "对象", "way": retired, "from": None, "to": None}]}
+        assert classify_action_event("start_activity", request) == ()
+    assert classify_action_event("start_activity", {**parallel, "items": [*parallel["items"], parallel["items"][0]]}) == ()
+    assert classify_action_event("start_activity", {**parallel, "items": []}) == ()
+
+
+@pytest.mark.parametrize("request_body", [
+    {"targets": ["城西办公室"], "actions": ["travel"]},
+    {"targets": ["城西办公室"], "actions": ["travel"], "ways": ["驾车"]},
+    {"targets": ["城西办公室", "播客"], "actions": ["travel", "interact"], "ways": ["驾车", "接着听"]},
+    {"ways": ["步行"]},
+])
+def test_habit_routing_rejects_retired_parallel_array_requests(request_body: dict) -> None:
+    """@brief 旧数组即使有合法方式和对应动词，也不会被当作现行逐项行为。"""
+    assert classify_action_event("start_activity", request_body) == ()
 
 
 @pytest.mark.parametrize("kind_value,mode,content_kind", sorted(EXPECTED_RESOURCE_CLAIMS, key=str))

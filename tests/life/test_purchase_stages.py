@@ -26,7 +26,7 @@ from worldmock.life.guidance import refusal_for_code  # noqa: E402
 from worldmock.life.readable import clock_phrase  # noqa: E402
 from worldmock.life.wayfinding import shortest_paths  # noqa: E402
 
-_MILK, _NOODLES = "纯牛奶", "鸡汤面"
+_MILK, _NOODLES = "纯牛奶", "牛肉炒面"
 _MARKET_NAME = "张江日用集市与配送取货点（冻结场景锚点）"
 #: 菜饭骨头汤只到店出售鸡汤面（10:00–21:00 营业）；鼎盛川菜不卖纯牛奶；紫薇公园没有任何供给。
 _SOUP, _SICHUAN, _PARK = "poi-3538660453", "poi-3538682404", "poi-337936012"
@@ -42,10 +42,10 @@ def _world(engine_factory, hour: int = 10):
     return engine
 
 
-def _buy(*items, prefer: str | None = None) -> dict:
+def _buy(*items, prefer: str = "最快拿到") -> dict:
     """逐项（名称，方式，from）的取得请求，都送给自己。"""
     return start_arguments([item[0] for item in items], ["obtain"] * len(items), [item[1] for item in items],
-                           **{"from": [item[2] for item in items], "to": ["自己"] * len(items), "prefer": prefer})
+                           **{"from": [item[2] for item in items], "to": [None] * len(items), "prefer": prefer})
 
 
 def _world_facts(engine) -> tuple:
@@ -67,17 +67,17 @@ def test_goods_from_a_store_that_does_not_sell_them_are_supply_not_at_store(engi
     _, error, refused = decide(engine, "not-at-store", _buy((_MILK, "远程下单", sichuan)))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_AT_STORE")
     [item] = refused.data["items"]
-    assert (item["index"], item["field"], item["written"]) == (0, "from", sichuan)
-    assert refused.data["reason"] == f"「{sichuan}」：这家店不卖「{_MILK}」"
-    assert refused.data["fix"] == "把 from 写成 null，或者改用候选里出售它的门店"
-    assert item["candidates"] and all(row["target"].endswith(f"出售的{_MILK}") and row["from"] is None
+    assert (item["path"][-2], item["path"][-1], item["written"]) == (0, "from", sichuan)
+    assert refused.data["reason"] == f"This store does not sell {_MILK}."
+    assert refused.data["fix"] == "Set from to null or a store that sells this product."
+    assert item["candidates"] and all(row["arguments"]["items"][0]["target"].endswith(f"出售的{_MILK}") and row["arguments"]["items"][0]["from"] is None
                                       for row in item["candidates"])
     _, error, nothing = decide(engine, "store-without-supplies", _buy((_MILK, "远程下单", park)))
     assert error == "" and nothing.error_code == "SUPPLY_NOT_AT_STORE"
-    assert nothing.data["reason"] == f"「{park}」：这里没有可买的商品"
+    assert nothing.data["reason"] == "The source has no purchasable supplies."
     assert _world_facts(engine) == before
     candidate = item["candidates"][0]
-    _, _, retried = decide(engine, "not-at-store-retry", _buy((candidate["target"], candidate["way"], None)))
+    _, _, retried = decide(engine, "not-at-store-retry", _buy((candidate["arguments"]["items"][0]["target"], candidate["arguments"]["items"][0]["way"], None)))
     assert retried.status == "completed"
 
 
@@ -89,10 +89,10 @@ def test_the_name_stage_is_judged_before_the_source(engine_factory) -> None:
     before = _world_facts(engine)
     _, error, missing = decide(engine, "no-such-goods", _buy(("不存在的商品", "远程下单", "不存在的App")))
     assert error == "" and (missing.status, missing.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    assert [(item["field"], item["written"]) for item in missing.data["items"]] == [("targets", "不存在的商品")]
+    assert [(item["path"][-1], item["written"]) for item in missing.data["items"]] == [("target", "不存在的商品")]
     _, error, unknown = decide(engine, "no-such-source", _buy((_MILK, "远程下单", "不存在的App")))
     assert error == "" and (unknown.status, unknown.error_code) == ("rejected", "SOURCE_NOT_FOUND")
-    assert [(item["field"], item["written"]) for item in unknown.data["items"]] == [("from", "不存在的App")]
+    assert [(item["path"][-1], item["written"]) for item in unknown.data["items"]] == [("from", "不存在的App")]
     assert _world_facts(engine) == before
 
 
@@ -104,10 +104,10 @@ def test_a_way_the_matching_store_does_not_offer_is_fulfillment_not_supported(en
     _, error, refused = decide(engine, "way", _buy((_NOODLES, "远程下单", soup)))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "FULFILLMENT_NOT_SUPPORTED")
     [item] = refused.data["items"]
-    assert (item["field"], item["written"]) == ("ways", "远程下单")
-    assert refused.data["reason"] == f"「远程下单」：{_NOODLES}只能到店"
-    assert item["candidates"] == [{"target": f"{soup}出售的{_NOODLES}", "action": "obtain", "way": "到店",
-                                   "from": None, "to": "自己"}]
+    assert (item["path"][-1], item["written"]) == ("way", "远程下单")
+    assert refused.data["reason"] == f"The only supported way for {_NOODLES} is 到店."
+    assert [row["arguments"] for row in item["candidates"]] == [_buy((f"{soup}出售的{_NOODLES}", "到店", None))]
+    assert item["candidates"][0]["note"]
     place(engine, 1, _SOUP)
     _, error, bought = decide(engine, "system-way-in-store", _buy((_NOODLES, "购买", soup)))
     assert error == "" and (bought.status, bought.error_code) == ("completed", None)
@@ -129,10 +129,10 @@ def test_system_purchase_and_a_null_from_each_skip_only_their_own_stage(engine_f
                               ("null-from-way", (label, "远程下单", None))):
         _, error, refused = decide(engine, round_id, _buy(request))
         [item] = refused.data["items"]
-        stages.append((error, refused.status, refused.error_code, item["field"], item["written"]))
-    assert stages == [("", "rejected", "SUPPLY_NOT_FOUND", "targets", "并不存在的神秘商品"),
+        stages.append((error, refused.status, refused.error_code, item["path"][-1], item["written"]))
+    assert stages == [("", "rejected", "SUPPLY_NOT_FOUND", "target", "并不存在的神秘商品"),
                       ("", "rejected", "SUPPLY_NOT_AT_STORE", "from", sichuan),
-                      ("", "rejected", "FULFILLMENT_NOT_SUPPORTED", "ways", "远程下单")]
+                      ("", "rejected", "FULFILLMENT_NOT_SUPPORTED", "way", "远程下单")]
     assert _world_facts(engine) == before
 
 
@@ -151,7 +151,7 @@ def test_system_purchase_goes_in_store_when_here_and_remote_when_deliverable(eng
     assert error == "" and remote.status == "completed"
     [delivered] = remote.data["orders"]
     assert (delivered["fulfillment"], delivered["destination_id"]) == ("delivery", "home")
-    assert remote.data["notes"][0].startswith(f"「{_MILK}」「购买」定为远程下单，有 3 处都能远程下单，按最快选了")
+    assert remote.data["notes"][0].startswith(f"「{_MILK}」「购买」定为远程下单，有 3 处都能远程下单，按最快拿到选了")
 
 
 def test_system_purchase_on_the_road_is_not_buying_in_the_store_just_left(engine_factory) -> None:
@@ -181,10 +181,10 @@ def test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_
     _, error, refused = decide(engine, "system-none", _buy((_NOODLES, "购买", soup)))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
     home = _place(engine, "home")
-    assert refused.data["reason"] == f"「{_NOODLES}」：不在出售它的门店里，也送不到{home}"
-    assert refused.data["next_step"] == f"去{soup}"
+    assert refused.data["reason"] == f"The caller is not at a selling store and delivery cannot reach {home}."
+    assert refused.data["next_step"] == f"Go to {soup}."
     [item] = refused.data["items"]
-    assert (item["index"], item["field"], item["error_code"]) == (0, "targets", "ACTIVITY_PRECONDITION_UNMET")
+    assert (item["path"][-2], item["path"][-1], item["error_code"]) == (0, "target", "ACTIVITY_PRECONDITION_UNMET")
     assert _world_facts(engine) == before
     [stored] = [event for event in engine.store.read_agent_events("action_rejected", 1)
                 if event.action_id == "action-system-none"]
@@ -205,8 +205,8 @@ def test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_stor
     home, haode, supermarket = _place(engine, "home"), _place(engine, _HAODE), _place(engine, _SUPERMARKET)
     _, error, refused = decide(engine, "system-pickup-store", _buy((_MILK, "购买", None)))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
-    assert refused.data["reason"] == f"「{_MILK}」：不在出售它的门店里，也送不到{home}"
-    assert refused.data["next_step"] == f"去{haode}" and supermarket not in refused.data["next_step"]
+    assert refused.data["reason"] == f"The caller is not at a selling store and delivery cannot reach {home}."
+    assert refused.data["next_step"] == f"Go to {haode}." and supermarket not in refused.data["next_step"]
     [stored] = [event for event in engine.store.read_agent_events("action_rejected", 1)
                 if event.action_id == "action-system-pickup-store"]
     assert stored.data["unmet"] == ["required_location_id", "delivery_destination"]
@@ -248,16 +248,17 @@ def test_multi_item_purchases_report_every_item_and_stay_atomic(engine_factory) 
     before = _world_facts(engine)
     _, error, both = decide(engine, "two-failures", _buy((_MILK, "远程下单", park), (_NOODLES, "远程下单", soup)))
     assert error == "" and (both.status, both.error_code) == ("rejected", "SUPPLY_NOT_AT_STORE")
-    assert [(item["index"], item["field"], item["error_code"]) for item in both.data["items"]] == [
-        (0, "from", "SUPPLY_NOT_AT_STORE"), (1, "ways", "FULFILLMENT_NOT_SUPPORTED")]
-    assert both.data["reason"] == f"第 1 项「{park}」：这里没有可买的商品；第 2 项「远程下单」：{_NOODLES}只能到店"
-    assert both.data["fix"] == ("第 1 项把 from 写成 null，或者改用候选里出售它的门店；"
-                                "第 2 项改用这件商品支持的取得方式，或者方式写「购买」")
+    assert [(item["path"][-2], item["path"][-1], item["error_code"]) for item in both.data["items"]] == [
+        (0, "from", "SUPPLY_NOT_AT_STORE"), (1, "way", "FULFILLMENT_NOT_SUPPORTED")]
+    assert both.data["reason"] == (f"The source has no purchasable supplies.; "
+                                   f"The only supported way for {_NOODLES} is 到店.")
+    assert both.data["fix"] == ("Set from to null or a store that sells this product.; "
+                                "Use an offered purchase way or 购买.")
     _, error, mixed = decide(engine, "one-unserved", _buy((_MILK, "远程下单", None), (_NOODLES, "购买", soup)))
     assert error == "" and (mixed.status, mixed.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
-    assert [(item["index"], item["error_code"]) for item in mixed.data["items"]] == [
+    assert [(item["path"][-2], item["error_code"]) for item in mixed.data["items"]] == [
         (1, "ACTIVITY_PRECONDITION_UNMET")]
-    assert mixed.data["next_step"] == f"去{soup}" and "orders" not in mixed.data
+    assert mixed.data["next_step"] == f"Go to {soup}." and "orders" not in mixed.data
     assert _world_facts(engine) == before
 
 
@@ -271,7 +272,7 @@ def test_a_name_class_item_leads_the_merged_rejection_even_when_it_comes_second(
     _, error, result = decide(engine, "unmet-then-missing",
                               _buy((_NOODLES, "购买", soup), ("不存在的商品", "远程下单", None)))
     assert error == "" and (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    assert [(item["index"], item["error_code"]) for item in result.data["items"]] == [
+    assert [(item["path"][-2], item["error_code"]) for item in result.data["items"]] == [
         (0, "ACTIVITY_PRECONDITION_UNMET"), (1, "SUPPLY_NOT_FOUND")]
     assert result.data["next_step"] == refusal_for_code("SUPPLY_NOT_FOUND").next_step
     assert engine.state.agents[1].same_moment_rounds == rounds
@@ -295,9 +296,9 @@ def test_home_written_as_from_is_the_persons_home_where_nothing_is_sold(engine_f
         _, error, refused = decide(engine, f"from-{word}", _buy((_MILK, "远程下单", word)))
         assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_AT_STORE")
         [item] = refused.data["items"]
-        assert (item["field"], item["written"]) == ("from", word)
-        assert refused.data["reason"] == f"「{word}」：这里没有可买的商品"
-        assert item["candidates"] and all(row["target"].endswith(f"出售的{_MILK}") and row["from"] is None
+        assert (item["path"][-1], item["written"]) == ("from", word)
+        assert refused.data["reason"] == "The source has no purchasable supplies."
+        assert item["candidates"] and all(row["arguments"]["items"][0]["target"].endswith(f"出售的{_MILK}") and row["arguments"]["items"][0]["from"] is None
                                           for row in item["candidates"])
     assert _world_facts(engine) == before
     _browse(engine)
@@ -305,10 +306,10 @@ def test_home_written_as_from_is_the_persons_home_where_nothing_is_sold(engine_f
     before = _world_facts(engine)
     _, error, mismatch = decide(engine, "listed-from-home", _buy((listed, "远程下单", "家")))
     assert error.report.error_code == "SUPPLY_SOURCE_MISMATCH"
-    assert [(item.field, item.written) for item in error.report.items] == [("from", "家")]
+    assert [(item.path[-1], item.written) for item in error.report.items] == [("from", "家")]
     assert (mismatch.status, mismatch.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
     store = listed.split("出售的", 1)[0]
-    assert mismatch.data["reason"] == f"「家」：目标写明的是{store}，from 是另一个地点"
+    assert mismatch.data["reason"] == f"The target names {store}, but from names a different place."
     assert _world_facts(engine) == before
 
 
@@ -351,15 +352,15 @@ def test_an_unservable_source_offers_the_same_goods_that_can_be_served_elsewhere
     _retarget(engine, haode.supply_id, tuple(spot for spot in haode.delivery_destination_ids if spot != "home"))
     _, error, refused = decide(engine, "unservable-source", _buy((_MILK, "远程下单", _place(engine, _HAODE))))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
-    assert refused.data["reason"] == f"「{_MILK}」：这里不在这家店的配送范围内"
+    assert refused.data["reason"] == "The current place is outside this store's delivery area."
     arrival = {store: delivery_expected_at(engine.semantics, supply, "home", engine.state.current_time)
                for store, supply in milk.items() if store != _HAODE}
     assert len(set(arrival.values())) == len(arrival) == 2
     [item] = refused.data["items"]
-    assert item["candidates"] == [{"target": f"{_place(engine, store)}出售的{_MILK}", "action": "obtain",
-                                   "way": "远程下单", "from": None, "to": "自己"}
-                                  for store in sorted(arrival, key=arrival.get)]
-    _, _, retried = decide(engine, "unservable-source-retry", _buy((item["candidates"][0]["target"], "远程下单", None)))
+    assert [row["arguments"] for row in item["candidates"]] == [
+        _buy((f"{_place(engine, store)}出售的{_MILK}", "远程下单", None))
+        for store in sorted(arrival, key=arrival.get)]
+    _, _, retried = decide(engine, "unservable-source-retry", _buy((item["candidates"][0]["arguments"]["items"][0]["target"], "远程下单", None)))
     assert retried.status == "completed"
 
 
@@ -377,8 +378,8 @@ def test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route
     assert nearest not in {min(milk), max(milk, key=lambda store: paths[store][0])}
     _, error, system = decide(engine, "system-several", _buy((_MILK, "购买", None)))
     assert error == "" and (system.status, system.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
-    assert system.data["reason"] == f"「{_MILK}」：不在出售它的门店里，也送不到{_place(engine, _PARK)}"
-    assert system.data["next_step"] == f"去{_place(engine, nearest)}"
+    assert system.data["reason"] == f"The caller is not at a selling store and delivery cannot reach {_place(engine, _PARK)}."
+    assert system.data["next_step"] == f"Go to {_place(engine, nearest)}."
     _, _, pickup = decide(engine, "pickup-several", _buy((_MILK, "到店", None)))
-    assert pickup.data["reason"] == f"「{_MILK}」：要人在出售它的门店里才能到店买，最近的是{_place(engine, nearest)}"
+    assert pickup.data["reason"] == f"Pickup requires the caller at a selling store; the nearest is {_place(engine, nearest)}."
     assert pickup.data["next_step"] == system.data["next_step"]

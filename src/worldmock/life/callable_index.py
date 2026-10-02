@@ -41,7 +41,7 @@ from worldmock.life.tool_layer import LayerContext
 #: 每个品类至多给出的示例名数。
 MAX_EXAMPLES = 3
 #: 索引的三个键，按这个顺序写出。
-INDEX_KEYS = ("lifestyle", "contents", "goods")
+INDEX_KEYS = ("lifestyle", "contents", "goods", "query_categories")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +86,13 @@ def callable_index(context: LayerContext, sources: IndexSources) -> dict[str, An
     shared = frozenset(name for name, count in Counter(entry.name for entry in contents).items() if count > 1)
     return {"lifestyle": _lifestyle_names(context, sources.lifestyle, order),
             "contents": _categories(contents, order, shared),
-            "goods": _categories(_goods_entries(context), order, frozenset())}
+            "goods": _categories(_goods_entries(context), order, frozenset()), "query_categories": []}
+
+
+def query_category_index(entries: Iterable[Mapping[str, Any]]) -> list[dict]:
+    """@brief 本轮查询权限内公开品类标签与完整对象计数，不按呈现窗口截断。"""
+    counts = Counter(entry["category"] for entry in entries if entry["category"] is not None)
+    return [{"category": category, "count": counts[category]} for category in sorted(counts)]
 
 
 def obtainable_here(context: DiscoveryContext, supply) -> bool:

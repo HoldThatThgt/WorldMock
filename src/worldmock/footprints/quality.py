@@ -462,7 +462,7 @@ def _memory_quality(events: list[Event]) -> dict:
 
 
 def _inspect_conclusion_request(event: Event, state: dict) -> None:
-    """@brief 登记每个决策的 conclude_activity 请求；经 control_items 读出（新旧形状同一口径）后带任何记忆或看法的，
+    """@brief 登记每个决策的 conclude_activity 请求；经 control_items 读出后带任何记忆或看法的，
     应在同一决策写出收尾记忆。"""
     if event.data.get("tool_name") != "conclude_activity":
         return
@@ -473,15 +473,15 @@ def _inspect_conclusion_request(event: Event, state: dict) -> None:
 
 
 def _inspect_memory_response(event: Event, state: dict) -> None:
-    """@brief 人物决策的模型响应的协议错误提到记忆（含结束工具的 memories、views 字段）时记为记忆协议问题（记忆不再带
-    引用，不核对身份）。
+    """@brief 人物决策的结构化错误路径指向 memories 或 views 时记为记忆协议问题。
 
     带 purpose 的系统请求（工作验收、零点计划 plan_day）不是记忆写入点，其响应错误不计入记忆问题。
     """
     if event.data.get("purpose"):
         return
-    error = event.data.get("error")
-    if isinstance(error, str) and any(word in error.lower() for word in _MEMORY_ERROR_WORDS):
+    report = event.data.get("protocol_feedback")
+    items = report["items"] if isinstance(report, dict) else []
+    if any(part in {"memories", "views"} for item in items for part in item["path"]):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])
 
 
@@ -851,18 +851,17 @@ def _contact_reply_guard_quality(events: list[Event]) -> dict:
 def _name_rejection_quality(events: list[Event]) -> dict:
     """@brief 名称类拒绝与其余协议错误分开计数（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）。
 
-    宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的协议错误串，按 life_feedback.feedback_report
-    判定错误码：名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
+    宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的 protocol_feedback 错误码：
+    名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
     重放）按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
     轮数、不施加脉冲）的次数。只报告，不放行。
     """
-    from custom.agents.life_feedback import feedback_report
-
     host: Counter[str] = Counter()
     other: Counter[str] = Counter()
     for event in _terminal_responses(events):
-        if event.data.get("error") and not event.data.get("purpose"):
-            code = feedback_report(str(event.data["error"])).error_code
+        report = event.data.get("protocol_feedback")
+        if isinstance(report, dict) and not event.data.get("purpose"):
+            code = report["error_code"]
             (host if code in HOST_NAME_CODES else other)[code] += 1
     rejected = [event for event in events
                 if event.event_type == "action_rejected" and event.data.get("reused") is not True]
@@ -878,7 +877,7 @@ def _name_rejection_quality(events: list[Event]) -> dict:
         "environment_rejections": sum(codes[code] for code in ENVIRONMENT_NAME_CODES),
         "environment_codes": {code: codes[code] for code in sorted(ENVIRONMENT_NAME_CODES)},
         "environment_free_rejections": sum(sum(free_rejection_flags(row)) for row in moments.values()),
-        "method": "Host codes from decision protocol-error evidence via life_feedback.feedback_report; environment "
+        "method": "Host codes from persisted decision protocol_feedback; environment "
                   "codes from non-replayed action_rejected; free = first two name rejections per agent and second",
     }
 

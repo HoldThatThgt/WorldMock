@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
 from worldmock.categories import Action
 from worldmock.catalog.affordances import AffordanceView
 from worldmock.corpora import load_manifest
@@ -32,7 +34,9 @@ from worldmock.life.action_evidence import (
 )
 from worldmock.life.memory_evidence import _memory_evidence_data, memory_write_points
 from worldmock.life.menu_execution import require_interaction_menu
-from worldmock.life.guidance import guided, rejection_guidance
+from worldmock.life.guidance import Refusal, guided, rejection_guidance
+from worldmock.life.business_feedback import business_feedback
+from worldmock.life.request_errors import argument_report
 from worldmock.life.interaction_menu import WAYS
 from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_revealed_cues,
                                               meal_consumption_data as _meal_consumption_data,
@@ -345,7 +349,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             task_id = self._task_id_for_name(pending, start.task_name)
             request = SubmitWorkRequest(task_id=task_id, deliverable=start.deliverable)
             require_interaction_menu(self.scenario, self.state, pending, [])
-            admission.require_hands_free(self._admission_context(self.state, pending.agent_id), "提交成果")
+            admission.require_hands_free(self._admission_context(self.state, pending.agent_id), "submit work")
             submission = prepare_work_submission(
                 self.state, self.semantics, self.corpus_root, pending.agent_id, request)
         except BusinessRuleError:
@@ -501,7 +505,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
         start_activity 的组件按私有绑定的方式闭集（WAYS）映射的内部标准动作取，不按动词或短语反解。
         """
-        ways = pending.request.get("ways", []) if pending.tool_name == "start_activity" else []
+        valid_start = pending.tool_name == "start_activity" and result.error_code != "ACTION_REQUEST_INVALID"
+        ways = [item["way"] for item in pending.request["items"]] if valid_start else []
         components = {_OPS_COMPONENTS.get(WAYS[way][1], "engine") for way in ways
                       if isinstance(way, str) and way in WAYS}
         component = next(iter(components)) if len(components) == 1 else _OPS_COMPONENTS.get(
@@ -587,6 +592,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         data = {"phase": exchange.phase, "call_id": exchange.call_id, "attempt": exchange.attempt,
                 "request": exchange.request,
                 "response": exchange.response, "error": exchange.error}
+        if isinstance(exchange.response, dict) and "protocol_feedback" in exchange.response:
+            data["protocol_feedback"] = exchange.response["protocol_feedback"]
         draft = EventDraft(event_type="model_request" if exchange.phase == "request" else "model_response",
                            occurred_at=self.state.current_time, agent_id=context.agent_id,
                            decision_id=context.decision_id, caused_by=cause, visibility="system",
@@ -860,6 +867,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
         if not isinstance(call, DirectToolCall) or self._round is None:
             raise ProtocolError("Direct tool call requires an open decision round")
+        if call.tool_name in {"query_world", "recall_task_summary"}:
+            logging.error("Read-only query cannot be registered as a world action: %s", call.tool_name)
+            raise ProtocolError("Read-only queries must use the immediate query channel")
         self._validate_context(call.context)
         if call.context.round_id != self._round.round_id:
             raise ProtocolError("Direct tool call belongs to another decision round")
@@ -1002,6 +1012,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         changed = _put_agent_and_defer_game_turn(state, changed_agent)
         logging.info("Action rejected: %s", rejection_reason_text(error))
         guidance = rejection_guidance(error)
+        guidance.update(business_feedback(pending.request, str(error), guidance,
+                                          error.unmet if isinstance(error, PreconditionError) else [],
+                                          self._frozen_observation(pending)))
         message = guidance["reason"]
         data = {"same_moment_round": changed_agent.same_moment_rounds,
                 "max_same_moment_decisions": self.scenario.max_same_moment_decisions,
@@ -1055,12 +1068,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _dispatch(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
         """@brief 依据闭集工具名进入对应领域转换。"""
+        if pending.tool_name in {"query_world", "recall_task_summary"}:
+            logging.error("Read-only query reached world dispatch: %s", pending.tool_name)
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
         model = REQUEST_MODELS[pending.tool_name]
         try:
             request = model.model_validate(pending.request)
-        except ValueError as error:
-            # 请求再验证失败（绕过构造期校验的载荷，如超长 goal）转业务拒绝：裸 ValidationError 穿透 _resolve 杀 run（unit-16 E2 深层防御）。
-            raise BusinessRuleError("ACTION_REQUEST_INVALID") from error
+        except ValidationError as error:
+            logging.error("Tool request validation rejected: %s", pending.tool_name)
+            report = argument_report(pending.tool_name, error, model, pending.request, "ACTION_REQUEST_INVALID")
+            refusal = Refusal("ACTION_REQUEST_INVALID", report.reason, fix=report.fix or "", items=report.items)
+            raise refusal.error() from error
         selection = self._start_selection(pending, request)
         if selection is not None:
             require_interaction_menu(self.scenario, state, pending,
@@ -1074,7 +1092,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         handlers = {
             "submit_work": self._submit_work_action,
             "send_message": self._send_message_action,
-            "recall_task_summary": self._recall_task_summary,
             "report_status": self._report_status,
             "pause_activity": self._pause_activity,
             "conclude_activity": self._conclude_activity,
@@ -1191,7 +1208,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                     if item.activity_id != exclude_id and item.resource_claims & claims]
         if blocking:
             listed = "、".join(blocking)
-            raise guided("RESOURCE_CONFLICT", f"和正在做的{listed}不能同时进行", f"先结束或暂停{listed}",
+            raise guided("RESOURCE_CONFLICT", f"This activity cannot run together with {listed}.",
+                         f"Conclude or pause {listed} first.",
                          ["resource_claims"])
 
     def _change(self, state: WorldState, pending: PendingAction,
@@ -1249,7 +1267,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                     target_id=request.items[0].product_id)
         self._require_available_resources(state, pending.agent_id, resource_claims(start))
         if admission.en_route(state, pending.agent_id):
-            raise guided("PRODUCT_NOT_HELD", "路上没有可用的持有物", "到达后再用")
+            raise guided("PRODUCT_NOT_HELD", "Held items cannot be used during travel.",
+                         "Use the item after arrival.")
         recipe = prepare_inventory_recipe(
             agent, RecipeContext(self.semantics.catalog, products, self.scenario.recipe_output_bindings),
             request, matches[0])
@@ -1723,11 +1742,10 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
     """@brief 构造人物身体（两过程睡眠反推初值）、可见日历、空进度和注入口味。"""
     from worldmock.life.models import AgentState
 
-    assignee = f"agent:{config.agent_id}"
-    visible_tasks = {item.task_id for item in scenario.tasks
-                     if item.assignee_agent_id == assignee and int(item.available_at.timestamp()) <= start}
-    visible_mail = {item.message_id for item in scenario.messages if int(item.sent_at.timestamp()) <= start
-                    and item.recipient_agent_id == config.agent_id}
+    delivered = [item for item in scenario.messages if int(item.sent_at.timestamp()) <= start
+                 and item.recipient_agent_id == config.agent_id]
+    visible_mail = {item.message_id for item in delivered}
+    visible_tasks = {item.related_task_id for item in delivered if item.related_task_id is not None}
     start_hour = _datetime(start, scenario.timezone).hour + _datetime(start, scenario.timezone).minute / 60
     body = initial_body(scenario.body, start_hour, config.sleep_need_hours,
                         config.chronotype_midsleep)

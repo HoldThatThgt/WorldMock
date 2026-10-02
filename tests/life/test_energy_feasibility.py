@@ -63,7 +63,7 @@ def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
     engine.begin_decision_round([decision])
     engine.observe(decision)
     engine.submit_action(DirectToolCall(
-        decision, "action-zero-energy-plan", "revise_day_plan", ReviseDayPlanRequest(goals=())))
+        decision, "action-zero-energy-plan", "revise_day_plan", ReviseDayPlanRequest(goals=[])))
     result = engine.commit_decision_round("zero-energy-plan")[0]
     assert result.status == "completed" and not engine.state.activities
     assert engine.scheduling_state().ready_agent_ids == (1,)

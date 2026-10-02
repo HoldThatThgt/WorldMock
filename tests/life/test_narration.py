@@ -113,8 +113,11 @@ class TestRenderLayerJson:
 
     def test_layer_arrays_render_in_the_given_order(self) -> None:
         """user 的层数组按给定层序渲染，同一输入逐字节相同。"""
-        layers = [{"layer": "工具层", "targets": []}, {"layer": "人设层", "habits": []}]
-        assert render_layer_json(layers) == '[{"layer":"工具层","targets":[]},{"layer":"人设层","habits":[]}]'
+        layers = [{"layer": "工具层", "targets": [], "callable_index": {
+            "lifestyle": [], "contents": [], "goods": [], "query_categories": []}}, {"layer": "人设层", "habits": []}]
+        assert render_layer_json(layers) == (
+            '[{"layer":"工具层","groups":[],"callable_index":'
+            '{"lifestyle":[],"contents":[],"goods":[],"query_categories":[]}},{"layer":"人设层","habits":[]}]')
         assert render_layer_json(layers) == render_layer_json(json.loads(render_layer_json(layers)))
 
     def test_rejects_blacklist_before_render(self) -> None:

@@ -143,15 +143,16 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     shown = call["result"]
     assert shown["error_code"] == "ACTION_REQUEST_INVALID" and shown["status"] == "rejected"
     [item] = shown["details"]["items"]
-    assert shown["details"] == {"reason": "「不存在的对象」不是可以操作的对象",
-                                "next_step": "从本轮列出的对象和方式里选",
-                                "fix": "照工具层列出的名称、动词与方式重填这个请求", "items": [item]}
-    assert (item["index"], item["field"], item["written"], item["error_code"]) == (
-        0, "targets", "不存在的对象", "NAME_NOT_FOUND")
-    assert 1 <= len(item["candidates"]) <= 3
-    assert all({"target", "action", "way", "from", "to"} <= set(row) for row in item["candidates"])
+    assert shown["details"] == {
+        "reason": "No known object named 不存在的对象 supports this way; changing spelling cannot create an object.",
+        "next_step": "Choose a known object and an offered way.",
+        "fix": "Use the published exact object name and offered way.", "items": [item]}
+    assert (item["path"], item["written"], item["error_code"]) == (
+        ["tool_calls", 0, "function", "arguments", "items", 0, "target"], "不存在的对象", "NAME_NOT_FOUND")
+    assert item["candidates"] == []
+    assert item["expected"] == "A known object name in the selected way's category is required."
     assert shown["message"] == shown["details"]["reason"]
-    assert call["arguments"]["targets"] == ["不存在的对象"]
+    assert call["arguments"]["items"][0]["target"] == "不存在的对象"
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == "wait")
     request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],

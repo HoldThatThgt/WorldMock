@@ -24,8 +24,8 @@ LIFE_SYSTEM_LAYER: dict[str, Any] = {
         "请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；"
         "记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动与今日计划；环境层是此刻的身体感受与"
         "所在地点；进度层是本段停留或路程中已经发生的事。",
-        "每次决策恰好提交一个世界请求：start_activity、recall_task_summary、report_status、pause_activity、"
-        "conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆。",
+        "每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、"
+        "conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。",
         "世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。"
         "说打算做或说已经做过，都不等于做了。",
         "进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，"
@@ -40,8 +40,9 @@ LIFE_SYSTEM_LAYER: dict[str, Any] = {
         "工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。",
         "名称照工具层、待办层中的写法填写；商品、生活活动、内容、地点都可以直接写名称，即使此刻没有展示；"
         "写得不准时会返回最接近的候选，不会替你改。",
-        "obtain 与 consume 用 from 写来源、to 写去向：to 写「自己」是自己吃或用，写人物名是交给对方，对方收到不等于"
-        "已经吃掉；替别人办事时，用 answering 写所回应的消息。",
+        "start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；"
+        "给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或渠道，prefer 必须写最快拿到或到手价最低；"
+        "不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。",
         "人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的"
         "安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，"
         "就按身体的感觉来。",
@@ -72,7 +73,8 @@ READONLY_SYSTEM_LAYER: dict[str, Any] = {
 
 #: 原生工具的用途说明（只写用途；协议与阶段规则只在系统层）。
 TOOL_DESCRIPTIONS: dict[str, str] = {
-    "start_activity": "开始一项或两项活动：逐项写目标、动词与方式。",
+    "start_activity": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
+    "query_world": "按已知名称、方式或公开品类查询世界，按返回的偏移量翻页。",
     "submit_work": "按任务名提交工作成果。",
     "send_message": "按人物名给对方发一条消息。",
     "recall_task_summary": "按名称回看一项任务、目标或活动的进展，不改变世界。",

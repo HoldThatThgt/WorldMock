@@ -55,11 +55,10 @@ def _late_engine(tmp_path, start: str, run_id: str, base: str = SCENARIO, **para
         begin = datetime.fromisoformat(start)
         document["start_at"] = start
         document["tasks"] = [item for item in document["tasks"]
-                             if datetime.fromisoformat(item["available_at"]) >= begin]
+                             if datetime.fromisoformat(item["due_at"]) > begin]
         kept = {item["task_id"] for item in document["tasks"]} | {None}
         document["messages"] = [item for item in document["messages"]
-                                if datetime.fromisoformat(item["sent_at"]) >= begin
-                                and item.get("related_task_id") in kept]
+                                if item.get("related_task_id") in kept]
         for key in ("bills", "payrolls"):
             document[key] = [item for item in document.get(key, ())
                              if datetime.fromisoformat(item["due_at"]) >= begin]
@@ -76,16 +75,16 @@ def _beirut_engine(tmp_path: Path) -> LifeEngine:
     """
     corpus = tmp_path / "corpora"
     shutil.copytree(Path(__file__).resolve().parents[2] / "corpora", corpus)
-    dataset = corpus / "zhangjiang-map" / "dataset.json"
+    document = _document(SCENARIO)
+    dataset = corpus / document["map_dataset"]["path"]
     dataset.write_text(json.dumps({**json.loads(dataset.read_text(encoding="utf-8")), "timezone": "Asia/Beirut"},
                                   ensure_ascii=False), encoding="utf-8")
     manifest = corpus / "manifest.json"
     entries = json.loads(manifest.read_text(encoding="utf-8"))
     for entry in entries["entries"]:
-        if entry["path"] == "zhangjiang-map/dataset.json":
+        if entry["path"] == document["map_dataset"]["path"]:
             entry.update(sha256=_sha256(dataset), size_bytes=dataset.stat().st_size)
     manifest.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
-    document = _document(SCENARIO)
     document.update(timezone="Asia/Beirut", start_at="2026-03-28T23:45:00+02:00", end_at="2026-03-29T19:00:00+03:00",
                     tasks=[], messages=[], bills=[], payrolls=[])
     document["map_dataset"]["sha256"] = _sha256(dataset)
@@ -146,9 +145,9 @@ def _run_until(engine: LifeEngine, moment: int) -> None:
 
 def _revise(*goals: tuple) -> tuple:
     """修订当日目标的请求（意图、文字、提醒，可选第四项大致时刻，缺省为 null）。"""
-    return ("revise_day_plan", ReviseDayPlanRequest(goals=tuple(
+    return ("revise_day_plan", ReviseDayPlanRequest(goals=[
         PlanGoalInput(intent_kind=intent, goal=goal, remind_time=remind, around_time=(around or [None])[0])
-        for intent, goal, remind, *around in goals)))
+        for intent, goal, remind, *around in goals]))
 
 
 def _forbid_client(monkeypatch) -> None:
@@ -202,7 +201,7 @@ def test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched(
     assert "run_start" in observed["wake_reasons"]
     goals = observed["todo_layer"]["day_plan"]["goals"]
     assert [(row["intent_kind"], row["progressed"], row["remind_time"], row["around_time"]) for row in goals] == [
-        ("工作", False, "09:30", "约 10:00"), ("用餐", False, None, "约 12:15")]
+        ("工作", False, "09:30", "10:00"), ("用餐", False, None, "12:15")]
     assert not [event for event in _events(engine, seq)
                 if event.event_type in {"decision_started", "memory_updated", "action_requested"}]
 
@@ -254,14 +253,14 @@ def test_system_entry_refuses_a_second_registration_and_an_invalid_plan(engine_f
     """系统登记入口不进人物工具面：目标不合法与同日重复登记都是协议错误（调用方先按纯函数与 plan_submitted_dates
     拦下）；没有待执行的零点判定段时零点节律入口拒绝；只有设了提醒的目标才有触发时刻。"""
     engine = engine_factory()
-    early = PlanDayRequest(goals=(PlanGoalInput(intent_kind="工作", goal="写周报", remind_time="00:00",
-                                                around_time=None),))
+    early = PlanDayRequest(goals=[PlanGoalInput(intent_kind="工作", goal="写周报", remind_time="00:00",
+                                                around_time=None),])
 
     with pytest.raises(ProtocolError, match="Generated day plan is invalid"):
         engine.register_day_plan(1, early, [], [])
     settle_day_plans(engine)
     with pytest.raises(ProtocolError, match="already generated"):
-        engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
+        engine.register_day_plan(1, PlanDayRequest(goals=[]), [], [])
     with pytest.raises(ProtocolError, match="No midnight rhythm is pending"):
         engine.decide_midnight_rhythm()
     with pytest.raises(ValueError, match="reminder trigger requires an earlier reminder"):
@@ -536,7 +535,7 @@ def test_revision_carries_around_time_and_changing_only_it_keeps_registration(en
         start, start + 1200, start + 1200, _at(5, 0, 5))
     assert reminders.reminder_times(engine.state.agents[1], engine.state.current_time) == ()
     row = engine.observe(context(engine, "around-shown"))["todo_layer"]["day_plan"]["goals"][0]
-    assert (row["remind_time"], row["around_time"]) == ("00:20", "约 00:05")
+    assert (row["remind_time"], row["around_time"]) == ("00:20", "00:05")
 
 
 def test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried(tmp_path):

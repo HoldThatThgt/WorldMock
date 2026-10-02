@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "scenario_id": "zhangjiang-multi-person-boundary",
   "timezone": "Asia/Shanghai",
   "start_at": "2026-01-05T00:00:00+08:00",
@@ -13,10 +13,10 @@
   "rotation_stale_seconds": 604800,
   "retrieval_index_threshold": 1000,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "000036b9092feea66a362443929999e6715c5df375d68be9b67e9c0964f15efb",
+  "corpus_manifest_sha256": "3e2386c78e96072cd0d2a065023a67ab29fdb02bd1e94237883b1954e80146df",
   "catalog_version": {
-    "major": 4,
-    "minor": 1
+    "major": 5,
+    "minor": 3
   },
   "interaction_menus_by_location_kind": {
     "home": {
@@ -276,7 +276,6 @@
         }
       ],
       "lifestyle_activities": [
-        "cooking-research",
         "event-cinema",
         "gardening",
         "housework-cleaning",
@@ -405,7 +404,6 @@
         }
       ],
       "lifestyle_activities": [
-        "cooking-research",
         "event-cinema",
         "gardening",
         "hobby-jigsaw-puzzle",
@@ -522,105 +520,6 @@
   ],
   "products": [
     {
-      "product_id": "food-6923644266066"
-    },
-    {
-      "product_id": "food-6928804010114"
-    },
-    {
-      "product_id": "food-6917878044729"
-    },
-    {
-      "product_id": "food-6924743919211"
-    },
-    {
-      "product_id": "food-6920152460061"
-    },
-    {
-      "product_id": "food-6920459902387"
-    },
-    {
-      "product_id": "food-6901209212215"
-    },
-    {
-      "product_id": "food-8935090914864"
-    },
-    {
-      "product_id": "food-6901939621738"
-    },
-    {
-      "product_id": "food-6902083881085"
-    },
-    {
-      "product_id": "food-6902538006575"
-    },
-    {
-      "product_id": "food-6907992100272"
-    },
-    {
-      "product_id": "food-6907992500942"
-    },
-    {
-      "product_id": "food-6907992507095"
-    },
-    {
-      "product_id": "food-6909548098880"
-    },
-    {
-      "product_id": "food-6914973603394"
-    },
-    {
-      "product_id": "food-6916196410414"
-    },
-    {
-      "product_id": "food-6921168593569"
-    },
-    {
-      "product_id": "food-6921351120305"
-    },
-    {
-      "product_id": "food-6922577790068"
-    },
-    {
-      "product_id": "food-6923167524186"
-    },
-    {
-      "product_id": "food-6923644223458"
-    },
-    {
-      "product_id": "food-6924743919242"
-    },
-    {
-      "product_id": "food-6924773540416"
-    },
-    {
-      "product_id": "food-6937003704014"
-    },
-    {
-      "product_id": "food-6937962112714"
-    },
-    {
-      "product_id": "food-6938360357264"
-    },
-    {
-      "product_id": "food-6943949415174"
-    },
-    {
-      "product_id": "food-6948939681928"
-    },
-    {
-      "product_id": "food-6948939696106"
-    },
-    {
-      "product_id": "food-6950955909610"
-    },
-    {
-      "product_id": "food-6972020770130"
-    },
-    {
-      "product_id": "food-6974800253352"
-    },
-    {
       "product_id": "food-0012256091053"
     },
     {
@@ -675,13 +574,22 @@
       "product_id": "food-6900873056781"
     },
     {
+      "product_id": "food-6901209212215"
+    },
+    {
       "product_id": "food-6901668005946"
     },
     {
       "product_id": "food-6901668008176"
     },
     {
+      "product_id": "food-6901939621738"
+    },
+    {
       "product_id": "food-6902083814045"
+    },
+    {
+      "product_id": "food-6902083881085"
     },
     {
       "product_id": "food-6902083891329"
@@ -693,16 +601,31 @@
       "product_id": "food-6902083922658"
     },
     {
+      "product_id": "food-6902538006575"
+    },
+    {
       "product_id": "food-6902890235590"
     },
     {
       "product_id": "food-6906839701016"
     },
     {
+      "product_id": "food-6907992100272"
+    },
+    {
       "product_id": "food-6907992102764"
     },
     {
+      "product_id": "food-6907992500942"
+    },
+    {
+      "product_id": "food-6907992507095"
+    },
+    {
       "product_id": "food-6907992513560"
+    },
+    {
+      "product_id": "food-6909548098880"
     },
     {
       "product_id": "food-6911988018779"
@@ -711,7 +634,19 @@
       "product_id": "food-6911988033413"
     },
     {
+      "product_id": "food-6914973603394"
+    },
+    {
+      "product_id": "food-6916196410414"
+    },
+    {
       "product_id": "food-6917486003286"
+    },
+    {
+      "product_id": "food-6917878044729"
+    },
+    {
+      "product_id": "food-6920152460061"
     },
     {
       "product_id": "food-6920152497029"
@@ -723,6 +658,9 @@
       "product_id": "food-6920458835617"
     },
     {
+      "product_id": "food-6920459902387"
+    },
+    {
       "product_id": "food-6920907810707"
     },
     {
@@ -730,6 +668,12 @@
     },
     {
       "product_id": "food-6920934800863"
+    },
+    {
+      "product_id": "food-6921168593569"
+    },
+    {
+      "product_id": "food-6921351120305"
     },
     {
       "product_id": "food-6921355221411"
@@ -744,13 +688,31 @@
       "product_id": "food-6922577704188"
     },
     {
+      "product_id": "food-6922577790068"
+    },
+    {
+      "product_id": "food-6923167524186"
+    },
+    {
       "product_id": "food-6923404800974"
     },
     {
       "product_id": "food-6923555239845"
     },
     {
+      "product_id": "food-6923644223458"
+    },
+    {
+      "product_id": "food-6923644266066"
+    },
+    {
       "product_id": "food-6924743915084"
+    },
+    {
+      "product_id": "food-6924743919211"
+    },
+    {
+      "product_id": "food-6924743919242"
     },
     {
       "product_id": "food-6924743922570"
@@ -759,7 +721,13 @@
       "product_id": "food-6924769700497"
     },
     {
+      "product_id": "food-6924773540416"
+    },
+    {
       "product_id": "food-6927770903437"
+    },
+    {
+      "product_id": "food-6928804010114"
     },
     {
       "product_id": "food-6932009600742"
@@ -771,10 +739,19 @@
       "product_id": "food-6934665095511"
     },
     {
+      "product_id": "food-6937003704014"
+    },
+    {
       "product_id": "food-6937962103293"
     },
     {
+      "product_id": "food-6937962112714"
+    },
+    {
       "product_id": "food-6937973100212"
+    },
+    {
+      "product_id": "food-6938360357264"
     },
     {
       "product_id": "food-6938536200103"
@@ -798,10 +775,22 @@
       "product_id": "food-6942656601269"
     },
     {
+      "product_id": "food-6943949415174"
+    },
+    {
       "product_id": "food-6944839902385"
     },
     {
       "product_id": "food-6944839956548"
+    },
+    {
+      "product_id": "food-6948939681928"
+    },
+    {
+      "product_id": "food-6948939696106"
+    },
+    {
+      "product_id": "food-6950955909610"
     },
     {
       "product_id": "food-6951444610017"
@@ -843,6 +832,9 @@
       "product_id": "food-6971858720102"
     },
     {
+      "product_id": "food-6972020770130"
+    },
+    {
       "product_id": "food-6972146801022"
     },
     {
@@ -859,6 +851,9 @@
     },
     {
       "product_id": "food-6974348720972"
+    },
+    {
+      "product_id": "food-6974800253352"
     },
     {
       "product_id": "food-7610900081738"
@@ -879,16 +874,40 @@
       "product_id": "food-8885013130058"
     },
     {
+      "product_id": "food-8935090914864"
+    },
+    {
       "product_id": "food-9300639999005"
     },
     {
       "product_id": "food-9556771007584"
     },
     {
-      "product_id": "item-umbrella"
+      "product_id": "ingredient-broccoli"
     },
     {
-      "product_id": "item-notebook"
+      "product_id": "ingredient-carrot"
+    },
+    {
+      "product_id": "ingredient-cauliflower"
+    },
+    {
+      "product_id": "ingredient-celery"
+    },
+    {
+      "product_id": "ingredient-cornstarch"
+    },
+    {
+      "product_id": "ingredient-rice"
+    },
+    {
+      "product_id": "ingredient-soy-sauce"
+    },
+    {
+      "product_id": "ingredient-vegetable-kit"
+    },
+    {
+      "product_id": "ingredient-vegetable-oil"
     },
     {
       "product_id": "item-charger"
@@ -897,16 +916,22 @@
       "product_id": "item-detergent"
     },
     {
+      "product_id": "item-headphones"
+    },
+    {
+      "product_id": "item-metro-card"
+    },
+    {
+      "product_id": "item-notebook"
+    },
+    {
       "product_id": "item-tissues"
     },
     {
       "product_id": "item-toothbrush"
     },
     {
-      "product_id": "item-headphones"
-    },
-    {
-      "product_id": "item-metro-card"
+      "product_id": "item-umbrella"
     },
     {
       "product_id": "meal-0001"
@@ -1005,7 +1030,6 @@
       "title": "1月5日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1017,14 +1041,14 @@
       "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
       "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
       "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "hourly-2026-01-05",
       "title": "1月5日项目会议纪要（按时）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "hourly",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "maximum_duration_seconds": 7200,
       "pay_fen": 10000,
@@ -1036,14 +1060,14 @@
       "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
       "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
       "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "piece-2026-01-05",
       "title": "1月5日项目会议纪要（按件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "piece",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "maximum_duration_seconds": 7200,
       "pay_fen": 5000,
@@ -1055,7 +1079,8 @@
       "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
       "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
       "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
+      "required_location_id": "office",
+      "appointment": null
     },
     {
       "task_id": "backend-task-2026-01-05",
@@ -1065,7 +1090,6 @@
       "pay_fen": 60000,
       "required_effective_seconds": 14400,
       "assignee_agent_id": "agent:2",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "employer_account_id": "employer:zhangjiang",
       "required_location_id": "office",
@@ -1074,7 +1098,8 @@
       "input_path": "scenario-work/inputs/work-0011.txt",
       "input_sha256": "9f77e2578eb4ef3fa165f610ecf016f5a3f1bc8cf0712953dc69cfe4025742dd",
       "oracle_path": "scenario-work/references/work-0011.oracle.json",
-      "oracle_sha256": "856ec0b2c2a1d82e7844cf6f6f6ef13ac58584b36e76e72effe8d3fa6534d3be"
+      "oracle_sha256": "856ec0b2c2a1d82e7844cf6f6f6ef13ac58584b36e76e72effe8d3fa6534d3be",
+      "appointment": null
     },
     {
       "task_id": "backend-hourly-2026-01-05",
@@ -1084,7 +1109,6 @@
       "pay_fen": 10000,
       "required_effective_seconds": 60,
       "assignee_agent_id": "agent:2",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "employer_account_id": "employer:zhangjiang",
       "required_location_id": "office",
@@ -1093,7 +1117,8 @@
       "input_path": "scenario-work/inputs/work-0012.txt",
       "input_sha256": "0ab967344f5368ebfdbb8a777b2fc03245386de0b88111b874e700c0f00b0d4d",
       "oracle_path": "scenario-work/references/work-0012.oracle.json",
-      "oracle_sha256": "9c5f8da3e6c1da946e210fb66857fd108c6b250c68a251b91db92efb6f47183a"
+      "oracle_sha256": "9c5f8da3e6c1da946e210fb66857fd108c6b250c68a251b91db92efb6f47183a",
+      "appointment": null
     },
     {
       "task_id": "backend-piece-2026-01-05",
@@ -1103,7 +1128,6 @@
       "pay_fen": 5000,
       "required_effective_seconds": 60,
       "assignee_agent_id": "agent:2",
-      "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
       "employer_account_id": "employer:zhangjiang",
       "required_location_id": "office",
@@ -1112,7 +1136,8 @@
       "input_path": "scenario-work/inputs/work-0013.txt",
       "input_sha256": "b9ec11c4f95cdc10d66876afe81161db0028fc0c974a6c90934a446afbf68b4a",
       "oracle_path": "scenario-work/references/work-0013.oracle.json",
-      "oracle_sha256": "56337813743791667669e636fd35f00d06d8bc4563729fe77fb09b3e76145cf5"
+      "oracle_sha256": "56337813743791667669e636fd35f00d06d8bc4563729fe77fb09b3e76145cf5",
+      "appointment": null
     }
   ],
   "messages": [
@@ -1121,7 +1146,7 @@
       "thread_id": "week-01-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-05T08:00:00+08:00",
-      "subject": "Work planning",
+      "subject": "Work planning — 1月5日项目会议纪要（包件）",
       "body": "Please review the available meeting task before its deadline.",
       "related_task_id": "task-2026-01-05",
       "attachment_sha256": null
@@ -1131,7 +1156,7 @@
       "thread_id": "week-01-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-05T13:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月5日项目会议纪要（包件）",
       "body": "This is the scheduled follow-up with no assumed response.",
       "related_task_id": "task-2026-01-05",
       "attachment_sha256": null
@@ -1141,10 +1166,60 @@
       "thread_id": "week-01-work-plan",
       "recipient_agent_id": 1,
       "sent_at": "2026-01-05T19:00:00+08:00",
-      "subject": "Re: Work planning",
+      "subject": "Re: Work planning — 1月5日项目会议纪要（包件）",
       "body": "The thread closes without claiming that the recipient acted.",
       "related_task_id": "task-2026-01-05",
       "attachment_sha256": null
+    },
+    {
+      "message_id": "notice-hourly-2026-01-05",
+      "thread_id": "notice-hourly-2026-01-05",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-05T08:00:00+08:00",
+      "subject": "1月5日项目会议纪要（按时）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "hourly-2026-01-05",
+      "attachment_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc"
+    },
+    {
+      "message_id": "notice-piece-2026-01-05",
+      "thread_id": "notice-piece-2026-01-05",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-05T08:00:00+08:00",
+      "subject": "1月5日项目会议纪要（按件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "piece-2026-01-05",
+      "attachment_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc"
+    },
+    {
+      "message_id": "notice-backend-task-2026-01-05",
+      "thread_id": "notice-backend-task-2026-01-05",
+      "recipient_agent_id": 2,
+      "sent_at": "2026-01-05T08:00:00+08:00",
+      "subject": "1月5日项目会议纪要（包件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "backend-task-2026-01-05",
+      "attachment_sha256": "9f77e2578eb4ef3fa165f610ecf016f5a3f1bc8cf0712953dc69cfe4025742dd"
+    },
+    {
+      "message_id": "notice-backend-hourly-2026-01-05",
+      "thread_id": "notice-backend-hourly-2026-01-05",
+      "recipient_agent_id": 2,
+      "sent_at": "2026-01-05T08:00:00+08:00",
+      "subject": "1月5日项目会议纪要（按时）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "backend-hourly-2026-01-05",
+      "attachment_sha256": "0ab967344f5368ebfdbb8a777b2fc03245386de0b88111b874e700c0f00b0d4d"
+    },
+    {
+      "message_id": "notice-backend-piece-2026-01-05",
+      "thread_id": "notice-backend-piece-2026-01-05",
+      "recipient_agent_id": 2,
+      "sent_at": "2026-01-05T08:00:00+08:00",
+      "subject": "1月5日项目会议纪要（按件）",
+      "body": "Please complete the assigned work under the task contract.",
+      "related_task_id": "backend-piece-2026-01-05",
+      "attachment_sha256": "b9ec11c4f95cdc10d66876afe81161db0028fc0c974a6c90934a446afbf68b4a"
     }
   ],
   "contents": [
@@ -3155,10 +3230,10 @@
     "social_dinner_date": "2026-03-03"
   },
   "map_dataset": {
+    "path": "zhangjiang-map/20260106/dataset.json",
+    "sha256": "aa79768f0e12877c030b18578b8174c8e1507692d7e08a4cdacb80725f54fdb5",
     "dataset_id": "zhangjiang-map",
-    "version": 2,
-    "path": "zhangjiang-map/dataset.json",
-    "sha256": "4f90c2e7b9a12af78429f1d39642382a6d37cc4fee838925b3709bbce75dddbf"
+    "version": 3
   },
   "supplies": [
     {
@@ -3646,6 +3721,33 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-ingredient-broccoli"
+    },
+    {
+      "supply_id": "supply-market-ingredient-carrot"
+    },
+    {
+      "supply_id": "supply-market-ingredient-cauliflower"
+    },
+    {
+      "supply_id": "supply-market-ingredient-celery"
+    },
+    {
+      "supply_id": "supply-market-ingredient-cornstarch"
+    },
+    {
+      "supply_id": "supply-market-ingredient-rice"
+    },
+    {
+      "supply_id": "supply-market-ingredient-soy-sauce"
+    },
+    {
+      "supply_id": "supply-market-ingredient-vegetable-kit"
+    },
+    {
+      "supply_id": "supply-market-ingredient-vegetable-oil"
+    },
+    {
       "supply_id": "supply-market-item-charger",
       "initial_stock": null
     },
@@ -3678,145 +3780,889 @@
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-meal-0001",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0001"
     },
     {
-      "supply_id": "supply-market-meal-0002",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0002"
     },
     {
-      "supply_id": "supply-market-meal-0003",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0003"
     },
     {
-      "supply_id": "supply-market-meal-0004",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0004"
     },
     {
-      "supply_id": "supply-market-meal-0005",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0005"
     },
     {
-      "supply_id": "supply-market-meal-0006",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0006"
     },
     {
-      "supply_id": "supply-market-meal-0007",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0007"
     },
     {
-      "supply_id": "supply-market-meal-0008",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0008"
     },
     {
-      "supply_id": "supply-market-meal-0009",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0009"
     },
     {
-      "supply_id": "supply-market-meal-0010",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538660453-meal-0010"
     },
     {
-      "supply_id": "supply-market-meal-0011",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0012256091053"
     },
     {
-      "supply_id": "supply-market-meal-0012",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0077330337335"
     },
     {
-      "supply_id": "supply-market-meal-0013",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0140141789706"
     },
     {
-      "supply_id": "supply-market-meal-0014",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0654954240991"
     },
     {
-      "supply_id": "supply-market-meal-0015",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-0690352170508"
     },
     {
-      "supply_id": "supply-market-meal-0016",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-20917906"
     },
     {
-      "supply_id": "supply-market-meal-0017",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-2100315223861"
     },
     {
-      "supply_id": "supply-market-meal-0018",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4045317058593"
     },
     {
-      "supply_id": "supply-market-meal-0019",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4100290005320"
     },
     {
-      "supply_id": "supply-market-meal-0020",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4891028705949"
     },
     {
-      "supply_id": "supply-market-meal-0021",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-4897043061138"
     },
     {
-      "supply_id": "supply-market-meal-0022",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-5400141055900"
     },
     {
-      "supply_id": "supply-market-meal-0023",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-5410522513257"
     },
     {
-      "supply_id": "supply-market-meal-0024",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-5411188132110"
     },
     {
-      "supply_id": "supply-market-meal-0025",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900082020153"
     },
     {
-      "supply_id": "supply-market-meal-0026",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900082020177"
     },
     {
-      "supply_id": "supply-market-meal-0027",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900100204060"
     },
     {
-      "supply_id": "supply-market-meal-0028",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6900873056781"
     },
     {
-      "supply_id": "supply-market-meal-0029",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6901209212215"
     },
     {
-      "supply_id": "supply-market-meal-0030",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6901668005946"
     },
     {
-      "supply_id": "supply-poi-3538660453-meal-0018",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6901668008176"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6901939621738"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083814045"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083881085"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083891329"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083897765"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902083922658"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902538006575"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6902890235590"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6906839701016"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992100272"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992102764"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992500942"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992507095"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6907992513560"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6909548098880"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6911988018779"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6911988033413"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6914973603394"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6916196410414"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6917486003286"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920152460061"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920152497029"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920202888883"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920458835617"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920459902387"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920907810707"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920912360402"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6920934800863"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921168593569"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921351120305"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921355221411"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6921555506035"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6922507005019"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6922577704188"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6922577790068"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923167524186"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923404800974"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923555239845"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6923644223458"
     },
     {
       "supply_id": "supply-poi-3538682402-food-6923644266066",
       "initial_stock": null
     },
     {
-      "supply_id": "supply-poi-3538682404-meal-0022",
-      "initial_stock": null
+      "supply_id": "supply-poi-3538682402-food-6924743915084"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924743919211"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924743919242"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924743922570"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924769700497"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6924773540416"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6927770903437"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6928804010114"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6932009600742"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6934158356785"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6934665095511"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937003704014"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937962103293"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937962112714"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6937973100212"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938360357264"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938536200103"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938866510453"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938866514680"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6938866540726"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6940471604106"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6941734101356"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6942656601269"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6944839902385"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6944839956548"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6950955909610"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6951444610017"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6953367200078"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6954767400785"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6954767420363"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6954767430461"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6955150411456"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6956367338666"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6956511907885"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6959090900971"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6970561120155"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6970717330896"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6971196385162"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6971858720102"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972020770130"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972146801022"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972316600028"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972333776270"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6972507871909"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6973989610468"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6974348720972"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-6974800253352"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-7610900081738"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-7798085680165"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8719132831179"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8850025001023"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8850987101021"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8885013130058"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-8935090914864"
+    },
+    {
+      "supply_id": "supply-poi-3538682402-food-9300639999005"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0011"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0012"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0013"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0014"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0015"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0016"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0017"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0018"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0019"
+    },
+    {
+      "supply_id": "supply-poi-3538682404-meal-0020"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0021"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0022"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0023"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0024"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0025"
     },
     {
       "supply_id": "supply-poi-3538682408-meal-0026",
       "initial_stock": null
     },
     {
+      "supply_id": "supply-poi-3538682408-meal-0027"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0028"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0029"
+    },
+    {
+      "supply_id": "supply-poi-3538682408-meal-0030"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-broccoli"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-carrot"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-cauliflower"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-celery"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-cornstarch"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-rice"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-soy-sauce"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-vegetable-kit"
+    },
+    {
+      "supply_id": "supply-poi-3538684972-ingredient-vegetable-oil"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0012256091053"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0077330337335"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0140141789706"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0654954240991"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-0690352170508"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-20917906"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-2100315223861"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4045317058593"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4100290005320"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4891028705949"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-4897043061138"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-5400141055900"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-5410522513257"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-5411188132110"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900082020153"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900082020177"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900100204060"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6900873056781"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901209212215"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901668005946"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901668008176"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6901939621738"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083814045"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083881085"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083891329"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083897765"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902083922658"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902538006575"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6902890235590"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6906839701016"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992100272"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992102764"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992500942"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992507095"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6907992513560"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6909548098880"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6911988018779"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6911988033413"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6914973603394"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6916196410414"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6917486003286"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6917878044729"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920152460061"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920152497029"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920202888883"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920458835617"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920459902387"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920907810707"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920912360402"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6920934800863"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921168593569"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921351120305"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921355221411"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6921555506035"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6922507005019"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6922577704188"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6922577790068"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923167524186"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923404800974"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923555239845"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6923644223458"
+    },
+    {
       "supply_id": "supply-poi-3538763552-food-6923644266066",
       "initial_stock": null
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743915084"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743919211"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743919242"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924743922570"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924769700497"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6924773540416"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6927770903437"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6928804010114"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6932009600742"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6934158356785"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6934665095511"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937003704014"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937962103293"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937962112714"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6937973100212"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938360357264"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938536200103"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938866510453"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938866514680"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6938866540726"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6940471604106"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6941734101356"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6942656601269"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6943949415174"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6944839902385"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6944839956548"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6948939681928"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6948939696106"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6950955909610"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6951444610017"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6953367200078"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6954767400785"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6954767420363"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6954767430461"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6955150411456"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6956367338666"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6956511907885"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6959090900971"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6970561120155"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6970717330896"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6971196385162"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6971858720102"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972020770130"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972146801022"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972316600028"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972333776270"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6972507871909"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6973989610468"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6974348720972"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-6974800253352"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-7610900081738"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-7798085680165"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8719132831179"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8850025001023"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8850987101021"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8885013130058"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-8935090914864"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-9300639999005"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-food-9556771007584"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-broccoli"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-carrot"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-cauliflower"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-celery"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-cornstarch"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-rice"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-soy-sauce"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-vegetable-kit"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-ingredient-vegetable-oil"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-charger"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-detergent"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-headphones"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-metro-card"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-notebook"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-tissues"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-toothbrush"
+    },
+    {
+      "supply_id": "supply-poi-3538763552-item-umbrella"
     }
   ],
-  "recipe_output_bindings": {}
+  "recipe_output_bindings": {
+    "prepared-meal-vegetable-stir-fry": "meal-0030"
+  }
 }

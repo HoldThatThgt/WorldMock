@@ -115,6 +115,8 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
 
 def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[str, str]) -> Path:
     """正式场景的副本，改用一份隔离语料：地点改显示名、一条驾车路线改成 unknown，按真实准入重新钉扎地图与语料清单。"""
+    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    dataset_path = document["map_dataset"]["path"]
     corpus = tmp_path / "corpora"
     shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
     places = json.loads((corpus / "zhangjiang-map/locations.json").read_text(encoding="utf-8"))
@@ -124,16 +126,15 @@ def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[s
                  if (item["origin_id"], item["destination_id"], item["mode"]) == (*unknown_route, "driving"))
     route.update(status="unknown", reason="route not prepared for this test", distance_meters=None,
                  duration_seconds=None, fare_fen=None, response_path=None, response_sha256=None)
-    dataset = json.loads((corpus / "zhangjiang-map/dataset.json").read_text(encoding="utf-8"))
+    dataset = json.loads((corpus / dataset_path).read_text(encoding="utf-8"))
     dataset["locations_file"]["sha256"] = _rewrite(corpus / "zhangjiang-map/locations.json", places)
     dataset["routes_file"]["sha256"] = _rewrite(corpus / "zhangjiang-map/routes.json", routes)
-    dataset_sha = _rewrite(corpus / "zhangjiang-map/dataset.json", dataset)
+    dataset_sha = _rewrite(corpus / dataset_path, dataset)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     for entry in manifest["entries"]:
-        if entry["path"].startswith("zhangjiang-map/") and entry["path"].count("/") == 1:
+        if entry["path"] in {dataset_path, "zhangjiang-map/locations.json", "zhangjiang-map/routes.json"}:
             path = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
-    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     document.update(corpus_root=str(corpus), corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest))
     document["map_dataset"]["sha256"] = dataset_sha
     shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
@@ -153,6 +154,8 @@ def _phone_variant(tmp_path: Path, failure: str) -> Path:
     failure 是数据集改了一边、没同步另一边的两种核验失败：stale-pin 为场景钉的是配置重生成之前的哈希（身份核验失败），
     seller-without-supply 为配置把购买应用映射到本场景没有供给的卖方（执行证据核验失败）。
     """
+    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    dataset_path = document["map_dataset"]["path"]
     corpus = tmp_path / "corpora"
     shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
@@ -277,7 +280,7 @@ async def test_map_problems_are_frozen_as_scenario_warnings_and_creation_still_s
     route, name = (item["details"] for item in scenario_level)
     assert (route["location_id"], route["destination_id"], route["route_status"]) == ("market", "poi-1868478037",
                                                                                          "unknown")
-    assert len(route["supply_ids"]) == 159 and route["supply_ids"] == sorted(route["supply_ids"])
+    assert len(route["supply_ids"]) == 138 and route["supply_ids"] == sorted(route["supply_ids"])
     assert name == {"location_id": "poi-1868478037", "name": "篮球场（31.2, 121.5）", "patterns": ["coordinates"]}
 
 

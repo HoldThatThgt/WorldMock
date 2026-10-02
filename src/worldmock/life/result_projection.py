@@ -80,7 +80,7 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
     browsed = browse_results(payload)
     if browsed:
         details["browse_items"] = browse_labels(browsed, scenario)
-    mail = _read_mail(payload)
+    mail = _read_mail(payload, scenario)
     if mail is not None:
         details["mail"] = mail
     details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
@@ -115,12 +115,18 @@ def browse_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
             if row.get("kind") == "browse" and "revealed" in (row.get("data") or {})]
 
 
-def _read_mail(payload: dict[str, Any]) -> dict[str, str] | None:
+def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, str] | None:
     """@brief 读完的邮件 {subject, body}：阅读活动完成时揭示的主题与正文；没有读完的阅读时为 None。"""
     rows = _activity_rows(payload)
     revealed = next((row["data"]["revealed"] for row in rows
                      if row.get("kind") == "read_mail" and "revealed" in (row.get("data") or {})), None)
-    return None if revealed is None else {"subject": revealed["subject"], "body": revealed["body"]}
+    if revealed is None:
+        return None
+    mail = {"subject": revealed["subject"], "body": revealed["body"]}
+    related = revealed.get("related_task_id")
+    if related is not None:
+        mail["task"] = f"工作：{next(task.title for task in scenario.tasks if task.task_id == related)}"
+    return mail
 
 
 def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],

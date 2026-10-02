@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from agentsociety2.agent import PersonAgent
 from agentsociety2.agent.base import (
@@ -33,7 +33,8 @@ from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import persona_card_text
 from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
-from custom.agents.life_feedback import (HostFeedback, HostIssue, argument_feedback, feedback_content, host_feedback,
+from custom.agents.life_feedback import (HostFeedback, HostIssue, argument_feedback, feedback_content,
+                                          feedback_report, host_feedback,
                                          merged_feedback)
 from custom.agents.life_memory import memory_update_evidence
 from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
@@ -43,7 +44,8 @@ from custom.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, re
                                            truncation_feedback, with_feedback)
 from worldmock.life.continuation import CONTINUATION_KEY
 from worldmock.life.control_items import ControlItem, control_items
-from worldmock.life.error_contract import HOST_NAME_CODES, Candidate, ErrorItem, host_report, numbered
+from worldmock.life.error_contract import (HOST_NAME_CODES, Candidate, ErrorItem, ErrorReport, activity_candidate,
+                                           bind_report, host_report)
 from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
@@ -51,6 +53,7 @@ from worldmock.life.name_resolution import StartOutcome, name_book, near_names, 
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
+from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 
 
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
@@ -59,9 +62,6 @@ ACTION_TOOL_CHOICE = "auto"
 #: 行动阶段明确预留的最大输出，用于发送前完整上下文计数。
 ACTION_MAX_TOKENS = 8000
 
-#: 一次请求至多选择两个交互对象（targets[]、actions[]、ways[] 等长且 ≤2；DeepSeek strict 禁 maxItems，
-#: 故上限由本地校验兜住）。
-_START_ACTIVITY_MAX_TARGETS = 2
 #: 结束活动时写入的记忆来源（系统按写入点固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
 
@@ -69,7 +69,7 @@ _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
 class _ToolRequest(BaseModel):
     """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段；参数 Schema 不带开发说明，用途只在工具 description。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=purpose_only_schema())
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, json_schema_extra=purpose_only_schema())
 
 
 class MemoryRecentRequest(_ToolRequest):
@@ -84,12 +84,14 @@ class MemorySearchRequest(_ToolRequest):
     query: str = Field(pattern=r"\S")
     limit: int = Field(ge=1, le=50)
 
-    @model_validator(mode="after")
-    def validate_query_length(self) -> "MemorySearchRequest":
-        """@brief 保留服务端不支持表达的查询长度上限。"""
-        if len(self.query) > 200:
+    @field_validator("query")
+    @classmethod
+    def validate_query_length(cls, query: str) -> str:
+        """@brief 查询长度错误精确指向查询字段。"""
+        if len(query) > 200:
+            logging.error("Memory search query exceeds its character limit")
             raise ValueError("memory search query exceeds 200 characters")
-        return self
+        return query
 
 
 class MemoryTimeRangeRequest(_ToolRequest):
@@ -99,13 +101,22 @@ class MemoryTimeRangeRequest(_ToolRequest):
     end_time: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
     limit: int = Field(ge=1, le=100)
 
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_time(cls, value: str) -> str:
+        """@brief 时区与 ISO 格式错误定位具体时间边界。"""
+        _parse_memory_time(value)
+        return value
+
     @model_validator(mode="after")
     def validate_interval(self) -> "MemoryTimeRangeRequest":
         """@brief 要求时区明确且时间闭区间顺序有效。"""
-        start = _parse_memory_time(self.start_time)
-        end = _parse_memory_time(self.end_time)
-        if start > end:
-            raise ValueError("memory time range is reversed")
+        if _parse_memory_time(self.start_time) > _parse_memory_time(self.end_time):
+            logging.error("Memory time range is reversed")
+            errors = [{"type": "value_error", "loc": (field,), "input": getattr(self, field),
+                       "ctx": {"error": ValueError("memory time range is reversed")}}
+                      for field in ("start_time", "end_time")]
+            raise ValidationError.from_exception_data(type(self).__name__, errors)
         return self
 
 
@@ -114,12 +125,14 @@ class ReadonlyFinishRequest(_ToolRequest):
 
     answer: str = Field(pattern=r"\S")
 
-    @model_validator(mode="after")
-    def validate_answer_length(self) -> "ReadonlyFinishRequest":
-        """@brief 保留服务端不支持表达的只读回答长度上限。"""
-        if len(self.answer) > 4000:
+    @field_validator("answer")
+    @classmethod
+    def validate_answer_length(cls, answer: str) -> str:
+        """@brief 回答长度错误精确指向回答字段。"""
+        if len(answer) > 4000:
+            logging.error("Readonly answer exceeds its character limit")
             raise ValueError("readonly answer exceeds 4000 characters")
-        return self
+        return answer
 
 
 def _parse_memory_time(value: str) -> datetime:
@@ -144,7 +157,12 @@ _MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
 _TOOL_MODELS: dict[str, type[BaseModel]] = {
     **REQUEST_MODELS,
     **_MEMORY_TOOL_MODELS,
+    "query_world": QueryWorldRequest,
 }
+
+_QUERY_TOOL_MODELS = {"recall_task_summary": REQUEST_MODELS["recall_task_summary"],
+                      "query_world": QueryWorldRequest, **_MEMORY_TOOL_MODELS}
+_WORLD_TOOL_MODELS = {name: model for name, model in REQUEST_MODELS.items() if name != "recall_task_summary"}
 
 _MEMORY_RUNTIME_ACTIONS = {
     "memory_recent": "memory_recent",
@@ -173,12 +191,30 @@ class LifeAgent(PersonAgent):
         return "LifeAgent: autonomous person using typed life tools through DirectRouter."
 
     async def _record_model_evidence(self, evidence: ModelCallEvidence) -> None:
-        """@brief 保存模型调用证据并对照实际输入 token 量；协议错误串以普通字符串落库（HostFeedback 的结构只回给模型）。"""
+        """@brief 保存完整协议结构和失败阶段，证据写入失败立即终止。"""
+        if evidence.phase == "failure":
+            evidence = replace(evidence, error=_stage_feedback("MODEL_SERVICE_FAILED", ("tool_calls",)))
         if isinstance(evidence.error, HostFeedback):
-            evidence = replace(evidence, error=str(evidence.error))
-        await super()._record_model_evidence(evidence)
+            response = dict(evidence.response or {})
+            response["protocol_feedback"] = evidence.error.report.payload()
+            evidence = replace(evidence, error=str(evidence.error), response=response)
+        try:
+            await super()._record_model_evidence(evidence)
+        except Exception as error:
+            feedback = _stage_feedback("EVIDENCE_WRITE_FAILED", ("tool_calls",))
+            raise RuntimeError(feedback) from error
         if evidence.phase == "response":
             compare_usage(evidence.request, evidence.response)
+
+    @staticmethod
+    def _validate_react_tool_names(decisions: list[ReactDecision], tools: list[dict[str, Any]]) -> str:
+        """@brief 闭集工具名核对同样保留真实调用位置与全部合法工具。"""
+        allowed = tuple(item["function"]["name"] for item in tools if item["type"] == "function")
+        items = tuple(ErrorItem(("tool_calls", index, "function", "name"), decision.action,
+                                "TOOL_CALL_REQUIRED", allowed, "A tool offered in this round is required.",
+                                "The tool is not offered in this round.")
+                      for index, decision in enumerate(decisions) if decision.action not in allowed)
+        return host_feedback(host_report("TOOL_CALL_REQUIRED", items=items), items[0].why) if items else ""
 
     @staticmethod
     def _protocol_feedback_content(error: str) -> str:
@@ -187,12 +223,25 @@ class LifeAgent(PersonAgent):
         return feedback_content(error)
 
     def _parse_react_responses(self, response: Any, *, readonly: bool = False) -> tuple[list[ReactDecision], str]:
-        """@brief 解析原生工具调用（覆写 AS2 同名方法，锁定提交不改）：思考用尽输出上限的截断回合（finish_reason=length、
-        正文为空、没有工具调用）不按「没有工具调用」处理，改为 OUTPUT_TRUNCATED 纠错（docs/dev/SPEC-dayrun-fidelity.md
-        7.2）；其余照 AS2 解析。"""
+        """@brief 参数 JSON、未知工具和真实调用位置在执行前原子校验。"""
         if truncated(response):
             return [], truncation_feedback()
-        return super()._parse_react_responses(response, readonly=readonly)
+        choices = getattr(response, "choices", None)
+        message = getattr(choices[0], "message", None) if choices else None
+        calls = getattr(message, "tool_calls", None) or []
+        decisions, reports = _parse_model_calls(calls, self._life_request_models)
+        if reports:
+            for index, decision in decisions:
+                error = self._decision_error(decision)
+                if error:
+                    reports.append(bind_report(feedback_report(error), index))
+            return [], _combine_reports(reports)
+        parsed = [decision for _, decision in decisions]
+        finish = next((decision for decision in parsed if decision.action == "finish"), None)
+        if finish is not None and len(parsed) == 1:
+            parsed = [replace(finish, final=str(finish.args.get("answer", "")))]
+        return parsed, ""
+
 
     def _append_react_protocol_feedback(self, messages: list[dict[str, Any]], response: Any, error: str) -> None:
         """@brief 把协议纠错加入下一回合的消息历史（覆写 AS2 同名方法，锁定提交不改，docs/dev/SPEC-dayrun-fidelity.md 7.2）。
@@ -269,13 +318,14 @@ class LifeAgent(PersonAgent):
         return remaining
 
     def _request_tool_models(self, readonly: bool) -> dict[str, type[BaseModel]]:
-        """@brief 当前请求的工具模型：为世界请求（只读为 finish）保留 1 个回合，剩余不少于 2 个时才开放记忆查询；截断重试
-        同样不开放记忆查询，只能给出世界请求（只读为 finish，docs/dev/SPEC-dayrun-fidelity.md 7.2）。"""
+        """@brief 最终模型回合和截断重试只允许世界请求；只读问答只允许 finish。"""
         retry = retry_due(self._react_messages, self._last_model_request)
-        memory = _MEMORY_TOOL_MODELS if self._remaining_turns() > 1 and not retry else {}
+        queries = _QUERY_TOOL_MODELS if self._remaining_turns() > 1 and not retry else {}
         if readonly:
+            memory = {name: model for name, model in queries.items() if name in _MEMORY_TOOL_MODELS}
             return {**memory, "finish": ReadonlyFinishRequest}
-        return {**REQUEST_MODELS, **memory}
+        return {**_WORLD_TOOL_MODELS, **queries}
+
 
     def _persona_card_text(self) -> str:
         """@brief 从公开人物档案字段确定性渲染人物卡片文本（记忆巩固与反思使用）。"""
@@ -317,6 +367,7 @@ class LifeAgent(PersonAgent):
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
         """@brief 从一次冻结观察组装六层、菜单与本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。"""
+        self._life_observation = data
         self._prepare_verified_experiences(data)
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
@@ -362,39 +413,41 @@ class LifeAgent(PersonAgent):
         if evidence is not None:
             await self._env.record_memory_update(evidence)
 
-    def validate_react_decisions(
-        self,
-        decisions: list[ReactDecision],
-        readonly: bool,
-    ) -> str:
-        """@brief 在执行任何工具前验证闭集参数、原子动作数量与名称（名称只按私有绑定核对，不查可用性）。
-
-        不成立时返回 HostFeedback：证据文字为「<错误码>: <英文说明>」，AS2 把它原样交给 _protocol_feedback_content 写成
-        共用错误结构（docs/dev/SPEC-dayrun-fidelity.md 第四章）；成立时为空串。
-        """
+    def validate_react_decisions(self, decisions: list[ReactDecision], readonly: bool) -> str:
+        """@brief 整批先校验全部独立错误，再允许任何查询或世界请求执行。"""
         if readonly != self._life_readonly:
             raise RuntimeError("LifeAgent readonly decision state is inconsistent")
-        error = _batch_error(decisions, self._life_action_count)
-        for decision in decisions:
-            error = error or self._decision_error(decision)
-        return error
+        reports = []
+        batch = _batch_error(decisions, self._life_action_count, tuple(self._life_request_models))
+        if batch:
+            reports.append(feedback_report(batch))
+        for index, decision in enumerate(decisions):
+            error = self._decision_error(decision)
+            if error:
+                reports.append(bind_report(feedback_report(error), index))
+        if reports:
+            return _combine_reports(reports)
+        self._life_call_positions = {decision.tool_call_id: index for index, decision in enumerate(decisions)}
+        return ""
+
 
     def _decision_error(self, decision: ReactDecision) -> str:
-        """@brief 一个工具调用：工具不在本次提供之列为 TOOL_CALL_REQUIRED，参数形状不符为 ARGUMENTS_INVALID（按字段写
-        原因），再按冻结观察核对名称与菜单。"""
+        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义。"""
         model = self._life_request_models.get(decision.action)
         if model is None:
-            return host_feedback(host_report("TOOL_CALL_REQUIRED", f"「{decision.action}」不是这次提供的工具",
-                                             "只调用这次请求里提供的工具"), f"unknown LifeAgent tool: {decision.action}")
+            item = ErrorItem(("tool_calls", 0, "function", "name"), decision.action, "TOOL_CALL_REQUIRED",
+                             tuple(self._life_request_models), "A tool offered in this round is required.",
+                             "The requested tool is not offered in this round.")
+            return host_feedback(host_report("TOOL_CALL_REQUIRED", items=(item,)), item.why)
         try:
             validated = _validate_request(model, decision.args)
-        except ValidationError as exc:
-            return argument_feedback(decision.action, exc)
-        try:
-            return self._prepared_action_error(decision.action, validated)
-        except Exception as exc:
-            logging.error("LifeAgent could not check %s arguments: %s", decision.action, exc)
-            return host_feedback(host_report("ARGUMENTS_INVALID"), f"invalid {decision.action} arguments: {exc}")
+        except ValidationError as error:
+            return argument_feedback(decision.action, error, model, decision.args)
+        if decision.action == "query_world":
+            report = validate_world_query(self._life_observation, validated)
+            return host_feedback(report, report.reason) if report else ""
+        return self._prepared_action_error(decision.action, validated)
+
 
     def _prepared_action_error(self, action: str, request: BaseModel) -> str:
         """@brief 用同一冻结观察核对名称与菜单；非生活动作（记忆查询、finish）不核对名称，菜单只剪裁 start_activity 各项经
@@ -423,10 +476,19 @@ class LifeAgent(PersonAgent):
             self._append_react_tool_result(decision, result)
             request.observations.append({"turn": turn, "action": decision.action, "ok": result.ok,
                                          "observation": result.observation, "data": result.data})
-            if decision.action in REQUEST_MODELS:
+            if decision.action in _WORLD_TOOL_MODELS:
                 self._last_finish_memories = _conclusion_memories(decision.action, decision.args)
                 return f"{decision.action} registered"
         return None
+
+    async def _execute_react_tool(self, decision: ReactDecision, *, readonly: bool = False) -> ReactToolResult:
+        """@brief 工具服务异常保留调用位置；不声称失败的调用已执行。"""
+        try:
+            return await super()._execute_react_tool(decision, readonly=readonly)
+        except Exception as error:
+            index = self._life_call_positions[decision.tool_call_id]
+            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))
+            raise RuntimeError(feedback) from error
 
     async def dispatch_react_tool(
         self,
@@ -436,10 +498,22 @@ class LifeAgent(PersonAgent):
         readonly: bool = False,
     ) -> ReactToolResult:
         """@brief 直接执行生活动作或严格只读记忆工具。"""
-        if action in REQUEST_MODELS:
+        if self._life_action_count:
+            logging.error("Tool dispatch attempted after the world request ended this decision")
+            raise RuntimeError("Life action was already submitted")
+        if action in _WORLD_TOOL_MODELS:
             if readonly:
                 raise RuntimeError("Life actions are disabled in readonly mode")
             return await self._submit_life_action(action, args)
+        if action == "query_world":
+            data = query_world(self._life_observation, _validate_request(QueryWorldRequest, args))
+            return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)
+        if action == "recall_task_summary":
+            if self._env is None:
+                raise RuntimeError("Environment is not initialized")
+            data = await self._env.read_query(self.require_decision_context(), action,
+                                              _validate_request(REQUEST_MODELS[action], args))
+            return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)
         if action in _MEMORY_TOOL_MODELS:
             return self._dispatch_strict_memory(action, args)
         raise RuntimeError(f"Unsupported LifeAgent tool dispatch: {action}")
@@ -471,14 +545,18 @@ class LifeAgent(PersonAgent):
     def _append_react_tool_result(self, decision: ReactDecision, result: ReactToolResult) -> None:
         """@brief 世界请求登记后不追加任何 tool 消息；记忆查询的结果只序列化一次写进 tool 消息。
 
-        宿主仍完整保留回执（审计与幂等）；失败的记忆查询以 {"error": 原因} 反馈给模型重试。
+        宿主完整保留回执；查询失败保留五字段结构和实际调用位置。
         """
-        if decision.action in REQUEST_MODELS:
+        if decision.action in _WORLD_TOOL_MODELS:
             return
         if not decision.tool_call_id:
             logging.error("Native tool call id is unavailable")
             raise RuntimeError("Native tool call id is unavailable")
-        payload = result.data if result.ok else {"error": result.observation}
+        payload = result.data
+        if not result.ok:
+            index = self._life_call_positions[decision.tool_call_id]
+            payload = {**payload, "items": [{**item, "path": ["tool_calls", index, *item["path"][2:]]}
+                                           for item in payload["items"]]}
         self._react_messages.append({"role": "tool", "tool_call_id": decision.tool_call_id,
                                      "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))})
 
@@ -496,10 +574,19 @@ class LifeAgent(PersonAgent):
         # 工具失败必须以 ReactToolResult(False) 反馈给模型重试；raise 会穿透无 try/except 的
         # dispatch_react_tool 覆写杀 run。
         if not ok:
-            return ReactToolResult(False, observation, {"error": observation})
+            feedback = _stage_feedback("MEMORY_QUERY_FAILED", ("tool_calls", 0), observation)
+            return ReactToolResult(False, str(feedback), feedback.report.payload())
         episodes = [{key: item.get(key) for key in _MEMORY_RESULT_FIELDS} for item in data.get("episodes", [])]
         projected = {"epistemic_status": "subjective", "episodes": episodes}
         return ReactToolResult(True, json.dumps(projected, ensure_ascii=False), projected)
+
+
+def _stage_feedback(code: str, path: tuple, detail: str | None = None) -> HostFeedback:
+    """@brief 服务和证据异常明确指出失败阶段，不虚构参数或执行结果。"""
+    report = host_report(code)
+    reason = f"{report.reason} {detail}" if detail else report.reason
+    item = ErrorItem(path, None, code, expected=report.fix, why=reason)
+    return host_feedback(replace(report, reason=reason, items=(item,)), reason)
 
 
 def _validate_request(model: type[BaseModel], values: dict[str, Any]) -> BaseModel:
@@ -682,34 +769,29 @@ def _control_feedback(action: str, items: tuple[ControlItem, ...], names: dict[s
 
 
 def _subject_issues(items: tuple[ControlItem, ...], known: frozenset[str]) -> list[HostIssue]:
-    """@brief relationship 看法的对象（views 的 about，存储为 subject）须是已知人物：卡片关系名、场景联系人称谓或同世界
-    人物姓名（规格第一章「人设层」）。不认识的逐条写成 SUBJECT_NOT_KNOWN：明细的序号为所在的一项、参数名为 about、原文为所写
-    的名字（同一项重复写同一个名字只报一次）；英文说明为「conclude_activity relationship subject is not a known person: <名字>」。"""
-    total = len(items)
-    unknown = dict.fromkeys((index, view["subject"]) for index, item in enumerate(items) for view in item.views
-                            if view["type"] == "relationship" and view["subject"] not in known)
-    return [HostIssue(ErrorItem(index, "about", name, "SUBJECT_NOT_KNOWN"),
-                      f"{numbered(index, total)}关系看法写的对象「{name}」不是认识的人",
-                      f"conclude_activity relationship subject is not a known person: {name}")
-            for index, name in unknown]
+    """@brief 每条关系看法的真实嵌套位置独立返回。"""
+    issues = []
+    for index, item in enumerate(items):
+        for view_index, view in enumerate(item.views):
+            if view["type"] != "relationship" or view["subject"] in known:
+                continue
+            reason = f"The relationship subject {view['subject']} is not a known person."
+            error = ErrorItem(("items", index, "views", view_index, "about"), view["subject"],
+                              "SUBJECT_NOT_KNOWN", expected="The exact name of a known person is required.", why=reason)
+            issues.append(HostIssue(error, reason, reason))
+    return issues
 
 
-def _batch_error(decisions: list[ReactDecision], submitted: int) -> str:
-    """@brief 一次回复的工具调用组合：至多一个世界请求，世界请求单独调用，且本次决策还没有登记过世界请求；不成立时为
-    TOOL_CALL_REQUIRED。"""
-    business = [item for item in decisions if item.action in REQUEST_MODELS]
-    if len(business) > 1:
-        return host_feedback(host_report("TOOL_CALL_REQUIRED", f"一次回复只能提交一个世界请求，这次有 {len(business)} 个",
-                                         "只保留一个世界请求重新提交"),
-                             "one model response cannot contain multiple life actions")
-    if business and len(decisions) != 1:
-        return host_feedback(host_report("TOOL_CALL_REQUIRED", "世界请求要单独调用，这次还同时调用了别的工具",
-                                         "先单独查记忆，或者只提交世界请求"),
-                             "a life action must be the only tool call in its model response")
-    if business and submitted:
-        return host_feedback(host_report("TOOL_CALL_REQUIRED", "这次决策已经提交过世界请求", "不再调用世界请求工具"),
-                             "this decision already submitted its life action")
-    return ""
+def _batch_error(decisions: list[ReactDecision], submitted: int, available: tuple = ()) -> str:
+    """@brief 只读查询可同批，世界请求或 finish 必须独占，整批原子拒绝。"""
+    business = [item for item in decisions if item.action in _WORLD_TOOL_MODELS or item.action == "finish"]
+    invalid = not decisions or len(business) > 1 or (business and len(decisions) != 1) or bool(submitted)
+    if not invalid:
+        return ""
+    reason = "Submit exactly one world request, or a batch containing only read queries."
+    item = ErrorItem(("tool_calls",), [item.action for item in decisions], "TOOL_CALL_REQUIRED", available,
+                     reason, "The call combination violates atomic batch rules.")
+    return host_feedback(host_report("TOOL_CALL_REQUIRED", reason, items=(item,)), reason)
 
 
 def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: str) -> str:
@@ -719,36 +801,23 @@ def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: 
 
 
 def _name_issues(field: tuple[str, str], written: list[str], visible, detail: str) -> list[HostIssue]:
-    """@brief 名称类参数逐项解析（精确或无损归一后唯一即受理，worldmock.life.name_resolution.resolve_name，环境受理用同一
-    函数）：找不到的写成 NAME_NOT_FOUND（原因列出最接近的几个名称），归一后不止一个的写成 NAME_AMBIGUOUS（原因列出它们），
-    逐项全部列出；都成立时为空列表。
-
-    :param field: （参数名，名称所指的东西），如 ("activity_name", "活动")。
-    :param detail: 找不到时的英文说明（证据用）。
-    """
-    total, issues = len(written), []
+    """@brief 名称错误逐项返回完整位置，名称不是静态参数枚举。"""
+    issues = []
     for index, name in enumerate(written):
         match = resolve_name(name, visible)
         if match.name is not None:
             continue
-        lead = f"{numbered(index, total)}「{name}」"
-        if match.matches:
-            issues.append(HostIssue(ErrorItem(index, field[0], name, "NAME_AMBIGUOUS"),
-                                    f"{lead}对应不止一个{field[1]}：{_quoted(match.matches)}",
-                                    f"{field[0]} matches several visible names"))
-            continue
-        near = near_names(name, visible)
-        issues.append(HostIssue(ErrorItem(index, field[0], name, "NAME_NOT_FOUND"),
-                                f"{lead}不是本轮列出的{field[1]}" + (f"，最接近的是{_quoted(near)}" if near else ""),
-                                detail))
+        code = "NAME_AMBIGUOUS" if match.matches else "NAME_NOT_FOUND"
+        reason = f"The name {name} is ambiguous." if match.matches else f"The name {name} is not known."
+        path = ("items", index, field[0]) if field[0] == "activity_name" else (field[0],)
+        error = ErrorItem(path, name, code, expected="One exact known name is required.", why=reason)
+        issues.append(HostIssue(error, reason, detail))
     return issues
 
 
 def _name_fixes(total: int) -> dict[str, str]:
-    """@brief 名称类参数纠错的改法：照各层中的写法填写（多项时也可以去掉这一项），有歧义时改写成列出的某一个完整名称；
-    其余码（如 SUBJECT_NOT_KNOWN）取默认改法。"""
-    fix = "照工具层、待办层或记忆层中的写法填写名称" + ("，或者去掉这一项" if total > 1 else "")
-    return {"NAME_NOT_FOUND": fix, "NAME_AMBIGUOUS": "改写成原因里列出的某一个完整名称"}
+    """@brief 修正姓名时使用公开的完整写法。"""
+    return {"NAME_NOT_FOUND": "Use an exact known name.", "NAME_AMBIGUOUS": "Use an unambiguous complete name."}
 
 
 def _quoted(names) -> str:
@@ -757,81 +826,38 @@ def _quoted(names) -> str:
 
 
 def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
-    """@brief 对象、动词与方式逐项经统一名称解析（worldmock.life.name_resolution.resolve_start，与环境受理同一冻结观察、
-    同一函数）；来源、去向与 answering 按归一后的请求判定组合（worldmock.life.routing，与环境受理同一判定）。
-
-    本轮列出的对象、目录绑定（没有列出的生活活动、内容与游戏）与冻结地点表中的名称精确或无损归一后唯一即受理，存在
-    但没有列出的由环境受理时判定资格与准入；obtain 以到店、远程下单或「购买」（含同义写法）写出的其余名称放行，商品目标
-    写「购买」也放行，由环境按指名购买解析商品（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条、3.5）。名称类错误（找不到、
-    有歧义、对象没有列出所写的动词与方式、列出的标签写明了门店而 from 是另一个已知地点）逐项报全部，候选可以照填，其余
-    条件报第一条（3.1 第 5 条、第四章）；from 写 App 称呼或不认识的写法时放行，由环境按渠道与来源解析（3.3）。去向不是
-    任何人物（RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（人物 Prompt 规格第五章「来源与去向」）。
-    """
-    count = len(request.targets)
-    if not 1 <= count <= _START_ACTIVITY_MAX_TARGETS:
-        report = (host_report("TOO_MANY_TARGETS", f"一次最多选两个目标，这次写了 {count} 个") if count
-                  else host_report("ARGUMENTS_INVALID", "targets 至少要写一个目标", "targets、actions、ways 各写一项"))
-        return host_feedback(report, "start_activity accepts one or two targets")
-    if count != len(request.actions) or len(request.actions) != len(request.ways):
-        return host_feedback(host_report(
-            "ARGUMENTS_INVALID", f"targets、actions、ways 要逐项对应、一样长，这次分别有 {count}、"
-            f"{len(request.actions)}、{len(request.ways)} 项", "每个目标各写一个动词和一个方式"),
-            "start_activity targets, actions and ways must have equal lengths")
+    """@brief 名称、方式、来源和去向的所有独立错误原子合并。"""
     outcome = resolve_start(names["book"], request)
+    issues = [HostIssue(failure.item, failure.sentence, failure.detail) for failure in outcome.failures]
+    failed = {failure.item.path[1] for failure in outcome.failures}
     route = combination_issues(outcome.request, names["routing"])
-    issues = [*(HostIssue(failure.item, failure.sentence, failure.detail) for failure in outcome.failures),
-              *_source_issues(outcome.request, route)]
-    if issues:
-        return merged_feedback(issues, count, _START_NAME_FIXES)
-    first = next((issue for issue in route if issue.code != RECIPIENT_NOT_FOUND), None)
-    return _route_feedback(first, count) if first is not None else ""
-
-
-#: start_activity 名称类纠错的改法：找不到与有歧义时都有可以照填的候选（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 3 条）。
-_START_NAME_FIXES = {"NAME_NOT_FOUND": "改用候选里的请求，或者照工具层、待办层中的写法重写这一项，或者去掉这一项",
-                     "NAME_AMBIGUOUS": "改用候选里写完整名称的请求"}
-
-
-def _source_issues(request, route: list[RouteIssue]) -> list[HostIssue]:
-    """@brief 来源与去向中的名称类问题（本轮列出的标签写明了门店，from 却是另一个已知地点，SUPPLY_SOURCE_MISMATCH；写的
-    正是这家店时已在名称解析中按冗余受理，App 称呼与不认识的写法交给环境，docs/dev/SPEC-dayrun-fidelity.md 3.2（b））逐项
-    写成明细，候选为同一项改 from 为 null；其余问题（ROUTE_FIELDS_INVALID）不在此列，只报第一条。
-
-    :param request: 归一后的 start_activity 请求（name_resolution.StartRequest）。
-    """
-    total, issues = len(request.targets), []
     for issue in route:
-        if issue.host_code not in HOST_NAME_CODES:
+        if issue.index in failed:
             continue
-        index = issue.index
-        candidate = Candidate(request.targets[index], request.actions[index], request.ways[index], None,
-                              request.to[index])
-        issues.append(HostIssue(ErrorItem(index, issue.field, issue.written, issue.host_code, (candidate,)),
-                                f"{numbered(index, total)}「{request.targets[index]}」已经写明了门店，"
-                                f"from「{issue.written}」是另一个地点", f"{issue.detail} (targets[{index}])"))
-    return issues
+        path = ("items", issue.index, issue.field) if issue.index is not None else (issue.field,)
+        item = ErrorItem(path, issue.written, issue.host_code or "ROUTE_FIELDS_INVALID", issue.allowed_values,
+                         issue.reason, issue.detail)
+        issues.append(HostIssue(item, issue.reason, issue.detail))
+    return merged_feedback(issues, len(request.items)) if issues else ""
 
 
-def _route_feedback(issue: RouteIssue, total: int) -> HostFeedback:
-    """@brief 来源、去向或 answering 不相配（ROUTE_FIELDS_INVALID）：报第一条，逐项的问题带该项明细。"""
-    items = [] if issue.index is None else [ErrorItem(issue.index, issue.field, issue.written, issue.host_code)]
-    lead = "" if issue.index is None else numbered(issue.index, total)
-    reason = f"{lead}：{issue.reason}" if lead else issue.reason
-    return host_feedback(host_report(issue.host_code, reason, issue.fix, items), issue.detail)
+
+
 
 
 def _menu_feedback(denied: str, request: BaseModel, outcome: StartOutcome, allowed: tuple[str, ...]) -> HostFeedback:
-    """@brief 本地交互菜单不允许的项包成 WAY_NOT_OFFERED：逐项写出这里不能那样做的项（经名称解析选中的内部动作不在菜单里，
-    未列出的指名购买计为购买）。"""
-    total, issues = len(request.targets), []
+    """@brief 菜单拒绝保留每项方式位置和目标方式闭集。"""
+    issues = []
     for index, row in enumerate(outcome.rows):
         action = row["selected_action"]
-        if action["canonical_action"] not in allowed:
-            doing = f"{action['verb']}{VERB_WAY_SEPARATOR}{action['label']}"
-            issues.append(HostIssue(ErrorItem(index, "ways", request.ways[index], "WAY_NOT_OFFERED"),
-                                    f"{numbered(index, total)}「{row['object']}」在这里不能「{doing}」",
-                                    f"{denied} (targets[{index}])"))
-    return merged_feedback(issues, total, {"WAY_NOT_OFFERED": "改选这里能做的事，或者先去能这样做的地方"})
+        if action["canonical_action"] in allowed:
+            continue
+        reason = f"The way for {row['object']} is not admitted at the current place."
+        ways = tuple(item["label"] for item in row["actions"] if item["canonical_action"] in allowed)
+        item = ErrorItem(("items", index, "way"), request.items[index].way, "WAY_NOT_OFFERED", ways,
+                         "This way requires an admitting location.", reason)
+        issues.append(HostIssue(item, reason, denied))
+    return merged_feedback(issues, len(request.items))
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
@@ -848,22 +874,20 @@ def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
 
 
 def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
-    """@brief 修订仅包含未推进目标，合并后保持容量和意图唯一性；不成立时为 ARGUMENTS_INVALID（重交已推进的目标逐项写出）。"""
+    """@brief 修订保留已推进目标并逐项明确重复意图位置。"""
+    issues = []
     if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:
-        logging.error("Day plan exceeds eight goals after preserving progressed goals")
-        return host_feedback(host_report(
-            "ARGUMENTS_INVALID", f"今日计划连同已推进的目标最多八条，这次合计 {len(goals) + len(progressed_intents)} 条",
-            "删掉几条目标，使连同已推进的不超过八条"), "day plan requires at most eight goals including progressed goals")
-    total = len(goals)
-    resubmitted = [ErrorItem(index, "goals", goal.intent_kind, "ARGUMENTS_INVALID")
-                   for index, goal in enumerate(goals) if goal.intent_kind in progressed_intents]
-    if resubmitted:
-        logging.error("Day plan revision resubmits a progressed intent")
-        reason = "；".join(f"{numbered(item.index, total)}意图「{item.written}」的目标今天已经推进过，不能再提交"
-                          for item in resubmitted)
-        return host_feedback(host_report("ARGUMENTS_INVALID", reason, "修订时只写还没推进的目标", resubmitted),
-                             "revise_day_plan cannot resubmit progressed goals")
-    return ""
+        reason = "At most eight goals are allowed including preserved progressed goals."
+        issues.append(HostIssue(ErrorItem(("goals",), len(goals), "ARGUMENTS_INVALID", expected=reason,
+                                          why=reason), reason, reason))
+    for index, goal in enumerate(goals):
+        if goal.intent_kind not in progressed_intents:
+            continue
+        reason = "This intent has already progressed and cannot be resubmitted."
+        item = ErrorItem(("goals", index, "intent_kind"), goal.intent_kind, "ARGUMENTS_INVALID",
+                         expected="Submit only intents that have not progressed.", why=reason)
+        issues.append(HostIssue(item, reason, reason))
+    return merged_feedback(issues, len(goals)) if issues else ""
 
 
 def affordance_registry_sha256() -> str:
@@ -886,3 +910,59 @@ def life_tool_schema_sha256() -> str:
          "affordance_registry_sha256": affordance_registry_sha256()},
         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _combine_reports(reports: list[ErrorReport]) -> HostFeedback:
+    """@brief 保留批内全部独立明细，一次纠正后整体重交。"""
+    items = tuple(item for report in reports for item in report.items)
+    reason = "; ".join(dict.fromkeys(report.reason for report in reports))
+    report = ErrorReport(reports[0].error_code, reason, "Correct all reported errors and resubmit the entire batch.",
+                         items, tuple(dict.fromkeys(value for report in reports for value in report.unmet)))
+    return host_feedback(report, reason)
+
+
+def _parse_model_calls(calls: list, models: dict) -> tuple[list, list[ErrorReport]]:
+    """@brief 逐调用保留 JSON 损坏位置和本轮工具枚举，合法调用仍参与独立校验。"""
+    if not calls:
+        reason = "At least one complete native tool call is required."
+        item = ErrorItem(("tool_calls",), calls, "TOOL_CALL_REQUIRED", tuple(models), reason, reason)
+        return [], [host_report("TOOL_CALL_REQUIRED", reason, items=(item,))]
+    decisions, reports, seen = [], [], set()
+    for index, call in enumerate(calls):
+        function = getattr(call, "function", None)
+        name = getattr(function, "name", None)
+        raw = getattr(function, "arguments", None)
+        identity = getattr(call, "id", None)
+        if name not in models:
+            item = ErrorItem(("tool_calls", index, "function", "name"), name, "TOOL_CALL_REQUIRED", tuple(models),
+                             "A tool offered in this round is required.", "The tool is not offered in this round.")
+            reports.append(host_report("TOOL_CALL_REQUIRED", items=(item,)))
+        if not identity or identity in seen:
+            item = ErrorItem(("tool_calls", index, "id"), identity, "TOOL_CALL_REQUIRED",
+                             expected="A non-empty unique tool call identity is required.",
+                             why="The tool call identity is missing or duplicated.")
+            reports.append(host_report("TOOL_CALL_REQUIRED", items=(item,)))
+        seen.add(identity)
+        parsed, error = _parse_arguments(raw, index)
+        if error:
+            reports.append(error)
+        elif name in models:
+            decisions.append((index, ReactDecision("", name, parsed, "", identity)))
+    return decisions, reports
+
+
+def _parse_arguments(raw: Any, index: int) -> tuple[dict | None, ErrorReport | None]:
+    """@brief JSON 损坏时只定位调用参数根，不猜未完成字段。"""
+    path = ("tool_calls", index, "function", "arguments")
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else None
+    except json.JSONDecodeError as error:
+        expected = f"A complete JSON object is required; parsing failed at line {error.lineno}, column {error.colno}."
+        item = ErrorItem(path, raw, "ARGUMENTS_NOT_JSON", expected=expected,
+                         why="The arguments JSON is malformed or incomplete.")
+        return None, host_report("ARGUMENTS_NOT_JSON", items=(item,))
+    if not isinstance(parsed, dict):
+        item = ErrorItem(path, parsed, "ARGUMENTS_NOT_JSON", expected="A complete JSON object is required.",
+                         why="The tool arguments are not a JSON object.")
+        return None, host_report("ARGUMENTS_NOT_JSON", items=(item,))
+    return parsed, None

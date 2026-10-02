@@ -318,7 +318,7 @@ def test_unfinished_browse_concludes_without_a_browse_result(engine_factory) -> 
     name = activity_name(engine, started.activity_id)
     _, ended = _round(engine, "browse-end", "conclude_activity", conclude_request(name, summary="逛完了。"))
     assert ended.data["outcome"] == [{"activity": name, "outcome": "提前结束", "items": [],
-                                      "note": "未取得浏览结果"}]
+                                      "note": "Browsing did not finish. No item changes."}]
     details = last_result(engine.observe(context(engine, "browse-seen")))["details"]
     assert details == {"outcome": ended.data["outcome"]}
     _, again = _round(engine, "browse-again", "start_activity", start_activity("浏览", "商品目录"))
@@ -326,7 +326,9 @@ def test_unfinished_browse_concludes_without_a_browse_result(engine_factory) -> 
     assert advance_until_ready(engine)
     _, done = _round(engine, "browse-done", "conclude_activity",
                      conclude_request(activity_name(engine, again.activity_id)))
-    assert done.status == "completed" and "outcome" not in done.data
+    assert done.status == "completed"
+    assert done.data["outcome"][0]["items"] == []
+    assert done.data["outcome"][0]["note"] == "No item changes."
 
 
 def test_portion_duration_and_meal_portion_share_one_basis() -> None:
@@ -359,8 +361,8 @@ def test_open_meal_moves_the_portion_out_of_stock_only_for_eating() -> None:
     assert open_meal(agent, _consume(use_mode="use")) == (agent, {})
 
 
-def test_conclusion_outcome_names_failure_and_skips_other_activities() -> None:
-    """终局只按结算状态：失败写「失败」；进食以外、做完的浏览与其他活动没有终局项；非进食活动不写丢弃。"""
+def test_conclusion_outcome_names_failure_and_explicitly_reports_no_item_changes() -> None:
+    """终局只按结算状态；未发生库存变化的活动明确说明，不从自述伪造产物。"""
     food = _use_activity(_consume(), status=ActivityStatus.FAILED, ended_at=300, elapsed_seconds=300)
     food.data.update(opened={"food-1": 1.0}, consumed={"food-1": 0.2})
     ended = discard_opened(food)
@@ -370,4 +372,5 @@ def test_conclusion_outcome_names_failure_and_skips_other_activities() -> None:
         {"product": "面", "eaten": "0.2 份", "discarded": "0.8 份", "remaining": "2 份"}], "note": None}
     use = _use_activity(_consume(use_mode="use"), status=ActivityStatus.CANCELLED, ended_at=0)
     assert discard_opened(use) is use
-    assert conclusion_outcome(use, "用", {}, _agent()) is None
+    assert conclusion_outcome(use, "用", {}, _agent()) == {
+        "activity": "用", "outcome": "提前结束", "items": [], "note": "No item changes."}

@@ -10,7 +10,7 @@
     "venue",
     "anywhere"
   ],
-  "count": 183,
+  "count": 180,
   "entries": {
     "3d-printing": {
       "location_kinds": [
@@ -76,22 +76,6 @@
         "health": 0.1
       }
     },
-    "baking": {
-      "location_kinds": [
-        "home",
-        "venue"
-      ],
-      "time_window": {
-        "start_hour": 8,
-        "end_hour": 23
-      },
-      "needs_partner": false,
-      "effects": {
-        "entertainment": 0.7,
-        "social": 0.1,
-        "health": 0.1
-      }
-    },
     "calligraphy": {
       "location_kinds": [
         "home",
@@ -141,22 +125,6 @@
       }
     },
     "coin-collecting": {
-      "location_kinds": [
-        "home",
-        "venue"
-      ],
-      "time_window": {
-        "start_hour": 8,
-        "end_hour": 23
-      },
-      "needs_partner": false,
-      "effects": {
-        "entertainment": 0.7,
-        "social": 0.1,
-        "health": 0.1
-      }
-    },
-    "cooking-research": {
       "location_kinds": [
         "home",
         "venue"
@@ -939,21 +907,6 @@
       }
     },
     "housework-cleaning": {
-      "location_kinds": [
-        "home"
-      ],
-      "time_window": {
-        "start_hour": 6,
-        "end_hour": 22
-      },
-      "needs_partner": false,
-      "effects": {
-        "entertainment": 0.1,
-        "social": 0.0,
-        "health": 0.2
-      }
-    },
-    "housework-cooking": {
       "location_kinds": [
         "home"
       ],

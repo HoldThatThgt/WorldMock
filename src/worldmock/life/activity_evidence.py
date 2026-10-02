@@ -9,7 +9,7 @@ from worldmock.life.readable import portion_phrase
 #: 收尾结果终局的说法（docs/dev/SPEC-persona-prompt.md 第五章「进食」）：自然吃完、主动提前结束、失败。
 OUTCOME_COMPLETED, OUTCOME_ENDED_EARLY, OUTCOME_FAILED = "完成", "提前结束", "失败"
 #: 未完成的浏览在收尾结果中的说明（第六章「未完成浏览被写成采购完成」）。
-BROWSE_UNFINISHED_NOTE = "未取得浏览结果"
+BROWSE_UNFINISHED_NOTE = "Browsing did not finish. No item changes."
 
 
 def is_eating(activity: ActivityState) -> bool:
@@ -31,11 +31,11 @@ def discard_opened(activity: ActivityState) -> ActivityState:
 
 
 def conclusion_outcome(activity: ActivityState, name: str, product_names: dict[str, str],
-                       agent: AgentState) -> dict | None:
+                       agent: AgentState) -> dict:
     """@brief 收尾结果 details.outcome 的一项：进食逐件写终局与已吃、丢弃、剩余份量，未完成的浏览写未取得浏览结果。
 
     终局只取结算状态（完成、提前结束、失败），人物在 summary 里写的话不改变它；剩余是该商品在进食地点仍持有的份数。
-    其余活动没有这一项（返回 None）。
+    制作只投影结算确认的真实输入与产物；没有库存变化时明确说明。
 
     :param name: 本次收尾点名该活动所用的可读名称。
     """
@@ -44,13 +44,31 @@ def conclusion_outcome(activity: ActivityState, name: str, product_names: dict[s
     if activity.kind == ActivityKind.BROWSE and activity.status != ActivityStatus.COMPLETED:
         return {"activity": name, "outcome": ending, "items": [], "note": BROWSE_UNFINISHED_NOTE}
     if not is_eating(activity):
-        return None
+        return _item_change_outcome(activity, name, product_names, agent, ending)
     eaten, discarded = activity.data.get("consumed", {}), activity.data.get("discarded", {})
     held = agent.inventory.get(activity.location_id, {})
     items = [{"product": product_names[product_id], "eaten": portion_phrase(eaten.get(product_id, 0.0)),
               "discarded": portion_phrase(discarded.get(product_id, 0.0)),
               "remaining": portion_phrase(held.get(product_id, 0.0))}
              for product_id in activity.data["opened"]]
+    return {"activity": name, "outcome": ending, "items": items, "note": None}
+
+
+def _item_change_outcome(activity: ActivityState, name: str, names: dict[str, str],
+                         agent: AgentState, ending: str) -> dict:
+    """@brief 库存转换完成才声称产出，人物自述与未完成的制作不能创造物品。"""
+    recipe = activity.data.get("inventory_recipe")
+    if recipe is None or not activity.data.get("recipe_applied"):
+        items = [{"product": names[identity], "consumed": portion_phrase(quantity), "produced": "0 份",
+                  "remaining": portion_phrase(agent.inventory.get(activity.location_id, {}).get(identity, 0))}
+                 for identity, quantity in activity.data.get("consumed", {}).items() if quantity > 0]
+        return {"activity": name, "outcome": ending, "items": items, "note": None if items else "No item changes."}
+    held = agent.inventory.get(activity.location_id, {})
+    items = [{"product": names[recipe[f"{side}_object_id"]],
+              "consumed": portion_phrase(float(recipe["input_quantity"])) if side == "input" else "0 份",
+              "produced": portion_phrase(float(recipe["output_quantity"])) if side == "output" else "0 份",
+              "remaining": portion_phrase(held.get(recipe[f"{side}_object_id"], 0))}
+             for side in ("input", "output")]
     return {"activity": name, "outcome": ending, "items": items, "note": None}
 
 

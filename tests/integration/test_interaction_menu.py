@@ -21,13 +21,8 @@ from tests.integration.test_life_agent_protocol import (
     _Environment, _GroundedCorrectionDispatcher, _ModelResponse, _SELF_OBJECT, _WAIT_CHOICE, _add_objects,
     _context, _observations, _offer, _visible_object, _wire_agent,
 )
-from worldmock.life.interaction_menu import (
-    WAYS,
-    InteractionMenu,
-    menu_allows_action,
-    resolve_interaction_menu,
-    resolve_selection,
-)
+from worldmock.life.interaction_menu import WAYS, InteractionMenu, menu_allows_action, resolve_interaction_menu
+from tests.life.conftest import select_start, start_arguments
 from worldmock.life.models import REQUEST_MODELS
 from tests.life.conftest import start_arguments
 
@@ -97,10 +92,10 @@ def test_actual_tool_schema_is_stable_whatever_the_menu() -> None:
     assert functions == _functions(opened)
     assert set(REQUEST_MODELS) <= set(functions) and "plan_day" not in functions
     properties = functions["start_activity"]["parameters"]["properties"]
-    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
-    assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
+    assert set(properties) == {"items", "answering", "prefer"}
+    assert all("enum" not in properties["items"]["items"]["properties"][name] for name in ("target", "way"))
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
-    assert "interaction menu" in closed.validate_react_decisions([decision], False)
+    assert "not admitted" in closed.validate_react_decisions([decision], False)
     assert opened.validate_react_decisions([decision], False) == ""
     assert all(WAYS[way][1] in {"sleep", "wait"} for way in ("等待", "睡觉"))
 
@@ -113,9 +108,9 @@ async def test_denied_readable_action_fails_local_and_direct_dispatch() -> None:
     agent._env = environment
     agent._decision_context = _context()
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
-    assert "interaction menu" in agent.validate_react_decisions([decision], False)
+    assert "not admitted" in agent.validate_react_decisions([decision], False)
     two = start_arguments(["自己", "整理会议纪要"], ["interact", "interact"], ["等待", "工作"])
-    assert "interaction menu" in agent.validate_react_decisions([ReactDecision("", "start_activity", two, "")],
+    assert "not admitted" in agent.validate_react_decisions([ReactDecision("", "start_activity", two, "")],
                                                                 False)
     with pytest.raises(RuntimeError, match="interaction menu"):
         await agent.dispatch_react_tool("start_activity", _WORK_CHOICE)
@@ -126,11 +121,11 @@ def test_menu_checks_only_start_activity_and_requires_human_action() -> None:
     """菜单按私有绑定映射后的内部动作逐项判定启动（整组都要在菜单内），不按短语反解；正文工具由自身业务条件校验。"""
     menu = InteractionMenu(allowed_actions=("sleep", "wait"))
     bindings = _observed_menu(("sleep", "wait"))[0]["data"]["interaction_bindings"]
-    [waiting] = resolve_selection(bindings, ["自己"], ["interact"], ["等待"])
-    [working] = resolve_selection(bindings, ["整理会议纪要"], ["interact"], ["工作"])
+    [waiting] = select_start(bindings, start_arguments(["自己"], ["interact"], ["等待"]))
+    [working] = select_start(bindings, start_arguments(["整理会议纪要"], ["interact"], ["工作"]))
     assert waiting["selected_action"]["canonical_action"] == "wait"
     assert working["selected_action"]["canonical_action"] == "work"
-    assert resolve_selection(bindings, ["整理会议纪要"], ["interact"], ["等待"]) is None
+    assert select_start(bindings, start_arguments(["整理会议纪要"], ["interact"], ["等待"])) is None
     assert menu_allows_action(menu, "start_activity", ["wait"])
     assert menu_allows_action(menu, "start_activity", ["wait", "sleep"])
     assert not menu_allows_action(menu, "start_activity", ["work"])
@@ -140,7 +135,6 @@ def test_menu_checks_only_start_activity_and_requires_human_action() -> None:
     assert menu_action_error(menu, "start_activity", ["sleep"]) == ""
     assert menu_allows_action(menu, "send_message", [])
     assert menu_action_error(menu, "send_message", []) == ""
-
 
 @pytest.mark.parametrize("broken", [
     None,
@@ -176,7 +170,7 @@ async def test_readonly_and_post_action_phases_do_not_reopen_business_tools() ->
     assert result == "start_activity registered"
     assert len(dispatcher.requests) == 1
     assert len(environment.calls) == 1
-    assert "already submitted" in agent.validate_react_decisions([
+    assert "world request" in agent.validate_react_decisions([
         ReactDecision("", "start_activity", wait, "")], False)
 
 

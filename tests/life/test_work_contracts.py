@@ -558,7 +558,7 @@ def test_resume_with_less_than_a_minute_to_the_deadline_is_a_business_rejection(
     assert _pause(engine, "late-pause", work_id).status == "completed"
     rejected = _resume(engine, "late-resume", work_id)
     assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_DURATION_INVALID"
-    assert (rejected.data["reason"], rejected.data["next_step"]) == ("离截止不到一分钟，来不及开始", "提交已完成的部分")
+    assert (rejected.data["reason"], rejected.data["next_step"]) == ("Less than one minute remains before the deadline; work cannot start.", "Submit the completed work.")
     assert engine.state.current_time == _clock("17:29:01")
     assert engine.state.activities[work_id].status == "paused"
     assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
@@ -596,14 +596,14 @@ def test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_
     target = tool_targets(observed)[name]
     assert target["kind"] == "task" and target["actions"] == []
     assert target["contract"]["deadline"] == _DEADLINE and target["contract"]["outlook"] == "已过截止"
-    assert target["tools"] == [{"tool": "submit_work", "available": False, "reason": "已经过了截止时间"}]
+    assert target["tools"] == [{"tool": "submit_work", "available": False, "reason": "The work submission deadline has passed."}]
     assert "失败" not in json.dumps(target, ensure_ascii=False)
     assert {"task_name": name, "task_id": task.task_id} in observed["task_bindings"]
     engine.submit_action(DirectToolCall(decision, "action-overdue-submit", "submit_work", SubmitWorkActionRequest(
         task_name=name, deliverable=_submission(task).deliverable)))
     rejected = engine.commit_decision_round("overdue-submit")[0]
     assert (rejected.status, rejected.error_code) == ("rejected", "WORK_SUBMISSION_LATE")
-    assert (rejected.data["reason"], rejected.data["next_step"]) == ("已经过了截止时间", "这项工作不再提交，改做别的事")
+    assert (rejected.data["reason"], rejected.data["next_step"]) == ("The work submission deadline has passed.", "Choose another action; the submission deadline has passed.")
     assert task.task_id not in engine.state.paid_task_ids
     assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
                 if event.event_type == "run_failed"]
@@ -640,10 +640,8 @@ def test_a_one_minute_requirement_is_written_as_a_readable_phrase(engine_factory
                          for item in shown}
 
 
-def test_a_task_beyond_the_persons_skill_is_not_listed(deadline_engine) -> None:
-    """技能不够的任务永久不能开工，不列：工具层没有它的任务目标，私有的对象绑定与任务名绑定里都没有它，提交与回看都不认
-    这个名称（docs/dev/SPEC-persona-prompt.md「工具层」「永久不能满足的（没有路线、技能不够）不列」）。技能够得上时同一
-    任务照常列出并可开工。"""
+def test_a_known_task_keeps_its_contract_when_skill_is_insufficient(deadline_engine) -> None:
+    """已知任务公开合同保持可见，技能不足只阻止开工并给出真实原因。"""
     engine = deadline_engine
     task = engine.scenario.tasks[0]
     name = f"工作：{task.title}"
@@ -652,10 +650,12 @@ def test_a_task_beyond_the_persons_skill_is_not_listed(deadline_engine) -> None:
     assert {"task_name": name, "task_id": task.task_id} in skilled["task_bindings"]
     stage(engine, lambda state: state.agents[1].skill_levels.update({task.required_skill: task.minimum_skill - 0.1}))
     _, unskilled = _observe_at(engine, "unskilled", _clock("10:00:01"))
-    assert name not in tool_targets(unskilled)
-    assert all(row["object_id"] != task.task_id for row in unskilled["interaction_bindings"])
-    assert all(row["task_id"] != task.task_id for row in unskilled["task_bindings"])
-    assert task.title not in json.dumps(unskilled["tool_layer"], ensure_ascii=False)
+    target = tool_targets(unskilled)[name]
+    assert target["contract"] == tool_targets(skilled)[name]["contract"]
+    assert target["actions"][0]["available"] is False
+    assert "skill" in target["actions"][0]["reason"]
+    assert any(row["object_id"] == task.task_id for row in unskilled["interaction_bindings"])
+    assert any(row["task_id"] == task.task_id for row in unskilled["task_bindings"])
 
 
 def test_target_met_while_still_working_states_the_three_facts_separately(deadline_engine) -> None:
@@ -679,12 +679,12 @@ def test_target_met_while_still_working_states_the_three_facts_separately(deadli
     assert (working["kind"], working["phase"]) == ("activity", "进行中")
     assert "达标" not in working["state"] and "提交" not in working["state"]
     assert target_tools(observed, name)["submit_work"] == {
-        "tool": "submit_work", "available": False, "reason": "先结束正在做的工作"}
+        "tool": "submit_work", "available": False, "reason": "This work activity is still in progress."}
     assert observed["task_bindings"] == [{"task_name": name, "task_id": task.task_id}]
     engine.submit_action(DirectToolCall(decision, "action-met-submit", "submit_work", SubmitWorkActionRequest(
         task_name=name, deliverable=_submission(task).deliverable)))
     rejected = engine.commit_decision_round("met-observe")[0]
     assert (rejected.status, rejected.error_code) == ("rejected", "WORK_TASK_IN_PROGRESS")
-    assert rejected.data["reason"] == "先结束正在做的工作"
+    assert rejected.data["reason"] == "This work activity is still in progress."
     assert engine.state.activities[work_id].status == "active"
     assert tuple(reason.value for reason in WakeReason) == _WAKE_REASONS

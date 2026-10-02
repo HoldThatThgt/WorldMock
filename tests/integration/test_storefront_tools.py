@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import expand_tool_layer
+
 import copy
 import json
 import os
@@ -95,21 +97,21 @@ def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
     tools = _functions(person)
     assert "purchase" not in tools and "discover_places" not in tools
     action = tools["start_activity"]["parameters"]
-    assert set(action["properties"]) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
-    assert action["properties"]["prefer"]["enum"] == ["fastest", "cheapest", None]
-    assert "「购买」" in action["properties"]["prefer"]["description"]
+    assert set(action["properties"]) == {"items", "answering", "prefer"}
+    assert action["properties"]["prefer"]["enum"] == ["最快拿到", "到手价最低", None]
+    assert "购买时" in action["properties"]["prefer"]["description"]
     user = person.build_react_messages(ReactLoopRequest(0, _context().observed_at, observed))[1]["content"]
-    [target] = [row for row in json.loads(user)[0]["targets"] if row["name"] == _OFFER]
+    [target] = [row for row in expand_tool_layer(json.loads(user)[0])["targets"] if row["name"] == _OFFER]
     assert target["kind"] == "product"
     assert [(item["action"], item["way"]) for item in target["actions"]] == [("obtain", "到店"), ("obtain", "远程下单")]
     for text in ("pickup", "delivery", "price-private", "supply-private"):
         assert text not in str(action) and text not in user
     for way in ("到店", "远程下单", "购买"):
         assert person.validate_react_decisions([_obtain(_OFFER, way)], False) == ""
-    assert "not offered" in person.validate_react_decisions([
+    assert person.validate_react_decisions([
         ReactDecision("", "start_activity", start_arguments([_OFFER], ["consume"], ["到店"]), ""),
-    ], False)
-    assert "invalid start_activity arguments" in person.validate_react_decisions([
+    ], False) == ""
+    assert "not declared" in person.validate_react_decisions([
         _obtain(_OFFER, price_version="guessed"),
     ], False)
 
@@ -125,7 +127,7 @@ def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label
         assert person.validate_react_decisions([_obtain(label, way)], False) == ""
     error = person.validate_react_decisions([
         ReactDecision("", "start_activity", start_arguments([label], ["consume"], ["食用"]), "")], False)
-    assert "visible interactive object" in error
+    assert "No known object" in error
 
 
 def test_host_checks_from_to_and_answering_against_private_bindings():
@@ -152,28 +154,24 @@ def test_host_checks_from_to_and_answering_against_private_bindings():
 
     assert error() == "" and error(to=["联系人：王磊"], answering="王磊 10:35 的消息") == ""
     assert error(to=["人物：李凡"], answering="李凡 10:40 的消息") == ""
-    assert error(to=["联系人：陌生人"]) == ""
-    assert error(answering="王磊 10:35 的消息") == (
-        "ROUTE_FIELDS_INVALID: start_activity answering needs an item whose to is the message sender")
-    assert error(to=["联系人：王磊"], answering="王磊 9:00 的消息") == (
-        "ROUTE_FIELDS_INVALID: start_activity answering is not a visible message")
+    assert "known other person" in error(to=["联系人：陌生人"])
+    assert "message sender" in error(answering="王磊 10:35 的消息")
+    assert "known unanswered message" in error(to=["联系人：王磊"], answering="王磊 9:00 的消息")
     mismatch = error(**{"from": ["街角超市"]})
-    assert mismatch == (
-        "SUPPLY_SOURCE_MISMATCH: start_activity from names another place than the store in the target (targets[0])")
-    assert mismatch.report.reason == f"「{_OFFER}」已经写明了门店，from「街角超市」是另一个地点"
+    assert mismatch.startswith("SUPPLY_SOURCE_MISMATCH:")
+    assert "家门口便利店" in mismatch.report.reason and "街角超市" in mismatch.report.reason
     [item] = mismatch.report.items
-    assert (item.field, item.written, [candidate.source for candidate in item.candidates]) == ("from", "街角超市",
-                                                                                               [None])
+    assert item.path[-3:] == ("items", 0, "from") and item.written == "街角超市"
     for source in ("家门口便利店", "地点：家门口便利店", "盒马App", "没听说过的地方"):
         assert error(**{"from": [source]}) == ""
-    assert error(to=[None]) == "ROUTE_FIELDS_INVALID: start_activity obtain and consume need to"
+    assert error(to=[None]) == ""
 
 
 def test_supply_fulfillment_is_bound_per_visible_object():
     """仅有远程下单的供给不能被模型改成到店取得。"""
     person = _prepared_offer(("远程下单",))
     _functions(person)
-    assert "not offered" in person.validate_react_decisions([_obtain(_OFFER, "到店")], False)
+    assert "does not support" in person.validate_react_decisions([_obtain(_OFFER, "到店")], False)
     assert person.validate_react_decisions([_obtain(_OFFER, "远程下单")], False) == ""
 
 
@@ -188,7 +186,7 @@ def test_closed_supply_remains_a_fact_without_a_purchase_action():
     [target] = [row for row in data["tool_layer"]["targets"] if row["name"] == _OFFER]
     assert [(item["available"], item["reason"]) for item in target["actions"]] == [(False, reason)]
     assert data["interaction_bindings"][-1]["actions"][0]["note"] == reason
-    assert "enum" not in _functions(person)["start_activity"]["parameters"]["properties"]["targets"]["items"]
+    assert "enum" not in _functions(person)["start_activity"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
     assert person.validate_react_decisions([_obtain(_OFFER)], False) == ""
 
 
@@ -237,7 +235,7 @@ def test_real_storefront_purchase_uses_observation_quote(_engine_factory):
     assert (action["verb"], action["canonical_action"]) == ("obtain", "purchase")
     assert action["label"] in {"到店", "远程下单"}
     request = start_request(targets=[offer["object"]], actions=["obtain"], ways=[action["label"]])
-    assert set(request.model_dump()) == {"targets", "actions", "ways", "from", "to", "answering", "prefer"}
+    assert set(request.model_dump()) == {"items", "answering", "prefer"}
     before_stock = engine.state.supply_stock[offer["object_id"]]
     account = engine.state.agents[current.agent_id].balance_account_id
     before_balance = engine.state.accounts[account]

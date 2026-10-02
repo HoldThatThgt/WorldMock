@@ -30,6 +30,7 @@ SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
 #: 语料根内登记手机配置的目录（每份配置一个文件）。
 PHONE_DIR = "scenario-phone"
 _MAP = "zhangjiang-map"
+_DATASET = json.loads(SCENARIO.read_text(encoding="utf-8"))["map_dataset"]["path"]
 
 
 @dataclass(frozen=True)
@@ -75,18 +76,18 @@ def build_world(root: Path, phones: dict[str, dict], places: dict[str, str] | No
     """
     corpus = root / "corpora"
     shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
-    dataset = json.loads((corpus / _MAP / "dataset.json").read_text(encoding="utf-8"))
+    dataset = json.loads((corpus / _DATASET).read_text(encoding="utf-8"))
     if places:
         rows = json.loads((corpus / _MAP / "locations.json").read_text(encoding="utf-8"))
         for row in rows["locations"]:
             row["name"] = places.get(row["location_id"], row["name"])
         dataset["locations_file"]["sha256"] = _write(corpus / _MAP / "locations.json", rows)
     if supplies:
-        dataset["supplies_file"]["sha256"] = _write(corpus / _MAP / "supplies.json", _edited_supplies(corpus, supplies))
-    dataset_sha = _write(corpus / _MAP / "dataset.json", dataset)
+        dataset["supplies_file"]["sha256"] = _write(corpus / dataset["supplies_file"]["path"], _edited_supplies(corpus, supplies))
+    dataset_sha = _write(corpus / _DATASET, dataset)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     for entry in manifest["entries"]:
-        if entry["path"].startswith(f"{_MAP}/") and entry["path"].count("/") == 1:
+        if entry["path"].startswith(f"{_MAP}/"):
             path = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
     digests = {name: _register_phone(corpus, manifest, name, config) for name, config in phones.items()}
@@ -132,7 +133,8 @@ def decide(engine, round_id: str, arguments: dict):
 
 def _edited_supplies(corpus: Path, edits: dict[str, dict]) -> dict:
     """@brief 地图供给文件按给出的字段改写后的内容。"""
-    rows = json.loads((corpus / _MAP / "supplies.json").read_text(encoding="utf-8"))
+    dataset = json.loads((corpus / _DATASET).read_text(encoding="utf-8"))
+    rows = json.loads((corpus / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))
     for row in rows["supplies"]:
         change = dict(edits.get(row["supply_id"], {}))
         if "price_fen" in change:

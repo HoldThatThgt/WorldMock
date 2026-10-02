@@ -22,11 +22,11 @@ from tests.life.test_dayrun_restaurants import MEAL, RESTAURANT, SUPPLY, _finish
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
+from worldmock.life.opening_hours import next_opening_change, opening_status
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TZ = ZoneInfo("Asia/Shanghai")
 DAY0 = int(datetime(2026, 1, 5, tzinfo=TZ).timestamp())
-OPENING = int(datetime(2026, 1, 5, 10, tzinfo=TZ).timestamp())
 
 
 def _script():
@@ -63,11 +63,19 @@ def _live_day(engine) -> dict:
     _finish(engine, sleep.activity_id)
     _, walk = _start(engine, "to-restaurant", "location", RESTAURANT, "步行")
     _finish(engine, walk.activity_id)
+    location = next(item for item in engine.scenario.locations if item.location_id == RESTAURANT)
+    overrides = engine.state.opening_exceptions[RESTAURANT]
+    opening = engine.state.current_time
+    if opening_status(location, opening, engine.scenario.timezone, overrides) != "open":
+        opening = next_opening_change(location, opening, engine.scenario.timezone, overrides)
+        assert opening is not None
+        assert opening_status(location, opening, engine.scenario.timezone, overrides) == "open"
     for step in range(16):
-        if engine.state.current_time >= OPENING:
+        if engine.state.current_time >= opening:
             break
         _, waiting = _start(engine, f"wait-{step}", "self", None, "等待")
         _finish(engine, waiting.activity_id)
+    assert engine.state.current_time >= opening
     _start(engine, "buy-meal", "supply", SUPPLY, "到店")
     assert advance_until_ready(engine)
     _, eating = _start(engine, "eat-meal", "holding", MEAL, "食用")

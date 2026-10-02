@@ -13,8 +13,7 @@
     "volunteer",
     "outdoor"
   ],
-  "count": 183
-,
+  "count": 180,
   "items": [
     {
       "activity_id": "3d-printing",
@@ -109,29 +108,6 @@
       }
     },
     {
-      "activity_id": "baking",
-      "name_zh": "烘焙",
-      "category": "hobby",
-      "typical_duration_minutes": 90,
-      "description_zh": "称料、揉面、送进烤箱，等一炉面包或蛋糕出炉。",
-      "met_value": 2.3,
-      "source": "hf:alperugurcan/Hobbies (MIT) row 'Baking'; met: Compendium 2011 nearest: cooking/baking, moderate, MET 2.3 (assumption); duration: typical value (assumption; Eurostat time-use reference)",
-      "location_kinds": [
-        "home",
-        "venue"
-      ],
-      "time_window": {
-        "start_hour": 8,
-        "end_hour": 23
-      },
-      "needs_partner": false,
-      "effects": {
-        "entertainment": 0.7,
-        "social": 0.1,
-        "health": 0.1
-      }
-    },
-    {
       "activity_id": "calligraphy",
       "name_zh": "书法",
       "category": "hobby",
@@ -208,29 +184,6 @@
       "description_zh": "整理和鉴赏各国钱币，查资料补全藏品的版别故事。",
       "met_value": 1.3,
       "source": "hf:alperugurcan/Hobbies (MIT) row 'Coin Collecting'; met: Compendium 2011 nearest: sitting, collecting/sorting, MET 1.3 (assumption); duration: typical value (assumption; Eurostat time-use reference)",
-      "location_kinds": [
-        "home",
-        "venue"
-      ],
-      "time_window": {
-        "start_hour": 8,
-        "end_hour": 23
-      },
-      "needs_partner": false,
-      "effects": {
-        "entertainment": 0.7,
-        "social": 0.1,
-        "health": 0.1
-      }
-    },
-    {
-      "activity_id": "cooking-research",
-      "name_zh": "烹饪研究",
-      "category": "hobby",
-      "typical_duration_minutes": 75,
-      "description_zh": "照新菜谱研究食材搭配与火候，尝试做一道没做过的菜。",
-      "met_value": 2.5,
-      "source": "hf:alperugurcan/Hobbies (MIT) row 'Cooking'; met: Compendium 2011 nearest: cooking, moderate effort, MET 2.5 (assumption); duration: typical value (assumption; Eurostat time-use reference)",
       "location_kinds": [
         "home",
         "venue"
@@ -1356,28 +1309,6 @@
       "description_zh": "吸地拖地擦桌子，把里里外外收拾干净。",
       "met_value": 3.3,
       "source": "self:authored for WorldMock lifestyle corpus; met: Compendium 2011 nearest: cleaning house, general, MET 3.3 (assumption); duration: typical value (assumption; Eurostat time-use reference)",
-      "location_kinds": [
-        "home"
-      ],
-      "time_window": {
-        "start_hour": 6,
-        "end_hour": 22
-      },
-      "needs_partner": false,
-      "effects": {
-        "entertainment": 0.1,
-        "social": 0.0,
-        "health": 0.2
-      }
-    },
-    {
-      "activity_id": "housework-cooking",
-      "name_zh": "家常做饭",
-      "category": "household",
-      "typical_duration_minutes": 50,
-      "description_zh": "淘米切菜开火，给一家人做一顿家常晚饭。",
-      "met_value": 2.5,
-      "source": "self:authored for WorldMock lifestyle corpus; met: Compendium 2011 nearest: cooking, moderate effort, MET 2.5 (assumption); duration: typical value (assumption; Eurostat time-use reference)",
       "location_kinds": [
         "home"
       ],

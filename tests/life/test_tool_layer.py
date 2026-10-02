@@ -192,7 +192,7 @@ def test_pending_conclusion_marks_everything_but_conclusion_unavailable(engine_f
     name = activity_name(engine, results[0].activity_id)
     observed = engine.observe(context(engine, "pending-preview"))
     assert target_tools(observed, name)["conclude_activity"]["available"] is True
-    assert target_actions(observed, "自己")["等待"]["reason"] == f"先给刚结束的{name}收尾"
+    assert target_actions(observed, "自己")["等待"]["reason"] == f"Conclude the finished activities {name} first."
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "pending")
     assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity"]
 
@@ -212,7 +212,7 @@ def test_restricted_round_marks_closed_items_with_the_same_moment_reason(engine_
         data={"kind": "test_restricted_staged"})])
     engine.state = staged
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "restricted")
-    assert "已经想了好几轮，这一轮只能先定下一件事" in {item["reason"] for item in checked}
+    assert "This same-moment stage only accepts its offered action types." in {item["reason"] for item in checked}
 
 
 def test_road_activity_cannot_be_paused_and_matches_admission(engine_factory, tmp_path, monkeypatch) -> None:
@@ -227,7 +227,7 @@ def test_road_activity_cannot_be_paused_and_matches_admission(engine_factory, tm
     name = activity_name(engine, results[0].activity_id)
     observed = engine.observe(context(engine, "road-seen"))
     assert target_tools(observed, name)["pause_activity"] == {
-        "tool": "pause_activity", "available": False, "reason": f"路上的{name}不能暂停"}
+        "tool": "pause_activity", "available": False, "reason": f"The activity {name} cannot be paused while travelling."}
     assert target_tools(observed, name)["conclude_activity"]["available"] is True
     assert observed["environment_layer"]["location"]["session_kind"] == "transit"
     _assert_admission_matches(engine, tmp_path, monkeypatch, "road")
@@ -269,11 +269,11 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
     observed = engine.observe(context(engine, "away-seen"))
     eat = target_actions(observed, f"持有物：{food.name}（{home}）")["食用"]
-    assert (eat["available"], eat["reason"]) == (False, f"这件东西在{home}，只能在当地用")
+    assert (eat["available"], eat["reason"]) == (False, f"This item is at {home} and must be used there.")
     name = activity_name(engine, waiting)
     assert name not in tool_targets(observed)
     resume = target_tools(observed, name)["report_status"]
-    assert (resume["available"], resume["reason"]) == (False, f"{name}要回到{home}才能接着做，在别处可以直接结束")
+    assert (resume["available"], resume["reason"]) == (False, f"Resume {name} at its start location {home}; it can be concluded elsewhere.")
     assert target_tools(observed, name)["conclude_activity"]["available"] is True
     _assert_admission_matches(engine, tmp_path, monkeypatch, "away")
 
@@ -350,7 +350,7 @@ def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_pat
     advance_next(engine)
     observed = engine.observe(context(engine, "busy-seen"))
     assert target_tools(observed, target)["submit_work"] == {
-        "tool": "submit_work", "available": False, "reason": "先结束正在做的工作"}
+        "tool": "submit_work", "available": False, "reason": "This work activity is still in progress."}
     assert tool_targets(observed)[target]["contract"]["remaining"].startswith("有效工时还差")
     assert any(row["kind"] == "activity" and row["phase"] == "进行中" for row in observed["tool_layer"]["targets"])
     _assert_admission_matches(engine, tmp_path, monkeypatch, "busy")
@@ -358,8 +358,8 @@ def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_pat
 
 def test_driving_marks_messages_and_submission_unavailable_with_the_admission_reason(engine_factory, tmp_path,
                                                                                    monkeypatch) -> None:
-    """驾车途中：人物目标的 send_message 与任务目标的 submit_work 标不可用，原因取受理拒绝的原文「开车时不能发消息」
-    「开车时不能提交成果」；车上的全部候选单独提交，可用性与受理一致（docs/dev/SPEC-persona-prompt.md「工具层」
+    """驾车途中：人物目标的 send_message 与任务目标的 submit_work 标不可用，原因取受理拒绝的原文「Cannot send a message while driving.」
+    「Cannot submit work while driving.」；车上的全部候选单独提交，可用性与受理一致（docs/dev/SPEC-persona-prompt.md「工具层」
     可用性只有一个来源）。"""
     engine = parallel_admission._engine(engine_factory, location="office", task=True, market=True)
     parallel_admission._driving(engine, "drive")
@@ -367,18 +367,18 @@ def test_driving_marks_messages_and_submission_unavailable_with_the_admission_re
     assert observed["environment_layer"]["location"]["place_type"] == "驾车"
     task = f"工作：{engine.scenario.tasks[0].title}"
     assert target_tools(observed, task)["submit_work"] == {
-        "tool": "submit_work", "available": False, "reason": "开车时不能提交成果"}
+        "tool": "submit_work", "available": False, "reason": "Cannot submit work while driving."}
     people = [row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
     assert people and all(target_tools(observed, name)["send_message"] == {
-        "tool": "send_message", "available": False, "reason": "开车时不能发消息"} for name in people)
+        "tool": "send_message", "available": False, "reason": "Cannot send a message while driving."} for name in people)
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "driving")
-    assert {"开车时不能发消息", "开车时不能提交成果"} <= {item["reason"] for item in checked}
+    assert {"Cannot send a message while driving.", "Cannot submit work while driving."} <= {item["reason"] for item in checked}
 
 
 def test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason(tmp_path,
                                                                                          monkeypatch) -> None:
     """17:29:01 同秒暂停的工作距截止不足 60 秒：待办层恢复（report_status）标不可用，原因与开工同一截止约束
-    「离截止不到一分钟，来不及开始」，结束照常可用；在开始地点、占用无冲突时截止先于占用判定；全部候选与受理一致
+    「Less than one minute remains before the deadline; work cannot start.」，结束照常可用；在开始地点、占用无冲突时截止先于占用判定；全部候选与受理一致
     （docs/dev/SPEC-persona-prompt.md 第六章「开工与恢复使用同一截止约束」）。"""
 
     def mutate(document: dict) -> None:
@@ -395,7 +395,7 @@ def test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admissio
         [paused] = observed["todo_layer"]["paused_activities"]
         tools = {item["tool"]: item for item in paused["tools"]}
         assert tools["report_status"] == {"tool": "report_status", "available": False,
-                                          "reason": "离截止不到一分钟，来不及开始"}
+                                          "reason": "Less than one minute remains before the deadline; work cannot start."}
         assert tools["conclude_activity"]["available"] is True
         checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "late")
         assert tools["report_status"] in checked
@@ -457,7 +457,7 @@ def test_conclude_pending_stage_opens_only_the_conclusion(engine_factory, tmp_pa
     assert advance_until_ready(engine)
     name = activity_name(engine, waited.activity_id)
     refused = _refuse(engine, "only-refused", engine.scenario.max_same_moment_decisions)
-    assert {item.data["reason"] for item in refused} == {f"先给刚结束的{name}收尾"}
+    assert {item.data["reason"] for item in refused} == {f"Conclude the finished activities {name} first."}
     assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "only")
     assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity"]
@@ -549,7 +549,8 @@ def test_closed_sold_out_and_unaffordable_supplies_are_listed_and_refused_alike(
     chosen = _stage_store(engine)
     observed = engine.observe(context(engine, "store-seen"))
     names = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
-    assert set(names) == set(chosen.values())
+    declared_menu = {item.supply_id for item in engine.scenario.supplies if item.location_id == _CLOSED_AT_TEN}
+    assert set(names) == set(chosen.values()) | declared_menu
 
     def reason(key: str, way: str) -> str | None:
         """@brief 某件供给某种方式的不可用原因。"""
@@ -557,7 +558,8 @@ def test_closed_sold_out_and_unaffordable_supplies_are_listed_and_refused_alike(
 
     market = next(item.name for item in engine.scenario.locations if item.location_id == MARKET)
     assert reason("closed", "到店") == refusal_for_code("MERCHANT_CLOSED").reason
-    assert all(reason(key, "到店") == f"到店{names[chosen[key]]}需要在{market}" for key in ("cheap", "sold", "dear"))
+    for key in ("cheap", "sold", "dear"):
+        assert reason(key, "到店") == f"到店{names[chosen[key]]} requires presence at {market}."
     assert reason("sold", "远程下单") == refusal_for_code("OUT_OF_STOCK").reason
     assert reason("dear", "远程下单") == refusal_for_code("INSUFFICIENT_FUNDS").reason
     assert reason("cheap", "远程下单") is None
@@ -596,7 +598,8 @@ def test_overdue_task_stays_listed_and_its_submission_is_refused_alike(tmp_path,
         observed = engine.observe(context(engine, "overdue-seen"))
         target = tool_targets(observed)[f"工作：{engine.scenario.tasks[0].title}"]
         assert (target["contract"]["outlook"], target["actions"]) == ("已过截止", [])
-        assert target["tools"] == [{"tool": "submit_work", "available": False, "reason": "已经过了截止时间"}]
+        assert target["tools"] == [{"tool": "submit_work", "available": False,
+                                   "reason": "The work submission deadline has passed."}]
         checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "overdue")
         assert target["tools"][0] in checked
     finally:
@@ -635,14 +638,14 @@ def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_the
     places = {row["name"] for row in after["tool_layer"]["targets"] if row["kind"] == "location"}
     assert places == {row["name"] for row in before["tool_layer"]["targets"] if row["kind"] == "location"} - {
         place_name}
-    assert task_name not in tool_targets(after)
+    assert task_name in tool_targets(after)
+    assert target_actions(after, task_name)["工作"]["available"] is False
+    assert "skill" in target_actions(after, task_name)["工作"]["reason"].lower()
     assert restaurant.name not in json.dumps(after["tool_layer"], ensure_ascii=False)
-    assert task.title not in json.dumps(after["tool_layer"], ensure_ascii=False)
     person = _host(engine, decision, after)
     travel = start_arguments([place_name], ["travel"], ["步行"])
     submit = _arguments("submit_work", task_name, {}, None)
-    assert person.validate_react_decisions([ReactDecision("", "submit_work", submit, "")], False) == (
-        "NAME_NOT_FOUND: task_name is not visible")
+    assert person.validate_react_decisions([ReactDecision("", "submit_work", submit, "")], False) == ""
     assert person.validate_react_decisions([ReactDecision("", "start_activity", travel, "")], False) == ""
     drive(person.dispatch_react_tool("start_activity", travel))
     [refused] = engine.commit_decision_round(decision.round_id)

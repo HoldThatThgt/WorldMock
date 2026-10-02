@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import compact_render, expand_tool_layer
+
 import copy
 import json
 from contextlib import nullcontext
@@ -123,8 +125,9 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     assert "action_id" not in json.dumps(waited_call, ensure_ascii=False)
     [waited] = pending_names(feedback)
     user = second_requests[0]["messages"][1]["content"]
-    assert json.loads(user)[5] == feedback["progress_layer"] and _REPLY in user
-    assert f'"name":"{waited}","kind":"activity","phase":"刚结束"' in user
+    assert json.loads(user)[5] == compact_render(feedback["progress_layer"]) and _REPLY in user
+    assert any(row["name"] == waited and row["kind"] == "activity" and row["phase"] == "刚结束"
+               for row in expand_tool_layer(json.loads(user)[0])["targets"])
     assert "in_progress" not in first_requests[0]["messages"][1]["content"]
     concluded = engine.commit_decision_round(second.round_id)[0]
     assert concluded.status.value == "completed"

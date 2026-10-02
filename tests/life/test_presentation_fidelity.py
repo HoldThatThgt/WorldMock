@@ -162,8 +162,8 @@ def test_goal_families_keep_the_plan_at_the_start_of_the_second(engine_factory) 
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="运动", goal="练一会儿瑜伽",
                                            registered_at=engine.state.current_time),))
     now = engine.state.current_time
-    first, revised = _round(engine, "family-revise", "revise_day_plan", ReviseDayPlanRequest(goals=(
-        PlanGoalInput(intent_kind="家务", goal="收拾房间", remind_time=None, around_time=None),)))
+    first, revised = _round(engine, "family-revise", "revise_day_plan", ReviseDayPlanRequest(goals=[
+        PlanGoalInput(intent_kind="家务", goal="收拾房间", remind_time=None, around_time=None),]))
     assert revised.status == "completed" and engine.state.current_time == now
     assert [goal.intent_kind for goal in engine.state.agents[1].day_plan.goals] == ["家务"]
     second, _ = _round(engine, "family-same-second", "start_activity", start_activity("观看", "不存在的对象"))

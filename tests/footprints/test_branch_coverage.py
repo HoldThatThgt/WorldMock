@@ -58,8 +58,9 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
 
 
 def _conclusion(*memories):
-    """结束一项活动的 conclude_activity 参数：task、summary 与 memories 三数组等长（生活决策没有 finish）。"""
-    return {"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
+    """结束一项活动的完整现行控制请求。"""
+    return {"items": [{"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。",
+                       "memories": list(memories), "views": []}]}
 
 
 def _tool_response(call_id, arguments, name="conclude_activity", usage=None, error=None, model="deepseek-flash"):
@@ -260,7 +261,14 @@ def test_memory_quality_reports_each_problem_code():
     memory_item = {"type": "goal", "text": "我想出门", "importance": 0.5, "keywords": ["出门"]}
     events = [
         _event(1, "model_response", agent_id=1, decision_id="d1",
-               data=_tool_response("call-1", "{not json", error="invalid conclude_activity arguments: memories")),
+               data={**_tool_response("call-1", "{not json", error="invalid conclude_activity arguments: memories"),
+                     "protocol_feedback": {"error_code": "ARGUMENTS_INVALID", "reason": "Invalid memory.",
+                                           "fix": "Correct the memory.", "unmet": [], "items": [
+                                               {"path": ["tool_calls", 0, "function", "arguments", "items", 0,
+                                                         "memories"], "written": None,
+                                                "error_code": "ARGUMENTS_INVALID", "allowed_values": [],
+                                                "expected": "Valid memory entries are required.",
+                                                "why": "The memory is invalid.", "candidates": []}]}}),
         _event(2, "model_response", agent_id=1, decision_id="d1",
                data=_tool_response("call-2", {"query": "x"}, name="search", usage=_usage())),
         _event(3, "memory_updated", agent_id=1, decision_id="d1", data={"episode_ids": "bad"}),

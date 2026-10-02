@@ -69,11 +69,7 @@ def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: in
                    request: PurchaseOrderRequest) -> OrderOutcome:
     """@brief 逐供给校验后一次付款；任意失败不改变任何世界状态。付款人是 agent_id，送达只入各项收货人的持有。"""
     agent = state.agents[agent_id]
-    rows = _order_rows(state, semantics, agent, request)
-    fulfillment = _order_fulfillment(state, semantics, request, rows)
-    total = sum(row.total_price_fen for row in rows)
-    if state.accounts[agent.balance_account_id] < total:
-        raise BusinessRuleError("INSUFFICIENT_FUNDS")
+    rows, fulfillment, total = validate_purchase_order(state, semantics, agent_id, request)
     orders = _build_orders(state, rows, request, fulfillment, agent_id)
     settled = settle_money_transfer(state, agent.balance_account_id,
                                     rows[0].supply.seller_account_id, total, "purchase:order")
@@ -97,6 +93,18 @@ def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: in
                                           "pending_events": pending}, deep=True)
     return OrderOutcome(changed, orders, events, total, tuple(inventory_changes),
                         tuple(match_rows(row.category_match for row in rows)))
+
+
+def validate_purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
+                            request: PurchaseOrderRequest) -> tuple[tuple[_OrderRow, ...], _Fulfillment, int]:
+    """@brief 共用购买的全部准入检查；公开能力查询只校验，不复制并结算整个世界。"""
+    agent = state.agents[agent_id]
+    rows = _order_rows(state, semantics, agent, request)
+    fulfillment = _order_fulfillment(state, semantics, request, rows)
+    total = sum(row.total_price_fen for row in rows)
+    if state.accounts[agent.balance_account_id] < total:
+        raise BusinessRuleError("INSUFFICIENT_FUNDS")
+    return rows, fulfillment, total
 
 
 def _order_rows(state: WorldState, semantics: ScenarioSemantics, agent: AgentState,

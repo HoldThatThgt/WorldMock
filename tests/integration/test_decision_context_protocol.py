@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.life.tool_groups import expand_tool_layer
+
 import copy
 import json
 import re
@@ -168,9 +170,12 @@ async def test_action_transport_and_evidence_failures_are_logged_without_retry(
         await original(exchange)
 
     monkeypatch.setattr(environment, "record_model_exchange", record)
-    expected = TimeoutError if failure_phase == "transport" else OSError
-    with pytest.raises(expected):
+    expected = TimeoutError if failure_phase == "transport" else RuntimeError
+    with pytest.raises(expected) as failure:
         await agent.run_react_loop(_request())
+    if failure_phase != "transport":
+        assert isinstance(failure.value.__cause__, OSError)
+        assert failure.value.args[0].report.error_code == "EVIDENCE_WRITE_FAILED"
     assert len(dispatcher.requests) == (0 if failure_phase == "request" else 1)
     assert environment.calls == []
     assert all(not any("一" <= char <= "鿿" for char in str(error)) for error in errors)
@@ -238,13 +243,13 @@ async def test_start_activity_description_says_notes_give_length_or_unmet_condit
     request = dispatcher.requests[0]
     description = next(tool["function"]["description"] for tool in request["tools"]
                        if tool["function"]["name"] == "start_activity")
-    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"] == "开始一项或两项活动：逐项写目标、动词与方式。"
+    assert description == life_prompt.TOOL_DESCRIPTIONS["start_activity"] == "开始一项或两项活动：逐项写目标、方式、来源与收货人。"
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert [rule for rule in rules if "reason" in rule] == [
         "工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。"]
-    task = next(target for target in json.loads(request["messages"][1]["content"])[0]["targets"]
+    task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
                 if target["kind"] == "task")
     [work] = task["actions"]
     assert (work["available"], work["reason"]) == (False, "工作整理会议纪要需要在办公室")
     assert set(work) == {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
-    assert environment.calls[0].request.model_dump() == _WAIT_CHOICE
+    assert environment.calls[0].request.model_dump(by_alias=True) == _WAIT_CHOICE

@@ -13,7 +13,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
-from tests.life.conftest import (advance_next, advance_until_ready, conclude_request, context, stage_day_plan,
+from tests.life.conftest import (advance_next, advance_until_ready, bring_to_window, conclude_request, context, stage_day_plan,
                                  start_request, report_request)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import IntegrityError
@@ -50,11 +50,11 @@ def recovery_engine(tmp_path, request):
         document["start_at"] = "2026-01-05T08:00:00+08:00"
         document["agents"][0]["qualifications"] = ["test-store-member"]
         document["price_changes"] = [{"change_id": "recovery-price", "supply_id": SUPPLY,
-            "price_version": "recovery-price-v2", "amount_fen": 991,
+            "price_version": "recovery-price-v2", "amount_fen": 700,
             "due_at": "2026-01-05T08:00:01+08:00", "source": _price_source()}]
         if getattr(request, "param", False):
             document["price_changes"].append({"change_id": "after-purchase-price", "supply_id": SUPPLY,
-                "price_version": "recovery-price-v3", "amount_fen": 1001,
+                "price_version": "recovery-price-v3", "amount_fen": 720,
                 "due_at": "2026-01-05T08:15:01+08:00", "source": {
                     **_price_source(), "url": "scenario://storefront-recovery/after-purchase-price"}})
         document["product_releases"] = [{"release_id": "recovery-stock", "supply_id": SUPPLY,
@@ -96,6 +96,7 @@ def _choice(observation, action, object_id=None, mode=None):
 
 def _discover(engine, name):
     """@brief 通过可读商品目录活动发现当前商品窗口并推进完成。"""
+    bring_to_window(engine, [SUPPLY])
     _, result = _action(engine, name, "start_activity", lambda observed: _choice(observed, "browse"))
     assert result.status == "in_progress"
     _finish_activity(engine, result.activity_id, name)
@@ -148,10 +149,13 @@ def _purchase_selected_supply(engine, fulfillment):
         _conclude(engine, started.activity_id, "travel")
         _discover(engine, "discover-after-arrival")
     _, result = _action(engine, "buy-selected", "start_activity",
-                        lambda observed: _choice(observed, "purchase", SUPPLY, fulfillment))
+                        start_request(targets=[engine.rules.items[PRODUCT].name],
+                                      actions=["obtain"],
+                                      ways=["到店" if fulfillment == "pickup" else "远程下单"],
+                                      from_=[engine.rules.locations[STORE].name]))
     order = result.data["orders"][0]
     assert (order["supply_id"], order["product_id"], order["location_id"]) == (SUPPLY, PRODUCT, STORE)
-    assert order["total_price_fen"] == 991 and order["price_version"] == "recovery-price-v2"
+    assert order["total_price_fen"] == 700 and order["price_version"] == "recovery-price-v2"
     assert order["source"]["quote"] == _price_source()
     assert (order["route_id"] is not None) == (fulfillment == "delivery")
     return order["order_id"]
@@ -200,7 +204,7 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
     original, scenario_path = recovery_engine
     discovery, observed = _discover(original, "discover-initial")
     selected = next(item for item in observed["supplies"] if item["supply_id"] == SUPPLY)
-    assert selected["price_fen"] == 991 and selected["current_stock"] == 17
+    assert selected["price_fen"] == 700 and selected["current_stock"] == 17
     assert selected["quote"]["source"] == _price_source()
     frozen = next(item for item in original.scenario.supplies if item.supply_id == SUPPLY)
     assert frozen.quotes[0].price_fen != selected["price_fen"]
@@ -208,7 +212,7 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
     run_dir = original.store.run_dir
     original.close()
     stored = FootprintStore(run_dir)
-    assert stored.state["supply_quotes"][SUPPLY]["price_fen"] == 991
+    assert stored.state["supply_quotes"][SUPPLY]["price_fen"] == 700
     stored.close()
     reopened = LifeEngine.open(scenario_path, run_dir)
     branch = None
@@ -323,14 +327,14 @@ def _quote_timeline(engine):
         "effective_from": start + timedelta(seconds=begin),
         "effective_to": start + timedelta(seconds=end) if end is not None else None,
     }) for version, price, begin, end in (
-        ("declaration-a", 111, -60, 10), ("declaration-b", 222, 10, 20),
-        ("declaration-c", 333, 30, 40), ("declaration-d", 444, 40, None)))
+        ("declaration-a", 650, -60, 10), ("declaration-b", 660, 10, 20),
+        ("declaration-c", 670, 30, 40), ("declaration-d", 680, 40, None)))
     supply = supply.model_copy(update={"quotes": quotes})
     changes = tuple(PriceChangeConfig.model_validate({
         "change_id": identity, "supply_id": SUPPLY, "price_version": f"change-{identity}",
         "amount_fen": price, "due_at": start + timedelta(seconds=due), "source": _price_source(),
-    }) for identity, due, price in (("z-last", 10, 992), ("a-first", 10, 991),
-                                   ("middle", 15, 993), ("after-gap", 35, 994)))
+    }) for identity, due, price in (("z-last", 10, 701), ("a-first", 10, 700),
+                                   ("middle", 15, 703), ("after-gap", 35, 704)))
     return scenario.model_copy(update={"price_changes": changes, "supplies": tuple(
         supply if item.supply_id == SUPPLY else item for item in scenario.supplies)})
 
@@ -351,11 +355,11 @@ def _project_quote_events(engine, scenario, offset):
 
 
 @pytest.mark.parametrize("offset,price,version,begin,end", [
-    (0, 111, "declaration-a", -60, 10), (9, 111, "declaration-a", -60, 10),
-    (10, 992, "change-z-last", 10, 20), (15, 993, "change-middle", 15, 20),
+    (0, 650, "declaration-a", -60, 10), (9, 650, "declaration-a", -60, 10),
+    (10, 701, "change-z-last", 10, 20), (15, 703, "change-middle", 15, 20),
     (20, None, None, None, None), (29, None, None, None, None),
-    (30, 333, "declaration-c", 30, 40), (35, 994, "change-after-gap", 35, 40),
-    (40, 444, "declaration-d", 40, None),
+    (30, 670, "declaration-c", 30, 40), (35, 704, "change-after-gap", 35, 40),
+    (40, 680, "declaration-d", 40, None),
 ])
 def test_restore_checks_quote_boundaries_and_same_second_order_without_rewriting(
         engine_factory, offset, price, version, begin, end):
@@ -400,8 +404,8 @@ def test_reopening_after_price_change_preserves_paid_order_price(recovery_engine
     advance_next(engine)
     assert engine.state.current_time == paid.created_at + 1
     quote = engine.state.supply_quotes[SUPPLY]
-    assert (quote.price_fen, quote.price_version) == (1001, "recovery-price-v3")
-    assert paid.price_version == "recovery-price-v2" and paid.total_price_fen == 991
+    assert (quote.price_fen, quote.price_version) == (720, "recovery-price-v3")
+    assert paid.price_version == "recovery-price-v2" and paid.total_price_fen == 700
     run_dir = engine.store.run_dir
     engine.close()
     reopened = LifeEngine.open(scenario_path, run_dir)

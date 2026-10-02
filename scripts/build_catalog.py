@@ -40,6 +40,8 @@ FOOD_EXPANSION = FOODS_DIR / "expansion.json"
 FOOD_EXPANSION2 = FOODS_DIR / "expansion2.json"
 CORPUS_MANIFEST = ROOT / "corpora/manifest.json"
 MEALS_CORPUS = ROOT / "corpora/meals/items.json"
+INGREDIENT_CORPUS = ROOT / "corpora/ingredients/items.json"
+PURCHASE_PRICE_RANGES = ROOT / "corpora/foods/purchase-price-ranges.json"
 CATALOG_DIR = ROOT / "catalog"
 RULES_DIR = CATALOG_DIR / "rules"
 CATEGORY_CONTRACT = CATALOG_DIR / "category-contract.json"
@@ -527,7 +529,8 @@ def durable_object(product: dict) -> dict:
         values["required_location_id"] = product["required_location_id"]
     sources = [source_record(
         "legacy-scenario-product", "scenario", "frozen legacy scenario product declaration",
-        ["/values/absolute"], artifact="scripts/catalog-snapshot-legacy-scenario.json",
+        ["/values/absolute/effect", "/values/absolute/consumable"],
+        artifact="scripts/catalog-snapshot-legacy-scenario.json",
         note="Only use attributes are retained; storefront facts are declared separately")]
     return raw_object(product["product_id"], product["name"], "durable", values, sources)
 
@@ -677,6 +680,7 @@ def meal_object(meal: dict, meals_sha: str,
     source = meal["energy_source"]
     duration_seconds = meal["meal_duration_minutes"] * 60
     density = float(source["energy_kcal_per_100g"])
+    category = meal["category_id"]
     validate_density(meal["meal_id"], "prepared-meal", density, bounds)
     values = {
         "energy_kcal_per_serving": meal["energy_kcal_per_serving"],
@@ -696,7 +700,7 @@ def meal_object(meal: dict, meals_sha: str,
         "meal-shape", "scenario", "meal corpus serving and duration assumptions",
         ["/values/absolute/use_duration_seconds", "/values/absolute/serving_quantity"],
         artifact="corpora/meals/items.json")
-    return raw_object(meal["meal_id"], meal["name_zh"], "prepared-meal", values, [energy, timing])
+    return raw_object(meal["meal_id"], meal["name_zh"], category, values, [energy, timing])
 
 
 def travel_object() -> dict:
@@ -849,14 +853,56 @@ def build_objects(data: dict) -> list[dict]:
     meals = [meal_object(item, data["meals_sha"], data["bounds"])
              for item in sorted(data["meals"], key=lambda row: row["meal_id"])]
     durables = [durable_object(item) for item in data["parts"]["items"]]
-    return frozen + wave1 + wave2 + meals + durables + [travel_object()] + contract_objects()
+    ingredients = ingredient_objects()
+    objects = frozen + wave1 + wave2 + meals + durables + ingredients + [travel_object()] + contract_objects()
+    apply_purchase_price_ranges(objects)
+    return objects
+
+
+def apply_purchase_price_ranges(objects: list[dict]) -> None:
+    """@brief 对象覆盖沿用冻价尺度，边界为明确场景假设，不携带真实卖方报价。"""
+    ranges = load_json(PURCHASE_PRICE_RANGES)["objects"]
+    nodes = {item["category_id"]: item for item in load_json(CATEGORY_CONTRACT)["categories"]}
+    for obj in objects:
+        if obj["object_id"] not in ranges:
+            continue
+        current = nodes[obj["category_id"]]
+        inherited = {}
+        lineage = []
+        while current is not None:
+            lineage.append(current)
+            current = nodes[current["parent_id"]] if current["parent_id"] is not None else None
+        for category in reversed(lineage):
+            inherited.update(category["values"]["absolute"])
+        values = {key: value for key, value in ranges[obj["object_id"]].items() if value != inherited[key]}
+        if not values:
+            continue
+        obj["values"]["absolute"].update(values)
+        obj["provenance"].append(source_record(
+            "purchase-price-range", "scenario", "Reviewed frozen product price scale with ten percent bounds",
+            [f"/values/absolute/{key}" for key in values],
+            artifact="corpora/foods/purchase-price-ranges.json",
+            note="Bounds are simulation build inputs; each store has its own frozen quote and stock"))
+
+
+def ingredient_objects() -> list[dict]:
+    """@brief 真实原料及完整食材包逐条来自已冻结来源，数量不靠复制对象补齐。"""
+    document = load_json(INGREDIENT_CORPUS)
+    result = []
+    for item in document["items"]:
+        provenance = [source_record(
+            "ingredient-package", "scenario", item["source"]["url"], ["/values/absolute"],
+            artifact="corpora/ingredients/items.json", note=item["source"]["applicability"])]
+        result.append(raw_object(item["object_id"], item["name_zh"], item["category_id"],
+                                 item["values"], provenance))
+    return result
 
 
 def manifest_base() -> dict:
     """@brief 构造不含内容摘要的 4.1 清单声明。"""
     return {
-        "version_major": 4,
-        "version_minor": 1,
+        "version_major": 5,
+        "version_minor": 3,
         "category_requirements": CATEGORY_REQUIREMENTS,
     }
 
@@ -938,7 +984,7 @@ def build() -> dict[str, str]:
     objects = build_objects(object_data)
 
     assert len(resources) == 5, f"expected 5 resources, got {len(resources)}"
-    expected_objects = 45 + len(object_data["entries2"]) + len(object_data["meals"])
+    expected_objects = 45 + len(object_data["entries2"]) + len(object_data["meals"]) + len(ingredient_objects())
     assert len(objects) == expected_objects, (
         f"expected {expected_objects} objects (16+25+{len(object_data['entries2'])}"
         f"+{len(object_data['meals'])} meals+1+3), got {len(objects)}")

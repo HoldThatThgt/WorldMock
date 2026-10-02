@@ -15,7 +15,7 @@ from worldmock.life.scenario import (
     GameConfig,
     InventoryItemConfig,
     LifeScenario,
-    WorkTaskConfig,
+    RuntimeWorkTask,
 )
 from worldmock.life.travel import route_for
 from worldmock.life.work import validate_work_start
@@ -122,7 +122,7 @@ class LifeRuleEngine:
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
         return self.items[product_id]
 
-    def task(self, task_id: str | None) -> WorkTaskConfig:
+    def task(self, task_id: str | None) -> RuntimeWorkTask:
         """@brief 取得一个冻结工作任务，否则业务拒绝。"""
         if task_id not in self.tasks:
             raise BusinessRuleError("WORK_TASK_NOT_FOUND")

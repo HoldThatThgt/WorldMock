@@ -18,7 +18,8 @@ def sample(group='parent', event='observation'):
             'provenance': {'run_id': group, 'source_group_id': group, 'source_event_ids': [event]}}
 
 
-def test_real_dataset_loading_preserves_all_facts_and_separates_answer(tmp_path):
+def test_real_dataset_loading_preserves_all_facts_and_separates_answer(dataset_tmp_path):
+    tmp_path = dataset_tmp_path
     record = sample()
     record['provenance']['model_input'] = {
         'decoded_input_sha256': 'a' * 64,
@@ -168,7 +169,7 @@ def copy_target(record, event_id):
     return target
 
 
-def test_high_precision_floats_round_trip_through_real_dataset_loader(tmp_path):
+def test_high_precision_floats_round_trip_through_real_dataset_loader(dataset_tmp_path):
     """先红后绿回归：训练门浮点被下游重写（code-refute-2026-09-17 P0）。
 
     机制论证（为什么是缺陷不是特征）：input/target/provenance 以嵌套 JSON 对象落盘时，
@@ -181,6 +182,7 @@ def test_high_precision_floats_round_trip_through_real_dataset_loader(tmp_path):
     本测试用 16-17 位有效数字的浮点钉住该行为：修复前必然 IntegrityError，
     修复后逐位相等。
     """
+    tmp_path = dataset_tmp_path
     record = sample()
     record['input']['efficiency'] = 1139.1499999999999
     record['input']['ratio'] = 0.30000000000000004

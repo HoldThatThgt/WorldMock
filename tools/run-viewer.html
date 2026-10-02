@@ -604,17 +604,13 @@ function buildIndex(){
  *  返回 [{name, summary, memories}]：结束工具的 memories 含看法与偏好（先普通记忆、后 views），最早不带记忆字段的
  *  结束请求为 null，播报与暂停为空。 */
 function controlItems(tool, req){
-  const list = value => Array.isArray(value)? value : [];
-  const concluding = tool==='conclude_activity';
-  if (Array.isArray(req.items)){
-    return req.items.map(item=>({name:item?.activity_name||'', summary:item?.summary||'',
-      memories: concluding? [...list(item?.memories), ...list(item?.views)] : []}));
-  }
-  const groups = Array.isArray(req.memories)? req.memories : null;
-  return list(req.task).map((task,i)=>({name:task, summary:list(req.summary)[i]||'',
-    memories: !concluding? [] : groups? list(groups[i]) : null}));
+  if (!req || !Array.isArray(req.items)) throw new Error('Activity control request requires items');
+  return req.items.map(item=>({
+    name:item.activity_name, summary:item.summary,
+    memories:[...(item.memories||[]),...(item.views||[]).map(view=>({...view,subject:view.about}))]
+  }));
 }
-/** @brief 将控制工具逐项的活动名与自述配对展示（新旧形状都经 controlItems 读取）。 */
+
 function pairedSummaries(tool, req){
   return controlItems(tool, req).map(item=>`${item.name}：${item.summary}`).join('；');
 }
@@ -645,8 +641,9 @@ function readableReq(tool, reqRaw){
   if (!req || typeof req!=='object') return '';
   switch (tool){
     case 'start_activity':
-      return (req.targets||[]).map((target,i)=>
-        `${target} · ${verbWay((req.actions||[])[i], (req.ways||[])[i])}`).join('；');
+      return (req.items||[]).map(item=>`${item.target} · ${item.way}`).join('；');
+    case 'query_world':
+      return `${req.name||req.category||req.way||''} · 偏移 ${req.offset}`;
     case 'recall_task_summary':
       return req.task_name||'';
     case 'report_status':
