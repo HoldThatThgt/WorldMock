@@ -2,6 +2,7 @@
 
 > 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](dev/SPEC-persona-prompt.md#冻结条款修订)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。2026-09-29 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#文档同步作业)的【同】作业 C1–C19 修订，修订部分已实现并通过离线验收；修订内容见「版本表」`2026-09-29-dayrun-fidelity` 行。
 > 本次工具交互合同于 2026-10-01 按[工具交互规格](dev/SPEC-tool-interaction.md)冻结，已实现；本次生产验收单独记录；既有验收只证明此前版本。
+> 2026-10-02 [个人事务与工作安排规格](dev/SPEC-errands-workday.md#冻结条款修订)冻结：本文件相应条款按[配套实施计划](dev/research/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；修订部分未实现，见个人事务与工作安排规格阶段 1–4，落地前各节仍描述现行实现；冻结时只在「请求组成」加了三处修订指针并改写「记忆字段」的主观文字句，见「版本表」`2026-10-02-errands-workday-freeze` 行。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -1434,6 +1435,10 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 }
 ```
 
+修订指针：第 1、4、6、14 条已由[个人事务与工作安排规格](dev/SPEC-errands-workday.md) 3.1、4.6 给出修订定稿，仍为十八条；
+第 1、4、6 条随该规格阶段 2、第 1、14 条随阶段 3 的代码同一提交改写。修订部分未实现，见该规格阶段 2、阶段 3；
+落地前上面的 JSON 块仍是实际发送的全文。
+
 只读问答的系统层全文：
 
 ```json
@@ -1492,9 +1497,17 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 大致时刻不会提醒他，需要提醒的照第三条填 remind_time。
 ```
 
+修订指针：模板的输入说明与条目已由[个人事务与工作安排规格](dev/SPEC-errands-workday.md) 2.8、4.6 给出修订定稿：
+阶段 2 改输入说明末行并新增第七条（个人事务），阶段 3 改输入说明首行并新增第八条（上班安排），各随该阶段代码同一提交改写。
+修订部分未实现，见该规格阶段 2、阶段 3；落地前上面的文本块仍是实际发送的模板。
+
 输出 Schema：`submit_day_plan` 声明 `strict=true`，参数是 `PlanDayRequest` 的严格 Schema
 `{goals: [{intent_kind, goal, remind_time, around_time}]}`，四键必填（`intent_kind` 取十一种意图闭集，`remind_time`、`around_time` 为 `HH:MM` 或 null），
 没有记忆字段；条数零至八、意图唯一、文字长度与提醒时刻（晚于生成时刻、早于次日零点）由本地校验执行，大致时刻只校验格式，同「当日目标请求」。
+
+修订指针：就寝反思改经唯一严格工具 `submit_reflection` 提交，其 system 文案、Schema 与有界校验重试已由
+[个人事务与工作安排规格](dev/SPEC-errands-workday.md) 1.1、3.3 给出定稿，将随该规格阶段 1 的代码在本节逐字登记（阶段 2 追加两句）。
+修订部分未实现，见该规格阶段 1；落地前「记忆字段」的就寝反思句仍描述现行实现。
 
 ### 工具返回通道
 
@@ -1841,8 +1854,10 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 `[{task, activity_id, session_id, verified_event_ids}]`，模型不填、不选任何身份。`conclude_activity` 登记后
 结算被拒时，其记忆仍作为人物自述保留，来源标为该动作，但不呈现（不进记忆层与人设层）。
 
-WorldMock 删除模型可写 event、observation 类型。主观自由文字不得进入已核验经历、
-完成事实章节、客观指标或世界状态。memory_* 只查询主观 episodes，每条只返回 {type, text, time, epistemic_status}，
+WorldMock 删除模型可写 event、observation 类型。主观自由文字不得成为已核验经历、完成事实章节或客观指标的依据，
+也不能改变任何世界事实：当日目标文字与活动自述随人物状态保存，只用于呈现；个人事务的名称、备注与取消原因同此
+（个人事务部分未实现，见[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 2）。
+memory_* 只查询主观 episodes，每条只返回 {type, text, time, epistemic_status}，
 不含条目身份，并明确返回其性质；生活决策与只读问答只开放 `memory_recent`、`memory_search`、`memory_time_range`；
 已结算的事实来自记忆层 `settled` 与进度层，不另建事实检索框架。
 
@@ -2236,3 +2251,4 @@ RunPhase = Literal[
 | `2026-09-28-persona-prompt-spec-fixes` | 2026-09-28 | 人物 Prompt 七层规格最后一批代码与规格出入的修复（见[人物 Prompt 验收记录](dev/persona-prompt-verification.md#代码与规格的出入)）：`recall_task_summary` 的当日目标名称就是待办层写出的目标文字（私有 `goal_bindings` 不再拼「目标：<意图>：<目标文字>」），活动也可按记忆层 `self_notes` 所写的活动名回看（活动绑定另带 `note_labels`），名称对应不止一项时报 `TASK_NOT_FOUND`；受限轮的收尾阶段每项待收尾活动的 `conclude_activity` 都可用，只收尾其中几项也受理；业务拒绝没有可读的下一步时 `next_step` 为 `null`；`details.purchases` 删 `way`（请求参数，不复述）；门店商品目标第一个动作的 `note` 写来源标记；`browse_items` 在同一请求的多项活动全部结束后的结果中照写，工具层置顶取同一份浏览结果 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#文档同步作业)的【同】作业 C1–C19 修订（一日运行保真 C20：条款随阶段 1–5 的代码落地，实现后按 `e377669` 的代码逐节核对并补齐）：「人物工具与管理接口」全部目录类对象可写名称、无损归一后唯一即受理（本轮未列出的只限商品、本人启用的生活活动、内容、游戏与地点），名称类纠错只在 `start_activity` 带可照填的候选、其余名称参数在原因里列出最接近的名称，`start_activity` 增请求级 `prefer`（`fastest`、`cheapest` 或 `null`）与取得商品的方式「购买」（只写在请求里，工具层不列出），三个活动控制工具改为 `items[{activity_name, summary, memories, views}]`（`views.about` 即存储的 `subject`，旧形状经 `control_items` 读出），这三个工具的参数与 `prefer` 带字段级「格式与来源」说明（C1）；「当日目标请求」等处目标条目增必填可空的 `around_time`，推进要求同家族活动在其前后 90 分钟内进行，修订等价比较改为四字段，零点计划模板增第五、六条，例行意图闭集 `ROUTINE_INTENT_KINDS` 与只计非例行意图的推进比例（C2）；「请求字段与结算检查」名称类错误与指名购买各段的拒绝逐项报、其余条件仍报第一条，控制工具行改 `items`，指名购买改为 `from` 可选约束表（`null`、所选地点的显示名或渠道称呼）、分段匹配 M0–M3 各报其码、方式「购买」由系统定到店或远程下单、多于一处能服务时按 `prefer` 选定并写进 `details.notes`（C3）；「活动受理拒绝码」拒绝与受理共用错误结构（`error_code`、`reason`、`fix`、`items`、`unmet`，受理写 `details.resolved`、`notes`），每个会抛出的码都有具体原因，`ACTIVITY_PRECONDITION_UNMET` 的 `unmet` 增 `delivery_destination`、`delivery_route` 各一句原因（送给自己与送给别人各两句），新码 `SOURCE_NOT_FOUND`、`SUPPLY_NOT_AT_STORE` 与指名购买 M2 的 `FULFILLMENT_NOT_SUPPORTED`，`SUPPLY_SOURCE_MISMATCH` 宿主与环境都有，`SUPPLY_NAME_AMBIGUOUS` 不再抛出、留在闭集里，绕过宿主的控制工具活动名合并成一次带 `items[]` 的 `ACTION_REQUEST_INVALID`，登记宿主与环境的名称类闭集 `HOST_NAME_CODES`、`ENVIRONMENT_NAME_CODES`（C4）；「请求模型的闭集与字面边界」可见投影唯一放宽为无损归一后唯一，方式同义闭集表 `WAY_SYNONYMS`（写的方式不是目标列出的方式时查表，唯一命中才受理；指向「购买」的写法不看列出的方式）与 `WAY_NOT_OFFERED`，`ways` 行与 `obtain` 的来源去向行补「购买」与 `from` 可选约束，增 `prefer` 一行，控制工具三行改 `items`（C5）；「动作状态与动作结果」名称类拒绝每人每秒前 2 次不计同刻轮数、不施加脉冲（C6）；「联系人回复」请求增 `sender_name`、`now`、`presence`、`receive_location`，登记中文模板、守卫正则闭集、同一结算内重试一次与兜底句，事件增 `attempts[]`、`guard_applied`（C7）；「七层字段」工具层增只列名称的可调用索引 `callable_index`（`lifestyle`、`contents`、`goods`，计数写「N 个」、至多 3 个示例，不是目标、不计入呈现上限、计入容量），待办层目标增 `around_time`（显示「约 HH:MM」），「展示不是资格上限」推广到全部目录类，人设层 `rhythm` 取场景作息覆盖后的卡片，睡眠中不记已读，`result.details` 增 `fix`、`items`、`resolved`、`notes`，`browse_items` 列完整标签，候选写成可照填的请求，生活活动窗口施加地点类资格（C8）；「七层 Schema」两个指纹在新建运行时计算、不钉常量，18 条规则、待办层的 `around_time` 与工具层的 `callable_index` 使 `prompt_sha256` 重钉，`revise_day_plan` 的 `around_time`、控制工具的 `items` 与 `start_activity` 的 `prefer` 使 `tool_schema_sha256` 重钉，登记 `callable_index` 的 Schema 与 `INDEX_EXAMPLES_MAX`（C9）；「体感与动机证据」「人格与卡片字段」`taste_weights` 是排序信号，实际缓解用有效偏好 `f + (1 − f)·w`（场景层 `entertainment_relief_preference_floor`，游戏同一算法，有缓解时不累积），场景显式声明的作息字段覆盖卡片抽取值、`render_card` 的输入先经覆盖（C10）；「可见期与提示预算」补离开后凭完整标签按名下单（C11）；候选与轮转各节：生活活动窗口施加 `ELIGIBILITY_LOCATION_KIND_MISMATCH`，排序键加相关度（时间窗 +2、未推进目标家族 +2、习惯签名逐字不分大小写命中 +1）与 `sha256(场景\|人物\|日期\|对象)` 决胜、`order_key_version` 2，轮转按每个对象的 `last_presented_at`，`candidate_presentation_limit` 只约束目标条目、可调用索引不计入（C12）；「地点类词表」另立地点 `kind` 闭集，与 `PLACE_TYPES` 同源、与 `location_kinds` 区分，越界与重名在加载时拒绝（C13）；「请求组成」系统层 18 条逐字登记，零点计划模板第五、六条（C14）；「回合预算」「生成参数」「模型身份」「思考回传」「工具返回通道」截断回合丢弃、纠错替换不叠加、关闭思考并 `tool_choice=required` 重试一次（只开放世界请求，只读问答只剩 `finish`），`base_url` 改为 `https://api.deepseek.com/beta`（冻结在主站的清单不能再打开、恢复或重放），清单增 `input_warnings`，链长上界补免计的名称类拒绝，宿主错误码闭集十一码与共用结构（C15）；「记忆字段」「窗口声明与字段字典编码」`subject` 由 `views.about` 供给，`self_notes` 取各项，裁剪按新形状（C16）；「人物卡片覆盖率产出」不按 App 名子串计命中，新建运行只警告，新增「运行输入警告」小节（十个警告码、清单键与质量报告节，运行查看器总览列出冻结的警告），并改正同节两处既有漂移（`persona_coverage.json` 在判定之前照常写出，饮食喜好按子串匹配）（C17）；「地点发现与购买身份」「供给结算与事件载荷」购买渠道由场景钉定的手机配置派生（称呼、成员门店与加载时准入，核验失败时不派生渠道），订单载荷 `action_result.data.orders[]` 与 `purchases.jsonl` 增 `channel_id`、不进 `DeliveryState`（C18）；「CLI 命令接口」「运行诊断输出」`validate` 打印输入警告，场景级警告的 ops 记录不带 `agent_id`（C19）；文件头补修订说明 |
 | 工具交互复审定稿 | 2026-10-01 | 逐项请求、中文购买偏好、品类分页、逐店完整集合与价格定位、通知派生及独立阶段；已实现；行为、变异与运行结果见工具交互验收记录 |
+| `2026-10-02-errands-workday-freeze` | 2026-10-02 | [个人事务与工作安排规格](dev/SPEC-errands-workday.md)冻结：本文件的字段条款按配套实施计划的【同】作业随该规格阶段 1–4 的代码逐阶段修订；冻结变更集只加文件头修订说明行（个人事务与工作安排台账 C67）与「请求组成」的三处修订指针（C73 系统层第 1、4、6、14 条，C74 零点计划模板，C75 就寝反思文案），并改写「记忆字段」的主观文字句（C77），不改任何被测试逐字比对的文本；修订部分未实现，见该规格阶段 1–4 |

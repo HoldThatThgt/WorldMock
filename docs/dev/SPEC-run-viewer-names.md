@@ -1,7 +1,7 @@
 # 运行查看器对象名称
 
-> 状态：FROZEN；「活动标题」按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 21 行修订（一日运行保真 RV1），修订部分已实现并通过离线验收（`tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py`、`tests/footprints/test_render_day.py`）；修订记录见「版本表」。
-> 日期：2026-09-29
+> 状态：FROZEN；「活动标题」按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 21 行修订（一日运行保真 RV1），修订部分已实现并通过离线验收（`tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py`、`tests/footprints/test_render_day.py`）；「运行内对象名称」按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 RV1），修订部分未实现，见该规格阶段 2；修订记录见「版本表」。
+> 日期：2026-10-02
 > 验收记录：[查看器名称验收](run-viewer-names-verification.md)（修订前的行为）。
 
 ## 范围与依据
@@ -39,6 +39,14 @@
 `data.interaction_bindings` 中对象身份与可读对象名称的绑定只补充缺失名称，不能覆盖活动标题或目录名称。
 活动表、时间线请求/受理/进展和经济流水共用这些名称；原始事件与 SQL 数据保持原样。
 
+个人事务的名称取自记录本身：控制请求的 `errands[].name` 与个人事务事件载荷里的事务快照。
+时间线的控制请求摘要按现行形状读取：请求须带 `errands` 键，缺键与其余读者一样报错，不留旧形状读取；
+世界结构 8 的运行（含配对复跑的基线臂）用基线提交的查看器查看。
+摘要在活动名与 summary 之后写事务变更的种类与事务名称；六种个人事务事件
+（`errand_registered`、`errand_updated`、`errand_cancelled`、`errand_progressed`、`errand_completed`、`errand_reminded`）
+与唤醒原因 `errand_reminder_due` 用中文说法显示并写事务名称，快照中的商品按既有名称索引显示，
+缺名时照「缺失与重新加载」提示。事务内部身份不进活动表、时间线与请求摘要。
+
 ## 缺失与重新加载
 
 非空且不同于对象编号的名称才有效。有对象编号但运行内没有有效名称时，
@@ -61,3 +69,4 @@
 | --- | --- | --- |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 新增文件头与版本表。按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 21 行修订（一日运行保真 RV1，随该规格冻结）：「活动标题」补工作、通话与交谈也有中文标题，种类说法以 `src/worldmock/life/readable.py` 为单一来源，活动表与时间线不出现英文种类名与内部标识形态 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码与测试核对）：工作、通话与交谈的中文标题已实现，文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收，列出证据测试 `tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py` 与 `tests/footprints/test_render_day.py`；条款正文不变 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 RV1、RV2），修订部分未实现，见该规格阶段 2：「运行内对象名称」补个人事务名称的来源（控制请求与事件快照）、控制请求摘要写事务变更且缺 `errands` 键即报错（世界结构 8 的运行用基线提交的查看器查看）、六种个人事务事件与 `errand_reminder_due` 的中文说法；事务内部身份不进活动表与时间线；缺失提示规则不变 |

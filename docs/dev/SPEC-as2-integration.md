@@ -1,7 +1,7 @@
 # 特性规格：AgentSociety 2 集成与改动
 
-> 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 14 行补登三个 LifeAgent 覆写点（AS2 锁定提交不改），修订部分已实现并通过离线验收
-> 日期：2026-10-01
+> 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 14 行补登三个 LifeAgent 覆写点（AS2 锁定提交不改），修订部分已实现并通过离线验收；2026-10-02 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 AS1–AS14）：补登就寝反思 `_run_reflection`、`LifeAgent.step` 与工具分发日志、环境 actor 与代理子类（AS2 锁定提交不改），同步控制请求 `errands` 与 `query_world` 六键；修订部分未实现，见该规格阶段 1、2、4
+> 日期：2026-10-02
 > 实施基线：WorldMock `9b7fbc8`；AS2 分支 `vendor/agentsociety2` 的 `worldmock-life`（锁定提交 `8768e14`，基线提交 `670c94ff`）；人物 Prompt 修订的代码基线 `3ea5b06`
 > 范围：WorldMock 对 AgentSociety 2（下称 AS2）的选型理由与复用边界、分层职责，以及 AS2 核心链路为本次场景必须发生的确定性改动
 
@@ -10,6 +10,7 @@
 
 > 2026-10-01 按[工具交互规格](SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
+> 个人事务与工作安排规格首次受影响的发布为世界结构 9 与质量报告结构 4（阶段 2）、场景结构 5 与卡片结构 3（阶段 3）；AS2 锁定提交 `8768e14` 与 AS2 源码摘要不变。
 
 ## 选型理由与分层职责
 
@@ -21,9 +22,9 @@ AgentSociety 2 提供已验证的人物决策、模型调用、记忆检索和�
 
 | AS2 能力 | 复用范围 |
 | --- | --- |
-| `EnvBase` 子类注册 | LifeEnv 使用现有环境注册、工具声明、共享 actor 和生命周期 |
+| `EnvBase` 子类注册 | LifeEnv 使用现有环境注册、工具声明和生命周期；环境 actor 与代理是 WorldMock 对锁定 AS2 `DirectEnvActor`、`EnvRouterProxy` 的子类 `LifeEnvActor`、`LifeEnvProxy`，各只新增 `read_query` 一个方法 |
 | `PersonAgent` 决策与记忆 | 保留模型客户端、ReAct 执行和记忆检索；不重写人物循环；世界请求登记即结束本次决策，同秒续接的消息由 LifeAgent 在准备阶段之后注入 |
-| Ray actor 共享环境 | 复用为世界状态的单一写入进程 |
+| Ray actor 共享环境 | 复用为世界状态的单一写入进程；actor 类固定 `max_concurrency=1`，不提供参数 |
 | `to_workspace` / `restore` | 承载自定义业务状态的持久化与恢复 |
 
 **不复用的 AS2 模块**：
@@ -42,6 +43,7 @@ LifeEnv（唯一生活规则环境）
   ├─ 观察：当前可见状态、到达通知与内容接触的完成结果
   ├─ 动作接收：经 submit_action 登记，宿主绑定 agent_id/decision_id/action_id
   ├─ 结算：活动推进、资源结算、内容提供
+  ├─ 只读查询：经 read_query 在本决策已提交的观察上应答，不写事件
   └─ 数字足迹：事件、素材、检查点的事务写入
 
 LifeAgent（七层请求与工具约束）
@@ -145,7 +147,7 @@ result = env.submit_action(call, context=context, action_id=action_id)
 1. 保存失败、必要观察失败、人物执行失败向上报告并停止运行
 2. 删除合成结束结果和只保留 `finish` 的路径
 3. 生活决策在世界请求登记后由 LifeAgent 覆写的 `_run_react_turn` 结束本次决策，其后不向模型追加 tool 消息，AS2 锁定提交不改；回合预算耗尽仍无登记的世界请求即失败。只读问答保留 `finish`，`finish` 不得与其他工具同批返回
-4. 记忆校验失败、必要归纳失败与保存失败向上传播
+4. 记忆校验失败、必要归纳失败与保存失败向上传播；就寝反思输出不合严格工具合同属于协议违约，不是业务拒绝：先按与零点计划同形的有界校验重试——在原始消息之后加一条 user 消息，带上一次不合法的工具调用、英文校验错误与重新提交的指令，总是基于原始消息、不逐次累积；首次之外至多三次（连同首次至多四次模型调用，另设独立常量，与零点计划的次数同值），与传输重试分开计数；工作验收的协议纠正次数不作先例。每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证并各自计入模型用量，校验错误随下一次请求的附回消息留证，WorldMock 不覆写 AS2 的记忆调度。耗尽即运行故障、本轮中止，最后一次错误写进故障原因，不写入任何洞见、不登记 `memory_updated`、不降级为空反思
 5. 必要观察和证据保存的致命异常穿过原有 catch 分支传播，不把空观察或持久化故障转换成可继续的普通工具结果
 
 **算法**：
@@ -234,12 +236,13 @@ AS2 每次决策从工作区重建人物对象，消息在准备阶段清空，�
 **问题**：AS2 原实现把空记忆列表当作错误，巩固触发只认单条偏好记忆，巩固提示携带示例身份，相似的同类记忆被重复追加。
 
 **改动行为**：记忆规则本身见 `docs/dev/SPEC-life-realism.md`「记忆合同」，本节只登记 AS2 侧改动：
-1. AS2 侧不再为时间与能量特性改动：`conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 原路径写入，空数组合法（`agent/memory_runtime.py`、`agent/memory.py` 已允许空记忆列表）；AS2 记忆条目字段是闭集，relationship、preference 记忆的 `subject` 只存在于 WorldMock 的请求与事件中，宿主写入 AS2 前剥掉。一日运行保真规格第六章把请求改为 `items[{activity_name, summary, memories, views}]` 后，宿主把各项的 `memories` 与由 `views` 转回（`about` 即 `subject`）的条目按 `activity_name` 展平，仍经同一路径写入，AS2 侧不改
+1. AS2 侧不再为时间与能量特性改动：`conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 原路径写入，空数组合法（`agent/memory_runtime.py`、`agent/memory.py` 已允许空记忆列表）；AS2 记忆条目字段是闭集，relationship、preference 记忆的 `subject` 只存在于 WorldMock 的请求与事件中，宿主写入 AS2 前剥掉。一日运行保真规格第六章把请求改为 `items[{activity_name, summary, memories, views}]` 后，宿主把各项的 `memories` 与由 `views` 转回（`about` 即 `subject`）的条目按 `activity_name` 展平，仍经同一路径写入，AS2 侧不改。三个控制工具请求级的 `errands` 不是记忆写入点：宿主展平记忆时不读取它、不旁路写入事务，事务变更不产生 `memory_updated`，只随请求进入 WorldMock 的事件与人物状态；被业务拒绝的请求其 `memories` 仍按既有规则在登记时写入，事务变更不生效
 2. 巩固触发改按「记忆合同」的条件判定，不再由单条偏好记忆触发
 3. 巩固提示改传人物卡片、改用人物语言、去掉示例身份
 4. 写入前改按「记忆合同」的相似度窗口合并
 5. 提示中的记忆层与人设层的看法、偏好由环境从已提交事件与世界状态派生，不读 AS2 的最近条目与主观归纳；宿主的 `build_context` 不再向提示提供条目与摘要，零条最近记忆返回空列表；阈值巩固保留，摘要不进提示
 6. 就寝反思仍只写 `type=reflection`；宿主覆写 AS2 的记忆快照记录（`agent/person.py:557-587`），为反思条目加来源，以便确定归属日期；AS2 锁定提交不改
+7. 就寝反思的模型调用由 WorldMock 记忆运行时覆写 `_run_reflection`：只带一个严格工具 `submit_reflection`（strict，tool_choice 取 required）；思考仍由 AS2 的记忆调度关闭，请求不带 `purpose`，WorldMock 不覆写这条记忆调度；没有可反思的主观记忆时不调用模型。响应须恰好一次 `submit_reflection` 调用，`message.content` 不读取；洞见一至五条（上限直接取 AS2 常量 `MEMORY_REFLECTION_MAX_INSIGHTS`，随裁决 R1），每条 `refs` 非空、条内不重复且全部属于本次输入的记忆身份，`insight` 与收尾记忆同一文字校验。校验失败按「失败传播改动」第 4 条有界重试，每次尝试是记忆调度下的一次独立模型调用。AS2 的 `_parse_reflection` 不再被调用；system 文案由 WorldMock 自持并在接口合同「请求组成」逐字登记。`submit_reflection` 不属于人物工具面，不进 `tool_schema_sha256`，反思文案不进 `prompt_sha256`，二者由 `code_sha256` 绑定；行动请求的判定不变，反思请求不产生 `decision_started`；AS2 锁定提交不改
 
 **验证**：同一偏好不重复写入；长期记忆文件中没有示例身份残留。
 
@@ -307,8 +310,8 @@ observation_record = {
 **运行身份**：哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与锁定提交不符即拒绝启动
 
 **覆写点**（锁定提交不改，改动只在 WorldMock 的子类中）：本规格各节已登记的 LifeAgent 与记忆运行时覆写点——`_run_react_turn`
-（「失败传播改动」，世界请求登记即结束本次决策）、`prepare_react_loop` 之后注入续接消息（「同秒续接与推理内容保留」）与记忆快照记录
-（「记忆运行时改动」）——之外，[一日运行保真规格](SPEC-dayrun-fidelity.md)第四章与 7.2 补登三个 LifeAgent 覆写：
+（「失败传播改动」，世界请求登记即结束本次决策）、`prepare_react_loop` 之后注入续接消息（「同秒续接与推理内容保留」）与记忆快照记录与就寝反思 `_run_reflection`
+（「记忆运行时改动」）——之外，[一日运行保真规格](SPEC-dayrun-fidelity.md)第四章与 7.2 补登四个 LifeAgent 覆写：
 - `_protocol_feedback_content`（AS2 `agent_runtime.py:808-822` 的静态方法）：宿主协议纠错改为与环境共用的错误结构
   （`error_code`、`reason`、`fix`、`items`、`unmet`），`instruction` 使用 `No world request was registered. Correct the reported parameters and submit again.`，不回传 Pydantic 转储；
 - `_parse_react_responses`：保留工具调用完整位置、原文与 JSON 解析行列，覆盖缺调用、缺调用名、无效调用句柄、非对象参数与不完整 JSON；
@@ -316,6 +319,17 @@ observation_record = {
 - `_validate_react_tool_names`：未知工具定位 `function.name`，返回本次实际提供的工具枚举，不依赖上游英文错误串反解析；
 - `_append_react_protocol_feedback`（`agent_runtime.py:754-777`）：相同的纠错替换、不叠加；随后的一次重试关闭思考并 `tool_choice=required`，
   `max_tokens` 不变，`reasoning_effort` 仍不发送；结构化反馈同时保存于 `model_response.data.protocol_feedback`
+
+[个人事务与工作安排规格](SPEC-errands-workday.md) 1.4 另登记两个 LifeAgent 覆写点：
+- `step`：决策失败时写一条带完整异常链的英文 error 日志后原样上抛，异常对象与类型不变；
+- `_execute_react_tool`：工具分发失败先写英文 error 日志，再按现行实现的失败阶段码 `TOOL_SERVICE_FAILED` 抛出；该码与 `MODEL_SERVICE_FAILED`、
+  `EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED` 只标出失败阶段与调用位置，不是对请求参数的协议纠错，四码随个人事务与工作安排规格阶段 1
+  补登进接口合同的宿主错误码表。两处日志走标准 logging，不是持久证据，不新增事件，不改变失败分类。
+
+**环境 actor 与代理的 Life 扩展**：`LifeEnvActor(DirectEnvActor)` 与 `LifeEnvProxy(EnvRouterProxy)` 各只新增 `read_query(context, tool, request)`，
+代理等待远端并返回结果对象，actor 把查询交给唯一的生活环境；不 monkey patch、不改 AS2、不做多版本兼容。
+对 `DirectEnvActor._router`、`DirectRouter._environment()`、`EnvRouterProxy._actor` 三个私有成员的依赖登记为随锁定提交 `8768e14` 验证的耦合点，
+升级 fork 时逐项复核。
 
 **锁定依赖**：使用该上游提交的锁文件
 - MCP 1.26.0
@@ -357,7 +371,8 @@ observation_record = {
 继承 `EnvBase`，实现生活环境：
 - 观察、动作接收、活动推进、资源结算
 - 内容提供、数字足迹
-- 使用现有环境注册、工具声明、共享 actor 和生命周期
+- 使用现有环境注册、工具声明和生命周期；actor 与代理为 WorldMock 子类 `LifeEnvActor`、`LifeEnvProxy`
+- 只读查询：`read_query(context, tool, request)` 按决策身份取本决策唯一一条已提交观察，应答 `recall_task_summary`（及 `query_world` 的第二入口）；工具与请求类型不符、找不到唯一观察是协议违约；不写事件、不改世界版本与时钟、不计同刻轮数
 
 **不做的事**：
 - 不代替 AS2 管理人物的模型调用
@@ -384,18 +399,18 @@ observation_record = {
 ### 工具交互规格的当前覆写边界
 
 LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、格式校验；不转换数字、布尔值、空串或字符串 null。
-请求模型只接受当前逐项对象 `start_activity` 与当前控制 `items` 形状，删除旧 `actions` 和旧控制读取。
-`query_world` 的 `name`、`way`、`category`、`offset` 四键均必填；前三键为 `str|null` 且至少一个非空白。
-`way` 取现有方式闭集，`category` 匹配公开 `callable_index` 的类别标签；`offset` 是严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。
+请求模型只接受当前逐项对象 `start_activity` 与当前控制请求形状（`items` 加请求级必填 `errands`），删除旧 `actions` 和旧控制读取；缺 `errands` 键按缺字段拒绝。
+`query_world` 的 `name`、`way`、`category`、`from`、`available_only`、`offset` 六键均必填；前四键为 `str|null` 且至少一个非空白，`available_only` 为严格 JSON 布尔、不单独构成查询条件。
+`way` 取现有方式闭集（写「购买」等同「到店」与「远程下单」），`from` 与购买请求的 `from` 共用同一来源解析纯函数，`category` 匹配公开 `callable_index` 的类别标签；`offset` 是严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。
 `prefer` 的错误枚举按已合法的方式判定：含购买项返回 `["最快拿到", "到手价最低"]`，没有购买项返回 `[null]`；
 方式尚不能判定时返回声明的三值类型闭集并说明跨字段条件，不猜后续依赖条件。
-`query_world` 固定返回 `{matches, total_count, next_offset}`，只含权限内公开能力事实与完整请求候选；
-每批沿用现有 `candidate_presentation_limit=20`；`total_count` 为完整权限内匹配数，`next_offset` 必填，剩余结果的下一偏移或 `null`，可遍历权限内全集。
-查询工具集合包括 `query_world`、`recall_task_summary` 与三个记忆查询；同批查询全部校验后即时返回，
+`query_world` 固定返回 `{matches, total_count, next_offset}`，每项是冻结目标的无损紧凑投影，只含权限内公开能力事实，只省略 null 与空集合，不再逐项附完整请求候选（候选只出现在错误合同里）；
+每批沿用现有 `candidate_presentation_limit=20`；`total_count` 为全部筛选交集后的完整权限内匹配数，`next_offset` 必填，剩余结果的下一偏移或 `null`，可遍历权限内全集。
+查询工具集合包括 `query_world`、`recall_task_summary` 与三个记忆查询；`query_world` 由宿主在本次冻结观察上本地求值，`recall_task_summary` 经 `LifeEnvProxy.read_query` 送到环境 actor 并等待真实结果，环境侧 `query_world` 分支是同一组纯函数的第二入口、两入口逐值相等；同批查询全部校验后即时返回，
 不提交宿主绑定世界动作、不结束本次决策、不改变世界时间或同刻轮数，仍占用实际模型回合预算。
 世界请求仍单独提交，与查询混批及多个世界请求均整批拒绝、不部分执行。
 错误结构保留完整 `path`、`allowed_values`、英文 `expected`、英文 `why` 与完整 `{tool, arguments, note}` 候选，
-包括控制工具的嵌套记忆和关系参数，不能因 Pydantic 校验落在模型根而丢失参数位置。
+包括控制工具的嵌套记忆、关系参数与 `errands[j]` 各键，不能因 Pydantic 校验落在模型根而丢失参数位置。
 `protocol_feedback` 在事件中持久化，操作备忘由本人当天证据推导；AS2 子模块与记忆运行时不增加兼容状态。
 本轮改动的具体生产文件与行为、变异验收见[工具交互规格](SPEC-tool-interaction.md)和[实际验收记录](tool-interaction-verification.md)。
 
@@ -403,7 +418,7 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 
 验收矩阵逐项给出该改动必须通过的可观察结果与取证位置。状态列三档：`代码层已验证` 指确定性测试守卫已在
 `docs/dev/implementation-status.md` 记录的测试基线下通过；`待真实运行` 指还要等正式十二周的真实模型运行或隔离盲评；
-`本次离线验收待执行` 指按人物 Prompt 规格修订的行，其测试守卫在该特性实现后复跑通过前的状态；这三行已在最终代码上复跑通过，改记 `代码层已验证`（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）。
+`本次离线验收待执行` 指按人物 Prompt 规格修订的行，其测试守卫在该特性实现后复跑通过前的状态；这三行已在最终代码上复跑通过，改记 `代码层已验证`（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）。`修订部分未实现` 指按个人事务与工作安排规格修订、其所在阶段代码入库之前的状态。
 下表 `AS2 分支测试目录` 指 `vendor/agentsociety2/packages/agentsociety2/tests/`，该目录的测试在本仓库根目录下可直接收集运行。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
@@ -420,6 +435,8 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `AS2 分支测试目录/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本；续接链内复用链首 user，续接消息不写进观察事件 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_system_layer_and_six_layer_user`、`AS2 分支测试目录/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message`、`tests/integration/test_same_second_continuation.py` | 代码层已验证 |
 | 与 LabelKit 的进程隔离 | 交付程序校验独立环境 CLI 的调用生命周期与最终判定，产物清单与来源绑定不匹配时拒绝交付 | `tests/delivery/test_labelkit_process.py`（`test_trace_binding_requires_successful_lifecycle_and_final_verdicts`、`test_process_rejects_candidate_source_mismatch`）、`tests/delivery/test_host_delivery_coverage.py`（`test_deliver_success_path_publishes_full_manifest`、`test_file_inventory_rejects_symbolic_artifacts`） | 代码层已验证 |
+| 严格反思 | 就寝反思恰一次 `submit_reflection` 调用；洞见一至五条，引用非空、条内不重复且全部取自输入；自由文本、其他工具、多次调用、未知引用不被接受；校验重试首次之外至多三次，耗尽即运行故障，本轮中止、不提交、无 `memory_updated`；请求关闭思考 | [个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账「严格反思」行登记的测试节点 | 修订部分未实现，见个人事务与工作安排规格阶段 1 |
+| 只读查询转发 | 真实 Ray 下 `recall_task_summary` 经代理返回结果字典而非对象引用，世界状态与事件序号不变；worker 侧经代理调用成功；主进程内直接调用未经 `ray.remote` 包装的 `LifeEnvActor.read_query` 等于环境直调；`query_world` 两入口逐值相等；actor 并发度为 1 | 同规格验收台账「只读查询转发」行登记的测试节点 | 修订部分未实现，见个人事务与工作安排规格阶段 1 |
 | 真实端点集成 | 全部改动通过真实 AS2 与 DeepSeek 端点的集成测试，不用模拟模型或手工 JSON 替代 | `docs/dev/implementation-status.md` 记录的正式十二周运行与隔离盲评收据 | 待真实运行 |
 
 ## 版本表
@@ -443,3 +460,4 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码核对）：三个 LifeAgent 覆写均已落地，文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收；验收矩阵「工具面与证据回调」注明输出截断后的那次重试同样去掉记忆查询工具，证据补 `tests/integration/test_output_truncation.py` 的两个用例；AS2 锁定提交 `8768e14` 与运行身份不变 |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 AS1–AS15），修订部分未实现，见该规格阶段 1、2、4：环境 actor 与代理改为 WorldMock 子类并只新增 `read_query` 转发，登记三个私有成员耦合点；「失败传播改动」写明反思输出与零点计划同形的有界校验重试（首次之外至多三次，每次是 AS2 记忆调度下的独立调用，不覆写记忆调度）；「记忆运行时改动」新增第 7 条严格反思覆写，第 1 条补控制请求 `errands` 不是记忆写入点；「覆写点」补登 `step`、`_execute_react_tool` 与 `_run_reflection`，注明失败阶段码只标出失败阶段；`query_world` 改六键、返回不再附候选、写明两类查询的执行位置；验收矩阵新增「严格反思」「只读查询转发」两行与一档状态说明。补记：「补登三个 LifeAgent 覆写」的计数更正为四个；`_execute_react_tool` 的覆写此前未登记。AS2 锁定提交 `8768e14` 与运行身份不变；文件头补修订说明，日期改写 |

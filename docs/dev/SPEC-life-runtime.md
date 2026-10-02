@@ -11,7 +11,11 @@
 > 不适脉冲门槛只判一次、有效偏好与有缓解不累积、名称类拒绝不施加脉冲、摘录按字数核对、全部目录类按名调用与指名购买口径、生活活动的地点类资格、
 > 相关度与哈希决胜、按对象轮转、可调用索引不计上限、渠道只是门店集合的称呼；修订部分已实现并通过离线验收，验收矩阵中改动的十一行已改记「代码层已验证」。
 > 工具交互修订：按[工具交互规格](SPEC-tool-interaction.md)冻结目标行为；本次修订已实现，实际验收结果单独记录，历史证据只证明原行为。
-> 日期：2026-10-01
+> 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订改写（作业编号见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 RT2–RT24、RT27–RT29）：
+> 状态归属增个人事务与工作安排；唤醒闭集追加 `errand_reminder_due`，下一边界与下一次决策机会增个人事务提醒，在手承诺不含个人事务；控制请求携带 `errands`；
+> 个人事务、上班安排在七层中的位置，两种进度层记录及其浓缩口径；只读查询的执行位置，`query_world` 六键、筛选与返回；
+> 顺带更正 `report_status` 的 summary 去向、来源写法与可调用索引括注三处既有漂移；修订部分未实现，见个人事务与工作安排规格阶段 1–4。
+> 日期：2026-10-02
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
 
@@ -27,12 +31,13 @@
 
 | 状态类别 | 包含内容 | 谁可以改变 |
 | --- | --- | --- |
-| 世界 | 模拟时钟、地点、天气、内容目录版本、营业与工作日历、待发生事件 | 环境规则；管理员只能在运行前配置或开启新实验分支 |
+| 世界 | 模拟时钟、地点、天气、内容目录版本、营业与工作日历、场景按人物声明的工作安排（`work_schedule`）、待发生事件 | 环境规则；管理员只能在运行前配置或开启新实验分支；工作安排只在运行前由场景声明，零点计划、`revise_day_plan` 与工作提交都不改变它 |
 | 人物身体 | 身体状态与需求状态、最近活动及必要生理模型状态 | 推进时间，并结算进食、睡眠与实际活动 |
 | 人物资产 | 账户余额、持有商品、消耗品数量、已取得的使用权 | 交易与交付结算（送达只入收货人持有）、物品使用、给予（同处，只转移持有）与合同履约 |
 | 人物活动 | 活动类型、开始时间、进度、下一次决策机会、占用资源与名额、暂停与结束原因 | 人物提交动作申请，环境负责验证与执行 |
 | 地点会话 | 一段地点停留或两地之间的一段路，及其所含活动 | 环境随出发与到达开始和结束 |
 | 当日计划与提醒 | 当日有序目标及其提醒时刻 | 零点计划生成，人物清醒时修订 |
+| 个人事务 | 人物记下的未完成事务：名称、完成依据（结果种类、商品、数量）、已累计量、备注与提醒时刻；办成或取消的事务移出状态，终态、原因与证据只留在事件 | 人物经 `report_status`、`pause_activity`、`conclude_activity` 的 `errands` 登记、更新与取消；累计与办成只由环境按结算证据写入；零点处理、`revise_day_plan` 与目标推进不读写它，零点计划只读 |
 | 工作 | 任务、输入材料、截止时间、交付物、验收、合同及付款状态 | 任务来源、交付动作与独立验收环节 |
 | 内容接触 | 可见目录、已读邮件、已播放片段、游戏状态及素材区间 | 实际接触动作与内容投递环节 |
 | 记忆 | AS2 的人物记忆条目、记忆版本、来源事件与检索结果 | 人物记忆流程；环境不代写“人物应当喜欢什么” |
@@ -86,7 +91,7 @@ sequenceDiagram
 **时间推进规则**：
 1. 先处理当前时刻已到期的通知或活动，再选出需要决策的人物
 2. 人物完成本轮选择后，环境先结算本轮请求
-3. 无人就绪时（每个人物都有进行中活动且都没有待收尾活动，等待与睡眠都算），调度器再计算下一边界：活动完成、内容反馈、通知到达、工作截止、需要重新评估的身体变化、人物选择的等待结束、场景本地零点、当日目标提醒或实验结束
+3. 无人就绪时（每个人物都有进行中活动且都没有待收尾活动，等待与睡眠都算），调度器再计算下一边界：活动完成、内容反馈、通知到达、工作截止、需要重新评估的身体变化、人物选择的等待结束、场景本地零点、当日目标提醒、个人事务提醒（只对清醒的人物，睡眠中的人物不计）或实验结束
 4. 每次推进严格大于零；即时事件在当前边界按稳定序号处理；同一秒的再决策不推进时钟，轮数受同刻上限约束
 5. 同刻再决策：人物没有进行中活动或有待收尾活动时，在同一模拟秒再获得决策机会，直到有一项进行中活动且没有待收尾活动；适用于运行开始、活动结束、瞬时动作之后与业务拒绝之后。决策本身不消耗模拟时间
 6. 同一人物同一模拟秒的决策轮数以场景参数 `max_same_moment_decisions` 封顶，时钟推进即归零（取值见 `docs/EXPERIMENT.md`「场景参数」章的「活动节奏与同刻决策上限」节）；达到上限仍不满足第 5 条的结束条件时进入受限轮：每轮只开放一类动作，收尾、结束与等待不会被业务拒绝，阶梯见 `docs/dev/SPEC-time-and-energy.md`「一、决策不耗时：时间只在做事时流动」规则 3
@@ -116,10 +121,11 @@ WakeReason = Literal[
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
     "progress_report_due", "no_active_activity", "plan_reminder_due",
+    "errand_reminder_due",
 ]
 ```
 
-睡眠期间仍可提供决策的只有 `planned_end`、`wake_from_sleep`、`run_start` 与 `plan_reminder_due`。存储层登记同源的 `WAKE_REASON_NAMES` 词表，与 `life.schedule.WakeReason` 由测试互锁防漂移。
+睡眠期间仍可提供决策的只有 `planned_end`、`wake_from_sleep`、`run_start` 与 `plan_reminder_due`；`errand_reminder_due` 不进入睡眠允许集合。存储层登记同源的 `WAKE_REASON_NAMES` 词表，与 `life.schedule.WakeReason` 由测试互锁防漂移。`errand_reminder_due` 随个人事务与工作安排规格阶段 2 的代码进入调度枚举与 `WAKE_REASON_NAMES`，此前两处代码词表不含它。
 
 记录引擎原样保存本次判定，增量字段见[共同身体结算与决策证据](../design/05-recording-engine.md#共同身体结算与决策证据)；
 缺字段时的判定口径见 `docs/VERIFICATION.md`「协议门禁」。下表把闭集成员对应到触发条件：
@@ -141,6 +147,7 @@ WakeReason = Literal[
 | `progress_report_due` | 本人某项进行中活动距其播报锚点已满播报间隔（`progress_report_interval_seconds`）；只计进行中活动，暂停、待收尾与已收尾的活动不播报；锚点为活动的 `report_anchor_at`，在开始、恢复以及对该活动播报时写入当前时刻 |
 | `no_active_activity` | 边界结算后没有进行中活动的人物必获决策，同刻再决策轮也记它，不进睡眠允许集合 |
 | `plan_reminder_due` | 当日目标的 `remind_time` 到点：同时到期的合并，只计一次，每条提醒只触发一次；非睡眠活动继续进行。睡眠中到点即结束睡眠（`boundary_type` 与 `interruption_reason` 记 `plan_reminder`，按实际时长结算，睡眠成为待收尾），该边界的唤醒原因为 `planned_end`、`wake_from_sleep`、`plan_reminder_due`，睡眠结束后没有其他进行中活动时另含 `no_active_activity`（不按睡眠允许集合过滤）；睡眠的计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发 |
+| `errand_reminder_due` | 个人事务的提醒时刻到点：清醒的人物精确在该时刻获得一次决策机会；同一边界到期的多条事务合并为一次机会、本原因只计一次，每条事务各写一条 `environment_event`（`data.kind="errand_reminded"`，人物可见，决策与动作身份为空），与 `plan_reminder_due` 同刻到期时按枚举顺序并列；只提供决策机会，不改变事务状态，进行中的活动继续。不进睡眠允许集合：睡眠中的人物不计入候选、不形成静默边界、不交付也不消耗、不结束睡眠，睡眠期间错过的提醒在人物醒来的那个边界交付、不另起边界；事务办成或取消后不再提醒，更新时写新的提醒时刻重新计一次；只在实际交付决策机会时记账并写事件 |
 
 **唤醒条件是判定规则，唤醒原因是本次命中的成员**：上表列出全部唤醒条件；某次结算边界实际命中的成员构成该次边界的唤醒原因。只有命中的边界才提供决策机会并记录这些原因。
 
@@ -165,6 +172,7 @@ WakeReason = Literal[
 - 午餐、晚餐窗口的起止时刻
 - 已排定的通知与配送
 - 当日目标提醒（睡眠中也计入）
+- 个人事务提醒时刻（睡眠中不计入）
 - 进行中活动的播报到期
 - 任务截止与闭店的精确预警边界
 - 当前在手承诺对应的重估间隔到期
@@ -172,7 +180,8 @@ WakeReason = Literal[
 
 常规间隔 `reconsideration_interval_seconds` 默认 5400 秒；空闲间隔
 `idle_reconsideration_interval_seconds` 默认 10800 秒，不能短于常规间隔。进行中的等待不算在手承诺；人物只在等待、
-且没有未推进目标、可见未完成任务、暂停活动或其他进行中活动时用空闲间隔。
+且没有未推进目标、可见未完成的工作任务、暂停活动或其他进行中活动时用空闲间隔。
+未完成的个人事务不计入在手承诺，不改变常规与空闲间隔及闭店预警（[个人事务与工作安排规格](SPEC-errands-workday.md) 2.5）。
 两者沿用场景配置；在手承诺闭集、切换和精确威胁候选见
 [当日目标的决策节律](SPEC-day-plan-goals.md#事件驱动的决策节律)。睡眠继续仅接受睡眠允许的原因。
 
@@ -214,7 +223,7 @@ WakeReason = Literal[
 6. 环境 actor 不等待尚未到达的早序请求而阻塞后续接收，因此保持现有单写入 actor
 7. 该顺序只决定冲突处理，不选择人物动作
 8. 任务提交与其他不可逆结算使用稳定动作标识防止重试重复记账
-9. 任何必要人物决策异常时不结算该轮尚未执行的提案，原请求和失败证据保留，运行终止
+9. 任何必要人物决策异常时不结算该轮尚未执行的提案，原请求和失败证据保留，运行终止；宿主在上抛前写一条带完整异常链的英文 error 日志，异常对象与类型不变；工具分发失败同样先写日志，再按失败阶段码 `TOOL_SERVICE_FAILED` 抛出。日志不是持久证据，不新增事件、不改变失败分类；四个失败阶段码（模型服务、证据写入、记忆查询、工具服务）随个人事务与工作安排规格阶段 1 补登进 `docs/CONTRACTS.md` 的宿主错误码表，只标出失败阶段与调用位置，不是对请求参数的协议纠错
 
 **验证**：颠倒到达顺序不改变结算（见 `tests/life/test_engine_round.py` 的 `test_multi_person_arrival_order_does_not_change_settlement_order`）；种子变化改变竞争顺序且检查点可恢复（见 `tests/life/test_engine_feedback.py` 的 `test_seed_changes_competition_order_and_checkpoint_restores_it`）。
 
@@ -232,7 +241,7 @@ WakeReason = Literal[
 
 **只读状态视图**显示模拟时间、现实耗时、运行状态，以及每个人物当前活动、进度、最近动作结果和下一次决策机会。正常等待、模型调用中、正在写盘和故障停止分别显示，避免把「人物正在睡眠」与「框架没有响应」混为一谈。查看状态使用已确认事件与状态，不唤醒人物、不调用模型、不改变决策。
 
-**质量报告**从同一份数字足迹统计完成、中断、拒绝、重复观看、内容接触时长、转换效率、记忆写入与来源登记问题与模型成本。这些统计用于运行后评估；正式实验期间不根据报告暗中修改提示或替人物选择行动。
+**质量报告**从同一份数字足迹统计完成、中断、拒绝、重复观看、内容接触时长、转换效率、记忆写入与来源登记问题、个人事务的登记、办成、取消、跨夜与提醒、收尾记忆的构成与模型成本（个人事务与收尾记忆两组只报告，见个人事务与工作安排规格 6.1）。这些统计用于运行后评估；正式实验期间不根据报告暗中修改提示或替人物选择行动。
 
 **验证**：见 `tests/footprints/test_status.py` 的 `test_status_reads_confirmed_state_without_modifying_any_run_file`。
 
@@ -681,6 +690,10 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 人物观察提供全部进行中、暂停与待收尾活动，每项独立控制
 - 待收尾活动（状态为 `completed`、`failed` 或 `cancelled` 且 `concluded_at` 为空的活动；`truncated` 不收尾）只接受
   `conclude_activity`；有待收尾活动时做别的，以 `ACTIVITY_CONCLUSION_REQUIRED` 拒绝；已收尾与截断的活动不进入可控制集合
+- `report_status`、`pause_activity`、`conclude_activity` 各带请求级 `errands`（可为空数组），用于登记、更新、取消个人事务；
+  事务变更与同一请求的活动状态转换同批校验、同一事务提交，请求被业务拒绝或任一条变更不合法时整请求不生效、世界不变；
+  事务不是活动、不占名额，本次决策点不出一项进行中、暂停或待收尾的活动时没有变更入口；携带事务不改变三个请求既有的控制效果
+  （[个人事务与工作安排规格](SPEC-errands-workday.md) 2.2、2.3）
 - 活动使用注册表声明的 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work` 占用
 - 场景中声明地点和资格要求，组合由显式占用声明与准入事实决定
 - 不允许的组合整组拒绝，不能自动退出旧活动或自动挑选替代行动
@@ -767,7 +780,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 无损归一后唯一即受理，归一结果写进 `details.resolved`；相似度只用来给候选、永不自动替换，候选按此刻可行过滤，至多 3 个，
 写成可照填的完整请求 `{tool, arguments, note}`；宿主与环境共用同一名称解析，宿主逐项收集全部名称类失败项，环境逐项解析后合并成一次拒绝
 （[一日运行保真规格](SPEC-dayrun-fidelity.md) 3.1、第四章）。按名写的对象照常经菜单、资格与准入判定。
-`obtain` 的商品目标按指名购买解析：`from` 是可选约束（`null`、门店名或渠道称呼）；分段匹配依次以 `SUPPLY_NOT_FOUND`（没有这件商品）、
+`obtain` 的商品目标按指名购买解析：`from` 是可选约束（`null`、地点显示名（含「家」「住处」）或渠道称呼）；分段匹配依次以 `SUPPLY_NOT_FOUND`（没有这件商品）、
 `SUPPLY_NOT_AT_STORE`（这家店不卖）、`FULFILLMENT_NOT_SUPPORTED`（不支持这种方式）与 `ACTIVITY_PRECONDITION_UNMET`（要去哪里或送不到）拒绝；
 方式可写「购买」，由系统定到店或远程下单；多于一个可服务的匹配时按请求级 `prefer` 选定一家并写进 `details.notes`；
 受理后按当前报价在同一秒批量结算，价格、余额、营业与库存照常检查；不自动换成别的商品（该规格 3.2、3.3、3.5）。
@@ -780,8 +793,16 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **动作结果回灌**：本会话内的世界请求连同公开结果是进度层的 `tool_call` 记录，在整个会话内保留；同一秒续接时，
 上一决策的结果随 tool 消息返回；会话结束后由系统派生为记忆层的 `settled` 句子。活动的客观进度在工具层活动目标的 `state`，
-暂停的活动在待办层。人物写下的 summary 在本会话内是进度层中该调用的参数，会话结束后是记忆层的 `self_notes`；
+暂停的活动在待办层。人物写下的 summary 在本会话内是进度层中该调用的参数；会话结束后，成功的 `pause_activity`、`conclude_activity`
+写下的 summary 是记忆层的 `self_notes`，`report_status` 的 summary 不进入记忆层；
 回复正文是该调用的 `self_note`，只保留到本会话结束。这些内容未经核验，由系统层规则统一说明，各字段不逐条标注。
+控制请求里的 `errands` 从进度层该调用的参数中略去（先例：`views`），也不进 `self_notes`，本会话内由结果的 `details.errands` 回执
+`[{errand, change}]` 可见（`errand` 为事务名称）。在每次请求的六层快照内，事务的完整行只在待办层，别处只以名称引用；
+待办层事务行的名称与备注是人物自己记下的，未经核验，由系统层规则统一说明。进度层另有两种只写事务名称的记录：
+`errand_reminder{errand}`（提醒到点）与 `errand_completed{errand}`（环境确认办成），都由人物可见的事件派生，来源事件计入观察的进度来源；
+办成的事务由此对人物可见，取消的事务只从待办层消失。同秒续接中上一决策原样带回的调用参数与 tool 消息的 `changes.errands`
+（`added` 为新增或内容有变的完整行，`removed` 为名称）属于续接消息，不在六层快照的唯一出现口径之内；
+两种新记录有来源事件，随 tool 消息的 `events` 各出现一次。
 目标行不显示人物自述（`progress_note` 照存，不进提示）；同一段 summary 只在进度层或记忆层之一出现。
 工作验收使用已有公开反馈，不含完整活动快照和内部参考；权威事件保持完整，
 容量浓缩只处理发送给模型的进度层 JSON。具体边界见
@@ -789,17 +810,33 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 直接消息与交谈邀请以全文进入进度层的 `message_arrival`，邮件只写主题，正文在阅读结果中；「已读」指全文已呈现。
 可达地点的营业状态、路线的分钟数与费力、商品的价格与每份热量都在工具层的目标与动作中；吃饭途径由工具层目标与系统层规则表达，
-不再有吃饭途径句。暂停活动只在待办层，工作合同只在工具层 task 目标的 `contract`。各项信息的归属见
+不再有吃饭途径句。暂停活动与今日计划只在待办层，未完成个人事务的完整行也只在待办层（进度层两种记录与结果回执只写事务名称），
+工作合同只在工具层 task 目标的 `contract`；在途订单与未回复消息的位置不变，待办层不复述它们。
+今天的上班安排只在环境层的 `duty`（由环境按场景 `work_schedule` 与世界时钟求值，人物没有工作安排时为 null），
+人设层、待办层、工具层与当日目标都不重述，宿主不渲染人物档案里的工作安排；同秒续接内时钟不动，`duty` 与所在地点一样在链内不变、
+不进 `changes`，时钟推进后的请求从新快照整体给出；它是呈现的事实，环境不因它新增任何拒绝，出行照常列出、照常受理，
+班内离岗不另写事件，只由行为评估从事件与场景重算（[个人事务与工作安排规格](SPEC-errands-workday.md) 4.4、4.5）。各项信息的归属见
 [七层归属](SPEC-decision-context.md#七层归属)。
 
 **请求、查询与错误**：`start_activity.items[]` 包含一至两项 `{target, way, from, to}`，连同请求级 `answering`、`prefer`
 整组原子受理；删除旧平行数组与 `actions`。目标与方式唯一决定内部动作；本人进食或使用两端必须为 null，
 取得给本人时 `to=null`，给予通过「给予」方式和已知收件人名称独立表达。
 包含购买的请求 `prefer` 必须取「最快拿到」或「到手价最低」，其他请求必须为 null，不接受旧英文枚举。
-`recall_task_summary` 与 `query_world(name, way, category, offset)` 归入只读查询，可与记忆查询同批；
-查询三个筛选键必填可空，`offset` 是必填非负整数，类别复用现有品类名称，分页顺序由本轮冻结观察确定。
+`recall_task_summary` 与 `query_world(name, way, category, from, available_only, offset)` 归入只读查询，可与记忆查询同批；
+查询六个键全部必填、无缺省：`name`、`way`、`category`、`from` 可为 null 且至少一个非 null（全空时在四个位置各报一条），
+`available_only` 是布尔，`offset` 是非负整数，旧四键请求按缺字段拒绝；`from` 写购买来源，与 `start_activity` 购买项的 `from`
+同名同义并共用同一来源解析函数，只匹配供给条目；`available_only=true` 只留本轮冻结观察里已确认此刻可执行的条目；
+筛选在排序与切页之前施加，类别复用现有品类名称，分页顺序由本轮冻结观察确定。
 不结束决策、不改变世界、不计同刻轮数；含查询的模型回复本身仍计入十六回合预算。世界查询只能返回人物有权知道的对象。
-`query_world` 返回 `{matches, total_count, next_offset}`，逐页读取无重无漏，末页 `next_offset=null`；查询结果只进入原生模型与 tool 交换证据，
+执行位置：`recall_task_summary` 经环境代理送到环境 actor 并等待真实结果；`query_world` 由宿主在本次冻结观察上本地求值，
+`LifeEnv.read_query` 的同名分支是同一组纯函数的第二入口，两入口对同一观察、同一请求逐值相等。`read_query` 按决策身份取本决策
+唯一一条已提交观察，工具与请求类型不符或找不到唯一观察是协议违约，回看的业务拒绝以错误结构作为返回值；
+查询不进入待结算队列、不写事件、不改世界版本与时钟。
+`query_world` 返回 `{matches, total_count, next_offset}`，逐页读取无重无漏，末页 `next_offset=null`；`total_count` 是全部筛选交集后的完整匹配数；
+除两种查询参数错误（`from` 既不是地点显示名也不是渠道称呼；`from` 为 null、`name` 按对象名称无任何匹配且其写法恰是一个渠道称呼，
+此时候选给一条把该值移到 `from` 的完整请求，不自动改写）外，任何筛选组合无匹配时返回 `matches=[]`、`total_count=0`、`next_offset=null`，
+不报错、不自动放宽、不换来源；每项是冻结目标的无损紧凑投影，只省略 null 与空集合（与紧凑工具层的分组呈现同一实现），
+不再逐项附 `candidates`，候选只出现在错误合同里；查询结果只进入原生模型与 tool 交换证据，
 不写进度层 `events`、世界动作或人物记忆；最终回合与截断重试不开放任何只读查询。
 每次接口错误都返回英文原因与 `items[]`，每项含精确 `path`、合法 `allowed_values` 与 `expected`；
 `path` 是从模型工具调用根开始的完整位置数组，取代旧 `index`、`field`，例如
@@ -862,7 +899,10 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 仍达阈值或超出输入额度时，按容量故障停止，并按系统层、工具定义、各 user 层、续接消息、预留输出分层记录 token 用量与英文错误日志。
 始终完整保留（受保护）：工具层的进行中与刚结束活动、待办层的暂停活动、未了结订单相关的记录、上次请求之后的新记录。
-工具层、人设层、待办层与环境层不浓缩；记忆层只受自身 8000 字符窗口约束。不静默删减，
+工具层、人设层、待办层与环境层不浓缩；记忆层只受自身 8000 字符窗口约束。
+进度层的 `errand_completed` 记录折叠时留一句只含时刻与事务名的句子，`errand_reminder` 与当日目标提醒同等对待、折叠后不留句；
+待办层不浓缩，未完成的个人事务不受容量处理影响，其条数由每人至多 8 条的上限约束
+（[个人事务与工作安排规格](SPEC-errands-workday.md) 2.1、2.6）。不静默删减，
 不修改权威活动与会话状态或原始结算事件。行为以人物 Prompt 规格第四章为准。
 
 **正式运行目标**：
@@ -928,7 +968,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 - **检索分区池上限**：人物在某分区内「理论可互动」的对象总数上限，只用于计数与下推，不直接进提示。
 - **单次呈现上限**：一次决策放进提示的条数上限，是场景层常量，默认 20 条。上限只约束目标条目：工具层的可调用索引
-  `callable_index`（此地此刻可做的生活活动只列名称，内容与商品只给品类计数与每类至多 3 个示例名）不是候选条目，不计入单次呈现上限，
+  `callable_index`（`lifestyle` 列此地此刻可做的生活活动名称，`contents`、`goods` 给品类计数与每类至多 3 个示例名，`query_categories` 列世界查询可用的品类及其在查询权限内的完整条目数）不是候选条目，不计入单次呈现上限，
   但计入整次请求的容量计数；索引里的名称按名调用，受理时照常做资格与准入判定（[一日运行保真规格](SPEC-dayrun-fidelity.md) 5.2）。
 
 **读到什么算通过**：观察投影的条数不超过场景声明的单次呈现上限；池上限的取值同时出现在
@@ -1086,12 +1126,13 @@ flowchart LR
 下表给出本规格每条要求的观察、证据位置与状态。确定性测试已通过的记「代码层已验证」，依赖正式
 模型运行或真实盲评的记「待真实运行」；已有合同尚未贯通正式输入的记「既有实现缺口」；本次新增行为
 在最终源码身份尚未完成门禁时记「本次离线验收待执行」，不能提前写成通过。
+按个人事务与工作安排规格修订、对应阶段尚未实现的行记「修订部分未实现，见个人事务与工作安排规格阶段 N」，该阶段实现并通过门禁后改记「代码层已验证」。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | 状态归属与生命周期 | 状态类别与修改权限符合 `docs/CONTRACTS.md`「LifeEnv 状态字段」章的「状态归属」节；生命周期各接口的签名与行为符合该章的「生命周期」节；已有运行可恢复；未初始化或缺少场景时接口失败关闭 | `tests/integration/test_env_lifecycle_coverage.py` | 代码层已验证 |
 | 共享时钟 | 模型上下文时间与结算时间一致；错误时刻的上下文被拒绝；反馈边界严格向前且不释放占用 | `tests/life/test_engine_feedback.py`、`tests/life/test_engine_round.py` | 代码层已验证 |
-| 决策节律 | 静默边界不产生决策事件；提供决策的边界记录全部实际唤醒原因；睡眠不被重估间隔打断；体感滞回以上一次实际决策为参照；唤醒闭集依次含 `progress_report_due`、`no_active_activity`、`plan_reminder_due`，睡眠允许集合含 `plan_reminder_due`、不含 `no_active_activity` | `tests/life/test_revision_contract.py`、`tests/life/test_wake_reasons.py` | 代码层已验证 |
+| 决策节律 | 静默边界不产生决策事件；提供决策的边界记录全部实际唤醒原因；睡眠不被重估间隔打断；体感滞回以上一次实际决策为参照；唤醒闭集依次含 `progress_report_due`、`no_active_activity`、`plan_reminder_due`，睡眠允许集合含 `plan_reminder_due`、不含 `no_active_activity`；唤醒闭集在 `plan_reminder_due` 之后含 `errand_reminder_due`，睡眠允许集合不含它，睡眠中到点的个人事务提醒不交付不消耗、在人物醒来的那个边界交付 | `tests/life/test_revision_contract.py`、`tests/life/test_wake_reasons.py` | 修订部分未实现，见个人事务与工作安排规格阶段 2；其余分句代码层已验证 |
 | 同刻决策 | 没有进行中活动或有待收尾活动时在同一秒再决策，时钟不推进；同一人物同一秒的轮数受 `max_same_moment_decisions` 约束，达到上限后进入受限轮，收尾、结束与等待不被业务拒绝；有进行中活动时，瞬时动作成功后按决策节律，业务拒绝后同一秒再给一次机会；业务拒绝不产生运行失败；名称类拒绝不计同刻轮数、不施加情绪脉冲，每人每秒至多 2 次，第 3 次起照常计轮 | `tests/life/test_same_moment_decisions.py`；名称类拒绝见 `tests/life/test_name_resolution.py` 的 `test_two_name_rejections_in_one_second_are_free_and_the_third_counts`、`test_a_name_rejection_beside_other_rejections_follows_the_same_count`、`test_host_and_environment_share_one_name_class_closed_set`；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「名称类预算」 | 代码层已验证 |
 | 并发与占用 | 颠倒到达顺序不改变结算顺序；种子变化改变竞争顺序且检查点可恢复；异常时不结算该轮未执行的提案 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py` | 代码层已验证 |
 | 运行观测 | 只读查询使用已确认状态且不修改任何运行文件 | `tests/footprints/test_status.py` | 代码层已验证 |
@@ -1115,6 +1156,10 @@ flowchart LR
 | 随身持有与远程订购 | 他处持有物在工具层作为名称带所在地点的目标列出，食用与使用标不可用并写明只能在当地用，不呈现为手边可用；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分；订单只入收货人（`to`）的持有，直接配送给场景联系人时送到其 `receive_location_id`，自己收货后再给予只转移一次；`from` 写渠道称呼时解析为成员门店的供给，订单载荷与 `purchases.jsonl` 带 `channel_id` | `tests/life/test_storefront_commerce.py` 的 `test_pickup_is_instant_and_never_needs_delivery_route` 与 `test_fulfillment_rejections_are_atomic`；`tests/life/test_commerce.py::test_remote_inventory_is_not_a_current_interactive_object`；`tests/life/test_public_observation_contract.py::test_products_and_inventory_show_food_energy_and_elsewhere_holdings`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py`；渠道解析、准入与订单的 `channel_id` 见 `tests/life/test_purchase_channels.py`、`tests/profile/test_coverage_apps.py` 与 `tests/footprints/test_purchases.py::test_purchase_rows_carry_the_order_channel_and_old_orders_read_as_null`；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「购买渠道」 | 代码层已验证 |
 | 完整请求容量 | 实际请求连同预留输出达到窗口 85% 时先提前结束本秒续接，再依次去掉未受保护记录的 `self_note`、把最旧一段已有结果的记录折成 `condensed`；工具层的进行中与刚结束活动、待办层的暂停活动、未了结订单相关的记录与上次请求之后的新记录完整保留；仍达阈值或超过输入额度则报容量故障，并留分层 token 用量；记忆层按自身 8000 字符窗口截取 | `tests/life/test_decision_context_projection.py`（阈值、去 `self_note`、折叠与容量故障）；新增 `tests/integration/test_same_second_continuation.py`（预算第 0 步）、`tests/life/test_memory_layer.py`（记忆层窗口） | 代码层已验证 |
 | 社交 | 在场可见字段闭合，途中人物不算在场；交谈要求双方同处一地且对方清醒、不在主动游戏，对方对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，同一对人物重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒的收件人在同一秒获得决策机会，睡眠中不唤醒；消息汉字上限边界；交谈与通话的费率与派生时长边界，不因派生值拒绝；联系人策略为闭集且回复至多一次，给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落一条占位回复，联系人回复预排送达、睡眠中过滤；直接消息以全文进入收件人的进度层；发给场景联系人的消息记入发送人的 `outbox`，联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；`receive_location_id` 为空的联系人不能收实物，给予联系人要求本人位于其收货地点；睡眠中送达的消息在醒来后的第一个边界才读 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_same_moment_decisions.py`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py`；睡眠中不读消息见 `tests/life/test_discomfort_and_sleep_messages.py` 的 `test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_waking`、`test_the_boundary_decision_segment_reads_no_message_while_asleep`、`test_a_round_observed_while_asleep_marks_no_message_read`；见[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)验收台账「不适脉冲与消息」 | 代码层已验证 |
+| 只读查询转发与故障传播 | 真实 Ray 下回看任务返回结果字典而非远端引用，世界状态与事件序号不变；`query_world` 两入口逐值相等；环境 actor 并发度为 1；决策失败与工具分发失败各有英文日志，异常对象、类型与失败阶段码不变 | [个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账「只读查询转发」「故障传播」 | 修订部分未实现，见个人事务与工作安排规格阶段 1 |
+| 个人事务 | 登记与原子受理、名称与错误、跨夜可见、完成依据、结算幂等、提醒、检查点恢复与唯一出现按专属规格逐项验证 | [个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账阶段 2 各行 | 修订部分未实现，见个人事务与工作安排规格阶段 2 |
+| 工作安排与上班安排呈现 | 工作安排加载校验；环境层 `duty` 在班前、当班中、休息时段、班后、休息日与无工作安排各状态；修订计划与提交工作后不变；班内离岗照常受理；班次不改变任务开放与截止 | [个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账阶段 3 各行 | 修订部分未实现，见个人事务与工作安排规格阶段 3 |
+| 世界查询筛选与返回 | 六键必填、四键旧请求被拒；来源与购买解析得到的门店集合逐一相等；可执行筛选在切页之前施加；任意筛选组合沿 `next_offset` 遍历等于完整匹配集，false 与零值保留、无逐项候选；查询只读 | [个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账阶段 4 各行 | 修订部分未实现，见个人事务与工作安排规格阶段 4 |
 | 真实端点集成 | 真实 DeepSeek 端点与完整活动结算的集成测试通过 | 正式运行记录见 `docs/dev/implementation-status.md` | 待真实运行 |
 
 「候选契约与呈现规则」历史基线的复判说明（保留当时证据，不描述地图特性整合后状态）：
@@ -1181,3 +1226,4 @@ flowchart LR
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；验收矩阵中记「本次离线验收待执行」的五行改为「代码层已验证」，「完整请求容量」的证据改指实际守卫的测试（原引的跨轮容量场景不存在）；禁止键校验的覆盖范围按代码写明；「字幕与内容片段」改为字幕正文不进入七层，内容目标的 `state` 只写观看进度 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订 1–3、10–12、15、16 改写（一日运行保真 LR1–LR8，随该规格冻结）：「两过程睡眠模型」困意档界改为 0.80、0.93、1.07、1.18（KSS 等价刻度标定，实验假设），预期行为示例按公式重算并写明假设（07:00 起床、起床时压力等于醒来阈值：约 21:30 有点乏、22:40 困、00:05 很困、01:25 撑不住；旧示例 20:00/21:00/22:00/22:45 与同一假设下按旧档界算得的 18:33/21:00/22:24/23:23 不符），起点 00:00 的例子改为困意约 1.04 为「困」、晚型人物约 0.94 同为「困」；「其他体感分级」社交需要的清醒按本区间共同身体结算的活动集合判定，交谈、通话覆盖与共同用餐同一口径，睡眠中不读消息，脉冲表注明两小时门槛只判一次、未施加时不消耗计费小时，业务拒绝脉冲补名称类拒绝不施加；「转换效率算法」改为有效偏好 `f + (1 − f)·w`（排序仍用原始权重，游戏同一算法，有缓解时不累积，下限偏好为场景层字段），「身体参数与单位」的娱乐与社交两条随之改写；「内容提供行为」补摘录按字数核对（其余不变）；「观察投影行为规则」可见期不放宽、离开后凭完整标签按名下单，全部目录类可按名调用、归一唯一即受理、候选可照填且不替换，指名购买改为 `from` 可选约束、分段匹配、方式「购买」与按 `prefer` 选定；「统一候选契约」加相关度并补资格与排序的现行口径（地点类资格、哈希决胜、`ORDER_KEY_VERSION` 2）；「两条排除纪律」补地点类资格在生成时施加；「两级上限」补可调用索引不计上限；「曝光轮转」补逐对象 `last_presented_at`、上界按分区、失败判据加共享偏移量；「随身持有与远程订购」改为渠道只是门店集合的称呼；验收矩阵同刻决策、身体语义、资源结算、工作与验收、观察投影、统一候选契约、两条排除纪律、两级上限、曝光轮转、随身持有与远程订购、社交十一行改写，标注尚待本规格实现后重新验收；文件头补修订说明，日期改写 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码与测试核对）：验收矩阵中由 LR8 改写的同刻决策、身体语义、资源结算、工作与验收、观察投影、统一候选契约、两条排除纪律、两级上限、曝光轮转、随身持有与远程订购、社交十一行重新验收，改记「代码层已验证」，证据位置补实际守卫的测试（名称类预算、睡眠计费、困意档界、不适脉冲与睡眠中的消息、下限缓解与评分器预演、中文摘录、按名调用、浏览结果与可达提示、指名购买的分段匹配与按 `prefer` 选定、地点类资格与相关度、可调用索引、按对象轮转与哈希决胜、购买渠道与订单的 `channel_id`）；「七层请求」原生 `tools` 的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)「冻结条款修订」修订（[实施计划](research/errands-workday-implementation-plan.md)文档同步作业 RT2–RT24、RT27–RT29，随该规格冻结），修订部分未实现，见个人事务与工作安排规格阶段 1–4：状态归属增「个人事务」行，「世界」行补场景声明的工作安排；唤醒原因闭集在 `plan_reminder_due` 之后追加 `errand_reminder_due`（不进睡眠允许集合），触发表增一行（清醒时精确到点，同一边界多条合并为一次机会、每条事务各写一条提醒事件，睡眠中不形成边界、错过的提醒在醒来的那个边界交付），下一边界与下一次决策机会增个人事务提醒，在手承诺写明不含个人事务、「可见未完成任务」改写为工作任务；同轮竞争处理第 9 条补异常日志与失败阶段码的登记位置；质量报告统计项增个人事务与收尾记忆；活动控制补三个控制请求的 `errands` 与原子受理；「观察投影行为规则」写明事务变更不进进度层参数与 `self_notes`、新增两种进度层记录、事务完整行只在待办层、上班安排只在环境层 `duty`（同秒续接链内不变）且不新增拒绝，`query_world` 改为六键并写明筛选、两种参数错误之外的空页与不再逐项附候选，补只读查询的执行位置；「上下文容量」补两种进度层记录的浓缩口径；顺带更正三处既有漂移：`report_status` 的 summary 不进记忆层，`from` 的写法由「门店名」改为地点显示名（含住处）或渠道称呼，可调用索引括注补第四键 `query_categories`；验收矩阵决策节律行改写，新增只读查询转发与故障传播、个人事务、工作安排与上班安排呈现、世界查询筛选与返回四行，记「修订部分未实现，见个人事务与工作安排规格阶段 N」；文件头补修订说明，日期改写 |

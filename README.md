@@ -19,7 +19,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日�
 - [实现状态](docs/dev/implementation-status.md)：当前实现情况与覆盖率。
 - [覆盖率口径与基线](docs/dev/coverage-baseline.md)：覆盖率门禁的判定口径、失败关闭约定与基线记录。
 - `docs/dev/SPEC-*.md`：特性实施规格；是否冻结以文件抬头与 `docs/INDEX.md` 为准。
-- `docs/dev/PROPOSAL-*.md`：待裁决方案与多方案对比。
+- `docs/dev/PROPOSAL-*.md`（含按日期命名的 `PROPOSAL_<日期>_*.md`）：提案与裁决记录；是否已裁决以 `docs/INDEX.md` 为准。
 - [规格覆盖率追溯矩阵](docs/dev/ANALYSIS-spec-coverage.md)：规格条款与测试用例的覆盖率追溯矩阵。
 - `docs/dev/research/`：技术分析、审计与调研证据。
 
