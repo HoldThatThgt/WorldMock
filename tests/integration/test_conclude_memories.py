@@ -81,9 +81,16 @@ def _observed(*activities: tuple[str, str]) -> list[dict]:
     return observations
 
 
+def _action_requests(requests: list[dict]) -> list[dict]:
+    """行动阶段的请求：工具中有 start_activity（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）；不带工具的记忆
+    巩固与只带 submit_reflection 的就寝反思都不算。"""
+    return [request for request in requests
+            if "start_activity" in {item["function"]["name"] for item in request.get("tools") or []}]
+
+
 def _tool_names(requests: list[dict]) -> list[set[str]]:
     """逐个行动阶段请求读取实际开放的工具名。"""
-    return [{item["function"]["name"] for item in request["tools"]} for request in requests if "tools" in request]
+    return [{item["function"]["name"] for item in request["tools"]} for request in _action_requests(requests)]
 
 
 def _response_errors(environment: _Environment) -> list[str | None]:
@@ -137,7 +144,7 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
 
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(conclusion)]
     assert len(dispatcher.responses) == 1
-    assert len([item for item in dispatcher.requests if "tools" in item]) == 4
+    assert len(_action_requests(dispatcher.requests)) == 4
     assert all("finish" not in names for names in _tool_names(dispatcher.requests))
     assert _response_errors(environment) == [None, "TOOL_CALL_REQUIRED: The tool call batch is invalid.", None, None]
     assert len(agent._memory_runtime.calls) == 2
@@ -304,7 +311,7 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(valid)]
     error = _response_errors(environment)[0]
     assert error.startswith("ARGUMENTS_INVALID:") and message in error
-    correction = [item for item in dispatcher.requests if "tools" in item][1]
+    correction = _action_requests(dispatcher.requests)[1]
     content = correction["messages"][-1]["content"]
     feedback = json.loads(content)
     assert (feedback["error_code"], feedback["instruction"]) == ("ARGUMENTS_INVALID", FEEDBACK_INSTRUCTION)

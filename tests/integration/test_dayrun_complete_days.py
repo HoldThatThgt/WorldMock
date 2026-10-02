@@ -42,6 +42,11 @@ _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
 #: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
 _DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None, "around_time": None},
               {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None, "around_time": None}]
+#: 这些种子的就寝反思首次不合合同（自由文本、没有工具调用），经一次校验重试改正（docs/dev/SPEC-errands-workday.md 1.1）：
+#: 两人的附回消息逐字相同、分处两条（人物，秒）续接链，观察重复门禁仍须为 1。
+_REFLECTION_RETRY_SEEDS = frozenset({20260106})
+#: 自由文本应答换来的英文校验错误（附回消息 VALIDATION_ERROR 的原文）。
+_ONE_CALL = "response must contain exactly one submit_reflection tool call"
 
 
 class _PlanDayClient(StubPlanDayClient):
@@ -109,7 +114,11 @@ class DayModel:
                               json.dumps(payload, ensure_ascii=False))
 
     def _reflection(self, request):
-        """就寝反思：工具唯一为 submit_reflection，以这一个工具调用作答，引用输入里的第一条记忆。"""
+        """就寝反思：工具唯一为 submit_reflection，以这一个工具调用作答，引用输入里的第一条记忆。种子在
+        _REFLECTION_RETRY_SEEDS 中时，每次反思的首个请求（只有原始的 system 与 user 两条消息）先以没有工具调用的
+        自由文本作答，带附回消息的校验重试再以工具调用作答。"""
+        if self.seed in _REFLECTION_RETRY_SEEDS and len(request["messages"]) == 2:
+            return _TextResponse("我希望继续留意自己的感受。")
         user = request["messages"][1]["content"]
         payload = json.loads(user.split("<memory_reflection_input>")[1].split("</memory_reflection_input>")[0])
         insights = [{"insight": "我希望继续留意自己的感受。", "refs": [payload["episodes"][0]["id"]]}]
@@ -370,7 +379,9 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
     _assert_decision_events(events, _identities(engine))
-    _assert_reflection_requests(events, tmp_path / "export")
+    retried = {model.seed in _REFLECTION_RETRY_SEEDS for model in models.values()}
+    assert len(retried) == 1
+    _assert_reflection_requests(events, tmp_path / "export", retried.pop())
 
 
 def _tool_names(event) -> list[str]:
@@ -387,13 +398,22 @@ def _is_decision_request(event) -> bool:
             and "start_activity" in _tool_names(event))
 
 
-def _assert_reflection_requests(events, export_dir):
+def _assert_reflection_requests(events, export_dir, retried):
     """规格 1.1：真实日运行里就寝反思经唯一严格工具提交——请求不带 purpose、思考关闭、tool_choice=required，不是
     行动请求、不产生 decision_started；洞见落进带 source=reflection 快照的 memory_updated；含反思的决策，其动作与意图
-    窗口的决策提示仍是该决策里工具含 start_activity 的那份请求。"""
+    窗口的决策提示仍是该决策里工具含 start_activity 的那份请求。retried 时每次反思恰有一次校验重试：两人的附回消息
+    逐字相同、分处两条（人物，秒）续接链（_assert_decision_events 已断言观察重复门禁仍为 1）。"""
     reflections = [event for event in events if event.event_type == "model_request"
                    and _tool_names(event) == ["submit_reflection"]]
     assert {event.agent_id for event in reflections} == {1, 2}
+    assert set(Counter(event.decision_id for event in reflections).values()) == {2 if retried else 1}
+    retries = [event for event in reflections if len(event.data["request"]["messages"]) == 3]
+    assert len(retries) == (len(reflections) // 2 if retried else 0)
+    if retried:
+        [content] = {event.data["request"]["messages"][-1]["content"] for event in retries}
+        feedback = json.loads(content)
+        assert (feedback["VALIDATION_ERROR"], feedback["PREVIOUS_INVALID_RESPONSE"]) == (_ONE_CALL, [])
+        assert len({(event.agent_id, event.occurred_at) for event in retries}) == len(retries) >= 2
     started = Counter(event.decision_id for event in events if event.event_type == "decision_started")
     for event in reflections:
         request = event.data["request"]

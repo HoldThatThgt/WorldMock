@@ -120,7 +120,8 @@ def _decision_groups(events: list[dict]) -> dict[str, list[dict]]:
 def _attach_decision_layers(record: dict, rows: list[dict], decisions: dict) -> None:
     """@brief dreaming 读实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
 
-    窗口内每个动作请求取同人物、同决策、动作前最后一次实际行动请求（与动作窗口同一 prompt 权威），把其首个 user
+    窗口内每个动作请求取同人物、同决策、动作之前最后一份不带 purpose 且工具含该动作工具名的请求（与动作窗口同一
+    prompt 权威与选取规则 _decision_prompt_source：截断重试照此被选中，就寝反思请求不会被选中），把其首个 user
     的六层 JSON 连同所属动作请求写入输入；请求事件身份与层 JSON 的 canonical 摘要写入来源。须在 _attach_evidence 之前调用。
     """
     layers, sources = [], []

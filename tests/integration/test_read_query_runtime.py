@@ -31,6 +31,8 @@ from worldmock.life.world_query import QueryWorldRequest, query_world
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / 'scenarios' / 'white-collar-12-weeks.json'
 _ERROR_KEYS = {'error_code', 'reason', 'fix', 'items', 'unmet'}
+#: 真实 Ray 用例给 raylet 启动取系统配置的等待秒数（Ray 的 RAY_raylet_start_wait_time_s 配置，经子进程环境传入）。
+_RAYLET_START_WAIT_SECONDS = 180
 
 
 async def _staged_recall(engine_factory) -> SimpleNamespace:
@@ -80,6 +82,9 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
     """真实代理、actor 与 LifeEnv：驱动侧与 worker 侧经代理各调用一次，都拿到与环境直调相同的结果字典（不是对象
     引用）；代理随任务序列化到 worker 后仍可用；查询不追加足迹、不改世界状态。"""
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
+    # 机器繁忙时 raylet 向 GCS 取系统配置可能超出其默认等待而退出，驱动随后报「启动超时」；放宽这一等待只改变
+    # 基础设施的启动耐心，不改变本用例证明的内容。
+    monkeypatch.setenv('RAY_raylet_start_wait_time_s', str(_RAYLET_START_WAIT_SECONDS))
     staged = await _staged_recall(engine_factory)
     ray.init(num_cpus=1, include_dashboard=False, log_to_driver=False)
     actor = None
@@ -178,8 +183,9 @@ def test_life_env_actor_class_fixes_single_concurrency_without_parameters(monkey
 @pytest.mark.asyncio
 async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(monkeypatch, tmp_path):
     """运行装配不启动 Ray 也可判定：ray.remote 包装的是 LifeEnvActor 且并发度为 1；交给 Society 的环境代理是
-    LifeEnvProxy，持有装配出的 actor 句柄，它的 read_query 把查询送到该句柄并返回等待后的结果对象。装配改回 AS2 原类
-    （没有 read_query 的 EnvRouterProxy 或 DirectEnvActor）即失败。"""
+    LifeEnvProxy，持有装配出的 actor 句柄，交给人物的服务代理（ServiceProxy.env）是同一个代理；经人物一侧调用
+    read_query 把查询送到该句柄并返回等待后的结果对象（代理不等待远端时得到的是协程而不是结果）。装配改回 AS2 原类
+    （没有 read_query 的 EnvRouterProxy 或 DirectEnvActor，含只给人物一侧换回 EnvRouterProxy）即失败。"""
     import worldmock.runtime as runtime
     from agentsociety2.config import llm_dispatcher
     from agentsociety2.env import direct_env_actor
@@ -215,7 +221,11 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     assert wrapped == [(LifeEnvActor, {'max_concurrency': 1})]
     proxy = society._config.env_router
     assert type(proxy) is LifeEnvProxy and proxy._actor is handle
-    assert callable(getattr(proxy, 'read_query', None))
-    result = await proxy.read_query('context', 'recall_task_summary', 'request')
+    # 人物不经 env_router：Society 把 service_proxy 交给人物任务，人物的环境取 service_proxy.env（AS2
+    # AgentBase._bind_services），回看任务从这里发出，所以交给人物的必须是同一个 Life 代理。
+    agent_side = society._config.service_proxy.env
+    assert agent_side is proxy
+    assert callable(getattr(agent_side, 'read_query', None))
+    result = await agent_side.read_query('context', 'recall_task_summary', 'request')
     assert result is answer
     assert received == [('context', 'recall_task_summary', 'request')]

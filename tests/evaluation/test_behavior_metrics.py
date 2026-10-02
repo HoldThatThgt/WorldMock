@@ -297,6 +297,43 @@ def test_plan_day_requests_are_not_decision_requests() -> None:
     assert gate["value"] == 1 and gate["user_message_count"] == 1
 
 
+def _with_tools(event: dict[str, Any], *names: str) -> dict[str, Any]:
+    """@brief 给请求夹具加上实际开放的原生工具（只填函数名）。"""
+    event["data"]["request"]["tools"] = [{"type": "function", "function": {"name": name}} for name in names]
+    return event
+
+
+def test_reflection_requests_and_their_retries_are_not_decision_requests() -> None:
+    """@brief 就寝反思的请求只带 submit_reflection、不带 purpose（docs/dev/SPEC-errands-workday.md 1.1）：两个人物各有
+    一次校验重试，附回消息逐字相同、分处两条（人物，秒）续接链，也不进观察重复门禁与决策 token 中位数；工具中有
+    start_activity 的行动请求与不带工具的记忆巩固照计。"""
+    correction = ('{"INSTRUCTION":"Return a complete new submit_reflection tool call using the unchanged schema.",'
+                  '"PREVIOUS_INVALID_RESPONSE":[],'
+                  '"VALIDATION_ERROR":"response must contain exactly one submit_reflection tool call"}')
+    events = [
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _model_response(2, "act-1", 100),
+        _model_request(3, "consolidate-1", ["记忆归纳 1"]),
+        _model_response(4, "consolidate-1", 300),
+    ]
+    for seq, agent_id in ((5, 1), (9, 2)):
+        for offset, texts in ((0, [f"反思输入 {agent_id}"]), (2, [f"反思输入 {agent_id}", correction])):
+            call = f"reflect-{agent_id}-{offset}"
+            events += [_with_tools(_model_request(seq + offset, call, texts, agent_id=agent_id), "submit_reflection"),
+                       _model_response(seq + offset + 1, call, 20000)]
+    retries = [event for event in events if event["event_type"] == "model_request"
+               and correction in [message["content"] for message in event["data"]["request"]["messages"]]]
+    assert len({(event["agent_id"], event["occurred_at"]) for event in retries}) == 2
+
+    report = _report(events)
+
+    gate = report["gates"]["observation_repetition"]
+    assert (gate["value"], gate["pass"], gate["duplicated_observation_count"]) == (1, True, 0)
+    assert gate["user_message_count"] == 2
+    median = report["reports"]["decision_prompt_token_median"]
+    assert (median["value"], median["sample_size"]) == (200, 2)
+
+
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     """@brief 最终动作为进度播报或等待的决策不计入自主决策；等待按受理时实际开始的活动 kind=wait 判定
     （docs/design/07-evaluation.md「2.2 报告项」），不按请求里的动词或方式。"""

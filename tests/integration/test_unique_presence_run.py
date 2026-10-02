@@ -91,9 +91,13 @@ class _Script:
         self.agent_id, self.requests, self.phase = agent_id, [], "query" if agent_id == 1 else "message"
 
     async def call(self, **request):
-        """保存请求；行动请求按剧本返回一个工具调用，记忆运行时的纯文本请求返回一句话。"""
-        if "tools" not in request:
+        """保存请求；行动请求（工具中有 start_activity，docs/dev/SPEC-errands-workday.md 1.1）按剧本返回一个工具调用，
+        记忆运行时不带工具的请求返回一句话。这段运行到不了就寝边界：带工具而不是行动请求的请求（就寝反思）出现即失败，
+        不被当作行动请求作答。"""
+        names = [item["function"]["name"] for item in request.get("tools") or []]
+        if not names:
             return _TextResponse("我按眼前的情况决定接下来做什么。")
+        assert "start_activity" in names, f"unexpected non-action request with tools {names}"
         self.requests.append(copy.deepcopy(request))
         tool, arguments = self._first(_current(request)) if self.agent_id == 1 else self._second(_current(request))
         return _ModelResponse(f"call-{self.agent_id}-{len(self.requests)}", tool,

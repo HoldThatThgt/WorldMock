@@ -85,6 +85,9 @@ UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 各协议门禁缺失证据时的统一说明前缀。
 _NOT_PROVIDED = "未提供"
 
+#: 行动请求才开放的世界请求工具；带工具而没有它的请求（就寝反思）不是人物决策请求。
+_ACTION_TOOL = "start_activity"
+
 
 def behavior_metrics_report(
     events: list[dict[str, Any]],
@@ -165,11 +168,26 @@ def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) 
     return entry
 
 
+def _request_tool_names(request: Any) -> list[str]:
+    """@brief 一次模型请求实际开放的工具名；没有工具或形状不符时为空列表。"""
+    tools = request.get("tools") if isinstance(request, Mapping) else None
+    return [item["function"].get("name") for item in tools if isinstance(item, Mapping)
+            and isinstance(item.get("function"), Mapping)] if isinstance(tools, list) else []
+
+
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）。"""
-    return [event for event in events if event.get("event_type") == "model_request"
-            and event.get("data", {}).get("phase") == "request"
-            and not event.get("data", {}).get("purpose")]
+    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
+    只在工具中有 start_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
+    照计（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。"""
+    selected = []
+    for event in events:
+        data = event.get("data", {})
+        if event.get("event_type") != "model_request" or data.get("phase") != "request" or data.get("purpose"):
+            continue
+        names = _request_tool_names(data.get("request"))
+        if not names or _ACTION_TOOL in names:
+            selected.append(event)
+    return selected
 
 
 def _message_text(message: Mapping[str, Any]) -> str | None:
@@ -190,7 +208,8 @@ def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[st
     """@brief 统计同一 user 观察文本出现于不同（人物，模拟秒）续接链中的最大数目；门禁必须为 1。
 
     同一人物同一模拟秒内的决策构成一条续接链，链内各决策复用链首 user 合法，只计一次；
-    跨秒或跨人物重复仍计为重复。带 purpose 的系统请求（工作验收、零点计划）不参与统计。
+    跨秒或跨人物重复仍计为重复。带 purpose 的系统请求（工作验收、零点计划）不参与统计；就寝反思的请求（含校验重试，
+    其附回消息不带时刻与人物内容，不是观察）也不参与。
     """
     chains: dict[str, set[tuple[Any, Any]]] = {}
     user_messages = 0

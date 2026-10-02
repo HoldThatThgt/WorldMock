@@ -113,7 +113,7 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
 | --- | --- | --- | --- | --- |
-| `observation_repetition` | 同一 user 观察文本出现于不同（人物，模拟秒）续接链的决策请求中的最大数目（同一续接链内各次决策复用链首 user 合法，只计一次，同一决策内重发同样只计一次；排除带 `purpose` 的系统请求，即 `purpose="work_review"` 与 `purpose="plan_day"`） | `==` | 1 | 同一观察被重复序列化进不同秒或不同人物的决策请求 |
+| `observation_repetition` | 同一 user 观察文本出现于不同（人物，模拟秒）续接链的决策请求中的最大数目（同一续接链内各次决策复用链首 user 合法，只计一次，同一决策内重发同样只计一次；排除带 `purpose` 的系统请求，即 `purpose="work_review"` 与 `purpose="plan_day"`；带工具的请求只在工具中有 `start_activity` 时计入，所以只带 `submit_reflection` 的就寝反思及其校验重试不计，它们的附回消息不带时刻与人物内容，不是观察；不带工具的记忆巩固照计） | `==` | 1 | 同一观察被重复序列化进不同秒或不同人物的决策请求 |
 | `silent_boundary_ratio` | 每人唯一共同身体结算的清醒边界中 `decision_offered=false` 的占比，sleep 边界与缺失该字段的边界都不进分母 | `>=` | 0.5 | 静默续行边界占比过低，人物没有得到足够决策机会 |
 | `memory_repetition_ratio` | 同类型记忆两两之间 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
 | `memory_md_identity_residue` | 调用方传入的各人物工作区 `MEMORY.md` 文本命中示例身份或示例编号的人物数（`MEMORY.md` 不再进人物提示，门禁仍检查它） | `==` | 0 | 示例身份残留进入人物记忆 |
@@ -122,7 +122,9 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 该门禁的 `value` 为 `null`、`pass` 为 `false`。四个门禁的取值与阈值各有测试守卫：
 `tests/evaluation/test_behavior_metrics.py` 的 `test_observation_repetition_gate_pass_and_fail`
 （续接链内复用与跨秒、跨人物重复另由 `test_observation_gate_allows_same_second_continuation_chain_reuse`、
-`test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate` 守卫）、
+`test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate` 守卫，就寝反思及其校验重试不计由
+`test_reflection_requests_and_their_retries_are_not_decision_requests` 与真实日运行
+`tests/integration/test_dayrun_complete_days.py` 中反思经一次校验重试改正的种子守卫）、
 `test_silent_boundary_ratio_exact_values`、`test_memory_repetition_gate_values`、`test_memory_md_identity_residue_gate`；
 分组与可复现性由 `test_report_groups_by_code_sha256`、`test_same_input_produces_byte_identical_report` 守卫。
 
@@ -417,7 +419,7 @@ flowchart LR
 
 | 报告项键 | 说明 |
 | --- | --- |
-| `decision_prompt_token_median` | 不带 `purpose` 的请求（行动请求含同秒续接的请求，另含同样不带 `purpose` 的记忆巩固与就寝反思请求；就寝反思经严格工具 `submit_reflection` 提交，它的校验重试请求同样不带 `purpose`，各计一个值）的 prompt token 中位数，每次 `phase=request` 的 `model_request` 计一个值，排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求；随附 `target_reference` 15000 只作对照 |
+| `decision_prompt_token_median` | 不带 `purpose` 的人物决策请求（行动请求含同秒续接与截断重试的请求，另含不带工具的记忆巩固请求；带工具的请求只在工具中有 `start_activity` 时计入，所以经严格工具 `submit_reflection` 提交的就寝反思及其校验重试不计）的 prompt token 中位数，每次 `phase=request` 的 `model_request` 计一个值，排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求；随附 `target_reference` 15000 只作对照 |
 | `effective_autonomous_decision_rate` | 最终动作既非 continue 也非等待的决策占比；continue 与等待算被动，等待按结果活动 `kind=wait` 判定；只做结束、暂停或修订的控制轮单列 |
 | `wake_reason_distribution` | 各 `wake_reason` 计数，分两份：边界取共同身体结算，决策轮取 `decision_started` |
 | `wait_minutes` | wait 活动总分钟 |
@@ -663,3 +665,4 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | `2026-10-01-tool-interaction` | 2026-10-01 | 工具交互门禁冻结并已实现：英文所有报错无中文例外，精确位置与完整合法值，`items[]`和只读查询预算，任务通知与普通即时开放，完整类别供给及独立种子地图；冻结新发布身份，补行为和独立变异门禁，不复用历史通过声明 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 随[个人事务与工作安排规格](dev/SPEC-errands-workday.md#实施计划)冻结，按其「实施计划」的冻结约定修订（个人事务与工作安排台账 VF2），修订部分未实现，见该规格阶段 1–4：新增「个人事务与工作安排特性门禁」，指向该规格验收台账，列出各阶段独立验收、工程放行门禁、独立语义突变的检验点与只报告项；测试矩阵（导语、特性表与要求表）在冻结时不动，实现后补；版本表顺序顺带更正；协议门禁、报告项与工具交互门禁的口径随对应实施阶段落地，届时另追加版本行；文件头补修订说明，日期改写 |
 | `2026-10-03-errands-workday-stage-1` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 1（运行修复入库）与配套实施计划的【同】作业 VF5–VF7 修订，随阶段 1 的代码落地：「工程门禁」「失败传播」补就寝反思输出不合合同的有界校验重试（首次之外至多三次，与传输重试分开计数，耗尽即运行故障，不写入洞见、不登记 `memory_updated`、不降级为空反思），补人物决策失败与工具分发失败的英文 error 日志及四个失败阶段码的登记位置，验证行补「故障传播」「严格反思」两行登记的测试文件；「报告项」`decision_prompt_token_median` 注明就寝反思经严格工具提交、其校验重试请求同样不带 `purpose` 并各计一个值；协议门禁四项的键名、口径与阈值不变；文件头改为阶段 1 已随代码落地、阶段 2–4 未实现，日期改写 |
+| `2026-10-03-errands-workday-stage-1-review` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 1 的独立复核修订（规格 1.1「身份与判定」：凡以「不带 `purpose` 且带工具」筛选人物请求的读者按工具中有 `start_activity` 判定）：就寝反思校验重试的附回消息不带时刻与人物内容，两次同类失败在两条（人物，秒）续接链里逐字相同，原口径会使正确运行的 `observation_repetition` 门禁取 2；协议门禁 `observation_repetition` 与报告项 `decision_prompt_token_median` 改为带工具的请求只在工具中有 `start_activity` 时计入，就寝反思及其校验重试都不计，不带工具的记忆巩固与截断重试照计；门禁键名、比较符与阈值不变，守卫用例补两处；取代 `2026-10-03-errands-workday-stage-1` 行「其校验重试请求同样不带 `purpose` 并各计一个值」与「协议门禁四项的口径不变」两句 |

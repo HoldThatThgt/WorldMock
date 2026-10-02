@@ -8,8 +8,8 @@
 @note     分阶段形态：`stage` 取规格台账的阶段列；只有 `stage` 属于 STAGES_DONE 的行必须列出测试，但任何行列出的节点都
           必须解析到存在、会被收集且未被跳过的测试函数。阶段随实施增长：每个阶段的提交登记自己的行、变异与文件，阶段的
           最后一个提交把阶段号加入 STAGES_DONE；阶段 4 只依赖阶段 1，可以先于阶段 2、3 完成。
-          登记的节点是经真实请求、引擎与 SQLite 路径的行为测试；人物一侧的行经真实记忆运行时或直接导入的 LifeAgent。
-          只断言辅助函数的用例至多作补充证据，不单独支撑一行。
+          每行必须有经真实请求、引擎与 SQLite 路径的证据（人物一侧经真实引擎、LifeEnv 与直接导入的 LifeAgent）；只断言
+          辅助函数的用例、在替身环境上直调人物私有覆写点的用例至多作补充证据或变异杀手，不单独支撑一行。
           变异只登记在主进程内执行的生产代码上，`original` 在源文件恰好出现一次，杀手是已登记在某一行的行为用例。
           两个适配器目录（custom/agents、custom/envs）的文件经 AS2 注册表按文件路径以另一个模块名加载，针对它们的变异
           只有直接导入该模块（如 custom.agents.life_agent）的用例杀得死；经 Society 或 actor 的路径只算覆盖与行为证据。
@@ -34,11 +34,15 @@ STAGES_DONE: frozenset[str] = frozenset({"1"})
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
 
-#: 「故障传播」：决策失败与工具分发失败各有英文日志，异常对象、类型与失败阶段码不变。头两个节点用直接导入的 LifeAgent
-#: （step 的三个故障位置、工具分发失败），第三个是 Society 路径上的行为证据（中止、不结算、日志一条）；其后两个守住模型
-#: 服务失败（记进该次模型证据）与证据写入失败（运行故障）两个失败阶段码，末一个守住记忆查询失败作为失败的查询结果回给
-#: 模型。四个失败阶段码都只标出失败阶段与调用位置。
+#: 「故障传播」：决策失败与工具分发失败各有英文日志，异常对象、类型与失败阶段码不变。头两个节点经真实引擎、SQLite、
+#: LifeEnv 与直接导入的 LifeAgent 跑醒来那一轮：世界请求在 LifeEnv.submit_action 处服务失败（两条日志、RuntimeError 带
+#: TOOL_SERVICE_FAILED 与原异常、库里没有 action_requested）与模型调用失败（一条日志、同一异常对象原样上抛、失败证据记
+#: MODEL_SERVICE_FAILED）。其后在替身环境上直调的用例是补充证据与变异杀手：step 的三个故障位置、工具分发失败，Society
+#: 路径（中止、不结算、日志一条），模型服务失败与证据写入失败两个失败阶段码，末一个守住记忆查询失败作为失败的查询结果
+#: 回给模型。四个失败阶段码都只标出失败阶段与调用位置。
 _FAULT_PROPAGATION_TESTS = [
+    _FAILURE_STAGES + "test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage",
+    _FAILURE_STAGES + "test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged",
     _PROTOCOL + "test_decision_failure_is_logged_once_and_reraised_unchanged",
     _FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",
     _PROTOCOL + "test_memory_persistence_failure_aborts_society_before_commit",
@@ -71,9 +75,10 @@ _READ_QUERY = "tests/integration/test_read_query_runtime.py::"
 _WORLD_QUERY = "tests/life/test_world_query.py::"
 
 #: 「只读查询转发」：按规格 1.2「证据分工」各类缺一不可。第一个节点守运行装配（worldmock.runtime._build_society 建立的是
-#: LifeEnvActor 与带 read_query 的 LifeEnvProxy）；第二个是真实 Ray：驱动侧与 worker 侧经代理各调用一次，回看任务返回结果
-#: 字典而非对象引用，重新打开运行目录后世界状态逐字节不变、只多出 actor 一侧那一次观察；第三个在主进程内直接构造未经
-#: ray.remote 包装的 LifeEnvActor，两个工具的结果等于环境直调，业务拒绝是返回值，类型不符与找不到唯一观察是协议违约；
+#: LifeEnvActor 与带 read_query 的 LifeEnvProxy，交给人物的 ServiceProxy.env 也是这个代理）；第二个是真实 Ray：驱动侧与
+#: worker 侧经代理各调用一次，回看任务返回结果字典而非对象引用，重新打开运行目录后世界状态逐字节不变、只多出 actor
+#: 一侧那一次观察；第三个在主进程内直接构造未经 ray.remote 包装的 LifeEnvActor，两个工具的结果等于环境直调，业务拒绝
+#: 是返回值，类型不符与找不到唯一观察是协议违约；
 #: 第四个是 query_world 两入口（宿主本地求值的纯函数与环境的 read_query）受理时逐值相等、拒绝时同一份校验报告，它同时
 #: 登记在工具交互台账并由那边的变异守着；末一个不启动 Ray，守并发度为 1 且不提供参数。
 _READ_QUERY_TESTS = [
@@ -93,8 +98,9 @@ _REFLECTION = "tests/integration/test_strict_reflection.py::"
 #: 第七、八个经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 跑醒来那次决策（耗尽：四对请求与响应留证、请求关闭
 #: 思考、没有 memory_updated、中止后动作未结算；改正：恰好一条 memory_updated）。第九个是 Society 层的验收口径（本轮中止、
 #: 不提交、无 memory_updated，原因带最后一次校验错误）。其后三个是既有登记用例与真实日运行：反思条目的字段、巩固不计反思、
-#: 整日运行里反思请求不是行动请求且含反思的决策其交付窗口提示仍是行动请求。再后两个守交付窗口的提示选取与行动请求
-#: 判定。末七个只调用 reflection_insights、reflection_tool、reflection_correction 或只读常量，是补充证据。
+#: 整日运行里反思请求不是行动请求且含反思的决策其交付窗口提示仍是行动请求（一颗种子的反思首次不合合同、经一次校验
+#: 重试改正：两人逐字相同的附回消息不进观察重复门禁，门禁仍为 1）。再后两个守交付窗口的提示选取与行动请求判定。
+#: 末八个只调用 reflection_insights、reflection_tool、reflection_correction、只读常量或以合成事件调用行为指标，是补充证据。
 _REFLECTION_TESTS = [
     _REFLECTION + "test_runtime_submits_reflection_through_the_only_strict_tool",
     _REFLECTION + "test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection",
@@ -119,6 +125,7 @@ _REFLECTION_TESTS = [
     _REFLECTION + "test_reflection_tool_arguments_must_be_a_json_string",
     _REFLECTION + "test_reflection_correction_appends_one_compact_message_without_touching_the_original",
     _REFLECTION + "test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value",
+    "tests/evaluation/test_behavior_metrics.py::test_reflection_requests_and_their_retries_are_not_decision_requests",
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
@@ -177,11 +184,12 @@ _RUNTIME_MODULE = "worldmock.runtime"
 _RUNTIME_SOURCE = "src/worldmock/runtime.py"
 _READ_QUERY_MODULE = "worldmock.life.read_query_runtime"
 _READ_QUERY_SOURCE = "src/worldmock/life/read_query_runtime.py"
-#: 只读查询转发五个变异的杀手，全部在主进程执行被变异的代码：装配用例（两个「改回 AS2 原类」）、真实 Ray 用例的驱动侧
-#: 调用（代理不等待；代理在驱动进程里执行，worker 里的 actor 从磁盘导入原文、不受变异影响）、主进程内直调 actor 的用例
-#: （actor 不把查询交给环境；真实 Ray 下 actor 在 worker 里，杀不到）与捕获 ray.remote 参数的用例（并发度）。
+#: 只读查询转发六个变异的杀手，全部在主进程执行被变异的代码且不启动 Ray：装配用例（三个「改回 AS2 原类」：环境代理、
+#: 交给人物的服务代理与 actor 类；代理不等待远端结果时经人物一侧的 read_query 得到协程而不是结果）、主进程内直调 actor
+#: 的用例（actor 不把查询交给环境；真实 Ray 下 actor 在 worker 里，杀不到）与捕获 ray.remote 参数的用例（并发度）。
+#: 真实 Ray 用例只作台账证据、不作杀手：变异子进程里 Ray 启动失败与断言失败同为退出码 1，杀死不能取决于基础设施。
 _ASSEMBLY_KILLERS = (_READ_QUERY + "test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query",)
-_PROXY_KILLERS = (_READ_QUERY + "test_task_recall_crosses_real_ray_without_world_mutation",)
+_PROXY_KILLERS = _ASSEMBLY_KILLERS
 _ACTOR_KILLERS = (_READ_QUERY + "test_unwrapped_actor_read_query_equals_direct_environment_call",)
 _CONCURRENCY_KILLERS = (_READ_QUERY + "test_life_env_actor_class_fixes_single_concurrency_without_parameters",)
 _REFLECTION_MODULE = "custom.agents.life_reflection"
@@ -221,7 +229,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (
             '            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
             '            return ""\n'
         ),
-        (_PROTOCOL + "test_decision_failure_is_logged_once_and_reraised_unchanged",),
+        (_PROTOCOL + "test_decision_failure_is_logged_once_and_reraised_unchanged",
+         _FAILURE_STAGES + "test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged"),
     ),
     SourceMutation(
         "tool_dispatch_failure_loses_stage_code",
@@ -235,7 +244,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (
             '            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
             '            raise\n'
         ),
-        (_FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",),
+        (_FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",
+         _FAILURE_STAGES + "test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage"),
     ),
     SourceMutation(
         "plan_duplicates_report_only_a_generic_error",
@@ -273,6 +283,19 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         (
             '        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n'
             '        env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])\n'
+        ),
+        _ASSEMBLY_KILLERS,
+    ),
+    SourceMutation(
+        "assembly_service_proxy_reverts_to_the_as2_class",
+        _RUNTIME_MODULE,
+        _RUNTIME_SOURCE,
+        "        service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)\n",
+        (
+            "        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n"
+            "        service = build_service_proxy(\n"
+            '            EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"]),\n'
+            "            run_dir=prepared.run_dir, trace=False, replay=False)\n"
         ),
         _ASSEMBLY_KILLERS,
     ),
@@ -410,6 +433,7 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "失败返回空列表": {"stage": "1", "mutations": ("reflection_failure_returns_an_empty_list",)},
     "重试不设上限": {"stage": "1", "mutations": ("reflection_retries_without_a_bound",)},
     "运行装配改回 AS2 原类": {"stage": "1", "mutations": ("assembly_proxy_reverts_to_the_as2_class",
+                                                    "assembly_service_proxy_reverts_to_the_as2_class",
                                                     "assembly_actor_reverts_to_the_as2_class")},
     "代理不等待远端结果": {"stage": "1", "mutations": ("proxy_returns_without_awaiting_the_remote_result",)},
     "重复意图只报笼统错误": {"stage": "1", "mutations": ("plan_duplicates_report_only_a_generic_error",)},
@@ -489,6 +513,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_memory.py",
     "custom/agents/life_reflection.py",
     "src/worldmock/delivery/windows.py",
+    "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/read_query_runtime.py",
     "src/worldmock/runtime.py",
