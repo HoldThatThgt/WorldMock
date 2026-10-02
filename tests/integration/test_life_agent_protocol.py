@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import json
+import traceback
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1368,9 +1370,15 @@ async def test_person_step_records_conclusion_memory_update(tmp_path, decision_p
 async def test_memory_persistence_failure_aborts_society_before_commit(
     monkeypatch,
     tmp_path,
+    caplog,
     failure_mode,
 ) -> None:
-    """收尾记忆在世界请求登记后未落盘时 runner 失败，Society 保存故障并中止，不结算。"""
+    """收尾记忆在世界请求登记后未落盘时 runner 失败，Society 保存故障并中止，不结算；人物步骤在上抛前留一条带完整
+    异常链的英文 error 日志（docs/dev/SPEC-errands-workday.md 1.4）。
+
+    人物类经 AS2 注册表按文件路径以另一个模块名加载，本用例是 Society 路径上的覆盖与行为证据；杀死 step 变异的是
+    直接导入 LifeAgent 的 test_decision_failure_is_logged_once_and_reraised_unchanged。
+    """
     workspace = tmp_path / "as2" / "agents" / "agent_0007"
     environment = _StepEnvironment()
     dispatcher = _StepDispatcher()
@@ -1417,10 +1425,14 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
     society._initialized = True
     society._environment_started = True
 
-    with pytest.raises(RuntimeError, match="Agent decision failed"):
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="Agent decision failed"):
         await society.run()
 
     expected = marker if failure_mode == "exception" else "did not persist finish memories"
+    records = [record for record in caplog.records if record.getMessage().startswith("LifeAgent decision failed")]
+    assert [(record.levelno, record.getMessage()) for record in records] == [
+        (logging.ERROR, "LifeAgent decision failed for agent 7")]
+    assert expected in "".join(traceback.format_exception(*records[0].exc_info))
     assert len(environment.calls) == 1
     assert [item.phase for item in environment.evidence] == ["request", "response"]
     assert environment.memory_updates == []
@@ -1430,6 +1442,63 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
     assert expected in environment.aborts[0][1]
     assert len(environment.failures) == 1
     assert expected in environment.failures[0]
+
+
+class _InjectedDecisionFailure(Exception):
+    """注入的决策故障：独立的异常类型，用来核对上抛的类型没有被换成别的。"""
+
+
+def _decision_failure(failure_point: str, environment: _StepEnvironment, dispatcher: _StepDispatcher,
+                      monkeypatch) -> _InjectedDecisionFailure:
+    """在人物步骤的指定位置（读取观察、模型调用、收尾记忆落盘）注入同一个故障对象并返回它。"""
+    injected = _InjectedDecisionFailure(f"injected {failure_point} failure")
+
+    def fail(*_args, **_kwargs):
+        raise injected
+
+    async def fail_async(*_args, **_kwargs):
+        raise injected
+
+    if failure_point == "observe":
+        monkeypatch.setattr(environment, "observe", fail_async)
+    elif failure_point == "model":
+        monkeypatch.setattr(dispatcher, "call", fail_async)
+    else:
+        monkeypatch.setattr(AgentMemoryStore, "append_episodes", fail)
+    return injected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["observe", "model", "memory"])
+async def test_decision_failure_is_logged_once_and_reraised_unchanged(
+    monkeypatch,
+    tmp_path,
+    caplog,
+    failure_point: str,
+) -> None:
+    """直接导入的 LifeAgent：决策失败时 step 写恰好一条带完整异常链的英文 error 日志，再把同一个异常对象原样上抛，
+    类型不变（docs/dev/SPEC-errands-workday.md 1.4）；日志不是持久证据，不新增事件，也不改变已登记的世界请求。"""
+    workspace = tmp_path / "agent_0007"
+    environment = _StepEnvironment()
+    dispatcher = _StepDispatcher()
+    _create_step_workspace(workspace)
+    agent = await LifeAgent.from_workspace(workspace, _service(environment, dispatcher))
+    assert type(agent) is LifeAgent and type(agent).__module__ == "custom.agents.life_agent"
+    agent.bind_decision_context(_context())
+    injected = _decision_failure(failure_point, environment, dispatcher, monkeypatch)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(_InjectedDecisionFailure) as failure:
+        await agent.step(0, _context().observed_at)
+
+    assert failure.value is injected and type(failure.value) is _InjectedDecisionFailure
+    records = [record for record in caplog.records if record.getMessage().startswith("LifeAgent decision failed")]
+    assert [(record.levelno, record.getMessage()) for record in records] == [
+        (logging.ERROR, "LifeAgent decision failed for agent 7")]
+    assert records[0].exc_info[0] is _InjectedDecisionFailure and records[0].exc_info[1] is injected
+    assert "injected" in "".join(traceback.format_exception(*records[0].exc_info))
+    assert len(environment.calls) == (1 if failure_point == "memory" else 0)
+    assert environment.memory_updates == []
+    assert environment.commits == [] and environment.aborts == [] and environment.failures == []
 
 
 def test_memory_sleep_boundary_follows_engine_wake_signal() -> None:

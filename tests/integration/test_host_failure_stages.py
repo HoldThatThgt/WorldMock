@@ -1,5 +1,6 @@
 """服务、证据和查询失败保留实际阶段与完整错误合同。"""
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -54,20 +55,27 @@ async def test_evidence_write_failure_stops_with_structured_stage():
 
 
 @pytest.mark.asyncio
-async def test_tool_service_failure_points_to_real_call_without_claiming_execution(monkeypatch):
-    """第二个合法查询服务异常保留真实下标，不声称已取得数据。"""
+async def test_tool_service_failure_points_to_real_call_without_claiming_execution(monkeypatch, caplog):
+    """第二个合法查询服务异常保留真实下标，不声称已取得数据；先留一条带异常链的英文 error 日志，再按失败阶段码上抛
+    （docs/dev/SPEC-errands-workday.md 1.4）。"""
     person, environment = _prepared(), _Environment()
     _wire_agent(person, environment, None, 4)
     decisions = [ReactDecision("", "memory_recent", {"limit": 1}, "", f"call-{index}") for index in range(2)]
     assert person.validate_react_decisions(decisions, False) == ""
+    injected = OSError("query store unavailable")
 
     async def fail(action, args, *, readonly=False):
-        raise OSError("query store unavailable")
+        raise injected
 
     monkeypatch.setattr(person, "dispatch_react_tool", fail)
-    with pytest.raises(RuntimeError) as failure:
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
         await person._execute_react_tool(decisions[1])
     feedback = failure.value.args[0]
     assert isinstance(feedback, HostFeedback)
     _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 1])
+    assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
     assert environment.calls == []
+    records = [record for record in caplog.records if record.getMessage().startswith("LifeAgent tool dispatch failed")]
+    assert [(record.levelno, record.getMessage()) for record in records] == [
+        (logging.ERROR, "LifeAgent tool dispatch failed: memory_recent")]
+    assert records[0].exc_info[1] is injected

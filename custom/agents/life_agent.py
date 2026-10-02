@@ -268,6 +268,14 @@ class LifeAgent(PersonAgent):
         """@brief 返回固定职责描述，不调用 CodeGen 世界摘要。"""
         return "A typed life simulation whose visible facts arrive through LifeEnv.observe."
 
+    async def step(self, tick: int, t: datetime) -> str:
+        """@brief 保留人物决策失败的完整异常链，便于定位真实服务故障。"""
+        try:
+            return await super().step(tick, t)
+        except Exception:
+            logging.exception("LifeAgent decision failed for agent %s", self.id)
+            raise
+
     async def _observe_environment(self) -> dict[str, Any]:
         """@brief 使用 runner 绑定上下文直接读取 LifeEnv。"""
         if self._env is None:
@@ -486,6 +494,7 @@ class LifeAgent(PersonAgent):
         try:
             return await super()._execute_react_tool(decision, readonly=readonly)
         except Exception as error:
+            logging.exception("LifeAgent tool dispatch failed: %s", decision.action)
             index = self._life_call_positions[decision.tool_call_id]
             feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))
             raise RuntimeError(feedback) from error

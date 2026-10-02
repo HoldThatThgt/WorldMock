@@ -1,0 +1,216 @@
+"""个人事务与工作安排规格的验收登记表（完整性守卫的数据源）。
+
+@file     errands_workday_acceptance.py
+@brief    把 docs/dev/SPEC-errands-workday.md「验收台账」的每一行登记到所属阶段与证据测试节点（LEDGER），登记台账之后
+          「源码变异必须覆盖」一段的每一句到杀死它的源码变异（SPEC_MUTATIONS、MUTATIONS），并冻结本特性新增或改动的生产
+          文件与新增测试文件（FEATURE_PRODUCTION_FILES、FEATURE_TEST_FILES），供延期标记与空壳函数扫描。判定由
+          tests/test_errands_workday_acceptance.py 执行；变异经共用执行器 tests/mutation_runner.py 在隔离子进程里生效。
+@note     分阶段形态：`stage` 取规格台账的阶段列；只有 `stage` 属于 STAGES_DONE 的行必须列出测试，但任何行列出的节点都
+          必须解析到存在、会被收集且未被跳过的测试函数。阶段随实施增长：每个阶段的提交登记自己的行、变异与文件，阶段的
+          最后一个提交把阶段号加入 STAGES_DONE；阶段 4 只依赖阶段 1，可以先于阶段 2、3 完成。
+          登记的节点是经真实请求、引擎与 SQLite 路径的行为测试；人物一侧的行经真实记忆运行时或直接导入的 LifeAgent。
+          只断言辅助函数的用例至多作补充证据，不单独支撑一行。
+          变异只登记在主进程内执行的生产代码上，`original` 在源文件恰好出现一次，杀手是已登记在某一行的行为用例。
+          两个适配器目录（custom/agents、custom/envs）的文件经 AS2 注册表按文件路径以另一个模块名加载，针对它们的变异
+          只有直接导入该模块（如 custom.agents.life_agent）的用例杀得死；经 Society 或 actor 的路径只算覆盖与行为证据。
+          SPEC_MUTATIONS 的键按规格原文的顺序逐句照抄，守卫核对它们首尾相接恰好拼回规格那一段；不对应规格任何一句、
+          取自实施计划「突变审查的目标」的变异登记在 EXTRA_MUTATIONS 并写明出处。
+          「复跑指标（只报告）」按规格只报告、不作门禁：配对全天复跑是计费的真实运行，只在用户要求时启动。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from tests import mutation_runner
+from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, SourceMutation
+
+#: 规格「实施计划」中的全部阶段编号（冻结之外的 0–7）。
+STAGE_IDS = frozenset(str(number) for number in range(8))
+
+#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。
+STAGES_DONE: frozenset[str] = frozenset()
+
+_PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
+_FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
+
+#: 「故障传播」：决策失败与工具分发失败各有英文日志，异常对象、类型与失败阶段码不变。头两个节点用直接导入的 LifeAgent
+#: （step 的三个故障位置、工具分发失败），第三个是 Society 路径上的行为证据（中止、不结算、日志一条）；其后两个守住模型
+#: 服务失败（记进该次模型证据）与证据写入失败（运行故障）两个失败阶段码，末一个守住记忆查询失败作为失败的查询结果回给
+#: 模型。四个失败阶段码都只标出失败阶段与调用位置。
+_FAULT_PROPAGATION_TESTS = [
+    _PROTOCOL + "test_decision_failure_is_logged_once_and_reraised_unchanged",
+    _FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",
+    _PROTOCOL + "test_memory_persistence_failure_aborts_society_before_commit",
+    _FAILURE_STAGES + "test_model_service_failure_persists_stage_without_parsing_exception_text",
+    _FAILURE_STAGES + "test_evidence_write_failure_stops_with_structured_stage",
+    "tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only",
+]
+
+#: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
+LEDGER: dict[str, dict[str, object]] = {
+    "严格反思": {"stage": "1", "tests": []},
+    "只读查询转发": {"stage": "1", "tests": []},
+    "计划重复意图": {"stage": "1", "tests": []},
+    "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
+    "事务变更与原子受理": {"stage": "2", "tests": []},
+    "事务名称与错误": {"stage": "2", "tests": []},
+    "跨夜可见": {"stage": "2", "tests": []},
+    "完成依据": {"stage": "2", "tests": []},
+    "结算幂等": {"stage": "2", "tests": []},
+    "事务提醒": {"stage": "2", "tests": []},
+    "检查点": {"stage": "2", "tests": []},
+    "提示与唯一出现": {"stage": "2", "tests": []},
+    "交付边界": {"stage": "2", "tests": []},
+    "事务与收尾记忆指标": {"stage": "2", "tests": []},
+    "作息锚点": {"stage": "3", "tests": []},
+    "工作安排加载": {"stage": "3", "tests": []},
+    "上班安排呈现": {"stage": "3", "tests": []},
+    "计划与义务": {"stage": "3", "tests": []},
+    "工作合同边界": {"stage": "3", "tests": []},
+    "工作负荷与作息偏离": {"stage": "3", "tests": []},
+    "查询请求": {"stage": "4", "tests": []},
+    "来源筛选": {"stage": "4", "tests": []},
+    "可执行筛选": {"stage": "4", "tests": []},
+    "分页与返回": {"stage": "4", "tests": []},
+    "查询只读": {"stage": "4", "tests": []},
+    "工程门禁": {"stage": "5", "tests": []},
+    "复跑指标（只报告）": {"stage": "6", "tests": []},
+    "文档一致性": {"stage": "7", "tests": []},
+}
+
+#: 只报告的台账行：规格写明不作门禁；行本身的真实运行不在测试中执行。
+REPORT_ONLY: dict[str, str] = {
+    "复跑指标（只报告）": "白领与商务的配对全天复跑按规格只报告、不作门禁：它是计费的真实运行，只在用户明确要求时启动，"
+                        "指标与全部成功、失败写进验收记录；少于每臂三次时验收记录写明未达复跑要求。",
+}
+
+_AGENT_MODULE = "custom.agents.life_agent"
+_AGENT_SOURCE = "custom/agents/life_agent.py"
+
+#: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
+MUTATIONS: tuple[SourceMutation, ...] = (
+    SourceMutation(
+        "decision_failure_swallowed_after_log",
+        _AGENT_MODULE,
+        _AGENT_SOURCE,
+        (
+            '            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
+            '            raise\n'
+        ),
+        (
+            '            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
+            '            return ""\n'
+        ),
+        (_PROTOCOL + "test_decision_failure_is_logged_once_and_reraised_unchanged",),
+    ),
+    SourceMutation(
+        "tool_dispatch_failure_loses_stage_code",
+        _AGENT_MODULE,
+        _AGENT_SOURCE,
+        (
+            '            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
+            '            raise RuntimeError(feedback) from error\n'
+        ),
+        (
+            '            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
+            '            raise\n'
+        ),
+        (_FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",),
+    ),
+)
+
+#: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
+SPEC_MUTATIONS: dict[str, dict[str, object]] = {
+    "反思接受自由文本": {"stage": "1", "mutations": ()},
+    "跳过未知引用校验": {"stage": "1", "mutations": ()},
+    "失败返回空列表": {"stage": "1", "mutations": ()},
+    "重试不设上限": {"stage": "1", "mutations": ()},
+    "运行装配改回 AS2 原类": {"stage": "1", "mutations": ()},
+    "代理不等待远端结果": {"stage": "1", "mutations": ()},
+    "重复意图只报笼统错误": {"stage": "1", "mutations": ()},
+    "日志后吞掉异常": {"stage": "1", "mutations": ("decision_failure_swallowed_after_log",)},
+    "零点清空事务": {"stage": "2", "mutations": ()},
+    "修订计划丢事务": {"stage": "2", "mutations": ()},
+    "待办层不投影事务": {"stage": "2", "mutations": ()},
+    "记忆层超窗或上下文浓缩时丢掉待办层事务": {"stage": "2", "mutations": ()},
+    "业务拒绝时事务变更照落": {"stage": "2", "mutations": ()},
+    "事务名近似时取第一个候选": {"stage": "2", "mutations": ()},
+    "请求可把状态置为完成": {"stage": "2", "mutations": ()},
+    "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": ()},
+    "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": ()},
+    "当面给予不计入取得": {"stage": "2", "mutations": ()},
+    "按事件人物字段而非收货人判归属": {"stage": "2", "mutations": ()},
+    "读取逐项结果里的重复订单": {"stage": "2", "mutations": ()},
+    "一次提交结算两次": {"stage": "2", "mutations": ()},
+    "检查点漏存事务": {"stage": "2", "mutations": ()},
+    "取消后仍提醒": {"stage": "2", "mutations": ()},
+    "提醒即置完成": {"stage": "2", "mutations": ()},
+    "提醒叫醒睡眠": {"stage": "2", "mutations": ()},
+    "事务计入在手承诺": {"stage": "2", "mutations": ()},
+    "新唤醒原因漏登足迹词表": {"stage": "2", "mutations": ()},
+    "提醒与办成事件写成系统可见": {"stage": "2", "mutations": ()},
+    "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ()},
+    "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ()},
+    "意图或 dreaming 投影带出请求级 `errands`": {"stage": "2", "mutations": ()},
+    "投影原地修改原事件": {"stage": "2", "mutations": ()},
+    "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
+    "版本 8 检查点被放行": {"stage": "2", "mutations": ()},
+    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ()},
+    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ()},
+    "新锚点并入回绕归一": {"stage": "3", "mutations": ()},
+    "乱序时整卡失败": {"stage": "3", "mutations": ()},
+    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": ()},
+    "按星期推断休息日": {"stage": "3", "mutations": ()},
+    "所有人物套班次": {"stage": "3", "mutations": ()},
+    "计划修订后 `duty` 消失": {"stage": "3", "mutations": ()},
+    "休息时段显示为当班中": {"stage": "3", "mutations": ()},
+    "班次并入任务开放判定": {"stage": "3", "mutations": ()},
+    "忽略例外日期": {"stage": "3", "mutations": ()},
+    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ()},
+    "忽略来源": {"stage": "4", "mutations": ()},
+    "来源解析另写一套": {"stage": "4", "mutations": ()},
+    "「购买」不展开": {"stage": "4", "mutations": ()},
+    "可执行筛选放到切页之后或在未命中方式的动作上判定": {"stage": "4", "mutations": ()},
+    "精简时按真假值丢掉 false 或零": {"stage": "4", "mutations": ()},
+    "查询写世界": {"stage": "4", "mutations": ()},
+    "四键旧请求被受理": {"stage": "4", "mutations": ()},
+}
+
+#: 不对应规格任何一句的登记变异：变异名 → 出处（实施计划各阶段的「突变审查的目标」）。
+EXTRA_MUTATIONS: dict[str, str] = {
+    "tool_dispatch_failure_loses_stage_code": "实施计划阶段 1「突变审查的目标」故障传播：工具分发失败不再按失败阶段码 "
+                                              "TOOL_SERVICE_FAILED 抛出（改为把原异常直接上抛）。",
+}
+
+#: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；实施计划「台账形态」行给出阶段 1 的清单，
+#: 其中新增的 custom/agents/life_reflection.py 与 src/worldmock/life/read_query_runtime.py 由各自的提交加入。
+FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
+    "custom/agents/life_agent.py",
+    "custom/agents/life_memory.py",
+    "src/worldmock/delivery/windows.py",
+    "src/worldmock/life/models.py",
+    "src/worldmock/runtime.py",
+    "tools/run-viewer-context.js",
+)
+
+#: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
+FEATURE_TEST_FILES: tuple[str, ...] = (
+    "tests/errands_workday_acceptance.py",
+    "tests/mutation_runner.py",
+    "tests/test_errands_workday_acceptance.py",
+)
+
+#: 本台账的回执目录与超时：基线按节点数设定（每个节点留足一次冷启动），单个变异按最慢的杀手（真实 Ray 用例）设定。
+RECEIPTS = REPO_ROOT / ".work/errands-workday/mutation-receipts"
+BASELINE_TIMEOUT_FLOOR_SECONDS = 600
+BASELINE_TIMEOUT_SECONDS_PER_NODE = 120
+MUTATION_TIMEOUT_SECONDS = 600
+
+
+def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutation | None = None) -> dict:
+    """@brief 以本台账的回执目录与超时调用共用变异执行器：不带变异是基线，带变异是一次杀死尝试。"""
+    timeout = MUTATION_TIMEOUT_SECONDS
+    if mutation is None:
+        timeout = max(BASELINE_TIMEOUT_FLOOR_SECONDS, BASELINE_TIMEOUT_SECONDS_PER_NODE * len(nodes))
+    return mutation_runner.run_behavior(nodes, directory, mutation, RunSettings(CHILD_ENTRY, RECEIPTS, timeout))
