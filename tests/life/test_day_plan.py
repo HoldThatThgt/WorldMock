@@ -62,7 +62,7 @@ def test_empty_and_eight_goals_are_valid_and_ninth_is_rejected():
     assert len(initial_day_plan(goals, 1000).goals) == 8
     with pytest.raises(ValidationError):
         initial_day_plan(goals + (goal(INTENT_KINDS[8]),), 1000)
-    with pytest.raises(ValidationError, match="at most eight unique intents"):
+    with pytest.raises(ValidationError, match="at most eight entries"):
         PlanDayRequest(goals=[{"intent_kind": kind, "goal": "想推进", "remind_time": None, "around_time": None}
                               for kind in INTENT_KINDS[:9]])
 
@@ -84,7 +84,7 @@ def test_goal_text_limit_and_closed_intents():
             model(intent_kind="阅读", goal="看书", **fields)
     with pytest.raises(ValidationError):
         DayPlan(day_end=1000, goals=[goal(), goal()])
-    with pytest.raises(ValidationError, match="at most eight unique intents"):
+    with pytest.raises(ValidationError, match="keep one goal for this intent"):
         PlanDayRequest(goals=[{"intent_kind": "工作", "goal": "甲", "remind_time": None, "around_time": None},
                               {"intent_kind": "工作", "goal": "乙", "remind_time": None, "around_time": None}])
 

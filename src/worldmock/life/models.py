@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import date
 from enum import StrEnum
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
 
 from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
@@ -927,6 +927,35 @@ class PlanGoalInput(FrozenModel):
         return goal
 
 
+def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> None:
+    """@brief 零点计划与修订两个入口共用的清单校验：条数超限与重复意图在同一次校验里一并报告。
+
+    条数超过八条定位在 goals 本身（原值为提交的各条目）；每个重复的意图同时定位首次出现与其后每次出现的条目
+    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/dev/SPEC-errands-workday.md 1.3）。
+
+    :param goals: 已逐条通过条目校验的目标清单。
+    :param model_name: 发起校验的请求模型名，作为校验错误的标题。
+    """
+    errors: list[Any] = []
+    if len(goals) > MAX_PLAN_GOALS:
+        _LOGGER.error("Day plan exceeds eight goals")
+        errors.append({"type": "value_error", "loc": (), "input": [goal.model_dump(mode="json") for goal in goals],
+                       "ctx": {"error": ValueError("day goals require at most eight entries")}})
+    positions: dict[str, list[int]] = {}
+    for index, goal in enumerate(goals):
+        positions.setdefault(goal.intent_kind, []).append(index)
+    repeated = sorted((index, kind) for kind, indexes in positions.items() if len(indexes) > 1 for index in indexes)
+    for index, kind in repeated:
+        message = (f"intent_kind '{kind}' may occur only once; keep one goal for this intent "
+                   "and merge these entries into it")
+        errors.append({"type": "value_error", "loc": (index, "intent_kind"), "input": kind,
+                       "ctx": {"error": ValueError(message)}})
+    if repeated:
+        _LOGGER.error("Day plan contains duplicate intents")
+    if errors:
+        raise ValidationError.from_exception_data(model_name, errors)
+
+
 class PlanDayRequest(FrozenModel):
     """@brief 当日有序目标清单：零到八条，同一意图最多一条；零点计划的输出与修订请求共用这一形状。"""
 
@@ -941,11 +970,8 @@ class PlanDayRequest(FrozenModel):
     @field_validator("goals")
     @classmethod
     def validate_goals(cls, goals: tuple[PlanGoalInput, ...]) -> tuple[PlanGoalInput, ...]:
-        """@brief 请求入口核验容量与意图唯一性。"""
-        kinds = [goal.intent_kind for goal in goals]
-        if len(goals) > MAX_PLAN_GOALS or len(kinds) != len(set(kinds)):
-            _LOGGER.error("Day goals exceed capacity or contain duplicate intents")
-            raise ValueError("day goals must contain at most eight unique intents")
+        """@brief 零点计划的输出经共用校验核验容量与意图唯一性，超限与重复意图逐条定位、同批报告。"""
+        _validate_plan_goals(goals, cls.__name__)
         return goals
 
 
@@ -958,22 +984,8 @@ class ReviseDayPlanRequest(ToolRequestModel):
     @field_validator("goals")
     @classmethod
     def validate_goals(cls, goals: list[PlanGoalInput]) -> list[PlanGoalInput]:
-        """@brief 批内重复意图返回每个具体嵌套位置。"""
-        from pydantic import ValidationError
-
-        errors, seen = [], set()
-        if len(goals) > MAX_PLAN_GOALS:
-            _LOGGER.error("Revised day plan exceeds eight goals")
-            raise ValueError("goals requires at most eight entries")
-        for index, goal in enumerate(goals):
-            if goal.intent_kind in seen:
-                errors.append({"type": "value_error", "loc": (index, "intent_kind"),
-                               "input": goal.intent_kind.value,
-                               "ctx": {"error": ValueError("An intent may occur only once in the day plan")}})
-            seen.add(goal.intent_kind)
-        if errors:
-            _LOGGER.error("Revised day plan contains duplicate intents")
-            raise ValidationError.from_exception_data(cls.__name__, errors)
+        """@brief 修订请求经同一共用校验核验容量与意图唯一性，超限与重复意图逐条定位、同批报告。"""
+        _validate_plan_goals(goals, cls.__name__)
         return goals
 
 

@@ -47,11 +47,31 @@ _FAULT_PROPAGATION_TESTS = [
     "tests/integration/test_agent_branch_coverage.py::test_tool_messages_follow_memory_queries_only",
 ]
 
+_REVISION = "tests/life/test_revise_day_plan_json.py::"
+_PLAN_DAY = "tests/life/test_plan_day_duplicate_feedback.py::"
+
+#: 「计划重复意图」：零点计划与修订共用校验，首次与其后各次出现都被定位，超限与重复同批报告。头三个节点是修订入口经
+#: 真实引擎、结算与 SQLite 结果事件（重复、超限加重复、至多八条与每意图一条不变）；其后两个是零点计划经真实后台任务
+#: settle_day_plans（响应事件的错误文本、第二次请求的附回、最终登记的计划）；第六个是宿主一侧——直接导入的 LifeAgent 在
+#: 真实 ReAct 循环里收到模型的 JSON 字符串参数，回 ARGUMENTS_INVALID 协议纠错而不崩溃。末三个只调请求模型或
+#: parse_plan_day、prepare_plan_day_correction，是补充证据。
+_PLAN_DUPLICATE_TESTS = [
+    _REVISION + "test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries",
+    _REVISION + "test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection",
+    _REVISION + "test_engine_keeps_at_most_eight_goals_with_one_goal_per_intent",
+    _PLAN_DAY + "test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered",
+    _PLAN_DAY + "test_plan_day_reports_over_capacity_together_with_duplicates",
+    _REVISION + "test_host_corrects_duplicate_intents_from_real_json_arguments",
+    _REVISION + "test_duplicate_intent_in_provider_json_returns_nested_validation_error",
+    _REVISION + "test_nine_goals_with_a_duplicate_report_capacity_and_positions_in_one_validation",
+    _PLAN_DAY + "test_repeated_work_goals_are_located_and_correction_requires_merging",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": []},
     "只读查询转发": {"stage": "1", "tests": []},
-    "计划重复意图": {"stage": "1", "tests": []},
+    "计划重复意图": {"stage": "1", "tests": _PLAN_DUPLICATE_TESTS},
     "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
     "事务变更与原子受理": {"stage": "2", "tests": []},
     "事务名称与错误": {"stage": "2", "tests": []},
@@ -87,6 +107,18 @@ REPORT_ONLY: dict[str, str] = {
 
 _AGENT_MODULE = "custom.agents.life_agent"
 _AGENT_SOURCE = "custom/agents/life_agent.py"
+_MODELS_MODULE = "worldmock.life.models"
+_MODELS_SOURCE = "src/worldmock/life/models.py"
+#: 计划重复意图三个变异的杀手，各取修订入口经引擎的一例与零点计划经后台任务的一例：前一组守逐条定位（只报笼统错误、
+#: 只定位后一条），后一组守超限与重复同批报告（超限提前返回）。
+_PLAN_DUPLICATE_KILLERS = (
+    _REVISION + "test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries",
+    _PLAN_DAY + "test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_registered",
+)
+_PLAN_CAPACITY_KILLERS = (
+    _REVISION + "test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection",
+    _PLAN_DAY + "test_plan_day_reports_over_capacity_together_with_duplicates",
+)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -118,6 +150,34 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         ),
         (_FAILURE_STAGES + "test_tool_service_failure_points_to_real_call_without_claiming_execution",),
     ),
+    SourceMutation(
+        "plan_duplicates_report_only_a_generic_error",
+        _MODELS_MODULE,
+        _MODELS_SOURCE,
+        "        raise ValidationError.from_exception_data(model_name, errors)\n",
+        '        raise ValueError("day goals must contain at most eight unique intents")\n',
+        _PLAN_DUPLICATE_KILLERS,
+    ),
+    SourceMutation(
+        "plan_duplicates_locate_only_later_entries",
+        _MODELS_MODULE,
+        _MODELS_SOURCE,
+        "if len(indexes) > 1 for index in indexes)\n",
+        "if len(indexes) > 1 for index in indexes[1:])\n",
+        _PLAN_DUPLICATE_KILLERS,
+    ),
+    SourceMutation(
+        "plan_over_capacity_returns_before_duplicates",
+        _MODELS_MODULE,
+        _MODELS_SOURCE,
+        (
+            '        errors.append({"type": "value_error", "loc": (), "input": '
+            '[goal.model_dump(mode="json") for goal in goals],\n'
+            '                       "ctx": {"error": ValueError("day goals require at most eight entries")}})\n'
+        ),
+        '        raise ValueError("day goals require at most eight entries")\n',
+        _PLAN_CAPACITY_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -128,7 +188,7 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "重试不设上限": {"stage": "1", "mutations": ()},
     "运行装配改回 AS2 原类": {"stage": "1", "mutations": ()},
     "代理不等待远端结果": {"stage": "1", "mutations": ()},
-    "重复意图只报笼统错误": {"stage": "1", "mutations": ()},
+    "重复意图只报笼统错误": {"stage": "1", "mutations": ("plan_duplicates_report_only_a_generic_error",)},
     "日志后吞掉异常": {"stage": "1", "mutations": ("decision_failure_swallowed_after_log",)},
     "零点清空事务": {"stage": "2", "mutations": ()},
     "修订计划丢事务": {"stage": "2", "mutations": ()},
@@ -181,6 +241,10 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
 EXTRA_MUTATIONS: dict[str, str] = {
     "tool_dispatch_failure_loses_stage_code": "实施计划阶段 1「突变审查的目标」故障传播：工具分发失败不再按失败阶段码 "
                                               "TOOL_SERVICE_FAILED 抛出（改为把原异常直接上抛）。",
+    "plan_duplicates_locate_only_later_entries": "实施计划阶段 1「突变审查的目标」计划重复意图：只定位后一条（重复意图的首次"
+                                                 "出现不再报告）。",
+    "plan_over_capacity_returns_before_duplicates": "实施计划阶段 1「突变审查的目标」计划重复意图：超限提前返回而不与重复意图"
+                                                    "同批报告。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；实施计划「台账形态」行给出阶段 1 的清单，
@@ -197,6 +261,8 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 #: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
+    "tests/life/test_plan_day_duplicate_feedback.py",
+    "tests/life/test_revise_day_plan_json.py",
     "tests/mutation_runner.py",
     "tests/test_errands_workday_acceptance.py",
 )
