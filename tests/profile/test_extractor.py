@@ -183,6 +183,24 @@ def test_retries_structurally_invalid_payload():
     assert result.card.tastes.content_genres == ("悬疑", "纪录片")
 
 
+def test_retry_explains_invalid_overnight_bedtime_without_accepting_it():
+    """@brief 整夜睡眠误填就寝窗口必须拒绝，并把具体错误反馈给下一次真实请求。"""
+    broken = json.loads(make_payload())
+    broken["time_anchors"]["bedtime"] = "00:00-08:00"
+    fixed = json.loads(make_payload())
+    fixed["time_anchors"]["bedtime"] = "23:30-00:30"
+    session = FakeSession([FakeResponse(content=json.dumps(broken, ensure_ascii=False)),
+                           FakeResponse(content=json.dumps(fixed, ensure_ascii=False))])
+    result = extractor.extract_persona("约零点十分就寝，需要八小时睡眠", n_runs=1, session=session)
+    assert result.card.time_anchors.bedtime.start_hour == 23.5
+    assert result.card.time_anchors.bedtime.end_hour == 24.5
+    first, retry = (call["json"]["messages"] for call in session.calls)
+    assert len(first) == 2 and len(retry) == 3
+    assert retry[:2] == first
+    assert "time anchors out of order" in retry[-1]["content"]
+    assert "不能写" in retry[0]["content"] and "00:00-08:00" in retry[0]["content"]
+
+
 def test_rejects_empty_story_and_bad_runs():
     with pytest.raises(extractor.ExtractionError, match="empty"):
         extractor.extract_persona("   ", n_runs=1, session=FakeSession([]))

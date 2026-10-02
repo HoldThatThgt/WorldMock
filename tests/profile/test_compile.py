@@ -77,7 +77,7 @@ def test_compile_outputs_v2_contract_shape():
     assert payload["card"]["identity"]["occupation"] == "产品经理"
     assert payload["world_dynamics"]["mood_pulse_amplitude"] > 0
     assert list(payload["warnings"]) == []
-    assert payload["source"]["prompt_version"] == "card-v1"
+    assert payload["source"]["prompt_version"] == "card-v2"
     assert payload["source"]["consensus"]["runs"] == 3
 
 

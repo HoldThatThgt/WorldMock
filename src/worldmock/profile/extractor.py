@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 from collections import Counter
@@ -74,6 +75,8 @@ _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_
   按时间升序（起床 < 出门 < 午餐 < 晚餐 < 就寝）；就寝窗口可跨午夜，起点必须是当日
   晚间小时（如 "23:00-01:00" 表凌晨一点入睡；实际入睡再晚也不写 "00:30-08:00" 式
   次日起点）；故事未提及的锚点写 null
+  bedtime 只表示开始就寝的短窗口，不是整夜睡眠时段。约零点十分就寝可写
+  "23:30-00:30"，不能写 "00:00-08:00"；睡眠时长单独填 sleep_need_hours
 - chronotype_midsleep："HH:MM" 自由日睡眠中点；未提及写 null
 - sleep_need_hours：7-9 之间 0.25 步进的数字；未提及写 null
 - habits：最多 5 条 [{"trigger": 情境短语, "response": 行为短语, "time_window": "HH:MM-HH:MM"}]
@@ -185,6 +188,12 @@ def _single_run(story: str, model: str, api_key: str, caller: Any,
             return _parse_payload(content, config)
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
             last_error = f"{type(error).__name__}: {error}"
+            logging.warning("Persona extraction output failed validation: %s", last_error)
+            payload = {**payload, "messages": [*payload["messages"][:2], {
+                "role": "user",
+                "content": ("上一次输出未通过结构校验，请依据原故事重新输出完整 JSON。"
+                            "只修正错误，不改写故事事实。校验错误：\n" + last_error),
+            }]}
             continue
     raise ExtractionError(
         f"persona extraction failed after {MAX_PARSE_RETRIES + 1} attempts: {last_error}")

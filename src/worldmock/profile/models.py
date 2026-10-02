@@ -22,7 +22,7 @@ from pydantic import (BaseModel, ConfigDict, Field, field_validator,
 #: 卡片合同 schema 版本；v1（九参数动机档案）已删除，不保留兼容。
 SCHEMA_VERSION = 2
 #: 卡片抽取提示版本（换提示词必须换版本号）。
-PROMPT_VERSION = "card-v1"
+PROMPT_VERSION = "card-v2"
 #: 卡片渲染汉字上限（docs/dev/SPEC-life-runtime.md「字符预算」，与 life/narration.py 同源常数；不互相 import，
 #: 两处同时钉死同一规格行）。
 PERSONA_CARD_HANZI_BUDGET = 600
@@ -128,8 +128,13 @@ class TimeWindow(_Frozen):
         end = parse_clock(parts[1])
         if end <= start:
             end += 24.0
-        return cls(start_hour=quantize(start, 0.0, 24.0, 0.5),
-                   end_hour=quantize(end, 0.0, 30.0, 0.5))
+        rounded_start = quantize(start, 0.0, 24.0, 0.5)
+        rounded_end = quantize(end, 0.0, 30.0, 0.5)
+        if rounded_start == rounded_end and 0 < end - start <= 0.5:
+            # 短窗口不能因最近格点吸附变成零长窗口。
+            rounded_start = math.floor(start * 2) / 2
+            rounded_end = math.ceil(end * 2) / 2
+        return cls(start_hour=rounded_start, end_hour=rounded_end)
 
 
 class Identity(_Frozen):

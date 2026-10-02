@@ -64,6 +64,18 @@ def test_time_window_cross_midnight():
         TimeWindow.from_clock_range("25:00-26:00")
 
 
+@pytest.mark.parametrize(("clock", "expected"), [
+    ("08:20-08:30", (8.0, 8.5)),
+    ("08:00-08:10", (8.0, 8.5)),
+    ("23:59-00:01", (23.5, 24.5)),
+    ("00:05-00:10", (0.0, 0.5)),
+])
+def test_short_clock_window_survives_half_hour_quantization(clock, expected):
+    """@brief 原始非零分钟窗口不能被半小时格点取整抹去；跨午夜也保留包含区间。"""
+    window = TimeWindow.from_clock_range(clock)
+    assert (window.start_hour, window.end_hour) == expected
+
+
 def test_parse_clock():
     assert parse_clock("07:30") == 7.5
     assert parse_clock("00:00") == 0.0
