@@ -185,6 +185,50 @@ class MotivationProfile(FrozenModel):
         return self
 
 
+class WorkShift(FrozenModel):
+    """@brief 一天的班次（docs/dev/SPEC-errands-workday.md 4.3）：自当地零点起的分钟，同日、starts < ends，休息时段落在
+    班次内、升序且互不重叠；区间一律半开。三个键都必填，没有休息时段写空列表。"""
+
+    starts: int
+    ends: int
+    breaks: tuple[tuple[int, int], ...]
+
+    @model_validator(mode="after")
+    def validate_shift(self) -> "WorkShift":
+        """@brief 拒绝跨日或倒置的班次、越出班次的休息时段，以及乱序或重叠的休息时段。"""
+        if not 0 <= self.starts < self.ends <= 1440:
+            raise ValueError("work shift must satisfy 0 <= starts < ends <= 1440")
+        if any(not self.starts <= begin < finish <= self.ends for begin, finish in self.breaks):
+            raise ValueError("work shift breaks must lie within the shift")
+        if any(previous[1] > following[0] for previous, following in zip(self.breaks, self.breaks[1:])):
+            raise ValueError("work shift breaks must be ascending and must not overlap")
+        return self
+
+
+class WorkSchedule(FrozenModel):
+    """@brief 人物的工作安排（4.3）：工作地点、每周七天全写的班次（周一为 "0"）与按 ISO 日期覆盖的例外；值为 null 表示
+    当日不当班。不带时区字段（复用场景的 timezone），不从星期或任务推断；与所选地点、场景日历的交叉核对在加载检查
+    （load_checks.check_work_schedules）。"""
+
+    workplace_location_id: str = Field(min_length=1)
+    weekly: dict[str, WorkShift | None]
+    exceptions: dict[str, WorkShift | None]
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "WorkSchedule":
+        """@brief 每周七天都要写出，例外日期必须是规范的 ISO 日期。"""
+        if set(self.weekly) != {str(day) for day in range(7)}:
+            raise ValueError("work_schedule weekly must declare all seven weekdays")
+        for key in self.exceptions:
+            try:
+                canonical = date.fromisoformat(key).isoformat() == key
+            except ValueError:
+                canonical = False
+            if not canonical:
+                raise ValueError("work_schedule exception dates must use canonical ISO format")
+        return self
+
+
 class AgentConfig(FrozenModel):
     """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
 
@@ -212,6 +256,8 @@ class AgentConfig(FrozenModel):
     lifestyle_activities: tuple[str, ...] | None = None
     # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
     interaction_menu: InteractionMenu | None
+    # 工作安排（docs/dev/SPEC-errands-workday.md 4.3，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
+    work_schedule: WorkSchedule | None
     # 人物档案字段（docs/dev/SPEC-life-runtime.md「两过程睡眠模型」、docs/dev/SPEC-life-realism.md「画像编译」）：时型与睡眠需要可按人声明。
     chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
     sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H,
@@ -220,6 +266,10 @@ class AgentConfig(FrozenModel):
     # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md「其他体感分级」）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
+    # 下班、到家窗口（docs/dev/SPEC-errands-workday.md 4.2）：与午餐、晚餐窗口同单位同校验，两者都声明时下班起点不晚于
+    # 到家起点；只用于场景作息覆盖卡片与零点计划的人物输入，None=未声明。
+    leave_work_window: tuple[float, float] | None = None
+    arrive_home_window: tuple[float, float] | None = None
     # 人物声明的就寝窗口，仅用于人物作息表达；末端可跨午夜。
     # 例如 25.0 表示次日 01:00，与画像层 TimeWindow 口径一致。
     bedtime_window: tuple[float, float] | None = None
@@ -244,25 +294,7 @@ class AgentConfig(FrozenModel):
                 raise ValueError("lifestyle_activities ids must be unique")
             if any(not item.strip() for item in self.lifestyle_activities):
                 raise ValueError("lifestyle_activities ids must not be blank")
-        for name, window in (("lunch_window", self.lunch_window),
-                             ("dinner_window", self.dinner_window)):
-            if window is not None and not 0 <= window[0] < window[1] <= 24:
-                raise ValueError(f"{name} must satisfy 0 <= start < end <= 24")
-        if self.lunch_window is not None and self.dinner_window is not None:
-            if (self.lunch_window[1] > self.dinner_window[0]
-                    and self.dinner_window[1] > self.lunch_window[0]):
-                raise ValueError("dinner window must not overlap lunch window")
-        if self.bedtime_window is not None:
-            bedtime_start, bedtime_end = self.bedtime_window
-            # 跨午夜口径与画像层 TimeWindow 一致：start < 24、end ≤ 30（次日
-            # 06:00）、跨度 ≤ 12h（防病态区间）；引擎侧另钳制锚点 ≤ 当日结束。
-            if not 0 <= bedtime_start < 24 or not bedtime_start < bedtime_end <= 30:
-                raise ValueError(
-                    "bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
-            if bedtime_end - bedtime_start > 12:
-                raise ValueError("bedtime_window span must not exceed 12 hours")
-            if self.dinner_window is not None and bedtime_start < self.dinner_window[1]:
-                raise ValueError("bedtime window must not overlap dinner window")
+        _check_day_windows(self)
         validate_names(self.qualifications, "Agent qualifications")
         ids = [item.contact_id for item in self.contacts]
         if len(ids) != len(set(ids)):
@@ -586,7 +618,7 @@ class BodyInstanceConfig(FrozenModel):
 class LifeScenario(FrozenModel):
     """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""
 
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -735,7 +767,7 @@ class RuntimeScenario(FrozenModel):
     领域模块（commerce/travel/work/rules/body）消费的全部静态语义都在此处。
     """
 
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -977,6 +1009,36 @@ def _validate_unit_mapping(values: dict[str, float], label: str) -> None:
         raise ValueError(f"{label} names must not be blank")
     if any(not math.isfinite(value) or value < 0 or value > 1 for value in values.values()):
         raise ValueError(f"{label} values must be between zero and one")
+
+
+def _check_day_windows(agent: "AgentConfig") -> None:
+    """@brief 人物档案的日内窗口：午餐、晚餐、下班、到家窗口满足 0 ≤ 起点 < 末端 ≤ 24，午餐与晚餐不重叠，就寝窗口可跨
+    午夜且不压晚餐；下班与到家都声明时下班起点不晚于到家起点（起点相等可以），与午餐、晚餐、就寝不设先后
+    （docs/dev/SPEC-errands-workday.md 4.2）。"""
+    for name, window in (("lunch_window", agent.lunch_window),
+                         ("dinner_window", agent.dinner_window),
+                         ("leave_work_window", agent.leave_work_window),
+                         ("arrive_home_window", agent.arrive_home_window)):
+        if window is not None and not 0 <= window[0] < window[1] <= 24:
+            raise ValueError(f"{name} must satisfy 0 <= start < end <= 24")
+    if agent.lunch_window is not None and agent.dinner_window is not None:
+        if (agent.lunch_window[1] > agent.dinner_window[0]
+                and agent.dinner_window[1] > agent.lunch_window[0]):
+            raise ValueError("dinner window must not overlap lunch window")
+    if agent.bedtime_window is not None:
+        bedtime_start, bedtime_end = agent.bedtime_window
+        # 跨午夜口径与画像层 TimeWindow 一致：start < 24、end ≤ 30（次日
+        # 06:00）、跨度 ≤ 12h（防病态区间）；引擎侧另钳制锚点 ≤ 当日结束。
+        if not 0 <= bedtime_start < 24 or not bedtime_start < bedtime_end <= 30:
+            raise ValueError(
+                "bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
+        if bedtime_end - bedtime_start > 12:
+            raise ValueError("bedtime_window span must not exceed 12 hours")
+        if agent.dinner_window is not None and bedtime_start < agent.dinner_window[1]:
+            raise ValueError("bedtime window must not overlap dinner window")
+    if (agent.leave_work_window is not None and agent.arrive_home_window is not None
+            and agent.leave_work_window[0] > agent.arrive_home_window[0]):
+        raise ValueError("leave_work_window must not start after arrive_home_window")
 
 
 def _validate_date(value: str) -> None:

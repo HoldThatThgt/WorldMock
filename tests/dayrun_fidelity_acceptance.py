@@ -6,9 +6,8 @@
           扫描。判定由 tests/test_dayrun_fidelity_acceptance.py 执行。
 @note     登记的节点是走真实引擎、宿主、导出或加载路径的行为测试（文档登记类条款读真实文档），不是结构匹配；一行列多个节点时
           各覆盖该行的一部分契约。
-          「输入警告」行写「九个警告码各一例」，按 1.3 的表行数计（`CARD_FIELD_OVERRIDDEN` 与 `CARD_FIELD_CONFLICT` 同行）；
-          警告码闭集是 1.3 的八个码加 8.1 的 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` 共十个，WARNING_CODE_TESTS
-          逐码各登记一例。
+          「输入警告」行写「十个警告码各一例」（个人事务与工作安排规格阶段 3 由「九个」更正）：警告码闭集是 1.3 的八个码加
+          8.1 的 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` 共十个，WARNING_CODE_TESTS 逐码各登记一例。
           「复跑指标（只报告）」按规格只报告、不作门禁：WC 与 BIZ 全天复跑需要用户的模型账号，不在测试中执行；登记的是复跑
           要读的质量报告各节（输入警告、截断、时间线标签、联系人回复守卫、名称类拒绝、零点计划的非例行推进比例）的测试。
           「strict 端点」行的「探针在主站与 /beta 的结果写入验收记录」一半：登记探针脚本与端点切换的测试，真实探针结果由

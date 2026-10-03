@@ -285,13 +285,13 @@ def test_v2_contract_rejects_old_nine_parameter_profile() -> None:
 def test_real_background_story_compiles_to_v2_card() -> None:
     """真实场景 background_story 走 v2 编译：卡片 + 大五 + 世界层动力学齐全。"""
     compiled = _compiled_from_story(_payload()["agents"][0]["background_story"])
-    assert compiled.schema_version == 2
+    assert compiled.schema_version == 3
     assert compiled.card.identity.age > 0
     assert compiled.card.relationships and compiled.card.time_anchors.wake
     assert 7.0 <= compiled.card.sleep_need_hours <= 9.0
     assert compiled.card.habits and compiled.card.tastes
     assert compiled.world_dynamics.mood_pulse_amplitude > 0
-    assert compiled.source.prompt_version == "card-v2"
+    assert compiled.source.prompt_version == "card-v3"
 
 
 def test_v2_compilation_is_deterministic_for_real_story() -> None:

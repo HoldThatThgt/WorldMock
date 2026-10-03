@@ -122,12 +122,15 @@ def _relationship_line(card: PersonaCard) -> str:
 
 
 def _rhythm_line(card: PersonaCard) -> str:
-    """@brief 作息行：时间锚点、睡眠中点与睡眠需要。"""
+    """@brief 作息行：时间锚点、睡眠中点与睡眠需要；下班、到家锚点各自非空时按此顺序各追加一个分句
+    （「；下班<窗口>」「；到家<窗口>」），都为 null 时与原作息行逐字节相同（docs/dev/SPEC-errands-workday.md 4.1）。"""
     anchors = card.time_anchors
+    work = (("下班", anchors.leave_work), ("到家", anchors.arrive_home))
+    clauses = "".join(f"；{label}{_window_text(window)}" for label, window in work if window is not None)
     return (f"约{_window_text(anchors.wake)}起床、{_window_text(anchors.leave_home)}出门；"
             f"午餐{_window_text(anchors.lunch)}、晚餐{_window_text(anchors.dinner)}；"
             f"就寝{_window_text(anchors.bedtime)}，睡眠中点约{_hour_text(card.chronotype_midsleep)}，"
-            f"需睡{card.sleep_need_hours:g}小时。")
+            f"需睡{card.sleep_need_hours:g}小时{clauses}。")
 
 
 def _habit_item(habit: HabitSignature) -> str:

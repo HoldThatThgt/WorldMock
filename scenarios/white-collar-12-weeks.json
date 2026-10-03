@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "scenario_id": "zhangjiang-white-collar-12-weeks",
   "timezone": "Asia/Shanghai",
   "start_at": "2026-01-05T00:00:00+08:00",
@@ -267,6 +267,7 @@
       "trait_source_kind": "experiment_assumption",
       "home_location_id": "home",
       "interaction_menu": null,
+      "work_schedule": null,
       "initial_balance_fen": 800000,
       "skill_levels": {
         "meeting_analysis": 0.8

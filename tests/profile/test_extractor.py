@@ -7,6 +7,8 @@ import json
 import pytest
 
 from worldmock.profile import extractor
+from worldmock.profile.mapper import load_mapping_config
+from worldmock.profile.textgen import render_card
 from tests.profile.conftest import make_payload
 
 
@@ -323,3 +325,150 @@ def test_null_big_five_dimension_is_invalid_payload_and_retries():
     result = extractor.extract_persona("故事", n_runs=1, session=session)
     assert len(session.calls) == 2
     assert result.big_five.openness == 5
+
+
+def _work(leave_work, arrive_home, **overrides) -> str:
+    """@brief 带给定 work_anchors（下班、到家）的完整载荷文本；其余字段取工厂值（出门 8 点、就寝 23 点）。"""
+    return make_payload(work_anchors={"leave_work": leave_work, "arrive_home": arrive_home}, **overrides)
+
+
+#: 下班 7 点早于出门 8 点、到家 23 点半晚于就寝 23 点：两个锚点在共识后都被降级时的说明（按核对顺序）。
+_BOTH_DEMOTED = ("work_anchor_demoted: leave_work start 7 is outside leave_home 8..bedtime 23",
+                 "work_anchor_demoted: arrive_home start 23.5 is outside leave_home 8..bedtime 23")
+#: 载荷里不出现 work_anchors 键的参数化标记。
+_ABSENT = "absent"
+
+
+def test_stated_work_anchors_are_extracted_into_the_card():
+    """@brief 故事写明固定的下班与到家时刻：抽取提示要求只在写明时填写、不推测；三次一致的 work_anchors 落进卡片的两个
+    窗口，单独占 per_field 一项，没有降级说明。"""
+    session = FakeSession([FakeResponse(content=_work("18:00-18:30", "19:00-19:30"))] * 3)
+    result = extractor.extract_persona("每天六点下班，七点到家", n_runs=3, session=session)
+    anchors = result.card.time_anchors
+    assert (anchors.leave_work.start_hour, anchors.leave_work.end_hour) == (18.0, 18.5)
+    assert (anchors.arrive_home.start_hour, anchors.arrive_home.end_hour) == (19.0, 19.5)
+    assert result.per_field["work_anchors"] == 1.0 and result.demotion_notes == ()
+    prompt = session.calls[0]["json"]["messages"][0]["content"]
+    assert "故事写明固定的下班或到家时刻才填" in prompt
+    assert "没有固定工作地点、时间不固定、落在次日或未提及写 null，不要推测" in prompt
+
+
+def test_unmentioned_work_anchors_stay_null_without_toml_defaults():
+    """@brief 故事未提及下班与到家：两键为 null 就保持 null，不读映射表缺省（映射表本就没有这两个锚点）；同一载荷里为 null
+    的五个锚点照旧取 TOML 缺省。"""
+    payload = json.loads(make_payload())
+    payload["time_anchors"] = dict.fromkeys(payload["time_anchors"])
+    session = FakeSession([FakeResponse(content=json.dumps(payload, ensure_ascii=False))] * 3)
+    result = extractor.extract_persona("故事", n_runs=3, session=session)
+    anchors = result.card.time_anchors
+    assert (anchors.leave_work, anchors.arrive_home) == (None, None)
+    assert (anchors.leave_home.start_hour, anchors.bedtime.start_hour) == (8.0, 23.0)
+    assert result.demotion_notes == ()
+    assert set(load_mapping_config()["defaults"]["time_anchors"]) == {"wake", "leave_home", "lunch", "dinner",
+                                                                      "bedtime"}
+
+
+def test_wavering_leave_work_does_not_change_the_five_anchors():
+    """@brief 三次采样的下班各不相同而 time_anchors 一致：work_anchors 单独取共识（众数占比 1/3，平手取字典序最小的序列化），
+    五个锚点的值与全票一致时相同，time_anchors 的占比仍为 1。"""
+    script = [_work(leave_work, None) for leave_work in ("18:30-19:00", "18:00-18:30", "19:00-19:30")]
+    result = extractor.extract_persona("故事", n_runs=3, session=FakeSession(
+        [FakeResponse(content=item) for item in script]))
+    unanimous = extractor.extract_persona("故事", n_runs=3, session=FakeSession(
+        [FakeResponse(content=make_payload())] * 3))
+    five = ("wake", "leave_home", "lunch", "dinner", "bedtime")
+    assert [getattr(result.card.time_anchors, name) for name in five] == [
+        getattr(unanimous.card.time_anchors, name) for name in five]
+    assert result.per_field["time_anchors"] == 1.0
+    assert result.per_field["work_anchors"] == pytest.approx(1 / 3, abs=1e-3)
+    assert result.card.time_anchors.leave_work.start_hour == 18.0
+
+
+def test_out_of_order_sample_is_admitted_without_a_parse_retry():
+    """@brief 单次采样的下班早于出门：只为放行校验而降级，不消耗解析重试（会话只被调用一次），卡片照常编译并带一条说明。"""
+    session = FakeSession([FakeResponse(content=_work("07:00-07:30", None))])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 1
+    assert result.card.time_anchors.leave_work is None
+    assert result.demotion_notes == _BOTH_DEMOTED[:1]
+
+
+def test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles():
+    """@brief 共识组合乱序（下班早于出门、到家晚于就寝）：先降下班，再对出门与就寝核到家并降级，卡片照常编译；说明只在共识
+    后的最终卡片上生成，每个被置 null 的锚点一条（三次采样不各留一份），三次采样都不触发重试。"""
+    session = FakeSession([FakeResponse(content=_work("07:00-07:30", "23:30-24:00"))] * 3)
+    result = extractor.extract_persona("故事", n_runs=3, session=session)
+    assert len(session.calls) == 3
+    anchors = result.card.time_anchors
+    assert (anchors.leave_work, anchors.arrive_home) == (None, None)
+    assert (anchors.leave_home.start_hour, anchors.bedtime.start_hour) == (8.0, 23.0)
+    assert result.demotion_notes == _BOTH_DEMOTED
+
+
+def test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted():
+    """@brief 三次采样各自乱序而共识合法时不降级：前两次的下班晚于就寝，第三次出门改到 10 点而下班 9 点；单次采样只为放行
+    而降级、不写回载荷，共识对原始 work_anchors 取众数（三值平手取字典序最小的「09:00-09:30」），time_anchors 取前两次的
+    出门 8 点，组合合法，没有降级说明、没有重试。"""
+    leave_later = json.loads(make_payload())["time_anchors"] | {"leave_home": "10:00-10:30"}
+    script = [_work("23:30-24:00", None), _work("23:30-00:30", None),
+              _work("09:00-09:30", None, time_anchors=leave_later)]
+    session = FakeSession([FakeResponse(content=item) for item in script])
+    result = extractor.extract_persona("故事", n_runs=3, session=session)
+    assert len(session.calls) == 3
+    assert result.demotion_notes == ()
+    assert result.card.time_anchors.leave_work.start_hour == 9.0
+    assert result.card.time_anchors.leave_home.start_hour == 8.0
+    assert result.per_field["work_anchors"] == pytest.approx(1 / 3, abs=1e-3)
+
+
+@pytest.mark.parametrize("work_anchors", [
+    pytest.param(_ABSENT, id="missing_key"),
+    pytest.param({"leave_work": None}, id="missing_sub_key"),
+    pytest.param({"leave_work": None, "arrive_home": None, "commute": None}, id="extra_sub_key"),
+    pytest.param({"leave_work": "傍晚六点", "arrive_home": None}, id="not_a_clock_range"),
+    pytest.param(None, id="null_instead_of_object"),
+    pytest.param(["18:00-18:30", None], id="array_instead_of_object"),
+])
+def test_malformed_or_missing_work_anchors_take_the_parse_retry(work_anchors):
+    """@brief 格式错误照常走解析重试：缺 work_anchors 键、缺子键、多子键、不是 HH:MM-HH:MM 的值、不是对象；第一次响应被拒并把
+    校验错误附回，第二次合法响应被采用。"""
+    broken = json.loads(make_payload())
+    if work_anchors == _ABSENT:
+        del broken["work_anchors"]
+    else:
+        broken["work_anchors"] = work_anchors
+    session = FakeSession([FakeResponse(content=json.dumps(broken, ensure_ascii=False)),
+                           FakeResponse(content=_work("18:00-18:30", None))])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 2
+    assert len(session.calls[1]["json"]["messages"]) == 3
+    assert result.card.time_anchors.leave_work.start_hour == 18.0
+
+
+def test_null_work_anchors_keep_the_after_midnight_bedtime_normalised():
+    """@brief 两个工作锚点为 null 时凌晨一点就寝（01:00-02:00）照样回绕归一为次日 25 点：新锚点不进回绕归一的名字元组，
+    null 不会让五锚点的归一整体放弃。"""
+    payload = json.loads(make_payload())
+    payload["time_anchors"]["bedtime"] = "01:00-02:00"
+    session = FakeSession([FakeResponse(content=json.dumps(payload, ensure_ascii=False))])
+    result = extractor.extract_persona("凌晨一点才睡", n_runs=1, session=session)
+    bedtime = result.card.time_anchors.bedtime
+    assert (bedtime.start_hour, bedtime.end_hour) == (25.0, 26.0)
+    assert (result.card.time_anchors.leave_work, result.card.time_anchors.arrive_home) == (None, None)
+    assert len(session.calls) == 1
+
+
+def test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime():
+    """@brief 首版不支持跨午夜的下班与到家（规格 4.1）：就寝「00:30-01:30」回绕为次日 24.5 点，写明的到家「23:50-00:30」
+    吸附为 24–24.5 点、起点不晚于就寝，仍因越过当日午夜在共识后被置 null 并留一条说明，同日的下班照常落进卡片；单次
+    采样只为放行而降级，不消耗解析重试，卡片文本不出现「到家」分句。"""
+    payload = json.loads(_work("18:00-18:30", "23:50-00:30"))
+    payload["time_anchors"]["bedtime"] = "00:30-01:30"
+    session = FakeSession([FakeResponse(content=json.dumps(payload, ensure_ascii=False))] * 3)
+    result = extractor.extract_persona("六点下班，快零点才到家，凌晨才睡", n_runs=3, session=session)
+    anchors = result.card.time_anchors
+    assert (anchors.bedtime.start_hour, anchors.leave_work.start_hour, anchors.arrive_home) == (24.5, 18.0, None)
+    assert result.demotion_notes == ("work_anchor_demoted: arrive_home window 24..24.5 runs past midnight",)
+    assert len(session.calls) == 3
+    text = render_card(result.card)
+    assert "；下班18点到18点半。" in text and "；到家" not in text

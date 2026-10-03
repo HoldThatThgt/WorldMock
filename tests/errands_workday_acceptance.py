@@ -31,9 +31,10 @@ STAGE_IDS = frozenset(str(number) for number in range(8))
 
 #: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成；阶段 2（个人事务
 #: 与提示分工）随收尾提交完成：十行台账都列出节点，二十六句规格变异都有登记变异（阶段复审之后，一句列出的每种情形各有
-#: 一个）；阶段 4（查询筛选与返回精简）只依赖阶段 1，与阶段 2 并行开发、随合并进入主线：它的五行都列出经真实引擎的
+#: 一个）；阶段 3（作息与工作安排）在自己的分支上开发、随合并进入主线：它的六行都列出节点，十二句变异各有登记的杀死
+#: 变异；阶段 4（查询筛选与返回精简）只依赖阶段 1，与阶段 2 并行开发、随合并进入主线：它的五行都列出经真实引擎的
 #: 节点，七句变异各有登记的杀死变异。
-STAGES_DONE: frozenset[str] = frozenset({"1", "2", "4"})
+STAGES_DONE: frozenset[str] = frozenset({"1", "2", "3", "4"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
@@ -515,6 +516,142 @@ _PAGING_TESTS = [
     _QUERY_FILTERS + "test_query_categories_counts_do_not_change_with_filters",
 ]
 
+_CARD_EXTRACTION = "tests/profile/test_extractor.py::"
+_CARD_MODELS = "tests/profile/test_models.py::"
+_CARD_INPUT_WARNINGS = "tests/integration/test_input_warnings.py::"
+_CARD_PERSONA_LAYER = "tests/life/test_persona_layer.py::"
+_CARD_TEXT = "tests/profile/test_textgen.py::"
+_CARD_INJECTION = "tests/profile/test_injection.py::"
+_CARD_SCENARIO = "tests/life/test_scenario.py::"
+
+#: 「作息锚点」（卡片一侧）：头七个节点经真实 extract_persona 与脚本化会话——故事写明时产出窗口、未提及为 null 且不取映射
+#: 表缺省、下班摇摆不改变其余五锚点、单次采样乱序只为放行而降级且不消耗重试、共识乱序先降下班再降到家且卡片照常编译、
+#: 三次采样各自乱序而共识合法时不降级、格式错误照常重试；第八个是 null 新锚点下凌晨就寝仍回绕归一；第九个是首版不支持
+#: 跨午夜的下班与到家：就寝回绕到次日时，起点不晚于就寝而越过当日 24 点的到家在共识后被置 null 并留一条说明；第十个是真实
+#: compile_persona 把降级说明接在一致性警告之后。其后三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束与当日
+#: 午夜上界、固定的降级顺序与说明）。再后两个经真实抽取（脚本化会话）、真实新建（画像编译、场景作息覆盖、人物装配、LifeEnv 与 SQLite
+#: 运行清单）与直接导入的 LifeAgent：降级说明作为画像编译警告冻结进清单（PERSONA_AGREEMENT_LOW 只带原文、消息不归因于
+#: 一致性），写明的下班与到家按九键键序到达实际请求的人设层、卡片文本追加两个分句。随后是画像文本各自非空时追加分句并
+#: 计入预算、都为 null 时逐字节不变（render_card 与新建运行冻结的卡片文本是同一函数）；人设层（直接导入
+#: custom.agents.life_persona）九键键序与 null、缺两键的旧结构化卡片在恢复路径被拒（真实 _prepare_resume 与父运行
+#: SQLite）；再一个守宿主不渲染人物档案里的工作安排与场景窗口（人设层键集与值不变）。场景作息覆盖七字段的三个节点经
+#: 真实新建（场景副本、画像编译、场景作息覆盖、LifeEnv 与 SQLite 运行清单）、直接导入的 LifeAgent 与真实 plan_inputs：
+#: 场景声明的下班、到家窗口落进卡片空槽并记覆盖、到达人设层与零点计划人物输入；只来自卡片的两个锚点不进零点计划输入；
+#: 违反顺序约束的场景下班窗口让空槽保持 null 并冻结一条冲突。最后五个是补充证据：覆盖函数在 null 槽上的覆盖、冲突
+#: （三种顺序冲突，含就寝早于卡片到家时冲突落在就寝上）、不动点与写不成窗口的冲突，以及场景两个窗口的校验。
+_WORK_ANCHOR_TESTS = [
+    _CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",
+    _CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",
+    _CARD_EXTRACTION + "test_wavering_leave_work_does_not_change_the_five_anchors",
+    _CARD_EXTRACTION + "test_out_of_order_sample_is_admitted_without_a_parse_retry",
+    _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",
+    _CARD_EXTRACTION + "test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted",
+    _CARD_EXTRACTION + "test_malformed_or_missing_work_anchors_take_the_parse_retry",
+    _CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",
+    _CARD_EXTRACTION + "test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime",
+    "tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it",
+    _CARD_MODELS + "test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order",
+    _CARD_MODELS + "test_work_anchor_order_constraints_are_enforced",
+    _CARD_MODELS + "test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each",
+    _CARD_INPUT_WARNINGS + "test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement",
+    _CARD_INPUT_WARNINGS + "test_extracted_work_anchors_reach_the_real_request_persona_layer",
+    _CARD_TEXT + "test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget",
+    _CARD_TEXT + "test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer",
+    _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",
+    _CARD_PERSONA_LAYER + "test_structured_card_without_work_anchor_keys_is_rejected_on_restore",
+    _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",
+    _CARD_INPUT_WARNINGS + "test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input",
+    _CARD_INPUT_WARNINGS + "test_card_only_work_anchors_never_enter_the_plan_input",
+    (_CARD_INPUT_WARNINGS
+     + "test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict"),
+    _CARD_INJECTION + "test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden",
+    _CARD_INJECTION + "test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict",
+    _CARD_INJECTION + "test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point",
+    _CARD_INJECTION + "test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot",
+    _CARD_SCENARIO + "test_work_window_bounds_and_order_are_rejected",
+]
+
+_WORK_SCHEDULE_LOADS = "tests/life/test_load_checks.py::"
+_STRUCTURE_FIVE = "tests/life/test_scenario.py::test_every_agent_declares_work_schedule_and_structure_four_is_rejected"
+#: 「工作安排加载」：每个人物显式声明 work_schedule 或 null、缺键与场景结构 4 经真实入口被拒；工作地点不是所选地点、时段
+#: 与休息时段非法、时间窗内与场景日历不一致都经真实的 load_runtime_scenario 被拒（顶层明细写明人物、日期与字段，形状
+#: 错误的原因在异常链里），时间窗外的日期、加班机会日与 null 的人物不核对。场景模型校验器逐条拒绝的用例是补充证据。
+_WORK_SCHEDULE_LOAD_TESTS = [
+    _STRUCTURE_FIVE,
+    _WORK_SCHEDULE_LOADS + "test_work_schedule_workplace_must_be_a_selected_location",
+    _WORK_SCHEDULE_LOADS + "test_a_malformed_shift_or_break_is_rejected_by_the_real_loader",
+    _WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",
+    _WORK_SCHEDULE_LOADS + "test_overtime_dates_and_dates_outside_the_window_are_not_checked",
+    _WORK_SCHEDULE_LOADS + "test_a_null_work_schedule_is_not_cross_checked_and_others_still_are",
+    "tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected",
+]
+
+_WORK_SCHEDULE = "tests/life/test_work_schedule.py::"
+#: 「上班安排呈现」：有工作安排的人物经真实观察、请求、结算与 SQLite（engine_factory 加 declare 改写场景副本）：duty 随
+#: 时钟经过班前、当班、休息时段与班后，地点写显示名、不含内部身份、只在环境层出现；工作提交与付款后仍是当班中；
+#: 修订计划被受理后逐值不变；休息日来自每周 null 与日期例外，例外的班次压过每周的 null；没有工作安排的人物为 null 而
+#: 同场景的他人照旧；共同检查点恢复的分支环境层逐字节相同；当班中离开办公室照常列出、照常受理，事件计数与没有工作安排
+#: 的同一场景相同；真实 LifeAgent 的同秒续接链内 duty 不变、不进 changes。末一个是 Schema 枚举与闭集一致的补充证据。
+_DUTY_TESTS = [
+    _WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",
+    _WORK_SCHEDULE + "test_duty_stays_on_duty_after_the_work_is_submitted",
+    _WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",
+    _WORK_SCHEDULE + "test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly",
+    _WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",
+    _WORK_SCHEDULE + "test_environment_layer_is_byte_identical_after_checkpoint_restore",
+    _WORK_SCHEDULE + "test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds",
+    "tests/integration/test_same_second_continuation.py::"
+    "test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes",
+    "tests/life/test_prompt_layers.py::test_duty_enumerations_are_the_work_schedule_constants",
+]
+#: 「工作合同边界」：班前 08:30 在办公室真实开工被受理，班后 18:30 工作仍在进行、暂停后恢复被受理；有无工作安排的同一
+#: 场景里任务的开放与截止、工具层任务目标的合同与开工动作逐值相同。
+_WORK_CONTRACT_BOUNDARY_TESTS = [
+    _WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",
+    _WORK_SCHEDULE + "test_shifts_do_not_change_task_opening_or_deadline",
+]
+#: 「计划与义务」：直接导入的 LifeAgent 发出的真实请求里系统层仍是十八条，第 1 条只把环境层一句改成含今天的上班安排、
+#: 第 14 条在四个分句之后追加上班安排一句，与规格 4.6、接口合同「请求组成」的登记和人物 Prompt 规格「系统层」逐字相同；
+#: 真实零点计划请求的模板输入说明首行与第八条与规格 4.6、接口合同逐字相同；零点计划输入的「上班安排」按计划日期当天
+#: 求值、不含 status（工作日、休息日、没有工作安排各一例，载荷与客户端收到的请求相同），零点边界上前一日休息、当日
+#: 当班时输入是新开始那一日的工作日安排。
+_PLAN_DUTY_TESTS = [
+    _SEVEN_LAYERS + "test_rules_1_and_14_state_the_duty_arrangement_verbatim",
+    _DAY_PLANNING + "test_plan_template_first_line_and_rule_eight_are_the_contract_text",
+    _DAY_PLANNING + "test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary",
+    _DAY_PLANNING + "test_plan_input_carries_the_plan_dates_duty_arrangement_without_status",
+]
+
+_WORKLOAD = "tests/evaluation/test_workload_metrics.py::"
+_WORKLOAD_REPORT = "tests/life/test_workload_report.py::"
+#: 「工作负荷与作息偏离」：真实运行（engine_factory 加 declare，只发真实请求、不预置地点）班内 15:00 离开办公室回家，从
+#: SQLite 读回的事件与改写后的场景文档经 behavior_metrics_report 重算出三小时的早退与缺勤、恒等关系成立，离开工作地点
+#: 对班次结束早 180 分钟、证据是回家那一程的首个进度事件；另一组真实运行把首个任务改成集市的预约任务，班内约定开始前
+#: 出发赴约、在那里工作（午休也在）、直接回办公室，重算为任务外出（扣掉午休）而缺勤与早退为 0，同一行程在场景按日期
+#: 例外写成不当班的运行里十个量都是 0、作息偏离对班次的两项为 null。手写事件逐值核对各量的定义与恒等关系、两种声明
+#: 例外（休息时段、已开放未结清任务的要求地点的外出，预约任务从约定当天起算）不计缺勤而不当班日不进统计、赴约早于
+#: 约定开始的路上不是缺勤也不是早退、作息偏离三项对窗口与班次的正负与零、证据身份、容差
+#: 写进报告不作用于偏离值、班次两端在睡的标注、没有工作安排的人物离开一项为 null、缺输入为 null 并写说明、不出现已删除
+#: 的偏离指标键名、同一输入逐字节相同；打包输入取自经真实解析的场景文档与卡片。只读子命令 workday 对同一真实运行目录
+#: 经子进程打印恰好四键、值等于进程内重算、库文件字节不变；场景文件摘要不等于运行清单的 scenario_sha256 时以英文错误
+#: 非零退出、不打印；作息窗口取自运行工作区的结构化卡片，没有卡片时按 null 计并写说明。
+_WORKLOAD_TESTS = [
+    _WORKLOAD + "test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave",
+    _WORKLOAD + "test_a_real_task_outing_is_not_absence_and_a_declared_rest_day_counts_nothing",
+    _WORKLOAD + "test_workload_fields_follow_their_definitions_on_a_hand_built_day",
+    _WORKLOAD + "test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out",
+    _WORKLOAD + "test_travel_to_an_appointment_before_it_starts_is_a_task_outing_not_absence_or_early_leave",
+    _WORKLOAD + "test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags",
+    _WORKLOAD + "test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home",
+    _WORKLOAD + "test_missing_inputs_are_null_with_a_note",
+    _WORKLOAD + "test_routine_deviation_uses_none_of_the_removed_plan_deviation_names",
+    _WORKLOAD + "test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_scenario_and_cards",
+    _WORKLOAD + "test_reports_are_byte_reproducible",
+    _WORKLOAD_REPORT + "test_workday_command_prints_the_four_keys_for_a_real_run",
+    _WORKLOAD_REPORT + "test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario",
+    _WORKLOAD_REPORT + "test_workday_command_reports_null_windows_without_a_workspace_card",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -531,12 +668,12 @@ LEDGER: dict[str, dict[str, object]] = {
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
     "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
     "事务与收尾记忆指标": {"stage": "2", "tests": _METRIC_TESTS},
-    "作息锚点": {"stage": "3", "tests": []},
-    "工作安排加载": {"stage": "3", "tests": []},
-    "上班安排呈现": {"stage": "3", "tests": []},
-    "计划与义务": {"stage": "3", "tests": []},
-    "工作合同边界": {"stage": "3", "tests": []},
-    "工作负荷与作息偏离": {"stage": "3", "tests": []},
+    "作息锚点": {"stage": "3", "tests": _WORK_ANCHOR_TESTS},
+    "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
+    "上班安排呈现": {"stage": "3", "tests": _DUTY_TESTS},
+    "计划与义务": {"stage": "3", "tests": _PLAN_DUTY_TESTS},
+    "工作合同边界": {"stage": "3", "tests": _WORK_CONTRACT_BOUNDARY_TESTS},
+    "工作负荷与作息偏离": {"stage": "3", "tests": _WORKLOAD_TESTS},
     "查询请求": {"stage": "4", "tests": _QUERY_REQUEST_TESTS},
     "来源筛选": {"stage": "4", "tests": _SOURCE_FILTER_TESTS},
     "可执行筛选": {"stage": "4", "tests": _EXECUTABLE_FILTER_TESTS},
@@ -729,6 +866,68 @@ _PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED,)
 _ERRANDS_PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED, _REAL_PROJECTIONS)
 _INTACT_KILLERS = (_PROJECTIONS_TRIMMED, _FULL_TARGET, _REAL_PROJECTIONS)
 _DENOMINATOR_KILLERS = (_ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",)
+_EXTRACTOR_MODULE = "worldmock.profile.extractor"
+_EXTRACTOR_SOURCE = "src/worldmock/profile/extractor.py"
+_CARD_MODELS_MODULE = "worldmock.profile.models"
+_CARD_MODELS_SOURCE = "src/worldmock/profile/models.py"
+#: 卡片锚点五个变异的杀手都经真实 extract_persona（脚本化会话）：抽取把写明的下班或到家丢成 null 时卡片没有那个窗口；下班与到家
+#: 的 null 换成固定的傍晚窗口时卡片不再是 null；新锚点并入回绕归一的名字元组时 null 让归一整体放弃、凌晨就寝按同日乱序被拒
+#: 直至重试耗尽；乱序不降级而原样落进锚点时每次采样都被卡片校验拒绝、重试耗尽。
+_STATED_ANCHOR_KILLERS = (_CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",)
+_NO_DEFAULT_KILLERS = (_CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",)
+_WRAPAROUND_KILLERS = (_CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",)
+_DEMOTION_KILLERS = (
+    _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",)
+_PERSONA_LAYER_MODULE = "custom.agents.life_persona"
+_PERSONA_LAYER_SOURCE = "custom/agents/life_persona.py"
+#: 人设层三个变异的杀手都直接导入 custom.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
+#: 下班或到家投影成 null 时，写明它们的卡片在人设层的下班不再是「18点到18点半」、到家不再是「19点到19点半」；人设层多渲染
+#: profile 里的工作安排时，带工作安排的档案的人设层多出一个键、不再与不带工作安排的同一档案相同。
+_PERSONA_ANCHOR_KILLERS = (
+    _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",)
+_PERSONA_SCHEDULE_KILLERS = (
+    _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",)
+_DAY_PLAN_INPUTS_MODULE = "worldmock.life.day_plan_inputs"
+_DAY_PLAN_INPUTS_SOURCE = "src/worldmock/life/day_plan_inputs.py"
+_INJECTION_MODULE = "worldmock.profile.injection"
+_INJECTION_SOURCE = "src/worldmock/profile/injection.py"
+#: 场景作息覆盖两个变异的杀手是同一个真实新建用例（_create_run 在进程内建立 LifeEnv，runtime 按本名导入
+#: worldmock.profile.injection，用例直接调用 plan_inputs）：零点计划人物输入丢掉场景声明的下班、到家时段时两个时段
+#: 不再出现；覆盖函数对 null 槽跳过场景值时冻结卡片没有下班、到家窗口，清单也没有这两条覆盖。
+_SCENARIO_WORK_WINDOW_KILLERS = (
+    _CARD_INPUT_WARNINGS + "test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input",)
+_LOAD_CHECKS_MODULE = "worldmock.life.load_checks"
+_LOAD_CHECKS_SOURCE = "src/worldmock/life/load_checks.py"
+_SCENARIO_MODULE = "worldmock.life.scenario"
+_SCENARIO_SOURCE = "src/worldmock/life/scenario.py"
+#: 工作安排加载两个变异的杀手（都在主进程内经真实加载入口）：加载时不做日历交叉核对，时间窗内与日历不一致的工作安排
+#: 照常加载；场景结构 4 被放行，版本写回 4 的场景经 parse_scenario_document 与 load_scenario 照常加载。
+_CALENDAR_CHECK_KILLERS = (_WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",)
+_STRUCTURE_FOUR_KILLERS = (_STRUCTURE_FIVE,)
+_WORK_SCHEDULE_MODULE = "worldmock.life.work_schedule"
+_WORK_SCHEDULE_SOURCE = "src/worldmock/life/work_schedule.py"
+_ENVIRONMENT_LAYER_MODULE = "worldmock.life.environment_layer"
+_ENVIRONMENT_LAYER_SOURCE = "src/worldmock/life/environment_layer.py"
+_WORK_MODULE = "worldmock.life.work"
+_WORK_SOURCE = "src/worldmock/life/work.py"
+#: 上班安排七个变异的杀手都在主进程内驱动真实 LifeEngine（环境层与工作合同按本名导入 work_schedule、environment_layer
+#: 与 work）：按星期推断休息日时周一写 null 的人物仍有班次，忽略例外日期时例外写 null 的周一当班、例外写班次的周一休息
+#: （双人场景的时间窗没有日历特殊日，加载照常）；休息时段显示为当班中时 12:00 与 12:30 不是「休息时段」；所有人物套某人的班次时
+#: 没有工作安排的人物 2 也有 duty；计划有目标后 duty 消失时修订被受理后的观察里 duty 为 null；有任务付款结清后 duty 消失时
+#: 真实提交并付款后的观察里 duty 为 null；班次并入任务开放判定（写死夹具的 09:00 与场景的 +08:00）时 08:30 的真实开工被
+#: 拒绝。
+_REST_DAY_KILLERS = (
+    _WORK_SCHEDULE + "test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly",)
+_BREAK_KILLERS = (_WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",)
+_UNSCHEDULED_KILLERS = (_WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",)
+_PLAN_REVISION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",)
+_SUBMISSION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_duty_stays_on_duty_after_the_work_is_submitted",)
+_TASK_OPENING_KILLERS = (_WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",)
+#: 零点计划输入带上 status 的杀手（主进程内经真实引擎与零点计划后台任务，零点计划输入按本名调用
+#: work_schedule.day_arrangement）：当班日的「上班安排」多出 status 键，载荷与请求不再是四键。环境层 duty 本来就带
+#: status，这一变异不改变它。
+_PLAN_INPUT_STATUS_KILLERS = (
+    _DAY_PLANNING + "test_plan_input_carries_the_plan_dates_duty_arrangement_without_status",)
 _TOOL_GROUPS_MODULE = "worldmock.life.tool_groups"
 _TOOL_GROUPS_SOURCE = "src/worldmock/life/tool_groups.py"
 #: 紧凑投影按真假值丢值的杀手：冻结页夹具上读出 false 与零价的一例，真实引擎上读出门店商品到店 false 的一例。原文与
@@ -1460,6 +1659,179 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _DENOMINATOR_KILLERS,
     ),
     SourceMutation(
+        "extraction_drops_stated_work_anchor",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
+        '        anchors.leave_home, anchors.bedtime, None, parsed["arrive_home"])\n',
+        _STATED_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "extraction_drops_stated_arrive_home",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], None)\n',
+        _STATED_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "leave_work_takes_a_default",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        "None if raw[name] is None else TimeWindow.from_clock_range(raw[name])",
+        'TimeWindow.from_clock_range(raw[name] or "18:00-18:30")',
+        _NO_DEFAULT_KILLERS,
+    ),
+    SourceMutation(
+        "work_anchors_join_wraparound",
+        _CARD_MODELS_MODULE,
+        _CARD_MODELS_SOURCE,
+        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")\n',
+        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime", "leave_work", "arrive_home")\n',
+        _WRAPAROUND_KILLERS,
+    ),
+    SourceMutation(
+        "out_of_order_work_anchor_fails_the_card",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        (
+            "    leave_work, arrive_home, problems = settle_work_anchors(\n"
+            '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n'
+        ),
+        '    leave_work, arrive_home, problems = parsed["leave_work"], parsed["arrive_home"], ()\n',
+        _DEMOTION_KILLERS,
+    ),
+    SourceMutation(
+        "persona_layer_drops_work_anchor",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '"leave_work": _optional_window(anchors.leave_work)',
+        '"leave_work": None',
+        _PERSONA_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "persona_layer_drops_arrive_home",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '"arrive_home": _optional_window(anchors.arrive_home)',
+        '"arrive_home": None',
+        _PERSONA_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "host_renders_work_schedule",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '        "preferences": [dict(item) for item in views["preferences"]],\n',
+        (
+            '        "preferences": [dict(item) for item in views["preferences"]],\n'
+            '        "work_schedule": profile.get("work_schedule"),\n'
+        ),
+        _PERSONA_SCHEDULE_KILLERS,
+    ),
+    SourceMutation(
+        "scenario_work_windows_missing_from_plan_input",
+        _DAY_PLAN_INPUTS_MODULE,
+        _DAY_PLAN_INPUTS_SOURCE,
+        '"下班时段": _hours(config.leave_work_window), "到家时段": _hours(config.arrive_home_window),',
+        '"下班时段": None, "到家时段": None,',
+        _SCENARIO_WORK_WINDOW_KILLERS,
+    ),
+    SourceMutation(
+        "override_skips_null_card_slot",
+        _INJECTION_MODULE,
+        _INJECTION_SOURCE,
+        "        if field not in declared:\n            continue\n",
+        "        if field not in declared or getattr(anchors, slot) is None:\n            continue\n",
+        _SCENARIO_WORK_WINDOW_KILLERS,
+    ),
+    SourceMutation(
+        "calendar_cross_check_skipped",
+        _LOAD_CHECKS_MODULE,
+        _LOAD_CHECKS_SOURCE,
+        "problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]",
+        "problems = [*_workplace_problems(scenario)]",
+        _CALENDAR_CHECK_KILLERS,
+    ),
+    SourceMutation(
+        "scenario_structure_four_admitted",
+        _SCENARIO_MODULE,
+        _SCENARIO_SOURCE,
+        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[5]\n',
+        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 5]\n',
+        _STRUCTURE_FOUR_KILLERS,
+    ),
+    SourceMutation(
+        "rest_day_inferred_from_weekday",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        "return schedule.weekly[str(day.weekday())]",
+        "return None if day.weekday() >= 5 else next(item for item in schedule.weekly.values() if item is not None)",
+        _REST_DAY_KILLERS,
+    ),
+    SourceMutation(
+        "exception_dates_ignored",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        "if key in schedule.exceptions:",
+        "if False:",
+        _REST_DAY_KILLERS,
+    ),
+    SourceMutation(
+        "break_shown_as_on_duty",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        "if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)):",
+        "if False:",
+        _BREAK_KILLERS,
+    ),
+    SourceMutation(
+        "everyone_gets_a_shift",
+        _ENVIRONMENT_LAYER_MODULE,
+        _ENVIRONMENT_LAYER_SOURCE,
+        "if item.agent_id == context.agent_id)",
+        "if item.work_schedule is not None)",
+        _UNSCHEDULED_KILLERS,
+    ),
+    SourceMutation(
+        "duty_vanishes_after_plan_revision",
+        _ENVIRONMENT_LAYER_MODULE,
+        _ENVIRONMENT_LAYER_SOURCE,
+        '"duty": _duty(context)',
+        (
+            '"duty": None if (context.state.agents[context.agent_id].day_plan\n'
+            "                              and context.state.agents[context.agent_id].day_plan.goals) "
+            "else _duty(context)"
+        ),
+        _PLAN_REVISION_DUTY_KILLERS,
+    ),
+    SourceMutation(
+        "duty_vanishes_after_work_submission",
+        _ENVIRONMENT_LAYER_MODULE,
+        _ENVIRONMENT_LAYER_SOURCE,
+        '"duty": _duty(context)',
+        '"duty": None if context.state.paid_task_ids else _duty(context)',
+        _SUBMISSION_DUTY_KILLERS,
+    ),
+    SourceMutation(
+        "shift_gates_task_opening",
+        _WORK_MODULE,
+        _WORK_SOURCE,
+        "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp())",
+        (
+            "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp()) "
+            "and (now + 8 * 3600) % 86400 >= 540 * 60"
+        ),
+        _TASK_OPENING_KILLERS,
+    ),
+    SourceMutation(
+        "plan_input_carries_duty_status",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks]}',
+        '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks], "status": STATUS_ON_DUTY}',
+        _PLAN_INPUT_STATUS_KILLERS,
+    ),
+    SourceMutation(
         "query_compaction_drops_false_and_zero",
         _TOOL_GROUPS_MODULE,
         _TOOL_GROUPS_SOURCE,
@@ -1622,18 +1994,21 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "事务指标以目标数为分母": {"stage": "2", "mutations": ("errand_metrics_use_goal_denominator",)},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
                                                   "version_8_export_passes_delivery_gate")},
-    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ()},
-    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ()},
-    "新锚点并入回绕归一": {"stage": "3", "mutations": ()},
-    "乱序时整卡失败": {"stage": "3", "mutations": ()},
-    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": ()},
-    "按星期推断休息日": {"stage": "3", "mutations": ()},
-    "所有人物套班次": {"stage": "3", "mutations": ()},
-    "计划修订后 `duty` 消失": {"stage": "3", "mutations": ()},
-    "休息时段显示为当班中": {"stage": "3", "mutations": ()},
-    "班次并入任务开放判定": {"stage": "3", "mutations": ()},
-    "忽略例外日期": {"stage": "3", "mutations": ()},
-    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ()},
+    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": (
+        "extraction_drops_stated_work_anchor", "extraction_drops_stated_arrive_home",
+        "persona_layer_drops_work_anchor", "persona_layer_drops_arrive_home")},
+    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
+    "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
+    "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
+    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": (
+        "scenario_work_windows_missing_from_plan_input",)},
+    "按星期推断休息日": {"stage": "3", "mutations": ("rest_day_inferred_from_weekday",)},
+    "所有人物套班次": {"stage": "3", "mutations": ("everyone_gets_a_shift",)},
+    "计划修订后 `duty` 消失": {"stage": "3", "mutations": ("duty_vanishes_after_plan_revision",)},
+    "休息时段显示为当班中": {"stage": "3", "mutations": ("break_shown_as_on_duty",)},
+    "班次并入任务开放判定": {"stage": "3", "mutations": ("shift_gates_task_opening",)},
+    "忽略例外日期": {"stage": "3", "mutations": ("exception_dates_ignored",)},
+    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ("host_renders_work_schedule",)},
     "忽略来源": {"stage": "4", "mutations": ("query_source_filter_ignored",)},
     "来源解析另写一套": {"stage": "4", "mutations": ("query_source_resolved_by_plain_name_equality",)},
     "「购买」不展开": {"stage": "4", "mutations": ("query_purchase_way_not_expanded",)},
@@ -1689,6 +2064,17 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                    "复审补登）：同一事务被第二条更新或取消点名时不再判出。",
     "added_twins_with_one_product_accepted": "规格 2.3 表第 4 行「结果种类与商品都与…同请求另一条新增相同」（阶段 2 复审"
                                              "补登）：同一请求两条新增的结果种类与商品相同时不再判出。",
+    "override_skips_null_card_slot": "实施计划阶段 3「突变审查的目标」：覆盖函数对 null 槽跳过场景值（卡片下班、到家槽为 "
+                                     "null 时场景声明的窗口不再落下）。",
+    "calendar_cross_check_skipped": "实施计划阶段 3「突变审查的目标」：加载时不做日历交叉核对（check_work_schedules 只查"
+                                    "工作地点）。",
+    "scenario_structure_four_admitted": "实施计划阶段 3「突变审查的目标」：场景结构 4 被放行（瘦身场景文档的 schema_version "
+                                        "接受 4）。",
+    "plan_input_carries_duty_status": "实施计划阶段 3「突变审查的目标」：零点计划输入带上 `status`（day_arrangement 的"
+                                      "当班日形状多出 status 键）。",
+    "duty_vanishes_after_work_submission": "实施计划阶段 3「突变审查的目标」：`submit_work` 之后 `duty` 变 null（环境层"
+                                           "在有任务付款结清后把 duty 投影成 null；同句的计划修订一半对应规格「计划"
+                                           "修订后 `duty` 消失」）。",
     "unknown_source_returns_an_empty_page": "实施计划阶段 4「突变审查的目标」「未知来源不报错而返回空页」：来源写法既不是"
                                             "地点显示名也不是渠道称呼时不报 from 的参数错误，按空来源集合返回合法空页。",
     "source_candidates_include_unpermitted_places": "实施计划阶段 4「突变审查的目标」「候选来源含无权限门店」：未知来源的"
@@ -1704,6 +2090,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_continuation.py",
     "custom/agents/life_memory.py",
+    "custom/agents/life_persona.py",
     "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
     "scripts/inspect_run.py",
@@ -1711,6 +2098,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/evaluation/errand_metrics.py",
+    "src/worldmock/evaluation/workload_metrics.py",
     "src/worldmock/footprints/models.py",
     "src/worldmock/footprints/quality.py",
     "src/worldmock/life/activity_control.py",
@@ -1719,8 +2107,10 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/day_plan_inputs.py",
     "src/worldmock/life/day_planning.py",
     "src/worldmock/life/engine.py",
+    "src/worldmock/life/environment_layer.py",
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
+    "src/worldmock/life/load_checks.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/name_resolution.py",
     "src/worldmock/life/narration.py",
@@ -1732,12 +2122,20 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/reminders.py",
     "src/worldmock/life/result_projection.py",
     "src/worldmock/life/rhythm.py",
+    "src/worldmock/life/scenario.py",
     "src/worldmock/life/schedule.py",
+    "src/worldmock/life/semantics.py",
     "src/worldmock/life/session_actions.py",
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
     "src/worldmock/life/tool_groups.py",
+    "src/worldmock/life/work_schedule.py",
     "src/worldmock/life/world_query.py",
+    "src/worldmock/profile/compile.py",
+    "src/worldmock/profile/extractor.py",
+    "src/worldmock/profile/injection.py",
+    "src/worldmock/profile/models.py",
+    "src/worldmock/profile/textgen.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
     "tools/run-viewer.html",
@@ -1747,6 +2145,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
     "tests/evaluation/test_errand_metrics.py",
+    "tests/evaluation/test_workload_metrics.py",
     "tests/footprints/test_errand_export.py",
     "tests/integration/test_errand_checkpoint.py",
     "tests/integration/test_errand_delivery_windows.py",
@@ -1765,7 +2164,10 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/life/test_plan_day_duplicate_feedback.py",
     "tests/life/test_query_cost_report.py",
     "tests/life/test_revise_day_plan_json.py",
+    "tests/life/test_work_schedule.py",
+    "tests/life/test_workload_report.py",
     "tests/life/test_world_query_filters.py",
+    "tests/life/work_schedule_fixtures.py",
     "tests/mutation_runner.py",
     "tests/test_errands_workday_acceptance.py",
 )

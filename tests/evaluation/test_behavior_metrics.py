@@ -672,7 +672,8 @@ def test_memory_md_identity_residue_gate() -> None:
 
 
 def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> None:
-    """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量。"""
+    """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量；不带工作安排评估输入时工作负荷与作息偏离为 null
+    并写说明。"""
     events = [
         _event("decision_started", _clock(0, 8), decision_id="d1"),
         _model_request(2, "d1", ["当前观察：在家，精神不错"]),
@@ -693,6 +694,8 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     for keyword in ("decision_offered", "wake_reasons", "主观记忆快照", "MEMORY.md", "prompt token"):
         assert keyword in notes
     assert report["reports"]["early_arrival_minutes"]["value"] is None
+    assert (report["reports"]["workload"], report["reports"]["routine_deviation"]) == (None, None)
+    assert "未提供工作安排评估输入，workload 与 routine_deviation 为 null" in report["notes"]
 
 
 def test_report_groups_by_code_sha256() -> None:

@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "scenario_id": "zhangjiang-multi-person-half-day-idle",
   "timezone": "Asia/Shanghai",
   "start_at": "2026-01-05T00:00:00+08:00",
@@ -277,6 +277,7 @@
       ],
       "home_location_id": "home",
       "interaction_menu": null,
+      "work_schedule": null,
       "initial_balance_fen": 800000,
       "skill_levels": {
         "meeting_analysis": 0.8
@@ -396,6 +397,7 @@
       ],
       "home_location_id": "home",
       "interaction_menu": null,
+      "work_schedule": null,
       "initial_balance_fen": 800000,
       "skill_levels": {
         "meeting_analysis": 0.6,

@@ -1,6 +1,6 @@
 # WorldMock 产品设计说明书 — 记录引擎
 
-> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D5 作业），已随代码落地到阶段 1、2 与阶段 4，阶段 3 未落地  
+> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D5 作业），已随代码落地到阶段 1–4  
 > **日期**：2026-10-03
 > **版本**：v1.4
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
@@ -9,7 +9,7 @@
 
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 
-> 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9、质量报告结构 4；地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
+> 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9、质量报告结构 4，阶段 3 场景结构 5、卡片结构 3（抽取提示 `card-v3`）；地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
 
 ## 记录引擎负责什么
 
@@ -158,6 +158,9 @@ flowchart TB
 内部身份、状态枚举与可用性。私有绑定另增个人事务的两类：`errand_bindings`（未完成事务的名称、事务身份、结果种类、商品身份）
 与 `errand_item_bindings`（全部商品名到商品身份），宿主与环境据此在同一冻结观察上校验事务变更；二者连同 `errand_id` 都列入
 提示禁键，事务名不进回看名称。
+`environment_layer` 自个人事务与工作安排规格阶段 3 起在 `location` 之后含必填可空键 `duty`（今天的上班安排：`day`、`hours`、`place`、
+`breaks`、`status`；人物没有工作安排时为 `null`），由环境按场景与世界时钟求值，原样保存、不含内部身份。班内离岗照常受理、不另写事件，
+工作负荷与作息偏离由行为评估从事件与场景重算。
 其中事件级工具支持字段 `interaction_menu` 保存本轮按地点类与人物声明求得的有效菜单，供核对实际
 模型请求、本地校验和环境派发；它不进入人物 user 消息，也不保存其他人物或全部地点的原始声明。
 地点变化后的新菜单由下一次观察另行记录，既有观察不回写。
@@ -1015,6 +1018,7 @@ python3 scripts/inspect_run.py runs/white-collar body --agent 0
 python3 scripts/inspect_run.py runs/white-collar flows --tail 20
 python3 scripts/inspect_run.py runs/white-collar rerun
 python3 scripts/inspect_run.py runs/white-collar continuation --topic 咖啡 --baseline runs/white-collar-off
+python3 scripts/inspect_run.py runs/white-collar workday --scenario scenarios/white-collar-12-weeks.json
 python3 scripts/inspect_run.py runs/white-collar queries
 python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --date 2026-01-05 --out runs/white-collar
 ```
@@ -1036,6 +1040,12 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 开关取清单 `stage_model_identity.stages.action.same_second_continuation`；清单没有阶段身份（特性之前的运行）时为 `null`，不能作任何一臂。
 `--baseline` 先核对两份清单：去掉运行身份键（`run_id`、`source_group_id`、`source_run_ids`）与续接开关后必须完全相同，且两臂开关不同，
 否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
+`workday --scenario <场景文件>` 只读给出[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#62-行为评估) 6.2 的工作负荷与作息偏离，
+以 JSON 打印 `{run_id, workload, routine_deviation, notes}`（字段见[行为评估设计「报告项」](07-evaluation.md#22-报告项reports)）：
+班次、任务的预约与要求地点、住处与播报间隔取自 `--scenario` 指向的场景文件，其摘要须等于运行清单的 `scenario_sha256`，不符即以英文错误
+退出、不打印任何内容；覆盖后的下班与到家窗口取自运行目录里各人物工作区 `as2/agents/agent_<四位编号>/AGENT.json` 的结构化卡片
+（`persona_card_struct` 的 `time_anchors`），工作区没有结构化卡片的人物窗口按 null 计并在 `notes` 写一条说明，事件里出现而场景里没有的
+人物两项都为 null 并写说明。不解析提示文本；只报告，不作门禁。
 `queries` 只读按运行给出[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#63-查询成本只报告) 6.3 的查询成本，以 JSON 打印
 `{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
 失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
@@ -1131,3 +1141,4 @@ flowchart LR
 | v1.4 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D5 作业，随阶段 1 的代码落地，按 `a1f680b` 核对）：「必须保存的内容」增记忆阶段调用行，`decision_started` 行注明就寝反思请求不是行动请求，`model_request`、`model_response` 行写明反思的每次尝试是独立调用、校验错误随下一次请求的附回消息留证，并登记四个失败阶段码及其去向，「已核验经历与主观记忆」写明反思输出不合合同的有界校验重试与耗尽即运行故障，「质量报告」`name_rejections` 注明落库的失败阶段码计入其余协议错误，宿主一侧的口径照现行实现改写为读取已落库的 `data.protocol_feedback.error_code`（原写按协议错误串判定）；顺带更正「工具纠错、只读查询与当天操作备忘的证据」末句与「记录生活全过程的实现差距」末句两处把已实现的工具交互写成未实现的句子；版本表前的说明句改为以正文和各特性规格为准；文件头补同步说明，日期改写 |
 | `2026-10-03-errands-workday-stage-2` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 2 同步（实施计划 D5 作业，随阶段 2 的代码落地，按 `d09d574` 核对）：「必须保存的内容」增个人事务行；`action_requested` 请求形状增请求级 `errands`（八键、取消、更新、新增的求值次序、`control_items` 与 `control_errands` 是唯一读取入口、缺键按完整性故障拒绝），受理与拒绝行写明事务变更与活动转换同一事务提交、错误明细的路径与名称载体，`action_result` 行增回执 `details.errands`；`environment_event` 登记六种事务事件的 `data.kind`、载荷与可见性（办成与提醒为人物可见，六种都不带决策与动作身份，只经 `caused_by` 关联），当日目标提醒与事务提醒分开写；表后增完成证据一段（读取一处、按事件顺序、被取消的事务不再接受同一提交的证据、结算每次提交一次）；唤醒原因闭集补 `errand_reminder_due`（不进睡眠允许集合，睡眠中错过的在醒来的那个边界交付）；观察段补待办层 `errands`、进度层两种记录与两类私有绑定，同秒续接补 `changes.errands`；记忆层 `settled` 排除六种事务事件，浓缩句只在进度层；事务变更不是记忆写入点；检查点封存版本 9 的 `errands`，世界结构 8→9；质量报告结构 4 与 `errand_metrics`、`conclusion_memories` 两节的定义；调试工具补查看器缺 `errands` 键报错与新标签；文件头的阶段号改为 2，补本规格首次受影响的发布身份。与实施计划作业原文不一致处按规格写：三种请求触发的事务事件不带动作身份（规格 2.7），每条被受理的变更各写一条而不按状态差分（2.2），完成证据不限于到店成交的订单并补同一提交内取消的规则（2.4），提醒在醒来的那个边界交付（2.5），事务指标无事务时整组为 null、有事务时没有命中记 0（6.1） |
 | `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 4（查询筛选与返回精简）同步（实施计划 D5-24、D5-25、D5-30，随阶段 4 的代码落地，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「工具纠错、只读查询与当天操作备忘的证据」`query_world` 改六键（增 `from`、`available_only`，旧四键请求按缺字段拒绝），筛选先于切页，返回不再附候选，两种查询参数错误，与 09 同句逐字一致；「数字足迹事件结构」观察私有事实增渠道索引 `world_query_channels`，供给条目所属门店记在已禁的 `location_id`；指名购买 `from` 来源写法由「门店名」更正为地点显示名（含「家」「住处」）；「调试工具」增 `queries` 子命令（八个键与各自口径，只报告）；文件头状态改为已落地阶段 1、2 与阶段 4；版本号不变 |
+| `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 3 同步（实施计划 D5 作业，随阶段 3 的代码落地，按 `56451b4` 核对）：「事件字段」观察段登记环境层在 `location` 之后的必填可空键 `duty`（今天的上班安排 `day`、`hours`、`place`、`breaks`、`status`，没有工作安排为 `null`），班内离岗照常受理、不另写事件；「调试工具」增只读子命令 `inspect_run.py workday --scenario <场景文件>` 及示例（工作负荷与作息偏离，场景文件摘要须等于运行清单的 `scenario_sha256`，作息窗口取自人物工作区的结构化卡片，只报告）；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），本规格首次受影响发布的引用块在阶段 2 之后补阶段 3 的场景结构 5、卡片结构 3 与抽取提示 `card-v3`；版本号不变 |

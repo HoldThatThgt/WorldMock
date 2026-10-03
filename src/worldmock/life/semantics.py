@@ -274,15 +274,17 @@ def load_runtime_scenario(
 
     世界准入（docs/dev/SPEC-dayrun-fidelity.md 8.1）：所选地点的 kind 属于环境层场所类型表，所选地点显示名唯一，
     每个人物可能同时看到的对象名称唯一；越界或重名在加载时拒绝，不留到运行中途。购买渠道（3.3）从场景钉定的手机配置
-    派生并经准入后挂到 purchase_channels（load_checks.load_purchase_channels）。
+    派生并经准入后挂到 purchase_channels（load_checks.load_purchase_channels）。人物工作安排的跨引用（工作地点是所选地点，
+    场景时间窗内与场景日历一致；docs/dev/SPEC-errands-workday.md 4.3）同样在加载时拒绝（load_checks.check_work_schedules）。
 
     :param scenario_path: 瘦身场景 JSON 路径。
     :param catalog_dir: 目录根；缺省取场景兄弟目录 catalog/。
     :returns: 组装结果与场景文件 SHA-256。
-    :raises IntegrityError: 文档、目录、组装、准入、世界准入或渠道准入任一环节失败。
+    :raises IntegrityError: 文档、目录、组装、准入、世界准入、工作安排或渠道准入任一环节失败。
     """
     # 世界准入依赖环境层与呈现层，二者都间接导入本模块（经工具层、准入层）：模块级导入会成环，所以在此处导入。
-    from worldmock.life.load_checks import check_location_kinds, check_visible_labels, load_purchase_channels
+    from worldmock.life.load_checks import (check_location_kinds, check_visible_labels, check_work_schedules,
+                                            load_purchase_channels)
 
     document, digest = parse_scenario_document(scenario_path)
     directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
@@ -297,6 +299,7 @@ def load_runtime_scenario(
     semantics = assemble_semantics(document, catalog, dataset, motivation_transforms, affordances)
     check_location_kinds(semantics.scenario)
     check_visible_labels(semantics.scenario, root)
+    check_work_schedules(semantics.scenario)
     _check_work_material(semantics.scenario, root)
     return replace(semantics, purchase_channels=load_purchase_channels(semantics.scenario, root)), digest
 
@@ -527,7 +530,7 @@ def _runtime_payload(
     """@brief 构造运行时场景的载荷字典并执行模型校验；人物只搬运场景写出的字段，model_fields_set 仍是场景声明。"""
     locations, routes, supplies = select_map(dataset, document)
     return RuntimeScenario.model_validate({
-        "schema_version": 4,
+        "schema_version": 5,
         "map_dataset": dataset,
         "scenario_id": document.scenario_id,
         "timezone": document.timezone,
