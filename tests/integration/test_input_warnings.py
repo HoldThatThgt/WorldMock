@@ -255,7 +255,7 @@ async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and
     finally:
         await env.close()
     section = quality["input_warnings"]
-    assert quality["schema_version"] == 3 and section["recorded"] is True
+    assert quality["schema_version"] == 4 and section["recorded"] is True
     assert section["warning_count"] == len(warnings)
     assert section["code_counts"] == {code: codes.count(code) for code in INPUT_WARNING_CODES}
     assert section["agent_counts"] == {"1": len(warnings)} and section["scenario_warning_count"] == 0

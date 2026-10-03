@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from worldmock.errors import IntegrityError
+from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.evaluation.goal_metrics import day_plan_metrics
 from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
 from worldmock.footprints.models import (
@@ -54,7 +55,10 @@ _PRICING = {
 
 
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
-    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、运行输入警告与输出截断。
+    """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
+
+    报告结构 4：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
+    （docs/dev/SPEC-errands-workday.md 6.1）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -62,8 +66,9 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     @return 可规范序列化且不把缺失测量记为零的质量报告。
     """
     _validate_inputs(events, activities, manifest)
+    rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "run_id": manifest["run_id"],
         "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
         "event_range": {
@@ -81,10 +86,9 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "memory_references": _memory_quality(events),
         "model_usage": _model_quality(events),
         "acceleration": _acceleration(events, manifest),
-        "day_plan_metrics": day_plan_metrics(
-            [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events],
-            manifest["window"]["timezone"],
-        ),
+        "day_plan_metrics": day_plan_metrics(rows, manifest["window"]["timezone"]),
+        "errand_metrics": errand_metrics(rows, manifest["window"]["timezone"]),
+        "conclusion_memories": conclusion_memories(rows),
         "input_warnings": _input_warning_quality(manifest),
         "timeline_labels": timeline_label_report(events, manifest),
         "contact_reply_guard": _contact_reply_guard_quality(events),

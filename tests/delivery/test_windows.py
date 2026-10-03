@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 
 import pytest
@@ -538,6 +539,60 @@ def test_control_requests_without_errands_are_rejected_by_delivery(tmp_path):
     trimmed = {'tool_name': 'conclude_activity', 'request': {'items': [{'activity_name': _MINUTES,
                                                                         'summary': '纪要写完了。'}]}}
     assert _trimmed_shown(action, intent, dreams) == [trimmed] * 4
+
+
+_SECOND_SECRET = '其实早就不想做这份报表了。'
+_SECOND_OPINION = '李凡总把活推给别人。'
+_REPORT = '工作整理周报表（1月5日 10:00 起）'
+#: 规格 2.2 示例里的一条事务新增（请求级 errands 的一项，八键）。
+_KIT_ERRAND = {'change': '新增', 'name': '补一份素炒什锦食材包', 'outcome': '取得', 'item': '素炒什锦食材包',
+               'quantity': 1, 'memo': '下班前下单送到家', 'remind_time': '17:00', 'reason': None}
+
+
+def _two_item_conclusion() -> dict:
+    """结束两项活动的收尾请求：每项都写一条收尾记忆与一条看法，请求级 errands 记下一条事务。"""
+    def item(name: str, summary: str, secret: str, about: str, opinion: str) -> dict:
+        """一项：活动名、自述、一条收尾记忆与一条关于 about 的看法。"""
+        return {'activity_name': name, 'summary': summary,
+                'memories': [{'type': 'reflection', 'text': secret, 'importance': 0.6, 'keywords': ['工作']}],
+                'views': [{'type': 'relationship', 'about': about, 'text': opinion, 'importance': 0.5,
+                           'keywords': ['同事']}]}
+    return {'items': [item(_MINUTES, '纪要写完了。', _SECRET, '王磊', _OPINION),
+                      item(_REPORT, '周报表也交了。', _SECOND_SECRET, '李凡', _SECOND_OPINION)],
+            'errands': [dict(_KIT_ERRAND)]}
+
+
+def test_intent_and_dreaming_projections_drop_memories_views_and_errands_and_leave_the_event_intact(tmp_path):
+    """意图与 dreaming 窗口输入里的收尾请求投影恒不带请求级 errands，两项都只留 activity_name 与 summary（每一项的
+    memories 与 views 都裁去，不只第一项），与 memories、views 同等对待（docs/dev/SPEC-errands-workday.md 2.9）；投影写进
+    新字典，构造完动作、意图与三个 dreaming 窗口之后，原请求事件逐键不变，仍带完整的两项与 errands。"""
+    request = _two_item_conclusion()
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, copy.deepcopy(request))
+
+    trimmed = {'tool_name': 'conclude_activity', 'request': {'items': [
+        {'activity_name': _MINUTES, 'summary': '纪要写完了。'}, {'activity_name': _REPORT, 'summary': '周报表也交了。'}]}}
+    assert len(dreams) == 3
+    shown = [next(row for row in record['input']['events'] if row['event_id'] == 'target')['data']
+             for record in (intent, *dreams)]
+    assert shown == [trimmed] * 4
+    hidden = (_SECRET, _OPINION, _SECOND_SECRET, _SECOND_OPINION, _KIT_ERRAND['name'], _KIT_ERRAND['memo'])
+    for record in (action, intent, *dreams):
+        assert not [text for text in hidden if text in str(record['input'])]
+    assert requested['data'] == {'tool_name': 'conclude_activity', 'request': request}
+
+
+def test_the_action_target_keeps_the_full_control_request(tmp_path):
+    """动作窗口的目标是同一个请求事件，保留完整请求（两项的记忆与看法、请求级 errands）；之后构造意图与 dreaming 窗口的
+    投影不改动它，意图窗口的目标也是同一事件（docs/dev/SPEC-errands-workday.md 2.9「动作窗口的目标保留完整请求」）。"""
+    request = _two_item_conclusion()
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, copy.deepcopy(request))
+
+    assert intent['input']['events'] and len(dreams) == 3
+    assert action['target']['request'] is requested and intent['target']['request'] is requested
+    kept = action['target']['request']['data']['request']
+    assert kept == request and kept['errands'] == [_KIT_ERRAND]
+    assert [[memory['text'] for memory in item['memories']] for item in kept['items']] == [[_SECRET], [_SECOND_SECRET]]
+    assert [[view['text'] for view in item['views']] for item in kept['items']] == [[_OPINION], [_SECOND_OPINION]]
 
 
 def test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started(tmp_path):

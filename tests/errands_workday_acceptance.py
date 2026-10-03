@@ -315,14 +315,62 @@ _ERRAND_NAME_TESTS = [
 ]
 
 _CONTROL_ITEMS = "tests/life/test_control_items.py::"
+_WINDOW_TESTS = "tests/delivery/test_windows.py::"
+_ERRAND_WINDOWS = "tests/integration/test_errand_delivery_windows.py::"
+_PROJECTIONS_TRIMMED = (_WINDOW_TESTS + "test_intent_and_dreaming_projections_drop_memories_views_and_errands"
+                        "_and_leave_the_event_intact")
+_FULL_TARGET = _WINDOW_TESTS + "test_the_action_target_keeps_the_full_control_request"
+_EXPORT_WINDOWS = _ERRAND_WINDOWS + "test_an_export_with_errand_reminder_and_completion_builds_all_three_windows"
+_FOREIGN_COMPLETION = (_ERRAND_WINDOWS
+                       + "test_a_completion_caused_by_another_persons_action_stays_out_of_their_decision_group")
 
-#: 「交付边界」中「缺 errands 的旧控制请求被拒」一项：带 items 而缺请求级 errands 的请求经唯一读取入口 control_items、
-#: 进度层与交付窗口的投影 control_request、请求级变更的读取 control_errands 与收尾记忆判定一律以完整性故障拒绝；交付构造
-#: 窗口时同样拒绝、不当作没有事务变更放行；control_errands 按请求顺序读出每条变更的八键。其余各项随交付边界切片补登。
+#: 「交付边界」，按台账各项的顺序：
+#: - 「意图与 dreaming 投影不含 memories、views 与请求级 errands，原事件不被原地修改」与「动作目标保留完整请求」：交付窗口
+#:   的动作、意图与 dreaming 构造（_action_windows、_dream_windows）对两项都带记忆与看法、并带请求级事务变更的收尾请求，
+#:   意图与 dreaming 输入的投影两项都只留活动名与自述、不带 errands，构造完三类窗口后原请求事件逐键不变，动作与意图窗口的
+#:   目标是同一事件、保留完整请求。
+#: - 「事务事件不带决策与动作身份，他人动作触发的办成事件不落进对方决策的分组」：真实引擎、SQLite、共同检查点与认证导出
+#:   上，李凡两次当面给陈曦纯牛奶，累计与办成两条事件归陈曦、以李凡的给予结果为原因，六种事务事件都没有决策、动作与活动
+#:   身份，李凡那两次给予的决策分组与动作分组里没有陈曦的事件，任何窗口的目标都不含事务事件。
+#: - 「缺 errands 的旧控制请求被拒」：带 items 而缺请求级 errands 的请求经唯一读取入口 control_items、进度层与交付窗口的
+#:   投影 control_request、请求级变更的读取 control_errands 与收尾记忆判定一律以完整性故障拒绝；交付构造窗口时同样拒绝、
+#:   不当作没有事务变更放行；control_errands 按请求顺序读出每条变更的八键。
+#: - 「含事务提醒与办成记录的导出能构造三类窗口」：同一段真实生活的认证导出构造出动作、意图与 dreaming 三类窗口，提醒与
+#:   办成两种事件本人可见，作为办成之后那次决策观察的进度来源展开为证据、公开投影是空对象；提醒带来的那次决策的窗口里
+#:   待办层（含三条事务行）是存储的那一份。
 _DELIVERY_BOUNDARY_TESTS = [
+    _PROJECTIONS_TRIMMED,
+    _FULL_TARGET,
+    _FOREIGN_COMPLETION,
     _CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",
-    "tests/delivery/test_windows.py::test_control_requests_without_errands_are_rejected_by_delivery",
+    _WINDOW_TESTS + "test_control_requests_without_errands_are_rejected_by_delivery",
     _CONTROL_ITEMS + "test_control_errands_reads_every_change_in_order",
+    _EXPORT_WINDOWS,
+]
+
+_ERRAND_METRICS = "tests/evaluation/test_errand_metrics.py::"
+_ERRAND_EXPORT = ("tests/footprints/test_errand_export.py::"
+                  "test_an_exported_run_reports_errands_and_recertifies_value_for_value")
+
+#: 「事务与收尾记忆指标」，按台账各项的顺序：头七个以已认证事件模型构造的导出事件逐键核对 errand_metrics 与
+#: conclusion_memories 的定义（分母是记下的事务而不是当日目标；终态恰在零点不算跨夜、截止恰在零点算；同期观察数与可见
+#: 次数；提醒后行动只认同一本地日、终态之前、本人被受理且指向同一商品的请求；办成须有本导出里更早且可复核的证据；收尾
+#: 记忆的作息与重合计数；没有样本为 null），并经 build_quality_report 进入报告，是补充证据与变异杀手；其后一个守当日目标
+#: 报告的键集不变（命令导出的 quality.json 里事务分组是 day_plan_metrics 之外的顶层分组）；再一个守质量报告结构 4，分组与
+#: 记录引擎设计登记的十八组逐一相同、顺序相同；末一个经真实请求、引擎、SQLite、共同检查点与认证导出：跨本地零点的一段
+#: 两人生活里记下、提醒、带收尾记忆结束、送达办成、零点后取消与到终点仍未完成，quality.json 的两个分组逐值等于手算，
+#: validate_export 从同一批事件重算出相同的报告。
+_METRIC_TESTS = [
+    _ERRAND_METRICS + "test_counts_follow_their_definitions_and_the_identity_holds",
+    _ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",
+    _ERRAND_METRICS + "test_visible_and_expected_observations_agree",
+    _ERRAND_METRICS + "test_acted_after_reminder_needs_an_accepted_request_for_the_same_product",
+    _ERRAND_METRICS + "test_a_completion_without_checkable_evidence_is_counted",
+    _ERRAND_METRICS + "test_conclusion_memories_count_routine_and_errand_overlap",
+    _ERRAND_METRICS + "test_no_errand_or_no_conclusion_memory_gives_null",
+    "tests/footprints/test_goal_export.py::test_export_command_uses_authenticated_cutoff_and_manifest_code",
+    "tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count",
+    _ERRAND_EXPORT,
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
@@ -340,7 +388,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
     "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
-    "事务与收尾记忆指标": {"stage": "2", "tests": []},
+    "事务与收尾记忆指标": {"stage": "2", "tests": _METRIC_TESTS},
     "作息锚点": {"stage": "3", "tests": []},
     "工作安排加载": {"stage": "3", "tests": []},
     "上班安排呈现": {"stage": "3", "tests": []},
@@ -516,6 +564,18 @@ _PROMPT_SOURCE = "custom/agents/life_prompt.py"
 #: 导入的 LifeAgent（按本名导入 custom.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
 _SEPARATION_KILLERS = (_SEPARATED,)
 _VERBATIM_KILLERS = (_SYSTEM_VERBATIM,)
+_ERRAND_METRICS_MODULE = "worldmock.evaluation.errand_metrics"
+_ERRAND_METRICS_SOURCE = "src/worldmock/evaluation/errand_metrics.py"
+#: 交付边界与指标各变异的杀手：提醒与办成写成系统可见时，办成之后那次观察的进度来源不再是本人可见的事件，认证导出构造
+#: 窗口以完整性故障失败（真实引擎、SQLite 与认证导出，errands 由引擎按本名导入）；结算事件沿用证据事件的决策与动作身份
+#: 时，李凡那次给予的决策分组里出现陈曦的累计与办成事件（同一条真实链路）；投影带出请求级 errands、只裁第一项或原地修改
+#: 原事件时，意图与 dreaming 输入的投影不再只留两项的活动名与自述、原请求事件被改写（动作窗口的目标随之丢掉 errands 与
+#: 记忆）；事务指标以当日目标数为分母时，三条目标、两条事务的导出报出 3。
+_VISIBLE_KILLERS = (_EXPORT_WINDOWS,)
+_IDENTITY_KILLERS = (_FOREIGN_COMPLETION,)
+_PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED,)
+_INTACT_KILLERS = (_PROJECTIONS_TRIMMED, _FULL_TARGET)
+_DENOMINATOR_KILLERS = (_ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1065,6 +1125,68 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         _VERBATIM_KILLERS,
     ),
+    SourceMutation(
+        "errand_agent_events_written_as_system",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '                      visibility="agent" if kind in AGENT_VISIBLE_KINDS else "system",\n',
+        '                      visibility="system",\n',
+        _VISIBLE_KILLERS,
+    ),
+    SourceMutation(
+        "settlement_event_inherits_evidence_identity",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "            settled.append(_credit(open_sets[row.owner_id], errand, row, head))\n",
+        (
+            "            settled.append(_credit(open_sets[row.owner_id], errand, row, head).model_copy(\n"
+            '                update={"decision_id": draft.decision_id, "action_id": draft.action_id}))\n'
+        ),
+        _IDENTITY_KILLERS,
+    ),
+    SourceMutation(
+        "control_projection_carries_errands",
+        _CONTROL_ITEMS_MODULE,
+        _CONTROL_ITEMS_SOURCE,
+        '    return {"items": rows}\n',
+        '    return {"items": rows, "errands": list(control_errands(tool, request))}\n',
+        _PROJECTION_KILLERS,
+    ),
+    SourceMutation(
+        "control_projection_trims_first_item_only",
+        _CONTROL_ITEMS_MODULE,
+        _CONTROL_ITEMS_SOURCE,
+        (
+            "    for item in control_items(tool, request):\n"
+            '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}\n'
+        ),
+        (
+            "    for index, item in enumerate(control_items(tool, request)):\n"
+            '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}\n'
+            "        if index:\n"
+            "            row.update(memories=list(item.plain_memories), views=list(item.views))\n"
+        ),
+        _PROJECTION_KILLERS,
+    ),
+    SourceMutation(
+        "projection_mutates_source_event",
+        _WINDOWS_MODULE,
+        _WINDOWS_SOURCE,
+        '        public = {key: data[key] for key in ("tool_name", "request", "self_note") if key in data}\n',
+        "        public = data\n",
+        _INTACT_KILLERS,
+    ),
+    SourceMutation(
+        "errand_metrics_use_goal_denominator",
+        _ERRAND_METRICS_MODULE,
+        _ERRAND_METRICS_SOURCE,
+        "    registered = len(lives)\n",
+        (
+            '    registered = sum(len(event["data"]["day_plan"]["goals"]) for event in events\n'
+            '                     if event["data"].get("kind") == "day_plan_generated")\n'
+        ),
+        _DENOMINATOR_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1103,13 +1225,13 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "提醒叫醒睡眠": {"stage": "2", "mutations": ("errand_reminder_wakes_sleep",)},
     "事务计入在手承诺": {"stage": "2", "mutations": ("open_errands_are_commitments",)},
     "新唤醒原因漏登足迹词表": {"stage": "2", "mutations": ("errand_wake_reason_missing_from_vocabulary",)},
-    "提醒与办成事件写成系统可见": {"stage": "2", "mutations": ()},
-    "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ()},
+    "提醒与办成事件写成系统可见": {"stage": "2", "mutations": ("errand_agent_events_written_as_system",)},
+    "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ("settlement_event_inherits_evidence_identity",)},
     "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ("progress_arguments_carry_errands",
                                                                      "self_notes_carry_errand_text")},
-    "意图或 dreaming 投影带出请求级 `errands`": {"stage": "2", "mutations": ()},
-    "投影原地修改原事件": {"stage": "2", "mutations": ()},
-    "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
+    "意图或 dreaming 投影带出请求级 `errands`": {"stage": "2", "mutations": ("control_projection_carries_errands",)},
+    "投影原地修改原事件": {"stage": "2", "mutations": ("projection_mutates_source_event",)},
+    "事务指标以目标数为分母": {"stage": "2", "mutations": ("errand_metrics_use_goal_denominator",)},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
                                                   "version_8_export_passes_delivery_gate")},
     "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ()},
@@ -1168,6 +1290,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                               "（deliver_reminders 只留第一条草稿）。",
     "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层三处文案不一致（life_prompt.py 第 6 条改掉一个"
                                   "分句，接口合同与人物 Prompt 规格不跟随）。",
+    "control_projection_trims_first_item_only": "实施计划阶段 2「突变审查的目标」：交付投影只裁首项（control_request 让"
+                                                "第二项起保留 memories 与 views）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -1180,7 +1304,9 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
+    "src/worldmock/evaluation/errand_metrics.py",
     "src/worldmock/footprints/models.py",
+    "src/worldmock/footprints/quality.py",
     "src/worldmock/life/activity_control.py",
     "src/worldmock/life/control_items.py",
     "src/worldmock/life/day_plan_inputs.py",
@@ -1209,7 +1335,10 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 #: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
+    "tests/evaluation/test_errand_metrics.py",
+    "tests/footprints/test_errand_export.py",
     "tests/integration/test_errand_checkpoint.py",
+    "tests/integration/test_errand_delivery_windows.py",
     "tests/integration/test_errand_prompt_separation.py",
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",

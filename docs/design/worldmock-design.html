@@ -2248,9 +2248,10 @@ session 结束后完成的浏览在记忆层 <code>settled</code> 的活动句�
 （<code>same_moment_round_counts</code>，键为同一人物同一秒的轮数，值为出现次数），并按 <code>decision_started.data.wake_reasons</code>
 统计轮次原因（<code>decision_started_wake_reason_counts</code>，闭集外成员计入
 <code>unrecognized_decision_started_wake_reason_counts</code>）；食品与工作效率读取对应活动自身进度。
-报告 <code>schema_version</code> 为 3（版本 2 起 <code>decision_rhythm</code> 不再统计决策自述，删去 <code>decision_started_with_decision_statement</code> 与
+报告 <code>schema_version</code> 为 4（版本 2 起 <code>decision_rhythm</code> 不再统计决策自述，删去 <code>decision_started_with_decision_statement</code> 与
 <code>decision_started_missing_decision_statement</code>，另以 <code>decision_budget_exhausted_events</code> 计 <code>decision_budget_exhausted</code> 事件数；
-版本 3 是<a href="../dev/SPEC-dayrun-fidelity.md">一日运行保真规格</a>的新节，全部只报告不放行）。
+版本 3 是<a href="../dev/SPEC-dayrun-fidelity.md">一日运行保真规格</a>的新节，全部只报告不放行；版本 4 是
+<a href="../dev/SPEC-errands-workday.md">个人事务与工作安排规格</a>的两个新节 <code>errand_metrics</code> 与 <code>conclusion_memories</code>，同样只报告）。
 <code>input_warnings</code> 一节统计运行清单冻结的运行输入警告（警告码闭集与条目形状见<a href="../CONTRACTS.md#运行输入警告">接口合同「运行输入警告」</a>）：
 <code>recorded</code> 表示清单是否记录了警告；记录时给出 <code>warning_count</code>、按全部警告码列出的 <code>code_counts</code>（未出现的码为 0）、
 闭集外的 <code>unrecognized_code_counts</code>、按人物编号的 <code>agent_counts</code> 与场景级（<code>agent_id</code> 为 <code>null</code>）的 <code>scenario_warning_count</code>；
@@ -2269,7 +2270,8 @@ session 结束后完成的浏览在记忆层 <code>settled</code> 的活动句�
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
 当前报告按 <code>event_range</code>、<code>run_outcome</code>、<code>actions</code>、<code>activities</code>、<code>content_contact</code>、
 <code>conversion_efficiency</code>、<code>decision_rhythm</code>、<code>memory_references</code>、<code>model_usage</code>、<code>acceleration</code>、<code>day_plan_metrics</code>、
-<code>input_warnings</code>、<code>timeline_labels</code>、<code>contact_reply_guard</code>、<code>name_rejections</code>、<code>truncations</code> 分组，
+<code>errand_metrics</code>、<code>conclusion_memories</code>、<code>input_warnings</code>、<code>timeline_labels</code>、<code>contact_reply_guard</code>、<code>name_rejections</code>、
+<code>truncations</code> 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 <code>memory_references</code> 分组保留名称，内容按 <code>memory_updated.data.trigger</code> 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；<code>write_points_checked</code> 为核对的写入点总数）：<code>activity_conclusion</code> 对应同一决策已登记的

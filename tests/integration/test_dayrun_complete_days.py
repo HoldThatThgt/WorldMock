@@ -376,7 +376,7 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert any(event.event_type == "model_response" and event.data.get("error") for event in events)
     assert exported["experiment_completed"]
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
-    assert quality["schema_version"] == 3
+    assert quality["schema_version"] == 4
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
     _assert_decision_events(events, _identities(engine))

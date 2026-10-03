@@ -846,9 +846,10 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 （`same_moment_round_counts`，键为同一人物同一秒的轮数，值为出现次数），并按 `decision_started.data.wake_reasons`
 统计轮次原因（`decision_started_wake_reason_counts`，闭集外成员计入
 `unrecognized_decision_started_wake_reason_counts`）；食品与工作效率读取对应活动自身进度。
-报告 `schema_version` 为 3（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
+报告 `schema_version` 为 4（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
 `decision_started_missing_decision_statement`，另以 `decision_budget_exhausted_events` 计 `decision_budget_exhausted` 事件数；
-版本 3 是[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)的新节，全部只报告不放行）。
+版本 3 是[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)的新节，全部只报告不放行；版本 4 是
+[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)的两个新节 `errand_metrics` 与 `conclusion_memories`，同样只报告）。
 `input_warnings` 一节统计运行清单冻结的运行输入警告（警告码闭集与条目形状见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)）：
 `recorded` 表示清单是否记录了警告；记录时给出 `warning_count`、按全部警告码列出的 `code_counts`（未出现的码为 0）、
 闭集外的 `unrecognized_code_counts`、按人物编号的 `agent_counts` 与场景级（`agent_id` 为 `null`）的 `scenario_warning_count`；
@@ -867,7 +868,8 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。
 当前报告按 `event_range`、`run_outcome`、`actions`、`activities`、`content_contact`、
 `conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration`、`day_plan_metrics`、
-`input_warnings`、`timeline_labels`、`contact_reply_guard`、`name_rejections`、`truncations` 分组，
+`errand_metrics`、`conclusion_memories`、`input_warnings`、`timeline_labels`、`contact_reply_guard`、`name_rejections`、
+`truncations` 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
 `memory_references` 分组保留名称，内容按 `memory_updated.data.trigger` 中的每个写入点核对系统登记的来源（收尾与反思
 同在一步时两项都核对；`write_points_checked` 为核对的写入点总数）：`activity_conclusion` 对应同一决策已登记的

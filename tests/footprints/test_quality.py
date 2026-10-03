@@ -484,7 +484,8 @@ def test_progress_sources_must_be_this_persons_prior_events(source, valid):
 
 
 def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
-    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 3（一日运行保真的新节）。"""
+    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 4（版本 3 是一日运行保真的
+    新节，版本 4 是个人事务与工作安排规格的两个新节）。"""
     events = [
         _event(1, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
@@ -504,7 +505,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
     assert rhythm["decision_budget_exhausted_events"] == 1
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -520,18 +521,26 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
-    """报告的分组恰是记录引擎设计「质量报告」登记的十六组（docs/design/05-recording-engine.md），另有版本与运行身份；
-    其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里计数
-    （docs/dev/SPEC-dayrun-fidelity.md 2.4），新增的五节是输入警告、时间线标签、联系人回复守卫、名称类拒绝与截断。"""
+    """报告的分组恰是记录引擎设计「质量报告」登记的十八组（docs/design/05-recording-engine.md），顺序相同，另有版本与
+    运行身份；报告结构为 4，登记的版本句也写 4：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
+    在报告与登记句里都紧随 day_plan_metrics（docs/dev/SPEC-errands-workday.md 6.1），没有任何事务事件与收尾记忆时两组
+    都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
+    计数（docs/dev/SPEC-dayrun-fidelity.md 2.4），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
+    拒绝与截断。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))
     design = Path(__file__).resolve().parents[2] / "docs" / "design" / "05-recording-engine.md"
-    grouping = design.read_text(encoding="utf-8").split("当前报告按 ", 1)[1].split(" 分组", 1)[0]
+    text = design.read_text(encoding="utf-8")
+    grouping = text.split("当前报告按 ", 1)[1].split(" 分组", 1)[0]
     documented = [name.strip().strip("`") for name in grouping.replace("\n", "").split("、")]
-    assert len(documented) == len(set(documented)) == 16
+    assert len(documented) == len(set(documented)) == 18
     assert documented[-5:] == ["input_warnings", "timeline_labels", "contact_reply_guard", "name_rejections",
                                "truncations"]
+    plan = documented.index("day_plan_metrics")
+    assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
+    assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4 and "报告 `schema_version` 为 4（" in text
+    assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
 
