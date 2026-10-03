@@ -429,6 +429,25 @@ _PLAN_DUTY_TESTS = [
     _DAY_PLANNING + "test_plan_input_carries_the_plan_dates_duty_arrangement_without_status",
 ]
 
+_WORKLOAD = "tests/evaluation/test_workload_metrics.py::"
+#: 「工作负荷与作息偏离」：真实运行（engine_factory 加 declare，只发真实请求、不预置地点）班内 15:00 离开办公室回家，从
+#: SQLite 读回的事件与改写后的场景文档经 behavior_metrics_report 重算出三小时的早退与缺勤、恒等关系成立，离开工作地点
+#: 对班次结束早 180 分钟、证据是回家那一程的首个进度事件；手写事件逐值核对各量的定义与恒等关系、两种声明例外（休息时段、
+#: 已开放未结清任务的要求地点的外出）不计缺勤而不当班日不进统计、作息偏离三项对窗口与班次的正负与零、证据身份、容差
+#: 写进报告不作用于偏离值、班次两端在睡的标注、没有工作安排的人物离开一项为 null、缺输入为 null 并写说明、不出现已删除
+#: 的偏离指标键名、同一输入逐字节相同；打包输入取自经真实解析的场景文档与卡片。workday 子命令的节点随子命令切片补登。
+_WORKLOAD_TESTS = [
+    _WORKLOAD + "test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave",
+    _WORKLOAD + "test_workload_fields_follow_their_definitions_on_a_hand_built_day",
+    _WORKLOAD + "test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out",
+    _WORKLOAD + "test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags",
+    _WORKLOAD + "test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home",
+    _WORKLOAD + "test_missing_inputs_are_null_with_a_note",
+    _WORKLOAD + "test_routine_deviation_uses_none_of_the_removed_plan_deviation_names",
+    _WORKLOAD + "test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_scenario_and_cards",
+    _WORKLOAD + "test_reports_are_byte_reproducible",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -450,7 +469,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "上班安排呈现": {"stage": "3", "tests": _DUTY_TESTS},
     "计划与义务": {"stage": "3", "tests": _PLAN_DUTY_TESTS},
     "工作合同边界": {"stage": "3", "tests": _WORK_CONTRACT_BOUNDARY_TESTS},
-    "工作负荷与作息偏离": {"stage": "3", "tests": []},
+    "工作负荷与作息偏离": {"stage": "3", "tests": _WORKLOAD_TESTS},
     "查询请求": {"stage": "4", "tests": []},
     "来源筛选": {"stage": "4", "tests": []},
     "可执行筛选": {"stage": "4", "tests": []},
@@ -1504,6 +1523,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
+    "src/worldmock/evaluation/workload_metrics.py",
     "src/worldmock/footprints/models.py",
     "src/worldmock/life/activity_control.py",
     "src/worldmock/life/control_items.py",
@@ -1543,6 +1563,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 #: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
+    "tests/evaluation/test_workload_metrics.py",
     "tests/integration/test_errand_checkpoint.py",
     "tests/integration/test_errand_prompt_separation.py",
     "tests/integration/test_read_query_runtime.py",
