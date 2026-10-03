@@ -1,17 +1,21 @@
-"""世界查询的六键请求、来源筛选与两种新查询参数错误（docs/dev/SPEC-errands-workday.md 5.1、5.2、5.5、5.6；验收台账
-「查询请求」「来源筛选」）。
+"""世界查询的六键请求、来源筛选、只看此刻能做的、筛选后分页与只读保证（docs/dev/SPEC-errands-workday.md 5.1–5.6；验收台账
+「查询请求」「来源筛选」「可执行筛选」「分页与返回」「查询只读」）。
 
-全部用例在正式白领场景的真实 LifeEngine、SQLite、直接导入的 LifeAgent 与 LifeEnv 上运行：一个引擎只开一个决策轮、只冻结
-一次观察（_open）；同一冻结观察上的每次查询（_ask）先经宿主整批校验，受理时宿主本地派发的页与环境 read_query（从 SQLite
-读回同一观察）逐值相等，拒绝时环境给出同一份校验报告（比较错误码、原因与明细；宿主批次的 fix 是固定的批次句）。期望值由
-用例自己从冻结条目算出（_oracle），不调用生产筛选函数。宿主一侧不生成工具 Schema（只走 prepare_react_loop 与本地校验），
-所以给新键加缺省的变异在用例体内以断言失败暴露，而不是在 Schema 核验处崩溃。
+全部用例在白领场景的真实 LifeEngine、SQLite、直接导入的 LifeAgent 与 LifeEnv 上运行：一个引擎只开一个决策轮、只冻结
+一次观察（_open），世界状态的改动（时刻、地点、报价、提交与推进）都在开轮之前做，需要另一种世界状态时另建一个引擎；
+同一冻结观察上的每次查询（_ask）先经宿主整批校验，受理时宿主本地派发的页与环境 read_query（从 SQLite 读回同一观察）
+逐值相等，拒绝时环境给出同一份校验报告（比较错误码、原因与明细；宿主批次的 fix 是固定的批次句）。期望值由用例自己从
+冻结条目算出（_oracle 配 _has_way、_runnable），不调用生产筛选函数。宿主一侧不生成工具 Schema（只走 prepare_react_loop
+与本地校验），所以给新键加缺省的变异在用例体内以断言失败暴露，而不是在 Schema 核验处崩溃。营业未知的一例用隔离语料
+（tests/life/purchase_worlds.py：好德的营业日历写成空表）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
+from collections import Counter
 from types import SimpleNamespace
 
 import pytest
@@ -23,11 +27,13 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E4
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_feedback import feedback_report  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
-from tests.life.conftest import context, stage_day_plan  # noqa: E402
-from tests.life.purchase_worlds import at_clock  # noqa: E402
+from tests.life.conftest import (advance_until_ready, context, pending_names, stage_day_plan,  # noqa: E402
+                                 start_activity, submit_round)
+from tests.life.purchase_worlds import at_clock, build_world, decide  # noqa: E402
+from tests.life.routing_fixtures import place, stage  # noqa: E402
 from worldmock.life.guidance import default_reason  # noqa: E402
 from worldmock.life.interaction_menu import WAYS  # noqa: E402
-from worldmock.life.object_labels import object_label  # noqa: E402
+from worldmock.life.object_labels import object_label, supply_label  # noqa: E402
 from worldmock.life.world_query import QueryWorldRequest, validate_world_query  # noqa: E402
 
 #: 宿主协议反馈里 query_world 参数的根位置（本批第 0 个调用）。
@@ -38,6 +44,10 @@ HAODE, NONGGONGSHANG = "poi-3538682402", "poi-3538763552"
 SOURCE_EXPECTED = "null, a known place name, or a known channel name is required."
 CHANNEL_IN_NAME_EXPECTED = "A channel name belongs in from; name takes an object name."
 EMPTY_PAGE = {"matches": [], "total_count": 0, "next_offset": None}
+#: 两种取得方式：「购买」及其同义写法等同于同时写这两种（5.1）；用例自己的判定用它，不调生产的方式展开。
+ACQUIRE = frozenset({"到店", "远程下单"})
+#: 纯牛奶：好德、农工商超市与集市都卖，都能远程下单。
+MILK = "纯牛奶"
 
 
 def _open_engine(engine_factory):
@@ -145,6 +155,50 @@ def _source_candidates(asked: SimpleNamespace, arguments: dict) -> list[str]:
             "query_world", None, list(arguments))
         assert {key: value for key, value in candidate["arguments"].items() if key != "from"} == rest
     return [candidate["arguments"]["from"] for candidate in item["candidates"]]
+
+
+def _has_way(entry: dict, ways) -> bool:
+    """冻结条目有方式落在 ways 里的动作（用例自己的判定）。"""
+    return any(action["way"] in ways for action in entry["match"]["actions"])
+
+
+def _runnable(entry: dict, ways=None) -> bool:
+    """用例按 5.3 自己判定冻结条目此刻已确认可执行：写了方式只看方式落在 ways 里的动作的 available，未写方式时看全部
+    动作以及以该目标为参数的工具的 available。"""
+    if ways is not None:
+        return any(action["available"] for action in entry["match"]["actions"] if action["way"] in ways)
+    return any(row["available"] for row in (*entry["match"]["actions"], *entry["match"]["tools"]))
+
+
+def _names(matches: list[dict]) -> list[str]:
+    """返回项的完整名称（保持返回顺序）。"""
+    return [match["name"] for match in matches]
+
+
+def _blocked_engine(engine_factory):
+    """10:00 在家开始等待并推进到它结束：人物有一项刚结束、待收尾的活动（人物级前置条件：先收尾），决策轮还没开。"""
+    engine = _open_engine(engine_factory)
+    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "wait")
+    assert advance_until_ready(engine)
+    return engine
+
+
+def _purchase_ways(session: SimpleNamespace, available_only: bool) -> dict[str, list[str]]:
+    """way 分别写「购买」「买」「到店」「远程下单」时沿 next_offset 翻完得到的名称。"""
+    return {way: _names(_traverse(session, way=way, available_only=available_only)[0])
+            for way in ("购买", "买", "到店", "远程下单")}
+
+
+def _check_traversal(session: SimpleNamespace, expected: list[str], **filters) -> None:
+    """沿 next_offset 翻完一个筛选组合：每页的 total_count 都是期望的完整匹配数，非末页恰好一页大小，按页拼接的名称与期望
+    逐项同序，末页 next_offset 为 null，offset 等于总数时是合法的空末页。"""
+    size = session.observed["world_query_page_size"]
+    matches, pages = _traverse(session, **filters)
+    assert [page["total_count"] for page in pages] == [len(expected)] * len(pages), filters
+    assert all(len(page["matches"]) == size for page in pages[:-1]), filters
+    assert _names(matches) == expected and pages[-1]["next_offset"] is None, filters
+    tail = _ask(session, _query(**filters, offset=len(expected)))
+    assert tail.page == {"matches": [], "total_count": len(expected), "next_offset": None}, filters
 
 
 def test_host_rejects_the_retired_four_key_request_at_both_new_keys(engine_factory):
@@ -284,3 +338,331 @@ def test_store_name_written_in_name_still_matches_the_location_target(engine_fac
     assert [(match["name"], match["kind"]) for match in asked.page["matches"]] == [
         (object_label("location", name), "location")]
     assert _oracle(session.observed, lambda entry: entry["location_id"] == HAODE)
+
+
+def test_available_only_judges_only_the_actions_of_the_written_way(engine_factory):
+    """写了 way 时只看方式命中的动作（5.3）：10:00 在家，到店动作全不可用、远程下单可用——way=到店 加 available_only 是
+    合法空页，way=远程下单 加 available_only 等于用例按远程下单动作的 available 算出的完整集合；保留的条目照常返回全部动作，
+    不可用的到店动作仍带原因（5.3 第二条）。人在好德时（另一个引擎），way=到店 加 available_only 恰是到店可用的条目，
+    它们都是好德的供给。"""
+    session = _open(_open_engine(engine_factory), "written-way")
+    observed = session.observed
+    assert _oracle(observed, lambda entry: _has_way(entry, {"到店"}))
+    assert _ask(session, _query(way="到店", available_only=True)).page == EMPTY_PAGE
+    expected = _oracle(observed, lambda entry: _runnable(entry, {"远程下单"}))
+    matches, _ = _traverse(session, way="远程下单", available_only=True)
+    assert _names(matches) == expected and expected
+    kept = [{action["way"]: action for action in match["actions"]} for match in matches]
+    assert all(ways["远程下单"]["available"] is True for ways in kept)
+    pickup = [ways["到店"] for ways in kept if "到店" in ways]
+    assert pickup and all(action["available"] is False and action["reason"] for action in pickup)
+    engine = _open_engine(engine_factory)
+    place(engine, 1, HAODE)
+    inside = _open(engine, "written-way-in-store")
+    expected = _oracle(inside.observed, lambda entry: _runnable(entry, {"到店"}))
+    assert expected and set(expected) <= set(_oracle(inside.observed, lambda entry: entry["location_id"] == HAODE))
+    matches, _ = _traverse(inside, way="到店", available_only=True)
+    assert _names(matches) == expected
+
+
+def test_way_purchase_equals_pickup_and_delivery_together(engine_factory):
+    """way 写「购买」（及同义写法「买」）等同于同时写到店与远程下单（5.1），只看此刻能做的时取两种取得动作中任一可用
+    （5.3）：available_only 为 false 与 true 时，「购买」翻完的名称都等于到店与远程下单两个查询的并集、不为空，与用例
+    算出的完整集合逐项同序，「买」逐项相同。在家时到店全不可用，留下的条目都靠远程下单；人在好德时（另一个引擎）到店
+    也有可用的条目，并集两边都出力。"""
+    home = _open(_open_engine(engine_factory), "purchase-way")
+    engine = _open_engine(engine_factory)
+    place(engine, 1, HAODE)
+    inside = _open(engine, "purchase-way-in-store")
+    for session, available_only in ((home, False), (home, True), (inside, True)):
+        found = _purchase_ways(session, available_only)
+        assert found["购买"] and found["买"] == found["购买"]
+        assert set(found["购买"]) == set(found["到店"]) | set(found["远程下单"])
+        assert found["购买"] == _oracle(session.observed, lambda entry: _has_way(entry, ACQUIRE) and (
+            not available_only or _runnable(entry, ACQUIRE)))
+        if available_only:
+            assert bool(found["到店"]) is (session is inside) and found["远程下单"]
+
+
+def test_available_only_without_way_counts_actions_and_tools_of_the_target(engine_factory):
+    """way 为 null 时看全部动作以及以该目标为参数的工具的 available（5.3）：刚结束、待收尾的等待活动没有动作，只有以它为
+    参数的工具——播报与暂停不可用（带原因）、收尾可用——所以按它的名称加 available_only 仍留下它；返回项照常带全部工具
+    （5.3 第二条），没有动作键，与不加筛选时同一页。"""
+    session = _open(_blocked_engine(engine_factory), "pending-target")
+    [name] = pending_names(session.observed)
+    [entry] = [entry for entry in session.observed["world_query_bindings"] if entry["match"]["name"] == name]
+    assert entry["match"]["actions"] == [] and _runnable(entry)
+    asked = _ask(session, _query(name=name, available_only=True))
+    assert asked.error == ""
+    [match] = asked.page["matches"]
+    assert match["name"] == name and "actions" not in match
+    tools = {row["tool"]: row for row in match["tools"]}
+    assert set(tools) == {"report_status", "pause_activity", "conclude_activity"}
+    assert tools["conclude_activity"] == {"tool": "conclude_activity", "available": True}
+    for tool in ("report_status", "pause_activity"):
+        assert tools[tool]["available"] is False and tools[tool]["reason"]
+    assert _ask(session, _query(name=name)).page == asked.page
+
+
+def test_person_level_block_yields_a_legal_empty_page(engine_factory):
+    """因人物级前置条件（先收尾）使全部动作不可用时，结果是合法空页（5.3 末条）：等待刚结束、待收尾时，用例算出没有任何
+    带品类的条目可执行；每个公开品类（含门店商品的品类）不加筛选都有条目，加 available_only 都是三键空页而不是错误；
+    way=等待 不加筛选有条目，加 available_only 也是空页。"""
+    session = _open(_blocked_engine(engine_factory), "person-block")
+    observed = session.observed
+    assert not _oracle(observed, lambda entry: entry["category"] is not None and _runnable(entry))
+    categories = [row["category"] for row in observed["tool_layer"]["callable_index"]["query_categories"]]
+    goods = {entry["category"] for entry in observed["world_query_bindings"] if entry["location_id"] is not None}
+    assert goods & set(categories)
+    for category in categories:
+        assert _ask(session, _query(category=category)).page["total_count"] > 0, category
+        assert _ask(session, _query(category=category, available_only=True)).page == EMPTY_PAGE, category
+    assert _ask(session, _query(way="等待")).page["total_count"] > 0
+    assert _ask(session, _query(way="等待", available_only=True)).page == EMPTY_PAGE
+
+
+@pytest.fixture(scope="module")
+def opening_world(tmp_path_factory):
+    """好德的营业日历写成空表（营业未知）的隔离语料，不钉手机配置；地图加载照常接受。"""
+    return build_world(tmp_path_factory.mktemp("opening-world"), {}, locations={HAODE: {"opening_calendars": []}})
+
+
+def _unknown_quote(engine_factory) -> None:
+    """一件能远程下单的纯牛奶此刻没有已知报价（开轮之前改世界）：name=纯牛奶 照常列出它，远程下单 available 为 false、
+    原因是报价未知、没有价格键；加 available_only 后它不在页里，total_count 少一。"""
+    engine = _open_engine(engine_factory)
+    supply = next(item for item in engine.scenario.supplies
+                  if engine.rules.items[item.product_id].name == MILK and "delivery" in item.fulfillment_modes)
+
+    def unknown(state) -> None:
+        """这件纯牛奶的报价变成未知。"""
+        state.supply_quotes[supply.supply_id] = None
+    stage(engine, unknown)
+    session = _open(engine, "unknown-quote")
+    label = supply_label(_places(session.observed)[supply.location_id], MILK)
+    listed = _ask(session, _query(name=MILK)).page
+    [match] = [match for match in listed["matches"] if match["name"] == label]
+    delivery = next(action for action in match["actions"] if action["way"] == "远程下单")
+    assert delivery["available"] is False and "price" not in delivery
+    assert delivery["reason"] == default_reason("SUPPLY_QUOTE_UNKNOWN")
+    filtered = _ask(session, _query(name=MILK, available_only=True)).page
+    assert label not in _names(filtered["matches"]) and filtered["total_count"] == listed["total_count"] - 1
+
+
+def _unknown_opening(engine_factory, world) -> None:
+    """好德营业未知：from=好德、way=远程下单 照常列出好德的全部远程下单条目，远程下单都不可用、原因是营业未知；加
+    available_only 是合法空页；营业已知的农工商超市加 available_only 照常留下它能送的条目。"""
+    engine = engine_factory(str(world.scenario("unknown-opening")))
+    stage_day_plan(engine)
+    at_clock(engine, 10, 0)
+    session = _open(engine, "unknown-opening")
+    observed, places = session.observed, _places(session.observed)
+    matches, _ = _traverse(session, places[HAODE], way="远程下单")
+    assert matches and _names(matches) == _oracle(
+        observed, lambda entry: entry["location_id"] == HAODE and _has_way(entry, {"远程下单"}))
+    delivery = {(action["available"], action["reason"]) for match in matches for action in match["actions"]
+                if action["way"] == "远程下单"}
+    assert delivery == {(False, default_reason("MERCHANT_OPENING_UNKNOWN"))}
+    assert _ask(session, _query(places[HAODE], way="远程下单", available_only=True)).page == EMPTY_PAGE
+    kept, _ = _traverse(session, places[NONGGONGSHANG], way="远程下单", available_only=True)
+    assert kept and _names(kept) == _oracle(
+        observed, lambda entry: entry["location_id"] == NONGGONGSHANG and _runnable(entry, {"远程下单"}))
+
+
+def _closed_at_scenario_start(engine_factory) -> None:
+    """场景起点门店都没开：用例算出没有可执行的取得动作，way=购买 加 available_only 是合法空页，不加筛选照常列出全部能
+    取得的商品——空页不等于「都不能买」。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    session = _open(engine, "scenario-start")
+    listed = _oracle(session.observed, lambda entry: _has_way(entry, ACQUIRE))
+    assert listed and not _oracle(session.observed, lambda entry: _runnable(entry, ACQUIRE))
+    assert _ask(session, _query(way="购买", available_only=True)).page == EMPTY_PAGE
+    assert _ask(session, _query(way="购买")).page["total_count"] == len(listed)
+
+
+def test_unknown_quote_and_unknown_opening_are_filtered_out_but_stay_listed_with_their_reason(
+        engine_factory, opening_world):
+    """报价未知、营业未知的条目也被滤掉（5.3 第四条）：true 的含义是「已确认可执行」——不加筛选时这些条目照常列出、不可用
+    的动作带原因，加 available_only 时被滤掉；场景起点门店未开时是合法空页，空页不等于「都不能买」。三个引擎各管一种
+    世界状态（报价未知、隔离语料里的营业未知、场景起点）。"""
+    _unknown_quote(engine_factory)
+    _unknown_opening(engine_factory, opening_world)
+    _closed_at_scenario_start(engine_factory)
+
+
+def test_every_filtered_match_is_accepted_with_its_full_name_and_an_available_way(engine_factory):
+    """筛出的每条以完整名称与可用方式提交被受理（5.3 第五条：按本人为收货人、此刻此地求值，成功以结算时重验为准）：10:00
+    在家 name=纯牛奶、way=购买、available_only 只有一页几条；对其中每一条，在同一状态的新引擎上照抄它的完整名称与一个
+    available 为 true 的动作的方式提交 start_activity（来源与去向为 null，按最快拿到），宿主校验通过、环境结算为
+    completed，唯一一笔订单的供给正是这个标签所指的门店商品。方式从返回项抄，不写死。"""
+    session = _open(_open_engine(engine_factory), "filtered-milk")
+    page = _ask(session, _query(name=MILK, way="购买", available_only=True)).page
+    assert 1 <= page["total_count"] <= 6 and page["next_offset"] is None
+    assert len(page["matches"]) == page["total_count"]
+    places = _places(session.observed)
+    for index, match in enumerate(page["matches"]):
+        way = next(action["way"] for action in match["actions"] if action["available"] and action["way"] in ACQUIRE)
+        engine = _open_engine(engine_factory)
+        arguments = {"items": [{"target": match["name"], "way": way, "from": None, "to": None}],
+                     "answering": None, "prefer": "最快拿到"}
+        _, error, result = decide(engine, f"accept-{index}", arguments)
+        assert error == "" and (result.status, result.error_code) == ("completed", None), match["name"]
+        [order] = result.data["orders"]
+        supply = engine.rules.supplies[order["supply_id"]]
+        assert supply_label(places[supply.location_id], engine.rules.items[supply.product_id].name) == match["name"]
+
+
+def _written_ways(way: str | None):
+    """用例自己对所写方式的理解：未写为 None，「购买」是两种取得方式，其余就是所写的那一种。"""
+    if way is None:
+        return None
+    return ACQUIRE if way == "购买" else frozenset({way})
+
+
+def test_filtered_traversal_equals_the_complete_match_set_and_counts_after_filtering(engine_factory):
+    """筛选在排序与切页之前施加（5.3 第三条）：同一冻结观察上逐个组合（品类加可执行、只写来源、来源加远程下单加可执行、
+    「购买」加可执行、名称加来源加可执行、品类加来源加到店不加可执行）沿 next_offset 翻完，等于用例算出的完整匹配集
+    （同序），每页的 total_count 都是筛选后的完整匹配数，非末页恰好一页大小，末页 next_offset 为 null，offset 等于总数时
+    是合法空末页；「购买」加可执行一组（远程下单不可用的条目被滤掉）的筛选后总数严格少于不加可执行时，所以这些断言分得
+    清筛选与不筛选。"""
+    session = _open(_open_engine(engine_factory), "filtered-traversal")
+    observed = session.observed
+    places = _places(observed)
+    goods = Counter(entry["category"] for entry in observed["world_query_bindings"] if entry["location_id"])
+    category = max(sorted(goods), key=goods.__getitem__)
+    stocked = Counter(entry["category"] for entry in observed["world_query_bindings"]
+                      if entry["location_id"] == HAODE)
+    haode_category = max(sorted(stocked), key=stocked.__getitem__)
+    combinations = {
+        "category": ({"category": category, "available_only": True}, lambda entry: entry["category"] == category),
+        "from": ({"source": places[HAODE]}, lambda entry: entry["location_id"] == HAODE),
+        "from-delivery": ({"source": places[NONGGONGSHANG], "way": "远程下单", "available_only": True},
+                          lambda entry: entry["location_id"] == NONGGONGSHANG and _has_way(entry, {"远程下单"})),
+        "purchase": ({"way": "购买", "available_only": True}, lambda entry: _has_way(entry, ACQUIRE)),
+        "name-from": ({"name": MILK, "source": places[HAODE], "available_only": True},
+                      lambda entry: MILK in entry["aliases"] and entry["location_id"] == HAODE),
+        "category-from-pickup": ({"category": haode_category, "source": places[HAODE], "way": "到店"},
+                                 lambda entry: entry["category"] == haode_category
+                                 and entry["location_id"] == HAODE and _has_way(entry, {"到店"})),
+    }
+    narrowed = {}
+    for label, (filters, keep) in combinations.items():
+        ways = _written_ways(filters.get("way"))
+        expected = _oracle(observed, lambda entry: keep(entry) and (
+            not filters.get("available_only") or _runnable(entry, ways)))
+        assert expected, label
+        _check_traversal(session, expected, **filters)
+        narrowed[label] = len(expected) < len(_oracle(observed, keep))
+    assert narrowed["purchase"], narrowed
+
+
+def test_no_match_is_a_legal_empty_page_and_offset_beyond_total_is_still_an_error(engine_factory):
+    """各键合法、offset 在范围内时任何筛选组合无匹配都是三键合法空页（5.4）：不报错、不自动放宽、不换来源；total_count 为
+    0 时合法的 offset 只有 0，offset=1 仍在 offset 位置报错、范围是 0..0。筛选后非空时越界按筛选后的总数报错：offset 等于
+    筛选后总数是合法空末页，多一就被拒绝，而同一偏移量不加 available_only 时合法。"""
+    session = _open(_open_engine(engine_factory), "no-match")
+    observed = session.observed
+    entries, places = observed["world_query_bindings"], _places(observed)
+    label = _oracle(observed, lambda entry: entry["location_id"] == HAODE)[0]
+    goods = min(entry["category"] for entry in entries if entry["location_id"] is not None)
+    remote = {entry["category"] for entry in entries if _has_way(entry, {"远程下单"})}
+    other = min({entry["category"] for entry in entries if entry["category"] is not None} - remote)
+    for arguments in (_query(way="到店", available_only=True), _query(places[NONGGONGSHANG], name=label),
+                      _query("家", category=goods), _query(name="并不存在的东西"),
+                      _query(category=other, way="远程下单", available_only=True)):
+        assert _ask(session, arguments).page == EMPTY_PAGE, arguments
+        [item] = _ask(session, {**arguments, "offset": 1}).report["items"]
+        assert (item["path"], item["written"], item["expected"]) == (
+            [*ROOT, "offset"], 1, "An integer in the inclusive range 0..0."), arguments
+    filtered = _query(way="购买", available_only=True)
+    total = len(_oracle(observed, lambda entry: _runnable(entry, ACQUIRE)))
+    assert 0 < total < len(_oracle(observed, lambda entry: _has_way(entry, ACQUIRE)))
+    assert _ask(session, {**filtered, "offset": total}).page == {"matches": [], "total_count": total,
+                                                                 "next_offset": None}
+    [item] = _ask(session, {**filtered, "offset": total + 1}).report["items"]
+    assert (item["path"], item["expected"]) == ([*ROOT, "offset"], f"An integer in the inclusive range 0..{total}.")
+    assert _ask(session, {**filtered, "available_only": False, "offset": total + 1}).error == ""
+
+
+def test_query_categories_counts_do_not_change_with_filters(engine_factory):
+    """筛选不改变可调用索引里各品类的计数口径（5.1 末条）：可调用索引是四键，query_categories 恰是全部冻结条目按品类的
+    完整计数；按品类查询的 total_count 等于这个计数，再加来源或 available_only 时 total_count 可以更少，索引计数不变——
+    这些查询之后冻结观察逐值不变，同一世界再观察一次，索引计数仍相同。"""
+    session = _open(_open_engine(engine_factory), "category-counts")
+    observed = session.observed
+    frozen = copy.deepcopy(observed)
+    counts = Counter(entry["category"] for entry in observed["world_query_bindings"] if entry["category"] is not None)
+    expected = [{"category": category, "count": counts[category]} for category in sorted(counts)]
+    index = observed["tool_layer"]["callable_index"]
+    assert list(index) == ["lifestyle", "contents", "goods", "query_categories"]
+    assert index["query_categories"] == expected
+    store, narrowed = _places(observed)[HAODE], False
+    for row in expected:
+        assert _ask(session, _query(category=row["category"])).page["total_count"] == row["count"], row
+        for filters in ({"available_only": True}, {"source": store}):
+            total = _ask(session, _query(category=row["category"], **filters)).page["total_count"]
+            assert total <= row["count"], (row, filters)
+            narrowed = narrowed or total < row["count"]
+    assert narrowed and observed == frozen
+    again = session.engine.observe(session.ctx)
+    assert again["tool_layer"]["callable_index"]["query_categories"] == expected
+
+
+def test_filtered_queries_leave_world_clock_events_credentials_and_presentation_unchanged(engine_factory):
+    """筛选查询只读（5.6）：宿主本地求值与环境 read_query 两入口上做过来源、方式、可执行筛选的若干查询（含被拒的与空页）
+    之后，世界状态逐值不变——时钟、世界版本、可见供给与浏览凭据、呈现时刻与本秒呈现暂存都没动——事件序号不变、没有
+    action_requested 事件，冻结观察也不变；查询列出的门店商品并没有因此变成可见供给。"""
+    session = _open(_open_engine(engine_factory), "read-only-filters")
+    engine, observed = session.engine, session.observed
+    before, sequence, frozen = engine.state.model_dump(mode="json"), engine.store.last_event_seq, copy.deepcopy(observed)
+    agent = engine.state.agents[1]
+    seen = (set(agent.visible_supply_ids), dict(agent.supply_browsed_at), dict(agent.supply_browsed_location))
+    presented = (copy.deepcopy(engine.state.presentation_state), copy.deepcopy(engine.state.same_moment_presentation))
+    places, listed = _places(observed), set()
+    for arguments in (_query(places[HAODE], available_only=True), _query(way="购买", available_only=True),
+                      _query(places[NONGGONGSHANG], name=MILK, way="远程下单"), _query("家", available_only=True),
+                      _query("好德超市", available_only=True), _query(way="到店", available_only=True)):
+        asked = _ask(session, arguments)
+        listed |= set(_names(asked.page["matches"])) if asked.page else set()
+    supplies = {entry["identity"].removeprefix("supply:") for entry in observed["world_query_bindings"]
+                if entry["match"]["name"] in listed and entry["location_id"] is not None}
+    agent = engine.state.agents[1]
+    assert supplies - seen[0] and not (supplies - seen[0]) & agent.visible_supply_ids
+    assert (engine.state.current_time, engine.state.version) == (before["current_time"], before["version"])
+    assert (set(agent.visible_supply_ids), dict(agent.supply_browsed_at), dict(agent.supply_browsed_location)) == seen
+    assert (engine.state.presentation_state, engine.state.same_moment_presentation) == presented
+    assert engine.state.model_dump(mode="json") == before
+    assert engine.store.last_event_seq == sequence
+    assert not engine.store.read_agent_events("action_requested", 1)
+    assert observed == frozen
+
+
+def test_query_batch_is_validated_whole_before_any_query_runs(engine_factory):
+    """同一模型回合的只读查询整批先校验后执行（5.6）：一个合法的筛选查询、一个未知来源的查询与一个记忆查询同批时，宿主回
+    一份报告，唯一一条明细落在真实调用下标 1 的 from 上；带筛选的查询与世界请求混批时整批拒绝在 tool_calls 位置；两次都
+    什么也没派发，世界状态、事件序号与冻结观察不变。只有合法只读查询的一批照常受理。"""
+    session = _open(_open_engine(engine_factory), "query-batch")
+    host, engine, observed = session.host, session.engine, session.observed
+    before, sequence, frozen = engine.state.model_dump(mode="json"), engine.store.last_event_seq, copy.deepcopy(observed)
+    valid = _query(_places(observed)[HAODE], way="远程下单", available_only=True)
+    batch = [ReactDecision("", "query_world", valid, "", "call-valid"),
+             ReactDecision("", "query_world", _query("好德超市", available_only=True), "", "call-unknown"),
+             ReactDecision("", "memory_recent", {"limit": 1}, "", "call-memory")]
+    report = feedback_report(host.validate_react_decisions(batch, False)).payload()
+    assert report["error_code"] == "ARGUMENTS_INVALID"
+    [item] = report["items"]
+    assert (item["path"], item["written"], item["expected"]) == (
+        ["tool_calls", 1, "function", "arguments", "from"], "好德超市", SOURCE_EXPECTED)
+    world = {"items": [{"target": "自己", "way": "等待", "from": None, "to": None}], "answering": None, "prefer": None}
+    mixed = [ReactDecision("", "start_activity", world, "", "call-world"),
+             ReactDecision("", "query_world", valid, "", "call-query")]
+    [item] = feedback_report(host.validate_react_decisions(mixed, False)).payload()["items"]
+    assert (item["path"], item["written"]) == (["tool_calls"], ["start_activity", "query_world"])
+    assert host._life_action_count == 0
+    assert engine.state.model_dump(mode="json") == before and engine.store.last_event_seq == sequence
+    assert not engine.store.read_agent_events("action_requested", 1)
+    assert observed == frozen
+    readonly = [batch[0], ReactDecision("", "query_world", _query(way="购买", available_only=True), "", "call-more"),
+                batch[2]]
+    assert host.validate_react_decisions(readonly, False) == ""
