@@ -53,7 +53,7 @@ from worldmock.life.name_resolution import StartOutcome, name_book, near_names, 
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
-from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
+from worldmock.life.world_query import QueryWorldRequest, query_argument_report, query_world, validate_world_query
 
 
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
@@ -440,7 +440,8 @@ class LifeAgent(PersonAgent):
 
 
     def _decision_error(self, decision: ReactDecision) -> str:
-        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义。"""
+        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义；查询的请求模型错误与按冻结观察仍可独立判定的筛选错误
+        同批报告。"""
         model = self._life_request_models.get(decision.action)
         if model is None:
             item = ErrorItem(("tool_calls", 0, "function", "name"), decision.action, "TOOL_CALL_REQUIRED",
@@ -450,6 +451,9 @@ class LifeAgent(PersonAgent):
         try:
             validated = _validate_request(model, decision.args)
         except ValidationError as error:
+            if decision.action == "query_world":
+                report = query_argument_report(self._life_observation, error, decision.args)
+                return host_feedback(report, "Invalid query_world arguments.")
             return argument_feedback(decision.action, error, model, decision.args)
         if decision.action == "query_world":
             report = validate_world_query(self._life_observation, validated)

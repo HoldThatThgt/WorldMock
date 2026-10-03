@@ -7,7 +7,8 @@
 逐值相等，拒绝时环境给出同一份校验报告（比较错误码、原因与明细；宿主批次的 fix 是固定的批次句）。期望值由用例自己从
 冻结条目算出（_oracle 配 _has_way、_runnable），不调用生产筛选函数。宿主一侧不生成工具 Schema（只走 prepare_react_loop
 与本地校验），所以给新键加缺省的变异在用例体内以断言失败暴露，而不是在 Schema 核验处崩溃。营业未知的一例用隔离语料
-（tests/life/purchase_worlds.py：好德的营业日历写成空表）。
+（tests/life/purchase_worlds.py：好德的营业日历写成空表）。最终回合一例不经 _open：它用脚本化模型（只替换远程传输，
+tests/integration/test_same_second_continuation.py 的 _single）在同一真实引擎上跑完整的 ReAct 循环并结算。
 """
 
 from __future__ import annotations
@@ -22,17 +23,23 @@ import pytest
 from pydantic import ValidationError
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_feedback import feedback_report  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
+from tests.integration.test_same_second_continuation import (_environment, _reply as _model_reply,  # noqa: E402
+                                                             _single, _wait_reply)
 from tests.life.conftest import (advance_until_ready, context, pending_names, stage_day_plan,  # noqa: E402
                                  start_activity, submit_round)
 from tests.life.purchase_worlds import at_clock, build_world, decide  # noqa: E402
 from tests.life.routing_fixtures import place, stage  # noqa: E402
+from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.guidance import default_reason  # noqa: E402
 from worldmock.life.interaction_menu import WAYS  # noqa: E402
+from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 from worldmock.life.object_labels import object_label, supply_label  # noqa: E402
 from worldmock.life.world_query import QueryWorldRequest, validate_world_query  # noqa: E402
 
@@ -43,6 +50,8 @@ HAODE, NONGGONGSHANG = "poi-3538682402", "poi-3538763552"
 #: 5.5 两种新查询参数错误的 expected 原文。
 SOURCE_EXPECTED = "null, a known place name, or a known channel name is required."
 CHANNEL_IN_NAME_EXPECTED = "A channel name belongs in from; name takes an object name."
+#: 查询明细（方式、品类与渠道称呼写进 name）共用的 why。
+_QUERY_WHY = "The submitted value is outside the current query contract."
 EMPTY_PAGE = {"matches": [], "total_count": 0, "next_offset": None}
 #: 两种取得方式：「购买」及其同义写法等同于同时写这两种（5.1）；用例自己的判定用它，不调生产的方式展开。
 ACQUIRE = frozenset({"到店", "远程下单"})
@@ -219,14 +228,19 @@ def test_host_rejects_the_retired_four_key_request_at_both_new_keys(engine_facto
 
 def test_all_four_empty_filters_are_reported_and_available_only_alone_is_no_filter(engine_factory):
     """名称、方式、品类与来源四者全空时在四个位置各报一条、没有空根位置；available_only 为 true 也不单独构成查询条件
-    （5.1）。"""
+    （5.1）。available_only 同时不是布尔、offset 同时为负时，宿主的同一份报告依次列出这四条与那两个字段的错误。"""
     session = _open(_open_engine(engine_factory), "empty-filters")
+    empty = [([*ROOT, field], None, "At least one query filter must be non-null")
+             for field in ("name", "way", "category", "from")]
     for available_only in (False, True):
         asked = _ask(session, _query(available_only=available_only))
         assert asked.report["error_code"] == "ARGUMENTS_INVALID" and asked.env is None
-        assert [(item["path"], item["written"], item["why"]) for item in asked.report["items"]] == [
-            ([*ROOT, field], None, "At least one query filter must be non-null")
-            for field in ("name", "way", "category", "from")]
+        assert [(item["path"], item["written"], item["why"]) for item in asked.report["items"]] == empty
+    asked = _ask(session, _query(available_only="true", offset=-1))
+    assert asked.report["error_code"] == "ARGUMENTS_INVALID" and asked.env is None
+    assert [(item["path"], item["written"], item["why"]) for item in asked.report["items"]] == [
+        *empty, ([*ROOT, "available_only"], "true", "A JSON boolean is required."),
+        ([*ROOT, "offset"], -1, "The value must be at least 0.")]
     assert session.host._life_action_count == 0
 
 
@@ -315,6 +329,33 @@ def test_source_way_and_category_errors_are_reported_together_before_any_offset_
     [offset] = beyond.report["items"]
     total = len(_oracle(session.observed, lambda entry: entry["location_id"] == HAODE))
     assert (offset["path"][-1], offset["expected"]) == ("offset", f"An integer in the inclusive range 0..{total}.")
+
+
+def test_source_errors_are_reported_together_with_request_model_errors_on_the_host_path(engine_factory):
+    """请求模型错误不压下按冻结观察可独立判定的筛选错误（5.5「来源错误与方式、品类错误一次全报」）：方式空白、品类不是
+    字符串或 available_only 不是布尔时，未知来源仍在同一份宿主报告里，排在请求模型错误之后；未声明的方式与品类类型错误、
+    未知来源同写时三条都在；候选只换 from、其余键照原样（含仍不合法的键），越界的偏移量不另报。什么也没派发。"""
+    session = _open(_open_engine(engine_factory), "model-and-source")
+    store = _places(session.observed)[HAODE]
+    blank = ([*ROOT, "way"], " ", "A non-null filter must contain a non-whitespace character")
+    category = ([*ROOT, "category"], 12, "A JSON string is required.")
+    flag = ([*ROOT, "available_only"], "true", "A JSON boolean is required.")
+    undeclared = ([*ROOT, "way"], "随便做", _QUERY_WHY)
+    source = ([*ROOT, "from"], "好德超市", default_reason("SOURCE_NOT_FOUND"))
+    for arguments, expected in ((_query("好德超市", way=" "), [blank, source]),
+                                (_query("好德超市", category=12), [category, source]),
+                                (_query("好德超市", way="到店", available_only="true", offset=10 ** 6), [flag, source]),
+                                (_query("好德超市", way="随便做", category=12), [category, undeclared, source])):
+        asked = _ask(session, arguments)
+        assert asked.report["error_code"] == "ARGUMENTS_INVALID" and asked.env is None, arguments
+        items = asked.report["items"]
+        assert [(item["path"], item["written"], item["why"]) for item in items] == expected, arguments
+        assert items[-1]["expected"] == SOURCE_EXPECTED and items[-1]["allowed_values"] == []
+        candidates = [candidate["arguments"] for candidate in items[-1]["candidates"]]
+        assert store in [row["from"] for row in candidates]
+        assert all(list(row) == list(arguments) and {**row, "from": None} == {**arguments, "from": None}
+                   for row in candidates)
+    assert session.host._life_action_count == 0
 
 
 def test_full_label_with_another_store_in_from_is_a_legal_empty_page(engine_factory):
@@ -666,3 +707,32 @@ def test_query_batch_is_validated_whole_before_any_query_runs(engine_factory):
     readonly = [batch[0], ReactDecision("", "query_world", _query(way="购买", available_only=True), "", "call-more"),
                 batch[2]]
     assert host.validate_react_decisions(readonly, False) == ""
+
+
+def test_the_final_turn_offers_only_world_requests_after_queries_used_the_earlier_turns(engine_factory, monkeypatch):
+    """最终回合不开放查询（5.6 保留约束）：真实引擎、SQLite、LifeEnv 与经脚本化模型（只替换远程传输）完整跑 ReAct 循环的
+    LifeAgent，回合预算 4。前三个回合各发一个合法的六键筛选查询（名称、「购买」加可执行、只写门店 from），宿主本地答出
+    非空的页；落库的前三个模型请求都开放 query_world、recall_task_summary 与记忆查询，第四个即最终回合的请求不是截断重试
+    （开启思考、tool_choice=auto），只开放世界请求，三次查询的结果都在它的消息里；它给出的世界请求照常登记与结算，查询
+    没有登记成世界动作。"""
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    engine = _open_engine(engine_factory)
+
+    def responses(observation: dict) -> list:
+        """三个查询回合，然后开始等待。"""
+        queries = (_query(name=MILK), _query(way="购买", available_only=True), _query(_places(observation)[HAODE]))
+        return [*(_model_reply(f"call-query-{index}", "query_world", arguments, f"先查一下第{index}样。")
+                  for index, arguments in enumerate(queries)), *_wait_reply()]
+
+    asyncio.run(_single(_environment(engine), "final-turn", responses))
+    requests = [event.data["request"] for event in engine.store.read_agent_events("model_request", 1)
+                if event.decision_id == "decision-final-turn-1"]
+    offered = [{item["function"]["name"] for item in request["tools"]} for request in requests]
+    queries = {"query_world", "recall_task_summary", "memory_recent", "memory_search", "memory_time_range"}
+    assert offered[:3] == [set(REQUEST_MODELS) | queries] * 3
+    assert offered[3] == set(REQUEST_MODELS) - queries and len(requests) == 4
+    assert (requests[3]["extra_body"], requests[3]["tool_choice"]) == ({"thinking": {"type": "enabled"}}, "auto")
+    answers = [message["content"] for message in requests[3]["messages"] if message["role"] == "tool"]
+    assert len(answers) == 3 and all('"total_count"' in answer for answer in answers)
+    [registered] = engine.store.read_agent_events("action_requested", 1)
+    assert (registered.decision_id, registered.data["tool_name"]) == ("decision-final-turn-1", "start_activity")

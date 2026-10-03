@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import copy
 import logging
+from dataclasses import replace
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, ModelWrapValidatorHandler, ValidationError, field_validator,
+                      model_validator)
 
 from worldmock.life.error_contract import Candidate, ErrorItem, ErrorReport
 from worldmock.life.guidance import default_reason
@@ -15,6 +17,7 @@ from worldmock.life.models import purpose_only_schema
 from worldmock.life.name_resolution import channel_key, near_source_names, resolve_name, resolve_source, way_options
 from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import BROWSE_LABELS
+from worldmock.life.request_errors import argument_report
 from worldmock.life.tool_groups import compact
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +25,8 @@ _LOGGER = logging.getLogger(__name__)
 _SOURCE_EXPECTED = "null, a known place name, or a known channel name is required."
 _CHANNEL_IN_NAME_EXPECTED = "A channel name belongs in from; name takes an object name."
 _QUERY_WHY = "The submitted value is outside the current query contract."
+#: 至少一个须非 null 的四个筛选（JSON 键，5.1）。
+_FILTER_KEYS = ("name", "way", "category", "from")
 
 
 class QueryWorldRequest(BaseModel):
@@ -48,17 +53,23 @@ class QueryWorldRequest(BaseModel):
             raise ValueError("A non-null filter must contain a non-whitespace character")
         return value
 
-    @model_validator(mode="after")
-    def require_filter(self) -> "QueryWorldRequest":
-        """@brief 名称、方式、品类、来源四者全空时在四个位置各报一条，不能把依赖约束错误放在无字段的根位置；
-        available_only 不单独构成查询条件。"""
-        if self.name is None and self.way is None and self.category is None and self.from_ is None:
-            _LOGGER.error("World query has no non-null filter")
-            errors = [{"type": "value_error", "loc": (field,), "input": None,
-                       "ctx": {"error": ValueError("At least one query filter must be non-null")}}
-                      for field in ("name", "way", "category", "from")]
-            raise ValidationError.from_exception_data(type(self).__name__, errors)
-        return self
+    @model_validator(mode="wrap")
+    @classmethod
+    def require_filter(cls, data: Any, handler: ModelWrapValidatorHandler["QueryWorldRequest"]) -> "QueryWorldRequest":
+        """@brief 名称、方式、品类、来源四键都写了 null 时在四个位置各报一条，不能把依赖约束错误放在无字段的根位置；
+        其余字段同时不合法时与那些字段错误一次全报（包住字段校验而不是排在其后，字段错误不会把它略去）。available_only
+        不单独构成查询条件。"""
+        if not isinstance(data, dict) or any(key not in data or data[key] is not None for key in _FILTER_KEYS):
+            return handler(data)
+        _LOGGER.error("World query has no non-null filter")
+        errors = [{"type": "value_error", "loc": (key,), "input": None,
+                   "ctx": {"error": ValueError("At least one query filter must be non-null")}} for key in _FILTER_KEYS]
+        try:
+            handler(data)
+        except ValidationError as error:
+            errors.extend({key: row[key] for key in ("type", "loc", "input", "ctx") if key in row}
+                          for row in error.errors())
+        raise ValidationError.from_exception_data(cls.__name__, errors)
 
 
 def attach_world_query(observation: dict, context: Any) -> None:
@@ -144,7 +155,7 @@ def _category(context: Any, binding: dict | None) -> str | None:
 def validate_world_query(observation: dict, request: QueryWorldRequest) -> ErrorReport | None:
     """@brief 汇总所有独立可确定的动态错误（方式、品类、来源与误写进名称的渠道称呼一次全报）；分页范围只在全部筛选
     合法后按筛选后的完整匹配数计算（docs/dev/SPEC-errands-workday.md 5.5）。宿主与环境两个入口在同一冻结观察上调用它。"""
-    errors = _filter_issues(observation, request)
+    errors = _filter_issues(observation, request.model_dump(mode="json"))
     if not errors:
         total = len(_matching_entries(observation, request))
         if request.offset > total:
@@ -156,20 +167,41 @@ def validate_world_query(observation: dict, request: QueryWorldRequest) -> Error
                        "Correct all listed arguments before submitting the query again.", tuple(errors))
 
 
-def _filter_issues(observation: dict, request: QueryWorldRequest) -> list[ErrorItem]:
-    """@brief 方式、品类、来源与误写进名称的渠道称呼各自独立判定，按这个顺序一次全部列出。"""
+def query_argument_report(observation: dict, error: ValidationError, arguments: Any) -> ErrorReport:
+    """@brief 宿主严格校验失败时的完整查询参数报告：先列请求模型的错误（缺键、类型、空白与四者全空），再列按冻结观察
+    仍可独立判定的方式、品类、来源与误写进名称的渠道称呼错误——每条只看自身取值合法的那个键，所以来源错误不被别的键的
+    类型或空白错误压下（docs/dev/SPEC-errands-workday.md 5.5「来源错误与方式、品类错误一次全报」）；候选里其余键照原样。
+    offset 范围只在全部筛选合法后计算，这里不算。"""
+    report = argument_report("query_world", error, QueryWorldRequest, arguments)
+    items = (*report.items, *_filter_issues(observation, arguments if isinstance(arguments, dict) else {}))
+    return replace(report, reason="; ".join(item.why for item in items), items=items)
+
+
+def _filter_issues(observation: dict, values: dict) -> list[ErrorItem]:
+    """@brief 方式、品类、来源与误写进名称的渠道称呼各自独立判定，按这个顺序一次全部列出。values 是 JSON 键的查询参数
+    （受理的请求按别名导出，或严格校验失败时的原始参数），每条只判定自身取值合法的那个键。"""
     errors = []
-    if request.way is not None and not way_options(request.way):
-        errors.append(_query_issue("way", request.way, tuple(WAYS), "A declared activity way is required."))
+    way, category, source = (_filter_text(values, key) for key in ("way", "category", "from"))
+    if way is not None and not way_options(way):
+        errors.append(_query_issue("way", way, tuple(WAYS), "A declared activity way is required."))
     labels = tuple(row["category"] for row in observation["tool_layer"]["callable_index"]["query_categories"])
-    if request.category is not None and request.category not in labels:
-        errors.append(_query_issue("category", request.category, labels, "Use a category shown in callable_index."))
-    if request.from_ is not None and _source_stores(observation, request.from_) is None:
-        errors.append(_source_issue(observation, request))
-    misplaced = _misplaced_channel_issue(observation, request)
+    if category is not None and category not in labels:
+        errors.append(_query_issue("category", category, labels, "Use a category shown in callable_index."))
+    if source is not None and _source_stores(observation, source) is None:
+        errors.append(_source_issue(observation, values))
+    misplaced = _misplaced_channel_issue(observation, values)
     if misplaced is not None:
         errors.append(misplaced)
     return errors
+
+
+def _filter_text(values: dict, key: str) -> str | None:
+    """@brief 可按冻结观察判定的筛选写法：名称、方式与品类须是非空白字符串，来源是任意字符串（空白写法按 5.5 第一行
+    报错）；缺键、null 与类型不符时为 None（那些由请求模型报告）。"""
+    value = values.get(key)
+    if not isinstance(value, str) or (key != "from" and not value.strip()):
+        return None
+    return value
 
 
 def _query_issue(field: str, written: Any, allowed: tuple, expected: str) -> ErrorItem:
@@ -178,32 +210,33 @@ def _query_issue(field: str, written: Any, allowed: tuple, expected: str) -> Err
                      expected=expected, why=_QUERY_WHY)
 
 
-def _source_issue(observation: dict, request: QueryWorldRequest) -> ErrorItem:
-    """@brief 来源写法既不是地点显示名也不是渠道称呼（5.5 第一行）：候选是至多三条换了 from 的完整查询，来源只取权限内
-    有供给条目的门店与含这些门店的渠道（与购买侧同一排名；一个也不相近时按门店身份顺序取前几个），不泄露无权限的门店。"""
+def _source_issue(observation: dict, values: dict) -> ErrorItem:
+    """@brief 来源写法既不是地点显示名也不是渠道称呼（5.5 第一行）：候选是至多三条换了 from、其余键照原样的完整查询，
+    来源只取权限内有供给条目的门店与含这些门店的渠道（与购买侧同一排名；一个也不相近时按门店身份顺序取前几个），不泄露
+    无权限的门店。"""
     places = _places(observation)
     stores = _permitted_stores(observation)
     channels = tuple(row for row in _channel_rows(observation) if stores.intersection(row[2]))
-    names = near_source_names(request.from_, places, stores, channels, lambda scope: True)
-    candidates = tuple(Candidate("query_world", request.model_copy(update={"from_": name}).model_dump(mode="json"))
-                       for name in names)
-    return ErrorItem(path=("from",), written=request.from_, error_code="ARGUMENTS_INVALID", allowed_values=(),
+    names = near_source_names(values["from"], places, stores, channels, lambda scope: True)
+    candidates = tuple(Candidate("query_world", copy.deepcopy({**values, "from": name})) for name in names)
+    return ErrorItem(path=("from",), written=values["from"], error_code="ARGUMENTS_INVALID", allowed_values=(),
                      expected=_SOURCE_EXPECTED, why=default_reason("SOURCE_NOT_FOUND"), candidates=candidates)
 
 
-def _misplaced_channel_issue(observation: dict, request: QueryWorldRequest) -> ErrorItem | None:
+def _misplaced_channel_issue(observation: dict, values: dict) -> ErrorItem | None:
     """@brief from 为 null、name 按对象名称解析无任何匹配、而其写法恰是一个渠道称呼（5.5 第二行，与其余筛选无关）：给一条
-    把该值移到 from、name 写 null 的完整查询，不自动改写；其余情形为 None。"""
-    if request.from_ is not None or request.name is None:
+    把该值移到 from、name 写 null 的完整查询（其余键照原样），不自动改写；其余情形（含 from 缺键）为 None。"""
+    name = _filter_text(values, "name")
+    if name is None or "from" not in values or values["from"] is not None:
         return None
-    key = channel_key(request.name)
-    if not any(key == channel_key(name) for row in _channel_rows(observation) for name in row[1]):
+    key = channel_key(name)
+    if not any(key == channel_key(written) for row in _channel_rows(observation) for written in row[1]):
         return None
-    aliases = (name for entry in observation["world_query_bindings"] for name in entry["aliases"])
-    if resolve_name(request.name, aliases).matches:
+    aliases = (alias for entry in observation["world_query_bindings"] for alias in entry["aliases"])
+    if resolve_name(name, aliases).matches:
         return None
-    moved = request.model_copy(update={"name": None, "from_": request.name}).model_dump(mode="json")
-    return ErrorItem(path=("name",), written=request.name, error_code="ARGUMENTS_INVALID", allowed_values=(),
+    moved = copy.deepcopy({**values, "name": None, "from": name})
+    return ErrorItem(path=("name",), written=name, error_code="ARGUMENTS_INVALID", allowed_values=(),
                      expected=_CHANNEL_IN_NAME_EXPECTED, why=_QUERY_WHY, candidates=(Candidate("query_world", moved),))
 
 

@@ -104,12 +104,27 @@ def test_world_query_rejects_blank_and_coerced_filters(field):
 
 @pytest.mark.parametrize("available_only", [False, True])
 def test_world_query_null_filter_errors_keep_affected_field_locations(available_only):
-    """跨字段验证报告全部四个筛选位置，没有空根位置；available_only 不单独构成查询条件（5.1）。"""
+    """跨字段验证报告全部四个筛选位置，没有空根位置；available_only 不单独构成查询条件（5.1）。其余字段同时不合法时
+    （available_only 不是布尔或缺键、offset 为负、多写未声明的键），四条与那些字段的错误一次全报、不被略去，Python 与
+    严格 JSON 两个入口相同。"""
     with pytest.raises(ValidationError) as caught:
         _request(category=None, available_only=available_only)
     assert [error["loc"] for error in caught.value.errors()] == [("name",), ("way",), ("category",), ("from",)]
     assert {error["msg"] for error in caught.value.errors()} == {
         "Value error, At least one query filter must be non-null"}
+    empty = {"name": None, "way": None, "category": None, "from": None, "available_only": available_only, "offset": 0}
+    filters = [((key,), "value_error") for key in ("name", "way", "category", "from")]
+    without_flag = {key: value for key, value in empty.items() if key != "available_only"}
+    for payload, other in (({**empty, "available_only": "true"}, [(("available_only",), "bool_type")]),
+                           (without_flag, [(("available_only",), "missing")]),
+                           ({**empty, "offset": -1}, [(("offset",), "greater_than_equal")]),
+                           ({**empty, "available_only": 1, "extra": 1}, [(("available_only",), "bool_type"),
+                                                                         (("extra",), "extra_forbidden")])):
+        for validate in (lambda: QueryWorldRequest(**payload),
+                         lambda: QueryWorldRequest.model_validate_json(json.dumps(payload), strict=True)):
+            with pytest.raises(ValidationError) as caught:
+                validate()
+            assert [(error["loc"], error["type"]) for error in caught.value.errors()] == [*filters, *other], payload
 
 
 def test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero():

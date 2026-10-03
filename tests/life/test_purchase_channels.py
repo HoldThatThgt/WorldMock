@@ -367,7 +367,8 @@ def test_query_and_purchase_resolve_each_from_form_to_the_same_stores(engine_fac
 def test_a_channel_name_written_in_name_gets_one_candidate_moving_it_to_from(engine_factory, world) -> None:
     """渠道称呼写进 name（5.5 第二行）：from 为 null、name 按对象名称解析无任何匹配而写法恰是渠道称呼时，不论其余筛选，
     在 name 位置报查询参数错误，候选是一条把该值照写移到 from、name 写 null 的完整请求；不自动改写（请求被拒，什么也没
-    派发），照抄候选得到成员门店的供给。与未声明的方式同写时两条明细依次是方式与名称；from 已写时是交集筛选的合法空页。"""
+    派发），照抄候选得到成员门店的供给。与未声明的方式同写时两条明细依次是方式与名称；方式空白或 available_only 不是布尔
+    （请求模型错误）时名称这一条仍在同一份报告里、排在其后，候选其余键照原样；from 已写时是交集筛选的合法空页。"""
     engine = _engine(engine_factory, world)
     session = _open(engine, "channel-in-name")
     category = session.observed["tool_layer"]["callable_index"]["query_categories"][0]["category"]
@@ -387,6 +388,14 @@ def test_a_channel_name_written_in_name_gets_one_candidate_moving_it_to_from(eng
     assert [(item["path"][-1], item["written"]) for item in items] == [("way", "随便做"), ("name", "美团 外卖")]
     assert [candidate["arguments"] for candidate in items[1]["candidates"]] == [
         {**spaced, "name": None, "from": "美团 外卖"}]
+    for arguments, field in ((_query(name="美团外卖", way=" "), "way"), (_query(name="美团外卖", available_only=1),
+                                                                      "available_only")):
+        items = _ask(session, arguments).report["items"]
+        assert [(item["path"][-1], item["written"]) for item in items] == [
+            (field, arguments[field]), ("name", "美团外卖")], arguments
+        assert [candidate["arguments"] for candidate in items[1]["candidates"]] == [
+            {**arguments, "name": None, "from": "美团外卖"}]
+    assert session.host._life_action_count == 0
     places = {row["location_id"]: row["name"] for row in session.observed["locations"]}
     assert _ask(session, _query(places[_HAODE], name="美团外卖")).page == EMPTY_PAGE
     matches, _ = _traverse(session, "美团外卖")
