@@ -112,7 +112,7 @@ def _extraction(card):
                                                    extraversion=4, agreeableness=4,
                                                    neuroticism=4),
                            runs=3, agreement=1.0, per_field={}, warning=False,
-                           model="deepseek-chat")
+                           model="deepseek-chat", demotion_notes=())
 
 
 def test_compile_persona_uses_explicit_config_and_reports_agreement_warnings():
@@ -120,11 +120,11 @@ def test_compile_persona_uses_explicit_config_and_reports_agreement_warnings():
     config = load_mapping_config()
     compiled = compile_persona("故事", extraction=_extraction(card), config=config)
     assert compiled.card == card
-    assert compiled.schema_version == 2
+    assert compiled.schema_version == 3
     low_agreement = SimpleNamespace(card=card,
                                     big_five=compiled.big_five, runs=3, agreement=0.5,
                                     per_field={"coping": 0.5}, warning=True,
-                                    model="deepseek-chat")
+                                    model="deepseek-chat", demotion_notes=())
     warned = compile_persona("故事", extraction=low_agreement, config=config)
     assert warned.warnings == ("field_agreement_below_two_thirds: ['coping']",)
 

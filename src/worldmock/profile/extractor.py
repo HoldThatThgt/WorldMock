@@ -4,8 +4,10 @@
 大五逐维度取中位数；单次运行内 JSON 解析/校验失败重试至多 2 次。字段众数
 占比 < 2/3 标黄警告。凭据 ~/.config/worldmock/deepseek.env
 （DEEPSEEK_NODE_KEYS 多 key 池取第一把，与 runtime 契约同源）。
-故事未提及的时型、睡眠需要与时间锚点输出 null，由 persona-mapping.toml
-[defaults] 确定性补齐（不在提示层编造）。
+故事未提及的时型、睡眠需要与五个时间锚点输出 null，由 persona-mapping.toml
+[defaults] 确定性补齐（不在提示层编造）。下班与到家锚点在独立顶层键 work_anchors
+里单独取共识，null 保持 null、不读缺省；不合顺序约束时按固定顺序降级为 null，
+降级说明只在共识后的最终卡片上生成（docs/dev/SPEC-errands-workday.md 4.1）。
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from worldmock.profile.models import (
     TimeWindow,
     parse_clock,
     quantize,
+    settle_work_anchors,
 )
 
 #: 画像抽取使用与运行相同的官方模型端点（DEEPSEEK_BASE_URL，即 strict 所在的 /beta）。
@@ -59,8 +62,10 @@ CREDENTIALS_PATH = Path.home() / ".config" / "worldmock" / "deepseek.env"
 
 #: 抽取载荷的顶层键（三次一致性按这些字段逐个取共识）。
 PAYLOAD_KEYS = ("big_five", "identity", "relationships", "situation",
-                "time_anchors", "chronotype_midsleep", "sleep_need_hours",
+                "time_anchors", "work_anchors", "chronotype_midsleep", "sleep_need_hours",
                 "habits", "tastes", "coping")
+#: 抽取载荷 work_anchors 的两个键（下班、到家）；不取映射表缺省。
+_WORK_ANCHORS = ("leave_work", "arrive_home")
 
 _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_story，抽取结构化人物卡片与
 大五人格评分，只输出一个 JSON 对象，字段与规则如下：
@@ -77,6 +82,8 @@ _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_
   次日起点）；故事未提及的锚点写 null
   bedtime 只表示开始就寝的短窗口，不是整夜睡眠时段。约零点十分就寝可写
   "23:30-00:30"，不能写 "00:00-08:00"；睡眠时长单独填 sleep_need_hours
+- work_anchors：{"leave_work","arrive_home"} 各为 "HH:MM-HH:MM" 窗口或 null；故事写明固定的下班或到家时刻才填；
+  没有固定工作地点、时间不固定、落在次日或未提及写 null，不要推测
 - chronotype_midsleep："HH:MM" 自由日睡眠中点；未提及写 null
 - sleep_need_hours：7-9 之间 0.25 步进的数字；未提及写 null
 - habits：最多 5 条 [{"trigger": 情境短语, "response": 行为短语, "time_window": "HH:MM-HH:MM"}]
@@ -84,7 +91,7 @@ _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_
   "media": 最多 4 个常用媒介词}；无相关内容给空数组
 - coping：压力时做什么（一句话）
 - 任何 time_window（锚点与习惯）跨度不超过 12 小时，禁止 "00:00-24:00" 式全天窗口
-- 习惯的 time_window 必须是具体窗口，不写 null；锚点无法确定写 null 由缺省补齐
+- 习惯的 time_window 必须是具体窗口，不写 null；time_anchors 的锚点无法确定写 null 由缺省补齐，work_anchors 写 null 就保持 null
 顶层只输出上述字段，不添加说明字段。全部值用中文（时间与数字除外）；
 只依据故事证据，不编造故事外事实。"""
 
@@ -94,7 +101,11 @@ class ExtractionError(RuntimeError):
 
 
 class PersonaExtraction(BaseModel):
-    """@brief 三次一致性共识提取结果（编译入口消费，不进入提示合同）。"""
+    """@brief 三次一致性共识提取结果（编译入口消费，不进入提示合同）。
+
+    demotion_notes 是共识后最终卡片上下班、到家锚点的降级说明（每个被置 null 的锚点一条，按核对顺序），
+    编译警告把它接在一致性警告之后。
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -106,6 +117,7 @@ class PersonaExtraction(BaseModel):
     warning: bool
     model: str = Field(min_length=1)
     prompt_version: str = Field(min_length=1)
+    demotion_notes: tuple[str, ...] = ()
 
 
 def resolve_api_key(explicit: str | None = None) -> str:
@@ -145,7 +157,7 @@ def extract_persona(background_story: str, n_runs: int = DEFAULT_RUNS, *,
     payloads = [_single_run(story, model, key, caller, config)
                 for _ in range(n_runs)]
     consensus, per_field = _consensus(payloads)
-    card = _build_card(consensus, config)
+    card, notes = _build_card(consensus, config)
     big_five = BigFiveProfile(**consensus["big_five"])
     agreement = sum(per_field.values()) / len(per_field)
     return PersonaExtraction(
@@ -157,6 +169,7 @@ def extract_persona(background_story: str, n_runs: int = DEFAULT_RUNS, *,
         warning=any(share < AGREEMENT_WARNING_THRESHOLD for share in per_field.values()),
         model=model,
         prompt_version=PROMPT_VERSION,
+        demotion_notes=notes,
     )
 
 
@@ -204,7 +217,8 @@ def _parse_payload(content: str, config: Mapping) -> dict:
 
     big_five 不在 PersonaCard 内，在此一并校验：null 维度若漏到共识层会在
     中位数排序处抛 TypeError（绕过重试路径），与 habits.time_window=null
-    同型，一律归类为无效 payload。
+    同型，一律归类为无效 payload。下班与到家锚点乱序时本次构造只为放行而降级：
+    说明丢弃、返回的仍是原始载荷，不消耗重试；格式错误照常抛 ValueError 走重试。
     """
     if not isinstance(content, str) or not content.strip():
         raise ValueError("empty or non-string model content: "
@@ -274,16 +288,17 @@ def _median_int(values: list[int]) -> int:
     return int(math.floor((ordered[middle - 1] + ordered[middle]) / 2 + 0.5))
 
 
-def _build_card(consensus: Mapping, config: Mapping) -> PersonaCard:
-    """@brief 共识载荷 -> PersonaCard（null 缺省按 TOML [defaults] 确定性补齐）。"""
+def _build_card(consensus: Mapping, config: Mapping) -> tuple[PersonaCard, tuple[str, ...]]:
+    """@brief 共识载荷 -> (PersonaCard, 降级说明)：五锚点等 null 按 TOML [defaults] 确定性补齐，下班与到家不取缺省。"""
     defaults = config["defaults"]
-    return PersonaCard(
+    anchors, notes = _work_anchors(consensus["work_anchors"],
+                                   _build_anchors(consensus["time_anchors"], defaults["time_anchors"]))
+    card = PersonaCard(
         identity=Identity.model_validate(consensus["identity"]),
         relationships=tuple(Relationship.model_validate(item)
                             for item in consensus["relationships"]),
         situation=Situation.model_validate(consensus["situation"]),
-        time_anchors=_build_anchors(consensus["time_anchors"],
-                                    defaults["time_anchors"]),
+        time_anchors=anchors,
         chronotype_midsleep=_chronotype(consensus, defaults),
         sleep_need_hours=_sleep_need(consensus, defaults),
         habits=tuple(HabitSignature.model_validate(
@@ -292,6 +307,7 @@ def _build_card(consensus: Mapping, config: Mapping) -> PersonaCard:
         tastes=Tastes.model_validate(consensus["tastes"]),
         coping=consensus["coping"],
     )
+    return card, notes
 
 
 def _chronotype(consensus: Mapping, defaults: Mapping) -> float:
@@ -307,8 +323,21 @@ def _sleep_need(consensus: Mapping, defaults: Mapping) -> float:
 
 
 def _build_anchors(raw: Mapping, defaults: Mapping) -> TimeAnchors:
-    """@brief 五个锚点：null -> TOML 缺省窗口；跨午夜窗口自动 +24。"""
-    fields = {}
+    """@brief 五个锚点：null -> TOML 缺省窗口；跨午夜窗口自动 +24；下班与到家先置 null，由 _work_anchors 落下。"""
+    fields: dict[str, TimeWindow | None] = {}
     for name in ("wake", "leave_home", "lunch", "dinner", "bedtime"):
         fields[name] = TimeWindow.from_clock_range(raw[name] or defaults[name])
-    return TimeAnchors.model_validate(fields)
+    return TimeAnchors.model_validate({**fields, "leave_work": None, "arrive_home": None})
+
+
+def _work_anchors(raw: Any, anchors: TimeAnchors) -> tuple[TimeAnchors, tuple[str, ...]]:
+    """@brief 下班与到家锚点：null 保持 null、不读缺省；乱序按固定顺序降级为 null，返回最终锚点与逐条英文说明。"""
+    if not isinstance(raw, dict) or set(raw) != set(_WORK_ANCHORS):
+        raise ValueError(f"work_anchors must be an object with exactly the keys {list(_WORK_ANCHORS)}")
+    parsed = {name: None if raw[name] is None else TimeWindow.from_clock_range(raw[name])
+              for name in _WORK_ANCHORS}
+    leave_work, arrive_home, problems = settle_work_anchors(
+        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])
+    fields = {name: getattr(anchors, name) for name in TimeAnchors.model_fields}
+    final = TimeAnchors.model_validate({**fields, "leave_work": leave_work, "arrive_home": arrive_home})
+    return final, tuple(f"work_anchor_demoted: {text}" for text in problems)

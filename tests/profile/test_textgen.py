@@ -94,7 +94,7 @@ def test_cross_midnight_bedtime_renders_as_next_day():
         time_anchors=TimeAnchors(
             wake=make_window(7.0, 7.5), leave_home=make_window(8.0, 8.5),
             lunch=make_window(12.0, 13.0), dinner=make_window(18.5, 19.5),
-            bedtime=make_window(23.5, 25.0)))
+            bedtime=make_window(23.5, 25.0), leave_work=None, arrive_home=None))
     assert "23点半到1点" in render_card(card)
 
 
@@ -125,10 +125,10 @@ def _golden_card(kind: str):
     if kind == "half_hour":
         return make_card(chronotype_midsleep=3.5, time_anchors=TimeAnchors(
             wake=make_window(6.5, 7.5), leave_home=make_window(8.5, 9.0), lunch=make_window(11.5, 12.5),
-            dinner=make_window(18.5, 19.5), bedtime=make_window(22.5, 23.5)))
+            dinner=make_window(18.5, 19.5), bedtime=make_window(22.5, 23.5), leave_work=None, arrive_home=None))
     return make_card(chronotype_midsleep=5.25, time_anchors=TimeAnchors(
         wake=make_window(8.0, 8.5), leave_home=make_window(9.0, 9.5), lunch=make_window(12.0, 13.0),
-        dinner=make_window(19.0, 20.0), bedtime=make_window(24.5, 25.5)), habits=(
+        dinner=make_window(19.0, 20.0), bedtime=make_window(24.5, 25.5), leave_work=None, arrive_home=None), habits=(
         HabitSignature(trigger="睡不着", response="刷短视频", time_window=make_window(25.0, 26.0)),
         HabitSignature(trigger="睡前", response="读几页小说", time_window=make_window(23.5, 24.0))))
 

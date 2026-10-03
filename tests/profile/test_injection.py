@@ -44,9 +44,12 @@ def _run(name: str) -> dict:
 
 
 def _card(run: dict) -> PersonaCard:
-    """运行冻结的结构化卡片补回当下处境（结构化卡片去掉了它，不影响作息与口味）。"""
-    return PersonaCard.model_validate({**run["persona_card_struct"],
-                                       "situation": {"busy_this_week": "上班", "cares_about": "作息"}})
+    """运行冻结的结构化卡片补回当下处境（结构化卡片去掉了它，不影响作息与口味）；记录早于卡片结构 3，时间锚点同样补上
+    为 null 的下班、到家两键（只读记录本身不改写）。"""
+    struct = run["persona_card_struct"]
+    return PersonaCard.model_validate({
+        **struct, "time_anchors": {**struct["time_anchors"], "leave_work": None, "arrive_home": None},
+        "situation": {"busy_this_week": "上班", "cares_about": "作息"}})
 
 
 def _agent(agent_id: int = 1, **rhythm) -> AgentConfig:

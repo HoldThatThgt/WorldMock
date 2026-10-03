@@ -325,6 +325,29 @@ _DELIVERY_BOUNDARY_TESTS = [
     _CONTROL_ITEMS + "test_control_errands_reads_every_change_in_order",
 ]
 
+_CARD_EXTRACTION = "tests/profile/test_extractor.py::"
+_CARD_MODELS = "tests/profile/test_models.py::"
+
+#: 「作息锚点」（卡片一侧）：头七个节点经真实 extract_persona 与脚本化会话——故事写明时产出窗口、未提及为 null 且不取映射
+#: 表缺省、下班摇摆不改变其余五锚点、单次采样乱序只为放行而降级且不消耗重试、共识乱序先降下班再降到家且卡片照常编译、
+#: 三次采样各自乱序而共识合法时不降级、格式错误照常重试；第八个是 null 新锚点下凌晨就寝仍回绕归一；第九个是真实
+#: compile_persona 把降级说明接在一致性警告之后。末三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束、固定的
+#: 降级顺序与说明）。人设层、画像文本、恢复拒绝与场景覆盖经真实运行路径的节点随后续切片补登。
+_WORK_ANCHOR_TESTS = [
+    _CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",
+    _CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",
+    _CARD_EXTRACTION + "test_wavering_leave_work_does_not_change_the_five_anchors",
+    _CARD_EXTRACTION + "test_out_of_order_sample_is_admitted_without_a_parse_retry",
+    _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",
+    _CARD_EXTRACTION + "test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted",
+    _CARD_EXTRACTION + "test_malformed_or_missing_work_anchors_take_the_parse_retry",
+    _CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",
+    "tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it",
+    _CARD_MODELS + "test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order",
+    _CARD_MODELS + "test_work_anchor_order_constraints_are_enforced",
+    _CARD_MODELS + "test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -341,7 +364,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
     "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
     "事务与收尾记忆指标": {"stage": "2", "tests": []},
-    "作息锚点": {"stage": "3", "tests": []},
+    "作息锚点": {"stage": "3", "tests": _WORK_ANCHOR_TESTS},
     "工作安排加载": {"stage": "3", "tests": []},
     "上班安排呈现": {"stage": "3", "tests": []},
     "计划与义务": {"stage": "3", "tests": []},
@@ -516,6 +539,18 @@ _PROMPT_SOURCE = "custom/agents/life_prompt.py"
 #: 导入的 LifeAgent（按本名导入 custom.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
 _SEPARATION_KILLERS = (_SEPARATED,)
 _VERBATIM_KILLERS = (_SYSTEM_VERBATIM,)
+_EXTRACTOR_MODULE = "worldmock.profile.extractor"
+_EXTRACTOR_SOURCE = "src/worldmock/profile/extractor.py"
+_CARD_MODELS_MODULE = "worldmock.profile.models"
+_CARD_MODELS_SOURCE = "src/worldmock/profile/models.py"
+#: 卡片锚点四个变异的杀手都经真实 extract_persona（脚本化会话）：抽取把写明的下班丢成 null 时卡片没有下班窗口；下班与到家
+#: 的 null 换成固定的傍晚窗口时卡片不再是 null；新锚点并入回绕归一的名字元组时 null 让归一整体放弃、凌晨就寝按同日乱序被拒
+#: 直至重试耗尽；乱序不降级而原样落进锚点时每次采样都被卡片校验拒绝、重试耗尽。
+_STATED_ANCHOR_KILLERS = (_CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",)
+_NO_DEFAULT_KILLERS = (_CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",)
+_WRAPAROUND_KILLERS = (_CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",)
+_DEMOTION_KILLERS = (
+    _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1065,6 +1100,41 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         _VERBATIM_KILLERS,
     ),
+    SourceMutation(
+        "extraction_drops_stated_work_anchor",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
+        '        anchors.leave_home, anchors.bedtime, None, parsed["arrive_home"])\n',
+        _STATED_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "leave_work_takes_a_default",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        "None if raw[name] is None else TimeWindow.from_clock_range(raw[name])",
+        'TimeWindow.from_clock_range(raw[name] or "18:00-18:30")',
+        _NO_DEFAULT_KILLERS,
+    ),
+    SourceMutation(
+        "work_anchors_join_wraparound",
+        _CARD_MODELS_MODULE,
+        _CARD_MODELS_SOURCE,
+        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")\n',
+        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime", "leave_work", "arrive_home")\n',
+        _WRAPAROUND_KILLERS,
+    ),
+    SourceMutation(
+        "out_of_order_work_anchor_fails_the_card",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        (
+            "    leave_work, arrive_home, problems = settle_work_anchors(\n"
+            '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n'
+        ),
+        '    leave_work, arrive_home, problems = parsed["leave_work"], parsed["arrive_home"], ()\n',
+        _DEMOTION_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1112,10 +1182,10 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
                                                   "version_8_export_passes_delivery_gate")},
-    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ()},
-    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ()},
-    "新锚点并入回绕归一": {"stage": "3", "mutations": ()},
-    "乱序时整卡失败": {"stage": "3", "mutations": ()},
+    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ("extraction_drops_stated_work_anchor",)},
+    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
+    "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
+    "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
     "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": ()},
     "按星期推断休息日": {"stage": "3", "mutations": ()},
     "所有人物套班次": {"stage": "3", "mutations": ()},
@@ -1201,6 +1271,10 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/session_actions.py",
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
+    "src/worldmock/profile/compile.py",
+    "src/worldmock/profile/extractor.py",
+    "src/worldmock/profile/injection.py",
+    "src/worldmock/profile/models.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
     "tools/run-viewer.html",

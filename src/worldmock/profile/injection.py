@@ -291,11 +291,12 @@ def coverage_warnings(agent_id: int, report: PersonaCoverageReport) -> list[dict
 
 
 def agreement_warnings(agent_id: int, compiler_warnings: Sequence[str]) -> list[dict[str, Any]]:
-    """@brief PERSONA_AGREEMENT_LOW：逐条透传画像编译的警告（三次一致性低于 2/3 的字段）。
+    """@brief PERSONA_AGREEMENT_LOW：逐条透传画像编译留下的警告（一致性偏低的字段、下班与到家锚点的降级说明等）。
 
+    该码泛指画像编译留下的警告，消息不预设原因（docs/dev/SPEC-errands-workday.md 4.1）。
     @return details 键：compiler_warning（编译产物 warnings 中的原文）
     """
-    return [_warning("PERSONA_AGREEMENT_LOW", agent_id, f"画像编译的三次一致性偏低：{text}。", compiler_warning=text)
+    return [_warning("PERSONA_AGREEMENT_LOW", agent_id, f"画像编译留下警告：{text}。", compiler_warning=text)
             for text in compiler_warnings]
 
 

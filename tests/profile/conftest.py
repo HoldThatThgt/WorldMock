@@ -36,7 +36,7 @@ def make_card(**overrides) -> PersonaCard:
         time_anchors=TimeAnchors(
             wake=make_window(7.0, 7.5), leave_home=make_window(8.0, 8.5),
             lunch=make_window(12.0, 13.0), dinner=make_window(18.5, 19.5),
-            bedtime=make_window(23.0, 24.0)),
+            bedtime=make_window(23.0, 24.0), leave_work=None, arrive_home=None),
         chronotype_midsleep=4.0,
         sleep_need_hours=7.5,
         habits=(
@@ -68,6 +68,7 @@ def make_payload(**overrides) -> dict:
         "time_anchors": {"wake": "07:00-07:30", "leave_home": "08:00-08:30",
                          "lunch": "12:00-13:00", "dinner": "18:30-19:30",
                          "bedtime": "23:00-24:00"},
+        "work_anchors": {"leave_work": None, "arrive_home": None},
         "chronotype_midsleep": "04:00",
         "sleep_need_hours": 7.5,
         "habits": [
