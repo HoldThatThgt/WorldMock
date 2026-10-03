@@ -128,6 +128,14 @@ _REFLECTION_TESTS = [
     "tests/evaluation/test_behavior_metrics.py::test_reflection_requests_and_their_retries_are_not_decision_requests",
 ]
 
+_PURCHASE_CHANNELS = "tests/life/test_purchase_channels.py::"
+
+#: 「来源筛选」（阶段 4，随各切片增长）：第一个节点在隔离渠道语料的真实引擎与 SQLite 上守冻结观察的两项私有事实——渠道
+#: 索引 world_query_channels 与供给条目的 location_id，观察事件读回逐值相等、两项都不进五个环境层。
+_SOURCE_FILTER_TESTS = [
+    _PURCHASE_CHANNELS + "test_frozen_observation_carries_the_channel_index_and_supply_stores",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -151,7 +159,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "工作合同边界": {"stage": "3", "tests": []},
     "工作负荷与作息偏离": {"stage": "3", "tests": []},
     "查询请求": {"stage": "4", "tests": []},
-    "来源筛选": {"stage": "4", "tests": []},
+    "来源筛选": {"stage": "4", "tests": _SOURCE_FILTER_TESTS},
     "可执行筛选": {"stage": "4", "tests": []},
     "分页与返回": {"stage": "4", "tests": []},
     "查询只读": {"stage": "4", "tests": []},
@@ -515,7 +523,11 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/life/models.py",
+    "src/worldmock/life/name_resolution.py",
+    "src/worldmock/life/narration.py",
+    "src/worldmock/life/purchase_offers.py",
     "src/worldmock/life/read_query_runtime.py",
+    "src/worldmock/life/world_query.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
 )

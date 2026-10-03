@@ -12,14 +12,17 @@ from worldmock.life.world_query import QueryWorldRequest, query_world, validate_
 
 
 def _observation(count=47, page_size=20):
-    """公开冻结页夹具，每个商品保留零金额和不可用状态，不含任何秘密字段。"""
+    """公开冻结页夹具，每个商品保留零金额和不可用状态，不含任何秘密字段；商品都属地点表里的「商店」，没有购买渠道。"""
     entries = [{"identity": f"supply:{index:03}", "category": "食品", "aliases": [f"商店出售的食品{index:03}"],
+                "location_id": "store",
                 "match": {"name": f"商店出售的食品{index:03}", "kind": "product", "state": None,
                           "actions": [{"way": "到店", "available": index % 2 == 0,
                                        "reason": None if index % 2 == 0 else "Out of stock", "price": 0}],
                           "tools": [], "candidates": []}}
                for index in range(count)]
-    return {"world_query_bindings": list(reversed(entries)), "world_query_page_size": page_size,
+    return {"world_query_bindings": list(reversed(entries)), "world_query_channels": [],
+            "world_query_page_size": page_size, "locations": [{"location_id": "store", "name": "商店"}],
+            "home_location_id": "home",
             "tool_layer": {"callable_index": {"query_categories": [{"category": "食品", "count": count}]}}}
 
 

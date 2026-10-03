@@ -1,7 +1,8 @@
 """@brief 指名购买的来源范围、可服务的供给与按偏好选定（docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5）。
 
-来源范围（source_scope）：from 为 null 是全部门店；是地点的显示名（精确、无损归一或去掉「地点：」前缀后唯一，「家」「住处」
-指本人住处）时是该地点；是渠道称呼（去掉空白、不分大小写，其余逐字比较，name_resolution.channel_key）时是该渠道的成员门店，
+来源范围（source_scope）：from 为 null 是全部门店；其余写法交给与查询共用的纯函数 name_resolution.resolve_source
+（docs/dev/SPEC-errands-workday.md 5.2）：是地点的显示名（精确、无损归一或去掉「地点：」前缀后唯一，「家」「住处」指本人
+住处）时是该地点；是渠道称呼（去掉空白、不分大小写，其余逐字比较，name_resolution.channel_key）时是该渠道的成员门店，
 并记下 channel_id；都不是时为 None（SOURCE_NOT_FOUND）。渠道只是门店集合的称呼（裁决 D8、S7），不带交付语义。
 
 可服务（offers，分段匹配的 M3）：到店要人此刻就在那家店里（途中不在任何店里）且供给支持到店；远程下单要供给支持配送且能
@@ -24,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from worldmock.life.admission import present_location
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.interaction_menu import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
-from worldmock.life.name_resolution import channel_key, rank, written_place
+from worldmock.life.name_resolution import near_source_names, resolve_source
 from worldmock.life.storefront_state import current_quote
 from worldmock.life.wayfinding import shortest_paths
 
@@ -74,34 +75,22 @@ class Offer:
 
 def source_scope(context: LayerContext, source: str | None) -> SourceScope | None:
     """@brief from 决定的来源范围（3.3 解析规则 1）：null → 全部门店；地点显示名 → 该地点；渠道称呼 → 成员门店并记下
-    channel_id；都不是 → None。"""
+    channel_id；都不是 → None。非 null 的写法由与查询共用的纯函数 name_resolution.resolve_source 解析。"""
     if source is None:
         return SourceScope()
-    places = {item.location_id: item.name for item in context.scenario.locations}
-    place = written_place(source, tuple(places.values()), places.get(_home(context)))
-    if place is not None:
-        return SourceScope(frozenset(identity for identity, name in places.items() if name == place), None, place)
-    key = channel_key(source)
-    channel = next((item for item in context.semantics.purchase_channels
-                    if key in {channel_key(name) for name in item.names}), None)
-    if channel is None:
-        return None
-    return SourceScope(frozenset(channel.store_location_ids), channel.channel_id, source)
+    match = resolve_source(source, _places(context), _home(context), _channel_rows(context))
+    return None if match is None else SourceScope(match.store_ids, match.channel_id, match.name)
 
 
 def near_sources(context: LayerContext, written: str, feasible: Callable[[frozenset[str]], bool]) -> list[str]:
     """@brief SOURCE_NOT_FOUND 的候选来源：有供给的门店的显示名与渠道称呼中与所写最相近的至多 3 个（范围内此刻能买到这件
-    商品的在前，name_resolution.rank）；一个也不相近时取此刻能买到的来源。渠道取它的第一个称呼。
+    商品的在前，name_resolution.rank）；一个也不相近时取此刻能买到的来源。渠道取它的第一个称呼。排名由与查询共用的纯函数
+    name_resolution.near_source_names 完成。
 
     :param feasible: 一个来源范围（门店身份集合）此刻能不能买到这件商品。
     """
-    places = {item.location_id: item.name for item in context.scenario.locations}
-    stores = sorted({supply.location_id for supply in context.scenario.supplies})
-    entries = [*((places[store], (places[store],), frozenset({store})) for store in stores),
-               *((channel.names[0], channel.names, frozenset(channel.store_location_ids))
-                 for channel in context.semantics.purchase_channels if channel.names)]
-    chosen = rank(written, entries, lambda entry: entry[1], lambda entry: feasible(entry[2]))
-    return [entry[0] for entry in chosen or [entry for entry in entries if feasible(entry[2])][:3]]
+    stores = (supply.location_id for supply in context.scenario.supplies)
+    return near_source_names(written, _places(context), stores, _channel_rows(context), feasible)
 
 
 def offers(context: LayerContext, supplies: Iterable[Any], way: str,
@@ -196,3 +185,14 @@ def _deliveries(context: LayerContext, supplies: Sequence[Any], destination_id: 
 def _home(context: LayerContext) -> str | None:
     """@brief 本人住处的地点身份（「家」「住处」按它解析）。"""
     return next((item.home_location_id for item in context.scenario.agents if item.agent_id == context.agent_id), None)
+
+
+def _places(context: LayerContext) -> dict[str, str]:
+    """@brief 场景全部地点：地点身份 → 显示名（来源解析的地点名表）。"""
+    return {item.location_id: item.name for item in context.scenario.locations}
+
+
+def _channel_rows(context: LayerContext) -> tuple:
+    """@brief 场景语义里的购买渠道写成来源解析的渠道表（name_resolution.ChannelRow：渠道身份、称呼、成员门店），按声明顺序。"""
+    return tuple((channel.channel_id, channel.names, channel.store_location_ids)
+                 for channel in context.semantics.purchase_channels)

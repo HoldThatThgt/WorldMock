@@ -44,7 +44,8 @@ def observation():
     return {"agent_id": 1, "interaction_bindings": rows, "catalog_bindings": [], "locations": [],
             "person_bindings": [{"name": "人物：同事", "person_id": "agent:2"}], "message_bindings": [],
             "task_bindings": [{"task_name": "工作：会议总结", "task_id": "task:1"}], "goal_bindings": [],
-            "activity_bindings": [], "world_query_bindings": [], "world_query_page_size": 2,
+            "activity_bindings": [], "world_query_bindings": [], "world_query_channels": [],
+            "world_query_page_size": 2, "home_location_id": "home",
             "tool_layer": {"targets": [], "callable_index": {"query_categories": []}}}
 
 

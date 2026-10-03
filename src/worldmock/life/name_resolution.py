@@ -626,6 +626,59 @@ def written_place(written: str, places: Sequence[str], home: str | None = None) 
     return resolve_name(written, places).name
 
 
+#: 渠道表的一行：（渠道身份，称呼，成员门店）。购买侧取自场景语义的购买渠道，查询侧取自冻结观察的渠道索引。
+ChannelRow = tuple[str, Sequence[str], Sequence[str]]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceMatch:
+    """@brief 所写来源解析出的范围（docs/dev/SPEC-errands-workday.md 5.2）。
+
+    :param store_ids: 范围内的门店（地点身份）；同一显示名的几处地点都在内。
+    :param channel_id: 来源是渠道称呼时该渠道的身份，否则为 None。
+    :param name: 范围的可读说法：地点显示名，或所写的渠道称呼。
+    """
+
+    store_ids: frozenset[str]
+    channel_id: str | None
+    name: str
+
+
+def resolve_source(written: str, places: Mapping[str, str], home: str | None,
+                   channels: Sequence[ChannelRow]) -> SourceMatch | None:
+    """@brief 所写购买来源的范围：购买与查询共用的纯函数，不读世界与环境上下文（docs/dev/SPEC-errands-workday.md 5.2，
+    docs/dev/SPEC-dayrun-fidelity.md 3.3 解析规则 1）。地点显示名（精确、无损归一或去掉「地点：」前缀后唯一，written_place；
+    「家」「住处」指住处）是该显示名的地点；否则是渠道称呼（channel_key 比较）时是该渠道的成员门店并记下渠道身份；都不是
+    时为 None。null 来源不归本函数（购买侧是全部门店，查询侧是不按来源筛选）。
+
+    :param places: 场景全部地点：地点身份 → 显示名。
+    :param home: 本人住处的地点身份；没有时为 None。
+    :param channels: 渠道表（ChannelRow），按声明顺序；先命中的渠道生效。
+    """
+    place = written_place(written, tuple(places.values()), places.get(home))
+    if place is not None:
+        return SourceMatch(frozenset(identity for identity, name in places.items() if name == place), None, place)
+    key = channel_key(written)
+    row = next((item for item in channels if key in {channel_key(name) for name in item[1]}), None)
+    return None if row is None else SourceMatch(frozenset(row[2]), row[0], written)
+
+
+def near_source_names(written: str, places: Mapping[str, str], stores: Iterable[str],
+                      channels: Sequence[ChannelRow], feasible: Callable[[frozenset[str]], bool]) -> list[str]:
+    """@brief 与所写来源最相近的至多 3 个来源名（纯函数）：stores 中各门店的显示名（按地点身份排序）与各渠道的第一个称呼
+    （其余称呼也参与比对），按 rank 排名（可行的在前）；一个也不相近时按同一顺序取前几个可行的来源。
+
+    :param places: 地点身份 → 显示名（须含 stores 中的每一处）。
+    :param stores: 可作候选的门店（地点身份，可重复）。
+    :param channels: 渠道表（ChannelRow）；没有称呼的渠道不作候选。
+    :param feasible: 一个来源范围（门店身份集合）是否可行。
+    """
+    entries = [*((places[store], (places[store],), frozenset({store})) for store in sorted(set(stores))),
+               *((row[1][0], tuple(row[1]), frozenset(row[2])) for row in channels if row[1])]
+    chosen = rank(written, entries, lambda entry: entry[1], lambda entry: feasible(entry[2]))
+    return [entry[0] for entry in chosen or [entry for entry in entries if feasible(entry[2])][:MAX_CANDIDATES]]
+
+
 def _same_place(book: NameBook, written: str, anchor: str | None) -> bool:
     """@brief 所写的名称是否就是 anchor（按去掉前缀后的归一写法比较；「家」「住处」按本人住处比较）。"""
     if anchor is None:

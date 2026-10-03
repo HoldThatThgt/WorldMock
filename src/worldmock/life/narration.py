@@ -15,7 +15,8 @@ import logging
 PERSONA_CARD_HANZI_BUDGET = 600
 
 #: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与 activities 对应"完整活动快照"；
-#: affordance_contract 和 interaction_menu 是合同全表；*_bindings 是名称到内部身份的私有绑定；
+#: affordance_contract 和 interaction_menu 是合同全表；*_bindings 是名称到内部身份的私有绑定；world_query_channels 是
+#: 查询来源筛选的私有渠道索引（docs/dev/SPEC-errands-workday.md 5.2）；
 #: persona_views、progress_meta、progress_event_ids、presented_message_ids 与 continuation 是观察私有证据
 #: （docs/dev/SPEC-persona-prompt.md 第一章、第二章「同秒续接」）。七层字段 activity（记忆层 self_notes 与结果
 #: outcome 的活动名）是可读名称，不在禁键之列。
@@ -38,6 +39,7 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "reference_assessment",
     "world_query_bindings",
     "world_query_page_size",
+    "world_query_channels",
     "oracle_path",
     "input_path",
     "accounts",

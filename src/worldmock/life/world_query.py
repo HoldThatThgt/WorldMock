@@ -50,7 +50,9 @@ class QueryWorldRequest(BaseModel):
 
 
 def attach_world_query(observation: dict, context: Any) -> None:
-    """@brief 在观察构建时一次冻结完整权限内事实，供宿主即时只读分页使用。"""
+    """@brief 在观察构建时一次冻结完整权限内事实，供宿主即时只读分页使用；另冻结渠道索引（world_query_channels：渠道
+    身份、称呼、成员门店，按声明顺序），供来源筛选与购买共用同一解析（docs/dev/SPEC-errands-workday.md 5.2）。地点表与
+    住处已在观察里（locations、home_location_id），不另存副本。"""
     from worldmock.life.tool_layer import tool_layer, with_bindings
     from worldmock.life.callable_index import query_category_index
 
@@ -59,6 +61,9 @@ def attach_world_query(observation: dict, context: Any) -> None:
     private = {row["object"]: row for row in bindings}
     entries = [_frozen_entry(context, target, private.get(target["name"])) for target in complete]
     observation["world_query_bindings"] = entries
+    observation["world_query_channels"] = [
+        {"channel_id": channel.channel_id, "names": list(channel.names),
+         "store_location_ids": list(channel.store_location_ids)} for channel in context.semantics.purchase_channels]
     observation["world_query_page_size"] = context.scenario.candidate_presentation_limit
     observation["tool_layer"]["callable_index"]["query_categories"] = query_category_index(entries)
 
@@ -95,15 +100,18 @@ def _supply_bindings(context: Any) -> list[dict]:
 
 
 def _frozen_entry(context: Any, target: dict, binding: dict | None) -> dict:
-    """@brief 内部身份只用于排序，查询结果保留公开目标与完整可提交候选。"""
+    """@brief 内部身份只用于排序，查询结果保留公开目标与完整可提交候选；供给条目另记所属门店（location_id，来源筛选用，
+    不进查询结果），其余条目为 None。"""
     identity = (f"{binding['kind']}:{binding['object_id']}" if binding is not None else target["name"])
     public = copy.deepcopy(target)
     public["candidates"] = _request_candidates(context, target)
-    aliases = [target["name"]]
+    aliases, location = [target["name"]], None
     if binding is not None and binding["kind"] == "supply":
-        product = context.rules.items[context.rules.supplies[binding["object_id"]].product_id]
-        aliases.append(product.name)
-    return {"identity": identity, "category": _category(context, binding), "aliases": aliases, "match": public}
+        supply = context.rules.supplies[binding["object_id"]]
+        aliases.append(context.rules.items[supply.product_id].name)
+        location = supply.location_id
+    return {"identity": identity, "category": _category(context, binding), "aliases": aliases,
+            "location_id": location, "match": public}
 
 
 def _category(context: Any, binding: dict | None) -> str | None:

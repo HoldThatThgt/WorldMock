@@ -6,7 +6,8 @@ load_runtime_scenario 的真实加载路径派生并准入；真实 LifeEngine�
 再由环境受理：from 为 null（全部门店）、门店名（该门店）、渠道称呼（成员门店，订单记 channel_id）与其他写法
 （SOURCE_NOT_FOUND，候选为最相近的门店名与 App 称呼）各一例；渠道内多家都卖时按最快选最近的一家并写进 details.notes，
 并列时比到手价、再比门店标识；订单载荷与导出的 purchases.jsonl 带 channel_id；没有手机配置时 App 名报 SOURCE_NOT_FOUND；
-准入不成立的渠道在加载时拒绝，手机配置核验失败时不派生渠道、加载照常。
+准入不成立的渠道在加载时拒绝，手机配置核验失败时不派生渠道、加载照常。冻结观察另带查询来源筛选的两项私有事实：渠道
+索引与供给条目所属门店（docs/dev/SPEC-errands-workday.md 5.2）。
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from tests.life.conftest import stage_day_plan, start_arguments  # noqa: E402
+from tests.life.conftest import context, stage_day_plan, start_arguments  # noqa: E402
 from tests.life.purchase_worlds import at_clock, build_world, decide, phone_config  # noqa: E402
 from tests.life.routing_fixtures import place, stage  # noqa: E402
 from tests.life.test_browse_and_hints import _show  # noqa: E402
@@ -28,6 +29,7 @@ from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.footprints.purchases import project_purchase_facts  # noqa: E402
 from worldmock.life.basket import delivery_expected_at  # noqa: E402
 from worldmock.life.load_checks import check_channel_admission  # noqa: E402
+from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
 from worldmock.life.readable import clock_phrase  # noqa: E402
 from worldmock.life.semantics import load_runtime_scenario  # noqa: E402
 from worldmock.profile.coverage_apps import PurchaseChannel  # noqa: E402
@@ -289,3 +291,33 @@ def test_a_listed_label_with_an_app_in_from_is_resolved_against_that_channel(eng
     [item] = refused.data["items"]
     assert (item["path"][-1], item["written"]) == ("from", "盒马App")
     assert [candidate["arguments"] for candidate in item["candidates"]] == [_buy(label)]
+
+
+def test_frozen_observation_carries_the_channel_index_and_supply_stores(engine_factory, world) -> None:
+    """冻结观察只新增两项私有事实（docs/dev/SPEC-errands-workday.md 5.2）：渠道索引 world_query_channels 按声明顺序列出各渠道
+    的身份、称呼与成员门店，与场景语义派生的购买渠道逐值相等；每个查询冻结条目带 location_id——供给条目是该供给所在的门店，
+    其余条目为 null。观察事件从 SQLite 读回的两项与宿主拿到的逐值相等（环境入口读同一份）；两项都不进五个环境层，渠道索引
+    列入提示禁键（location_id 已在禁键内）。"""
+    engine = _engine(engine_factory, world)
+    observed = engine.observe(context(engine, "frozen-sources"))
+    channels = [{"channel_id": item.channel_id, "names": list(item.names),
+                 "store_location_ids": list(item.store_location_ids)} for item in engine.semantics.purchase_channels]
+    assert [row["channel_id"] for row in channels] == ["hema", "meituan-takeaway"]
+    assert observed["world_query_channels"] == channels
+    entries = observed["world_query_bindings"]
+    for entry in entries:
+        assert list(entry) == ["identity", "category", "aliases", "location_id", "match"]
+        identity = entry["identity"]
+        supply = engine.rules.supplies[identity.removeprefix("supply:")] if identity.startswith("supply:") else None
+        assert entry["location_id"] == (None if supply is None else supply.location_id), identity
+    stores = {entry["location_id"] for entry in entries}
+    assert {_HAODE, _NONGGONGSHANG, _MARKET, None} <= stores
+    [stored] = [event for event in engine.store.read_agent_events("observation", 1)
+                if event.event_id == observed["observation_event_id"]]
+    assert stored.data["world_query_channels"] == channels
+    assert [(row["identity"], row["location_id"]) for row in stored.data["world_query_bindings"]] == [
+        (entry["identity"], entry["location_id"]) for entry in entries]
+    layers = json.dumps([observed[key] for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer",
+                                                   "progress_layer")], ensure_ascii=False)
+    assert '"world_query_channels"' not in layers and '"location_id"' not in layers
+    assert {"world_query_channels", "location_id"} <= FORBIDDEN_OBSERVATION_KEYS
