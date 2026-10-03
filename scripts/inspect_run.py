@@ -10,10 +10,13 @@
   python3 scripts/inspect_run.py <run_dir> flows [--tail K]
   python3 scripts/inspect_run.py <run_dir> rerun
   python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
+  python3 scripts/inspect_run.py <run_dir> queries
 
 rerun 只读计算 docs/dev/SPEC-time-and-energy.md 验收台账「真实复验」行的八项指标，只报告，不作门禁。
 continuation 只读给出 docs/dev/SPEC-persona-prompt.md 第七章「续接对比」的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一场景文件、同一模型身份，只有 same_second_continuation 不同），不可比即拒绝比较。
+queries 只读给出 docs/dev/SPEC-errands-workday.md 6.3「查询成本」的八个键（JSON），口径取已落库的模型工具交换证据，
+只报告，不作门禁。
 """
 from __future__ import annotations
 
@@ -661,6 +664,144 @@ def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
+#: queries 子命令按此顺序打印的键（docs/dev/SPEC-errands-workday.md 6.3「查询成本」）。
+QUERY_REPORT_KEYS = ("run_id", "calls", "failures", "returned_chars", "filtered_calls", "empty_after_filter",
+                     "model_calls_to_purchase", "reflection_retries")
+#: 被计量的查询工具；决策循环请求开放的世界请求工具；就寝反思唯一的严格工具。
+QUERY_TOOL, DECISION_TOOL, REFLECTION_TOOL = "query_world", "start_activity", "submit_reflection"
+#: 就寝反思原始请求的消息条数（AS2 的 system 与 user 两条）；校验重试在其后附一条 user 附回消息，不逐次累积。
+REFLECTION_ORIGINAL_MESSAGES = 2
+#: 模型响应（phase=response）第一条选择里名为 query_world 的工具调用：（响应序号，人物，决策，起因请求，调用身份，参数）。
+_QUERY_CALLS = (
+    "SELECT e.event_seq, json_extract(e.body,'$.agent_id'), json_extract(e.body,'$.decision_id'), "
+    "json_extract(e.body,'$.caused_by[0]'), json_extract(c.value,'$.id'), json_extract(c.value,'$.function.arguments') "
+    "FROM events e, json_each(e.body,'$.data.response.choices[0].message.tool_calls') c "
+    "WHERE json_extract(e.body,'$.event_type')='model_response' AND json_extract(e.body,'$.data.phase')='response' "
+    f"AND json_extract(c.value,'$.function.name')='{QUERY_TOOL}' ORDER BY e.event_seq, c.key")
+#: 模型请求消息里的 tool 消息：（请求序号，决策，调用身份，正文）。
+_TOOL_MESSAGES = (
+    "SELECT e.event_seq, json_extract(e.body,'$.decision_id'), json_extract(m.value,'$.tool_call_id'), "
+    "json_extract(m.value,'$.content') FROM events e, json_each(e.body,'$.data.request.messages') m "
+    "WHERE json_extract(e.body,'$.event_type')='model_request' AND json_extract(m.value,'$.role')='tool' "
+    "ORDER BY e.event_seq, m.key")
+#: 全部模型请求：（序号，事件身份，人物，消息条数，实际开放的工具名 JSON 数组）。
+_MODEL_REQUESTS = (
+    "SELECT e.event_seq, e.event_id, json_extract(e.body,'$.agent_id'), "
+    "json_array_length(e.body,'$.data.request.messages'), "
+    "(SELECT json_group_array(json_extract(t.value,'$.function.name')) "
+    "FROM json_each(e.body,'$.data.request.tools') t) "
+    "FROM events e WHERE json_extract(e.body,'$.event_type')='model_request' ORDER BY e.event_seq")
+
+
+def _json_object(text: object) -> dict | None:
+    """@brief 文本解析为 JSON 对象；不是字符串、不是合法 JSON 或解析结果不是对象时为 None。"""
+    if not isinstance(text, str):
+        return None
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _query_calls(conn: sqlite3.Connection) -> list[dict]:
+    """@brief 全部 query_world 调用，按响应事件序号与调用位置排列；参数解析为对象（解析不了时为 None）。"""
+    return [{"seq": seq, "agent_id": agent, "decision_id": decision, "cause": cause, "id": call_id,
+             "arguments": _json_object(arguments)}
+            for seq, agent, decision, cause, call_id, arguments in conn.execute(_QUERY_CALLS)]
+
+
+def _tool_answers(conn: sqlite3.Connection) -> dict[tuple, list[tuple[int, str]]]:
+    """@brief （决策身份，调用身份）→ 带该调用身份的 tool 消息所在请求的（事件序号，正文），按序号升序。"""
+    answers: dict[tuple, list[tuple[int, str]]] = defaultdict(list)
+    for seq, decision, call_id, content in conn.execute(_TOOL_MESSAGES):
+        answers[(decision, call_id)].append((seq, content))
+    return answers
+
+
+def _query_page(call: dict, answers: dict[tuple, list[tuple[int, str]]]) -> tuple[dict, str] | None:
+    """@brief 一次查询调用的结果页：同一决策里晚于该响应、最先带同一调用身份的 tool 消息。
+
+    正文解析为带 matches 的 JSON 对象时返回（页，正文）；整批被拒（正文是协议纠错）或从未得到回答时为 None，即失败。
+    """
+    content = next((text for seq, text in answers.get((call["decision_id"], call["id"]), []) if seq > call["seq"]),
+                   None)
+    page = _json_object(content)
+    return (page, content) if page is not None and "matches" in page else None
+
+
+def _query_filtered(arguments: dict | None) -> bool:
+    """@brief 调用带阶段 4 的两种筛选之一：from 不为 null 或 available_only 为 true；旧四键与解析不了的参数都不算。"""
+    return isinstance(arguments, dict) and (arguments.get("from") is not None
+                                            or arguments.get("available_only") is True)
+
+
+def _model_requests(conn: sqlite3.Connection) -> list[tuple[int, str, int, int | None, list]]:
+    """@brief 全部模型请求的（事件序号，事件身份，人物，消息条数，实际开放的工具名），按序号升序。"""
+    return [(seq, event_id, agent, count, json.loads(names))
+            for seq, event_id, agent, count, names in conn.execute(_MODEL_REQUESTS)]
+
+
+def _purchase_settlements(conn: sqlite3.Connection) -> list[tuple[int, int]]:
+    """@brief 购买结算：每笔订单首次出现的动作结果的（事件序号，下单人物），与续接对比的重复下单同一投影。"""
+    from worldmock.footprints.purchases import project_purchase_facts
+
+    events = _rows(conn, "json_extract(body,'$.event_type') IN ('action_result','action_requested')")
+    sequence = {row["event_id"]: row["seq"] for row in events}
+    return [(sequence[fact["source_event_id"]], fact["agent_id"]) for fact in project_purchase_facts(events)
+            if fact["fact_kind"] == "purchase"]
+
+
+def _calls_to_purchase(calls: list[dict], requests: list[tuple], purchases: list[tuple[int, int]]) -> int | None:
+    """@brief 从首次查询到购买结算的模型调用数。
+
+    取全运行第一个 query_world 调用：其人物 A 与产生该响应的请求 R；取 A 在 R 之后的第一笔购买结算；计 A 在 R（含）
+    到该结算（不含）之间开放了 start_activity 的模型请求（决策循环的请求，含协议纠错与截断重试；就寝反思、零点计划与
+    工作验收不算）。没有查询、找不到 R 或其后没有 A 的购买结算时为 None。
+    """
+    if not calls:
+        return None
+    agent = calls[0]["agent_id"]
+    start = next((seq for seq, event_id, *_ in requests if event_id == calls[0]["cause"]), None)
+    if start is None:
+        return None
+    end = min((seq for seq, buyer in purchases if buyer == agent and seq > start), default=None)
+    if end is None:
+        return None
+    return sum(owner == agent and start <= seq < end and DECISION_TOOL in tools
+               for seq, _, owner, _, tools in requests)
+
+
+def _reflection_retries(requests: list[tuple]) -> int:
+    """@brief 反思校验重试次数：工具只有 submit_reflection 且带附回消息（多于原始两条消息）的模型请求数。"""
+    return sum(tools == [REFLECTION_TOOL] and (count or 0) > REFLECTION_ORIGINAL_MESSAGES
+               for _, _, _, count, tools in requests)
+
+
+def query_cost_report(conn: sqlite3.Connection, run_id: str | None) -> dict:
+    """@brief 查询成本（只报告，docs/dev/SPEC-errands-workday.md 6.3），键序即 QUERY_REPORT_KEYS。
+
+    调用数是模型响应里 query_world 的工具调用数；有结果页的调用算成功，其余（整批被拒、从未回答）是失败；返回字符数
+    只计成功调用结果页的正文；带筛选的调用与筛选后为空（成功且 total_count 为 0）按 _query_filtered 判定。
+    """
+    calls = _query_calls(conn)
+    answers = _tool_answers(conn)
+    answered = [(call, found) for call in calls if (found := _query_page(call, answers)) is not None]
+    requests = _model_requests(conn)
+    return {"run_id": run_id, "calls": len(calls), "failures": len(calls) - len(answered),
+            "returned_chars": sum(len(content) for _, (_, content) in answered),
+            "filtered_calls": sum(_query_filtered(call["arguments"]) for call in calls),
+            "empty_after_filter": sum(_query_filtered(call["arguments"]) and page.get("total_count") == 0
+                                      for call, (page, _) in answered),
+            "model_calls_to_purchase": _calls_to_purchase(calls, requests, _purchase_settlements(conn)),
+            "reflection_retries": _reflection_retries(requests)}
+
+
+def cmd_queries(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
+    """@brief 打印查询成本（JSON，只报告，不作门禁）；运行身份取运行清单。"""
+    print(json.dumps(query_cost_report(conn, _manifest(a.run_dir).get("run_id")), ensure_ascii=False, indent=2))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="只读浏览运行足迹")
     parser.add_argument("run_dir", type=Path)
@@ -681,7 +822,9 @@ if __name__ == "__main__":
     pc = sub.add_parser("continuation")
     pc.add_argument("--topic", action="append")
     pc.add_argument("--baseline", type=Path)
+    sub.add_parser("queries")
     args = parser.parse_args()
     conn = _connect(args.run_dir)
     {"summary": cmd_summary, "events": cmd_events, "event": cmd_event, "money": cmd_money, "body": cmd_body,
-     "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation}[args.cmd](conn, args)
+     "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation,
+     "queries": cmd_queries}[args.cmd](conn, args)

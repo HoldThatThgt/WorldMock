@@ -131,6 +131,7 @@ _REFLECTION_TESTS = [
 _PURCHASE_CHANNELS = "tests/life/test_purchase_channels.py::"
 _QUERY_FILTERS = "tests/life/test_world_query_filters.py::"
 _TOOL_PROTOCOL = "tests/life/test_tool_protocol.py::"
+_QUERY_COST = "tests/life/test_query_cost_report.py::"
 
 #: 「查询请求」（阶段 4）：头五个节点在请求模型与冻结页夹具上守六键必填（缺哪个报哪个）、旧四键请求恰在两个新键上按
 #: 缺字段拒绝（Python 与严格 JSON 两个入口）、available_only 只收布尔、四个筛选全空逐字段报错（available_only 为 true 也
@@ -175,10 +176,14 @@ _SOURCE_FILTER_TESTS = [
 #: 「查询只读」（阶段 4，随各切片增长）：第一个节点经真实引擎、SQLite 与直接导入的 LifeEnv（10:00，含来源、只看此刻能做
 #: 的、二者同写与未知来源各一例）守两入口受理时逐值相等、拒绝时同一份报告，世界状态与事件序号不变，它同时登记在工具
 #: 交互台账与本台账「只读查询转发」行；其后三个在宿主上守六键查询与世界请求混批整批拒绝、最终回合与截断重试不开放查询、
-#: 查询派发不动世界；第五个经真实引擎留证同批只读查询的实际模型交换而不产生进度事件。末两个经真实引擎、SQLite、直接
+#: 查询派发不动世界；第五个经真实引擎留证同批只读查询的实际模型交换而不产生进度事件。第六、七个经真实引擎、SQLite、直接
 #: 导入的 LifeAgent 与 LifeEnv：若干来源、方式与可执行筛选的查询（含被拒的与空页）之后世界状态逐值不变（时钟、版本、
 #: 可见供给与浏览凭据、呈现时刻）、事件序号不变、没有 action_requested、冻结观察不变；同一回合合法筛选查询、未知来源
 #: 查询与记忆查询同批时一份报告、唯一明细落在真实调用下标的 from 上，与世界请求混批时整批拒绝，都什么也没派发。
+#: 末三个守只读子命令 `scripts/inspect_run.py queries` 的输出键（规格 6.3，只报告）：真实引擎与 SQLite 留证一次带两个查询
+#: （其一带筛选）、结果页由直接导入的 LifeAgent 派发、随后真实结算下单的决策，八个键逐值相符；存储写入的手工运行覆盖
+#: 整批被拒、从未回答、筛选后为空、旧四键调用、他人购买与就寝反思的校验重试（附回消息由阶段 1 的 reflection_correction
+#: 生成）；没有查询的运行各计数为 0、首次查询到购买结算为 null，子进程打印的键序与规格原文逐一相同、运行目录不变。
 _QUERY_READONLY_TESTS = [
     _WORLD_QUERY + "test_environment_read_query_keeps_world_clock_round_and_store_unchanged",
     _TOOL_PROTOCOL + "test_world_query_mixed_batches_are_atomic",
@@ -187,6 +192,9 @@ _QUERY_READONLY_TESTS = [
     "tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events",
     _QUERY_FILTERS + "test_filtered_queries_leave_world_clock_events_credentials_and_presentation_unchanged",
     _QUERY_FILTERS + "test_query_batch_is_validated_whole_before_any_query_runs",
+    _QUERY_COST + "test_query_cost_on_a_real_engine_exchange",
+    _QUERY_COST + "test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries",
+    _QUERY_COST + "test_query_cost_of_a_run_without_queries_and_the_printed_keys",
 ]
 
 #: 「可执行筛选」（阶段 4）：全部经真实引擎、SQLite、直接导入的 LifeAgent 与 LifeEnv（宿主本地求值与环境 read_query 在同一
@@ -764,6 +772,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_memory.py",
     "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
+    "scripts/inspect_run.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/life/callable_index.py",
@@ -784,6 +793,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
+    "tests/life/test_query_cost_report.py",
     "tests/life/test_revise_day_plan_json.py",
     "tests/life/test_world_query_filters.py",
     "tests/mutation_runner.py",
