@@ -162,8 +162,9 @@ _ERRAND_REQUESTS = "tests/life/test_errand_requests.py::"
 #: 系统可见、不带决策与动作身份的事务事件，与动作结果同一提交，回执按请求顺序（内容没有变化的更新也写事件，点名暂停的
 #: 活动播报照样恢复它）；空数组合法且回执为空数组；每种结构错误在环境 _dispatch 以完整 errands[j].<键> 路径拒绝、与宿主的
 #: 参数报告逐项相同；收尾在事务复核之后被业务拒绝时事务变更一并不生效、没有事务事件；请求里无法写「完成」；重放不再记下。
-#: 末一个守三个控制工具的 errands 是内联、封闭、八键全部必填且按序的变更对象数组，通过 DeepSeek strict 校验。
-#: 「被业务拒绝的收尾：记忆入库而事务未记下」的人物一侧（真实 LifeAgent → LifeEnv）随宿主切片补登。
+#: 第七个守三个控制工具的 errands 是内联、封闭、八键全部必填且按序的变更对象数组，通过 DeepSeek strict 校验。
+#: 末一个是「被业务拒绝的收尾：记忆入库而事务未记下」的人物一侧：真实 LifeAgent 经 LifeEnv 登记带合法事务新增的收尾，
+#: 登记时照常写入收尾记忆（memory_updated 只列这一条），结算被拒后人物没有未完成事务、没有事务事件。
 _ERRAND_CHANGE_TESTS = [
     _ERRAND_REQUESTS + "test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt",
     _ERRAND_REQUESTS + "test_empty_errands_is_valid_and_the_receipt_is_an_empty_list",
@@ -172,6 +173,28 @@ _ERRAND_CHANGE_TESTS = [
     _ERRAND_REQUESTS + "test_a_request_cannot_mark_an_errand_completed",
     _ERRAND_REQUESTS + "test_a_replayed_request_does_not_register_twice",
     "tests/integration/test_activity_schema.py::test_control_tool_schemas_inline_the_errand_change_object",
+    "tests/integration/test_conclude_memories.py::test_rejected_conclusion_keeps_its_memories_but_registers_no_errand",
+]
+
+_ERRAND_NAMES = "tests/life/test_errand_names.py::"
+
+#: 「事务名称与错误」：前八个经真实请求、引擎与 SQLite，每一轮由同一次冻结观察准备的 LifeAgent 先在宿主一侧本地校验，
+#: 再把同一请求原样登记给引擎结算——更新与取消按待办层名称（无损归一后唯一即受理，回执写待办层名称）；找不到或有歧义的
+#: 事务名两侧逐项相同、合法值列本人全部未完成事务名、不替换；商品名错误在 why 给最接近的至多三个商品名、合法值为空；
+#: 取消必带原因；新增重名、同结果同商品与第九条各一例；同一请求取消旧事务并以原名、新数量新增被受理，终结后名称可再用；
+#: 绕过宿主的请求在环境被合并成一次 ACTION_REQUEST_INVALID、照常计入同刻轮数、世界不变；性质测试以固定种子枚举二百四十
+#: 组变更，宿主受理的环境对同一观察也受理（每种状态另有一组经真实提交）。末一个是宿主一侧的合并纠错：直接导入的
+#: LifeAgent 把活动名、事务名与结构错误并入同一次纠错，路径绑定到真实调用下标，改正之前不登记世界请求。
+_ERRAND_NAME_TESTS = [
+    _ERRAND_NAMES + "test_update_and_cancel_use_the_todo_layer_name",
+    _ERRAND_NAMES + "test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing",
+    _ERRAND_NAMES + "test_unknown_item_reports_nearest_product_names_in_why_without_candidates",
+    _ERRAND_NAMES + "test_cancel_requires_a_reason",
+    _ERRAND_NAMES + "test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected",
+    _ERRAND_NAMES + "test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted",
+    _ERRAND_NAMES + "test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged",
+    _ERRAND_NAMES + "test_whatever_the_host_accepts_the_environment_accepts",
+    _PROTOCOL + "test_errand_errors_join_the_single_host_correction",
 ]
 
 _CONTROL_ITEMS = "tests/life/test_control_items.py::"
@@ -192,7 +215,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "计划重复意图": {"stage": "1", "tests": _PLAN_DUPLICATE_TESTS},
     "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
     "事务变更与原子受理": {"stage": "2", "tests": _ERRAND_CHANGE_TESTS},
-    "事务名称与错误": {"stage": "2", "tests": []},
+    "事务名称与错误": {"stage": "2", "tests": _ERRAND_NAME_TESTS},
     "跨夜可见": {"stage": "2", "tests": []},
     "完成依据": {"stage": "2", "tests": []},
     "结算幂等": {"stage": "2", "tests": []},
@@ -297,6 +320,15 @@ _REJECTED_ERRANDS_KILLERS = (
 )
 _COMPLETED_CHANGE_KILLERS = (_ERRAND_REQUESTS + "test_a_request_cannot_mark_an_errand_completed",)
 _ERRANDS_KEY_KILLERS = (_CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",)
+_ERRANDS_MODULE = "worldmock.life.errands"
+_ERRANDS_SOURCE = "src/worldmock/life/errands.py"
+#: 事务名称两个变异的杀手都经真实请求、引擎与 SQLite（宿主一侧的 LifeAgent 与环境都按本名导入 errands，同一个被变异的
+#: 模块）：更新或取消的名称解析不出唯一一条时改取第一个同级匹配或最接近的名称，有歧义的取消就被受理、预置的事务被移出；
+#: 新增改按扣除取消之前的全部未完成事务判重名与同结果同商品时，同一请求取消旧事务再以原名新增被拒。
+_FIRST_CANDIDATE_KILLERS = (
+    _ERRAND_NAMES + "test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing",)
+_CANCELS_FIRST_KILLERS = (
+    _ERRAND_NAMES + "test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -558,6 +590,28 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "",
         _ERRANDS_KEY_KILLERS,
     ),
+    SourceMutation(
+        "errand_name_takes_first_candidate",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "    return _named_rows(written, rows)\n",
+        (
+            "    found, matches = _named_rows(written, rows)\n"
+            '    fallback = [*matches, *near_names(written, [row["name"] for row in rows])]\n'
+            "    if len(found) != 1 and fallback:\n"
+            '        found = [row for row in rows if row["name"] == fallback[0]][:1]\n'
+            "    return found, matches\n"
+        ),
+        _FIRST_CANDIDATE_KILLERS,
+    ),
+    SourceMutation(
+        "duplicates_judged_before_cancels",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    remaining = [row for row in rows if row["errand_id"] not in cancelled]\n',
+        "    remaining = list(rows)\n",
+        _CANCELS_FIRST_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -578,7 +632,7 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "待办层不投影事务": {"stage": "2", "mutations": ("todo_layer_omits_errands",)},
     "记忆层超窗或上下文浓缩时丢掉待办层事务": {"stage": "2", "mutations": ()},
     "业务拒绝时事务变更照落": {"stage": "2", "mutations": ("errand_changes_applied_before_rejection",)},
-    "事务名近似时取第一个候选": {"stage": "2", "mutations": ()},
+    "事务名近似时取第一个候选": {"stage": "2", "mutations": ("errand_name_takes_first_candidate",)},
     "请求可把状态置为完成": {"stage": "2", "mutations": ("request_can_mark_errand_completed",)},
     "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": ()},
     "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": ()},
@@ -643,6 +697,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                             "（杀手为反思请求排在动作之后的一例）。",
     "items_without_errands_accepted": "实施计划阶段 2「突变审查的目标」：带 items 缺 `errands` 的请求被放行（control_items "
                                       "去掉请求级 errands 的必有检查）。",
+    "duplicates_judged_before_cancels": "实施计划阶段 2「突变审查的目标」：同一请求不先扣除取消就判重名与上限（新增与"
+                                        "扣除本请求取消之前的全部未完成事务比较）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -678,6 +734,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
     "tests/life/test_errand_changes.py",
+    "tests/life/test_errand_names.py",
     "tests/life/test_errand_requests.py",
     "tests/life/test_errand_state.py",
     "tests/life/test_errand_todo_layer.py",

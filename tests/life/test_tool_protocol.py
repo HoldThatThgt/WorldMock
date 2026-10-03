@@ -44,7 +44,8 @@ def observation():
     return {"agent_id": 1, "interaction_bindings": rows, "catalog_bindings": [], "locations": [],
             "person_bindings": [{"name": "人物：同事", "person_id": "agent:2"}], "message_bindings": [],
             "task_bindings": [{"task_name": "工作：会议总结", "task_id": "task:1"}], "goal_bindings": [],
-            "activity_bindings": [], "world_query_bindings": [], "world_query_page_size": 2,
+            "activity_bindings": [], "errand_bindings": [], "errand_item_bindings": [],
+            "world_query_bindings": [], "world_query_page_size": 2,
             "tool_layer": {"targets": [], "callable_index": {"query_categories": []}}}
 
 
@@ -65,7 +66,8 @@ def agent_for(observation):
     agent._life_names = {"book": name_book(observation), "routing": routing_names(observation),
                          "known_persons": frozenset({"同事"}), "activity_names": (),
                          "recall_names": ("工作：会议总结",), "task_names": ("工作：会议总结",),
-                         "recipient_names": ("人物：同事",), "progressed_intents": ()}
+                         "recipient_names": ("人物：同事",), "progressed_intents": (),
+                         "errand_bindings": (), "errand_item_bindings": ()}
     agent._life_interaction_menu = SimpleNamespace(allowed_actions=tuple({value[1] for value in WAYS.values()}))
     return agent
 

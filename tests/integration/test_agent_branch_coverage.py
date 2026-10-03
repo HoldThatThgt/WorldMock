@@ -135,10 +135,14 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data.pop("person_bindings"), "person_bindings are invalid"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
     (lambda data: data.update(wake_reasons=[""]), "wake reasons are invalid"),
+    (lambda data: data.pop("errand_bindings"), "errand_bindings are invalid"),
+    (lambda data: data["errand_bindings"].append({"name": "补一份食品", "errand_id": "errand-x", "outcome": "obtain"}),
+     "errand_bindings are invalid"),
+    (lambda data: data["errand_item_bindings"].append("现有食品"), "errand_item_bindings are invalid"),
 ])
 def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
-    """缺层或层名不符、看法偏好或进度层元数据损坏、私有绑定损坏、菜单或唤醒原因损坏的观察不能转成模型请求：
-    都是损坏的宿主观察，在任何模型调用之前失败。"""
+    """缺层或层名不符、看法偏好或进度层元数据损坏、私有绑定损坏（含两类私有事务绑定缺失、缺键或不是对象）、菜单或唤醒
+    原因损坏的观察不能转成模型请求：都是损坏的宿主观察，在任何模型调用之前失败。"""
     data = copy.deepcopy(_observations()[0]["data"])
     change(data)
     with pytest.raises(RuntimeError, match=match):

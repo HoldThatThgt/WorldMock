@@ -42,7 +42,7 @@ from custom.agents.life_agent import (
     life_action_tool_names,
     life_tool_schema_sha256,
 )
-from custom.agents.life_feedback import feedback_report
+from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
 from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
@@ -52,11 +52,12 @@ from worldmock.life.models import (
     ConcludeActivityRequest,
     REQUEST_MODELS,
     START_ACTIVITY_ACTIONS,
+    ReportStatusRequest,
     StartActivityRequest,
     deepseek_strict_schema,
 )
 from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
-from tests.life.conftest import start_arguments
+from tests.life.conftest import errand_add, errand_update, start_arguments
 
 
 #: 生活决策与只读问答都开放的记忆查询（不开放按步号与秒数取记忆的两个工具）。
@@ -210,7 +211,8 @@ def _layers() -> dict:
 
 
 def _observations(*progress_event_ids: str) -> list[dict]:
-    """构造 docs/dev/SPEC-persona-prompt.md 第七章形状的结构化观察记录：人物在当前停留会话里，暂无活动。"""
+    """构造 docs/dev/SPEC-persona-prompt.md 第七章形状的结构化观察记录：人物在当前停留会话里，暂无活动；私有事务绑定
+    里没有未完成事务，商品名只有手边的现有食品（docs/dev/SPEC-errands-workday.md 2.3）。"""
     data = {
         "observation_event_id": "observation-current",
         "current_time": _NOW_EPOCH,
@@ -224,6 +226,8 @@ def _observations(*progress_event_ids: str) -> list[dict]:
         "activity_bindings": [],
         "goal_bindings": [],
         "person_bindings": [],
+        "errand_bindings": [],
+        "errand_item_bindings": [{"name": "现有食品", "product_id": "product-visible"}],
         "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
         "active_activities": [],
         "paused_activities": [],
@@ -1212,6 +1216,63 @@ async def test_invalid_conclusion_memories_are_corrected_before_registration() -
     assert names[0] == names[1]
     assert "conclude_activity" in names[0] and "finish" not in names[0]
     assert agent._last_finish_memories == _stored_memories(_conclude_args(_WAIT))
+
+
+#: 一条未完成的个人事务：待办层写出的名称与它的私有绑定（事务身份只在绑定里）。
+_ERRAND = "补一份食品"
+_ERRAND_BINDING = {"name": _ERRAND, "errand_id": "errand-private-1", "outcome": "obtain", "product_id": "product-visible"}
+
+
+def _errand_observation() -> dict:
+    """人物步骤的观察另带一条未完成事务：待办层一行，私有事务绑定一行（docs/dev/SPEC-errands-workday.md 2.3、2.6）。"""
+    data = _step_observation()
+    data["errand_bindings"] = [dict(_ERRAND_BINDING)]
+    data["todo_layer"]["errands"] = [{"name": _ERRAND, "done_when": "取得现有食品 1 份", "progress": "已取得 0 份",
+                                      "memo": None, "remind_time": None, "noted_on": "2026-01-04"}]
+    return {"turn": 0, "action": "observe", "ok": True, "data": data}
+
+
+@pytest.mark.asyncio
+async def test_errand_errors_join_the_single_host_correction() -> None:
+    """个人事务的错误与活动名、参数结构错误并入宿主的同一次纠错（docs/dev/SPEC-errands-workday.md 2.3）：同一响应里播报
+    点名不存在的活动并更新一条不存在的事务，暂停写了份数为 0 的新增。宿主在执行前整批校验一次，各调用的每条工具消息都是
+    同一份纠错：批次错误之后，第一个调用的活动名错误与事务名错误（与环境复核同一函数：合法值是本人全部未完成事务名，不带
+    候选）合并在同一调用里，再是第二个调用的结构错误（上限写在 why），路径都绑定到真实调用下标；这一响应没有登记任何世界
+    请求。改正后的播报以无损归一的写法点名那条事务，才登记，发出的请求里没有事务身份。"""
+    report = {"items": [{"activity_name": "虚构活动", "summary": "继续。"}], "errands": [errand_update("补食品", memo="下班前买")]}
+    pause = {"items": [{"activity_name": _WAIT, "summary": "先停。"}], "errands": [errand_add("囤食品", "现有食品", quantity=0)]}
+    corrected = {"items": [{"activity_name": _WAIT, "summary": "继续。"}],
+                 "errands": [errand_update("补一份 食品", memo="下班前买")]}
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _MultipleModelResponse([("call-report", "report_status", json.dumps(report, ensure_ascii=False)),
+                                ("call-pause", "pause_activity", json.dumps(pause, ensure_ascii=False))]),
+        _ModelResponse("call-action", "report_status", json.dumps(corrected, ensure_ascii=False)),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    _wire_agent(agent, environment, dispatcher, 4, memory=False)
+
+    result = await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, [_errand_observation()]))
+
+    assert result == "report_status registered"
+    assert [call.request for call in environment.calls] == [ReportStatusRequest.model_validate(corrected)]
+    assert len(dispatcher.requests) == 2
+    tools = [message for message in dispatcher.requests[1]["messages"] if message["role"] == "tool"]
+    assert [message["tool_call_id"] for message in tools] == ["call-report", "call-pause"]
+    assert tools[0]["content"] == tools[1]["content"]
+    feedback = json.loads(tools[0]["content"])
+    assert feedback["instruction"] == FEEDBACK_INSTRUCTION and feedback["error_code"] == "TOOL_CALL_REQUIRED"
+    call = ["function", "arguments"]
+    assert [(item["path"], item["written"], item["error_code"], item["candidates"]) for item in feedback["items"]] == [
+        (["tool_calls"], ["report_status", "pause_activity"], "TOOL_CALL_REQUIRED", []),
+        (["tool_calls", 0, *call, "items", 0, "activity_name"], "虚构活动", "NAME_NOT_FOUND", []),
+        (["tool_calls", 0, *call, "errands", 0, "name"], "补食品", "NAME_NOT_FOUND", []),
+        (["tool_calls", 1, *call, "errands", 0, "quantity"], 0, "ARGUMENTS_INVALID", [])]
+    errand, quantity = feedback["items"][2:]
+    assert (errand["allowed_values"], errand["why"]) == ([_ERRAND], "The errand name 「补食品」 is not known.")
+    assert (quantity["allowed_values"], quantity["why"]) == ([], "errand quantity must be between 1 and 9")
+    assert all(_ERRAND_BINDING["errand_id"] not in json.dumps(request, ensure_ascii=False)
+               for request in dispatcher.requests)
 
 
 @pytest.mark.asyncio

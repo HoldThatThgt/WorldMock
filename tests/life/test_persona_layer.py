@@ -167,7 +167,7 @@ def test_subject_is_required_for_relationship_and_preference_and_stripped_before
         ConclusionMemory.model_validate(_memo("preference", "爱吃面"))
     known = known_persons(_profile(make_card()), ["李凡"])
     assert known == {"母亲", "老周", "沈昊", "李凡"}
-    names = {"activity_names": ("等待",), "known_persons": known}
+    names = {"activity_names": ("等待",), "known_persons": known, "errand_bindings": (), "errand_item_bindings": ()}
     request = conclude_request("等待", summary="收尾", views=[[_view("relationship", "新认识的", "王五"), view]])
     assert _validate_prepared_action("conclude_activity", request, names) == (
         "SUBJECT_NOT_KNOWN: The relationship subject 王五 is not a known person.")

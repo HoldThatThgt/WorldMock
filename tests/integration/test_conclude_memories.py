@@ -59,10 +59,11 @@ from tests.integration.test_life_agent_protocol import (
 )
 from tests.integration.test_verified_memory import _runtime
 from tests.life.conftest import (activity_name, advance_until_ready, context, engine_factory as _engine_factory,
-                                 stage_day_plan, start_activity, wake_by_mail, pause_request)
+                                 errand_add, stage_day_plan, start_activity, wake_by_mail, pause_request)
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.control_items import control_items
+from worldmock.life.errand_state import ERRAND_EVENT_KINDS
 from worldmock.life.models import ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage
 
 
@@ -535,6 +536,41 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
     assert [(item["text"], item["source"], item["epistemic_status"]) for item in stored] == [
         (memories[0]["text"], "activity_conclusion", "subjective")]
     assert update.data["created_episode_ids"] == [stored[0]["id"]]
+
+
+@pytest.mark.asyncio
+async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_engine_factory, tmp_path) -> None:
+    """被业务拒绝的收尾带着一条合法的个人事务新增（docs/dev/SPEC-errands-workday.md 2.2「原子性」）：真实 LifeAgent 经
+    LifeEnv 登记收尾（有刚结束的等待却只结束暂停的观看），宿主本地校验通过，登记时照常写入收尾记忆——memory_updated 的
+    触发点只有 activity_conclusion，新建条目只有这一条收尾记忆；事务变更不是记忆写入点，记忆里没有事务的文字。结算以
+    ACTIVITY_CONCLUSION_REQUIRED 拒绝，事务变更随整请求一并不生效：人物没有未完成事务，没有任何事务事件，结果没有回执键，
+    请求事件原样留着这条变更。"""
+    engine, environment, watch_id, _ = _engine_with_paused_watch_and_pending_wait(_engine_factory)
+    memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
+    noted = errand_add("补一份食材包", "素炒什锦食材包", memo="下班前下单送到家", remind_time="17:00")
+    conclusion = {"items": [
+        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
+        "errands": [noted]}
+    model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
+                                           json.dumps(conclusion, ensure_ascii=False))])
+    person = await _person(environment, tmp_path / "agent_0001", model)
+
+    decision, result = await _decide(engine, environment, person, "rejected")
+
+    assert (result.status.value, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
+    assert "errands" not in result.data and engine.state.activities[watch_id].status.value == "paused"
+    [requested] = _events(engine, "action_requested", decision.decision_id)
+    assert requested.data["request"] == conclusion
+    [update] = _events(engine, "memory_updated", decision.decision_id)
+    assert update.data["trigger"] == ["activity_conclusion"]
+    stored = person._memory_runtime.store.iter_episodes()
+    assert [(item["text"], item["source"], item["epistemic_status"]) for item in stored] == [
+        (memories[0]["text"], "activity_conclusion", "subjective")]
+    assert update.data["created_episode_ids"] == [stored[0]["id"]]
+    assert not any(text in json.dumps(stored, ensure_ascii=False) for text in ("补一份食材包", "下班前下单送到家"))
+    assert engine.state.agents[1].errands == {}
+    assert [event for event in engine.store.read_agent_events("environment_event", 1)
+            if event.data.get("kind") in ERRAND_EVENT_KINDS] == []
 
 
 #: 八位以上的十六进制串（事件身份、摘要、条目编号中的长数字段）。
