@@ -1,7 +1,7 @@
 # 运行配置
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步就寝反思的严格工具与校验重试（阶段 1）。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步就寝反思的严格工具与校验重试（阶段 1）、个人事务与检查点恢复（阶段 2）。
 
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
@@ -160,6 +160,8 @@ uv run worldmock resume \
 当日计划、提醒（含是否已触发）与已生成计划的日期 `plan_submitted_dates` 同样来自检查点：当天已生成计划的人物不重新生成，
 已触发的提醒不再触发；检查点里当天还没有计划的人物，恢复后在首次决策之前由零点计划补上，这一步会调用模型。
 反事实分支按同一规则在应用干预之后补上。
+未完成的个人事务（含已累计量与是否已提醒）也来自检查点，恢复后待办层与原运行逐字节相同，不重复记下、不重复完成、不重复提醒；
+世界结构 8 的旧检查点按版本拒绝。
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
 
 ## 编写反事实干预文件
@@ -228,6 +230,8 @@ uv run worldmock replay \
 原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，
 改为items一项一个{target,way,from,to}对象及answering/prefer，旧actions与数组直接拒绝。
 含购买项prefer必须为“最快拿到”或“到手价最低”，非购买必须null；to=null统一本人。
+report_status、pause_activity、conclude_activity必填请求级errands（可为空数组；每条八个键都要写出，不用的写null，
+change取“新增”“更新”“取消”），个人事务不另设工具；缺errands的旧请求按缺字段拒绝，事务的名称与商品名称错误不带完整请求候选。
 query_world必填name/way/category/offset，category取公开品类标签，返回matches/total_count/next_offset可遍历全集；
 它与recall_task_summary即时只读，不消耗世界时间或同刻轮数，仍受十六模型回合预算。
 每条错误提供完整path、written、allowed_values、expected、why和完整请求候选，英文报错；

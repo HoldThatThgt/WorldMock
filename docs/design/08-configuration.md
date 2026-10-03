@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 配置规格
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 1  
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 2  
 > **日期**：2026-10-03\
-> **版本**：v1.15\
+> **版本**：v1.16\
 > **工具交互修订**：地点完整供给、构建价格范围、任务可用类型与请求形状设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-tool-interaction.md)为本次合同。
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
@@ -28,6 +28,7 @@
 | v1.13 | 2026-09-29 | Claude | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 CF1，随阶段 1–3、5 的代码落地，按 `e377669` 核对）：目标条目字段增 `around_time`，世界状态的计划目标增 `around_at`；场景层身体实例字段 `entertainment_relief_preference_floor`（缺省 0.5，取值 (0, 1)）；地图结构 2 与可选 `branch_label`，显示名规则与加载校验（地点 `kind` 属于环境层地点类型表、可见标签唯一，否则加载时拒绝）；场景显式声明的作息字段覆盖卡片抽取值；场景可选钉定手机配置 `phone_simulation_config` 与其摘要，购买渠道由它派生（称呼、成员门店与准入），渠道准入违规在加载时以 `IntegrityError` 拒绝，手机配置核验失败时加载照常、不派生渠道并写 warning 日志；校验清单与错误分类补加载拒绝、渠道准入与运行输入警告；文件头补修订说明，日期改写 |
 | v1.14 | 2026-10-01 | Codex | 工具交互设计冻结并已实现：目录5.0、契约与规则绑定3、场景4、地图3，世界8保留；逐店真实供给和定位价格、必填可空预约、原料配方、items活动请求、中文购买偏好、null本人、偏移查询与具体英文错误 |
 | v1.15 | 2026-10-03 | Claude | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D8 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变任何配置字段与结构版本；顺带更正 3.3 中「场景 `schema_version` 仍为 3」的过时说法，改为指向 3.1 的发布目标表；文件头补同步说明，日期改写；版本表改为末行最新 |
+| v1.16 | 2026-10-03 | Claude | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D8 作业，阶段 2，按 `d09d574` 核对）：发布目标表的世界状态结构改为 9，旧检查点（含版本 8）以版本不符拒绝，另存每个人物的未完成个人事务 `errands`；3.1 写明未完成的个人事务不算在手承诺，不改变重估间隔与闭店预警；阶段 2 不改变任何场景字段与场景结构；文件头阶段号改到阶段 2 |
 
 ## 1. 模块概述
 
@@ -131,6 +132,7 @@ flowchart LR
 当日目标重估沿用生活场景配置：`reconsideration_interval_seconds` 默认 5400，
 `idle_reconsideration_interval_seconds` 默认 10800，均为正整数且不超过 86400，空闲间隔不能短于常规间隔。
 进行中的等待不算在手承诺，人物只在等待且没有其他在手承诺时用空闲间隔。
+未完成的个人事务也不算在手承诺，不改变常规与空闲重估间隔及闭店预警。
 其选择与环境威胁边界见 [当日目标规格](../dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
 同刻决策上限 `max_same_moment_decisions` 为正整数，缺省 3；`activity_feedback_seconds` 取 60–86400 秒，下限 60
 保证等待（计划时长取它）能被受理。含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。
@@ -157,7 +159,7 @@ flowchart LR
 | 商品目录 `version_major` | 5（首次 5.0，当前 5.3） | 构建价格范围、真实原料对象与单输入单输出配方；内容改变另发版本，旧身份不兼容读取 |
 | 品类与交换规则 `contract_version` | 3 | 当前实现 3；价格范围槽与原料品类，购买仍读取独立供给当前报价 |
 | 生活场景 `schema_version` | 4 | 当前实现 4；显式声明 `appointment` 为 null 或约定对象，开放时刻只在运行时派生，旧场景直接拒绝 |
-| 世界状态 `schema_version` | 8 | 旧检查点（含版本 7）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 `remind_at`、`reminded_at`、大致时刻 `around_at` 与已生成计划的日期 `plan_submitted_dates`）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 `opened_by_action_id`、活动的暂停时刻 `paused_at` 与进食的开吃份量 `opened`、订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox` |
+| 世界状态 `schema_version` | 9 | 旧检查点（含版本 8）以版本不符拒绝；活动集合、地点会话（一段停留或一段路）与活动的收尾、播报锚点和会话归属、共同身体时刻、威胁交付签名、同刻计数、按人物暂存的呈现留痕、当日计划与提醒（目标的 `remind_at`、`reminded_at`、大致时刻 `around_at` 与已生成计划的日期 `plan_submitted_dates`）与供给事实完整保存；活动快照地点为开始地点；另存引起会话切换的动作 `opened_by_action_id`、活动的暂停时刻 `paused_at` 与进食的开吃份量 `opened`、订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox`；另存每个人物的未完成个人事务 `errands`（按事务身份存放：名称、结果种类、商品、数量、已累计量、备注 `memo`、记下时刻、提醒时刻与已提醒时刻、来源动作与请求事件），办成或取消即移出 |
 
 目录通过 `scripts/build_catalog.py` 生成，地图通过 `scripts/prepare_map.py` 从显式输入准备与发布。
 地图准备的发布流程见[资源引擎](03-resource-engine.md#冻结地图的准备与发布)。不保留旧场景迁移脚本或兼容输入层。

@@ -1,9 +1,9 @@
 # WorldMock 产品设计说明书 — 行为评估
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1  
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 2  
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **日期**：2026-10-03
-> **版本**：v1.10
+> **版本**：v1.11
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -119,6 +119,10 @@ flowchart TB
 `truncations` 一节（字段见[记录引擎设计「质量报告」](05-recording-engine.md#质量报告)）；行动决策的截断率以其中 `decision` 的次数除以
 `model_usage.by_purpose` 中 `decision` 的 `provider_responses`（`decision` 组是不带 `purpose` 的全部请求，与决策 prompt token 中位数
 同一口径，含记忆巩固与就寝反思），只报告，不参与放行。
+个人事务与收尾记忆的只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories` 两节（字段见
+[记录引擎设计「质量报告」](05-recording-engine.md#质量报告)）：事务以记下过的不同事务数 `registered_count` 为分母，按运行与事务身份
+统计、可跨本地日，不使用任何当日目标指标的键名、不写进 `day_plan_metrics`，也不并入 3.3 所说的习惯、外部约束、刻意目标三层；
+`deliberate_goals` 的名称、分母与分组键不变，`memory_repetition_ratio` 门禁的口径与阈值不变。只报告，不参与放行。
 
 工具交互特性的行为报告由已提交请求、纠错、拒绝与结算事实生成：记录世界查询与任务回看的次数、
 名称与参数拒绝跨不同模拟时刻的重复次数，以及普通工作收件至开工的经过时间。
@@ -800,3 +804,4 @@ plt.savefig('review-preference-heatmap.png')
 | v1.8 | 2026-10-01 | 工具交互设计冻结并已实现：公共证据改用`items[]`与真实绑定解析，任务回看和世界查询不作为世界请求或活动，错误留精确位置与合法值；报告跨时刻重复拒绝、普通工作通知至开工及预约例外；新行为须经行为与变异测试，不追加无依据阈值 |
 | v1.9 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变本文的指标与门禁；顺带把 5.1 的命令行参数改为实际的 `--legacy`、`--worldmock`、`--scenario`、`--output`、`--reviews`（另有可选的 `--human-reference`），两个阶段按是否带 `--reviews` 区分，没有 `--phase` 参数；文件头补同步说明，日期改写；版本表改为末行最新 |
 | v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 1 的独立复核修订（规格 1.1「身份与判定」）：协议门禁 `observation_repetition` 与报告项 `decision_prompt_token_median` 的输入改为带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计，不带工具的记忆巩固与截断重试照计；原口径下两次同类反思校验失败的附回消息在两条续接链里逐字相同，正确运行的门禁会取 2。门禁键名、比较符与阈值不变；更正 v1.9 行「阶段 1 的四项运行修复不改变本文的指标与门禁」 |
+| v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 2，按 `d09d574` 核对）：「2.2 报告项」写明个人事务与收尾记忆两组只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories`，以记下过的不同事务数为分母，不复用当日目标指标的名称与分母、不并入三层，`deliberate_goals` 与 `memory_repetition_ratio` 门禁不变；文件头的阶段号改为 2。实施计划把阶段 2 记为 v1.10，该号已由阶段 1 的独立复核修订占用，顺延为 v1.11 |

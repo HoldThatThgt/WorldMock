@@ -2,7 +2,7 @@
 
 > 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](dev/SPEC-persona-prompt.md#冻结条款修订)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。2026-09-29 按[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#文档同步作业)的【同】作业 C1–C19 修订，修订部分已实现并通过离线验收；修订内容见「版本表」`2026-09-29-dayrun-fidelity` 行。
 > 本次工具交互合同于 2026-10-01 按[工具交互规格](dev/SPEC-tool-interaction.md)冻结，已实现；本次生产验收单独记录；既有验收只证明此前版本。
-> 2026-10-02 [个人事务与工作安排规格](dev/SPEC-errands-workday.md#冻结条款修订)冻结：本文件相应条款按[配套实施计划](dev/research/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1 已随代码落地，阶段 2–4 未实现，见个人事务与工作安排规格阶段 2–4，落地前相应各节仍描述现行实现；冻结时只在「请求组成」加了三处修订指针（就寝反思文案的一处已随阶段 1 删去）并改写「记忆字段」的主观文字句，见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1` 与 `2026-10-03-errands-workday-stage-1-review` 三行。
+> 2026-10-02 [个人事务与工作安排规格](dev/SPEC-errands-workday.md#冻结条款修订)冻结：本文件相应条款按[配套实施计划](dev/research/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1、2 已随代码落地，阶段 3、4 未实现，见个人事务与工作安排规格阶段 3、4，落地前相应各节仍描述现行实现；冻结时只在「请求组成」加了三处修订指针（就寝反思文案的一处已随阶段 1 删去，系统层与零点计划模板的两处已随阶段 2 收窄为只余阶段 3 的部分）并改写「记忆字段」的主观文字句，见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review` 与 `2026-10-03-errands-workday-stage-2` 四行。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -18,6 +18,7 @@
 | 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`（占用名为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`，按[时间与能量规格](dev/SPEC-time-and-energy.md)第五章「并行准入」由注册表声明）, `pause_reason`, `end_reason`, `same_moment_rounds`（本秒已进行的决策轮数）, `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`；`conclude_only` 留在闭集中，但开始或恢复被拒后留在原阶段，现行阶梯不再进入它）；活动名额为常量 2（进行中、暂停中与待收尾的活动各占一个，`conclude_activity` 之后释放） | 人物申请，环境验证并执行；同刻计数与受限轮阶段由环境随决策轮与时钟推进维护 |
 | 地点会话 | `sessions`：一段地点停留或两地之间的一段路（`kind` 取 `stay`、`transit`，`status` 取 `active`、`ended`），名称为地点或路段加开始时刻，例如「在家（1月5日 00:00 起）」「去张江办公室的路上（1月5日 14:17 起）」 | 环境随出发与到达开始和结束；人物不手动开始或结束会话 |
 | 工作 | `task`, `materials`, `deadline`, `deliverable`, `review_result`, `contract`, `payment_status` | 任务来源、人物交付与独立验收规则 |
+| 个人事务 | `errands`：本人未完成的个人事务，键为事务身份，每条 `ErrandState` 记 `errand_id`、`name`、`outcome`、`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id`（字段见「个人事务」）；完成或取消即移出 | 人物经 `report_status`、`pause_activity`、`conclude_activity` 的请求级 `errands` 记下（新增）、更新、取消；完成只由环境按结算证据写入，人物不能自报完成；提醒的交付由环境记下 |
 | 内容接触 | `visible_catalog`, `read_emails`, `played_segments`, `game_state`, `material_ranges` | 实际接触行为与内容提供过程 |
 | 记忆 | AS2 人物记忆及其版本、`source_event`, `retrieval_results` | 人物记忆流程 |
 
@@ -55,6 +56,8 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 工具定义只经原生 `tools` 发送，整次运行不变：参数不带逐轮名称枚举，description 只写用途，世界交互规则只在系统层写一次
 （见「请求组成」）；参数 Schema 的字段级说明是 Schema 的一部分、不是 description：三个活动控制工具的参数逐字段写一句「格式与来源」（如活动名
 「照工具层、待办层或进度层写出的名称原样抄写，包括『（9月28日 12:05 起）』这样的开始时刻」），不写规则与上限（上限由本地校验执行）；
+请求级 `errands`、每条变更对象及其八个键同样各写一句（定稿见下文的用途句与字段说明表）；三个控制工具的用途句与这些说明一律不用
+「登记」一词（既有说明扫描把它判为协议说法）；
 `start_activity` 只有请求级 `prefer` 带一句字段说明（两个取值与空值的含义，并说明方式写「购买」时怎样定到店还是远程下单）；
 名称的合法性由宿主本地校验与环境受理判定：两边在同一冻结观察上调用同一个统一名称解析（`src/worldmock/life/name_resolution.py`，
 [一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 3.1），宿主判为可受理的，环境也受理。
@@ -79,20 +82,25 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。
 | `start_activity` | 必填 `items: [{target, way, from, to}]` 一至两项及必填可空 `answering`、`prefer`；购买 prefer 仅“最快拿到”或“到手价最低”，非购买必须 null | 一项一个对象，本地严格类型校验，方式唯一推导内部动作、整组原子；删除 actions 与旧数组；to=null统一本人，给予或送给他人填写实名 |
 | `query_world` | 必填 name、way、category（可空字符串，至少一个非空）及 offset（非负JSON整数，拒绝布尔和字符串）；category取公开callable_index品类标签 | 按冻结观察权限与筛选交集分页查询，返回matches、total_count、next_offset；不揭示新事实、不登记世界 |
 | `recall_task_summary` | `task_name`（当前冻结观察中本人有权回看的任务、目标或活动名称） | 即时只读回看，作为 tool 消息直接返回；不登记世界或进度 events，不计同刻轮数，仍计模型回合 |
-| `report_status` | `items: list[{activity_name, summary}]`（一至两项，一项一个对象，逐项点名活动） | 逐项播报进行中活动的进展；点名暂停的活动即恢复它（只在其开始地点）；关联当日目标同步记录各自自述（`PlanGoal.progress_note` 照存，不进提示） |
-| `pause_activity` | `items: list[{activity_name, summary}]`（一至两项，一项一个对象，逐项点名进行中活动） | 逐项写自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停；关联当日目标同步记录各自自述（`PlanGoal.progress_note` 照存，不进提示） |
-| `conclude_activity` | `items: list[{activity_name, summary, memories, views}]`（一至两项，一项一个对象；`memories` 是关于这项活动的零至多条普通记忆 `{type, text, importance, keywords}`，没有对象字段；`views` 是零至多条看法或偏好 `{type, about, text, importance, keywords}`，`about` 写对象、宿主写入时作为存储的 `subject`；两者都必填、可为空列表，全部项合计不超过八条，见「记忆字段」） | 逐项写总结、记忆与看法并结束所选活动：进行中、暂停中或刚结束待收尾的活动；结束后释放名额，未选中活动保持原状 |
+| `report_status` | `items: list[{activity_name, summary}]`（一至两项，一项一个对象，逐项点名活动）与请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，零至四条，可为 `[]`；个人事务的新增、更新、取消，见「个人事务」） | 逐项播报进行中活动的进展；点名暂停的活动即恢复它（只在其开始地点）；关联当日目标同步记录各自自述（`PlanGoal.progress_note` 照存，不进提示）；`errands` 的变更与活动状态转换同批校验、同一事务提交，成功结果在 `details.errands` 给回执 `[{errand, change}]`，请求里没有「完成」 |
+| `pause_activity` | `items: list[{activity_name, summary}]`（一至两项，一项一个对象，逐项点名进行中活动）与请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，零至四条，可为 `[]`；个人事务的新增、更新、取消，见「个人事务」） | 逐项写自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停；关联当日目标同步记录各自自述（`PlanGoal.progress_note` 照存，不进提示）；`errands` 的变更与活动状态转换同批校验、同一事务提交，成功结果在 `details.errands` 给回执 `[{errand, change}]`，请求里没有「完成」 |
+| `conclude_activity` | `items: list[{activity_name, summary, memories, views}]`（一至两项，一项一个对象；`memories` 是关于这项活动的零至多条普通记忆 `{type, text, importance, keywords}`，没有对象字段；`views` 是零至多条看法或偏好 `{type, about, text, importance, keywords}`，`about` 写对象、宿主写入时作为存储的 `subject`；两者都必填、可为空列表，全部项合计不超过八条，见「记忆字段」）与请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，零至四条，可为 `[]`；个人事务的新增、更新、取消，见「个人事务」；`errands` 不占 `memories` 与 `views` 合计八条的上限） | 逐项写总结、记忆与看法并结束所选活动：进行中、暂停中或刚结束待收尾的活动；结束后释放名额，未选中活动保持原状；`errands` 的变更与活动状态转换同批校验、同一事务提交，成功结果在 `details.errands` 给回执 `[{errand, change}]`，请求里没有「完成」 |
 | `revise_day_plan` | `goals: List[{intent_kind, goal, remind_time, around_time}]`（替换全部未推进目标；`remind_time`、`around_time` 必填可为 null） | `status: "submitted"` |
 | `submit_work` | `task_name`, `deliverable` | 有可见的未付款任务时开放；任务名称取本轮可见名称，未达标的提交以 `WORK_INCOMPLETE`、正在做的任务以 `WORK_TASK_IN_PROGRESS`、过了截止的提交以 `WORK_SUBMISSION_LATE` 业务拒绝；未付款的逾期任务保留到截止当日的本地日结束；工时达标（任务目标的 `contract.remaining`）、活动状态（活动目标的 `state`）与提交条件（`submit_work` 的 `available`、`reason`）分别说明 |
 | `send_message` | `recipient_name`, `text` | 发送模型撰写的消息，收件人名称取本轮可见名称 |
 
 三个活动控制工具写下的 `summary` 与 `conclude_activity` 的普通记忆原文，在本 session 内是进度层中该调用的参数（按现行形状
-`{"items": [{activity_name, summary, memories}]}` 写出，`views` 从参数中略去，只在人设层呈现）；session 结束后，成功的
+`{"items": [{activity_name, summary, memories}]}` 写出，`views` 与请求级 `errands` 从参数中略去：前者只在人设层呈现，后者的文字
+只在待办层呈现，本 session 内由该调用结果的 `details.errands` 回执可见）；session 结束后，成功的
 `pause_activity`、`conclude_activity` 写下的 summary 与普通记忆原文进入记忆层 `self_notes`，`report_status` 的 summary 不进入。
 读这三个工具请求的地方（宿主与环境的受理、进度层、记忆层、看法与偏好、零点计划输入、记忆写入点、交付窗口、质量报告与查看器）
 都经 `control_items`（`src/worldmock/life/control_items.py`；查看器按同一规则读）取得逐项的活动名、自述与存储形状的记忆，
-只读取当前 items 形状，不直接读旧 task 或平行数组；删除旧控制记录读取分支。
+请求级的个人事务变更经同一模块的 `control_errands` 读出；只读取带 `items` 与 `errands` 两个键的现行形状，不直接读旧 task 或
+平行数组；事件或导出里的控制请求缺 `errands` 键是完整性故障，旧形状记录直接拒绝，不留读取分支。
 旧输入与旧运行直接按格式或身份错误拒绝，不提供迁移或回退。
+
+其余工具的用途句不在本文件逐字登记，只在 `custom/agents/life_prompt.py` 的 `TOOL_DESCRIPTIONS` 中（「description 只写用途」的
+原则见上文与[人物 Prompt 规格](dev/SPEC-persona-prompt.md)）；三个控制工具的用途句与请求级 `errands` 的字段说明在此逐字登记。
 
 三个控制工具的用途句与字段说明定稿（与代码逐字相同）：
 
@@ -173,7 +181,7 @@ InteractionMenu = {
 | --- | --- | --- |
 | `intent_kind` | 下表十一种意图的闭集 | 同一清单最多出现一次 |
 | `goal` | 非空白文本，最多三百字符 | 人物想推进什么，可写粗略时段，文字不驱动活动；实际家族活动不证明这句话已完成 |
-| `remind_time` | `str \| null`，必填，可为 null | 场景本地 `HH:MM`（小时 00–23，分钟 00–59）；换算为当日绝对时刻，须晚于生成或修订时刻、早于次日零点；null 表示不设提醒。只有这个字段触发定时决策 |
+| `remind_time` | `str \| null`，必填，可为 null | 场景本地 `HH:MM`（小时 00–23，分钟 00–59）；换算为当日绝对时刻，须晚于生成或修订时刻、早于次日零点；null 表示不设提醒。当日目标里只有这个字段触发定时决策（个人事务另有自己的 `remind_time`，换算与唤醒规则不同，见「个人事务」） |
 | `around_time` | `str \| null`，必填，可为 null | 大致时刻：场景本地 `HH:MM`（格式同 `remind_time`），人物打算在几点前后推进这条目标；换算为登记当日的绝对时刻 `around_at`，不要求晚于生成或修订时刻，不触发任何决策，只用于推进判定（见下文）；null 表示不限时刻（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 8.2） |
 
 清单零至八条，数组顺序就是优先级。同一人物同一本地日只生成一次（幂等键 `plan_submitted_dates`），可为空；
@@ -191,6 +199,8 @@ InteractionMenu = {
 `day goals require at most eight entries` 里）；零点计划入口的附回文本逐条列位置与原因。英文原因为
 `intent_kind '<kind>' may occur only once; keep one goal for this intent and merge these entries into it`
 （原文里的 `tasks` 一词已删去，避免被读成把个人事务并进当日目标）。至多八条、每意图一条不变。
+零点置空当日计划、`revise_day_plan` 与目标推进都不改动个人事务：事务不在 `DayPlan` 里，零点置空与修订整表替换都不波及它；
+零点计划的输入只读事务（输入键「个人事务」，见「请求组成」），不创建、不更改、不终结（见「个人事务」）；`progressed` 的含义不变。
 
 `DayPlan` 持久形状是 `{day_end, goals}`。环境以场景本地次日零点填 `day_end`（场景本地零点指本地日期变更的那一秒：
 夏令时在零点拨快、当日没有 00:00 时是该日的 01:00，零点回拨后重复出现的 00:00 不是零点）；
@@ -240,8 +250,8 @@ flowchart LR
 
 工具开放与生命周期：`plan_day` 不是人物工具。
 存在当日计划即可开放 `revise_day_plan`，包括空清单后追加目标。计划只在本地日界清除，
-不因就寝隐藏。环境不按清单执行活动，不从目标文字推导时刻；只有 `remind_time` 触发定时决策，
-提醒可结束睡眠；`around_time` 只用于推进判定。
+不因就寝隐藏。环境不按清单执行活动，不从目标文字推导时刻；当日目标里只有 `remind_time` 触发定时决策，
+提醒可结束睡眠；`around_time` 只用于推进判定。个人事务的提醒只提供一次决策机会，不结束睡眠（见「个人事务」）。
 
 | 结算拒绝错误码 | 触发条件 |
 | --- | --- |
@@ -262,7 +272,8 @@ flowchart LR
 场景沿用 `reconsideration_interval_seconds`（默认 5400 秒），并增加
 `idle_reconsideration_interval_seconds`（默认 10800 秒）；两者为不超过 86400 的正整数，
 空闲间隔不能短于常规间隔。进行中的等待不算在手承诺；人物只在等待、且没有未推进目标、可见未完成任务、
-暂停活动或其他进行中活动时用空闲间隔，其余清醒情形用常规间隔。选择与威胁条件见 [目标决策节律](dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
+暂停活动或其他进行中活动时用空闲间隔，其余清醒情形用常规间隔。未完成的个人事务不算在手承诺，不改变常规与空闲重估间隔
+的选择，也不改变闭店预警。选择与威胁条件见 [目标决策节律](dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
 
 决策节律场景参数：
 
@@ -277,6 +288,147 @@ flowchart LR
 `deliberate_goals` 和 `gates.external_constraint_block_count`；
 字段、错误码闭集、分母、缺证据规则的唯一统计合同见
 [度量输出合同](dev/SPEC-day-plan-goals.md#度量输出合同)，门禁地位见 [验证文档](VERIFICATION.md)。
+
+### 个人事务
+
+行为归[个人事务与工作安排规格](dev/SPEC-errands-workday.md)第二章，本节定义字段面。状态模型、上限与枚举词在
+`src/worldmock/life/errand_state.py`；私有绑定、待办层行、变更的校验与应用、事务事件、完成依据与结算、提醒全部是
+`src/worldmock/life/errands.py` 的纯函数，引擎与三个处理器只接线。
+
+**范围与状态。** 个人事务只表达能由世界结算确认的事：取得或吃掉一件具体商品若干份；不能绑定具体商品的打算（「买点菜」「早点睡」）
+不记成事务，仍写当日目标、summary 或记忆。状态闭集三值：未完成、已完成、已取消；没有截止与过期，运行结束时仍未完成的照实留在最终状态。
+「已完成」只由确定性环境代码按结算证据写入，请求里没有「完成」；「已取消」由人物请求并必须写原因。事务是人物记下的打算，与当日目标
+文字、活动自述同类：随人物状态保存，但不是世界事实，不改变余额、库存、身体、订单与验收；名称、备注与取消原因只用于呈现，不参与结算与
+完成判定。工作任务、订单与未回复消息的呈现位置与完成事实不变，待办层不复述它们。
+
+**存放。** `AgentState.errands: dict[str, ErrandState]`（键为事务身份，缺省 `{}`）只保存未完成事务，完成或取消时移出，终态、原因与
+证据只写进同一提交的事件；事务不放进 `DayPlan`，零点置空与修订整表替换都不波及它。
+
+| `ErrandState` 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `errand_id` | 字符串 | `<来源动作身份>:errand:<新增条目在请求中的下标>`，确定性生成，只存状态与事件（提示禁键） |
+| `name` | 非空白字符串 | 人物起的名称，照写保存 |
+| `outcome` | `obtain`、`eat` | 结果种类（请求里写「取得」「吃掉」） |
+| `product_id` | 字符串 | 新增时由商品名解析 |
+| `quantity` | 整数 1–9 | 要办成的份数 |
+| `progress` | 浮点，九位小数 | 已累计量，恒小于数量（达到即完成并移出） |
+| `memo` | 字符串或 null | 人物写的备注 |
+| `registered_at` | 时刻 | 记下（受理）的时刻 |
+| `remind_at`、`reminded_at` | 时刻或 null | 提醒的绝对时刻与实际交付提醒的时刻；只有设了提醒的事务才有交付时刻，且不早于提醒时刻 |
+| `origin_action_id`、`origin_event_id` | 字符串 | 来源动作与请求事件 |
+
+**上限**（实验假设，见[实验文档的实验假设声明](EXPERIMENT.md#实验假设声明)）：每人未完成事务至多 8 条；一次请求至多 4 条变更；
+名称至多 30 字符；备注与取消原因各至多 120 字符；数量 1 至 9。待办层不浓缩，上限由校验执行，不静默截取、不自动合并。
+
+**入口。** `report_status`、`pause_activity`、`conclude_activity` 各有请求级必填字段 `errands`（与 `items` 平级，零至四条，可为 `[]`）；
+不放进 `items[]`，不扩到 `start_activity`、`revise_day_plan`，不新增工具。只有本次决策能点名一项活动时才能变更事务：进行中的可播报、
+暂停或结束；暂停的在其开始地点可用 `report_status`（会恢复它），在任何地点都可用 `conclude_activity`（会结束它）；待收尾的用
+`conclude_activity`；空闲与只做瞬时动作（购买、给予、发消息、交工、修订计划）期间没有入口，这些既有效果不因携带事务而改变。
+
+每条变更是封闭对象，八个键全部必填（字段说明的定稿见「人物工具与管理接口」）：
+
+| 键 | 类型 | 说明 |
+| --- | --- | --- |
+| `change` | 「新增」「更新」「取消」 | 没有「完成」 |
+| `name` | 非空白字符串 | 新增时由人物写，兼作描述；更新与取消照待办层写法 |
+| `outcome` | 「取得」「吃掉」或 null | 完成依据的结果种类 |
+| `item` | 非空白字符串或 null | 商品名称，按名称解析到唯一商品 |
+| `quantity` | 整数或 null | 份数 |
+| `memo` | 非空白字符串或 null | 人物写的备注：打算怎么办、去哪办（不叫 `next_step`：那是拒绝结果里环境给出的下一步） |
+| `remind_time` | `HH:MM` 或 null | 想被提醒的钟点，与当日目标的 `remind_time` 同名同形 |
+| `reason` | 非空白字符串或 null | 取消原因 |
+
+| 变更 | 必须非空 | 必须为 null | 其余 |
+| --- | --- | --- | --- |
+| 新增 | `outcome`、`item`、`quantity` | `reason` | `memo`、`remind_time` 可空 |
+| 更新 | — | `outcome`、`item`、`quantity`、`reason` | `memo`、`remind_time` 为替换语义，null 即清空 |
+| 取消 | `reason` | `outcome`、`item`、`quantity`、`memo`、`remind_time` | — |
+
+完成依据记下后不可改，要改就取消后重新新增，二者可以在同一请求里完成并沿用原名；事务记下后不可改名，终结后名称可以再用。
+同一请求内按「取消、更新、新增」的次序求值：重名、同结果同商品与上限都按扣除本请求取消之后的未完成集合判定；同一条未完成事务在
+一次请求里至多被一条更新或取消点名，两条新增不得同名。同一人物同时至多一条相同（结果种类，商品）的未完成事务，所以一条证据至多
+完成一条事务。
+
+**原子受理。** 事务变更与同一请求的活动状态转换同批校验、同一事务提交：环境先解析活动名，再在同一冻结观察上复核事务变更，活动状态
+转换之后才把变更应用到人物状态；请求因任何原因被业务拒绝时事务变更一并不生效，任何一条事务变更不合法则整请求被拒、世界不变。
+新增以零累计量记下；更新只替换备注与提醒（写了钟点就按受理时刻重新换算并重新计一次提醒）；取消即移出。每条被受理的变更恰好写一条
+事务事件（内容没有变化的更新也写），只在成功分支生成，不经拒绝分支也会提交的暂存通道；宿主不旁路写入事务。事务变更不是记忆写入点，
+不产生 `memory_updated`（同一请求的 `memories` 仍按既有规则在登记时由宿主写入，见「记忆字段」）。成功结果恒带回执
+`details.errands`：`[{errand, change}]`，顺序同请求，新增写所写的名称，更新与取消写待办层里的名称，没有变更时为 `[]`；被拒结果
+没有该键。回执是「结果不复述参数」的声明例外：进度层的调用参数略去 `errands`，回执是事务变更在进度层的唯一呈现。
+
+**校验与错误。** 请求模型校验结构（缺键、类型、枚举、交叉约束、长度、单次条数）；同请求重名、同一事务被点名两次、名称与商品的解析、
+同名、同依据与上限由 `errands.change_issues` 在同一冻结观察上判定，宿主与环境调用同一函数、判定一致。不新增业务拒绝码，
+这些错误都不带 `candidates`、不替换：
+
+| 情形 | 宿主纠错 | 明细 |
+| --- | --- | --- |
+| 缺键、类型、枚举、交叉约束、长度、单次条数；两条新增同名；同一事务被两条更新或取消点名（只报较晚的一条） | `ARGUMENTS_INVALID` | `path` 完整到 `errands[j].<键>`，枚举给全部合法值，`expected` 给类型与格式，上限写在 `why` |
+| 更新或取消的 `name` 找不到、对应多条 | `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` | `allowed_values` 列本人全部未完成事务名（至多 8 个，名称字段不列全量的明示例外） |
+| 新增的 `item` 解析不到唯一商品 | `NAME_NOT_FOUND`、`NAME_AMBIGUOUS` | 找不到时最接近的至多三个商品名、有歧义时对应的商品名（至多三个）写在 `why`；`allowed_values` 为 `[]` |
+| 新增的名称与已有未完成事务（扣除本请求取消的）或同请求较早一条新增归一后相同；结果种类与商品都与它们相同；新增后未完成数超过 8 | `ARGUMENTS_INVALID` | 依次定位在该条的 `name`、`item` 与 `change`，`why` 写明冲突的事务名或上限 |
+
+更新与取消的名称在本人未完成事务中按统一名称解析（与活动名同一函数：精确，再无损归一，唯一才受理）。环境在三个处理器里复核（只防
+绕过宿主的请求），失败合并为一次 `ACTION_REQUEST_INVALID`（见「活动受理拒绝码」）；绑定指向的事务不在本人未完成集合（观察与世界对不上）
+时报不带明细的 `ACTION_REQUEST_INVALID`。事件或导出里的控制请求缺 `errands` 键是完整性故障，旧形状记录直接拒绝，不留读取分支。
+观察的两类私有绑定 `errand_bindings`、`errand_item_bindings` 与事务身份 `errand_id` 见「禁止进入提示的字段」；事务名不进回看名称。
+
+**完成依据与结算。** 依据是结果种类 × 商品 × 数量，证据都必须在记下之后：
+
+| 结果种类 | 算数的结算证据 |
+| --- | --- |
+| 取得 | 本人作为收货人的订单变为已送达：动作结果顶层 `orders` 里状态为 `delivered` 的订单（到店成交与当场送达的远程订单），以及配送送达事件里本次新送达的入库行（经订单身份取收货人）；制作产出入库（活动进度的库存转换输出）；本人收到的当面给予（动作结果顶层 `given`） |
+| 吃掉 | 本人进食活动的进度结算中该商品的本区间食用量 |
+
+- **不算**：下单受理、未送达订单、活动开始、制作未完成、目标 `progressed`、任何自述；记下前已持有的；本人买给别人、送达别人手上的
+  （收货人是联系人时不算任何人物取得）。归属看收货人，不看事件的人物字段。
+- **不含地点条件**：到店成交的物品留在门店，事务照样办成；要在家里用的东西应远程下单送到家，人物可以把这层意思写在备注里。
+- **先后按事件顺序，不按时刻**：以往提交记下的事务对本次提交的全部证据有效；本次提交里新增的事务只认排在其 `errand_registered` 之后
+  的证据；本次提交里被取消的事务不再接受该提交的任何证据（结算时它已不在未完成集合）。决策不耗模拟时间，「同一秒先收尾记下、再到店
+  买下」因此能完成。活动进度类证据另要求其结算区间的起点不早于记下的时刻。
+- **只读一处**：结算证据只由 `errands.evidence_rows` 读取：动作结果只读顶层 `orders` 与 `given`，不读并行开始时逐项结果
+  `activity_results` 里的同一订单；重放的动作结果不算；只读结果事件，不读受理事件；配送事件只读本次新送达的入库行，重复到期的订单
+  不再产生入库行。
+- **累计与容差**：累计量（九位小数）达到数量减 1e-9 即完成；不足时保持未完成并记录已累计量，此后吃掉或给出不回退。每次购买每件商品
+  一份，数量大于一靠多次结算累计。缺货、闭店、买不起时事务保持未完成，原因只出现在它本来的位置（该次购买的拒绝结果、进度层当日操作
+  备忘与工具层商品目标的原因），待办层不重算可用性。
+
+结算是纯函数 `errands.settle(状态, 本次提交的事件草稿)`，每次提交恰好调用一次：决策轮提交在全部动作结算之后，时钟推进在后台事件
+并入之后、构造节律边界之前。按草稿先后扫描，每条证据至多命中所有人同一（结果种类，商品）的那一条未完成事务；达标则移出未完成集合并写
+`errand_completed`，否则存下累计量并写 `errand_progressed`。证据行只在订单由未送达变为已送达的那一次出现，所以状态里不设「已消费
+证据」集合。
+
+**提醒时刻。** 只支持时刻，不支持条件。`remind_time` 换算为绝对时刻：该钟点在受理时刻所在本地日的时刻严格晚于受理时刻时取今天，
+否则取下一本地日（按本地日历换算），所以总在二十四小时之内。到点只提供一次决策机会并记一次（写 `reminded_at`），不改变事务的其余
+状态；更新时写新的 `remind_time` 重新计一次；事务完成或取消后不再提醒；没有提醒时刻的事务不另外提供决策机会，只在平常的决策机会里
+可见。唤醒原因为新增成员 `errand_reminder_due`（追加在 `plan_reminder_due` 之后；唤醒原因闭集、睡眠允许集合与触发表不在本文件，见
+[生活运行时规格的决策节律](dev/SPEC-life-runtime.md#决策节律结算边界与唤醒条件分离)），不进入睡眠允许集合：想在某个时刻起床仍只用
+当日目标的提醒。调度口径：清醒人物的未提醒时刻进入下一边界与下一次决策机会的候选，精确在该时刻到点，预测与唤醒共用同一事实生成器，
+候选只取严格晚于此刻的时刻；睡眠中的人物不计入候选、不形成静默边界、不交付也不消耗。每个为清醒人物提供决策机会的边界（含人物刚醒来
+的那个边界，平常边界与零点边界同理）都把该人物全部已到点未提醒的事务一并交付：`errand_reminder_due` 只计一次，与该边界的其他原因
+（如同刻到期的 `plan_reminder_due`）按枚举顺序并列，每条事务各写一条 `errand_reminded`；睡眠期间错过的提醒因此在醒来的边界交付，
+不另起边界。进度层的提醒记录由该事件派生。未完成的事务不算在手承诺（见「当日目标的配置与质量输出」）。
+
+**事件。** 事件类型闭集不变，`environment_event` 的 `data.kind` 增六种：
+
+| `kind` | 何时写 | `caused_by` | 可见性 | 载荷 |
+| --- | --- | --- | --- | --- |
+| `errand_registered`、`errand_updated`、`errand_cancelled` | 控制请求受理时，每条被受理的变更一条 | 请求事件 | `system` | `{kind, errand}`（新增与更新为受理后的快照，取消为移出前的快照），取消另带 `reason` |
+| `errand_progressed` | 结算证据命中但未达数量 | 证据事件 | `system` | `{kind, errand, quantity_added}` |
+| `errand_completed` | 结算证据命中并达到数量 | 证据事件 | `agent` | `{kind, errand, quantity_added}`，`errand.progress` 为最终累计量 |
+| `errand_reminded` | 提醒实际交付时 | 无 | `agent` | `{kind, errand}`（记下 `reminded_at` 后的快照） |
+
+六种事件的决策、动作与活动身份都为空，只经 `caused_by` 关联：它们不进入任何动作窗口的结果，也不落进别人那次决策的分组（证据可以是
+别人的动作，例如他人买给本人），结算与提醒事件不沿用证据事件的决策身份。一条事件只对应一条事务，人物字段为事务所有人，来源为环境，
+`errand` 为 `ErrandState` 的 JSON 快照；不得含 `activity` 与 `resource_changes` 键。被进度层消费的 `errand_reminded`、
+`errand_completed` 是人物可见的（交付窗口要求每个进度来源都是本人可见的结果或事件），其余四种只供审计与指标。事务变化与触发它的
+事件、世界状态在同一 SQLite 事务提交。
+
+**检查点与版本。** 共同检查点保存未完成事务；恢复后待办层逐字节相同，不重复记下、完成与提醒。`AgentState.errands` 随世界状态结构
+版本 9 引入（见「领域枚举」），版本 8 的检查点与导出按版本拒绝，不迁移。
+
+**度量。** 质量报告的 `errand_metrics`、`conclusion_memories` 两个只报告分组与 `quality.json` 结构 4 见
+[记录引擎的质量报告](design/05-recording-engine.md#质量报告)，不写进 `day_plan_metrics`。
 
 ### 工作通知与开放合同
 
@@ -301,7 +453,7 @@ visible_task_ids 表示本人已知，由本人邮件到达写入；不能把新
 | --- | --- |
 | `start_activity` | 对象名称与方式按统一名称解析，内部动作由方式唯一推导在同一冻结观察中唯一匹配（精确或无损归一后唯一；本轮没有列出的生活活动、内容、游戏与地点按目录绑定与冻结地点表解析，`obtain` 的商品名不在其中、商品目标写「购买」或本轮列出的商品目标写了不是标签门店的 `from` 时按下文「指名购买」解析）；按绑定解析内部身份、标准动作、方式与报价，依次检查当前菜单（按映射后的内部动作）、名额（进行中、暂停中与待收尾的活动各占一个，常量 2）、目标在场与实际地点、出行方式、注册表占用、物品状态及其余领域条件，能量不参与；名称类问题（找不到、有歧义、方式不属于对象能力、目标已写明门店而 `from` 是另一个已知地点或不含该门店的渠道）与指名购买分段匹配各段的拒绝逐项报全部，其余业务条件报告所有可独立判定的问题，结果与组内先后无关；多目标整体接受或拒绝；两项同为 `obtain` 时订单按（方式，收货地）拆分（「购买」按受理时定下的方式）：方式同为「到店」或同为「远程下单」且收货地相同时合成一单，同一请求中只有 `to` 不同时才允许重复目标，去重键为（供给，收货人）；同为食用、各项两端 null 时合成一餐（「使用」一次只用一件，两件以 `ACTION_REQUEST_INVALID` 拒绝并说明「Only one item can be used at a time.」），「制作」不合并（一次请求只做一份配方），其余两项各自受理；方式为给予时 `to` 为人物名（见下文「来源与去向」）；瞬时的取得（到店、远程下单）可与持续活动同一请求：当场成单、活动照常开始，二者按同一套准入整组判定（例如驾车与远程下单同一请求以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，下一步「Place the order before departing.」）；与出发同一请求使用持有物以 `PRODUCT_NOT_HELD` 拒绝，下一步「Finish using the item before departing.」 |
 | `recall_task_summary` | 名称唯一对应本人可回看的任务、当日目标（按待办层写出的目标文字）或活动（按本轮活动名或记忆层 `self_notes` 所写的活动名）；对应不止一项（两个目标文字相同，或两个条目的同一 `self_notes` 活动名指不同活动）时与找不到一样报 `TASK_NOT_FOUND`（会话名不在七层中出现，不可回看）；只读，不修改世界 |
-| `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项、一项一个对象，每项的 `activity_name` 唯一对应本人进行中、暂停中或待收尾的活动（活动名为「做什么＋对象＋开始时刻」），各项互不相同（`conclude_activity` 每项另带 `memories` 与 `views`）；所有状态转换先验证再原子更新，自述另标未经核验 |
+| `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项、一项一个对象，每项的 `activity_name` 唯一对应本人进行中、暂停中或待收尾的活动（活动名为「做什么＋对象＋开始时刻」），各项互不相同（`conclude_activity` 每项另带 `memories` 与 `views`）；所有状态转换先验证再原子更新，自述另标未经核验；请求级 `errands` 零至四条：每条八键必填并满足「个人事务」的交叉约束，同一条未完成事务至多被一条更新或取消点名、两条新增不得同名，按取消、更新、新增的次序求值；更新与取消的 `name` 唯一对应本人一条未完成事务，新增的 `item` 按名称解析到唯一商品；事务变更与活动状态转换同批校验、同一事务提交，任何一条不合法则整请求被拒、世界不变，请求被业务拒绝时事务变更一并不生效 |
 | `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审；被提交的任务本身不在进行中（否则 `WORK_TASK_IN_PROGRESS`）；晚于截止提交报 `WORK_SUBMISSION_LATE`，截止同秒不算迟交 |
 | `send_message` | 收件人名称唯一且可见，渠道与文本符合规则 |
 | `revise_day_plan` | 目标数量、文字、保留已推进目标与领域约束符合当日目标合同；`remind_time` 或 `around_time` 格式不合法报 `ACTION_REQUEST_INVALID`，新登记或改了提醒的条目换算后须晚于修订时刻、早于次日零点，否则报 `PLAN_REMIND_TIME_INVALID`；`around_time` 不要求晚于修订时刻 |
@@ -397,6 +549,10 @@ M3 多于一个时按请求级 `prefer` 选定一家，不以 `SUPPLY_NAME_AMBIG
 活动名的明细相同：参数名为 `activity_name`，码为 `NAME_NOT_FOUND`（原因写出最接近的几个活动名）或 `NAME_AMBIGUOUS`（原因列出
 这些完整活动名），不带候选；名称都解析出来之后，状态、地点与决策边界等其余条件报告全部可独立判定的问题。这两种防御拒绝的顶层码都是
 `ACTION_REQUEST_INVALID`，不在下文的名称类拒绝码闭集中，照常计入同刻轮数、照常施加情绪脉冲。
+请求级 `errands` 由环境在这三个处理器里用与宿主同一个纯函数（`errands.change_issues`）复核（只防绕过宿主的请求）：活动名都解析
+出来之后，全部事务问题合并成一次 `ACTION_REQUEST_INVALID`（与活动名的防御拒绝一样计入同刻轮数），逐条写进 `items`（`path` 到 `errands[j].<键>`，明细码为
+`ARGUMENTS_INVALID`、`NAME_NOT_FOUND` 或 `NAME_AMBIGUOUS`；都不带候选、不替换：`name` 错误在 `allowed_values` 列本人全部未完成
+事务名，`item` 错误把最接近的至多三个商品名写在 `why`）；不新增业务拒绝码（见「个人事务」）。
 
 **名称类拒绝码。** 闭集（`worldmock.life.error_contract.NAME_REJECTION_CODES`，宿主与环境同一口径，
 [一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 3.4）：宿主的 `HOST_NAME_CODES` 为 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS`、`WAY_NOT_OFFERED`、
@@ -454,6 +610,15 @@ message 与 reason 一致；公开 details 保留 fix/items/resolved/notes 和�
 | `report_status`、`pause_activity`、`conclude_activity` | `items[].summary` | 逐项非空白、不超过 500 字符的模型自述；关联目标同步写对应进度（`PlanGoal.progress_note` 照存，不进提示） |
 | `conclude_activity` | `items[].memories` | 必填，可为空列表；关于这项活动的零至多条普通记忆 `{type, text, importance, keywords}`，`type` 取 commitment、goal、conflict、resolution、identity、routine、reflection，没有 `subject` |
 | `conclude_activity` | `items[].views` | 必填，可为空列表；零至多条看法或偏好 `{type, about, text, importance, keywords}`，`type` 取 relationship、preference，`about` 非空白；relationship 的 `about` 须是已知人物（卡片关系名、联系人姓名或称谓、同世界人物名），否则宿主按协议错误在本轮纠正；全部项的 `memories` 与 `views` 合计不超过八条，字段约束见「记忆字段」；超限由本地请求模型拒绝，按协议错误在本轮重试 |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands` | 请求级必填，与 `items` 平级，零至四条，可为 `[]`；每条为封闭对象，八键全部必填；同一条未完成事务在一次请求里至多被一条更新或取消点名，两条新增不得同名；按「取消、更新、新增」的次序求值，重名、同结果同商品与上限按扣除本请求取消之后的未完成集合判定（见「个人事务」） |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].change` | 「新增」「更新」「取消」，没有「完成」 |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].name` | 非空白、至多 30 字符；新增时由人物写，归一后不得与扣除本请求取消之后的本人未完成事务或同请求另一条新增同名（取消后可在同一请求里以原名新增），记下后不可改名，终结后名称可以再用；更新与取消照待办层写法，按统一名称解析唯一对应一条未完成事务 |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].outcome` | 「取得」「吃掉」或 null；新增必填，更新与取消必须为 null |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].item` | 非空白的商品名称或 null；新增必填并按名称解析到唯一商品，更新与取消必须为 null |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].quantity` | 整数 1 至 9 或 null；新增必填，更新与取消必须为 null |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].memo` | 非空白、至多 120 字符或 null；新增可空；更新为替换语义，null 即清空；取消必须为 null |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].remind_time` | `HH:MM` 或 null，格式同 `revise_day_plan` 的 `remind_time`；新增可空；更新为替换语义，null 即清空；取消必须为 null；换算见「个人事务」 |
+| `report_status`、`pause_activity`、`conclude_activity` | `errands[].reason` | 取消必填，非空白、至多 120 字符；新增与更新必须为 null |
 | `revise_day_plan` | `goals[].remind_time` | 每条目标必填，可为 null；非 null 时为场景本地 `HH:MM`（两位小时 00–23、两位分钟 00–59），格式错误报 `ACTION_REQUEST_INVALID`；换算后的时刻约束见「当日目标请求」。零点计划 `plan_day` 不是人物工具，其输出条目按同一边界校验 |
 | `revise_day_plan` | `goals[].around_time` | 每条目标必填，可为 null；非 null 时为场景本地 `HH:MM`（格式同 `remind_time`），格式错误报 `ACTION_REQUEST_INVALID`；不要求晚于修订时刻，不触发决策。零点计划的输出条目按同一边界校验 |
 | `send_message` | `recipient_name` | 当前冻结观察中的唯一可读人物名称 |
@@ -564,7 +729,7 @@ ContractKind = Literal["package", "hourly", "piece"]
 | --- | --- |
 | 订单状态 `DeliveryState.status` | `pending`、`ready`、`delivered`、`cancelled` |
 | 决策轮状态 `DecisionRoundState.status` | `open`、`committed`、`aborted` |
-| 世界状态结构版本 `WorldState.schema_version` | 8（相对 7 的变化见本节末表） |
+| 世界状态结构版本 `WorldState.schema_version` | 9（相对 8、8 相对 7 的变化见本节末两张表） |
 | 活动边界 `ActivityState.boundary_type` | `planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`（路上开始的活动随到达或途中结束出行由世界结束）、`partner_ended`（交谈对方结束，本人以其为伙伴的进行中交谈在同一秒结束，状态为 `completed` 并成为待收尾）、`plan_reminder`（当日目标提醒到点结束睡眠；睡眠的计划结束与提醒同秒时记 `planned_end`） |
 | 活动中断原因 `ActivityState.interruption_reason` | `agent_cancelled`（人物主动结束）、`experiment_end`、`LOCATION_ACCESS_DENIED`（到达准入失败）、`route_ended`、`partner_ended`、`plan_reminder`（提醒结束睡眠） |
 | 地点会话 `SessionState.kind` / `SessionState.status` | `stay`、`transit` / `active`、`ended` |
@@ -601,6 +766,15 @@ ScheduledKind = Literal[
 
 生活场景的 `Contact` 另增可空的 `receive_location_id`（见「场景联系人」），`catalog_version` 不变。
 
+世界状态结构版本 9 相对 8 的变化（只升一次，版本 8 的检查点与导出以版本不符拒绝，不迁移）：
+
+| 字段 | 类型与缺省 | 含义 |
+| --- | --- | --- |
+| `AgentState.errands` | `dict[str, ErrandState]`，缺省 `{}` | 本人未完成的个人事务，键为事务身份（见「个人事务」） |
+| 控制请求形状 | — | `report_status`、`pause_activity`、`conclude_activity` 的请求增必填键 `errands`；事件或导出里缺该键是完整性故障 |
+| `environment_event` 的 `data.kind` | — | 增 `errand_registered`、`errand_updated`、`errand_cancelled`、`errand_progressed`、`errand_completed`、`errand_reminded` |
+| 观察形状 | — | 待办层增 `errands`，进度层增 `errand_reminder`、`errand_completed` 两种记录，私有绑定增 `errand_bindings`、`errand_item_bindings` |
+
 ## 地图与门店供给合同
 
 本节定义 [地图与门店供给规格](dev/SPEC-map-and-storefront.md) 的字段面。记录正文和恢复材料由
@@ -630,10 +804,11 @@ ScheduledKind = Literal[
 商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
-当前版本边界为地图文件结构 2、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 8。
+当前版本边界为地图文件结构 3、商品目录 5.3（major 5）、品类契约版本 3、交换规则绑定版本 3、场景结构 4、世界状态结构 9。
 这些版本分别约束不同输入，不能相互替代。地图文件结构随地点字段 `branch_label` 由 1 升到 2，数据集声明与地点、供给、路线三个目录文件
 同用这一版本，结构 1 的地图直接拒绝；仓库地图已按结构 2 重新发布（数据未变，只有结构版本与文件摘要变化），场景结构、世界状态结构与目录版本不变。
-场景结构保持 3；含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点、旧结构地图和旧世界状态直接拒绝，
+其后随类别供给（见「类别供给的构建合同」）地图结构升到 3、场景结构升到 4、目录升到 5.x、品类契约与规则绑定升到 3，结构 3 以外的地图
+直接拒绝。场景结构为 4；含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点、旧结构地图和旧世界状态直接拒绝，
 不保留迁移脚本、兼容解析或回退数据源。
 
 ### 类别供给的构建合同
@@ -910,7 +1085,7 @@ flowchart LR
 | user 第 3 项 | 记忆层 | 观察键 `memory_layer`，由环境从已提交事件与世界状态派生（见「记忆字段」） | 观察事件 |
 | user 第 4 项 | 待办层 | 观察键 `todo_layer` | 观察事件 |
 | user 第 5 项 | 环境层 | 观察键 `environment_layer` | 观察事件 |
-| user 第 6 项 | 进度层 | 观察键 `progress_layer`，只交给宿主，不写入观察事件 | 观察事件只存来源事件引用 `progress_event_ids`（调用记录的来源是 `action_requested` 与 `action_result`，记忆查询记录的来源是私有的 `model_request`、`model_response`）；完整 JSON 在实际请求 |
+| user 第 6 项 | 进度层 | 观察键 `progress_layer`，只交给宿主，不写入观察事件 | 观察事件只存来源事件引用 `progress_event_ids`（调用记录的来源是 `action_requested` 与 `action_result`，记忆查询记录的来源是私有的 `model_request`、`model_response`，个人事务两种记录的来源是人物可见的 `environment_event`（`data.kind` 为 `errand_reminded`、`errand_completed`），来源事件计入 `progress_event_ids`）；完整 JSON 在实际请求 |
 
 观察字典不再有 `scene`、`facts` 与 `recent_action_results`。每项信息在整个请求中只有一处完整内容，其他位置只用名称引用
 （唯一出现原则，见人物 Prompt 规格第一章）。
@@ -928,7 +1103,7 @@ flowchart LR
 - 没有内容的列表写 `[]`，允许为空的写 `null`，不填编造的值。
 - 名称沿用现行的唯一可读标签：交互对象标签须唯一，活动名重名时追加「（第二次）」；他处持有物的名称带地点（`持有物：<商品>（<地点>）`），
   与手边同名持有物不重名。
-- 人物写下的内容（`self_note`、`self_notes`、人设层的看法与偏好）是否经核验，由系统层规则统一说明，各字段不逐条标注。
+- 人物写下的内容（`self_note`、`self_notes`、人设层的看法与偏好、待办层个人事务的文字）是否经核验，由系统层规则统一说明，各字段不逐条标注。
 
 **完整冻结工具观察** `{layer, targets, callable_index}`：`targets` 是本轮展示的目标，可以为空（空列表是合法状态，决策照常）；`callable_index`
 是只列名称的可调用索引（见下文「可调用索引」），不是目标；工具定义只在原生 `tools` 中。
@@ -1009,7 +1184,13 @@ flowchart LR
 | 字段 | 含义 |
 | --- | --- |
 | `paused_activities[]` | 按暂停时刻从老到新（同刻按事件顺序）：`name`、`paused_at`、`place`（只能回这里恢复）、`progress`（客观进度短句；进食写「已吃 0.2 份，剩 0.8 份」）、`tools[]`（`report_status` 表示恢复，`conclude_activity` 表示结束，各带 `available`、`reason`；人在别处时恢复标不可用，原因点名地点） |
+| `errands[]` | 本人未完成的个人事务，必填，没有时为 `[]`，键序在 `paused_activities` 之后、`day_plan` 之前（待办层键序为 `layer, paused_activities, errands, day_plan`），按记下的时刻与事务身份排序，至多八条；每行 `{name, done_when, progress, memo, remind_time, noted_on}`：`name` 为人物起的名称；`done_when` 为「取得<商品名> N 份」或「吃掉<商品名> N 份」；`progress` 为「已取得 N 份」或「已吃掉 N 份」，尚无进展写 0 份（数量写法复用份量短语）；`memo` 为人物写的备注，可为 `null`；`remind_time` 为尚未提醒的钟点 `HH:MM`，没有或已提醒为 `null`；`noted_on` 为记下的本地日期。行内不含内部身份、状态枚举与可用性；办成或取消的事务不再列出；个人事务不进记忆层、不占记忆层的字符窗口，记忆层不为它写 `settled` 句，见「个人事务」 |
 | `day_plan` | `null` 或 `{date, goals[{intent_kind, goal, progressed, remind_time, around_time}]}`（`around_time` 写`HH:MM`或 `null`），见「当日目标请求」 |
+
+个人事务唯一出现的口径：在每次请求的六层快照内，事务的完整行只在待办层，别处只以名称引用（进度层 `errand_reminder`、
+`errand_completed` 两种记录与结果 `details.errands` 回执的 `errand` 键）。三处照原始证据回显所写内容的位置不在此列（与 `views` 的
+现行处理相同）：同秒续接中上一决策原样带回的调用参数与 tool 消息里的改动、进度层 `rejected_today` 的所写与受理写法、被拒结果明细
+里的所写内容。
 
 **环境层**：
 
@@ -1020,23 +1201,28 @@ flowchart LR
 | `location` | `{session_kind, name, place_type, fixed_rules}`：`session_kind` 取 `stay`、`transit`；`name` 停留时为地点名，路程中为路段标签（「去<目的地>的路上」）；`place_type` 停留时为场所类型的中文标签，路程中为出行方式（「步行」「驾车」）；`fixed_rules` 为场所的固定规则，取本轮有效菜单排除的动作的可读说法（每个排除的动作一句「这里不能<说法>」），菜单全开时为 `[]`；路程中有效菜单仍按出发地解析（[时间与能量规格](dev/SPEC-time-and-energy.md)第五章），`fixed_rules` 取同一菜单，与工具层一致 |
 
 **进度层** `{layer, session_started_at, events, rejected_today}`：`session_started_at` 为当前 session 的开始时刻；`events` 是本 session 的有序记录，
-按 `occurred_at` 排列，同一时刻由截止与提醒推导的记录（`task_deadline`、`plan_reminder`，依此序）在前，事件记录按事件序号在后。JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首决策时构造，此后同秒发生的事
+按 `occurred_at` 排列，同一时刻由截止与提醒推导的记录（`task_deadline`、`plan_reminder`，依此序）在前，事件记录按事件序号在后（`errand_reminder`、`errand_completed` 是事件记录，按事件序号排列）。JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首决策时构造，此后同秒发生的事
 只经续接消息出现（见「思考回传」）；不续接的请求写到此刻。每条记录以 `occurred_at`、`type` 开头：
 
 | `type` | 内容字段 | 含义 |
 | --- | --- | --- |
-| `tool_call` | `tool`、`arguments`、`result`，可选 `self_note` | 一次世界请求连同公开结果；回复正文为空时没有 `self_note` 键。记忆查询的 `result` 只写条数（`details.episodes`）；三个控制工具的参数经 `control_items` 按现行形状写出，`conclude_activity` 的参数略去 `views`（看法与偏好） |
+| `tool_call` | `tool`、`arguments`、`result`，可选 `self_note` | 一次世界请求连同公开结果；回复正文为空时没有 `self_note` 键。记忆查询的 `result` 只写条数（`details.episodes`）；三个控制工具的参数经 `control_items` 按现行形状写出，`conclude_activity` 的参数略去 `views`（看法与偏好），三个控制工具的参数都略去请求级 `errands`（回执在 `result.details.errands`） |
 | `message_arrival` | `sender`、`kind`（`direct`、`chat_invite`、`mail`），`text` 或 `subject` | 直接消息与交谈邀请带全文 `text`（交谈邀请的全文后接回应方式「，对<发起人>选择交谈即接受」，见[时间与能量规格](dev/SPEC-time-and-energy.md)第五章「交谈」）；邮件只有 `subject`，正文在阅读结果中；邮件的 `sender` 可为 `null` |
 | `delivery` | `order`、`status`、`message` | 本人付款的订单的可读名称与送达进展；`status` 取 `ready`、`delivered`、`cancelled`。收货人是同世界其他人物时，收货人没有这条记录，送达的物品在其工具层成为持有物目标 |
 | `task_deadline` | `task`、`stage` | `due_soon` 在截止前 1800 秒，`expired` 在截止时刻；截止时刻本身只在工具层 |
 | `plan_reminder` | `goal` | 当日目标的提醒到时；提醒时刻本身只在待办层 |
+| `errand_reminder` | `errand` | 个人事务的提醒到点（由 `errand_reminded` 派生），只写事务名称；提醒时刻本身只在待办层，交付后待办层该行的 `remind_time` 为 `null` |
+| `errand_completed` | `errand` | 环境按结算证据确认事务办成（由同名事件派生），只写事务名称；随后该事务从待办层消失；取消的事务只从待办层消失，没有记录 |
 | `condensed` | `until_at`、`lines` | 预算浓缩产生的折叠记录，`lines` 为 `settled` 写法的句子（见「可见期与提示预算」） |
 
 - **session 下界。** 运行开始为 0；到达取该 session 的开始时刻；由决策引起的切换（出发、途中结束出行）取引起切换的那条结果的事件序号
   （`SessionState.opened_by_action_id`）。这些参照点识别边界提交，下界是边界提交的末事件序号（一次提交是序号连续、
   `state_version_before` 与 `state_version_after` 都相同的一组事件，与记忆层「session 与归属」同一区间，同一事件只在两层之一出现）。
   结果游标及其文本嗅探已删除。
-- **截止与提醒**由截止时刻与提醒写入时刻推导，不新增事件类型。
+- **截止与提醒**由截止时刻与提醒写入时刻推导，不新增事件类型。个人事务的两种记录不在此列：它们由人物可见的 `environment_event`
+  （`errand_reminded`、`errand_completed`）派生，不由状态推导（事务可能在同一 session 内办成并被移出状态）；事件类型闭集不变。
+  它们按所在提交归属 session：落在开启新 session 的那次提交里的办成或提醒归旧 session，不出现在新 session 的进度层，这时办成由
+  事务从待办层消失与同一提交的购买、送达句体现。
 - **业务拒绝**照常记录，带 `error_code` 与 `details` 中的原因、改法、下一步与逐项明细（`message` 就是原因，见「活动受理拒绝码」的拒绝结构）；
   协议纠错回合不记录。调用与结果合为一条记录，不给模型任何调用编号。
 - **直接消息**以全文进入进度层，「已读」指全文已经呈现。睡眠中不「已读」：人物在睡时，结算边界的判定段与决策轮提交都不把
@@ -1053,6 +1239,7 @@ flowchart LR
 | `purchases` | `[{product, quantity, paid, destination, expected_at, recipient, request}]`：商品、份数、实际付款、送达地点与预计时刻（`expected_at` 为带时区 ISO 8601）、收货人与关联消息名（不关联为 `null`） |
 | `given` | `[{product, quantity, recipient}]`：给予的商品、实际转出的份数（人读短语）与收件人的可读名称 |
 | `planned` | `[{name, duration}]`：受理的计划时长，活动名与人读时长；`report_status` 恢复暂停的活动时为恢复后的计划时长 |
+| `errands` | `[{errand, change}]`：三个控制工具受理时的个人事务变更回执，`errand` 为事务名称（新增为所写的名称，更新与取消为待办层里的名称），`change` 为「新增」「更新」「取消」，顺序同请求；成功结果恒带，没有变更时为 `[]`；请求被拒时没有该键 |
 | `arrival` | `{place, access}`：到达地点与「进入」或「没能进去」 |
 | `browse_items` | 浏览得到的商品的完整标签「<门店>出售的<商品>」（与工具层商品目标名、指名购买的标签同一写法；仍只列名称，不标可得性，可得性在工具层动作的 `available`，[一日运行保真规格](dev/SPEC-dayrun-fidelity.md#53-浏览结果与提示看可达性) 5.3）；浏览与同一请求的另一项活动一起开始时，写在全部子活动结束后的那条结果中，只写一次（工具层的置顶取同一份浏览结果）；session 结束后，完成的浏览在记忆层 `settled` 的活动句末尾写「，浏览到<完整标签>、……」 |
 | `mail` | `{subject, body}`：读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现） |
@@ -1129,7 +1316,10 @@ query_world 必填 name/way/category/offset，返回 `{matches, total_count, nex
 `prompt_sha256` 与工具 Schema 指纹 `tool_schema_sha256`（见「模型身份」）都在新建运行时计算、不钉常量：系统层增至十八条、待办层目标增
 `around_time`、工具层增必填的 `callable_index` 使前者重钉，`revise_day_plan` 的 `around_time`、三个活动控制工具的 `items` 形状（含字段
 说明）与 `start_activity` 的请求级 `prefer`（其字段说明兼述方式「购买」）使后者重钉；「购买」只写在请求里，不在工具层 `actions[].way`
-的闭集中，不改变前者（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 2.2、3.5、5.2、第六章、8.2）；旧运行按模型身份与 `code_sha256` 拒绝恢复。
+的闭集中，不改变前者（[一日运行保真规格](dev/SPEC-dayrun-fidelity.md) 2.2、3.5、5.2、第六章、8.2）；
+[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 2：系统层第 1、4、6 条原位改写（仍为十八条）、待办层增 `errands`、进度层增
+`errand_reminder` 与 `errand_completed` 使前者重钉，三个活动控制工具的请求级 `errands`（含用途句与字段说明）与 `items[].memories`
+的新说明使后者重钉；旧运行按模型身份与 `code_sha256` 拒绝恢复。
 
 | 常量或函数 | 内容 |
 | --- | --- |
@@ -1154,10 +1344,11 @@ Schema 固定的闭集与格式：
 | 工具层 `callable_index` | 必填，恰好 `lifestyle`、`contents`、`goods` 三键：`lifestyle` 为不重复的非空名称；`contents`、`goods` 的每项恰好 `category`（非空文本）、`count`（人读短语 `^[1-9][0-9]* 个$`）、`examples`（至多 `INDEX_EXAMPLES_MAX` = 3 个不重复的非空名称）；没有动作、条件与身份键 |
 | 人设层 | `habits` 至多五条；`relationships[]` 为 `{person, role, closeness, channels, view}`；`preferences[]` 为 `{subject, preference, noted_on}` |
 | 记忆层 `self_notes[]` | `{activity, text}` |
+| 待办层 `errands[]` | 必填（键序在 `paused_activities` 与 `day_plan` 之间），至多八条；每项恰好六键 `name`、`done_when`、`progress`、`memo`、`remind_time`、`noted_on`：`memo` 为非空文本或 `null`，`remind_time` 为 `HH:MM` 或 `null`，`noted_on` 为日期 |
 | 待办层 `day_plan.goals[]` | 至多八条；`intent_kind` 取「当日目标请求」的十一种意图；五键 `intent_kind`、`goal`、`progressed`、`remind_time`、`around_time` 必填 |
 | 环境层 `body` | 恰好五键：`appetite` 取 不饿、有点想吃、饿、很饿、饿得难受、饿得发慌；`sleepiness` 取 清醒、有点乏、困、很困、撑不住；`entertainment` 取 不闷、有点想放松、很想放松；`social` 取 不想找人、想和人说说话、有点孤单；`mood` 取 很烦、有点烦、平静、挺好、很开心 |
 | 环境层 `location.session_kind` | `stay`、`transit` |
-| 进度层 `events[].type` | `tool_call`、`message_arrival`、`delivery`、`task_deadline`、`plan_reminder`、`condensed` |
+| 进度层 `events[].type` | `tool_call`、`message_arrival`、`delivery`、`task_deadline`、`plan_reminder`、`errand_reminder`、`errand_completed`、`condensed`；两种个人事务记录的内容字段恰为 `errand`（事务名称） |
 | 进度层 `message_arrival.kind` | `direct`、`chat_invite`、`mail` |
 | 进度层 `task_deadline.stage` | `due_soon`、`expired` |
 | 进度层 `delivery.status` | `ready`、`delivered`、`cancelled` |
@@ -1224,10 +1415,11 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 
 0. 提前结束本秒续接：本次请求改为从新快照构造，此前的思考不再出现（见「思考回传」）；
 1. 从旧到新去掉未受保护记录的 `self_note`；
-2. 把最旧一段未受保护、已有结果的记录折成一条 `condensed` 记录，`lines` 为这些记录的 `settled` 写法句子；紧挨在这一段之前的 `condensed` 记录并入这次折叠，仍达阈值时再折下一段。
+2. 把最旧一段未受保护、已有结果的记录折成一条 `condensed` 记录，`lines` 为这些记录的 `settled` 写法句子；紧挨在这一段之前的 `condensed` 记录并入这次折叠，仍达阈值时再折下一段；`errand_completed` 记录折成一句只含时刻与事务名的句子「HH:MM 办成「<事务名>」」（跨日加日期；这句只用于进度层折叠，记忆层与零点计划输入不写），`errand_reminder` 与当日目标提醒同等对待，折叠后不留句。
 
 始终完整保留（受保护）的是：工具层的进行中与刚结束活动、待办层的暂停活动、未了结订单相关的记录、上次请求之后的新记录。
-工具层、人设层、待办层与环境层不浓缩；记忆层只受自身 8000 字符窗口约束。不静默删减。仍达到阈值或超过输入额度时按容量故障停止，
+工具层、人设层、待办层与环境层不浓缩；待办层的 `errands` 至多八条，由请求校验的上限保证（见「个人事务」），不靠浓缩。
+记忆层只受自身 8000 字符窗口约束。不静默删减。仍达到阈值或超过输入额度时按容量故障停止，
 并按系统层、工具定义、各 user 层、续接消息、预留输出分层记录 token 用量与英文错误日志。
 材料揭示是增量窗口，门店供给可见期是可见性条件，不属于容量故障。
 
@@ -1376,11 +1568,14 @@ PlaceKind = Literal["home", "office", "merchant", "restaurant", "convenience_sto
 观察不再产生此键，键名仍留在禁止键表中）、`message_bindings`（本次观察可见的直接消息：进度层 `message_arrival` 的与记忆层中未回复的）、
 `person_bindings`（同世界全部其他人物，`{name: "人物：<名>", person_id: "agent:<id>"}`，不论是否同处，供去向与 relationship 记忆的对象识别；
 工具层仍只列同处的人物）、`catalog_bindings`（本轮没有列出、可以按名调用的生活活动、内容与游戏，见「七层字段」的展示不是资格上限）、
+`errand_bindings`（本人未完成事务的名称到事务身份、结果种类与商品身份，待办层顺序，供更新、取消与同名、同依据判定）与
+`errand_item_bindings`（全部商品名到商品身份，按商品身份排序，供新增的 `item` 解析；商品名本就可按名调用，不扩大权限；事务名不进
+回看名称，见「个人事务」）、
 `home_location_id`（本人住处，「家」「住处」按它解析）、
 `persona_views`、`progress_meta`、`progress_event_ids`、`presented_message_ids`、续接私有键 `continuation`、
 `motivation_hints`、`game_catalog`、
 完整活动快照（`activity_snapshot`、`activities`），内部身份键 `agent_id`、`activity_id`、`source_event_id`、`event_seq`、`product_id`、
-`location_id`、`destination_id`、`content_id`（与[时间与能量规格](dev/SPEC-time-and-energy.md)第七章
+`location_id`、`destination_id`、`content_id`、`errand_id`（与[时间与能量规格](dev/SPEC-time-and-energy.md)第七章
 「发给模型的内容不含内部身份」一致），以及嵌套的 `profile.motivation` 与
 `profile.entertainment_preferences`。宿主渲染系统层、六层 JSON 与续接 tool 消息时逐键校验（`narration.FORBIDDEN_OBSERVATION_KEYS`）；原生 `tools` 是整次运行不变的常量，
 由测试校验其描述与参数；记忆查询的 tool 消息只含 `{type, text, time, epistemic_status}`。代码中的键表是本段所列的超集，另含动作、事件、会话、任务、路线、
@@ -1505,7 +1700,8 @@ system 是一份固定的系统层 JSON：键依次为 `layer`、`role`、`rules
 | `已核验经历` | 回顾时段内本人已核验经历的确定性句子，按时间顺序；句式与记忆层 `settled` 共用同一模块：时刻为场景本地 `HH:MM`，跨日加「M月D日」，金额按元，份数至多两位小数，时长用人读短语 |
 | `动作结果` | 回顾时段内本人已结算的公开动作结果写成的句子：消息送达、订单受理（带预计送达或取货地点）、配送送达与工作验收 |
 | `收尾记录` | 回顾时段内已受理的 `conclude_activity` 请求记下的逐项 `{时间, 活动, 收尾说明, 想记住的, 说明}`（被拒与重放的请求不列）；`想记住的` 是该项记忆与看法的文字（经 `control_items` 读出，先 `memories` 后 `views`），`说明` 恒为「你自己记下的，未经核验」 |
-| `待办任务`、`收件箱`、`在途订单`、`联系人` | 此刻可见、未付款且未过截止的任务（名称、截止、要求的地点）、收件箱（发件人、摘要、是否已读、时间）、本人待交付的订单（商品、数量、预计送达、送达地点）与联系人（称呼、关系） |
+| `待办任务`、`收件箱`、`在途订单`、`联系人` | 此刻可见、未付款且未过截止的任务（名称、截止、要求的地点）、收件箱（发件人、摘要、是否已读、时间）、本人待交付的订单（商品、数量、预计送达、送达地点）与联系人（称呼、关系）；`待办任务` 只是工作任务 |
+| `个人事务` | 本人此刻未完成的个人事务，只读，键序在 `待办任务` 之后、`收件箱` 之前：每条 `{名称, 要办成什么, 已办到哪, 备注, 提醒时刻}`，与待办层 `errands` 同一行构造、同一顺序（`提醒时刻` 为尚未提醒的钟点，没有或已提醒为 null），不含内部身份与记下的日期，不登记来源事件；零点计划对事务不创建、不更改、不终结 |
 | `上一天的目标` | 零点边界上刚结束这一日计划的最后一份快照（含末段推进）：每条目标的意图、文字与是否已推进 |
 
 回顾时段在零点边界是刚结束的本地日（前一日 00:00 至本次零点，结束于本次零点的经历区间属于刚结束的这一日），
@@ -1594,11 +1790,11 @@ Schema 内联生成，不含 `$ref`、`$defs`，也不在生成后改写；条�
 | 错误码 | 何时 |
 | --- | --- |
 | `ARGUMENTS_NOT_JSON` | 工具参数不是可解析的 JSON 对象；解析失败时原因写出所在的行与列 |
-| `ARGUMENTS_INVALID` | 参数形状不符合工具的参数定义（缺字段、多字段、类型、格式、界限、取值闭集与请求模型自己的校验），原因按字段逐条写，明细写参数名与所写的原文；items为空、超过两项或项内字段不合法；修订今日计划超过八条、意图重复（逐条定位，见「当日目标请求」）或重交已推进的目标 |
+| `ARGUMENTS_INVALID` | 参数形状不符合工具的参数定义（缺字段、多字段、类型、格式、界限、取值闭集与请求模型自己的校验），原因按字段逐条写，明细写参数名与所写的原文；items为空、超过两项或项内字段不合法；修订今日计划超过八条、意图重复（逐条定位，见「当日目标请求」）或重交已推进的目标；三个控制工具请求级 `errands` 的缺键、类型、枚举、交叉约束、长度、单次条数、两条新增同名或同一事务被两条更新或取消点名（`path` 完整到 `errands[j].<键>`，`expected` 给类型与格式，上限写在 `why`），以及只读冻结观察私有绑定即可判定的状态相关情形（新增的名称与已有未完成事务或同请求较早一条新增归一后相同、结果种类与商品都与它们相同、新增后未完成数超过 8，均按扣除本请求取消之后的未完成集合判定），`why` 写明冲突的事务名或上限（见「个人事务」） |
 | `TOOL_CALL_REQUIRED` | 回复没有可执行的工具调用：没有工具调用、工具调用缺少名称或编号、调用了这次没有提供的工具、一次回复含多个世界请求、世界请求与别的工具同时调用、本次决策已登记过世界请求，或只读问答的 `finish` 没有单独调用 |
 | `TOO_MANY_TARGETS` | `start_activity` 的目标超过两个 |
-| `NAME_NOT_FOUND` | 名称在本轮冻结观察中无损归一后找不到（见「请求模型的闭集与字面边界」）：`start_activity` 的对象（本轮列出的对象、目录绑定与冻结地点表；`obtain` 以到店、远程下单或「购买」写的其余名称交给指名购买）、控制工具的活动名、`recall_task_summary` 与 `submit_work` 的 `task_name`、`send_message` 的收件人；`start_activity` 的候选按所选方式对应的类别和相似度给出（此刻可行的在前），其余名称参数的原因写出最接近的几个名称 |
-| `NAME_AMBIGUOUS` | 名称无损归一后对应不止一个对象（如两项活动去掉开始时刻后同名）：`start_activity` 的候选为这些对象写成的可照填请求，其余名称参数的原因列出这些完整名称 |
+| `NAME_NOT_FOUND` | 名称在本轮冻结观察中无损归一后找不到（见「请求模型的闭集与字面边界」）：`start_activity` 的对象（本轮列出的对象、目录绑定与冻结地点表；`obtain` 以到店、远程下单或「购买」写的其余名称交给指名购买）、控制工具的活动名、`recall_task_summary` 与 `submit_work` 的 `task_name`、`send_message` 的收件人；`start_activity` 的候选按所选方式对应的类别和相似度给出（此刻可行的在前），其余名称参数的原因写出最接近的几个名称；`errands[]` 更新与取消的 `name` 找不到时在 `allowed_values` 列本人全部未完成事务名（至多 8 个，此刻的有限集合），新增的 `item` 解析不到商品时最接近的至多三个商品名写在 `why`、不把全量商品名放进 `allowed_values`，两者都不带 `candidates`、不替换 |
+| `NAME_AMBIGUOUS` | 名称无损归一后对应不止一个对象（如两项活动去掉开始时刻后同名）：`start_activity` 的候选为这些对象写成的可照填请求，其余名称参数的原因列出这些完整名称；`errands[]` 的 `name`、`item` 对应不止一个时同上处理（`name` 在 `allowed_values` 列全部未完成事务名，`item` 在 `why` 列对应的商品名），不带 `candidates` |
 | `WAY_NOT_OFFERED` | 对象不支持所写方式（闭集方式解析也没有唯一命中）；定位到 items 中该项的 way，allowed_values 返回该对象合法方式，候选使用完整新请求；内部映射动作不在当前菜单同样拒绝 |
 | `ROUTE_FIELDS_INVALID` | `from`、`to` 或 `answering` 与动词、方式不相配（「请求模型的闭集与字面边界」的合法组合）；`to` 写的名称不是任何人物时不纠正，由环境以 `RECIPIENT_NOT_FOUND` 拒绝 |
 | `SUPPLY_SOURCE_MISMATCH` | 本轮列出的目标已写明门店「<门店>出售的<商品>」却在 `from` 写了冻结地点表里的另一个地点（写的正是这家店是冗余的 `from`，照常受理并说明；App 称呼与不认识的写法不纠正，由环境按渠道与来源解析：包含该门店的渠道照常受理，其余以同一码或 `SOURCE_NOT_FOUND` 拒绝），候选为同一项 `from` 写 `null` |
@@ -1740,8 +1936,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | 键 | 内容 |
 | --- | --- |
 | `result` | 该世界请求的公开结果，与进度层 `tool_call.result` 同一投影 |
-| `changes` | 相对于模型当前所见（链首快照依次叠加此前各 `changes`）的改动：`targets` 的 `updated`（完整目标对象）与 `removed`（名称）；`paused_activities` 的 `added`（新增或内容有变的完整暂停项）与 `removed`（名称）；`day_plan` 整体替换；`body` 整体替换；`relationships`、`preferences` 的更新项。以最新为准 |
-| `events` | 上一决策的观察之后同秒发生、且不是本结果的进度层记录（不含调用记录，也不含截止与提醒推导的记录），例如他人同秒发来的消息（带全文）；链首之后的每条记录只在一条 tool 消息中出现一次 |
+| `changes` | 相对于模型当前所见（链首快照依次叠加此前各 `changes`）的改动：`targets` 的 `updated`（完整目标对象）与 `removed`（名称）；`paused_activities` 的 `added`（新增或内容有变的完整暂停项）与 `removed`（名称）；`errands` 的 `added`（新增或内容有变的完整事务行）与 `removed`（办成或取消的事务名称）；`day_plan` 整体替换；`body` 整体替换；`relationships`、`preferences` 的更新项。以最新为准 |
+| `events` | 上一决策的观察之后同秒发生、且不是本结果的进度层记录（不含调用记录，也不含截止与提醒推导的记录；个人事务的 `errand_reminder`、`errand_completed` 两种记录有来源事件，属于本键，同秒办成的事务在此出现一次），例如他人同秒发来的消息（带全文）；链首之后的每条记录只在一条 tool 消息中出现一次 |
 
 记忆层与环境层 `location` 在链内不会改变：它们只随时间推进或 session 切换而变，而这两者都会断链。
 
@@ -1915,15 +2111,15 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 卡片派生的字段只填姓名，其余为 `null` 或 `[]`；场景联系人与看法、偏好照常呈现。卡片关系与场景联系人按名称精确合并（卡片 `name_or_appellation` 等于联系人称谓 `salutation`），对不上的各占一项；
 只来自场景联系人的项 `closeness` 为 `null`、`channels` 为 `[]`，场景联系人的亲密度与渠道仍不进提示；只凭看法出现的已知人物
 （不在卡片与场景联系人中的同世界人物）另占一项，`role`、`closeness` 为 `null`、`channels` 为 `[]`，不填编造的值。`view` 与 `preferences`
-只来自成功的 `conclude_activity` 各项的 `views`（经 `control_items` 读出，`about` 即存储的 `subject`；旧运行为 `memories[][]` 中
-`type` 为 relationship、preference 且带 `subject` 的条目），同一对象按事件顺序取最后一条，存储仍只追加；这两类条目只在人设层出现，
+只来自成功的 `conclude_activity` 各项的 `views`（经 `control_items` 读出，`about` 即存储的 `subject`），同一对象按事件顺序取最后一条，存储仍只追加；这两类条目只在人设层出现，
 不进记忆层，也从进度层该调用的参数中略去。购买本身不写偏好。
 
 ### 记忆字段
 
 人物在决策中只在结束活动时写记忆：`conclude_activity` 每项的 `memories`（普通记忆）与 `views`（看法与偏好）是关于该项活动的
 记忆，全部项合计零至八条；宿主经 `control_items` 读出后按项展平（每项先 `memories`、后 `views`），`views` 写成与旧形状逐字节相同的
-带 `subject` 的记忆，写入 AS2 前去掉 `subject`。此外只有就寝反思与阈值巩固。所有模型写入、反思及 memory_* 查询结果都是
+带 `subject` 的记忆，写入 AS2 前去掉 `subject`。此外只有就寝反思与阈值巩固。三个控制工具的请求级 `errands` 不是记忆写入点：
+不写入主观记忆，不产生 `memory_updated`。所有模型写入、反思及 memory_* 查询结果都是
 人物自述，持久记录和结果固定 epistemic_status=subjective；系统登记的来源不赋予正文客观事实地位。
 
 | 字段 | 类型及合同 |
@@ -1934,15 +2130,15 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | text | 非空、至多一千字符的人物语言，不包含八位以上十六进制身份 |
 | source | 由系统按写入点固定为 `activity_conclusion`（结束活动）或 `reflection`（就寝反思），与 `memory_updated.data.trigger` 同一组取值；表示形成来源，不表示事实已核验，模型不填 |
 | epistemic_status | 固定 subjective；由严格人物输入与持久运行时共同保证 |
-| subject | 存储形状的对象字段，`str \| null`：由 `views[].about` 供给（请求里叫 `about`、存储里叫 `subject`，两个名字指同一件事），`type` 为 relationship、preference 时必有；普通记忆为 null；relationship 的对象须是已知人物（卡片关系名、联系人姓名或称谓、同世界人物名），否则宿主按协议错误纠正（`SUBJECT_NOT_KNOWN`）。只在 WorldMock 的请求事件与经 `control_items` 的读取中，写入 AS2 前剥掉；旧运行 `memories[][]` 里的 `subject` 读出同一结果 |
+| subject | 存储形状的对象字段，`str \| null`：由 `views[].about` 供给（请求里叫 `about`、存储里叫 `subject`，两个名字指同一件事），`type` 为 relationship、preference 时必有；普通记忆为 null；relationship 的对象须是已知人物（卡片关系名、联系人姓名或称谓、同世界人物名），否则宿主按协议错误纠正（`SUBJECT_NOT_KNOWN`）。只在 WorldMock 的请求事件与经 `control_items` 的读取中，写入 AS2 前剥掉 |
 
 记忆不带 `refs`，来源由系统登记：`conclude_activity` 的 `action_result.data.memory_sources` 为私有字段
 `[{task, activity_id, session_id, verified_event_ids}]`，模型不填、不选任何身份。`conclude_activity` 登记后
-结算被拒时，其记忆仍作为人物自述保留，来源标为该动作，但不呈现（不进记忆层与人设层）。
+结算被拒时，其记忆仍作为人物自述保留，来源标为该动作，但不呈现（不进记忆层与人设层）；同一请求的 `errands` 变更随拒绝一并
+不生效（记忆在登记时由宿主写入，事务变更只在受理时生效，二者落地规则不同）。
 
 WorldMock 删除模型可写 event、observation 类型。主观自由文字不得成为已核验经历、完成事实章节或客观指标的依据，
-也不能改变任何世界事实：当日目标文字与活动自述随人物状态保存，只用于呈现；个人事务的名称、备注与取消原因同此
-（个人事务部分未实现，见[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 2）。
+也不能改变任何世界事实：当日目标文字与活动自述随人物状态保存，只用于呈现；个人事务的名称、备注与取消原因同此（见「个人事务」）。
 memory_* 只查询主观 episodes，每条只返回 {type, text, time, epistemic_status}，
 不含条目身份，并明确返回其性质；生活决策与只读问答只开放 `memory_recent`、`memory_search`、`memory_time_range`；
 已结算的事实来自记忆层 `settled` 与进度层，不另建事实检索框架。
@@ -1972,10 +2168,11 @@ merge_count。近二十四小时同类型 bigram Jaccard 不低于 0.6 时合并
   在本 session 结束的活动每项一句（起止含暂停区间、终局、实际份量或有效工时）：活动按它结束的提交归属（带该活动终态快照的最早事件
   所在的提交），到达时结束的出行归路程 session，实验截止截断的活动归最后一段，之后的 `conclude_activity` 本身不另写句子；
   收到直接消息（全文）、邮件（主题）、送达、新工作各一句。不写失败的请求、记忆查询、回看、`report_status`、暂停与恢复、`revise_day_plan`、
-  提醒、截止预警、身体结算、交谈邀请与其他层的当前状态；购买句只由订单生成，未完成的浏览不产生购买句。
+  提醒、截止预警、个人事务的新增、更新、取消、推进、办成与提醒（`errand_*` 事件，其中 `errand_completed`、`errand_reminded` 虽为人物
+  可见也不写句）、身体结算、交谈邀请与其他层的当前状态；购买句只由订单生成，未完成的浏览不产生购买句。
 - **`self_notes`。** 取本 session 区间内成功的 `pause_activity`、`conclude_activity` 请求经 `control_items` 读出的各项 `items[]`：
-  `summary` 与普通记忆 `memories[].text`，按 `activity_name` 标注（条目内不重名时去掉开始时刻后缀）；`views`（旧运行里带 `subject` 的
-  relationship、preference 记忆），`report_status` 的 summary，回复正文与被拒请求的内容都不进入。
+  `summary` 与普通记忆 `memories[].text`，按 `activity_name` 标注（条目内不重名时去掉开始时刻后缀）；`views`、`report_status` 的
+  summary、请求级 `errands`、回复正文与被拒请求的内容都不进入。
 - **零点与未了结。** 零点不切断 session，按当前时刻的本地日期分区：`earlier_today` 取结束时刻落在今天的已结束 session；
   `earlier_days[d]` 为起源于 d 且此刻仍未了结的事项加归属 d 的就寝反思，空日期不出现；归属今天的反思（如白天小睡之后）当天不出现，次日起在 `earlier_days` 中出现。未了结按此刻判断：订单为本人状态 `pending` 或 `ready`；
   直接消息为收到之后没有成功 `send_message` 回复发件人（通话不算回复）。已了结的旧事项自动消失。
@@ -2046,9 +2243,14 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 `input.decision_layers`（`[{action_event_id, layers}]`），请求事件身份与层 JSON 的 canonical SHA-256 写入
 `provenance.decision_layer_sources`（`[{event_id, sha256}]`），这些请求事件同时进入 `provenance.source_event_ids`；
 实际请求缺失或首个 user 不是层序正确的六层 JSON 时明确拒绝。意图与 dreaming 窗口对三个控制工具的请求投影经 `control_items`
-读出、按现行形状只留每项的 `activity_name` 与 `summary`（裁去 `items[].memories` 与 `items[].views`，旧形状读出后同样只留这两项），
-指窗口事件中 `action_requested` 的请求投影；`decision_prompt` 与 `decision_layers` 是模型实际收到的原文，照原样保留，
-其中可以合法地含有本 session 进度层参数或记忆层 `self_notes`（取 `items[]` 的 summary 与普通记忆）里的常规收尾记忆原文（`views` 本就不进这两处）。
+读出、按现行形状只留每项的 `activity_name` 与 `summary`（投影恒不带 `items[].memories`、`items[].views` 与请求级 `errands`，三者
+同等对待，投影函数签名不变，由用例守住而不是靠白名单遗漏；投影写进新字典，原事件不被原地修改；缺 `errands` 的旧形状记录经
+`control_items` 以完整性故障拒绝），指窗口事件中 `action_requested` 的请求投影；`decision_prompt` 与 `decision_layers` 是模型实际
+收到的原文，照原样保留，其中的待办层（含 `errands`）原样进入窗口，也可以合法地含有本 session 进度层参数或记忆层 `self_notes`
+（取 `items[]` 的 summary 与普通记忆）里的常规收尾记忆原文（`views` 本就不进这两处）。动作窗口的目标保留完整请求（含 `errands`）。
+六种个人事务事件（见「个人事务」）的决策与动作身份都为空，只经 `caused_by` 关联，不进入任何动作窗口的目标，也不落进别人那次决策
+的分组；被进度层消费的 `errand_completed`、`errand_reminded` 是人物可见事件（每个进度来源都须是本人可见的结果或事件，否则是完整性
+故障），它们作为窗口事件出现时公开投影仍为空对象。含事务提醒与办成记录的导出须能构造动作、意图与 dreaming 三类窗口。
 动作窗口的 prompt 截止在目标动作前；意图窗口可以读取已发生的公开结果，
 但目标事实仍与输入分开。观察的禁用键必须在字段级投影后才可进入窗口；私有响应不得混入。
 `decision_prompt` 必须保留实际请求中的 assistant `reasoning_content`，因为工具调用后模型确实收到该字段；
@@ -2349,3 +2551,4 @@ RunPhase = Literal[
 | `2026-10-02-errands-workday-freeze` | 2026-10-02 | [个人事务与工作安排规格](dev/SPEC-errands-workday.md)冻结：本文件的字段条款按配套实施计划的【同】作业随该规格阶段 1–4 的代码逐阶段修订；冻结变更集只加文件头修订说明行（个人事务与工作安排台账 C67）与「请求组成」的三处修订指针（C73 系统层第 1、4、6、14 条，C74 零点计划模板，C75 就寝反思文案），并改写「记忆字段」的主观文字句（C77），不改任何被测试逐字比对的文本；修订部分未实现，见该规格阶段 1–4 |
 | `2026-10-03-errands-workday-stage-1` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 1（运行修复入库）与配套实施计划的【同】作业 C01–C09 修订，随阶段 1 的四个代码提交落地：「人物工具与管理接口」登记宿主只读 RPC `read_query` 与 `LifeEnvActor`、`LifeEnvProxy` 转发；「工具返回通道」写明回看任务经环境 actor、`query_world` 宿主本地求值且两入口受理时逐值相等、拒绝时同一份报告，补登四个失败阶段码（宿主错误码表由十一码更正为十五码，既有漂移）；「当日目标请求」「工具返回通道」登记重复意图逐条定位、超限同批报告与英文原因；「请求组成」「生成参数」增就寝反思行，逐字登记反思文案、`submit_reflection` 的 Schema 与有界校验重试（首次之外至多三次，每次尝试是 AS2 记忆调度下的独立调用），更正「反思的模型调用不带工具」与「交付窗口共用行动请求判定」两处既有表述；「记忆字段」就寝反思改为一至五条并经严格工具提交；「窗口声明与字段字典编码」私有请求补就寝反思与记忆巩固；「运行诊断输出」登记决策失败与工具分发失败的异常日志。删去冻结时为反思文案加的修订指针（C75），文件头修订说明行改为阶段 1 已随代码落地、阶段 2–4 未实现 |
 | `2026-10-03-errands-workday-stage-1-review` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 1 的独立复核更正，条款语义未变：「当日目标请求」写明超限一条定位在数组 `goals`、该位置没有闭集，`allowed_values` 为 `[]`（重复意图各条仍为全部十一种意图），与错误合同和已登记用例一致；「生成参数」末段点名真正共用行动请求判定的读者（`decision_started`、进度层取最近一次行动请求、同秒续接、`scripts/inspect_run.py` 的逐决策统计），并写明行为指标决策请求的口径（不看 thinking、另计不带工具的记忆巩固，带工具时须有 `start_activity`，就寝反思及其校验重试不计），取代原句「写入 `decision_started` 与决策统计共用这一判定」；「窗口声明与字段字典编码」动作、意图与 dreaming 窗口的提示选取按现行实现写明（动作之前最后一份不带 `purpose` 且工具含该动作工具名的请求，不回退，截断重试照此被选中，就寝反思请求不会被选中），更正「最后一次实际行动请求」一类既有表述（该规格 1.1 末段） |
+| `2026-10-03-errands-workday-stage-2` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-errands-workday.md)阶段 2（个人事务与提示分工）与配套实施计划的【同】作业 C10–C39、C78 修订，随阶段 2 的代码提交落地（按最终提交 `d09d574` 的代码核对）：「状态归属」增个人事务行；新增「个人事务」节（范围与状态、`AgentState.errands` 与 `ErrandState` 字段、上限、请求级 `errands` 八键与交叉约束、同一请求内按取消、更新、新增的求值次序、原子受理与回执 `details.errands`、校验与错误、完成依据与结算、提醒时刻与调度口径、六种事件 `kind` 及其可见性、检查点）；「人物工具与管理接口」三个控制工具增请求级 `errands`，登记用途句与字段说明定稿，进度层参数略去 `errands`，读者经 `control_items`、`control_errands` 只认带 `errands` 键的现行形状；「当日目标请求」定时决策限定到当日目标，写明零点置空、修订与目标推进不改动事务、零点计划只读事务；「当日目标的配置与质量输出」未完成事务不计入在手承诺；「请求字段与结算检查」「活动受理拒绝码」「请求模型的闭集与字面边界」「工具返回通道」增事务的检查、环境复核、闭集行与宿主纠错情形（都不带候选）；「领域枚举」「持久化当下事实」世界状态结构 8 改 9 并登记版本 9 的变化，「冻结地图与场景引用」版本边界句按现行值重写（既有漂移）；「七层字段」待办层增 `errands` 与唯一出现的口径、进度层增 `errand_reminder` 与 `errand_completed`、`details` 增 `errands`；「七层 Schema」同步并写明两个指纹重钉；「可见期与提示预算」写明两种新记录的浓缩；「禁止进入提示的字段」增 `errand_bindings`、`errand_item_bindings` 与 `errand_id`；「请求组成」系统层第 1、4、6 条原位改写，零点计划输入增 `个人事务`，模板改输入说明末行并增第七条，反思文案补两句；「思考回传」`changes` 增 `errands`、`events` 含两种事务记录；「记忆字段」事务变更不是记忆写入点、不进记忆层；「窗口声明与字段字典编码」意图与 dreaming 投影不带 `errands`，事务事件不带决策与动作身份；删去三处旧运行 `memories[][]` 读取的残留表述（既有漂移）。同一批提交把冻结时加的修订指针（C73、C74）收窄为只余阶段 3 的部分，删去「记忆字段」主观文字句里的未实现括注（C77），文件头修订说明行改为阶段 1、2 已随代码落地、阶段 3、4 未实现。台账文字与规格不一致处按规格写：六种事务事件的决策与动作身份都为空，只经 `caused_by` 关联；变更种类的取值为「新增」「更新」「取消」；待办层键序为 `layer, paused_activities, errands, day_plan`；提醒钟点等于受理时刻时取下一本地日，睡眠中错过的提醒在醒来的那个边界交付；同一请求可以取消一条事务再以原名新增；本次提交里被取消的事务不接受该提交的证据 |
