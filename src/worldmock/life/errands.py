@@ -7,7 +7,7 @@ models、名称解析与错误合同，models.py 从不导入本模块。
 - 私有绑定（2.3）：`errand_bindings` 列本人未完成事务的名称、事务身份、结果种类与商品身份（待办层顺序），
   `errand_item_bindings` 列全部商品名到商品身份（按商品身份排序）；两者与 `errand_id` 都是提示禁键，事务名不进回看名称。
 - 待办层行（2.6）：按记下的时刻与事务身份排序，每行六键 name、done_when、progress、memo、remind_time、noted_on；
-  不含内部身份、状态枚举与可用性。
+  不含内部身份、状态枚举与可用性。零点计划输入的只读键「个人事务」（2.8）由同一行构造给出五键（plan_rows）。
 - 变更（2.2、2.3）：宿主与环境对同一份冻结观察调用 change_issues，判定一致；同一请求按「取消、更新、新增」的次序求值，
   重名、同结果同商品与上限都按扣除本请求取消之后的未完成集合判定。校验与应用共用同一个私有解析（_plan），更新与取消
   按待办层名称解析（_open_name，与活动名同一函数，唯一才受理、从不替换）。apply_changes 只在校验通过后改人物状态并给出
@@ -129,6 +129,14 @@ def bindings(agent: AgentState, items: Mapping[str, Any]) -> dict:
 def todo_rows(agent: AgentState, product_names: Mapping[str, str], timezone_name: str) -> list[dict]:
     """@brief 待办层 errands：本人未完成事务按记下的时刻与事务身份排序，每条一行（product_names：商品身份 → 商品名）。"""
     return [_row(errand, product_names, timezone_name) for errand in _open_errands(agent)]
+
+
+def plan_rows(agent: AgentState, product_names: Mapping[str, str], timezone_name: str) -> list[dict]:
+    """@brief 零点计划输入的只读键「个人事务」（docs/dev/SPEC-errands-workday.md 2.8）：与待办层同一行构造、同一顺序，
+    每条写名称、要办成什么、已办到哪、备注与提醒时刻（尚未提醒的钟点，没有或已提醒为 null）；不含内部身份与记下的
+    日期，零点计划只读它，不创建、不更改、不终结事务。"""
+    return [{"名称": row["name"], "要办成什么": row["done_when"], "已办到哪": row["progress"], "备注": row["memo"],
+             "提醒时刻": row["remind_time"]} for row in todo_rows(agent, product_names, timezone_name)]
 
 
 def remind_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:

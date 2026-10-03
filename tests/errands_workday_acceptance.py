@@ -134,12 +134,35 @@ _ERRAND_TODO = "tests/life/test_errand_todo_layer.py::"
 
 #: 「检查点」中「版本 8 检查点被拒」一项：头一个经真实引擎与 SQLite——落盘的版本 8 世界状态（人物状态里没有 errands 键，
 #: 与版本 8 写出的检查点同形）在重新打开运行时只以版本不符拒绝；其后一个守世界状态模型本身只拒绝版本、同形的版本 9
-#: 通过；末一个守交付入口：版本 8 的导出在构造窗口与运行 LabelKit 之前按版本拒绝，版本 9 的导出到达窗口构造。共同
-#: 检查点恢复一项随阶段 2 的检查点切片补登。
+#: 通过；第三个守交付入口：版本 8 的导出在构造窗口与运行 LabelKit 之前按版本拒绝，版本 9 的导出到达窗口构造。末一个是
+#: 「共同检查点恢复后待办层逐字节相同；不重复记下、完成与提醒」：经真实请求、引擎与 SQLite 记下带提醒的事务、到店累计
+#: 一份、远程订单在途时创建共同检查点并恢复成分支（engine.checkpoint → store.restore → LifeEngine.open），事务逐字段相同、
+#: 同一时刻的待办层逐字节相同；父运行与分支接着过下去各提醒一次、送达各一次并各办成一次，分支没有第二条记下事件。
+_RESTORED_BRANCH = ("tests/integration/test_errand_checkpoint.py::"
+                    "test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing")
 _CHECKPOINT_TESTS = [
     _SESSION_STATE + "test_run_with_version_8_world_state_is_rejected_on_open",
     _SESSION_STATE + "test_world_state_schema_version_8_is_rejected",
     _PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",
+    _RESTORED_BRANCH,
+]
+
+_OVERNIGHT = "tests/life/test_errand_overnight.py::"
+_DAY_PLANNING = "tests/life/test_day_planning.py::"
+
+#: 「跨夜可见」：全部经真实请求、引擎与 SQLite——收尾时记下的事务在零点使旧计划失效、零点计划登记新计划、目标推进与
+#: revise_day_plan 之后逐字段不变，待办层的事务行与零点前逐字相同、没有事务事件；记忆层超过 8000 字符被截取时与由冻结
+#: 观察准备的真实 LifeAgent 发出的请求被浓缩（进度层折叠）时，待办层的事务行照旧；同一段生活带不带事务变更，记忆层逐字节
+#: 相同（六种事务事件都不给记忆层添句）。末两个守零点计划：输入的只读键「个人事务」五键与同一时刻待办层同源同序、计划登记
+#: 不改事务也不写事务事件；真实请求的模板与接口合同逐字相同，输入说明末行与第七条逐字。「实际行动请求的待办层含该事务且
+#: 本决策没有记忆查询」一项随提示分工的切片补登。
+_OVERNIGHT_TESTS = [
+    _OVERNIGHT + "test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision",
+    _OVERNIGHT + "test_an_errand_stays_when_the_memory_layer_overflows_its_window",
+    _OVERNIGHT + "test_a_condensed_request_still_carries_the_todo_layer_errands",
+    _OVERNIGHT + "test_the_memory_layer_writes_no_line_for_errands",
+    _DAY_PLANNING + "test_plan_day_input_lists_open_errands_read_only",
+    _DAY_PLANNING + "test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times",
 ]
 
 _TOOL_TEXTS = "tests/integration/test_tool_description_references.py::"
@@ -277,7 +300,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
     "事务变更与原子受理": {"stage": "2", "tests": _ERRAND_CHANGE_TESTS},
     "事务名称与错误": {"stage": "2", "tests": _ERRAND_NAME_TESTS},
-    "跨夜可见": {"stage": "2", "tests": []},
+    "跨夜可见": {"stage": "2", "tests": _OVERNIGHT_TESTS},
     "完成依据": {"stage": "2", "tests": _COMPLETION_TESTS},
     "结算幂等": {"stage": "2", "tests": _IDEMPOTENCE_TESTS},
     "事务提醒": {"stage": "2", "tests": _REMINDER_TESTS},
@@ -434,6 +457,20 @@ _SLEEPER_REMINDER_KILLERS = (
 _COMMITMENT_KILLERS = (
     _REMINDER + "test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning",)
 _TOGETHER_KILLERS = (_REMINDER + "test_errands_due_together_are_one_opportunity_with_one_event_each",)
+_PROMPT_CAPACITY_MODULE = "worldmock.life.prompt_capacity"
+_PROMPT_CAPACITY_SOURCE = "src/worldmock/life/prompt_capacity.py"
+_OBSERVE_MODULE = "worldmock.life.observe"
+_OBSERVE_SOURCE = "src/worldmock/life/observe.py"
+#: 跨夜与检查点各变异的杀手都经真实请求、引擎与 SQLite（引擎、观察与世界状态模型按本名导入；浓缩由直接导入的 LifeAgent
+#: 按本名调用 prompt_capacity.fit_request）：零点使旧计划失效时一并清空事务、修订计划时一并清空事务，零点或修订之后事务
+#: 不再原样；浓缩每折叠一步就把待办层的事务清空时，发出的请求里待办层没有事务；记忆层占到窗口一半以上（截取后的大小
+#: 仍在其上）就让待办层不列事务时，记忆层超窗的那次观察的待办层没有事务；人物状态的 errands 在序列化时被略去，检查点
+#: 恢复出的分支没有事务、待办层不同。
+_OVERNIGHT_KILLERS = (
+    _OVERNIGHT + "test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision",)
+_CONDENSED_KILLERS = (_OVERNIGHT + "test_a_condensed_request_still_carries_the_todo_layer_errands",)
+_OVERFLOW_KILLERS = (_OVERNIGHT + "test_an_errand_stays_when_the_memory_layer_overflows_its_window",)
+_CHECKPOINT_KILLERS = (_RESTORED_BRANCH,)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -899,6 +936,61 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '    return state.model_copy(update={"agents": agents}), drafts[:1]\n',
         _TOGETHER_KILLERS,
     ),
+    SourceMutation(
+        "midnight_clears_errands",
+        _ENGINE_MODULE,
+        _ENGINE_SOURCE,
+        (
+            "            staged = _put_agent(staged, staged.agents[agent_id].model_copy("
+            'update={"day_plan": None}, deep=True))\n'
+        ),
+        (
+            "            staged = _put_agent(staged, staged.agents[agent_id].model_copy(\n"
+            '                update={"day_plan": None, "errands": {}}, deep=True))\n'
+        ),
+        _OVERNIGHT_KILLERS,
+    ),
+    SourceMutation(
+        "plan_revision_drops_errands",
+        _ENGINE_MODULE,
+        _ENGINE_SOURCE,
+        '        changed_agent = agent.model_copy(update={"day_plan": plan}, deep=True)\n',
+        '        changed_agent = agent.model_copy(update={"day_plan": plan, "errands": {}}, deep=True)\n',
+        _OVERNIGHT_KILLERS,
+    ),
+    SourceMutation(
+        "condensation_drops_todo_errands",
+        _PROMPT_CAPACITY_MODULE,
+        _PROMPT_CAPACITY_SOURCE,
+        '            layers[index] = {**layers[index], "events": records}\n',
+        (
+            '            layers[index] = {**layers[index], "events": records}\n'
+            '            layers = [{**layer, "errands": []} if layer.get("layer") == "待办层" else layer\n'
+            "                      for layer in layers]\n"
+        ),
+        _CONDENSED_KILLERS,
+    ),
+    SourceMutation(
+        "memory_overflow_drops_todo_errands",
+        _OBSERVE_MODULE,
+        _OBSERVE_SOURCE,
+        '                "tool_layer": tool_layer(context, index), "todo_layer": todo_layer(context, self.store),\n',
+        (
+            '                "tool_layer": tool_layer(context, index),\n'
+            '                "todo_layer": {**todo_layer(context, self.store), **(\n'
+            '                    {"errands": []} if len(str(memory.layer)) > memory_layer.MEMORY_WINDOW_CHARS // 2\n'
+            "                    else {})},\n"
+        ),
+        _OVERFLOW_KILLERS,
+    ),
+    SourceMutation(
+        "checkpoint_omits_errands",
+        _MODELS_MODULE,
+        _MODELS_SOURCE,
+        "    errands: dict[str, ErrandState] = Field(default_factory=dict)\n",
+        "    errands: dict[str, ErrandState] = Field(default_factory=dict, exclude=True)\n",
+        _CHECKPOINT_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -914,10 +1006,11 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "代理不等待远端结果": {"stage": "1", "mutations": ("proxy_returns_without_awaiting_the_remote_result",)},
     "重复意图只报笼统错误": {"stage": "1", "mutations": ("plan_duplicates_report_only_a_generic_error",)},
     "日志后吞掉异常": {"stage": "1", "mutations": ("decision_failure_swallowed_after_log",)},
-    "零点清空事务": {"stage": "2", "mutations": ()},
-    "修订计划丢事务": {"stage": "2", "mutations": ()},
+    "零点清空事务": {"stage": "2", "mutations": ("midnight_clears_errands",)},
+    "修订计划丢事务": {"stage": "2", "mutations": ("plan_revision_drops_errands",)},
     "待办层不投影事务": {"stage": "2", "mutations": ("todo_layer_omits_errands",)},
-    "记忆层超窗或上下文浓缩时丢掉待办层事务": {"stage": "2", "mutations": ()},
+    "记忆层超窗或上下文浓缩时丢掉待办层事务": {"stage": "2", "mutations": ("condensation_drops_todo_errands",
+                                                                "memory_overflow_drops_todo_errands")},
     "业务拒绝时事务变更照落": {"stage": "2", "mutations": ("errand_changes_applied_before_rejection",)},
     "事务名近似时取第一个候选": {"stage": "2", "mutations": ("errand_name_takes_first_candidate",)},
     "请求可把状态置为完成": {"stage": "2", "mutations": ("request_can_mark_errand_completed",)},
@@ -930,7 +1023,7 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "按事件人物字段而非收货人判归属": {"stage": "2", "mutations": ("ownership_follows_event_agent",)},
     "读取逐项结果里的重复订单": {"stage": "2", "mutations": ("nested_results_orders_counted",)},
     "一次提交结算两次": {"stage": "2", "mutations": ("round_commit_settles_twice", "advance_commit_settles_twice")},
-    "检查点漏存事务": {"stage": "2", "mutations": ()},
+    "检查点漏存事务": {"stage": "2", "mutations": ("checkpoint_omits_errands",)},
     "取消后仍提醒": {"stage": "2", "mutations": ("cancelled_errand_stays_armed",)},
     "提醒即置完成": {"stage": "2", "mutations": ("reminder_completes_errand",)},
     "提醒叫醒睡眠": {"stage": "2", "mutations": ("errand_reminder_wakes_sleep",)},
@@ -1013,6 +1106,8 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/footprints/models.py",
     "src/worldmock/life/activity_control.py",
     "src/worldmock/life/control_items.py",
+    "src/worldmock/life/day_plan_inputs.py",
+    "src/worldmock/life/day_planning.py",
     "src/worldmock/life/engine.py",
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
@@ -1037,11 +1132,13 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 #: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
+    "tests/integration/test_errand_checkpoint.py",
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
     "tests/life/test_errand_changes.py",
     "tests/life/test_errand_completion.py",
     "tests/life/test_errand_names.py",
+    "tests/life/test_errand_overnight.py",
     "tests/life/test_errand_reminder.py",
     "tests/life/test_errand_requests.py",
     "tests/life/test_errand_settlement_idempotence.py",

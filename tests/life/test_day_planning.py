@@ -19,8 +19,11 @@ from agentsociety2.society import DirectToolCall
 
 import worldmock.runtime as runtime_module
 from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context, drive,
-                                 pending_names, plan_day_response, settle_day_plans, stage_day_plan, start_activity,
-                                 submit_round, report_request)
+                                 errand_add, pending_names, plan_day_response, settle_day_plans, stage_day_plan,
+                                 start_activity, submit_round, report_request)
+from tests.life.routing_fixtures import HOME, act, place, routed, run_until
+from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, errand_events, note
+from tests.life.test_errand_reminder import evening
 from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
@@ -28,7 +31,8 @@ from worldmock.life import day_planning, reminders
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
+from worldmock.life.models import (ActivityStatus, PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest,
+                                   SendMessageActionRequest)
 from worldmock.life.schedule import NextDecisionQuery, PlanGoal, next_decision_time
 from worldmock.life.settled_text import activity_endings
 from worldmock.runtime import settle_pending_day_plans
@@ -564,21 +568,26 @@ def _contract_plan_template() -> str:
 
 
 def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times(engine_factory):
-    """零点计划模板（docs/dev/SPEC-dayrun-fidelity.md 2.3、8.2，裁决 S11、D12）：真实零点计划请求的 system 就是接口合同逐字
-    登记的模板。第五条：人物档案作息里已有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒，写明哪里不同；
-    第六条：每条目标写大致时刻 around_time；第三条的起床、出门提醒不变，模板不要求为就寝写提醒（S2 撤回）。user 输入带人物档案
-    的作息窗口，输出 Schema 要求 around_time。"""
+    """零点计划模板（docs/dev/SPEC-dayrun-fidelity.md 2.3、8.2，裁决 S11、D12；docs/dev/SPEC-errands-workday.md 2.8）：真实
+    零点计划请求的 system 就是接口合同逐字登记的模板。开头的输入说明末行写明还没办完的个人事务；第五条：人物档案作息里已有
+    的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒，写明哪里不同；第六条：每条目标写大致时刻
+    around_time；第七条：个人事务已在待办里，不必照抄成目标，今天打算去办的可写一条目标说明何时办；第三条的起床、出门提醒
+    不变，模板不要求为就寝写提醒（S2 撤回）。user 输入带人物档案的作息窗口，输出 Schema 要求 around_time。"""
     engine = engine_factory()
     client = StubPlanDayClient()
     settle_day_plans(engine, client)
     [request] = client.calls
     system = request["messages"][0]["content"]
     assert system == day_planning.PLAN_DAY_PROMPT == _contract_plan_template()
-    items = {chunk[0]: chunk.replace("\n", "") for chunk in re.split(r"\n(?=[一二三四五六]、)", system)[1:]}
-    assert list(items) == ["一", "二", "三", "四", "五", "六"]
+    opening, *chunks = re.split(r"\n(?=[一二三四五六七]、)", system)
+    items = {chunk[0]: chunk.replace("\n", "") for chunk in chunks}
+    assert list(items) == ["一", "二", "三", "四", "五", "六", "七"]
+    assert opening.split("\n")[2] == ("以及此刻他能看到的待办任务、还没办完的个人事务、收件箱、在途订单、联系人和上一天目标的"
+                                      "推进情况。")
     assert items["五"] == ("五、人物档案的作息里已经有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒；"
                           "写的时候写清楚哪里不同。")
     assert items["六"].startswith("六、每条目标都写大致时刻 around_time") and "时段的中点" in items["六"]
+    assert items["七"] == "七、个人事务已经记在待办里，不必照抄成目标；今天打算去办的，可以写一条目标说明什么时候办。"
     assert "写零到八条目标" in items["一"]
     assert "几点起床或几点出门的，就给对应的目标定这个时刻的提醒" in items["三"]
     assert "就寝" not in system and "睡前" not in system
@@ -587,6 +596,51 @@ def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_a
     goal_schema = request["tools"][0]["function"]["parameters"]["properties"]["goals"]["items"]
     assert set(goal_schema["required"]) == {"intent_kind", "goal", "remind_time", "around_time"}
     assert engine.state.agents[1].day_plan.goals == ()
+
+
+def test_plan_day_input_lists_open_errands_read_only(engine_factory):
+    """零点计划输入的只读键「个人事务」（docs/dev/SPEC-errands-workday.md 2.8）：1 月 5 日 23:41 收尾时记下「吃掉纯牛奶 2 份」
+    （带备注与次日 08:00 的提醒）与「取得素炒什锦食材包 1 份」，随即喝掉手边的一份奶（累计 1 份）。零点边界的零点计划输入
+    以名称、要办成什么、已办到哪、备注、提醒时刻五键列出这两条，与同一时刻待办层的事务行同源同序，不带事务或商品身份，
+    也不登记事务事件为来源；「待办任务」仍是此刻可见的工作任务，没有事务。计划登记前后事务逐字段相同，零点计划没有写任何
+    事务事件：它只读事务，不创建、不更改、不终结。"""
+    engine = evening(engine_factory, "23:40")
+    place(engine, 1, HOME, {MILK_ID: 1.0})
+    note(engine, "note", [errand_add("早饭前喝两份奶", MILK, outcome="吃掉", quantity=2, memo="睡前喝一份，明早再喝一份",
+                                     remind_time="08:00"), errand_add("周末补食材包", KIT_NAME)])
+    drinking = act(engine, "drink", routed(DRINK))
+    run_until(engine, lambda current: current.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
+    midnight = _at(6, 0)
+
+    def before_midnight(current) -> bool:
+        """下一边界是零点且此刻没人要决策。"""
+        state = current.scheduling_state()
+        return not state.ready_agent_ids and int(state.next_event_at.timestamp()) == midnight
+    run_until(engine, before_midnight)
+    engine.advance(midnight - engine.state.current_time, engine.scheduling_state().next_event_at)
+    held, noted = dict(engine.state.agents[1].errands), len(errand_events(engine))
+    client = StubPlanDayClient()
+
+    settle_day_plans(engine, client)
+
+    payload = json.loads(client.calls[0]["messages"][1]["content"])
+    rows = engine.observe(context(engine, "planned"))["todo_layer"]["errands"]
+    assert payload["个人事务"] == [
+        {"名称": "早饭前喝两份奶", "要办成什么": "吃掉纯牛奶 2 份", "已办到哪": "已吃掉 1 份", "备注": "睡前喝一份，明早再喝一份",
+         "提醒时刻": "08:00"},
+        {"名称": "周末补食材包", "要办成什么": "取得素炒什锦食材包 1 份", "已办到哪": "已取得 0 份", "备注": None,
+         "提醒时刻": None}]
+    assert payload["个人事务"] == [{"名称": row["name"], "要办成什么": row["done_when"], "已办到哪": row["progress"],
+                                "备注": row["memo"], "提醒时刻": row["remind_time"]} for row in rows]
+    tasks = engine._visible_task_rows(engine.state.agents[1])
+    assert [row["任务"] for row in payload["待办任务"]] == [row["title"] for row in tasks]
+    listed = json.dumps(payload["个人事务"], ensure_ascii=False)
+    assert all(identity not in listed for identity in (*held, MILK_ID, "ingredient-vegetable-kit"))
+    assert "早饭前喝两份奶" not in json.dumps(payload["待办任务"], ensure_ascii=False)
+    assert engine.state.agents[1].errands == held and len(errand_events(engine)) == noted
+    [registered] = [event for event in _plan_events(engine) if event.data.get("kind") == "day_plan_generated"
+                    and event.occurred_at == midnight]
+    assert not set(registered.data["source_event_ids"]) & {event.event_id for event in errand_events(engine)}
 
 
 def test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep(tmp_path):
