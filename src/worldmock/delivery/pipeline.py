@@ -71,7 +71,7 @@ def deliver(export_dir: Path, destination: Path, project_root: Path, replay_expo
 
 
 def _require_current_world_schema(export_dir: Path) -> None:
-    """@brief 构造窗口前核对导出最终检查点的世界结构版本等于当前代码（8），旧结构观察不按七层原文解释。"""
+    """@brief 构造窗口前核对导出最终检查点的世界结构版本等于当前代码（9），旧结构观察不按七层原文解释。"""
     try:
         manifest = json.loads((export_dir / "manifest.json").read_bytes())
         schema_version = manifest["checkpoint"]["state"]["schema_version"]

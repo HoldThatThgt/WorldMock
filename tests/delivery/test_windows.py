@@ -330,7 +330,7 @@ def _layered_observation(identity, sequence, **extra):
     data = {
         'tool_layer': {'layer': '工具层', 'targets': [{'name': '自己', 'kind': 'self', 'phase': None, 'state': None,
                                                        'actions': [], 'tools': []}]},
-        'todo_layer': {'layer': '待办层', 'paused_activities': [], 'day_plan': None},
+        'todo_layer': {'layer': '待办层', 'paused_activities': [], 'errands': [], 'day_plan': None},
         'environment_layer': {'layer': '环境层', 'observed_at': '2026-01-05T07:30:00+08:00',
                               'body': {'appetite': '不饿', 'sleepiness': '清醒', 'entertainment': '平常',
                                        'social': '平常', 'mood': '平静'},

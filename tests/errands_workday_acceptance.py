@@ -128,6 +128,27 @@ _REFLECTION_TESTS = [
     "tests/evaluation/test_behavior_metrics.py::test_reflection_requests_and_their_retries_are_not_decision_requests",
 ]
 
+_SESSION_STATE = "tests/life/test_session_state.py::"
+_PUBLICATION = "tests/delivery/test_publication.py::"
+_ERRAND_TODO = "tests/life/test_errand_todo_layer.py::"
+
+#: 「检查点」中「版本 8 检查点被拒」一项：头一个经真实引擎与 SQLite——落盘的版本 8 世界状态（人物状态里没有 errands 键，
+#: 与版本 8 写出的检查点同形）在重新打开运行时只以版本不符拒绝；其后一个守世界状态模型本身只拒绝版本、同形的版本 9
+#: 通过；末一个守交付入口：版本 8 的导出在构造窗口与运行 LabelKit 之前按版本拒绝，版本 9 的导出到达窗口构造。共同
+#: 检查点恢复一项随阶段 2 的检查点切片补登。
+_CHECKPOINT_TESTS = [
+    _SESSION_STATE + "test_run_with_version_8_world_state_is_rejected_on_open",
+    _SESSION_STATE + "test_world_state_schema_version_8_is_rejected",
+    _PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",
+]
+
+#: 「提示与唯一出现」中「内部身份与新绑定键不进任何层」一项的前一半：经真实引擎预置未完成事务后 engine.observe，观察带
+#: 两类私有事务绑定并存进 SQLite 的观察事件，五层照常渲染且不含事务身份与商品身份，任何一层带上 errand_bindings、
+#: errand_item_bindings 或 errand_id 即渲染失败；按事务名回看以 TASK_NOT_FOUND 拒绝。其余各项随阶段 2 的后续切片补登。
+_PROMPT_PRESENCE_TESTS = [
+    _ERRAND_TODO + "test_observation_carries_private_errand_bindings_outside_every_layer",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -140,8 +161,8 @@ LEDGER: dict[str, dict[str, object]] = {
     "完成依据": {"stage": "2", "tests": []},
     "结算幂等": {"stage": "2", "tests": []},
     "事务提醒": {"stage": "2", "tests": []},
-    "检查点": {"stage": "2", "tests": []},
-    "提示与唯一出现": {"stage": "2", "tests": []},
+    "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
+    "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
     "交付边界": {"stage": "2", "tests": []},
     "事务与收尾记忆指标": {"stage": "2", "tests": []},
     "作息锚点": {"stage": "3", "tests": []},
@@ -214,6 +235,15 @@ _REFLECTION_FAULT_KILLERS = (
 _WINDOW_KILLERS = (
     "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
 )
+_PIPELINE_MODULE = "worldmock.delivery.pipeline"
+_PIPELINE_SOURCE = "src/worldmock/delivery/pipeline.py"
+#: 「版本 8 检查点被放行」的两个变异：世界状态模型同时接受版本 8（杀手是只拒绝版本的模型用例与重开运行的真实引擎用例），
+#: 交付入口放行版本 8 的导出（杀手是交付门禁用例：版本 8 的导出到达被替换为失败的窗口构造）。
+_VERSION_8_STATE_KILLERS = (
+    _SESSION_STATE + "test_world_state_schema_version_8_is_rejected",
+    _SESSION_STATE + "test_run_with_version_8_world_state_is_rejected_on_open",
+)
+_VERSION_8_EXPORT_KILLERS = (_PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -423,6 +453,22 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '                  and row["agent_id"] == action["agent_id"]\n',
         _WINDOW_KILLERS,
     ),
+    SourceMutation(
+        "version_8_world_state_accepted",
+        _MODELS_MODULE,
+        _MODELS_SOURCE,
+        "    schema_version: Literal[WORLD_SCHEMA_VERSION]\n",
+        "    schema_version: Literal[WORLD_SCHEMA_VERSION, 8]\n",
+        _VERSION_8_STATE_KILLERS,
+    ),
+    SourceMutation(
+        "version_8_export_passes_delivery_gate",
+        _PIPELINE_MODULE,
+        _PIPELINE_SOURCE,
+        "    if schema_version != WORLD_SCHEMA_VERSION:\n",
+        "    if schema_version not in {WORLD_SCHEMA_VERSION, 8}:\n",
+        _VERSION_8_EXPORT_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -463,7 +509,8 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "意图或 dreaming 投影带出请求级 `errands`": {"stage": "2", "mutations": ()},
     "投影原地修改原事件": {"stage": "2", "mutations": ()},
     "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
-    "版本 8 检查点被放行": {"stage": "2", "mutations": ()},
+    "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
+                                                  "version_8_export_passes_delivery_gate")},
     "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ()},
     "抽取对下班锚点取缺省": {"stage": "3", "mutations": ()},
     "新锚点并入回绕归一": {"stage": "3", "mutations": ()},
@@ -510,12 +557,20 @@ EXTRA_MUTATIONS: dict[str, str] = {
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
+    "custom/agents/life_continuation.py",
     "custom/agents/life_memory.py",
     "custom/agents/life_reflection.py",
+    "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
+    "src/worldmock/life/errand_state.py",
+    "src/worldmock/life/errands.py",
     "src/worldmock/life/models.py",
+    "src/worldmock/life/narration.py",
+    "src/worldmock/life/observe.py",
+    "src/worldmock/life/prompt_schemas.py",
     "src/worldmock/life/read_query_runtime.py",
+    "src/worldmock/life/todo_layer.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
 )
@@ -525,6 +580,8 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
+    "tests/life/test_errand_state.py",
+    "tests/life/test_errand_todo_layer.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
     "tests/life/test_revise_day_plan_json.py",
     "tests/mutation_runner.py",

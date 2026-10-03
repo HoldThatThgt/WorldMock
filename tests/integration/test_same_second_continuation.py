@@ -858,7 +858,7 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
                                                    "actions": [], "tools": []}], "callable_index": {"query_categories": []}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
-                {"layer": "待办层", "paused_activities": [], "day_plan": None},
+                {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
                 {"layer": "环境层", "body": {"appetite": body}}, {"layer": "进度层"}]
 
     call = {"id": "call-earlier", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}
@@ -890,7 +890,7 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     def layers(targets, paused, plan, body, views):
         return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
                                                    for row in targets], "callable_index": {"query_categories": []}}, {"layer": "人设层", "relationships": views, "preferences": []},
-                {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "day_plan": plan},
+                {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "errands": [], "day_plan": plan},
                 {"layer": "环境层", "body": body}, {"layer": "进度层"}]
 
     shop, desk = {"name": "店", "state": "营业"}, {"name": "工位", "state": None}
@@ -905,6 +905,36 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
         "paused_activities": {"removed": ["读书（9月28日 09:00 起）"]},
         "relationships": [{"person": "王磊", "view": "靠谱"}]}
     assert layer_changes(head, [], head) == {}
+
+
+def test_layer_changes_report_errand_rows_added_changed_and_removed() -> None:
+    """待办层个人事务按名称进 changes（docs/dev/SPEC-errands-workday.md 2.6「同秒续接」）：added 是此刻新增或内容有变的
+    完整行（此刻顺序），removed 是已不在待办层的名称（办成或取消）；相对模型所见，此前 changes 已移除或已写入的不再重报；
+    errands 写在 paused_activities 之后、day_plan 之前；没有改动不写。"""
+    def layers(paused, errands, plan):
+        return [{"layer": "工具层", "targets": [], "callable_index": {"query_categories": []}},
+                {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
+                {"layer": "待办层", "paused_activities": paused, "errands": errands, "day_plan": plan},
+                {"layer": "环境层", "body": {"appetite": "不饿"}}, {"layer": "进度层"}]
+
+    def row(name: str, progress: str = "已取得 0 份", memo: str | None = None) -> dict:
+        return {"name": name, "done_when": f"取得{name} 1 份", "progress": progress, "memo": memo,
+                "remind_time": None, "noted_on": "2026-01-05"}
+
+    kit, tea, meal = row("食材包"), row("冰红茶"), row("素炒什锦")
+    paused = {"name": "读书（9月28日 09:00 起）", "place": "家"}
+    head = layers([paused], [kit, tea], None)
+    earlier = {"errands": {"removed": ["冰红茶"], "added": [meal]}}
+    noted = {**kit, "memo": "下班前下单"}
+    plan = {"date": "2026-01-05", "goals": []}
+    current = layers([], [noted, meal, row("牛奶")], plan)
+    changes = layer_changes(head, [earlier], current)
+    assert changes == {"paused_activities": {"removed": ["读书（9月28日 09:00 起）"]},
+                       "errands": {"added": [noted, row("牛奶")]}, "day_plan": plan}
+    assert list(changes) == ["paused_activities", "errands", "day_plan"]
+    assert layer_changes(head, [earlier], layers([paused], [meal], None)) == {"errands": {"removed": ["食材包"]}}
+    assert layer_changes(head, [], layers([paused], [kit, tea], None)) == {}
+    assert layer_changes(head, [earlier, {"errands": {"added": [noted]}}], layers([paused], [noted, meal], None)) == {}
 
 
 @pytest.mark.parametrize("switch", [None, 1, "on"])

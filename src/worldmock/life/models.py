@@ -13,6 +13,7 @@ from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool,
                       field_validator, model_validator)
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.life.errand_state import ErrandState
 from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 from worldmock.life.social import Message
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
@@ -20,11 +21,12 @@ from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
-#: 世界状态结构版本：版本不符的检查点直接拒绝；版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions；
-#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；版本 8
-#: （docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与 ActivityState.paused_at，
-#: 观察改为七层数据，其后新增字段都并入 8。
-WORLD_SCHEMA_VERSION = 8
+#: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移；版本 6 引入三级结构（Task→Session→Activity）与
+#: WorldState.sessions；版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；
+#: 版本 8（docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与
+#: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-errands-workday.md 2.7）新增只存未完成个人事务的
+#: AgentState.errands。
+WORLD_SCHEMA_VERSION = 9
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -379,6 +381,9 @@ class AgentState(StrictModel):
     # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
     plan_submitted_dates: set[str] = Field(default_factory=set)
+    # 未完成的个人事务（docs/dev/SPEC-errands-workday.md 2.1「存放」）：键为事务身份；完成或取消即移出，终态只在事件里；
+    # 不放进 DayPlan，零点置空与修订整表替换都不波及它。
+    errands: dict[str, ErrandState] = Field(default_factory=dict)
     # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
     inbox: dict[str, Message] = Field(default_factory=dict)
     read_inbox_ids: set[str] = Field(default_factory=set)

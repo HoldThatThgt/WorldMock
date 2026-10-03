@@ -198,7 +198,7 @@ def _layers() -> dict:
     return {
         "tool_layer": {"layer": "工具层", "targets": copy.deepcopy([_SELF_OBJECT[0], _TASK_OBJECT[0]]),
                        "callable_index": {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}},
-        "todo_layer": {"layer": "待办层", "paused_activities": [], "day_plan": None},
+        "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
         "environment_layer": {"layer": "环境层", "observed_at": _NOW_ISO, "body": dict(_BODY),
                               "location": {"session_kind": "stay", "name": "自己家", "place_type": "住宅",
                                            "fixed_rules": []}},

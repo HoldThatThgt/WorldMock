@@ -646,7 +646,7 @@ flowchart TD
 
 检查点事件与检查点记录同事务提交，世界状态必须等于当前已提交状态，不增加世界版本。
 
-世界结构版本为 `8`（`WorldState.schema_version`）；版本不符的旧状态（含版本 7）直接拒绝，不迁移。
+世界结构版本为 `9`（`WorldState.schema_version`）；版本不符的旧状态（含版本 8）直接拒绝，不迁移。
 检查点封存版本 8 的新字段：地点会话的 `opened_by_action_id`、活动的 `paused_at` 与进食活动数据中的开吃份量 `opened`、
 订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox`；受限轮阶段不再有 `wait_only`。
 同秒续接的缓冲不另存：恢复后由环境从已提交的模型证据重建，普通恢复可以继续续接，反事实分支在分支起点一律断链。

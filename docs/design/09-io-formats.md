@@ -77,7 +77,7 @@ flowchart TB
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `schema_version` | Literal[8] | 是 | 世界结构版本；版本不符的旧状态（含版本 7）直接拒绝 |
+| `schema_version` | Literal[9] | 是 | 世界结构版本；版本不符的旧状态（含版本 8）直接拒绝 |
 | `version` | int | 是 | 状态版本号，ge=0 |
 | `current_time` | int | 是 | 当前模拟时间，UTC 纪元秒 |
 | `end_time` | int | 是 | 实验结束时间 |

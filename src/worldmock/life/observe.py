@@ -13,7 +13,7 @@ from dataclasses import replace
 from typing import Any
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import (activity_control, callable_index, discovery, felt, memory_layer, named_catalog,
+from worldmock.life import (activity_control, callable_index, discovery, errands, felt, memory_layer, named_catalog,
                             presentation, progress_layer, projection, relevance, request_linking)
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
@@ -107,7 +107,8 @@ class ObservationMixin:
 
         活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复；note_labels：记忆层 self_notes 中这项活动去掉
         开始时刻后缀的标注（只作回看名称，两个条目的同一标注指不同活动时两项都带，回看按重名处理）。人物绑定不论是否同处
-        （recipients.person_bindings）。
+        （recipients.person_bindings）。个人事务另有两类绑定（errands.bindings：本人未完成事务与全部商品名），事务名不是
+        回看名称（docs/dev/SPEC-errands-workday.md 2.3）。
         """
         goals = [{"task_name": goal.goal, "intent_kind": goal.intent_kind}
                  for goal in visible_goals(self.state, agent.agent_id) or ()]
@@ -123,6 +124,7 @@ class ObservationMixin:
                                    "note_labels": labels[name]}
                                   for activity_id, name in names["activities"].items()],
             "person_bindings": person_bindings(self.state, agent.agent_id),
+            **errands.bindings(agent, self.rules.items),
         }
 
     def _projection_extras(self, agent, product_rows: list[dict], menu: dict[str, PresentationWindow]) -> dict:

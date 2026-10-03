@@ -106,6 +106,21 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     engine.state = staged
 
 
+def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
+    """预置人物的未完成个人事务（只置 AgentState.errands，键为事务身份，替换原有的事务）并保持存储版本连续：用于需要
+    指定记下时刻、累计量与提醒状态的用例。状态副本与一条系统可见的测试事件同一提交落库。"""
+    from worldmock.footprints.models import EventDraft
+
+    staged = engine.state.model_copy(deep=True)
+    staged.agents[agent_id] = staged.agents[agent_id].model_copy(
+        update={"errands": {item.errand_id: item for item in errands}}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_errands_staged"})])
+    engine.state = staged
+
+
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象

@@ -242,9 +242,11 @@ async def _run(environment: LifeEnv, people: dict, models: dict) -> None:
 
 
 #: 续接 changes 中可按名称取代链首条目的部分：（类别，changes 键，写入键，键字段）。
-_KEYED_CHANGES = (("target", "targets", "updated", "name"), ("paused", "paused_activities", "added", "name"))
+_KEYED_CHANGES = (("target", "targets", "updated", "name"), ("paused", "paused_activities", "added", "name"),
+                  ("errand", "errands", "added", "name"))
 #: 链首六层中按名称呈现的条目：层名 → [(类别，列表键，键字段)]。
-_KEYED_LAYERS = {"工具层": (("target", "targets", "name"),), "待办层": (("paused", "paused_activities", "name"),),
+_KEYED_LAYERS = {"工具层": (("target", "targets", "name"),),
+                 "待办层": (("paused", "paused_activities", "name"), ("errand", "errands", "name")),
                  "人设层": (("relationship", "relationships", "person"), ("preference", "preferences", "subject"))}
 
 

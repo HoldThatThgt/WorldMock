@@ -171,6 +171,10 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                  "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
+#: 待办层的一条个人事务（docs/dev/SPEC-errands-workday.md 2.6）：六键，不含内部身份、状态枚举与可用性。
+_ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo": _NULLABLE_TEXT,
+                   "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+                   "noted_on": _DATE})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
     **_object({
@@ -179,6 +183,7 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
             "name": _TEXT, "paused_at": _TIME, "place": _TEXT, "progress": _TEXT,
             "tools": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [
                 _tool_action(("report_status",)), _tool_action(("conclude_activity",))]}})},
+        "errands": {"type": "array", "maxItems": 8, "items": _ERRAND},
         "day_plan": {"oneOf": [{"type": "null"}, _object({
             "date": _DATE, "goals": {"type": "array", "maxItems": 8, "items": _GOAL}})]},
     }),

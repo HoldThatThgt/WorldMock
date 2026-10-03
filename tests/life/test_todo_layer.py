@@ -154,7 +154,7 @@ def test_day_plan_is_null_before_the_plan_and_after_the_day_ends(engine_factory)
     now = engine.state.current_time
     _stage_plan(engine, None)
     todo = engine.observe(context(engine, "plan-none"))["todo_layer"]
-    assert todo == {"layer": "待办层", "paused_activities": [], "day_plan": None}
+    assert todo == {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None}
     validate_layer(todo)
     expired = DayPlan(day_end=now, goals=(PlanGoal(intent_kind="休息", goal="歇一歇", registered_at=now - 60),))
     _stage_plan(engine, expired)

@@ -22,7 +22,7 @@ from worldmock.life.narration import (
 #: 观察私有证据与私有绑定：只给宿主与读者，绝不渲染进提示。
 _PRIVATE_KEYS = ("interaction_bindings", "task_bindings", "goal_bindings", "activity_bindings", "session_bindings",
                  "message_bindings", "person_bindings", "persona_views", "progress_meta", "progress_event_ids", "presented_message_ids",
-                 "continuation")
+                 "continuation", "errand_bindings", "errand_item_bindings")
 
 
 class TestFieldBlacklist:
@@ -72,7 +72,7 @@ class TestFieldBlacklist:
     @pytest.mark.parametrize("internal_key", [
         "session_id", "activity_id", "task_id", "route_id", "product_id",
         "supply_id", "order_id", "message_id", "contact_id", "price_version",
-        "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id",
+        "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id", "errand_id",
     ])
     def test_internal_identity_cannot_hide_inside_a_progress_result(self, internal_key: str) -> None:
         """进度层调用结果的任意嵌套层不能重新泄漏引擎身份或报价版本。"""
