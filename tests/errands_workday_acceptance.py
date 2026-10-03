@@ -194,6 +194,29 @@ _IDEMPOTENCE_TESTS = [
     _IDEMPOTENCE + "test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_count",
 ]
 
+_REMINDER = "tests/life/test_errand_reminder.py::"
+
+#: 「事务提醒」：前九个经真实请求、引擎与 SQLite——人物以收尾请求记下带提醒钟点的事务，随后经真实的时钟推进与决策轮：清醒
+#: 时到点的边界恰在提醒时刻，以 errand_reminder_due 提供一次决策并写一条人物可见、不带决策与动作身份的提醒事件，事务只多了
+#: 提醒时刻（带新唤醒原因的结算与 decision_started 照常落库，进度层有只写名称的提醒记录、浓缩时不留句子，待办层钟点变
+#: null）；钟点等于受理时刻取下一本地日；睡眠中不形成边界、其后仍在睡的零点边界静默且不交付不消耗，醒来的边界与
+#: wake_from_sleep 一并交付；同刻到期的多条合并为一次机会、各写一条事件，与当日目标提醒同刻时按枚举顺序并列；办成或取消
+#: 后不再提醒；更新钟点重新计一次；零点边界由零点节律入口在零点计划之后交付；未完成事务不改变空闲重估间隔与闭店预警。末
+#: 一个守质量报告按同一份足迹词表把 errand_reminder_due 计入已知原因。
+_REMINDER_TESTS = [
+    _REMINDER + "test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",
+    _REMINDER + "test_a_clock_equal_to_the_acceptance_time_means_the_next_local_day",
+    _REMINDER + "test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake"
+                "_boundary",
+    _REMINDER + "test_errands_due_together_are_one_opportunity_with_one_event_each",
+    _REMINDER + "test_errand_and_goal_reminders_due_together_are_listed_in_enum_order",
+    _REMINDER + "test_completed_or_cancelled_errands_are_not_reminded",
+    _REMINDER + "test_updating_the_reminder_clock_arms_it_again",
+    _REMINDER + "test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm",
+    _REMINDER + "test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning",
+    "tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason",
+]
+
 _ERRAND_REQUESTS = "tests/life/test_errand_requests.py::"
 
 #: 「事务变更与原子受理」：前六个经真实请求、引擎与 SQLite——三个控制工具带请求级 errands 受理，每条被受理的变更恰好一条
@@ -257,7 +280,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "跨夜可见": {"stage": "2", "tests": []},
     "完成依据": {"stage": "2", "tests": _COMPLETION_TESTS},
     "结算幂等": {"stage": "2", "tests": _IDEMPOTENCE_TESTS},
-    "事务提醒": {"stage": "2", "tests": []},
+    "事务提醒": {"stage": "2", "tests": _REMINDER_TESTS},
     "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
     "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
@@ -390,6 +413,27 @@ _ONCE_PER_COMMIT_KILLERS = (_IDEMPOTENCE + "test_each_commit_settles_once",)
 _REPLAY_KILLERS = (_IDEMPOTENCE + "test_a_replayed_action_adds_nothing",)
 _FOLDED_LINE_KILLERS = (
     "tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line",)
+_SCHEDULE_MODULE = "worldmock.life.schedule"
+_SCHEDULE_SOURCE = "src/worldmock/life/schedule.py"
+_RHYTHM_MODULE = "worldmock.life.rhythm"
+_RHYTHM_SOURCE = "src/worldmock/life/rhythm.py"
+_FOOTPRINT_MODELS_MODULE = "worldmock.footprints.models"
+_FOOTPRINT_MODELS_SOURCE = "src/worldmock/footprints/models.py"
+#: 事务提醒各变异的杀手都经真实请求、引擎与 SQLite（节律判定、边界候选与提醒交付由引擎按本名调用 schedule、rhythm、
+#: reminders 与 errands）：取消不移出事务时被取消的那条仍在状态里、到点照样提醒；提醒时把事务移出时到点后事务不在了；
+#: 事务提醒进入睡眠允许集合时零点边界给睡着的人提供决策；未完成事务算在手承诺时记下事务后下一次决策按常规间隔提前到
+#: 600 秒；词表漏登新唤醒原因时带它的共同身体结算落不了库、推进即失败；边界候选不按睡眠过滤时入睡后提醒时刻仍是候选、
+#: 在 23:30 形成静默边界；不看唤醒判定就交付时零点边界给睡着的人记下提醒并写事件；同刻多条只写一条时两条同刻到期的
+#: 事务只有一条提醒事件。
+_CANCELLED_REMINDER_KILLERS = (_REMINDER + "test_completed_or_cancelled_errands_are_not_reminded",)
+_AWAKE_REMINDER_KILLERS = (
+    _REMINDER + "test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",)
+_SLEEPER_REMINDER_KILLERS = (
+    _REMINDER + "test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake"
+                "_boundary",)
+_COMMITMENT_KILLERS = (
+    _REMINDER + "test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning",)
+_TOGETHER_KILLERS = (_REMINDER + "test_errands_due_together_are_one_opportunity_with_one_event_each",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -791,6 +835,70 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "        return []\n",
         _FOLDED_LINE_KILLERS,
     ),
+    SourceMutation(
+        "cancelled_errand_stays_armed",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '        errands.pop(plan.targets[index]["errand_id"])\n',
+        '        errands.get(plan.targets[index]["errand_id"])\n',
+        _CANCELLED_REMINDER_KILLERS,
+    ),
+    SourceMutation(
+        "reminder_completes_errand",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "        errands[errand.errand_id] = reminded\n",
+        "        errands.pop(errand.errand_id)\n",
+        _AWAKE_REMINDER_KILLERS,
+    ),
+    SourceMutation(
+        "errand_reminder_wakes_sleep",
+        _SCHEDULE_MODULE,
+        _SCHEDULE_SOURCE,
+        "     WakeReason.PLAN_REMINDER_DUE}\n",
+        "     WakeReason.PLAN_REMINDER_DUE, WakeReason.ERRAND_REMINDER_DUE}\n",
+        _SLEEPER_REMINDER_KILLERS,
+    ),
+    SourceMutation(
+        "open_errands_are_commitments",
+        _RHYTHM_MODULE,
+        _RHYTHM_SOURCE,
+        "    if (plan is not None and not rhythm_schedule.day_plan_expired(plan, inputs.state.current_time)\n",
+        "    if agent.errands or (plan is not None and not rhythm_schedule.day_plan_expired(plan, inputs.state.current_time)\n",
+        _COMMITMENT_KILLERS,
+    ),
+    SourceMutation(
+        "errand_wake_reason_missing_from_vocabulary",
+        _FOOTPRINT_MODELS_MODULE,
+        _FOOTPRINT_MODELS_SOURCE,
+        '    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",\n',
+        '    "progress_report_due", "no_active_activity", "plan_reminder_due",\n',
+        _AWAKE_REMINDER_KILLERS,
+    ),
+    SourceMutation(
+        "sleeper_reminder_time_is_a_boundary",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "    return [moment for agent_id, agent in state.agents.items() if not _asleep(state, agent_id)\n",
+        "    return [moment for agent_id, agent in state.agents.items()\n",
+        _SLEEPER_REMINDER_KILLERS,
+    ),
+    SourceMutation(
+        "reminder_recorded_without_delivery",
+        _RHYTHM_MODULE,
+        _RHYTHM_SOURCE,
+        "        if rhythm_schedule.WakeReason.ERRAND_REMINDER_DUE.value in verdict.wake_reasons:\n",
+        "        if True:\n",
+        _SLEEPER_REMINDER_KILLERS,
+    ),
+    SourceMutation(
+        "simultaneous_reminders_write_one_event",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    return state.model_copy(update={"agents": agents}), drafts\n',
+        '    return state.model_copy(update={"agents": agents}), drafts[:1]\n',
+        _TOGETHER_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -823,11 +931,11 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "读取逐项结果里的重复订单": {"stage": "2", "mutations": ("nested_results_orders_counted",)},
     "一次提交结算两次": {"stage": "2", "mutations": ("round_commit_settles_twice", "advance_commit_settles_twice")},
     "检查点漏存事务": {"stage": "2", "mutations": ()},
-    "取消后仍提醒": {"stage": "2", "mutations": ()},
-    "提醒即置完成": {"stage": "2", "mutations": ()},
-    "提醒叫醒睡眠": {"stage": "2", "mutations": ()},
-    "事务计入在手承诺": {"stage": "2", "mutations": ()},
-    "新唤醒原因漏登足迹词表": {"stage": "2", "mutations": ()},
+    "取消后仍提醒": {"stage": "2", "mutations": ("cancelled_errand_stays_armed",)},
+    "提醒即置完成": {"stage": "2", "mutations": ("reminder_completes_errand",)},
+    "提醒叫醒睡眠": {"stage": "2", "mutations": ("errand_reminder_wakes_sleep",)},
+    "事务计入在手承诺": {"stage": "2", "mutations": ("open_errands_are_commitments",)},
+    "新唤醒原因漏登足迹词表": {"stage": "2", "mutations": ("errand_wake_reason_missing_from_vocabulary",)},
     "提醒与办成事件写成系统可见": {"stage": "2", "mutations": ()},
     "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ()},
     "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ()},
@@ -884,6 +992,12 @@ EXTRA_MUTATIONS: dict[str, str] = {
     "replayed_result_counts": "实施计划阶段 2「突变审查的目标」：把重放结果计数（读动作结果的证据时不看 reused）。",
     "condensation_drops_completion_line": "实施计划阶段 2「突变审查的目标」：浓缩后丢掉 `errand_completed` 的句子"
                                           "（record_lines 对办成记录返回空）。",
+    "sleeper_reminder_time_is_a_boundary": "实施计划阶段 2「突变审查的目标」：睡眠人物的提醒时刻进入边界候选"
+                                           "（boundary_times 去掉睡眠过滤）。",
+    "reminder_recorded_without_delivery": "实施计划阶段 2「突变审查的目标」：提醒在睡眠中记账（不看唤醒判定，给每个人物"
+                                          "交付到点的事务提醒）。",
+    "simultaneous_reminders_write_one_event": "实施计划阶段 2「突变审查的目标」：同刻多条只写一条提醒事件"
+                                              "（deliver_reminders 只留第一条草稿）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -896,6 +1010,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
+    "src/worldmock/footprints/models.py",
     "src/worldmock/life/activity_control.py",
     "src/worldmock/life/control_items.py",
     "src/worldmock/life/engine.py",
@@ -907,7 +1022,10 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/progress_layer.py",
     "src/worldmock/life/prompt_schemas.py",
     "src/worldmock/life/read_query_runtime.py",
+    "src/worldmock/life/reminders.py",
     "src/worldmock/life/result_projection.py",
+    "src/worldmock/life/rhythm.py",
+    "src/worldmock/life/schedule.py",
     "src/worldmock/life/session_actions.py",
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
@@ -924,6 +1042,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/life/test_errand_changes.py",
     "tests/life/test_errand_completion.py",
     "tests/life/test_errand_names.py",
+    "tests/life/test_errand_reminder.py",
     "tests/life/test_errand_requests.py",
     "tests/life/test_errand_settlement_idempotence.py",
     "tests/life/test_errand_state.py",

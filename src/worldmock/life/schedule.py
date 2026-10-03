@@ -56,6 +56,8 @@ class WakeReason(str, Enum):
     PROGRESS_REPORT_DUE = "progress_report_due"
     NO_ACTIVE_ACTIVITY = "no_active_activity"
     PLAN_REMINDER_DUE = "plan_reminder_due"
+    #: 个人事务提醒到点（docs/dev/SPEC-errands-workday.md 2.5）：不进入睡眠允许集合，睡眠中错过的在醒来的边界交付。
+    ERRAND_REMINDER_DUE = "errand_reminder_due"
 
 
 SLEEP_ALLOWED_REASONS = frozenset(
@@ -187,6 +189,8 @@ class WakeSnapshot(BaseModel):
     no_active_activity: bool = False
     #: 当日目标提醒到点（docs/dev/SPEC-time-and-energy.md 第四章）：同时到期的合并为一项。
     plan_reminder_due: bool = False
+    #: 有已到点未提醒的个人事务（docs/dev/SPEC-errands-workday.md 2.5）：同时到期的合并为一项。
+    errand_reminder_due: bool = False
     is_asleep: bool = False
 
 
@@ -219,6 +223,8 @@ class NextDecisionQuery(BaseModel):
     next_progress_report_at: int | None = None
     #: 当日未触发的提醒时刻（睡眠中不剔除，docs/dev/SPEC-time-and-energy.md 第四章）。
     plan_reminder_times: tuple[int, ...] = ()
+    #: 未提醒的个人事务提醒时刻（睡眠中剔除，docs/dev/SPEC-errands-workday.md 2.5）。
+    errand_reminder_times: tuple[int, ...] = ()
     is_asleep: bool = False
 
 
@@ -325,7 +331,7 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
     """@brief 判定某结算边界命中的全部唤醒原因（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
     输出按 WakeReason 枚举声明顺序排列；无命中即静默边界（decision_offered=false、wake_reasons=[]）。
-    睡眠期间只保留 SLEEP_ALLOWED_REASONS（含当日目标提醒，不含边界兜底 no_active_activity），其余命中一律忽略。
+    睡眠期间只保留 SLEEP_ALLOWED_REASONS（含当日目标提醒，不含边界兜底与事务提醒），其余命中一律忽略。
     """
     snap = snapshot
     reasons: list[WakeReason] = []
@@ -366,6 +372,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.NO_ACTIVE_ACTIVITY)
     if snap.plan_reminder_due:
         reasons.append(WakeReason.PLAN_REMINDER_DUE)
+    if snap.errand_reminder_due:
+        reasons.append(WakeReason.ERRAND_REMINDER_DUE)
     if snap.is_asleep:
         reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
     return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
@@ -375,10 +383,10 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
     """@brief 计算下一决策时刻：各项候选的最小值（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
     候选=计划结束、体感分级预计跨越、已排定通知与配送、承诺威胁边界、重估间隔
-    到期、地点营业变化与当日未触发的提醒；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
+    到期、地点营业变化、当日未触发的提醒与未提醒的个人事务提醒；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
     睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），is_asleep 时剔除该项；
-    提醒在睡眠中不剔除（docs/dev/SPEC-time-and-energy.md 第四章）。无任何候选返回 None。游戏模式保持逐回合反馈，
-    不经过本函数。
+    当日目标提醒在睡眠中不剔除（docs/dev/SPEC-time-and-energy.md 第四章），个人事务提醒在睡眠中剔除
+    （docs/dev/SPEC-errands-workday.md 2.5）。无任何候选返回 None。游戏模式保持逐回合反馈，不经过本函数。
 
     @param query 各候选时刻的汇总输入
     @return 下一决策时刻（UTC epoch 秒），无候选时为 None
@@ -400,6 +408,8 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
     if query.next_progress_report_at is not None:
         candidates.append(query.next_progress_report_at)
     candidates.extend(query.plan_reminder_times)
+    if not query.is_asleep:
+        candidates.extend(query.errand_reminder_times)
     future = [moment for moment in candidates if moment > query.now]
     return min(future) if future else None
 

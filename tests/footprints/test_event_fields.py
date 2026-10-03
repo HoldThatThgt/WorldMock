@@ -23,7 +23,7 @@ _SPEC_WAKE_REASONS = frozenset({
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
-    "progress_report_due", "no_active_activity", "plan_reminder_due",
+    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
 })
 
 #: 规格事件类型冻结枚举 14 类（`docs/design/05-recording-engine.md`「事件类型枚举」逐字）。
@@ -93,8 +93,11 @@ def test_wake_reasons_outside_the_frozen_vocabulary_are_rejected(reasons):
 
 
 def test_new_wake_reasons_are_accepted_by_validation():
-    """时间与能量规格第一章规则 6：追加在 progress_report_due 之后的两员属于冻结闭集。"""
+    """时间与能量规格第一章规则 6：追加在 progress_report_due 之后的两员属于冻结闭集；个人事务规格 2.5 追加在
+    plan_reminder_due 之后的 errand_reminder_due 同样属于冻结闭集（漏登词表时带它的事件落不了库）。"""
     validate_decision_rhythm({WAKE_REASONS_FIELD: ["no_active_activity", "plan_reminder_due"]})
+    validate_decision_rhythm({DECISION_OFFERED_FIELD: True,
+                              WAKE_REASONS_FIELD: ["plan_reminder_due", "errand_reminder_due"]})
     validate_decision_rhythm({DECISION_OFFERED_FIELD: True,
                               WAKE_REASONS_FIELD: ["progress_report_due", "no_active_activity"]})
 
@@ -114,7 +117,7 @@ def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factor
     contexts = [context(engine, "round-1")]
     with pytest.raises(ValueError, match="frozen wake reasons"):
         defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, ["bogus"]))
-    for reasons in (["no_active_activity"], ["plan_reminder_due"]):
+    for reasons in (["no_active_activity"], ["plan_reminder_due"], ["errand_reminder_due"]):
         starts = defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, reasons))
         assert starts[1]["decision_id"] == contexts[0].decision_id
         assert starts[1]["data"][WAKE_REASONS_FIELD] == reasons
@@ -145,9 +148,9 @@ def test_unknown_wake_reason_is_rejected_on_body_settlement_write(engine_factory
     assert set(unpatched[WAKE_REASONS_FIELD]) <= WAKE_REASON_NAMES
 
     new_members = WakeVerdict(decision_offered=True, wake_reasons=[
-        WakeReason.NO_ACTIVE_ACTIVITY, WakeReason.PLAN_REMINDER_DUE])
+        WakeReason.NO_ACTIVE_ACTIVITY, WakeReason.PLAN_REMINDER_DUE, WakeReason.ERRAND_REMINDER_DUE])
     accepted = _settlement_rhythm(engine, monkeypatch, new_members)
-    assert accepted[WAKE_REASONS_FIELD] == ["no_active_activity", "plan_reminder_due"]
+    assert accepted[WAKE_REASONS_FIELD] == ["no_active_activity", "plan_reminder_due", "errand_reminder_due"]
 
     bogus = SimpleNamespace(decision_offered=True, wake_reasons=[SimpleNamespace(value="bogus")])
     with pytest.raises(ValueError, match="frozen wake reasons"):

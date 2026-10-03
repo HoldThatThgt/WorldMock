@@ -13,6 +13,10 @@ models、名称解析与错误合同，models.py 从不导入本模块。
   按待办层名称解析（_open_name，与活动名同一函数，唯一才受理、从不替换）。apply_changes 只在校验通过后改人物状态并给出
   回执；request_drafts 为每条被受理的变更写一条事务事件，决策身份与动作身份都为空，只经 caused_by 关联请求事件（2.7）。
 - 提醒钟点（2.5）：remind_epoch 把 HH:MM 换算为绝对时刻，该钟点的今日时刻严格晚于受理时刻取今天，否则取下一本地日。
+  预测与唤醒共用同一事实生成器（_unreminded，未提醒的事务）：reminder_times 给严格晚于此刻的时刻（下一次决策机会的
+  候选），boundary_times 只给清醒人物的这些时刻（下一边界的候选，睡眠中的人物不计入），reminders_due 给已到点的事务
+  （唤醒原因 errand_reminder_due）；deliver_reminders 在为清醒人物提供决策机会的边界把全部已到点的事务一并交付，每条
+  记下提醒时刻、写一条人物可见的 errand_reminded，事务的其余状态不变。
 - 完成依据与结算（2.4）：evidence_rows 是读取结算证据的唯一一处（动作结果顶层的已送达订单与当面给予、配送送达事件的
   新入库行、活动进度的食用量与制作产出），settle 每次提交恰好调用一次，按草稿先后把证据累加到同一（结果种类，商品）的
   未完成事务，达到数量减容差即移出并写办成事件，否则写进展事件；两种事件只经 caused_by 关联证据草稿（2.7）。
@@ -42,12 +46,13 @@ from worldmock.life.errand_state import (
     OUTCOME_WORDS,
     PROGRESSED_KIND,
     REGISTERED_KIND,
+    REMINDED_KIND,
     UPDATED_KIND,
     ErrandState,
 )
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.models import AgentState, PendingAction, WorldState
+from worldmock.life.models import ActivityKind, AgentState, PendingAction, WorldState, active_activities
 from worldmock.life.name_resolution import near_names, resolve_name
 from worldmock.life.readable import local_date, portion_phrase
 from worldmock.life.schedule import clock_epoch, day_end_seconds, epoch_clock
@@ -284,9 +289,58 @@ def settle(state: WorldState, drafts: Sequence[EventDraft]) -> tuple[WorldState,
     return state.model_copy(update={"agents": agents}), settled
 
 
+def reminder_times(agent: AgentState, now: int) -> tuple[int, ...]:
+    """@brief 本人未提醒事务的提醒时刻中严格晚于 now 的那些（升序去重），下一次决策机会的候选
+    （docs/dev/SPEC-errands-workday.md 2.5「调度口径」）；人物在睡时由调用方剔除。"""
+    return tuple(sorted({errand.remind_at for errand in _unreminded(agent) if errand.remind_at > now}))
+
+
+def reminders_due(agent: AgentState, now: int) -> tuple[ErrandState, ...]:
+    """@brief 本人已到点（提醒时刻不晚于 now）而未提醒的事务，待办层顺序；非空即唤醒原因 errand_reminder_due 成立，
+    人物在睡时由唤醒判定过滤（它不在睡眠允许集合）。"""
+    return tuple(errand for errand in _unreminded(agent) if errand.remind_at <= now)
+
+
+def boundary_times(state: WorldState) -> list[int]:
+    """@brief 下一边界的事务提醒候选：每个清醒人物（没有进行中的睡眠）严格晚于此刻的未提醒时刻；睡眠中的人物不计入，
+    不形成静默边界，错过的提醒在醒来的边界交付（docs/dev/SPEC-errands-workday.md 2.5）。"""
+    return [moment for agent_id, agent in state.agents.items() if not _asleep(state, agent_id)
+            for moment in reminder_times(agent, state.current_time)]
+
+
+def deliver_reminders(state: WorldState, agent_id: int) -> tuple[WorldState, list[EventDraft]]:
+    """@brief 在为该人物提供决策机会的边界交付他全部已到点未提醒的事务（docs/dev/SPEC-errands-workday.md 2.5、2.7）：
+    每条记下提醒时刻 reminded_at（只提醒一次，名称、完成依据、累计量与备注都不变，事务仍未完成），各写一条
+    errand_reminded（人物可见，人物为事务所有人，决策、动作与活动身份为空，没有原因事件，载荷为记下提醒后的快照）。
+    没有到点的事务时事务不变、没有草稿。
+
+    :returns: （交付后的世界，提醒事件草稿），草稿按待办层顺序。
+    """
+    agent = state.agents[agent_id]
+    errands, drafts = dict(agent.errands), []
+    head = _Head(agent_id, state.current_time, ())
+    for errand in reminders_due(agent, state.current_time):
+        reminded = errand.model_copy(update={"reminded_at": state.current_time})
+        errands[errand.errand_id] = reminded
+        drafts.append(_draft(head, REMINDED_KIND, reminded.model_dump(mode="json")))
+    agents = {**state.agents, agent_id: agent.model_copy(update={"errands": errands})}
+    return state.model_copy(update={"agents": agents}), drafts
+
+
 def _open_errands(agent: AgentState) -> list[ErrandState]:
     """@brief 本人的未完成事务，按记下的时刻、再按事务身份排序（待办层与私有绑定的同一顺序）。"""
     return sorted(agent.errands.values(), key=lambda errand: (errand.registered_at, errand.errand_id))
+
+
+def _unreminded(agent: AgentState) -> list[ErrandState]:
+    """@brief 预测与唤醒共用的唯一事实生成器：本人设了提醒时刻而尚未提醒的未完成事务，待办层顺序（完成或取消的事务已不在
+    状态里，不再提醒）。"""
+    return [errand for errand in _open_errands(agent) if errand.remind_at is not None and errand.reminded_at is None]
+
+
+def _asleep(state: WorldState, agent_id: int) -> bool:
+    """@brief 人物此刻是否在睡：有进行中的睡眠活动（与节律判定的睡眠口径相同）。"""
+    return any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent_id))
 
 
 def _errand_rows(agent: AgentState) -> list[dict]:

@@ -571,6 +571,29 @@ def test_decision_rhythm_counts_same_moment_rounds():
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {"mystery": 1}
 
 
+def test_errand_reminder_due_is_a_known_wake_reason():
+    """个人事务提醒的唤醒原因 errand_reminder_due（docs/dev/SPEC-errands-workday.md 2.5）由质量报告按同一份足迹词表
+    分桶：共同身体结算与 decision_started 里的它都计入已知原因，与同刻到期的当日目标提醒各计一次，未识别的原因为空。"""
+    reasons = ["plan_reminder_due", "errand_reminder_due"]
+    events = [
+        _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+                                                         WAKE_REASONS_FIELD: reasons}),
+        _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started(reasons)),
+        _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+                                                         WAKE_REASONS_FIELD: ["errand_reminder_due"]}),
+        _event(4, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["errand_reminder_due"])),
+        _event(5, "run_ended", occurred_at=1100),
+    ]
+
+    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+
+    assert rhythm["wake_reason_counts"] == {"errand_reminder_due": 2, "plan_reminder_due": 1}
+    assert rhythm["decision_started_wake_reason_counts"] == {"errand_reminder_due": 2, "plan_reminder_due": 1}
+    assert rhythm["unrecognized_wake_reason_counts"] == {}
+    assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
+    assert rhythm["offered_boundaries"] == 2
+
+
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     events = [_event(1, "environment_event", data={"kind": "body_settlement"}),
               _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),

@@ -36,7 +36,7 @@ WAKE_REASON_NAMES = frozenset({
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
-    "progress_report_due", "no_active_activity", "plan_reminder_due",
+    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
 })
 
 #: decision_started.data 的闭集（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」、第七章「事件」）。
