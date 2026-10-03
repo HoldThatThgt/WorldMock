@@ -1421,7 +1421,7 @@ def test_cli_profile_compile_writes_output_file(tmp_path, monkeypatch, capsys):
     assert cli.main(["profile", "compile", "--text", str(story), "--out", str(out)]) == 0
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["written"] == str(out) and receipt["warnings"] == []
-    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 2
+    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 3
 
 
 # ---------------------------------------------------------------------------

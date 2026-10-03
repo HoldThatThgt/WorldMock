@@ -739,6 +739,35 @@ def test_cross_midnight_bedtime_window_is_accepted() -> None:
     assert document.agents[0].bedtime_window == (23.5, 25.5)
 
 
+@pytest.mark.parametrize(
+    ("windows", "message"),
+    [
+        # 下班、到家窗口与午餐、晚餐同单位同校验：负起点、末端越过 24（不跨午夜）、退化区间各一例。
+        ({"leave_work_window": [-0.5, 18.0]}, "leave_work_window must satisfy 0 <= start < end <= 24"),
+        ({"leave_work_window": [23.5, 24.5]}, "leave_work_window must satisfy 0 <= start < end <= 24"),
+        ({"arrive_home_window": [19.0, 19.0]}, "arrive_home_window must satisfy 0 <= start < end <= 24"),
+        ({"arrive_home_window": [23.0, 25.0]}, "arrive_home_window must satisfy 0 <= start < end <= 24"),
+        # 两者都声明时下班起点不得晚于到家起点。
+        ({"leave_work_window": [19.0, 19.5], "arrive_home_window": [18.5, 20.0]},
+         "leave_work_window must not start after arrive_home_window"),
+    ],
+)
+def test_work_window_bounds_and_order_are_rejected(windows: dict, message: str) -> None:
+    """场景下班、到家窗口（docs/dev/SPEC-errands-workday.md 4.2）：越界、退化与下班晚于到家在文档校验层拒绝；正例为两者
+    都声明且起点相等、与午餐、晚餐、就寝不设先后（下班窗口压在晚餐窗口里也合法），未声明时两字段为 None 且不算已设。"""
+    payload = _payload()
+    payload["agents"][0].update(windows)
+    _assert_invalid(payload, message)
+    legal = _payload()
+    legal["agents"][0].update(leave_work_window=[18.5, 19.0], arrive_home_window=[18.5, 20.0])
+    agent = LifeScenario.model_validate(legal).agents[0]
+    assert (agent.leave_work_window, agent.arrive_home_window) == ((18.5, 19.0), (18.5, 20.0))
+    assert agent.dinner_window[0] <= agent.leave_work_window[0] < agent.dinner_window[1]
+    undeclared = LifeScenario.model_validate(_payload()).agents[0]
+    assert (undeclared.leave_work_window, undeclared.arrive_home_window) == (None, None)
+    assert {"leave_work_window", "arrive_home_window"}.isdisjoint(undeclared.model_fields_set)
+
+
 def test_three_scenarios_share_the_v2_schema() -> None:
     """三场景同 Schema：版本、重估间隔、钉扎哈希与人物卡片字段一致齐备。"""
     manifests = set()

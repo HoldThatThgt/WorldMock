@@ -847,7 +847,7 @@ def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Map
     """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1、8.1）：逐人物按编号，再场景级。
 
     人物：场景作息覆盖（CARD_FIELD_OVERRIDDEN / CARD_FIELD_CONFLICT）、口味与内容（按实际注入的口味权重）、游戏权重条目、
-    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译的一致性警告；场景：配送路线与地点显示名。
+    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译留下的警告；场景：配送路线与地点显示名。
     """
     from worldmock.profile import injection
     from worldmock.profile.coverage import validate_coverage
@@ -1256,7 +1256,7 @@ def _render_card(card: Any) -> str:
 def _compile_persona(agent: Any) -> Any:
     """@brief 场景 background_story -> CompiledPersona（卡片与编译警告；真实调用走三次一致性抽取）。
 
-    编译警告（三次一致性低于 2/3 的字段）经输入警告 PERSONA_AGREEMENT_LOW 透传，不再丢弃。
+    编译警告（三次一致性低于 2/3 的字段、下班与到家锚点的降级说明）经输入警告 PERSONA_AGREEMENT_LOW 逐条透传，不再丢弃。
     """
     if agent.background_story is None:
         return None

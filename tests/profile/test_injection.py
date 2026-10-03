@@ -21,6 +21,7 @@ from worldmock.profile.coverage import CoverageTargets, validate_coverage
 from worldmock.profile.extractor import PersonaExtraction
 from worldmock.profile.injection import (
     INPUT_WARNING_CODES,
+    RHYTHM_FIELDS,
     agreement_warnings,
     apply_scenario_rhythm,
     coverage_warnings,
@@ -44,9 +45,12 @@ def _run(name: str) -> dict:
 
 
 def _card(run: dict) -> PersonaCard:
-    """运行冻结的结构化卡片补回当下处境（结构化卡片去掉了它，不影响作息与口味）。"""
-    return PersonaCard.model_validate({**run["persona_card_struct"],
-                                       "situation": {"busy_this_week": "上班", "cares_about": "作息"}})
+    """运行冻结的结构化卡片补回当下处境（结构化卡片去掉了它，不影响作息与口味）；记录早于卡片结构 3，时间锚点同样补上
+    为 null 的下班、到家两键（只读记录本身不改写）。"""
+    struct = run["persona_card_struct"]
+    return PersonaCard.model_validate({
+        **struct, "time_anchors": {**struct["time_anchors"], "leave_work": None, "arrive_home": None},
+        "situation": {"busy_this_week": "上班", "cares_about": "作息"}})
 
 
 def _agent(agent_id: int = 1, **rhythm) -> AgentConfig:
@@ -282,6 +286,111 @@ def test_unrepresentable_and_after_midnight_windows() -> None:
     bedtime = late.card.time_anchors.bedtime
     assert (bedtime.start_hour, bedtime.end_hour) == (24.5, 29.0)
     assert late.warnings[0]["details"]["applied_value"] == [24.5, 29.0]
+
+
+def _work_card(leave_work: tuple[float, float] | None, arrive_home: tuple[float, float] | None) -> PersonaCard:
+    """工厂卡片（出门 08:00、晚餐 18:30、就寝 23:00）换上给定的下班、到家窗口（None 为 null）。"""
+    card = make_card()
+    anchors = {name: getattr(card.time_anchors, name) for name in TimeAnchors.model_fields}
+    anchors.update(leave_work=None if leave_work is None else make_window(*leave_work),
+                   arrive_home=None if arrive_home is None else make_window(*arrive_home))
+    return card.model_copy(update={"time_anchors": TimeAnchors.model_validate(anchors)})
+
+
+def _slots(card: PersonaCard) -> tuple[list[float] | None, list[float] | None]:
+    """卡片下班、到家槽的 [start, end]（null 为 None）。"""
+    return tuple(None if window is None else [window.start_hour, window.end_hour]
+                 for window in (card.time_anchors.leave_work, card.time_anchors.arrive_home))
+
+
+def test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden() -> None:
+    """场景作息覆盖的字段为七项、窗口槽为五个（docs/dev/SPEC-errands-workday.md 4.2）：卡片下班、到家槽为 null 时场景窗口
+    照常落下，各记一条 CARD_FIELD_OVERRIDDEN，details.field 取新字段名、card_value 为 null，正文把卡片值写成 null；
+    卡片槽非空时同样覆盖并带原值；警告码闭集仍为 10，警告照常通过冻结前的闭集校验。"""
+    assert RHYTHM_FIELDS == ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "leave_work_window",
+                             "arrive_home_window", "dinner_window", "bedtime_window")
+    card = make_card()
+    agent = _agent(leave_work_window=(18.0, 18.5), arrive_home_window=(19.0, 19.5))
+
+    result = apply_scenario_rhythm(card, agent)
+
+    assert _slots(result.card) == ([18.0, 18.5], [19.0, 19.5])
+    assert result.card == _work_card((18.0, 18.5), (19.0, 19.5))
+    assert [item["details"] for item in result.warnings] == [
+        {"field": "leave_work_window", "card_value": None, "scenario_value": [18.0, 18.5],
+         "applied_value": [18.0, 18.5]},
+        {"field": "arrive_home_window", "card_value": None, "scenario_value": [19.0, 19.5],
+         "applied_value": [19.0, 19.5]}]
+    assert _codes(list(result.warnings)) == ["CARD_FIELD_OVERRIDDEN", "CARD_FIELD_OVERRIDDEN"]
+    assert result.warnings[0]["message"] == (
+        "场景显式声明的 leave_work_window 覆盖了卡片抽取值：卡片 null，场景 [18, 18.5]，人设层与卡片结构取 [18, 18.5]。")
+    assert frozen_input_warnings(result.warnings) == list(result.warnings) and len(INPUT_WARNING_CODES) == 10
+    earlier = apply_scenario_rhythm(_work_card((18.5, 19.0), None), _agent(leave_work_window=(17.5, 18.0)))
+    assert _slots(earlier.card) == ([17.5, 18.0], None)
+    assert earlier.warnings[0]["details"]["card_value"] == [18.5, 19.0]
+
+
+def test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict() -> None:
+    """覆盖与冲突规则不变并一体适用于新槽（规格 4.2，不降级卡片锚点）：场景下班早于卡片出门时 null 槽保持 null 并记冲突、
+    card_value 为 null；场景到家早于卡片下班时保留卡片到家；场景就寝早于卡片到家时就寝保留卡片值、冲突落在
+    bedtime_window 上，卡片到家原样不动。三例的卡片都不变，冲突正文写出新的顺序约束。"""
+    card = make_card()
+    early_leave = apply_scenario_rhythm(card, _agent(leave_work_window=(6.0, 6.5)))
+    worked = _work_card((18.0, 18.5), (19.0, 19.5))
+    early_home = apply_scenario_rhythm(worked, _agent(arrive_home_window=(17.0, 17.5)))
+    late_home = _work_card(None, (21.0, 21.5))
+    early_bed = apply_scenario_rhythm(late_home, _agent(bedtime_window=(20.0, 21.0)))
+
+    assert early_leave.card is card and early_home.card is worked and early_bed.card is late_home
+    assert [item["details"] for item in early_leave.warnings] == [
+        {"field": "leave_work_window", "card_value": None, "scenario_value": [6.0, 6.5], "reason": "anchor_order"}]
+    assert early_leave.warnings[0]["message"].endswith("保留卡片值 null。")
+    assert "下班不早于出门、到家不早于下班或出门，二者都不晚于就寝" in early_leave.warnings[0]["message"]
+    assert [item["details"] for item in early_home.warnings] == [
+        {"field": "arrive_home_window", "card_value": [19.0, 19.5], "scenario_value": [17.0, 17.5],
+         "reason": "anchor_order"}]
+    assert [item["details"] for item in early_bed.warnings] == [
+        {"field": "bedtime_window", "card_value": [23.0, 24.0], "scenario_value": [20.0, 21.0],
+         "reason": "anchor_order"}]
+    assert _slots(early_bed.card) == (None, [21.0, 21.5])
+    assert {item["code"] for item in (*early_leave.warnings, *early_home.warnings, *early_bed.warnings)} == {
+        "CARD_FIELD_CONFLICT"}
+
+
+def test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point() -> None:
+    """按落槽顺序反复落槽直到不动点：场景下班 19:00 单独放不进（晚于卡片到家 18:30），先落到家 19:30 后下班也能落下，
+    两条覆盖；对结果再覆盖一次卡片不变、没有警告。有冲突时同样是不动点：下班冲突、到家照常落下，再覆盖一次卡片不变。"""
+    card = _work_card((18.0, 18.5), (18.5, 19.0))
+    agent = _agent(leave_work_window=(19.0, 19.5), arrive_home_window=(19.5, 20.0))
+
+    result = apply_scenario_rhythm(card, agent)
+
+    assert _slots(result.card) == ([19.0, 19.5], [19.5, 20.0])
+    assert [(item["code"], item["details"]["field"]) for item in result.warnings] == [
+        ("CARD_FIELD_OVERRIDDEN", "leave_work_window"), ("CARD_FIELD_OVERRIDDEN", "arrive_home_window")]
+    again = apply_scenario_rhythm(result.card, agent)
+    assert again.card == result.card and again.warnings == ()
+    mixed = _agent(leave_work_window=(6.0, 6.5), arrive_home_window=(19.5, 20.0))
+    conflicted = apply_scenario_rhythm(make_card(), mixed)
+    assert _slots(conflicted.card) == (None, [19.5, 20.0])
+    assert _codes(list(conflicted.warnings)) == ["CARD_FIELD_CONFLICT", "CARD_FIELD_OVERRIDDEN"]
+    repeated = apply_scenario_rhythm(conflicted.card, mixed)
+    assert repeated.card == conflicted.card and _codes(list(repeated.warnings)) == ["CARD_FIELD_CONFLICT"]
+
+
+def test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot() -> None:
+    """量化后退化的下班窗口（18:06–18:12 → 18:00–18:00）写不成卡片窗口：null 槽保持 null，记 window_off_grid 冲突、
+    card_value 为 null，正文写 null；同时声明的到家照常落下。"""
+    card = make_card()
+
+    result = apply_scenario_rhythm(card, _agent(leave_work_window=(18.1, 18.2), arrive_home_window=(19.0, 19.5)))
+
+    assert _slots(result.card) == (None, [19.0, 19.5])
+    assert result.warnings[0]["details"] == {"field": "leave_work_window", "card_value": None,
+                                             "scenario_value": [18.1, 18.2], "reason": "window_off_grid"}
+    assert result.warnings[0]["message"].endswith("保留卡片值 null。")
+    assert [(item["code"], item["details"]["field"]) for item in result.warnings[1:]] == [
+        ("CARD_FIELD_OVERRIDDEN", "arrive_home_window")]
 
 
 def test_biz_undeliverable_supplies_are_grouped_by_store_and_destination() -> None:

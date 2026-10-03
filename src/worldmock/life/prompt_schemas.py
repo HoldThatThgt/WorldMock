@@ -134,8 +134,10 @@ COMPACT_TOOL_LAYER_SCHEMA: dict[str, Any] = {
 
 TOOL_LAYER_SCHEMA["$defs"] = {"compact": COMPACT_TOOL_LAYER_SCHEMA}
 
-_RHYTHM = _object({key: _TEXT for key in ("wake", "leave_home", "lunch", "dinner", "bedtime", "sleep_midpoint",
-                                          "sleep_need")})
+#: 人设层作息九键（键序即渲染顺序）：下班与到家没有固定时刻时为 null，其余七键必为非空短语。
+_RHYTHM = _object({key: _NULLABLE_TEXT if key in ("leave_work", "arrive_home") else _TEXT
+                   for key in ("wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime",
+                               "sleep_midpoint", "sleep_need")})
 _TASTES = _object({key: {"type": "array", "items": _TEXT} for key in ("content_genres", "food_preferences", "media")})
 PERSONA_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "人设层",

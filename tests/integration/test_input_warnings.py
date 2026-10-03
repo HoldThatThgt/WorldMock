@@ -26,14 +26,15 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 import worldmock.runtime as runtime  # noqa: E402
 from tests.life.conftest import (_mutated_scenario, advance_next, stage_day_plan, start_activity,  # noqa: E402
                                  submit_round)
-from tests.profile.conftest import make_card, make_window  # noqa: E402
+from tests.profile.conftest import make_card, make_payload, make_window  # noqa: E402
+from tests.profile.test_extractor import FakeResponse, FakeSession  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life.day_plan_inputs import plan_inputs  # noqa: E402
 from worldmock.life.scenario import load_scenario  # noqa: E402
 from worldmock.profile.compile import compile_persona  # noqa: E402
 from worldmock.profile.coverage import PersonaCoverageError  # noqa: E402
-from worldmock.profile.extractor import PersonaExtraction  # noqa: E402
+from worldmock.profile.extractor import PersonaExtraction, extract_persona  # noqa: E402
 from worldmock.profile.injection import INPUT_WARNING_CODES, apply_scenario_rhythm  # noqa: E402
 from worldmock.profile.models import BigFiveProfile, HabitSignature, Tastes, persona_card_struct  # noqa: E402
 
@@ -43,6 +44,11 @@ _RHYTHM = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_wi
 #: WC 白领场景声明的作息（与卡片抽取值不同的中点、午餐与晚餐）。
 _WC_RHYTHM = {"chronotype_midsleep": 4.75, "sleep_need_hours": 8.0, "lunch_window": [12.0, 12.5],
               "dinner_window": [18.5, 19.5], "bedtime_window": [23.5, 24.5]}
+#: 人设层 rhythm 的九键与键序（docs/dev/SPEC-errands-workday.md 4.1）。
+_RHYTHM_KEYS = ["wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime", "sleep_midpoint",
+                "sleep_need"]
+#: 写明下班与到家时刻的背景故事（真实抽取的输入；响应由脚本化会话给出）。
+_WORK_STORY = "陈曦在张江做产品经理，每天六点下班，七点到家。"
 
 
 def _scenario(tmp_path: Path, **declared) -> Path:
@@ -62,6 +68,21 @@ def _extraction(card, weak_fields: tuple[str, ...] = ()) -> PersonaExtraction:
                                            neuroticism=3),
         runs=3, agreement=0.9, per_field={name: 1 / 3 for name in weak_fields}, warning=bool(weak_fields),
         model="deepseek-flash", prompt_version="card-v1")
+
+
+def _extracted(work_anchors: dict) -> PersonaExtraction:
+    """真实 extract_persona 的单次抽取：脚本化会话给出一份工厂载荷，其 work_anchors 取给定值（不消耗解析重试）。"""
+    session = FakeSession([FakeResponse(content=make_payload(work_anchors=work_anchors))])
+    extraction = extract_persona(_WORK_STORY, n_runs=1, api_key="test-key", session=session)
+    assert len(session.calls) == 1
+    return extraction
+
+
+def _card_with_work_anchors():
+    """工厂卡片写明下班 18:00–18:30、到家 19:00–19:30（其余锚点不变）。"""
+    anchors = {**make_card().time_anchors.model_dump(), "leave_work": {"start_hour": 18.0, "end_hour": 18.5},
+               "arrive_home": {"start_hour": 19.0, "end_hour": 19.5}}
+    return make_card(time_anchors=anchors)
 
 
 def _compiled(extraction: PersonaExtraction):
@@ -400,8 +421,10 @@ async def test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_
     persona = _persona_layer(profile)
 
     assert persona["rhythm"] == {"wake": "7点到7点半", "leave_home": "8点到8点半", "lunch": "12点到13点",
+                                 "leave_work": None, "arrive_home": None,
                                  "dinner": "18点半到19点半", "bedtime": "23点到0点", "sleep_midpoint": "4点三刻",
                                  "sleep_need": "8 小时"}
+    assert list(persona["rhythm"]) == _RHYTHM_KEYS
     assert profile["persona_card_struct"] == persona_card_struct(card.model_copy(update={"chronotype_midsleep": 4.75}))
 
 
@@ -449,6 +472,128 @@ async def test_a_conflicting_scenario_window_keeps_the_card_value_and_is_frozen_
     assert profile["persona_card_struct"]["time_anchors"]["lunch"] == {"start_hour": 12.0, "end_hour": 13.0}
     assert _persona_layer(profile)["rhythm"]["lunch"] == "12点到13点"
     assert profile["persona_card_struct"]["chronotype_midsleep"] == 4.75
+
+
+async def test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input(
+        tmp_path, monkeypatch) -> None:
+    """场景作息覆盖七字段（docs/dev/SPEC-errands-workday.md 4.2）：场景在 WC 作息之外声明下班 18:00–18:30、到家
+    18:30–19:00，卡片两槽为 null——真实新建把两个窗口落进冻结的结构化卡片与卡片文本，清单各冻结一条
+    CARD_FIELD_OVERRIDDEN（card_value 为 null）、没有冲突；真实请求的人设层显示两个窗口，零点计划的人物输入在午饭与
+    晚饭时段之间写出下班、到家时段。"""
+    path = _scenario(tmp_path, **_WC_RHYTHM, leave_work_window=[18.0, 18.5], arrive_home_window=[18.5, 19.0])
+    created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
+    env = created["env"]
+    try:
+        person = plan_inputs(env.engine, 1).payload["人物"]
+        frozen = env.engine.store.manifest["input_warnings"]
+    finally:
+        await env.close()
+    profile = created["specs"][0]["profile"]
+    anchors = profile["persona_card_struct"]["time_anchors"]
+
+    rhythm = _persona_layer(profile)["rhythm"]
+
+    assert (anchors["leave_work"], anchors["arrive_home"]) == ({"start_hour": 18.0, "end_hour": 18.5},
+                                                               {"start_hour": 18.5, "end_hour": 19.0})
+    assert "；下班18点到18点半；到家18点半到19点。" in profile["persona_card"]
+    assert (rhythm["leave_work"], rhythm["arrive_home"]) == ("18点到18点半", "18点半到19点")
+    assert (person["下班时段"], person["到家时段"]) == ("18:00–18:30", "18:30–19:00")
+    assert list(person)[-5:] == ["午饭时段", "下班时段", "到家时段", "晚饭时段", "就寝时段"]
+    work = [item["details"] for item in frozen if item["code"] == "CARD_FIELD_OVERRIDDEN"
+            and item["details"]["field"] in {"leave_work_window", "arrive_home_window"}]
+    assert work == [{"field": "leave_work_window", "card_value": None, "scenario_value": [18.0, 18.5],
+                     "applied_value": [18.0, 18.5]},
+                    {"field": "arrive_home_window", "card_value": None, "scenario_value": [18.5, 19.0],
+                     "applied_value": [18.5, 19.0]}]
+    assert [item for item in frozen if item["code"] == "CARD_FIELD_CONFLICT"] == []
+
+
+async def test_card_only_work_anchors_never_enter_the_plan_input(tmp_path, monkeypatch) -> None:
+    """只来自卡片的下班与到家时刻同起床、出门一样不进零点计划的结构化输入（规格 4.2）：卡片写明两个锚点、场景只声明 WC
+    的五个作息字段时，两个锚点照常到达冻结卡片与真实请求的人设层，零点计划人物输入只有场景声明的三个时段，没有下班与
+    到家时段；清单也没有这两个字段的覆盖或冲突。"""
+    created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path, **_WC_RHYTHM),
+                                _extraction(_card_with_work_anchors()))
+    env = created["env"]
+    try:
+        person = plan_inputs(env.engine, 1).payload["人物"]
+        frozen = env.engine.store.manifest["input_warnings"]
+    finally:
+        await env.close()
+    profile = created["specs"][0]["profile"]
+
+    rhythm = _persona_layer(profile)["rhythm"]
+
+    assert (rhythm["leave_work"], rhythm["arrive_home"]) == ("18点到18点半", "19点到19点半")
+    assert profile["persona_card_struct"]["time_anchors"]["leave_work"] == {"start_hour": 18.0, "end_hour": 18.5}
+    assert "下班时段" not in person and "到家时段" not in person
+    assert [key for key in person if key.endswith("时段")] == ["午饭时段", "晚饭时段", "就寝时段"]
+    assert not {"leave_work_window", "arrive_home_window"} & {item["details"].get("field") for item in frozen}
+
+
+async def test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict(
+        tmp_path, monkeypatch) -> None:
+    """新槽的冲突规则走真实路径（规格 4.2，不降级卡片锚点）：场景下班 06:00–06:30 早于卡片出门 08:00、卡片下班槽为
+    null——新建运行照常建立，清单恰好冻结一条 CARD_FIELD_CONFLICT（card_value 为 null，正文写 null），没有覆盖；
+    冻结卡片与真实请求人设层的下班仍为 null。"""
+    path = _scenario(tmp_path, leave_work_window=[6.0, 6.5])
+    created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
+    try:
+        frozen = created["env"].engine.store.manifest["input_warnings"]
+    finally:
+        await created["env"].close()
+    profile = created["specs"][0]["profile"]
+
+    conflicts = [item for item in frozen if item["code"] == "CARD_FIELD_CONFLICT"]
+    assert [item["details"] for item in conflicts] == [{"field": "leave_work_window", "card_value": None,
+                                                        "scenario_value": [6.0, 6.5], "reason": "anchor_order"}]
+    assert conflicts[0]["agent_id"] == 1 and conflicts[0]["message"].endswith("保留卡片值 null。")
+    assert [item for item in frozen if item["code"] == "CARD_FIELD_OVERRIDDEN"] == []
+    assert profile["persona_card_struct"]["time_anchors"]["leave_work"] is None
+    assert _persona_layer(profile)["rhythm"]["leave_work"] is None
+
+
+async def test_extracted_work_anchors_reach_the_real_request_persona_layer(tmp_path, monkeypatch) -> None:
+    """作息锚点贯通（docs/dev/SPEC-errands-workday.md 4.1）：真实抽取得到的下班、到家窗口经真实新建（画像编译、场景作息
+    覆盖、人物装配）冻结进结构化卡片，卡片文本在作息行末追加两个分句；真实 LifeAgent 发出的行动请求里人设层 rhythm 按
+    九键键序显示两个窗口。场景没有声明作息，卡片值原样到达。"""
+    extraction = _extracted({"leave_work": "18:00-18:30", "arrive_home": "19:00-19:30"})
+    created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path), extraction)
+    await created["env"].close()
+    profile = created["specs"][0]["profile"]
+    anchors = profile["persona_card_struct"]["time_anchors"]
+
+    rhythm = _persona_layer(profile)["rhythm"]
+
+    assert (anchors["leave_work"], anchors["arrive_home"]) == ({"start_hour": 18.0, "end_hour": 18.5},
+                                                               {"start_hour": 19.0, "end_hour": 19.5})
+    assert list(rhythm) == _RHYTHM_KEYS
+    assert (rhythm["leave_work"], rhythm["arrive_home"]) == ("18点到18点半", "19点到19点半")
+    assert "需睡7.5小时；下班18点到18点半；到家19点到19点半。" in profile["persona_card"]
+
+
+async def test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement(
+        tmp_path, monkeypatch) -> None:
+    """降级说明的出口（docs/dev/SPEC-errands-workday.md 4.1）：真实抽取里下班早于出门的单次采样只为放行而降级，最终卡片的
+    下班为 null 并带一条说明，各字段一致性都满；真实新建把它作为画像编译警告冻结进运行清单——恰好一条
+    PERSONA_AGREEMENT_LOW，details 只有 compiler_warning（说明原文），消息不预设原因是一致性偏低；警告码仍在闭集 10 之内，
+    创建不失败，人设层的下班为 null。"""
+    note = "work_anchor_demoted: leave_work start 7 is outside leave_home 8..bedtime 23"
+    extraction = _extracted({"leave_work": "07:00-07:30", "arrive_home": None})
+    assert extraction.demotion_notes == (note,) and extraction.warning is False
+    created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path), extraction)
+    try:
+        frozen = created["env"].engine.store.manifest["input_warnings"]
+    finally:
+        await created["env"].close()
+    profile = created["specs"][0]["profile"]
+
+    compiler = [item for item in frozen if item["code"] == "PERSONA_AGREEMENT_LOW"]
+    assert [(item["agent_id"], item["details"]) for item in compiler] == [(1, {"compiler_warning": note})]
+    assert compiler[0]["message"] == f"画像编译留下警告：{note}。" and "一致性" not in compiler[0]["message"]
+    assert {item["code"] for item in frozen} <= set(INPUT_WARNING_CODES) and len(INPUT_WARNING_CODES) == 10
+    assert profile["persona_card_struct"]["time_anchors"]["leave_work"] is None
+    assert _persona_layer(profile)["rhythm"]["leave_work"] is None
 
 
 def test_restore_verifies_the_frozen_card_rhythm_against_the_scenario(tmp_path) -> None:

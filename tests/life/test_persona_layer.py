@@ -31,7 +31,7 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
 from tests.life.test_memory_layer import (_act, _jump, _memo, _next_morning, _observe,  # noqa: E402
                                           _remote_order, _view, _walk)
 from tests.life.test_dayrun_restaurants import _keep_waiting, _stage  # noqa: E402
-from tests.profile.conftest import make_card  # noqa: E402
+from tests.profile.conftest import make_card, make_window  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life.activity_control import slot_activities  # noqa: E402
 from worldmock.life.control_items import control_items  # noqa: E402
@@ -39,7 +39,7 @@ from worldmock.life.models import ConclusionMemory, ConclusionView  # noqa: E402
 from worldmock.life.narration import RenderBudgetExceededError  # noqa: E402
 from worldmock.life.prompt_schemas import validate_layer  # noqa: E402
 from worldmock.life.readable import local_date  # noqa: E402
-from worldmock.profile.models import Tastes, persona_card_struct  # noqa: E402
+from worldmock.profile.models import Tastes, TimeAnchors, persona_card_struct  # noqa: E402
 from worldmock.profile.textgen import hour_text, render_card  # noqa: E402
 
 _CONTACTS = [{"contact_id": "contact-zhou", "salutation": "老周", "relation": "朋友", "closeness": 20,
@@ -47,6 +47,11 @@ _CONTACTS = [{"contact_id": "contact-zhou", "salutation": "老周", "relation": 
              {"contact_id": "contact-shen", "salutation": "沈昊", "relation": "老友", "closeness": 25,
               "channels": ["phone"], "reply_policy": "model"}]
 _NO_VIEWS = {"relationships": [], "preferences": []}
+#: 人设层 rhythm 的九键与键序（docs/dev/SPEC-errands-workday.md 4.1）。
+_RHYTHM_KEYS = ("wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime", "sleep_midpoint",
+                "sleep_need")
+#: 人设层的八个顶层键（键序即渲染顺序）。
+_PERSONA_KEYS = ["layer", "identity", "rhythm", "habits", "tastes", "coping", "relationships", "preferences"]
 
 
 def _profile(card=None) -> dict:
@@ -55,6 +60,13 @@ def _profile(card=None) -> dict:
     if card is not None:
         profile["persona_card_struct"] = persona_card_struct(card)
     return profile
+
+
+def _work_card(leave_work, arrive_home):
+    """工厂卡片换上给定的下班、到家锚点（经 TimeAnchors 校验重建，其余五个锚点不变）。"""
+    anchors = make_card().time_anchors.model_dump()
+    return make_card(time_anchors=TimeAnchors.model_validate(
+        {**anchors, "leave_work": leave_work, "arrive_home": arrive_home}))
 
 
 def test_card_path_renders_card_fields_and_merges_relationships_by_exact_name() -> None:
@@ -68,8 +80,10 @@ def test_card_path_renders_card_fields_and_merges_relationships_by_exact_name() 
     assert layer["identity"] == {"name": "陈曦", "age": 32, "occupation": "产品经理",
                                  "living_arrangement": "与伴侣合租两居室"}
     assert layer["rhythm"] == {"wake": "7点到7点半", "leave_home": "8点到8点半", "lunch": "12点到13点",
+                               "leave_work": None, "arrive_home": None,
                                "dinner": "18点半到19点半", "bedtime": "23点到0点", "sleep_midpoint": "3点一刻",
                                "sleep_need": "7.5 小时"}
+    assert list(layer["rhythm"]) == list(_RHYTHM_KEYS)
     assert layer["habits"] == [{"trigger": "下班到家", "response": "公园慢跑半小时", "time_window": "19点到20点"},
                                {"trigger": "睡前", "response": "读几页小说", "time_window": "22点半到23点"}]
     assert layer["tastes"] == {"content_genres": ["悬疑", "纪录片"], "food_preferences": ["川菜", "面食"],
@@ -82,6 +96,49 @@ def test_card_path_renders_card_fields_and_merges_relationships_by_exact_name() 
     assert layer["preferences"] == views["preferences"]
     text = json.dumps(layer, ensure_ascii=False)
     assert "新版上线收尾" not in text and "父母的体检结果" not in text and "situation" not in text
+
+
+def test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent() -> None:
+    """人设层 rhythm（docs/dev/SPEC-errands-workday.md 4.1）：九键依次为 wake, leave_home, lunch, leave_work, arrive_home,
+    dinner, bedtime, sleep_midpoint, sleep_need；卡片写明下班与到家时两键是可读短语，没有固定时刻（null）时为 null，只写明
+    到家时下班仍为 null；三种卡片都过人设层 Schema，其余七键不随两个新键变化。Schema 要求九键齐全，只有两个新键可为
+    null，写出的短语不能为空。"""
+    plain = persona_layer(_profile(make_card()), "陈曦", _NO_VIEWS)["rhythm"]
+    cases = {(make_window(18.0, 18.5), make_window(19.0, 19.5)): ("18点到18点半", "19点到19点半"),
+             (None, make_window(19.0, 19.5)): (None, "19点到19点半"), (None, None): (None, None)}
+    for (leave_work, arrive_home), shown in cases.items():
+        layer = persona_layer(_profile(_work_card(leave_work, arrive_home)), "陈曦", _NO_VIEWS)
+        validate_layer(layer)
+        rhythm = layer["rhythm"]
+        assert list(rhythm) == list(_RHYTHM_KEYS)
+        assert (rhythm["leave_work"], rhythm["arrive_home"]) == shown
+        assert {**rhythm, "leave_work": None, "arrive_home": None} == plain
+    layer = persona_layer(_profile(make_card()), "陈曦", _NO_VIEWS)
+    broken = [{key: value for key, value in plain.items() if key != "leave_work"}, {**plain, "wake": None},
+              {**plain, "arrive_home": ""}]
+    for rhythm in broken:
+        with pytest.raises(ValueError):
+            validate_layer({**layer, "rhythm": rhythm})
+
+
+def test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer() -> None:
+    """宿主不渲染人物档案里的工作安排（docs/dev/SPEC-errands-workday.md 4.4）：profile 带场景人物声明的 work_schedule 与
+    下班、到家窗口时，人设层仍只有八个键、过 Schema，且与不带这些键的同一档案逐值相同——作息只取卡片（场景窗口经作息覆盖
+    落进卡片后才出现在人设层），序列化后既没有 work_schedule，也没有工作地点的身份或场景窗口的写法。"""
+    shift = {"starts": 540, "ends": 1080, "breaks": [[720, 810]]}
+    schedule = {"workplace_location_id": "office-zhangjiang",
+                "weekly": {str(day): shift if day < 5 else None for day in range(7)},
+                "exceptions": {"2026-02-14": shift, "2026-02-17": None}}
+    for card in (make_card(), None):
+        plain = _profile(card)
+        declared = {**plain, "work_schedule": schedule, "leave_work_window": [18.0, 18.5],
+                    "arrive_home_window": [19.5, 20.0]}
+        layer = persona_layer(declared, "陈曦", _NO_VIEWS)
+        validate_layer(layer)
+        assert list(layer) == _PERSONA_KEYS
+        assert layer == persona_layer(plain, "陈曦", _NO_VIEWS)
+        text = json.dumps(layer, ensure_ascii=False)
+        assert all(term not in text for term in ("work_schedule", "office-zhangjiang", "18点到18点半", "19点半到20点"))
 
 
 def test_quarter_hour_times_are_written_as_quarters() -> None:
@@ -150,6 +207,39 @@ def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_p
                                           tmp_path / "child"))
     finally:
         parent.close()
+
+
+def test_structured_card_without_work_anchor_keys_is_rejected_on_restore(tmp_path) -> None:
+    """卡片结构 3（docs/dev/SPEC-errands-workday.md 4.1）：新建运行冻结的结构化卡片带下班、到家两个必填键（这里写明了窗口），
+    在恢复路径照常恢复；同一张卡片去掉这两个键（旧结构的卡片）被 PersonaCardStruct 校验拒绝，阻止分支发布、不建子运行
+    目录（没有带版本的卡片读者，也不补 null）。"""
+    from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest, _agent_workspace,
+                                                             _parent_store, _prepare_resume)
+    from worldmock.life.scenario import load_scenario
+    from worldmock.profile.injection import apply_scenario_rhythm
+
+    scenario, _ = load_scenario(SCENARIO)
+    card = _work_card(make_window(18.0, 18.5), make_window(19.0, 19.5))
+    frozen = persona_card_struct(apply_scenario_rhythm(card, scenario.agents[0]).card)
+    assert frozen["time_anchors"]["arrive_home"] == {"start_hour": 19.0, "end_hour": 19.5}
+    anchors = {key: value for key, value in frozen["time_anchors"].items() if key not in ("leave_work", "arrive_home")}
+    for name, struct in (("frozen", frozen), ("old", {**frozen, "time_anchors": anchors})):
+        agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
+                 "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": struct}}
+        root = tmp_path / name
+        root.mkdir()
+        parent, checkpoint = _parent_store(root, workspace_builder=lambda path, document=agent: _agent_workspace(
+            path, agent_document=document))
+        try:
+            request = ResumeRequest(ROOT, SCENARIO, root / "parent", checkpoint.checkpoint_id, root / "child")
+            if name == "frozen":
+                assert _prepare_resume(request).workspace_mode == "restored"
+            else:
+                with pytest.raises(IntegrityError, match="persona card structure is invalid"):
+                    _prepare_resume(request)
+                assert not (root / "child").exists()
+        finally:
+            parent.close()
 
 
 def test_subject_is_required_for_relationship_and_preference_and_stripped_before_memory() -> None:

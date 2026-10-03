@@ -325,6 +325,59 @@ _DELIVERY_BOUNDARY_TESTS = [
     _CONTROL_ITEMS + "test_control_errands_reads_every_change_in_order",
 ]
 
+_CARD_EXTRACTION = "tests/profile/test_extractor.py::"
+_CARD_MODELS = "tests/profile/test_models.py::"
+_CARD_INPUT_WARNINGS = "tests/integration/test_input_warnings.py::"
+_CARD_PERSONA_LAYER = "tests/life/test_persona_layer.py::"
+_CARD_TEXT = "tests/profile/test_textgen.py::"
+_CARD_INJECTION = "tests/profile/test_injection.py::"
+_CARD_SCENARIO = "tests/life/test_scenario.py::"
+
+#: 「作息锚点」（卡片一侧）：头七个节点经真实 extract_persona 与脚本化会话——故事写明时产出窗口、未提及为 null 且不取映射
+#: 表缺省、下班摇摆不改变其余五锚点、单次采样乱序只为放行而降级且不消耗重试、共识乱序先降下班再降到家且卡片照常编译、
+#: 三次采样各自乱序而共识合法时不降级、格式错误照常重试；第八个是 null 新锚点下凌晨就寝仍回绕归一；第九个是真实
+#: compile_persona 把降级说明接在一致性警告之后。其后三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束、固定的
+#: 降级顺序与说明）。再后两个经真实抽取（脚本化会话）、真实新建（画像编译、场景作息覆盖、人物装配、LifeEnv 与 SQLite
+#: 运行清单）与直接导入的 LifeAgent：降级说明作为画像编译警告冻结进清单（PERSONA_AGREEMENT_LOW 只带原文、消息不归因于
+#: 一致性），写明的下班与到家按九键键序到达实际请求的人设层、卡片文本追加两个分句。随后是画像文本各自非空时追加分句并
+#: 计入预算、都为 null 时逐字节不变（render_card 与新建运行冻结的卡片文本是同一函数）；人设层（直接导入
+#: custom.agents.life_persona）九键键序与 null、缺两键的旧结构化卡片在恢复路径被拒（真实 _prepare_resume 与父运行
+#: SQLite）；再一个守宿主不渲染人物档案里的工作安排与场景窗口（人设层键集与值不变）。场景作息覆盖七字段的三个节点经
+#: 真实新建（场景副本、画像编译、场景作息覆盖、LifeEnv 与 SQLite 运行清单）、直接导入的 LifeAgent 与真实 plan_inputs：
+#: 场景声明的下班、到家窗口落进卡片空槽并记覆盖、到达人设层与零点计划人物输入；只来自卡片的两个锚点不进零点计划输入；
+#: 违反顺序约束的场景下班窗口让空槽保持 null 并冻结一条冲突。最后五个是补充证据：覆盖函数在 null 槽上的覆盖、冲突
+#: （三种顺序冲突，含就寝早于卡片到家时冲突落在就寝上）、不动点与写不成窗口的冲突，以及场景两个窗口的校验。
+_WORK_ANCHOR_TESTS = [
+    _CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",
+    _CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",
+    _CARD_EXTRACTION + "test_wavering_leave_work_does_not_change_the_five_anchors",
+    _CARD_EXTRACTION + "test_out_of_order_sample_is_admitted_without_a_parse_retry",
+    _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",
+    _CARD_EXTRACTION + "test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted",
+    _CARD_EXTRACTION + "test_malformed_or_missing_work_anchors_take_the_parse_retry",
+    _CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",
+    "tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it",
+    _CARD_MODELS + "test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order",
+    _CARD_MODELS + "test_work_anchor_order_constraints_are_enforced",
+    _CARD_MODELS + "test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each",
+    _CARD_INPUT_WARNINGS + "test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement",
+    _CARD_INPUT_WARNINGS + "test_extracted_work_anchors_reach_the_real_request_persona_layer",
+    _CARD_TEXT + "test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget",
+    _CARD_TEXT + "test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer",
+    _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",
+    _CARD_PERSONA_LAYER + "test_structured_card_without_work_anchor_keys_is_rejected_on_restore",
+    _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",
+    _CARD_INPUT_WARNINGS + "test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input",
+    _CARD_INPUT_WARNINGS + "test_card_only_work_anchors_never_enter_the_plan_input",
+    (_CARD_INPUT_WARNINGS
+     + "test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict"),
+    _CARD_INJECTION + "test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden",
+    _CARD_INJECTION + "test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict",
+    _CARD_INJECTION + "test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point",
+    _CARD_INJECTION + "test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot",
+    _CARD_SCENARIO + "test_work_window_bounds_and_order_are_rejected",
+]
+
 _WORK_SCHEDULE_LOADS = "tests/life/test_load_checks.py::"
 _STRUCTURE_FIVE = "tests/life/test_scenario.py::test_every_agent_declares_work_schedule_and_structure_four_is_rejected"
 #: 「工作安排加载」：每个人物显式声明 work_schedule 或 null、缺键与场景结构 4 经真实入口被拒；工作地点不是所选地点、时段
@@ -392,7 +445,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
     "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
     "事务与收尾记忆指标": {"stage": "2", "tests": []},
-    "作息锚点": {"stage": "3", "tests": []},
+    "作息锚点": {"stage": "3", "tests": _WORK_ANCHOR_TESTS},
     "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
     "上班安排呈现": {"stage": "3", "tests": _DUTY_TESTS},
     "计划与义务": {"stage": "3", "tests": _PLAN_DUTY_TESTS},
@@ -567,6 +620,36 @@ _PROMPT_SOURCE = "custom/agents/life_prompt.py"
 #: 导入的 LifeAgent（按本名导入 custom.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
 _SEPARATION_KILLERS = (_SEPARATED,)
 _VERBATIM_KILLERS = (_SYSTEM_VERBATIM,)
+_EXTRACTOR_MODULE = "worldmock.profile.extractor"
+_EXTRACTOR_SOURCE = "src/worldmock/profile/extractor.py"
+_CARD_MODELS_MODULE = "worldmock.profile.models"
+_CARD_MODELS_SOURCE = "src/worldmock/profile/models.py"
+#: 卡片锚点四个变异的杀手都经真实 extract_persona（脚本化会话）：抽取把写明的下班丢成 null 时卡片没有下班窗口；下班与到家
+#: 的 null 换成固定的傍晚窗口时卡片不再是 null；新锚点并入回绕归一的名字元组时 null 让归一整体放弃、凌晨就寝按同日乱序被拒
+#: 直至重试耗尽；乱序不降级而原样落进锚点时每次采样都被卡片校验拒绝、重试耗尽。
+_STATED_ANCHOR_KILLERS = (_CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",)
+_NO_DEFAULT_KILLERS = (_CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",)
+_WRAPAROUND_KILLERS = (_CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",)
+_DEMOTION_KILLERS = (
+    _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",)
+_PERSONA_LAYER_MODULE = "custom.agents.life_persona"
+_PERSONA_LAYER_SOURCE = "custom/agents/life_persona.py"
+#: 人设层两个变异的杀手都直接导入 custom.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
+#: 下班投影成 null 时，写明下班的卡片在人设层的下班不再是「18点到18点半」；人设层多渲染 profile 里的工作安排时，带工作
+#: 安排的档案的人设层多出一个键、不再与不带工作安排的同一档案相同。
+_PERSONA_ANCHOR_KILLERS = (
+    _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",)
+_PERSONA_SCHEDULE_KILLERS = (
+    _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",)
+_DAY_PLAN_INPUTS_MODULE = "worldmock.life.day_plan_inputs"
+_DAY_PLAN_INPUTS_SOURCE = "src/worldmock/life/day_plan_inputs.py"
+_INJECTION_MODULE = "worldmock.profile.injection"
+_INJECTION_SOURCE = "src/worldmock/profile/injection.py"
+#: 场景作息覆盖两个变异的杀手是同一个真实新建用例（_create_run 在进程内建立 LifeEnv，runtime 按本名导入
+#: worldmock.profile.injection，用例直接调用 plan_inputs）：零点计划人物输入丢掉场景声明的下班、到家时段时两个时段
+#: 不再出现；覆盖函数对 null 槽跳过场景值时冻结卡片没有下班、到家窗口，清单也没有这两条覆盖。
+_SCENARIO_WORK_WINDOW_KILLERS = (
+    _CARD_INPUT_WARNINGS + "test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input",)
 _LOAD_CHECKS_MODULE = "worldmock.life.load_checks"
 _LOAD_CHECKS_SOURCE = "src/worldmock/life/load_checks.py"
 _SCENARIO_MODULE = "worldmock.life.scenario"
@@ -1147,6 +1230,76 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _VERBATIM_KILLERS,
     ),
     SourceMutation(
+        "extraction_drops_stated_work_anchor",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
+        '        anchors.leave_home, anchors.bedtime, None, parsed["arrive_home"])\n',
+        _STATED_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "leave_work_takes_a_default",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        "None if raw[name] is None else TimeWindow.from_clock_range(raw[name])",
+        'TimeWindow.from_clock_range(raw[name] or "18:00-18:30")',
+        _NO_DEFAULT_KILLERS,
+    ),
+    SourceMutation(
+        "work_anchors_join_wraparound",
+        _CARD_MODELS_MODULE,
+        _CARD_MODELS_SOURCE,
+        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")\n',
+        '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime", "leave_work", "arrive_home")\n',
+        _WRAPAROUND_KILLERS,
+    ),
+    SourceMutation(
+        "out_of_order_work_anchor_fails_the_card",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        (
+            "    leave_work, arrive_home, problems = settle_work_anchors(\n"
+            '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n'
+        ),
+        '    leave_work, arrive_home, problems = parsed["leave_work"], parsed["arrive_home"], ()\n',
+        _DEMOTION_KILLERS,
+    ),
+    SourceMutation(
+        "persona_layer_drops_work_anchor",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '"leave_work": _optional_window(anchors.leave_work)',
+        '"leave_work": None',
+        _PERSONA_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "host_renders_work_schedule",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '        "preferences": [dict(item) for item in views["preferences"]],\n',
+        (
+            '        "preferences": [dict(item) for item in views["preferences"]],\n'
+            '        "work_schedule": profile.get("work_schedule"),\n'
+        ),
+        _PERSONA_SCHEDULE_KILLERS,
+    ),
+    SourceMutation(
+        "scenario_work_windows_missing_from_plan_input",
+        _DAY_PLAN_INPUTS_MODULE,
+        _DAY_PLAN_INPUTS_SOURCE,
+        '"下班时段": _hours(config.leave_work_window), "到家时段": _hours(config.arrive_home_window),',
+        '"下班时段": None, "到家时段": None,',
+        _SCENARIO_WORK_WINDOW_KILLERS,
+    ),
+    SourceMutation(
+        "override_skips_null_card_slot",
+        _INJECTION_MODULE,
+        _INJECTION_SOURCE,
+        "        if field not in declared:\n            continue\n",
+        "        if field not in declared or getattr(anchors, slot) is None:\n            continue\n",
+        _SCENARIO_WORK_WINDOW_KILLERS,
+    ),
+    SourceMutation(
         "calendar_cross_check_skipped",
         _LOAD_CHECKS_MODULE,
         _LOAD_CHECKS_SOURCE,
@@ -1272,18 +1425,20 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
                                                   "version_8_export_passes_delivery_gate")},
-    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ()},
-    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ()},
-    "新锚点并入回绕归一": {"stage": "3", "mutations": ()},
-    "乱序时整卡失败": {"stage": "3", "mutations": ()},
-    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": ()},
+    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ("extraction_drops_stated_work_anchor",
+                                                                     "persona_layer_drops_work_anchor")},
+    "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
+    "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
+    "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
+    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": (
+        "scenario_work_windows_missing_from_plan_input",)},
     "按星期推断休息日": {"stage": "3", "mutations": ("rest_day_inferred_from_weekday",)},
     "所有人物套班次": {"stage": "3", "mutations": ("everyone_gets_a_shift",)},
     "计划修订后 `duty` 消失": {"stage": "3", "mutations": ("duty_vanishes_after_plan_revision",)},
     "休息时段显示为当班中": {"stage": "3", "mutations": ("break_shown_as_on_duty",)},
     "班次并入任务开放判定": {"stage": "3", "mutations": ("shift_gates_task_opening",)},
     "忽略例外日期": {"stage": "3", "mutations": ("exception_dates_ignored",)},
-    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ()},
+    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ("host_renders_work_schedule",)},
     "忽略来源": {"stage": "4", "mutations": ()},
     "来源解析另写一套": {"stage": "4", "mutations": ()},
     "「购买」不展开": {"stage": "4", "mutations": ()},
@@ -1328,6 +1483,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                               "（deliver_reminders 只留第一条草稿）。",
     "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层三处文案不一致（life_prompt.py 第 6 条改掉一个"
                                   "分句，接口合同与人物 Prompt 规格不跟随）。",
+    "override_skips_null_card_slot": "实施计划阶段 3「突变审查的目标」：覆盖函数对 null 槽跳过场景值（卡片下班、到家槽为 "
+                                     "null 时场景声明的窗口不再落下）。",
     "calendar_cross_check_skipped": "实施计划阶段 3「突变审查的目标」：加载时不做日历交叉核对（check_work_schedules 只查"
                                     "工作地点）。",
     "scenario_structure_four_admitted": "实施计划阶段 3「突变审查的目标」：场景结构 4 被放行（瘦身场景文档的 schema_version "
@@ -1341,6 +1498,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_continuation.py",
     "custom/agents/life_memory.py",
+    "custom/agents/life_persona.py",
     "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
     "src/worldmock/delivery/pipeline.py",
@@ -1372,6 +1530,11 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
     "src/worldmock/life/work_schedule.py",
+    "src/worldmock/profile/compile.py",
+    "src/worldmock/profile/extractor.py",
+    "src/worldmock/profile/injection.py",
+    "src/worldmock/profile/models.py",
+    "src/worldmock/profile/textgen.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
     "tools/run-viewer.html",

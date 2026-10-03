@@ -266,6 +266,10 @@ class AgentConfig(FrozenModel):
     # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md「其他体感分级」）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
+    # 下班、到家窗口（docs/dev/SPEC-errands-workday.md 4.2）：与午餐、晚餐窗口同单位同校验，两者都声明时下班起点不晚于
+    # 到家起点；只用于场景作息覆盖卡片与零点计划的人物输入，None=未声明。
+    leave_work_window: tuple[float, float] | None = None
+    arrive_home_window: tuple[float, float] | None = None
     # 人物声明的就寝窗口，仅用于人物作息表达；末端可跨午夜。
     # 例如 25.0 表示次日 01:00，与画像层 TimeWindow 口径一致。
     bedtime_window: tuple[float, float] | None = None
@@ -290,25 +294,7 @@ class AgentConfig(FrozenModel):
                 raise ValueError("lifestyle_activities ids must be unique")
             if any(not item.strip() for item in self.lifestyle_activities):
                 raise ValueError("lifestyle_activities ids must not be blank")
-        for name, window in (("lunch_window", self.lunch_window),
-                             ("dinner_window", self.dinner_window)):
-            if window is not None and not 0 <= window[0] < window[1] <= 24:
-                raise ValueError(f"{name} must satisfy 0 <= start < end <= 24")
-        if self.lunch_window is not None and self.dinner_window is not None:
-            if (self.lunch_window[1] > self.dinner_window[0]
-                    and self.dinner_window[1] > self.lunch_window[0]):
-                raise ValueError("dinner window must not overlap lunch window")
-        if self.bedtime_window is not None:
-            bedtime_start, bedtime_end = self.bedtime_window
-            # 跨午夜口径与画像层 TimeWindow 一致：start < 24、end ≤ 30（次日
-            # 06:00）、跨度 ≤ 12h（防病态区间）；引擎侧另钳制锚点 ≤ 当日结束。
-            if not 0 <= bedtime_start < 24 or not bedtime_start < bedtime_end <= 30:
-                raise ValueError(
-                    "bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
-            if bedtime_end - bedtime_start > 12:
-                raise ValueError("bedtime_window span must not exceed 12 hours")
-            if self.dinner_window is not None and bedtime_start < self.dinner_window[1]:
-                raise ValueError("bedtime window must not overlap dinner window")
+        _check_day_windows(self)
         validate_names(self.qualifications, "Agent qualifications")
         ids = [item.contact_id for item in self.contacts]
         if len(ids) != len(set(ids)):
@@ -1023,6 +1009,36 @@ def _validate_unit_mapping(values: dict[str, float], label: str) -> None:
         raise ValueError(f"{label} names must not be blank")
     if any(not math.isfinite(value) or value < 0 or value > 1 for value in values.values()):
         raise ValueError(f"{label} values must be between zero and one")
+
+
+def _check_day_windows(agent: "AgentConfig") -> None:
+    """@brief 人物档案的日内窗口：午餐、晚餐、下班、到家窗口满足 0 ≤ 起点 < 末端 ≤ 24，午餐与晚餐不重叠，就寝窗口可跨
+    午夜且不压晚餐；下班与到家都声明时下班起点不晚于到家起点（起点相等可以），与午餐、晚餐、就寝不设先后
+    （docs/dev/SPEC-errands-workday.md 4.2）。"""
+    for name, window in (("lunch_window", agent.lunch_window),
+                         ("dinner_window", agent.dinner_window),
+                         ("leave_work_window", agent.leave_work_window),
+                         ("arrive_home_window", agent.arrive_home_window)):
+        if window is not None and not 0 <= window[0] < window[1] <= 24:
+            raise ValueError(f"{name} must satisfy 0 <= start < end <= 24")
+    if agent.lunch_window is not None and agent.dinner_window is not None:
+        if (agent.lunch_window[1] > agent.dinner_window[0]
+                and agent.dinner_window[1] > agent.lunch_window[0]):
+            raise ValueError("dinner window must not overlap lunch window")
+    if agent.bedtime_window is not None:
+        bedtime_start, bedtime_end = agent.bedtime_window
+        # 跨午夜口径与画像层 TimeWindow 一致：start < 24、end ≤ 30（次日
+        # 06:00）、跨度 ≤ 12h（防病态区间）；引擎侧另钳制锚点 ≤ 当日结束。
+        if not 0 <= bedtime_start < 24 or not bedtime_start < bedtime_end <= 30:
+            raise ValueError(
+                "bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
+        if bedtime_end - bedtime_start > 12:
+            raise ValueError("bedtime_window span must not exceed 12 hours")
+        if agent.dinner_window is not None and bedtime_start < agent.dinner_window[1]:
+            raise ValueError("bedtime window must not overlap dinner window")
+    if (agent.leave_work_window is not None and agent.arrive_home_window is not None
+            and agent.leave_work_window[0] > agent.arrive_home_window[0]):
+        raise ValueError("leave_work_window must not start after arrive_home_window")
 
 
 def _validate_date(value: str) -> None:
