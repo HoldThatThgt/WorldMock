@@ -28,8 +28,9 @@ from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, SourceMut
 #: 规格「实施计划」中的全部阶段编号（冻结之外的 0–7）。
 STAGE_IDS = frozenset(str(number) for number in range(8))
 
-#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成。
-STAGES_DONE: frozenset[str] = frozenset({"1"})
+#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成；阶段 4（查询
+#: 筛选与返回精简）只依赖阶段 1，先于阶段 2、3 完成：它的五行都列出经真实引擎的节点，七句变异各有登记的杀死变异。
+STAGES_DONE: frozenset[str] = frozenset({"1", "4"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
