@@ -258,7 +258,8 @@ def test_start_suffix_task_prefix_and_recall_names_resolve_for_the_other_tools(e
 
     def conclusion(written: str) -> dict:
         """@brief 只点名一项活动、不写记忆的收尾参数。"""
-        return {"items": [{"activity_name": written, "summary": "等完了。", "memories": [], "views": []}]}
+        return {"items": [{"activity_name": written, "summary": "等完了。", "memories": [], "views": []}],
+                "errands": []}
 
     for written in (title, full.replace("（", "(").replace("）", ")")):
         assert _check(host, "conclude_activity", conclusion(written)) == ""

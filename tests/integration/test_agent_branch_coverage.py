@@ -206,8 +206,9 @@ def _choice(target: str, verb: str, way: str) -> dict:
 
 
 def _conclusion(*names: str) -> dict:
-    """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法）。"""
-    return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names]}
+    """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法；没有个人事务变更）。"""
+    return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names],
+            "errands": []}
 
 
 def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
@@ -240,8 +241,10 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
     for decision in (_decision("start_activity", _choice(_SUPPLY, "obtain", "远程下单")),
                      _decision("start_activity", _choice("商品目录", "interact", "浏览")),
-                     _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]}),
-                     _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}]}),
+                     _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
+                                                  "errands": []}),
+                     _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
+                                                 "errands": []}),
                      _decision("conclude_activity", _conclusion(_WORK, _NEWS)),
                      _decision("recall_task_summary", {"task_name": _NEWS})):
         assert person.validate_react_decisions([decision], False) == ""
@@ -256,9 +259,11 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
     assert set(REQUEST_MODELS) <= set(functions)
     assert not {"purchase", "consume", "set_activity_state", "discover_places", "finish"} & set(functions)
     assert person.validate_react_decisions([
-        _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]})], False) == ""
+        _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}], "errands": []})],
+        False) == ""
     assert "not known" in person.validate_react_decisions([
-        _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}]})], False)
+        _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}], "errands": []})],
+        False)
     assert "NAME_NOT_FOUND: The name 陌生人 is not known." == person.validate_react_decisions([
         _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})], False)
     assert "activity-private-1" not in str(functions)

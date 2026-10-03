@@ -121,7 +121,7 @@ def test_nonpurchase_preference_preserves_json_null():
 
 def test_strict_nested_type_positions_are_preserved():
     payload = {"items": [{"activity_name": "等待", "summary": "结束", "views": [], "memories": [
-        {"type": "invalid", "text": "记忆", "importance": "0.5", "keywords": [False]}]}]}
+        {"type": "invalid", "text": "记忆", "importance": "0.5", "keywords": [False]}]}], "errands": []}
     with pytest.raises(ValidationError) as caught:
         _validate_request(ConcludeActivityRequest, payload)
     rows = argument_feedback("conclude_activity", caught.value, ConcludeActivityRequest, payload).report.payload()["items"]

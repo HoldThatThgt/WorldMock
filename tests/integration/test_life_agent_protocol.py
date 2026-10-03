@@ -175,17 +175,17 @@ def _view(about: str, text: str = "和同事处得不错。", *, kind: str = "re
 def _conclude_args(*names: str, memories: list[list[dict]] | None = None,
                    views: list[list[dict]] | None = None) -> dict:
     """conclude_activity 的参数：一项一个对象 {activity_name, summary, memories, views}（缺省每项各写一条普通记忆、没有
-    看法）。"""
+    看法）；请求级 errands 为空列表。"""
     groups = memories if memories is not None else [[_memory()] for _ in names]
     seen = views if views is not None else [[] for _ in names]
     return {"items": [{"activity_name": name, "summary": "先收个尾。", "memories": group, "views": opinions}
-                      for name, group, opinions in zip(names, groups, seen, strict=True)]}
+                      for name, group, opinions in zip(names, groups, seen, strict=True)], "errands": []}
 
 
 def _control_args(tool: str, *names: str, summary: str = "写完提纲") -> dict:
-    """三个控制工具的参数：一项一个对象；结束工具每项另带空的 memories 与 views。"""
+    """三个控制工具的参数：一项一个对象；结束工具每项另带空的 memories 与 views；请求级 errands 为空列表。"""
     extra = {"memories": [], "views": []} if tool == "conclude_activity" else {}
-    return {"items": [{"activity_name": name, "summary": summary, **extra} for name in names]}
+    return {"items": [{"activity_name": name, "summary": summary, **extra} for name in names], "errands": []}
 
 
 def _stored_memories(args: dict) -> list[dict]:
@@ -312,8 +312,8 @@ def _prepared(observations: list[dict] | None = None) -> LifeAgent:
 
 
 def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
-    """正式决策的 Schema 是八个人物工具与三个记忆查询，没有 finish、没有宿主身份字段、没有逐轮名称枚举（唯一的枚举是
-    start_activity 请求级 prefer 固定的两个取值与空值）。"""
+    """正式决策的 Schema 是八个人物工具与三个记忆查询，没有 finish、没有宿主身份字段、没有逐轮名称枚举（枚举只有固定
+    闭集：start_activity 请求级 prefer 的两个取值与空值，控制工具每条事务变更的三种变更与可空的两种结果）。"""
     functions = _functions(_prepared())
 
     assert set(functions) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
@@ -327,6 +327,9 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     closed = copy.deepcopy({name: functions[name] for name in ("start_activity", "submit_work", "send_message",
                                                                 "report_status")})
     assert closed["start_activity"]["parameters"]["properties"].pop("prefer")["enum"] == ["最快拿到", "到手价最低", None]
+    change = closed["report_status"]["parameters"]["properties"]["errands"]["items"]["properties"]
+    assert change.pop("change")["enum"] == ["新增", "更新", "取消"]
+    assert change.pop("outcome")["enum"] == ["取得", "吃掉", None]
     assert '"enum"' not in json.dumps(closed)
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
@@ -448,7 +451,7 @@ def test_feedback_boundary_exposes_readable_activity_controls() -> None:
 
     for name in ("report_status", "pause_activity", "conclude_activity"):
         fields = functions[name]["parameters"]["properties"]
-        assert set(fields) == {"items"}
+        assert set(fields) == {"items", "errands"}
         item = fields["items"]["items"]["properties"]
         with_memories = name == "conclude_activity"
         assert set(item) == ({"activity_name", "summary", "memories", "views"} if with_memories

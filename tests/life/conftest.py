@@ -335,32 +335,36 @@ def _summaries(names: tuple[str, ...], summary) -> list[str]:
     return list(summary) if isinstance(summary, (list, tuple)) else [summary for _ in names]
 
 
-def report_request(*names: str, summary="继续。"):
-    """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}。"""
+def report_request(*names: str, summary="继续。", errands=()):
+    """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}；请求级 errands 是个人事务
+    变更（errand_add、errand_update、errand_cancel 构造的八键字典），缺省为空列表。"""
     from worldmock.life.models import ReportStatusRequest
 
     return ReportStatusRequest(items=[{"activity_name": name, "summary": text}
-                                      for name, text in zip(names, _summaries(names, summary), strict=True)])
+                                      for name, text in zip(names, _summaries(names, summary), strict=True)],
+                               errands=list(errands))
 
 
-def pause_request(*names: str, summary="先停一下。"):
-    """暂停所点名活动的请求：一项一个对象 {activity_name, summary}。"""
+def pause_request(*names: str, summary="先停一下。", errands=()):
+    """暂停所点名活动的请求：一项一个对象 {activity_name, summary}；请求级 errands 缺省为空列表。"""
     from worldmock.life.models import PauseActivityRequest
 
     return PauseActivityRequest(items=[{"activity_name": name, "summary": text}
-                                       for name, text in zip(names, _summaries(names, summary), strict=True)])
+                                       for name, text in zip(names, _summaries(names, summary), strict=True)],
+                                errands=list(errands))
 
 
-def conclude_request(*names: str, summary="收尾。", memories=None, views=None):
+def conclude_request(*names: str, summary="收尾。", memories=None, views=None, errands=()):
     """结束所点名活动的请求：一项一个对象 {activity_name, summary, memories, views}；memories 与 views 逐项给出
-    （与 names 等长的列表的列表），默认都不写。"""
+    （与 names 等长的列表的列表），默认都不写；请求级 errands 缺省为空列表。"""
     from worldmock.life.models import ConcludeActivityRequest
 
     memories = memories if memories is not None else [[] for _ in names]
     views = views if views is not None else [[] for _ in names]
     return ConcludeActivityRequest(items=[
         {"activity_name": name, "summary": text, "memories": list(group), "views": list(seen)}
-        for name, text, group, seen in zip(names, _summaries(names, summary), memories, views, strict=True)])
+        for name, text, group, seen in zip(names, _summaries(names, summary), memories, views, strict=True)],
+        errands=list(errands))
 
 
 def pending_names(observed: dict) -> list[str]:

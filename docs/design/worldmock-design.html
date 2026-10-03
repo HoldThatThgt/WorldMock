@@ -4063,6 +4063,8 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。
 都经 <code>control_items</code>（<code>src/worldmock/life/control_items.py</code>；查看器按同一规则读）取得逐项的活动名、自述与存储形状的记忆，
 只读取当前 items 形状，不直接读旧 task 或平行数组；删除旧控制记录读取分支。
 旧输入与旧运行直接按格式或身份错误拒绝，不提供迁移或回退。</p>
+<p>三个控制工具的用途句与字段说明定稿（与代码逐字相同）：</p>
+<table><tr><th>位置</th><th>定稿</th></tr><tr><td><code>report_status</code></td><td>按活动名写下一两项活动的进展，并写下个人事务的变更。</td></tr><tr><td><code>pause_activity</code></td><td>按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。</td></tr><tr><td><code>conclude_activity</code></td><td>按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。</td></tr><tr><td><code>items[].memories</code></td><td>关于这项活动、以后做决定用得上的新情况，一条一个对象，没有就写空列表。</td></tr><tr><td><code>errands</code></td><td>要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。</td></tr><tr><td>每条变更</td><td>一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。</td></tr><tr><td><code>change</code></td><td>这条变更做什么，从列出的三种里选一种。</td></tr><tr><td><code>name</code></td><td>事务的名称，新增时自己起，之后照待办层里的写法写。</td></tr><tr><td><code>outcome</code></td><td>要办成的结果，从列出的两种里选一种。</td></tr><tr><td><code>item</code></td><td>要取得或吃掉的商品名称。</td></tr><tr><td><code>quantity</code></td><td>要办成的份数。</td></tr><tr><td><code>memo</code></td><td>用自己的话写打算怎么办、去哪办。</td></tr><tr><td><code>remind_time</code></td><td>想被提醒去办这件事的钟点。</td></tr><tr><td><code>reason</code></td><td>不办了的原因。</td></tr></table>
 <h3 id="c10-交互菜单声明与有效菜单">交互菜单声明与有效菜单</h3>
 <p>场景根对象必须显式包含 <code>interaction_menus_by_location_kind</code>，键集合恰好等于场景中
 场景选中地点经地图目录解析后的 <code>kind</code> 不同值集合；每个人物也必须显式包含 <code>interaction_menu</code>。人物值可以为

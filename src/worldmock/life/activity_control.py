@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
+from worldmock.life import errands
 from worldmock.life.activities import at_decision_boundary
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
@@ -363,10 +364,12 @@ def start_admission_refusal(state: WorldState, agent_id: int, request: tuple[lis
 
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
                    context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次控制改变的每项活动写一条 environment_event；原始动作全部子活动终结时写一次终态。"""
+    """@brief 本次控制改变的每项活动写一条 environment_event；原始动作全部子活动终结时写一次终态；控制请求里每条被受理
+    的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/dev/SPEC-errands-workday.md 2.2
+    「原子性」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.title)
-    return changed, drafts + terminal
+    return changed, drafts + terminal + errands.request_drafts(before, after, pending)
 
 
 def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> EventDraft:

@@ -342,7 +342,7 @@ class _WakingModel:
         assert "start_activity" in names
         memory = {"type": "routine", "text": "这一觉睡得很沉。", "importance": 0.4, "keywords": ["睡眠"]}
         arguments = {"items": [{"activity_name": self.sleep_name, "summary": "睡醒了。", "memories": [memory],
-                                "views": []}]}
+                                "views": []}], "errands": []}
         return _ModelResponse("call-conclude", "conclude_activity", json.dumps(arguments, ensure_ascii=False))
 
 

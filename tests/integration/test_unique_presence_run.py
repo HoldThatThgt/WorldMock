@@ -144,14 +144,14 @@ class _Script:
 
 
 def _items(tool: str, names: list[str], summary: str, views: list[dict] | None = None) -> dict:
-    """控制工具参数：一项一个对象、写同一句自述；结束工具每项另带空的普通记忆，看法只写在第一项。"""
+    """控制工具参数：一项一个对象、写同一句自述；结束工具每项另带空的普通记忆，看法只写在第一项；没有个人事务变更。"""
     rows = []
     for index, name in enumerate(names):
         row: dict = {"activity_name": name, "summary": summary}
         if tool == "conclude_activity":
             row.update(memories=[], views=list(views or []) if index == 0 else [])
         rows.append(row)
-    return {"items": rows}
+    return {"items": rows, "errands": []}
 
 
 def _activities(seen: dict, phase: str) -> list[str]:
@@ -367,7 +367,7 @@ def _identities(engine) -> set[str]:
 #: 固定位置数值字段：人设年龄与记忆查询条数；分页、品类条数、拒绝次数及错误路径另按公开结构扫描。
 _NUMBERS = {("identity", "age"), ("details", "episodes")}
 #: 参数路径中实际声明的数组字段，仅这些字段之后可以出现数组下标。
-_ARRAY_PATH_FIELDS = {"items", "memories", "views", "keywords", "goals", "decisions", "action_items"}
+_ARRAY_PATH_FIELDS = {"items", "memories", "views", "keywords", "goals", "decisions", "action_items", "errands"}
 
 
 def _scan_error_path(value: list) -> None:

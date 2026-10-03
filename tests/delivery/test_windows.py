@@ -482,7 +482,7 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
     request = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。',
                           'memories': [{'type': 'reflection', 'text': _SECRET, 'importance': 0.6, 'keywords': ['辞职']}],
                           'views': [{'type': 'relationship', 'about': '王磊', 'text': _OPINION, 'importance': 0.5,
-                                     'keywords': ['同事']}]}]}
+                                     'keywords': ['同事']}]}], 'errands': []}
     requested, action, intent, dreams = _conclusion_windows(tmp_path, request)
 
     assert action['target']['request'] == requested
@@ -516,8 +516,28 @@ def test_retired_control_request_shapes_are_rejected_by_delivery(tmp_path):
             _public_event_data({'event_type': 'action_requested', 'data': {'tool_name': tool, 'request': request}})
     for tool in ('report_status', 'pause_activity'):
         shown = _public_event_data({'event_type': 'action_requested', 'data': {
-            'tool_name': tool, 'request': items, 'self_note': '收个尾。'}})
+            'tool_name': tool, 'request': {**items, 'errands': []}, 'self_note': '收个尾。'}})
         assert shown == {'tool_name': tool, 'request': items, 'self_note': '收个尾。'}
+
+
+def test_control_requests_without_errands_are_rejected_by_delivery(tmp_path):
+    """带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-errands-workday.md 2.3、2.9）：交付构造窗口时经
+    control_items 以完整性故障拒绝，不当作没有事务变更的现行请求放行；三个控制工具的请求事件投影同样拒绝。带空 errands
+    的同一请求照常构造动作、意图与三个 dreaming 窗口，投影不带 errands。"""
+    lacking = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。', 'memories': [], 'views': []}]}
+    with pytest.raises(IntegrityError, match='conclude_activity request lacks errands'):
+        _conclusion_windows(tmp_path, lacking)
+    for tool in ('report_status', 'pause_activity', 'conclude_activity'):
+        items = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。',
+                            **({'memories': [], 'views': []} if tool == 'conclude_activity' else {})}]}
+        with pytest.raises(IntegrityError, match=f'{tool} request lacks errands'):
+            _public_event_data({'event_type': 'action_requested', 'data': {'tool_name': tool, 'request': items}})
+    current = {**lacking, 'errands': []}
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, current)
+    assert action['target']['request'] == requested and requested['data']['request'] == current
+    trimmed = {'tool_name': 'conclude_activity', 'request': {'items': [{'activity_name': _MINUTES,
+                                                                        'summary': '纪要写完了。'}]}}
+    assert _trimmed_shown(action, intent, dreams) == [trimmed] * 4
 
 
 def test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started(tmp_path):
@@ -624,7 +644,8 @@ def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_win
     observed = _layered_observation('observed', 1)
     requested = event('requested', 3, 'action_requested', {
         'tool_name': 'conclude_activity', 'request': {'items': [
-            {'activity_name': '等待（1月5日 07:30 起）', 'summary': '歇好了。', 'memories': [], 'views': []}]},
+            {'activity_name': '等待（1月5日 07:30 起）', 'summary': '歇好了。', 'memories': [], 'views': []}],
+            'errands': []},
         'request_sha256': 'e' * 64, 'reused': False, 'self_note': None})
     requested['action_id'] = 'conclude'
     prompt = decision_prompt(requested, (observed, requested))
@@ -707,7 +728,8 @@ def test_reflection_requests_after_the_action_never_become_the_decision_prompt(t
     带工具，但事件序号都在 action_requested 之后。动作、意图与 dreaming 窗口取的都是动作之前最后一份不带 purpose 的
     请求（工具含 conclude_activity 的行动请求）；反思的请求、响应与提示文字不进任何窗口输入。"""
     observed = _layered_observation('visible', 1)
-    request = {'items': [{'activity_name': _MINUTES, 'summary': '睡醒了。', 'memories': [], 'views': []}]}
+    request = {'items': [{'activity_name': _MINUTES, 'summary': '睡醒了。', 'memories': [], 'views': []}],
+               'errands': []}
     requested = event('target', 2, 'action_requested', {'tool_name': 'conclude_activity', 'request': request})
     requested['action_id'] = 'conclude'
     first = _reflection_request('reflection-1', 3)

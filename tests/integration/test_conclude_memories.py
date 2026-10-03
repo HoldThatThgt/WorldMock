@@ -221,7 +221,8 @@ def test_only_conclude_activity_carries_memories() -> None:
     assert item_fields("conclude_activity") == {"activity_name", "summary", "memories", "views"}
     for tool in ("report_status", "pause_activity"):
         assert item_fields(tool) == {"activity_name", "summary"}
-        arguments = {"items": [{"activity_name": _WORK, "summary": "还在做。", "memories": [_memory()], "views": []}]}
+        arguments = {"items": [{"activity_name": _WORK, "summary": "还在做。", "memories": [_memory()], "views": []}],
+                     "errands": []}
         error = agent.validate_react_decisions([_decision(tool, arguments)], False)
         assert "not declared" in error
 
@@ -247,13 +248,15 @@ def _single(**changes: Any) -> dict:
 
 _LIMIT_CASES = {
     "three_items": ({"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}
-                               for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")]}, "one or two items"),
+                               for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")], "errands": []},
+                    "one or two items"),
     "repeated_activity": (_conclude_args(_WAIT, _WAIT), "must be distinct"),
-    "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}]},
-                      "matching the declared format"),
+    "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}],
+                       "errands": []}, "matching the declared format"),
     "summary_over_500_characters": ({"items": [{"activity_name": _WAIT, "summary": "长" * 501, "memories": [],
-                                                "views": []}]}, "within 500 characters"),
-    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}]}, "required field"),
+                                                "views": []}], "errands": []}, "within 500 characters"),
+    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}], "errands": []},
+                      "required field"),
     "nine_memories_and_views_in_total": (_nine_entries(), "exceed eight"),
     "memory_with_a_subject": (_single(subject=None), "not declared"),
     "memory_of_a_view_type": (_single(type="relationship"), "outside the declared"),
@@ -474,7 +477,8 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     name = activity_name(engine, wait_id)
     memories = [_memory("等了一刻钟，心里平静了。", importance=0.3)]
     views = [_view("陈母", "想起还没回妈妈的消息。", importance=0.4, keywords=("妈妈",))]
-    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}]}
+    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
+                  "errands": []}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
     person = await _person(environment, tmp_path / "agent_0001", model)
@@ -511,7 +515,8 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
     engine, environment, watch_id, wait_id = _engine_with_paused_watch_and_pending_wait(_engine_factory)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
     conclusion = {"items": [
-        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}]}
+        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
+        "errands": []}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
     person = await _person(environment, tmp_path / "agent_0001", model)
@@ -587,7 +592,7 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-search", "memory_search", json.dumps({"query": "散步", "limit": 5}, ensure_ascii=False)),
         _naming_offered("call-mismatch", lambda offered: {"items": [
-            {"activity_name": offered, "summary": "等完了。", "memories": []}]}),
+            {"activity_name": offered, "summary": "等完了。", "memories": []}], "errands": []}),
         _naming_offered("call-conclude", lambda offered: _conclude_args(
             offered, memories=[[_memory("等完这一刻钟，决定出门散步。", importance=0.2)]])),
     ])
@@ -633,7 +638,8 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     name = activity_name(engine, wait_id)
     memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2)]
     views = [_view("沈昊", "想给老朋友打个电话。", importance=0.3)]
-    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}]}
+    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
+                  "errands": []}
     model = _ScriptedModel([
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False),

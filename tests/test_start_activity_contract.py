@@ -443,7 +443,7 @@ def test_report_two_activities_validates_all_before_updating_anything():
     changed, result = harness._report_status(
         _State({first.activity_id: first, second.activity_id: second}), _pending(), request)
     assert result.status == "completed"
-    assert result.data == {"task": [first.name, second.name], "activity_ids": ["morning", "afternoon"]}
+    assert result.data == {"task": [first.name, second.name], "activity_ids": ["morning", "afternoon"], "errands": []}
     assert [(changed.activities[item.activity_id].progress_note,
              changed.activities[item.activity_id].report_anchor_at) for item in (first, second)] == [
         ("先整理议题", 200), ("再核对决议", 200)]
@@ -459,23 +459,31 @@ def test_report_two_activities_validates_all_before_updating_anything():
 def test_control_requests_pair_each_task_with_its_summary():
     """三条控制工具一项一个对象：活动名与自述写在同一对象里，不再靠下标对齐三组数组；一至两项、活动名互不相同且非空、
     自述非空；结束工具每项另有必填的 memories 与 views（都可以是空列表）；旧的平行数组形状不再受理
-    （docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    （docs/dev/SPEC-dayrun-fidelity.md 第六章）；请求级 errands 必填（可以是空列表），缺它的请求不受理
+    （docs/dev/SPEC-errands-workday.md 2.2）。"""
     item = {"activity_name": "工作写会议纪要（1月5日 09:00 起）", "summary": "先写完提纲"}
     other = {"activity_name": "休息（1月5日 10:00 起）", "summary": "歇一会儿"}
     for model in (ReportStatusRequest, PauseActivityRequest):
-        assert model(items=[item, other]).model_dump(mode="json") == {"items": [item, other]}
+        assert model(items=[item, other], errands=[]).model_dump(mode="json") == {
+            "items": [item, other], "errands": []}
         for items in ([], [item, other, {**other, "activity_name": "吃饭"}], [item, item], [{**item, "summary": " "}],
                       [{**item, "activity_name": " "}], [{"activity_name": item["activity_name"]}],
                       [{**item, "memories": []}]):
             with pytest.raises(ValidationError):
-                model(items=items)
+                model(items=items, errands=[])
         with pytest.raises(ValidationError):
             model(task=[item["activity_name"]], summary=[item["summary"]])
+        with pytest.raises(ValidationError, match="errands"):
+            model(items=[item])
     concluded = {**item, "memories": [], "views": []}
-    assert ConcludeActivityRequest(items=[concluded]).model_dump(mode="json") == {"items": [concluded]}
+    assert ConcludeActivityRequest(items=[concluded], errands=[]).model_dump(mode="json") == {
+        "items": [concluded], "errands": []}
     for missing in ("memories", "views"):
         with pytest.raises(ValidationError):
-            ConcludeActivityRequest(items=[{key: value for key, value in concluded.items() if key != missing}])
+            ConcludeActivityRequest(items=[{key: value for key, value in concluded.items() if key != missing}],
+                                    errands=[])
+    with pytest.raises(ValidationError, match="errands"):
+        ConcludeActivityRequest(items=[concluded])
     with pytest.raises(ValidationError):
         ConcludeActivityRequest(task=[item["activity_name"]], summary=[item["summary"]], memories=[[]])
 

@@ -142,11 +142,47 @@ _CHECKPOINT_TESTS = [
     _PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",
 ]
 
-#: 「提示与唯一出现」中「内部身份与新绑定键不进任何层」一项的前一半：经真实引擎预置未完成事务后 engine.observe，观察带
+_TOOL_TEXTS = "tests/integration/test_tool_description_references.py::"
+
+#: 「提示与唯一出现」：「内部身份与新绑定键不进任何层」一项的前一半——经真实引擎预置未完成事务后 engine.observe，观察带
 #: 两类私有事务绑定并存进 SQLite 的观察事件，五层照常渲染且不含事务身份与商品身份，任何一层带上 errand_bindings、
-#: errand_item_bindings 或 errand_id 即渲染失败；按事务名回看以 TASK_NOT_FOUND 拒绝。其余各项随阶段 2 的后续切片补登。
+#: errand_item_bindings 或 errand_id 即渲染失败；按事务名回看以 TASK_NOT_FOUND 拒绝。「工具用途句与字段说明与接口合同逐字
+#: 且通过用途扫描」一项：三个控制工具的用途句与十一处参数说明与接口合同定稿表逐字相同，全部原生工具的用途句与参数说明
+#: 通过只写用途的扫描。其余各项随阶段 2 的后续切片补登。
 _PROMPT_PRESENCE_TESTS = [
     _ERRAND_TODO + "test_observation_carries_private_errand_bindings_outside_every_layer",
+    _TOOL_TEXTS + "test_control_tool_purposes_and_errand_descriptions_are_the_contract_text",
+    _TOOL_TEXTS + "test_every_native_tool_has_a_purpose_only_description",
+    _TOOL_TEXTS + "test_parameter_descriptions_are_purpose_only",
+]
+
+_ERRAND_REQUESTS = "tests/life/test_errand_requests.py::"
+
+#: 「事务变更与原子受理」：前六个经真实请求、引擎与 SQLite——三个控制工具带请求级 errands 受理，每条被受理的变更恰好一条
+#: 系统可见、不带决策与动作身份的事务事件，与动作结果同一提交，回执按请求顺序（内容没有变化的更新也写事件，点名暂停的
+#: 活动播报照样恢复它）；空数组合法且回执为空数组；每种结构错误在环境 _dispatch 以完整 errands[j].<键> 路径拒绝、与宿主的
+#: 参数报告逐项相同；收尾在事务复核之后被业务拒绝时事务变更一并不生效、没有事务事件；请求里无法写「完成」；重放不再记下。
+#: 末一个守三个控制工具的 errands 是内联、封闭、八键全部必填且按序的变更对象数组，通过 DeepSeek strict 校验。
+#: 「被业务拒绝的收尾：记忆入库而事务未记下」的人物一侧（真实 LifeAgent → LifeEnv）随宿主切片补登。
+_ERRAND_CHANGE_TESTS = [
+    _ERRAND_REQUESTS + "test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt",
+    _ERRAND_REQUESTS + "test_empty_errands_is_valid_and_the_receipt_is_an_empty_list",
+    _ERRAND_REQUESTS + "test_every_structural_error_reports_the_full_errand_path",
+    _ERRAND_REQUESTS + "test_a_rejected_request_registers_no_errand_and_writes_no_errand_event",
+    _ERRAND_REQUESTS + "test_a_request_cannot_mark_an_errand_completed",
+    _ERRAND_REQUESTS + "test_a_replayed_request_does_not_register_twice",
+    "tests/integration/test_activity_schema.py::test_control_tool_schemas_inline_the_errand_change_object",
+]
+
+_CONTROL_ITEMS = "tests/life/test_control_items.py::"
+
+#: 「交付边界」中「缺 errands 的旧控制请求被拒」一项：带 items 而缺请求级 errands 的请求经唯一读取入口 control_items、
+#: 进度层与交付窗口的投影 control_request、请求级变更的读取 control_errands 与收尾记忆判定一律以完整性故障拒绝；交付构造
+#: 窗口时同样拒绝、不当作没有事务变更放行；control_errands 按请求顺序读出每条变更的八键。其余各项随交付边界切片补登。
+_DELIVERY_BOUNDARY_TESTS = [
+    _CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",
+    "tests/delivery/test_windows.py::test_control_requests_without_errands_are_rejected_by_delivery",
+    _CONTROL_ITEMS + "test_control_errands_reads_every_change_in_order",
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
@@ -155,7 +191,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "只读查询转发": {"stage": "1", "tests": _READ_QUERY_TESTS},
     "计划重复意图": {"stage": "1", "tests": _PLAN_DUPLICATE_TESTS},
     "故障传播": {"stage": "1", "tests": _FAULT_PROPAGATION_TESTS},
-    "事务变更与原子受理": {"stage": "2", "tests": []},
+    "事务变更与原子受理": {"stage": "2", "tests": _ERRAND_CHANGE_TESTS},
     "事务名称与错误": {"stage": "2", "tests": []},
     "跨夜可见": {"stage": "2", "tests": []},
     "完成依据": {"stage": "2", "tests": []},
@@ -163,7 +199,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "事务提醒": {"stage": "2", "tests": []},
     "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
-    "交付边界": {"stage": "2", "tests": []},
+    "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
     "事务与收尾记忆指标": {"stage": "2", "tests": []},
     "作息锚点": {"stage": "3", "tests": []},
     "工作安排加载": {"stage": "3", "tests": []},
@@ -244,6 +280,23 @@ _VERSION_8_STATE_KILLERS = (
     _SESSION_STATE + "test_run_with_version_8_world_state_is_rejected_on_open",
 )
 _VERSION_8_EXPORT_KILLERS = (_PUBLICATION + "test_delivery_gate_rejects_version_eight_exports",)
+_TODO_LAYER_MODULE = "worldmock.life.todo_layer"
+_TODO_LAYER_SOURCE = "src/worldmock/life/todo_layer.py"
+_SESSION_ACTIONS_MODULE = "worldmock.life.session_actions"
+_SESSION_ACTIONS_SOURCE = "src/worldmock/life/session_actions.py"
+_CONTROL_ITEMS_MODULE = "worldmock.life.control_items"
+_CONTROL_ITEMS_SOURCE = "src/worldmock/life/control_items.py"
+#: 事务受理三个变异的杀手都经真实请求、引擎与 SQLite：待办层不投影事务时下一次观察的待办层没有刚记下的事务；收尾的复核
+#: 一行把变更就地写进暂存世界时，活动检查处的业务拒绝也会把事务落库；枚举多出「完成」时写「完成」的请求不再按枚举外的
+#: 值拒绝（交叉约束表没有这一种，校验直接出错）。缺 errands 的变异由 control_items 的直接用例杀死。
+_TODO_ERRANDS_KILLERS = (
+    _ERRAND_REQUESTS + "test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt",
+)
+_REJECTED_ERRANDS_KILLERS = (
+    _ERRAND_REQUESTS + "test_a_rejected_request_registers_no_errand_and_writes_no_errand_event",
+)
+_COMPLETED_CHANGE_KILLERS = (_ERRAND_REQUESTS + "test_a_request_cannot_mark_an_errand_completed",)
+_ERRANDS_KEY_KILLERS = (_CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -469,6 +522,42 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "    if schema_version not in {WORLD_SCHEMA_VERSION, 8}:\n",
         _VERSION_8_EXPORT_KILLERS,
     ),
+    SourceMutation(
+        "todo_layer_omits_errands",
+        _TODO_LAYER_MODULE,
+        _TODO_LAYER_SOURCE,
+        '            "errands": errands.todo_rows(agent, names, context.scenario.timezone),\n',
+        '            "errands": [],\n',
+        _TODO_ERRANDS_KILLERS,
+    ),
+    SourceMutation(
+        "errand_changes_applied_before_rejection",
+        _SESSION_ACTIONS_MODULE,
+        _SESSION_ACTIONS_SOURCE,
+        '        changes = self._errand_changes(pending, "conclude_activity", request)\n',
+        (
+            '        changes = self._errand_changes(pending, "conclude_activity", request)\n'
+            '        state.agents[pending.agent_id] = self._apply_errands(state, pending, changes)[0].agents[\n'
+            '            pending.agent_id]\n'
+        ),
+        _REJECTED_ERRANDS_KILLERS,
+    ),
+    SourceMutation(
+        "request_can_mark_errand_completed",
+        _MODELS_MODULE,
+        _MODELS_SOURCE,
+        '    change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
+        '    change: Literal["新增", "更新", "取消", "完成"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
+        _COMPLETED_CHANGE_KILLERS,
+    ),
+    SourceMutation(
+        "items_without_errands_accepted",
+        _CONTROL_ITEMS_MODULE,
+        _CONTROL_ITEMS_SOURCE,
+        '        _list(_field(body, "errands", tool), tool)\n',
+        "",
+        _ERRANDS_KEY_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -486,11 +575,11 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "日志后吞掉异常": {"stage": "1", "mutations": ("decision_failure_swallowed_after_log",)},
     "零点清空事务": {"stage": "2", "mutations": ()},
     "修订计划丢事务": {"stage": "2", "mutations": ()},
-    "待办层不投影事务": {"stage": "2", "mutations": ()},
+    "待办层不投影事务": {"stage": "2", "mutations": ("todo_layer_omits_errands",)},
     "记忆层超窗或上下文浓缩时丢掉待办层事务": {"stage": "2", "mutations": ()},
-    "业务拒绝时事务变更照落": {"stage": "2", "mutations": ()},
+    "业务拒绝时事务变更照落": {"stage": "2", "mutations": ("errand_changes_applied_before_rejection",)},
     "事务名近似时取第一个候选": {"stage": "2", "mutations": ()},
-    "请求可把状态置为完成": {"stage": "2", "mutations": ()},
+    "请求可把状态置为完成": {"stage": "2", "mutations": ("request_can_mark_errand_completed",)},
     "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": ()},
     "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": ()},
     "当面给予不计入取得": {"stage": "2", "mutations": ()},
@@ -552,6 +641,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                                   "消息。",
     "decision_prompt_ignores_action_order": "实施计划阶段 1「突变审查的目标」交付窗口：选取决策提示时去掉「早于动作」条件"
                                             "（杀手为反思请求排在动作之后的一例）。",
+    "items_without_errands_accepted": "实施计划阶段 2「突变审查的目标」：带 items 缺 `errands` 的请求被放行（control_items "
+                                      "去掉请求级 errands 的必有检查）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -559,10 +650,12 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_continuation.py",
     "custom/agents/life_memory.py",
+    "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
     "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
+    "src/worldmock/life/activity_control.py",
     "src/worldmock/life/control_items.py",
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
@@ -571,9 +664,12 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/observe.py",
     "src/worldmock/life/prompt_schemas.py",
     "src/worldmock/life/read_query_runtime.py",
+    "src/worldmock/life/result_projection.py",
+    "src/worldmock/life/session_actions.py",
     "src/worldmock/life/todo_layer.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
+    "tools/run-viewer.html",
 )
 
 #: 本特性新增的测试文件，连同登记表、守卫与共用变异执行器自身；登记了节点的既有测试文件由守卫另行纳入同一扫描。
@@ -582,6 +678,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
     "tests/life/test_errand_changes.py",
+    "tests/life/test_errand_requests.py",
     "tests/life/test_errand_state.py",
     "tests/life/test_errand_todo_layer.py",
     "tests/life/test_plan_day_duplicate_feedback.py",

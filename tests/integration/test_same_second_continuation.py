@@ -328,7 +328,7 @@ async def test_a_same_second_departure_breaks_the_chain(_engine_factory) -> None
     def report(observation: dict) -> list:
         walk = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
         return [_reply("call-road", "report_status", {"items": [
-            {"activity_name": walk, "summary": "在路上了。"}]}, "边走边看消息。")]
+            {"activity_name": walk, "summary": "在路上了。"}], "errands": []}, "边走边看消息。")]
 
     contexts = [context(engine, "on-road", agent_id) for agent_id in engine.scheduling_state().ready_agent_ids]
     engine.begin_decision_round(contexts)
@@ -631,8 +631,9 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
 
 
 def _ended(names: list[str], summary: str) -> dict:
-    """给点名的活动收尾的参数：一项一个对象，写同一句自述，不写记忆与看法。"""
-    return {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []} for name in names]}
+    """给点名的活动收尾的参数：一项一个对象，写同一句自述，不写记忆与看法；没有个人事务变更。"""
+    return {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []} for name in names],
+            "errands": []}
 
 
 def _views() -> list[dict]:
@@ -654,7 +655,8 @@ async def test_changes_overlay_relationships_and_preferences_so_later_tool_messa
 
     def conclude(observation: dict) -> list:
         [name] = pending_names(observation)
-        arguments = {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": _views()}]}
+        arguments = {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": _views()}],
+                     "errands": []}
         return [_reply("call-end", "conclude_activity", arguments, "等完了，记下看法。")]
 
     head, _, _ = await _single(environment, "end", conclude)
@@ -703,7 +705,7 @@ async def test_real_pause_and_body_changes_reach_the_next_tool_message_once(_eng
     def pause(observation: dict) -> list:
         name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
         return [_reply("call-pause", "pause_activity", {"items": [
-            {"activity_name": name, "summary": "先停一下。"}]}, "邮件来了。")]
+            {"activity_name": name, "summary": "先停一下。"}], "errands": []}, "邮件来了。")]
 
     head, _, _ = await _single(environment, "pause", pause)
     paused, [second], _ = await _single(environment, "refused", _unavailable)

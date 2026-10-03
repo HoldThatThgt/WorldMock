@@ -1,7 +1,7 @@
 """@brief 只读取现行逐项控制请求，旧控制记录直接拒绝。
 
 本模块是控制请求的唯一读取入口（docs/dev/SPEC-errands-workday.md 2.9）：control_items 读逐项内容，control_errands 读请求级
-的个人事务变更；两者对工具与请求形状用同一套检查，缺字段即完整性故障。
+的个人事务变更；两者对工具与请求形状用同一套检查，缺字段（含请求级 errands）即完整性故障。
 """
 
 from __future__ import annotations
@@ -45,15 +45,20 @@ class ControlItem:
 
 
 def control_items(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[ControlItem, ...]:
-    """@brief 读出控制工具请求的逐项内容，只接受严格 items 形状。
+    """@brief 读出控制工具请求的逐项内容，只接受现行形状：items 与请求级 errands（列表，可为空）都在。
+
+    缺 errands 的请求是旧形状记录，经本入口读取的每个读取方（环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆
+    证据、零点计划输入、质量报告与交付窗口）都随之以完整性故障拒绝，不留读取分支（docs/dev/SPEC-errands-workday.md
+    2.3、2.9）。
 
     :param tool: report_status、pause_activity 或 conclude_activity。
     :param request: 已校验的请求模型，或事件与导出里记录的请求参数（JSON 形状）。
     :returns: 按请求顺序的各项；播报与暂停的记忆为空。
-    :raises IntegrityError: 不是控制工具，或请求形状认不出、字段缺失。
+    :raises IntegrityError: 不是控制工具，或请求形状认不出、缺 errands 或 errands 不是列表、字段缺失。
     """
     body = _body(tool, request)
     if "items" in body:
+        _list(_field(body, "errands", tool), tool)
         return tuple(_current_item(tool, _mapping(row, tool)) for row in _list(body["items"], tool))
     logging.error("Invalid activity control request: %s", f"{tool} request shape is not recognised")
     raise IntegrityError(f"{tool} request shape is not recognised")
@@ -76,7 +81,9 @@ def control_errands(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[
 
 def control_request(tool: str, request: Mapping[str, Any] | BaseModel, *, memories: bool) -> dict[str, Any]:
     """@brief 以现行形状重写的请求参数：每项活动名与自述；memories 为真时结束工具每项另带普通记忆（请求形状，没有
-    subject），看法与偏好一律不带（进度层参数带普通记忆，交付窗口的意图与 dreaming 输入都不带）。"""
+    subject），看法与偏好一律不带（进度层参数带普通记忆，交付窗口的意图与 dreaming 输入都不带）。请求级 errands
+    恒不带出（进度层参数略去它，回执 details.errands 是事务变更的唯一呈现；意图与 dreaming 投影同样不带），但输入必须
+    是带 errands 的现行形状（经 control_items 读取）。"""
     rows = []
     for item in control_items(tool, request):
         row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}

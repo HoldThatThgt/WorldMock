@@ -602,9 +602,10 @@ function buildIndex(){
 /** @brief 控制工具请求的逐项内容，与 worldmock.life.control_items 同一规则：现行一项一个对象
  *  items[{activity_name, summary, memories, views}]，旧形状为 task[]、summary[] 与逐项的 memories[][]；
  *  返回 [{name, summary, memories}]：结束工具的 memories 含看法与偏好（先普通记忆、后 views），最早不带记忆字段的
- *  结束请求为 null，播报与暂停为空。 */
+ *  结束请求为 null，播报与暂停为空。请求级 errands（个人事务变更）必须是数组，缺键即报错（旧形状记录不留读取分支）。 */
 function controlItems(tool, req){
   if (!req || !Array.isArray(req.items)) throw new Error('Activity control request requires items');
+  if (!Array.isArray(req.errands)) throw new Error('Activity control request requires errands');
   return req.items.map(item=>({
     name:item.activity_name, summary:item.summary,
     memories:[...(item.memories||[]),...(item.views||[]).map(view=>({...view,subject:view.about}))]

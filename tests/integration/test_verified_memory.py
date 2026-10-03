@@ -54,7 +54,8 @@ def _concluded(text: str, kind: str = "goal", importance: float = 0.5,
     entry = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
     memories, views = ([entry], []) if about is None else ([], [{"type": kind, "about": about, **entry}])
     return _conclusion_memories("conclude_activity", {"items": [
-        {"activity_name": "等待（9月21日 16:00 起）", "summary": "收尾。", "memories": memories, "views": views}]})
+        {"activity_name": "等待（9月21日 16:00 起）", "summary": "收尾。", "memories": memories, "views": views}],
+        "errands": []})
 
 
 def _wait_fact(event_id="progress-1", seq=1):

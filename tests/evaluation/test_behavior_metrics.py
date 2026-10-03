@@ -339,7 +339,8 @@ def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     （docs/design/07-evaluation.md「2.2 报告项」），不按请求里的动词或方式。"""
     events = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
-        _action(2, "d1", "report_status", {"items": [{"activity_name": "当前会话", "summary": "继续。"}]}),
+        _action(2, "d1", "report_status", {"items": [{"activity_name": "当前会话", "summary": "继续。"}],
+                                           "errands": []}),
         _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
         _start(4, "d2", "a2", "等待", "自己"),
         _accepted(5, "d2", "a2", "wait"),
@@ -382,9 +383,11 @@ def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
     control = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
         _action(2, "d1", "conclude_activity", {"items": [
-            {"activity_name": "等待（1月5日 08:00 起）", "summary": "等完了。", "memories": [], "views": []}]}),
+            {"activity_name": "等待（1月5日 08:00 起）", "summary": "等完了。", "memories": [], "views": []}],
+            "errands": []}),
         _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
-        _action(4, "d2", "pause_activity", {"items": [{"activity_name": "观看节目（1月5日 08:00 起）", "summary": "先停一下。"}]}),
+        _action(4, "d2", "pause_activity", {"items": [{"activity_name": "观看节目（1月5日 08:00 起）", "summary": "先停一下。"}],
+                                            "errands": []}),
         _event("decision_started", _clock(0, 8, 5), decision_id="d3"),
         _action(6, "d3", "revise_day_plan", {"goals": []}),
     ]

@@ -92,7 +92,7 @@ async def _live_run(engine) -> None:
     def conclude(observation: dict) -> list:
         names = pending_names(observation)
         arguments = {"items": [{"activity_name": name, "summary": "歇好了。", "memories": [], "views": []}
-                               for name in names]}
+                               for name in names], "errands": []}
         return [_PricedResponse("call-c", "conclude_activity", arguments, _THINK_C, _usage(1100, 0, 80, None))]
 
     await _single(environment, "later", conclude)

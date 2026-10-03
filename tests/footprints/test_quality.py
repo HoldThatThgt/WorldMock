@@ -38,7 +38,8 @@ def _memory(text="我以为自己已经吃过一顿饭。"):
 def _conclusion(*memories):
     """结束一项活动的 conclude_activity 请求（一项一个对象）；没有记忆与看法表示这次不写记忆。"""
     return {"items": [
-        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}]}
+        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}],
+        "errands": []}
 
 
 def _tool_response(call_id, usage=None):
@@ -321,8 +322,10 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
     view = {"type": "relationship", "about": "王磊", "text": "王磊人不错。", "importance": 0.5, "keywords": ["同事"]}
     name = "等待（1月5日 00:00 起）"
     requests = {
-        "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}]},
-        "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}]},
+        "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}],
+                       "errands": []},
+        "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}],
+                    "errands": []},
         "with_memory": _conclusion(_memory()),
     }
     events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",

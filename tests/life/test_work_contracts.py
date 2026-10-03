@@ -490,7 +490,7 @@ def test_resume_plans_the_end_no_later_than_the_contract_deadline(deadline_engin
     observed = engine.observe(context(engine, "resumed-shown"))
     name = _named(work_id)(observed)[0]
     assert progress_calls(observed, "report_status")[-1]["result"]["details"] == {
-        "planned": [{"name": name, "duration": duration_phrase(due - now)}]}
+        "planned": [{"name": name, "duration": duration_phrase(due - now)}], "errands": []}
     assert duration_phrase(due - now) == "约 6 小时"
 
 

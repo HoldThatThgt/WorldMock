@@ -546,31 +546,32 @@ test('session requests display each task with its own progress sentence', t => {
   const item = (activity_name, summary, extra = {}) => ({activity_name, summary, ...extra});
   const view = viewer([
     event('action_requested', {tool_name: 'report_status', request: {
-      items: [item('整理访谈','完成提纲'),item('准备周会','列出议题')],
+      items: [item('整理访谈','完成提纲'),item('准备周会','列出议题')], errands: [],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      items: [item('整理访谈','已经提交纪要',{memories:[memory('纪要要当天交'),memory('先列提纲')],views:[]})],
+      items: [item('整理访谈','已经提交纪要',{memories:[memory('纪要要当天交'),memory('先列提纲')],views:[]})], errands: [],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
       items: [item('准备周会','议题定了',{memories:[],views:[]}),item('午饭','吃完了',{memories:[memory('菜饭偏咸')],views:[]})],
+      errands: [],
     }}),
     event('action_requested', {tool_name: 'pause_activity', request: {
-      items: [item('准备周会','先放一放')],
+      items: [item('准备周会','先放一放')], errands: [],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      items: [item('午饭','吃完了',{memories:[],views:[]})],
+      items: [item('午饭','吃完了',{memories:[],views:[]})], errands: [],
     }}),
     event('action_requested', {tool_name: 'report_status', request: {items: [
       item('整理访谈', '完成提纲'), item('准备周会', '列出议题'),
-    ]}}),
+    ], errands: []}}),
     event('action_requested', {tool_name: 'conclude_activity', request: {items: [
       item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
       item('午饭', '吃完了', {memories: [], views: []}),
-    ]}}),
-    event('action_requested', {tool_name: 'pause_activity', request: {items: [item('准备周会', '先放一放')]}}),
+    ], errands: []}}),
+    event('action_requested', {tool_name: 'pause_activity', request: {items: [item('准备周会', '先放一放')], errands: []}}),
     event('action_requested', {tool_name: 'conclude_activity', request: {items: [
       item('准备周会', '议题定了', {memories: [], views: []}),
-    ]}}),
+    ], errands: []}}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '请求 播报进展 · 整理访谈：完成提纲；准备周会：列出议题');
@@ -588,8 +589,12 @@ test('session requests display each task with its own progress sentence', t => {
     JSON.stringify(request)}).map(entry => [entry.name, entry.summary, entry.memories.map(one => one.text)])`)));
   assert.deepEqual(read({items: [
     item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
-  ]}), [['整理访谈','已经提交纪要',['纪要要当天交','王磊很靠谱']]]);
+  ], errands: []}), [['整理访谈','已经提交纪要',['纪要要当天交','王磊很靠谱']]]);
   assert.throws(() => read({task:['整理访谈'],summary:['完成']}), /requires items/);
+  // 带 items 而缺请求级 errands 的控制请求是旧形状记录，镜像实现同 control_items 一样报错（个人事务规格 2.9）。
+  assert.throws(() => read({items: [item('整理访谈', '已经提交纪要', {memories: [], views: []})]}), /requires errands/);
+  assert.throws(() => read({items: [item('整理访谈', '已经提交纪要', {memories: [], views: []})], errands: null}),
+    /requires errands/);
   assert.deepEqual(view.errors, []);
   for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined/);
 });

@@ -102,7 +102,8 @@ async def test_system_layer_is_byte_identical_across_turns_and_decisions() -> No
     second = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "conclude_activity", json.dumps(
             {"items": [
-                {"activity_name": _WAIT, "summary": "等完了。", "memories": [], "views": []}]}, ensure_ascii=False))])
+                {"activity_name": _WAIT, "summary": "等完了。", "memories": [], "views": []}], "errands": []},
+            ensure_ascii=False))])
     agent, _ = _agent(first)
     await _run(agent, _observations())
     agent._dispatcher = second
@@ -193,7 +194,7 @@ async def test_the_system_layer_asks_for_no_particular_language() -> None:
     memory = {"type": "routine", "text": "I took a short break after lunch.", "importance": 0.2, "keywords": ["break"]}
     english = _GroundedCorrectionDispatcher(responses=[_ModelResponse("action", "conclude_activity", json.dumps(
         {"items": [{"activity_name": _WAIT, "summary": "Waited a while and rested.", "memories": [memory],
-                    "views": []}]}, ensure_ascii=False))])
+                    "views": []}], "errands": []}, ensure_ascii=False))])
     agent, environment = _agent(english)
     assert await _run(agent, _second_observation()) == "conclude_activity registered"
     assert len(english.requests) == 1
