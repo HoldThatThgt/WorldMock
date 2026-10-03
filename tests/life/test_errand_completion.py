@@ -2,10 +2,11 @@
 
 正式场景（单人白领与两人的 multi-person）建立的 LifeEngine 上，人物以收尾请求的 errands 记下事务，随后经真实的购买、配送、
 给予、制作与进食产生结算证据。事务只按证据累计：动作结果顶层已送达的订单（到店成交）、配送送达事件的新入库行、当面给予
-（都按收货人归属），进食区间的实际食用量与制作完整结束时的产出；下单受理、未送达的订单、本人买给别人的、制作未完成、
+（都按收货人归属），进食区间的实际食用量与制作完整结束时的产出；下单受理、未送达的订单、本人买给别人或联系人的、制作未完成、
 记下前已持有的与记下前开始的进度区间都不算。累计达到数量减 1e-9 即办成并移出待办层，不足时保持未完成并记下累计量；
-缺货被拒时事务与累计量不变；同一轮里先给予、后取消时证据不落到已取消的事务。errand_progressed（系统可见）与
-errand_completed（人物可见）以证据事件为唯一原因、与证据同一提交，人物为事务所有人，决策、动作与活动身份为空。
+缺货、闭店或买不起被拒时事务与累计量不变；办成之后名称与商品可以再记一条新事务；同一轮里先给予、后取消时证据不落到
+已取消的事务。errand_progressed（系统可见）与 errand_completed（人物可见）以证据事件为唯一原因、与证据同一提交，
+人物为事务所有人，决策、动作与活动身份为空。
 """
 
 from __future__ import annotations
@@ -14,13 +15,15 @@ from datetime import datetime
 
 from tests.life.conftest import (advance_next, conclude_request, errand_add, errand_cancel, report_request,
                                  stage_day_plan, stage_errands, submit_round, wake_by_mail)
-from tests.life.routing_fixtures import (HOME, MARKET, PERSON_TARGET, act, observe, open_world, place, routed,
-                                         run_until, stage)
+from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, HOME, MARKET, OFFICE, PERSON_TARGET, act, observe,
+                                         open_world, place, routed, run_until, stage, with_colleague)
 from tests.life.test_errand_todo_layer import _errand
+from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.errand_state import ERRAND_EVENT_KINDS
 from worldmock.life.interaction_menu import GIVE_WAY
-from worldmock.life.models import ActivityStatus
-from worldmock.life.readable import iso_time
+from worldmock.life.models import ActivityStatus, active_activities
+from worldmock.life.readable import iso_time, local_date
+from worldmock.life.storefront_state import current_quote
 
 #: 正式目录里的纯牛奶：商品名唯一（三家店有售），集市可到店买、可远程下单送到家；整份喝完要 900 秒。
 MILK, MILK_ID = "纯牛奶", "food-6923644266066"
@@ -279,6 +282,27 @@ def test_bought_for_me_and_handed_to_me_count_but_bought_by_me_for_another_does_
     assert engine.state.agents[2].inventory[HOME][MILK_ID] == 1.0 and settlement(engine, agent_id=2) == []
 
 
+def test_an_order_and_a_gift_for_a_contact_outside_the_world_count_for_nobody(engine_factory) -> None:
+    """陈曦记下「取得纯牛奶 1 份」后，远程下单送一份给同事联系人王磊（不是同世界人物，收货地点是办公室），又在办公室把
+    手边的一份当面给他：送达的订单与给予的收货人都是联系人，不算任何人物取得——事务仍是「已取得 0 份」，两人都没有结算
+    事件，牛奶记在王磊的持有上。"""
+    engine = open_world(engine_factory)
+    note(engine, "note", [errand_add("买牛奶", MILK)])
+    ordered = buy(engine, "for-wang", way="远程下单", to=COLLEAGUE_TARGET)
+    [order] = ordered.data["orders"]
+    assert (ordered.status, order["recipient_id"]) == ("completed", COLLEAGUE)
+    run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered")
+    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids
+              and not active_activities(current.state, 1) and not pending_conclusions(current.state, 1))
+    place(engine, 1, OFFICE, {MILK_ID: 1.0})
+    handed = act(engine, "hand", give(engine, COLLEAGUE_TARGET))
+    assert handed.status == "completed", (handed.error_code, handed.message)
+    assert handed.data["given"][0]["recipient_id"] == COLLEAGUE
+    assert engine.state.contact_holdings[COLLEAGUE] == {MILK_ID: 2.0}
+    assert held(engine).progress == 0.0 and settlement(engine) == [] and settlement(engine, agent_id=2) == []
+    assert todo_rows(observe(engine, "after")) == [("买牛奶", "取得纯牛奶 1 份", "已取得 0 份")]
+
+
 def test_unfinished_making_does_not_count_and_the_finished_output_does(engine_factory) -> None:
     """人物开始用食材包制作素炒什锦（3000 秒），一分钟后播报时记下「取得素炒什锦 1 份」：之后每个未完成制作的进度区间都
     没有库存转换，不算取得；制作完整结束的那次进度结算带库存转换的产出，事务以它为原因办成，家里有了一份素炒什锦。"""
@@ -358,6 +382,56 @@ def test_an_out_of_stock_rejection_leaves_the_errand_and_its_progress_unchanged(
     [row] = observe(engine, "after")["todo_layer"]["errands"]
     assert list(row) == ["name", "done_when", "progress", "memo", "remind_time", "noted_on"]
     assert (row["name"], row["progress"]) == ("囤牛奶", "已取得 1 份")
+
+
+def _little_money(document: dict) -> None:
+    """场景副本：在 with_colleague 之上把陈曦的初始余额改为 1 元，买不起一份纯牛奶。"""
+    with_colleague(document)
+    next(item for item in document["agents"] if item["agent_id"] == 1).update(initial_balance_fen=100)
+
+
+def test_a_closed_store_or_an_unaffordable_purchase_leaves_the_errand_open(engine_factory) -> None:
+    """余额只有 1 元的人物在集市记下「取得纯牛奶 1 份」：集市当天闭店（世界里的营业例外）时到店买以 MERCHANT_CLOSED
+    业务拒绝；撤掉例外重新开门后再买，价钱高于余额，以 INSUFFICIENT_FUNDS 业务拒绝。两次拒绝后事务原样未完成、没有新的
+    事务事件，待办层照旧列着它，行里只有六个键（闭店与买不起的原因只在该次购买的拒绝结果里，待办层不重算可用性）。"""
+    engine = open_world(engine_factory, mutate=_little_money)
+    supply = f"supply-market-{MILK_ID}"
+    price = engine.semantics.purchase_amount(MILK_ID, current_quote(engine.state, supply).price_fen, 1)
+    assert price > engine.state.accounts["agent:1"] == 100
+    place(engine, 1, MARKET)
+    note(engine, "note", [errand_add("买牛奶", MILK)])
+    before, events = held(engine), errand_events(engine)
+    today = local_date(engine.state.current_time, engine.scenario.timezone)
+    stage(engine, lambda state: state.opening_exceptions[MARKET].__setitem__(today, []))
+    closed = buy(engine, "closed")
+    assert (closed.status, closed.error_code) == ("rejected", "MERCHANT_CLOSED")
+    assert held(engine) == before and errand_events(engine) == events
+    stage(engine, lambda state: state.opening_exceptions[MARKET].pop(today))
+    unaffordable = buy(engine, "unaffordable")
+    assert (unaffordable.status, unaffordable.error_code) == ("rejected", "INSUFFICIENT_FUNDS")
+    assert held(engine) == before and errand_events(engine) == events
+    assert [event.data["kind"] for event in events] == ["errand_registered"]
+    [row] = observe(engine, "after")["todo_layer"]["errands"]
+    assert list(row) == ["name", "done_when", "progress", "memo", "remind_time", "noted_on"]
+    assert (row["name"], row["done_when"], row["progress"]) == ("买牛奶", "取得纯牛奶 1 份", "已取得 0 份")
+
+
+def test_a_completed_errand_frees_its_name_and_its_item_for_a_new_errand(engine_factory) -> None:
+    """事务记下后不可改名，终结后名称可以再用：在集市记下「买牛奶」并当场买下办成后事务移出状态；之后以同一名称、同一结果
+    与商品新增「取得纯牛奶 2 份」被受理，回执写这个名称，新事务从 0 份累计、来源是第二次收尾，事件依次是记下、办成、记下。"""
+    engine = open_world(engine_factory)
+    place(engine, 1, MARKET)
+    note(engine, "note", [errand_add("买牛奶", MILK)])
+    buy(engine, "buy")
+    assert engine.state.agents[1].errands == {}
+    again = note(engine, "again", [errand_add("买牛奶", MILK, quantity=2)])
+    assert again.data["errands"] == [{"errand": "买牛奶", "change": "新增"}]
+    errand = held(engine)
+    assert (errand.name, errand.product_id, errand.quantity, errand.progress) == ("买牛奶", MILK_ID, 2, 0.0)
+    assert errand.origin_action_id == again.action_id
+    kinds = [event.data["kind"] for event in errand_events(engine)]
+    assert kinds == ["errand_registered", "errand_completed", "errand_registered"]
+    assert todo_rows(observe(engine, "after")) == [("买牛奶", "取得纯牛奶 2 份", "已取得 0 份")]
 
 
 def test_a_gift_followed_by_a_cancel_in_one_round_credits_nothing(engine_factory) -> None:

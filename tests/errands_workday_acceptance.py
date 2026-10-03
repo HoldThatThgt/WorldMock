@@ -28,8 +28,9 @@ from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, SourceMut
 #: 规格「实施计划」中的全部阶段编号（冻结之外的 0–7）。
 STAGE_IDS = frozenset(str(number) for number in range(8))
 
-#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成。
-STAGES_DONE: frozenset[str] = frozenset({"1"})
+#: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成；阶段 2（个人事务
+#: 与提示分工）随收尾提交完成：十行台账都列出节点，二十六句规格变异都有登记变异。
+STAGES_DONE: frozenset[str] = frozenset({"1", "2"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
@@ -220,9 +221,10 @@ _COMPLETION = "tests/life/test_errand_completion.py::"
 #: 「完成依据」：全部经真实请求、引擎与 SQLite——人物以收尾请求记下事务，随后经真实的远程下单与配送、到店购买、当面给予、
 #: 制作与进食产生证据：远程下单受理时不推进、送达的那次提交办成；同一秒先记下再到店买下当场办成而物品留在门店；数量 2
 #: 只得 1 份仍未完成并记累计；记下前已持有的不算、记下前开始的进度区间不算（后者请求造不出，经真实时钟推进与预置的记下
-#: 时刻造出）；他人买给本人与当面给予本人算、本人买给他人不算；制作未完成不算、完整结束的产出算；进食按区间实际食用量
-#: 累计且累计量差 1e-9 内即办成；缺货被拒后事务与累计量不变；同一轮先给予后取消不落到已取消的事务；结算事件的可见性、
-#: 人物、载荷、原因与所在提交。
+#: 时刻造出）；他人买给本人与当面给予本人算、本人买给他人不算，买给或当面给不是同世界人物的联系人也不算任何人物取得；
+#: 制作未完成不算、完整结束的产出算；进食按区间实际食用量累计且累计量差 1e-9 内即办成；缺货被拒后事务与累计量不变，
+#: 闭店与买不起被拒后同样不变（规格 2.4 缺货一条的另两种情形）；同一轮先给予后取消不落到已取消的事务；结算事件的
+#: 可见性、人物、载荷、原因与所在提交。
 _COMPLETION_TESTS = [
     _COMPLETION + "test_a_remote_order_completes_only_in_the_commit_that_delivers_it",
     _COMPLETION + "test_noting_then_buying_at_the_store_in_the_same_second_completes_while_the_item_stays_there",
@@ -230,9 +232,11 @@ _COMPLETION_TESTS = [
     _COMPLETION + "test_what_was_held_before_noting_does_not_count",
     _COMPLETION + "test_a_progress_interval_begun_before_noting_does_not_count",
     _COMPLETION + "test_bought_for_me_and_handed_to_me_count_but_bought_by_me_for_another_does_not",
+    _COMPLETION + "test_an_order_and_a_gift_for_a_contact_outside_the_world_count_for_nobody",
     _COMPLETION + "test_unfinished_making_does_not_count_and_the_finished_output_does",
     _COMPLETION + "test_eating_counts_the_actual_interval_quantity",
     _COMPLETION + "test_an_out_of_stock_rejection_leaves_the_errand_and_its_progress_unchanged",
+    _COMPLETION + "test_a_closed_store_or_an_unaffordable_purchase_leaves_the_errand_open",
     _COMPLETION + "test_a_gift_followed_by_a_cancel_in_one_round_credits_nothing",
     _COMPLETION + "test_completion_and_progress_events_cite_their_evidence_and_carry_no_decision_identity",
 ]
@@ -300,8 +304,10 @@ _ERRAND_NAMES = "tests/life/test_errand_names.py::"
 #: 事务名两侧逐项相同、合法值列本人全部未完成事务名、不替换；商品名错误在 why 给最接近的至多三个商品名、合法值为空；
 #: 取消必带原因；新增重名、同结果同商品与第九条各一例；同一请求取消旧事务并以原名、新数量新增被受理，终结后名称可再用；
 #: 绕过宿主的请求在环境被合并成一次 ACTION_REQUEST_INVALID、照常计入同刻轮数、世界不变；性质测试以固定种子枚举二百四十
-#: 组变更，宿主受理的环境对同一观察也受理（每种状态另有一组经真实提交）。末一个是宿主一侧的合并纠错：直接导入的
-#: LifeAgent 把活动名、事务名与结构错误并入同一次纠错，路径绑定到真实调用下标，改正之前不登记世界请求。
+#: 组变更，宿主受理的环境对同一观察也受理（每种状态另有一组经真实提交）。第九个是宿主一侧的合并纠错：直接导入的
+#: LifeAgent 把活动名、事务名与结构错误并入同一次纠错，路径绑定到真实调用下标，改正之前不登记世界请求。末一个是「终结后
+#: 名称可以再用」的办成一半（前面的节点以取消与办成留下的状态示范）：经真实请求、引擎与 SQLite 在集市记下并当场买下办成
+#: 之后，同一名称、同一结果与商品再新增一条事务被受理，事件依次是记下、办成、记下。
 _ERRAND_NAME_TESTS = [
     _ERRAND_NAMES + "test_update_and_cancel_use_the_todo_layer_name",
     _ERRAND_NAMES + "test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing",
@@ -312,6 +318,7 @@ _ERRAND_NAME_TESTS = [
     _ERRAND_NAMES + "test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged",
     _ERRAND_NAMES + "test_whatever_the_host_accepts_the_environment_accepts",
     _PROTOCOL + "test_errand_errors_join_the_single_host_correction",
+    _COMPLETION + "test_a_completed_errand_frees_its_name_and_its_item_for_a_new_errand",
 ]
 
 _CONTROL_ITEMS = "tests/life/test_control_items.py::"
