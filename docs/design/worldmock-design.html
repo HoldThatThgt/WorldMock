@@ -4390,12 +4390,12 @@ message 与 reason 一致；公开 details 保留 fix/items/resolved/notes 和�
   "layer": "系统层",
   "role": "你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。",
   "rules": [
-    "请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动与今日计划；环境层是此刻的身体感受与所在地点；进度层是本段停留或路程中已经发生的事。",
+    "请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受与所在地点；进度层是本段停留或路程中已经发生的事。",
     "每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。",
     "世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。",
-    "进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。",
+    "进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。",
     "回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。",
-    "思考只在同一时刻的连续决策之间保留，时间推进后丢弃；需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary。",
+    "思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到、拿到或吃掉的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。",
     "时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。",
     "你最多同时有两项活动，进行中、暂停与刚结束的都算；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。",
     "出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。",
@@ -4410,8 +4410,8 @@ message 与 reason 一致；公开 details 保留 fix/items/resolved/notes 和�
     "花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。"
   ]
 }</code></pre>
-<p>修订指针：第 1、4、6、14 条已由<a href="../dev/SPEC-errands-workday.md">个人事务与工作安排规格</a> 3.1、4.6 给出修订定稿，仍为十八条；
-第 1、4、6 条随该规格阶段 2、第 1、14 条随阶段 3 的代码同一提交改写。修订部分未实现，见该规格阶段 2、阶段 3；
+<p>修订指针：第 1、14 条已由<a href="../dev/SPEC-errands-workday.md">个人事务与工作安排规格</a> 4.6 给出修订定稿，仍为十八条，
+随该规格阶段 3 的代码同一提交改写（第 1、4、6 条已按其 3.1 随阶段 2 的代码改写）。修订部分未实现，见该规格阶段 3；
 落地前上面的 JSON 块仍是实际发送的全文。</p>
 <p>只读问答的系统层全文：</p>
 <pre><code class="language-json">{
@@ -4474,7 +4474,9 @@ Call submit_reflection exactly once with one to five insights. Each insight
 is one first-person sentence in the person's language, and refs lists the ids
 of the supplied episodes that support it. Do not write episode ids or long
 digit strings inside the insight text. These insights are subjective; do not
-present them as verified world facts.</code></pre>
+present them as verified world facts.
+
+Reflection does not register, finish or cancel errands. The supplied episodes are the person's own notes, not verified results; do not state as a fact that something was obtained, eaten or finished.</code></pre>
 <p>输出 Schema：<code>submit_reflection</code> 声明 <code>strict=true</code>，参数为 <code>{insights: [{insight, refs}]}</code>，两层对象全部属性必填、封闭，
 Schema 内联生成，不含 <code>$ref</code>、<code>$defs</code>，也不在生成后改写；条数、引用与正文由本地校验执行（见「记忆字段」），
 失败处理见「生成参数」。</p>

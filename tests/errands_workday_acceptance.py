@@ -149,37 +149,70 @@ _CHECKPOINT_TESTS = [
 
 _OVERNIGHT = "tests/life/test_errand_overnight.py::"
 _DAY_PLANNING = "tests/life/test_day_planning.py::"
+_SEPARATION = "tests/integration/test_errand_prompt_separation.py::"
 
 #: 「跨夜可见」：全部经真实请求、引擎与 SQLite——收尾时记下的事务在零点使旧计划失效、零点计划登记新计划、目标推进与
 #: revise_day_plan 之后逐字段不变，待办层的事务行与零点前逐字相同、没有事务事件；记忆层超过 8000 字符被截取时与由冻结
 #: 观察准备的真实 LifeAgent 发出的请求被浓缩（进度层折叠）时，待办层的事务行照旧；同一段生活带不带事务变更，记忆层逐字节
 #: 相同（六种事务事件都不给记忆层添句）。末两个守零点计划：输入的只读键「个人事务」五键与同一时刻待办层同源同序、计划登记
-#: 不改事务也不写事务事件；真实请求的模板与接口合同逐字相同，输入说明末行与第七条逐字。「实际行动请求的待办层含该事务且
-#: 本决策没有记忆查询」一项随提示分工的切片补登。
+#: 不改事务也不写事务事件；真实请求的模板与接口合同逐字相同，输入说明末行与第七条逐字。倒数第三个是「实际行动请求的待办层
+#: 含该事务且本决策没有记忆查询」：真实 LifeAgent 于 23:51 播报时记下的事务，过了零点后下一次决策在库里留下的那一次行动
+#: 请求（不是续接）的待办层原样列着它，这次决策只有一个模型请求、只调用了世界请求，没有记忆查询。
 _OVERNIGHT_TESTS = [
     _OVERNIGHT + "test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision",
     _OVERNIGHT + "test_an_errand_stays_when_the_memory_layer_overflows_its_window",
     _OVERNIGHT + "test_a_condensed_request_still_carries_the_todo_layer_errands",
     _OVERNIGHT + "test_the_memory_layer_writes_no_line_for_errands",
+    _SEPARATION + "test_the_next_action_request_shows_the_errand_in_the_todo_layer_without_any_memory_query",
     _DAY_PLANNING + "test_plan_day_input_lists_open_errands_read_only",
     _DAY_PLANNING + "test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times",
 ]
 
 _TOOL_TEXTS = "tests/integration/test_tool_description_references.py::"
+_SEVEN_LAYERS = "tests/integration/test_seven_layer_request.py::"
+_CONTINUATION = "tests/integration/test_same_second_continuation.py::"
+_SYSTEM_VERBATIM = _SEVEN_LAYERS + "test_system_layers_are_the_contract_registration_verbatim"
+_SEPARATED = _SEPARATION + "test_errand_changes_write_no_memory_and_stay_out_of_self_notes_and_progress_arguments"
 
-#: 「提示与唯一出现」：「内部身份与新绑定键不进任何层」一项的前一半——经真实引擎预置未完成事务后 engine.observe，观察带
-#: 两类私有事务绑定并存进 SQLite 的观察事件，五层照常渲染且不含事务身份与商品身份，任何一层带上 errand_bindings、
-#: errand_item_bindings 或 errand_id 即渲染失败；按事务名回看以 TASK_NOT_FOUND 拒绝。「工具用途句与字段说明与接口合同逐字
-#: 且通过用途扫描」一项：三个控制工具的用途句与十一处参数说明与接口合同定稿表逐字相同，全部原生工具的用途句与参数说明
-#: 通过只写用途的扫描。「同一 session 内办成的事务在进度层有一条记录，浓缩后折成一句」一项（末一个节点）：经真实请求办成的
-#: 事务在进度层恰一条只写名称的记录、来源计入观察，settled 句折成「HH:MM 办成「<事务名>」」（跨日带日期），取消的事务不留
-#: 记录，开启新 session 的那次提交里的办成不进新 session 的进度层。其余各项随阶段 2 的后续切片补登。
+#: 「提示与唯一出现」，按台账各项的顺序：
+#: - 「系统层三处逐字且 18 条，第 6 条与第 16 条不相抵」：直接导入的 LifeAgent 发出的真实请求的系统层与接口合同「请求组成」
+#:   的登记、人物 Prompt 规格「系统层」定稿逐字相同且为十八条；第 1、4、6 条与规格 3.1 的定稿逐字相同，第 16 条与改写之前
+#:   逐字节相同，规则里没有决策次序一类的新指令。
+#: - 「旧延续句不再出现」：规则、合同「请求组成」一节、人物 Prompt 规格「系统层」一节与重新汇编的设计说明书四处。
+#: - 「工具用途句与字段说明与接口合同逐字且通过用途扫描」：三个控制工具的用途句与十一处参数说明与接口合同定稿表逐字相同，
+#:   全部原生工具的用途句与参数说明通过只写用途的扫描。
+#: - 「反思文案含 3.3 补句并与登记块逐字相同」：经真实记忆运行时在就寝边界发出的 system、模块常量与合同登记块逐字相同，
+#:   是规格 1.1 的文本块空一行接 3.3 的补句（不折行的一行）。
+#: - 「非续接请求里事务的完整行只在待办层，别处只有名称引用」：真实 LifeEngine、LifeEnv 与从工作区装配的 LifeAgent 跑一段
+#:   单人生活（记下时被宿主纠正一次备注、更新、取消、喝完即办成、一次绕过宿主被环境拒绝），每个行动请求里事务行的内容
+#:   只在待办层，事务名在别处只作为进度层记录与回执的 errand 键，只有规格 2.6 的三处回显位置例外且确实被用到。
+#: - 「内部身份与新绑定键不进任何层」：经真实引擎预置未完成事务后 engine.observe，观察带两类私有事务绑定并存进 SQLite 的
+#:   观察事件，五层照常渲染且不含事务身份与商品身份，任何一层带上 errand_bindings、errand_item_bindings 或 errand_id 即
+#:   渲染失败，按事务名回看以 TASK_NOT_FOUND 拒绝；上一项那段运行的每个请求里也没有事务身份、商品身份与绑定键。
+#: - 「同秒续接 changes 含事务增改删，同秒办成的事务在续接 events 中出现一次」：同一秒三次真实决策，changes.errands 写
+#:   新增与内容有变的完整行（added）和取消的名称（removed）；在集市记下后当场买下办成，下一条 tool 消息的 events 里恰有
+#:   一条只写名称的办成记录。
+#: - 「同一 session 内办成的事务在进度层有一条记录，浓缩后折成一句」：经真实请求办成的事务在进度层恰一条只写名称的记录、
+#:   来源计入观察，settled 句折成「HH:MM 办成「<事务名>」」（跨日带日期），取消的事务不留记录，开启新 session 的那次提交
+#:   里的办成不进新 session 的进度层。
+#: - 规格 3.4 的结构项（末一个节点）：真实 LifeAgent 收尾时记下事务，AS2 记忆库只多那条收尾记忆、只有那一步是记忆写入点；
+#:   暂停时更新与取消事务不写记忆；进度层工具调用参数略去 errands、回执是唯一痕迹；离开那段停留后记忆层 self_notes 里有
+#:   收尾与暂停的自述和记忆，没有事务的名称、备注与取消原因。
 _PROMPT_PRESENCE_TESTS = [
-    _ERRAND_TODO + "test_observation_carries_private_errand_bindings_outside_every_layer",
+    _SYSTEM_VERBATIM,
+    _SEVEN_LAYERS + "test_rules_1_4_6_divide_errands_summaries_and_memories",
+    _SEVEN_LAYERS + "test_the_retired_continuation_sentence_is_gone_everywhere",
     _TOOL_TEXTS + "test_control_tool_purposes_and_errand_descriptions_are_the_contract_text",
     _TOOL_TEXTS + "test_every_native_tool_has_a_purpose_only_description",
     _TOOL_TEXTS + "test_parameter_descriptions_are_purpose_only",
+    _REFLECTION + "test_reflection_prompt_is_the_contract_text",
+    _REFLECTION + "test_reflection_prompt_ends_with_the_errand_sentences",
+    "tests/integration/test_unique_presence_run.py::test_an_errand_full_row_appears_only_in_the_todo_layer",
+    _ERRAND_TODO + "test_observation_carries_private_errand_bindings_outside_every_layer",
+    _CONTINUATION + "test_errand_changes_reach_the_next_tool_message_as_added_and_removed",
+    _CONTINUATION + "test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events",
     "tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line",
+    _SEPARATED,
 ]
 
 _COMPLETION = "tests/life/test_errand_completion.py::"
@@ -471,6 +504,18 @@ _OVERNIGHT_KILLERS = (
 _CONDENSED_KILLERS = (_OVERNIGHT + "test_a_condensed_request_still_carries_the_todo_layer_errands",)
 _OVERFLOW_KILLERS = (_OVERNIGHT + "test_an_errand_stays_when_the_memory_layer_overflows_its_window",)
 _CHECKPOINT_KILLERS = (_RESTORED_BRANCH,)
+_PROGRESS_LAYER_MODULE = "worldmock.life.progress_layer"
+_PROGRESS_LAYER_SOURCE = "src/worldmock/life/progress_layer.py"
+_MEMORY_LAYER_MODULE = "worldmock.life.memory_layer"
+_MEMORY_LAYER_SOURCE = "src/worldmock/life/memory_layer.py"
+_PROMPT_MODULE = "custom.agents.life_prompt"
+_PROMPT_SOURCE = "custom/agents/life_prompt.py"
+#: 提示分工三个变异的杀手：进度层工具调用参数带上请求级 errands 时，人物在那段停留里实际看到的收尾调用参数多出 errands、
+#: 备注出现在进度层；self_notes 把请求里的事务名与备注当成自述时，离开那段停留后实际请求的记忆层出现事务的名称与备注
+#: （两者都经真实 LifeAgent、LifeEnv 与 SQLite，引擎按本名导入这两个模块）；生活决策系统层第 6 条改掉一个分句时，直接
+#: 导入的 LifeAgent（按本名导入 custom.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
+_SEPARATION_KILLERS = (_SEPARATED,)
+_VERBATIM_KILLERS = (_SYSTEM_VERBATIM,)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -991,6 +1036,35 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "    errands: dict[str, ErrandState] = Field(default_factory=dict, exclude=True)\n",
         _CHECKPOINT_KILLERS,
     ),
+    SourceMutation(
+        "progress_arguments_carry_errands",
+        _PROGRESS_LAYER_MODULE,
+        _PROGRESS_LAYER_SOURCE,
+        "    return control_request(tool, request, memories=True)\n",
+        '    return {**control_request(tool, request, memories=True), "errands": request["errands"]}\n',
+        _SEPARATION_KILLERS,
+    ),
+    SourceMutation(
+        "self_notes_carry_errand_text",
+        _MEMORY_LAYER_MODULE,
+        _MEMORY_LAYER_SOURCE,
+        "            notes.extend((item.activity_name, text) for text in texts if text.strip())\n",
+        (
+            "            notes.extend((item.activity_name, text) for text in texts if text.strip())\n"
+            "            from worldmock.life.control_items import control_errands\n"
+            "            notes.extend((item.activity_name, change[key]) for change in control_errands(\n"
+            '                request.data["tool_name"], request.data["request"]) for key in ("name", "memo") if change[key])\n'
+        ),
+        _SEPARATION_KILLERS,
+    ),
+    SourceMutation(
+        "system_layer_copy_diverges",
+        _PROMPT_MODULE,
+        _PROMPT_SOURCE,
+        '        "到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
+        '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
+        _VERBATIM_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1031,7 +1105,8 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "新唤醒原因漏登足迹词表": {"stage": "2", "mutations": ("errand_wake_reason_missing_from_vocabulary",)},
     "提醒与办成事件写成系统可见": {"stage": "2", "mutations": ()},
     "结算事件沿用证据事件的决策身份": {"stage": "2", "mutations": ()},
-    "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ()},
+    "事务文字写进进度层参数或 `self_notes`": {"stage": "2", "mutations": ("progress_arguments_carry_errands",
+                                                                     "self_notes_carry_errand_text")},
     "意图或 dreaming 投影带出请求级 `errands`": {"stage": "2", "mutations": ()},
     "投影原地修改原事件": {"stage": "2", "mutations": ()},
     "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
@@ -1091,6 +1166,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                           "交付到点的事务提醒）。",
     "simultaneous_reminders_write_one_event": "实施计划阶段 2「突变审查的目标」：同刻多条只写一条提醒事件"
                                               "（deliver_reminders 只留第一条草稿）。",
+    "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层三处文案不一致（life_prompt.py 第 6 条改掉一个"
+                                  "分句，接口合同与人物 Prompt 规格不跟随）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -1133,6 +1210,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/errands_workday_acceptance.py",
     "tests/integration/test_errand_checkpoint.py",
+    "tests/integration/test_errand_prompt_separation.py",
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
     "tests/life/test_errand_changes.py",

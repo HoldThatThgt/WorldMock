@@ -303,10 +303,19 @@ def _first_text_block(document: Path, lead: str) -> str:
     return block.group(1)
 
 
+#: 规格 3.3 节的标题：其后第一个 text 块是阶段 2 追加在反思文案末尾的两句。
+_ERRAND_LEAD = "### 3.3 就寝反思文案补句"
+#: 阶段 2 追加的两句（docs/dev/SPEC-errands-workday.md 3.3），在文案里是不折行的一行。
+_ERRAND_SENTENCES = ("Reflection does not register, finish or cancel errands. The supplied episodes are the person's "
+                     "own notes, not verified results; do not state as a fact that something was obtained, eaten or "
+                     "finished.")
+
+
 @pytest.mark.asyncio
 async def test_reflection_prompt_is_the_contract_text(tmp_path) -> None:
     """反思的 system 文案由 WorldMock 自持：经记忆运行时实际发出的 system、模块常量与接口合同「请求组成」的登记块三者
-    逐字相同，也就是规格 1.1 的文本块；文案写的 one to five 与 AS2 的条数上限常量绑在一起（常量变而文案不变即失败）。"""
+    逐字相同，也就是规格 1.1 的文本块之后空一行接 3.3 的补句（docs/dev/SPEC-errands-workday.md 3.3，阶段 2 追加）；
+    文案写的 one to five 与 AS2 的条数上限常量绑在一起（常量变而文案不变即失败）。"""
     script = _ReflectionScript(_valid)
     runtime, _ = _runtime(tmp_path, script)
     await _sleep_boundary(runtime)
@@ -315,7 +324,8 @@ async def test_reflection_prompt_is_the_contract_text(tmp_path) -> None:
     contract = _first_text_block(ROOT / "docs" / "CONTRACTS.md", "就寝反思的 system 文案（逐字）：")
     assert request["messages"][0] == {"role": "system", "content": REFLECTION_PROMPT}
     assert request["messages"][0]["content"] == REFLECTION_PROMPT == contract
-    assert REFLECTION_PROMPT == _first_text_block(ROOT / "docs" / "dev" / "SPEC-errands-workday.md", "**文案。**")
+    spec = ROOT / "docs" / "dev" / "SPEC-errands-workday.md"
+    assert REFLECTION_PROMPT == _first_text_block(spec, "**文案。**") + "\n\n" + _first_text_block(spec, _ERRAND_LEAD)
     assert "Call submit_reflection exactly once with one to five insights." in REFLECTION_PROMPT
     assert MEMORY_REFLECTION_MAX_INSIGHTS == 5
     assert [line for line in REFLECTION_PROMPT.splitlines() if line[:2] in {"1.", "2.", "3."}] == [
@@ -323,6 +333,28 @@ async def test_reflection_prompt_is_the_contract_text(tmp_path) -> None:
         "2. 这个人对自己、对身边的人有了哪些新的认识？",
         "3. 接下来这个人最应该关心或改变什么？"]
     assert request["messages"][1]["content"].startswith("<memory_reflection_input>")
+
+
+@pytest.mark.asyncio
+async def test_reflection_prompt_ends_with_the_errand_sentences(tmp_path) -> None:
+    """就寝反思文案的补句（docs/dev/SPEC-errands-workday.md 3.3，按裁决 Q1 的写法）：经真实记忆运行时在就寝边界实际发出
+    的 system 以空一行接两句结尾——反思不记下、不办成也不取消个人事务；输入的记忆是人物自己的记录、不是核验过的结果，
+    不把取得、吃掉或办完写成事实。两句是不折行的一行，与规格 3.3 的文本块逐字相同；它前面逐行就是阶段 1 的文案（规格
+    1.1 的文本块，原有各行不重新折行）；接口合同「请求组成」的登记块以同样的空行与这一行结尾。补句不借用「已结算」的
+    说法，也不点名任何工具。"""
+    script = _ReflectionScript(_valid)
+    runtime, _ = _runtime(tmp_path, script)
+    await _sleep_boundary(runtime)
+
+    [request] = script.requests
+    lines = request["messages"][0]["content"].splitlines()
+    spec = ROOT / "docs" / "dev" / "SPEC-errands-workday.md"
+    assert lines[-1] == _ERRAND_SENTENCES == _first_text_block(spec, _ERRAND_LEAD)
+    assert lines[-2] == "" and "\n".join(lines[:-2]) == _first_text_block(spec, "**文案。**")
+    contract = _first_text_block(ROOT / "docs" / "CONTRACTS.md", "就寝反思的 system 文案（逐字）：")
+    assert contract.splitlines()[-2:] == ["", _ERRAND_SENTENCES]
+    assert "settle" not in _ERRAND_SENTENCES.lower() and "_" not in _ERRAND_SENTENCES
+    assert _ERRAND_SENTENCES.count(". ") == 1 and _ERRAND_SENTENCES.endswith("finished.")
 
 
 class _WakingModel:

@@ -15,6 +15,9 @@
 计数时，同秒续接里被后续 tool 消息 changes 按名称取代（updated、added）或移除（removed）的链首旧条目不算另一处呈现
 （第二章「同秒续接」：changes 相对于模型当前所见，以最新为准）；assistant 回合只计 content 与 reasoning_content，
 它的 tool_calls 是模型自己那次调用的原样回放，不是环境呈现的信息。
+个人事务另有一段单人运行（docs/dev/SPEC-errands-workday.md 2.6「唯一出现的口径」）：记下（被宿主纠正一次）、更新、取消、
+办成与一次绕过宿主被环境拒绝的变更都在其中，事务的完整行只在待办层，事务名在别处只作为 errand 键，只有规格的三处
+回显位置例外。
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+from agentsociety2.society import DirectToolCall  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_continuation import _earlier_changes, _overlay, _view  # noqa: E402
 from custom.agents.life_persona import persona_layer  # noqa: E402
@@ -44,9 +48,15 @@ from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_ModelResponse, _TextResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view as _opinion)
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_arguments  # noqa: E402,F401
+from tests.life.conftest import errand_add, errand_cancel, errand_update, wake_by_mail  # noqa: E402
 from tests.life.routing_fixtures import stage  # noqa: E402
+from tests.life.test_errand_completion import KIT, KIT_NAME, MILK, MILK_ID, home  # noqa: E402
+from tests.life.test_errand_reminder import TEA  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
+from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
 from worldmock.life.error_contract import ITEM_KEYS, ErrorItem, ErrorReport  # noqa: E402
+from worldmock.life.errand_state import ERRAND_EVENT_KINDS  # noqa: E402
+from worldmock.life.models import REQUEST_MODELS, ActivityProgressItem  # noqa: E402
 from worldmock.life.prompt_schemas import validate_layer  # noqa: E402
 
 #: 李凡发给陈曦的直接消息（全文不含 JSON 需要转义的字符）。
@@ -609,3 +619,244 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
     with pytest.raises(AssertionError):
         _assert_readable(continued({"result": {"details": {"note": f"见 {engine.scenario.tasks[0].task_id}"}}}),
                          identities)
+
+
+#: 个人事务那段运行里的三条事务：手边那盒奶吃掉即办成（被宿主纠正过一次备注），食材包先记下后改备注，冰红茶记下后取消。
+_DRINK_ERRAND, _KIT_ERRAND, _TEA_ERRAND = "把冰箱里那盒奶喝掉", "周末补一份食材包", "囤一箱冰红茶"
+_DRINK_MEMO, _KIT_MEMO, _KIT_MEMO_LATER = "午饭后趁凉喝", "下班顺路去超市", "改成周六上午去菜场"
+_TEA_REASON = "家里还有半箱"
+#: 超过 120 字的备注：第一个由宿主就地纠正（它以合法备注开头），第二个经绕过宿主的请求由环境拒绝（以更新后的备注开头）。
+_TOO_LONG_MEMO = _DRINK_MEMO + "，" + "顺便把冰箱里的剩菜也清一清" * 10
+_BYPASSED_MEMO = _KIT_MEMO_LATER + "，" + "顺便看看有没有新到的蔬菜" * 10
+#: 剧本各阶段（陈曦一人），依次推进；bypass 一步不经人物模型，由驱动直接登记给环境。
+_ERRAND_PHASES = ("wait", "note", "note-fixed", "change", "drink", "bypass", "after-bypass", "finish", "end", "done")
+
+
+def _errand_items(tool: str, names: list[str], summary: str) -> list[dict]:
+    """控制工具的逐项活动：一项一个对象、写同一句自述；结束工具每项另带空的记忆与看法。"""
+    extra = {"memories": [], "views": []} if tool == "conclude_activity" else {}
+    return [{"activity_name": name, "summary": summary, **extra} for name in names]
+
+
+class _ErrandScript:
+    """只替换远程模型传输：陈曦按阶段记下、纠正、更新、取消个人事务并喝掉那盒奶，按本次请求中模型此刻所见决定唯一一个
+    工具调用，保存实际发送的每个行动请求。"""
+
+    model_name = "deepseek-flash"
+
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+        self.phase = "wait"
+
+    async def call(self, **request):
+        """保存行动请求并按剧本作答；记忆运行时不带工具的请求返回一句话。"""
+        names = [item["function"]["name"] for item in request.get("tools") or []]
+        if not names:
+            return _TextResponse("我按眼前的情况决定接下来做什么。")
+        assert "start_activity" in names, f"unexpected non-action request with tools {names}"
+        self.requests.append(copy.deepcopy(request))
+        tool, arguments = self._decide(_current(request))
+        return _ModelResponse(f"call-errand-{len(self.requests)}", tool, json.dumps(arguments, ensure_ascii=False),
+                              reasoning_content="按此刻所见决定下一步。")
+
+    def _advance(self) -> None:
+        """进入下一阶段。"""
+        self.phase = _ERRAND_PHASES[_ERRAND_PHASES.index(self.phase) + 1]
+
+    def _decide(self, seen: dict) -> tuple[str, dict]:
+        """当前阶段要做的事；阶段条件不满足时刚结束的先收尾、进行中的播报（都不带事务变更），否则开始等待。"""
+        pending, running = _activities(seen, "刚结束"), _activities(seen, "进行中")
+        planned = self._planned(pending, running)
+        if planned is not None:
+            self._advance()
+            return planned
+        if pending:
+            return "conclude_activity", {"items": _errand_items("conclude_activity", pending, "收尾。"), "errands": []}
+        if running:
+            return "report_status", {"items": _errand_items("report_status", running, "接着做。"), "errands": []}
+        return "start_activity", start_arguments(["自己"], ["interact"], ["等待"])
+
+    def _planned(self, pending: list[str], running: list[str]) -> tuple[str, dict] | None:
+        """本阶段的计划动作；条件不满足时为 None。"""
+        report = _errand_items("report_status", running, "还在等。")
+        steps = {
+            "wait": (True, "start_activity", start_arguments(["自己"], ["interact"], ["等待"])),
+            "note": (running, "report_status", {"items": report, "errands": [
+                errand_add(_DRINK_ERRAND, MILK, outcome="吃掉", memo=_TOO_LONG_MEMO)]}),
+            "note-fixed": (running, "report_status", {"items": report, "errands": [
+                errand_add(_DRINK_ERRAND, MILK, outcome="吃掉", memo=_DRINK_MEMO),
+                errand_add(_KIT_ERRAND, KIT_NAME, memo=_KIT_MEMO), errand_add(_TEA_ERRAND, TEA, quantity=3)]}),
+            "change": (pending, "conclude_activity", {
+                "items": _errand_items("conclude_activity", pending, "不等了。"),
+                "errands": [errand_update(_KIT_ERRAND, memo=_KIT_MEMO_LATER), errand_cancel(_TEA_ERRAND, _TEA_REASON)]}),
+            "drink": (not pending and not running, "start_activity",
+                      start_arguments([f"持有物：{MILK}"], ["consume"], ["食用"])),
+            "after-bypass": (running, "report_status", {
+                "items": _errand_items("report_status", running, "接着喝。"), "errands": []}),
+            "finish": (pending, "conclude_activity", {
+                "items": _errand_items("conclude_activity", pending, "喝完了。"), "errands": []}),
+            "end": (not pending and not running, "start_activity", start_arguments(["自己"], ["interact"], ["等待"])),
+        }
+        ready, tool, arguments = steps.get(self.phase, (False, None, None))
+        return (tool, arguments) if ready else None
+
+
+def _bypass(engine, decision) -> None:
+    """绕过宿主的一次登记（不经人物模型）：播报进行中的喝奶，同时把食材包的备注更新成超过 120 字的写法；请求不经校验
+    构造，交给环境复核。"""
+    observed = engine.observe(decision)
+    [name] = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_ACTIVE]
+    request = REQUEST_MODELS["report_status"].model_construct(
+        items=[ActivityProgressItem(activity_name=name, summary="先喝着。")],
+        errands=[errand_update(_KIT_ERRAND, memo=_BYPASSED_MEMO)])
+    engine.submit_action(DirectToolCall(decision, f"action-{decision.round_id}", "report_status", request))
+
+
+async def _errand_run(environment: LifeEnv, person: LifeAgent, script: _ErrandScript) -> list:
+    """真实决策循环：没人就绪就推进到下一边界；陈曦就绪时经 AS2 step 决策，到 bypass 阶段改由驱动直接登记，再结算本轮。
+    返回各轮的动作结果。"""
+    engine, results, rounds = environment.engine, [], 0
+    while script.phase != "done":
+        scheduling = engine.scheduling_state()
+        if not scheduling.ready_agent_ids:
+            await environment.step(int(scheduling.next_event_at.timestamp()) - engine.state.current_time,
+                                   scheduling.next_event_at)
+            continue
+        rounds += 1
+        assert rounds < 40, (engine.state.current_time, script.phase)
+        decision = context(engine, f"errand-{rounds}")
+        await environment.begin_decision_round((decision,))
+        if script.phase == "bypass":
+            _bypass(engine, decision)
+            script.phase = "after-bypass"
+        else:
+            person.bind_decision_context(decision)
+            await person.step(0, decision.observed_at)
+        results.extend(await environment.commit_decision_round(decision.round_id))
+    return results
+
+
+def _errand_rows(request: dict) -> list[dict]:
+    """模型在这次请求里看到的全部事务行：链首待办层的行与各续接 tool 消息 changes.errands.added 的行。"""
+    rows = list(json.loads(request["messages"][1]["content"])[3]["errands"])
+    for message in request["messages"][2:]:
+        payload = _json(message["content"]) if message["role"] == "tool" else None
+        if isinstance(payload, dict) and "result" in payload:
+            rows += payload.get("changes", {}).get("errands", {}).get("added", [])
+    return rows
+
+
+def _blank_rejected(result: dict) -> None:
+    """被拒结果明细里人物所写的内容（items[].written）置空：规格 2.6 的第三处回显位置。"""
+    if result.get("status") == "rejected":
+        for item in result["details"].get("items", []):
+            item["written"] = None
+
+
+def _blank_echoes(layer: dict) -> None:
+    """进度层里照原始证据回显所写内容的两处置空：当日操作备忘的 written 与 accepted_as，被拒结果明细的 written。"""
+    for row in layer["rejected_today"]:
+        row["written"] = row["accepted_as"] = None
+    for record in layer["events"]:
+        if record["type"] == "tool_call":
+            _blank_rejected(record["result"])
+
+
+def _outside(request: dict, strip: bool = True) -> list:
+    """待办层事务行之外呈现给模型的各段（能解析的按 JSON）：system、原生 tools、链首六层（待办层的 errands 不算）、
+    其后各回合 assistant 的正文与思考、每条 tool 消息。strip 为真时去掉规格 2.6 的三处回显位置且只去掉它们：同秒续接中
+    上一决策带回的调用参数（assistant 的 tool_calls；与上面的唯一出现检查同一口径，本决策纠错回合里模型自己调用的原样
+    回放同样不是环境呈现的信息）与 tool 消息里的改动（changes.errands），进度层当日操作备忘的 written 与 accepted_as，
+    被拒结果明细的 written。strip 为假时这三处都算，用来证明例外确实被用到。"""
+    messages = copy.deepcopy(request["messages"])
+    layers = json.loads(messages[1]["content"])
+    layers[3]["errands"] = []
+    if strip:
+        _blank_echoes(layers[5])
+    parts = [_json(messages[0]["content"]), request["tools"], *layers]
+    for message in messages[2:]:
+        if message["role"] == "assistant":
+            parts.extend(message.get(key) or "" for key in ("content", "reasoning_content"))
+            if not strip:
+                parts.extend(call["function"]["arguments"] for call in message.get("tool_calls") or [])
+            continue
+        payload = _json(message["content"])
+        if strip and isinstance(payload, dict) and "result" in payload:
+            payload.get("changes", {}).pop("errands", None)
+            _blank_rejected(payload["result"])
+        parts.append(payload)
+    return parts
+
+
+def _row_leaks(request: dict, names: list[str], strip: bool = True) -> list[str]:
+    """事务完整行的内容（要办成什么、已办到哪、备注）出现在待办层之外的每一处，以及事务名不作为 errand 键（进度层两种
+    记录与回执）出现的每一处。"""
+    values = {row[key] for row in _errand_rows(request) for key in ("done_when", "progress", "memo") if row[key]}
+    found = []
+    for part in _outside(request, strip):
+        text = part if isinstance(part, str) else _compact(part)
+        found += [value for value in sorted(values) if value in text]
+        found += [name for name in names for holder in _holders(part, name) if holder != "errand"]
+    return found
+
+
+@pytest.mark.asyncio
+async def test_an_errand_full_row_appears_only_in_the_todo_layer(_engine_factory, tmp_path) -> None:
+    """个人事务的完整行只在待办层（docs/dev/SPEC-errands-workday.md 2.6「唯一出现的口径」）：真实 LifeEngine、SQLite、LifeEnv
+    与从工作区装配、启用记忆的 LifeAgent，单人白领 12:30 在家、手边一盒纯牛奶。陈曦开始等待；12:31 邮件来时播报并记下
+    「吃掉纯牛奶」的事务，备注超过 120 字被宿主就地纠正后连同另两条一起记下（新增带备注）；12:45 等待结束时收尾，更新食材包
+    的备注、取消冰红茶；同一秒续接开始喝奶；12:50 邮件来时一次绕过宿主的请求把食材包备注写成超长，环境整请求拒绝；随后
+    播报喝奶，13:00 喝完那一刻事务办成（进度层出现只写名称的办成记录），收尾后再开始等待。对陈曦的每一次行动请求（续接
+    与非续接）检查：模型所见每条事务行的要办成什么、已办到哪与备注只在待办层（或续接 changes 里替换它的新行）出现；
+    事务名在别处只作为进度层办成记录与回执的 errand 键出现；规格 2.6 的三处回显位置——同秒续接中上一决策的调用参数与
+    tool 消息里的改动、当日操作备忘的 written 与 accepted_as、被拒结果明细的 written——之外再没有它们；不去掉这三处时
+    确实会查到（例外被用到，检查不空转）。每个请求照常通过唯一出现与人读写法的既有检查（错误路径里的 errands 下标被
+    接受），整次请求里没有事务身份、事务的商品身份与两类私有绑定键。"""
+    engine = home(_engine_factory, {MILK_ID: 1.0})
+    wake_by_mail(engine, offset=60)
+    wake_by_mail(engine, offset=1200)
+    environment, script = LifeEnv(), _ErrandScript()
+    environment.engine = engine
+    workspace = tmp_path / "agent_0001"
+    LifeAgent.create(workspace, {"id": 1, "name": engine.state.agents[1].name, "occupation": "engineer"},
+                     {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
+    service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=script), trace=None)
+    person = await LifeAgent.from_workspace(workspace, service)
+    try:
+        results = await _errand_run(environment, person, script)
+        [rejected] = [result for result in results if result.error_code is not None]
+        assert rejected.error_code == "ACTION_REQUEST_INVALID" and rejected.data["items"][0]["written"] == _BYPASSED_MEMO
+        events = [event for event in engine.store.read_agent_events("environment_event", 1)
+                  if event.data.get("kind") in ERRAND_EVENT_KINDS]
+        kinds = [event.data["kind"] for event in events]
+        assert kinds.count("errand_registered") == 3 and kinds.count("errand_completed") == 1
+        assert (kinds.count("errand_updated"), kinds.count("errand_cancelled")) == (1, 1)
+        corrected = [event.data["protocol_feedback"] for event in engine.store.read_agent_events("model_response", 1)
+                     if event.data.get("protocol_feedback")]
+        assert [item["path"][-3:] for report in corrected for item in report["items"]] == [["errands", 0, "memo"]]
+        names = [_DRINK_ERRAND, _KIT_ERRAND, _TEA_ERRAND]
+        identities = _identities(engine) | {value for event in events
+                                            for value in (event.data["errand"]["errand_id"],
+                                                          event.data["errand"]["product_id"])}
+        assert KIT in identities and MILK_ID in identities
+        for request in script.requests:
+            _assert_once_each(request)
+            _assert_readable(request, identities)
+            assert _row_leaks(request, names) == [], _observed_at(request)
+            whole = "".join(_presented(request))
+            assert not [key for key in ("errand_bindings", "errand_item_bindings", "errand_id") if key in whole]
+        echoed = [request for request in script.requests if _row_leaks(request, names, strip=False)]
+        assert {len(request["messages"]) > 2 for request in echoed} == {True, False}
+        heads = [json.loads(request["messages"][1]["content"]) for request in script.requests]
+        assert any(row["accepted_as"] == _DRINK_MEMO and _DRINK_MEMO in row["written"]
+                   for layers in heads for row in layers[5]["rejected_today"])
+        assert any(item["written"] == _BYPASSED_MEMO and _KIT_MEMO_LATER in [row["memo"] for row in layers[3]["errands"]]
+                   for layers in heads for record in layers[5]["events"] if record["type"] == "tool_call"
+                   for item in record["result"]["details"].get("items", []))
+        assert any("errands" in payload.get("changes", {}) for request in script.requests
+                   for payload in (_json(message["content"]) for message in request["messages"][2:]
+                                   if message["role"] == "tool") if isinstance(payload, dict) and "result" in payload)
+        assert any(record == {"occurred_at": record["occurred_at"], "type": "errand_completed", "errand": _DRINK_ERRAND}
+                   for layers in heads for record in layers[5]["events"])
+    finally:
+        engine.close()

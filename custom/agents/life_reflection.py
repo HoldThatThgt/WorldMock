@@ -23,7 +23,9 @@ REFLECTION_TOOL = "submit_reflection"
 #: 数值与零点计划的校验重试相同，但各自独立，互不引用。
 REFLECTION_VALIDATION_RETRIES = 3
 #: 就寝反思的 system 文案（docs/CONTRACTS.md「请求组成」逐字登记，测试逐字比对）；条数上限与 AS2 常量
-#: MEMORY_REFLECTION_MAX_INSIGHTS 同为五条。
+#: MEMORY_REFLECTION_MAX_INSIGHTS 同为五条。阶段 1 的文本（docs/dev/SPEC-errands-workday.md 1.1）原样保留、各行不重新
+#: 折行，其后空一行追加 3.3 的两句：反思不记下、不办成也不取消个人事务，输入是人物自己的记录、不是核验过的结果。两句在
+#: 文案里是不折行的一行，源码只为行宽拆成相邻的字符串。
 REFLECTION_PROMPT = """
 Reflect on a simulated person's recent memories.
 
@@ -38,7 +40,9 @@ is one first-person sentence in the person's language, and refs lists the ids
 of the supplied episodes that support it. Do not write episode ids or long
 digit strings inside the insight text. These insights are subjective; do not
 present them as verified world facts.
-""".strip()
+""".strip() + "\n\n" + (
+    "Reflection does not register, finish or cancel errands. The supplied episodes are the person's own notes, "
+    "not verified results; do not state as a fact that something was obtained, eaten or finished.")
 #: 附回重试时的英文指令。
 _CORRECTION_INSTRUCTION = "Return a complete new submit_reflection tool call using the unchanged schema."
 
