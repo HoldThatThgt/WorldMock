@@ -182,10 +182,10 @@ def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any
     selected = []
     for event in events:
         data = event.get("data", {})
-        if event.get("event_type") != "model_request" or data.get("phase") != "request" or data.get("purpose"):
+        if event.get("event_type") != "model_request" or data.get("phase") != "request":
             continue
         names = _request_tool_names(data.get("request"))
-        if not names or _ACTION_TOOL in names:
+        if not event.get("data", {}).get("purpose") and (not names or _ACTION_TOOL in names):
             selected.append(event)
     return selected
 
