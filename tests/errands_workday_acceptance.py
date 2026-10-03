@@ -336,9 +336,10 @@ _CARD_SCENARIO = "tests/life/test_scenario.py::"
 
 #: 「作息锚点」（卡片一侧）：头七个节点经真实 extract_persona 与脚本化会话——故事写明时产出窗口、未提及为 null 且不取映射
 #: 表缺省、下班摇摆不改变其余五锚点、单次采样乱序只为放行而降级且不消耗重试、共识乱序先降下班再降到家且卡片照常编译、
-#: 三次采样各自乱序而共识合法时不降级、格式错误照常重试；第八个是 null 新锚点下凌晨就寝仍回绕归一；第九个是真实
-#: compile_persona 把降级说明接在一致性警告之后。其后三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束、固定的
-#: 降级顺序与说明）。再后两个经真实抽取（脚本化会话）、真实新建（画像编译、场景作息覆盖、人物装配、LifeEnv 与 SQLite
+#: 三次采样各自乱序而共识合法时不降级、格式错误照常重试；第八个是 null 新锚点下凌晨就寝仍回绕归一；第九个是首版不支持
+#: 跨午夜的下班与到家：就寝回绕到次日时，起点不晚于就寝而越过当日 24 点的到家在共识后被置 null 并留一条说明；第十个是真实
+#: compile_persona 把降级说明接在一致性警告之后。其后三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束与当日
+#: 午夜上界、固定的降级顺序与说明）。再后两个经真实抽取（脚本化会话）、真实新建（画像编译、场景作息覆盖、人物装配、LifeEnv 与 SQLite
 #: 运行清单）与直接导入的 LifeAgent：降级说明作为画像编译警告冻结进清单（PERSONA_AGREEMENT_LOW 只带原文、消息不归因于
 #: 一致性），写明的下班与到家按九键键序到达实际请求的人设层、卡片文本追加两个分句。随后是画像文本各自非空时追加分句并
 #: 计入预算、都为 null 时逐字节不变（render_card 与新建运行冻结的卡片文本是同一函数）；人设层（直接导入
@@ -357,6 +358,7 @@ _WORK_ANCHOR_TESTS = [
     _CARD_EXTRACTION + "test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted",
     _CARD_EXTRACTION + "test_malformed_or_missing_work_anchors_take_the_parse_retry",
     _CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",
+    _CARD_EXTRACTION + "test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime",
     "tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it",
     _CARD_MODELS + "test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order",
     _CARD_MODELS + "test_work_anchor_order_constraints_are_enforced",
@@ -434,16 +436,21 @@ _WORKLOAD = "tests/evaluation/test_workload_metrics.py::"
 _WORKLOAD_REPORT = "tests/life/test_workload_report.py::"
 #: 「工作负荷与作息偏离」：真实运行（engine_factory 加 declare，只发真实请求、不预置地点）班内 15:00 离开办公室回家，从
 #: SQLite 读回的事件与改写后的场景文档经 behavior_metrics_report 重算出三小时的早退与缺勤、恒等关系成立，离开工作地点
-#: 对班次结束早 180 分钟、证据是回家那一程的首个进度事件；手写事件逐值核对各量的定义与恒等关系、两种声明例外（休息时段、
-#: 已开放未结清任务的要求地点的外出）不计缺勤而不当班日不进统计、作息偏离三项对窗口与班次的正负与零、证据身份、容差
+#: 对班次结束早 180 分钟、证据是回家那一程的首个进度事件；另一组真实运行把首个任务改成集市的预约任务，班内约定开始前
+#: 出发赴约、在那里工作（午休也在）、直接回办公室，重算为任务外出（扣掉午休）而缺勤与早退为 0，同一行程在场景按日期
+#: 例外写成不当班的运行里十个量都是 0、作息偏离对班次的两项为 null。手写事件逐值核对各量的定义与恒等关系、两种声明
+#: 例外（休息时段、已开放未结清任务的要求地点的外出，预约任务从约定当天起算）不计缺勤而不当班日不进统计、赴约早于
+#: 约定开始的路上不是缺勤也不是早退、作息偏离三项对窗口与班次的正负与零、证据身份、容差
 #: 写进报告不作用于偏离值、班次两端在睡的标注、没有工作安排的人物离开一项为 null、缺输入为 null 并写说明、不出现已删除
 #: 的偏离指标键名、同一输入逐字节相同；打包输入取自经真实解析的场景文档与卡片。只读子命令 workday 对同一真实运行目录
 #: 经子进程打印恰好四键、值等于进程内重算、库文件字节不变；场景文件摘要不等于运行清单的 scenario_sha256 时以英文错误
 #: 非零退出、不打印；作息窗口取自运行工作区的结构化卡片，没有卡片时按 null 计并写说明。
 _WORKLOAD_TESTS = [
     _WORKLOAD + "test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave",
+    _WORKLOAD + "test_a_real_task_outing_is_not_absence_and_a_declared_rest_day_counts_nothing",
     _WORKLOAD + "test_workload_fields_follow_their_definitions_on_a_hand_built_day",
     _WORKLOAD + "test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out",
+    _WORKLOAD + "test_travel_to_an_appointment_before_it_starts_is_a_task_outing_not_absence_or_early_leave",
     _WORKLOAD + "test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags",
     _WORKLOAD + "test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home",
     _WORKLOAD + "test_missing_inputs_are_null_with_a_note",
@@ -650,7 +657,7 @@ _EXTRACTOR_MODULE = "worldmock.profile.extractor"
 _EXTRACTOR_SOURCE = "src/worldmock/profile/extractor.py"
 _CARD_MODELS_MODULE = "worldmock.profile.models"
 _CARD_MODELS_SOURCE = "src/worldmock/profile/models.py"
-#: 卡片锚点四个变异的杀手都经真实 extract_persona（脚本化会话）：抽取把写明的下班丢成 null 时卡片没有下班窗口；下班与到家
+#: 卡片锚点五个变异的杀手都经真实 extract_persona（脚本化会话）：抽取把写明的下班或到家丢成 null 时卡片没有那个窗口；下班与到家
 #: 的 null 换成固定的傍晚窗口时卡片不再是 null；新锚点并入回绕归一的名字元组时 null 让归一整体放弃、凌晨就寝按同日乱序被拒
 #: 直至重试耗尽；乱序不降级而原样落进锚点时每次采样都被卡片校验拒绝、重试耗尽。
 _STATED_ANCHOR_KILLERS = (_CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",)
@@ -660,9 +667,9 @@ _DEMOTION_KILLERS = (
     _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",)
 _PERSONA_LAYER_MODULE = "custom.agents.life_persona"
 _PERSONA_LAYER_SOURCE = "custom/agents/life_persona.py"
-#: 人设层两个变异的杀手都直接导入 custom.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
-#: 下班投影成 null 时，写明下班的卡片在人设层的下班不再是「18点到18点半」；人设层多渲染 profile 里的工作安排时，带工作
-#: 安排的档案的人设层多出一个键、不再与不带工作安排的同一档案相同。
+#: 人设层三个变异的杀手都直接导入 custom.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
+#: 下班或到家投影成 null 时，写明它们的卡片在人设层的下班不再是「18点到18点半」、到家不再是「19点到19点半」；人设层多渲染
+#: profile 里的工作安排时，带工作安排的档案的人设层多出一个键、不再与不带工作安排的同一档案相同。
 _PERSONA_ANCHOR_KILLERS = (
     _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",)
 _PERSONA_SCHEDULE_KILLERS = (
@@ -690,16 +697,18 @@ _ENVIRONMENT_LAYER_MODULE = "worldmock.life.environment_layer"
 _ENVIRONMENT_LAYER_SOURCE = "src/worldmock/life/environment_layer.py"
 _WORK_MODULE = "worldmock.life.work"
 _WORK_SOURCE = "src/worldmock/life/work.py"
-#: 上班安排六个变异的杀手都在主进程内驱动真实 LifeEngine（环境层与工作合同按本名导入 work_schedule、environment_layer
+#: 上班安排七个变异的杀手都在主进程内驱动真实 LifeEngine（环境层与工作合同按本名导入 work_schedule、environment_layer
 #: 与 work）：按星期推断休息日时周一写 null 的人物仍有班次，忽略例外日期时例外写 null 的周一当班、例外写班次的周一休息
 #: （双人场景的时间窗没有日历特殊日，加载照常）；休息时段显示为当班中时 12:00 与 12:30 不是「休息时段」；所有人物套某人的班次时
-#: 没有工作安排的人物 2 也有 duty；计划有目标后 duty 消失时修订被受理后的观察里 duty 为 null；班次并入任务开放判定（写死
-#: 夹具的 09:00 与场景的 +08:00）时 08:30 的真实开工被拒绝。
+#: 没有工作安排的人物 2 也有 duty；计划有目标后 duty 消失时修订被受理后的观察里 duty 为 null；有任务付款结清后 duty 消失时
+#: 真实提交并付款后的观察里 duty 为 null；班次并入任务开放判定（写死夹具的 09:00 与场景的 +08:00）时 08:30 的真实开工被
+#: 拒绝。
 _REST_DAY_KILLERS = (
     _WORK_SCHEDULE + "test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly",)
 _BREAK_KILLERS = (_WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",)
 _UNSCHEDULED_KILLERS = (_WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",)
 _PLAN_REVISION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",)
+_SUBMISSION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_duty_stays_on_duty_after_the_work_is_submitted",)
 _TASK_OPENING_KILLERS = (_WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",)
 #: 零点计划输入带上 status 的杀手（主进程内经真实引擎与零点计划后台任务，零点计划输入按本名调用
 #: work_schedule.day_arrangement）：当班日的「上班安排」多出 status 键，载荷与请求不再是四键。环境层 duty 本来就带
@@ -1264,6 +1273,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _STATED_ANCHOR_KILLERS,
     ),
     SourceMutation(
+        "extraction_drops_stated_arrive_home",
+        _EXTRACTOR_MODULE,
+        _EXTRACTOR_SOURCE,
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
+        '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], None)\n',
+        _STATED_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
         "leave_work_takes_a_default",
         _EXTRACTOR_MODULE,
         _EXTRACTOR_SOURCE,
@@ -1296,6 +1313,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _PERSONA_LAYER_SOURCE,
         '"leave_work": _optional_window(anchors.leave_work)',
         '"leave_work": None',
+        _PERSONA_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "persona_layer_drops_arrive_home",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '"arrive_home": _optional_window(anchors.arrive_home)',
+        '"arrive_home": None',
         _PERSONA_ANCHOR_KILLERS,
     ),
     SourceMutation(
@@ -1386,6 +1411,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _PLAN_REVISION_DUTY_KILLERS,
     ),
     SourceMutation(
+        "duty_vanishes_after_work_submission",
+        _ENVIRONMENT_LAYER_MODULE,
+        _ENVIRONMENT_LAYER_SOURCE,
+        '"duty": _duty(context)',
+        '"duty": None if context.state.paid_task_ids else _duty(context)',
+        _SUBMISSION_DUTY_KILLERS,
+    ),
+    SourceMutation(
         "shift_gates_task_opening",
         _WORK_MODULE,
         _WORK_SOURCE,
@@ -1451,8 +1484,9 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
                                                   "version_8_export_passes_delivery_gate")},
-    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ("extraction_drops_stated_work_anchor",
-                                                                     "persona_layer_drops_work_anchor")},
+    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": (
+        "extraction_drops_stated_work_anchor", "extraction_drops_stated_arrive_home",
+        "persona_layer_drops_work_anchor", "persona_layer_drops_arrive_home")},
     "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
     "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
     "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
@@ -1517,6 +1551,9 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                         "接受 4）。",
     "plan_input_carries_duty_status": "实施计划阶段 3「突变审查的目标」：零点计划输入带上 `status`（day_arrangement 的"
                                       "当班日形状多出 status 键）。",
+    "duty_vanishes_after_work_submission": "实施计划阶段 3「突变审查的目标」：`submit_work` 之后 `duty` 变 null（环境层"
+                                           "在有任务付款结清后把 duty 投影成 null；同句的计划修订一半对应规格「计划"
+                                           "修订后 `duty` 消失」）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。

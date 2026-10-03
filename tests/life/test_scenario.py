@@ -847,9 +847,9 @@ def test_work_schedule_shape_errors_are_rejected(edit, message: str) -> None:
 
 
 def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_path: Path) -> None:
-    """`work_schedule` 是人物配置的必填可空字段（4.3，裁决 W3）：删掉该键即被拒，写 null 照常加载，合法的工作安排照常
-    加载；场景结构升为 5，键仍在而版本写回 4 的文档经真实入口（parse_scenario_document 与 load_scenario）按版本拒绝；
-    仓库三份场景的每个人物都显式写出 null。"""
+    """`work_schedule` 是人物配置的必填可空字段（4.3，裁决 W3）：删掉该键的文档经场景模型与真实入口
+    （parse_scenario_document 与 load_scenario）都被拒、原因点名该字段，写 null 照常加载，合法的工作安排照常加载；场景
+    结构升为 5，键仍在而版本写回 4 的文档经同样两个真实入口按版本拒绝；仓库三份场景的每个人物都显式写出 null。"""
     missing = _payload()
     del missing["agents"][0]["work_schedule"]
     _assert_invalid(missing, r"agents\.0\.work_schedule\n\s+Field required")
@@ -858,11 +858,14 @@ def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_p
     declared["agents"][0]["work_schedule"] = weekday_schedule(declared)
     assert LifeScenario.model_validate(declared).agents[0].work_schedule.weekly["5"] is None
 
+    keyless = _mutated_scenario(_FORMAL, lambda document: document["agents"][0].pop("work_schedule"),
+                                tmp_path / "no-work-schedule")
     old = _mutated_scenario(_FORMAL, lambda document: document.update(schema_version=4), tmp_path / "structure-4")
-    for entry in (parse_scenario_document, load_scenario):
-        with pytest.raises(IntegrityError, match="Scenario validation failed") as failure:
-            entry(old)
-        assert "schema_version" in str(failure.value.__cause__)
+    for path, field in ((keyless, "work_schedule"), (old, "schema_version")):
+        for entry in (parse_scenario_document, load_scenario):
+            with pytest.raises(IntegrityError, match="Scenario validation failed") as failure:
+                entry(path)
+            assert field in str(failure.value.__cause__)
 
     for path in _V2_SCENARIOS:
         assert all(agent["work_schedule"] is None for agent in _document(path)["agents"])

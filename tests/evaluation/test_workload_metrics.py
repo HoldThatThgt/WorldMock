@@ -1,12 +1,15 @@
 """行为评估的工作负荷与作息偏离（docs/dev/SPEC-errands-workday.md 6.2）。
 
 手写事件用例逐值核对各量的定义：班次按观察窗截取；在工作地点、休息时段、任务外出与缺勤四份之和等于班次；两种声明例外
-（班次内的休息时段、本人已开放且未结清任务的要求地点的外出）不计缺勤，不当班的日子不进统计；早退、离开工作地点与到家
+（班次内的休息时段、本人已开放且未结清任务的要求地点的外出，预约任务从约定当天起算、赴约的路上也算）不计缺勤，不当班
+的日子不进统计；早退、离开工作地点与到家
 相对班次和作息窗口的偏离、班次两端是否在睡与证据事件身份；缺输入为 null 并写说明；不出现已删除的偏离指标键名；同一
 输入的报告逐字节相同。评估输入经真实的场景文档解析打包。
 
 真实运行用例（engine_factory 加 declare 改写场景副本）只发真实请求、不预置地点：从家步行去办公室、开工、15:00 收工并
-步行回家，直到 18:30；从 SQLite 读回事件后经 behavior_metrics_report 重算出三小时的早退与缺勤。
+步行回家，直到 18:30；从 SQLite 读回事件后经 behavior_metrics_report 重算出三小时的早退与缺勤。另一组真实运行把首个
+任务改成集市的预约任务：班内赴约（约定开始前出发）、在那里工作、直接回办公室，重算为任务外出而没有缺勤与早退；同一
+行程在按日期例外不当班的场景里十个量都是 0。
 """
 
 from __future__ import annotations
@@ -194,6 +197,27 @@ def test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out() ->
     _identities(workload["2"], 3600)
     assert workload["3"] == _workload_values(32400, 25200, 0, 0.0, 25200, 5400, 7200, 12600, 0, 0)
     _identities(workload["3"], 0)
+
+
+def test_travel_to_an_appointment_before_it_starts_is_a_task_outing_not_absence_or_early_leave() -> None:
+    """规格 4.5「含预约任务」：周一 09:00–18:00、午休 12:00–13:30，人物 1 本人的预约任务约在周一 16:00 的客户处（开放
+    时刻即约定开始）。15:30 从办公室出发、15:55 到客户处，17:30 直接回家：约定开始之前去客户处的路上、提前到达的等候与
+    在客户处的时间都是任务外出，最后一次离开办公室是赴约，不是早退；从客户处回家的一程不是回工作地点，17:30 之后是
+    缺勤。人物 2 同样的行程，而预约在周二：约定当天之外去那里不算外出，15:30 之后都是缺勤，也是 2.5 小时早退。"""
+    events = _Events()
+    for agent_id in (1, 2):
+        events.body(agent_id, _at(0, "07:00"), _at(0, "20:00"))
+        events.trip(agent_id, _at(0, "08:30"), _at(0, "08:50"), ("home", "office"))
+        events.trip(agent_id, _at(0, "15:30"), _at(0, "15:55"), ("office", "client"))
+        events.trip(agent_id, _at(0, "17:30"), _at(0, "18:10"), ("client", "home"))
+    today = TaskSite("task-visit", "client", _at(0, "16:00"), _at(0, "16:00"))
+    tomorrow = TaskSite("task-visit-next", "client", _at(1, "16:00"), _at(1, "16:00"))
+    workload = _reports(events, {1: _agent(_schedule(), [today]),
+                                 2: _agent(_schedule(), [tomorrow])})["workload"]["agents"]
+    assert workload["1"] == _workload_values(32400, 23400, 0, 0.0, 23400, 5400, 7200, 12600, 1800, 0)
+    _identities(workload["1"], 0)
+    assert workload["2"] == _workload_values(32400, 23400, 0, 0.0, 23400, 5400, 0, 5400, 9000, 9000)
+    _identities(workload["2"], 0)
 
 
 def test_missing_inputs_are_null_with_a_note() -> None:
@@ -413,6 +437,96 @@ def _empty_handed(engine, name: str) -> None:
                                   if row["activity_id"] in open_ids])
 
     assert _decide(engine, name, "conclude_activity", request).status == "completed"
+
+
+#: 任务外出用例：周一首个任务改成约在集市（场景所选地点，不是工作地点）11:00 开始的客户预约；08:00 的本人通知照旧，
+#: 预约任务在约定开始时开放，当晚截止。
+_OUTING_TASK, _OUTING_SITE, _APPOINTMENT = "task-2026-01-05", "market", "11:00:00"
+
+
+def _outing_run(exceptions: dict):
+    """返回 mutate(document)：同 _workday_run 的工作安排与晚启动，exceptions 按日期覆盖工作安排；再把周一首个任务改成
+    约在集市 11:00 开始的预约任务。"""
+    def mutate(document: dict) -> None:
+        """写工作安排与晚启动，把任务改成集市的预约任务。"""
+        declare(exceptions=exceptions)(document)
+        _late_start("2026-01-05T07:30:00+08:00", activity_feedback_seconds=7200,
+                    progress_report_interval_seconds=7200, reconsideration_interval_seconds=10800)(document)
+        task = next(item for item in document["tasks"] if item["task_id"] == _OUTING_TASK)
+        task.update(required_location_id=_OUTING_SITE,
+                    appointment={"starts_at": f"2026-01-05T{_APPOINTMENT}+08:00", "reason": "客户现场会"})
+
+    return mutate
+
+
+def _place(engine, location_id: str) -> str:
+    """工具层出行目标名「地点：<显示名>」。"""
+    return f"地点：{next(item.name for item in engine.scenario.locations if item.location_id == location_id)}"
+
+
+def _walk_to(engine, name: str, location_id: str) -> None:
+    """此刻空手，经真实 start_activity 步行去 location_id，驱动到到达并收尾到达的那一程。"""
+    assert _decide(engine, name, "start_activity",
+                   lambda observed: layer_start(observed, _place(engine, location_id), "步行")).status == "in_progress"
+    _drive(engine, f"to-{name}", lambda: engine.state.agents[1].location_id == location_id)
+    _empty_handed(engine, f"arrived-{name}")
+
+
+def _task_outing_day(engine) -> int:
+    """只发真实请求驱动 _outing_run 改写的运行，返回回到办公室的时刻：08:00 通知到后步行去办公室、09:00 前到达；
+    10:00:00 从办公室步行去集市赴 11:00 的预约（约定开始之前出发、提前到达后等着），11:00:00 在那里开工；14:00:00
+    收工、同一秒直接走回办公室，一直待到 18:30。"""
+    _decide_at(engine, _clock("08:00:00"))
+    _empty_handed(engine, "stop-waiting")
+    _walk_to(engine, "office", "office")
+    assert engine.state.current_time < _clock("09:00:00")
+    _decide_at(engine, _clock("10:00:00"))
+    _empty_handed(engine, "stop-waiting-at-office")
+    _walk_to(engine, "market", _OUTING_SITE)
+    assert engine.state.current_time < _clock(_APPOINTMENT)
+    _decide_at(engine, _clock(_APPOINTMENT))
+    _empty_handed(engine, "stop-waiting-at-market")
+    _start_work(engine, "work-at-market")
+    _decide_at(engine, _clock("14:00:00"))
+    _empty_handed(engine, "stop-work")
+    _walk_to(engine, "back", "office")
+    back = engine.state.current_time
+    _decide_at(engine, _clock("18:30:00"))
+    return back
+
+
+def _recomputed(engine) -> dict:
+    """从 SQLite 读回全部事件，用运行自己的场景文档打包输入（没有卡片），经 behavior_metrics_report 重算 reports。"""
+    events = [event.model_dump(mode="json") for event in engine.store.read_events(engine.store.last_event_seq)]
+    [group] = behavior_metrics_report(events, workday=workday_inputs(engine.semantics.document, {1: None})).values()
+    return group["reports"]
+
+
+def test_a_real_task_outing_is_not_absence_and_a_declared_rest_day_counts_nothing(engine_factory) -> None:
+    """真实运行（engine_factory 加 declare，只发真实请求、不预置地点）：周一 09:00–18:00 当班、午休 12:00–13:30，首个
+    任务改成约在集市 11:00 开始的预约任务。人物 09:00 前步行到办公室，10:00 去集市赴约、提前到达后等到 11:00 开工（午休
+    也在那里），14:00 直接走回办公室并待到 18:30。从 SQLite 读回的事件与运行自己的场景文档经 behavior_metrics_report
+    重算：10:00 到回到办公室都是任务外出（扣掉午休；约定开始之前的路上与等候也算），没有缺勤、没有早退，在工作地点与
+    任务外出加上不在办公室的午休恰好是班次。同一行程在场景按日期例外把周一写成不当班的另一次真实运行里，周一不产生
+    班次，十个量都是 0，作息偏离对班次的两项为 null。"""
+    engine = engine_factory(mutate=_outing_run({}))
+    back = _task_outing_day(engine)
+    row = _recomputed(engine)["workload"]["agents"]["1"]
+    away = back - _clock("10:00:00")
+    assert (row["shift_seconds"], row["absence_seconds"], row["early_leave_seconds"]) == (32400, 0, 0), row
+    assert (row["break_seconds"], row["task_outing_seconds"]) == (5400, away - 5400), row
+    assert row["at_workplace_seconds"] == 32400 - away == row["idle_at_workplace_seconds"], row
+    assert row["work_activity_seconds"] > 0, row
+    _identities(row, 5400)
+
+    rest = engine_factory(mutate=_outing_run({"2026-01-05": None}))
+    assert _task_outing_day(rest) == back
+    reports = _recomputed(rest)
+    assert reports["workload"]["agents"]["1"] == dict.fromkeys(WORKLOAD_KEYS, 0)
+    [today] = reports["routine_deviation"]["agents"]["1"]["days"]
+    assert today["left_workplace_at"] == "2026-01-05T10:00:00+08:00"
+    assert (today["leave_vs_shift_end_minutes"], today["asleep_at_shift_start"],
+            today["asleep_at_shift_end"]) == (None, None, None)
 
 
 def test_reports_are_byte_reproducible() -> None:

@@ -8,6 +8,7 @@ import pytest
 
 from worldmock.profile import extractor
 from worldmock.profile.mapper import load_mapping_config
+from worldmock.profile.textgen import render_card
 from tests.profile.conftest import make_payload
 
 
@@ -455,3 +456,19 @@ def test_null_work_anchors_keep_the_after_midnight_bedtime_normalised():
     assert (bedtime.start_hour, bedtime.end_hour) == (25.0, 26.0)
     assert (result.card.time_anchors.leave_work, result.card.time_anchors.arrive_home) == (None, None)
     assert len(session.calls) == 1
+
+
+def test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime():
+    """@brief 首版不支持跨午夜的下班与到家（规格 4.1）：就寝「00:30-01:30」回绕为次日 24.5 点，写明的到家「23:50-00:30」
+    吸附为 24–24.5 点、起点不晚于就寝，仍因越过当日午夜在共识后被置 null 并留一条说明，同日的下班照常落进卡片；单次
+    采样只为放行而降级，不消耗解析重试，卡片文本不出现「到家」分句。"""
+    payload = json.loads(_work("18:00-18:30", "23:50-00:30"))
+    payload["time_anchors"]["bedtime"] = "00:30-01:30"
+    session = FakeSession([FakeResponse(content=json.dumps(payload, ensure_ascii=False))] * 3)
+    result = extractor.extract_persona("六点下班，快零点才到家，凌晨才睡", n_runs=3, session=session)
+    anchors = result.card.time_anchors
+    assert (anchors.bedtime.start_hour, anchors.leave_work.start_hour, anchors.arrive_home) == (24.5, 18.0, None)
+    assert result.demotion_notes == ("work_anchor_demoted: arrive_home window 24..24.5 runs past midnight",)
+    assert len(session.calls) == 3
+    text = render_card(result.card)
+    assert "；下班18点到18点半。" in text and "；到家" not in text

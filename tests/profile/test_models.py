@@ -234,6 +234,9 @@ def test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order():
     pytest.param({"leave_work": (23.5, 24.0)}, True, id="leave_work_after_bedtime"),
     pytest.param({"arrive_home": (23.5, 24.0)}, True, id="arrive_home_after_bedtime"),
     pytest.param({"leave_work": (18.0, 18.5), "arrive_home": (1.0, 1.5)}, True, id="arrive_home_after_midnight"),
+    pytest.param({"bedtime": (1.0, 2.0), "arrive_home": (24.0, 24.5)}, True,
+                 id="arrive_home_past_midnight_before_the_normalised_bedtime"),
+    pytest.param({"bedtime": (1.0, 2.0), "leave_work": (23.5, 24.5)}, True, id="leave_work_runs_past_midnight"),
     pytest.param({"leave_work": (8.0, 8.5)}, False, id="leave_work_starts_with_leave_home"),
     pytest.param({"leave_work": (18.0, 18.5), "arrive_home": (18.0, 19.0)}, False,
                  id="arrive_home_starts_with_leave_work"),
@@ -243,7 +246,8 @@ def test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order():
 ])
 def test_work_anchor_order_constraints_are_enforced(windows, rejected):
     """@brief 四条顺序约束（规格 4.1）：下班不早于出门；都非空时到家不早于下班；下班为 null 时到家不早于出门；任一不晚于
-    归一后的就寝。各一例被拒且英文报错点名；相等起点合法；首版不支持跨午夜的下班与到家（01:00 到家按乱序拒绝）。"""
+    归一后的就寝。各一例被拒且英文报错点名；相等起点合法；首版不支持跨午夜的下班与到家：01:00 到家按乱序拒绝，就寝回绕
+    到次日时起点不晚于就寝的 24 点到家、跨过 24 点的下班窗口也被拒，终点恰为 24 点的窗口合法。"""
     given = {name: make_window(*span) for name, span in windows.items()}
     if rejected:
         with pytest.raises(ValidationError, match="work anchors out of order"):
@@ -256,7 +260,8 @@ def test_work_anchor_order_constraints_are_enforced(windows, rejected):
 
 def test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each():
     """@brief 降级函数按固定顺序：先核下班（对出门与就寝），再核到家（对仍有效的下班，下班被置 null 后对出门，以及就寝）；
-    每个被置 null 的锚点一条英文说明，合法的原样返回；就寝取归一后的窗口。"""
+    每个被置 null 的锚点一条英文说明，合法的原样返回；就寝取归一后的窗口。先后合格而越过当日午夜的锚点（就寝回绕到次日
+    时 24.5 点的到家、23.5–24.5 点的下班）同样被置 null，各一条「runs past midnight」说明；终点恰为 24 点的窗口合法。"""
     leave_home, bedtime = make_window(8.0, 8.5), make_window(23.0, 24.0)
     evening, later = make_window(18.0, 18.5), make_window(19.0, 19.5)
     assert settle_work_anchors(leave_home, bedtime, evening, later) == (evening, later, ())
@@ -269,9 +274,12 @@ def test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each():
     assert settle_work_anchors(leave_home, bedtime, make_window(7.0, 7.5), make_window(23.5, 24.0)) == (
         None, None, ("leave_work start 7 is outside leave_home 8..bedtime 23",
                      "arrive_home start 23.5 is outside leave_home 8..bedtime 23"))
-    after_midnight = make_window(24.5, 25.0)
-    assert settle_work_anchors(leave_home, make_window(25.0, 26.0), None, after_midnight) == (
-        None, after_midnight, ())
+    late_bedtime, before_midnight = make_window(25.0, 26.0), make_window(23.0, 24.0)
+    assert settle_work_anchors(leave_home, late_bedtime, None, make_window(24.5, 25.0)) == (
+        None, None, ("arrive_home window 24.5..25 runs past midnight",))
+    assert settle_work_anchors(leave_home, late_bedtime, make_window(23.5, 24.5), before_midnight) == (
+        None, before_midnight, ("leave_work window 23.5..24.5 runs past midnight",))
+    assert settle_work_anchors(leave_home, late_bedtime, evening, before_midnight) == (evening, before_midnight, ())
 
 
 def test_sleep_need_and_chronotype_bounds():

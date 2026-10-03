@@ -142,25 +142,43 @@ class TimeWindow(_Frozen):
 def settle_work_anchors(
         leave_home: TimeWindow, bedtime: TimeWindow, leave_work: TimeWindow | None,
         arrive_home: TimeWindow | None) -> tuple[TimeWindow | None, TimeWindow | None, tuple[str, ...]]:
-    """@brief 下班与到家锚点按固定顺序核对（docs/dev/SPEC-errands-workday.md 4.1）：不合顺序约束的置 null。
+    """@brief 下班与到家锚点按固定顺序核对（docs/dev/SPEC-errands-workday.md 4.1）：不合顺序约束或越过当日午夜的置 null。
 
     先核 leave_work（出门起点 ≤ 下班起点 ≤ 就寝起点），再核 arrive_home（仍有效的下班起点，下班为 null 时取出门起点，
-    ≤ 到家起点 ≤ 就寝起点）；就寝取已回绕归一的窗口，不支持跨午夜的下班与到家，与午餐、晚餐不设先后。卡片校验器与
-    抽取的降级共用本函数，所以「校验器接受」恰好等于「降级不改变任何值」。
+    ≤ 到家起点 ≤ 就寝起点）；就寝取已回绕归一的窗口，与午餐、晚餐不设先后。首版不支持跨午夜的下班与到家：先后合格
+    的锚点，窗口终点还须不晚于当日 24 点（与场景窗口 0 ≤ 起点 < 终点 ≤ 24 同一口径）。卡片校验器与抽取的降级共用
+    本函数，所以「校验器接受」恰好等于「降级不改变任何值」。
     @return (核对后的下班, 核对后的到家, 逐个被置 null 的锚点各一条英文说明，按核对顺序)
     """
     high = bedtime.start_hour
     problems: list[str] = []
-    if leave_work is not None and not leave_home.start_hour <= leave_work.start_hour <= high:
-        problems.append(f"leave_work start {leave_work.start_hour:g} is outside leave_home "
-                        f"{leave_home.start_hour:g}..bedtime {high:g}")
+    problem = _work_anchor_problem("leave_work", leave_work, ("leave_home", leave_home), high)
+    if problem is not None:
+        problems.append(problem)
         leave_work = None
-    lower, bound = ("leave_home", leave_home) if leave_work is None else ("leave_work", leave_work)
-    if arrive_home is not None and not bound.start_hour <= arrive_home.start_hour <= high:
-        problems.append(f"arrive_home start {arrive_home.start_hour:g} is outside {lower} "
-                        f"{bound.start_hour:g}..bedtime {high:g}")
+    lower = ("leave_home", leave_home) if leave_work is None else ("leave_work", leave_work)
+    problem = _work_anchor_problem("arrive_home", arrive_home, lower, high)
+    if problem is not None:
+        problems.append(problem)
         arrive_home = None
     return leave_work, arrive_home, tuple(problems)
+
+
+def _work_anchor_problem(name: str, window: TimeWindow | None, lower: tuple[str, TimeWindow],
+                         high: float) -> str | None:
+    """@brief 一个下班或到家锚点的英文问题说明：起点不在下界起点与就寝起点之间，或（先后合格时）窗口终点越过当日
+    24 点；锚点为 null 或合格时为 None。
+    @param lower (下界锚点名, 下界窗口)
+    @param high 归一后的就寝起点
+    """
+    if window is None:
+        return None
+    label, bound = lower
+    if not bound.start_hour <= window.start_hour <= high:
+        return f"{name} start {window.start_hour:g} is outside {label} {bound.start_hour:g}..bedtime {high:g}"
+    if window.end_hour > 24.0:
+        return f"{name} window {window.start_hour:g}..{window.end_hour:g} runs past midnight"
+    return None
 
 
 class Identity(_Frozen):
@@ -203,8 +221,8 @@ class TimeAnchors(_Frozen):
     TimeWindow.from_clock_range 的跨午夜 +24 同构，归一结果落进卡片值。
     +24 后越过 30 小时地平线的是同日乱序而非回绕，仍由顺序校验拒绝。
     leave_work、arrive_home 必填无缺省，null 表示没有固定时刻或故事未提及；两者不进回绕归一的名字元组，
-    也不进五锚点的全序校验，另由 validate_work_anchor_order 按 settle_work_anchors 的四条顺序约束校验
-    （docs/dev/SPEC-errands-workday.md 4.1）。
+    也不进五锚点的全序校验，另由 validate_work_anchor_order 按 settle_work_anchors 的四条顺序约束与当日午夜上界
+    校验（docs/dev/SPEC-errands-workday.md 4.1）。
     """
 
     wake: TimeWindow
@@ -271,7 +289,8 @@ class TimeAnchors(_Frozen):
 
     @model_validator(mode="after")
     def validate_work_anchor_order(self) -> "TimeAnchors":
-        """@brief 下班与到家的顺序约束：settle_work_anchors 报出任一条违反即拒绝（对归一后的出门与就寝核对）。"""
+        """@brief 下班与到家的顺序约束与当日午夜上界：settle_work_anchors 报出任一条违反即拒绝（对归一后的出门与就寝
+        核对）。"""
         problems = settle_work_anchors(self.leave_home, self.bedtime, self.leave_work, self.arrive_home)[2]
         if problems:
             raise ValueError("work anchors out of order: " + "; ".join(problems))
