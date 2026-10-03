@@ -185,6 +185,50 @@ class MotivationProfile(FrozenModel):
         return self
 
 
+class WorkShift(FrozenModel):
+    """@brief 一天的班次（docs/dev/SPEC-errands-workday.md 4.3）：自当地零点起的分钟，同日、starts < ends，休息时段落在
+    班次内、升序且互不重叠；区间一律半开。三个键都必填，没有休息时段写空列表。"""
+
+    starts: int
+    ends: int
+    breaks: tuple[tuple[int, int], ...]
+
+    @model_validator(mode="after")
+    def validate_shift(self) -> "WorkShift":
+        """@brief 拒绝跨日或倒置的班次、越出班次的休息时段，以及乱序或重叠的休息时段。"""
+        if not 0 <= self.starts < self.ends <= 1440:
+            raise ValueError("work shift must satisfy 0 <= starts < ends <= 1440")
+        if any(not self.starts <= begin < finish <= self.ends for begin, finish in self.breaks):
+            raise ValueError("work shift breaks must lie within the shift")
+        if any(previous[1] > following[0] for previous, following in zip(self.breaks, self.breaks[1:])):
+            raise ValueError("work shift breaks must be ascending and must not overlap")
+        return self
+
+
+class WorkSchedule(FrozenModel):
+    """@brief 人物的工作安排（4.3）：工作地点、每周七天全写的班次（周一为 "0"）与按 ISO 日期覆盖的例外；值为 null 表示
+    当日不当班。不带时区字段（复用场景的 timezone），不从星期或任务推断；与所选地点、场景日历的交叉核对在加载检查
+    （load_checks.check_work_schedules）。"""
+
+    workplace_location_id: str = Field(min_length=1)
+    weekly: dict[str, WorkShift | None]
+    exceptions: dict[str, WorkShift | None]
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "WorkSchedule":
+        """@brief 每周七天都要写出，例外日期必须是规范的 ISO 日期。"""
+        if set(self.weekly) != {str(day) for day in range(7)}:
+            raise ValueError("work_schedule weekly must declare all seven weekdays")
+        for key in self.exceptions:
+            try:
+                canonical = date.fromisoformat(key).isoformat() == key
+            except ValueError:
+                canonical = False
+            if not canonical:
+                raise ValueError("work_schedule exception dates must use canonical ISO format")
+        return self
+
+
 class AgentConfig(FrozenModel):
     """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
 
@@ -212,6 +256,8 @@ class AgentConfig(FrozenModel):
     lifestyle_activities: tuple[str, ...] | None = None
     # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
     interaction_menu: InteractionMenu | None
+    # 工作安排（docs/dev/SPEC-errands-workday.md 4.3，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
+    work_schedule: WorkSchedule | None
     # 人物档案字段（docs/dev/SPEC-life-runtime.md「两过程睡眠模型」、docs/dev/SPEC-life-realism.md「画像编译」）：时型与睡眠需要可按人声明。
     chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
     sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H,
@@ -586,7 +632,7 @@ class BodyInstanceConfig(FrozenModel):
 class LifeScenario(FrozenModel):
     """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""
 
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -735,7 +781,7 @@ class RuntimeScenario(FrozenModel):
     领域模块（commerce/travel/work/rules/body）消费的全部静态语义都在此处。
     """
 
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime

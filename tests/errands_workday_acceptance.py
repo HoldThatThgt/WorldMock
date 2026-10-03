@@ -325,6 +325,21 @@ _DELIVERY_BOUNDARY_TESTS = [
     _CONTROL_ITEMS + "test_control_errands_reads_every_change_in_order",
 ]
 
+_WORK_SCHEDULE_LOADS = "tests/life/test_load_checks.py::"
+_STRUCTURE_FIVE = "tests/life/test_scenario.py::test_every_agent_declares_work_schedule_and_structure_four_is_rejected"
+#: 「工作安排加载」：每个人物显式声明 work_schedule 或 null、缺键与场景结构 4 经真实入口被拒；工作地点不是所选地点、时段
+#: 与休息时段非法、时间窗内与场景日历不一致都经真实的 load_runtime_scenario 被拒（顶层明细写明人物、日期与字段，形状
+#: 错误的原因在异常链里），时间窗外的日期、加班机会日与 null 的人物不核对。场景模型校验器逐条拒绝的用例是补充证据。
+_WORK_SCHEDULE_LOAD_TESTS = [
+    _STRUCTURE_FIVE,
+    _WORK_SCHEDULE_LOADS + "test_work_schedule_workplace_must_be_a_selected_location",
+    _WORK_SCHEDULE_LOADS + "test_a_malformed_shift_or_break_is_rejected_by_the_real_loader",
+    _WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",
+    _WORK_SCHEDULE_LOADS + "test_overtime_dates_and_dates_outside_the_window_are_not_checked",
+    _WORK_SCHEDULE_LOADS + "test_a_null_work_schedule_is_not_cross_checked_and_others_still_are",
+    "tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -342,7 +357,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "交付边界": {"stage": "2", "tests": _DELIVERY_BOUNDARY_TESTS},
     "事务与收尾记忆指标": {"stage": "2", "tests": []},
     "作息锚点": {"stage": "3", "tests": []},
-    "工作安排加载": {"stage": "3", "tests": []},
+    "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
     "上班安排呈现": {"stage": "3", "tests": []},
     "计划与义务": {"stage": "3", "tests": []},
     "工作合同边界": {"stage": "3", "tests": []},
@@ -516,6 +531,14 @@ _PROMPT_SOURCE = "custom/agents/life_prompt.py"
 #: 导入的 LifeAgent（按本名导入 custom.agents.life_prompt）发出的系统层与接口合同登记不再逐字相同。
 _SEPARATION_KILLERS = (_SEPARATED,)
 _VERBATIM_KILLERS = (_SYSTEM_VERBATIM,)
+_LOAD_CHECKS_MODULE = "worldmock.life.load_checks"
+_LOAD_CHECKS_SOURCE = "src/worldmock/life/load_checks.py"
+_SCENARIO_MODULE = "worldmock.life.scenario"
+_SCENARIO_SOURCE = "src/worldmock/life/scenario.py"
+#: 工作安排加载两个变异的杀手（都在主进程内经真实加载入口）：加载时不做日历交叉核对，时间窗内与日历不一致的工作安排
+#: 照常加载；场景结构 4 被放行，版本写回 4 的场景经 parse_scenario_document 与 load_scenario 照常加载。
+_CALENDAR_CHECK_KILLERS = (_WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",)
+_STRUCTURE_FOUR_KILLERS = (_STRUCTURE_FIVE,)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1065,6 +1088,22 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         _VERBATIM_KILLERS,
     ),
+    SourceMutation(
+        "calendar_cross_check_skipped",
+        _LOAD_CHECKS_MODULE,
+        _LOAD_CHECKS_SOURCE,
+        "problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]",
+        "problems = [*_workplace_problems(scenario)]",
+        _CALENDAR_CHECK_KILLERS,
+    ),
+    SourceMutation(
+        "scenario_structure_four_admitted",
+        _SCENARIO_MODULE,
+        _SCENARIO_SOURCE,
+        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[5]\n',
+        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 5]\n',
+        _STRUCTURE_FOUR_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1168,6 +1207,10 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                               "（deliver_reminders 只留第一条草稿）。",
     "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层三处文案不一致（life_prompt.py 第 6 条改掉一个"
                                   "分句，接口合同与人物 Prompt 规格不跟随）。",
+    "calendar_cross_check_skipped": "实施计划阶段 3「突变审查的目标」：加载时不做日历交叉核对（check_work_schedules 只查"
+                                    "工作地点）。",
+    "scenario_structure_four_admitted": "实施计划阶段 3「突变审查的目标」：场景结构 4 被放行（瘦身场景文档的 schema_version "
+                                        "接受 4）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -1188,6 +1231,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/engine.py",
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
+    "src/worldmock/life/load_checks.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/narration.py",
     "src/worldmock/life/observe.py",
@@ -1197,10 +1241,13 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/reminders.py",
     "src/worldmock/life/result_projection.py",
     "src/worldmock/life/rhythm.py",
+    "src/worldmock/life/scenario.py",
     "src/worldmock/life/schedule.py",
+    "src/worldmock/life/semantics.py",
     "src/worldmock/life/session_actions.py",
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
+    "src/worldmock/life/work_schedule.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
     "tools/run-viewer.html",
@@ -1224,6 +1271,8 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/life/test_errand_todo_layer.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
     "tests/life/test_revise_day_plan_json.py",
+    "tests/life/test_work_schedule.py",
+    "tests/life/work_schedule_fixtures.py",
     "tests/mutation_runner.py",
     "tests/test_errands_workday_acceptance.py",
 )

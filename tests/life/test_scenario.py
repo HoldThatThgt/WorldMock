@@ -16,6 +16,9 @@ from worldmock.life.map_models import MapDataset, RouteConfig
 from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
+from tests.life.conftest import _mutated_scenario
+from tests.life.work_schedule_fixtures import STANDARD_SHIFT, weekday_schedule
+from worldmock.life.scenario import parse_scenario_document
 
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
@@ -183,13 +186,13 @@ def test_body_instance_and_rejection_ranges_are_enforced(
 
 def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files() -> None:
     """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：正式场景不声明，
-    文档与组装后的身体参数都取缺省 0.5；场景结构版本仍为 3，目录钉扎不变。"""
+    文档与组装后的身体参数都取缺省 0.5；场景结构版本为 5，目录钉扎不变。"""
     for path in (_FORMAL, Path("scenarios/multi-person.json"), Path("scenarios/multi-person-half-day.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert "entertainment_relief_preference_floor" not in payload["body"]
         assert LifeScenario.model_validate(payload).body.entertainment_relief_preference_floor == 0.5
         scenario, _ = load_scenario(path)
-        assert scenario.schema_version == 4
+        assert scenario.schema_version == 5
         assert scenario.body.entertainment_relief_preference_floor == 0.5
 
 
@@ -741,13 +744,13 @@ def test_three_scenarios_share_the_v2_schema() -> None:
     manifests = set()
     for path in _V2_SCENARIOS:
         document = _document(path)
-        assert document["schema_version"] == 4
+        assert document["schema_version"] == 5
         assert document["reconsideration_interval_seconds"] == 5400
         manifests.add(document["corpus_manifest_sha256"])
         for agent in document["agents"]:
             for field in ("chronotype_midsleep", "sleep_need_hours",
                           "lunch_window", "dinner_window", "bedtime_window",
-                          "contacts"):
+                          "contacts", "work_schedule"):
                 assert field in agent
         scenario, digest = load_scenario(path)
         assert len(digest) == 64
@@ -769,3 +772,71 @@ def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
     assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
     assert agent.model_dump() == document.agents[0].model_dump()
     assert load_scenario(_FORMAL)[0].agents[0].model_fields_set & rhythm == rhythm
+
+
+def _shift(**fields) -> dict:
+    """标准班次（09:00–18:00，午休 12:00–13:30）改写给定字段后的副本。"""
+    return {**STANDARD_SHIFT, **fields}
+
+
+def _weekly(day: str, shift: dict):
+    """把每周声明的某一天改成给定班次的改写函数。"""
+    return lambda schedule: schedule["weekly"].update({day: shift})
+
+
+_SHIFT_RANGE = "work shift must satisfy 0 <= starts < ends <= 1440"
+_BREAK_INSIDE = "work shift breaks must lie within the shift"
+_BREAK_ORDER = "work shift breaks must be ascending and must not overlap"
+_SEVEN_DAYS = "work_schedule weekly must declare all seven weekdays"
+_ISO_DATES = "work_schedule exception dates must use canonical ISO format"
+
+
+@pytest.mark.parametrize(("edit", "message"), [
+    (_weekly("0", _shift(starts=600, ends=600)), _SHIFT_RANGE),
+    (_weekly("1", _shift(starts=1200, ends=1500, breaks=[])), _SHIFT_RANGE),
+    (_weekly("2", _shift(breaks=[[500, 600]])), _BREAK_INSIDE),
+    (_weekly("3", _shift(breaks=[[720, 810], [780, 840]])), _BREAK_ORDER),
+    (_weekly("4", _shift(breaks=[[900, 930], [720, 810]])), _BREAK_ORDER),
+    (lambda schedule: schedule["weekly"].pop("6"), _SEVEN_DAYS),
+    (lambda schedule: schedule["weekly"].update({"7": None}), _SEVEN_DAYS),
+    (lambda schedule: schedule["exceptions"].update({"20260214": None}), _ISO_DATES),
+    (lambda schedule: schedule["exceptions"].update({"someday": None}), _ISO_DATES),
+    (_weekly("0", _shift(lunch=[720, 810])), "Extra inputs are not permitted"),
+    (_weekly("0", {"starts": 540, "ends": 1080}), "Field required"),
+], ids=["starts-not-before-ends", "ends-after-midnight", "break-outside-shift", "overlapping-breaks",
+        "descending-breaks", "weekly-missing-a-day", "weekly-extra-key", "non-canonical-date", "unparsable-date",
+        "unknown-shift-key", "missing-breaks"])
+def test_work_schedule_shape_errors_are_rejected(edit, message: str) -> None:
+    """班次形状错误留在场景模型的校验器（docs/dev/SPEC-errands-workday.md 4.3）：班次须同日且 starts < ends（≤ 1440），
+    休息时段落在班次内、升序、互不重叠；weekly 七天全写（周一为 "0"，多一天少一天都拒），例外日期是规范的 ISO 日期（基本
+    格式与无法解析的都拒）；班次多出的键与缺少的 breaks 都被拒，不设缺省。每个用例对应两个校验器的一处拒绝。"""
+    payload = _payload()
+    schedule = weekday_schedule(payload)
+    edit(schedule)
+    payload["agents"][0]["work_schedule"] = schedule
+    _assert_invalid(payload, message)
+
+
+def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_path: Path) -> None:
+    """`work_schedule` 是人物配置的必填可空字段（4.3，裁决 W3）：删掉该键即被拒，写 null 照常加载，合法的工作安排照常
+    加载；场景结构升为 5，键仍在而版本写回 4 的文档经真实入口（parse_scenario_document 与 load_scenario）按版本拒绝；
+    仓库三份场景的每个人物都显式写出 null。"""
+    missing = _payload()
+    del missing["agents"][0]["work_schedule"]
+    _assert_invalid(missing, r"agents\.0\.work_schedule\n\s+Field required")
+    assert LifeScenario.model_validate(_payload()).agents[0].work_schedule is None
+    declared = _payload()
+    declared["agents"][0]["work_schedule"] = weekday_schedule(declared)
+    assert LifeScenario.model_validate(declared).agents[0].work_schedule.weekly["5"] is None
+
+    old = _mutated_scenario(_FORMAL, lambda document: document.update(schema_version=4), tmp_path / "structure-4")
+    for entry in (parse_scenario_document, load_scenario):
+        with pytest.raises(IntegrityError, match="Scenario validation failed") as failure:
+            entry(old)
+        assert "schema_version" in str(failure.value.__cause__)
+
+    for path in _V2_SCENARIOS:
+        assert all(agent["work_schedule"] is None for agent in _document(path)["agents"])
+        scenario, _ = load_scenario(path)
+        assert scenario.schema_version == 5
+        assert scenario.agents and all(agent.work_schedule is None for agent in scenario.agents)

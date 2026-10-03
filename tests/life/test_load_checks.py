@@ -3,6 +3,10 @@
 越界的地点类别（不在环境层 PLACE_TYPES）与重复的可见名称都经真实的 load_runtime_scenario 在加载时以 IntegrityError
 拒绝并写明原因，不再等到运行中途由环境层或观察投影抛出；同名地点由地图字段 branch_label 消歧，显示名「名称（分店）」
 进入工具层、提示与事件，并连同分店标签受可疑显示名检查（只警告）；没有 branch_label 的现有地图照常加载、名称不变。
+
+人物工作安排的跨引用（docs/dev/SPEC-errands-workday.md 4.3）同样经真实的 load_runtime_scenario 在加载时拒绝：工作地点
+不是所选地点，或场景时间窗内的日期与场景日历不一致，顶层英文明细写明人物、日期与字段；时间窗外的日期、加班机会日与
+work_schedule 为 null 的人物不核对；班次形状错误由场景模型的校验器拒绝，明细在异常链里。
 """
 
 from __future__ import annotations
@@ -11,12 +15,14 @@ import hashlib
 import json
 import os
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from custom.agents.life_prompt import life_user_layers, user_message
-from tests.life.conftest import context, stage_day_plan
+from tests.life.conftest import _mutated_scenario, context, stage_day_plan
+from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare, weekday_schedule
 from worldmock.catalog import load_catalog
 from worldmock.corpora.storefront_build import build_storefront_supplies
 from worldmock.errors import IntegrityError
@@ -26,6 +32,7 @@ from worldmock.life.load_checks import visible_object_labels
 from worldmock.life.map_models import CategoryAssignment, LocationConfig
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.work_schedule import shift_on
 from worldmock.runtime import input_warnings
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -313,3 +320,115 @@ def test_projection_labels_are_the_load_time_labels(engine_factory) -> None:
     assert objects and len(objects) == len(set(objects)) and set(objects) <= labels
     kinds = {row["kind"] for row in observed["interaction_bindings"]}
     assert {"location", "contact", "catalog", "self"} <= kinds
+
+
+_FORMAL = _ROOT / "scenarios" / _SCENARIO
+_MULTI = _ROOT / "scenarios" / "multi-person.json"
+_NOT_ADMISSIBLE = "Work schedules are not admissible: "
+_MAKEUP = "calendar.makeup_work_dates requires a shift but work_schedule declares none"
+_OFF_DUTY = "must be off duty but work_schedule declares a shift"
+
+
+def _scheduled(root: Path, source: Path, *changes) -> Path:
+    """仓库场景的副本（语料取正式语料，目录随场景复制到 root），依次交给 changes 里的各个 mutate(document) 改写。"""
+    def mutate(document: dict) -> None:
+        """按给出的顺序执行每个改写。"""
+        for change in changes:
+            change(document)
+
+    return _mutated_scenario(source, mutate, root)
+
+
+def _rejection(path: Path) -> str:
+    """真实加载入口拒绝该场景时的顶层英文明细。"""
+    with pytest.raises(IntegrityError) as failure:
+        load_runtime_scenario(path)
+    return str(failure.value)
+
+
+def _off_duty(day: str, field: str) -> str:
+    """必须不当班的日历日期却声明了班次时的一条明细（人物 1）。"""
+    return f"agent 1 date {day} calendar.{field} {_OFF_DUTY}"
+
+
+def _clear_exceptions(document: dict) -> None:
+    """去掉人物 1 工作安排的全部日期例外，只留每周声明（周一至周五当班、周末不当班）。"""
+    document["agents"][0]["work_schedule"]["exceptions"] = {}
+
+
+def test_work_schedule_workplace_must_be_a_selected_location(tmp_path: Path) -> None:
+    """工作地点必须是场景所选地点（docs/dev/SPEC-errands-workday.md 4.3）：写成所选地点之外的身份时加载即拒绝，顶层
+    明细写明人物与字段；写成所选的办公室时照常加载。"""
+    path = _scheduled(tmp_path / "elsewhere", _FORMAL, declare(workplace="nowhere-office"))
+    assert _rejection(path) == (
+        _NOT_ADMISSIBLE + "agent 1 work_schedule.workplace_location_id 'nowhere-office' is not a selected location")
+    semantics, _ = load_runtime_scenario(_scheduled(tmp_path / "office", _FORMAL, declare()))
+    assert semantics.scenario.agents[0].work_schedule.workplace_location_id == "office"
+
+
+@pytest.mark.parametrize(("changes", "problems"), [
+    ((declare(exceptions={"2026-02-14": None}),), [f"agent 1 date 2026-02-14 {_MAKEUP}"]),
+    ((declare(exceptions={"2026-02-16": STANDARD_SHIFT}),), [_off_duty("2026-02-16", "spring_festival_dates")]),
+    ((declare(exceptions={"2026-03-12": STANDARD_SHIFT}),), [_off_duty("2026-03-12", "sick_leave_date")]),
+    ((declare(exceptions={"2026-03-18": STANDARD_SHIFT}),), [_off_duty("2026-03-18", "personal_leave_date")]),
+    ((declare(), _clear_exceptions), [
+        f"agent 1 date 2026-02-14 {_MAKEUP}",
+        *(_off_duty(f"2026-02-{day}", "spring_festival_dates") for day in ("16", "17", "18", "19", "20", "23")),
+        f"agent 1 date 2026-02-28 {_MAKEUP}",
+        _off_duty("2026-03-12", "sick_leave_date"), _off_duty("2026-03-18", "personal_leave_date")]),
+], ids=["makeup-day-without-shift", "spring-festival-weekday-with-shift", "sick-leave-with-shift",
+        "personal-leave-with-shift", "weekly-table-only"])
+def test_work_schedule_must_agree_with_the_calendar_inside_the_window(
+        tmp_path: Path, changes: tuple, problems: list[str]) -> None:
+    """十二周场景的时间窗含全部日历日期：补班日必须有班次，春节、病假、事假日必须不当班（4.3）；不一致时加载即拒绝，
+    每条明细写明人物、日期与日历字段，按日期升序一次列全。只写每周声明时，两个补班的周六、落在工作日的六个春节日与
+    病假、事假日都被点名，落在周末的春节日不当班、照常通过。"""
+    assert _rejection(_scheduled(tmp_path, _FORMAL, *changes)) == _NOT_ADMISSIBLE + "; ".join(problems)
+
+
+def test_overtime_dates_and_dates_outside_the_window_are_not_checked(tmp_path: Path) -> None:
+    """只核对落在场景时间窗内的日历日期（4.3）：加班机会日不要求班次（两个周六不当班照常加载），时间窗外的例外日期
+    （2025-12-31、2027-01-01）不拒绝；多人场景的时间窗只有 2026-01-05 一天，日历里的补班日与春节日都在窗外，只写每周
+    声明、即使与那些日期相反也照常加载。"""
+    formal = _scheduled(tmp_path / "formal", _FORMAL,
+                        declare(exceptions={"2025-12-31": STANDARD_SHIFT, "2027-01-01": None}))
+    scenario = load_runtime_scenario(formal)[0].scenario
+    schedule = scenario.agents[0].work_schedule
+    assert [shift_on(schedule, date.fromisoformat(day)) for day in scenario.calendar.overtime_opportunity_dates] == [
+        None, None]
+    assert {"2025-12-31", "2027-01-01"} <= set(schedule.exceptions)
+
+    assert weekday_schedule(json.loads(_MULTI.read_text(encoding="utf-8")))["exceptions"] == {}
+    weekly = load_runtime_scenario(_scheduled(tmp_path / "multi", _MULTI, declare(0), declare(1)))[0].scenario
+    assert all(agent.work_schedule.exceptions == {} for agent in weekly.agents)
+    assert "2026-02-16" in weekly.calendar.spring_festival_dates
+    assert shift_on(weekly.agents[0].work_schedule, date(2026, 2, 16)) is not None
+    contrary = declare(exceptions={"2026-02-14": None, "2026-02-16": STANDARD_SHIFT, "2026-03-12": STANDARD_SHIFT})
+    outside = load_runtime_scenario(_scheduled(tmp_path / "outside", _MULTI, contrary))[0].scenario
+    assert shift_on(outside.agents[0].work_schedule, date(2026, 2, 14)) is None
+
+
+def test_a_null_work_schedule_is_not_cross_checked_and_others_still_are(tmp_path: Path) -> None:
+    """work_schedule 为 null 的人物不核对，声明了的人物照常核对（4.3）：多人场景人物 2 为 null、人物 1 的工作地点不是所选
+    地点时只点名人物 1；两人都写错时按人物身份升序各一条；人物 1 写对时照常加载，人物 2 仍是 null。"""
+    message = _rejection(_scheduled(tmp_path / "one", _MULTI, declare(0, workplace="nowhere-office")))
+    assert message == (
+        _NOT_ADMISSIBLE + "agent 1 work_schedule.workplace_location_id 'nowhere-office' is not a selected location")
+    both = _rejection(_scheduled(tmp_path / "both", _MULTI, declare(1, workplace="nowhere-b"),
+                                 declare(0, workplace="nowhere-a")))
+    assert both == (_NOT_ADMISSIBLE + "agent 1 work_schedule.workplace_location_id 'nowhere-a' is not a selected "
+                    "location; agent 2 work_schedule.workplace_location_id 'nowhere-b' is not a selected location")
+    loaded = load_runtime_scenario(_scheduled(tmp_path / "right", _MULTI, declare(0)))[0].scenario
+    assert [(agent.agent_id, agent.work_schedule is None) for agent in loaded.agents] == [(1, False), (2, True)]
+
+
+@pytest.mark.parametrize(("shift", "message"), [
+    ({"starts": 600, "ends": 540, "breaks": []}, "work shift must satisfy 0 <= starts < ends <= 1440"),
+    ({"starts": 540, "ends": 1080, "breaks": [[1020, 1110]]}, "work shift breaks must lie within the shift"),
+], ids=["starts-after-ends", "break-outside-shift"])
+def test_a_malformed_shift_or_break_is_rejected_by_the_real_loader(tmp_path: Path, shift: dict, message: str) -> None:
+    """时段与休息时段非法各一例经真实加载入口被拒（4.3）：班次形状错误由场景模型的校验器拒绝，顶层是「Scenario validation
+    failed」，校验器的英文原因在异常链里。"""
+    with pytest.raises(IntegrityError, match="Scenario validation failed") as failure:
+        load_runtime_scenario(_scheduled(tmp_path, _FORMAL, declare(shift=shift)))
+    assert message in str(failure.value.__cause__)

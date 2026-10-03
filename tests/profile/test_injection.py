@@ -54,7 +54,7 @@ def _agent(agent_id: int = 1, **rhythm) -> AgentConfig:
     return AgentConfig.model_validate({
         "agent_id": agent_id, "name": "林悦", "trait_source_kind": "experiment_assumption",
         "home_location_id": "home", "initial_balance_fen": 0, "skill_levels": {}, "qualifications": [],
-        "interaction_menu": None, **rhythm})
+        "interaction_menu": None, "work_schedule": None, **rhythm})
 
 
 def _codes(warnings: list[dict]) -> list[str]:
