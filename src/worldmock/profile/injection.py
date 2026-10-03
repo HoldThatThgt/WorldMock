@@ -6,7 +6,8 @@ validate 在覆盖率低于 80% 时照旧失败（裁决 D4）。
 
 每条警告的形状固定为 {code, agent_id, message, details}：code 取警告码闭集 INPUT_WARNING_CODES；agent_id 为人物编号，
 场景级警告（配送路线、地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
-场景作息覆盖（apply_scenario_rhythm，裁决 D16）：场景显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值。
+场景作息覆盖（apply_scenario_rhythm，裁决 D16）：场景显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值；
+字段为七项、窗口槽为五个（docs/dev/SPEC-errands-workday.md 4.2 增下班、到家），新槽的卡片值可以是 null。
 """
 
 from __future__ import annotations
@@ -43,10 +44,12 @@ InputWarningCode = Literal[
     "LOCATION_NAME_SUSPICIOUS",
 ]
 INPUT_WARNING_CODES: tuple[str, ...] = get_args(InputWarningCode)
-#: 场景人物可显式声明、覆盖卡片抽取值的五个作息字段（scenario.AgentConfig）。
-RHYTHM_FIELDS = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_window", "bedtime_window")
-#: 场景窗口字段 → 卡片时间锚点槽（锚点顺序：起床、出门、午餐、晚餐、就寝）。
-_WINDOW_SLOTS = {"lunch_window": "lunch", "dinner_window": "dinner", "bedtime_window": "bedtime"}
+#: 场景人物可显式声明、覆盖卡片抽取值的七个作息字段（scenario.AgentConfig）。
+RHYTHM_FIELDS = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "leave_work_window",
+                 "arrive_home_window", "dinner_window", "bedtime_window")
+#: 场景窗口字段 → 卡片时间锚点的五个槽；插入顺序即落槽顺序（午餐、下班、到家、晚餐、就寝）。
+_WINDOW_SLOTS = {"lunch_window": "lunch", "leave_work_window": "leave_work", "arrive_home_window": "arrive_home",
+                 "dinner_window": "dinner", "bedtime_window": "bedtime"}
 #: 警告正文列出的场景内容最常见题材个数。
 TOP_CONTENT_GENRES = 5
 #: 「看、刷、听」：卡片口味或习惯里出现即说明人物有观看或收听的习惯。
@@ -93,10 +96,12 @@ def frozen_input_warnings(value: Iterable[Mapping[str, Any]] | None) -> list[dic
 def apply_scenario_rhythm(card: PersonaCard, agent: Any) -> RhythmOverride:
     """@brief 场景显式声明的作息字段覆盖卡片抽取值（规格 2.1，裁决 D16：场景优先）。
 
-    只覆盖 agent.model_fields_set 与五个作息字段的交集中值非空的字段——覆盖必须在原始加载的场景人物上做，经过
+    只覆盖 agent.model_fields_set 与七个作息字段的交集中值非空的字段——覆盖必须在原始加载的场景人物上做，经过
     dump/validate 往返的对象会把全部字段记为已设。取值按卡片格点量化（中点与睡眠需要 0.25 小时，窗口 0.5 小时）；
-    窗口经 TimeAnchors 回绕归一与 validate_order 重建锚点顺序，按锚点顺序反复尝试直到没有槽能再落下，落不下的槽保留卡片值
-    并记 CARD_FIELD_CONFLICT；每处实际改变卡片值的覆盖记 CARD_FIELD_OVERRIDDEN。结果是不动点：对结果再覆盖一次卡片不变。
+    窗口经 TimeAnchors 回绕归一、validate_order 与下班到家的顺序约束重建锚点，按落槽顺序反复尝试直到没有槽能再落下，
+    落不下的槽保留卡片值（下班、到家槽的卡片值可以是 null）并记 CARD_FIELD_CONFLICT；每处实际改变卡片值的覆盖记
+    CARD_FIELD_OVERRIDDEN。不降级任何卡片锚点（docs/dev/SPEC-errands-workday.md 4.2）。结果是不动点：对结果再覆盖一次
+    卡片不变。
 
     @param card 画像编译的卡片（或恢复时的结构化卡片 PersonaCardStruct）
     @param agent 场景人物声明（带可靠的 model_fields_set）
@@ -130,7 +135,8 @@ def _hour_overrides(card: PersonaCard, agent: Any, declared: set[str]) -> tuple[
 
 
 def _window_overrides(card: PersonaCard, agent: Any, declared: set[str]) -> tuple[TimeAnchors, list[dict]]:
-    """@brief 午餐、晚餐、就寝窗口的覆盖：反复按锚点顺序落槽直到不动点，剩下的槽记冲突，改变了值的槽记覆盖。"""
+    """@brief 午餐、下班、到家、晚餐、就寝窗口的覆盖：反复按落槽顺序落槽直到不动点，剩下的槽记冲突（卡片值可为 null），
+    改变了值的槽记覆盖。"""
     anchors = card.time_anchors
     pending: dict[str, tuple[str, TimeWindow]] = {}
     warnings: list[dict] = []
@@ -181,13 +187,16 @@ def _with_slot(anchors: TimeAnchors, slot: str, window: TimeWindow) -> TimeAncho
         return None
 
 
-def _window_value(window: TimeWindow) -> list[float]:
-    """@brief 卡片窗口的 JSON 值 [start_hour, end_hour]。"""
+def _window_value(window: TimeWindow | None) -> list[float] | None:
+    """@brief 卡片窗口的 JSON 值 [start_hour, end_hour]；下班、到家槽为 null 时为 None。"""
+    if window is None:
+        return None
     return [window.start_hour, window.end_hour]
 
 
 def _overridden(agent_id: int, field: str, values: tuple[Any, Any, Any]) -> dict[str, Any]:
-    """@brief CARD_FIELD_OVERRIDDEN：values 为（卡片值, 场景声明值, 写进卡片的值）；窗口写成 [start, end]。"""
+    """@brief CARD_FIELD_OVERRIDDEN：values 为（卡片值, 场景声明值, 写进卡片的值）；窗口写成 [start, end]，
+    卡片槽为 null 时卡片值为 None（正文写 null）。"""
     card_value, scenario_value, applied = values
     declared = list(scenario_value) if isinstance(scenario_value, tuple) else scenario_value
     return _warning("CARD_FIELD_OVERRIDDEN", agent_id,
@@ -196,10 +205,12 @@ def _overridden(agent_id: int, field: str, values: tuple[Any, Any, Any]) -> dict
                     field=field, card_value=card_value, scenario_value=declared, applied_value=applied)
 
 
-def _conflict(agent_id: int, field: str, values: tuple[TimeWindow, tuple[float, ...]], reason: str) -> dict:
-    """@brief CARD_FIELD_CONFLICT：场景窗口落不进卡片锚点（顺序冲突或写不成 0.5 小时格点窗口），保留卡片值。"""
+def _conflict(agent_id: int, field: str, values: tuple[TimeWindow | None, tuple[float, ...]], reason: str) -> dict:
+    """@brief CARD_FIELD_CONFLICT：场景窗口落不进卡片锚点（顺序冲突或写不成 0.5 小时格点窗口），保留卡片值；
+    下班、到家槽的卡片值可以是 null（details.card_value 为 null，正文写 null）。"""
     kept, scenario_value = values
-    why = ("与卡片其余时间锚点的顺序冲突（起点须按起床、出门、午餐、晚餐、就寝非递减）" if reason == "anchor_order"
+    why = ("与卡片其余时间锚点的顺序冲突（起床、出门、午餐、晚餐、就寝的起点须非递减；下班不早于出门、"
+           "到家不早于下班或出门，二者都不晚于就寝）" if reason == "anchor_order"
            else "量化到 0.5 小时格点后不是合法窗口")
     return _warning("CARD_FIELD_CONFLICT", agent_id,
                     f"场景显式声明的 {field} {_json_text(list(scenario_value))}{why}，保留卡片值 "
@@ -373,7 +384,9 @@ def _listing(values: Sequence[str]) -> str:
 
 
 def _json_text(value: Any) -> str:
-    """@brief 正文里的数值写法：窗口写成 [start, end]，小时数原样。"""
+    """@brief 正文里的数值写法：窗口写成 [start, end]，小时数原样，空的卡片槽写 null。"""
+    if value is None:
+        return "null"
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(f"{item:g}" for item in value) + "]"
     return f"{value:g}"

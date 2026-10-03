@@ -330,6 +330,8 @@ _CARD_MODELS = "tests/profile/test_models.py::"
 _CARD_INPUT_WARNINGS = "tests/integration/test_input_warnings.py::"
 _CARD_PERSONA_LAYER = "tests/life/test_persona_layer.py::"
 _CARD_TEXT = "tests/profile/test_textgen.py::"
+_CARD_INJECTION = "tests/profile/test_injection.py::"
+_CARD_SCENARIO = "tests/life/test_scenario.py::"
 
 #: 「作息锚点」（卡片一侧）：头七个节点经真实 extract_persona 与脚本化会话——故事写明时产出窗口、未提及为 null 且不取映射
 #: 表缺省、下班摇摆不改变其余五锚点、单次采样乱序只为放行而降级且不消耗重试、共识乱序先降下班再降到家且卡片照常编译、
@@ -340,8 +342,11 @@ _CARD_TEXT = "tests/profile/test_textgen.py::"
 #: 一致性），写明的下班与到家按九键键序到达实际请求的人设层、卡片文本追加两个分句。随后是画像文本各自非空时追加分句并
 #: 计入预算、都为 null 时逐字节不变（render_card 与新建运行冻结的卡片文本是同一函数）；人设层（直接导入
 #: custom.agents.life_persona）九键键序与 null、缺两键的旧结构化卡片在恢复路径被拒（真实 _prepare_resume 与父运行
-#: SQLite）；末一个守宿主不渲染人物档案里的工作安排与场景窗口（人设层键集与值不变）。场景覆盖经真实运行路径的节点随
-#: 场景覆盖切片补登。
+#: SQLite）；再一个守宿主不渲染人物档案里的工作安排与场景窗口（人设层键集与值不变）。场景作息覆盖七字段的三个节点经
+#: 真实新建（场景副本、画像编译、场景作息覆盖、LifeEnv 与 SQLite 运行清单）、直接导入的 LifeAgent 与真实 plan_inputs：
+#: 场景声明的下班、到家窗口落进卡片空槽并记覆盖、到达人设层与零点计划人物输入；只来自卡片的两个锚点不进零点计划输入；
+#: 违反顺序约束的场景下班窗口让空槽保持 null 并冻结一条冲突。最后五个是补充证据：覆盖函数在 null 槽上的覆盖、冲突
+#: （三种顺序冲突，含就寝早于卡片到家时冲突落在就寝上）、不动点与写不成窗口的冲突，以及场景两个窗口的校验。
 _WORK_ANCHOR_TESTS = [
     _CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",
     _CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",
@@ -362,6 +367,15 @@ _WORK_ANCHOR_TESTS = [
     _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",
     _CARD_PERSONA_LAYER + "test_structured_card_without_work_anchor_keys_is_rejected_on_restore",
     _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",
+    _CARD_INPUT_WARNINGS + "test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input",
+    _CARD_INPUT_WARNINGS + "test_card_only_work_anchors_never_enter_the_plan_input",
+    (_CARD_INPUT_WARNINGS
+     + "test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict"),
+    _CARD_INJECTION + "test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden",
+    _CARD_INJECTION + "test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict",
+    _CARD_INJECTION + "test_work_windows_declared_together_land_together_and_the_result_is_a_fixed_point",
+    _CARD_INJECTION + "test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot",
+    _CARD_SCENARIO + "test_work_window_bounds_and_order_are_rejected",
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
@@ -576,6 +590,15 @@ _PERSONA_ANCHOR_KILLERS = (
     _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",)
 _PERSONA_SCHEDULE_KILLERS = (
     _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",)
+_DAY_PLAN_INPUTS_MODULE = "worldmock.life.day_plan_inputs"
+_DAY_PLAN_INPUTS_SOURCE = "src/worldmock/life/day_plan_inputs.py"
+_INJECTION_MODULE = "worldmock.profile.injection"
+_INJECTION_SOURCE = "src/worldmock/profile/injection.py"
+#: 场景作息覆盖两个变异的杀手是同一个真实新建用例（_create_run 在进程内建立 LifeEnv，runtime 按本名导入
+#: worldmock.profile.injection，用例直接调用 plan_inputs）：零点计划人物输入丢掉场景声明的下班、到家时段时两个时段
+#: 不再出现；覆盖函数对 null 槽跳过场景值时冻结卡片没有下班、到家窗口，清单也没有这两条覆盖。
+_SCENARIO_WORK_WINDOW_KILLERS = (
+    _CARD_INPUT_WARNINGS + "test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1179,6 +1202,22 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         ),
         _PERSONA_SCHEDULE_KILLERS,
     ),
+    SourceMutation(
+        "scenario_work_windows_missing_from_plan_input",
+        _DAY_PLAN_INPUTS_MODULE,
+        _DAY_PLAN_INPUTS_SOURCE,
+        '"下班时段": _hours(config.leave_work_window), "到家时段": _hours(config.arrive_home_window),',
+        '"下班时段": None, "到家时段": None,',
+        _SCENARIO_WORK_WINDOW_KILLERS,
+    ),
+    SourceMutation(
+        "override_skips_null_card_slot",
+        _INJECTION_MODULE,
+        _INJECTION_SOURCE,
+        "        if field not in declared:\n            continue\n",
+        "        if field not in declared or getattr(anchors, slot) is None:\n            continue\n",
+        _SCENARIO_WORK_WINDOW_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1231,7 +1270,8 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
     "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
     "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
-    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": ()},
+    "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": (
+        "scenario_work_windows_missing_from_plan_input",)},
     "按星期推断休息日": {"stage": "3", "mutations": ()},
     "所有人物套班次": {"stage": "3", "mutations": ()},
     "计划修订后 `duty` 消失": {"stage": "3", "mutations": ()},
@@ -1283,6 +1323,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                               "（deliver_reminders 只留第一条草稿）。",
     "system_layer_copy_diverges": "实施计划阶段 2「突变审查的目标」：系统层三处文案不一致（life_prompt.py 第 6 条改掉一个"
                                   "分句，接口合同与人物 Prompt 规格不跟随）。",
+    "override_skips_null_card_slot": "实施计划阶段 3「突变审查的目标」：覆盖函数对 null 槽跳过场景值（卡片下班、到家槽为 "
+                                     "null 时场景声明的窗口不再落下）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -1313,6 +1355,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/reminders.py",
     "src/worldmock/life/result_projection.py",
     "src/worldmock/life/rhythm.py",
+    "src/worldmock/life/scenario.py",
     "src/worldmock/life/schedule.py",
     "src/worldmock/life/session_actions.py",
     "src/worldmock/life/settled_text.py",

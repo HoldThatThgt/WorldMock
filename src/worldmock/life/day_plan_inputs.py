@@ -106,10 +106,12 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Wi
 
 
 def _persona(engine: Any, agent_id: int) -> dict[str, Any]:
-    """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）。"""
+    """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）：下班、到家时段只取场景字段、未声明省略，只来自
+    卡片的下班与到家时刻不进这里（docs/dev/SPEC-errands-workday.md 4.2）。"""
     config = next(item for item in engine.scenario.agents if item.agent_id == agent_id)
     fields = {"名字": config.name, "背景": config.background_story, "健康习惯": config.health_habits,
               "社交风格": config.social_style, "午饭时段": _hours(config.lunch_window),
+              "下班时段": _hours(config.leave_work_window), "到家时段": _hours(config.arrive_home_window),
               "晚饭时段": _hours(config.dinner_window), "就寝时段": _hours(config.bedtime_window)}
     return {key: value for key, value in fields.items() if value is not None}
 

@@ -78,6 +78,13 @@ def _extracted(work_anchors: dict) -> PersonaExtraction:
     return extraction
 
 
+def _card_with_work_anchors():
+    """工厂卡片写明下班 18:00–18:30、到家 19:00–19:30（其余锚点不变）。"""
+    anchors = {**make_card().time_anchors.model_dump(), "leave_work": {"start_hour": 18.0, "end_hour": 18.5},
+               "arrive_home": {"start_hour": 19.0, "end_hour": 19.5}}
+    return make_card(time_anchors=anchors)
+
+
 def _compiled(extraction: PersonaExtraction):
     """validate 路径用的编译产物：同一份抽取结果经真实 compile_persona。"""
     return compile_persona("陈曦，32岁，产品经理，住在上海张江。" * 5, extraction=extraction)
@@ -465,6 +472,85 @@ async def test_a_conflicting_scenario_window_keeps_the_card_value_and_is_frozen_
     assert profile["persona_card_struct"]["time_anchors"]["lunch"] == {"start_hour": 12.0, "end_hour": 13.0}
     assert _persona_layer(profile)["rhythm"]["lunch"] == "12点到13点"
     assert profile["persona_card_struct"]["chronotype_midsleep"] == 4.75
+
+
+async def test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input(
+        tmp_path, monkeypatch) -> None:
+    """场景作息覆盖七字段（docs/dev/SPEC-errands-workday.md 4.2）：场景在 WC 作息之外声明下班 18:00–18:30、到家
+    18:30–19:00，卡片两槽为 null——真实新建把两个窗口落进冻结的结构化卡片与卡片文本，清单各冻结一条
+    CARD_FIELD_OVERRIDDEN（card_value 为 null）、没有冲突；真实请求的人设层显示两个窗口，零点计划的人物输入在午饭与
+    晚饭时段之间写出下班、到家时段。"""
+    path = _scenario(tmp_path, **_WC_RHYTHM, leave_work_window=[18.0, 18.5], arrive_home_window=[18.5, 19.0])
+    created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
+    env = created["env"]
+    try:
+        person = plan_inputs(env.engine, 1).payload["人物"]
+        frozen = env.engine.store.manifest["input_warnings"]
+    finally:
+        await env.close()
+    profile = created["specs"][0]["profile"]
+    anchors = profile["persona_card_struct"]["time_anchors"]
+
+    rhythm = _persona_layer(profile)["rhythm"]
+
+    assert (anchors["leave_work"], anchors["arrive_home"]) == ({"start_hour": 18.0, "end_hour": 18.5},
+                                                               {"start_hour": 18.5, "end_hour": 19.0})
+    assert "；下班18点到18点半；到家18点半到19点。" in profile["persona_card"]
+    assert (rhythm["leave_work"], rhythm["arrive_home"]) == ("18点到18点半", "18点半到19点")
+    assert (person["下班时段"], person["到家时段"]) == ("18:00–18:30", "18:30–19:00")
+    assert list(person)[-5:] == ["午饭时段", "下班时段", "到家时段", "晚饭时段", "就寝时段"]
+    work = [item["details"] for item in frozen if item["code"] == "CARD_FIELD_OVERRIDDEN"
+            and item["details"]["field"] in {"leave_work_window", "arrive_home_window"}]
+    assert work == [{"field": "leave_work_window", "card_value": None, "scenario_value": [18.0, 18.5],
+                     "applied_value": [18.0, 18.5]},
+                    {"field": "arrive_home_window", "card_value": None, "scenario_value": [18.5, 19.0],
+                     "applied_value": [18.5, 19.0]}]
+    assert [item for item in frozen if item["code"] == "CARD_FIELD_CONFLICT"] == []
+
+
+async def test_card_only_work_anchors_never_enter_the_plan_input(tmp_path, monkeypatch) -> None:
+    """只来自卡片的下班与到家时刻同起床、出门一样不进零点计划的结构化输入（规格 4.2）：卡片写明两个锚点、场景只声明 WC
+    的五个作息字段时，两个锚点照常到达冻结卡片与真实请求的人设层，零点计划人物输入只有场景声明的三个时段，没有下班与
+    到家时段；清单也没有这两个字段的覆盖或冲突。"""
+    created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path, **_WC_RHYTHM),
+                                _extraction(_card_with_work_anchors()))
+    env = created["env"]
+    try:
+        person = plan_inputs(env.engine, 1).payload["人物"]
+        frozen = env.engine.store.manifest["input_warnings"]
+    finally:
+        await env.close()
+    profile = created["specs"][0]["profile"]
+
+    rhythm = _persona_layer(profile)["rhythm"]
+
+    assert (rhythm["leave_work"], rhythm["arrive_home"]) == ("18点到18点半", "19点到19点半")
+    assert profile["persona_card_struct"]["time_anchors"]["leave_work"] == {"start_hour": 18.0, "end_hour": 18.5}
+    assert "下班时段" not in person and "到家时段" not in person
+    assert [key for key in person if key.endswith("时段")] == ["午饭时段", "晚饭时段", "就寝时段"]
+    assert not {"leave_work_window", "arrive_home_window"} & {item["details"].get("field") for item in frozen}
+
+
+async def test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict(
+        tmp_path, monkeypatch) -> None:
+    """新槽的冲突规则走真实路径（规格 4.2，不降级卡片锚点）：场景下班 06:00–06:30 早于卡片出门 08:00、卡片下班槽为
+    null——新建运行照常建立，清单恰好冻结一条 CARD_FIELD_CONFLICT（card_value 为 null，正文写 null），没有覆盖；
+    冻结卡片与真实请求人设层的下班仍为 null。"""
+    path = _scenario(tmp_path, leave_work_window=[6.0, 6.5])
+    created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
+    try:
+        frozen = created["env"].engine.store.manifest["input_warnings"]
+    finally:
+        await created["env"].close()
+    profile = created["specs"][0]["profile"]
+
+    conflicts = [item for item in frozen if item["code"] == "CARD_FIELD_CONFLICT"]
+    assert [item["details"] for item in conflicts] == [{"field": "leave_work_window", "card_value": None,
+                                                        "scenario_value": [6.0, 6.5], "reason": "anchor_order"}]
+    assert conflicts[0]["agent_id"] == 1 and conflicts[0]["message"].endswith("保留卡片值 null。")
+    assert [item for item in frozen if item["code"] == "CARD_FIELD_OVERRIDDEN"] == []
+    assert profile["persona_card_struct"]["time_anchors"]["leave_work"] is None
+    assert _persona_layer(profile)["rhythm"]["leave_work"] is None
 
 
 async def test_extracted_work_anchors_reach_the_real_request_persona_layer(tmp_path, monkeypatch) -> None:
