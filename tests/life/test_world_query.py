@@ -1,4 +1,4 @@
-"""世界查询的严格类型、冻结权限、交集筛选和完整分页行为。"""
+"""世界查询的严格类型、冻结权限、交集筛选、完整分页和紧凑返回行为。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _observation(count=47, page_size=20):
                 "match": {"name": f"商店出售的食品{index:03}", "kind": "product", "state": None,
                           "actions": [{"way": "到店", "available": index % 2 == 0,
                                        "reason": None if index % 2 == 0 else "Out of stock", "price": 0}],
-                          "tools": [], "candidates": []}}
+                          "tools": []}}
                for index in range(count)]
     return {"world_query_bindings": list(reversed(entries)), "world_query_channels": [],
             "world_query_page_size": page_size, "locations": [{"location_id": "store", "name": "商店"}],
@@ -65,7 +65,8 @@ def test_world_query_null_filter_errors_keep_affected_field_locations():
 
 
 def test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero():
-    """从首个窗口跨页遍历全集，包含尾页，返回副本且不改变冻结事实。"""
+    """从首个窗口跨页遍历全集，包含尾页；每项是紧凑投影：null 与空集合（state、tools、可用动作的 reason）被略去，
+    false、零价与不可用原因逐值保留，不带逐项候选；返回新结构，改动返回项不改变冻结事实。"""
     observation = _observation()
     before = copy.deepcopy(observation)
     offset, collected, offsets = 0, [], []
@@ -83,8 +84,12 @@ def test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero(
     assert offsets == [20, 40, None]
     assert [item["name"] for item in collected] == [f"商店出售的食品{index:03}" for index in range(47)]
     assert collected[1]["actions"][0]["available"] is False
+    assert collected[1]["actions"][0]["reason"] == "Out of stock"
     assert collected[0]["actions"][0]["price"] == 0
+    assert all(not {"candidates", "state", "tools"} & set(item) for item in collected)
+    assert all("reason" not in action for item in collected for action in item["actions"] if action["available"])
     collected[0]["name"] = "changed"
+    collected[1]["actions"][0]["available"] = True
     assert observation == before
     assert query_world(observation, _request(offset=47)) == {"matches": [], "total_count": 47, "next_offset": None}
 
@@ -115,11 +120,12 @@ def test_world_query_reports_all_dynamic_errors_and_full_legal_values():
 
 
 def test_world_query_does_not_return_internal_identity_or_private_evidence():
-    """私有排序身份与别名只在宿主快照中，查询结果无额外资料泄露。"""
+    """私有排序身份、别名、所属门店、品类与渠道索引只在宿主快照中，查询结果不带逐项候选，也无额外资料泄露。"""
     observation = _observation()
     result = query_world(observation, _request())
     serialized = json.dumps(result)
-    for field in ("identity", "aliases", "object_id", "seller_account_id", "answer", "inventory"):
+    for field in ("identity", "aliases", "object_id", "seller_account_id", "answer", "inventory", "location_id",
+                  "candidates", "category", "channel_id", "store_location_ids"):
         assert f'"{field}"' not in serialized
 
 
@@ -150,6 +156,88 @@ def test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes
         assert set(names) == expected and len(names) == len(expected)
     assert engine.state.model_dump(mode="json") == before
     assert engine.store.last_event_seq == evidence_seq
+
+
+#: 返回项、动作与工具的键闭集（docs/dev/SPEC-errands-workday.md 5.4），以及任何位置都不得出现的内部键。
+_MATCH_KEYS = {"name", "kind", "phase", "state", "contract", "actions", "tools"}
+_ACTION_KEYS = {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
+_TOOL_KEYS = {"tool", "available", "reason"}
+_HIDDEN_KEYS = {"candidates", "identity", "aliases", "category", "location_id", "object_id"}
+
+
+def _walk(value):
+    """递归列出结果里每个字典键与其值（含嵌套在字典与列表里的），供紧凑与泄露断言使用。"""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key, item
+            yield from _walk(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk(item)
+
+
+def _compact_pages(observed, frozen, environment, category):
+    """沿 next_offset 遍历一个品类：每页先经宿主校验，宿主本地求值与环境 read_query 读回的观察逐值相等，返回全部页。"""
+    import asyncio
+
+    pages, offset = [], 0
+    while offset is not None:
+        request = _request(category=category, offset=offset)
+        assert validate_world_query(observed, request) is None
+        page = query_world(observed, request)
+        assert asyncio.run(environment.read_query(frozen, "query_world", request)) == page
+        pages.append(page)
+        offset = page["next_offset"]
+    return pages
+
+
+def test_world_query_matches_are_compact_targets_without_candidates(engine_factory):
+    """真实引擎 10:00 在家：返回项是冻结目标的无损紧凑投影——顶层恒为三键，项、动作与工具的键取自闭集，任何位置都没有
+    null 与空集合；门店商品到店动作 available 为 false 且带原因、远程下单 available 为 true 且不带 reason 键，首个动作的
+    来源标记仍在；返回里没有逐项候选与内部身份，冻结条目照存完整目标（null 保留、无候选），构造候选的函数已删除；宿主
+    本地求值与环境 read_query 的页逐值相等（docs/dev/SPEC-errands-workday.md 5.4）。"""
+    import worldmock.life.world_query as world_query
+    from custom.envs.life_env import LifeEnv
+    from tests.life.conftest import context, stage_day_plan
+    from tests.life.purchase_worlds import at_clock
+
+    engine = engine_factory()
+    stage_day_plan(engine)
+    at_clock(engine, 10, 0)
+    frozen = context(engine, "query-compact")
+    engine.begin_decision_round([frozen])
+    observed = engine.observe(frozen)
+    environment = LifeEnv()
+    environment.engine = engine
+    before = copy.deepcopy(observed)
+    entries = observed["world_query_bindings"]
+    goods = {entry["match"]["name"]: entry for entry in entries if entry["identity"].startswith("supply:")}
+    category = min(entry["category"] for entry in goods.values() if entry["category"] is not None)
+    pages = _compact_pages(observed, frozen, environment, category)
+    matches = [match for page in pages for match in page["matches"]]
+    assert all(set(page) == {"matches", "total_count", "next_offset"} for page in pages)
+    assert len(matches) == pages[0]["total_count"] > 0
+    for match in matches:
+        assert set(match) <= _MATCH_KEYS
+        assert all(set(action) <= _ACTION_KEYS for action in match.get("actions", ()))
+        assert all(set(tool) <= _TOOL_KEYS for tool in match.get("tools", ()))
+    pairs = list(_walk(pages))
+    assert all(value is not None and value != [] and value != {} for key, value in pairs if key != "next_offset")
+    assert not _HIDDEN_KEYS & {key for key, _ in pairs}
+    sold = [match for match in matches if match["name"] in goods]
+    assert sold and any(action["way"] == "远程下单" for match in sold for action in match["actions"])
+    for match in sold:
+        assert match["kind"] == "product" and {"name", "kind", "actions"} <= set(match)
+        assert not {"phase", "tools"} & set(match)
+        assert goods[match["name"]]["match"]["phase"] is None and goods[match["name"]]["match"]["tools"] == []
+        assert "来源：" in match["actions"][0]["note"]
+        ways = {action["way"]: action for action in match["actions"]}
+        assert ways["到店"]["available"] is False and ways["到店"]["reason"]
+        if "远程下单" in ways:
+            assert ways["远程下单"]["available"] is True and "reason" not in ways["远程下单"]
+    assert all("candidates" not in entry["match"] for entry in entries)
+    assert not hasattr(world_query, "_request_candidates")
+    assert observed == before
 
 
 def _category_query(observed):

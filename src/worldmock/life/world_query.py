@@ -14,6 +14,7 @@ from worldmock.life.models import purpose_only_schema
 from worldmock.life.name_resolution import resolve_name, way_options
 from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import BROWSE_LABELS
+from worldmock.life.tool_groups import compact
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,11 +101,11 @@ def _supply_bindings(context: Any) -> list[dict]:
 
 
 def _frozen_entry(context: Any, target: dict, binding: dict | None) -> dict:
-    """@brief 内部身份只用于排序，查询结果保留公开目标与完整可提交候选；供给条目另记所属门店（location_id，来源筛选用，
-    不进查询结果），其余条目为 None。"""
+    """@brief 内部身份只用于排序，查询结果保留公开目标（完整副本，null 照存，返回时才紧凑投影）；不附逐项请求候选
+    （docs/dev/SPEC-errands-workday.md 5.4）。供给条目另记所属门店（location_id，来源筛选用，不进查询结果），其余条目
+    为 None。"""
     identity = (f"{binding['kind']}:{binding['object_id']}" if binding is not None else target["name"])
     public = copy.deepcopy(target)
-    public["candidates"] = _request_candidates(context, target)
     aliases, location = [target["name"]], None
     if binding is not None and binding["kind"] == "supply":
         supply = context.rules.supplies[binding["object_id"]]
@@ -127,24 +128,6 @@ def _category(context: Any, binding: dict | None) -> str | None:
         identity = context.rules.supplies[identity].product_id
     obj = context.semantics.catalog.objects.get(identity)
     return context.semantics.catalog.category_contract.require_category(obj.category_id).name if obj else None
-
-
-def _request_candidates(context: Any, target: dict) -> list[dict]:
-    """@brief 按冻结动作构造新请求，给予必须有当前同处的实际他人收件人。"""
-    candidates = []
-    for action in target["actions"]:
-        destination = None
-        if action["way"] == "给予":
-            destination = next((row["object"].split("：", 1)[-1] for row in context.bindings
-                                if row["kind"] == "person"), None)
-            if destination is None:
-                continue
-        arguments = {"items": [{"target": target["name"], "way": action["way"],
-                                "from": None, "to": destination}], "answering": None,
-                     "prefer": "最快拿到" if WAYS[action["way"]][1] == "purchase" else None}
-        note = None if action["available"] else "Currently unavailable; the action reason states the prerequisite."
-        candidates.append({"tool": "start_activity", "arguments": arguments, "note": note})
-    return candidates[:3]
 
 
 def validate_world_query(observation: dict, request: QueryWorldRequest) -> ErrorReport | None:
@@ -187,8 +170,9 @@ def _matching_entries(observation: dict, request: QueryWorldRequest) -> list[dic
 
 
 def query_world(observation: dict, request: QueryWorldRequest) -> dict:
-    """@brief 查询已验证的冻结观察页；返回副本，调用者不能改变后续页或权限事实。"""
+    """@brief 查询已验证的冻结观察页；每项是冻结目标的无损紧凑投影（只略去 null 与空集合，复用工具层分组的 compact），
+    返回新结构，调用者不能改变后续页或权限事实。"""
     entries = _matching_entries(observation, request)
     end = min(request.offset + observation["world_query_page_size"], len(entries))
-    return {"matches": [copy.deepcopy(entry["match"]) for entry in entries[request.offset:end]],
+    return {"matches": [compact(entry["match"]) for entry in entries[request.offset:end]],
             "total_count": len(entries), "next_offset": end if end < len(entries) else None}

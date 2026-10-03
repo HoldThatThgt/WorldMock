@@ -136,6 +136,17 @@ _SOURCE_FILTER_TESTS = [
     _PURCHASE_CHANNELS + "test_frozen_observation_carries_the_channel_index_and_supply_stores",
 ]
 
+#: 「分页与返回」（阶段 4，随各切片增长）：前两个节点在冻结页夹具上守紧凑投影（跨页遍历全集，false、零价与不可用原因
+#: 逐值保留，null 与空集合略去，改动返回项不改冻结事实；返回里没有逐项候选、内部身份、所属门店、品类与渠道索引键），
+#: 两者同时登记在工具交互台账、名称不改；第三个经真实引擎、SQLite 与 LifeEnv：10:00 在家沿一个商品品类翻页，宿主本地
+#: 求值与环境 read_query 逐值相等，项与动作的键取自闭集、没有 null 与空集合、门店商品到店 false 带原因而远程下单 true
+#: 无 reason 键、来源标记仍在，冻结条目无候选且构造候选的函数已删除。
+_PAGING_TESTS = [
+    _WORLD_QUERY + "test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero",
+    _WORLD_QUERY + "test_world_query_does_not_return_internal_identity_or_private_evidence",
+    _WORLD_QUERY + "test_world_query_matches_are_compact_targets_without_candidates",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -161,7 +172,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "查询请求": {"stage": "4", "tests": []},
     "来源筛选": {"stage": "4", "tests": _SOURCE_FILTER_TESTS},
     "可执行筛选": {"stage": "4", "tests": []},
-    "分页与返回": {"stage": "4", "tests": []},
+    "分页与返回": {"stage": "4", "tests": _PAGING_TESTS},
     "查询只读": {"stage": "4", "tests": []},
     "工程门禁": {"stage": "5", "tests": []},
     "复跑指标（只报告）": {"stage": "6", "tests": []},
@@ -221,6 +232,14 @@ _REFLECTION_FAULT_KILLERS = (
 )
 _WINDOW_KILLERS = (
     "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
+)
+_TOOL_GROUPS_MODULE = "worldmock.life.tool_groups"
+_TOOL_GROUPS_SOURCE = "src/worldmock/life/tool_groups.py"
+#: 紧凑投影按真假值丢值的杀手：冻结页夹具上读出 false 与零价的一例，真实引擎上读出门店商品到店 false 的一例。原文与
+#: 工具交互台账的 compact_drops_false 相同，两份台账各登记一次，回执目录分开。
+_COMPACT_KILLERS = (
+    _WORLD_QUERY + "test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero",
+    _WORLD_QUERY + "test_world_query_matches_are_compact_targets_without_candidates",
 )
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
@@ -431,6 +450,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '                  and row["agent_id"] == action["agent_id"]\n',
         _WINDOW_KILLERS,
     ),
+    SourceMutation(
+        "query_compaction_drops_false_and_zero",
+        _TOOL_GROUPS_MODULE,
+        _TOOL_GROUPS_SOURCE,
+        "if item is not None and item != [] and item != {}",
+        "if item and item != [] and item != {}",
+        _COMPACT_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -488,7 +515,7 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "来源解析另写一套": {"stage": "4", "mutations": ()},
     "「购买」不展开": {"stage": "4", "mutations": ()},
     "可执行筛选放到切页之后或在未命中方式的动作上判定": {"stage": "4", "mutations": ()},
-    "精简时按真假值丢掉 false 或零": {"stage": "4", "mutations": ()},
+    "精简时按真假值丢掉 false 或零": {"stage": "4", "mutations": ("query_compaction_drops_false_and_zero",)},
     "查询写世界": {"stage": "4", "mutations": ()},
     "四键旧请求被受理": {"stage": "4", "mutations": ()},
 }
@@ -527,6 +554,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/narration.py",
     "src/worldmock/life/purchase_offers.py",
     "src/worldmock/life/read_query_runtime.py",
+    "src/worldmock/life/tool_groups.py",
     "src/worldmock/life/world_query.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
