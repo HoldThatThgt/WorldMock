@@ -1,7 +1,7 @@
 # 运行配置
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步就寝反思的严格工具与校验重试（阶段 1）。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步就寝反思的严格工具与校验重试（阶段 1）、查询六键（阶段 4）。
 
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
@@ -228,7 +228,9 @@ uv run worldmock replay \
 原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，
 改为items一项一个{target,way,from,to}对象及answering/prefer，旧actions与数组直接拒绝。
 含购买项prefer必须为“最快拿到”或“到手价最低”，非购买必须null；to=null统一本人。
-query_world必填name/way/category/offset，category取公开品类标签，返回matches/total_count/next_offset可遍历全集；
+query_world必填name/way/category/from/available_only/offset六键，from写地点显示名或渠道称呼、与购买的from同一解析，
+available_only为true时只留已确认此刻可执行的条目，category取公开品类标签；
+返回matches/total_count/next_offset可遍历全集，每项不再附候选，筛选后无匹配是合法空页；
 它与recall_task_summary即时只读，不消耗世界时间或同刻轮数，仍受十六模型回合预算。
 每条错误提供完整path、written、allowed_values、expected、why和完整请求候选，英文报错；
 有限枚举完整列出，无法枚举的范围和格式由expected说明。
