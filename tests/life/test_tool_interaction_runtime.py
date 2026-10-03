@@ -361,7 +361,8 @@ def test_read_queries_keep_actual_model_exchange_without_progress_events(engine_
     requests = {
         "memory_recent": {"limit": 2}, "memory_search": {"query": "咖啡"},
         "memory_time_range": {"start_time": "2026-01-05T00:00:00+08:00", "end_time": "2026-01-05T08:30:00+08:00"},
-        "query_world": {"name": None, "way": None, "category": category, "offset": 0},
+        "query_world": {"name": None, "way": None, "category": category, "from": None, "available_only": False,
+                        "offset": 0},
         "recall_task_summary": {"task_name": "尚未结束的活动"}}
     results = {name: {"epistemic_status": "subjective", "episodes": []} for name in requests}
     results["query_world"] = asyncio.run(environment.read_query(

@@ -144,3 +144,30 @@ def test_control_tool_purposes_and_errand_descriptions_are_the_contract_text() -
             key: texts[key] for key in keys}
     assert {text: _violations(text) for _, text in rows if _violations(text)} == {}
     assert all(text.endswith("。") and text.count("。") == 1 for _, text in rows)
+
+
+#: 个人事务与工作安排规格 5.6 定稿 query_world 用途句的那一行的引导语。
+_PURPOSE_LEAD = "用途句定稿：「"
+_SPEC = Path(__file__).resolve().parents[2] / "docs" / "dev" / "SPEC-errands-workday.md"
+
+
+def test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint(monkeypatch) -> None:
+    """query_world 的用途句逐字等于 docs/dev/SPEC-errands-workday.md 5.6 定稿的那一句（从规格原文读出）；换回旧句时只有
+    工具指纹变、提示指纹不变（本阶段不改系统层与层 Schema）；严格 Schema 的六个键全部必填、按 name, way, category, from,
+    available_only, offset 的顺序，from 是字符串或 null、available_only 是布尔，任何位置都没有字段说明。"""
+    from custom.agents.life_agent import life_tool_schema_sha256
+    from custom.agents.life_prompt import life_prompt_sha256
+
+    [line] = [line for line in _SPEC.read_text(encoding="utf-8").splitlines() if _PURPOSE_LEAD in line]
+    sentence = line.split(_PURPOSE_LEAD, 1)[1].split("」", 1)[0]
+    assert sentence and TOOL_DESCRIPTIONS["query_world"] == sentence
+    assert not _violations(sentence)
+    tools, prompt = life_tool_schema_sha256(), life_prompt_sha256()
+    monkeypatch.setitem(TOOL_DESCRIPTIONS, "query_world", "按已知名称、方式或公开品类查询世界，按返回的偏移量翻页。")
+    assert life_tool_schema_sha256() != tools and life_prompt_sha256() == prompt
+    schema = deepseek_strict_schema(QueryWorldRequest)
+    assert schema["required"] == ["name", "way", "category", "from", "available_only", "offset"]
+    assert list(schema["properties"]) == schema["required"]
+    assert schema["properties"]["from"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert schema["properties"]["available_only"]["type"] == "boolean"
+    assert _descriptions(schema, "query_world") == []

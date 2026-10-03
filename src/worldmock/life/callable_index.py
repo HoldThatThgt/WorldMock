@@ -40,7 +40,7 @@ from worldmock.life.tool_layer import LayerContext
 
 #: 每个品类至多给出的示例名数。
 MAX_EXAMPLES = 3
-#: 索引的三个键，按这个顺序写出。
+#: 索引的四个键，按这个顺序写出（query_categories 由 world_query.attach_world_query 在冻结查询事实时填入）。
 INDEX_KEYS = ("lifestyle", "contents", "goods", "query_categories")
 
 
@@ -76,7 +76,9 @@ def index_sources(windows: Mapping[str, PresentationWindow]) -> IndexSources:
 
 
 def callable_index(context: LayerContext, sources: IndexSources) -> dict[str, Any]:
-    """@brief 工具层的 callable_index：{lifestyle: [名称], contents: [{category, count, examples}], goods: [同形]}。
+    """@brief 工具层的 callable_index：{lifestyle: [名称], contents: [{category, count, examples}], goods: [同形],
+    query_categories: [{category, count}]}；query_categories 先写空，由 world_query.attach_world_query 填入查询权限内各
+    公开品类的完整条目数（query_category_index），查询筛选不改变这些计数（docs/dev/SPEC-errands-workday.md 5.1）。
 
     :param context: 本次观察的层上下文（bindings 为本轮列出的交互对象，menu 为本轮有效菜单）。
     :param sources: 生活活动、内容与游戏三个分区资格段保留的对象（index_sources）。

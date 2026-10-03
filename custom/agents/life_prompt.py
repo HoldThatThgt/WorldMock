@@ -78,7 +78,7 @@ READONLY_SYSTEM_LAYER: dict[str, Any] = {
 #: 原生工具的用途说明（只写用途；协议与阶段规则只在系统层）。
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "start_activity": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
-    "query_world": "按已知名称、方式或公开品类查询世界，按返回的偏移量翻页。",
+    "query_world": "按已知名称、方式、公开品类或购买来源查询世界，可只看此刻能做的，按返回的偏移量翻页。",
     "submit_work": "按任务名提交工作成果。",
     "send_message": "按人物名给对方发一条消息。",
     "recall_task_summary": "按名称回看一项任务、目标或活动的进展，不改变世界。",

@@ -1,6 +1,6 @@
 # WorldMock 产品设计说明书 — 记录引擎
 
-> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D5 作业），已随代码落地到阶段 2  
+> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D5 作业），已随代码落地到阶段 1、2 与阶段 4，阶段 3 未落地  
 > **日期**：2026-10-03
 > **版本**：v1.4
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
@@ -162,7 +162,8 @@ flowchart TB
 模型请求、本地校验和环境派发；它不进入人物 user 消息，也不保存其他人物或全部地点的原始声明。
 地点变化后的新菜单由下一次观察另行记录，既有观察不回写。
 观察私有证据另记 `same_moment_stage`（本轮开放的动作类，同刻上限的受限轮阶段），同样用于核对工具层的可用性标注、
-本地校验和环境派发；它不进入七层。
+本地校验和环境派发；它不进入七层。观察私有事实另增渠道索引 `world_query_channels`（渠道身份、称呼、成员门店，列入提示禁键）；
+每个供给条目所属门店记在条目的私有键 `location_id`（已在禁键内），不另冻结地点与住处的副本。
 人物请求如何由七层组成见[人物决策提示合同](../CONTRACTS.md#请求组成)。
 
 请求同一动作的重试沿用动作标识；真实重复观看或再次购买必须产生新动作标识。完整原始事件保存世界事实、自述和推断三者的来源区别，既不删除重复行为，也不把相同素材的哈希当作事件标识；环境准确值、人物表达的感受与设备可见痕迹并不等价。
@@ -280,7 +281,7 @@ EventType = Literal[
 只能公开实际返回供给的库存，不能把全量 `WorldState` 库存、未接触供给或未来报价注入人物窗口。
 指名购买按场景供给解析并按当前报价结算，不查可见凭据；它不因此把未呈现供给的库存或报价写进人物窗口，人物只见该次购买的公开结果。
 解析按分段匹配依次判定、各报各的码（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#32-指名购买from-是约束不是语法) 3.2、3.3、3.5）：
-名称（`SUPPLY_NOT_FOUND`）、`from` 的来源范围（`null` 为全部门店，本段跳过；门店名为该门店；渠道称呼即 App 名，去掉空白、不分大小写
+名称（`SUPPLY_NOT_FOUND`）、`from` 的来源范围（`null` 为全部门店，本段跳过；地点显示名（含「家」「住处」）为该地点；渠道称呼即 App 名，去掉空白、不分大小写
 比较，为该渠道的成员门店，渠道由场景钉定的手机配置派生，经它成交的订单记 `channel_id`；都不是时
 `SOURCE_NOT_FOUND`，标签的门店不在范围内 `SUPPLY_SOURCE_MISMATCH`，那家店不卖 `SUPPLY_NOT_AT_STORE`）、所写方式
 （`FULFILLMENT_NOT_SUPPORTED`，方式为「购买」时跳过）与此刻能否服务（`ACTIVITY_PRECONDITION_UNMET`）；多家都能服务时按请求级
@@ -417,7 +418,7 @@ flowchart LR
 
 `query_world`、`recall_task_summary` 与记忆查询只读冻结观察权限；它们即时返回，
 不产生 `action_requested`、资源分录或世界活动，不计模拟时间和同刻轮数，仍占实际模型回合预算。
-`query_world` 四键 `name`、`way`、`category`、`offset` 均必填；前三键可空且至少一个非空白，`category` 匹配公开 `callable_index` 类别标签，`offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。返回 `{matches, total_count, next_offset}`，`next_offset` 必填可空；每批沿用现有 `candidate_presentation_limit=20`，还有匹配时返回下一偏移，否则为 `null`。同一冻结观察内可遍历完整权限内匹配集合，不公开超权限信息，不替代耗时浏览。
+`query_world` 六键 `name`、`way`、`category`、`from`、`available_only`、`offset` 均必填、无缺省，旧四键请求按缺字段拒绝；`name`、`way`、`category`、`from` 可为 null 且至少一个非 null（四者全空时在四个位置各报一条；非 null 的 `name`、`way`、`category` 不得为空白，空白的 `from` 与其余无法解析的来源同按来源错误纠正），`from` 写购买来源（地点显示名，含「家」「住处」，或渠道称呼），与 `start_activity` 购买项的 `from` 经同一纯函数解析、只匹配供给条目；`available_only` 为严格布尔（拒绝字符串、数字与 null），true 只留已确认此刻可执行的条目（报价未知、营业未知的也被滤掉），不单独构成查询条件；`way` 写「购买」等同于同时写「到店」与「远程下单」；`category` 匹配公开 `callable_index` 的品类标签（`query_categories`，筛选不改变其计数口径），`offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。返回恒为 `{matches, total_count, next_offset}`，`next_offset` 必填可空；筛选在排序与切页之前施加，`total_count` 是全部筛选交集后的完整匹配数；每批沿用现有 `candidate_presentation_limit=20`，还有匹配时返回下一偏移，否则为 `null`。除两种查询参数错误（`from` 既不是地点显示名也不是渠道称呼；`from` 为 null、`name` 按对象名称无任何匹配且其写法恰是一个渠道称呼）外，任何筛选组合无匹配时返回 `matches=[]`、`total_count=0`、`next_offset=null`，不报错、不自动放宽、不换来源。每项是冻结目标的无损紧凑投影（`name, kind, phase, state, contract, actions, tools`，紧凑规则复用工具层分组的实现），只省略 null 与空集合，不再逐项附 `candidates`，候选只出现在错误合同里。同一冻结观察内可遍历完整权限内匹配集合，不公开超权限信息，不替代耗时浏览。
 查询原生调用与返回通过实际模型消息留证；不能把查询成功记成世界请求已登记，不能提前写入浏览揭示事实。
 
 `rejected_today` 从本人当天 `protocol_feedback` 与非重放业务拒绝确定性派生，按同一工具、参数位置和原文合并。
@@ -1014,6 +1015,7 @@ python3 scripts/inspect_run.py runs/white-collar body --agent 0
 python3 scripts/inspect_run.py runs/white-collar flows --tail 20
 python3 scripts/inspect_run.py runs/white-collar rerun
 python3 scripts/inspect_run.py runs/white-collar continuation --topic 咖啡 --baseline runs/white-collar-off
+python3 scripts/inspect_run.py runs/white-collar queries
 python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --date 2026-01-05 --out runs/white-collar
 ```
 
@@ -1034,6 +1036,17 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 开关取清单 `stage_model_identity.stages.action.same_second_continuation`；清单没有阶段身份（特性之前的运行）时为 `null`，不能作任何一臂。
 `--baseline` 先核对两份清单：去掉运行身份键（`run_id`、`source_group_id`、`source_run_ids`）与续接开关后必须完全相同，且两臂开关不同，
 否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
+`queries` 只读按运行给出[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#63-查询成本只报告) 6.3 的查询成本，以 JSON 打印
+`{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
+失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
+重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）。口径取已落库的模型工具交换证据（`model_request`、`model_response`）：
+调用是 `phase=response` 的 `model_response` 里名为 `query_world` 的工具调用；同一决策其后最先带同一调用身份的 tool 消息是解析为含
+`matches` 的 JSON 对象的结果页时算成功，整批被拒（tool 消息是协议纠错）或从未得到回答算失败；返回字符数只计成功调用结果页的正文；
+带筛选指 `from` 不为 null 或 `available_only` 为 true（旧四键调用不算），筛选后为空指其中成功且 `total_count` 为 0 的；
+`model_calls_to_purchase` 取全运行第一个查询调用的人物与产生它的请求，计该人物从这一请求（含）到其后第一笔购买结算的
+`action_result`（不含）之间开放 `start_activity` 的模型请求（含协议纠错与截断重试），没有查询或其后没有该人物的购买时为 `null`；
+反思校验重试按消息多于原始两条识别。决策 token 用量取质量报告既有的模型用量分组，协议错误取 `continuation` 报告，对照运行同时报告，
+本子命令不另设这些键；降低返回量不能以购买失败为代价。只报告，不作门禁。
 日程工具读取已发生事件，`--out DIR` 将投影写入 `DIR/timeline/<agent>-<date>.md`，不把输出目录再写成 `DIR/timeline`。
 时间线每行的活动只写中文：种类名取 `readable.py` 的中文种类表（活动种类、出行方式、浏览目录，与环境层、交互菜单同表，单一来源）；
 对象名先取引擎写在活动快照上的标题（生活活动名、内容或游戏标题、工作的任务标题、通话的联系人称谓、交谈的对象姓名），
@@ -1117,3 +1130,4 @@ flowchart LR
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
 | v1.4 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D5 作业，随阶段 1 的代码落地，按 `a1f680b` 核对）：「必须保存的内容」增记忆阶段调用行，`decision_started` 行注明就寝反思请求不是行动请求，`model_request`、`model_response` 行写明反思的每次尝试是独立调用、校验错误随下一次请求的附回消息留证，并登记四个失败阶段码及其去向，「已核验经历与主观记忆」写明反思输出不合合同的有界校验重试与耗尽即运行故障，「质量报告」`name_rejections` 注明落库的失败阶段码计入其余协议错误，宿主一侧的口径照现行实现改写为读取已落库的 `data.protocol_feedback.error_code`（原写按协议错误串判定）；顺带更正「工具纠错、只读查询与当天操作备忘的证据」末句与「记录生活全过程的实现差距」末句两处把已实现的工具交互写成未实现的句子；版本表前的说明句改为以正文和各特性规格为准；文件头补同步说明，日期改写 |
 | `2026-10-03-errands-workday-stage-2` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 2 同步（实施计划 D5 作业，随阶段 2 的代码落地，按 `d09d574` 核对）：「必须保存的内容」增个人事务行；`action_requested` 请求形状增请求级 `errands`（八键、取消、更新、新增的求值次序、`control_items` 与 `control_errands` 是唯一读取入口、缺键按完整性故障拒绝），受理与拒绝行写明事务变更与活动转换同一事务提交、错误明细的路径与名称载体，`action_result` 行增回执 `details.errands`；`environment_event` 登记六种事务事件的 `data.kind`、载荷与可见性（办成与提醒为人物可见，六种都不带决策与动作身份，只经 `caused_by` 关联），当日目标提醒与事务提醒分开写；表后增完成证据一段（读取一处、按事件顺序、被取消的事务不再接受同一提交的证据、结算每次提交一次）；唤醒原因闭集补 `errand_reminder_due`（不进睡眠允许集合，睡眠中错过的在醒来的那个边界交付）；观察段补待办层 `errands`、进度层两种记录与两类私有绑定，同秒续接补 `changes.errands`；记忆层 `settled` 排除六种事务事件，浓缩句只在进度层；事务变更不是记忆写入点；检查点封存版本 9 的 `errands`，世界结构 8→9；质量报告结构 4 与 `errand_metrics`、`conclusion_memories` 两节的定义；调试工具补查看器缺 `errands` 键报错与新标签；文件头的阶段号改为 2，补本规格首次受影响的发布身份。与实施计划作业原文不一致处按规格写：三种请求触发的事务事件不带动作身份（规格 2.7），每条被受理的变更各写一条而不按状态差分（2.2），完成证据不限于到店成交的订单并补同一提交内取消的规则（2.4），提醒在醒来的那个边界交付（2.5），事务指标无事务时整组为 null、有事务时没有命中记 0（6.1） |
+| `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 4（查询筛选与返回精简）同步（实施计划 D5-24、D5-25、D5-30，随阶段 4 的代码落地，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「工具纠错、只读查询与当天操作备忘的证据」`query_world` 改六键（增 `from`、`available_only`，旧四键请求按缺字段拒绝），筛选先于切页，返回不再附候选，两种查询参数错误，与 09 同句逐字一致；「数字足迹事件结构」观察私有事实增渠道索引 `world_query_channels`，供给条目所属门店记在已禁的 `location_id`；指名购买 `from` 来源写法由「门店名」更正为地点显示名（含「家」「住处」）；「调试工具」增 `queries` 子命令（八个键与各自口径，只报告）；文件头状态改为已落地阶段 1、2 与阶段 4；版本号不变 |

@@ -31,8 +31,9 @@ STAGE_IDS = frozenset(str(number) for number in range(8))
 
 #: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成；阶段 2（个人事务
 #: 与提示分工）随收尾提交完成：十行台账都列出节点，二十六句规格变异都有登记变异（阶段复审之后，一句列出的每种情形各有
-#: 一个）。
-STAGES_DONE: frozenset[str] = frozenset({"1", "2"})
+#: 一个）；阶段 4（查询筛选与返回精简）只依赖阶段 1，与阶段 2 并行开发、随合并进入主线：它的五行都列出经真实引擎的
+#: 节点，七句变异各有登记的杀死变异。
+STAGES_DONE: frozenset[str] = frozenset({"1", "2", "4"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
@@ -403,6 +404,117 @@ _METRIC_TESTS = [
     _ERRAND_EXPORT,
 ]
 
+_PURCHASE_CHANNELS = "tests/life/test_purchase_channels.py::"
+_QUERY_FILTERS = "tests/life/test_world_query_filters.py::"
+_TOOL_PROTOCOL = "tests/life/test_tool_protocol.py::"
+_QUERY_COST = "tests/life/test_query_cost_report.py::"
+
+#: 「查询请求」（阶段 4）：头五个节点在请求模型与冻结页夹具上守六键必填（缺哪个报哪个）、旧四键请求恰在两个新键上按
+#: 缺字段拒绝（Python 与严格 JSON 两个入口）、available_only 只收布尔、四个筛选全空逐字段报错（available_only 为 true 也
+#: 一样；其余字段同时不合法时与那些字段错误一次全报）、方式品类来源错误一次全报且不另报越界偏移量；其后六个经真实引擎、
+#: SQLite、直接导入的 LifeAgent 与 LifeEnv（宿主本地校验与环境 read_query 在同一冻结观察上）守宿主协议反馈里同样的拒绝
+#: （四者全空与 available_only、offset 错误同一份报告）、只写 from 合法、三类筛选错误一次全报，以及请求模型错误（方式
+#: 空白、品类或 available_only 类型不符）不压下未知来源；末一个守 query_world 用途句逐字等于规格 5.6 定稿、只动工具
+#: 指纹、严格 Schema 六键且无字段说明。
+_QUERY_REQUEST_TESTS = [
+    _WORLD_QUERY + "test_world_query_requires_every_declared_field",
+    _WORLD_QUERY + "test_world_query_rejects_the_retired_four_key_request",
+    _WORLD_QUERY + "test_world_query_available_only_requires_a_json_boolean",
+    _WORLD_QUERY + "test_world_query_null_filter_errors_keep_affected_field_locations",
+    _WORLD_QUERY + "test_world_query_reports_all_dynamic_errors_and_full_legal_values",
+    _QUERY_FILTERS + "test_host_rejects_the_retired_four_key_request_at_both_new_keys",
+    _QUERY_FILTERS + "test_all_four_empty_filters_are_reported_and_available_only_alone_is_no_filter",
+    _QUERY_FILTERS + "test_available_only_must_be_a_json_boolean_on_the_host_path",
+    _QUERY_FILTERS + "test_from_alone_is_a_legal_query_matching_only_that_stores_supplies",
+    _QUERY_FILTERS + "test_source_way_and_category_errors_are_reported_together_before_any_offset_check",
+    _QUERY_FILTERS + "test_source_errors_are_reported_together_with_request_model_errors_on_the_host_path",
+    "tests/integration/test_tool_description_references.py::"
+    "test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint",
+]
+
+#: 「来源筛选」（阶段 4，随各切片增长）：第一个节点在隔离渠道语料的真实引擎与 SQLite 上守冻结观察的两项私有事实——渠道
+#: 索引 world_query_channels 与供给条目的 location_id，观察事件读回逐值相等、两项都不进五个环境层。其后五个在正式场景的
+#: 真实引擎上（宿主与环境两入口逐值相等）：门店名（含前缀与空白写法）只匹配该门店的供给；「家」「住处」与没有权限内供给
+#: 的地点是合法空页；未知来源在 from 位置报错，候选只取权限内门店、照抄被受理；完整标签配另一家店是合法空页；门店名写在
+#: name 里按地点目标匹配。末四个在隔离渠道语料上：同一写法（门店名、前缀、「家」、渠道称呼及其大小写空白变体）经购买与
+#: 查询得到逐一相等的门店集合且翻完的查询恰是其中权限内的供给，未知写法两侧都拒绝；渠道称呼写进 name 给一条移到 from 的
+#: 候选；渠道称呼同时是商品名时按对象匹配；没有权限内供给的门店是合法空页且从不作候选。
+_SOURCE_FILTER_TESTS = [
+    _PURCHASE_CHANNELS + "test_frozen_observation_carries_the_channel_index_and_supply_stores",
+    _QUERY_FILTERS + "test_from_alone_is_a_legal_query_matching_only_that_stores_supplies",
+    _QUERY_FILTERS + "test_home_word_resolves_and_a_source_without_permitted_supply_is_a_legal_empty_page",
+    _QUERY_FILTERS + "test_unknown_from_is_an_argument_error_with_candidates_from_permitted_sources",
+    _QUERY_FILTERS + "test_full_label_with_another_store_in_from_is_a_legal_empty_page",
+    _QUERY_FILTERS + "test_store_name_written_in_name_still_matches_the_location_target",
+    _PURCHASE_CHANNELS + "test_query_and_purchase_resolve_each_from_form_to_the_same_stores",
+    _PURCHASE_CHANNELS + "test_a_channel_name_written_in_name_gets_one_candidate_moving_it_to_from",
+    _PURCHASE_CHANNELS + "test_a_channel_name_that_is_also_an_object_name_is_matched_as_an_object",
+    _PURCHASE_CHANNELS + "test_a_store_without_permitted_supply_is_an_empty_page_and_never_a_candidate",
+]
+
+#: 「查询只读」（阶段 4，随各切片增长）：第一个节点经真实引擎、SQLite 与直接导入的 LifeEnv（10:00，含来源、只看此刻能做
+#: 的、二者同写与未知来源各一例）守两入口受理时逐值相等、拒绝时同一份报告，世界状态与事件序号不变，它同时登记在工具
+#: 交互台账与本台账「只读查询转发」行；其后三个在宿主上守六键查询与世界请求混批整批拒绝、最终回合与截断重试不开放查询
+#: （手写观察上的宿主补充证据，真实路径见末两个）、查询派发不动世界；第五个经真实引擎留证同批只读查询的实际模型交换而
+#: 不产生进度事件。第六、七个经真实引擎、SQLite、直接导入的 LifeAgent 与 LifeEnv：若干来源、方式与可执行筛选的查询（含
+#: 被拒的与空页）之后世界状态逐值不变（时钟、版本、可见供给与浏览凭据、呈现时刻）、事件序号不变、没有 action_requested、
+#: 冻结观察不变；同一回合合法筛选查询、未知来源查询与记忆查询同批时一份报告、唯一明细落在真实调用下标的 from 上，与世界
+#: 请求混批时整批拒绝，都什么也没派发。其后三个守只读子命令 `scripts/inspect_run.py queries` 的输出键（规格 6.3，只报告）：
+#: 真实引擎与 SQLite 留证一次带两个查询（其一带筛选）、结果页由直接导入的 LifeAgent 派发、随后真实结算下单的决策，八个键
+#: 逐值相符；存储写入的手工运行覆盖整批被拒、从未回答、筛选后为空、旧四键调用、他人购买与就寝反思的校验重试（附回消息
+#: 由阶段 1 的 reflection_correction 生成）；没有查询的运行各计数为 0、首次查询到购买结算为 null，子进程打印的键序与规格
+#: 原文逐一相同、运行目录不变。末两个是「最终回合与截断重试不开放查询」的真实路径证据，都经真实引擎、LifeEnv、SQLite 与
+#: 脚本化模型（只替换远程传输）跑完整 ReAct 循环的 LifeAgent，断言落库的模型请求：截断之后那一次重试只开放世界请求
+#: （没有 query_world、recall_task_summary 与记忆查询）；前三个回合各用掉一个合法筛选查询后，回合预算的最终回合（不是
+#: 重试）同样只开放世界请求，它给出的世界请求照常登记与结算。
+_QUERY_READONLY_TESTS = [
+    _WORLD_QUERY + "test_environment_read_query_keeps_world_clock_round_and_store_unchanged",
+    _TOOL_PROTOCOL + "test_world_query_mixed_batches_are_atomic",
+    _TOOL_PROTOCOL + "test_final_turn_and_truncation_retry_disable_every_query",
+    _TOOL_PROTOCOL + "test_query_dispatch_has_no_world_side_effect",
+    "tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events",
+    _QUERY_FILTERS + "test_filtered_queries_leave_world_clock_events_credentials_and_presentation_unchanged",
+    _QUERY_FILTERS + "test_query_batch_is_validated_whole_before_any_query_runs",
+    _QUERY_COST + "test_query_cost_on_a_real_engine_exchange",
+    _QUERY_COST + "test_query_cost_counts_failures_empty_filtered_pages_and_reflection_retries",
+    _QUERY_COST + "test_query_cost_of_a_run_without_queries_and_the_printed_keys",
+    "tests/integration/test_output_truncation.py::test_a_truncated_turn_is_dropped_and_retried_once_without_thinking",
+    _QUERY_FILTERS + "test_the_final_turn_offers_only_world_requests_after_queries_used_the_earlier_turns",
+]
+
+#: 「可执行筛选」（阶段 4）：全部经真实引擎、SQLite、直接导入的 LifeAgent 与 LifeEnv（宿主本地求值与环境 read_query 在同一
+#: 冻结观察上逐值相等），期望值由用例从冻结条目的 available 自己算出。依次守：写了 way 只看方式命中的动作（在家到店全
+#: 不可用时 way=到店 是空页、远程下单照常，保留的条目带全部动作；人在好德时到店可用的条目）；「购买」与「买」等同于
+#: 到店与远程下单的并集（筛选与不筛选两种，在家与在店两个引擎）；way 为 null 时看动作与以目标为参数的工具（刚结束待收尾
+#: 的活动没有动作、收尾可用，被留下）；人物级阻断（先收尾）下每个品类与 way=等待 都是合法空页；报价未知、营业未知
+#: （隔离语料）与场景起点未营业的条目照常列出、加筛选被滤掉，空页不等于不能买；筛出的每条在同一状态的新引擎上照抄完整
+#: 名称与可用方式提交 start_activity，经宿主校验与真实结算受理，订单的供给正是标签所指。
+_EXECUTABLE_FILTER_TESTS = [
+    _QUERY_FILTERS + "test_available_only_judges_only_the_actions_of_the_written_way",
+    _QUERY_FILTERS + "test_way_purchase_equals_pickup_and_delivery_together",
+    _QUERY_FILTERS + "test_available_only_without_way_counts_actions_and_tools_of_the_target",
+    _QUERY_FILTERS + "test_person_level_block_yields_a_legal_empty_page",
+    _QUERY_FILTERS + "test_unknown_quote_and_unknown_opening_are_filtered_out_but_stay_listed_with_their_reason",
+    _QUERY_FILTERS + "test_every_filtered_match_is_accepted_with_its_full_name_and_an_available_way",
+]
+
+#: 「分页与返回」（阶段 4）：前两个节点在冻结页夹具上守紧凑投影（跨页遍历全集，false、零价与不可用原因逐值保留，null
+#: 与空集合略去，改动返回项不改冻结事实；返回里没有逐项候选、内部身份、所属门店、品类与渠道索引键），两者同时登记在
+#: 工具交互台账、名称不改；第三个经真实引擎、SQLite 与 LifeEnv：10:00 在家沿一个商品品类翻页，宿主本地求值与环境
+#: read_query 逐值相等，项与动作的键取自闭集、没有 null 与空集合、门店商品到店 false 带原因而远程下单 true 无 reason 键、
+#: 来源标记仍在，冻结条目无候选且构造候选的函数已删除。末三个经真实引擎、SQLite、直接导入的 LifeAgent 与 LifeEnv：六种
+#: 筛选组合沿 next_offset 翻完等于用例算出的完整匹配集，每页 total_count 是筛选后总数、非末页满页、offset 等于总数是空
+#: 末页（「购买」加可执行一组的筛选后总数严格少于不筛选）；无匹配的组合是三键合法空页、total_count 为 0 时 offset=1 报错，
+#: 越界按筛选后总数报错；可调用索引四键、query_categories 是完整计数且不随筛选查询变化，再观察一次仍相同。
+_PAGING_TESTS = [
+    _WORLD_QUERY + "test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero",
+    _WORLD_QUERY + "test_world_query_does_not_return_internal_identity_or_private_evidence",
+    _WORLD_QUERY + "test_world_query_matches_are_compact_targets_without_candidates",
+    _QUERY_FILTERS + "test_filtered_traversal_equals_the_complete_match_set_and_counts_after_filtering",
+    _QUERY_FILTERS + "test_no_match_is_a_legal_empty_page_and_offset_beyond_total_is_still_an_error",
+    _QUERY_FILTERS + "test_query_categories_counts_do_not_change_with_filters",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -425,11 +537,11 @@ LEDGER: dict[str, dict[str, object]] = {
     "计划与义务": {"stage": "3", "tests": []},
     "工作合同边界": {"stage": "3", "tests": []},
     "工作负荷与作息偏离": {"stage": "3", "tests": []},
-    "查询请求": {"stage": "4", "tests": []},
-    "来源筛选": {"stage": "4", "tests": []},
-    "可执行筛选": {"stage": "4", "tests": []},
-    "分页与返回": {"stage": "4", "tests": []},
-    "查询只读": {"stage": "4", "tests": []},
+    "查询请求": {"stage": "4", "tests": _QUERY_REQUEST_TESTS},
+    "来源筛选": {"stage": "4", "tests": _SOURCE_FILTER_TESTS},
+    "可执行筛选": {"stage": "4", "tests": _EXECUTABLE_FILTER_TESTS},
+    "分页与返回": {"stage": "4", "tests": _PAGING_TESTS},
+    "查询只读": {"stage": "4", "tests": _QUERY_READONLY_TESTS},
     "工程门禁": {"stage": "5", "tests": []},
     "复跑指标（只报告）": {"stage": "6", "tests": []},
     "文档一致性": {"stage": "7", "tests": []},
@@ -617,6 +729,39 @@ _PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED,)
 _ERRANDS_PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED, _REAL_PROJECTIONS)
 _INTACT_KILLERS = (_PROJECTIONS_TRIMMED, _FULL_TARGET, _REAL_PROJECTIONS)
 _DENOMINATOR_KILLERS = (_ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",)
+_TOOL_GROUPS_MODULE = "worldmock.life.tool_groups"
+_TOOL_GROUPS_SOURCE = "src/worldmock/life/tool_groups.py"
+#: 紧凑投影按真假值丢值的杀手：冻结页夹具上读出 false 与零价的一例，真实引擎上读出门店商品到店 false 的一例。原文与
+#: 工具交互台账的 compact_drops_false 相同，两份台账各登记一次，回执目录分开。
+_COMPACT_KILLERS = (
+    _WORLD_QUERY + "test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero",
+    _WORLD_QUERY + "test_world_query_matches_are_compact_targets_without_candidates",
+)
+_WORLD_QUERY_MODULE = "worldmock.life.world_query"
+_WORLD_QUERY_SOURCE = "src/worldmock/life/world_query.py"
+#: 查询筛选与来源错误的杀手，都在主进程内经真实引擎执行被变异的 world_query（宿主本地求值与环境 read_query 两入口）：
+#: 忽略来源时只写 from 的查询得到全部条目；来源另写一套（按显示名直接相等）时带前缀的门店名、「家」与渠道称呼在查询侧解析
+#: 不出而购买侧解析得出；未知来源不报错时得到空页、候选取自全部地点时没有供给的地点出现在候选里。
+_SOURCE_FILTER_KILLERS = (_QUERY_FILTERS + "test_from_alone_is_a_legal_query_matching_only_that_stores_supplies",)
+_SOURCE_RESOLUTION_KILLERS = (
+    _PURCHASE_CHANNELS + "test_query_and_purchase_resolve_each_from_form_to_the_same_stores",)
+_UNKNOWN_SOURCE_KILLERS = (
+    _QUERY_FILTERS + "test_unknown_from_is_an_argument_error_with_candidates_from_permitted_sources",)
+#: 新键加缺省的杀手只走宿主的 prepare_react_loop 与本地校验（不生成严格 Schema：缺省值会让 Schema 核验在构造处崩溃，
+#: 把行为杀死变成崩溃），断言在用例体内失败。
+_FOUR_KEY_KILLERS = (_QUERY_FILTERS + "test_host_rejects_the_retired_four_key_request_at_both_new_keys",)
+#: 环境分支写世界的杀手直接导入 custom.envs.life_env（适配器文件只有按这个模块名导入时才执行变异后的代码）。原文与工具
+#: 交互台账的 query_writes_world 相同，两份台账各登记一次，回执目录分开。
+_ENV_QUERY_KILLERS = (_WORLD_QUERY + "test_environment_read_query_keeps_world_clock_round_and_store_unchanged",)
+#: 可执行筛选与筛选后分页的杀手，都在主进程内经真实引擎执行被变异的 world_query（宿主本地求值与环境 read_query 两入口），
+#: 断言在用例体内失败：「购买」不展开时 way=购买 一条也不匹配；在未命中方式的动作上判可执行时 10:00 在家 way=到店 加
+#: available_only 不再是空页；可执行筛选放到切页之后或 total_count 取筛选前总数时，「购买」加可执行的遍历各页
+#: total_count 不是筛选后的完整匹配数（页也不满）；未写方式时不看工具，刚结束待收尾的活动（没有动作、收尾可用）被滤掉。
+_PURCHASE_WAY_KILLERS = (_QUERY_FILTERS + "test_way_purchase_equals_pickup_and_delivery_together",)
+_WRITTEN_WAY_KILLERS = (_QUERY_FILTERS + "test_available_only_judges_only_the_actions_of_the_written_way",)
+_TRAVERSAL_KILLERS = (
+    _QUERY_FILTERS + "test_filtered_traversal_equals_the_complete_match_set_and_counts_after_filtering",)
+_TARGET_TOOL_KILLERS = (_QUERY_FILTERS + "test_available_only_without_way_counts_actions_and_tools_of_the_target",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1314,6 +1459,121 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         ),
         _DENOMINATOR_KILLERS,
     ),
+    SourceMutation(
+        "query_compaction_drops_false_and_zero",
+        _TOOL_GROUPS_MODULE,
+        _TOOL_GROUPS_SOURCE,
+        "if item is not None and item != [] and item != {}",
+        "if item and item != [] and item != {}",
+        _COMPACT_KILLERS,
+    ),
+    SourceMutation(
+        "query_source_filter_ignored",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        '                and (stores is None or entry["location_id"] in stores)\n',
+        "                and True\n",
+        _SOURCE_FILTER_KILLERS,
+    ),
+    SourceMutation(
+        "query_source_resolved_by_plain_name_equality",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        (
+            '    match = resolve_source(written, places, observation["home_location_id"], _channel_rows(observation))\n'
+            "    return None if match is None else match.store_ids\n"
+        ),
+        (
+            "    stores = frozenset(identity for identity, name in places.items() if name == written)\n"
+            "    return stores or None\n"
+        ),
+        _SOURCE_RESOLUTION_KILLERS,
+    ),
+    SourceMutation(
+        "query_environment_branch_writes_world",
+        "custom.envs.life_env",
+        "custom/envs/life_env.py",
+        "            return error.payload() if error else query_world(observed, request)\n",
+        (
+            "            engine.state.version += 1\n"
+            "            return error.payload() if error else query_world(observed, request)\n"
+        ),
+        _ENV_QUERY_KILLERS,
+    ),
+    SourceMutation(
+        "query_new_keys_get_defaults",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        '    from_: str | None = Field(alias="from")\n    available_only: bool\n',
+        '    from_: str | None = Field(default=None, alias="from")\n    available_only: bool = False\n',
+        _FOUR_KEY_KILLERS,
+    ),
+    SourceMutation(
+        "unknown_source_returns_an_empty_page",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        "    if source is not None and _source_stores(observation, source) is None:\n",
+        "    if False:\n",
+        _UNKNOWN_SOURCE_KILLERS,
+    ),
+    SourceMutation(
+        "source_candidates_include_unpermitted_places",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        "    stores = _permitted_stores(observation)\n",
+        "    stores = frozenset(places)\n",
+        _UNKNOWN_SOURCE_KILLERS,
+    ),
+    SourceMutation(
+        "query_purchase_way_not_expanded",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        "    return options | frozenset(PURCHASE_WAYS.values()) if SYSTEM_PURCHASE_WAY in options else options\n",
+        "    return options\n",
+        _PURCHASE_WAY_KILLERS,
+    ),
+    SourceMutation(
+        "available_filter_applied_after_paging",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        (
+            "    entries = _matching_entries(observation, request)\n"
+            '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
+            '    return {"matches": [compact(entry["match"]) for entry in entries[request.offset:end]],'
+        ),
+        (
+            '    entries = _matching_entries(observation, request.model_copy(update={"available_only": False}))\n'
+            '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
+            "    page = [entry for entry in entries[request.offset:end]\n"
+            '            if not request.available_only or _executable(entry["match"], _query_ways(request.way))]\n'
+            '    return {"matches": [compact(entry["match"]) for entry in page],'
+        ),
+        _TRAVERSAL_KILLERS,
+    ),
+    SourceMutation(
+        "available_judged_on_unmatched_way_actions",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        '        return any(action["available"] for action in match["actions"] if action["way"] in ways)\n',
+        '        return any(action["available"] for action in match["actions"])\n',
+        _WRITTEN_WAY_KILLERS,
+    ),
+    SourceMutation(
+        "available_without_way_ignores_tools",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        '    return any(row["available"] for row in (*match["actions"], *match["tools"]))\n',
+        '    return any(row["available"] for row in match["actions"])\n',
+        _TARGET_TOOL_KILLERS,
+    ),
+    SourceMutation(
+        "query_total_count_before_filtering",
+        _WORLD_QUERY_MODULE,
+        _WORLD_QUERY_SOURCE,
+        '"total_count": len(entries),',
+        '"total_count": len(observation["world_query_bindings"]),',
+        _TRAVERSAL_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1374,13 +1634,14 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "班次并入任务开放判定": {"stage": "3", "mutations": ()},
     "忽略例外日期": {"stage": "3", "mutations": ()},
     "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ()},
-    "忽略来源": {"stage": "4", "mutations": ()},
-    "来源解析另写一套": {"stage": "4", "mutations": ()},
-    "「购买」不展开": {"stage": "4", "mutations": ()},
-    "可执行筛选放到切页之后或在未命中方式的动作上判定": {"stage": "4", "mutations": ()},
-    "精简时按真假值丢掉 false 或零": {"stage": "4", "mutations": ()},
-    "查询写世界": {"stage": "4", "mutations": ()},
-    "四键旧请求被受理": {"stage": "4", "mutations": ()},
+    "忽略来源": {"stage": "4", "mutations": ("query_source_filter_ignored",)},
+    "来源解析另写一套": {"stage": "4", "mutations": ("query_source_resolved_by_plain_name_equality",)},
+    "「购买」不展开": {"stage": "4", "mutations": ("query_purchase_way_not_expanded",)},
+    "可执行筛选放到切页之后或在未命中方式的动作上判定": {"stage": "4", "mutations": (
+        "available_filter_applied_after_paging", "available_judged_on_unmatched_way_actions")},
+    "精简时按真假值丢掉 false 或零": {"stage": "4", "mutations": ("query_compaction_drops_false_and_zero",)},
+    "查询写世界": {"stage": "4", "mutations": ("query_environment_branch_writes_world",)},
+    "四键旧请求被受理": {"stage": "4", "mutations": ("query_new_keys_get_defaults",)},
 }
 
 #: 不对应规格「源码变异必须覆盖」一段任何一句的登记变异：变异名 → 出处（实施计划各阶段的「突变审查的目标」，或阶段复审
@@ -1428,6 +1689,14 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                    "复审补登）：同一事务被第二条更新或取消点名时不再判出。",
     "added_twins_with_one_product_accepted": "规格 2.3 表第 4 行「结果种类与商品都与…同请求另一条新增相同」（阶段 2 复审"
                                              "补登）：同一请求两条新增的结果种类与商品相同时不再判出。",
+    "unknown_source_returns_an_empty_page": "实施计划阶段 4「突变审查的目标」「未知来源不报错而返回空页」：来源写法既不是"
+                                            "地点显示名也不是渠道称呼时不报 from 的参数错误，按空来源集合返回合法空页。",
+    "source_candidates_include_unpermitted_places": "实施计划阶段 4「突变审查的目标」「候选来源含无权限门店」：未知来源的"
+                                                    "候选取自全部地点，而不只取权限内有供给条目的门店。",
+    "available_without_way_ignores_tools": "实施计划阶段 4「突变审查的目标」「`way` 为 null 时不看工具的 `available`」："
+                                           "未写方式时只看动作，以该目标为参数的工具不再计入可执行。",
+    "query_total_count_before_filtering": "实施计划阶段 4「突变审查的目标」「`total_count` 取筛选前总数」：total_count 改取"
+                                          "全部冻结条目数，而不是全部筛选交集后的完整匹配数。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -1437,6 +1706,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_memory.py",
     "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
+    "scripts/inspect_run.py",
     "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
@@ -1444,6 +1714,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/footprints/models.py",
     "src/worldmock/footprints/quality.py",
     "src/worldmock/life/activity_control.py",
+    "src/worldmock/life/callable_index.py",
     "src/worldmock/life/control_items.py",
     "src/worldmock/life/day_plan_inputs.py",
     "src/worldmock/life/day_planning.py",
@@ -1451,10 +1722,12 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
     "src/worldmock/life/models.py",
+    "src/worldmock/life/name_resolution.py",
     "src/worldmock/life/narration.py",
     "src/worldmock/life/observe.py",
     "src/worldmock/life/progress_layer.py",
     "src/worldmock/life/prompt_schemas.py",
+    "src/worldmock/life/purchase_offers.py",
     "src/worldmock/life/read_query_runtime.py",
     "src/worldmock/life/reminders.py",
     "src/worldmock/life/result_projection.py",
@@ -1463,6 +1736,8 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/session_actions.py",
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
+    "src/worldmock/life/tool_groups.py",
+    "src/worldmock/life/world_query.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
     "tools/run-viewer.html",
@@ -1488,7 +1763,9 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/life/test_errand_state.py",
     "tests/life/test_errand_todo_layer.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
+    "tests/life/test_query_cost_report.py",
     "tests/life/test_revise_day_plan_json.py",
+    "tests/life/test_world_query_filters.py",
     "tests/mutation_runner.py",
     "tests/test_errands_workday_acceptance.py",
 )

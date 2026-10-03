@@ -1,9 +1,9 @@
 # WorldMock 产品设计说明书 — 行为评估
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 2  
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1、2 与阶段 4，阶段 3 未落地  
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **日期**：2026-10-03
-> **版本**：v1.11
+> **版本**：v1.12
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -128,6 +128,11 @@ flowchart TB
 名称与参数拒绝跨不同模拟时刻的重复次数，以及普通工作收件至开工的经过时间。
 只读查询不作为世界请求、活动或同刻决策轮统计，但含查询的模型回复本身计入模型请求、token 与十六回合预算。
 查询结果只存在于模型与 tool 交换证据，不生成进度层 `events`，不能按动作结算或完成计算。
+查询成本另由 `scripts/inspect_run.py queries` 按运行只读报告（口径见[记录引擎设计「调试工具」](05-recording-engine.md#调试工具)），打印
+`{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
+失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
+重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）；口径取已落库的模型工具交换证据，对照运行同时报告协议错误
+（取 `continuation` 报告，本子命令不另设键），降低返回量不能以购买失败为代价。
 错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现按独立端到端阶段留下行为与变异收据，
 见[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)；不同阶段身份分别报告，不能混成同一源码的已实现评估结论。
 普通工作因地点、技能或真实截止被拒，与无理由延迟开放分别报告；预约活动的通知至约定开始时间不算错误等待。
@@ -805,3 +810,4 @@ plt.savefig('review-preference-heatmap.png')
 | v1.9 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变本文的指标与门禁；顺带把 5.1 的命令行参数改为实际的 `--legacy`、`--worldmock`、`--scenario`、`--output`、`--reviews`（另有可选的 `--human-reference`），两个阶段按是否带 `--reviews` 区分，没有 `--phase` 参数；文件头补同步说明，日期改写；版本表改为末行最新 |
 | v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 1 的独立复核修订（规格 1.1「身份与判定」）：协议门禁 `observation_repetition` 与报告项 `decision_prompt_token_median` 的输入改为带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计，不带工具的记忆巩固与截断重试照计；原口径下两次同类反思校验失败的附回消息在两条续接链里逐字相同，正确运行的门禁会取 2。门禁键名、比较符与阈值不变；更正 v1.9 行「阶段 1 的四项运行修复不改变本文的指标与门禁」 |
 | v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 2，按 `d09d574` 核对）：「2.2 报告项」写明个人事务与收尾记忆两组只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories`，以记下过的不同事务数为分母，不复用当日目标指标的名称与分母、不并入三层，`deliberate_goals` 与 `memory_repetition_ratio` 门禁不变；文件头的阶段号改为 2。实施计划把阶段 2 记为 v1.10，该号已由阶段 1 的独立复核修订占用，顺延为 v1.11 |
+| v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「2.2 报告项」工具交互行为报告段补查询成本由 `queries` 子命令只报告（规格 6.3 的八个键，含反思校验重试次数），口径引记录引擎设计「调试工具」；文件头状态改为已落地阶段 1、2 与阶段 4 |

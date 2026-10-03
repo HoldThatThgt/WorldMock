@@ -39,6 +39,7 @@ from worldmock.life.models import REQUEST_MODELS, StartActivityRequest  # noqa: 
 from worldmock.life.name_resolution import (WAY_SYNONYMS, name_book, named_kind, resolve_name,  # noqa: E402
                                             resolve_start, way_options)
 from worldmock.life.name_resolution import way_verb, _duration_note
+from worldmock.life.name_resolution import SourceMatch, near_source_names, resolve_source  # noqa: E402
 from worldmock.life.readable import duration_phrase
 from worldmock.life.object_labels import mail_name, object_label  # noqa: E402
 from worldmock.life.result_projection import public_result  # noqa: E402
@@ -738,3 +739,59 @@ def test_resolve_name_accepts_only_a_unique_lossless_match() -> None:
     assert resolve_name("整理纪要", names).name == "工作：整理纪要"
     assert resolve_name("沈昊", names).name == "联系人：沈昊"
     assert (resolve_name("沈浩", names).name, resolve_name("沈浩", names).matches) == (None, ())
+
+
+#: 来源解析纯函数的地点名表：住处、几家门店（两处地点同名「集市」，一家带拉丁字母）与一处没有供给的公园。
+_SOURCE_PLACES = {"home": "张江居所（冻结场景锚点）", "poi-a": "好德", "poi-b": "农工商超市", "poi-c": "集市",
+                  "poi-d": "集市", "poi-e": "Ole精品超市", "poi-f": "联华超市", "poi-g": "华联超市", "park": "紫薇公园"}
+#: 渠道表（渠道身份，称呼，成员门店），与 name_resolution.ChannelRow 同形。
+_SOURCE_CHANNELS = (("hema", ("盒马App", "盒马"), ("poi-c",)), ("meituan", ("美团外卖", "美团"), ("poi-a", "poi-b")))
+
+
+def test_resolve_source_places_home_words_channels_and_unknown() -> None:
+    """购买与查询共用的来源解析（docs/dev/SPEC-errands-workday.md 5.2，只吃所写来源、地点名表、住处与渠道表）：地点显示名
+    照写、全半角与空白归一、带「地点：」前缀都解析为该地点（同名的两处地点都在范围内）；「家」「住处」是住处的显示名与身份，
+    没有住处时不认；渠道称呼去掉空白、不分大小写比较，范围是成员门店并记下渠道身份与所写的称呼；全角字母不归一，不是渠道；
+    地点先于渠道；都不是时为 None。"""
+    def source(written: str, home: str | None = "home", channels=_SOURCE_CHANNELS) -> SourceMatch | None:
+        """在固定地点表上解析一个写法。"""
+        return resolve_source(written, _SOURCE_PLACES, home, channels)
+
+    haode = SourceMatch(frozenset({"poi-a"}), None, "好德")
+    assert source("好德") == source("好 德") == source("地点：好德") == source("地点:好 德") == haode
+    assert source("Ｏｌｅ 精品超市") == SourceMatch(frozenset({"poi-e"}), None, "Ole精品超市")
+    assert source("集市") == SourceMatch(frozenset({"poi-c", "poi-d"}), None, "集市")
+    home = SourceMatch(frozenset({"home"}), None, "张江居所（冻结场景锚点）")
+    assert source("家") == source("住处") == source("张江居所（冻结场景锚点）") == home
+    assert source("家", home=None) is None and source("住处", home=None) is None
+    assert source("盒马app") == SourceMatch(frozenset({"poi-c"}), "hema", "盒马app")
+    assert source("盒马 APP") == SourceMatch(frozenset({"poi-c"}), "hema", "盒马 APP")
+    assert source("盒马") == SourceMatch(frozenset({"poi-c"}), "hema", "盒马")
+    assert source("美团 外卖") == SourceMatch(frozenset({"poi-a", "poi-b"}), "meituan", "美团 外卖")
+    assert source("盒马ＡＰＰ") is None and source("美团App") is None and source("紫薇") is None
+    shadowed = (("haode-app", ("好德",), ("poi-b",)), *_SOURCE_CHANNELS)
+    assert source("好德", channels=shadowed) == haode
+    assert source("美团外卖", channels=()) is None
+
+
+def test_near_source_names_ranks_similar_then_falls_back_to_feasible() -> None:
+    """未知来源的候选名（纯函数）：门店取显示名，渠道取第一个称呼（其余称呼也参与比对）；相近的按此刻可行在前、相似度降序
+    排名，至多三个；一个也不相近时按门店身份、再按渠道声明顺序取前几个可行的来源；没有称呼的渠道不作候选，重复的门店只算
+    一次。"""
+    stores = ["poi-b", "poi-a", "poi-c", "poi-a", "poi-e", "poi-f", "poi-g"]
+
+    def near(written: str, feasible=lambda scope: True, channels=_SOURCE_CHANNELS, pool=stores) -> list[str]:
+        """在固定地点表与渠道表上取候选来源名。"""
+        return near_source_names(written, _SOURCE_PLACES, pool, channels, feasible)
+
+    assert near("美团App") == ["美团外卖", "盒马App"]
+    assert near("美团App", lambda scope: "poi-a" not in scope) == ["盒马App", "美团外卖"]
+    assert near("美团App", lambda scope: False) == ["美团外卖", "盒马App"]
+    assert near("盒马鲜生") == ["盒马App"]
+    assert near("超市") == ["华联超市", "联华超市", "农工商超市"]
+    assert near("xyz") == ["好德", "农工商超市", "集市"]
+    assert near("xyz", lambda scope: "poi-a" not in scope) == ["农工商超市", "集市", "Ole精品超市"]
+    assert near("xyz", lambda scope: False) == []
+    blank = (*_SOURCE_CHANNELS, ("blank", (), ("poi-a",)))
+    assert near("xyz", channels=blank, pool=["poi-a"]) == ["好德", "盒马App", "美团外卖"]
+    assert near("xyz", lambda scope: len(scope) > 1, blank, ["poi-a"]) == ["美团外卖"]

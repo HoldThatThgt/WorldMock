@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 配置规格
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 2  
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 1、2 与阶段 4，阶段 3 未落地  
 > **日期**：2026-10-03\
-> **版本**：v1.16\
+> **版本**：v1.17\
 > **工具交互修订**：地点完整供给、构建价格范围、任务可用类型与请求形状设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-tool-interaction.md)为本次合同。
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
@@ -29,6 +29,7 @@
 | v1.14 | 2026-10-01 | Codex | 工具交互设计冻结并已实现：目录5.0、契约与规则绑定3、场景4、地图3，世界8保留；逐店真实供给和定位价格、必填可空预约、原料配方、items活动请求、中文购买偏好、null本人、偏移查询与具体英文错误 |
 | v1.15 | 2026-10-03 | Claude | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D8 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变任何配置字段与结构版本；顺带更正 3.3 中「场景 `schema_version` 仍为 3」的过时说法，改为指向 3.1 的发布目标表；文件头补同步说明，日期改写；版本表改为末行最新 |
 | v1.16 | 2026-10-03 | Claude | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D8 作业，阶段 2，按 `d09d574` 核对）：发布目标表的世界状态结构改为 9，旧检查点（含版本 8）以版本不符拒绝，另存每个人物的未完成个人事务 `errands`；3.1 写明未完成的个人事务不算在手承诺，不改变重估间隔与闭店预警；阶段 2 不改变任何场景字段与场景结构；文件头阶段号改到阶段 2 |
+| v1.17 | 2026-10-03 | Claude | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D8 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「地图引用与门店供给初值」`query_world` 六键（增 `from`、`available_only`，旧四键请求按缺字段拒绝，`from` 与购买同一解析、写错时给查询参数错误与至多三条完整请求候选），筛选先于切页，返回不再附候选；不新增任何配置字段，场景与世界结构版本不变；文件头状态改为已落地阶段 1、2 与阶段 4 |
 
 ## 1. 模块概述
 
@@ -261,9 +262,11 @@ starts_at带时区、reason为非空约定依据，不能根据标题猜测。�
 方式统一解析出动作，旧actions和targets/ways/from/to平行数组直接拒绝。
 含到店、远程下单或购买项时prefer只能为“最快拿到”或“到手价最低”，否则必须为null；null不默认最快，旧英文值拒绝。
 to=null统一为本人、他人写实名，旧“自己”值拒绝；食用、使用、制作及非转移动作两端null，给予from=null且to为其他人物。
-固定 `query_world(name, way, category, offset)` 全键必填，前三者可空但至少一个非空，offset为非负整数；
+固定 `query_world(name, way, category, from, available_only, offset)` 六键必填、无缺省，`name`、`way`、`category`、`from` 可空但至少一个
+非 null，`available_only` 为布尔，offset为非负整数，旧四键请求按缺字段拒绝；`from` 写地点显示名或渠道称呼，与购买项的 `from` 同一解析，
+写错时返回查询参数错误（`ARGUMENTS_INVALID`）与至多三条换了 `from` 的完整请求候选；
 category只取callable_index已展示的公开品类标签，错误给当轮全部合法标签。
-结果matches/total_count/next_offset中的next_offset必填可空，每页沿用现有上限20，可按偏移遍历同一冻结全集。
+结果matches/total_count/next_offset中的next_offset必填可空，每页沿用现有上限20，可按偏移遍历同一冻结全集，筛选在排序与切页之前施加，每项不再附候选。
 查询只读冻结观察权限，不推进时间或授予凭据，不新增游标编码或配置，不恢复商品需求路线发现接口。
 全部接口错误均返回英文说明，`items[]` 每项包含 `path/written/error_code/allowed_values/expected/why/candidates`；
 `path` 为从模型工具调用根开始的完整位置数组，`why` 写参数、名称或世界前置条件的英文原因，
