@@ -7,15 +7,20 @@
 
 六种事务事件都不带决策、动作与活动身份，只经 caused_by 关联，所以既不落进任何动作窗口的目标，也不落进给予者那次决策
 或动作的分组；被进度层消费的提醒与办成两种是本人可见的，作为证据展开时公开投影是空对象；观察里的待办层（含事务行）原样
-进入窗口。
+进入窗口。带请求级 errands 的控制请求在意图与 dreaming 窗口里的投影不带 errands，动作窗口的目标保留完整请求；经
+FootprintStore 补登的缺 errands 的旧形状请求在交付构造窗口时被拒。
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+from pathlib import Path
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
+import pytest  # noqa: E402
 from agentsociety2.agent.base import ModelCallEvidence  # noqa: E402
 
 from custom.agents.life_prompt import life_user_layers, system_message, user_message  # noqa: E402
@@ -26,12 +31,16 @@ from tests.life.routing_fixtures import (HOME, _keep_busy, act, open_world, plac
 from tests.life.test_errand_completion import CHEN, KIT_NAME, MILK, MILK_ID, WAIT, give, note, ready  # noqa: E402
 from tests.life.test_errand_reminder import TEA, moment, until  # noqa: E402
 from worldmock.delivery.windows import OBSERVATION_LAYER_KEYS, prepare_windows  # noqa: E402
+from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
+from worldmock.footprints.models import EventDraft  # noqa: E402
 from worldmock.footprints.validation import validate_export  # noqa: E402
 from worldmock.life.errand_state import ERRAND_EVENT_KINDS  # noqa: E402
 
 #: 提醒带来的那次决策、李凡的两次给予与办成之后陈曦的那次决策（submit_round 的动作身份为 action-<轮>-<人物>）。
 _REMINDED, _GIFTS, _AFTER = "action-remind-1", ("action-hand-1-2", "action-hand-2-2"), "action-after-1"
+#: 陈曦记下三条事务的那次收尾（note 的收尾一轮）。
+_NOTED = "action-note-1"
 
 
 def _record_prompts(engine, monkeypatch) -> None:
@@ -77,6 +86,21 @@ def _late_world(engine_factory):
 def _errand_day(engine_factory, monkeypatch, tmp_path) -> tuple[list[dict], dict[str, list[dict]]]:
     """两人在家的最后半小时真实生活，过到运行终点、创建共同检查点、导出并构造交付窗口：返回（认证导出的事件，三类
     窗口）。"""
+    export_dir = _export(_errand_life(engine_factory, monkeypatch), tmp_path / "errand-export")
+    _, events, _ = validate_export(export_dir)
+    return events, prepare_windows(export_dir)
+
+
+def _export(engine, export_dir: Path) -> Path:
+    """在此刻创建共同检查点并认证导出到 export_dir（运行已到终点）。"""
+    checkpoint = engine.checkpoint({f"agent:{agent_id}": engine.store.assets.put_json(
+        {"agent_id": agent_id}, {"kind": "errand_windows_test"}) for agent_id in engine.state.agents})
+    assert export_run(engine.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
+    return export_dir
+
+
+def _errand_life(engine_factory, monkeypatch):
+    """两人在家的最后半小时真实生活（模块说明里的那一段），过到运行终点：返回引擎。"""
     engine = _late_world(engine_factory)
     _record_prompts(engine, monkeypatch)
     note(engine, "note", [errand_add("囤两份牛奶", MILK, quantity=2, remind_time="23:35"),
@@ -98,12 +122,7 @@ def _errand_day(engine_factory, monkeypatch, tmp_path) -> tuple[list[dict], dict
     tool, request = _keep_busy(engine, 1, "after")
     assert act(engine, "after", request, tool=tool).status in {"completed", "in_progress"}
     run_until(engine, lambda current: current.state.current_time == current.state.end_time)
-    checkpoint = engine.checkpoint({f"agent:{agent_id}": engine.store.assets.put_json(
-        {"agent_id": agent_id}, {"kind": "errand_windows_test"}) for agent_id in engine.state.agents})
-    export_dir = tmp_path / "errand-export"
-    assert export_run(engine.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
-    _, events, _ = validate_export(export_dir)
-    return events, prepare_windows(export_dir)
+    return engine
 
 
 def _errand_events(events: list[dict]) -> dict[str, list[dict]]:
@@ -188,3 +207,51 @@ def test_a_completion_caused_by_another_persons_action_stays_out_of_their_decisi
     identities = {event["event_id"] for event in rows}
     for record in windows["action"] + windows["intent"]:
         assert not {row["event_id"] for row in record["target"]["outcomes"]} & identities
+
+
+def _legacy_request(engine, requested: dict) -> None:
+    """经 FootprintStore 在运行终点补登一条旧形状的 report_status 请求事件（带 items 而缺请求级 errands，是世界结构 8 的
+    写法）：同一人物、同一决策、照提醒带来的那次播报的逐项内容，动作身份另起，请求摘要按同一算法对旧形状重算；世界状态
+    不变、版本加一。"""
+    request = {"items": requested["data"]["request"]["items"]}
+    content = json.dumps({"tool_name": "report_status", "request": request}, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode()
+    data = {**requested["data"], "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
+    staged = engine.state.model_copy(deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="action_requested", occurred_at=staged.current_time, agent_id=1,
+        decision_id=requested["decision_id"], action_id="action-legacy-1", source_kind="model", data=data)])
+    engine.state = staged
+
+
+def test_control_requests_with_errands_reach_windows_without_them_and_legacy_requests_are_refused(
+        engine_factory, monkeypatch, tmp_path) -> None:  # noqa: F811
+    """交付边界经真实请求、引擎、SQLite 与认证导出（docs/dev/SPEC-errands-workday.md 2.9、2.3）：记下三条事务的收尾与
+    提醒带来的那次播报（一条更新、一条取消）都带请求级 errands。意图窗口与陈曦每个显示它们的 dreaming 窗口里，两个请求的
+    投影恒不带 errands，每项只留活动名与自述；动作与意图窗口的目标就是导出里的那个请求事件，逐键相等、保留完整的 errands
+    （构造窗口的投影没有原地改写它）。这段生活没有任何收尾记忆，导出的 conclusion_memories 按空值约定为 null。随后经
+    FootprintStore 补登一条缺 errands 的旧形状播报请求再导出，交付构造窗口时以完整性故障拒绝它，不当作没有事务变更放行。"""
+    engine = _errand_life(engine_factory, monkeypatch)
+    export_dir = _export(engine, tmp_path / "errand-export")
+    _, events, _ = validate_export(export_dir)
+    windows = prepare_windows(export_dir)
+    requests = {event["action_id"]: event for event in events if event["event_type"] == "action_requested"}
+    for action_id, count in ((_NOTED, 3), (_REMINDED, 2)):
+        requested, data = requests[action_id], requests[action_id]["data"]
+        assert len(data["request"]["errands"]) == count
+        trimmed = {"tool_name": data["tool_name"], "self_note": data["self_note"], "request": {"items": [
+            {"activity_name": item["activity_name"], "summary": item["summary"]} for item in data["request"]["items"]]}}
+        dreams = [record for record in windows["dreaming"] if record["input"]["person_id"] == 1
+                  and requested["event_id"] in _shown(record)]
+        assert dreams
+        for record in (_window(windows, "intent", action_id), *dreams):
+            assert _shown(record)[requested["event_id"]]["data"] == trimmed
+        for task in ("action", "intent"):
+            assert _window(windows, task, action_id)["target"]["request"] == requested
+    quality = json.loads((export_dir / "quality.json").read_text(encoding="utf-8"))
+    assert quality["conclusion_memories"] is None and quality["errand_metrics"]["registered_count"] == 3
+    _legacy_request(engine, requests[_REMINDED])
+    legacy = _export(engine, tmp_path / "legacy-export")
+    with pytest.raises(IntegrityError, match="report_status request lacks errands"):
+        prepare_windows(legacy)

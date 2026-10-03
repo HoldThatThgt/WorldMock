@@ -17,10 +17,11 @@ from zoneinfo import ZoneInfo
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, errand_add,
                                  errand_cancel, errand_update, report_request, settle_day_plans, stage_day_plan,
-                                 start_activity, wake_by_mail)
+                                 stage_errands, start_activity, wake_by_mail)
 from tests.life.routing_fixtures import HOME, act, observe, routed, run_until, stage
 from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, WAIT, errand_events, home, note
 from tests.life.test_errand_requests import _act
+from tests.life.test_errand_todo_layer import _errand
 from tests.life.test_same_moment_decisions import _short_intervals
 from worldmock.life import errands, reminders
 from worldmock.life.models import ActivityStatus
@@ -355,6 +356,39 @@ def test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm(en
               if row.data.get("kind") == "day_plan_generated" and row.occurred_at == midnight]
     assert plan.event_seq < event.event_seq
     assert 1 in engine.scheduling_state().ready_agent_ids
+
+
+def test_a_reminder_delivered_with_the_arrival_stays_out_of_the_new_stay_session(engine_factory) -> None:
+    """记录按所在提交归属 session（docs/dev/SPEC-errands-workday.md 2.6）：人物步行去公司，途中一条未完成事务的提醒时刻
+    恰是到达那一秒（请求只写 HH:MM，步行到达的秒数不落在整分，这里以预置的事务造出）。到达的那次时钟推进提交开启办公室
+    的停留 session，提醒以 errand_reminder_due 与到达同一边界交付、errand_reminded 落在同一提交；它归旧的路上 session：
+    到达后第一次观察的进度层没有 errand_reminder 记录，提醒事件不是这次观察的进度来源，只从待办层该行的提醒钟点变为
+    null 看得出已提醒过。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    zone = engine.scenario.timezone
+    office = next(row["object"] for row in observe(engine, "preview")["interaction_bindings"]
+                  if row["object_id"] == "office")
+    walk = act(engine, "walk", start_activity("步行", office))
+    assert walk.status == "in_progress", (walk.error_code, walk.message)
+    arrival = engine.state.activities[walk.activity_id].planned_end_at
+    staged = _errand("staged:errand:0", "买牛奶", MILK_ID, engine.state.current_time, remind_at=arrival)
+    stage_errands(engine, 1, [staged])
+    run_until(engine, lambda current: current.state.activities[walk.activity_id].status != ActivityStatus.ACTIVE)
+    assert engine.state.current_time == arrival
+    boundary = settlement(engine, arrival)
+    assert boundary.data["decision_offered"] is True and "errand_reminder_due" in boundary.data["wake_reasons"]
+    [event] = reminded(engine)
+    assert_reminder(event, staged.model_copy(update={"reminded_at": arrival}), arrival)
+    assert event.state_version_after == boundary.state_version_after
+    [session] = [item for item in engine.state.sessions.values() if item.agent_id == 1 and item.status == "active"]
+    assert (session.kind, session.started_at, session.opened_by_action_id) == ("stay", arrival, None)
+    observed = observe(engine, "arrived")
+    assert observed["progress_layer"]["session_started_at"] == iso_time(arrival, zone)
+    assert [record for record in observed["progress_layer"]["events"] if record["type"].startswith("errand")] == []
+    assert event.event_id not in observed["progress_event_ids"]
+    [row] = observed["todo_layer"]["errands"]
+    assert (row["name"], row["remind_time"]) == ("买牛奶", None)
 
 
 def test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning(engine_factory) -> None:

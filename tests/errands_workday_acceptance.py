@@ -13,8 +13,9 @@
           变异只登记在主进程内执行的生产代码上，`original` 在源文件恰好出现一次，杀手是已登记在某一行的行为用例。
           两个适配器目录（custom/agents、custom/envs）的文件经 AS2 注册表按文件路径以另一个模块名加载，针对它们的变异
           只有直接导入该模块（如 custom.agents.life_agent）的用例杀得死；经 Society 或 actor 的路径只算覆盖与行为证据。
-          SPEC_MUTATIONS 的键按规格原文的顺序逐句照抄，守卫核对它们首尾相接恰好拼回规格那一段；不对应规格任何一句、
-          取自实施计划「突变审查的目标」的变异登记在 EXTRA_MUTATIONS 并写明出处。
+          SPEC_MUTATIONS 的键按规格原文的顺序逐句照抄，守卫核对它们首尾相接恰好拼回规格那一段；一句列出几种情形时，每种
+          情形各有登记变异。不对应那一段任何一句的变异（取自实施计划「突变审查的目标」，或阶段复审按规格正文条款补登的）
+          登记在 EXTRA_MUTATIONS 并写明出处。
           「复跑指标（只报告）」按规格只报告、不作门禁：配对全天复跑是计费的真实运行，只在用户要求时启动。
 """
 
@@ -29,7 +30,8 @@ from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, SourceMut
 STAGE_IDS = frozenset(str(number) for number in range(8))
 
 #: 已完成的阶段；每个阶段的最后一个提交把自己的编号加入。阶段 1（运行修复入库）随严格反思的提交完成；阶段 2（个人事务
-#: 与提示分工）随收尾提交完成：十行台账都列出节点，二十六句规格变异都有登记变异。
+#: 与提示分工）随收尾提交完成：十行台账都列出节点，二十六句规格变异都有登记变异（阶段复审之后，一句列出的每种情形各有
+#: 一个）。
 STAGES_DONE: frozenset[str] = frozenset({"1", "2"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
@@ -155,10 +157,11 @@ _SEPARATION = "tests/integration/test_errand_prompt_separation.py::"
 #: 「跨夜可见」：全部经真实请求、引擎与 SQLite——收尾时记下的事务在零点使旧计划失效、零点计划登记新计划、目标推进与
 #: revise_day_plan 之后逐字段不变，待办层的事务行与零点前逐字相同、没有事务事件；记忆层超过 8000 字符被截取时与由冻结
 #: 观察准备的真实 LifeAgent 发出的请求被浓缩（进度层折叠）时，待办层的事务行照旧；同一段生活带不带事务变更，记忆层逐字节
-#: 相同（六种事务事件都不给记忆层添句）。末两个守零点计划：输入的只读键「个人事务」五键与同一时刻待办层同源同序、计划登记
-#: 不改事务也不写事务事件；真实请求的模板与接口合同逐字相同，输入说明末行与第七条逐字。倒数第三个是「实际行动请求的待办层
-#: 含该事务且本决策没有记忆查询」：真实 LifeAgent 于 23:51 播报时记下的事务，过了零点后下一次决策在库里留下的那一次行动
-#: 请求（不是续接）的待办层原样列着它，这次决策只有一个模型请求、只调用了世界请求，没有记忆查询。
+#: 相同（六种事务事件都不给记忆层添句）。末三个守零点计划：输入的只读键「个人事务」五键与同一时刻待办层同源同序、计划登记
+#: 不改事务也不写事务事件；零点前办成的事务在输入里没有「办成」句、名称不出现在任何键里，进食本身仍是已核验经历（办成句
+#: 只用于进度层折叠，规格 2.6）；真实请求的模板与接口合同逐字相同，输入说明末行与第七条逐字。倒数第四个是「实际行动请求的
+#: 待办层含该事务且本决策没有记忆查询」：真实 LifeAgent 于 23:51 播报时记下的事务，过了零点后下一次决策在库里留下的那一次
+#: 行动请求（不是续接）的待办层原样列着它，这次决策只有一个模型请求、只调用了世界请求，没有记忆查询。
 _OVERNIGHT_TESTS = [
     _OVERNIGHT + "test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_plan_revision",
     _OVERNIGHT + "test_an_errand_stays_when_the_memory_layer_overflows_its_window",
@@ -166,6 +169,7 @@ _OVERNIGHT_TESTS = [
     _OVERNIGHT + "test_the_memory_layer_writes_no_line_for_errands",
     _SEPARATION + "test_the_next_action_request_shows_the_errand_in_the_todo_layer_without_any_memory_query",
     _DAY_PLANNING + "test_plan_day_input_lists_open_errands_read_only",
+    _DAY_PLANNING + "test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight",
     _DAY_PLANNING + "test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times",
 ]
 
@@ -195,7 +199,8 @@ _SEPARATED = _SEPARATION + "test_errand_changes_write_no_memory_and_stay_out_of_
 #:   一条只写名称的办成记录。
 #: - 「同一 session 内办成的事务在进度层有一条记录，浓缩后折成一句」：经真实请求办成的事务在进度层恰一条只写名称的记录、
 #:   来源计入观察，settled 句折成「HH:MM 办成「<事务名>」」（跨日带日期），取消的事务不留记录，开启新 session 的那次提交
-#:   里的办成不进新 session 的进度层。
+#:   里的办成不进新 session 的进度层；其后一个是同一归属规则的提醒一半：步行到达的那次时钟推进提交开启停留 session，
+#:   与到达同一边界交付的提醒归旧的路上 session，到达后第一次观察的进度层没有提醒记录、提醒事件不是进度来源。
 #: - 规格 3.4 的结构项（末一个节点）：真实 LifeAgent 收尾时记下事务，AS2 记忆库只多那条收尾记忆、只有那一步是记忆写入点；
 #:   暂停时更新与取消事务不写记忆；进度层工具调用参数略去 errands、回执是唯一痕迹；离开那段停留后记忆层 self_notes 里有
 #:   收尾与暂停的自述和记忆，没有事务的名称、备注与取消原因。
@@ -213,6 +218,7 @@ _PROMPT_PRESENCE_TESTS = [
     _CONTINUATION + "test_errand_changes_reach_the_next_tool_message_as_added_and_removed",
     _CONTINUATION + "test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events",
     "tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line",
+    "tests/life/test_errand_reminder.py::test_a_reminder_delivered_with_the_arrival_stays_out_of_the_new_stay_session",
     _SEPARATED,
 ]
 
@@ -222,7 +228,8 @@ _COMPLETION = "tests/life/test_errand_completion.py::"
 #: 制作与进食产生证据：远程下单受理时不推进、送达的那次提交办成；同一秒先记下再到店买下当场办成而物品留在门店；数量 2
 #: 只得 1 份仍未完成并记累计；记下前已持有的不算、记下前开始的进度区间不算（后者请求造不出，经真实时钟推进与预置的记下
 #: 时刻造出）；他人买给本人与当面给予本人算、本人买给他人不算，买给或当面给不是同世界人物的联系人也不算任何人物取得；
-#: 制作未完成不算、完整结束的产出算；进食按区间实际食用量累计且累计量差 1e-9 内即办成；缺货被拒后事务与累计量不变，
+#: 制作未完成不算、完整结束的产出算；开始喝的那次受理不算，进食按区间实际食用量累计且累计量差 1e-9 内即办成；推进了
+#: 当日目标（progressed）的活动与播报、收尾里声称办成的自述都不算（规格 2.4「不算」）；缺货被拒后事务与累计量不变，
 #: 闭店与买不起被拒后同样不变（规格 2.4 缺货一条的另两种情形）；同一轮先给予后取消不落到已取消的事务；结算事件的
 #: 可见性、人物、载荷、原因与所在提交。
 _COMPLETION_TESTS = [
@@ -235,6 +242,7 @@ _COMPLETION_TESTS = [
     _COMPLETION + "test_an_order_and_a_gift_for_a_contact_outside_the_world_count_for_nobody",
     _COMPLETION + "test_unfinished_making_does_not_count_and_the_finished_output_does",
     _COMPLETION + "test_eating_counts_the_actual_interval_quantity",
+    _COMPLETION + "test_a_progressed_goal_and_a_claimed_completion_leave_the_errand_open",
     _COMPLETION + "test_an_out_of_stock_rejection_leaves_the_errand_and_its_progress_unchanged",
     _COMPLETION + "test_a_closed_store_or_an_unaffordable_purchase_leaves_the_errand_open",
     _COMPLETION + "test_a_gift_followed_by_a_cancel_in_one_round_credits_nothing",
@@ -255,6 +263,8 @@ _IDEMPOTENCE_TESTS = [
 ]
 
 _REMINDER = "tests/life/test_errand_reminder.py::"
+_ERRAND_EXPORT = ("tests/footprints/test_errand_export.py::"
+                  "test_an_exported_run_reports_errands_and_recertifies_value_for_value")
 
 #: 「事务提醒」：前九个经真实请求、引擎与 SQLite——人物以收尾请求记下带提醒钟点的事务，随后经真实的时钟推进与决策轮：清醒
 #: 时到点的边界恰在提醒时刻，以 errand_reminder_due 提供一次决策并写一条人物可见、不带决策与动作身份的提醒事件，事务只多了
@@ -262,7 +272,9 @@ _REMINDER = "tests/life/test_errand_reminder.py::"
 #: null）；钟点等于受理时刻取下一本地日；睡眠中不形成边界、其后仍在睡的零点边界静默且不交付不消耗，醒来的边界与
 #: wake_from_sleep 一并交付；同刻到期的多条合并为一次机会、各写一条事件，与当日目标提醒同刻时按枚举顺序并列；办成或取消
 #: 后不再提醒；更新钟点重新计一次；零点边界由零点节律入口在零点计划之后交付；未完成事务不改变空闲重估间隔与闭店预警。末
-#: 一个守质量报告按同一份足迹词表把 errand_reminder_due 计入已知原因。
+#: 两个守质量报告把 errand_reminder_due 计入已知原因：先是经真实请求、引擎、SQLite、共同检查点与认证导出的一段生活
+#: （22:55 的提醒在共同身体结算与 decision_started 两处各计一次，两个未识别原因的分桶为空），后是以合成事件按同一份
+#: 足迹词表分桶的补充证据（与同刻的当日目标提醒各计一次）。
 _REMINDER_TESTS = [
     _REMINDER + "test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",
     _REMINDER + "test_a_clock_equal_to_the_acceptance_time_means_the_next_local_day",
@@ -274,6 +286,7 @@ _REMINDER_TESTS = [
     _REMINDER + "test_updating_the_reminder_clock_arms_it_again",
     _REMINDER + "test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm",
     _REMINDER + "test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning",
+    _ERRAND_EXPORT,
     "tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason",
 ]
 
@@ -299,12 +312,13 @@ _ERRAND_CHANGE_TESTS = [
 
 _ERRAND_NAMES = "tests/life/test_errand_names.py::"
 
-#: 「事务名称与错误」：前八个经真实请求、引擎与 SQLite，每一轮由同一次冻结观察准备的 LifeAgent 先在宿主一侧本地校验，
+#: 「事务名称与错误」：前九个经真实请求、引擎与 SQLite，每一轮由同一次冻结观察准备的 LifeAgent 先在宿主一侧本地校验，
 #: 再把同一请求原样登记给引擎结算——更新与取消按待办层名称（无损归一后唯一即受理，回执写待办层名称）；找不到或有歧义的
 #: 事务名两侧逐项相同、合法值列本人全部未完成事务名、不替换；商品名错误在 why 给最接近的至多三个商品名、合法值为空；
-#: 取消必带原因；新增重名、同结果同商品与第九条各一例；同一请求取消旧事务并以原名、新数量新增被受理，终结后名称可再用；
+#: 取消必带原因；新增重名、同结果同商品与第九条各一例；同一请求里同一条未完成事务被第二条更新或取消点名、两条新增的结果
+#: 种类与商品相同各一例（只报较晚的一条）；同一请求取消旧事务并以原名、新数量新增被受理，终结后名称可再用；
 #: 绕过宿主的请求在环境被合并成一次 ACTION_REQUEST_INVALID、照常计入同刻轮数、世界不变；性质测试以固定种子枚举二百四十
-#: 组变更，宿主受理的环境对同一观察也受理（每种状态另有一组经真实提交）。第九个是宿主一侧的合并纠错：直接导入的
+#: 组变更，宿主受理的环境对同一观察也受理（每种状态另有一组经真实提交）。第十个是宿主一侧的合并纠错：直接导入的
 #: LifeAgent 把活动名、事务名与结构错误并入同一次纠错，路径绑定到真实调用下标，改正之前不登记世界请求。末一个是「终结后
 #: 名称可以再用」的办成一半（前面的节点以取消与办成留下的状态示范）：经真实请求、引擎与 SQLite 在集市记下并当场买下办成
 #: 之后，同一名称、同一结果与商品再新增一条事务被受理，事件依次是记下、办成、记下。
@@ -314,6 +328,7 @@ _ERRAND_NAME_TESTS = [
     _ERRAND_NAMES + "test_unknown_item_reports_nearest_product_names_in_why_without_candidates",
     _ERRAND_NAMES + "test_cancel_requires_a_reason",
     _ERRAND_NAMES + "test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_rejected",
+    _ERRAND_NAMES + "test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected",
     _ERRAND_NAMES + "test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted",
     _ERRAND_NAMES + "test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged",
     _ERRAND_NAMES + "test_whatever_the_host_accepts_the_environment_accepts",
@@ -330,24 +345,29 @@ _FULL_TARGET = _WINDOW_TESTS + "test_the_action_target_keeps_the_full_control_re
 _EXPORT_WINDOWS = _ERRAND_WINDOWS + "test_an_export_with_errand_reminder_and_completion_builds_all_three_windows"
 _FOREIGN_COMPLETION = (_ERRAND_WINDOWS
                        + "test_a_completion_caused_by_another_persons_action_stays_out_of_their_decision_group")
+_REAL_PROJECTIONS = (_ERRAND_WINDOWS + "test_control_requests_with_errands_reach_windows_without_them_and_legacy"
+                     "_requests_are_refused")
 
 #: 「交付边界」，按台账各项的顺序：
-#: - 「意图与 dreaming 投影不含 memories、views 与请求级 errands，原事件不被原地修改」与「动作目标保留完整请求」：交付窗口
-#:   的动作、意图与 dreaming 构造（_action_windows、_dream_windows）对两项都带记忆与看法、并带请求级事务变更的收尾请求，
-#:   意图与 dreaming 输入的投影两项都只留活动名与自述、不带 errands，构造完三类窗口后原请求事件逐键不变，动作与意图窗口的
-#:   目标是同一事件、保留完整请求。
+#: - 「意图与 dreaming 投影不含 memories、views 与请求级 errands，原事件不被原地修改」与「动作目标保留完整请求」：第三个节点
+#:   经真实请求、引擎、SQLite 与认证导出——记下三条事务的收尾与带一条更新、一条取消的播报，在意图窗口与陈曦每个显示它们的
+#:   dreaming 窗口里投影都只留每项的活动名与自述、不带 errands，动作与意图窗口的目标就是导出里的请求事件、逐键相等、保留
+#:   完整的 errands（投影没有原地改写它）。头两个以手写事件直调窗口构造（_action_windows、_dream_windows），是补充证据与
+#:   变异杀手：两项都带记忆与看法的收尾请求，投影两项都只留活动名与自述（不只裁首项），构造完三类窗口后原请求事件逐键不变。
 #: - 「事务事件不带决策与动作身份，他人动作触发的办成事件不落进对方决策的分组」：真实引擎、SQLite、共同检查点与认证导出
 #:   上，李凡两次当面给陈曦纯牛奶，累计与办成两条事件归陈曦、以李凡的给予结果为原因，六种事务事件都没有决策、动作与活动
 #:   身份，李凡那两次给予的决策分组与动作分组里没有陈曦的事件，任何窗口的目标都不含事务事件。
-#: - 「缺 errands 的旧控制请求被拒」：带 items 而缺请求级 errands 的请求经唯一读取入口 control_items、进度层与交付窗口的
-#:   投影 control_request、请求级变更的读取 control_errands 与收尾记忆判定一律以完整性故障拒绝；交付构造窗口时同样拒绝、
-#:   不当作没有事务变更放行；control_errands 按请求顺序读出每条变更的八键。
+#: - 「缺 errands 的旧控制请求被拒」：第三个节点的后一半——经 FootprintStore 补登一条带 items 而缺请求级 errands 的旧形状
+#:   播报请求并认证导出，交付构造窗口时以完整性故障拒绝，不当作没有事务变更放行。其后三个是补充证据：唯一读取入口
+#:   control_items、进度层与交付窗口的投影 control_request、请求级变更的读取 control_errands 与收尾记忆判定一律拒绝，
+#:   手写事件的窗口构造同样拒绝；control_errands 按请求顺序读出每条变更的八键。
 #: - 「含事务提醒与办成记录的导出能构造三类窗口」：同一段真实生活的认证导出构造出动作、意图与 dreaming 三类窗口，提醒与
 #:   办成两种事件本人可见，作为办成之后那次决策观察的进度来源展开为证据、公开投影是空对象；提醒带来的那次决策的窗口里
 #:   待办层（含三条事务行）是存储的那一份。
 _DELIVERY_BOUNDARY_TESTS = [
     _PROJECTIONS_TRIMMED,
     _FULL_TARGET,
+    _REAL_PROJECTIONS,
     _FOREIGN_COMPLETION,
     _CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",
     _WINDOW_TESTS + "test_control_requests_without_errands_are_rejected_by_delivery",
@@ -356,17 +376,17 @@ _DELIVERY_BOUNDARY_TESTS = [
 ]
 
 _ERRAND_METRICS = "tests/evaluation/test_errand_metrics.py::"
-_ERRAND_EXPORT = ("tests/footprints/test_errand_export.py::"
-                  "test_an_exported_run_reports_errands_and_recertifies_value_for_value")
 
 #: 「事务与收尾记忆指标」，按台账各项的顺序：头七个以已认证事件模型构造的导出事件逐键核对 errand_metrics 与
 #: conclusion_memories 的定义（分母是记下的事务而不是当日目标；终态恰在零点不算跨夜、截止恰在零点算；同期观察数与可见
 #: 次数；提醒后行动只认同一本地日、终态之前、本人被受理且指向同一商品的请求；办成须有本导出里更早且可复核的证据；收尾
-#: 记忆的作息与重合计数；没有样本为 null），并经 build_quality_report 进入报告，是补充证据与变异杀手；其后一个守当日目标
-#: 报告的键集不变（命令导出的 quality.json 里事务分组是 day_plan_metrics 之外的顶层分组）；再一个守质量报告结构 4，分组与
-#: 记录引擎设计登记的十八组逐一相同、顺序相同；末一个经真实请求、引擎、SQLite、共同检查点与认证导出：跨本地零点的一段
-#: 两人生活里记下、提醒、带收尾记忆结束、送达办成、零点后取消与到终点仍未完成，quality.json 的两个分组逐值等于手算，
-#: validate_export 从同一批事件重算出相同的报告。
+#: 记忆的作息与重合计数；没有样本为 null），并经 build_quality_report 进入报告，是补充证据与变异杀手；其后两个是「没有
+#: 样本为 null」经真实请求、引擎、SQLite 与认证导出的两半：两人完整一天没有记下任何事务，quality.json 的 errand_metrics
+#: 为 null；含三条事务而没有任何收尾记忆的那段生活，conclusion_memories 为 null。再一个守当日目标报告的键集不变（命令
+#: 导出的 quality.json 里事务分组是 day_plan_metrics 之外的顶层分组）；再一个守质量报告结构 4，分组与记录引擎设计登记的
+#: 十八组逐一相同、顺序相同；末一个经真实请求、引擎、SQLite、共同检查点与认证导出：跨本地零点的一段两人生活里记下、
+#: 提醒、带收尾记忆结束、送达办成、零点后取消与到终点仍未完成，quality.json 的两个分组逐值等于手算，validate_export 从
+#: 同一批事件重算出相同的报告。
 _METRIC_TESTS = [
     _ERRAND_METRICS + "test_counts_follow_their_definitions_and_the_identity_holds",
     _ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",
@@ -375,6 +395,9 @@ _METRIC_TESTS = [
     _ERRAND_METRICS + "test_a_completion_without_checkable_evidence_is_counted",
     _ERRAND_METRICS + "test_conclusion_memories_count_routine_and_errand_overlap",
     _ERRAND_METRICS + "test_no_errand_or_no_conclusion_memory_gives_null",
+    "tests/integration/test_dayrun_complete_days.py::"
+    "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
+    _REAL_PROJECTIONS,
     "tests/footprints/test_goal_export.py::test_export_command_uses_authenticated_cutoff_and_manifest_code",
     "tests/footprints/test_quality.py::test_report_sections_are_the_documented_grouping_without_a_language_count",
     _ERRAND_EXPORT,
@@ -494,26 +517,35 @@ _COMPLETED_CHANGE_KILLERS = (_ERRAND_REQUESTS + "test_a_request_cannot_mark_an_e
 _ERRANDS_KEY_KILLERS = (_CONTROL_ITEMS + "test_a_current_request_without_errands_is_rejected",)
 _ERRANDS_MODULE = "worldmock.life.errands"
 _ERRANDS_SOURCE = "src/worldmock/life/errands.py"
-#: 事务名称两个变异的杀手都经真实请求、引擎与 SQLite（宿主一侧的 LifeAgent 与环境都按本名导入 errands，同一个被变异的
+#: 事务名称四个变异的杀手都经真实请求、引擎与 SQLite（宿主一侧的 LifeAgent 与环境都按本名导入 errands，同一个被变异的
 #: 模块）：更新或取消的名称解析不出唯一一条时改取第一个同级匹配或最接近的名称，有歧义的取消就被受理、预置的事务被移出；
-#: 新增改按扣除取消之前的全部未完成事务判重名与同结果同商品时，同一请求取消旧事务再以原名新增被拒。
+#: 新增改按扣除取消之前的全部未完成事务判重名与同结果同商品时，同一请求取消旧事务再以原名新增被拒；同一事务被第二条更新
+#: 或取消点名不再判出、两条新增的同结果同商品不再判出时，两侧的明细都少了那一条。
 _FIRST_CANDIDATE_KILLERS = (
     _ERRAND_NAMES + "test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing",)
 _CANCELS_FIRST_KILLERS = (
     _ERRAND_NAMES + "test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted",)
+_DOUBLED_KILLERS = (
+    _ERRAND_NAMES + "test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected",)
 _ENGINE_MODULE = "worldmock.life.engine"
 _ENGINE_SOURCE = "src/worldmock/life/engine.py"
 _SETTLED_TEXT_MODULE = "worldmock.life.settled_text"
 _SETTLED_TEXT_SOURCE = "src/worldmock/life/settled_text.py"
 #: 完成依据与结算各变异的杀手都经真实请求、引擎与 SQLite（结算由引擎的两处接线按本名调用 errands.settle）：未送达订单
-#: 当作取得时远程下单受理那次提交就办成；受理事件也读时到店买一份就累计两份、数量 2 的事务办成；读活动快照的制作配方
-#: 时未完成的制作区间就算产出、办成事件的原因不再是完整结束的那次进度结算；去掉新增位置的比较时排在新增事件之前的给予
-#: 也算；去掉区间起点的比较时记下前开始的进度区间也算；不读 given 时当面给予不算；按事件人物字段归属时给予与送她的那单
-#: 算到付款的李凡、她买给李凡的那单算到她自己；也读逐项结果时并行开始的同一订单算两次；同一提交结算两次时决策轮那次
-#: 累计 2 份、时钟推进那次累计到 3 份办成；不看 reused 时重放的到店购买再累计一份；浓缩句为空时办成记录没有 settled 句。
+#: 当作取得时远程下单受理那次提交就办成；受理事件也读时到店买一份就累计两份、数量 2 的事务办成；开始进食的动作结果按
+#: 所开吃的份数算作吃掉时开始喝的那一刻就办成、结算事件只剩一条；推进了当日目标的活动在其后的进度结算里算作办成、播报
+#: 或收尾的自述写了事务名就算办成时，从未取得的纯牛奶事务被办成；读活动快照的制作配方时未完成的制作区间就算产出、办成
+#: 事件的原因不再是完整结束的那次进度结算；记下时把已持有的份数记成累计量时，家里已有的两份让事务不再是 0 份；去掉新增
+#: 位置的比较时排在新增事件之前的给予也算；去掉区间起点的比较时记下前开始的进度区间也算；不读 given 时当面给予不算；按
+#: 事件人物字段归属时给予与送她的那单算到付款的李凡、她买给李凡的那单算到她自己；也读逐项结果时并行开始的同一订单算两次；
+#: 同一提交结算两次时决策轮那次累计 2 份、时钟推进那次累计到 3 份办成；不看 reused 时重放的到店购买再累计一份；浓缩句
+#: 为空时办成记录没有 settled 句。
 _REMOTE_ORDER_KILLERS = (_COMPLETION + "test_a_remote_order_completes_only_in_the_commit_that_delivers_it",)
 _RESULT_ONLY_KILLERS = (_COMPLETION + "test_quantity_two_with_one_obtained_stays_open_and_shows_the_progress",)
+_START_KILLERS = (_COMPLETION + "test_eating_counts_the_actual_interval_quantity",)
+_CLAIM_KILLERS = (_COMPLETION + "test_a_progressed_goal_and_a_claimed_completion_leave_the_errand_open",)
 _MAKING_KILLERS = (_COMPLETION + "test_unfinished_making_does_not_count_and_the_finished_output_does",)
+_HELD_KILLERS = (_COMPLETION + "test_what_was_held_before_noting_does_not_count",)
 _NOTING_ORDER_KILLERS = (
     _IDEMPOTENCE + "test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_count",)
 _INTERVAL_KILLERS = (_COMPLETION + "test_a_progress_interval_begun_before_noting_does_not_count",)
@@ -577,11 +609,13 @@ _ERRAND_METRICS_SOURCE = "src/worldmock/evaluation/errand_metrics.py"
 #: 窗口以完整性故障失败（真实引擎、SQLite 与认证导出，errands 由引擎按本名导入）；结算事件沿用证据事件的决策与动作身份
 #: 时，李凡那次给予的决策分组里出现陈曦的累计与办成事件（同一条真实链路）；投影带出请求级 errands、只裁第一项或原地修改
 #: 原事件时，意图与 dreaming 输入的投影不再只留两项的活动名与自述、原请求事件被改写（动作窗口的目标随之丢掉 errands 与
-#: 记忆）；事务指标以当日目标数为分母时，三条目标、两条事务的导出报出 3。
+#: 记忆）——带出 errands 与原地修改另由真实导出的那一例杀死（真实生活里的收尾与播报都只点名一项，只裁首项在那里不可
+#: 区分）；事务指标以当日目标数为分母时，三条目标、两条事务的导出报出 3。
 _VISIBLE_KILLERS = (_EXPORT_WINDOWS,)
 _IDENTITY_KILLERS = (_FOREIGN_COMPLETION,)
 _PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED,)
-_INTACT_KILLERS = (_PROJECTIONS_TRIMMED, _FULL_TARGET)
+_ERRANDS_PROJECTION_KILLERS = (_PROJECTIONS_TRIMMED, _REAL_PROJECTIONS)
+_INTACT_KILLERS = (_PROJECTIONS_TRIMMED, _FULL_TARGET, _REAL_PROJECTIONS)
 _DENOMINATOR_KILLERS = (_ERRAND_METRICS + "test_the_denominator_is_registered_errands_not_goals",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
@@ -867,6 +901,22 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _CANCELS_FIRST_KILLERS,
     ),
     SourceMutation(
+        "errand_named_twice_accepted",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '        elif found[0]["errand_id"] in named:\n',
+        "        elif False:\n",
+        _DOUBLED_KILLERS,
+    ),
+    SourceMutation(
+        "added_twins_with_one_product_accepted",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "    doubled = [other for other in earlier if other in plan.products\n",
+        "    doubled = [other for other in () if other in plan.products\n",
+        _DOUBLED_KILLERS,
+    ),
+    SourceMutation(
         "pending_order_counts_as_obtained",
         _ERRANDS_MODULE,
         _ERRANDS_SOURCE,
@@ -883,12 +933,82 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _RESULT_ONLY_KILLERS,
     ),
     SourceMutation(
+        "activity_start_counts_as_eaten",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '        return [] if data.get("reused") else _handed(data.get("data") or {})\n',
+        (
+            '        payload = data.get("data") or {}\n'
+            '        started = [payload["activity"]] if "activity" in payload else payload.get("activities", [])\n'
+            '        return [] if data.get("reused") else [*_handed(payload), *(\n'
+            '            Evidence(agent_id, _EAT, item["product_id"], float(item["quantity"]), None)\n'
+            "            for activity in started\n"
+            '            if activity.get("data", {}).get("request", {}).get("use_mode") == "eat"\n'
+            '            for item in activity["data"]["request"]["items"])]\n'
+        ),
+        _START_KILLERS,
+    ),
+    SourceMutation(
+        "progressed_goal_counts_as_completion",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        (
+            "    for index, draft in enumerate(drafts):\n"
+            "        for row in evidence_rows(draft.event_type, draft.agent_id, draft.data):\n"
+        ),
+        (
+            "    for index, draft in enumerate(drafts):\n"
+            "        plan = state.agents[draft.agent_id].day_plan if draft.agent_id in state.agents else None\n"
+            "        claimed = [Evidence(draft.agent_id, errand.outcome, errand.product_id, float(errand.quantity),\n"
+            "                            None)\n"
+            "                   for errand in open_sets.get(draft.agent_id, {}).values()\n"
+            '                   if draft.event_type == "activity_progress" and plan is not None\n'
+            "                   and any(goal.progress_activity_id == draft.activity_id for goal in plan.goals)]\n"
+            "        for row in [*evidence_rows(draft.event_type, draft.agent_id, draft.data), *claimed]:\n"
+        ),
+        _CLAIM_KILLERS,
+    ),
+    SourceMutation(
+        "self_report_counts_as_completion",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "    if not settled:\n        return state, []\n",
+        (
+            "    for draft in drafts:\n"
+            '        named = (draft.data.get("data") or {}).get("activity_ids", []) '
+            'if draft.event_type == "action_result" else []\n'
+            "        notes = [state.activities[key].progress_note for key in named if key in state.activities]\n"
+            "        for errand in [item for item in open_sets.get(draft.agent_id, {}).values()\n"
+            "                       if any(item.name in note for note in notes)]:\n"
+            "            head = _Head(draft.agent_id, state.current_time, (draft.event_id,))\n"
+            "            settled.append(_credit(open_sets[draft.agent_id], errand, Evidence(\n"
+            "                draft.agent_id, errand.outcome, errand.product_id, float(errand.quantity), None), head))\n"
+            "    if not settled:\n        return state, []\n"
+        ),
+        _CLAIM_KILLERS,
+    ),
+    SourceMutation(
         "unfinished_making_counts_as_obtained",
         _ERRANDS_MODULE,
         _ERRANDS_SOURCE,
         '    transform = consumption.get("inventory_transform")\n',
         '    transform = data["activity"]["data"].get("inventory_recipe")\n',
         _MAKING_KILLERS,
+    ),
+    SourceMutation(
+        "holdings_at_noting_count_as_obtained",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    return agent.model_copy(update={"errands": errands}), receipt\n',
+        (
+            "    held = {product: sum(place.get(product, 0.0) for place in agent.inventory.values())\n"
+            "            for product in plan.products.values()}\n"
+            '    errands = {key: errand.model_copy(update={"progress": held[errand.product_id]})\n'
+            "               if key not in agent.errands and held.get(errand.product_id) else errand\n"
+            "               for key, errand in errands.items()}\n"
+            '    return agent.model_copy(update={"errands": errands}), receipt\n'
+        ),
+        _HELD_KILLERS,
     ),
     SourceMutation(
         "evidence_before_noting_event_counts",
@@ -1157,7 +1277,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _CONTROL_ITEMS_SOURCE,
         '    return {"items": rows}\n',
         '    return {"items": rows, "errands": list(control_errands(tool, request))}\n',
-        _PROJECTION_KILLERS,
+        _ERRANDS_PROJECTION_KILLERS,
     ),
     SourceMutation(
         "control_projection_trims_first_item_only",
@@ -1218,10 +1338,11 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "事务名近似时取第一个候选": {"stage": "2", "mutations": ("errand_name_takes_first_candidate",)},
     "请求可把状态置为完成": {"stage": "2", "mutations": ("request_can_mark_errand_completed",)},
     "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": (
-        "pending_order_counts_as_obtained", "accepted_event_counts_as_evidence",
-        "unfinished_making_counts_as_obtained")},
+        "accepted_event_counts_as_evidence", "pending_order_counts_as_obtained", "activity_start_counts_as_eaten",
+        "progressed_goal_counts_as_completion", "self_report_counts_as_completion")},
     "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": (
-        "evidence_before_noting_event_counts", "interval_begun_before_noting_counts")},
+        "holdings_at_noting_count_as_obtained", "evidence_before_noting_event_counts",
+        "interval_begun_before_noting_counts")},
     "当面给予不计入取得": {"stage": "2", "mutations": ("gift_is_not_obtained",)},
     "按事件人物字段而非收货人判归属": {"stage": "2", "mutations": ("ownership_follows_event_agent",)},
     "读取逐项结果里的重复订单": {"stage": "2", "mutations": ("nested_results_orders_counted",)},
@@ -1262,7 +1383,8 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "四键旧请求被受理": {"stage": "4", "mutations": ()},
 }
 
-#: 不对应规格任何一句的登记变异：变异名 → 出处（实施计划各阶段的「突变审查的目标」）。
+#: 不对应规格「源码变异必须覆盖」一段任何一句的登记变异：变异名 → 出处（实施计划各阶段的「突变审查的目标」，或阶段复审
+#: 按规格正文条款补登的变异）。
 EXTRA_MUTATIONS: dict[str, str] = {
     "tool_dispatch_failure_loses_stage_code": "实施计划阶段 1「突变审查的目标」故障传播：工具分发失败不再按失败阶段码 "
                                               "TOOL_SERVICE_FAILED 抛出（改为把原异常直接上抛）。",
@@ -1299,6 +1421,13 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                   "分句，接口合同与人物 Prompt 规格不跟随）。",
     "control_projection_trims_first_item_only": "实施计划阶段 2「突变审查的目标」：交付投影只裁首项（control_request 让"
                                                 "第二项起保留 memories 与 views）。",
+    "unfinished_making_counts_as_obtained": "规格 2.4「不算」的制作未完成（「源码变异必须覆盖」一段没有单列这一种，阶段 2 "
+                                            "复审补登）：读活动快照的制作配方而不是完整结束时的库存转换，未完成的制作区间"
+                                            "也算产出。",
+    "errand_named_twice_accepted": "规格 2.2「同一条未完成事务在一次请求里至多被一条更新或取消点名」与 2.3 表第 1 行（阶段 2 "
+                                   "复审补登）：同一事务被第二条更新或取消点名时不再判出。",
+    "added_twins_with_one_product_accepted": "规格 2.3 表第 4 行「结果种类与商品都与…同请求另一条新增相同」（阶段 2 复审"
+                                             "补登）：同一请求两条新增的结果种类与商品相同时不再判出。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。

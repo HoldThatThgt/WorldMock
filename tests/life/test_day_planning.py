@@ -643,6 +643,35 @@ def test_plan_day_input_lists_open_errands_read_only(engine_factory):
     assert not set(registered.data["source_event_ids"]) & {event.event_id for event in errand_events(engine)}
 
 
+def test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight(engine_factory):
+    """办成句只用于进度层折叠，零点计划输入不写（docs/dev/SPEC-errands-workday.md 2.6）：1 月 5 日 23:41 收尾时记下「吃掉
+    纯牛奶 1 份」，随即喝掉手边那一份，零点前办成（errand_completed 落库，事务移出状态）。零点计划的输入没有「办成」句，
+    事务名不出现在任何键里，「个人事务」为空列表；喝奶本身仍作为已核验经历写进输入。"""
+    engine = evening(engine_factory, "23:40")
+    place(engine, 1, HOME, {MILK_ID: 1.0})
+    note(engine, "note", [errand_add("睡前喝掉那盒奶", MILK, outcome="吃掉")])
+    drinking = act(engine, "drink", routed(DRINK))
+    run_until(engine, lambda current: current.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
+    midnight = _at(6, 0)
+    [completed] = [event for event in errand_events(engine) if event.data["kind"] == "errand_completed"]
+    assert completed.occurred_at < midnight and engine.state.agents[1].errands == {}
+
+    def before_midnight(current) -> bool:
+        """下一边界是零点且此刻没人要决策。"""
+        state = current.scheduling_state()
+        return not state.ready_agent_ids and int(state.next_event_at.timestamp()) == midnight
+    run_until(engine, before_midnight)
+    engine.advance(midnight - engine.state.current_time, engine.scheduling_state().next_event_at)
+    client = StubPlanDayClient()
+
+    settle_day_plans(engine, client)
+
+    payload = json.loads(client.calls[0]["messages"][1]["content"])
+    listed = json.dumps(payload, ensure_ascii=False)
+    assert payload["个人事务"] == [] and "办成" not in listed and "睡前喝掉那盒奶" not in listed
+    assert any(MILK in sentence for sentence in payload["已核验经历"])
+
+
 def test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep(tmp_path):
     """模板用例（docs/dev/SPEC-dayrun-fidelity.md 2.3 验收）：平常的一天可以是零条目标；作息里已有的事不进计划，但收尾时记下
     的起床时刻仍按第三条生成提醒——零点计划的输入带这句收尾记录，照模板写出的计划只有这一条与平常不同的起床目标（带提醒与

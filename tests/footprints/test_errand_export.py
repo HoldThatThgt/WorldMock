@@ -108,8 +108,9 @@ def test_an_exported_run_reports_errands_and_recertifies_value_for_value(
     记下 3 条（分母），办成 1、取消 1、截止时未完成 1；跨夜 2（零点后取消的与到终点仍未完成的；22:55 之后、零点之前
     送达办成的那条不算）；未完成期间陈曦的每次观察待办层都列着该事务（同期观察数与可见次数相等）；提醒 1 条，提醒后
     同一本地日、办成之前她开始喝同一商品，算作提醒后行动；每条办成事件都有可复核的证据。收尾记忆 3 条：作息 1 条，含
-    未完成事务名称或商品名称的 2 条。当日目标报告的键集不变。认证导出（validate_export）从同一批事件重算出逐字节相同的
-    报告，两个分组再由导出的事件逐值重算也相同。"""
+    未完成事务名称或商品名称的 2 条。当日目标报告的键集不变。22:55 那次提醒的唤醒原因 errand_reminder_due 在共同身体
+    结算与 decision_started 两处都计入已知原因（各一次），两个未识别原因的分桶为空。认证导出（validate_export）从同一批
+    事件重算出逐字节相同的报告，两个分组再由导出的事件逐值重算也相同。"""
     export_dir, engine = _overnight_export(engine_factory, tmp_path)
     manifest, events, activities = validate_export(export_dir)
     quality = json.loads((export_dir / "quality.json").read_text(encoding="utf-8"))
@@ -134,6 +135,10 @@ def test_an_exported_run_reports_errands_and_recertifies_value_for_value(
     assert quality["day_plan_metrics"] and all(set(group) == _DAY_PLAN_KEYS
                                                for group in quality["day_plan_metrics"].values())
     assert "errand" not in json.dumps(quality["day_plan_metrics"])
+    rhythm = quality["decision_rhythm"]
+    assert rhythm["wake_reason_counts"]["errand_reminder_due"] == 1
+    assert rhythm["decision_started_wake_reason_counts"]["errand_reminder_due"] == 1
+    assert rhythm["unrecognized_wake_reason_counts"] == rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
     rebuilt = build_quality_report([Event.model_validate(row) for row in events], activities,
                                    manifest["frozen_run_manifest"])
     assert rebuilt == quality

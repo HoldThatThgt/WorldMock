@@ -5,7 +5,7 @@
 引擎并结算（begin_decision_round → observe → submit_action → commit_decision_round），即使宿主已经纠错——这正是绕过宿主
 的请求。两侧调用同一纯函数 errands.change_issues、读同一份私有事务绑定：更新与取消按待办层名称解析（精确或无损归一后
 唯一，从不替换），名称错误的合法值列本人全部未完成事务名；商品名错误只在 why 写最接近的至多三个商品名；新增重名、
-同结果同商品与超过八条都是 ARGUMENTS_INVALID；全部不带候选。环境把全部问题合并成一次 ACTION_REQUEST_INVALID（照常计入
+同结果同商品、超过八条与同一事务在一次请求里被两条更新或取消点名都是 ARGUMENTS_INVALID；全部不带候选。环境把全部问题合并成一次 ACTION_REQUEST_INVALID（照常计入
 同刻轮数），世界不变。
 """
 
@@ -222,6 +222,29 @@ def test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_r
         "An addition that the open errands can still take is required.")
     assert engine.state.agents[1].errands == {errand.errand_id: errand for errand in full}
     assert _errand_events(engine) == []
+
+
+def test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected(engine_factory) -> None:
+    """同一请求内的两种重复（docs/dev/SPEC-errands-workday.md 2.2「同一条未完成事务在一次请求里至多被一条更新或取消
+    点名」、2.3 表第 1 与第 4 行）：先更新、再以无损归一后同一条的写法取消同一条未完成事务；两条名称不同的新增结果种类
+    与商品都相同。两处都是 ARGUMENTS_INVALID、不带候选、只报较晚的一条（errands[1].name 与 errands[3].item），why 写明
+    冲突；宿主一次纠错与环境的合并拒绝逐项相同。整请求被拒：事务原样（备注没被更新、没被取消），没有事务事件，等待
+    活动没有被播报。"""
+    engine, wait_id, name = _waiting(engine_factory)
+    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.state.current_time - 120)
+    stage_errands(engine, 1, [kit])
+    before = engine.state.activities[wait_id]
+    changes = [errand_update(_KIT_ERRAND, memo="周末去超市买"), errand_cancel("补一份 素炒什锦食材包", "不买了"),
+               errand_add("茶一", "康师傅 冰红茶"), errand_add("茶二", "康师傅 冰红茶", quantity=2)]
+    _, error, result = _round(engine, "twice", "report_status", _arguments("report_status", name, changes))
+    expected = [
+        _row((1, "name"), "补一份 素炒什锦食材包", "ARGUMENTS_INVALID",
+             f"The open errand 「{_KIT_ERRAND}」 is named by more than one update or cancel in this request."),
+        _row((3, "item"), "康师傅 冰红茶", "ARGUMENTS_INVALID", "Two added errands track the same outcome and product.")]
+    assert _host_rows(error) == expected and feedback_report(error).error_code == "ARGUMENTS_INVALID"
+    assert _refused(result) == expected
+    assert engine.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
+    assert engine.state.activities[wait_id] == before
 
 
 def test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted(engine_factory) -> None:

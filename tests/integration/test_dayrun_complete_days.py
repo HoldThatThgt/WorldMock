@@ -377,6 +377,8 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert exported["experiment_completed"]
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
     assert quality["schema_version"] == 4
+    # 这一天两人都没有记下个人事务：事务指标没有样本，按质量报告的空值约定为 null（docs/dev/SPEC-errands-workday.md 6.1）。
+    assert quality["errand_metrics"] is None
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
     _assert_decision_events(events, _identities(engine))

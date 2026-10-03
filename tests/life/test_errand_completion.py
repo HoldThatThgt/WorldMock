@@ -2,8 +2,8 @@
 
 正式场景（单人白领与两人的 multi-person）建立的 LifeEngine 上，人物以收尾请求的 errands 记下事务，随后经真实的购买、配送、
 给予、制作与进食产生结算证据。事务只按证据累计：动作结果顶层已送达的订单（到店成交）、配送送达事件的新入库行、当面给予
-（都按收货人归属），进食区间的实际食用量与制作完整结束时的产出；下单受理、未送达的订单、本人买给别人或联系人的、制作未完成、
-记下前已持有的与记下前开始的进度区间都不算。累计达到数量减 1e-9 即办成并移出待办层，不足时保持未完成并记下累计量；
+（都按收货人归属），进食区间的实际食用量与制作完整结束时的产出；下单受理、未送达的订单、开始进食、本人买给别人或联系人的、
+制作未完成、推进了当日目标的活动、声称办成的自述、记下前已持有的与记下前开始的进度区间都不算。累计达到数量减 1e-9 即办成并移出待办层，不足时保持未完成并记下累计量；
 缺货、闭店或买不起被拒时事务与累计量不变；办成之后名称与商品可以再记一条新事务；同一轮里先给予、后取消时证据不落到
 已取消的事务。errand_progressed（系统可见）与 errand_completed（人物可见）以证据事件为唯一原因、与证据同一提交，
 人物为事务所有人，决策、动作与活动身份为空。
@@ -23,6 +23,7 @@ from worldmock.life.errand_state import ERRAND_EVENT_KINDS
 from worldmock.life.interaction_menu import GIVE_WAY
 from worldmock.life.models import ActivityStatus, active_activities
 from worldmock.life.readable import iso_time, local_date
+from worldmock.life.schedule import PlanGoal
 from worldmock.life.storefront_state import current_quote
 
 #: 正式目录里的纯牛奶：商品名唯一（三家店有售），集市可到店买、可远程下单送到家；整份喝完要 900 秒。
@@ -326,9 +327,10 @@ def test_unfinished_making_does_not_count_and_the_finished_output_does(engine_fa
 
 
 def test_eating_counts_the_actual_interval_quantity(engine_factory) -> None:
-    """「吃掉纯牛奶 1 份」：喝到一半（450/900 秒）的边界写 errand_progressed 加 0.5 份，喝完的边界再加 0.5 份办成——按进度
-    结算的本区间实际食用量累计，不是按份数一次算。累计量达到数量减 1e-9 即办成：再记下「吃掉纯牛奶 2 份」并把累计量预置为
-    0.999999999，又喝下两个 0.5 份后累计 1.999999999，仍算办成，办成事件的快照写最终累计量。"""
+    """「吃掉纯牛奶 1 份」：开始喝的那次受理（活动开始）不算；喝到一半（450/900 秒）的边界写 errand_progressed 加 0.5 份，
+    喝完的边界再加 0.5 份办成——按进度结算的本区间实际食用量累计，不是按份数一次算。累计量达到数量减 1e-9 即办成：再记下
+    「吃掉纯牛奶 2 份」并把累计量预置为 0.999999999，又喝下两个 0.5 份后累计 1.999999999，仍算办成，办成事件的快照写
+    最终累计量。"""
     engine = home(engine_factory, {MILK_ID: 2.0})
     note(engine, "note", [errand_add("喝牛奶", MILK, outcome="吃掉")])
     first_drink = _drink_with_a_break(engine, "first")
@@ -364,6 +366,40 @@ def _assert_eaten(engine, activity_id: str, events: list, progress: float) -> fl
         assert_settlement(event, evidence, SETTLEMENT_KINDS[index == len(events) - 1], added)
         assert event.data["errand"]["progress"] == progress
     return progress
+
+
+def test_a_progressed_goal_and_a_claimed_completion_leave_the_errand_open(engine_factory) -> None:
+    """目标 progressed 与任何自述都不是完成依据（docs/dev/SPEC-errands-workday.md 2.4「不算」）：人物收尾时记下「取得纯牛奶
+    1 份」，随后登记一条休息目标并开始等待。等待在下一边界推进了这条目标（推进它的活动就是这次等待），她当秒播报等待，
+    自述「买牛奶这件事办成了」；等待又结算了一个区间之后，她收尾时再这样自述一遍。事务始终未完成、累计 0 份，没有任何结算
+    事件，待办层照旧列着它，进度层没有办成记录。"""
+    engine = home(engine_factory, {})
+    note(engine, "note", [errand_add("买牛奶", MILK)])
+    stage_day_plan(engine, goals=(PlanGoal(intent_kind="休息", goal="歇一歇", registered_at=engine.state.current_time),))
+    waited = act(engine, "wait", routed(WAIT))
+    assert waited.status == "in_progress", (waited.error_code, waited.message)
+    name, claim = engine.state.activities[waited.activity_id].name, "买牛奶这件事办成了，纯牛奶已经买到手。"
+    _mail_chance(engine)
+    [goal] = engine.state.agents[1].day_plan.goals
+    assert goal.progressed_at == engine.state.current_time and goal.progress_activity_id == waited.activity_id
+    reported = act(engine, "claim", report_request(name, summary=claim), tool="report_status")
+    assert reported.status == "completed", (reported.error_code, reported.message)
+    _mail_chance(engine)
+    assert [event for event in progress_events(engine, waited.activity_id) if event.occurred_at > goal.progressed_at]
+    concluded = act(engine, "done", conclude_request(name, summary=claim), tool="conclude_activity")
+    assert concluded.status == "completed", (concluded.error_code, concluded.message)
+    assert engine.state.activities[waited.activity_id].progress_note == claim
+    assert settlement(engine) == [] and held(engine).progress == 0.0
+    observed = observe(engine, "after")
+    assert todo_rows(observed) == [("买牛奶", "取得纯牛奶 1 份", "已取得 0 份")]
+    assert not [record for record in observed["progress_layer"]["events"] if record["type"] == "errand_completed"]
+
+
+def _mail_chance(engine) -> None:
+    """两分钟后一封邮件给人物 1 一次决策机会，推进到那个边界（期间进行中的活动照常结算一个区间）。"""
+    at = wake_by_mail(engine, 1, offset=120)
+    run_until(engine, lambda current: current.state.current_time == at
+              and 1 in current.scheduling_state().ready_agent_ids)
 
 
 def test_an_out_of_stock_rejection_leaves_the_errand_and_its_progress_unchanged(engine_factory) -> None:
