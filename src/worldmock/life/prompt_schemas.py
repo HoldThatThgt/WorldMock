@@ -189,6 +189,17 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
     }),
 }
 
+#: 上班安排的两种日子与当班日此刻状态的闭集（work_schedule.DUTY_DAYS、DUTY_STATUSES 的字面副本，规格 4.4 的顺序）。
+DUTY_DAYS = ("工作日", "休息日")
+DUTY_STATUSES = ("未到上班时间", "当班中", "休息时段", "已下班")
+#: 环境层 duty 的非空形状（docs/dev/SPEC-errands-workday.md 4.4）：休息日的 hours、place、status 为 null、breaks 为空；
+#: 工作日写班次、工作地点名与四种状态之一。
+_DUTY = _object({"day": {"enum": list(DUTY_DAYS)}, "hours": _NULLABLE_TEXT, "place": _NULLABLE_TEXT,
+                 "breaks": {"type": "array", "items": _TEXT}, "status": {"enum": [*DUTY_STATUSES, None]}})
+_DUTY["if"] = {"properties": {"day": {"const": "休息日"}}}
+_DUTY["then"] = {"properties": {"hours": {"type": "null"}, "place": {"type": "null"},
+                                "status": {"type": "null"}, "breaks": {"maxItems": 0}}}
+_DUTY["else"] = {"properties": {"hours": _TEXT, "place": _TEXT, "status": {"enum": list(DUTY_STATUSES)}}}
 ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "环境层",
     **_object({
@@ -196,6 +207,7 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
         "body": _object({key: {"enum": list(levels)} for key, levels in BODY_LEVELS.items()}),
         "location": _object({"session_kind": {"enum": ["stay", "transit"]}, "name": _TEXT, "place_type": _TEXT,
                              "fixed_rules": {"type": "array", "uniqueItems": True, "items": _TEXT}}),
+        "duty": {"oneOf": [{"type": "null"}, _DUTY]},
     }),
 }
 

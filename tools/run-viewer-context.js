@@ -92,7 +92,7 @@ const ViewerContext = {};
     },
     environment: {
       label: '环境层', source: 'src/worldmock/life/environment_layer.py · environment_layer',
-      fill: '观察时刻、身体感受文字与所在地点（停留或路程、地点类型、固定规则）。',
+      fill: '观察时刻、身体感受文字、所在地点（停留或路程、地点类型、固定规则）与今天的上班安排（没有工作安排为 null）。',
       steps: [
         ['身体感受', '只给感受文字，不给内部数值。'],
         ['所在地点', '路程中名称为「去某地的路上」，类型为步行或驾车。'],

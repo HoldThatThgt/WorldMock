@@ -36,6 +36,7 @@ from tests.life.conftest import (advance_next, advance_until_ready, context,  # 
                                  wake_by_mail)
 from tests.life.routing_fixtures import MARKET, place  # noqa: E402
 from tests.life.test_errand_completion import MILK, home, market  # noqa: E402
+from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
@@ -219,6 +220,26 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
     assert (third["messages"][size]["reasoning_content"], last_tool["tool_call_id"]) == ("回看后保持计划不变。",
                                                                                           "call-revision")
     assert observation["continuation"]["messages"][1] == third["messages"][1]
+
+
+@pytest.mark.asyncio
+async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes(_engine_factory) -> None:
+    """同秒续接内时钟不动，环境层 duty 与所在地点一样在链内不变、不进 changes（docs/dev/SPEC-errands-workday.md 4.4）：
+    有工作安排的人物在周一零点先修订今日计划、同一秒再开始等待；链首 user 消息的环境层带非空 duty（未到上班时间），两次
+    观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里的今日计划，不带 duty，也不重述班次。"""
+    engine = _engine_factory(mutate=declare())
+    run = await _plan_then_wait(engine)
+    [previous], [request] = run["first"], run["second"]
+    head = json.loads(previous["messages"][1]["content"])[4]
+    assert head["layer"] == "环境层" and head["duty"]["status"] == "未到上班时间"
+    assert head["duty"]["hours"] == "09:00–18:00"
+    first, second = engine.store.read_agent_events("observation", 1)[-2:]
+    assert first.data["environment_layer"]["duty"] == second.data["environment_layer"]["duty"] == head["duty"]
+    assert run["observation"]["environment_layer"]["duty"] == head["duty"]
+    assert request["messages"][1] == previous["messages"][1]
+    tool = request["messages"][-1]
+    assert tool["role"] == "tool" and list(json.loads(tool["content"])["changes"]) == ["day_plan"]
+    assert "duty" not in tool["content"] and "09:00–18:00" not in tool["content"]
 
 
 @pytest.mark.asyncio

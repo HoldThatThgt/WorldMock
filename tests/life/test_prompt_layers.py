@@ -35,6 +35,8 @@ from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INDEX_E
                                            WAY_LABELS, validate_layer)
 from worldmock.life.readable import count_phrase
 from worldmock.life.tool_layer import BINDING_KINDS
+from worldmock.life import work_schedule
+from worldmock.life.prompt_schemas import DUTY_DAYS, DUTY_STATUSES, ENVIRONMENT_LAYER_SCHEMA
 
 #: 环境构建的五层（人设层由宿主构建）。
 ENV_LAYERS = {"tool_layer": "工具层", "todo_layer": "待办层", "environment_layer": "环境层",
@@ -77,6 +79,31 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
     index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
     assert INDEX_EXAMPLES_MAX == MAX_EXAMPLES
     assert tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
+
+
+def test_duty_enumerations_are_the_work_schedule_constants() -> None:
+    """环境层 duty 的两组枚举是 work_schedule 闭集的字面副本（docs/dev/SPEC-errands-workday.md 4.4）：日子为工作日、
+    休息日，状态为「未到上班时间」「当班中」「休息时段」「已下班」，Schema 里的枚举与之相同。duty 必填可空；休息日的
+    hours、place、status 只能为 null、breaks 为空，工作日的 hours、place 是文本、status 是四种之一，不接受其他键。"""
+    assert DUTY_DAYS == work_schedule.DUTY_DAYS and DUTY_STATUSES == work_schedule.DUTY_STATUSES
+    schema = ENVIRONMENT_LAYER_SCHEMA["properties"]["duty"]["oneOf"][1]
+    assert schema["properties"]["day"]["enum"] == list(work_schedule.DUTY_DAYS)
+    assert schema["properties"]["status"]["enum"] == [*work_schedule.DUTY_STATUSES, None]
+    assert schema["else"]["properties"]["status"]["enum"] == list(work_schedule.DUTY_STATUSES)
+    layer = {"layer": "环境层", "observed_at": "2026-01-05T10:00:00+08:00",
+             "body": {key: levels[0] for key, levels in BODY_LEVELS.items()},
+             "location": {"session_kind": "stay", "name": "办公室", "place_type": "办公室", "fixed_rules": []}}
+    rest = {"day": "休息日", "hours": None, "place": None, "breaks": [], "status": None}
+    work = {"day": "工作日", "hours": "09:00–18:00", "place": "办公室", "breaks": ["12:00–13:30"], "status": "当班中"}
+    for duty in (None, rest, *({**work, "status": status} for status in work_schedule.DUTY_STATUSES)):
+        validate_layer({**layer, "duty": duty})
+    for duty in ({**rest, "hours": "09:00–18:00"}, {**rest, "breaks": ["12:00–13:30"]}, {**rest, "status": "当班中"},
+                 {**work, "status": None}, {**work, "place": None}, {**work, "status": "加班中"},
+                 {**work, "location_id": "office"}):
+        with pytest.raises(ValueError, match="环境层"):
+            validate_layer({**layer, "duty": duty})
+    with pytest.raises(ValueError, match="duty"):
+        validate_layer(layer)
 
 
 def test_memory_layer_and_persona_views_are_empty_at_run_start(engine_factory) -> None:

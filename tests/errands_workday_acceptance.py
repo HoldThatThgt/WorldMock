@@ -340,6 +340,31 @@ _WORK_SCHEDULE_LOAD_TESTS = [
     "tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected",
 ]
 
+_WORK_SCHEDULE = "tests/life/test_work_schedule.py::"
+#: 「上班安排呈现」：有工作安排的人物经真实观察、请求、结算与 SQLite（engine_factory 加 declare 改写场景副本）：duty 随
+#: 时钟经过班前、当班、休息时段与班后，地点写显示名、不含内部身份、只在环境层出现；工作提交与付款后仍是当班中；
+#: 修订计划被受理后逐值不变；休息日来自每周 null 与日期例外，例外的班次压过每周的 null；没有工作安排的人物为 null 而
+#: 同场景的他人照旧；共同检查点恢复的分支环境层逐字节相同；当班中离开办公室照常列出、照常受理，事件计数与没有工作安排
+#: 的同一场景相同；真实 LifeAgent 的同秒续接链内 duty 不变、不进 changes。末一个是 Schema 枚举与闭集一致的补充证据。
+_DUTY_TESTS = [
+    _WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",
+    _WORK_SCHEDULE + "test_duty_stays_on_duty_after_the_work_is_submitted",
+    _WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",
+    _WORK_SCHEDULE + "test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly",
+    _WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",
+    _WORK_SCHEDULE + "test_environment_layer_is_byte_identical_after_checkpoint_restore",
+    _WORK_SCHEDULE + "test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds",
+    "tests/integration/test_same_second_continuation.py::"
+    "test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes",
+    "tests/life/test_prompt_layers.py::test_duty_enumerations_are_the_work_schedule_constants",
+]
+#: 「工作合同边界」：班前 08:30 在办公室真实开工被受理，班后 18:30 工作仍在进行、暂停后恢复被受理；有无工作安排的同一
+#: 场景里任务的开放与截止、工具层任务目标的合同与开工动作逐值相同。
+_WORK_CONTRACT_BOUNDARY_TESTS = [
+    _WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",
+    _WORK_SCHEDULE + "test_shifts_do_not_change_task_opening_or_deadline",
+]
+
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
@@ -358,9 +383,9 @@ LEDGER: dict[str, dict[str, object]] = {
     "事务与收尾记忆指标": {"stage": "2", "tests": []},
     "作息锚点": {"stage": "3", "tests": []},
     "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
-    "上班安排呈现": {"stage": "3", "tests": []},
+    "上班安排呈现": {"stage": "3", "tests": _DUTY_TESTS},
     "计划与义务": {"stage": "3", "tests": []},
-    "工作合同边界": {"stage": "3", "tests": []},
+    "工作合同边界": {"stage": "3", "tests": _WORK_CONTRACT_BOUNDARY_TESTS},
     "工作负荷与作息偏离": {"stage": "3", "tests": []},
     "查询请求": {"stage": "4", "tests": []},
     "来源筛选": {"stage": "4", "tests": []},
@@ -539,6 +564,23 @@ _SCENARIO_SOURCE = "src/worldmock/life/scenario.py"
 #: 照常加载；场景结构 4 被放行，版本写回 4 的场景经 parse_scenario_document 与 load_scenario 照常加载。
 _CALENDAR_CHECK_KILLERS = (_WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",)
 _STRUCTURE_FOUR_KILLERS = (_STRUCTURE_FIVE,)
+_WORK_SCHEDULE_MODULE = "worldmock.life.work_schedule"
+_WORK_SCHEDULE_SOURCE = "src/worldmock/life/work_schedule.py"
+_ENVIRONMENT_LAYER_MODULE = "worldmock.life.environment_layer"
+_ENVIRONMENT_LAYER_SOURCE = "src/worldmock/life/environment_layer.py"
+_WORK_MODULE = "worldmock.life.work"
+_WORK_SOURCE = "src/worldmock/life/work.py"
+#: 上班安排六个变异的杀手都在主进程内驱动真实 LifeEngine（环境层与工作合同按本名导入 work_schedule、environment_layer
+#: 与 work）：按星期推断休息日时周一写 null 的人物仍有班次，忽略例外日期时例外写 null 的周一当班、例外写班次的周一休息
+#: （双人场景的时间窗没有日历特殊日，加载照常）；休息时段显示为当班中时 12:00 与 12:30 不是「休息时段」；所有人物套某人的班次时
+#: 没有工作安排的人物 2 也有 duty；计划有目标后 duty 消失时修订被受理后的观察里 duty 为 null；班次并入任务开放判定（写死
+#: 夹具的 09:00 与场景的 +08:00）时 08:30 的真实开工被拒绝。
+_REST_DAY_KILLERS = (
+    _WORK_SCHEDULE + "test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly",)
+_BREAK_KILLERS = (_WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",)
+_UNSCHEDULED_KILLERS = (_WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",)
+_PLAN_REVISION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",)
+_TASK_OPENING_KILLERS = (_WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1104,6 +1146,61 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 5]\n',
         _STRUCTURE_FOUR_KILLERS,
     ),
+    SourceMutation(
+        "rest_day_inferred_from_weekday",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        "return schedule.weekly[str(day.weekday())]",
+        "return None if day.weekday() >= 5 else next(item for item in schedule.weekly.values() if item is not None)",
+        _REST_DAY_KILLERS,
+    ),
+    SourceMutation(
+        "exception_dates_ignored",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        "if key in schedule.exceptions:",
+        "if False:",
+        _REST_DAY_KILLERS,
+    ),
+    SourceMutation(
+        "break_shown_as_on_duty",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        "if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)):",
+        "if False:",
+        _BREAK_KILLERS,
+    ),
+    SourceMutation(
+        "everyone_gets_a_shift",
+        _ENVIRONMENT_LAYER_MODULE,
+        _ENVIRONMENT_LAYER_SOURCE,
+        "if item.agent_id == context.agent_id)",
+        "if item.work_schedule is not None)",
+        _UNSCHEDULED_KILLERS,
+    ),
+    SourceMutation(
+        "duty_vanishes_after_plan_revision",
+        _ENVIRONMENT_LAYER_MODULE,
+        _ENVIRONMENT_LAYER_SOURCE,
+        '"duty": _duty(context)',
+        (
+            '"duty": None if (context.state.agents[context.agent_id].day_plan\n'
+            "                              and context.state.agents[context.agent_id].day_plan.goals) "
+            "else _duty(context)"
+        ),
+        _PLAN_REVISION_DUTY_KILLERS,
+    ),
+    SourceMutation(
+        "shift_gates_task_opening",
+        _WORK_MODULE,
+        _WORK_SOURCE,
+        "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp())",
+        (
+            "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp()) "
+            "and (now + 8 * 3600) % 86400 >= 540 * 60"
+        ),
+        _TASK_OPENING_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1156,12 +1253,12 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "新锚点并入回绕归一": {"stage": "3", "mutations": ()},
     "乱序时整卡失败": {"stage": "3", "mutations": ()},
     "场景声明的下班、到家窗口不进零点计划输入": {"stage": "3", "mutations": ()},
-    "按星期推断休息日": {"stage": "3", "mutations": ()},
-    "所有人物套班次": {"stage": "3", "mutations": ()},
-    "计划修订后 `duty` 消失": {"stage": "3", "mutations": ()},
-    "休息时段显示为当班中": {"stage": "3", "mutations": ()},
-    "班次并入任务开放判定": {"stage": "3", "mutations": ()},
-    "忽略例外日期": {"stage": "3", "mutations": ()},
+    "按星期推断休息日": {"stage": "3", "mutations": ("rest_day_inferred_from_weekday",)},
+    "所有人物套班次": {"stage": "3", "mutations": ("everyone_gets_a_shift",)},
+    "计划修订后 `duty` 消失": {"stage": "3", "mutations": ("duty_vanishes_after_plan_revision",)},
+    "休息时段显示为当班中": {"stage": "3", "mutations": ("break_shown_as_on_duty",)},
+    "班次并入任务开放判定": {"stage": "3", "mutations": ("shift_gates_task_opening",)},
+    "忽略例外日期": {"stage": "3", "mutations": ("exception_dates_ignored",)},
     "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ()},
     "忽略来源": {"stage": "4", "mutations": ()},
     "来源解析另写一套": {"stage": "4", "mutations": ()},
@@ -1229,6 +1326,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/day_plan_inputs.py",
     "src/worldmock/life/day_planning.py",
     "src/worldmock/life/engine.py",
+    "src/worldmock/life/environment_layer.py",
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
     "src/worldmock/life/load_checks.py",
