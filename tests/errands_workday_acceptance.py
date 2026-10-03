@@ -364,6 +364,17 @@ _WORK_CONTRACT_BOUNDARY_TESTS = [
     _WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",
     _WORK_SCHEDULE + "test_shifts_do_not_change_task_opening_or_deadline",
 ]
+#: 「计划与义务」：直接导入的 LifeAgent 发出的真实请求里系统层仍是十八条，第 1 条只把环境层一句改成含今天的上班安排、
+#: 第 14 条在四个分句之后追加上班安排一句，与规格 4.6、接口合同「请求组成」的登记和人物 Prompt 规格「系统层」逐字相同；
+#: 真实零点计划请求的模板输入说明首行与第八条与规格 4.6、接口合同逐字相同；零点计划输入的「上班安排」按计划日期当天
+#: 求值、不含 status（工作日、休息日、没有工作安排各一例，载荷与客户端收到的请求相同），零点边界上前一日休息、当日
+#: 当班时输入是新开始那一日的工作日安排。
+_PLAN_DUTY_TESTS = [
+    _SEVEN_LAYERS + "test_rules_1_and_14_state_the_duty_arrangement_verbatim",
+    _DAY_PLANNING + "test_plan_template_first_line_and_rule_eight_are_the_contract_text",
+    _DAY_PLANNING + "test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary",
+    _DAY_PLANNING + "test_plan_input_carries_the_plan_dates_duty_arrangement_without_status",
+]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 LEDGER: dict[str, dict[str, object]] = {
@@ -384,7 +395,7 @@ LEDGER: dict[str, dict[str, object]] = {
     "作息锚点": {"stage": "3", "tests": []},
     "工作安排加载": {"stage": "3", "tests": _WORK_SCHEDULE_LOAD_TESTS},
     "上班安排呈现": {"stage": "3", "tests": _DUTY_TESTS},
-    "计划与义务": {"stage": "3", "tests": []},
+    "计划与义务": {"stage": "3", "tests": _PLAN_DUTY_TESTS},
     "工作合同边界": {"stage": "3", "tests": _WORK_CONTRACT_BOUNDARY_TESTS},
     "工作负荷与作息偏离": {"stage": "3", "tests": []},
     "查询请求": {"stage": "4", "tests": []},
@@ -581,6 +592,11 @@ _BREAK_KILLERS = (_WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_workin
 _UNSCHEDULED_KILLERS = (_WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",)
 _PLAN_REVISION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",)
 _TASK_OPENING_KILLERS = (_WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",)
+#: 零点计划输入带上 status 的杀手（主进程内经真实引擎与零点计划后台任务，零点计划输入按本名调用
+#: work_schedule.day_arrangement）：当班日的「上班安排」多出 status 键，载荷与请求不再是四键。环境层 duty 本来就带
+#: status，这一变异不改变它。
+_PLAN_INPUT_STATUS_KILLERS = (
+    _DAY_PLANNING + "test_plan_input_carries_the_plan_dates_duty_arrangement_without_status",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1201,6 +1217,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         ),
         _TASK_OPENING_KILLERS,
     ),
+    SourceMutation(
+        "plan_input_carries_duty_status",
+        _WORK_SCHEDULE_MODULE,
+        _WORK_SCHEDULE_SOURCE,
+        '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks]}',
+        '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks], "status": STATUS_ON_DUTY}',
+        _PLAN_INPUT_STATUS_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1308,6 +1332,8 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                     "工作地点）。",
     "scenario_structure_four_admitted": "实施计划阶段 3「突变审查的目标」：场景结构 4 被放行（瘦身场景文档的 schema_version "
                                         "接受 4）。",
+    "plan_input_carries_duty_status": "实施计划阶段 3「突变审查的目标」：零点计划输入带上 `status`（day_arrangement 的"
+                                      "当班日形状多出 status 键）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。

@@ -25,6 +25,7 @@ from tests.life.routing_fixtures import HOME, act, place, routed, run_until
 from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, errand_events, note
 from tests.life.test_errand_reminder import evening
 from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
+from tests.life.work_schedule_fixtures import OFFICE, declare
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life import day_planning, reminders
@@ -55,6 +56,11 @@ def _goal(intent: str, goal: str, remind: str | None = None, around: str | None 
 
 def _late_engine(tmp_path, start: str, run_id: str, base: str = SCENARIO, **params) -> LifeEngine:
     """场景在本地日中途（start）启动：丢弃起点之前的任务、邮件、账单与工资，其余场景参数按 params 覆盖。"""
+    return _custom_engine(base, _late_start(start, **params), tmp_path, run_id=run_id)
+
+
+def _late_start(start: str, **params):
+    """返回 mutate(document)：起点改为 start，丢弃起点之前的任务、邮件、账单与工资，其余顶层参数按 params 覆盖。"""
     def mutate(document: dict) -> None:
         begin = datetime.fromisoformat(start)
         document["start_at"] = start
@@ -68,7 +74,7 @@ def _late_engine(tmp_path, start: str, run_id: str, base: str = SCENARIO, **para
                              if datetime.fromisoformat(item["due_at"]) >= begin]
         document.update(params)
 
-    return _custom_engine(base, mutate, tmp_path, run_id=run_id)
+    return mutate
 
 
 def _beirut_engine(tmp_path: Path) -> LifeEngine:
@@ -572,16 +578,17 @@ def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_a
     零点计划请求的 system 就是接口合同逐字登记的模板。开头的输入说明末行写明还没办完的个人事务；第五条：人物档案作息里已有
     的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒，写明哪里不同；第六条：每条目标写大致时刻
     around_time；第七条：个人事务已在待办里，不必照抄成目标，今天打算去办的可写一条目标说明何时办；第三条的起床、出门提醒
-    不变，模板不要求为就寝写提醒（S2 撤回）。user 输入带人物档案的作息窗口，输出 Schema 要求 around_time。"""
+    不变，模板不要求为就寝写提醒（S2 撤回）。第八条（上班安排，docs/dev/SPEC-errands-workday.md 4.6）接在第七条之后。
+    user 输入带人物档案的作息窗口，输出 Schema 要求 around_time。"""
     engine = engine_factory()
     client = StubPlanDayClient()
     settle_day_plans(engine, client)
     [request] = client.calls
     system = request["messages"][0]["content"]
     assert system == day_planning.PLAN_DAY_PROMPT == _contract_plan_template()
-    opening, *chunks = re.split(r"\n(?=[一二三四五六七]、)", system)
+    opening, *chunks = re.split(r"\n(?=[一二三四五六七八]、)", system)
     items = {chunk[0]: chunk.replace("\n", "") for chunk in chunks}
-    assert list(items) == ["一", "二", "三", "四", "五", "六", "七"]
+    assert list(items) == ["一", "二", "三", "四", "五", "六", "七", "八"]
     assert opening.split("\n")[2] == ("以及此刻他能看到的待办任务、还没办完的个人事务、收件箱、在途订单、联系人和上一天目标的"
                                       "推进情况。")
     assert items["五"] == ("五、人物档案的作息里已经有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒；"
@@ -596,6 +603,109 @@ def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_a
     goal_schema = request["tools"][0]["function"]["parameters"]["properties"]["goals"]["items"]
     assert set(goal_schema["required"]) == {"intent_kind", "goal", "remind_time", "around_time"}
     assert engine.state.agents[1].day_plan.goals == ()
+
+
+def _workday_plan_texts() -> tuple[str, str]:
+    """docs/dev/SPEC-errands-workday.md 4.6 定稿的模板输入说明首行与第八条（该节第二、第三个 text 块；第一个是系统层
+    第 14 条）。"""
+    text = (Path(__file__).resolve().parents[2] / "docs" / "dev" / "SPEC-errands-workday.md").read_text(encoding="utf-8")
+    section = text.split("\n### 4.6 系统层第 1、14 条与零点计划模板\n", 1)[1].split("\n### 4.7 ", 1)[0]
+    _, first_line, rule_eight = re.findall(r"```text\n(.*?)\n```", section, flags=re.DOTALL)
+    return first_line, rule_eight
+
+
+def test_plan_template_first_line_and_rule_eight_are_the_contract_text(engine_factory):
+    """零点计划模板的阶段 3 改写（docs/dev/SPEC-errands-workday.md 4.6）：真实零点计划请求的 system 就是模块常量与接口合同
+    逐字登记的模板；输入说明首行与规格 4.6 的定稿逐字相同，在「人物档案与背景原文、」之后写「当天的上班安排、」；第八条
+    与定稿逐字相同，排在第七条之后、是模板的末行。阶段 2 改写的输入说明末行与第七条逐字保留，模板仍不提就寝、睡前。"""
+    engine = engine_factory()
+    client = StubPlanDayClient()
+    settle_day_plans(engine, client)
+    [request] = client.calls
+    system = request["messages"][0]["content"]
+    first_line, rule_eight = _workday_plan_texts()
+
+    assert system == day_planning.PLAN_DAY_PROMPT == _contract_plan_template()
+    lines = system.split("\n")
+    assert lines[0] == first_line == ("你要为一个人写出他这一天的当日目标清单。用户消息是一份 JSON，只含世界已经记下的事实："
+                                      "人物档案与背景原文、当天的上班安排、")
+    assert lines[2] == "以及此刻他能看到的待办任务、还没办完的个人事务、收件箱、在途订单、联系人和上一天目标的推进情况。"
+    assert lines[-2:] == ["七、个人事务已经记在待办里，不必照抄成目标；今天打算去办的，可以写一条目标说明什么时候办。",
+                          rule_eight]
+    assert rule_eight == "八、输入里有上班安排的日子，目标不要安排在上班时间离开上班地点，写明的休息时段和工作要求去别处的外出除外。"
+    assert [line for line in lines if "上班安排" in line] == [first_line, rule_eight]
+    assert "就寝" not in system and "睡前" not in system
+
+
+#: 计划输入「上班安排」的休息日取值（与环境层 duty 的休息日同形、不含 status）。
+_PLAN_REST_DAY = {"day": "休息日", "hours": None, "place": None, "breaks": []}
+
+
+def _plan_workday(engine: LifeEngine) -> dict:
+    """标准班次（09:00–18:00，午休 12:00–13:30）在办公室的工作日安排；地点写场景里的显示名。"""
+    place_name = next(item.name for item in engine.scenario.locations if item.location_id == OFFICE)
+    return {"day": "工作日", "hours": "09:00–18:00", "place": place_name, "breaks": ["12:00–13:30"]}
+
+
+def _sent_payload(client: StubPlanDayClient) -> dict:
+    """客户端桩记下的首个零点计划请求的 user 输入。"""
+    return json.loads(client.calls[0]["messages"][1]["content"])
+
+
+def test_plan_input_carries_the_plan_dates_duty_arrangement_without_status(engine_factory):
+    """零点计划输入「上班安排」（docs/dev/SPEC-errands-workday.md 4.6）：白领场景在 2026-01-05（周一）零点经启动路径生成
+    计划。周一当班的人物得到 {day, hours, place, breaks} 四键（班次与休息时段写 HH:MM–HH:MM，地点写显示名，不写内部
+    身份，没有 status）；每周声明里周一为 null 的人物得到休息日四键；没有工作安排的人物为 null。plan_inputs 的载荷与
+    客户端实际收到的请求逐值相同。"""
+    cases = ((declare(), _plan_workday), (declare(weekly={"0": None}), lambda engine: _PLAN_REST_DAY),
+             (None, lambda engine: None))
+    for mutate, expected in cases:
+        engine = engine_factory(mutate=mutate)
+        inputs = plan_inputs(engine, 1).payload
+        client = StubPlanDayClient()
+        settle_day_plans(engine, client)
+        sent = _sent_payload(client)
+        arrangement = expected(engine)
+
+        assert (inputs["计划日期"], sent["计划日期"]) == ("2026-01-05", "2026-01-05")
+        assert inputs["上班安排"] == sent["上班安排"] == arrangement
+        if arrangement is not None:
+            assert set(sent["上班安排"]) == {"day", "hours", "place", "breaks"}
+            assert OFFICE not in json.dumps(sent["上班安排"], ensure_ascii=False)
+
+
+def test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary(tmp_path):
+    """零点边界上「上班安排」按新开始的一日求值（docs/dev/SPEC-errands-workday.md 4.6）：白领场景改在 2026-01-05（周一）
+    23:45 启动，人物的工作安排把周一写成不当班的日期例外、周二照每周声明当班。启动路径的计划日期是 1 月 5 日，输入为
+    休息日；人物等待到零点，零点计划的计划日期是 1 月 6 日，输入是周二的工作日安排，而不是刚结束的周一。"""
+    late = _late_start("2026-01-05T23:45:00+08:00", activity_feedback_seconds=7200,
+                       progress_report_interval_seconds=86400, reconsideration_interval_seconds=900,
+                       idle_reconsideration_interval_seconds=1200)
+    schedule = declare(exceptions={"2026-01-05": None})
+
+    def mutate(document: dict) -> None:
+        """中途启动与工作安排两处改写合在一份场景副本上。"""
+        late(document)
+        schedule(document)
+
+    engine = _custom_engine(SCENARIO, mutate, tmp_path, run_id="duty-midnight")
+    try:
+        started = StubPlanDayClient()
+        settle_day_plans(engine, started)
+        _start(engine, "等待", "evening-wait")
+        boundary = engine.scheduling_state().next_event_at
+        assert int(boundary.timestamp()) == _at(6, 0)
+        engine.advance(int(boundary.timestamp()) - engine.state.current_time, boundary)
+        assert engine.midnight_rhythm_pending
+        crossed = StubPlanDayClient()
+        settle_day_plans(engine, crossed)
+
+        assert (_sent_payload(started)["计划日期"], _sent_payload(started)["上班安排"]) == ("2026-01-05", _PLAN_REST_DAY)
+        assert (_sent_payload(crossed)["计划日期"], _sent_payload(crossed)["上班安排"]) == (
+            "2026-01-06", _plan_workday(engine))
+        assert _sent_payload(crossed)["回顾时段"] == "1月5日 00:00 至 1月6日 00:00"
+    finally:
+        engine.close()
 
 
 def test_plan_day_input_lists_open_errands_read_only(engine_factory):
