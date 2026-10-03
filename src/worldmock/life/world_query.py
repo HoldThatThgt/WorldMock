@@ -8,25 +8,35 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from worldmock.life.error_contract import ErrorItem, ErrorReport
-from worldmock.life.interaction_menu import PURCHASE_WAYS, WAYS, binding_action
+from worldmock.life.error_contract import Candidate, ErrorItem, ErrorReport
+from worldmock.life.guidance import default_reason
+from worldmock.life.interaction_menu import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS, binding_action
 from worldmock.life.models import purpose_only_schema
-from worldmock.life.name_resolution import resolve_name, way_options
+from worldmock.life.name_resolution import channel_key, near_source_names, resolve_name, resolve_source, way_options
 from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import BROWSE_LABELS
 from worldmock.life.tool_groups import compact
 
 _LOGGER = logging.getLogger(__name__)
+#: 两种新查询参数错误的 expected（docs/dev/SPEC-errands-workday.md 5.5 原文）与查询明细共用的 why。
+_SOURCE_EXPECTED = "null, a known place name, or a known channel name is required."
+_CHANNEL_IN_NAME_EXPECTED = "A channel name belongs in from; name takes an object name."
+_QUERY_WHY = "The submitted value is outside the current query contract."
 
 
 class QueryWorldRequest(BaseModel):
-    """@brief 固定四字段查询，过滤条件取交集，分页偏移严格使用 JSON 整数。"""
+    """@brief 固定六字段查询（docs/dev/SPEC-errands-workday.md 5.1）：六个键全部必填、无缺省，名称、方式、品类与购买来源
+    取交集，available_only 只留已确认此刻可执行的条目（不单独构成查询条件），分页偏移严格使用 JSON 整数。来源的 JSON 键
+    是 from（字段名 from_ 只在代码里用）；非 null 的名称、方式与品类不得为空白，来源的空白写法按 5.5 第一行报错。"""
 
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, json_schema_extra=purpose_only_schema())
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, validate_by_alias=True,
+                              serialize_by_alias=True, json_schema_extra=purpose_only_schema())
 
     name: str | None
     way: str | None
     category: str | None
+    from_: str | None = Field(alias="from")
+    available_only: bool
     offset: int = Field(ge=0)
 
     @field_validator("name", "way", "category")
@@ -40,12 +50,13 @@ class QueryWorldRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_filter(self) -> "QueryWorldRequest":
-        """@brief 全空条件逐字段定位，不能把依赖约束错误放在无字段的根位置。"""
-        if self.name is None and self.way is None and self.category is None:
+        """@brief 名称、方式、品类、来源四者全空时在四个位置各报一条，不能把依赖约束错误放在无字段的根位置；
+        available_only 不单独构成查询条件。"""
+        if self.name is None and self.way is None and self.category is None and self.from_ is None:
             _LOGGER.error("World query has no non-null filter")
             errors = [{"type": "value_error", "loc": (field,), "input": None,
                        "ctx": {"error": ValueError("At least one query filter must be non-null")}}
-                      for field in ("name", "way", "category")]
+                      for field in ("name", "way", "category", "from")]
             raise ValidationError.from_exception_data(type(self).__name__, errors)
         return self
 
@@ -131,13 +142,9 @@ def _category(context: Any, binding: dict | None) -> str | None:
 
 
 def validate_world_query(observation: dict, request: QueryWorldRequest) -> ErrorReport | None:
-    """@brief 汇总所有独立可确定的动态错误；分页范围只在过滤条件有效后计算。"""
-    errors = []
-    if request.way is not None and not way_options(request.way):
-        errors.append(_query_issue("way", request.way, tuple(WAYS), "A declared activity way is required."))
-    labels = tuple(row["category"] for row in observation["tool_layer"]["callable_index"]["query_categories"])
-    if request.category is not None and request.category not in labels:
-        errors.append(_query_issue("category", request.category, labels, "Use a category shown in callable_index."))
+    """@brief 汇总所有独立可确定的动态错误（方式、品类、来源与误写进名称的渠道称呼一次全报）；分页范围只在全部筛选
+    合法后按筛选后的完整匹配数计算（docs/dev/SPEC-errands-workday.md 5.5）。宿主与环境两个入口在同一冻结观察上调用它。"""
+    errors = _filter_issues(observation, request)
     if not errors:
         total = len(_matching_entries(observation, request))
         if request.offset > total:
@@ -149,23 +156,113 @@ def validate_world_query(observation: dict, request: QueryWorldRequest) -> Error
                        "Correct all listed arguments before submitting the query again.", tuple(errors))
 
 
+def _filter_issues(observation: dict, request: QueryWorldRequest) -> list[ErrorItem]:
+    """@brief 方式、品类、来源与误写进名称的渠道称呼各自独立判定，按这个顺序一次全部列出。"""
+    errors = []
+    if request.way is not None and not way_options(request.way):
+        errors.append(_query_issue("way", request.way, tuple(WAYS), "A declared activity way is required."))
+    labels = tuple(row["category"] for row in observation["tool_layer"]["callable_index"]["query_categories"])
+    if request.category is not None and request.category not in labels:
+        errors.append(_query_issue("category", request.category, labels, "Use a category shown in callable_index."))
+    if request.from_ is not None and _source_stores(observation, request.from_) is None:
+        errors.append(_source_issue(observation, request))
+    misplaced = _misplaced_channel_issue(observation, request)
+    if misplaced is not None:
+        errors.append(misplaced)
+    return errors
+
+
 def _query_issue(field: str, written: Any, allowed: tuple, expected: str) -> ErrorItem:
     """@brief 查询明细使用相对参数位置，由宿主绑定本次真实工具调用根及下标。"""
     return ErrorItem(path=(field,), written=written, error_code="ARGUMENTS_INVALID", allowed_values=allowed,
-                     expected=expected, why="The submitted value is outside the current query contract.")
+                     expected=expected, why=_QUERY_WHY)
+
+
+def _source_issue(observation: dict, request: QueryWorldRequest) -> ErrorItem:
+    """@brief 来源写法既不是地点显示名也不是渠道称呼（5.5 第一行）：候选是至多三条换了 from 的完整查询，来源只取权限内
+    有供给条目的门店与含这些门店的渠道（与购买侧同一排名；一个也不相近时按门店身份顺序取前几个），不泄露无权限的门店。"""
+    places = _places(observation)
+    stores = _permitted_stores(observation)
+    channels = tuple(row for row in _channel_rows(observation) if stores.intersection(row[2]))
+    names = near_source_names(request.from_, places, stores, channels, lambda scope: True)
+    candidates = tuple(Candidate("query_world", request.model_copy(update={"from_": name}).model_dump(mode="json"))
+                       for name in names)
+    return ErrorItem(path=("from",), written=request.from_, error_code="ARGUMENTS_INVALID", allowed_values=(),
+                     expected=_SOURCE_EXPECTED, why=default_reason("SOURCE_NOT_FOUND"), candidates=candidates)
+
+
+def _misplaced_channel_issue(observation: dict, request: QueryWorldRequest) -> ErrorItem | None:
+    """@brief from 为 null、name 按对象名称解析无任何匹配、而其写法恰是一个渠道称呼（5.5 第二行，与其余筛选无关）：给一条
+    把该值移到 from、name 写 null 的完整查询，不自动改写；其余情形为 None。"""
+    if request.from_ is not None or request.name is None:
+        return None
+    key = channel_key(request.name)
+    if not any(key == channel_key(name) for row in _channel_rows(observation) for name in row[1]):
+        return None
+    aliases = (name for entry in observation["world_query_bindings"] for name in entry["aliases"])
+    if resolve_name(request.name, aliases).matches:
+        return None
+    moved = request.model_copy(update={"name": None, "from_": request.name}).model_dump(mode="json")
+    return ErrorItem(path=("name",), written=request.name, error_code="ARGUMENTS_INVALID", allowed_values=(),
+                     expected=_CHANNEL_IN_NAME_EXPECTED, why=_QUERY_WHY, candidates=(Candidate("query_world", moved),))
+
+
+def _places(observation: dict) -> dict[str, str]:
+    """@brief 冻结地点表：地点身份 → 显示名（observe 写入的 locations）。"""
+    return {row["location_id"]: row["name"] for row in observation["locations"]}
+
+
+def _channel_rows(observation: dict) -> tuple:
+    """@brief 冻结渠道索引的各行，写成购买侧同一形状（name_resolution.ChannelRow：渠道身份，称呼，成员门店）。"""
+    return tuple((row["channel_id"], tuple(row["names"]), tuple(row["store_location_ids"]))
+                 for row in observation["world_query_channels"])
+
+
+def _permitted_stores(observation: dict) -> frozenset[str]:
+    """@brief 权限内有供给条目的门店身份（冻结供给条目的 location_id）。"""
+    return frozenset(entry["location_id"] for entry in observation["world_query_bindings"]
+                     if entry["location_id"] is not None)
+
+
+def _source_stores(observation: dict, written: str) -> frozenset[str] | None:
+    """@brief 所写来源解析出的门店身份集合：与购买侧同一个纯函数（name_resolution.resolve_source），入参取自冻结观察的
+    地点表、住处与渠道索引；不是地点显示名也不是渠道称呼时为 None。"""
+    places = _places(observation)
+    match = resolve_source(written, places, observation["home_location_id"], _channel_rows(observation))
+    return None if match is None else match.store_ids
+
+
+def _query_ways(way: str | None) -> frozenset[str] | None:
+    """@brief 所写方式指的方式集合；「购买」及其同义写法等同于同时写到店与远程下单（5.1）；未写方式时为 None。"""
+    if way is None:
+        return None
+    options = way_options(way)
+    return options | frozenset(PURCHASE_WAYS.values()) if SYSTEM_PURCHASE_WAY in options else options
+
+
+def _executable(match: dict, ways: frozenset[str] | None) -> bool:
+    """@brief 冻结目标此刻是否已确认可执行（5.3）：取本轮冻结观察里的 available，写了方式只看方式命中的动作，未写方式时
+    看全部动作以及以该目标为参数的工具。"""
+    if ways is not None:
+        return any(action["available"] for action in match["actions"] if action["way"] in ways)
+    return any(row["available"] for row in (*match["actions"], *match["tools"]))
 
 
 def _matching_entries(observation: dict, request: QueryWorldRequest) -> list[dict]:
-    """@brief 确定性名称归一与方式闭集、公开品类取交集，按完整公开名和稳定身份排序。"""
+    """@brief 名称（确定性归一）、公开品类、方式闭集（「购买」展开）、来源（只匹配所属门店在范围内的供给条目）与可执行
+    取交集，全部在排序与切页之前施加，按完整公开名和稳定身份排序；来源不按需求反查、不按距离或价格排序。"""
     entries = observation["world_query_bindings"]
     names = None
     if request.name is not None:
         names = set(resolve_name(request.name, (name for entry in entries for name in entry["aliases"])).matches)
-    ways = way_options(request.way) if request.way is not None else None
+    ways = _query_ways(request.way)
+    stores = None if request.from_ is None else _source_stores(observation, request.from_) or frozenset()
     selected = [entry for entry in entries
                 if (names is None or names.intersection(entry["aliases"]))
                 and (request.category is None or entry["category"] == request.category)
-                and (ways is None or any(action["way"] in ways for action in entry["match"]["actions"]))]
+                and (ways is None or any(action["way"] in ways for action in entry["match"]["actions"]))
+                and (stores is None or entry["location_id"] in stores)
+                and (not request.available_only or _executable(entry["match"], ways))]
     return sorted(selected, key=lambda entry: (entry["match"]["name"], entry["identity"]))
 
 

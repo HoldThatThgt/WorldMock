@@ -208,7 +208,8 @@ def test_read_batch_reports_every_error_with_real_call_indices(observation):
 
 def test_world_query_mixed_batches_are_atomic(observation):
     agent = agent_for(observation)
-    calls = [decision("start_activity", request()), decision("query_world", {"name": None, "way": "等待", "category": None, "offset": 0})]
+    query = {"name": None, "way": "等待", "category": None, "from": None, "available_only": False, "offset": 0}
+    calls = [decision("start_activity", request()), decision("query_world", query)]
     error = agent.validate_react_decisions(calls, False)
     assert feedback_report(error).payload()["items"][0]["path"] == ["tool_calls"]
     assert agent._life_action_count == 0
@@ -252,7 +253,7 @@ def test_old_control_records_are_rejected():
 def test_query_dispatch_has_no_world_side_effect(observation):
     agent = agent_for(observation)
     before = copy.deepcopy(observation)
-    query = {"name": None, "way": "等待", "category": None, "offset": 0}
+    query = {"name": None, "way": "等待", "category": None, "from": None, "available_only": False, "offset": 0}
     result = asyncio.run(agent.dispatch_react_tool("query_world", query))
     assert result.ok
     assert set(result.data) == {"matches", "total_count", "next_offset"}

@@ -26,9 +26,10 @@ def _observation(count=47, page_size=20):
             "tool_layer": {"callable_index": {"query_categories": [{"category": "食品", "count": count}]}}}
 
 
-def _request(**fields):
-    """固定四个必填字段，用显式过滤条件构造查询。"""
-    return QueryWorldRequest(**{"name": None, "way": None, "category": "食品", "offset": 0, **fields})
+def _request(source=None, **fields):
+    """固定六个必填字段（docs/dev/SPEC-errands-workday.md 5.1），用显式过滤条件构造查询；source 写到键 from。"""
+    return QueryWorldRequest(**{"name": None, "way": None, "category": "食品", "from": source,
+                                "available_only": False, "offset": 0, **fields})
 
 
 @pytest.mark.parametrize("offset", [True, False, "0", "20", 0.0, 1.5, -1, None])
@@ -39,29 +40,76 @@ def test_world_query_offset_requires_nonnegative_json_integer(offset):
     assert any(error["loc"] == ("offset",) for error in caught.value.errors())
 
 
-@pytest.mark.parametrize("field", ["name", "way", "category", "offset"])
+@pytest.mark.parametrize("field", ["name", "way", "category", "from", "available_only", "offset"])
 def test_world_query_requires_every_declared_field(field):
-    """首次查询也不能省略可空字段。"""
-    payload = {"name": None, "way": "到店", "category": None, "offset": 0}
+    """六个键全部必填、无缺省（5.1）：首次查询也不能省略可空字段与 available_only，缺哪个就在哪个位置报缺字段。"""
+    payload = {"name": None, "way": "到店", "category": None, "from": None, "available_only": False, "offset": 0}
     del payload[field]
     with pytest.raises(ValidationError) as caught:
         QueryWorldRequest(**payload)
-    assert caught.value.errors()[0]["loc"] == (field,)
+    assert [(error["loc"], error["type"]) for error in caught.value.errors()] == [((field,), "missing")]
 
 
-@pytest.mark.parametrize("field", ["name", "way", "category"])
+def test_world_query_rejects_the_retired_four_key_request():
+    """旧四键请求按缺字段拒绝，不留读取分支（5.1）：错误恰好落在 from 与 available_only 两个新键上，都是缺字段；JSON
+    入口（宿主的严格 JSON 校验）同样拒绝；来源键只认 JSON 键 from，代码里的字段名 from_ 是未声明的键。"""
+    four = {"name": None, "way": None, "category": "食品", "offset": 0}
+    for validate in (lambda: QueryWorldRequest(**four),
+                     lambda: QueryWorldRequest.model_validate_json(json.dumps(four), strict=True)):
+        with pytest.raises(ValidationError) as caught:
+            validate()
+        assert [(error["loc"], error["type"]) for error in caught.value.errors()] == [
+            (("from",), "missing"), (("available_only",), "missing")]
+    with pytest.raises(ValidationError) as caught:
+        QueryWorldRequest(**{**four, "from_": None, "available_only": False})
+    assert {(error["loc"], error["type"]) for error in caught.value.errors()} == {
+        (("from",), "missing"), (("from_",), "extra_forbidden")}
+    request = _request(source="商店")
+    assert list(request.model_dump(mode="json")) == ["name", "way", "category", "from", "available_only", "offset"]
+    assert request.from_ == "商店" and request.model_dump(mode="json")["from"] == "商店"
+
+
+@pytest.mark.parametrize("value", ["true", "false", 0, 1, 1.0, None])
+def test_world_query_available_only_requires_a_json_boolean(value):
+    """available_only 是布尔：字符串、数字与 null 都被拒绝（5.1），Python 与 JSON 两个入口都落在 available_only 位置。"""
+    payload = {"name": None, "way": None, "category": "食品", "from": None, "available_only": value, "offset": 0}
+    for validate in (lambda: QueryWorldRequest(**payload),
+                     lambda: QueryWorldRequest.model_validate_json(json.dumps(payload), strict=True)):
+        with pytest.raises(ValidationError) as caught:
+            validate()
+        assert [(error["loc"], error["type"]) for error in caught.value.errors()] == [
+            (("available_only",), "bool_type")]
+
+
+@pytest.mark.parametrize("field", ["name", "way", "category", "from"])
 def test_world_query_rejects_blank_and_coerced_filters(field):
-    """字符串条件不能为空白，数字不能冒充名称或标签。"""
-    for value in ("", " \n\t", 12, True):
+    """字符串条件不能为空白，数字与布尔不能冒充名称、标签或来源。名称、方式与品类的空白写法由请求模型拒绝；来源的空白
+    写法既不是地点显示名也不是渠道称呼，按 docs/dev/SPEC-errands-workday.md 5.5 第一行在 from 位置报查询参数错误，
+    候选是换了 from 的完整查询（夹具里唯一有供给条目的门店「商店」）。"""
+    for value in (12, True):
         with pytest.raises(ValidationError):
             _request(**{field: value})
+    for value in ("", " \n\t"):
+        if field != "from":
+            with pytest.raises(ValidationError):
+                _request(**{field: value})
+            continue
+        request = _request(source=value)
+        [item] = validate_world_query(_observation(), request).payload()["items"]
+        assert (item["path"][-1], item["written"], item["allowed_values"]) == ("from", value, [])
+        assert item["expected"] == "null, a known place name, or a known channel name is required."
+        assert [candidate["arguments"] for candidate in item["candidates"]] == [
+            _request(source="商店").model_dump(mode="json")]
 
 
-def test_world_query_null_filter_errors_keep_affected_field_locations():
-    """跨字段验证报告全部依赖字段，没有空根位置。"""
+@pytest.mark.parametrize("available_only", [False, True])
+def test_world_query_null_filter_errors_keep_affected_field_locations(available_only):
+    """跨字段验证报告全部四个筛选位置，没有空根位置；available_only 不单独构成查询条件（5.1）。"""
     with pytest.raises(ValidationError) as caught:
-        _request(category=None)
-    assert {error["loc"] for error in caught.value.errors()} == {("name",), ("way",), ("category",)}
+        _request(category=None, available_only=available_only)
+    assert [error["loc"] for error in caught.value.errors()] == [("name",), ("way",), ("category",), ("from",)]
+    assert {error["msg"] for error in caught.value.errors()} == {
+        "Value error, At least one query filter must be non-null"}
 
 
 def test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero():
@@ -104,7 +152,8 @@ def test_world_query_intersection_uses_existing_deterministic_name_and_way_rules
 
 
 def test_world_query_reports_all_dynamic_errors_and_full_legal_values():
-    """动态标签与方式独立报错，合法闭集不受三条候选限制。"""
+    """动态标签与方式独立报错，合法闭集不受三条候选限制；未知来源与方式、品类错误一次全报，按方式、品类、来源的顺序，
+    偏移量范围只在全部筛选合法后计算，所以越界的偏移量此时不另报（docs/dev/SPEC-errands-workday.md 5.5）。"""
     observation = _observation()
     report = validate_world_query(observation, _request(way="随便做", category="商品"))
     payload = report.payload()
@@ -117,6 +166,14 @@ def test_world_query_reports_all_dynamic_errors_and_full_legal_values():
     bad = validate_world_query(observation, _request(offset=48)).payload()["items"][0]
     assert bad["path"] == ["tool_calls", 0, "function", "arguments", "offset"]
     assert bad["written"] == 48 and bad["allowed_values"] == [] and "0..47" in bad["expected"]
+    together = validate_world_query(observation, _request(source="仓库", way="随便做", category="商品", offset=999))
+    items = together.payload()["items"]
+    assert together.error_code == "ARGUMENTS_INVALID" and [item["error_code"] for item in items] == [
+        "ARGUMENTS_INVALID"] * 3
+    assert [(item["path"][-1], item["written"]) for item in items] == [
+        ("way", "随便做"), ("category", "商品"), ("from", "仓库")]
+    assert items[2]["allowed_values"] == [] and items[2]["candidates"]
+    assert all(candidate["arguments"]["from"] == "商店" for candidate in items[2]["candidates"])
 
 
 def test_world_query_does_not_return_internal_identity_or_private_evidence():
@@ -263,18 +320,54 @@ def _rejected_query(observed):
     return _request(category="并不存在的品类", way="并不存在的方式")
 
 
+def _store_name(observed):
+    """冻结供给条目所属门店中身份最小的一家的显示名（取自冻结地点表）。"""
+    store = min(entry["location_id"] for entry in observed["world_query_bindings"] if entry["location_id"] is not None)
+    return next(row["name"] for row in observed["locations"] if row["location_id"] == store)
+
+
+def _source_query(observed):
+    """只写来源：一家有供给条目的门店的显示名（只写 from 合法）。"""
+    return _request(category=None, source=_store_name(observed))
+
+
+def _available_query(observed):
+    """按冻结事实里此刻有可用动作的一种方式，只看此刻能做的。"""
+    ways = sorted({action["way"] for entry in observed["world_query_bindings"]
+                   for action in entry["match"]["actions"] if action["available"]})
+    return _request(category=None, way=ways[0], available_only=True)
+
+
+def _source_available_query(observed):
+    """来源与只看此刻能做的同时写（10:00 门店营业，远程下单可用）。"""
+    return _request(category=None, source=_store_name(observed), available_only=True)
+
+
+def _unknown_source_query(observed):
+    """来源既不是地点显示名也不是渠道称呼：在 from 位置报查询参数错误并给候选。"""
+    del observed
+    return _request(category=None, source="并不存在的来源")
+
+
 @pytest.mark.parametrize("build, accepted", [(_category_query, True), (_name_query, True), (_way_query, True),
-                                             (_rejected_query, False)], ids=["category", "name", "way", "rejected"])
+                                             (_rejected_query, False), (_source_query, True),
+                                             (_available_query, True), (_source_available_query, True),
+                                             (_unknown_source_query, False)],
+                         ids=["category", "name", "way", "rejected", "source", "available", "source-available",
+                              "unknown-source"])
 def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engine_factory, build, accepted):
     """通过真实环境即时查询，禁止写状态、消费生活轮数或追加世界事件。`query_world` 的两个入口——宿主在本次冻结观察上
-    本地求值的纯函数与环境的 `read_query`——对同一观察、同一请求：受理时结果逐值相等，拒绝时给出同一份校验报告。"""
+    本地求值的纯函数与环境的 `read_query`——对同一观察、同一请求：受理时结果逐值相等，拒绝时给出同一份校验报告。
+    来源筛选、只看此刻能做的与二者同写、未知来源各一例（docs/dev/SPEC-errands-workday.md 5.6），世界在 10:00（门店营业）。"""
     import asyncio
 
     from custom.envs.life_env import LifeEnv
     from tests.life.conftest import context, stage_day_plan
+    from tests.life.purchase_worlds import at_clock
 
     engine = engine_factory()
     stage_day_plan(engine)
+    at_clock(engine, 10, 0)
     frozen = context(engine, "query-environment")
     engine.begin_decision_round([frozen])
     observed = engine.observe(frozen)
@@ -291,8 +384,11 @@ def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engi
     else:
         assert report is not None and result == report.payload()
         assert result["error_code"] == "ARGUMENTS_INVALID"
+        written = {"way": request.way, "category": request.category, "from": request.from_}
         assert [(item["path"][-1], item["written"]) for item in result["items"]] == [
-            ("way", "并不存在的方式"), ("category", "并不存在的品类")]
-        assert all(item["allowed_values"] for item in result["items"])
+            (field, value) for field, value in written.items() if value is not None]
+        assert all(item["allowed_values"] for item in result["items"] if item["path"][-1] != "from")
+        assert all(item["allowed_values"] == [] and item["candidates"] for item in result["items"]
+                   if item["path"][-1] == "from")
     assert engine.state.model_dump(mode="json") == before
     assert engine.store.last_event_seq == sequence
