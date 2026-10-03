@@ -141,6 +141,35 @@ def test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer(kind):
     assert render_card(card) == _C3B24DA_RENDERS[kind]
 
 
+def _with_work_anchors(card, leave_work, arrive_home):
+    """@brief 同一张卡片换上给定的下班、到家锚点（经 TimeAnchors 校验重建，其余五个锚点不变）。"""
+    anchors = TimeAnchors.model_validate({**card.time_anchors.model_dump(), "leave_work": leave_work,
+                                          "arrive_home": arrive_home})
+    return card.model_copy(update={"time_anchors": anchors})
+
+
+def test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget():
+    """@brief 画像文本（docs/dev/SPEC-errands-workday.md 4.1）：下班、到家各自非空时在作息行「需睡N小时」之后按此顺序各追加
+    一个分句，其余文本逐字节不变；追加的分句计入 600 汉字预算——不带分句恰好 600 汉字的卡片照常渲染，带上下班分句即如实
+    报错、不截断。"""
+    card = make_card()
+    plain = render_card(card)
+    leave, arrive = make_window(18.0, 18.5), make_window(19.0, 19.5)
+    cases = {(leave, None): "需睡7.5小时；下班18点到18点半。", (None, arrive): "需睡7.5小时；到家19点到19点半。",
+             (leave, arrive): "需睡7.5小时；下班18点到18点半；到家19点到19点半。"}
+    for (leave_work, arrive_home), ending in cases.items():
+        text = render_card(_with_work_anchors(card, leave_work, arrive_home))
+        assert text == plain.replace("需睡7.5小时。", ending)
+        assert text.splitlines()[3].endswith(ending)
+    assert render_card(_with_work_anchors(card, None, None)) == plain
+    spare = PERSONA_CARD_HANZI_BUDGET - count_hanzi(plain)
+    full = make_card(tastes=Tastes(content_genres=("悬疑", "纪" * (spare + 3)), food_preferences=("川菜", "面食"),
+                                   media=("长视频", "短视频")))
+    assert count_hanzi(render_card(full)) == PERSONA_CARD_HANZI_BUDGET
+    with pytest.raises(RenderBudgetExceededError, match="606 hanzi > 600"):
+        render_card(_with_work_anchors(full, leave, None))
+
+
 def test_window_ends_at_or_after_midnight_render_as_clock_hours():
     """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」
     （docs/dev/SPEC-persona-prompt.md「人设层」：作息为可读短语）。"""

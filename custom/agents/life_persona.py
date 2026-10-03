@@ -1,15 +1,18 @@
 """@brief 宿主侧人设层：由人物 profile 的结构化卡片、姓名、场景联系人与环境下发的看法偏好构建
 （docs/dev/SPEC-persona-prompt.md 第一章「人设层」，裁决 #33、#35）。
 
-- 有结构化卡片（profile["persona_card_struct"]，新建运行时保存、不含当下处境）的人物：身份、作息（刻钟写对）、至多五条
-  习惯、口味与应对取自卡片；卡片关系与场景联系人按名称精确合并（卡片 name_or_appellation 等于联系人称谓），对不上的
-  各占一项；只来自场景联系人的项亲密度为 null、渠道为空（联系人的亲密度与渠道不进提示）。600 汉字上限只约束卡片派生的字段。
+- 有结构化卡片（profile["persona_card_struct"]，新建运行时保存、不含当下处境）的人物：身份、作息（刻钟写对；九键，
+  下班与到家没有固定时刻时为 null，docs/dev/SPEC-errands-workday.md 4.1）、至多五条习惯、口味与应对取自卡片；
+  卡片关系与场景联系人按名称精确合并（卡片 name_or_appellation 等于联系人称谓），对不上的各占一项；只来自场景联系人
+  的项亲密度为 null、渠道为空（联系人的亲密度与渠道不进提示）。600 汉字上限只约束卡片派生的字段。
 - 没有结构化卡片的人物只填姓名，作息、口味、应对为 null，习惯为空列表，关系按场景联系人逐项列出。
 - 看法与偏好只来自环境下发的 persona_views（成功的 conclude_activity 写下的 relationship 与 preference 记忆，同一对象
   取最后一条）；看法写到对应人物的关系项上，不在卡片与联系人中的已知人物（同世界人物）另占一项，角色、亲密度为 null、
   渠道为空（不填编造的值）。
 - 只读问答取最近一次生活决策保存在人物工作区的人设层与记忆层快照（裁决 #38）；尚无决策时用卡片与空看法构建人设层，
   记忆层两个列表为空。
+- 人设层不读 profile 里的工作安排与场景声明的下班、到家窗口：上班安排只由环境层给出（docs/dev/SPEC-errands-workday.md
+  4.4），场景窗口经作息覆盖落进卡片后才出现在这里。
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from typing import Any
 
 from custom.agents.life_prompt import empty_memory_layer
 from worldmock.life.narration import PERSONA_CARD_HANZI_BUDGET, RenderBudgetExceededError, count_hanzi
-from worldmock.profile.models import PersonaCardStruct
+from worldmock.profile.models import PersonaCardStruct, TimeWindow
 from worldmock.profile.textgen import hour_text, intimacy_text, window_text
 
 #: 只读问答快照在人物工作区中的文件名（每次生活决策构建请求后写入）。
@@ -97,7 +100,10 @@ def _card_fields(card: PersonaCardStruct | None) -> dict[str, Any]:
         "identity": {"age": card.identity.age, "occupation": card.identity.occupation,
                      "living_arrangement": card.identity.living_arrangement},
         "rhythm": {"wake": window_text(anchors.wake), "leave_home": window_text(anchors.leave_home),
-                   "lunch": window_text(anchors.lunch), "dinner": window_text(anchors.dinner),
+                   "lunch": window_text(anchors.lunch),
+                   "leave_work": _optional_window(anchors.leave_work),
+                   "arrive_home": _optional_window(anchors.arrive_home),
+                   "dinner": window_text(anchors.dinner),
                    "bedtime": window_text(anchors.bedtime), "sleep_midpoint": hour_text(card.chronotype_midsleep),
                    "sleep_need": f"{card.sleep_need_hours:g} 小时"},
         "habits": [{"trigger": item.trigger, "response": item.response, "time_window": window_text(item.time_window)}
@@ -109,6 +115,11 @@ def _card_fields(card: PersonaCardStruct | None) -> dict[str, Any]:
                            "closeness": intimacy_text(item.intimacy), "channels": list(item.channels)}
                           for item in card.relationships],
     }
+
+
+def _optional_window(window: TimeWindow | None) -> str | None:
+    """@brief 可空锚点（下班、到家）的人设层写法：有窗口时同其他锚点写成可读短语，没有固定时刻（null）时为 None。"""
+    return None if window is None else window_text(window)
 
 
 def _relationships(card_items: list[dict], contacts: Any, latest: dict[str, str]) -> list[dict[str, Any]]:

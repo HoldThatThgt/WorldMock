@@ -327,12 +327,21 @@ _DELIVERY_BOUNDARY_TESTS = [
 
 _CARD_EXTRACTION = "tests/profile/test_extractor.py::"
 _CARD_MODELS = "tests/profile/test_models.py::"
+_CARD_INPUT_WARNINGS = "tests/integration/test_input_warnings.py::"
+_CARD_PERSONA_LAYER = "tests/life/test_persona_layer.py::"
+_CARD_TEXT = "tests/profile/test_textgen.py::"
 
 #: 「作息锚点」（卡片一侧）：头七个节点经真实 extract_persona 与脚本化会话——故事写明时产出窗口、未提及为 null 且不取映射
 #: 表缺省、下班摇摆不改变其余五锚点、单次采样乱序只为放行而降级且不消耗重试、共识乱序先降下班再降到家且卡片照常编译、
 #: 三次采样各自乱序而共识合法时不降级、格式错误照常重试；第八个是 null 新锚点下凌晨就寝仍回绕归一；第九个是真实
-#: compile_persona 把降级说明接在一致性警告之后。末三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束、固定的
-#: 降级顺序与说明）。人设层、画像文本、恢复拒绝与场景覆盖经真实运行路径的节点随后续切片补登。
+#: compile_persona 把降级说明接在一致性警告之后。其后三个是卡片模型与降级函数的补充证据（必填可空、四条顺序约束、固定的
+#: 降级顺序与说明）。再后两个经真实抽取（脚本化会话）、真实新建（画像编译、场景作息覆盖、人物装配、LifeEnv 与 SQLite
+#: 运行清单）与直接导入的 LifeAgent：降级说明作为画像编译警告冻结进清单（PERSONA_AGREEMENT_LOW 只带原文、消息不归因于
+#: 一致性），写明的下班与到家按九键键序到达实际请求的人设层、卡片文本追加两个分句。随后是画像文本各自非空时追加分句并
+#: 计入预算、都为 null 时逐字节不变（render_card 与新建运行冻结的卡片文本是同一函数）；人设层（直接导入
+#: custom.agents.life_persona）九键键序与 null、缺两键的旧结构化卡片在恢复路径被拒（真实 _prepare_resume 与父运行
+#: SQLite）；末一个守宿主不渲染人物档案里的工作安排与场景窗口（人设层键集与值不变）。场景覆盖经真实运行路径的节点随
+#: 场景覆盖切片补登。
 _WORK_ANCHOR_TESTS = [
     _CARD_EXTRACTION + "test_stated_work_anchors_are_extracted_into_the_card",
     _CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_null_without_toml_defaults",
@@ -346,6 +355,13 @@ _WORK_ANCHOR_TESTS = [
     _CARD_MODELS + "test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order",
     _CARD_MODELS + "test_work_anchor_order_constraints_are_enforced",
     _CARD_MODELS + "test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each",
+    _CARD_INPUT_WARNINGS + "test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement",
+    _CARD_INPUT_WARNINGS + "test_extracted_work_anchors_reach_the_real_request_persona_layer",
+    _CARD_TEXT + "test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget",
+    _CARD_TEXT + "test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer",
+    _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",
+    _CARD_PERSONA_LAYER + "test_structured_card_without_work_anchor_keys_is_rejected_on_restore",
+    _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
@@ -551,6 +567,15 @@ _NO_DEFAULT_KILLERS = (_CARD_EXTRACTION + "test_unmentioned_work_anchors_stay_nu
 _WRAPAROUND_KILLERS = (_CARD_EXTRACTION + "test_null_work_anchors_keep_the_after_midnight_bedtime_normalised",)
 _DEMOTION_KILLERS = (
     _CARD_EXTRACTION + "test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles",)
+_PERSONA_LAYER_MODULE = "custom.agents.life_persona"
+_PERSONA_LAYER_SOURCE = "custom/agents/life_persona.py"
+#: 人设层两个变异的杀手都直接导入 custom.agents.life_persona（适配器目录的文件只有直接导入才杀得死）：人设层把卡片写明的
+#: 下班投影成 null 时，写明下班的卡片在人设层的下班不再是「18点到18点半」；人设层多渲染 profile 里的工作安排时，带工作
+#: 安排的档案的人设层多出一个键、不再与不带工作安排的同一档案相同。
+_PERSONA_ANCHOR_KILLERS = (
+    _CARD_PERSONA_LAYER + "test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent",)
+_PERSONA_SCHEDULE_KILLERS = (
+    _CARD_PERSONA_LAYER + "test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -1135,6 +1160,25 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         '    leave_work, arrive_home, problems = parsed["leave_work"], parsed["arrive_home"], ()\n',
         _DEMOTION_KILLERS,
     ),
+    SourceMutation(
+        "persona_layer_drops_work_anchor",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '"leave_work": _optional_window(anchors.leave_work)',
+        '"leave_work": None',
+        _PERSONA_ANCHOR_KILLERS,
+    ),
+    SourceMutation(
+        "host_renders_work_schedule",
+        _PERSONA_LAYER_MODULE,
+        _PERSONA_LAYER_SOURCE,
+        '        "preferences": [dict(item) for item in views["preferences"]],\n',
+        (
+            '        "preferences": [dict(item) for item in views["preferences"]],\n'
+            '        "work_schedule": profile.get("work_schedule"),\n'
+        ),
+        _PERSONA_SCHEDULE_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -1182,7 +1226,8 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "事务指标以目标数为分母": {"stage": "2", "mutations": ()},
     "版本 8 检查点被放行": {"stage": "2", "mutations": ("version_8_world_state_accepted",
                                                   "version_8_export_passes_delivery_gate")},
-    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ("extraction_drops_stated_work_anchor",)},
+    "抽取或人设层投影丢掉故事写明的下班、到家锚点": {"stage": "3", "mutations": ("extraction_drops_stated_work_anchor",
+                                                                     "persona_layer_drops_work_anchor")},
     "抽取对下班锚点取缺省": {"stage": "3", "mutations": ("leave_work_takes_a_default",)},
     "新锚点并入回绕归一": {"stage": "3", "mutations": ("work_anchors_join_wraparound",)},
     "乱序时整卡失败": {"stage": "3", "mutations": ("out_of_order_work_anchor_fails_the_card",)},
@@ -1193,7 +1238,7 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "休息时段显示为当班中": {"stage": "3", "mutations": ()},
     "班次并入任务开放判定": {"stage": "3", "mutations": ()},
     "忽略例外日期": {"stage": "3", "mutations": ()},
-    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ()},
+    "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ("host_renders_work_schedule",)},
     "忽略来源": {"stage": "4", "mutations": ()},
     "来源解析另写一套": {"stage": "4", "mutations": ()},
     "「购买」不展开": {"stage": "4", "mutations": ()},
@@ -1245,6 +1290,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_continuation.py",
     "custom/agents/life_memory.py",
+    "custom/agents/life_persona.py",
     "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
     "src/worldmock/delivery/pipeline.py",
@@ -1275,6 +1321,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/profile/extractor.py",
     "src/worldmock/profile/injection.py",
     "src/worldmock/profile/models.py",
+    "src/worldmock/profile/textgen.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
     "tools/run-viewer.html",
