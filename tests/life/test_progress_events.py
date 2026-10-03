@@ -17,8 +17,11 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
-                                 report_request)
+                                 errand_add, errand_cancel, progress_calls, stage_day_plan, start_activity, submit_round,
+                                 wake_by_mail, report_request)
+from tests.life.routing_fixtures import HOME, MARKET, act, observe, open_world, place, routed, run_until
+from tests.life.test_errand_completion import (CHEN, KIT_NAME, MILK, MILK_ID, WAIT, buy, first, give, note, ready,
+                                               result_event, settlement)
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
@@ -671,3 +674,51 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     (entry,) = road["memory_layer"]["earlier_today"]
     assert [line.split("：", 1)[1] for line in entry["settled"] if "的消息：" in line] == ["第一条", "第二条"]
     assert road["presented_message_ids"] == [shown, hidden] and hidden in engine.state.agents[2].read_inbox_ids
+
+
+def test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line(engine_factory) -> None:
+    """个人事务在本 session 内办成：进度层恰有一条只写名称的 errand_completed 记录，来源是办成事件（进入
+    progress_event_ids），事务同时从待办层消失；浓缩用的 settled 句折成「HH:MM 办成「<事务名>」」，跨日时带日期。取消的
+    事务只从待办层消失，不留记录。落在开启新 session 的那次提交里的办成归旧 session：同一轮里李凡先当面给陈曦一盒牛奶、
+    陈曦随后出发回家，这次提交开启她的路上 session，办成事件在其中却不属于路上 session 的进度层，只能从待办层消失看出
+    （docs/dev/SPEC-errands-workday.md 2.6）。"""
+    engine = open_world(engine_factory)
+    zone = engine.scenario.timezone
+    place(engine, 1, MARKET)
+    note(engine, "note", [errand_add("买牛奶", MILK), errand_add("做菜", KIT_NAME)])
+    waiting = buy(engine, "buy", also=(WAIT,))
+    [completed] = settlement(engine)
+    observed = observe(engine, "bought")
+    records = [row for row in _events(observed) if row["type"].startswith("errand")]
+    record = {"occurred_at": iso_time(completed.occurred_at, zone), "type": "errand_completed", "errand": "买牛奶"}
+    assert records == [record] and completed.event_id in observed["progress_event_ids"]
+    moment = datetime.fromtimestamp(completed.occurred_at, ZoneInfo(zone)).strftime("%H:%M")
+    assert _lines(observed, record) == [f"{moment} 办成「买牛奶」"]
+    assert [row["name"] for row in observed["todo_layer"]["errands"]] == ["做菜"]
+    later = SimpleNamespace(state=SimpleNamespace(current_time=completed.occurred_at + 86400),
+                            scenario=SimpleNamespace(timezone=zone))
+    assert record_lines(later, record, [completed]) == [f"1月5日 {moment} 办成「买牛奶」"]
+    wake_by_mail(engine, offset=60)
+    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids)
+    wait_name = activity_name(engine, next(row["activity_id"] for row in waiting.data["activities"]))
+    changes = [errand_cancel("做菜", "今晚在外面吃"), errand_add("再买一盒", MILK)]
+    act(engine, "cancel", conclude_request(wait_name, errands=changes), tool="conclude_activity")
+    after = observe(engine, "cancelled")
+    assert [row for row in _events(after) if row["type"].startswith("errand")] == [record]
+    assert [row["name"] for row in after["todo_layer"]["errands"]] == ["再买一盒"]
+    home_target = next(row["object"] for row in after["interaction_bindings"] if row["object_id"] == HOME)
+    place(engine, 2, MARKET, {MILK_ID: 1.0})
+    ready(engine, 2)
+    first(engine, 2)
+    walk = routed((home_target, "travel", "步行", None, None))
+    _, results = submit_round(engine, {1: ("start_activity", walk), 2: ("start_activity", give(engine, CHEN))}, "leave")
+    leaving, handed = sorted(results, key=lambda result: result.agent_id)
+    assert (leaving.status, handed.status) == ("in_progress", "completed"), (leaving.error_code, handed.error_code)
+    departed = settlement(engine)[-1]
+    assert (departed.data["kind"], departed.data["errand"]["name"]) == ("errand_completed", "再买一盒")
+    assert departed.caused_by == [result_event(engine, handed, agent_id=2).event_id]
+    assert departed.state_version_after == result_event(engine, leaving).state_version_after
+    road = observe(engine, "road")
+    assert road["progress_layer"]["session_started_at"] == iso_time(departed.occurred_at, zone)
+    assert [row for row in _events(road) if row["type"].startswith("errand")] == []
+    assert departed.event_id not in road["progress_event_ids"] and road["todo_layer"]["errands"] == []

@@ -1,5 +1,5 @@
 """@brief 个人事务的全部逻辑（docs/dev/SPEC-errands-workday.md 第二章）：私有绑定、待办层行、变更的校验与应用、请求驱动的
-三种事务事件。
+三种事务事件、完成依据与结算。
 
 全部是纯函数：不读写存储、不访问引擎。状态模型与常量在 errand_state.py（状态与逻辑分两个模块）；本模块可依赖
 models、名称解析与错误合同，models.py 从不导入本模块。
@@ -13,6 +13,9 @@ models、名称解析与错误合同，models.py 从不导入本模块。
   按待办层名称解析（_open_name，与活动名同一函数，唯一才受理、从不替换）。apply_changes 只在校验通过后改人物状态并给出
   回执；request_drafts 为每条被受理的变更写一条事务事件，决策身份与动作身份都为空，只经 caused_by 关联请求事件（2.7）。
 - 提醒钟点（2.5）：remind_epoch 把 HH:MM 换算为绝对时刻，该钟点的今日时刻严格晚于受理时刻取今天，否则取下一本地日。
+- 完成依据与结算（2.4）：evidence_rows 是读取结算证据的唯一一处（动作结果顶层的已送达订单与当面给予、配送送达事件的
+  新入库行、活动进度的食用量与制作产出），settle 每次提交恰好调用一次，按草稿先后把证据累加到同一（结果种类，商品）的
+  未完成事务，达到数量减容差即移出并写办成事件，否则写进展事件；两种事件只经 caused_by 关联证据草稿（2.7）。
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
@@ -31,9 +34,13 @@ from worldmock.life.errand_state import (
     CHANGE_ADD,
     CHANGE_CANCEL,
     CHANGE_UPDATE,
+    COMPLETED_KIND,
+    ERRAND_PROGRESS_DIGITS,
+    ERRAND_TOLERANCE,
     MAX_OPEN_ERRANDS,
     OUTCOME_CODES,
     OUTCOME_WORDS,
+    PROGRESSED_KIND,
     REGISTERED_KIND,
     UPDATED_KIND,
     ErrandState,
@@ -56,6 +63,9 @@ _CAPACITY_EXPECTED = "An addition that the open errands can still take is requir
 #: 合并拒绝按明细码的改法。
 _CHANGE_FIXES = {"NAME_NOT_FOUND": "Use an exact name.", "NAME_AMBIGUOUS": "Use an unambiguous complete name.",
                  "ARGUMENTS_INVALID": "Correct every reported errand change."}
+#: 结算证据的两种结果种类代码，与同世界人物收货人身份的前缀（agent:<编号>，联系人身份没有这个前缀）。
+_OBTAIN, _EAT = OUTCOME_CODES["取得"], OUTCOME_CODES["吃掉"]
+_AGENT_PREFIX = "agent:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +95,17 @@ class _Head:
     owner: int
     now: int
     caused_by: tuple[str, ...]
+
+
+class Evidence(NamedTuple):
+    """@brief 一条结算证据行（docs/dev/SPEC-errands-workday.md 2.4「依据」）：归属的人物（取得看收货人，进食是本人）、结果
+    种类代码（obtain、eat）、商品身份、本行的数量，以及活动进度类证据的结算区间起点（其余证据为 None）。"""
+
+    owner_id: int
+    outcome: str
+    product_id: str
+    quantity: float
+    interval_start: int | None
 
 
 def bindings(agent: AgentState, items: Mapping[str, Any]) -> dict:
@@ -203,6 +224,64 @@ def request_drafts(before: WorldState, after: WorldState, pending: PendingAction
             cancelled = _held(before, owner, _accepted_target(change["name"], rows))
             drafts.append(_draft(head, CANCELLED_KIND, cancelled.model_dump(mode="json"), {"reason": change["reason"]}))
     return drafts
+
+
+def evidence_rows(event_type: str, agent_id: int | None, data: Mapping[str, Any]) -> list[Evidence]:
+    """@brief 一条事件（草稿或已落库事件的类型、人物字段与 data）给出的结算证据行；完成依据只在这一处读取
+    （docs/dev/SPEC-errands-workday.md 2.4「依据」「只读一处」）。
+
+    - action_result（重放的不算）：顶层 orders 里状态为已送达的订单（到店成交与当场送达的远程订单）与顶层 given 的当面
+      给予，按收货人归属；不读并行开始时逐项结果 activity_results 里的同一订单，也不读受理事件 action_accepted。
+    - delivery_arrival 环境事件：本次新送达的入库行 inventory_changes（重复到期的订单不再有入库行），经订单身份取该订单的
+      收货人——事件的人物字段是付款人。
+    - activity_progress 的 consumption：食用时每件本区间的实际食用量，制作完整结束时库存转换的产出，都归本人并带结算区间
+      的起点。
+    收货人是联系人时没有行；下单受理、未送达订单、活动开始、制作未完成、目标推进与任何自述都不产生行。
+
+    :param agent_id: 事件的人物字段（只用于活动进度：进食与制作归本人；取得类证据按收货人归属，不看它）。
+    """
+    if event_type == "action_result":
+        return [] if data.get("reused") else _handed(data.get("data") or {})
+    if event_type == "environment_event" and data.get("kind") == "delivery_arrival":
+        return _arrived(data)
+    if event_type == "activity_progress" and data.get("consumption"):
+        return _consumed(agent_id, data)
+    return []
+
+
+def settle(state: WorldState, drafts: Sequence[EventDraft]) -> tuple[WorldState, list[EventDraft]]:
+    """@brief 一次提交的个人事务结算（docs/dev/SPEC-errands-workday.md 2.4「结算函数」）：纯函数，每次提交恰好调用一次——
+    决策轮在全部动作结算之后，时钟推进在后台事件并入之后、构造节律边界之前。
+
+    按草稿先后逐条读证据行（evidence_rows），命中所有人同一（结果种类，商品）的未完成事务（同一人至多一条）即累加：累计量
+    达到数量减 1e-9 时把事务移出未完成集合并写 errand_completed，不足时存下累计量并写 errand_progressed。以往提交记下的
+    事务对本次全部证据有效；本次提交新增的只认排在其 errand_registered 草稿之后的证据；本次提交里被取消的已不在状态里，
+    不再接受任何证据；活动进度类证据另要求结算区间的起点不早于记下的时刻。证据行只在订单由未送达变为已送达的那一次出现，
+    所以状态里没有「已消费证据」集合。没有人有未完成事务、或没有证据命中时原样返回世界。
+
+    :param drafts: 本次提交已排好的全部事件草稿。
+    :returns: （结算后的世界，追加的事务事件草稿）；草稿按证据的先后，排在全部证据之后，各以其证据草稿为唯一原因。
+    """
+    if not any(agent.errands for agent in state.agents.values()):
+        return state, []
+    noted = {draft.data["errand"]["errand_id"]: index for index, draft in enumerate(drafts)
+             if draft.event_type == "environment_event" and draft.data.get("kind") == REGISTERED_KIND}
+    open_sets = {agent_id: dict(agent.errands) for agent_id, agent in state.agents.items()}
+    settled: list[EventDraft] = []
+    for index, draft in enumerate(drafts):
+        for row in evidence_rows(draft.event_type, draft.agent_id, draft.data):
+            errand = _matched(open_sets.get(row.owner_id, {}), row)
+            if errand is None or noted.get(errand.errand_id, -1) > index:
+                continue
+            if row.interval_start is not None and row.interval_start < errand.registered_at:
+                continue
+            head = _Head(row.owner_id, state.current_time, (draft.event_id,))
+            settled.append(_credit(open_sets[row.owner_id], errand, row, head))
+    if not settled:
+        return state, []
+    agents = {agent_id: agent.model_copy(update={"errands": open_sets[agent_id]})
+              for agent_id, agent in state.agents.items()}
+    return state.model_copy(update={"agents": agents}), settled
 
 
 def _open_errands(agent: AgentState) -> list[ErrandState]:
@@ -408,6 +487,62 @@ def _draft(head: _Head, kind: str, snapshot: dict, extra: Mapping[str, Any] | No
                       action_id=None, activity_id=None, caused_by=list(head.caused_by), source_kind="environment",
                       visibility="agent" if kind in AGENT_VISIBLE_KINDS else "system",
                       data={"kind": kind, "errand": snapshot, **(extra or {})})
+
+
+def _handed(payload: Mapping[str, Any]) -> list[Evidence]:
+    """@brief 动作结果顶层（payload 为结果的 data）的取得证据：状态为已送达的订单与当面给予，按收货人归属。"""
+    orders = payload.get("orders", [])
+    handed = [order for order in orders if order["status"] == "delivered"]
+    handed += payload.get("given", [])
+    return [row for item in handed for row in _obtained(item["recipient_id"], item["product_id"], item["quantity"])]
+
+
+def _arrived(data: Mapping[str, Any]) -> list[Evidence]:
+    """@brief 配送送达事件里本次新送达的入库行，每行经订单身份取该订单的收货人。"""
+    recipients = {order["order_id"]: order["recipient_id"] for order in data.get("orders", [])}
+    return [row for change in data.get("inventory_changes", [])
+            for row in _obtained(recipients[change["order_id"]], change["product_id"], change["quantity"])]
+
+
+def _obtained(recipient_id: str, product_id: str, quantity: float) -> list[Evidence]:
+    """@brief 一行取得证据：收货人是同世界人物（agent:<编号>）时归他；收货人是联系人时不算任何人物取得。"""
+    if not recipient_id.startswith(_AGENT_PREFIX):
+        return []
+    return [Evidence(int(recipient_id.removeprefix(_AGENT_PREFIX)), _OBTAIN, product_id, float(quantity), None)]
+
+
+def _consumed(agent_id: int, data: Mapping[str, Any]) -> list[Evidence]:
+    """@brief 本人活动进度结算（data 为 activity_progress 的 data）的消费证据：食用时每件本区间大于零的实际食用量；制作完整
+    结束时库存转换的产出（output_quantity 为数字串）。都带本结算区间的起点。"""
+    consumption, start = data["consumption"], data["interval_start"]
+    eaten = consumption["items"] if consumption["use_mode"] == "eat" else []
+    rows = [Evidence(agent_id, _EAT, item["product_id"], item["interval_quantity"], start)
+            for item in eaten if item["interval_quantity"] > 0]
+    transform = consumption.get("inventory_transform")
+    if transform is not None:
+        rows.append(Evidence(agent_id, _OBTAIN, transform["output_object_id"], float(transform["output_quantity"]),
+                             start))
+    return rows
+
+
+def _matched(errands: Mapping[str, ErrandState], row: Evidence) -> ErrandState | None:
+    """@brief 证据所有人的未完成事务中与证据同一（结果种类，商品）的那一条（同一人至多一条），没有为 None。"""
+    return next((errand for errand in errands.values()
+                 if (errand.outcome, errand.product_id) == (row.outcome, row.product_id)), None)
+
+
+def _credit(errands: dict[str, ErrandState], errand: ErrandState, row: Evidence, head: _Head) -> EventDraft:
+    """@brief 把一条命中的证据累加到事务（errands 为所有人未完成事务字典的副本，就地改写）：累计量（九位小数）达到数量减
+    容差即移出并写 errand_completed——快照的 progress 改为最终累计量，因为未完成事务的模型不能持有达到数量的累计量；
+    否则存下新累计量并写 errand_progressed。两种都另带本条证据的数量 quantity_added。"""
+    added = round(row.quantity, ERRAND_PROGRESS_DIGITS)
+    progress = round(errand.progress + added, ERRAND_PROGRESS_DIGITS)
+    if progress >= errand.quantity - ERRAND_TOLERANCE:
+        errands.pop(errand.errand_id)
+        snapshot = {**errand.model_dump(mode="json"), "progress": progress}
+        return _draft(head, COMPLETED_KIND, snapshot, {"quantity_added": added})
+    errands[errand.errand_id] = ErrandState.model_validate({**errand.model_dump(), "progress": progress})
+    return _draft(head, PROGRESSED_KIND, errands[errand.errand_id].model_dump(mode="json"), {"quantity_added": added})
 
 
 def _quoted(names: Sequence[str]) -> str:

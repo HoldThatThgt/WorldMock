@@ -233,6 +233,8 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                                  "message": _TEXT}),
             _record("task_deadline", {"task": _TEXT, "stage": {"enum": ["due_soon", "expired"]}}),
             _record("plan_reminder", {"goal": _TEXT}),
+            _record("errand_reminder", {"errand": _TEXT}),
+            _record("errand_completed", {"errand": _TEXT}),
             _record("condensed", {"until_at": _TIME, "lines": _LINES}),
         ]}},
     }),

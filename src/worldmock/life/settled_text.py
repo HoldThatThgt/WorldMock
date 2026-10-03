@@ -5,7 +5,9 @@
 完整标签），收到的直接消息（全文）、
 邮件（主题）、送达与新工作各一句。不写失败的请求、记忆查询、回看、report_status、暂停与恢复、revise_day_plan、提醒、
 截止预警、身体结算与交谈邀请。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的
-lines 与零点计划输入都取这里的句子（同时是零点计划输入里已核验经历句子的唯一写法）。
+lines 与零点计划输入都取这里的句子（同时是零点计划输入里已核验经历句子的唯一写法）。进度层的个人事务办成记录
+errand_completed 折成一句「HH:MM 办成「<事务名>」」，只用于进度层浓缩（记忆层与零点计划输入不派生这种记录）；事务提醒
+errand_reminder 与当日目标提醒同等对待，不写句子（docs/dev/SPEC-errands-workday.md 2.6）。
 
 活动的句子按它结束的提交归属（第三章「归属」）：结束提交是带该活动终态快照的最早事件（activity_progress、生命周期与截断
 environment_event、终态 action_result）所在的提交，到达时结束的出行归路程，实验截止截断的活动归最后一段；之后的
@@ -68,6 +70,8 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
         return [f"{when} 收到{record['sender']}的消息：{record['text']}"]
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
+    if kind == "errand_completed":
+        return [f"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」"]
     return []
 
 

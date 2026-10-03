@@ -148,12 +148,50 @@ _TOOL_TEXTS = "tests/integration/test_tool_description_references.py::"
 #: 两类私有事务绑定并存进 SQLite 的观察事件，五层照常渲染且不含事务身份与商品身份，任何一层带上 errand_bindings、
 #: errand_item_bindings 或 errand_id 即渲染失败；按事务名回看以 TASK_NOT_FOUND 拒绝。「工具用途句与字段说明与接口合同逐字
 #: 且通过用途扫描」一项：三个控制工具的用途句与十一处参数说明与接口合同定稿表逐字相同，全部原生工具的用途句与参数说明
-#: 通过只写用途的扫描。其余各项随阶段 2 的后续切片补登。
+#: 通过只写用途的扫描。「同一 session 内办成的事务在进度层有一条记录，浓缩后折成一句」一项（末一个节点）：经真实请求办成的
+#: 事务在进度层恰一条只写名称的记录、来源计入观察，settled 句折成「HH:MM 办成「<事务名>」」（跨日带日期），取消的事务不留
+#: 记录，开启新 session 的那次提交里的办成不进新 session 的进度层。其余各项随阶段 2 的后续切片补登。
 _PROMPT_PRESENCE_TESTS = [
     _ERRAND_TODO + "test_observation_carries_private_errand_bindings_outside_every_layer",
     _TOOL_TEXTS + "test_control_tool_purposes_and_errand_descriptions_are_the_contract_text",
     _TOOL_TEXTS + "test_every_native_tool_has_a_purpose_only_description",
     _TOOL_TEXTS + "test_parameter_descriptions_are_purpose_only",
+    "tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line",
+]
+
+_COMPLETION = "tests/life/test_errand_completion.py::"
+
+#: 「完成依据」：全部经真实请求、引擎与 SQLite——人物以收尾请求记下事务，随后经真实的远程下单与配送、到店购买、当面给予、
+#: 制作与进食产生证据：远程下单受理时不推进、送达的那次提交办成；同一秒先记下再到店买下当场办成而物品留在门店；数量 2
+#: 只得 1 份仍未完成并记累计；记下前已持有的不算、记下前开始的进度区间不算（后者请求造不出，经真实时钟推进与预置的记下
+#: 时刻造出）；他人买给本人与当面给予本人算、本人买给他人不算；制作未完成不算、完整结束的产出算；进食按区间实际食用量
+#: 累计且累计量差 1e-9 内即办成；缺货被拒后事务与累计量不变；同一轮先给予后取消不落到已取消的事务；结算事件的可见性、
+#: 人物、载荷、原因与所在提交。
+_COMPLETION_TESTS = [
+    _COMPLETION + "test_a_remote_order_completes_only_in_the_commit_that_delivers_it",
+    _COMPLETION + "test_noting_then_buying_at_the_store_in_the_same_second_completes_while_the_item_stays_there",
+    _COMPLETION + "test_quantity_two_with_one_obtained_stays_open_and_shows_the_progress",
+    _COMPLETION + "test_what_was_held_before_noting_does_not_count",
+    _COMPLETION + "test_a_progress_interval_begun_before_noting_does_not_count",
+    _COMPLETION + "test_bought_for_me_and_handed_to_me_count_but_bought_by_me_for_another_does_not",
+    _COMPLETION + "test_unfinished_making_does_not_count_and_the_finished_output_does",
+    _COMPLETION + "test_eating_counts_the_actual_interval_quantity",
+    _COMPLETION + "test_an_out_of_stock_rejection_leaves_the_errand_and_its_progress_unchanged",
+    _COMPLETION + "test_a_gift_followed_by_a_cancel_in_one_round_credits_nothing",
+    _COMPLETION + "test_completion_and_progress_events_cite_their_evidence_and_carry_no_decision_identity",
+]
+
+_IDEMPOTENCE = "tests/life/test_errand_settlement_idempotence.py::"
+
+#: 「结算幂等」：全部经真实请求、引擎与 SQLite——重放的动作结果不再累计；同一订单的配送再到期一次没有新入库行、不再累计；
+#: 并行开始的合并结果只读顶层订单；决策轮提交与时钟推进提交各结算一次（数量 3 的事务两次各加 1 份）；两人同一轮里排在
+#: 新增事件之前的给予不算、排在之后的算。
+_IDEMPOTENCE_TESTS = [
+    _IDEMPOTENCE + "test_a_replayed_action_adds_nothing",
+    _IDEMPOTENCE + "test_a_repeated_due_delivery_adds_nothing",
+    _IDEMPOTENCE + "test_a_parallel_start_counts_each_order_once",
+    _IDEMPOTENCE + "test_each_commit_settles_once",
+    _IDEMPOTENCE + "test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_count",
 ]
 
 _ERRAND_REQUESTS = "tests/life/test_errand_requests.py::"
@@ -217,8 +255,8 @@ LEDGER: dict[str, dict[str, object]] = {
     "事务变更与原子受理": {"stage": "2", "tests": _ERRAND_CHANGE_TESTS},
     "事务名称与错误": {"stage": "2", "tests": _ERRAND_NAME_TESTS},
     "跨夜可见": {"stage": "2", "tests": []},
-    "完成依据": {"stage": "2", "tests": []},
-    "结算幂等": {"stage": "2", "tests": []},
+    "完成依据": {"stage": "2", "tests": _COMPLETION_TESTS},
+    "结算幂等": {"stage": "2", "tests": _IDEMPOTENCE_TESTS},
     "事务提醒": {"stage": "2", "tests": []},
     "检查点": {"stage": "2", "tests": _CHECKPOINT_TESTS},
     "提示与唯一出现": {"stage": "2", "tests": _PROMPT_PRESENCE_TESTS},
@@ -329,6 +367,29 @@ _FIRST_CANDIDATE_KILLERS = (
     _ERRAND_NAMES + "test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_nothing",)
 _CANCELS_FIRST_KILLERS = (
     _ERRAND_NAMES + "test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted",)
+_ENGINE_MODULE = "worldmock.life.engine"
+_ENGINE_SOURCE = "src/worldmock/life/engine.py"
+_SETTLED_TEXT_MODULE = "worldmock.life.settled_text"
+_SETTLED_TEXT_SOURCE = "src/worldmock/life/settled_text.py"
+#: 完成依据与结算各变异的杀手都经真实请求、引擎与 SQLite（结算由引擎的两处接线按本名调用 errands.settle）：未送达订单
+#: 当作取得时远程下单受理那次提交就办成；受理事件也读时到店买一份就累计两份、数量 2 的事务办成；读活动快照的制作配方
+#: 时未完成的制作区间就算产出、办成事件的原因不再是完整结束的那次进度结算；去掉新增位置的比较时排在新增事件之前的给予
+#: 也算；去掉区间起点的比较时记下前开始的进度区间也算；不读 given 时当面给予不算；按事件人物字段归属时给予与送她的那单
+#: 算到付款的李凡、她买给李凡的那单算到她自己；也读逐项结果时并行开始的同一订单算两次；同一提交结算两次时决策轮那次
+#: 累计 2 份、时钟推进那次累计到 3 份办成；不看 reused 时重放的到店购买再累计一份；浓缩句为空时办成记录没有 settled 句。
+_REMOTE_ORDER_KILLERS = (_COMPLETION + "test_a_remote_order_completes_only_in_the_commit_that_delivers_it",)
+_RESULT_ONLY_KILLERS = (_COMPLETION + "test_quantity_two_with_one_obtained_stays_open_and_shows_the_progress",)
+_MAKING_KILLERS = (_COMPLETION + "test_unfinished_making_does_not_count_and_the_finished_output_does",)
+_NOTING_ORDER_KILLERS = (
+    _IDEMPOTENCE + "test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_count",)
+_INTERVAL_KILLERS = (_COMPLETION + "test_a_progress_interval_begun_before_noting_does_not_count",)
+_RECIPIENT_KILLERS = (
+    _COMPLETION + "test_bought_for_me_and_handed_to_me_count_but_bought_by_me_for_another_does_not",)
+_TOP_LEVEL_KILLERS = (_IDEMPOTENCE + "test_a_parallel_start_counts_each_order_once",)
+_ONCE_PER_COMMIT_KILLERS = (_IDEMPOTENCE + "test_each_commit_settles_once",)
+_REPLAY_KILLERS = (_IDEMPOTENCE + "test_a_replayed_action_adds_nothing",)
+_FOLDED_LINE_KILLERS = (
+    "tests/life/test_progress_events.py::test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line",)
 
 #: 源码变异清单；每个阶段的提交在这里追加自己的条目（未实现阶段的原文还不存在，无法预先登记）。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -612,6 +673,124 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "    remaining = list(rows)\n",
         _CANCELS_FIRST_KILLERS,
     ),
+    SourceMutation(
+        "pending_order_counts_as_obtained",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    handed = [order for order in orders if order["status"] == "delivered"]\n',
+        '    handed = [order for order in orders if order["status"] in {"delivered", "pending"}]\n',
+        _REMOTE_ORDER_KILLERS,
+    ),
+    SourceMutation(
+        "accepted_event_counts_as_evidence",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    if event_type == "action_result":\n',
+        '    if event_type in {"action_result", "action_accepted"}:\n',
+        _RESULT_ONLY_KILLERS,
+    ),
+    SourceMutation(
+        "unfinished_making_counts_as_obtained",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    transform = consumption.get("inventory_transform")\n',
+        '    transform = data["activity"]["data"].get("inventory_recipe")\n',
+        _MAKING_KILLERS,
+    ),
+    SourceMutation(
+        "evidence_before_noting_event_counts",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "            if errand is None or noted.get(errand.errand_id, -1) > index:\n",
+        "            if errand is None:\n",
+        _NOTING_ORDER_KILLERS,
+    ),
+    SourceMutation(
+        "interval_begun_before_noting_counts",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        "            if row.interval_start is not None and row.interval_start < errand.registered_at:\n",
+        "            if False:\n",
+        _INTERVAL_KILLERS,
+    ),
+    SourceMutation(
+        "gift_is_not_obtained",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    handed += payload.get("given", [])\n',
+        "",
+        _RECIPIENT_KILLERS,
+    ),
+    SourceMutation(
+        "ownership_follows_event_agent",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        (
+            '    if event_type == "action_result":\n'
+            '        return [] if data.get("reused") else _handed(data.get("data") or {})\n'
+            '    if event_type == "environment_event" and data.get("kind") == "delivery_arrival":\n'
+            "        return _arrived(data)\n"
+        ),
+        (
+            '    if event_type == "action_result":\n'
+            '        return [] if data.get("reused") else [\n'
+            '            row._replace(owner_id=agent_id) for row in _handed(data.get("data") or {})]\n'
+            '    if event_type == "environment_event" and data.get("kind") == "delivery_arrival":\n'
+            "        return [row._replace(owner_id=agent_id) for row in _arrived(data)]\n"
+        ),
+        _RECIPIENT_KILLERS,
+    ),
+    SourceMutation(
+        "nested_results_orders_counted",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '    orders = payload.get("orders", [])\n',
+        (
+            '    orders = [*payload.get("orders", []),\n'
+            '              *(order for row in payload.get("activity_results", []) for order in row.get("orders", []))]\n'
+        ),
+        _TOP_LEVEL_KILLERS,
+    ),
+    SourceMutation(
+        "round_commit_settles_twice",
+        _ENGINE_MODULE,
+        _ENGINE_SOURCE,
+        "        staged, settled = errands.settle(staged, drafts)\n",
+        (
+            "        staged, settled = errands.settle(staged, drafts)\n"
+            "        staged, again = errands.settle(staged, drafts)\n"
+            "        settled = settled + again\n"
+        ),
+        _ONCE_PER_COMMIT_KILLERS,
+    ),
+    SourceMutation(
+        "advance_commit_settles_twice",
+        _ENGINE_MODULE,
+        _ENGINE_SOURCE,
+        "        staged, credited = errands.settle(staged, drafts)\n",
+        (
+            "        staged, credited = errands.settle(staged, drafts)\n"
+            "        staged, again = errands.settle(staged, drafts)\n"
+            "        credited = credited + again\n"
+        ),
+        _ONCE_PER_COMMIT_KILLERS,
+    ),
+    SourceMutation(
+        "replayed_result_counts",
+        _ERRANDS_MODULE,
+        _ERRANDS_SOURCE,
+        '        return [] if data.get("reused") else _handed(data.get("data") or {})\n',
+        '        return _handed(data.get("data") or {})\n',
+        _REPLAY_KILLERS,
+    ),
+    SourceMutation(
+        "condensation_drops_completion_line",
+        _SETTLED_TEXT_MODULE,
+        _SETTLED_TEXT_SOURCE,
+        "        return [f\"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」\"]\n",
+        "        return []\n",
+        _FOLDED_LINE_KILLERS,
+    ),
 )
 
 #: 规格「源码变异必须覆盖」一段逐句（按原文顺序照抄）→ 所属阶段与杀死它的登记变异名；已完成阶段的每一句至少一个变异。
@@ -634,12 +813,15 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "业务拒绝时事务变更照落": {"stage": "2", "mutations": ("errand_changes_applied_before_rejection",)},
     "事务名近似时取第一个候选": {"stage": "2", "mutations": ("errand_name_takes_first_candidate",)},
     "请求可把状态置为完成": {"stage": "2", "mutations": ("request_can_mark_errand_completed",)},
-    "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": ()},
-    "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": ()},
-    "当面给予不计入取得": {"stage": "2", "mutations": ()},
-    "按事件人物字段而非收货人判归属": {"stage": "2", "mutations": ()},
-    "读取逐项结果里的重复订单": {"stage": "2", "mutations": ()},
-    "一次提交结算两次": {"stage": "2", "mutations": ()},
+    "把受理、未送达订单、活动开始、`progressed` 或自述当完成": {"stage": "2", "mutations": (
+        "pending_order_counts_as_obtained", "accepted_event_counts_as_evidence",
+        "unfinished_making_counts_as_obtained")},
+    "把记下之前的证据（含同一提交内排在新增事件之前的）或记下前开始的进度区间计入": {"stage": "2", "mutations": (
+        "evidence_before_noting_event_counts", "interval_begun_before_noting_counts")},
+    "当面给予不计入取得": {"stage": "2", "mutations": ("gift_is_not_obtained",)},
+    "按事件人物字段而非收货人判归属": {"stage": "2", "mutations": ("ownership_follows_event_agent",)},
+    "读取逐项结果里的重复订单": {"stage": "2", "mutations": ("nested_results_orders_counted",)},
+    "一次提交结算两次": {"stage": "2", "mutations": ("round_commit_settles_twice", "advance_commit_settles_twice")},
     "检查点漏存事务": {"stage": "2", "mutations": ()},
     "取消后仍提醒": {"stage": "2", "mutations": ()},
     "提醒即置完成": {"stage": "2", "mutations": ()},
@@ -699,6 +881,9 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                       "去掉请求级 errands 的必有检查）。",
     "duplicates_judged_before_cancels": "实施计划阶段 2「突变审查的目标」：同一请求不先扣除取消就判重名与上限（新增与"
                                         "扣除本请求取消之前的全部未完成事务比较）。",
+    "replayed_result_counts": "实施计划阶段 2「突变审查的目标」：把重放结果计数（读动作结果的证据时不看 reused）。",
+    "condensation_drops_completion_line": "实施计划阶段 2「突变审查的目标」：浓缩后丢掉 `errand_completed` 的句子"
+                                          "（record_lines 对办成记录返回空）。",
 }
 
 #: 本特性新增或改动的生产文件（延期标记与空壳函数的扫描范围），随各提交增长；阶段 1 的清单取自实施计划「台账形态」行。
@@ -713,15 +898,18 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/life/activity_control.py",
     "src/worldmock/life/control_items.py",
+    "src/worldmock/life/engine.py",
     "src/worldmock/life/errand_state.py",
     "src/worldmock/life/errands.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/narration.py",
     "src/worldmock/life/observe.py",
+    "src/worldmock/life/progress_layer.py",
     "src/worldmock/life/prompt_schemas.py",
     "src/worldmock/life/read_query_runtime.py",
     "src/worldmock/life/result_projection.py",
     "src/worldmock/life/session_actions.py",
+    "src/worldmock/life/settled_text.py",
     "src/worldmock/life/todo_layer.py",
     "src/worldmock/runtime.py",
     "tools/run-viewer-context.js",
@@ -734,8 +922,10 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/integration/test_read_query_runtime.py",
     "tests/integration/test_strict_reflection.py",
     "tests/life/test_errand_changes.py",
+    "tests/life/test_errand_completion.py",
     "tests/life/test_errand_names.py",
     "tests/life/test_errand_requests.py",
+    "tests/life/test_errand_settlement_idempotence.py",
     "tests/life/test_errand_state.py",
     "tests/life/test_errand_todo_layer.py",
     "tests/life/test_plan_day_duplicate_feedback.py",
