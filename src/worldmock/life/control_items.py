@@ -1,4 +1,8 @@
-"""@brief 只读取现行逐项控制请求，旧控制记录直接拒绝。"""
+"""@brief 只读取现行逐项控制请求，旧控制记录直接拒绝。
+
+本模块是控制请求的唯一读取入口（docs/dev/SPEC-errands-workday.md 2.9）：control_items 读逐项内容，control_errands 读请求级
+的个人事务变更；两者对工具与请求形状用同一套检查，缺字段即完整性故障。
+"""
 
 from __future__ import annotations
 
@@ -17,6 +21,8 @@ CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 VIEW_MEMORY_TYPES = frozenset({"relationship", "preference"})
 #: 请求形状的记忆字段（不带对象）；存储形状在其后加 subject。
 _MEMORY_KEYS = ("type", "text", "importance", "keywords")
+#: 一条个人事务变更的八个键（docs/dev/SPEC-errands-workday.md 2.2「每条变更」），全部必填，按这个顺序读出。
+_ERRAND_KEYS = ("change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason")
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,17 +52,26 @@ def control_items(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[Co
     :returns: 按请求顺序的各项；播报与暂停的记忆为空。
     :raises IntegrityError: 不是控制工具，或请求形状认不出、字段缺失。
     """
-    if tool not in CONTROL_TOOLS:
-        logging.error("Invalid activity control request: %s", f"Tool is not an activity control tool: {tool}")
-        raise IntegrityError(f"Tool is not an activity control tool: {tool}")
-    body = request.model_dump(mode="json") if isinstance(request, BaseModel) else request
-    if not isinstance(body, Mapping):
-        logging.error("Invalid activity control request: %s", f"{tool} request is not an object")
-        raise IntegrityError(f"{tool} request is not an object")
+    body = _body(tool, request)
     if "items" in body:
         return tuple(_current_item(tool, _mapping(row, tool)) for row in _list(body["items"], tool))
     logging.error("Invalid activity control request: %s", f"{tool} request shape is not recognised")
     raise IntegrityError(f"{tool} request shape is not recognised")
+
+
+def control_errands(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[dict[str, Any], ...]:
+    """@brief 读出控制工具请求里请求级的个人事务变更（docs/dev/SPEC-errands-workday.md 2.2、2.9），与 control_items 同一
+    入口检查：工具须是三个控制工具之一，模型按 JSON 形状导出，请求须是对象。
+
+    :param tool: report_status、pause_activity 或 conclude_activity。
+    :param request: 已校验的请求模型，或事件与导出里记录的请求参数（JSON 形状）。
+    :returns: 按请求顺序的各条变更，每条是只含八个键（change、name、outcome、item、quantity、memo、remind_time、reason，
+        按此顺序）的普通字典，值照请求所写。
+    :raises IntegrityError: 不是控制工具、请求不是对象、缺 errands、errands 不是列表，或某条变更不是对象、缺八键之一。
+    """
+    body = _body(tool, request)
+    entries = [_mapping(entry, tool) for entry in _list(_field(body, "errands", tool), tool)]
+    return tuple({key: _field(entry, key, tool) for key in _ERRAND_KEYS} for entry in entries)
 
 
 def control_request(tool: str, request: Mapping[str, Any] | BaseModel, *, memories: bool) -> dict[str, Any]:
@@ -69,6 +84,18 @@ def control_request(tool: str, request: Mapping[str, Any] | BaseModel, *, memori
             row["memories"] = [{key: memory[key] for key in _MEMORY_KEYS} for memory in item.plain_memories]
         rows.append(row)
     return {"items": rows}
+
+
+def _body(tool: str, request: Mapping[str, Any] | BaseModel) -> Mapping[str, Any]:
+    """@brief 控制请求的 JSON 形状：工具须是三个控制工具之一，模型按 JSON 形状导出，请求须是对象（两个读取入口共用）。"""
+    if tool not in CONTROL_TOOLS:
+        logging.error("Invalid activity control request: %s", f"Tool is not an activity control tool: {tool}")
+        raise IntegrityError(f"Tool is not an activity control tool: {tool}")
+    body = request.model_dump(mode="json") if isinstance(request, BaseModel) else request
+    if not isinstance(body, Mapping):
+        logging.error("Invalid activity control request: %s", f"{tool} request is not an object")
+        raise IntegrityError(f"{tool} request is not an object")
+    return body
 
 
 def _current_item(tool: str, row: Mapping[str, Any]) -> ControlItem:

@@ -121,6 +121,24 @@ def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
     engine.state = staged
 
 
+def errand_add(name: str, item: str, outcome: str = "取得", quantity: int = 1, memo=None, remind_time=None) -> dict:
+    """一条「新增」事务变更（请求形状的八键字典）：完成依据为结果种类、商品名与份数，原因为 null。"""
+    return {"change": "新增", "name": name, "outcome": outcome, "item": item, "quantity": quantity, "memo": memo,
+            "remind_time": remind_time, "reason": None}
+
+
+def errand_update(name: str, memo=None, remind_time=None) -> dict:
+    """一条「更新」事务变更：按待办层名称点名，只替换备注与提醒钟点（null 即清空），完成依据与原因为 null。"""
+    return {"change": "更新", "name": name, "outcome": None, "item": None, "quantity": None, "memo": memo,
+            "remind_time": remind_time, "reason": None}
+
+
+def errand_cancel(name: str, reason: str) -> dict:
+    """一条「取消」事务变更：按待办层名称点名并写原因，其余键为 null。"""
+    return {"change": "取消", "name": name, "outcome": None, "item": None, "quantity": None, "memo": None,
+            "remind_time": None, "reason": reason}
+
+
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象

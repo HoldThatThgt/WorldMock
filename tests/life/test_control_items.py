@@ -8,15 +8,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from tests.life.conftest import (activity_name, advance_next, conclude_request, pause_request, report_request,
                                  stage_day_plan, start_activity, wake_by_mail)
 from tests.life.test_memory_layer import _act, _memo, _view, _walk
 from worldmock.errors import IntegrityError
 from worldmock.life import memory_layer, progress_layer
-from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_items, control_request
+from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items, control_request
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.memory_evidence import conclusion_has_memories, memory_write_points
 
@@ -112,6 +114,61 @@ def test_unrecognised_or_malformed_requests_fail_as_integrity_errors(tool: str, 
     """@brief 旧数组、最早会话形状、非控制工具以及现行形状的缺字段和类型错误都明确拒绝。"""
     with pytest.raises(IntegrityError):
         control_items(tool, request_body)
+
+
+_ERRAND_KEYS = ["change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+_ERRANDS = [
+    {"change": "新增", "name": "补一份素炒什锦食材包", "outcome": "取得", "item": "素炒什锦食材包", "quantity": 1,
+     "memo": "下班前下单送到家", "remind_time": "17:00", "reason": None},
+    {"change": "更新", "name": "囤冰红茶", "outcome": None, "item": None, "quantity": None, "memo": "周末去超市",
+     "remind_time": None, "reason": None},
+    {"change": "取消", "name": "晚饭吃掉素炒什锦", "outcome": None, "item": None, "quantity": None, "memo": None,
+     "remind_time": None, "reason": "改在公司吃了"},
+]
+
+
+class _ErrandChange(BaseModel):
+    """测试用的事务变更模型：八个键，声明顺序与请求形状相反（读出的键序不取决于模型或请求里的写法顺序）。"""
+
+    reason: str | None
+    remind_time: str | None
+    memo: str | None
+    quantity: int | None
+    item: str | None
+    outcome: str | None
+    name: str
+    change: str
+
+
+class _ErrandRequest(BaseModel):
+    """测试用的控制请求模型：逐项内容与请求级 errands。"""
+
+    items: list[dict[str, Any]]
+    errands: list[_ErrandChange]
+
+
+@pytest.mark.parametrize("tool", CONTROL_TOOLS)
+def test_control_errands_reads_every_change_in_order(tool: str) -> None:
+    """@brief control_errands 是请求级事务变更的读取入口：模型（嵌套的变更模型按 JSON 形状导出）与 JSON 形状都按请求顺序
+    读出每条变更，每条恰好八键、键序固定、值照写；没有变更时为空。不是控制工具、请求不是对象、缺 errands、errands 不是
+    列表、某条不是对象、某条缺一个键都是完整性故障。"""
+    body = {"items": [{"activity_name": _WAIT, "summary": "等完了。"}], "errands": _ERRANDS}
+    read = control_errands(tool, {"errands": [dict(reversed(entry.items())) for entry in _ERRANDS], "items": []})
+    assert read == tuple(_ERRANDS) and all(list(entry) == _ERRAND_KEYS for entry in read)
+    model = _ErrandRequest.model_validate(body)
+    assert control_errands(tool, model) == tuple(_ERRANDS) == control_errands(tool, model.model_dump(mode="json"))
+    assert control_errands(tool, {**body, "errands": []}) == ()
+    lacking = {key: value for key, value in _ERRANDS[2].items() if key != "reason"}
+    for wrong_tool, request, message in [
+        ("start_activity", body, "Tool is not an activity control tool: start_activity"),
+        (tool, ["不是对象"], f"{tool} request is not an object"),
+        (tool, {"items": body["items"]}, f"{tool} request lacks errands"),
+        (tool, {**body, "errands": _ERRANDS[0]}, f"{tool} request field must be a list"),
+        (tool, {**body, "errands": ["新增"]}, f"{tool} request entry is not an object"),
+        (tool, {**body, "errands": [_ERRANDS[0], lacking]}, f"{tool} request lacks reason"),
+    ]:
+        with pytest.raises(IntegrityError, match=message):
+            control_errands(wrong_tool, request)
 
 
 def _readers(engine) -> dict:
