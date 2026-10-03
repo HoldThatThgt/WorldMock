@@ -359,21 +359,7 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
     工作（午休也在），15:00 之后的 3 小时既是缺勤也是早退，恒等关系成立；当天离开工作地点比班次结束早 180 分钟，没有
     卡片所以对下班窗口的一项为 null，离开的证据是回家那一程的首个进度事件，容差是场景的播报间隔。"""
     engine = engine_factory(mutate=_workday_run)
-    office = f"地点：{next(item.name for item in engine.scenario.locations if item.location_id == 'office')}"
-    home = f"地点：{next(item.name for item in engine.scenario.locations if item.location_id == 'home')}"
-    _decide_at(engine, _clock("08:00:00"))
-    _empty_handed(engine, "stop-waiting")
-    assert _decide(engine, "commute", "start_activity",
-                   lambda observed: layer_start(observed, office, "步行")).status == "in_progress"
-    _drive(engine, "to-office", lambda: engine.state.agents[1].location_id == "office")
-    assert engine.state.current_time < _clock("09:00:00")
-    _empty_handed(engine, "arrived")
-    _start_work(engine, "work-start")
-    _decide_at(engine, _clock("15:00:00"))
-    _empty_handed(engine, "stop-work")
-    assert _decide(engine, "leave", "start_activity",
-                   lambda observed: layer_start(observed, home, "步行")).status == "in_progress"
-    _decide_at(engine, _clock("18:30:00"))
+    _leave_on_duty_at_three(engine)
     events = [event.model_dump(mode="json") for event in engine.store.read_events(engine.store.last_event_seq)]
     inputs = workday_inputs(engine.semantics.document, {1: None})
     [group] = behavior_metrics_report(events, workday=inputs).values()
@@ -391,6 +377,26 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
                  and event["data"]["activity"]["kind"] == "travel"
                  and event["data"]["activity"]["started_at"] == _clock("15:00:00")][:1]
     assert today["evidence_event_ids"]["left_workplace"] == leaving["event_id"]
+
+
+def _leave_on_duty_at_three(engine) -> None:
+    """只发真实请求驱动 _workday_run 改写的运行：08:00 首个任务的通知到后从家步行去办公室、09:00 前到达并开工；
+    15:00:00 收工、同一秒步行回家，一直运行到 18:30（班次整个落在观察窗内）。"""
+    office = f"地点：{next(item.name for item in engine.scenario.locations if item.location_id == 'office')}"
+    home = f"地点：{next(item.name for item in engine.scenario.locations if item.location_id == 'home')}"
+    _decide_at(engine, _clock("08:00:00"))
+    _empty_handed(engine, "stop-waiting")
+    assert _decide(engine, "commute", "start_activity",
+                   lambda observed: layer_start(observed, office, "步行")).status == "in_progress"
+    _drive(engine, "to-office", lambda: engine.state.agents[1].location_id == "office")
+    assert engine.state.current_time < _clock("09:00:00")
+    _empty_handed(engine, "arrived")
+    _start_work(engine, "work-start")
+    _decide_at(engine, _clock("15:00:00"))
+    _empty_handed(engine, "stop-work")
+    assert _decide(engine, "leave", "start_activity",
+                   lambda observed: layer_start(observed, home, "步行")).status == "in_progress"
+    _decide_at(engine, _clock("18:30:00"))
 
 
 def _empty_handed(engine, name: str) -> None:

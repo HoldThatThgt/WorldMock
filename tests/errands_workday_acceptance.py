@@ -430,12 +430,15 @@ _PLAN_DUTY_TESTS = [
 ]
 
 _WORKLOAD = "tests/evaluation/test_workload_metrics.py::"
+_WORKLOAD_REPORT = "tests/life/test_workload_report.py::"
 #: 「工作负荷与作息偏离」：真实运行（engine_factory 加 declare，只发真实请求、不预置地点）班内 15:00 离开办公室回家，从
 #: SQLite 读回的事件与改写后的场景文档经 behavior_metrics_report 重算出三小时的早退与缺勤、恒等关系成立，离开工作地点
 #: 对班次结束早 180 分钟、证据是回家那一程的首个进度事件；手写事件逐值核对各量的定义与恒等关系、两种声明例外（休息时段、
 #: 已开放未结清任务的要求地点的外出）不计缺勤而不当班日不进统计、作息偏离三项对窗口与班次的正负与零、证据身份、容差
 #: 写进报告不作用于偏离值、班次两端在睡的标注、没有工作安排的人物离开一项为 null、缺输入为 null 并写说明、不出现已删除
-#: 的偏离指标键名、同一输入逐字节相同；打包输入取自经真实解析的场景文档与卡片。workday 子命令的节点随子命令切片补登。
+#: 的偏离指标键名、同一输入逐字节相同；打包输入取自经真实解析的场景文档与卡片。只读子命令 workday 对同一真实运行目录
+#: 经子进程打印恰好四键、值等于进程内重算、库文件字节不变；场景文件摘要不等于运行清单的 scenario_sha256 时以英文错误
+#: 非零退出、不打印；作息窗口取自运行工作区的结构化卡片，没有卡片时按 null 计并写说明。
 _WORKLOAD_TESTS = [
     _WORKLOAD + "test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave",
     _WORKLOAD + "test_workload_fields_follow_their_definitions_on_a_hand_built_day",
@@ -446,6 +449,9 @@ _WORKLOAD_TESTS = [
     _WORKLOAD + "test_routine_deviation_uses_none_of_the_removed_plan_deviation_names",
     _WORKLOAD + "test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_scenario_and_cards",
     _WORKLOAD + "test_reports_are_byte_reproducible",
+    _WORKLOAD_REPORT + "test_workday_command_prints_the_four_keys_for_a_real_run",
+    _WORKLOAD_REPORT + "test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario",
+    _WORKLOAD_REPORT + "test_workday_command_reports_null_windows_without_a_workspace_card",
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
@@ -1520,6 +1526,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_persona.py",
     "custom/agents/life_prompt.py",
     "custom/agents/life_reflection.py",
+    "scripts/inspect_run.py",
     "src/worldmock/delivery/pipeline.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
@@ -1580,6 +1587,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/life/test_plan_day_duplicate_feedback.py",
     "tests/life/test_revise_day_plan_json.py",
     "tests/life/test_work_schedule.py",
+    "tests/life/test_workload_report.py",
     "tests/life/work_schedule_fixtures.py",
     "tests/mutation_runner.py",
     "tests/test_errands_workday_acceptance.py",

@@ -10,10 +10,14 @@
   python3 scripts/inspect_run.py <run_dir> flows [--tail K]
   python3 scripts/inspect_run.py <run_dir> rerun
   python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
+  python3 scripts/inspect_run.py <run_dir> workday --scenario <场景文件>
 
 rerun 只读计算 docs/dev/SPEC-time-and-energy.md 验收台账「真实复验」行的八项指标，只报告，不作门禁。
 continuation 只读给出 docs/dev/SPEC-persona-prompt.md 第七章「续接对比」的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一场景文件、同一模型身份，只有 same_second_continuation 不同），不可比即拒绝比较。
+workday 只读打印 docs/dev/SPEC-errands-workday.md 6.2 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
+班次、任务、住处与播报间隔取自 --scenario 场景文件（其摘要须等于运行清单的 scenario_sha256，否则拒绝、不打印），
+作息窗口取自运行目录里人物工作区的结构化卡片。
 """
 from __future__ import annotations
 
@@ -661,6 +665,39 @@ def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
+#: 运行工作区里没有结构化卡片的人物的说明（与行为评估的报告说明同为中文）。
+MISSING_CARD_NOTE = "人物 {agent_id} 的运行工作区没有结构化卡片，作息窗口按 null 计"
+
+
+def _workspace_cards(run_dir: Path, agent_ids: list[int]) -> tuple[dict[int, dict | None], list[str]]:
+    """@brief 各人物运行工作区 AGENT.json 的结构化卡片（profile.persona_card_struct）；文件或键缺失时为 None 并写一条说明。"""
+    cards: dict[int, dict | None] = {}
+    notes: list[str] = []
+    for agent_id in agent_ids:
+        path = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}" / "AGENT.json"
+        profile = (json.loads(path.read_text(encoding="utf-8")).get("profile") or {}) if path.is_file() else {}
+        cards[agent_id] = profile.get("persona_card_struct")
+        if cards[agent_id] is None:
+            notes.append(MISSING_CARD_NOTE.format(agent_id=agent_id))
+    return cards, notes
+
+
+def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
+    """@brief 打印工作负荷与作息偏离（JSON，只报告）：班次、任务、住处与播报间隔取自 --scenario 场景文件，其摘要须等于
+    运行清单的 scenario_sha256（不等即以英文错误退出、不打印任何内容）；作息窗口取自运行工作区的结构化卡片。"""
+    from worldmock.evaluation.workload_metrics import workday_inputs, workday_reports
+    from worldmock.life.scenario import parse_scenario_document
+
+    manifest = _manifest(a.run_dir)
+    document, digest = parse_scenario_document(a.scenario)
+    if digest != manifest.get("scenario_sha256"):
+        raise SystemExit("Scenario file does not match the run manifest scenario_sha256")
+    cards, notes = _workspace_cards(a.run_dir, [agent.agent_id for agent in document.agents])
+    report = workday_reports(_rows(conn), document.timezone, workday_inputs(document, cards))
+    report["notes"] = [*report["notes"], *notes]
+    print(json.dumps({"run_id": manifest["run_id"], **report}, ensure_ascii=False, indent=2))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="只读浏览运行足迹")
     parser.add_argument("run_dir", type=Path)
@@ -681,7 +718,10 @@ if __name__ == "__main__":
     pc = sub.add_parser("continuation")
     pc.add_argument("--topic", action="append")
     pc.add_argument("--baseline", type=Path)
+    pw = sub.add_parser("workday")
+    pw.add_argument("--scenario", type=Path, required=True)
     args = parser.parse_args()
     conn = _connect(args.run_dir)
     {"summary": cmd_summary, "events": cmd_events, "event": cmd_event, "money": cmd_money, "body": cmd_body,
-     "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation}[args.cmd](conn, args)
+     "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation,
+     "workday": cmd_workday}[args.cmd](conn, args)
