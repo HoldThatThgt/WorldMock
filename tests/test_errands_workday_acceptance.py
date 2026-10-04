@@ -9,8 +9,8 @@
           至少对应一个登记变异；每个变异落在主进程执行的生产模块上、原文恰好出现一次、可编译，杀手是已登记的行为用例；
           每个变异在基线通过之后被杀死（退出码 1，没有收集错误）。
 @note     表格解析、节点解析、延期标记正则与空壳判定取自共用模块 tests/acceptance_guard.py；变异执行取自共用模块
-          tests/mutation_runner.py（与工具交互台账共用，回执目录分开）。阶段 5 收尾时在本文件加「实施阶段全部完成」的
-          判定，此前已完成阶段随实施增长。本文件自身不含任何延期标记字面量。
+          tests/mutation_runner.py（与工具交互台账共用，回执目录分开）。「实施阶段全部完成」的判定随阶段 5
+          收尾加入：阶段 1–5 必须都在已完成集合里。本文件自身不含任何延期标记字面量。
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from tests.errands_workday_acceptance import (
     EXTRA_MUTATIONS,
     FEATURE_PRODUCTION_FILES,
     FEATURE_TEST_FILES,
+    IMPLEMENTATION_STAGES,
     LEDGER,
     MUTATIONS,
     RECEIPTS,
@@ -163,6 +164,18 @@ def test_feature_and_registered_python_files_have_no_stub_functions() -> None:
     stubs = {relative: found for relative in _scanned_files() if relative.endswith(".py")
              if (found := stub_functions(ast.parse((REPO_ROOT / relative).read_text(encoding="utf-8"))))}
     assert not stubs, stubs
+
+
+def test_every_implementation_stage_is_done() -> None:
+    """实施阶段全部完成：改代码与测试的阶段 1–4 与全量门禁阶段 5 都在 STAGES_DONE 中，其台账行与变异句由本守卫判定。
+
+    阶段 0 是冻结提交上的基线全量，没有台账行；阶段 6 是配对全天复跑，只报告、不作门禁，只在用户要求时启动；
+    阶段 7 是实现后文档。三者不改代码，不属于实施阶段。
+    """
+    assert IMPLEMENTATION_STAGES < STAGE_IDS
+    assert STAGE_IDS - IMPLEMENTATION_STAGES == {"0", "6", "7"}
+    missing = sorted(IMPLEMENTATION_STAGES - STAGES_DONE)
+    assert not missing, f"implementation stages not done: {missing}"
 
 
 def test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered() -> None:

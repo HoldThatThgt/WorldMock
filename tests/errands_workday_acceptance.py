@@ -33,8 +33,13 @@ STAGE_IDS = frozenset(str(number) for number in range(8))
 #: 与提示分工）随收尾提交完成：十行台账都列出节点，二十六句规格变异都有登记变异（阶段复审之后，一句列出的每种情形各有
 #: 一个）；阶段 3（作息与工作安排）在自己的分支上开发、随合并进入主线：它的六行都列出节点，十二句变异各有登记的杀死
 #: 变异；阶段 4（查询筛选与返回精简）只依赖阶段 1，与阶段 2 并行开发、随合并进入主线：它的五行都列出经真实引擎的
-#: 节点，七句变异各有登记的杀死变异。
-STAGES_DONE: frozenset[str] = frozenset({"1", "2", "3", "4"})
+#: 节点，七句变异各有登记的杀死变异。阶段 5（全量门禁与独立变异审查）随本行登记完成：「工程门禁」列出门禁自身的
+#: 测试，全量测试、覆盖率门禁在最终代码上的运行结果与两轮独立源码变异审查写在本特性验收记录。
+STAGES_DONE: frozenset[str] = frozenset({"1", "2", "3", "4", "5"})
+
+#: 改代码与测试的实施阶段，加上全量门禁阶段：必须全部完成。阶段 0 是冻结提交上的基线全量、没有台账行；阶段 6 是配对
+#: 全天复跑，只报告、不作门禁，只在用户要求时启动；阶段 7 是实现后文档，实现状态文档最后提交。
+IMPLEMENTATION_STAGES = frozenset({"1", "2", "3", "4", "5"})
 
 _PROTOCOL = "tests/integration/test_life_agent_protocol.py::"
 _FAILURE_STAGES = "tests/integration/test_host_failure_stages.py::"
@@ -653,6 +658,25 @@ _WORKLOAD_TESTS = [
 ]
 
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
+#: 阶段 5 的「工程门禁」行：风格门禁零新增违规、覆盖率门禁的阈值与未覆盖公共接口判定、文档链接门禁在真实仓库上通过。
+#: 全量测试与覆盖率门禁在最终代码上的运行结果（重新生成并提交的 docs/dev/coverage-report.json）写在本特性验收记录。
+_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
+_ENGINEERING_GATE_TESTS = [
+    "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
+    "tests/test_coverage_gate.py::test_branch_threshold_boundary",
+    "tests/test_coverage_gate.py::test_uncovered_public_interface_detection",
+    _DOC_GATE,
+]
+
+#: 阶段 7 的「文档一致性」行：文档链接门禁通过、设计汇编与源一致、带锚点的链接指向现有标题、文档里不留临时待验收标记。
+_DOCUMENT_CONSISTENCY_TESTS = [
+    _DOC_GATE,
+    "tests/test_design_doc_build.py::"
+    "test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current",
+    "tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings",
+    "tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature",
+]
+
 LEDGER: dict[str, dict[str, object]] = {
     "严格反思": {"stage": "1", "tests": _REFLECTION_TESTS},
     "只读查询转发": {"stage": "1", "tests": _READ_QUERY_TESTS},
@@ -679,9 +703,9 @@ LEDGER: dict[str, dict[str, object]] = {
     "可执行筛选": {"stage": "4", "tests": _EXECUTABLE_FILTER_TESTS},
     "分页与返回": {"stage": "4", "tests": _PAGING_TESTS},
     "查询只读": {"stage": "4", "tests": _QUERY_READONLY_TESTS},
-    "工程门禁": {"stage": "5", "tests": []},
+    "工程门禁": {"stage": "5", "tests": _ENGINEERING_GATE_TESTS},
     "复跑指标（只报告）": {"stage": "6", "tests": []},
-    "文档一致性": {"stage": "7", "tests": []},
+    "文档一致性": {"stage": "7", "tests": _DOCUMENT_CONSISTENCY_TESTS},
 }
 
 #: 只报告的台账行：规格写明不作门禁；行本身的真实运行不在测试中执行。
