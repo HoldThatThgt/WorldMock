@@ -319,6 +319,7 @@ def test_changed_selection_includes_staged_unstaged_and_untracked(tmp_path, monk
 
 
 def test_real_serial_and_parallel_workers_return_identical_complete_nodes(tmp_path, monkeypatch):
+    """@brief 实测权重交错目录后，串并行均保留局部夹具作用域和完整节点。"""
     source_root = run_tests.ROOT
     (tmp_path / "tests").mkdir()
     for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py"):
@@ -327,20 +328,28 @@ def test_real_serial_and_parallel_workers_return_identical_complete_nodes(tmp_pa
     with (tmp_path / "conftest.py").open("a", encoding="utf-8") as handle:
         handle.write("\n@pytest.fixture\ndef shared_value():\n    return 42\n")
     records = []
-    for name in ("alpha", "beta"):
-        file = f"tests/test_{name}.py"
+    nested = tmp_path / "tests/nested"
+    nested.mkdir()
+    (nested / "__init__.py").write_text("", encoding="utf-8")
+    (nested / "conftest.py").write_text(
+        "import pytest\n@pytest.fixture\ndef local_value():\n    return 17\n", encoding="utf-8")
+    files = ("tests/nested/test_alpha.py", "tests/test_top.py", "tests/nested/test_beta.py")
+    for file in files:
+        local = "nested/" in file
         (tmp_path / file).write_text(
             "from pathlib import Path\n"
-            "def test_shared(shared_value, tmp_path):\n"
+            f"def test_shared(shared_value, tmp_path{', local_value' if local else ''}):\n"
             "    assert shared_value == 42\n"
-            "    assert not tmp_path.is_relative_to(Path.cwd())\n", encoding="utf-8")
+            + ("    assert local_value == 17\n" if local else "")
+            + "    assert not tmp_path.is_relative_to(Path.cwd())\n", encoding="utf-8")
         records.append(_record("test_shared", file=file))
     monkeypatch.setattr(run_tests, "ROOT", tmp_path)
     expected = [row["nodeid"] for row in records]
     for count in (1, 2):
         directory = tmp_path / f"workers-{count}"
         directory.mkdir()
-        buckets = run_tests.shards(records, count, {})
+        weights = dict(zip(files, (100.0, 50.0, 1.0), strict=True))
+        buckets = run_tests.shards(records, count, weights)
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=count) as pool:

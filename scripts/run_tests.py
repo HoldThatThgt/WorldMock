@@ -149,7 +149,9 @@ def run_shard(index, shard, directory, coverage):
     start = perf_counter()
     # 测试临时目录不能继承被测仓库身份，各进程使用独立的系统临时目录。
     with TemporaryDirectory(prefix="worldmock-test-shard-") as temporary:
-        command.extend(["pytest", "-q", *shard["files"], "--worldmock-selected", str(selected),
+        # 父目录文件先收集，子目录文件连续排列，保持局部夹具的目录作用域。
+        files = sorted(shard["files"], key=lambda name: (Path(name).parts[:-1], Path(name).name))
+        command.extend(["pytest", "-q", *files, "--worldmock-selected", str(selected),
                         "--worldmock-receipt", str(receipt), "--basetemp", str(Path(temporary) / "pytest")])
         with (target / "output.log").open("w", encoding="utf-8") as output:
             result = _run(command, stdout=output, stderr=subprocess.STDOUT)
