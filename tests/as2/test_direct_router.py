@@ -93,7 +93,3 @@ async def test_direct_router_rejects_text_and_ambiguous_environment() -> None:
         await router.scheduling_state()
     with pytest.raises(RuntimeError, match="does not accept text"):
         await router.ask(SimpleNamespace())
-
-
-
-
