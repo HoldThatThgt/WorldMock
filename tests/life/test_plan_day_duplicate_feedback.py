@@ -39,7 +39,7 @@ def _work_goals() -> list[dict]:
 
 def _plan_day_events(engine, event_type: str) -> list:
     """SQLite 里本人的零点计划模型证据事件（按提交顺序）。"""
-    return [event for event in engine.store.read_events(engine.store.last_event_seq)
+    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
             if event.event_type == event_type and event.agent_id == 1
             and event.data.get("purpose") == day_planning.PLAN_DAY_PURPOSE]
 
@@ -88,7 +88,7 @@ def test_plan_day_duplicate_intents_are_fed_back_with_every_position_then_regist
     assert [event.data["request"] for event in requests] == client.calls
     attached = json.loads(requests[1].data["request"]["messages"][-1]["content"])
     assert attached["VALIDATION_ERROR"] == feedback and attached["PREVIOUS_INVALID_RESPONSE"] == duplicate
-    assert [(goal.intent_kind, goal.goal) for goal in engine.state.agents[1].day_plan.goals] == [
+    assert [(goal.intent_kind, goal.goal) for goal in engine.context.state.agents[1].day_plan.goals] == [
         (goal["intent_kind"], goal["goal"]) for goal in merged]
 
 
@@ -106,4 +106,4 @@ def test_plan_day_reports_over_capacity_together_with_duplicates(engine_factory)
     assert errors == [_feedback((0, kind), (8, kind), capacity=True), _feedback(capacity=True), None]
     attached = [json.loads(call["messages"][-1]["content"])["VALIDATION_ERROR"] for call in client.calls[1:]]
     assert attached == errors[:2]
-    assert [goal.intent_kind for goal in engine.state.agents[1].day_plan.goals] == list(INTENT_KINDS[:8])
+    assert [goal.intent_kind for goal in engine.context.state.agents[1].day_plan.goals] == list(INTENT_KINDS[:8])

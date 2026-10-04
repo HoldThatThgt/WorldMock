@@ -1,6 +1,7 @@
 """@brief 在生产消费者入口认证完整足迹导出及全部来源。"""
 
 from __future__ import annotations
+from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
 
 import hashlib
 import json
@@ -31,7 +32,6 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     _validate_events(manifest, records)
     _validate_assets(root, records, checkpoint, indexed)
     validate_account_history(records, checkpoint.state)
-    from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
 
     if reconstruct_activities(records) != activities:
         raise IntegrityError("Export activities disagree with their authoritative events")

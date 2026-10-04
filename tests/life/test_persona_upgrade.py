@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from worldmock.life.scenario import LifeScenario, load_scenario
+from worldmock.life.scenario import LifeScenario
+from worldmock.life.world_setup import load_scenario
 
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
@@ -55,7 +56,7 @@ def test_new_persona_fields_are_optional_and_template_fields_are_gone() -> None:
     assert agent.background_story is None
     assert agent.health_habits is None
     assert agent.social_style is None
-    assert not hasattr(agent, "occupation")  # 模板字段已删除（docs/dev/SPEC-life-realism.md「画像编译」）
+    assert not hasattr(agent, "occupation")  # 模板字段已删除（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）
 
 
 @pytest.mark.parametrize("path", [_FORMAL, _MULTI])
@@ -116,13 +117,13 @@ def test_same_persona_compiles_to_the_same_profile_across_scenarios() -> None:
 
 
 def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt() -> None:
-    """人设层（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：有编译卡片的人物取卡片的身份、作息与关系，场景联系人
+    """人设层（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「人设层」）：有编译卡片的人物取卡片的身份、作息与关系，场景联系人
     随后；没有卡片的人物只填姓名；卡片渲染文本、当下处境与经历、健康习惯、社交风格等画像字段都不进提示。"""
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
     from tests.integration.test_life_agent_protocol import _observations
-    from worldmock.runtime import _agent_specs
+    from worldmock.run_setup import _agent_specs
 
     scenario, _ = load_scenario(_FORMAL)
 
@@ -160,7 +161,7 @@ def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt()
 @pytest.mark.asyncio
 async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_fields(tmp_path) -> None:
     """记忆巩固与反思读取的人物段（工作区 MEMORY.md 的「身份」）：新建运行编译出卡片的人物取卡片渲染文本（卡片先经场景
-    作息覆盖，docs/dev/SPEC-dayrun-fidelity.md 2.1）；没有卡片的人物由姓名与场景声明的经历、健康习惯、社交风格逐行组装。
+    作息覆盖，docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；没有卡片的人物由姓名与场景声明的经历、健康习惯、社交风格逐行组装。
     两者都经真实 LifeAgent 与 WorldMock 记忆运行时写出。"""
     from agentsociety2.agent.base import ReactLoopRequest
     from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
@@ -170,7 +171,7 @@ async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_f
     from tests.profile.conftest import make_card
     from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.textgen import render_card
-    from worldmock.runtime import _agent_specs
+    from worldmock.run_setup import _agent_specs
 
     scenario, _ = load_scenario(_FORMAL)
 
@@ -205,7 +206,7 @@ async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_f
 
 
 # ---------------------------------------------------------------------------
-# 画像编译 v2（PersonaCard 合同，docs/dev/SPEC-life-realism.md「画像编译」）：以下用例自包含（打桩提取层，
+# 画像编译 v2（PersonaCard 合同，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：以下用例自包含（打桩提取层，
 # 直接读场景 JSON 取 background_story，不经 load_scenario 的语料清单完整性门禁）。
 # ---------------------------------------------------------------------------
 

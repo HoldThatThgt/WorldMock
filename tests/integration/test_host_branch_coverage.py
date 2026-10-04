@@ -3,6 +3,7 @@ validation 拒绝分支与 opslog 边界。模型客户端全部打桩，零真�
 """
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
 
 import asyncio
 import json
@@ -25,38 +26,11 @@ from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
 from worldmock.life.run_identity import category_identity
-from worldmock.life.semantics import load_runtime_scenario
-from worldmock.runtime import (
-    CounterfactualRequest,
-    ResumeRequest,
-    RunRequest,
-    _build_society,
-    _cleanup_runtime,
-    _configure_process,
-    _contact_profile,
-    _execute,
-    _intervention_sha256,
-    _model_identity,
-    _ops_crash_log,
-    _pending_reply_requests,
-    _prepend_pythonpath,
-    _prepare_new_run,
-    _prepare_resume,
-    _read_deepseek_key,
-    _require_custom_modules,
-    _require_loaded_config,
-    _require_runtime_identity,
-    _require_run_shell,
-    _terminate_failed_actor,
-    parse_contact_reply,
-    prepare_contact_reply,
-    resume_world,
-    replay_world,
-    run_world,
-    runtime_code_sha256,
-)
+from worldmock.life.world_setup import load_runtime_scenario
+from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _cleanup_runtime, _contact_profile, _execute, _intervention_sha256, _ops_crash_log, _pending_reply_requests, _prepare_new_run, _prepare_resume, _require_custom_modules, _require_runtime_identity, _require_run_shell, _terminate_failed_actor, parse_contact_reply, prepare_contact_reply, resume_world, replay_world, run_world
+from worldmock.run_setup import _configure_process, _model_identity, _prepend_pythonpath, _read_deepseek_key, _require_loaded_config, runtime_code_sha256
 from worldmock.status import read_status, write_status
-from worldmock.validation import validate_stage_model_identity
+from worldmock.run_setup import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -137,7 +111,7 @@ async def test_entry_wrappers_delegate_and_propagate_failures(monkeypatch, tmp_p
         seen.append(prepared)
         return SimpleNamespace(ok=True)
 
-    monkeypatch.setattr(runtime, "_configure_process", lambda root: seen.append("configure"))
+    monkeypatch.setattr(worldmock_run_setup_module, '_configure_process', lambda root: seen.append('configure'))
     monkeypatch.setattr(runtime, "_prepare_new_run", lambda request: "prepared-new")
     monkeypatch.setattr(runtime, "_prepare_resume", lambda request, intervention=None: (
         "prepared-resume" if intervention is None else "prepared-replay"))
@@ -276,7 +250,7 @@ def test_configure_process_sets_worker_environment(tmp_path, monkeypatch):
         monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
         _configure_process(ROOT)
         assert os.environ["AGENTSOCIETY_LLM_MODEL"] == "deepseek-flash"
-        # AS2 的默认与 CODER 角色都指向 strict 所在的 /beta（docs/dev/SPEC-dayrun-fidelity.md 7.5）。
+        # AS2 的默认与 CODER 角色都指向 strict 所在的 /beta（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-strict-端点 ）。
         assert (os.environ["AGENTSOCIETY_LLM_API_BASE"], os.environ["AGENTSOCIETY_CODER_LLM_API_BASE"]) == (
             "https://api.deepseek.com/beta", "https://api.deepseek.com/beta")
         assert os.environ["AGENTSOCIETY_LLM_API_KEY"] == "secret-a,secret-b"
@@ -370,7 +344,7 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
 
 def _parent_store(tmp_path, workspace_builder=None, snapshots_override=None):
     """建立带可恢复检查点的父运行（当前模型/代码身份）。"""
-    from worldmock.runtime import stage_model_identity
+    from worldmock.run_setup import stage_model_identity
 
     semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
     manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
@@ -451,7 +425,7 @@ def test_prepare_resume_counterfactual_binds_intervention(tmp_path):
 
 def test_require_runtime_identity_rejects_diverged_manifest(tmp_path, monkeypatch):
     """父清单模型或代码身份（含实际导入的 AS2）偏离时拒绝恢复；git_commit 与 git_dirty 只记录，不参与比对。"""
-    from worldmock.runtime import stage_model_identity
+    from worldmock.run_setup import stage_model_identity
 
     parent, _checkpoint = _parent_store(tmp_path)
     parent.close()
@@ -481,7 +455,7 @@ def test_runtime_code_sha256_requires_complete_sources(tmp_path, monkeypatch):
         runtime_code_sha256(tmp_path)
     project = write_project(tmp_path / "project")
     assert len(runtime_code_sha256(project)) == 64
-    monkeypatch.setattr(runtime, "_AS2_PACKAGE", "worldmock_absent_as2_package")
+    monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', 'worldmock_absent_as2_package')
     with pytest.raises(IntegrityError, match="AS2 runtime identity differs from the locked source"):
         runtime_code_sha256(project)
 
@@ -605,20 +579,20 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     import worldmock.runtime as runtime
     from agentsociety2.config import llm_dispatcher
     from worldmock.life import read_query_runtime
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     scenario, _ = load_scenario(SCENARIO)
     captured = {}
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
     monkeypatch.setattr(
-        read_query_runtime, "life_env_actor_class",
+        runtime, "life_env_actor_class",
         lambda: Namespace(remote=lambda spec: (captured.__setitem__("spec", spec), "actor")[1]))
     from tests.profile.conftest import make_card
     from worldmock.profile.models import Tastes
 
     card = make_card(tastes=Tastes(content_genres=("剧情",), food_preferences=(), media=()))
-    monkeypatch.setattr(runtime, "_compile_persona", lambda agent: card)
+    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', lambda agent: card)
 
     actor, society = _build_society(SimpleNamespace(
         project_root=ROOT, run_dir=tmp_path / "run", run_id="identity",
@@ -631,7 +605,7 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     assert set(weights) == {agent.agent_id for agent in scenario.agents}
     games = {item.game_id for item in scenario.games}
     for row in weights.values():
-        # 游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：正式场景的 TextWorld 游戏
+        # 游戏与内容同一算法（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）：正式场景的 TextWorld 游戏
         # 在题材表里没有声明，权重为 0，实际缓解走下限偏好。
         assert row and set(row) == {item.item_id for item in scenario.contents} | games
         assert all(0.0 <= value <= 1.0 for value in row.values())
@@ -660,13 +634,13 @@ def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
     import worldmock.runtime as runtime
 
     quiet = SimpleNamespace(background_story=None)
-    assert runtime._compile_persona(quiet) is None
+    assert worldmock_run_setup_module._compile_persona(quiet) is None
     card = SimpleNamespace()
     compiled = SimpleNamespace(card=card, warnings=("field_agreement_below_two_thirds: ['coping']",))
     monkeypatch.setattr(compile_module, "compile_persona", lambda story: compiled)
     monkeypatch.setattr(textgen_module, "render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
-    assert runtime._compile_persona(story_agent) is compiled
+    assert worldmock_run_setup_module._compile_persona(story_agent) is compiled
     assert runtime._compiled_parts(compiled) == (card, compiled.warnings)
     assert runtime._render_card(card) == "rendered-card"
 
@@ -843,7 +817,7 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
     from tests.life.conftest import context
     from worldmock.life.engine import LifeEngine
     from worldmock.life.models import RunIdentity, SendMessageActionRequest
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     scenario, _ = load_scenario(SCENARIO)
     identity = RunIdentity(
@@ -870,9 +844,9 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
         results = await env.commit_decision_round("settle-direct")
         assert results[0].status == "completed"
         # 回复登记为预排送达（裁决 #21）：本轮提交后尚未进入收件箱。
-        assert not [item for item in engine.state.agents[1].inbox.values()
+        assert not [item for item in engine.context.state.agents[1].inbox.values()
                     if item.sender_id == "contact-chenxi-oldfriend"]
-        replies = [item.data["message"] for item in engine.state.pending_events if item.kind == "message_arrival"]
+        replies = [item.data["message"] for item in engine.context.state.pending_events if item.kind == "message_arrival"]
         assert len(replies) == 1 and replies[0]["text"] == "好啊，老地方见。"
         assert replies[0]["sender_id"] == "contact-chenxi-oldfriend"
         assert built and built[0]["requested_model"] == "deepseek-flash"
@@ -881,7 +855,7 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
 
 
 # ---------------------------------------------------------------------------
-# 零点计划客户端与后台任务（docs/dev/SPEC-time-and-energy.md 第四章「执行位置」）
+# 零点计划客户端与后台任务（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「执行位置」）
 # ---------------------------------------------------------------------------
 
 
@@ -934,7 +908,7 @@ async def test_settle_pending_day_plans_builds_client_from_manifest_only_when_ne
     from tests.life.conftest import StubPlanDayClient
     from worldmock.life.engine import LifeEngine
     from worldmock.life.models import RunIdentity
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     built = []
 
@@ -953,10 +927,10 @@ async def test_settle_pending_day_plans_builds_client_from_manifest_only_when_ne
     try:
         monkeypatch.setattr(runtime, "PlanDayClient", RecordingClient)
         assert await runtime.settle_pending_day_plans(engine) == [{"agent_id": 1, "date": "2026-01-05", "goals": 0}]
-        assert built == [engine.store.manifest["model_identity"]]
+        assert built == [engine.context.store.manifest["model_identity"]]
         assert await runtime.settle_pending_day_plans(engine) == []
-        ended = SimpleNamespace(state=engine.state.model_copy(update={"current_time": engine.state.end_time}),
-                                scenario=engine.scenario)
+        ended = SimpleNamespace(state=engine.context.state.model_copy(update={"current_time": engine.context.state.end_time}),
+                                scenario=engine.context.scenario)
         assert await runtime.settle_pending_day_plans(ended) == []
         assert len(built) == 1
     finally:
@@ -1066,7 +1040,7 @@ def test_read_status_decision_boundaries(tmp_path):
 
 def test_stage_identity_rejects_retries_and_reasoning_effort():
     """阶段身份一致性：重试非零与发送 reasoning_effort 均拒绝。"""
-    from worldmock.runtime import stage_model_identity
+    from worldmock.run_setup import stage_model_identity
 
     actual = stage_model_identity()
     retries = copy_dict(actual)
@@ -1097,7 +1071,7 @@ def test_validate_project_requires_installed_labelkit_cli(tmp_path, monkeypatch)
 
 def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agents(tmp_path):
     """绝对语料根可用；未声明背景故事的人物跳过（没有卡片，也没有内容与游戏，不产生输入警告）。"""
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
     from worldmock.validation import validate_persona_coverage
 
     plain = load_scenario(SCENARIO)[0].agents[0].model_copy(update={"background_story": None})
@@ -1113,7 +1087,7 @@ def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agent
 
 def test_scenario_content_kinds_include_declared_games():
     """场景声明游戏时媒介闭集纳入 game_session。"""
-    from worldmock.validation import _scenario_content_kinds
+    from worldmock.profile.coverage_targets import _scenario_content_kinds
 
     plain = SimpleNamespace(contents=[SimpleNamespace(kind="feature_film")], games=None)
     assert _scenario_content_kinds(plain) == {"feature_film"}
@@ -1475,8 +1449,8 @@ def test_restore_rejects_missing_changed_or_wrong_type_agent_budget(tmp_path, bu
 async def test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspace(tmp_path):
     """生产配置经检查点恢复后，由实际 LifeAgent.restore 读文件得到十六回合预算。"""
     from custom.agents.life_agent import LifeAgent
-    from worldmock.life.scenario import load_scenario
-    from worldmock.runtime import _agent_specs, stage_model_identity
+    from worldmock.life.world_setup import load_scenario
+    from worldmock.run_setup import _agent_specs, stage_model_identity
 
     scenario, _ = load_scenario(SCENARIO)
     spec = _agent_specs(scenario, persona_compiler=lambda _: None)[0]
@@ -1558,7 +1532,7 @@ def test_cli_dispatch_routes_run_command(tmp_path, monkeypatch):
 
 def test_stage_identity_requires_strict_declarations():
     """阶段身份一致性：strict 声明缺失即拒绝。"""
-    from worldmock.runtime import stage_model_identity
+    from worldmock.run_setup import stage_model_identity
 
     relaxed = copy_dict(stage_model_identity())
     relaxed["strict"] = False

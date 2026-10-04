@@ -1,6 +1,7 @@
 """@brief 从冻结地图与当前世界查询地点、路线和独立门店供给。"""
 
 from __future__ import annotations
+from worldmock.life.projection import visible_supplies
 
 from dataclasses import dataclass
 from typing import Any
@@ -103,7 +104,6 @@ def range_status(route: dict, maximum_seconds: int | None) -> str:
 
 def stage_visible_supplies(state, agent_id: int, supply_ids: set[str], scenario):
     """@brief 仅把实际呈现供给写成可见凭据；过期和换位置的旧凭据不继承。"""
-    from worldmock.life.projection import visible_supplies
 
     if not supply_ids:
         return state

@@ -1,4 +1,4 @@
-"""@brief 在原生 AS2 生命周期中承载生活环境的冻结只读查询（docs/dev/SPEC-errands-workday.md 1.2）。
+"""@brief 在原生 AS2 生命周期中承载生活环境的冻结只读查询（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-只读查询转发 ）。
 
 这是锁定 AS2 提交上的 Life 扩展：不 monkey patch、不改 AS2、不做多版本兼容。两个子类各只新增 read_query 一个方法，
 运行装配（worldmock.runtime._build_society）以它们建立环境 actor 与代理；装配 AS2 原类时回看任务到不了环境。

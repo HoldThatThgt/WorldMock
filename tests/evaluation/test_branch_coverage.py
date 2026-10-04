@@ -2,7 +2,7 @@
 @brief    C4d 覆盖率达标单元：evaluation 簇缺失分支与公共接口的行为测试。
 
 只新增测试，不修改生产代码；统计类断言使用可手算的小夹具。
-规格依据：`docs/VERIFICATION.md`「真实性评估与结论边界」（真实性评估合同）
+规格依据：`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」（真实性评估合同）
 与「测试矩阵」的行为指标行。
 """
 
@@ -151,7 +151,7 @@ def _public_event(
 
 
 # ---------------------------------------------------------------------------
-# io.py：严格 JSON 输入、原子输出与文件身份校验（`docs/VERIFICATION.md`「真实性评估与结论边界」的输入身份合同）
+# io.py：严格 JSON 输入、原子输出与文件身份校验（`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」的输入身份合同）
 # ---------------------------------------------------------------------------
 
 
@@ -337,23 +337,28 @@ def _finding(**overrides: Any) -> dict[str, Any]:
 
 
 def test_evaluate_causality_passes_hard_errors_through(_=None) -> None:
-    from worldmock.delivery import rules
+    import worldmock.evaluation.causality as causality
 
-    original = rules.evaluate_causal_events
+    original = causality.evaluate_causal_events
     try:
-        rules.evaluate_causal_events = lambda events, support: [_finding()]
+        causality.evaluate_causal_events = lambda events, support: [_finding()]
         result = evaluate_causality(_view(), {})
         assert result.passed is False
         assert result.hard_errors[0]["code"] == "order_without_payment"
         assert result.to_dict()["hard_error_count"] == 1
     finally:
-        rules.evaluate_causal_events = original
+        causality.evaluate_causal_events = original
 
 
 def test_evaluate_causality_reports_unavailable_checker(monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "worldmock.delivery.rules", None)
-    with pytest.raises(EvaluationError, match="causal evaluator is unavailable"):
-        evaluate_causality(_view(), {})
+    import importlib
+    import worldmock.evaluation.causality as causality
+
+    with monkeypatch.context() as patch:
+        patch.setitem(sys.modules, "worldmock.delivery.rules", None)
+        with pytest.raises(EvaluationError, match="causal evaluator is unavailable"):
+            importlib.reload(causality)
+    importlib.reload(causality)
 
 
 @pytest.mark.parametrize(
@@ -370,26 +375,26 @@ def test_evaluate_causality_reports_unavailable_checker(monkeypatch) -> None:
 def test_evaluate_causality_rejects_invalid_finder_payloads(
     monkeypatch, payload: Any, match: str
 ) -> None:
-    from worldmock.delivery import rules
+    import worldmock.evaluation.causality as causality
 
-    monkeypatch.setattr(rules, "evaluate_causal_events", lambda events, support: payload)
+    monkeypatch.setattr(causality, "evaluate_causal_events", lambda events, support: payload)
     with pytest.raises(EvaluationError, match=match):
         evaluate_causality(_view(), {})
 
 
 def test_evaluate_causality_wraps_checker_failure(monkeypatch) -> None:
-    from worldmock.delivery import rules
+    import worldmock.evaluation.causality as causality
 
     def _explode(events: Any, support: Any) -> None:
         raise RuntimeError("checker bug")
 
-    monkeypatch.setattr(rules, "evaluate_causal_events", _explode)
+    monkeypatch.setattr(causality, "evaluate_causal_events", _explode)
     with pytest.raises(EvaluationError, match="causal evaluator failed"):
         evaluate_causality(_view(), {})
 
 
 # ---------------------------------------------------------------------------
-# decision.py：结论规则（不可比较、区间方向与一致方向，`docs/VERIFICATION.md`「真实性评估与结论边界」）
+# decision.py：结论规则（不可比较、区间方向与一致方向，`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」）
 # ---------------------------------------------------------------------------
 
 
@@ -632,7 +637,7 @@ def test_claim_text_covers_all_result_statuses() -> None:
     assert "真人参照" in reporting_module._claim_text({"status": "human_reference_comparison"})
     assert "共同观察范围不足" in reporting_module._claim_text({"status": "not_comparable"})
 # ---------------------------------------------------------------------------
-# scenario.py：评估场景严格读取的全部拒绝分支（`docs/VERIFICATION.md`「真实性评估与结论边界」的声明窗口合同）
+# scenario.py：评估场景严格读取的全部拒绝分支（`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」的声明窗口合同）
 # ---------------------------------------------------------------------------
 
 FORMAL_SCENARIO = Path(__file__).parents[2] / "scenarios/evaluation.json"
@@ -1304,7 +1309,7 @@ def test_checkpoint_time_must_match_evaluation_window(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# review.py：盲评包校验、收据校验、解盲统计（`docs/VERIFICATION.md`「真实性评估与结论边界」的盲评合同）
+# review.py：盲评包校验、收据校验、解盲统计（`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」的盲评合同）
 # ---------------------------------------------------------------------------
 
 
@@ -1609,7 +1614,7 @@ def test_reliability_reports_not_applicable_when_raters_agree_nowhere(tmp_path: 
 
 
 # ---------------------------------------------------------------------------
-# runner.py：准备收据与最终清单完整性（评估产物合同，`docs/VERIFICATION.md`「真实性评估与结论边界」）
+# runner.py：准备收据与最终清单完整性（评估产物合同，`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」）
 # ---------------------------------------------------------------------------
 
 
@@ -1714,7 +1719,7 @@ def test_verify_final_manifest_rejects_uncommitted_and_drifted_state(tmp_path: P
     with pytest.raises(EvaluationError, match="evaluation manifest changed after write"):
         runner_module._verify_final_manifest(tmp_path, {"committed": True, "artifacts": {}})
 # ---------------------------------------------------------------------------
-# public_evidence.py：闭集公开结构证据的提取分支（`docs/VERIFICATION.md`「真实性评估与结论边界」的公开证据合同）
+# public_evidence.py：闭集公开结构证据的提取分支（`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」的公开证据合同）
 # ---------------------------------------------------------------------------
 
 

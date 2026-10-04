@@ -1,3 +1,4 @@
+<a name="readme-worldmock-设计文档集"></a>
 # WorldMock 设计文档集
 
 > 状态：设计文档集入口
@@ -5,39 +6,43 @@
 > 范围：产品设计说明书的组织结构与阅读指引
 
 
+<a name="readme-工具交互设计同步"></a>
 ## 工具交互设计同步
 
-[工具交互规格](../dev/SPEC-tool-interaction.md)是本次最终特性合同；逐项活动、品类分页查询、完整错误、
+[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)是本次最终特性合同；逐项活动、品类分页查询、完整错误、
 类别供给、冻结范围价、通知到达与工作开放已经同步各设计职责。
 本次设计冻结不表示生产功能已实现。各章节具体修改和行为/变异验收责任见该规格文件清单。
 发布身份目标为场景4、地图3、目录5.0、品类与规则绑定3；世界状态沿用8。
 
 
+<a name="readme-个人事务与工作安排设计同步"></a>
 ## 个人事务与工作安排设计同步
 
-[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)是本次特性合同。设计章节不在冻结时预写，随各阶段的代码同步：
+[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)是本次特性合同。设计章节不在冻结时预写，随各阶段的代码同步：
 阶段 1 运行修复（就寝反思严格工具、只读查询转发、计划重复意图定位、异常日志），阶段 2 个人事务与提示信息分工，
-阶段 3 作息补全与工作安排，阶段 4 查询筛选与返回精简；逐章作业见[实施计划](../dev/research/errands-workday-implementation-plan.md)，
+阶段 3 作息补全与工作安排，阶段 4 查询筛选与返回精简；逐章作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)，
 每章改了什么见该章版本表，各章文件头注明该规格修订的状态。
 发布身份为世界状态 9、质量报告 4（阶段 2），场景 5、卡片 3 与 `card-v3`（阶段 3）；
 地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。
-该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md)，
-实现状态见[实现状态](../dev/implementation-status.md)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
+该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)，
+实现状态见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
 只在用户要求时启动，未执行。
 
 
+<a name="readme-这是什么"></a>
 ## 这是什么
 
 本目录按模块整理 WorldMock 的设计说明。
-[记录引擎](05-recording-engine.md)集中维护该模块的接口、行为、格式与诊断，承接原已冻结约束，待实现项单独标明。
-其余设计章节仍为草稿，引用[接口合同](../CONTRACTS.md)与 `docs/dev/SPEC-*.md` 的冻结规则。
-权威归属见[文档入口](../INDEX.md)「权威层级」。
+[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)集中维护该模块的接口、行为、格式与诊断，承接原已冻结约束，待实现项单独标明。
+其余设计章节仍为草稿，引用[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)与 `docs/dev/SPEC-*.md` 的冻结规则。
+权威归属见[文档入口](../INDEX.md#index-worldmock-文档入口)「权威层级」。
 
 - **主文档集**（`docs/` 根目录）：架构理由、跨模块接口合同与导航、实验身份、验收门禁
 - **特性规格**（`docs/dev/`）：尚未合入模块设计的行为与算法约定
 - **设计文档集**（本目录）：模块设计；记录引擎的接口与行为在所属文档唯一维护
 - **汇编版**：`worldmock-design.html` 是本目录十章加接口合同摘录（附录 A）汇编成的单文件设计说明书，先看这一份，再按需要跳到章节源、合同与规格
 
+<a name="readme-汇编版设计说明书"></a>
 ## 汇编版设计说明书
 
 `worldmock-design.html` 由 `scripts/build_design_doc.py` 从 `00-overview.md` … `09-io-formats.md` 汇编生成：封面与章节一览
@@ -56,6 +61,7 @@ python scripts/build_design_doc.py
 （`tests/test_design_doc_build.py`）。`--pdf` 另用本机 Chrome 打印 PDF，不入库。汇编版不另立权威：接口与字段仍以 `../CONTRACTS.md`、
 行为规则仍以 `../dev/SPEC-*.md` 为准。
 
+<a name="readme-文档清单"></a>
 ## 文档清单
 
 | 文档 | 职责 | 状态 |
@@ -71,6 +77,7 @@ python scripts/build_design_doc.py
 | `08-configuration.md` | 配置规格：场景、交互菜单、版本引用、初值与模型凭证 | DRAFT |
 | `09-io-formats.md` | 输入输出格式：领域状态、观察菜单证据与跨模块格式导航 | DRAFT |
 
+<a name="readme-与主文档集的关系"></a>
 ## 与主文档集的关系
 
 ```mermaid
@@ -97,41 +104,45 @@ flowchart TB
     MODULES -.->|"引用接口，不重复定义"| CONT
 ```
 
+<a name="readme-阅读路径"></a>
 ## 阅读路径
 
+<a name="readme-按角色读"></a>
 ### 按角色读
 
 | 角色 | 从这里读 | 接着读 |
 | --- | --- | --- |
 | 产品经理 | `00-overview.md` | `01-architecture.md` → 主文档 `ARCHITECTURE.md` |
-| 算法工程师 | `04-simulation-engine.md` | `02-exchange-engine.md` → `03-resource-engine.md` → `SPEC-life-runtime.md` |
-| 数据工程师 | `05-recording-engine.md` | `06-delivery.md` → `SPEC-labelkit-delivery.md` |
+| 算法工程师 | `04-simulation-engine.md` | `02-exchange-engine.md` → `03-resource-engine.md` → `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则` |
+| 数据工程师 | `05-recording-engine.md` | `06-delivery.md` → `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit` |
 | 测试工程师 | `07-evaluation.md` | `05-recording-engine.md` → `VERIFICATION.md` |
 | 实施工程师 | `08-configuration.md` | `09-io-formats.md` → `EXPERIMENT.md` |
 
+<a name="readme-按任务读"></a>
 ### 按任务读
 
 | 你想做的事 | 从这里读 | 接着读 |
 | --- | --- | --- |
-| 理解资源、内容与语料如何统一管理 | [资源引擎设计](03-resource-engine.md) | 资源定义、来源、版本、检索与实际接触均在同一文档 |
-| 理解模拟引擎如何组织并推进实际运行 | [模拟引擎设计](04-simulation-engine.md) | 初始化、观察与动作受理、时钟与活动、结算、唤醒和恢复编排 |
-| 理解交换引擎 | [交换引擎设计](02-exchange-engine.md) | 维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果 |
+| 理解资源、内容与语料如何统一管理 | [资源引擎设计](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) | 资源定义、来源、版本、检索与实际接触均在同一文档 |
+| 理解模拟引擎如何组织并推进实际运行 | [模拟引擎设计](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) | 初始化、观察与动作受理、时钟与活动、结算、唤醒和恢复编排 |
+| 理解交换引擎 | [交换引擎设计](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) | 维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果 |
 | 了解系统整体设计 | `00-overview.md` + `01-architecture.md` | 主文档 `ARCHITECTURE.md` |
-| 理解资源如何影响体感和活动效率 | [模拟引擎的身体变化与效率](04-simulation-engine.md#实际区间身体变化与效率) | [运行时规格](../dev/SPEC-life-runtime.md)「身体语义：两过程睡眠、睡眠不足账、体感分级」「消费、生产与需求模型」→ [时间与能量规格](../dev/SPEC-time-and-energy.md)第二、三章 → [接口合同](../CONTRACTS.md)「资源与需求字段」 |
-| 理解时间如何流动、何时决策、能量如何影响人物 | [时间与能量规格](../dev/SPEC-time-and-energy.md) | [模拟引擎](04-simulation-engine.md)「推进共享时钟」「判断唤醒条件」→ [运行时规格](../dev/SPEC-life-runtime.md)「决策节律：结算边界与唤醒条件分离」 |
-| 理解人物提示七层、记忆层与同秒续接 | [人物 Prompt 规格](../dev/SPEC-persona-prompt.md) | [模拟引擎](04-simulation-engine.md#人物所见与可做之事)「人物所见与可做之事」「调用并等待人物决策」→ [记录引擎](05-recording-engine.md#事件正文与资源证据)「事件正文与资源证据」→ [接口合同](../CONTRACTS.md#人物决策提示与生成参数)「人物决策提示与生成参数」 |
-| 理解个人事务怎样记下、跨日保留与办结 | [个人事务与工作安排规格](../dev/SPEC-errands-workday.md)第二、三章 | [模拟引擎](04-simulation-engine.md#人物所见与可做之事)「人物所见与可做之事」「依规则落实结算」「判断唤醒条件」→ [接口合同](../CONTRACTS.md#人物决策提示与生成参数)「人物决策提示与生成参数」 |
-| 理解下班与到家作息、场景工作安排与环境层上班安排 | [个人事务与工作安排规格](../dev/SPEC-errands-workday.md)第四章 | [模拟引擎](04-simulation-engine.md#人物所见与可做之事)「初始化运行世界」「人物所见与可做之事」「接收当日目标并记录实际推进」→ [配置设计](08-configuration.md#工作安排声明) → [行为评估](07-evaluation.md) |
-| 接入新的内容语料 | `03-resource-engine.md` | `SPEC-life-realism.md` → `catalog/README.md` |
-| 编译人物画像 | [人物画像规格](../dev/SPEC-life-realism.md#画像编译) | [人物与卡片合同](../CONTRACTS.md#人格与卡片字段) |
-| 理解记录、存储与恢复 | [记录引擎设计](05-recording-engine.md) | 事件、接口、分支、导出、诊断与验收均在同一文档 |
-| 对接 LabelKit | `06-delivery.md` | `SPEC-labelkit-delivery.md` → LabelKit 文档 |
+| 理解资源如何影响体感和活动效率 | [模拟引擎的身体变化与效率](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率) | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「身体语义：两过程睡眠、睡眠不足账、体感分级」「消费、生产与需求模型」→ [时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第二、三章 → [接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)「资源与需求字段」 |
+| 理解时间如何流动、何时决策、能量如何影响人物 | [时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动) | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)「推进共享时钟」「判断唤醒条件」→ [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「决策节律：结算边界与唤醒条件分离」 |
+| 理解人物提示七层、记忆层与同秒续接 | [人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-七层请求) | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「调用并等待人物决策」→ [记录引擎](05-recording-engine.md#recording-engine-事件正文与资源证据)「事件正文与资源证据」→ [接口合同](../CONTRACTS.md#contracts-人物决策提示与生成参数)「人物决策提示与生成参数」 |
+| 理解个人事务怎样记下、跨日保留与办结 | [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二、三章 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「依规则落实结算」「判断唤醒条件」→ [接口合同](../CONTRACTS.md#contracts-人物决策提示与生成参数)「人物决策提示与生成参数」 |
+| 理解下班与到家作息、场景工作安排与环境层上班安排 | [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第四章 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「初始化运行世界」「人物所见与可做之事」「接收当日目标并记录实际推进」→ [配置设计](08-configuration.md#configuration-工作安排声明) → [行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
+| 接入新的内容语料 | `03-resource-engine.md` | `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` → `catalog/README.md` |
+| 编译人物画像 | [人物画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译) | [人物与卡片合同](../CONTRACTS.md#contracts-人格与卡片字段) |
+| 理解记录、存储与恢复 | [记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | 事件、接口、分支、导出、诊断与验收均在同一文档 |
+| 对接 LabelKit | `06-delivery.md` | `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit` → LabelKit 文档 |
 | 设计评估指标 | `07-evaluation.md` | `VERIFICATION.md` → `EXPERIMENT.md` |
 | 配置实验场景 | `08-configuration.md` | `scenarios/` 示例 → `EXPERIMENT.md` |
-| 配置地点类与人物交互菜单 | [交互菜单规格](../dev/SPEC-interaction-menu.md) | `08-configuration.md` → `04-simulation-engine.md` → `05-recording-engine.md` |
+| 配置地点类与人物交互菜单 | [交互菜单规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单) | `08-configuration.md` → `04-simulation-engine.md` → `05-recording-engine.md` |
 | 解析输出数据 | `09-io-formats.md` | 记录引擎的事件与导出格式 → 数据交付格式 |
 | 追踪运行问题 | `05-recording-engine.md` | `scripts/inspect_run.py` |
 
+<a name="readme-设计文档的特点"></a>
 ## 设计文档的特点
 
 参考 LabelKit 设计文档的组织方式，WorldMock 设计文档集具有以下特点：
@@ -146,15 +157,17 @@ flowchart TB
 - **格式规范**：输入输出格式的逐字段定义
 - **可观测性**：日志体系、事件目录、错误分类码
 
+<a name="readme-地图与门店供给的一致性"></a>
 ## 地图与门店供给的一致性
 
 地图地点、商品和门店供给分别定义；资源引擎负责固定资料与只读查询，交换引擎判断营业、资格和订单，
 模拟引擎保存当前报价/库存并按事件推进，记录引擎保存实际比较、执行与恢复证据。
 配置只选择身份及初值，输入输出格式采用供给状态；交付保留来源，评估区分商品与门店选择。
-[开发规格](../dev/SPEC-map-and-storefront.md) 是行为合同，[业界核验](../dev/research/map-and-storefront-feasibility.md)
+[开发规格](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格) 是行为合同，[业界核验](../dev/research/map-and-storefront-feasibility.md)
 说明采纳边界。文档同步不表示实现或路线真实性已经验收；实际结果按源码身份登记。
 
 
+<a name="readme-文档状态说明"></a>
 ## 文档状态说明
 
 | 状态 | 含义 |
@@ -164,6 +177,7 @@ flowchart TB
 | `FROZEN` | 已冻结，是当前实现合同 |
 | `DEPRECATED` | 已废弃，正文删除并更新引用；历史变更由 Git 保存 |
 
+<a name="readme-主题展开约定"></a>
 ## 主题展开约定
 
 各引擎设计先用「项目框架映射」说明它在 overview 解决方案中的位置，随后按引擎内部的功能框展开正文。
@@ -178,6 +192,7 @@ flowchart TB
 记录引擎的主题为「记录生活全过程」「保存与关联证据」「一致性保存与校验」「保存共同检查点」
 「恢复与反事实分支」「固定截止导出」「运行查询与诊断」。
 
+<a name="readme-更新约定"></a>
 ## 更新约定
 
 - 新增模块设计时，在本 README 的文档清单登记一行，并加入 `scripts/build_design_doc.py` 的装配顺序
@@ -186,6 +201,7 @@ flowchart TB
 - 设计文档冻结前，标记为 `DRAFT` 或 `REVIEW`；冻结后标记为 `FROZEN`
 - 重大修订需要更新文件头的日期与版本，并在该文档的版本表记录修订内容；记录引擎设计沿用以特性标识命名的版本行，版本号不变。新版本行一律追加在版本表末行：汇编脚本取版本表最后一行作为该章「修订历史」的最新一行（`scripts/build_design_doc.py` 的 `latest_revision`）
 
+<a name="readme-版本"></a>
 ## 版本
 
 | 版本 | 日期 | 修订内容 |

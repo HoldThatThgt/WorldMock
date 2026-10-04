@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/memory-design-review.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 记忆事实约束与等待真实性：只读实现勘察
 
 **基线与范围。** 唯一开发树 `/Users/atishoo/.codex/worktrees/dayrun-behavior/WorldMock`，检查时 `HEAD=74edeaddccf1e051a0f7c98024ec95eeb6c48514`，porcelain 状态为空；本文未修改仓库或调用真实模型。规范尚未冻结：`docs/dev/PROPOSAL-dayrun-behavior.md:32–36,75–89,130–141` 是目标提案，现行合同是 `docs/CONTRACTS.md`、`docs/dev/SPEC-life-realism.md`、`docs/design/05-recording-engine.md`。依赖 `vendor/agentsociety2` 在此工作树是 gitlink `ae3224ce982d52f1eb773a4f70521a7b60e19cba`，文件未检出；下列 vendor 源码在旧只读工作树的同一 gitlink 提交读取，**不是**从旧 WorldMock 生产源码推断新树行为。已载入 fable-workflow 的 explore/design 路线。

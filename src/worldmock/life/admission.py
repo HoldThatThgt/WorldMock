@@ -1,4 +1,4 @@
-"""@brief 生活动作的并行准入：现场地点、目标在场、出行方式、占用与物品状态（docs/dev/SPEC-time-and-energy.md 第五章）。
+"""@brief 生活动作的并行准入：现场地点、目标在场、出行方式、占用与物品状态（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章）。
 
 一个 start_activity 请求整组判定：名额（activity_control.require_start_admission，含出发前须先结束或暂停进行中的
 活动）之后，按目标在场与实际地点、出行方式、占用、物品状态的顺序报第一条不成立的准入，结果与组内先后无关：要停在
@@ -9,9 +9,9 @@
 同一对人物已有进行中交谈时，重复发起在目标判定这一步以 CHAT_ALREADY_ACTIVE 返回（第五章「交谈」），先于占用；接受时
 发起方的交谈只剩不足一分钟，同一步以 ACTIVITY_TOO_SHORT 返回。工具层的可用性（life.tool_layer.availability）按受理的同一顺序调用这里的判定，
 所以 reason 与拒绝原因一字不差；他处持有物（持有但不在此刻所在地点）在物品状态这一步以 PRODUCT_NOT_HELD 写明
-只能在当地用（docs/dev/SPEC-persona-prompt.md「工具层」）。
+只能在当地用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
 
-下一步提示只指向从此地可达的地点（docs/dev/SPEC-dayrun-fidelity.md 5.3）：要去的地点此地直达写「去<地点>」，只能经别处
+下一步提示只指向从此地可达的地点（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：要去的地点此地直达写「去<地点>」，只能经别处
 到达写「可经<第一站>前往<地点>」，哪里都到不了写「这里去不了<地点>」（门店写「这里去不了那家店」），见 life.wayfinding；
 远程下单的「送达地不在配送范围」与「配送路线缺失」分成两个未满足条件 delivery_destination、delivery_route，各一句原因。
 """
@@ -28,9 +28,12 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control
 from worldmock.life.guidance import DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal
 from worldmock.life.wayfinding import UNREACHABLE_STORE_STEP, delivery_route_code, delivery_step, go_step
-from worldmock.life.interaction_menu import GIVE_WAY, TRAVEL_WAYS, activity_phrase, merged_selection
+from worldmock.life.vocabulary import GIVE_WAY
+from worldmock.life.readable import TRAVEL_WAYS
+from worldmock.life.interaction_menu import activity_phrase, merged_selection
 from worldmock.life.models import ActivityKind, TravelMode, WorldState, active_activities
-from worldmock.life.social_actions import SOCIAL_RESOURCE_CLAIMS, late_acceptance_refusal, pair_chat
+from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
+from worldmock.life.social_actions import late_acceptance_refusal, pair_chat
 
 _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 
@@ -235,7 +238,7 @@ def _site_refusal(item: Item, present: str | None, departs: bool) -> Refusal | N
 def _delivery_refusal(context: Context, item: Item) -> Refusal | None:
     """@brief 远程下单的送达地取 agent.location_id（途中为出发地）：不在该供给的可配送目的地时为 delivery_destination，
     在配送范围内而门店到这里的配送路线缺失（没有、不可达或未知）时为 delivery_route，两种各一句原因；下一步只指向
-    能送达、且从此地可达的地点（docs/dev/SPEC-dayrun-fidelity.md 5.3）。"""
+    能送达、且从此地可达的地点（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）。"""
     if item.destinations is None:
         return None
     here = _origin(context)

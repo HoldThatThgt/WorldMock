@@ -1,9 +1,9 @@
-"""@brief 观察投影引擎侧组装：身体两组证据、在场人物与本轮交互对象的私有绑定（docs/dev/SPEC-persona-prompt.md 第一章）。
+"""@brief 观察投影引擎侧组装：身体两组证据、在场人物与本轮交互对象的私有绑定（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）。
 
 发给人物模型的七层 JSON 由各层构建器生成（life.tool_layer、todo_layer、environment_layer、progress_layer）；本模块只从
 世界状态计算观察的证据段（身体数值与分级、余额、活动控制行）与交互对象的私有绑定：每个本轮可见对象的可读名称、内部身份
 与动词和方式映射。绑定动作的说明（note）由工具层按可用性单一来源填写（「工具层」）。身体数值只进事件供评估，分级进环境层
-（docs/dev/SPEC-life-runtime.md「数值与分级的分离」）。
+（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「数值与分级的分离」）。
 
 供给可见期：仅实际呈现的供给具有购买凭据，位置未变且呈现后未超 1800 秒；供给身份与商品身份分别保留。
 零点计划输入（life.day_plan_inputs）另取本模块的联系人与收件箱。
@@ -20,22 +20,23 @@ from zoneinfo import ZoneInfo
 
 from worldmock.life import admission, felt, social
 from worldmock.life.content import restarts_from_beginning
-from worldmock.life.interaction_menu import (ACTION_WAYS, CONTENT_WAYS, GIVE_WAY, PURCHASE_WAYS, TRAVEL_WAYS,
-                                             USE_WAYS, binding_action)
+from worldmock.life.vocabulary import ACTION_WAYS, CONTENT_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
+from worldmock.life.readable import TRAVEL_WAYS
+from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
 from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
                                           supply_label)
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
-#: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
+#: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）。
 SUPPLY_VISIBILITY_TTL_SECONDS = 1800
 #: 路线费力分档的代谢当量分界：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」。
-#: experiment_assumption：登记在 docs/EXPERIMENT.md「能量感知标签」。
+#: experiment_assumption：登记在 docs/EXPERIMENT.md#experiment-worldmock-实验设置「能量感知标签」。
 ROUTE_EFFORT_MODERATE_MET = 2.0
 ROUTE_EFFORT_STRENUOUS_MET = 3.0
 #: 食品每份热量的取整粒度与「几乎不含热量」的上界（千卡）：按 5 进位取整到 10 千卡。
-#: experiment_assumption：登记在 docs/EXPERIMENT.md「能量感知标签」。
+#: experiment_assumption：登记在 docs/EXPERIMENT.md#experiment-worldmock-实验设置「能量感知标签」。
 FOOD_ENERGY_ROUNDING_KCAL = 10
 FOOD_ENERGY_NEGLIGIBLE_KCAL = 5.0
 
@@ -47,11 +48,11 @@ class ProjectionInputs:
     state: WorldState
     scenario: RuntimeScenario
     agent: AgentState
-    #: 可见未结清、技能够得上且仍列出（截止前或截止当日内）的任务行（engine._visible_task_rows 去掉技能不够的）。
+    #: 可见未结清、技能够得上且仍列出的任务行；ObservationBuilder 按截止日期及技能条件投影。
     task_rows: tuple[dict[str, Any], ...] = ()
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
-    #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，docs/dev/SPEC-life-realism.md「动机层」）。
+    #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
     motivation_internal: dict[str, Any] | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -92,9 +93,10 @@ def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPr
 
 
 def people_here_views(state: WorldState, agent: AgentState) -> list[dict[str, Any]]:
-    """@brief 同一地点他人的可见投影闭集：姓名、活动家族、可交谈（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
+    """@brief 同一地点他人的可见投影闭集：姓名、活动家族、可交谈（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）
+    。
 
-    按现场地点判定：人物自己在途中时身边没有人（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）。
+    按现场地点判定：人物自己在途中时身边没有人（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）。
     """
     if admission.en_route(state, agent.agent_id):
         return []
@@ -107,7 +109,7 @@ def body_projection(agent: AgentState, hour: float, body: BodyConfig,
     """@brief body 两组投影：levels 分级（进环境层）与 values 数值（只进事件）。
 
     饥饿分级按当前能量与身体配置的紧急阈值叠加两条低能量规则；决策参照快照与唤醒判定
-    传入同一身体配置，保证分级同源（docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。
+    传入同一身体配置，保证分级同源（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「饥饿在低能量时不失灵」）。
     """
     values = felt_values(agent, hour, meal_windows)
     levels = felt.summarize_felt_levels(
@@ -129,7 +131,7 @@ def felt_values(agent: AgentState, hour: float,
 
 
 def route_effort(met: float) -> str:
-    """@brief 按出行方式的代谢当量给路线费力标签（docs/dev/SPEC-time-and-energy.md「商品热量与路线费力」）。"""
+    """@brief 按出行方式的代谢当量给路线费力标签（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「商品热量与路线费力」）。"""
     if met >= ROUTE_EFFORT_STRENUOUS_MET:
         return "费力"
     if met >= ROUTE_EFFORT_MODERATE_MET:
@@ -234,7 +236,7 @@ def interaction_bindings(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 将本轮可见对象冻结为可读选择及仅供引擎使用的身份映射（动作 note 由工具层按可用性填写）。
 
     不按人物状态剪裁：可见的全部对象与动作都列出，此刻不能做的由工具层标 available=false 并写原因；永久不能满足的
-    （没有路线、技能不够、没有购买规则或资格）不列（docs/dev/SPEC-persona-prompt.md「工具层」）。名称须唯一。
+    （没有路线、技能不够、没有购买规则或资格）不列（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。名称须唯一。
     """
     bindings = [_interaction_binding(inputs, row) for row in _interactive_objects_rows(inputs)]
     labels = [row["object"] for row in bindings]
@@ -315,7 +317,7 @@ def _supply_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[
     """@brief 供给的取得方式：支持到店就列「到店」，支持配送就列「远程下单」。
 
     没有购买规则（品类配对未定义）、人物缺少供给或地点资格时永久不能买，不列；营业、报价、库存、在不在店里与能否
-    送到这里都可能在运行中改变，照常列出，由工具层写明不可用的原因（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    送到这里都可能在运行中改变，照常列出，由工具层写明不可用的原因（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
     """
     supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == row["object_id"])
     if (supply["purchase_pairing_state"] != "defined" or not supply["service_allowed"]
@@ -328,7 +330,8 @@ def _supply_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[
 def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 交互对象层：本轮可见对象及其内部动作。
 
-    动作按对象绑定（docs/dev/SPEC-agent-interaction.md「对象与动作选择」）：每个对象只列出对它自己合法的动作。
+    动作按对象绑定（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「对象与动作选择」）
+    ：每个对象只列出对它自己合法的动作。
     「自己」（等待、睡觉）恒在列表中。
     """
     rows = _task_object_rows(inputs)

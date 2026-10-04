@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/PROPOSAL-interaction-menu.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 交互菜单方案裁决
 
 > 状态：已采纳并由 [交互菜单特性规格](SPEC-interaction-menu.md) 取代行为定义。

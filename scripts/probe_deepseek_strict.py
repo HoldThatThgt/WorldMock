@@ -1,4 +1,4 @@
-"""@brief DeepSeek strict 端点探针：只读、只报告（docs/dev/SPEC-dayrun-fidelity.md 7.5，裁决 D14、S6）。
+"""@brief DeepSeek strict 端点探针：只读、只报告（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-strict-端点，裁决 D14、S6）。
 
 三项核对，结论打印为 JSON 报告，可另写入文件；只发模型请求，不写世界、不改任何配置，也不是每次运行的自检：
 

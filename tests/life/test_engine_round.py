@@ -29,11 +29,11 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
         if engine.scheduling_state().ready_agent_ids:
             break
         advance_next(engine)
-    activity = engine.state.activities[result.activity_id]
-    assert "world_state_version" not in observed  # 黑名单字段不再进入观察（docs/dev/SPEC-life-runtime.md「不进入提示的字段」）
+    activity = engine.context.state.activities[result.activity_id]
+    assert "world_state_version" not in observed  # 黑名单字段不再进入观察（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「不进入提示的字段」）
     assert receipt.status == "submitted" and result.status == "in_progress"
     assert activity.status == "completed" and activity.ended_at == activity.planned_end_at
-    progress = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    progress = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                 if event.event_type == "activity_progress"][-1]
     assert progress.data["interval_end"] > progress.data["interval_start"]
     assert progress.data["activity"]["ended_at"] == activity.ended_at
@@ -47,8 +47,8 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
             targets=["不存在的内容"], actions=["interact"], ways=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     assert results[0].error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.activities == {}
-    types = [event.event_type for event in engine.store.read_events(engine.store.last_event_seq)]
+    assert engine.context.state.activities == {}
+    types = [event.event_type for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
     assert "action_rejected" in types and "action_result" in types
 
 
@@ -68,7 +68,7 @@ def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) 
     engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", request))
     replay = engine.commit_decision_round("replay")[0]
     assert replay.status == "completed"
-    assert list(engine.state.activities) == ["activity-stable-action"]
+    assert list(engine.context.state.activities) == ["activity-stable-action"]
     advance_until_ready(engine)
     ctx = context(engine, "conflict")
     engine.begin_decision_round([ctx])
@@ -88,10 +88,10 @@ def test_abort_preserves_unexecuted_life_state_and_stale_context_fails(engine_fa
     request = start_activity("睡觉", "自己")
     engine.submit_action(DirectToolCall(ctx, "never-run", "start_activity", request))
     engine.abort_decision_round("abort", "runner failed")
-    assert engine.state.activities == {}
-    assert engine.state.processed_actions["never-run"].result["status"] == "failed"
+    assert engine.context.state.activities == {}
+    assert engine.context.state.processed_actions["never-run"].result["status"] == "failed"
     assert any(event.event_type == "run_failed"
-               for event in engine.store.read_events(engine.store.last_event_seq))
+               for event in engine.context.store.read_events(engine.context.store.last_event_seq))
     engine.begin_decision_round([context(engine, "fresh")])
     with pytest.raises(ProtocolError, match="stale"):
         engine.submit_action(DirectToolCall(ctx, "old", "start_activity", request))
@@ -116,18 +116,18 @@ def test_multi_person_arrival_order_does_not_change_settlement_order(engine_fact
                 contexts[agent_id], f"multi-{agent_id}", "start_activity", request)
             engine.submit_action(call)
         engine.commit_decision_round("multi")
-    first_events = [event.agent_id for event in first.store.read_events(first.store.last_event_seq)
+    first_events = [event.agent_id for event in first.context.store.read_events(first.context.store.last_event_seq)
                     if event.event_type == "action_accepted"]
-    second_events = [event.agent_id for event in second.store.read_events(second.store.last_event_seq)
+    second_events = [event.agent_id for event in second.context.store.read_events(second.context.store.last_event_seq)
                      if event.event_type == "action_accepted"]
     assert first_events == second_events == list(expected_order)
-    assert first.state.agents[1].body == second.state.agents[1].body
+    assert first.context.state.agents[1].body == second.context.state.agents[1].body
 
 
 def test_manifest_uses_single_window_shape(engine_factory) -> None:
     """运行 manifest 冻结唯一时间窗、完整 beta URL 和 strict 请求身份。"""
     engine = engine_factory()
-    manifest = engine.store.manifest
+    manifest = engine.context.store.manifest
     assert set(manifest["window"]) == {"start", "end", "timezone"}
     assert not {"start_at", "end_at", "timezone"} & manifest.keys()
     assert manifest["window"]["timezone"] == "Asia/Shanghai"
@@ -142,8 +142,8 @@ def test_manifest_uses_single_window_shape(engine_factory) -> None:
 def test_context_with_wrong_time_is_rejected(engine_factory) -> None:
     """即使版本相同，错误观察时刻也不能读取或行动。"""
     engine = engine_factory()
-    wrong = datetime.fromtimestamp(engine.state.current_time + 1, ZoneInfo("Asia/Shanghai"))
-    context_value = DecisionContext(engine.state.run_id, "wrong", "decision-wrong", 1, wrong, 0)
+    wrong = datetime.fromtimestamp(engine.context.state.current_time + 1, ZoneInfo("Asia/Shanghai"))
+    context_value = DecisionContext(engine.context.state.run_id, "wrong", "decision-wrong", 1, wrong, 0)
     with pytest.raises(ProtocolError, match="time is stale"):
         engine.observe(context_value)
 
@@ -158,22 +158,22 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert "content_catalog" not in observed
     assert observed["activity_summary"]["subtitle_experience"] == 1
     assert observed["activity_summary"]["feature_film"] == 90
-    assert observed["activity_summary"]["foods"] == len(engine.scenario.supplies)
+    assert observed["activity_summary"]["foods"] == len(engine.context.scenario.supplies)
     # game_catalog 全表与完整路线不进入任何一层（黑名单/坐标几何）；游戏身份经工具层窗口揭示，地点是工具层的
-    # location 目标（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    # location 目标（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
     assert "game_catalog" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
     places = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location"]
     destinations = {row["name"].removeprefix("地点：") for row in places}
     # C23 POI 路由扩容后，观察报价的路线集合改按冻结路线推导（原硬编码三点
     # 快照失效——home 起点的 8 个 POI 目的地已随 OSRM 冻结路由进入报价）。
-    location_names = {item.location_id: item.name for item in engine.scenario.locations}
-    expected_destinations = {location_names[route.destination_id] for route in engine.scenario.routes
+    location_names = {item.location_id: item.name for item in engine.context.scenario.locations}
+    expected_destinations = {location_names[route.destination_id] for route in engine.context.scenario.routes
                              if route.origin_id == "home"}
     assert destinations == expected_destinations
     # 可达集按冻结路线推导（observe._reachable_places 只列当前地点的路线终点）。
-    routed = {route.destination_id for route in engine.scenario.routes
+    routed = {route.destination_id for route in engine.context.scenario.routes
               if route.origin_id == "home"}
-    names = {item.name for item in engine.scenario.locations
+    names = {item.name for item in engine.context.scenario.locations
              if item.location_id in routed}
     assert destinations == names  # 目标名用展示名
     assert all(row["state"] in {"开着", "关着", "开放时间不明"} for row in places)
@@ -210,7 +210,7 @@ def test_first_round_accepts_discovered_content_game_and_route(
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]
     assert result.status == "in_progress"
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     if label == "travel":
         assert activity.destination_id == target["object_id"]
     else:
@@ -241,7 +241,7 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     engine.submit_action(DirectToolCall(
         ctx, "model-evidence-wait", "start_activity", wait))
     engine.commit_decision_round("model-evidence")
-    exchanges = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    exchanges = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                  if event.event_type in {"model_request", "model_response"}]
     assert [event.data["phase"] for event in exchanges] == ["request", "response", "request", "response"]
     assert exchanges[1].data["error"] == "invalid schema"
@@ -250,10 +250,10 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
 def test_fail_run_is_same_version_and_idempotent(engine_factory) -> None:
     """致命通知只追加一个失败事件，不伪造世界推进。"""
     engine = engine_factory()
-    version = engine.state.version
+    version = engine.context.state.version
     engine.fail_run("checkpoint failed")
     engine.fail_run("duplicate notification")
-    failures = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    failures = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                 if event.event_type == "run_failed"]
     assert len(failures) == 1
-    assert engine.state.version == version == engine.store.state["version"]
+    assert engine.context.state.version == version == engine.context.store.state["version"]

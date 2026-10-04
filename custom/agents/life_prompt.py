@@ -1,12 +1,13 @@
 """@brief 七层请求的宿主侧：生活与只读系统层、原生工具用途说明、六层 user 组装与提示指纹。
 
-docs/dev/SPEC-persona-prompt.md 第一章「请求组成」「系统层」：system 为系统层 JSON（整次运行逐字节不变），
+docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「请求组成」「系统层」：system 为系统层 JSON（整次运行逐字节不变），
 user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组；工具定义只经原生 tools，
 description 只写用途，世界交互规则只在系统层 rules 写一次。只读问答的 user 为人设层与记忆层，外部问题
 另起一条 user 消息原样给出。
 """
 
 from __future__ import annotations
+from worldmock.life.prompt_schemas import LAYER_SCHEMAS
 
 import hashlib
 import json
@@ -139,7 +140,6 @@ def readonly_messages(persona: dict[str, Any], memory: dict[str, Any], question:
 
 def life_prompt_sha256() -> str:
     """@brief 提示指纹：绑定生活与只读两份系统层以及七层 Schema（prompt_schemas.LAYER_SCHEMAS）。"""
-    from worldmock.life.prompt_schemas import LAYER_SCHEMAS
 
     templates = {"life": LIFE_SYSTEM_LAYER, "readonly": READONLY_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
     encoded = json.dumps(templates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

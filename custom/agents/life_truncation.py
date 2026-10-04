@@ -1,4 +1,4 @@
-"""@brief LifeAgent 的输出截断处理（docs/dev/SPEC-dayrun-fidelity.md 7.2「输出截断与思考螺旋」，裁决 D10）。
+"""@brief LifeAgent 的输出截断处理（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 「输出截断与思考螺旋」，裁决 D10）。
 
 截断回合：提供商回复 finish_reason=length、正文为空且没有工具调用，即思考用尽了输出上限（max_tokens 同时覆盖思考与
 输出）。它不进入后续请求（思考随之丢弃，只留在模型证据中），改发第四章结构的纠错 OUTPUT_TRUNCATED；写进模型响应证据的

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from worldmock.life.content import load_content_titles
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 
 def test_every_content_item_has_corpus_title() -> None:
@@ -23,8 +23,8 @@ def test_every_content_item_has_corpus_title() -> None:
 def test_presentation_pools_keep_titles_for_every_content_and_game(engine_factory) -> None:
     """@brief 呈现窗口的每个内容与游戏候选都有可读名称。"""
     engine = engine_factory()
-    agent = engine.state.agents[1]
-    for entry in (*engine._content_pool(agent), *engine._game_pool(agent)):
+    agent = engine.context.state.agents[1]
+    for entry in (*engine.observations._content_pool(agent), *engine.observations._game_pool(agent)):
         assert entry.row["title"].strip()
         assert entry.row["title"] != entry.object_id
 
@@ -32,7 +32,7 @@ def test_presentation_pools_keep_titles_for_every_content_and_game(engine_factor
 def test_multi_person_scenario_titles_match(engine_factory) -> None:
     """@brief 多人物场景的内容候选同样从语料注入名称。"""
     engine = engine_factory("multi-person.json")
-    agent = engine.state.agents[1]
-    movies = [entry for entry in engine._content_pool(agent) if entry.category == "feature_film"]
+    agent = engine.context.state.agents[1]
+    movies = [entry for entry in engine.observations._content_pool(agent) if entry.category == "feature_film"]
     assert len(movies) == 90
     assert all(entry.row["title"] for entry in movies)

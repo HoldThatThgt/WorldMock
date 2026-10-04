@@ -1,0 +1,116 @@
+{
+  "source_commit": "2cf230115f4084aef2376e9d77bc976efbed43ea",
+  "methods": {
+    "create": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='cls'), arg(arg='scenario_path', annotation=Name(id='Path', ctx=Load())), arg(arg='run_dir', annotation=Name(id='Path', ctx=Load())), arg(arg='run_identity', annotation=Name(id='RunIdentity', ctx=Load())), arg(arg='stage_identity', annotation=BinOp(left=Name(id='dict', ctx=Load()), op=BitOr(), right=Constant(value=None))), arg(arg='create_options', annotation=BinOp(left=Name(id='dict', ctx=Load()), op=BitOr(), right=Constant(value=None)))], kwonlyargs=[], kw_defaults=[], defaults=[Constant(value=None), Constant(value=None)])",
+      "returns": "Constant(value='LifeEngine')",
+      "decorators": [
+        "Name(id='classmethod', ctx=Load())"
+      ]
+    },
+    "open": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='cls'), arg(arg='scenario_path', annotation=Name(id='Path', ctx=Load())), arg(arg='run_dir', annotation=Name(id='Path', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value='LifeEngine')",
+      "decorators": [
+        "Name(id='classmethod', ctx=Load())"
+      ]
+    },
+    "observe": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='context', annotation=Constant(value='DecisionContext'))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Name(id='dict', ctx=Load())",
+      "decorators": []
+    },
+    "begin_decision_round": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='contexts', annotation=Subscript(value=Name(id='list', ctx=Load()), slice=Constant(value='DecisionContext'), ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "submit_action": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='call', annotation=Constant(value='DirectToolCall'))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Name(id='ActionReceipt', ctx=Load())",
+      "decorators": []
+    },
+    "prepare_pending_work_review": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='action_id', annotation=Name(id='str', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "commit_decision_round": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='round_id', annotation=Name(id='str', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Subscript(value=Name(id='list', ctx=Load()), slice=Name(id='ActionResult', ctx=Load()), ctx=Load())",
+      "decorators": []
+    },
+    "abort_decision_round": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='round_id', annotation=Name(id='str', ctx=Load())), arg(arg='error', annotation=BinOp(left=Name(id='Exception', ctx=Load()), op=BitOr(), right=Name(id='str', ctx=Load())))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "scheduling_state": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self')], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value='SchedulingState')",
+      "decorators": []
+    },
+    "record_model_exchange": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='exchange', annotation=Name(id='Any', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "record_memory_update": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='evidence', annotation=Name(id='Any', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "advance": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='tick', annotation=Name(id='int', ctx=Load())), arg(arg='target', annotation=Name(id='datetime', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Subscript(value=Name(id='list', ctx=Load()), slice=Name(id='ActionResult', ctx=Load()), ctx=Load())",
+      "decorators": []
+    },
+    "midnight_rhythm_pending": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self')], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Name(id='bool', ctx=Load())",
+      "decorators": [
+        "Name(id='property', ctx=Load())"
+      ]
+    },
+    "decide_midnight_rhythm": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self')], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "register_day_plan": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='agent_id', annotation=Name(id='int', ctx=Load())), arg(arg='request', annotation=Name(id='PlanDayRequest', ctx=Load())), arg(arg='sources', annotation=Subscript(value=Name(id='list', ctx=Load()), slice=Name(id='str', ctx=Load()), ctx=Load())), arg(arg='evidence', annotation=Subscript(value=Name(id='list', ctx=Load()), slice=Name(id='EventDraft', ctx=Load()), ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Name(id='DayPlan', ctx=Load())",
+      "decorators": []
+    },
+    "fail_run": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='error', annotation=Name(id='str', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "apply_counterfactual": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='intervention', annotation=Name(id='CounterfactualIntervention', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Name(id='CounterfactualReceipt', ctx=Load())",
+      "decorators": []
+    },
+    "checkpoint": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='agent_snapshots', annotation=Subscript(value=Name(id='dict', ctx=Load()), slice=Tuple(elts=[Name(id='str', ctx=Load()), Name(id='AssetRef', ctx=Load())], ctx=Load()), ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value='Checkpoint')",
+      "decorators": []
+    },
+    "close": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self')], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Constant(value=None)",
+      "decorators": []
+    },
+    "meal_windows_by_agent": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self')], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Subscript(value=Name(id='dict', ctx=Load()), slice=Tuple(elts=[Name(id='int', ctx=Load()), Constant(value='felt.MealWindows')], ctx=Load()), ctx=Load())",
+      "decorators": []
+    },
+    "read_task_summary": {
+      "arguments": "arguments(posonlyargs=[], args=[arg(arg='self'), arg(arg='agent_id', annotation=Name(id='int', ctx=Load())), arg(arg='request', annotation=Name(id='RecallTaskSummaryRequest', ctx=Load())), arg(arg='observed', annotation=Name(id='dict', ctx=Load()))], kwonlyargs=[], kw_defaults=[], defaults=[])",
+      "returns": "Name(id='dict', ctx=Load())",
+      "decorators": []
+    }
+  }
+}

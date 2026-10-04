@@ -1,4 +1,4 @@
-"""@brief session 的事件序号区间（docs/dev/SPEC-persona-prompt.md 第三章「session 与记忆条目」、第一章「进度层」session 下界）。
+"""@brief session 的事件序号区间（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「session 与记忆条目」、第一章「进度层」session 下界）。
 
 一个 session 的记录区间是（前一边界提交的末事件序号, 本边界提交的末事件序号]，同一提交按 state_version_after 聚合：
 出发请求所在的提交整体归旧 session，到达那一秒其后提交的收尾调用归新 session，路程中收到的消息、送达与发出的消息归路程

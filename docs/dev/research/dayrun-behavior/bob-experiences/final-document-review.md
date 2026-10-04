@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/bob-experiences/final-document-review.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 一日行为文档双向一致性复核
 
 只读审查对象是 `/Users/atishoo/.codex/worktrees/dayrun-behavior/WorldMock`，复核时 HEAD 为 `aa22dc830d6a66d13f14a22a04babae5cb41ec98`。当时工作树仅 `tests/integration/test_activity_schema.py` 有另一会话的未提交改动；本报告没有修改该树。唯一行为权威是 `docs/dev/SPEC-dayrun-behavior.md`。核对了 `docs/CONTRACTS.md`，`docs/design/01,02,03,04,05,07,08,09`，`docs/manual/resources.md`、`scenarios.md`，`docs/INDEX.md`、`VERIFICATION.md`、`docs/dev/implementation-status.md`、`ANALYSIS-spec-coverage.md` 中与本特性相关的接口、资源、共同身体、记录、餐食、音频、记忆与验收描述，并对照实际源码与测试入口。

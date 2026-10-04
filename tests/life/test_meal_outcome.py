@@ -1,4 +1,4 @@
-"""进食的开吃份量、不足一份与收尾结果（docs/dev/SPEC-persona-prompt.md 第五章「进食」、第六章）。
+"""进食的开吃份量、不足一份与收尾结果（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」、第六章）。
 
 真实 LifeEngine 与 SQLite 上：开吃时每件取 min(1, 持有) 从库存移入活动数据 opened，摄入只按 opened 与实际进度结算；
 4 份里拿 1 份吃到 300/1500 秒时结束：摄入 0.2、丢弃 0.8、库存 3；暂停保留剩余并可恢复（恢复不再核库存，暂停期间别的
@@ -28,22 +28,22 @@ from worldmock.life.sleep import food_utilization_efficiency
 
 def _food(engine, seconds: int = 1500):
     """场景中整份进食时长为 seconds 秒的食品。"""
-    return next(item for item in engine.scenario.products
+    return next(item for item in engine.context.scenario.products
                 if "eat" in item.use_modes and item.use_duration_seconds == seconds)
 
 
 def _stage_holding(engine, product_id: str, quantity: float) -> None:
     """在家里放指定份数的持有物并持久提交（保持存储版本连续）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[1]
     inventory = {key: dict(value) for key, value in agent.inventory.items()}
     inventory.setdefault("home", {})[product_id] = quantity
     staged.agents[1] = agent.model_copy(update={"inventory": inventory}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_meal_holding_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _round(engine, name: str, tool: str, request):
@@ -67,10 +67,10 @@ def _start_eating(engine, food, label: str):
 def _run_out(engine, activity_id: str, label: str) -> None:
     """只经真实时间边界推进到活动不再进行；中途的决策机会以播报继续全部进行中的活动。"""
     for step in range(96):
-        if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
+        if engine.context.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             return
         if engine.scheduling_state().ready_agent_ids:
-            running = active_activities(engine.state, 1)
+            running = active_activities(engine.context.state, 1)
             _round(engine, f"{label}-report-{step}", "report_status", report_request(
                 *(item.name for item in running), summary="继续。"))
         else:
@@ -80,7 +80,7 @@ def _run_out(engine, activity_id: str, label: str) -> None:
 
 def _intake(engine, activity_id: str, kcal: float) -> tuple[float, float, float]:
     """活动各区间的（食用份量合计，按区间效率折算的应得热量，食物实际流入热量）。"""
-    events = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    events = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
               if event.event_type == "activity_progress" and event.activity_id == activity_id]
     eaten = sum(item["interval_quantity"] for event in events for item in event.data["consumption"]["items"])
     expected = kcal * sum(item["interval_quantity"] * event.data["consumption"]["food_efficiency"]
@@ -92,7 +92,7 @@ def _intake(engine, activity_id: str, kcal: float) -> tuple[float, float, float]
 
 def _held(engine, product_id: str) -> float:
     """家里该商品的持有份数。"""
-    return engine.state.agents[1].inventory["home"][product_id]
+    return engine.context.state.agents[1].inventory["home"][product_id]
 
 
 def _items(food, eaten: str, discarded: str, remaining: str) -> list[dict]:
@@ -109,19 +109,19 @@ def test_ending_a_meal_at_300_of_1500_seconds_eats_0_2_discards_0_8_and_keeps_3(
     _stage_holding(engine, food.product_id, 4.0)
     action, started = _start_eating(engine, food, "meal")
     assert (action["available"], action["quantity"], action["duration"]) == (True, "1 份", duration_phrase(1500))
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     assert (meal.planned_duration_seconds, meal.data["opened"], _held(engine, food.product_id)) == (
         1500, {food.product_id: 1.0}, 3.0)
     at = wake_by_mail(engine, offset=300)
     advance_next(engine)
-    assert engine.state.current_time == at
+    assert engine.context.state.current_time == at
     name = activity_name(engine, meal.activity_id)
     _, ended = _round(engine, "meal-end", "conclude_activity", conclude_request(name, summary="吃完了"))
     assert ended.status == "completed"
     outcome = [{"activity": name, "outcome": "提前结束", "items": _items(food, "0.2 份", "0.8 份", "3 份"),
                 "note": None}]
     assert ended.data["outcome"] == outcome
-    meal = engine.state.activities[meal.activity_id]
+    meal = engine.context.state.activities[meal.activity_id]
     assert (meal.status, meal.data["consumed"], meal.data["discarded"], meal.data["opened"]) == (
         ActivityStatus.CANCELLED, {food.product_id: 0.2}, {food.product_id: 0.8}, {food.product_id: 1.0})
     assert _held(engine, food.product_id) == 3.0
@@ -140,13 +140,13 @@ def test_ending_a_meal_early_adds_no_energy_for_the_discarded_portion(engine_fac
     _, started = _start_eating(engine, food, "early")
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    before = engine.state.agents[1].body.energy_kcal
+    before = engine.context.state.agents[1].body.energy_kcal
     name = activity_name(engine, started.activity_id)
     _, ended = _round(engine, "early-end", "conclude_activity", conclude_request(name))
     assert ended.status == "completed"
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     assert (meal.data["consumed"], meal.data["discarded"]) == ({food.product_id: 0.2}, {food.product_id: 0.8})
-    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before)
+    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before)
     eaten, expected, gained = _intake(engine, meal.activity_id, food.energy_kcal_per_unit)
     assert eaten == pytest.approx(0.2) and gained == pytest.approx(expected)
 
@@ -167,12 +167,12 @@ def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_
     advance_next(engine)
     name_a = activity_name(engine, first.activity_id)
     _round(engine, "meal-a-pause", "pause_activity", pause_request(name_a, summary="先停一下。"))
-    paused = engine.state.activities[first.activity_id]
+    paused = engine.context.state.activities[first.activity_id]
     assert (paused.status, paused.data["consumed"], _held(engine, food.product_id)) == (
         ActivityStatus.PAUSED, {food.product_id: 0.5}, 0.5)
     action, second = _start_eating(engine, food, "meal-b")
     assert (action["quantity"], action["duration"]) == ("0.5 份", duration_phrase(750))
-    other = engine.state.activities[second.activity_id]
+    other = engine.context.state.activities[second.activity_id]
     assert (other.planned_duration_seconds, other.data["opened"], _held(engine, food.product_id)) == (
         750, {food.product_id: 0.5}, 0.0)
     _run_out(engine, second.activity_id, "meal-b")
@@ -185,11 +185,11 @@ def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_
                         report_request(name_a, summary="接着吃。"))
     assert resumed.status == "completed", resumed.error_code
     _run_out(engine, first.activity_id, "meal-a")
-    assert engine.state.activities[first.activity_id].status == ActivityStatus.COMPLETED
+    assert engine.context.state.activities[first.activity_id].status == ActivityStatus.COMPLETED
     _, done_a = _round(engine, "meal-a-end", "conclude_activity", conclude_request(name_a))
     assert done_a.data["outcome"] == [{"activity": name_a, "outcome": "完成",
                                        "items": _items(food, "1 份", "0 份", "0 份"), "note": None}]
-    assert engine.state.activities[first.activity_id].data["discarded"] == {food.product_id: 0.0}
+    assert engine.context.state.activities[first.activity_id].data["discarded"] == {food.product_id: 0.0}
     assert _held(engine, food.product_id) == 0.0
     assert _intake(engine, first.activity_id, food.energy_kcal_per_unit)[0] == pytest.approx(1.0)
 
@@ -211,34 +211,34 @@ def test_ending_a_paused_meal_discards_the_opened_remainder_without_intake(engin
     _, waited = _round(engine, "held-wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
     _round(engine, "held-wait-end", "conclude_activity", conclude_request(activity_name(engine, waited.activity_id)))
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     assert (meal.status, meal.data["consumed"], meal.data["opened"]) == (
         ActivityStatus.PAUSED, {food.product_id: 0.2}, {food.product_id: 1.0})
-    before = engine.state.agents[1].body.energy_kcal
+    before = engine.context.state.agents[1].body.energy_kcal
     _, ended = _round(engine, "held-end", "conclude_activity", conclude_request(name, summary="吃完了"))
     assert ended.status == "completed"
     assert ended.data["outcome"] == [{"activity": name, "outcome": "提前结束",
                                       "items": _items(food, "0.2 份", "0.8 份", "3 份"), "note": None}]
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     assert (meal.status, meal.data["consumed"], meal.data["discarded"]) == (
         ActivityStatus.CANCELLED, {food.product_id: 0.2}, {food.product_id: 0.8})
-    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before)
+    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before)
     assert _intake(engine, meal.activity_id, food.energy_kcal_per_unit)[0] == pytest.approx(0.2)
     assert _held(engine, food.product_id) == 3.0
 
 
 def _stage_failed(engine, activity_id: str) -> None:
     """把进行中的进食置为失败结束、待收尾（引擎目前没有让进食失败的结算路径，终态只能预置；收尾走真实路径）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     now = staged.current_time
     staged.activities[activity_id] = staged.activities[activity_id].model_copy(update={
         "status": ActivityStatus.FAILED, "ended_at": now, "last_settled_at": now, "next_interaction_at": None,
         "boundary_type": "failed", "interruption_reason": "test_failed"}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system",
         data={"kind": "test_meal_failed"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder(engine_factory) -> None:
@@ -253,14 +253,14 @@ def test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder(e
     advance_next(engine)
     _stage_failed(engine, started.activity_id)
     name = activity_name(engine, started.activity_id)
-    before = engine.state.agents[1].body.energy_kcal
+    before = engine.context.state.agents[1].body.energy_kcal
     _, ended = _round(engine, "failed-end", "conclude_activity", conclude_request(name, summary="吃完了"))
     assert ended.status == "completed"
     assert ended.data["outcome"] == [{"activity": name, "outcome": "失败",
                                       "items": _items(food, "0.2 份", "0.8 份", "3 份"), "note": None}]
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     assert (meal.status, meal.data["discarded"]) == (ActivityStatus.FAILED, {food.product_id: 0.8})
-    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before)
+    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before)
     assert last_result(engine.observe(context(engine, "failed-seen")))["details"]["outcome"] == ended.data["outcome"]
 
 
@@ -271,11 +271,11 @@ def test_less_than_one_portion_is_eaten_for_a_scaled_duration_and_energy(engine_
     stage_day_plan(engine)
     food = _food(engine)
     _stage_holding(engine, food.product_id, 0.25)
-    efficiency = food_utilization_efficiency(engine.state.agents[1].body.sleep_deficit_hours)
+    efficiency = food_utilization_efficiency(engine.context.state.agents[1].body.sleep_deficit_hours)
     action, started = _start_eating(engine, food, "quarter")
     assert (action["available"], action["reason"], action["quantity"], action["duration"]) == (
         True, None, "0.25 份", duration_phrase(375))
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     request = meal.data["request"]
     assert (meal.planned_duration_seconds, request["duration_seconds"], request["items"]) == (
         375, 375, [{"product_id": food.product_id, "quantity": 0.25}])
@@ -301,7 +301,7 @@ def test_experiment_cutoff_truncation_discards_nothing(engine_factory) -> None:
     _stage_holding(engine, food.product_id, 4.0)
     _, started = _start_eating(engine, food, "cutoff")
     _run_out(engine, started.activity_id, "cutoff")
-    meal = engine.state.activities[started.activity_id]
+    meal = engine.context.state.activities[started.activity_id]
     assert (meal.status, meal.data["consumed"], meal.data["opened"]) == (
         ActivityStatus.TRUNCATED, {food.product_id: 0.4}, {food.product_id: 1.0})
     assert "discarded" not in meal.data and _held(engine, food.product_id) == 3.0

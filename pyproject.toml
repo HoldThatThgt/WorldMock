@@ -49,6 +49,12 @@ where = ["src"]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "engine: tests with engine factory or direct LifeEngine/LifeEnv imports",
+    "mutation: isolated source mutation review",
+    "day_run: complete persona-day execution",
+    "external: tests requiring Node, LabelKit CLI or TextWorld",
+]
 
 [tool.coverage.run]
 branch = true

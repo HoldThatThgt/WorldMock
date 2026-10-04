@@ -1,4 +1,4 @@
-"""scripts/probe_deepseek_strict.py 的请求构造与结果分类（docs/dev/SPEC-dayrun-fidelity.md 7.5，裁决 S6）。
+"""scripts/probe_deepseek_strict.py 的请求构造与结果分类（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-strict-端点 ，裁决 S6）。
 
 探针只读、只报告：用假传输替代 HTTP，不连网、不读真实密钥。核对各项请求的端点、请求头与载荷（判定行的 strict 函数
 违反「全部属性列进 required」、参考行带 minLength，二者都绕过本地核验；枚举函数合乎 strict 规则、user 消息坚持要枚举外

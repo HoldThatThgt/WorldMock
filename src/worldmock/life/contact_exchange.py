@@ -1,8 +1,8 @@
-"""@brief 与场景联系人的往来（docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）。
+"""@brief 与场景联系人的往来（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「联系人往来」）。
 
 发给场景联系人的消息记入 AgentState.outbox。联系人回复请求增加 history（双方此前的消息按时间排序，至多 20 条：人物发出的
 取 outbox，联系人发来的取收件箱）与 received（联系人实际收到的物品：收货人是该联系人的已送达订单，以及当面给予的记录）；
-另带这次来信的事实：发件人姓名、场景本地时刻与联系人的收货地名（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+另带这次来信的事实：发件人姓名、场景本地时刻与联系人的收货地名（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。
 回复策略与延迟送达不变。
 """
 

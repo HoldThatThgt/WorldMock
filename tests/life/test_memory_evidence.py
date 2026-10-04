@@ -1,6 +1,6 @@
 """记忆更新只引用本轮真实观察的完整事实窗口；写入点（trigger）由引擎按登记推导。
 
-记忆写入点只有结束活动（activity_conclusion）与就寝反思（reflection）（docs/dev/SPEC-time-and-energy.md 第七章
+记忆写入点只有结束活动（activity_conclusion）与就寝反思（reflection）（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章
 「finish 并入 conclude_activity」）：同一决策登记了带非空 memories 的 conclude_activity 时含 activity_conclusion，
 登记后结算被拒时记忆照写；绑定观察的唤醒原因含 wake_from_sleep 时含 reflection；两者同在一步时按此顺序列出。
 写入了条目却没有任何写入点是宿主越过写入点写记忆，按协议违约拒绝。
@@ -45,7 +45,7 @@ def test_memory_update_rejects_omitted_observed_source(engine_factory, wrong_obs
         engine.record_memory_update(evidence)
     assert str(raised.value.__cause__) == (
         "Memory update observation is invalid" if wrong_observation else "Memory update source window is invalid")
-    assert not engine.store.read_agent_events("memory_updated", 1)
+    assert not engine.context.store.read_agent_events("memory_updated", 1)
 
 
 def _requested(decision_id: str, tool_name: str = "conclude_activity", memories: tuple = (_MEMORY,)):
@@ -126,10 +126,10 @@ def _evidence(ctx, observed: dict, identities: tuple[str, ...] = ("episode-1",))
 def _until_ended(engine, activity_id: str, name: str) -> None:
     """@brief 经真实边界推进到活动结束；途中的决策机会以播报继续该活动。"""
     for step in range(128):
-        if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
+        if engine.context.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             return
         if engine.scheduling_state().ready_agent_ids:
-            report = report_request(engine.state.activities[activity_id].name, summary="继续。")
+            report = report_request(engine.context.state.activities[activity_id].name, summary="继续。")
             submit_round(engine, {1: ("report_status", report)}, f"{name}-report-{step}")
         else:
             advance_next(engine)
@@ -153,7 +153,7 @@ def _open_decision(engine, name: str):
 def _written(engine) -> list[tuple]:
     """@brief 已写出的 memory_updated：（所属决策, trigger, data.decision_id）。"""
     return [(event.decision_id, event.data["trigger"], event.data["decision_id"])
-            for event in engine.store.read_agent_events("memory_updated", 1)]
+            for event in engine.context.store.read_agent_events("memory_updated", 1)]
 
 
 def test_conclusion_memories_record_the_activity_conclusion_write_point(engine_factory) -> None:
@@ -180,11 +180,11 @@ def test_rejected_conclusion_keeps_its_memories_as_self_report(engine_factory) -
     assert conclude_pending(engine, "first-conclusion").status == "completed"
     _started(engine, "等待", "second-wait")
     wake = wake_by_mail(engine, offset=60)
-    while engine.state.current_time < wake:
+    while engine.context.state.current_time < wake:
         advance_next(engine)
     decision, observed = _open_decision(engine, "late-conclusion")
     concluded = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_CONCLUDED]
-    assert concluded == [engine.state.activities[waited].name]
+    assert concluded == [engine.context.state.activities[waited].name]
     engine.submit_action(DirectToolCall(decision, "action-late", "conclude_activity",
                                         conclude_request(*concluded, memories=[[_MEMORY]])))
     engine.record_memory_update(_evidence(decision, observed))
@@ -201,7 +201,7 @@ def test_waking_round_lists_conclusion_then_reflection(engine_factory) -> None:
     _until_ended(engine, slept, "sleep")
     decision, observed = _open_decision(engine, "woke")
     assert "wake_from_sleep" in observed["wake_reasons"]
-    assert pending_names(observed) == [engine.state.activities[slept].name]
+    assert pending_names(observed) == [engine.context.state.activities[slept].name]
     engine.submit_action(DirectToolCall(decision, "action-woke", "conclude_activity",
                                         conclude_request(*pending_names(observed), memories=[[_MEMORY]])))
     engine.record_memory_update(_evidence(decision, observed, ("episode-1", "episode-2")))
@@ -221,7 +221,7 @@ def test_other_decisions_have_no_write_point_and_cannot_write_episodes(engine_fa
     with pytest.raises(ProtocolError, match="Memory update evidence is invalid") as raised:
         engine.record_memory_update(_evidence(decision, observed))
     assert str(raised.value.__cause__) == "Memory update has no registered write point"
-    assert not engine.store.read_agent_events("memory_updated", 1)
+    assert not engine.context.store.read_agent_events("memory_updated", 1)
     engine.record_memory_update(_evidence(decision, observed, ()))
     assert engine.commit_decision_round("plain-conclusion")[0].status == "completed"
     assert _written(engine) == [(decision.decision_id, [], decision.decision_id)]

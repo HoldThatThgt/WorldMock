@@ -271,7 +271,7 @@ def test_progress_sources_expand_visible_environment_events_and_skip_requests_an
 
 @pytest.mark.parametrize('ordering', ['after', 'equal'])
 def test_observed_result_reference_may_not_reach_at_or_past_the_observation_itself(ordering):
-    """引用排序守卫（docs/dev/SPEC-labelkit-delivery.md「信息范围与标签」「来源关联」）：未来事件不得进入引用集合。
+    """引用排序守卫（docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit「信息范围与标签」「来源关联」）：未来事件不得进入引用集合。
 
     观察的 progress_event_ids 引用的结果事件序号 >= 观察自身序号时，
     导出管道必须经 `source["event_seq"] >= observation["event_seq"]` 拒绝。
@@ -370,7 +370,7 @@ def _dreaming_day(*rows):
 
 
 def test_dreaming_window_reads_self_note_and_the_actual_request_layer_json(monkeypatch):
-    """dreaming 读 self_note 与实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）：每个动作请求取
+    """dreaming 读 self_note 与实际请求中的层 JSON（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「交付」）：每个动作请求取
     同决策动作前最后一次实际行动请求的首个 user 六层，请求事件身份与层 JSON 摘要写入来源；零点计划与动作之后的请求不取。
     decision_started 与 model_request 是私有事件，不作窗口事件；交付从不调用场景渲染器。"""
     import hashlib
@@ -473,11 +473,11 @@ def _trimmed_shown(action: dict, intent: dict, dreams: list[dict]) -> list[dict]
 
 
 def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
-    """带记忆与看法的 conclude_activity 不泄露记忆正文（docs/dev/SPEC-time-and-energy.md 第九章交付链；交付设计「证据窗口与
+    """带记忆与看法的 conclude_activity 不泄露记忆正文（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第九章交付链；交付设计「证据窗口与
     输入结构」）。
 
     意图与 dreaming 窗口输入里的动作请求经 control_items 读出，每项只保留 activity_name 与 summary（items[].memories 与
-    items[].views 裁去，docs/dev/SPEC-dayrun-fidelity.md 第六章）；动作窗口的目标保留完整请求，写入记忆的
+    items[].views 裁去，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）；动作窗口的目标保留完整请求，写入记忆的
     memory_updated 仍是私有事件，既不进输入也不进 target.outcomes。
     """
     request = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。',
@@ -522,7 +522,7 @@ def test_retired_control_request_shapes_are_rejected_by_delivery(tmp_path):
 
 
 def test_control_requests_without_errands_are_rejected_by_delivery(tmp_path):
-    """带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-errands-workday.md 2.3、2.9）：交付构造窗口时经
+    """带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.9）：交付构造窗口时经
     control_items 以完整性故障拒绝，不当作没有事务变更的现行请求放行；三个控制工具的请求事件投影同样拒绝。带空 errands
     的同一请求照常构造动作、意图与三个 dreaming 窗口，投影不带 errands。"""
     lacking = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。', 'memories': [], 'views': []}]}
@@ -564,7 +564,7 @@ def _two_item_conclusion() -> dict:
 
 def test_intent_and_dreaming_projections_drop_memories_views_and_errands_and_leave_the_event_intact(tmp_path):
     """意图与 dreaming 窗口输入里的收尾请求投影恒不带请求级 errands，两项都只留 activity_name 与 summary（每一项的
-    memories 与 views 都裁去，不只第一项），与 memories、views 同等对待（docs/dev/SPEC-errands-workday.md 2.9）；投影写进
+    memories 与 views 都裁去，不只第一项），与 memories、views 同等对待（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 ）；投影写进
     新字典，构造完动作、意图与三个 dreaming 窗口之后，原请求事件逐键不变，仍带完整的两项与 errands。"""
     request = _two_item_conclusion()
     requested, action, intent, dreams = _conclusion_windows(tmp_path, copy.deepcopy(request))
@@ -583,7 +583,7 @@ def test_intent_and_dreaming_projections_drop_memories_views_and_errands_and_lea
 
 def test_the_action_target_keeps_the_full_control_request(tmp_path):
     """动作窗口的目标是同一个请求事件，保留完整请求（两项的记忆与看法、请求级 errands）；之后构造意图与 dreaming 窗口的
-    投影不改动它，意图窗口的目标也是同一事件（docs/dev/SPEC-errands-workday.md 2.9「动作窗口的目标保留完整请求」）。"""
+    投影不改动它，意图窗口的目标也是同一事件（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 「动作窗口的目标保留完整请求」）。"""
     request = _two_item_conclusion()
     requested, action, intent, dreams = _conclusion_windows(tmp_path, copy.deepcopy(request))
 
@@ -689,7 +689,7 @@ def test_actual_decision_prompt_is_authoritative_and_private_review_never_become
 
 def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_windows(tmp_path):
     """同秒续接的实际请求：链首 system 与 user 之后是上一决策的 assistant 消息（带 reasoning_content 与世界请求调用）和
-    对应的 tool 消息；动作与意图窗口原样保留这份实际请求，不重建、不删减（docs/dev/SPEC-persona-prompt.md 验收台账「下游」）。"""
+    对应的 tool 消息；动作与意图窗口原样保留这份实际请求，不重建、不删减（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 验收台账「下游」）。"""
     import copy
     import hashlib
     import json
@@ -777,7 +777,7 @@ def _reflection_request(identity, sequence, retry_of=None):
 
 
 def test_reflection_requests_after_the_action_never_become_the_decision_prompt(tmp_path):
-    """含就寝反思的决策，其交付窗口的决策提示仍是动作之前的行动请求（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。
+    """含就寝反思的决策，其交付窗口的决策提示仍是动作之前的行动请求（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」）。
 
     醒来那一轮先登记收尾请求，记忆运行时随后才发出就寝反思（一次不合合同、一次重试）：两条反思请求同样不带 purpose、
     带工具，但事件序号都在 action_requested 之后。动作、意图与 dreaming 窗口取的都是动作之前最后一份不带 purpose 的

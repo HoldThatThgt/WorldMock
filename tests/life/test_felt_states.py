@@ -41,8 +41,9 @@ from worldmock.life.felt import (
     social_need_level,
     summarize_felt_levels,
 )
-from worldmock.life.scenario import BodyConfig, load_scenario
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.scenario import BodyConfig
+from worldmock.life.world_setup import load_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 #: 身体配置的紧急阈值（正式目录 EMERGENCY_ENERGY）；能量不低于它时分级只看 appetite。
 EMERGENCY_KCAL = 400.0
@@ -209,7 +210,7 @@ def test_appetite_level_boundaries(appetite: float, expected: str) -> None:
 
 
 class TestLowEnergyAppetite:
-    """两条低能量规则（docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。"""
+    """两条低能量规则（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「饥饿在低能量时不失灵」）。"""
 
     @pytest.mark.parametrize("hour", [8.0, 20.0])
     def test_below_emergency_threshold_is_at_least_unbearable(self, hour: float) -> None:
@@ -298,7 +299,7 @@ def test_scenario_with_emergency_threshold_at_starving_constant_fails_to_load(tm
         (1.17, "很困"),
         (1.18, "撑不住"),
         (1.2, "撑不住"),
-        # 旧档界 0.5 / 0.75 / 0.9 / 1.0 按 KSS 等价刻度重标定后各落回低一到两档（docs/dev/SPEC-dayrun-fidelity.md 1.4）。
+        # 旧档界 0.5 / 0.75 / 0.9 / 1.0 按 KSS 等价刻度重标定后各落回低一到两档（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界 ）。
         (0.5, "清醒"),
         (0.75, "清醒"),
         (0.9, "有点乏"),
@@ -310,7 +311,7 @@ def test_sleepiness_level_boundaries(sleepiness: float, expected: str) -> None:
 
 
 def test_sleepiness_band_names_and_count_are_unchanged() -> None:
-    """只改档界，五档的名称与个数不变（人物 Prompt 规格裁决 #10，docs/dev/SPEC-dayrun-fidelity.md 1.4）。"""
+    """只改档界，五档的名称与个数不变（人物 Prompt 规格裁决 #10，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界 ）。"""
     assert SLEEPINESS_BASE_LEVEL == "清醒"
     assert SLEEPINESS_BANDS == ((0.80, "有点乏"), (0.93, "困"), (1.07, "很困"), (1.18, "撑不住"))
     levels = {sleepiness_level(step / 100) for step in range(121)}
@@ -368,7 +369,7 @@ def test_mood_level_boundaries(valence: float, expected: str) -> None:
 
 
 class TestSocialLedger:
-    """社交需要账本速率（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """社交需要账本速率（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
 
     def test_awake_growth(self) -> None:
         # 0.5 + 0.04×10 = 0.9。
@@ -417,7 +418,7 @@ class TestSocialLedger:
 
 
 class TestMood:
-    """情绪脉冲、N_norm 调制、半衰期与多脉冲叠加（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """情绪脉冲、N_norm 调制、半衰期与多脉冲叠加（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
 
     def test_pulse_table_values(self) -> None:
         assert MOOD_PULSES == {
@@ -499,7 +500,7 @@ class TestMood:
         assert mood_level(valence) == "有点烦"
 
     def test_discomfort_pulse_is_linear_in_billed_hours(self) -> None:
-        # 门槛只在 rhythm 的边界结算中判定一次（docs/dev/SPEC-dayrun-fidelity.md 1.5）：传入的是超出两小时后新增的
+        # 门槛只在 rhythm 的边界结算中判定一次（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）：传入的是超出两小时后新增的
         # 计费小时，幅度按 −0.1/小时线性给出，0.25 小时也有脉冲，不再对计费小时重复施加门槛。
         assert MOOD_DISCOMFORT_TRIGGER_HOURS == 2.0
         assert discomfort_pulse(0.0) == 0.0
@@ -520,7 +521,7 @@ class TestMood:
 
 
 class TestSummarizeAndHysteresis:
-    """分级汇总与滞回判定（决策参照，非结算参照，docs/dev/SPEC-life-runtime.md「滞回规则」）。"""
+    """分级汇总与滞回判定（决策参照，非结算参照，docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「滞回规则」）。"""
 
     def test_summarize_felt_levels(self) -> None:
         summary = _summary(0.585, 0.95, 0.4, 0.65, 0.2)

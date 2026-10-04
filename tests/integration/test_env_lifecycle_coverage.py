@@ -8,6 +8,7 @@ fail-closed、检查点身份校验与 close 双重故障分支。只新增测�
 """
 
 from __future__ import annotations
+from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
 import json
@@ -36,7 +37,7 @@ from worldmock.life.models import (
     ModelIdentity,
     RunIdentity,
 )
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
 
@@ -83,11 +84,11 @@ async def _new_env(tmp_path: Path, tag: str) -> LifeEnv:
 
 def _context_for(env: LifeEnv, round_id: str, agent_id: int = 1) -> DecisionContext:
     """按引擎当前状态形成宿主决策上下文。"""
-    timezone = ZoneInfo(env.engine.scenario.timezone)
-    observed = datetime.fromtimestamp(env.engine.state.current_time, timezone)
-    return DecisionContext(env.engine.state.run_id, round_id,
+    timezone = ZoneInfo(env.engine.context.scenario.timezone)
+    observed = datetime.fromtimestamp(env.engine.context.state.current_time, timezone)
+    return DecisionContext(env.engine.context.state.run_id, round_id,
                            f"decision-{round_id}-{agent_id}", agent_id,
-                           observed, env.engine.state.version)
+                           observed, env.engine.context.state.version)
 
 
 def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
@@ -107,7 +108,7 @@ def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
 
 
 # ---------------------------------------------------------------------------
-# 一、init 校验与工具面 fail-closed（docs/dev/SPEC-life-realism.md「日程骨架」、docs/dev/SPEC-life-runtime.md「社交最小可行版」）
+# 一、init 校验与工具面 fail-closed（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「日程骨架」、docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）
 # ---------------------------------------------------------------------------
 
 
@@ -141,14 +142,14 @@ async def test_open_existing_restores_prior_run(tmp_path) -> None:
     """open_existing=true 只能打开已有不可变运行目录。"""
     scenario, _ = load_scenario(_SCENARIO)
     first = await _new_env(tmp_path, "reopen")
-    run_id = first.engine.state.run_id
+    run_id = first.engine.context.state.run_id
     await first.close()
 
     reopened = LifeEnv(scenario_path=str(_SCENARIO),
                        run_dir=str(tmp_path / "run-reopen"), open_existing=True)
     await reopened.init(_start(scenario))
     try:
-        assert reopened.engine.state.run_id == run_id
+        assert reopened.engine.context.state.run_id == run_id
     finally:
         await reopened.close()
 
@@ -167,7 +168,7 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
         drifted.engine.close()
 
     monkeypatch.undo()
-    monkeypatch.setattr(life_agent_module, "life_action_tool_names",
+    monkeypatch.setattr(life_env_module, "life_action_tool_names",
                         lambda: frozenset({"start_activity"}))
     mismatch = LifeEnv(scenario_path=str(_SCENARIO),
                        run_dir=str(tmp_path / "mismatch-env"),
@@ -222,7 +223,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
         assert [item.action_id for item in results] == ["action-round-1"]
 
         from dataclasses import replace
-        memory_context = replace(contexts[-1], world_state_version=engine.state.version)
+        memory_context = replace(contexts[-1], world_state_version=engine.context.state.version)
         files = {"memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64, "episodes_sha256": "c" * 64,
                  "state_sha256": "d" * 64, "consolidated": False,
                  "observation_event_id": data["observation_event_id"], "verified_event_ids": ()}
@@ -237,27 +238,27 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
         await env.record_memory_update(MemoryUpdateEvidence(
             context=memory_context, operation="refresh_summary", created_episode_ids=(),
             merged_episode_ids=(), episodes=(), **files))
-        updated = engine.store.read_agent_events("memory_updated", memory_context.agent_id)
+        updated = engine.context.store.read_agent_events("memory_updated", memory_context.agent_id)
         assert [(event.data["operation"], event.data["trigger"], event.data["decision_id"])
                 for event in updated] == [("refresh_summary", [], memory_context.decision_id)]
 
         workspaces = tuple(
             (agent_id, str(tmp_path / f"round-ws-{agent_id}"))
-            for agent_id in engine.store.manifest["agent_ids"])
+            for agent_id in engine.context.store.manifest["agent_ids"])
         for _agent_id, path in workspaces:
             workspace = Path(path)
             workspace.mkdir(parents=True, exist_ok=True)
             (workspace / "MEMORY.md").write_text("# round memory\n", encoding="utf-8")
-        now = datetime.fromtimestamp(engine.state.current_time,
-                                     ZoneInfo(engine.scenario.timezone))
+        now = datetime.fromtimestamp(engine.context.state.current_time,
+                                     ZoneInfo(engine.context.scenario.timezone))
         assert plan_clients == []  # init 与决策轮都不执行零点计划
         checkpoint = await env.checkpoint(SocietyCheckpointRequest(
-            run_id=engine.state.run_id, round_id="round-1", current_time=now,
+            run_id=engine.context.state.run_id, round_id="round-1", current_time=now,
             agent_workspaces=workspaces))
         assert checkpoint.checkpoint_id
         # 新建运行的检查点提交之后，零点计划为缺当日计划的每个人物生成一次（新计划不进本次检查点）。
-        assert [len(client.calls) for client in plan_clients] == [len(engine.state.agents)]
-        assert all(agent.day_plan is not None for agent in engine.state.agents.values())
+        assert [len(client.calls) for client in plan_clients] == [len(engine.context.state.agents)]
+        assert all(agent.day_plan is not None for agent in engine.context.state.agents.values())
         assert all(agent["day_plan"] is None for agent in checkpoint.state["agents"].values())
 
         state = await env.scheduling_state()
@@ -277,7 +278,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
             guard += 1
             assert guard < 8, "drain loop did not converge"
         assert state.next_event_at is not None
-        tick = int(state.next_event_at.timestamp()) - engine.state.current_time
+        tick = int(state.next_event_at.timestamp()) - engine.context.state.current_time
         await env.step(tick, state.next_event_at)
         assert env.t == state.next_event_at
 
@@ -302,11 +303,11 @@ async def test_checkpoint_identity_is_validated(tmp_path) -> None:
 
         workspaces = tuple(
             (agent_id, str(tmp_path / f"ck-ws-{agent_id}"))
-            for agent_id in engine.store.manifest["agent_ids"])
+            for agent_id in engine.context.store.manifest["agent_ids"])
         for _agent_id, path in workspaces:
             Path(path).mkdir(parents=True, exist_ok=True)
-        now = datetime.fromtimestamp(engine.state.current_time,
-                                     ZoneInfo(engine.scenario.timezone))
+        now = datetime.fromtimestamp(engine.context.state.current_time,
+                                     ZoneInfo(engine.context.scenario.timezone))
         stale = SocietyCheckpointRequest(
             run_id="other-run", round_id="round-ck", current_time=now,
             agent_workspaces=workspaces)
@@ -314,7 +315,7 @@ async def test_checkpoint_identity_is_validated(tmp_path) -> None:
             await env.checkpoint(stale)
 
         incomplete = SocietyCheckpointRequest(
-            run_id=engine.state.run_id, round_id="round-ck", current_time=now,
+            run_id=engine.context.state.run_id, round_id="round-ck", current_time=now,
             agent_workspaces=((999, str(tmp_path / "ck-ws-999")),))
         with pytest.raises(ProtocolError, match="agent set is incomplete"):
             await env.checkpoint(incomplete)
@@ -327,7 +328,7 @@ async def test_fail_run_persists_the_failure_evidence(tmp_path) -> None:
     env = await _new_env(tmp_path, "fail")
     try:
         await env.fail_run("injected fatal notification")
-        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        events = env.engine.context.store.read_events(env.engine.context.store.last_event_seq)
         assert any(event.event_type == "run_failed" for event in events)
     finally:
         await env.close()
@@ -346,17 +347,16 @@ async def test_counterfactual_applies_once_on_fresh_branch(tmp_path) -> None:
             hypothesis="Higher liquidity changes purchase choices.",
             source_event_ids=(data["observation_event_id"],))
         engine = parent.engine
-        snapshots = {f"agent:{agent_id}": engine.store.assets.put_json(
+        snapshots = {f"agent:{agent_id}": engine.context.store.assets.put_json(
             {"agent_id": agent_id}, {"kind": "envcov_counterfactual"})
-            for agent_id in engine.store.manifest["agent_ids"]}
+            for agent_id in engine.context.store.manifest["agent_ids"]}
         checkpoint = engine.checkpoint(snapshots)
         payload = {"tool_name": "counterfactual_intervention",
                    "request": intervention.model_dump(mode="json")}
         digest = hashlib.sha256(json.dumps(
             payload, ensure_ascii=False, sort_keys=True,
             separators=(",", ":")).encode()).hexdigest()
-        store = engine.store.restore(checkpoint.checkpoint_id, branch_dir, {
-            "branch_kind": "counterfactual", "intervention_sha256": digest})
+        store = restore_branch(engine.context.store, checkpoint.checkpoint_id, branch_dir, {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
         store.close()
     finally:
         await parent.close()
@@ -378,8 +378,8 @@ async def test_counterfactual_applies_once_on_fresh_branch(tmp_path) -> None:
 async def test_workspace_binding_and_restore_round_trip(tmp_path) -> None:
     """to_workspace 只接受自身运行目录；restore/from_workspace 恢复已有运行。"""
     env = await _new_env(tmp_path, "workspace")
-    run_dir = Path(env.engine.store.run_dir)
-    run_id = env.engine.state.run_id
+    run_dir = Path(env.engine.context.store.run_dir)
+    run_id = env.engine.context.state.run_id
     try:
         await env.to_workspace()
         assert env._workspace_root == run_dir
@@ -393,19 +393,19 @@ async def test_workspace_binding_and_restore_round_trip(tmp_path) -> None:
         await LifeEnv().restore(run_dir)
 
     first = await _new_env(tmp_path, "restore-first")
-    first_run_dir = Path(first.engine.store.run_dir)
-    first_run_id = first.engine.state.run_id
+    first_run_dir = Path(first.engine.context.store.run_dir)
+    first_run_id = first.engine.context.state.run_id
     second = await _new_env(tmp_path, "restore-second")
     assert await second.restore(first_run_dir) is True
     assert second.engine is not None
-    assert second.engine.state.run_id == first_run_id
+    assert second.engine.context.state.run_id == first_run_id
     await second.close()
     await first.close()
 
     restored = LifeEnv(scenario_path=str(_SCENARIO))
     assert await restored.restore(run_dir) is True
     try:
-        assert restored.engine.state.run_id == run_id
+        assert restored.engine.context.state.run_id == run_id
         assert restored.t is not None
     finally:
         await restored.close()
@@ -413,7 +413,7 @@ async def test_workspace_binding_and_restore_round_trip(tmp_path) -> None:
     from_workspace = await LifeEnv.from_workspace(
         run_dir, scenario_path=str(_SCENARIO))
     try:
-        assert from_workspace.engine.state.run_id == run_id
+        assert from_workspace.engine.context.state.run_id == run_id
     finally:
         await from_workspace.close()
 
@@ -433,7 +433,7 @@ async def test_close_failure_records_run_failure_or_raises_group(tmp_path,
     with pytest.raises(ValueError, match="disk full while closing"):
         await env.close()
     assert env.engine is not None  # 失败路径不置空引擎
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     assert any(event.event_type == "run_failed" for event in events)
 
     def broken_fail_run(error: str) -> None:
@@ -442,4 +442,4 @@ async def test_close_failure_records_run_failure_or_raises_group(tmp_path,
     monkeypatch.setattr(engine, "fail_run", broken_fail_run)
     with pytest.raises(ExceptionGroup, match="close and failure recording both failed"):
         await env.close()
-    engine.store.close()
+    engine.context.store.close()

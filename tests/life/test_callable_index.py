@@ -1,4 +1,4 @@
-"""工具层只列名称的可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2，裁决 S5；验收台账「呈现」的
+"""工具层只列名称的可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ，裁决 S5；验收台账「呈现」的
 「索引名称都可按名调用」）。
 
 全部经真实 LifeEngine、SQLite 与 LifeAgent：索引里的每个名称（全部生活活动名称、内容与商品各品类的示例名）都能按名调用——
@@ -28,7 +28,8 @@ from worldmock.life.callable_index import MAX_EXAMPLES, obtainable_here
 from worldmock.life.candidates import tiebreak_digest
 from worldmock.life.discovery import DiscoveryContext
 from worldmock.life.engine import LifeEngine
-from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, WAYS
+from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND
+from worldmock.life.vocabulary import WAYS
 from worldmock.life.models import StartActivityRequest
 from worldmock.life.name_resolution import name_book, resolve_start
 from worldmock.life.readable import BROWSE_LABELS, count_phrase
@@ -41,7 +42,7 @@ _RESTAURANT, _MARKET = "poi-3538682404", "market"
 
 def _at(engine: LifeEngine, hour: int, place: str, minute: int = 30) -> None:
     """把没有活动的隔离运行置于场景首日 hour:minute、地点 place（经存储提交，版本加一）。"""
-    moment = datetime(2026, 1, 5, hour, minute, tzinfo=ZoneInfo(engine.scenario.timezone))
+    moment = datetime(2026, 1, 5, hour, minute, tzinfo=ZoneInfo(engine.context.scenario.timezone))
     _stage(engine, int(moment.timestamp()), place)
 
 
@@ -53,7 +54,7 @@ def _index(engine: LifeEngine, label: str) -> tuple[dict, dict]:
 
 def _products(engine: LifeEngine) -> dict[str, object]:
     """商品身份 → 商品。"""
-    return {item.product_id: item for item in engine.scenario.products}
+    return {item.product_id: item for item in engine.context.scenario.products}
 
 
 def _number(row: dict) -> int:
@@ -72,9 +73,9 @@ def _content_way(observed: dict, name: str) -> tuple[str, str]:
 
 def _purchase_way(engine: LifeEngine, name: str) -> str:
     """商品名按名取得的方式：人就在出售它的门店里写「到店」，否则写「远程下单」。"""
-    products, here = _products(engine), engine.state.agents[1].location_id
+    products, here = _products(engine), engine.context.state.agents[1].location_id
     in_store = any(products[supply.product_id].name == name and supply.location_id == here
-                   and "pickup" in supply.fulfillment_modes for supply in engine.scenario.supplies)
+                   and "pickup" in supply.fulfillment_modes for supply in engine.context.scenario.supplies)
     return "到店" if in_store else "远程下单"
 
 
@@ -109,19 +110,19 @@ def _submitted(engine: LifeEngine, tmp_path, monkeypatch, label: str, index: dic
         assert person.validate_react_decisions([ReactDecision("", "start_activity", arguments, "")], False) == "", call
         drive(person.dispatch_react_tool("start_activity", arguments))
         [result] = branch.commit_decision_round(decision.round_id)
-        target = branch.state.activities[result.activity_id].target_id if result.activity_id else None
+        target = branch.context.state.activities[result.activity_id].target_id if result.activity_id else None
         return result, target
     finally:
         branch.close()
-        shutil.rmtree(branch.store.run_dir)
+        shutil.rmtree(branch.context.store.run_dir)
 
 
 def _assert_every_name_is_called(engine: LifeEngine, tmp_path, monkeypatch, label: str,
                                  sections: tuple[str, ...], per_category: int = MAX_EXAMPLES) -> int:
     """逐个按名调用本次观察索引里（sections 各部分的）名称，断言都被受理并落到同名对象；返回调用的名称数。"""
     observed, index = _index(engine, f"{label}-listing")
-    lifestyle = {item.activity_id: item.name for item in engine.lifestyle_items}
-    titles = {**engine.rules.content_titles, **{item.game_id: item.title for item in engine.scenario.games}}
+    lifestyle = {item.activity_id: item.name for item in engine.context.lifestyle_items}
+    titles = {**engine.context.rules.content_titles, **{item.game_id: item.title for item in engine.context.scenario.games}}
     calls = _calls(engine, observed, index, sections, per_category)
     for number, call in enumerate(calls):
         result, target = _submitted(engine, tmp_path, monkeypatch, f"{label}-{number}", index, call)
@@ -139,20 +140,20 @@ def _assert_every_name_is_called(engine: LifeEngine, tmp_path, monkeypatch, labe
 def _assert_goods_choice(engine: LifeEngine, result, name: str, way: str) -> None:
     """商品名按名取得落到出售这个商品的门店（details.resolved 写 {written: 名称, as: <门店>出售的<名称>}，与订单的门店
     一致）：到店落在人所在的这家店；远程下单落在能送到这里的供给中预计送达最早的一家（请求级 prefer="最快拿到"，
-    docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条），几家都能送到时 details.notes 写明按最快选了哪家，只有一家时
+    docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10 「收敛」第 5 条），几家都能送到时 details.notes 写明按最快选了哪家，只有一家时
     不写；同名多家不以 SUPPLY_NAME_AMBIGUOUS 拒绝。"""
     [purchase] = [row for row in result.data["resolved"] if row["written"] == name]
     [order] = result.data["orders"]
-    places = {item.location_id: item.name for item in engine.scenario.locations}
+    places = {item.location_id: item.name for item in engine.context.scenario.locations}
     assert purchase["as"] == f"{places[order['location_id']]}出售的{name}", (purchase, order)
     notes = [note for note in result.data.get("notes", []) if note.startswith(f"「{name}」")]
-    here, now = engine.state.agents[1].location_id, engine.state.current_time
+    here, now = engine.context.state.agents[1].location_id, engine.context.state.current_time
     if way == "到店":
         assert (order["location_id"], order["fulfillment"], notes) == (here, "pickup", []), order
         return
     products = _products(engine)
-    expected = {supply.supply_id: delivery_expected_at(engine.semantics, supply, here, now)
-                for supply in engine.scenario.supplies
+    expected = {supply.supply_id: delivery_expected_at(engine.context.semantics, supply, here, now)
+                for supply in engine.context.scenario.supplies
                 if products[supply.product_id].name == name and "delivery" in supply.fulfillment_modes}
     served = {supply_id: moment for supply_id, moment in expected.items() if moment is not None}
     assert order["supply_id"] in served and order["expected_at"] == min(served.values()), (order, served)
@@ -198,13 +199,13 @@ def test_a_name_several_stores_deliver_is_called_by_name_and_chosen_by_prefer(en
     _at(engine, 12, "home")
     _without_routes(engine, _MARKET, "home")
     observed, index = _index(engine, "several-stores")
-    products, now = _products(engine), engine.state.current_time
+    products, now = _products(engine), engine.context.state.current_time
     examples = [name for row in index["goods"] for name in row["examples"]]
     assert len(examples) > MAX_EXAMPLES
     name = next(name for name in examples if len({
-        supply.location_id for supply in engine.scenario.supplies
+        supply.location_id for supply in engine.context.scenario.supplies
         if products[supply.product_id].name == name
-        and delivery_expected_at(engine.semantics, supply, "home", now) is not None}) == 2)
+        and delivery_expected_at(engine.context.semantics, supply, "home", now) is not None}) == 2)
     call = next(call for call in _calls(engine, observed, index, ("goods",)) if call[1] == name)
     result, _ = _submitted(engine, tmp_path, monkeypatch, "several-stores-one", index, call)
     assert result.status == "completed" and result.error_code is None
@@ -244,14 +245,14 @@ def test_the_index_leaves_out_activities_excluded_by_location_kind(engine_factor
     窗口里的条目都在索引里。在家是 104 个名称、405 字（规格 5.2 的估算）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    names = {item.activity_id: item.name for item in engine.lifestyle_items}
+    names = {item.activity_id: item.name for item in engine.context.lifestyle_items}
     sizes = {}
     for place in ("home", "office", _MARKET):
         _at(engine, 12, place)
         _, index = _index(engine, f"kinds-{place}")
         allowed = _allowed(engine, place)
         assert index["lifestyle"] == [names[item] for item in _hashed(engine, allowed, _DAY)]
-        window = engine._menu_windows(engine.state.agents[1])["lifestyle"]
+        window = engine.observations._menu_windows(engine.context.state.agents[1])["lifestyle"]
         mismatched = {names[item.object_id] for item in window.excluded
                       if item.reason == "ELIGIBILITY_LOCATION_KIND_MISMATCH"}
         assert mismatched and not mismatched & set(index["lifestyle"])
@@ -263,11 +264,11 @@ def test_the_index_leaves_out_activities_excluded_by_location_kind(engine_factor
 
 def _deny(engine: LifeEngine, *actions: str) -> None:
     """把家的地点菜单收窄为不含 actions（权威菜单随场景重算）。"""
-    menus = engine.scenario.interaction_menus_by_location_kind.copy()
+    menus = engine.context.scenario.interaction_menus_by_location_kind.copy()
     home = menus["home"]
     menus["home"] = home.model_copy(update={"allowed_actions": tuple(
         action for action in home.allowed_actions if action not in actions)})
-    engine.scenario = engine.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    engine.context.scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
 
 
 def test_the_interaction_menu_decides_what_can_be_done_here(engine_factory) -> None:
@@ -282,7 +283,7 @@ def test_the_interaction_menu_decides_what_can_be_done_here(engine_factory) -> N
     assert (narrowed["lifestyle"], narrowed["goods"], narrowed["contents"]) == ([], [], full["contents"])
     _deny(engine, "watch")
     _, playable = _index(engine, "menu-playable")
-    games = {item.title for item in engine.scenario.games}
+    games = {item.title for item in engine.context.scenario.games}
     [row] = playable["contents"]
     assert (row["category"], row["count"]) == (BROWSE_LABELS["game_session"], count_phrase(len(games)))
     assert set(row["examples"]) <= games and len(row["examples"]) == MAX_EXAMPLES
@@ -295,14 +296,14 @@ def test_the_interaction_menu_decides_what_can_be_done_here(engine_factory) -> N
 
 def _set_stock(engine: LifeEngine, supply_ids: set[str], stock: int) -> None:
     """把几件供给的库存改为 stock，经存储提交（版本加一）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     for supply_id in supply_ids:
         staged.supply_stock[supply_id] = stock
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_stock_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _category_of(index: dict, name: str) -> dict:
@@ -323,7 +324,7 @@ def test_goods_are_only_what_can_be_obtained_from_here_now(engine_factory) -> No
     name = next(name for row in noon["goods"] for name in row["examples"] if name != "纯牛奶")
     before = _category_of(noon, name)
     products = _products(engine)
-    _set_stock(engine, {item.supply_id for item in engine.scenario.supplies
+    _set_stock(engine, {item.supply_id for item in engine.context.scenario.supplies
                         if products[item.product_id].name == name}, 0)
     _, sold_out = _index(engine, "sold-out")
     after = next(row for row in sold_out["goods"] if row["category"] == before["category"])
@@ -336,7 +337,7 @@ def test_goods_are_only_what_can_be_obtained_from_here_now(engine_factory) -> No
     assert {row["category"]: row["count"] for row in cut["goods"]} == {
         row["category"]: row["count"] for row in sold_out["goods"]}
     assert all(_number(row) > 0 for row in cut["goods"])
-    assert {item.location_id for item in engine.scenario.supplies if products[item.product_id].name == "纯牛奶"} == {
+    assert {item.location_id for item in engine.context.scenario.supplies if products[item.product_id].name == "纯牛奶"} == {
         _MARKET, "poi-3538682402", "poi-3538763552"}
 
 
@@ -345,14 +346,14 @@ def test_a_pickup_only_supply_is_obtainable_only_in_its_open_store(engine_factor
     engine = engine_factory()
     stage_day_plan(engine)
     products = _products(engine)
-    supplies = [item for item in engine.scenario.supplies if item.location_id == _RESTAURANT]
+    supplies = [item for item in engine.context.scenario.supplies if item.location_id == _RESTAURANT]
     assert len(supplies) == 10
     supply = supplies[0]
     meals = {products[item.product_id].name for item in supplies}
 
     def here() -> bool:
         """@brief 此刻从人物所在地点能否得到这件供给。"""
-        found = DiscoveryContext(engine.state, engine.scenario, engine.semantics, engine.state.agents[1])
+        found = DiscoveryContext(engine.context.state, engine.context.scenario, engine.context.semantics, engine.context.state.agents[1])
         return obtainable_here(found, supply)
 
     _at(engine, 9, _RESTAURANT)
@@ -366,13 +367,13 @@ def test_a_pickup_only_supply_is_obtainable_only_in_its_open_store(engine_factor
     assert all(row["category"] != "Prepared meal" for row in early["goods"])
     row = next(row for row in noon["goods"] if row["category"] == "Prepared meal")
     assert row["count"] == count_phrase(10) and set(row["examples"]) <= meals
-    assert all(products[item.product_id].name not in meals for item in engine.scenario.supplies
+    assert all(products[item.product_id].name not in meals for item in engine.context.scenario.supplies
                if item.location_id == _MARKET)
 
 
 def _order(engine: LifeEngine):
     """决胜键 sha256(场景|人物|日期|对象)。"""
-    return lambda identity: tiebreak_digest(engine.scenario.scenario_id, 1, _DAY, identity)
+    return lambda identity: tiebreak_digest(engine.context.scenario.scenario_id, 1, _DAY, identity)
 
 
 def test_counts_and_up_to_three_examples_per_category(engine_factory) -> None:
@@ -383,38 +384,38 @@ def test_counts_and_up_to_three_examples_per_category(engine_factory) -> None:
     stage_day_plan(engine)
     _at(engine, 12, "home")
     observed, index = _index(engine, "shape")
-    titles = engine.rules.content_titles
-    kinds = Counter(BROWSE_LABELS[item.kind] for item in engine.scenario.contents if item.item_id in titles)
-    kinds[BROWSE_LABELS["game_session"]] += len(engine.scenario.games)
+    titles = engine.context.rules.content_titles
+    kinds = Counter(BROWSE_LABELS[item.kind] for item in engine.context.scenario.contents if item.item_id in titles)
+    kinds[BROWSE_LABELS["game_session"]] += len(engine.context.scenario.games)
     assert [row["category"] for row in index["contents"]] == sorted(kinds)
     assert {row["category"]: _number(row) for row in index["contents"]} == dict(kinds)
     assert kinds["电影"] == 90 and kinds["游戏"] == 110
     listed = {row["object"].split("：", 1)[1] for row in observed["interaction_bindings"]
               if row["kind"] in {"content", "game"}}
     order = _order(engine)
-    identities = {titles[item.item_id]: item.item_id for item in engine.scenario.contents}
-    identities.update({item.title: item.game_id for item in engine.scenario.games})
-    categories = {titles[item.item_id]: BROWSE_LABELS[item.kind] for item in engine.scenario.contents}
-    categories.update({item.title: BROWSE_LABELS["game_session"] for item in engine.scenario.games})
+    identities = {titles[item.item_id]: item.item_id for item in engine.context.scenario.contents}
+    identities.update({item.title: item.game_id for item in engine.context.scenario.games})
+    categories = {titles[item.item_id]: BROWSE_LABELS[item.kind] for item in engine.context.scenario.contents}
+    categories.update({item.title: BROWSE_LABELS["game_session"] for item in engine.context.scenario.games})
     for row in index["contents"]:
         members = sorted((title for title, label in categories.items() if label == row["category"]),
                          key=lambda title: (title in listed, order(identities[title])))
         assert row["examples"] == members[:MAX_EXAMPLES]
         assert len(set(row["examples"])) == len(row["examples"]) <= MAX_EXAMPLES
     products = _products(engine)
-    found = DiscoveryContext(engine.state, engine.scenario, engine.semantics, engine.state.agents[1])
+    found = DiscoveryContext(engine.context.state, engine.context.scenario, engine.context.semantics, engine.context.state.agents[1])
     goods: dict[str, set[str]] = {}
-    for supply in engine.scenario.supplies:
+    for supply in engine.context.scenario.supplies:
         if obtainable_here(found, supply):
             product = products[supply.product_id]
-            name = engine.semantics.catalog.category_contract.require_category(product.category_id).name
+            name = engine.context.semantics.catalog.category_contract.require_category(product.category_id).name
             goods.setdefault(name, set()).add(product.name)
     assert {row["category"]: _number(row) for row in index["goods"]} == {
         key: len(value) for key, value in goods.items()}
     assert [row["category"] for row in index["goods"]] == sorted(goods)
     assert all(set(row["examples"]) <= goods[row["category"]] and 1 <= len(row["examples"]) <= MAX_EXAMPLES
                for row in index["goods"])
-    lifestyle = {item.name: item.activity_id for item in engine.lifestyle_items}
+    lifestyle = {item.name: item.activity_id for item in engine.context.lifestyle_items}
     assert index["lifestyle"] == sorted(index["lifestyle"], key=lambda name: order(lifestyle[name]))
     assert index["lifestyle"] != sorted(index["lifestyle"], key=lambda name: lifestyle[name])
 
@@ -428,7 +429,7 @@ def test_examples_prefer_names_not_already_listed_as_targets(engine_factory) -> 
     observed, index = _index(engine, "unlisted")
     listed = [row for row in observed["interaction_bindings"] if row["kind"] == "supply"]
     products = _products(engine)
-    listed_names = {products[engine.rules.supplies[row["object_id"]].product_id].name for row in listed}
+    listed_names = {products[engine.context.rules.supplies[row["object_id"]].product_id].name for row in listed}
     assert listed_names
     wide = [row for row in index["goods"] if _number(row) - len(listed_names) >= MAX_EXAMPLES]
     assert wide and all(not set(row["examples"]) & listed_names for row in wide)
@@ -450,9 +451,9 @@ def test_names_shared_by_two_contents_are_not_given_as_examples(engine_factory, 
     game = next(row for row in index["contents"] if row["category"] == BROWSE_LABELS["game_session"])
     film_row = next(row for row in index["contents"] if row["category"] == "电影")
     shared = game["examples"][0]
-    film = next(item.item_id for item in engine.scenario.contents
-                if engine.rules.content_titles[item.item_id] == film_row["examples"][0])
-    monkeypatch.setattr(engine.rules, "content_titles", {**engine.rules.content_titles, film: shared})
+    film = next(item.item_id for item in engine.context.scenario.contents
+                if engine.context.rules.content_titles[item.item_id] == film_row["examples"][0])
+    monkeypatch.setattr(engine.context.rules, "content_titles", {**engine.context.rules.content_titles, film: shared})
     ctx = context(engine, "shared-after")
     engine.begin_decision_round([ctx])
     seen = engine.observe(ctx)
@@ -472,7 +473,7 @@ def test_the_index_is_not_a_target_and_the_presentation_cap_ignores_it(engine_fa
     engine = engine_factory()
     stage_day_plan(engine)
     _at(engine, 12, "home")
-    limit = engine.scenario.candidate_presentation_limit
+    limit = engine.context.scenario.candidate_presentation_limit
     decision = context(engine, "cap")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
@@ -480,12 +481,12 @@ def test_the_index_is_not_a_target_and_the_presentation_cap_ignores_it(engine_fa
     assert len(index["lifestyle"]) > limit
     kinds = Counter(row["kind"] for row in observed["interaction_bindings"])
     assert all(kinds[kind] <= limit for kind in ("lifestyle", "content", "game", "supply"))
-    windows = engine._menu_windows(engine.state.agents[1])
+    windows = engine.observations._menu_windows(engine.context.state.agents[1])
     presented = {item for window in windows.values() for item in window.presented}
     supplies = {row["object_id"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
-    stamps = engine._pending_presentation[1].stamps
+    stamps = engine.observations.pending_presentation[1].stamps
     assert set(stamps) == presented | supplies
-    names = {item.name: item.activity_id for item in engine.lifestyle_items}
+    names = {item.name: item.activity_id for item in engine.context.lifestyle_items}
     unshown = {names[name] for name in index["lifestyle"]} - set(windows["lifestyle"].presented)
     assert len(unshown) == len(index["lifestyle"]) - len(windows["lifestyle"].presented) > 0
     assert not unshown & set(stamps)
@@ -494,5 +495,5 @@ def test_the_index_is_not_a_target_and_the_presentation_cap_ignores_it(engine_fa
     engine.submit_action(DirectToolCall(decision, "action-cap", "start_activity", start_activity("等待", "自己")))
     assert engine.commit_decision_round("cap")[0].status == "in_progress"
     advance_next(engine)
-    recorded = set(engine.state.presentation_state[1])
+    recorded = set(engine.context.state.presentation_state[1])
     assert presented <= recorded and not unshown & recorded

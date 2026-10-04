@@ -1,5 +1,5 @@
-"""@brief 指名购买：obtain 的目标按名称解析为门店供给（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」，
-docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5）。
+"""@brief 指名购买：obtain 的目标按名称解析为门店供给（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「指名购买」，
+docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 、3.3、3.5）。
 
 环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。名称按统一名称解析的逐级归一比对（worldmock.life.name_resolution：
 精确，再按全半角、括号、空白与「（模拟）」归一，第一级有匹配就停）。from 是可选约束，不是语法：null（全部门店）、门店名
@@ -28,6 +28,7 @@ items[] 的候选写成可以照填的请求 {target, action, way, from, to}（�
 """
 
 from __future__ import annotations
+from worldmock.life.tool_layer import Candidate, refusal_for
 
 import logging
 from collections.abc import Callable, Sequence
@@ -39,8 +40,10 @@ from worldmock.life.discovery import DiscoveryContext, supply_row
 from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, ErrorItem, activity_candidate
 from worldmock.life.guidance import (DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal, default_reason,
                                      items_refusal, refusal_for_code)
-from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, binding_action
-from worldmock.life.name_resolution import rank, resolve_name
+from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, binding_action
+from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
+from worldmock.life.name_resolution import rank
+from worldmock.life.object_labels import resolve_name
 from worldmock.life.order_routing import undeliverable
 from worldmock.life.purchase_offers import (DELIVERY_WAY, PICKUP_WAY, Offer, SourceScope, choose, handed_over,
                                             near_sources, nearest_store, offers, order_key, serves, source_scope)
@@ -113,7 +116,8 @@ def resolve_named_rows(context: LayerContext, selection: list[dict], resolve: Ca
 
     分段匹配的拒绝（带逐项明细的名称类拒绝与 M3 的 ACTIVITY_PRECONDITION_UNMET）逐项收集，合并成一次拒绝：items[] 逐项写出
     错项的序号（从 0 起）、参数名、原文与至多 3 个可以照填的候选请求，原因与改法逐项写「第 N 项」；码取第一个名称类拒绝的码
-    （名称类优先，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、3.2（d）），没有名称类时取 ACTIVITY_PRECONDITION_UNMET 并带
+    （名称类优先，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 5 条、3.2（d）），没有名称类时取 ACTIVITY_PRECONDI
+    TION_UNMET 并带
     第一项的下一步与未满足条件；其余拒绝报第一条。整组受理仍原子：有一项解析不出就整组拒绝。
 
     :param selection: start_activity 各项解析好的绑定行（指名购买为占位行），按请求中的先后排列。
@@ -345,7 +349,8 @@ def _undelivered(context: LayerContext, ask: PurchaseAsk, deliverable: Sequence)
 
 def _undeliverable(context: LayerContext, ask: PurchaseAsk, supply) -> tuple[str, str, tuple[str, ...]]:
     """@brief 只有一家出售门店、远程下单却送不到收货地时的（原因，下一步，未满足条件），与非指名的远程下单同一说法
-    （docs/dev/SPEC-dayrun-fidelity.md 5.3）：送给自己时为「这里不在这家店的配送范围内」（delivery_destination）或「这家店
+    （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：送给自己时为「这里不在这家店的配送范围内」（delivery_destination）或「
+    这家店
     到这里没有能走的配送路线」（delivery_route），下一步只指向那家店能送达、且从此地可达的地点；送给别人时把解析出的供给
     交给 order_routing.undeliverable，「这里」换成收货人那里，下一步先送到自己这里再当面给。"""
     if ask.recipient_id is not None:
@@ -358,7 +363,7 @@ def _undeliverable(context: LayerContext, ask: PurchaseAsk, supply) -> tuple[str
 
 def _delivery_gap(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> str:
     """@brief 送不到的原因类别：收货地在某条供给的配送范围内而配送路线走不通时为 delivery_route，否则为
-    delivery_destination（docs/dev/SPEC-dayrun-fidelity.md 5.3 的两个未满足条件）。"""
+    delivery_destination（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性  的两个未满足条件）。"""
     destination = ask.destination_id
     covered = [supply for supply in kept if destination is not None and destination in supply.delivery_destination_ids]
     if any(delivery_route_code(context.scenario.routes, supply.location_id, destination) is not None
@@ -459,7 +464,6 @@ def _error_item(index: int, row: dict, error: PreconditionError, context: LayerC
 
 def _request_candidate(context: LayerContext, row: dict, spec: dict):
     """@brief 候选完整可提交，冻结业务条件不满足时明确说明。"""
-    from worldmock.life.tool_layer import Candidate, refusal_for
 
     supplies = [supply for supply in context.scenario.supplies if supply_label(context, supply) == spec["target"]]
     note = None

@@ -1,7 +1,7 @@
 """人物 Prompt 七层规格的完整性守卫：台账逐行有测试、裁决全部落地、没有延后的实现。
 
 @file     test_persona_prompt_acceptance.py
-@brief    以 tests/persona_prompt_acceptance.py 为数据源，测试时解析 docs/dev/SPEC-persona-prompt.md 的「验收台账」、
+@brief    以 tests/persona_prompt_acceptance.py 为数据源，测试时解析 docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 的「验收台账」、
           第六章两张表（程序错误与缺口）与「裁决记录」第二张表（#21–#38），逐行判定：登记表与规格各行一一对应（规格增删行
           而登记表不跟随即失败）；每行至少登记一个存在、会被收集且未被跳过的测试（按 AST 解析，含类中的测试与参数化节点）；
           本特性新增或改动的生产文件与新增测试文件中没有延期标记、没有只有 pass 或省略号的空壳函数。
@@ -21,7 +21,7 @@ from tests.acceptance_guard import DEFERRAL as _DEFERRAL
 from tests.acceptance_guard import NODE_ID as _NODE_ID
 from tests.acceptance_guard import resolve_problem as _resolve_problem
 from tests.acceptance_guard import stub_functions as _stub_functions
-from tests.acceptance_guard import tables
+from tests.acceptance_guard import acceptance_section
 from tests.persona_prompt_acceptance import (
     FEATURE_PRODUCTION_FILES,
     FEATURE_TEST_FILES,
@@ -33,7 +33,6 @@ from tests.persona_prompt_acceptance import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC_PATH = REPO_ROOT / "docs" / "dev" / "SPEC-persona-prompt.md"
 LEDGER_HEADING = "## 验收台账"
 CHAPTER_SIX_HEADING = "## 六、统一修复的程序错误"
 RULINGS_HEADING = "## 裁决记录"
@@ -45,7 +44,7 @@ REPORT_ONLY_PHRASE = "只报告，不作门禁"
 
 def _tables(heading: str) -> list[list[list[str]]]:
     """章节内的各张表格：每张表为逐行的单元格列表（首行是表头，分隔行去掉；转义的竖线不断开单元格）。"""
-    return tables(SPEC_PATH, heading)
+    return acceptance_section("persona-prompt", heading.removeprefix("## "))["tables"]
 
 
 def _ledger_rows() -> list[tuple[str, str]]:

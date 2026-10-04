@@ -11,7 +11,8 @@ import pytest
 
 from worldmock.life.body import ActivityFactors, apply_food, settle_body
 from worldmock.life.models import ActivityKind, BodyState, CurvePoint, EfficiencyFactor
-from worldmock.life.scenario import BodyConfig, load_scenario
+from worldmock.life.scenario import BodyConfig
+from worldmock.life.world_setup import load_scenario
 
 
 @pytest.fixture(scope="module")

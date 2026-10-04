@@ -1,7 +1,7 @@
 """提示侧渲染与字段黑名单（worldmock.life.narration）的合同测试。
 
 覆盖七层 JSON 的唯一规范序列化 render_layer_json（紧凑、键序即构建顺序、中文不转义），以及序列化前的字段黑名单：
-内部身份、私有绑定与观察私有证据、数值身体状态、合同全表都不得进入提示（docs/dev/SPEC-persona-prompt.md 第一章）。
+内部身份、私有绑定与观察私有证据、数值身体状态、合同全表都不得进入提示（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）。
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 
 import pytest
+
+from scripts.documentation_refs import section_text
 
 from worldmock.life.narration import (
     FORBIDDEN_OBSERVATION_KEYS,
@@ -143,7 +145,7 @@ class TestHanziCounter:
         assert PERSONA_CARD_HANZI_BUDGET == 600
 
 
-#: docs/CONTRACTS.md「禁止进入提示的字段」第一段里不是禁键的反引号词：段内顺带提到的别的字段、事件类型与工具面名称，
+#: docs/CONTRACTS.md#contracts-worldmock-接口合同「禁止进入提示的字段」第一段里不是禁键的反引号词：段内顺带提到的别的字段、事件类型与工具面名称，
 #: 以及后缀规则 _sha256（一切以它结尾的键另行拒绝）。
 _CONTRACT_PROSE_WORDS = frozenset({"note_labels", "self_notes", "message_arrival", "item", "from", "tools", "_sha256"})
 
@@ -152,7 +154,7 @@ def _contract_listed_keys() -> set[str]:
     """@brief 接口合同「禁止进入提示的字段」第一段逐字列出的禁键：反引号里只由小写字母、数字、下划线与点组成的词，去掉
     段内顺带提到的别的名称（_CONTRACT_PROSE_WORDS）。"""
     text = (Path(__file__).resolve().parents[2] / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")
-    paragraph = text.split("### 禁止进入提示的字段\n", 1)[1].strip().split("\n\n", 1)[0]
+    paragraph = section_text(text, "contracts-private-fields").strip().split("\n\n", 1)[0]
     assert paragraph.startswith("观察字典中不得进入提示的字面键")
     return set(re.findall(r"`([a-z0-9_.]+)`", paragraph)) - _CONTRACT_PROSE_WORDS
 

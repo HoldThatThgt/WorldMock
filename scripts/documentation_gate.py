@@ -1,126 +1,281 @@
 #!/usr/bin/env python3
-"""文档链接门禁工具：检查文档内的仓库内路径引用是否可解析。
-
-@file     documentation_gate.py
-@brief    WorldMock 文档链接门禁；判据见 docs/VERIFICATION.md「工程门禁」的「候选与呈现一致性」节
-          「文档链接可解析」整行。
-@note     机器判定一项：`docs/**/*.md` 与仓库根的 `CLAUDE.md`、`README.md` 里以反引号包裹的
-          仓库内路径引用全部存在；任一不存在即非零退出并逐条列出。
-          只读检查，不修改任何文件；用法与 scripts/coverage_gate.py 一致。
-"""
+"""@brief 当前定义、稳定章节、历史快照及代码文档引用的失败关闭门禁。"""
 
 from __future__ import annotations
 
+import ast
+import io
 import re
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-#: 扫描范围：文档目录全量，加两份仓库根文档（它们也引用文档树内的路径）。
-SCAN_ROOTS = ("docs",)
-SCAN_FILES = ("CLAUDE.md", "README.md")
-#: 反向引用形状：反引号包裹的、以 .md 结尾的仓库内相对路径。
-#: 绝对路径与以点开头的路径（`.work/...` 这类非版本控制产物）不在仓库内引用之列，不判定。
-REFERENCE_PATTERN = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./\-]*\.md)`")
-#: 只判定形如 `docs/...` 或 `dir/...` 的仓库内路径；裸文件名（如 `CONTRACTS.md`）是
-#: 同目录简写，解析目标不唯一，不在此门禁的判定范围内。
-REPO_PATH_PREFIX = "docs/"
+sys.path.insert(0, str(REPO_ROOT))
 
-#: 已退役路径白名单：这些文件按设计已从工作树删除，仅在历史性叙述里被提及
-#: （"当时的规格快照 X（已退役，存于 Git 提交 <sha>）"）。它们是**可解析的**
-#: 历史记录，不是失效链接；白名单只收录条目的替代物确实存在于仓库内的路径。
-RETIRED_PATHS = {
-    # 退役主设计单体：内容已迁入 ARCHITECTURE.md / CONTRACTS.md / docs/dev/SPEC-*.md，
-    # 原文可由 Git 提交 9b7fbc8 恢复（docs/INDEX.md「版本表」与 CLAUDE.md 均有此说明）。
-    "docs/agentsociety2-design.md",
-    # 追溯矩阵迁移前的旧位置：现为 docs/dev/ANALYSIS-spec-coverage.md（见其版本表「迁移」行）。
-    "docs/spec-coverage.md",
-}
+from scripts.documentation_refs import (
+    ARCHIVE_BASELINE, CODE_BASELINE, DOCUMENT_REFERENCE, MARKDOWN_LINK, REFERENCE_BASELINE, SOURCE_REFERENCE,
+    archive_snapshot, definition_names, explicit_anchors, full_commit_exists, historical_content,
+    prose_lines, resolve_target,
+)
+from scripts.documentation_owners import OWNER_FIXTURE, find_owner_problems
+
+ROOT_DOCUMENTS = ("README.md", "CLAUDE.md", "AGENTS.md")
+HISTORICAL_STATES = frozenset({"归档", "已裁决", "调研证据", "验收记录", "审查记录", "实施台账", "未冻结提案"})
+SOURCE_LINE = re.compile(
+    r"\.py(?:[:：]\s*\d|#L\d(?:-L?\d+)?|[`*_]*\s+(?:lines?\s+\d|第\s*\d+\s*行)"
+    r"|[`*_]*\s*[（(]\s*\d+(?:\s*[-–]\s*\d+)?\s*[）)])", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
-class Reference:
-    """@brief 一条文档内的仓库内路径引用及其出现位置。"""
+class Problem:
+    """@brief 带仓库相对位置的问题，输出始终使用英文。"""
 
     source: str
     line: int
-    target: str
+    message: str
 
 
 def scan_documents(root: Path) -> list[Path]:
-    """@brief 枚举待扫描的文档文件（docs 目录全量加仓库根文档）。
-
-    @param root  仓库根目录（真实运行时为 REPO_ROOT，测试时为临时目录）。
-    @return      排序后的文档路径列表；缺失的根文档静默跳过。
-    """
-    documents: list[Path] = []
-    for name in SCAN_ROOTS:
-        base = root / name
-        if base.is_dir():
-            documents.extend(path for path in sorted(base.rglob("*.md"))
-                             if "__pycache__" not in path.parts)
-    for name in SCAN_FILES:
-        candidate = root / name
-        if candidate.is_file():
-            documents.append(candidate)
-    return documents
+    """@brief 扫描文档全树与实际存在的根入口，设计草稿和手册属于当前文档。"""
+    documents = sorted((root / "docs").rglob("*.md")) if (root / "docs").is_dir() else []
+    return documents + [root / name for name in ROOT_DOCUMENTS if (root / name).is_file()]
 
 
-def extract_references(root: Path, document: Path) -> list[Reference]:
-    """@brief 抽取一份文档里的仓库内路径引用，记录其来源与行号。
-
-    @param root      仓库根目录（用于形成报告里的仓库相对来源路径）。
-    @param document  待扫描的文档文件。
-    @return          该文档内的全部仓库内路径引用。
-    """
-    source = document.relative_to(root).as_posix()
-    references: list[Reference] = []
-    for number, text in enumerate(document.read_text(encoding="utf-8").splitlines(), start=1):
-        for match in REFERENCE_PATTERN.finditer(text):
-            target = match.group(1)
-            if not target.startswith(REPO_PATH_PREFIX) or target in RETIRED_PATHS:
-                continue
-            references.append(Reference(source, number, target))
-    return references
-
-
-def find_broken_references(root: Path) -> list[Reference]:
-    """@brief 找出全部指向不存在文件的仓库内路径引用。
-
-    @param root  仓库根目录。
-    @return      排序后的失效引用列表；空列表即门禁通过。
-    """
-    broken: list[Reference] = []
-    for document in scan_documents(root):
-        for reference in extract_references(root, document):
-            if not (root / reference.target).is_file():
-                broken.append(reference)
-    return broken
+def historical_documents(root: Path) -> set[Path]:
+    """@brief INDEX 的历史状态与明确研究、归档目录决定历史归属，不按 DRAFT 判断。"""
+    history = {path.resolve() for path in scan_documents(root)
+               if path.relative_to(root).as_posix().startswith(("docs/archive/", "docs/dev/research/"))}
+    index = root / "docs" / "INDEX.md"
+    if not index.is_file():
+        return history
+    for _, line in prose_lines(index.read_text(encoding="utf-8")):
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
+        if len(cells) != 3 or cells[-1] not in HISTORICAL_STATES:
+            continue
+        references = MARKDOWN_LINK.findall(cells[0]) or re.findall(r"docs/[\w./-]+\.md", cells[0])
+        for target in references:
+            path, _ = resolve_target(root, index, target)
+            history.add(path)
+    return history
 
 
-def print_gate_summary(broken: list[Reference], scanned: int) -> None:
-    """@brief 打印扫描文档数、失效引用明细与最终判定。"""
-    print(f"[documentation-gate] scanned documents: {scanned}")
-    print(f"[documentation-gate] broken references: {len(broken)}")
-    for reference in broken:
-        print(f"[documentation-gate]   {reference.source}:{reference.line}: "
-              f"{reference.target} does not exist")
-    verdict = "PASSED" if not broken else "FAILED"
-    print(f"[documentation-gate] gate verdict: {verdict}")
+def baseline_problems(root: Path, path: Path, text: str) -> tuple[str | None, list[Problem]]:
+    """@brief 历史代码基线或明确仅定位快照的归档基线必须是完整现存提交。"""
+    source = path.relative_to(root).as_posix()
+    header, original_body = archive_snapshot(text)
+    code = [match.group(1) for line in header if (match := CODE_BASELINE.fullmatch(line))]
+    archive = [match.group(1) for line in header if (match := ARCHIVE_BASELINE.fullmatch(line))]
+    commits = code or archive
+    if len(commits) != 1 or len(archive) > 1:
+        return None, [Problem(source, 1, "historical document requires one full commit baseline")]
+    commit = commits[0]
+    if not full_commit_exists(root, commit):
+        return None, [Problem(source, 1, f"historical commit does not exist: {commit}")]
+    if archive and not full_commit_exists(root, archive[0]):
+        return None, [Problem(source, 1, f"archive commit does not exist: {archive[0]}")]
+    if archive and not any("不是审查执行证明" in line for line in header):
+        return None, [Problem(source, 1, "archive baseline must disclaim execution evidence")]
+    reference_sources = [REFERENCE_BASELINE.fullmatch(line) for line in header if line.startswith("> 引用出处：")]
+    seen_sources = set()
+    for match in reference_sources:
+        if match is None or match.group(1) in seen_sources:
+            return None, [Problem(source, 1, "historical reference requires one full commit for its exact path")]
+        target, target_commit = match.groups()
+        seen_sources.add(target)
+        if not full_commit_exists(root, target_commit) or historical_content(root, target_commit, target) is None:
+            return None, [Problem(source, 1, f"historical reference source does not exist: {target}")]
+    if archive:
+        origin = next((match.group(1) for line in header
+                       if (match := re.fullmatch(r"> 原始路径：`(docs/[\w./-]+\.md)`", line))), source)
+        original = historical_content(root, archive[0], origin)
+        if original is None:
+            return None, [Problem(source, 1, f"archive original document does not exist: {origin}")]
+        if not any(line.strip() and not line.startswith((">", "#", '<a name="'))
+                   for _, line in prose_lines(original_body)):
+            return None, [Problem(source, 1, "archive snapshot requires substantive original document body")]
+        if original_body != original:
+            message = "archive snapshot body differs from the declared original commit and path"
+            return None, [Problem(source, 1, message)]
+    return commit, []
+
+
+def anchor_problems(path: Path, root: Path, text: str) -> list[Problem]:
+    """@brief 显式标识必须唯一且附着标题，格式错误也不能被静默忽略。"""
+    source, seen, problems = path.relative_to(root).as_posix(), set(), []
+    lines = prose_lines(text)
+    declarations = dict(explicit_anchors(text))
+    for index, (number, line) in enumerate(lines):
+        if not line.startswith('<a name="'):
+            continue
+        anchor = declarations.get(number)
+        if anchor is None:
+            problems.append(Problem(source, number, "invalid explicit section identifier"))
+            continue
+        if anchor in seen:
+            problems.append(Problem(source, number, f"duplicate section identifier: {anchor}"))
+        seen.add(anchor)
+        following = next((body for _, body in lines[index + 1:] if body.strip()), "")
+        if not re.match(r"^#{1,6} ", following):
+            problems.append(Problem(source, number, f"section identifier has no heading: {anchor}"))
+    return problems
+
+
+def target_problem(root: Path, path: Path, target: str, commit: str | None) -> str | None:
+    """@brief 当前路径和稳定标识直接解析；历史失效路径只在真实基线内检查。"""
+    parsed = urlsplit(target)
+    if parsed.scheme or target.startswith("//"):
+        return None
+    destination, anchor = resolve_target(root, path, target)
+    if not destination.is_relative_to(root.resolve()):
+        return f"reference escapes repository: {target}"
+    if commit:
+        text = historical_content(root, commit, destination.relative_to(root.resolve()).as_posix())
+        if text is None:
+            return f"historical target does not exist: {target}"
+    elif destination.exists():
+        text = destination.read_text(encoding="utf-8") if destination.suffix == ".md" else ""
+    else:
+        return f"target does not exist: {target}"
+    if anchor and destination.suffix == ".md":
+        anchors = {name for _, name in explicit_anchors(text)}
+        if commit:
+            # 历史快照中的标题标识按当时正文解析，不作为当前章节别名保留。
+            anchors |= {re.sub(r"\s+", "-", re.sub(r"[^\w\s-]", "", line.lstrip("# ").lower()))
+                        for _, line in prose_lines(text) if re.match(r"^#{1,6} ", line)}
+        if anchor not in anchors:
+            return f"explicit section identifier does not exist: {target}"
+    return None
+
+
+def historical_source_problem(root: Path, commit: str | None, target: str) -> str | None:
+    """@brief 历史源码路径按声明提交查存在性，不拿当前工作树证明旧位置。"""
+    if commit is None or not target.startswith(("src/", "custom/", "tests/", "scripts/", "tools/")):
+        return None
+    if historical_content(root, commit, target) is None:
+        return f"historical source does not exist at baseline: {target}"
+    return None
+
+
+def symbol_problem(root: Path, target: str, symbol: str) -> str | None:
+    """@brief 符号引用只接受声明处的词法限定名，不接受旧址再导出。"""
+    path = root / target
+    if not path.is_file():
+        return f"source file does not exist: {target}"
+    qualified = symbol.replace("::", ".")
+    if qualified not in definition_names(path.read_text(encoding="utf-8")):
+        return f"source definition does not exist: {target}::{symbol}"
+    return None
+
+
+def document_problems(root: Path, path: Path, history: set[Path]) -> list[Problem]:
+    """@brief 检查一份文档的当前源码引用、稳定链接或历史快照。"""
+    text = path.read_bytes().decode("utf-8")
+    source, commit, problems = path.relative_to(root).as_posix(), None, []
+    historical = path.resolve() in history
+    if historical:
+        commit, problems = baseline_problems(root, path, text)
+    problems.extend(anchor_problems(path, root, text))
+    reference_path, document_commit = path, commit
+    header, _ = archive_snapshot(text)
+    reference_sources = {match.group(1): match.group(2) for line in header
+                         if (match := REFERENCE_BASELINE.fullmatch(line))}
+    if historical:
+        origin = next((match.group(1) for line in header
+                       if (match := re.fullmatch(r"> 原始路径：`(docs/[\w./-]+\.md)`", line))), None)
+        if origin:
+            reference_path = root / origin
+        document_commit = next((match.group(1) for line in header
+                                if (match := ARCHIVE_BASELINE.fullmatch(line))), commit)
+    for number, line in prose_lines(text):
+        if not historical and SOURCE_LINE.search(line):
+            problems.append(Problem(source, number, "current document contains a source line reference"))
+        if not historical:
+            for target, symbol in SOURCE_REFERENCE.findall(line):
+                if problem := symbol_problem(root, target, symbol):
+                    problems.append(Problem(source, number, problem))
+        elif any(CODE_BASELINE.fullmatch(line) for line in header):
+            local_line = re.sub(r"\[[^\]]*\]\(https?://[^)]+\)", "", line)
+            for target in re.findall(r"(?:src|custom|tests|scripts|tools)/[\w./-]+\.py", local_line):
+                source_commit = reference_sources.get(target, commit)
+                if problem := historical_source_problem(root, source_commit, target):
+                    problems.append(Problem(source, number, problem))
+        targets = MARKDOWN_LINK.findall(line)
+        targets.extend(match.group(1) for match in re.finditer(r"`(docs/[\w./-]+\.md(?:#[\w.-]+)?)`", line))
+        for target in targets:
+            destination, _ = resolve_target(root, reference_path, target)
+            relative = destination.relative_to(root.resolve()).as_posix() \
+                if destination.is_relative_to(root.resolve()) else ""
+            target_commit = reference_sources.get(relative, document_commit)
+            if problem := target_problem(root, reference_path, target, target_commit):
+                problems.append(Problem(source, number, problem))
+    return problems
+
+
+def code_reference_lines(text: str) -> list[tuple[int, str]]:
+    """@brief 检查注释、独立文档字符串与字段说明，文件读取参数不当作条款引用。"""
+    lines = [(token.start[0], token.string) for token in tokenize.generate_tokens(io.StringIO(text).readline)
+             if token.type == tokenize.COMMENT]
+    for node in ast.walk(ast.parse(text)):
+        value = node.value if isinstance(node, ast.Expr) else \
+            node.value if isinstance(node, ast.keyword) and node.arg == "description" else None
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            lines.extend((value.lineno + offset, line) for offset, line in enumerate(value.value.splitlines()))
+    return sorted(lines)
+
+
+def code_problems(root: Path, history: set[Path]) -> list[Problem]:
+    """@brief 生产与测试条款引用均指向当前文档及显式标识，不使用归档作为现行权威。"""
+    problems = []
+    for directory in ("src", "custom", "tests"):
+        for path in sorted((root / directory).rglob("*.py")):
+            for number, line in code_reference_lines(path.read_text(encoding="utf-8")):
+                for target, anchor in DOCUMENT_REFERENCE.findall(line):
+                    if not target.startswith("docs/"):
+                        continue
+                    destination, _ = resolve_target(root, path, target)
+                    if not anchor:
+                        message = f"code reference requires an explicit section identifier: {target}"
+                    elif destination in history:
+                        message = f"code reference uses historical document as current authority: {target}"
+                    else:
+                        message = target_problem(root, path, f"{target}#{anchor}", None)
+                    if message:
+                        problems.append(Problem(path.relative_to(root).as_posix(), number, message))
+    return problems
+
+
+def find_problems(root: Path) -> list[Problem]:
+    """@brief 全文档、全代码引用的正式门禁，不提供报告放行或退役白名单。"""
+    history = historical_documents(root)
+    problems = [problem for path in scan_documents(root) for problem in document_problems(root, path, history)]
+    owners: dict[str, str] = {}
+    for path in scan_documents(root):
+        for line, identifier in explicit_anchors(path.read_text(encoding="utf-8")):
+            source = path.relative_to(root).as_posix()
+            if identifier in owners and owners[identifier] != source:
+                problems.append(Problem(source, line, f"section identifier belongs to another document: {identifier}"))
+            owners[identifier] = source
+    problems.extend(code_problems(root, history))
+    if (root / "docs/dev/SPEC-layering-and-test-tiers.md").is_file():
+        problems.extend(Problem(OWNER_FIXTURE, 1, message) for message in find_owner_problems(root))
+    return sorted(set(problems), key=lambda item: (item.source, item.line, item.message))
 
 
 def main(argv: list[str]) -> int:
-    """@brief 门禁主流程：扫描全部文档、判定引用可解析、返回进程退出码。
-
-    @param argv  命令行参数（本门禁不取参数，保留以对齐其他 scripts 的入口形态）。
-    @return      0 表示全部引用可解析，1 表示存在失效引用。
-    """
+    """@brief 输出英文错误与最终判定；任何问题都非零退出。"""
     del argv
-    documents = scan_documents(REPO_ROOT)
-    broken = find_broken_references(REPO_ROOT)
-    print_gate_summary(broken, len(documents))
-    return 0 if not broken else 1
+    problems = find_problems(REPO_ROOT)
+    for problem in problems:
+        print(f"[documentation-gate] ERROR {problem.source}:{problem.line}: {problem.message}", file=sys.stderr)
+    print(f"[documentation-gate] scanned documents: {len(scan_documents(REPO_ROOT))}")
+    print(f"[documentation-gate] problems: {len(problems)}")
+    print(f"[documentation-gate] gate verdict: {'FAILED' if problems else 'PASSED'}")
+    return int(bool(problems))
 
 
 if __name__ == "__main__":

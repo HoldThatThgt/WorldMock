@@ -1,13 +1,16 @@
+<a name="evaluation-worldmock-产品设计说明书-行为评估"></a>
 # WorldMock 产品设计说明书 — 行为评估
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1–4  
-> **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
-> **日期**：2026-10-04
-> **版本**：v1.14
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1–4<br>
+> **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
+> **日期**：2026-10-05
+> **版本**：v1.15
 > **目标读者**：算法工程师、开发工程师
 
+<a name="evaluation-模块概述"></a>
 ## 1. 模块概述
 
+<a name="evaluation-职责与边界"></a>
 ### 1.1 职责与边界
 
 行为评估模块（`worldmock.evaluation`）负责：
@@ -26,8 +29,8 @@
 - 不推断缺失字段（缺失即标为不可用）
 - 不把合成数据当作人类真值
 
-资金守恒与身体资源变化是否符合规则，按[运行时规格](../dev/SPEC-life-runtime.md)和
-[记录引擎设计](05-recording-engine.md)确定性核验；行为合理性评分不能代替这些结算检查。
+资金守恒与身体资源变化是否符合规则，按[运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)和
+[记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)确定性核验；行为合理性评分不能代替这些结算检查。
 
 **评估的目的与限制**：
 
@@ -39,6 +42,7 @@
 - ❌ 禁止：把模型评审称作真人评审
 - ❌ 禁止：把两套合成数据当作人类真值
 
+<a name="evaluation-与其他模块的关系"></a>
 ### 1.2 与其他模块的关系
 
 ```mermaid
@@ -63,6 +67,7 @@ flowchart TB
     REPORT --> FINAL[评估结论]
 ```
 
+<a name="evaluation-核心设计原则"></a>
 ### 1.3 核心设计原则
 
 | 原则 | 含义 | 体现 |
@@ -73,8 +78,10 @@ flowchart TB
 | **来源可追溯** | 保留原始事件指针 | `PublicEvidence.source_event_ids` |
 | **结论边界明确** | 不声称已验证人类真实性 | `result_status: comparative_plausibility_only` |
 
+<a name="evaluation-指标定义"></a>
 ## 2. 指标定义
 
+<a name="evaluation-协议门禁gates"></a>
 ### 2.1 协议门禁（Gates）
 
 协议门禁由 `behavior_metrics_report` 计算，证据缺失时 `pass=false`（fail-closed）。
@@ -86,8 +93,9 @@ flowchart TB
 | `memory_repetition_ratio` | 同类型记忆两两 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
 | `memory_md_identity_residue` | 调用方传入的各人物工作区 `MEMORY.md` 文本命中示例身份的人物数（`MEMORY.md` 不再进人物提示，门禁仍检查它） | `==` | 0 | 示例身份残留 |
 
-**背书**：门禁阈值来自 `docs/VERIFICATION.md` §协议门禁，源码为唯一依据。
+**背书**：门禁阈值来自 `docs/VERIFICATION.md#verification-worldmock-验收标准` §协议门禁，源码为唯一依据。
 
+<a name="evaluation-报告项reports"></a>
 ### 2.2 报告项（Reports）
 
 报告项只进报告，不参与放行。并行活动的各自时长允许重叠，人的经过时间取区间并集；
@@ -118,18 +126,18 @@ flowchart TB
 各人物的工作安排、本人任务的预约与要求地点、住处、覆盖后的下班与到家窗口，以及播报间隔；由 `workload_metrics.workday_inputs` 从场景文档与
 结构化卡片打包，不解析提示文本）传入，所以只在行为评估的 `reports`，不进 `quality.json`，运行清单不升版，报告自带的结构标识
 `behavior-metrics-1` 不变。没有打包输入时两项为 null 并写一条说明，事件里出现而输入里没有的人物两项都为 null 并写说明，说明沿用本模块的中文惯例；
-产出入口是 `scripts/inspect_run.py workday --scenario <场景文件>`（见[记录引擎设计「调试工具」](05-recording-engine.md#调试工具)），
-口径见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#62-行为评估) 6.2。
+产出入口是 `scripts/inspect_run.py workday --scenario <场景文件>`（见[记录引擎设计「调试工具」](05-recording-engine.md#recording-engine-调试工具)），
+口径见[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-行为评估) 6.2。
 
 同秒续接轮的思考 token（`reasoning_tokens`，缺失时报字符数，两者不混算）与缓存命中由 `scripts/inspect_run.py continuation`
 逐决策报告（链位置、请求数、协议错误与 400、计价成本、话题命中与按订单去重后的重复下单），`--baseline` 先核对两臂清单只差续接开关，
-输出字段见[记录引擎设计「调试工具」](05-recording-engine.md#调试工具)；只报告，不参与放行。
+输出字段见[记录引擎设计「调试工具」](05-recording-engine.md#recording-engine-调试工具)；只报告，不参与放行。
 输出截断（提供商回复 `finish_reason=length`）的次数、按用途分列、浪费的输出 token 与其中的思考 token 计入 `quality.json` 的
-`truncations` 一节（字段见[记录引擎设计「质量报告」](05-recording-engine.md#质量报告)）；行动决策的截断率以其中 `decision` 的次数除以
+`truncations` 一节（字段见[记录引擎设计「质量报告」](05-recording-engine.md#recording-engine-质量报告)）；行动决策的截断率以其中 `decision` 的次数除以
 `model_usage.by_purpose` 中 `decision` 的 `provider_responses`（`decision` 组是不带 `purpose` 的全部请求，与决策 prompt token 中位数
 同一口径，含记忆巩固与就寝反思），只报告，不参与放行。
 个人事务与收尾记忆的只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories` 两节（字段见
-[记录引擎设计「质量报告」](05-recording-engine.md#质量报告)）：事务以记下过的不同事务数 `registered_count` 为分母，按运行与事务身份
+[记录引擎设计「质量报告」](05-recording-engine.md#recording-engine-质量报告)）：事务以记下过的不同事务数 `registered_count` 为分母，按运行与事务身份
 统计、可跨本地日，不使用任何当日目标指标的键名、不写进 `day_plan_metrics`，也不并入 3.3 所说的习惯、外部约束、刻意目标三层；
 `deliberate_goals` 的名称、分母与分组键不变，`memory_repetition_ratio` 门禁的口径与阈值不变。只报告，不参与放行。
 
@@ -137,13 +145,13 @@ flowchart TB
 名称与参数拒绝跨不同模拟时刻的重复次数，以及普通工作收件至开工的经过时间。
 只读查询不作为世界请求、活动或同刻决策轮统计，但含查询的模型回复本身计入模型请求、token 与十六回合预算。
 查询结果只存在于模型与 tool 交换证据，不生成进度层 `events`，不能按动作结算或完成计算。
-查询成本另由 `scripts/inspect_run.py queries` 按运行只读报告（口径见[记录引擎设计「调试工具」](05-recording-engine.md#调试工具)），打印
+查询成本另由 `scripts/inspect_run.py queries` 按运行只读报告（口径见[记录引擎设计「调试工具」](05-recording-engine.md#recording-engine-调试工具)），打印
 `{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
 失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
 重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）；口径取已落库的模型工具交换证据，对照运行同时报告协议错误
 （取 `continuation` 报告，本子命令不另设键），降低返回量不能以购买失败为代价。
 错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现按独立端到端阶段留下行为与变异收据，
-见[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)；不同阶段身份分别报告，不能混成同一源码的已实现评估结论。
+见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)；不同阶段身份分别报告，不能混成同一源码的已实现评估结论。
 普通工作因地点、技能或真实截止被拒，与无理由延迟开放分别报告；预约活动的通知至约定开始时间不算错误等待。
 报价只按构建后冻结的实际供给报告，不能把同商品不同门店重复计成商品多样性，也不能把查询命中计成已获得对象。
 上述行为指标只报告，不追加没有依据的运行质量阈值；请求、错误位置与合法值、任务时序及紧凑呈现等价性
@@ -170,8 +178,10 @@ flowchart TB
 - 参照的看电视与休闲娱乐合并为屏幕娱乐 165m
 - 休息与家务无参照项，并入无参照桶
 
+<a name="evaluation-指标计算公式"></a>
 ### 2.3 指标计算公式
 
+<a name="evaluation-simpson-集中度"></a>
 #### Simpson 集中度
 
 $$
@@ -180,12 +190,14 @@ $$
 
 其中 $count_i$ 为第 $i$ 个商品的消费次数，$total$ 为总消费次数。值越高越集中。
 
+<a name="evaluation-小时重复率"></a>
 #### 24 小时重复率
 
 $$
 R = \frac{\text{与前 24h 内已食商品重复的进食次数}}{\text{总进食次数}}
 $$
 
+<a name="evaluation-js-距离"></a>
 #### JS 距离
 
 $$
@@ -200,6 +212,7 @@ $$
 
 $D_{KL}$ 为 Kullback-Leibler 散度（log2 口径）。
 
+<a name="evaluation-bigram-jaccard-相似度"></a>
 #### Bigram Jaccard 相似度
 
 $$
@@ -208,6 +221,7 @@ $$
 
 其中 $A$、$B$ 为两段文本的字符 bigram 集合。
 
+<a name="evaluation-留一最近邻准确率"></a>
 #### 留一最近邻准确率
 
 对于每个 $(run_i, agent_j)$：
@@ -219,8 +233,10 @@ $$
 Accuracy = \frac{\text{正确识别次数}}{\text{总向量数}}
 $$
 
+<a name="evaluation-对比协议"></a>
 ## 3. 对比协议
 
+<a name="evaluation-三层数据模型"></a>
 ### 3.1 三层数据模型
 
 评估使用三个层级的共同数据模型：
@@ -231,6 +247,7 @@ $$
 | **活动** | `started_at`, `ended_at`, `category`, `status`, `segments` | 节律、时长、转换、因果 |
 | **自然日** | `date`, `calendar_class`, 活动向量 | 配对比较、自助法 |
 
+<a name="evaluation-证据事件publicevidence"></a>
 #### 证据事件（PublicEvidence）
 
 ```python
@@ -254,6 +271,7 @@ class PublicEvidence:
 - `object_type`: order, route, workplace, content, game, product, task, message, ...
 - `state`: requested, started, completed, received, paid, delivered, cancelled, failed, ...
 
+<a name="evaluation-活动activitysession"></a>
 #### 活动（ActivitySession）
 
 代码名 `ActivitySession` 沿用，与地点会话无关。
@@ -273,6 +291,7 @@ class ActivitySession:
 **十类活动家族**：
 `sleep`, `morning_routine`, `commute`, `work`, `meal`, `rest`, `entertainment`, `social`, `chore`, `exercise`
 
+<a name="evaluation-适配器职责"></a>
 ### 3.2 适配器职责
 
 适配器负责将来源数据（Legacy 或 WorldMock）转换为共同模型：
@@ -301,6 +320,7 @@ class ActivitySession:
 - 无法映射的类别使用 `unknown`，不猜测
 - 一方不支持的字段标为 `null`，不填造
 
+<a name="evaluation-两个数据集对比"></a>
 ### 3.3 两个数据集对比
 
 ```mermaid
@@ -335,12 +355,14 @@ flowchart LR
 }
 ```
 
-三层事件口径与缺证据规则统一见 [当日目标规格](../dev/SPEC-day-plan-goals.md#三层度量与质量导出)。
+三层事件口径与缺证据规则统一见 [当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-三层度量与质量导出)。
 纯事件统计由行为评估和生产质量导出共同调用，各层按最终规格的分组键隔离：
 目标按人物日归属，习惯跨不同本地日比较，外部约束按运行与动作去重。
 
+<a name="evaluation-盲评流程"></a>
 ## 4. 盲评流程
 
+<a name="evaluation-盲评包生成"></a>
 ### 4.1 盲评包生成
 
 ```python
@@ -398,6 +420,7 @@ def masked_ref(mask: EvidenceMask, object_type: str, object_key: str) -> str:
     return "object-" + hmac.new(key, message.encode(), "sha256").hexdigest()
 ```
 
+<a name="evaluation-六维可判定性"></a>
 ### 4.2 六维可判定性
 
 每个评审单元声明六个维度的可判定性：
@@ -415,6 +438,7 @@ def masked_ref(mask: EvidenceMask, object_type: str, object_key: str) -> str:
 - `judgeable=false` 的维度必须选择 `unjudgeable`
 - 单侧证据更丰富不代表更真实
 
+<a name="evaluation-评审收据校验"></a>
 ### 4.3 评审收据校验
 
 ```python
@@ -438,6 +462,7 @@ def ingest_reviews(
 - 评审槽不匹配、哈希不一致
 - 维度不完整或选择超出闭集
 
+<a name="evaluation-解盲与汇总"></a>
 ### 4.4 解盲与汇总
 
 **偏好汇总**（`_preference_summary`）：
@@ -483,8 +508,10 @@ $$
 }
 ```
 
+<a name="evaluation-评估流程"></a>
 ## 5. 评估流程
 
+<a name="evaluation-两阶段执行"></a>
 ### 5.1 两阶段执行
 
 ```mermaid
@@ -534,6 +561,7 @@ worldmock evaluate \
 - `report.md`（完整评估报告）
 - `charts/`（图表）
 
+<a name="evaluation-输入认证"></a>
 ### 5.2 输入认证
 
 **左右候选必需文件**：
@@ -560,8 +588,10 @@ flowchart LR
 - 事件 `occurred_at` 超出窗口
 - `run_id` 或 `code_sha256` 缺失
 
+<a name="evaluation-统计方法"></a>
 ## 6. 统计方法
 
+<a name="evaluation-分布对比"></a>
 ### 6.1 分布对比
 
 **活动时长分布**：
@@ -587,6 +617,7 @@ def js_distance(p: list[float], q: list[float]) -> float:
 
 将自然日活动向量投影到 10 分钟格，计算欧氏距离矩阵，报告日间距离分布。
 
+<a name="evaluation-显著性检验"></a>
 ### 6.2 显著性检验
 
 **Bootstrap 置信区间**：
@@ -605,6 +636,7 @@ def bootstrap_ci(data: np.ndarray, statistic, seed: int, n_boot: int = 10000):
 
 正式 84 天以十二个完整自然周为配对重抽样单位，不把事件行当独立样本。
 
+<a name="evaluation-相似度度量"></a>
 ### 6.3 相似度度量
 
 **Jaccard 相似度**（记忆重复检测）：
@@ -625,8 +657,10 @@ $$
 D_{KL}(P \| Q) = \sum_{i} p_i \log_2 \frac{p_i}{q_i}
 $$
 
+<a name="evaluation-结论边界"></a>
 ## 7. 结论边界
 
+<a name="evaluation-四种结果状态"></a>
 ### 7.1 四种结果状态
 
 | `result_status` | 含义 | 允许的结论 |
@@ -636,6 +670,7 @@ $$
 | `comparative_plausibility_only` | 两套合成数据可比较，但没有匹配真人轨迹 | 报告差异、官方聚合对齐维度和模型评审偏好 |
 | `human_reference_comparison` | 匹配真人轨迹通过同一适配和可比性检查 | 可以按预先声明的判定规则报告胜者或无结论 |
 
+<a name="evaluation-本次结论边界"></a>
 ### 7.2 本次结论边界
 
 **本次评估状态**：`comparative_plausibility_only`
@@ -655,6 +690,7 @@ $$
 - ❌ "真人评审一致认为候选 B 更真实"
 - ❌ "候选 A 完全符合上海张江白领的真实行为"
 
+<a name="evaluation-门店选择与供给假设的比较边界"></a>
 ### 门店选择与供给假设的比较边界
 
 地图集合、供给假设、营业声明、路线方式来源和运行身份不同，须作为不同实验条件记录。
@@ -667,6 +703,7 @@ $$
 二百二十份按方式命名的路线材料不等于步行/驾车均通过来源核验；最终报告引用实际准入和修复证据。
 
 
+<a name="evaluation-外部参照限制"></a>
 ### 7.3 外部参照限制
 
 **2018 年全国时间利用调查**：
@@ -678,8 +715,10 @@ $$
 
 因此只能报告"更符合公开聚合特性"，不能声称"符合目标人群真实分布"。
 
+<a name="evaluation-报告生成"></a>
 ## 8. 报告生成
 
+<a name="evaluation-报告结构"></a>
 ### 8.1 报告结构
 
 ```markdown
@@ -740,6 +779,7 @@ $$
 - 限制：没有匹配真人轨迹，不声称已验证目标人群
 ```
 
+<a name="evaluation-图表"></a>
 ### 8.2 图表
 
 **活动分布雷达图**：
@@ -783,6 +823,7 @@ sns.heatmap(choices, xticklabels=dimensions, yticklabels=reviewers,
 plt.savefig('review-preference-heatmap.png')
 ```
 
+<a name="evaluation-解读指南"></a>
 ### 8.3 解读指南
 
 报告末尾附带解读指南：
@@ -803,6 +844,20 @@ plt.savefig('review-preference-heatmap.png')
 - 不声称已验证目标人群真实性
 - 模型评审不等同于真人评审
 
+
+<a name="design-evaluation-current-responsibility"></a>
+## 分层工程验证与证据状态
+
+```mermaid
+flowchart LR
+    FAST[快速反馈] --> STANDARD[合并前标准回归]
+    STANDARD --> FULL[特性全量验收]
+    FULL --> GATES[覆盖率、当前文档、汇编与源码突变]
+    GATES --> RECEIPT[实际执行证据]
+```
+三层共用完整收集集合，标准层包括外部执行；全量包括突变和完整日，并检查回执节点集合恰等于预收集集合。测试分层是工程入口，不改变人物质量、协议、真实十二周、隔离盲评或交付门禁。实际耗时及超目标提醒登记，不把少选或跳过用例当作性能改进。
+
+<a name="evaluation-版本历史"></a>
 ## 版本历史
 
 | 版本 | 日期 | 修订内容 |
@@ -814,11 +869,13 @@ plt.savefig('review-preference-heatmap.png')
 | v1.4 | 2026-09-25 | 按时间与能量规格阶段 5：观察重复门禁排除带 `purpose` 的系统请求，除工作验收外也排除零点计划 `purpose="plan_day"` 的请求 |
 | v1.5 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E7-1–E7-5，E7-2 为阶段 1、E7-4 为阶段 2、E7-3 与 E7-5 为阶段 3 同批作业）：文件头注明修订部分待实现；观察重复门禁按（人物，模拟秒）的续接链计，链内复用链首 user 合法，跨秒重复仍失败；示例身份残留改为检查记忆层 JSON；决策 prompt token 中位数按单次行动请求（含续接）计，续接轮的思考 token 与缓存命中由 `inspect_run continuation` 只报告；报告结构示例随之标注 |
 | v1.6 | 2026-09-28 | 人物 Prompt 七层规格实现后文档：按最终代码核对，`memory_md_identity_residue` 仍检查调用方传入的 `MEMORY.md` 文本（冻结时误写为记忆层 JSON，改回），`observation_repetition` 与 `decision_prompt_token_median` 按不带 `purpose` 的全部请求计，`scripts/inspect_run.py continuation` 补报告项、`--baseline` 核对与输出字段链接；报告结构示例同步；文件头注明修订部分已实现 |
-| v1.7 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 EV1，随阶段 2、5 的代码落地，按 `34a41ee` 核对）：「报告项」`deliberate_goals` 的家族推进率只计非例行意图，带大致时刻的目标只认其前后 90 分钟内进行的活动，例行意图另计；作息参照写明场景声明的 `bedtime_window` 优先；输出截断计入 `quality.json` 的 `truncations`，截断率的分母写明 `decision` 组口径；「适配器职责」控制工具按请求的 `items[].activity_name` 逐活动投影（旧运行为 `task[]`，活动身份取结果逐项回报的 `activity_ids`）；文件头补修订说明，日期改写 |
+| v1.7 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)同步（一日运行保真 EV1，随阶段 2、5 的代码落地，按 `34a41ee` 核对）：「报告项」`deliberate_goals` 的家族推进率只计非例行意图，带大致时刻的目标只认其前后 90 分钟内进行的活动，例行意图另计；作息参照写明场景声明的 `bedtime_window` 优先；输出截断计入 `quality.json` 的 `truncations`，截断率的分母写明 `decision` 组口径；「适配器职责」控制工具按请求的 `items[].activity_name` 逐活动投影（旧运行为 `task[]`，活动身份取结果逐项回报的 `activity_ids`）；文件头补修订说明，日期改写 |
 | v1.8 | 2026-10-01 | 工具交互设计冻结并已实现：公共证据改用`items[]`与真实绑定解析，任务回看和世界查询不作为世界请求或活动，错误留精确位置与合法值；报告跨时刻重复拒绝、普通工作通知至开工及预约例外；新行为须经行为与变异测试，不追加无依据阈值 |
-| v1.9 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变本文的指标与门禁；顺带把 5.1 的命令行参数改为实际的 `--legacy`、`--worldmock`、`--scenario`、`--output`、`--reviews`（另有可选的 `--human-reference`），两个阶段按是否带 `--reviews` 区分，没有 `--phase` 参数；文件头补同步说明，日期改写；版本表改为末行最新 |
-| v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 1 的独立复核修订（规格 1.1「身份与判定」）：协议门禁 `observation_repetition` 与报告项 `decision_prompt_token_median` 的输入改为带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计，不带工具的记忆巩固与截断重试照计；原口径下两次同类反思校验失败的附回消息在两条续接链里逐字相同，正确运行的门禁会取 2。门禁键名、比较符与阈值不变；更正 v1.9 行「阶段 1 的四项运行修复不改变本文的指标与门禁」 |
-| v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 2，按 `d09d574` 核对）：「2.2 报告项」写明个人事务与收尾记忆两组只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories`，以记下过的不同事务数为分母，不复用当日目标指标的名称与分母、不并入三层，`deliberate_goals` 与 `memory_repetition_ratio` 门禁不变；文件头的阶段号改为 2。实施计划把阶段 2 记为 v1.10，该号已由阶段 1 的独立复核修订占用，顺延为 v1.11 |
-| v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「2.2 报告项」工具交互行为报告段补查询成本由 `queries` 子命令只报告（规格 6.3 的八个键，含反思校验重试次数），口径引记录引擎设计「调试工具」；文件头状态改为已落地阶段 1、2 与阶段 4 |
-| v1.13 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D7 作业，阶段 3，按 `56451b4` 核对）：「2.2 报告项」增 `workload` 与 `routine_deviation` 两行，写明十个键（规格的八项另把声明例外拆成休息时段与任务外出两项）、按观察窗截取、不当班日不产生班次、任务外出含直接回工作地点的一程、早退口径，逐日偏离的键、参照（场景班次与覆盖后的作息窗口，不是当日计划）与班次两端在睡的标注，容差等于播报间隔、写进报告而不作用于偏离值；输入经 `behavior_metrics_report` 唯一新增的可选打包参数 `workday` 传入，不进 `quality.json`，结构标识 `behavior-metrics-1` 不变，说明为中文，产出入口为 `inspect_run` 的 `workday` 子命令；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），版本改写 |
-| v1.14 | 2026-10-04 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 3 的复核更正（规格 4.5「含预约任务」与 6.2 的输入「任务的预约与要求地点」）：「2.2 报告项」`workload` 写明任务外出的起算——普通任务从开放时刻，预约任务从约定开始那一天的当地零点（赴约前去往约定地点的路上与提前到达的等候也算，不等约定开始），都到首次付款结清为止；原实现只从约定开始算起，约定开始前出发赴约被记成缺勤与早退。键名与其余口径不变；文件头的日期、版本改写 |
+| v1.9 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变本文的指标与门禁；顺带把 5.1 的命令行参数改为实际的 `--legacy`、`--worldmock`、`--scenario`、`--output`、`--reviews`（另有可选的 `--human-reference`），两个阶段按是否带 `--reviews` 区分，没有 `--phase` 参数；文件头补同步说明，日期改写；版本表改为末行最新 |
+| v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 1 的独立复核修订（规格 1.1「身份与判定」）：协议门禁 `observation_repetition` 与报告项 `decision_prompt_token_median` 的输入改为带工具的请求只在工具中有 `start_activity` 时计入，只带 `submit_reflection` 的就寝反思及其校验重试不计，不带工具的记忆巩固与截断重试照计；原口径下两次同类反思校验失败的附回消息在两条续接链里逐字相同，正确运行的门禁会取 2。门禁键名、比较符与阈值不变；更正 v1.9 行「阶段 1 的四项运行修复不改变本文的指标与门禁」 |
+| v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 2，按 `d09d574` 核对）：「2.2 报告项」写明个人事务与收尾记忆两组只报告项计入 `quality.json` 的 `errand_metrics` 与 `conclusion_memories`，以记下过的不同事务数为分母，不复用当日目标指标的名称与分母、不并入三层，`deliberate_goals` 与 `memory_repetition_ratio` 门禁不变；文件头的阶段号改为 2。实施计划把阶段 2 记为 v1.10，该号已由阶段 1 的独立复核修订占用，顺延为 v1.11 |
+| v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「2.2 报告项」工具交互行为报告段补查询成本由 `queries` 子命令只报告（规格 6.3 的八个键，含反思校验重试次数），口径引记录引擎设计「调试工具」；文件头状态改为已落地阶段 1、2 与阶段 4 |
+| v1.13 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 3，按 `56451b4` 核对）：「2.2 报告项」增 `workload` 与 `routine_deviation` 两行，写明十个键（规格的八项另把声明例外拆成休息时段与任务外出两项）、按观察窗截取、不当班日不产生班次、任务外出含直接回工作地点的一程、早退口径，逐日偏离的键、参照（场景班次与覆盖后的作息窗口，不是当日计划）与班次两端在睡的标注，容差等于播报间隔、写进报告而不作用于偏离值；输入经 `behavior_metrics_report` 唯一新增的可选打包参数 `workday` 传入，不进 `quality.json`，结构标识 `behavior-metrics-1` 不变，说明为中文，产出入口为 `inspect_run` 的 `workday` 子命令；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），版本改写 |
+| v1.14 | 2026-10-04 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 的复核更正（规格 4.5「含预约任务」与 6.2 的输入「任务的预约与要求地点」）：「2.2 报告项」`workload` 写明任务外出的起算——普通任务从开放时刻，预约任务从约定开始那一天的当地零点（赴约前去往约定地点的路上与提前到达的等候也算，不等约定开始），都到首次付款结清为止；原实现只从约定开始算起，约定开始前出发赴约被记成缺勤与早退。键名与其余口径不变；文件头的日期、版本改写 |
+
+| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |

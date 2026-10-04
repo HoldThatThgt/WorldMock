@@ -1,4 +1,4 @@
-"""@brief 候选排序的相关度层（docs/dev/SPEC-dayrun-fidelity.md 5.1，裁决 S4）。
+"""@brief 候选排序的相关度层（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ，裁决 S4）。
 
 排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）；相关度只取人物自己的事实与目录事实，三项相加：
 

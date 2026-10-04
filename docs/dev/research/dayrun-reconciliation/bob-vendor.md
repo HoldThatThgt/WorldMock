@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-reconciliation/bob-vendor.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # Bob report
 
 状态：**COMPLETE**。审查完成，但存在 **2 个 survived 测试判据缺口**，不能据此宣称所有选定约束都已被测试保护。

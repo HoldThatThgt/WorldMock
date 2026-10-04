@@ -1,5 +1,5 @@
-"""确定性检索与素材可达性的行为测试（docs/dev/SPEC-life-runtime.md「检索」、
-docs/dev/SPEC-life-realism.md「素材可达性」）。
+"""确定性检索与素材可达性的行为测试（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「检索」、
+docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「素材可达性」）。
 
 覆盖三组性质：分区键与 facet 计数的确定性（纯文本、可 diff、无浮点距离）、
 索引路径与扫描路径结果逐条相同、可达性判定只回答「从未可达」能否被判假。

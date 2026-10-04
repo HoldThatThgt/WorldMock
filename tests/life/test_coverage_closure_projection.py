@@ -68,11 +68,11 @@ def street():
 def test_moment_view_carries_the_local_hour_of_the_scenario_timezone(engine_factory):
     """观察面（此刻能不能做）带人物所在场景时区自午夜起的小时数；目录浏览面不判定营业时段，本地时刻为空。"""
     engine = engine_factory()
-    zone = ZoneInfo(engine.scenario.timezone)
+    zone = ZoneInfo(engine.context.scenario.timezone)
     for wall, expected in (((7, 30, 36), 7.51), ((0, 0, 0), 0.0), ((23, 45, 0), 23.75)):
         epoch = int(datetime(2026, 1, 6, *wall, tzinfo=zone).timestamp())
-        state = engine.state.model_copy(update={"current_time": epoch})
-        context = PresentationContext(state, engine.scenario, engine.semantics, state.agents[1])
+        state = engine.context.state.model_copy(update={"current_time": epoch})
+        context = PresentationContext(state, engine.context.scenario, engine.context.semantics, state.agents[1])
         assert presentation.local_hour(context) == pytest.approx(expected)
         moment = presentation.candidate_inputs(context, {}, moment=True)
         assert moment.local_hour == pytest.approx(expected)
@@ -278,7 +278,7 @@ def test_game_turn_stays_due_while_feedback_activities_realign_at_the_boundary(e
     """边界判定段让被唤醒人物的反馈类活动对齐决策边界，但游戏回合不重排：交互边界到期的那一秒人物就绪，
     游戏仍停在该回合（game_feedback），同一秒到期的等待活动顺延一个反馈间隔。"""
     engine = engine_factory()
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     now = state.current_time
     turn = now + 1
     state.agents[1] = state.agents[1].model_copy(update={"next_decision_at": now + 3600, "last_decision_time": now})
@@ -295,14 +295,14 @@ def test_game_turn_stays_due_while_feedback_activities_realign_at_the_boundary(e
                                                    resource_claims=set(registry.resource_claims(kind.value)),
                                                    **shared)
     state.version += 1
-    engine.store.commit(state.model_dump(mode="json"), [origin])
-    engine.state = state
+    engine.context.store.commit(state.model_dump(mode="json"), [origin])
+    engine.context.state = state
     advance_next(engine)
-    assert engine.state.current_time == turn
-    game, wait = engine.state.activities["game"], engine.state.activities["wait"]
+    assert engine.context.state.current_time == turn
+    game, wait = engine.context.state.activities["game"], engine.context.state.activities["wait"]
     assert game.status == ActivityStatus.ACTIVE
     assert (game.next_interaction_at, game.boundary_type) == (turn, "game_feedback")
-    assert wait.next_interaction_at == turn + engine.scenario.activity_feedback_seconds
+    assert wait.next_interaction_at == turn + engine.context.scenario.activity_feedback_seconds
     assert wait.boundary_type is None
-    assert engine.state.agents[1].next_decision_at == turn
+    assert engine.context.state.agents[1].next_decision_at == turn
     assert engine.scheduling_state().ready_agent_ids == (1,)

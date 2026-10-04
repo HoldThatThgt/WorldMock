@@ -22,26 +22,26 @@ from custom.agents.life_agent import LifeAgent
 from tests.integration.test_life_agent_protocol import (
     _add_objects, _context, _observations, _offer, _visible_object,
 )
-from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_arguments,
-                                 start_request)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan, start_arguments, start_request)  # noqa: F401
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import ActionResult
-from worldmock.life.session_actions import SessionActionMixin
+from worldmock.life.session_actions import ActionHandlers
 
 
 _OFFER = "家门口便利店出售的牛奶"
-#: 取得方式短语 → 私有绑定的履约方式（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」）。
+#: 取得方式短语 → 私有绑定的履约方式（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「请求形状与菜单」）。
 _FULFILLMENT = {"到店": "pickup", "远程下单": "delivery"}
 
 
 def _stage_open_market(engine) -> None:
     """把隔离运行推进到营业时段，并冻结每条可见供给。"""
     now = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = now
     staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
     agent = staged.agents[1]
-    visible = {row.supply_id for row in engine.scenario.supplies}
+    visible = {row.supply_id for row in engine.context.scenario.supplies}
     staged.agents[1] = agent.model_copy(update={
         "visible_supply_ids": visible,
         "supply_browsed_at": {identity: now for identity in visible},
@@ -50,11 +50,11 @@ def _stage_open_market(engine) -> None:
         "body_settled_at": now,
     }, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now,
         visibility="system", data={"kind": "test_open_market"},
     )])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _observed_offer(ways=("到店", "远程下单"), reason: str | None = None) -> list[dict]:
@@ -90,7 +90,7 @@ def _obtain(target: str, way: str = "到店", **extra) -> ReactDecision:
 def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
     """购买模型入参只有对象、动词与方式（另有请求级 prefer）；商品目标只在工具层，报价身份、履约方式和内部供给身份不进入
     请求。工具层的商品目标只列到店与远程下单，不列「购买」；「购买」写在列出的商品目标上宿主照样放行
-    （docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条：工具层呈现不变）。"""
+    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10 「收敛」第 2 条：工具层呈现不变）。"""
     observed = _observed_offer()
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
@@ -118,7 +118,7 @@ def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
 
 @pytest.mark.parametrize("label", ["未知商店出售的牛奶", "supply-private"])
 def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label):
-    """指名购买（docs/dev/SPEC-persona-prompt.md 第五章）：obtain 以到店或远程下单写本轮未列出的名称时宿主不按闭集拦截，
+    """指名购买（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）：obtain 以到店或远程下单写本轮未列出的名称时宿主不按闭集拦截，
     交给环境按标签或商品名解析（私有编号既不是标签也不是商品名，环境以 SUPPLY_NOT_FOUND 拒绝，见
     tests/life/test_named_purchase.py）；其余动词写未列出的名称仍按协议错误纠正。"""
     person = _prepared_offer()
@@ -131,11 +131,11 @@ def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label
 
 
 def test_host_checks_from_to_and_answering_against_private_bindings():
-    """宿主按私有绑定本地校验来源、去向与 answering（与环境同一判定，docs/dev/SPEC-persona-prompt.md 第五章）：去向是
+    """宿主按私有绑定本地校验来源、去向与 answering（与环境同一判定，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）：去向是
     「自己」、本轮的人物或不在身边的同世界人物（私有绑定 person_bindings），answering 是本轮可见的直接消息且至少一项送给
     发件人；不合法时返回以宿主错误码开头的协议错误串（ROUTE_FIELDS_INVALID；列出的标签写明了门店而 from 是冻结地点表里的
     另一个地点为 SUPPLY_SOURCE_MISMATCH，原因写明那个地点、候选为同一项 from 写 null；写的正是标签里的门店是冗余的 from，
-    照常放行；App 称呼与不认识的写法宿主放行，交给环境按渠道与来源解析，docs/dev/SPEC-dayrun-fidelity.md 3.2（b）、3.3）。
+    照常放行；App 称呼与不认识的写法宿主放行，交给环境按渠道与来源解析，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 （b）、3.3）。
     去向不是任何人物是拒绝码 RECIPIENT_NOT_FOUND：宿主放行，由环境业务拒绝。"""
     observed = _observed_offer()
     data = observed[0]["data"]
@@ -177,7 +177,7 @@ def test_supply_fulfillment_is_bound_per_visible_object():
 
 def test_closed_supply_remains_a_fact_without_a_purchase_action():
     """暂时不能购买的供给照常列为商品目标，取得动作标不可用并写原因（与私有绑定 note 同一文本）；宿主不查可用性，
-    选它原样交给环境按同一原因业务拒绝（docs/dev/SPEC-persona-prompt.md 第一章「工具层」「列出即可提交」）。"""
+    选它原样交给环境按同一原因业务拒绝（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」「列出即可提交」）。"""
     reason = "家门口便利店还没开门"
     observed = _observed_offer(("到店",), reason)
     data = observed[0]["data"]
@@ -192,13 +192,15 @@ def test_closed_supply_remains_a_fact_without_a_purchase_action():
 
 def test_each_selected_supply_keeps_its_own_frozen_quote():
     """双件购买逐条取观察冻结的报价版本，并由引擎决定每件数量。"""
-    class CapturePurchase(SessionActionMixin):
+    class CapturePurchase(ActionHandlers):
         def __init__(self):
-            self.rules = SimpleNamespace(supplies={
+            self.context = SimpleNamespace()
+            self.storefront = SimpleNamespace(_purchase=self._purchase)
+            self.context.rules = SimpleNamespace(supplies={
                 "supply-a": SimpleNamespace(location_id="home", fulfillment_modes=("pickup",)),
                 "supply-b": SimpleNamespace(location_id="home", fulfillment_modes=("pickup",)),
             })
-            self.scenario = self.semantics = SimpleNamespace()
+            self.context.scenario = self.context.semantics = SimpleNamespace()
             self.request = None
             self.named = None
 
@@ -236,16 +238,16 @@ def test_real_storefront_purchase_uses_observation_quote(_engine_factory):
     assert action["label"] in {"到店", "远程下单"}
     request = start_request(targets=[offer["object"]], actions=["obtain"], ways=[action["label"]])
     assert set(request.model_dump()) == {"items", "answering", "prefer"}
-    before_stock = engine.state.supply_stock[offer["object_id"]]
-    account = engine.state.agents[current.agent_id].balance_account_id
-    before_balance = engine.state.accounts[account]
+    before_stock = engine.context.state.supply_stock[offer["object_id"]]
+    account = engine.context.state.agents[current.agent_id].balance_account_id
+    before_balance = engine.context.state.accounts[account]
     engine.submit_action(DirectToolCall(current, "purchase-readable", "start_activity", request))
     result = engine.commit_decision_round(current.round_id)[0]
     assert result.status.value == "completed"
     assert result.error_code is None
     assert result.data["total_price_fen"] == offer["quote"]["purchase_price_fen"]
-    assert engine.state.supply_stock[offer["object_id"]] == before_stock - 1
-    assert engine.state.accounts[account] == before_balance - result.data["total_price_fen"]
+    assert engine.context.state.supply_stock[offer["object_id"]] == before_stock - 1
+    assert engine.context.state.accounts[account] == before_balance - result.data["total_price_fen"]
     [target] = [row for row in observed["tool_layer"]["targets"] if row["name"] == offer["object"]]
     assert target["kind"] == "product"
     tool_layer = json.dumps(observed["tool_layer"], ensure_ascii=False)

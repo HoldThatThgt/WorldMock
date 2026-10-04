@@ -17,16 +17,18 @@ from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import IntegrityError
 from worldmock.life.felt import APPETITE_STARVING_KCAL
 from worldmock.life.interaction_menu import InteractionMenu
-from worldmock.life.models import (
-    ContractKind,
-    CurvePoint,
-    EfficiencyFactor,
-    FrozenModel,
-    TravelMode,
-)
+from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor, FrozenModel
+from worldmock.life.models import DataSource
 from worldmock.life.map_models import (
-    DataSource, LocationConfig, LocationReference, MapDataset, MapDatasetReference, RouteConfig,
-    SupplyConfig, SupplyReference, validate_names, validate_price_versions,
+    LocationConfig,
+    LocationReference,
+    MapDataset,
+    MapDatasetReference,
+    RouteConfig,
+    SupplyConfig,
+    SupplyReference,
+    validate_names,
+    validate_price_versions,
 )
 from worldmock.life.social import Contact
 from worldmock.life.sleep import (
@@ -39,19 +41,20 @@ from worldmock.life.sleep import (
 #: 商品使用方式的封闭集合（eat=食品进食，use=耐用品使用）。
 _PRODUCT_USE_MODES = frozenset({"eat", "use"})
 
-#: 重估间隔缺省（秒）：Kleitman 基本休息—活动周期约 90 分钟（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
+#: 重估间隔缺省（秒）：Kleitman 基本休息—活动周期约 90
+#: 分钟（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。
 RECONSIDERATION_INTERVAL_SECONDS = 5400
 
 #: 候选与呈现常量的合法上界。上界的作用是拦住让两侧口径失效的取值，不是推荐值：
 #: 单次呈现上限 1000 已远超一次模型调用能承载的条目数；检索分区池上限 100_000 之外的
 #: 池在 15% 换新名额（每次 3 条）下最坏等待约 1.5 年，已超出正式实验窗口，
-#: 闭式断言会退化成不断言（docs/dev/SPEC-life-runtime.md「候选契约与呈现规则」「两级上限」）。
+#: 闭式断言会退化成不断言（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「候选契约与呈现规则」「两级上限」）。
 CANDIDATE_PRESENTATION_LIMIT_MAX = 1000
 CANDIDATE_POOL_LIMIT_MAX = 100_000
 
-#: 娱乐缓解的下限偏好 f 缺省值（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：实际缓解按有效偏好
+#: 娱乐缓解的下限偏好 f 缺省值（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 D3）：实际缓解按有效偏好
 #: f + (1 − f)·w 调幅度，不喜欢的内容（w = 0）也按 f 缓解。实验假设（敏感区间 0.3–0.7，文献只能确定 0 < f < 1），
-#: 登记在 docs/EXPERIMENT.md「实验假设声明」；放场景层以免触发目录版本变更。
+#: 登记在 docs/EXPERIMENT.md#experiment-worldmock-实验设置「实验假设声明」；放场景层以免触发目录版本变更。
 DEFAULT_ENTERTAINMENT_RELIEF_PREFERENCE_FLOOR = 0.5
 
 #: 长期未呈现判定阈值的缺省（秒）＝一周。取值理由：轮转按人物的作息周期产生可观测效果，
@@ -89,13 +92,17 @@ class BodyConfig(FrozenModel):
         """@brief 拒绝不可插值的曲线和自相矛盾阈值。
 
         阈值次序为「饿得发慌」上界 < 紧急阈值 < 饥饿阈值 ≤ 能量上限：紧急阈值同时是「至少饿得难受」的
-        下限，不高于 APPETITE_STARVING_KCAL 时两条低能量规则会重叠（docs/dev/SPEC-time-and-energy.md
+        下限，不高于 APPETITE_STARVING_KCAL 时两条低能量规则会重叠（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动
         「饥饿在低能量时不失灵」）。
         """
         if self.initial_energy_kcal > self.maximum_energy_kcal:
             raise ValueError("initial energy exceeds maximum energy")
-        if not (APPETITE_STARVING_KCAL < self.emergency_threshold_kcal
-                < self.hunger_threshold_kcal <= self.maximum_energy_kcal):
+        if not (
+            APPETITE_STARVING_KCAL
+            < self.emergency_threshold_kcal
+            < self.hunger_threshold_kcal
+            <= self.maximum_energy_kcal
+        ):
             raise ValueError("body thresholds must be ordered within maximum energy and above the starving floor")
         _validate_curve(self.food_efficiency_curve)
         for factor in self.work_efficiency_factors:
@@ -106,14 +113,11 @@ class BodyConfig(FrozenModel):
 
 
 #: 动机档案四个 level 资源名（weights/loss_aversion 的合法键闭集）。
-_MOTIVATION_LEVEL_RESOURCES = frozenset({
-    "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"})
+_MOTIVATION_LEVEL_RESOURCES = frozenset({"money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"})
 
 #: 大五特质与权重的固定键集合（与画像编译器输出合同一致）。
-_BIG_FIVE_TRAITS = frozenset({
-    "openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"})
-_MOTIVATION_WEIGHTS = frozenset({
-    "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need", "goal_task"})
+_BIG_FIVE_TRAITS = frozenset({"openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"})
+_MOTIVATION_WEIGHTS = frozenset({"money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need", "goal_task"})
 
 
 class MotivationProfileSource(FrozenModel):
@@ -172,21 +176,18 @@ class MotivationProfile(FrozenModel):
             raise ValueError("motivation aspiration must be non-negative")
         if any(not key.strip() for key in self.attention_prior):
             raise ValueError("motivation attention_prior keys must not be blank")
-        if any(not math.isfinite(value) or not 0 <= value <= 1
-               for value in self.attention_prior.values()):
+        if any(not math.isfinite(value) or not 0 <= value <= 1 for value in self.attention_prior.values()):
             raise ValueError("motivation attention_prior values must be within the unit interval")
         # 注册表规则 6：画像注意力键集 == attention_required=true 键集，多键/少键
         # 均拒绝（取代动机采样侧 .get(kind, 0) 的静默缺省）；attention_required=false
         # 的品类（game_session/subtitle_experience）合法地不在键集内。
         if set(self.attention_prior) != default_affordances().attention_required_kinds:
-            raise ValueError(
-                "motivation attention_prior keys must equal the registry "
-                "attention_required kinds")
+            raise ValueError("motivation attention_prior keys must equal the registry attention_required kinds")
         return self
 
 
 class WorkShift(FrozenModel):
-    """@brief 一天的班次（docs/dev/SPEC-errands-workday.md 4.3）：自当地零点起的分钟，同日、starts < ends，休息时段落在
+    """@brief 一天的班次（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：自当地零点起的分钟，同日、starts < ends，休息时段落在
     班次内、升序且互不重叠；区间一律半开。三个键都必填，没有休息时段写空列表。"""
 
     starts: int
@@ -232,7 +233,7 @@ class WorkSchedule(FrozenModel):
 class AgentConfig(FrozenModel):
     """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
 
-    修订合同（docs/dev/SPEC-life-realism.md「画像编译」）删除 occupation/routine_preference/consumption_
+    修订合同（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）删除 occupation/routine_preference/consumption_
     preference/risk_preference 四个模板字段与随机偏好浮点字段（其生产者已随
     画像编译 v2 删除，单位区间校验一并移除）；其内容并入
     画像编译产出的 PersonaCard。人物档案字段（chronotype_midsleep、
@@ -256,25 +257,25 @@ class AgentConfig(FrozenModel):
     lifestyle_activities: tuple[str, ...] | None = None
     # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
     interaction_menu: InteractionMenu | None
-    # 工作安排（docs/dev/SPEC-errands-workday.md 4.3，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
+    # 工作安排（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ，裁决 W3）：必须显式出现；null 表示这个人物没有任何在岗语义。
     work_schedule: WorkSchedule | None
-    # 人物档案字段（docs/dev/SPEC-life-runtime.md「两过程睡眠模型」、docs/dev/SPEC-life-realism.md「画像编译」）：时型与睡眠需要可按人声明。
+    # 人物档案字段（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两过程睡眠模型」、
+    # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：时型与睡眠需要可按人声明。
     chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
-    sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H,
-                                    le=SLEEP_NEED_MAX_H)
+    sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H, le=SLEEP_NEED_MAX_H)
     # 时间锚点窗口（自午夜起的小时数，半开区间 [start, end)）：午餐/晚餐窗口
-    # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md「其他体感分级」）；None=未声明（无餐时项）。
+    # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
-    # 下班、到家窗口（docs/dev/SPEC-errands-workday.md 4.2）：与午餐、晚餐窗口同单位同校验，两者都声明时下班起点不晚于
+    # 下班、到家窗口（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）：与午餐、晚餐窗口同单位同校验，两者都声明时下班起点不晚于
     # 到家起点；只用于场景作息覆盖卡片与零点计划的人物输入，None=未声明。
     leave_work_window: tuple[float, float] | None = None
     arrive_home_window: tuple[float, float] | None = None
     # 人物声明的就寝窗口，仅用于人物作息表达；末端可跨午夜。
     # 例如 25.0 表示次日 01:00，与画像层 TimeWindow 口径一致。
     bedtime_window: tuple[float, float] | None = None
-    # 场景联系人（docs/dev/SPEC-life-runtime.md「社交最小可行版」与
-    # docs/dev/SPEC-life-realism.md「世界素材品类要求」）：按人物声明，
+    # 场景联系人（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」与
+    # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「世界素材品类要求」）：按人物声明，
     # schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
     # 初始持有物按地点冻结，由目录独立装配使用属性与品类身份，不要求同时可购买。
@@ -375,7 +376,7 @@ class WorkAppointment(FrozenModel):
 class WorkTaskConfig(FrozenModel):
     """@brief 一个可见后才能执行和提交的独立工作合同（按人物分配）。
 
-    assignee_agent_id 必填（docs/dev/SPEC-life-realism.md「世界素材品类要求」：合同按人分配），引用场景内已声明
+    assignee_agent_id 必填（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「世界素材品类要求」：合同按人分配），引用场景内已声明
     人物（"agent:<id>" 或裸数字 id 两种规范写法，与 A10 ScenarioTaskRef 同名同义）。
     """
 
@@ -421,8 +422,7 @@ def runtime_tasks(tasks: tuple, messages: tuple) -> tuple[RuntimeWorkTask, ...]:
         if not notices:
             logging.error("Work task has no covering notification: %s", task.task_id)
             raise ValueError("work task requires a covering notification")
-        opening = (min(item.sent_at for item in notices) if task.appointment is None
-                   else task.appointment.starts_at)
+        opening = min(item.sent_at for item in notices) if task.appointment is None else task.appointment.starts_at
         payload = task.model_dump(mode="python", exclude={"available_at"})
         result.append(RuntimeWorkTask.model_validate({**payload, "available_at": opening}))
     return tuple(result)
@@ -608,11 +608,18 @@ class BodyInstanceConfig(FrozenModel):
     initial_sleep_debt_hours: float = Field(ge=0)
     initial_entertainment_need: float = Field(default=0, ge=0, le=1)
     entertainment_relief_preference_floor: float = Field(
-        default=DEFAULT_ENTERTAINMENT_RELIEF_PREFERENCE_FLOOR, gt=0, lt=1, allow_inf_nan=False,
-        description=("娱乐缓解的下限偏好 f，缺省 0.5，取值开区间 (0, 1)：观看与游戏的实际缓解按有效偏好 "
-                     "f + (1 − f)·w 调幅度（w 为口味权重），不喜欢的内容也按 f 缓解，排序仍用原始口味权重。"
-                     "实验假设，敏感区间 0.3–0.7，文献只能确定 0 < f < 1"
-                     "（docs/dev/SPEC-dayrun-fidelity.md 1.2，docs/EXPERIMENT.md「实验假设声明」）。"))
+        default=DEFAULT_ENTERTAINMENT_RELIEF_PREFERENCE_FLOOR,
+        gt=0,
+        lt=1,
+        allow_inf_nan=False,
+        description=(
+            "娱乐缓解的下限偏好 f，缺省 0.5，取值开区间 (0, 1)：观看与游戏的实际缓解按有效偏好 "
+            "f + (1 − f)·w 调幅度（w 为口味权重），不喜欢的内容也按 f 缓解，排序仍用原始口味权重。"
+            "实验假设，敏感区间 0.3–0.7，文献只能确定 0 < f < 1"
+            "（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，"
+            "docs/EXPERIMENT.md#experiment-实验假设声明 「实验假设声明」）。"
+        ),
+    )
 
 
 class LifeScenario(FrozenModel):
@@ -625,15 +632,15 @@ class LifeScenario(FrozenModel):
     end_at: datetime
     random_seed: int
     activity_feedback_seconds: int = Field(ge=60, le=86_400)
-    # 决策节律（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：距上一次实际决策满该秒数触发重估唤醒。
-    reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS,
-                                                  gt=0, le=86_400)
+    # 决策节律（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）：距上一次实际决策满该秒数触发重估唤醒。
+    reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS, gt=0, le=86_400)
     idle_reconsideration_interval_seconds: int = Field(default=10800, gt=0, le=86_400)
-    #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md「决策轮循环与播报节律」）：活跃对话距上次报告满该秒数唤醒人物。
+    #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「决策轮循环与播报节律」）
+    #: ：活跃对话距上次报告满该秒数唤醒人物。
     progress_report_interval_seconds: int = Field(default=1800, gt=0)
-    #: 同刻决策上限（docs/dev/SPEC-time-and-energy.md 第一章「场景参数」）：同一人物同一模拟秒的决策轮数上限。
+    #: 同刻决策上限（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「场景参数」）：同一人物同一模拟秒的决策轮数上限。
     max_same_moment_decisions: int = Field(default=3, gt=0)
-    # 候选与呈现常量（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+    # 候选与呈现常量（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节）。
     # 刻意落在场景层而非 catalog/manifest.json：目录常量的一次增量会触发目录版本 major 变更。
     candidate_presentation_limit: int = Field(default=20, gt=0, le=CANDIDATE_PRESENTATION_LIMIT_MAX)
     candidate_pool_limit: int = Field(default=1000, gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
@@ -674,8 +681,9 @@ class LifeScenario(FrozenModel):
             raise ValueError("idle reconsideration interval must not be shorter than regular interval")
         if (self.phone_simulation_config is None) != (self.phone_simulation_config_sha256 is None):
             raise ValueError("phone simulation config path and hash must be declared together")
-        _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
-                                   self.rotation_stale_seconds)
+        _check_candidate_constants(
+            self.candidate_presentation_limit, self.rotation_quota_ratio, self.rotation_stale_seconds
+        )
         _aware(self.start_at, "start_at")
         _aware(self.end_at, "end_at")
         zone = _zone(self.timezone)
@@ -709,8 +717,10 @@ class LifeScenario(FrozenModel):
 
     def _validate_recipe_bindings(self) -> None:
         """@brief 配方输出绑定要求非空输出品类身份和对象身份。"""
-        if any(not category_id.strip() or not object_id.strip()
-               for category_id, object_id in self.recipe_output_bindings.items()):
+        if any(
+            not category_id.strip() or not object_id.strip()
+            for category_id, object_id in self.recipe_output_bindings.items()
+        ):
             raise ValueError("recipe output bindings must use non-empty ids")
 
     def _validate_schedule_sections(self, zone: ZoneInfo) -> None:
@@ -723,9 +733,12 @@ class LifeScenario(FrozenModel):
         declared = {item.account_id for item in self.accounts}
         people = {f"agent:{item.agent_id}" for item in self.agents}
         supply_ids = {item.supply_id for item in self.supplies}
-        for section, items in (("bill", self.bills), ("payroll", self.payrolls),
-                               ("price change", self.price_changes),
-                               ("product release", self.product_releases)):
+        for section, items in (
+            ("bill", self.bills),
+            ("payroll", self.payrolls),
+            ("price change", self.price_changes),
+            ("product release", self.product_releases),
+        ):
             for item in items:
                 _aware(item.due_at, f"{section} due_at")
                 if not _matches_zone(item.due_at, zone):
@@ -759,7 +772,6 @@ class LifeScenario(FrozenModel):
             raise ValueError("service accounts must not reuse agent account ids")
 
 
-
 class RuntimeScenario(FrozenModel):
     """@brief 组装后的运行时场景：实例数据加上经目录解析的全部静态语义。
 
@@ -775,7 +787,7 @@ class RuntimeScenario(FrozenModel):
     random_seed: int
     activity_feedback_seconds: int = Field(ge=60, le=86_400)
     max_same_moment_decisions: int = Field(gt=0)
-    # 候选与呈现常量：由 _runtime_payload 从瘦身文档原样搬运（docs/CONTRACTS.md「场景常量」）。
+    # 候选与呈现常量：由 _runtime_payload 从瘦身文档原样搬运（docs/CONTRACTS.md#contracts-worldmock-接口合同「场景常量」）。
     candidate_presentation_limit: int = Field(gt=0, le=CANDIDATE_PRESENTATION_LIMIT_MAX)
     candidate_pool_limit: int = Field(gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     rotation_quota_ratio: float = Field(gt=0, lt=1, allow_inf_nan=False)
@@ -812,8 +824,9 @@ class RuntimeScenario(FrozenModel):
         """@brief 核对时区、身份唯一性和全部跨引用。"""
         if (self.phone_simulation_config is None) != (self.phone_simulation_config_sha256 is None):
             raise ValueError("phone simulation config path and hash must be declared together")
-        _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
-                                   self.rotation_stale_seconds)
+        _check_candidate_constants(
+            self.candidate_presentation_limit, self.rotation_quota_ratio, self.rotation_stale_seconds
+        )
         _aware(self.start_at, "start_at")
         _aware(self.end_at, "end_at")
         zone = _zone(self.timezone)
@@ -828,8 +841,7 @@ class RuntimeScenario(FrozenModel):
         _unique(self.messages, "message_id")
         _unique(self.contents, "item_id")
         _unique(self.games, "game_id")
-        _check_interaction_menu_location_kinds(
-            self.locations, self.interaction_menus_by_location_kind)
+        _check_interaction_menu_location_kinds(self.locations, self.interaction_menus_by_location_kind)
         _unique(self.supplies, "supply_id")
         validate_price_versions(self.supplies, self.price_changes)
         places = [item.location_id for item in self.supplies]
@@ -840,8 +852,10 @@ class RuntimeScenario(FrozenModel):
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
         _check_catalog_references(self.agents, self.tasks, self.messages, targets)
         self._validate_inventory_references()
-        if any(not category_id.strip() or not object_id.strip()
-               for category_id, object_id in self.recipe_output_bindings.items()):
+        if any(
+            not category_id.strip() or not object_id.strip()
+            for category_id, object_id in self.recipe_output_bindings.items()
+        ):
             raise ValueError("recipe output bindings must use non-empty ids")
         self._validate_route_keys()
         self._validate_accounts()
@@ -923,8 +937,7 @@ def _check_catalog_references(agents, tasks, messages, targets) -> None:
     agents_by_id = {item.agent_id for item in agents}
     task_ids = {item.task_id for item in tasks}
     skills = {key for agent in agents for key in agent.skill_levels}
-    assignees = {f"agent:{item.agent_id}" for item in agents} | {
-        str(item.agent_id) for item in agents}
+    assignees = {f"agent:{item.agent_id}" for item in agents} | {str(item.agent_id) for item in agents}
     if any(task.required_skill not in skills for task in tasks):
         raise ValueError("work task references an unknown skill")
     if any(task.assignee_agent_id not in assignees for task in tasks):
@@ -971,8 +984,7 @@ def _check_times(zone, start_at, end_at, tasks, messages) -> None:
             raise ValueError("message timestamp is invalid for the scenario")
 
 
-def _check_candidate_constants(presentation_limit: int, quota_ratio: float,
-                               stale_seconds: int) -> None:
+def _check_candidate_constants(presentation_limit: int, quota_ratio: float, stale_seconds: int) -> None:
     """@brief 候选常量必须让轮转名额与判定阈值都真的生效。
 
     单次呈现上限与换新比例的组合下界：`floor(上限 × 比例)` 至少 1，否则轮转
@@ -1014,30 +1026,33 @@ def _validate_unit_mapping(values: dict[str, float], label: str) -> None:
 def _check_day_windows(agent: "AgentConfig") -> None:
     """@brief 人物档案的日内窗口：午餐、晚餐、下班、到家窗口满足 0 ≤ 起点 < 末端 ≤ 24，午餐与晚餐不重叠，就寝窗口可跨
     午夜且不压晚餐；下班与到家都声明时下班起点不晚于到家起点（起点相等可以），与午餐、晚餐、就寝不设先后
-    （docs/dev/SPEC-errands-workday.md 4.2）。"""
-    for name, window in (("lunch_window", agent.lunch_window),
-                         ("dinner_window", agent.dinner_window),
-                         ("leave_work_window", agent.leave_work_window),
-                         ("arrive_home_window", agent.arrive_home_window)):
+    （docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）。"""
+    for name, window in (
+        ("lunch_window", agent.lunch_window),
+        ("dinner_window", agent.dinner_window),
+        ("leave_work_window", agent.leave_work_window),
+        ("arrive_home_window", agent.arrive_home_window),
+    ):
         if window is not None and not 0 <= window[0] < window[1] <= 24:
             raise ValueError(f"{name} must satisfy 0 <= start < end <= 24")
     if agent.lunch_window is not None and agent.dinner_window is not None:
-        if (agent.lunch_window[1] > agent.dinner_window[0]
-                and agent.dinner_window[1] > agent.lunch_window[0]):
+        if agent.lunch_window[1] > agent.dinner_window[0] and agent.dinner_window[1] > agent.lunch_window[0]:
             raise ValueError("dinner window must not overlap lunch window")
     if agent.bedtime_window is not None:
         bedtime_start, bedtime_end = agent.bedtime_window
         # 跨午夜口径与画像层 TimeWindow 一致：start < 24、end ≤ 30（次日
         # 06:00）、跨度 ≤ 12h（防病态区间）；引擎侧另钳制锚点 ≤ 当日结束。
         if not 0 <= bedtime_start < 24 or not bedtime_start < bedtime_end <= 30:
-            raise ValueError(
-                "bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
+            raise ValueError("bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
         if bedtime_end - bedtime_start > 12:
             raise ValueError("bedtime_window span must not exceed 12 hours")
         if agent.dinner_window is not None and bedtime_start < agent.dinner_window[1]:
             raise ValueError("bedtime window must not overlap dinner window")
-    if (agent.leave_work_window is not None and agent.arrive_home_window is not None
-            and agent.leave_work_window[0] > agent.arrive_home_window[0]):
+    if (
+        agent.leave_work_window is not None
+        and agent.arrive_home_window is not None
+        and agent.leave_work_window[0] > agent.arrive_home_window[0]
+    ):
         raise ValueError("leave_work_window must not start after arrive_home_window")
 
 
@@ -1095,11 +1110,3 @@ def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
     if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
         raise IntegrityError("Scenario corpus manifest identity is invalid")
     return scenario, hashlib.sha256(content).hexdigest()
-
-
-def load_scenario(path: Path) -> tuple[RuntimeScenario, str]:
-    """@brief 完整加载场景：文档校验、目录组装与准入通过后返回运行时场景。"""
-    from worldmock.life.semantics import load_runtime_scenario
-
-    semantics, digest = load_runtime_scenario(path)
-    return semantics.scenario, digest

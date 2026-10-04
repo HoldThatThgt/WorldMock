@@ -12,7 +12,7 @@ from worldmock.corpora import load_manifest
 from worldmock.errors import IntegrityError
 from worldmock.life.content import load_subtitles
 from worldmock.life.game import validate_game
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.life.travel import validate_routes
 
 

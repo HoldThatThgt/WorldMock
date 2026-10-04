@@ -139,7 +139,7 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_activity_control_schemas_use_paired_readable_activity_and_summary(name: str) -> None:
     """三条活动控制工具一项一个对象：每项点名可读活动并写人物自述，只有结束工具每项另带记忆与看法；外层键是 items
-    （不是提示字段黑名单里的 activities）与请求级 errands；活动名不做 Schema 枚举（docs/dev/SPEC-dayrun-fidelity.md
+    （不是提示字段黑名单里的 activities）与请求级 errands；活动名不做 Schema 枚举（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要
     第六章）；缺 errands 的请求被拒。"""
     schema = _function(name)["parameters"]
     assert set(schema["properties"]) == set(schema["required"]) == {"items", "errands"}
@@ -161,13 +161,13 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
             REQUEST_MODELS[name].model_validate(invalid)
 
 
-#: 一条个人事务变更的八个键，Schema 与请求模型都按这个顺序（docs/dev/SPEC-errands-workday.md 2.2「每条变更」）。
+#: 一条个人事务变更的八个键，Schema 与请求模型都按这个顺序（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」）。
 _ERRAND_KEYS = ["change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_control_tool_schemas_inline_the_errand_change_object(name: str) -> None:
-    """三个控制工具的请求级 errands 是内联的变更对象数组（docs/dev/SPEC-errands-workday.md 2.2）：模型本轮可见的函数
+    """三个控制工具的请求级 errands 是内联的变更对象数组（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）：模型本轮可见的函数
     声明就是 DeepSeek strict 校验通过的请求模型 Schema，没有 $ref 与 $defs；变更对象封闭、八个键按序全部必填，change
     的枚举只有新增、更新、取消三种（没有完成），outcome 是可空的取得、吃掉；item、memo、reason 是非空白字符串或 null，
     remind_time 与当日目标同形，quantity 是整数或 null（上限由本地校验执行，Schema 不带长度与范围）。"""
@@ -200,7 +200,7 @@ def test_control_tool_schemas_inline_the_errand_change_object(name: str) -> None
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_control_summaries_are_limited_to_500_characters_by_the_local_check(name: str) -> None:
-    """自述长度上限由本地校验兜住（strict 禁 maxLength，docs/dev/SPEC-dayrun-fidelity.md 第六章）：恰好 500 字的自述经
+    """自述长度上限由本地校验兜住（strict 禁 maxLength，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）：恰好 500 字的自述经
     请求模型与宿主本地校验受理，501 字的在 Schema 上合法、却被请求模型拒绝，宿主按 ARGUMENTS_INVALID 纠错。"""
     schema = _function(name)["parameters"]
     boundary, over = (_control_payload(name, [(_WAIT, "长" * length)]) for length in (500, 501))
@@ -253,7 +253,7 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
     """人物工具面没有 plan_day；修订的目标内联意图、文字与两个必填可空的场景本地 HH:MM——提醒 remind_time 与大致时刻
-    around_time（docs/dev/SPEC-dayrun-fidelity.md 8.2），不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
+    around_time（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ），不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
     agent = _prepared_agent(revise=True)
     tools = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
     assert "revise_day_plan" in tools and "plan_day" not in tools
@@ -303,7 +303,7 @@ def test_provider_array_cardinality_gap_is_locally_rejected() -> None:
 
 def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> None:
     """收尾记忆、看法与工作评审的嵌套数据仍由原生严格 Schema 内联约束，没有引用与未知字段：普通记忆没有对象字段、类型
-    只取七类，看法与偏好另写在 views 并用 about 写对象（docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    只取七类，看法与偏好另写在 views 并用 about 写对象（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。"""
     conclude = _function("conclude_activity")["parameters"]
     item = conclude["properties"]["items"]["items"]["properties"]
     memory_item, view_item = item["memories"]["items"], item["views"]["items"]

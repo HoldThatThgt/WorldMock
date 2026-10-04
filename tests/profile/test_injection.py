@@ -1,4 +1,4 @@
-"""运行输入警告与场景作息覆盖的纯函数（docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1、8.1）。
+"""运行输入警告与场景作息覆盖的纯函数（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 、2.1、8.1）。
 
 每个警告码各一例：口味、内容与作息三类取 WC 白领、BIZ 商务两次全天运行的真实卡片与场景声明
 （tests/fixtures/dayrun_fidelity_inputs.json，从数据集只读复制的最小记录），配送路线与显示名取真实场景与
@@ -15,7 +15,8 @@ import pytest
 
 from tests.profile.conftest import make_card, make_window
 from worldmock.errors import IntegrityError
-from worldmock.life.scenario import AgentConfig, load_scenario
+from worldmock.life.scenario import AgentConfig
+from worldmock.life.world_setup import load_scenario
 from worldmock.profile.compile import compile_persona
 from worldmock.profile.coverage import CoverageTargets, validate_coverage
 from worldmock.profile.extractor import PersonaExtraction
@@ -304,7 +305,7 @@ def _slots(card: PersonaCard) -> tuple[list[float] | None, list[float] | None]:
 
 
 def test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden() -> None:
-    """场景作息覆盖的字段为七项、窗口槽为五个（docs/dev/SPEC-errands-workday.md 4.2）：卡片下班、到家槽为 null 时场景窗口
+    """场景作息覆盖的字段为七项、窗口槽为五个（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）：卡片下班、到家槽为 null 时场景窗口
     照常落下，各记一条 CARD_FIELD_OVERRIDDEN，details.field 取新字段名、card_value 为 null，正文把卡片值写成 null；
     卡片槽非空时同样覆盖并带原值；警告码闭集仍为 10，警告照常通过冻结前的闭集校验。"""
     assert RHYTHM_FIELDS == ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "leave_work_window",

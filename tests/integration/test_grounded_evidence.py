@@ -16,11 +16,11 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import (context, engine_factory as _engine_factory,  # noqa: F401
-                       stage_day_plan)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
-from worldmock.runtime import runtime_code_sha256
+from worldmock.run_setup import runtime_code_sha256
 from tests.integration.as2_fixtures import use_fake_as2
 
 @pytest.fixture(autouse=True)
@@ -106,8 +106,8 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     for field in ("target", "way"):
         assert "enum" not in fields["items"]["items"]["properties"][field]
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
-    cutoff = engine.store.last_event_seq
-    directory = engine.store.run_dir
+    cutoff = engine.context.store.last_event_seq
+    directory = engine.context.store.run_dir
     engine.close()
 
     reopened = FootprintStore(directory)
@@ -135,7 +135,7 @@ async def _run_persisted_protocol_correction(engine, ctx) -> Path:
     agent.trace_span = lambda *args, **kwargs: nullcontext()  # type: ignore[method-assign]
     request = ReactLoopRequest(0, ctx.observed_at, [], "What happened?", True)
     assert await agent.run_react_loop(request) == "fixed"
-    return engine.store.run_dir
+    return engine.context.store.run_dir
 
 
 def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory):  # noqa: F811

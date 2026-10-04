@@ -1,10 +1,11 @@
+<a name="delivery-自定义训练数据交付"></a>
 # 自定义训练数据交付
 
 把人物的真实经历加工成经历归纳、意图识别、动作预测和规则验证数据时，修改仓库中的
-`labelkit-projects/`。人物如何生活由[场景](scenarios.md)决定；本页配置的是经历发生后如何加工数据。
+`labelkit-projects/`。人物如何生活由[场景](scenarios.md#scenarios-生活场景)决定；本页配置的是经历发生后如何加工数据。
 所有命令均在 WorldMock 仓库根目录执行。
 
-[返回配置手册](README.md)
+[返回配置手册](README.md#readme-用户配置手册)
 
 ```mermaid
 flowchart LR
@@ -19,6 +20,7 @@ flowchart LR
     H --> I
 ```
 
+<a name="delivery-文件怎么分工"></a>
 ## 文件怎么分工
 
 | 文件 | 用户可以修改什么 | 必须保持什么 |
@@ -34,6 +36,7 @@ flowchart LR
 `deliver` 会复制整个 `labelkit-projects/`，排除旧 `data/`、`out/` 和缓存，再由真实导出重新生成输入。
 新增一个任意名称的 TOML 不会自动新增交付任务。输入、输出、Schema、钩子的相对路径均相对于所属 TOML 的目录。
 
+<a name="delivery-修改任务提示"></a>
 ## 修改任务提示
 
 从现有任务文件开始编辑，保留已有的证据、输出结构和评审约束。在 `[annotate].instruction` 的三引号正文末尾，
@@ -76,6 +79,7 @@ flowchart LR
 - `output.schema_path = "schemas/semantic-target.json"`、`output.validator = "hooks.py:validate_annotation"`、
   `output.meta_mode = "inline"`，以及开启 `llm`、`verify`、`schema` 的完整 trace。
 
+<a name="delivery-修改生成预算和模型"></a>
 ## 修改生成预算和模型
 
 以下是**替换现有表内对应字段的局部片段**，不是一份完整配置：
@@ -128,8 +132,9 @@ timeout_s = 240
 文件中没有该键或第一段为空时拒绝交付，不能用进程里已有的 `DEEPSEEK_API_KEY` 替代文件输入。
 本项目的 `api_key_env = "DEEPSEEK_API_KEY"` 保持不变，它引用子进程环境键，不是私密文件输入键。
 更换端点或模型时必须确认这套凭据对目标服务有效；本页没有通用多供应商凭据配置入口。
-凭据准备见[运行设置](runtime.md)。
+凭据准备见[运行设置](runtime.md#runtime-运行配置)。
 
+<a name="delivery-修改规则数据"></a>
 ## 修改规则数据
 
 这里的规则验证的是“生活请求登记是否在受理后六十秒内确认”，不是睡眠、出行、工作是否在六十秒内完成。
@@ -167,6 +172,7 @@ max_slot_attempts = 5
 新增另一套业务规则属于交付合同扩展，需要同时修改状态、变体、独立预期与消费者；
 上游 LabelKit 的通用序列能力不能直接视为 WorldMock 已接入的能力。
 
+<a name="delivery-离线检查"></a>
 ## 离线检查
 
 先安装项目既有依赖。下面命令只校验配置，不调用模型。显式设置 `PYTHONPATH`，
@@ -218,6 +224,7 @@ with tempfile.TemporaryDirectory(prefix="worldmock-delivery-check-") as temporar
 PY
 ```
 
+<a name="delivery-正式交付与检查结果"></a>
 ## 正式交付与检查结果
 
 完成配置和凭据准备后，以下命令会真实调用 LabelKit 模型；输出目录必须尚不存在：

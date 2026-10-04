@@ -1,13 +1,14 @@
 """@brief 活动名额、待收尾、可读名称、客观进度与控制记录。
 
-依据 docs/dev/SPEC-time-and-energy.md 第七章「活动的生命周期」与第八章「活动」：
+依据 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「活动的生命周期」与第八章「活动」：
 - 每人两个活动名额，进行中、暂停中与待收尾的活动各占一个，只有 conclude_activity 之后才释放；
 - 待收尾是状态为 completed、failed 或 cancelled 且 concluded_at 为空的活动（truncated 不收尾），ActivityStatus 闭集不变；
 - 活动名称是「<做什么><对象>（<M月D日> HH:MM 起）」；同一轮可见的名称重复时追加「（第二次）」这类序号，不抛错；
-- 工具层活动目标与待办层写活动客观进度的人读短语（docs/dev/SPEC-persona-prompt.md「工具层」「待办层」）：工作不写
+- 工具层活动目标与待办层写活动客观进度的人读短语（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」「待办层」）：工作不写
   「还差」，剩余只在任务目标的 contract；刚结束的活动另写终局说法；
 - 控制工具（播报与恢复、暂停、结束）的准入由 control_refusal 判定，受理与工具层可用性共用同一 Refusal；所写的活动名
-  逐项按统一名称解析，解析不出的各项合并成一次拒绝（activity_name_refusal，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条）；
+  逐项按统一名称解析，解析不出的各项合并成一次拒绝（activity_name_refusal，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第
+   5 条）；
 - conclude_activity、pause_activity 与 report_status 的恢复每改变一项活动就写一条 environment_event
   （activity_concluded、activity_paused、activity_resumed，带活动快照与含本次请求事件的 caused_by）；
   原始动作的全部子活动都终结时按自然结束的同一路径写一次终态并更新 processed_actions；
@@ -30,12 +31,13 @@ from worldmock.life import errands
 from worldmock.life.activities import at_decision_boundary
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.interaction_menu import GIVE_WAY
+from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
-from worldmock.life.name_resolution import near_names, resolve_name
+from worldmock.life.name_resolution import near_names
+from worldmock.life.object_labels import resolve_name
 from worldmock.life.readable import duration_phrase, portion_phrase
 from worldmock.life.sessions import at_stay, moment_label, on_road
 from worldmock.life.work import work_start_blocker, work_totals
@@ -128,9 +130,9 @@ def object_display_name(binding: dict) -> str:
 
 def objective_progress(activity: ActivityState) -> str:
     """@brief 活动客观进度的人读短语：已做时长、工作的有效时长、进行或暂停中的还剩时长；食用只写「已吃 X 份，剩 Y 份」
-    （docs/dev/SPEC-persona-prompt.md「待办层」，不另写还剩时长）。
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「待办层」，不另写还剩时长）。
 
-    工作不写「还差」：合同剩余只在工具层任务目标的 contract（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    工作不写「还差」：合同剩余只在工具层任务目标的 contract（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
     """
     if activity.kind == ActivityKind.CONSUME and activity.data.get("request", {}).get("use_mode") == "eat":
         planned = sum(item["quantity"] for item in activity.data["request"]["items"])
@@ -203,9 +205,10 @@ def conclusion_required(activities: Iterable[ActivityState], names: dict[str, st
 
 def activity_name_refusal(written: Sequence[str], visible: Sequence[str]) -> Refusal | None:
     """@brief 控制工具（播报、暂停、结束）逐项所写的活动名在本轮可见的活动名中按统一名称解析（精确或无损归一后唯一，
-    name_resolution.resolve_name，与宿主本地校验同一函数）；解析不出的各项合并成的一次拒绝，都唯一解析时为 None。
+    object_labels.resolve_name，与宿主本地校验同一函数）；解析不出的各项合并成的一次拒绝，都唯一解析时为 None。
 
-    名称类失败逐项报全部（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，原因
+    名称类失败逐项报全部（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 5 条、第四章）：找不到的明细码为 NAME_NOT_FOUND，
+    原因
     列出最接近的几个活动名；归一后（如没写开始时刻）对应不止一项的为 NAME_AMBIGUOUS，原因列出它们。明细的参数名为
     activity_name、原文照录，不带候选（可照填的候选是 start_activity 形状的请求），与宿主纠错中活动名的明细相同；原因逐项写
     「第 N 项「原文」：…」（guidance.items_refusal），改法按码各写一句。宿主已在本轮纠正这些名称，这里只防绕过宿主的请求，
@@ -333,7 +336,7 @@ def require_start_admission(state: WorldState, agent_id: int, request: tuple[lis
     """@brief 开始请求的名额与出发前判定：名额不足报 SESSION_LIMIT_EXCEEDED，出发前仍有进行中活动报前置条件。
 
     名额不足的原因分两种说法：两个名额都占着时请人物先结束一件；只剩一个名额却要同时开始两项时说明只剩一个名额
-    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）。两种都点名占着名额的活动，下一步都是先结束其中一项。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）。两种都点名占着名额的活动，下一步都是先结束其中一项。
 
     :param request: (内部标准动作列表, 方式短语列表)，与请求 targets 逐项对应。
     :param names: 活动身份→本轮可读名称，用于在原因与下一步中点名要先处理的活动。
@@ -365,7 +368,7 @@ def start_admission_refusal(state: WorldState, agent_id: int, request: tuple[lis
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
                    context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
     """@brief 本次控制改变的每项活动写一条 environment_event；原始动作全部子活动终结时写一次终态；控制请求里每条被受理
-    的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/dev/SPEC-errands-workday.md 2.2
+    的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消
     「原子性」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.title)
@@ -376,7 +379,7 @@ def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> Even
     """@brief 实验截止截断的一项活动（此前进行中或暂停）写一条带截断快照的 environment_event。
 
     同源两项的聚合终态不带快照，暂停的活动此前只有暂停时的快照；逐项写截断快照，导出的活动才与最终检查点逐项一致
-    （docs/dev/SPEC-time-and-energy.md 第八章「活动」）。原因回链开始该活动的请求事件。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「活动」）。原因回链开始该活动的请求事件。
 
     :param snapshot: 截断后的活动权威快照（引擎的活动快照投影）。
     """

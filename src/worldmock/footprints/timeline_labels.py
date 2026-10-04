@@ -1,4 +1,4 @@
-"""@brief 质量报告的时间线标签检查：投影出的时间线里不得出现英文种类名与内部标识（docs/dev/SPEC-dayrun-fidelity.md 7.4）。
+"""@brief 质量报告的时间线标签检查：投影出的时间线里不得出现英文种类名与内部标识（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。
 
 从同批已认证事件用唯一的时间线渲染器 scripts/render_day.py（与导出同一实现）逐人逐日投影时间线，
 逐行检查活动标签：书名号《》与引号「」里是作品标题与邮件主题，不参与检查；其余文字按英文与数字连成的片段
@@ -8,7 +8,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
+from pathlib import Path
+from worldmock.errors import IntegrityError
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -36,7 +39,7 @@ def timeline_label_report(events: list[Event], manifest: dict) -> dict:
     @param manifest 对应运行的冻结清单（取运行窗口与时区）。
     @return rows_checked、english_kind_names、internal_ids 与逐项 findings（人物、日期、起止、标签、检查项、片段）。
     """
-    from worldmock.footprints.export import _load_render_day
+
 
     renderer = _load_render_day()
     bodies = [event.model_dump(mode="json") for event in events if event.event_type in _TIMELINE_EVENT_TYPES]
@@ -80,3 +83,14 @@ def _window_days(window: dict) -> list[date]:
         days.append(cursor.date())
         cursor = datetime.combine(cursor.date() + timedelta(days=1), time.min, zone)
     return days
+
+
+def _load_render_day():
+    """@brief 按文件路径加载 scripts/render_day.py（scripts 不是包，单一事实源）。"""
+    path = Path(__file__).resolve().parents[3] / "scripts" / "render_day.py"
+    if not path.is_file() or path.is_symlink():
+        raise IntegrityError("The timeline projection script is missing or unsafe")
+    spec = importlib.util.spec_from_file_location("worldmock_export_render_day", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

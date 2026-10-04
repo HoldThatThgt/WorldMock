@@ -6,7 +6,7 @@
 恢复。本模块把全部写入收口到 commit_state/validated_payload：先按加载
 口径复校（WorldState.validate_world 五条不变量：时间超界/负账户/负库存/
 人物映射身份/负物品量），违规即 IntegrityError fail-closed，再持久化。
-docs/CONTRACTS.md「数字足迹存储接口」判定校验责任在生活模型侧，存储只接收已验证状态。
+docs/CONTRACTS.md#contracts-worldmock-接口合同「数字足迹存储接口」判定校验责任在生活模型侧，存储只接收已验证状态。
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def stage_presentation(state: WorldState, pending: dict[int, SameMomentPresentat
 
     观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此观察先把留痕
     记在引擎内存，随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
-    保留该秒首轮置顶的浏览结果（docs/dev/SPEC-time-and-energy.md 第一章「同一秒内的呈现与「刚才」」）。
+    保留该秒首轮置顶的浏览结果（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「同一秒内的呈现与「刚才」」）。
 
     @param state 本轮提交的世界状态。
     @param pending 本轮观察产生的人物→呈现暂存；空字典表示没有留痕。

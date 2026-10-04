@@ -1,6 +1,6 @@
 """场景层候选与呈现常量的声明、默认值与拒绝规则测试。
 
-覆盖 docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节：
+覆盖 docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节：
 五个常量在场景层声明（不落 catalog/manifest.json），其中 `rotation_stale_seconds`
 无缺省、必须声明，其余四项取契约默认值。
 """
@@ -15,13 +15,14 @@ import pytest
 from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError
-from worldmock.life.scenario import LifeScenario, load_scenario
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.scenario import LifeScenario
+from worldmock.life.world_setup import load_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
 
-#: 契约默认值（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+#: 契约默认值（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节）。
 _CONTRACT_DEFAULTS = {
     "candidate_presentation_limit": 20,
     "candidate_pool_limit": 1000,

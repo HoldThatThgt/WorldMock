@@ -1,6 +1,7 @@
 """@brief 运行、恢复与重放共享同一份冻结品类内容身份核验。"""
 
 from __future__ import annotations
+from worldmock.footprints.store import FootprintStore
 
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,6 @@ def require_category_identity(manifest: dict[str, Any], semantics: Any) -> None:
 
 def open_category_validated_store(run_dir: Path, semantics: Any) -> Any:
     """@brief 打开既有存储后先核对品类身份，失败时立即关闭连接。"""
-    from worldmock.footprints.store import FootprintStore
 
     store = FootprintStore(run_dir)
     try:

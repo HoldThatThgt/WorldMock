@@ -1,4 +1,4 @@
-"""@brief 只读查询转发的四类证据（docs/dev/SPEC-errands-workday.md 1.2「证据分工」）。
+"""@brief 只读查询转发的四类证据（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-只读查询转发 「证据分工」）。
 
 1. 真实 Ray：驱动侧与 worker 侧各经代理调用一次，回看任务返回结果字典而非对象引用，世界状态逐字节不变、不追加事件；
 2. 主进程内直接构造未经 ray.remote 包装的 LifeEnvActor 并调用 read_query，等于环境直调（守住函数体与私有成员依赖）；
@@ -20,7 +20,8 @@ os.environ.setdefault('LITELLM_LOCAL_MODEL_COST_MAP', 'True')
 
 from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
 from custom.envs.life_env import LifeEnv
-from tests.life.conftest import context, engine_factory, stage_day_plan
+from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
 from worldmock.errors import ProtocolError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import RecallTaskSummaryRequest
@@ -40,7 +41,7 @@ async def _staged_recall(engine_factory) -> SimpleNamespace:
     把运行目录留给 actor 重新打开。返回基准结果、关闭前的世界状态字节与事件序号、给 actor 用的新决策上下文与请求。"""
     engine = engine_factory()
     stage_day_plan(engine, goals=(PlanGoal(intent_kind='休息', goal='歇一歇',
-                                         registered_at=engine.state.current_time),))
+                                         registered_at=engine.context.state.current_time),))
     direct = context(engine, 'direct-recall')
     engine.begin_decision_round([direct])
     observed = engine.observe(direct)
@@ -50,8 +51,8 @@ async def _staged_recall(engine_factory) -> SimpleNamespace:
     expected = await environment.read_query(direct, 'recall_task_summary', request)
     assert expected['recall']['kind'] == 'goal'
     staged = SimpleNamespace(
-        expected=expected, request=request, run_dir=engine.store.run_dir,
-        state=engine.state.model_dump_json().encode('utf-8'), sequence=engine.store.last_event_seq,
+        expected=expected, request=request, run_dir=engine.context.store.run_dir,
+        state=engine.context.state.model_dump_json().encode('utf-8'), sequence=engine.context.store.last_event_seq,
         frozen=context(engine, 'forwarded-recall'))
     engine.close()
     return staged
@@ -68,8 +69,8 @@ def _assert_world_untouched(staged: SimpleNamespace) -> None:
     """重新打开运行目录：世界状态逐字节等于查询之前；序号只多出 actor 一侧那一次观察，查询本身不写任何事件。"""
     reopened = LifeEngine.open(SCENARIO, staged.run_dir)
     try:
-        assert reopened.state.model_dump_json().encode('utf-8') == staged.state
-        added = [event for event in reopened.store.read_events(reopened.store.last_event_seq)
+        assert reopened.context.state.model_dump_json().encode('utf-8') == staged.state
+        added = [event for event in reopened.context.store.read_events(reopened.context.store.last_event_seq)
                  if event.event_seq > staged.sequence]
         assert [(event.event_type, event.decision_id) for event in added] == [
             ('observation', staged.frozen.decision_id)]
@@ -132,7 +133,7 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
             await actor.read_query(staged.frozen, 'recall_task_summary', staged.request)
         observed = await actor.observe(staged.frozen)
         engine = environment.engine
-        before, sequence = engine.state.model_dump_json(), engine.store.last_event_seq
+        before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
 
         recalled = await actor.read_query(staged.frozen, 'recall_task_summary', staged.request)
         assert type(recalled) is dict and recalled == staged.expected
@@ -156,8 +157,8 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(engine_
             with pytest.raises(ProtocolError, match='Read query tool and request type do not match'):
                 await actor.read_query(staged.frozen, tool, request)
 
-        assert engine.state.model_dump_json() == before
-        assert engine.store.last_event_seq == sequence
+        assert engine.context.state.model_dump_json() == before
+        assert engine.context.store.last_event_seq == sequence
     finally:
         await actor.close()
     _assert_world_untouched(staged)
@@ -190,7 +191,7 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     import worldmock.runtime as runtime
     from agentsociety2.config import llm_dispatcher
     from agentsociety2.env import direct_env_actor
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     wrapped, received = [], []
     answer = {'recall': {'kind': 'goal', 'name': '歇一歇'}}
@@ -247,7 +248,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
 
     monkeypatch.setattr(prompt_capacity, 'model_context_length', lambda model: 1_048_576)
     engine = engine_factory()
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     stage_day_plan(engine, goals=tuple(PlanGoal(intent_kind=kind, goal=goal, registered_at=now) for kind, goal in (
         ('用餐', '好好吃顿午饭'), ('休息', '歇一歇'), ('娱乐', '歇一歇'))))
     environment = LifeEnv()
@@ -262,7 +263,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
                      _reply('call-plan', 'revise_day_plan', _PLAN, '回看完了，改一下计划。')])
     person = _person(environment, decision, model)
     assert type(person).__module__ == 'custom.agents.life_agent'
-    sequence = engine.store.last_event_seq
+    sequence = engine.context.store.last_event_seq
 
     result = await person.run_react_loop(ReactLoopRequest(0, decision.observed_at, [
         {'turn': 0, 'action': 'observe', 'ok': True, 'data': observed}]))
@@ -279,7 +280,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
     assert refused == await environment.read_query(decision, 'recall_task_summary', shared)
     assert set(refused) == _ERROR_KEYS and refused['error_code'] == 'TASK_NOT_FOUND'
     assert refused['items'][0]['written'] == '歇一歇' and refused['unmet'] == []
-    added = [event for event in engine.store.read_events(engine.store.last_event_seq) if event.event_seq > sequence]
+    added = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq) if event.event_seq > sequence]
     assert [event.event_type for event in added] == [
         'decision_started', *(['model_request', 'model_response'] * 3), 'action_requested']
     assert added[-1].data['tool_name'] == 'revise_day_plan'

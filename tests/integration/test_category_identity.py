@@ -15,14 +15,9 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import CounterfactualIntervention, RunIdentity
-from worldmock.life.semantics import load_runtime_scenario
-from worldmock.runtime import (
-    ResumeRequest,
-    _model_identity,
-    _prepare_resume,
-    runtime_code_sha256,
-    stage_model_identity,
-)
+from worldmock.life.world_setup import load_runtime_scenario
+from worldmock.runtime import ResumeRequest, _prepare_resume
+from worldmock.run_setup import _model_identity, runtime_code_sha256, stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2
 from tests.life.conftest import advance_next, stage_day_plan, submit_round, start_request
 
@@ -87,9 +82,9 @@ def _expected_identity(directory):
 
 
 def _checkpoint(engine, tmp_path):
-    snapshots = {"life": engine.store.assets.put_json(
-        {"state_version": engine.state.version}, {"kind": "life_checkpoint"})}
-    for agent in engine.scenario.agents:
+    snapshots = {"life": engine.context.store.assets.put_json(
+        {"state_version": engine.context.state.version}, {"kind": "life_checkpoint"})}
+    for agent in engine.context.scenario.agents:
         workspace = tmp_path / f"agent-{agent.agent_id}"
         workspace.mkdir()
         (workspace / "AGENT.json").write_text(json.dumps({
@@ -99,8 +94,8 @@ def _checkpoint(engine, tmp_path):
         (workspace / "config.json").write_text(json.dumps({
             "enable_memory": True, "max_react_turns": 16,
         }), encoding="utf-8")
-        snapshots[f"agent:{agent.agent_id}"] = snapshot_directory(workspace, engine.store.assets)
-    return engine.store.checkpoint(engine.store.state, snapshots)
+        snapshots[f"agent:{agent.agent_id}"] = snapshot_directory(workspace, engine.context.store.assets)
+    return engine.context.store.checkpoint(engine.context.store.state, snapshots)
 
 
 def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
@@ -108,28 +103,28 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
     engine = _create(path, tmp_path / "run")
     try:
         expected = _expected_identity(directory)
-        assert {key: engine.store.manifest[key] for key in expected} == expected
+        assert {key: engine.context.store.manifest[key] for key in expected} == expected
         reopened = LifeEngine.open(path, tmp_path / "run")
         try:
-            assert {key: reopened.store.manifest[key] for key in expected} == expected
+            assert {key: reopened.context.store.manifest[key] for key in expected} == expected
         finally:
             reopened.close()
-        names = {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()}
-        for agent_id in engine.state.agents:
+        names = {key: item.name for key, item in engine.context.semantics.catalog.category_contract.categories.items()}
+        for agent_id in engine.context.state.agents:
             stage_day_plan(engine, agent_id)
         submit_round(engine, {agent_id: ("start_activity", start_request(
-            targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in engine.state.agents}, "wait")
+            targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in engine.context.state.agents}, "wait")
         advance_next(engine)
-        cutoff = engine.store.last_event_seq
-        first = export_run(engine.store, cutoff, tmp_path / "first-export")
+        cutoff = engine.context.store.last_event_seq
+        first = export_run(engine.context.store, cutoff, tmp_path / "first-export")
         assert {key: first["frozen_run_manifest"][key] for key in expected} == expected
         frozen_bytes = _hash_files(tmp_path / "first-export")
         _change_category(directory)
         load_runtime_scenario(path)
         assert _expected_identity(directory) != expected
-        assert {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()} == names
-        second = export_run(engine.store, cutoff, tmp_path / "second-export")
-        assert first["frozen_run_manifest"] == second["frozen_run_manifest"] == engine.store.manifest
+        assert {key: item.name for key, item in engine.context.semantics.catalog.category_contract.categories.items()} == names
+        second = export_run(engine.context.store, cutoff, tmp_path / "second-export")
+        assert first["frozen_run_manifest"] == second["frozen_run_manifest"] == engine.context.store.manifest
         assert _hash_files(tmp_path / "first-export") == frozen_bytes
     finally:
         engine.close()
@@ -159,9 +154,9 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
     engine = _create(path, run)
     try:
         expected = _expected_identity(directory)
-        assert {key: engine.store.manifest[key] for key in expected} == expected
+        assert {key: engine.context.store.manifest[key] for key in expected} == expected
         checkpoint = _checkpoint(engine, tmp_path)
-        parent_manifest = engine.store.manifest
+        parent_manifest = engine.context.store.manifest
     finally:
         engine.close()
     if changed:
@@ -187,14 +182,14 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
         assert manifest["run_id"] != parent_manifest["run_id"]
         branch = LifeEngine.open(path, destination)
         try:
-            assert {key: branch.store.manifest[key] for key in expected} == expected
-            for agent_id in branch.state.agents:
+            assert {key: branch.context.store.manifest[key] for key in expected} == expected
+            for agent_id in branch.context.state.agents:
                 stage_day_plan(branch, agent_id)
             submit_round(branch, {agent_id: ("start_activity", start_request(
-                targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in branch.state.agents},
+                targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in branch.context.state.agents},
                 "branch-wait")
             advance_next(branch)
-            exported = export_run(branch.store, branch.store.last_event_seq, tmp_path / "branch-export")
+            exported = export_run(branch.context.store, branch.context.store.last_event_seq, tmp_path / "branch-export")
             assert {key: exported["frozen_run_manifest"][key] for key in expected} == expected
         finally:
             branch.close()

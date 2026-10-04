@@ -1,4 +1,4 @@
-"""跨决策预算（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」，裁决 #25）。
+"""跨决策预算（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」，裁决 #25）。
 
 同刻上限之后至多三个受限轮；受限轮用完仍没有进行中活动（或仍有待收尾活动）时，环境不替人物造活动，写一条只供系统的
 decision_budget_exhausted 事件（带最近的拒绝码），把下一次决策排在一个结算间隔之后，时钟可以推进（技术停顿，身体按静息
@@ -25,13 +25,13 @@ _RESTRICTED = "SAME_MOMENT_ACTION_RESTRICTED"
 
 def _exhausted(engine, agent_id: int = 1) -> list:
     """@brief 人物的 decision_budget_exhausted 事件（按写入顺序）。"""
-    return [event for event in engine.store.read_agent_events("environment_event", agent_id)
+    return [event for event in engine.context.store.read_agent_events("environment_event", agent_id)
             if event.data.get("kind") == _KIND]
 
 
 def _events(engine) -> list:
     """@brief 运行库中已提交的全部事件。"""
-    return engine.store.read_events(engine.store.last_event_seq)
+    return engine.context.store.read_events(engine.context.store.last_event_seq)
 
 
 def test_restricted_rounds_used_up_without_an_activity_pause_technically(engine_factory) -> None:
@@ -40,44 +40,44 @@ def test_restricted_rounds_used_up_without_an_activity_pause_technically(engine_
     推进后同刻轮数与阶段复位、边界兜底给出 no_active_activity；没有 run_failed，质量报告计一次，进度层不出现这次停顿。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    now, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
-    feedback = engine.scenario.activity_feedback_seconds
+    now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
+    feedback = engine.context.scenario.activity_feedback_seconds
     for round_number in range(1, limit + 3):
         assert _invalid_start(engine, f"budget-{round_number}").error_code == "ACTION_REQUEST_INVALID"
-        agent = engine.state.agents[1]
+        agent = engine.context.state.agents[1]
         assert (agent.same_moment_rounds, agent.next_decision_at) == (round_number, now)
         assert not _exhausted(engine)
     last = _invalid_start(engine, "budget-last")
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     assert agent.same_moment_rounds == limit + 3 and last.data["same_moment_round"] == limit + 3
     assert (agent.next_decision_at, agent.pending_wake_reasons) == (now + feedback, [])
     assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME
     (event,) = _exhausted(engine)
     assert (event.occurred_at, event.visibility, event.source_kind) == (now, "system", "environment")
     assert event.data == {"kind": _KIND, "error_code": "ACTION_REQUEST_INVALID", "next_decision_at": now + feedback}
-    result = engine.store.read_agent_events("action_result", 1)[-1]
+    result = engine.context.store.read_agent_events("action_result", 1)[-1]
     assert result.action_id == "action-budget-last-1" and result.event_seq < event.event_seq
-    assert not [item for item in engine.state.activities.values() if item.agent_id == 1]
+    assert not [item for item in engine.context.state.activities.values() if item.agent_id == 1]
     assert engine.scheduling_state().ready_agent_ids == ()
     advance_next(engine)
-    moment = engine.state.current_time
+    moment = engine.context.state.current_time
     assert now < moment <= now + feedback
-    settlement = [item for item in engine.store.read_agent_events("environment_event", 1)
+    settlement = [item for item in engine.context.store.read_agent_events("environment_event", 1)
                   if item.data.get("kind") == "body_settlement"][-1]
     assert (settlement.data["interval_start"], settlement.data["interval_end"]) == (now, moment)
     assert settlement.data["activity_ids"] == []
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     assert (agent.same_moment_rounds, agent.same_moment_stage) == (0, SameMomentStage.OPEN)
     assert engine.scheduling_state().ready_agent_ids == (1,) and "no_active_activity" in agent.pending_wake_reasons
-    assert same_moment.latest_rejection_code(engine.state, 1) is None
+    assert same_moment.latest_rejection_code(engine.context.state, 1) is None
     events = _events(engine)
     assert not any(item.event_type == "run_failed" for item in events)
-    assert build_quality_report(events, [], engine.store.manifest)["decision_rhythm"][
+    assert build_quality_report(events, [], engine.context.store.manifest)["decision_rhythm"][
         "decision_budget_exhausted_events"] == 1
     observed = engine.observe(context(engine, "budget-after"))
     assert event.event_id not in observed["progress_event_ids"]
     assert _KIND not in json.dumps(observed["progress_layer"], ensure_ascii=False)
-    assert not [item for item in engine.state.activities.values() if item.agent_id == 1]
+    assert not [item for item in engine.context.state.activities.values() if item.agent_id == 1]
 
 
 def test_a_successful_last_restricted_round_carries_the_latest_rejection_code(engine_factory) -> None:
@@ -86,7 +86,7 @@ def test_a_successful_last_restricted_round_carries_the_latest_rejection_code(en
     engine = engine_factory()
     stage_day_plan(engine)
     first, second, now = _two_paused(engine, "latest")
-    feedback = engine.scenario.activity_feedback_seconds
+    feedback = engine.context.scenario.activity_feedback_seconds
     _blocked_until_limit(engine, "latest")
     for index in range(2):
         assert _wait(engine, f"latest-outside-{index}").error_code == _RESTRICTED
@@ -95,11 +95,11 @@ def test_a_successful_last_restricted_round_carries_the_latest_rejection_code(en
     assert ended.status == "completed"
     (event,) = _exhausted(engine)
     assert event.data == {"kind": _KIND, "error_code": _RESTRICTED, "next_decision_at": now + feedback}
-    assert engine.state.agents[1].next_decision_at == now + feedback
-    assert engine.state.activities[second].status == ActivityStatus.PAUSED and not active_activities(engine.state, 1)
+    assert engine.context.state.agents[1].next_decision_at == now + feedback
+    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED and not active_activities(engine.context.state, 1)
     advance_next(engine)
-    assert engine.state.current_time > now
-    assert engine.state.activities[second].status == ActivityStatus.PAUSED
+    assert engine.context.state.current_time > now
+    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED
 
 
 def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(engine_factory) -> None:
@@ -107,7 +107,7 @@ def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(e
     事件随重放的证据一起提交，带存档的拒绝码。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    now, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
+    now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
     request = start_activity("观看", "不存在的对象")
     for round_number in range(1, limit + 3):
         assert _act(engine, f"replay-{round_number}", "start_activity", request).status == "rejected"
@@ -117,10 +117,10 @@ def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(e
     engine.submit_action(DirectToolCall(decision, "action-replay-1-1", "start_activity", request))
     replayed = engine.commit_decision_round("replay-again")[0]
     assert replayed.status == "rejected" and replayed.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.agents[1].same_moment_rounds == limit + 3
+    assert engine.context.state.agents[1].same_moment_rounds == limit + 3
     (event,) = _exhausted(engine)
     assert event.data == {"kind": _KIND, "error_code": "ACTION_REQUEST_INVALID",
-                          "next_decision_at": now + engine.scenario.activity_feedback_seconds}
+                          "next_decision_at": now + engine.context.scenario.activity_feedback_seconds}
     assert [item.event_type for item in _events(engine)[-3:]] == ["action_rejected", "action_result",
                                                                   "environment_event"]
 
@@ -132,18 +132,18 @@ def test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity(en
     stage_day_plan(engine)
     wait_id, watch_id = _start(engine, "beside-start", ("自己", "等待"), _content(engine, "beside"))
     _finish(engine, wait_id, "beside")
-    ended, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
+    ended, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
     codes = [_act(engine, f"beside-other-{index}", *_other_requests()[index % 2]).error_code
              for index in range(limit + 3)]
     assert codes == ["ACTIVITY_CONCLUSION_REQUIRED"] * limit + [_RESTRICTED] * 3
     (event,) = _exhausted(engine)
     assert event.data["error_code"] == _RESTRICTED
-    assert engine.state.agents[1].next_decision_at == ended + engine.scenario.activity_feedback_seconds
-    assert engine.state.activities[watch_id].status == ActivityStatus.ACTIVE
-    assert engine.state.activities[wait_id].concluded_at is None
+    assert engine.context.state.agents[1].next_decision_at == ended + engine.context.scenario.activity_feedback_seconds
+    assert engine.context.state.activities[watch_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.activities[wait_id].concluded_at is None
     assert engine.scheduling_state().ready_agent_ids == ()
     advance_next(engine)
-    assert engine.state.current_time > ended
+    assert engine.context.state.current_time > ended
     assert not any(item.event_type == "run_failed" for item in _events(engine))
 
 

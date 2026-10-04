@@ -1,7 +1,7 @@
 """@brief 统一候选契约：五类可选对象走同一套生成、资格、排序三段式。
 
 商品、生活活动、内容、游戏与任务共用本模块，任何一类都不得另起一条独立链路
-（docs/dev/SPEC-life-runtime.md「候选契约与呈现规则」的「统一候选契约」）。三段
+（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「候选契约与呈现规则」的「统一候选契约」）。三段
 的形状固定：
 
 - **生成**：按四个获取来源合并候选——当前地点常驻对象（`on_site`）、浏览或激活
@@ -9,8 +9,8 @@
   激活集在本次场景中激活的对象（`activated`）。输出未收窄的候选全集，并逐来源给
   出命中计数。
 - **资格**：逐条排除理由对应闭集里的一个稳定原因码；保留项加被排除项的计数等于
-  候选全集的规模（docs/dev/SPEC-life-runtime.md「两条排除纪律」）。生活活动窗口按人物
-  当前地点施加地点类资格（`apply_location_kinds`，docs/dev/SPEC-dayrun-fidelity.md 5.1，裁决 S8）。
+  候选全集的规模（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「两条排除纪律」）。生活活动窗口按人物
+  当前地点施加地点类资格（`apply_location_kinds`，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ，裁决 S8）。
 - **排序**：排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（定点整数与
   `sha256(场景|人物|日期|对象)`，裁决 S4）；相关度由调用方按人物自己的事实与目录事实给出，
   决胜键使零口味时的顺序不退化为对象标识的字母序，且随日期变化。
@@ -25,10 +25,10 @@
 **候选是派生量不是状态**：本模块是纯函数，不写世界状态、不做 IO、不调模型。候选
 身份只由（冻结目录摘要、画像摘要、世界状态版本、选择器版本）决定，不含墙钟时间、
 缓存或模型输出；分桶与摘要哈希统一用 `hashlib`，不用受 `PYTHONHASHSEED` 影响的
-内建 `hash()`（docs/dev/SPEC-life-runtime.md「统一候选契约」）。
+内建 `hash()`（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「统一候选契约」）。
 
 闭集词表（`CandidateKind`、`CandidateSource`、`ExclusionReason`）、排序键字段名与
-游标口径的权威定义在 `docs/CONTRACTS.md`「候选与呈现合同」，本模块只照抄，不另起词。
+游标口径的权威定义在 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「候选与呈现合同」，本模块只照抄，不另起词。
 
 字段面与行为规则不一致时以合同为准；本模块的 docstring 用中文，代码、日志与抛错
 用英文。
@@ -46,13 +46,13 @@ from worldmock.catalog.affordances import default_affordances
 from worldmock.life.models import ActivityKind
 from worldmock.life.scenario import LocationConfig
 
-#: 候选类别闭集（docs/CONTRACTS.md「候选与呈现合同」的「候选对象与来源」）。
+#: 候选类别闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
 CandidateKind = Literal["product", "lifestyle", "content", "game", "task"]
 
-#: 候选来源闭集（docs/CONTRACTS.md「候选与呈现合同」的「候选对象与来源」）。
+#: 候选来源闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
 CandidateSource = Literal["on_site", "browsed", "carried", "activated"]
 
-#: 排除原因码闭集（docs/CONTRACTS.md「候选与呈现合同」的「排除原因码」）。
+#: 排除原因码闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排除原因码」）。
 ExclusionReason = Literal[
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
@@ -84,8 +84,8 @@ EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ROTATION_DEFERRED",
 )
 
-#: 排序键版本（docs/CONTRACTS.md「候选与呈现合同」的「排序键与游标」）：只参与游标身份，升版使在途游标失效。
-#: 2 起排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（docs/dev/SPEC-dayrun-fidelity.md 5.1）。
+#: 排序键版本（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排序键与游标」）：只参与游标身份，升版使在途游标失效。
+#: 2 起排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键）（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。
 ORDER_KEY_VERSION = 2
 #: 定点份额度：四位小数，与 `taste_weights` 的口径一致。
 FIXED_POINT_SCALE = 10_000
@@ -191,7 +191,7 @@ class CandidateInputs:
     rotation_constants: Any = None
     #: 是否要求条目声明的具体地点实例（人必须站在该地点）；目录浏览时为 False。
     require_location_instance: bool = True
-    #: 是否按人物当前地点判定地点类资格（生活活动窗口，docs/dev/SPEC-dayrun-fidelity.md 5.1）：目录浏览面的
+    #: 是否按人物当前地点判定地点类资格（生活活动窗口，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）：目录浏览面的
     #: 其余类别不判定营业时段与地点实例，生活活动窗口仍按当前地点的地点类排除不相容的条目。
     apply_location_kinds: bool = False
     #: 按对象标识记录的「上次呈现时刻」（纪元秒）：缺失表示从未呈现（轮转判据）。
@@ -240,7 +240,7 @@ class OrderedCandidate:
     kind: CandidateKind
     taste_weight: int
     attention_prior: int
-    #: 相关度（整数分，docs/dev/SPEC-dayrun-fidelity.md 5.1）：只在口味 × 注意力相同时区分先后。
+    #: 相关度（整数分，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）：只在口味 × 注意力相同时区分先后。
     relevance: int = 0
     #: 决胜键 `sha256(场景|人物|日期|对象)` 的十六进制摘要。
     tiebreak: str = ""
@@ -382,7 +382,7 @@ def _cursor(inputs: CandidateInputs, presented: Sequence[OrderedCandidate],
 
 def tiebreak_digest(scenario_id: str, agent_id: int, local_date: str, object_id: str) -> str:
     """@brief 决胜键 `sha256(场景|人物|日期|对象)`（十六进制）：同分时的先后只由这四项决定，跨日期变化，与对象标识的
-    字母序无关（docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+    字母序无关（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
     text = f"{scenario_id}|{agent_id}|{local_date}|{object_id}"
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 

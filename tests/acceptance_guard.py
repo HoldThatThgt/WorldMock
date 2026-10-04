@@ -1,8 +1,8 @@
-"""特性验收登记表的共用判定：规格表格、测试节点解析、延期标记与空壳函数。
+"""特性验收登记表的共用判定：机器主题、测试节点解析、延期标记与空壳函数。
 
 @file     acceptance_guard.py
 @brief    人物 Prompt 七层（tests/test_persona_prompt_acceptance.py）与一日运行保真（tests/test_dayrun_fidelity_acceptance.py）
-          两个完整性守卫共用的判定：按二级章节切出规格里的表格（转义的竖线不断开单元格）；把 path::name 或
+          两个完整性守卫共用的判定：读取机器验收主题；把 path::name 或
           path::Class::name（可带参数化后缀）按 AST 解析到会被收集、未被跳过的测试函数；延期标记正则；只有 pass、省略号或
           文档字符串的空壳函数。
 @note     延期标记与跳过判定的正则由字符串片段拼成，本文件自身不含任何标记字面量。文件名不以 test_ 开头，pytest 不把它
@@ -12,10 +12,17 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def acceptance_section(feature: str, name: str) -> dict:
+    """@brief 读取机器验收数据中的主题；验收登记不再依赖规格散文和章节标题。"""
+    path = REPO_ROOT / "tests" / "fixtures" / "acceptance_requirements.json"
+    return json.loads(path.read_text(encoding="utf-8"))[feature][name]
 
 #: 延期标记（片段拼接，避免本文件命中自己的扫描）：英文标记、未实现异常、pytest 的跳过与预期失败，以及三个中文延期说法。
 MARKERS = (
@@ -37,32 +44,8 @@ _SKIP_MARK = re.compile(r"mark\.(?:" + "sk" + "ip|" + "x" + "fail)")
 _SKIP_CALL = re.compile(r"\b(?:pytest\.)?(?:" + "sk" + "ip|" + "x" + "fail|importor" + "sk" + r"ip)\(")
 #: 登记的测试节点形如 path::name 或 path::Class::name，可带参数化后缀。
 NODE_ID = re.compile(r"^tests/[\w./-]+\.py::(?:Test\w+::)?test\w*(?:\[.*\])?$")
-_CELL = re.compile(r"(?<!\\)\|")
 
 
-def section(path: Path, heading: str) -> list[str]:
-    """@brief 文档中某个二级章节的正文行（到下一个二级标题为止）。"""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    start = lines.index(heading) + 1
-    end = next((index for index in range(start, len(lines)) if lines[index].startswith("## ")), len(lines))
-    return lines[start:end]
-
-
-def tables(path: Path, heading: str) -> list[list[list[str]]]:
-    """@brief 章节内的各张表格：每张表为逐行的单元格列表（首行是表头，分隔行去掉；转义的竖线不断开单元格）。"""
-    found: list[list[list[str]]] = []
-    current: list[list[str]] = []
-    for line in section(path, heading):
-        if not line.startswith("|"):
-            if current:
-                found.append(current)
-                current = []
-            continue
-        if not re.match(r"^\|\s*-+\s*\|", line):
-            current.append([cell.strip() for cell in _CELL.split(line)[1:-1]])
-    if current:
-        found.append(current)
-    return found
 
 
 def _skip_aliases(tree: ast.Module) -> tuple[bool, set[str]]:

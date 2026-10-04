@@ -1,4 +1,4 @@
-"""统一候选契约三段式：生成、资格、排序与两条排除纪律（docs/dev/SPEC-life-runtime.md「候选契约与呈现规则」）。
+"""统一候选契约三段式：生成、资格、排序与两条排除纪律（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「候选契约与呈现规则」）。
 
 覆盖四类断言：三段形状与返回体一致、同一输入逐字节确定、软偏好只改序不出局、
 被排除项必带闭集内原因码且计数守恒。
@@ -56,7 +56,7 @@ CONTRACT_REASONS = (
     "ELIGIBILITY_DISABLED",
     "ROTATION_DEFERRED",
 )
-#: 占用表（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）中睡眠与驾车两行：睡眠占全部七个槽位。
+#: 占用表（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）中睡眠与驾车两行：睡眠占全部七个槽位。
 SLEEP_CLAIMS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
 DRIVING_CLAIMS = frozenset({"travel", "idle", "eyes", "hands"})
 
@@ -136,8 +136,7 @@ class TestClosedSets:
         assert FIXED_POINT_SCALE == 10_000
 
     def test_order_key_version_is_two_and_enters_the_cursor_identity(self) -> None:
-        """排序键加相关度、决胜键改哈希后 `ORDER_KEY_VERSION` 为 2；它只参与游标身份（docs/dev/SPEC-dayrun-fidelity.md
-        5.1），升版使在途游标失效：同一游标在版本 1 下的身份与现行身份不同。"""
+        """排序键加相关度、决胜键改哈希后 `ORDER_KEY_VERSION` 为 2；它只参与游标身份（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），升版使在途游标失效：同一游标在版本 1 下的身份与现行身份不同。"""
         import hashlib as _hashlib
 
         assert ORDER_KEY_VERSION == 2
@@ -407,7 +406,7 @@ class TestExclusionDiscipline:
         assert {item.object_id for item in listening.excluded} == {"movie-0001", "podcast-1"}
 
     def test_energy_is_not_an_exclusion_fact(self) -> None:
-        # 能量不构成候选排除（docs/dev/SPEC-time-and-energy.md「删除的机制」）：闭集与输入都没有能量项，
+        # 能量不构成候选排除（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）：闭集与输入都没有能量项，
         # 长时内容、高 MET 生活活动与食品照常保留。
         assert not any("ENERGY" in reason for reason in EXCLUSION_REASONS)
         fields = {item.name for item in dataclasses.fields(CandidateInputs)}
@@ -486,7 +485,7 @@ class TestExclusionDiscipline:
 
     def test_catalog_view_applies_location_kinds_only_when_asked(self) -> None:
         """目录浏览面（不判定营业时段与地点实例）只在 apply_location_kinds 时按当前地点判定地点类：生活活动窗口里
-        地点类不符的条目以 ELIGIBILITY_LOCATION_KIND_MISMATCH 排除，其余照常保留（docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+        地点类不符的条目以 ELIGIBILITY_LOCATION_KIND_MISMATCH 排除，其余照常保留（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
         home = LocationView("home", frozenset({"home"}), opening_status="unknown")
         entries = (CandidateEntry(object_id="dishes", kind="lifestyle", location_kinds=frozenset({"home"}),
                                   minimum_seconds=60, maximum_seconds=1200),
@@ -626,7 +625,7 @@ class TestRotationDeferralIsNotExclusion:
 # ---------------------------------------------------------------------------
 
 class TestOrdering:
-    """排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键），保证全序（docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+    """排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键），保证全序（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
 
     def test_primary_key_is_taste_times_attention(self) -> None:
         entries = (CandidateEntry(object_id="a", kind="product", minimum_seconds=600,

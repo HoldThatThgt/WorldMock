@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/bob-activity/report.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # Bob report
 
 **状态：COMPLETE。** 初始固定提交的 1 项目标推进与中间提交的 4 项提醒签名存活变异，均已在最终固定提交用**原保存补丁**杀死。三个 detached review worktree 因 Git 子模块限制无法普通注销，均经 HEAD/diff/status 核验干净并原样保留。

@@ -1,4 +1,4 @@
-"""个人事务与记忆、进度参数的分工经真实请求、引擎与 SQLite（docs/dev/SPEC-errands-workday.md 2.2、2.6、3.4 第 2 项）。
+"""个人事务与记忆、进度参数的分工经真实请求、引擎与 SQLite（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 、2.6、3.4 第 2 项）。
 
 真实 LifeEngine、SQLite、LifeEnv 与从工作区装配、启用记忆的 LifeAgent（经 LifeEnv 观察、登记与写记忆证据），只替换远程
 模型传输；不调用人物模型的过渡步骤（开始等待、出门、到达）照真实顺序直接登记给引擎。
@@ -25,8 +25,8 @@ from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_conclude_memories import _person, _ScriptedModel  # noqa: E402
 from tests.integration.test_life_agent_protocol import _memory, _ModelResponse  # noqa: E402
 from tests.integration.test_unique_presence_run import _holders  # noqa: E402
-from tests.life.conftest import (advance_next, context, engine_factory, errand_add, errand_cancel,  # noqa: E402,F401
-                                 errand_update, start_arguments, wake_by_mail)
+from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.life.conftest import (advance_next, context, errand_add, errand_cancel, errand_update, start_arguments, wake_by_mail)  # noqa: F401
 from tests.life.routing_fixtures import act, observe, routed  # noqa: E402
 from tests.life.test_errand_completion import KIT_NAME, MILK, WAIT, home  # noqa: E402
 from tests.life.test_errand_reminder import evening, moment  # noqa: E402
@@ -94,7 +94,7 @@ def _memory_updates(engine) -> list[tuple]:
     """人物 1 每一步的记忆证据（memory_updated）：（决策身份，写入点，新建条目，合并条目，本步条目原文）。"""
     return [(event.decision_id, event.data["trigger"], event.data["created_episode_ids"],
              event.data["merged_episode_ids"], [item["text"] for item in event.data["episodes"]])
-            for event in engine.store.read_agent_events("memory_updated", 1)]
+            for event in engine.context.store.read_agent_events("memory_updated", 1)]
 
 
 def _control_records(progress: dict) -> list[dict]:
@@ -227,13 +227,13 @@ async def test_the_next_action_request_shows_the_errand_in_the_todo_layer_withou
     assert 1 not in engine.scheduling_state().ready_agent_ids
     while not engine.scheduling_state().ready_agent_ids:
         advance_next(engine)
-    assert engine.state.current_time >= moment(engine, "2026-01-06 00:00")
+    assert engine.context.state.current_time >= moment(engine, "2026-01-06 00:00")
 
     decision, registered, _ = await _decide(environment, person, "after-midnight")
 
-    [requested] = [event for event in engine.store.read_agent_events("model_request", 1)
+    [requested] = [event for event in engine.context.store.read_agent_events("model_request", 1)
                    if event.decision_id == decision.decision_id]
-    responses = [event for event in engine.store.read_agent_events("model_response", 1)
+    responses = [event for event in engine.context.store.read_agent_events("model_response", 1)
                  if event.decision_id == decision.decision_id]
     messages = requested.data["request"]["messages"]
     assert [message["role"] for message in messages] == ["system", "user"]

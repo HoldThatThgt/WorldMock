@@ -2,19 +2,19 @@
 
 求值器按“内稳态 + 习惯 + 情绪 − 成本”四分量给每个候选行为打分，softmax(V/tau)
 只作排序参考，top-k 连同相对呈现（rank、softmax 概率、四分量权衡）与英文
-理由写入 observation.data.motivation_internal（docs/dev/SPEC-life-realism.md「动机层」：内部
+理由写入 observation.data.motivation_internal（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：内部
 仪表不进提示，只供评估与研究）。不暴露绝对总分，负分会被模型误读成
 “不值得做”。提示是建议不是账：求值只读状态，任何失败都在引擎侧
 fail-open（不注入、不崩），结算路径完全不感知本模块。
 
-评分器口径（docs/dev/SPEC-life-realism.md「动机层」）：成本按候选时长归一（单位小时效用），
+评分器口径（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）：成本按候选时长归一（单位小时效用），
 价格只在成本项计一次；进食候选按热量门槛/缺口匹配取前三；同一娱乐
 家族至多两条候选，娱乐需要低于 0.3 时不生成娱乐候选；生活活动只从
 人物启用集采样并按 effects 折算缓解；近 24 小时已食用商品按 1/(1+次数)
 降权（Rolls 1981 感官特异性饱足）；候选偏好权重来自 taste_weights
 （画像编译 v2 的确定性口味匹配，无缺省抬升），排序用原始权重，观看与游戏的
 缓解预演按有效偏好 f + (1 − f)·w、有缓解时不再累积，与结算同式
-（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
 
 通用变换形状（前景指数、归一尺度、时间价值、习惯权重）来自
 catalog/rules/motivation.toml；个体参数（weights/tau/beta/loss_aversion/
@@ -22,6 +22,7 @@ comfort/emotion_sensitivity/attention_prior）来自场景 agents[].motivation �
 """
 
 from __future__ import annotations
+from worldmock.life.vocabulary import WAYS
 
 import math
 import tomllib
@@ -100,14 +101,14 @@ DEFAULT_TOP_K = 5
 #: 自注册表 families.entertainment.attention.per_kind 派生。
 ENTERTAINMENT_PER_KIND = _AFFORDANCES.attention_params(FAMILY_ENTERTAINMENT)["per_kind"]
 
-#: 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md「动机层」冻结值：代码侧钳制，
+#: 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」冻结值：代码侧钳制，
 #: 注册表 per_kind 声明大于该值时仍按 2 截断）。
 ENTERTAINMENT_FAMILY_CAP = 2
-#: 娱乐需要低于该值时不生成娱乐候选（docs/dev/SPEC-life-realism.md「动机层」冻结值 0.3）。
+#: 娱乐需要低于该值时不生成娱乐候选（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」冻结值 0.3）。
 ENTERTAINMENT_NEED_FLOOR = 0.3
-#: 进食候选的热量门槛（docs/dev/SPEC-life-realism.md「动机层」：正餐热量不低于 300 kcal，规格冻结值）。
+#: 进食候选的热量门槛（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：正餐热量不低于 300 kcal，规格冻结值）。
 MEAL_KCAL_FLOOR = 300.0
-#: 进食候选返回的前三名条数（docs/dev/SPEC-life-realism.md「动机层」冻结值）。
+#: 进食候选返回的前三名条数（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」冻结值）。
 MEAL_CANDIDATE_COUNT = 3
 #: 成本项归一的最小时长（小时，60 秒；防零除，experiment_assumption）。
 MIN_COST_DURATION_HOURS = 60.0 / 3600.0
@@ -218,9 +219,8 @@ def classify_action_event(tool_name: str, request: Mapping) -> tuple[str, ...]:
 
     归并键是内部标准动作名，不是模型动词：start_activity 逐项取 items[].way，经方式闭集（WAYS）映射为内部
     动作，其余稳定工具取工具名本身（归并路由自注册表 families.*.habit_members 展开，
-    docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
+    docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」）。
     """
-    from worldmock.life.interaction_menu import WAYS
 
     if tool_name == "start_activity":
         items = request.get("items") if isinstance(request, Mapping) else None
@@ -339,7 +339,7 @@ class ScoredCandidate:
     def to_hint(self) -> dict:
         """@brief 生成写入 motivation_internal 的 JSON 载荷（相对分呈现）。
 
-        docs/dev/SPEC-life-realism.md「动机层」：候选、名次与概率不进提示，只写
+        docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：候选、名次与概率不进提示，只写
         observation.data.motivation_internal 供评估与研究。模型会把负的
         绝对分读成“不值得做”（动机验证轮 a2 08:00 实证），因此只给
         rank（1 起）、softmax 概率与四分量权衡（tradeoff）。
@@ -382,7 +382,7 @@ def evaluate_motivation(context: MotivationContext, profile: MotivationProfile,
 def _emotion_state(context: MotivationContext, profile: MotivationProfile) -> tuple[float, float]:
     """@brief v1 简化情绪评估：受挫度与目标缺口，各自线性落在 [0,1]。
 
-    受挫度 = 连续拒绝次数 / 同刻上限，截到 1（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）；
+    受挫度 = 连续拒绝次数 / 同刻上限，截到 1（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「实现约定」）；
     目标缺口 = 1 - 有效工时进度比（累计口径，按日切窗需要日粒度足迹聚合，v1 先用累计对单日志向的比值，注明简化）。
     """
     frustration = (min(1.0, context.consecutive_rejections / context.max_same_moment_decisions)
@@ -426,7 +426,7 @@ def _homeostatic(candidate: _Candidate, context: MotivationContext,
     各资源坐标归一到“越高越好”：钱/能量以档案 comfort 为参考点，睡眠
     不足账与娱乐需要以 0 为参考点取负号，目标进度以日志向（单日志向
     完成度）为参考。完成时点才兑现的钱流按 beta 现时偏折现后进入坐标；
-    候选价格不进钱坐标（docs/dev/SPEC-life-realism.md「动机层」：价格只在成本项计一次）。
+    候选价格不进钱坐标（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：价格只在成本项计一次）。
     """
     agent = context.agent
     beta = profile.beta_present_bias
@@ -463,7 +463,7 @@ def _cost_component(candidate: _Candidate, profile: MotivationProfile,
                     transforms: MotivationTransforms) -> float:
     """@brief 成本项：价格 + 时间机会成本，按候选时长归一到单位小时效用。
 
-    docs/dev/SPEC-life-realism.md「动机层」：价格只在成本项计一次（不进内稳态钱坐标）；时间机会
+    docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：价格只在成本项计一次（不进内稳态钱坐标）；时间机会
     成本覆盖等待+执行全程（被等待门控的流按 beta 现时偏折现），整个成本
     除以候选时长得到单位小时口径——10 分钟与 120 分钟候选的成本可比。
     """
@@ -657,7 +657,7 @@ def _food_supply_row(context: MotivationContext, product: ProductConfig, supply:
 
 
 def _eat_candidates(context: MotivationContext) -> list[_Candidate]:
-    """@brief 进食候选：热量门槛/缺口匹配筛选取前三（docs/dev/SPEC-life-realism.md「动机层」）。
+    """@brief 进食候选：热量门槛/缺口匹配筛选取前三（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
 
     接受口径：热量不低于 300 kcal 的食品；全部低于门槛时按“最接近缺口的
     正餐类食品”兜底取一条（目录 use_modes 含 eat 的商品即正餐类候选面）。
@@ -809,7 +809,7 @@ def _preference(context: MotivationContext, item_id: str) -> float:
 
 def _relief_preference(context: MotivationContext, item_id: str) -> float:
     """@brief 缓解预演用的有效偏好 f + (1 − f)·w，与结算的 activities._entertainment_relief 同式
-    （docs/dev/SPEC-dayrun-fidelity.md 1.2）；排序与采样仍用 _preference 的原始权重。"""
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）；排序与采样仍用 _preference 的原始权重。"""
     return relief_preference(_preference(context, item_id),
                              context.body.entertainment_relief_preference_floor)
 
@@ -954,7 +954,7 @@ def _entertainment_candidates(context: MotivationContext,
                               family: FamilySpec) -> list[_Candidate]:
     """@brief 娱乐候选：每内容品类采 top-N（attention_prior x 口味加权）。
 
-    docs/dev/SPEC-life-realism.md「动机层」：娱乐需要低于 0.3 时不生成娱乐候选；同一娱乐家族
+    docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：娱乐需要低于 0.3 时不生成娱乐候选；同一娱乐家族
     （内容品类）至多两条候选（代码侧钳制 ENTERTAINMENT_FAMILY_CAP，注册表
     per_kind 更大时仍按 2 截断）。偏好权重只来自 taste_weights（确定性
     口味匹配），无缺省抬升。时长槽按分段语义给：一次约两段典型时长，
@@ -1015,7 +1015,7 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
         return None
     summary, lead = _watch_texts(item, position, typical, boundaries, slot)
     hours = slot / 3600
-    # 缓解预演与结算同式：条目费率 × 有效偏好 ÷ 接触次数，有缓解时不再累积（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    # 缓解预演与结算同式：条目费率 × 有效偏好 ÷ 接触次数，有缓解时不再累积（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
     relief_rate = item.entertainment_relief_per_hour * _relief_preference(context, item.item_id) / divisor
     fun_delta = _entertainment_change(context, relief_rate, hours)
     fun_after = agent.body.entertainment_need + fun_delta
@@ -1056,7 +1056,7 @@ def _watch_texts(item: ContentItemConfig, position: float, typical: float,
 
 def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile,
                           family: FamilySpec) -> list[_Candidate]:
-    """@brief 生活活动候选：每品类采 top-1，只从人物启用集采样（docs/dev/SPEC-life-realism.md「动机层」「世界素材品类要求」）。
+    """@brief 生活活动候选：每品类采 top-1，只从人物启用集采样（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」「世界素材品类要求」）。
 
     开放命名空间的分层菜单：条目目录来自仓库默认语料（183 条、9 品类），
     场景身份按 body.activity_met 的 lifestyle:<id> 键求交，再按上下文
@@ -1138,7 +1138,7 @@ def _lifestyle_candidate(context: MotivationContext, item: LifestyleItem,
 
 # ---------------------------------------------------------------------------
 # 候选生成器原型登记：原型函数保持 Python 实现，登记名进 PROTOTYPE_GENERATORS。
-# 选择过程见 docs/design/03-resource-engine.md「从目录到候选」；_enumerate_candidates 按注册表
+# 选择过程见 docs/design/03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎「从目录到候选」；_enumerate_candidates 按注册表
 # families.*.candidate.generator 从此表取函数，枚举序按 enumeration_rank。
 # 原型统一接收 FamilySpec：candidate 参数经 generator_params、注意力采样参数
 # 经 attention_params 各取各的（content_menu 家族两者都用）。

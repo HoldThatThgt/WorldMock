@@ -55,7 +55,7 @@ _RAW_MENU = {"allowed_actions": ["sleep", "wait"]}
 def test_model_identity_accepts_only_the_configured_deepseek_endpoint(
     field: str, value: str, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """冻结身份只认单一官方端点，即 strict 所在的 /beta（docs/dev/SPEC-dayrun-fidelity.md 7.5）：换地址（含主站）或换模型
+    """冻结身份只认单一官方端点，即 strict 所在的 /beta（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-strict-端点 ）：换地址（含主站）或换模型
     都以英文原因拒绝并记错误日志。"""
     assert ModelIdentity.model_validate(_IDENTITY).base_url == DEEPSEEK_BASE_URL == "https://api.deepseek.com/beta"
     with caplog.at_level(logging.ERROR), pytest.raises(ValidationError, match=_ENDPOINT_MISMATCH):

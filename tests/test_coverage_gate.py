@@ -238,3 +238,29 @@ def test_write_report_roundtrip(tmp_path):
     assert loaded["evidence_manifest"]["snapshot_id"] == "snap-id"
     assert loaded["evidence_manifest"]["manifest_hash"] == "hash-abc"
     assert loaded["evidence_manifest"]["source_identity"] == "source-xyz"
+
+
+def test_gate_uses_the_current_interpreter_and_the_shared_full_runner(monkeypatch):
+    """@brief 没有 uv 的运行环境也调用同一当前解释器全量入口。"""
+    calls = []
+    monkeypatch.setattr(gate.subprocess, "call", lambda command, **kwargs: calls.append((command, kwargs)) or 7)
+    assert gate.run_test_suite() == 7
+    assert calls == [(gate.TEST_COMMAND, {"cwd": gate.REPO_ROOT})]
+    assert gate.TEST_COMMAND == (sys.executable, "scripts/run_tests.py", "--tier", "full", "--workers", "6")
+
+
+def test_missing_coverage_json_fails_closed(tmp_path, monkeypatch):
+    """@brief 覆盖数据缺失不能读取旧结果或返回成功。"""
+    monkeypatch.setattr(sys, "argv", ["coverage_gate.py", "--from-json", str(tmp_path / "missing.json")])
+    assert gate.main() == 1
+
+
+def test_missing_source_identity_is_an_error(monkeypatch):
+    """@brief 证据绑定不能用 unknown 掩盖 Git 身份读取失败。"""
+    import pytest
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(gate.subprocess, "run",
+                        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="missing repository"))
+    with pytest.raises(RuntimeError, match="Source identity lookup failed"):
+        gate.get_git_commit_hash()

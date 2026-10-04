@@ -27,7 +27,7 @@ from worldmock.life.activities import (
     resource_claims,
 )
 from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
-from worldmock.life.interaction_menu import WAYS
+from worldmock.life.vocabulary import WAYS
 from worldmock.life.models import ActivityKind, StartActivityRequest, TravelMode
 from worldmock.life.motivation import (
     ENTERTAINMENT_PER_KIND,
@@ -67,7 +67,7 @@ EXPECTED_TITLE_SOURCES = {
         "pet", "social", "volunteer")},
 }
 #: 现行习惯归并路由：（内部标准动作或工具名，人物所选方式，习惯家族）。start_activity 逐项按方式经私有绑定的
-#: 方式闭集（interaction_menu.WAYS）映射为内部动作再归并（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与
+#: 方式闭集（vocabulary.WAYS）映射为内部动作再归并（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「请求形状与
 #: 菜单」），其余稳定工具取工具名；M4 起 lifestyle:* 前缀自 continue 迁入 lifestyle 家族。
 EXPECTED_HABIT_ROUTES = [
     ("report_status", None, "continue"),
@@ -97,7 +97,7 @@ EXPECTED_HABIT_ROUTES = [
     ("submit_work", None, "work"),
     ("nonexistent_tool", None, None),
 ]
-#: 占用表（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）：键为（活动类型, 出行方式, 内容品类）。
+#: 占用表（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）：键为（活动类型, 出行方式, 内容品类）。
 EXPECTED_RESOURCE_CLAIMS = {
     ("wait", None, None): {"idle"},
     ("sleep", None, None): {"idle", "travel", "eyes", "ears", "hands", "voice", "work"},
@@ -168,7 +168,7 @@ def test_feedback_kinds_match_activities(view) -> None:
 
 def test_feedback_boundary_matches_frozen_observation_contract(view) -> None:
     """@brief 注册表反馈边界进入冻结观察合同。"""
-    from worldmock.life.engine import affordance_contract
+    from worldmock.life.engine_context import affordance_contract
 
     contract = affordance_contract(view)
     assert {name for name, row in contract.items() if row["feedback_eligible"]} == EXPECTED_FEEDBACK_KINDS
@@ -176,7 +176,7 @@ def test_feedback_boundary_matches_frozen_observation_contract(view) -> None:
 
 def test_target_catalog_fields_match_observation_contract(view) -> None:
     """@brief 目标发现字段进入冻结观察合同。"""
-    from worldmock.life.engine import affordance_contract
+    from worldmock.life.engine_context import affordance_contract
 
     contract = affordance_contract(view)
     assert view.target_catalog_fields == EXPECTED_CATALOG_FIELDS
@@ -185,9 +185,9 @@ def test_target_catalog_fields_match_observation_contract(view) -> None:
 
 
 def test_energy_projection_is_gone_from_registry_and_observation_contract(view, tmp_path) -> None:
-    """@brief 能量不参与受理（docs/dev/SPEC-time-and-energy.md 第三章「删除的机制」）：注册表与冻结观察合同都没有
+    """@brief 能量不参与受理（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第三章「删除的机制」）：注册表与冻结观察合同都没有
     能量投影；仍声明 energy_projection 的旧注册表以未知键拒绝，能量豁免只供内部动机评分保留。"""
-    from worldmock.life.engine import affordance_contract
+    from worldmock.life.engine_context import affordance_contract
 
     contract = affordance_contract(view)
     assert all("energy_projection" not in row for row in contract.values())
@@ -370,7 +370,7 @@ def test_relief_channels_match_activities(view) -> None:
     watch = SimpleNamespace(kind=ActivityKind.WATCH,
                             data={"entertainment_relief_per_hour": 0.3, "exposure_count": 2})
     play = SimpleNamespace(kind=ActivityKind.PLAY_GAME, data={})
-    # 两个缓解通道都按有效偏好 f + (1 − f)·w 调幅度（docs/dev/SPEC-dayrun-fidelity.md 1.2）；none 通道没有缓解。
+    # 两个缓解通道都按有效偏好 f + (1 − f)·w 调幅度（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）；none 通道没有缓解。
     effective = 0.5 + 0.5 * 0.5
     assert _entertainment_relief(wait, 1.0, config) == 0
     assert _entertainment_relief(watch, 0.5, config) == pytest.approx(0.3 * effective / 2)
@@ -392,7 +392,7 @@ def test_prototype_functions_registered(view) -> None:
 
 
 # ---------------------------------------------------------------------------
-# fail-closed 校验（docs/design/03-resource-engine.md「准入边界」的加载期五条拒绝面）
+# fail-closed 校验（docs/design/03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎「准入边界」的加载期五条拒绝面）
 # ---------------------------------------------------------------------------
 
 #: 通过全部校验的最小注册表（变异基线）。

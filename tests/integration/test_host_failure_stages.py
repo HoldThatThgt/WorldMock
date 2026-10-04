@@ -1,6 +1,6 @@
 """服务、证据和查询失败保留实际阶段与完整错误合同。
 
-末两例经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent（docs/dev/SPEC-errands-workday.md 1.4 与验收台账「故障传播」）：
+末两例经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-异常日志  与验收台账「故障传播」）：
 世界请求的工具服务失败与模型服务失败各跑一次醒来那一轮的人物步骤，核对日志、上抛的异常对象与类型、失败阶段码，
 以及库里没有多出模型证据之外的任何事件。其余用例在替身环境上直调私有覆写点，是这两例的补充证据与变异杀手。
 
@@ -22,7 +22,7 @@ from agentsociety2.agent.base import ModelCallEvidence, ReactDecision
 from custom.agents.life_feedback import HostFeedback
 from tests.integration.test_life_agent_protocol import _Environment, _context, _prepared, _wire_agent
 from tests.integration.test_strict_reflection import _waking_decision
-from tests.life.conftest import engine_factory
+from tests.engine_fixture import (engine_factory)  # noqa: F401
 from worldmock.life import prompt_capacity
 
 
@@ -73,7 +73,7 @@ async def test_evidence_write_failure_stops_with_structured_stage():
 @pytest.mark.asyncio
 async def test_tool_service_failure_points_to_real_call_without_claiming_execution(monkeypatch, caplog):
     """第二个合法查询服务异常保留真实下标，不声称已取得数据；先留一条带异常链的英文 error 日志，再按失败阶段码上抛
-    （docs/dev/SPEC-errands-workday.md 1.4）。"""
+    （docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-异常日志 ）。"""
     person, environment = _prepared(), _Environment()
     _wire_agent(person, environment, None, 4)
     decisions = [ReactDecision("", "memory_recent", {"limit": 1}, "", f"call-{index}") for index in range(2)]
@@ -110,7 +110,7 @@ def _agent_logs(caplog) -> list[tuple]:
 
 def _events_after(run, sequence: int) -> list:
     """库里序号晚于给定序号的全部事件。"""
-    return [event for event in run.engine.store.read_events(run.engine.store.last_event_seq)
+    return [event for event in run.engine.context.store.read_events(run.engine.context.store.last_event_seq)
             if event.event_seq > sequence]
 
 
@@ -130,7 +130,7 @@ async def test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with
         raise injected
 
     monkeypatch.setattr(run.environment, "submit_action", fail)
-    sequence = run.engine.store.last_event_seq
+    sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
         await run.agent.step(0, run.decision.observed_at)
 
@@ -163,7 +163,7 @@ async def test_model_service_failure_on_the_real_engine_is_logged_once_and_rerai
         raise injected
 
     monkeypatch.setattr(run.model, "call", fail)
-    sequence = run.engine.store.last_event_seq
+    sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(OSError) as failure:
         await run.agent.step(0, run.decision.observed_at)
 
@@ -190,7 +190,7 @@ def _service_failures() -> list:
 @pytest.mark.parametrize("injected", _service_failures(), ids=["private_exception", "sqlite_error"])
 async def test_tool_service_failure_of_any_exception_type_is_logged_and_raised_with_its_stage(
         engine_factory, tmp_path, monkeypatch, caplog, injected):
-    """工具分发失败不挑异常类型（docs/dev/SPEC-errands-workday.md 1.4 与验收台账「故障传播」）：真实引擎、SQLite、
+    """工具分发失败不挑异常类型（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-异常日志  与验收台账「故障传播」）：真实引擎、SQLite、
     LifeEnv 与直接导入的 LifeAgent 上，醒来那一轮的世界请求在 LifeEnv.submit_action 处以不是 OSError 的异常失败。照样
     先写工具分发失败日志、再写决策失败日志，各一条且都带异常；step 上抛的恰是 RuntimeError，参数是指向那次工具调用的
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象（没有把原异常原样漏出去）；库里只多出观察、decision_started 与一对
@@ -204,7 +204,7 @@ async def test_tool_service_failure_of_any_exception_type_is_logged_and_raised_w
         raise injected
 
     monkeypatch.setattr(run.environment, "submit_action", fail)
-    sequence = run.engine.store.last_event_seq
+    sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
         await run.agent.step(0, run.decision.observed_at)
 
@@ -233,8 +233,7 @@ _EVIDENCE_FAILURES = {
 @pytest.mark.parametrize("failure_phase", sorted(_EVIDENCE_FAILURES))
 async def test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_stage(
         engine_factory, tmp_path, monkeypatch, caplog, failure_phase):
-    """证据写入失败以运行故障上抛，带失败阶段码 EVIDENCE_WRITE_FAILED、定位在 tool_calls（docs/dev/SPEC-errands-workday.md
-    1.4 第二段与接口合同宿主错误码表），同样不挑异常类型：真实写入方是环境后面的 SQLite 足迹库，它的失败是 sqlite3 的
+    """证据写入失败以运行故障上抛，带失败阶段码 EVIDENCE_WRITE_FAILED、定位在 tool_calls（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-异常日志  第二段与接口合同宿主错误码表），同样不挑异常类型：真实写入方是环境后面的 SQLite 足迹库，它的失败是 sqlite3 的
     错误而不是 OSError。真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 上，醒来那一轮行动请求的请求证据或响应证据写入
     以 sqlite3.OperationalError 失败：step 上抛的恰是 RuntimeError，参数是该阶段码的反馈，原因是注入的异常对象；决策失败
     日志恰好一条；不重试（请求证据失败时模型一次都没被调用，响应证据失败时恰好一次）；世界请求没有登记，库里只留下失败
@@ -258,7 +257,7 @@ async def test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_
 
     monkeypatch.setattr(run.environment, "record_model_exchange", failing_record)
     monkeypatch.setattr(run.model, "call", counted_call)
-    sequence = run.engine.store.last_event_seq
+    sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
         await run.agent.step(0, run.decision.observed_at)
 

@@ -5,6 +5,7 @@ fail-closed 语义断言 IntegrityError。
 """
 
 from __future__ import annotations
+from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
 import json
@@ -16,6 +17,7 @@ import pytest
 
 from worldmock.errors import IntegrityError
 from worldmock.footprints import evidence, export as export_module
+from worldmock.footprints import timeline_labels as timeline_module
 from worldmock.footprints.assets import AssetStore, atomic_write
 from worldmock.footprints.export import export_run, reconstruct_activities
 from worldmock.footprints.ledger import (
@@ -244,7 +246,7 @@ def test_efficiency_reports_missing_and_partial_samples():
 
 
 def test_memory_quality_reports_each_problem_code():
-    """记忆质量的问题码闭集按写入点核对（docs/dev/SPEC-time-and-energy.md 第七章「来源由系统记录」）。
+    """记忆质量的问题码闭集按写入点核对（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「来源由系统记录」）。
 
     记忆不再带引用、没有 memory_read 与 finish，依赖它们的问题码（unknown_memory_reference、
     finish_without_memory_update、memory_update_without_successful_finish、invalid_memory_tool_arguments、
@@ -525,9 +527,9 @@ def test_restore_branch_rejects_destinations_inside_parent_run(tmp_path):
     from worldmock.footprints.checkpoint import restore_branch
     store, point = _store_with_checkpoint(tmp_path)
     with pytest.raises(IntegrityError, match="outside the parent run"):
-        store.restore(point.checkpoint_id, store.run_dir / "child")
+        restore_branch(store, point.checkpoint_id, store.run_dir / 'child')
     with pytest.raises(IntegrityError, match="outside the parent run"):
-        store.restore(point.checkpoint_id, store.run_dir)
+        restore_branch(store, point.checkpoint_id, store.run_dir)
     store.close()
 
 
@@ -537,7 +539,7 @@ def test_restore_branch_carries_event_artifacts_into_child_run(tmp_path):
     store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
                                           agent_id=1, artifact_refs=[reference])])
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
-    child = store.restore(point.checkpoint_id, tmp_path / "child")
+    child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     try:
         events = child.read_events(child.last_event_seq)
         assert any(event.artifact_refs for event in events)
@@ -558,7 +560,7 @@ def test_restore_branch_cleanup_on_population_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(checkpoint_module, "_populate_branch", _fail)
     with pytest.raises(IntegrityError, match="population boom"):
-        store.restore(point.checkpoint_id, tmp_path / "child")
+        restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     assert not (tmp_path / "child").exists()
     leftovers = [item for item in os.listdir(tmp_path) if item.startswith(".restore-")]
     assert leftovers == []
@@ -641,9 +643,9 @@ def test_load_render_day_rejects_missing_timeline_script(monkeypatch):
         def is_symlink(self):
             return False
 
-    monkeypatch.setattr(export_module, "Path", lambda *args, **kwargs: _FakePath(exists=False))
+    monkeypatch.setattr(timeline_module, "Path", lambda *args, **kwargs: _FakePath(exists=False))
     with pytest.raises(IntegrityError, match="timeline projection script"):
-        export_module._load_render_day()
+        timeline_module._load_render_day()
 
 
 def _progress_event(sequence, activity, interval_start, interval_end, **fields):
@@ -845,7 +847,7 @@ def test_account_transition_rejects_unbalanced_changes_and_bad_types():
 
 
 def test_account_transition_rejects_nonzero_sum_counterparty_event():
-    """资金零和守恒（docs/design/05-recording-engine.md「资金守恒验证」）：每笔转账必须指名双方且合计为零。
+    """资金零和守恒（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「资金守恒验证」）：每笔转账必须指名双方且合计为零。
 
     双边金额不抵消的事件（{a:-5, b:+4}，合计 -1）即使账户差额与事件逐项
     一致，也必须被 `sum(money.values()) != 0` 子句拒绝——`len(money) < 2`

@@ -1,4 +1,4 @@
-"""错误合同的环境一侧与共用结构（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」）。
+"""错误合同的环境一侧与共用结构（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」）。
 
 源码中会抛出的每个业务拒绝码都有具体的默认原因（机械核对：扫描 src 与 custom 中的拒绝构造，码由变量传入的构造处须在本文件
 登记它能抛出的码，新增的码或构造处不补原因就通不过）；共用结构的键闭集与候选形状；真实 LifeEngine 上多项请求中第二项出错时
@@ -121,7 +121,7 @@ def _raised_codes() -> tuple[set[str], set[str]]:
 
 def test_every_business_rejection_code_raised_in_the_source_has_a_specific_reason() -> None:
     """源码中会抛出的每个业务拒绝码（字面量抛出的与登记的变量构造处能抛出的）都有具体的默认原因，不退回到兜底句；拒绝
-    结果与工具层可用性说明取同一原因（docs/dev/SPEC-dayrun-fidelity.md 第四章：补全所有会被抛出的码的具体默认原因）。"""
+    结果与工具层可用性说明取同一原因（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章：补全所有会被抛出的码的具体默认原因）。"""
     literal, dynamic = _raised_codes()
     assert dynamic == set(_DYNAMIC_SITES), "register every variable-code raise site with the codes it can raise"
     codes = literal | {code for values in _DYNAMIC_SITES.values() for code in values}
@@ -231,7 +231,7 @@ def _two_item_purchase(targets: list[str]):
 def test_second_named_item_failing_is_reported_at_index_one_and_the_group_stays_atomic(engine_factory) -> None:
     """两项指名购买中第一项能解析、第二项找不到：一次 SUPPLY_NOT_FOUND 拒绝，items 只有第二项（index 为 1），原因与改法
     写「第 2 项」，候选是可照填的请求；整组原子，第一项也不下单；message 就是 reason，action_rejected 与公开结果都带 fix
-    与 items（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
+    与 items（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章）。"""
     engine = engine_factory()
     listed = _browsed(engine)
     label = supply_label(_layer_context(engine), _hidden(engine, listed, unique_name=True))
@@ -249,7 +249,7 @@ def test_second_named_item_failing_is_reported_at_index_one_and_the_group_stays_
     assert result.data["fix"] == refusal_for_code("SUPPLY_NOT_FOUND").fix
     assert result.message == result.data["reason"] and "Action rejected" not in result.message
     assert _world(engine) == before and "orders" not in result.data
-    [rejected] = [event for event in engine.store.read_agent_events("action_rejected", 1)
+    [rejected] = [event for event in engine.context.store.read_agent_events("action_rejected", 1)
                   if event.action_id == "action-second-fails"]
     assert (rejected.data["error_code"], rejected.data["fix"], rejected.data["items"]) == (
         "SUPPLY_NOT_FOUND", result.data["fix"], [item])
@@ -290,16 +290,16 @@ def test_named_item_candidates_use_a_way_the_supply_supports(monkeypatch) -> Non
 
 def test_accepted_results_pass_resolved_and_notes_into_public_details(engine_factory) -> None:
     """受理结果里名称归一 resolved（[{written, as}]）与说明 notes 原样进入公开结果 details；拒绝结果的 fix 与 items 同样
-    进入（进度层 result.details 键闭集，docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
+    进入（进度层 result.details 键闭集，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章）。"""
     engine = engine_factory()
     resolved = [{"written": "沈昊", "as": "联系人：沈昊"}]
-    accepted = {"occurred_at": engine.state.current_time, "status": "completed", "error_code": None,
+    accepted = {"occurred_at": engine.context.state.current_time, "status": "completed", "error_code": None,
                 "message": "Message delivered", "data": {"resolved": resolved, "notes": ["from 可以写 null"]}}
-    assert public_result(accepted, engine.scenario)["details"] == {"resolved": resolved,
+    assert public_result(accepted, engine.context.scenario)["details"] == {"resolved": resolved,
                                                                     "notes": ["from 可以写 null"]}
     item = ErrorItem(("items", 0, "target"), "咖啡", "SUPPLY_NOT_FOUND").payload()
-    rejected = {"occurred_at": engine.state.current_time, "status": "rejected", "error_code": "SUPPLY_NOT_FOUND",
+    rejected = {"occurred_at": engine.context.state.current_time, "status": "rejected", "error_code": "SUPPLY_NOT_FOUND",
                 "message": "没有", "data": {"reason": "没有", "next_step": None, "fix": "改用候选", "items": [item],
                                             "unmet": ["x"], "suggested": {"candidates": ["内部"]}}}
-    assert public_result(rejected, engine.scenario)["details"] == {"reason": "没有", "next_step": None,
+    assert public_result(rejected, engine.context.scenario)["details"] == {"reason": "没有", "next_step": None,
                                                                     "fix": "改用候选", "items": [item]}

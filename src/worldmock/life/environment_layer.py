@@ -1,10 +1,11 @@
-"""@brief 环境层：观察时刻、五项体感分级、所在地点或路程的静态信息与今天的上班安排（docs/dev/SPEC-persona-prompt.md
-「环境层」、docs/dev/SPEC-errands-workday.md 4.4）。
+"""@brief 环境层：观察时刻、五项体感分级、所在地点或路程的静态信息与今天的上班安排（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求
+「环境层」、docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-环境层-duty ）。
 
 体感取现有分级文字（felt.summarize_felt_levels），数值不进提示。停留时 name 为地点名、place_type 为场所类型的中文标签；
 路程中 name 为路段标签「去<目的地>的路上」、place_type 为出行方式（步行、驾车）。fixed_rules 是场所的固定规则：
 本轮有效菜单排除的每个动作写一句「这里不能<动作说法>」，菜单完整时为 []。场所类型、动作说法与出行方式三张中文表
-的唯一来源是 worldmock.life.readable（docs/dev/SPEC-dayrun-fidelity.md 7.4）；本模块的 PLACE_TYPES、ACTION_PHRASES
+的唯一来源是 worldmock.life.readable（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）；本模块的 PLACE_TYPES、
+ACTION_PHRASES
 就是那里的对象，照旧可从这里导入。
 
 duty 是今天的上班安排：本人在场景里声明的工作安排按世界时钟求值（worldmock.life.work_schedule.duty），没有工作安排为

@@ -32,7 +32,7 @@ def _prepare(engine, case):
         person.location_id = case["preconditions"]["location_id"]
         person.inventory = {person.location_id: {}}
     stage(engine, change)
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     assert case["preconditions"]["inventory"] == {}
     assert case["preconditions"]["notifications"] == []
@@ -42,47 +42,47 @@ def _request(engine, item):
     """@brief 夹具的显式身份只转成正式对象名称和现行公开方式。"""
     kind, identity = item["kind"], item["object_id"]
     if kind in {"purchase", "consume"}:
-        name = engine.rules.items[identity].name
+        name = engine.context.rules.items[identity].name
         name = f"持有物：{name}" if kind == "consume" else name
     elif kind == "travel":
-        name = engine.rules.locations[identity].name
+        name = engine.context.rules.locations[identity].name
     elif kind == "lifestyle":
-        name = next(row.name for row in engine.lifestyle_items if row.activity_id == identity)
+        name = next(row.name for row in engine.context.lifestyle_items if row.activity_id == identity)
     elif kind == "game":
-        name = engine.rules.game(identity).title
+        name = engine.context.rules.game(identity).title
     elif kind == "work":
-        observed = engine.observe(context(engine, f"habit-work-name-{engine.state.version}", item["agent_id"]))
+        observed = engine.observe(context(engine, f"habit-work-name-{engine.context.state.version}", item["agent_id"]))
         name = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == identity)
     elif kind == "self":
         name = "自己"
     elif kind == "call":
-        config = next(agent for agent in engine.scenario.agents if agent.agent_id == item["agent_id"])
+        config = next(agent for agent in engine.context.scenario.agents if agent.agent_id == item["agent_id"])
         name = f"联系人：{next(row.salutation for row in config.contacts if row.contact_id == identity)}"
     else:
         assert kind == "media"
-        name = engine.rules.content_titles[identity]
-    source = engine.rules.locations[item["from"]].name if item.get("from") else None
+        name = engine.context.rules.content_titles[identity]
+    source = engine.context.rules.locations[item["from"]].name if item.get("from") else None
     return {"target": name, "way": item["way"], "from": source, "to": None}
 
 
 def _finish(engine, identities, agent_id, complete=True):
     """@brief 在真实完成或反馈边界收尾，避免等待助手自动替本人收尾而丢失结算结果。"""
-    started = min(engine.state.activities[key].started_at for key in identities)
+    started = min(engine.context.state.activities[key].started_at for key in identities)
     condition = lambda current: agent_id in current.scheduling_state().ready_agent_ids and (
-        all(current.state.activities[key].status != ActivityStatus.ACTIVE for key in identities) if complete
-        else current.state.current_time > started)
+        all(current.context.state.activities[key].status != ActivityStatus.ACTIVE for key in identities) if complete
+        else current.context.state.current_time > started)
     run_until(engine, condition, limit=160)
-    names = [engine.state.activities[key].name for key in identities
-             if engine.state.activities[key].concluded_at is None]
-    label = f"habit-conclude-{engine.state.version}-{agent_id}"
+    names = [engine.context.state.activities[key].name for key in identities
+             if engine.context.state.activities[key].concluded_at is None]
+    label = f"habit-conclude-{engine.context.state.version}-{agent_id}"
     requests = {other: _keep_busy(engine, other, label) for other in engine.scheduling_state().ready_agent_ids
                 if other != agent_id}
     requests[agent_id] = ("conclude_activity", conclude_request(*names, summary="完成本次习惯动作。"))
     _, results = submit_round(engine, requests, label)
     result = next(row for row in results if row.agent_id == agent_id)
     assert result.status == "completed", result.model_dump()
-    assert all(engine.state.activities[key].elapsed_seconds > 0 for key in identities)
-    assert all(engine.state.activities[key].concluded_at is not None for key in identities)
+    assert all(engine.context.state.activities[key].elapsed_seconds > 0 for key in identities)
+    assert all(engine.context.state.activities[key].concluded_at is not None for key in identities)
     return result
 
 
@@ -92,7 +92,7 @@ def _start(engine, case, item):
     request = StartActivityRequest(items=[_request(engine, row) for row in items], answering=None,
                                   prefer=item.get("prefer", "最快拿到")
                                   if any(row["kind"] == "purchase" for row in items) else None)
-    result = act(engine, f"habit-{case['name']}-{engine.state.version}", request, case["agent_id"])
+    result = act(engine, f"habit-{case['name']}-{engine.context.state.version}", request, case["agent_id"])
     assert result.status in {"completed", "in_progress"}, result.model_dump()
     identities = ([result.activity_id] if result.activity_id else
                   [row["activity_id"] for row in result.data.get("activities", [])])
@@ -103,37 +103,37 @@ def _start(engine, case, item):
 
 def _purchase(engine, case, item):
     """@brief 付款、独立门店减库存与交付形成消费前置；不提前注入持有物。"""
-    agent = engine.state.agents[case["agent_id"]]
+    agent = engine.context.state.agents[case["agent_id"]]
     destination = agent.location_id
     assert agent.inventory.get(destination, {}).get(item["object_id"], 0) == 0
-    before_balance = engine.state.accounts[agent.balance_account_id]
-    before_stock = dict(engine.state.supply_stock)
+    before_balance = engine.context.state.accounts[agent.balance_account_id]
+    before_stock = dict(engine.context.state.supply_stock)
     result, _ = _start(engine, case, item)
     [order] = result.data["orders"]
     assert order["product_id"] == item["object_id"]
     if item.get("from"):
         assert order["location_id"] == item["from"]
     if item.get("prefer") == "到手价最低":
-        prices = [engine.state.supply_quotes[supply.supply_id].price_fen for supply in engine.scenario.supplies
+        prices = [engine.context.state.supply_quotes[supply.supply_id].price_fen for supply in engine.context.scenario.supplies
                   if supply.product_id == item["object_id"] and "delivery" in supply.fulfillment_modes]
         assert order["total_price_fen"] == min(prices)
-    assert engine.state.accounts[agent.balance_account_id] == before_balance - order["total_price_fen"]
-    assert engine.state.supply_stock[order["supply_id"]] == before_stock[order["supply_id"]] - 1
+    assert engine.context.state.accounts[agent.balance_account_id] == before_balance - order["total_price_fen"]
+    assert engine.context.state.supply_stock[order["supply_id"]] == before_stock[order["supply_id"]] - 1
     if item["way"] == "远程下单":
-        assert engine.state.agents[case["agent_id"]].inventory.get(destination, {}).get(item["object_id"], 0) == 0
-        run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered")
-    assert engine.state.agents[case["agent_id"]].inventory[destination][item["object_id"]] == 1
+        assert engine.context.state.agents[case["agent_id"]].inventory.get(destination, {}).get(item["object_id"], 0) == 0
+        run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered")
+    assert engine.context.state.agents[case["agent_id"]].inventory[destination][item["object_id"]] == 1
 
 
 def _message(engine, case, item):
     """@brief 分享和约饭沿真实联系人消息方式，保留收件人、正文与发送证据。"""
-    config = next(agent for agent in engine.scenario.agents if agent.agent_id == case["agent_id"])
+    config = next(agent for agent in engine.context.scenario.agents if agent.agent_id == case["agent_id"])
     contact = next(row for row in config.contacts if row.contact_id == item["object_id"])
     request = SendMessageActionRequest(recipient_name=f"联系人：{contact.salutation}", text=item["text"])
-    result = act(engine, f"habit-message-{engine.state.version}", request, case["agent_id"], "send_message")
+    result = act(engine, f"habit-message-{engine.context.state.version}", request, case["agent_id"], "send_message")
     assert result.status == "completed", result.model_dump()
     assert any(row.text == item["text"] and row.recipient_id == contact.contact_id
-               for row in engine.state.agents[case["agent_id"]].outbox.values())
+               for row in engine.context.state.agents[case["agent_id"]].outbox.values())
 
 
 def _step(engine, case, item):
@@ -144,32 +144,32 @@ def _step(engine, case, item):
     if item["kind"] == "message":
         _message(engine, case, item)
         return
-    before = engine.state.agents[case["agent_id"]].model_copy(deep=True)
+    before = engine.context.state.agents[case["agent_id"]].model_copy(deep=True)
     _, identities = _start(engine, case, item)
-    current = engine.state.agents[case["agent_id"]]
+    current = engine.context.state.agents[case["agent_id"]]
     if item["kind"] == "consume":
         product, place = item["object_id"], before.location_id
         assert before.inventory[place][product] == 1
         assert current.inventory[place][product] == 0
-        assert engine.state.activities[identities[0]].data["consumed"][product] == 1
+        assert engine.context.state.activities[identities[0]].data["consumed"][product] == 1
     elif item["kind"] == "travel":
         assert current.location_id == item["object_id"]
     elif item["kind"] == "media":
         assert current.content_progress[item["object_id"]].position_seconds > 0
         if item.get("complete", True):
             assert current.content_progress[item["object_id"]].position_seconds == (
-                engine.rules.content(item["object_id"]).duration_seconds)
+                engine.context.rules.content(item["object_id"]).duration_seconds)
     elif item["kind"] == "work":
-        activity = engine.state.activities[identities[0]]
+        activity = engine.context.state.activities[identities[0]]
         assert item["object_id"] in before.known_task_ids & before.visible_task_ids
         assert activity.effective_work_seconds > 0
     elif item["kind"] == "self" and item["way"] == "睡觉":
-        assert engine.state.activities[identities[0]].kind == ActivityKind.SLEEP
+        assert engine.context.state.activities[identities[0]].kind == ActivityKind.SLEEP
     elif item["kind"] == "parallel":
-        assert {engine.state.activities[key].kind for key in identities} == {ActivityKind.TRAVEL, ActivityKind.WATCH}
+        assert {engine.context.state.activities[key].kind for key in identities} == {ActivityKind.TRAVEL, ActivityKind.WATCH}
         podcast = next(row["object_id"] for row in item["items"] if row["kind"] == "media")
         assert current.location_id == "office" and current.content_progress[podcast].position_seconds > 0
-        assert current.content_progress[podcast].position_seconds == engine.rules.content(podcast).duration_seconds
+        assert current.content_progress[podcast].position_seconds == engine.context.rules.content(podcast).duration_seconds
 
 
 def test_every_frozen_habit_has_a_complete_explicit_native_fixture():
@@ -200,6 +200,6 @@ def test_declared_habit_runs_with_real_prerequisites_and_settlement(engine_facto
     _prepare(engine, case)
     for item in case["chain"]:
         _step(engine, case, item)
-    events = engine.store.read_agent_events("action_result", case["agent_id"])
-    assert events and not engine.store.read_agent_events("run_failed", case["agent_id"])
+    events = engine.context.store.read_agent_events("action_result", case["agent_id"])
+    assert events and not engine.context.store.read_agent_events("run_failed", case["agent_id"])
     assert not any(row.data.get("status") == "rejected" for row in events)

@@ -1,6 +1,7 @@
 """@brief 管理有时长活动的资源占用、进度、边界和中断。"""
 
 from __future__ import annotations
+from worldmock.life.social import CALL_MET, CHAT_MET
 
 import json
 import logging
@@ -60,14 +61,14 @@ _AFFORDANCES = default_affordances()
 
 #: 生活活动 effects 娱乐缓解的每小时尺度（experiment_assumption：锚定目录既有
 #: 娱乐缓解费率 watch 0.3 / play_game 0.4，effects 权重 1.0 的生活活动对标
-#: 0.5/小时；docs/dev/SPEC-life-realism.md「动机层」要求生活活动具备 relief 通道）。
+#: 0.5/小时；docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」要求生活活动具备 relief 通道）。
 LIFESTYLE_ENTERTAINMENT_SCALE_PER_HOUR = 0.5
 #: 生活活动 effects 社交缓解的每小时尺度（experiment_assumption：锚定 felt
 #: 账本交谈 0.5/小时上限，effects.social=1.0 的社交型活动对标半场交谈）。
 LIFESTYLE_SOCIAL_SCALE_PER_HOUR = 0.5
 #: 生活活动 effects 健康效应的每小时情绪脉冲幅度（experiment_assumption：
 #: 锚定 felt.MOOD_PULSES 的 message_received +0.1；健康无独立需要池，落
-#: 情绪通道——docs/dev/SPEC-life-runtime.md「其他体感分级」情绪不改变动作可行性）。
+#: 情绪通道——docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」情绪不改变动作可行性）。
 LIFESTYLE_HEALTH_MOOD_PER_HOUR = 0.1
 
 
@@ -118,7 +119,7 @@ def require_location_kinds(place_location_kinds: frozenset[str], needed: frozens
 
 def start_activity(agent: AgentState, request: ActivityStartParams, now: int, origin: ActivityOrigin,
                    config: BodyConfig) -> tuple[AgentState, ActivityState]:
-    """@brief 受理一个主活动（最短 60 秒）；能量不参与受理（docs/dev/SPEC-time-and-energy.md「能量不拦人」）。"""
+    """@brief 受理一个主活动（最短 60 秒）；能量不参与受理（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。"""
     if request.planned_duration_seconds < 60:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     suffix = f":{origin.activity_ordinal:04d}" if origin.activity_ordinal > 1 else ""
@@ -213,7 +214,7 @@ def advance_activity_shared(activity: ActivityState, agent: AgentState, now: int
 
 
 def end_sleep_by_reminder(advance: ActivityAdvance, now: int) -> ActivityAdvance:
-    """@brief 当日目标提醒到点结束睡眠（docs/dev/SPEC-time-and-energy.md 第四章「计划与提醒」）。
+    """@brief 当日目标提醒到点结束睡眠（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「计划与提醒」）。
 
     按实际时长结算后 status=completed，ended_at 为提醒时刻，boundary_type 与 interruption_reason 都记
     plan_reminder，睡眠随即成为待收尾。计划结束与提醒同秒时睡眠已按 planned_end 完成，保持不变；
@@ -230,7 +231,7 @@ def end_sleep_by_reminder(advance: ActivityAdvance, now: int) -> ActivityAdvance
 
 def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
                                  seconds: int) -> AgentState:
-    """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（docs/dev/SPEC-life-realism.md「动机层」）。
+    """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
 
     娱乐缓解在 _entertainment_relief 走既有分录通道（有事件留痕）；社交
     需要不是分录资源（与 chat/call 同口径直接落账），健康无需要池、以正向
@@ -276,7 +277,6 @@ def resource_claims(request: ActivityStartParams, content_kind: str | None = Non
 def shared_activity_factors(activity: ActivityState, agent: AgentState,
                             config: BodyConfig) -> ActivityFactors:
     """@brief 共同身体结算与边界预测共用的单项系数：交谈、通话取社交常量 MET，其余复用活动声明系数。"""
-    from worldmock.life.social_actions import CALL_MET, CHAT_MET
 
     if activity.kind == ActivityKind.CHAT:
         return ActivityFactors(CHAT_MET)
@@ -296,7 +296,7 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
 
 
 def relief_preference(weight: float, floor: float) -> float:
-    """@brief 实际缓解用的有效偏好 f + (1 − f)·w（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    """@brief 实际缓解用的有效偏好 f + (1 − f)·w（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
 
     偏好只调幅度、不决定有无：w = 0（不喜欢或没有题材声明）按下限 f 缓解，w = 1 不变，对 w 严格单调；
     不用 max(w, f)，那会把低于 f 的权重拉成并列。只作用于实际缓解与评分器里同口径的缓解预演，
@@ -313,9 +313,9 @@ def _entertainment_relief(activity: ActivityState, preference: float, config: Bo
     """@brief 按注册表缓解通道（kinds.*.relief.channel 三值）计算娱乐缓解速率。
 
     content_rate：watch 按条目费率 × 有效偏好 ÷ 接触次数。preference_rate：有效偏好 × 目录费率（play_game）。
-    有效偏好由原始口味权重经 relief_preference 与场景下限偏好折算（docs/dev/SPEC-dayrun-fidelity.md 1.2，
+    有效偏好由原始口味权重经 relief_preference 与场景下限偏好折算（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，
     裁决 S1：游戏与内容同一算法）。none：lifestyle 按条目 effects 折算缓解
-    （docs/dev/SPEC-life-realism.md「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
+    （docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
     none——effects 是条目级数据，不在目录活动费率表内），其余活动没有缓解。
     """
     channel = _AFFORDANCES.relief_channel(activity.kind.value)
@@ -433,7 +433,7 @@ def _cancel(agent: AgentState, activity: ActivityState) -> tuple[AgentState, Act
 def at_decision_boundary(activity: ActivityState, now: int) -> bool:
     """@brief 进行中的活动此刻能否暂停或结束：游戏须在交互边界，其余须是支持反馈的活动且已结算到此刻之前。
 
-    工具层的暂停与结束可用性与 _require_decision_boundary 共用这一判定（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    工具层的暂停与结束可用性与 _require_decision_boundary 共用这一判定（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
     """
     if activity.status != ActivityStatus.ACTIVE:
         return False

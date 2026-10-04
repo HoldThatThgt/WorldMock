@@ -10,7 +10,8 @@ import pytest
 from worldmock.categories import PairingState, evaluate_purchase
 from worldmock.life import discovery, presentation, projection, retrieval
 from worldmock.life.candidates import CandidateEntry, CandidateInputs, LocationView, recall
-from worldmock.life.map_models import DataSource, LocationConfig, RouteConfig, SupplyConfig
+from worldmock.life.models import DataSource
+from worldmock.life.map_models import LocationConfig, RouteConfig, SupplyConfig
 from worldmock.life.models import AgentState, SupplyQuoteState, WorldState
 from worldmock.life.readable import money_phrase
 from worldmock.life.presentation import PoolEntry
@@ -210,7 +211,7 @@ def test_location_corpus_missing_activity_kinds_is_rejected(tmp_path):
 
 def _visible_supply(engine, supply_id):
     """@brief 本轮观察里该供给的私有绑定与工具层商品目标（到店取得的动作即其价格与份数）。"""
-    observed = engine._observation_data(engine.state.agents[1])
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     binding = next(row for row in observed["interaction_bindings"]
                    if row["kind"] == "supply" and row["object_id"] == supply_id)
     target = next(row for row in observed["tool_layer"]["targets"] if row["name"] == binding["object"])
@@ -236,7 +237,7 @@ def test_real_observation_keeps_complete_current_supply_facts_and_private_quote(
     assert {"supply_id", "price_version", "changes", "based_on_action_id", "current_stock"}.isdisjoint(target)
     assert supply_id not in json.dumps(original["tool_layer"], ensure_ascii=False)
 
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     quote = state.supply_quotes[supply_id]
     state.supply_quotes[supply_id] = quote.model_copy(update={"price_fen": 999, "price_version": "changed"})
     _commit_test_state(engine, state, "storefront_quote_changed")
@@ -246,11 +247,11 @@ def test_real_observation_keeps_complete_current_supply_facts_and_private_quote(
     assert changed_binding["quote"]["price_version"] == "changed"
     assert set(changed_target) == set(target)
 
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     state.supply_quotes[supply_id] = quote.model_copy(update={"effective_to": state.current_time})
     state.supply_stock[supply_id] = 0
     _commit_test_state(engine, state, "storefront_quote_expired_and_sold_out")
-    expired = engine._observation_data(engine.state.agents[1])
+    expired = engine.observations._observation_data(engine.context.state.agents[1])
     assert all(row["object_id"] != supply_id for row in expired["interaction_bindings"])
     assert all(row["name"] != binding["object"] for row in expired["tool_layer"]["targets"])
     private = next(row for row in expired["supplies"] if row["supply_id"] == supply_id)

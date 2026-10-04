@@ -1,4 +1,4 @@
-"""代点请求与订单关联（docs/dev/SPEC-persona-prompt.md 第五章「代点请求与订单关联」，验收台账「代点关联」）。
+"""代点请求与订单关联（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「代点请求与订单关联」，验收台账「代点关联」）。
 
 answering 填可见直接消息的规范名称「<发件人> HH:MM 的消息」（不是今天的加「M月D日」），私有绑定 message_bindings 把它
 映射到消息；只关联 to 等于发件人的那几项并写入 request_message_id；同一（消息，收货人，商品）已有未取消的关联订单时
@@ -21,7 +21,7 @@ def _message_name(engine, message_id: str) -> str:
     observed = observe(engine, f"name-{message_id}")
     [binding] = [row for row in observed["message_bindings"] if row["message_id"] == message_id]
     record = next(row for row in observed["progress_layer"]["events"] if row["type"] == "message_arrival"
-                  and row["kind"] == "direct" and row["text"] == engine.state.agents[1].inbox[message_id].text)
+                  and row["kind"] == "direct" and row["text"] == engine.context.state.agents[1].inbox[message_id].text)
     assert binding["name"] == f"{record['sender']} {record['occurred_at'][11:16]} 的消息"
     assert binding["sender_id"] == COLLEAGUE
     return binding["name"]
@@ -55,13 +55,13 @@ def test_answering_links_only_items_sent_to_the_sender_and_shows_the_link(engine
     purchases = call["result"]["details"]["purchases"]
     assert [(item["recipient"], item["request"]) for item in purchases] == [("陈曦", None), ("王磊", name)]
     lines = observed["progress_meta"][observed["progress_layer"]["events"].index(call)]["lines"]
-    product = engine.rules.items[food].name
+    product = engine.context.rules.items[food].name
     assert lines[0].startswith(f"10:01 远程下单{product} 1 份") and lines[0].endswith("送到张江居所（冻结场景锚点）")
     assert lines[1].endswith(f"送到张江高科技园区办公室（冻结场景锚点）（回应{name}，收货人王磊）")
 
 
 def test_an_answering_name_written_without_spaces_is_resolved_to_that_message(engine_factory) -> None:
-    """answering 按可见消息的名称统一解析（docs/dev/SPEC-dayrun-fidelity.md 3.1）：规范名称「<发件人> HH:MM 的消息」去掉空白
+    """answering 按可见消息的名称统一解析（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ）：规范名称「<发件人> HH:MM 的消息」去掉空白
     写成「王磊10:01的消息」时无损归一唯一就是那条消息，环境照常关联订单（request_message_id）、结果的 answering 写规范名称，
     details.resolved 记下 {written, as}。"""
     engine = open_world(engine_factory)
@@ -85,14 +85,14 @@ def test_resubmitting_the_same_request_is_rejected_and_points_to_the_order(engin
     (first, food), (second, _) = _two_supplies(engine)
     ordered = act(engine, "linked", routed((first, "obtain", "远程下单", None, COLLEAGUE_TARGET), answering=name))
     [order] = ordered.data["orders"]
-    balance = engine.state.accounts["agent:1"]
+    balance = engine.context.state.accounts["agent:1"]
     repeat = act(engine, "linked-again", routed((first, "obtain", "远程下单", None, COLLEAGUE_TARGET), answering=name))
-    product = engine.rules.items[food].name
-    expected = iso_time(order["expected_at"], engine.scenario.timezone)
+    product = engine.context.rules.items[food].name
+    expected = iso_time(order["expected_at"], engine.context.scenario.timezone)
     assert (repeat.status, repeat.error_code) == ("rejected", "REQUEST_ALREADY_HANDLED")
     assert repeat.data["reason"] == f"An order for {product} has already been placed in response to {name}." and repeat.data["next_step"] == "Wait for the existing order to arrive."
     assert repeat.data["linked_orders"] == [{"order": f"{product} 1 份（10:01 远程下单）", "expected_at": expected}]
-    assert engine.state.accounts["agent:1"] == balance and len(engine.state.deliveries) == 1
+    assert engine.context.state.accounts["agent:1"] == balance and len(engine.context.state.deliveries) == 1
     observed = observe(engine, "repeat-progress")
     rejected = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"][-1]
     assert rejected["result"]["details"]["linked_orders"] == repeat.data["linked_orders"]
@@ -135,20 +135,20 @@ def test_answering_a_cross_day_unreplied_memory_message_links_the_order(engine_f
 
     engine = engine_factory(mutate=with_colleague)
     stage_day_plan(engine)
-    received_at = engine.state.current_time
+    received_at = engine.context.state.current_time
     message_id = _contact_message(engine, COLLEAGUE, "明天中午帮我点份吃的")
     _arrive(engine, "cross-arrive", _walk(engine, "cross-walk").activity_id)
     _jump(engine, _next_morning(received_at) + 5400)
     stage_day_plan(engine, submitted=True)
-    zone = engine.scenario.timezone
+    zone = engine.context.scenario.timezone
     name = f"王磊 1月5日 {iso_time(received_at, zone)[11:16]} 的消息"
     seen = observe(engine, "cross-next-day")
     [day] = seen["memory_layer"]["earlier_days"]
     assert day["date"] == "2026-01-05" and day["settled"][0].endswith("收到王磊的消息：明天中午帮我点份吃的")
     assert seen["message_bindings"] == [{"name": name, "message_id": message_id, "sender_id": COLLEAGUE}]
-    supply = next(item for item in engine.scenario.supplies
+    supply = next(item for item in engine.context.scenario.supplies
                   if "delivery" in item.fulfillment_modes and OFFICE in item.delivery_destination_ids)
-    label = supply_label(engine._layer_context(engine.state.agents[1], (), []), supply)
+    label = supply_label(engine.observations._layer_context(engine.context.state.agents[1], (), []), supply)
     request = routed((label, "obtain", "远程下单", None, COLLEAGUE_TARGET), answering=name)
     _, ordered = _act(engine, "cross-order", "start_activity", request)
     assert ordered.status == "completed", (ordered.error_code, ordered.message)

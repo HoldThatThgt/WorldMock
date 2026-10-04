@@ -1,26 +1,29 @@
+<a name="resource-engine-worldmock-产品设计说明书-资源引擎"></a>
 # WorldMock 产品设计说明书 — 资源引擎
 
-> **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
-> **日期**：2026-10-04\
-> **版本**：v1.12\
-> **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-tool-interaction.md)为本次合同。
-> **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md)）；该规格阶段 1 不改本文。
+> **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
+> **日期**：2026-10-05
+> **版本**：v1.13\
+> **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
+> **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格阶段 1 不改本文。
 > **范围**：资源定义、内容与语料、目录发布、来源校验、检索和提供
 
 资源引擎管理资源定义、对象属性、内容与固化语料，回答“有哪些资源、来自哪里、如何查询和读取”。
 它接收明确的版本、查询条件和内容范围，返回定义、条目、内容片段及来源。
 
-接口字段引用[接口合同](../CONTRACTS.md)，行为引用
-[运行时规格](../dev/SPEC-life-runtime.md)、[生活真实性规格](../dev/SPEC-life-realism.md)与
-[品类契约规格](../dev/SPEC-category-contract.md)。餐馆与音频的本次行为以
-[一日行为规格](../dev/SPEC-dayrun-behavior.md)为准。
+接口字段引用[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，行为引用
+[运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)、[生活真实性规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像)与
+[品类契约规格](../dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。餐馆与音频的本次行为以
+[一日行为规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格)为准。
 本文只定义资源数据的准备、发布、校验、查询和读取职责。
 
+<a name="resource-engine-职责与边界"></a>
 ## 1. 职责与边界
 
+<a name="resource-engine-项目框架映射"></a>
 ### 项目框架映射
 
-承接 [overview 的解决方案](00-overview.md#12-解决方案)，只展开资源引擎内部功能，其他引擎作为协作节点：
+承接 [overview 的解决方案](00-overview.md#overview-解决方案)，只展开资源引擎内部功能，其他引擎作为协作节点：
 
 ```mermaid
 flowchart TB
@@ -51,6 +54,7 @@ flowchart TB
     PROVIDE -->|内容片段、素材引用与来源| SIMULATION
 ```
 
+<a name="resource-engine-职责约定"></a>
 ### 职责约定
 
 资源引擎维护的是固定版本的资源定义、目录与来源语料。查询和读取使用调用方提供的只读输入，
@@ -59,18 +63,20 @@ flowchart TB
 
 | 协作方 | 资源引擎接收什么 | 资源引擎交付什么 | 对方负责的边界 |
 | --- | --- | --- | --- |
-| [模拟引擎](04-simulation-engine.md) | 指定版本、查询条件、允许的候选或内容范围、排序输入、呈现历史和实际接触区间 | 匹配条目、呈现窗口、内容片段、来源及素材引用 | 决策编排、活动与身体过程、世界状态更新，以及将实际结果提交给记录引擎 |
-| [交换引擎](02-exchange-engine.md) | 资源或对象标识、指定版本与属性查询 | 资源类型、单位、边界、对象属性与关联定义 | 活动条件、投入产出、资源变化和分录规则的判断与计算 |
-| [场景配置](08-configuration.md) | 资源和语料版本要求、所需内容品类及引用 | 可加载的资源数据与静态校验结果 | 实例初值、运行参数、资源版本选择与世界初始化 |
+| [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) | 指定版本、查询条件、允许的候选或内容范围、排序输入、呈现历史和实际接触区间 | 匹配条目、呈现窗口、内容片段、来源及素材引用 | 决策编排、活动与身体过程、世界状态更新，以及将实际结果提交给记录引擎 |
+| [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) | 资源或对象标识、指定版本与属性查询 | 资源类型、单位、边界、对象属性与关联定义 | 活动条件、投入产出、资源变化和分录规则的判断与计算 |
+| [场景配置](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) | 资源和语料版本要求、所需内容品类及引用 | 可加载的资源数据与静态校验结果 | 实例初值、运行参数、资源版本选择与世界初始化 |
 
 资源引擎返回的素材引用供调用方使用；证据落盘、事务、检查点与导出由
-[记录引擎](05-recording-engine.md)承载，本文不展开其实现。
+[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)承载，本文不展开其实现。
 
 职责按处理内容划分，不按代码文件或目录划分。现有 `catalog` 与 `life` 模块包含多个引擎的处理逻辑，
 本文只引用其中的资源部分；尚未分开的实现会在对应功能下说明。
 
+<a name="resource-engine-整理与固化语料"></a>
 ## 2. 整理与固化语料
 
+<a name="resource-engine-整理与固化流程"></a>
 ### 整理与固化流程
 
 ```mermaid
@@ -90,6 +96,7 @@ flowchart LR
 不同数据集提供不同字段时，先用稳定身份建立关联，再按明确映射组合。
 缺少关联依据不能靠名称相似度推断为同一物品；缺失必需字段应在准入阶段暴露。
 
+<a name="resource-engine-来源分类"></a>
 ### 来源分类
 
 目录的来源分类与语料的文件来源是两种记录，分别回答“数值怎么来”和“文件从哪里来”。
@@ -109,6 +116,7 @@ flowchart LR
 文件来源还包含 `license`、`selector` 及按来源适用的 `url`、`retrieved_at`、`fact_cutoff`。
 准入政策要求明确许可和来源，不能把“网上可见”当作许可依据。
 
+<a name="resource-engine-语料清单与文件身份"></a>
 ### 语料清单与文件身份
 
 [corpora/manifest.json](../../corpora/manifest.json) 的实际结构由
@@ -122,8 +130,9 @@ flowchart LR
 | 单个文件 | `media_type`、`purpose`、`source` | 文件类型、用途和来源 |
 
 场景通过 `corpus_manifest_sha256` 绑定整份清单，清单再绑定各文件。
-加载时的完整性检查见[文件身份校验](#文件身份校验)。
+加载时的完整性检查见[文件身份校验](03-resource-engine.md#resource-engine-文件身份校验)。
 
+<a name="resource-engine-语料整理的实现与验收"></a>
 ### 语料整理的实现与验收
 
 | 事项 | 当前承载与要求 |
@@ -136,6 +145,7 @@ flowchart LR
 清单组织借鉴 [Frictionless Data Package](https://specs.frictionlessdata.io/guides/data-package/)
 集中描述文件、来源、许可和结构的方式，继续使用现有模型与清单。
 
+<a name="resource-engine-地图资料的冻结与许可"></a>
 ### 地图资料的冻结与许可
 
 地图数据集合固定区域、WGS84、时区、稳定身份、版本、文件哈希以及逐来源时间、许可和通知。
@@ -150,8 +160,10 @@ flowchart LR
 产出作品署名不能替代其派生数据库可能承担的义务，也不能用共享条款布尔值判断许可兼容。
 准确行业依据见 [可行性核验](../dev/research/map-and-storefront-feasibility.md)。
 
+<a name="resource-engine-定义资源与对象"></a>
 ## 3. 定义资源与对象
 
+<a name="resource-engine-资源内容和语料的关系"></a>
 ### 资源、内容和语料的关系
 
 三者属于同一设计范围，但保存的信息不同。可计量资源保存单位和变化约束；
@@ -169,6 +181,7 @@ flowchart LR
     CONTENT --> WATCH[观看时提供实际接触的片段]
 ```
 
+<a name="resource-engine-可计量资源定义"></a>
 ### 可计量资源定义
 
 [资源定义模型](../../src/worldmock/catalog/models.py)与
@@ -196,11 +209,12 @@ flowchart LR
 现有资源条目还携带 `alert_rules`、`drain_rules` 等规则字段，资源引擎负责其结构加载、版本和来源关联；
 规则的含义与执行由规则使用方负责，本文不展开阈值触发、身体演化或结算算法。
 
+<a name="resource-engine-交换对象与内容条目"></a>
 ### 交换对象与内容条目
 
 商品、服务和合同由 [ObjectDeclaration](../../src/worldmock/catalog/models.py) 声明身份、品类、
 属性、版本和来源；`ExchangeObject` 是合并品类属性与交换规则后的编译运行视图。
-交换条件与投入产出见[交换引擎](02-exchange-engine.md)。
+交换条件与投入产出见[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)。
 资源引擎负责这些条目的加载、属性查询与来源追踪。交换条件和资源变化声明作为关联规则提供，
 其计算语义由交换引擎维护。
 
@@ -221,6 +235,7 @@ flowchart LR
 当前内容引用由 [ContentItemConfig、GameConfig 等场景模型](../../src/worldmock/life/scenario.py)承载，
 展示元数据由语料提供。资源引擎检查引用能否解析，不因条目存在而判定活动可以执行。
 
+<a name="resource-engine-地点商品与门店供给"></a>
 ### 地点、商品与门店供给
 
 ```mermaid
@@ -245,7 +260,7 @@ flowchart LR
 顶层与逐店来源沿用完整 `DataSource`。
 实际供给为逐店类别及全部后代对象与显式对象的并集，仍须全部属于准入池，不随机抽几件、不把准入池全量复制给每家店。
 餐馆准入正餐，便利店准入食品，超市与商户准入食品、日用品和原料，菜市场准入原料；
-住宅、办公室、健身场所和公园不造售卖供给。精确类别表以[地图供给规格](../dev/SPEC-map-and-storefront.md#按地点类别生成完整供给)为准。
+住宅、办公室、健身场所和公园不造售卖供给。精确类别表以[地图供给规格](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-按地点类别生成完整供给)为准。
 真实料理已发布有来源的 `ingredient` 品类、蔬菜食材包对象与单输入单输出配方；输出绑定与库存单位严格验证，
 输入和输出的 `inventory_unit=item`，库存资源仍为 `inventory/item`，
 制作完成后才出现能吃的产物。已有无产出的「家常做饭」不能作为可吃晚饭的替代。
@@ -278,6 +293,7 @@ flowchart LR
 不能让旧稀疏选择列表裁掉丰富供给，不自动选择或补齐缺项。
 运行查询与交换求值不重新抽价；通用无售卖类别地点可无供给，缺货或闭店不生成替代餐食。
 
+<a name="resource-engine-冻结地图的准备与发布"></a>
 ### 冻结地图的准备与发布
 
 地图准备读取指定种子的张江地图声明及相邻商品目录，复制已审阅地点、类别与逐店声明及其来源，
@@ -314,6 +330,7 @@ uv run --no-sync python scripts/prepare_map.py --source-root corpora \
 地图准备按出行方式解析冻结品类配对，以 `TravelFareRule` 和 `evaluate_travel_fare` 计算费用，
 与运行时共享闭集语义，不重新引入文本费率公式。准备器仍负责冻结道路资料，不拥有交换规则。
 
+<a name="resource-engine-资源定义的实现与验收"></a>
 ### 资源定义的实现与验收
 
 | 事项 | 当前承载与要求 |
@@ -323,11 +340,13 @@ uv run --no-sync python scripts/prepare_map.py --source-root corpora \
 | 内容结构边界 | 各类内容保留各自的字段与读取路径，不宣称已经存在统一资源类或全部内容共用的数据表 |
 | 验收 | 加载真实定义，验证身份、类型、单位、边界与来源；按指定标识和版本查询时返回对应属性。相关用例见 [tests/catalog](../../tests/catalog) |
 
+<a name="resource-engine-组织与发布目录"></a>
 ## 4. 组织与发布目录
 
 新增状态资源、对象或语料时，资源引擎维护定义与素材，交换引擎维护关联的使用条件和投入产出规则。
-新增、修改、删除及引用检查的整体流程见[注册表维护设计](02-exchange-engine.md#维护交换规则)。
+新增、修改、删除及引用检查的整体流程见[注册表维护设计](02-exchange-engine.md#exchange-engine-维护交换规则)。
 
+<a name="resource-engine-文件职责"></a>
 ### 文件职责
 
 本节只列资源定义、来源语料与发布清单。同一存储目录中的其他规则文件由其所属引擎维护。
@@ -349,6 +368,7 @@ uv run --no-sync python scripts/prepare_map.py --source-root corpora \
 内容加载所需的来源映射目前也存放在 [affordances.toml](../../catalog/affordances.toml) 中；
 资源引擎只消费相关映射，活动和工具声明的设计仍由交换引擎承载。
 
+<a name="resource-engine-构建与版本"></a>
 ### 构建与版本
 
 [目录生成器](../../scripts/build_catalog.py)读取已有固定快照、语料与规则，生成资源、对象、
@@ -362,7 +382,7 @@ uv run --no-sync python scripts/build_catalog.py --check
 不证明场景行为、素材质量或全部运行结果正确。
 生成器负责正式数据再现，[目录构建原语](../../src/worldmock/catalog/builder.py)负责对象追加与退役；
 `worldmock category check/refine/publish` 提供品类检查、细化影响分析和新目录原子发布。
-命令输入和输出见[接口合同](../CONTRACTS.md#cli-命令接口)。
+命令输入和输出见[接口合同](../CONTRACTS.md#contracts-cli)。
 
 调用方以 `catalog_version.major/minor` 指定目录；条目使用自己的整数 `version`。
 当前目录为 `5.3`，品类契约和交换规则绑定版本为 `3`；生活场景结构为 `5`（人物配置增必填可空的 `work_schedule`）、地图结构为 `3`，
@@ -376,6 +396,7 @@ uv run --no-sync python scripts/build_catalog.py --check
 同版本异内容明确拒绝。
 条目退役保留历史定义可查询性。
 
+<a name="resource-engine-目录发布的实现与验收"></a>
 ### 目录发布的实现与验收
 
 | 事项 | 当前承载与要求 |
@@ -389,8 +410,10 @@ uv run --no-sync python scripts/build_catalog.py --check
 [Unity 运行时资源管理](https://docs.unity.com/en-us/engine/6000.7/manual/assets-and-media/assets-managing-runtime/introduction)。
 本项目复用已有目录与素材引用，不新增资源管理服务。
 
+<a name="resource-engine-校验资源可用性"></a>
 ## 5. 校验资源可用性
 
+<a name="resource-engine-文件身份校验"></a>
 ### 文件身份校验
 
 加载时检查清单身份、重复标识与路径，以及每个文件的路径边界、符号链接、大小和哈希。
@@ -398,6 +421,7 @@ uv run --no-sync python scripts/build_catalog.py --check
 具体校验入口是 [load_manifest](../../src/worldmock/corpora/manifest.py)。
 当前加载器检查清单内文件，不额外遍历根目录拒绝所有清单外文件。
 
+<a name="resource-engine-准入边界"></a>
 ### 准入边界
 
 | 校验对象 | 必须满足的条件 | 证据入口 |
@@ -408,10 +432,11 @@ uv run --no-sync python scripts/build_catalog.py --check
 | 世界素材 | 正餐、地点、内容元数据、工作材料、联系人等符合版本化品类要求 | [世界素材准入](../../src/worldmock/catalog/admission.py) |
 | 内容可达性 | 检索维度完整，条目至少存在一条可行检索路径 | [检索与可达性](../../src/worldmock/life/retrieval.py) |
 
-具体品类阈值以目录清单和[世界素材规格](../dev/SPEC-life-realism.md)为准。
+具体品类阈值以目录清单和[世界素材规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像)为准。
 这里的可用性指资源数据完整、引用有效、存在检索路径；活动此刻能否执行由调用方按交换规则判断。
 静态可达性检查可使用调用方提供的地点类等配置，但不据此替代运行时资格判断。
 
+<a name="resource-engine-地图关系与道路范围准入"></a>
 ### 地图关系与道路范围准入
 
 选择的地点、商品、供给及账户引用必须完整；同一供给组合不能重复。场景不得复制地点定义或路线。
@@ -424,6 +449,7 @@ uv run --no-sync python scripts/build_catalog.py --check
 正式数据集发布以明确的习惯动作夹具验证「买了再用」「做了再吃」完整链；现有关键词覆盖率不证明行为可执行。
 运行覆盖不足仍是输入警告，`validate` 的 80% 门禁保留，不将发布行为门禁改成运行期失败。
 
+<a name="resource-engine-准入失败的处理"></a>
 ### 准入失败的处理
 
 | 问题 | 处理方式 |
@@ -432,6 +458,7 @@ uv run --no-sync python scripts/build_catalog.py --check
 | 非法资源定义、单位或来源引用 | 准入失败，修正输入再运行 |
 | 身份存在但必要检索元数据不完整 | 在品类与可达性准入中报告，不能用展示标题代替真实元数据 |
 
+<a name="resource-engine-资源校验的实现与验收"></a>
 ### 资源校验的实现与验收
 
 | 事项 | 当前承载与要求 |
@@ -443,8 +470,10 @@ uv run --no-sync python scripts/build_catalog.py --check
 
 相关用例见 [tests/catalog](../../tests/catalog)与 [tests/corpora](../../tests/corpora)。
 
+<a name="resource-engine-检索与呈现"></a>
 ## 6. 检索与呈现
 
+<a name="resource-engine-从目录到候选"></a>
 ### 从目录到候选
 
 下图表达完整设计流程。当前运行已共用候选、排序与呈现模块，倒排检索与 facet
@@ -470,6 +499,7 @@ flowchart LR
 按传入的 `retrieval_index_threshold` 选择线性扫描或确定性倒排索引，两条路径使用相同查询语义。
 当前合同采用可枚举的词项与 facet，不使用向量检索或近似最近邻，保证查询结果可复现。
 
+<a name="resource-engine-轮转与可达性"></a>
 ### 轮转与可达性
 
 候选数量受 `candidate_pool_limit` 与 `candidate_presentation_limit` 约束。
@@ -483,7 +513,7 @@ flowchart LR
 不用人物级共享偏移量，也不设分区游标，`⌈N ÷ k⌉` 的上界按分区成立。
 本次没有进入窗口的条目仍在目录内，排除原因包含 `ROTATION_DEFERRED`。
 
-呈现窗口之外，工具层另附只列名称的可调用索引 `callable_index`（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#52-只列名称的可调用索引) 5.2，
+呈现窗口之外，工具层另附只列名称的可调用索引 `callable_index`（[一日运行保真规格](../dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引) 5.2，
 裁决 S5），工具层因此是 `{layer, targets, callable_index}`。索引恰好四键：`lifestyle` 列出生活活动窗口资格段保留的全部名称（呈现项与
 `ROTATION_DEFERRED` 项，不带「活动：」前缀），即此地此刻可做的条目，地点类不符等被资格段排除的不在其中；`contents` 与 `goods` 按品类给
 `{category, count, examples}`：内容取内容与游戏两个窗口资格段保留、有标题的条目（游戏会话与可玩游戏同为「游戏」），商品取此刻从这里
@@ -500,8 +530,9 @@ flowchart LR
 静态可达性只保证“存在一条能找到该条目的路径”；实际曝光还依赖人物到达地点、查询分区
 及决策次数，不能宣称每次有限时长运行都会呈现全部素材。
 呈现历史由调用方提供；本次窗口、呈现标识和游标作为结果返回，运行状态的更新与保存由调用方负责。
-规则依据见[候选与呈现合同](../CONTRACTS.md#候选与呈现合同)。
+规则依据见[候选与呈现合同](../CONTRACTS.md#contracts-候选与呈现合同)。
 
+<a name="resource-engine-地点发现与供给比较"></a>
 ### 地点发现与供给比较
 
 地点发现返回匹配地点，公园等没有供给的地点仍可发现；购买比较按 `supply_id` 区分，保留 `product_id` 引用。
@@ -509,9 +540,9 @@ flowchart LR
 关闭、售罄或缺品牌不删除地点身份。无结果与未知条件不能混为不存在。
 购买排序、分页、轮转、排除统计与可见凭据按供给身份，持有和使用按商品身份。
 展示与比较以实际呈现为界，不能借浏览一次展示整份商品目录；可见凭据只管展示与比较，按名称购买本轮未呈现的商品不需要它。
-按名调用推广到全部目录类对象（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#31-统一名称解析) 3.1）：名称先精确匹配，再按统一
+按名调用推广到全部目录类对象（[一日运行保真规格](../dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析) 3.1）：名称先精确匹配，再按统一
 名称解析无损归一后唯一即受理，本轮未呈现的生活活动、内容与游戏以及没有列出路线的地点同样可以写名称，受理时照常做资格与准入判定。
-指名购买按「<门店>出售的<商品>」或商品名（同一归一口径）分段匹配（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#32-指名购买from-是约束不是语法)
+指名购买按「<门店>出售的<商品>」或商品名（同一归一口径）分段匹配（[一日运行保真规格](../dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法)
 3.2、3.3、3.5），各段各报各的码：M0 按名称，为空报 `SUPPLY_NOT_FOUND`（只表示没有这件商品）；M1 按 `from` 这一可选约束限定来源（null
 为全部门店，本段跳过；地点显示名（含「家」「住处」）为该地点；渠道称呼即 App 名，去掉空白、不分大小写比较，为该渠道的成员门店，渠道由场景钉定的手机配置派生；
 都不是时报 `SOURCE_NOT_FOUND`，候选为最相近的门店名与 App 称呼），标签写明的门店不在范围里报 `SUPPLY_SOURCE_MISMATCH`，商品名在范围里
@@ -543,6 +574,7 @@ flowchart LR
 不可访问的门店。它不是按商品需求发现门店和路线的工具，`from` 不反查门店、不计算路线、不按距离或价格排序，不恢复已删除的
 discover_places 接口。
 
+<a name="resource-engine-无结果与范围限制"></a>
 ### 无结果与范围限制
 
 | 情况 | 处理方式 |
@@ -553,8 +585,9 @@ discover_places 接口。
 交互菜单是模拟引擎的入口准入约束，不是资源候选的世界事实排除条件。资源引擎仍返回完整候选、排除
 证据与目录事实；菜单可以让模拟引擎撤下某个下钻入口或启动资格，但不能让资源引擎删除条目、改写排除
 原因计数或缩小 `affordance_contract`。活动类型名称引用现有可供性注册表的 `kinds`；注册表 `surface`
-不构成全部生活工具名清单。边界见[交互菜单规格](../dev/SPEC-interaction-menu.md)。
+不构成全部生活工具名清单。边界见[交互菜单规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)。
 
+<a name="resource-engine-检索呈现的实现与验收"></a>
 ### 检索呈现的实现与验收
 
 | 事项 | 当前承载与要求 |
@@ -565,8 +598,10 @@ discover_places 接口。
 | 运行接入差距 | `presentation.present` 与生活浏览动作尚未调用倒排检索链路，当前浏览结果不能宣称已提供 facet 返回体 |
 | 验收 | 相同目录与只读查询输入应产生相同结果；索引与扫描结果一致，轮转不改目录、长期未呈现对象不被永久排除；可调用索引里的每个名称都能按名调用，不含被地点类资格排除的活动，容量计数含索引。相关用例见 [tests/life](../../tests/life) |
 
+<a name="resource-engine-提供实际接触的内容"></a>
 ## 7. 提供实际接触的内容
 
+<a name="resource-engine-按指定范围提供内容"></a>
 ### 按指定范围提供内容
 
 调用方给定内容身份、版本或哈希、允许读取的范围，以及已经确认的实际接触区间。
@@ -588,6 +623,7 @@ sequenceDiagram
 不按字数推算逐词时刻。文档或邮件正文按给定的读取范围返回。
 当前查询只需要元数据时，不返回完整正文。游戏素材与既有文本可以读取，运行中产生的游戏反馈由调用方提供。
 
+<a name="resource-engine-返回内容与来源"></a>
 ### 返回内容与来源
 
 | 返回信息 | 资源引擎保证 |
@@ -600,11 +636,13 @@ sequenceDiagram
 返回内容表示本次提供了哪些材料。它不自行推进活动、更新续看位置或写入人物知识；
 实际交付与状态提交由调用方完成。
 
+<a name="resource-engine-内容读取失败"></a>
 ### 内容读取失败
 
 实际读取时再次发现文件缺失、路径非法、大小或哈希漂移，应拒绝该次读取并保留错误原因。
 不能用占位正文、跳过片段或编造结果替代缺失内容；未提供的内容也不能计为已接触。
 
+<a name="resource-engine-内容提供的实现与验收"></a>
 ### 内容提供的实现与验收
 
 | 事项 | 当前承载与要求 |
@@ -613,6 +651,14 @@ sequenceDiagram
 | 职责分离差距 | 当前 `reveal_watch` 与 `reveal_mail` 同时处理内容和人物阅读状态，`reveal_watch` 还改写活动中的揭示位置；资源读取与运行状态更新尚未完全分开 |
 | 验收 | 指定身份、版本和范围时返回对应片段与来源；范围外内容不泄露，缺失或损坏素材明确失败；资源接口自身不推进活动或提交运行状态。相关用例见 [tests/life](../../tests/life) |
 
+
+<a name="design-resource-engine-current-responsibility"></a>
+## 基础类型与资源装配
+
+来源和营业区间使用独立基础类型；人物状态模型与地图模型共用这些定义。DataSource 的 `kind`、`url`、`retrieved_at`、`license`、`notice`、`fact_cutoff`、`applicability` 七个字段保持不变。
+世界装配由 `src/worldmock/life/world_setup.py` 编排场景读取、语义组装、准入与工作材料校验；底层解析、基础类型和纯语义模块不回调装配入口。移动定义不改变冻结目录、地图、手机配置或语料的字节身份。
+
+<a name="resource-engine-版本历史"></a>
 ## 版本历史
 
 | 版本 | 日期 | 修订内容 |
@@ -621,9 +667,11 @@ sequenceDiagram
 | v1.4 | 2026-09-25 | 同步版本事实：时间与能量规格阶段 4 改可供性注册表（删 `energy_projection`、按第五章重列占用），当前目录升为 `4.1` |
 | v1.5 | 2026-09-27 | 同步人物 Prompt 七层规格（人物 Prompt 台账 E3-1–E3-3）：文件头注明修订部分待实现；轮转不限制指名购买；地点发现与供给比较按指名购买改写，可见凭据只管展示与比较，近似候选用确定性词项相似度，遵守不使用向量检索与近似最近邻的约定；版本事实同步世界状态结构 8（`catalog_version` 不变） |
 | v1.6 | 2026-09-28 | 人物 Prompt 七层规格实现后文档：文件头注明修订部分已实现，链接人物 Prompt 验收记录；正文不变 |
-| v1.7 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 RS1，随阶段 1、3、4 的代码落地，按 `e377669` 核对）：版本事实改为地图结构 2（地点可带 `branch_label`）；「轮转与可达性」生活活动窗口先施加地点类资格（不符的记 `ELIGIBILITY_LOCATION_KIND_MISMATCH`），排序键加相关度（目录时间窗、当日未推进目标的活动家族、习惯签名）与场景、人物、日期、对象的 `sha256` 决胜，排序键版本 2，轮转按分区内每个对象的 `last_presented_at` 留换新名额、不用人物级共享偏移量与分区游标、`⌈N ÷ k⌉` 按分区；工具层另附只列名称的可调用索引 `callable_index`（`lifestyle` 为资格段保留的生活活动名称，`contents`、`goods` 按品类给「N 个」与至多 3 个示例，不是候选、不计入呈现上限、不写 `last_presented_at`，计入整次请求的容量计数，其中的名称可以按名调用），实现与验收表补 `callable_index.py` 与 5.2 的验收点；「地点发现与供给比较」按名调用推广到全部目录类对象与没有列出路线的地点，无损归一后唯一即受理，候选（商品取全部供给，其余名称跨类别）用确定性词项相似度、从不替换，指名购买按分段匹配 M0–M3 各报其码（`from` 为 null 跳过 M1，渠道称呼去掉空白、不分大小写比较，方式「购买」跳过 M2 并在 M3 定到店或远程下单），多家都能服务时按 `prefer` 选定并写进 `details.notes`；文件头补修订说明，日期改写 |
+| v1.7 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)同步（一日运行保真 RS1，随阶段 1、3、4 的代码落地，按 `e377669` 核对）：版本事实改为地图结构 2（地点可带 `branch_label`）；「轮转与可达性」生活活动窗口先施加地点类资格（不符的记 `ELIGIBILITY_LOCATION_KIND_MISMATCH`），排序键加相关度（目录时间窗、当日未推进目标的活动家族、习惯签名）与场景、人物、日期、对象的 `sha256` 决胜，排序键版本 2，轮转按分区内每个对象的 `last_presented_at` 留换新名额、不用人物级共享偏移量与分区游标、`⌈N ÷ k⌉` 按分区；工具层另附只列名称的可调用索引 `callable_index`（`lifestyle` 为资格段保留的生活活动名称，`contents`、`goods` 按品类给「N 个」与至多 3 个示例，不是候选、不计入呈现上限、不写 `last_presented_at`，计入整次请求的容量计数，其中的名称可以按名调用），实现与验收表补 `callable_index.py` 与 5.2 的验收点；「地点发现与供给比较」按名调用推广到全部目录类对象与没有列出路线的地点，无损归一后唯一即受理，候选（商品取全部供给，其余名称跨类别）用确定性词项相似度、从不替换，指名购买按分段匹配 M0–M3 各报其码（`from` 为 null 跳过 M1，渠道称呼去掉空白、不分大小写比较，方式「购买」跳过 M2 并在 M3 定到店或远程下单），多家都能服务时按 `prefer` 选定并写进 `details.notes`；文件头补修订说明，日期改写 |
 | v1.8 | 2026-10-01 | 工具交互设计冻结并已实现：按已有地点类别完整分配品类对象、种子确定性范围内门店报价、有来源的单食材包做饭链与正式数据集行为门禁；独立供给和运行警告边界保留 |
 | v1.9 | 2026-10-03 | 同步个人事务与工作安排规格阶段 2（实施计划 D3-01、D3-02、D3-06，按 `d09d574` 的代码核对）：版本事实改为世界状态结构 9（人物状态增未完成的个人事务），目录 `5.3`、绑定版本 `3`、场景结构 `4`、地图结构 `3` 与对象、商品、供给数目不变；文件头增修订行，日期改写；版本表改为末行最新（原插在表首的 v1.8 行移到 v1.7 之后，行内容不改） |
 | v1.10 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D3-04、D3-05、D3-06、D3-11）：`query_world` 改六键，来源筛选与购买同一解析，可执行筛选归模拟引擎，筛选先于切页、`total_count` 为筛选后总数，结果不附候选，除两种参数错误外无匹配为空页；可调用索引更正为四键并写明 `query_categories`（筛选不改变其计数口径）；指名购买来源的写法更正为地点显示名；每页大小改写为取场景参数；文件头修订行改为已落地阶段 2 与阶段 4（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入） |
 | v1.11 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D3-03）：版本事实改为生活场景结构 5（人物配置增必填可空的 `work_schedule`；目录保持 5.3），世界状态结构照阶段 2 为 9；文件头修订行改为已落地阶段 2–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.12 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D3-10）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+
+| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |

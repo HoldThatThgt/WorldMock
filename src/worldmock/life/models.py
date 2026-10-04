@@ -1,10 +1,14 @@
 """@brief LifeEnv 的封闭请求、状态与结果模型。"""
 
 from __future__ import annotations
+from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
+from worldmock.catalog.affordances import default_affordances
+from worldmock.life.vocabulary import way_options
+from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
@@ -12,20 +16,20 @@ from typing import Annotated, Any, Literal
 from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
                       field_validator, model_validator)
 
-from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.life.errand_state import (ERRAND_NAME_MAX_CHARS, ERRAND_QUANTITY_MAX, ERRAND_QUANTITY_MIN,
                                          ERRAND_TEXT_MAX_CHARS, MAX_ERRAND_CHANGES, ErrandState)
 from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 from worldmock.life.social import Message
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
-# 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
-from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+# 世界状态以调度基础层的预排事件模型保存未来边界。
+from worldmock.scheduling.events import ScheduledEvent
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移；版本 6 引入三级结构（Task→Session→Activity）与
-#: WorldState.sessions；版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；
-#: 版本 8（docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与
-#: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-errands-workday.md 2.7）新增只存未完成个人事务的
+#: WorldState.sessions；版本 7（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「仍须修复」）起活动快照 location_id
+#: 固定为开始地点；
+#: 版本 8（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「版本」）新增 SessionState.opened_by_action_id 与
+#: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）新增只存未完成个人事务的
 #: AgentState.errands。
 WORLD_SCHEMA_VERSION = 9
 
@@ -44,8 +48,55 @@ class FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+
+def _reject_basic(message: str) -> None:
+    """@brief 基础来源与营业声明统一记录错误并拒绝。"""
+    _LOGGER.error(message)
+    raise ValueError(message)
+
+
+def _require_source_aware(value: datetime) -> None:
+    """@brief 来源取得时刻必须明确时区。"""
+    if value.tzinfo is None or value.utcoffset() is None:
+        _reject_basic("Map timestamps must be timezone-aware")
+
+
+class DataSource(FrozenModel):
+    """@brief 一份事实或场景假设的来源、许可与适用边界。"""
+
+    kind: Literal["fact", "scenario"]
+    url: str = Field(pattern=r"\S")
+    retrieved_at: datetime
+    license: str = Field(pattern=r"\S")
+    notice: str = Field(pattern=r"\S")
+    fact_cutoff: date
+    applicability: str = Field(pattern=r"\S")
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "DataSource":
+        """@brief 来源取得时间必须明确时区。"""
+        _require_source_aware(self.retrieved_at)
+        if self.fact_cutoff > self.retrieved_at.date():
+            _reject_basic("Source fact cutoff cannot follow retrieval date")
+        return self
+
+
+class OpeningInterval(FrozenModel):
+    """@brief 当地自然日起算的营业分钟区间；结束超过午夜表示跨日。"""
+
+    opens: int = Field(ge=0, lt=1440)
+    closes: int = Field(gt=0, le=2880)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> "OpeningInterval":
+        """@brief 营业区间必须正向且最多延续二十四小时。"""
+        if not self.opens < self.closes <= self.opens + 1440:
+            _reject_basic("Opening interval must be positive and at most one day")
+        return self
+
+
 def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
-    """@brief 模型可见参数 Schema 的 description 只写用途（docs/dev/SPEC-persona-prompt.md 第二章「删除与去重」）。
+    """@brief 模型可见参数 Schema 的 description 只写用途（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「删除与去重」）。
 
     去掉类 docstring 派生的开发说明（规则只在系统层写一次，数量上限由 Schema 与本地校验执行），purpose 非空时写这一句；
     工具参数对象本身不写说明，用途只在工具的 description。用作 ConfigDict 的 json_schema_extra。
@@ -92,7 +143,7 @@ class RunIdentity(FrozenModel):
     """@brief 由 runtime 显式分配并与场景交叉验证的运行身份。
 
     git_commit 与 git_dirty 记录启动时的检出状态，非 Git 检出时二者为 null；只记录，不参与恢复比对
-    （docs/dev/SPEC-time-and-energy.md「运行身份」）。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」）。
     """
 
     run_id: str = Field(min_length=1)
@@ -248,7 +299,7 @@ class BodyState(StrictModel):
     旧睡眠债字段已删除，不保留别名。sleep_need_hours 与 chronotype_midsleep
     为人物档案常量（默认 7.5h 与 04:00，experiment_assumption），随状态持久化
     使结算纯函数自包含。mood_valence 只影响体感呈现与记忆重要度加权，不直接
-    改变任何动作可行性（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
+    改变任何动作可行性（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
     """
 
     energy_kcal: float = Field(ge=0)
@@ -271,7 +322,7 @@ class ContentProgress(StrictModel):
 
 
 class SessionStatus(StrEnum):
-    """@brief 地点会话的生命周期状态闭集（docs/dev/SPEC-time-and-energy.md 第七章「会话与活动的字段」）。"""
+    """@brief 地点会话的生命周期状态闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「会话与活动的字段」）。"""
 
     ACTIVE = "active"
     ENDED = "ended"
@@ -300,7 +351,7 @@ class SessionState(StrictModel):
     :param activity_ids: 归入本会话的活动（暂停的活动回到开始地点时归入那里的新会话）。
     :param name: 人物可读名称，停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（…起）」；结束后不改名。
     :param opened_by_action_id: 由决策引起的切换（出发、途中结束出行）记下引起切换的动作身份，进度层以该动作结果的
-        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/dev/SPEC-persona-prompt.md「进度层」）。
+        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
     """
 
     session_id: str = Field(min_length=1)
@@ -332,10 +383,10 @@ class SessionState(StrictModel):
 
 
 class SameMomentStage(StrEnum):
-    """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-time-and-energy.md 第一章「规则」3 与「实现约定」）。
+    """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
-    只开放等待的阶段随世界结构版本 8 删除（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」）。
+    只开放等待的阶段随世界结构版本 8 删除（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」）。
     """
 
     OPEN = "open"
@@ -354,7 +405,7 @@ class AgentState(StrictModel):
     balance_account_id: str = Field(min_length=1)
     skill_levels: dict[str, float] = Field(default_factory=dict)
     qualifications: tuple[str, ...] = ()
-    # 内容口味权重（docs/dev/SPEC-life-realism.md「画像编译」）：卡片口味 x 条目 genre[] 的确定性匹配，
+    # 内容口味权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：卡片口味 x 条目 genre[] 的确定性匹配，
     # 取代已删除的随机偏好浮点；引擎路径在卡片持久化入库前为空映射（缺项 0）。
     taste_weights: dict[str, float] = Field(default_factory=dict)
     body: BodyState
@@ -365,7 +416,7 @@ class AgentState(StrictModel):
     next_decision_at: int = Field(ge=0)
     # 连续业务拒绝次数：只作动机层挫败感的输入，不参与唤醒与冷却。
     consecutive_rejections: int = Field(default=0, ge=0)
-    # 同刻决策（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）：本秒已进行的决策轮数与受限轮阶段，时钟推进归零。
+    # 同刻决策（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「实现约定」）：本秒已进行的决策轮数与受限轮阶段，时钟推进归零。
     same_moment_rounds: int = Field(default=0, ge=0)
     same_moment_stage: SameMomentStage = SameMomentStage.OPEN
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
@@ -373,7 +424,8 @@ class AgentState(StrictModel):
     visible_message_ids: set[str] = Field(default_factory=set)
     visible_task_ids: set[str] = Field(default_factory=set)
     visible_supply_ids: set[str] = Field(default_factory=set)
-    # 决策节律簿记（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：滞回参照=上次实际提供决策时的分级。
+    # 决策节律簿记（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）
+    # ：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
     people_at_last_decision: frozenset[str] = frozenset()
@@ -382,22 +434,22 @@ class AgentState(StrictModel):
     # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
     plan_submitted_dates: set[str] = Field(default_factory=set)
-    # 未完成的个人事务（docs/dev/SPEC-errands-workday.md 2.1「存放」）：键为事务身份；完成或取消即移出，终态只在事件里；
+    # 未完成的个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 「存放」）：键为事务身份；完成或取消即移出，终态只在事件里；
     # 不放进 DayPlan，零点置空与修订整表替换都不波及它。
     errands: dict[str, ErrandState] = Field(default_factory=dict)
-    # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
+    # 社交最小可行版（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）：收件箱与已读消息。
     inbox: dict[str, Message] = Field(default_factory=dict)
     read_inbox_ids: set[str] = Field(default_factory=set)
-    # 发给场景联系人的消息（docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」），联系人回复请求的往来由它与收件箱组成。
+    # 发给场景联系人的消息（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「联系人往来」），联系人回复请求的往来由它与收件箱组成。
     outbox: dict[str, Message] = Field(default_factory=dict)
-    # 情绪与不适脉冲簿记（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
+    # 情绪与不适脉冲簿记（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
     # 供给可见期按实际呈现记账；商品身份不能授权另一门店的供给。
     supply_browsed_at: dict[str, int] = Field(default_factory=dict)
     supply_browsed_location: dict[str, str] = Field(default_factory=dict)
-    # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：
+    # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）：
     # 自上次决策以来新读到的区间，单次 ≤2000 字符。
     material_reveals: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -449,11 +501,11 @@ class ActivityState(StrictModel):
     boundary_type: str | None = None
     interruption_reason: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
-    # 生命周期（docs/dev/SPEC-time-and-energy.md 第七章「活动的生命周期」）：终态且 concluded_at 为空即待收尾；
+    # 生命周期（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「活动的生命周期」）：终态且 concluded_at 为空即待收尾；
     # report_anchor_at 为播报锚点（开始、恢复与对该活动播报时写入）；session_ids 为先后所属的地点会话。
     concluded_at: int | None = Field(default=None, ge=0)
     report_anchor_at: int | None = Field(default=None, ge=0)
-    # 暂停时刻（docs/dev/SPEC-persona-prompt.md「待办层」）：暂停时写入、恢复时清空，待办层按它排序。
+    # 暂停时刻（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「待办层」）：暂停时写入、恢复时清空，待办层按它排序。
     paused_at: int | None = Field(default=None, ge=0)
     session_ids: list[str] = Field(default_factory=list)
     name: str = ""
@@ -526,7 +578,7 @@ class DeliveryState(StrictModel):
     expected_at: int = Field(gt=0)
     status: Literal["pending", "ready", "delivered", "cancelled"]
     total_price_fen: int = Field(ge=0)
-    # 收货人（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：同世界人物为 agent:<id>，联系人为联系人身份；
+    # 收货人（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）：同世界人物为 agent:<id>，联系人为联系人身份；
     # 付款人仍是 agent_id。request_message_id 为 answering 关联的直接消息。
     recipient_id: str = Field(min_length=1)
     request_message_id: str | None = None
@@ -587,7 +639,7 @@ class SupplyQuoteState(StrictModel):
         if self.effective_to is not None and self.effective_to <= self.effective_from:
             _LOGGER.error("Supply quote effective interval is invalid")
             raise ValueError("supply quote effective interval is invalid")
-        from worldmock.life.map_models import DataSource
+
 
         try:
             DataSource.model_validate(self.source)
@@ -598,7 +650,7 @@ class SupplyQuoteState(StrictModel):
 
 
 class SameMomentPresentation(StrictModel):
-    """@brief 一个人物本秒的呈现暂存（docs/dev/SPEC-time-and-energy.md 第一章「同一秒内的呈现与「刚才」」）。
+    """@brief 一个人物本秒的呈现暂存（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「同一秒内的呈现与「刚才」」）。
 
     stamps 为本秒各轮实际呈现的对象→时刻，时钟推进时才并入 presentation_state；pinned_supply_ids 为本秒首轮
     置顶的浏览结果，同一秒后续各轮继续置顶。
@@ -611,7 +663,7 @@ class SameMomentPresentation(StrictModel):
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
-    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/dev/SPEC-life-realism.md「产品行为」）。
+    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「产品行为」）。
     schema_version: Literal[WORLD_SCHEMA_VERSION]
     version: int = Field(ge=0)
     current_time: int = Field(ge=0)
@@ -633,7 +685,7 @@ class WorldState(StrictModel):
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     paid_task_ids: set[str] = Field(default_factory=set)
-    #: 呈现派生量（docs/CONTRACTS.md「派生量字段」）：按（人物, 对象标识）记录上次呈现
+    #: 呈现派生量（docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
@@ -743,10 +795,8 @@ def _validate_session_collection(state: WorldState) -> None:
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
     """@brief 从唯一注册表和社交活动声明恢复每项权威资源占用。"""
     if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-        from worldmock.life.social_actions import SOCIAL_RESOURCE_CLAIMS
 
         return set(SOCIAL_RESOURCE_CLAIMS)
-    from worldmock.catalog.affordances import default_affordances
 
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
     content_kind = activity.data.get("content_kind") if activity.kind == ActivityKind.WATCH else None
@@ -771,7 +821,7 @@ def _validate_supply_visibility(agent: AgentState, state: WorldState) -> None:
 
 def _validate_opening_exceptions(exceptions: dict) -> None:
     """@brief 恢复时核验日期和营业分钟区间，不接受损坏或互相矛盾的世界事实。"""
-    from worldmock.life.map_models import OpeningInterval
+
 
     try:
         for dates in exceptions.values():
@@ -867,9 +917,9 @@ class PurchaseItem(FrozenModel):
 class PurchaseOrderRequest(FrozenModel):
     """@brief 购买 1-5 件同一商家、同一履约方式的商品，一次付款一次配送。
 
-    结算时任一件不可购则整单拒绝，不自动删件（docs/dev/SPEC-life-realism.md「商务与进食」）。
+    结算时任一件不可购则整单拒绝，不自动删件（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。
     items 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止嵌套引用
-    键，docs/CONTRACTS.md「人物工具与管理接口」认可的唯一内联机制）；1-5 件由结算域校验
+    键，docs/CONTRACTS.md#contracts-worldmock-接口合同「人物工具与管理接口」认可的唯一内联机制）；1-5 件由结算域校验
     （DeepSeek strict 禁 minItems）。
     """
 
@@ -885,7 +935,7 @@ class PurchaseOrderRequest(FrozenModel):
 
 
 class ConsumeItem(FrozenModel):
-    """@brief 一次进食中的一件已持有食品与数量（docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件）。"""
+    """@brief 一次进食中的一件已持有食品与数量（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」：1-3 件）。"""
 
     product_id: str = Field(pattern=r"\S")
     quantity: float = Field(gt=0, le=100)
@@ -895,7 +945,7 @@ class ConsumeRequest(FrozenModel):
     """@brief 使用已经交付并持有的商品。
 
     多件（1-3）仅限食品同地点一次进食：用餐时长取最长者、热量与效果累加；
-    非食品使用仍为单件（docs/dev/SPEC-life-realism.md「商务与进食」）。单件路径沿用域内时长合同
+    非食品使用仍为单件（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。单件路径沿用域内时长合同
     （duration_seconds 必须等于商品目录时长）。items 以 WithJsonSchema
     内联子模型 Schema（strict 合同禁止嵌套引用键）；1-3 件由结算域校验
     （DeepSeek strict 禁 minItems）。
@@ -914,7 +964,8 @@ class ConsumeRequest(FrozenModel):
 
 class PlanGoalInput(FrozenModel):
     """@brief 当日目标条目：意图、目标文字与两个必填可空的场景本地 HH:MM——remind_time（要在那一刻被提醒时填写，
-    否则为 null）与 around_time（打算在几点前后做，docs/dev/SPEC-dayrun-fidelity.md 8.2；不提醒、不要求晚于登记时刻）。"""
+    否则为 null）与 around_time（打算在几点前后做，docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进
+     ；不提醒、不要求晚于登记时刻）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema(
         "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。"))
@@ -937,7 +988,7 @@ def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> Non
     """@brief 零点计划与修订两个入口共用的清单校验：条数超限与重复意图在同一次校验里一并报告。
 
     条数超过八条定位在 goals 本身（原值为提交的各条目）；每个重复的意图同时定位首次出现与其后每次出现的条目
-    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/dev/SPEC-errands-workday.md 1.3）。
+    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-计划重复意图 ）。
 
     :param goals: 已逐条通过条目校验的目标清单。
     :param model_name: 发起校验的请求模型名，作为校验错误的标题。
@@ -996,7 +1047,7 @@ class ReviseDayPlanRequest(ToolRequestModel):
 
 
 class SendMessageRequest(FrozenModel):
-    """@brief 向同世界人物或场景联系人发送瞬时消息（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
+    """@brief 向同世界人物或场景联系人发送瞬时消息（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。"""
 
     recipient_id: str = Field(pattern=r"\S")
     text: str
@@ -1004,7 +1055,7 @@ class SendMessageRequest(FrozenModel):
 
 class StartSocialActivityRequest(FrozenModel):
     """@brief 发起交谈（共同在场）或通话（联系人）；时长由场景反馈间隔派生后截取：交谈 1–120 分钟，通话 10–60 分钟
-    （docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。"""
 
     kind: Literal["chat", "call"]
     partner_id: str = Field(pattern=r"\S")
@@ -1085,8 +1136,6 @@ class StartActivityRequest(ToolRequestModel):
     @classmethod
     def validate_prefer(cls, prefer: str | None, info) -> str | None:
         """@brief 方式合法时要求购买偏好，非购买必须空值。"""
-        from worldmock.life.name_resolution import way_options
-        from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS
 
         items = info.data.get("items")
         options = [way_options(item.way) for item in items] if items is not None else []
@@ -1123,7 +1172,7 @@ class RecallTaskSummaryRequest(ToolRequestModel):
 
 
 #: 控制工具每项活动名的「格式与来源」说明。字段级说明是参数 Schema 的一部分，不是工具 description：只写格式与来源，
-#: 不写规则与上限（上限由本地校验执行，docs/dev/SPEC-dayrun-fidelity.md 第六章）。
+#: 不写规则与上限（上限由本地校验执行，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。
 _ACTIVITY_NAME_FORMAT = "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。"
 
 
@@ -1153,7 +1202,7 @@ def _validate_summary(summary: str) -> str:
 
 #: HH:MM 钟点的 Schema 格式（与当日目标的 remind_time 同名同形）。
 _CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
-#: 个人事务变更的交叉约束（docs/dev/SPEC-errands-workday.md 2.2「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
+#: 个人事务变更的交叉约束（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
 #: 其余键（新增的 memo、remind_time，更新的 memo、remind_time）可空。
 _ERRAND_REQUIRED = {"新增": ("outcome", "item", "quantity"), "更新": (), "取消": ("reason",)}
 _ERRAND_NULL = {"新增": ("reason",), "更新": ("outcome", "item", "quantity", "reason"),
@@ -1172,7 +1221,7 @@ def _errand_text(value: str | None, limit: int, what: str) -> str | None:
 
 
 class ErrandChange(ToolRequestModel):
-    """@brief 控制工具请求级 errands 的一条个人事务变更（docs/dev/SPEC-errands-workday.md 2.2）：封闭对象，八个键全部必填，
+    """@brief 控制工具请求级 errands 的一条个人事务变更（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）：封闭对象，八个键全部必填，
     按变更种类的交叉约束与字符、份数上限由本地校验执行（上限写在原因里，Schema 只给类型与格式）；没有「完成」。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema(
@@ -1270,11 +1319,11 @@ _PROGRESS_ITEMS_SCHEMA = {"type": "array", "items": ActivityProgressItem.model_j
 
 
 class ReportStatusRequest(ToolRequestModel):
-    """@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它（docs/dev/SPEC-dayrun-fidelity.md
+    """@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要
     第六章：一项一个对象）。
 
     :param items: 本次播报的一至两项，每项写活动名与进展自述。
-    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-errands-workday.md 2.2）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1299,7 +1348,7 @@ class PauseActivityRequest(ToolRequestModel):
     """@brief 逐项写下人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
-    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-errands-workday.md 2.2）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1320,7 +1369,7 @@ class PauseActivityRequest(ToolRequestModel):
         return _validate_errands("pause_activity", errands)
 
 
-#: 一次 conclude_activity 写入的记忆与看法合计上限、单条文字字符上限与关键词个数上限（docs/dev/SPEC-time-and-energy.md
+#: 一次 conclude_activity 写入的记忆与看法合计上限、单条文字字符上限与关键词个数上限（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动
 #: 第七章「finish 并入 conclude_activity」；DeepSeek strict 禁 maxItems/maxLength，由本地校验兜住）。
 CONCLUSION_MEMORIES_MAX = 8
 MEMORY_TEXT_MAX_CHARS = 1000
@@ -1332,7 +1381,7 @@ _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 def validate_memory_text(text: str) -> str:
     """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
 
-    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/dev/SPEC-errands-workday.md 1.1），不区分条目来源。
+    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ），不区分条目来源。
 
     :param text: 模型写下的一条记忆文字。
     :returns: 通过校验的原文。
@@ -1429,10 +1478,10 @@ class ActivityConclusionItem(ToolRequestModel):
 
 class ConcludeActivityRequest(ToolRequestModel):
     """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额；一项一个对象
-    （docs/dev/SPEC-dayrun-fidelity.md 第六章）。
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。
-    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-errands-workday.md 2.2）。
+    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1494,7 +1543,7 @@ def rejection_reason_text(error: Exception) -> str:
     """@brief 拒绝的英文日志文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
     只写进运行日志，不进入结果：拒绝结果的 message 与 details 取 life.guidance 生成的公开原因
-    （docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
     """
     reason = str(error)
     cause = error.__cause__

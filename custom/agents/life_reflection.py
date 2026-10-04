@@ -1,6 +1,6 @@
 """@brief 就寝反思的严格工具通道：文案、唯一工具的 Schema、本地校验与校验重试的附回消息。
 
-就寝反思的模型调用只带 submit_reflection 一个严格工具（docs/dev/SPEC-errands-workday.md 1.1）：响应须恰好一次该工具的
+就寝反思的模型调用只带 submit_reflection 一个严格工具（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：响应须恰好一次该工具的
 调用，message.content 不读取；条数、引用与正文都在本地校验，不合合同时抛 ReflectionOutputError，由记忆运行时
 （custom/agents/life_memory.py）附回英文错误做有界重试。文案、Schema 与重试次数是本模块的常量，只由 code_sha256 绑定：
 submit_reflection 不属于人物工具面，不进 tool_schema_sha256，文案不进 prompt_sha256。
@@ -22,8 +22,9 @@ REFLECTION_TOOL = "submit_reflection"
 #: 输出不合合同时附回错误的重试次数上限：首次之外至多再请求 3 次（连同首次至多四次模型调用），与传输重试分开计数。
 #: 数值与零点计划的校验重试相同，但各自独立，互不引用。
 REFLECTION_VALIDATION_RETRIES = 3
-#: 就寝反思的 system 文案（docs/CONTRACTS.md「请求组成」逐字登记，测试逐字比对）；条数上限与 AS2 常量
-#: MEMORY_REFLECTION_MAX_INSIGHTS 同为五条。阶段 1 的文本（docs/dev/SPEC-errands-workday.md 1.1）原样保留、各行不重新
+#: 就寝反思的 system 文案（docs/CONTRACTS.md#contracts-worldmock-接口合同「请求组成」逐字登记，测试逐字比对）；条数上限与 AS2 常量
+#: MEMORY_REFLECTION_MAX_INSIGHTS 同为五条。阶段 1 的文本（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）原样保
+#: 留、各行不重新
 #: 折行，其后空一行追加 3.3 的两句：反思不记下、不办成也不取消个人事务，输入是人物自己的记录、不是核验过的结果。两句在
 #: 文案里是不折行的一行，源码只为行宽拆成相邻的字符串。
 REFLECTION_PROMPT = """

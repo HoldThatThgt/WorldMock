@@ -6,7 +6,8 @@ from datetime import date, datetime, timedelta
 from typing import Mapping, Sequence
 from zoneinfo import ZoneInfo
 
-from worldmock.life.map_models import LocationConfig, OpeningCalendar, OpeningInterval, QuoteConfig, SupplyConfig
+from worldmock.life.map_models import LocationConfig, OpeningCalendar, QuoteConfig, SupplyConfig
+from worldmock.life.models import OpeningInterval
 
 OpeningOverrides = Mapping[str, Sequence[tuple[int, int]]]
 

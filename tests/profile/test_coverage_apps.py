@@ -1,4 +1,4 @@
-"""@brief 购买渠道的派生投影（docs/dev/SPEC-dayrun-fidelity.md 3.3「渠道的来源」，裁决 S7）：最小场景投影与临时语料根。
+"""@brief 购买渠道的派生投影（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 「渠道的来源」，裁决 S7）：最小场景投影与临时语料根。
 
 渠道从场景钉定的手机配置派生，不新增场景字段：每个购买 App 一个渠道，channel_id 取 App 标识，names 取 app_display_names
 的称呼，成员门店取映射到这个 App 的卖家在场景选入的地点里有供给的那些地点（按身份排序，去重）；场景没有钉定手机配置时

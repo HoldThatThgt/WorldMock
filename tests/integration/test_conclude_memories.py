@@ -1,7 +1,7 @@
 """一轮决策恰好一个世界请求；记忆只经 conclude_activity 写入、来源由系统登记；发给人物模型的内容不含内部身份；
 阈值巩固只计结束活动写入的条目。
 
-对应 docs/dev/SPEC-time-and-energy.md 第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」与验收台账
+对应 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」与验收台账
 「会话、活动与记忆」；实施台账「七·记忆新增」。
 """
 
@@ -58,8 +58,8 @@ from tests.integration.test_life_agent_protocol import (
     _with_activities,
 )
 from tests.integration.test_verified_memory import _runtime
-from tests.life.conftest import (activity_name, advance_until_ready, context, engine_factory as _engine_factory,
-                                 errand_add, stage_day_plan, start_activity, wake_by_mail, pause_request)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (activity_name, advance_until_ready, context, errand_add, stage_day_plan, start_activity, wake_by_mail, pause_request)  # noqa: F401
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.control_items import control_items
@@ -83,7 +83,7 @@ def _observed(*activities: tuple[str, str]) -> list[dict]:
 
 
 def _action_requests(requests: list[dict]) -> list[dict]:
-    """行动阶段的请求：工具中有 start_activity（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）；不带工具的记忆
+    """行动阶段的请求：工具中有 start_activity（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」）；不带工具的记忆
     巩固与只带 submit_reflection 的就寝反思都不算。"""
     return [request for request in requests
             if "start_activity" in {item["function"]["name"] for item in request.get("tools") or []}]
@@ -182,7 +182,7 @@ async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
 async def test_views_persist_as_memories_byte_identical_to_the_subject_shape(tmp_path) -> None:
     """看法写在 views、对象写在 about：经 control_items 读出的记忆带 subject，与旧形状（memories[][] 里带 subject 的
     relationship、preference）写下的同一组记忆逐字节相同；宿主写入 AS2 前去掉 subject，展平结果与旧宿主逐字节相同，经真实
-    记忆运行时落盘的 episodes.jsonl 也逐字节相同（docs/dev/SPEC-dayrun-fidelity.md 第六章验收）。"""
+    记忆运行时落盘的 episodes.jsonl 也逐字节相同（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章验收）。"""
     plain = _memory("等了一刻钟，心里平静了。", importance=0.3)
     mother = _view("陈母", "想起还没回妈妈的消息。", importance=0.4, keywords=("妈妈",))
     taste = _view("拿铁", "下午想喝拿铁。", kind="preference", keywords=("咖啡",))
@@ -429,7 +429,7 @@ def _engine_with_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str]:
     stage_day_plan(engine)
     started = _settle(engine, "wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
-    assert engine.state.activities[started.activity_id].status.value == "completed"
+    assert engine.context.state.activities[started.activity_id].status.value == "completed"
     return engine, _environment(engine), started.activity_id
 
 
@@ -437,7 +437,7 @@ def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, Lif
     """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻暂停的观看与刚结束的等待各占一个名额。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    shown = engine._observation_data(engine.state.agents[1])
+    shown = engine.observations._observation_data(engine.context.state.agents[1])
     content, way = next((row["object"], item["label"]) for row in shown["interaction_bindings"]
                         if row["kind"] == "content" for item in row["actions"] if item["canonical_action"] == "watch")
     watch = _settle(engine, "watch", "start_activity", start_activity(way, content))
@@ -448,7 +448,7 @@ def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, Lif
     assert paused.status.value == "completed"
     wait = _settle(engine, "wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
-    assert engine.state.activities[wait.activity_id].status.value == "completed"
+    assert engine.context.state.activities[wait.activity_id].status.value == "completed"
     return engine, _environment(engine), watch.activity_id, wait.activity_id
 
 
@@ -473,7 +473,7 @@ async def _decide(engine, environment: LifeEnv, person: LifeAgent, round_id: str
 
 def _events(engine, event_type: str, decision_id: str) -> list:
     """本轮决策写下的某类事件。"""
-    return [event for event in engine.store.read_events(engine.store.last_event_seq)
+    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
             if event.event_type == event_type and event.decision_id == decision_id]
 
 
@@ -492,9 +492,9 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
 
     decision, result = await _decide(engine, environment, person, "conclude")
 
-    activity = engine.state.activities[wait_id]
+    activity = engine.context.state.activities[wait_id]
     assert result.status.value == "completed"
-    assert activity.status.value == "completed" and activity.concluded_at == engine.state.current_time
+    assert activity.status.value == "completed" and activity.concluded_at == engine.context.state.current_time
     [observed] = _events(engine, "observation", decision.decision_id)
     waited = [row["source_event_id"] for row in observed.data["verified_experiences"] if row["activity_id"] == wait_id]
     assert waited
@@ -532,7 +532,7 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
 
     assert (result.status.value, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
     assert activity_name(engine, wait_id) in result.message
-    assert engine.state.activities[watch_id].status.value == "paused"
+    assert engine.context.state.activities[watch_id].status.value == "paused"
     [requested] = _events(engine, "action_requested", decision.decision_id)
     assert requested.data["request"] == conclusion
     [update] = _events(engine, "memory_updated", decision.decision_id)
@@ -546,7 +546,7 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
 
 @pytest.mark.asyncio
 async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_engine_factory, tmp_path) -> None:
-    """被业务拒绝的收尾带着一条合法的个人事务新增（docs/dev/SPEC-errands-workday.md 2.2「原子性」）：真实 LifeAgent 经
+    """被业务拒绝的收尾带着一条合法的个人事务新增（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「原子性」）：真实 LifeAgent 经
     LifeEnv 登记收尾（有刚结束的等待却只结束暂停的观看），宿主本地校验通过，登记时照常写入收尾记忆——memory_updated 的
     触发点只有 activity_conclusion，新建条目只有这一条收尾记忆；事务变更不是记忆写入点，记忆里没有事务的文字。结算以
     ACTIVITY_CONCLUSION_REQUIRED 拒绝，事务变更随整请求一并不生效：人物没有未完成事务，没有任何事务事件，结果没有回执键，
@@ -564,7 +564,7 @@ async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_e
     decision, result = await _decide(engine, environment, person, "rejected")
 
     assert (result.status.value, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
-    assert "errands" not in result.data and engine.state.activities[watch_id].status.value == "paused"
+    assert "errands" not in result.data and engine.context.state.activities[watch_id].status.value == "paused"
     [requested] = _events(engine, "action_requested", decision.decision_id)
     assert requested.data["request"] == conclusion
     [update] = _events(engine, "memory_updated", decision.decision_id)
@@ -574,8 +574,8 @@ async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_e
         (memories[0]["text"], "activity_conclusion", "subjective")]
     assert update.data["created_episode_ids"] == [stored[0]["id"]]
     assert not any(text in json.dumps(stored, ensure_ascii=False) for text in ("补一份食材包", "下班前下单送到家"))
-    assert engine.state.agents[1].errands == {}
-    assert [event for event in engine.store.read_agent_events("environment_event", 1)
+    assert engine.context.state.agents[1].errands == {}
+    assert [event for event in engine.context.store.read_agent_events("environment_event", 1)
             if event.data.get("kind") in ERRAND_EVENT_KINDS] == []
 
 

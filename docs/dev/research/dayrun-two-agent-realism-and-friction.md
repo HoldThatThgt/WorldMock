@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-two-agent-realism-and-friction.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # dayrun 双人一天：真实性与交互摩擦评估
 
 > 证据来源：`runs/deepseek-day-main/footprints.sqlite`（该运行产物位于兄弟 worktree `WorldMock-dayrun-main/runs/`，本仓 `runs/` 无此目录）（3179 条事件，run_id `72b38f09a78d41c0aebe9e8ec9eda859`）

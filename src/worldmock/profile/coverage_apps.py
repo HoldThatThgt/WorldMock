@@ -1,7 +1,8 @@
 """@brief 用冻结手机映射证明画像中的应用名称对应可执行行为，并从同一投影派生购买渠道。
 
 场景可选钉定手机配置（phone_simulation_config 与其 sha256）；WorldMock 只读它的投影 PhoneSimulationCoverage。覆盖率
-核验取有执行证据的应用别名（verified_app_names）；购买渠道（docs/dev/SPEC-dayrun-fidelity.md 3.3，裁决 S7）由卖家账户→
+核验取有执行证据的应用别名（verified_app_names）；购买渠道（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ，裁
+决 S7）由卖家账户→
 App（purchase_apps_by_seller）与 App→称呼（app_display_names）派生（purchase_channels）：channel_id 取 App 标识，names
 取其称呼，成员门店取该 App 的卖家有供给的场景地点。渠道只是门店集合的称呼，不带交付语义；配置已由 sha256 钉进场景与
 清单，运行身份不变。核验（verified_phone_config）依次检查身份（语料清单登记与场景钉定的 sha256）、结构、场景身份与执行
@@ -39,7 +40,7 @@ class PhoneSimulationCoverage(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class PurchaseChannel:
-    """@brief 一个购买渠道（docs/dev/SPEC-dayrun-fidelity.md 3.3）：App 是门店的入口，不是交付对象。
+    """@brief 一个购买渠道（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）：App 是门店的入口，不是交付对象。
 
     :param channel_id: App 标识（订单载荷与 purchases.jsonl 的 channel_id）。
     :param names: App 的称呼（from 写它时解析为成员门店，去掉空白、不分大小写比较）。

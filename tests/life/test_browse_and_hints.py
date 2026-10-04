@@ -1,4 +1,4 @@
-"""浏览结果与下一步提示看可达性（docs/dev/SPEC-dayrun-fidelity.md 5.3，裁决 D17、S9；验收台账「浏览与提示」）。
+"""浏览结果与下一步提示看可达性（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ，裁决 D17、S9；验收台账「浏览与提示」）。
 
 全部经真实引擎：浏览结果在进度层列完整标签「<门店>出售的<商品>」，只是名称；离开浏览地点后商品目标照常从工具层消失，
 人物凭记忆层里的完整标签经指名购买路径下单；到店与远程下单被拒时的下一步只指向从此地可达的地点（直达「去」、经别处
@@ -28,29 +28,29 @@ _PARK = "poi-337936012"
 
 def _places(engine: LifeEngine) -> dict[str, str]:
     """地点身份 → 场景显示名。"""
-    return {item.location_id: item.name for item in engine.scenario.locations}
+    return {item.location_id: item.name for item in engine.context.scenario.locations}
 
 
 def _label(engine: LifeEngine, supply_id: str) -> str:
     """供给的完整标签「<门店>出售的<商品>」。"""
-    supply = engine.rules.supplies[supply_id]
-    return f"{_places(engine)[supply.location_id]}出售的{engine.rules.items[supply.product_id].name}"
+    supply = engine.context.rules.supplies[supply_id]
+    return f"{_places(engine)[supply.location_id]}出售的{engine.context.rules.items[supply.product_id].name}"
 
 
 def _market_delivery_supply(engine: LifeEngine) -> str:
     """集市出售、支持配送的一条供给（按身份取第一条，确定性）。"""
-    return min(item.supply_id for item in engine.scenario.supplies
+    return min(item.supply_id for item in engine.context.scenario.supplies
                if item.location_id == "market" and "delivery" in item.fulfillment_modes)
 
 
 def _rescenario(engine: LifeEngine, routes=None, supplies=None) -> None:
     """换掉引擎、语义层与规则共用的运行时场景中的路线或供给（同一份场景对象，三处读到的一致）。"""
     update = {key: value for key, value in (("routes", routes), ("supplies", supplies)) if value is not None}
-    scenario = engine.scenario.model_copy(update=update)
-    engine.scenario = scenario
-    engine.semantics = dataclasses.replace(engine.semantics, scenario=scenario)
-    engine.rules.scenario = scenario
-    engine.rules.supplies = {item.supply_id: item for item in scenario.supplies}
+    scenario = engine.context.scenario.model_copy(update=update)
+    engine.context.scenario = scenario
+    engine.context.semantics = dataclasses.replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
+    engine.context.rules.supplies = {item.supply_id: item for item in scenario.supplies}
 
 
 def _block(engine: LifeEngine, blocked) -> None:
@@ -58,28 +58,28 @@ def _block(engine: LifeEngine, blocked) -> None:
     _rescenario(engine, routes=tuple(
         route.model_copy(update={"status": "unreachable", "distance_meters": None, "duration_seconds": None,
                                  "fare_fen": None}) if blocked(route) else route
-        for route in engine.scenario.routes))
+        for route in engine.context.scenario.routes))
 
 
 def _retarget(engine: LifeEngine, supply_id: str, destinations: tuple[str, ...]) -> None:
     """把一条供给的可配送目的地换成 destinations。"""
     _rescenario(engine, supplies=tuple(
         item.model_copy(update={"delivery_destination_ids": destinations}) if item.supply_id == supply_id else item
-        for item in engine.scenario.supplies))
+        for item in engine.context.scenario.supplies))
 
 
 def _show(engine: LifeEngine, supply_id: str) -> None:
     """这条供给刚在人物此刻所在的地点呈现过（本轮工具层列为商品目标）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[1]
     agent.visible_supply_ids = {supply_id}
     agent.supply_browsed_at = {supply_id: staged.current_time}
     agent.supply_browsed_location = {supply_id: agent.location_id}
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_supply_shown"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _refused(engine: LifeEngine, name: str, request):
@@ -105,7 +105,7 @@ def test_browse_results_list_full_store_labels_and_nothing_else(engine_factory) 
     started = _act(engine, "labels-browse", "start_activity", _choice(engine.observe(context(engine, "labels")),
                                                                       "browse"))
     _finish(engine, started.activity_id, "labels-browse")
-    rows = engine.state.activities[started.activity_id].data["revealed"]["items"]
+    rows = engine.context.state.activities[started.activity_id].data["revealed"]["items"]
     observed = engine.observe(context(engine, "labels-seen"))
     (record,) = [row for row in progress_calls(observed, "start_activity")
                  if "browse_items" in row["result"]["details"]]
@@ -127,7 +127,7 @@ def test_goods_seen_in_a_browse_can_be_ordered_by_name_after_leaving(engine_fact
                                                                      "browse"))
     _finish(engine, started.activity_id, "leave-browse")
     assert conclude_pending(engine, "leave-browse-end").status == "completed"
-    rows = engine.state.activities[started.activity_id].data["revealed"]["items"]
+    rows = engine.context.state.activities[started.activity_id].data["revealed"]["items"]
     wanted = next(row for row in rows if "delivery" in row["fulfillment_modes"]
                   and "office" in row["delivery_destination_ids"])
     label = _label(engine, wanted["supply_id"])
@@ -136,7 +136,7 @@ def test_goods_seen_in_a_browse_can_be_ordered_by_name_after_leaving(engine_fact
     walk = _act(engine, "leave-walk", "start_activity", start_activity("步行", office))
     _finish(engine, walk.activity_id, "leave-walk")
     assert conclude_pending(engine, "leave-arrive").status == "completed"
-    assert engine.state.agents[1].location_id == "office"
+    assert engine.context.state.agents[1].location_id == "office"
     observed = engine.observe(context(engine, "leave-seen"))
     assert label not in tool_targets(observed)
     assert not any(row["kind"] == "supply" and row["object_id"] == wanted["supply_id"]
@@ -243,15 +243,15 @@ def test_held_elsewhere_hint_also_points_only_to_reachable_places(engine_factory
     前往<家>」，第一站是办公室此刻可达、列为地点目标的地点；原因不变。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    food = next(item for item in engine.scenario.products if "eat" in item.use_modes)
-    staged = engine.state.model_copy(deep=True)
+    food = next(item for item in engine.context.scenario.products if "eat" in item.use_modes)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(update={"location_id": "office",
                                                            "inventory": {"home": {food.product_id: 1.0}}}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_holding_elsewhere"})])
-    engine.state = staged
+    engine.context.state = staged
     _block(engine, lambda route: route.origin_id == "office" and route.destination_id == "home")
     home = _places(engine)["home"]
     observed = engine.observe(context(engine, "held-preview"))

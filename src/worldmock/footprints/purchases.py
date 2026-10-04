@@ -1,16 +1,17 @@
-"""@brief 从已提交事件投影购买事实：成功购买、尝试下单与应用浏览（docs/dev/SPEC-persona-prompt.md 第七章「导出」）。
+"""@brief 从已提交事件投影购买事实：成功购买、尝试下单与应用浏览（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「导出」）。
 
 成功购买取动作结果顶层 data.orders 与逐项结果 activity_results[*].orders 中的订单，按订单去重，与动作的整体状态
 无关（并行的「吃＋买」整体为 in_progress 时订单同样计入），重放回执带着同一订单，不重复计；每行另记订单载荷的
-channel_id（from 解析为渠道时的 App 标识，否则为 null，docs/dev/SPEC-dayrun-fidelity.md 3.3）。
+channel_id（from 解析为渠道时的 App 标识，否则为 null，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）
+。
 尝试下单是方式为到店、远程下单或「购买」的请求：所写方式按宿主与环境同一张
-方式同义表归一（name_resolution.way_options），「外卖」「自取」「买」这类同义写法与原词一样计入，way 记归一后的下单方式，
+方式同义表归一（vocabulary.way_options），「外卖」「自取」「买」这类同义写法与原词一样计入，way 记归一后的下单方式，
 不指向下单方式的写法不计；带首个结算结果的状态与错误码。应用浏览是方式为浏览的活动，带最后一次快照的状态。
 """
 
 from __future__ import annotations
 
-from worldmock.life.name_resolution import way_options
+from worldmock.life.vocabulary import way_options
 
 #: 下单的取得方式短语（与 life.interaction_menu.NAMED_PURCHASE_WAYS 的取值相同：到店、远程下单与由系统定方式的「购买」）。
 ORDER_WAYS = ("到店", "远程下单", "购买")

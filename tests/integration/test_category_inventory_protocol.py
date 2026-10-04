@@ -84,12 +84,12 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     choice = start_arguments([binding["object"]], [offered["verb"]], [offered["label"]])
     dispatcher = _Dispatcher(choice)
     person = _person(environment, current, dispatcher)
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
     request = ReactLoopRequest(0, current.observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": observation},
     ])
     await person.run_react_loop(request)
-    assert engine.state.model_dump(mode="json") == before
+    assert engine.context.state.model_dump(mode="json") == before
     assert len(dispatcher.requests) == 1
     action_request = dispatcher.requests[0]
     assert set(_action_schema(action_request)["parameters"]["properties"]) == (
@@ -109,24 +109,24 @@ def _offered(observation: dict, name: str) -> list[tuple]:
 @pytest.mark.asyncio
 async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_path, monkeypatch):
     """人物只选持有物与方式：配方输入列 obtain 的「制作」，领域规则完成配方转换；用完当秒收尾后，下一轮的产物
-    列 consume 的「使用」（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」）。"""
+    列 consume 的「使用」（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「请求形状与菜单」）。"""
     path = _recipe_path(tmp_path)
     engine = _engine(tmp_path, path, "readable-recipe")
     try:
         before, started = await _use_held_item(engine, "recipe-input", _INPUT_OBJECT, monkeypatch)
         assert _offered(before, "持有物：密封工具盒") == [("obtain", "制作", True, None), _NOBODY_GIVE]
         assert started.status.value == "in_progress"
-        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
+        assert engine.context.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
         _advance_to_completion(engine, started.activity_id)
-        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
+        assert engine.context.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
         assert conclude_pending(engine, "recipe-input-conclude").status.value == "completed"
         after, next_started = await _use_held_item(engine, "recipe-output", _OUTPUT_OBJECT, monkeypatch)
         assert _offered(after, "持有物：拆封工具盒") == [("consume", "使用", True, None), _NOBODY_GIVE]
         assert all(row["name"] != "持有物：密封工具盒" for row in after["tool_layer"]["targets"])
         assert next_started.status.value == "in_progress"
         _advance_to_completion(engine, next_started.activity_id)
-        assert "package_opened" in engine.state.agents[1].active_effects
-        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
+        assert "package_opened" in engine.context.state.agents[1].active_effects
+        assert engine.context.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
     finally:
         engine.close()
 
@@ -155,7 +155,7 @@ def test_held_food_is_offered_for_eating_without_a_purchase_quote(tmp_path):
 @pytest.mark.parametrize("required_location", [None, "home", "office"])
 def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
     """地点条件仍由领域结算判断：只能在别处用的持有物照常列出「制作」，标不可用并写明点名地点名称的原因（与私有
-    绑定的 note 同一文本）；工具层不承载地点编号（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。"""
+    绑定的 note 同一文本）；工具层不承载地点编号（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」）。"""
     path = _recipe_path(tmp_path, required_location=required_location)
     engine = _engine(tmp_path, path, f"location-{required_location}")
     try:
@@ -171,7 +171,7 @@ def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
         assert give == _NOBODY_GIVE
         assert (verb, way) == ("obtain", "制作")
         if required_location == "office":
-            office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
+            office = next(item.name for item in engine.context.scenario.locations if item.location_id == "office")
             assert available is False and office in reason
             assert held["actions"][0]["note"] == reason
         else:

@@ -402,8 +402,8 @@ def _repin(document):
 def test_formal_scenario_seed_must_agree_with_its_pinned_map(tmp_path, change):
     """@brief 同一地图身份与版本按种子各冻结一份报价：正式场景的种子与所钉地图的种子不一致时，真实加载入口在选图时
     拒绝并写明原因，不会拿另一个种子的报价继续运行。"""
-    from tests.life.conftest import _mutated_scenario
-    from worldmock.life.semantics import load_runtime_scenario
+    from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
+    from worldmock.life.world_setup import load_runtime_scenario
 
     path = _mutated_scenario(_FORMAL_SCENARIO, change, tmp_path)
     document = json.loads(path.read_text(encoding="utf-8"))

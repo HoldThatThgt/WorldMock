@@ -105,7 +105,8 @@ def test_production_causal_hard_error_disqualifies_only_its_candidate(
             "message": "Forced causal failure",
         }]
 
-    monkeypatch.setattr(rules, "evaluate_causal_events", finding)
+    import worldmock.evaluation.causality as causality
+    monkeypatch.setattr(causality, "evaluate_causal_events", finding)
     result = evaluate_causality(view, support)
 
     assert result.passed is False

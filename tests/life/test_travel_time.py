@@ -24,7 +24,8 @@ from worldmock.life.body import minimum_energy_cost
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
 from worldmock.life.scenario import parse_scenario_document
-from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
+from worldmock.life.semantics import assemble_semantics
+from worldmock.life.world_setup import load_runtime_scenario
 from tests.life.conftest import advance_next, context, start_activity
 from agentsociety2.society import DirectToolCall
 
@@ -95,7 +96,7 @@ def test_walking_duration_is_immune_to_the_factor(semantics) -> None:
 
 def _stage_peak(engine) -> None:
     """把隔离测试世界移到早高峰并保持身体结算时钟一致。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = _epoch(8)
     staged.pending_events = [event for event in staged.pending_events if event.due_at > staged.current_time]
     for agent_id, agent in staged.agents.items():
@@ -104,8 +105,8 @@ def _stage_peak(engine) -> None:
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                        visibility="system", source_kind="scenario", data={"kind": "test_peak_time"})
-    engine.store.commit(staged.model_dump(mode="json"), [event])
-    engine.state = staged
+    engine.context.store.commit(staged.model_dump(mode="json"), [event])
+    engine.context.state = staged
 
 
 def _start_driving(engine, name: str):
@@ -127,18 +128,18 @@ def test_engine_start_travel_uses_frozen_factored_duration(engine_factory) -> No
     """引擎采用本轮冻结路线时长，人物不填写自由流或报价数值。"""
     engine = engine_factory()
     _stage_peak(engine)
-    route = next(item for item in engine.scenario.routes
+    route = next(item for item in engine.context.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office"
                  and item.mode == TravelMode.DRIVING)
-    quote = engine.semantics.travel_planned_seconds(
-        "driving", route.duration_seconds, engine.state.current_time)
+    quote = engine.context.semantics.travel_planned_seconds(
+        "driving", route.duration_seconds, engine.context.state.current_time)
     assert quote > route.duration_seconds
     observed, accepted = _start_driving(engine, "quoted-accepted")
     observed_quote = next(row for row in observed["routes"]
                           if row["destination_id"] == "office" and row["mode"] == "driving")
     assert observed_quote["duration_seconds"] == quote
     assert accepted.status.value == "in_progress"
-    activity = engine.state.activities[accepted.activity_id]
+    activity = engine.context.state.activities[accepted.activity_id]
     assert activity.planned_duration_seconds == quote
     assert activity.location_id == "home"
     assert activity.destination_id == "office"
@@ -148,21 +149,21 @@ def test_engine_travel_settles_energy_for_the_factored_duration(engine_factory) 
     """路途能量按折算后时长结算（MET 路径），到达后地点更新。"""
     engine = engine_factory()
     _stage_peak(engine)
-    route = next(item for item in engine.scenario.routes
+    route = next(item for item in engine.context.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office"
                  and item.mode == TravelMode.DRIVING)
-    quote = engine.semantics.travel_planned_seconds(
-        "driving", route.duration_seconds, engine.state.current_time)
-    before = engine.state.agents[1].body.energy_kcal
+    quote = engine.context.semantics.travel_planned_seconds(
+        "driving", route.duration_seconds, engine.context.state.current_time)
+    before = engine.context.state.agents[1].body.energy_kcal
     _, result = _start_driving(engine, "travel-energy")
     assert result.status.value == "in_progress"
     activity_id = result.activity_id
-    while engine.state.activities[activity_id].status == ActivityStatus.ACTIVE:
+    while engine.context.state.activities[activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
-    met = engine.semantics.body.activity_met["travel:driving"]
-    expected = minimum_energy_cost(ActivityKind.TRAVEL, quote, engine.semantics.body, met)
-    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before - expected)
-    assert engine.state.agents[1].location_id == "office"
+    met = engine.context.semantics.body.activity_met["travel:driving"]
+    expected = minimum_energy_cost(ActivityKind.TRAVEL, quote, engine.context.semantics.body, met)
+    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before - expected)
+    assert engine.context.state.agents[1].location_id == "office"
 
 
 def test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified(engine_factory) -> None:
@@ -171,17 +172,17 @@ def test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified(engine_fa
     _stage_peak(engine)
     _, result = _start_driving(engine, "travel-origin")
     activity_id = result.activity_id
-    while engine.state.activities[activity_id].status == ActivityStatus.ACTIVE:
+    while engine.context.state.activities[activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     progress = [event for event in events
                 if event.event_type == "activity_progress" and event.activity_id == activity_id]
     assert progress
     assert all(event.data["activity"]["location_id"] == "home" for event in progress)
     assert progress[-1].data["activity"]["data"]["arrival"]["location_id"] == "office"
-    assert engine.state.activities[activity_id].location_id == "home"
-    assert engine.state.agents[1].location_id == "office"
-    facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.store.last_event_seq)
+    assert engine.context.state.activities[activity_id].location_id == "home"
+    assert engine.context.state.agents[1].location_id == "office"
+    facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.context.store.last_event_seq)
     assert any(row["kind"] == "arrived" and row["location_id"] == "office"
                and row["activity_id"] == activity_id for row in facts)
 
@@ -190,13 +191,13 @@ def test_observation_quotes_the_factored_duration(engine_factory) -> None:
     """观察层路线报价：duration_seconds 为出发时刻折算值并附自由流时长与系数。"""
     engine = engine_factory()
     observed = engine.observe(context(engine, "quote-night"))
-    hour = datetime.fromtimestamp(engine.state.current_time,
-                                  ZoneInfo(engine.scenario.timezone)).hour
+    hour = datetime.fromtimestamp(engine.context.state.current_time,
+                                  ZoneInfo(engine.context.scenario.timezone)).hour
     driving = next(item for item in observed["routes"]
                    if item["destination_id"] == "office" and item["mode"] == "driving")
     walking = next(item for item in observed["routes"]
                    if item["destination_id"] == "office" and item["mode"] == "walking")
-    factor = engine.semantics.travel_time_factor("driving", engine.state.current_time)
+    factor = engine.context.semantics.travel_time_factor("driving", engine.context.state.current_time)
     assert driving["travel_time_factor"] == factor
     assert driving["duration_seconds"] == math.ceil(driving["free_flow_duration_seconds"] * factor)
     assert walking["duration_seconds"] == walking["free_flow_duration_seconds"]

@@ -1,6 +1,7 @@
 """@brief 从固定事件截止点发布不可变足迹、活动与素材来源。"""
 
 from __future__ import annotations
+from worldmock.footprints import timeline_labels
 
 import hashlib
 import importlib.util
@@ -99,7 +100,7 @@ def _write_timeline_projections(store: FootprintStore, stage: Path,
     投影调用 scripts/render_day.py 的渲染函数（单一实现，不重复）；
     每个人物每个覆盖日一个文件，列入导出清单（sha256 + 字节数）。
     """
-    module = _load_render_day()
+    module = timeline_labels._load_render_day()
     records = []
     for agent_id in sorted(int(item) for item in store.manifest["agent_ids"]):
         for day in days:
@@ -114,15 +115,6 @@ def _write_timeline_projections(store: FootprintStore, stage: Path,
     return records
 
 
-def _load_render_day():
-    """@brief 按文件路径加载 scripts/render_day.py（scripts 不是包，单一事实源）。"""
-    path = Path(__file__).resolve().parents[3] / "scripts" / "render_day.py"
-    if not path.is_file() or path.is_symlink():
-        raise IntegrityError("The timeline projection script is missing or unsafe")
-    spec = importlib.util.spec_from_file_location("worldmock_export_render_day", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _export_identity(run: dict, events: list[Event]) -> dict:

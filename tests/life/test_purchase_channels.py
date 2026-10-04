@@ -1,4 +1,4 @@
-"""购买渠道：App 名解析为成员门店（docs/dev/SPEC-dayrun-fidelity.md 3.3，裁决 D8、S7；3.5「收敛」；验收台账「购买渠道」）。
+"""购买渠道：App 名解析为成员门店（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ，裁决 D8、S7；3.5「收敛」；验收台账「购买渠道」）。
 
 白领场景的隔离副本钉定一份手机配置：卖家 merchant:grocery → 盒马（称呼「盒马App」「盒马」，成员门店是集市），
 merchant:haode 与 merchant:nonggongshang → 美团外卖（称呼「美团外卖」「美团」，成员门店是好德与农工商超市）。渠道经
@@ -7,7 +7,7 @@ load_runtime_scenario 的真实加载路径派生并准入；真实 LifeEngine�
 （SOURCE_NOT_FOUND，候选为最相近的门店名与 App 称呼）各一例；渠道内多家都卖时按最快选最近的一家并写进 details.notes，
 并列时比到手价、再比门店标识；订单载荷与导出的 purchases.jsonl 带 channel_id；没有手机配置时 App 名报 SOURCE_NOT_FOUND；
 准入不成立的渠道在加载时拒绝，手机配置核验失败时不派生渠道、加载照常。冻结观察另带查询来源筛选的两项私有事实：渠道
-索引与供给条目所属门店（docs/dev/SPEC-errands-workday.md 5.2）。查询一侧（同一规格 5.2、5.5）：同一写法经购买的
+索引与供给条目所属门店（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）。查询一侧（同一规格 5.2、5.5）：同一写法经购买的
 source_scope 与查询的 from 得到逐一相等的门店集合，翻完的查询恰是这些门店里权限内的供给；渠道称呼写进 name 时给一条把它
 移到 from 的候选；渠道称呼同时是商品名时按对象匹配；没有权限内供给的门店是合法空页、也不作候选。
 """
@@ -44,7 +44,7 @@ from worldmock.life.name_resolution import resolve_source  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
 from worldmock.life.purchase_offers import source_scope  # noqa: E402
 from worldmock.life.readable import clock_phrase  # noqa: E402
-from worldmock.life.semantics import load_runtime_scenario  # noqa: E402
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.profile.coverage_apps import PurchaseChannel  # noqa: E402
 
 _MILK = "纯牛奶"
@@ -87,19 +87,19 @@ def _buy(name: str = _MILK, source: str | None = None, way: str = "远程下单"
 
 def _supply(engine, location_id: str):
     """某家门店出售的纯牛奶。"""
-    return next(item for item in engine.scenario.supplies if item.location_id == location_id
-                and engine.rules.items[item.product_id].name == _MILK)
+    return next(item for item in engine.context.scenario.supplies if item.location_id == location_id
+                and engine.context.rules.items[item.product_id].name == _MILK)
 
 
 def _label(engine, supply) -> str:
     """供给的完整标签「<门店>出售的<商品>」。"""
-    store = next(item.name for item in engine.scenario.locations if item.location_id == supply.location_id)
-    return f"{store}出售的{engine.rules.items[supply.product_id].name}"
+    store = next(item.name for item in engine.context.scenario.locations if item.location_id == supply.location_id)
+    return f"{store}出售的{engine.context.rules.items[supply.product_id].name}"
 
 
 def _arrival(engine, supply, destination: str) -> int:
     """现在下单送到 destination 的预计送达时刻（与受理、结算同一算法）。"""
-    return delivery_expected_at(engine.semantics, supply, destination, engine.state.current_time)
+    return delivery_expected_at(engine.context.semantics, supply, destination, engine.context.state.current_time)
 
 
 def test_channels_are_derived_from_the_pinned_phone_config_at_load(world) -> None:
@@ -189,7 +189,7 @@ def test_an_unknown_source_is_source_not_found_with_near_stores_and_apps(engine_
     """from 既不是门店名也不是渠道称呼（「美团App」）：宿主放行，环境以 SOURCE_NOT_FOUND 拒绝（名称类，3.4），逐项明细的
     参数名是 from，候选为最相近的门店名与 App 称呼写成的可照填请求（目标与方式照写，换 from）；不下单。"""
     engine = _engine(engine_factory, world)
-    before = dict(engine.state.deliveries)
+    before = dict(engine.context.state.deliveries)
     _, error, result = decide(engine, "unknown-source", _buy(source="美团App"))
     assert error == "" and (result.status, result.error_code) == ("rejected", "SOURCE_NOT_FOUND")
     [item] = result.data["items"]
@@ -201,7 +201,7 @@ def test_an_unknown_source_is_source_not_found_with_near_stores_and_apps(engine_
         _MILK, "远程下单", None) for candidate in item["candidates"])
     assert result.data["reason"] == "The source is not a known store or channel name."
     assert result.data["fix"] == "Set from to null or an exact known store or channel name."
-    assert dict(engine.state.deliveries) == before
+    assert dict(engine.context.state.deliveries) == before
     [candidate] = [row for row in item["candidates"] if row["arguments"]["items"][0]["from"] == "美团外卖"]
     _, retry_error, retried = decide(engine, "unknown-source-retry", candidate["arguments"])
     assert retry_error == "" and retried.status == "completed"
@@ -213,11 +213,11 @@ def test_an_app_name_without_a_phone_config_is_source_not_found(engine_factory) 
     engine = engine_factory()
     stage_day_plan(engine)
     at_clock(engine, 10, 0)
-    assert engine.semantics.purchase_channels == ()
+    assert engine.context.semantics.purchase_channels == ()
     _, error, result = decide(engine, "app-without-phone", _buy(source="盒马App"))
     assert error == "" and (result.status, result.error_code) == ("rejected", "SOURCE_NOT_FOUND")
     [item] = result.data["items"]
-    stores = {item.name for item in engine.scenario.locations}
+    stores = {item.name for item in engine.context.scenario.locations}
     assert item["candidates"] and all(candidate["arguments"]["items"][0]["from"] in stores for candidate in item["candidates"])
 
 
@@ -232,17 +232,17 @@ def test_several_member_stores_choose_the_nearest_and_note_it(engine_factory, wo
     assert error == "" and (result.status, result.error_code) == ("completed", None)
     [order] = result.data["orders"]
     assert (order["supply_id"], order["channel_id"]) == (haode.supply_id, "meituan-takeaway")
-    moment = clock_phrase(order["expected_at"], engine.state.current_time, engine.scenario.timezone)
+    moment = clock_phrase(order["expected_at"], engine.context.state.current_time, engine.context.scenario.timezone)
     assert result.data["notes"] == [f"「{_MILK}」有 2 处都能远程下单，按最快拿到选了{_label(engine, haode)}"
                                     f"（预计 {moment} 送到）"]
     _, _, cheap = decide(engine, "cheapest", _buy(source="美团外卖", prefer="到手价最低"))
     assert [(row["supply_id"], row["channel_id"]) for row in cheap.data["orders"]] == [
         (nonggongshang.supply_id, "meituan-takeaway")]
     assert "按到手价最低选了" in cheap.data["notes"][0] and "到手价" in cheap.data["notes"][0]
-    stored = [event for event in engine.store.read_agent_events("action_result", 1) if event.action_id == "action-nearest"]
+    stored = [event for event in engine.context.store.read_agent_events("action_result", 1) if event.action_id == "action-nearest"]
     assert [row["channel_id"] for row in stored[0].data["data"]["orders"]] == ["meituan-takeaway"]
     directory = tmp_path / "export"
-    export_run(engine.store, engine.store.last_event_seq, directory)
+    export_run(engine.context.store, engine.context.store.last_event_seq, directory)
     rows = [json.loads(line) for line in (directory / "purchases.jsonl").read_text(encoding="utf-8").splitlines()]
     events = [json.loads(line) for line in (directory / "events.jsonl").read_text(encoding="utf-8").splitlines()]
     assert rows == project_purchase_facts(events)
@@ -311,25 +311,25 @@ def test_a_listed_label_with_an_app_in_from_is_resolved_against_that_channel(eng
 
 
 def test_frozen_observation_carries_the_channel_index_and_supply_stores(engine_factory, world) -> None:
-    """冻结观察只新增两项私有事实（docs/dev/SPEC-errands-workday.md 5.2）：渠道索引 world_query_channels 按声明顺序列出各渠道
+    """冻结观察只新增两项私有事实（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）：渠道索引 world_query_channels 按声明顺序列出各渠道
     的身份、称呼与成员门店，与场景语义派生的购买渠道逐值相等；每个查询冻结条目带 location_id——供给条目是该供给所在的门店，
     其余条目为 null。观察事件从 SQLite 读回的两项与宿主拿到的逐值相等（环境入口读同一份）；两项都不进五个环境层，渠道索引
     列入提示禁键（location_id 已在禁键内）。"""
     engine = _engine(engine_factory, world)
     observed = engine.observe(context(engine, "frozen-sources"))
     channels = [{"channel_id": item.channel_id, "names": list(item.names),
-                 "store_location_ids": list(item.store_location_ids)} for item in engine.semantics.purchase_channels]
+                 "store_location_ids": list(item.store_location_ids)} for item in engine.context.semantics.purchase_channels]
     assert [row["channel_id"] for row in channels] == ["hema", "meituan-takeaway"]
     assert observed["world_query_channels"] == channels
     entries = observed["world_query_bindings"]
     for entry in entries:
         assert list(entry) == ["identity", "category", "aliases", "location_id", "match"]
         identity = entry["identity"]
-        supply = engine.rules.supplies[identity.removeprefix("supply:")] if identity.startswith("supply:") else None
+        supply = engine.context.rules.supplies[identity.removeprefix("supply:")] if identity.startswith("supply:") else None
         assert entry["location_id"] == (None if supply is None else supply.location_id), identity
     stores = {entry["location_id"] for entry in entries}
     assert {_HAODE, _NONGGONGSHANG, _MARKET, None} <= stores
-    [stored] = [event for event in engine.store.read_agent_events("observation", 1)
+    [stored] = [event for event in engine.context.store.read_agent_events("observation", 1)
                 if event.event_id == observed["observation_event_id"]]
     assert stored.data["world_query_channels"] == channels
     assert [(row["identity"], row["location_id"]) for row in stored.data["world_query_bindings"]] == [
@@ -341,7 +341,7 @@ def test_frozen_observation_carries_the_channel_index_and_supply_stores(engine_f
 
 
 def test_query_and_purchase_resolve_each_from_form_to_the_same_stores(engine_factory, world) -> None:
-    """来源解析购买与查询共用一个纯函数（docs/dev/SPEC-errands-workday.md 5.2）：同一写法——门店名、带「地点：」前缀的
+    """来源解析购买与查询共用一个纯函数（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）：同一写法——门店名、带「地点：」前缀的
     门店名、「家」「住处」、渠道称呼与大小写或空白不同的渠道称呼——经购买的 source_scope 与用冻结观察（地点表、住处、
     渠道索引）调用的 resolve_source 得到逐一相等的门店集合；沿 next_offset 翻完的 {from: 写法} 查询恰是这些门店里权限内
     的供给条目（住处没有供给，是合法空页）。既不是地点也不是渠道的写法两侧都拒绝：购买为 None，查询报 5.5 第一行的
@@ -349,7 +349,7 @@ def test_query_and_purchase_resolve_each_from_form_to_the_same_stores(engine_fac
     engine = _engine(engine_factory, world)
     session = _open(engine, "query-sources")
     observed = session.observed
-    purchase = SimpleNamespace(scenario=engine.scenario, semantics=engine.semantics, agent_id=1)
+    purchase = SimpleNamespace(scenario=engine.context.scenario, semantics=engine.context.semantics, agent_id=1)
     places = {row["location_id"]: row["name"] for row in observed["locations"]}
     channels = [(row["channel_id"], row["names"], row["store_location_ids"]) for row in observed["world_query_channels"]]
     home = observed["home_location_id"]
@@ -528,7 +528,7 @@ def test_home_spellings_resolve_to_the_same_stores_for_purchase_and_query(engine
     engine = _engine(engine_factory, world)
     session = _open(engine, "home-spellings")
     observed = session.observed
-    purchase = SimpleNamespace(scenario=engine.scenario, semantics=engine.semantics, agent_id=1)
+    purchase = SimpleNamespace(scenario=engine.context.scenario, semantics=engine.context.semantics, agent_id=1)
     places = {row["location_id"]: row["name"] for row in observed["locations"]}
     channels = [(row["channel_id"], row["names"], row["store_location_ids"])
                 for row in observed["world_query_channels"]]
@@ -586,14 +586,14 @@ def test_home_in_from_is_the_acting_persons_own_home_for_purchase_and_query(engi
     集市的全部条目）；两人都写 from「家」买纯牛奶，人物 1 以 SUPPLY_NOT_AT_STORE 被拒（这里没有可买的商品），人物 2 在
     自己住的集市到店成单，订单的门店是集市。"""
     engine = open_world(engine_factory, mutate=_second_home_is_the_market)
-    homes = {item.agent_id: item.home_location_id for item in engine.scenario.agents}
+    homes = {item.agent_id: item.home_location_id for item in engine.context.scenario.agents}
     assert homes == {1: "home", 2: _MARKET}
     sessions = _sessions(engine, "own-home")
     assert set(sessions) == {1, 2}
     for agent_id, session in sessions.items():
         observed, home = session.observed, homes[agent_id]
         places = {row["location_id"]: row["name"] for row in observed["locations"]}
-        purchase = SimpleNamespace(scenario=engine.scenario, semantics=engine.semantics, agent_id=agent_id)
+        purchase = SimpleNamespace(scenario=engine.context.scenario, semantics=engine.context.semantics, agent_id=agent_id)
         assert observed["home_location_id"] == home
         for written in ("家", "住处"):
             scope = source_scope(purchase, written)
@@ -608,4 +608,4 @@ def test_home_in_from_is_the_acting_persons_own_home_for_purchase_and_query(engi
     assert (results[2].status, results[2].error_code) == ("completed", None)
     [order] = results[2].data["orders"]
     assert (order["agent_id"], order["location_id"], order["fulfillment"]) == (2, _MARKET, "pickup")
-    assert [delivery.agent_id for delivery in engine.state.deliveries.values()] == [2]
+    assert [delivery.agent_id for delivery in engine.context.state.deliveries.values()] == [2]

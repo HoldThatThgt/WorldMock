@@ -135,16 +135,16 @@ def test_initial_observation_sees_already_delivered_appointment_and_contract(eng
         task["appointment"] = {"starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
     engine = engine_factory(mutate=mutate)
     stage_day_plan(engine)
-    task = engine.scenario.tasks[0]
-    assert task.task_id in engine.state.agents[1].visible_task_ids
+    task = engine.context.scenario.tasks[0]
+    assert task.task_id in engine.context.state.agents[1].visible_task_ids
     observed = engine.observe(context(engine, "initial-appointment"))
     target = next(row for row in observed["tool_layer"]["targets"] if row["name"] == f"工作：{task.title}")
     assert set(target["contract"]) == {"opens", "deadline", "place", "remaining", "outlook"}
     assert target["contract"]["opens"].endswith("10:00:00+08:00")
-    assert target["contract"]["place"] == engine.rules.locations[task.required_location_id].name
+    assert target["contract"]["place"] == engine.context.rules.locations[task.required_location_id].name
     assert target["actions"][0]["available"] is False
     assert "10:00:00+08:00" in target["actions"][0]["reason"]
-    notice = next(row for row in engine.scenario.messages if row.message_id in engine.state.agents[1].visible_message_ids)
+    notice = next(row for row in engine.context.scenario.messages if row.message_id in engine.context.state.agents[1].visible_message_ids)
     public = [observed[key] for key in ("tool_layer", "progress_layer", "memory_layer", "todo_layer")]
     assert notice.body not in json.dumps(public, ensure_ascii=False)
 
@@ -186,7 +186,7 @@ def test_compact_layer_preserves_false_zero_contract_and_control_tools():
 def test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day(engine_factory):
     engine = engine_factory()
     stage_day_plan(engine)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     written = "wrong"
     report = {"error_code": "ARGUMENTS_INVALID", "reason": "Invalid value", "items": [
         {"path": ["tool_calls", 0, "function", "arguments", "prefer"], "written": written,
@@ -194,26 +194,26 @@ def test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day(eng
     response = {"choices": [{"message": {"tool_calls": [{"function": {"name": "start_activity"}}]}}]}
     drafts = [EventDraft(event_type="model_response", occurred_at=now, agent_id=1,
                          data={"protocol_feedback": report, "response": response}) for _ in range(2)]
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), drafts)
-    engine.state = staged
-    view = SimpleNamespace(state=engine.state, scenario=engine.scenario, agent_id=1)
-    memo = rejected_today(view, engine.store)
+    engine.context.store.commit(staged.model_dump(mode="json"), drafts)
+    engine.context.state = staged
+    view = SimpleNamespace(state=engine.context.state, scenario=engine.context.scenario, agent_id=1)
+    memo = rejected_today(view, engine.context.store)
     assert len(memo) == 1 and memo[0]["written"] == written and memo[0]["times"] == 2
     assert len(memo[0]["why"]) <= 60
     staged.current_time += 60
-    assert rejected_today(view, engine.store) == memo
+    assert rejected_today(view, engine.context.store) == memo
     drafts = [EventDraft(event_type="action_requested", occurred_at=staged.current_time, agent_id=1,
                          action_id="corrected", data={"tool_name": "start_activity", "request": {"prefer": "最快拿到"}}),
               EventDraft(event_type="action_accepted", occurred_at=staged.current_time, agent_id=1,
                          action_id="corrected", data={})]
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), drafts)
-    assert rejected_today(view, engine.store)[0]["accepted_as"] == "最快拿到"
+    engine.context.store.commit(staged.model_dump(mode="json"), drafts)
+    assert rejected_today(view, engine.context.store)[0]["accepted_as"] == "最快拿到"
     staged.current_time += 86400
-    assert rejected_today(view, engine.store) == []
-    assert engine.store.read_agent_events("model_response", 1)
+    assert rejected_today(view, engine.context.store) == []
+    assert engine.context.store.read_agent_events("model_response", 1)
 
 
 
@@ -224,13 +224,13 @@ def test_appointment_wakes_only_at_real_opening_and_never_wakes_sleep(engine_fac
         task = document["tasks"][0]
         task["appointment"] = {"starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
     engine = engine_factory(mutate=mutate)
-    task = engine.scenario.tasks[0]
-    mail = next(row for row in engine.state.pending_events if row.kind == ScheduledKind.MAIL_ARRIVAL
-                and engine.rules.messages[row.data["message_id"]].related_task_id == task.task_id)
-    state = engine.state.model_copy(update={"current_time": mail.due_at}, deep=True)
-    state = apply_scheduled_effect(state, mail, engine.semantics).state
+    task = engine.context.scenario.tasks[0]
+    mail = next(row for row in engine.context.state.pending_events if row.kind == ScheduledKind.MAIL_ARRIVAL
+                and engine.context.rules.messages[row.data["message_id"]].related_task_id == task.task_id)
+    state = engine.context.state.model_copy(update={"current_time": mail.due_at}, deep=True)
+    state = apply_scheduled_effect(state, mail, engine.context.semantics).state
     state.agents[1].last_decision_time = mail.due_at
-    inputs = rhythm.engine_rhythm_inputs(engine, state, arrival_flags={1: {"message_arrival"}})
+    inputs = rhythm.engine.context_rhythm_inputs(engine, state, arrival_flags={1: {'message_arrival'}})
     facts = {"task": set(), "closing": set()}
     snapshot = rhythm._wake_snapshot(state.agents[1], inputs, facts, set())
     reasons = evaluate_wake_reasons(snapshot).wake_reasons
@@ -239,8 +239,8 @@ def test_appointment_wakes_only_at_real_opening_and_never_wakes_sleep(engine_fac
     opening = next(row for row in state.pending_events if row.kind == ScheduledKind.WORK_AVAILABLE
                    and row.data["task_id"] == task.task_id)
     state.current_time = opening.due_at
-    state = apply_scheduled_effect(state, opening, engine.semantics).state
-    inputs = rhythm.engine_rhythm_inputs(engine, state, arrival_flags={1: {"task_available"}})
+    state = apply_scheduled_effect(state, opening, engine.context.semantics).state
+    inputs = rhythm.engine.context_rhythm_inputs(engine, state, arrival_flags={1: {'task_available'}})
     snapshot = rhythm._wake_snapshot(state.agents[1], inputs, facts, set())
     assert WakeReason.TASK_AVAILABLE in evaluate_wake_reasons(snapshot).wake_reasons
     assert WakeReason.TASK_AVAILABLE not in evaluate_wake_reasons(snapshot.model_copy(update={"is_asleep": True})).wake_reasons
@@ -251,15 +251,15 @@ def test_mail_reading_keeps_actual_body_and_only_full_task_name(engine_factory):
     from worldmock.life.result_projection import public_result
 
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
-    notice = next(row for row in engine.scenario.messages if row.related_task_id == task.task_id)
-    agent = engine.state.agents[1].model_copy(update={"visible_message_ids": {notice.message_id}})
+    task = engine.context.scenario.tasks[0]
+    notice = next(row for row in engine.context.scenario.messages if row.related_task_id == task.task_id)
+    agent = engine.context.state.agents[1].model_copy(update={"visible_message_ids": {notice.message_id}})
     activity = SimpleNamespace(target_id=notice.message_id)
-    changed, revealed = reveal_mail(activity, agent, engine.rules.messages)
+    changed, revealed = reveal_mail(activity, agent, engine.context.rules.messages)
     result = {"occurred_at": int(notice.sent_at.timestamp()), "status": "completed", "error_code": None,
               "message": "Mail reading completed", "data": {"activity": {"kind": "read_mail",
                                                                          "data": {"revealed": revealed}}}}
-    mail = public_result(result, engine.scenario)["details"]["mail"]
+    mail = public_result(result, engine.context.scenario)["details"]["mail"]
     assert mail == {"subject": notice.subject, "body": notice.body, "task": f"工作：{task.title}"}
     assert changed.read_message_ids == {notice.message_id}
     assert not {"opens", "deadline", "place", "oracle", "expected"}.intersection(mail)
@@ -273,27 +273,27 @@ def test_memo_and_appointment_survive_persistent_reopen(engine_factory, tmp_path
             "starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
     engine = engine_factory(mutate=mutate)
     stage_day_plan(engine)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     report = {"error_code": "NAME_NOT_FOUND", "reason": "Unknown object", "items": [
         {"path": ["tool_calls", 0, "function", "arguments", "items", 0, "target"],
          "written": "Missing object", "why": "This object does not exist."}]}
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="model_response", occurred_at=now, agent_id=1, data={"protocol_feedback": report})])
-    engine.state = staged
-    expected = rejected_today(SimpleNamespace(state=engine.state, scenario=engine.scenario, agent_id=1), engine.store)
-    run_directory = engine.store.run_dir
+    engine.context.state = staged
+    expected = rejected_today(SimpleNamespace(state=engine.context.state, scenario=engine.context.scenario, agent_id=1), engine.context.store)
+    run_directory = engine.context.store.run_dir
     engine.close()
     scenario_path = tmp_path / "scenario-0" / "scenarios" / "white-collar-12-weeks.json"
     reopened = LifeEngine.open(scenario_path, run_directory)
     try:
         observed = reopened.observe(context(reopened, "reopened-memo"))
         assert observed["progress_layer"]["rejected_today"] == expected
-        assert reopened.state.agents[1].visible_task_ids == staged.agents[1].visible_task_ids
-        opening = next(row for row in reopened.state.pending_events if row.kind == ScheduledKind.WORK_AVAILABLE
-                       and row.data["task_id"] == reopened.scenario.tasks[0].task_id)
-        assert opening.due_at == int(reopened.scenario.tasks[0].appointment.starts_at.timestamp())
+        assert reopened.context.state.agents[1].visible_task_ids == staged.agents[1].visible_task_ids
+        opening = next(row for row in reopened.context.state.pending_events if row.kind == ScheduledKind.WORK_AVAILABLE
+                       and row.data["task_id"] == reopened.context.scenario.tasks[0].task_id)
+        assert opening.due_at == int(reopened.context.scenario.tasks[0].appointment.starts_at.timestamp())
     finally:
         reopened.close()
 
@@ -322,21 +322,21 @@ def test_actual_frozen_tool_layer_and_prompt_groups_restore_identically(engine_f
 
 def test_memo_caps_recent_entries_and_reason_without_truncating_audit(engine_factory):
     engine = engine_factory()
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     drafts = []
     for index in range(10):
         item = {"path": ["tool_calls", 0, "function", "arguments", "name"],
                 "written": f"Unknown {index}", "why": "The object name is unavailable. " * 5}
         drafts.append(EventDraft(event_type="model_response", occurred_at=now, agent_id=1,
                                  data={"protocol_feedback": {"error_code": "NAME_NOT_FOUND", "items": [item]}}))
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), drafts)
-    engine.state = staged
-    memo = rejected_today(SimpleNamespace(state=staged, scenario=engine.scenario, agent_id=1), engine.store)
+    engine.context.store.commit(staged.model_dump(mode="json"), drafts)
+    engine.context.state = staged
+    memo = rejected_today(SimpleNamespace(state=staged, scenario=engine.context.scenario, agent_id=1), engine.context.store)
     assert len(memo) == 8 and memo[0]["written"] == "Unknown 9" and memo[-1]["written"] == "Unknown 2"
     assert all(len(row["why"]) == 60 for row in memo)
-    stored = engine.store.read_agent_events("model_response", 1)
+    stored = engine.context.store.read_agent_events("model_response", 1)
     assert len(stored) == 10 and len(stored[0].data["protocol_feedback"]["items"][0]["why"]) > 60
 
 
@@ -354,7 +354,7 @@ def test_read_queries_keep_actual_model_exchange_without_progress_events(engine_
     decision = context(engine, "read-query-evidence")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
     environment = LifeEnv()
     environment.engine = engine
     category = observed["tool_layer"]["callable_index"]["query_categories"][0]["category"]
@@ -381,10 +381,10 @@ def test_read_queries_keep_actual_model_exchange_without_progress_events(engine_
                                                    {"model": "test-model", "messages": messages}))
     after = engine.observe(decision)
     assert after["progress_layer"]["events"] == observed["progress_layer"]["events"]
-    assert engine.state.model_dump(mode="json") == before
-    evidence = engine.store.read_agent_events("model_request", 1)[-1]
+    assert engine.context.state.model_dump(mode="json") == before
+    evidence = engine.context.store.read_agent_events("model_request", 1)[-1]
     assert evidence.data["request"]["messages"] == messages
-    assert not engine.store.read_agent_events("action_requested", 1)
+    assert not engine.context.store.read_agent_events("action_requested", 1)
 
 
 def test_compact_prompt_continuation_preserves_head_and_exact_target_changes(engine_factory):
@@ -398,7 +398,7 @@ def test_compact_prompt_continuation_preserves_head_and_exact_target_changes(eng
     decision = context(engine, "compact-continuation")
     observed = engine.observe(decision)
     agent = LifeAgent()
-    agent._name = engine.scenario.agents[0].name
+    agent._name = engine.context.scenario.agents[0].name
     agent._profile = {"id": 1, "name": agent._name}
     initial = ReactLoopRequest(0, decision.observed_at, [{"data": observed}])
     agent.prepare_react_loop(initial)
@@ -420,7 +420,7 @@ def test_compact_prompt_continuation_preserves_head_and_exact_target_changes(eng
     payload = json.loads(continued[-1]["content"])
     assert payload["changes"]["targets"]["updated"] == [target]
     assert payload["changes"]["targets"]["updated"][0]["actions"][0]["available"] is False
-    assert engine.state.version == decision.world_state_version
+    assert engine.context.state.version == decision.world_state_version
 
 
 def test_plan_times_display_exact_declared_local_format(engine_factory):

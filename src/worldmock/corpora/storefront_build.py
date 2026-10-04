@@ -7,7 +7,8 @@ from datetime import datetime
 
 from worldmock.corpora.storefront import assortment_objects, frozen_price
 from worldmock.errors import IntegrityError
-from worldmock.life.map_models import DataSource, QuoteConfig, SupplyConfig
+from worldmock.life.models import DataSource
+from worldmock.life.map_models import QuoteConfig, SupplyConfig
 
 
 def build_storefront_supplies(catalog, assignment, locations, assumptions: dict, random_seed: int) -> tuple:

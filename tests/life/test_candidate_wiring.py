@@ -16,16 +16,16 @@ def test_observation_commits_presented_object_stamps(engine_factory) -> None:
     presented = {row["object_id"] for row in observed["interaction_bindings"]
                  if row["kind"] in {"content", "game", "lifestyle"}}
     assert presented
-    assert engine.state.presentation_state == {}
+    assert engine.context.state.presentation_state == {}
 
     request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(decision, "candidate-wait", "start_activity", request))
     assert engine.commit_decision_round("candidate-wiring")[0].status == "in_progress"
-    assert engine.state.presentation_state == {}
-    staged = engine.state.same_moment_presentation[1].stamps
+    assert engine.context.state.presentation_state == {}
+    staged = engine.context.state.same_moment_presentation[1].stamps
     assert presented <= set(staged)
     advance_next(engine)
-    assert engine.state.same_moment_presentation == {}
-    recorded = engine.state.presentation_state[1]
+    assert engine.context.state.same_moment_presentation == {}
+    recorded = engine.context.state.presentation_state[1]
     assert presented <= set(recorded)
     assert all(recorded[item] == decision.observed_at.timestamp() for item in presented)

@@ -120,7 +120,7 @@ def test_unrecognised_or_malformed_requests_fail_as_integrity_errors(tool: str, 
 
 @pytest.mark.parametrize("tool", CONTROL_TOOLS)
 def test_a_current_request_without_errands_is_rejected(tool: str) -> None:
-    """@brief 带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-errands-workday.md 2.3、2.9）：唯一读取
+    """@brief 带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.9）：唯一读取
     入口 control_items 以完整性故障拒绝，经它读取的投影（进度层参数与交付窗口的 control_request）、请求级变更的读取
     （control_errands）与收尾记忆的判定随之拒绝，不留读取分支；errands 不是列表同样拒绝。带空 errands 的同一请求照常读出。"""
     builder = {"report_status": report_request, "pause_activity": pause_request, "conclude_activity": conclude_request}
@@ -201,14 +201,14 @@ def test_control_errands_reads_every_change_in_order(tool: str) -> None:
 def _readers(engine) -> dict:
     """环境侧读控制请求的全部读者此刻的结果：记忆层、看法与偏好、进度层、零点计划的收尾记录与记忆写入点。"""
     memory_layer._CACHE.clear()
-    context = engine._layer_context(engine.state.agents[1], (), [])
-    memory = memory_layer.memory_view(context, engine.store)
-    requests = engine.store.read_agent_events("action_requested", 1)
+    context = engine.observations._layer_context(engine.context.state.agents[1], (), [])
+    memory = memory_layer.memory_view(context, engine.context.store)
+    requests = engine.context.store.read_agent_events("action_requested", 1)
     conclusions = [event for event in requests if event.data["tool_name"] == "conclude_activity"]
     observation = SimpleNamespace(data={"wake_reasons": []})
-    return {"memory_layer": memory.layer, "persona_views": memory_layer.persona_views(context, engine.store),
-            "progress_layer": progress_layer.progress_view(context, engine.store, memory.facts).layer,
-            "plan": plan_inputs(engine, 1).payload["收尾记录"],
+    return {"memory_layer": memory.layer, "persona_views": memory_layer.persona_views(context, engine.context.store),
+            "progress_layer": progress_layer.progress_view(context, engine.context.store, memory.facts).layer,
+            "plan": plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1).payload["收尾记录"],
             "write_points": [memory_write_points(requests, event.decision_id, observation, True)
                              for event in conclusions],
             "has_memories": [conclusion_has_memories(event.data["request"]) for event in conclusions]}
@@ -218,7 +218,7 @@ def test_readers_project_current_items_events_consistently(engine_factory) -> No
     """@brief 真实暂停、恢复、结束和出门后，各读者从逐项事件提取自述、记忆与看法。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    friend = engine.scenario.agents[0].contacts[0].salutation
+    friend = engine.context.scenario.agents[0].contacts[0].salutation
     _, waited = _act(engine, "g-wait", "start_activity", start_activity("等待", "自己"))
     name = activity_name(engine, waited.activity_id)
     wake_by_mail(engine, offset=120)
@@ -238,7 +238,7 @@ def test_readers_project_current_items_events_consistently(engine_factory) -> No
     current = _readers(engine)
     notes = [note["text"] for entry in current["memory_layer"]["earlier_today"] for note in entry["self_notes"]]
     assert notes == ["先停一下", "等完了", "每天歇一会儿"]
-    controls = [event for event in engine.store.read_agent_events("action_requested", 1)
+    controls = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                 if event.data["tool_name"] in CONTROL_TOOLS]
     assert {event.data["tool_name"] for event in controls} == set(CONTROL_TOOLS)
     assert all("items" in event.data["request"] and "task" not in event.data["request"] for event in controls)

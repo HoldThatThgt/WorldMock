@@ -1,4 +1,4 @@
-"""@brief 代点请求与订单关联（docs/dev/SPEC-persona-prompt.md 第五章「代点请求与订单关联」）。
+"""@brief 代点请求与订单关联（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「代点请求与订单关联」）。
 
 answering 填一条可见直接消息的规范名称「<发件人> HH:MM 的消息」（不是今天的在 HH:MM 前加「M月D日」），时刻取消息送达
 （进度层 message_arrival 的 occurred_at）；私有绑定 message_bindings 把名称映射到消息与发件人，只收本次观察可见的
@@ -15,7 +15,7 @@ from typing import Any
 
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.guidance import Refusal
-from worldmock.life.interaction_menu import PURCHASE_WAYS
+from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.readable import clock_phrase, iso_time, portion_phrase
 from worldmock.life.recipients import person_name
 from worldmock.life.tool_layer import LayerContext

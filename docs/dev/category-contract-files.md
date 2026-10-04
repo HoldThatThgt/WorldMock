@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/category-contract-files.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 品类契约逐文件修改清单
 
 基线：`426af3bfe3d7e507b749f286e08857e697c2ac2f`。采集时 HEAD：`cb446d23d4651b9707b7c488eb502a8f59da587c`。

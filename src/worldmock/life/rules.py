@@ -46,7 +46,8 @@ class LifeRuleEngine:
                        present: str | None) -> dict:
         """@brief 校验活动目标并返回结算所需的冻结身份；位置前置条件附带前往建议（可读地点名）。
 
-        :param present: 人物的现场地点，途中（有进行中出行）为 None（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）。
+        :param present: 人物的现场地点，途中（有进行中出行）为 None（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）
+        。
         """
         kind = request.activity_type
         self.validate_activity_location(agent, kind, request.target_id, present)
@@ -89,7 +90,7 @@ class LifeRuleEngine:
     def _validate_watch(self, agent: AgentState, request: ActivityStartParams) -> dict:
         """@brief 观看校验：已看完或剩余不足 60 秒记 repeat、从 0 起播，否则接着看、从上次位置开始。
 
-        接触次数只在首次与从头重看时加一，接着看不加（docs/dev/SPEC-time-and-energy.md 第七章「三层结构」）；
+        接触次数只在首次与从头重看时加一，接着看不加（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「三层结构」）；
         内容品类写进活动数据，占用按它判定（播客只占 ears）。
         """
         item = self.content(request.target_id)

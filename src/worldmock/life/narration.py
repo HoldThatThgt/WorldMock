@@ -1,12 +1,13 @@
 """@brief 提示侧渲染与字段黑名单：七层 JSON 的规范序列化。
 
-七层请求的每一层都是 JSON 对象（docs/dev/SPEC-persona-prompt.md 第一章「通用格式」）；宿主用
+七层请求的每一层都是 JSON 对象（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「通用格式」）；宿主用
 render_layer_json 做唯一的紧凑序列化（键序即构建顺序，不排序，中文不转义），序列化前执行字段黑名单：
 内部身份、哈希、账户、数值身体状态、合同全表与私有绑定、进度层私有证据都不得进入提示。本模块是纯函数库，
 只依赖标准库。
 """
 
 from __future__ import annotations
+from worldmock.life.tool_groups import compact_render
 
 import json
 import logging
@@ -16,10 +17,10 @@ PERSONA_CARD_HANZI_BUDGET = 600
 
 #: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与 activities 对应"完整活动快照"；
 #: affordance_contract 和 interaction_menu 是合同全表；*_bindings 是名称到内部身份的私有绑定；world_query_channels 是
-#: 查询来源筛选的私有渠道索引（docs/dev/SPEC-errands-workday.md 5.2）；
+#: 查询来源筛选的私有渠道索引（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）；
 #: persona_views、progress_meta、progress_event_ids、presented_message_ids 与 continuation 是观察私有证据
-#: （docs/dev/SPEC-persona-prompt.md 第一章、第二章「同秒续接」）；个人事务的两类私有绑定与事务身份 errand_id 同列禁键
-#: （docs/dev/SPEC-errands-workday.md 2.3）。七层字段 activity（记忆层 self_notes 与结果 outcome 的活动名）是可读名称，
+#: （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章、第二章「同秒续接」）；个人事务的两类私有绑定与事务身份 errand_id 同列禁键
+#: （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。七层字段 activity（记忆层 self_notes 与结果 outcome 的活动名）是可读名称，
 #: 不在禁键之列。
 FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",
@@ -166,14 +167,13 @@ def enforce_field_blacklist(payload: object) -> None:
 def render_layer_json(value: object) -> str:
     """@brief 七层 JSON 的唯一规范序列化：先执行字段黑名单，再紧凑序列化（键序即构建顺序，中文不转义）。
 
-    docs/dev/SPEC-persona-prompt.md 第一章「请求组成」：system 为系统层 JSON，user 为六层 JSON 数组，
+    docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「请求组成」：system 为系统层 JSON，user 为六层 JSON 数组，
     都以紧凑形式发送，键序固定、不排序。
 
     @param value 一层 JSON 对象或按固定层序排列的层数组
     @return 紧凑 JSON 文本
     @exception ForbiddenObservationFieldError value 含黑名单字段
     """
-    from worldmock.life.tool_groups import compact_render
 
     enforce_field_blacklist(value)
     return json.dumps(compact_render(value), ensure_ascii=False, separators=(",", ":"))

@@ -1,7 +1,7 @@
 """一日运行保真规格的验收登记表（完整性守卫的数据源）。
 
 @file     dayrun_fidelity_acceptance.py
-@brief    把 docs/dev/SPEC-dayrun-fidelity.md 的「验收台账」各行、「裁决记录」两张表中状态为已定的裁决逐行登记到真正验证它的
+@brief    把 docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 的「验收台账」各行、「裁决记录」两张表中状态为已定的裁决逐行登记到真正验证它的
           测试节点；「输入警告」行另按警告码逐码登记一例；并冻结本特性新增或改动的生产文件与新增测试文件，供延期标记与空壳函数
           扫描。判定由 tests/test_dayrun_fidelity_acceptance.py 执行。
 @note     登记的节点是走真实引擎、宿主、导出或加载路径的行为测试（文档登记类条款读真实文档），不是结构匹配；一行列多个节点时
@@ -70,7 +70,7 @@ _GOAL_EXPORT = ("tests/footprints/test_goal_export.py::"
 _PROBE = "tests/test_probe_deepseek_strict.py::"
 _ENDPOINT = "tests/integration/test_strict_endpoint.py::"
 _IDENTITY = "tests/integration/test_runtime.py::test_model_identity_freezes_complete_strict_endpoint_and_request"
-_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
+_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve"
 _DOCS_MARKERS = "tests/test_dayrun_fidelity_acceptance.py::test_docs_carry_no_pending_markers_of_this_feature"
 _DOCS_ANCHORS = "tests/test_dayrun_fidelity_acceptance.py::test_anchored_links_in_docs_point_to_existing_headings"
 _VIEWER = "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"

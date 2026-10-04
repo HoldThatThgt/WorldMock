@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/day-plan-goals-main-verification.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 当日目标与 main 组合验收
 
 > 状态：主线组合的代码身份、依赖可达性与文档一致性验收通过。

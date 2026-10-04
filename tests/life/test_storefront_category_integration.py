@@ -75,7 +75,7 @@ def _internal_order(engine, identity: str) -> PurchaseOrderRequest:
     """领域层复查继续接受三件内部订单，模型入口只允许单件。"""
     return PurchaseOrderRequest(items=(PurchaseItem(
         supply_id=identity, quantity=3, recipient_id="agent:1",
-        price_version=engine.state.supply_quotes[identity].price_version),),
+        price_version=engine.context.state.supply_quotes[identity].price_version),),
         fulfillment="delivery", destination_id="home")
 
 
@@ -88,10 +88,10 @@ def test_independent_quotes_use_each_supply_frozen_price_in_real_engine(priced_e
         if index:
             # 下单是瞬时动作，第二家门店在同一秒的再决策轮中购买（时间与能量规格第一章规则 2）。
             _stage_open_market(engine)
-        supply = engine.rules.supplies[identity]
-        before_accounts = dict(engine.state.accounts)
-        before_stock = dict(engine.state.supply_stock)
-        before_quotes = dict(engine.state.supply_quotes)
+        supply = engine.context.rules.supplies[identity]
+        before_accounts = dict(engine.context.state.accounts)
+        before_stock = dict(engine.context.state.supply_stock)
+        before_quotes = dict(engine.context.state.supply_quotes)
         observed, binding, public, result = _buy(engine, identity, f"store-{index}")
         expected = (price + 1) // 2
         assert target_actions(observed, public["name"])["远程下单"]["price"] == money_phrase(expected)
@@ -105,11 +105,11 @@ def test_independent_quotes_use_each_supply_frozen_price_in_real_engine(priced_e
         assert result.data["category_matches"] == [{
             "category_id": "food-dairy", "rule_id": "purchase-product", "action": "purchase",
         }]
-        assert engine.state.accounts["agent:1"] == before_accounts["agent:1"] - expected
-        assert engine.state.accounts[supply.seller_account_id] == (
+        assert engine.context.state.accounts["agent:1"] == before_accounts["agent:1"] - expected
+        assert engine.context.state.accounts[supply.seller_account_id] == (
             before_accounts[supply.seller_account_id] + expected)
-        assert engine.state.supply_stock[identity] == before_stock[identity] - 1
-        assert engine.state.supply_quotes == before_quotes
+        assert engine.context.state.supply_stock[identity] == before_stock[identity] - 1
+        assert engine.context.state.supply_quotes == before_quotes
         text = json.dumps(observed["tool_layer"], ensure_ascii=False)
         assert '"supply_id"' not in text and '"price_version"' not in text and identity not in text
         seen_sellers.add(supply.seller_account_id)
@@ -127,12 +127,12 @@ def test_purchase_pairing_recheck_refuses_without_domain_state_change(priced_eng
         document["pairings"][-1].update(state="no_effect", review=document["review"])
     _write_json(directory / "category-contract.json", document)
     altered = load_category_contract(directory / "category-contract.json")
-    semantics = replace(engine.semantics, catalog=replace(engine.semantics.catalog,
+    semantics = replace(engine.context.semantics, catalog=replace(engine.context.semantics.catalog,
                         category_contract=altered))
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
     with pytest.raises(BusinessRuleError, match=f"^CATEGORY_PAIRING_{state.upper()}$"):
-        purchase_order(engine.state, semantics, 1, _internal_order(engine, identity))
-    assert engine.state.model_dump(mode="json") == before
+        purchase_order(engine.context.state, semantics, 1, _internal_order(engine, identity))
+    assert engine.context.state.model_dump(mode="json") == before
 
 
 @pytest.mark.parametrize("priced_engine", [{"coefficient": 0}], indirect=True)
@@ -141,37 +141,37 @@ def test_defined_zero_coefficient_purchase_has_no_account_transfer(priced_engine
     engine, _ = priced_engine
     _stage_open_market(engine)
     identity = next(iter(PRICES))
-    accounts = dict(engine.state.accounts)
-    stock = engine.state.supply_stock[identity]
+    accounts = dict(engine.context.state.accounts)
+    stock = engine.context.state.supply_stock[identity]
     observed, _, public, result = _buy(engine, identity, "zero-amount")
     assert target_actions(observed, public["name"])["远程下单"]["price"] == money_phrase(0)
     assert result.status.value == "completed"
     assert result.data["total_price_fen"] == 0
-    assert engine.state.accounts == accounts
-    assert engine.state.supply_stock[identity] == stock - 1
+    assert engine.context.state.accounts == accounts
+    assert engine.context.state.supply_stock[identity] == stock - 1
     order_id = result.data["orders"][0]["order_id"]
     for step in range(64):
-        if engine.state.deliveries[order_id].status == "delivered":
+        if engine.context.state.deliveries[order_id].status == "delivered":
             break
         # 没有进行中活动时时钟不推进（时间与能量规格第一章规则 1）：等配送时以等待度过；
         # 等待按计划结束的那一秒先给它收尾（第七章「活动一结束就要结束它」）。
-        if pending_conclusions(engine.state, 1):
+        if pending_conclusions(engine.context.state, 1):
             conclude_pending(engine, f"await-end-{step}")
         elif engine.scheduling_state().ready_agent_ids:
             submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, f"await-{step}")
         else:
             advance_next(engine)
-    assert engine.state.deliveries[order_id].status == "delivered"
-    assert engine.state.agents[1].inventory["home"][PRODUCT] >= 1
-    assert engine.state.accounts == accounts
+    assert engine.context.state.deliveries[order_id].status == "delivered"
+    assert engine.context.state.agents[1].inventory["home"][PRODUCT] >= 1
+    assert engine.context.state.accounts == accounts
 
 
 def test_zero_base_quote_is_invalid_in_frozen_and_persisted_models(priced_engine):
     """基础报价必须为正，品类系数可使实际付款为零。"""
     engine, _ = priced_engine
-    supply = engine.rules.supplies[next(iter(PRICES))]
+    supply = engine.context.rules.supplies[next(iter(PRICES))]
     with pytest.raises(ValidationError, match="price_fen"):
         QuoteConfig.model_validate({**supply.quotes[0].model_dump(mode="json"), "price_fen": 0})
-    persisted = engine.state.supply_quotes[supply.supply_id].model_dump(mode="json")
+    persisted = engine.context.state.supply_quotes[supply.supply_id].model_dump(mode="json")
     with pytest.raises(ValidationError, match="price_fen"):
         SupplyQuoteState.model_validate({**persisted, "price_fen": 0})

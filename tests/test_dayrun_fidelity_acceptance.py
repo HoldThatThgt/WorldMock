@@ -1,7 +1,7 @@
 """一日运行保真规格的完整性守卫：台账逐行有测试、裁决全部落地、没有延后的实现、文档不留待验收标记。
 
 @file     test_dayrun_fidelity_acceptance.py
-@brief    以 tests/dayrun_fidelity_acceptance.py 为数据源，测试时解析 docs/dev/SPEC-dayrun-fidelity.md 的「验收台账」与「裁决记录」
+@brief    以 tests/dayrun_fidelity_acceptance.py 为数据源，测试时解析 docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 的「验收台账」与「裁决记录」
           两张表，逐行判定：登记表与台账各行一一对应（规格增删行而登记表不跟随即失败）；裁决除 D13（登记）与 S2（撤回）外全部
           已定，每条有要建之物的已定裁决都登记了测试；只报告的行在规格中仍写明只报告；输入警告的闭集逐码各有一例；每个登记的
           节点都解析到存在、会被收集且未被跳过的测试（按 AST 解析，含类中的测试与参数化节点）；本特性新增或改动的生产文件与
@@ -25,7 +25,9 @@ from urllib.parse import unquote
 
 import pytest
 
-from tests.acceptance_guard import DEFERRAL, NODE_ID, resolve_problem, section, stub_functions, tables
+from scripts.documentation_gate import find_problems, historical_documents
+
+from tests.acceptance_guard import DEFERRAL, NODE_ID, acceptance_section, resolve_problem, stub_functions
 from tests.dayrun_fidelity_acceptance import (
     FEATURE_PRODUCTION_FILES,
     FEATURE_TEST_FILES,
@@ -38,7 +40,6 @@ from tests.dayrun_fidelity_acceptance import (
 from worldmock.profile.injection import INPUT_WARNING_CODES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC_PATH = REPO_ROOT / "docs" / "dev" / "SPEC-dayrun-fidelity.md"
 LEDGER_HEADING = "## 验收台账"
 RULINGS_HEADING = "## 裁决记录"
 #: 「裁决记录」第一张表（会话中已定的方向）与第二张表（本文的推荐与另一选项）的编号，按表中顺序。
@@ -47,7 +48,6 @@ RECOMMENDED = [f"D{number}" for number in range(2, 20)] + [f"S{number}" for numb
 #: 已定裁决状态列的开头（其后可带用户裁定的说明）。
 DECIDED = "已定"
 #: 只报告行在规格中的固定说法（台账表前的说明句）与台账行首列必带的字样。
-REPORT_ONLY_PHRASE = "复跑指标只报告，不作门禁"
 REPORT_ONLY_MARK = "只报告"
 
 #: 本特性冻结时写进文档的临时标记（片段拼接，避免本文件命中自己的扫描）：三个待验收状态词与文档地图的未实现说法。
@@ -67,7 +67,7 @@ _FENCE = "```"
 
 def _ledger_rows() -> list[tuple[str, str]]:
     """「验收台账」逐行的（契约点，必须通过的验证）。"""
-    (table,) = tables(SPEC_PATH, LEDGER_HEADING)
+    (table,) = acceptance_section("dayrun-fidelity", "验收台账")["tables"]
     header, *rows = table
     assert header == ["契约点", "必须通过的验证"]
     return [(row[0], row[1]) for row in rows]
@@ -75,7 +75,7 @@ def _ledger_rows() -> list[tuple[str, str]]:
 
 def _rulings() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """「裁决记录」两张表逐行的（编号，状态）：第一张是会话中已定的方向，第二张是推荐与另一选项。"""
-    first, second = tables(SPEC_PATH, RULINGS_HEADING)
+    first, second = acceptance_section("dayrun-fidelity", "裁决记录")["tables"]
     assert first[0] == ["#", "事项", "结论", "状态"]
     assert second[0] == ["#", "事项", "推荐", "另一选项及后果", "状态"]
     return [(row[0], row[-1]) for row in first[1:]], [(row[0], row[-1]) for row in second[1:]]
@@ -132,7 +132,8 @@ def _document_markers(path: Path, relative: str) -> list[str]:
 def _pending_markers(root: Path) -> list[str]:
     """root/docs 下（研究与验收记录目录除外）全部 Markdown 文档里仍在的临时标记。"""
     documents = {path.relative_to(root).as_posix(): path for path in (root / "docs").rglob("*.md")}
-    return [marker for relative in sorted(documents) if not relative.startswith(_RESEARCH)
+    historical = historical_documents(root)
+    return [marker for relative in sorted(documents) if documents[relative].resolve() not in historical
             for marker in _document_markers(documents[relative], relative)]
 
 
@@ -147,32 +148,10 @@ def _prose_lines(path: Path) -> list[tuple[int, str]]:
     return lines
 
 
-def _heading_anchors(path: Path) -> set[str]:
-    """文档各标题的 GitHub 口径锚点：去掉链接写法与标点、小写、每个空白换成连字符（汉字保留），重名的依次加 -1、-2。"""
-    anchors, seen = set(), {}
-    for _, line in _prose_lines(path):
-        if match := _HEADING.match(line):
-            text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", match.group(1))
-            base = re.sub(r"\s", "-", re.sub(r"[^\w\s-]", "", text.strip().lower()))
-            anchors.add(f"{base}-{seen[base]}" if base in seen else base)
-            seen[base] = seen.get(base, 0) + 1
-    return anchors
-
-
 def _broken_anchors(root: Path) -> list[str]:
-    """root/docs 下 Markdown 文档里带锚点、指向本文件或另一份存在的 Markdown 文档的链接中，锚点不是目标标题的，逐条写成
-    「路径:行号: 目标#锚点」。"""
-    broken, cache = [], {}
-    for path in sorted((root / "docs").rglob("*.md"), key=lambda item: item.relative_to(root).as_posix()):
-        for number, line in _prose_lines(path):
-            for target, anchor in _ANCHORED_LINK.findall(line):
-                document = (path.parent / target).resolve() if target else path
-                if target and (not target.endswith(".md") or not document.is_file()):
-                    continue
-                anchors = cache.setdefault(document, _heading_anchors(document))
-                if unquote(anchor) not in anchors and unquote(anchor).lower() not in anchors:
-                    broken.append(f"{path.relative_to(root).as_posix()}:{number}: {target}#{anchor}")
-    return broken
+    """@brief 文档链接统一交给正式门禁，避免第二套标题锚点规则。"""
+    return [f"{problem.source}:{problem.line}: {problem.message}" for problem in find_problems(root)
+            if "identifier" in problem.message]
 
 
 def test_every_ledger_row_is_registered_and_every_registered_row_exists() -> None:
@@ -204,8 +183,7 @@ def test_report_only_rows_stay_report_only_in_the_spec() -> None:
     """只报告的行（WC 与 BIZ 全天复跑）在规格中仍写明只报告、不作门禁：台账表前的说明句照旧，行首列仍带「只报告」；它登记的
     是所读质量报告各节的测试，说明写在登记表里。"""
     verification = dict(_ledger_rows())
-    notes = [line for line in section(SPEC_PATH, LEDGER_HEADING) if line.strip() and not line.startswith("|")]
-    assert any(REPORT_ONLY_PHRASE in line for line in notes), notes
+    assert dict(REPORT_ONLY) == acceptance_section("dayrun-fidelity", "report_only")
     assert REPORT_ONLY
     for row, note in REPORT_ONLY.items():
         assert row in LEDGER and row in verification and note
@@ -373,22 +351,3 @@ def test_pending_marker_scan_catches_every_form_and_leaves_history_alone(tmp_pat
     assert found == ["docs/INDEX.md:7", "docs/INDEX.md:9", "docs/dev/SPEC-a.md:3", "docs/dev/SPEC-a.md:12",
                      "docs/dev/SPEC-a.md:14", "docs/dev/SPEC-a.md:15", "docs/dev/SPEC-a.md:18",
                      "docs/dev/notes.md:1", "docs/dev/notes.md:2"]
-
-
-def test_anchor_check_resolves_github_anchors_and_reports_missing_headings(tmp_path: Path) -> None:
-    """锚点判定有牙齿：编号标题去掉点号、代码片段与链接写法只留文字、重名标题加 -1、按百分号编码写的锚点都能解析；目标文档
-    没有这个标题、同一文件里没有这个标题都报出；代码围栏里的伪标题不算标题，围栏里的链接不检查；目标文件不存在与非
-    Markdown 目标交给文档链接门禁，不在这里报。"""
-    _write_docs(tmp_path, {
-        "dev/SPEC-b.md": ("# 乙规格\n\n## 验收台账\n\n### 7.2 输出截断与思考螺旋\n\n## `prefer` 与[渠道](x.md)\n\n"
-                          "## 重复\n\n## 重复\n\n```\n## 围栏里的伪标题\n```\n"),
-        "dev/SPEC-a.md": (
-            "# 甲规格\n\n## 本章\n\n"
-            "[a](#本章) [b](SPEC-b.md#验收台账) [c](SPEC-b.md#72-输出截断与思考螺旋) [d](SPEC-b.md#prefer-与渠道)\n"
-            "[e](SPEC-b.md#重复-1) [f](SPEC-b.md#%E9%AA%8C%E6%94%B6%E5%8F%B0%E8%B4%A6) [g](gone.md#x) [h](a.txt#x)\n"
-            "[i](SPEC-b.md#不存在) [j](#别处的标题) [k](SPEC-b.md#围栏里的伪标题) [l](SPEC-b.md#重复-2)\n"
-            "```\n[m](#围栏里不查)\n```\n"),
-    })
-    assert _broken_anchors(tmp_path) == [
-        "docs/dev/SPEC-a.md:7: SPEC-b.md#不存在", "docs/dev/SPEC-a.md:7: #别处的标题",
-        "docs/dev/SPEC-a.md:7: SPEC-b.md#围栏里的伪标题", "docs/dev/SPEC-a.md:7: SPEC-b.md#重复-2"]

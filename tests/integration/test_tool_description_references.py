@@ -1,4 +1,4 @@
-"""工具描述只写用途的门禁（docs/dev/SPEC-persona-prompt.md 第一章「请求组成」「唯一出现原则」）。
+"""工具描述只写用途的门禁（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「请求组成」「唯一出现原则」）。
 
 世界交互规则、登记与结果的区别只在系统层 rules 写一次；原生工具的 description 只写用途，不含协议与阶段规则、
 不指路任何观察字段（名称一律取自工具层与待办层，参数不带逐轮枚举）。参数 Schema 里的说明同样只写用途：不带开发文档、
@@ -102,7 +102,7 @@ def test_parameter_descriptions_are_purpose_only() -> None:
         assert _violations(retired)
 
 
-#: 接口合同「人物工具与管理接口」里三个控制工具用途句与字段说明的定稿表（docs/dev/SPEC-errands-workday.md 3.2）。
+#: 接口合同「人物工具与管理接口」里三个控制工具用途句与字段说明的定稿表（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-工具用途句与字段说明）。
 _CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "CONTRACTS.md"
 _CONTROL_TEXT_LEAD = "三个控制工具的用途句与字段说明定稿（与代码逐字相同）："
 #: 定稿表的位置列，按规格 3.2 的行序：三个用途句、收尾记忆、请求级 errands、每条变更的对象用途与它的八个键。
@@ -126,7 +126,7 @@ def _control_contract_texts() -> list[tuple[str, str]]:
 
 def test_control_tool_purposes_and_errand_descriptions_are_the_contract_text() -> None:
     """三个控制工具的用途句与十一处参数说明（收尾记忆、请求级 errands、每条变更的对象用途与它的八个键）与接口合同的
-    定稿表逐字相同（docs/dev/SPEC-errands-workday.md 3.2）：定稿表恰好十四行、按规格的行序；每个工具的实际 Schema 都带
+    定稿表逐字相同（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-工具用途句与字段说明）：定稿表恰好十四行、按规格的行序；每个工具的实际 Schema 都带
     同样的 errands 说明；十四句都通过只写用途的扫描（一句中文、不含规则说法与拉丁单词）。"""
     rows = _control_contract_texts()
     assert [position for position, _ in rows] == _CONTROL_TEXT_POSITIONS
@@ -147,18 +147,17 @@ def test_control_tool_purposes_and_errand_descriptions_are_the_contract_text() -
 
 
 #: 个人事务与工作安排规格 5.6 定稿 query_world 用途句的那一行的引导语。
-_PURPOSE_LEAD = "用途句定稿：「"
-_SPEC = Path(__file__).resolve().parents[2] / "docs" / "dev" / "SPEC-errands-workday.md"
+_PURPOSE_LEAD = "`query_world` 的用途句定稿（与代码逐字相同）：「"
 
 
 def test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint(monkeypatch) -> None:
-    """query_world 的用途句逐字等于 docs/dev/SPEC-errands-workday.md 5.6 定稿的那一句（从规格原文读出）；换回旧句时只有
+    """query_world 的用途句逐字等于 docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-执行位置与保留约束 定稿的那一句（从唯一接口合同读出）；换回旧句时只有
     工具指纹变、提示指纹不变（本阶段不改系统层与层 Schema）；严格 Schema 的六个键全部必填、按 name, way, category, from,
     available_only, offset 的顺序，from 是字符串或 null、available_only 是布尔，任何位置都没有字段说明。"""
     from custom.agents.life_agent import life_tool_schema_sha256
     from custom.agents.life_prompt import life_prompt_sha256
 
-    [line] = [line for line in _SPEC.read_text(encoding="utf-8").splitlines() if _PURPOSE_LEAD in line]
+    [line] = [line for line in _CONTRACTS.read_text(encoding="utf-8").splitlines() if _PURPOSE_LEAD in line]
     sentence = line.split(_PURPOSE_LEAD, 1)[1].split("」", 1)[0]
     assert sentence and TOOL_DESCRIPTIONS["query_world"] == sentence
     assert not _violations(sentence)

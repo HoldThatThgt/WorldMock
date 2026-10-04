@@ -1,6 +1,6 @@
 """进食分段结算必须守住库存、开吃份量、累计食用和热量的同一份量账本。
 
-开吃时本次份量从库存移入活动的 opened（docs/dev/SPEC-persona-prompt.md 第五章「进食」），之后只按 opened 与实际进度结算：
+开吃时本次份量从库存移入活动的 opened（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」），之后只按 opened 与实际进度结算：
 任一时刻「库存 ＋ 开吃份量中未吃的部分 ＋ 已吃 ＝ 初始」，其他份数不动，暂停期间库存被别处吃掉也不影响结算。
 """
 

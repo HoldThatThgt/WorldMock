@@ -1,4 +1,4 @@
-"""@brief 记忆层与看法偏好：由已提交事件与世界状态在构建提示时派生（docs/dev/SPEC-persona-prompt.md 第一章「记忆层」、
+"""@brief 记忆层与看法偏好：由已提交事件与世界状态在构建提示时派生（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「记忆层」、
 第三章「进度与记忆的更新」，裁决 #32–#34）。
 
 - session 区间：（前一边界提交的末事件序号, 本边界提交的末事件序号]，与进度层同一下界（session_bounds.session_lower），
@@ -32,14 +32,14 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life import progress_layer
 from worldmock.life.control_items import control_items
 from worldmock.life.models import ActivityKind, SessionState, SessionStatus
-from worldmock.life.name_resolution import START_SUFFIX
+from worldmock.life.object_labels import START_SUFFIX
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
                                          purchase_sentence, record_lines, tool_record, work_line)
 from worldmock.life.tool_layer import LayerContext
 
-#: 记忆层 JSON 的字符上限（新常量，docs/dev/SPEC-persona-prompt.md 第三章「窗口」）。
+#: 记忆层 JSON 的字符上限（新常量，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「窗口」）。
 MEMORY_WINDOW_CHARS = 8000
 #: 反思归属日期：睡眠开始时刻前推的秒数（裁决 #34）。
 REFLECTION_SHIFT_SECONDS = 6 * 3600
@@ -168,7 +168,7 @@ def persona_views(context: LayerContext, store: FootprintStore) -> dict:
 
 def noted_label(layer: dict, name: str, text: str) -> str | None:
     """@brief 这段人物自述若仍在记忆层 self_notes 中（按活动名标注，标注可去掉开始时刻后缀），返回它所用的活动标注，
-    否则为 None；回看据此不重复正文（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。"""
+    否则为 None；回看据此不重复正文（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「唯一出现原则」）。"""
     labels = {name, START_SUFFIX.sub("", name, count=1)}
     return next((note["activity"] for entry in (*layer["earlier_days"], *layer["earlier_today"])
                  for note in entry["self_notes"] if note["activity"] in labels and note["text"] == text), None)

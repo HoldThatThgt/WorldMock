@@ -13,7 +13,8 @@ from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.activities import ActivityOrigin, start_activity
 from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.models import ActivityKind, ActivityStartParams
-from worldmock.life.scenario import RuntimeScenario, load_scenario, parse_scenario_document
+from worldmock.life.scenario import RuntimeScenario, parse_scenario_document
+from worldmock.life.world_setup import load_scenario
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
 _PHONE_PAIR = "phone simulation config path and hash must be declared together"
@@ -69,27 +70,27 @@ def test_restore_check_rejects_a_persisted_activity_outside_the_frozen_scenario(
 ) -> None:
     """恢复复核：目标合法的持久活动通过；指向冻结场景外工作任务的持久活动以完整性错误拒绝并记下活动身份。"""
     engine = engine_factory()
-    person, now, body = engine.state.agents[1], engine.state.current_time, engine.scenario.body
+    person, now, body = engine.context.state.agents[1], engine.context.state.current_time, engine.context.scenario.body
     _, waiting = start_activity(person, ActivityStartParams(
         activity_type=ActivityKind.WAIT, planned_duration_seconds=600), now, _origin("wait"), body)
-    engine.state.activities[waiting.activity_id] = waiting
-    assert validate_activity_targets(engine.state, engine.rules, engine.scenario) is None
+    engine.context.state.activities[waiting.activity_id] = waiting
+    assert validate_activity_targets(engine.context.state, engine.context.rules, engine.context.scenario) is None
     _, stray = start_activity(person, ActivityStartParams(
         activity_type=ActivityKind.WORK, planned_duration_seconds=600, target_id="task-outside-scenario"),
         now, _origin("work"), body)
-    engine.state.activities[stray.activity_id] = stray
+    engine.context.state.activities[stray.activity_id] = stray
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="^Persisted activity target is invalid$"):
-        validate_activity_targets(engine.state, engine.rules, engine.scenario)
+        validate_activity_targets(engine.context.state, engine.context.rules, engine.context.scenario)
     assert f"Persisted activity target is invalid: {stray.activity_id}" in caplog.messages
 
 
 def test_watch_admission_rejects_content_outside_the_frozen_scenario(engine_factory) -> None:
     """观看受理只认冻结场景内容：未知内容以 CONTENT_NOT_FOUND 业务拒绝，场景内内容照常解析。"""
     engine = engine_factory()
-    person = engine.state.agents[1]
+    person = engine.context.state.agents[1]
     request = ActivityStartParams(
         activity_type=ActivityKind.WATCH, planned_duration_seconds=600, target_id="content-outside-scenario")
     with pytest.raises(BusinessRuleError, match="^CONTENT_NOT_FOUND$"):
-        engine.rules.validate_start(person, request, engine.state.current_time, person.location_id)
-    known = engine.scenario.contents[0]
-    assert engine.rules.content(known.item_id) == known
+        engine.context.rules.validate_start(person, request, engine.context.state.current_time, person.location_id)
+    known = engine.context.scenario.contents[0]
+    assert engine.context.rules.content(known.item_id) == known

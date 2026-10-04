@@ -1,0 +1,166 @@
+{
+  "source_commit": "2cf230115f4084aef2376e9d77bc976efbed43ea",
+  "cases": {
+    "20260105": {
+      "artifacts": {
+        "activities.jsonl": "775d7babc4fbe71dd54c3511e0b6837b18b93a13b7cac55f8da4fdadc68df6ee",
+        "asset-index.jsonl": "ae710e545d4ffcd8f8ddb77845f255aa15f9680abf6c20b4e301f2a17f64240c",
+        "assets/30f3d2df494c597be855433a065288af06906490e46df7c68219b76493bc8bf8": "30f3d2df494c597be855433a065288af06906490e46df7c68219b76493bc8bf8",
+        "assets/45475c0eac2395841b5c02313b02409d920fa037e657fb4bbf7f99413a180b57": "45475c0eac2395841b5c02313b02409d920fa037e657fb4bbf7f99413a180b57",
+        "assets/143f50e702db78bda6292fd9bccbe26c351b25eef757cf9880082d9d1c90abf7": "143f50e702db78bda6292fd9bccbe26c351b25eef757cf9880082d9d1c90abf7",
+        "events.jsonl": "7cf26a610aee46755fc9cccc5a9ba845a26f68e74d179ae7094e2acc8f5356f8",
+        "purchases.jsonl": "cbbb20922e87e4c068c54d213e5118125e522c6b0cba423784dc8459fad93749",
+        "quality.json": "275c49a7a2fbb19ec8e168f4cf2c1db7c804f98b83dd1f8d73ad9da6a8a4c37e",
+        "timeline/1-2026-01-05.md": "a52a40e2da75dfa581d7fc92c1f80b652bd10b8d93ef798585455a4f5a814803",
+        "timeline/2-2026-01-05.md": "2edc942785a3109bcb506a8c3c2eae9a6f0179f7ea8bd3ece043ffff817f3411",
+        "verified-experiences.jsonl": "96f15b36fe9b0db01d445a49100c608c8909f6daf0594066fdd3b1bbff3606ff",
+        "manifest.json": "718bcde662e2ea78249a5ff01995df554ed8a4108661f543379b64f2f7fbd565"
+      },
+      "checkpoints_sha256": "1be29fb0f0b3a7d1aff6001f575af68bd3f28c295e9e141386c6ffa9f6537525",
+      "run_assets": [
+        [
+          "143f50e702db78bda6292fd9bccbe26c351b25eef757cf9880082d9d1c90abf7",
+          267
+        ],
+        [
+          "1f50ff0d0cbfa2732cec91a1dea294a6202d40d23d81154f88be254fabe357ba",
+          20480
+        ],
+        [
+          "30f3d2df494c597be855433a065288af06906490e46df7c68219b76493bc8bf8",
+          20480
+        ],
+        [
+          "3b6dfbf38dbf8402ed51ec8e0faf596964f15a107beffd9b35057dd88aad3e46",
+          265
+        ],
+        [
+          "45475c0eac2395841b5c02313b02409d920fa037e657fb4bbf7f99413a180b57",
+          20480
+        ],
+        [
+          "6e08330350f72c4e0feab5bf8521b4ce60d0acd59dbf78009271f309363daa6e",
+          10240
+        ],
+        [
+          "745c31c94dad0843c8a7b12b150da66cf3825509da22a178455384b41caff1b4",
+          10240
+        ],
+        [
+          "aaaf17b57f99a742924759b4705e4877ebeee84ec5adebf75e48d8234899ce2b",
+          266
+        ],
+        [
+          "d5c514087ba024da1c42069c6da8781da0d9ba082c40ff08f376e45b70c13bf3",
+          10240
+        ]
+      ]
+    },
+    "20260106": {
+      "artifacts": {
+        "activities.jsonl": "0d2554cafe7c861a9484901b8d9fcb3bd9da3bfde422634ce722a78889403166",
+        "asset-index.jsonl": "2168cb254027ecd94b503a23b28a9a6ac45330c71a0d656a9f52c78d1839a289",
+        "assets/8d420beeb47e6967dca9b4729127cbf9d7ac3c9956298fb851bec94b6aef59e8": "8d420beeb47e6967dca9b4729127cbf9d7ac3c9956298fb851bec94b6aef59e8",
+        "assets/f2e436a5b421c6d7c43e0311c2a45b74c3e5d9fe1bab30e6a7b38dcbb8c1d567": "f2e436a5b421c6d7c43e0311c2a45b74c3e5d9fe1bab30e6a7b38dcbb8c1d567",
+        "assets/f7dc22b1123ca99d0f28b428c2ce6447faa6e1bb3eaafa171af518d3384d8d0b": "f7dc22b1123ca99d0f28b428c2ce6447faa6e1bb3eaafa171af518d3384d8d0b",
+        "events.jsonl": "512c6fab468223f01fae97a2ff8c0726b0112b0c4927bac4143e28ad3fea7de7",
+        "purchases.jsonl": "68f940f463b587b7d97b276fbd55a1cf88ccc50969454a01c2a8d07c86f3a75c",
+        "quality.json": "eb046ee3195c9b30f78dc224dd7a744b4a92839ccca6a1c7a16994ed129f739f",
+        "timeline/1-2026-01-05.md": "063b9e344ce366a42c2377614f6ca0c11a6fc1fe896fb4723892df44c4ce198b",
+        "timeline/2-2026-01-05.md": "25a8ad8d7f714a1bf5f4519bb44831dc796393542573b2e4d4680693a81b1692",
+        "verified-experiences.jsonl": "a8e439870d5b10bca8e24ef1b26dec2e553cc1c89ffb02e645b0acf946144b2d",
+        "manifest.json": "e67a8f8be9091a6b99f40c521957daaedf81dfec3ad175fae758d98a35cc5340"
+      },
+      "checkpoints_sha256": "704f3b8ae1aa98394eca76216919811b85ff0b9271aed8c10eda5581e13893fa",
+      "run_assets": [
+        [
+          "745c31c94dad0843c8a7b12b150da66cf3825509da22a178455384b41caff1b4",
+          10240
+        ],
+        [
+          "8d420beeb47e6967dca9b4729127cbf9d7ac3c9956298fb851bec94b6aef59e8",
+          20480
+        ],
+        [
+          "8d91abc02c5b064295bb344f0bc8a2e96ed944e26278352f2a44acd05c0d4e80",
+          20480
+        ],
+        [
+          "af337764743f618809cdfe24e8ce21c4ad7aa81ee3a84f7007e4e9e2b2ed9473",
+          266
+        ],
+        [
+          "cc3af8c2bc0a93344e74cc451341e2f59fa32104f2f68485016a5a6d0a40c338",
+          20480
+        ],
+        [
+          "d5c514087ba024da1c42069c6da8781da0d9ba082c40ff08f376e45b70c13bf3",
+          10240
+        ],
+        [
+          "e36f9b6b923eeb7bbf8c73a534eb5f90b351a5ea1055444703287caf17f5f426",
+          265
+        ],
+        [
+          "f2e436a5b421c6d7c43e0311c2a45b74c3e5d9fe1bab30e6a7b38dcbb8c1d567",
+          20480
+        ],
+        [
+          "f7dc22b1123ca99d0f28b428c2ce6447faa6e1bb3eaafa171af518d3384d8d0b",
+          267
+        ]
+      ]
+    }
+  },
+  "generation": {
+    "source_commit": "2cf230115f4084aef2376e9d77bc976efbed43ea",
+    "runs": [
+      {
+        "run": "stable-a",
+        "test_module": "tests/integration/test_dayrun_complete_days.py",
+        "interpreter": "Python 3.12.13",
+        "arguments": [
+          "-m",
+          "pytest",
+          "tests/integration/test_dayrun_complete_days.py",
+          "-q"
+        ],
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "wall_seconds": 315.269,
+        "execution_receipt_sha256": "9bfa823b719f4603dbf7aca2818332a4bb9f536cc46169bd56e9191e6411b604",
+        "case_signatures": {
+          "20260105": "8d3b1e0889583ce25e0b40df37d8693a181cf849ff03c1670cfdb591ac585bd1",
+          "20260106": "7318fc2ae836665897b1a5231efbbfd6d796c764c8437d01cf1e86d88dc5fe55"
+        }
+      },
+      {
+        "run": "stable-b",
+        "test_module": "tests/integration/test_dayrun_complete_days.py",
+        "interpreter": "Python 3.12.13",
+        "arguments": [
+          "-m",
+          "pytest",
+          "tests/integration/test_dayrun_complete_days.py",
+          "-q"
+        ],
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "wall_seconds": 315.144,
+        "execution_receipt_sha256": "214598b676a1bab69686ed8683ca4a460a899c957b9b78b190a3469c43d75496",
+        "case_signatures": {
+          "20260105": "8d3b1e0889583ce25e0b40df37d8693a181cf849ff03c1670cfdb591ac585bd1",
+          "20260106": "7318fc2ae836665897b1a5231efbbfd6d796c764c8437d01cf1e86d88dc5fe55"
+        }
+      }
+    ],
+    "cases_sha256": "40c6d4ef410d96f2319d7d24d77b3c10ddebee92f00b2b1de86a6e321860d496",
+    "harness_sha256": "0df08156ec91278d49794dad0fdd09344f12b55064fafd842940831b3e4d373e",
+    "identity_control": "Test-only UUID, recorded wall clock, process elapsed time and person initialization time are fixed; simulation time and business fields are preserved.",
+    "command_kind": "Reproduction command; selected test module and outcomes are verified from the original execution receipts."
+  }
+}

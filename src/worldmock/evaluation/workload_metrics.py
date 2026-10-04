@@ -1,4 +1,4 @@
-"""@brief 行为评估的工作负荷与作息偏离（docs/dev/SPEC-errands-workday.md 6.2）：从冻结足迹事件与一个可选的打包输入重算，只报告。
+"""@brief 行为评估的工作负荷与作息偏离（docs/VERIFICATION.md#errands-workday-度量与下游-行为评估 ）：从冻结足迹事件与一个可选的打包输入重算，只报告。
 
 打包输入（WorkdayInputs）带各人物的工作安排、本人任务的要求地点与开放时刻（含预约）、住处、覆盖后的下班与到家窗口
 （取自结构化卡片）与播报间隔；不解析任何提示文本，参照物是场景班次与作息窗口，不是当日计划。证据只取三类事件：
@@ -16,6 +16,7 @@
 """
 
 from __future__ import annotations
+from worldmock.life.scenario import runtime_tasks
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -105,7 +106,6 @@ def workday_inputs(document: LifeScenario, cards: Mapping[int, Mapping[str, Any]
     """@brief 由场景文档与各人物的结构化卡片打包评估输入：工作安排、住处、按指派人物分开的任务（开放时刻取装配后的
     通知或预约）与播报间隔取自场景文档；下班与到家窗口只取卡片 time_anchors 的 leave_work、arrive_home（覆盖已写进
     卡片），没有卡片或该锚点为 null 时为 None。"""
-    from worldmock.life.scenario import runtime_tasks
 
     tasks = runtime_tasks(document.tasks, document.messages)
     agents = {}

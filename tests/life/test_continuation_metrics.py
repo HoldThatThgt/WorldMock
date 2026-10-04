@@ -1,4 +1,4 @@
-"""@brief 续接对比子命令（scripts/inspect_run.py continuation，docs/dev/SPEC-persona-prompt.md 第七章「续接对比」）。
+"""@brief 续接对比子命令（scripts/inspect_run.py continuation，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「续接对比」）。
 
 逐决策给出链位置、请求数、reasoning_tokens（缺失时报字符数，两者不混算）、协议错误与传输失败（400 单列）、缓存命中与
 计价成本（与质量报告同一价目）、话题命中、工具是否与链首相同、按订单去重后的重复下单与链完整性；只读连接；--baseline
@@ -104,7 +104,7 @@ async def test_a_real_run_reports_chain_positions_reasoning_cache_cost_and_topic
     成本与质量报告的冻结价目逐次一致；话题按决策计。"""
     engine = engine_factory()
     await _live_run(engine)
-    report = _report(engine.store.run_dir)
+    report = _report(engine.context.store.run_dir)
     first, second, third = report["decisions"]
     assert (first["chain_position"], first["chain_intact"], first["same_second_follow_up"]) == (0, None, False)
     assert (second["chain_position"], second["chain_intact"], second["same_second_follow_up"]) == (1, True, True)
@@ -122,8 +122,8 @@ async def test_a_real_run_reports_chain_positions_reasoning_cache_cost_and_topic
                                           "reasoning_chars": len(_THINK_C), "decisions_with_chars": 1}
     assert (summary["continued"], summary["longest_chain"], summary["broken_chains"]) == (1, 2, 0)
     assert summary["topic_hits"] == {"咖啡": 1} and summary["tools_same_as_head"] == 1
-    events = engine.store.read_events(engine.store.last_event_seq)
-    quality = build_quality_report(events, [], engine.store.manifest)["model_usage"]["estimated_cost"]
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    quality = build_quality_report(events, [], engine.context.store.manifest)["model_usage"]["estimated_cost"]
     assert summary["unpriced_responses"] == 0 and summary["known_cost_usd"] == quality["known_estimate_usd"]
     responses = [event for event in events if event.event_type == "model_response"]
     requests = {event.event_id: event for event in events if event.event_type == "model_request"}
@@ -136,7 +136,7 @@ def test_the_subcommand_opens_the_run_read_only(engine_factory) -> None:
     """只读连接拒绝写入；子命令运行前后足迹库字节不变，并输出 JSON 报告。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     database = run_dir / "footprints.sqlite"
     before = hashlib.sha256(database.read_bytes()).hexdigest()
@@ -252,7 +252,7 @@ def test_errors_are_classified_with_400_separate_and_partial_tokens_fall_back_to
 
 def _manifest(switch: bool, **changes) -> dict:
     """@brief 可比运行清单：同一提交、场景与模型身份，按需改动字段。"""
-    from worldmock.runtime import stage_model_identity
+    from worldmock.run_setup import stage_model_identity
 
     manifest = {"run_id": f"arm-{switch}", "source_group_id": f"arm-{switch}", "agent_ids": [1],
                 "git_commit": "a" * 40, "git_dirty": False, "code_sha256": "c" * 64, "scenario_sha256": "s" * 64,
@@ -303,7 +303,7 @@ def _pre_feature_manifest() -> dict:
 
 def test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm(tmp_path) -> None:
     """特性之前的运行（带自述阶段）与引擎直驱运行的开关报告为 null，不按缺省开处理；这样的运行不能作关闭臂或任何一臂
-    （docs/dev/SPEC-persona-prompt.md 第七章「续接对比」）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「续接对比」）。"""
     module = _script()
     old = _pre_feature_manifest()
     assert module._switch(old) is None

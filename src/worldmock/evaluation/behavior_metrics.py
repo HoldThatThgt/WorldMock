@@ -10,7 +10,7 @@
 观察重复门禁按（人物，模拟秒）的续接链计：同一秒内的续接复用链首 user 合法。事件顶层 code_sha256 缺失时
 归入 code_sha256_unreported 组并注明，不猜测代码身份。
 工作负荷 workload 与作息偏离 routine_deviation 需要事件之外的输入（一个可选的打包对象，见 workload_metrics），
-没有它时两项为 null 并写说明；它们只报告，报告结构标识不变（docs/dev/SPEC-errands-workday.md 6.2）。
+没有它时两项为 null 并写说明；它们只报告，报告结构标识不变（docs/VERIFICATION.md#errands-workday-度量与下游-行为评估 ）。
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ _FAMILY_ALIASES = {
     "exercise": "exercise", "运动": "exercise", "outing": "outing", "外出": "outing",
 }
 
-#: 2018 年全国时间利用调查公报参照（分钟；城镇/工作日口径，居民均值，docs/VERIFICATION.md「真实性评估与结论边界」）。
+#: 2018 年全国时间利用调查公报参照（分钟；城镇/工作日口径，居民均值，docs/VERIFICATION.md#verification-worldmock-验收标准「真实性评估与结论边界」）。
 #: 睡觉 9h13m、个人卫生 50m、用餐 1h44m、就业参与者工作 7h40m、交通 44m、
 #: 社会交往 21m、健身 41m、看电视 100m、休闲娱乐 65m（后两项合并为屏幕娱乐 165m）。
 TIME_USE_REFERENCE_MINUTES = {
@@ -188,7 +188,7 @@ def _request_tool_names(request: Any) -> list[str]:
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
     只在工具中有 start_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
-    照计（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。"""
+    照计（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」）。"""
     selected = []
     for event in events:
         data = event.get("data", {})
@@ -348,7 +348,7 @@ def _is_passive_action(action: Mapping[str, Any], kinds: Mapping[str, list[str]]
     return tool_name == "start_activity" and kinds.get(str(action.get("action_id"))) == ["wait"]
 
 
-#: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动（docs/design/07-evaluation.md「2.2 报告项」）。
+#: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动（docs/design/07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估「2.2 报告项」）。
 _CONTROL_TOOLS = frozenset({"conclude_activity", "pause_activity", "revise_day_plan"})
 
 

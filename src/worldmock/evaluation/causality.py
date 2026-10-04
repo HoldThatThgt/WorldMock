@@ -12,13 +12,15 @@ LOGGER = logging.getLogger(__name__)
 _FINDING_FIELDS = {"code", "severity", "event_ids", "source_pointer", "message"}
 
 
+try:
+    from worldmock.delivery.rules import evaluate_causal_events
+except (ImportError, ModuleNotFoundError) as exc:
+    LOGGER.exception("Production causal evaluator is unavailable")
+    raise EvaluationError("causal_checker_unavailable", "production causal evaluator is unavailable") from exc
+
+
 def evaluate_causality(view: DatasetView, support: JsonObject) -> CausalResult:
     """@brief 使用统一证据投影调用唯一生产因果检查器。"""
-    try:
-        from worldmock.delivery.rules import evaluate_causal_events
-    except (ImportError, ModuleNotFoundError) as exc:
-        LOGGER.exception("Production causal evaluator is unavailable")
-        raise EvaluationError("causal_checker_unavailable", "production causal evaluator is unavailable") from exc
     events = [event.to_rule_dict() for event in view.events]
     try:
         findings = evaluate_causal_events(events, support)

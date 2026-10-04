@@ -1,3 +1,4 @@
+from worldmock.footprints.checkpoint import restore_branch
 import copy
 import hashlib
 import json
@@ -39,8 +40,7 @@ def pair(tmp_path):
     request = {'kind': 'set_balance_fen', 'agent_id': 1, 'balance_fen': 50,
                'hypothesis': 'Less liquidity may reduce purchases.', 'source_event_ids': [observed.event_id]}
     digest = hashlib.sha256(canonical_json({'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
-    child = parent.restore(checkpoint.checkpoint_id, tmp_path / 'child',
-                            {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
+    child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
     child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
         event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
         caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',

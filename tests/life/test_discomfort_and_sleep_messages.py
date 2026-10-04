@@ -1,4 +1,4 @@
-"""@brief 不适脉冲与睡眠中的消息（docs/dev/SPEC-dayrun-fidelity.md 1.5，验收台账「不适脉冲与消息」）。
+"""@brief 不适脉冲与睡眠中的消息（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ，验收台账「不适脉冲与消息」）。
 
 - 不适脉冲：两小时门槛只在节律结算段按连续不适时长判定一次，超出部分按 −0.1/小时计；只有实际施加了脉冲才记已计费小时。
 - 睡眠中不读消息：边界判定段与决策轮提交在人物在睡时都不记已读；睡眠中送达的消息在醒来后的第一个边界才记已读，
@@ -29,11 +29,11 @@ def _keep_waiting(engine, agent_id: int) -> None:
     """只有 agent_id 就绪的决策：有待收尾先收尾，手上没有活动时再等待一段（等待时长即结算间隔）。"""
     while engine.scheduling_state().ready_agent_ids:
         assert engine.scheduling_state().ready_agent_ids == (agent_id,)
-        pending = [item.name for item in engine.state.activities.values()
+        pending = [item.name for item in engine.context.state.activities.values()
                    if item.agent_id == agent_id and is_pending_conclusion(item)]
         call = (("conclude_activity", conclude_request(*pending)) if pending
                 else ("start_activity", start_activity("等待", "自己")))
-        submit_round(engine, {agent_id: call}, f"keep-{agent_id}-{engine.state.version}")
+        submit_round(engine, {agent_id: call}, f"keep-{agent_id}-{engine.context.state.version}")
 
 
 def test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies(tmp_path: Path) -> None:
@@ -44,15 +44,15 @@ def test_hunger_pulse_starts_after_two_hours_and_bills_only_what_it_applies(tmp_
     engine = _late_engine(tmp_path, "2026-01-05T12:00:00+08:00", "hunger")
     settle_day_plans(engine)
     _stage_body(engine, energy_kcal=790.0, mood_valence=0.0, neuroticism_norm=0.0)
-    start = engine.state.current_time
+    start = engine.context.state.current_time
     rows = {}
-    while engine.state.current_time < start + 10 * 900:
+    while engine.context.state.current_time < start + 10 * 900:
         _keep_waiting(engine, 1)
         advance_next(engine)
-        settlement = _settlement(engine, engine.state.current_time)
+        settlement = _settlement(engine, engine.context.state.current_time)
         assert settlement["interval_end"] - settlement["interval_start"] == 900
-        agent = engine.state.agents[1]
-        rows[(engine.state.current_time - start) // 900] = (agent.discomfort_started_at, agent.body.mood_valence,
+        agent = engine.context.state.agents[1]
+        rows[(engine.context.state.current_time - start) // 900] = (agent.discomfort_started_at, agent.body.mood_valence,
                                                             agent.discomfort_pulse_hours)
 
     assert {started for started, _, _ in rows.values()} == {start + 900}
@@ -110,7 +110,7 @@ def test_the_boundary_decision_segment_reads_no_message_while_asleep(engine_fact
     """边界判定段：人物在睡时未读消息照样成立 message_arrival（睡眠中被过滤），但不记已读、不施加阅读效果；醒着时
     判定后记已读（时间与能量规格第一章「人物之间的消息」）。"""
     engine = engine_factory()
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     now = state.current_time
     state.agents[1].last_decision_time = now
     state.agents[1].inbox = {"m-sleep": Message(message_id="m-sleep", kind="direct", sender_id="agent:2",
@@ -122,22 +122,22 @@ def test_the_boundary_decision_segment_reads_no_message_while_asleep(engine_fact
         origin_request_event_id="evt")
     body = state.agents[1].body
 
-    asleep, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    asleep, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
 
     assert "m-sleep" not in asleep.agents[1].read_inbox_ids and not rhythms[1].offered
     assert asleep.agents[1].body.social_need == body.social_need
     assert asleep.agents[1].body.mood_valence == body.mood_valence
     del state.activities["asleep"]
-    awake, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    awake, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
     assert "m-sleep" in awake.agents[1].read_inbox_ids and "message_arrival" in rhythms[1].wake_reasons
 
 
 def test_a_round_observed_while_asleep_marks_no_message_read(engine_factory) -> None:
     """决策轮提交：轮前在睡的人物看到的消息不记已读（睡眠中不读）；本轮才开始睡的人物轮前醒着，全文看过的照常记已读。"""
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
-    awake = _with_inbox(engine.state, 1, "m1")
+    awake = _with_inbox(engine.context.state, 1, "m1")
     now = awake.current_time
     sleep = ActivityState(activity_id="asleep", agent_id=1, location_id=awake.agents[1].location_id,
                           kind=ActivityKind.SLEEP, status=ActivityStatus.ACTIVE, started_at=now,
@@ -156,10 +156,10 @@ def test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_wa
     """人物 2 睡着时收到人物 1 的消息：睡眠中的每个边界都保持未读，社交需要与情绪都不因它变化；提醒叫醒的那个边界
     （醒来后第一个边界，人物已不在睡）才记已读并施加阅读效果：社交 −0.05、情绪 +0.1，且以 message_arrival 唤醒。"""
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     _stage_body(engine, 2, social_need=0.5, mood_valence=0.0, neuroticism_norm=0.0)
-    start = engine.state.current_time
+    start = engine.context.state.current_time
     _, results = submit_round(engine, {1: _message_to(engine, 2, "早点休息"),
                                        2: ("start_activity", start_activity("睡觉", "自己"))}, "sleep-message")
     message_id = next(item.data["message_id"] for item in results if item.agent_id == 1)
@@ -168,21 +168,21 @@ def test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_wa
     stage_day_plan(engine, 2, goals=(PlanGoal(intent_kind="晨间例程", goal="起床", registered_at=start,
                                               remind_at=remind),))
     asleep_boundaries = 0
-    while engine.state.activities[slept].status == ActivityStatus.ACTIVE:
+    while engine.context.state.activities[slept].status == ActivityStatus.ACTIVE:
         _keep_waiting(engine, 1)
-        before = engine.state.agents[2]
+        before = engine.context.state.agents[2]
         advance_next(engine)
-        after = engine.state.agents[2]
-        if engine.state.activities[slept].status == ActivityStatus.ACTIVE:
+        after = engine.context.state.agents[2]
+        if engine.context.state.activities[slept].status == ActivityStatus.ACTIVE:
             asleep_boundaries += 1
             assert message_id in after.inbox and message_id not in after.read_inbox_ids
             assert (after.body.social_need, after.body.mood_valence) == (0.5, 0.0) == (
                 before.body.social_need, before.body.mood_valence)
 
-    woke = engine.state.agents[2]
-    assert engine.state.current_time == remind and asleep_boundaries >= 3
+    woke = engine.context.state.agents[2]
+    assert engine.context.state.current_time == remind and asleep_boundaries >= 3
     assert message_id in woke.read_inbox_ids and 2 in engine.scheduling_state().ready_agent_ids
     assert woke.body.social_need == pytest.approx(0.5 - 0.05)
     assert woke.body.mood_valence == pytest.approx(0.1)
     assert {"message_arrival", "wake_from_sleep"} <= set(_settlement(engine, remind, 2)["wake_reasons"])
-    assert not active_activities(engine.state, 2)
+    assert not active_activities(engine.context.state, 2)

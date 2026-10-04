@@ -16,7 +16,7 @@ from worldmock.footprints.validation import validate_export
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.prompt_schemas import USER_LAYER_NAMES
 
-#: 任何窗口输入都不进入的私有事件（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
+#: 任何窗口输入都不进入的私有事件（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「交付」）。
 PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision_started"}
 #: dreaming 私有事件集等于私有事件集：dreaming 读 self_note 与实际请求中的层 JSON，请求本身不作窗口事件。
 DREAMING_PRIVATE_EVENTS = PRIVATE_EVENTS
@@ -78,7 +78,7 @@ def _decision_prompt_source(action: dict, rows: list[dict]) -> dict:
     """@brief 选取决策提示：取该动作之前最后一份不带 purpose 的请求，并核对其工具含该动作的工具名。
 
     不满足是完整性故障，不回退到更早的请求。截断重试的请求照此被选中；就寝反思的请求晚于动作登记，事件序号在动作
-    之后，不会被选中（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。
+    之后，不会被选中（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」）。
     """
     candidates = [row for row in rows if row["event_type"] == "model_request"
                   and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]
@@ -118,7 +118,7 @@ def _decision_groups(events: list[dict]) -> dict[str, list[dict]]:
 
 
 def _attach_decision_layers(record: dict, rows: list[dict], decisions: dict) -> None:
-    """@brief dreaming 读实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
+    """@brief dreaming 读实际请求中的层 JSON（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「交付」）。
 
     窗口内每个动作请求取同人物、同决策、动作之前最后一份不带 purpose 且工具含该动作工具名的请求（与动作窗口同一
     prompt 权威与选取规则 _decision_prompt_source：截断重试照此被选中，就寝反思请求不会被选中），把其首个 user
@@ -219,8 +219,9 @@ def _public_event_data(event: dict) -> dict:
     结束活动写下的记忆与看法属于记忆写入：意图与 dreaming 窗口输入中三个控制工具的请求经 control_items 读出后
     按现行形状只留每项的 activity_name 与 summary（items[].memories 与 items[].views 裁去），请求级 errands 恒不带出；
     缺 errands 的旧形状记录经 control_items 以完整性故障拒绝。投影写进新字典，不原地修改原事件，动作窗口的目标仍是
-    同一事件、保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章，docs/dev/SPEC-dayrun-fidelity.md 第六章，
-    docs/dev/SPEC-errands-workday.md 2.9）。其余事件（含个人事务的六种 environment_event）的公开投影为空对象。
+    同一事件、保留完整请求（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第九章，
+    docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章，
+    docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 ）。其余事件（含个人事务的六种 environment_event）的公开投影为空对象。
     """
     data = event["data"]
     kind = event["event_type"]
@@ -307,7 +308,7 @@ def _invalid_observed_result(message: str) -> None:
 def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:
     """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。
 
-    dreaming 输入读动作请求的 self_note 与实际行动请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）；
+    dreaming 输入读动作请求的 self_note 与实际行动请求中的层 JSON（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「交付」）；
     私有事件（含 decision_started、model_request、model_response、memory_updated）不作窗口事件。
     """
     zone = ZoneInfo(manifest["window"]["timezone"])

@@ -8,7 +8,7 @@ from worldmock.life.activities import ActivityOrigin, advance_activity, start_ac
 from worldmock.life.body import (ENTERTAINMENT_RESOURCE, last_flows,
                                  minimum_energy_cost, settle_body)
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 
 @pytest.fixture(scope="module")

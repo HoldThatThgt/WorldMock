@@ -1,5 +1,5 @@
 """@brief 场景加载时就拒绝的世界缺陷：地点类别越出场所类型表、本轮可能同时出现的可读名称重复
-（docs/dev/SPEC-dayrun-fidelity.md 8.1），以及购买渠道的准入（3.3）。
+（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-场景加载时就该拒绝的问题 ），以及购买渠道的准入（3.3）。
 
 都在 semantics.load_runtime_scenario 执行，失败以 IntegrityError 拒绝加载并写明地点、类别或重复的名称，不留到
 运行中途才由环境层（「Location kind has no place type label」）或观察投影（「interactive object labels must be
@@ -12,12 +12,13 @@ unique」）抛出。场所类型只认环境层的 PLACE_TYPES，不另建闭�
 warning 日志；核验通过的渠道按准入判定：称呼在渠道之间不重复、不等于任何地点的显示名，成员门店是选入的地点并至少有一条
 供给。
 
-人物工作安排的跨引用（docs/dev/SPEC-errands-workday.md 4.3）同样在这里拒绝：工作地点是所选地点；与场景日历交叉核对，
+人物工作安排的跨引用（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）同样在这里拒绝：工作地点是所选地点；与场景日历交叉核对，
 只核对落在场景时间窗内的日历日期——补班日必须有班次，春节、病假、事假日必须不当班，加班机会日与聚餐日不作要求；时间窗
 外的例外日期不拒绝。日历是场景级的，对所有声明了工作安排的人物同时生效；班次形状错误留在场景模型的校验器。
 """
 
 from __future__ import annotations
+from worldmock.profile.coverage_apps import purchase_channels, verified_phone_config
 
 import logging
 from collections import defaultdict
@@ -28,7 +29,8 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.life.content import LifestyleItem, load_content_titles, load_lifestyle_items
 from worldmock.life.environment_layer import PLACE_TYPES
-from worldmock.life.name_resolution import channel_key, fold
+from worldmock.life.name_resolution import channel_key
+from worldmock.life.object_labels import fold
 from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
                                           supply_label)
 from worldmock.life.presentation import GAME_CATEGORY
@@ -45,14 +47,14 @@ _OFF_DUTY_DATES = ("spring_festival_dates", "sick_leave_date", "personal_leave_d
 
 
 def load_purchase_channels(scenario: RuntimeScenario, corpus_root: Path) -> tuple:
-    """@brief 场景的购买渠道（docs/dev/SPEC-dayrun-fidelity.md 3.3）：从钉定的手机配置派生并按准入判定；没有钉定手机配置
+    """@brief 场景的购买渠道（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）：从钉定的手机配置派生并按准入判定；
+    没有钉定手机配置
     时没有渠道；配置核验失败时不派生渠道并写一条英文 warning 日志（不使加载失败）。
 
     :param corpus_root: 场景的语料根（手机配置在其中登记）。
     :returns: profile.coverage_apps.PurchaseChannel 的元组，按渠道标识排序。
     :raises IntegrityError: 核验通过的渠道不满足准入（check_channel_admission）。
     """
-    from worldmock.profile.coverage_apps import purchase_channels, verified_phone_config  # 画像包导入较重，按需导入
 
     try:
         config = verified_phone_config(scenario, corpus_root)
@@ -121,7 +123,7 @@ def check_location_kinds(scenario: RuntimeScenario) -> None:
 
 
 def check_work_schedules(scenario: RuntimeScenario) -> None:
-    """@brief 人物工作安排的跨引用（docs/dev/SPEC-errands-workday.md 4.3）：工作地点是所选地点；落在场景时间窗内的日历
+    """@brief 人物工作安排的跨引用（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：工作地点是所选地点；落在场景时间窗内的日历
     日期与场景日历一致（补班日有班次，春节、病假、事假日不当班）。work_schedule 为 null 的人物不核对；任一不满足即拒绝
     加载，先列工作地点、再列日历，各按人物身份与日期升序写明人物、日期与字段。"""
     problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]

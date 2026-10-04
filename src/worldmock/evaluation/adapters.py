@@ -72,7 +72,7 @@ _WORLD_SOURCE_CHANNELS = {
     "run_failed": "lifecycle",
 }
 #: 记为数字交互的活动类型：占用重列前声明 device 占用的五类（工作、观看、游戏、读信、浏览），保持既有分类
-#: （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」重列占用后，数字交互改按活动类型判定）。
+#: （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」重列占用后，数字交互改按活动类型判定）。
 _DIGITAL_ACTIVITY_TYPES = frozenset({"work", "watch", "play_game", "read_mail", "browse"})
 _RIGHT_BOUNDARY_EVENTS = {"checkpoint_created", "run_ended", "run_failed"}
 

@@ -1,6 +1,6 @@
-"""指名购买与购买渠道测试共用的隔离世界（docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5）。
+"""指名购买与购买渠道测试共用的隔离世界（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 、3.3、3.5）。
 
-白领场景的一份隔离副本：语料根复制到临时目录（同卷用硬链接，跨卷时复制），可改地点显示名、地点的其他地图字段（如营业
+白领场景的一份隔离副本：语料根复制到临时目录，可改地点显示名、地点的其他地图字段（如营业
 日历）与门店供给（地图文件）、在语料清单里登记几份手机配置，也可改商品的目录名称（目录清单按真实算法重新钉扎）；每个场景
 文档钉定其中一份手机配置（或不钉定），
 地图、语料清单与场景的钉扎都按真实准入重算，所以渠道经 load_runtime_scenario 的真实加载路径派生。一份语料副本可以写出
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -47,7 +46,7 @@ class World:
     def scenario(self, name: str, phone: str | None = None, pin: str | None = None) -> Path:
         """@brief 写出一份钉定这份语料的场景文档：phone 给出时钉定那份手机配置（pin 覆盖钉定的摘要，模拟过期钉扎）。"""
         document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-        document.update(corpus_root=str(self.corpus), corpus_manifest_sha256=self.manifest_sha)
+        document.update(corpus_root="../corpora", corpus_manifest_sha256=self.manifest_sha)
         document["map_dataset"]["sha256"] = self.dataset_sha
         if phone is not None:
             document.update(phone_simulation_config=f"{PHONE_DIR}/{phone}.json",
@@ -78,7 +77,7 @@ def build_world(root: Path, phones: dict[str, dict], places: dict[str, str] | No
     :param locations: 地点身份 → 要替换的地图字段（照字段名改，例如 opening_calendars 写成空表即营业未知）。
     """
     corpus = root / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
+    shutil.copytree(ROOT / "corpora", corpus)
     dataset = json.loads((corpus / _DATASET).read_text(encoding="utf-8"))
     if places or locations:
         rows = json.loads((corpus / _MAP / "locations.json").read_text(encoding="utf-8"))
@@ -104,7 +103,7 @@ def build_world(root: Path, phones: dict[str, dict], places: dict[str, str] | No
 
 def at_clock(engine, hour: int, minute: int) -> None:
     """@brief 把世界移到场景首日（1 月 5 日）的某个时刻，人物都在那一刻有决策机会（只保留之后的后台事件）。"""
-    zone = ZoneInfo(engine.scenario.timezone)
+    zone = ZoneInfo(engine.context.scenario.timezone)
     now = int(datetime(2026, 1, 5, hour, minute, tzinfo=zone).timestamp())
 
     def change(state):
@@ -172,17 +171,7 @@ def _rename_products(catalog: Path, products: dict[str, str]) -> None:
     refresh_manifest_identity(catalog)
 
 
-def _link_or_copy(source: str, target: str) -> None:
-    """@brief 隔离语料副本：同一卷上用硬链接，跨卷时复制（改写前先解除链接，正式语料字节不变）。"""
-    try:
-        os.link(source, target)
-    except OSError:
-        shutil.copy2(source, target)
-
-
 def _write(path: Path, value: dict) -> str:
-    """@brief 解除硬链接后写入 JSON，返回新字节的 SHA-256。"""
-    if path.exists():
-        path.unlink()
+    """@brief 写入隔离目录中的 JSON，返回新字节的 SHA-256。"""
     path.write_bytes(json.dumps(value, ensure_ascii=False).encode("utf-8"))
     return hashlib.sha256(path.read_bytes()).hexdigest()

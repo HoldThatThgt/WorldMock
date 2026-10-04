@@ -1,3 +1,4 @@
+from worldmock.footprints.checkpoint import restore_branch
 import json
 import hashlib
 import sqlite3
@@ -58,7 +59,7 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
 
 def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools(store):
     """行动请求只看结构：不带 purpose、thinking 开启、原生 tools 含 start_activity；零点计划、没有工具或未开思考的
-    请求都不算，提示文本不参与判定（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。"""
+    请求都不算，提示文本不参与判定（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）。"""
     def request(agent_id: int = 1, *, thinking: str = 'enabled', tools=('start_activity',), **data) -> EventDraft:
         body = {'messages': [{'role': 'user', 'content': '{"progress_layer": {}}'}],
                 'extra_body': {'thinking': {'type': thinking}},
@@ -90,7 +91,7 @@ def test_last_event_seq_before_bounds_by_occurrence_time(store):
 
 
 def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends(store):
-    """一次提交的末事件序号（docs/dev/SPEC-persona-prompt.md 第三章「归属」）：推进版本的提交的每个事件都指向该提交的末事件；
+    """一次提交的末事件序号（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「归属」）：推进版本的提交的每个事件都指向该提交的末事件；
     其后同版本追加的观察与下一次提交不算在内；最后一次提交止于当前末事件；不存在的参照事件是完整性错误。"""
     probe = {'kind': 'probe'}
     store.commit({'version': 1, 'current_time': 110, 'balance': 50},
@@ -227,7 +228,7 @@ def test_rehashed_checkpoint_with_inconsistent_world_is_rejected(store, tmp_path
         store.connection.execute('UPDATE checkpoints SET body=?,record_sha256=?',
                                  (raw.decode(), hashlib.sha256(raw).hexdigest()))
     with pytest.raises(IntegrityError):
-        store.restore(point.checkpoint_id, tmp_path / 'child')
+        restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     assert not (tmp_path / 'child').exists()
 
 
@@ -268,7 +269,7 @@ def test_create_rejects_non_integer_initial_clock_or_version(tmp_path, bad_state
     机制论证（为什么是缺陷不是特征）：commit 的 _validate_state 已要求 version 与
     current_time 为整数（store.py 结构合同），而 create 对同两个字段只查 version>=0 与
     current_time 键存在，非整数初始状态被静默持久化，直到下次加载才暴露——与
-    FootprintStore 合同（docs/CONTRACTS.md「数字足迹存储接口」）的写入路径校验口径不一致。
+    FootprintStore 合同（docs/CONTRACTS.md#contracts-worldmock-接口合同「数字足迹存储接口」）的写入路径校验口径不一致。
     """
     manifest = {'run_id': 'bad-shape', 'agent_ids': [1], 'code': 'frozen'}
     with pytest.raises(IntegrityError):

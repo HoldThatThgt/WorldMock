@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life.engine import LifeEngine
+from worldmock.life.decision_coordinator import DecisionCoordinator
 from worldmock.life.models import (
     ActionStatus,
     ActivityKind,
@@ -22,7 +22,7 @@ from worldmock.life.models import (
     deepseek_strict_schema,
 )
 from worldmock.life.schedule import PlanGoal
-from worldmock.life.session_actions import SessionActionMixin
+from worldmock.life.session_actions import ActionHandlers
 
 
 def _pending(tool_name: str = "start_activity", request: dict | None = None) -> SimpleNamespace:
@@ -34,27 +34,25 @@ def _pending(tool_name: str = "start_activity", request: dict | None = None) -> 
     )
 
 
-class _MessageHarness(SessionActionMixin):
+class _MessageHarness(ActionHandlers):
     """仅运行可读收件人绑定和既有通讯领域处理器；人物没有进行中的活动（不在驾车途中，发消息不受出行方式限制）。"""
 
     def __init__(self, bindings: list[dict]) -> None:
+        self.context = SimpleNamespace()
         self.bindings = bindings
-        self.scenario = SimpleNamespace(locations=(), routes=())
-        self.rules = SimpleNamespace(tasks={})
-        self.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
+        self.context.scenario = SimpleNamespace(locations=(), routes=(), agents=(
+            SimpleNamespace(agent_id=1, contacts=()), SimpleNamespace(agent_id=2, contacts=())))
+        self.context.rules = SimpleNamespace(tasks={})
+        self.context.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
                                              2: SimpleNamespace(agent_id=2)}, activities={}, current_time=100)
 
     def _frozen_observation(self, pending: SimpleNamespace) -> dict:
         """返回本轮唯一冻结收件人清单。"""
         return {"interaction_bindings": self.bindings}
 
-    def _agent_config(self, agent_id: int) -> SimpleNamespace:
-        """本用例没有场景联系人。"""
-        return SimpleNamespace(contacts=())
-
     def _send_message(self, state, pending, request):
         """复用生产通讯校验及业务拒绝映射。"""
-        return LifeEngine._send_message(self, state, pending, request)
+        return ActionHandlers._send_message(self, state, pending, request)
 
 
 def test_sleeping_chat_partner_is_business_rejection_without_state_change() -> None:
@@ -68,7 +66,7 @@ def test_sleeping_chat_partner_is_business_rejection_without_state_change() -> N
                             activities={sleep.activity_id: sleep})
     request = StartSocialActivityRequest(kind="chat", partner_id="agent:2", duration_minutes=15)
     with pytest.raises(BusinessRuleError, match="CHAT_PARTNER_NOT_AVAILABLE"):
-        LifeEngine._start_social_activity(object(), state, _pending(), request)
+        ActionHandlers._start_social_activity(object(), state, _pending(), request)
     assert state.activities[sleep.activity_id] is sleep
 
 
@@ -84,12 +82,12 @@ def test_send_message_rejects_invalid_text_or_recipient(
 ) -> None:
     """人物只提交可读收件人；超长正文与未知收件人都成为业务拒绝。"""
     harness = _MessageHarness(bindings)
-    original = harness.state
+    original = harness.context.state
     with pytest.raises(BusinessRuleError, match=error_code):
         harness._send_message_action(
-            harness.state, _pending("send_message"),
+            harness.context.state, _pending("send_message"),
             SendMessageActionRequest(recipient_name=recipient_name, text=text))
-    assert harness.state is original
+    assert harness.context.state is original
 
 
 def test_plan_goal_keeps_semantic_300_character_limit() -> None:
@@ -110,26 +108,23 @@ def test_oversized_plan_goal_is_business_rejection_before_world_mutation() -> No
     payload = {"goals": [{"intent_kind": "工作", "goal": "备注" * 301, "remind_time": None, "around_time": None}]}
     state = SimpleNamespace()
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        LifeEngine._dispatch(object(), state, _pending("revise_day_plan", payload))
+        ActionHandlers.dispatch(object(), state, _pending("revise_day_plan", payload))
 
 
 def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) -> None:
     """业务拒绝留下结果并计入同刻轮数；没有进行中活动时在同一秒再给决策机会（时间与能量规格第一章规则 2）。"""
-    monkeypatch.setattr("worldmock.life.engine.apply_mood_pulse", lambda body, pulse: body)
+    monkeypatch.setattr("worldmock.life.decision_coordinator.apply_mood_pulse", lambda body, pulse: body)
     agent = AgentState.model_construct(agent_id=1, next_decision_at=100,
                                        consecutive_rejections=1, body=SimpleNamespace())
     state = WorldState.model_construct(current_time=100, agents={1: agent}, activities={})
     pending = _pending(request={"answering": None, "prefer": None,
                                 "items": [{"target": "小王", "way": "交谈", "from": None, "to": None}]})
 
-    class RejectingEngine:
-        """仅隔离实际拒绝处理路径所需的领域分派边界。"""
+    class RejectingActions:
+        """提供决策协调实际需要的领域动作边界。"""
 
-        scenario = SimpleNamespace(max_same_moment_decisions=2,
-                                   activity_feedback_seconds=60)
-
-        def _dispatch(self, state, pending):
-            """模拟既有领域处理器的明确业务拒绝。"""
+        def dispatch(self, state, pending):
+            """模拟聊天领域的明确业务拒绝。"""
             raise BusinessRuleError("CHAT_PARTNER_NOT_AVAILABLE")
 
         def _frozen_observation(self, pending):
@@ -141,19 +136,14 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
                      "price": None, "duration": None, "quantity": None, "note": None}], "tools": []}],
                 "callable_index": {"lifestyle": [], "contents": [], "goods": [], "query_categories": []}}}
 
-        def _after_rejection(self, state, pending, error):
-            """执行生产拒绝节律，不替换反馈结果逻辑。"""
-            return LifeEngine._after_rejection(self, state, pending, error)
-
-        def _round_schedule(self, state, agent, rejected, rhythm_next=None, free=False):
-            """执行生产同刻排期（free 为免计的名称类拒绝，本用例的拒绝码不是名称类）。"""
-            return LifeEngine._round_schedule(self, state, agent, rejected, rhythm_next, free)
-
-        def _drain_pending_drafts(self):
-            """本用例没有通讯送达事件。"""
+        def drain_drafts(self):
+            """本用例没有待提交通讯事件。"""
             return []
 
-    changed, result, drafts = LifeEngine._resolve(RejectingEngine(), state, pending)
+    coordinator = DecisionCoordinator(
+        SimpleNamespace(scenario=SimpleNamespace(max_same_moment_decisions=2, activity_feedback_seconds=60)),
+        RejectingActions(), None)
+    changed, result, drafts = coordinator._resolve(state, pending)
     assert result.status == ActionStatus.REJECTED
     assert changed.agents[1].next_decision_at == 100
     assert changed.agents[1].consecutive_rejections == 2

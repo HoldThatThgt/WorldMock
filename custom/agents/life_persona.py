@@ -1,8 +1,8 @@
 """@brief 宿主侧人设层：由人物 profile 的结构化卡片、姓名、场景联系人与环境下发的看法偏好构建
-（docs/dev/SPEC-persona-prompt.md 第一章「人设层」，裁决 #33、#35）。
+（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「人设层」，裁决 #33、#35）。
 
 - 有结构化卡片（profile["persona_card_struct"]，新建运行时保存、不含当下处境）的人物：身份、作息（刻钟写对；九键，
-  下班与到家没有固定时刻时为 null，docs/dev/SPEC-errands-workday.md 4.1）、至多五条习惯、口味与应对取自卡片；
+  下班与到家没有固定时刻时为 null，docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）、至多五条习惯、口味与应对取自卡片；
   卡片关系与场景联系人按名称精确合并（卡片 name_or_appellation 等于联系人称谓），对不上的各占一项；只来自场景联系人
   的项亲密度为 null、渠道为空（联系人的亲密度与渠道不进提示）。600 汉字上限只约束卡片派生的字段。
 - 没有结构化卡片的人物只填姓名，作息、口味、应对为 null，习惯为空列表，关系按场景联系人逐项列出。
@@ -11,8 +11,8 @@
   渠道为空（不填编造的值）。
 - 只读问答取最近一次生活决策保存在人物工作区的人设层与记忆层快照（裁决 #38）；尚无决策时用卡片与空看法构建人设层，
   记忆层两个列表为空。
-- 人设层不读 profile 里的工作安排与场景声明的下班、到家窗口：上班安排只由环境层给出（docs/dev/SPEC-errands-workday.md
-  4.4），场景窗口经作息覆盖落进卡片后才出现在这里。
+- 人设层不读 profile 里的工作安排与场景声明的下班、到家窗口：上班安排只由环境层给出（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-环境层-duty ），场景窗口经
+作息覆盖落进卡片后才出现在这里。
 """
 
 from __future__ import annotations

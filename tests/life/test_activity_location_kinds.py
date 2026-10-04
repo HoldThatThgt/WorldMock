@@ -8,7 +8,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import ActivityOrigin, require_location_kinds, start_activity
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
 from worldmock.life.rules import LifeRuleEngine
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 SCENARIO = Path('scenarios/white-collar-12-weeks.json')
 HOME_ACTIVITY = 'wellness-morning-wash'
@@ -60,7 +60,7 @@ def test_authoritative_start_gate_uses_current_map_location():
 
 def test_en_route_is_no_place_for_a_lifestyle_activity():
     """途中（present 为 None）不在任何地点：location_id 仍是出发地的家，也不能开始或恢复要在家做的生活活动
-    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」的实际地点）。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」的实际地点）。"""
     rules = _rules()
     with pytest.raises(BusinessRuleError, match='ELIGIBILITY_LOCATION_KIND_MISMATCH'):
         rules.validate_start(_agent('home'), _request(), 100, None)

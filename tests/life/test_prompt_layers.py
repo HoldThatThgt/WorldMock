@@ -1,10 +1,10 @@
-"""环境构建的提示层：Schema 校验、枚举闭集与唯一出现原则（docs/dev/SPEC-persona-prompt.md 第一章）。
+"""环境构建的提示层：Schema 校验、枚举闭集与唯一出现原则（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）。
 
 工具层、待办层、环境层、进度层与记忆层在真实引擎的各种状态下逐一通过 prompt_schemas 校验；Schema 中的
 体感分级、方式、动词、动作状态、意图与目标类别是源头闭集的字面副本，由本文件锁定一致。唯一出现性质（「唯一出现原则」）：
 直接消息全文只在进度层；暂停活动的进度只在待办层，它不是工具层目标；工作合同的截止与剩余只在任务目标的 contract，
 工作活动的状态不写「还差」，暂停的工作在待办层也不重复合同；浏览得到的供给只在工具层，浏览结果只列名称。工具层的可调用索引
-callable_index 只有名称、品类计数与至多 3 个示例名（docs/dev/SPEC-dayrun-fidelity.md 5.2）。系统层、人设层、user 消息与原生 tools 由宿主侧
+callable_index 只有名称、品类计数与至多 3 个示例名（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）。系统层、人设层、user 消息与原生 tools 由宿主侧
 tests/integration/test_seven_layer_request.py 覆盖。
 """
 
@@ -28,7 +28,7 @@ from tests.life.test_work_review import _at_task_start
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, felt, schedule
 from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
-from worldmock.life.interaction_menu import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
+from worldmock.life.vocabulary import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
 from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INDEX_EXAMPLES_MAX, INTENT_KINDS,
                                            LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES, VERBS,
@@ -59,7 +59,7 @@ def _rendered(observed: dict) -> str:
 
 def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
     """体感分级、方式、动词、动作状态、意图与目标类别的 Schema 枚举与源头闭集一致（工具层的方式不含只写在请求里、由系统
-    定方式的「购买」，工具层从不列出它，docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 2 条）；七个层名各有一份 Schema。"""
+    定方式的「购买」，工具层从不列出它，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10 「收敛」第 2 条）；七个层名各有一份 Schema。"""
     def levels(base: str, bands: tuple, *extra: str) -> tuple[str, ...]:
         """基档、各档文本与表外的档。"""
         return (base, *(text for _, text in bands), *extra)
@@ -82,7 +82,7 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
 
 
 def test_duty_enumerations_are_the_work_schedule_constants() -> None:
-    """环境层 duty 的两组枚举是 work_schedule 闭集的字面副本（docs/dev/SPEC-errands-workday.md 4.4）：日子为工作日、
+    """环境层 duty 的两组枚举是 work_schedule 闭集的字面副本（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-环境层-duty ）：日子为工作日、
     休息日，状态为「未到上班时间」「当班中」「休息时段」「已下班」，Schema 里的枚举与之相同。duty 必填可空；休息日的
     hours、place、status 只能为 null、breaks 为空，工作日的 hours、place 是文本、status 是四种之一，不接受其他键。"""
     assert DUTY_DAYS == work_schedule.DUTY_DAYS and DUTY_STATUSES == work_schedule.DUTY_STATUSES
@@ -118,7 +118,7 @@ _WORK_DUTY = {"day": "工作日", "hours": "09:00–18:00", "place": "办公室"
     (_WORK_DUTY, {"breaks": [""]}),
 ], ids=["working-day-hours-null", "rest-day-place-text", "breaks-as-minute-pairs", "break-empty-text"])
 def test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks(duty: dict, change: dict) -> None:
-    """环境层 duty 的取值表（docs/dev/SPEC-errands-workday.md 4.4；接口合同「七层字段」）逐键钉在 Schema 上：工作日的
+    """环境层 duty 的取值表（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-环境层-duty ；接口合同「七层字段」）逐键钉在 Schema 上：工作日的
     hours 是文本、不能为 null；休息日的 place 只能为 null；breaks 的每一项是非空文本，不接受原始的分钟对或空串。两个
     合法取值各自通过，只改这一个键就在 duty 处不合 Schema。"""
     layer = {"layer": "环境层", "observed_at": "2026-01-05T10:00:00+08:00",
@@ -131,7 +131,7 @@ def test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks(duty:
 
 def test_progress_schema_registers_the_eight_record_types_with_both_errand_records() -> None:
     """进度层 Schema 的 events[].type 恰为接口合同「七层 Schema」登记的八种：tool_call、message_arrival、delivery、
-    task_deadline、plan_reminder、errand_reminder、errand_completed、condensed（docs/dev/SPEC-errands-workday.md 2.6、6.4）。
+    task_deadline、plan_reminder、errand_reminder、errand_completed、condensed（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 、6.4）。
     只写事务名的 errand_reminder 与 errand_completed 记录各自通过校验；六种事务事件里其余四种的名字不是记录类型，写成
     记录即不合 Schema。"""
     records = LAYER_SCHEMAS["进度层"]["properties"]["events"]["items"]["oneOf"]
@@ -225,12 +225,12 @@ _BROKEN_INDEXES = (
 
 
 def test_callable_index_schema_takes_names_counts_and_up_to_three_examples(engine_factory) -> None:
-    """工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）按工具层 Schema 校验：12:30 在家的真实索引通过，lifestyle 是不重复的
+    """工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）按工具层 Schema 校验：12:30 在家的真实索引通过，lifestyle 是不重复的
     名称，contents 与 goods 每项只有 category、人读计数 count（「N 个」）与至多 3 个不重复的示例名；工具层缺少索引、名称带上
     动作、名称重复、多给示例、品类行多出可用性、计数写成裸整数或零个、索引多出键都以 ValueError 指明位置。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    moment = datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.scenario.timezone))
+    moment = datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.context.scenario.timezone))
     _stage_moment(engine, int(moment.timestamp()), "home")
     observed = _checked(engine, "index-schema")
     index = observed["tool_layer"]["callable_index"]
@@ -253,9 +253,9 @@ def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine
     """同伴发来的直接消息与交谈邀请全文在五层中各恰好出现一次，就在进度层的 message_arrival；工具层没有这两种消息的
     目标（只有邮件是阅读对象）；各层通过 Schema。"""
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
-    me, friend = engine.state.agents[1].name, engine.state.agents[2].name
+    me, friend = engine.context.state.agents[1].name, engine.context.state.agents[2].name
     text = "今天下午三点在楼下的咖啡馆见，带上上周那份报价单，顺便把你改过的两页也打印出来。"
     message = SendMessageActionRequest(recipient_name=f"人物：{me}", text=text)
     _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
@@ -300,7 +300,7 @@ def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
     engine = engine_factory()
     _at_task_start(engine)
     stage_day_plan(engine)
-    task = f"工作：{engine.scenario.tasks[0].title}"
+    task = f"工作：{engine.context.scenario.tasks[0].title}"
     submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "contract-work")
     wake_by_mail(engine, offset=600)
     advance_next(engine)
@@ -321,7 +321,7 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
     engine = engine_factory()
     _at_task_start(engine)
     stage_day_plan(engine)
-    task = f"工作：{engine.scenario.tasks[0].title}"
+    task = f"工作：{engine.context.scenario.tasks[0].title}"
     _, results = submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "paused-contract-work")
     wake_by_mail(engine, offset=600)
     advance_next(engine)
@@ -339,7 +339,7 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
 
 def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(engine_factory) -> None:
     """浏览完成后：结果的 browse_items 只是名称，写完整标签「<门店>出售的<商品>」（没有价格、库存、可得性或供给身份，
-    docs/dev/SPEC-dayrun-fidelity.md 5.3）；浏览得到的供给作为工具层商品目标列出，名称与标签相同，价格与方式只在那里。"""
+    docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）；浏览得到的供给作为工具层商品目标列出，名称与标签相同，价格与方式只在那里。"""
     engine = engine_factory()
     _stage_open(engine)
     stage_day_plan(engine)
@@ -347,14 +347,14 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
                               _choice(engine.observe(context(engine, "browse-preview")), "browse"))
     assert browse.status == "in_progress"
     _finish(engine, browse.activity_id, "browse")
-    rows = engine.state.activities[browse.activity_id].data["revealed"]["items"]
+    rows = engine.context.state.activities[browse.activity_id].data["revealed"]["items"]
     revealed = [row["supply_id"] for row in rows]
     observed = _checked(engine, "browse-seen")
     (record,) = [row for row in progress_calls(observed, "start_activity")
                  if "browse_items" in row["result"]["details"]]
     items = record["result"]["details"]["browse_items"]
-    places = {item.location_id: item.name for item in engine.scenario.locations}
-    names = {item.product_id: item.name for item in engine.scenario.products}
+    places = {item.location_id: item.name for item in engine.context.scenario.locations}
+    names = {item.product_id: item.name for item in engine.context.scenario.products}
     assert items and items == [f"{places[row['location_id']]}出售的{names[row['product_id']]}" for row in rows]
     listed = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
     assert [listed[row["supply_id"]] for row in rows if row["supply_id"] in listed] == [
@@ -370,7 +370,7 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
 
 def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pinned_once(engine_factory) -> None:
     """同一请求开始浏览与播客，两项在同一边界结束：原动作只写一条聚合终态（各活动快照，没有顶层浏览结果）；进度层该调用
-    的结果仍写 browse_items，恰好一次，浏览得到的供给置顶进工具层商品目标（docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    的结果仍写 browse_items，恰好一次，浏览得到的供给置顶进工具层商品目标（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」）。"""
     engine = engine_factory()
     _stage_open(engine)
     stage_day_plan(engine)
@@ -382,29 +382,29 @@ def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pi
         targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
     assert started.status == "in_progress", (started.error_code, started.message)
     browse_id, podcast_id = (row["activity_id"] for row in started.data["activities"])
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     end = staged.activities[browse_id].planned_end_at
     podcast = staged.activities[podcast_id]
     staged.activities[podcast_id] = podcast.model_copy(
         update={"planned_end_at": end, "planned_duration_seconds": end - podcast.started_at}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_browse_and_podcast_end_together"})])
-    engine.state = staged
+    engine.context.state = staged
     _finish(engine, browse_id, "pair-browse")
-    assert engine.state.activities[podcast_id].ended_at == engine.state.activities[browse_id].ended_at
-    revealed = engine.state.activities[browse_id].data["revealed"]["items"]
+    assert engine.context.state.activities[podcast_id].ended_at == engine.context.state.activities[browse_id].ended_at
+    revealed = engine.context.state.activities[browse_id].data["revealed"]["items"]
     observed = _checked(engine, "pair-browse-seen")
     (record,) = progress_calls(observed, "start_activity")
     assert record["result"]["message"] == "Activities finished"
-    names = {item.product_id: item.name for item in engine.scenario.products}
-    places = {item.location_id: item.name for item in engine.scenario.locations}
+    names = {item.product_id: item.name for item in engine.context.scenario.products}
+    places = {item.location_id: item.name for item in engine.context.scenario.locations}
     assert record["result"]["details"]["browse_items"] == [
         f"{places[item['location_id']]}出售的{names[item['product_id']]}" for item in revealed]
     assert _rendered(observed).count('"browse_items"') == 1
     pinned = tuple(dict.fromkeys(item["supply_id"] for item in revealed))
-    assert pinned and engine._pending_presentation[1].pinned_supply_ids == pinned
+    assert pinned and engine.observations.pending_presentation[1].pinned_supply_ids == pinned
     shown = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
     assert all(tool_targets(observed)[shown[supply]]["kind"] == "product" for supply in pinned)
 
@@ -412,7 +412,7 @@ def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pi
 def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer(engine_factory) -> None:
     """步行与播客同一请求，两项在到达时一起结束：原动作的聚合终态落在到达那次提交，归路程 session，出发请求整体归原停留
     session，所以到达之后的进度层没有这条调用，任何进度层都不出现 details.arrival（单项出行同样如此）；到达只以记忆层
-    路程条目的 settled 句出现一次（docs/dev/SPEC-persona-prompt.md 第三章「session 与记忆条目」）。"""
+    路程条目的 settled 句出现一次（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「session 与记忆条目」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     preview = engine.observe(context(engine, "pair-trip-preview"))
@@ -424,18 +424,18 @@ def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer
         targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
     assert started.status == "in_progress", (started.error_code, started.message)
     travel_id, podcast_id = (row["activity_id"] for row in started.data["activities"])
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     podcast, longer = staged.activities[podcast_id], staged.activities[travel_id].planned_end_at + 600
     staged.activities[podcast_id] = podcast.model_copy(
         update={"planned_end_at": longer, "planned_duration_seconds": longer - podcast.started_at}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_podcast_outlasts_the_trip"})])
-    engine.state = staged
+    engine.context.state = staged
     _finish(engine, travel_id, "pair-trip")
-    assert engine.state.activities[podcast_id].ended_at == engine.state.activities[travel_id].ended_at
-    assert [event.data["message"] for event in engine.store.read_agent_events("action_result", 1)
+    assert engine.context.state.activities[podcast_id].ended_at == engine.context.state.activities[travel_id].ended_at
+    assert [event.data["message"] for event in engine.context.store.read_agent_events("action_result", 1)
             if event.action_id == started.action_id][-1] == "Activities finished"
     observed = _checked(engine, "pair-trip-seen")
     assert progress_calls(observed, "start_activity") == [] and '"arrival"' not in _rendered(observed)
@@ -447,7 +447,7 @@ def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer
 
 def test_just_ended_browse_target_states_the_end_reason_without_the_browse_result(engine_factory) -> None:
     """浏览结束后：工具层刚结束的浏览活动目标只写终局说法与客观进度，不复述进度层该调用结果里的商品名称（结果取该请求的
-    最新结果，浏览得到的名称只在那里，docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    最新结果，浏览得到的名称只在那里，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」）。"""
     engine = engine_factory()
     _stage_open(engine)
     stage_day_plan(engine)
@@ -457,7 +457,7 @@ def test_just_ended_browse_target_states_the_end_reason_without_the_browse_resul
     observed = _checked(engine, "ended-browse-seen")
     (record,) = [row for row in progress_calls(observed, "start_activity")
                  if "browse_items" in row["result"]["details"]]
-    activity = engine.state.activities[browse.activity_id]
+    activity = engine.context.state.activities[browse.activity_id]
     target = tool_targets(observed)[activity_name(engine, browse.activity_id)]
     assert target["phase"] == "刚结束"
     assert target["state"] == (f"{activity_control.ending_phrase(activity)}，"

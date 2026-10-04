@@ -2,9 +2,9 @@
 rules/content/work/work_review/game/travel/semantics/motivation/social
 的缺分支与未覆盖公共接口（C4c 覆盖率达标单元）。
 
-只新增测试，不改生产代码。断言对照的规格章节：`docs/CONTRACTS.md`「请求字段与结算检查」、
-`docs/dev/SPEC-life-runtime.md`「具体活动结算」「内容提供行为」「社交最小可行版」、
-`docs/dev/SPEC-life-realism.md`「动机层」。
+只新增测试，不改生产代码。断言对照的规格章节：`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」、
+`docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「具体活动结算」「内容提供行为」「社交最小可行版」、
+`docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`「动机层」。
 """
 
 from __future__ import annotations
@@ -88,7 +88,8 @@ from worldmock.life.motivation import (
     _work_candidates,
     load_motivation_transforms,
 )
-from worldmock.life.map_models import DataSource, SupplyConfig
+from worldmock.life.models import DataSource
+from worldmock.life.map_models import SupplyConfig
 from worldmock.life.storefront_state import quote_state
 from worldmock.life.scenario import (
     BodyConfig,
@@ -105,21 +106,10 @@ from worldmock.life.scenario import (
     RuntimeWorkTask,
     parse_scenario_document,
 )
-from worldmock.life.semantics import (
-    ScenarioSemantics,
-    assemble_semantics,
-    load_runtime_scenario,
-)
-from worldmock.life.social_actions import (
-    SOCIAL_RESOURCE_CLAIMS,
-    advance_social,
-    end_partner_chats,
-    partner_presence,
-    shared_chat_seconds,
-    social_activity_change,
-    start_call,
-    start_chat,
-)
+from worldmock.life.semantics import ScenarioSemantics, assemble_semantics
+from worldmock.life.world_setup import load_runtime_scenario
+from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
+from worldmock.life.social_actions import advance_social, end_partner_chats, partner_presence, shared_chat_seconds, social_activity_change, start_call, start_chat
 from worldmock.life.travel import (
     LocationTrackRequest,
     route_for,
@@ -290,7 +280,7 @@ def _sha(data: bytes) -> str:
 
 
 # ---------------------------------------------------------------------------
-# commerce：单件购买/配送/按进度使用（`docs/CONTRACTS.md`「请求字段与结算检查」）
+# commerce：单件购买/配送/按进度使用（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」）
 # ---------------------------------------------------------------------------
 
 def test_commerce_deliver_order_rejects_unknown_order() -> None:
@@ -307,7 +297,7 @@ def _use_activity(request: ConsumeRequest, **overrides) -> ActivityState:
 
 
 # ---------------------------------------------------------------------------
-# basket：整单购买与多件进食（`docs/dev/SPEC-life-realism.md`「商务与进食」）
+# basket：整单购买与多件进食（`docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`「商务与进食」）
 # ---------------------------------------------------------------------------
 
 def test_basket_change_inventory_rejects_over_consume() -> None:
@@ -352,7 +342,7 @@ def test_basket_meal_duration_enforces_longest_and_catalog_contract() -> None:
     ),
 )
 def test_basket_validate_meal_item_count_and_non_food_single(meal_request, code) -> None:
-    """进食 1-3 件、非食品单件（`docs/dev/SPEC-life-realism.md`「商务与进食」）。"""
+    """进食 1-3 件、非食品单件（`docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`「商务与进食」）。"""
     products = {"food-1": _product()}
     with pytest.raises(BusinessRuleError, match=code):
         validate_meal_use(_agent(), products, meal_request)
@@ -410,7 +400,7 @@ def test_basket_apply_meal_progress_durable_completion_and_paused() -> None:
 
 
 # ---------------------------------------------------------------------------
-# social + social_actions：社交最小可行版（`docs/dev/SPEC-life-runtime.md`「社交最小可行版」）
+# social + social_actions：社交最小可行版（`docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「社交最小可行版」）
 # ---------------------------------------------------------------------------
 
 def _presence(agent_id="agent:2", location="home", awake=True, gaming=False) -> social.AgentPresence:
@@ -441,7 +431,7 @@ def test_social_actions_partner_presence_rejects_unknown_partner() -> None:
 
 def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(engine_factory) -> None:
     """交谈、通话占用说与听（voice、ears）；正在看的视频占 eyes、ears，引擎按 ears 的交集逐项拒绝
-    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表）。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」占用表）。"""
     busy = _agent()
     watch = _activity(resource_claims={"eyes", "ears"})
     state = _social_state(busy, activities={watch.activity_id: watch})
@@ -456,7 +446,7 @@ def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(eng
     for started in (chat, call):
         assert started.activity.resource_claims == SOCIAL_RESOURCE_CLAIMS == {"voice", "ears"}
         with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
-            engine._require_available_resources(state, busy.agent_id, started.activity.resource_claims)
+            engine.actions._require_available_resources(state, busy.agent_id, started.activity.resource_claims)
 
 
 def _chat(activity_id: str, agent_id: int, partner: int, **overrides) -> ActivityState:
@@ -467,7 +457,7 @@ def _chat(activity_id: str, agent_id: int, partner: int, **overrides) -> Activit
 
 def test_social_actions_choosing_chat_with_the_inviter_accepts() -> None:
     """对方正以本人为伙伴交谈时，对其选择交谈即接受：不再发邀请，计划结束对齐发起方；同一对人物再次发起以
-    CHAT_ALREADY_ACTIVE 拒绝（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    CHAT_ALREADY_ACTIVE 拒绝（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。"""
     invitation = _chat("a2", 2, 1, started_at=CURRENT - 60, last_settled_at=CURRENT, planned_end_at=CURRENT + 540)
     state = _social_state(_agent(), activities={"a2": invitation})
     state.agents[2] = _agent(agent_id=2, name="B")
@@ -496,7 +486,7 @@ def test_social_actions_choosing_chat_with_the_inviter_accepts() -> None:
 
 def test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap() -> None:
     """接受带来的缓解按区间内双方交谈同时进行的秒数：对方以本人为伙伴的交谈在区间起点进行中才算，止于双方较早的
-    结束；以推进前的状态判定，两人谁先推进结果都一样（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    结束；以推进前的状态判定，两人谁先推进结果都一样（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。"""
     mine, partner = _chat("a1", 1, 2), _chat("a2", 2, 1)
 
     def shared(other: ActivityState | None, target: int = 300) -> int:
@@ -519,7 +509,7 @@ def test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap() -> N
 
 def test_social_actions_ending_a_chat_ends_the_partner_chat_the_same_second() -> None:
     """一方的交谈结束时，对方以其为伙伴的进行中交谈同秒结束：completed，boundary_type 与 interruption_reason
-    都记 partner_ended（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）；没有这样的对方交谈时世界不变。"""
+    都记 partner_ended（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）；没有这样的对方交谈时世界不变。"""
     mine, partner = _chat("a1", 1, 2), _chat("a2", 2, 1)
     ended = mine.model_copy(update={"status": ActivityStatus.CANCELLED, "ended_at": 300})
     before = _world(_agent(), activities={"a1": mine, "a2": partner}, current_time=300)
@@ -569,7 +559,7 @@ def test_social_actions_advance_completes_chat_without_agent_activity_slot() -> 
                                                       (ActivityKind.CHAT, 1800), (ActivityKind.CHAT, 0)))
 def test_social_actions_advance_applies_felt_ledger_by_shared_seconds(kind, shared_seconds) -> None:
     """通话按通话账本；交谈中双方同时进行的秒数按交谈账本缓解，其余秒数按发起方 0.2/小时
-    （docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。"""
     start_need = 0.8
     agent = _agent(body=_agent().body.model_copy(update={"social_need": start_need}))
     activity = _activity(kind=kind, planned_end_at=3600, planned_duration_seconds=3600,
@@ -606,7 +596,7 @@ def test_social_activity_change_cancel_pause_and_unknown_operations() -> None:
 
 
 # ---------------------------------------------------------------------------
-# activities：活动转换闭集（`docs/CONTRACTS.md`「请求字段与结算检查」的「修改活动」行）
+# activities：活动转换闭集（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」的「修改活动」行）
 # ---------------------------------------------------------------------------
 
 def _feedback_activity(**overrides) -> ActivityState:
@@ -678,7 +668,7 @@ def test_change_activity_resume_conflicts_with_occupied_resources(engine_factory
     state = _world(_agent(), activities={"a1": paused, "occupied": active})
     engine = engine_factory()
     with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
-        engine._require_available_resources(state, 1, paused.resource_claims, paused.activity_id)
+        engine.actions._require_available_resources(state, 1, paused.resource_claims, paused.activity_id)
     assert state.activities["a1"].status == ActivityStatus.PAUSED
     assert state.activities["a1"].elapsed_seconds == 0
 
@@ -731,7 +721,7 @@ def test_activity_factors_rejects_incomplete_frozen_evidence(activity, match) ->
 
 
 # ---------------------------------------------------------------------------
-# motivation：动机层（`docs/dev/SPEC-life-realism.md`「动机层」）
+# motivation：动机层（`docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`「动机层」）
 # ---------------------------------------------------------------------------
 
 CONTRACT_PROFILE = {
@@ -958,7 +948,7 @@ def test_entertainment_candidates_skip_items_shorter_than_a_minute() -> None:
 
 
 # ---------------------------------------------------------------------------
-# content：内容增量揭示（`docs/CONTRACTS.md`「请求字段与结算检查」的「使用」行）
+# content：内容增量揭示（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」的「使用」行）
 # ---------------------------------------------------------------------------
 
 def _write(root: Path, relative: str, data: bytes) -> None:
@@ -1064,7 +1054,7 @@ def test_mail_headers_show_body_only_for_read_messages() -> None:
 
 
 # ---------------------------------------------------------------------------
-# work：任务受理与材料揭示（`docs/CONTRACTS.md`「请求字段与结算检查」的「提交工作」行）
+# work：任务受理与材料揭示（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」的「提交工作」行）
 # ---------------------------------------------------------------------------
 
 def test_validate_work_start_requires_visible_task() -> None:
@@ -1075,7 +1065,7 @@ def test_validate_work_start_requires_visible_task() -> None:
 
 def test_validate_work_start_en_route_is_not_at_the_workplace() -> None:
     """开工要人在任务地点；途中（现场地点为 None）不算在任何地点，location_id 仍是出发地的办公室也不行
-    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」的实际地点）。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」的实际地点）。"""
     agent = _agent(location_id="office", visible_task_ids={"task-1"})
     validate_work_start(agent, _work_task(), CURRENT, "office")
     with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as caught:
@@ -1204,7 +1194,7 @@ def test_prepare_work_submission_rejects_unknown_or_invisible_task(tmp_path) -> 
 
 
 # ---------------------------------------------------------------------------
-# work_review：独立验收协议（`docs/dev/SPEC-life-runtime.md`「内容提供行为」）
+# work_review：独立验收协议（`docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「内容提供行为」）
 # ---------------------------------------------------------------------------
 
 def _review_prepared(**overrides) -> PreparedWorkReview:
@@ -1345,7 +1335,7 @@ def test_prepare_work_review_reference_fact_contract() -> None:
 
 
 # ---------------------------------------------------------------------------
-# game：TextWorld 身份与重放（`docs/dev/SPEC-life-runtime.md`「具体活动结算」的游戏行）
+# game：TextWorld 身份与重放（`docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「具体活动结算」的游戏行）
 # ---------------------------------------------------------------------------
 
 def _game_config(root: Path, *, game_sha: str | None = None,
@@ -1394,7 +1384,7 @@ def test_game_path_rejects_escape(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# travel：路线校验与定位轨迹（`docs/CONTRACTS.md`「请求字段与结算检查」的「启动活动」行）
+# travel：路线校验与定位轨迹（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」的「启动活动」行）
 # ---------------------------------------------------------------------------
 
 def test_route_for_requires_unique_frozen_route() -> None:
@@ -1489,26 +1479,26 @@ def test_location_track_rejects_broken_geometry_and_paths(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# rules：封闭目录查找（`docs/CONTRACTS.md`「请求字段与结算检查」的启动活动行）
+# rules：封闭目录查找（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」的启动活动行）
 # ---------------------------------------------------------------------------
 
 def test_rules_lookup_helpers_reject_unknown_ids(engine_factory) -> None:
     """商品/任务/游戏/字幕闭集查表：目录外身份业务拒绝。"""
     engine = engine_factory()
-    rules = engine.rules
-    real_product = engine.scenario.products[0].product_id
+    rules = engine.context.rules
+    real_product = engine.context.scenario.products[0].product_id
     assert rules.product(real_product).product_id == real_product
     with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_FOUND"):
         rules.product("missing-product")
-    real_task = engine.scenario.tasks[0].task_id
+    real_task = engine.context.scenario.tasks[0].task_id
     assert rules.task(real_task).task_id == real_task
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_FOUND"):
         rules.task("missing-task")
-    real_game = engine.scenario.games[0].game_id
+    real_game = engine.context.scenario.games[0].game_id
     assert rules.game(real_game).game_id == real_game
     with pytest.raises(BusinessRuleError, match="GAME_NOT_FOUND"):
         rules.game("missing-game")
-    real_content = engine.scenario.contents[0].item_id
+    real_content = engine.context.scenario.contents[0].item_id
     assert rules.cues(real_content)
     with pytest.raises(BusinessRuleError, match="CONTENT_TIMELINE_NOT_FOUND"):
         rules.cues("missing-content")
@@ -1517,9 +1507,9 @@ def test_rules_lookup_helpers_reject_unknown_ids(engine_factory) -> None:
 def test_rules_validate_start_work_duration_and_deadline(engine_factory) -> None:
     """工作启动：超出合同最大工时/会错过截止分别拒绝。"""
     engine = engine_factory()
-    rules = engine.rules
-    task = engine.scenario.tasks[0]
-    agent = engine.state.agents[1].model_copy(update={
+    rules = engine.context.rules
+    task = engine.context.scenario.tasks[0]
+    agent = engine.context.state.agents[1].model_copy(update={
         "visible_task_ids": {task.task_id},
         "location_id": task.required_location_id,
         "skill_levels": {task.required_skill: task.minimum_skill + 0.1}})
@@ -1542,11 +1532,11 @@ def test_rules_validate_start_browse_target_must_be_catalog(engine_factory) -> N
     request = ActivityStartParams(activity_type=ActivityKind.BROWSE,
                                    target_id="something_else",
                                    planned_duration_seconds=60)
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     with pytest.raises(BusinessRuleError, match="BROWSE_TARGET_NOT_FOUND"):
-        engine.rules.validate_start(agent, request, CURRENT, agent.location_id)
+        engine.context.rules.validate_start(agent, request, CURRENT, agent.location_id)
     fine = request.model_copy(update={"target_id": "product_catalog"})
-    assert engine.rules.validate_start(agent, fine, CURRENT, agent.location_id) == {
+    assert engine.context.rules.validate_start(agent, fine, CURRENT, agent.location_id) == {
         "catalog": "all_products"}
 
 

@@ -185,8 +185,7 @@ def test_resolves_names_from_seven_layer_observation_evidence_keys(tmp_path):
 
 
 def test_unresolvable_targets_show_only_the_chinese_kind_name(tmp_path):
-    """名称解析不到时只写中文种类名：每个活动种类都不输出英文种类名、内部标识或其片段（docs/dev/SPEC-dayrun-fidelity.md
-    7.4）。"""
+    """名称解析不到时只写中文种类名：每个活动种类都不输出英文种类名、内部标识或其片段（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。"""
     hex_id = "a1b2c3d4" * 4
     targets = {"watch": hex_id, "play_game": "game-0001", "read_mail": "mail-9", "consume": "noodle-01",
                "browse": "catalog-x", "lifestyle": "lifestyle:yoga", "work": "task-zhaoming-client-a"}
@@ -231,7 +230,7 @@ def test_work_call_and_chat_rows_name_the_task_contact_and_person(tmp_path):
 
 def test_real_biz_run_rows_name_the_calls_and_the_work_task(tmp_path):
     """BIZ 一日运行的原始记录（快照不带标题）重新投影：修复前导出的「call」「工作（task-zhaoming-client-a）」写成联系人
-    称谓与任务标题；标签检查对修复前的行报英文种类名与内部标识，对重新投影的行为零（docs/dev/SPEC-dayrun-fidelity.md 7.4）。"""
+    称谓与任务标题；标签检查对修复前的行报英文种类名与内部标识，对重新投影的行为零（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。"""
     observation = BIZ_TIMELINE["observation"]
     drafts = [_observation(observation["data"], occurred_at=observation["occurred_at"], agent=5)]
     drafts += [EventDraft(event_type="activity_progress", occurred_at=item["occurred_at"], agent_id=5,

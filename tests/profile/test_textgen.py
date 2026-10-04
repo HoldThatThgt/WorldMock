@@ -135,7 +135,7 @@ def _golden_card(kind: str):
 
 @pytest.mark.parametrize("kind", sorted(_C3B24DA_RENDERS))
 def test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer(kind):
-    """@brief render_card 不动（docs/dev/research/persona-prompt-implementation-plan.md「人设层」）：刻钟、半点与
+    """@brief render_card 不动（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求-人设层「人设层」）：刻钟、半点与
     午夜后开始的窗口渲染出的卡片文本与 c3b24da 逐字节相同；刻钟与钟面写法只属于人设层的 hour_text / window_text。"""
     card = _golden_card(kind)
     assert render_card(card) == _C3B24DA_RENDERS[kind]
@@ -149,7 +149,7 @@ def _with_work_anchors(card, leave_work, arrive_home):
 
 
 def test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget():
-    """@brief 画像文本（docs/dev/SPEC-errands-workday.md 4.1）：下班、到家各自非空时在作息行「需睡N小时」之后按此顺序各追加
+    """@brief 画像文本（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：下班、到家各自非空时在作息行「需睡N小时」之后按此顺序各追加
     一个分句，其余文本逐字节不变；追加的分句计入 600 汉字预算——不带分句恰好 600 汉字的卡片照常渲染，带上下班分句即如实
     报错、不截断。"""
     card = make_card()
@@ -188,7 +188,7 @@ def test_the_arrive_home_clause_counts_towards_the_budget_alone_and_with_the_lea
 
 def test_window_ends_at_or_after_midnight_render_as_clock_hours():
     """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」
-    （docs/dev/SPEC-persona-prompt.md「人设层」：作息为可读短语）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「人设层」：作息为可读短语）。"""
     assert window_text(make_window(25.0, 26.0)) == "1点到2点"
     assert window_text(make_window(24.0, 25.5)) == "0点到1点半"
     assert window_text(make_window(22.0, 24.0)) == "22点到0点"

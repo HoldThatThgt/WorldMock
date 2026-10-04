@@ -1,7 +1,7 @@
 """人物 Prompt 七层规格的验收登记表（完整性守卫的数据源）。
 
 @file     persona_prompt_acceptance.py
-@brief    把 docs/dev/SPEC-persona-prompt.md 的「验收台账」各行、第六章两张表（七项程序错误与五项缺口）与「裁决记录」
+@brief    把 docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 的「验收台账」各行、第六章两张表（七项程序错误与五项缺口）与「裁决记录」
           第二张表（#21–#38，按推荐定为已定）逐行登记到真正验证它的测试节点；并冻结本特性新增或改动的生产文件与新增测试文件，
           供延期标记扫描。判定由 tests/test_persona_prompt_acceptance.py 执行。
 @note     登记的节点是走真实引擎、宿主或导出路径的行为测试，不是结构匹配；一行列多个节点时各覆盖该行的一部分契约。
@@ -53,7 +53,7 @@ _QUALITY = "tests/footprints/test_quality.py::"
 _WINDOWS = "tests/delivery/test_windows.py::"
 _ATTRIBUTION = "tests/life/test_session_attribution.py::"
 _BEHAVIOR = "tests/evaluation/test_behavior_metrics.py::"
-_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
+_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve"
 _UNIQUE = "tests/integration/test_unique_presence_run.py::"
 _DAYRUN = ("tests/integration/test_dayrun_complete_days.py::"
            "test_complete_two_person_day_uses_real_tools_memory_and_restoration")

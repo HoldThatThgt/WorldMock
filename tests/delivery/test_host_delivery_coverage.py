@@ -1,6 +1,7 @@
+from worldmock.footprints.checkpoint import restore_branch
 """C4e 交付簇分支覆盖：pipeline 正反路径、编码往返、trace 校验、窗口边界、规则与训练门禁。
 
-deliver() 成功发布路径 E2E（docs/CONTRACTS.md「CLI 命令接口」deliver 合同）：用打桩 LabelKit CLI
+deliver() 成功发布路径 E2E（docs/CONTRACTS.md#contracts-cli 「CLI 命令接口」deliver 合同）：用打桩 LabelKit CLI
 产物（fake subprocess.run 写出与真实 CLI 相同结构的 out/*.jsonl 与 trace）
 构造完整成功清单走通发布；此前 test_publication.py 只测失败路径。
 模型客户端全部打桩，零真实调用。
@@ -58,7 +59,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.storefront_state import map_provenance
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -154,8 +155,7 @@ def _replay_export_pair(tmp_path):
                'source_event_ids': [observed.event_id]}
     digest = hashlib.sha256(canonical_json(
         {'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
-    child = parent.restore(checkpoint.checkpoint_id, tmp_path / 'child',
-                           {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
+    child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
     child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
         event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
         caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',
@@ -320,7 +320,7 @@ def _fake_labelkit_cli(monkeypatch, calls):
 
 
 # ---------------------------------------------------------------------------
-# deliver() 成功发布路径 E2E（docs/CONTRACTS.md「CLI 命令接口」）
+# deliver() 成功发布路径 E2E（docs/CONTRACTS.md#contracts-worldmock-接口合同「CLI 命令接口」）
 # ---------------------------------------------------------------------------
 
 
@@ -1213,8 +1213,7 @@ def test_replay_requires_visible_post_intervention_results(tmp_path):
                'source_event_ids': [observed.event_id]}
     digest = hashlib.sha256(canonical_json(
         {'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
-    child = parent.restore(checkpoint.checkpoint_id, tmp_path / 'child',
-                           {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
+    child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
     child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
         event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
         caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',
@@ -1255,8 +1254,7 @@ def _replay_parts(tmp_path, *, request_override=None, second_intervention=False,
         request = dict(request, **request_override)
     digest = hashlib.sha256(canonical_json(
         {'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
-    child = parent.restore(checkpoint.checkpoint_id, tmp_path / 'child',
-                           {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
+    child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
     data = {'kind': 'counterfactual_intervention', 'intervention_kind': 'set_balance_fen',
             'hypothesis': request['hypothesis'],
             'source_event_ids': request['source_event_ids'],
@@ -1293,8 +1291,7 @@ def test_replay_requires_exactly_one_intervention(tmp_path):
                                                        agent_id=1, data={'balance_fen': 800})])[0]
     reference = parent.assets.put_json({'state': 'parent'}, {'kind': 'fixture'})
     checkpoint = parent.checkpoint(parent.state, {'agent:1': reference, 'life': reference})
-    child = parent.restore(checkpoint.checkpoint_id, none_dir,
-                           {'branch_kind': 'counterfactual', 'intervention_sha256': '0' * 64})
+    child = restore_branch(parent, checkpoint.checkpoint_id, none_dir, {'branch_kind': 'counterfactual', 'intervention_sha256': '0' * 64})
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
                                           data={'balance_fen': 800})])
     source_dir, replay_dir = tmp_path / 'source-export2', tmp_path / 'replay-export2'

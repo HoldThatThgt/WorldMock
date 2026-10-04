@@ -6,7 +6,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context, start_activity
 from worldmock.catalog.affordances import default_affordances
-from worldmock.life.engine import AFFORDANCE_CONTRACT_KEYS, affordance_contract
+from worldmock.life.engine_context import AFFORDANCE_CONTRACT_KEYS, affordance_contract
 
 
 def test_contract_shape_matches_registry_one_to_one() -> None:

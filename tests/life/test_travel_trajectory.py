@@ -1,4 +1,4 @@
-"""定位轨迹投影测试（docs/dev/SPEC-life-runtime.md「导航与配送」/GAP-1）：沿冻结路线与模拟时间的确定性采样。"""
+"""定位轨迹投影测试（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「导航与配送」/GAP-1）：沿冻结路线与模拟时间的确定性采样。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import canonical_json
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.life.travel import (
     TRACK_SAMPLING_METHOD,
     LocationTrackRequest,

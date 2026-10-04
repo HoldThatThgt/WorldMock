@@ -7,7 +7,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan, start_activity,
                                  start_request, report_request)
 from worldmock.life.activity_control import PHASE_ACTIVE
-from worldmock.life.interaction_menu import CONTENT_WAYS
+from worldmock.life.vocabulary import CONTENT_WAYS
 
 #: 播客的续听方式：只占耳朵，本文件的「观看」只取占眼睛和耳朵的内容（第五章占用表）。
 _LISTEN_WAYS = frozenset({CONTENT_WAYS[(True, False)], CONTENT_WAYS[(True, True)]})
@@ -76,20 +76,20 @@ def test_walk_and_watch_start_atomically_with_distinct_activity_ids(engine_facto
     """一条决策允许步行与观看，各有独立活动身份；出发结束运行开始的停留会话，两项同归一段路上会话（第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    stay = next(iter(engine.state.sessions.values()))
+    stay = next(iter(engine.context.state.sessions.values()))
     result = _start_pair(engine, "travel_to", "watch", "walk-watch")
     assert result.status == "in_progress", result.error_code
     assert result.activity_id is None
-    activities = [item for item in engine.state.activities.values()
+    activities = [item for item in engine.context.state.activities.values()
                   if item.origin_action_id == result.action_id]
     assert len(activities) == 2
     assert len({item.activity_id for item in activities}) == 2
     assert {item.kind.value for item in activities} == {"travel", "watch"}
     ids = {item.activity_id for item in activities}
-    ended = engine.state.sessions[stay.session_id]
+    ended = engine.context.state.sessions[stay.session_id]
     assert ended.kind == "stay" and ended.status == "ended" and ended.activity_ids == []
-    assert ended.ended_at == engine.state.current_time
-    road = [item for item in engine.state.sessions.values() if set(item.activity_ids) & ids]
+    assert ended.ended_at == engine.context.state.current_time
+    road = [item for item in engine.context.state.sessions.values() if set(item.activity_ids) & ids]
     assert len(road) == 1 and road[0].kind == "transit" and road[0].status == "active"
     travel = next(item for item in activities if item.kind.value == "travel")
     assert (road[0].origin_id, road[0].destination_id) == (stay.location_id, travel.destination_id)
@@ -101,15 +101,15 @@ def test_pair_failure_rejects_all_without_partial_activity(engine_factory) -> No
     """后项资源冲突时，先项也不进入权威世界；会话只剩运行开始的停留会话且未改动。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
     result = _start_pair(engine, "watch", "sleep", "watch-sleep-conflict")
     assert result.status == "rejected", result.error_code
     assert result.error_code == "RESOURCE_CONFLICT"
-    assert engine.state.activities == {}
-    sessions = list(engine.state.sessions.values())
+    assert engine.context.state.activities == {}
+    sessions = list(engine.context.state.sessions.values())
     assert [(item.kind, item.status, item.activity_ids) for item in sessions] == [("stay", "active", [])]
-    assert engine.state.model_dump(mode="json")["sessions"] == before["sessions"]
-    assert engine.state.accounts == before["accounts"]
+    assert engine.context.state.model_dump(mode="json")["sessions"] == before["sessions"]
+    assert engine.context.state.accounts == before["accounts"]
 
 
 def test_parallel_origin_stays_in_progress_until_both_finish(engine_factory) -> None:
@@ -119,30 +119,30 @@ def test_parallel_origin_stays_in_progress_until_both_finish(engine_factory) -> 
     result = _start_pair(engine, "watch", "wait", "parallel-terminal")
     assert result.status == "in_progress", result.error_code
     action_id = result.action_id
-    ids = sorted(item.activity_id for item in engine.state.activities.values()
+    ids = sorted(item.activity_id for item in engine.context.state.activities.values()
                  if item.origin_action_id == action_id)
     for index in range(100):
-        if any(engine.state.activities[item].status == "completed" for item in ids):
+        if any(engine.context.state.activities[item].status == "completed" for item in ids):
             break
         _advance_with_decisions(engine, index)
-    first = [engine.state.activities[item] for item in ids if engine.state.activities[item].status == "completed"]
+    first = [engine.context.state.activities[item] for item in ids if engine.context.state.activities[item].status == "completed"]
     assert [item.kind.value for item in first] == ["wait"] and first[0].concluded_at is None
-    watch = next(engine.state.activities[item] for item in ids if item != first[0].activity_id)
+    watch = next(engine.context.state.activities[item] for item in ids if item != first[0].activity_id)
     assert watch.status == "active"
-    assert engine.state.processed_actions[action_id].result["status"] == "in_progress"
+    assert engine.context.state.processed_actions[action_id].result["status"] == "in_progress"
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     _advance_with_decisions(engine, 100)
-    assert engine.state.current_time == now
-    assert engine.state.activities[first[0].activity_id].concluded_at == now
-    assert engine.state.activities[watch.activity_id].status == "active"
-    assert engine.state.processed_actions[action_id].result["status"] == "in_progress"
+    assert engine.context.state.current_time == now
+    assert engine.context.state.activities[first[0].activity_id].concluded_at == now
+    assert engine.context.state.activities[watch.activity_id].status == "active"
+    assert engine.context.state.processed_actions[action_id].result["status"] == "in_progress"
     for index in range(101, 300):
-        if all(engine.state.activities[item].status == "completed" for item in ids):
+        if all(engine.context.state.activities[item].status == "completed" for item in ids):
             break
         _advance_with_decisions(engine, index)
-    assert all(engine.state.activities[item].status == "completed" for item in ids)
-    assert engine.state.processed_actions[action_id].result["status"] == "completed"
-    events = [event for event in engine.store.read_agent_events("action_result", 1)
+    assert all(engine.context.state.activities[item].status == "completed" for item in ids)
+    assert engine.context.state.processed_actions[action_id].result["status"] == "completed"
+    events = [event for event in engine.context.store.read_agent_events("action_result", 1)
               if event.action_id == action_id and event.data["status"] != "in_progress"]
     assert len(events) == 1

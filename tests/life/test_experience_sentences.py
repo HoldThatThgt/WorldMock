@@ -1,4 +1,4 @@
-"""已核验经历只作私有证据，不写成提示句（docs/dev/SPEC-persona-prompt.md 第二章「删除与去重」）。
+"""已核验经历只作私有证据，不写成提示句（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「删除与去重」）。
 
 观察的私有证据 data.verified_experiences 保留结构行与来源身份（记忆写入证据依赖它），七层中没有经历句子；零点计划
 输入仍用场景的地点、商品与内容名称把经历写成句子（settled_text 的共享写法，例如「14:17 开车到了张江办公室」
@@ -24,12 +24,12 @@ _HEX = re.compile(r"[0-9a-f]{8,}")
 
 def _clock(engine, epoch: int) -> str:
     """@brief 场景时区的 HH:MM。"""
-    return f"{projection.local_datetime(epoch, engine.scenario.timezone):%H:%M}"
+    return f"{projection.local_datetime(epoch, engine.context.scenario.timezone):%H:%M}"
 
 
 def _place(engine, location_id: str) -> str:
     """@brief 场景地点名。"""
-    return next(item.name for item in engine.scenario.locations if item.location_id == location_id)
+    return next(item.name for item in engine.context.scenario.locations if item.location_id == location_id)
 
 
 def test_observation_keeps_experiences_private_and_out_of_the_layers(engine_factory) -> None:
@@ -44,7 +44,7 @@ def test_observation_keeps_experiences_private_and_out_of_the_layers(engine_fact
     _until_ended(engine, travel_id, "sentence-walk")
     observed = _preview(engine, "sentences")
     rows = observed["verified_experiences"]
-    inputs = SimpleNamespace(scenario=engine.scenario, state=engine.state, rules=engine.rules)
+    inputs = SimpleNamespace(scenario=engine.context.scenario, state=engine.context.state, rules=engine.context.rules)
     sentences = [experience_sentence(inputs, row) for row in rows]
     assert [row["kind"] for row in rows] == ["waited", "arrived"]
     assert len(sentences) == len(rows)
@@ -58,7 +58,7 @@ def test_observation_keeps_experiences_private_and_out_of_the_layers(engine_fact
     rendered = json.dumps([observed[key] for key in ("tool_layer", "todo_layer", "environment_layer",
                                                      "memory_layer", "progress_layer")], ensure_ascii=False)
     assert sentences[1] not in rendered and arrival_row["source_event_id"] not in rendered
-    assert engine.state.activities[travel_id].status == ActivityStatus.COMPLETED
+    assert engine.context.state.activities[travel_id].status == ActivityStatus.COMPLETED
     assert conclude_pending(engine, "sentence-walk-end").status == "completed"
 
 
@@ -68,11 +68,11 @@ def test_every_experience_kind_is_written_as_a_sentence_without_identities(engin
     engine = engine_factory()
     stage_day_plan(engine)
     travel_id = _started_ids(_depart(engine, "kinds-walk"))[0]
-    driving = engine.state.activities[travel_id].model_copy(update={"travel_mode": TravelMode.DRIVING}, deep=True)
-    state = engine.state.model_copy(update={"activities": {**engine.state.activities, "drive": driving}})
-    now = engine.state.current_time
-    product = engine.scenario.products[0]
-    film = next(item for item in engine.scenario.contents if item.kind == "feature_film")
+    driving = engine.context.state.activities[travel_id].model_copy(update={"travel_mode": TravelMode.DRIVING}, deep=True)
+    state = engine.context.state.model_copy(update={"activities": {**engine.context.state.activities, "drive": driving}})
+    now = engine.context.state.current_time
+    product = engine.context.scenario.products[0]
+    film = next(item for item in engine.context.scenario.contents if item.kind == "feature_film")
     common = {"agent_id": 1, "source_event_id": "event-0123456789abcdef", "event_seq": 1, "occurred_at": now}
     facts = [
         {**common, "kind": "waited", "activity_id": "wait", "interval_start": now - 600, "interval_end": now,
@@ -87,11 +87,11 @@ def test_every_experience_kind_is_written_as_a_sentence_without_identities(engin
         {**common, "kind": "arrived", "activity_id": "drive", "location_id": "office", "access_status": "allowed"},
         {**common, "kind": "arrived", "activity_id": travel_id, "location_id": "office", "access_status": "denied"},
     ]
-    titles = engine.rules.content_titles
-    inputs = SimpleNamespace(scenario=engine.scenario, state=state, rules=engine.rules)
+    titles = engine.context.rules.content_titles
+    inputs = SimpleNamespace(scenario=engine.context.scenario, state=state, rules=engine.context.rules)
     def clock(epoch: int) -> str:
         """@brief 共享句式里的钟点：与此刻不在同一本地日期时带「M月D日」。"""
-        return clock_phrase(epoch, now, engine.scenario.timezone)
+        return clock_phrase(epoch, now, engine.context.scenario.timezone)
 
     span = f"{clock(now - 600)}–{clock(now)}"
     office = _place(engine, "office")

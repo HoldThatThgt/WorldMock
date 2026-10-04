@@ -1,8 +1,8 @@
-"""指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」、裁决 #19 与 #26；docs/dev/SPEC-dayrun-fidelity.md 3.2、3.5）。
+"""指名购买（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「指名购买」、裁决 #19 与 #26；docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 、3.5）。
 
 真实 LifeEngine 与 SQLite 上：被轮转隐藏但存在的商品按标签或唯一商品名可买，按当前报价在同一秒结算，不查可见凭据；
 不存在的名称以 SUPPLY_NOT_FOUND 拒绝，逐项明细 details.items 的候选是至多 3 个确定性的近似标签（此刻能送到的在前），写成
-可照填的请求（docs/dev/SPEC-dayrun-fidelity.md 第四章、3.1），不换成别的商品；多家店都能服务的同名商品按请求级 prefer
+可照填的请求（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章、3.1），不换成别的商品；多家店都能服务的同名商品按请求级 prefer
 选定一家并写进 details.notes，不再以 SUPPLY_NAME_AMBIGUOUS 拒绝（3.5「收敛」第 5 条）；完整标签又写了另一家门店（from）以
 SUPPLY_SOURCE_MISMATCH 拒绝、候选就是这个标签，写的正是标签里的门店按冗余受理并写一句说明（3.2（b））；分段匹配按所写方式与
 此刻能不能服务依次报码（M2、M3）。宿主本地校验对 obtain（到店、远程下单、「购买」）放行不在本轮对象中的名称（named_kind 为
@@ -48,10 +48,10 @@ _MILK = "纯牛奶"
 
 def _layer_context(engine) -> LayerContext:
     """引擎当前世界的只读切片（指名购买的解析只读世界、场景与语义）。"""
-    agent = engine.state.agents[1]
-    return LayerContext(state=engine.state, scenario=engine.scenario, rules=engine.rules, semantics=engine.semantics,
+    agent = engine.context.state.agents[1]
+    return LayerContext(state=engine.context.state, scenario=engine.context.scenario, rules=engine.context.rules, semantics=engine.context.semantics,
                         agent_id=1, names={"sessions": {}, "activities": {}}, bindings=[],
-                        menu=resolve_interaction_menu(engine.scenario, 1, agent.location_id))
+                        menu=resolve_interaction_menu(engine.context.scenario, 1, agent.location_id))
 
 
 def _obtain(target: str, way: str = "远程下单", prefer: str = "最快拿到") -> StartActivityRequest:
@@ -70,7 +70,7 @@ def _round(engine, name: str, request):
 
 def _world(engine) -> tuple:
     """拒绝时必须不变的世界事实：余额、库存与订单。"""
-    return dict(engine.state.accounts), dict(engine.state.supply_stock), dict(engine.state.deliveries)
+    return dict(engine.context.state.accounts), dict(engine.context.state.supply_stock), dict(engine.context.state.deliveries)
 
 
 def _browsed(engine) -> set[str]:
@@ -84,10 +84,10 @@ def _browsed(engine) -> set[str]:
 def _hidden(engine, listed: set[str], unique_name: bool):
     """一条存在、能送到家、没有被本轮列出也没有可见凭据的供给（unique_name 时其商品名在场景供给中唯一）。"""
     context_ = _layer_context(engine)
-    names = [next(item.name for item in engine.scenario.products if item.product_id == supply.product_id)
-             for supply in engine.scenario.supplies]
-    visible = set(projection.visible_supplies(engine.state, engine.state.agents[1], engine.scenario))
-    return next(supply for supply, name in zip(engine.scenario.supplies, names)
+    names = [next(item.name for item in engine.context.scenario.products if item.product_id == supply.product_id)
+             for supply in engine.context.scenario.supplies]
+    visible = set(projection.visible_supplies(engine.context.state, engine.context.state.agents[1], engine.context.scenario))
+    return next(supply for supply, name in zip(engine.context.scenario.supplies, names)
                 if supply_label(context_, supply) not in listed and supply.supply_id not in visible
                 and "delivery" in supply.fulfillment_modes and "home" in supply.delivery_destination_ids
                 and (not unique_name or resolve_named_supply(context_, PurchaseAsk(
@@ -101,21 +101,21 @@ def test_rotation_hidden_supply_is_bought_by_name_at_the_current_quote(engine_fa
     engine = engine_factory()
     listed = _browsed(engine)
     supply = _hidden(engine, listed, unique_name=by == "product")
-    product = engine.rules.items[supply.product_id]
+    product = engine.context.rules.items[supply.product_id]
     name = supply_label(_layer_context(engine), supply) if by == "label" else product.name
     assert name not in listed
-    quote = current_quote(engine.state, supply.supply_id)
-    price = engine.semantics.purchase_amount(supply.product_id, quote.price_fen, 1)
-    balance, stock = engine.state.accounts["agent:1"], engine.state.supply_stock[supply.supply_id]
+    quote = current_quote(engine.context.state, supply.supply_id)
+    price = engine.context.semantics.purchase_amount(supply.product_id, quote.price_fen, 1)
+    balance, stock = engine.context.state.accounts["agent:1"], engine.context.state.supply_stock[supply.supply_id]
     _, result = _round(engine, f"named-{by}", _obtain(name))
     assert (result.status, result.error_code) == ("completed", None)
     [order] = result.data["orders"]
     assert (order["supply_id"], order["product_id"], order["price_version"], order["total_price_fen"]) == (
         supply.supply_id, supply.product_id, quote.price_version, price)
     assert (order["fulfillment"], order["destination_id"], order["created_at"]) == (
-        "delivery", "home", engine.state.current_time)
-    assert engine.state.accounts["agent:1"] == balance - price
-    assert engine.state.supply_stock[supply.supply_id] == stock - 1
+        "delivery", "home", engine.context.state.current_time)
+    assert engine.context.state.accounts["agent:1"] == balance - price
+    assert engine.context.state.supply_stock[supply.supply_id] == stock - 1
     [shown] = last_result(engine.observe(context(engine, f"named-{by}-seen")))["details"]["purchases"]
     assert (shown["product"], shown["paid"]) == (product.name, money_phrase(price)) and "way" not in shown
 
@@ -130,7 +130,7 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
     name = f"{_MILK}加冰"
     _, result = _round(engine, "unknown", _obtain(name))
     assert (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    labels = {supply_label(_layer_context(engine), supply) for supply in engine.scenario.supplies}
+    labels = {supply_label(_layer_context(engine), supply) for supply in engine.context.scenario.supplies}
     [item] = result.data["items"]
     candidates = [row["arguments"]["items"][0]["target"] for row in item["candidates"]]
     assert (item["path"][5], item["path"][-1], item["written"], item["error_code"]) == (0, "target", name, "SUPPLY_NOT_FOUND")
@@ -148,7 +148,7 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
 
 def _home_supply(engine):
     """一条能送到家的场景供给（按名称购买的对象，不必出现在本轮）。"""
-    return next(supply for supply in engine.scenario.supplies
+    return next(supply for supply in engine.context.scenario.supplies
                 if "delivery" in supply.fulfillment_modes and "home" in supply.delivery_destination_ids)
 
 
@@ -176,9 +176,9 @@ def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_i
     _stage_open(engine)
     stage_day_plan(engine)
     supply = _home_supply(engine)
-    price = engine.semantics.purchase_amount(supply.product_id,
-                                             current_quote(engine.state, supply.supply_id).price_fen, 1)
-    assert price > engine.state.accounts["agent:1"] == 100
+    price = engine.context.semantics.purchase_amount(supply.product_id,
+                                             current_quote(engine.context.state, supply.supply_id).price_fen, 1)
+    assert price > engine.context.state.accounts["agent:1"] == 100
     before = _world(engine)
     _, result = _round(engine, "broke", _obtain(supply_label(_layer_context(engine), supply)))
     assert (result.status, result.error_code) == ("rejected", "INSUFFICIENT_FUNDS")
@@ -189,8 +189,8 @@ def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_i
 
 def _milk(engine) -> list:
     """能送到家的同名商品纯牛奶在各店的供给（集市、好德、农工商超市）。"""
-    return [supply for supply in engine.scenario.supplies
-            if engine.rules.items[supply.product_id].name == _MILK and "home" in supply.delivery_destination_ids]
+    return [supply for supply in engine.context.scenario.supplies
+            if engine.context.rules.items[supply.product_id].name == _MILK and "home" in supply.delivery_destination_ids]
 
 
 def _store(layer, supply) -> str:
@@ -201,13 +201,13 @@ def _store(layer, supply) -> str:
 def test_same_name_in_several_stores_is_chosen_by_prefer_unless_a_store_is_named(engine_factory) -> None:
     """多家店都能送到家的同名商品（纯牛奶）：from 为 null、prefer 为 null 时按最快选定一家（预计送达最早，并列时比到手价与
     门店标识），不再以 SUPPLY_NAME_AMBIGUOUS 拒绝；details.notes 写明有几处能买、按什么选了哪家（完整标签）与预计送达
-    （docs/dev/SPEC-dayrun-fidelity.md 3.5「收敛」第 5 条）。写成标签或以 from 限定门店时解析为那家店的供给。"""
+    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10 「收敛」第 5 条）。写成标签或以 from 限定门店时解析为那家店的供给。"""
     engine = engine_factory()
     _browsed(engine)
     layer = _layer_context(engine)
-    milk, now = _milk(engine), engine.state.current_time
+    milk, now = _milk(engine), engine.context.state.current_time
     assert len({supply.location_id for supply in milk}) >= 2
-    arrival = {supply.supply_id: delivery_expected_at(engine.semantics, supply, "home", now) for supply in milk}
+    arrival = {supply.supply_id: delivery_expected_at(engine.context.semantics, supply, "home", now) for supply in milk}
     fastest = min(milk, key=lambda supply: (arrival[supply.supply_id], landed_price(layer, supply),
                                             supply.location_id))
     _, result = _round(engine, "several", _obtain(_MILK))
@@ -215,7 +215,7 @@ def test_same_name_in_several_stores_is_chosen_by_prefer_unless_a_store_is_named
     [order] = result.data["orders"]
     assert (order["supply_id"], order["expected_at"], order["channel_id"]) == (
         fastest.supply_id, arrival[fastest.supply_id], None)
-    moment = clock_phrase(arrival[fastest.supply_id], now, engine.scenario.timezone)
+    moment = clock_phrase(arrival[fastest.supply_id], now, engine.context.scenario.timezone)
     assert result.data["notes"] == [f"「{_MILK}」有 {len(milk)} 处都能远程下单，按最快拿到选了{supply_label(layer, fastest)}"
                                     f"（预计 {moment} 送到）"]
     assert result.data["resolved"] == [{"written": _MILK, "as": supply_label(layer, fastest)}]
@@ -230,13 +230,13 @@ def test_same_name_in_several_stores_is_chosen_by_prefer_unless_a_store_is_named
 def test_several_servable_matches_follow_prefer_and_never_report_ambiguity(engine_factory) -> None:
     """同一件同名商品（纯牛奶，from 为 null）：prefer=cheapest 选到手价最低的一家，prefer=fastest 选预计送达最早的一家，两者
     在这个世界里不是同一家店；受理说明写明按什么选的，cheapest 另写到手价；两次都不以 SUPPLY_NAME_AMBIGUOUS 拒绝
-    （docs/dev/SPEC-dayrun-fidelity.md 3.5 验收「prefer 两个取值各一例」）。"""
+    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10  验收「prefer 两个取值各一例」）。"""
     engine = engine_factory()
     _browsed(engine)
     layer = _layer_context(engine)
-    milk, now = _milk(engine), engine.state.current_time
+    milk, now = _milk(engine), engine.context.state.current_time
     cheapest = min(milk, key=lambda supply: (landed_price(layer, supply), supply.location_id))
-    fastest = min(milk, key=lambda supply: (delivery_expected_at(engine.semantics, supply, "home", now),
+    fastest = min(milk, key=lambda supply: (delivery_expected_at(engine.context.semantics, supply, "home", now),
                                             landed_price(layer, supply), supply.location_id))
     assert cheapest.location_id != fastest.location_id
     _, cheap = _round(engine, "cheapest", _obtain(_MILK, prefer="到手价最低"))
@@ -300,15 +300,15 @@ def test_a_preference_outside_the_declared_pair_is_refused_and_no_store_is_chose
 def test_full_label_with_another_store_in_from_is_a_source_mismatch(engine_factory) -> None:
     """目标已是完整标签「<门店>出售的<商品>」时 from 只能是 null、标签里的那家店或包含它的渠道：本轮没有列出的标签又写了
     另一家门店，环境以 SUPPLY_SOURCE_MISMATCH 拒绝，逐项明细的参数名是 from、候选就是这个标签（from 为 null，可照填），
-    不下单、不扣款（docs/dev/SPEC-dayrun-fidelity.md 3.2（b）第二行）；写的正是标签里的门店是冗余的 from，照常受理，
+    不下单、不扣款（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 （b）第二行）；写的正是标签里的门店是冗余的 from，照常受理，
     details.notes 说明可以写 null（3.2（b）第一行）。"""
     engine = engine_factory()
     listed = _browsed(engine)
     supply = _hidden(engine, listed, unique_name=False)
     layer = _layer_context(engine)
     label = supply_label(layer, supply)
-    store = label.removesuffix(f"出售的{engine.rules.items[supply.product_id].name}")
-    other = next(item.name for item in engine.scenario.locations if item.name != store)
+    store = label.removesuffix(f"出售的{engine.context.rules.items[supply.product_id].name}")
+    other = next(item.name for item in engine.context.scenario.locations if item.name != store)
     before = _world(engine)
     _, result = _round(engine, "label-with-from", start_request(
         targets=[label], actions=["obtain"], ways=["远程下单"], from_=[other], to=[None]))
@@ -344,18 +344,18 @@ def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(
     assert far.value.suggested["next_step"].startswith("Go to ")
     assert item["candidates"] and all(row["way"] == "远程下单" and _MILK in row["target"]
                                      for row in item["candidates"])
-    pickup_only = next(supply for supply in engine.scenario.supplies if set(supply.fulfillment_modes) == {"pickup"})
+    pickup_only = next(supply for supply in engine.context.scenario.supplies if set(supply.fulfillment_modes) == {"pickup"})
     with pytest.raises(BusinessRuleError, match="FULFILLMENT_NOT_SUPPORTED") as unsupported:
         resolve_named_supply(layer, PurchaseAsk(supply_label(layer, pickup_only), "远程下单", None, "home", prefer="最快拿到"))
     assert unsupported.value.public_reason == f"The only supported way for {supply_label(layer, pickup_only)} is 到店."
-    supply = next(item for item in engine.scenario.supplies if item.location_id == "market"
+    supply = next(item for item in engine.context.scenario.supplies if item.location_id == "market"
                   and "pickup" in item.fulfillment_modes)
     with pytest.raises(BusinessRuleError, match="SUPPLY_NOT_FOUND"):
         resolve_named_supply(layer, PurchaseAsk(supply.supply_id, "远程下单", None, "home", prefer="最快拿到"))
     place(engine, 1, "market")
     layer = _layer_context(engine)
     row = resolve_named_supply(layer, PurchaseAsk(supply_label(layer, supply), "到店", None, "market", prefer="最快拿到"))
-    quote = current_quote(engine.state, supply.supply_id)
+    quote = current_quote(engine.context.state, supply.supply_id)
     assert (row["kind"], row["object_id"], row["named"], row["selected_action"]["fulfillment"]) == (
         "supply", supply.supply_id, True, "pickup")
     assert row["quote"]["price_version"] == quote.price_version
@@ -364,20 +364,20 @@ def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(
 
 def test_remote_orders_no_selling_store_can_deliver_say_so_like_listed_ones(engine_factory) -> None:
     """远程下单此刻服务不了（M3）时的说法：人在不卖纯牛奶的紫薇公园，把它从各家纯牛奶的配送范围里去掉；只有一家出售门店
-    （完整标签）时与非指名的远程下单同一句「这里不在这家店的配送范围内」（docs/dev/SPEC-dayrun-fidelity.md 5.3），几家出售
+    （完整标签）时与非指名的远程下单同一句「这里不在这家店的配送范围内」（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ），几家出售
     门店（纯牛奶）都送不到时写「出售它的门店都送不到<收货地>」；unmet 都是 delivery_destination，下一步都只指向从此地可达、
     能送达的地点（同一门店、同一此地时两者相同），没有此刻能服务的同名候选。"""
     engine = engine_factory()
     _stage_open(engine)
     here = "poi-337936012"
-    milk = [supply for supply in engine.scenario.supplies
-            if next(item.name for item in engine.scenario.products if item.product_id == supply.product_id) == _MILK]
+    milk = [supply for supply in engine.context.scenario.supplies
+            if next(item.name for item in engine.context.scenario.products if item.product_id == supply.product_id) == _MILK]
     assert len({supply.location_id for supply in milk}) > 1 and here not in {supply.location_id for supply in milk}
     for supply in milk:
         _retarget(engine, supply.supply_id, tuple(spot for spot in supply.delivery_destination_ids if spot != here))
     place(engine, 1, here)
     layer = _layer_context(engine)
-    name = next(item.name for item in engine.scenario.locations if item.location_id == here)
+    name = next(item.name for item in engine.context.scenario.locations if item.location_id == here)
     refusals = []
     for written in (_MILK, *(supply_label(layer, supply) for supply in milk)):
         with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as refused:
@@ -392,7 +392,7 @@ def test_remote_orders_no_selling_store_can_deliver_say_so_like_listed_ones(engi
 
 def test_near_candidates_are_deterministic_term_similarity(monkeypatch) -> None:
     """近似候选按词项（单字与相邻二字）的 Dice 系数排序（名称与标签、商品名两者取大），相同得分按标签排序，至多 3 个；
-    毫不相干的名称没有候选；此刻能按所写方式服务的排在前面（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 3 条；可行性判定
+    毫不相干的名称没有候选；此刻能按所写方式服务的排在前面（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 3 条；可行性判定
     purchase_offers.serves 在这里换成按收货地是否在配送范围内），从不替换人物写的名称。"""
     monkeypatch.setattr(named_purchase, "serves", lambda context, supply, way, destination: (
         "delivery" in supply.fulfillment_modes and destination in supply.delivery_destination_ids))

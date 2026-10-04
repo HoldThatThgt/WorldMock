@@ -1,6 +1,6 @@
 """活动控制与公开结果合同：活动目标的人读客观进度、播报暂停与结束的控制、回看、公开结果投影与内部身份隔离。
 
-docs/dev/SPEC-persona-prompt.md「工具层」「待办层」「进度层」：进行中与刚结束的活动是工具层的活动目标（名称、阶段、
+docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」「待办层」「进度层」：进行中与刚结束的活动是工具层的活动目标（名称、阶段、
 客观进度与三个控制工具），暂停的活动只在待办层；播报、暂停与结束逐项点名活动；回看可按任务、当日目标或活动名，
 结果不带身份并进入进度层该调用的结果。第八章「活动」：客观进度从活动累计读取，写成人读短语并随结算增长，工作不写「还差」。
 """
@@ -39,7 +39,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.result_projection import public_result
 from worldmock.life.schedule import DayPlan, PlanGoal
-from worldmock.life.session_actions import SessionActionMixin
+from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.sessions import moment_label
 from worldmock.life.tool_layer import LayerContext, tool_layer
 
@@ -101,11 +101,10 @@ def _goal_plan() -> DayPlan:
                    goals=(PlanGoal(intent_kind="工作", goal="完成纪要", registered_at=_START),))
 
 
-class _Controller(SessionActionMixin):
+class _Controller(ActionHandlers):
     """用本轮冻结观察的活动名绑定测试控制动作，不加载场景或语料（地点名取固定切片，没有工作任务）。"""
 
-    scenario = _PLACES
-    rules = SimpleNamespace(tasks={}, items={})
+    context = SimpleNamespace(scenario=_PLACES, rules=SimpleNamespace(tasks={}, items={}))
 
     def __init__(self, state: WorldState, rows: list[dict] | None = None) -> None:
         names = visible_names(state, 1, [])["activities"]
@@ -125,8 +124,7 @@ def _pending() -> PendingAction:
 @pytest.mark.parametrize("request_type", [ReportStatusRequest, PauseActivityRequest, ConcludeActivityRequest])
 def test_activity_control_takes_one_object_per_activity(request_type) -> None:
     """每项点名的活动是一个对象，活动名与自述写在同一对象里，结束另带该项的记忆与看法；模型接口不接受内部会话或活动定位
-    字段（docs/dev/SPEC-dayrun-fidelity.md 第六章）；请求级另有个人事务变更 errands（docs/dev/SPEC-errands-workday.md
-    2.2）。"""
+    字段（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）；请求级另有个人事务变更 errands（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。"""
     concluding = request_type is ConcludeActivityRequest
     extra = {"memories": [], "views": []} if concluding else {}
     assert set(request_type.model_fields) == {"items", "errands"}
@@ -228,7 +226,7 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
     """回看工作任务取最近一条相关活动自述；回看活动给地点（最近所属会话的地点，未归入会话的取开始地点）、阶段、
     人读进度（工作不写「还差」）与自述；截止是带时区的 ISO 时刻，自述照原文、不逐条标注未经核验；会话名不在七层中出现，
     回看会话名以 TASK_NOT_FOUND 拒绝。结果不带内部身份并原样进入进度层该调用结果的 details.recall（第七章，
-    docs/dev/SPEC-persona-prompt.md「通用格式」「进度层」）。自述仍在本轮记忆层 self_notes 中时（按活动的全名或去掉开始
+    docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」「进度层」）。自述仍在本轮记忆层 self_notes 中时（按活动的全名或去掉开始
     时刻的短名标注），任务与活动的回看都只写那项活动在记忆层中的名称与「已在记忆层」（「唯一出现原则」）。"""
     task = SimpleNamespace(task_id="internal-task", required_effective_seconds=14400.0,
                            due_at=datetime.fromtimestamp(_START + 64800, timezone.utc))
@@ -246,11 +244,12 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
     state = _world([first, second, unassigned], [morning, afternoon], now=_START + 10200)
     memory = {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
 
-    class RecallController(SessionActionMixin):
+    class RecallController(ActionHandlers):
         """只提供回看需要的冻结绑定、记忆层、任务目录与地点名。"""
 
-        rules = SimpleNamespace(task=lambda _identity: task, tasks={task.task_id: task})
-        scenario = SimpleNamespace(timezone=_ZONE, locations=(
+        context = SimpleNamespace()
+        context.rules = SimpleNamespace(task=lambda _identity: task, tasks={task.task_id: task})
+        context.scenario = SimpleNamespace(timezone=_ZONE, locations=(
             SimpleNamespace(location_id="private-office", name="办公室"),), routes=())
 
         def _frozen_observation(self, _pending: PendingAction) -> dict:
@@ -261,8 +260,8 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
                                            "phase": activity_phase(state.activities[key]), "note_labels": []}
                                           for key, name in names["activities"].items()]}
 
-    controller = RecallController()
-    controller.state = state
+    controller = RecallController(RecallController.context, None)
+    controller.context.state = state
 
     def recall(name: str) -> dict:
         before = state.model_dump()
@@ -299,7 +298,7 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
 def test_activity_targets_carry_only_readable_objective_progress() -> None:
     """工具层的活动目标只有名称、阶段、人读客观进度与三个控制工具：工作写已做、有效与还剩，不写「还差」（剩余只在任务
     目标的 contract）；刚结束的活动先写终局再写已做；暂停的活动不在工具层；自述与内部身份不进入
-    （docs/dev/SPEC-persona-prompt.md「工具层」「唯一出现原则」）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」「唯一出现原则」）。"""
     work = _activity("work", "工作1月5日项目会议纪要", kind=ActivityKind.WORK, elapsed=7200, planned=10800,
                      target_id="internal-task", effective_work_seconds=5400.0, progress_note="锁粒度那块卡住了")
     assert objective_progress(work) == "已做约 2 小时，有效约 1.5 小时，还剩约 1 小时"
@@ -346,7 +345,7 @@ def _advance_until(engine, done, round_id: str) -> None:
         if done():
             return
         if engine.scheduling_state().ready_agent_ids:
-            running = active_activities(engine.state, 1)
+            running = active_activities(engine.context.state, 1)
             _act(engine, f"{round_id}-{step}", "report_status", report_request(
                 *(item.name for item in running), summary="继续。"))
         else:
@@ -357,7 +356,7 @@ def _advance_until(engine, done, round_id: str) -> None:
 def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) -> None:
     """真实运行中活动依次出现在：工具层（进行中）、待办层（暂停，带暂停时刻与恢复地点）、工具层（进行中）、工具层（刚结束）、
     两层都不在（已收尾）；写下的 summary 只作为进度层该调用的参数出现，不进工具层与待办层（第七章「进度层」，
-    docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     started = _act(engine, "phase-wait", "start_activity", start_activity("等待", "自己"))
@@ -377,11 +376,11 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     assert progress_calls(paused, "pause_activity")[0]["arguments"] == {
         "items": [{"activity_name": name, "summary": "先处理邮件"}]}
     assert _act(engine, "phase-resume", "report_status", report_request(name, summary="回到等待")).status == "completed"
-    assert engine.state.activities[activity_id].note_history[-1]["note"] == "先处理邮件"
+    assert engine.context.state.activities[activity_id].note_history[-1]["note"] == "先处理邮件"
     resumed = _observe(engine, "phase-resumed")
     assert _activity_target(resumed, name)["phase"] == "进行中" and not resumed["todo_layer"]["paused_activities"]
     assert "回到等待" not in json.dumps(resumed["tool_layer"], ensure_ascii=False)
-    _advance_until(engine, lambda: engine.state.activities[activity_id].status != ActivityStatus.ACTIVE, "phase")
+    _advance_until(engine, lambda: engine.context.state.activities[activity_id].status != ActivityStatus.ACTIVE, "phase")
     ended = _observe(engine, "phase-ended")
     assert _activity_target(ended, name)["phase"] == "刚结束"
     assert _activity_target(ended, name)["state"] == "按计划结束，已做约 15 分钟"
@@ -393,13 +392,13 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
 
 def test_work_objective_progress_grows_with_settlement(engine_factory) -> None:
     """工作活动目标的客观进度读活动已结算的时长与有效工时，写成人读时长，随结算增长；不写「还差」，达标情况只在任务目标的
-    contract（第八章「活动客观进度」，docs/dev/SPEC-persona-prompt.md 第六章）。"""
+    contract（第八章「活动客观进度」，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章）。"""
     from tests.life.test_work_review import _at_task_start
 
     engine = engine_factory()
     _at_task_start(engine)
     stage_day_plan(engine)
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     preview = _observe(engine, "work-preview")
     target, label = next((row["object"], action["label"]) for row in preview["interaction_bindings"]
                          if row["object_id"] == task.task_id for action in row["actions"]
@@ -412,10 +411,10 @@ def test_work_objective_progress_grows_with_settlement(engine_factory) -> None:
     assert first == "已做不到 1 分钟，有效不到 1 分钟，还剩约 8 小时"
     contract = next(row for row in observed["tool_layer"]["targets"] if row["name"] == target)["contract"]
     assert contract["remaining"] == "有效工时还差约 4 小时（约 0/4 小时）"
-    moment = engine.state.current_time + 1800
+    moment = engine.context.state.current_time + 1800
     wake_by_mail(engine, offset=1800)
-    _advance_until(engine, lambda: engine.state.current_time >= moment, "work")
-    activity = engine.state.activities[started.activity_id]
+    _advance_until(engine, lambda: engine.context.state.current_time >= moment, "work")
+    activity = engine.context.state.activities[started.activity_id]
     assert activity.elapsed_seconds == 1800 and 0 < activity.effective_work_seconds <= 1800
     later = _activity_target(_observe(engine, "work-later"), name)["state"]
     assert later.startswith(f"已做约 30 分钟，有效约 {round(activity.effective_work_seconds / 60)} 分钟")
@@ -445,7 +444,7 @@ def test_fresh_result_preserves_feedback_without_action_id() -> None:
 
 
 def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
-    """多商品结果各自写商品名、份数、付款、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-persona-prompt.md「通用格式」）、
+    """多商品结果各自写商品名、份数、付款、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」）、
     收货人与所回应的消息（没有关联时为 null），不复述请求的方式，删除报价版本、订单、供给、收货人与消息身份。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),
                 SimpleNamespace(product_id="p2", name="豆浆"))

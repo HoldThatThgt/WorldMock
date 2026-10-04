@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/day-plan-goals-bob-metrics-recheck.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 当日目标 Uncle Bob 审查：metrics-recheck
 
 状态：COMPLETE。原三层指标审查的三个 survived 补丁在新增行为断言后全部 killed；无剩余 survived。

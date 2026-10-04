@@ -1,4 +1,4 @@
-"""session 归属、settled 写法的排除项与 answering 可关联的消息（docs/dev/SPEC-persona-prompt.md 第三章「session 与记忆条目」
+"""session 归属、settled 写法的排除项与 answering 可关联的消息（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「session 与记忆条目」
 「settled 的写法」、第四章、第五章「代点请求与订单关联」）。
 
 一个 session 的记录区间是（前一边界提交的末事件序号, 本边界提交的末事件序号]，同一提交按 state_version_after 聚合：出发所在
@@ -34,7 +34,7 @@ _REVISE = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="休息", goal="
 
 def _first_result_seq(engine, agent_id: int, action_id: str) -> int:
     """某动作首个 action_result 的事件序号。"""
-    return next(event.event_seq for event in engine.store.read_agent_events("action_result", agent_id)
+    return next(event.event_seq for event in engine.context.store.read_agent_events("action_result", agent_id)
                 if event.action_id == action_id)
 
 
@@ -64,18 +64,18 @@ def test_arrival_commit_belongs_wholly_to_the_transit_session(engine_factory) ->
     engine = engine_factory()
     stage_day_plan(engine)
     walk = _walk(engine, "arrive-walk")
-    trip = engine.state.activities[walk.activity_id]
-    wake_by_mail(engine, offset=trip.planned_end_at - engine.state.current_time)
+    trip = engine.context.state.activities[walk.activity_id]
+    wake_by_mail(engine, offset=trip.planned_end_at - engine.context.state.current_time)
     assert advance_until_ready(engine)
-    arrived = engine.state.current_time
+    arrived = engine.context.state.current_time
     assert arrived == trip.planned_end_at
-    assert engine.state.activities[walk.activity_id].status == ActivityStatus.COMPLETED
-    (mail,) = [event for event in engine.store.read_agent_events("environment_event", 1)
+    assert engine.context.state.activities[walk.activity_id].status == ActivityStatus.COMPLETED
+    (mail,) = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                if event.data.get("kind") == "mail_arrival"]
     assert mail.occurred_at == arrived
-    lower = engine.store.commit_last_seq(mail.event_seq)
+    lower = engine.context.store.commit_last_seq(mail.event_seq)
     assert lower >= mail.event_seq
-    assert progress_layer.session_bound(engine.store, engine.state, 1) == (arrived, lower)
+    assert progress_layer.session_bound(engine.context.store, engine.context.state, 1) == (arrived, lower)
     name = activity_name(engine, walk.activity_id)
     _act(engine, "arrive-conclude", "conclude_activity", conclude_request(name))
     observed = _observe(engine, "arrive-seen")
@@ -83,7 +83,7 @@ def test_arrival_commit_belongs_wholly_to_the_transit_session(engine_factory) ->
     assert conclusion["tool"] == "conclude_activity" and _meta_lines(observed, conclusion) == []
     assert mail.event_id not in observed["progress_event_ids"]
     assert [row for row in observed["progress_layer"]["events"] if row["type"] == "message_arrival"] == []
-    ended = engine.state.activities[walk.activity_id]
+    ended = engine.context.state.activities[walk.activity_id]
     arrival = f"{name}：{_clock(engine, ended.started_at)}–{_clock(engine, arrived)}，到达"
     assert observed["memory_layer"]["earlier_today"] == [{
         "recorded_at": iso_time(arrived, _ZONE), "self_notes": [], "settled": [arrival, _mail_line(engine, arrived)]}]
@@ -93,24 +93,24 @@ def test_departure_commit_belongs_wholly_to_the_old_session(engine_factory) -> N
     """出发所在的决策轮提交整体归旧 session：同一轮排在出发者之后结算的他人消息，送达事件在出发结果之后、仍在同一提交，
     写进出发前那段停留的条目，不在路程 session 的进度层；路程 session 的下界是这次提交的末事件序号。"""
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     leaver, sender = engine.scheduling_state().ready_agent_ids
     preview = _observe(engine, "leave-preview", leaver)
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
-    message = SendMessageActionRequest(recipient_name=f"人物：{engine.state.agents[leaver].name}", text="我也出门了")
+    message = SendMessageActionRequest(recipient_name=f"人物：{engine.context.state.agents[leaver].name}", text="我也出门了")
     submit_round(engine, {leaver: ("start_activity", start_activity("步行", office)),
                           sender: ("send_message", message)}, "leave")
     departure = _first_result_seq(engine, leaver, f"action-leave-{leaver}")
-    (arrival,) = [event for event in engine.store.read_agent_events("environment_event", leaver)
+    (arrival,) = [event for event in engine.context.store.read_agent_events("environment_event", leaver)
                   if event.data.get("kind") == "message_arrival"]
-    lower = engine.store.commit_last_seq(departure)
+    lower = engine.context.store.commit_last_seq(departure)
     assert departure < arrival.event_seq <= lower
-    assert progress_layer.session_bound(engine.store, engine.state, leaver) == (engine.state.current_time, lower)
+    assert progress_layer.session_bound(engine.context.store, engine.context.state, leaver) == (engine.context.state.current_time, lower)
     road = _observe(engine, "leave-road", leaver)
     assert arrival.event_id not in road["progress_event_ids"] and road["progress_layer"]["events"] == []
     (home,) = road["memory_layer"]["earlier_today"]
-    assert home["settled"] == [f"{_clock(engine, arrival.occurred_at)} 收到{engine.state.agents[sender].name}"
+    assert home["settled"] == [f"{_clock(engine, arrival.occurred_at)} 收到{engine.context.state.agents[sender].name}"
                                f"的消息：我也出门了"]
 
 
@@ -119,7 +119,7 @@ def test_answering_binds_progress_messages_and_only_unreplied_memory_messages(en
     仍在（记为已呈现），但不能再关联，只有未回复的可以。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    contacts = {item.salutation: item for item in engine.scenario.agents[0].contacts}
+    contacts = {item.salutation: item for item in engine.context.scenario.agents[0].contacts}
     replied = _contact_message(engine, contacts["陈母"].contact_id, "到公司了吗")
     open_ = _contact_message(engine, contacts["沈昊"].contact_id, "周末打球")
     _act(engine, "bind-reply", "send_message", SendMessageActionRequest(recipient_name="联系人：陈母", text="到了"))
@@ -128,17 +128,17 @@ def test_answering_binds_progress_messages_and_only_unreplied_memory_messages(en
     _walk(engine, "bind-walk")
     road = _observe(engine, "bind-road")
     assert road["presented_message_ids"] == [replied, open_]
-    assert road["message_bindings"] == [{"name": f"沈昊 {_clock(engine, engine.state.current_time)} 的消息",
+    assert road["message_bindings"] == [{"name": f"沈昊 {_clock(engine, engine.context.state.current_time)} 的消息",
                                          "message_id": open_, "sender_id": contacts["沈昊"].contact_id}]
 
 
 def test_chat_invitation_writes_no_settled_line_for_condensation(engine_factory) -> None:
     """交谈邀请在收件人的进度层带全文，但不是直接消息：progress_meta 里它的 settled 句为空，预算浓缩不会把它写成「收到…的消息」。"""
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     submit_round(engine, {1: ("revise_day_plan", _REVISE),
-                          2: ("start_activity", start_activity("交谈", f"人物：{engine.state.agents[1].name}"))},
+                          2: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[1].name}"))},
                  "invite")
     observed = _observe(engine, "invite-seen")
     (invite,) = [row for row in observed["progress_layer"]["events"] if row["type"] == "message_arrival"]
@@ -162,10 +162,10 @@ def test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences(en
     closed = wake_by_mail(engine, offset=120)
     advance_next(engine)
     _act(engine, "plan-conclude", "conclude_activity", conclude_request(name))
-    started = engine.state.activities[first.activity_id].started_at
+    started = engine.context.state.activities[first.activity_id].started_at
     expected = (f"{name}：{_clock(engine, started)}–{_clock(engine, closed)}"
                 f"（暂停 {_clock(engine, paused_at)}–{_clock(engine, resumed_at)}），提前结束")
-    assert expected in plan_inputs(engine, 1).payload["动作结果"]
+    assert expected in plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1).payload["动作结果"]
 
 
 def test_due_soon_record_uses_the_wake_lead_time(engine_factory, monkeypatch) -> None:
@@ -175,7 +175,7 @@ def test_due_soon_record_uses_the_wake_lead_time(engine_factory, monkeypatch) ->
     name = _stage_task_near_due(engine, 2700)
     events = _observe(engine, "lead-seen")["progress_layer"]["events"]
     records = [row for row in events if row["type"] == "task_deadline"]
-    assert records == [{"occurred_at": iso_time(engine.state.current_time, engine.scenario.timezone),
+    assert records == [{"occurred_at": iso_time(engine.context.state.current_time, engine.context.scenario.timezone),
                         "type": "task_deadline", "task": name, "stage": "due_soon"}]
 
 
@@ -187,13 +187,13 @@ def test_open_order_record_stays_uncondensed_while_older_records_fold(engine_fac
     _stage(engine, "market", 1500)
     _act(engine, "fold-revise", "revise_day_plan", _REVISE)
     order = _remote_order(engine, "fold-order")
-    friend = engine.scenario.agents[0].contacts[0].salutation
+    friend = engine.context.scenario.agents[0].contacts[0].salutation
     _act(engine, "fold-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="在路上"))
     _action_request_round(engine, "fold-last", "revise_day_plan", _REVISE)
     observed = _observe(engine, "fold-seen")
     records = observed["progress_layer"]["events"]
     assert [row["tool"] for row in records] == ["revise_day_plan", "start_activity", "send_message", "revise_day_plan"]
-    assert engine.state.deliveries[order["order_id"]].status == "pending"
+    assert engine.context.state.deliveries[order["order_id"]].status == "pending"
     assert [row["protected"] for row in observed["progress_meta"]] == [False, True, False, True]
     layers = (observed["tool_layer"], observed["progress_layer"])
     request = {"model": prompt_capacity.MODEL_ALIAS, "max_tokens": 100, "tools": [],

@@ -28,7 +28,7 @@ from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (active_activities, ActivityState, MeetingMinutes, SubmitWorkActionRequest,
                                    SubmitWorkRequest)
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.life.result_projection import public_result
 from worldmock.life.work import WorkMetrics, WorkSubmission, load_work_input, load_work_oracle
 from worldmock.life.work_review import (
@@ -105,9 +105,9 @@ class PrivateRationaleReviewer(StaticReviewer):
 
 def _at_task_start(engine) -> None:
     """把测试夹具推进到任务开放时刻和办公室。"""
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     now = int(task.available_at.timestamp())
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = now
     staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
     agent = staged.agents[1]
@@ -119,13 +119,13 @@ def _at_task_start(engine) -> None:
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=now, visibility="system",
                        source_kind="scenario", data={"kind": "test_task_start"})
-    engine.store.commit(staged.model_dump(mode="json"), [event])
-    engine.state = staged
+    engine.context.store.commit(staged.model_dump(mode="json"), [event])
+    engine.context.state = staged
 
 
 def _complete_required_work(engine) -> None:
     """经实际活动入口完成首个任务所需有效工作时间；工作按计划结束即成待收尾，当秒收尾（规格第七章「活动的生命周期」）。"""
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     observed = engine.observe(context(engine, "work-time-preview"))
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"]
@@ -135,7 +135,7 @@ def _complete_required_work(engine) -> None:
     _, results = submit_round(engine, {1: ("start_activity", request)}, "work-time")
     activity_id = results[0].activity_id
     feedback_index = 0
-    while engine.state.activities[activity_id].status == "active":
+    while engine.context.state.activities[activity_id].status == "active":
         if 1 not in engine.scheduling_state().ready_agent_ids:
             advance_next(engine)
             continue
@@ -143,12 +143,12 @@ def _complete_required_work(engine) -> None:
         feedback = report_request(activity_name(engine, activity_id), summary="继续完成工作。")
         submit_round(engine, {1: ("report_status", feedback)}, f"work-feedback-{feedback_index}")
     assert conclude_pending(engine, "work-time-end").status == "completed"
-    assert engine.state.activities[activity_id].concluded_at == engine.state.current_time
+    assert engine.context.state.activities[activity_id].concluded_at == engine.context.state.current_time
 
 
 def _public_submission(engine, request: SubmitWorkRequest) -> SubmitWorkActionRequest:
     """把领域内部合同身份转换为人物可见任务名。"""
-    return SubmitWorkActionRequest(task_name=f"工作：{engine.rules.task(request.task_id).title}",
+    return SubmitWorkActionRequest(task_name=f"工作：{engine.context.rules.task(request.task_id).title}",
                                    deliverable=request.deliverable)
 
 
@@ -182,7 +182,7 @@ async def _submit_with_review(
     request: SubmitWorkRequest | None = None,
 ):
     """走完整提交、模型验收准备和原子结算路径。"""
-    engine._work_reviewer = reviewer
+    engine.reviews.reviewer = reviewer
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
@@ -200,20 +200,20 @@ async def test_prepared_work_review_is_private_until_round_settlement(engine_fac
     engine = engine_factory()
     _at_task_start(engine)
     _complete_required_work(engine)
-    engine._work_reviewer = StaticReviewer(accepted=accepted)
+    engine.reviews.reviewer = StaticReviewer(accepted=accepted)
     ctx = context(engine, "delayed-review")
     engine.begin_decision_round([ctx])
     initial = engine.observe(ctx)
-    snapshot = engine.state.model_dump(mode="json")
+    snapshot = engine.context.state.model_dump(mode="json")
     call = DirectToolCall(ctx, "action-delayed-review", "submit_work",
                           _public_submission(engine, _paraphrased_submission()))
     engine.submit_action(call)
     await engine.prepare_pending_work_review(call.action_id)
-    assert engine._work_reviewer.calls == 1
-    assert engine.state.model_dump(mode="json") == snapshot
+    assert engine.reviews.reviewer.calls == 1
+    assert engine.context.state.model_dump(mode="json") == snapshot
     assert all("work_review" not in row["result"] for row in progress_calls(initial))
     assert not any(event.action_id == call.action_id
-                   for event in engine.store.read_agent_events("action_result", 1))
+                   for event in engine.context.store.read_agent_events("action_result", 1))
     result = engine.commit_decision_round(ctx.round_id)[0]
     observed = engine.observe(context(engine, "review-visible"))
     public = next(row["result"] for row in progress_calls(observed, "submit_work") if "work_review" in row["result"])
@@ -232,7 +232,7 @@ async def test_nested_private_fields_in_real_settlement_do_not_enter_public_resu
     engine = engine_factory()
     _at_task_start(engine)
     _complete_required_work(engine)
-    original_dispatch = engine._dispatch
+    original_dispatch = engine.actions.dispatch
     expected = {}
     private = {"oracle_sha256": "PRIVATE_SENTINEL", "accounts": {"private-account": 123},
                "activity": {"status": "active"}, "energy_kcal": 2000,
@@ -250,13 +250,13 @@ async def test_nested_private_fields_in_real_settlement_do_not_enter_public_resu
                 assessment.update(copy.deepcopy(private))
         return changed, result.model_copy(update={"data": data})
 
-    monkeypatch.setattr(engine, "_dispatch", inject_private_fields)
+    monkeypatch.setattr(engine.actions, 'dispatch', inject_private_fields)
     await _submit_with_review(engine, StaticReviewer(), "private-review")
     observed = engine.observe(context(engine, "private-review-visible"))
     public = next(row["result"] for row in progress_calls(observed, "submit_work") if "work_review" in row["result"])
     assert set(public) == {"occurred_at", "status", "error_code", "message", "details", "work_review"}
     assert public["work_review"] == json.loads(json.dumps(expected))
-    assert "PRIVATE_SENTINEL" in json.dumps([event.data for event in engine.store.read_agent_events("action_result", 1)])
+    assert "PRIVATE_SENTINEL" in json.dumps([event.data for event in engine.context.store.read_agent_events("action_result", 1)])
     rendered = json.dumps(observed["progress_layer"], ensure_ascii=False)
     assert "PRIVATE_SENTINEL" not in rendered
     assert "private-account" not in rendered
@@ -267,7 +267,7 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     """已经开始但仍欠工时的工作暂停后，暂停的活动在待办层（进度不写「还差」），任务目标的 contract 写达标情况。"""
     engine = engine_factory()
     _at_task_start(engine)
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     wake_by_mail(engine, offset=900)
     observed = engine.observe(context(engine, "pause-work-preview"))
     choice = next((row, action) for row in observed["interaction_bindings"]
@@ -306,20 +306,20 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     assert after["material"]["end_char"] == after["material"]["total_chars"]
     request = _paraphrased_submission(after["task_id"])
     assert set(request.model_dump(mode="json")) == {"task_id", "deliverable"}
-    balance = engine.state.accounts[engine.state.agents[1].balance_account_id]
+    balance = engine.context.state.accounts[engine.context.state.agents[1].balance_account_id]
     reviewer = StaticReviewer()
     result = await _submit_with_review(engine, reviewer, "accepted-work", request)
     assert result.status == "completed" and result.data["payment_fen"] == 60_000
     assert result.data["work_review"]["accepted"] is True
     assert "oracle_sha256" not in result.data
-    assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance + 60_000
-    reviews = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    assert engine.context.state.accounts[engine.context.state.agents[1].balance_account_id] == balance + 60_000
+    reviews = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                if event.data.get("purpose") == "work_review"]
     assert [event.visibility for event in reviews] == ["system", "system"]
-    assert reviews[1].event_id in next(event for event in engine.store.read_events(
-        engine.store.last_event_seq) if event.action_id == "action-accepted-work"
+    assert reviews[1].event_id in next(event for event in engine.context.store.read_events(
+        engine.context.store.last_event_seq) if event.action_id == "action-accepted-work"
         and event.event_type == "action_accepted").caused_by
-    paid_accounts = dict(engine.state.accounts)
+    paid_accounts = dict(engine.context.state.accounts)
     assert advance_until_ready(engine)
     replay_context = context(engine, "accepted-work-replay")
     engine.begin_decision_round([replay_context])
@@ -328,8 +328,8 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
         replay_context, "action-accepted-work", "submit_work",
         _public_submission(engine, _paraphrased_submission())))
     replay = engine.commit_decision_round("accepted-work-replay")[0]
-    assert replay == result and engine.state.accounts == paid_accounts
-    canonical = [event for event in engine.store.read_agent_events("action_result", 1)
+    assert replay == result and engine.context.state.accounts == paid_accounts
+    canonical = [event for event in engine.context.store.read_agent_events("action_result", 1)
                  if event.action_id == "action-accepted-work" and event.data.get("resource_changes")]
     assert len(canonical) == 1 and sum(canonical[0].data["resource_changes"].values()) == 0
     assert reviewer.calls == 1
@@ -344,7 +344,7 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     with pytest.raises(ProtocolError, match="reused with different parameters"):
         engine.submit_action(DirectToolCall(
             conflict_context, "action-accepted-work", "submit_work", _public_submission(engine, changed)))
-    assert engine.state.accounts == paid_accounts and reviewer.calls == 1
+    assert engine.context.state.accounts == paid_accounts and reviewer.calls == 1
 
 
 @pytest.mark.asyncio
@@ -354,12 +354,12 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     stage_day_plan(engine)
     _at_task_start(engine)
     _complete_required_work(engine)
-    balance = engine.state.accounts[engine.state.agents[1].balance_account_id]
+    balance = engine.context.state.accounts[engine.context.state.agents[1].balance_account_id]
     reviewer = StaticReviewer(accepted=False, reported_accepted=True)
     result = await _submit_with_review(engine, reviewer, "rework")
     assert result.status == "rejected" and result.error_code == "WORK_REQUIRES_REWORK"
-    assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
-    assert "task-2026-01-05" not in engine.state.paid_task_ids
+    assert engine.context.state.accounts[engine.context.state.agents[1].balance_account_id] == balance
+    assert "task-2026-01-05" not in engine.context.state.paid_task_ids
     feedback = result.data["work_review"]
     assert feedback["accepted"] is False and feedback["required_fact_missing"] > 0
     assert feedback["missing_content_categories"] == ["action_items", "decisions", "summary"]
@@ -369,7 +369,7 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
 
     ctx = context(engine, "rework-feedback")
     observation = engine.observe(ctx)
-    visible = next(event.data["data"]["work_review"] for event in engine.store.read_agent_events("action_result", 1)
+    visible = next(event.data["data"]["work_review"] for event in engine.context.store.read_agent_events("action_result", 1)
                    if event.action_id == "action-rework")
     messages = json.dumps(observation["progress_layer"], ensure_ascii=False)
     # 完整证据与进度层共同保留工作反馈；进度层不包含内部参考身份与哈希。
@@ -379,7 +379,7 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review", "details"}
     assert public["work_review"] == visible
     assert public["error_code"] == "WORK_REQUIRES_REWORK"
-    # 返工拒绝同样带一句原因与下一步（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
+    # 返工拒绝同样带一句原因与下一步（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」）。
     reason = "The submitted work needs revision before acceptance."
     next_step = "Revise the work according to the review before resubmission."
     assert public["details"] == {"reason": reason, "next_step": next_step, "fix": None,
@@ -393,7 +393,7 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert summaries[-1]["message"] in messages
     assert "Supported by the transcript." in messages
     assert "source_excerpt" in messages and "Hi , I'm David" in messages
-    assert "reference_id" not in messages and engine.scenario.tasks[0].oracle_path not in messages
+    assert "reference_id" not in messages and engine.context.scenario.tasks[0].oracle_path not in messages
 
     replay = context(engine, "rework-replay")
     engine.begin_decision_round([replay])
@@ -402,7 +402,7 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
         replay, "action-rework", "submit_work", _public_submission(engine, _paraphrased_submission())))
     repeated = engine.commit_decision_round("rework-replay")[0]
     assert repeated == result and reviewer.calls == 1
-    assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
+    assert engine.context.state.accounts[engine.context.state.agents[1].balance_account_id] == balance
 
     # 工作结束的这一秒已用满同刻轮数（收尾、提交、重放）：受限轮里先开始等待，时钟推进后在下一次机会重交（第一章规则 3）。
     _, waited = submit_round(engine, {1: _WAIT}, "rework-wait")
@@ -415,7 +415,7 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     accepting = StaticReviewer()
     accepted = await _submit_with_review(engine, accepting, "rework-accepted", revised)
     assert accepted.status == "completed" and accepting.calls == 1
-    assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance + 60_000
+    assert engine.context.state.accounts[engine.context.state.agents[1].balance_account_id] == balance + 60_000
 
 
 @pytest.mark.asyncio
@@ -431,8 +431,8 @@ async def test_incomplete_work_skips_model_review_and_is_business_rejection(engi
 
 def _work_moment(engine, now: int, worked: int = 0, effective: float = 0.0):
     """人物在办公室、首个任务可见的指定时刻；worked 大于 0 时另有一段已收尾的该任务工作（按活动字段表达）。"""
-    task = engine.scenario.tasks[0]
-    staged = engine.state.model_copy(deep=True)
+    task = engine.context.scenario.tasks[0]
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = now
     staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
     agent = staged.agents[1]
@@ -461,9 +461,9 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
 ) -> None:
     """开工条件是距截止与剩余合同都不少于 60 秒：恰好 60 秒时开工动作不带说明；不足 60 秒时照常列出并带说明，选了以
     业务拒绝 ACTIVITY_DURATION_INVALID 返回同一原因与下一步「提交已完成的部分」，不开始活动，也不产生 run_failed
-    （docs/dev/SPEC-time-and-energy.md 第八章「工作」）。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「工作」）。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due, start = int(task.due_at.timestamp()), int(task.available_at.timestamp())
 
     def moment(left: int):
@@ -477,15 +477,15 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
         """本轮工具层中这项工作的「工作」动作。"""
         return target_actions(observed, f"工作：{task.title}")["工作"]
 
-    engine.state = moment(60)
-    assert (work_row(engine._observation_data(engine.state.agents[1]))["available"],
-            work_row(engine._observation_data(engine.state.agents[1]))["reason"]) == (True, None)
+    engine.context.state = moment(60)
+    assert (work_row(engine.observations._observation_data(engine.context.state.agents[1]))["available"],
+            work_row(engine.observations._observation_data(engine.context.state.agents[1]))["reason"]) == (True, None)
     staged = moment(59)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         source_kind="scenario", data={"kind": "test_late_work_start"})])
-    engine.state = staged
+    engine.context.state = staged
     ctx = context(engine, f"late-work-{limit}")
     engine.begin_decision_round([ctx])
     row = work_row(engine.observe(ctx))
@@ -494,7 +494,7 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
                                         start_activity("工作", f"工作：{task.title}")))
     result = engine.commit_decision_round(ctx.round_id)[0]
     assert result.status == "rejected" and result.error_code == "ACTIVITY_DURATION_INVALID"
-    assert not active_activities(engine.state, 1)
+    assert not active_activities(engine.context.state, 1)
     public = progress_calls(engine.observe(context(engine, f"late-work-{limit}-feedback")))[-1]["result"]
     assert public["error_code"] == "ACTIVITY_DURATION_INVALID"
     assert public["details"] == {"reason": reason, "next_step": "Submit the completed work.", "fix": None,
@@ -504,14 +504,14 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
     assert item["written"] == f"工作：{task.title}" and item["why"] == reason
     assert item["expected"] == reason
     assert not any(event.event_type == "run_failed"
-                   for event in engine.store.read_events(engine.store.last_event_seq))
+                   for event in engine.context.store.read_events(engine.context.store.last_event_seq))
 
 
 def test_completion_outlook_appears_only_when_the_time_upper_bound_is_short(engine_factory) -> None:
     """剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时任务目标 contract.outlook 才写「到截止前做不完」，
-    相等或更宽裕时为 null（docs/dev/SPEC-persona-prompt.md「工具层」）。"""
+    相等或更宽裕时为 null（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due, start = int(task.due_at.timestamp()), int(task.available_at.timestamp())
     required = task.required_effective_seconds
     worked = task.maximum_duration_seconds - 3600
@@ -524,8 +524,8 @@ def test_completion_outlook_appears_only_when_the_time_upper_bound_is_short(engi
         (start + worked, worked, required - 3601, True),  # 剩余要求多一秒
     ]
     for now, done, effective, short in cases:
-        engine.state = _work_moment(engine, now, done, effective)
-        observed = engine._observation_data(engine.state.agents[1])
+        engine.context.state = _work_moment(engine, now, done, effective)
+        observed = engine.observations._observation_data(engine.context.state.agents[1])
         contract = tool_targets(observed)[f"工作：{task.title}"]["contract"]
         assert contract["outlook"] == ("到截止前做不完" if short else None), (now, done, effective)
 
@@ -536,7 +536,7 @@ _WAIT =("start_activity", start_activity("等待", "自己"))
 def _stage_second_task_ready(engine) -> None:
     """多人夹具开放后两人在办公室；人物 1 已有达到合同有效工时的计时任务乙。"""
     _stage_shared_work(engine)
-    hourly = engine.rules.task("hourly-2026-01-05")
+    hourly = engine.context.rules.task("hourly-2026-01-05")
     staged = _completed_work_state(engine, hourly, 3600, hourly.required_effective_seconds)
     done = next(item for item in staged.activities.values() if item.target_id == hourly.task_id)
     staged.activities[done.activity_id] = done.model_copy(
@@ -546,15 +546,15 @@ def _stage_second_task_ready(engine) -> None:
     staged.agents[2] = staged.agents[2].model_copy(
         update={"next_decision_at": now, "body_settled_at": now}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system",
         source_kind="scenario", data={"kind": "test_second_task_ready"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _working_on_first_task(engine) -> str:
     """人物 1 经真实 start_activity 做任务甲、人物 2 等待，推进到人物 1 做甲期间的决策机会。"""
-    first = engine.scenario.tasks[0]
+    first = engine.context.scenario.tasks[0]
 
     def start(observed):
         binding = next(row for row in observed["interaction_bindings"]
@@ -567,7 +567,7 @@ def _working_on_first_task(engine) -> str:
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     assert 1 in engine.scheduling_state().ready_agent_ids
-    assert engine.state.activities[started[1].activity_id].status == "active"
+    assert engine.context.state.activities[started[1].activity_id].status == "active"
     return started[1].activity_id
 
 
@@ -582,21 +582,21 @@ async def test_submitting_ready_task_while_working_on_another_reviews_and_pays(e
     """做甲任务时提交已达标的乙任务：评审照常、结算付款、甲继续（时间与能量规格「仍须修复」第 4 条）。"""
     engine = engine_factory("multi-person.json")
     _stage_second_task_ready(engine)
-    first, hourly = engine.scenario.tasks[0], engine.rules.task("hourly-2026-01-05")
+    first, hourly = engine.context.scenario.tasks[0], engine.context.rules.task("hourly-2026-01-05")
     work_id = _working_on_first_task(engine)
     reviewer = AcceptingReviewer()
-    engine._work_reviewer = reviewer
+    engine.reviews.reviewer = reviewer
     _shared_round(engine, "second-task-submit", {1: _submit_action(hourly), 2: _WAIT})
     await engine.prepare_pending_work_review("second-task-submit-1")
     assert reviewer.calls == 1
-    before = dict(engine.state.accounts)
-    balance = engine.state.agents[1].balance_account_id
+    before = dict(engine.context.state.accounts)
+    balance = engine.context.state.agents[1].balance_account_id
     results = {result.agent_id: result for result in engine.commit_decision_round("second-task-submit")}
     assert results[1].status == "completed" and results[1].data["payment_fen"] == 10_000
-    assert engine.state.accounts[balance] == before[balance] + 10_000
-    assert engine.state.accounts[hourly.employer_account_id] == before[hourly.employer_account_id] - 10_000
-    assert hourly.task_id in engine.state.paid_task_ids
-    working = active_activities(engine.state, 1)
+    assert engine.context.state.accounts[balance] == before[balance] + 10_000
+    assert engine.context.state.accounts[hourly.employer_account_id] == before[hourly.employer_account_id] - 10_000
+    assert hourly.task_id in engine.context.state.paid_task_ids
+    working = active_activities(engine.context.state, 1)
     assert [item.activity_id for item in working] == [work_id]
     assert working[0].kind == "work" and working[0].target_id == first.task_id
 
@@ -606,20 +606,20 @@ async def test_submitting_task_in_progress_is_rejected_with_work_task_in_progres
     """提交本人正在做的任务是业务拒绝 WORK_TASK_IN_PROGRESS，不调用评审模型，工作继续。"""
     engine = engine_factory("multi-person.json")
     _stage_shared_work(engine)
-    first = engine.scenario.tasks[0]
+    first = engine.context.scenario.tasks[0]
     work_id = _working_on_first_task(engine)
     reviewer = AcceptingReviewer()
-    engine._work_reviewer = reviewer
+    engine.reviews.reviewer = reviewer
     _shared_round(engine, "busy-task-submit", {1: _submit_action(first), 2: _WAIT})
     await engine.prepare_pending_work_review("busy-task-submit-1")
-    before = dict(engine.state.accounts)
+    before = dict(engine.context.state.accounts)
     results = {result.agent_id: result for result in engine.commit_decision_round("busy-task-submit")}
     assert reviewer.calls == 0
-    assert not [event for event in engine.store.read_agent_events("model_request", 1)
+    assert not [event for event in engine.context.store.read_agent_events("model_request", 1)
                 if event.data.get("purpose") == "work_review"]
     assert results[1].status == "rejected" and results[1].error_code == "WORK_TASK_IN_PROGRESS"
-    assert engine.state.accounts == before and first.task_id not in engine.state.paid_task_ids
-    assert [item.activity_id for item in active_activities(engine.state, 1)] == [work_id]
+    assert engine.context.state.accounts == before and first.task_id not in engine.context.state.paid_task_ids
+    assert [item.activity_id for item in active_activities(engine.context.state, 1)] == [work_id]
 
 
 @pytest.mark.asyncio
@@ -629,22 +629,22 @@ async def test_review_identity_failure_exhausts_three_calls_and_preserves_respon
     _at_task_start(engine)
     _complete_required_work(engine)
     reviewer = StaticReviewer(omit_reference=True)
-    engine._work_reviewer = reviewer
+    engine.reviews.reviewer = reviewer
     ctx = context(engine, "bad-schema")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
     call = DirectToolCall(ctx, "bad-schema", "submit_work",
                           _public_submission(engine, _paraphrased_submission()))
     engine.submit_action(call)
-    balance = dict(engine.state.accounts)
+    balance = dict(engine.context.state.accounts)
     with pytest.raises(ProtocolError, match="remained invalid after three"):
         await engine.prepare_pending_work_review(call.action_id)
-    responses = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    responses = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                  if event.event_type == "model_response" and event.data.get("purpose") == "work_review"]
     assert len(responses) == 3 and reviewer.calls == 3
     assert all(event.data["response"]["id"] == "review-response" for event in responses)
     assert all("reference_assessments.reference_id" in event.data["error"] for event in responses)
-    assert engine.state.accounts == balance and not engine.state.paid_task_ids
+    assert engine.context.state.accounts == balance and not engine.context.state.paid_task_ids
     engine.abort_decision_round("bad-schema", "expected schema failure")
 
 
@@ -779,7 +779,7 @@ async def test_private_rationale_retries_preserve_evidence_and_publish_only_corr
     assert feedback["PREVIOUS_INVALID_RESPONSE"] == reviewer.responses[0]
     assert "rationale" in feedback["VALIDATION_ERROR"]
     assert reviewer.private_value not in feedback["VALIDATION_ERROR"]
-    responses = [event for event in engine.store.read_agent_events("model_response", 1)
+    responses = [event for event in engine.context.store.read_agent_events("model_response", 1)
                  if event.data.get("purpose") == "work_review"]
     assert len(responses) == 2
     assert responses[0].data["response"] == reviewer.responses[0]
@@ -801,19 +801,19 @@ async def test_private_rationale_exhaustion_never_settles_work_or_leaks_in_error
     _at_task_start(engine)
     _complete_required_work(engine)
     reviewer = PrivateRationaleReviewer("delivery_assessments", "known_digest", invalid_attempts=3)
-    balances = dict(engine.state.accounts)
+    balances = dict(engine.context.state.accounts)
     with caplog.at_level(logging.ERROR), pytest.raises(ProtocolError, match="remained invalid after three"):
         await _submit_with_review(engine, reviewer, "private-rationale-exhausted")
-    responses = [event for event in engine.store.read_agent_events("model_response", 1)
+    responses = [event for event in engine.context.store.read_agent_events("model_response", 1)
                  if event.data.get("purpose") == "work_review"]
     assert reviewer.calls == len(responses) == 3
     assert [event.data["response"] for event in responses] == reviewer.responses
     assert all("rationale" in event.data["error"] for event in responses)
     assert all(reviewer.private_value not in event.data["error"] for event in responses)
     assert reviewer.private_value not in caplog.text
-    assert engine.state.accounts == balances and not engine.state.paid_task_ids
+    assert engine.context.state.accounts == balances and not engine.context.state.paid_task_ids
     assert not any(event.action_id == "action-private-rationale-exhausted"
-                   for event in engine.store.read_agent_events("action_result", 1))
+                   for event in engine.context.store.read_agent_events("action_result", 1))
     engine.abort_decision_round("private-rationale-exhausted", "expected private rationale failure")
 
 

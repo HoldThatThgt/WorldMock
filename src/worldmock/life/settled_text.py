@@ -1,4 +1,4 @@
-"""@brief settled 写法的确定性句子（docs/dev/SPEC-persona-prompt.md 第三章「settled 的写法」）。
+"""@brief settled 写法的确定性句子（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「settled 的写法」）。
 
 只写人物可见、成功（completed 或 in_progress）且不是重放的世界请求与世界事件：下单（带所回应的消息与收货人）、给予、
 发消息、提交工作各一句，在本段结束的活动每项一句（起止含暂停区间、终局、实际份量或有效工时，完成的浏览另写浏览到的
@@ -7,7 +7,7 @@
 截止预警、身体结算与交谈邀请。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的
 lines 与零点计划输入都取这里的句子（同时是零点计划输入里已核验经历句子的唯一写法）。进度层的个人事务办成记录
 errand_completed 折成一句「HH:MM 办成「<事务名>」」，只用于进度层浓缩（记忆层与零点计划输入不派生这种记录）；事务提醒
-errand_reminder 与当日目标提醒同等对待，不写句子（docs/dev/SPEC-errands-workday.md 2.6）。
+errand_reminder 与当日目标提醒同等对待，不写句子（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 ）。
 
 活动的句子按它结束的提交归属（第三章「归属」）：结束提交是带该活动终态快照的最早事件（activity_progress、生命周期与截断
 environment_event、终态 action_result）所在的提交，到达时结束的出行归路程，实验截止截断的活动归最后一段；之后的
@@ -24,7 +24,7 @@ from typing import Any
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
 from worldmock.life.activity_evidence import is_eating
-from worldmock.life.interaction_menu import PURCHASE_WAYS
+from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.models import ActivityKind, ActivityState, TravelMode
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.recipients import agent_identity, person_name
@@ -110,7 +110,7 @@ def _recipe_clause(context: LayerContext, activity: ActivityState) -> str:
 
 def _browse_clause(context: LayerContext, activity: ActivityState) -> str:
     """@brief 完成的浏览另写浏览到的完整标签「，浏览到<门店>出售的<商品>、……」：session 结束后浏览结果随 settled
-    进记忆层，离开浏览地点后人物照着按名下单（docs/dev/SPEC-dayrun-fidelity.md 5.3，裁决 D17）；没有取得结果的
+    进记忆层，离开浏览地点后人物照着按名下单（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ，裁决 D17）；没有取得结果的
     浏览不写。"""
     revealed = activity.data.get("revealed") if activity.kind == ActivityKind.BROWSE else None
     labels = browse_labels([revealed], context.scenario) if isinstance(revealed, dict) else []

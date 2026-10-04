@@ -143,7 +143,7 @@ BEHAVIOR = {
         ),
     ),
     '文档与身份': (
-        'tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve',
+        'tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve',
         (
             'tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_'
             'and_the_committed_html_is_current'
@@ -154,8 +154,7 @@ BEHAVIOR = {
 MUTATIONS = (
     SourceMutation(
         'pagination_tail',
-        'worldmock.life.world_query',
-        'src/worldmock/life/world_query.py',
+        'worldmock.life.world_query::query_world',
         '"next_offset": end if end < len(entries) else None',
         '"next_offset": None',
         (
@@ -167,8 +166,7 @@ MUTATIONS = (
     ),
     SourceMutation(
         'pagination_offset',
-        'worldmock.life.world_query',
-        'src/worldmock/life/world_query.py',
+        'worldmock.life.world_query::query_world',
         '"next_offset": end if end < len(entries) else None',
         '"next_offset": end + 1 if end < len(entries) else None',
         (
@@ -180,8 +178,7 @@ MUTATIONS = (
     ),
     SourceMutation(
         'pagination_supply_window',
-        'worldmock.life.world_query',
-        'src/worldmock/life/world_query.py',
+        'worldmock.life.world_query::_matching_entries.entries',
         'entries = observation["world_query_bindings"]',
         'entries = observation["world_query_bindings"][:observation["world_query_page_size"]]',
         (
@@ -193,8 +190,7 @@ MUTATIONS = (
     ),
     SourceMutation(
         'recipe_no_input_debit',
-        'worldmock.life.inventory_recipe',
-        'src/worldmock/life/inventory_recipe.py',
+        'worldmock.life.inventory_recipe::_inventory_from_balances',
         'local[plan.input_object_id] = balances[(plan.resource_id, input_owner)]',
         'local[plan.input_object_id] = agent.inventory[agent.location_id][plan.input_object_id]',
         (
@@ -206,8 +202,7 @@ MUTATIONS = (
     ),
     SourceMutation(
         'recipe_no_output_credit',
-        'worldmock.life.inventory_recipe',
-        'src/worldmock/life/inventory_recipe.py',
+        'worldmock.life.inventory_recipe::_inventory_from_balances',
         'local[plan.output_object_id] = balances[(plan.resource_id, output_owner)]',
         'local[plan.output_object_id] = 0',
         (
@@ -222,8 +217,7 @@ MUTATIONS = (
 MUTATIONS += (
     SourceMutation(
         'assortment_full_pool',
-        'worldmock.corpora.storefront',
-        'src/worldmock/corpora/storefront.py',
+        'worldmock.corpora.storefront::assortment_objects',
         'return frozenset(expanded | set(assortment.object_ids))',
         'return frozenset(obj.object_id for obj in catalog.objects.values() if obj.object_kind.value == "product")',
         (
@@ -235,8 +229,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'restaurant_menus_identical',
-        'worldmock.corpora.storefront',
-        'src/worldmock/corpora/storefront.py',
+        'worldmock.corpora.storefront::validate_assortments',
         '    _validate_menus(menus)',
         '    pass',
         (
@@ -248,8 +241,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'assortment_window_cut',
-        'worldmock.corpora.storefront',
-        'src/worldmock/corpora/storefront.py',
+        'worldmock.corpora.storefront::assortment_objects',
         'return frozenset(expanded | set(assortment.object_ids))',
         'return frozenset(sorted(expanded | set(assortment.object_ids))[:20])',
         (
@@ -261,8 +253,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'category_inheritance_exact_only',
-        'worldmock.categories.models',
-        'src/worldmock/categories/models.py',
+        'worldmock.categories.models::CategoryContract.is_descendant',
         'return ancestor_id in category.lineage',
         'return ancestor_id == category_id',
         (
@@ -274,8 +265,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'price_position_ignored',
-        'worldmock.corpora.storefront',
-        'src/worldmock/corpora/storefront.py',
+        'worldmock.corpora.storefront::frozen_price.percent',
         'percent = position + digest_integer % 11 - 5',
         'percent = 50 + digest_integer % 11 - 5',
         (
@@ -287,8 +277,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'price_outside_bounds',
-        'worldmock.corpora.storefront',
-        'src/worldmock/corpora/storefront.py',
+        'worldmock.corpora.storefront::frozen_price',
         'return lower + ((upper - lower) * percent + 50) // 100',
         'return upper + 1',
         (
@@ -300,8 +289,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'quote_bound_check_removed',
-        'worldmock.corpora.storefront',
-        'src/worldmock/corpora/storefront.py',
+        'worldmock.corpora.storefront::_validate_quotes',
         'if not supply.quotes or any(not lower <= quote.price_fen <= upper for quote in supply.quotes):',
         'if not supply.quotes:',
         (
@@ -310,8 +298,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'selection_incomplete_allowed',
-        'worldmock.life.map_data',
-        'src/worldmock/life/map_data.py',
+        'worldmock.life.map_data::select_map',
         'if supply_ids != expected:',
         'if False:',
         (
@@ -320,8 +307,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'reprice_bound_check_removed',
-        'worldmock.life.storefront_state',
-        'src/worldmock/life/storefront_state.py',
+        'worldmock.life.storefront_state::changed_quote',
         '    validate_price_bounds(event.data["amount_fen"], product)',
         '    pass',
         (
@@ -330,8 +316,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'reprice_changes_accepted_orders',
-        'worldmock.scheduling.effects',
-        'src/worldmock/scheduling/effects.py',
+        'worldmock.scheduling.effects::_price_change',
         (
             'changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)\n    return S'
             'cheduledOutcome(changed, {**event.data, "quote_before": previous.model_dump(mode="js'
@@ -349,8 +334,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'effective_product_price_range_reversed',
-        'worldmock.categories.contract',
-        'src/worldmock/categories/contract.py',
+        'worldmock.categories.contract::_validate_values',
         'if lower is not None and upper is not None and lower > upper:',
         'if False:',
         (
@@ -359,8 +343,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'habit_media_progress_not_persisted',
-        'worldmock.life.content',
-        'src/worldmock/life/content.py',
+        'worldmock.life.content::reveal_watch.changed',
         'changed = agent.model_copy(update={"content_progress": mapping}, deep=True)',
         'changed = agent.model_copy(deep=True)',
         (
@@ -372,8 +355,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'work_delay_nine',
-        'worldmock.life.scenario',
-        'src/worldmock/life/scenario.py',
+        'worldmock.life.scenario::runtime_tasks.opening',
         'min(item.sent_at for item in notices) if task.appointment is None',
         'min(item.sent_at for item in notices).replace(hour=9) if task.appointment is None',
         (
@@ -385,8 +367,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'duplicate_input_opening',
-        'worldmock.life.scenario',
-        'src/worldmock/life/scenario.py',
+        'worldmock.life.scenario::WorkTaskConfig.appointment',
         '    appointment: WorkAppointment | None\n',
         '    appointment: WorkAppointment | None\n    available_at: datetime\n',
         (
@@ -398,8 +379,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'appointment_mail_false_opening',
-        'worldmock.scheduling.compile',
-        'src/worldmock/scheduling/compile.py',
+        'worldmock.scheduling.compile::compile_schedule',
         'due = int(task.available_at.timestamp())',
         (
             'due = int(min(mail.sent_at for mail in scenario.messages if mail.related_task_id == '
@@ -414,8 +394,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'wrong_notification_recipient',
-        'worldmock.life.scenario',
-        'src/worldmock/life/scenario.py',
+        'worldmock.life.scenario::_check_catalog_references',
         'if message.recipient_agent_id != recipient:',
         'if False:',
         (
@@ -427,8 +406,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'cross_person_task_leak',
-        'worldmock.scheduling.effects',
-        'src/worldmock/scheduling/effects.py',
+        'worldmock.scheduling.effects::_reveal_event',
         (
             'agents[agent.agent_id] = agent\n    changed = state.model_copy(update={"agents": agen'
             'ts}, deep=True)\n    return ScheduledOutcome(changed, dict(event.data))'
@@ -446,10 +424,9 @@ MUTATIONS += (
     ),
     SourceMutation(
         'reminder_changes_appointment_opening',
-        'worldmock.life.scenario',
-        'src/worldmock/life/scenario.py',
-        'else task.appointment.starts_at)',
-        'else max(item.sent_at for item in notices))',
+        'worldmock.life.scenario::runtime_tasks.opening',
+        'else task.appointment.starts_at',
+        'else max(item.sent_at for item in notices)',
         (
             (
                 'tests/life/test_tool_interaction_runtime.py::test_removed_input_opening_is_rejected_'
@@ -459,8 +436,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'read_mail_body_lost',
-        'worldmock.life.result_projection',
-        'src/worldmock/life/result_projection.py',
+        'worldmock.life.result_projection::_read_mail.mail',
         'mail = {"subject": revealed["subject"], "body": revealed["body"]}',
         'mail = {"subject": revealed["subject"], "body": ""}',
         (
@@ -472,8 +448,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'memo_lost',
-        'worldmock.life.progress_layer',
-        'src/worldmock/life/progress_layer.py',
+        'worldmock.life.progress_layer::rejected_today.latest',
         'latest = sorted(rows.values(), key=lambda item: item["sequence"], reverse=True)[:8]',
         'latest = []',
         (
@@ -485,8 +460,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'memo_cross_day_leak',
-        'worldmock.life.progress_layer',
-        'src/worldmock/life/progress_layer.py',
+        'worldmock.life.progress_layer::rejected_today.events',
         'and local_date(event.occurred_at, context.scenario.timezone) == day]',
         'and True]',
         (
@@ -498,8 +472,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'compact_drops_false',
-        'worldmock.life.tool_groups',
-        'src/worldmock/life/tool_groups.py',
+        'worldmock.life.tool_groups::compact',
         'if item is not None and item != [] and item != {}',
         'if item and item != [] and item != {}',
         (
@@ -511,8 +484,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'compact_drops_control',
-        'worldmock.life.tool_groups',
-        'src/worldmock/life/tool_groups.py',
+        'worldmock.life.tool_groups::compact_tool_layer.actions',
         'actions = target["actions"] or [None]',
         'actions = target["actions"]',
         (
@@ -524,8 +496,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'appointment_newly_known_false_wake',
-        'worldmock.life.rhythm',
-        'src/worldmock/life/rhythm.py',
+        'worldmock.life.rhythm::_wake_snapshot',
         'task_newly_visible="task_available" in flags,',
         'task_newly_visible=bool(set(agent.visible_task_ids) - agent.known_task_ids) or "task_available" in flags,',
         (
@@ -537,8 +508,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'work_material_unchecked',
-        'worldmock.life.semantics',
-        'src/worldmock/life/semantics.py',
+        'worldmock.life.world_setup::load_runtime_scenario',
         '    _check_work_material(semantics.scenario, root)',
         '    pass',
         (
@@ -547,8 +517,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'memo_limit_omitted',
-        'worldmock.life.progress_layer',
-        'src/worldmock/life/progress_layer.py',
+        'worldmock.life.progress_layer::rejected_today.latest',
         'latest = sorted(rows.values(), key=lambda item: item["sequence"], reverse=True)[:8]',
         'latest = sorted(rows.values(), key=lambda item: item["sequence"], reverse=True)',
         (
@@ -560,8 +529,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'query_results_leak_into_progress',
-        'worldmock.life.progress_layer',
-        'src/worldmock/life/progress_layer.py',
+        'worldmock.life.progress_layer::_session_records.records',
         '    records = _tool_records(context, store, lower)',
         (
             '    records = _tool_records(context, store, lower)\n    for response in store.read_ag'
@@ -585,8 +553,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'continuation_reads_removed_prompt_targets',
-        'custom.agents.life_continuation',
-        'custom/agents/life_continuation.py',
+        'custom.agents.life_continuation::_view.tools',
         '    tools = expand_tool_layer(compact_render(by_name["工具层"]))',
         '    tools = by_name["工具层"]',
         (
@@ -598,8 +565,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'plan_display_noncanonical_around_time',
-        'worldmock.life.todo_layer',
-        'src/worldmock/life/todo_layer.py',
+        'worldmock.life.todo_layer::_day_plan.rows',
         '"around_time": epoch_clock(goal.around_at, zone) if goal.around_at is not None else None',
         '"around_time": f"约 {epoch_clock(goal.around_at, zone)}" if goal.around_at is not None else None',
         (
@@ -608,8 +574,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'consistent_store_source_note_omitted',
-        'worldmock.life.name_resolution',
-        'src/worldmock/life/name_resolution.py',
+        'worldmock.life.name_resolution::resolve_start',
         '_source_notes(book, converted))',
         '())',
         (
@@ -618,8 +583,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'model_service_stage_omitted',
-        'custom.agents.life_agent',
-        'custom/agents/life_agent.py',
+        'custom.agents.life_agent::LifeAgent._record_model_evidence',
         'if evidence.phase == "failure":',
         'if evidence.phase == "never":',
         (
@@ -631,8 +595,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'quality_discards_structured_code',
-        'worldmock.footprints.quality',
-        'src/worldmock/footprints/quality.py',
+        'worldmock.footprints.quality::_name_rejection_quality.code',
         'code = report["error_code"]',
         'code = "NAME_NOT_FOUND"',
         (
@@ -644,8 +607,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'enum_values_lost',
-        'worldmock.life.error_contract',
-        'src/worldmock/life/error_contract.py',
+        'worldmock.life.error_contract::ErrorItem.payload',
         '"allowed_values": list(self.allowed_values)',
         '"allowed_values": []',
         (
@@ -654,8 +616,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'nested_index_lost',
-        'worldmock.life.error_contract',
-        'src/worldmock/life/error_contract.py',
+        'worldmock.life.error_contract::ErrorItem.payload',
         'return {"path": list(path),',
         'return {"path": [part for part in path if not isinstance(part, int)],',
         (
@@ -664,8 +625,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'null_becomes_string',
-        'worldmock.life.error_contract',
-        'src/worldmock/life/error_contract.py',
+        'worldmock.life.error_contract::ErrorItem.payload',
         '"allowed_values": list(self.allowed_values)',
         '"allowed_values": ["null" if value is None else value for value in self.allowed_values]',
         (
@@ -674,8 +634,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'batch_error_omitted',
-        'custom.agents.life_agent',
-        'custom/agents/life_agent.py',
+        'custom.agents.life_agent::LifeAgent.validate_react_decisions',
         'for index, decision in enumerate(decisions):',
         'for index, decision in enumerate(decisions[:1]):',
         (
@@ -684,8 +643,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'final_query_enabled',
-        'custom.agents.life_agent',
-        'custom/agents/life_agent.py',
+        'custom.agents.life_agent::LifeAgent._request_tool_models.queries',
         'queries = _QUERY_TOOL_MODELS if self._remaining_turns() > 1 and not retry else {}',
         'queries = _QUERY_TOOL_MODELS',
         (
@@ -694,8 +652,7 @@ MUTATIONS += (
     ),
     SourceMutation(
         'query_writes_world',
-        'custom.envs.life_env',
-        'custom/envs/life_env.py',
+        'custom.envs.life_env::LifeEnv.read_query',
         '            return error.payload() if error else query_world(observed, request)',
         (
             '            engine.state.version += 1\n            return error.payload() if error el'
@@ -714,8 +671,7 @@ MUTATIONS += (
 MUTATIONS += (
     SourceMutation(
         'constructed_validation_items_lost',
-        'worldmock.life.engine',
-        'src/worldmock/life/engine.py',
+        'worldmock.life.session_actions::ActionHandlers.dispatch',
         'fix=report.fix or "", items=report.items)',
         'fix=report.fix or "", items=())',
         (
@@ -731,8 +687,7 @@ MUTATIONS += (
 MUTATIONS += (
     SourceMutation(
         'native_purchase_route_loses_way',
-        'worldmock.life.routing',
-        'src/worldmock/life/routing.py',
+        'worldmock.life.routing::_item_errors.purchase',
         'purchase = verb == "obtain" and "制作" not in options',
         'purchase = False',
         (
@@ -745,8 +700,7 @@ MUTATIONS += (
 MUTATIONS += (
     SourceMutation(
         'invalid_request_purchase_projection',
-        'worldmock.footprints.purchases',
-        'src/worldmock/footprints/purchases.py',
+        'worldmock.footprints.purchases::_order_attempts',
         'if result.get("error_code") == "ACTION_REQUEST_INVALID":',
         'if False:',
         (

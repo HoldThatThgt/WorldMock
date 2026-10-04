@@ -1,4 +1,4 @@
-"""@brief 行为等价锚定：现有引擎真实一天的资金事件可在新账本逐分重建（docs/design/05-recording-engine.md「资金守恒验证」行为等价性）。
+"""@brief 行为等价锚定：现有引擎真实一天的资金事件可在新账本逐分重建（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「资金守恒验证」行为等价性）。
 
 数据源 runs/deepseek-multi-47931e06/footprints.sqlite（只读 mode=ro）：该运行
 一天的 6 笔资金事件（initial_funds_injected + 2 工资 + 3 车费）改写为

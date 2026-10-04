@@ -1,4 +1,4 @@
-"""@brief 个人事务的状态模型、上限、枚举词与事件种类（docs/dev/SPEC-errands-workday.md 2.1、2.2、2.7）。
+"""@brief 个人事务的状态模型、上限、枚举词与事件种类（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 、2.2、2.7）。
 
 个人事务是人物记下的、能由世界结算确认的打算：取得或吃掉一件具体商品若干份。`AgentState.errands` 只保存未完成的事务
 （键为事务身份），完成或取消时从字典移出，终态、原因与证据只写进同一提交的事件。本模块只放状态模型与常量，只依赖
@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 _LOGGER = logging.getLogger(__name__)
 
-#: 上限（实验假设，docs/dev/SPEC-errands-workday.md 2.1「上限」）：每人未完成事务至多 8 条，一次请求至多 4 条变更，
+#: 上限（实验假设，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 「上限」）：每人未完成事务至多 8 条，一次请求至多 4 条变更，
 #: 名称至多 30 字符，备注与取消原因各至多 120 字符，数量 1 至 9。上限由校验执行，不静默截取、不自动合并。
 MAX_OPEN_ERRANDS = 8
 MAX_ERRAND_CHANGES = 4
@@ -46,7 +46,7 @@ AGENT_VISIBLE_KINDS = frozenset({COMPLETED_KIND, REMINDED_KIND})
 
 
 class ErrandState(BaseModel):
-    """@brief 一条未完成的个人事务（docs/dev/SPEC-errands-workday.md 2.1 字段表）。
+    """@brief 一条未完成的个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态  字段表）。
 
     errand_id 由来源动作身份与新增条目在请求中的序号确定性生成，只存状态与事件；name、memo 照人物所写保存，只用于呈现，
     不参与结算与完成判定；outcome 与 product_id 是完成依据，记下后不可改；progress 是已累计量（九位小数），恒小于

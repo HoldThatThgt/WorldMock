@@ -1,13 +1,16 @@
+<a name="delivery-worldmock-产品设计说明书-数据交付"></a>
 # WorldMock 产品设计说明书 — 数据交付
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 DL1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D6 作业），已随代码落地到阶段 1–4  
-> **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，历史验收不覆盖新的请求、查询与错误证据。
-> **日期**：2026-10-03
-> **版本**：v1.13
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 DL1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D6 作业），已随代码落地到阶段 1–4<br>
+> **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，历史验收不覆盖新的请求、查询与错误证据。
+> **日期**：2026-10-05
+> **版本**：v1.14
 > **目标读者**：算法工程师、开发工程师
 
+<a name="delivery-模块概述"></a>
 ## 1. 模块概述
 
+<a name="delivery-职责与边界"></a>
 ### 1.1 职责与边界
 
 数据交付模块（Delivery）负责将数字足迹转换为 LabelKit 训练数据与规则夹具，是 WorldMock 与外部数据消费者的唯一边界。
@@ -27,6 +30,7 @@
 - 不补造校验失败结果（失败即失败）
 - 不单独交付未完整产物（发布清单前全部校验通过）
 
+<a name="delivery-与其他模块的关系"></a>
 ### 1.2 与其他模块的关系
 
 ```mermaid
@@ -45,6 +49,7 @@ flowchart TB
     EXEC --> MAN
 ```
 
+<a name="delivery-核心设计原则"></a>
 ### 1.3 核心设计原则
 
 | 原则 | 含义 | 体现 |
@@ -55,10 +60,11 @@ flowchart TB
 | **来源关联** | 每个样本绑定事件与运行 | 支持溯源与连通组划分 |
 | **fail-fast** | 超限或不一致立即失败 | 不静默截断，不补造结果 |
 
+<a name="delivery-接收记录引擎导出"></a>
 ## 2. 接收记录引擎导出
 
 记录引擎负责固定截止、事件与素材导出、共同检查点和导出完整性认证，
-格式与发布流程统一见[记录引擎的固定截止导出](05-recording-engine.md#固定截止导出)。
+格式与发布流程统一见[记录引擎的固定截止导出](05-recording-engine.md#recording-engine-固定截止导出)。
 交付模块只消费认证快照；不完整导出用于诊断，不能进入正式交付。
 交付先核对导出最终检查点的 `state.schema_version` 等于当前 `WORLD_SCHEMA_VERSION`（9），不符即拒绝，不构造窗口；世界结构 8 的导出按版本不符拒绝。
 交付不再重新渲染已存观察：窗口按观察事件中保存的层数据与实际请求投影，旧结构的观察不能按新形状解释。交付清单 `schema_version` 为 2。
@@ -68,15 +74,17 @@ flowchart TB
 交付必须核对认证导出中实际冻结的上述身份、代码、输入和两个提示指纹，不通过同世界结构版本来放行旧接口产物。
 两份种子地图分别追溯其原场景种子与类别声明哈希，不能在交付阶段改价、补货或合成缺失通知。
 
-[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)的产物同样按阶段认证实际身份：阶段 2 世界结构 9、质量报告结构 4，
+[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)的产物同样按阶段认证实际身份：阶段 2 世界结构 9、质量报告结构 4，
 工具模板与提示两个指纹随之变化；阶段 3 场景结构 5、卡片结构 3，提示指纹与仓库三份场景的 `scenario_sha256` 随之变化；
 阶段 4 只变工具模板指纹与代码身份。
 交付核对认证导出中实际冻结的身份，不以旧世界结构的导出放行。
 
 交付从下面的证据窗口开始，训练记录和规则夹具属于 LabelKit 加工产物。
 
+<a name="delivery-证据窗口"></a>
 ## 3. 证据窗口
 
+<a name="delivery-三类窗口"></a>
 ### 3.1 三类窗口
 
 | 窗口类型 | 知识截止 | 边界 | 用途 |
@@ -85,6 +93,7 @@ flowchart TB
 | **意图窗口** | 动作结果已可见 | 包含可见结果事件 | 训练意图识别 |
 | **dreaming 窗口** | 人物自然日结束 | 按当日 00:00-23:59 | 训练经验归纳与反思 |
 
+<a name="delivery-窗口构造流程"></a>
 ### 3.2 窗口构造流程
 
 ```mermaid
@@ -103,6 +112,7 @@ flowchart TB
     P --> F[字段字典编码]
 ```
 
+<a name="delivery-动作窗口提取规则"></a>
 ### 3.3 动作窗口提取规则
 
 动作窗口读取目标动作前实际发送给该人物模型的请求作为 prompt（选取规则见下表「实际 prompt」行），
@@ -118,7 +128,7 @@ flowchart TB
 意图窗口沿用这一真实请求，并可包含截止前已经发生且实际可见的动作与结果。
 原请求事件身份和 canonical 摘要进入来源索引；请求缺失、跨人物、跨决策或与目标动作不匹配时失败。
 同一窗口的事件必须归属同一数字人，并满足知识截止。私有事件与字段的边界遵循
-[交付规格](../dev/SPEC-labelkit-delivery.md)和[记录引擎设计](05-recording-engine.md)「来源与可见性」。
+[交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit)和[记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)「来源与可见性」。
 
 ```mermaid
 flowchart LR
@@ -134,7 +144,7 @@ flowchart LR
 | 事件可见性 | 动作与意图输入排除私有事件集（模型请求、模型响应、记忆更新与 `decision_started`，`PRIVATE_EVENTS`）；回复正文 `self_note` 作为实际请求的一部分进入动作与意图输入，并进入 dreaming 输入；`conclude_activity` 各项的 `memories` 与 `views` 属记忆写入，意图与 `dreaming` 输入中控制工具请求事件的投影经 `control_items` 只留每项的 `activity_name` 与 `summary`（实际请求原文照原样保留，见 3.4 节），投影恒不带请求级的 `errands`（与 `items[].memories`、`items[].views` 同等对待：投影函数签名不变，由用例逐项守住而不是靠白名单遗漏，投影写进新字典，原事件不被原地修改） |
 | 身体字段可见性 | 同一观察中，体感分级可供数字人理解处境；`body.values` 和 `motivation_internal` 只保留在内部证据中 |
 | 结算字段可见性 | `body_settlement` 等内部身体变化不能因所在事件标为 `agent` 就整体复制到输入；只提供当时实际呈现的结果 |
-| 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具：取同人物、同决策、目标动作之前最后一份 `phase=request`、不带 `purpose` 的请求，并核对其 `tools` 含该动作的工具名；不满足是完整性故障，不回退到更早的请求（截断后关闭思考、`tool_choice=required` 的重试请求照此被选中）；就寝反思请求只带 `submit_reflection`、晚于动作登记，不会被选中，含反思的决策其窗口 prompt 仍是行动请求；同秒续接中本秒前序 assistant 的 `reasoning_content` 作为实际请求的一部分原样保留（[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)），窗口的其他事件与目标不额外混入；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
+| 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具：取同人物、同决策、目标动作之前最后一份 `phase=request`、不带 `purpose` 的请求，并核对其 `tools` 含该动作的工具名；不满足是完整性故障，不回退到更早的请求（截断后关闭思考、`tool_choice=required` 的重试请求照此被选中）；就寝反思请求只带 `submit_reflection`、晚于动作登记，不会被选中，含反思的决策其窗口 prompt 仍是行动请求；同秒续接中本秒前序 assistant 的 `reasoning_content` 作为实际请求的一部分原样保留（[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#contracts-窗口声明与字段字典编码)），窗口的其他事件与目标不额外混入；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
 | 前置状态 | 当观察已经出现在窗口事件中，只保留前置观察引用，不复制整份 `events[0].data` |
 | 目标结果 | 只收该动作公开结算事实；私有 `model_request`、`model_response` 和记忆更新不得成为 `target.outcomes`；动作窗口的目标保留完整请求（含 `conclude_activity` 各项的 `memories`、`views` 与三个控制工具请求级的 `errands`）；六种个人事务事件（`errand_registered`、`errand_updated`、`errand_cancelled`、`errand_progressed`、`errand_completed`、`errand_reminded`）的决策与动作身份都为空，只经 `caused_by` 关联，不属于任何动作或决策的分组，不进入任何窗口的 `target.outcomes`，他人动作触发的办成事件也不落进对方决策的分组；人物可见的 `errand_completed`、`errand_reminded` 作为进度层来源展开或作为 dreaming 窗口事件出现时，`environment_event` 在输入侧的公开投影仍为空对象；记忆更新事件仍不进 `target.outcomes` |
 | 查询证据 | 世界查询与任务回看的真实交换可在实际 prompt 中出现；不得把查询命中、候选请求或拒绝备忘投影为已执行世界动作；只读工具无需动作结算事件 |
@@ -147,6 +157,7 @@ flowchart LR
 内部身份或可供性合同，也不能把原始 `data` 整棵复制进训练输入。
 测试必须证明禁用字段、重复前置状态和私有工作评审请求均不泄漏，且人设层、记忆层、环境层与所选实际请求一致。
 
+<a name="delivery-地图与门店供给的证据窗口"></a>
 ### 地图与门店供给的证据窗口
 
 购买动作按供给身份绑定门店、卖方和当时报价，同时保留商品身份供已交付物品及消费解释。
@@ -156,6 +167,7 @@ flowchart LR
 来源完整只证明可追溯，公开交付的许可适用仍按具体来源、组合与使用方式判断。
 
 
+<a name="delivery-dreaming-窗口提取规则"></a>
 ### 3.4 dreaming 窗口提取规则
 
 离线 Dreaming 由数据交付负责：从认证导出构造经历窗口，通过 LabelKit 生成经历归纳、反思或假设推演。
@@ -165,7 +177,7 @@ dreaming 读回复正文 `self_note` 与实际请求中的层 JSON，不再读�
 同一选取规则与 prompt 权威，见 3.3「实际 prompt」行），把其首个 user 的六层 JSON 连同该动作请求的事件身份写入 `input.decision_layers`（`[{action_event_id, layers}]`），
 请求事件身份与层 JSON 的 canonical SHA-256 写入 `provenance.decision_layer_sources`（`[{event_id, sha256}]`），请求事件也进入
 `provenance.source_event_ids`；实际请求缺失或首个 user 不是层序正确的六层 JSON 时明确失败（字段见
-[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)）。窗口事件中三个控制工具的动作请求经 `control_items`
+[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#contracts-窗口声明与字段字典编码)）。窗口事件中三个控制工具的动作请求经 `control_items`
 读出，只接受现行 `items` 形状，投影只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`，也恒不带请求级的 `errands`；
 旧控制形状不读取、不迁移，缺 `errands` 键的控制请求同样按旧形状以完整性故障拒绝，认证来源不满足当前工具与提示身份时拒绝交付。
 `decision_layers` 是模型实际收到的原文，照原样保留，其中可以含有进度层参数或记忆层 `self_notes` 里的常规收尾记忆原文，待办层也照原样含未完成的个人事务。
@@ -180,10 +192,10 @@ dreaming 读回复正文 `self_note` 与实际请求中的层 JSON，不再读�
 | 模型想象的反事实 | 明确假设，使用原世界证据；`world_kind=observed`、`environment_replay=null` |
 | 实际重新仿真的反事实 | 父检查点、新分支、干预、实际结果与最终检查点均通过认证，才可标为 `world_kind=resimulated` |
 
-需要真实反事实结果时，由[模拟引擎执行明确的反事实运行](04-simulation-engine.md#9-恢复与反事实运行编排)，
+需要真实反事实结果时，由[模拟引擎执行明确的反事实运行](04-simulation-engine.md#simulation-engine-恢复与反事实运行编排)，
 记录引擎保存分支并认证导出。交付通过 `deliver --replay-export` 消费完成的分支；
 父检查点前历史、分支身份、干预摘要和可见来源必须对应，生成文本或分支文件名不能代替实际执行证据。
-字段定义见[反事实与重演字段](../CONTRACTS.md#反事实与重演字段)。
+字段定义见[反事实与重演字段](../CONTRACTS.md#contracts-反事实与重演字段)。
 
 ```python
 def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
@@ -212,8 +224,10 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
     return windows
 ```
 
+<a name="delivery-字段字典编码"></a>
 ## 4. 字段字典编码
 
+<a name="delivery-编码目标"></a>
 ### 4.1 编码目标
 
 重复出现的证据字段值（如同一窗口内多次观察中没有变化的记忆层、待办层）占用大量字节，字段字典编码通过 RFC 6901 JSON Pointer 实现无损压缩。
@@ -224,6 +238,7 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
 - 收益不足时保留原值、清空字典
 - 解码后必须字节相同
 
+<a name="delivery-编码示例"></a>
 ### 4.2 编码示例
 
 候选只取窗口内 `observation` 事件 `data` 的顶层字段（观察只提供原样保存的工具层、待办层、环境层与记忆层，见 3.3 节）；
@@ -269,6 +284,7 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
 
 字典项的 `sha256` 是 `[field, value]` 的 canonical 摘要；没有可共享的值时编码声明照写、字典为空数组，字段保留原值。
 
+<a name="delivery-编码算法"></a>
 ### 4.3 编码算法
 
 ```python
@@ -297,6 +313,7 @@ def encode_model_input(input_data: dict) -> dict:
     return encoded
 ```
 
+<a name="delivery-解码校验"></a>
 ### 4.4 解码校验
 
 ```python
@@ -339,8 +356,10 @@ def decode_model_input(encoded: dict) -> dict:
     return result
 ```
 
+<a name="delivery-labelkit-集成"></a>
 ## 5. LabelKit 集成
 
+<a name="delivery-项目配置结构"></a>
 ### 5.1 项目配置结构
 
 ```
@@ -355,6 +374,7 @@ labelkit-projects/
 └── out/                   # 输出结果（运行时生成）
 ```
 
+<a name="delivery-configtoml-示例"></a>
 ### 5.2 config.toml 示例
 
 ```toml
@@ -386,6 +406,7 @@ temperature = 0.0
 thinking = "enabled"
 ```
 
+<a name="delivery-任务配置示例actiontoml"></a>
 ### 5.3 任务配置示例（action.toml）
 
 ```toml
@@ -426,6 +447,7 @@ channels = ["llm", "verify", "schema"]
 content = "full"
 ```
 
+<a name="delivery-调用流程"></a>
 ### 5.4 调用流程
 
 ```python
@@ -472,8 +494,10 @@ def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
     }
 ```
 
+<a name="delivery-事实组装与校验"></a>
 ## 6. 事实组装与校验
 
+<a name="delivery-语义候选结构"></a>
 ### 6.1 语义候选结构
 
 LabelKit 只生成待标注的语义候选，不包含真实动作与来源：
@@ -494,10 +518,11 @@ LabelKit 只生成待标注的语义候选，不包含真实动作与来源：
 }
 ```
 
+<a name="delivery-事实组装流程"></a>
 ### 6.2 事实组装流程
 
 上述示例要求 `obs_123` 的实际可见内容包含“饿”这一体感分级。
-准确身体数值属于世界事实；交付时按[记录引擎设计](05-recording-engine.md)「来源与可见性」裁剪，
+准确身体数值属于世界事实；交付时按[记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)「来源与可见性」裁剪，
 不得把环境内部能量数值或派生分数补成数字人已知的事实。
 
 ```mermaid
@@ -519,6 +544,7 @@ sequenceDiagram
     TRAIN->>TRAIN: 验证往返一致性
 ```
 
+<a name="delivery-事实组装实现"></a>
 ### 6.3 事实组装实现
 
 ```python
@@ -552,6 +578,7 @@ def attach_facts(candidate: dict, window: dict) -> dict:
     return record
 ```
 
+<a name="delivery-语义校验规则"></a>
 ### 6.4 语义校验规则
 
 ```python
@@ -589,8 +616,10 @@ def validate_annotation(candidate: dict, window: dict) -> tuple[bool, list[str]]
     return len(errors) == 0, errors
 ```
 
+<a name="delivery-发布协议"></a>
 ## 7. 发布协议
 
+<a name="delivery-deliver-命令"></a>
 ### 7.1 deliver 命令
 
 ```python
@@ -644,6 +673,7 @@ def deliver(
         raise
 ```
 
+<a name="delivery-原子性保证"></a>
 ### 7.2 原子性保证
 
 ```mermaid
@@ -672,6 +702,7 @@ flowchart TB
 - 已存在目标拒绝执行（防止覆盖）
 - 部分产物不单独交付
 
+<a name="delivery-manifestjson-结构"></a>
 ### 7.3 manifest.json 结构
 
 下列片段展示原有清单组织，不是完整 Schema。地图与门店供给特性的清单还必须保留认证来源导出中
@@ -718,6 +749,7 @@ flowchart TB
 }
 ```
 
+<a name="delivery-文件清单绑定"></a>
 ### 7.4 文件清单绑定
 
 ```python
@@ -740,8 +772,10 @@ def _file_inventory(directory: Path) -> dict:
     return files
 ```
 
+<a name="delivery-来源关联"></a>
 ## 8. 来源关联
 
+<a name="delivery-provenance-字段"></a>
 ### 8.1 provenance 字段
 
 每个训练记录携带完整来源链：
@@ -766,6 +800,7 @@ def _file_inventory(directory: Path) -> dict:
 | `source_group_id` | 来源连通组 |
 | `window_id` | 窗口唯一标识 |
 
+<a name="delivery-来源连通组"></a>
 ### 8.2 来源连通组
 
 **连通组规则**：
@@ -804,6 +839,7 @@ def split_by_source_group(records: list[dict], splits: dict[str, float]) -> dict
     }
 ```
 
+<a name="delivery-素材引用"></a>
 ### 8.3 素材引用
 
 ```json
@@ -828,21 +864,23 @@ def split_by_source_group(records: list[dict], splits: dict[str, float]) -> dict
 - 导出时展开为实际证据
 - 相同内容去重存储
 
+<a name="delivery-质量保证"></a>
 ## 9. 质量保证
 
+<a name="delivery-完整性校验清单"></a>
 ### 9.1 完整性校验清单
 
 工具交互新增交付行为已实现，必须经真实`items[]`请求、只读查询批次和英文结构化错误的端到端行为测试，
 按错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现分别完成生产到交付的证据闭环，
-在每个固定阶段身份上可单独复验，不能用某阶段收据认证后续未实现行为；版本与门禁见[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)。
+在每个固定阶段身份上可单独复验，不能用某阶段收据认证后续未实现行为；版本与门禁见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)。
 并以独立变异检验查询计成世界动作、旧候选读取、遗漏错误位置、跨人物任务泄漏及错误发布身份放行。
-验收按[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)登记，历史交付通过不证明新规则已生效。
+验收按[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)登记，历史交付通过不证明新规则已生效。
 
 个人事务与工作安排的交付行为须经带 `errands` 的真实控制请求端到端验证：意图与 dreaming 投影逐项不含 `memories`、`views` 与
 `errands`，原事件不被原地修改，动作目标保留完整请求；事务事件不带决策与动作身份，他人动作触发的办成事件不落进对方决策的分组；
 缺 `errands` 的旧控制请求被拒；含事务提醒与办成记录的导出能构造动作、意图与 dreaming 三类窗口；含就寝反思的决策其窗口 prompt
 仍是行动请求。并以独立变异检验「意图或 dreaming 投影带出请求级 `errands`」「交付投影只裁首项」「投影原地修改原事件」
-「提醒与办成事件写成系统可见」。验收按[个人事务与工作安排规格「验收台账」](../dev/SPEC-errands-workday.md#验收台账)的「交付边界」「严格反思」行登记。
+「提醒与办成事件写成系统可见」。验收按[个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「交付边界」「严格反思」行登记。
 
 | 校验项 | 时机 | 失败行为 |
 | --- | --- | --- |
@@ -858,6 +896,7 @@ def split_by_source_group(records: list[dict], splits: dict[str, float]) -> dict
 | 规则执行一致 | execute_fixture | 记录结果 |
 | 文件清单 | _file_inventory | 拒绝符号链接 |
 
+<a name="delivery-sha-256-哈希链"></a>
 ### 9.2 SHA-256 哈希链
 
 ```mermaid
@@ -876,6 +915,7 @@ flowchart LR
 - 交付清单绑定全部产物文件哈希
 - 任何文件修改导致清单校验失败
 
+<a name="delivery-字段验证"></a>
 ### 9.3 字段验证
 
 ```python
@@ -913,6 +953,7 @@ def validate_training_record(record: dict) -> list[str]:
     return errors
 ```
 
+<a name="delivery-数据加载验证"></a>
 ### 9.4 数据加载验证
 
 ```python
@@ -955,6 +996,7 @@ def load_training(records: list[dict], output: Path) -> tuple[DatasetDict, dict]
     return dataset_dict, receipt
 ```
 
+<a name="delivery-端到端流程图"></a>
 ## 10. 端到端流程图
 
 ```mermaid
@@ -994,6 +1036,14 @@ flowchart TB
     PUB --> END[完成]
 ```
 
+
+<a name="design-delivery-current-responsibility"></a>
+## 当前交付边界与来源
+
+行为正文读取当前基础规格，提示与工具文本只读取接口合同，历史增量原文只用于理解已登记执行证据。归档不表示重新运行模型，也不表示完成 LabelKit 交付。
+代码、场景、目录、地图、手机配置、语料及模型身份继续按本章和记录合同核验；职责搬移不新增交付字段，不重解释旧检查点，不改变信息范围裁剪或编码。
+
+<a name="delivery-版本历史"></a>
 ## 版本历史
 
 | 版本 | 日期 | 修订内容 |
@@ -1006,12 +1056,12 @@ flowchart TB
 | v1.5 | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：dreaming 窗口示意代码补人物可见性过滤，与零点计划登记等系统可见事件不进窗口一致 |
 | v1.6 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E6-1–E6-7，E6-2、E6-7 为阶段 1 同批作业）：文件头注明修订部分待实现；交付不再用当前代码的场景渲染重建已存观察，按层数据与实际请求投影，世界结构版本门禁为 8，交付清单 `schema_version` 为 2（7.3 示例同步）；动作窗口的续接请求含本秒前序决策的消息；事件可见性删决策自述，`self_note` 随实际请求进入动作与意图输入并进入 dreaming 输入；实际 prompt 行写明续接 assistant 的 `reasoning_content` 原样保留、其他事件与目标不额外混入；「人物卡片、记忆与场景」改为人设层、记忆层、环境层；dreaming 读 `self_note` 与层 JSON，`DREAMING_PRIVATE_EVENTS` 等于私有事件集 |
 | v1.7 | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账 E6-8 与阶段 8 核对）：「4.2 编码示例」改用现存的观察字段（两次观察相同的 `memory_layer`），编码声明与字典项的键按代码（`schema_version`、`standard`、`field`、`sha256`），4.1 与 4.3 随之改（收益不足时照写声明、字典为空）；dreaming 窗口写明 `input.decision_layers` 与 `provenance.decision_layer_sources`、缺少层 JSON 时失败、重演分支同样附层 JSON，裁去记忆只作用于动作请求事件的投影；事件可见性写明私有事件集含 `decision_started`；文件头注明修订部分已实现 |
-| v1.8 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 DL1，随阶段 5 的代码落地，按 `34a41ee` 核对）：「dreaming 窗口提取规则」与意图窗口中三个控制工具的请求经 `control_items` 读出，只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`（旧形状读出后同样只留这两项），动作窗口与实际请求原文照原样保留；文件头补修订说明，日期改写 |
+| v1.8 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)同步（一日运行保真 DL1，随阶段 5 的代码落地，按 `34a41ee` 核对）：「dreaming 窗口提取规则」与意图窗口中三个控制工具的请求经 `control_items` 读出，只留每项的 `activity_name` 与 `summary`，裁去 `items[].memories` 与 `items[].views`（旧形状读出后同样只留这两项），动作窗口与实际请求原文照原样保留；文件头补修订说明，日期改写 |
 | v1.9 | 2026-10-01 | 工具交互交付设计冻结并已实现：`items[]`原样保留，回看与世界查询交换不是目标动作或执行结果，英文错误及完整位置和候选原样留证；核对场景 4、地图 3、目录 5.0、品类绑定 3、世界 8及两份种子地图来源，禁止交付补造通知或供给，新增行为与变异验收 |
-| v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D6 作业，阶段 1，按 `a1f680b` 核对）：窗口 prompt 取动作之前最后一份不带 `purpose` 的请求并核对其工具含该动作的工具名，不满足是完整性故障、不回退到更早的请求，截断重试请求照此被选中，含反思的决策仍取行动请求（照现行实现表述，不是新行为），3.3 首句与 3.4 中「最后一次实际行动请求」的说法随之改为指向这条选取规则；顺带更正 5.4、6.3、8.3 三处示例与现行实现不符之处（LabelKit 入口按平台取、凭据取 `DEEPSEEK_NODE_KEYS` 的第一段，动作参数读 `action_requested.data.request`，素材引用在事件顶层 `artifact_refs`）；文件头补同步说明，日期改写；版本表改为末行最新 |
-| v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D6 作业，阶段 2，按 `d09d574` 核对）：世界结构版本门禁改 9，世界结构 8 的导出按版本不符拒绝；发布身份段注明工具交互各阶段的世界结构为 8，补本规格阶段 2 的世界结构 9、质量报告结构 4 与两个指纹的变化；意图与 dreaming 投影恒不带请求级 `errands`，缺 `errands` 的控制请求按旧形状拒绝，动作目标保留完整请求；六种事务事件不带决策与动作身份、不进任何窗口的 `target.outcomes`，人物可见的办成与提醒事件作为进度来源或 dreaming 窗口事件出现时公开投影为空对象，系统可见的其余四种不进 dreaming 窗口；9.1 补本规格交付边界的验收说明。与实施计划作业 D6-08 原文不一致处按规格 2.7、2.9 与现行实现写：三种请求触发的事务事件不带动作身份，不属于该动作的结果 |
-| v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D6 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：查询六键、返回不再附候选与两种查询参数错误的候选（「3.3 动作窗口提取规则」）；「2. 接收记录引擎导出」该规格产物按阶段认证身份的段落在阶段 2 一句之后补阶段 4 一句（只变工具模板指纹与代码身份），该段自成一段；文件头状态改为已落地阶段 1、2 与阶段 4 |
-| v1.13 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D6 作业，阶段 3，按 `56451b4` 核对）：「2. 接收记录引擎导出」该规格产物按阶段认证身份的段落在阶段 2 一句与阶段 4 一句之间补阶段 3 的场景结构 5、卡片结构 3，提示指纹与仓库三份场景的 `scenario_sha256` 随之变化；交付的窗口、投影与门禁不因阶段 3 改变；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），版本改写 |
+| v1.10 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D6 作业，阶段 1，按 `a1f680b` 核对）：窗口 prompt 取动作之前最后一份不带 `purpose` 的请求并核对其工具含该动作的工具名，不满足是完整性故障、不回退到更早的请求，截断重试请求照此被选中，含反思的决策仍取行动请求（照现行实现表述，不是新行为），3.3 首句与 3.4 中「最后一次实际行动请求」的说法随之改为指向这条选取规则；顺带更正 5.4、6.3、8.3 三处示例与现行实现不符之处（LabelKit 入口按平台取、凭据取 `DEEPSEEK_NODE_KEYS` 的第一段，动作参数读 `action_requested.data.request`，素材引用在事件顶层 `artifact_refs`）；文件头补同步说明，日期改写；版本表改为末行最新 |
+| v1.11 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D6 作业，阶段 2，按 `d09d574` 核对）：世界结构版本门禁改 9，世界结构 8 的导出按版本不符拒绝；发布身份段注明工具交互各阶段的世界结构为 8，补本规格阶段 2 的世界结构 9、质量报告结构 4 与两个指纹的变化；意图与 dreaming 投影恒不带请求级 `errands`，缺 `errands` 的控制请求按旧形状拒绝，动作目标保留完整请求；六种事务事件不带决策与动作身份、不进任何窗口的 `target.outcomes`，人物可见的办成与提醒事件作为进度来源或 dreaming 窗口事件出现时公开投影为空对象，系统可见的其余四种不进 dreaming 窗口；9.1 补本规格交付边界的验收说明。与实施计划作业 D6-08 原文不一致处按规格 2.7、2.9 与现行实现写：三种请求触发的事务事件不带动作身份，不属于该动作的结果 |
+| v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D6 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：查询六键、返回不再附候选与两种查询参数错误的候选（「3.3 动作窗口提取规则」）；「2. 接收记录引擎导出」该规格产物按阶段认证身份的段落在阶段 2 一句之后补阶段 4 一句（只变工具模板指纹与代码身份），该段自成一段；文件头状态改为已落地阶段 1、2 与阶段 4 |
+| v1.13 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D6 作业，阶段 3，按 `56451b4` 核对）：「2. 接收记录引擎导出」该规格产物按阶段认证身份的段落在阶段 2 一句与阶段 4 一句之间补阶段 3 的场景结构 5、卡片结构 3，提示指纹与仓库三份场景的 `scenario_sha256` 随之变化；交付的窗口、投影与门禁不因阶段 3 改变；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），版本改写 |
 
 ---
 
@@ -1021,3 +1071,5 @@ flowchart TB
 - RFC 6901 JSON Pointer 标准
 - Hugging Face Datasets 库 `save_to_disk` / `load_from_disk` API
 - 数据划分按来源连通组防止泄漏（标准机器学习实践）
+
+| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |

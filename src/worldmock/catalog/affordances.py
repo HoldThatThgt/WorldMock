@@ -2,12 +2,12 @@
 
 注册表把散落五层的手写行为闭集（动机家族、习惯归并路由、MET 键、缓解通道、
 反馈边界、资源锁、采样上限……）收编为同一份数据的声明式投影
-（docs/design/02-exchange-engine.md「可供性与活动声明」「交换规则的加载与准入」）。
+（docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎「可供性与活动声明」「交换规则的加载与准入」）。
 
-本模块只做加载期解析与校验（docs/design/03-resource-engine.md「准入边界」的加载期五条：
+本模块只做加载期解析与校验（docs/design/03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎「准入边界」的加载期五条：
 完整性、引用完整性、原型登记、互斥不变量、习惯覆盖完备）和派生视图查询，运行期零 IO；
 候选生成器原型保持 Python 函数，由 life/motivation.py 导入时登记进
-PROTOTYPE_GENERATORS；候选生成职责见 docs/design/03-resource-engine.md「从目录到候选」。
+PROTOTYPE_GENERATORS；候选生成职责见 docs/design/03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎「从目录到候选」。
 """
 
 from __future__ import annotations
@@ -24,7 +24,8 @@ from worldmock.errors import IntegrityError
 #: 注册表文件名（位于目录顶层，与 resources.jsonl/objects.jsonl 平级）。
 AFFORDANCES_FILE = "affordances.toml"
 
-#: 内部标准动作闭集（docs/dev/SPEC-agent-interaction.md「对象与动作选择」）：交互菜单、习惯归并、证据与本注册表的
+#: 内部标准动作闭集（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「对象与动作选择」）：交互菜单、习惯归并、
+#: 证据与本注册表的
 #: kinds.*.action 共用这一份声明；它不是人物词表，人物所见的五个动词与方式经私有绑定映射回这里的内部名。
 START_ACTIVITY_ACTIONS = frozenset({
     "travel_to", "work", "browse", "purchase", "consume", "watch", "play",
@@ -34,7 +35,7 @@ RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
 TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
 ATTENTION_KINDS = frozenset({"none", "content_kind"})
-#: 占用槽位闭集（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表）：各活动显式声明，引擎不暗中添加；
+#: 占用槽位闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」占用表）：各活动显式声明，引擎不暗中添加；
 #: 同一人物进行中活动的占用交集非空即 RESOURCE_CONFLICT。
 RESOURCE_CLAIM_SLOTS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
 #: 条件占用的维度：mode:<出行方式> 与 content_kind:<内容品类>（后者须是某家族声明的内容品类）。
@@ -134,7 +135,8 @@ class FamilySpec:
 
 @dataclass(frozen=True)
 class AffordanceView:
-    """@brief 校验后的不可变派生视图：各层闭集的唯一派生来源（docs/design/02-exchange-engine.md「可供性与活动声明」）。"""
+    """@brief
+    校验后的不可变派生视图：各层闭集的唯一派生来源（docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎「可供性与活动声明」）。"""
 
     kinds: Mapping[str, KindSpec]
     families: Mapping[str, FamilySpec]
@@ -288,7 +290,8 @@ class AffordanceView:
 
 
 # ---------------------------------------------------------------------------
-# 解析与校验（docs/design/03-resource-engine.md「准入边界」的加载期五条，全部 IntegrityError fail-closed）
+# 解析与校验（docs/design/03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎「准入边界」的加载期五条，全部 IntegrityError
+# fail-closed）
 # ---------------------------------------------------------------------------
 
 def load_affordances(path: Path, corpora_root: Path | None = None) -> AffordanceView:

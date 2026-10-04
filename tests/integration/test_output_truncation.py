@@ -1,4 +1,4 @@
-"""输出截断与思考螺旋的验收（docs/dev/SPEC-dayrun-fidelity.md 7.2，裁决 D10；验收台账「截断处理」）。
+"""输出截断与思考螺旋的验收（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 ，裁决 D10；验收台账「截断处理」）。
 
 真实 LifeEngine、LifeEnv 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（AS2 锁定提交的 ReAct 循环，只替换远程传输）：
 思考用尽输出上限的截断回合（finish_reason=length、正文为空、没有工具调用）不进入后续请求，纠错为 OUTPUT_TRUNCATED 且在
@@ -29,8 +29,8 @@ from tests.integration.test_life_agent_protocol import (_Environment, _GroundedC
                                                         _ModelResponse, _context, _wire_agent)
 from tests.integration.test_same_second_continuation import (_PLAN, _decide, _environment,  # noqa: E402
                                                              _plan_reply, _reply, _single, _wait_reply)
-from tests.life.conftest import (advance_next, context, engine_factory as _engine_factory,  # noqa: E402,F401
-                                 stage_day_plan, start_arguments)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (advance_next, context, stage_day_plan, start_arguments)  # noqa: F401
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS  # noqa: E402
@@ -143,7 +143,7 @@ def _corrections(request: dict) -> list[str]:
 
 def _decision_responses(engine, decision_id: str) -> list:
     """本决策落库的模型响应事件（按提交先后）。"""
-    return [event for event in engine.store.read_agent_events("model_response", 1) if event.decision_id == decision_id]
+    return [event for event in engine.context.store.read_agent_events("model_response", 1) if event.decision_id == decision_id]
 
 
 @pytest.mark.asyncio
@@ -166,11 +166,11 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     truncated, answered = _decision_responses(engine, "decision-spiral-1")
     assert truncated.data["error"] == f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}" and answered.data["error"] is None
     assert truncated.data["response"]["choices"][0]["message"]["reasoning_content"] == _SPIRALS[0]
-    [registered] = [event for event in engine.store.read_agent_events("action_requested", 1)
+    [registered] = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                     if event.decision_id == "decision-spiral-1"]
     assert registered.data["tool_name"] == "start_activity" and registered.data["self_note"] == "先歇一会儿。"
-    assert engine.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
-    assert [event.decision_id for event in engine.store.read_agent_events("decision_started", 1)].count(
+    assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
+    assert [event.decision_id for event in engine.context.store.read_agent_events("decision_started", 1)].count(
         "decision-spiral-1") == 1
 
 
@@ -243,7 +243,7 @@ async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine
     responses = [_Truncated(_SPIRALS[0]), _TextOnly(), _TextOnly("还是再想想。"), _TextOnly("再等等。")]
     with pytest.raises(RuntimeError, match="ReAct decision budget exhausted"):
         await _decide(_environment(engine), ctx, responses)
-    requests = [event.data["request"] for event in engine.store.read_agent_events("model_request", 1)
+    requests = [event.data["request"] for event in engine.context.store.read_agent_events("model_request", 1)
                 if event.decision_id == "decision-exhausted-1"]
     assert [_is_retry(item) for item in requests] == [False, True, False, False]
     assert [_corrections(item) for item in requests] == [
@@ -253,7 +253,7 @@ async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine
                 if item["role"] == "user" and item["content"].startswith('{"error_code"')]
     assert feedback[-2]["items"][0]["allowed_values"] != feedback[-1]["items"][0]["allowed_values"]
     assert _tools(requests[2]) == set(REQUEST_MODELS) | {"query_world"} | _MEMORY_TOOLS and _tools(requests[3]) == set(REQUEST_MODELS) - {"recall_task_summary"}
-    assert [event for event in engine.store.read_agent_events("action_requested", 1)
+    assert [event for event in engine.context.store.read_agent_events("action_requested", 1)
             if event.decision_id == "decision-exhausted-1"] == []
 
 
@@ -268,7 +268,7 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
     _, planned, _ = await _single(environment, "plan", [_Truncated(_SPIRALS[0]),
                                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
     assert [_is_retry(item) for item in planned] == [False, True]
-    assert engine.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
+    assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
     observation, [request], _ = await _single(environment, "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
     control = _engine_factory()
@@ -311,7 +311,7 @@ async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_ev
     assert all(item["role"] == "user" for item in last["messages"][len(chain):])
     assert all(item.get("reasoning_content") for item in last["messages"] if item["role"] == "assistant")
     assert call_id not in json.dumps(last, ensure_ascii=False)
-    [registered] = [event for event in engine.store.read_agent_events("action_requested", 1)
+    [registered] = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                     if event.decision_id == "decision-wait-1"]
     assert registered.data["tool_name"] == "start_activity"
 
@@ -370,7 +370,7 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
                                         _reply("call-wait", "start_activity", _WAIT, None)])
     advance_next(engine)
     export = tmp_path / "export"
-    export_run(engine.store, engine.store.last_event_seq, export)
+    export_run(engine.context.store, engine.context.store.last_event_seq, export)
     quality = json.loads((export / "quality.json").read_text(encoding="utf-8"))
     rows = [json.loads(line) for line in (export / "events.jsonl").read_text(encoding="utf-8").splitlines()]
     recorded = [row["data"]["response"] for row in rows if row["event_type"] == "model_response"

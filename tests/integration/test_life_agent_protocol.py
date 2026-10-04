@@ -1,6 +1,6 @@
 """LifeAgent 闭集 Schema、宿主身份注入与原生 ReAct 链测试。
 
-一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求为原生 tools、系统层 system
+一次决策只有一个行动阶段（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）：请求为原生 tools、系统层 system
 与六层 user；生活决策没有 finish，世界请求登记即结束本轮且不追加 tool 消息，记忆查询是观察、不结束本轮；人物记忆
 只经 conclude_activity 逐项的 memories 与 views 写入，来源由系统登记。只读问答保留 finish。
 """
@@ -46,16 +46,9 @@ from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
 from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
-from worldmock.life.engine import affordance_contract
-from worldmock.life.models import (
-    ActionReceipt,
-    ConcludeActivityRequest,
-    REQUEST_MODELS,
-    START_ACTIVITY_ACTIONS,
-    ReportStatusRequest,
-    StartActivityRequest,
-    deepseek_strict_schema,
-)
+from worldmock.life.engine_context import affordance_contract
+from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, ReportStatusRequest, StartActivityRequest, deepseek_strict_schema
+from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
 from tests.life.conftest import errand_add, errand_update, start_arguments
 
@@ -85,7 +78,7 @@ _WORK = "工作整理会议纪要（1月4日 21:00 起）"
 _NEWS = "接着看晚间新闻（1月4日 20:00 起）"
 _TASK = "工作：整理会议纪要"
 
-#: 私有绑定种类 → 工具层目标种类（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。
+#: 私有绑定种类 → 工具层目标种类（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」）。
 _TARGET_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
                  "catalog": "catalog", "content": "content", "game": "game", "lifestyle": "lifestyle",
                  "person": "person", "contact": "person", "mail": "message", "self": "self"}
@@ -109,7 +102,7 @@ def _tool_entries(kind: str) -> list[dict]:
 
 
 def _visible_object(name: str, kind: str, object_id: str, *offers: dict, **binding) -> tuple[dict, dict]:
-    """同一可见对象的工具层目标与私有绑定（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。
+    """同一可见对象的工具层目标与私有绑定（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」）。
 
     工具层目标只有可读名称、种类、状态与动作；私有绑定另带绑定种类、内部身份与 binding 附加项。
     """
@@ -211,8 +204,8 @@ def _layers() -> dict:
 
 
 def _observations(*progress_event_ids: str) -> list[dict]:
-    """构造 docs/dev/SPEC-persona-prompt.md 第七章形状的结构化观察记录：人物在当前停留会话里，暂无活动；私有事务绑定
-    里没有未完成事务，商品名只有手边的现有食品（docs/dev/SPEC-errands-workday.md 2.3）。"""
+    """构造 docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章形状的结构化观察记录：人物在当前停留会话里，暂无活动；私有事务绑定
+    里没有未完成事务，商品名只有手边的现有食品（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。"""
     data = {
         "observation_event_id": "observation-current",
         "current_time": _NOW_EPOCH,
@@ -341,7 +334,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 
 def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
     """工具层标为不可用的提交照样可以提交：宿主只核对任务名（没写「工作：」前缀的也按统一名称解析唯一受理，
-    docs/dev/SPEC-dayrun-fidelity.md 3.1），环境以同一原因业务拒绝；不是任何任务的名称按协议错误纠正。"""
+    docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ），环境以同一原因业务拒绝；不是任何任务的名称按协议错误纠正。"""
     observations = _observations()
     task = observations[0]["data"]["tool_layer"]["targets"][1]
     task["tools"] = [{"tool": "submit_work", "available": False, "reason": "有效工时还没达到要求"}]
@@ -359,7 +352,7 @@ def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
 
 def test_session_names_are_not_recall_names() -> None:
     """会话名不在七层中出现，不是回看名称：观察不绑定会话名，宿主本地校验把它当作不可见的名称（回看的名称只取七层中出现的
-    任务、目标与活动名，docs/dev/SPEC-persona-prompt.md 第八章）。"""
+    任务、目标与活动名，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第八章）。"""
     agent = _prepared(_observations())
 
     def recall(name: str) -> ReactDecision:
@@ -383,7 +376,7 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
 
 
 def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool(monkeypatch) -> None:
-    """工具指纹只绑定人物工具面（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」与 6.4：submit_reflection 不属于人物
+    """工具指纹只绑定人物工具面（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」与 6.4：submit_reflection 不属于人物
     工具面，不进 tool_schema_sha256）：指纹恰为生活决策实际开放的十二个原生工具（请求模型的登记顺序，其后是三个记忆查询与
     query_world）与注册表摘要组成的规范 JSON 的 SHA-256，其中没有 submit_reflection；就寝反思工具的说明与 Schema 改动
     之后指纹不变。"""
@@ -413,7 +406,7 @@ def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_ref
 
 def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
     """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订工具整次运行都在，条目必须给出可为 null 的 remind_time
-    与 around_time（docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
+    与 around_time（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。"""
     from custom.envs.life_env import _STABLE_TOOL_SURFACE
 
     assert len(_STABLE_TOOL_SURFACE) == 9 and "plan_day" not in _STABLE_TOOL_SURFACE
@@ -1160,8 +1153,8 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
 @pytest.mark.asyncio
 async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -> None:
     """生产配置允许超过十次模型调用后纠正，完整循环仍只登记一个动作。"""
-    from worldmock.life.scenario import load_scenario
-    from worldmock.runtime import _agent_specs
+    from worldmock.life.world_setup import load_scenario
+    from worldmock.run_setup import _agent_specs
 
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
     config = _agent_specs(scenario, persona_compiler=lambda _: None)[0]["config"]
@@ -1253,7 +1246,7 @@ _ERRAND_BINDING = {"name": _ERRAND, "errand_id": "errand-private-1", "outcome": 
 
 
 def _errand_observation() -> dict:
-    """人物步骤的观察另带一条未完成事务：待办层一行，私有事务绑定一行（docs/dev/SPEC-errands-workday.md 2.3、2.6）。"""
+    """人物步骤的观察另带一条未完成事务：待办层一行，私有事务绑定一行（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.6）。"""
     data = _step_observation()
     data["errand_bindings"] = [dict(_ERRAND_BINDING)]
     data["todo_layer"]["errands"] = [{"name": _ERRAND, "done_when": "取得现有食品 1 份", "progress": "已取得 0 份",
@@ -1263,7 +1256,7 @@ def _errand_observation() -> dict:
 
 @pytest.mark.asyncio
 async def test_errand_errors_join_the_single_host_correction() -> None:
-    """个人事务的错误与活动名、参数结构错误并入宿主的同一次纠错（docs/dev/SPEC-errands-workday.md 2.3）：同一响应里播报
+    """个人事务的错误与活动名、参数结构错误并入宿主的同一次纠错（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）：同一响应里播报
     点名不存在的活动并更新一条不存在的事务，暂停写了份数为 0 的新增。宿主在执行前整批校验一次，各调用的每条工具消息都是
     同一份纠错：批次错误之后，第一个调用的活动名错误与事务名错误（与环境复核同一函数：合法值是本人全部未完成事务名，不带
     候选）合并在同一调用里，再是第二个调用的结构错误（上限写在 why），路径都绑定到真实调用下标；这一响应没有登记任何世界
@@ -1467,7 +1460,7 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
     failure_mode,
 ) -> None:
     """收尾记忆在世界请求登记后未落盘时 runner 失败，Society 保存故障并中止，不结算；人物步骤在上抛前留一条带完整
-    异常链的英文 error 日志（docs/dev/SPEC-errands-workday.md 1.4）。
+    异常链的英文 error 日志（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-异常日志 ）。
 
     人物类经 AS2 注册表按文件路径以另一个模块名加载，本用例是 Society 路径上的覆盖与行为证据；杀死 step 变异的是
     直接导入 LifeAgent 的 test_decision_failure_is_logged_once_and_reraised_unchanged。
@@ -1581,7 +1574,7 @@ class _InvalidReflectionDispatcher:
 
 @pytest.mark.asyncio
 async def test_reflection_contract_failure_aborts_society_before_commit(monkeypatch, tmp_path) -> None:
-    """就寝反思的输出重试耗尽是运行故障（docs/dev/SPEC-errands-workday.md 1.1「失败」）：反思发生在本步世界请求已登记、
+    """就寝反思的输出重试耗尽是运行故障（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「失败」）：反思发生在本步世界请求已登记、
     收尾记忆已写入人物工作区之后；首次之外三次重试都不合合同时，runner 失败，Society 保存故障并中止本轮——不结算、
     不建检查点、没有 memory_updated，故障原因带最后一次校验错误原文。
 
@@ -1671,7 +1664,7 @@ async def test_decision_failure_is_logged_once_and_reraised_unchanged(
     failure_point: str,
 ) -> None:
     """直接导入的 LifeAgent：决策失败时 step 写恰好一条带完整异常链的英文 error 日志，再把同一个异常对象原样上抛，
-    类型不变（docs/dev/SPEC-errands-workday.md 1.4）；日志不是持久证据，不新增事件，也不改变已登记的世界请求。"""
+    类型不变（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-异常日志 ）；日志不是持久证据，不新增事件，也不改变已登记的世界请求。"""
     workspace = tmp_path / "agent_0007"
     environment = _StepEnvironment()
     dispatcher = _StepDispatcher()
@@ -1711,7 +1704,7 @@ def test_memory_sleep_boundary_follows_engine_wake_signal() -> None:
 
 
 def test_home_identity_never_enters_messages_and_a_layer_carrying_it_is_rejected() -> None:
-    """@brief 本人住处的地点身份 home_location_id 是观察私有事实（「家」「住处」与查询的 from 按它解析，docs/CONTRACTS.md
+    """@brief 本人住处的地点身份 home_location_id 是观察私有事实（「家」「住处」与查询的 from 按它解析，docs/CONTRACTS.md#contracts-worldmock-接口合同
     「禁止进入提示的字段」）：它留在观察顶层时，宿主构建的消息里既没有这个键也没有它的值；混进任何一层（工具层目标、
     待办层、环境层及其地点、记忆层、进度层）时，宿主渲染即以 ForbiddenObservationFieldError 拒绝并写出该键。"""
     observations = _observations()

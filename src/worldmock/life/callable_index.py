@@ -1,4 +1,4 @@
-"""@brief 工具层只列名称的可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2，裁决 S5）。
+"""@brief 工具层只列名称的可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ，裁决 S5）。
 
 工具层 targets 只是本轮展示的目标，按名调用（第三章）却不以展示为限；索引告诉人物此地此刻还有哪些名称可以直接写：
 
@@ -78,7 +78,7 @@ def index_sources(windows: Mapping[str, PresentationWindow]) -> IndexSources:
 def callable_index(context: LayerContext, sources: IndexSources) -> dict[str, Any]:
     """@brief 工具层的 callable_index：{lifestyle: [名称], contents: [{category, count, examples}], goods: [同形],
     query_categories: [{category, count}]}；query_categories 先写空，由 world_query.attach_world_query 填入查询权限内各
-    公开品类的完整条目数（query_category_index），查询筛选不改变这些计数（docs/dev/SPEC-errands-workday.md 5.1）。
+    公开品类的完整条目数（query_category_index），查询筛选不改变这些计数（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-请求 ）。
 
     :param context: 本次观察的层上下文（bindings 为本轮列出的交互对象，menu 为本轮有效菜单）。
     :param sources: 生活活动、内容与游戏三个分区资格段保留的对象（index_sources）。

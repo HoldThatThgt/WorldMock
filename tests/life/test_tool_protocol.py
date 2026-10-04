@@ -22,7 +22,8 @@ from tests.life.conftest import context, stage_day_plan
 from worldmock.life.control_items import control_items
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.life.error_contract import Candidate, ErrorItem, activity_candidate
-from worldmock.life.interaction_menu import WAYS, binding_action
+from worldmock.life.vocabulary import WAYS
+from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import (ConcludeActivityRequest, REQUEST_MODELS, ReviseDayPlanRequest,
                                    StartActivityRequest, deepseek_strict_schema)
 from worldmock.life.name_resolution import name_book, resolve_start
@@ -321,8 +322,8 @@ def test_cross_field_interval_and_goal_bounds_keep_explicit_locations():
 def test_engine_revalidates_constructed_bad_requests_with_complete_fields(engine_factory, payload, expected):
     engine = engine_factory()
     stage_day_plan(engine)
-    before = (copy.deepcopy(engine.state.activities), dict(engine.state.accounts), dict(engine.state.supply_stock),
-              engine.state.current_time)
+    before = (copy.deepcopy(engine.context.state.activities), dict(engine.context.state.accounts), dict(engine.context.state.supply_stock),
+              engine.context.state.current_time)
     ctx = context(engine, "bad-typed")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
@@ -338,8 +339,8 @@ def test_engine_revalidates_constructed_bad_requests_with_complete_fields(engine
         expected_items.append({"path": [*root, *path], "written": written, "error_code": "ACTION_REQUEST_INVALID",
                                "allowed_values": [], "expected": condition, "why": why, "candidates": []})
     assert rejected.data["items"] == expected_items
-    assert (engine.state.activities, engine.state.accounts, engine.state.supply_stock, engine.state.current_time) == before
-    events = [event.model_dump(mode="json") for event in engine.store.read_events(engine.store.last_event_seq)]
+    assert (engine.context.state.activities, engine.context.state.accounts, engine.context.state.supply_stock, engine.context.state.current_time) == before
+    events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
     assert project_purchase_facts(events) == []
     next_ctx = context(engine, "valid-after-bad")
     engine.begin_decision_round([next_ctx])
@@ -348,4 +349,4 @@ def test_engine_revalidates_constructed_bad_requests_with_complete_fields(engine
                                        StartActivityRequest.model_validate(request())))
     [accepted] = engine.commit_decision_round("valid-after-bad")
     assert (accepted.status, accepted.error_code) == ("in_progress", None)
-    assert accepted.activity_id in engine.state.activities
+    assert accepted.activity_id in engine.context.state.activities

@@ -1,4 +1,4 @@
-"""@brief 同秒续接的环境侧：从模型证据重建上一决策的末次行动请求与响应（docs/dev/SPEC-persona-prompt.md 第二章「同秒续接」）。
+"""@brief 同秒续接的环境侧：从模型证据重建上一决策的末次行动请求与响应（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「同秒续接」）。
 
 成链条件：同一人物在同一模拟秒内的相邻两次决策，同一 session；两者之间没有反事实干预（反事实分支一律断链，普通恢复
 照常续接）；此前各 assistant 回合都带非空 reasoning_content；上一决策以恰好一个世界请求结束。任一条件不满足、模型证据
@@ -36,24 +36,24 @@ def continuation_enabled(manifest: Mapping[str, Any]) -> bool:
     return identity["stages"]["action"]["same_second_continuation"]
 
 
-def same_second_chain(engine: Any, agent_id: int, observation_event_id: str) -> dict | None:
+def same_second_chain(store: FootprintStore, state: WorldState, observations: Any,
+                      agent_id: int, observation_event_id: str) -> dict | None:
     """@brief 本次观察对应决策的续接链：上一决策的末次行动请求、最终 assistant、世界请求的调用身份、公开结果与同秒新事件。
 
-    engine 是 LifeEngine（读取 store、state 与本次观察的层上下文）；任一断链条件成立时返回 None。
+    读取唯一世界状态和观察构造职责的层上下文；任一断链条件成立时返回 None。
     """
-    store: FootprintStore = engine.store
     if not continuation_enabled(store.manifest):
         return None
-    previous = _previous_observation(store, engine.state, agent_id, observation_event_id)
-    if previous is None or _session_changed(store, engine.state, agent_id, previous):
+    previous = _previous_observation(store, state, agent_id, observation_event_id)
+    if previous is None or _session_changed(store, state, agent_id, previous):
         return None
-    if _counterfactual_since(store, engine.state, previous):
+    if _counterfactual_since(store, state, previous):
         return None
     evidence = _decision_evidence(store, agent_id, previous)
     if evidence is None:
         return None
     messages, assistant, requested = evidence
-    context = engine._layer_context(engine.state.agents[agent_id], (), [])
+    context = observations._layer_context(state.agents[agent_id], (), [])
     records = records_after(context, store, previous.event_seq)
     own = [record for record, sources in records if requested.event_id in sources]
     if len(own) != 1:

@@ -17,19 +17,8 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E4
 from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from tests.life.conftest import (  # noqa: E402
-    StubPlanDayClient,
-    activity_name,
-    advance_until_ready,
-    conclude_pending,
-    settle_day_plans,
-    stage_day_plan,
-    wake_by_mail,
-    context,
-    engine_factory as _engine_factory,  # noqa: F401
-    start_request,
-    start_arguments,
-)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (StubPlanDayClient, activity_name, advance_until_ready, conclude_pending, settle_day_plans, stage_day_plan, wake_by_mail, context, start_request, start_arguments)  # noqa: F401
 from tests.life import test_memory_layer as memory_tests  # noqa: E402
 from tests.life.routing_fixtures import (  # noqa: E402
     DUPLICATE_CONTACT, OFFICE, PERSON_TARGET, act, observe, open_world, place,
@@ -103,16 +92,16 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
                                             "errands": []}, "")
         assert agent.validate_react_decisions([decision], False) == ""
     user = agent.build_react_messages(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))[1]
-    session_id = next(iter(engine.state.sessions))
+    session_id = next(iter(engine.context.state.sessions))
     for private in (control["activity_id"], session_id):
         assert private not in str(schemas) and private not in user["content"]
-    [stored] = [event for event in engine.store.read_agent_events("observation", 1)
+    [stored] = [event for event in engine.context.store.read_agent_events("observation", 1)
                 if event.event_id == observation["observation_event_id"]]
     assert "progress_layer" in observation and "progress_meta" in observation
     assert not {"progress_layer", "progress_meta"} & set(stored.data)
     assert stored.data["tool_layer"] == observation["tool_layer"]
     control["data"]["observer_write"] = "must stay outside the world"
-    assert "observer_write" not in engine.state.activities[control["activity_id"]].data
+    assert "observer_write" not in engine.context.state.activities[control["activity_id"]].data
 
 
 def test_life_agent_checks_activity_names_against_private_bindings(_engine_factory) -> None:
@@ -139,7 +128,7 @@ def _without_same_name_colleague(document: dict) -> None:
 
 
 def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engine_factory) -> None:
-    """relationship 记忆的对象可以是不在身边的同世界人物（docs/dev/SPEC-persona-prompt.md「人设层」：已知人物含同世界
+    """relationship 记忆的对象可以是不在身边的同世界人物（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「人设层」：已知人物含同世界
     人物名）：李凡在办公室、陈曦在家，陈曦的通讯录里没有李凡，本轮工具层也没有他，只有私有绑定 person_bindings 认得他；
     宿主接受写李凡的 relationship 记忆，不认识的名字照常按协议错误纠正。"""
     engine = open_world(_engine_factory, mutate=_without_same_name_colleague)
@@ -148,7 +137,7 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
     observation = observe(engine, "relationship")
     assert PERSON_TARGET not in {row["name"] for row in observation["tool_layer"]["targets"]}
     assert [row["name"] for row in observation["person_bindings"]] == [PERSON_TARGET]
-    config = next(item for item in engine.scenario.agents if item.agent_id == 1)
+    config = next(item for item in engine.context.scenario.agents if item.agent_id == 1)
     assert "李凡" not in {contact.salutation for contact in config.contacts}
     agent = LifeAgent()
     agent._name, agent._profile = config.name, {**config.model_dump(mode="json"), "id": 1}
@@ -175,7 +164,7 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
     engine = _engine_factory()
     settle_day_plans(engine)
     wake_by_mail(engine, offset=600)
-    shown = engine._observation_data(engine.state.agents[1])
+    shown = engine.observations._observation_data(engine.context.state.agents[1])
     subtitle = next(row for row in shown["interaction_bindings"]
                     if row["kind"] == "content" and row["object_id"] == "sintel-en-subtitles")
     [way] = [item["label"] for item in subtitle["actions"] if item["canonical_action"] == "watch"]
@@ -187,7 +176,7 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     control = observation["active_activities"][0]
-    actual = engine.state.activities[control["activity_id"]].data["revealed"]["cues"]
+    actual = engine.context.state.activities[control["activity_id"]].data["revealed"]["cues"]
     assert len(actual) > 0
     count = len(actual)
     control["data"]["revealed"]["cues"].clear()
@@ -227,7 +216,7 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
 
     engine = _engine_factory()
     settle_day_plans(engine)
-    shown = engine._observation_data(engine.state.agents[1])
+    shown = engine.observations._observation_data(engine.context.state.agents[1])
     game = next(row for row in shown["interaction_bindings"]
                 if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
     observation, result, schemas = await _agent_action(
@@ -237,18 +226,18 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
             if target["name"] == game["object"]] == ["game"]
     assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
     assert game["object_id"] not in str(schemas["start_activity"])
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     assert activity.target_id == game["object_id"]
     observation["active_activities"].append({"observer_write": "must stay outside the world"})
-    assert all("observer_write" not in item.data for item in engine.state.activities.values())
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "game_seam_checkpoint"})
+    assert all("observer_write" not in item.data for item in engine.context.state.activities.values())
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "game_seam_checkpoint"})
     engine.checkpoint({"agent:1": reference})
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
     try:
-        assert restored.state.activities[activity.activity_id].target_id == game["object_id"]
-        visible = restored._observation_data(restored.state.agents[1])
+        assert restored.context.state.activities[activity.activity_id].target_id == game["object_id"]
+        visible = restored.observations._observation_data(restored.context.state.agents[1])
         names = [target["name"] for target in visible["tool_layer"]["targets"] if target["kind"] == "activity"]
         assert activity.name in names
     finally:
@@ -258,19 +247,18 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
 @pytest.mark.asyncio
 async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_engine_factory) -> None:
     """零点计划登记的空清单经原生人物修订、环境、SQLite和恢复观察，完整贯通追加与实际推进（时间与能量规格第四章）；
-    修订的条目带大致时刻 around_time，登记为 around_at，恢复后的待办层写「约 HH:MM」（docs/dev/SPEC-dayrun-fidelity.md
-    8.2）。"""
+    修订的条目带大致时刻 around_time，登记为 around_at，恢复后的待办层写「约 HH:MM」（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。"""
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
-    submitted_at = engine.state.current_time
+    submitted_at = engine.context.state.current_time
     # 启动路径：零点计划后台任务（确定性桩）经系统登记入口写入空清单，不是人物动作，不推进时间。
     assert settle_day_plans(engine) == [{"agent_id": 1, "date": "2026-01-05", "goals": 0}]
-    assert engine.state.current_time == submitted_at
-    assert engine.state.agents[1].day_plan.goals == ()
-    generated = [event.data["day_plan"] for event in engine.store.read_events(engine.store.last_event_seq)
+    assert engine.context.state.current_time == submitted_at
+    assert engine.context.state.agents[1].day_plan.goals == ()
+    generated = [event.data["day_plan"] for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                  if event.event_type == "environment_event" and event.data.get("kind") == "day_plan_generated"]
-    assert generated == [engine.state.agents[1].day_plan.model_dump(mode="json")]
+    assert generated == [engine.context.state.agents[1].day_plan.model_dump(mode="json")]
     before_revision, revision, tools = await _agent_action(
         engine, "goals-append", "revise_day_plan",
         {"goals": [{"intent_kind": "休息", "goal": "缓一缓", "remind_time": None, "around_time": "00:30"}]})
@@ -279,35 +267,35 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert "plan_day" not in tools and {"start_activity", "revise_day_plan"} <= set(tools)
     assert set(tools["revise_day_plan"]["parameters"]["properties"]) == {"goals"}
     assert before_revision["todo_layer"]["day_plan"]["goals"] == []
-    assert revision.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
-    assert engine.state.agents[1].day_plan.goals[0].around_at == submitted_at + 1800
-    assert engine.state.current_time == submitted_at
+    assert revision.data["day_plan"] == engine.context.state.agents[1].day_plan.model_dump(mode="json")
+    assert engine.context.state.agents[1].day_plan.goals[0].around_at == submitted_at + 1800
+    assert engine.context.state.current_time == submitted_at
     _, started, _ = await _agent_action(
         engine, "goals-wait", "start_activity",
         start_arguments(["自己"], ["interact"], ["等待"]))
-    assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
+    assert engine.context.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
-    progressed = engine.state.agents[1].day_plan.model_dump(mode="json")
+    progressed = engine.context.state.agents[1].day_plan.model_dump(mode="json")
     goal = progressed["goals"][0]
     assert goal["goal"] == "缓一缓"
     assert goal["progressed_at"] > goal["registered_at"]
     assert goal["progress_activity_id"] == started.data["activity"]["activity_id"]
-    records = [json.loads(row[0]) for row in engine.store.connection.execute("SELECT body FROM events")]
+    records = [json.loads(row[0]) for row in engine.context.store.connection.execute("SELECT body FROM events")]
     assert any(row["event_type"] == "action_result" and row["data"].get("day_plan") == progressed
                for row in records) or any(
         row["event_type"] == "activity_progress" and row["data"].get("day_plan") == progressed for row in records)
     # 等待到点即刚结束，人物当秒收尾（第七章「活动一结束就要结束它」），收尾自述写入关联目标。
     assert conclude_pending(engine, "goals-conclude").status.value == "completed"
-    expected = engine.state.agents[1].day_plan.model_dump(mode="json")
+    expected = engine.context.state.agents[1].day_plan.model_dump(mode="json")
     assert expected["goals"][0] == {**goal, "progress_note": "收尾。"}
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "goal_tools_restore_test"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "goal_tools_restore_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     assert checkpoint.last_event_seq > 0
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
     try:
-        assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
+        assert restored.context.state.agents[1].day_plan.model_dump(mode="json") == expected
         observation, _, restored_tools = await _agent_action(
             restored, "goals-preserve", "revise_day_plan", {"goals": []})
         assert observation["todo_layer"]["day_plan"]["goals"] == [
@@ -315,7 +303,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
              "around_time": "00:30"}]
         assert [row["task_name"] for row in observation["goal_bindings"]] == ["缓一缓"]
         assert "plan_day" not in restored_tools
-        assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
+        assert restored.context.state.agents[1].day_plan.model_dump(mode="json") == expected
     finally:
         restored.close()
 
@@ -331,14 +319,14 @@ def _recall_round(engine, round_id: str, name: str) -> tuple[str, dict]:
     agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
     checked = agent.validate_react_decisions(
         [ReactDecision("", "recall_task_summary", {"task_name": name}, "")], False)
-    before, sequence = engine.state.model_dump(mode="json"), engine.store.last_event_seq
+    before, sequence = engine.context.state.model_dump(mode="json"), engine.context.store.last_event_seq
     try:
         data = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), observation)
     except BusinessRuleError as error:
         guidance = rejection_guidance(error)
         data = {key: guidance[key] for key in ("reason", "fix", "items")}
         data.update(error_code=str(error), unmet=list(error.unmet))
-    assert engine.state.model_dump(mode="json") == before and engine.store.last_event_seq == sequence
+    assert engine.context.state.model_dump(mode="json") == before and engine.context.store.last_event_seq == sequence
     return checked, data
 
 
@@ -366,7 +354,7 @@ def test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer(_engine_
 
 
 def test_recall_accepts_the_activity_name_as_written_in_self_notes(_engine_factory) -> None:
-    """更早的 summary 可按记忆层 self_notes 所写的活动名回看（docs/dev/SPEC-persona-prompt.md 第三章「窗口」）：条目内不重名时
+    """更早的 summary 可按记忆层 self_notes 所写的活动名回看（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「窗口」）：条目内不重名时
     活动名去掉了开始时刻后缀，宿主放行这个名称，环境把它解析为那项活动，结果写它在记忆层中的活动名与「已在记忆层」；
     之后另一个条目里又有一项同名的活动，这个名称就指两项活动，环境以 TASK_NOT_FOUND 业务拒绝。"""
     engine = _engine_factory()

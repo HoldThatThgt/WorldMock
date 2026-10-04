@@ -1,4 +1,4 @@
-"""@brief 个人事务的全部逻辑（docs/dev/SPEC-errands-workday.md 第二章）：私有绑定、待办层行、变更的校验与应用、请求驱动的
+"""@brief 个人事务的全部逻辑（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 第二章）：私有绑定、待办层行、变更的校验与应用、请求驱动的
 三种事务事件、完成依据与结算。
 
 全部是纯函数：不读写存储、不访问引擎。状态模型与常量在 errand_state.py（状态与逻辑分两个模块）；本模块可依赖
@@ -53,13 +53,14 @@ from worldmock.life.errand_state import (
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
 from worldmock.life.models import ActivityKind, AgentState, PendingAction, WorldState, active_activities
-from worldmock.life.name_resolution import near_names, resolve_name
+from worldmock.life.name_resolution import near_names
+from worldmock.life.object_labels import resolve_name
 from worldmock.life.readable import local_date, portion_phrase
 from worldmock.life.schedule import clock_epoch, day_end_seconds, epoch_clock
 
 _LOGGER = logging.getLogger(__name__)
 
-#: 各类事务变更错误的 expected（只给要求的写法，上限写在 why，docs/dev/SPEC-errands-workday.md 2.3）。
+#: 各类事务变更错误的 expected（只给要求的写法，上限写在 why，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。
 _ERRAND_EXPECTED = "The exact name of an open errand in the todo layer is required."
 _ITEM_EXPECTED = "An exact known product name is required."
 _NAME_EXPECTED = "A name that no open errand uses is required."
@@ -103,7 +104,7 @@ class _Head:
 
 
 class Evidence(NamedTuple):
-    """@brief 一条结算证据行（docs/dev/SPEC-errands-workday.md 2.4「依据」）：归属的人物（取得看收货人，进食是本人）、结果
+    """@brief 一条结算证据行（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「依据」）：归属的人物（取得看收货人，进食是本人）、结果
     种类代码（obtain、eat）、商品身份、本行的数量，以及活动进度类证据的结算区间起点（其余证据为 None）。"""
 
     owner_id: int
@@ -132,7 +133,7 @@ def todo_rows(agent: AgentState, product_names: Mapping[str, str], timezone_name
 
 
 def plan_rows(agent: AgentState, product_names: Mapping[str, str], timezone_name: str) -> list[dict]:
-    """@brief 零点计划输入的只读键「个人事务」（docs/dev/SPEC-errands-workday.md 2.8）：与待办层同一行构造、同一顺序，
+    """@brief 零点计划输入的只读键「个人事务」（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-零点计划修订与只读问答 ）：与待办层同一行构造、同一顺序，
     每条写名称、要办成什么、已办到哪、备注与提醒时刻（尚未提醒的钟点，没有或已提醒为 null）；不含内部身份与记下的
     日期，零点计划只读它，不创建、不更改、不终结事务。"""
     return [{"名称": row["name"], "要办成什么": row["done_when"], "已办到哪": row["progress"], "备注": row["memo"],
@@ -140,7 +141,7 @@ def plan_rows(agent: AgentState, product_names: Mapping[str, str], timezone_name
 
 
 def remind_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:
-    """@brief 事务提醒钟点 HH:MM 换算为绝对时刻（docs/dev/SPEC-errands-workday.md 2.5）：该钟点在受理时刻所在本地日的时刻
+    """@brief 事务提醒钟点 HH:MM 换算为绝对时刻（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）：该钟点在受理时刻所在本地日的时刻
     严格晚于受理时刻时取它，否则取下一本地日的同一钟点（按本地日历换算，不加固定秒数），所以总在二十四小时之内；None
     原样返回（不设提醒）。"""
     if clock is None:
@@ -152,7 +153,7 @@ def remind_epoch(clock: str | None, now: int, timezone_name: str) -> int | None:
 
 
 def change_issues(changes: Sequence[Mapping[str, Any]], observed: Mapping[str, Any]) -> list[tuple[ErrorItem, str]]:
-    """@brief 一次请求的个人事务变更在冻结观察上的全部状态相关问题（docs/dev/SPEC-errands-workday.md 2.2、2.3），宿主与
+    """@brief 一次请求的个人事务变更在冻结观察上的全部状态相关问题（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 、2.3），宿主与
     环境调用同一函数、判定一致；没有问题时为空列表。
 
     结构（键、类型、枚举、交叉约束、长度、条数）由请求模型先校验，这里只判与未完成事务和商品名相关的四类：更新或取消的
@@ -168,7 +169,7 @@ def change_issues(changes: Sequence[Mapping[str, Any]], observed: Mapping[str, A
 
 
 def change_refusal(issues: Sequence[tuple[ErrorItem, str]]) -> Refusal:
-    """@brief 事务变更的全部问题合并成的一次拒绝（docs/dev/SPEC-errands-workday.md 2.3「环境复核」）：顶层码与控制工具活动名
+    """@brief 事务变更的全部问题合并成的一次拒绝（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 「环境复核」）：顶层码与控制工具活动名
     的防御拒绝一样取 ACTION_REQUEST_INVALID（不新增业务码，照常计入同刻轮数），原因逐条以「; 」相连，下一步取该码的默认
     做法，改法按明细码各写一句，明细原样带上。
 
@@ -182,7 +183,7 @@ def change_refusal(issues: Sequence[tuple[ErrorItem, str]]) -> Refusal:
 
 def apply_changes(agent: AgentState, changes: Sequence[Mapping[str, Any]], observed: Mapping[str, Any],
                   origin: ErrandOrigin) -> tuple[AgentState, list[dict]]:
-    """@brief 把一次请求里已通过校验的个人事务变更应用到人物状态的副本（docs/dev/SPEC-errands-workday.md 2.1、2.2）。
+    """@brief 把一次请求里已通过校验的个人事务变更应用到人物状态的副本（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 、2.2）。
 
     与 change_issues 用同一个私有解析：取消把事务移出未完成集合；更新只替换备注与提醒（null 即清空，写了钟点就按受理时刻
     重新换算并重新计一次提醒），完成依据与名称不可改；新增以 `<动作身份>:errand:<条目下标>` 为身份、零累计量记下。解析出的
@@ -208,7 +209,7 @@ def apply_changes(agent: AgentState, changes: Sequence[Mapping[str, Any]], obser
 
 
 def request_drafts(before: WorldState, after: WorldState, pending: PendingAction) -> list[EventDraft]:
-    """@brief 一次被受理的控制请求里每条事务变更恰好一条事务事件（docs/dev/SPEC-errands-workday.md 2.2「原子性」、2.7），
+    """@brief 一次被受理的控制请求里每条事务变更恰好一条事务事件（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「原子性」、2.7），
     按请求顺序；不是控制工具时为空列表。只在成功分支调用，不经拒绝分支也会提交的暂存通道。
 
     变更只经 control_items.control_errands 读取（控制请求的唯一读取入口）。新增写 errand_registered（after 里新记下的
@@ -241,7 +242,7 @@ def request_drafts(before: WorldState, after: WorldState, pending: PendingAction
 
 def evidence_rows(event_type: str, agent_id: int | None, data: Mapping[str, Any]) -> list[Evidence]:
     """@brief 一条事件（草稿或已落库事件的类型、人物字段与 data）给出的结算证据行；完成依据只在这一处读取
-    （docs/dev/SPEC-errands-workday.md 2.4「依据」「只读一处」）。
+    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「依据」「只读一处」）。
 
     - action_result（重放的不算）：顶层 orders 里状态为已送达的订单（到店成交与当场送达的远程订单）与顶层 given 的当面
       给予，按收货人归属；不读并行开始时逐项结果 activity_results 里的同一订单，也不读受理事件 action_accepted。
@@ -263,7 +264,7 @@ def evidence_rows(event_type: str, agent_id: int | None, data: Mapping[str, Any]
 
 
 def settle(state: WorldState, drafts: Sequence[EventDraft]) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 一次提交的个人事务结算（docs/dev/SPEC-errands-workday.md 2.4「结算函数」）：纯函数，每次提交恰好调用一次——
+    """@brief 一次提交的个人事务结算（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「结算函数」）：纯函数，每次提交恰好调用一次——
     决策轮在全部动作结算之后，时钟推进在后台事件并入之后、构造节律边界之前。
 
     按草稿先后逐条读证据行（evidence_rows），命中所有人同一（结果种类，商品）的未完成事务（同一人至多一条）即累加：累计量
@@ -299,7 +300,7 @@ def settle(state: WorldState, drafts: Sequence[EventDraft]) -> tuple[WorldState,
 
 def reminder_times(agent: AgentState, now: int) -> tuple[int, ...]:
     """@brief 本人未提醒事务的提醒时刻中严格晚于 now 的那些（升序去重），下一次决策机会的候选
-    （docs/dev/SPEC-errands-workday.md 2.5「调度口径」）；人物在睡时由调用方剔除。"""
+    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 「调度口径」）；人物在睡时由调用方剔除。"""
     return tuple(sorted({errand.remind_at for errand in _unreminded(agent) if errand.remind_at > now}))
 
 
@@ -311,13 +312,13 @@ def reminders_due(agent: AgentState, now: int) -> tuple[ErrandState, ...]:
 
 def boundary_times(state: WorldState) -> list[int]:
     """@brief 下一边界的事务提醒候选：每个清醒人物（没有进行中的睡眠）严格晚于此刻的未提醒时刻；睡眠中的人物不计入，
-    不形成静默边界，错过的提醒在醒来的边界交付（docs/dev/SPEC-errands-workday.md 2.5）。"""
+    不形成静默边界，错过的提醒在醒来的边界交付（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）。"""
     return [moment for agent_id, agent in state.agents.items() if not _asleep(state, agent_id)
             for moment in reminder_times(agent, state.current_time)]
 
 
 def deliver_reminders(state: WorldState, agent_id: int) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 在为该人物提供决策机会的边界交付他全部已到点未提醒的事务（docs/dev/SPEC-errands-workday.md 2.5、2.7）：
+    """@brief 在为该人物提供决策机会的边界交付他全部已到点未提醒的事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 、2.7）：
     每条记下提醒时刻 reminded_at（只提醒一次，名称、完成依据、累计量与备注都不变，事务仍未完成），各写一条
     errand_reminded（人物可见，人物为事务所有人，决策、动作与活动身份为空，没有原因事件，载荷为记下提醒后的快照）。
     没有到点的事务时事务不变、没有草稿。
@@ -542,7 +543,7 @@ def _held(state: WorldState, owner: int, errand_id: str) -> ErrandState:
 
 
 def _draft(head: _Head, kind: str, snapshot: dict, extra: Mapping[str, Any] | None = None) -> EventDraft:
-    """@brief 唯一的事务事件草稿构造（docs/dev/SPEC-errands-workday.md 2.7）：environment_event，来源为环境，人物为事务所有
+    """@brief 唯一的事务事件草稿构造（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）：environment_event，来源为环境，人物为事务所有
     人，决策、动作与活动身份都为空，只经 caused_by 关联；载荷为 {kind, errand}（事务快照）另加 extra；提醒与办成两种人物
     可见，其余系统可见。"""
     return EventDraft(event_type="environment_event", occurred_at=head.now, agent_id=head.owner, decision_id=None,

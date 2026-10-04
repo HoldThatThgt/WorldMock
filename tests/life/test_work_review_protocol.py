@@ -1,6 +1,7 @@
 """工作评审有限协议纠正、持久化顺序和故障边界测试。"""
 
 from __future__ import annotations
+import worldmock.life.work_review_runtime as worldmock_life_work_review_runtime_module
 
 import asyncio
 import copy
@@ -119,8 +120,8 @@ def _stage_submission(engine, reviewer: SequenceReviewer, round_id: str):
     """完成公开工作并登记尚未结算的提交。"""
     _at_task_start(engine)
     _complete_required_work(engine)
-    engine._work_reviewer = reviewer
-    reviewer.run_dir = engine.store.run_dir
+    engine.reviews.reviewer = reviewer
+    reviewer.run_dir = engine.context.store.run_dir
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
@@ -132,7 +133,7 @@ def _stage_submission(engine, reviewer: SequenceReviewer, round_id: str):
 
 def _persisted_reviews(engine) -> list:
     """通过第二个 SQLite 连接读取已经提交的工作评审证据。"""
-    store = FootprintStore(engine.store.run_dir)
+    store = FootprintStore(engine.context.store.run_dir)
     try:
         return [event for event in store.read_events(store.last_event_seq)
                 if event.data.get("purpose") == "work_review"]
@@ -156,7 +157,7 @@ async def test_missing_contradiction_is_corrected_after_durable_feedback(engine_
     engine = engine_factory()
     reviewer = SequenceReviewer("missing_contradiction", "accepted")
     call = _stage_submission(engine, reviewer, "missing-field")
-    before = dict(engine.state.accounts)
+    before = dict(engine.context.state.accounts)
 
     await engine.prepare_pending_work_review(call.action_id)
     result = engine.commit_decision_round("missing-field")[0]
@@ -169,11 +170,11 @@ async def test_missing_contradiction_is_corrected_after_durable_feedback(engine_
     assert reviews[1].event_id in reviews[2].caused_by
     assert reviewer.persisted_before_calls == [["request"], ["request", "response", "request"]]
     _assert_correction_request(reviews, reviewer)
-    accepted = next(event for event in engine.store.read_agent_events("action_accepted", 1)
+    accepted = next(event for event in engine.context.store.read_agent_events("action_accepted", 1)
                     if event.action_id == call.action_id)
     assert reviews[-1].event_id in accepted.caused_by
-    agent_account = engine.state.agents[1].balance_account_id
-    assert engine.state.accounts[agent_account] == before[agent_account] + 60_000
+    agent_account = engine.context.state.agents[1].balance_account_id
+    assert engine.context.state.accounts[agent_account] == before[agent_account] + 60_000
 
 
 def _assert_correction_request(reviews: list, reviewer: SequenceReviewer) -> None:
@@ -213,14 +214,14 @@ async def test_valid_semantic_rejection_returns_after_one_call(engine_factory) -
     engine = engine_factory()
     reviewer = SequenceReviewer("semantic_rejection", "accepted")
     call = _stage_submission(engine, reviewer, "semantic-rejection")
-    before = dict(engine.state.accounts)
+    before = dict(engine.context.state.accounts)
 
     await engine.prepare_pending_work_review(call.action_id)
     result = engine.commit_decision_round("semantic-rejection")[0]
 
     assert result.status == "rejected" and result.error_code == "WORK_REQUIRES_REWORK"
     assert reviewer.calls == 1 and len(_persisted_reviews(engine)) == 2
-    assert engine.state.accounts == before and not engine.state.paid_task_ids
+    assert engine.context.state.accounts == before and not engine.context.state.paid_task_ids
 
 
 @pytest.mark.asyncio
@@ -229,7 +230,7 @@ async def test_three_invalid_outputs_exhaust_without_life_settlement(engine_fact
     engine = engine_factory()
     reviewer = SequenceReviewer(*(["missing_contradiction"] * 6))
     call = _stage_submission(engine, reviewer, "exhausted")
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
 
     with pytest.raises(ProtocolError, match="remained invalid after three"):
         await engine.prepare_pending_work_review(call.action_id)
@@ -238,7 +239,7 @@ async def test_three_invalid_outputs_exhaust_without_life_settlement(engine_fact
     assert reviewer.calls == 3 and [event.data["attempt"] for event in reviews] == [1, 1, 2, 2, 3, 3]
     assert len({event.data["call_id"] for event in reviews}) == 3
     assert all(reviews[index].event_id in reviews[index + 1].caused_by for index in (1, 3))
-    assert engine.state.model_dump(mode="json") == before
+    assert engine.context.state.model_dump(mode="json") == before
     with pytest.raises(ProtocolError, match="cannot restart"):
         await engine.prepare_pending_work_review(call.action_id)
     assert reviewer.calls == 3
@@ -251,7 +252,7 @@ async def test_infrastructure_errors_are_fatal_without_correction(engine_factory
     engine = engine_factory()
     reviewer = SequenceReviewer(error_type("infrastructure failed"), "accepted")
     call = _stage_submission(engine, reviewer, f"fatal-{error_type.__name__}")
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
 
     with pytest.raises(error_type, match="infrastructure failed"):
         await engine.prepare_pending_work_review(call.action_id)
@@ -259,7 +260,7 @@ async def test_infrastructure_errors_are_fatal_without_correction(engine_factory
     reviews = _persisted_reviews(engine)
     assert reviewer.calls == 1 and [event.data["phase"] for event in reviews] == ["request", "failure"]
     assert reviews[1].caused_by == [reviews[0].event_id]
-    assert engine.state.model_dump(mode="json") == before
+    assert engine.context.state.model_dump(mode="json") == before
 
 
 @pytest.mark.asyncio
@@ -272,7 +273,7 @@ async def test_internal_parser_error_persists_response_without_correction(engine
     def fail_parse(raw, prepared):
         raise RuntimeError("parser implementation failed")
 
-    monkeypatch.setattr(engine_module, "parse_work_review", fail_parse)
+    monkeypatch.setattr(worldmock_life_work_review_runtime_module, 'parse_work_review', fail_parse)
     with pytest.raises(RuntimeError, match="parser implementation failed"):
         await engine.prepare_pending_work_review(call.action_id)
 
@@ -288,14 +289,14 @@ async def test_response_persistence_failure_stops_before_correction(engine_facto
     engine = engine_factory()
     reviewer = SequenceReviewer("missing_contradiction", "accepted")
     call = _stage_submission(engine, reviewer, "persistence-failure")
-    original_commit = engine.store.commit
+    original_commit = engine.context.store.commit
 
     def fail_response(state, drafts):
         if drafts and drafts[0].event_type == "model_response":
             raise OSError("response persistence failed")
         return original_commit(state, drafts)
 
-    monkeypatch.setattr(engine.store, "commit", fail_response)
+    monkeypatch.setattr(engine.context.store, "commit", fail_response)
     with pytest.raises(OSError, match="response persistence failed"):
         await engine.prepare_pending_work_review(call.action_id)
 
@@ -305,7 +306,7 @@ async def test_response_persistence_failure_stops_before_correction(engine_facto
 
 def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dict]:
     """将当前真实引擎推进至终点并返回认证导出及质量报告；途中按等待活动的名称播报（规格第七章）。"""
-    _stage_final_interval(engine, engine.scenario.activity_feedback_seconds)
+    _stage_final_interval(engine, engine.context.scenario.activity_feedback_seconds)
     ctx = context(engine, "review-export-end")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
@@ -313,19 +314,19 @@ def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dic
     engine.submit_action(DirectToolCall(ctx, "review-export-wait", "start_activity", request))
     started = engine.commit_decision_round("review-export-end")[0]
     waiting = activity_name(engine, started.activity_id)
-    while engine.state.current_time < engine.state.end_time:
+    while engine.context.state.current_time < engine.context.state.end_time:
         if engine.scheduling_state().ready_agent_ids:
-            ctx = context(engine, f"review-export-progress-{engine.state.current_time}")
+            ctx = context(engine, f"review-export-progress-{engine.context.state.current_time}")
             engine.begin_decision_round([ctx])
             engine.observe(ctx)
-            engine.submit_action(DirectToolCall(ctx, f"review-export-report-{engine.state.current_time}",
+            engine.submit_action(DirectToolCall(ctx, f"review-export-report-{engine.context.state.current_time}",
                                                 "report_status", report_request(waiting, summary="继续等待。")))
             engine.commit_decision_round(ctx.round_id)
         else:
             advance_next(engine)
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "review_protocol_export"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "review_protocol_export"})
     checkpoint = engine.checkpoint({"agent:1": reference})
-    export_run(engine.store, checkpoint.last_event_seq, destination)
+    export_run(engine.context.store, checkpoint.last_event_seq, destination)
     manifest, events, _ = validate_export(destination)
     quality = json.loads((destination / "quality.json").read_text(encoding="utf-8"))
     return manifest, events, quality

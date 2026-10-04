@@ -1,11 +1,13 @@
 """@brief 人物提示七层的机器可读 Schema（JSON Schema 2020-12）与测试用的校验入口。
 
-依据 docs/dev/SPEC-persona-prompt.md 第一章与接口合同登记：系统层、工具层、人设层、记忆层、待办层、环境层、进度层各一份
+依据 docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章与接口合同登记：系统层、工具层、人设层、记忆层、待办层、环境层、进度层各一份
 Schema，另有原生 tools 的一项定义。各层构建器的输出由测试逐层校验；发送前不做逐层校验（裁决 #2），运行时只有提示指纹
 （life_prompt.life_prompt_sha256）读取本模块。枚举是冻结闭集的字面副本（体感分级、方式、动作状态），由测试锁定与源头一致。
 """
 
 from __future__ import annotations
+from jsonschema import Draft202012Validator
+from worldmock.life.tool_groups import expand_tool_layer
 
 from typing import Any
 
@@ -23,7 +25,7 @@ TARGET_KINDS = ("location", "product", "person", "content", "game", "catalog", "
                 "message", "self")
 #: 五个生活动词（interaction_menu.LIFE_VERBS 的字面副本）。
 VERBS = ("travel", "interact", "obtain", "consume", "sleep")
-#: 工具层可列出的方式短语（interaction_menu.WAYS 键的字面副本，不含只写在请求里、由系统定方式的「购买」）。
+#: 工具层可列出的方式短语（vocabulary.WAYS 键的字面副本，不含只写在请求里、由系统定方式的「购买」）。
 WAY_LABELS = ("步行", "驾车", "工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待", "到店", "远程下单",
               "制作", "食用", "使用", "给予", "接着看", "从头再看", "接着听", "从头再听", "睡觉")
 #: 以目标名称为参数的其他工具。
@@ -107,7 +109,7 @@ INDEX_EXAMPLES_MAX = 3
 _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
                            "examples": {"type": "array", "maxItems": INDEX_EXAMPLES_MAX, "uniqueItems": True,
                                         "items": _TEXT}})
-#: 工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）：只有名称、品类与计数，不带动作与条件。
+#: 工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
     "lifestyle": {"type": "array", "uniqueItems": True, "items": _TEXT},
     "contents": {"type": "array", "items": _INDEX_CATEGORY},
@@ -173,7 +175,7 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                  "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
-#: 待办层的一条个人事务（docs/dev/SPEC-errands-workday.md 2.6）：六键，不含内部身份、状态枚举与可用性。
+#: 待办层的一条个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 ）：六键，不含内部身份、状态枚举与可用性。
 _ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo": _NULLABLE_TEXT,
                    "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                    "noted_on": _DATE})
@@ -194,7 +196,8 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
 #: 上班安排的两种日子与当班日此刻状态的闭集（work_schedule.DUTY_DAYS、DUTY_STATUSES 的字面副本，规格 4.4 的顺序）。
 DUTY_DAYS = ("工作日", "休息日")
 DUTY_STATUSES = ("未到上班时间", "当班中", "休息时段", "已下班")
-#: 环境层 duty 的非空形状（docs/dev/SPEC-errands-workday.md 4.4）：休息日的 hours、place、status 为 null、breaks 为空；
+#: 环境层 duty 的非空形状（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-环境层-duty ）：休息日的 hours、place、status 为 null、brea
+#: ks 为空；
 #: 工作日写班次、工作地点名与四种状态之一。
 _DUTY = _object({"day": {"enum": list(DUTY_DAYS)}, "hours": _NULLABLE_TEXT, "place": _NULLABLE_TEXT,
                  "breaks": {"type": "array", "items": _TEXT}, "status": {"enum": [*DUTY_STATUSES, None]}})
@@ -273,7 +276,6 @@ LAYER_SCHEMAS: dict[str, dict[str, Any]] = {
 
 def validate_layer(layer: dict) -> None:
     """@brief 按 layer 字段取对应 Schema 校验一层（jsonschema Draft 2020-12）；不符或层名未知时抛 ValueError。"""
-    from jsonschema import Draft202012Validator
 
     name = layer.get("layer") if isinstance(layer, dict) else None
     if name not in LAYER_SCHEMAS:
@@ -281,7 +283,6 @@ def validate_layer(layer: dict) -> None:
     schema = COMPACT_TOOL_LAYER_SCHEMA if name == "工具层" and "groups" in layer else LAYER_SCHEMAS[name]
     errors = sorted(Draft202012Validator(schema).iter_errors(layer), key=lambda item: list(item.path))
     if name == "工具层" and "groups" in layer and not errors:
-        from worldmock.life.tool_groups import expand_tool_layer
 
         validate_layer(expand_tool_layer(layer))
     if errors:

@@ -1,5 +1,5 @@
-"""社交最小可行版纯函数域的独立测试（docs/dev/SPEC-life-runtime.md「社交最小可行版」），以及人物目标在真实观察
-工具层中的列法与环境按私有绑定解析名称（docs/dev/SPEC-persona-prompt.md「工具层」）。"""
+"""社交最小可行版纯函数域的独立测试（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」），以及人物目标在真实观察
+工具层中的列法与环境按私有绑定解析名称（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def test_people_here_filters_location_and_exposes_closed_fields() -> None:
     away = _presence(name="韩梅梅", location="家", agent_id="a3")
     views = people_here("共享办公-茶水间", [here, away])
     assert [view.name for view in views] == ["李雷"]
-    # 身份锚点闭集（docs/CONTRACTS.md「人物工具与管理接口」工具身份枚举）+ 隐私闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
+    # 身份锚点闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物工具与管理接口」工具身份枚举）+ 隐私闭集（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。
     assert set(PersonView.model_fields) == {"person_id", "name", "activity_family", "can_talk"}
     dumped = views[0].model_dump()
     assert dumped["person_id"] == "a2"
@@ -213,7 +213,7 @@ def _people_seen(engine_factory):
     from tests.life.conftest import context, stage_day_plan
 
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     observed = engine.observe(context(engine, "people-seen"))
     people = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
@@ -228,8 +228,8 @@ def test_message_recipients_come_from_current_observation_identities(engine_fact
     from worldmock.life.models import SendMessageActionRequest
 
     engine, observed, people = _people_seen(engine_factory)
-    friend = next(item.name for item in engine.state.agents.values() if item.agent_id != 1)
-    salutations = [item.salutation for item in engine.scenario.agents[0].contacts]
+    friend = next(item.name for item in engine.context.state.agents.values() if item.agent_id != 1)
+    salutations = [item.salutation for item in engine.context.scenario.agents[0].contacts]
     assert [row["name"] for row in people] == [f"人物：{friend}", *(f"联系人：{name}" for name in salutations)]
     assert all(row["tools"] == [{"tool": "send_message", "available": True, "reason": None}] for row in people)
     kinds = {row["object"]: row["kind"] for row in observed["interaction_bindings"]}

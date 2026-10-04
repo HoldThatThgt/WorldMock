@@ -1,5 +1,5 @@
-"""最小完整路径：真实 LifeEnv、SQLite 与脚本化模型重现根因研究的代点场景（docs/dev/SPEC-persona-prompt.md 第五章、
-验收台账「最小完整路径」，docs/dev/research/white-collar-dayrun-root-cause-2026-09-28.md）。
+"""最小完整路径：真实 LifeEnv、SQLite 与脚本化模型重现根因研究的代点场景（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章、
+验收台账「最小完整路径」，docs/dev/SPEC-life-realism.md#spec-life-realism-产品行为）。
 
 同事王磊是场景联系人（收货地点办公室）。人物在办公室邀他一起点外卖，王磊回复要一份；人物远程下单直接送给王磊并用
 answering 回应那条消息：订单只有一个收货人、带 request_message_id，送达只入王磊的持有，人物的库存与摄入都不变；
@@ -76,7 +76,7 @@ def _engine(tmp_path) -> LifeEngine:
     document["agents"][0]["contacts"].append(_WANGLEI)
     engine = LifeEngine.create(_write_scenario(document, tmp_path), tmp_path / "run", _identity(document, "path"))
     stage_day_plan(engine)
-    now = engine.state.current_time + 10 * 3600 + 1800
+    now = engine.context.state.current_time + 10 * 3600 + 1800
 
     def change(state):
         """@brief 推到 10:30 并把人物放在办公室。"""
@@ -91,9 +91,9 @@ def _engine(tmp_path) -> LifeEngine:
 
 def _browsed(engine: LifeEngine) -> None:
     """人物此刻在办公室看过（或又看了一遍）同一件集市食品：它是工具层里唯一的商品目标。"""
-    supply = next(item for item in engine.scenario.supplies if item.location_id == "market"
+    supply = next(item for item in engine.context.scenario.supplies if item.location_id == "market"
                   and "office" in item.delivery_destination_ids
-                  and "eat" in engine.rules.items[item.product_id].use_modes)
+                  and "eat" in engine.context.rules.items[item.product_id].use_modes)
 
     def change(state):
         """@brief 只留这一件供给的可见凭据。"""
@@ -106,7 +106,7 @@ def _browsed(engine: LifeEngine) -> None:
 
 def _ready(engine: LifeEngine) -> bool:
     """人物可以决策，且没有刚结束待收尾的活动。"""
-    return engine.scheduling_state().ready_agent_ids == (1,) and not pending_conclusions(engine.state, 1)
+    return engine.scheduling_state().ready_agent_ids == (1,) and not pending_conclusions(engine.context.state, 1)
 
 
 def _person(environment, ctx, model) -> LifeAgent:
@@ -163,13 +163,13 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     _, _, invited = await _decide(environment, "invite", lambda _: ("send_message", {
         "recipient_name": "联系人：王磊", "text": "中午一起点外卖吗？"}))
     assert invited.status == "completed", (invited.error_code, invited.message)
-    assert [item.text for item in engine.state.agents[1].outbox.values()] == ["中午一起点外卖吗？"]
+    assert [item.text for item in engine.context.state.agents[1].outbox.values()] == ["中午一起点外卖吗？"]
     reply = _ReplyClient("好啊，帮我点一份，少辣，谢谢！")
     [settled] = drive(settle_pending_model_replies(engine, client=reply))
     payload = json.loads(reply.calls[0]["messages"][1]["content"])
     assert payload["history"] == [] and payload["received"] == []
     await _decide(environment, "wait", lambda _: ("start_activity", start_arguments(["自己"], ["interact"], ["等待"], **{'from': [None], 'to': [None], 'answering': None, 'prefer': None})))
-    run_until(engine, lambda current: settled["reply_message_id"] in current.state.agents[1].inbox
+    run_until(engine, lambda current: settled["reply_message_id"] in current.context.state.agents[1].inbox
               and _ready(current))
 
     chosen: dict = {}
@@ -181,30 +181,30 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     assert (order["agent_id"], order["recipient_id"], order["destination_id"]) == (1, "contact-wanglei", "office")
     assert order["request_message_id"] == settled["reply_message_id"]
     product = order["product_id"]
-    energy = engine.state.agents[1].body.energy_kcal
+    energy = engine.context.state.agents[1].body.energy_kcal
 
-    run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered"
+    run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered"
               and _ready(current))
-    assert engine.state.contact_holdings == {"contact-wanglei": {product: 1.0}}
-    assert all(product not in holdings for holdings in engine.state.agents[1].inventory.values())
-    assert engine.state.agents[1].body.energy_kcal <= energy
-    assert not [item for item in engine.state.activities.values() if item.kind.value == "consume"]
+    assert engine.context.state.contact_holdings == {"contact-wanglei": {product: 1.0}}
+    assert all(product not in holdings for holdings in engine.context.state.agents[1].inventory.values())
+    assert engine.context.state.agents[1].body.energy_kcal <= energy
+    assert not [item for item in engine.context.state.activities.values() if item.kind.value == "consume"]
 
     _browsed(engine)
     later, requests, repeated = await _decide(environment, "reorder", _order_for_wanglei({}))
     [call] = [row for row in _events(later, "tool_call") if row["arguments"].get("answering") == chosen["answering"]
               and row["result"]["status"] == "completed"]
-    name = engine.rules.items[product].name
+    name = engine.context.rules.items[product].name
     [purchase] = call["result"]["details"]["purchases"]
     assert (purchase["product"], purchase["recipient"], purchase["request"]) == (name, "王磊", chosen["answering"])
     [delivered] = _events(later, "delivery")
     assert delivered["message"] == f"已送到{_OFFICE_NAME}，收货人王磊" and delivered["status"] == "delivered"
     assert json.loads(requests[0]["messages"][1]["content"])[5] == later["progress_layer"]
     assert (repeated.status, repeated.error_code) == ("rejected", "REQUEST_ALREADY_HANDLED")
-    linked_at = iso_time(order["expected_at"], engine.scenario.timezone)
+    linked_at = iso_time(order["expected_at"], engine.context.scenario.timezone)
     assert repeated.data["linked_orders"] == [{"order": f"{name} 1 份（10:35 远程下单）", "expected_at": linked_at}]
-    expected = clock_phrase(order["expected_at"], engine.state.current_time, engine.scenario.timezone)
-    assert len(engine.state.deliveries) == 1 and engine.state.contact_holdings["contact-wanglei"] == {product: 1.0}
+    expected = clock_phrase(order["expected_at"], engine.context.state.current_time, engine.context.scenario.timezone)
+    assert len(engine.context.state.deliveries) == 1 and engine.context.state.contact_holdings["contact-wanglei"] == {product: 1.0}
 
     run_until(engine, _ready)
     _, _, asked = await _decide(environment, "ask", lambda _: ("send_message", {
@@ -220,7 +220,7 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
 
     run_until(engine, _idle)
     await _decide(environment, "leave", _walk_home)
-    run_until(engine, lambda current: current.state.agents[1].location_id == "home" and _idle(current))
+    run_until(engine, lambda current: current.context.state.agents[1].location_id == "home" and _idle(current))
     home, requests, _ = await _decide(environment, "home", lambda _: ("start_activity", start_arguments(["自己"], ["interact"], ["等待"], **{'from': [None], 'to': [None], 'answering': None, 'prefer': None})))
     assert not _events(home, "delivery") and not [row for row in _events(home, "tool_call")
                                                   if row["arguments"].get("answering")]
@@ -230,12 +230,12 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     assert placed in settled_lines
     assert f"{expected} {name} 1 份（10:35 远程下单）：已送到{_OFFICE_NAME}，收货人王磊" in settled_lines
     assert json.loads(requests[0]["messages"][1]["content"])[2] == home["memory_layer"]
-    assert len(engine.state.deliveries) == 1
+    assert len(engine.context.state.deliveries) == 1
 
 
 def _idle(engine: LifeEngine) -> bool:
     """人物可以决策，且没有进行中或待收尾的活动（可以出发）。"""
-    return _ready(engine) and not active_activities(engine.state, 1)
+    return _ready(engine) and not active_activities(engine.context.state, 1)
 
 
 def _walk_home(observation: dict) -> tuple[str, dict]:

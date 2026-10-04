@@ -1,6 +1,7 @@
 """LifeEngine 反事实分支干预边界测试。"""
 
 from __future__ import annotations
+from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
 import json
@@ -28,38 +29,38 @@ def _digest(intervention: CounterfactualIntervention) -> str:
 def _source_event(engine, agent_id: int) -> str:
     """写入并返回目标人物实际可见的观察事件。"""
     engine.observe(context(engine, f"source-{agent_id}", agent_id))
-    return engine.store.read_events(engine.store.last_event_seq)[-1].event_id
+    return engine.context.store.read_events(engine.context.store.last_event_seq)[-1].event_id
 
 
 def _branch(engine, destination: Path, intervention: CounterfactualIntervention,
             manifest_updates: dict | None = None) -> LifeEngine:
     """从共同检查点通过生产接口恢复反事实分支。"""
     snapshots = {}
-    for agent_id in engine.store.manifest["agent_ids"]:
-        snapshots[f"agent:{agent_id}"] = engine.store.assets.put_json(
+    for agent_id in engine.context.store.manifest["agent_ids"]:
+        snapshots[f"agent:{agent_id}"] = engine.context.store.assets.put_json(
             {"agent_id": agent_id}, {"kind": "counterfactual_test"})
     checkpoint = engine.checkpoint(snapshots)
     metadata = {"branch_kind": "counterfactual",
                 "intervention_sha256": _digest(intervention)}
-    store = engine.store.restore(checkpoint.checkpoint_id, destination, metadata)
+    store = restore_branch(engine.context.store, checkpoint.checkpoint_id, destination, metadata)
     store.close()
     if manifest_updates:
         path = destination / "manifest.json"
         manifest = json.loads(path.read_text(encoding="utf-8"))
         manifest.update(manifest_updates)
         atomic_write(path, canonical_json(manifest))
-    scenario = Path("scenarios") / ("multi-person.json" if len(engine.state.agents) > 1
+    scenario = Path("scenarios") / ("multi-person.json" if len(engine.context.state.agents) > 1
                                     else "white-collar-12-weeks.json")
     return LifeEngine.open(scenario, destination)
 
 
 def _plain_branch(engine, destination: Path) -> LifeEngine:
     """建立一次普通恢复分支以验证嵌套来源截止。"""
-    snapshots = {f"agent:{agent_id}": engine.store.assets.put_json(
+    snapshots = {f"agent:{agent_id}": engine.context.store.assets.put_json(
         {"agent_id": agent_id}, {"kind": "nested_counterfactual_test"})
-        for agent_id in engine.store.manifest["agent_ids"]}
+        for agent_id in engine.context.store.manifest["agent_ids"]}
     checkpoint = engine.checkpoint(snapshots)
-    store = engine.store.restore(checkpoint.checkpoint_id, destination)
+    store = restore_branch(engine.context.store, checkpoint.checkpoint_id, destination)
     store.close()
     scenario = Path("scenarios/white-collar-12-weeks.json")
     return LifeEngine.open(scenario, destination)
@@ -80,22 +81,22 @@ def test_counterfactual_balance_is_double_entry_versioned_and_one_shot(engine_fa
     intervention = _intervention(source)
     child = _branch(parent, tmp_path / "counterfactual-success", intervention)
     try:
-        before_version = child.state.version
-        before_balance = child.state.accounts[child.state.agents[1].balance_account_id]
+        before_version = child.context.state.version
+        before_balance = child.context.state.accounts[child.context.state.agents[1].balance_account_id]
         receipt = child.apply_counterfactual(intervention)
-        event = child.store.read_events(child.store.last_event_seq)[-1]
+        event = child.context.store.read_events(child.context.store.last_event_seq)[-1]
         assert receipt.before_balance_fen == before_balance
         assert receipt.after_balance_fen == 123_456
-        assert child.state.version == before_version + 1 == receipt.world_state_version
+        assert child.context.state.version == before_version + 1 == receipt.world_state_version
         assert event.data["kind"] == "counterfactual_intervention"
         assert event.data["source_event_ids"] == [source]
         assert sum(event.data["resource_changes"].values()) == 0
-        state = child.state.model_dump(mode="json")
-        cutoff = child.store.last_event_seq
+        state = child.context.state.model_dump(mode="json")
+        cutoff = child.context.store.last_event_seq
         with pytest.raises(ProtocolError, match="precede the first decision and occur once"):
             child.apply_counterfactual(intervention)
-        assert child.state.model_dump(mode="json") == state
-        assert child.store.last_event_seq == cutoff
+        assert child.context.state.model_dump(mode="json") == state
+        assert child.context.store.last_event_seq == cutoff
     finally:
         child.close()
 
@@ -107,12 +108,12 @@ def test_counterfactual_rejects_manifest_hash_mismatch_without_mutation(engine_f
     child = _branch(parent, tmp_path / "counterfactual-hash", intervention,
                     {"intervention_sha256": "0" * 64})
     try:
-        state = child.state.model_dump(mode="json")
-        cutoff = child.store.last_event_seq
+        state = child.context.state.model_dump(mode="json")
+        cutoff = child.context.store.last_event_seq
         with pytest.raises(ProtocolError, match="manifest is invalid"):
             child.apply_counterfactual(intervention)
-        assert child.state.model_dump(mode="json") == state
-        assert child.store.last_event_seq == cutoff
+        assert child.context.state.model_dump(mode="json") == state
+        assert child.context.store.last_event_seq == cutoff
     finally:
         child.close()
 
@@ -125,9 +126,9 @@ def test_counterfactual_rejects_evidence_created_after_parent_checkpoint(engine_
     try:
         late = _source_event(child, 1)
         changed = _intervention(late)
-        child.store.manifest["intervention_sha256"] = _digest(changed)
-        path = child.store.run_dir / "manifest.json"
-        atomic_write(path, canonical_json(child.store.manifest))
+        child.context.store.manifest["intervention_sha256"] = _digest(changed)
+        path = child.context.store.run_dir / "manifest.json"
+        atomic_write(path, canonical_json(child.context.store.manifest))
         with pytest.raises(ProtocolError, match="not visible to the target agent"):
             child.apply_counterfactual(changed)
     finally:
@@ -154,12 +155,12 @@ def test_counterfactual_rejects_after_first_decision_without_mutation(engine_fac
     try:
         ctx = context(child, "already-started")
         child.begin_decision_round([ctx])
-        state = child.state.model_dump(mode="json")
-        cutoff = child.store.last_event_seq
+        state = child.context.state.model_dump(mode="json")
+        cutoff = child.context.store.last_event_seq
         with pytest.raises(ProtocolError, match="precede the first decision"):
             child.apply_counterfactual(intervention)
-        assert child.state.model_dump(mode="json") == state
-        assert child.store.last_event_seq == cutoff
+        assert child.context.state.model_dump(mode="json") == state
+        assert child.context.store.last_event_seq == cutoff
         child.abort_decision_round("already-started", "test cleanup")
     finally:
         child.close()
@@ -180,3 +181,15 @@ def test_nested_counterfactual_accepts_source_after_ancestor_branch(engine_facto
             child.close()
     finally:
         middle.close()
+
+
+def test_counterfactual_rejects_wrong_model_before_open_round(engine_factory):
+    """真实公开入口保留严格模型先于分支与轮次约束的错误顺序。"""
+    from tests.life.conftest import context
+    from worldmock.errors import ProtocolError
+
+    engine = engine_factory()
+    engine.begin_decision_round([context(engine, "strict-counterfactual")])
+    with pytest.raises(ProtocolError, match="Counterfactual intervention must use the strict life model"):
+        engine.apply_counterfactual({})
+    engine.abort_decision_round("strict-counterfactual", "Expected invalid model")

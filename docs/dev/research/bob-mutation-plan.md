@@ -1,3 +1,8 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/bob-mutation-plan.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+> 引用出处：`docs/agentsociety2-design.md` @ `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`
+
 # WorldMock 核心合同 Uncle Bob 语义突变计划
 
 > 状态：调研证据（历史依据，不构成当前规范）｜ 日期：2026-09-15 ｜ 结论：七十八项历史语义突变固定在提交 `712877a9…`，结果为七十七项 killed、M60 survived；后续增量清单已在执行前作废。

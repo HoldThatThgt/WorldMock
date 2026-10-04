@@ -1,16 +1,18 @@
+<a name="recording-engine-worldmock-产品设计说明书-记录引擎"></a>
 # WorldMock 产品设计说明书 — 记录引擎
 
-> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md)）  
-> **日期**：2026-10-04
-> **版本**：v1.4
+> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）<br>
+> **日期**：2026-10-05
+> **版本**：v1.5
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
-> 2026-10-01 按[工具交互规格](../dev/SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
+> 2026-10-01 按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
 
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 
 > 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9、质量报告结构 4，阶段 3 场景结构 5、卡片结构 3（抽取提示 `card-v3`）；地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
 
+<a name="recording-engine-记录引擎负责什么"></a>
 ## 记录引擎负责什么
 
 记录引擎让一段数字人的生活能够被查证：他实际看到了什么、作出了什么选择、环境如何执行、
@@ -20,15 +22,16 @@
 数字人负责行动选择与记忆，交换引擎负责规则计算，模拟引擎负责运行编排与实际执行。
 
 本文统一维护记录引擎的设计、接口和行为约束。
-[接口合同](../CONTRACTS.md)保留跨模块接口导航；
-[交换引擎](02-exchange-engine.md)提供交换条件与投入产出规则，[模拟引擎](04-simulation-engine.md)推进活动并落实结算；
-[数据交付](06-delivery.md)定义认证导出进入 LabelKit 后如何加工；
-[验收门禁](../VERIFICATION.md)和[实现状态](../dev/implementation-status.md)分别记录放行条件与实测证据。
+[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)保留跨模块接口导航；
+[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)提供交换条件与投入产出规则，[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)推进活动并落实结算；
+[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义认证导出进入 LabelKit 后如何加工；
+[验收门禁](../VERIFICATION.md#verification-worldmock-验收标准)和[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)分别记录放行条件与实测证据。
 文档整合不构成实现完成或真实运行验收。
 
+<a name="recording-engine-项目框架映射"></a>
 ### 项目框架映射
 
-沿用[概述的解决方案](00-overview.md#12-解决方案)：资源引擎提供资源与内容，交换引擎提供规则，
+沿用[概述的解决方案](00-overview.md#overview-解决方案)：资源引擎提供资源与内容，交换引擎提供规则，
 模拟引擎组织数字人的行动与世界变化。记录引擎在交互边界保存全过程，形成可追溯、可恢复、可交付的数字足迹。
 
 ```mermaid
@@ -67,6 +70,7 @@ flowchart TB
     class PROCESS,EVIDENCE,STORE,CHECKPOINT,BRANCH,EXPORT,DIAGNOSIS engine
 ```
 
+<a name="recording-engine-职责与模块边界"></a>
 ### 职责与模块边界
 
 责任以谁产生决定、谁保存结果划分，不因代码位于同一目录就归入同一引擎。
@@ -87,29 +91,33 @@ flowchart TB
 不可变事件与快照的组织方式参考 [Microsoft Event Sourcing](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing)。
 这些工程机制不意味着重新调用模型会重现相同决策。
 
+<a name="recording-engine-主题阅读路径"></a>
 ### 主题阅读路径
 
 后续正文按项目框架映射中记录引擎内部的功能框展开，章节名称与图中功能名称一致。
 接口、数据结构、处理规则、失败边界、实现差距和验收要求分别放入所属主题。
 
-- [记录生活全过程](#记录生活全过程)
-- [保存与关联证据](#保存与关联证据)
-- [一致性保存与校验](#一致性保存与校验)
-- [保存共同检查点](#保存共同检查点)
-- [恢复与反事实分支](#恢复与反事实分支)
-- [固定截止导出](#固定截止导出)
-- [运行查询与诊断](#运行查询与诊断)
+- [记录生活全过程](05-recording-engine.md#recording-engine-记录生活全过程)
+- [保存与关联证据](05-recording-engine.md#recording-engine-保存与关联证据)
+- [一致性保存与校验](05-recording-engine.md#recording-engine-一致性保存与校验)
+- [保存共同检查点](05-recording-engine.md#recording-engine-保存共同检查点)
+- [恢复与反事实分支](05-recording-engine.md#recording-engine-恢复与反事实分支)
+- [固定截止导出](05-recording-engine.md#recording-engine-固定截止导出)
+- [运行查询与诊断](05-recording-engine.md#recording-engine-运行查询与诊断)
 
 实现差距沿用已有源码核查结论，按主题分列；本次调整不修改生产代码；跨引擎约束在其所属文档维护。
 各主题保留已冻结规范的验收要求与现有测试入口；测试存在不等于本次重新执行通过。
-本次文档整理的验证结果记录在交付说明中，正式运行与跨系统验收仍见[实现状态](../dev/implementation-status.md)。
+本次文档整理的验证结果记录在交付说明中，正式运行与跨系统验收仍见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。
 
+<a name="recording-engine-记录生活全过程"></a>
 ## 记录生活全过程
 
 围绕数字人实际经历的顺序，明确每个环节必须留下什么，以及怎样形成结构化事件。
 
+<a name="recording-engine-保存边界"></a>
 ### 保存边界
 
+<a name="recording-engine-必须保存的内容"></a>
 #### 必须保存的内容
 
 证据由运行环境在模型与环境的接口边界写入，不能依靠数字人自己维护日志。
@@ -129,8 +137,10 @@ flowchart TB
 凭据不写入证据。模型完整请求保留必要的任务上下文，脱敏规则带版本与处理记录。
 记录数字人实际输出的内容，不把额外生成的解释冒充当时的决定或事实。
 
+<a name="recording-engine-数字足迹事件结构"></a>
 ### 数字足迹事件结构
 
+<a name="recording-engine-事件字段"></a>
 #### 事件字段
 
 环境以 `EventDraft` 提交事实，存储在事务内分配持久序号、程序时刻与世界状态版本后成为持久 `Event`：`schema_version` 固定 1，`event_seq` 大于零并按提交顺序严格递增，`wall_elapsed_ms`、`state_version_before`、`state_version_after` 非负。
@@ -167,7 +177,7 @@ flowchart TB
 观察私有证据另记 `same_moment_stage`（本轮开放的动作类，同刻上限的受限轮阶段），同样用于核对工具层的可用性标注、
 本地校验和环境派发；它不进入七层。观察私有事实另增渠道索引 `world_query_channels`（渠道身份、称呼、成员门店，列入提示禁键）；
 每个供给条目所属门店记在条目的私有键 `location_id`（已在禁键内），不另冻结地点与住处的副本。
-人物请求如何由七层组成见[人物决策提示合同](../CONTRACTS.md#请求组成)。
+人物请求如何由七层组成见[人物决策提示合同](../CONTRACTS.md#contracts-model-request)。
 
 请求同一动作的重试沿用动作标识；真实重复观看或再次购买必须产生新动作标识。完整原始事件保存世界事实、自述和推断三者的来源区别，既不删除重复行为，也不把相同素材的哈希当作事件标识；环境准确值、人物表达的感受与设备可见痕迹并不等价。
 
@@ -175,6 +185,7 @@ flowchart TB
 `decision_id`、`action_id`、`activity_id` 为字符串或空值，`caused_by` 为事件标识字符串列表，
 `data` 为对象，`artifact_refs` 为 `AssetRef` 列表；`recorded_at` 保存程序时刻字符串。
 
+<a name="recording-engine-共同身体结算与决策证据"></a>
 #### 共同身体结算与决策证据
 
 同一人物同一真实区间只产生一次 `environment_event.data.kind=body_settlement`，事件顶层
@@ -197,14 +208,15 @@ flowchart TB
 `decision_started.data.wake_reasons` 与观察。同秒续接的各轮仍逐轮写观察与 `decision_started`。
 边界兜底的 `no_active_activity` 属于边界判定，照常写入结算。
 唤醒原因闭集、睡眠允许的原因与触发条件统一见
-[生活运行时规格的决策节律](../dev/SPEC-life-runtime.md#决策节律结算边界与唤醒条件分离)。
-闭集末尾（`plan_reminder_due` 之后）另有 `errand_reminder_due`（[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#25-提醒时刻) 2.5）：
+[生活运行时规格的决策节律](../dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离)。
+闭集末尾（`plan_reminder_due` 之后）另有 `errand_reminder_due`（[个人事务与工作安排规格](../dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻) 2.5）：
 清醒人物有已到点未提醒的个人事务、本边界为他提供决策机会时记入，与其他成员一样写进共同身体结算的 `wake_reasons`、
 `decision_started.data.wake_reasons` 并经同一闭集校验；同一边界到期的多条事务合并为一次决策机会、该原因只记一次，与
 `plan_reminder_due` 同刻到期时按枚举顺序并列。它不在睡眠允许的原因之内：清醒人物的未提醒时刻进入下一边界与下一次决策机会的
 候选、精确到点；睡眠中的人物不计入候选、不形成静默边界、不交付也不消耗，睡眠期间错过的提醒在人物醒来的那个边界
 （与 `wake_from_sleep` 并列）一并交付，不另起边界。提醒事件追加到该边界的事件草稿，平常边界随推进提交，零点边界随零点节律入口提交。
 
+<a name="recording-engine-事件类型枚举"></a>
 #### 事件类型枚举
 
 ```python
@@ -233,6 +245,7 @@ EventType = Literal[
 登记在下表 `environment_event` 行）；
 零点计划的模型请求与响应复用 `model_request`、`model_response`，以 `data.purpose` 区分。
 
+<a name="recording-engine-事件正文与资源证据"></a>
 #### 事件正文与资源证据
 
 `data` 承载具体事件的结构化正文；`artifact_refs` 指向较大或需要保留原始字节的素材。
@@ -241,19 +254,19 @@ EventType = Literal[
 | 事件 | 正文用途与约束 |
 | --- | --- |
 | `observation` | `data` 是环境构建的层数据、看法偏好与私有证据，进度层只存 `progress_event_ids`；不额外保存一份 JSON 字符串副本 |
-| `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前；就寝反思请求只带 `submit_reflection`、思考关闭，不是行动请求，不带出 `decision_started`，不计同刻轮数；引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计；引擎用于同刻上限的计数 `same_moment_rounds` 不计每人每秒前两次以名称类拒绝结束的轮次（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#34-名称类拒绝不计同刻轮数) 3.4），可少于该数 |
-| `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；生活决策的宿主校验错误另以 `data.protocol_feedback` 保存完整结构化纠错，合法响应为 `null`，不得只保留英语错误串而丢弃位置与枚举；模型服务失败的 `failure` 证据同样带 `protocol_feedback`，其 `error_code` 为失败阶段码 `MODEL_SERVICE_FAILED`；证据写入、记忆查询与工具分发失败的阶段码为 `EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED`、`TOOL_SERVICE_FAILED`：证据写入失败与工具分发失败以运行故障上抛，记忆查询失败作为失败的 tool 结果回给模型、可在剩余回合内重试。四个码只标出失败阶段与调用位置，不是对请求参数的协议纠错，登记在[接口合同的宿主错误码表](../CONTRACTS.md#工具返回通道)（随个人事务与工作安排规格阶段 1 补登）；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应。就寝反思的请求与响应不带 `data.purpose`，经 AS2 记忆调度留证，带本次决策的 `decision_id`：每次尝试各有自己的调用身份（`data.call_id` 取本次决策内递增的模型调用序号，`data.attempt` 恒为 1，不用 `plan_day` 的 `attempt:<n>` 编号），响应证据在本地校验之前写入、`error` 为空，响应只以 `caused_by` 回链本次请求，校验重试的请求不回链前次响应；质量报告的用量与截断按调用身份各计一次 |
+| `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前；就寝反思请求只带 `submit_reflection`、思考关闭，不是行动请求，不带出 `decision_started`，不计同刻轮数；引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计；引擎用于同刻上限的计数 `same_moment_rounds` 不计每人每秒前两次以名称类拒绝结束的轮次（[一日运行保真规格](../dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数) 3.4），可少于该数 |
+| `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；生活决策的宿主校验错误另以 `data.protocol_feedback` 保存完整结构化纠错，合法响应为 `null`，不得只保留英语错误串而丢弃位置与枚举；模型服务失败的 `failure` 证据同样带 `protocol_feedback`，其 `error_code` 为失败阶段码 `MODEL_SERVICE_FAILED`；证据写入、记忆查询与工具分发失败的阶段码为 `EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED`、`TOOL_SERVICE_FAILED`：证据写入失败与工具分发失败以运行故障上抛，记忆查询失败作为失败的 tool 结果回给模型、可在剩余回合内重试。四个码只标出失败阶段与调用位置，不是对请求参数的协议纠错，登记在[接口合同的宿主错误码表](../CONTRACTS.md#contracts-tool-result-channel)（随个人事务与工作安排规格阶段 1 补登）；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应。就寝反思的请求与响应不带 `data.purpose`，经 AS2 记忆调度留证，带本次决策的 `decision_id`：每次尝试各有自己的调用身份（`data.call_id` 取本次决策内递增的模型调用序号，`data.attempt` 恒为 1，不用 `plan_day` 的 `attempt:<n>` 编号），响应证据在本地校验之前写入、`error` 为空，响应只以 `caused_by` 回链本次请求，校验重试的请求不回链前次响应；质量报告的用量与截断按调用身份各计一次 |
 | `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验。三个控制工具的 `request` 是现行形状 `{"items": [{activity_name, summary}], "errands": [...]}`（结束每项另带 `memories` 与 `views`；`errands` 为请求级必填数组、可为 `[]`、一次至多 4 条，每条恰为 `{change, name, outcome, item, quantity, memo, remind_time, reason}` 八键，全部必填、按变更种类可为 null，`change` 取「新增」「更新」「取消」，没有「完成」；同一请求内按取消、更新、新增的次序求值，同一条未完成事务在一次请求里至多被一条更新或取消点名，两条新增不得同名，取消与以原名重新新增可在同一请求里完成）。`control_items` 模块是控制请求的唯一读取入口（`control_items` 读逐项内容，`control_errands` 读请求级事务变更），经它读取的环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆证据、零点计划输入、质量报告与交付窗口一律读当前形状；缺 `errands` 键的记录与旧 `task[]`、`summary[]`、逐项 `memories[][]` 一样按完整性故障直接拒绝，不留读取分支；查看器是独立的镜像实现，同步为缺键报错。看法与偏好的对象 `views[].about` 只随请求原文保存在这里，不写入 AS2 记忆条目；事务文字同样只随请求原文保存在这里，进度层的工具调用参数略去 `errands`，本 session 内由结果的 `details.errands` 回执可见 |
-| `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#四错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，每次拒绝均带实际错误位置的 `items[{path, written, error_code, allowed_values, expected, why, candidates}]`，不带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`，指名购买写的商品名记为解析出的完整标签），食用、使用、制作的请求中 `from`、`to` 已是 null、本人方向由环境推导，指名购买按 `prefer` 选定门店、按「购买」定下到店或远程下单时带说明 `notes`，都原样进入公开结果。三个控制工具的事务变更与同一请求的活动状态转换同批校验、同一事务提交：活动名先按既有规则解析，其后事务变更在同一冻结观察上用与宿主同一的函数复核，任何一条不合法即全部问题合并为一次 `ACTION_REQUEST_INVALID` 业务拒绝（照常计同刻轮数），世界不变；请求因其他原因被业务拒绝时事务变更一并不生效，也不写任何事务事件（三种由请求触发的事务事件只在成功分支生成，每条被受理的变更恰好一条，内容没有变化的更新也写）。不新增业务拒绝码，逐项明细的 `path` 完整到 `errands[j].<键>`，事务变更的明细不带 `candidates`：更新、取消的 `name` 错误（`NAME_NOT_FOUND`、`NAME_AMBIGUOUS`）在 `allowed_values` 列本人全部未完成事务名，新增的 `item` 错误把最接近的至多三个商品名写在 `why`；重名、同结果同商品、同一事务被第二条更新或取消点名与未完成数超过 8 记 `ARGUMENTS_INVALID`，上限只写在 `why` |
+| `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-as2-integration.md#dayrun-fidelity-错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，每次拒绝均带实际错误位置的 `items[{path, written, error_code, allowed_values, expected, why, candidates}]`，不带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`，指名购买写的商品名记为解析出的完整标签），食用、使用、制作的请求中 `from`、`to` 已是 null、本人方向由环境推导，指名购买按 `prefer` 选定门店、按「购买」定下到店或远程下单时带说明 `notes`，都原样进入公开结果。三个控制工具的事务变更与同一请求的活动状态转换同批校验、同一事务提交：活动名先按既有规则解析，其后事务变更在同一冻结观察上用与宿主同一的函数复核，任何一条不合法即全部问题合并为一次 `ACTION_REQUEST_INVALID` 业务拒绝（照常计同刻轮数），世界不变；请求因其他原因被业务拒绝时事务变更一并不生效，也不写任何事务事件（三种由请求触发的事务事件只在成功分支生成，每条被受理的变更恰好一条，内容没有变化的更新也写）。不新增业务拒绝码，逐项明细的 `path` 完整到 `errands[j].<键>`，事务变更的明细不带 `candidates`：更新、取消的 `name` 错误（`NAME_NOT_FOUND`、`NAME_AMBIGUOUS`）在 `allowed_values` 列本人全部未完成事务名，新增的 `item` 错误把最接近的至多三个商品名写在 `why`；重名、同结果同商品、同一事务被第二条更新或取消点名与未完成数超过 8 记 `ARGUMENTS_INVALID`，上限只写在 `why` |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id`、请求关联 `request_message_id` 与渠道 `channel_id`（`data.orders[]` 的每个订单一列：`from` 解析为购买渠道时是该渠道的 App 标识，否则 `null`；只在订单载荷与导出的 `purchases.jsonl`，不进世界状态的 `DeliveryState`），被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数；未完成的浏览 `note` 为「未取得浏览结果」）；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照。三个控制工具的受理结果另带事务回执 `data.errands`（公开结果的 `details.errands`，`[{errand, change}]`，按请求顺序，没有变更时为 `[]`；`errand` 为事务名称：新增写所写的名称，更新与取消写待办层里的名称）；被拒结果没有该键 |
 | `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；当日目标的提醒到期不另写事件，记于唤醒原因；个人事务的提醒只在实际交付决策机会时写事件：同一边界到期的多条事务合并为一次决策机会，每条事务各写一条 `errand_reminded`（见本行末），进度层的提醒记录由该事件派生，不由状态推导。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`、`around_at`（大致时刻 `around_time` 换算出的当日绝对时刻，可为 null），`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近一次计入同刻轮数的拒绝码 `error_code`（免计的名称类拒绝不算，没有时为 `null`）与下次决策时刻 `next_decision_at`。个人事务的每次变化写一条，`data` 为 `{kind, errand}`（`errand` 为事务快照，即 `ErrandState` 的 JSON 形状）：`data.kind` 取 `errand_registered`、`errand_updated`、`errand_cancelled`（控制请求受理时每条被受理的变更一条，`caused_by` 为请求事件，`visibility=system`；新增与更新写受理后的快照，取消写移出前的快照并另带 `reason`），`errand_progressed`（结算证据命中但未达数量，`visibility=system`，快照为累计后的状态）、`errand_completed`（结算证据命中并达到数量，`visibility=agent`，事务已移出状态，快照的 `progress` 写最终累计量；这两种另带本条证据的数量 `quantity_added`，`caused_by` 为证据事件）或 `errand_reminded`（提醒实际交付时写，`visibility=agent`，`caused_by` 为空，快照带交付时刻 `reminded_at`）。六种事件的 `decision_id`、`action_id` 与 `activity_id` 都为空，只经 `caused_by` 关联：不进入任何动作窗口的目标，也不落进别人那次决策的分组（证据可以是别人的动作，例如他人买给本人）。六种事件 `source_kind=environment`，事件顶层 `agent_id` 为事务所有人，不得含 `activity` 与 `resource_changes` 键；一条事件只对应一条事务，与触发它的事件、世界状态同一次提交。`errand_completed` 与 `errand_reminded` 被进度层消费，必须是人物可见的（交付窗口要求每个进度来源都是本人可见的结果或事件），其余四种不向人物呈现，只供审计与指标 |
-| `environment_event` 的联系人回复 | 发给 `model` 策略联系人的消息登记一条 `data.kind="model_npc_reply_pending"`（`request` 为回复请求字段面，含发件人姓名、场景本地时刻、`presence=remote`、收货地名、双方往来与对方收到的物品）；回复生成时写一条 `data.kind="model_npc_reply"`：`visibility=system`、`source_kind=model`（原值 `model_npc` 在 `data.source_kind`），`caused_by` 为待回复登记；`data.request`、`data.response`、`data.usage` 取最后一次尝试，`data.attempts[{request, response, text, matched}]` 按顺序记每次尝试（后验守卫命中时同一次结算内重试一次），`data.guard_applied` 为 true 表示两次都命中、回复是固定兜底句；重试也只写这一条，幂等键仍是来信的消息身份（[接口合同「联系人回复」](../CONTRACTS.md#联系人回复)） |
+| `environment_event` 的联系人回复 | 发给 `model` 策略联系人的消息登记一条 `data.kind="model_npc_reply_pending"`（`request` 为回复请求字段面，含发件人姓名、场景本地时刻、`presence=remote`、收货地名、双方往来与对方收到的物品）；回复生成时写一条 `data.kind="model_npc_reply"`：`visibility=system`、`source_kind=model`（原值 `model_npc` 在 `data.source_kind`），`caused_by` 为待回复登记；`data.request`、`data.response`、`data.usage` 取最后一次尝试，`data.attempts[{request, response, text, matched}]` 按顺序记每次尝试（后验守卫命中时同一次结算内重试一次），`data.guard_applied` 为 true 表示两次都命中、回复是固定兜底句；重试也只写这一条，幂等键仍是来信的消息身份（[接口合同「联系人回复」](../CONTRACTS.md#contracts-contact-reply)） |
 | `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；就寝反思的快照条目带来源标记，引擎据此识别反思并确定其归属日期；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
 | `run_ended`、`run_failed` | 正常结束或运行故障，仍需结合最终检查点判定可交付性 |
 
-个人事务的完成证据（[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#24-完成依据与结算) 2.4）：`errand_progressed` 与
+个人事务的完成证据（[个人事务与工作安排规格](../dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算) 2.4）：`errand_progressed` 与
 `errand_completed` 的 `caused_by` 指向算数的那条结算证据，证据只在 `errands.evidence_rows` 一处读取。「取得」读本人作为收货人的订单
 变为已送达——动作结果顶层 `data.orders` 里状态为已送达的订单（到店成交与当场送达的远程订单；只读顶层，不读并行开始时
 `activity_results` 里的同一订单）与配送送达的 `environment_event`（`data.kind=delivery_arrival`）里本次新送达的入库行（经订单身份
@@ -268,6 +281,7 @@ EventType = Literal[
 此后吃掉或给出不回退；一条证据至多命中一条事务（同一人物同时至多一条相同结果种类与商品的未完成事务），证据行只在订单由未送达变为
 已送达的那一次出现，所以状态里没有「已消费证据」集合。
 
+<a name="recording-engine-地图与门店供给证据"></a>
 ##### 地图与门店供给证据
 
 | 证据 | 保存内容与可见性 |
@@ -283,7 +297,7 @@ EventType = Literal[
 耗时发现的世界动作登记保留；新增的 `query_world` 只查同一冻结观察的已知事实，不登记发现动作或揭示新事实。返回结果保存当时快照，导出不得用当前目录重建历史。
 只能公开实际返回供给的库存，不能把全量 `WorldState` 库存、未接触供给或未来报价注入人物窗口。
 指名购买按场景供给解析并按当前报价结算，不查可见凭据；它不因此把未呈现供给的库存或报价写进人物窗口，人物只见该次购买的公开结果。
-解析按分段匹配依次判定、各报各的码（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#32-指名购买from-是约束不是语法) 3.2、3.3、3.5）：
+解析按分段匹配依次判定、各报各的码（[一日运行保真规格](../dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法) 3.2、3.3、3.5）：
 名称（`SUPPLY_NOT_FOUND`）、`from` 的来源范围（`null` 为全部门店，本段跳过；地点显示名（含「家」「住处」）为该地点；渠道称呼即 App 名，去掉空白、不分大小写
 比较，为该渠道的成员门店，渠道由场景钉定的手机配置派生，经它成交的订单记 `channel_id`；都不是时
 `SOURCE_NOT_FOUND`，标签的门店不在范围内 `SUPPLY_SOURCE_MISMATCH`，那家店不卖 `SUPPLY_NOT_AT_STORE`）、所写方式
@@ -315,6 +329,7 @@ EventType = Literal[
 失败不能抹去已支付的交通费，也不能只留下“活动失败”而不告诉人物到达位置与拒绝原因。
 
 
+<a name="recording-engine-activity_progress-事件"></a>
 ##### activity_progress 事件
 
 保存模拟引擎提交的本活动实际区间、效率、消费和内容接触，以及
@@ -325,14 +340,15 @@ EventType = Literal[
 购买、交付、开始食用和累计量重复出现都不能冒充本区间实际吃下的份额。
 实际食品利用效率由进食进度的 `consumption.food_efficiency` 留证，工作效率由工作进度的
 `activity_efficiency` 留证；共同身体结算不归属其中某个活动。阶段含义见
-[模拟引擎的实际区间、身体变化与效率](04-simulation-engine.md#实际区间身体变化与效率)。
+[模拟引擎的实际区间、身体变化与效率](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)。
 上游没有提供的测量值必须保持未知，不能补造数值或把缺失当作零变化。
 
 `resource_flows` 必须是字典列表，每项恰好含 `resource`、`owner`、`direction`、`amount`、`cause` 五个键。
 `resource`、`owner`、`cause` 为非空字符串；`direction` 仅取 `source` 或 `drain`；
 `amount` 必须为有限正数，不能使用布尔值、NaN 或无穷值。
-记录引擎校验载荷结构；交换条件与投入产出由[交换引擎](02-exchange-engine.md)计算，身体演化与状态更新由[模拟引擎](04-simulation-engine.md)执行。
+记录引擎校验载荷结构；交换条件与投入产出由[交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎)计算，身体演化与状态更新由[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)执行。
 
+<a name="recording-engine-已核验经历与主观记忆"></a>
 #### 已核验经历与主观记忆
 
 记录引擎仅从本人、明确截止前已提交的 `activity_progress` 投影
@@ -346,7 +362,7 @@ EventType = Literal[
 记忆层的 `settled` 另有来源：由共享句式从人物可见、状态为 `completed` 或 `in_progress` 且不是重放的已提交结果与世界事件生成的
 确定性句子（金额按元，份数至多两位小数，时长用人读短语）；失败的请求、记忆查询、回看、`report_status`、暂停与恢复、
 `revise_day_plan`、提醒、个人事务的六种事件（含人物可见的 `errand_completed` 与 `errand_reminded`）、截止预警与身体结算都不写入；
-规则见[人物 Prompt 规格](../dev/SPEC-persona-prompt.md#三进度与记忆的更新)第三章。
+规则见[人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-进度与记忆的更新)第三章。
 个人事务只在待办层呈现，不进记忆层、不占记忆层的字符窗口；促成事务办成的那次购买、制作或进食照原规则写入 `settled`。
 进度层浓缩时 `errand_completed` 记录折成一句「HH:MM 办成「<事务名>」」（跨日加日期），`errand_reminder` 与当日目标提醒同等对待、
 折叠后不留句；这一句只在进度层的浓缩记录里，不是记忆层 `settled`，零点计划输入也不写它。
@@ -370,7 +386,7 @@ EventType = Literal[
 某条引用为空、含空白项、条内重复或不属于本次输入的记忆身份、正文超过一千字符或含八位以上十六进制串）属于协议违约，不是业务拒绝：
 附回英文校验错误重新请求，首次之外至多三次，与传输重试分开计数；耗尽即运行故障，本轮中止、不提交，不写入任何洞见、
 不登记 `memory_updated`、不降级为空反思。完整字段与行为见
-[人物记忆合同](../CONTRACTS.md#记忆字段)和[一日行为规格](../dev/SPEC-dayrun-behavior.md#已核验经历与人物自述)。
+[人物记忆合同](../CONTRACTS.md#contracts-记忆字段)和[一日行为规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-已核验经历与人物自述)。
 
 `memory_updated.data` 的实际载荷和核对边界如下：
 
@@ -391,8 +407,9 @@ EventType = Literal[
 记录入口与质量重算均要求来源身份集合与该轮观察的私有证据窗口严格相等，并按 `trigger` 中的每个写入点分别核对来源：`activity_conclusion` 对应同一决策已登记的 `conclude_activity`，`reflection` 对应醒来那一轮的观察。
 来源身份重复、越窗、跨人物或把人物自述快照写成客观状态均不能作为合法记忆更新导出。
 
-事件全序与状态关联的验收见[一致性保存与校验的验收](#一致性保存与校验的验收)，原始素材留证见[保存与关联证据的验收](#保存与关联证据的验收)。
+事件全序与状态关联的验收见[一致性保存与校验的验收](05-recording-engine.md#recording-engine-一致性保存与校验的验收)，原始素材留证见[保存与关联证据的验收](05-recording-engine.md#recording-engine-保存与关联证据的验收)。
 
+<a name="recording-engine-工具纠错只读查询与当天操作备忘的证据"></a>
 ### 工具纠错、只读查询与当天操作备忘的证据
 
 ```mermaid
@@ -433,32 +450,36 @@ flowchart LR
 `changes.errands` 的 `added`（新增或内容有变的完整行）与 `removed`（名称）表达。
 公开工具层为 `{layer, groups, callable_index}`，每组为 `{kind, action, way, shared, targets}`；控制对象 `action/way` 为 `null`。解组逐值恢复名称、能力、条件、合同、价格、数量、时长和控制工具；元信息冲突是渲染错误。只省略 `null` 或空集合，保留 `false`、零值与未知原因。事件与私有观察保留完整 `targets` 结构，不新增有损证据摘要。
 
-本节的生产实现与行为、变异验收见[工具交互规格](../dev/SPEC-tool-interaction.md)与[工具交互验收记录](../dev/tool-interaction-verification.md)。
+本节的生产实现与行为、变异验收见[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)与[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)。
 
+<a name="recording-engine-记录生活全过程的实现差距"></a>
 ### 记录生活全过程的实现差距
 
-时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](#记录生活全过程的验收)。
-人物 Prompt 七层规格登记的八项差距（观察保存层数据与 `progress_event_ids`、单一行动阶段与闭集 `decision_started`、`action_requested.data.self_note`、同秒续接的原生消息、记忆层派生与 `subject`、订单收货人与进食份量、`decision_budget_exhausted`、世界结构版本 8）已随该规格实现闭合，验收见[记录生活全过程的验收](#记录生活全过程的验收)与[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)。既有条款没有未闭合差距；2026-10-01 的结构化 `protocol_feedback`、即时世界查询证据与当天操作备忘已随工具交互规格实现，证据见[工具交互验收记录](../dev/tool-interaction-verification.md)，不由更早的验收证明。
+时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](05-recording-engine.md#recording-engine-记录生活全过程的验收)。
+人物 Prompt 七层规格登记的八项差距（观察保存层数据与 `progress_event_ids`、单一行动阶段与闭集 `decision_started`、`action_requested.data.self_note`、同秒续接的原生消息、记忆层派生与 `subject`、订单收货人与进食份量、`decision_budget_exhausted`、世界结构版本 8）已随该规格实现闭合，验收见[记录生活全过程的验收](05-recording-engine.md#recording-engine-记录生活全过程的验收)与[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)。既有条款没有未闭合差距；2026-10-01 的结构化 `protocol_feedback`、即时世界查询证据与当天操作备忘已随工具交互规格实现，证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)，不由更早的验收证明。
 
+<a name="recording-engine-记录生活全过程的验收"></a>
 ### 记录生活全过程的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
-| 同刻决策证据 | 同刻轮次逐轮写 `decision_started`，唤醒原因只含本轮原因，写入时经唤醒闭集校验；同刻轮数按同一模拟秒内的 `decision_started` 计 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「同刻决策」「唤醒词表」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
-| 零点计划留证 | 零点计划的模型请求与响应按 `purpose` 与人物决策区分；计划、提醒、来源与模型证据同一次提交；同一人物同一本地日只生成一次，恢复与分支不重复生成 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「零点计划与提醒」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
-| 记忆来源 | 人物决策中的记忆只经 `conclude_activity` 写入，此外只有就寝反思与阈值巩固；来源由系统登记，模型不填身份 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
-| 记忆层 `settled` | 发给模型的已结算事实只在记忆层 `settled` 与进度层：`settled` 是由共享句式从人物可见、成功且不是重放的结果与世界事件生成的确定性句子，不含内部身份；私有观察仍保存 `verified_experiences` 结构行，它与由它生成的句子都不进提示 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「记忆层」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
-| 续接证据 | 同秒续接的各轮仍逐轮写观察与 `decision_started`；续接请求的 `model_request` 原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，续接缓冲由环境从这些模型证据重建、不另存；观察重复门禁对链内复用链首 user 合法、跨秒重复仍失败 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「同秒续接」「下游」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
-| 记忆层 | 记忆层按 session 由已提交事件与世界状态派生，构建结果随观察事件保存，导出的就是模型所见；四种 session 结束方式与同秒归属（按边界提交）、零点分区、未了结事项、反思归属日期与 8000 字符窗口正确；检查点恢复前后逐字节相同 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「记忆层」「人设层」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
-| 订单收货人 | 订单记唯一收货人 `recipient_id` 与所回应消息 `request_message_id`，送达只入收货人的持有（同世界人物入其库存，联系人入 `contact_holdings`）；`purchases.jsonl` 的 `purchase` 行带收货人与关联消息，按订单去重、不看整体状态 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「来源与去向」「代点关联」「下游」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
-| 个人事务留证 | 三个控制请求里每条被受理的事务变更恰好写一条事务事件；六种事务事件与所记录的事务变化、触发它的事件同一提交，都不带决策与动作身份；请求里无法自报完成；办成与进展事件的 `caused_by` 指向记下之后的结算证据，重放的动作结果与重复到期的配送不重复累计；提醒只在实际交付决策机会时写事件 | [个人事务与工作安排规格「验收台账」](../dev/SPEC-errands-workday.md#验收台账)的「事务变更与原子受理」「完成依据」「结算幂等」「事务提醒」行 | 已实现，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md) |
-| 个人事务检查点 | 共同检查点恢复后待办层逐字节相同，不重复记下、完成与提醒；世界结构版本 8 的检查点与导出按版本拒绝 | [个人事务与工作安排规格「验收台账」](../dev/SPEC-errands-workday.md#验收台账)的「检查点」行 | 已实现，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md) |
-| 严格反思留证 | 就寝反思恰一次 `submit_reflection`；输出不合合同时附回英文校验错误重新请求（首次之外至多三次），每次尝试的请求与响应各自留证；耗尽即运行故障，本轮中止、不提交，故障时无 `memory_updated` | [个人事务与工作安排规格「验收台账」](../dev/SPEC-errands-workday.md#验收台账)的「严格反思」行 | 已实现，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md) |
+| 同刻决策证据 | 同刻轮次逐轮写 `decision_started`，唤醒原因只含本轮原因，写入时经唤醒闭集校验；同刻轮数按同一模拟秒内的 `decision_started` 计 | [时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「同刻决策」「唤醒词表」行 | 已实现，证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md) |
+| 零点计划留证 | 零点计划的模型请求与响应按 `purpose` 与人物决策区分；计划、提醒、来源与模型证据同一次提交；同一人物同一本地日只生成一次，恢复与分支不重复生成 | [时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「零点计划与提醒」行 | 已实现，证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md) |
+| 记忆来源 | 人物决策中的记忆只经 `conclude_activity` 写入，此外只有就寝反思与阈值巩固；来源由系统登记，模型不填身份 | [时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「会话、活动与记忆」行 | 已实现，证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md) |
+| 记忆层 `settled` | 发给模型的已结算事实只在记忆层 `settled` 与进度层：`settled` 是由共享句式从人物可见、成功且不是重放的结果与世界事件生成的确定性句子，不含内部身份；私有观察仍保存 `verified_experiences` 结构行，它与由它生成的句子都不进提示 | [人物 Prompt 规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「记忆层」行 | 已实现，证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md) |
+| 续接证据 | 同秒续接的各轮仍逐轮写观察与 `decision_started`；续接请求的 `model_request` 原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，续接缓冲由环境从这些模型证据重建、不另存；观察重复门禁对链内复用链首 user 合法、跨秒重复仍失败 | [人物 Prompt 规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「同秒续接」「下游」行 | 已实现，证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md) |
+| 记忆层 | 记忆层按 session 由已提交事件与世界状态派生，构建结果随观察事件保存，导出的就是模型所见；四种 session 结束方式与同秒归属（按边界提交）、零点分区、未了结事项、反思归属日期与 8000 字符窗口正确；检查点恢复前后逐字节相同 | [人物 Prompt 规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「记忆层」「人设层」行 | 已实现，证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md) |
+| 订单收货人 | 订单记唯一收货人 `recipient_id` 与所回应消息 `request_message_id`，送达只入收货人的持有（同世界人物入其库存，联系人入 `contact_holdings`）；`purchases.jsonl` 的 `purchase` 行带收货人与关联消息，按订单去重、不看整体状态 | [人物 Prompt 规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「来源与去向」「代点关联」「下游」行 | 已实现，证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md) |
+| 个人事务留证 | 三个控制请求里每条被受理的事务变更恰好写一条事务事件；六种事务事件与所记录的事务变化、触发它的事件同一提交，都不带决策与动作身份；请求里无法自报完成；办成与进展事件的 `caused_by` 指向记下之后的结算证据，重放的动作结果与重复到期的配送不重复累计；提醒只在实际交付决策机会时写事件 | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「事务变更与原子受理」「完成依据」「结算幂等」「事务提醒」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
+| 个人事务检查点 | 共同检查点恢复后待办层逐字节相同，不重复记下、完成与提醒；世界结构版本 8 的检查点与导出按版本拒绝 | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「检查点」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
+| 严格反思留证 | 就寝反思恰一次 `submit_reflection`；输出不合合同时附回英文校验错误重新请求（首次之外至多三次），每次尝试的请求与响应各自留证；耗尽即运行故障，本轮中止、不提交，故障时无 `memory_updated` | [个人事务与工作安排规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「严格反思」行 | 已实现，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md) |
 
+<a name="recording-engine-保存与关联证据"></a>
 ## 保存与关联证据
 
 保存当时实际使用和产生的内容，让每条经历能回到原始证据，并明确它来自哪里、谁当时能够看到。
 
+<a name="recording-engine-事件身份与因果关联"></a>
 ### 事件身份与因果关联
 
 同一动作的重试沿用动作标识；真实再次观看、再次购买或再次接触内容产生新的动作标识和事件。
@@ -466,12 +487,14 @@ flowchart LR
 `caused_by`、`decision_id`、`action_id` 与 `activity_id` 连接观察、决策、执行和结果；同秒事件按序号排序。
 已经受理的请求序号不能证明活动完成或资金已支付。
 
+<a name="recording-engine-来源与可见性"></a>
 ### 来源与可见性
 
 原始记录保留世界事实、数字人自述与推断的来源区别，按提交内容保存来源和可见性标记。
 模拟引擎负责观察投影与访问范围；记录引擎保留实际交付证据，不能把事后完整状态冒充当时的观察。
-下游的字段裁剪与证据窗口由[数据交付](06-delivery.md#3-证据窗口)负责，原始事件保持不变。
+下游的字段裁剪与证据窗口由[数据交付](06-delivery.md#delivery-证据窗口)负责，原始事件保持不变。
 
+<a name="recording-engine-素材存储行为"></a>
 ### 素材存储行为
 
 ```mermaid
@@ -494,6 +517,7 @@ flowchart LR
 `EventDraft`、`Event` 与 `Checkpoint` 的模型同样拒绝未声明字段；
 具体事件正文的领域约束由对应领域模型验证。
 
+<a name="recording-engine-素材存储接口"></a>
 ### 素材存储接口
 
 | 调用 | 签名 | 合同 |
@@ -503,16 +527,19 @@ flowchart LR
 | `AssetStore.put_json` | `(value: object, source: dict) -> AssetRef` | 把结构化值落成素材，复用同一哈希与引用规则 |
 
 
+<a name="recording-engine-保存与关联证据的验收"></a>
 ### 保存与关联证据的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 素材原子写入与不可变引用 | 正文以原子方式落盘并通过核验后才发布为稳定引用；同一份素材被复用，每次接触仍各自生成事件；引用缺失、字节数或摘要对不上时当即失败，绝不返回空内容 | `tests/footprints/test_store.py` 的 `test_missing_or_damaged_asset_prevents_commit_and_checkpoint`；`tests/footprints/test_export.py` 的 `test_export_corrupt_asset_never_publishes_manifest` | 保留要求，本次未复跑 |
 
+<a name="recording-engine-一致性保存与校验"></a>
 ## 一致性保存与校验
 
 把世界变化和对应事件作为同一笔事实保存，保证中断或错误不会留下部分成功的结果。
 
+<a name="recording-engine-持久化结构"></a>
 ### 持久化结构
 
 ```
@@ -533,13 +560,13 @@ run/
 `catalog_content_sha256`。LifeEngine 在创建、打开、恢复或重放的副作用之前核对当前目录与该身份；
 同版本异内容拒绝执行。检查点已有的 `manifest_sha256` 覆盖这些字段，
 足迹导出的 `frozen_run_manifest` 原样保留它们，不从导出时的目录重建。
-字段含义见[品类接口合同](../CONTRACTS.md#品类契约与目录字段)，行为见[品类契约规格](../dev/SPEC-category-contract.md)。
+字段含义见[品类接口合同](../CONTRACTS.md#contracts-品类契约与目录字段)，行为见[品类契约规格](../dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
 
 运行清单冻结的 `code_sha256` 覆盖 `src`、`custom`、`pyproject.toml`、`uv.lock` 与实际导入的 AS2 包
 （包目录内除 `__pycache__` 外的全部文件，标签与安装位置无关）。AS2 包目录缺失、为空或与锁定提交 `8768e14`
 的源码摘要不符时，运行宿主拒绝启动，不写运行清单。清单另记 `git_commit` 与 `git_dirty`（`git status --porcelain`
 是否非空，含未跟踪文件、不含忽略文件；非 Git 检出时二者为 null），二者只记录，不参与恢复比对。
-规则见[时间与能量规格](../dev/SPEC-time-and-energy.md)「运行身份」。
+规则见[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「运行身份」。
 
 成功动作的首条 `action_result.data.category_matches` 记录实际命中的 `category_id`、`rule_id`、`action`。
 维护工具按这些记录统计触达次数；活动完成和幂等重试不重复登记命中。
@@ -557,10 +584,12 @@ run/
 `world_state` 保存当前已确认状态，完整历史恢复依靠共同检查点及其关联事件，不能把当前状态误当作任意历史截点的状态。
 素材按内容哈希共享字节，事件和引用中的来源语义仍各自保留。
 
+<a name="recording-engine-数字足迹存储接口"></a>
 ### 数字足迹存储接口
 
 状态提交接口在本主题定义；素材、检查点、恢复、固定截止读取与运行查询接口分别见对应主题。
 
+<a name="recording-engine-存储调用"></a>
 ### 存储调用
 
 | 调用 | 签名 | 合同 |
@@ -570,6 +599,7 @@ run/
 
 生活模型负责验证世界状态与封闭请求类型；存储接收已验证的 JSON 状态与事件，不反向决定活动或资源规则。素材引用包含 SHA-256、字节数、模态与来源。所有业务模块只通过同一个环境实例的存储句柄写入，人物 worker 不能自行修改 `footprints.sqlite`。
 
+<a name="recording-engine-存储接口行为"></a>
 ### 存储接口行为
 
 | 操作 | 行为边界 |
@@ -579,8 +609,10 @@ run/
 | 提交状态与事件 | 校验状态连续性、资金差额、因果引用和素材后，在同一事务提交全部状态与事件 |
 
 
+<a name="recording-engine-事务与失败处理"></a>
 ### 事务与失败处理
 
+<a name="recording-engine-事务边界"></a>
 #### 事务边界
 
 生活状态、资金结算、动作状态与对应结果事件在同一笔 SQLite 事务提交。
@@ -597,12 +629,14 @@ flowchart TD
     ROLLBACK --> STOP[传播运行故障]
 ```
 
+<a name="recording-engine-事务范围"></a>
 #### 事务范围
 
 外部模型调用、游戏进程和文件系统整体不在数据库事务内。
 外部调用的开始、结果或未知状态由调用方提交；记录引擎按提交内容保存，不执行或重试外部调用。
 同一次结算的事件批量提交，不逐事件拆散原子边界。
 
+<a name="recording-engine-失败分类"></a>
 #### 失败分类
 
 | 情况 | 记录引擎的处理 |
@@ -614,33 +648,39 @@ flowchart TD
 | 故障事件本身也无法保存 | 输出带可用关联身份的英文错误，不伪造已经持久化的 `run_failed` |
 
 保存成功只代表对应记录已提交。业务拒绝、协议重试、运行终止与恢复启动由
-[模拟引擎的失败处理](04-simulation-engine.md#失败处理)和[AS2 失败传播](../dev/SPEC-as2-integration.md#失败传播改动)约束；
+[模拟引擎的失败处理](04-simulation-engine.md#simulation-engine-失败处理)和[AS2 失败传播](../dev/SPEC-as2-integration.md#spec-as2-integration-失败传播改动)约束；
 记录引擎不得把持久化故障包装为成功返回。
 
+<a name="recording-engine-状态版本与连续性"></a>
 ### 状态版本与连续性
 
+<a name="recording-engine-状态版本递增"></a>
 #### 状态版本递增
 
 状态由环境递增版本，存储检查连续性。实际改变世界时，版本只能增加一；
 仅追加观察等证据、世界内容完全相同时，可以保持同一版本。
 同版本必须具有相同的确定性编码字节，不能隐藏状态修改；时钟不能倒退。
 
+<a name="recording-engine-事件序号严格递增"></a>
 #### 事件序号严格递增
 
 序号由存储分配，按提交顺序严格连续递增，同秒事件也有明确次序。
 运行内的截止序号确定固定历史范围，不依赖墙钟时间排序。
 
+<a name="recording-engine-状态版本变化必须有事实事件"></a>
 #### 状态版本变化必须有事实事件
 
 版本变化至少对应一个事实事件，禁止静默改变时钟、资源或活动。
 `state_version_before` 与 `state_version_after` 把事件绑定到状态变化，供因果追溯、连续性检查和检查点恢复核对。
 
+<a name="recording-engine-状态关联字段"></a>
 #### 状态关联字段
 
 世界快照持久化采用确定性 JSON：键排序、集合按元素排序、编码规则固定。
 新进程和不同 Python 哈希种子必须得到逐字节相同的状态。
 只有事件和状态版本一致仍不足以证明完整恢复，还需检查参与者工作区、内容进度、待发生事件和随机数状态。
 
+<a name="recording-engine-资金守恒验证"></a>
 #### 资金守恒验证
 
 权威资金变化只位于 `Event.data.resource_changes` 顶层，全部使用整数分。
@@ -657,6 +697,7 @@ flowchart TD
 这里验证的是已提交余额与资金证据是否一致，不计算价格、报酬或支付资格；
 金额由交换引擎计算，实际状态由模拟引擎提交。
 
+<a name="recording-engine-一致性保存与校验的实现差距"></a>
 ### 一致性保存与校验的实现差距
 
 | 设计要求 | 当前实现与差距 | 核查位置 |
@@ -664,6 +705,7 @@ flowchart TD
 | 事件、状态与检查点共同提交 | 已有 SQLite 事务、素材校验、参与者检查与恢复路径；真实验收另见运行证据 | `src/worldmock/footprints/store.py`、`src/worldmock/footprints/checkpoint.py`、`src/worldmock/runtime.py` |
 
 
+<a name="recording-engine-一致性保存与校验的验收"></a>
 ### 一致性保存与校验的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
@@ -673,10 +715,12 @@ flowchart TD
 | 资金守恒与对账 | 资金变化的唯一位置是 `Event.data.resource_changes` 顶层，单位为整数分；每条转账两端写清、相加为零；受理与幂等回放不再添支付；只看首笔注资与此后各笔权威资金事件，就能算出最终共同检查点的各账户余额 | `tests/footprints/test_ledger.py` 的 `test_final_checkpoint_balance_must_equal_complete_event_history`、`test_reused_receipt_cannot_record_a_second_payment`、`test_balanced_transfer_reconstructs_actual_final_accounts` | 保留要求，本次未复跑 |
 | 真实存储介质口径 | 所有持久化行为通过真实 SQLite 与文件系统的集成测试，不以内存模拟替代 | `tests/footprints/` 全目录 | 保留要求，本次未复跑 |
 
+<a name="recording-engine-保存共同检查点"></a>
 ## 保存共同检查点
 
-在一轮交互完整结束后，把世界与所有参与者的状态保存为同一个可验证的恢复起点。建立分支的流程见[恢复与反事实分支](#恢复与反事实分支)。
+在一轮交互完整结束后，把世界与所有参与者的状态保存为同一个可验证的恢复起点。建立分支的流程见[恢复与反事实分支](05-recording-engine.md#recording-engine-恢复与反事实分支)。
 
+<a name="recording-engine-检查点创建"></a>
 ### 检查点创建
 
 模拟引擎收齐本轮人物响应、记忆、环境状态和全部参与者快照后，请求创建共同检查点。
@@ -717,6 +761,7 @@ flowchart TD
 数据库记录是检查点提交的唯一依据。记录存在、状态一致、所有参与者齐备且引用均可验证，才算完整检查点。
 独立 JSON 或 `SOCIETY_STEP.json` 写成功不能证明共同检查点完成。
 
+<a name="recording-engine-共同检查点接口"></a>
 ### 共同检查点接口
 
 | 调用 | 签名 | 合同 |
@@ -729,26 +774,30 @@ flowchart TD
 | 创建检查点 | 校验世界状态和全部参与者素材后提交记录，返回数据库确认的检查点 |
 
 
+<a name="recording-engine-地图与供给的恢复身份"></a>
 ### 地图与供给的恢复身份
 
-旧状态直接拒绝（结构版本见[检查点创建](#检查点创建)），不迁移、不从旧商品字段重建供给。
+旧状态直接拒绝（结构版本见[检查点创建](05-recording-engine.md#recording-engine-检查点创建)），不迁移、不从旧商品字段重建供给。
 共同检查点必须封存 `supply_stock`、`supply_quotes`、`opening_exceptions`、人物 `qualifications`、
 `visible_supply_ids`、`supply_browsed_at`、`supply_browsed_location` 与 `presentation_state`。
 待配送、已处理动作和已交付物品与上述状态共同恢复，调价后恢复不得回到初始报价。
 地图内容、版本或摘要与冻结运行身份不一致时，打开、恢复和分支均拒绝；分支不改父运行。
 
 
+<a name="recording-engine-保存共同检查点的验收"></a>
 ### 保存共同检查点的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 共同检查点的完整性与参与者齐备 | 检查点先校验全部人物、游戏与环境素材再提交；缺少任一参与者的检查点不完整；最终共同检查点缺失或其之后仍有事件时运行不算完成 | `tests/footprints/test_export.py` 的 `test_checkpoint_requires_every_participant`、`test_clock_end_without_successful_final_checkpoint_is_not_complete`、`test_event_after_final_checkpoint_invalidates_completion` | 保留要求，本次未复跑 |
 
+<a name="recording-engine-恢复与反事实分支"></a>
 ## 恢复与反事实分支
 
 从共同检查点构建新的分支存储，提供已核验的世界与参与者快照，保留原运行及分支来源关系。
 将这些材料恢复为可运行的世界、人物与外部进程，由模拟引擎完成。
 
+<a name="recording-engine-恢复行为"></a>
 ### 恢复行为
 
 ```mermaid
@@ -767,24 +816,28 @@ flowchart TD
 创建分支不覆盖父运行或检查点后的已提交事件；复制的历史事件保留原始身份和字节，新增事件属于新运行。
 分支只使用检查点封存的工作区，不复制父运行检查点之后变动过的可变文件。
 
+<a name="recording-engine-恢复入口边界"></a>
 ### 恢复入口边界
 
 记录引擎的返回值只确认分支存储与恢复材料有效，不表示人物、游戏进程或模型服务已经就绪。
-运行启动与失败传播由[模拟引擎的恢复编排](04-simulation-engine.md#9-恢复与反事实运行编排)和
-[AS2 恢复入口](../dev/SPEC-as2-integration.md#恢复与检查点改动)负责。
+运行启动与失败传播由[模拟引擎的恢复编排](04-simulation-engine.md#simulation-engine-恢复与反事实运行编排)和
+[AS2 恢复入口](../dev/SPEC-as2-integration.md#spec-as2-integration-恢复与检查点改动)负责。
 
+<a name="recording-engine-反事实分支与来源关系"></a>
 ### 反事实分支与来源关系
 
 分支获得新的 `run_id`，记录 `parent_run_id`、`parent_checkpoint_id` 与分支原因，沿用 `source_group_id`。
 记录引擎保存调用方提供的干预描述和 `intervention_sha256`，保持父检查点、原始事件与新分支证据可追溯。
 干预是否受支持、何时执行及如何改变世界，由模拟引擎决定；实际执行结果仍通过事件和状态提交。
-来源身份如何用于样本划分与反事实标签，见[数据交付](06-delivery.md)。
+来源身份如何用于样本划分与反事实标签，见[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)。
 
+<a name="recording-engine-重放与重新调用的区别"></a>
 ### 重放与重新调用的区别
 
 读取和核验历史只能还原已经保存的事实。重新调用模型与外部服务属于模拟执行，结果不保证相同。
 记录引擎不承诺外部服务严格只调用一次，也不能把新的调用结果冒充原始历史。
 
+<a name="recording-engine-分支状态与发布"></a>
 ### 分支状态与发布
 
 记录引擎核对检查点格式、冻结清单、状态、参与者快照与素材之间的一致性；不一致即拒绝构建分支。
@@ -793,16 +846,18 @@ flowchart TD
 分支存储建立时世界版本增加一，追加 `environment_event` 类型的 `branch_created` 事件。
 存储发布与运行就绪分别确认；模拟引擎完成参与者恢复后才允许开始决策。
 
+<a name="recording-engine-崩溃恢复"></a>
 ### 崩溃恢复
 
 记录引擎只提供完整共同检查点及其封存材料；未确认尾部不能拼接为检查点内的历史。
-人物和游戏进程的重建见[模拟引擎的恢复编排](04-simulation-engine.md#9-恢复与反事实运行编排)。
+人物和游戏进程的重建见[模拟引擎的恢复编排](04-simulation-engine.md#simulation-engine-恢复与反事实运行编排)。
 
+<a name="recording-engine-分支恢复接口"></a>
 ### 分支恢复接口
 
 | 调用 | 签名 | 合同 |
 | --- | --- | --- |
-| `FootprintStore.restore` | `(checkpoint: str, destination: Path, branch_metadata: dict \| None = None) -> FootprintStore` | 核对检查点与冻结清单、格式版本和全部素材后，在新目录建立分支并返回绑定该分支的存储；反事实身份发布前冻结，父目录不变 |
+| `src/worldmock/footprints/checkpoint.py::restore_branch` | `(store: FootprintStore, checkpoint_id: str, destination: Path, branch_metadata: dict \| None = None) -> FootprintStore` | 核对检查点与冻结清单、格式版本和全部素材后，在新目录建立分支并返回绑定该分支的存储；反事实身份发布前冻结，父目录不变 |
 
 
 | 操作 | 行为边界 |
@@ -810,6 +865,7 @@ flowchart TD
 | 恢复分支 | 校验指定检查点、冻结清单与全部素材；在新目录建立并发布分支存储，父目录保持不变 |
 
 
+<a name="recording-engine-恢复与反事实分支的验收"></a>
 ### 恢复与反事实分支的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
@@ -817,10 +873,12 @@ flowchart TD
 | 恢复材料完整且一致 | 未通过素材校验的检查点事务不发布记录；重算摘要与状态不一致的检查点被拒 | `tests/footprints/test_store.py` 的 `test_failed_checkpoint_transaction_does_not_publish_record`、`test_rehashed_checkpoint_with_inconsistent_world_is_rejected` | 保留要求，本次未复跑 |
 | 恢复分支隔离与父目录不变 | 恢复在新目录创建分支存储并提供封存工作区；父运行目录与尾部事件不被覆盖，分叉之后父运行改动过的可变工作区也不复制过来；分支目录不得落在父运行内部 | `tests/footprints/test_store.py` 的 `test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`；`tests/footprints/test_branch_coverage.py` 的 `test_restore_branch_rejects_destinations_inside_parent_run` | 保留要求，本次未复跑 |
 
+<a name="recording-engine-固定截止导出"></a>
 ## 固定截止导出
 
 把明确历史范围内的足迹冻结成可交付快照，让后续模拟和分支追加不改变这次交付的输入。
 
+<a name="recording-engine-导出行为"></a>
 ### 导出行为
 
 导出以一次冻结的截止事件及其对应状态为输入，原始运行保持只读。
@@ -828,7 +886,7 @@ flowchart TD
 固定截止支持稳定读取，不等于当前已有任意区间的增量发布接口。
 
 导出入口为 `export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict`，
-对外使用 `worldmock export`，参数以[命令行合同](../CONTRACTS.md#cli-命令接口)为准。
+对外使用 `worldmock export`，参数以[命令行合同](../CONTRACTS.md#contracts-cli)为准。
 目标目录必须不存在；先在临时目录写出并校验素材与主文件，最后写清单并原子发布。
 失败清理本次临时目录，记录英文错误并传播，不留下成功清单。
 
@@ -864,6 +922,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 地图和门店供给来源声明延伸到交付清单。来源署名不能替代具体公开使用方式下的许可判断；
 本项目不以一个共享条款布尔值裁决数据库许可兼容，也不把场景价格和库存标成真实门店事实。
 
+<a name="recording-engine-完整性验证"></a>
 ### 完整性验证
 
 正式交付前，记录引擎校验完成标志、运行与覆盖身份、全部主文件哈希和行数、事件全序与因果引用、
@@ -871,13 +930,15 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 只达到场景终点不代表完整；缺少最终共同检查点，或最终检查点之后仍有事件，都不能认定为完成。
 不完整导出只用于诊断，禁止进入正式 LabelKit 交付。
 
+<a name="recording-engine-导出认证"></a>
 ### 导出认证
 
 导出保留原始 `event_id`、`run_id`、序号、输入文件和行位置，素材索引绑定对应字节及摘要。
 恢复与反事实分支保留父检查点和来源身份，使下游能够追溯材料来自哪段原始历史。
-认证只证明导出与固定截止的持久事实一致；样本标识、窗口正文展开与数据划分由[数据交付](06-delivery.md)定义。
+认证只证明导出与固定截止的持久事实一致；样本标识、窗口正文展开与数据划分由[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义。
 素材哈希与事件身份分别标识内容和发生记录，不能互相代替。
 
+<a name="recording-engine-质量报告"></a>
 ### 质量报告
 
 当日目标的登记、修订和实际推进由模拟引擎裁决。记录引擎在零点计划的 `day_plan_generated`、修订的动作结果和结算事件中
@@ -885,7 +946,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 恢复不得重复生成零点计划，也不得重复发放推进脉冲。
 `quality.json.day_plan_metrics` 保存按代码摘要分组的习惯、外部约束、刻意目标三层度量及受阻门禁，
 只读取本批已认证截止事件；刻意目标层的 `family_progress_rate` 只计非例行意图的目标，例行意图另计 `routine_goals`，
-推进与引擎同一判定（带大致时刻的目标只认其前后 90 分钟内进行的活动）；字段与判据见 [当日目标规格](../dev/SPEC-day-plan-goals.md#度量输出合同)。
+推进与引擎同一判定（带大致时刻的目标只认其前后 90 分钟内进行的活动）；字段与判据见 [当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-度量输出合同)。
 
 
 `quality.json` 是同一批冻结事实的只读统计：动作结果计数、已记录活动与内容接触区间汇总（重复观看只计从头重看）、
@@ -901,13 +962,13 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 `unrecognized_decision_started_wake_reason_counts`）；食品与工作效率读取对应活动自身进度。
 报告 `schema_version` 为 4（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
 `decision_started_missing_decision_statement`，另以 `decision_budget_exhausted_events` 计 `decision_budget_exhausted` 事件数；
-版本 3 是[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)的新节，全部只报告不放行；版本 4 是
-[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)的两个新节 `errand_metrics` 与 `conclusion_memories`，同样只报告）。
-`input_warnings` 一节统计运行清单冻结的运行输入警告（警告码闭集与条目形状见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)）：
+版本 3 是[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)的新节，全部只报告不放行；版本 4 是
+[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)的两个新节 `errand_metrics` 与 `conclusion_memories`，同样只报告）。
+`input_warnings` 一节统计运行清单冻结的运行输入警告（警告码闭集与条目形状见[接口合同「运行输入警告」](../CONTRACTS.md#contracts-运行输入警告)）：
 `recorded` 表示清单是否记录了警告；记录时给出 `warning_count`、按全部警告码列出的 `code_counts`（未出现的码为 0）、
 闭集外的 `unrecognized_code_counts`、按人物编号的 `agent_counts` 与场景级（`agent_id` 为 `null`）的 `scenario_warning_count`；
 清单没有记录（引擎直驱建立的运行为 `null`，旧清单没有这个键）时各计数为 `null`，不记为零。
-`truncations` 一节统计输出截断（[一日运行保真规格 7.2](../dev/SPEC-dayrun-fidelity.md#72-输出截断与思考螺旋)），只读已记录的
+`truncations` 一节统计输出截断（[一日运行保真规格 7.2](../dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋)），只读已记录的
 `model_response`，不需要新证据：每个调用身份取一条终态（与 `model_usage` 同一去重），提供商回复 `finish_reason` 为 `length` 的计为
 一次截断；给出 `truncated_responses`、按用途分列的 `purpose_counts`（人物决策记为 `decision`）、这些回复实报的
 `usage.completion_tokens` 之和 `wasted_output_tokens`（截断回合整段丢弃，输出全部浪费）与其中
@@ -931,20 +992,20 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 `trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_source` 指 `memory_updated` 的某个写入点
 找不到对应登记（写入了条目却没有写入点同样计入）；观察的进度层来源 `progress_event_ids` 中任一身份不能解析到本人更早提交的事件时记
 `invalid_observed_result_reference`。记忆不再带模型填写的引用，不核对条目身份引用。
-`timeline_labels` 检查投影出的时间线只出现中文名称（[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md#74-时间线只出现中文名称)）：
+`timeline_labels` 检查投影出的时间线只出现中文名称（[一日运行保真规格](../dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称)）：
 用唯一的时间线渲染器从同批已认证事件逐人逐日（运行窗口内）投影时间线并逐行检查活动标签，书名号与引号内的作品标题、邮件主题不查；
 其余由英文与数字连成的片段恰为 `readable.py` 中文种类表的英文键时计一项 `english_kind_names`，形如内部标识（小写片段以
 `-`、`_`、`:` 相连，十二位以上十六进制串，`#` 加六位十六进制）时计一项 `internal_ids`；另给 `rows_checked` 与逐项 `findings`
 （`agent_id`、`date`、`interval`、`label`、`item`、`text`）。`contact_reply_guard` 统计联系人回复的后验守卫
-（[同一规格 7.3](../dev/SPEC-dayrun-fidelity.md#73-联系人回复不虚构到场)）：`replies`、没有 `attempts` 证据的
+（[同一规格 7.3](../dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场)）：`replies`、没有 `attempts` 证据的
 `replies_without_guard_evidence`、`attempts`，按尝试计的 `hits` 与 `hits_by_category`（四个类别码全列，没有命中记 0），
 按回复计的 `retries` 与 `fallbacks`。两组都只报告，不放行。
-`name_rejections` 把名称类拒绝与其余协议错误分开计数（[同一规格 3.4](../dev/SPEC-dayrun-fidelity.md#34-名称类拒绝不计同刻轮数)）：
+`name_rejections` 把名称类拒绝与其余协议错误分开计数（[同一规格 3.4](../dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数)）：
 宿主一侧取人物决策（没有 `purpose` 的调用，按调用身份去重后的终态响应）已落库的结构化纠错 `data.protocol_feedback`，按其 `error_code` 归类，
 名称类纠错码逐码计 `host_codes`（全部码列出，没有记 0；合计 `host_protocol_errors`），其余协议错误计 `other_protocol_errors` 与按码的 `other_protocol_codes`（落库的失败阶段码也计在这里，不是名称类纠错：现行实现中只有模型服务失败的 `MODEL_SERVICE_FAILED` 写进模型证据）；
 环境一侧取不含重放的 `action_rejected`，名称类拒绝码逐码计 `environment_codes`（全部码列出，没有记 0；合计 `environment_rejections`），
 并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻轮数、不施加脉冲）的 `environment_free_rejections`。只报告，不放行。
-`errand_metrics` 统计个人事务（[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#61-质量报告) 6.1，由
+`errand_metrics` 统计个人事务（[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-质量报告) 6.1，由
 `src/worldmock/evaluation/errand_metrics.py` 计算），不使用任何当日目标指标的键名，不以目标数为分母，不写进 `day_plan_metrics`：
 事务身份取快照的 `errand_id`，所有人取事件的人物字段，终态是同一事务的 `errand_completed` 或 `errand_cancelled`，截止是导出的末一个事件；
 `registered_count`（有 `errand_registered` 事件的不同事务数，是办成、取消、截止时未完成与跨夜四项的分母）、`completed_count`、
@@ -964,6 +1025,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
 
+<a name="recording-engine-固定截止读取接口"></a>
 ### 固定截止读取接口
 
 | 调用 | 签名 | 合同 |
@@ -976,6 +1038,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 | 固定截止读取 | `read_events(cutoff)` 只返回截止序号以内的事件，后续追加不改变该范围 |
 
 
+<a name="recording-engine-固定截止导出的实现差距"></a>
 ### 固定截止导出的实现差距
 
 | 设计要求 | 当前实现与差距 | 核查位置 |
@@ -988,27 +1051,31 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 最小验证场景是保持同一截止，追加一条同日后续事件，确认导出时间线不变；
 再修改时间线文件，确认消费端拒收。
 
+<a name="recording-engine-固定截止导出的验收"></a>
 ### 固定截止导出的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 导出完整性与导出认证 | 导出以固定截止事件及该事件当时的状态为唯一输入，产物按 本文「持久化结构」落定；完成标志、运行与覆盖身份、主文件哈希与行数、事件全序与因果引用、唯一结束、最终共同检查点全数通过后才可进入正式交付；导出保留原始事件身份与来源位置 | `tests/footprints/test_validation.py` 的 `test_production_windows_require_and_accept_complete_authenticated_export`、`test_incomplete_or_tampered_export_never_reaches_labelkit`；`tests/footprints/test_export.py` 的 `test_export_writes_hash_bound_timeline_projections` | 保留要求，本次未复跑 |
 | 质量报告的确定性与未知口径 | 同一份认证输入逐字节确定；测不到的指标如实留作未知，不落成零；估算价格不得称为供应商账单；消费端先核对报告字节摘要，再顺同一批事件独立重算 | `tests/footprints/test_quality.py` 的 `test_quality_report_is_deterministic_for_the_same_authenticated_input`、`test_missing_measurements_remain_unknown_instead_of_becoming_zero`；`tests/footprints/test_validation.py` 的 `test_quality_report_requires_bytes_and_actual_event_recomputation` | 保留要求，本次未复跑 |
-| 活动快照与开始地点 | 主动结束与暂停写活动快照，导出的活动与最终共同检查点逐项一致；出行活动的 `location_id` 为出发地，结算不改写，到达经历照常产生 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「绿色基线」「本机运行修复」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
+| 活动快照与开始地点 | 主动结束与暂停写活动快照，导出的活动与最终共同检查点逐项一致；出行活动的 `location_id` 为出发地，结算不改写，到达经历照常产生 | [时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)的「绿色基线」「本机运行修复」行 | 已实现，证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md) |
 
+<a name="recording-engine-运行查询与诊断"></a>
 ## 运行查询与诊断
 
 以已经确认的记录回答运行到哪一步、发生了什么、哪里出错；查询与诊断不推进世界，也不替数字人作决定。
 
+<a name="recording-engine-查询边界"></a>
 ### 查询边界
 
 查询只呈现已提交世界、持久事件、检查点和运行宿主已确认的状态；不根据“暂时没有新事件”推断运行失败。
-运行状态与阶段由[公共运行状态合同](../CONTRACTS.md#运行状态枚举)维护，
-全局日志格式与埋点见[运行诊断输出](../CONTRACTS.md#运行诊断输出)。
+运行状态与阶段由[公共运行状态合同](../CONTRACTS.md#contracts-运行状态枚举)维护，
+全局日志格式与埋点见[运行诊断输出](../CONTRACTS.md#contracts-运行诊断输出)。
 
 记录引擎提供事实查询、引用追踪与完整性检查，自身错误使用上述公共日志合同。
 持久事件与操作日志不能互相充当完成证据；已提交请求也不能证明活动完成或支付发生。
 
+<a name="recording-engine-调试工具"></a>
 ### 调试工具
 
 ```sh
@@ -1029,10 +1096,10 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 示例运行目录、人物和日期需替换为实际值。浏览工具只读打开 SQLite，不推进世界或修改事件。
 `events --full` 显示完整事件；`body --agent <id>` 显示观察事件中的 `body.values` 与 `body.levels`，
 逐行打印能量 `energy_kcal`、睡眠不足 `sleep_deficit_hours` 与饥饿、困意分级（`appetite`、`sleepiness`），与上一行相同或缺能量值的观察不打印。
-`rerun` 只读计算[时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)「真实复验」行的八项指标
+`rerun` 只读计算[时间与能量规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)「真实复验」行的八项指标
 （无进行中活动总时长、同刻轮数分布、播报唤醒占比、最低饥饿分级、首次进食前最低能量、进食次数、步行占比、
 零点计划是否含早于 08:30 的提醒），逐项打印中文报告，缺少可计算记录的项标「不适用」；只报告，不作门禁。
-`continuation [--topic 话题 ...] [--baseline <run_dir>]` 只读给出[人物 Prompt 规格](../dev/SPEC-persona-prompt.md#七下游)第七章
+`continuation [--topic 话题 ...] [--baseline <run_dir>]` 只读给出[人物 Prompt 规格](../dev/SPEC-labelkit-delivery.md#persona-prompt-下游)第七章
 「续接对比」的指标，以 JSON 打印 `{run_id, same_second_continuation, decisions, summary}`：`decisions` 逐决策（按首个行动请求的事件序号）
 给 `decision_id`、`agent_id`、`occurred_at`、`same_second_follow_up`、`chain_position`（链首为 0，断链为 `null`）、`chain_intact`、
 `tools_same_as_head`、`requests`、`reasoning_tokens` 与 `reasoning_chars`（每个响应都报告思考 token 时给 token 数，否则只给思考原文字符数，
@@ -1043,13 +1110,13 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 开关取清单 `stage_model_identity.stages.action.same_second_continuation`；清单没有阶段身份（特性之前的运行）时为 `null`，不能作任何一臂。
 `--baseline` 先核对两份清单：去掉运行身份键（`run_id`、`source_group_id`、`source_run_ids`）与续接开关后必须完全相同，且两臂开关不同，
 否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
-`workday --scenario <场景文件>` 只读给出[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#62-行为评估) 6.2 的工作负荷与作息偏离，
-以 JSON 打印 `{run_id, workload, routine_deviation, notes}`（字段见[行为评估设计「报告项」](07-evaluation.md#22-报告项reports)）：
+`workday --scenario <场景文件>` 只读给出[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-行为评估) 6.2 的工作负荷与作息偏离，
+以 JSON 打印 `{run_id, workload, routine_deviation, notes}`（字段见[行为评估设计「报告项」](07-evaluation.md#evaluation-报告项reports)）：
 班次、任务的预约与要求地点、住处与播报间隔取自 `--scenario` 指向的场景文件，其摘要须等于运行清单的 `scenario_sha256`，不符即以英文错误
 退出、不打印任何内容；覆盖后的下班与到家窗口取自运行目录里各人物工作区 `as2/agents/agent_<四位编号>/AGENT.json` 的结构化卡片
 （`persona_card_struct` 的 `time_anchors`），工作区没有结构化卡片的人物窗口按 null 计并在 `notes` 写一条说明，事件里出现而场景里没有的
 人物两项都为 null 并写说明。不解析提示文本；只报告，不作门禁。
-`queries` 只读按运行给出[个人事务与工作安排规格](../dev/SPEC-errands-workday.md#63-查询成本只报告) 6.3 的查询成本，以 JSON 打印
+`queries` 只读按运行给出[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-查询成本只报告) 6.3 的查询成本，以 JSON 打印
 `{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
 失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
 重试次数（工具只有 `submit_reflection` 且带附回消息的模型请求数）。口径取已落库的模型工具交换证据（`model_request`、`model_response`）：
@@ -1070,12 +1137,13 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 运行查看器 `tools/run-viewer.html` 在浏览器本地只读解析拖入或选择的 `footprints.sqlite`；同一 run 目录的 `manifest.json`（运行清单，或
 导出清单中的 `frozen_run_manifest`，以库中世界状态的 `run_id` 认定）一起拖入或选择时，总览列出清单冻结的运行输入警告 `input_warnings`
 （人物的警告按人物编号在前、场景级在后，逐条给警告码与 `message`；为 `null` 或清单没有这个键时写明未计算，空列表写明没有警告），
-口径见[接口合同「运行输入警告」](../CONTRACTS.md#运行输入警告)。
+口径见[接口合同「运行输入警告」](../CONTRACTS.md#contracts-运行输入警告)。
 查看器经自己的 `controlItems` 镜像（`tools/run-viewer.html`）读取三个控制工具的请求：请求级 `errands` 不是数组即报错
 （`Activity control request requires errands`），不留旧形状分支，所以世界结构 8 的运行（含配对复跑的基线臂）用产出它的提交上的
 查看器查看。事件种类与唤醒原因的中文标签表同批补六种事务事件与 `errand_reminder_due`。查看器里 `query_world` 请求的显示分支在
 真实运行下不可达（只读查询不登记为世界动作），不计入本特性的验收。
 
+<a name="recording-engine-完整性诊断边界"></a>
 ### 完整性诊断边界
 
 ```mermaid
@@ -1090,6 +1158,7 @@ flowchart LR
 诊断报告记录缺失、素材损坏、引用断开、版本不一致或资金无法对账等事实。
 停滞判定、重试、重启和监控告警属于运行管理，领域状态是否合理属于对应规则与行为评估。
 
+<a name="recording-engine-人物事件查询接口"></a>
 ### 人物事件查询接口
 
 | 调用 | 签名 | 合同 |
@@ -1102,16 +1171,31 @@ flowchart LR
 | 查询当前状态 | 返回已提交的世界副本与最后事件序号；不能将内存中尚未提交的状态对外宣称为事实 |
 
 
+<a name="recording-engine-运行查询与诊断的实现差距"></a>
 ### 运行查询与诊断的实现差距
 
-本主题当前没有未闭合的实现差距：身体浏览已按当前身体模型读取 `body.values` 与 `body.levels`，见[调试工具](#调试工具)。
+本主题当前没有未闭合的实现差距：身体浏览已按当前身体模型读取 `body.values` 与 `body.levels`，见[调试工具](05-recording-engine.md#recording-engine-调试工具)。
 
+<a name="recording-engine-运行查询与诊断的验收"></a>
 ### 运行查询与诊断的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
 | 只读状态查询 | 只读呈现已确认的模拟时间、运行阶段、人物活动与模型调用统计，且不向运行目录落任何写操作 | `tests/footprints/test_status.py` 的 `test_status_reads_confirmed_state_without_modifying_any_run_file` | 保留要求，本次未复跑 |
 
+
+<a name="design-recording-engine-current-responsibility"></a>
+## 恢复与时间线的实际归属
+
+```mermaid
+flowchart LR
+    RESTORE[checkpoint.restore_branch] --> STORE[FootprintStore 读取与写入]
+    RESTORE --> CERT[历史及来源认证]
+    EXPORT[时间线导出编排] --> LABELS[timeline_labels 时间线加载与呈现]
+```
+分支恢复由 checkpoint 编排，store 只承担存取；时间线渲染加载由 timeline_labels 承担，不回调上层导出入口。事件、检查点、运行身份、排序、提交边界和恢复失败语义保持本章冻结合同。完整自然日基线比较包含因果引用与导出正文，代码身份和壁钟差异只按验收规格明列的范围规范化。
+
+<a name="recording-engine-版本表"></a>
 ## 版本表
 
 以下记录保留当时的变更与验证证据；当前接口约束以正文和各特性规格为准。
@@ -1138,11 +1222,13 @@ flowchart LR
 | `2026-09-27-persona-prompt-stage-4` | 2026-09-27 | 人物 Prompt 规格阶段 4 同批作业：`action_result` 的订单记 `recipient_id` 与 `request_message_id`，结束进食写已吃、丢弃与剩余份量（E5-7）；检查点封存进食活动数据的 `opened`、订单的收货人与请求关联、`contact_holdings` 与 `outbox`（E5-11） |
 | `2026-09-27-persona-prompt-stage-5` | 2026-09-27 | 人物 Prompt 规格阶段 5 同批作业：`environment_event` 增 `data.kind="decision_budget_exhausted"`（`visibility=system`，`data` 为 `kind`、`error_code`、`next_decision_at`）（E5-7）；受限轮阶段不再有 `wait_only`（E5-11）；导出新增 `purchases.jsonl`，导出清单 `schema_version` 为 2，质量报告增 `decision_budget_exhausted_events`（E5-12） |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 规格实现后文档（人物 Prompt 台账 E5-13、E5-14 与阶段 8 核对）：文件头注明修订部分已实现；「记录生活全过程的实现差距」删去冻结时登记的本规格八项差距，改为已闭合；「记录生活全过程的验收」的「经历句子」行改为记忆层 `settled`，增续接证据、记忆层、订单收货人三行，证据指向人物 Prompt 验收记录；按最终代码核对：必须保存的内容写明记忆层构建结果随观察事件与只读问答快照保存，`progress_event_ids` 写明两类来源，`action_result` 补给予 `data.given`、下单的 `answering`、进食的 `discarded` 与收尾 `data.outcome`，`decision_budget_exhausted` 补待收尾情形与可为 null 的 `error_code`，导出文件表补 `verified-experiences.jsonl`、`purchases.jsonl` 的逐行字段，导出清单 `artifacts` 恰好四键，质量报告补 `invalid_observed_result_reference`，调试工具补只读子命令 `continuation` 及其输出字段；版本号不变 |
-| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 RE1–RE6，随阶段 1–5 的代码落地，按 `e377669` 核对）：「共同身体结算与决策证据」`activity_ids` 是社交账与共同用餐的口径来源；「事件正文与资源证据」`action_requested.request` 为控制工具的 `items` 形状（旧形状经 `control_items` 读出），`action_rejected` 与同一拒绝的 `action_result` 按共用错误结构带 `error_code`、`reason`、`fix`、`next_step` 与逐项 `items[]`，受理结果的 `resolved` 记名称归一与指名购买解析出的完整标签，`notes` 另记按 `prefer` 选定的门店与「购买」定下的方式，`action_result.data.orders[]` 的每个订单增 `channel_id`（不进 `DeliveryState`），`model_npc_reply.data` 增 `attempts[]` 与 `guard_applied`，`decision_budget_exhausted` 的 `error_code` 取最近一次计入同刻轮数的拒绝，`decision_started` 一行注明引擎的同刻计数不计免计的名称类拒绝；三处目标字段列表增 `around_at`；「地图与门店供给证据」浏览结果列完整标签，指名购买的 `from` 约束、渠道解析与按 `prefer` 选定；「已核验经历与主观记忆」`views`→`subject` 由宿主转换、存储形状不变；「导出行为」`purchases.jsonl` 增 `channel_id` 一列，`order_attempt` 的 `way` 照请求所写的方式（同义写法按方式同义表归一），时间线标签取 `readable.py` 中文种类表，工作、通话、交谈有标题；「调试工具」运行查看器总览列出清单冻结的 `input_warnings`；「质量报告」新节 `input_warnings`、`truncations`、`timeline_labels`、`contact_reply_guard`、`name_rejections`，`schema_version` 3，分组列表补齐（含此前漏列的 `day_plan_metrics`），`host_codes` 全部码列出，刻意目标的推进比例只计非例行意图；文件头补修订说明，日期改写 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)同步（一日运行保真 RE1–RE6，随阶段 1–5 的代码落地，按 `e377669` 核对）：「共同身体结算与决策证据」`activity_ids` 是社交账与共同用餐的口径来源；「事件正文与资源证据」`action_requested.request` 为控制工具的 `items` 形状（旧形状经 `control_items` 读出），`action_rejected` 与同一拒绝的 `action_result` 按共用错误结构带 `error_code`、`reason`、`fix`、`next_step` 与逐项 `items[]`，受理结果的 `resolved` 记名称归一与指名购买解析出的完整标签，`notes` 另记按 `prefer` 选定的门店与「购买」定下的方式，`action_result.data.orders[]` 的每个订单增 `channel_id`（不进 `DeliveryState`），`model_npc_reply.data` 增 `attempts[]` 与 `guard_applied`，`decision_budget_exhausted` 的 `error_code` 取最近一次计入同刻轮数的拒绝，`decision_started` 一行注明引擎的同刻计数不计免计的名称类拒绝；三处目标字段列表增 `around_at`；「地图与门店供给证据」浏览结果列完整标签，指名购买的 `from` 约束、渠道解析与按 `prefer` 选定；「已核验经历与主观记忆」`views`→`subject` 由宿主转换、存储形状不变；「导出行为」`purchases.jsonl` 增 `channel_id` 一列，`order_attempt` 的 `way` 照请求所写的方式（同义写法按方式同义表归一），时间线标签取 `readable.py` 中文种类表，工作、通话、交谈有标题；「调试工具」运行查看器总览列出清单冻结的 `input_warnings`；「质量报告」新节 `input_warnings`、`truncations`、`timeline_labels`、`contact_reply_guard`、`name_rejections`，`schema_version` 3，分组列表补齐（含此前漏列的 `day_plan_metrics`），`host_codes` 全部码列出，刻意目标的推进比例只计非例行意图；文件头补修订说明，日期改写 |
 | v1.3 | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
-| v1.4 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D5 作业，随阶段 1 的代码落地，按 `a1f680b` 核对）：「必须保存的内容」增记忆阶段调用行，`decision_started` 行注明就寝反思请求不是行动请求，`model_request`、`model_response` 行写明反思的每次尝试是独立调用、校验错误随下一次请求的附回消息留证，并登记四个失败阶段码及其去向，「已核验经历与主观记忆」写明反思输出不合合同的有界校验重试与耗尽即运行故障，「质量报告」`name_rejections` 注明落库的失败阶段码计入其余协议错误，宿主一侧的口径照现行实现改写为读取已落库的 `data.protocol_feedback.error_code`（原写按协议错误串判定）；顺带更正「工具纠错、只读查询与当天操作备忘的证据」末句与「记录生活全过程的实现差距」末句两处把已实现的工具交互写成未实现的句子；版本表前的说明句改为以正文和各特性规格为准；文件头补同步说明，日期改写 |
-| `2026-10-03-errands-workday-stage-2` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 2 同步（实施计划 D5 作业，随阶段 2 的代码落地，按 `d09d574` 核对）：「必须保存的内容」增个人事务行；`action_requested` 请求形状增请求级 `errands`（八键、取消、更新、新增的求值次序、`control_items` 与 `control_errands` 是唯一读取入口、缺键按完整性故障拒绝），受理与拒绝行写明事务变更与活动转换同一事务提交、错误明细的路径与名称载体，`action_result` 行增回执 `details.errands`；`environment_event` 登记六种事务事件的 `data.kind`、载荷与可见性（办成与提醒为人物可见，六种都不带决策与动作身份，只经 `caused_by` 关联），当日目标提醒与事务提醒分开写；表后增完成证据一段（读取一处、按事件顺序、被取消的事务不再接受同一提交的证据、结算每次提交一次）；唤醒原因闭集补 `errand_reminder_due`（不进睡眠允许集合，睡眠中错过的在醒来的那个边界交付）；观察段补待办层 `errands`、进度层两种记录与两类私有绑定，同秒续接补 `changes.errands`；记忆层 `settled` 排除六种事务事件，浓缩句只在进度层；事务变更不是记忆写入点；检查点封存版本 9 的 `errands`，世界结构 8→9；质量报告结构 4 与 `errand_metrics`、`conclusion_memories` 两节的定义；调试工具补查看器缺 `errands` 键报错与新标签；文件头的阶段号改为 2，补本规格首次受影响的发布身份。与实施计划作业原文不一致处按规格写：三种请求触发的事务事件不带动作身份（规格 2.7），每条被受理的变更各写一条而不按状态差分（2.2），完成证据不限于到店成交的订单并补同一提交内取消的规则（2.4），提醒在醒来的那个边界交付（2.5），事务指标无事务时整组为 null、有事务时没有命中记 0（6.1） |
-| `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 4（查询筛选与返回精简）同步（实施计划 D5-24、D5-25、D5-30，随阶段 4 的代码落地，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「工具纠错、只读查询与当天操作备忘的证据」`query_world` 改六键（增 `from`、`available_only`，旧四键请求按缺字段拒绝），筛选先于切页，返回不再附候选，两种查询参数错误，与 09 同句逐字一致；「数字足迹事件结构」观察私有事实增渠道索引 `world_query_channels`，供给条目所属门店记在已禁的 `location_id`；指名购买 `from` 来源写法由「门店名」更正为地点显示名（含「家」「住处」）；「调试工具」增 `queries` 子命令（八个键与各自口径，只报告）；文件头状态改为已落地阶段 1、2 与阶段 4；版本号不变 |
-| `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)阶段 3 同步（实施计划 D5 作业，随阶段 3 的代码落地，按 `56451b4` 核对）：「事件字段」观察段登记环境层在 `location` 之后的必填可空键 `duty`（今天的上班安排 `day`、`hours`、`place`、`breaks`、`status`，没有工作安排为 `null`），班内离岗照常受理、不另写事件；「调试工具」增只读子命令 `inspect_run.py workday --scenario <场景文件>` 及示例（工作负荷与作息偏离，场景文件摘要须等于运行清单的 `scenario_sha256`，作息窗口取自人物工作区的结构化卡片，只报告）；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），本规格首次受影响发布的引用块在阶段 2 之后补阶段 3 的场景结构 5、卡片结构 3 与抽取提示 `card-v3`；版本号不变 |
-| `2026-10-04-errands-workday-implemented` | 2026-10-04 | [个人事务与工作安排规格](../dev/SPEC-errands-workday.md)实现后文档（实施计划 D5-26、D5-27，按 `d8a41d3` 的代码与验收登记表核对）：「记录生活全过程的验收」增个人事务留证、个人事务检查点、严格反思留证三行，证据位置指向该规格验收台账的对应行（首行所引的台账行照规格现名写「事务变更与原子受理」，实施计划作业原文写作「事务登记与原子受理」），状态链接个人事务与工作安排验收记录；文件头状态行注明已实现并链接该验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；日期改写，版本号不变 |
+| v1.4 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D5 作业，随阶段 1 的代码落地，按 `a1f680b` 核对）：「必须保存的内容」增记忆阶段调用行，`decision_started` 行注明就寝反思请求不是行动请求，`model_request`、`model_response` 行写明反思的每次尝试是独立调用、校验错误随下一次请求的附回消息留证，并登记四个失败阶段码及其去向，「已核验经历与主观记忆」写明反思输出不合合同的有界校验重试与耗尽即运行故障，「质量报告」`name_rejections` 注明落库的失败阶段码计入其余协议错误，宿主一侧的口径照现行实现改写为读取已落库的 `data.protocol_feedback.error_code`（原写按协议错误串判定）；顺带更正「工具纠错、只读查询与当天操作备忘的证据」末句与「记录生活全过程的实现差距」末句两处把已实现的工具交互写成未实现的句子；版本表前的说明句改为以正文和各特性规格为准；文件头补同步说明，日期改写 |
+| `2026-10-03-errands-workday-stage-2` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 2 同步（实施计划 D5 作业，随阶段 2 的代码落地，按 `d09d574` 核对）：「必须保存的内容」增个人事务行；`action_requested` 请求形状增请求级 `errands`（八键、取消、更新、新增的求值次序、`control_items` 与 `control_errands` 是唯一读取入口、缺键按完整性故障拒绝），受理与拒绝行写明事务变更与活动转换同一事务提交、错误明细的路径与名称载体，`action_result` 行增回执 `details.errands`；`environment_event` 登记六种事务事件的 `data.kind`、载荷与可见性（办成与提醒为人物可见，六种都不带决策与动作身份，只经 `caused_by` 关联），当日目标提醒与事务提醒分开写；表后增完成证据一段（读取一处、按事件顺序、被取消的事务不再接受同一提交的证据、结算每次提交一次）；唤醒原因闭集补 `errand_reminder_due`（不进睡眠允许集合，睡眠中错过的在醒来的那个边界交付）；观察段补待办层 `errands`、进度层两种记录与两类私有绑定，同秒续接补 `changes.errands`；记忆层 `settled` 排除六种事务事件，浓缩句只在进度层；事务变更不是记忆写入点；检查点封存版本 9 的 `errands`，世界结构 8→9；质量报告结构 4 与 `errand_metrics`、`conclusion_memories` 两节的定义；调试工具补查看器缺 `errands` 键报错与新标签；文件头的阶段号改为 2，补本规格首次受影响的发布身份。与实施计划作业原文不一致处按规格写：三种请求触发的事务事件不带动作身份（规格 2.7），每条被受理的变更各写一条而不按状态差分（2.2），完成证据不限于到店成交的订单并补同一提交内取消的规则（2.4），提醒在醒来的那个边界交付（2.5），事务指标无事务时整组为 null、有事务时没有命中记 0（6.1） |
+| `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 4（查询筛选与返回精简）同步（实施计划 D5-24、D5-25、D5-30，随阶段 4 的代码落地，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「工具纠错、只读查询与当天操作备忘的证据」`query_world` 改六键（增 `from`、`available_only`，旧四键请求按缺字段拒绝），筛选先于切页，返回不再附候选，两种查询参数错误，与 09 同句逐字一致；「数字足迹事件结构」观察私有事实增渠道索引 `world_query_channels`，供给条目所属门店记在已禁的 `location_id`；指名购买 `from` 来源写法由「门店名」更正为地点显示名（含「家」「住处」）；「调试工具」增 `queries` 子命令（八个键与各自口径，只报告）；文件头状态改为已落地阶段 1、2 与阶段 4；版本号不变 |
+| `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 同步（实施计划 D5 作业，随阶段 3 的代码落地，按 `56451b4` 核对）：「事件字段」观察段登记环境层在 `location` 之后的必填可空键 `duty`（今天的上班安排 `day`、`hours`、`place`、`breaks`、`status`，没有工作安排为 `null`），班内离岗照常受理、不另写事件；「调试工具」增只读子命令 `inspect_run.py workday --scenario <场景文件>` 及示例（工作负荷与作息偏离，场景文件摘要须等于运行清单的 `scenario_sha256`，作息窗口取自人物工作区的结构化卡片，只报告）；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），本规格首次受影响发布的引用块在阶段 2 之后补阶段 3 的场景结构 5、卡片结构 3 与抽取提示 `card-v3`；版本号不变 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)实现后文档（实施计划 D5-26、D5-27，按 `d8a41d3` 的代码与验收登记表核对）：「记录生活全过程的验收」增个人事务留证、个人事务检查点、严格反思留证三行，证据位置指向该规格验收台账的对应行（首行所引的台账行照规格现名写「事务变更与原子受理」，实施计划作业原文写作「事务登记与原子受理」），状态链接个人事务与工作安排验收记录；文件头状态行注明已实现并链接该验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；日期改写，版本号不变 |
+
+| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |

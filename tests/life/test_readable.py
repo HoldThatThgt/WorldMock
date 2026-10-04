@@ -1,4 +1,4 @@
-"""七层共用的人读短语（docs/dev/SPEC-persona-prompt.md 第一章「通用格式」）。
+"""七层共用的人读短语（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「通用格式」）。
 
 时刻字段是带时区偏移、秒精度的 ISO 8601；日期是场景本地日期；短语里的时刻是本地 HH:MM，跨日加「M月D日 」；时长不到一分钟
 写「不到 1 分钟」，不足一小时按分钟取整，一小时以上按半小时取整；金额以元、份数都至多两位小数并去掉末尾的零；数字与单位
@@ -54,7 +54,7 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
 
 
 def test_count_phrase_and_content_category_labels_for_the_callable_index() -> None:
-    """工具层可调用索引的品类计数写成「N 个」（数字与量词之间一个空格，docs/dev/SPEC-dayrun-fidelity.md 5.2）；内容品类的中文名
+    """工具层可调用索引的品类计数写成「N 个」（数字与量词之间一个空格，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）；内容品类的中文名
     取 BROWSE_LABELS，覆盖场景内容品类闭集的每一个值（游戏会话为「游戏」）。"""
     from typing import get_args
 
@@ -66,7 +66,7 @@ def test_count_phrase_and_content_category_labels_for_the_callable_index() -> No
 
 
 def test_chinese_kind_tables_have_a_single_source() -> None:
-    """中文种类表只在 readable 定义（docs/dev/SPEC-dayrun-fidelity.md 7.4）：环境层的 PLACE_TYPES、ACTION_PHRASES 与交互
+    """中文种类表只在 readable 定义（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）：环境层的 PLACE_TYPES、ACTION_PHRASES 与交互
     菜单的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表的值都是不带英文字母的中文，英文键
     合成 ENGLISH_KIND_NAMES。"""
     import re

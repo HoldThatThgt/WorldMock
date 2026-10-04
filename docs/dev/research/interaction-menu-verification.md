@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/interaction-menu-verification.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 交互菜单验收记录
 
 > 状态：COMPLETE；本特性实现、文档同步、完整工程门禁与两组 Uncle Bob 复验均已完成，无延期项。

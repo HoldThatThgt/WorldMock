@@ -27,7 +27,7 @@ from worldmock.life.travel import route_for, validate_routes
 def test_open_rejects_invalid_storefront_state_before_exposing_world(engine_factory, damage, reason):
     """@brief 已落盘状态必须先通过结构和冻结选区核验，再允许观察或动作。"""
     engine = engine_factory()
-    payload = engine.state.model_dump(mode="json")
+    payload = engine.context.state.model_dump(mode="json")
     supply = next(iter(payload["supply_stock"]))
     if damage in {"stock-only", "supply"}:
         payload["supply_stock"].pop(supply)
@@ -44,10 +44,10 @@ def test_open_rejects_invalid_storefront_state_before_exposing_world(engine_fact
         agent["supply_browsed_at"] = {"unknown-supply": payload["current_time"]}
         agent["supply_browsed_location"] = {"unknown-supply": "home"}
     payload["version"] += 1
-    engine.store.commit(payload, [EventDraft(
+    engine.context.store.commit(payload, [EventDraft(
         event_type="environment_event", occurred_at=payload["current_time"], visibility="system",
         source_kind="scenario", data={"kind": "test_storefront_state_corruption"})])
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     with pytest.raises((ValidationError, IntegrityError), match=reason):
         LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
@@ -59,18 +59,18 @@ def test_open_rejects_invalid_storefront_state_before_exposing_world(engine_fact
 def test_route_selection_rejects_explicit_non_reachable_status(engine_factory, status, reason):
     """@brief 地点仍存在时，不可达和资料未知必须拒绝出行且保留各自原因。"""
     engine = engine_factory()
-    original = engine.scenario.routes[0]
+    original = engine.context.scenario.routes[0]
     fields = {"status": status, "distance_meters": None,
         "duration_seconds": None, "fare_fen": None, "reason": "Controlled unavailable route"}
     if status == "unknown":
         fields.update(response_path=None, response_sha256=None)
     route = RouteConfig.model_validate({**original.model_dump(), **fields})
-    scenario = engine.scenario.model_copy(update={"routes": (route,)})
+    scenario = engine.context.scenario.model_copy(update={"routes": (route,)})
     request = ActivityStartParams(activity_type="travel", planned_duration_seconds=300,
         destination_id=route.destination_id, travel_mode=route.mode)
     with pytest.raises(BusinessRuleError, match=reason):
         route_for(scenario, route.origin_id, request)
-    assert engine.state.agents[1].location_id == "home"
+    assert engine.context.state.agents[1].location_id == "home"
 
 
 @pytest.mark.parametrize("status,response,reason", [
@@ -93,8 +93,8 @@ def test_route_response_status_is_verified_without_fabricating_unknown_evidence(
         fields.update(response_path="route.json", response_sha256=hashlib.sha256(content).hexdigest())
     else:
         fields.update(response_path=None, response_sha256=None)
-    route = RouteConfig.model_validate({**engine.scenario.routes[0].model_dump(), **fields})
-    scenario = engine.scenario.model_copy(update={"routes": (route,)})
+    route = RouteConfig.model_validate({**engine.context.scenario.routes[0].model_dump(), **fields})
+    scenario = engine.context.scenario.model_copy(update={"routes": (route,)})
     if reason:
         with pytest.raises(IntegrityError, match=reason):
             validate_routes(scenario, tmp_path)

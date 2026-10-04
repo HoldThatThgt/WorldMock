@@ -1,4 +1,4 @@
-"""完整请求 token 预算与进度层结构化浓缩（docs/dev/SPEC-persona-prompt.md 第四章）的单元与宿主请求测试。
+"""完整请求 token 预算与进度层结构化浓缩（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第四章）的单元与宿主请求测试。
 
 达到上下文 85% 时依次：从旧到新逐条去掉未受保护记录的 self_note；把最旧一段连续的未受保护记录折成一条 condensed
 记录（lines 为各记录的 settled 句），重复到阈值以下；每步重新计数。受保护记录与其他五层从不改变；仍超限时按层记录

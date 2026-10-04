@@ -1,4 +1,4 @@
-"""个人事务状态模型 ErrandState 的合同测试（docs/dev/SPEC-errands-workday.md 2.1 字段表与「存放」）。
+"""个人事务状态模型 ErrandState 的合同测试（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态  字段表与「存放」）。
 
 ErrandState 是一条未完成事务：封闭（拒绝未知字段）、不可变；数量 1 至 9；已累计量是九位小数、恒小于数量；只有设了提醒
 时刻的事务才有交付时刻，且交付不早于提醒时刻。AgentState.errands 以事务身份为键保存它们，随世界状态往返。

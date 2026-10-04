@@ -1,6 +1,10 @@
 """@brief AgentSociety2 原生 LifeEnv 扩展，委托唯一生活领域服务。"""
 
 from __future__ import annotations
+from worldmock.run_setup import stage_model_identity
+from worldmock.runtime import settle_pending_day_plans
+from custom.agents.life_agent import life_action_tool_names
+from worldmock.runtime import settle_pending_model_replies
 
 from datetime import datetime
 from pathlib import Path
@@ -17,25 +21,40 @@ from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, Ru
 from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理八个工具；
-#: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/dev/SPEC-time-and-energy.md 第四章）。
-_STABLE_TOOL_SURFACE = frozenset({
-    "start_activity", "recall_task_summary", "report_status", "pause_activity",
-    "conclude_activity", "revise_day_plan", "submit_work", "send_message", "query_world"})
+#: 稳定工具面（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」）：环境侧必须恰好受理八个工具；
+#: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
+_STABLE_TOOL_SURFACE = frozenset(
+    {
+        "start_activity",
+        "recall_task_summary",
+        "report_status",
+        "pause_activity",
+        "conclude_activity",
+        "revise_day_plan",
+        "submit_work",
+        "send_message",
+        "query_world",
+    }
+)
 
 
 class LifeEnv(EnvBase):
     """@brief 为 DirectRouter 提供严格决策轮、事件调度和共同检查点。"""
 
-    def __init__(self, scenario_path: str | None = None, run_dir: str | None = None,
-                 run_identity: dict | None = None, open_existing: bool = False,
-                 create_options: dict | None = None):
+    def __init__(
+        self,
+        scenario_path: str | None = None,
+        run_dir: str | None = None,
+        run_identity: dict | None = None,
+        open_existing: bool = False,
+        create_options: dict | None = None,
+    ):
         """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。
 
         create_options 是新建运行的附加输入：agent_taste_weights（人物口味权重）、input_warnings（运行输入警告，
-        冻结进清单；docs/dev/SPEC-dayrun-fidelity.md 1.3）、persona_habit_responses（人设层习惯签名的反应文本，
+        冻结进清单；docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）、persona_habit_responses（人设层习惯签名的反应文本，
         冻结进清单，候选排序的相关度；5.1）与 same_second_continuation
-        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/dev/SPEC-persona-prompt.md 第二章「同秒续接」）。
+        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「同秒续接」）。
         """
         super().__init__()
         self.scenario_path = Path(scenario_path).resolve() if scenario_path else None
@@ -48,15 +67,17 @@ class LifeEnv(EnvBase):
     @classmethod
     def init_description(cls) -> str:
         """@brief 描述唯一新建或明确打开运行的构造参数。"""
-        return ("LifeEnv requires scenario_path, run_dir, and run_identity for a new run. "
-                "Set open_existing=false for a new run or "
-                "open_existing=true only for an existing immutable run directory.")
+        return (
+            "LifeEnv requires scenario_path, run_dir, and run_identity for a new run. "
+            "Set open_existing=false for a new run or "
+            "open_existing=true only for an existing immutable run directory."
+        )
 
     async def init(self, start_datetime: datetime) -> None:
         """@brief 校验起始时钟并创建或明确打开运行；普通恢复在首次决策之前补齐缺失的当日计划。
 
         锁定的 AS2 在恢复模式不形成初始检查点、首轮决策又先于推进，从计划尚未生成的检查点普通恢复时，
-        零点计划只能在这里执行（docs/dev/SPEC-time-and-energy.md 第四章「执行位置」）；此调用早于 AS2 登记
+        零点计划只能在这里执行（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「执行位置」）；此调用早于 AS2 登记
         运行故障的范围，任务异常先经 engine.fail_run 登记再抛出。反事实分支在干预检查点之后执行。
         """
         await super().init(start_datetime)
@@ -69,22 +90,21 @@ class LifeEnv(EnvBase):
         else:
             if self.run_identity is None:
                 raise ProtocolError("New LifeEnv run requires explicit run_identity")
-            from worldmock.runtime import stage_model_identity
             identity = stage_model_identity(self.create_options.get("same_second_continuation", True))
-            self.engine = LifeEngine.create(self.scenario_path, self.run_dir, self.run_identity,
-                                            identity, self.create_options)
-        if int(start_datetime.timestamp()) != self.engine.state.current_time:
+            self.engine = LifeEngine.create(
+                self.scenario_path, self.run_dir, self.run_identity, identity, self.create_options
+            )
+        if int(start_datetime.timestamp()) != self.engine.context.state.current_time:
             self.engine.close()
             self.engine = None
             raise ProtocolError("LifeEnv start time disagrees with the scenario")
         self._validate_registered_tool_surface()
         self._workspace_root = self.run_dir
-        if self.open_existing and self.engine.store.manifest.get("branch_kind") == "resume":
+        if self.open_existing and self.engine.context.store.manifest.get("branch_kind") == "resume":
             await self._settle_day_plans_on_resume(self.engine)
 
     async def _settle_day_plans_on_resume(self, engine: LifeEngine) -> None:
         """@brief 普通恢复时执行零点计划后台任务；异常先登记运行故障再抛出。"""
-        from worldmock.runtime import settle_pending_day_plans
 
         try:
             await settle_pending_day_plans(engine)
@@ -100,21 +120,20 @@ class LifeEnv(EnvBase):
         开放集合与登记闭集不一致说明 agent/env 工具面漂移——两者都在
         init 时 fail-closed，而不是运行中 KeyError。
         """
-        from custom.agents.life_agent import life_action_tool_names
 
         registered = frozenset(REQUEST_MODELS) | {"query_world"}
         drift = registered ^ _STABLE_TOOL_SURFACE
         if drift:
             raise ProtocolError(
-                f"LifeEnv registered tool surface disagrees with the stable tool surface: {sorted(drift)}")
+                f"LifeEnv registered tool surface disagrees with the stable tool surface: {sorted(drift)}"
+            )
         if life_action_tool_names() != registered:
-            raise ProtocolError(
-                "LifeEnv tool surface disagrees with the LifeAgent action tool set")
+            raise ProtocolError("LifeEnv tool surface disagrees with the LifeAgent action tool set")
 
     async def begin_decision_round(self, contexts: tuple[Any, ...]) -> str:
         """@brief 登记共同版本和实际结算顺序。"""
         engine = self._require_engine()
-        write_status(engine.store.run_dir, "running", "deciding")
+        write_status(engine.context.store.run_dir, "running", "deciding")
         engine.begin_decision_round(list(contexts))
         return contexts[0].round_id
 
@@ -132,14 +151,17 @@ class LifeEnv(EnvBase):
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
         """@brief 对已冻结观察即时只读派发，不产生世界动作、进度事件或人物记忆。"""
         engine = self._require_engine()
-        engine._validate_context(context)
-        engine._require_round(context.round_id)
+        engine.decisions.validate_context(context)
+        engine.decisions.require_round(context.round_id)
         expected = QueryWorldRequest if tool == "query_world" else REQUEST_MODELS.get(tool)
         if tool not in {"query_world", "recall_task_summary"} or type(request) is not expected:
             raise ProtocolError("Read query tool and request type do not match")
-        events = engine.store.read_agent_events("observation", context.agent_id)
-        rows = [event for event in events if event.decision_id == context.decision_id
-                and event.occurred_at == int(context.observed_at.timestamp())]
+        events = engine.context.store.read_agent_events("observation", context.agent_id)
+        rows = [
+            event
+            for event in events
+            if event.decision_id == context.decision_id and event.occurred_at == int(context.observed_at.timestamp())
+        ]
         if len(rows) != 1:
             raise ProtocolError("Read query requires one frozen decision observation")
         observed = rows[0].data
@@ -150,15 +172,20 @@ class LifeEnv(EnvBase):
             return engine.read_task_summary(context.agent_id, request, observed)
         except BusinessRuleError as error:
             guidance = rejection_guidance(error)
-            return {"error_code": str(error), "reason": guidance["reason"], "fix": guidance.get("fix"),
-                    "items": guidance.get("items", []), "unmet": list(getattr(error, "unmet", []) or [])}
+            return {
+                "error_code": str(error),
+                "reason": guidance["reason"],
+                "fix": guidance.get("fix"),
+                "items": guidance.get("items", []),
+                "unmet": list(getattr(error, "unmet", []) or []),
+            }
 
     async def commit_decision_round(self, round_id: str):
-        """@brief 原子结算人物批次，随后送达待发的联系人 model 回复（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
+        """@brief 原子结算人物批次，随后送达待发的联系人 model
+        回复（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。"""
         engine = self._require_engine()
-        write_status(engine.store.run_dir, "running", "resolving")
+        write_status(engine.context.store.run_dir, "running", "resolving")
         results = engine.commit_decision_round(round_id)
-        from worldmock.runtime import settle_pending_model_replies
         await settle_pending_model_replies(engine)
         return results
 
@@ -181,13 +208,12 @@ class LifeEnv(EnvBase):
     async def checkpoint(self, request: Any):
         """@brief 对全部人物工作区取不可变快照并提交共同检查点，随后为缺当日计划的人物执行零点计划。
 
-        覆盖新建运行的初始检查点与反事实分支的干预检查点（启动路径，docs/dev/SPEC-time-and-energy.md 第四章）；
+        覆盖新建运行的初始检查点与反事实分支的干预检查点（启动路径，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）；
         新计划由下一个共同检查点封存。无人缺当日计划时任务不构造客户端即返回。
         """
         engine = self._require_engine()
-        write_status(engine.store.run_dir, "running", "checkpointing")
+        write_status(engine.context.store.run_dir, "running", "checkpointing")
         committed = self._checkpoint(engine, request)
-        from worldmock.runtime import settle_pending_day_plans
         await settle_pending_day_plans(engine)
         return committed
 
@@ -195,22 +221,26 @@ class LifeEnv(EnvBase):
         """@brief 校验共同身份并为每个人物工作区形成素材快照。"""
         if not isinstance(request, SocietyCheckpointRequest):
             raise ProtocolError("Checkpoint request must use SocietyCheckpointRequest")
-        if request.run_id != engine.state.run_id or int(request.current_time.timestamp()) != engine.state.current_time:
+        if (
+            request.run_id != engine.context.state.run_id
+            or int(request.current_time.timestamp()) != engine.context.state.current_time
+        ):
             raise ProtocolError("Checkpoint request identity or time is stale")
-        expected = set(engine.store.manifest["agent_ids"])
+        expected = set(engine.context.store.manifest["agent_ids"])
         if {agent_id for agent_id, _ in request.agent_workspaces} != expected:
             raise ProtocolError("Checkpoint request agent set is incomplete")
-        snapshots = {f"agent:{agent_id}": snapshot_directory(Path(path), engine.store.assets)
-                     for agent_id, path in request.agent_workspaces}
+        snapshots = {
+            f"agent:{agent_id}": snapshot_directory(Path(path), engine.context.store.assets)
+            for agent_id, path in request.agent_workspaces
+        }
         return engine.checkpoint(snapshots)
 
     async def step(self, tick: int, t: datetime) -> None:
         """@brief 直接推进到 Society 已选定的下一个严格边界；零点边界先生成当日计划，再判定该秒的唤醒与决策。"""
         engine = self._require_engine()
-        write_status(engine.store.run_dir, "running", "advancing")
+        write_status(engine.context.store.run_dir, "running", "advancing")
         engine.advance(tick, t)
         if engine.midnight_rhythm_pending:
-            from worldmock.runtime import settle_pending_day_plans
             await settle_pending_day_plans(engine)
             engine.decide_midnight_rhythm()
         self.t = t
@@ -226,8 +256,8 @@ class LifeEnv(EnvBase):
     async def to_workspace(self, workspace_path: Path | None = None) -> None:
         """@brief 绑定已有运行目录，不创建第二份环境状态。"""
         engine = self._require_engine()
-        target = Path(workspace_path).resolve() if workspace_path else engine.store.run_dir
-        if target != engine.store.run_dir:
+        target = Path(workspace_path).resolve() if workspace_path else engine.context.store.run_dir
+        if target != engine.context.store.run_dir:
             raise ProtocolError("LifeEnv workspace must be its footprint run directory")
         self._workspace_root = target
 
@@ -241,7 +271,7 @@ class LifeEnv(EnvBase):
         self.engine = LifeEngine.open(self.scenario_path, self.run_dir)
         self._workspace_root = self.run_dir
         timezone = self.engine.scheduling_state().current_time.tzinfo
-        self.t = datetime.fromtimestamp(self.engine.state.current_time, timezone)
+        self.t = datetime.fromtimestamp(self.engine.context.state.current_time, timezone)
         return True
 
     @classmethod
@@ -267,8 +297,9 @@ class LifeEnv(EnvBase):
         try:
             self._require_engine().fail_run(f"{type(close_error).__name__}: {close_error}")
         except Exception as record_error:
-            raise ExceptionGroup("LifeEnv close and failure recording both failed",
-                                 [close_error, record_error]) from close_error
+            raise ExceptionGroup(
+                "LifeEnv close and failure recording both failed", [close_error, record_error]
+            ) from close_error
 
     def _require_engine(self) -> LifeEngine:
         """@brief 拒绝在 init 或 restore 之前调用生活接口。"""

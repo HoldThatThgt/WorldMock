@@ -1,6 +1,9 @@
 """@brief 从本轮冻结观察查询公开能力，不修改世界、人物记忆或呈现凭据。"""
 
 from __future__ import annotations
+from worldmock.life.tool_layer import tool_layer, with_bindings
+from worldmock.life.callable_index import query_category_index
+from worldmock.life.discovery import DiscoveryContext, supply_row
 
 import copy
 import logging
@@ -12,16 +15,19 @@ from pydantic import (BaseModel, ConfigDict, Field, ModelWrapValidatorHandler, V
 
 from worldmock.life.error_contract import Candidate, ErrorItem, ErrorReport
 from worldmock.life.guidance import default_reason
-from worldmock.life.interaction_menu import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS, binding_action
+from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS
+from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import purpose_only_schema
-from worldmock.life.name_resolution import channel_key, near_source_names, resolve_name, resolve_source, way_options
+from worldmock.life.name_resolution import channel_key, near_source_names, resolve_source
+from worldmock.life.object_labels import resolve_name
+from worldmock.life.vocabulary import way_options
 from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import BROWSE_LABELS
 from worldmock.life.request_errors import argument_report
 from worldmock.life.tool_groups import compact
 
 _LOGGER = logging.getLogger(__name__)
-#: 两种新查询参数错误的 expected（docs/dev/SPEC-errands-workday.md 5.5 原文）与查询明细共用的 why。
+#: 两种新查询参数错误的 expected（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-错误  原文）与查询明细共用的 why。
 _SOURCE_EXPECTED = "null, a known place name, or a known channel name is required."
 _CHANNEL_IN_NAME_EXPECTED = "A channel name belongs in from; name takes an object name."
 _QUERY_WHY = "The submitted value is outside the current query contract."
@@ -30,7 +36,7 @@ _FILTER_KEYS = ("name", "way", "category", "from")
 
 
 class QueryWorldRequest(BaseModel):
-    """@brief 固定六字段查询（docs/dev/SPEC-errands-workday.md 5.1）：六个键全部必填、无缺省，名称、方式、品类与购买来源
+    """@brief 固定六字段查询（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-请求 ）：六个键全部必填、无缺省，名称、方式、品类与购买来源
     取交集，available_only 只留已确认此刻可执行的条目（不单独构成查询条件），分页偏移严格使用 JSON 整数。来源的 JSON 键
     是 from（字段名 from_ 只在代码里用）；非 null 的名称、方式与品类不得为空白，来源的空白写法按 5.5 第一行报错。"""
 
@@ -74,10 +80,8 @@ class QueryWorldRequest(BaseModel):
 
 def attach_world_query(observation: dict, context: Any) -> None:
     """@brief 在观察构建时一次冻结完整权限内事实，供宿主即时只读分页使用；另冻结渠道索引（world_query_channels：渠道
-    身份、称呼、成员门店，按声明顺序），供来源筛选与购买共用同一解析（docs/dev/SPEC-errands-workday.md 5.2）。地点表与
+    身份、称呼、成员门店，按声明顺序），供来源筛选与购买共用同一解析（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）。地点表与
     住处已在观察里（locations、home_location_id），不另存副本。"""
-    from worldmock.life.tool_layer import tool_layer, with_bindings
-    from worldmock.life.callable_index import query_category_index
 
     bindings = _complete_bindings(observation, context)
     complete = tool_layer(with_bindings(context, bindings), {})["targets"]
@@ -105,7 +109,6 @@ def _complete_bindings(observation: dict, context: Any) -> list[dict]:
 
 def _supply_bindings(context: Any) -> list[dict]:
     """@brief 指名购买已经授权的逐店商品公开事实；冻结读取不要求真实浏览准入。"""
-    from worldmock.life.discovery import DiscoveryContext, supply_row
 
     agent = context.state.agents[context.agent_id]
     discovery = DiscoveryContext(context.state, context.scenario, context.semantics, agent)
@@ -124,7 +127,7 @@ def _supply_bindings(context: Any) -> list[dict]:
 
 def _frozen_entry(context: Any, target: dict, binding: dict | None) -> dict:
     """@brief 内部身份只用于排序，查询结果保留公开目标（完整副本，null 照存，返回时才紧凑投影）；不附逐项请求候选
-    （docs/dev/SPEC-errands-workday.md 5.4）。供给条目另记所属门店（location_id，来源筛选用，不进查询结果），其余条目
+    （docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-返回 ）。供给条目另记所属门店（location_id，来源筛选用，不进查询结果），其余条目
     为 None。"""
     identity = (f"{binding['kind']}:{binding['object_id']}" if binding is not None else target["name"])
     public = copy.deepcopy(target)
@@ -154,7 +157,7 @@ def _category(context: Any, binding: dict | None) -> str | None:
 
 def validate_world_query(observation: dict, request: QueryWorldRequest) -> ErrorReport | None:
     """@brief 汇总所有独立可确定的动态错误（方式、品类、来源与误写进名称的渠道称呼一次全报）；分页范围只在全部筛选
-    合法后按筛选后的完整匹配数计算（docs/dev/SPEC-errands-workday.md 5.5）。宿主与环境两个入口在同一冻结观察上调用它。"""
+    合法后按筛选后的完整匹配数计算（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-错误 ）。宿主与环境两个入口在同一冻结观察上调用它。"""
     errors = _filter_issues(observation, request.model_dump(mode="json"))
     if not errors:
         total = len(_matching_entries(observation, request))
@@ -170,7 +173,7 @@ def validate_world_query(observation: dict, request: QueryWorldRequest) -> Error
 def query_argument_report(observation: dict, error: ValidationError, arguments: Any) -> ErrorReport:
     """@brief 宿主严格校验失败时的完整查询参数报告：先列请求模型的错误（缺键、类型、空白与四者全空），再列按冻结观察
     仍可独立判定的方式、品类、来源与误写进名称的渠道称呼错误——每条只看自身取值合法的那个键，所以来源错误不被别的键的
-    类型或空白错误压下（docs/dev/SPEC-errands-workday.md 5.5「来源错误与方式、品类错误一次全报」）；候选里其余键照原样。
+    类型或空白错误压下（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-错误 「来源错误与方式、品类错误一次全报」）；候选里其余键照原样。
     offset 范围只在全部筛选合法后计算，这里不算。"""
     report = argument_report("query_world", error, QueryWorldRequest, arguments)
     items = (*report.items, *_filter_issues(observation, arguments if isinstance(arguments, dict) else {}))

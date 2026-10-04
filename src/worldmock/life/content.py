@@ -36,7 +36,7 @@ class LifestyleItem:
     description: str
     met_value: float
     #: 目录声明的时间窗（start_hour, end_hour），场景时区的本地小时，半开区间；没有声明时为 None。
-    #: 只作候选排序的相关度（docs/dev/SPEC-dayrun-fidelity.md 5.1），不构成资格。
+    #: 只作候选排序的相关度（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），不构成资格。
     time_window: tuple[int, int] | None = None
 
 
@@ -48,7 +48,7 @@ def _time_window(row: dict) -> tuple[int, int] | None:
     return (int(window["start_hour"]), int(window["end_hour"]))
 
 
-#: 「接着看」的最短剩余：已看完或剩余不足 60 秒的内容给全长并从头派生（docs/dev/SPEC-time-and-energy.md 第八章「呈现」）。
+#: 「接着看」的最短剩余：已看完或剩余不足 60 秒的内容给全长并从头派生（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「呈现」）。
 CONTENT_RESUME_MINIMUM_SECONDS = 60
 
 

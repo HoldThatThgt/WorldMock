@@ -9,8 +9,8 @@ from worldmock.life.observe import _content_catalog
 def test_unstarted_content_has_segment_structure(engine_factory) -> None:
     """@brief 未观看的条目有时间轴分段信息，没有虚构进度。"""
     engine = engine_factory()
-    rows = _content_catalog(engine.scenario, engine.rules.subtitles,
-                            engine.rules.content_titles, {})
+    rows = _content_catalog(engine.context.scenario, engine.context.rules.subtitles,
+                            engine.context.rules.content_titles, {})
     by_id = {row["item_id"]: row for row in rows}
     assert by_id["novel-0001"]["segments_total"] == 169
     assert by_id["novel-0001"]["typical_segment_seconds"] == 502.0
@@ -24,10 +24,10 @@ def test_content_progress_uses_actual_timeline_cues(engine_factory) -> None:
     engine = engine_factory()
     item_id = "novel-0001"
     progress = {item_id: ContentProgress(item_id=item_id, position_seconds=900, exposure_count=1)}
-    rows = _content_catalog(engine.scenario, engine.rules.subtitles,
-                            engine.rules.content_titles, progress)
+    rows = _content_catalog(engine.context.scenario, engine.context.rules.subtitles,
+                            engine.context.rules.content_titles, progress)
     by_id = {row["item_id"]: row for row in rows}
-    expected = sum(cue.end_seconds <= 900 for cue in engine.rules.subtitles[item_id])
+    expected = sum(cue.end_seconds <= 900 for cue in engine.context.rules.subtitles[item_id])
     row = by_id[item_id]
     assert row["progress"]["position_seconds"] == 900
     assert row["progress"]["segments_completed"] == expected

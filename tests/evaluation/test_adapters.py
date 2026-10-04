@@ -244,7 +244,7 @@ def test_digital_interaction_follows_activity_type_regardless_of_claim_names(
     evaluation_fixture, activity_type, claims, digital,
 ) -> None:
     """数字交互只按活动类型判定（工作、观看、游戏、读信、浏览），与占用名无关：占用重列后播客只占 ears、
-    驾车也占 eyes 与 hands（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）；占用原样保留为来源通道。"""
+    驾车也占 eyes 与 hands（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）；占用原样保留为来源通道。"""
     scenario = load_scenario(evaluation_fixture.scenario_path)
     delivery = VerifiedDelivery(
         "world-run", "world-dataset", scenario.window, Path("events.jsonl"),

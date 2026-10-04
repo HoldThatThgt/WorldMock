@@ -1,24 +1,26 @@
+<a name="coverage-baseline-覆盖率门禁口径与基线"></a>
 # 覆盖率门禁口径与基线
 
 > 状态：个人事务与工作安排特性（实施阶段 1–4 与阶段 5 的补测）合入后的最终代码已通过离线工程门禁；此前各特性及主线数字保留历史身份，不与当前结果相加
 > 日期：2026-10-04
-> 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
+> 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
 
-个人事务与工作安排特性的分支头 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（含最终代码与测试提交 `a7e2fdc` 之后的两个运行查看器提交与全部实现后文档）已通过门禁：5,851 passed、0 failed、7 skipped，分支覆盖率 95.15%，未覆盖公共接口为零，现行报告由这次运行生成；此前最终代码与测试提交 `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2` 上的门禁结果相同（7 项都是既有平台或产物条件跳过），留作历史。数字见「基线记录」首节，完整证据见 [个人事务与工作安排验收记录](errands-workday-verification.md)。
+个人事务与工作安排特性的分支头 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（含最终代码与测试提交 `a7e2fdc` 之后的两个运行查看器提交与全部实现后文档）已通过门禁：5,851 passed、0 failed、7 skipped，分支覆盖率 95.15%，未覆盖公共接口为零，现行报告由这次运行生成；此前最终代码与测试提交 `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2` 上的门禁结果相同（7 项都是既有平台或产物条件跳过），留作历史。数字见「基线记录」首节，完整证据见 [个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)。
 
-一日运行保真特性的最终代码提交 `147843655aa00621488a306e68ecf98c5273b3bf` 的门禁结果（4,987 passed、7 个既有跳过，分支 95.05%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第二节与 [一日运行保真验收记录](dayrun-fidelity-verification.md)。
+一日运行保真特性的最终代码提交 `147843655aa00621488a306e68ecf98c5273b3bf` 的门禁结果（4,987 passed、7 个既有跳过，分支 95.05%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第二节与 [一日运行保真验收记录](../archive/dayrun-fidelity/dayrun-fidelity-verification.md)。
 
-人物 Prompt 七层特性的最终代码提交 `e80404099946187a9def070c9e9ae05c45c14621` 的门禁结果（4,295 passed、8 个既有跳过，分支 94.88%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第三节与 [人物 Prompt 验收记录](persona-prompt-verification.md)。
+人物 Prompt 七层特性的最终代码提交 `e80404099946187a9def070c9e9ae05c45c14621` 的门禁结果（4,295 passed、8 个既有跳过，分支 94.88%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第三节与 [人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)。
 
-时间与能量特性的最终代码提交 `ef13dc58770af52000a1c2e81883561e85a0c904` 的门禁结果（3978 passed、8 个既有跳过，分支 94.57%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第四节与 [时间与能量验收记录](research/time-and-energy-verification.md)。
+时间与能量特性的最终代码提交 `ef13dc58770af52000a1c2e81883561e85a0c904` 的门禁结果（3978 passed、8 个既有跳过，分支 94.57%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第四节与 [时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)。
 
 地图与门店供给独立分支的最终验收提交 `017d49c4a246c0c524e541571220e1a07b16ce87` 已通过门禁：
 3240 passed、4 个历史运行锚定用例因原产物缺失而 skipped，分支覆盖率 98.49%，未覆盖公共接口为零。
 本特性新增用例无跳过；原始机器报告、完整输出和独立审查见 [本特性验收记录](research/map-and-storefront-verification.md)。
 该数字与下文主线历史基线均保留原身份；地图与品类主线组合的结果单列为历史基线，完整证据见 [主线组合验收](research/map-and-storefront-main-verification.md)。
 
+<a name="coverage-baseline-门禁流程"></a>
 ## 门禁流程
 
 ```mermaid
@@ -33,6 +35,7 @@ flowchart TB
     E -- "否" --> Q["写 docs/dev/coverage-report.json<br/>退出码 1（FAILED）"]
 ```
 
+<a name="coverage-baseline-覆盖率口径"></a>
 ## 覆盖率口径
 
 本项目验收采用三项覆盖率口径：两项由门禁机器判定，一项是映射义务。
@@ -43,6 +46,7 @@ flowchart TB
 | 接口覆盖率 | 100% | 三个生产根目录下全部 `.py` 文件中，模块顶层与类体直接定义的、非下划线开头的 `def` / `async def`（含类方法；`__init__` 等 dunder 与函数体内嵌套定义的函数均不计），其函数体全部行均被测试执行 | 机器判定：函数体行号区间内任一行出现在 coverage 的 `missing_lines` 即为未覆盖 |
 | 分支覆盖率 | ≥ 85.00% | coverage branch 模式下 `covered_branches / (covered_branches + missing_branches)`，按 coverage 结果中的全部文件汇总，两位小数 | 机器判定：与 `BRANCH_THRESHOLD` 比较，判定式为 `branch_percent >= threshold` |
 
+<a name="coverage-baseline-失败关闭约定"></a>
 ## 失败关闭约定
 
 - 文件位于生产根目录但未被 coverage 测量（如从未被导入）：其全部公共接口计为未覆盖——防止脚本读不到某文件的覆盖数据时静默漏检。
@@ -51,6 +55,7 @@ flowchart TB
 - 覆盖数据导出失败（`coverage json` 非零退出）：向 stderr 打印 `ERROR`，不写报告，退出码 1。
 - 生产源文件无法解析（语法错误）：抛出携带文件名与行号的 `RuntimeError`，门禁中断，不产生报告。
 
+<a name="coverage-baseline-测量范围与排除"></a>
 ## 测量范围与排除
 
 - 测量范围：`src/worldmock`、`custom/agents`、`custom/envs`。三者同时是 `pyproject.toml` 的 `[tool.coverage.run] source` 与脚本的 `PRODUCTION_ROOTS`。`custom/agents` 与 `custom/envs` 不是包（无 `__init__.py`），coverage 枚举未执行文件时会剪枝非包子目录，故必须显式列到叶子目录才能计入测量。
@@ -58,6 +63,7 @@ flowchart TB
 - 分支模式：`branch = true`，测量与导出均启用；报告显示 `show_missing = true`、`precision = 2`。
 - 行排除表（`[tool.coverage.report] exclude_lines`）显式替换默认值：仅保留 `# pragma: no cover` 与 `if TYPE_CHECKING:`；**不含**默认对纯 `...` stub 行的豁免，即未调用的占位实现会计入 `missing_lines` 并被接口覆盖率捕获——与项目「禁止占位实现」的方针一致。
 
+<a name="coverage-baseline-使用命令"></a>
 ## 使用命令
 
 ```bash
@@ -72,8 +78,10 @@ uv run coverage html            # HTML 明细
 
 `docs/dev/coverage-report.json` 是生成物，每次运行覆盖重写，内容为：生成时间、执行命令、证据身份（本次运行的 `snapshot_id`、覆盖数据的 `manifest_hash`、被测源代码的 Git 提交哈希 `source_identity`，取不到时记为 `unknown`）、阈值、整体分支覆盖（covered / missing / total / percent / passed）、逐文件分支覆盖、未覆盖公共接口清单（`文件:行:函数名:种类`）、顶层判定位 `passed`。
 
+<a name="coverage-baseline-基线记录"></a>
 ## 基线记录
 
+<a name="coverage-baseline-当前个人事务与工作安排特性合入后"></a>
 ### 当前：个人事务与工作安排特性合入后
 
 完整门禁的被测源码提交为 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（`964de50`，门禁运行时特性分支 `feat/errands-workday` 的分支头：个人事务与工作安排实施阶段 1–4、各阶段评审修复、
@@ -95,8 +103,9 @@ uv run coverage html            # HTML 明细
 门禁按同一判定逻辑分片执行：十二个并行分片各执行 `coverage run -p -m pytest -q <均衡分配的测试文件>`，随后 `coverage combine`、`coverage json`，
 再调用 `scripts/coverage_gate.py` 自己的判定函数；被测的测试集与度量口径同串行命令 `uv run coverage run -m pytest -q`，判定逻辑与阈值不变。
 报告中的 `command` 字段如实记为实际执行的分片命令，不是脚本常量 `uv run coverage run -m pytest -q`。
-分片明细、预跑标出的 13 个接口、两轮独立源码变异审查与门禁细节见[个人事务与工作安排验收记录](errands-workday-verification.md)。
+分片明细、预跑标出的 13 个接口、两轮独立源码变异审查与门禁细节见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)。
 
+<a name="coverage-baseline-一日运行保真特性合入后的历史基线"></a>
 ### 一日运行保真特性合入后的历史基线
 
 完整门禁的被测源码提交为 `147843655aa00621488a306e68ecf98c5273b3bf`（`1478436`，一日运行保真阶段 1–5、全部修复、三路独立语义突变审查的补测与验收登记表合入后，
@@ -116,8 +125,9 @@ uv run coverage html            # HTML 明细
 7 skipped、0 failed；查看器回归经 VS Code 自带的 Electron 以 Node 方式运行，LabelKit 用例经目录联接借用主工作区的 LabelKit 虚拟环境；随后 `coverage combine`，
 再调用 `scripts/coverage_gate.py` 的 `main()`，以分片的测试退出码（0）代替其内部的全量测试，以虚拟环境解释器的 `python -m coverage json` 代替 `uv run coverage json`，
 判定逻辑、阈值与报告格式不变。报告中的 `command` 字段仍是脚本常量 `uv run coverage run -m pytest -q`。
-分片明细、独立语义突变审查与门禁细节见[一日运行保真验收记录](dayrun-fidelity-verification.md)。
+分片明细、独立语义突变审查与门禁细节见[一日运行保真验收记录](../archive/dayrun-fidelity/dayrun-fidelity-verification.md)。
 
+<a name="coverage-baseline-人物-prompt-七层特性合入后的历史基线"></a>
 ### 人物 Prompt 七层特性合入后的历史基线
 
 完整门禁的被测源码提交为 `e80404099946187a9def070c9e9ae05c45c14621`（`e804040`，人物 Prompt 七层阶段 1–6、评审修复、两路测试加固与规格符合性修复全部合入后的最终代码），
@@ -137,8 +147,9 @@ uv run coverage html            # HTML 明细
 8 skipped、0 failed，与一次调用相同；查看器回归经 Node 24 运行；随后 `coverage combine`，再调用 `scripts/coverage_gate.py` 的 `main()`，
 以分片的测试退出码（0）代替其内部的全量测试，以虚拟环境解释器的 `python -m coverage json` 代替 `uv run coverage json`，
 判定逻辑、阈值与报告格式不变。报告中的 `command` 字段仍是脚本常量 `uv run coverage run -m pytest -q`。
-逐阶段评审、独立语义突变审查与门禁明细见[人物 Prompt 验收记录](persona-prompt-verification.md)。
+逐阶段评审、独立语义突变审查与门禁明细见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)。
 
+<a name="coverage-baseline-时间与能量特性合入后的历史基线"></a>
 ### 时间与能量特性合入后的历史基线
 
 完整门禁的被测源码提交为 `ef13dc58770af52000a1c2e81883561e85a0c904`（`ef13dc5`，时间与能量阶段 0–7 全部合入后的最终代码），
@@ -152,8 +163,9 @@ uv run coverage html            # HTML 明细
 | 顶层判定 `passed` | true（通过） |
 
 门禁在 Windows 11 本机运行。此前提交的报告是 2026-09-22 的一次中断运行（`passed` 为 false），已被本次报告取代。
-逐阶段评审、VF4 语义突变与门禁明细见[时间与能量验收记录](research/time-and-energy-verification.md)。
+逐阶段评审、VF4 语义突变与门禁明细见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)。
 
+<a name="coverage-baseline-地图与品类主线组合的历史基线"></a>
 ### 地图与品类主线组合的历史基线
 
 完整门禁的生产源码提交为 `70af9a70f82ebe9b2b33d5f4d7327f59de150002`，
@@ -171,6 +183,7 @@ uv run coverage html            # HTML 明细
 这不是在 `6fe3ab7` 重新执行全量门禁，不将定向计数与全量计数相加。完整命令、原始审查结果和复验证据归
 [主线组合验收](research/map-and-storefront-main-verification.md)。
 
+<a name="coverage-baseline-合并地图之前的主线历史基线"></a>
 ### 合并地图之前的主线历史基线
 
 以下为交互菜单与品类主线的固定历史基线，不能代表加入地图后的当前组合：
@@ -194,6 +207,7 @@ uv run coverage html            # HTML 明细
 品类契约原分支逐项证据记录在 `docs/dev/category-contract-verification.md`；
 其先前 3166 项测试与模型库存补修结果继续保留在 `docs/dev/category-contract-main-verification.md`。
 
+<a name="coverage-baseline-版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 修订内容 |
@@ -209,6 +223,6 @@ uv run coverage html            # HTML 明细
 | `2026-09-26-time-and-energy` | 2026-09-26 | 基线记录按时间与能量特性合入后 `ef13dc5` 重新生成的报告改写（CB1）：3978 passed、8 skipped、分支 94.57%、未覆盖公共接口 0，取代 2026-09-22 的中断运行报告；原「当前地图与品类主线组合」一节改为历史基线，数值与源码身份不变。 |
 | `2026-09-28-persona-prompt` | 2026-09-28 | 基线记录按人物 Prompt 七层特性合入后 `f798ea7` 重新生成的报告改写（人物 Prompt 台账 CB1）：4258 个不重复用例 passed、0 failed、8 skipped，分支 94.84%（7451/7856），未覆盖公共接口 0；写明本机 `uv run` 不可用，门禁以八个覆盖率分片执行后合并，再以同一判定逻辑运行 `scripts/coverage_gate.py`；原「当前：时间与能量特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态与日期改写 |
 | `2026-09-28-persona-prompt-final` | 2026-09-28 | 基线记录按最终代码 `e804040`（两路测试加固与规格符合性修复合入后）重新生成的报告改写（人物 Prompt 台账 CB1）：4,295 passed、0 failed、8 skipped（一次调用与八个覆盖率分片相同），分支 94.88%（7467/7870），未覆盖公共接口 0，报告随 `95a4447` 提交；取代 `f798ea7` 的报告（`da0d393`），其数字在「基线记录」首节留一句；分片说明删去完整性守卫重复计入的去重口径 |
-| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 基线记录按一日运行保真特性合入后的最终代码 `1478436` 重新生成的报告改写（一日运行保真实现后文档，随[验收记录](dayrun-fidelity-verification.md)）：4,987 passed、0 failed、7 skipped（覆盖率下六个分片合计，没有另跑不带覆盖率的一次调用），分支 95.05%（7916/8328），未覆盖公共接口 0，报告随 `b7f85f9` 提交；取代 `9a5f508` 上未通过的首次门禁（未覆盖公共接口 6），其数字在「基线记录」首节留一句；原「当前：人物 Prompt 七层特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态、日期与首段改写 |
-| `2026-10-04-errands-workday` | 2026-10-04 | 基线记录按个人事务与工作安排特性合入后的最终代码与测试提交 `a7e2fdc` 重新生成的报告改写（个人事务与工作安排实现后文档，随[验收记录](errands-workday-verification.md)；该特性的实施计划没有单列这一作业）：5,851 passed、0 failed、7 skipped（隔离 worktree 上带覆盖率的十二个分片合计），分支 95.15%（8520/8954），未覆盖公共接口 0，报告随该特性的实现后文档提交，`command` 字段记实际执行的分片命令；取代 `04249f1` 上未通过的预跑（未覆盖公共接口 13），其数字在「基线记录」首节留一句；原「当前：一日运行保真特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态、日期与首段改写 |
-| `2026-10-04-errands-workday-branch-head` | 2026-10-04 | 基线记录首节按分支头 `964de50` 上重新生成的报告改写（最终门禁在实现后文档与两个运行查看器提交 `1346e0d`、`6c81126` 之后重跑，随[验收记录](errands-workday-verification.md)「全量门禁与覆盖率」）：5,851 passed、0 failed、7 skipped（隔离 worktree 上带覆盖率的十二个分片合计，墙钟 4792 秒），分支 95.15%（8520/8954），未覆盖公共接口 0，`snapshot_id` 为 `64abe7a3-eeaf-4eb6-beba-a35939d02131`，报告随记录这次运行的文档提交；取代 `a7e2fdc` 的报告（`8613139`），其数字与报告身份在「基线记录」首节留一句；首段改写，其余各节不变 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 基线记录按一日运行保真特性合入后的最终代码 `1478436` 重新生成的报告改写（一日运行保真实现后文档，随[验收记录](../archive/dayrun-fidelity/dayrun-fidelity-verification.md)）：4,987 passed、0 failed、7 skipped（覆盖率下六个分片合计，没有另跑不带覆盖率的一次调用），分支 95.05%（7916/8328），未覆盖公共接口 0，报告随 `b7f85f9` 提交；取代 `9a5f508` 上未通过的首次门禁（未覆盖公共接口 6），其数字在「基线记录」首节留一句；原「当前：人物 Prompt 七层特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态、日期与首段改写 |
+| `2026-10-04-errands-workday` | 2026-10-04 | 基线记录按个人事务与工作安排特性合入后的最终代码与测试提交 `a7e2fdc` 重新生成的报告改写（个人事务与工作安排实现后文档，随[验收记录](../archive/errands-workday/errands-workday-verification.md)；该特性的实施计划没有单列这一作业）：5,851 passed、0 failed、7 skipped（隔离 worktree 上带覆盖率的十二个分片合计），分支 95.15%（8520/8954），未覆盖公共接口 0，报告随该特性的实现后文档提交，`command` 字段记实际执行的分片命令；取代 `04249f1` 上未通过的预跑（未覆盖公共接口 13），其数字在「基线记录」首节留一句；原「当前：一日运行保真特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态、日期与首段改写 |
+| `2026-10-04-errands-workday-branch-head` | 2026-10-04 | 基线记录首节按分支头 `964de50` 上重新生成的报告改写（最终门禁在实现后文档与两个运行查看器提交 `1346e0d`、`6c81126` 之后重跑，随[验收记录](../archive/errands-workday/errands-workday-verification.md)「全量门禁与覆盖率」）：5,851 passed、0 failed、7 skipped（隔离 worktree 上带覆盖率的十二个分片合计，墙钟 4792 秒），分支 95.15%（8520/8954），未覆盖公共接口 0，`snapshot_id` 为 `64abe7a3-eeaf-4eb6-beba-a35939d02131`，报告随记录这次运行的文档提交；取代 `a7e2fdc` 的报告（`8613139`），其数字与报告身份在「基线记录」首节留一句；首段改写，其余各节不变 |

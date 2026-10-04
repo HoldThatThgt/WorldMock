@@ -1,6 +1,8 @@
 """runtime 运行壳、代码身份与共同恢复测试。"""
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
+from worldmock.footprints.checkpoint import restore_branch
 
 import copy
 import importlib.util
@@ -34,29 +36,10 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
-from worldmock.runtime import (
-    AS2_LOCKED_SOURCE_SHA256,
-    CounterfactualRequest,
-    ResumeRequest,
-    RunRequest,
-    _agent_specs,
-    _build_society,
-    _execute,
-    _git_state,
-    _intervention_sha256,
-    _model_identity,
-    _no_persona_compilation,
-    _prepare_new_run,
-    _require_run_shell,
-    _restore_branch,
-    replay_world,
-    require_locked_as2,
-    resume_world,
-    run_world,
-    runtime_code_sha256,
-    stage_model_identity,
-)
-from worldmock.validation import validate_project, validate_stage_model_identity
+from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _execute, _intervention_sha256, _no_persona_compilation, _prepare_new_run, _require_run_shell, _restore_branch, replay_world, resume_world, run_world
+from worldmock.validation import validate_project
+from worldmock.run_setup import validate_stage_model_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
@@ -134,9 +117,9 @@ def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
 
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
     """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境），两者都取经场景作息覆盖后的卡片
-    （docs/dev/SPEC-dayrun-fidelity.md 2.1）；恢复模式不重新编译。"""
+    （docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；恢复模式不重新编译。"""
     from tests.profile.conftest import make_card
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.models import persona_card_struct
     from worldmock.profile.textgen import render_card
@@ -214,7 +197,7 @@ def test_code_identity_covers_every_imported_as2_file_except_pycache(
         path.write_bytes((path.read_bytes() if path.exists() else b"") + b"#")
         with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
             runtime_code_sha256(project)
-        monkeypatch.setattr(runtime_module, "AS2_LOCKED_SOURCE_SHA256", expected_as2_sha256(package))
+        monkeypatch.setattr(worldmock_run_setup_module, 'AS2_LOCKED_SOURCE_SHA256', expected_as2_sha256(package))
         changed = runtime_code_sha256(project)
         assert changed not in seen
         seen.add(changed)
@@ -226,8 +209,8 @@ def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, 
     name = f"worldmock_fake_as2_{uuid4().hex}"
     first = write_fake_as2(tmp_path_factory.mktemp("site-a"), name)
     second = write_fake_as2(tmp_path_factory.mktemp("site-b") / "deeper" / "install", name)
-    monkeypatch.setattr(runtime_module, "_AS2_PACKAGE", name)
-    monkeypatch.setattr(runtime_module, "AS2_LOCKED_SOURCE_SHA256", expected_as2_sha256(first))
+    monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', name)
+    monkeypatch.setattr(worldmock_run_setup_module, 'AS2_LOCKED_SOURCE_SHA256', expected_as2_sha256(first))
 
     identities = []
     for package in (first, second):
@@ -244,7 +227,7 @@ def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, 
 def _break_as2(condition: str, monkeypatch, site: Path) -> None:
     """把运行身份解析到的 AS2 置为缺失（导入失败）、为空或与锁定摘要不符。"""
     if condition == "missing":
-        monkeypatch.setattr(runtime_module, "_AS2_PACKAGE", f"worldmock_absent_as2_{uuid4().hex}")
+        monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', f'worldmock_absent_as2_{uuid4().hex}')
     elif condition == "empty":
         use_fake_as2(monkeypatch, site, {"__pycache__/stale.cpython-312.pyc": b"\x00"}, locked=False)
     else:
@@ -280,7 +263,7 @@ def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_pat
     """导入被阻断、已导入对象没有 spec、同名对象不是包：都按 AS2 身份不符拒绝，也不给出代码身份。"""
     project = write_project(tmp_path / "project")
     name = f"worldmock_fake_as2_{uuid4().hex}"
-    monkeypatch.setattr(runtime_module, "_AS2_PACKAGE", name)
+    monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', name)
     if variant == "blocked":
         monkeypatch.setitem(sys.modules, name, None)
     elif variant == "no_spec":
@@ -311,7 +294,7 @@ def test_as2_file_read_failure_is_an_identity_refusal(failure, monkeypatch, tmp_
             return original(self)
 
         monkeypatch.setattr(Path, "read_bytes", deny)
-    monkeypatch.setattr(runtime_module, "_as2_source_files", lambda: [("agentsociety2/society.py", path)])
+    monkeypatch.setattr(worldmock_run_setup_module, '_as2_source_files', lambda: [('agentsociety2/society.py', path)])
 
     with pytest.raises(IntegrityError, match=f"^{_AS2_REFUSAL}$") as caught:
         require_locked_as2()
@@ -388,7 +371,7 @@ def test_git_state_is_null_when_git_is_unavailable_or_status_fails(monkeypatch, 
         commands.append(command)
         raise FileNotFoundError("git")
 
-    monkeypatch.setattr(runtime_module.subprocess, "run", missing_git)
+    monkeypatch.setattr(worldmock_run_setup_module.subprocess, "run", missing_git)
     assert _git_state(tmp_path) == (None, None)
 
     def status_fails(command, **kwargs):
@@ -396,7 +379,7 @@ def test_git_state_is_null_when_git_is_unavailable_or_status_fails(monkeypatch, 
         head = "rev-parse" in command
         return SimpleNamespace(returncode=0 if head else 128, stdout=b"a" * 40 + b"\n" if head else b"")
 
-    monkeypatch.setattr(runtime_module.subprocess, "run", status_fails)
+    monkeypatch.setattr(worldmock_run_setup_module.subprocess, "run", status_fails)
     assert _git_state(tmp_path) == (None, None)
     assert commands[-1][3:] == ["status", "--porcelain", "--untracked-files=normal"]
 
@@ -418,7 +401,7 @@ async def test_run_manifest_records_git_commit_and_dirty_flag(monkeypatch, tmp_p
         env = LifeEnv(**prepared.env_kwargs)
         await env.init(prepared.start_time)
         try:
-            manifests.append(env.engine.store.manifest)
+            manifests.append(env.engine.context.store.manifest)
         finally:
             await env.close()
 
@@ -678,10 +661,10 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
 
     monkeypatch.setattr(runtime, "_require_custom_modules", lambda root: None)
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(read_query_runtime, "life_env_actor_class", lambda: ActorClass)
-    monkeypatch.setattr(read_query_runtime, "LifeEnvProxy", reject_router)
+    monkeypatch.setattr(runtime, "life_env_actor_class", lambda: ActorClass)
+    monkeypatch.setattr(runtime, "LifeEnvProxy", reject_router)
     monkeypatch.setattr(ray, "kill", lambda target, no_restart: calls.append(("kill", target, no_restart)))
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     scenario_path = Path("scenarios/white-collar-12-weeks.json")
     scenario, _ = load_scenario(scenario_path)
@@ -719,7 +702,7 @@ def _npc_delivery_engine(tmp_path: Path):
     from worldmock.life.engine import LifeEngine
 
     scenario_path = Path("scenarios/white-collar-12-weeks.json")
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     scenario, _ = load_scenario(scenario_path)
     run_id = "npc-delivery-test"
@@ -762,14 +745,14 @@ async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypa
         results = await env.commit_decision_round("npc-deliver")
 
         assert results[0].status == "completed"
-        assert not [item for item in engine.state.agents[1].inbox.values()
+        assert not [item for item in engine.context.state.agents[1].inbox.values()
                     if item.sender_id == "contact-chenxi-oldfriend"]
-        scheduled = [item for item in engine.state.pending_events if item.kind == "message_arrival"]
+        scheduled = [item for item in engine.context.state.pending_events if item.kind == "message_arrival"]
         assert len(scheduled) == 1 and scheduled[0].agent_id == 1
-        assert scheduled[0].due_at == engine.state.current_time + CONTACT_REPLY_DELAY_SECONDS
+        assert scheduled[0].due_at == engine.context.state.current_time + CONTACT_REPLY_DELAY_SECONDS
         reply = scheduled[0].data["message"]
         assert reply["sender_id"] == "contact-chenxi-oldfriend" and reply["text"] == "好啊，老地方见。"
-        events = engine.store.read_events(engine.store.last_event_seq)
+        events = engine.context.store.read_events(engine.context.store.last_event_seq)
         assert not [item for item in events if item.data.get("kind") == "message_arrival"
                     and item.data.get("message_id") == reply["message_id"]]
         evidence = [item for item in events if item.data.get("kind") == "model_npc_reply"]
@@ -805,7 +788,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         results = await env.commit_decision_round("npc-noop")
 
         assert results[0].status == "in_progress"
-        assert engine.state.agents[1].inbox == {}
+        assert engine.context.state.agents[1].inbox == {}
     finally:
         engine.close()
 
@@ -848,13 +831,13 @@ def _checkpoint_request(engine, tmp_path: Path, round_id: str):
     from agentsociety2.society import SocietyCheckpointRequest
 
     workspaces = []
-    for agent_id in engine.store.manifest["agent_ids"]:
+    for agent_id in engine.context.store.manifest["agent_ids"]:
         workspace = tmp_path / f"ws-{round_id}-{agent_id}"
         workspace.mkdir(parents=True, exist_ok=True)
         (workspace / "AGENT.json").write_text('{"agent_id": %d}' % agent_id, encoding="utf-8")
         workspaces.append((agent_id, str(workspace)))
-    now = datetime.fromtimestamp(engine.state.current_time, ZoneInfo(engine.scenario.timezone))
-    return SocietyCheckpointRequest(engine.state.run_id, round_id, now, tuple(workspaces))
+    now = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.scenario.timezone))
+    return SocietyCheckpointRequest(engine.context.state.run_id, round_id, now, tuple(workspaces))
 
 
 @pytest.mark.asyncio
@@ -874,9 +857,9 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         checkpoint = await env.checkpoint(request)
 
         assert checkpoint.state["agents"]["1"]["day_plan"] is None
-        assert engine.state.agents[1].day_plan.goals[0].goal == "上午把周报写完"
-        assert client.built == [engine.store.manifest["model_identity"]]
-        events = engine.store.read_events(engine.store.last_event_seq)
+        assert engine.context.state.agents[1].day_plan.goals[0].goal == "上午把周报写完"
+        assert client.built == [engine.context.store.manifest["model_identity"]]
+        events = engine.context.store.read_events(engine.context.store.last_event_seq)
         order = [event.event_type if event.event_type != "environment_event" else event.data["kind"]
                  for event in events]
         assert order.index("checkpoint_created") < order.index("day_plan_generated")
@@ -906,10 +889,10 @@ async def test_life_env_step_plans_midnight_before_the_step_checkpoint(tmp_path,
                                                  "remind_time": "07:00", "around_time": "07:00"}])
         state = await env.scheduling_state()
 
-        await env.step(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
+        await env.step(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
 
         assert env.t == state.next_event_at and not engine.midnight_rhythm_pending
-        assert engine.state.agents[1].plan_submitted_dates == {"2026-01-05", "2026-01-06"}
+        assert engine.context.state.agents[1].plan_submitted_dates == {"2026-01-05", "2026-01-06"}
         assert len(client.built) == 1 and not (await env.scheduling_state()).ready_agent_ids
         checkpoint = await env.checkpoint(_checkpoint_request(engine, tmp_path, "advance"))
         assert checkpoint.state["agents"]["1"]["day_plan"]["goals"][0]["goal"] == "起床洗漱"
@@ -929,9 +912,9 @@ def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) 
         workspace = tmp_path / "parent-ws"
         workspace.mkdir(exist_ok=True)
         (workspace / "AGENT.json").write_text("{}", encoding="utf-8")
-        checkpoint = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.store.assets)})
+        checkpoint = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
         child = tmp_path / ("planned-child" if planned else "child")
-        engine.store.restore(checkpoint.checkpoint_id, child, metadata).close()
+        restore_branch(engine.context.store, checkpoint.checkpoint_id, child, metadata).close()
         return child
     finally:
         engine.close()
@@ -948,9 +931,9 @@ async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeyp
     env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
-        assert env.engine.store.manifest["branch_kind"] == "resume"
-        assert env.engine.state.agents[1].plan_submitted_dates == {"2026-01-05"} and len(client.built) == 1
-        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        assert env.engine.context.store.manifest["branch_kind"] == "resume"
+        assert env.engine.context.state.agents[1].plan_submitted_dates == {"2026-01-05"} and len(client.built) == 1
+        events = env.engine.context.store.read_events(env.engine.context.store.last_event_seq)
         assert not [event for event in events if event.event_type == "decision_started"]
     finally:
         await env.close()
@@ -973,7 +956,7 @@ async def test_counterfactual_init_waits_for_the_intervention_checkpoint(tmp_pat
     env = LifeEnv(scenario_path="scenarios/white-collar-12-weeks.json", run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
-        assert env.engine.state.agents[1].day_plan is None
+        assert env.engine.context.state.agents[1].day_plan is None
     finally:
         await env.close()
 
@@ -994,7 +977,7 @@ async def test_plan_day_failure_during_resume_init_is_registered_before_raising(
     with pytest.raises(ConnectionError, match="transport down"):
         await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
-        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        events = env.engine.context.store.read_events(env.engine.context.store.last_event_seq)
         assert events[-1].event_type == "run_failed" and "transport down" in events[-1].data["error"]
         assert [event.data["phase"] for event in events if event.data.get("purpose") == "plan_day"] == [
             "request", "failure"]
@@ -1050,21 +1033,21 @@ async def test_plan_day_failure_at_a_midnight_step_is_one_run_failure_through_so
         env = LifeEnv()
         env.engine = engine
         _failing_plan_day_client(monkeypatch)
-        zone = ZoneInfo(engine.scenario.timezone)
-        window = (datetime.fromtimestamp(engine.state.current_time, zone),
-                  datetime.fromtimestamp(engine.state.end_time, zone))
-        identity = SimpleNamespace(run_id=engine.state.run_id, agent_ids=tuple(sorted(engine.state.agents)))
+        zone = ZoneInfo(engine.context.scenario.timezone)
+        window = (datetime.fromtimestamp(engine.context.state.current_time, zone),
+                  datetime.fromtimestamp(engine.context.state.end_time, zone))
+        identity = SimpleNamespace(run_id=engine.context.state.run_id, agent_ids=tuple(sorted(engine.context.state.agents)))
         society = AgentSociety(_society_config(env, identity, tmp_path, window, "restored"))
         society._initialized = True
         society._environment_started = True
         midnight = int(datetime(2026, 1, 6, tzinfo=zone).timestamp())
-        seq = engine.store.last_event_seq
+        seq = engine.context.store.last_event_seq
 
         with pytest.raises(ConnectionError, match="transport down") as caught:
             await society.run()
 
         assert not isinstance(caught.value, BaseExceptionGroup) and society.current_time == window[0]
-        events = [event for event in engine.store.read_events(engine.store.last_event_seq) if event.event_seq > seq]
+        events = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq) if event.event_seq > seq]
         assert events[-1].event_type == "run_failed" and "transport down" in events[-1].data["error"]
         assert [event.event_type for event in events].count("run_failed") == 1
         assert [(event.data["phase"], event.occurred_at) for event in events
@@ -1083,7 +1066,7 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
     from agentsociety2.society import AgentSociety
     from custom.envs.life_env import LifeEnv
     from worldmock.life.models import RunIdentity
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     async def no_dispatchers():
         return None
@@ -1116,7 +1099,7 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
 
     try:
         assert not isinstance(caught.value, BaseExceptionGroup)
-        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        events = env.engine.context.store.read_events(env.engine.context.store.last_event_seq)
         order = [event.event_type if event.data.get("purpose") != "plan_day" else event.data["phase"]
                  for event in events]
         assert order[-4:] == ["checkpoint_created", "request", "failure", "run_failed"]
@@ -1126,9 +1109,9 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
 
 
 def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
-    """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md「画像编译」）。"""
+    """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。"""
     import worldmock.runtime as runtime_module
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.taste import compute_taste_weights
 
@@ -1144,7 +1127,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
         compiled.append(agent.agent_id)
         return card
 
-    monkeypatch.setattr(runtime_module, "_compile_persona", fake_compile)
+    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', fake_compile)
     genres = {item.item_id: ("剧情",) for item in scenario.contents}
     full, half, empty = (item.item_id for item in scenario.contents[:3])
     genres[full], genres[half], genres[empty] = ("剧情", "科幻"), ("剧情", "历史"), ()
@@ -1152,7 +1135,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     specs = _agent_specs(scenario, content_genres=genres)
 
     weights = specs[0]["profile"]["taste_weights"]
-    # 游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：游戏按 game_id 查同一张题材表，没有声明的为空。
+    # 游戏与内容同一算法（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）：游戏按 game_id 查同一张题材表，没有声明的为空。
     expected = compute_taste_weights(
         ("剧情", "科幻"),
         [{"item_id": item.item_id, "genre": genres[item.item_id]}
@@ -1168,14 +1151,14 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
 def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) -> None:
     """无口味卡片：全内容与游戏目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
     import worldmock.runtime as runtime_module
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     from tests.profile.conftest import make_card
     from worldmock.profile.models import Tastes
 
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
     card = make_card(tastes=Tastes(content_genres=(), food_preferences=(), media=()))
-    monkeypatch.setattr(runtime_module, "_compile_persona", lambda agent: card)
+    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', lambda agent: card)
 
     specs = _agent_specs(scenario, content_genres={item.item_id: ("剧情",)
                                                    for item in scenario.contents})
@@ -1189,12 +1172,12 @@ def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) ->
 def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
     """恢复模式不重算口味权重：人物档案随检查点工作区原样恢复。"""
     import worldmock.runtime as runtime_module
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     def forbidden(agent):
         raise AssertionError("restore path must not compile personas or tastes")
 
-    monkeypatch.setattr(runtime_module, "_compile_persona", forbidden)
+    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', forbidden)
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
 
     specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
@@ -1206,8 +1189,8 @@ def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
 
 def test_content_genre_catalog_joins_contents_to_corpus_genres() -> None:
     """装配侧 genre 表：场景内容经 item_id 连接语料条目 genre（无 id 条目缺省空）。"""
-    from worldmock.runtime import _content_genre_catalog
-    from worldmock.life.scenario import load_scenario
+    from worldmock.run_setup import _content_genre_catalog
+    from worldmock.life.world_setup import load_scenario
 
     scenario_path = Path("scenarios/white-collar-12-weeks.json")
     scenario, _ = load_scenario(scenario_path)

@@ -15,7 +15,8 @@ from worldmock.corpora.manifest import load_manifest
 from worldmock.errors import IntegrityError
 from worldmock.life.content import load_subtitles, reveal_watch
 from worldmock.life.models import ActivityState, AgentState, BodyState
-from worldmock.life.scenario import ContentItemConfig, load_scenario
+from worldmock.life.scenario import ContentItemConfig
+from worldmock.life.world_setup import load_scenario
 
 ROOT = Path("corpora")
 ITEM_ID = "podcast-nasa-space-habitat-excerpt"

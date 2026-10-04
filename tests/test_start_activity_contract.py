@@ -10,29 +10,31 @@ from pydantic import ValidationError
 from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import change_activity
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE_PAUSED, PHASE_PENDING, activity_phase
-from worldmock.life.interaction_menu import (
-    LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, WAYS, binding_action,
-)
+from worldmock.life.vocabulary import LIFE_VERBS, PURCHASE_WAYS, USE_WAYS, WAYS
+from worldmock.life.readable import TRAVEL_WAYS
+from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import (ActionResult, ActivityKind, ActivityState, ActivityStatus,
                                    ConcludeActivityRequest, PauseActivityRequest, ReportStatusRequest, SessionTaskKind,
                                    StartActivityRequest)
 from worldmock.life.routing import combination_error, require_recipients, routing_names
 from worldmock.life.schedule import DayPlan, PlanGoal
-from worldmock.life.session_actions import SessionActionMixin
+from worldmock.life.session_actions import ActionHandlers
 from tests.life.conftest import conclude_request, report_request
 
 
-class _ActionHarness(SessionActionMixin):
+class _ActionHarness(ActionHandlers):
     """仅为动作解析与派生参数测试提供被调用的领域边界。"""
 
     def __init__(self, observation: dict | None = None):
         """@brief 绑定一条已提交观察，捕获不改状态的领域调用。"""
+        self.context = SimpleNamespace()
+        self.storefront = SimpleNamespace(_purchase=self._purchase)
         event = SimpleNamespace(decision_id="decision", occurred_at=100, data=observation)
-        self.store = SimpleNamespace(read_agent_events=lambda *_: [event])
+        self.context.store = SimpleNamespace(read_agent_events=lambda *_: [event])
         # 控制判定的地点名表与受理提示所用的路线；本组用例都在同一停留内
-        self.scenario = SimpleNamespace(locations=(), routes=())
-        self.semantics = SimpleNamespace(scenario=self.scenario)
-        self.rules = SimpleNamespace(tasks={}, items={})  # 本组控制活动没有工作或物品产出，两个目录明确为空。
+        self.context.scenario = SimpleNamespace(locations=(), routes=())
+        self.context.semantics = SimpleNamespace(scenario=self.context.scenario)
+        self.context.rules = SimpleNamespace(tasks={}, items={})  # 本组控制活动没有工作或物品产出，两个目录明确为空。
         self.calls = []
 
     def _purchase(self, state, pending, request, named=frozenset(), channels=None):
@@ -306,7 +308,7 @@ def test_listed_label_with_another_known_place_in_from_is_a_source_mismatch():
     """列出的标签「<门店>出售的<商品>」写了另一个已知地点（冻结地点表里的门店名）作 from：共用判定给 SUPPLY_SOURCE_MISMATCH
     （宿主据此在本轮纠正，tests/integration/test_storefront_tools.py）；绕过宿主时环境照常解析出选择，由指名购买带候选拒绝。
     App 称呼与不认识的写法不在此列，交给环境按渠道与来源解析；写的正是标签里的门店（含带「地点：」前缀的写法）在名称解析中按
-    保留原始来源并说明可填 null（docs/dev/SPEC-tool-interaction.md「名称归一与错误合同」）。"""
+    保留原始来源并说明可填 null（docs/dev/SPEC-life-runtime.md#tool-interaction-工具请求「名称归一与错误合同」）。"""
     observation = _routing_observation()
     names = routing_names(observation)
     other = _request((_SUPPLY, "远程下单", "好德", None))
@@ -368,8 +370,8 @@ def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(monkeypatc
            "actions": [binding_action("步行", "travel_to", travel_mode="walking"),
                        binding_action("驾车", "travel_to", travel_mode="driving")]}
     harness = _ActionHarness({"interaction_bindings": [row]})
-    harness.scenario = SimpleNamespace()
-    harness.semantics = SimpleNamespace(travel_planned_seconds=lambda *_: 673)
+    harness.context.scenario = SimpleNamespace()
+    harness.context.semantics = SimpleNamespace(travel_planned_seconds=lambda *_: 673)
     monkeypatch.setattr("worldmock.life.session_actions.route_for", lambda *_: SimpleNamespace(duration_seconds=610))
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, current_time=100)
     selected = harness._start_selection(_pending(), _request(("城西办公室", "步行", None, None)))
@@ -386,7 +388,7 @@ def test_purchase_uses_each_observed_quote_and_single_unit():
     harness = _ActionHarness()
     supply = SimpleNamespace(location_id="shop", fulfillment_modes=("delivery",),
                              delivery_destination_ids=("home",))
-    harness.rules = SimpleNamespace(supplies={"first": supply, "second": supply})
+    harness.context.rules = SimpleNamespace(supplies={"first": supply, "second": supply})
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
     selected = binding_action(PURCHASE_WAYS["delivery"], "purchase", fulfillment="delivery")
     bindings = [{"object_id": "first", "selected_action": selected, "recipient_id": "agent:1",
@@ -408,7 +410,7 @@ def test_purchase_preserves_chosen_pickup_when_delivery_is_also_available():
     harness = _ActionHarness()
     supply = SimpleNamespace(location_id="home", fulfillment_modes=("pickup", "delivery"),
                              delivery_destination_ids=("home",))
-    harness.rules = SimpleNamespace(supplies={"offer": supply})
+    harness.context.rules = SimpleNamespace(supplies={"offer": supply})
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
     binding = {"object_id": "offer", "selected_action": binding_action("到店", "purchase", fulfillment="pickup"),
                "recipient_id": "agent:1", "quote": {"price_version": "current-v3", "price_fen": 350}}
@@ -420,7 +422,7 @@ def test_purchase_preserves_chosen_pickup_when_delivery_is_also_available():
 def test_nonfood_object_uses_catalog_mode_and_one_unit():
     """非食品的“使用”选择沿目录合同进入 use，而非被误作进食。"""
     harness = _ActionHarness()
-    harness.rules = SimpleNamespace(items={
+    harness.context.rules = SimpleNamespace(items={
         "umbrella": SimpleNamespace(use_modes=("use",), use_duration_seconds=300)})
     bindings = [{"selected_action": binding_action(USE_WAYS["use"], "consume", use_mode="use")}]
     harness._start_consume_action(_State({}), _pending(), ["umbrella"], bindings)
@@ -459,8 +461,8 @@ def test_report_two_activities_validates_all_before_updating_anything():
 def test_control_requests_pair_each_task_with_its_summary():
     """三条控制工具一项一个对象：活动名与自述写在同一对象里，不再靠下标对齐三组数组；一至两项、活动名互不相同且非空、
     自述非空；结束工具每项另有必填的 memories 与 views（都可以是空列表）；旧的平行数组形状不再受理
-    （docs/dev/SPEC-dayrun-fidelity.md 第六章）；请求级 errands 必填（可以是空列表），缺它的请求不受理
-    （docs/dev/SPEC-errands-workday.md 2.2）。"""
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）；请求级 errands 必填（可以是空列表），缺它的请求不受理
+    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。"""
     item = {"activity_name": "工作写会议纪要（1月5日 09:00 起）", "summary": "先写完提纲"}
     other = {"activity_name": "休息（1月5日 10:00 起）", "summary": "歇一会儿"}
     for model in (ReportStatusRequest, PauseActivityRequest):

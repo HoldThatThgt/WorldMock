@@ -1,7 +1,8 @@
-"""@brief 指名购买的来源范围、可服务的供给与按偏好选定（docs/dev/SPEC-dayrun-fidelity.md 3.2、3.3、3.5）。
+"""@brief 指名购买的来源范围、可服务的供给与按偏好选定（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 、3.3、3.5
+）。
 
 来源范围（source_scope）：from 为 null 是全部门店；其余写法交给与查询共用的纯函数 name_resolution.resolve_source
-（docs/dev/SPEC-errands-workday.md 5.2）：是地点的显示名（精确、无损归一或去掉「地点：」前缀后唯一，「家」「住处」指本人
+（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）：是地点的显示名（精确、无损归一或去掉「地点：」前缀后唯一，「家」「住处」指本人
 住处）时是该地点；是渠道称呼（去掉空白、不分大小写，其余逐字比较，name_resolution.channel_key）时是该渠道的成员门店，
 并记下 channel_id；都不是时为 None（SOURCE_NOT_FOUND）。渠道只是门店集合的称呼（裁决 D8、S7），不带交付语义。
 
@@ -24,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from worldmock.life.admission import present_location
 from worldmock.life.basket import delivery_expected_at
-from worldmock.life.interaction_menu import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
+from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
 from worldmock.life.name_resolution import near_source_names, resolve_source
 from worldmock.life.storefront_state import current_quote
 from worldmock.life.wayfinding import shortest_paths

@@ -1,4 +1,4 @@
-"""个人事务与收尾记忆指标的定义（docs/dev/SPEC-errands-workday.md 6.1、3.4 第 3 项；记录引擎设计「质量报告」）。
+"""个人事务与收尾记忆指标的定义（docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 、3.4 第 3 项；记录引擎设计「质量报告」）。
 
 以已认证事件模型（footprints.models.Event）构造与导出 events.jsonl 同形的事件字典，事务快照取自 ErrandState，收尾请求经
 control_items 读取：逐键核对 errand_metrics 与 conclusion_memories 的定义与边界（分母是记下的事务而不是当日目标、终态恰在
@@ -371,7 +371,7 @@ def _two_completions(crossed: bool) -> _Log:
 
 
 def test_evidence_of_the_other_outcome_kind_does_not_verify_a_completion() -> None:
-    """完成依据是结果种类 × 商品 × 数量（docs/dev/SPEC-errands-workday.md 2.4），办成的证据行须与事务同一所有人、同一结果
+    """完成依据是结果种类 × 商品 × 数量（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 ），办成的证据行须与事务同一所有人、同一结果
     种类、同一商品：结果种类与证据相同的两条办成都可复核；同样的两条证据，换成「吃掉纯牛奶」引用买到的那份、「取得冰红茶」
     引用吃掉的那份，所有人与商品都对得上而结果种类不同，两条都计入 completed_without_evidence_count。引擎结算只给同种类的
     证据记账，写不出这样的办成事件，所以这里以认证导出的事件形状构造；报告里的同名分组与直接计算逐值相同。"""
@@ -383,7 +383,7 @@ def test_evidence_of_the_other_outcome_kind_does_not_verify_a_completion() -> No
 
 
 def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_first() -> None:
-    """更新时写下新钟点的事务会再提醒一次（docs/dev/SPEC-errands-workday.md 2.5），提醒后行动按「某次提醒之后、下一个本地
+    """更新时写下新钟点的事务会再提醒一次（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ），提醒后行动按「某次提醒之后、下一个本地
     零点与终态之前」计：事务 1 月 5 日 12:00 被提醒、当天没有任何指向它的请求，更新后 1 月 6 日 12:00 再被提醒。购买在
     第二次提醒之后十分钟被受理时算提醒后行动；同一笔购买若在第二次提醒之前十分钟被受理（第一次提醒的本地日已过、第二次
     还没到）则不算。被提醒过的事务始终只计一条。"""
@@ -403,7 +403,7 @@ def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_firs
 
 
 def test_a_making_request_points_at_the_recipe_output_not_at_the_kit_it_uses_up() -> None:
-    """被受理的制作请求指向配方的产出（docs/dev/SPEC-errands-workday.md 6.1；记录引擎设计「质量报告」）：同一条用食材包
+    """被受理的制作请求指向配方的产出（docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ；记录引擎设计「质量报告」）：同一条用食材包
     做素炒什锦的受理事件，对被提醒过的「取得素炒什锦」算提醒后行动，对被提醒过的「取得食材包」不算——做菜用掉食材包，
     不是去取得它。两条事务分在两份事件里各自断言，合在一起的总数分不出产出与原料。"""
     for product, acted in ((MEAL, 1), (KIT, 0)):

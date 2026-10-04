@@ -1,11 +1,13 @@
+<a name="spec-category-contract-品类契约与交换规则开发规格"></a>
 # 品类契约与交换规则开发规格
 
 > 状态：FROZEN；本次特性完整实施的唯一行为规格。实现与验证状态另记，不以冻结等同已实现。
 > 日期：2026-10-01
-> 工具交互修订：构建价格范围、地点类别完整分配与正式做饭配方的设计已冻结，已实现；本次生产验收单独记录；本次行为以[工具交互规格](SPEC-tool-interaction.md)为准。
+> 工具交互修订：构建价格范围、地点类别完整分配与正式做饭配方的设计已冻结，已实现；本次生产验收单独记录；本次行为以[工具交互规格](SPEC-life-runtime.md#tool-interaction-工具请求)为准。
 > 裁决：依据用户要求，对 `docs/dev/PROPOSAL-category-contract.md` 完成实现前裁决；本规格取代该提案。
 > 范围：品类契约、属性继承、对象声明、配对准入、闭集交换算子、库存转换、细化建议、冻结身份及验证。
 
+<a name="spec-category-contract-产品行为与边界"></a>
 ## 产品行为与边界
 
 对象归属一个品类；共享属性和交换规则写在品类上，对象只声明差异。
@@ -23,8 +25,9 @@ flowchart LR
 
 本次范围内的要求全部实现并以测试验证，不设置待补算子、未接线接口或跳过用例。
 本次不改变人物决策协议，不增加模型调用；不引入运行中契约热更新、多重品类归属、自动定价或模型补规则。
-这些是功能边界，不是延期项。现有正式十二周运行和真实模型交付的整体验收仍归 `docs/VERIFICATION.md`。
+这些是功能边界，不是延期项。现有正式十二周运行和真实模型交付的整体验收仍归 `docs/VERIFICATION.md#verification-worldmock-验收标准`。
 
+<a name="spec-category-contract-裁决依据"></a>
 ## 裁决依据
 
 | 待裁决问题 | 最终行为 | 理由 |
@@ -42,6 +45,7 @@ flowchart LR
 业界证据与排除理由见 `docs/dev/research/category-contract-feasibility.md`。
 现有依赖 Pydantic、JSON Schema、Decimal、hashlib 和资源账本足够；不增加依赖、不执行任意表达式。
 
+<a name="spec-category-contract-冻结产物与品类树"></a>
 ## 冻结产物与品类树
 
 目录新增 `catalog/category-contract.json` 与 `catalog/exchange-rules.json`。
@@ -64,6 +68,7 @@ flowchart LR
 节点只声明新增槽位或确有不同的值；无规则差异的子节点直接继承。
 只读解析结果不得通过修改嵌套字典、对象或数组改变其他调用者读取的冻结语义。
 
+<a name="spec-category-contract-属性槽位与对象增量"></a>
 ## 属性槽位与对象增量
 
 槽位声明采用 JSON Schema 表达类型、必填性、单位说明、枚举与数值范围。
@@ -85,6 +90,7 @@ flowchart LR
 对象归属变更必须重新验证全部有效属性，不能改变契约或规则。
 目录维护必须保留世界素材品类要求及全部契约身份字段；验证失败不能留下半条对象或提升后的清单。
 
+<a name="spec-category-contract-来源分类与审核证据"></a>
 ## 来源分类与审核证据
 
 沿用 `fact`、`anchored`、`assumption`、`scenario` 四类来源。
@@ -100,6 +106,7 @@ flowchart LR
 审核记录是可审计证据，不宣称仅凭字符串能够验证现实人员身份或证据的真实性。
 规则未定义时，加载、准入、运行和细化工具均不得调用模型或制造默认规则。
 
+<a name="spec-category-contract-配对解析与可触达检查"></a>
 ## 配对解析与可触达检查
 
 配对键为有向的 `(actor_category_id, target_category_id, action)`。
@@ -120,6 +127,7 @@ flowchart LR
 任何可能触达的配对为未定义或歧义，必须在创建运行产物、请求模型之前失败。
 运行动作受理和配方执行复查配对，任何未定义或已验证不作用均不改变世界状态。
 
+<a name="spec-category-contract-闭集算子与真实结算"></a>
 ## 闭集算子与真实结算
 
 规则挂在品类节点上，规则正文不含具体对象身份。
@@ -155,7 +163,7 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 同商品报价不得更低，整数舍入同价合法；这是有来源的场景假设，不是行业事实。
 配对系数不参与构建定价；实际付款仍以供给报价、数量和冻结系数求值。
 地点 kind 只定义准入池，每店实际供给由同一冻结分类声明的 `category_ids/object_ids` 并集确定，
-类别包含全部后代对象，逐店声明和丰富度验收见[地图与供给规格](SPEC-map-and-storefront.md#按地点类别生成完整供给)。
+类别包含全部后代对象，逐店声明和丰富度验收见[地图与供给规格](SPEC-map-and-storefront.md#spec-map-and-storefront-按地点类别生成完整供给)。
 分类文件恰含必填 `kinds/locations/source`，`kinds` 为地点 kind 到品类数组的准入表，全部地图 kind 包括空集合均显式声明；
 逐店恰含必填 `location_id/category_ids/object_ids/price_position_percent/source`，顶层与逐店来源沿用完整 `DataSource`。
 正式场景 `products/supplies` 必须显式包含选中门店全部声明商品与生成供给，加载和正式验收核对实际集合，不自动补齐旧稀疏列表。
@@ -178,6 +186,7 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 购买还须验证当前供给调价、非整数配对系数、多份数量的整行取整、已定义零系数的零额履约、非作用供给的公开和拒绝、卖方隔离及整单原子拒绝；同一纯商品的多家供给不得共享报价或库存。
 不得以孤立解释器测试替代运行路径证据。合同支付只能有一条闭集计算路径。
 
+<a name="spec-category-contract-库存转换配方"></a>
 ## 库存转换配方
 
 本次配方为 `consume:use` 的一个输入品类、一个输出品类的原子转换；输入使用现有请求对象。
@@ -200,6 +209,7 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 制作完成本身不缓解饥饿；暂停、取消和提前结束不产生半件输出，恢复与重复结算不重复产物。
 公开结算结果必须写明实际消耗、产物和数量，不能只以活动完成或人物总结证明饭菜已存在。
 
+<a name="spec-category-contract-新品类细化与发布"></a>
 ## 新品类、细化与发布
 
 提供可调用的品类检查、细化影响报告与新版本发布能力，并接入 `worldmock category` 命令。
@@ -214,6 +224,7 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 发布失败不产生可加载的半成品，不改写源目录、旧版本、运行或导出。
 回滚通过选择先前的不可变目录版本完成，不提供历史数据改写或格式迁移工具。
 
+<a name="spec-category-contract-运行身份与导出"></a>
 ## 运行身份与导出
 
 运行清单记录品类契约版本、契约文件 SHA-256、交换规则文件 SHA-256 与目录内容摘要。
@@ -223,6 +234,7 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 已有 checkpoint manifest 摘要与导出的 frozen_run_manifest 继续承载身份，不另造第二条证据链。
 已发布导出不读取当前品类文件来重写其含义；改变新目录不能改变既有导出字节或来源身份。
 
+<a name="spec-category-contract-文件修改清单"></a>
 ## 文件修改清单
 
 下表列出功能责任；实现可以在责任内拆小文件，最终清单必须与实际 diff 核对。
@@ -241,8 +253,9 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 | `tests/categories/`、`tests/catalog/`、`tests/life/`、`tests/integration/`、`tests/footprints/` | 反例、真实运行边界、恢复与导出测试 |
 | `tests/corpora/`、`tests/test_style_gate.py` | 语料对照有效对象与减少既有风格债务 |
 | `scripts/coverage_gate.py`、`scripts/migrate_scenarios.py` | 覆盖率产物路径与文档一致；删除过时场景迁移脚本 |
-| `docs/INDEX.md`、`CONTRACTS.md`、`ARCHITECTURE.md`、`EXPERIMENT.md`、`VERIFICATION.md`、`docs/design/`、`docs/dev/`、`catalog/README.md` | 规范、数据格式、职责、状态、测试追溯与来源一致性 |
+| `docs/INDEX.md#index-worldmock-文档入口`、`CONTRACTS.md`、`ARCHITECTURE.md`、`EXPERIMENT.md`、`VERIFICATION.md`、`docs/design/`、`docs/dev/`、`catalog/README.md` | 规范、数据格式、职责、状态、测试追溯与来源一致性 |
 
+<a name="spec-category-contract-验收与需求台账"></a>
 ## 验收与需求台账
 
 每行均为必须闭合的要求；状态和准确测试函数记录在 `docs/dev/category-contract-verification.md`。
@@ -270,9 +283,10 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 任何存活突变都需补充有效断言并重新执行原突变；禁止修改规格来掩盖缺失功能。
 实施前基线：提交 `426af3b` 上 2746 passed、1 failed，已有工具 Schema 固定摘要不一致；单独核对并修复后重验。
 
+<a name="spec-category-contract-版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 冻结尚未实现的对象构建价格范围、地点类别完整供给与正式单输入单输出做饭链；保留实际报价、库存、配对、守恒和结算职责边界 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 条款正文不变。补记：`2026-10-01-tool-interaction` 行所冻结的对象构建价格范围、地点类别完整供给与单输入单输出做饭链已实现，目录内容冻结为 `5.3`（证据见[工具交互验收记录](tool-interaction-verification.md)）。[个人事务与工作安排规格](SPEC-errands-workday.md)不改目录、品类合同与规则绑定（目录 `5.3`、绑定 `3` 不变），并以本规格的配对动作闭集、闭集算子与库存转换配方为完成依据的既有约束 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 条款正文不变。补记：`2026-10-01-tool-interaction` 行所冻结的对象构建价格范围、地点类别完整供给与单输入单输出做饭链已实现，目录内容冻结为 `5.3`（证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)）。[个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库)不改目录、品类合同与规则绑定（目录 `5.3`、绑定 `3` 不变），并以本规格的配对动作闭集、闭集算子与库存转换配方为完成依据的既有约束 |

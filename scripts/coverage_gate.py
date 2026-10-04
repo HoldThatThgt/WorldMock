@@ -10,11 +10,11 @@
 from __future__ import annotations
 
 import ast
+import argparse
 import hashlib
 import json
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,8 +22,7 @@ from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRANCH_THRESHOLD = 85.0
-TEST_COMMAND = ("uv", "run", "coverage", "run", "-m", "pytest", "-q")
-JSON_COMMAND = ("uv", "run", "coverage", "json")
+TEST_COMMAND = (sys.executable, "scripts/run_tests.py", "--tier", "full", "--workers", "6")
 PRODUCTION_ROOTS = ("src/worldmock", "custom/agents", "custom/envs")
 REPORT_PATH = REPO_ROOT / "docs" / "dev" / "coverage-report.json"
 
@@ -225,24 +224,9 @@ def judge_gate(
 
 
 def run_test_suite() -> int:
-    """@brief 在仓库根目录运行 uv run coverage run -m pytest -q，返回其退出码。"""
+    """@brief 使用当前解释器调用统一全量 runner，返回其退出码。"""
     print(f"[coverage-gate] running: {' '.join(TEST_COMMAND)}")
     return subprocess.call(TEST_COMMAND, cwd=REPO_ROOT)
-
-
-def export_coverage_json() -> dict:
-    """@brief 导出 coverage JSON 到临时文件并解析返回。
-
-    @throw RuntimeError  当 coverage json 命令以非零退出码结束时。
-    """
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        json_path = Path(tmp_dir) / "coverage.json"
-        command = [*JSON_COMMAND, "-o", str(json_path)]
-        result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
-        if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(f"coverage json failed (rc={result.returncode}): {detail}")
-        return json.loads(json_path.read_text(encoding="utf-8"))
 
 
 def build_report(
@@ -301,7 +285,7 @@ def write_report(report: dict, path: Path) -> None:
 
 
 def get_git_commit_hash() -> str:
-    """@brief 获取当前 Git commit hash；失败时返回 'unknown'。"""
+    """@brief 获取实际提交身份；不能以 unknown 代替失败的证据来源。"""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -310,11 +294,13 @@ def get_git_commit_hash() -> str:
             text=True,
             timeout=5,
         )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return "unknown"
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"[coverage-gate] ERROR: Source identity lookup failed: {error}", file=sys.stderr)
+        raise RuntimeError("Source identity lookup failed") from error
+    if result.returncode != 0:
+        print(f"[coverage-gate] ERROR: Source identity lookup failed: {result.stderr.strip()}", file=sys.stderr)
+        raise RuntimeError("Source identity lookup failed")
+    return result.stdout.strip()
 
 
 def compute_manifest_hash(cov_data: dict) -> str:
@@ -344,16 +330,20 @@ def print_gate_summary(branch: BranchSummary, gaps: list[InterfaceGap], passed: 
 
 
 def main() -> int:
-    """@brief 门禁主流程：跑测试、导出覆盖、判定达标、写报告，返回进程退出码。"""
-    test_rc = run_test_suite()
+    """@brief 全量入口委托 runner；runner 合并后仅对本次 JSON 执行原覆盖率判定。"""
+    parser = argparse.ArgumentParser(description="WorldMock complete coverage gate")
+    parser.add_argument("--from-json", type=Path)
+    args = parser.parse_args()
+    if args.from_json is None:
+        return run_test_suite()
     try:
-        cov_data = export_coverage_json()
-    except RuntimeError as error:
+        cov_data = json.loads(args.from_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
         print(f"[coverage-gate] ERROR: {error}", file=sys.stderr)
         return 1
     branch = compute_branch_summary(cov_data)
     gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
-    passed = test_rc == 0 and judge_gate(branch.percent, len(gaps))
+    passed = judge_gate(branch.percent, len(gaps))
     
     # 生成证据 manifest 绑定
     snapshot_id = str(uuid4())
@@ -361,15 +351,10 @@ def main() -> int:
     source_identity = get_git_commit_hash()
     
     report = build_report(
-        branch, gaps, passed, " ".join(TEST_COMMAND), snapshot_id, manifest_hash, source_identity
+        branch, gaps, passed, "python " + " ".join(TEST_COMMAND[1:]), snapshot_id, manifest_hash, source_identity
     )
     write_report(report, REPORT_PATH)
     print_gate_summary(branch, gaps, passed)
-    if test_rc != 0:
-        print(
-            f"[coverage-gate] test suite exited rc={test_rc}; gate cannot pass",
-            file=sys.stderr,
-        )
     return 0 if passed else 1
 
 

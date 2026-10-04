@@ -1,4 +1,4 @@
-"""人设层（docs/dev/SPEC-persona-prompt.md 第一章「人设层」，裁决 #33、#35、#36、#38）。
+"""人设层（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「人设层」，裁决 #33、#35、#36、#38）。
 
 结构化卡片在新建运行时存进 profile["persona_card_struct"]（不含当下处境）并在恢复时校验；宿主据此渲染身份、作息（刻钟
 写对）、习惯、口味与应对，卡片关系与场景联系人按名称精确合并，只来自联系人的项不带亲密度与渠道；看法与偏好只来自成功的
@@ -47,7 +47,7 @@ _CONTACTS = [{"contact_id": "contact-zhou", "salutation": "老周", "relation": 
              {"contact_id": "contact-shen", "salutation": "沈昊", "relation": "老友", "closeness": 25,
               "channels": ["phone"], "reply_policy": "model"}]
 _NO_VIEWS = {"relationships": [], "preferences": []}
-#: 人设层 rhythm 的九键与键序（docs/dev/SPEC-errands-workday.md 4.1）。
+#: 人设层 rhythm 的九键与键序（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
 _RHYTHM_KEYS = ("wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime", "sleep_midpoint",
                 "sleep_need")
 #: 人设层的八个顶层键（键序即渲染顺序）。
@@ -99,7 +99,7 @@ def test_card_path_renders_card_fields_and_merges_relationships_by_exact_name() 
 
 
 def test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent() -> None:
-    """人设层 rhythm（docs/dev/SPEC-errands-workday.md 4.1）：九键依次为 wake, leave_home, lunch, leave_work, arrive_home,
+    """人设层 rhythm（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：九键依次为 wake, leave_home, lunch, leave_work, arrive_home,
     dinner, bedtime, sleep_midpoint, sleep_need；卡片写明下班与到家时两键是可读短语，没有固定时刻（null）时为 null，只写明
     到家时下班仍为 null；三种卡片都过人设层 Schema，其余七键不随两个新键变化。Schema 要求九键齐全，只有两个新键可为
     null，写出的短语不能为空。"""
@@ -123,7 +123,7 @@ def test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent() 
 
 @pytest.mark.parametrize("missing", _RHYTHM_KEYS)
 def test_rhythm_schema_requires_each_of_the_nine_keys(missing: str) -> None:
-    """人设层 rhythm 非空时九键齐全（docs/dev/SPEC-errands-workday.md 4.1；接口合同「七层字段」）：下班与到家的值可以
+    """人设层 rhythm 非空时九键齐全（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ；接口合同「七层字段」）：下班与到家的值可以
     为 null，键不能省。由写明下班与到家的卡片渲染出的人设层通过 Schema、九键俱在；从 rhythm 里去掉其中任意一个键，
     就在 rhythm 处不合 Schema。"""
     card = _work_card(make_window(18.0, 18.5), make_window(19.0, 19.5))
@@ -136,7 +136,7 @@ def test_rhythm_schema_requires_each_of_the_nine_keys(missing: str) -> None:
 
 
 def test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer() -> None:
-    """宿主不渲染人物档案里的工作安排（docs/dev/SPEC-errands-workday.md 4.4）：profile 带场景人物声明的 work_schedule 与
+    """宿主不渲染人物档案里的工作安排（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-环境层-duty ）：profile 带场景人物声明的 work_schedule 与
     下班、到家窗口时，人设层仍只有八个键、过 Schema，且与不带这些键的同一档案逐值相同——作息只取卡片（场景窗口经作息覆盖
     落进卡片后才出现在人设层），序列化后既没有 work_schedule，也没有工作地点的身份或场景窗口的写法。"""
     shift = {"starts": 540, "ends": 1080, "breaks": [[720, 810]]}
@@ -194,13 +194,13 @@ def test_six_hundred_hanzi_cap_checks_only_card_derived_fields() -> None:
 
 def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_path) -> None:
     """新建运行：卡片渲染文本与结构化字段（去掉当下处境）都存进 profile，两者取经场景作息覆盖后的卡片
-    （docs/dev/SPEC-dayrun-fidelity.md 2.1）；恢复时结构化字段按 PersonaCardStruct 校验，带当下处境或格点不对的字段
+    （docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；恢复时结构化字段按 PersonaCardStruct 校验，带当下处境或格点不对的字段
     阻止分支发布；没有卡片的人物不带该键。"""
     from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest, _agent_workspace,
                                                              _parent_store, _prepare_resume)
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
-    from worldmock.runtime import _agent_specs
+    from worldmock.run_setup import _agent_specs
 
     scenario, _ = load_scenario(SCENARIO)
     card = make_card()
@@ -224,12 +224,12 @@ def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_p
 
 
 def test_structured_card_without_work_anchor_keys_is_rejected_on_restore(tmp_path) -> None:
-    """卡片结构 3（docs/dev/SPEC-errands-workday.md 4.1）：新建运行冻结的结构化卡片带下班、到家两个必填键（这里写明了窗口），
+    """卡片结构 3（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：新建运行冻结的结构化卡片带下班、到家两个必填键（这里写明了窗口），
     在恢复路径照常恢复；同一张卡片去掉这两个键（旧结构的卡片）被 PersonaCardStruct 校验拒绝，阻止分支发布、不建子运行
     目录（没有带版本的卡片读者，也不补 null）。"""
     from tests.integration.test_host_branch_coverage import (ROOT, SCENARIO, ResumeRequest, _agent_workspace,
                                                              _parent_store, _prepare_resume)
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
     from worldmock.profile.injection import apply_scenario_rhythm
 
     scenario, _ = load_scenario(SCENARIO)
@@ -259,7 +259,7 @@ def test_structured_card_without_work_anchor_keys_is_rejected_on_restore(tmp_pat
 def test_subject_is_required_for_relationship_and_preference_and_stripped_before_memory() -> None:
     """看法与偏好写在 views，对象 about 必填（请求里叫 about、存储里叫 subject，指同一件事）；普通记忆没有对象字段，类型也不能
     是 relationship 或 preference；relationship 的对象须是已知人物（卡片关系名、联系人称谓或本轮列出的同世界人物）；宿主把
-    about 转为 subject、写入主观记忆前去掉（docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    about 转为 subject、写入主观记忆前去掉（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。"""
     view = _view("preference", "爱吃面", "午饭")
     with pytest.raises(ValueError, match="about"):
         ConclusionView.model_validate({key: value for key, value in view.items() if key != "about"})
@@ -289,7 +289,7 @@ def test_later_view_replaces_earlier_while_events_keep_both(engine_factory) -> N
     这两类记忆不在进度层参数与记忆层中。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    friend = engine.scenario.agents[0].contacts[0].salutation
+    friend = engine.context.scenario.agents[0].contacts[0].salutation
     for index, (view, taste) in enumerate((("靠谱", "爱吃面"), ("最近很忙", None))):
         _, waited = _act(engine, f"v-wait-{index}", "start_activity", start_activity("等待", "自己"))
         assert advance_until_ready(engine)
@@ -301,10 +301,10 @@ def test_later_view_replaces_earlier_while_events_keep_both(engine_factory) -> N
         "不存在的活动", summary="收尾", views=[[_view("relationship", "骗子", friend)]]))[1]
     assert rejected.status == "rejected"
     observed = _observe(engine, "v-seen")
-    day = local_date(engine.state.current_time, engine.scenario.timezone)
+    day = local_date(engine.context.state.current_time, engine.context.scenario.timezone)
     assert observed["persona_views"] == {"relationships": [{"person": friend, "view": "最近很忙"}],
                                          "preferences": [{"subject": "午饭", "preference": "爱吃面", "noted_on": day}]}
-    written = [memory["text"] for event in engine.store.read_agent_events("action_requested", 1)
+    written = [memory["text"] for event in engine.context.store.read_agent_events("action_requested", 1)
                if event.data["tool_name"] == "conclude_activity"
                for item in control_items("conclude_activity", event.data["request"]) for memory in item.views]
     assert written == ["靠谱", "爱吃面", "最近很忙", "骗子"]
@@ -322,23 +322,23 @@ def _record_conclusion(engine, memories: list[dict], views: list[dict]) -> None:
 
     from worldmock.footprints.models import EventDraft
 
-    requested = [event for event in engine.store.read_agent_events("action_requested", 1)
+    requested = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                  if event.data["tool_name"] == "conclude_activity"][-1]
-    result = next(event for event in engine.store.read_agent_events("action_result", 1)
+    result = next(event for event in engine.context.store.read_agent_events("action_result", 1)
                   if event.action_id == requested.action_id)
     item = {**requested.data["request"]["items"][0], "memories": memories, "views": views}
     request = {"items": [item], "errands": []}
     content = json.dumps({"tool_name": "conclude_activity", "request": request}, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode()
     data = {**requested.data, "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
     shared = {"occurred_at": staged.current_time, "agent_id": 1, "decision_id": requested.decision_id,
               "action_id": f"{requested.action_id}-recorded"}
-    engine.store.commit(staged.model_dump(mode="json"), [
+    engine.context.store.commit(staged.model_dump(mode="json"), [
         EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
         EventDraft(event_type="action_result", data={**result.data, "action_id": shared["action_id"]}, **shared)])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(engine_factory) -> None:
@@ -347,7 +347,7 @@ def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(en
     记录里带对象的偏好与此前真实写下的看法，不把 null 当作对象，观察照常完成。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    friend = engine.scenario.agents[0].contacts[0].salutation
+    friend = engine.context.scenario.agents[0].contacts[0].salutation
     _, waited = _act(engine, "s-wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
     _act(engine, "s-conclude", "conclude_activity", conclude_request(
@@ -357,11 +357,11 @@ def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(en
         with pytest.raises(ValueError, match="type"):
             ConclusionMemory.model_validate(memory)
     _record_conclusion(engine, loose, [_view("preference", "爱吃面", "午饭")])
-    recorded = engine.store.read_agent_events("action_requested", 1)[-1]
+    recorded = engine.context.store.read_agent_events("action_requested", 1)[-1]
     assert [memory["subject"] for item in control_items("conclude_activity", recorded.data["request"])
             for memory in item.views] == [None, None, "午饭"]
     observed = _observe(engine, "s-seen")
-    day = local_date(engine.state.current_time, engine.scenario.timezone)
+    day = local_date(engine.context.state.current_time, engine.context.scenario.timezone)
     assert observed["persona_views"] == {"relationships": [{"person": friend, "view": "靠谱"}],
                                          "preferences": [{"subject": "午饭", "preference": "爱吃面", "noted_on": day}]}
     assert "没有对象" not in json.dumps(observed["persona_views"], ensure_ascii=False)
@@ -373,15 +373,15 @@ def test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_
     stage_day_plan(engine)
     _stage(engine, "market", 1500)
     order = _remote_order(engine, "p-order")
-    product = engine.rules.items[order["product_id"]].name
+    product = engine.context.rules.items[order["product_id"]].name
     for step in range(64):
-        if engine.state.deliveries[order["order_id"]].status != "pending":
+        if engine.context.state.deliveries[order["order_id"]].status != "pending":
             break
         if engine.scheduling_state().ready_agent_ids:
             _act(engine, f"p-wait-{step}", *_keep_waiting(engine))
         else:
             advance_next(engine)
-    names = [activity_name(engine, item.activity_id) for item in slot_activities(engine.state, 1)]
+    names = [activity_name(engine, item.activity_id) for item in slot_activities(engine.context.state, 1)]
     _act(engine, "p-conclude", "conclude_activity", conclude_request(
         *names, summary="吃过了", memories=[[_memo("commitment", "明天还想吃")] for _ in names]))
     walk = _walk(engine, "p-walk")
@@ -391,7 +391,7 @@ def test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_
     today = _observe(engine, "p-today")
     assert today["persona_views"]["preferences"] == []
     assert product in json.dumps(today["memory_layer"], ensure_ascii=False)
-    moment = engine.state.current_time
+    moment = engine.context.state.current_time
     _jump(engine, _next_morning(moment))
     stage_day_plan(engine, submitted=True)
     later = _observe(engine, "p-next-day")

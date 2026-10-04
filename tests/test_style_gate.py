@@ -1,4 +1,4 @@
-"""生产代码风格常驻门禁（docs/VERIFICATION.md「工程门禁」/GAP-5）。
+"""生产代码风格常驻门禁（docs/VERIFICATION.md#verification-worldmock-验收标准「工程门禁」/GAP-5）。
 
 检查范围：src/worldmock 与 custom 全部生产 .py（测试文件不扫）。规则：
 行宽 ≤120 字符、生产函数 ≤50 行且 ≤5 参（下划线私有同受约束，方法不计
@@ -28,7 +28,6 @@ _CJK = re.compile(r"[\u4e00-\u9fff]")
 #: 既有存量违规（文件 -> 种类 -> 计数）；修复后必须同步缩减直至清空。
 _OUTSTANDING: dict[str, dict[str, int]] = {
     "src/worldmock/catalog/affordances.py": {"FUNCLEN": 2, "DOCSTRING": 1},
-    "src/worldmock/delivery/trace_validation.py": {"WIDTH": 1},
     "src/worldmock/evaluation/behavior_metrics.py": {"DOCSTRING": 1},
     "src/worldmock/life/motivation.py": {"DOCSTRING": 1},
     "src/worldmock/life/social_actions.py": {"PARAMS": 1},

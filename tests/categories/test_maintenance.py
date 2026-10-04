@@ -22,7 +22,7 @@ from worldmock.cli import main
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 
 def _read(path):
