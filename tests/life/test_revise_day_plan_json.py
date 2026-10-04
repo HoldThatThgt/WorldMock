@@ -269,7 +269,8 @@ async def test_host_corrects_a_revision_that_overflows_with_the_preserved_goals(
     """与保留的已推进目标合并后超过八条（规格 1.3 末条；接口合同宿主错误码表 ARGUMENTS_INVALID「修订今日计划超过八条」）：
     真实引擎上已有两条已推进目标，七条新目标本身合乎请求模型。环境对这份请求以 PLAN_GOALS_INVALID 业务拒绝、计划不变；
     宿主在同样的计划上先行纠错——不登记，附回 ARGUMENTS_INVALID，一条明细定位在 goals，原因写明连同保留的已推进目标至多
-    八条；模型改交六条后才登记（这次决策只有一条 action_requested），结算受理，计划恰好八条。"""
+    八条；两侧明细的 path 相同，written 都是提交的 goals（接口合同「当日目标请求」：超限时为提交的 goals），不是条数；
+    模型改交六条后才登记（这次决策只有一条 action_requested），结算受理，计划恰好八条。"""
     from tests.life.conftest import stage_day_plan
 
     engine = engine_factory()
@@ -278,6 +279,8 @@ async def test_host_corrects_a_revision_that_overflows_with_the_preserved_goals(
     overflow = _goals(*INTENT_KINDS[2:9])
     refused = _revise(engine, "engine-nine", ReviseDayPlanRequest(goals=[PlanGoalInput(**goal) for goal in overflow]))
     assert (refused.status.value, refused.error_code) == ("rejected", "PLAN_GOALS_INVALID")
+    [refused_item] = refused.data["items"]
+    assert (refused_item["path"], refused_item["written"]) == ([*_ROOT, "goals"], overflow)
     assert engine.state.agents[1].day_plan == plan
 
     requests, settled = await _real_host_round(monkeypatch, engine, "host-nine", [overflow, overflow[:6]])
@@ -290,6 +293,8 @@ async def test_host_corrects_a_revision_that_overflows_with_the_preserved_goals(
     [item] = feedback["items"]
     assert set(item) == set(ITEM_KEYS) and item["allowed_values"] == []
     assert (item["path"], item["error_code"], item["why"]) == ([*_ROOT, "goals"], "ARGUMENTS_INVALID", _MERGED_CAPACITY)
+    assert (item["path"], item["written"]) == (refused_item["path"], refused_item["written"]) == (
+        [*_ROOT, "goals"], overflow)
     registered = [event.data["request"] for event in engine.store.read_events(engine.store.last_event_seq)
                   if event.event_type == "action_requested" and event.decision_id == "decision-host-nine-1"]
     assert [request["goals"] for request in registered] == [overflow[:6]]

@@ -907,11 +907,13 @@ def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
 
 
 def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
-    """@brief 修订保留已推进目标并逐项明确重复意图位置。"""
+    """@brief 修订保留已推进目标并逐项明确重复意图位置；与保留的已推进目标合并后超过八条定位在 goals，原值为提交的各条目
+    （与环境的 PLAN_GOALS_INVALID 明细同形，docs/CONTRACTS.md「当日目标请求」）。"""
     issues = []
     if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:
         reason = "At most eight goals are allowed including preserved progressed goals."
-        issues.append(HostIssue(ErrorItem(("goals",), len(goals), "ARGUMENTS_INVALID", expected=reason,
+        written = [goal.model_dump(mode="json") for goal in goals]
+        issues.append(HostIssue(ErrorItem(("goals",), written, "ARGUMENTS_INVALID", expected=reason,
                                           why=reason), reason, reason))
     for index, goal in enumerate(goals):
         if goal.intent_kind not in progressed_intents:
