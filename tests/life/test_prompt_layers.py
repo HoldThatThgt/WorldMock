@@ -106,6 +106,24 @@ def test_duty_enumerations_are_the_work_schedule_constants() -> None:
         validate_layer(layer)
 
 
+def test_progress_schema_registers_the_eight_record_types_with_both_errand_records() -> None:
+    """进度层 Schema 的 events[].type 恰为接口合同「七层 Schema」登记的八种：tool_call、message_arrival、delivery、
+    task_deadline、plan_reminder、errand_reminder、errand_completed、condensed（docs/dev/SPEC-errands-workday.md 2.6、6.4）。
+    只写事务名的 errand_reminder 与 errand_completed 记录各自通过校验；六种事务事件里其余四种的名字不是记录类型，写成
+    记录即不合 Schema。"""
+    records = LAYER_SCHEMAS["进度层"]["properties"]["events"]["items"]["oneOf"]
+    assert sorted(item["properties"]["type"]["const"] for item in records) == sorted((
+        "tool_call", "message_arrival", "delivery", "task_deadline", "plan_reminder", "errand_reminder",
+        "errand_completed", "condensed"))
+    layer = {"layer": "进度层", "session_started_at": "2026-01-05T10:00:00+08:00", "rejected_today": []}
+    record = {"occurred_at": "2026-01-05T12:40:00+08:00", "errand": "买牛奶"}
+    for kind in ("errand_reminder", "errand_completed"):
+        validate_layer({**layer, "events": [{**record, "type": kind}]})
+    for kind in ("errand_registered", "errand_updated", "errand_cancelled", "errand_progressed"):
+        with pytest.raises(ValueError, match=r"Prompt layer 进度层 violates its schema at \['events', 0\]"):
+            validate_layer({**layer, "events": [{**record, "type": kind}]})
+
+
 def test_memory_layer_and_persona_views_are_empty_at_run_start(engine_factory) -> None:
     """运行开始时还没有结束的 session 与写下的看法：记忆层两个列表都为空并通过 Schema，看法与偏好都为空；运行开始的五层
     都通过 Schema（派生内容见 test_memory_layer.py 与 test_persona_layer.py）。"""

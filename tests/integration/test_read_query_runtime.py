@@ -230,3 +230,56 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     result = await agent_side.read_query('context', 'recall_task_summary', 'request')
     assert result is answer
     assert received == [('context', 'recall_task_summary', 'request')]
+
+
+@pytest.mark.asyncio
+async def test_host_tool_message_is_the_environment_recall_result(engine_factory, monkeypatch):
+    """宿主一半（规格 1.2：回看任务送到环境并等待真实结果）：真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 跑真实
+    ReAct 循环，脚本模型先按唯一的目标名回看、再按两个目标共用的名称回看、最后提交世界请求。两次回看各自的 tool 消息
+    就是环境对同一冻结观察给出的结果：受理的那次逐值等于 LifeEnv.read_query 与 engine.read_task_summary（首键 kind 为
+    goal，带目标文字、意图与是否已推进），业务拒绝的那次是 TASK_NOT_FOUND 的错误结构——都不是空对象，也不是登记确认；
+    回看不登记世界请求、不写动作事件，随后的世界请求照常登记一次。"""
+    import json
+
+    from agentsociety2.agent.base import ReactLoopRequest
+    from tests.integration.test_same_second_continuation import _PLAN, _Script, _person, _reply
+    from worldmock.life import prompt_capacity
+
+    monkeypatch.setattr(prompt_capacity, 'model_context_length', lambda model: 1_048_576)
+    engine = engine_factory()
+    now = engine.state.current_time
+    stage_day_plan(engine, goals=tuple(PlanGoal(intent_kind=kind, goal=goal, registered_at=now) for kind, goal in (
+        ('用餐', '好好吃顿午饭'), ('休息', '歇一歇'), ('娱乐', '歇一歇'))))
+    environment = LifeEnv()
+    environment.engine = engine
+    decision = context(engine, 'host-recall')
+    engine.begin_decision_round([decision])
+    observed = await environment.observe(decision)
+    assert [row['task_name'] for row in observed['goal_bindings']] == ['好好吃顿午饭', '歇一歇', '歇一歇']
+    unique, shared = (RecallTaskSummaryRequest(task_name=name) for name in ('好好吃顿午饭', '歇一歇'))
+    model = _Script([_reply('call-recall', 'recall_task_summary', unique.model_dump(), '回看午饭这个目标。'),
+                     _reply('call-shared', 'recall_task_summary', shared.model_dump(), '再回看歇一歇。'),
+                     _reply('call-plan', 'revise_day_plan', _PLAN, '回看完了，改一下计划。')])
+    person = _person(environment, decision, model)
+    assert type(person).__module__ == 'custom.agents.life_agent'
+    sequence = engine.store.last_event_seq
+
+    result = await person.run_react_loop(ReactLoopRequest(0, decision.observed_at, [
+        {'turn': 0, 'action': 'observe', 'ok': True, 'data': observed}]))
+
+    assert result == 'revise_day_plan registered' and len(model.requests) == 3
+    tools = [request['messages'][-1] for request in model.requests[1:]]
+    assert [(tool['role'], tool['tool_call_id']) for tool in tools] == [
+        ('tool', 'call-recall'), ('tool', 'call-shared')]
+    recalled, refused = (json.loads(tool['content']) for tool in tools)
+    assert recalled == await environment.read_query(decision, 'recall_task_summary', unique)
+    assert recalled == engine.read_task_summary(1, unique, observed)
+    assert list(recalled) == ['recall'] and next(iter(recalled['recall'])) == 'kind'
+    assert recalled['recall'] == {'kind': 'goal', 'goal': '好好吃顿午饭', 'intent_kind': '用餐', 'progressed': False}
+    assert refused == await environment.read_query(decision, 'recall_task_summary', shared)
+    assert set(refused) == _ERROR_KEYS and refused['error_code'] == 'TASK_NOT_FOUND'
+    assert refused['items'][0]['written'] == '歇一歇' and refused['unmet'] == []
+    added = [event for event in engine.store.read_events(engine.store.last_event_seq) if event.event_seq > sequence]
+    assert [event.event_type for event in added] == [
+        'decision_started', *(['model_request', 'model_response'] * 3), 'action_requested']
+    assert added[-1].data['tool_name'] == 'revise_day_plan'

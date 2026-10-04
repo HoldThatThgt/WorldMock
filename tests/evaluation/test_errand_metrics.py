@@ -350,3 +350,68 @@ def test_conclusion_memories_count_routine_and_errand_overlap() -> None:
     expected = {"total_count": 6, "routine_count": 2, "errand_overlap_count": 2}
     assert conclusion_memories(log.events) == expected
     assert _report(log)["conclusion_memories"] == expected
+
+
+def _two_completions(crossed: bool) -> _Log:
+    """两条办成的事务，各引用一条本导出里更早、同一所有人、同一商品的证据事件：纯牛奶引用送达本人的订单（取得的证据），
+    冰红茶引用进食区间里吃掉的一份（吃掉的证据）。crossed 为假时事务的结果种类与证据的相同（取得纯牛奶、吃掉冰红茶），
+    为真时恰好相反（吃掉纯牛奶、取得冰红茶）。"""
+    log = _Log()
+    kinds = ("eat", "obtain") if crossed else ("obtain", "eat")
+    milk = _snapshot("a", "纯牛奶的事", MILK, "2026-01-05 10:00", outcome=kinds[0])
+    tea = _snapshot("b", "冰红茶的事", TEA, "2026-01-05 10:00", outcome=kinds[1])
+    for snapshot in (milk, tea):
+        log.errand(REGISTERED_KIND, "2026-01-05 10:00", snapshot)
+    bought = log.bought("2026-01-05 11:00", MILK)
+    log.errand(COMPLETED_KIND, "2026-01-05 11:00", _done(milk), caused_by=[bought["event_id"]], quantity_added=1.0)
+    eaten = log.add("activity_progress", "2026-01-05 11:30", {"interval_start": _at("2026-01-05 11:10"),
+                                                              "consumption": _eaten(TEA)})
+    log.errand(COMPLETED_KIND, "2026-01-05 11:30", _done(tea), caused_by=[eaten["event_id"]], quantity_added=1.0)
+    return log
+
+
+def test_evidence_of_the_other_outcome_kind_does_not_verify_a_completion() -> None:
+    """完成依据是结果种类 × 商品 × 数量（docs/dev/SPEC-errands-workday.md 2.4），办成的证据行须与事务同一所有人、同一结果
+    种类、同一商品：结果种类与证据相同的两条办成都可复核；同样的两条证据，换成「吃掉纯牛奶」引用买到的那份、「取得冰红茶」
+    引用吃掉的那份，所有人与商品都对得上而结果种类不同，两条都计入 completed_without_evidence_count。引擎结算只给同种类的
+    证据记账，写不出这样的办成事件，所以这里以认证导出的事件形状构造；报告里的同名分组与直接计算逐值相同。"""
+    for crossed, unverified in ((False, 0), (True, 2)):
+        log = _two_completions(crossed)
+        metrics = errand_metrics(log.events, _ZONE)
+        assert (metrics["completed_count"], metrics["completed_without_evidence_count"]) == (2, unverified)
+        assert _report(log)["errand_metrics"] == metrics
+
+
+def test_acting_after_a_later_reminder_counts_although_nothing_followed_the_first() -> None:
+    """更新时写下新钟点的事务会再提醒一次（docs/dev/SPEC-errands-workday.md 2.5），提醒后行动按「某次提醒之后、下一个本地
+    零点与终态之前」计：事务 1 月 5 日 12:00 被提醒、当天没有任何指向它的请求，更新后 1 月 6 日 12:00 再被提醒。购买在
+    第二次提醒之后十分钟被受理时算提醒后行动；同一笔购买若在第二次提醒之前十分钟被受理（第一次提醒的本地日已过、第二次
+    还没到）则不算。被提醒过的事务始终只计一条。"""
+    for early in (False, True):
+        log = _Log()
+        milk = _snapshot("a", "买牛奶", MILK, "2026-01-05 10:00")
+        log.errand(REGISTERED_KIND, "2026-01-05 10:00", milk)
+        log.errand(REMINDED_KIND, "2026-01-05 12:00", milk)
+        log.errand(UPDATED_KIND, "2026-01-05 13:00", milk)
+        if early:
+            log.bought("2026-01-06 11:50", MILK, event_type="action_accepted")
+        log.errand(REMINDED_KIND, "2026-01-06 12:00", milk)
+        if not early:
+            log.bought("2026-01-06 12:10", MILK, event_type="action_accepted")
+        metrics = errand_metrics(log.events, _ZONE)
+        assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, 0 if early else 1)
+
+
+def test_a_making_request_points_at_the_recipe_output_not_at_the_kit_it_uses_up() -> None:
+    """被受理的制作请求指向配方的产出（docs/dev/SPEC-errands-workday.md 6.1；记录引擎设计「质量报告」）：同一条用食材包
+    做素炒什锦的受理事件，对被提醒过的「取得素炒什锦」算提醒后行动，对被提醒过的「取得食材包」不算——做菜用掉食材包，
+    不是去取得它。两条事务分在两份事件里各自断言，合在一起的总数分不出产出与原料。"""
+    for product, acted in ((MEAL, 1), (KIT, 0)):
+        log = _Log()
+        errand = _snapshot("a", "厨房里的事", product, "2026-01-05 10:00")
+        log.errand(REGISTERED_KIND, "2026-01-05 10:00", errand)
+        log.errand(REMINDED_KIND, "2026-01-05 12:00", errand)
+        log.accepted("2026-01-05 12:10", {"status": "in_progress",
+                                          "data": {"activity": _consume("use", (KIT,), output=MEAL)}})
+        metrics = errand_metrics(log.events, _ZONE)
+        assert (metrics["reminded_errand_count"], metrics["acted_after_reminder_count"]) == (1, acted)

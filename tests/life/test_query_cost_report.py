@@ -306,3 +306,57 @@ def test_query_cost_of_a_run_without_queries_and_the_printed_keys(tmp_path) -> N
     assert _report(late) == {"run_id": "late", "calls": 1, "failures": 0, "returned_chars": len(_compact(_EMPTY_PAGE)),
                              "filtered_calls": 0, "empty_after_filter": 0, "model_calls_to_purchase": None,
                              "reflection_retries": 0}
+
+
+#: 手工运行里一条有结果的查询页正文，与一次不带查询的等待调用。
+_ONE_MATCH = _compact({"matches": [{"name": "好德出售的纯牛奶", "kind": "product"}], "total_count": 1,
+                       "next_offset": None})
+_WAIT = _call("call-wait", "start_activity", {})
+
+
+def test_a_tail_page_of_a_filtered_query_is_not_empty_after_filter(tmp_path) -> None:
+    """@brief 筛选后为空只计成功且 total_count 为 0 的带筛选调用（规格 6.3，口径见记录引擎设计「调试工具」）：offset 等于
+    筛选后总数的合法空末页——matches 为空而 total_count 为 5——是成功的带筛选调用，不算筛选后为空；同一响应里另一个
+    total_count 为 0 的带筛选调用才计一次。两页正文都计入返回字符数，没有失败。"""
+    tail = _compact({"matches": [], "total_count": 5, "next_offset": None})
+    empty = _compact(_EMPTY_PAGE)
+    asked = [_call("call-tail", "query_world", _query(source="好德", offset=5)),
+             _call("call-none", "query_world", _query(source="好德", name="并不存在的东西"))]
+    answered = [*_HEAD, _assistant(asked), _tool("call-tail", tail), _tool("call-none", empty)]
+    run = _store(tmp_path / "tail", "tail", [*_turn(_request(100, 1, "d1", _HEAD), asked),
+                                             *_turn(_request(100, 1, "d1", answered), [_WAIT])])
+    assert _report(run) == {"run_id": "tail", "calls": 2, "failures": 0, "returned_chars": len(tail) + len(empty),
+                            "filtered_calls": 2, "empty_after_filter": 1, "model_calls_to_purchase": None,
+                            "reflection_retries": 0}
+
+
+def test_model_calls_to_purchase_stop_at_the_first_settlement_after_the_first_query(tmp_path) -> None:
+    """@brief 从首次查询到购买结算的模型调用数只数到其后的第一笔购买结算（规格 6.3；记录引擎设计：计该人物从产生首次
+    查询的请求（含）到其后第一笔购买结算（不含）之间的决策请求）：人物 1 查询后在同一决策下单结算，之后两次决策又各买
+    一次——结果是首笔之前的两次请求，后面两笔购买及其请求都不计。"""
+    asked = [_call("call-milk", "query_world", _query(name=_MILK))]
+    buy = _call("call-buy", "start_activity", {})
+    answered = [*_HEAD, _assistant(asked), _tool("call-milk", _ONE_MATCH)]
+    run = _store(tmp_path / "thrice", "thrice", [
+        *_turn(_request(100, 1, "d1", _HEAD), asked), *_turn(_request(100, 1, "d1", answered), [buy]),
+        *_purchase(100, 1, "d1", "o-first"),
+        *_turn(_request(200, 1, "d2", _HEAD), [buy]), *_purchase(200, 1, "d2", "o-second"),
+        *_turn(_request(300, 1, "d3", _HEAD), [buy]), *_purchase(300, 1, "d3", "o-third")])
+    assert _report(run) == {"run_id": "thrice", "calls": 1, "failures": 0, "returned_chars": len(_ONE_MATCH),
+                            "filtered_calls": 0, "empty_after_filter": 0, "model_calls_to_purchase": 2,
+                            "reflection_retries": 0}
+
+
+def test_a_call_id_reused_by_a_later_decision_does_not_answer_an_earlier_query(tmp_path) -> None:
+    """@brief 查询是否得到回答只看同一决策里的 tool 消息（规格 6.3；记录引擎设计：同一决策其后最先带同一调用身份的 tool
+    消息）：调用身份只在一次响应内唯一，后一次决策重用了 call_0——前一次决策里从未得到回答的查询仍算失败，后一次决策的
+    结果页只算给它自己那次调用，返回字符数只计一次。"""
+    first = [_call("call_0", "query_world", _query(name="鸡蛋"))]
+    second = [_call("call_0", "query_world", _query(name=_MILK))]
+    answered = [*_HEAD, _assistant(second), _tool("call_0", _ONE_MATCH)]
+    run = _store(tmp_path / "reused", "reused", [
+        *_turn(_request(100, 1, "d1", _HEAD), first), *_turn(_request(200, 1, "d2", _HEAD), second),
+        *_turn(_request(200, 1, "d2", answered), [_WAIT])])
+    assert _report(run) == {"run_id": "reused", "calls": 2, "failures": 1, "returned_chars": len(_ONE_MATCH),
+                            "filtered_calls": 0, "empty_after_filter": 0, "model_calls_to_purchase": None,
+                            "reflection_retries": 0}

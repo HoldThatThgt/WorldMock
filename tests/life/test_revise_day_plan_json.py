@@ -202,3 +202,98 @@ async def test_host_corrects_duplicate_intents_from_real_json_arguments(monkeypa
     assert call.tool_name == "revise_day_plan"
     assert [(goal.intent_kind, goal.goal) for goal in call.request.goals] == [
         (goal["intent_kind"], goal["goal"]) for goal in merged]
+
+
+#: 宿主对「与保留的已推进目标合并后超过八条」的英文原因（定位在 goals）。
+_MERGED_CAPACITY = "At most eight goals are allowed including preserved progressed goals."
+
+
+def _progressed(engine, *kinds: str) -> tuple:
+    """已推进的当日目标（每次修订都原样保留在计划前缀），每个意图一条。"""
+    from worldmock.life.schedule import PlanGoal
+
+    now = engine.state.current_time
+    return tuple(PlanGoal(intent_kind=kind, goal=f"{kind}做过了", registered_at=now - 60, progressed_at=now,
+                          progress_activity_id=f"activity-{kind}") for kind in kinds)
+
+
+async def _real_host_round(monkeypatch, engine, round_id: str, revisions: list[list[dict]]) -> tuple:
+    """真实引擎、SQLite 与 LifeEnv 上的一次决策：直接导入的 LifeAgent 对冻结观察跑真实 ReAct 循环，脚本模型依次以 JSON
+    字符串提交给定的修订，登记后结算。返回（实际发出的模型请求, 这次修订的结算结果）。脚本用尽后宿主还要模型再答一次
+    （最后一份修订也被纠错）即失败，失败信息带宿主附回的那份纠错。"""
+    from custom.envs.life_env import LifeEnv
+    from tests.integration.test_same_second_continuation import _Script, _person, _reply
+
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
+    environment = LifeEnv()
+    environment.engine = engine
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    observed = await environment.observe(decision)
+    model = _Script([_reply(f"call-{index}", "revise_day_plan", {"goals": goals}, "改一下今天的计划。")
+                     for index, goals in enumerate(revisions)])
+    person = _person(environment, decision, model)
+    assert type(person).__module__ == "custom.agents.life_agent"
+    try:
+        result = await person.run_react_loop(ReactLoopRequest(0, decision.observed_at, [
+            {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
+    except IndexError:
+        pytest.fail("the host corrected the last scripted revision instead of registering it: "
+                    + model.requests[-1]["messages"][-1]["content"])
+    assert result == "revise_day_plan registered"
+    [settled] = engine.commit_decision_round(round_id)
+    return model.requests, settled
+
+
+@pytest.mark.parametrize("kept", [0, 2], ids=["no-preserved-goal", "two-preserved-goals"])
+async def test_host_and_engine_accept_a_revision_that_fills_the_plan_to_exactly_eight(
+        engine_factory, monkeypatch, kept: int):
+    """至多八条的合同不变（规格 1.3 末条）：恰好八条不算超限。真实引擎上预置 kept 条已推进目标，模型提交其余意图的
+    8 - kept 条；宿主不纠错（只发出一次模型请求），环境受理并结算，计划是保留的已推进目标在前、新目标按提交顺序在后，
+    合计恰好八条。"""
+    from tests.life.conftest import stage_day_plan
+
+    engine = engine_factory()
+    stage_day_plan(engine, goals=_progressed(engine, *INTENT_KINDS[:kept]))
+    submitted = _goals(*INTENT_KINDS[kept:8])
+    requests, settled = await _real_host_round(monkeypatch, engine, f"eight-{kept}", [submitted])
+    assert len(requests) == 1
+    assert (settled.status.value, settled.error_code) == ("completed", None)
+    plan = engine.state.agents[1].day_plan.goals
+    assert [goal.intent_kind for goal in plan] == list(INTENT_KINDS[:8])
+    assert [goal.progressed_at is not None for goal in plan] == [True] * kept + [False] * (8 - kept)
+    assert [goal.goal for goal in plan[kept:]] == [goal["goal"] for goal in submitted]
+
+
+async def test_host_corrects_a_revision_that_overflows_with_the_preserved_goals(engine_factory, monkeypatch):
+    """与保留的已推进目标合并后超过八条（规格 1.3 末条；接口合同宿主错误码表 ARGUMENTS_INVALID「修订今日计划超过八条」）：
+    真实引擎上已有两条已推进目标，七条新目标本身合乎请求模型。环境对这份请求以 PLAN_GOALS_INVALID 业务拒绝、计划不变；
+    宿主在同样的计划上先行纠错——不登记，附回 ARGUMENTS_INVALID，一条明细定位在 goals，原因写明连同保留的已推进目标至多
+    八条；模型改交六条后才登记（这次决策只有一条 action_requested），结算受理，计划恰好八条。"""
+    from tests.life.conftest import stage_day_plan
+
+    engine = engine_factory()
+    stage_day_plan(engine, goals=_progressed(engine, *INTENT_KINDS[:2]))
+    plan = engine.state.agents[1].day_plan
+    overflow = _goals(*INTENT_KINDS[2:9])
+    refused = _revise(engine, "engine-nine", ReviseDayPlanRequest(goals=[PlanGoalInput(**goal) for goal in overflow]))
+    assert (refused.status.value, refused.error_code) == ("rejected", "PLAN_GOALS_INVALID")
+    assert engine.state.agents[1].day_plan == plan
+
+    requests, settled = await _real_host_round(monkeypatch, engine, "host-nine", [overflow, overflow[:6]])
+
+    assert len(requests) == 2
+    feedback = json.loads(requests[1]["messages"][-1]["content"])
+    assert list(feedback) == [*ERROR_KEYS, "instruction"] and feedback["instruction"] == FEEDBACK_INSTRUCTION
+    assert (feedback["error_code"], feedback["reason"]) == ("ARGUMENTS_INVALID", _MERGED_CAPACITY)
+    assert feedback["unmet"] == []
+    [item] = feedback["items"]
+    assert set(item) == set(ITEM_KEYS) and item["allowed_values"] == []
+    assert (item["path"], item["error_code"], item["why"]) == ([*_ROOT, "goals"], "ARGUMENTS_INVALID", _MERGED_CAPACITY)
+    registered = [event.data["request"] for event in engine.store.read_events(engine.store.last_event_seq)
+                  if event.event_type == "action_requested" and event.decision_id == "decision-host-nine-1"]
+    assert [request["goals"] for request in registered] == [overflow[:6]]
+    assert (settled.status.value, settled.error_code) == ("completed", None)
+    merged = engine.state.agents[1].day_plan.goals
+    assert [goal.intent_kind for goal in merged] == list(INTENT_KINDS[:8])
+    assert [goal.progressed_at is not None for goal in merged] == [True] * 2 + [False] * 6

@@ -121,6 +121,35 @@ def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
     engine.state = staged
 
 
+def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 1) -> str:
+    """经 FootprintStore 补登一条旧形状的控制请求及其结果（世界结构 8 的写法：带 items 而缺请求级 errands）：照该人物最近
+    一次 tool 请求的逐项内容，同一决策、动作身份另起，请求摘要按同一算法对旧形状重算，结果照原结果；世界状态不变、版本
+    加一。引擎自己写不出这种记录，只用于核对各读取方对旧记录的拒绝（docs/dev/SPEC-errands-workday.md 2.3、2.9）。
+    返回补登的动作身份。"""
+    import hashlib
+
+    from worldmock.footprints.models import EventDraft
+
+    requested = [event for event in engine.store.read_agent_events("action_requested", agent_id)
+                 if event.data["tool_name"] == tool][-1]
+    result = next(event for event in engine.store.read_agent_events("action_result", agent_id)
+                  if event.action_id == requested.action_id)
+    request = {"items": requested.data["request"]["items"]}
+    content = json.dumps({"tool_name": tool, "request": request}, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode()
+    action_id = f"{requested.action_id}-legacy"
+    data = {**requested.data, "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
+    staged = engine.state.model_copy(deep=True)
+    staged.version += 1
+    shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "decision_id": requested.decision_id,
+              "action_id": action_id}
+    engine.store.commit(staged.model_dump(mode="json"), [
+        EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
+        EventDraft(event_type="action_result", data={**result.data, "action_id": action_id}, **shared)])
+    engine.state = staged
+    return action_id
+
+
 def errand_add(name: str, item: str, outcome: str = "取得", quantity: int = 1, memo=None, remind_time=None) -> dict:
     """一条「新增」事务变更（请求形状的八键字典）：完成依据为结果种类、商品名与份数，原因为 null。"""
     return {"change": "新增", "name": name, "outcome": outcome, "item": item, "quantity": quantity, "memo": memo,

@@ -270,6 +270,12 @@ _LIMIT_CASES = {
     "blank_text": (_single(text="   "), "matching the declared format"),
     "text_over_1000_characters": (_single(text="长" * 1001), "exceeds 1000 characters"),
     "hexadecimal_identity_in_text": (_single(text="我还记得 3e71a031bb3d 那一刻。"), "hexadecimal identifier"),
+    # 八位以上十六进制串不分大小写：全大写与大小写混写（恰好八位）的身份串同样不进记忆文字，看法的文字也一样。
+    "upper_case_hexadecimal_identity_in_text": (_single(text="我还记得 3E71A031BB3D 那一刻。"),
+                                                "hexadecimal identifier"),
+    "mixed_case_hexadecimal_identity_in_text": (_single(text="我还记得 3e71A031 那一刻。"), "hexadecimal identifier"),
+    "upper_case_hexadecimal_identity_in_view_text": (_single_view(text="他给我看过 3E71A031BB3D 那张单子。"),
+                                                     "hexadecimal identifier"),
     "thirteen_keywords": (_single(keywords=[f"词{index}" for index in range(13)]), "more than twelve keywords"),
     "importance_above_one": (_single(importance=1.5), "at most 1"),
     "importance_below_zero": (_single(importance=-0.1), "at least 0"),

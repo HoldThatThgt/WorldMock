@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -40,6 +42,7 @@ class TestFieldBlacklist:
         "game_catalog",
         "activity_snapshot",
         "activities",
+        "home_location_id",
         *_PRIVATE_KEYS,
     ])
     def test_each_forbidden_key_alone_raises(self, forbidden_key: str) -> None:
@@ -138,3 +141,46 @@ class TestHanziCounter:
         """只计 CJK 基本区汉字。"""
         assert count_hanzi("三个汉字a1，") == 4
         assert PERSONA_CARD_HANZI_BUDGET == 600
+
+
+#: docs/CONTRACTS.md「禁止进入提示的字段」第一段里不是禁键的反引号词：段内顺带提到的别的字段、事件类型与工具面名称，
+#: 以及后缀规则 _sha256（一切以它结尾的键另行拒绝）。
+_CONTRACT_PROSE_WORDS = frozenset({"note_labels", "self_notes", "message_arrival", "item", "from", "tools", "_sha256"})
+
+
+def _contract_listed_keys() -> set[str]:
+    """@brief 接口合同「禁止进入提示的字段」第一段逐字列出的禁键：反引号里只由小写字母、数字、下划线与点组成的词，去掉
+    段内顺带提到的别的名称（_CONTRACT_PROSE_WORDS）。"""
+    text = (Path(__file__).resolve().parents[2] / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")
+    paragraph = text.split("### 禁止进入提示的字段\n", 1)[1].strip().split("\n\n", 1)[0]
+    assert paragraph.startswith("观察字典中不得进入提示的字面键")
+    return set(re.findall(r"`([a-z0-9_.]+)`", paragraph)) - _CONTRACT_PROSE_WORDS
+
+
+class TestContractListedKeys:
+    """@brief 接口合同逐字列出的禁键与代码键表对照：合同写明「代码中的键表是本段所列的超集」，宿主渲染时逐键校验。"""
+
+    def test_every_key_the_contract_lists_is_rejected_alone_and_inside_a_layer(self) -> None:
+        """@brief 合同段落列出的每个键都在 FORBIDDEN_OBSERVATION_KEYS 里，单独出现在顶层、或嵌在一层的字典里经
+        render_layer_json 渲染，都以 ForbiddenObservationFieldError 拒绝并在消息里写出该键；住处身份 home_location_id、
+        查询的渠道索引与供给所属门店的 location_id 都在其列。"""
+        keys = _contract_listed_keys()
+        assert len(keys) >= 55
+        assert {"home_location_id", "world_query_channels", "location_id", "errand_id", "taste_weights"} <= keys
+        assert keys <= FORBIDDEN_OBSERVATION_KEYS, sorted(keys - FORBIDDEN_OBSERVATION_KEYS)
+        for key in sorted(keys):
+            with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):
+                enforce_field_blacklist({key: "leak"})
+            with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):
+                render_layer_json([{"layer": "环境层", "location": {"name": "自己家", key: "leak"}}])
+
+    def test_home_identity_cannot_enter_any_layer(self) -> None:
+        """@brief 本人住处的地点身份（「家」「住处」按它解析，只留在观察顶层）混进环境层或工具层目标即被拒绝，路径写到
+        该键；不含它的同一层照常渲染。"""
+        layer = {"layer": "环境层", "location": {"session_kind": "stay", "name": "自己家"}}
+        assert json.loads(render_layer_json(layer)) == layer
+        with pytest.raises(ForbiddenObservationFieldError, match=r"observation\.home_location_id"):
+            render_layer_json({**layer, "home_location_id": "home"})
+        target = {"name": "地点：自己家", "kind": "location", "home_location_id": "home"}
+        with pytest.raises(ForbiddenObservationFieldError, match=r"observation\[0\]\.targets\[0\]\.home_location_id"):
+            enforce_field_blacklist([{"layer": "工具层", "targets": [target]}])

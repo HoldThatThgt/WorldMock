@@ -3,10 +3,14 @@
 末两例经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent（docs/dev/SPEC-errands-workday.md 1.4 与验收台账「故障传播」）：
 世界请求的工具服务失败与模型服务失败各跑一次醒来那一轮的人物步骤，核对日志、上抛的异常对象与类型、失败阶段码，
 以及库里没有多出模型证据之外的任何事件。其余用例在替身环境上直调私有覆写点，是这两例的补充证据与变异杀手。
+
+其后追加的两例同样经真实引擎（上面所说的「末两例」排在它们之前）：失败阶段码不挑异常类型——不是 OSError 的工具服务
+失败照样先留日志再以 TOOL_SERVICE_FAILED 上抛；足迹库以 sqlite3 错误拒写请求证据或响应证据时以 EVIDENCE_WRITE_FAILED 上抛。
 """
 
 import logging
 import os
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -171,3 +175,99 @@ async def test_model_service_failure_on_the_real_engine_is_logged_once_and_rerai
     assert {event.decision_id for event in added} == {run.decision.decision_id}
     assert added[-1].data["phase"] == "failure"
     _assert_report(added[-1].data["protocol_feedback"], "MODEL_SERVICE_FAILED", ["tool_calls"])
+
+
+class _InjectedServiceFailure(Exception):
+    """不是 OSError 的服务失败：环境 actor 死亡、协议故障这类异常都不在 OSError 之下。"""
+
+
+def _service_failures() -> list:
+    """真实服务失败会有的两种非 OSError 形态：自定义异常，与足迹库（SQLite）自己的错误。"""
+    return [_InjectedServiceFailure("environment actor died"), sqlite3.OperationalError("database is locked")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("injected", _service_failures(), ids=["private_exception", "sqlite_error"])
+async def test_tool_service_failure_of_any_exception_type_is_logged_and_raised_with_its_stage(
+        engine_factory, tmp_path, monkeypatch, caplog, injected):
+    """工具分发失败不挑异常类型（docs/dev/SPEC-errands-workday.md 1.4 与验收台账「故障传播」）：真实引擎、SQLite、
+    LifeEnv 与直接导入的 LifeAgent 上，醒来那一轮的世界请求在 LifeEnv.submit_action 处以不是 OSError 的异常失败。照样
+    先写工具分发失败日志、再写决策失败日志，各一条且都带异常；step 上抛的恰是 RuntimeError，参数是指向那次工具调用的
+    TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象（没有把原异常原样漏出去）；库里只多出观察、decision_started 与一对
+    模型请求与响应，没有 action_requested，也没有 memory_updated。"""
+    _fixed_context_window(monkeypatch)
+    run = await _waking_decision(engine_factory, tmp_path)
+    assert not isinstance(injected, (OSError, RuntimeError))
+
+    async def fail(call):
+        """LifeEnv 提交世界请求的替身：服务以注入的异常失败。"""
+        raise injected
+
+    monkeypatch.setattr(run.environment, "submit_action", fail)
+    sequence = run.engine.store.last_event_seq
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
+        await run.agent.step(0, run.decision.observed_at)
+
+    assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
+    feedback = failure.value.args[0]
+    assert isinstance(feedback, HostFeedback)
+    _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 0])
+    assert _agent_logs(caplog) == [
+        (logging.ERROR, "LifeAgent tool dispatch failed: conclude_activity", injected),
+        (logging.ERROR, "LifeAgent decision failed for agent 1", failure.value)]
+    added = _events_after(run, sequence)
+    assert [event.event_type for event in added] == [
+        "observation", "decision_started", "model_request", "model_response"]
+    assert {event.decision_id for event in added} == {run.decision.decision_id}
+    assert added[-1].data["phase"] == "response" and added[-1].data["error"] is None
+
+
+#: 证据写入失败的阶段 →（失败之前模型被调用的次数, 这次决策在库里已写入的事件）。
+_EVIDENCE_FAILURES = {
+    "request": (0, ["observation"]),
+    "response": (1, ["observation", "decision_started", "model_request"]),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_phase", sorted(_EVIDENCE_FAILURES))
+async def test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_stage(
+        engine_factory, tmp_path, monkeypatch, caplog, failure_phase):
+    """证据写入失败以运行故障上抛，带失败阶段码 EVIDENCE_WRITE_FAILED、定位在 tool_calls（docs/dev/SPEC-errands-workday.md
+    1.4 第二段与接口合同宿主错误码表），同样不挑异常类型：真实写入方是环境后面的 SQLite 足迹库，它的失败是 sqlite3 的
+    错误而不是 OSError。真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 上，醒来那一轮行动请求的请求证据或响应证据写入
+    以 sqlite3.OperationalError 失败：step 上抛的恰是 RuntimeError，参数是该阶段码的反馈，原因是注入的异常对象；决策失败
+    日志恰好一条；不重试（请求证据失败时模型一次都没被调用，响应证据失败时恰好一次）；世界请求没有登记，库里只留下失败
+    之前已写入的事件。"""
+    _fixed_context_window(monkeypatch)
+    model_calls, kept = _EVIDENCE_FAILURES[failure_phase]
+    run = await _waking_decision(engine_factory, tmp_path)
+    injected = sqlite3.OperationalError("database is locked")
+    record, call, requests = run.environment.record_model_exchange, run.model.call, []
+
+    async def failing_record(exchange):
+        """LifeEnv 保存模型证据的替身：指定阶段的写入以足迹库的错误失败，其余照常落库。"""
+        if exchange.phase == failure_phase:
+            raise injected
+        await record(exchange)
+
+    async def counted_call(**request):
+        """远程模型传输照常应答，只多记下被调用的次数。"""
+        requests.append(request)
+        return await call(**request)
+
+    monkeypatch.setattr(run.environment, "record_model_exchange", failing_record)
+    monkeypatch.setattr(run.model, "call", counted_call)
+    sequence = run.engine.store.last_event_seq
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
+        await run.agent.step(0, run.decision.observed_at)
+
+    assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
+    feedback = failure.value.args[0]
+    assert isinstance(feedback, HostFeedback)
+    _assert_report(feedback.report.payload(), "EVIDENCE_WRITE_FAILED", ["tool_calls"])
+    assert _agent_logs(caplog) == [(logging.ERROR, "LifeAgent decision failed for agent 1", failure.value)]
+    assert len(requests) == model_calls
+    added = _events_after(run, sequence)
+    assert [event.event_type for event in added] == kept
+    assert {event.decision_id for event in added} == {run.decision.decision_id}

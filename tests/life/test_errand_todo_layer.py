@@ -143,3 +143,74 @@ def test_observation_carries_private_errand_bindings_outside_every_layer(engine_
             render_layer_json(leak)
     with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
         engine.read_task_summary(1, RecallTaskSummaryRequest(task_name="补一份素炒什锦食材包"), observed)
+
+
+def test_the_todo_layer_schema_closes_an_errand_row_to_exactly_its_six_keys(engine_factory) -> None:
+    """待办层 Schema 把事务行限定为恰好六键（docs/dev/SPEC-errands-workday.md 2.6、6.4；接口合同「七层 Schema」）：真实观察的
+    待办层（与存进 SQLite 的观察事件逐值相同）通过校验；在它的第一条事务行上多写内部身份、状态或可用性中的任何一个键，
+    或少写六键中的任何一个，校验都以 ValueError 指明待办层与该行的位置，其余行原样不动。"""
+    engine = engine_factory()
+    stage_errands(engine, 1, _three_errands(engine.state.current_time))
+    observed = engine.observe(context(engine, "errand-closed"))
+    todo = observed["todo_layer"]
+    assert _stored_observation(engine, observed)["todo_layer"] == todo
+    validate_layer(todo)
+    first, rest = todo["errands"][0], todo["errands"][1:]
+    assert list(first) == _ROW_KEYS and len(rest) == 2
+    broken = [{**first, **extra} for extra in ({"errand_id": "action-b:errand:0"}, {"status": "未完成"},
+                                                {"available": True})]
+    broken += [{key: value for key, value in first.items() if key != missing} for missing in _ROW_KEYS]
+    for row in broken:
+        with pytest.raises(ValueError, match=r"Prompt layer 待办层 violates its schema at \['errands', 0\]"):
+            validate_layer({**todo, "errands": [row, *rest]})
+
+
+def test_each_persons_todo_layer_and_bindings_list_only_their_own_errands(engine_factory) -> None:
+    """事务由记下它的人物持有（docs/dev/SPEC-errands-workday.md 2.1、2.6）。两人场景经真实请求、引擎与 SQLite：陈曦在收尾
+    请求里记下「买牛奶」之后，李凡的观察里待办层 errands 与私有 errand_bindings 都还是空的；李凡随后记下自己的「囤冰红茶」，
+    两人的待办层与私有绑定各只列本人那一条，存进 SQLite 的本人观察事件与之逐值相同。"""
+    from tests.life.conftest import errand_add
+    from tests.life.routing_fixtures import observe, open_world
+    from tests.life.test_errand_completion import MILK, note
+
+    engine = open_world(engine_factory)
+    note(engine, "mine", [errand_add("买牛奶", MILK)])
+    alone = observe(engine, "alone", 2)
+    assert alone["todo_layer"]["errands"] == [] and alone["errand_bindings"] == []
+    note(engine, "theirs", [errand_add("囤冰红茶", engine.rules.items[_TEA].name)], agent_id=2)
+    for agent_id, name in ((1, "买牛奶"), (2, "囤冰红茶")):
+        observed = observe(engine, f"both-{agent_id}", agent_id)
+        assert [row["name"] for row in observed["todo_layer"]["errands"]] == [name]
+        assert [row["name"] for row in observed["errand_bindings"]] == [name]
+        [stored] = [event for event in engine.store.read_agent_events("observation", agent_id)
+                    if event.event_id == observed["observation_event_id"]]
+        assert stored.data["todo_layer"]["errands"] == observed["todo_layer"]["errands"]
+        assert stored.data["errand_bindings"] == observed["errand_bindings"]
+
+
+def test_the_host_corrects_a_recall_by_the_name_of_an_open_errand(engine_factory) -> None:
+    """事务名不进回看名称，宿主与环境对同一冻结观察判定一致（docs/dev/SPEC-errands-workday.md 2.3 首句与末条）：真实引擎上
+    预置一条当日目标与三条未完成事务，冻结观察（存进 SQLite）并按它准备直接导入的 LifeAgent。按任何一条事务名回看任务，
+    宿主都以 NAME_NOT_FOUND 纠正（不把这次回看放给环境），环境对同一份观察也以 TASK_NOT_FOUND 拒绝；同一份观察里
+    待办层写出的当日目标名照常可以回看，宿主与环境都受理。"""
+    from tests.life.test_name_resolution import _check, _open
+
+    engine = engine_factory()
+    now = engine.state.current_time
+    stage_day_plan(engine, goals=(PlanGoal(intent_kind="用餐", goal="好好吃晚饭", registered_at=now),))
+    stage_errands(engine, 1, _three_errands(now))
+    _, observed, host = _open(engine, "errand-recall")
+    assert type(host).__module__ == "custom.agents.life_agent"
+    assert _stored_observation(engine, observed)["errand_bindings"] == observed["errand_bindings"]
+    names = [row["name"] for row in observed["todo_layer"]["errands"]]
+    assert names == [row["name"] for row in observed["errand_bindings"]]
+    assert names == ["补一份素炒什锦食材包", "晚饭吃掉素炒什锦", "囤三瓶冰红茶"]
+    for name in names:
+        assert _check(host, "recall_task_summary", {"task_name": name}) == (
+            f"NAME_NOT_FOUND: The name {name} is not known.")
+        with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
+            engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), observed)
+    goal = observed["todo_layer"]["day_plan"]["goals"][0]["goal"]
+    assert goal == "好好吃晚饭" and _check(host, "recall_task_summary", {"task_name": goal}) == ""
+    recalled = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=goal), observed)
+    assert recalled["recall"] == {"kind": "goal", "goal": goal, "intent_kind": "用餐", "progressed": False}

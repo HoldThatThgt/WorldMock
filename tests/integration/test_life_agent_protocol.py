@@ -382,6 +382,35 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
     assert life_tool_schema_sha256() != original
 
 
+def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool(monkeypatch) -> None:
+    """工具指纹只绑定人物工具面（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」与 6.4：submit_reflection 不属于人物
+    工具面，不进 tool_schema_sha256）：指纹恰为生活决策实际开放的十二个原生工具（请求模型的登记顺序，其后是三个记忆查询与
+    query_world）与注册表摘要组成的规范 JSON 的 SHA-256，其中没有 submit_reflection；就寝反思工具的说明与 Schema 改动
+    之后指纹不变。"""
+    import hashlib
+
+    import custom.agents.life_agent as life_agent_module
+    from custom.agents import life_reflection
+
+    original = life_tool_schema_sha256()
+    offered = _functions(_prepared())
+    assert len(offered) == 12 and set(offered) == _BASE_ACTION_NAMES | _READ_QUERY_NAMES
+    assert "submit_reflection" not in offered
+    order = [*REQUEST_MODELS, "memory_recent", "memory_search", "memory_time_range", "query_world"]
+    assert sorted(order) == sorted(offered)
+    encoded = json.dumps({"tool_schemas": [{"type": "function", "function": offered[name]} for name in order],
+                          "affordance_registry_sha256": life_agent_module.affordance_registry_sha256()},
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert original == hashlib.sha256(encoded.encode()).hexdigest()
+    edited = life_reflection.reflection_tool()
+    edited["function"]["description"] += " (edited)"
+    edited["function"]["parameters"]["properties"]["insights"]["maxItems"] = 9
+    assert edited != life_reflection.reflection_tool()
+    monkeypatch.setattr(life_reflection, "reflection_tool", lambda: edited)
+    assert life_reflection.reflection_tool() is edited
+    assert life_tool_schema_sha256() == original
+
+
 def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
     """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订工具整次运行都在，条目必须给出可为 null 的 remind_time
     与 around_time（docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
@@ -1679,3 +1708,24 @@ def test_memory_sleep_boundary_follows_engine_wake_signal() -> None:
     agent.prepare_react_loop(
         ReactLoopRequest(0, _context().observed_at, waking))
     assert agent.memory_sleep_boundary() is True
+
+
+def test_home_identity_never_enters_messages_and_a_layer_carrying_it_is_rejected() -> None:
+    """@brief 本人住处的地点身份 home_location_id 是观察私有事实（「家」「住处」与查询的 from 按它解析，docs/CONTRACTS.md
+    「禁止进入提示的字段」）：它留在观察顶层时，宿主构建的消息里既没有这个键也没有它的值；混进任何一层（工具层目标、
+    待办层、环境层及其地点、记忆层、进度层）时，宿主渲染即以 ForbiddenObservationFieldError 拒绝并写出该键。"""
+    observations = _observations()
+    observations[0]["data"]["home_location_id"] = "home-private-1"
+    messages = _prepared(observations).build_react_messages(ReactLoopRequest(0, _context().observed_at, observations))
+    text = "\n".join(item["content"] for item in messages)
+    assert "home_location_id" not in text and "home-private-1" not in text
+    for path in (("tool_layer", "targets", 0), ("todo_layer",), ("environment_layer",),
+                 ("environment_layer", "location"), ("memory_layer",), ("progress_layer",)):
+        leaking = _observations()
+        node = leaking[0]["data"]
+        for step in path:
+            node = node[step]
+        node["home_location_id"] = "home-private-1"
+        agent = _prepared(leaking)
+        with pytest.raises(ForbiddenObservationFieldError, match="home_location_id"):
+            agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, leaking))

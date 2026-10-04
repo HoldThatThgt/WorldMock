@@ -23,9 +23,14 @@ import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
+from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E402
+from agentsociety2.society import DirectToolCall  # noqa: E402
+from custom.agents.life_agent import LifeAgent  # noqa: E402
+from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.life.conftest import context, stage_day_plan, start_arguments  # noqa: E402
 from tests.life.purchase_worlds import ROOT, SCENARIO, at_clock, build_world, decide, phone_config  # noqa: E402
 from tests.life.routing_fixtures import place, stage  # noqa: E402
+from tests.life.routing_fixtures import open_world  # noqa: E402
 from tests.life.test_browse_and_hints import _show  # noqa: E402
 from tests.life.test_world_query_filters import (CHANNEL_IN_NAME_EXPECTED, EMPTY_PAGE, ROOT as QUERY_ROOT,  # noqa: E402
                                                  _ask, _open, _oracle, _query, _source_candidates, _traverse)
@@ -34,6 +39,7 @@ from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.footprints.purchases import project_purchase_facts  # noqa: E402
 from worldmock.life.basket import delivery_expected_at  # noqa: E402
 from worldmock.life.load_checks import check_channel_admission  # noqa: E402
+from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 from worldmock.life.name_resolution import resolve_source  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
 from worldmock.life.purchase_offers import source_scope  # noqa: E402
@@ -450,3 +456,156 @@ def test_a_store_without_permitted_supply_is_an_empty_page_and_never_a_candidate
     matches, _ = _traverse(session, "盒马")
     assert [row["name"] for row in matches] == _oracle(observed, lambda entry: entry["location_id"] == _MARKET)
     assert matches
+
+
+@pytest.fixture(scope="module")
+def closed_channel_world(tmp_path_factory):
+    """@brief 盒马渠道没有任何权限内成员门店的隔离语料（同一 channels 手机配置）：它的两家成员门店集市与紫薇菜市场的全部
+    供给都要求人物没有的资格 member；美团外卖渠道的好德与农工商超市照常。"""
+    document = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    dataset = json.loads((ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
+    published = json.loads((ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))
+    supplies = {row["supply_id"]: {"required_qualifications": ["member"]} for row in published["supplies"]
+                if row["location_id"] in {_MARKET, _ZIWEI}}
+    assert len(supplies) > 9
+    return build_world(tmp_path_factory.mktemp("closed-channel-world"),
+                       {"channels": phone_config({**_HEMA, **_MEITUAN}, _NAMES)}, supplies=supplies)
+
+
+def test_a_channel_without_a_permitted_member_store_is_never_a_source_candidate(engine_factory,
+                                                                                closed_channel_world) -> None:
+    """@brief 未知来源的候选只取权限内有供给条目的门店与含这些门店的渠道（5.5 第一行）：盒马渠道的成员门店都没有权限内
+    供给时，渠道索引照常列出它，from 写它的任一称呼是合法空页（第三行）；与它相近的未知写法的候选里没有它的称呼，
+    照抄每条候选都被受理并且有结果；仍有权限内成员门店的美团外卖照常作候选，同一份候选里也没有盒马。"""
+    session = _open(_engine(engine_factory, closed_channel_world), "closed-channel")
+    observed = session.observed
+    places = {row["location_id"]: row["name"] for row in observed["locations"]}
+    permitted = {entry["location_id"] for entry in observed["world_query_bindings"]} - {None}
+    assert {_HAODE, _NONGGONGSHANG} <= permitted and not permitted & {_MARKET, _ZIWEI}
+    assert [(row["channel_id"], row["store_location_ids"]) for row in observed["world_query_channels"]] == [
+        ("hema", [_MARKET, _ZIWEI]), ("meituan-takeaway", [_HAODE, _NONGGONGSHANG])]
+    for written in ("盒马", "盒马App"):
+        asked = _ask(session, _query(written))
+        assert asked.error == "" and asked.page == EMPTY_PAGE, written
+    allowed = {places[store] for store in permitted} | {"美团外卖"}
+    for written in ("盒马Ap", "盒马超市", "美团App"):
+        arguments = _query(written)
+        sources = _source_candidates(_ask(session, arguments), arguments)
+        assert not {"盒马App", "盒马"} & set(sources) and set(sources) <= allowed, (written, sources)
+        for source in sources:
+            resubmitted = _ask(session, {**arguments, "from": source})
+            assert resubmitted.error == "" and resubmitted.page["total_count"] > 0, (written, source)
+    arguments = _query("美团App")
+    assert _source_candidates(_ask(session, arguments), arguments)[0] == "美团外卖"
+
+
+def test_a_request_without_the_from_key_is_reported_for_its_missing_keys_only(engine_factory, world) -> None:
+    """@brief 渠道称呼写进 name 的错误只在 from 写了 null 时成立（5.5 第二行）；from 缺键时来源无从判定，不替模型猜：旧
+    四键请求即使 name 恰是渠道称呼，也只在 from 与 available_only 两处报缺字段（5.1），只缺 from 的五键请求只报 from
+    一条，都没有落在 name 上的明细；什么也没派发。六键俱全、from 写 null 的同一请求仍是 name 位置的那一条。"""
+    session = _open(_engine(engine_factory, world), "channel-without-from")
+    omitted = "This required field was omitted."
+    four = {"name": "美团外卖", "way": None, "category": None, "offset": 0}
+    five = {"name": "美团外卖", "way": None, "category": None, "available_only": False, "offset": 0}
+    for arguments, missing in ((four, ["from", "available_only"]), (five, ["from"])):
+        asked = _ask(session, arguments)
+        assert asked.report["error_code"] == "ARGUMENTS_INVALID" and asked.env is None, arguments
+        assert [(item["path"], item["written"], item["why"]) for item in asked.report["items"]] == [
+            ([*QUERY_ROOT, key], None, omitted) for key in missing], arguments
+    assert session.host._life_action_count == 0
+    written = _query(name="美团外卖")
+    [item] = _ask(session, written).report["items"]
+    assert (item["path"], item["written"], item["expected"]) == ([*QUERY_ROOT, "name"], "美团外卖",
+                                                                 CHANNEL_IN_NAME_EXPECTED)
+    assert [candidate["arguments"] for candidate in item["candidates"]] == [
+        {**written, "name": None, "from": "美团外卖"}]
+
+
+def test_home_spellings_resolve_to_the_same_stores_for_purchase_and_query(engine_factory, world) -> None:
+    """@brief 住处的各种无损写法在购买与查询两侧是同一个范围（5.2：同一写法得到的门店集合逐一相等，合法写法以现行实现
+    为准）：带「地点：」前缀、首尾或中间空白、半角冒号的「家」「住处」经购买的 source_scope 与用冻结观察调用的
+    resolve_source 都是本人住处一处，不被当成渠道称呼；查询 {from: 写法} 是合法空页（住处没有供给）。"""
+    engine = _engine(engine_factory, world)
+    session = _open(engine, "home-spellings")
+    observed = session.observed
+    purchase = SimpleNamespace(scenario=engine.scenario, semantics=engine.semantics, agent_id=1)
+    places = {row["location_id"]: row["name"] for row in observed["locations"]}
+    channels = [(row["channel_id"], row["names"], row["store_location_ids"])
+                for row in observed["world_query_channels"]]
+    home = observed["home_location_id"]
+    for written in ("地点：家", " 住处 ", "住 处", "地点: 家"):
+        scope = source_scope(purchase, written)
+        match = resolve_source(written, places, home, channels)
+        assert scope is not None and match is not None, written
+        assert match.store_ids == scope.store_ids == {home}, written
+        assert (match.channel_id, match.name) == (scope.channel_id, scope.name) == (None, places[home]), written
+        asked = _ask(session, _query(written))
+        assert asked.error == "" and asked.page == EMPTY_PAGE, written
+
+
+def _second_home_is_the_market(document: dict) -> None:
+    """@brief multi-person 场景副本里人物 2 的住处改成集市（出售纯牛奶的门店），人物 1 的住处不变。"""
+    next(item for item in document["agents"] if item["agent_id"] == 2)["home_location_id"] = _MARKET
+
+
+def _sessions(engine, round_id: str) -> dict[int, SimpleNamespace]:
+    """@brief 就绪的人物同开一个决策轮、各冻结一次观察：每人一个直接导入的 LifeAgent（按本人的观察准备本地校验），环境
+    持有同一引擎。返回人物编号 → 会话（与查询用例的 _open 同一形状，可交给 _ask 与 _traverse）。"""
+    contexts = [context(engine, round_id, agent_id) for agent_id in engine.scheduling_state().ready_agent_ids]
+    engine.begin_decision_round(contexts)
+    environment = LifeEnv()
+    environment.engine = engine
+    sessions = {}
+    for ctx in contexts:
+        observed = engine.observe(ctx)
+        host = LifeAgent()
+        host.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, [{"turn": 0, "action": "observe", "ok": True,
+                                                                      "data": observed}]))
+        sessions[ctx.agent_id] = SimpleNamespace(engine=engine, ctx=ctx, observed=observed, host=host,
+                                                 environment=environment)
+    return sessions
+
+
+def _settle_for_everyone(sessions: dict[int, SimpleNamespace], round_id: str, arguments: dict) -> dict:
+    """@brief 每个人物照同一份参数提交 start_activity：先经本人宿主在本人的冻结观察上校验（须放行），再原样登记，整轮
+    一起结算。返回人物编号 → 环境结果。"""
+    engine = next(iter(sessions.values())).engine
+    for agent_id, session in sessions.items():
+        session.host.build_react_tool_schemas(readonly=False)
+        decision = ReactDecision("", "start_activity", arguments, "")
+        assert session.host.validate_react_decisions([decision], False) == "", agent_id
+        engine.submit_action(DirectToolCall(session.ctx, f"action-{round_id}-{agent_id}", "start_activity",
+                                            REQUEST_MODELS["start_activity"].model_validate(arguments)))
+    return {result.agent_id: result for result in engine.commit_decision_round(round_id)}
+
+
+def test_home_in_from_is_the_acting_persons_own_home_for_purchase_and_query(engine_factory) -> None:
+    """@brief 「家」「住处」是提出请求的那个人自己的住处，购买与查询同一口径（5.2；一日运行保真规格 3.3 解析规则 1）：
+    两人住处不同——人物 1 住在没有供给的住处，人物 2 住在出售纯牛奶的集市——同一决策轮里，各人的冻结观察、source_scope
+    与 resolve_source 都把这两个词解析成本人的住处，{from: 家} 的查询翻完恰是本人住处的供给（人物 1 为空页，人物 2 是
+    集市的全部条目）；两人都写 from「家」买纯牛奶，人物 1 以 SUPPLY_NOT_AT_STORE 被拒（这里没有可买的商品），人物 2 在
+    自己住的集市到店成单，订单的门店是集市。"""
+    engine = open_world(engine_factory, mutate=_second_home_is_the_market)
+    homes = {item.agent_id: item.home_location_id for item in engine.scenario.agents}
+    assert homes == {1: "home", 2: _MARKET}
+    sessions = _sessions(engine, "own-home")
+    assert set(sessions) == {1, 2}
+    for agent_id, session in sessions.items():
+        observed, home = session.observed, homes[agent_id]
+        places = {row["location_id"]: row["name"] for row in observed["locations"]}
+        purchase = SimpleNamespace(scenario=engine.scenario, semantics=engine.semantics, agent_id=agent_id)
+        assert observed["home_location_id"] == home
+        for written in ("家", "住处"):
+            scope = source_scope(purchase, written)
+            match = resolve_source(written, places, observed["home_location_id"], [])
+            assert scope is not None and scope.store_ids == match.store_ids == {home}, (agent_id, written)
+            names = [row["name"] for row in _traverse(session, written)[0]]
+            assert names == _oracle(observed, lambda entry: entry["location_id"] == home), (agent_id, written)
+            assert bool(names) is (agent_id == 2), (agent_id, written)
+    results = _settle_for_everyone(sessions, "own-home", _buy(source="家", way="购买"))
+    assert (results[1].status, results[1].error_code) == ("rejected", "SUPPLY_NOT_AT_STORE")
+    assert results[1].data["reason"] == "The source has no purchasable supplies."
+    assert (results[2].status, results[2].error_code) == ("completed", None)
+    [order] = results[2].data["orders"]
+    assert (order["agent_id"], order["location_id"], order["fulfillment"]) == (2, _MARKET, "pickup")
+    assert [delivery.agent_id for delivery in engine.state.deliveries.values()] == [2]

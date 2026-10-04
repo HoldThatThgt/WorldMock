@@ -87,6 +87,19 @@ def _twice(known: str) -> _MultipleModelResponse:
     return _MultipleModelResponse([("call-a", _TOOL, arguments), ("call-b", _TOOL, arguments)])
 
 
+#: 两个选择各自带的那条洞见的正文：哪个选择都不该被读取，也不回显给模型。
+_TWO_CHOICE_TEXT = "两个选择里的洞见。"
+
+
+def _two_choices(known: str) -> _ModelResponse:
+    """同一响应里两个选择，各带一次本来合法的 submit_reflection 调用（合起来是两次调用，不是恰好一次）。"""
+    response = _submit([_insight(known, _TWO_CHOICE_TEXT)])
+    second = copy.deepcopy(response.choices[0])
+    second.message.tool_calls[0].id = "call-reflection-b"
+    response.choices = [response.choices[0], second]
+    return response
+
+
 #: 每种合同违约：由输入记忆身份构造不合法响应的函数，与附回模型的英文校验错误里必有的一段。
 _VIOLATIONS = {
     "free_text": (_free_text, _ONE_CALL),
@@ -114,6 +127,15 @@ _VIOLATIONS = {
     "missing_refs": (lambda known: _submit([{"insight": "我想休息。"}]), "insights.0.refs: Field required"),
     "ref_is_not_text": (lambda known: _submit([{"insight": "我想休息。", "refs": [7]}]),
                         "insights.0.refs.0: Input should be a valid string"),
+    # 第一条洞见的引用合法、未知身份在第二条：每条洞见的引用都要属于本次输入，定位到出错的那一条。
+    "unknown_ref_in_later_insight": (
+        lambda known: _submit([_insight(known, "我想休息。"), _insight("m_unknown", "我想早点睡。")]),
+        "insights.1.refs: memory ids ['m_unknown'] are not among the supplied episodes"),
+    # 八位以上十六进制串不分大小写：全大写与大小写混写（恰好八位）的身份串同样不进记忆正文。
+    "upper_case_identity_in_text": (lambda known: _submit([_insight(known, "我还记得 3E71A031BB3D 那件事。")]),
+                                    "insights.0.insight: Value error, memory text contains a hexadecimal identifier"),
+    "mixed_case_identity_in_text": (lambda known: _submit([_insight(known, "我还记得 3e71A031 那件事。")]),
+                                    "insights.0.insight: Value error, memory text contains a hexadecimal identifier"),
 }
 
 
@@ -240,6 +262,59 @@ async def test_runtime_feeds_each_contract_violation_back_and_stores_only_the_co
     stored = _reflections(runtime)
     assert [(item["text"], item["refs"]) for item in stored] == [(_CORRECTED, [_known_id(first)])]
     assert stored[0]["id"] in {item["id"] for item in outcome.created_episodes}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["padded_ref", "padded_twin_of_a_known_ref"])
+async def test_runtime_rejects_a_padded_copy_of_a_supplied_identity(tmp_path, case: str) -> None:
+    """引用必须就是本次输入的记忆身份本身（规格 1.1 校验第三条）：前后带空白的写法不是输入里的身份。单独写它，或与原身份
+    并列（两个字符串不同、去掉空白却是同一条记忆，放行就会在一条洞见内把同一条记忆引用两次），都经真实记忆运行时附回
+    「不属于本次输入」的英文错误重新请求，错误原样带出那个带空白的写法；只写入改正后的那一条，引用恰为该身份一次。"""
+    def padded(known: str) -> str:
+        """输入身份的带空白写法：单独出现时两侧都有空格，与原身份并列时只在末尾多一个空格。"""
+        return f" {known} " if case == "padded_ref" else f"{known} "
+
+    def invalid(known: str) -> _ModelResponse:
+        """只含一条洞见的响应，其引用是带空白的写法（并列的用例里前面还有原身份）。"""
+        refs = [padded(known)] if case == "padded_ref" else [known, padded(known)]
+        return _submit([{"insight": "我想休息。", "refs": refs}])
+
+    script = _ReflectionScript(invalid, _valid)
+    runtime, _ = _runtime(tmp_path, script)
+
+    await _sleep_boundary(runtime)
+
+    assert len(script.requests) == 2
+    first, retry = script.requests
+    known = _known_id(first)
+    expected_error = f"insights.0.refs: memory ids {[padded(known)]} are not among the supplied episodes"
+    _assert_retry_request(first, retry, script.responses[0], expected_error)
+    assert _feedback(retry)["VALIDATION_ERROR"] == expected_error
+    assert [(item["text"], item["refs"]) for item in _reflections(runtime)] == [(_CORRECTED, [known])]
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_a_response_with_two_choices_as_more_than_one_call(tmp_path) -> None:
+    """响应带两个选择、各有一次本来合法的 submit_reflection 调用：合起来不是「恰好一次工具调用」（规格 1.1 校验第一条，
+    多次调用不接受），运行时不取第一个选择了事。经真实记忆运行时附回「恰好一次」的英文错误重新请求，工具与强制调用不变、
+    附回接在原始两条消息之后；回显为空列表，哪个选择的内容都不读、不回给模型；两个选择里的洞见都不进记忆，只写入改正
+    后的那一条。"""
+    script = _ReflectionScript(_two_choices, _valid)
+    runtime, _ = _runtime(tmp_path, script)
+
+    await _sleep_boundary(runtime)
+
+    assert len(script.requests) == 2
+    first, retry = script.requests
+    assert len(script.responses[0].choices) == 2
+    assert retry["tools"] == first["tools"] == [reflection_tool()]
+    assert retry["tool_choice"] == first["tool_choice"] == "required"
+    assert len(retry["messages"]) == 3 and retry["messages"][:2] == first["messages"]
+    feedback = _feedback(retry)
+    assert set(feedback) == {"PREVIOUS_INVALID_RESPONSE", "VALIDATION_ERROR", "INSTRUCTION"}
+    assert feedback["VALIDATION_ERROR"] == _ONE_CALL and feedback["PREVIOUS_INVALID_RESPONSE"] == []
+    assert _TWO_CHOICE_TEXT not in retry["messages"][-1]["content"]
+    assert [(item["text"], item["refs"]) for item in _reflections(runtime)] == [(_CORRECTED, [_known_id(first)])]
 
 
 @pytest.mark.asyncio
@@ -536,7 +611,8 @@ def test_invalid_reflection_cannot_enter_memory(violation: str) -> None:
     SimpleNamespace(choices=None),
     SimpleNamespace(choices=[SimpleNamespace(message=None)]),
     SimpleNamespace(),
-], ids=["text_only", "no_choice", "choices_missing", "no_message", "no_choices_attribute"])
+    _two_choices("known"),
+], ids=["text_only", "no_choice", "choices_missing", "no_message", "no_choices_attribute", "two_choices"])
 def test_reflection_requires_exactly_one_tool_call(response) -> None:
     """补充证据：没有工具调用的响应（纯文本、没有选择、没有消息）都不是规范反思，附回消息回显为空列表、不读正文。"""
     with pytest.raises(ReflectionOutputError, match=_ONE_CALL) as failure:

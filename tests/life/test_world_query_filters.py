@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import os
 from collections import Counter
 from types import SimpleNamespace
@@ -36,11 +37,13 @@ from tests.life.conftest import (advance_until_ready, context, pending_names, st
                                  start_activity, submit_round)
 from tests.life.purchase_worlds import at_clock, build_world, decide  # noqa: E402
 from tests.life.routing_fixtures import place, stage  # noqa: E402
+from tests.life.test_grounded_observation import _stage_progress_limits  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.guidance import default_reason  # noqa: E402
 from worldmock.life.interaction_menu import WAYS  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 from worldmock.life.object_labels import object_label, supply_label  # noqa: E402
+from worldmock.life.tool_groups import expand_tool_layer  # noqa: E402
 from worldmock.life.world_query import QueryWorldRequest, validate_world_query  # noqa: E402
 
 #: 宿主协议反馈里 query_world 参数的根位置（本批第 0 个调用）。
@@ -736,3 +739,146 @@ def test_the_final_turn_offers_only_world_requests_after_queries_used_the_earlie
     assert len(answers) == 3 and all('"total_count"' in answer for answer in answers)
     [registered] = engine.store.read_agent_events("action_requested", 1)
     assert (registered.decision_id, registered.data["tool_name"]) == ("decision-final-turn-1", "start_activity")
+
+
+def _limit_of_twelve(document: dict) -> None:
+    """@brief 场景副本的单次呈现上限改为 12（换新名额 floor(12 × 0.15) 为 1，仍可准入）。"""
+    document["candidate_presentation_limit"] = 12
+
+
+def test_page_size_is_the_scenario_presentation_limit_and_follows_that_constant(engine_factory):
+    """@brief 每页大小不变、没有页长参数（5.3 第三条；接口合同：每页取场景常量 candidate_presentation_limit）：正式场景
+    的冻结页长是 20，只写好德的查询多于一页时首页恰好 20 项、next_offset 为 20，沿 next_offset 翻完的各页偏移依次是页长
+    的倍数、名称等于用例算出的完整集合；场景副本把上限改成 12 时页长随之是 12。页长按字面值断言，不从观察读回。"""
+    for mutate, limit in ((None, 20), (_limit_of_twelve, 12)):
+        engine = engine_factory(mutate=mutate)
+        stage_day_plan(engine)
+        at_clock(engine, 10, 0)
+        session = _open(engine, f"page-size-{limit}")
+        assert engine.scenario.candidate_presentation_limit == limit
+        assert session.observed["world_query_page_size"] == limit
+        store = _places(session.observed)[HAODE]
+        expected = _oracle(session.observed, lambda entry: entry["location_id"] == HAODE)
+        first = _ask(session, _query(store)).page
+        assert first["total_count"] == len(expected) > limit
+        assert len(first["matches"]) == limit and first["next_offset"] == limit
+        matches, pages = _traverse(session, store)
+        assert _names(matches) == expected and len(pages) == -(-len(expected) // limit)
+        assert [len(page["matches"]) for page in pages[:-1]] == [limit] * (len(pages) - 1)
+        assert [page["next_offset"] for page in pages] == [
+            *(limit * index for index in range(1, len(pages))), None]
+
+
+@pytest.fixture(scope="module")
+def gated_store_world(tmp_path_factory):
+    """@brief 农工商超市要求人物没有的资格 member 才能进入（地点级准入）的隔离语料；它的供给本身不设门槛，不钉手机配置。"""
+    return build_world(tmp_path_factory.mktemp("gated-store-world"), {},
+                       locations={NONGGONGSHANG: {"required_qualifications": ["member"]}})
+
+
+def test_supplies_of_a_store_the_person_may_not_enter_are_neither_frozen_nor_offered(engine_factory,
+                                                                                     gated_store_world):
+    """@brief 筛选不扩大读取权限、不泄露不可访问门店（5.5 第三行、5.6）：农工商超市在地点一级不可进入时，它在场景里照常有
+    供给（含纯牛奶），但没有一条进冻结条目——from=农工商超市 是合法空页（加名称与「购买」也是），按名称查纯牛奶翻完没有
+    它的那一件，与它相近的未知写法的候选不含它、只取权限内有供给条目的门店；可调用索引的品类计数恰是冻结条目的计数。"""
+    engine = engine_factory(str(gated_store_world.scenario("gated-store")))
+    stage_day_plan(engine)
+    at_clock(engine, 10, 0)
+    session = _open(engine, "gated-store")
+    observed, places = session.observed, _places(session.observed)
+    sold = {engine.rules.items[supply.product_id].name for supply in engine.scenario.supplies
+            if supply.location_id == NONGGONGSHANG}
+    assert MILK in sold and len(sold) > 20
+    assert NONGGONGSHANG not in _permitted(observed) and HAODE in _permitted(observed)
+    assert _ask(session, _query(places[NONGGONGSHANG])).page == EMPTY_PAGE
+    assert _ask(session, _query(places[NONGGONGSHANG], name=MILK, way="购买")).page == EMPTY_PAGE
+    milk = _names(_traverse(session, name=MILK)[0])
+    assert supply_label(places[HAODE], MILK) in milk and supply_label(places[NONGGONGSHANG], MILK) not in milk
+    arguments = _query(places[NONGGONGSHANG][:-1])
+    sources = _source_candidates(_ask(session, arguments), arguments)
+    assert places[NONGGONGSHANG] not in sources
+    assert set(sources) <= {places[store] for store in _permitted(observed)}
+    counts = Counter(entry["category"] for entry in observed["world_query_bindings"] if entry["category"] is not None)
+    assert observed["tool_layer"]["callable_index"]["query_categories"] == [
+        {"category": category, "count": counts[category]} for category in sorted(counts)]
+
+
+def _used_up_task(engine_factory, round_id: str) -> tuple[SimpleNamespace, dict]:
+    """@brief 工作合同剩余不足一分钟的任务所在的冻结观察：任务可见、有效工时已达标，「工作」不可用并带原因，以它为参数的
+    submit_work 可用。返回（会话，这条任务的冻结条目）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _stage_progress_limits(engine, "contract")
+    session = _open(engine, round_id)
+    [entry] = [entry for entry in session.observed["world_query_bindings"] if entry["match"]["kind"] == "task"]
+    assert _has_way(entry, {"工作"}) and not _runnable(entry, {"工作"})
+    assert {tool["tool"] for tool in entry["match"]["tools"] if tool["available"]} == {"submit_work"}
+    return session, entry
+
+
+def test_available_only_with_a_written_way_never_counts_the_tools_of_the_target(engine_factory):
+    """@brief 写了 way 时只看方式命中的动作，以目标为参数的工具只在 way 为 null 时计入（5.3 第一条）：合同用完的任务按
+    名称加 way=工作 查得到它（「工作」不可用、带原因），再加 available_only 是合法空页；不写 way 加 available_only 仍
+    留下它（靠可用的 submit_work）；way=工作 加 available_only 翻完等于用例按「工作」动作的 available 算出的集合。"""
+    session, entry = _used_up_task(engine_factory, "way-and-tools")
+    name = entry["match"]["name"]
+    listed = _ask(session, _query(name=name, way="工作")).page
+    assert listed["total_count"] == 1 and _names(listed["matches"]) == [name]
+    [action] = [action for action in listed["matches"][0]["actions"] if action["way"] == "工作"]
+    assert action["available"] is False and action["reason"]
+    assert _ask(session, _query(name=name, way="工作", available_only=True)).page == EMPTY_PAGE
+    assert _runnable(entry)
+    assert _names(_ask(session, _query(name=name, available_only=True)).page["matches"]) == [name]
+    matches, _ = _traverse(session, way="工作", available_only=True)
+    assert _names(matches) == _oracle(session.observed, lambda item: _runnable(item, {"工作"}))
+    assert name not in _names(matches)
+
+
+def _empty_values(value) -> list[str]:
+    """@brief 一个 JSON 值里取值为 null 或空集合的键（含嵌套在字典与列表里的），按遍历顺序。"""
+    if isinstance(value, dict):
+        return [name for key, item in value.items()
+                for name in ([key] if item is None or item == [] or item == {} else _empty_values(item))]
+    if isinstance(value, list):
+        return [name for item in value for name in _empty_values(item)]
+    return []
+
+
+def test_task_contract_drops_null_in_query_results_and_in_the_prompt_tool_layer(engine_factory):
+    """@brief 紧凑投影在每一层都只略去 null 与空集合（5.4 第二条：任务项的 contract 是键闭集的一员，紧凑规则与工具层分组
+    同一实现）：冻结任务目标的合同五键俱全、outlook 为 null；按名称查到的返回项里合同恰是其余四键，整页任何位置都没有
+    null 与空集合；宿主照同一观察构建的提示里工具层的任务行同样是四键合同、正文没有 outlook，而分组还原后仍等于冻结的
+    工具层（无损）。"""
+    session, entry = _used_up_task(engine_factory, "nested-null")
+    frozen = entry["match"]
+    assert list(frozen["contract"]) == ["opens", "deadline", "place", "remaining", "outlook"]
+    assert frozen["contract"]["outlook"] is None
+    kept = {key: frozen["contract"][key] for key in ("opens", "deadline", "place", "remaining")}
+    assert all(kept.values())
+    page = _ask(session, _query(name=frozen["name"])).page
+    [match] = page["matches"]
+    assert match["contract"] == kept and _empty_values(page["matches"]) == []
+    assert [tool for tool in match["tools"] if tool["tool"] == "submit_work"] == [
+        {"tool": "submit_work", "available": True}]
+    request = ReactLoopRequest(0, session.ctx.observed_at, [{"turn": 0, "action": "observe", "ok": True,
+                                                            "data": session.observed}])
+    [user] = [item["content"] for item in session.host.build_react_messages(request) if item["role"] == "user"]
+    assert '"outlook"' not in user
+    layer = next(layer for layer in json.loads(user) if layer["layer"] == "工具层")
+    [group] = [group for group in layer["groups"] if group["kind"] == "task"]
+    [row] = group["targets"]
+    assert {**group["shared"], **row}["contract"] == kept and _empty_values(group) == []
+    assert expand_tool_layer(layer) == session.observed["tool_layer"]
+
+
+def test_home_words_keep_meaning_home_under_lossless_spellings(engine_factory):
+    """@brief 「家」「住处」与地点显示名经同一无损归一（5.2：来源的合法写法以现行实现为准；接口合同：精确、无损归一或
+    去掉「地点：」前缀）：带「地点：」前缀、首尾或中间空白、半角冒号的写法仍指本人住处——住处没有供给，是合法空页而
+    不是 5.5 第一行的参数错误，加 available_only 同样；住处的别的说法（「家里」）不是来源，仍在 from 位置报错并给候选。"""
+    session = _open(_open_engine(engine_factory), "home-spellings")
+    for written in ("地点：家", " 住处 ", "住 处", "地点: 家", "地点：住处"):
+        asked = _ask(session, _query(written))
+        assert asked.error == "" and asked.page == EMPTY_PAGE, written
+        assert _ask(session, _query(written, available_only=True)).page == EMPTY_PAGE, written
+    arguments = _query("家里")
+    assert _source_candidates(_ask(session, arguments), arguments)

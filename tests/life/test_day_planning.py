@@ -20,13 +20,13 @@ from agentsociety2.society import DirectToolCall
 import worldmock.runtime as runtime_module
 from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context, drive,
                                  errand_add, pending_names, plan_day_response, settle_day_plans, stage_day_plan,
-                                 start_activity, submit_round, report_request)
+                                 start_activity, submit_round, report_request, stage_legacy_control_request)
 from tests.life.routing_fixtures import HOME, act, place, routed, run_until
 from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, errand_events, note
 from tests.life.test_errand_reminder import evening
 from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
 from tests.life.work_schedule_fixtures import OFFICE, declare
-from worldmock.errors import ProtocolError
+from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life import day_planning, reminders
 from worldmock.life.activity_control import PHASE_ACTIVE
@@ -782,6 +782,30 @@ def test_plan_day_input_writes_no_line_for_an_errand_completed_before_midnight(e
     assert any(MILK in sentence for sentence in payload["已核验经历"])
 
 
+def test_midnight_plan_inputs_list_only_the_planned_persons_errands(engine_factory):
+    """「个人事务」只列被计划的那个人此刻还没办完的事务（docs/dev/SPEC-errands-workday.md 2.8、2.1；接口合同「请求组成」
+    的零点计划输入）。两人场景经真实请求、引擎与 SQLite 跨过本地零点：只有陈曦在 22:51 的收尾里记下一条事务。零点前按人
+    装配的输入里，她的「个人事务」列着这一条，李凡的为空；零点那一刻落库的两条 plan_day 模型请求同样如此——各人的输入
+    写着各人的名字，事务只在陈曦的那一条里。"""
+    from tests.footprints.test_errand_export import _late_evening
+
+    engine = _late_evening(engine_factory)
+    note(engine, "note", [errand_add("补食材包", KIT_NAME, memo="周末去超市")])
+    assert [row["名称"] for row in plan_inputs(engine, 1).payload["个人事务"]] == ["补食材包"]
+    assert plan_inputs(engine, 2).payload["个人事务"] == []
+    midnight = _at(6, 0)
+    run_until(engine, lambda current: current.state.current_time > midnight, limit=120)
+    sent = {}
+    for agent_id in (1, 2):
+        [request] = [event for event in engine.store.read_agent_events("model_request", agent_id)
+                     if event.data.get("purpose") == "plan_day" and event.occurred_at == midnight]
+        sent[agent_id] = json.loads(request.data["request"]["messages"][1]["content"])
+    assert (sent[1]["人物"]["名字"], sent[2]["人物"]["名字"]) == ("陈曦", "李凡")
+    assert sent[1]["个人事务"] == [{"名称": "补食材包", "要办成什么": "取得素炒什锦食材包 1 份", "已办到哪": "已取得 0 份",
+                                "备注": "周末去超市", "提醒时刻": None}]
+    assert sent[2]["个人事务"] == []
+
+
 def test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep(tmp_path):
     """模板用例（docs/dev/SPEC-dayrun-fidelity.md 2.3 验收）：平常的一天可以是零条目标；作息里已有的事不进计划，但收尾时记下
     的起床时刻仍按第三条生成提醒——零点计划的输入带这句收尾记录，照模板写出的计划只有这一条与平常不同的起床目标（带提醒与
@@ -887,6 +911,25 @@ def test_plan_inputs_list_only_accepted_conclusions_once(engine_factory):
                 if event.event_type == "action_requested" and event.data["tool_name"] == "conclude_activity"]
     assert [event.data["reused"] for event in requests] == [False, False, True]
     assert [event.event_id in inputs.sources for event in requests] == [False, True, False]
+
+
+def test_plan_inputs_refuse_an_accepted_conclusion_recorded_without_errands(engine_factory):
+    """零点计划输入经 control_items 读已受理的收尾请求（docs/dev/SPEC-errands-workday.md 2.9、2.3）：一次真实受理的收尾
+    照常列为一条收尾记录；经 FootprintStore 在回顾时段里补登一条带 items 而缺请求级 errands 的旧形状收尾及其已完成的结果
+    后，装配输入以完整性故障拒绝，不把它当作没有事务变更的收尾列出来。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    waited = _start(engine, "等待", "first-wait")
+    assert advance_until_ready(engine)
+    name = engine.state.activities[waited].name
+    accepted = ("conclude_activity", conclude_request(name, summary="歇好了。", memories=[[_MEMORY]]))
+    assert _decide(engine, "conclude", accepted)[1].status == "completed"
+    assert [(row["活动"], row["收尾说明"]) for row in plan_inputs(engine, 1).payload["收尾记录"]] == [(name, "歇好了。")]
+
+    stage_legacy_control_request(engine, "conclude_activity")
+
+    with pytest.raises(IntegrityError, match="conclude_activity request lacks errands"):
+        plan_inputs(engine, 1)
 
 
 def test_review_window_is_empty_at_a_midnight_start_and_the_old_day_at_a_midnight_boundary(engine_factory, tmp_path):

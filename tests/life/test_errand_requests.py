@@ -18,6 +18,7 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  errand_add, errand_cancel, errand_update, last_result, pause_request, report_request,
                                  stage_day_plan, stage_errands, start_activity, wake_by_mail)
 from tests.life.test_errand_todo_layer import _errand
+from tests.life.test_location_sessions import _conclude, _depart, _until_ended
 from worldmock.life.errand_state import ERRAND_EVENT_KINDS
 from worldmock.life.errands import remind_epoch
 from worldmock.life.models import (REQUEST_MODELS, ActivityConclusionItem, ActivityProgressItem, ActivityStatus,
@@ -200,6 +201,9 @@ def _cancel(**fields) -> dict:
 _TYPE = "A value satisfying one of the declared JSON types is required."
 _OUTSIDE = "The value is outside the declared allowed values."
 _BLANK = "A non-blank string matching the declared format is required."
+#: 互不冲突的五条新增（五个名称、五种不同的（结果种类，商品），都解析得到）：这样的请求只有条数超限这一处不合法。
+_FIVE = [errand_add("事务一", _KIT_NAME), errand_add("事务二", _MEAL_NAME), errand_add("事务三", _MEAL_NAME, outcome="吃掉"),
+         errand_add("事务四", _TEA_NAME), errand_add("事务五", "纯牛奶")]
 #: 结构错误一例一行：（工具，请求级 errands，逐项（条目下标或 None，键，原值，合法值，why））；条目下标为 None 指 errands
 #: 本身。上限只写在 why，expected 只有类型与格式。
 _STRUCTURAL = {
@@ -248,6 +252,10 @@ _STRUCTURAL = {
     "five_entries": ("conclude_activity", [_add(name=f"事务{index}") for index in range(5)],
                      [(None, None, [_add(name=f"事务{index}") for index in range(5)], [],
                        "conclude_activity takes at most four errand changes")]),
+    "five_unrelated_entries_in_a_report": ("report_status", _FIVE, [
+        (None, None, _FIVE, [], "report_status takes at most four errand changes")]),
+    "five_unrelated_entries_in_a_pause": ("pause_activity", _FIVE, [
+        (None, None, _FIVE, [], "pause_activity takes at most four errand changes")]),
 }
 
 
@@ -383,3 +391,106 @@ def test_a_replayed_request_does_not_register_twice(engine_factory) -> None:
     replayed = [event for event in engine.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-noted" and event.data.get("reused")]
     assert len(replayed) == 2 and all(event.data["data"]["errands"] == first.data["errands"] for event in replayed)
+
+
+def _assert_nothing_noted(engine, rejected) -> None:
+    """@brief 被拒的请求没有让任何事务变更生效：结果没有回执键，人物没有未完成事务、没有事务事件，此刻的观察里待办层与私有
+    事务绑定都为空。"""
+    assert rejected.status == "rejected" and "errands" not in rejected.data
+    assert engine.state.agents[1].errands == {} and _errand_events(engine) == []
+    shown = engine.observe(context(engine, f"after-{rejected.action_id}"))
+    assert shown["todo_layer"]["errands"] == [] and shown["errand_bindings"] == []
+
+
+def test_a_refused_pause_registers_no_errand_and_writes_no_errand_event(engine_factory) -> None:
+    """@brief 「请求因任何原因被业务拒绝时事务变更一并不生效」对 pause_activity 成立（docs/dev/SPEC-errands-workday.md 2.2
+    「原子性」）：事务变更通过复核之后暂停在活动检查处被拒——点名已经暂停的等待再暂停一次（ACTION_REQUEST_INVALID，明细定位
+    在活动名），步行去公司的路上暂停出行（ACTIVITY_PAUSE_UNAVAILABLE）。两次都带同一条合法的新增：结果没有回执键，世界里
+    没有记下事务、没有事务事件，下一次观察的待办层与私有事务绑定都为空，活动状态照旧。同一条新增随路上一次合法的播报就
+    照常受理。"""
+    engine, wait_id, name = _waiting(engine_factory)
+    noted = [errand_add(_KIT_ERRAND, _KIT_NAME, memo="下班前下单送到家")]
+    assert _act(engine, "pause", "pause_activity", pause_request(name))[1].status == "completed"
+    _, again = _act(engine, "pause-again", "pause_activity", pause_request(name, errands=noted))
+    assert (again.status, again.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert [row["path"][-3:] for row in again.data["items"]] == [["items", 0, "activity_name"]]
+    _assert_nothing_noted(engine, again)
+    assert engine.state.activities[wait_id].status == ActivityStatus.PAUSED
+    travel = _depart(engine, "to-office")
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    road = activity_name(engine, travel.activity_id)
+    _, refused = _act(engine, "pause-road", "pause_activity", pause_request(road, errands=noted))
+    assert (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PAUSE_UNAVAILABLE")
+    _assert_nothing_noted(engine, refused)
+    assert engine.state.activities[travel.activity_id].status == ActivityStatus.ACTIVE
+    _, reported = _act(engine, "report-road", "report_status", report_request(road, errands=noted))
+    assert reported.status == "completed" and reported.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
+    assert list(engine.state.agents[1].errands) == ["action-report-road:errand:0"]
+    assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered"]
+
+
+def test_a_refused_resume_registers_no_errand_and_writes_no_errand_event(engine_factory) -> None:
+    """@brief 同一条原子性对 report_status 成立，连同入口的边界（docs/dev/SPEC-errands-workday.md 2.2「入口」「原子性」）：
+    暂停的等待留在家里，人物步行到公司后点名它播报——恢复只在开始地点，被 ACTIVITY_PRECONDITION_UNMET 拒绝（unmet 为
+    activity_location）。请求带的合法新增一并不生效：结果没有回执键，世界里没有记下事务、没有事务事件，待办层与私有事务
+    绑定都为空，等待照旧暂停。暂停的活动在任何地点都可用 conclude_activity 结束：同一条新增随这次收尾被受理。"""
+    engine, wait_id, name = _waiting(engine_factory)
+    assert _act(engine, "pause", "pause_activity", pause_request(name))[1].status == "completed"
+    travel = _depart(engine, "to-office")
+    _until_ended(engine, travel.activity_id, "to-office")
+    assert _conclude(engine, "arrive-office", travel.activity_id).status == "completed"
+    noted = [errand_add(_KIT_ERRAND, _KIT_NAME, memo="下班前下单送到家")]
+    _, refused = _act(engine, "resume-elsewhere", "report_status",
+                      report_request(name, summary="想接着等。", errands=noted))
+    assert (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
+    assert refused.data["unmet"] == ["activity_location"]
+    _assert_nothing_noted(engine, refused)
+    assert engine.state.activities[wait_id].status == ActivityStatus.PAUSED
+    _, concluded = _act(engine, "conclude-elsewhere", "conclude_activity", conclude_request(name, errands=noted))
+    assert concluded.status == "completed" and concluded.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
+    assert list(engine.state.agents[1].errands) == ["action-conclude-elsewhere:errand:0"]
+    assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered"]
+
+
+#: 三个控制工具各自的请求构造（活动名，errands）。
+_CONTROL_REQUESTS = {"report_status": report_request, "pause_activity": pause_request,
+                     "conclude_activity": conclude_request}
+
+
+def _state_refusing(engine_factory, tool: str):
+    """@brief 各控制工具一种在活动状态检查处被拒的世界：（引擎，要点名的活动名，状态检查的拒绝码）。播报：点名暂停的等待，
+    而另一段进行中的等待与它占用冲突（RESOURCE_CONFLICT）；暂停：点名的等待已经暂停（ACTION_REQUEST_INVALID）；结束：只
+    点名暂停的观看，而另有刚结束、待收尾的等待（ACTIVITY_CONCLUSION_REQUIRED）。"""
+    if tool == "conclude_activity":
+        engine, watch_name, _ = _paused_watch_and_pending_wait(engine_factory)
+        return engine, watch_name, "ACTIVITY_CONCLUSION_REQUIRED"
+    engine, _, name = _waiting(engine_factory)
+    assert _act(engine, "pause", "pause_activity", pause_request(name))[1].status == "completed"
+    if tool == "pause_activity":
+        return engine, name, "ACTION_REQUEST_INVALID"
+    assert _act(engine, "wait-again", "start_activity", start_activity("等待", "自己"))[1].status == "in_progress"
+    _next_chance(engine)
+    return engine, name, "RESOURCE_CONFLICT"
+
+
+@pytest.mark.parametrize("tool", sorted(_CONTROL_REQUESTS))
+def test_errand_changes_are_rechecked_before_the_activity_state_checks(engine_factory, tool: str) -> None:
+    """@brief 环境受理的次序（docs/CONTRACTS.md「原子受理」：先解析活动名，再在同一冻结观察上复核事务变更，活动状态转换
+    之后才应用）：绕过宿主的请求点名一项此刻不能这样控制的活动，又点名一条不存在的事务——拒绝是事务复核的合并拒绝
+    （ACTION_REQUEST_INVALID，唯一明细在 errands[0].name、NAME_NOT_FOUND），不是活动状态的拒绝。事务改成一条合法的新增再
+    提交，才轮到活动状态的拒绝（各工具各自的码，明细定位在活动名），这条新增同样没有被记下。"""
+    engine, name, state_code = _state_refusing(engine_factory, tool)
+    request = _CONTROL_REQUESTS[tool]
+    wrong = [errand_update("不存在的事务", memo="晚点办")]
+    _, invalid = _act(engine, "errand-wrong", tool, request(name, errands=wrong))
+    assert (invalid.status, invalid.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert [(row["path"][-3:], row["written"], row["error_code"]) for row in invalid.data["items"]] == [
+        (["errands", 0, "name"], "不存在的事务", "NAME_NOT_FOUND")]
+    _assert_nothing_noted(engine, invalid)
+    noted = [errand_add(_KIT_ERRAND, _KIT_NAME, memo="下班前下单送到家")]
+    _, refused = _act(engine, "state-wrong", tool, request(name, errands=noted))
+    assert (refused.status, refused.error_code) == ("rejected", state_code)
+    assert [(row["path"][-3:], row["written"]) for row in refused.data["items"]] == [
+        (["items", 0, "activity_name"], name)]
+    _assert_nothing_noted(engine, refused)

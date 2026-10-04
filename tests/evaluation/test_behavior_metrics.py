@@ -334,6 +334,33 @@ def test_reflection_requests_and_their_retries_are_not_decision_requests() -> No
     assert (median["value"], median["sample_size"]) == (200, 2)
 
 
+def test_tool_requests_without_start_activity_are_not_decision_requests() -> None:
+    """@brief 带工具的请求只在工具中有 start_activity 时才是人物决策请求（docs/dev/SPEC-errands-workday.md 1.1「身份与
+    判定」、docs/design/07-evaluation.md「2.1 协议门禁」「2.2 报告项」），不是「只要不是就寝反思就算」：只读问答的请求不带
+    purpose，工具是三个记忆查询与 finish（末回合只剩 finish）。它们的 user 文本即便与另一秒的行动请求逐字相同、prompt
+    token 很大，也不进观察重复门禁与决策 token 中位数。"""
+    events = [
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _model_response(2, "act-1", 100),
+        _with_tools(_model_request(3, "ask-1", ["观察 1"]),
+                    "memory_recent", "memory_search", "memory_time_range", "finish"),
+        _model_response(4, "ask-1", 20000),
+        _with_tools(_model_request(5, "ask-2", ["观察 1"]), "finish"),
+        _model_response(6, "ask-2", 30000),
+    ]
+    requests = [event for event in events if event["event_type"] == "model_request"]
+    assert len({event["occurred_at"] for event in requests}) == 3
+    assert not any(event["data"].get("purpose") for event in requests)
+
+    report = _report(events)
+
+    gate = report["gates"]["observation_repetition"]
+    assert (gate["value"], gate["pass"], gate["duplicated_observation_count"]) == (1, True, 0)
+    assert gate["user_message_count"] == 1
+    median = report["reports"]["decision_prompt_token_median"]
+    assert (median["value"], median["sample_size"]) == (100, 1)
+
+
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     """@brief 最终动作为进度播报或等待的决策不计入自主决策；等待按受理时实际开始的活动 kind=wait 判定
     （docs/design/07-evaluation.md「2.2 报告项」），不按请求里的动词或方式。"""

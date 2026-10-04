@@ -14,6 +14,8 @@ from tests.life.conftest import conclude_request, context, errand_add, submit_ro
 from tests.life.routing_fixtures import HOME, MARKET, act, open_world, place, routed, run_until, stage
 from tests.life.test_errand_completion import (CHEN, MILK, MILK_ID, WAIT, arrival_of, assert_settlement, buy, first,
                                                give, held, home, market, note, ready, result_event, settlement)
+from worldmock.life.interaction_menu import GIVE_WAY
+from worldmock.life.models import active_activities
 
 
 def test_a_replayed_action_adds_nothing(engine_factory) -> None:
@@ -136,3 +138,51 @@ def test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_co
     errand, [completed], gift = outcomes[1]
     assert errand is None
     assert_settlement(completed, gift, "errand_completed", 1.0)
+
+
+def test_a_parallel_start_counts_each_gift_once(engine_factory) -> None:
+    """同一请求把一份纯牛奶当面给陈曦并开始等待（逐项派发）：合并结果的顶层 given 与逐项结果 activity_results 里是同一条
+    给予记录，结算只读顶层，陈曦的「取得纯牛奶 2 份」只加 1 份——一条 errand_progressed 以李凡这次请求的结果事件为原因，
+    事务仍未完成，牛奶到她手上的也只有一份。"""
+    engine = open_world(engine_factory)
+    place(engine, 2, HOME, {MILK_ID: 1.0})
+    note(engine, "note", [errand_add("囤牛奶", MILK, quantity=2)])
+    ready(engine, 2)
+    [waiting] = active_activities(engine.state, 2)
+    ended = act(engine, "end-wait", conclude_request(waiting.name), agent_id=2, tool="conclude_activity")
+    assert ended.status == "completed", (ended.error_code, ended.message)
+    handed = act(engine, "hand", routed((f"持有物：{MILK}", "consume", GIVE_WAY, None, CHEN), WAIT), agent_id=2)
+    assert handed.status == "in_progress", (handed.error_code, handed.message)
+    [gift] = handed.data["given"]
+    assert (gift["recipient_id"], gift["product_id"], gift["quantity"]) == ("agent:1", MILK_ID, 1.0)
+    assert [row["given"] for row in handed.data["activity_results"] if "given" in row] == [[gift]]
+    [progressed] = settlement(engine)
+    assert_settlement(progressed, result_event(engine, handed, agent_id=2), "errand_progressed", 1.0)
+    assert progressed.agent_id == 1 and (held(engine).progress, held(engine).quantity) == (1.0, 2)
+    assert engine.state.agents[1].inventory[HOME][MILK_ID] == 1.0 and settlement(engine, agent_id=2) == []
+
+
+def test_two_evidence_events_in_one_commit_are_credited_in_event_order(engine_factory) -> None:
+    """结算按草稿先后扫描、命中即累加（docs/dev/SPEC-errands-workday.md 2.4「结算函数」）。两人都在集市，陈曦记下「取得
+    纯牛奶 2 份」；同一轮里她到店买下一份、李凡当面给她一份，两条动作结果都是她这条事务的证据、落在同一次提交。排在前面
+    的那条结果让事务进展到 1 份，排在后面的那条让它办成：errand_progressed 以较早的结果事件为原因，errand_completed 以较晚
+    的为原因，两条结算事件也按这个先后落库，各与自己的证据同一提交。"""
+    engine = open_world(engine_factory)
+    place(engine, 1, MARKET)
+    place(engine, 2, MARKET, {MILK_ID: 1.0})
+    note(engine, "note", [errand_add("囤牛奶", MILK, quantity=2)])
+    ready(engine, 2)
+    assert set(engine.scheduling_state().ready_agent_ids) == {1, 2}
+    purchase = routed((MILK, "obtain", "到店", market(engine), None))
+    _, results = submit_round(engine, {1: ("start_activity", purchase), 2: ("start_activity", give(engine, CHEN))},
+                              "buy-and-gift")
+    assert [result.status for result in results] == ["completed", "completed"], [
+        (result.error_code, result.message) for result in results]
+    earlier, later = sorted((result_event(engine, result, agent_id=result.agent_id) for result in results),
+                            key=lambda event: event.event_seq)
+    progressed, completed = settlement(engine)
+    assert_settlement(progressed, earlier, "errand_progressed", 1.0)
+    assert_settlement(completed, later, "errand_completed", 1.0)
+    assert [event.data["errand"]["progress"] for event in (progressed, completed)] == [1.0, 2.0]
+    assert later.event_seq < progressed.event_seq < completed.event_seq
+    assert engine.state.agents[1].errands == {} and engine.state.agents[1].inventory[MARKET][MILK_ID] == 2.0

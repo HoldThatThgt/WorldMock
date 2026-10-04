@@ -346,6 +346,42 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
     ]
 
 
+def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
+    """个人事务变更不是记忆写入点（docs/dev/SPEC-errands-workday.md 2.2、3.4 第 2 项）：只记下一条事务、没有 memories 与
+    views 的收尾不要求同一决策写出收尾记忆，不报 conclusion_without_memory_update；同样带着这条事务变更、另写了一条记忆的
+    收尾照常要求，只有它被报出。"""
+    added = {"change": "新增", "name": "买牛奶", "outcome": "取得", "item": "纯牛奶", "quantity": 1, "memo": None,
+             "remind_time": None, "reason": None}
+    requests = {"errands_only": {**_conclusion(), "errands": [added]},
+                "errands_and_memory": {**_conclusion(_memory()), "errands": [added]}}
+    events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
+                     data={"tool_name": "conclude_activity", "request": request})
+              for index, (label, request) in enumerate(requests.items())]
+    events.append(_event(len(events) + 1, "run_ended", occurred_at=200))
+
+    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+
+    assert memory["problems"] == [{"code": "conclusion_without_memory_update", "event_id": "event-2", "agent_id": 1}]
+
+
+def test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault():
+    """质量报告经 control_items 读每一条 conclude_activity 请求（docs/dev/SPEC-errands-workday.md 2.9、2.3）：带 items 而缺
+    请求级 errands 的旧形状记录是完整性故障，重放（reused）的请求也不例外——收尾记忆的计数不读重放的请求，拒绝它的是记忆
+    核对这一处读取。同一条重放请求带着 errands（空列表）时报告照常生成、没有记忆问题。引擎只在原请求之后才写重放，这样
+    单独一条重放只能以已认证事件的形状构造。"""
+    def report(request: dict) -> dict:
+        """只有这一条重放的收尾请求与运行终点的事件集的质量报告。"""
+        events = [_event(1, "action_requested", agent_id=1, decision_id="decision", action_id="action",
+                         data={"tool_name": "conclude_activity", "reused": True, "request": request}),
+                  _event(2, "run_ended", occurred_at=200)]
+        return build_quality_report(events, [], _manifest(end=200))
+
+    current = _conclusion()
+    assert report(current)["memory_references"]["problem_count"] == 0
+    with pytest.raises(IntegrityError, match="conclude_activity request lacks errands"):
+        report({"items": current["items"]})
+
+
 def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     """生活工具参数错误归入模型协议错误，不误报为记忆问题；conclude_activity.memories 的本地校验错误才是记忆协议错误。"""
     response = _tool_response("call", _usage())

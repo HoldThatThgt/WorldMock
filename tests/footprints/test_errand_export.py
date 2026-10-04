@@ -3,6 +3,9 @@
 经真实请求、引擎、SQLite、共同检查点与认证导出：两人场景的副本把运行延到 1 月 6 日 01:00（跨过本地零点）。陈曦 22:51
 收尾时记下三条事务（一条带 22:55 的提醒钟点），远程下单的纯牛奶在途；22:55 提醒带来的那次决策里她带三条收尾记忆结束
 等待，随即开始喝手边的纯牛奶；在途订单送达的那次提交办成第一条，过了零点她取消第三条，第二条到运行终点仍未完成。
+
+另有单人场景的三段短生活，报告与指标直接由 SQLite 里已提交的事件算出：改过提醒钟点、第二次提醒之后才行动；提醒之后
+开始制作事务要取得的菜；只记下事务、不写记忆的收尾。
 """
 
 from __future__ import annotations
@@ -10,16 +13,18 @@ from __future__ import annotations
 import json
 
 from tests.life.conftest import (activity_name, conclude_request, engine_factory, errand_add,  # noqa: F401
-                                 errand_cancel, report_request, wake_by_mail)
-from tests.life.routing_fixtures import (HOME, _keep_busy, act, open_world, place, routed, run_until, stage,
+                                 errand_cancel, errand_update, report_request, wake_by_mail)
+from tests.life.routing_fixtures import (HOME, _keep_busy, act, observe, open_world, place, routed, run_until, stage,
                                          with_colleague)
-from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, WAIT, buy, note
-from tests.life.test_errand_reminder import TEA, moment, until
+from tests.life.test_errand_completion import (DRINK, KIT, KIT_NAME, MEAL, MEAL_NAME, MILK, MILK_ID, WAIT, buy,
+                                               errand_events, home, note)
+from tests.life.test_errand_reminder import TEA, evening, moment, until
 from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.validation import validate_export
+from worldmock.life.activity_control import PHASE_ACTIVE, pending_conclusions
 from worldmock.life.errand_state import CANCELLED_KIND, COMPLETED_KIND, REGISTERED_KIND
 
 #: 22:55 收尾写下的三条收尾记忆：一条作息（routine），一条含第二条事务的商品名，一条含第三条事务的名称。
@@ -147,3 +152,99 @@ def test_an_exported_run_reports_errands_and_recertifies_value_for_value(
         "day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert errand_metrics(events, timezone) == quality["errand_metrics"]
     assert conclusion_memories(events) == quality["conclusion_memories"]
+
+
+def _stored_events(engine) -> list:
+    """运行的 SQLite 里已提交的全部事件（按事件序号）。"""
+    return engine.store.read_events(engine.store.last_event_seq)
+
+
+def _stored_metrics(engine) -> dict:
+    """由已提交的全部事件（与导出 events.jsonl 同形的事件字典）直接算出的 errand_metrics。"""
+    return errand_metrics([event.model_dump(mode="json") for event in _stored_events(engine)],
+                          engine.scenario.timezone)
+
+
+def _end_what_is_running(engine, label: str) -> None:
+    """等到人物 1 可以决策且没有待收尾的活动，结束手头仍在进行的活动（决策不耗模拟时间，同一秒随后还能开始别的）。"""
+    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids
+              and not pending_conclusions(current.state, 1))
+    running = [row["name"] for row in observe(engine, f"{label}-peek")["activity_bindings"]
+               if row["phase"] == PHASE_ACTIVE]
+    if running:
+        ended = act(engine, label, conclude_request(*running, summary="先到这儿。"), tool="conclude_activity")
+        assert ended.status == "completed", (ended.error_code, ended.message)
+
+
+def test_acting_after_a_re_armed_reminder_is_counted_from_the_stored_events(engine_factory) -> None:  # noqa: F811
+    """更新时写下新钟点的事务再提醒一次，提醒后行动按任何一次提醒计（docs/dev/SPEC-errands-workday.md 2.5、6.1）。真实
+    请求、引擎与 SQLite：1 月 5 日 23:41 记下「吃掉纯牛奶 1 份」、提醒 23:50；23:50 被提醒的那次播报把钟点改成 00:10
+    （次日），当天没有任何指向纯牛奶的请求；00:10 再被提醒，两条提醒事件分在两个本地日，此时由已提交事件算出的是被
+    提醒 1 条、提醒后行动 0 条。她随即结束等待、开始喝手边的奶，受理于第二次提醒的本地日：提醒后行动变为 1 条。"""
+    engine = evening(engine_factory, "23:40")
+    place(engine, 1, HOME, {MILK_ID: 1.0})
+    note(engine, "note", [errand_add("睡前喝奶", MILK, outcome="吃掉", remind_time="23:50")])
+    waited = act(engine, "wait", routed(WAIT))
+    first, second = moment(engine, "2026-01-05 23:50"), moment(engine, "2026-01-06 00:10")
+    until(engine, first)
+    updated = act(engine, "update", report_request(activity_name(engine, waited.activity_id), summary="过会儿再喝。",
+                                                   errands=[errand_update("睡前喝奶", remind_time="00:10")]),
+                  tool="report_status")
+    assert updated.status == "completed", (updated.error_code, updated.message)
+    until(engine, second)
+    assert [event.occurred_at for event in errand_events(engine, kinds=("errand_reminded",))] == [first, second]
+    before = _stored_metrics(engine)
+    assert (before["reminded_errand_count"], before["acted_after_reminder_count"]) == (1, 0)
+    _end_what_is_running(engine, "end")
+    drinking = act(engine, "drink", routed(DRINK))
+    assert drinking.status == "in_progress", (drinking.error_code, drinking.message)
+    assert engine.state.current_time == second
+    after = _stored_metrics(engine)
+    assert (after["reminded_errand_count"], after["acted_after_reminder_count"]) == (1, 1)
+    assert (after["registered_count"], after["open_at_cutoff_count"]) == (1, 1)
+
+
+def test_starting_to_make_the_dish_after_its_reminder_is_counted_from_the_stored_events(
+        engine_factory) -> None:  # noqa: F811
+    """被受理的制作请求指向配方的产出（docs/dev/SPEC-errands-workday.md 6.1；记录引擎设计「质量报告」）。真实请求、引擎与
+    SQLite：12:31 记下「取得素炒什锦 1 份」、提醒 12:40，家里只有一包食材包；12:40 被提醒时还没有行动（被提醒 1 条、
+    提醒后行动 0 条）。她随即结束等待、开始用食材包做菜：受理事件的活动快照带着食材包到素炒什锦的库存转换配方，由已
+    提交事件算出的提醒后行动变为 1 条；菜还没做完，事务仍未完成。"""
+    engine = home(engine_factory, {KIT: 1.0})
+    note(engine, "note", [errand_add("做一份菜", MEAL_NAME, remind_time="12:40")])
+    act(engine, "wait", routed(WAIT))
+    until(engine, moment(engine, "2026-01-05 12:40"))
+    assert len(errand_events(engine, kinds=("errand_reminded",))) == 1
+    before = _stored_metrics(engine)
+    assert (before["reminded_errand_count"], before["acted_after_reminder_count"]) == (1, 0)
+    _end_what_is_running(engine, "end")
+    making = act(engine, "make", routed((f"持有物：{KIT_NAME}", "consume", "制作", None, None)))
+    assert making.status == "in_progress", (making.error_code, making.message)
+    [accepted] = [event for event in engine.store.read_agent_events("action_accepted", 1)
+                  if event.action_id == making.action_id]
+    recipe = accepted.data["data"]["activity"]["data"]["inventory_recipe"]
+    assert (recipe["input_object_id"], recipe["output_object_id"]) == (KIT, MEAL)
+    after = _stored_metrics(engine)
+    assert (after["reminded_errand_count"], after["acted_after_reminder_count"]) == (1, 1)
+    assert (after["completed_count"], after["open_at_cutoff_count"]) == (0, 1)
+
+
+def test_a_conclusion_that_only_notes_an_errand_is_no_memory_write_point(engine_factory) -> None:  # noqa: F811
+    """个人事务变更不是记忆写入点、不产生 memory_updated（docs/dev/SPEC-errands-workday.md 2.2、3.4 第 2 项）。真实请求、
+    引擎与 SQLite：人物结束一段等待，收尾里只记下一条事务，没有 memories 与 views。已提交的事件里这条收尾请求带着事务
+    变更，没有任何 memory_updated；由这些事件生成的质量报告里记忆核对没有问题（不报 conclusion_without_memory_update），
+    没有收尾记忆（conclusion_memories 为 null），事务照常计入 errand_metrics。"""
+    engine = home(engine_factory, {})
+    note(engine, "note", [errand_add("买牛奶", MILK)])
+    events = _stored_events(engine)
+    [concluded] = [event for event in events if event.event_type == "action_requested"
+                   and event.data["tool_name"] == "conclude_activity"]
+    request = concluded.data["request"]
+    assert [row["name"] for row in request["errands"]] == ["买牛奶"]
+    assert [(item["memories"], item["views"]) for item in request["items"]] == [([], [])]
+    assert not [event for event in events if event.event_type == "memory_updated"]
+    report = build_quality_report(events, [], engine.store.manifest)
+    memory = report["memory_references"]
+    assert (memory["problem_count"], memory["problems"], memory["memory_update_events"]) == (0, [], 0)
+    assert report["conclusion_memories"] is None
+    assert (report["errand_metrics"]["registered_count"], report["errand_metrics"]["open_at_cutoff_count"]) == (1, 1)
