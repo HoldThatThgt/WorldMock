@@ -85,7 +85,8 @@ const ViewerContext = {};
         + '备注与尚未提醒的钟点；今日计划列出目标、是否推进与提醒时刻。',
       steps: [
         ['暂停项', '恢复只能回到原地点，在别处恢复标为不可用并写明地点。'],
-        ['个人事务', '人物在播报、暂停或收尾时记下；办没办成由环境按实际结算确认，办成或取消即移出，提醒到点后钟点为 null。'],
+        ['个人事务', '未完成的个人事务取自人物状态，跨零点保留；人物在播报、暂停或收尾时记下，办没办成由环境按实际结算确认，'
+          + '办成或取消即移出，提醒到点后钟点为 null。'],
         ['今日计划', '零点计划之前或当日结束之后为 null。'],
         ['目标上限', '最多八项目标，按计划顺序排列。'],
       ],
@@ -97,23 +98,28 @@ const ViewerContext = {};
         ['身体感受', '只给感受文字，不给内部数值。'],
         ['所在地点', '路程中名称为「去某地的路上」，类型为步行或驾车。'],
         ['固定规则', '地点菜单排除的动作写成「这里不能……」。'],
+        ['上班安排', 'duty 由场景工作安排与世界时钟求值，今日计划改不了它。'],
       ],
     },
     progress: {
       label: '进度层', source: 'src/worldmock/life/progress_layer.py · progress_view',
-      fill: '本段停留或路程中的调用与结果、消息全文、配送、截止与提醒，按发生时刻排列。',
+      fill: '本段停留或路程中的调用与结果、消息全文、配送、截止与提醒，以及事务提醒与办成两种只写事务名称的记录，'
+        + '按发生时刻排列。',
       steps: [
         ['段落边界', '运行开始、出发与到达时重新开始，结果保留到本段结束。'],
+        ['事务记录', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，'
+          + '由人物可见的事务事件派生；二者不迁入记忆层。'],
         ['self_note', '提交世界请求那次回复的非空正文作为 self_note 附在调用上，未经核验。'],
         ['容量折叠', '超过容量时先去掉未受保护记录的 self_note，再折叠为 condensed；受保护记录不变。'],
       ],
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；custom/agents/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '八个世界请求工具与三个记忆查询工具，严格参数结构，整次运行字节相同。',
+      fill: '七个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
+        + '严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
-        ['最后回合', '只剩最后一个回合时不提供记忆查询工具。'],
+        ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（世界查询与记忆查询），只留世界请求工具。'],
         ['计量口径', '未提供 tools 与显式 tools: [] 分别保留；工具参数和描述均可查看。'],
       ],
     },
@@ -461,10 +467,11 @@ const ViewerContext = {};
     return items;
   }
 
-  /** @brief 进度层下钻：每条记录一项；带 self_note 的记录在标签与正文中标明未经核验。 */
+  /** @brief 进度层下钻：每条记录一项，标签写时刻、类型与记录的主体（工具、发件人、订单、任务、目标或事务名称）；
+   * 带 self_note 的记录在标签与正文中标明未经核验。 */
   function progressItems(layer) {
     return (Array.isArray(layer?.events) ? layer.events : []).map(record => {
-      const subject = record.tool ?? record.sender ?? record.order ?? record.task ?? record.goal ?? '';
+      const subject = record.tool ?? record.sender ?? record.order ?? record.task ?? record.goal ?? record.errand ?? '';
       const hasNote = typeof record.self_note === 'string';
       const note = hasNote ? `self_note（${UNVERIFIED}）：${record.self_note}\n\n` : '';
       return {label: `${record.occurred_at} · ${record.type}${subject ? ' · ' + subject : ''}` +
