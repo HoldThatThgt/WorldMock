@@ -66,17 +66,18 @@ def test_count_phrase_and_content_category_labels_for_the_callable_index() -> No
 
 
 def test_chinese_kind_tables_have_a_single_source() -> None:
-    """中文种类表只在 readable 定义（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）：环境层的 PLACE_TYPES、ACTION_PHRASES 与交互
-    菜单的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表的值都是不带英文字母的中文，英文键
+    """中文种类表只在 readable 定义（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）：环境层的 PLACE_TYPES、ACTION_PHRASES 与实际
+    消费方的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表的值都是不带英文字母的中文，英文键
     合成 ENGLISH_KIND_NAMES。"""
     import re
 
-    from worldmock.life import environment_layer, interaction_menu, readable
+    from worldmock.life import admission, environment_layer, name_resolution, projection, readable
     from worldmock.life.models import ActivityKind
 
     assert environment_layer.PLACE_TYPES is readable.PLACE_TYPES
     assert environment_layer.ACTION_PHRASES is readable.ACTION_PHRASES
-    assert interaction_menu.TRAVEL_WAYS is readable.TRAVEL_WAYS
+    assert all(module.TRAVEL_WAYS is readable.TRAVEL_WAYS
+               for module in (admission, environment_layer, name_resolution, projection))
     assert set(readable.ACTIVITY_KIND_LABELS) == {kind.value for kind in ActivityKind}
     tables = (readable.ACTIVITY_KIND_LABELS, readable.PLACE_TYPES, readable.ACTION_PHRASES, readable.TRAVEL_WAYS,
               readable.BROWSE_LABELS)

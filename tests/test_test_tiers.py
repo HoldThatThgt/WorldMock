@@ -329,7 +329,11 @@ def test_real_serial_and_parallel_workers_return_identical_complete_nodes(tmp_pa
     records = []
     for name in ("alpha", "beta"):
         file = f"tests/test_{name}.py"
-        (tmp_path / file).write_text("def test_shared(shared_value):\n    assert shared_value == 42\n", encoding="utf-8")
+        (tmp_path / file).write_text(
+            "from pathlib import Path\n"
+            "def test_shared(shared_value, tmp_path):\n"
+            "    assert shared_value == 42\n"
+            "    assert not tmp_path.is_relative_to(Path.cwd())\n", encoding="utf-8")
         records.append(_record("test_shared", file=file))
     monkeypatch.setattr(run_tests, "ROOT", tmp_path)
     expected = [row["nodeid"] for row in records]

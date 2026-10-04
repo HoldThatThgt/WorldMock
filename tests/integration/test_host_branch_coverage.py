@@ -629,20 +629,16 @@ def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
 
 def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
     """无背景故事不编译；有故事经编译得到编译产物（卡片与编译警告一起返回，警告不再丢弃），渲染文本取自同一张卡片。"""
-    from worldmock.profile import compile as compile_module
-    from worldmock.profile import textgen as textgen_module
-    import worldmock.runtime as runtime
-
     quiet = SimpleNamespace(background_story=None)
     assert worldmock_run_setup_module._compile_persona(quiet) is None
     card = SimpleNamespace()
     compiled = SimpleNamespace(card=card, warnings=("field_agreement_below_two_thirds: ['coping']",))
-    monkeypatch.setattr(compile_module, "compile_persona", lambda story: compiled)
-    monkeypatch.setattr(textgen_module, "render_card", lambda value: "rendered-card")
+    monkeypatch.setattr(worldmock_run_setup_module, "compile_persona", lambda story: compiled)
+    monkeypatch.setattr(worldmock_run_setup_module, "render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
     assert worldmock_run_setup_module._compile_persona(story_agent) is compiled
-    assert runtime._compiled_parts(compiled) == (card, compiled.warnings)
-    assert runtime._render_card(card) == "rendered-card"
+    assert worldmock_run_setup_module._compiled_parts(compiled) == (card, compiled.warnings)
+    assert worldmock_run_setup_module._render_card(card) == "rendered-card"
 
 
 # ---------------------------------------------------------------------------
@@ -758,8 +754,8 @@ def test_contact_profile_resolves_declared_contacts_only():
     """联系人档案只在场景声明中查找，未声明返回 None。"""
     contact = SimpleNamespace(contact_id="contact-1", salutation="老陈", relation="old_friend",
                               closeness=0.8, channels=["wechat"])
-    engine = SimpleNamespace(semantics=SimpleNamespace(
-        scenario=SimpleNamespace(agents=[SimpleNamespace(contacts=[contact])])))
+    engine = SimpleNamespace(context=SimpleNamespace(semantics=SimpleNamespace(
+        scenario=SimpleNamespace(agents=[SimpleNamespace(contacts=[contact])]))))
     request = SimpleNamespace(contact_id="contact-1")
     found = _contact_profile(engine, request)
     assert found == {"contact_id": "contact-1", "salutation": "老陈",
@@ -788,8 +784,8 @@ def test_pending_reply_requests_deduplicate_settled_replies():
         _ReplyEvent("message_arrival", {"message_id": "other"}),
         SimpleNamespace(event_type="model_response", data={}),
     ]
-    engine = SimpleNamespace(store=SimpleNamespace(read_events=lambda seq: events,
-                                                   last_event_seq=len(events)))
+    engine = SimpleNamespace(context=SimpleNamespace(store=SimpleNamespace(read_events=lambda seq: events,
+                                                                           last_event_seq=len(events))))
     pending = _pending_reply_requests(engine)
     assert [item[1].reply_to_message_id for item in pending] == ["message-1"]
 
@@ -799,8 +795,8 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
     """无待回复时零副作用；有待回复且未注入客户端时按清单构造客户端。"""
     import worldmock.runtime as runtime
 
-    empty_engine = SimpleNamespace(store=SimpleNamespace(
-        read_events=lambda seq: [], last_event_seq=0))
+    empty_engine = SimpleNamespace(context=SimpleNamespace(store=SimpleNamespace(
+        read_events=lambda seq: [], last_event_seq=0)))
     assert await runtime.settle_pending_model_replies(empty_engine) == []
 
     built = []
@@ -929,8 +925,9 @@ async def test_settle_pending_day_plans_builds_client_from_manifest_only_when_ne
         assert await runtime.settle_pending_day_plans(engine) == [{"agent_id": 1, "date": "2026-01-05", "goals": 0}]
         assert built == [engine.context.store.manifest["model_identity"]]
         assert await runtime.settle_pending_day_plans(engine) == []
-        ended = SimpleNamespace(state=engine.context.state.model_copy(update={"current_time": engine.context.state.end_time}),
-                                scenario=engine.context.scenario)
+        ended = SimpleNamespace(context=SimpleNamespace(
+            state=engine.context.state.model_copy(update={"current_time": engine.context.state.end_time}),
+            scenario=engine.context.scenario))
         assert await runtime.settle_pending_day_plans(ended) == []
         assert len(built) == 1
     finally:
@@ -1098,25 +1095,25 @@ def test_scenario_content_kinds_include_declared_games():
 
 def test_corpus_items_tolerates_missing_or_broken_documents(tmp_path):
     """语料条目读取：缺失与坏文档返回空，items 模式按装载方式展开。"""
-    import worldmock.validation as validation
+    from worldmock.profile import coverage_targets
 
-    assert validation._corpus_items(tmp_path, "absent/items.json") == []
+    assert coverage_targets._corpus_items(tmp_path, "absent/items.json") == []
     (tmp_path / "broken.json").write_text("{not json")
-    assert validation._corpus_items(tmp_path, "broken.json") == []
-    saved = validation.CONTENT_CORPORA
+    assert coverage_targets._corpus_items(tmp_path, "broken.json") == []
+    saved = coverage_targets.CONTENT_CORPORA
     try:
-        validation.CONTENT_CORPORA = (("weird/items.json", "items"),)
+        coverage_targets.CONTENT_CORPORA = (("weird/items.json", "items"),)
         (tmp_path / "weird").mkdir()
         (tmp_path / "weird" / "items.json").write_text(json.dumps({"items": [{"item_id": "i1"}]}))
-        assert validation._corpus_items(tmp_path, "weird/items.json") == [{"item_id": "i1"}]
+        assert coverage_targets._corpus_items(tmp_path, "weird/items.json") == [{"item_id": "i1"}]
         (tmp_path / "weird" / "items.json").write_text(json.dumps(["plain"]))
-        assert validation._corpus_items(tmp_path, "weird/items.json") == []
-        validation.CONTENT_CORPORA = (("movies/items.json", "list"),)
+        assert coverage_targets._corpus_items(tmp_path, "weird/items.json") == []
+        coverage_targets.CONTENT_CORPORA = (("movies/items.json", "list"),)
         (tmp_path / "movies").mkdir(exist_ok=True)
         (tmp_path / "movies" / "items.json").write_text(json.dumps([{"item_id": "m1"}]))
-        assert validation._corpus_items(tmp_path, "movies/items.json") == [{"item_id": "m1"}]
+        assert coverage_targets._corpus_items(tmp_path, "movies/items.json") == [{"item_id": "m1"}]
     finally:
-        validation.CONTENT_CORPORA = saved
+        coverage_targets.CONTENT_CORPORA = saved
 
 
 def test_require_task_assignees_rejects_unassigned_tasks():

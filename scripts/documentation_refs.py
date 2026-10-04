@@ -116,7 +116,7 @@ def boolean_provenance(value: ast.BoolOp, bindings: dict, imports: dict[str, str
 def imported_provenance(value: ast.AST | None, bindings: dict, imports: dict[str, str]) -> bool | tuple | dict:
     """@brief 静态跟踪导入绑定及字面容器；实际构造与常量保留自己的定义身份。"""
     if isinstance(value, ast.Name):
-        return bindings.get(value.id, False)
+        return bindings.get(value.id, "*" in bindings)
     if isinstance(value, ast.Attribute):
         return imported_provenance(value.value, bindings, imports) is True
     if isinstance(value, (ast.Tuple, ast.List)):
@@ -168,6 +168,9 @@ def record_imports(node: ast.Import | ast.ImportFrom, bindings: dict, imports: d
     """@brief 同时保存导入结果来源与其真实限定名，支持标准库模块和函数的显式别名。"""
     for alias in node.names:
         name = alias.asname or alias.name.split(".")[0]
+        if alias.name == "*":
+            # 通配导入后的未知名字可能来自外部，不能借同名标准调用猜定其身份。
+            imports.clear()
         module = "." * node.level + (node.module or "") if isinstance(node, ast.ImportFrom) else ""
         identity = module + "." + alias.name if isinstance(node, ast.ImportFrom) else \
             alias.name if alias.asname else alias.name.split(".")[0]
@@ -190,8 +193,7 @@ def definition_names(text: str) -> set[str]:
                 imports.pop(node.name, None)
                 arguments = {arg.arg for arg in ast.walk(node.args) if isinstance(arg, ast.arg)} \
                     if hasattr(node, "args") else set()
-                pending.append((node.body, name + ".", {key: value for key, value in bindings.items()
-                                                      if key not in arguments},
+                pending.append((node.body, name + ".", {**bindings, **dict.fromkeys(arguments, False)},
                                 {key: value for key, value in imports.items() if key not in arguments}))
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]

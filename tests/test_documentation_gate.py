@@ -100,6 +100,7 @@ def test_definitions_resolve_classes_nested_functions_and_assignments(tmp_path):
     "from elsewhere import Foo\nimport typing as t\nAlias = t.cast(object, Foo)\n",
     "from elsewhere import Foo\nfrom typing import cast as typed\nAlias = typed(object, Foo)\n",
     "import elsewhere\nimport builtins as b\nAlias = b.getattr(elsewhere, 'Foo')\n",
+    "from elsewhere import *\nAlias = Foo\n",
 ])
 def test_assignment_reexports_are_not_actual_definitions(tmp_path, source):
     """@brief 导入对象的直接、模块属性和链式赋值再导出均不能冒充定义。"""
@@ -127,6 +128,16 @@ def test_transparent_calls_preserve_real_constructions_and_custom_factories(tmp_
               "def build(cast):\n LOCAL_OBJECT = cast(Foo)\n")
     _plant(tmp_path, "src/worldmock/x.py", source)
     names = ("OBJECT", "CAST_OBJECT", "LAMBDA_OBJECT", "FACTORY_OBJECT", "CUSTOM_OBJECT", "build.LOCAL_OBJECT")
+    _plant(tmp_path, "docs/rule.md", " ".join(f"`src/worldmock/x.py::{name}`" for name in names))
+    assert gate.find_problems(tmp_path) == []
+
+
+def test_wildcard_import_preserves_local_constants_constructions_and_parameters(tmp_path):
+    """@brief 通配导入不覆盖已知本地结果和参数；未知名字的调用构造仍属于本地定义。"""
+    source = ("from elsewhere import *\nVALUE = 1\nKNOWN = VALUE\nOBJECT = Foo()\n"
+              "def make(Foo, value):\n LOCAL = Foo\n PARAMETER = value\n")
+    _plant(tmp_path, "src/worldmock/x.py", source)
+    names = ("VALUE", "KNOWN", "OBJECT", "make.LOCAL", "make.PARAMETER")
     _plant(tmp_path, "docs/rule.md", " ".join(f"`src/worldmock/x.py::{name}`" for name in names))
     assert gate.find_problems(tmp_path) == []
 

@@ -347,13 +347,13 @@ def test_preparation_fetches_full_selected_set_and_publishes_verifiable_version(
     write(folder / "supply-assumptions.json", {"source": "fixture"})
     (folder / "zhangjiang-probe.osm").write_text("<osm/>")
     catalog = load_catalog(Path("catalog"))
-    monkeypatch.setattr("worldmock.catalog.loader.load_catalog", lambda path: catalog)
-    monkeypatch.setattr("worldmock.corpora.storefront_build.build_storefront_supplies",
+    monkeypatch.setattr(map_prepare, "load_catalog", lambda path: catalog)
+    monkeypatch.setattr(map_prepare, "build_storefront_supplies",
                         lambda fare, assignment, locations, assumptions, seed:
                         load_map_dataset(source_root, MapDatasetReference(
                             dataset_id="test", version=1, path="zhangjiang-map/1/dataset.json",
                             sha256=hashlib.sha256((seed_folder / "dataset.json").read_bytes()).hexdigest())).supplies)
-    monkeypatch.setattr("worldmock.corpora.storefront.validate_assortments", lambda dataset, fare: None)
+    monkeypatch.setattr(map_prepare, "validate_assortments", lambda dataset, fare: None)
     calls, waits = [], []
     def fetch(url, **kwargs):
         calls.append(url)

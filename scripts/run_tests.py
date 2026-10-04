@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from uuid import uuid4
 
@@ -145,11 +146,13 @@ def run_shard(index, shard, directory, coverage):
     command = [sys.executable, "-m"]
     if coverage:
         command.extend(["coverage", "run", "-p", "--data-file", str(directory / ".coverage"), "-m"])
-    command.extend(["pytest", "-q", *shard["files"], "--worldmock-selected", str(selected),
-                    "--worldmock-receipt", str(receipt), "--basetemp", str(target / "temporary")])
     start = perf_counter()
-    with (target / "output.log").open("w", encoding="utf-8") as output:
-        result = _run(command, stdout=output, stderr=subprocess.STDOUT)
+    # 测试临时目录不能继承被测仓库身份，各进程使用独立的系统临时目录。
+    with TemporaryDirectory(prefix="worldmock-test-shard-") as temporary:
+        command.extend(["pytest", "-q", *shard["files"], "--worldmock-selected", str(selected),
+                        "--worldmock-receipt", str(receipt), "--basetemp", str(Path(temporary) / "pytest")])
+        with (target / "output.log").open("w", encoding="utf-8") as output:
+            result = _run(command, stdout=output, stderr=subprocess.STDOUT)
     return {"index": index, "returncode": result.returncode, "wall_seconds": perf_counter() - start,
             "receipt": json.loads(receipt.read_text("utf-8")) if receipt.is_file() else None,
             "expected": shard["nodes"], "log": target.relative_to(ROOT).as_posix() + "/output.log"}

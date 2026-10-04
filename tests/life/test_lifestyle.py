@@ -224,6 +224,7 @@ class TestLifestyleRelief:
         # 跑步（effects.entertainment=0.2）结算 30 分钟：娱乐需要按费率下降，
         # 且缓解走 ResourceLedger 分录（settle:lifestyle:entertainment_relief）。
         body, agent, activity = self._relief_fixture()
+        last_flows()  # 分录按读取边界累积，本用例只验收随后这次结算。
         advance = advance_activity(activity, agent, 1800, body)
         _fun_rate, _social_rate, _health_rate = lifestyle_relief_rates("jogging")
         assert _fun_rate > 0
