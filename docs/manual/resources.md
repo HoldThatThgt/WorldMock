@@ -80,7 +80,7 @@ flowchart LR
 uv run python - <<'PY'
 import json
 from pathlib import Path
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 source = Path("scenarios/white-collar-12-weeks.json")
 target = Path("scenarios/my-resources.json")
@@ -663,7 +663,7 @@ from pathlib import Path
 from worldmock.catalog import load_catalog
 from worldmock.catalog.admission import validate_world_categories
 from worldmock.corpora.manifest import load_manifest
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 path = Path("scenarios/my-resources.json").resolve()
 scenario, _ = load_scenario(path)

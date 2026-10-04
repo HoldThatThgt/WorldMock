@@ -132,7 +132,7 @@ stateDiagram-v2
 ### 会话的状态位置
 
 会话住在 `WorldState` 内，随 `life` 快照一起提交与恢复——检查点参与者键集是
-`{"life"} ∪ {agent:N}`（``），**会话不需要新的快照键**。
+`{"life"} ∪ {agent:N}`（`src/worldmock/footprints/validation.py::_validate_checkpoint`），**会话不需要新的快照键**。
 
 | 项 | 值 |
 | --- | --- |
@@ -330,7 +330,8 @@ flowchart LR
 `items[i].way` 的合法性按 `items[i].target` 对象本轮列出的方式验证（`obtain` 指名本轮未列出的商品时按指名购买解析），
 `from`、`to` 的组合按方式唯一推导的内部动词验证；参数不带逐轮名称枚举，不能在模型工具 Schema 中加入动作专属参数。
 
-DeepSeek strict 模式**禁用六个 Schema 键**（`` `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
+DeepSeek strict 模式**禁用六个 Schema 键**
+（`src/worldmock/life/models.py::_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
 `oneOf`、`minLength`、`maxLength`、`minItems`、`maxItems`、`default`。
 
 由此产生一条硬约束：**字符上限与「至多 2 个」的并发上限都不能写在工具 Schema 里**，
@@ -543,7 +544,7 @@ if snap.is_asleep:
 | `_game_action` / `_store_game_outcome` handler | **删除** |
 | `run_game_command` 与 TextWorld 回放 | **删除** |
 | `AgentState.game_sessions` / `GameProgress` | **删除** |
-| `game_boundary` 合同（`src/worldmock/life/engine.py`、`:198`、`:202`、`:213`；`src/worldmock/catalog/affordances.py::KindSpec.game_boundary`、`:275-278`、`:444-458`） | **须一并收敛，但它是另一条链路**：`game_boundary` 表达「该活动允许继续交互」，与命令回路不是一回事。本次 11 路审计中「命名冲突」那一路特意分开了二者，实现时不要混同 |
+| `game_boundary` 合同（`src/worldmock/life/engine_context.py::AFFORDANCE_CONTRACT_KEYS`、`src/worldmock/life/engine_context.py::affordance_contract`；`src/worldmock/catalog/affordances.py::KindSpec.game_boundary`、`src/worldmock/catalog/affordances.py::AffordanceView.game_boundary_kinds`、`src/worldmock/catalog/affordances.py::_parse_kind`） | **须一并收敛，但它是另一条链路**：`game_boundary` 表达「该活动允许继续交互」，与命令回路不是一回事。本次 11 路审计中「命名冲突」那一路特意分开了二者，实现时不要混同 |
 | 启动期 `verify_game_progress`（`src/worldmock/life/engine.py`） | **删除**（校验对象随 `game_sessions` 消失） |
 | `play_game` 活动 | **保留**：与 `watch` 同形——有目标、有时长、有进度结算、有进展自述 |
 | 游戏内容（30 个 `games` 声明 + 80 条 `game_session` 内容） | **保留**，成为 `interact` 的合法目标 |
@@ -649,7 +650,8 @@ if snap.is_asleep:
 ## 事件与重建约束
 
 硬约束：**SQLite 记录是唯一提交权威，导出时活动会从事件重建并逐字节比对**
-（``），质量报告也必须能仅从事件复现（`:46-58`）。
+（`src/worldmock/footprints/validation.py::validate_export`），质量报告也必须能仅从事件复现
+（`src/worldmock/footprints/validation.py::_validate_quality`）。
 
 **结论：不需要新增事件类型。** 世界请求沿用既有动作记录路径，查询与纠错存于模型交互证据，
 `revise_day_plan` 走既有动作路径；零点计划 `plan_day` 的计划登记写 `environment_event`
@@ -785,4 +787,4 @@ flowchart LR
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订，修订部分在冻结时未随文实现（该规格阶段 2（个人事务）、阶段 3（工作安排）、阶段 4（查询）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业 AI1–AI28、AI33）。理由：人物可记下由结算确认的个人事务，环境层每轮呈现上班安排，`query_world` 增来源与可执行筛选并精简返回。改动：文件头；「权威来源与范围裁决」增个人事务与工作安排一行；「心智模型」硬边界补事务变更的限定；「三级结构与概念边界」补个人事务不是第四级；「会话的状态位置」结构版本补 8 与 9；「会话字段」的进度层记录种类与待办层补个人事务，容量表增个人事务行；「稳定工具面」`query_world` 改六键，三个控制工具增请求级 `errands`，名称与整组校验两段补事务（名称错误的载体、同一请求内的求值次序与回执）；「即时查询、完整纠错与紧凑呈现」改六键、筛选先于切页、返回不再逐项附候选、两种参数错误之外无匹配为合法空页；「决策轮循环与播报节律」时序图改 `items` 与 `errands`，唤醒表增 `errand_reminder_due` 并写明清醒时精确到点、同刻合并、睡眠中不入候选；「前置条件前置与前往提醒」写明工作安排不是前置条件；「上下文分层」待办层、环境层 `duty`、进度层两种事务记录与 `details.errands`；「发送前 token 计数与进度浓缩」补两种事务记录的折叠口径；「午夜浓缩」事务跨零点保留；「事件与重建约束」审计表增事务行（办成与提醒事件人物可见，其余系统可见；六种事务事件都不带决策与动作身份）、控制请求带 `request.errands`；冻结条款修订 #1 追加 `errand_reminder_due`；验收台账「模型工具 Schema」行改写。顺带更正既有漂移：`revise_day_plan` 行与待办层行补 `around_time`，结构版本行补 8，保护项「五类」改六类，时序图的平行数组旧签名，控制工具活动名错误不带候选 |
 | `2026-10-03-errands-workday-source` | 2026-10-03 | 随个人事务与工作安排规格阶段 4 更正既有漂移：购买来源的合法写法为地点显示名（含住处）与渠道称呼（个人事务与工作安排规格 5.2，实施计划 AI32）。「对象与动作选择」来源与去向段 `obtain` 的 `from` 由「门店名」改为地点显示名（含住处的「家」「住处」写法），依据现行 `purchase_offers.source_scope` 先按全部地点显示名与住处、再按渠道称呼解析；括号内各句不改，行为不变 |
-| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AI29、AI30，按 `d8a41d3` 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时漏改而此时补正的条款：没有，按该规格修订的各条与最终代码核对一致。引用行号刷新六处：「会话的状态位置」检查点参与者键集 ``、`WORLD_SCHEMA_VERSION` 的定义 `src/worldmock/life/models.py::WORLD_SCHEMA_VERSION`（冻结时先去掉了失准的行号）；「对象与动作选择」`_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS` 在 ``；「决策轮循环与播报节律」`SLEEP_ALLOWED_REASONS` 在 `src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS`、睡眠过滤在 `src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS`；「事件与重建约束」活动重建比对在 ``、质量报告重算在 `:46-58`；「冻结条款修订」第 1 行的未识别分桶在 `src/worldmock/footprints/quality.py`。条款正文不改 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AI29、AI30，按[完整提交 d8a41d3718af2ce383ed454dc8b62f65e7a87bd6](https://github.com/HoldThatThgt/WorldMock/commit/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6) 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时漏改而此时补正的条款：没有，按该规格修订的各条与最终代码核对一致。引用行号刷新六处：「会话的状态位置」检查点参与者键集见[当时的校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)、`WORLD_SCHEMA_VERSION` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/models.py)（冻结时先去掉了失准的行号）；「对象与动作选择」`_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/models.py)；「决策轮循环与播报节律」`SLEEP_ALLOWED_REASONS` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/schedule.py)、睡眠过滤见[当时的判定原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/schedule.py)；「事件与重建约束」活动重建比对见[当时的导出校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)、质量报告重算见[当时的质量校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)；「冻结条款修订」第 1 行的未识别分桶见[当时的统计原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/quality.py)。条款正文不改 |

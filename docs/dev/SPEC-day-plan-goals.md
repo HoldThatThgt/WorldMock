@@ -275,7 +275,7 @@ flowchart LR
 ### 运行时机
 
 `plan_day` 不再是人物工具，改为运行时在场景本地零点执行的独立后台任务，由它生成当日计划。场景本地 `00:00` 加入下一
-边界候选（`src/worldmock/life/engine.py` 的 `_next_epoch`），无论这一刻有无活动变化。在该边界，世界照常结算前一日区间、使旧计划
+边界候选（`src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._next_epoch`），无论这一刻有无活动变化。在该边界，世界照常结算前一日区间、使旧计划
 失效，然后为每个人物执行 `plan_day`，根据下述输入生成新日计划。
 
 `plan_day` 无论人物在睡觉、工作还是做别的都执行。它不是决策，不占用决策轮，也不调用人物：
@@ -299,17 +299,18 @@ flowchart LR
     在引擎打开之后、首次决策之前调用，因为锁定的 AS2 在恢复模式不形成初始检查点，首轮决策
     又先于推进；该调用早于 AS2 `Society.init` 登记故障的 `try`（:162、:164），任务异常由 `init` 先经 `engine.fail_run`
     登记运行故障再抛出。联系人回复挂在 `commit_decision_round`（`custom/envs/life_env.py::LifeEnv.commit_decision_round`），而零点无人就绪时只经
-    `step` 推进、没有决策轮（锁定的 AS2 ``），所以不挂在那里。没有人物缺当日计划时，不建客户端
+    `step` 推进、没有决策轮（锁定的 AS2 `vendor/agentsociety2/packages/agentsociety2/agentsociety2/society/society.py::AgentSociety.step`），所以不挂在那里。没有人物缺当日计划时，不建客户端
     即返回；
   - 独立客户端使用运行清单中的模型身份，身份核对与联系人回复相同；
-  - 计划经引擎的系统登记入口写入世界状态：`src/worldmock/life/engine.py` 的 `_plan_day` 移出 `_dispatch`，
-    改为系统入口，不进人物工具面，不产生 `action_requested`；
+  - 计划经引擎系统入口 `src/worldmock/life/engine.py::LifeEngine.register_day_plan` 写入世界状态，
+    由引擎的 `clock` 协作对象委托 `src/worldmock/life/time_advance.py::TimeAdvanceCoordinator.register_day_plan` 登记；
+    后台计划不走动作派发，不进人物工具面，不产生 `action_requested`；
   - 零点边界的计划与证据在该边界的共同检查点之前提交，该边界照常形成共同检查点；启动路径的计划在初始（或反事实干预）
     检查点之后、普通恢复的计划在 `init` 中提交，由下一个共同检查点封存。
 - **终点。** 运行终点恰为本地零点时，该边界只结算旧日并结束运行，不执行 `plan_day`。
 - **启动路径。** 新建运行时，在初始共同检查点之后、首个 `run_start` 决策之前执行，生成时刻就是起点。
   起点恰为零点时，只按启动路径执行一次。恢复与反事实分支按世界状态中既有的 `AgentState.plan_submitted_dates`
-  （``，本地日期集合）判定当日是否已执行：已执行不重复；未执行则在首次决策之前执行，反事实分支在干预之后执行。
+  （`src/worldmock/life/models.py::AgentState.plan_submitted_dates`，本地日期集合）判定当日是否已执行：已执行不重复；未执行则在首次决策之前执行，反事实分支在干预之后执行。
   启动路径之后的首个决策仍带 `run_start`。
 
 `plan_day` 不写记忆；既有的阈值巩固与就寝反思保留（第七章）。

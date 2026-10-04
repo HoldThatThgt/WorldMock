@@ -85,7 +85,7 @@ PY
 ```bash
 uv run python - <<'PY'
 from pathlib import Path
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 scene, digest = load_scenario(Path("scenarios/my-persona-day.json"))
 print(scene.scenario_id, len(scene.agents), digest)

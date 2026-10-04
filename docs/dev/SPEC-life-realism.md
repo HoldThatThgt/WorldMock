@@ -902,14 +902,16 @@ JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首
 <a name="persona-prompt-决策回复正文与思考-单一行动阶段"></a>
 ### 单一行动阶段
 
-- **删除决策自述阶段。** 删除 LifeAgent 对自述钩子的覆写后，AS2 基类钩子返回 `None`（``、:567-569），锁定的 AS2 不改。
+- **删除决策自述阶段。** 删除 LifeAgent 对自述钩子的覆写后，AS2 基类钩子返回 `None`
+  （`vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin.prelude_decision_statement_request`、`vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._run_prelude_decision_statement`），锁定的 AS2 不改。
   一次决策只有一个行动阶段，可以先做只读查询，也可能有协议纠错回合；世界请求登记即结束本次决策。
 - **生成参数**沿用接口合同生成参数表的行动行（thinking 开启、`tool_choice=auto`、`max_tokens=8000`）。输出在思考阶段用尽而截断
   （`finish_reason=length` 且正文为空）时，丢弃截断的回合，改发错误码 `OUTPUT_TRUNCATED` 的结构化纠错（相同纠错替换、不叠加），
   并以关闭思考、`tool_choice=required`、`max_tokens` 不变的请求重试一次；只有这一次重试这样发送，`reasoning_effort` 仍不发送；
   上限保持 8000（一日运行保真规格 7.2，裁决 D10）。
 - **回合预算**：每次决策至多 16 个回合（`MAX_REACT_TURNS`），全部归行动阶段；为世界请求保留 1 个回合，剩余不少于 2 个时才开放全部只读查询。
-  预算 JSON 与低预算提示不再追加到 system（`custom/agents/life_agent.py`、:385-390）；耗尽时的处理不变。
+  预算 JSON 与低预算提示不再追加到 system（`custom/agents/life_agent.py::LifeAgent._model_request`、
+  `custom/agents/life_agent.py::LifeAgent._prepare_life_action_state`）；耗尽时的处理不变。
 - **`decision_started`** 在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前；
   `data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`。引擎直驱路径的兜底写入保留。
 - **登记后不追加任何 tool 消息**；`ActionReceipt` 仍在宿主侧完整保存，用于审计与幂等。记忆查询的结果只序列化一次

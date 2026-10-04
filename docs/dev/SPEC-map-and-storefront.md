@@ -274,8 +274,8 @@ offset等于total_count返回空末页，大于total_count按参数错误返回�
 宿主逐项收集全部失败项，环境逐项解析后合并成一次拒绝。
 
 **历史证据（2026-09）。** 名称检查分散在约 9 处：宿主 `custom/agents/life_agent.py`，路由 `src/worldmock/life/routing.py`（宿主 `custom/agents/life_agent.py` 与环境 `src/worldmock/life/session_actions.py` 共用），
-交互菜单 `src/worldmock/life/interaction_menu.py`，环境 `src/worldmock/life/session_actions.py`（`_offered_selection` 找不到即裸 `ACTION_REQUEST_INVALID`，`_named_selection` 只管指名购买）、
-`:253-270`、`:482-490`、`:547-559`。每一处都是逐字匹配、遇到第一个错误就停（`routing.combination_error`，`src/worldmock/life/routing.py`，算出了全部逐项错误却只返回一个）；
+交互菜单 `src/worldmock/life/interaction_menu.py`，环境 `src/worldmock/life/session_actions.py`（`_offered_selection` 找不到即裸 `ACTION_REQUEST_INVALID`，`_named_selection` 只管指名购买），
+各处历史定位见[改造前固定提交原文](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/SPEC-dayrun-fidelity.md#L322-L326)。每一处都是逐字匹配、遇到第一个错误就停（`routing.combination_error`，`src/worldmock/life/routing.py`，算出了全部逐项错误却只返回一个）；
 宿主报错是英文；环境拒绝虽有中文 `reason`，`message` 仍是英文，除 `SUPPLY_*` 两码外都不给候选。只有商品有指名购买，且只在 `obtain` 且方式恰好是「到店」或「远程下单」时放行
 （`custom/agents/life_agent.py`、`src/worldmock/life/interaction_menu.py`）。名称与组合类协议错误 WC 26 次、BIZ 216 次。
 
@@ -285,19 +285,22 @@ offset等于total_count返回空末页，大于total_count按参数错误返回�
 2. **无损归一**，结果唯一就受理，并写进 `details.resolved`（形如 `[{"written": "沈昊", "as": "联系人：沈昊"}]`）：
    - 统一全半角与括号；
    - 按方式推导的内部动词增补或去掉「地点：」「联系人：」「活动：」「内容：」「持有物：」「工作：」等前缀；
-   - 去掉活动名里的「（9月28日 08:25 起）」（与 `src/worldmock/life/memory_layer.py` 的 `_START_SUFFIX` 同一正则）和邮件时间戳；
+   - 去掉活动名里的「（9月28日 08:25 起）」（使用 `src/worldmock/life/object_labels.py::START_SUFFIX`）和邮件时间戳；
    - 比对时忽略「（模拟）」；
    - 「家」「住处」→ `home_location_id`（现行提示里家只以「地点：<场景名称>」出现，没有「家」的写法）；不新增地点别名字段：场景不复制地点名称
      （接口合同「冻结地图与场景引用」:418-420、地图与门店规格 :41），其余写法交给候选；
    - 每个现有方式只属于一个内部动词（`WAYS`，`src/worldmock/life/vocabulary.py::WAYS`，「制作」属于 `obtain`）；由方式唯一推导动词，人物请求不再带 `actions`。不适用于目标的方式报 `WAY_NOT_OFFERED`，完整候选只含新请求字段；
    - 现有 `WAY_SYNONYMS` 仅是既有方式闭集的名称识别合同（登记进接口合同「请求模型的闭集与字面边界」），不新增旧接口或偏好兼容写法，只有在目标列出的方式里恰好命中一个时才受理；
    - 名称归一只识别现有名称；来源与去向严格按方式判定，食用、使用、制作的两端须为 `null`，不接受「自己」等固定值的兼容写法。
-3. **相似度永不自动替换**：先按方式确定对象类别，在同类中计算单字加二字的 Dice 相似度（把 `named_purchase.near_candidates`，`src/worldmock/life/named_purchase.py`，移进本模块并加可行性过滤）；
+3. **相似度永不自动替换**：先按方式确定对象类别，在同类中计算单字加二字的 Dice 相似度，由 `src/worldmock/life/name_resolution.py::near_candidates` 生成带可行性过滤的候选；
    多字名称须至少共用一个二字词，单字名称只接受同类相同单字；可行的在前，至多 3 个候选；每个候选写成完整的 `{tool, arguments, note}`（`note` 为英文说明或 `null`，例如 `Estimated duration: 20 minutes`）。
 4. **分工**：私有绑定和已冻结的地点表由宿主判定，重试不花钱（宿主协议错误不进引擎）；存在但没列出的对象（未呈现的供给、生活活动、内容，以及没有路线的地点）由环境判定。
-   按方式唯一推导的动词与对象类别把 `is_named_purchase` 泛化为 `named_kind`：宿主 `_selected_actions`（`custom/agents/life_agent.py`）与环境 `_named_selection` 都以
-   「目标不在本轮对象且 `is_named_purchase`」为键，`storefront_runtime._purchase(named=…)`（`src/worldmock/life/storefront_runtime.py`）靠 `named` 标志跳过可见凭据；
-   `named_kind` 取代这一对判定，`named` 标志保留。
+   按方式唯一推导的动词与对象类别由 `src/worldmock/life/name_resolution.py::named_kind` 判定。宿主
+   `custom/agents/life_agent.py::LifeAgent._prepared_action_error` 与环境
+   `src/worldmock/life/session_actions.py::ActionHandlers._start_outcome` 共用
+   `src/worldmock/life/name_resolution.py::resolve_start` 校验名称；未呈现对象由
+   `src/worldmock/life/session_actions.py::ActionHandlers._named_selection` 解析。
+   `src/worldmock/life/storefront_runtime.py::StorefrontRuntime._purchase` 保留 `named` 标志，指名购买跳过可见凭据。
 5. **报告全部失败项**：宿主逐项收集；环境逐项解析后合并成一次拒绝（第四章的 `items[]`）。接口合同 :226「多条不成立时报第一条」改为「逐项报告全部参数与名称问题；业务前置条件中所有可独立确定的问题按既定准入顺序列出并定位参数」。
 6. **同刻预算**：见 3.4。
 7. **性质测试**：宿主判为可受理的，环境在同一冻结观察下也必须受理（`tests/life/test_name_resolution.py`）。
@@ -313,13 +316,13 @@ offset等于total_count返回空末页，大于total_count按参数错误返回�
 <a name="dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法"></a>
 ### 指名购买：`from` 是约束，不是语法
 
-**现状。** 指名购买（裁决 #19）已实现并给候选；本次失败在 `from` 与标签的规则和判定顺序（白领根因研究 :259「咖啡和盒马食材没有购买｜未进入轮转窗口」在本次运行里的原因已变）。
+**历史现状（2026-09）。** 指名购买（裁决 #19）已实现并给候选；本次失败在 `from` 与标签的规则和判定顺序（白领根因研究 :259「咖啡和盒马食材没有购买｜未进入轮转窗口」在本次运行里的原因已变）。
 WC 18:15 请求番茄、鸡蛋并写 `from:"盒马App"`：`src/worldmock/life/named_purchase.py` 先按 `from` 与能否服务过滤，再判断「没有这个商品」，于是能送到家的番茄被说成
 `SUPPLY_NOT_FOUND`「没有找到这个名字的商品」；照抄候选并写与标签一致的 `from` 又撞上裸 `ACTION_REQUEST_INVALID`（`src/worldmock/life/named_purchase.py` → `src/worldmock/life/guidance.py` 的默认句）；
 同刻受限轮随即关闭购买（`src/worldmock/life/same_moment.py`）。三样能送到家的菜全天都没买成。
 对**列出的**标签写 `from` 时，宿主给免费纠错（`src/worldmock/life/routing.py`，"from is null when the target already names its store"），模型每次都立刻改对。
 `_serves`（`src/worldmock/life/named_purchase.py`）要求到店供给在人物当前地点、配送目的地在 `delivery_destination_ids`，所以另一家店的到店商品也被报成 `SUPPLY_NOT_FOUND`，
-而不是「去那家店」；`near_candidates`（`:65-78`）扫全部供给，不做可行性过滤。
+而不是「去那家店」；当时的 `near_candidates` 扫全部供给，不做可行性过滤，定位见[改造前固定提交原文](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/SPEC-dayrun-fidelity.md#L361-L368)。
 #890 的拒绝正是人物 Prompt 规格「来源与去向」表（:422，目标本身是「<门店>出售的<商品>」时 `from` 为 null）与接口合同 :311、:278-279 所规定的；本条改写该表。
 
 **设计。**
@@ -361,9 +364,9 @@ App 级默认时长只用于数据集构建与质检（数据集方案 3.4）。
 
 **渠道的来源**（裁决 S7）。一个渠道是 `{channel_id, names[], store_location_ids[]}`。
 
-- **采用（裁决 S7）：从场景钉定的手机配置派生，不新增场景字段。** 场景已可选钉定手机配置（`phone_simulation_config` 与其 sha256，``），WorldMock 只读它的投影
+- **采用（裁决 S7）：从场景钉定的手机配置派生，不新增场景字段。** 场景已可选钉定手机配置（`phone_simulation_config` 与其 sha256，`src/worldmock/life/scenario.py::LifeScenario.phone_simulation_config`），WorldMock 只读它的投影
   `PhoneSimulationCoverage`（`src/worldmock/profile/coverage_apps.py::PhoneSimulationCoverage`）：`purchase_apps_by_seller`（卖家账户→App）与 `app_display_names`（App→称呼），并已核验每个卖家有在售供给
-  （`:81-101`）。渠道由此派生：`channel_id` 取 App 标识，`names` 取其称呼，成员门店取该卖家有供给的地点。手机配置缺省时没有渠道，App 名报 `SOURCE_NOT_FOUND`。
+  （`src/worldmock/profile/coverage_apps.py::_executable_apps`）。渠道由此派生：`channel_id` 取 App 标识，`names` 取其称呼，成员门店取该卖家有供给的地点。手机配置缺省时没有渠道，App 名报 `SOURCE_NOT_FOUND`。
   该投影现只用于覆盖率核验，本条使它参与运行行为；它已由 sha256 钉进场景与清单，运行身份不变。
 - **另一选项：场景新增可选字段 `purchase_channels`**（提案 G9 的形状，含 `store_choice` 与 `source`）：要与手机配置重复维护卖家→App 映射，两处可能不一致，
   场景结构版本随之升级（接口合同「冻结地图与场景引用」）。
@@ -380,7 +383,7 @@ App 级默认时长只用于数据集构建与质检（数据集方案 3.4）。
    到店按从当前地点出发的路线最短；并列时取到手价最低，再取门店标识；所选门店写进 `details.notes`。这在渠道内改写地图与门店规格 :11「不替人物选择」与接口合同 :321、:274：
    写了 App 称呼就是把挑店交给平台。单一成员门店的渠道（本次两份场景都是）不受影响。
    〔3.5「收敛」第 5 条把本条推广为按请求级 `prefer` 选定：`prefer` 明确为 `最快拿到` 时即本条，为 `到手价最低` 时取到手价最低的一家；`from` 为空或方式为「购买」时同样适用。〕
-4. 订单记录 `channel_id`：写在 `action_result.data.orders[]` 与 `purchases.jsonl`（`src/worldmock/footprints/purchases.py`）各一列，不进 `DeliveryState`（``，持久化进世界状态），
+4. 订单记录 `channel_id`：写在 `action_result.data.orders[]` 与 `purchases.jsonl`（`src/worldmock/footprints/purchases.py`）各一列，不进 `DeliveryState`（`src/worldmock/life/models.py::DeliveryState`，持久化进世界状态），
    世界结构版本不因它升级；数据集手机合成优先用它，卖家映射作为回退。
 
 **以 WC 18:15 走一遍**：「番茄、鸡蛋」`from=盒马App` 命中盒马渠道，范围是模拟生鲜出货点；两样商品各自唯一、都能送到家，合成一单，`channel_id` 为盒马，约 18:46 送到。
@@ -396,9 +399,9 @@ App 级默认时长只用于数据集构建与质检（数据集方案 3.4）。
 环境的 `SUPPLY_NOT_FOUND`、`SUPPLY_NOT_AT_STORE`、`FULFILLMENT_NOT_SUPPORTED`、`SOURCE_NOT_FOUND`、`TASK_NOT_FOUND`。
 「每秒 2 次」是实验假设，登记进 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`。
 
-**现状。** 每个 `BusinessRuleError` 都进 `_after_rejection`（`src/worldmock/life/decision_coordinator.py::DecisionCoordinator._after_rejection`、`:980-994`）：`count_round` 计一轮，`refusal_pulse_key`（`src/worldmock/life/same_moment.py::refusal_pulse_key`）
+**历史现状（2026-09）。** 每个 `BusinessRuleError` 都进 `_after_rejection`（[改造前固定提交原文](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/SPEC-dayrun-fidelity.md#L442-L446)；当前归属 `src/worldmock/life/decision_coordinator.py::DecisionCoordinator._after_rejection`）：`count_round` 计一轮，`refusal_pulse_key`（`src/worldmock/life/same_moment.py::refusal_pulse_key`）
 对除 `WORK_REQUIRES_REWORK` 与两个品类配对码以外的所有码给 `SERVICE_REFUSED`（同一秒至多一次）；宿主协议错误不进引擎，只耗回合。
-同刻上限缺省 3（``）加 3 轮受限轮（`src/worldmock/life/same_moment.py`），受理、拒绝与重放都计轮（`:91-93`），受限轮关闭购买（`:36`）。
+同刻上限缺省 3（`src/worldmock/life/scenario.py::LifeScenario.max_same_moment_decisions`）加 3 轮受限轮（`src/worldmock/life/same_moment.py::RESTRICTED_ROUNDS`），当时受理、拒绝与重放都计轮（当前计数函数 `src/worldmock/life/same_moment.py::count_round`），受限轮关闭购买（`src/worldmock/life/same_moment.py::RESTRICTED_EXCLUDED_ACTIONS`）。
 WC 18:15 的第 3 轮一用完，购买就在受限轮被关闭，原因写得再好也已经买不了了。改动点还包括 `latest_rejection_code` 与 `exhausted_schedule`（`src/worldmock/life/engine.py`）读最近拒绝码的逻辑。
 3.2 受理 #882 之后这一次耗尽本不会发生；本条是对其余名称错误（BIZ 216 次）的兜底。
 

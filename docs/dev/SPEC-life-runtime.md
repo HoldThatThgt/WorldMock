@@ -1219,7 +1219,7 @@ flowchart LR
      防止达上限后在同一秒再就绪），随之改名并改文档串。
 
 AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策轮，只有无人就绪才推进时钟
-（锁定的 AS2 `8768e14`，``）；每轮照常形成共同检查点。
+（锁定的 AS2 `8768e14`，`vendor/agentsociety2/packages/agentsociety2/agentsociety2/society/society.py::AgentSociety.step`）；每轮照常形成共同检查点。
 
 <a name="time-and-energy-决策不耗时时间只在做事时流动-实现约定"></a>
 ### 实现约定
@@ -1249,8 +1249,10 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 看到消息。这个唤醒在本轮全部动作结算后合并，不会被收件人本轮的 `_after_success` 覆盖。睡眠中也不读消息：睡眠中送达的消息
 不记为已读，不计社交缓解与消息情绪脉冲，醒来后的第一个边界再读（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 1.5，裁决 D15）。
 
-现状有两处要改。`rhythm.py` 的 `_read_new_messages` 在建快照之前就把收件箱记为已读，`message_arrival` 只能由预排事件
-成立；改为移到唤醒判定之后。`engine.py` 的 `_deliver_social_message`、`_register_delivered_message` 负责登记收件人就绪。
+改造前有两处要改：收件箱在建快照之前就被记为已读，`message_arrival` 只能由预排事件成立。
+当前读取在唤醒判定之后，由 `src/worldmock/life/rhythm.py::read_new_messages` 完成；
+`src/worldmock/life/session_actions.py::ActionHandlers._deliver_social_message`、
+`src/worldmock/life/session_actions.py::ActionHandlers._register_delivered_message` 负责登记收件人就绪。
 
 **联系人回复**（裁决 #21）：联系人的回复登记为预排送达事件，延迟为实验常量
 `CONTACT_REPLY_DELAY_SECONDS`（缺省 300 秒）；送达时收件人以 `message_arrival` 获得机会，睡眠中过滤。现状是回复在发送
@@ -1533,8 +1535,8 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 **占用**（裁决 #23）。准入保留注册表显式声明的占用交集判定（life-runtime「活动组合政策」的机制
 不变），只重列占用。占用名是内部声明：槽位闭集为 `src/worldmock/catalog/affordances.py` 的 `RESOURCE_CLAIM_SLOTS`
 ，各活动的占用写在
-`catalog/affordances.toml` 的 `resource_claims` 与 `social_actions.py` 的 `SOCIAL_RESOURCE_CLAIMS` 中。播客与其他观看同属
-`watch`，现行条件占用只接受 `mode:` 条件（`affordances.py` 的 `_parse_resource_claims`，`:454`），所以增加按内容类型的
+`catalog/affordances.toml` 的 `resource_claims` 与 `src/worldmock/life/social.py::SOCIAL_RESOURCE_CLAIMS` 中。播客与其他观看同属
+`watch`，改造前条件占用只接受 `mode:` 条件；当前由 `src/worldmock/catalog/affordances.py::_parse_resource_claims` 增加按内容类型的
 条件，`affordances.resource_claims` 与 `_expected_activity_claims`同步。暂停与终态释放占用，名额
 另计。表中未列的组合按此表判定。
 
@@ -1597,8 +1599,8 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
     不作为阅读对象。
   - 给 `none` 策略联系人发的消息照常送达，只是不回复；`template` 策略落一条占位回复（接口合同「联系人回复」），不再以
     `CONTACT_REPLY_NOT_MODEL` 拒绝。
-- 人物选了不满足条件的动作时，以业务拒绝返回原因与下一步，点名要先处理的活动或要去的地点。`unmet`、`suggested` 现在只
-  写进私有 `ActionResult.data`（`src/worldmock/life/engine.py`），公开结果（`result_projection.py` 的 `public_action_result`）和
+- 人物选了不满足条件的动作时，以业务拒绝返回原因与下一步，点名要先处理的活动或要去的地点。改造前 `unmet`、`suggested` 仅
+  写进私有 `ActionResult.data`（`src/worldmock/life/decision_coordinator.py::DecisionCoordinator._after_rejection`），公开结果（`result_projection.py` 的 `public_action_result`）和
   进度层（`projection.py` 的 `_progress_result`）都不含，模型只能看到「Action rejected: <CODE>」。本规格补上：
   进度层 `tool_call.result.details` 增加 `reason`（一句英文原因）与 `next_step`（可读的活动名或地点名，不含身份），由
   确定性代码从拒绝结果生成；`suggested` 里的内部地点身份在投影时换成地点名。引导性拒绝码：
@@ -1622,8 +1624,8 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 - 一方结束交谈（包括出发前、入睡前结束）时，对方以其为伙伴的进行中交谈在同一秒结束：`status=completed`，
   `boundary_type` 与 `interruption_reason` 都记 `partner_ended`。对方随即在同一秒收尾（第七章），计入同刻轮数；
   由此超出同刻上限时按第一章规则 3 另计。
-- 接受带来的缓解，按区间内双方交谈同时进行的秒数结算，以推进前的状态判定，不受人物推进顺序影响（改 `social_actions.py`
-  的 `chat_accepted` 与 `engine.py` 的 `_advance_activities`）。一日运行保真规格 1.1 以本条为依据：社交账的清醒、交谈与通话的覆盖
+- 接受带来的缓解，按区间内双方交谈同时进行的秒数结算，以推进前的状态判定，不受人物推进顺序影响；推进由
+  `src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._advance_activities` 协调。一日运行保真规格 1.1 以本条为依据：社交账的清醒、交谈与通话的覆盖
   和共同用餐同样按本区间共同身体结算所用的活动集合判定。没有生产调用方的 `social.chat_settlement` 删除。
 - 交谈、通话不可分段，时长由场景 `activity_feedback_seconds` 派生后截取：通话 600–3600 秒，交谈 60–7200 秒，受理结果中
   写明计划时长。派生值不再触发 `CALL_DURATION_OUT_OF_RANGE`，也不再触发请求模型的校验异常（`src/worldmock/life/session_actions.py`；
@@ -1673,7 +1675,7 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
     结束它」）。路上的活动不能暂停，因为回不到那段路。
   - 想在路上接着听同一个播客，就在出发前结束它，出发时与出行一起重新开始（同一请求的两项）；到了再结束，进门后还可以
     接着听。内容从上次的位置接着放，「接着听」不算新的一次接触：`exposure_count` 只在第一次和从头重看时增加
-    （改 ``），否则每重开一次，娱乐缓解都会按接触次数被摊薄（`src/worldmock/life/activities.py`）。
+    （`src/worldmock/life/rules.py::LifeRuleEngine._validate_watch`），否则每重开一次，娱乐缓解都会按接触次数被摊薄（`src/worldmock/life/activities.py`）。
 - 暂停的活动属于它的地点，占着名额；回到该地点时归入那里的新会话并可恢复，活动记录它先后所属的会话（`session_ids`）。
   在别处恢复以 `ACTIVITY_PRECONDITION_UNMET` 拒绝并点名该地点；人在别处可以直接结束它。
 - `recall_task_summary` 可按任务名、当日目标名或活动名回看，名称只取七层中出现的名称（会话名不在七层中出现，不可回看；待办层的个人事务名也不进回看名称，其状态已全量在待办层，见个人事务与工作安排规格 2.3）。
@@ -1703,7 +1705,8 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
   未受保护记录的 `self_note`、把最旧一段折成 `condensed`；进行中与刚结束的活动、暂停活动与未了结订单相关的记录受保护。
   折叠时 `errand_completed` 折成一句只含时刻与事务名的句子，`errand_reminder` 与当日目标提醒同等对待、折叠后不留句
   （个人事务与工作安排规格 2.6）。
-- 工作回看、目标自述与播报锚点都改读活动字段（`session_actions.py` 的 `_recall_task_summary`、`_with_goal_summaries`，
+- 工作回看、目标自述与播报锚点都改读活动字段（`src/worldmock/life/session_actions.py::ActionHandlers.read_task_summary`、
+  `src/worldmock/life/session_actions.py::ActionHandlers._with_goal_summaries`，
   `src/worldmock/life/rhythm.py`）。
 - 会话切换的边界情形：
   - 运行开始时，按初始地点开始首个停留会话。
@@ -1932,7 +1935,9 @@ stateDiagram-v2
 ### 失败后强制等待与跨决策预算
 
 - 删除受限轮阶梯中的 `wait_only` 阶段及其两条升级（`src/worldmock/life/same_moment.py`、:53、:58-71）；开始或恢复被拒后留在原阶段，被拒的选项在工具层标原因。
-- 同刻轮数照旧计入成功、拒绝与重放（`src/worldmock/life/engine.py`、:933、:989），它不是连续失败次数；名称类拒绝不计，也不施加 `service_refused` 脉冲，
+- 同刻轮数照旧计入成功、拒绝与重放（`src/worldmock/life/decision_coordinator.py::DecisionCoordinator._after_success`、
+  `src/worldmock/life/decision_coordinator.py::DecisionCoordinator._after_rejection`、
+  `src/worldmock/life/decision_coordinator.py::DecisionCoordinator._reused_result`），它不是连续失败次数；名称类拒绝不计，也不施加 `service_refused` 脉冲，
   每人每秒至多 2 次，第 3 次起照常（一日运行保真规格 3.4，裁决 D7）。达到上限后仍给至多三轮受限轮。
 - 受限轮用完仍没有进行中活动时（〔#25〕），环境不替人物造活动：写一条 `environment_event`（`data.kind=decision_budget_exhausted`，`visibility=system`，
   带最近的拒绝码），设 `next_decision_at = now + activity_feedback_seconds`，时钟可以推进（技术停顿，身体按静息结算）；质量报告计数；
@@ -1965,20 +1970,23 @@ relief_preference(w, f) = f + (1 − f) · w        0 < f < 1，对 w 严格单�
 
 - `w` 是现行口味权重（`compute_taste_weights`，`src/worldmock/profile/taste.py::compute_taste_weights`，精确交集）；`f` 是下限偏好，缺省 **0.5**（实验假设，敏感区间 0.3–0.7；
   文献只能确定 0 < f < 1）。取 0.5 时喜欢的内容仍比不喜欢的快一倍，口味差异保留。
-- 只作用于实际缓解（`activities._entertainment_relief`，`src/worldmock/life/activities.py`：内容按 `:316` 速率 × 偏好 ÷ 接触次数，游戏按 `:317-318` 偏好 × 基础速率）
-  和评分器里口径相同的缓解预演（`src/worldmock/life/motivation.py`，游戏在 `:816-819`；观看预演 `:992`）。所有排序仍用原始权重 `w`，零权重照旧排在最后（`src/worldmock/life/candidates.py`）。
+- 只作用于实际缓解（`src/worldmock/life/activities.py::_entertainment_relief`：内容按速率 × 偏好 ÷ 接触次数，游戏按偏好 × 基础速率）
+  和评分器里口径相同的缓解预演（`src/worldmock/life/motivation.py::_continue_relief_rate`、
+  `src/worldmock/life/motivation.py::_watch_candidate`）。所有排序仍用原始权重 `w`，零权重照旧排在最后（`src/worldmock/life/candidates.py`）。
   不用 `max(w, f)`：低于 `f` 的权重会被拉成并列。
-- 游戏与内容同一算法（裁决 S1）：`runtime._card_taste_weights` 也为游戏条目计算口味权重（现行 `src/worldmock/runtime.py` 只算内容，游戏缓解恒为 0）；
+- 游戏与内容同一算法（裁决 S1）：`src/worldmock/run_setup.py::_card_taste_weights` 也为游戏条目计算口味权重；
   没有题材声明的条目权重为零，走下限。
-- **累积口径统一为「有缓解的活动进行时不再累积娱乐需要」**。生产路径只有共同区间一条：`settle_shared_body`（`src/worldmock/life/engine.py`）与 `advance_activity_shared`
-  （`src/worldmock/life/engine.py`）经 `body._shared_entries`（`src/worldmock/life/body.py`）按「累积减缓解」结算；单活动路径 `body._entertainment_entries`
+- **累积口径统一为「有缓解的活动进行时不再累积娱乐需要」**。生产路径只有共同区间一条：
+  `src/worldmock/life/body.py::settle_shared_body` 与 `src/worldmock/life/activities.py::advance_activity_shared`
+  经 `body._shared_entries`（`src/worldmock/life/body.py`）按「累积减缓解」结算；单活动路径 `body._entertainment_entries`
   只经 `activities.advance_activity` 与 `social_actions.advance_social` 到达，源码里没有生产调用方，只有测试在用。统一口径改在 `_shared_entries` 一处，
   单活动路径随之对齐。统一后从 1.0 降到「有点想放松」以下所需的观看时间（缓解速率 0.30/小时，清醒累积 0.08/小时）：
   `f=0.5` 时不喜欢的内容 2.7 小时、喜欢的 1.3 小时；不统一口径时 0.5 在现行引擎下要看 5.7 小时，一整晚仍会连看。
-- **存放位置**（裁决 D3）：放场景层身体实例配置 `BodyInstanceConfig`（`` 的 `body`）新增字段 `entertainment_relief_preference_floor`，
+- **存放位置**（裁决 D3）：场景层身体实例配置 `src/worldmock/life/scenario.py::BodyInstanceConfig` 位于
+  `src/worldmock/life/scenario.py::LifeScenario` 的 `body`，字段 `entertainment_relief_preference_floor`，
   缺省 0.5、取值 (0, 1)，经 `semantics._assemble_body`并入 `BodyConfig`；带缺省值，现有场景文件不必改，目录与数据集副本都不变。
   这沿用接口合同「场景常量」把常量放场景层以避免触发目录版本变更、以及时间与能量规格把 `APPETITE_STARVING_KCAL` 放代码常量「不进目录」的先例。
-  提案推荐的目录方案（`catalog/resources.jsonl` 的 `entertainment_need` 消耗规则新增该键，同改 `catalog/models.py` 的 `DrainRules` `:142-155`、目录小版本升级、场景重钉、数据集重冻结）列为另一选项。
+  提案推荐的目录方案（`catalog/resources.jsonl` 的 `entertainment_need` 消耗规则新增该键，同改 `src/worldmock/catalog/models.py::DrainRules`、目录小版本升级、场景重钉、数据集重冻结）列为另一选项。
   两种放法都在 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「实验假设声明」登记假设与敏感区间。
 
 **验收。** 不喜欢的内容按下限缓解；缓解随口味权重单调；游戏走下限；评分器预演与引擎一致；零权重仍排在最后；
@@ -1997,7 +2005,7 @@ life-runtime 规格「转换效率算法」（:410-414，娱乐需要变化 = �
 - 新建纯函数模块 `src/worldmock/profile/injection.py`，在创建运行时计算（`src/worldmock/runtime.py`）；运行清单（`src/worldmock/life/engine.py`）
   增加 `input_warnings` 键；`quality.json` 增加 `input_warnings` 一节（第九章）。
 - 警告正文同时列出卡片的 `content_genres` 与 `media`，以及语料中最常见的几个题材，由数据集决定改卡片还是补题材标签
-  （题材词表归数据集，系统只做精确匹配：裁决 D1，用户已定）。`runtime._card_taste_weights` 只用 `content_genres` 参与匹配，
+  （题材词表归数据集，系统只做精确匹配：裁决 D1，用户已定）。`src/worldmock/run_setup.py::_card_taste_weights` 只用 `content_genres` 参与匹配，
   「B站视频」这类平台词无论写在哪个字段都对不上题材。
 - 警告码闭集（登记进接口合同「人物卡片覆盖率产出」旁的新小节「运行输入警告」）：
 
@@ -2007,9 +2015,9 @@ life-runtime 规格「转换效率算法」（:410-414，娱乐需要变化 = �
   | `CONTENT_WEIGHTS_ALL_ZERO` | 有内容，但权重全为 0 |
   | `CONTENT_EMPTY_WITH_MEDIA_TASTES` | 没有内容，但卡片或习惯里有看、刷、听 |
   | `GAMES_WITHOUT_TASTE_WEIGHTS` | 有游戏，但没有算口味权重 |
-  | `COVERAGE_BELOW_THRESHOLD` | 复用 `validate_coverage`（`src/worldmock/profile/coverage.py::validate_coverage`，现只由 `validate` 与 `profile validate` 两个子命令经 `` 调用）的覆盖率低于 80%，并改为不允许用 App 名子串算命中（现行 `src/worldmock/profile/coverage.py::validate_coverage` 与 `_keyword_hit` `:102-105` 双向子串匹配，把「B站视频」按应用名「B站」判为覆盖，WC 算出 0.92 而权重全零；接口合同「人物卡片覆盖率产出」的「习惯反应与目标关键词互为子串」随之收紧为不含 App 名） |
+  | `COVERAGE_BELOW_THRESHOLD` | `src/worldmock/profile/coverage.py::validate_coverage` 的覆盖率低于 80%；校验命令经 `src/worldmock/validation.py::validate_persona_coverage` 调用，创建运行经 `src/worldmock/run_setup.py::creation_inputs` 计算相同警告；不允许用 App 名子串算命中。改造前双向子串匹配把「B站视频」按应用名「B站」判为覆盖，WC 算出 0.92 而权重全零；接口合同「人物卡片覆盖率产出」的匹配口径已收紧为不含 App 名 |
   | `CARD_FIELD_OVERRIDDEN` / `CARD_FIELD_CONFLICT` | 场景作息覆盖了卡片值 / 覆盖后锚点冲突（第二章 2.1） |
-  | `PERSONA_AGREEMENT_LOW` | 透传画像编译的警告（现行 `runtime._compile_persona`，`src/worldmock/runtime.py`，把编译警告丢掉了）；该码泛指画像编译留下的警告（三次一致性偏低的字段、下班与到家锚点的降级说明等），消息不预设原因是一致性偏低，`details.compiler_warning` 带原文；警告码闭集仍为十个（个人事务与工作安排规格 4.1，阶段 3 落地） |
+  | `PERSONA_AGREEMENT_LOW` | 透传 `src/worldmock/run_setup.py::_compile_persona` 返回的画像编译警告；该码泛指画像编译留下的警告（三次一致性偏低的字段、下班与到家锚点的降级说明等），消息不预设原因是一致性偏低，`details.compiler_warning` 带原文；警告码闭集仍为十个（个人事务与工作安排规格 4.1） |
 
 - `validate` 在覆盖率低于 80% 时继续失败（沿用现行合同，裁决 D4）；运行路径只警告。
 
@@ -2041,7 +2049,7 @@ life-runtime 规格「转换效率算法」（:410-414，娱乐需要变化 = �
 - life-runtime 规格「两过程睡眠模型」的困意分级（:261-266）与预期行为示例（:268-272）重算。按模型自身公式（默认中点 04:00，07:00 起床且起床时压力等于当时的醒来阈值），
   新档界下约 21:30 起「有点乏」、22:40 起「困」、00:05 起「很困」、01:25 起「撑不住」；现行示例所写的 20:00/21:00/22:00/22:45 与同一假设下的
   18:33/21:00/22:24/23:23 不符（`tests/life/test_sleep_two_process.py` 的注释已指出 22:00 是「困」不是「很困」），本次一并以计算值改写并写明假设。
-  该测试的锚点轨迹（20:00 f=0.644、21:00 0.750、22:00 0.857、22:45 0.937）在新档界下为清醒、清醒、有点乏、困，`:211-252` 要改写而不只是换阈值。
+  该测试的锚点轨迹（20:00 f=0.644、21:00 0.750、22:00 0.857、22:45 0.937）在新档界下为清醒、清醒、有点乏、困，`tests/life/test_sleep_two_process.py` 的对应断言要改写而不只是换阈值。
 
 **验收。** 五档名称不变；两份常数一致；WC/BIZ 工作日稳态的各档起点与提案表一致（WC 22:13/23:26/00:51/02:09，BIZ 21:25/22:40/00:04/01:18）；
 `tests/life/test_felt_states.py`、`tests/life/test_sleep_two_process.py` 按新档界改写。
@@ -2049,13 +2057,13 @@ life-runtime 规格「转换效率算法」（:410-414，娱乐需要变化 = �
 <a name="dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息"></a>
 ### 不适脉冲与睡眠中的消息
 
-- **不适脉冲的门槛被算了两次。** `src/worldmock/life/rhythm.py` 已按连续不适时长减去 2 小时触发门槛（`felt.MOOD_DISCOMFORT_TRIGGER_HOURS`）得到可计费小时，`:217` 取新增部分
+- **改造前不适脉冲的门槛被算了两次。** `src/worldmock/life/rhythm.py::_settle_discomfort` 按连续不适时长减去 2 小时触发门槛（`felt.MOOD_DISCOMFORT_TRIGGER_HOURS`）得到可计费小时，取新增部分
   （通常 0.25 小时）传给 `apply_discomfort_pulse`；`felt.discomfort_pulse`（`src/worldmock/life/felt.py`）却对传入的小时数再施加一次 2 小时门槛（已复核：0.25 小时→0，1.99→0，2.0→−0.2），
-  而且 `:221` 在脉冲为 0 时照样把这些小时记为已计费。只有单个边界的新增计费小时不少于 2 小时时才会触发，边界间隔不超过 2 小时的运行里从未生效。
+  而且当时在脉冲为 0 时照样把这些小时记为已计费。只有单个边界的新增计费小时不少于 2 小时时才会触发，边界间隔不超过 2 小时的运行里从未生效。
   改为：`discomfort_pulse` 直接返回 `MOOD_PULSES["discomfort_hourly"] × hours`，2 小时门槛只在 `src/worldmock/life/rhythm.py` 判定一次；不适档不变
   （饥饿 `HUNGRY_BANDS`：饿、很饿、饿得难受、饿得发慌；困意 `SLEEPY_BANDS`：困、很困、撑不住）；life-runtime 规格「其他体感分级」脉冲表
   （:344，连续两小时以上，−0.1/小时）不变，本项是恢复对它的符合。
-- **睡眠中不读消息。** 判定段对每个边界无条件调用 `read_new_messages`（`src/worldmock/life/rhythm.py::read_new_messages`；`:129-130` 的注释只说睡眠中过滤唤醒），睡眠中送达的消息被标为已读、
+- **睡眠中不读消息。** 改造前判定段对每个边界无条件调用 `read_new_messages`（当前职责见 `src/worldmock/life/rhythm.py::read_new_messages`），睡眠中送达的消息被标为已读、
   社交需要 −0.05（`felt.SOCIAL_NEED_MESSAGE_RELIEF`）、情绪 +0.1（`MOOD_PULSES["message_received"]`），与 life-runtime「阅读」的语义（:327）、
   接口合同「已读指全文已呈现」（:749，人物 Prompt 规格第六章）和时间与能量规格「睡眠中不唤醒，醒后在观察中看到消息」（:182-184）不符。
   改为睡眠中不读，醒来后的第一个边界再读（裁决 D15）。
@@ -2081,13 +2089,14 @@ life-runtime 规格「转换效率算法」（:410-414，娱乐需要变化 = �
   请求里叫 `about`、存储里叫 `subject`，两个名字指同一件事，接口合同注明对应关系。
 - 字段名 `activity_name` 取代 `task`，避免与工作任务混淆。
 - 每个字段写一句「格式与来源」说明（如「照待办层或进度层原样抄写，包括『（9月28日 12:05 起）』这样的开始时刻」）；现行请求模型的多数字段没有 `description`
-  （`purpose_only_schema`，``，只替换对象级说明，字段级说明保留，`subject` 就带着一句）。工具 description 仍只写用途（所属现行合同、:1098）；
+  （`src/worldmock/life/models.py::purpose_only_schema` 只替换对象级说明，字段级说明保留）。工具 description 仍只写用途（所属现行合同、:1098）；
   字段说明是参数 Schema 的一部分，不是 description，两处各补一句区分。
 - `report_status`、`pause_activity` 改为 `{"items": [{"activity_name", "summary"}], "errands": [...]}`。
 - 三个控制工具各带请求级必填字段 `errands`（与 `items` 平级，可为 `[]`）：个人事务的新增、更新、取消，一条一个封闭对象，`change`、`name`、`outcome`、`item`、`quantity`、`memo`、`remind_time`、`reason`
   八个键全部必填（备注键叫 `memo`，不与拒绝结果里环境给出的 `next_step` 同名）；不放进 `items[]`（事务不属于某项活动）；一次请求至多 4 条变更，同一条未完成事务至多被一条更新或取消点名，
   两条新增不得同名，同一请求内按取消、更新、新增的次序求值；条数与长度上限在本地校验（个人事务与工作安排规格 2.2、2.3，阶段 2 落地）。
-- 外层键用 `items`，不用 `activities`（后者在提示字段黑名单里，`src/worldmock/life/narration.py`）；嵌套对象以 `WithJsonSchema` 内联（现行记忆对象已如此，``），
+- 外层键用 `items`，不用 `activities`（后者在提示字段黑名单里，`src/worldmock/life/narration.py`）；嵌套对象以 `WithJsonSchema` 内联
+  （`src/worldmock/life/models.py::ActivityConclusionItem` 与 `src/worldmock/life/models.py::ConcludeActivityRequest`），
   `views[]` 同样内联：`tests/integration/test_activity_schema.py` 禁止 `$ref` 与 `$defs`。
 - 数量与长度上限继续在本地校验（`custom/agents/life_agent.py`）：仓库的严格 Schema 禁止 `oneOf`、`minLength`、`maxLength`、`minItems`、`maxItems`、`default`，
   受约束解码也可能欠约束，本地校验是最终权威；因此 `views`、`memories` 与 `errands` 都是必填字段，允许空列表。

@@ -26,7 +26,7 @@ ROOT_DOCUMENTS = ("README.md", "CLAUDE.md", "AGENTS.md")
 HISTORICAL_STATES = frozenset({"归档", "已裁决", "调研证据", "验收记录", "审查记录", "实施台账", "未冻结提案"})
 SOURCE_LINE = re.compile(
     r"\.py(?:[:：]\s*\d|#L\d(?:-L?\d+)?|[`*_]*\s+(?:lines?\s+\d|第\s*\d+\s*行)"
-    r"|[`*_]*\s*[（(]\s*\d+(?:\s*[-–]\s*\d+)?\s*[）)])", re.IGNORECASE)
+    r"|[`*_]*\s*[（(]\s*\d+(?:\s*[-–]\s*\d+)?\s*[）)])|`[:：]\d+(?:[-–]\d+)?`", re.IGNORECASE)
 
 
 @dataclass(frozen=True)

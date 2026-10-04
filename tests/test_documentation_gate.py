@@ -61,6 +61,7 @@ def test_title_change_preserves_explicit_identity_and_body(tmp_path):
     ("`src/worldmock/x.py line 12`\n", "source line reference"),
     ("`src/worldmock/x.py 第 12 行`\n", "source line reference"),
     ("`src/worldmock/x.py（12）`\n", "source line reference"),
+    pytest.param("`src/worldmock/x.py` 与 `:12-20`\n", "source line reference", id="detached-source-line"),
     ("`src/worldmock/x.py::Forwarded`\n", "source definition does not exist"),
 ])
 def test_current_document_violations_fail(tmp_path, body, expected):

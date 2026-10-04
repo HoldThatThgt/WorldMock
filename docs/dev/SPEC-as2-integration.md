@@ -328,7 +328,7 @@ observation_record = {
 **覆写点**（锁定提交不改，改动只在 WorldMock 的子类中）：本规格各节已登记的 LifeAgent 与记忆运行时覆写点——`_run_react_turn`
 （「失败传播改动」，世界请求登记即结束本次决策）、`prepare_react_loop` 之后注入续接消息（「同秒续接与推理内容保留」）与记忆快照记录与就寝反思 `_run_reflection`
 （「记忆运行时改动」）——之外，[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要)第四章与 7.2 补登四个 LifeAgent 覆写：
-- `_protocol_feedback_content`（AS2 `` 的静态方法）：宿主协议纠错改为与环境共用的错误结构
+- `_protocol_feedback_content`（AS2 `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._protocol_feedback_content` 的静态方法）：宿主协议纠错改为与环境共用的错误结构
   （`error_code`、`reason`、`fix`、`items`、`unmet`），`instruction` 使用 `No world request was registered. Correct the reported parameters and submit again.`，不回传 Pydantic 转储；
 - `_parse_react_responses`：保留工具调用完整位置、原文与 JSON 解析行列，覆盖缺调用、缺调用名、无效调用句柄、非对象参数与不完整 JSON；
   `finish_reason=length` 且正文为空时继续按既有规则丢弃截断回合并发 `OUTPUT_TRUNCATED`；
@@ -596,14 +596,14 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
    同时覆盖思考与输出（默认非思考 8K、思考 64K、`reasoning_effort=max` 128K，上限 384K）；`reasoning_effort` 是 `thinking` 对象内的字段，取 `none`、`low`、`high`、`max`，
    只改变思考的多少，不保证出结果；`required` 与指名工具在思考模式下返回 400，必须先关闭思考；文档没有写达到 `max_tokens` 时会强制给出结果。
    所以「限制思考预算并强制给出结果」只有关闭思考这一条路；提案的 `reasoning_effort=low` 保留思考但不能保证，列为 D10 的另一选项。
-   接口合同「模型身份」:1250「`reasoning_effort` 不发送」不变；重试请求没有 `reasoning_content`，续接链按无思考回合处理。
+   [接口合同「模型身份」](../CONTRACTS.md#contracts-model-identity)「`reasoning_effort` 不发送」不变；重试请求没有 `reasoning_content`，续接链按无思考回合处理。
 3. 质量报告记截断次数、浪费的输出 token 与 `usage.completion_tokens_details.reasoning_tokens`（第九章）；`finish_reason` 已在 `model_response.data.response` 里，
-   AS2 也按回复记录协议错误串（`_record_react_response`，`:1016-1039`），不需要新证据。
-4. 上限保持 8000；有数据后再决定是否提高（例如 16000）。提高上限牵动阶段身份、测试与文档（`src/worldmock/runtime.py`、``、
-   `tests/integration/test_life_agent_protocol.py`、所属现行合同、人物 Prompt 规格 :287），且每次螺旋的花费成倍增加。
+   AS2 也按回复记录协议错误串（`vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._record_react_response`），不需要新证据。
+4. 上限保持 8000；有数据后再决定是否提高（例如 16000）。提高上限牵动阶段身份、测试与文档（`src/worldmock/run_setup.py::stage_model_identity`、`src/worldmock/run_setup.py::validate_stage_model_identity`、
+   `tests/integration/test_life_agent_protocol.py`、所属现行合同、[人物 Prompt 规格「预算」](SPEC-life-realism.md#persona-prompt-预算)），且每次螺旋的花费成倍增加。
 5. 根本的修复是去掉让模型犹豫的陷阱：第三章、5.3 与数据集方案。
 
-**合同。** 接口合同「生成参数」行动阶段行补「截断重试：`thinking` 关闭、`tool_choice=required`、`max_tokens` 不变」；「回合预算」（:1204-1210）与「思考回传」（:1276）补
+**合同。** [接口合同「生成参数」](../CONTRACTS.md#contracts-generation-parameters)行动阶段行补「截断重试：`thinking` 关闭、`tool_choice=required`、`max_tokens` 不变」；[「回合预算」](../CONTRACTS.md#contracts-turn-budget)与[「思考回传」](../CONTRACTS.md#contracts-reasoning-return)补
 「截断回合丢弃、纠错替换、无思考的重试回合不回传 `reasoning_content`」；阶段身份 `action` 的键不变，`reasoning_effort` 仍不发送。
 
 **验收。** 截断回合不进入后续请求；纠错只出现一次；重试请求关闭思考且 `tool_choice=required`，其余请求不变；重试仍无工具调用时按现行回合预算处理；质量报告计数与运行记录一致。
@@ -618,7 +618,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 - **后验守卫**：四类正则（到达或在路上、已完成或带来、揽活、保证结果）作为闭集登记进接口合同；命中就重试一次，仍命中则用固定兜底句（「我这边先看看，稍后回你。」）。
   重试在同一次结算内、`_commit_contact_reply`（`src/worldmock/runtime.py::_commit_contact_reply`）之前完成，仍只写一条 `model_npc_reply`（幂等键不变），事件 `data` 增 `attempts[]`（每次的请求、回复与命中类别）
   与 `guard_applied`（所属现行合同与记录引擎设计的事件表同步）。在真实回复上命中 WC 5 条中的 5 条和 BIZ 1 条，放过 7 条无害样本；守卫不是保证，兜底句才是。
-  这改写时间与能量规格「联系人回复本身不附回重试」（:396；该句内引的 `src/worldmock/runtime.py` 已过期，客户端现在 `:800-847`）。
+  这改写时间与能量规格「联系人回复本身不附回重试」的旧描述；现行约束见[联系人回复合同](../CONTRACTS.md#contracts-contact-reply)，客户端定义于 `src/worldmock/runtime.py::ContactReplyClient`。
 - **人物侧**：系统层第 4 条补「消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了」；第 17 条补「联系人只能发消息或通话，不会来到你身边」。
 - `SPEC-life-realism.md:468` 要求同事映射到真实人物，两份场景都把同事写成模型联系人，由数据集决定是否改正（数据集方案 3.8）。
 
@@ -639,7 +639,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 
 **规则**（裁决 D14、S6）。
 
-1. **探针**（只读脚本，放 `scripts/`）：同一个带 `strict: true` 的函数在 Schema 里故意放一个文档不支持的关键字（绕过本地的 `deepseek_strict_schema`，``），
+1. **探针**（只读脚本，放 `scripts/`）：同一个带 `strict: true` 的函数在 Schema 里故意放一个文档不支持的关键字（绕过本地的 `src/worldmock/life/models.py::deepseek_strict_schema`），
    分别发到主站与 `/beta`：`/beta` 按文档应返回校验错误，主站若照常返回 200 就说明主站不执行 strict；再在 `/beta` 的思考模式下连发 50 次收尾场景，统计非法 JSON 与形状错误；
    同时确认思考模式下 `tool_choice=required` 返回 400、关闭思考后可用（7.2）。结论写入验收记录。
 2. **切换**：探针成立后把 `DEEPSEEK_BASE_URL` 常量改为 `/beta`（画像抽取随之切换），同步接口合同「模型身份」:1244 与相关测试。
@@ -760,7 +760,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
 | `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 26 行修订：实施基线改为锁定提交 `8768e14`；有人就绪就执行一轮，不推进，每个决策轮或推进边界收一个共同检查点；LifeAgent 覆写 `_run_react_turn`，世界请求登记后结束本轮，只读问答保留 `finish`，AS2 锁定提交不改；`conclude_activity` 可提交空记忆数组；零点计划 `plan_day` 是运行时后台任务（同联系人回复），不经人物，LifeEnv 不代替 AS2 管理人物的模型调用；验收矩阵相应改写 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 按时间与能量规格阶段 6（运行身份）落地修订第 26 行的「AS2 基线与分支」：补锁定提交 `8768e14`（子模块指针，运行身份按它的源码摘要比对）；运行身份哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与锁定提交不符即拒绝启动。上游基线不改 |
-| `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：「决策调度改动」算法按锁定 AS2 `` 改为每步一个共同检查点（执行一轮后再查询，无人就绪才在同一步推进）；验收矩阵「记忆运行时改动」的证据位置由阶段 3 占位说明改为已落地用例。改动归属、技术结论与验收标准未变 |
+| `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：「决策调度改动」算法按锁定 AS2 `vendor/agentsociety2/packages/agentsociety2/agentsociety2/society/society.py::AgentSociety.step` 改为每步一个共同检查点（执行一轮后再查询，无人就绪才在同一步推进）；验收矩阵「记忆运行时改动」的证据位置由阶段 3 占位说明改为已落地用例。改动归属、技术结论与验收标准未变 |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 5、17 行修订，修订部分待实现（人物 Prompt 台账 AS1–AS4）；AS2 锁定提交 `8768e14` 与运行身份不变。理由：决策自述阶段删除，一次决策只有一个行动阶段；同一秒的相邻决策按提供商协议续接，须原样回传思考。改动：文件头；复用边界、分层职责图与流程图删决策自述节点，写明世界请求登记即结束本次决策、续接消息由 LifeAgent 在准备阶段之后注入；「失败传播改动」登记后不追加 tool 消息；「决策自述与推理内容保留」改为「同秒续接与推理内容保留」（删自述钩子覆写，AS2 基类钩子返回 `None`；续接缓冲由环境从模型证据重建，宿主在 `prepare_react_loop` 之后注入 `_react_messages`；缺思考断链）；「记忆运行时改动」补 `subject` 在写入 AS2 前剥掉、记忆层与看法偏好由环境派生、零条最近记忆返回空列表、巩固摘要不进提示、反思快照带来源；「观察记录单写」补续接时观察仍每次决策一次、单写；锁定提交与 LifeAgent 职责相应改写；验收矩阵「工具面与证据回调」「同秒续接与推理内容保留」「观察记录单写」三行的观察项与测试名改写，状态记「本次离线验收待执行」，状态列增加该档 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；验收矩阵「工具面与证据回调」「同秒续接与推理内容保留」「观察记录单写」三行在最终代码上复跑通过，状态由「本次离线验收待执行」改为「代码层已验证」，状态说明随之补一句；「工具面与证据回调」注明最后一个回合去掉记忆查询工具。AS2 锁定提交 `8768e14` 与运行身份不变 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 14 行修订（一日运行保真 AS1，随该规格冻结）：「AS2 基线与分支」新增「覆写点」一段，列出本规格已登记的 `_run_react_turn`、`prepare_react_loop` 之后的续接注入与记忆快照记录，并补登 `_protocol_feedback_content`（统一错误结构与新的 `instruction`）、`_parse_react_responses`（截断回合丢弃并发 `OUTPUT_TRUNCATED`）、`_append_react_protocol_feedback`（相同纠错替换不叠加，随后关闭思考并 `tool_choice=required` 重试一次）三个 LifeAgent 覆写；「记忆运行时改动」第 1 条注明控制工具改为 `items` 后宿主仍按同一路径展平写入；AS2 锁定提交 `8768e14` 与运行身份不变；文件头补修订说明，日期改写 |

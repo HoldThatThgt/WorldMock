@@ -104,14 +104,14 @@
 <a name="proposal-agent-interaction-逐条对账设计要素-当前实现-判定"></a>
 ### 2.2 逐条对账：设计要素 → 当前实现 → 判定
 
-把 2.1 拆成 23 个可判定的要素，逐条对现状。判定分五类：
+把 2.1 拆成 23 个可判定的要素，逐条对改造前的实现。判定分五类：
 **已有一致** / **已有但口径不同** / **半有**（能力在，粒度或参数不符）/ **缺** / **与冻结契约冲突**。
 
-| # | 设计要素 | 当前实现 | 判定 |
+| # | 设计要素 | 改造前实现 | 判定 |
 | --- | --- | --- | --- |
 | 1 | 上下文 ≥256k、输出 ≤32768 | 全仓**未声明**任何模型窗口常量；实测 prompt 最大 **33,652** tokens（占 256k 的 **12.8%**）、输出最大 **19,504**（占 32768 的 **59.5%**）；`max_tokens` 固定 8000 | **独立结论**：预算远未用满，不是瓶颈；但输出上限无任何声明，只靠 `max_tokens=8000` 硬限 |
 | 2 | system prompt 参考 AS2 | AS2 的 `PREAMBLE_TEMPLATE`**：约 3500 字符 XML 结构完全没有被使用**；`LifeAgent.build_react_messages`（`custom/agents/life_agent.py::LifeAgent.build_react_messages`）整体覆盖父类，换成约 300–400 字中文前言 | **独立结论**：有意替换；若要按提案"参考 AS2"，需先裁决取它的哪一部分 |
-| 3 | 人设层（卡片 + 高度抽象的长期记忆） | 卡片 ≤600 汉字进提示；`MEMORY.md` ≤4000 字符（``） | **已有但口径不同**：两处上限都比提案小 |
+| 3 | 人设层（卡片 + 高度抽象的长期记忆） | 卡片 ≤600 汉字进提示；`MEMORY.md` ≤4000 字符（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)） | **已有但口径不同**：两处上限都比提案小 |
 | 4 | 目标层（待办 / 暂停事务 / 一句话进展 / DDL） | `PlanGoal` 只有 `intent_kind` + `goal`(≤300 字符) + 推进证据；**无"暂停"状态**、**无"一句话进展"字段**；DDL 仅工作任务的 `due_at` | **半有**：清单在，暂停态与进展字段缺 |
 | 5 | 环境层（时空 / 环境 / 身体） | `scene`(≤800 汉字) + `facts`；身体**只给分级不给数值** | **已有一致**：数值不给是有意的 |
 | 6 | 交互对象层（可交互物 + inventory） | `facts.inventory` + `facts.products` + 每轮重建的实体枚举 | **已有一致** |
@@ -127,7 +127,7 @@
 | 16 | pause / start 切换 | `set_activity_state` 的 pause + 新 start 可做到，但要**两个回合**（一次决策恰好一个动作） | **半有**：能力在，粒度不匹配 |
 | 17 | 睡眠不 invoke | `SLEEP_ALLOWED_REASONS` 只放行 `planned_end` / `wake_from_sleep` / `run_start` | **已有一致** |
 | 18 | 每天 0 点浓缩 | **不存在**。`day_end_seconds` 只用于睡眠边界；记忆巩固由 importance 累计 / 待巩固条数 / 入睡边界三选一触发 | **缺** |
-| 19 | 进度层 ≤4000 字符 | `context_max_chars = 4000`（``） | **已有但口径不同**：数值巧合一致，但语义是整份 MEMORY.md，不是单事务进度 |
+| 19 | 进度层 ≤4000 字符 | `context_max_chars = 4000`（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)） | **已有但口径不同**：数值巧合一致，但语义是整份 MEMORY.md，不是单事务进度 |
 | 20 | 目标单句 ≤500 字符 | `PLAN_GOAL_MAX_CHARS = 300`（`src/worldmock/life/schedule.py`）；`MAX_PLAN_GOALS = 8` | **已有但口径不同**：比提案更严 |
 | 21 | 长期记忆 ≤8000 字符，模型自选遗忘 | `subjective_summary` 截断 **4000**（`custom/agents/life_memory.py`）；`episodes.jsonl` **无上限** | **与冻结契约冲突**：检查点恢复校验 `episode_counter == len(records)` 与 `episodes_sha256`，销毁式遗忘会破坏恢复 |
 | 22 | 时空前置条件先满足 | `validate_work_start` 抛 `WORK_LOCATION_REQUIRED`（全天 **4 次**）；`WorkTaskConfig` 的 **16 个字段里有 14 个在 743 条 prompt 中零次出现**——其中 4 个是黑名单有意挡的（`input_path`/`oracle_path`/两个 `_sha256`），**另外 10 个是无记录地漏掉的**，含 `required_location_id`、`required_skill`、`minimum_skill`、`maximum_duration_seconds`、`pay_fen` 等 | **缺**：规则在，模型**撞墙才知道** —— 正是用户举的那个例子 |
@@ -337,7 +337,7 @@ flowchart TB
 
 | | 内容 |
 | --- | --- |
-| 数据里 | `WorkTaskConfig` **没有 title 字段**（``）；场景侧任务声明也没有标题 |
+| 数据里 | `WorkTaskConfig` **没有 title 字段**（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)）；场景侧任务声明也没有标题 |
 | 代码 | `title = self.rules.content_titles.get(task_id)`（`src/worldmock/life/observe.py`） |
 | 真相 | `content_titles` 的键是**内容条目 id**（`src/worldmock/life/content.py`：`titles[item.item_id] = title`），与任务 id **键空间不相交**（已核实交集为空） |
 | 模型看到 | `{"task_id":"backend-hourly-2026-01-05","title":"backend-hourly-2026-01-05"}` |
@@ -378,7 +378,7 @@ flowchart TB
 | 实现 A | `src/worldmock/life/engine.py` —— **生产零调用者** |
 | 实现 B | `src/worldmock/life/observe.py` —— 真正进 prompt（被 `src/worldmock/life/observe.py` 调用） |
 | 两份是否相同 | **逐字相同**（已比对） |
-| 测试 | `tests/life/test_engine_branch_coverage.py` 从 `engine` 导入，在 `:1512` 断言 |
+| 测试 | `tests/life/test_engine_branch_coverage.py` 从 `engine` 导入，中的断言见[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md) |
 | 判定 | **测试证明的是“渲染器能处理进度”，不是“进 prompt 的那份是对的”** |
 
 **同类更危险的一条**：`_task_due_soon` **同名两义**。
@@ -401,7 +401,7 @@ flowchart TB
 
 | | 内容 |
 | --- | --- |
-| schema | `duration_seconds: int = Field(ge=60, le=14_400)`，**没有 description**（``） |
+| schema | `duration_seconds: int = Field(ge=60, le=14_400)`，**没有 description**（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)） |
 | 校验 | 必须等于目录时长：`PRODUCT_USE_DURATION_MISMATCH` / `MEAL_DURATION_MUST_BE_LONGEST`（`src/worldmock/life/basket.py`） |
 | 模型看到 | 一个 60–14400 的自由整数 |
 | 判定 | **意外**。类 docstring 写了合同，但没有进 JSON Schema 的 description |
@@ -519,8 +519,8 @@ flowchart TB
 
 | | 内容 |
 | --- | --- |
-| 多数工具 | `planned_duration_seconds`，单位**秒**，下限 60 秒（``） |
-| 社交工具 | `duration_minutes`，单位**分钟**，取值 1–120（``） |
+| 多数工具 | `planned_duration_seconds`，单位**秒**，下限 60 秒（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)） |
+| 社交工具 | `duration_minutes`，单位**分钟**，取值 1–120（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)） |
 | 运行证据 | `duration_minutes` 字样在 50 条 prompt 中出现（工具 schema 携带） |
 | 判定 | **意外**。同一套动作集里要模型切换时间单位；且社交工具是唯一一个**下限为 1 分钟**而其他为 60 秒的——两条边界其实等价，但表示不同 |
 
@@ -611,7 +611,7 @@ flowchart LR
    实测全天**峰值并发只有 1**（`start_parallel_activities` 在 39.8% 的菜单里，一次没用过）。
 5. **遗忘机制**：模型自行选择遗忘**不能是销毁式改写**。检查点恢复校验 `episode_counter == len(records)` 与
    `episodes_sha256`，`memory_updated` 事件还引用具体 episode id。遗忘只能实现为**派生视图**。
-6. **交付物形状**：`SubmitWorkRequest.deliverable` 硬编码为 `MeetingMinutes`（``），
+6. **交付物形状**：`SubmitWorkRequest.deliverable` 硬编码为 `MeetingMinutes`（[改造前源码对账](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/PROPOSAL-agent-interaction.md)），
    而日跑场景有 `required_skill=backend_engineering` 的任务。是否按技能区分交付物 Schema？
 
 ---

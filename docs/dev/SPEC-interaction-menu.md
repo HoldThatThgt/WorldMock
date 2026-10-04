@@ -215,18 +215,18 @@ flowchart LR
 <a name="dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序"></a>
 ### 生活活动的地点类资格与排序
 
-**现状。**
+**改造前观察。**
 
-- 地点类资格没有在候选生成时施加：生活活动窗口以 `moment=False` 取候选（`src/worldmock/life/observe.py`），`local_hour` 为空，`candidates._location_reason`（`:405-408`）提前返回；
-  与 `src/worldmock/life/presentation.py` 的说明和 life-runtime 规格「统一候选契约」（:817 资格段含地点要求）、「两条排除纪律」（:832 地点类交集为空可排除）不一致。
+- 地点类资格没有在候选生成时施加：生活活动窗口以 `moment=False` 取候选（`src/worldmock/life/observe.py`），`local_hour` 为空，地点资格判定（现定位 `src/worldmock/life/candidates.py::_location_reason`）提前返回；
+  与 `src/worldmock/life/presentation.py` 的说明和 [life-runtime 规格「统一候选契约」](SPEC-life-runtime.md#spec-life-runtime-统一候选契约生成资格排序三段)（资格段含地点要求）、[「两条排除纪律」](SPEC-life-runtime.md#spec-life-runtime-两条排除纪律)（地点类交集为空可排除）不一致。
   工具层随后用 `refusal_for_code("ELIGIBILITY_LOCATION_KIND_MISMATCH")`（`src/worldmock/life/tool_layer.py`）给其中大部分标「这里不适合做这件事」，环境在开始时同样拒绝（`src/worldmock/life/activities.py`）：
   条目占了窗口名额却不能做。WC 2080 行里 1201 行（58%），BIZ 43%，在办公室占 67%。
 - 零口味时按对象标识排序：排序键是（非零口味、−口味×注意力、对象标识）（`src/worldmock/life/candidates.py`），零口味时就是字母序：WC 104 次观察里 17 条始终固定，
   183 项里 40 项从没出现，包括洗碗和家常做饭。
-- 轮转按人物级偏移量进行：`_rotation_offset`（`src/worldmock/life/observe.py`）取该人物已呈现记录的条数，内容、游戏、生活活动（`:200`）与商品（`:495`）共用。
+- 轮转当时按人物级偏移量进行：`_rotation_offset` 取该人物已呈现记录的条数，内容、游戏、生活活动与商品共用（[改造前呈现与浏览记录](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/SPEC-dayrun-fidelity.md)）。
   WC 只有 42 个不同窗口，17 + 42 × 3 = 143 正好等于出现过的条目数；走完一圈约需 56 个窗口，一天走不完。
-  life-runtime 规格「曝光轮转」（:874-875）与接口合同「派生量字段」（:1013-1016）要求轮转以每个对象的 `last_presented_at` 判定、换新名额留给长期未呈现的对象，
-  「不按检索分区记游标」；现行的共享偏移量是实现偏差，不是规格。
+  [life-runtime 规格「曝光轮转」](SPEC-life-runtime.md#spec-life-runtime-曝光轮转)与[接口合同「派生量字段」](../CONTRACTS.md#contracts-派生量字段)要求轮转以每个对象的 `last_presented_at` 判定、换新名额留给长期未呈现的对象，
+  「不按检索分区记游标」；当时的共享偏移量是实现偏差，不是规格。
 
 **设计。**
 
@@ -238,7 +238,7 @@ flowchart LR
    - 属于当日未推进目标的活动家族：+2；
    - 人设层习惯签名的反应文本命中条目名或品类：+1。
    决胜键改为 `sha256(场景|人物|日期|对象)`，不再用对象标识（对象标识使零口味时的顺序退化为字母序；人物规格「候选确定性」:308「同分时以稳定的对象标识决胜」随之改写）。
-   `ORDER_KEY_VERSION`（`src/worldmock/life/candidates.py::ORDER_KEY_VERSION`）升到 2：它只参与游标身份（`:349-354`），不在运行清单里，升版使在途游标失效；接口合同「排序键与游标」（:966-974）同步。
+   `ORDER_KEY_VERSION`（`src/worldmock/life/candidates.py::ORDER_KEY_VERSION`）升到 2：它只参与游标身份（`src/worldmock/life/candidates.py::cursor_identity`），不在运行清单里，升版使在途游标失效；[接口合同「排序键与游标」](../CONTRACTS.md#contracts-排序键与游标)同步。
    提案另有「今天已经做过 −1」「在家时的家务与自理类 +1」与「20 条里至多留 4 条例行名额」三项：第一项把互动记录当排序输入，与 life-runtime :884「禁止把互动次数当作判据」相抵；
    后两项是系统替人物做的偏好，与「规则只限制物理、经济和任务可行性，不替人物优化人生」相抵，且与 0.15 的换新名额（`rotation_quota_ratio`）竞争。本文不采用，列为 S4 的另一选项。
 3. **轮转按冻结条款实现**：每个对象记 `last_presented_at`，换新名额按场景 `rotation_quota_ratio` 留给该分区内最久未呈现的对象，其余按排序键；
@@ -259,11 +259,11 @@ flowchart LR
 <a name="dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性"></a>
 ### 浏览结果与提示看可达性
 
-**现状**（BIZ 午餐往返 17 段的系统侧原因）：浏览是全局的（``、`src/worldmock/life/observe.py`），每次 56 条供给里的 20 条，其中 17 条全天在任何地方都买不到；
+**改造前观察**（BIZ 午餐往返 17 段的系统侧原因；下列源码定位当前对应职责）：浏览是全局的（`src/worldmock/life/rules.py::LifeRuleEngine.validate_start`、`src/worldmock/life/observe.py::ObservationBuilder._complete_product_browse`），每次 56 条供给里的 20 条，其中 17 条全天在任何地方都买不到；
 进度层的浏览结果只列商品名不带店名（`src/worldmock/life/result_projection.py`），模型把全局目录当成了当前餐馆的菜单；商品可见性绑定在浏览的地点（`src/worldmock/life/projection.py`，有效期 1800 秒），
 人一离开商品就从工具层消失（在场门店的供给不经浏览就进入商品池，`src/worldmock/life/observe.py`；指名路径本就不查可见凭据，`src/worldmock/life/storefront_runtime.py`）；
-下一步提示只看供给声明的目的地、不看可达性（到店 ``「去{place}」，配送 `:207-212`「去 X 或 Y 再下单」）；
-「暂时送不到这里」同时覆盖 4 个 `DELIVERY_*` 码（`src/worldmock/life/guidance.py`，`` 是第五处）。反证：14:59 商品和地点同时出现在工具层时，模型 5 分钟内就完成了购买。
+下一步提示当时只看供给声明的目的地、不看可达性（到店 `src/worldmock/life/admission.py::_place_refusal`「去{place}」，配送 `src/worldmock/life/admission.py::_delivery_refusal`「去 X 或 Y 再下单」）；
+「暂时送不到这里」当时同时覆盖 4 个 `DELIVERY_*` 码（原因映射对应 `src/worldmock/life/guidance.py::_DEFAULT_REASONS`，配送准入对应 `src/worldmock/life/admission.py::_delivery_refusal` 也使用了同句）。反证：14:59 商品和地点同时出现在工具层时，模型 5 分钟内就完成了购买。
 
 **设计。**
 

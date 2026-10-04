@@ -462,7 +462,7 @@ import json
 import shutil
 from pathlib import Path
 from worldmock.categories.identity import refresh_manifest_identity
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 root = Path("experiments/rules-demo")
 root.mkdir(parents=True, exist_ok=False)
