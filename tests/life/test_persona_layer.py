@@ -314,6 +314,59 @@ def test_later_view_replaces_earlier_while_events_keep_both(engine_factory) -> N
     assert all(text not in shown for text in ("靠谱", "爱吃面", "最近很忙", "骗子"))
 
 
+def _record_conclusion(engine, memories: list[dict], views: list[dict]) -> None:
+    """经 FootprintStore 补登一条成功的 conclude_activity 记录：照人物 1 最近一次收尾的请求与结果，逐项内容换成给定的
+    memories 与 views，同一决策、动作身份另起，请求摘要按同一算法重算；世界状态不变、版本加一。请求模型不接受类型为
+    relationship、preference 的普通记忆，引擎自己写不出这种记录，只用于核对读取方（persona_views）对它的处理。"""
+    import hashlib
+
+    from worldmock.footprints.models import EventDraft
+
+    requested = [event for event in engine.store.read_agent_events("action_requested", 1)
+                 if event.data["tool_name"] == "conclude_activity"][-1]
+    result = next(event for event in engine.store.read_agent_events("action_result", 1)
+                  if event.action_id == requested.action_id)
+    item = {**requested.data["request"]["items"][0], "memories": memories, "views": views}
+    request = {"items": [item], "errands": []}
+    content = json.dumps({"tool_name": "conclude_activity", "request": request}, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode()
+    data = {**requested.data, "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
+    staged = engine.state.model_copy(deep=True)
+    staged.version += 1
+    shared = {"occurred_at": staged.current_time, "agent_id": 1, "decision_id": requested.decision_id,
+              "action_id": f"{requested.action_id}-recorded"}
+    engine.store.commit(staged.model_dump(mode="json"), [
+        EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
+        EventDraft(event_type="action_result", data={**result.data, "action_id": shared["action_id"]}, **shared)])
+    engine.state = staged
+
+
+def test_a_recorded_view_typed_memory_without_a_subject_is_not_a_persona_view(engine_factory) -> None:
+    """看法与偏好只来自带对象的记忆：请求模型不接受类型为 relationship、preference 的普通记忆（它们没有 about），引擎写不出
+    带这种记忆的成功收尾；经存储补登的成功收尾记录里出现这两类不带对象的记忆时，人设层的看法与偏好跳过它们，只取同一条
+    记录里带对象的偏好与此前真实写下的看法，不把 null 当作对象，观察照常完成。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    friend = engine.scenario.agents[0].contacts[0].salutation
+    _, waited = _act(engine, "s-wait", "start_activity", start_activity("等待", "自己"))
+    assert advance_until_ready(engine)
+    _act(engine, "s-conclude", "conclude_activity", conclude_request(
+        activity_name(engine, waited.activity_id), summary="收尾", views=[[_view("relationship", "靠谱", friend)]]))
+    loose = [_memo("relationship", "没有对象的看法"), _memo("preference", "没有对象的偏好")]
+    for memory in loose:
+        with pytest.raises(ValueError, match="type"):
+            ConclusionMemory.model_validate(memory)
+    _record_conclusion(engine, loose, [_view("preference", "爱吃面", "午饭")])
+    recorded = engine.store.read_agent_events("action_requested", 1)[-1]
+    assert [memory["subject"] for item in control_items("conclude_activity", recorded.data["request"])
+            for memory in item.views] == [None, None, "午饭"]
+    observed = _observe(engine, "s-seen")
+    day = local_date(engine.state.current_time, engine.scenario.timezone)
+    assert observed["persona_views"] == {"relationships": [{"person": friend, "view": "靠谱"}],
+                                         "preferences": [{"subject": "午饭", "preference": "爱吃面", "noted_on": day}]}
+    assert "没有对象" not in json.dumps(observed["persona_views"], ensure_ascii=False)
+
+
 def test_first_purchase_writes_no_preference_and_leaves_no_trace_after_delivery_and_midnight(engine_factory) -> None:
     """反例：首次购买后人物只写了「明天还想吃」这类非偏好记忆时 preferences 为空；送达并跨零点后记忆层没有这次购买。"""
     engine = engine_factory()

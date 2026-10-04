@@ -43,6 +43,7 @@ from worldmock.life.name_resolution import SourceMatch, near_source_names, resol
 from worldmock.life.readable import duration_phrase
 from worldmock.life.object_labels import mail_name, object_label  # noqa: E402
 from worldmock.life.result_projection import public_result  # noqa: E402
+from worldmock.life.routing import combination_issues, routing_names  # noqa: E402
 
 #: 候选请求照填的键（另可带 note）。
 _FILL_IN = ("target", "way", "from", "to")
@@ -509,6 +510,74 @@ def test_held_item_candidates_keep_null_self_route_and_actual_ways(engine_factor
     [result] = engine.commit_decision_round("held-candidates")
     assert (result.status, result.error_code) == ("in_progress", None)
     assert engine.state.activities[result.activity_id].kind == "consume"
+
+
+def test_a_candidate_for_an_unlisted_way_takes_the_first_available_listed_way(engine_factory) -> None:
+    """候选是可以照填的请求（3.1 第 3 条）：家里那份食物只列出「食用」（此刻可用）与「给予」（收货人不在，不可用）；名称写错
+    一点、方式写「使用」（持有物的方式，这份食物没有列出）时不照抄所写的方式——宿主报 NAME_NOT_FOUND，候选取这份食物
+    第一个此刻可用的方式「食用」并带时长说明；绕过宿主时环境以同一份候选拒绝；候选原样提交，宿主放行、环境受理并开始食用。"""
+    engine = _morning(engine_factory)
+    held = _binding(engine.observe(context(engine, "unlisted-way-peek")), "holding")
+    assert [(action["label"], action["note"] is None) for action in held["actions"]] == [("食用", True), ("给予", False)]
+    written = f"一盒{held['object'].split('：', 1)[1]}"
+    error, refused = _decide(engine, "unlisted-way", "start_activity", _start([written], ["consume"], ["使用"]))
+    assert error.report.error_code == "NAME_NOT_FOUND"
+    [candidate] = error.report.items[0].candidates
+    assert candidate.arguments["items"] == [{"target": held["object"], "way": "食用", "from": None, "to": None}]
+    assert candidate.note.startswith("About ") and candidate.note.endswith(" minutes.")
+    assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert [row["candidates"] for row in refused.data["items"]] == [[candidate.payload()]]
+    accepted, started = _decide(engine, "unlisted-way-fixed", candidate.tool, candidate.arguments)
+    assert accepted == "" and (started.status, started.error_code) == ("in_progress", None)
+    assert engine.state.activities[started.activity_id].kind == "consume"
+
+
+def test_a_candidate_skips_unavailable_ways_and_otherwise_keeps_the_first_listed_one() -> None:
+    """所写方式在候选目标上没有列出时（name_resolution.fill_in）：取该目标第一个此刻可用的方式，都不可用时取第一个列出的
+    方式并以它不可用的原因作说明。「盒装牛奶」先列出此刻不能做的「食用」、再列出可用的「给予」，方式写「使用」的近名候选是
+    「给予」、没有说明；「袋装面包」两个方式都不可用，候选是先列出的「食用」，说明就是它的原因。两者都不照抄所写的「使用」。"""
+    busy = "Eating is unavailable while another meal is in progress."
+    apart = "Giving requires the recipient at the same location."
+    observed = _observations()
+    _add_objects(observed[0]["data"],
+                 _visible_object("持有物：盒装牛奶", "holding", "milk-held",
+                                 _offer("consume", "食用", "consume", busy), _offer("consume", "给予", "consume")),
+                 _visible_object("持有物：袋装面包", "holding", "bread-held",
+                                 _offer("consume", "食用", "consume", busy), _offer("consume", "给予", "consume", apart)))
+    host = _prepared(observed)
+    for written, label, way, note in (("一盒盒装牛奶", "持有物：盒装牛奶", "给予", None),
+                                      ("一袋袋装面包", "持有物：袋装面包", "食用", busy)):
+        error = _check(host, "start_activity", _start([written], ["consume"], ["使用"]))
+        assert error.report.error_code == "NAME_NOT_FOUND", written
+        [candidate] = error.report.items[0].candidates
+        assert candidate.arguments["items"] == [{"target": label, "way": way, "from": None, "to": None}], written
+        assert candidate.note == note, written
+
+
+def test_two_spellings_of_one_object_for_the_same_recipient_are_a_repeated_target(engine_factory) -> None:
+    """请求模型只按原文拒绝重复的（目标，收货人）；「联系人：陈母」与「陈母」原文不同，统一名称解析后却是同一个对象、去向
+    都是本人：组合校验（routing.combination_issues）按归一后的请求在第二项的 target 上报「重复的目标需要不同的收货人」——
+    宿主以 ROUTE_FIELDS_INVALID 在本轮纠正，绕过宿主时环境以 ACTION_REQUEST_INVALID 拒绝、不开始任何通话；只写一项照常受理。"""
+    engine = _morning(engine_factory)
+    twice = _start(["联系人：陈母", "陈母"], ["interact", "interact"], ["通话", "通话"])
+    with pytest.raises(ValueError, match="a target may repeat only with a different recipient"):
+        StartActivityRequest.model_validate(_start(["陈母", "陈母"], ["interact", "interact"], ["通话", "通话"]))
+    observed = engine.observe(context(engine, "repeated-peek"))
+    outcome = resolve_start(name_book(observed), StartActivityRequest.model_validate(twice))
+    assert [item.target for item in outcome.request.items] == ["联系人：陈母"] * 2 and not outcome.failures
+    [issue] = combination_issues(outcome.request, routing_names(observed))
+    assert (issue.index, issue.field, issue.written, issue.allowed_values) == (1, "target", "联系人：陈母", ())
+    assert issue.reason == issue.detail == "A repeated target needs a different recipient."
+    before = dict(engine.state.activities)
+    error, refused = _decide(engine, "repeated", "start_activity", twice)
+    assert error.report.error_code == "ROUTE_FIELDS_INVALID" and error.report.reason == issue.reason
+    [item] = error.report.items
+    assert (tuple(item.path[-2:]), item.written, tuple(item.candidates)) == ((1, "target"), "联系人：陈母", ())
+    assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert engine.state.activities == before
+    accepted, called = _decide(engine, "single", "start_activity", _start(["陈母"], ["interact"], ["通话"]))
+    assert accepted == "" and (called.status, called.error_code) == ("in_progress", None)
+    assert set(engine.state.activities) - set(before) == {called.activity_id}
 
 
 def _variants(label: str) -> list[str]:

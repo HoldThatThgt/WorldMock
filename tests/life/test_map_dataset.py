@@ -198,6 +198,7 @@ def test_missing_route_record_cannot_mean_unreachable(tmp_path):
 @pytest.mark.parametrize("changes,reason", [
     ({"products": []}, "unselected product"), ({"accounts": []}, "undeclared seller"),
     ({"timezone": "UTC"}, "timezone"),
+    ({"random_seed": 2}, "Scenario random seed disagrees with the selected map"),
     ({"map_dataset": SimpleNamespace(dataset_id="test", version=2)}, "identity"),
     ({"locations": [SimpleNamespace(location_id="missing")]}, "unknown map location"),
 ])
@@ -378,3 +379,73 @@ def test_preparation_rejects_driving_response_for_walking_profile(tmp_path, monk
     payload["routes"][0]["legs"][0]["steps"][0]["mode"] = "driving"
     with pytest.raises(IntegrityError, match="mode is invalid"):
         map_prepare._validate_response(payload, RouteConfig.model_validate(route("home", "store")))
+
+
+_FORMAL_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_FORMAL_MAP = "zhangjiang-map/20260105/dataset.json"
+_OTHER_SEED_MAP = "zhangjiang-map/20260106/dataset.json"
+
+
+def _reseed(document):
+    """@brief 只把场景种子改成另一份冻结地图的种子，地图钉定保持原样。"""
+    document["random_seed"] = 20260106
+
+
+def _repin(document):
+    """@brief 只把地图钉定换成另一个种子的冻结地图（地图身份与版本相同），场景种子保持原样。"""
+    content = (Path("corpora") / _OTHER_SEED_MAP).read_bytes()
+    document["map_dataset"] = {**document["map_dataset"], "path": _OTHER_SEED_MAP,
+                               "sha256": hashlib.sha256(content).hexdigest()}
+
+
+@pytest.mark.parametrize("change", [_reseed, _repin], ids=["seed-changed", "other-seed-map-pinned"])
+def test_formal_scenario_seed_must_agree_with_its_pinned_map(tmp_path, change):
+    """@brief 同一地图身份与版本按种子各冻结一份报价：正式场景的种子与所钉地图的种子不一致时，真实加载入口在选图时
+    拒绝并写明原因，不会拿另一个种子的报价继续运行。"""
+    from tests.life.conftest import _mutated_scenario
+    from worldmock.life.semantics import load_runtime_scenario
+
+    path = _mutated_scenario(_FORMAL_SCENARIO, change, tmp_path)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    dataset = load_map_dataset(Path("corpora"), MapDatasetReference.model_validate(document["map_dataset"]))
+    assert dataset.timezone == document["timezone"] and dataset.random_seed != document["random_seed"]
+    with pytest.raises(IntegrityError) as failure:
+        load_runtime_scenario(path)
+    assert str(failure.value) == "Scenario assembly failed: Scenario random seed disagrees with the selected map"
+
+
+def _republished_assignment(root, edit):
+    """@brief 把仓库地图的数据集声明与逐店品类声明复制到隔离根，改写品类声明后按新的文件哈希重新钉定。"""
+    source = Path("corpora/zhangjiang-map")
+    assignment = json.loads((source / "category-assignment.json").read_text(encoding="utf-8"))
+    edit(assignment)
+    identity = write(root / "zhangjiang-map/category-assignment.json", assignment)
+    declaration = json.loads((Path("corpora") / _FORMAL_MAP).read_text(encoding="utf-8"))
+    declaration["category_assignment_sha256"] = identity["sha256"]
+    pinned = write(root / _FORMAL_MAP, declaration)
+    return MapDatasetReference(dataset_id=declaration["dataset_id"], version=declaration["version"],
+                               path=_FORMAL_MAP, sha256=pinned["sha256"])
+
+
+def _empty_store_assortment(assignment):
+    """@brief 第一家门店的声明既不选品类也不点名对象。"""
+    assignment["locations"][0].update(category_ids=[], object_ids=[])
+
+
+def _blank_location_kind(assignment):
+    """@brief 准入表多出一个只有空白字符的地点类别。"""
+    assignment["kinds"][" "] = []
+
+
+@pytest.mark.parametrize("edit,reason", [
+    (_empty_store_assortment, "Selling locations require a nonempty assortment"),
+    (_blank_location_kind, "Assortment kind must be nonblank"),
+], ids=["empty-store-assortment", "blank-location-kind"])
+def test_category_assignment_rejects_an_empty_assortment_and_a_blank_kind(tmp_path, caplog, edit, reason):
+    """@brief 文件哈希重新钉定后一致，逐店品类声明仍不能发布空的门店商品集合或空白的地点类别：地图加载入口拒绝并
+    写明原因。"""
+    ref = _republished_assignment(tmp_path, edit)
+    with pytest.raises(IntegrityError, match="^Map dataset validation failed: ") as failure:
+        load_map_dataset(tmp_path, ref)
+    assert f"Value error, {reason} [" in str(failure.value)
+    assert reason in caplog.text and "Map dataset loading failed" in caplog.text

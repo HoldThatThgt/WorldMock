@@ -332,6 +332,19 @@ async def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state()
         await person.dispatch_react_tool("memory_step_range", {"start_step": 0, "end_step": 1, "limit": 1})
 
 
+@pytest.mark.asyncio
+async def test_recall_dispatch_without_an_environment_fails_closed() -> None:
+    """回看由环境按冻结观察读出：人物还没有接上环境时，宿主本地校验通过的 recall_task_summary 在分派处明确失败（宿主内部
+    错误，不是人物可触发的业务情形），不虚构回看结果；回看不是世界请求，失败后本轮的世界请求名额仍在。"""
+    person = _prepared()
+    recall = {"task_name": _TASK}
+    assert person._env is None
+    assert person.validate_react_decisions([_decision("recall_task_summary", recall)], False) == ""
+    with pytest.raises(RuntimeError, match="Environment is not initialized"):
+        await person.dispatch_react_tool("recall_task_summary", recall)
+    assert person._life_action_count == 0
+
+
 def test_tool_messages_follow_memory_queries_only() -> None:
     """记忆查询结果只序列化一次写进 tool 消息，失败写 {"error": 原因}；世界请求登记不追加任何消息；缺调用身份即失败。"""
     person = _prepared()

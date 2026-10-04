@@ -12,6 +12,7 @@ supply），其余动词写的名称不是任何对象时是协议错误（NAME_
 from __future__ import annotations
 
 import copy
+import logging
 import os
 
 import pytest
@@ -37,6 +38,7 @@ from worldmock.life.basket import delivery_expected_at  # noqa: E402
 from worldmock.life.named_purchase import (PurchaseAsk, near_labels, resolve_named_rows,  # noqa: E402
                                            resolve_named_supply, supply_label)
 from worldmock.life.purchase_offers import landed_price  # noqa: E402
+from worldmock.life.purchase_offers import choose, offers, order_key  # noqa: E402
 from worldmock.life.readable import clock_phrase, money_phrase  # noqa: E402
 from worldmock.life.storefront_state import current_quote  # noqa: E402
 from worldmock.life.tool_layer import LayerContext  # noqa: E402
@@ -266,6 +268,33 @@ def test_a_store_whose_price_is_unknown_is_never_the_cheapest(engine_factory) ->
     _, result = _round(engine, "cheapest-known", _obtain(_MILK, prefer="到手价最低"))
     assert (result.status, result.error_code) == ("completed", None)
     assert [order["supply_id"] for order in result.data["orders"]] == [ranked[1].supply_id]
+
+
+@pytest.mark.parametrize("prefer", ["最快", "fastest", None])
+def test_a_preference_outside_the_declared_pair_is_refused_and_no_store_is_chosen(engine_factory, caplog,
+                                                                                 prefer) -> None:
+    """请求级偏好只有「最快拿到」「到手价最低」两个取值（3.5「收敛」第 5 条，请求模型的闭集）：几家都能送到家的纯牛奶要按
+    偏好选定一家时，闭集之外的偏好（旧写法、英文或 null）不按缺省的最快处理——指名购买的解析以 ValueError 明确失败并写英文
+    日志，不选定任何一家；排序键与选定函数直接调用同样拒绝，闭集内的两个取值照常给出各自的键。"""
+    engine = engine_factory()
+    _stage_open(engine)
+    stage_day_plan(engine)
+    layer = _layer_context(engine)
+    way, served = offers(layer, _milk(engine), "远程下单", "home")
+    assert way == "远程下单" and len(served) >= 2
+    message = "purchase preference must be 最快拿到 or 到手价最低"
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(ValueError, match=message):
+            resolve_named_supply(layer, PurchaseAsk(_MILK, "远程下单", None, "home", prefer=prefer))
+    assert "Purchase preference is outside the declared set" in caplog.text
+    for refused in (lambda: order_key(served[0], prefer), lambda: choose(served, prefer)):
+        with pytest.raises(ValueError, match=message):
+            refused()
+    first = served[0]
+    tail = (first.price, first.supply.location_id, first.supply.supply_id)
+    assert order_key(first, "到手价最低") == tail and order_key(first, "最快拿到") == (first.speed, *tail)
+    chosen = resolve_named_supply(layer, PurchaseAsk(_MILK, "远程下单", None, "home", prefer="最快拿到"))
+    assert chosen["object_id"] == choose(served, "最快拿到").supply.supply_id
 
 
 def test_full_label_with_another_store_in_from_is_a_source_mismatch(engine_factory) -> None:

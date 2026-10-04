@@ -484,6 +484,27 @@ def test_product_use_cannot_require_a_location_outside_the_selected_world():
         RuntimeScenario.model_validate(payload)
 
 
+def test_runtime_view_rejects_inverted_product_price_bounds_and_admits_a_fixed_price(caplog) -> None:
+    """运行视图里商品的进价上下界不得倒置：正式场景导出的运行视图把一个商品的下界改成比上界高一分后不能重建，唯一的
+    校验错误落在该商品上，英文原因写明上下界须有序并留下错误日志；上下界相同的固定价商品照常成立。"""
+    from worldmock.life.scenario import ProductConfig
+
+    runtime, _ = load_scenario(_FORMAL)
+    payload = runtime.model_dump(mode="json")
+    index, product = next((index, item) for index, item in enumerate(payload["products"])
+                          if item["purchase_price_fen_min"] < item["purchase_price_fen_max"])
+    upper = product["purchase_price_fen_max"]
+    fixed = ProductConfig.model_validate({**product, "purchase_price_fen_min": upper})
+    assert (fixed.purchase_price_fen_min, fixed.purchase_price_fen_max) == (upper, upper)
+    assert "Product purchase price bounds are inverted" not in caplog.text
+    product["purchase_price_fen_min"] = upper + 1
+    with pytest.raises(ValidationError) as failure:
+        RuntimeScenario.model_validate(payload)
+    assert [(error["loc"], error["msg"]) for error in failure.value.errors()] == [
+        (("products", index), "Value error, product purchase price bounds must be ordered")]
+    assert "Product purchase price bounds are inverted" in caplog.text
+
+
 # 修订合同：人物、联系人、日历、独立地图与正餐供给。
 _V2_SCENARIOS = (
     _FORMAL,
