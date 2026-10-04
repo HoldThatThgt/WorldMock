@@ -122,13 +122,13 @@ def test_the_boundary_decision_segment_reads_no_message_while_asleep(engine_fact
         origin_request_event_id="evt")
     body = state.agents[1].body
 
-    asleep, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+    asleep, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
 
     assert "m-sleep" not in asleep.agents[1].read_inbox_ids and not rhythms[1].offered
     assert asleep.agents[1].body.social_need == body.social_need
     assert asleep.agents[1].body.mood_valence == body.mood_valence
     del state.activities["asleep"]
-    awake, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+    awake, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert "m-sleep" in awake.agents[1].read_inbox_ids and "message_arrival" in rhythms[1].wake_reasons
 
 

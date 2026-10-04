@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import context, stage_day_plan, start_request
@@ -32,7 +34,9 @@ def _deny_travel_at_home(engine) -> None:
     home = menus["home"]
     menus["home"] = home.model_copy(update={"allowed_actions": tuple(
         action for action in home.allowed_actions if action != "travel_to")})
-    engine.context.scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
 
 
 def test_observation_exposes_semantic_choices_and_keeps_bindings_private(engine_factory):

@@ -201,6 +201,7 @@
     "spec": "docs/dev/SPEC-layering-and-test-tiers.md#layering-consistency",
     "tests": [
       "tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current",
+      "tests/test_design_doc_build.py::test_check_command_detects_source_changes_and_missing_output",
       "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve",
       "tests/test_layering_acceptance.py::test_layering_implementation_ledger_is_bidirectional"
     ],

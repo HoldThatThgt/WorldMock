@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -623,7 +624,7 @@ def test_schedule_sections_reject_each_invalid_shape(engine_factory) -> None:
                     "undeclared employer account")
     _assert_invalid(_replace(("payrolls", 0, "agent_id"), 99),
                     "unknown agent")
-    source = engine_factory().scenario.supplies[0].source.model_dump(mode="json")
+    source = engine_factory().context.scenario.supplies[0].source.model_dump(mode="json")
     payload = _payload()
     payload["price_changes"] = [{"change_id": "change-x", "supply_id": "supply-ghost",
                                  "price_version": "new-version", "source": source, "amount_fen": 100,
@@ -687,7 +688,7 @@ def test_parse_scenario_document_rejects_missing_invalid_and_mismatched(tmp_path
 
 def _rhythm_inputs(engine, staged, interval: int = 3600):
     """以引擎事实装配节律输入。"""
-    return rhythm.engine.context_rhythm_inputs(engine, staged, interval)
+    return rhythm.engine_rhythm_inputs(engine.context, staged, interval)
 
 
 def _consume_activity(engine, use_mode: str, activity_id: str = "activity-meal"):
@@ -802,7 +803,10 @@ def test_activity_summary_foods_row_requires_products(engine_factory) -> None:
     engine = engine_factory()
     summary = engine.observations._activity_summary(engine.context.state.agents[1])
     assert "foods" in summary
-    engine.context.scenario = engine.context.scenario.model_copy(update={"products": (), "supplies": ()})
+    scenario = engine.context.scenario.model_copy(update={"products": (), "supplies": ()})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
+    engine.context.rules.supplies = {}
     assert "foods" not in engine.observations._activity_summary(engine.context.state.agents[1])
 
 
@@ -1522,11 +1526,11 @@ def test_dedupe_and_material_and_visibility_helpers_guard_shapes(engine_factory)
     """字幕去重/材料登记/浏览可见对缺失与畸形数据失败关闭。"""
     engine = engine_factory()
     activity = _activity_state(kind=ActivityKind.WATCH)
-    _dedupe_revealed_cues(activity)  # 无 revealed 数据：直接返回
+    dedupe_revealed_cues(activity)  # 无 revealed 数据：直接返回
     activity.data["revealed"] = {"position_before_seconds": "not-a-number", "cues": []}
-    _dedupe_revealed_cues(activity)  # 形畸形：直接返回
+    dedupe_revealed_cues(activity)  # 形畸形：直接返回
     agent = engine.context.state.agents[1]
-    unchanged = _record_material_reveal(agent, "", {"start_char": 0, "end_char": 10}, 0)
+    unchanged = record_material_reveal(agent, "", {"start_char": 0, "end_char": 10}, 0)
     assert unchanged is agent
     phrase = _activity_progress_phrase(_activity_state(elapsed_seconds=60,
                                                        planned_duration_seconds=120))

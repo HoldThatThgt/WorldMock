@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -139,8 +140,10 @@ def test_routes_carry_effort_and_only_reachable_routes_are_listed_at_zero_energy
     unknown = next(item for item in engine.context.scenario.routes if item.origin_id == "market")
     blocked = unknown.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
                                          "fare_fen": None, "reason": "no_route_record"})
-    engine.context.scenario = engine.context.scenario.model_copy(update={"routes": tuple(
+    scenario = engine.context.scenario.model_copy(update={"routes": tuple(
         blocked if item.route_id == unknown.route_id else item for item in engine.context.scenario.routes)})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
     observed = engine.observations._observation_data(engine.context.state.agents[1])
     places = [row for row in observed["interaction_bindings"] if row["kind"] == "location"]
     assert places

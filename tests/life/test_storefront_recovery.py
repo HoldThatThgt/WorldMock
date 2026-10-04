@@ -207,10 +207,10 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
     selected = next(item for item in observed["supplies"] if item["supply_id"] == SUPPLY)
     assert selected["price_fen"] == 700 and selected["current_stock"] == 17
     assert selected["quote"]["source"] == _price_source()
-    frozen = next(item for item in original.scenario.supplies if item.supply_id == SUPPLY)
+    frozen = next(item for item in original.context.scenario.supplies if item.supply_id == SUPPLY)
     assert frozen.quotes[0].price_fen != selected["price_fen"]
     expected = _business_state(original)
-    run_dir = original.store.run_dir
+    run_dir = original.context.store.run_dir
     original.close()
     stored = FootprintStore(run_dir)
     assert stored.state["supply_quotes"][SUPPLY]["price_fen"] == 700

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import shutil
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -268,7 +269,9 @@ def _deny(engine: LifeEngine, *actions: str) -> None:
     home = menus["home"]
     menus["home"] = home.model_copy(update={"allowed_actions": tuple(
         action for action in home.allowed_actions if action not in actions)})
-    engine.context.scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
 
 
 def test_the_interaction_menu_decides_what_can_be_done_here(engine_factory) -> None:

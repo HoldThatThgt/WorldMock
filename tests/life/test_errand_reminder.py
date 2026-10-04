@@ -414,7 +414,7 @@ def test_open_errands_change_neither_the_reconsideration_interval_nor_the_closin
     assert reminders.boundary_candidates(engine.context.state, zone) == [moment(engine, "2026-01-06 00:00")]
     state = engine.context.state.model_copy(deep=True)
     state.agents[1].last_decision_time = noted - 600
-    _, verdicts = apply_decision_rhythm(replace(engine.context_rhythm_inputs(engine, state), interval_seconds=0))
+    _, verdicts = apply_decision_rhythm(replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0))
     assert "reconsideration_interval" not in verdicts[1].wake_reasons
     assert advance_until_ready(engine) and engine.context.state.current_time == noted + 1200
     assert engine.context.state.agents[1].pending_wake_reasons == ["reconsideration_interval"]
@@ -425,10 +425,10 @@ def test_open_errands_change_neither_the_reconsideration_interval_nor_the_closin
     person.location_id, person.last_decision_time = task.required_location_id, state.current_time
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(zone))
     state.opening_exceptions[person.location_id][local.date().isoformat()] = [(0, local.hour * 60 + local.minute + 10)]
-    _, verdicts = apply_decision_rhythm(replace(engine.context_rhythm_inputs(engine, state), interval_seconds=0))
+    _, verdicts = apply_decision_rhythm(replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0))
     assert person.errands and not {"commitment_threatened", "location_hours_change"} & set(verdicts[1].wake_reasons)
     person.visible_task_ids = person.known_task_ids = {task.task_id}
-    _, verdicts = apply_decision_rhythm(replace(engine.context_rhythm_inputs(engine, state), interval_seconds=0))
+    _, verdicts = apply_decision_rhythm(replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0))
     assert {"commitment_threatened", "location_hours_change"} <= set(verdicts[1].wake_reasons)
 
 

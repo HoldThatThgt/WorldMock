@@ -302,7 +302,10 @@ def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path)
         first = next(game for game in engine.context.scenario.games if game.game_id == shown[0])
         renamed = tuple(game.model_copy(update={"title": first.title}) if game.game_id == shown[1] else game
                         for game in engine.context.scenario.games)
-        engine.context.scenario = engine.context.scenario.model_copy(update={"games": renamed})
+        scenario = engine.context.scenario.model_copy(update={"games": renamed})
+        engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+        engine.context.rules.scenario = scenario
+        engine.context.rules.games = {game.game_id: game for game in scenario.games}
         with pytest.raises(ValueError, match="interactive object labels must be unique"):
             engine.observe(context(engine, "repeated-names"))
     finally:
@@ -615,8 +618,8 @@ def _without_routes(engine: LifeEngine, origin: str, destination: str) -> None:
         "fare_fen": None, "reason": "NoRoute"}) if (route.origin_id, route.destination_id) == (origin, destination)
         else route for route in engine.context.scenario.routes)
     scenario = engine.context.scenario.model_copy(update={"routes": routes})
-    engine.context.scenario = scenario
     engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
 
 
 def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them(engine_factory) -> None:

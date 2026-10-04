@@ -134,7 +134,7 @@ def _settlement_rhythm(engine, monkeypatch, verdict):
         monkeypatch.setattr(rhythm.rhythm_schedule, "evaluate_wake_reasons", lambda snapshot: verdict)
     now = engine.context.state.current_time
     settlement = {"kind": "body_settlement", "interval_start": now, "interval_end": now, "activity_ids": []}
-    rhythm.apply_decision_rhythm(rhythm.engine.context_rhythm_inputs(engine, engine.context.state, progress_data={1: [settlement]}))
+    rhythm.apply_decision_rhythm(rhythm.engine_rhythm_inputs(engine.context, engine.context.state, progress_data={1: [settlement]}))
     return settlement
 
 

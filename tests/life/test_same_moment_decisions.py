@@ -493,10 +493,10 @@ def test_idle_interval_only_while_waiting_without_commitments(tmp_path) -> None:
         assert engine.context.state.agents[1].next_decision_at == start + 1200
         state = engine.context.state.model_copy(deep=True)
         state.agents[1].last_decision_time = start - 600
-        _, verdicts = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+        _, verdicts = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
         assert "reconsideration_interval" not in verdicts[1].wake_reasons
         state.agents[1].visible_task_ids = {engine.context.scenario.tasks[0].task_id}
-        _, verdicts = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+        _, verdicts = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
         assert "reconsideration_interval" in verdicts[1].wake_reasons
     finally:
         engine.close()
@@ -522,7 +522,7 @@ def test_game_start_follows_decision_rhythm(tmp_path) -> None:
         played = _act(engine, "game-rhythm-play", "start_activity", start_activity(label, target))
         agent = engine.context.state.agents[1]
         rhythm = next_decision_candidates(agent.model_copy(update={"last_decision_time": now}),
-                                          engine.context_rhythm_inputs(engine, engine.context.state))
+                                          engine_rhythm_inputs(engine.context, engine.context.state))
         assert played.status == "in_progress" and agent.next_decision_at == rhythm == now + 600
         assert engine.context.state.activities[played.activity_id].planned_end_at > now + 1800
         assert advance_until_ready(engine) and engine.context.state.current_time == now + 600

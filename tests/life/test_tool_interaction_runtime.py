@@ -230,7 +230,7 @@ def test_appointment_wakes_only_at_real_opening_and_never_wakes_sleep(engine_fac
     state = engine.context.state.model_copy(update={"current_time": mail.due_at}, deep=True)
     state = apply_scheduled_effect(state, mail, engine.context.semantics).state
     state.agents[1].last_decision_time = mail.due_at
-    inputs = rhythm.engine.context_rhythm_inputs(engine, state, arrival_flags={1: {'message_arrival'}})
+    inputs = rhythm.engine_rhythm_inputs(engine.context, state, arrival_flags={1: {'message_arrival'}})
     facts = {"task": set(), "closing": set()}
     snapshot = rhythm._wake_snapshot(state.agents[1], inputs, facts, set())
     reasons = evaluate_wake_reasons(snapshot).wake_reasons
@@ -240,7 +240,7 @@ def test_appointment_wakes_only_at_real_opening_and_never_wakes_sleep(engine_fac
                    and row.data["task_id"] == task.task_id)
     state.current_time = opening.due_at
     state = apply_scheduled_effect(state, opening, engine.context.semantics).state
-    inputs = rhythm.engine.context_rhythm_inputs(engine, state, arrival_flags={1: {'task_available'}})
+    inputs = rhythm.engine_rhythm_inputs(engine.context, state, arrival_flags={1: {'task_available'}})
     snapshot = rhythm._wake_snapshot(state.agents[1], inputs, facts, set())
     assert WakeReason.TASK_AVAILABLE in evaluate_wake_reasons(snapshot).wake_reasons
     assert WakeReason.TASK_AVAILABLE not in evaluate_wake_reasons(snapshot.model_copy(update={"is_asleep": True})).wake_reasons

@@ -416,9 +416,9 @@ def test_an_unknown_source_near_a_place_without_supplies_never_offers_that_place
     一处没有任何供给的地点（住处、办公室、健身房、公园）相近的写法「<地点>旁」，宿主放行、环境以 SOURCE_NOT_FOUND
     拒绝，一至三条候选只换 from，来源都是有供给的门店的显示名，那处地点不在其中；不下单。每处地点各用一个引擎。"""
     probe = _world(engine_factory)
-    stores = {supply.location_id for supply in probe.scenario.supplies}
-    selling = {item.name for item in probe.scenario.locations if item.location_id in stores}
-    bare = [item for item in probe.scenario.locations if item.location_id not in stores]
+    stores = {supply.location_id for supply in probe.context.scenario.supplies}
+    selling = {item.name for item in probe.context.scenario.locations if item.location_id in stores}
+    bare = [item for item in probe.context.scenario.locations if item.location_id not in stores]
     assert {"home", "office", _PARK} <= {item.location_id for item in bare}
     for index, location in enumerate(bare):
         engine = probe if index == 0 else _world(engine_factory)

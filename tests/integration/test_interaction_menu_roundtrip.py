@@ -8,6 +8,7 @@ import copy
 import json
 import os
 from contextlib import nullcontext
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -97,7 +98,9 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     office = menus["office"]
     menus["office"] = office.model_copy(update={"allowed_actions": tuple(
         action for action in office.allowed_actions if action != "work")})
-    engine.context.scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
     environment = LifeEnv()
     environment.engine = engine
 

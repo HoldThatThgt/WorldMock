@@ -1170,7 +1170,9 @@ def _profiled_engine(engine_factory):
     agents = tuple(item.model_copy(
         update={"motivation": _profile()} if item.agent_id == 1 else {"motivation": None})
         for item in engine.context.scenario.agents)
-    engine.context.scenario = engine.context.scenario.model_copy(update={"agents": agents}, deep=True)
+    scenario = engine.context.scenario.model_copy(update={"agents": agents}, deep=True)
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
     return engine
 
 
@@ -1223,7 +1225,9 @@ class TestEngineInjection:
         # 真实场景现已携带编译档案；本测试显式剥离以验证“无档案”分支。
         agents = tuple(item.model_copy(update={"motivation": None})
                        for item in engine.context.scenario.agents)
-        engine.context.scenario = engine.context.scenario.model_copy(update={"agents": agents}, deep=True)
+        scenario = engine.context.scenario.model_copy(update={"agents": agents}, deep=True)
+        engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+        engine.context.rules.scenario = scenario
         data = engine.observe(round_context(engine, "r-plain", agent_id=1))
         assert "motivation_internal" not in data
 
@@ -1290,7 +1294,10 @@ class TestMarketSummary:
 
     def test_no_store_scenario_omits_summary(self, engine_factory):
         engine = engine_factory()
-        engine.context.scenario = engine.context.scenario.model_copy(update={"supplies": ()})
+        scenario = engine.context.scenario.model_copy(update={"supplies": ()})
+        engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+        engine.context.rules.scenario = scenario
+        engine.context.rules.supplies = {}
         data = engine.observe(round_context(engine, "r-mkt-none", agent_id=1))
         assert "market_summary" not in data
 

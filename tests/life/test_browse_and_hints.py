@@ -47,7 +47,6 @@ def _rescenario(engine: LifeEngine, routes=None, supplies=None) -> None:
     """换掉引擎、语义层与规则共用的运行时场景中的路线或供给（同一份场景对象，三处读到的一致）。"""
     update = {key: value for key, value in (("routes", routes), ("supplies", supplies)) if value is not None}
     scenario = engine.context.scenario.model_copy(update=update)
-    engine.context.scenario = scenario
     engine.context.semantics = dataclasses.replace(engine.context.semantics, scenario=scenario)
     engine.context.rules.scenario = scenario
     engine.context.rules.supplies = {item.supply_id: item for item in scenario.supplies}

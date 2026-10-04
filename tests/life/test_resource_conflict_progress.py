@@ -63,12 +63,12 @@ def test_boundary_never_yields_rejection_feedback(engine_factory) -> None:
         "body_settled_at": state.current_time,
         "consecutive_rejections": 1,
     }, deep=True)
-    _, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+    _, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert "rejection_feedback" not in rhythms[1].wake_reasons
 
     due = state.model_copy(deep=True)
     due.current_time = state.agents[1].next_decision_at
     due.agents[1].body_settled_at = due.current_time
-    _, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, due))
+    _, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, due))
     assert "rejection_feedback" not in rhythms[1].wake_reasons
     assert "no_active_activity" in rhythms[1].wake_reasons

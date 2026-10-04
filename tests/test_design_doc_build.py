@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import sys
 import re
 
@@ -184,6 +186,36 @@ def test_repository_chapters_assemble_deterministically_and_the_committed_html_i
                  "revise_day_plan", "submit_work", "send_message", "memory_recent"):
         assert f"<code>{tool}</code>" in appendix
     assert builder.check_current(document) == []
+
+
+@pytest.mark.parametrize("output_state", ("current", "outdated", "missing"))
+def test_check_command_detects_source_changes_and_missing_output(tmp_path, output_state):
+    """@brief 真实命令只接受当前汇编，源正文变化与输出缺失均失败，检查过程不改写输出。"""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "build_design_doc.py"
+    shutil.copyfile(REPO_ROOT / "scripts" / script.name, script)
+    design = tmp_path / "docs" / "design"
+    design.mkdir(parents=True)
+    for chapter in (REPO_ROOT / "docs" / "design").glob("*.md"):
+        shutil.copyfile(chapter, design / chapter.name)
+    shutil.copyfile(REPO_ROOT / "docs" / "CONTRACTS.md", design.parent / "CONTRACTS.md")
+    command = [sys.executable, str(script)]
+    subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, check=True, timeout=30)
+    assembled = design / "worldmock-design.html"
+    original = assembled.read_bytes()
+    if output_state == "outdated":
+        chapter = design / "00-overview.md"
+        chapter.write_text(chapter.read_text(encoding="utf-8") + "\n源正文变化导致重新汇编内容不同。\n",
+                           encoding="utf-8")
+    elif output_state == "missing":
+        assembled.unlink()
+    result = subprocess.run(command + ["--check"], cwd=tmp_path, capture_output=True,
+                            text=True, check=False, timeout=30)
+    assert (result.returncode == 0) is (output_state == "current"), result.stdout + result.stderr
+    assert assembled.exists() is (output_state != "missing")
+    if assembled.exists():
+        assert assembled.read_bytes() == original
 
 
 def test_explicit_section_survives_heading_rename_without_visible_markup():

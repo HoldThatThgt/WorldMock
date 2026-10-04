@@ -136,7 +136,7 @@ def test_sleep_accepts_only_existing_sleep_reasons():
 
 
 def test_scenario_rejects_idle_interval_shorter_than_regular(engine_factory):
-    document = engine_factory().semantics.document.model_dump(mode="json")
+    document = engine_factory().context.semantics.document.model_dump(mode="json")
     assert LifeScenario.model_validate(document).idle_reconsideration_interval_seconds == 10800
     document["idle_reconsideration_interval_seconds"] = document["reconsideration_interval_seconds"] - 1
     with pytest.raises(ValidationError, match="must not be shorter"):
@@ -148,7 +148,7 @@ def test_commitments_exclude_messages_history_and_completed_activities(engine_fa
     state = engine.context.state.model_copy(deep=True)
     now = state.current_time
     agent = state.agents[1].model_copy(update={"visible_task_ids": set(), "day_plan": None})
-    inputs = engine.context_rhythm_inputs(engine, state)
+    inputs = engine_rhythm_inputs(engine.context, state)
     assert not _has_commitments(agent, inputs)
     pending = DayPlan(day_end=now + 1000, goals=[goal("工作", registered=now)])
     assert _has_commitments(agent.model_copy(update={"day_plan": pending}), inputs)
@@ -191,10 +191,10 @@ def test_unread_inbox_message_yields_message_arrival_then_is_marked_read(engine_
     message = Message(message_id="message-unread", kind="direct", sender_id="agent:2", recipient_id="agent:1",
                       text="到家了吗", created_at=state.current_time)
     state.agents[1].inbox = {message.message_id: message}
-    changed, rhythms = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+    changed, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert "message_arrival" in rhythms[1].wake_reasons
     assert "message-unread" in changed.agents[1].read_inbox_ids
-    _, again = apply_decision_rhythm(engine.context_rhythm_inputs(engine, changed))
+    _, again = apply_decision_rhythm(engine_rhythm_inputs(engine.context, changed))
     assert "message_arrival" not in again[1].wake_reasons
 
 
@@ -211,10 +211,10 @@ def test_game_turn_due_offers_decision_on_an_otherwise_silent_boundary(engine_fa
                          planned_duration_seconds=3600, next_interaction_at=now + 600,
                          origin_action_id="act", origin_decision_id="dec", origin_request_event_id="evt")
     state.activities["game"] = game
-    _, quiet = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+    _, quiet = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert not quiet[1].offered and quiet[1].wake_reasons == []
     state.activities["game"] = game.model_copy(update={"next_interaction_at": now})
-    changed, due = apply_decision_rhythm(engine.context_rhythm_inputs(engine, state))
+    changed, due = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert due[1].offered and due[1].wake_reasons == [] and changed.agents[1].next_decision_at == now
 
 
@@ -408,7 +408,7 @@ def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory)
 def _warning_step(engine, state, **changes):
     """用引擎实际装配输入测试同一边界的威胁状态转换，不重复结算身体。"""
     from worldmock.life.rhythm import apply_decision_rhythm
-    inputs = replace(engine.context_rhythm_inputs(engine, state), interval_seconds=0, **changes)
+    inputs = replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0, **changes)
     changed, verdicts = apply_decision_rhythm(inputs)
     return changed, verdicts[1].wake_reasons
 
@@ -518,7 +518,7 @@ def _assert_rhythm_scheduled(engine) -> None:
     agent, now = engine.context.state.agents[1], engine.context.state.current_time
     assert agent.pending_wake_reasons == [] and agent.next_decision_at > now + 1
     assert agent.next_decision_at == next_decision_candidates(
-        agent.model_copy(update={"last_decision_time": now}), engine.context_rhythm_inputs(engine, engine.context.state))
+        agent.model_copy(update={"last_decision_time": now}), engine_rhythm_inputs(engine.context, engine.context.state))
 
 
 def _start_browse(engine, name: str) -> tuple[dict, str]:
@@ -671,7 +671,7 @@ def test_scenario_progress_report_interval_default(engine_factory):
     """场景参数 progress_report_interval_seconds 缺省 1800。"""
     from worldmock.life.scenario import LifeScenario
 
-    document = engine_factory().semantics.document.model_dump(mode="json")
+    document = engine_factory().context.semantics.document.model_dump(mode="json")
     assert LifeScenario.model_validate(document).progress_report_interval_seconds == 1800
 
 
@@ -681,7 +681,7 @@ def test_scenario_rejects_non_positive_progress_report_interval(engine_factory, 
     from pydantic import ValidationError
     from worldmock.life.scenario import LifeScenario
 
-    document = engine_factory().semantics.document.model_dump(mode="json")
+    document = engine_factory().context.semantics.document.model_dump(mode="json")
     document["progress_report_interval_seconds"] = value
     with pytest.raises(ValidationError):
         LifeScenario.model_validate(document)

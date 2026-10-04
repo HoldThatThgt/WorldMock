@@ -273,7 +273,7 @@ def test_delivery_is_unavailable_here_without_destination_or_route(engine_factor
     scenario = engine.context.scenario.model_copy(update={"routes": tuple(
         blocked if item.route_id == route.route_id else item for item in engine.context.scenario.routes)})
     engine.context.semantics = dataclasses.replace(engine.context.semantics, scenario=scenario)
-    engine.context.scenario = scenario
+    engine.context.rules.scenario = scenario
     assert delivery_expected_at(engine.context.semantics, supply, "home", now) is None
     stage_day_plan(engine)
     _stage(engine, "home", 1500)

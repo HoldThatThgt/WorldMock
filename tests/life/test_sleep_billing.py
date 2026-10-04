@@ -286,11 +286,11 @@ def test_ledger_without_a_draft_falls_back_to_activities_ending_now(engine_facto
     staged.agents[1] = staged.agents[1].model_copy(update={"body": staged.agents[1].body.model_copy(
         update={"social_need": 0.2})}, deep=True)
 
-    settled = rhythm.settle_decision_rhythm(rhythm.engine.context_rhythm_inputs(engine, staged, 900))
+    settled = rhythm.settle_decision_rhythm(rhythm.engine_rhythm_inputs(engine.context, staged, 900))
 
     assert settled.agents[1].body.social_need - 0.2 == pytest.approx(0.0 if asleep else SOCIAL_NEED_AWAKE_RATE * 0.25)
     assert rhythm._woke_from_sleep(staged, 1, now) is (status == ActivityStatus.COMPLETED and ended == 0)
     for listed, expected in ((["sleep-fallback"], 0.0), ([], SOCIAL_NEED_AWAKE_RATE * 0.25)):
         draft = {1: [{"kind": "body_settlement", "activity_ids": listed}]}
-        inputs = rhythm.engine.context_rhythm_inputs(engine, staged, 900, progress_data=draft)
+        inputs = rhythm.engine_rhythm_inputs(engine.context, staged, 900, progress_data=draft)
         assert rhythm.settle_decision_rhythm(inputs).agents[1].body.social_need - 0.2 == pytest.approx(expected)
