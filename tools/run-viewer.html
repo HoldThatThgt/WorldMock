@@ -420,16 +420,27 @@ function targetLabel(t, title){
   return recordedName(S.nameIdx?.targets, s);
 }
 
-/** @brief 事务名称只取记录所写（事件 seq 的事务快照），写成「名称」；记录里没有有效名称时显式报告并输出英文
- *  错误日志，事务内部身份不作替代显示。 */
+/* 个人事务没有有效名称时的缺失提示：事务内部身份不进时间线，括号里写对象种类而不写编号 */
+const ERRAND_NAME_MISSING = '名称缺失（个人事务）';
+
+/** @brief 事务快照里的有效名称：非空且不同于事务内部身份才有效，否则为 null。身份只用于这一次比较，不留在索引里。 */
+function errandName(name, id){
+  return typeof name==='string' && name.trim() && name.trim()!==String(id??'') ? name : null;
+}
+
+/** @brief 同一缺失只输出一次英文错误日志（key 区分缺失的对象，更换数据库时随缺失记录清空）。 */
+function reportMissing(key, ...message){
+  if (S.missingNames.has(key)) return;
+  console.error(...message);
+  S.missingNames.add(key);
+}
+
+/** @brief 事务名称只取记录所写（事件 seq 的事务快照，经 errandName 判定有效），写成「名称」；记录里没有有效名称时显示
+ *  缺失提示并输出英文错误日志，事务内部身份不作替代显示。 */
 function errandLabel(name, seq){
-  if (typeof name==='string' && name.trim()) return `「${name}」`;
-  const key = `errand-name@event:${seq}`;
-  if (!S.missingNames.has(key)){
-    console.error('Missing recorded errand name at event', seq);
-    S.missingNames.add(key);
-  }
-  return '名称缺失（个人事务）';
+  if (typeof name==='string') return `「${name}」`;
+  reportMissing(`errand-name@event:${seq}`, 'Missing recorded errand name at event', seq);
+  return ERRAND_NAME_MISSING;
 }
 
 /** @brief 个人事务事件的事务名称与商品：都取自事件载荷的事务快照，商品按名称索引显示（缺名照缺失提示），
@@ -452,11 +463,16 @@ function buildReminders(){
 }
 
 /** @brief 唤醒原因 errand_reminder_due 所指事务的名称：同一人物在同一时刻、排在该决策之前交付的事务提醒事件
- *  快照里的名称，按交付顺序逐个写出；记录里没有对应的提醒事件时只留原因说法并输出英文错误日志。 */
+ *  快照里的名称，按交付顺序逐个写出；记录里没有对应的提醒事件时在原因说法之后显示缺失提示并输出英文错误日志。
+ *  缺失提示与原因说法之间空一格，名称直接相连。 */
 function remindedErrands(e){
   const rows = (S.reminded.get(`${e.agent}@${e.t}`)||[]).filter(row=>row.seq<e.seq);
-  if (!rows.length) console.error('Missing errand reminder record for wake reason at event', e.seq);
-  return rows.map(row=>errandLabel(row.name, row.seq)).join('');
+  if (!rows.length){
+    reportMissing(`errand-reminder@event:${e.seq}`, 'Missing errand reminder record for wake reason at event', e.seq);
+    return ` ${ERRAND_NAME_MISSING}`;
+  }
+  return rows.map(row=>errandLabel(row.name, row.seq))
+    .map(label=>label===ERRAND_NAME_MISSING? ` ${label}` : label).join('');
 }
 
 /* ---------- 查询封装 ---------- */
@@ -510,15 +526,26 @@ function buildNameIndex(){
     json_extract(body,'$.data.activity.title') AS label FROM events
     WHERE json_extract(body,'$.event_type') IN ('action_accepted','activity_progress')
     ORDER BY event_seq`), targets);
-  const bindings = q(`SELECT json_extract(item.value,'$.object_id') AS id,
+  supplementNames(q(`SELECT json_extract(item.value,'$.object_id') AS id,
     json_extract(item.value,'$.object') AS label
     FROM events e, json_each(e.body,'$.data.interaction_bindings') item
-    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`);
-  for (const row of bindings){
-    if (row.id && typeof row.label==='string' && row.label.trim() && row.label!==row.id
-        && !targets.has(row.id)) targets.set(row.id,row.label);
-  }
+    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`), targets);
+  /* 个人事务可以指目录里的任一商品，而 data.products 只列此刻看得到或持有的；每次观察的 errand_item_bindings 列全部
+     商品名到商品身份，按（商品，名称）归并后每种一行、按最早出现排列，不把逐次观察的全量行取回页面。 */
+  supplementNames(q(`SELECT json_extract(item.value,'$.product_id') AS id,
+    json_extract(item.value,'$.name') AS label
+    FROM events e, json_each(e.body,'$.data.errand_item_bindings') item
+    WHERE json_extract(e.body,'$.event_type')='observation'
+    GROUP BY id, label ORDER BY MIN(e.event_seq), id, label`), targets);
   S.nameIdx = {locations, targets};
+}
+
+/** @brief 只补缺的名称来源：对象已有名称时不动，没有时取最先记录的有效名称（非空且不同于对象编号）。 */
+function supplementNames(rows, names){
+  for (const row of rows){
+    if (row.id && typeof row.label==='string' && row.label.trim() && row.label.trim()!==row.id
+        && !names.has(row.id)) names.set(row.id, row.label);
+  }
 }
 
 /* ================================================================
@@ -609,10 +636,12 @@ function buildIndex(){
     S.summaries.set(r.seq,{cp:r['$.data.checkpoint_id']});
   });
   typeQuery('environment_event', ['$.data.kind','$.data.resource_changes','$.data.activity.name',
-                                  '$.data.day_plan.goals','$.data.errand.name','$.data.errand.product_id'], r=>{
+                                  '$.data.day_plan.goals','$.data.errand.name','$.data.errand.product_id',
+                                  '$.data.errand.errand_id'], r=>{
     S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.data.resource_changes'],
       aname:r['$.data.activity.name'],goals:r['$.data.day_plan.goals'],
-      errand:r['$.data.errand.name'],product:r['$.data.errand.product_id']});
+      errand:errandName(r['$.data.errand.name'], r['$.data.errand.errand_id']),
+      product:r['$.data.errand.product_id']});
   });
   typeQuery('run_ended', ['$.data.end_time','$.wall_elapsed_ms'], r=>{
     S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
@@ -662,14 +691,23 @@ function controlItems(tool, req){
   }));
 }
 
-/** @brief 控制工具请求里请求级的个人事务变更，与 worldmock.life.control_items.control_errands 同一规则的镜像：errands
- *  须是数组，每条须是带变更种类与名称的对象，缺了即报错；按请求顺序返回 [{change, name}]。 */
+/* 一条个人事务变更的八个键，与 worldmock.life.control_items 的 _ERRAND_KEYS 相同、同一顺序，全部必填 */
+const ERRAND_CHANGE_KEYS = ['change', 'name', 'outcome', 'item', 'quantity', 'memo', 'remind_time', 'reason'];
+
+/** @brief 控制工具请求里请求级的个人事务变更，worldmock.life.control_items.control_errands 的镜像，规则相同：errands 须是
+ *  数组，每条须是对象且八个键齐全（只查键在不在，不查值的类型），不符即报错；按请求顺序返回只含这八个键的对象，
+ *  值照请求所写。 */
 function controlErrands(req){
   if (!req || !Array.isArray(req.errands)) throw new Error('Activity control request requires errands');
   return req.errands.map(entry=>{
-    if (!entry || typeof entry.change!=='string' || typeof entry.name!=='string')
-      throw new Error('Activity control request errand change requires change and name');
-    return {change:entry.change, name:entry.name};
+    if (!entry || typeof entry!=='object' || Array.isArray(entry))
+      throw new Error('Activity control request errand change is not an object');
+    const change = {};
+    for (const key of ERRAND_CHANGE_KEYS){
+      if (!(key in entry)) throw new Error(`Activity control request errand change lacks ${key}`);
+      change[key] = entry[key];
+    }
+    return change;
   });
 }
 
