@@ -1,6 +1,6 @@
 # 个人事务与工作安排验收记录
 
-> 状态：**验收记录**。规格实施阶段 1–4 已全部合入，阶段 5 的全量门禁与两轮独立源码变异审查已完成：最终代码与测试提交 `a7e2fdc` 在干净检出上通过全量测试（5851 passed、7 skipped、0 failed）与覆盖率门禁（分支覆盖率 95.15%，未覆盖公共接口 0）；两轮独立源码变异审查共 230 个变异，115 个被既有测试杀死，115 个初次存活，其中 110 个判为真实缺口，全部补测并以原变异复验杀死，补测过程没有发现生产缺陷。证据层级：**离线测试**，本特性没有发起任何真实 DeepSeek 调用。阶段 6（配对全天复跑，只报告）未执行，strict 端点探针未运行；项目整体仍为 NOT-COMPLETE。阶段 7 的实现后文档、重新生成的覆盖率报告与本记录在 `a7e2fdc` 之后提交，实现状态文档最后单独提交。最终全量运行之后的实现后文档核对查出运行查看器有三处没有跟上两份查看器规格，其后由 `1346e0d` 与 `6c81126` 补齐（只改查看器、它的测试与夹具和文档，`code_sha256` 不变），以 `tests/tools/` 的 75 个 Node 用例核对，没有为此重跑全量测试，见「全量门禁之后补齐的查看器事务显示」。
+> 状态：**验收记录**。规格实施阶段 1–4 已全部合入，阶段 5 的全量门禁与两轮独立源码变异审查已完成：最终代码与测试提交 `a7e2fdc` 在干净检出上通过全量测试（5851 passed、7 skipped、0 failed）与覆盖率门禁（分支覆盖率 95.15%，未覆盖公共接口 0）；最终门禁其后在分支头 `964de50`（含两个运行查看器提交与全部实现后文档）的干净检出上重跑通过，数字相同（5851 passed、7 skipped、0 failed，分支覆盖率 95.15%，未覆盖公共接口 0），覆盖率报告由这次运行重新生成；两轮独立源码变异审查共 230 个变异，115 个被既有测试杀死，115 个初次存活，其中 110 个判为真实缺口，全部补测并以原变异复验杀死，补测过程没有发现生产缺陷。证据层级：**离线测试**，本特性没有发起任何真实 DeepSeek 调用。阶段 6（配对全天复跑，只报告）未执行，strict 端点探针未运行；项目整体仍为 NOT-COMPLETE。阶段 7 的实现后文档、`a7e2fdc` 上生成的覆盖率报告与本记录在 `a7e2fdc` 之后提交，实现状态文档最后单独提交。`a7e2fdc` 的全量运行之后的实现后文档核对查出运行查看器有三处没有跟上两份查看器规格，其后由 `1346e0d` 与 `6c81126` 补齐（只改查看器、它的测试与夹具和文档，`code_sha256` 不变），以 `tests/tools/` 的 75 个 Node 用例核对，并已包含在分支头 `964de50` 上的最终门禁运行之内，见「全量门禁之后补齐的查看器事务显示」。
 > 日期：2026-10-04
 > 依据：[个人事务与工作安排规格](SPEC-errands-workday.md)（FROZEN，版本表 1.0）的[验收台账](SPEC-errands-workday.md#验收台账)与[实施计划](SPEC-errands-workday.md#实施计划)；逐文档的同步作业、逐阶段的文件修改清单与被钉点见[实施台账](research/errands-workday-implementation-plan.md)。行为以规格为准，本记录只登记证据，不另定行为。
 
@@ -15,14 +15,15 @@
 
 | 身份 | 固定值 |
 | --- | --- |
-| 最终代码与测试提交 | `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2`（`a7e2fdc`）：为覆盖率门禁标出的 13 个公共接口补测试的提交（只改测试），是最终全量测试与覆盖率门禁的被测源码。生产代码自合并提交 `59b81a3` 起没有变化：`git diff 59b81a3 a7e2fdc` 在 `src/`、`custom/`、`scripts/`、`tools/`、`pyproject.toml`、`uv.lock` 上为空（写本记录时核对） |
+| 最终代码与测试提交 | `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2`（`a7e2fdc`）：为覆盖率门禁标出的 13 个公共接口补测试的提交（只改测试），是两个查看器提交之前最后一个改动与生产代码相关的测试的提交，也是第一次通过的全量测试与覆盖率门禁（「全量门禁与覆盖率」的「`a7e2fdc` 上的运行」）的被测源码；最终门禁的被测源码是分支头，见下一行。生产代码自合并提交 `59b81a3` 起没有变化：`git diff 59b81a3 a7e2fdc` 在 `src/`、`custom/`、`scripts/`、`tools/`、`pyproject.toml`、`uv.lock` 上为空（写本记录时核对） |
+| 最终门禁提交 | `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（`964de50`）：最终门禁运行时特性分支 `feat/errands-workday` 的分支头（其后的提交只记录这次运行并提交它生成的覆盖率报告），是最终全量测试与覆盖率门禁（「全量门禁与覆盖率」的「分支头上的最终运行」）的被测源码。`git log a7e2fdc..964de50` 共 7 个提交：实现后文档与 `a7e2fdc` 上生成的覆盖率报告 `8613139`、登记表阶段 7 标记 `6cb917d`、实现状态 `c77c044`、两个查看器提交 `1346e0d` 与 `6c81126`、查看器之后的文档 `d23ea5a` 与实现状态 `964de50`。`git diff a7e2fdc 964de50` 与 `git diff 59b81a3 964de50` 在 `src/`、`custom/`、`scripts/`、`pyproject.toml`、`uv.lock` 上都为空（补记本行时核对） |
 | 分支 | `feat/errands-workday`，自工具交互特性的提交 `3b4afe5` 起；`git log 3b4afe5..a7e2fdc` 共 49 个提交，其中 3 个合并提交（`9445691`、`cd33c96`、`59b81a3`） |
 | 冻结之前 | `eac4643`：规格 1.5 节所说的目录文档对齐，在冻结之前单独提交，不属任何阶段 |
 | 规格冻结 | `e9c3ce5`：规格 1.0 FROZEN，「裁决记录」二十二项全部取推荐，【冻】作业落地，变更集只含文档 |
 | AS2 | 锁定提交 `8768e14`，未改动；`AS2_LOCKED_SOURCE_SHA256` 为 `65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334`，与 `3b4afe5` 上的值相同。写本记录时本机 `vendor/agentsociety2` 子模块位于 `8768e14`，`worldmock.runtime.require_locked_as2()` 通过（228 个文件） |
 | `code_sha256` | `d0740e661d6f5226fdc7ae3b8fbc2ad43889d6a36c0ec5dc572e2c250a1fe455`：写本记录时在本机工作树上以 `worldmock.runtime.runtime_code_sha256` 计算；工作树的 `src/`、`custom/`、`pyproject.toml`、`uv.lock` 与 `a7e2fdc` 相同（`git status` 在这些路径上没有改动） |
-| 覆盖率快照 | `docs/dev/coverage-report.json`：`snapshot_id` 为 `b7136dcb-0be8-4241-9f48-3638cda20c5b`，`manifest_hash` 为 `0d9a62cc427c8a1a4bf8a69c345f8e1c06ecaae7af94278a751d31ee5fd2e471`，`source_identity` 为 `a7e2fdc` 的完整哈希，生成于 `2026-10-04T07:51:02+00:00`（写本记录时从报告文件读出） |
-| 全量门禁之后的查看器提交 | `1346e0d3798a1df8eedd63cb9330e50c370431e1`（`1346e0d`）与 `6c81126e8e5cb5a9251c7f8918e7d35a8c164ce7`（`6c81126`），排在实现后文档提交 `8613139`、登记表提交 `6cb917d` 与实现状态提交 `c77c044` 之后：只改 `tools/run-viewer.html`、`tools/run-viewer-context.js`、`tests/tools/` 的两个 Node 测试文件、夹具 `tests/fixtures/viewer-context.json` 与文档。`git diff a7e2fdc 6c81126` 在 `src/`、`custom/`、`scripts/`、`pyproject.toml`、`uv.lock` 上为空，在 `6c81126` 的工作树上重新计算的 `code_sha256` 仍是上面的值（补记本行时核对）。这两个提交不在最终全量测试与覆盖率门禁的被测源码之内，证据见「全量门禁之后补齐的查看器事务显示」 |
+| 覆盖率快照 | `docs/dev/coverage-report.json`：`snapshot_id` 为 `64abe7a3-eeaf-4eb6-beba-a35939d02131`，`manifest_hash` 为 `9522116978f83b6b7acc5018e95531a773e262c0f031a33b73461d63953ed8a7`，`source_identity` 为 `964de50` 的完整哈希，生成于 `2026-10-04T11:17:50+00:00`（补记本行时从报告文件读出）。它取代 `a7e2fdc` 上生成的报告（随 `8613139` 提交，留在 Git 历史里）：`snapshot_id` 为 `b7136dcb-0be8-4241-9f48-3638cda20c5b`，`manifest_hash` 为 `0d9a62cc427c8a1a4bf8a69c345f8e1c06ecaae7af94278a751d31ee5fd2e471`，`source_identity` 为 `a7e2fdc` 的完整哈希，生成于 `2026-10-04T07:51:02+00:00`（写本记录时从当时的报告文件读出） |
+| `a7e2fdc` 的全量门禁之后的查看器提交 | `1346e0d3798a1df8eedd63cb9330e50c370431e1`（`1346e0d`）与 `6c81126e8e5cb5a9251c7f8918e7d35a8c164ce7`（`6c81126`），排在实现后文档提交 `8613139`、登记表提交 `6cb917d` 与实现状态提交 `c77c044` 之后：只改 `tools/run-viewer.html`、`tools/run-viewer-context.js`、`tests/tools/` 的两个 Node 测试文件、夹具 `tests/fixtures/viewer-context.json` 与文档。`git diff a7e2fdc 6c81126` 在 `src/`、`custom/`、`scripts/`、`pyproject.toml`、`uv.lock` 上为空，在 `6c81126` 的工作树上重新计算的 `code_sha256` 仍是上面的值（补记本行时核对）。这两个提交不在 `a7e2fdc` 上那次全量测试与覆盖率门禁的被测源码之内，已包含在分支头 `964de50` 上的最终门禁运行之内，证据见「全量门禁之后补齐的查看器事务显示」 |
 | 数据集仓库 `WorldMock-Dataset` | 规格「数据集侧登记」各项由用户另开会话在数据集仓库处理，不属本记录；本仓库测试不读取数据集仓库 |
 
 ### 各阶段提交
@@ -82,7 +83,8 @@
   轨道 A 合入轨道 B（`9445691`）后在轨道 B 上完成指标、只读子命令、文档与收尾。阶段 2 余下的切片（指标与交付边界、收尾）同时在主线上完成。
 - **两次合并。** 阶段 4 先合入主线（`cd33c96`，父提交 `dca42a3` 与 `8ef5aab`），阶段 3 再合入（`59b81a3`，父提交 `cd33c96` 与 `83fab86`）。两次合并的冲突与合并后的测试见下节。
 - **阶段 5。** 第一轮独立源码变异审查在 `cd33c96`（阶段 1、2、4）上进行，第二轮在 `59b81a3`（阶段 3）上进行；两轮的补测 `04249f1`、`d8a41d3` 都提交在 `59b81a3` 之后。
-  全量测试与覆盖率门禁先在 `04249f1` 上预跑一次，门禁标出 13 个未覆盖公共接口，`a7e2fdc` 补测后在 `a7e2fdc` 上重跑通过。
+  全量测试与覆盖率门禁先在 `04249f1` 上预跑一次，门禁标出 13 个未覆盖公共接口，`a7e2fdc` 补测后在 `a7e2fdc` 上重跑通过；
+  实现后文档与两个查看器提交之后，最终门禁在分支头 `964de50` 上再跑一次并通过。
 
 测试层级（2026-10-03 与用户商定，自阶段 2 起使用）：
 
@@ -117,7 +119,7 @@
 
 - `deb4d4a` 一行只记录了各分片的退出码，没有记录通过数。
 - `ffa4ca1` 一行没有记录那个文件首次失败的原因，也没有记录跳过数为 6 的原因；该文件单独重跑后计入上述结果。
-- 阶段 5 的两次全量运行（`04249f1` 上的预跑与 `a7e2fdc` 上的最终运行）见「全量门禁与覆盖率」。
+- 阶段 5 的全量运行（`04249f1` 上的预跑、`a7e2fdc` 上的运行与分支头 `964de50` 上的最终运行）见「全量门禁与覆盖率」。
 
 ## 评审与修复
 
@@ -196,7 +198,7 @@
 
 ## 全量门禁与覆盖率
 
-### 预跑（`04249f1`，已被最终运行取代）
+### 预跑（`04249f1`，已被其后的运行取代）
 
 | 项 | 结果 |
 | --- | --- |
@@ -224,7 +226,9 @@
 `scenario.ProductConfig.validate_price_bounds` 经 `RuntimeScenario.model_validate`；`purchase_offers.order_key` 经 `resolve_named_supply` 加一条手工构造的询价；
 `memory_layer.persona_views` 经以 `FootprintStore.commit` 写入的一对已记录事件。
 
-### 最终运行（`a7e2fdc`）
+### `a7e2fdc` 上的运行
+
+最终代码与测试提交上的全量运行，早于两个查看器提交；最终门禁其后在分支头上重跑，见下一小节，本小节的结果留作历史。
 
 | 门禁 | 结果 |
 | --- | --- |
@@ -242,12 +246,40 @@
 实际执行的命令不是门禁脚本的串行命令：12 个并行分片各执行 `coverage run -p -m pytest -q <均衡分配的测试文件>`，然后 `coverage combine`、`coverage json`，再调用 `scripts/coverage_gate.py` 自己的判定函数。
 被测的测试集与度量口径同串行命令 `uv run coverage run -m pytest -q`，判定用的是门禁脚本自己的函数；报告的 `command` 字段如实记为分片命令
 （`12 parallel shards of: coverage run -p -m pytest -q <balanced test files>; coverage combine; coverage json (same suite and measurement as: uv run coverage run -m pytest -q)`）。
-这次带覆盖率的分片运行就是最终提交上的全量证据。
+这次带覆盖率的分片运行就是最终代码与测试提交上的全量证据。
 
-`docs/dev/coverage-report.json` 由这次运行重新生成（身份见「源码身份与发布身份」），随实现后文档一并提交。这次运行之后只改动文档、覆盖率报告、证据文件与登记表的登记数据（阶段 7 标为完成），
+`docs/dev/coverage-report.json` 由这次运行重新生成（`snapshot_id` 为 `b7136dcb-0be8-4241-9f48-3638cda20c5b`，`source_identity` 为 `a7e2fdc` 的完整哈希），随实现后文档一并提交（`8613139`）；
+该报告其后被分支头上的运行重新生成的报告取代，现行身份见「源码身份与发布身份」。这次运行之后只改动文档、覆盖率报告、证据文件与登记表的登记数据（阶段 7 标为完成），
 这些提交以文档门禁、设计说明书汇编检查与登记表的静态守卫核对。
-其后另有两个查看器提交（`1346e0d`、`6c81126`）改了 `tools/` 下的查看器、`tests/tools/` 的用例与查看器夹具，没有改 Python 生产代码；它们以 `tests/tools/` 的用例核对，没有重跑全量测试与覆盖率门禁，
-见「全量门禁之后补齐的查看器事务显示」。
+其后另有两个查看器提交（`1346e0d`、`6c81126`）改了 `tools/` 下的查看器、`tests/tools/` 的用例与查看器夹具，没有改 Python 生产代码；它们当时以 `tests/tools/` 的用例核对，
+其后包含在分支头 `964de50` 上的最终门禁运行之内，见下一小节与「全量门禁之后补齐的查看器事务显示」。
+
+### 分支头上的最终运行（`964de50`）
+
+实现后文档与两个查看器提交之后，全量测试与覆盖率门禁在当时的分支头上再执行一次（2026-10-04 完成）。被测源码含两个查看器提交 `1346e0d`、`6c81126`、登记表的阶段 7 标记与全部实现后文档。
+
+| 门禁 | 结果 |
+| --- | --- |
+| 被测源码 | `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（`964de50`），隔离的干净 worktree |
+| 全量测试 | 带覆盖率的 12 个分片（慢文件按测试节点拆分）：5851 passed、7 skipped、0 failed、0 errors，每个分片退出码为 0，墙钟 4792 秒 |
+| 覆盖率门禁 | **PASSED**：分支覆盖率 95.15%（covered=8520，missing=434，total=8954；阈值 85%），未覆盖公共接口 0 |
+| 跳过 | 7 项，数目与所在分片（分片 2 三项、分片 9 四项）同 `a7e2fdc` 上的运行 |
+| 运行内含的守卫 | 两份登记表的完整变异守卫（个人事务与工作安排 101 个、工具交互 46 个）、风格门禁、文档门禁与设计说明书汇编检查的测试，都在这次干净检出上执行 |
+
+| 分片 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| passed | 580 | 503 | 520 | 564 | 281 | 315 | 655 | 276 | 576 | 493 | 478 | 610 |
+| skipped | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 0 | 0 |
+
+执行方式同 `a7e2fdc` 上的运行：12 个并行分片各执行 `coverage run -p -m pytest -q <均衡分配的测试文件>`，然后 `coverage combine`、`coverage json`，再调用 `scripts/coverage_gate.py` 自己的判定函数；
+报告的 `command` 字段仍记为分片命令。
+pytest 的通过数与 `a7e2fdc` 上的运行相同：查看器的 Node 用例（现为 75 个）都在同一个节点 `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names` 里执行，用例增加不改变 pytest 的计数。
+分支覆盖率的各项数字也与 `a7e2fdc` 上的运行相同，`src/` 与 `custom/` 在两个提交之间没有变化。
+
+`docs/dev/coverage-report.json` 由这次运行重新生成（身份见「源码身份与发布身份」的「覆盖率快照」），随记录这次运行的文档一并提交。
+这次运行之后只改动文档与覆盖率报告（本记录、`docs/dev/coverage-baseline.md`、`docs/INDEX.md` 与实现状态文档），这些改动以文档门禁（扫描 140 份文档，0 处断链，PASSED）、
+设计说明书汇编检查（`--check` 为 PASSED）、六个守卫文件（`tests/test_documentation_gate.py`、`tests/test_design_doc_build.py`、`tests/test_dayrun_fidelity_acceptance.py`、`tests/test_persona_prompt_acceptance.py`、
+`tests/test_time_and_energy_completeness.py`、`tests/test_coverage_gate.py`：88 passed）与两份登记表的静态守卫（`-k "not source_mutation_is_killed"`：12 passed、147 deselected）核对（补记本小节时执行）。
 
 ## 验收台账逐行登记
 
@@ -356,7 +388,7 @@
 进度层规则文字写事务提醒与办成两种只写名称的记录及其不迁入记忆层；工具定义条目写七个世界请求工具、两个世界查询工具与三个记忆查询工具。
 规格 2.9 对查看器的要求（缺 `errands` 键即报错，世界结构 8 的运行用基线提交的查看器查看）在 `a7e2fdc` 上已经满足。
 
-这些条款里有三处是在 `a7e2fdc` 的最终全量运行之后才补齐的，经过如下：
+这些条款里有三处是在 `a7e2fdc` 的全量运行之后才补齐的（本小节标题里的「全量门禁」指那次运行；分支头 `964de50` 上的最终门禁运行在补齐之后，含这两个提交），经过如下：
 
 - **发现。** 实现后文档核对（写本记录时按 `tools/run-viewer.html` 与 `tools/run-viewer-context.js` 核对）查出三处没有跟上规格：控制请求摘要只写各项的活动名与 summary、事务事件只显示种类的中文说法；
   进度层规则文字没有写两种事务记录（实施台账安排随阶段 2 的代码同步的一处，没有做）；工具定义条目仍写「八个世界请求工具与三个记忆查询工具」。
@@ -372,9 +404,12 @@
   Node 用例由 70 个增至 75 个。
 - **现行结果。** 补记本节时在 `6c81126` 的查看器代码与测试上重新执行（Node v24.19.0，已加入 `PATH`）：`node --test tests/tools/run_viewer.test.cjs tests/tools/run_viewer_context.test.cjs` 共 75 个用例，75 pass、0 fail、0 skipped
   （两个文件各 48 个与 27 个）；`uv run --frozen --no-sync pytest tests/tools -q -p no:cacheprovider` 为 1 passed（`tests/tools/test_run_viewer.py` 执行同样的两个 Node 文件）。
+- **纳入最终门禁（`964de50`）。** 分支头 `964de50` 上的最终全量测试与覆盖率门禁含这两个提交：执行上述 Node 用例的节点 `tests/tools/test_run_viewer.py::test_run_viewer_recorded_names` 在该次运行里，
+  全量 5851 passed、7 skipped、0 failed，分支覆盖率 95.15%，未覆盖公共接口 0，见「全量门禁与覆盖率」的「分支头上的最终运行（`964de50`）」。
 
 证据层级仍是离线测试：真实引擎写出的行只在核对时由临时脚本载入查看器，没有新的真实运行。这两个提交只改查看器（HTML 与 JavaScript）、它的测试与夹具和文档，`src/`、`custom/` 与 `scripts/` 没有变化，`code_sha256` 不变；
-它们不在 `a7e2fdc` 的最终全量测试与覆盖率门禁之内，没有为它们重跑全量测试，本记录其余各节的全量、覆盖率与变异数字仍是原提交上的结果。
+它们不在 `a7e2fdc` 上那次全量测试与覆盖率门禁之内，补记本节时没有为它们重跑全量测试；其后最终门禁在分支头 `964de50` 上重跑，含这两个提交。
+本记录的各阶段测试、评审、变异审查与 `a7e2fdc` 上的全量、覆盖率数字仍是原提交上的结果。
 本节与两份查看器规格、文档地图的相应改写以文档门禁（扫描 140 份文档，0 处断链，PASSED）、设计说明书汇编检查（`--check` 为 PASSED，没有设计章节或接口合同的改动）与五个守卫文件
 （`tests/test_documentation_gate.py`、`tests/test_design_doc_build.py`、`tests/test_dayrun_fidelity_acceptance.py`、`tests/test_persona_prompt_acceptance.py`、`tests/test_time_and_energy_completeness.py`：78 passed）核对（补记本节时执行）。
 
@@ -391,6 +426,7 @@
   `docs/VERIFICATION.md` 门禁节与 `docs/dev/ANALYSIS-spec-coverage.md` 增量映射里关于登记表的说法按 `a7e2fdc` 的登记表写：以脚本逐行比对增量映射表与登记表，
   列有节点的二十七行所列节点与登记表逐个相同、顺序相同；实现后文档与本记录引用的测试节点、测试名与仓库路径都解析到现有的函数或文件。
 - **覆盖率基线。** `docs/dev/coverage-baseline.md` 的「基线记录」随重新生成的报告改写：首节为 `a7e2fdc` 的门禁结果，一日运行保真一节改为历史基线（实施台账没有单列这一作业）。
+  其后首节随分支头 `964de50` 上重新生成的报告改写为该次运行的结果，`a7e2fdc` 的数字与报告身份在首节留一句。
 - **设计说明书。** 执行 `uv run --frozen --no-sync python scripts/build_design_doc.py` 重新汇编 `docs/design/worldmock-design.html`，随后 `--check` 判为 PASSED；汇编结果与源同一提交。
 - **文档门禁与目录。** `uv run --frozen --no-sync python scripts/documentation_gate.py`：扫描 140 份文档，0 处断链，PASSED。`scripts/build_catalog.py --check`：目录各文件逐字节相同。
 - **登记的四个节点与被文档逐字比对的文本。** 台账「文档一致性」行登记的四个节点
@@ -404,7 +440,7 @@
   `tests/life/test_day_planning.py`、`tests/integration/test_strict_reflection.py`、`tests/integration/test_tool_description_references.py`、`tests/life/test_scenario.py`、
   `tests/footprints/test_quality.py`）：373 passed。带锚点的链接都指向现有标题，文档里没有留下冻结时的临时状态标记。
 - **登记表的静态守卫。** `tests/test_errands_workday_acceptance.py` 与 `tests/test_tool_interaction_acceptance.py` 除逐个变异运行之外的判定（`-k "not source_mutation_is_killed"`）：12 passed、147 deselected；
-  这时登记表的 `STAGES_DONE` 已含阶段 7。两份登记表的逐个变异运行（101 个与 46 个）在 `a7e2fdc` 的最终全量运行里执行过，这里没有重跑。
+  这时登记表的 `STAGES_DONE` 已含阶段 7。两份登记表的逐个变异运行（101 个与 46 个）在 `a7e2fdc` 的全量运行里执行过，这里没有重跑；其后在分支头 `964de50` 的最终门禁运行里又执行一次。
 - **与查看器代码的出入。** 实现后文档核对出的三处已由 `1346e0d` 与 `6c81126` 补齐，见「全量门禁之后补齐的查看器事务显示」。
 - **实现状态文档。** `docs/dev/implementation-status.md` 由最后一个提交更新，不在本记录所在的提交里。
 

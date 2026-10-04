@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-10-04T07:51:02+00:00",
+  "generated_at": "2026-10-04T11:17:50+00:00",
   "command": "12 parallel shards of: coverage run -p -m pytest -q <balanced test files>; coverage combine; coverage json (same suite and measurement as: uv run coverage run -m pytest -q)",
   "evidence_manifest": {
-    "snapshot_id": "b7136dcb-0be8-4241-9f48-3638cda20c5b",
-    "manifest_hash": "0d9a62cc427c8a1a4bf8a69c345f8e1c06ecaae7af94278a751d31ee5fd2e471",
-    "source_identity": "a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2"
+    "snapshot_id": "64abe7a3-eeaf-4eb6-beba-a35939d02131",
+    "manifest_hash": "9522116978f83b6b7acc5018e95531a773e262c0f031a33b73461d63953ed8a7",
+    "source_identity": "964de503b71ed9931acbc34f4d853cfe6e4d0dc9"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
