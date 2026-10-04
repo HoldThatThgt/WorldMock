@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from worldmock.profile import extractor
+from worldmock.profile.compile import compile_persona
 from worldmock.profile.mapper import load_mapping_config
 from worldmock.profile.textgen import render_card
 from tests.profile.conftest import make_payload
@@ -472,3 +474,42 @@ def test_a_work_anchor_past_midnight_is_demoted_even_before_a_later_bedtime():
     assert len(session.calls) == 3
     text = render_card(result.card)
     assert "；下班18点到18点半。" in text and "；到家" not in text
+
+
+def test_a_work_anchor_past_midnight_is_demoted_before_an_ordinary_bedtime():
+    """@brief 首版不支持跨午夜的下班与到家（规格 4.1）在就寝没有回绕时同样成立：工厂就寝 23 点，写明的到家「22:30-00:30」
+    起点不晚于就寝、终点越过当日 24 点，共识后被置 null 并留一条「runs past midnight」说明，同日的下班照常落进卡片；
+    三次采样都不触发重试，卡片文本不出现「到家」分句。"""
+    session = FakeSession([FakeResponse(content=_work("18:00-18:30", "22:30-00:30"))] * 3)
+    result = extractor.extract_persona("六点下班，夜里十点半到零点半之间到家", n_runs=3, session=session)
+    anchors = result.card.time_anchors
+    assert (anchors.bedtime.start_hour, anchors.leave_work.start_hour, anchors.arrive_home) == (23.0, 18.0, None)
+    assert result.demotion_notes == ("work_anchor_demoted: arrive_home window 22.5..24.5 runs past midnight",)
+    assert len(session.calls) == 3
+    text = render_card(result.card)
+    assert "；下班18点到18点半。" in text and "；到家" not in text
+
+
+def test_an_out_of_order_work_anchor_past_midnight_keeps_the_order_note():
+    """@brief 降级说明每个锚点只取一条，先后不合格时取起点越界的格式（接口合同「人格与卡片字段」）：下班「23:30-00:30」
+    起点晚于就寝 23 点、终点又越过当日 24 点，说明是「start … is outside …」而不是「runs past midnight」；真实编译的
+    warnings 原样带这一条。"""
+    note = "work_anchor_demoted: leave_work start 23.5 is outside leave_home 8..bedtime 23"
+    session = FakeSession([FakeResponse(content=_work("23:30-00:30", None))] * 3)
+    result = extractor.extract_persona("夜里十一点半才下班", n_runs=3, session=session)
+    assert len(session.calls) == 3
+    assert result.card.time_anchors.leave_work is None
+    assert result.demotion_notes == (note,)
+    assert compile_persona("夜里十一点半才下班", extraction=result).warnings == (note,)
+
+
+def test_demotion_notes_are_read_only_on_the_extraction_result():
+    """@brief 抽取结果承载降级说明的字段只读（规格 4.1）：在真实抽取结果上改写或清空 demotion_notes 被拒（冻结实例），
+    说明原样保留。"""
+    session = FakeSession([FakeResponse(content=_work("07:00-07:30", None))])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    with pytest.raises(ValidationError) as error:
+        result.demotion_notes = ()
+    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [
+        (("demotion_notes",), "frozen_instance")]
+    assert result.demotion_notes == _BOTH_DEMOTED[:1]

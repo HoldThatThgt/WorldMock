@@ -237,6 +237,7 @@ def test_work_anchors_are_required_nullable_and_outside_the_five_anchor_order():
     pytest.param({"bedtime": (1.0, 2.0), "arrive_home": (24.0, 24.5)}, True,
                  id="arrive_home_past_midnight_before_the_normalised_bedtime"),
     pytest.param({"bedtime": (1.0, 2.0), "leave_work": (23.5, 24.5)}, True, id="leave_work_runs_past_midnight"),
+    pytest.param({"arrive_home": (22.5, 24.5)}, True, id="arrive_home_runs_past_midnight_before_an_ordinary_bedtime"),
     pytest.param({"leave_work": (8.0, 8.5)}, False, id="leave_work_starts_with_leave_home"),
     pytest.param({"leave_work": (18.0, 18.5), "arrive_home": (18.0, 19.0)}, False,
                  id="arrive_home_starts_with_leave_work"),
@@ -280,6 +281,23 @@ def test_settle_work_anchors_demotes_in_the_fixed_order_with_one_text_each():
     assert settle_work_anchors(leave_home, late_bedtime, make_window(23.5, 24.5), before_midnight) == (
         None, before_midnight, ("leave_work window 23.5..24.5 runs past midnight",))
     assert settle_work_anchors(leave_home, late_bedtime, evening, before_midnight) == (evening, before_midnight, ())
+
+
+def test_the_midnight_bound_holds_for_any_bedtime_and_an_out_of_order_anchor_keeps_the_order_text():
+    """@brief 「窗口终点不晚于当日 24 点」不取决于就寝是否回绕到次日（规格 4.1）：就寝 23 点时 22.5–24.5 点的到家、就寝恰为
+    24 点时 23.5–24.5 点的下班都被置 null，各一条「runs past midnight」，卡片校验器以同一说明拒绝；既乱序又越过午夜的
+    锚点只取一条，取起点越界的说明（就寝 23 点、23.5–24.5 点的下班）。"""
+    leave_home, bedtime, evening = make_window(8.0, 8.5), make_window(23.0, 24.0), make_window(18.0, 18.5)
+    assert settle_work_anchors(leave_home, bedtime, evening, make_window(22.5, 24.5)) == (
+        evening, None, ("arrive_home window 22.5..24.5 runs past midnight",))
+    with pytest.raises(ValidationError, match="work anchors out of order: arrive_home window 22.5..24.5 runs past"):
+        _anchors(leave_work=evening, arrive_home=make_window(22.5, 24.5))
+    assert settle_work_anchors(leave_home, make_window(24.0, 25.0), make_window(23.5, 24.5), None) == (
+        None, None, ("leave_work window 23.5..24.5 runs past midnight",))
+    assert settle_work_anchors(leave_home, bedtime, make_window(23.5, 24.5), None) == (
+        None, None, ("leave_work start 23.5 is outside leave_home 8..bedtime 23",))
+    with pytest.raises(ValidationError, match="leave_work start 23.5 is outside leave_home 8..bedtime 23"):
+        _anchors(leave_work=make_window(23.5, 24.5))
 
 
 def test_sleep_need_and_chronotype_bounds():

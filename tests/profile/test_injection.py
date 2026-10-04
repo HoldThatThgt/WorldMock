@@ -393,6 +393,66 @@ def test_an_unrepresentable_work_window_is_a_conflict_on_a_null_slot() -> None:
         ("CARD_FIELD_OVERRIDDEN", "arrive_home_window")]
 
 
+def test_windows_that_each_fit_alone_but_not_together_land_in_slot_order() -> None:
+    """落槽顺序为午餐、下班、到家、晚餐、就寝（接口合同「场景作息覆盖」，规格 4.2 一体适用于新槽）：两个声明的窗口各自都放得
+    进卡片、合起来放不下时，顺序在前的槽落下，在后的槽保留卡片值并记冲突——下班 22:00 与就寝 21:00 同时声明，下班落下、
+    冲突记在 bedtime_window；午餐 17:00 与晚餐 13:00 同时声明，午餐落下、冲突记在 dinner_window。结果是不动点。"""
+    card = make_card()
+    agent = _agent(leave_work_window=(22.0, 22.5), bedtime_window=(21.0, 22.0))
+    for alone in (_agent(leave_work_window=(22.0, 22.5)), _agent(bedtime_window=(21.0, 22.0)),
+                  _agent(lunch_window=(17.0, 18.0)), _agent(dinner_window=(13.0, 14.0))):
+        assert _codes(list(apply_scenario_rhythm(card, alone).warnings)) == ["CARD_FIELD_OVERRIDDEN"]
+
+    result = apply_scenario_rhythm(card, agent)
+    meals = apply_scenario_rhythm(card, _agent(lunch_window=(17.0, 18.0), dinner_window=(13.0, 14.0)))
+
+    assert _slots(result.card) == ([22.0, 22.5], None)
+    assert result.card.time_anchors.bedtime == card.time_anchors.bedtime
+    assert [(item["code"], item["details"]["field"]) for item in result.warnings] == [
+        ("CARD_FIELD_CONFLICT", "bedtime_window"), ("CARD_FIELD_OVERRIDDEN", "leave_work_window")]
+    assert result.warnings[0]["details"] == {"field": "bedtime_window", "card_value": [23.0, 24.0],
+                                             "scenario_value": [21.0, 22.0], "reason": "anchor_order"}
+    assert apply_scenario_rhythm(result.card, agent).card == result.card
+    assert (meals.card.time_anchors.lunch, meals.card.time_anchors.dinner) == (make_window(17.0, 18.0),
+                                                                               card.time_anchors.dinner)
+    assert [(item["code"], item["details"]["field"]) for item in meals.warnings] == [
+        ("CARD_FIELD_CONFLICT", "dinner_window"), ("CARD_FIELD_OVERRIDDEN", "lunch_window")]
+
+
+def test_a_conflicting_scenario_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home() -> None:
+    """冲突时该槽保留卡片值、覆盖不降级任何卡片锚点（规格 4.2）在卡片下班槽非空时同样成立：场景只声明下班 19:00，晚于卡片的
+    到家 18:30——卡片对象原样返回（下班仍是 18:00–18:30、到家仍是 18:30–19:00），恰好一条 CARD_FIELD_CONFLICT，
+    card_value 为卡片的下班，正文写「保留卡片值 [18, 18.5]」，没有覆盖；场景下班早于卡片出门时同样保留非空的卡片下班。"""
+    card = _work_card((18.0, 18.5), (18.5, 19.0))
+
+    result = apply_scenario_rhythm(card, _agent(leave_work_window=(19.0, 19.5)))
+
+    assert result.card is card and _slots(result.card) == ([18.0, 18.5], [18.5, 19.0])
+    assert [(item["code"], item["details"]) for item in result.warnings] == [
+        ("CARD_FIELD_CONFLICT", {"field": "leave_work_window", "card_value": [18.0, 18.5],
+                                 "scenario_value": [19.0, 19.5], "reason": "anchor_order"})]
+    assert result.warnings[0]["message"].endswith("保留卡片值 [18, 18.5]。")
+    worked = _work_card((18.0, 18.5), (19.0, 19.5))
+    early = apply_scenario_rhythm(worked, _agent(leave_work_window=(6.0, 6.5)))
+    assert early.card is worked and _slots(early.card) == ([18.0, 18.5], [19.0, 19.5])
+    assert [(item["code"], item["details"]["card_value"]) for item in early.warnings] == [
+        ("CARD_FIELD_CONFLICT", [18.0, 18.5])]
+
+
+def test_a_scenario_bedtime_before_the_card_leave_work_keeps_the_card_leave_work() -> None:
+    """覆盖不降级任何卡片锚点（规格 4.2）对卡片的下班同样成立：场景就寝 20:00 早于卡片的下班 21:00（到家为 null）——冲突记在
+    bedtime_window 上，就寝保留卡片值 23:00–24:00，卡片的下班原样不动，卡片对象原样返回，没有覆盖。"""
+    card = _work_card((21.0, 21.5), None)
+
+    result = apply_scenario_rhythm(card, _agent(bedtime_window=(20.0, 21.0)))
+
+    assert result.card is card and _slots(result.card) == ([21.0, 21.5], None)
+    assert result.card.time_anchors.bedtime == make_window(23.0, 24.0)
+    assert [(item["code"], item["details"]) for item in result.warnings] == [
+        ("CARD_FIELD_CONFLICT", {"field": "bedtime_window", "card_value": [23.0, 24.0],
+                                 "scenario_value": [20.0, 21.0], "reason": "anchor_order"})]
+
+
 def test_biz_undeliverable_supplies_are_grouped_by_store_and_destination() -> None:
     """DELIVERY_ROUTE_UNAVAILABLE（BIZ 冻结地图事实）：25 项晚餐供给到家、1 项咖啡到办公室的驾车路线是 unknown，
     按（门店, 目的地, 路线状态）合并成两条警告并列出供给；门店就在目的地的配送不需路线。"""

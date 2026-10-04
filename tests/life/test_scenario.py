@@ -872,3 +872,55 @@ def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_p
         scenario, _ = load_scenario(path)
         assert scenario.schema_version == 5
         assert scenario.agents and all(agent.work_schedule is None for agent in scenario.agents)
+
+
+def _scheduled_payload(edit) -> dict:
+    """正式场景文档的副本：人物 1 写上与场景日历一致的工作安排，再交给 edit(schedule) 改写。"""
+    payload = _payload()
+    schedule = weekday_schedule(payload)
+    edit(schedule)
+    payload["agents"][0]["work_schedule"] = schedule
+    return payload
+
+
+@pytest.mark.parametrize(("shift", "message"), [
+    (_shift(starts=-60, ends=540, breaks=[]), _SHIFT_RANGE),
+    (_shift(breaks=[[810, 720]]), _BREAK_INSIDE),
+    (_shift(breaks=[[720, 720]]), _BREAK_INSIDE),
+], ids=["starts-before-midnight", "inverted-break", "empty-break"])
+def test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rejected(shift: dict, message: str):
+    """班次是自当地零点起的分钟、落在同一天，休息时段是班次内的半开区间（docs/dev/SPEC-errands-workday.md 4.3；接口合同
+    「工作安排声明」：0 ≤ starts < ends ≤ 1440）：周一的班次从前一天 23:00 开始（starts 为负）时被场景模型拒绝；休息时段
+    两端都在班次内而止点早于或等于起点（13:30 到 12:00、12:00 到 12:00）时同样被拒，原因分别是班次范围与休息时段须落在
+    班次内。同一份文档不改周一班次时照常通过。"""
+    assert LifeScenario.model_validate(_scheduled_payload(lambda schedule: None)).agents[0].work_schedule is not None
+    _assert_invalid(_scheduled_payload(_weekly("0", shift)), message)
+
+
+def test_back_to_back_breaks_are_admitted_and_a_one_minute_overlap_is_not() -> None:
+    """休息时段互不重叠按半开区间判定（docs/dev/SPEC-errands-workday.md 4.3）：前一段的止点等于后一段的起点不算重叠，
+    12:00–13:00 紧接 13:00–13:30 的班次经场景模型照常加载、两段原样保留；后一段早开始一分钟才是重叠，被拒。"""
+    adjacent = _scheduled_payload(_weekly("0", _shift(breaks=[[720, 780], [780, 810]])))
+    shift = LifeScenario.model_validate(adjacent).agents[0].work_schedule.weekly["0"]
+    assert (shift.starts, shift.ends, shift.breaks) == (540, 1080, ((720, 780), (780, 810)))
+    _assert_invalid(_scheduled_payload(_weekly("0", _shift(breaks=[[720, 780], [779, 810]]))), _BREAK_ORDER)
+
+
+@pytest.mark.parametrize("key", ["workplace_location_id", "weekly", "exceptions"])
+def test_work_schedule_requires_all_three_keys_without_defaults(key: str) -> None:
+    """工作安排的三个键都必填、没有缺省（接口合同「工作安排声明」，裁决 W3）：删掉工作地点、每周声明或日期例外中的任意
+    一个键，场景模型都按缺字段拒绝并点名该键；没有日期例外须显式写空对象，写 {} 照常加载。"""
+    _assert_invalid(_scheduled_payload(lambda schedule: schedule.pop(key)),
+                    rf"agents\.0\.work_schedule\.{key}\n\s+Field required")
+    empty = _scheduled_payload(lambda schedule: schedule.update(exceptions={}))
+    assert LifeScenario.model_validate(empty).agents[0].work_schedule.exceptions == {}
+
+
+def test_work_schedule_rejects_an_unknown_key_such_as_a_timezone() -> None:
+    """工作安排不带时区字段（docs/dev/SPEC-errands-workday.md 4.3，复用场景唯一的 timezone），未知键拒绝（接口合同「工作
+    安排声明」）：多写 timezone 的安排被场景模型按未知字段拒绝并点名该键，不被悄悄丢弃；不多写时同一份安排照常加载，
+    加载出的安排只有三个键。"""
+    extra = _scheduled_payload(lambda schedule: schedule.update(timezone="Europe/Berlin"))
+    _assert_invalid(extra, r"agents\.0\.work_schedule\.timezone\n\s+Extra inputs are not permitted")
+    loaded = LifeScenario.model_validate(_scheduled_payload(lambda schedule: None)).agents[0].work_schedule
+    assert set(loaded.model_dump()) == {"workplace_location_id", "weekly", "exceptions"}

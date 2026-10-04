@@ -106,6 +106,29 @@ def test_duty_enumerations_are_the_work_schedule_constants() -> None:
         validate_layer(layer)
 
 
+#: 环境层 duty 的两个合法取值：休息日，与当班中的工作日。
+_REST_DUTY = {"day": "休息日", "hours": None, "place": None, "breaks": [], "status": None}
+_WORK_DUTY = {"day": "工作日", "hours": "09:00–18:00", "place": "办公室", "breaks": ["12:00–13:30"], "status": "当班中"}
+
+
+@pytest.mark.parametrize(("duty", "change"), [
+    (_WORK_DUTY, {"hours": None}),
+    (_REST_DUTY, {"place": "办公室"}),
+    (_WORK_DUTY, {"breaks": [[720, 810]]}),
+    (_WORK_DUTY, {"breaks": [""]}),
+], ids=["working-day-hours-null", "rest-day-place-text", "breaks-as-minute-pairs", "break-empty-text"])
+def test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks(duty: dict, change: dict) -> None:
+    """环境层 duty 的取值表（docs/dev/SPEC-errands-workday.md 4.4；接口合同「七层字段」）逐键钉在 Schema 上：工作日的
+    hours 是文本、不能为 null；休息日的 place 只能为 null；breaks 的每一项是非空文本，不接受原始的分钟对或空串。两个
+    合法取值各自通过，只改这一个键就在 duty 处不合 Schema。"""
+    layer = {"layer": "环境层", "observed_at": "2026-01-05T10:00:00+08:00",
+             "body": {key: levels[0] for key, levels in BODY_LEVELS.items()},
+             "location": {"session_kind": "stay", "name": "办公室", "place_type": "办公室", "fixed_rules": []}}
+    validate_layer({**layer, "duty": duty})
+    with pytest.raises(ValueError, match=r"Prompt layer 环境层 violates its schema at \['duty'"):
+        validate_layer({**layer, "duty": {**duty, **change}})
+
+
 def test_progress_schema_registers_the_eight_record_types_with_both_errand_records() -> None:
     """进度层 Schema 的 events[].type 恰为接口合同「七层 Schema」登记的八种：tool_call、message_arrival、delivery、
     task_deadline、plan_reminder、errand_reminder、errand_completed、condensed（docs/dev/SPEC-errands-workday.md 2.6、6.4）。

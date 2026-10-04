@@ -708,6 +708,26 @@ def test_plan_input_duty_is_for_the_new_day_at_the_midnight_boundary(tmp_path):
         engine.close()
 
 
+@pytest.mark.parametrize("scheduled", [0, 1], ids=["first-person-scheduled", "second-person-scheduled"])
+def test_plan_input_carries_each_persons_own_duty_arrangement(engine_factory, scheduled: int):
+    """零点计划输入带的是被计划的那个人自己的上班安排（docs/dev/SPEC-errands-workday.md 4.6）：双人场景只给其中一人
+    声明工作安排时，这个人的输入是自己的工作日安排，另一人没有工作安排、输入为 null；只给人物 1 声明与只给人物 2 声明
+    各跑一次。plan_inputs 的载荷与客户端实际收到的两份零点计划请求（按「人物」的名字对上）逐值相同。取别人的班次时，
+    没有工作安排的人会被套上同伴的上班安排。"""
+    engine = engine_factory("multi-person.json", mutate=declare(scheduled))
+    people = [(item.agent_id, item.name) for item in engine.scenario.agents]
+    assert [agent_id for agent_id, _ in people] == [1, 2]
+    expected = {name: (_plan_workday(engine) if index == scheduled else None)
+                for index, (_, name) in enumerate(people)}
+    assert len(expected) == 2
+    assert {name: plan_inputs(engine, agent_id).payload["上班安排"] for agent_id, name in people} == expected
+    client = StubPlanDayClient()
+    settle_day_plans(engine, client)
+    sent = [json.loads(call["messages"][1]["content"]) for call in client.calls]
+    assert len(sent) == 2
+    assert {payload["人物"]["名字"]: payload["上班安排"] for payload in sent} == expected
+
+
 def test_plan_day_input_lists_open_errands_read_only(engine_factory):
     """零点计划输入的只读键「个人事务」（docs/dev/SPEC-errands-workday.md 2.8）：1 月 5 日 23:41 收尾时记下「吃掉纯牛奶 2 份」
     （带备注与次日 08:00 的提醒）与「取得素炒什锦食材包 1 份」，随即喝掉手边的一份奶（累计 1 份）。零点边界的零点计划输入

@@ -121,6 +121,20 @@ def test_rhythm_lists_the_work_anchors_in_contract_order_and_null_when_absent() 
             validate_layer({**layer, "rhythm": rhythm})
 
 
+@pytest.mark.parametrize("missing", _RHYTHM_KEYS)
+def test_rhythm_schema_requires_each_of_the_nine_keys(missing: str) -> None:
+    """人设层 rhythm 非空时九键齐全（docs/dev/SPEC-errands-workday.md 4.1；接口合同「七层字段」）：下班与到家的值可以
+    为 null，键不能省。由写明下班与到家的卡片渲染出的人设层通过 Schema、九键俱在；从 rhythm 里去掉其中任意一个键，
+    就在 rhythm 处不合 Schema。"""
+    card = _work_card(make_window(18.0, 18.5), make_window(19.0, 19.5))
+    layer = persona_layer(_profile(card), "陈曦", _NO_VIEWS)
+    validate_layer(layer)
+    assert list(layer["rhythm"]) == list(_RHYTHM_KEYS)
+    rhythm = {key: value for key, value in layer["rhythm"].items() if key != missing}
+    with pytest.raises(ValueError, match=r"Prompt layer 人设层 violates its schema at \['rhythm'\]"):
+        validate_layer({**layer, "rhythm": rhythm})
+
+
 def test_a_declared_work_schedule_is_not_rendered_in_the_persona_layer() -> None:
     """宿主不渲染人物档案里的工作安排（docs/dev/SPEC-errands-workday.md 4.4）：profile 带场景人物声明的 work_schedule 与
     下班、到家窗口时，人设层仍只有八个键、过 Schema，且与不带这些键的同一档案逐值相同——作息只取卡片（场景窗口经作息覆盖

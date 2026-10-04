@@ -20,14 +20,15 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import (advance_next, context, layer_start, stage_day_plan, target_actions, tool_targets,
-                                 wake_by_mail)
-from tests.life.test_work_contracts import (AcceptingReviewer, _clock, _completed_work_state, _decide_at, _pause,
-                                            _resume, _stage_office, _start_work, _submission)
+from tests.life.conftest import (StubPlanDayClient, advance_next, conclude_pending, context, layer_start,
+                                 settle_day_plans, stage_day_plan, target_actions, tool_targets, wake_by_mail)
+from tests.life.test_work_contracts import (AcceptingReviewer, _clock, _completed_work_state, _decide, _decide_at,
+                                            _drive, _pause, _resume, _stage_office, _start_work, _submission)
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare
 from worldmock.catalog.affordances import default_affordances
 from worldmock.footprints.models import EventDraft
 from worldmock.life import sessions
+from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ReviseDayPlanRequest, SubmitWorkActionRequest
 from worldmock.life.narration import enforce_field_blacklist
@@ -370,3 +371,55 @@ def test_shifts_do_not_change_task_opening_or_deadline(engine_factory) -> None:
     assert [(row["contract"]["opens"], row["contract"]["deadline"]) for row in targets] == [
         ("2026-01-05T08:00:00+08:00", "2026-01-05T20:00:00+08:00")] * 2
     assert all(row["actions"][0]["available"] for row in targets)
+
+
+#: 08:30–18:00、两段休息（12:30–13:00 与 15:00–15:15）的班次：班次与第一段休息的起点都不在整点上。
+_TWO_BREAKS = {"starts": 510, "ends": 1080, "breaks": [[750, 780], [900, 915]]}
+
+
+def test_status_is_the_break_inside_every_declared_break(engine_factory) -> None:
+    """休息时段是一个列表，状态在声明的每一段里都是「休息时段」（docs/dev/SPEC-errands-workday.md 4.3、4.4）：班次
+    08:30–18:00、休息 12:30–13:00 与 15:00–15:15 的人物在办公室，经真实观察：12:45 在第一段里，13:00:00 回到
+    「当班中」；14:59:59 仍是「当班中」，15:00:00 与 15:14:59 在第二段里，15:15:00 又是「当班中」（区间半开）。只认
+    第一段休息时，第二段里显示为当班中。"""
+    engine = engine_factory(mutate=declare(shift=_TWO_BREAKS))
+    statuses = {}
+    for moment in ("12:45:00", "13:00:00", "14:59:59", "15:00:00", "15:14:59", "15:15:00"):
+        _stage_office(engine, _clock(moment))
+        statuses[moment] = _duty_of(engine, f"at-{moment}")["status"]
+    assert statuses == {"12:45:00": "休息时段", "13:00:00": "当班中", "14:59:59": "当班中", "15:00:00": "休息时段",
+                        "15:14:59": "休息时段", "15:15:00": "当班中"}
+
+
+def test_duty_and_the_plan_input_write_every_break_and_the_declared_minutes(engine_factory) -> None:
+    """班次与休息时段照声明写出（docs/dev/SPEC-errands-workday.md 4.4、4.6；接口合同「上班安排」：HH:MM–HH:MM）：班次
+    08:30 开始、休息 12:30–13:00 与 15:00–15:15 时，零点计划输入、客户端实际收到的零点计划请求与 10:00 在办公室真实
+    观察到的环境层 duty 都写 hours「08:30–18:00」，breaks 按声明顺序列出两段，起点的分钟不被抹成整点；三处同源，除
+    status 外逐值相同。"""
+    engine = engine_factory(mutate=declare(shift=_TWO_BREAKS))
+    arrangement = {"day": "工作日", "hours": "08:30–18:00", "place": _OFFICE_NAME,
+                   "breaks": ["12:30–13:00", "15:00–15:15"]}
+    assert plan_inputs(engine, 1).payload["上班安排"] == arrangement
+    client = StubPlanDayClient()
+    settle_day_plans(engine, client)
+    [request] = client.calls
+    assert json.loads(request["messages"][1]["content"])["上班安排"] == arrangement
+    _stage_office(engine, _clock("10:00:00"))
+    assert _duty_of(engine, "two-breaks") == {**arrangement, "status": "当班中"}
+
+
+def test_status_is_on_duty_at_home_inside_the_shift(engine_factory) -> None:
+    """状态只由时钟与班次决定，不含人物在不在场（docs/dev/SPEC-errands-workday.md 4.4、4.5）：周一 09:00–18:00 当班的
+    人物 10:00 在办公室，经真实 start_activity 步行回家、到家并收尾那一程，这时还不到午休。下一次真实观察里人停留在
+    家，duty 仍是工作日安排、状态「当班中」，工作地点仍写办公室；人不在工作地点不让状态变成「已下班」。"""
+    engine = engine_factory(mutate=declare())
+    _stage_office(engine, _clock("10:00:00"))
+    left = _decide(engine, "walk-home", "start_activity", lambda observed: layer_start(observed, _HOME_TARGET, "步行"))
+    assert left.status == "in_progress"
+    _drive(engine, "to-home", lambda: engine.state.agents[1].location_id == "home")
+    assert conclude_pending(engine, "arrived-home").status == "completed"
+    assert engine.scenario.agents[0].home_location_id == "home" == engine.state.agents[1].location_id
+    assert _clock("10:00:00") < engine.state.current_time < _clock("12:00:00")
+    layer = _observe(engine, "at-home-on-duty")["environment_layer"]
+    assert (layer["location"]["session_kind"], layer["location"]["name"]) == ("stay", _PLACES["home"])
+    assert layer["duty"] == {**_WORKDAY, "status": "当班中"}

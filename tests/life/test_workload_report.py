@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -122,3 +124,79 @@ def test_workday_command_reports_null_windows_without_a_workspace_card(engine_fa
         [today] = printed["routine_deviation"]["agents"]["1"]["days"]
         assert (today["leave_vs_shift_end_minutes"], today["leave_vs_window_minutes"]) == (-180.0, None)
         assert today["arrived_home_at"] is not None and today["arrive_home_vs_window_minutes"] is None
+
+
+#: 某个人物的运行工作区没有结构化卡片时子命令追加的说明。
+_NO_CARD_NOTE = "人物 {agent_id} 的运行工作区没有结构化卡片，作息窗口按 null 计"
+#: 场景文件的摘要不等于运行清单的 scenario_sha256 时子命令的英文错误。
+_DIGEST_ERROR = "Scenario file does not match the run manifest scenario_sha256"
+
+
+def _handled_in_process(run_dir: Path, scenario: Path, monkeypatch, capsys) -> tuple[str | None, str]:
+    """@brief 在本进程里按模块名导入只读脚本（scripts/ 临时加入导入路径），用它自己的只读连接调用子命令的处理函数
+    cmd_workday（参数同子进程的 run_dir 与 --scenario），返回（以错误退出时的错误文本，否则 None；标准输出）。"""
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts"))
+    script = importlib.import_module("inspect_run")
+    conn = script._connect(run_dir)
+    capsys.readouterr()
+    refused = None
+    try:
+        script.cmd_workday(conn, argparse.Namespace(run_dir=run_dir, scenario=scenario))
+    except SystemExit as error:
+        refused = str(error.code)
+    finally:
+        conn.close()
+    return refused, capsys.readouterr().out
+
+
+def _only_card_holder(run_dir: Path, holder: int, agent_ids: tuple[int, ...]) -> None:
+    """@brief 让 agent_ids 里只有 holder 的运行工作区存着结构化卡片：给它写 AGENT.json（运行时保存的身份文件形状），
+    其余人物的工作区里没有 AGENT.json。"""
+    for agent_id in agent_ids:
+        workspace = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}"
+        workspace.mkdir(parents=True, exist_ok=True)
+        if agent_id != holder:
+            (workspace / "AGENT.json").unlink(missing_ok=True)
+            continue
+        body = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": agent_id,
+                "profile": {"id": agent_id, "persona_card_struct": _card()}}
+        (workspace / "AGENT.json").write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+
+
+def test_workday_command_reads_each_persons_own_workspace_card(engine_factory, tmp_path: Path, monkeypatch,
+                                                               capsys) -> None:
+    """@brief 作息窗口取自各人物自己的运行工作区（as2/agents/agent_<四位编号>/AGENT.json）：双人场景的真实运行目录，
+    先只有人物 2 的工作区存着结构化卡片，再换成只有人物 1 的。子命令（第二个进程，以及本进程里同一个处理函数）照常
+    打印四键，每次只为没有卡片的那一个人物写一条「没有结构化卡片」的说明。"""
+    engine = engine_factory("multi-person.json")
+    engine.close()
+    run_dir, scenario = tmp_path / "run-0", REPO_ROOT / "scenarios" / "multi-person.json"
+    for holder, missing in ((2, 1), (1, 2)):
+        _only_card_holder(run_dir, holder, (1, 2))
+        result = _workday(run_dir, scenario)
+        assert result.returncode == 0, result.stderr
+        refused, printed = _handled_in_process(run_dir, scenario, monkeypatch, capsys)
+        assert refused is None
+        for report in (json.loads(result.stdout), json.loads(printed)):
+            assert list(report) == REPORT_KEYS
+            assert report["notes"] == [_NO_CARD_NOTE.format(agent_id=missing)]
+
+
+def test_workday_command_rejects_a_manifest_that_carries_no_scenario_digest(engine_factory, tmp_path: Path,
+                                                                            monkeypatch, capsys) -> None:
+    """@brief 场景文件的摘要须等于运行清单的 scenario_sha256；清单里没有这个键、或它是空串时，相等无从成立。真实运行
+    目录配它自己的场景文件原本照常打印四键；去掉清单的 scenario_sha256、再把它写成空串之后，子命令（第二个进程，以及
+    本进程里同一个处理函数）都以同一条英文错误拒绝，标准输出什么都没有。"""
+    engine = engine_factory(mutate=declare())
+    engine.close()
+    run_dir, scenario = tmp_path / "run-0", tmp_path / "scenario-0" / "scenarios" / SCENARIO_NAME
+    refused, printed = _handled_in_process(run_dir, scenario, monkeypatch, capsys)
+    assert refused is None and list(json.loads(printed)) == REPORT_KEYS
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest.pop("scenario_sha256")
+    for damaged in (manifest, {**manifest, "scenario_sha256": ""}):
+        (run_dir / "manifest.json").write_text(json.dumps(damaged, ensure_ascii=False), encoding="utf-8")
+        result = _workday(run_dir, scenario)
+        assert result.returncode != 0
+        assert (result.stdout, result.stderr.strip()) == ("", _DIGEST_ERROR)
+        assert _handled_in_process(run_dir, scenario, monkeypatch, capsys) == (_DIGEST_ERROR, "")

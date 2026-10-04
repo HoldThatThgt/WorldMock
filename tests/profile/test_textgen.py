@@ -170,6 +170,22 @@ def test_non_null_work_anchors_each_append_a_clause_and_count_towards_the_budget
         render_card(_with_work_anchors(full, leave, None))
 
 
+def test_the_arrive_home_clause_counts_towards_the_budget_alone_and_with_the_leave_work_clause():
+    """@brief 追加分句计入 600 汉字预算（规格 4.1，裁决 W5）对到家分句同样成立：不带分句恰好 600 汉字的卡片，只带到家分句
+    时如实报 606、两个分句都带时报 612，不截断也不放行；每个分句恰好多 6 个汉字。"""
+    spare = PERSONA_CARD_HANZI_BUDGET - count_hanzi(render_card(make_card()))
+    full = make_card(tastes=Tastes(content_genres=("悬疑", "纪" * (spare + 3)), food_preferences=("川菜", "面食"),
+                                   media=("长视频", "短视频")))
+    assert count_hanzi(render_card(full)) == PERSONA_CARD_HANZI_BUDGET
+    leave, arrive = make_window(18.0, 18.5), make_window(19.0, 19.5)
+    roomy = make_card()
+    assert count_hanzi(render_card(_with_work_anchors(roomy, None, arrive))) == count_hanzi(render_card(roomy)) + 6
+    with pytest.raises(RenderBudgetExceededError, match="606 hanzi > 600"):
+        render_card(_with_work_anchors(full, None, arrive))
+    with pytest.raises(RenderBudgetExceededError, match="612 hanzi > 600"):
+        render_card(_with_work_anchors(full, leave, arrive))
+
+
 def test_window_ends_at_or_after_midnight_render_as_clock_hours():
     """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」
     （docs/dev/SPEC-persona-prompt.md「人设层」：作息为可读短语）。"""
