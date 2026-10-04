@@ -15,7 +15,7 @@
 > 「心智模型与范围」「提交与修订」「事件驱动的决策节律」「人物可见内容与工具」「三层度量与质量导出」「当前工具交互约束」按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)「冻结条款修订」修订
 > （作业 DP2–DP14，编号见该规格配套的[实施计划](research/errands-workday-implementation-plan.md)，2026-10-02）：当日目标与个人事务分工，零点失效与修订不波及事务；
 > 事务提醒另记 `errand_reminder_due`、不结束睡眠，未完成事务不计在手承诺；今日计划优先只对作息习惯成立，改不了场景声明的工作安排；
-> 重复意图逐条定位、超限同批报告；事务与工作负荷度量不并入三层。修订部分未实现，见该规格阶段 1（重复意图）、阶段 2（个人事务）、阶段 3（工作安排）。
+> 重复意图逐条定位、超限同批报告；事务与工作负荷度量不并入三层。修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。
 > 文中「个人事务与工作安排规格裁决 X」指该规格「裁决记录」的编号。
 
 ## 心智模型与范围
@@ -235,8 +235,8 @@ flowchart LR
 （`goals[i].intent_kind`，`written` 为该意图，`allowed_values` 为全部意图）；条数超过八条与重复意图在同一次校验里一并报告，
 超限定位在 `goals`，不因超限提前返回；零点计划与 `revise_day_plan` 共用同一校验函数，英文原因见个人事务与工作安排规格 1.3；
 时刻格式与已推进目标约束仍一次报告全部可独立确定的参数问题。
-`goal` 不承担状态转移，通知、任务开放、计划提醒与大致时刻分别使用各自明确字段；本节除重复意图的逐条定位与超限同批报告外已实现，
-证据见[工具交互验收记录](tool-interaction-verification.md)；这两项未实现，见个人事务与工作安排规格阶段 1。
+`goal` 不承担状态转移，通知、任务开放、计划提醒与大致时刻分别使用各自明确字段；本节已实现：重复意图的逐条定位与超限同批报告以外的各项，
+证据见[工具交互验收记录](tool-interaction-verification.md)；这两项已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。
 
 ## 文件修改清单与模块责任
 
@@ -270,7 +270,7 @@ flowchart LR
 | 完整功能与测试有效性 | 全量测试、分支和公共接口覆盖、风格门禁、独立 Uncle Bob 语义突变 | 通过 |
 
 第一、二、三、五、六行被[一日运行保真规格](SPEC-dayrun-fidelity.md#验收台账)修订（大致时刻 `around_time`、四字段等价、按时刻窗口推进、
-旧待办层「约 HH:MM」、推进比例只计非例行意图），当时已按旧显示口径重验通过；2026-10-01 的新显示（待办层 `around_time` 只写 `HH:MM` 或 `null`）已实现，重复意图的逐条定位未实现，见个人事务与工作安排规格阶段 1，判据见一日运行保真规格验收台账「目标推进」「系统层」两行：
+旧待办层「约 HH:MM」、推进比例只计非例行意图），当时已按旧显示口径重验通过；2026-10-01 的新显示（待办层 `around_time` 只写 `HH:MM` 或 `null`）已实现，重复意图的逐条定位已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)），判据见一日运行保真规格验收台账「目标推进」「系统层」两行：
 `tests/life/test_goal_around_time.py`（零点前开始的睡眠、早间浏览与午餐窗口三例经真实引擎结算）、`tests/life/test_day_plan.py`（大致时刻的必填可空格式、
 窗口推进、四字段等价与只改 `around_time` 保留登记、例行意图闭集、空计划）、`tests/life/test_day_planning.py`（零点计划模板、条目带 `around_time`、
 格式错误重试、收尾记下的起床时刻仍成提醒）、`tests/life/test_todo_layer.py`（待办层 `around_time` 只写 `HH:MM` 或 `null`，带「约」字的值被层 Schema 拒绝）、`tests/evaluation/test_goal_metrics.py` 与
@@ -279,7 +279,7 @@ flowchart LR
 
 本文按[个人事务与工作安排规格](SPEC-errands-workday.md)修订的条款（事务提醒与在手承诺、待办层 `errands`、今日计划改不了工作安排、重复意图逐条定位、度量边界）
 不在上表的验证范围内，证据登记在该规格验收台账「计划重复意图」「事务提醒」「跨夜可见」「事务与收尾记忆指标」「计划与义务」「工作负荷与作息偏离」各行；
-上表各行状态不变。修订部分未实现，见该规格阶段 1–3。
+上表各行状态不变。修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。
 
 本特性所有行都必须有实现与测试，禁止 skip、xfail、占位或延期。已有十二周正式运行、
 盲评与完整自然日 LabelKit 交付仍属项目总体验收，不能由本特性离线门禁替代。
@@ -300,4 +300,5 @@ flowchart LR
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码与测试核对）：验收台账中由 DP1 标为尚待重新验收的五行按新行为重验，改记「通过」；表后说明改为逐项列出证据测试（真实引擎的大致时刻推进、条目格式与四字段等价、零点计划模板、待办层「约 HH:MM」、推进比例只计非例行意图与导出一致）；文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收；条款正文不变 |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)「冻结条款修订」修订（个人事务与工作安排 DP1–DP14，随该规格冻结）：「心智模型与范围」把「只有 `remind_time` 产生提醒边界」限定在当日目标清单内，补当日目标与个人事务的分工，写明今日计划优先只对作息习惯成立、改不了场景声明的工作安排（收窄一日运行保真裁决 S11）；「提交与修订」补零点失效、`plan_day` 与修订都不读写个人事务；「事件驱动的决策节律」写明未完成事务不计在手承诺，决策机会表增事务提醒 `errand_reminder_due`（不进睡眠允许集合）；「人物可见内容与工具」补待办层 `errands` 与 `day_plan` 并列；「三层度量与质量导出」「度量输出合同」写明 `workload`、`routine_deviation` 与 `errand_metrics`、`conclusion_memories` 不并入三层；「当前工具交互约束」重复意图改为逐条定位、超限同批报告，并更正「尚未实现」的过期说法；验收台账表后说明更正两处过期说法并注明新证据登记在该规格验收台账，各行状态不变；文件头补修订说明。修订部分未实现，见个人事务与工作安排规格阶段 1（重复意图）、阶段 2（个人事务）、阶段 3（工作安排）。 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)「冻结条款修订」修订（个人事务与工作安排 DP1–DP14，随该规格冻结）：「心智模型与范围」把「只有 `remind_time` 产生提醒边界」限定在当日目标清单内，补当日目标与个人事务的分工，写明今日计划优先只对作息习惯成立、改不了场景声明的工作安排（收窄一日运行保真裁决 S11）；「提交与修订」补零点失效、`plan_day` 与修订都不读写个人事务；「事件驱动的决策节律」写明未完成事务不计在手承诺，决策机会表增事务提醒 `errand_reminder_due`（不进睡眠允许集合）；「人物可见内容与工具」补待办层 `errands` 与 `day_plan` 并列；「三层度量与质量导出」「度量输出合同」写明 `workload`、`routine_deviation` 与 `errand_metrics`、`conclusion_memories` 不并入三层；「当前工具交互约束」重复意图改为逐条定位、超限同批报告，并更正「尚未实现」的过期说法；验收台账表后说明更正两处过期说法并注明新证据登记在该规格验收台账，各行状态不变；文件头补修订说明。修订部分在冻结时未随文实现（该规格阶段 1（重复意图）、阶段 2（个人事务）、阶段 3（工作安排）实现后的核对见 `2026-10-04-errands-workday-implemented` 行）。 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 DP15，按 `d8a41d3` 的代码与测试核对）：文件头、「当前工具交互约束」末句与「验收台账」表后两处说明里的未实现说法统一改为已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。证据测试登记在该规格验收台账各行：「计划重复意图」`tests/life/test_revise_day_plan_json.py`、`tests/life/test_plan_day_duplicate_feedback.py`（修订入口经真实引擎、零点计划经真实后台任务，重复意图逐条定位、超限同批报告）；「事务提醒」`tests/life/test_errand_reminder.py`（清醒时到点提醒一次、睡眠中不交付不消耗、未完成事务不改变重估间隔与闭店预警）；「跨夜可见」`tests/life/test_errand_overnight.py`、`tests/life/test_day_planning.py`（零点失效、零点计划与修订之后事务不变，零点计划输入只读事务）；「事务与收尾记忆指标」`tests/evaluation/test_errand_metrics.py`、`tests/footprints/test_errand_export.py`、`tests/footprints/test_goal_export.py`（两个分组不并入 `day_plan_metrics`，当日目标报告的键集不变）；「计划与义务」`tests/integration/test_seven_layer_request.py`、`tests/life/test_day_planning.py`（系统层第 1、14 条与模板第八条逐字，零点计划输入的上班安排）；「工作负荷与作息偏离」`tests/evaluation/test_workload_metrics.py`、`tests/life/test_workload_report.py`。上表各行状态与条款正文不变 |

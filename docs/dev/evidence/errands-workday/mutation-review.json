@@ -1,0 +1,2684 @@
+{
+ "feature": "errands-workday",
+ "spec": "docs/dev/SPEC-errands-workday.md",
+ "date": "2026-10-04",
+ "method": "Independent reviewers devised mutations not registered in the ledgers and ran each against the existing tests on a clean commit in an isolated worktree; a second reviewer judged every survivor; real gaps were closed with new tests and each original mutant was replayed against them.",
+ "closing_commits": {
+  "1": "04249f1",
+  "2": "d8a41d3"
+ },
+ "rounds": [
+  {
+   "round": 1,
+   "reviewed_commit": "cd33c96",
+   "mutants": [
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_actor_class_param",
+     "source": "src/worldmock/life/read_query_runtime.py",
+     "original": "def life_env_actor_class() -> Any:\n",
+     "replacement": "def life_env_actor_class(max_concurrency: int = 1) -> Any:\n",
+     "specClause": "1.2「actor 类固定 max_concurrency=1，不提供参数」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_actor_tool_hardcoded",
+     "source": "src/worldmock/life/read_query_runtime.py",
+     "original": "        return await self._router._environment().read_query(context, tool, request)\n",
+     "replacement": "        return await self._router._environment().read_query(context, \"recall_task_summary\", request)\n",
+     "specClause": "1.2「actor 把查询交给唯一的生活环境」; read_query 的合同 (tool 取两者之一)",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_errand_recall_names",
+     "source": "custom/agents/life_agent.py",
+     "original": "        \"recall_names\": (*tasks, *goals, *activities, *labels),\n",
+     "replacement": "        \"recall_names\": (*tasks, *goals, *activities, *labels,\n                         *(row[\"name\"] for row in (data.get(\"errand_bindings\") or [])\n                           if isinstance(row, dict) and isinstance(row.get(\"name\"), str))),\n",
+     "specClause": "2.3 末条「事务名不进回看名称」(宿主一侧); 验收台账「提示与唯一出现」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_todo_layer.py::test_the_host_corrects_a_recall_by_the_name_of_an_open_errand"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_evidence_write_stage_only_for_oserror",
+     "source": "custom/agents/life_agent.py",
+     "original": "        except Exception as error:\n            feedback = _stage_feedback(\"EVIDENCE_WRITE_FAILED\", (\"tool_calls\",))\n",
+     "replacement": "        except OSError as error:\n            feedback = _stage_feedback(\"EVIDENCE_WRITE_FAILED\", (\"tool_calls\",))\n",
+     "specClause": "1.4「证据写入失败与工具服务失败以运行故障上抛 … 四码都只标出失败阶段与调用位置」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_host_failure_stages.py::test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_stage[request]",
+      "tests/integration/test_host_failure_stages.py::test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_stage[response]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_fingerprint_has_reflection",
+     "source": "custom/agents/life_agent.py",
+     "original": "    schemas = [_tool_schema(name, _TOOL_MODELS[name]) for name in _TOOL_MODELS]\n",
+     "replacement": "    from custom.agents.life_reflection import reflection_tool\n\n    schemas = [*(_tool_schema(name, _TOOL_MODELS[name]) for name in _TOOL_MODELS), reflection_tool()]\n",
+     "specClause": "1.1 身份与判定「submit_reflection 不属于人物工具面，不进 tool_schema_sha256 … 由 code_sha256 绑定」; 一 首段「四项修复只改变 code_sha256；prompt_sha256、tool_schema_sha256 … 都不变」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_reflection_tool"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_host_first_errand_issue",
+     "source": "custom/agents/life_agent.py",
+     "original": "    errand_issues = errands.change_issues(control_errands(action, request), names)\n",
+     "replacement": "    errand_issues = errands.change_issues(control_errands(action, request), names)[:1]\n",
+     "specClause": "2.3「宿主与环境对同一冻结观察调用同一纯函数，判定一致」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_host_plan_capacity_off",
+     "source": "custom/agents/life_agent.py",
+     "original": "    if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:\n",
+     "replacement": "    if False:\n",
+     "specClause": "1.3 末条「至多八条、每意图一条的合同不变」; 宿主与环境判定一致 (宿主受理的环境也受理)",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_revise_day_plan_json.py::test_host_corrects_a_revision_that_overflows_with_the_preserved_goals"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_host_rejects_eight_goals",
+     "source": "custom/agents/life_agent.py",
+     "original": "    if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:\n",
+     "replacement": "    if len(goals) + len(progressed_intents) >= MAX_PLAN_GOALS:\n",
+     "specClause": "1.3 末条「至多八条、每意图一条的合同不变」(修订入口, 宿主一侧)",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_revise_day_plan_json.py::test_host_and_engine_accept_a_revision_that_fills_the_plan_to_exactly_eight[no-preserved-goal]",
+      "tests/life/test_revise_day_plan_json.py::test_host_and_engine_accept_a_revision_that_fills_the_plan_to_exactly_eight[two-preserved-goals]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_mem_1000_rejected",
+     "source": "src/worldmock/life/models.py",
+     "original": "    if len(text) > MEMORY_TEXT_MAX_CHARS:\n",
+     "replacement": "    if len(text) >= MEMORY_TEXT_MAX_CHARS:\n",
+     "specClause": "1.1 校验 第四条「至多一千字符」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_mem_upper_hex_ok",
+     "source": "src/worldmock/life/models.py",
+     "original": "_MEMORY_HEX_IDENTITY = re.compile(r\"[0-9a-fA-F]{8,}\")\n",
+     "replacement": "_MEMORY_HEX_IDENTITY = re.compile(r\"[0-9a-f]{8,}\")\n",
+     "specClause": "1.1 校验 第四条「insight 与收尾记忆的文字同一校验：至多一千字符，不含八位以上十六进制串」; 验收台账「严格反思」: 正文含身份串被拒",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision[upper_case_hexadecimal_identity_in_text]",
+      "tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision[mixed_case_hexadecimal_identity_in_text]",
+      "tests/integration/test_conclude_memories.py::test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_decision[upper_case_hexadecimal_identity_in_view_text]",
+      "tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection[upper_case_identity_in_text]",
+      "tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection[mixed_case_identity_in_text]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_metrics_count_purpose_requests",
+     "source": "src/worldmock/evaluation/behavior_metrics.py",
+     "original": "        if not event.get(\"data\", {}).get(\"purpose\") and (not names or _ACTION_TOOL in names):\n",
+     "replacement": "        if not names or _ACTION_TOOL in names:\n",
+     "specClause": "1.1 身份与判定「行动请求的判定不变（不带 purpose …）」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_metrics_drop_tool_less_requests",
+     "source": "src/worldmock/evaluation/behavior_metrics.py",
+     "original": "(not names or _ACTION_TOOL in names):\n",
+     "replacement": "(_ACTION_TOOL in names):\n",
+     "specClause": "1.1 身份与判定 (行动请求按 start_activity 判定; 不带工具的记忆巩固照计)",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_metrics_not_reflection",
+     "source": "src/worldmock/evaluation/behavior_metrics.py",
+     "original": "(not names or _ACTION_TOOL in names):\n",
+     "replacement": "(not names or \"submit_reflection\" not in names):\n",
+     "specClause": "1.1 身份与判定「凡以『不带 purpose 且带工具』筛选行动请求的读者与用例都改为按 start_activity 判定」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_behavior_metrics.py::test_tool_requests_without_start_activity_are_not_decision_requests"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_plan_pair_unlocated",
+     "source": "src/worldmock/life/models.py",
+     "original": "if len(indexes) > 1 for index in indexes)\n",
+     "replacement": "if len(indexes) > 2 for index in indexes)\n",
+     "specClause": "1.3「每个重复的意图，同时定位首次出现与其后每次出现的条目」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_query_world_via_env",
+     "source": "custom/agents/life_agent.py",
+     "original": "            data = query_world(self._life_observation, _validate_request(QueryWorldRequest, args))\n",
+     "replacement": "            data = await self._env.read_query(self.require_decision_context(), action,\n                                              _validate_request(QueryWorldRequest, args))\n",
+     "specClause": "1.2 执行位置「query_world 由宿主在本次冻结观察上本地求值」; 5.6",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_recall_result_dropped",
+     "source": "custom/agents/life_agent.py",
+     "original": "_validate_request(REQUEST_MODELS[action], args))\n            return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)\n",
+     "replacement": "_validate_request(REQUEST_MODELS[action], args))\n            data = {}\n            return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)\n",
+     "specClause": "1.2「recall_task_summary 经代理送到环境 actor」「代理等待远端并返回结果对象」; 摘要「回看任务经环境 actor 转发并等待真实结果」; 验收台账「只读查询转发」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_read_query_runtime.py::test_host_tool_message_is_the_environment_recall_result"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_refl_as2_prompt",
+     "source": "custom/agents/life_memory.py",
+     "original": "        original = [{\"role\": \"system\", \"content\": REFLECTION_PROMPT}, self._reflection_messages(episodes, t)[1]]\n",
+     "replacement": "        original = self._reflection_messages(episodes, t)\n",
+     "specClause": "1.1 文案「反思的 system 文案由 WorldMock 自持为模块常量 … 测试逐字比对」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_refl_zero_insights",
+     "source": "custom/agents/life_reflection.py",
+     "original": "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n",
+     "replacement": "        if not 0 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n",
+     "specClause": "1.1 校验 第二条「insights 一至五条」; 失败「不降级为空反思」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_reflection_model_called_with_no_episodes",
+     "source": "custom/agents/life_memory.py",
+     "original": "        if not episodes:\n            return []\n        insights = await self._validated_reflection(episodes, t)\n",
+     "replacement": "        if episodes is None:\n            return []\n        insights = await self._validated_reflection(episodes, t)\n",
+     "specClause": "1.1 通道「没有可反思的主观记忆时不调用模型」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_reflection_padded_ref_accepted_as_known",
+     "source": "custom/agents/life_reflection.py",
+     "original": "sorted(set(item.refs) - known)",
+     "replacement": "sorted({ref.strip() for ref in item.refs} - known)",
+     "specClause": "1.1 校验 第三条「每条 refs … 全部属于本次输入的记忆身份」; 验收台账「严格反思」: 引用全部取自输入",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_strict_reflection.py::test_runtime_rejects_a_padded_copy_of_a_supplied_identity[padded_ref]",
+      "tests/integration/test_strict_reflection.py::test_runtime_rejects_a_padded_copy_of_a_supplied_identity[padded_twin_of_a_known_ref]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_reflection_retry_bound_off_by_one",
+     "source": "custom/agents/life_memory.py",
+     "original": "                if attempt > REFLECTION_VALIDATION_RETRIES:\n",
+     "replacement": "                if attempt >= REFLECTION_VALIDATION_RETRIES:\n",
+     "specClause": "1.1 失败「首次之外至多三次（连同首次至多四次模型调用）」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_reflection_two_choices_first_accepted",
+     "source": "custom/agents/life_reflection.py",
+     "original": "    if not isinstance(choices, list) or len(choices) != 1:\n",
+     "replacement": "    if not isinstance(choices, list) or len(choices) < 1:\n",
+     "specClause": "1.1 校验 第一条「响应恰好一次工具调用且函数名为 submit_reflection；… 多次调用都不接受」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_strict_reflection.py::test_runtime_rejects_a_response_with_two_choices_as_more_than_one_call",
+      "tests/integration/test_strict_reflection.py::test_reflection_requires_exactly_one_tool_call[two_choices]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_reflection_unknown_refs_checked_only_in_first_insight",
+     "source": "custom/agents/life_reflection.py",
+     "original": "for index, item in enumerate(payload.insights)}\n",
+     "replacement": "for index, item in enumerate(payload.insights[:1])}\n",
+     "specClause": "1.1 校验 第三条「每条 refs … 全部属于本次输入的记忆身份」; 验收台账「严格反思」: 引用全部取自输入, 未知引用不被接受",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_strict_reflection.py::test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection[unknown_ref_in_later_insight]",
+      "tests/integration/test_strict_reflection.py::test_invalid_reflection_cannot_enter_memory[unknown_ref_in_later_insight]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_society_as2_proxy",
+     "source": "src/worldmock/runtime.py",
+     "original": "        config = AgentSocietyConfig(\n            prepared.run_id, specs, \"LifeAgent\", env, service,\n",
+     "replacement": "        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n        config = AgentSocietyConfig(\n            prepared.run_id, specs, \"LifeAgent\",\n            EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=[\"LifeEnv\"]), service,\n",
+     "specClause": "1.2「运行装配以这两个类建立环境 actor 与代理」; 验收台账「运行装配得到的环境代理具有 read_query」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_tool_dispatch_stage_only_for_oserror",
+     "source": "custom/agents/life_agent.py",
+     "original": "        except Exception as error:\n            logging.exception(\"LifeAgent tool dispatch failed: %s\", decision.action)\n",
+     "replacement": "        except OSError as error:\n            logging.exception(\"LifeAgent tool dispatch failed: %s\", decision.action)\n",
+     "specClause": "1.4「工具分发失败先写日志，再按现行实现的失败阶段码 TOOL_SERVICE_FAILED 抛出」; 验收台账「故障传播」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_host_failure_stages.py::test_tool_service_failure_of_any_exception_type_is_logged_and_raised_with_its_stage[private_exception]",
+      "tests/integration/test_host_failure_stages.py::test_tool_service_failure_of_any_exception_type_is_logged_and_raised_with_its_stage[sqlite_error]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_window_fallback",
+     "source": "src/worldmock/delivery/windows.py",
+     "original": "    row = max(candidates, key=lambda item: item[\"event_seq\"])\n",
+     "replacement": "    exposing = [item for item in candidates if action[\"data\"].get(\"tool_name\") in {\n        tool.get(\"function\", {}).get(\"name\")\n        for tool in ((item[\"data\"].get(\"request\") or {}).get(\"tools\") or []) if isinstance(tool, dict)}]\n    row = max(exposing or candidates, key=lambda item: item[\"event_seq\"])\n",
+     "specClause": "1.1 身份与判定「核对其工具含该动作的工具名，不满足是完整性故障，不回退到更早的请求」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g1-runtime-fixes",
+     "name": "rfx_window_prompt_takes_the_earliest_request",
+     "source": "src/worldmock/delivery/windows.py",
+     "original": "    row = max(candidates, key=lambda item: item[\"event_seq\"])\n",
+     "replacement": "    row = min(candidates, key=lambda item: item[\"event_seq\"])\n",
+     "specClause": "1.1 身份与判定「取动作之前最后一份不带 purpose 的请求 … 截断重试请求照此被选中」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_cancel_without_reason_accepted",
+     "source": "src/worldmock/life/models.py",
+     "original": "\"更新\": (), \"取消\": (\"reason\",)}",
+     "replacement": "\"更新\": (), \"取消\": ()}",
+     "specClause": "2.1: 「已取消」由人物请求触发并必须写原因; 2.2 cross-constraint table (取消: reason 必须非空); ledger row「事务名称与错误」: 取消必带原因 (no registered mutation covers it).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_change_quantity_nine_rejected",
+     "source": "src/worldmock/life/models.py",
+     "original": "if quantity is not None and not ERRAND_QUANTITY_MIN <= quantity <= ERRAND_QUANTITY_MAX:",
+     "replacement": "if quantity is not None and not ERRAND_QUANTITY_MIN <= quantity < ERRAND_QUANTITY_MAX:",
+     "specClause": "2.1「上限」: 数量 1 至 9.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_names.py::test_a_name_of_30_characters_texts_of_120_characters_and_9_portions_are_accepted"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_clock_minutes_unbounded",
+     "source": "src/worldmock/life/models.py",
+     "original": "_CLOCK_PATTERN = r\"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$\"",
+     "replacement": "_CLOCK_PATTERN = r\"^(?:[01][0-9]|2[0-3]):[0-9][0-9]$\"",
+     "specClause": "2.2「每条变更」: remind_time 为 HH:MM 或 null，与当日目标的 remind_time 同名同形.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_control_errands_reads_legacy_as_empty",
+     "source": "src/worldmock/life/control_items.py",
+     "original": "    entries = [_mapping(entry, tool) for entry in _list(_field(body, \"errands\", tool), tool)]",
+     "replacement": "    entries = [_mapping(entry, tool) for entry in _list(body.get(\"errands\", []), tool)]",
+     "specClause": "2.3 / 2.9: 控制请求缺 errands 键是完整性故障，不留读取分支.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_env_recheck_skipped",
+     "source": "src/worldmock/life/session_actions.py",
+     "original": "        if issues:\n            _LOGGER.error(\"Errand changes are invalid on the frozen observation\")",
+     "replacement": "        if False:\n            _LOGGER.error(\"Errand changes are invalid on the frozen observation\")",
+     "specClause": "2.3: 环境在三个处理器里用同一函数复核，失败合并为一次 ACTION_REQUEST_INVALID; docs/CONTRACTS.md 原子受理: 再…复核事务变更，活动状态转换之后才把变更应用到人物状态 (the re-check precedes the activity-state checks).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_requests.py::test_errand_changes_are_rechecked_before_the_activity_state_checks[conclude_activity]",
+      "tests/life/test_errand_requests.py::test_errand_changes_are_rechecked_before_the_activity_state_checks[pause_activity]",
+      "tests/life/test_errand_requests.py::test_errand_changes_are_rechecked_before_the_activity_state_checks[report_status]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_errand_change_open_object",
+     "source": "src/worldmock/life/models.py",
+     "original": "    model_config = ConfigDict(json_schema_extra=purpose_only_schema(\n        \"一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。\"))",
+     "replacement": "    model_config = ConfigDict(extra=\"ignore\", json_schema_extra=purpose_only_schema(\n        \"一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。\"))",
+     "specClause": "2.2「每条变更」: 封闭对象，八个键全部必填.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_errand_events_only_with_lifecycle_change",
+     "source": "src/worldmock/life/activity_control.py",
+     "original": "    return changed, drafts + terminal + errands.request_drafts(before, after, pending)",
+     "replacement": "    return changed, drafts + terminal + (errands.request_drafts(before, after, pending) if drafts else [])",
+     "specClause": "2.2「原子性」/ 2.7: 每条被受理的变更恰好写一条事务事件 (also for a plain report that changes no activity).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_issues_not_sorted",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    plan.issues.sort(key=lambda issue: issue[0].path[1:])\n",
+     "replacement": "",
+     "specClause": "No sentence of SPEC 2.3 or docs/CONTRACTS.md fixes the order of the items. The order (条目下标, 键) is stated only in the docstrings of errands.change_issues and _plan and in the docstring of tests/life/test_errand_names.py::test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged.",
+     "outcome": "SURVIVED",
+     "verdict": "outside-spec"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_pause_rejection_keeps_errand_changes",
+     "source": "src/worldmock/life/session_actions.py",
+     "original": "            refusal = activity_control.control_refusal(context, \"pause_activity\", activity)\n            if refusal is not None:\n                raise refusal.error()",
+     "replacement": "            refusal = activity_control.control_refusal(context, \"pause_activity\", activity)\n            if refusal is not None:\n                state.agents[pending.agent_id] = self._apply_errands(state, pending, changes)[0].agents[\n                    pending.agent_id]\n                raise refusal.error()",
+     "specClause": "2.2「原子性」: 请求因任何原因被业务拒绝时事务变更一并不生效; spec mutation list: 业务拒绝时事务变更照落. Ledger row「事务变更与原子受理」only names 被业务拒绝的收尾.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_requests.py::test_a_refused_pause_registers_no_errand_and_writes_no_errand_event",
+      "tests/life/test_errand_requests.py::test_errand_changes_are_rechecked_before_the_activity_state_checks[pause_activity]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_pause_takes_any_number_of_changes",
+     "source": "src/worldmock/life/models.py",
+     "original": "return _validate_errands(\"pause_activity\", errands)",
+     "replacement": "return errands",
+     "specClause": "2.1「上限」: 一次请求至多 4 条变更; 2.2「入口」(three tools); 2.3 row 1: 单次条数 -> ARGUMENTS_INVALID.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_requests.py::test_every_structural_error_reports_the_full_errand_path[five_unrelated_entries_in_a_pause]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_progress_eight_decimals",
+     "source": "src/worldmock/life/errand_state.py",
+     "original": "ERRAND_PROGRESS_DIGITS = 9",
+     "replacement": "ERRAND_PROGRESS_DIGITS = 8",
+     "specClause": "2.1 field table: progress 九位小数; 2.4 累计与容差.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_projection_keeps_memories_without_flag",
+     "source": "src/worldmock/life/control_items.py",
+     "original": "        if memories and tool == \"conclude_activity\":",
+     "replacement": "        if tool == \"conclude_activity\":",
+     "specClause": "2.9: 意图与 dreaming 窗口对控制请求的投影恒不带 errands（与 memories、views 同等对待）.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_public_receipt_dropped_when_empty",
+     "source": "src/worldmock/life/result_projection.py",
+     "original": "    details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})",
+     "replacement": "    details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS\n                    if key in payload and (key != \"errands\" or payload[key])})",
+     "specClause": "2.2: 成功结果恒带回执 details.errands…没有变更时为 [].",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_receipt_uses_written_name",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    receipt = [{\"errand\": plan.targets[index][\"name\"] if index in plan.targets else change[\"name\"],",
+     "replacement": "    receipt = [{\"errand\": change[\"name\"],",
+     "specClause": "2.2 回执 details.errands（errand 为名称）; CONTRACTS: 更新与取消写待办层里的名称.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_report_checks_errands_before_activity_names",
+     "source": "src/worldmock/life/session_actions.py",
+     "original": "        requested, selected = self._named_activities(state, pending, written)\n        changes = self._errand_changes(pending, \"report_status\", request)\n",
+     "replacement": "        changes = self._errand_changes(pending, \"report_status\", request)\n        requested, selected = self._named_activities(state, pending, written)\n",
+     "specClause": "2.3: 环境在三个处理器里用同一函数复核; docs/CONTRACTS.md「个人事务」原子受理: 环境先解析活动名，再在同一冻结观察上复核事务变更, and「活动受理拒绝码」: 活动名都解析出来之后，全部事务问题合并成一次 ACTION_REQUEST_INVALID.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_names.py::test_an_unknown_activity_name_is_refused_before_the_errand_changes[report_status]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_report_errands_optional",
+     "source": "src/worldmock/life/models.py",
+     "original": "description=\"要播报进展的活动，一项一个对象。\")\n    errands: Annotated[list[ErrandChange], WithJsonSchema(_ERRANDS_SCHEMA)] = Field(description=_ERRANDS_PURPOSE)",
+     "replacement": "description=\"要播报进展的活动，一项一个对象。\")\n    errands: Annotated[list[ErrandChange], WithJsonSchema(_ERRANDS_SCHEMA)] = Field(\n        default_factory=list, description=_ERRANDS_PURPOSE)",
+     "specClause": "2.2「入口」: 各增一个请求级必填字段 errands.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_report_rejection_keeps_errand_changes",
+     "source": "src/worldmock/life/session_actions.py",
+     "original": "\"report_status\", current)\n            if refusal is not None:\n                raise refusal.error()",
+     "replacement": "\"report_status\", current)\n            if refusal is not None:\n                state.agents[pending.agent_id] = self._apply_errands(state, pending, changes)[0].agents[\n                    pending.agent_id]\n                raise refusal.error()",
+     "specClause": "2.2「原子性」: 请求因任何原因被业务拒绝时事务变更一并不生效; 2.2「入口」: 暂停的在其开始地点可用 report_status.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_requests.py::test_a_refused_resume_registers_no_errand_and_writes_no_errand_event",
+      "tests/life/test_errand_requests.py::test_errand_changes_are_rechecked_before_the_activity_state_checks[report_status]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_report_takes_any_number_of_changes",
+     "source": "src/worldmock/life/models.py",
+     "original": "return _validate_errands(\"report_status\", errands)",
+     "replacement": "return errands",
+     "specClause": "2.1「上限」: 一次请求至多 4 条变更; 2.2「入口」: report_status、pause_activity、conclude_activity 各增 errands (CONTRACTS: 零至四条). 2.3 row 1: 单次条数 -> ARGUMENTS_INVALID.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_requests.py::test_every_structural_error_reports_the_full_errand_path[five_unrelated_entries_in_a_report]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_same_request_twins_ignore_outcome",
+     "source": "src/worldmock/life/errands.py",
+     "original": "               and (OUTCOME_CODES[changes[other][\"outcome\"]], plan.products[other]) == pair]",
+     "replacement": "               and plan.products[other] == pair[1]]",
+     "specClause": "2.3 table row 4: 结果种类与商品**都**与已有或同请求另一条新增相同 -> ARGUMENTS_INVALID (only when both are equal); 2.3: 至多一条相同（结果种类，商品）.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_names.py::test_obtaining_and_eating_one_product_are_two_additions_of_one_request"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_state_quantity_nine_rejected",
+     "source": "src/worldmock/life/errand_state.py",
+     "original": "quantity: int = Field(ge=ERRAND_QUANTITY_MIN, le=ERRAND_QUANTITY_MAX)",
+     "replacement": "quantity: int = Field(ge=ERRAND_QUANTITY_MIN, lt=ERRAND_QUANTITY_MAX)",
+     "specClause": "2.1 field table and「上限」: quantity 1 至 9.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_text_limit_exclusive",
+     "source": "src/worldmock/life/models.py",
+     "original": "    if value is not None and len(value) > limit:",
+     "replacement": "    if value is not None and len(value) >= limit:",
+     "specClause": "2.1「上限」: 名称至多 30 字符；备注与取消原因各至多 120 字符 (inclusive bounds).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_names.py::test_a_name_of_30_characters_texts_of_120_characters_and_9_portions_are_accepted"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_unchanged_update_writes_no_event",
+     "source": "src/worldmock/life/errands.py",
+     "original": "            drafts.append(_draft(head, UPDATED_KIND, updated.model_dump(mode=\"json\")))",
+     "replacement": "            if updated != before.agents[owner].errands.get(updated.errand_id):\n                drafts.append(_draft(head, UPDATED_KIND, updated.model_dump(mode=\"json\")))",
+     "specClause": "2.2「原子性」: 每条被受理的变更恰好写一条事务事件（内容没有变化的更新也写）.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g2-errand-requests",
+     "name": "errcore_updates_deducted_like_cancels",
+     "source": "src/worldmock/life/errands.py",
+     "original": "cancelled = {row[\"errand_id\"] for index, row in plan.targets.items() if changes[index][\"change\"] == CHANGE_CANCEL}",
+     "replacement": "cancelled = {row[\"errand_id\"] for index, row in plan.targets.items()}",
+     "specClause": "2.2: 同一请求内按「取消、更新、新增」的次序求值：重名、同结果同商品与上限都按扣除本请求**取消**之后的未完成集合判定; 2.1 上限 8 条; 2.3: 同一人物同时至多一条相同（结果种类，商品）的未完成事务.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_names.py::test_an_errand_that_a_request_only_updates_still_counts_as_open"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "advance_settles_after_rhythm",
+     "source": "src/worldmock/life/engine.py",
+     "original": "        staged, credited = errands.settle(staged, drafts)\n        drafts.extend(credited)\n        boundary = RhythmBoundary(target_epoch, interval, arrivals, drafts)\n        if reminders.defers_rhythm(staged, target_epoch, self.scenario.timezone):\n            staged = settle_engine_rhythm(self, staged, boundary)\n            drafts, self._midnight = hold_body_settlements(boundary)\n        else:\n            staged = apply_engine_rhythm(self, staged, boundary)\n",
+     "replacement": "        boundary = RhythmBoundary(target_epoch, interval, arrivals, drafts)\n        if reminders.defers_rhythm(staged, target_epoch, self.scenario.timezone):\n            staged = settle_engine_rhythm(self, staged, boundary)\n            drafts, self._midnight = hold_body_settlements(boundary)\n        else:\n            staged = apply_engine_rhythm(self, staged, boundary)\n        staged, credited = errands.settle(staged, drafts)\n        drafts.extend(credited)\n",
+     "specClause": "2.4 结算函数: 时钟推进在后台事件并入之后、构造节律边界之前；2.5: 事务完成或取消后不再提醒",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_reminder.py::test_an_errand_completed_at_its_reminder_boundary_is_not_reminded"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "advance_settles_before_background_events",
+     "source": "src/worldmock/life/engine.py",
+     "original": "        drafts.extend(background)\n        staged, credited = errands.settle(staged, drafts)\n        drafts.extend(credited)\n",
+     "replacement": "        staged, credited = errands.settle(staged, drafts)\n        drafts.extend(credited)\n        drafts.extend(background)\n",
+     "specClause": "2.4 结算函数: 时钟推进在后台事件并入之后",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "eaten_quantity_reads_cumulative",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    rows = [Evidence(agent_id, _EAT, item[\"product_id\"], item[\"interval_quantity\"], start)\n",
+     "replacement": "    rows = [Evidence(agent_id, _EAT, item[\"product_id\"], item[\"cumulative_quantity\"], start)\n",
+     "specClause": "2.4 依据表: 本区间食用量；验收台账「进食按实际食用量」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "eating_evidence_ignores_use_mode",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    eaten = consumption[\"items\"] if consumption[\"use_mode\"] == \"eat\" else []\n",
+     "replacement": "    eaten = consumption[\"items\"]\n",
+     "specClause": "2.4 依据表: 吃掉 = 本人进食活动的进度结算中该商品的本区间食用量",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_completion.py::test_making_or_using_an_item_is_not_eating_it"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "errand_reason_listed_before_plan_reminder",
+     "source": "src/worldmock/life/schedule.py",
+     "original": "    if snap.plan_reminder_due:\n        reasons.append(WakeReason.PLAN_REMINDER_DUE)\n    if snap.errand_reminder_due:\n        reasons.append(WakeReason.ERRAND_REMINDER_DUE)\n",
+     "replacement": "    if snap.errand_reminder_due:\n        reasons.append(WakeReason.ERRAND_REMINDER_DUE)\n    if snap.plan_reminder_due:\n        reasons.append(WakeReason.PLAN_REMINDER_DUE)\n",
+     "specClause": "2.5: errand_reminder_due 追加在 plan_reminder_due 之后，与该边界的其他原因按枚举顺序并列",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "errand_system_events_written_as_agent",
+     "source": "src/worldmock/life/errands.py",
+     "original": "                      visibility=\"agent\" if kind in AGENT_VISIBLE_KINDS else \"system\",\n",
+     "replacement": "                      visibility=\"agent\",\n",
+     "specClause": "2.7 表: errand_registered、errand_updated、errand_cancelled、errand_progressed 的可见性为 system",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "errand_times_not_boundary_candidates",
+     "source": "src/worldmock/life/reminders.py",
+     "original": "    moments.extend(errands.boundary_times(state))\n",
+     "replacement": "    moments.extend(())\n",
+     "specClause": "2.5 调度口径: 清醒人物的未提醒时刻进入下一边界的候选（两处各自并入）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "errand_times_not_decision_candidates",
+     "source": "src/worldmock/life/rhythm.py",
+     "original": "        errand_reminder_times=errands.reminder_times(agent, state.current_time),\n",
+     "replacement": "        errand_reminder_times=(),\n",
+     "specClause": "2.5 调度口径: 清醒人物的未提醒时刻进入下一次决策机会的候选",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "evidence_scanned_in_reverse_order",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    for index, draft in enumerate(drafts):\n",
+     "replacement": "    for index, draft in reversed(list(enumerate(drafts))):\n",
+     "specClause": "2.4 结算函数: 按草稿先后扫描，命中即累加，达标则把事务移出未完成集合并写完成事件",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_settlement_idempotence.py::test_two_evidence_events_in_one_commit_are_credited_in_event_order"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "interval_start_equal_to_noting_excluded",
+     "source": "src/worldmock/life/errands.py",
+     "original": "            if row.interval_start is not None and row.interval_start < errand.registered_at:\n",
+     "replacement": "            if row.interval_start is not None and row.interval_start <= errand.registered_at:\n",
+     "specClause": "2.4 先后: 结算区间的起点不早于记下的时刻（相等算数；「同一秒先收尾记下」必须能完成）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "making_output_ignores_interval_start",
+     "source": "src/worldmock/life/errands.py",
+     "original": "float(transform[\"output_quantity\"]),\n                             start))\n",
+     "replacement": "float(transform[\"output_quantity\"]),\n                             None))\n",
+     "specClause": "2.4 先后: 活动进度类证据另要求其结算区间的起点不早于记下的时刻（制作产出是活动进度的库存转换输出）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_completion.py::test_a_making_interval_begun_before_noting_yields_no_output_evidence"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "missed_reminder_not_delivered_at_wake_boundary",
+     "source": "src/worldmock/life/rhythm.py",
+     "original": "        errand_reminder_due=bool(errands.reminders_due(agent, now)),\n",
+     "replacement": "        errand_reminder_due=bool(errands.reminders_due(agent, now)) and not _woke_from_sleep(\n            state, agent.agent_id, now),\n",
+     "specClause": "2.5: 每个为清醒人物提供决策机会的边界（含人物刚醒来的那个边界）一并交付；睡眠期间错过的提醒在醒来的边界交付，不另起边界",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "nested_results_gifts_counted",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    handed += payload.get(\"given\", [])\n",
+     "replacement": "    handed += [*payload.get(\"given\", []),\n               *(gift for row in payload.get(\"activity_results\", []) for gift in row.get(\"given\", []))]\n",
+     "specClause": "2.4 只读一处: 动作结果只读顶层的 orders 与 given；验收台账「并行开始的合并结果不重复计数」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_settlement_idempotence.py::test_a_parallel_start_counts_each_gift_once"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "next_local_day_adds_fixed_seconds",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    return clock_epoch(clock, day_end_seconds(now, timezone_name), timezone_name)\n",
+     "replacement": "    return today + 86400\n",
+     "specClause": "2.5: 否则取下一本地日（按本地日历换算）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "outcome_ignored_when_matching",
+     "source": "src/worldmock/life/errands.py",
+     "original": "                 if (errand.outcome, errand.product_id) == (row.outcome, row.product_id)), None)\n",
+     "replacement": "                 if errand.product_id == row.product_id), None)\n",
+     "specClause": "2.4 依据: 结果种类 × 商品 × 数量",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "plan_reminder_due_counts_errand_reminders",
+     "source": "src/worldmock/life/rhythm.py",
+     "original": "        plan_reminder_due=reminders.reminder_due(agent, now),\n",
+     "replacement": "        plan_reminder_due=reminders.reminder_due(agent, now) or bool(errands.reminders_due(agent, now)),\n",
+     "specClause": "2.5: 当日目标提醒的候选与到期判定（它会结束睡眠）保持只管当日目标",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "progress_rearms_reminder",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    errands[errand.errand_id] = ErrandState.model_validate({**errand.model_dump(), \"progress\": progress})\n",
+     "replacement": "    errands[errand.errand_id] = ErrandState.model_validate({**errand.model_dump(), \"progress\": progress,\n                                                            \"reminded_at\": None})\n",
+     "specClause": "2.5: 到点只提供一次决策机会并记一次；更新时写新的 remind_time 重新计一次（只有更新重新计）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_reminder.py::test_partial_progress_after_the_reminder_does_not_remind_again"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "reminded_at_records_the_reminder_clock",
+     "source": "src/worldmock/life/errands.py",
+     "original": "        reminded = errand.model_copy(update={\"reminded_at\": state.current_time})\n",
+     "replacement": "        reminded = errand.model_copy(update={\"reminded_at\": errand.remind_at})\n",
+     "specClause": "2.1 字段表 reminded_at 已提醒时刻；2.7 errand_reminded 在提醒实际交付时写",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "reminder_candidates_include_the_present_moment",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    return tuple(sorted({errand.remind_at for errand in _unreminded(agent) if errand.remind_at > now}))\n",
+     "replacement": "    return tuple(sorted({errand.remind_at for errand in _unreminded(agent) if errand.remind_at >= now}))\n",
+     "specClause": "2.5 调度口径: 候选只取严格晚于此刻的时刻",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_reminder.py::test_a_reminder_time_equal_to_the_present_is_not_a_candidate"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "reminder_resets_progress",
+     "source": "src/worldmock/life/errands.py",
+     "original": "        reminded = errand.model_copy(update={\"reminded_at\": state.current_time})\n",
+     "replacement": "        reminded = errand.model_copy(update={\"reminded_at\": state.current_time, \"progress\": 0.0})\n",
+     "specClause": "2.5: 到点…不改变事务状态（累计量不变）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "repeated_due_delivery_counts",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    return [row for change in data.get(\"inventory_changes\", [])\n",
+     "replacement": "    return [row for change in data.get(\"orders\", []) if change[\"status\"] == \"delivered\"\n",
+     "specClause": "2.4 只读一处: 配送事件只读本次新送达的入库行，重复到期的订单不再产生入库行",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "request_events_carry_action_identity",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    return drafts\n",
+     "replacement": "    return [draft.model_copy(update={\"decision_id\": pending.decision_id, \"action_id\": pending.action_id})\n            for draft in drafts]\n",
+     "specClause": "2.7: 六种事件的决策身份与动作身份都为空，只经 caused_by 关联",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "round_settles_after_each_action",
+     "source": "src/worldmock/life/engine.py",
+     "original": "            drafts.extend(action_drafts)\n            if not pending.reused:\n                staged = _remember_action(staged, pending, result)\n        staged, settled = errands.settle(staged, drafts)\n        drafts.extend(settled)\n",
+     "replacement": "            drafts.extend(action_drafts)\n            if not pending.reused:\n                staged = _remember_action(staged, pending, result)\n            staged, settled = errands.settle(staged, action_drafts)\n            drafts.extend(settled)\n",
+     "specClause": "2.4: 决策轮提交在全部动作结算之后调用一次；本次提交里被取消的事务不再接受该提交的证据",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "settlement_event_owned_by_evidence_agent",
+     "source": "src/worldmock/life/errands.py",
+     "original": "            head = _Head(row.owner_id, state.current_time, (draft.event_id,))\n",
+     "replacement": "            head = _Head(draft.agent_id, state.current_time, (draft.event_id,))\n",
+     "specClause": "2.7: 一条事件只对应一条事务，人物字段为事务所有人（证据可以是别人的动作）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "sleeper_errand_time_is_a_decision_candidate",
+     "source": "src/worldmock/life/schedule.py",
+     "original": "    if not query.is_asleep:\n        candidates.extend(query.errand_reminder_times)\n",
+     "replacement": "    candidates.extend(query.errand_reminder_times)\n",
+     "specClause": "2.5 调度口径: 睡眠中的人物不计入候选（下一次决策机会一处，按是否在睡过滤）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "tolerance_dropped",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    if progress >= errand.quantity - ERRAND_TOLERANCE:\n",
+     "replacement": "    if progress >= errand.quantity:\n",
+     "specClause": "2.4 累计与容差: 累计量达到数量减 1e-9 即完成",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "tolerance_widened_to_one_millionth",
+     "source": "src/worldmock/life/errands.py",
+     "original": "    if progress >= errand.quantity - ERRAND_TOLERANCE:\n",
+     "replacement": "    if progress >= errand.quantity - ERRAND_TOLERANCE * 1000:\n",
+     "specClause": "2.4 累计与容差: 累计量达到数量减 1e-9 即完成；不足时保持未完成并记录已累计量",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_completion.py::test_progress_short_of_the_tolerance_stays_open"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g3-settlement-reminders",
+     "name": "zero_quantity_eating_counts",
+     "source": "src/worldmock/life/errands.py",
+     "original": "            for item in eaten if item[\"interval_quantity\"] > 0]\n",
+     "replacement": "            for item in eaten if item[\"interval_quantity\"] >= 0]\n",
+     "specClause": "2.7 errand_progressed 何时写: 结算证据命中但未达数量；2.4 吃掉的证据是本区间食用量",
+     "outcome": "SURVIVED",
+     "verdict": "outside-spec"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_continuation_overlay_ignores_errands",
+     "source": "custom/agents/life_continuation.py",
+     "original": "    for key, written in ((\"targets\", \"updated\"), (\"paused_activities\", \"added\"), (\"errands\", \"added\")):\n",
+     "replacement": "    for key, written in ((\"targets\", \"updated\"), (\"paused_activities\", \"added\")):\n",
+     "specClause": "2.6 同秒续接（changes 相对模型所见给出 errands 的 added 与 removed）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_errand_completed_record_schema_accepts_a_memo",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "            _record(\"errand_completed\", {\"errand\": _TEXT}),\n",
+     "replacement": "            _record(\"errand_completed\", {\"errand\": _TEXT, \"memo\": _NULLABLE_TEXT}, optional=(\"memo\",)),\n",
+     "specClause": "2.6「进度层新增两种只写名称的记录 errand_reminder{errand} 与 errand_completed{errand}」; 6.4 prompt_sha256 covers 进度层 Schema",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_progress_events.py::test_real_errand_records_satisfy_a_progress_schema_that_admits_only_the_errand_name"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_errand_id_allowed_in_prompt",
+     "source": "src/worldmock/life/narration.py",
+     "original": "    \"errand_id\",\n",
+     "replacement": "",
+     "specClause": "2.3 last bullet（errand_bindings、errand_item_bindings 与 errand_id 列入提示禁键）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_errand_records_are_always_protected",
+     "source": "src/worldmock/life/progress_layer.py",
+     "original": "    if item.sources and any(event.event_seq > seq for event in item.sources):\n        return True\n",
+     "replacement": "    if item.sources and (item.record[\"type\"] in _ERRAND_RECORDS.values()\n                         or any(event.event_seq > seq for event in item.sources)):\n        return True\n",
+     "specClause": "2.6「上下文容量浓缩时，errand_completed 折成一句…；errand_reminder 与当日目标提醒同等对待，折叠后不留句」and ledger row 提示与唯一出现「同一 session 内办成的事务在进度层有一条记录，浓缩后折成一句」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_progress_events.py::test_errand_records_seen_by_a_later_action_request_fold_under_capacity"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_errand_records_sort_before_event_records",
+     "source": "src/worldmock/life/progress_layer.py",
+     "original": "              \"type\": _ERRAND_RECORDS[event.data[\"kind\"]], \"errand\": event.data[\"errand\"][\"name\"]}\n    return _Record(record, (event,), _event_key(event.occurred_at, [event]))\n",
+     "replacement": "              \"type\": _ERRAND_RECORDS[event.data[\"kind\"]], \"errand\": event.data[\"errand\"][\"name\"]}\n    return _Record(record, (event,), (event.occurred_at, 0, 2, 0, event.event_seq))\n",
+     "specClause": "2.6（两种记录都由事件派生）with the progress-layer ordering rule of SPEC-persona-prompt「同一秒内推导记录在前，事件记录按最小来源事件序号」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_progress_events.py::test_a_completion_record_follows_the_calls_of_its_second_by_event_sequence"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_metrics_acted_reads_first_reminder_only",
+     "source": "src/worldmock/evaluation/errand_metrics.py",
+     "original": "    for reminder in life.reminders:\n",
+     "replacement": "    for reminder in life.reminders[:1]:\n",
+     "specClause": "6.1 reminded_errand_count / acted_after_reminder_count（提醒后到下一个本地零点或终态前…的事务数）with 2.5「更新时写新的 remind_time 重新计一次」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_errand_metrics.py::test_acting_after_a_later_reminder_counts_although_nothing_followed_the_first",
+      "tests/footprints/test_errand_export.py::test_acting_after_a_re_armed_reminder_is_counted_from_the_stored_events"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_metrics_evidence_ignores_outcome_kind",
+     "source": "src/worldmock/evaluation/errand_metrics.py",
+     "original": "        if any((row.owner_id, row.outcome, row.product_id) == wanted for row in rows):\n",
+     "replacement": "        if any((row.owner_id, row.product_id) == (wanted[0], wanted[2]) for row in rows):\n",
+     "specClause": "6.1 completed_without_evidence_count（完成事件缺证据引用或证据不可复核的条数）together with 2.4「依据。结果种类 × 商品 × 数量」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_errand_metrics.py::test_evidence_of_the_other_outcome_kind_does_not_verify_a_completion"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_metrics_making_refers_to_recipe_input",
+     "source": "src/worldmock/evaluation/errand_metrics.py",
+     "original": "    return (eaten | {recipe[\"output_object_id\"]}) if recipe else eaten\n",
+     "replacement": "    return (eaten | {recipe[\"input_object_id\"]}) if recipe else eaten\n",
+     "specClause": "6.1 acted_after_reminder_count（被受理且指向同一商品的购买、制作或进食请求）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_errand_metrics.py::test_a_making_request_points_at_the_recipe_output_not_at_the_kit_it_uses_up",
+      "tests/footprints/test_errand_export.py::test_starting_to_make_the_dish_after_its_reminder_is_counted_from_the_stored_events"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_metrics_terminal_at_midnight_counts_as_carried",
+     "source": "src/worldmock/evaluation/errand_metrics.py",
+     "original": "    end = life.terminal[\"occurred_at\"] - 1 if life.terminal is not None else cutoff\n",
+     "replacement": "    end = life.terminal[\"occurred_at\"] if life.terminal is not None else cutoff\n",
+     "specClause": "6.1 carried_overnight_count（记下后跨过至少一个本地零点仍未完成）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_pause_tool_purpose_omits_errands",
+     "source": "custom/agents/life_prompt.py",
+     "original": "    \"pause_activity\": \"按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。\",\n",
+     "replacement": "    \"pause_activity\": \"按活动名暂停一两项进行中的活动并写下进展。\",\n",
+     "specClause": "3.2 工具用途句定稿（pause_activity）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_plan_feedback_reports_the_first_error_only",
+     "source": "src/worldmock/life/day_planning.py",
+     "original": "    for item in error.errors():\n",
+     "replacement": "    for item in error.errors()[:1]:\n",
+     "specClause": "1.3（超限与重复同批报告；零点计划入口的附回文本逐条列位置与原因）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_plan_input_conclusions_tolerate_missing_errands",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "        for item in control_items(\"conclude_activity\", event.data[\"request\"]):\n",
+     "replacement": "        for item in control_items(\"conclude_activity\", {\"errands\": [], **event.data[\"request\"]}):\n",
+     "specClause": "2.9 first bullet（…零点计划输入…随之严格）and 2.3（旧形状记录直接拒绝）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_day_planning.py::test_plan_inputs_refuse_an_accepted_conclusion_recorded_without_errands"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_plan_input_lists_the_first_persons_errands",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "        \"个人事务\": errands.plan_rows(agent, _product_names(engine), zone),\n",
+     "replacement": "        \"个人事务\": errands.plan_rows(state.agents[min(state.agents)], _product_names(engine), zone),\n",
+     "specClause": "2.8「零点计划输入新增只读键『个人事务』」（the errands of the person being planned for）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_day_planning.py::test_midnight_plan_inputs_list_only_the_planned_persons_errands"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_plan_registration_clears_errands",
+     "source": "src/worldmock/life/day_planning.py",
+     "original": "        update={\"day_plan\": plan, \"plan_submitted_dates\": set(agent.plan_submitted_dates) | {date}}, deep=True)\n",
+     "replacement": "        update={\"day_plan\": plan, \"errands\": {},\n                \"plan_submitted_dates\": set(agent.plan_submitted_dates) | {date}}, deep=True)\n",
+     "specClause": "2.8「零点置空当日计划、revise_day_plan 与目标推进都不改动事务；零点计划…不创建、不更改、不终结」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_plan_template_item_seven_reworded",
+     "source": "src/worldmock/life/day_planning.py",
+     "original": "七、个人事务已经记在待办里，不必照抄成目标；今天打算去办的，可以写一条目标说明什么时候办。\n",
+     "replacement": "七、个人事务已经记在待办里；今天打算去办的，可以写一条目标说明什么时候办。\n",
+     "specClause": "2.8 模板第七条",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_progress_arguments_tolerate_missing_errands",
+     "source": "src/worldmock/life/progress_layer.py",
+     "original": "    return control_request(tool, request, memories=True)\n",
+     "replacement": "    return control_request(tool, {\"errands\": [], **request}, memories=True)\n",
+     "specClause": "2.9 first bullet（…进度层…随之严格）and 2.3「事件或导出里的控制请求缺 errands 键是完整性故障：旧形状记录直接拒绝，不留读取分支」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_progress_events.py::test_the_progress_layer_refuses_a_stored_control_request_without_errands"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_progress_layer_shows_other_peoples_errand_records",
+     "source": "src/worldmock/life/progress_layer.py",
+     "original": "    for event in store.read_agent_events(\"environment_event\", context.agent_id, after=lower):\n        kind = event.data.get(\"kind\")\n",
+     "replacement": "    shared = [event for other in sorted(context.state.agents) if other != context.agent_id\n              for event in store.read_agent_events(\"environment_event\", other, after=lower)\n              if event.data.get(\"kind\") in _ERRAND_RECORDS]\n    for event in [*shared, *store.read_agent_events(\"environment_event\", context.agent_id, after=lower)]:\n        kind = event.data.get(\"kind\")\n",
+     "specClause": "2.6（进度层记录由本人可见的事务事件派生）and 2.7（交付窗口要求每个进度来源都是本人可见的结果或事件）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_progress_schema_lacks_the_errand_reminder_record",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "            _record(\"errand_reminder\", {\"errand\": _TEXT}),\n",
+     "replacement": "",
+     "specClause": "2.6 进度层新增记录 errand_reminder{errand}; 6.4 prompt_sha256 covers 进度层 Schema",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_prompt_layers.py::test_progress_schema_registers_the_eight_record_types_with_both_errand_records",
+      "tests/life/test_progress_events.py::test_real_errand_records_satisfy_a_progress_schema_that_admits_only_the_errand_name"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_progress_shows_partial_credit_as_completed",
+     "source": "src/worldmock/life/progress_layer.py",
+     "original": "_ERRAND_RECORDS = {REMINDED_KIND: \"errand_reminder\", COMPLETED_KIND: \"errand_completed\"}\n",
+     "replacement": "_ERRAND_RECORDS = {REMINDED_KIND: \"errand_reminder\", COMPLETED_KIND: \"errand_completed\",\n                   \"errand_progressed\": \"errand_completed\"}\n",
+     "specClause": "2.7 事件表（errand_progressed 系统可见，只供审计与指标）and 2.6（进度层只消费提醒与办成两种事件）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_quality_conclusions_tolerate_missing_errands",
+     "source": "src/worldmock/footprints/quality.py",
+     "original": "    if any(item.memories for item in control_items(\"conclude_activity\", event.data.get(\"request\"))):\n",
+     "replacement": "    if any(item.memories for item in control_items(\n            \"conclude_activity\", {\"errands\": [], **(event.data.get(\"request\") or {})})):\n",
+     "specClause": "2.9 first bullet（control_items 是唯一读取入口，缺 errands 键即完整性故障；…质量报告…随之严格）and 2.3「旧形状记录直接拒绝，不留读取分支」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/footprints/test_quality.py::test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_quality_errand_metrics_use_utc_days",
+     "source": "src/worldmock/footprints/quality.py",
+     "original": "        \"errand_metrics\": errand_metrics(rows, manifest[\"window\"][\"timezone\"]),\n",
+     "replacement": "        \"errand_metrics\": errand_metrics(rows, \"UTC\"),\n",
+     "specClause": "6.1 carried_overnight_count / acted_after_reminder_count（本地零点）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_quality_treats_errand_changes_as_a_memory_write_point",
+     "source": "src/worldmock/footprints/quality.py",
+     "original": "    if any(item.memories for item in control_items(\"conclude_activity\", event.data.get(\"request\"))):\n",
+     "replacement": "    if (any(item.memories for item in control_items(\"conclude_activity\", event.data.get(\"request\")))\n            or event.data[\"request\"][\"errands\"]):\n",
+     "specClause": "2.2 原子性「事务变更不是记忆写入点，不产生 memory_updated」and 3.4 结构项（事务变更不写入主观记忆、不产生 memory_updated）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/footprints/test_quality.py::test_a_conclusion_that_only_changes_errands_is_no_memory_write_point",
+      "tests/footprints/test_errand_export.py::test_a_conclusion_that_only_notes_an_errand_is_no_memory_write_point"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_query_channel_index_allowed_in_prompt",
+     "source": "src/worldmock/life/narration.py",
+     "original": "    \"world_query_channels\",\n",
+     "replacement": "",
+     "specClause": "5.2 来源解析：查询来源筛选的私有渠道索引 world_query_channels 不进入提示",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_reminder_record_folds_to_a_line",
+     "source": "src/worldmock/life/settled_text.py",
+     "original": "        return [f\"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」\"]\n",
+     "replacement": "        return [f\"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」\"]\n    if kind == \"errand_reminder\":\n        return [f\"{_clock(context, record['occurred_at'])} 提醒「{record['errand']}」\"]\n",
+     "specClause": "2.6「errand_reminder 与当日目标提醒同等对待，折叠后不留句」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_rule_1_omits_errands_from_the_todo_layer",
+     "source": "custom/agents/life_prompt.py",
+     "original": "        \"记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；\"\n",
+     "replacement": "        \"记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动与今日计划；\"\n",
+     "specClause": "3.1 系统层第 1 条",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_todo_errand_row_schema_accepts_extra_keys",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "                   \"remind_time\": {\"type\": [\"string\", \"null\"], \"pattern\": r\"^([01][0-9]|2[0-3]):[0-5][0-9]$\"},\n                   \"noted_on\": _DATE})\n",
+     "replacement": "                   \"remind_time\": {\"type\": [\"string\", \"null\"], \"pattern\": r\"^([01][0-9]|2[0-3]):[0-5][0-9]$\"},\n                   \"noted_on\": _DATE}) | {\"additionalProperties\": True}\n",
+     "specClause": "2.6 待办层行六键「行内不含内部身份、状态枚举与可用性」; 6.4 prompt_sha256 covers 待办层 Schema",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_todo_layer.py::test_the_todo_layer_schema_closes_an_errand_row_to_exactly_its_six_keys"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_todo_layer_lists_the_first_persons_errands",
+     "source": "src/worldmock/life/todo_layer.py",
+     "original": "    agent, names = context.state.agents[context.agent_id], _product_names(context)\n",
+     "replacement": "    agent, names = context.state.agents[min(context.state.agents)], _product_names(context)\n",
+     "specClause": "2.1（事务是人物记下的打算…随人物状态保存）and 2.6 待办层 errands（本人未完成事务）; 6.1「本人各次观察中待办层含该事务」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_errand_todo_layer.py::test_each_persons_todo_layer_and_bindings_list_only_their_own_errands"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_window_errand_events_expose_their_snapshot",
+     "source": "src/worldmock/delivery/windows.py",
+     "original": "        return {key: data[key] for key in (\"status\", \"error_code\", \"message\") if key in data}\n    return {}\n",
+     "replacement": "        return {key: data[key] for key in (\"status\", \"error_code\", \"message\") if key in data}\n    return {key: data[key] for key in (\"kind\", \"errand\") if str(data.get(\"kind\", \"\")).startswith(\"errand_\")}\n",
+     "specClause": "2.7「它们在窗口里作为事件出现时公开投影仍为空对象」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_window_observation_drops_todo_errands",
+     "source": "src/worldmock/delivery/windows.py",
+     "original": "        return {key: data[key] for key in OBSERVATION_LAYER_KEYS if key in data}\n",
+     "replacement": "        return {key: ({**data[key], \"errands\": []} if key == \"todo_layer\" else data[key])\n                for key in OBSERVATION_LAYER_KEYS if key in data}\n",
+     "specClause": "2.9「观察里的待办层原样进入窗口」",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g4-presentation-delivery-metrics",
+     "name": "present_window_projection_tolerates_missing_errands",
+     "source": "src/worldmock/delivery/windows.py",
+     "original": "            public[\"request\"] = control_request(data[\"tool_name\"], public[\"request\"], memories=False)\n",
+     "replacement": "            public[\"request\"] = control_request(\n                data[\"tool_name\"], {\"errands\": [], **public[\"request\"]}, memories=False)\n",
+     "specClause": "2.9（缺 errands 的旧控制请求被拒：交付窗口随之严格）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "ci_query_categories_count_distinct_products",
+     "source": "src/worldmock/life/callable_index.py",
+     "original": "    counts = Counter(entry[\"category\"] for entry in entries if entry[\"category\"] is not None)\n",
+     "replacement": "    counts = Counter(category for category, _ in {(entry[\"category\"], entry[\"aliases\"][-1])\n                                                  for entry in entries if entry[\"category\"] is not None})\n",
+     "specClause": "5.1 last bullet: query_categories 「仍是查询权限内的完整条目数」 (entries, not distinct product names).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "ir_answers_ignore_decision",
+     "source": "scripts/inspect_run.py",
+     "original": "answers.get((call[\"decision_id\"], call[\"id\"]), [])",
+     "replacement": "sorted(row for key, rows in answers.items() if key[1] == call[\"id\"] for row in rows)",
+     "specClause": "6.3: 「口径取已落库的模型工具交换证据」; a call is answered by the tool message of its own decision (calls, failures, returned_chars).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_query_cost_report.py::test_a_call_id_reused_by_a_later_decision_does_not_answer_an_earlier_query"
+     ],
+     "replay_after_closing": "NOT-REPLAYABLE"
+    },
+    {
+     "group": "g5-query",
+     "name": "ir_empty_after_filter_counts_tail_pages",
+     "source": "scripts/inspect_run.py",
+     "original": "page.get(\"total_count\") == 0",
+     "replacement": "not page.get(\"matches\")",
+     "specClause": "6.3: empty_after_filter is 「筛选后为空的次数」 (a filtered query whose total is 0), not a tail page at offset == total.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_query_cost_report.py::test_a_tail_page_of_a_filtered_query_is_not_empty_after_filter"
+     ],
+     "replay_after_closing": "NOT-REPLAYABLE"
+    },
+    {
+     "group": "g5-query",
+     "name": "ir_filtered_calls_only_answered",
+     "source": "scripts/inspect_run.py",
+     "original": "\"filtered_calls\": sum(_query_filtered(call[\"arguments\"]) for call in calls),",
+     "replacement": "\"filtered_calls\": sum(_query_filtered(call[\"arguments\"]) for call, _ in answered),",
+     "specClause": "6.3: filtered_calls is 「带筛选的调用数」 over all query calls, answered or not.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "ir_purchase_end_is_last_settlement",
+     "source": "scripts/inspect_run.py",
+     "original": "    end = min((seq for seq, buyer in purchases if buyer == agent and seq > start), default=None)\n",
+     "replacement": "    end = max((seq for seq, buyer in purchases if buyer == agent and seq > start), default=None)\n",
+     "specClause": "6.3: model_calls_to_purchase is 「从首次查询到购买结算的模型调用数」 (the first settlement after the first query).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_query_cost_report.py::test_model_calls_to_purchase_stop_at_the_first_settlement_after_the_first_query"
+     ],
+     "replay_after_closing": "NOT-REPLAYABLE"
+    },
+    {
+     "group": "g5-query",
+     "name": "ir_reflection_retry_counts_original_request",
+     "source": "scripts/inspect_run.py",
+     "original": "(count or 0) > REFLECTION_ORIGINAL_MESSAGES",
+     "replacement": "(count or 0) >= REFLECTION_ORIGINAL_MESSAGES",
+     "specClause": "6.3: reflection_retries counts requests 「只有 `submit_reflection` 且带附回消息」.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "na_channel_index_not_forbidden",
+     "source": "src/worldmock/life/narration.py",
+     "original": "    \"world_query_channels\",\n",
+     "replacement": "",
+     "specClause": "5.2 third paragraph: the channel index world_query_channels is 「列入提示禁键」.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "na_errand_item_bindings_not_forbidden",
+     "source": "src/worldmock/life/narration.py",
+     "original": "    \"errand_item_bindings\",\n",
+     "replacement": "",
+     "specClause": "2.3: errand_bindings, errand_item_bindings and errand_id are forbidden prompt keys.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "na_home_identity_not_forbidden",
+     "source": "src/worldmock/life/narration.py",
+     "original": "    \"home_location_id\",\n",
+     "replacement": "",
+     "specClause": "Adjacent to 5.2 (「住处身份」 home_location_id is an observation-private fact) and ledger row 「提示与唯一出现」 (「内部身份…不进任何层」); the key itself predates this feature (docs/CONTRACTS.md lists it among the private observation keys).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_narration.py::TestFieldBlacklist::test_each_forbidden_key_alone_raises[home_location_id]",
+      "tests/life/test_narration.py::TestContractListedKeys::test_every_key_the_contract_lists_is_rejected_alone_and_inside_a_layer",
+      "tests/life/test_narration.py::TestContractListedKeys::test_home_identity_cannot_enter_any_layer",
+      "tests/integration/test_life_agent_protocol.py::test_home_identity_never_enters_messages_and_a_layer_carrying_it_is_rejected"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "nr_channel_key_keeps_case",
+     "source": "src/worldmock/life/name_resolution.py",
+     "original": "    return \"\".join(name.split()).casefold()\n",
+     "replacement": "    return \"\".join(name.split())\n",
+     "specClause": "5.2 shared resolution: channel names are compared without spaces or case (current spelling rule kept by the shared pure function).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "nr_home_words_exact_only",
+     "source": "src/worldmock/life/name_resolution.py",
+     "original": "    if bare_name(written) in HOME_WORDS and home is not None:\n",
+     "replacement": "    if written in HOME_WORDS and home is not None:\n",
+     "specClause": "5.2 second paragraph: 「来源的合法写法以现行实现为准（全部地点显示名与住处、渠道称呼）」; 5.1 `from` row (「含「家」「住处」」): home words are compared with the same lossless normalisation as place names.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_world_query_filters.py::test_home_words_keep_meaning_home_under_lossless_spellings",
+      "tests/life/test_purchase_stages.py::test_home_words_in_from_keep_meaning_home_under_lossless_spellings",
+      "tests/life/test_purchase_channels.py::test_home_spellings_resolve_to_the_same_stores_for_purchase_and_query"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "po_home_of_first_agent",
+     "source": "src/worldmock/life/purchase_offers.py",
+     "original": "    return next((item.home_location_id for item in context.scenario.agents if item.agent_id == context.agent_id), None)\n",
+     "replacement": "    return next((item.home_location_id for item in context.scenario.agents), None)\n",
+     "specClause": "5.2 first paragraph: the shared resolver takes 「住处」 of the acting person (purchase side `_home`); SPEC-dayrun-fidelity 3.3 rule 1 「「家」「住处」指本人住处」.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_purchase_channels.py::test_home_in_from_is_the_acting_persons_own_home_for_purchase_and_query"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "po_near_sources_include_storeless_places",
+     "source": "src/worldmock/life/purchase_offers.py",
+     "original": "    stores = (supply.location_id for supply in context.scenario.supplies)\n",
+     "replacement": "    stores = tuple(_places(context))\n",
+     "specClause": "Purchase-side counterpart of 5.5 row 1 kept by the 5.2 refactor: SOURCE_NOT_FOUND candidates are 「有供给的门店的显示名与渠道称呼」 (SPEC-dayrun-fidelity 3.3/3.4, near_sources contract).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_purchase_stages.py::test_an_unknown_source_near_a_place_without_supplies_never_offers_that_place"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "po_scope_drops_channel_identity",
+     "source": "src/worldmock/life/purchase_offers.py",
+     "original": "    return None if match is None else SourceScope(match.store_ids, match.channel_id, match.name)\n",
+     "replacement": "    return None if match is None else SourceScope(match.store_ids, None, match.name)\n",
+     "specClause": "5.2: purchase delegates to the shared resolver without changing its scope (channel name -> member stores and channel_id).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "tg_compact_keeps_empty_dict",
+     "source": "src/worldmock/life/tool_groups.py",
+     "original": "if item is not None and item != [] and item != {}",
+     "replacement": "if item is not None and item != []",
+     "specClause": "5.4 second bullet: 「只省略 null 与空集合」 (empty mappings are empty collections).",
+     "outcome": "SURVIVED",
+     "verdict": "equivalent"
+    },
+    {
+     "group": "g5-query",
+     "name": "tg_compact_skips_nested_lists",
+     "source": "src/worldmock/life/tool_groups.py",
+     "original": "    if isinstance(value, list):\n        return [compact(item) for item in value]\n    return deepcopy(value)\n",
+     "replacement": "    return deepcopy(value)\n",
+     "specClause": "5.4 second bullet: actions and tools inside a match are compacted too (null reason of an available action is left out).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "tg_compact_skips_nested_mappings",
+     "source": "src/worldmock/life/tool_groups.py",
+     "original": "        return {key: compact(item) for key, item in value.items() if item is not None and item != [] and item != {}}\n",
+     "replacement": "        return {key: (compact(item) if isinstance(item, list) else deepcopy(item))\n                for key, item in value.items() if item is not None and item != [] and item != {}}\n",
+     "specClause": "5.4 second bullet: 「每项是冻结目标的无损紧凑投影…只省略 null 与空集合」 at every depth (a task's contract.outlook is null unless the deadline cannot be met); the same compact renders the prompt's tool layer.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_world_query_filters.py::test_task_contract_drops_null_in_query_results_and_in_the_prompt_tool_layer"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_frozen_supplies_ignore_place_access",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "        if fact[\"purchase_pairing_state\"] != \"defined\" or not fact[\"access_allowed\"] or not fact[\"service_allowed\"]:\n",
+     "replacement": "        if fact[\"purchase_pairing_state\"] != \"defined\" or not fact[\"service_allowed\"]:\n",
+     "specClause": "5.5 table row 3: 「合法空页，不泄露不可访问门店」; 5.2 (frozen facts are the permitted supplies); 5.6 「不扩大读取权限」.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_world_query_filters.py::test_supplies_of_a_store_the_person_may_not_enter_are_neither_frozen_nor_offered"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_frozen_supplies_ignore_service_qualification",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "        if fact[\"purchase_pairing_state\"] != \"defined\" or not fact[\"access_allowed\"] or not fact[\"service_allowed\"]:\n",
+     "replacement": "        if fact[\"purchase_pairing_state\"] != \"defined\" or not fact[\"access_allowed\"]:\n",
+     "specClause": "5.5 table row 3 (a source without permitted supply is a legal empty page and is never leaked).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_host_report_reason_omits_observation_errors",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "    return replace(report, reason=\"; \".join(item.why for item in items), items=items)\n",
+     "replacement": "    return replace(report, items=items)\n",
+     "specClause": "5.5 last paragraph: 「来源错误与方式、品类错误一次全报」 as it reaches the model: the top-level reason of the host protocol feedback.",
+     "outcome": "SURVIVED",
+     "verdict": "outside-spec"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_misplaced_channel_on_missing_from",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "    if name is None or \"from\" not in values or values[\"from\"] is not None:\n",
+     "replacement": "    if name is None or values.get(\"from\") is not None:\n",
+     "specClause": "5.5 table row 2 (the row applies only when 「`from` 为 null」) together with 5.1 「旧四键请求按缺字段拒绝」.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_purchase_channels.py::test_a_request_without_the_from_key_is_reported_for_its_missing_keys_only"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_offset_checked_despite_filter_errors",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "    if not errors:\n        total = len(_matching_entries(observation, request))\n",
+     "replacement": "    if True:\n        total = len(_matching_entries(observation, request))\n",
+     "specClause": "5.5 last paragraph: 「`offset` 范围只在全部筛选合法后计算」.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_page_size_doubled",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "    observation[\"world_query_page_size\"] = context.scenario.candidate_presentation_limit\n",
+     "replacement": "    observation[\"world_query_page_size\"] = context.scenario.candidate_presentation_limit * 2\n",
+     "specClause": "5.3 third bullet: 「排序键与每页大小不变，不新增页长或排序参数」 (the page size stays the scenario's candidate_presentation_limit).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_world_query_filters.py::test_page_size_is_the_scenario_presentation_limit_and_follows_that_constant"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_purchase_available_requires_all_ways",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "        return any(action[\"available\"] for action in match[\"actions\"] if action[\"way\"] in ways)\n",
+     "replacement": "        return all(action[\"available\"] for action in match[\"actions\"] if action[\"way\"] in ways)\n",
+     "specClause": "5.3 first bullet: 「「购买」取两种取得动作中任一可用」.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_sorted_by_identity_only",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "    return sorted(selected, key=lambda entry: (entry[\"match\"][\"name\"], entry[\"identity\"]))\n",
+     "replacement": "    return sorted(selected, key=lambda entry: entry[\"identity\"])\n",
+     "specClause": "5.3 third bullet 「排序键…不变」 and 5.2 「`from` 不…按距离或价格排序」.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_source_candidates_keep_unpermitted_channels",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "    channels = tuple(row for row in _channel_rows(observation) if stores.intersection(row[2]))\n",
+     "replacement": "    channels = _channel_rows(observation)\n",
+     "specClause": "5.5 table row 1: 「候选来源只取权限内有供给条目的门店与渠道」.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_purchase_channels.py::test_a_channel_without_a_permitted_member_store_is_never_a_source_candidate"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g5-query",
+     "name": "wq_written_way_also_counts_tools",
+     "source": "src/worldmock/life/world_query.py",
+     "original": "        return any(action[\"available\"] for action in match[\"actions\"] if action[\"way\"] in ways)\n",
+     "replacement": "        return any(action[\"available\"] for action in match[\"actions\"] if action[\"way\"] in ways) or any(\n            tool[\"available\"] for tool in match[\"tools\"])\n",
+     "specClause": "5.3 first bullet: 「写了 `way` 时只看方式命中的动作；`way` 为 null 时看全部动作以及以该目标为参数的工具」.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_world_query_filters.py::test_available_only_with_a_written_way_never_counts_the_tools_of_the_target"
+     ],
+     "replay_after_closing": "KILLED"
+    }
+   ]
+  },
+  {
+   "round": 2,
+   "reviewed_commit": "59b81a3",
+   "mutants": [
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_arrive_home_checked_against_the_demoted_leave_work",
+     "source": "src/worldmock/profile/models.py",
+     "original": "    if problem is not None:\n        problems.append(problem)\n        leave_work = None\n    lower = (\"leave_home\", leave_home) if leave_work is None else (\"leave_work\", leave_work)\n",
+     "replacement": "    lower = (\"leave_home\", leave_home) if leave_work is None else (\"leave_work\", leave_work)\n    if problem is not None:\n        problems.append(problem)\n        leave_work = None\n",
+     "specClause": "4.1「降级而不失败」：先核 leave_work（对出门与就寝），再核 arrive_home（对仍有效的下班或出门，以及就寝）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_arrive_home_clause_escapes_the_hanzi_budget",
+     "source": "src/worldmock/profile/textgen.py",
+     "original": "    hanzi = count_hanzi(text)\n",
+     "replacement": "    hanzi = count_hanzi(text)\n    if card.time_anchors.arrive_home is not None:\n        hanzi -= count_hanzi(\"到家\" + _window_text(card.time_anchors.arrive_home))\n",
+     "specClause": "4.1：画像文本对 leave_work、arrive_home 各自非空时各追加一个分句…追加分句计入六百汉字预算（裁决 W5）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_textgen.py::test_the_arrive_home_clause_counts_towards_the_budget_alone_and_with_the_leave_work_clause"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_compiler_warning_message_blames_agreement",
+     "source": "src/worldmock/profile/injection.py",
+     "original": "f\"画像编译留下警告：{text}。\"",
+     "replacement": "f\"画像抽取的三次一致性偏低：{text}。\"",
+     "specClause": "4.1：PERSONA_AGREEMENT_LOW 改为泛指「画像编译留下的警告」，消息不再预设原因是一致性偏低",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_conflicting_leave_work_slot_is_cleared",
+     "source": "src/worldmock/profile/injection.py",
+     "original": "        warnings.append(_conflict(agent.agent_id, field, (getattr(anchors, slot), raw), \"anchor_order\"))\n",
+     "replacement": "        warnings.append(_conflict(agent.agent_id, field, (getattr(anchors, slot), raw), \"anchor_order\"))\n        if slot == \"leave_work\":\n            anchors = anchors.model_copy(update={slot: None})\n",
+     "specClause": "4.2：场景声明的窗口落下后违反顺序约束…该槽保留卡片值（新槽的卡片值可以是 null）并记 CARD_FIELD_CONFLICT",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_injection.py::test_a_conflicting_scenario_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home",
+      "tests/integration/test_input_warnings.py::test_a_scenario_window_conflicting_with_a_card_work_anchor_keeps_every_card_anchor[leave_work_after_the_card_arrive_home]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_demotion_notes_collected_from_every_sample",
+     "source": "src/worldmock/profile/extractor.py",
+     "original": "    card, notes = _build_card(consensus, config)\n    big_five = BigFiveProfile(**consensus[\"big_five\"])\n",
+     "replacement": "    card = _build_card(consensus, config)[0]\n    notes = tuple(dict.fromkeys(note for payload in payloads for note in _build_card(payload, config)[1]))\n    big_five = BigFiveProfile(**consensus[\"big_five\"])\n",
+     "specClause": "4.1：降级说明只在共识后的最终卡片上生成，每个被置空的锚点一条",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_demotion_notes_precede_the_agreement_warning",
+     "source": "src/worldmock/profile/compile.py",
+     "original": "    return (*agreement, *extraction.demotion_notes)\n",
+     "replacement": "    return (*extraction.demotion_notes, *agreement)\n",
+     "specClause": "4.1「降级说明的出口」：编译警告把它接在一致性警告之后",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_extraction_result_is_mutable",
+     "source": "src/worldmock/profile/extractor.py",
+     "original": "    model_config = ConfigDict(extra=\"forbid\", frozen=True)\n\n    card: PersonaCard\n",
+     "replacement": "    model_config = ConfigDict(extra=\"forbid\", frozen=False)\n\n    card: PersonaCard\n",
+     "specClause": "4.1「降级说明的出口」：抽取结果增一个承载说明的只读字段（接口合同：抽取结果的只读字段 demotion_notes）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_extractor.py::test_demotion_notes_are_read_only_on_the_extraction_result"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_five_anchors_follow_the_work_anchor_mode",
+     "source": "src/worldmock/profile/extractor.py",
+     "original": "            per_field[key] = share\n    return consensus, per_field\n",
+     "replacement": "            per_field[key] = share\n    consensus[\"time_anchors\"] = next(payload[\"time_anchors\"] for payload in payloads\n                                     if payload[\"work_anchors\"] == consensus[\"work_anchors\"])\n    return consensus, per_field\n",
+     "specClause": "4.1「抽取」：work_anchors 单独取共识，下班锚点的摇摆不连带改变其余五个锚点",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_midnight_bound_only_with_wrapped_bedtime",
+     "source": "src/worldmock/profile/models.py",
+     "original": "    if window.end_hour > 24.0:\n",
+     "replacement": "    if window.end_hour > 24.0 and high > 24.0:\n",
+     "specClause": "4.1「首版不支持跨午夜的下班与到家」+ 不满足时按固定顺序降级为 null（接口合同 time_anchors 行：窗口终点须不晚于当日 24 点，与场景窗口 0 ≤ 起点 < 终点 ≤ 24 同一口径）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_extractor.py::test_a_work_anchor_past_midnight_is_demoted_before_an_ordinary_bedtime",
+      "tests/profile/test_models.py::test_work_anchor_order_constraints_are_enforced[arrive_home_runs_past_midnight_before_an_ordinary_bedtime]",
+      "tests/profile/test_models.py::test_the_midnight_bound_holds_for_any_bedtime_and_an_out_of_order_anchor_keeps_the_order_text"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_midnight_note_takes_precedence_over_order",
+     "source": "src/worldmock/profile/models.py",
+     "original": "    if not bound.start_hour <= window.start_hour <= high:\n        return f\"{name} start {window.start_hour:g} is outside {label} {bound.start_hour:g}..bedtime {high:g}\"\n    if window.end_hour > 24.0:\n        return f\"{name} window {window.start_hour:g}..{window.end_hour:g} runs past midnight\"\n    return None\n",
+     "replacement": "    if window.end_hour > 24.0:\n        return f\"{name} window {window.start_hour:g}..{window.end_hour:g} runs past midnight\"\n    if not bound.start_hour <= window.start_hour <= high:\n        return f\"{name} start {window.start_hour:g} is outside {label} {bound.start_hour:g}..bedtime {high:g}\"\n    return None\n",
+     "specClause": "4.1「降级说明…每个被置空的锚点一条」；接口合同「人格与卡片字段」固定格式：先后合格而窗口终点越过当日 24 点时才是 runs past midnight，每个锚点只取一条，先后不合格时取前两种之一",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_extractor.py::test_an_out_of_order_work_anchor_past_midnight_keeps_the_order_note",
+      "tests/profile/test_models.py::test_the_midnight_bound_holds_for_any_bedtime_and_an_out_of_order_anchor_keeps_the_order_text"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_only_first_compiler_warning_becomes_an_input_warning",
+     "source": "src/worldmock/profile/injection.py",
+     "original": "            for text in compiler_warnings]\n",
+     "replacement": "            for text in compiler_warnings[:1]]\n",
+     "specClause": "4.1「降级说明的出口」：画像编译警告进运行输入警告的唯一通道是 PERSONA_AGREEMENT_LOW（接口合同：逐条透传）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_only_first_compiler_warning_reaches_the_manifest",
+     "source": "src/worldmock/runtime.py",
+     "original": "    return result.card, tuple(getattr(result, \"warnings\", ()))\n",
+     "replacement": "    return result.card, tuple(getattr(result, \"warnings\", ()))[:1]\n",
+     "specClause": "4.1「降级说明的出口」：编译警告把它接在一致性警告之后；画像编译警告进运行输入警告的唯一通道是 PERSONA_AGREEMENT_LOW（逐条透传）；台账「降级说明经画像编译警告透传」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/integration/test_input_warnings.py::test_every_compiler_warning_reaches_the_manifest_and_the_ops_log_in_compile_order"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_restore_backfills_missing_work_anchor_keys",
+     "source": "src/worldmock/runtime.py",
+     "original": "        card = PersonaCardStruct.model_validate(struct)\n",
+     "replacement": "        anchors = struct.get(\"time_anchors\") if isinstance(struct, dict) else None\n        if isinstance(anchors, dict):\n            struct = {**struct, \"time_anchors\": {\"leave_work\": None, \"arrive_home\": None, **anchors}}\n        card = PersonaCardStruct.model_validate(struct)\n",
+     "specClause": "4.1：编译产物的卡片结构版本为 3…旧结构化卡片因缺这两个必填键被拒（台账「缺两键的旧卡片被拒」；不设兼容读者）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_rhythm_dinner_precedes_the_work_keys",
+     "source": "custom/agents/life_persona.py",
+     "original": "\"lunch\": window_text(anchors.lunch),",
+     "replacement": "\"lunch\": window_text(anchors.lunch), \"dinner\": window_text(anchors.dinner),",
+     "specClause": "4.1：人设层 rhythm 键序为 wake, leave_home, lunch, leave_work, arrive_home, dinner, bedtime, sleep_midpoint, sleep_need",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_sample_demotion_written_back_into_the_payload",
+     "source": "src/worldmock/profile/extractor.py",
+     "original": "    _build_card(parsed, config)\n    BigFiveProfile(**parsed[\"big_five\"])\n",
+     "replacement": "    sampled = _build_card(parsed, config)[0].time_anchors\n    parsed[\"work_anchors\"] = {name: raw if getattr(sampled, name) is not None else None\n                              for name, raw in parsed[\"work_anchors\"].items()}\n    BigFiveProfile(**parsed[\"big_five\"])\n",
+     "specClause": "4.1「降级而不失败」：单次采样只为放行校验而降级，不写回载荷；共识对原始的 work_anchors 取众数",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_scenario_bedtime_demotes_the_card_leave_work",
+     "source": "src/worldmock/profile/injection.py",
+     "original": "    try:\n        return TimeAnchors.model_validate(values)\n    except ValidationError:\n        return None\n",
+     "replacement": "    try:\n        return TimeAnchors.model_validate(values)\n    except ValidationError:\n        if slot != \"bedtime\" or values[\"leave_work\"] is None:\n            return None\n    try:\n        return TimeAnchors.model_validate({**values, \"leave_work\": None})\n    except ValidationError:\n        return None\n",
+     "specClause": "4.2：覆盖与冲突规则不变并一体适用于新槽…该槽保留卡片值并记 CARD_FIELD_CONFLICT（接口合同：覆盖不降级任何卡片锚点，例如场景声明的就寝早于卡片的到家时冲突记在 bedtime_window 上）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_injection.py::test_a_scenario_bedtime_before_the_card_leave_work_keeps_the_card_leave_work",
+      "tests/integration/test_input_warnings.py::test_a_scenario_window_conflicting_with_a_card_work_anchor_keeps_every_card_anchor[bedtime_before_the_card_leave_work]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_scenario_leave_work_demotes_the_card_arrive_home",
+     "source": "src/worldmock/profile/injection.py",
+     "original": "    try:\n        return TimeAnchors.model_validate(values)\n    except ValidationError:\n        return None\n",
+     "replacement": "    try:\n        return TimeAnchors.model_validate(values)\n    except ValidationError:\n        if slot != \"leave_work\" or values[\"arrive_home\"] is None:\n            return None\n    try:\n        return TimeAnchors.model_validate({**values, \"arrive_home\": None})\n    except ValidationError:\n        return None\n",
+     "specClause": "4.2：场景声明的窗口落下后违反顺序约束…该槽保留卡片值并记 CARD_FIELD_CONFLICT（接口合同：覆盖不降级任何卡片锚点）；台账「冲突时该槽保留卡片值并记冲突」",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_injection.py::test_a_conflicting_scenario_leave_work_keeps_the_non_null_card_slot_and_the_card_arrive_home",
+      "tests/integration/test_input_warnings.py::test_a_scenario_window_conflicting_with_a_card_work_anchor_keeps_every_card_anchor[leave_work_after_the_card_arrive_home]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_undeclared_work_hours_written_as_null",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "    return {key: value for key, value in fields.items() if value is not None}\n",
+     "replacement": "    return {key: value for key, value in fields.items() if value is not None or key in (\"下班时段\", \"到家时段\")}\n",
+     "specClause": "4.2：零点计划的人物输入增「下班时段」「到家时段」，取场景字段、未声明省略",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_window_landing_order_reversed",
+     "source": "src/worldmock/profile/injection.py",
+     "original": "        for slot, (_, target) in list(pending.items()):\n",
+     "replacement": "        for slot, (_, target) in reversed(list(pending.items())):\n",
+     "specClause": "4.2：窗口槽由三个扩为五个，覆盖与冲突规则不变并一体适用于新槽（接口合同「场景作息覆盖」：按落槽顺序（午餐、下班、到家、晚餐、就寝）反复尝试直到没有槽能再落下，落不下的槽保留卡片值并记 CARD_FIELD_CONFLICT）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/profile/test_injection.py::test_windows_that_each_fit_alone_but_not_together_land_in_slot_order",
+      "tests/integration/test_input_warnings.py::test_scenario_windows_that_each_fit_alone_but_not_together_land_in_slot_order"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_work_anchor_bounded_by_bedtime_end",
+     "source": "src/worldmock/profile/models.py",
+     "original": "    high = bedtime.start_hour\n",
+     "replacement": "    high = bedtime.end_hour\n",
+     "specClause": "4.1 顺序约束：任一非空时其起点 ≤ 归一后的就寝起点",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_work_anchor_keys_default_to_null",
+     "source": "src/worldmock/profile/models.py",
+     "original": "    leave_work: TimeWindow | None\n    arrive_home: TimeWindow | None\n",
+     "replacement": "    leave_work: TimeWindow | None = None\n    arrive_home: TimeWindow | None = None\n",
+     "specClause": "4.1：类型为可空窗口、必填无缺省；旧结构化卡片因缺这两个必填键被拒（台账「缺两键的旧卡片被拒」）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_work_anchors_join_the_five_anchor_order",
+     "source": "src/worldmock/profile/models.py",
+     "original": "        ordered = (self.wake, self.leave_home, self.lunch, self.dinner, self.bedtime)\n",
+     "replacement": "        ordered = tuple(window for window in (self.wake, self.leave_home, self.lunch, self.leave_work,\n                                              self.arrive_home, self.dinner, self.bedtime) if window is not None)\n",
+     "specClause": "4.1：两者…也不进入五锚点的全序校验；与午餐、晚餐不设先后",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g6-anchors-override",
+     "name": "pf_work_clauses_in_arrival_first_order",
+     "source": "src/worldmock/profile/textgen.py",
+     "original": "    work = ((\"下班\", anchors.leave_work), (\"到家\", anchors.arrive_home))\n",
+     "replacement": "    work = ((\"到家\", anchors.arrive_home), (\"下班\", anchors.leave_work))\n",
+     "specClause": "4.1：画像文本对 leave_work、arrive_home 各自非空时各追加一个分句",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "adjacent_breaks_rejected",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "        if any(previous[1] > following[0] for previous, following in zip(self.breaks, self.breaks[1:])):",
+     "replacement": "        if any(previous[1] >= following[0] for previous, following in zip(self.breaks, self.breaks[1:])):",
+     "specClause": "4.3 休息时段…升序、互不重叠；区间一律半开 (back-to-back half-open breaks do not overlap)",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_scenario.py::test_back_to_back_breaks_are_admitted_and_a_one_minute_overlap_is_not"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "calendar_checked_for_first_scheduled_agent_only",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "    for agent in _scheduled_agents(scenario):\n        for day, field in dates:",
+     "replacement": "    for agent in _scheduled_agents(scenario)[:1]:\n        for day, field in dates:",
+     "specClause": "4.3 场景日历是场景级的，病假、事假日对所有声明了班次的人物同时生效",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_the_calendar_binds_every_person_who_declares_a_schedule"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "calendar_problems_listed_before_workplace",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]",
+     "replacement": "problems = [*_calendar_problems(scenario), *_workplace_problems(scenario)]",
+     "specClause": "CONTRACTS「工作安排声明」: 先列工作地点、再列日历",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_workplace_problems_are_listed_before_calendar_problems"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "dates_before_the_window_checked",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "            if first <= day and datetime.combine(day, datetime.min.time(), zone) < scenario.end_at:",
+     "replacement": "            if datetime.combine(day, datetime.min.time(), zone) < scenario.end_at:",
+     "specClause": "4.3 交叉核对只对落在场景时间窗内的日历日期执行；时间窗外的例外日期不拒绝",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_calendar_dates_before_the_window_are_not_checked"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "day_starting_at_window_end_checked",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "            if first <= day and datetime.combine(day, datetime.min.time(), zone) < scenario.end_at:",
+     "replacement": "            if first <= day and datetime.combine(day, datetime.min.time(), zone) <= scenario.end_at:",
+     "specClause": "CONTRACTS「工作安排声明」: 该日当地零点早于结束时刻 (window is half-open at end_at); 4.3 时间窗外…不拒绝",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_a_date_whose_local_midnight_is_the_end_instant_is_outside_the_window"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "duty_breaks_items_untyped",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "                 \"breaks\": {\"type\": \"array\", \"items\": _TEXT}, \"status\": {\"enum\": [*DUTY_STATUSES, None]}})",
+     "replacement": "                 \"breaks\": {\"type\": \"array\"}, \"status\": {\"enum\": [*DUTY_STATUSES, None]}})",
+     "specClause": "CONTRACTS 环境层 duty: breaks 为文本数组; 4.4 breaks: [\"12:00–13:30\"]",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_prompt_layers.py::test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks[breaks-as-minute-pairs]",
+      "tests/life/test_prompt_layers.py::test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks[break-empty-text]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "duty_day_taken_in_utc",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "    day = datetime.fromtimestamp(now, zone).date()",
+     "replacement": "    day = datetime.fromtimestamp(now, ZoneInfo(\"UTC\")).date()",
+     "specClause": "4.3 时刻为自当地零点起的分钟、复用场景唯一的 timezone; 4.4 按场景与世界时钟求值",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "duty_missing_on_the_road",
+     "source": "src/worldmock/life/environment_layer.py",
+     "original": "            \"duty\": _duty(context)}",
+     "replacement": "            \"duty\": None if _location(context)[\"session_kind\"] == \"transit\" else _duty(context)}",
+     "specClause": "4.4 status 只由时钟与班次决定，不含人物在不在场",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "equal_work_window_starts_rejected",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "            and agent.leave_work_window[0] > agent.arrive_home_window[0]):",
+     "replacement": "            and agent.leave_work_window[0] >= agent.arrive_home_window[0]):",
+     "specClause": "4.2 两者都声明时下班起点不晚于到家起点",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "inverted_break_admitted",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "        if any(not self.starts <= begin < finish <= self.ends for begin, finish in self.breaks):",
+     "replacement": "        if any(not (self.starts <= begin and finish <= self.ends) for begin, finish in self.breaks):",
+     "specClause": "4.3 休息时段落在班次内、升序、互不重叠；区间一律半开",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_scenario.py::test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rejected[inverted-break]",
+      "tests/life/test_scenario.py::test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rejected[empty-break]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "only_first_break_counts_for_status",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "    if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)):",
+     "replacement": "    if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)[:1]):",
+     "specClause": "4.4 status「休息时段」只由时钟与班次决定; 4.3 班次内的休息时段 (breaks is a list)",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_work_schedule.py::test_status_is_the_break_inside_every_declared_break"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "only_first_break_listed",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "            \"breaks\": [_span_text(begin, finish) for begin, finish in shift.breaks]}",
+     "replacement": "            \"breaks\": [_span_text(begin, finish) for begin, finish in shift.breaks[:1]]}",
+     "specClause": "4.4 duty 当日当班: \"breaks\": [\"12:00–13:30\"] lists the declared breaks; 4.6 上班安排与 duty 同源",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_work_schedule.py::test_duty_and_the_plan_input_write_every_break_and_the_declared_minutes"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "overtime_days_require_a_shift",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "_SHIFT_REQUIRED_DATES = (\"makeup_work_dates\",)",
+     "replacement": "_SHIFT_REQUIRED_DATES = (\"makeup_work_dates\", \"overtime_opportunity_dates\")",
+     "specClause": "4.3 加班机会日不要求班次",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "persona_work_windows_swapped",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "\"下班时段\": _hours(config.leave_work_window), \"到家时段\": _hours(config.arrive_home_window),",
+     "replacement": "\"下班时段\": _hours(config.arrive_home_window), \"到家时段\": _hours(config.leave_work_window),",
+     "specClause": "4.2 零点计划的人物输入增「下班时段」「到家时段」，取场景字段",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "plan_input_evaluates_the_day_just_ended",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "    day = date.fromisoformat(plan_date(engine.state.current_time, engine.scenario.timezone))",
+     "replacement": "    day = date.fromisoformat(plan_date(\n        engine.state.current_time - (1 if engine.midnight_rhythm_pending else 0), engine.scenario.timezone))",
+     "specClause": "4.6 按输入里「计划日期」所指的本地日求值（零点边界为新开始的一日）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "plan_input_takes_the_first_persons_schedule",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "    config = next(item for item in engine.scenario.agents if item.agent_id == agent_id)\n    day = date.fromisoformat(",
+     "replacement": "    config = engine.scenario.agents[0]\n    day = date.fromisoformat(",
+     "specClause": "4.6 零点计划输入增「上班安排」…没有工作安排为 null (the arrangement of the person being planned for); 4.4 人物没有工作安排 → null",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_day_planning.py::test_plan_input_carries_each_persons_own_duty_arrangement[first-person-scheduled]",
+      "tests/life/test_day_planning.py::test_plan_input_carries_each_persons_own_duty_arrangement[second-person-scheduled]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "plan_template_first_line_omits_duty",
+     "source": "src/worldmock/life/day_planning.py",
+     "original": "人物档案与背景原文、当天的上班安排、\n",
+     "replacement": "人物档案与背景原文、\n",
+     "specClause": "4.6 模板输入说明的首行逐字",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "plan_template_rule_eight_drops_the_exceptions",
+     "source": "src/worldmock/life/day_planning.py",
+     "original": "八、输入里有上班安排的日子，目标不要安排在上班时间离开上班地点，写明的休息时段和工作要求去别处的外出除外。",
+     "replacement": "八、输入里有上班安排的日子，目标不要安排在上班时间离开上班地点。",
+     "specClause": "4.6 模板第八条逐字",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "problems_listed_in_document_order",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "    return sorted((agent for agent in scenario.agents if agent.work_schedule is not None),\n                  key=lambda agent: agent.agent_id)",
+     "replacement": "    return [agent for agent in scenario.agents if agent.work_schedule is not None]",
+     "specClause": "CONTRACTS「工作安排声明」: 逐条写明人物、日期与字段（…各按人物编号与日期升序）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_problems_are_listed_by_ascending_agent_id_whatever_the_document_order"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "rest_day_place_may_be_text",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "_DUTY[\"then\"] = {\"properties\": {\"hours\": {\"type\": \"null\"}, \"place\": {\"type\": \"null\"},\n",
+     "replacement": "_DUTY[\"then\"] = {\"properties\": {\"hours\": {\"type\": \"null\"},\n",
+     "specClause": "4.4 取值表（当日不当班 place 为 null）; CONTRACTS: day 为休息日时 hours、place、status 为 null",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_prompt_layers.py::test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks[rest-day-place-text]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "rhythm_arrive_home_key_optional",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "                               \"sleep_midpoint\", \"sleep_need\")})",
+     "replacement": "                               \"sleep_midpoint\", \"sleep_need\")}, optional=(\"arrive_home\",))",
+     "specClause": "4.1 人设层 rhythm 九键（两个新键可为 null，但必须出现）",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_persona_layer.py::test_rhythm_schema_requires_each_of_the_nine_keys[arrive_home]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "rule_14_drops_the_declared_exceptions",
+     "source": "custom/agents/life_prompt.py",
+     "original": "        \"手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",",
+     "replacement": "        \"手上的工作交了也还在班上。\",",
+     "specClause": "4.6 第 14 条逐字（两种声明的例外）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "rule_14_lets_the_plan_change_duty",
+     "source": "custom/agents/life_prompt.py",
+     "original": "        \"就按身体的感觉来。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，\"",
+     "replacement": "        \"就按身体的感觉来。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划可以改它，\"",
+     "specClause": "4.6 第 14 条逐字（今日计划改不了它）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "rule_1_drops_the_duty_clause",
+     "source": "custom/agents/life_prompt.py",
+     "original": "        \"环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",",
+     "replacement": "        \"环境层是此刻的身体感受与所在地点；进度层是本段停留或路程中已经发生的事。\",",
+     "specClause": "4.6 第 1 条的环境层一句",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "schedule_exceptions_get_a_default",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "    exceptions: dict[str, WorkShift | None]\n",
+     "replacement": "    exceptions: dict[str, WorkShift | None] = Field(default_factory=dict)\n",
+     "specClause": "CONTRACTS「工作安排声明」: 非空为 {workplace_location_id, weekly, exceptions}，三键都必填、没有缺省 (decision W3: no silent defaults)",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_scenario.py::test_work_schedule_requires_all_three_keys_without_defaults[exceptions]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "schedule_unknown_keys_ignored",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "    workplace_location_id: str = Field(min_length=1)\n    weekly: dict[str, WorkShift | None]\n",
+     "replacement": "    model_config = {\"extra\": \"ignore\", \"frozen\": True}\n\n    workplace_location_id: str = Field(min_length=1)\n    weekly: dict[str, WorkShift | None]\n",
+     "specClause": "4.3 不带时区字段（复用场景唯一的 timezone）; CONTRACTS「工作安排声明」: 未知键拒绝",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_scenario.py::test_work_schedule_rejects_an_unknown_key_such_as_a_timezone"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "shift_end_is_inclusive",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "    if now >= end:",
+     "replacement": "    if now > end:",
+     "specClause": "4.3 区间一律半开; 4.4 status 已下班",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "shift_negative_start_admitted",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "        if not 0 <= self.starts < self.ends <= 1440:",
+     "replacement": "        if not self.starts < self.ends <= 1440:",
+     "specClause": "4.3 班次同日、时刻为自当地零点起的分钟；CONTRACTS「工作安排声明」班次 0 ≤ starts < ends ≤ 1440",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_scenario.py::test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rejected[starts-before-midnight]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "social_dinner_day_must_be_off_duty",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "_OFF_DUTY_DATES = (\"spring_festival_dates\", \"sick_leave_date\", \"personal_leave_date\")",
+     "replacement": "_OFF_DUTY_DATES = (\"spring_festival_dates\", \"sick_leave_date\", \"personal_leave_date\", \"social_dinner_date\")",
+     "specClause": "CONTRACTS「工作安排声明」: 聚餐日同样不作要求",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "span_text_drops_start_minutes",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "    return f\"{start // 60:02d}:{start % 60:02d}–{end // 60:02d}:{end % 60:02d}\"",
+     "replacement": "    return f\"{start // 60:02d}:00–{end // 60:02d}:{end % 60:02d}\"",
+     "specClause": "4.4 hours / breaks 的写法 \"09:00–18:00\"、\"12:00–13:30\" (the text states the declared minutes)",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_work_schedule.py::test_duty_and_the_plan_input_write_every_break_and_the_declared_minutes"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "status_depends_on_being_at_home",
+     "source": "src/worldmock/life/environment_layer.py",
+     "original": "    return work_schedule.duty(config.work_schedule, context.state.current_time,\n                              context.scenario.timezone, places)\n",
+     "replacement": "    value = work_schedule.duty(config.work_schedule, context.state.current_time,\n                               context.scenario.timezone, places)\n    at_home = context.state.agents[context.agent_id].location_id == config.home_location_id\n    if value is not None and at_home and value[\"status\"] == work_schedule.STATUS_ON_DUTY:\n        return {**value, \"status\": work_schedule.STATUS_AFTER}\n    return value\n",
+     "specClause": "4.4 status 闭集…只由时钟与班次决定，不含人物在不在场; 4.5 班内离岗…环境呈现事实",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_work_schedule.py::test_status_is_on_duty_at_home_inside_the_shift"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "undeclared_work_windows_written_as_null",
+     "source": "src/worldmock/life/day_plan_inputs.py",
+     "original": "    return {key: value for key, value in fields.items() if value is not None}",
+     "replacement": "    return {key: value for key, value in fields.items()\n            if value is not None or key in (\"下班时段\", \"到家时段\")}",
+     "specClause": "4.2 取场景字段、未声明省略",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "week_starts_on_sunday",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "    return schedule.weekly[str(day.weekday())]",
+     "replacement": "    return schedule.weekly[str((day.weekday() + 1) % 7)]",
+     "specClause": "4.3 weekly 七天全写（周一为 \"0\"）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "window_first_day_not_checked",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "            if first <= day and datetime.combine(day, datetime.min.time(), zone) < scenario.end_at:",
+     "replacement": "            if first < day and datetime.combine(day, datetime.min.time(), zone) < scenario.end_at:",
+     "specClause": "4.3 交叉核对只对落在场景时间窗内的日历日期执行; CONTRACTS: 不早于开始时刻的当地日期，且该日当地零点早于结束时刻",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_the_window_starts_with_the_local_date_of_the_start_instant"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "work_schedule_gets_a_null_default",
+     "source": "src/worldmock/life/scenario.py",
+     "original": "    work_schedule: WorkSchedule | None\n",
+     "replacement": "    work_schedule: WorkSchedule | None = None\n",
+     "specClause": "4.3 必填可空字段 work_schedule（裁决 W3）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "work_schedule_load_check_not_called",
+     "source": "src/worldmock/life/semantics.py",
+     "original": "    check_work_schedules(semantics.scenario)\n",
+     "replacement": "",
+     "specClause": "4.3 跨引用放在加载检查（load_runtime_scenario 拒绝加载）",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "working_day_hours_may_be_null",
+     "source": "src/worldmock/life/prompt_schemas.py",
+     "original": "_DUTY[\"else\"] = {\"properties\": {\"hours\": _TEXT, \"place\": _TEXT, \"status\": {\"enum\": list(DUTY_STATUSES)}}}",
+     "replacement": "_DUTY[\"else\"] = {\"properties\": {\"place\": _TEXT, \"status\": {\"enum\": list(DUTY_STATUSES)}}}",
+     "specClause": "4.4 取值表（当日当班 hours 为班次文本）; CONTRACTS 环境层 duty: 为工作日时 hours、place 为文本",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_prompt_layers.py::test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks[working-day-hours-null]"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "workplace_check_skipped",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]",
+     "replacement": "problems = [*_calendar_problems(scenario)]",
+     "specClause": "4.3 工作地点是所选地点",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "workplace_checked_against_whole_map",
+     "source": "src/worldmock/life/load_checks.py",
+     "original": "    selected = {item.location_id for item in scenario.locations}\n    return [f\"agent {agent.agent_id} work_schedule.workplace_location_id \"",
+     "replacement": "    selected = {item.location_id for item in scenario.map_dataset.locations}\n    return [f\"agent {agent.agent_id} work_schedule.workplace_location_id \"",
+     "specClause": "4.3 跨引用：工作地点是所选地点",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_load_checks.py::test_a_workplace_in_the_map_but_not_selected_by_the_scenario_is_rejected"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g7-schedule-duty-prompt",
+     "name": "workplace_identity_leaks_into_duty",
+     "source": "src/worldmock/life/work_schedule.py",
+     "original": "            \"place\": places[schedule.workplace_location_id],",
+     "replacement": "            \"place\": schedule.workplace_location_id,",
+     "specClause": "4.4 键与值不含内部身份",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_appointment_counts_only_from_its_start",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "    return min(task.open_from, int(datetime.combine(day, datetime.min.time(), zone).timestamp()))",
+     "replacement": "    return task.open_from",
+     "specClause": "Spec 4.5 含预约任务: travel to the appointment before it starts is a task outing.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_arrival_home_before_leaving_accepted",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "return next((arrival for arrival in arrivals if arrival[0] > after), None)",
+     "replacement": "return next((arrival for arrival in arrivals if arrival[0] > 0), None)",
+     "specClause": "Spec 6.2 到家的时刻只对到家窗口报一项; design 07 2.2: arrived_home_at 其后当天首次到家 (after leaving the workplace).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_left_workplace_is_the_last_departure_and_arrival_home_the_first_one_after_it"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_arrival_home_not_limited_to_the_day",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "                and datetime.fromtimestamp(trip.arrival[0], zone).date() == day]",
+     "replacement": "                and datetime.fromtimestamp(trip.arrival[0], zone).date() >= day]",
+     "specClause": "Design 07 2.2: 其后当天首次到家 / 当天最后一次到家 (same local day); spec 4.1 首版不支持跨午夜的下班与到家.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_arrival_home_without_a_departure_is_the_last_one_of_that_local_day"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_arrival_home_takes_last_after_leaving",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "return next((arrival for arrival in arrivals if arrival[0] > after), None)",
+     "replacement": "return next((arrival for arrival in reversed(arrivals) if arrival[0] > after), None)",
+     "specClause": "Design 07 2.2: arrived_home_at 其后当天首次到家; blueprint 2.6: 'first arrival at home after left_workplace_at on the same local day'.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_left_workplace_is_the_last_departure_and_arrival_home_the_first_one_after_it"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_arrival_home_without_leave_takes_first",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "    return arrivals[-1] if arrivals else None",
+     "replacement": "    return arrivals[0] if arrivals else None",
+     "specClause": "Design 07 2.2: 当天没有离开工作地点时取当天最后一次到家; blueprint 2.6 routine_deviation arrived_home_at.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_arrival_home_without_a_departure_is_the_last_one_of_that_local_day"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_asleep_interval_closed_at_end",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "return any(start <= instant < end for start, end in timeline.sleep)",
+     "replacement": "return any(start <= instant <= end for start, end in timeline.sleep)",
+     "specClause": "Spec 6.2 边界时刻人物在睡的单独标注 and 4.5 指标对「边界时刻人物在睡」单独标注; blueprint 2.6: an instant is covered when start <= t < end.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_sleep_that_ends_at_a_shift_boundary_is_awake_at_that_boundary"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_back_exactly_at_shift_end_counts",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "trip.start >= last.start and trip.end < span[1]",
+     "replacement": "trip.start >= last.start and trip.end <= span[1]",
+     "specClause": "Stage-3 ruling on early leave: 'not back at the workplace before shift end'; design 07 2.2: 此后班次结束前没有回到工作地点.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_leaving_and_coming_back_before_shift_end_is_not_early_leave"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_behavior_per_agent_note_dropped",
+     "source": "src/worldmock/evaluation/behavior_metrics.py",
+     "original": "notes.extend(workload[\"notes\"])",
+     "replacement": "notes.extend(workload[\"notes\"] if workload[\"workload\"] is None else [])",
+     "specClause": "Spec 6.2 输入: 缺输入的人物报告 null 并写说明.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_behavior_schema_id_bumped",
+     "source": "src/worldmock/evaluation/behavior_metrics.py",
+     "original": "\"schema_version\": \"behavior-metrics-1\"",
+     "replacement": "\"schema_version\": \"behavior-metrics-2\"",
+     "specClause": "Spec 6.2: 报告自带的结构标识 behavior-metrics-1 不变.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_behavior_workday_timezone_ignored",
+     "source": "src/worldmock/evaluation/behavior_metrics.py",
+     "original": "workload = workday_reports(events, timezone, workday)",
+     "replacement": "workload = workday_reports(events, \"Asia/Shanghai\", workday)",
+     "specClause": "Spec 4.3: the work schedule carries no timezone field and reuses the scenario's single timezone; 6.2 evaluates shifts, windows and local days in it through behavior_metrics_report's timezone parameter.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_workday_reports_are_evaluated_in_the_timezone_given_to_the_behaviour_report"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_break_departure_at_break_end_excused",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "rest = any(start <= last.start < end for start, end in rests)",
+     "replacement": "rest = any(start <= last.start <= end for start, end in rests)",
+     "specClause": "Stage-3 ruling: only 'a last departure inside a declared break gives 0 early-leave seconds'; spec 4.3 休息时段…区间一律半开.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_leaving_at_the_instant_the_break_ends_is_early_leave"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_break_not_clipped_to_observed_shift",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "    rests = _intersect(breaks, shift)",
+     "replacement": "    rests = _union(breaks)",
+     "specClause": "Spec 6.2 声明例外秒数（班次内的休息时段…）; design 07 2.2: 班次按人物的观察窗截取; blueprint 2.6: break_seconds is 'declared break time inside the (clipped) shift'.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_break_seconds_are_clipped_to_the_observed_part_of_the_shift"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_break_time_away_counts_as_absence",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "absent = _subtract(_subtract(_subtract(shift, rests), present), away)",
+     "replacement": "absent = _subtract(_subtract(shift, present), away)",
+     "specClause": "Spec 6.2 / 验收台账: 两种声明例外不计缺勤 (declared break).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_cancelled_trip_ends_at_destination",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "end_location = (snapshot[\"location_id\"] if arrived is None",
+     "replacement": "end_location = (snapshot.get(\"destination_id\") if arrived is None",
+     "specClause": "Spec 6.2 班次内在工作地点的秒数 / 缺勤秒数; blueprint 2.6 Trips: without data.arrival the trip ends 'back at its origin (the trip was cancelled; the engine moves the person only on arrival)'.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_a_trip_given_up_on_the_way_leaves_the_person_at_its_origin",
+      "tests/evaluation/test_workload_metrics.py::test_a_real_trip_given_up_on_the_way_keeps_the_person_at_the_workplace"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_days_include_window_end_instant",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "last = datetime.fromtimestamp(timeline.end - 1, zone).date()",
+     "replacement": "last = datetime.fromtimestamp(timeline.end, zone).date()",
+     "specClause": "Design 07 2.2: routine_deviation 观察窗覆盖的每个本地日一行; blueprint 2.6: all intervals are half-open [start, end).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_a_window_that_ends_at_local_midnight_has_no_row_for_the_next_day"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_early_leave_counts_departures_before_shift",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "if trip.origin == workplace and span[0] <= trip.start < span[1]]",
+     "replacement": "if trip.origin == workplace and trip.start < span[1]]",
+     "specClause": "Design 07 2.2: early_leave_seconds 班次内最后一次从工作地点出发; blueprint 2.6: last departure with shift_start <= t* < shift_end, and the identity early_leave_seconds <= shift_seconds.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_a_departure_before_the_shift_starts_is_absence_not_early_leave"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_early_leave_ignores_return",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "return 0 if back or rest or site else span[1] - last.start",
+     "replacement": "return 0 if rest or site else span[1] - last.start",
+     "specClause": "Stage-3 ruling on early leave: the last departure 'after which the person is not back at the workplace before shift end'; design 07 2.2: 此后班次结束前没有回到工作地点.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_leaving_and_coming_back_before_shift_end_is_not_early_leave"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_effective_work_not_clipped_to_shift",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "effective = sum(_length(_intersect([(start, end)], shift)) * efficiency",
+     "replacement": "effective = sum(_length([(start, end)]) * efficiency",
+     "specClause": "Spec 6.2 有效工作秒数 as a quantity of the shift; design 07 2.2: 工作进度区间落在班次内的时长乘该区间的工作效率; blueprint 2.6: overlap(interval, shift) * activity_efficiency.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_effective_work_counts_only_the_part_of_an_interval_inside_the_shift",
+      "tests/evaluation/test_workload_metrics.py::test_a_real_run_counts_effective_work_only_inside_the_shift"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_first_stay_assumed_at_home",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "location = trips[0].origin if trips else home",
+     "replacement": "location = home",
+     "specClause": "Spec 6.2 班次内在工作地点的秒数; blueprint 2.6 Location: 'before the first trip the person is at that trip's origin ... keeps the metric right for branches whose events begin away from home'.",
+     "outcome": "SURVIVED",
+     "verdict": "outside-spec"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_leave_deviation_against_clipped_shift_end",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "None if span is None or leave_at is None else _minutes(leave_at - span[1]),",
+     "replacement": "None if span is None or leave_at is None else _minutes(leave_at - min(span[1], timeline.end)),",
+     "specClause": "Spec 6.2: 离开工作地点的时刻对班次结束 (the scenario shift); blueprint 2.6: 'against the scenario shift end of that day (the declared end, not the clipped one)'.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_leave_deviation_uses_the_declared_shift_end_when_the_run_is_cut_short"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_leave_window_item_null_on_rest_day",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "\"leave_vs_window_minutes\": _window_minutes(leave_at, agent.leave_work_window, day, zone),",
+     "replacement": "\"leave_vs_window_minutes\": _window_minutes(leave_at if span else None, agent.leave_work_window, day, zone),",
+     "specClause": "Spec 6.2: 窗口内为零，参照为 null 时该项为 null; blueprint 2.6 leave_vs_window_minutes: null only 'when the window or the moment is null' (the shift-end item is the one that is null on a non-duty day).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_a_departure_on_a_rest_day_is_still_measured_against_the_leave_window"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_left_workplace_takes_first_departure",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "return leaving[-1] if leaving else None",
+     "replacement": "return leaving[0] if leaving else None",
+     "specClause": "Spec 6.2 routine_deviation 离开工作地点的时刻; design 07 2.2: left_workplace_at 当天最后一次从工作地点出发的本地时刻.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_left_workplace_is_the_last_departure_and_arrival_home_the_first_one_after_it"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_outing_ignores_settlement",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "settled.get(task.task_id, _NEVER)) for task in agent.tasks}",
+     "replacement": "_NEVER) for task in agent.tasks}",
+     "specClause": "Spec 4.5 / 6.2: the outing exception holds only for a task that is 未结清.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_return_leg_from_any_place",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "if (trip.origin == task.location_id and trip.destination == workplace",
+     "replacement": "if (trip.destination == workplace",
+     "specClause": "Stage-3 ruling: only 'the direct return leg from that place to the workplace' is excepted; 'Anything else outside the workplace and outside a declared break is absence'.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_a_late_return_from_lunch_is_absence_even_with_an_open_task_elsewhere"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_return_leg_ignores_task_validity",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "and _intersect([(arrived, trip.start)], valid)):",
+     "replacement": "and (arrived, trip.start)):",
+     "specClause": "Stage-3 ruling: task outing is travel to / time at the required place of an own task 'that is open and unsettled', plus 'the direct return leg from that place'; spec 4.5 前往本人已开放且未结清的工作任务的要求地点; anything else is absence.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_visiting_a_settled_task_site_and_walking_back_is_absence"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_return_leg_not_excepted",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "                pieces.append((trip.start, trip.end))",
+     "replacement": "                pieces.append((trip.start, trip.start))",
+     "specClause": "Stage-3 ruling: the direct return leg from the task site to the workplace is part of the task outing.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_script_card_of_agent_one_for_everyone",
+     "source": "scripts/inspect_run.py",
+     "original": "path = run_dir / \"as2\" / \"agents\" / f\"agent_{agent_id:04d}\" / \"AGENT.json\"",
+     "replacement": "path = run_dir / \"as2\" / \"agents\" / f\"agent_{1:04d}\" / \"AGENT.json\"",
+     "specClause": "Spec 6.2 产出入口: 作息窗口取自运行目录里人物工作区的结构化卡片 (each person's own workspace).",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_workload_report.py::test_workday_command_reads_each_persons_own_workspace_card"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_script_digest_check_dropped",
+     "source": "scripts/inspect_run.py",
+     "original": "if digest != manifest.get(\"scenario_sha256\"):",
+     "replacement": "if False:",
+     "specClause": "Spec 6.2 产出入口 / 验收台账: workday 子命令核对场景摘要.",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_script_digest_check_open_without_manifest_key",
+     "source": "scripts/inspect_run.py",
+     "original": "if digest != manifest.get(\"scenario_sha256\"):",
+     "replacement": "if manifest.get(\"scenario_sha256\") and digest != manifest.get(\"scenario_sha256\"):",
+     "specClause": "Spec 6.2 产出入口: the scenario file's digest 须等于运行清单的 scenario_sha256; 验收台账: workday 子命令核对场景摘要.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/life/test_workload_report.py::test_workday_command_rejects_a_manifest_that_carries_no_scenario_digest"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_script_timezone_not_from_scenario",
+     "source": "scripts/inspect_run.py",
+     "original": "report = workday_reports(_rows(conn), document.timezone, workday_inputs(document, cards))",
+     "replacement": "report = workday_reports(_rows(conn), \"UTC\", workday_inputs(document, cards))",
+     "specClause": "Spec 6.2 产出入口: shifts and windows come from the scenario file, evaluated in the scenario timezone (4.3).",
+     "outcome": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_task_open_instant_excluded_from_site_exception",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "    return start <= instant < end",
+     "replacement": "    return start < instant < end",
+     "specClause": "Spec 4.5 前往本人已开放且未结清的工作任务的要求地点 is a declared exception, so not an early leave (6.2 早退…且不属例外); blueprint 2.6: open means open_from <= t.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_leaving_for_the_task_site_in_the_second_the_task_opens_is_not_early_leave"
+     ],
+     "replay_after_closing": "KILLED"
+    },
+    {
+     "group": "g8-workload",
+     "name": "wl_totals_keep_last_duty_day_only",
+     "source": "src/worldmock/evaluation/workload_metrics.py",
+     "original": "            totals[key] += row[key]",
+     "replacement": "            totals[key] = row[key]",
+     "specClause": "Stage-3 ruling: workload is 'exactly the eight quantities of spec 6.2 as totals over on-duty days'; docs/design/07-evaluation.md 2.2: 十个量在各当班日上的合计.",
+     "outcome": "SURVIVED",
+     "verdict": "real-gap",
+     "closing_tests": [
+      "tests/evaluation/test_workload_metrics.py::test_workload_is_the_sum_over_every_duty_day"
+     ],
+     "replay_after_closing": "KILLED"
+    }
+   ]
+  }
+ ]
+}

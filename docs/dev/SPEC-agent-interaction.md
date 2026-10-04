@@ -10,7 +10,7 @@
 > 2026-10-01 按[工具交互规格](SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 
-> 2026-10-02 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订：三个控制工具增请求级 `errands`，待办层与进度层的个人事务呈现，唤醒原因 `errand_reminder_due`，环境层 `duty`，`query_world` 六键与返回精简；修订部分未实现，见个人事务与工作安排规格阶段 2（个人事务）、阶段 3（工作安排）、阶段 4（查询）。该规格首次受影响的发布：世界结构 9（阶段 2）、场景结构 5（阶段 3）；`prompt_sha256` 在阶段 2、3 各变一次，`tool_schema_sha256` 在阶段 2、4 各变一次（两个指纹由函数计算，仓库里没有字面钉值）。
+> 2026-10-02 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订：三个控制工具增请求级 `errands`，待办层与进度层的个人事务呈现，唤醒原因 `errand_reminder_due`，环境层 `duty`，`query_world` 六键与返回精简；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。该规格首次受影响的发布：世界结构 9（阶段 2）、场景结构 5（阶段 3）；`prompt_sha256` 在阶段 2、3 各变一次，`tool_schema_sha256` 在阶段 2、4 各变一次（两个指纹由函数计算，仓库里没有字面钉值）。
 
 ## 心智模型
 
@@ -125,12 +125,12 @@ stateDiagram-v2
 ### 会话的状态位置
 
 会话住在 `WorldState` 内，随 `life` 快照一起提交与恢复——检查点参与者键集是
-`{"life"} ∪ {agent:N}`（`footprints/validation.py:110-111`），**会话不需要新的快照键**。
+`{"life"} ∪ {agent:N}`（`footprints/validation.py:114-115`），**会话不需要新的快照键**。
 
 | 项 | 值 |
 | --- | --- |
 | 字段 | `WorldState.sessions: dict[str, SessionState]`，带 `default_factory` |
-| 结构版本 | `WORLD_SCHEMA_VERSION` **5 → 6**（本规格引入会话）；时间与能量规格升为 **7**（地点会话与活动新增字段）；人物 Prompt 规格升为 **8**（观察改为七层数据）；个人事务与工作安排规格阶段 2 升为 **9**（`AgentState.errands`，只升一次，版本 8 的检查点与导出按版本拒绝）。定义在 `src/worldmock/life/models.py`，`WorldState.schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值** |
+| 结构版本 | `WORLD_SCHEMA_VERSION` **5 → 6**（本规格引入会话）；时间与能量规格升为 **7**（地点会话与活动新增字段）；人物 Prompt 规格升为 **8**（观察改为七层数据）；个人事务与工作安排规格阶段 2 升为 **9**（`AgentState.errands`，只升一次，版本 8 的检查点与导出按版本拒绝）。定义在 `src/worldmock/life/models.py:30`，`WorldState.schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值** |
 | 场景声明 | **不需要**（会话是运行期生成物，同 `activities` / `deliveries`） |
 | 旧检查点 | **拒绝加载**：`schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值**；**不提供迁移或降级读取路径**，既有运行目录的检查点一律视为作废，需重跑而非恢复 |
 
@@ -320,7 +320,7 @@ flowchart LR
 `items[i].way` 的合法性按 `items[i].target` 对象本轮列出的方式验证（`obtain` 指名本轮未列出的商品时按指名购买解析），
 `from`、`to` 的组合按方式唯一推导的内部动词验证；参数不带逐轮名称枚举，不能在模型工具 Schema 中加入动作专属参数。
 
-DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1161` `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
+DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1519` `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
 `oneOf`、`minLength`、`maxLength`、`minItems`、`maxItems`、`default`。
 
 由此产生一条硬约束：**字符上限与「至多 2 个」的并发上限都不能写在工具 Schema 里**，
@@ -457,7 +457,7 @@ sequenceDiagram
 | 活动暂停中 | 不触发 | 否 |
 | 人物睡眠中 | 被 `SLEEP_ALLOWED_REASONS` 过滤 | 否 |
 
-**实现要点**：`SLEEP_ALLOWED_REASONS`（`schedule.py:57-60`）存的是 **`WakeReason` 枚举成员**而非字符串，共 4 项（`planned_end`、`run_start`、`wake_from_sleep`、`plan_reminder_due`，末项由时间与能量规格加入）；个人事务与工作安排规格追加的 `errand_reminder_due` 不在其中。过滤在 `schedule.py:350-351`，写法是**白名单**：
+**实现要点**：`SLEEP_ALLOWED_REASONS`（`schedule.py:63-66`）存的是 **`WakeReason` 枚举成员**而非字符串，共 4 项（`planned_end`、`run_start`、`wake_from_sleep`、`plan_reminder_due`，末项由时间与能量规格加入）；个人事务与工作安排规格追加的 `errand_reminder_due` 不在其中。过滤在 `schedule.py:377-378`，写法是**白名单**：
 
 ```python
 if snap.is_asleep:
@@ -628,7 +628,7 @@ if snap.is_asleep:
 ## 事件与重建约束
 
 硬约束：**SQLite 记录是唯一提交权威，导出时活动会从事件重建并逐字节比对**
-（`footprints/validation.py:33-34`），质量报告也必须能仅从事件复现（`:42-54`）。
+（`footprints/validation.py:36-37`），质量报告也必须能仅从事件复现（`:46-58`）。
 
 **结论：不需要新增事件类型。** 世界请求沿用既有动作记录路径，查询与纠错存于模型交互证据，
 `revise_day_plan` 走既有动作路径；零点计划 `plan_day` 的计划登记写 `environment_event`
@@ -656,7 +656,7 @@ if snap.is_asleep:
 
 | # | 被修订条款 | 原文 | 修订后 | 连带改动 |
 | --- | --- | --- | --- | --- |
-| 1 | `WakeReason` 冻结词表 | 「唤醒原因是冻结词表，成员不可增删」 | **增加成员** `progress_report_due`，并把条款改为「不可改名、不可删除，新增须走版本表」；时间与能量规格再依次追加 `no_active_activity`、`plan_reminder_due`；个人事务与工作安排规格再追加 `errand_reminder_due`（排在 `plan_reminder_due` 之后，不进睡眠允许集合） | **代码同步点共五处**（三处生产代码 + 两处测试），唯一权威定义见[文档影响](research/agent-interaction-document-impact.md)「唤醒词表的五处同步点」节。其中 `footprints/quality.py:384-399` 的「未识别」分桶最易漏——**它不报错，只让质量报告的数字变错**。另需同步 `CONTRACTS` 枚举表与 life-runtime 冻结词表 |
+| 1 | `WakeReason` 冻结词表 | 「唤醒原因是冻结词表，成员不可增删」 | **增加成员** `progress_report_due`，并把条款改为「不可改名、不可删除，新增须走版本表」；时间与能量规格再依次追加 `no_active_activity`、`plan_reminder_due`；个人事务与工作安排规格再追加 `errand_reminder_due`（排在 `plan_reminder_due` 之后，不进睡眠允许集合） | **代码同步点共五处**（三处生产代码 + 两处测试），唯一权威定义见[文档影响](research/agent-interaction-document-impact.md)「唤醒词表的五处同步点」节。其中 `footprints/quality.py:419-434` 的「未识别」分桶最易漏——**它不报错，只让质量报告的数字变错**。另需同步 `CONTRACTS` 枚举表与 life-runtime 冻结词表 |
 | 2 | 活动组合准入 | 「活动准入**仅**按占用交集判定」 | 保留占用交集，**追加**名额上限：进行中、暂停中与待收尾的活动合计 ≤2（常量），超限报 `SESSION_LIMIT_EXCEEDED` | `rules.validate_start`、`interaction_menu`、错误码闭集 |
 | 3 | 主观巩固触发 | 「为**三选一**」 | 改为**四选一**，增加「跨过当日 `day_end_seconds` 边界」 | `should_consolidate`、`SPEC-life-realism.md`「记忆合同」、`CONTRACTS` |
 | 4 | 观察投影三段**与不得进入提示的内容** | 「user 消息由 `persona_card`、`scene`、`facts` 三部分组成」+「完整可供性合同不得进入提示」 | **三段划分不变**；只公开逐对象可读 `actions`，私有 `interaction_bindings` 与完整可供性合同仍禁止进入提示。**三段划分已由[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 8 行取代**：system 为系统层，user 为六层 JSON 数组；宿主渲染七层 JSON 与续接 tool 消息时按禁止键表逐键校验，原生 `tools` 是整次运行不变的常量，由测试校验 | `projection.py`、`narration.py`、`CONTRACTS`「观察投影字段」与「禁止进入提示的字段」 |
@@ -756,5 +756,6 @@ flowchart LR
 | 1.15 | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：「稳定工具面」原生工具的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2）；「会话字段」容量表的「进展自述」与「事件与重建约束」的「模型的进展自述」改为控制工具各项的 `items[].summary`（旧形状经 `control_items` 读出，冻结时漏改）；文件头改为修订部分（控制工具的 `items`、按名调用、指名购买与 `prefer`、名称类拒绝不计轮、公开结果键）已实现并通过离线验收；验收台账不改 |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分未实现，见个人事务与工作安排规格阶段 2（个人事务）、阶段 3（工作安排）、阶段 4（查询）（逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 AI1–AI28、AI33）。理由：人物可记下由结算确认的个人事务，环境层每轮呈现上班安排，`query_world` 增来源与可执行筛选并精简返回。改动：文件头；「权威来源与范围裁决」增个人事务与工作安排一行；「心智模型」硬边界补事务变更的限定；「三级结构与概念边界」补个人事务不是第四级；「会话的状态位置」结构版本补 8 与 9；「会话字段」的进度层记录种类与待办层补个人事务，容量表增个人事务行；「稳定工具面」`query_world` 改六键，三个控制工具增请求级 `errands`，名称与整组校验两段补事务（名称错误的载体、同一请求内的求值次序与回执）；「即时查询、完整纠错与紧凑呈现」改六键、筛选先于切页、返回不再逐项附候选、两种参数错误之外无匹配为合法空页；「决策轮循环与播报节律」时序图改 `items` 与 `errands`，唤醒表增 `errand_reminder_due` 并写明清醒时精确到点、同刻合并、睡眠中不入候选；「前置条件前置与前往提醒」写明工作安排不是前置条件；「上下文分层」待办层、环境层 `duty`、进度层两种事务记录与 `details.errands`；「发送前 token 计数与进度浓缩」补两种事务记录的折叠口径；「午夜浓缩」事务跨零点保留；「事件与重建约束」审计表增事务行（办成与提醒事件人物可见，其余系统可见；六种事务事件都不带决策与动作身份）、控制请求带 `request.errands`；冻结条款修订 #1 追加 `errand_reminder_due`；验收台账「模型工具 Schema」行改写。顺带更正既有漂移：`revise_day_plan` 行与待办层行补 `around_time`，结构版本行补 8，保护项「五类」改六类，时序图的平行数组旧签名，控制工具活动名错误不带候选 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分在冻结时未随文实现（该规格阶段 2（个人事务）、阶段 3（工作安排）、阶段 4（查询）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 AI1–AI28、AI33）。理由：人物可记下由结算确认的个人事务，环境层每轮呈现上班安排，`query_world` 增来源与可执行筛选并精简返回。改动：文件头；「权威来源与范围裁决」增个人事务与工作安排一行；「心智模型」硬边界补事务变更的限定；「三级结构与概念边界」补个人事务不是第四级；「会话的状态位置」结构版本补 8 与 9；「会话字段」的进度层记录种类与待办层补个人事务，容量表增个人事务行；「稳定工具面」`query_world` 改六键，三个控制工具增请求级 `errands`，名称与整组校验两段补事务（名称错误的载体、同一请求内的求值次序与回执）；「即时查询、完整纠错与紧凑呈现」改六键、筛选先于切页、返回不再逐项附候选、两种参数错误之外无匹配为合法空页；「决策轮循环与播报节律」时序图改 `items` 与 `errands`，唤醒表增 `errand_reminder_due` 并写明清醒时精确到点、同刻合并、睡眠中不入候选；「前置条件前置与前往提醒」写明工作安排不是前置条件；「上下文分层」待办层、环境层 `duty`、进度层两种事务记录与 `details.errands`；「发送前 token 计数与进度浓缩」补两种事务记录的折叠口径；「午夜浓缩」事务跨零点保留；「事件与重建约束」审计表增事务行（办成与提醒事件人物可见，其余系统可见；六种事务事件都不带决策与动作身份）、控制请求带 `request.errands`；冻结条款修订 #1 追加 `errand_reminder_due`；验收台账「模型工具 Schema」行改写。顺带更正既有漂移：`revise_day_plan` 行与待办层行补 `around_time`，结构版本行补 8，保护项「五类」改六类，时序图的平行数组旧签名，控制工具活动名错误不带候选 |
 | `2026-10-03-errands-workday-source` | 2026-10-03 | 随个人事务与工作安排规格阶段 4 更正既有漂移：购买来源的合法写法为地点显示名（含住处）与渠道称呼（个人事务与工作安排规格 5.2，实施计划 AI32）。「对象与动作选择」来源与去向段 `obtain` 的 `from` 由「门店名」改为地点显示名（含住处的「家」「住处」写法），依据现行 `purchase_offers.source_scope` 先按全部地点显示名与住处、再按渠道称呼解析；括号内各句不改，行为不变 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 AI29、AI30，按 `d8a41d3` 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时漏改而此时补正的条款：没有，按该规格修订的各条与最终代码核对一致。引用行号刷新六处：「会话的状态位置」检查点参与者键集 `footprints/validation.py:114-115`、`WORLD_SCHEMA_VERSION` 的定义 `src/worldmock/life/models.py:30`（冻结时先去掉了失准的行号）；「对象与动作选择」`_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS` 在 `life/models.py:1519`；「决策轮循环与播报节律」`SLEEP_ALLOWED_REASONS` 在 `schedule.py:63-66`、睡眠过滤在 `schedule.py:377-378`；「事件与重建约束」活动重建比对在 `footprints/validation.py:36-37`、质量报告重算在 `:46-58`；「冻结条款修订」第 1 行的未识别分桶在 `footprints/quality.py:419-434`。条款正文不改 |

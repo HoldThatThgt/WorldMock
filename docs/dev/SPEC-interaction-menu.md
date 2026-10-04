@@ -6,7 +6,7 @@
 > 范围：按地点类与人物声明可选对象动作，并在观察、模型请求与环境执行中一致落实。
 > 日期：2026-10-01。工具交互修订已冻结，已实现；本次生产验收单独记录；新请求形状、只读查询和错误字段以[工具交互规格](SPEC-tool-interaction.md)为准，旧离线证据只证明修订前行为。
 > 本规格全部实现、文档同步和验收属于本次开发，不设延期项；全项目既有真实实验门禁继续有效。
-> 「观察与人物工具」中控制工具参数形状与 `query_world` 参数的条款按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（2026-10-02，逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM2–IM6）；修订部分未实现，见个人事务与工作安排规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）。工作安排是环境层呈现的事实，不进入交互菜单，不改 `allowed_actions`。
+> 「观察与人物工具」中控制工具参数形状与 `query_world` 参数的条款按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（2026-10-02，逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM2–IM6）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。工作安排是环境层呈现的事实，不进入交互菜单，不改 `allowed_actions`。
 
 ## 心智模型
 
@@ -235,7 +235,8 @@ flowchart LR
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「观察与人物工具」注明原生工具只在最后一个回合去掉记忆查询工具 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 10、11、18 行与其 3.5 修订（一日运行保真 IM1，随该规格冻结）：「地图地点与发现工具」的指名购买改为 `from` 可选约束、分段匹配与按 `prefer` 选定，浏览结果列完整标签；「观察与人物工具」`start_activity` 行改为全部目录类按名调用（归一唯一即受理，否则给候选、不替换），按名写的对象照常经菜单判定，`obtain` 可写方式「购买」并有请求级 `prefer`；三个控制工具行改为 `items[]`（`conclude_activity` 另带 `memories`、`views`）；可见性不限制按名调用；文件头补修订说明 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：文件头改为修订部分（按名调用、指名购买的 `from` 约束、分段匹配、方式「购买」与请求级 `prefer`、控制工具参数形状）已实现并通过离线验收；「观察与人物工具」原生工具的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；条款正文不变 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分未实现，见个人事务与工作安排规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）（逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM1–IM6）。改动：文件头；「观察与人物工具」`query_world` 行改六键并写来源与可执行筛选，三个控制工具行增请求级 `errands`（不受地点菜单剪裁）。顺带更正既有漂移：只读问答不开放 `query_world`；最后一个回合与截断重试去掉的是全部查询工具；`prompt_sha256` 绑定两份系统层与七层 Schema、`tool_schema_sha256` 只绑定人物工具面，后台严格工具由 `code_sha256` 绑定。工作安排不进入交互菜单，菜单声明、交集与拒绝条款不变 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分在冻结时未随文实现（该规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM1–IM6）。改动：文件头；「观察与人物工具」`query_world` 行改六键并写来源与可执行筛选，三个控制工具行增请求级 `errands`（不受地点菜单剪裁）。顺带更正既有漂移：只读问答不开放 `query_world`；最后一个回合与截断重试去掉的是全部查询工具；`prompt_sha256` 绑定两份系统层与七层 Schema、`tool_schema_sha256` 只绑定人物工具面，后台严格工具由 `code_sha256` 绑定。工作安排不进入交互菜单，菜单声明、交集与拒绝条款不变 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 IM7，按 `d8a41d3` 的代码核对）：文件头改为修订部分（就寝反思的后台严格工具、控制工具的请求级 `errands`、`query_world` 六键）已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
 
 ## 当日目标保护项
 

@@ -2,8 +2,8 @@
 
 > 状态：**FROZEN，已实现**；2026-10-01 按用户要求完成并发源码审查，并依据附件复审修订。
 > 新接口、供给、任务规则与验收守卫已实现；本次实际证据见[验收记录](tool-interaction-verification.md)。
-> 更正：`recall_task_summary` 在 `3b4afe5` 的真实 Ray 装配下到不了环境（装配的是 AS2 的 `EnvRouterProxy`，它没有 `read_query`），既有离线验收只覆盖进程内路径；跨进程转发由[个人事务与工作安排规格](SPEC-errands-workday.md)阶段 1 补齐。
-> 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订「工具请求」「唯一错误结构」「所有入口必须覆盖」：三个控制工具增请求级 `errands` 与对应错误入口；`query_world` 改六键、返回改无损紧凑投影且不再逐项附候选；计划重复意图逐条定位；写明只读查询的执行位置。修订部分未实现，见个人事务与工作安排规格阶段 1（执行位置、重复意图）、阶段 2（`errands`）、阶段 4（查询）。另更正两处既有表述：购买来源的合法写法、四个失败阶段码。「实施与验收」的行为验收表行名不随本次修订增删改，新增验收登记在该规格的验收台账。逐行作业（TI1–TI17）见配套[实施计划](research/errands-workday-implementation-plan.md)，不在规格内。
+> 更正：`recall_task_summary` 在 `3b4afe5` 的真实 Ray 装配下到不了环境（装配的是 AS2 的 `EnvRouterProxy`，它没有 `read_query`），既有离线验收只覆盖进程内路径；跨进程转发已由[个人事务与工作安排规格](SPEC-errands-workday.md)阶段 1 补齐。
+> 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订「工具请求」「唯一错误结构」「所有入口必须覆盖」：三个控制工具增请求级 `errands` 与对应错误入口；`query_world` 改六键、返回改无损紧凑投影且不再逐项附候选；计划重复意图逐条定位；写明只读查询的执行位置。修订部分已实现并通过离线验收（该规格阶段 1 的执行位置与重复意图、阶段 2 的 `errands`、阶段 4 的查询；证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。另更正两处既有表述：购买来源的合法写法、四个失败阶段码。「实施与验收」的行为验收表行名不随本次修订增删改，新增验收登记在该规格的验收台账。逐行作业（TI1–TI17）见配套[实施计划](research/errands-workday-implementation-plan.md)，不在规格内。
 > 来源：[工具交互提案](PROPOSAL_2026-09-30_TOOL_INTERACTION.md)。
 > 实施状态：[开发状态](implementation-status.md)；接口字段唯一维护在[接口合同](../CONTRACTS.md)。
 
@@ -584,4 +584,5 @@ Shopify 将产品和地点库存分别管理；Dynamics 365 用品类展开商�
 | 版本 | 日期 | 修订 |
 | --- | --- | --- |
 | 工具交互定稿 | 2026-10-01 | 逐项请求、中文购买偏好、逐店商品集合与价格定位、品类分页、通知派生已实现；实际证据独立记录 |
-| 个人事务与工作安排修订 | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 TI1–TI11、TI14–TI17）：三个控制工具增请求级 `errands`（备注键 `memo`）与对应错误入口，事务名错误在 `allowed_values` 列本人全部未完成事务名、商品名错误把最接近的名称写在 `why`，都不带候选；`query_world` 改六键（`from`、`available_only`），「购买」展开为两种取得方式，返回改无损紧凑投影并不再逐项附候选，补筛选后计数、空页与两种参数错误的边界；计划重复意图同时定位首次与其后各次出现并与超限同批报告；写明 `query_world` 本地求值、`recall_task_summary` 经环境 actor。逐店供给、价格、通知派生开放、操作备忘与无损分组条款不变；「实施与验收」行为验收表不改。补记与更正既有表述：回看任务在 `3b4afe5` 的真实 Ray 装配下不可达；购买来源的合法写法是地点显示名（含「家」「住处」）或渠道称呼；四个失败阶段码此前只存在于代码。修订部分未实现，见个人事务与工作安排规格阶段 1、2、4 |
+| 个人事务与工作安排修订 | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 TI1–TI11、TI14–TI17）：三个控制工具增请求级 `errands`（备注键 `memo`）与对应错误入口，事务名错误在 `allowed_values` 列本人全部未完成事务名、商品名错误把最接近的名称写在 `why`，都不带候选；`query_world` 改六键（`from`、`available_only`），「购买」展开为两种取得方式，返回改无损紧凑投影并不再逐项附候选，补筛选后计数、空页与两种参数错误的边界；计划重复意图同时定位首次与其后各次出现并与超限同批报告；写明 `query_world` 本地求值、`recall_task_summary` 经环境 actor。逐店供给、价格、通知派生开放、操作备忘与无损分组条款不变；「实施与验收」行为验收表不改。补记与更正既有表述：回看任务在 `3b4afe5` 的真实 Ray 装配下不可达；购买来源的合法写法是地点显示名（含「家」「住处」）或渠道称呼；四个失败阶段码此前只存在于代码。修订部分在冻结时未随文实现（该规格阶段 1、2、4 实现后的核对见「个人事务与工作安排修订已实现」行） |
+| 个人事务与工作安排修订已实现 | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 TI12，按 `d8a41d3` 的代码与测试核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)；只读查询的跨进程转发（`src/worldmock/life/read_query_runtime.py`）、计划重复意图逐条定位、三个控制工具的请求级 `errands` 与六键 `query_world` 都已落地，守卫 `tests/test_tool_interaction_acceptance.py` 的查询字段集断言已是六键；「个人事务与工作安排修订」行里的冻结期状态注记改为指向本行。条款正文不变，「实施与验收」行为验收表的行名不变；新增验收登记在该规格的验收台账（登记表 `tests/errands_workday_acceptance.py`）。证据为离线测试，配对全天复跑（该规格阶段 6）未执行 |

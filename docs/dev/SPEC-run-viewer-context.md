@@ -1,7 +1,7 @@
 # 运行查看器上下文解析
 
-> 状态：FROZEN；按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；「增长与退出」按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 RV5、RV6），修订部分未实现，见该规格阶段 2、3；修订记录见「版本表」。
-> 日期：2026-10-02
+> 状态：FROZEN；按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；「增长与退出」按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 RV5、RV6），修订部分已实现并通过离线验收：查看器内置的待办层、环境层规则文字已随该规格阶段 2、3 的代码同步，`tests/tools/` 的用例通过（没有用例逐字断言新增的规则文字）；进度层规则文字没有写事务提醒与办成两种记录，核对见「版本表」`2026-10-04-errands-workday-implemented` 行；修订记录见「版本表」。
+> 日期：2026-10-04
 > 验收记录：[运行查看器上下文解析验证](run-viewer-context-verification.md)（修订前的行为，另有「人物 Prompt 七层实现后复验」一节）。
 
 ## 范围与入口
@@ -75,4 +75,5 @@ system 为 JSON、`layer` 为「系统层」且 `role` 为生活决策的角色�
 | --- | --- | --- |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 新增文件头与版本表。按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 28 行修订（人物 Prompt 台账 RV1），修订部分待实现：删决策自述阶段，system 为 JSON 且 `layer` 为「系统层」时判为行动请求；首个 user 按顶层数组无损切片为六层，每片可解析且层序正确才分段，否则显示未解析；工具层与进度层按真实字段下钻，`self_note` 标「未经核验」；首个请求多于两条消息时判为续接，前序 assistant 按 `tool_call` 身份匹配来源决策，回传思考单列，时间推进后的调用按进度层记录展示；旧模板解析保留给历史运行，旧运行的自述请求显示为「其他调用·未解析」；增长与退出规则改按七层；验证与边界相应改写 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收，验收记录注明实现后复验一节；按查看器代码核对：行动请求另要求系统层角色句为生活决策角色句且带工具数组（只读问答显示为其他调用），旧模板行动请求的阶段标「选择动作·旧模板」、不含已核验经历段，旧模板事实清单整段保留、不再下钻 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 RV5–RV7），修订部分未实现，见该规格阶段 2、3：「增长与退出」写明待办层的未完成个人事务取自人物状态并跨零点保留、进度层增事务提醒与办成两种只写名称的记录（不迁入记忆层）、环境层的 `duty` 由场景工作安排与时钟求值；行动请求识别、六层切片与层序、旧模板解析不变；文件头日期改写 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 RV5–RV7），修订部分在冻结时未随文实现（该规格阶段 2、3 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：「增长与退出」写明待办层的未完成个人事务取自人物状态并跨零点保留、进度层增事务提醒与办成两种只写名称的记录（不迁入记忆层）、环境层的 `duty` 由场景工作安排与时钟求值；行动请求识别、六层切片与层序、旧模板解析不变；文件头日期改写 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 RV8，按 `d8a41d3` 的查看器代码 `tools/run-viewer-context.js` 核对规则文字）：待办层的说明已写还没办完的个人事务（按记下的时刻排列，写明要办成什么、已办到哪、备注与尚未提醒的钟点；人物在播报、暂停或收尾时记下，办没办成由环境按实际结算确认，办成或取消即移出），没有单写跨零点保留；环境层的说明已含今天的上班安排（没有工作安排为 null），没有写它由场景工作安排与世界时钟求值、今日计划改不了它；进度层的说明仍是「调用与结果、消息全文、配送、截止与提醒」，没有写事务提醒与办成两种只写名称的记录及其不迁入记忆层（实施计划安排随阶段 2 代码同步的一处，没有做）；工具定义条目仍写「八个世界请求工具与三个记忆查询工具」，没有随本特性改动（实际工具面是七个世界请求工具、`query_world` 与 `recall_task_summary` 两个只读查询工具、三个记忆查询工具）；睡醒反思条目已改为经唯一严格工具 `submit_reflection` 提交一至五条，并补校验重试一步。`tests/tools/` 的 62 个 Node 用例在该提交通过（经 `tests/tools/test_run_viewer.py` 执行），其中「all parsed block rules exist and every growth view retains explicit source and steps」只核对各层规则条目齐全，没有用例逐字断言本次新增的规则文字。文件头改为修订部分已实现并通过离线验收并注明上述出入；条款正文不变；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行 |
