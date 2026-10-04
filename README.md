@@ -45,6 +45,8 @@ flowchart LR
 
 使用 Python 3.12、Git 和 Node。AS2 与 LabelKit 的 protobuf 依赖范围互斥，分别使用固定源码及各自环境。
 引导从仓库内上游源码与补丁重建 AS2，从固定 HTTPS 制品取得 LabelKit，不需要 SSH 密钥或预先安装 uv。
+当前 Linux 64 位完整环境的验收范围为 x86_64；Linux ARM64/aarch64 无法安装锁定的 TextWorld 组合。
+平台支持范围与验收要求以[冻结规格](docs/dev/SPEC-shared-rules-and-rebuildable-env.md#门禁可选部件与操作系统)为准。
 
 ```sh
 python scripts/bootstrap.py --profile release

@@ -52,7 +52,7 @@
   `custom/agents/life_agent.py` 的 `_validate_plan_goals` 改为写所提交的各条目标（JSON 值，与环境 `PLAN_GOALS_INVALID` 明细同形），接口合同与规格条款不变；
   `tests/life/test_revise_day_plan_json.py::test_host_corrects_a_revision_that_overflows_with_the_preserved_goals` 断言宿主与环境两侧明细的 `path` 与 `written` 相同。
   这是合并之后唯一的生产代码改动，`code_sha256` 随之改变，不再是验收记录登记的值；验收记录「留给后续的出入」保留合并时的基线。
-  离线证据：该测试文件、相邻的宿主协议与修订合同测试、风格门禁通过；全量测试与覆盖率门禁没有在这次修复之后重跑，`docs/dev/coverage-report.json` 仍是 `964de50` 上的快照。
+  该次修复的定向离线证据为上述测试文件、相邻宿主协议与修订合同测试和风格门禁通过；当时全量门禁尚未重跑。后续完整测量以共享规则与可重建环境特性的[当前验收记录](shared-rules-and-rebuildable-env-verification.md)和机器报告为准。
 - **运行查看器的事务显示已实现（`1346e0d`、`6c81126`）。** 两份查看器规格在本特性冻结时修订的条款查看器已全部实现：控制请求摘要写事务变更，事务事件与事务提醒写事务名称与商品名称，
   进度层规则文字写事务提醒与办成两种记录，工具定义条目写七个世界请求工具、两个世界查询工具与三个记忆查询工具。其中三处（请求摘要与事务事件的名称、进度层规则文字、工具定义条目）
   是 `a7e2fdc` 上的全量运行之后的实现后文档核对查出、其后补齐的：`1346e0d` 实现这三处，`6c81126` 处理对 `1346e0d` 独立核对查出的七项（查看器另从观察的 `errand_item_bindings` 补商品名称，

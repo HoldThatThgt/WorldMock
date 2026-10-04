@@ -165,8 +165,12 @@ wheelhouse 明确使用 `--no-index --find-links` 和固定源制品，不访问
 
 release 缺少 Node 或 LabelKit 即失败；dev 明确记录缺失，并按固定原因跳过对应检查，
 不能因此取得最终通过。删除 validation 的静默跳过，使用同一 profile 规则。
-TextWorld 在 Windows 的安装与验收边界必须显式声明：Windows 检查跨平台核心与重建，
-Linux 执行 TextWorld 语料验收；完整放行必须合并两者成功证据，任何缺少的检查都不能当通过。
+本项目当前 Linux 64 位 release 环境与 TextWorld 语料验收范围为 x86_64。
+锁定 TextWorld 1.7.0 的安装脚本按 `uname -m` 从固定 Inform7 Linux 归档选择编译器；
+归档包含 i386、x86_64、ppc 与 armv6lhf 制品，缺少 aarch64 制品。
+因此 Linux ARM64/aarch64 下该锁定组合无法完成安装，不在当前完整环境支持范围，不能产生通过收据。
+Windows 必须完成跨平台核心与重建验收，Linux x86_64 必须实际执行 TextWorld 语料验收；
+完整放行必须合并两者成功证据，任何缺少的检查都不能当通过。
 不把 Windows 无 wheel 的组件强行装进环境，也不把其依赖留成无法安装的无条件传递依赖。
 
 测试文件复制用唯一“同卷硬链接、跨卷复制”辅助函数；跨卷错误触发复制是文件复制的规定行为，
@@ -177,8 +181,8 @@ Linux 执行 TextWorld 语料验收；完整放行必须合并两者成功证据
 `scripts/fresh_check.py` 用 `git clone --no-recurse-submodules` 克隆指定提交到临时目录，
 设 `GIT_SSH_COMMAND=false`，不用 pip 缓存，执行引导、源码身份核对和固定快速检查。
 任何命令失败即终止并保留错误说明，成功后返回环境收据与检查结果。
-CI 在 Ubuntu 与 Windows 执行同一路径，checkout 不初始化子模块、不配置 SSH 或模型密钥。
-快速检查涵盖共享规则、AS2 专用测试、身份与引导本身；Linux 的语料边界另执行对应实际测试。
+CI 在 Ubuntu x86_64 与 Windows 执行同一路径，checkout 不初始化子模块、不配置 SSH 或模型密钥。
+快速检查涵盖共享规则、AS2 专用测试、身份与引导本身；Linux x86_64 的语料边界另执行对应实际测试。
 CI 比较两系统代码摘要，不能只分别检查摘要格式。
 
 ## 文档原子同步清单
@@ -187,6 +191,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | --- | --- |
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md`、`shared-rules-and-rebuildable-env-verification.md` | 本规格为唯一开发权威；验收记录登记具体测试节点、实际结果与独立变异证据，冻结要求和验收完成分别记录 |
 | `docs/CONTRACTS.md` | 共享错误和纠正消息、引导参数、严格模型与安全文件输入合同 |
+| `docs/design/00-overview.md` | AS2 与宿主业务职责、固定 Python 3.12 与模型故障传播、相对交付引用、Windows 核心与重建验收及 Linux x86_64 TextWorld 必需门禁与锁定 aarch64 安装限制 |
 | `docs/design/01-architecture.md` | 唯一共享规则归宿与生成依赖来源 |
 | `docs/design/02-exchange-engine.md` | 活动时长、预估和结算、社交分录共用规则 |
 | `docs/design/03-resource-engine.md` | 路径安全、公共曲线、效率与品类模型 |

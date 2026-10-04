@@ -19,7 +19,10 @@
 | `python scripts/bootstrap.py` | `--profile` 取 `release` 或 `dev`，默认 release；`--wheelhouse PATH` 只消费离线制品；`--use-uv` 显式选 uv，缺失报错 | Python 必须 3.12；固定来源先核对，哈希锁安装，源码不解析额外依赖；`.work/environment-receipt.json` 只记相对路径 |
 | `python scripts/fresh_check.py` | `--repository`、`--commit`、`--profile`、`--wheelhouse`、`--output`；`--compare` 读取两份实际平台结果 | 无子模块、无 SSH、无 pip 缓存的新 clone；任一命令失败退出；比较要求同提交、同源码摘要且都通过 |
 | `python scripts/coverage_gate.py` | `--shards N`，正整数，按测试文件顺序连续分片 | 当前解释器运行；每片独立数据；无失败、无跳过且测试非空，分支至少 85%、未覆盖公共接口零才通过 |
-| 安装 profile | release 缺 Node 或 LabelKit 失败；dev 固定原因标明缺失和对应检查 | dev 缺部件不能产生最终通过收据；Windows 核心证据与 Linux TextWorld 证据共同放行 |
+| 安装 profile | release 缺 Node 或 LabelKit 失败；dev 固定原因标明缺失和对应检查 | dev 缺部件不能产生最终通过收据；Windows 核心与重建证据和 Linux x86_64 TextWorld 证据共同放行 |
+
+Linux 完整环境的架构边界与安装限制以[冻结规格](dev/SPEC-shared-rules-and-rebuildable-env.md#门禁可选部件与操作系统)为准；
+Linux ARM64/aarch64 的锁定组合安装失败不能按可选部件缺失跳过，也不能产生通过收据。
 
 收据字段为 `schema_version`、`profile`、`python_version`、`dependency_locks`、AS2 源码摘要、
 LabelKit 固定制品身份、`node_version`、`missing_components`、`passed`。

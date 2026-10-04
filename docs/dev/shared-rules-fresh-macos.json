@@ -1,0 +1,40 @@
+{
+  "scope": "quick",
+  "checks": [
+    "tests/test_single_source.py",
+    "tests/test_bootstrap.py",
+    "tests/test_fresh_check.py",
+    "tests/life/test_shared_rules.py",
+    "tests/test_coverage_gate.py",
+    "tests/test_shared_primitives.py",
+    "tests/test_shared_model_clients.py",
+    "tests/evaluation/test_shared_event_parsing.py",
+    "tests/test_shared_rules_spec.py",
+    "tests/test_environment_profiles.py",
+    "tests/as2",
+    "tests/integration/test_runtime.py"
+  ],
+  "code_sha256": "e338882e0b59934c49083aeb3779ef686a839cc2c361e4d01099f9d95fe34ed1",
+  "environment": {
+    "schema_version": "environment-1",
+    "profile": "release",
+    "python_version": "Python 3.12.13",
+    "dependency_locks": {
+      "requirements/build-lock.txt": "c7527c1735b875940d32e148b17ae8de8f8b02f03e2b0b907ab497cc1f3be3d3",
+      "requirements/labelkit-build-lock.txt": "0fc49fd90bd3487a31df5551b0635386b82cd770dcf20285a83f1443a135c4a7",
+      "requirements/labelkit-lock.txt": "369638dab9d1190a570fb49670b3b1a9486883e1b5863dd86cfadf0328093d29",
+      "requirements/lock.txt": "b7cbba0a310135d08325b346393e30099a669b81b1765eea0264321d63494c43"
+    },
+    "as2_source_sha256": "bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46",
+    "labelkit_artifact": {
+      "commit": "d0afd606decbc3f4aa64c64ef5339586120c5a7a",
+      "sha256": "d8453fa459aa3dc86aa28b71f6ad18f4f7238518afc62b21e2bbb9b4bc01070e",
+      "source_sha256": "b4511d427bc12814f2c2e8d12aa08ecd868a219b378faa48ea8816fe524c233a"
+    },
+    "node_version": "v26.0.0",
+    "missing_components": [],
+    "passed": true
+  },
+  "passed": true,
+  "source_commit": "08d61a7ae0a99812375a87df0e29b1490e06fd6f"
+}

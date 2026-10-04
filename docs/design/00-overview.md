@@ -3,8 +3,9 @@
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md)）。
-> **日期**：2026-10-04
-> **版本**：v1.10
+> **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
+> **日期**：2026-10-05
+> **版本**：v1.11
 > **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
 
 ## 文档定位
@@ -177,7 +178,7 @@ flowchart TB
 
 | 设计点 | 设计决策 |
 | --- | --- |
-| 基础框架 | AgentSociety 2：复用模型调用、人物决策与记忆机制 |
+| 基础框架 | AgentSociety 2：复用模型调用、人物决策与记忆检索，保留任务生命周期、故障传播与检查点恢复；生活记忆合并和观察单写业务由 WorldMock 扩展承担 |
 | 时间推进 | 决策不耗时；没有进行中活动或有待收尾活动者同一秒再决策，人人有事且无待收尾后按下一事件推进 |
 | 世界状态 | 由环境集中维护，环境是唯一写入者 |
 | 内容来源 | 离线整理并固化版本，运行期只读，保证实验可复现 |
@@ -196,15 +197,15 @@ flowchart TB
 | **存储** | 单人物 12 周数字足迹 ≤ 10 GB（数据库 + 素材文件） |
 | **可靠性** | 检查点恢复成功率 100%，状态版本连续性 100% |
 | **可维护性** | 代码覆盖率 ≥ 85%，公共接口覆盖率 100% |
-| **依赖** | Python 3.12+，AgentSociety 2，LabelKit，SQLite 3.35+ |
-| **平台** | Linux / macOS，不支持 Windows（AS2 依赖限制） |
+| **依赖** | Python 3.12，AgentSociety 2，LabelKit，SQLite 3.35+ |
+| **平台** | Linux x86_64 / macOS；Windows 必须完成跨平台核心与重建验收，完整放行还须合并 Linux x86_64 TextWorld 语料成功证据。Linux ARM64/aarch64 不支持锁定的完整环境；平台边界以[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#门禁可选部件与操作系统)为准 |
 
 ## 8. 设计假设（若不成立需回到设计层）
 
 | 假设 | 如果不成立的处理 |
 | --- | --- |
-| AS2 的模型调用、决策循环、记忆机制可直接复用；同秒续接的消息由环境从已保存的模型证据重建，宿主在准备阶段之后注入，不改 AS2；回看任务的只读查询由 WorldMock 侧的 `LifeEnvActor`、`LifeEnvProxy` 两个子类转发到环境 actor，同样不改 AS2，对锁定提交三个私有成员（`DirectEnvActor._router`、`DirectRouter._environment()`、`EnvRouterProxy._actor`）的依赖随锁定提交验证 | 需重新评估 Agent 框架选型 |
-| DeepSeek API 可稳定提供服务 | 需增加备用模型接入 |
+| AS2 的模型调用、决策循环、记忆检索、任务生命周期与检查点机制可复用；生活记忆合并与观察单写业务由 WorldMock 扩展承担；同秒续接的消息由环境从已保存的模型证据重建，宿主在准备阶段之后注入，不改 AS2；回看任务的只读查询由 WorldMock 侧的 `LifeEnvActor`、`LifeEnvProxy` 两个子类转发到环境 actor，同样不改 AS2，对锁定提交三个私有成员（`DirectEnvActor._router`、`DirectRouter._environment()`、`EnvRouterProxy._actor`）的依赖随锁定提交验证 | 需重新评估 Agent 框架选型 |
+| DeepSeek API 可稳定提供服务 | 记录并传播服务故障，保持固定模型身份，不替换模型 |
 | 单人物场景足以验证系统可行性 | 需重新设计多人物协调机制 |
 | 12 周时间跨度足以覆盖日常行为模式 | 需调整实验时长 |
 | LabelKit 可消费 JSONL 格式的数字足迹 | 需重新设计交付格式 |
@@ -226,7 +227,7 @@ flowchart TB
 ## 10. 参考文献
 
 1. AgentSociety 2 文档：https://github.com/OpenBMB/AgentSociety
-2. LabelKit 设计文档：`/Users/atishoo/Project/LabelKit/docs/design/`
+2. [LabelKit 交付规格](../dev/SPEC-labelkit-delivery.md)：独立进程、输入输出和交付验收合同
 3. [LifeEnv 运行时规格](../dev/SPEC-life-runtime.md)：身体模型的算法、参数来源与仿真假设
 4. Daan、Beersma 与 Borbély (1984)：两过程睡眠模型，采用方式见运行时规格
 5. Event Sourcing Pattern - Martin Fowler
@@ -248,3 +249,4 @@ flowchart TB
 | v1.8 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D0-08）：查询需求行补来源与可执行筛选；文件头修订行改为已落地阶段 1、2 与阶段 4（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入） |
 | v1.9 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D0-07）：需求映射增作息与工作安排一行；文件头修订行改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.10 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D0-14）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+| v1.11 | 2026-10-05 | 按共享规则与可重建环境规格同步 AS2 生命周期与 WorldMock 生活业务职责、Python 3.12、固定模型故障传播、相对交付引用、Windows 核心与重建验收要求及 Linux x86_64/TextWorld 与 aarch64 安装边界；验收要求不代表已经通过 |

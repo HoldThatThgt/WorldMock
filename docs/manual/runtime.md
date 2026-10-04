@@ -10,6 +10,9 @@
 
 ## 准备环境
 
+当前 Linux 64 位 release 环境与 TextWorld 验收使用 x86_64；Linux ARM64/aarch64 无法完成锁定组合的安装。
+平台支持范围以[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#门禁可选部件与操作系统)为准。
+
 在仓库根目录执行，使用 Python 3.12 和项目锁定的依赖：
 
 ```bash
@@ -49,7 +52,7 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 准备依赖可能联网，但安装本身不启动模拟。
 
 新机器重建检查运行 `python scripts/fresh_check.py`，克隆指定提交且禁止 SSH、不使用 pip 缓存，
-执行相同引导、源码身份核对与固定快速检查。Windows 运行跨平台核心检查，TextWorld 语料验收在 Linux 必跑；
+执行相同引导、源码身份核对与固定快速检查。Windows 必须通过跨平台核心与重建检查，TextWorld 语料验收在 Linux x86_64 必跑；
 两者共同组成完整环境放行，任何跳过、xfail 或缺失证据都不能报完整通过。
 覆盖率门禁使用环境 Python 执行 `python scripts/coverage_gate.py --shards 4`，不要求 uv。
 
