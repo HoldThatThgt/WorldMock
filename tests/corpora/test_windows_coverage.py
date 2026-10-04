@@ -174,7 +174,7 @@ def pipeline(monkeypatch):
     sources = _Sources()
     monkeypatch.setattr("urllib.request.urlopen", sources)
     map_calls: list[tuple[Path, Path, int]] = []
-    monkeypatch.setattr("worldmock.corpora.map_prepare.prepare_map", _map_stub(map_calls))
+    monkeypatch.setattr(fetch, "prepare_map", _map_stub(map_calls))
     return SimpleNamespace(prepare=fetch.prepare_corpora, textworld=textworld, sources=sources,
                            map_calls=map_calls)
 
