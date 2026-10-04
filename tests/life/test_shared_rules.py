@@ -74,6 +74,7 @@ def test_consume_duration_limit_matches_listing_and_real_admission(engine_factor
                               requested_event_id="shared-request")
     listed = _consume_check(context, binding, action)
     if seconds == 14_401:
+        assert listed is not None
         assert listed.code == "ACTIVITY_DURATION_INVALID"
         with pytest.raises(BusinessRuleError, match="ACTIVITY_DURATION_INVALID"):
             engine._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
@@ -93,7 +94,7 @@ def test_consume_duration_limit_matches_listing_and_real_admission(engine_factor
 def test_declared_sleep_channel_does_not_control_body_sleep_settlement(engine_factory, monkeypatch):
     """注册表睡眠通道改为清醒声明后，真实睡眠仍恢复不足账和睡眠压力，且不产生娱乐分录。"""
     from worldmock.catalog import affordances
-    from worldmock.life import activities
+    from worldmock.life import activities, body
     from worldmock.life.body import ActivityFactors, ENTERTAINMENT_RESOURCE, last_flows, settle_body, settle_shared_body
     from worldmock.life.models import BodyState
 
@@ -102,6 +103,7 @@ def test_declared_sleep_channel_does_not_control_body_sleep_settlement(engine_fa
     changed_registry = replace(registry, kinds={**registry.kinds,
                                                 "sleep": replace(registry.kinds["sleep"], sleep_channel="awake")})
     monkeypatch.setattr(affordances, "default_affordances", lambda: changed_registry)
+    monkeypatch.setattr(body, "default_affordances", lambda: changed_registry)
     monkeypatch.setattr(activities, "_AFFORDANCES", changed_registry)
     config = engine.scenario.body
     before = BodyState(energy_kcal=1600, sleep_pressure=0.6, sleep_deficit_hours=4, entertainment_need=0.3)
