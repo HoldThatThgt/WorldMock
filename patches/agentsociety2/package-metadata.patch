@@ -1,0 +1,12 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index f8dd840..15226c1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -83,7 +83,6 @@ dependencies = [
+ ]
+ 
+ [project.scripts]
+-agentsociety = "agentsociety2.society.cli:main"
+ agentsociety-workspace = "agentsociety2.society.workspace:main"
+ 
+ [project.urls]

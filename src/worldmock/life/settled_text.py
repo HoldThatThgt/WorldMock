@@ -32,7 +32,7 @@ from worldmock.life.result_projection import browse_labels
 from worldmock.life.tool_layer import LayerContext
 
 #: 成功的结果状态：只有这些结果写 settled 句。
-_SETTLED_STATUSES = frozenset({"completed", "in_progress"})
+SETTLED_STATUSES = frozenset({"completed", "in_progress"})
 #: 活动的暂停区间：活动身份 → [(暂停时刻, 恢复时刻)]（只含已恢复的区间）。
 PauseIntervals = Mapping[str, Sequence[tuple[int, int]]]
 #: 活动的终态（快照 status 的取值）。
@@ -227,11 +227,11 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts
     if result is None:
         return []
     status, tool = result["status"], record["tool"]
-    if tool == "submit_work" and (status in _SETTLED_STATUSES or result.get("error_code") == "WORK_REQUIRES_REWORK"):
+    if tool == "submit_work" and (status in SETTLED_STATUSES or result.get("error_code") == "WORK_REQUIRES_REWORK"):
         task = record["arguments"]["task_name"].split("：", 1)[-1]
-        verdict = "通过" if status in _SETTLED_STATUSES else "未通过"
+        verdict = "通过" if status in SETTLED_STATUSES else "未通过"
         return [f"{_clock(context, record['occurred_at'])} 提交「{task}」，{verdict}"]
-    if status not in _SETTLED_STATUSES:
+    if status not in SETTLED_STATUSES:
         return []
     payload = result.get("data") or {}
     if tool == "send_message":

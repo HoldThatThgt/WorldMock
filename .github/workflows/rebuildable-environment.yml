@@ -1,0 +1,58 @@
+name: Rebuildable environment
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Rebuild without SSH or uv
+        run: python scripts/fresh_check.py --repository . --commit ${{ github.sha }} --output .work/fresh-check.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: identity-${{ matrix.os }}
+          path: .work/fresh-check.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+  compare-identities:
+    needs: rebuild
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: identity-*
+          path: .work/platform-identities
+      - name: Require identical runtime bytes
+        run: >-
+          python scripts/fresh_check.py --compare
+          .work/platform-identities/identity-ubuntu-latest/fresh-check.json
+          .work/platform-identities/identity-windows-latest/fresh-check.json
+          --output .work/platform-comparison.json

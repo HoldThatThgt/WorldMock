@@ -407,15 +407,20 @@ def test_deliver_rejects_existing_destination_and_duplicate_replay(tmp_path, mon
     assert not (tmp_path / 'delivery2').exists()
 
 
-def test_file_inventory_rejects_symbolic_artifacts(tmp_path):
+def test_file_inventory_rejects_symbolic_artifacts(tmp_path, monkeypatch):
     """清单盘点拒绝符号链接文件。"""
     (tmp_path / 'real.json').write_text('data')
     try:
         (tmp_path / 'link.json').symlink_to(tmp_path / 'real.json')
     except OSError as error:
         if getattr(error, 'winerror', None) == 1314:
-            pytest.skip('Windows symlink privilege is unavailable')
-        raise
+            # 权限不允许创建时模拟文件系统的链接标志，仍执行真实拒绝入口，不声称创建成功。
+            link = tmp_path / 'link.json'
+            link.write_text('data')
+            original = Path.is_symlink
+            monkeypatch.setattr(Path, 'is_symlink', lambda path: path == link or original(path))
+        else:
+            raise
     with pytest.raises(IntegrityError, match='symbolic file'):
         _file_inventory(tmp_path)
 

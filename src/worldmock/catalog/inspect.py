@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from worldmock.categories import ProducerType, ProvenanceType, SourceRecord
 from worldmock.catalog.models import (
     Catalog,
-    CatalogError,
+    CategoryError,
     CompiledEdge,
     DrainEdge,
     ExchangeObject,
@@ -71,7 +71,7 @@ def lineage(catalog: Catalog, object_id: str) -> LineageReport:
     """@brief 展开一个 raw 对象的版本与来源链。"""
     obj = catalog.raw_objects.get(object_id)
     if obj is None:
-        raise CatalogError("INSPECT_OBJECT_UNKNOWN", f"object {object_id} not in catalog")
+        raise CategoryError("INSPECT_OBJECT_UNKNOWN", f"object {object_id} not in catalog")
     return LineageReport(
         object_id=obj.object_id,
         object_version=obj.version,
@@ -96,7 +96,7 @@ def _lineage_entry(record: SourceRecord) -> LineageEntry:
 def _require_resource(catalog: Catalog, resource_id: str) -> None:
     """@brief 查询前要求资源已注册。"""
     if resource_id not in catalog.resources:
-        raise CatalogError("INSPECT_RESOURCE_UNKNOWN", f"resource {resource_id} not in catalog")
+        raise CategoryError("INSPECT_RESOURCE_UNKNOWN", f"resource {resource_id} not in catalog")
 
 
 def _object_edge_hits(

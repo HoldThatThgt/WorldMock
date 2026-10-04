@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from worldmock.catalog import CatalogError
+from worldmock.catalog import CategoryError
 from worldmock.catalog.inspect import edges_of, lineage, objects_affecting
 
 
@@ -33,13 +33,13 @@ def test_lineage_reports_new_source_identity_and_producer(loaded_catalog) -> Non
 @pytest.mark.parametrize("function", [edges_of, objects_affecting])
 def test_unknown_resource_rejected(loaded_catalog, function) -> None:
     """资源影响查询要求资源已经注册。"""
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         function(loaded_catalog, "unknown")
     assert excinfo.value.code == "INSPECT_RESOURCE_UNKNOWN"
 
 
 def test_unknown_object_lineage_rejected(loaded_catalog) -> None:
     """来源查询要求 raw 对象存在。"""
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         lineage(loaded_catalog, "unknown")
     assert excinfo.value.code == "INSPECT_OBJECT_UNKNOWN"

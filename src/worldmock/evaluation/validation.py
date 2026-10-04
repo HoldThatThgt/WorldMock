@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -332,7 +333,7 @@ def _validated_checkpoint(manifest: JsonObject, window: TimeWindow) -> Checkpoin
     except ValidationError as exc:
         raise EvaluationError("invalid_input", "WorldMock checkpoint schema is invalid") from exc
     payload = checkpoint.model_dump(exclude={"record_sha256"})
-    if hashlib.sha256(canonical_json(payload)).hexdigest() != checkpoint.record_sha256:
+    if sha256_json(payload) != checkpoint.record_sha256:
         raise EvaluationError("hash_mismatch", "WorldMock checkpoint record hash is invalid")
     if checkpoint.run_id != manifest["run_id"]:
         raise EvaluationError("identity_mismatch", "WorldMock checkpoint run_id differs from manifest")
@@ -342,7 +343,7 @@ def _validated_checkpoint(manifest: JsonObject, window: TimeWindow) -> Checkpoin
     frozen = manifest.get("frozen_run_manifest")
     if not isinstance(frozen, dict):
         raise EvaluationError("invalid_input", "WorldMock frozen run manifest is missing")
-    if hashlib.sha256(canonical_json(frozen)).hexdigest() != checkpoint.manifest_sha256:
+    if sha256_json(frozen) != checkpoint.manifest_sha256:
         raise EvaluationError("hash_mismatch", "WorldMock checkpoint manifest hash is invalid")
     return checkpoint
 

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from worldmock.runtime import AS2_LOCKED_SOURCE_SHA256
+
 #: 实施计划「实施阶段」中的全部阶段编号。
 STAGE_IDS = frozenset(str(n) for n in range(10))
 
@@ -128,7 +130,7 @@ _NO_NEW_FAULT_TESTS = [
 
 #: 「本机运行修复」行中阶段 6（运行身份）的部分：AS2 缺失、为空或摘要不符即拒绝启动，清单含 git_commit 与 git_dirty。
 _RUN_IDENTITY_TESTS = [
-    "tests/integration/test_runtime.py::test_imported_as2_is_the_locked_8768e14_source",
+    "tests/integration/test_runtime.py::test_imported_as2_matches_rebuildable_locked_source",
     "tests/integration/test_runtime.py::test_code_identity_covers_every_imported_as2_file_except_pycache",
     "tests/integration/test_runtime.py::test_as2_identity_is_independent_of_install_location",
     "tests/integration/test_runtime.py::test_unlocked_as2_refuses_run_resume_replay_and_validate",
@@ -708,7 +710,7 @@ _IO_FORMATS = "docs/design/09-io-formats.md"
 _RUNTIME = "src/worldmock/runtime.py"
 _EXPERIMENT = "docs/EXPERIMENT.md"
 _MANUAL_RUNTIME = "docs/manual/runtime.md"
-_AS2_LOCKED_DIGEST = "65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334"
+_AS2_LOCKED_DIGEST = AS2_LOCKED_SOURCE_SHA256
 _BODY = "src/worldmock/life/body.py"
 _RHYTHM = "src/worldmock/life/rhythm.py"
 _PROJECTION = "src/worldmock/life/projection.py"
@@ -948,7 +950,6 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"CALL_DURATION_BOUNDS = \(600, 3600\)", [_SOCIAL_ACTIONS]),
         (r"def shared_chat_seconds|def end_partner_chats|def pair_chat", [_SOCIAL_ACTIONS]),
         (r"partner_ended", [_SOCIAL_ACTIONS, "src/worldmock/life/same_moment.py", _CONTRACTS, _IO_FORMATS]),
-        (r"DERIVED_DURATION_CAP_SECONDS = 86_400", [_SESSION_ACTIONS]),
         (r"WORK_START_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/work.py"]),
         (r'COMPLETION_OUTLOOK_SHORT = "到截止前做不完"', ["src/worldmock/life/work.py"]),
         (r"completion_outlook", ["src/worldmock/life/work.py", _CONTRACTS]),
@@ -1018,8 +1019,8 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"git_commit", [_MODELS, _ENGINE, _RUNTIME, _RECORDING, _EXPERIMENT]),
         (r"git_dirty", [_MODELS, _ENGINE, _RUNTIME, _RECORDING, _EXPERIMENT]),
         (r"--untracked-files=normal", [_RUNTIME]),
-        (r"git submodule update --init vendor/agentsociety2 vendor/labelkit", ["README.md", _MANUAL_RUNTIME]),
-        (r"\*\*锁定提交\*\*：`8768e14`（子模块指针，运行身份按它的源码摘要比对）", ["docs/dev/SPEC-as2-integration.md"]),
+        (r"python scripts/bootstrap\.py --profile release", ["README.md", _MANUAL_RUNTIME]),
+        (r"\*\*锁定源码\*\*：", ["docs/dev/SPEC-as2-integration.md"]),
         (r"运行清单冻结的 `code_sha256` 覆盖", [_RECORDING]),
         (r"代码身份含实际导入的 AS2", [_MANUAL_RUNTIME]),
         (r"升级代码后旧检查点不能恢复", [_MANUAL_RUNTIME]),

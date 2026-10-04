@@ -17,7 +17,7 @@ from tests.categories.conftest import (
     write_rules,
 )
 from worldmock.categories import load_category_contract, load_exchange_rules
-from worldmock.catalog import CatalogError, ExchangeObject, RuleEdge, SourceEdge, TransferEdge, load_catalog
+from worldmock.catalog import CategoryError, ExchangeObject, RuleEdge, SourceEdge, TransferEdge, load_catalog
 from worldmock.catalog.compiler import compile_exchange_object
 from worldmock.catalog.models import ObjectDeclaration
 
@@ -94,7 +94,7 @@ def test_same_version_content_tamper_is_rejected(valid_catalog_dir: Path) -> Non
     """同版本规则字节变化但未刷新清单时加载明确拒绝。"""
     path = valid_catalog_dir / "exchange-rules.json"
     path.write_text(path.read_text().replace("buy-product", "buy-products", 1))
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_catalog(valid_catalog_dir)
     assert excinfo.value.code == "CATALOG_CONTENT_IDENTITY_MISMATCH"
 

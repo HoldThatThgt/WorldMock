@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from tests.categories.conftest import raw_object
 from worldmock.catalog.models import (
     AlertRule,
-    CatalogError,
+    CategoryError,
     ObjectDeclaration,
     ResourceBounds,
     ResourceDefinition,
@@ -91,6 +91,6 @@ def test_transfer_rejects_same_endpoint_and_missing_roles() -> None:
 
 def test_catalog_error_exposes_stable_code() -> None:
     """目录错误保留稳定英文错误码。"""
-    error = CatalogError("TEST_FAILURE", "detail")
+    error = CategoryError("TEST_FAILURE", "detail")
     assert error.code == "TEST_FAILURE"
     assert str(error) == "TEST_FAILURE: detail"

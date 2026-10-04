@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from worldmock.corpora.manifest import CorpusManifest
+from worldmock.corpora.manifest import CorpusManifest, safe_file
 from worldmock.errors import IntegrityError
 
 
@@ -61,7 +61,7 @@ def verified_phone_config(scenario: Any, corpus_root: Path) -> PhoneSimulationCo
     if relative is None:
         return None
     root = Path(corpus_root).resolve()
-    path = _validated_path(root, relative)
+    path = safe_file(root, relative, "Phone simulation config path is invalid")
     content = path.read_bytes()
     digest = hashlib.sha256(content).hexdigest()
     manifest = CorpusManifest.model_validate(
@@ -69,21 +69,17 @@ def verified_phone_config(scenario: Any, corpus_root: Path) -> PhoneSimulationCo
     entries = [entry for entry in manifest.entries if entry.path == relative]
     if (len(entries) != 1 or entries[0].sha256 != digest
             or digest != scenario.phone_simulation_config_sha256):
-        logging.error("Phone simulation config identity is not pinned by the scenario and corpus")
         raise IntegrityError("Phone simulation config identity is invalid")
     try:
         config = PhoneSimulationCoverage.model_validate(json.loads(content))
     except (ValidationError, ValueError) as error:
-        logging.exception("Phone simulation config schema is invalid")
         raise IntegrityError("Phone simulation config schema is invalid") from error
     if (config.scenario_id != scenario.scenario_id or config.timezone != scenario.timezone
             or config.agent_id not in {agent.agent_id for agent in scenario.agents}):
-        logging.error("Phone simulation config references a different scenario or person")
         raise IntegrityError("Phone simulation config scenario identity is invalid")
     aliases = [alias for app_id in _executable_apps(config, scenario)
                for alias in config.app_display_names.get(app_id, ())]
     if any(not alias.strip() for alias in aliases) or len(aliases) != len(set(aliases)):
-        logging.error("Phone simulation app names are empty or duplicated")
         raise IntegrityError("Phone simulation app names are invalid")
     return config
 
@@ -112,21 +108,7 @@ def purchase_channels(config: PhoneSimulationCoverage, scenario: Any) -> tuple[P
         for app_id, owners in sorted(sellers.items()))
 
 
-def _validated_path(root: Path, relative: str) -> Path:
-    """@brief 只读取语料根内的普通文件，不跟随符号链接。"""
-    path = Path(relative)
-    candidate = root / path
-    resolved = candidate.resolve()
-    current = candidate
-    if path.is_absolute() or ".." in path.parts or root not in resolved.parents or not resolved.is_file():
-        logging.error("Phone simulation config path is outside the corpus")
-        raise IntegrityError("Phone simulation config path is invalid")
-    while current != root:
-        if current.is_symlink():
-            logging.error("Phone simulation config path contains a symbolic link")
-            raise IntegrityError("Phone simulation config path is invalid")
-        current = current.parent
-    return resolved
+
 
 
 def _executable_apps(config: PhoneSimulationCoverage, scenario: Any) -> set[str]:
@@ -137,15 +119,12 @@ def _executable_apps(config: PhoneSimulationCoverage, scenario: Any) -> set[str]
         "watch": bool(scenario.contents),
     }
     if any(not available.get(kind, False) for kind in config.activity_apps):
-        logging.error("Phone activity app maps to an unavailable scenario action")
         raise IntegrityError("Phone activity app is not executable")
     sellers = {supply.seller_account_id for supply in scenario.supplies
                if supply.initial_stock > 0}
     if not set(config.purchase_apps_by_seller) <= sellers:
-        logging.error("Phone purchase app maps to a seller without available supply")
         raise IntegrityError("Phone purchase app is not executable")
     app_ids = set(config.activity_apps.values()) | set(config.purchase_apps_by_seller.values())
     if any(not config.app_display_names.get(app_id) for app_id in app_ids):
-        logging.error("Phone app has no human-readable display name")
         raise IntegrityError("Phone app display name is missing")
     return app_ids

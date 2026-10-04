@@ -11,6 +11,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 
 from worldmock.resources.models import (
+    AMOUNT_TYPES,
     CLOSED_CONSERVATION,
     OPEN_CONSERVATION,
     ConvertEntry,
@@ -22,7 +23,6 @@ from worldmock.resources.models import (
 )
 
 _TOLERANCE = 1e-9
-_AMOUNT_TYPES = (int, float)
 BalanceKey = tuple[str, str]
 Balances = dict[BalanceKey, float]
 
@@ -130,7 +130,7 @@ class ResourceLedger:
             if not isinstance(key, tuple) or len(key) != 2:
                 raise ValueError(f"balance key must be (resource, owner), got {key!r}")
             self._require_meta(key[0])
-            if type(value) not in _AMOUNT_TYPES or (
+            if type(value) not in AMOUNT_TYPES or (
                     isinstance(value, float) and not math.isfinite(value)):
                 raise ValueError(f"balance for {key} must be a finite int or float, got {value!r}")
         self._check_invariants(balances, list(balances))

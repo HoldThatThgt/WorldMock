@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 import json
 import logging
@@ -265,7 +266,7 @@ class FootprintStore:
         for reference in snapshots.values():
             self.assets.read(reference)
         payload = self._checkpoint_payload(state, snapshots)
-        digest = hashlib.sha256(canonical_json(payload)).hexdigest()
+        digest = sha256_json(payload)
         checkpoint = Checkpoint(**payload, record_sha256=digest)
         draft = EventDraft(event_type="checkpoint_created", occurred_at=state["current_time"],
                            visibility="system", data={"checkpoint_id": checkpoint.checkpoint_id})
@@ -297,7 +298,7 @@ class FootprintStore:
                 "current_time": state["current_time"], "state_version": state["version"],
                 "last_event_seq": self.last_event_seq + 1, "state": state,
                 "snapshots": {name: reference.model_dump() for name, reference in snapshots.items()},
-                "manifest_sha256": hashlib.sha256(canonical_json(self.manifest)).hexdigest()}
+                "manifest_sha256": sha256_json(self.manifest)}
 
     def get_checkpoint(self, checkpoint_id: str) -> Checkpoint:
         """@brief 校验数据库提交记录与每个素材，不读取松散 JSON 收据。"""
@@ -310,7 +311,7 @@ class FootprintStore:
                 or checkpoint.current_time != checkpoint.state["current_time"]
                 or checkpoint.state_version != checkpoint.state["version"]):
             raise IntegrityError("Checkpoint identity, time, or version disagrees with its world snapshot")
-        if checkpoint.manifest_sha256 != hashlib.sha256(canonical_json(self.manifest)).hexdigest():
+        if checkpoint.manifest_sha256 != sha256_json(self.manifest):
             raise IntegrityError("Checkpoint and frozen manifest disagree")
         self._validate_participants(checkpoint.snapshots)
         event = self.connection.execute("SELECT body FROM events WHERE event_seq=?",

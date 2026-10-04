@@ -351,7 +351,7 @@ def adapt_human_reference(root: Path, scenario: EvaluationScenario) -> DatasetVi
 def _adapt_canonical(root: Path, scenario: EvaluationScenario, source_kind: str) -> DatasetView:
     """@brief 适配 WorldMock 共同交付格式。"""
     delivery = validate_canonical_delivery(root, scenario, source_kind)
-    event_rows = read_jsonl(delivery.event_path)
+    event_rows = [parse_world_event(row) for row in read_jsonl(delivery.event_path)]
     activity_rows = read_jsonl(delivery.activity_path)
     activities = _adapt_world_activities(activity_rows, delivery, scenario)
     activity_index = {item.activity_id: item for item in activities}
@@ -393,7 +393,7 @@ def _validate_public_window(
 
 
 def _adapt_world_events(
-    rows: list[JsonObject],
+    rows: list[Event],
     delivery: VerifiedDelivery,
     scenario: EvaluationScenario,
     activity_index: Mapping[str, ActivitySession],
@@ -403,7 +403,7 @@ def _adapt_world_events(
     seen: set[str] = set()
     current_run_started = False
     for expected_seq, row in enumerate(rows, start=1):
-        run_id = row.get("run_id")
+        run_id = row.run_id
         if run_id not in delivery.accepted_run_ids:
             raise EvaluationError("identity_mismatch", "WorldMock event run_id is not declared by manifest")
         if current_run_started and run_id != delivery.run_id:
@@ -426,13 +426,12 @@ def _adapt_world_events(
 
 
 def _adapt_world_event(
-    row: JsonObject,
+    parsed: Event,
     expected_seq: int,
     delivery: VerifiedDelivery,
     activity_index: Mapping[str, ActivitySession],
 ) -> EvidenceEvent:
     """@brief 适配一个严格 WorldMock Event。"""
-    parsed = _parse_world_event(row)
     _require_world_event_identity(parsed, expected_seq, delivery)
     activity = activity_index.get(parsed.activity_id) if parsed.activity_id else None
     source_channel = _WORLD_SOURCE_CHANNELS[parsed.event_type]
@@ -463,7 +462,7 @@ def _adapt_world_event(
     )
 
 
-def _parse_world_event(row: JsonObject) -> Event:
+def parse_world_event(row: JsonObject) -> Event:
     """@brief 使用生产 Event 模型拒绝缺失和未知字段。"""
     try:
         return Event.model_validate(row)

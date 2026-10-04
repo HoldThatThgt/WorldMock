@@ -7,16 +7,17 @@ worldmock.life 模块，模型基类按 life.models.StrictModel 的语义本地�
 
 from __future__ import annotations
 
+from worldmock.base_models import StrictModel
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class _StrictScheduledModel(BaseModel):
+class _StrictScheduledModel(StrictModel):
     """@brief 与 life.models.StrictModel 同语义的封闭模型基类。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=False)
+
 
 
 class ScheduledKind(StrEnum):

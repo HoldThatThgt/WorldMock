@@ -18,9 +18,6 @@ from pathlib import Path
 
 import pytest
 
-if sys.platform == "win32" and importlib.util.find_spec("textworld") is None:
-    pytest.skip("TextWorld 1.7.0 has no Windows wheel in the project lockfile", allow_module_level=True)
-
 import worldmock.corpora.fetch as fetch_module
 from worldmock.corpora.fetch import (
     _download,
@@ -319,13 +316,13 @@ def test_normalize_ami_rejects_incomplete_annotations(tmp_path, zip_builder, mat
 def test_fetch_geodata_delegates_to_the_reviewed_map_preparation(tmp_path, monkeypatch):
     """地图准备使用已审阅的完整地点集合并传播发布校验错误。"""
     calls = []
-    def reject(destination, frozen_root):
-        calls.append((destination, frozen_root))
+    def reject(destination, frozen_root, random_seed):
+        calls.append((destination, frozen_root, random_seed))
         raise IntegrityError("Map file hash mismatch")
     monkeypatch.setattr("worldmock.corpora.map_prepare.prepare_map", reject)
     with pytest.raises(IntegrityError, match="hash mismatch"):
         fetch_module._fetch_geodata(tmp_path)
-    assert calls == [(tmp_path, PROJECT_ROOT / "corpora")]
+    assert calls == [(tmp_path, PROJECT_ROOT / "corpora", 20260105)]
 
 @pytest.mark.parametrize("response, match", [
     ({"code": "Ok", "routes": []}, "preparation failed"),

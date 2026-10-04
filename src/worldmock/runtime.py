@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
+from worldmock.model_endpoint import IndependentModelClient
 import copy
 import hashlib
 import importlib.util
@@ -55,7 +57,7 @@ _WORK_REVIEW_TOOL_CHOICE = "required"
 #: （docs/dev/SPEC-time-and-energy.md「运行身份」）。
 _AS2_PACKAGE = "agentsociety2"
 #: AS2 锁定提交 8768e14 的源码摘要，与 docs/EXPERIMENT.md「AS2 基线与框架依赖」登记的值逐字相同。
-AS2_LOCKED_SOURCE_SHA256 = "65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334"
+AS2_LOCKED_SOURCE_SHA256 = "bad0fe937ec4cbeaa8263674d8d7226f00109ef29a9ac86e4ce3af868b7c2358"
 _AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
 #: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000
@@ -434,7 +436,7 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
         "tool_name": "counterfactual_intervention",
         "request": intervention.model_dump(mode="json"),
     }
-    return hashlib.sha256(canonical_json(payload)).hexdigest()
+    return sha256_json(payload)
 
 
 def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> None:
@@ -468,7 +470,7 @@ def runtime_code_sha256(project_root: Path) -> str:
 
 
 def require_locked_as2() -> list[tuple[str, Path]]:
-    """@brief 核对实际导入的 AS2 包与锁定提交 8768e14 的源码摘要，返回其（标签, 路径）文件表。
+    """@brief 核对实际导入的 AS2 包与固定基线加补丁的源码摘要，返回其（标签, 路径）文件表。
 
     包目录为空、导入失败或摘要不符时以 IntegrityError 拒绝；读取或哈希 AS2 文件时的任何失败（条目缺失、
     不安全或不可读）同样按摘要不符拒绝，只用规格的唯一拒绝文案。run、resume、replay 与 validate 共用。
@@ -906,38 +908,12 @@ def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:
         ) from cause
 
 
-class ContactReplyClient:
-    """@brief 联系人 model 回复的独立 DeepSeek 客户端（工作验收同模式）。
-
-    复用 AS2 已维护的单次 LiteLLM 客户端，身份必须与运行 manifest 一致；
-    不重试业务或协议错误；瞬时传输错误使用调度器独立的三次重试预算。
-    """
+class ContactReplyClient(IndependentModelClient):
+    """@brief Contact reply 业务客户端，协议重试仍由业务调用方计数。"""
 
     def __init__(self, model_identity: dict[str, Any]):
-        """@brief 建立与运行 manifest 完全相同的 DeepSeek 客户端。"""
-        from agentsociety2.config import build_client_for_role
-
-        client = build_client_for_role("default")
-        if (client.model_name != model_identity["requested_model"]
-                or client.base_url != model_identity["base_url"]):
-            raise ProtocolError("Contact reply client identity disagrees with the run manifest")
-        if model_identity["max_retries"] != 0:
-            raise ProtocolError("Contact reply request parameters disagree with the run manifest")
-        self._client = client
-        self.model_name = model_identity["requested_model"]
-
-    async def call(self, request: dict[str, Any]) -> dict[str, Any]:
-        """@brief 发出一次无内部重试的实际请求并返回可持久化原始响应。"""
-        response = await self._client.call(**copy.deepcopy(request))
-        if hasattr(response, "model_dump"):
-            payload = response.model_dump(mode="json")
-        elif isinstance(response, dict):
-            payload = dict(response)
-        else:
-            raise ProtocolError("Contact reply model response is not serializable")
-        if not isinstance(payload, dict):
-            raise ProtocolError("Contact reply model response is not a serialized object")
-        return payload
+        """@brief 使用冻结身份建立业务客户端。"""
+        super().__init__(model_identity, "Contact reply")
 
 
 def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
@@ -1094,37 +1070,12 @@ def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict],
             "source_kind": reply.source_kind}
 
 
-class PlanDayClient:
-    """@brief 零点计划 plan_day 的独立 DeepSeek 客户端（身份与参数核对同联系人回复，类名独立）。
-
-    不重试协议错误（plan_day 的附回重试由后台任务自行计数）；瞬时传输错误使用调度器独立的三次重试预算。
-    """
+class PlanDayClient(IndependentModelClient):
+    """@brief Plan day 业务客户端，协议重试仍由业务调用方计数。"""
 
     def __init__(self, model_identity: dict[str, Any]):
-        """@brief 建立与运行 manifest 完全相同的 DeepSeek 客户端。"""
-        from agentsociety2.config import build_client_for_role
-
-        client = build_client_for_role("default")
-        if (client.model_name != model_identity["requested_model"]
-                or client.base_url != model_identity["base_url"]):
-            raise ProtocolError("Plan day client identity disagrees with the run manifest")
-        if model_identity["max_retries"] != 0:
-            raise ProtocolError("Plan day request parameters disagree with the run manifest")
-        self._client = client
-        self.model_name = model_identity["requested_model"]
-
-    async def call(self, request: dict[str, Any]) -> dict[str, Any]:
-        """@brief 发出一次无内部重试的实际请求并返回可持久化原始响应。"""
-        response = await self._client.call(**copy.deepcopy(request))
-        if hasattr(response, "model_dump"):
-            payload = response.model_dump(mode="json")
-        elif isinstance(response, dict):
-            payload = dict(response)
-        else:
-            raise ProtocolError("Plan day model response is not serializable")
-        if not isinstance(payload, dict):
-            raise ProtocolError("Plan day model response is not a serialized object")
-        return payload
+        """@brief 使用冻结身份建立业务客户端。"""
+        super().__init__(model_identity, "Plan day")
 
 
 async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:

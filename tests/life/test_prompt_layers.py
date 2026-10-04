@@ -30,8 +30,8 @@ from worldmock.life import activity_control, felt, schedule
 from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
 from worldmock.life.interaction_menu import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
 from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
-from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INDEX_EXAMPLES_MAX, INTENT_KINDS,
-                                           LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES, VERBS,
+from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INTENT_KINDS,
+                                           LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES,
                                            WAY_LABELS, validate_layer)
 from worldmock.life.readable import count_phrase
 from worldmock.life.tool_layer import BINDING_KINDS
@@ -71,13 +71,13 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
         "social": levels(felt.SOCIAL_BASE_LEVEL, felt.SOCIAL_BANDS),
         "mood": levels(felt.MOOD_BASE_LEVEL, felt.MOOD_BANDS),
     }
-    assert WAY_LABELS == tuple(way for way in WAYS if way != SYSTEM_PURCHASE_WAY) and VERBS == LIFE_VERBS
+    assert WAY_LABELS == tuple(way for way in WAYS if way != SYSTEM_PURCHASE_WAY)
     assert ACTION_STATUSES == tuple(item.value for item in ActionStatus)
     assert INTENT_KINDS == schedule.INTENT_KINDS
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
     index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
-    assert INDEX_EXAMPLES_MAX == MAX_EXAMPLES
+    assert TOOL_LAYER_SCHEMA["properties"]["callable_index"]["properties"]["contents"]["items"]["properties"]["examples"]["maxItems"] == MAX_EXAMPLES
     assert tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
 
 

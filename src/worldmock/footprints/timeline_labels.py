@@ -47,8 +47,8 @@ def timeline_label_report(events: list[Event], manifest: dict) -> dict:
     for agent_id in agents:
         progress = [body for body in bodies
                     if body["event_type"] == "activity_progress" and body.get("agent_id") == agent_id]
-        for day in _window_days(manifest["window"]):
-            for row in renderer.day_rows(progress, names, day):
+        for day in window_days(manifest["window"]):
+            for row in renderer.day_rows(progress, names, day, manifest["window"]["timezone"]):
                 rows_checked += 1
                 findings.extend({"agent_id": agent_id, "date": day.isoformat(), "interval": row["interval"],
                                  "label": row["label"], "item": item, "text": text}
@@ -70,13 +70,33 @@ def label_findings(label: str) -> list[tuple[str, str]]:
     return found
 
 
-def _window_days(window: dict) -> list[date]:
-    """@brief 运行窗口覆盖的场景本地日期（左闭右开，与导出的逐日覆盖同一口径）。"""
-    zone = ZoneInfo(window["timezone"])
-    cursor = datetime.fromtimestamp(window["start"], zone)
-    end = datetime.fromtimestamp(window["end"], zone)
-    days = []
+def window_days(window: dict) -> list[date]:
+    """@brief 冻结窗口覆盖的本地日期，沿真实本地零点切分。"""
+    return [day for day, _, _ in split_local_days(window["start"], window["end"], window["timezone"])]
+
+
+
+def local_day_bounds(day: date, timezone: str | ZoneInfo) -> tuple[int, int]:
+    """@brief 返回场景本地日的实际整数秒边界，夏令时日不强定为二十四小时。"""
+    zone = ZoneInfo(timezone) if isinstance(timezone, str) else timezone
+    start = datetime.combine(day, time.min, zone)
+    end = datetime.combine(day + timedelta(days=1), time.min, zone)
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def split_local_days(start: int, end: int, timezone: str | ZoneInfo) -> list[tuple[date, int, int]]:
+    """@brief 将正时长区间按场景本地零点切分，保留每段真实 epoch 秒。"""
+    from worldmock.footprints.intervals import valid_interval
+
+    if not valid_interval(start, end):
+        return []
+    zone = ZoneInfo(timezone) if isinstance(timezone, str) else timezone
+    result = []
+    cursor = start
     while cursor < end:
-        days.append(cursor.date())
-        cursor = datetime.combine(cursor.date() + timedelta(days=1), time.min, zone)
-    return days
+        day = datetime.fromtimestamp(cursor, zone).date()
+        _, boundary = local_day_bounds(day, zone)
+        stop = min(end, boundary)
+        result.append((day, cursor, stop))
+        cursor = stop
+    return result

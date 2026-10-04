@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from worldmock.corpora.manifest import safe_file
 from worldmock.errors import IntegrityError
 from worldmock.life.scenario import GameConfig
 
@@ -28,19 +29,4 @@ def validate_game(config: GameConfig, corpus_root: Path) -> None:
 
 def _game_path(config: GameConfig, root: Path) -> Path:
     """@brief 将游戏读取限制在冻结语料目录。"""
-    base = Path(root).resolve()
-    candidate = base / config.game_path
-    path = candidate.resolve()
-    if _has_symlink(candidate, base) or base not in path.parents or not path.is_file():
-        raise IntegrityError("TextWorld game path is invalid")
-    return path
-
-
-def _has_symlink(path: Path, root: Path) -> bool:
-    """@brief 在解析前拒绝游戏文件及父目录符号链接。"""
-    current = path
-    while current != root and root in current.parents:
-        if current.is_symlink():
-            return True
-        current = current.parent
-    return current != root
+    return safe_file(root, config.game_path, "TextWorld game path is invalid")

@@ -63,7 +63,8 @@ def _render(sqlite_path, agent, day=DAY):
     module = _load_script("render_day")
     conn = module._connect(sqlite_path)
     try:
-        return module.render_day_markdown(conn, agent, day)
+        return module.render_day_markdown(
+            conn, agent, day, json.loads((sqlite_path.parent / "manifest.json").read_bytes())["window"]["timezone"])
     finally:
         conn.close()
 

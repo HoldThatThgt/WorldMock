@@ -13,13 +13,18 @@
 在仓库根目录执行，使用 Python 3.12 和项目锁定的依赖：
 
 ```bash
-git submodule update --init vendor/agentsociety2 vendor/labelkit
-uv sync --frozen
-uv sync --project vendor/labelkit --frozen
+python scripts/bootstrap.py --profile release
 ```
 
-AS2 必须是子模块指针锁定的提交 `8768e14`，并按 `uv sync --frozen` 的缺省方式从 `vendor/agentsociety2`
-可编辑安装。启动时核对实际导入的 AS2 包：包目录为空、无法导入或源码摘要与锁定值不符时，`run`、`resume`、
+引导使用 Python 3.12、Git 与哈希依赖锁，不需要 SSH 密钥或预先安装 uv；Windows 可用 `py -3.12`，
+其它系统可用 `python3.12`。默认 `release` 要求 Node 与独立 LabelKit 环境齐全；`dev` 记录缺失并明确跳过相应检查，
+但不能取得完整通过。`--use-uv` 只在显式指定时使用 uv，缺少 uv 即失败。
+`--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
+环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要和缺失部件，路径均相对项目。
+
+AS2 唯一来源是 `patches/agentsociety2/SERIES` 登记的上游源码与有序补丁，从生成目录
+`vendor/agentsociety2/packages/agentsociety2` 可编辑安装。启动时核对实际导入的 AS2 包：
+包目录为空、无法导入或源码摘要与锁定值不符时，`run`、`resume`、
 `replay` 与 `validate` 都拒绝启动，不能用别处安装的其他 AS2 版本代替。wheel 安装或 `--no-editable` 安装同样
 被拒绝：构建 wheel 时 AS2 的 `.gitignore` 会剔除 `agentsociety2/custom/*/examples/` 下 6 个受跟踪文件，摘要因此不符。
 
@@ -30,6 +35,11 @@ Windows 还需要安装[微软官方 Visual C++ v14 x64 运行库](https://learn
 Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立进程中检查 Ray 导入，
 避免到模拟启动时才发现缺少运行库。
 准备依赖可能联网，但安装本身不启动模拟。
+
+新机器重建检查运行 `python scripts/fresh_check.py`，克隆指定提交且禁止 SSH、不使用 pip 缓存，
+执行相同引导、源码身份核对与固定快速检查。Windows 运行跨平台核心检查，TextWorld 语料验收在 Linux 必跑；
+两者共同组成完整环境放行，任何跳过、xfail 或缺失证据都不能报完整通过。
+覆盖率门禁使用环境 Python 执行 `python scripts/coverage_gate.py --shards 4`，不要求 uv。
 
 ## 填写模型凭据
 
@@ -216,7 +226,7 @@ uv run worldmock replay \
 | `DeepSeek credential file is missing or unsafe` | 文件路径、是否为普通文件、是否为符号链接 |
 | `DeepSeek credential file has an invalid schema` | 是否只有 `DEEPSEEK_NODE_KEYS`，值或逗号分隔的密钥段是否为空 |
 | `The isolated LabelKit CLI environment is not installed` | 是否安装了 LabelKit 的独立环境 |
-| `AS2 runtime identity differs from the locked source` | 是否按「准备环境」把 `vendor/agentsociety2` 初始化到锁定提交，并用 `uv sync --frozen` 从子模块可编辑安装（wheel 或 `--no-editable` 安装会被拒绝）；实际导入的 AS2 包是否为空、无法导入或被改动 |
+| `AS2 runtime identity differs from the locked source` | 是否按「准备环境」运行 `python scripts/bootstrap.py --profile release`，核对 SERIES 源码摘要并从生成源码可编辑安装（wheel 或 `--no-editable` 安装会被拒绝）；实际导入的 AS2 包是否为空、无法导入或被改动 |
 | 只设置环境变量，模拟仍报凭据缺失 | 模拟启动器读取私密文件；画像抽取的读取顺序不同 |
 | 输出目录已经存在 | 改用新的运行或导出目录，保留原记录 |
 | 改了场景或代码后恢复被拒绝 | 使用匹配身份的原始配置恢复，或为新条件新建运行；升级代码后旧检查点不能恢复 |

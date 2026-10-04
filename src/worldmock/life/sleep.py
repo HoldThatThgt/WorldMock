@@ -10,6 +10,7 @@ sleep_deficit_hours 为独立账本：清醒按 sleep_need_hours/(24−sleep_nee
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import bisect
 import math
 from enum import StrEnum
@@ -176,14 +177,13 @@ def deficit_after_sleep(deficit_hours: float, hours: float) -> float:
     return min(max(recovered, 0.0), SLEEP_DEFICIT_MAX_H)
 
 
-class EfficiencyCurvePoint(BaseModel):
+class EfficiencyCurvePoint(FrozenModel):
     """@brief 效率曲线节点：输入睡眠不足小时数，输出效率乘数。
 
     输入与输出均为有界有限值（allow_inf_nan=False，nan/inf 构造即报错，
     ValidationError 是 ValueError 子类）；输入必须非负。
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     input_hours: float = Field(ge=0, allow_inf_nan=False)
     output_factor: float = Field(ge=0, allow_inf_nan=False)

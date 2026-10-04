@@ -7,6 +7,7 @@ pydantic 与标准库；全部逻辑在 errands.py（状态与逻辑分两个模
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import logging
 from typing import Literal
 
@@ -45,7 +46,7 @@ ERRAND_EVENT_KINDS = (REGISTERED_KIND, UPDATED_KIND, CANCELLED_KIND, PROGRESSED_
 AGENT_VISIBLE_KINDS = frozenset({COMPLETED_KIND, REMINDED_KIND})
 
 
-class ErrandState(BaseModel):
+class ErrandState(FrozenModel):
     """@brief 一条未完成的个人事务（docs/dev/SPEC-errands-workday.md 2.1 字段表）。
 
     errand_id 由来源动作身份与新增条目在请求中的序号确定性生成，只存状态与事件；name、memo 照人物所写保存，只用于呈现，
@@ -53,7 +54,6 @@ class ErrandState(BaseModel):
     quantity；remind_at 是提醒的绝对时刻，reminded_at 是实际交付提醒的时刻。
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     errand_id: str = Field(min_length=1)
     name: str = Field(pattern=r"\S")

@@ -1,14 +1,13 @@
 """@brief 行为等价锚定：现有引擎真实一天的资金事件可在新账本逐分重建（docs/design/05-recording-engine.md「资金守恒验证」行为等价性）。
 
-数据源 runs/deepseek-multi-47931e06/footprints.sqlite（只读 mode=ro）：该运行
+数据源 fixtures/anchor-money.json：从真实运行 deepseek-multi-47931e06 只读抽取的钱事件与期末账户，
+切片记录原数据库 SHA-256，只含本验收需要的字段，不需要新机器保有完整运行目录。该运行
 一天的 6 笔资金事件（initial_funds_injected + 2 工资 + 3 车费）改写为
 TransferEntry 序列后，重放期末六账户余额必须与库中最终 checkpoint 的实际期末
 完全一致。
 """
 
 import json
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -21,33 +20,18 @@ from worldmock.resources import (
     audit_closed_domain,
 )
 
-ANCHOR_RUN = Path(__file__).resolve().parents[2] / "runs" / "deepseek-multi-47931e06"
-SQLITE = ANCHOR_RUN / "footprints.sqlite"
+FIXTURE = Path(__file__).parent / "fixtures" / "anchor-money.json"
 MONEY = "money_fen"
 ANCHOR_OWNER = "external:scenario"
 
-pytestmark = pytest.mark.skipif(not SQLITE.exists(), reason="anchor run artifacts not present")
-
-
 def read_money_events() -> list[dict]:
-    """@brief 只读拉取全部携带 resource_changes 的事件体，按事件序排列。"""
-    uri = f"file:{SQLITE}?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True)) as connection:
-        rows = connection.execute(
-            "SELECT body FROM events "
-            "WHERE json_extract(body, '$.data.resource_changes') IS NOT NULL "
-            "ORDER BY json_extract(body, '$.event_seq')").fetchall()
-    return [json.loads(body) for (body,) in rows]
+    """@brief 读取冻结真实切片中的全部资金事件，按原事件序排列。"""
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))["events"]
 
 
 def read_final_accounts() -> dict[str, int]:
-    """@brief 只读拉取最高 state_version checkpoint 的期末六账户。"""
-    uri = f"file:{SQLITE}?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True)) as connection:
-        body = connection.execute(
-            "SELECT body FROM checkpoints "
-            "ORDER BY json_extract(body, '$.state_version') DESC LIMIT 1").fetchone()
-    return json.loads(body[0])["state"]["accounts"]
+    """@brief 读取冻结切片中原最高 state_version 检查点的期末六账户。"""
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))["accounts"]
 
 
 def build_transfer_entries(events: list[dict]) -> list[TransferEntry]:

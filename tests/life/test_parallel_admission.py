@@ -478,11 +478,11 @@ def test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwi
 def test_content_beyond_one_day_is_accepted_with_the_86400_second_cap(engine_factory, monkeypatch) -> None:
     """〔#19〕white-collar-12-weeks 的段子流（138264 秒）从头开始按 86400 秒受理，受理结果的 details.planned 写明计划时长；
     出行超限仍以 ROUTE_DURATION_INVALID 拒绝、不取上限，世界不变（第五章「派生时长上限」）。"""
-    from types import SimpleNamespace
+    from worldmock.life.travel import route_for
 
     engine = _engine(engine_factory)
-    monkeypatch.setattr("worldmock.life.session_actions.route_for",
-                        lambda *args: SimpleNamespace(duration_seconds=200_000))
+    monkeypatch.setattr("worldmock.life.travel.route_for",
+                        lambda *args: route_for(*args).model_copy(update={"duration_seconds": 200_000}))
     trip = _choice(_observe(engine, "long-trip-preview"), "步行", object_id="office")
     before = _world(engine)
     too_far = _act(engine, "long-trip", "start_activity", _request(trip))
@@ -525,7 +525,7 @@ def _action_evidence(engine: LifeEngine, action_id: str) -> set[tuple]:
     """@brief 一个动作的评估公开证据（类别、交互、状态、对象是否有身份），取自存储中该动作的全部事件。"""
     from worldmock.evaluation.public_evidence import worldmock_public_evidence
 
-    rows = [event.model_dump(mode="json") for event in engine.store.read_events(engine.store.last_event_seq)
+    rows = [event for event in engine.store.read_events(engine.store.last_event_seq)
             if event.action_id == action_id]
     return {(item.category, item.interaction, item.state, item.object_key is not None)
             for item in worldmock_public_evidence(rows, [], {})}

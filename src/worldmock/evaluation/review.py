@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.evaluation.metrics import date_blocks
+from worldmock.footprints.models import is_sha256
 import hashlib
 import hmac
 import math
@@ -179,7 +181,7 @@ def ingest_reviews(
 
 def _review_items(scenario: EvaluationScenario) -> list[JsonObject]:
     """@brief 覆盖每个周块、特殊日期及每周哈希选择的普通日。"""
-    blocks = _date_blocks(scenario)
+    blocks = date_blocks(scenario)
     items: list[JsonObject] = []
     for block in blocks:
         block_start = block[0]
@@ -194,11 +196,7 @@ def _review_items(scenario: EvaluationScenario) -> list[JsonObject]:
     return items
 
 
-def _date_blocks(scenario: EvaluationScenario) -> list[tuple[date, ...]]:
-    """@brief 将完整声明窗口切成连续自然日块。"""
-    days = scenario.window.days
-    size = scenario.block_days
-    return [tuple(days[index:index + size]) for index in range(0, len(days), size)]
+
 
 
 def _selection_coverage(
@@ -210,13 +208,13 @@ def _selection_coverage(
     missing = {
         scope: [
             block[0].isoformat()
-            for block in _date_blocks(scenario)
+            for block in date_blocks(scenario)
             if (block[0].isoformat(), scope) not in selected
         ]
         for scope in scopes
     }
     return {
-        "week_blocks": len(_date_blocks(scenario)),
+        "week_blocks": len(date_blocks(scenario)),
         "special_dates": sum(item["scope"] == "special_day" for item in items),
         "missing_ordinary_samples": missing,
     }
@@ -810,16 +808,13 @@ def _validate_record_identity(
     if record.get("packet_sha256") != descriptor.get("sha256"):
         raise EvaluationError("invalid_review", "review record packet hash is invalid")
     prompt_hash = record.get("prompt_sha256")
-    if not _is_sha256(prompt_hash):
+    if not is_sha256(prompt_hash):
         raise EvaluationError("invalid_review", "review prompt SHA-256 is invalid")
     if not isinstance(record.get("raw_response"), str) or not record["raw_response"].strip():
         raise EvaluationError("invalid_review", "raw review response must be preserved as text")
 
 
-def _is_sha256(value: Any) -> bool:
-    """@brief 判断值是否为规范小写 SHA-256。"""
-    alphabet = set("0123456789abcdef")
-    return isinstance(value, str) and len(value) == 64 and set(value) <= alphabet
+
 
 
 def _validate_reviewer(record: JsonObject) -> None:

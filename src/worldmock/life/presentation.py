@@ -51,7 +51,7 @@ from worldmock.life.candidates import (
     Exclusion,
     LocationView,
 )
-from worldmock.life.models import ActivityKind, active_activities
+from worldmock.life.models import DERIVED_DURATION_CAP_SECONDS, active_activities
 from worldmock.life.projection import hour_of_day
 from worldmock.life.opening_hours import opening_status
 from worldmock.life.readable import local_date
@@ -61,16 +61,6 @@ FOOD_CATEGORY = "foods"
 #: 游戏会话与工作合同的下钻键。
 GAME_CATEGORY = "game_session"
 TASK_CATEGORY = "work_contract"
-
-#: 候选类别 → 活动类型（反塌缩子类标签所需）。
-ACTIVITY_OF_KIND: dict[str, ActivityKind] = {
-    "product": ActivityKind.CONSUME,
-    "lifestyle": ActivityKind.LIFESTYLE,
-    "content": ActivityKind.WATCH,
-    "game": ActivityKind.PLAY_GAME,
-    "task": ActivityKind.WORK,
-}
-
 
 @dataclass(frozen=True, slots=True)
 class PoolEntry:
@@ -84,7 +74,7 @@ class PoolEntry:
     #: 排序键的口味查找键（缺省取对象标识）。
     bucket: str | None = None
     minimum_seconds: int = 0
-    maximum_seconds: int = 86_400
+    maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
     required_location_id: str | None = None
     location_kinds: frozenset[str] = frozenset()
     #: 目录级库存；0 表示缺货（世界事实）。

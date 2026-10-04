@@ -3,7 +3,7 @@
 目标由本轮私有绑定（projection.interaction_bindings）与进行中、刚结束的活动组成；暂停的活动只在待办层。每个列出的动作与
 工具都带 available 与 reason：reason 由 refusal_for 按环境受理的同一顺序判定（菜单→决策到期→同刻阶段→待收尾→名额与出发前
 →准入组→对象自身条件；名称工具为阶段→待收尾→控制或驾车→提交或收件人条件），取拒绝时的原文，所以提示与拒绝一字不差；
-列出即可提交，不可用的由环境以同一原因业务拒绝。受理路径不调用本模块，而是共用这里调用的各个判定函数。
+列出即可提交，不可用的由环境以同一原因业务拒绝。受理路径调用本模块的资格判定，并共用这里调用的各个领域规则函数。
 层里另附只列名称的可调用索引 callable_index（由 life.callable_index 构建）：它不是目标，不带动作与可用性。
 """
 
@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
@@ -21,42 +22,35 @@ from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_por
                                   validate_meal_use, validate_purchase_order)
 from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
+from worldmock.life.control_items import CONTROL_TOOLS
+from worldmock.life.durations import derived_activity_duration
 from worldmock.life.discovery import DiscoveryContext, place_row
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
 from worldmock.life.interaction_menu import GIVE_WAY, InteractionMenu
 from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
 from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityStatus, ConsumeItem, ConsumeRequest,
+                                   CONSUME_DURATION_CAP_SECONDS, DERIVED_DURATION_CAP_SECONDS,
                                    PurchaseItem, PurchaseOrderRequest, SameMomentStage, WorldState,
                                    active_activities)
 from worldmock.life.opening_hours import opening_status
 from worldmock.life.projection import food_energy_label, route_effort
-from worldmock.life.readable import clock_phrase, duration_phrase, money_phrase, portion_phrase
+from worldmock.life.readable import ACTIVITY_DOING_LABELS, clock_phrase, duration_phrase, money_phrase, portion_phrase
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.storefront_state import current_quote
-from worldmock.life.travel import route_for
-from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_blocker,
+from worldmock.life.travel import planned_travel
+from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_refusal,
                                  work_start_seconds, work_totals)
 
 #: 私有绑定类别 → 工具层目标类别（场景联系人并入 person，邮件为 message，工作任务为 task）。
 BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
                  "catalog": "catalog", "content": "content", "game": "game", "lifestyle": "lifestyle",
                  "person": "person", "contact": "person", "mail": "message", "self": "self"}
-#: 活动目标的三个控制工具，按这个顺序列出。
-ACTIVITY_TOOLS = ("report_status", "pause_activity", "conclude_activity")
-#: 非工作活动派生时长的上限（与受理的 DERIVED_DURATION_CAP_SECONDS 同值）。
-_DURATION_CAP_SECONDS = 86_400
 #: 地点开放情况的说法。
 _OPENING_STATES = {"open": "开着", "closed": "关着", "unknown": "开放时间不明"}
 #: 供给来源类型的说法（DataSource.kind：事实或场景假设）。
 _SOURCE_KINDS = {"fact": "事实", "scenario": "场景假设"}
-#: 在场的人正在做的事的说法（活动种类 → 短语）。
-_DOING = {"wait": "等待", "sleep": "睡觉", "work": "工作", "watch": "看内容", "play_game": "玩游戏", "travel": "赶路",
-          "read_mail": "看邮件", "browse": "浏览商品", "consume": "吃东西或用东西", "lifestyle": "做生活活动",
-          "chat": "交谈", "call": "打电话"}
-
-
 @dataclass(frozen=True, slots=True)
 class LayerContext:
     """@brief 一次观察构建各层所用的只读世界切片，由 ObservationMixin 每次观察构造一次。
@@ -111,7 +105,7 @@ def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
         return activity_control.conclusion_refusal(waiting, context.names["activities"])
     if candidate.tool == "start_activity":
         return _start_refusal(context, candidate.binding, candidate.action)
-    if candidate.tool in ACTIVITY_TOOLS:
+    if candidate.tool in CONTROL_TOOLS:
         activity = context.state.activities[candidate.activity_id]
         return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
     if candidate.tool == "submit_work":
@@ -171,10 +165,8 @@ def _start_refusal(context: LayerContext, binding: dict, action: dict) -> Refusa
 def _travel_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
     """@brief 出行：派生的计划时长在域内且不短于一分钟，余额够付路费。"""
     agent = context.state.agents[context.agent_id]
-    route = _route(context, binding["object_id"], action["travel_mode"])
-    duration = context.semantics.travel_planned_seconds(action["travel_mode"], route.duration_seconds,
-                                                         context.state.current_time)
-    if not 1 <= duration <= _DURATION_CAP_SECONDS:
+    route, duration = _route(context, binding["object_id"], action["travel_mode"])
+    if not 1 <= duration <= DERIVED_DURATION_CAP_SECONDS:
         return refusal_for_code("ROUTE_DURATION_INVALID")
     if duration < 60:
         return refusal_for_code("ACTIVITY_TOO_SHORT")
@@ -187,16 +179,17 @@ def _route(context: LayerContext, destination_id: str, mode: str):
     """@brief 从人物当前地点到目的地的冻结路线（与受理同一路线选择）。"""
     draft = ActivityStartParams(activity_type=ActivityKind.TRAVEL, planned_duration_seconds=1,
                                 destination_id=destination_id, travel_mode=mode)
-    return route_for(context.scenario, context.state.agents[context.agent_id].location_id, draft)
+    return planned_travel(context.scenario, context.semantics, context.state.agents[context.agent_id].location_id,
+                          draft, context.state.current_time)
 
 
 def _work_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
     """@brief 开工：距截止与剩余合同都不少于 60 秒，且在合同开放区间内。"""
     task = context.rules.tasks[binding["object_id"]]
     worked, _ = work_totals(context.state, context.agent_id, task.task_id)
-    blocker = work_start_blocker(task, worked, context.state.current_time)
-    if blocker is not None:
-        return Refusal("ACTIVITY_DURATION_INVALID", blocker, "Submit the completed work.")
+    refusal = work_start_refusal(task, worked, context.state.current_time)
+    if refusal is not None:
+        return refusal
     now = context.state.current_time
     validate_work_start(context.state.agents[context.agent_id], task, now,
                         admission.present_location(context.state, context.agent_id))
@@ -294,7 +287,7 @@ def _consume_check(context: LayerContext, binding: dict, action: dict) -> Refusa
         return refusal_for_code("PRODUCT_NOT_FOUND")
     mode = action["use_mode"]
     portion, seconds = meal_portion(product, mode, held_quantity(agent, product.product_id))
-    if not 60 <= seconds <= 14_400:
+    if not 60 <= seconds <= CONSUME_DURATION_CAP_SECONDS:
         return refusal_for_code("ACTIVITY_DURATION_INVALID")
     if mode not in product.use_modes:
         return refusal_for_code("ACTION_REQUEST_INVALID")
@@ -327,20 +320,15 @@ _OBJECT_CHECKS = {"travel_to": _travel_check, "work": _work_check, "watch": _tim
 
 
 def _derived_seconds(context: LayerContext, binding: dict, action: dict) -> int:
-    """@brief 受理为有时长活动派生的计划秒数（观看取剩余或全长，游玩、阅读、浏览、等待取结算间隔，睡觉取睡眠需要）。"""
+    """@brief 与受理共用派生秒数：观看取剩余或全长，内容游戏取全长，其余游戏与阅读浏览等待取反馈间隔。"""
     canonical = action["canonical_action"]
-    feedback = context.scenario.activity_feedback_seconds
-    if canonical == "sleep":
-        return round(context.state.agents[context.agent_id].body.sleep_need_hours * 3600)
-    if canonical == "watch":
-        item = context.rules.content(binding["object_id"])
-        progress = context.state.agents[context.agent_id].content_progress.get(item.item_id)
-        position = progress.position_seconds if progress else 0
-        restart = restarts_from_beginning(position, item.duration_seconds)
-        return int(item.duration_seconds if restart else item.duration_seconds - position)
-    if canonical == "play" and binding["object_id"] in context.rules.contents:
-        return int(context.rules.content(binding["object_id"]).duration_seconds)
-    return feedback
+    kinds = {"sleep": ActivityKind.SLEEP, "watch": ActivityKind.WATCH, "play": ActivityKind.PLAY_GAME,
+             "read": ActivityKind.READ_MAIL, "browse": ActivityKind.BROWSE, "wait": ActivityKind.WAIT}
+    target = binding["object_id"]
+    item = context.rules.content(target) if canonical == "watch" or (
+        canonical == "play" and target in context.rules.contents) else None
+    return derived_activity_duration(kinds[canonical], context.state.agents[context.agent_id], item,
+                                     context.scenario.activity_feedback_seconds)
 
 
 def annotated_bindings(context: LayerContext) -> list[dict]:
@@ -429,10 +417,9 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
 
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
     """@brief 出行的路费（免费不写）、按出发时刻折算的时长与费力程度。"""
-    route = _route(context, row["object_id"], action["travel_mode"])
-    seconds = context.semantics.travel_planned_seconds(action["travel_mode"], route.duration_seconds,
-                                                        context.state.current_time)
-    effort = route_effort(context.semantics.body.activity_met[f"travel:{action['travel_mode']}"])
+    route, seconds = _route(context, row["object_id"], action["travel_mode"])
+    key = default_affordances().met_lookup_key("travel", travel_mode=action["travel_mode"])
+    effort = route_effort(context.semantics.body.activity_met[key])
     return {"price": money_phrase(route.fare_fen) if route.fare_fen > 0 else None,
             "duration": duration_phrase(seconds), "note": f"费力程度：{effort}"}
 
@@ -457,13 +444,14 @@ def _facts_seconds(context: LayerContext, row: dict, action: dict) -> int | None
     if canonical == "work":
         task = context.rules.tasks[row["object_id"]]
         worked, _ = work_totals(context.state, context.agent_id, task.task_id)
-        return min(work_start_seconds(task, worked, context.state.current_time), _DURATION_CAP_SECONDS)
+        return work_start_seconds(task, worked, context.state.current_time)
     if canonical == "do":
         item = next((entry for entry in context.lifestyle_items if entry.activity_id == row["object_id"]), None)
-        return min(item.typical_duration_minutes * 60, _DURATION_CAP_SECONDS) if item is not None else None
+        return derived_activity_duration(ActivityKind.LIFESTYLE, context.state.agents[context.agent_id], item,
+                                         context.scenario.activity_feedback_seconds) if item is not None else None
     if canonical in {"chat", "call"}:
         return social_actions.social_duration_seconds(canonical, context.scenario.activity_feedback_seconds)
-    return min(_derived_seconds(context, row, action), _DURATION_CAP_SECONDS)
+    return _derived_seconds(context, row, action)
 
 
 def _state(context: LayerContext, row: dict) -> str | None:
@@ -522,7 +510,7 @@ def _person_state(context: LayerContext, agent_id: int) -> str:
     kinds = sorted({item.kind.value for item in active_activities(context.state, agent_id)})
     if not kinds:
         return "没在做什么"
-    return "正在" + "、".join(_DOING[kind] for kind in kinds)
+    return "正在" + "、".join(ACTIVITY_DOING_LABELS[kind] for kind in kinds)
 
 
 def _activity_rows(context: LayerContext) -> list:
@@ -538,7 +526,7 @@ def _activity_target(context: LayerContext, activity) -> dict:
     pending = activity_control.is_pending_conclusion(activity)
     progress = activity_control.objective_progress(activity)
     state = f"{activity_control.ending_phrase(activity)}，{progress}" if pending else progress
-    tools = [_tool_action(context, Candidate(tool, activity_id=activity.activity_id)) for tool in ACTIVITY_TOOLS]
+    tools = [_tool_action(context, Candidate(tool, activity_id=activity.activity_id)) for tool in CONTROL_TOOLS]
     return {"name": context.names["activities"][activity.activity_id], "kind": "activity",
             "phase": activity_control.PHASE_PENDING if pending else activity_control.PHASE_ACTIVE,
             "state": state, "actions": [], "tools": tools}

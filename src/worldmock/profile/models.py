@@ -13,6 +13,7 @@ PersonaCard 从 background_story 抽取（三次一致性口径），承载身�
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import hashlib
 import math
 from typing import Literal
@@ -83,10 +84,10 @@ def parse_clock(value: str) -> float:
     return hour + minute / 60.0
 
 
-class _Frozen(BaseModel):
+class _Frozen(FrozenModel):
     """@brief 拒绝未知字段且不可变，序列化即合同。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+
 
 
 class TimeWindow(_Frozen):

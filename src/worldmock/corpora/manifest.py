@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import hashlib
 import json
 from datetime import datetime
-from pathlib import Path
+from collections.abc import Callable
+from pathlib import Path, PureWindowsPath
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from worldmock.errors import IntegrityError
 
 
-class CorpusSource(BaseModel):
+class CorpusSource(FrozenModel):
     """@brief 一个语料文件的可追溯来源。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     kind: str = Field(min_length=1)
     url: str | None = None
     retrieved_at: datetime | None = None
@@ -24,10 +25,9 @@ class CorpusSource(BaseModel):
     fact_cutoff: str | None = None
 
 
-class CorpusEntry(BaseModel):
+class CorpusEntry(FrozenModel):
     """@brief 规范化目录中的一个不可变普通文件。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     entry_id: str = Field(min_length=1)
     path: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -37,10 +37,9 @@ class CorpusEntry(BaseModel):
     source: CorpusSource
 
 
-class CorpusManifest(BaseModel):
+class CorpusManifest(FrozenModel):
     """@brief 正式运行消费的唯一内容版本。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: int = Field(ge=1)
     corpus_id: str = Field(min_length=1)
     created_at: datetime
@@ -62,9 +61,7 @@ class CorpusManifest(BaseModel):
 def load_manifest(root: Path, expected_sha256: str | None = None) -> CorpusManifest:
     """@brief 读取 manifest 并全量复核所有语料文件。"""
     base = Path(root).resolve()
-    path = base / "manifest.json"
-    if not path.is_file() or path.is_symlink():
-        raise IntegrityError("Corpus manifest is missing or is a symbolic link")
+    path = safe_file(base, "manifest.json", "Corpus manifest is missing or is a symbolic link")
     content = path.read_bytes()
     digest = hashlib.sha256(content).hexdigest()
     if expected_sha256 is not None and digest != expected_sha256:
@@ -79,21 +76,39 @@ def load_manifest(root: Path, expected_sha256: str | None = None) -> CorpusManif
 
 
 def _validate_entry(root: Path, entry: CorpusEntry) -> None:
-    """@brief 拒绝越界路径、符号链接、大小或哈希漂移。"""
-    candidate = root / entry.path
-    path = candidate.resolve()
-    if _has_symlink(candidate, root) or root not in path.parents or not path.is_file():
-        raise IntegrityError("Corpus entry path is invalid")
+    """@brief 通过唯一文件边界后拒绝大小或哈希漂移。"""
+    path = safe_file(root, entry.path, "Corpus entry path is invalid")
     content = path.read_bytes()
     if len(content) != entry.size_bytes or hashlib.sha256(content).hexdigest() != entry.sha256:
         raise IntegrityError("Corpus entry identity mismatch")
 
 
-def _has_symlink(path: Path, root: Path) -> bool:
-    """@brief 在解析路径前检查文件及根目录以内的每个父组件。"""
-    current = path
-    while current != root and root in current.parents:
+
+
+
+def safe_file(root: Path, relative: str, message: str,
+              error_factory: Callable[[str], Exception] = IntegrityError) -> Path:
+    """@brief 校验根以内的相对普通文件，拒绝父引用与所有符号链接组件。
+
+    :param root: 已声明的素材根目录。
+    :param relative: 使用相对路径声明的文件。
+    :param message: 所属消费者的英文完整性错误。
+    :param error_factory: 所属领域的异常构造入口，仅拒绝时调用并记录一次故障。
+    :raises IntegrityError: 声明、符号链接、边界或文件类型不合法。
+    """
+    base = Path(root).resolve()
+    declared = Path(relative)
+    windows = PureWindowsPath(relative)
+    if (not relative or declared.is_absolute() or windows.is_absolute() or windows.drive
+            or ".." in declared.parts or ".." in windows.parts):
+        raise error_factory(message)
+    candidate = base / declared
+    current = candidate
+    while current != base:
         if current.is_symlink():
-            return True
+            raise error_factory(message)
         current = current.parent
-    return current != root
+    resolved = candidate.resolve()
+    if base not in resolved.parents or not resolved.is_file():
+        raise error_factory(message)
+    return resolved

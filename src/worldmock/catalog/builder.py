@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.assets import atomic_write
 import json
 import os
 import shutil
@@ -13,7 +14,7 @@ from worldmock.catalog.loader import MANIFEST_FILE, OBJECT_FILE, RESOURCE_FILE, 
 from worldmock.catalog.models import (
     Catalog,
     CatalogEntryKind,
-    CatalogError,
+    CategoryError,
     ObjectDeclaration,
     ResourceDefinition,
     Tombstone,
@@ -63,7 +64,7 @@ def deprecate(
     catalog = load_catalog(directory)
     current_version = _live_version(catalog, kind, target_id)
     if current_version is None:
-        raise CatalogError("BUILDER_TARGET_UNKNOWN", f"{kind.value} {target_id} does not exist")
+        raise CategoryError("BUILDER_TARGET_UNKNOWN", f"{kind.value} {target_id} does not exist")
     _reject_tombstoned(catalog, kind, target_id)
     tombstone = Tombstone(
         target_id=target_id, kind=kind, at_version=current_version, reason=reason,
@@ -92,30 +93,17 @@ def _publish_pair(directory: Path, staged: Path, relative: str) -> None:
     try:
         for source, target in zip(staged_paths, targets):
             target.parent.mkdir(parents=True, exist_ok=True)
-            _atomic_write(target, source.read_bytes())
+            atomic_write(target, source.read_bytes())
     except Exception:
         for target, content in originals.items():
             if content is not None:
-                _atomic_write(target, content)
+                atomic_write(target, content)
             elif target.exists():
                 target.unlink()
         raise
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
-    """@brief 在目标目录内写临时文件并原子替换单个文件。"""
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except Exception:
-        if temporary.exists():
-            temporary.unlink()
-        raise
+
 
 
 def _append_line(path: Path, line: str) -> None:
@@ -147,7 +135,7 @@ def _reject_tombstoned(catalog: Catalog, kind: CatalogEntryKind, target_id: str)
     """@brief 拒绝复活已墓碑身份。"""
     tombstone = catalog.tombstones.get(target_id)
     if tombstone is not None:
-        raise CatalogError(
+        raise CategoryError(
             "BUILDER_ENTRY_TOMBSTONED",
             f"{kind.value} {target_id} tombstoned at version {tombstone.at_version}",
         )
@@ -157,7 +145,7 @@ def _require_incremented_version(target_id: str, supplied: int, current: int | N
     """@brief 要求追加版本恰好为前一版本加一，新身份必须为一。"""
     expected = current + 1 if current is not None else 1
     if supplied != expected:
-        raise CatalogError(
+        raise CategoryError(
             "BUILDER_VERSION_NOT_INCREMENTED",
             f"{target_id} supplied version {supplied}, expected {expected}",
         )

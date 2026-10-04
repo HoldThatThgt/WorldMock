@@ -474,7 +474,7 @@ def test_snapshot_directory_rejects_missing_workspace(tmp_path):
         snapshot_directory(tmp_path / "absent", assets)
 
 
-def test_snapshot_directory_rejects_symlinks(tmp_path):
+def test_snapshot_directory_rejects_symlinks(tmp_path, monkeypatch):
     from worldmock.footprints.checkpoint import snapshot_directory
 
     assets = AssetStore(tmp_path / "assets")
@@ -485,8 +485,13 @@ def test_snapshot_directory_rejects_symlinks(tmp_path):
         os.symlink("real.txt", workspace / "link.txt")
     except OSError as exc:
         if os.name == "nt" and exc.winerror == 1314:
-            pytest.skip("Windows account cannot create symbolic links")
-        raise
+            # 权限不允许创建时模拟文件系统的链接标志，仍执行真实拒绝入口，不声称创建成功。
+            link = workspace / "link.txt"
+            link.write_text("x")
+            original = Path.is_symlink
+            monkeypatch.setattr(Path, "is_symlink", lambda path: path == link or original(path))
+        else:
+            raise
     with pytest.raises(IntegrityError, match="symbolic link"):
         snapshot_directory(workspace, assets)
 

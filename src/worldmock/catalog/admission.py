@@ -25,7 +25,7 @@ from worldmock.catalog.models import (
     SourceEdge,
     TransferEdge,
 )
-from worldmock.life.retrieval import entry_from_content, feasible_kinds
+from worldmock.life.retrieval import LOCATION_KINDS, entry_from_content, feasible_kinds
 
 CATALOG_REF_INTEGRITY = "CATALOG_REF_INTEGRITY"
 UNIT_MISMATCH = "UNIT_MISMATCH"
@@ -517,8 +517,6 @@ LIFESTYLE_CORPUS = "lifestyle/items.json"
 CORPUS_MANIFEST = "manifest.json"
 MORNING_WASH_ACTIVITY = "wellness-morning-wash"
 #: 生活活动 location_kinds 的封闭集（与 corpora/lifestyle/enrichment.json 声明一致）。
-LIFESTYLE_LOCATION_KINDS = frozenset(
-    {"home", "office", "outdoor", "fitness", "venue", "anywhere"})
 #: 观看内容语料清单：路径与其条目装载方式（list / items 包装 / 单文档）。
 #: `*-items.json` 是「流式语料的分区键文件」：一条流对应一条内容条目，声明该
 #: 条目的 genre/language（`feed`/`jokes` 与三条社交流各一份）；`games/library/
@@ -676,7 +674,7 @@ def _check_locations(root, locations_path, requirements, violations) -> None:
     for location in document.get("locations", []):
         kind = location.get("business_kind")
         declared = location.get("location_kinds")
-        if not declared or not set(declared) <= (LIFESTYLE_LOCATION_KINDS - {"anywhere"}):
+        if not declared or not set(declared) <= (set(LOCATION_KINDS) - {"anywhere"}):
             violations.append(AdmissionViolation(
                 CATEGORY_LOCATION_KIND_MISSING, "location activity environment declaration is invalid"))
         if isinstance(kind, str):
@@ -829,7 +827,7 @@ def _lifestyle_fields_valid(item) -> bool:
     window = item.get("time_window")
     effects = item.get("effects")
     if (not isinstance(kinds, list) or not kinds
-            or not set(kinds) <= LIFESTYLE_LOCATION_KINDS):
+            or not set(kinds) <= set(LOCATION_KINDS)):
         return False
     if (not isinstance(window, dict)
             or not isinstance(window.get("start_hour"), int)

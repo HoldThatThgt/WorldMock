@@ -1,7 +1,7 @@
 # 特性规格：一日运行保真——作息、需要、按名调用与错误合同
 
 > 状态：**FROZEN**。2026-09-29 用户指示实施本规格、不延后任何尚未完成的工作，并采纳全部推荐：「裁决记录」中尚未裁定的 D2–D7、D9–D11、D14–D17、D19、S1、S3–S10 据此按「推荐」列定为已定（S10 采纳，3.5 的「收敛」一段是其定稿），`docs/INDEX.md` 状态列同步；「冻结条款修订」随冻结生效；本规格条款已全部实现并通过离线验收（证据见[一日运行保真验收记录](dayrun-fidelity-verification.md)），真实复验（阶段 7）未执行。本文把一日运行保真修复方案的 G1–G22 写成可实施、可验收的条款。
-> 日期：2026-10-04
+> 日期：2026-10-05
 > 来源：[一日运行保真修复方案](PROPOSAL-dayrun-fidelity.md)（已裁决）；WorldMock-Dataset 仓库的 `RUN_REPORT_2026-09-29.md`（白领林悦、商务赵铭两次全天运行，代码 `4a5b0e6`，模型 `deepseek-flash`，模拟日 2026-09-28）与 `PROPOSAL_2026-09-29_DATASET_FIXES.md`（下称「数据集方案」）；六路只读核查（身体与人设、工具面、评审与模型调用、冻结规格与合同、设计文档影响、跨文档一致性）。
 > 代码基线：`4a5b0e6`。`98eb34b` 只增加文档，代码相同；代码与文档的行号都取 `4a5b0e6`。AS2 行号取锁定提交 `8768e14`。
 > 本文只写现行设计；证据、文献与被放弃的方案见提案，各分岔的取舍记在「裁决记录」，演变见「版本表」。
@@ -10,6 +10,12 @@
 > 2026-10-01 按[工具交互规格](SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 > 2026-10-02 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订：1.3 `PERSONA_AGREEMENT_LOW` 泛指画像编译留下的警告；2.1 场景作息覆盖字段由五项扩为七项，覆盖与冲突规则不变并一体适用于下班、到家两个新槽（冲突时该槽保留卡片值并记 `CARD_FIELD_CONFLICT`）；2.2 系统层第 14 条末尾追加上班安排一句并收窄三级优先（裁决 S11）；2.3 计划与个人事务的边界、零点计划模板输入说明两处改写与新增的第七、第八条；3.3 来源解析与 `query_world` 共用；第四章 `errands` 必填、个人事务名称类错误的载体与四个失败阶段码；第六章三个控制工具增请求级 `errands`；「工具交互修订的实施边界」`query_world` 改六键并精简返回。修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。该规格另把世界结构升为 9、场景结构升为 5、卡片结构升为 3、质量报告结构升为 4；本文「九、下游与质量报告」与「实施计划」所记的版本是本特性发布时的记录，不改。
+
+## 共享规则与可重建环境修订
+
+按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+
+内容和游戏的娱乐缓解速率由活动结算和动机预估共用；缺失、布尔、非整数或小于一的接触次数两边都拒绝。中文活动名称只由 readable 定义；时间线使用场景本地日。工具纠正原预算与指令不变，主观反思快照按同一证据校验。
 
 ## 摘要
 
@@ -118,7 +124,7 @@ relief_preference(w, f) = f + (1 − f) · w        0 < f < 1，对 w 严格单�
 
 - `w` 是现行口味权重（`compute_taste_weights`，`profile/taste.py:24-28`，精确交集）；`f` 是下限偏好，缺省 **0.5**（实验假设，敏感区间 0.3–0.7；
   文献只能确定 0 < f < 1）。取 0.5 时喜欢的内容仍比不喜欢的快一倍，口味差异保留。
-- 只作用于实际缓解（`activities._entertainment_relief`，`activities.py:298-318`：内容按 `:316` 速率 × 偏好 ÷ 接触次数，游戏按 `:317-318` 偏好 × 基础速率）
+- 只作用于实际缓解（`activities.entertainment_relief_rate`，`activities.py:298-318`：内容按 `:316` 速率 × 偏好 ÷ 接触次数，游戏按 `:317-318` 偏好 × 基础速率）
   和评分器里口径相同的缓解预演（`motivation.py:806-821`，游戏在 `:816-819`；观看预演 `:992`）。所有排序仍用原始权重 `w`，零权重照旧排在最后（`candidates.py:233-241`）。
   不用 `max(w, f)`：低于 `f` 的权重会被拉成并列。
 - 游戏与内容同一算法（裁决 S1）：`runtime._card_taste_weights` 也为游戏条目计算口味权重（现行 `runtime.py:1083-1095` 只算内容，游戏缓解恒为 0）；
@@ -1149,7 +1155,7 @@ D1–D14 沿用提案编号，D15–D19 是提案正文里标了待裁决却没�
 
 | 条款 | 源文件 | 测试 |
 | --- | --- | --- |
-| 1.2 下限缓解与口径 | `src/worldmock/life/activities.py`（`_entertainment_relief` :298-318）、`body.py`（`_shared_entries` :231-232、`_entertainment_entries` :545-551）、`motivation.py`（:806-821、:992）、`scenario.py`（`BodyInstanceConfig`、`BodyConfig` :60-76）、`semantics.py`（`_assemble_body` :370-406）、`runtime.py`（`_card_taste_weights` 也算游戏 :1083-1095） | `tests/life/test_motivation.py`（relief 6/taste 20）、`test_taste_seam.py`（13）、`test_candidates.py`（7）、`tests/catalog/test_affordance_shadow.py`（5）、`test_body_flows.py`（1）、`test_wait_passive_entertainment.py`（2）、`test_scenario.py`（场景 Schema）；新增单调性、游戏下限、两路径一致用例 |
+| 1.2 下限缓解与口径 | `src/worldmock/life/activities.py`（`entertainment_relief_rate`）、`body.py`（`_shared_entries` :231-232、`_entertainment_entries` :545-551）、`motivation.py`（:806-821、:992）、`scenario.py`（`BodyInstanceConfig`、`BodyConfig` :60-76）、`semantics.py`（`_assemble_body` :370-406）、`runtime.py`（`_card_taste_weights` 也算游戏 :1083-1095） | `tests/life/test_motivation.py`（relief 6/taste 20）、`test_taste_seam.py`（13）、`test_candidates.py`（7）、`tests/catalog/test_affordance_shadow.py`（5）、`test_body_flows.py`（1）、`test_wait_passive_entertainment.py`（2）、`test_scenario.py`（场景 Schema）；新增单调性、游戏下限、两路径一致用例 |
 | 1.3 输入警告 | 新增 `src/worldmock/profile/injection.py`；`runtime.py`（创建路径 :754-764、`_compile_persona` :1114-1120 透传警告）、`profile/coverage.py`（:60-99、`_keyword_hit` :102-105）、`validation.py`（`validate_coverage`、`_compile_persona` 各 2）、`engine.py`（`_run_manifest` :1741-1755）、`footprints/quality.py`、`profile/__init__.py`、`cli.py`（`validate` 打印） | `tests/profile/test_coverage.py`（8）、`test_taste.py`（8）、`tests/integration/test_runtime.py`（`_compile` 3/`taste_weights` 6/`_agent_specs` 10）、`tests/footprints/test_validation.py`（10）、`tests/footprints/test_quality.py`；新增每个警告码一例 |
 | 1.4 困意档界 | `src/worldmock/life/felt.py`（:57-66）、`sleep.py`（:41-46） | `tests/life/test_sleep_two_process.py`（:192-252、:528-547 改写）、`test_felt_states.py`（:286-302）、`test_prompt_layers.py`（1）、`tests/integration/test_life_agent_protocol.py`（1）；新增两表一致测试 |
 | 2.1 场景作息 | `src/worldmock/runtime.py`（`_agent_specs` :1088-1095，新增 `apply_scenario_rhythm`）、`validation.py`（同路径）、`profile/injection.py`（两个警告码）；`custom/agents/life_persona.py`（:95-102 不改，读覆盖后的卡片） | `tests/life/test_persona_layer.py`（5）、`test_persona_upgrade.py`（6）、`tests/integration/test_persona_profile.py`（2）、`test_runtime.py`（10）、`test_same_second_continuation.py`（4）、`test_scenario.py`（5） |
@@ -1270,3 +1276,4 @@ D1–D14 沿用提案编号，D15–D19 是提案正文里标了待裁决却没�
 | `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 按[个人事务与工作安排规格](SPEC-errands-workday.md)5.2 随其阶段 4 更正既有漂移（该规格实施计划 DF17），行为不变：3.3「解析规则」第 1 条与 3.5「收敛」第 3 条的来源写法按现行实现更正——`from` 等于地点显示名（精确、无损归一或去掉「地点：」前缀后唯一，「家」「住处」指本人住处）时为该地点，不只限门店名；依据现行 `purchase_offers.source_scope` 经 `name_resolution.written_place` 对全部场景地点的显示名与本人住处解析，非门店地点落到 M1 而不报 `SOURCE_NOT_FOUND`；`SOURCE_NOT_FOUND` 一句、候选写法与两条之外的条款不改 |
 | `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 随[个人事务与工作安排规格](SPEC-errands-workday.md)阶段 3 的提交更正既有漂移：「验收台账」「输入警告」行的警告码个数由九个改为十个（警告码闭集为十个，`PERSONA_AGREEMENT_LOW` 改为泛指画像编译留下的警告后闭集不变）；表前修订指针删去关于个数更正的后半句，只留本表不因该规格增删行一句。只改该行第二列，不增删行，首列与验收登记表的键不变；其余条款不改 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | [个人事务与工作安排规格](SPEC-errands-workday.md)实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 DF27，按 `d8a41d3` 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行），并删去文件头关于既有漂移随阶段 4、阶段 3 更正的一句（两处已更正，见上两行），日期改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。2.2 第 14 条引文与 `custom/agents/life_prompt.py` 的 `LIFE_SYSTEM_LAYER` 逐字一致（第 15、16 条引文同样逐字一致），引文下的说明行改为末句已随该规格阶段 3 实现；2.3 模板输入说明两处改写与第七、第八条的括注改为阶段 2、阶段 3 落地（四句与 `PLAN_DAY_PROMPT` 逐字一致）；第四章失败日志的括注改为阶段 1 落地；「工具交互修订的实施边界」`query_world` 六键的括注改为阶段 4 落地；`query_world` 与三个控制工具的条款已随该规格阶段 2–4 实现。「验收台账」表前的注记只剩本表不因该规格增删行一句，不改；裁决记录、验收台账与其余条款不改 |
+| 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |

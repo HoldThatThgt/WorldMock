@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -232,7 +233,7 @@ def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
                                  seconds: int) -> AgentState:
     """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（docs/dev/SPEC-life-realism.md「动机层」）。
 
-    娱乐缓解在 _entertainment_relief 走既有分录通道（有事件留痕）；社交
+    娱乐缓解在 entertainment_relief_rate 走既有分录通道（有事件留痕）；社交
     需要不是分录资源（与 chat/call 同口径直接落账），健康无需要池、以正向
     情绪脉冲承载。幅度按实际推进小时数线性累积。
     """
@@ -289,7 +290,7 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
     """@brief 从方式和人物内容偏好形成活动结算系数。"""
     met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
     preference = agent.taste_weights.get(activity.target_id or "", 0)
-    relief = _entertainment_relief(activity, preference, config)
+    relief = entertainment_relief_rate(activity, preference, config)
     skill, tool = _work_factors(activity, agent, config)
     food = _food_energy_rate(activity)
     return ActivityFactors(met, relief, skill, tool, food)
@@ -309,7 +310,7 @@ def relief_preference(weight: float, floor: float) -> float:
     return floor + (1 - floor) * weight
 
 
-def _entertainment_relief(activity: ActivityState, preference: float, config: BodyConfig) -> float:
+def entertainment_relief_rate(activity: ActivityState, preference: float, config: BodyConfig) -> float:
     """@brief 按注册表缓解通道（kinds.*.relief.channel 三值）计算娱乐缓解速率。
 
     content_rate：watch 按条目费率 × 有效偏好 ÷ 接触次数。preference_rate：有效偏好 × 目录费率（play_game）。
@@ -323,14 +324,20 @@ def _entertainment_relief(activity: ActivityState, preference: float, config: Bo
         if activity.kind == ActivityKind.LIFESTYLE:
             return lifestyle_relief_rates(activity.target_id or "")[0]
         return 0.0
-    effective = relief_preference(preference, config.entertainment_relief_preference_floor)
     if channel == "content_rate":
-        rate = activity.data.get("entertainment_relief_per_hour")
-        count = activity.data.get("exposure_count")
-        if not isinstance(rate, (int, float)) or not isinstance(count, int) or count < 1:
-            raise ValueError("watch activity entertainment evidence is incomplete")
-        return float(rate) * effective / count
+        return content_entertainment_relief_rate(activity.data.get("entertainment_relief_per_hour"),
+                                                 activity.data.get("exposure_count"), preference, config)
+    effective = relief_preference(preference, config.entertainment_relief_preference_floor)
     return effective * config.entertainment_relief_per_hour.get(activity.kind.value, 0)
+
+
+def content_entertainment_relief_rate(rate, exposure_count, preference: float, config: BodyConfig) -> float:
+    """@brief 内容费率乘有效偏好并按接触次数分摊；预估与结算严格校验同一证据。"""
+    if (type(rate) not in (int, float) or not math.isfinite(rate) or rate < 0
+            or type(exposure_count) is not int or exposure_count < 1):
+        logging.error("Watch activity entertainment evidence is incomplete")
+        raise ValueError("watch activity entertainment evidence is incomplete")
+    return float(rate) * relief_preference(preference, config.entertainment_relief_preference_floor) / exposure_count
 
 
 def _work_factors(activity: ActivityState, agent: AgentState,

@@ -10,7 +10,7 @@ from pydantic import Field, StrictBool, StrictInt, field_validator, model_valida
 from worldmock.categories.common import (
     Action,
     CategoryKind,
-    FrozenModel,
+    DeepFrozenModel,
     PairingState,
     ReviewRecord,
     SourceRecord,
@@ -18,7 +18,7 @@ from worldmock.categories.common import (
 )
 
 
-class AttributeValues(FrozenModel):
+class AttributeValues(DeepFrozenModel):
     """@brief 一个品类层或对象层的绝对值、加法增量与乘法增量。"""
 
     absolute: Mapping[str, Any] = Field(default_factory=dict)
@@ -49,17 +49,17 @@ class AttributeValues(FrozenModel):
         return self
 
 
-class AttributeSlot(FrozenModel):
+class AttributeSlot(DeepFrozenModel):
     """@brief 一个属性槽位的 JSON Schema、必填性与单位说明。"""
 
     schema_: Mapping[str, Any] = Field(alias="schema")
     required: StrictBool = False
     unit: str | None = Field(default=None, pattern=r"\S")
 
-    model_config = FrozenModel.model_config | {"populate_by_name": True}
+    model_config = DeepFrozenModel.model_config | {"populate_by_name": True}
 
 
-class CategoryNode(FrozenModel):
+class CategoryNode(DeepFrozenModel):
     """@brief 品类树中的一个原始单继承节点。"""
 
     category_id: str = Field(pattern=r"\S")
@@ -70,7 +70,7 @@ class CategoryNode(FrozenModel):
     values: AttributeValues = Field(default_factory=AttributeValues)
 
 
-class PairingDeclaration(FrozenModel):
+class PairingDeclaration(DeepFrozenModel):
     """@brief 一条有向品类配对的显式三态声明。"""
 
     actor_category_id: str = Field(pattern=r"\S")
@@ -103,7 +103,7 @@ class PairingDeclaration(FrozenModel):
         return self
 
 
-class CategoryContractDocument(FrozenModel):
+class CategoryContractDocument(DeepFrozenModel):
     """@brief `category-contract.json` 的严格原始模型。"""
 
     format_version: StrictInt = Field(ge=1, le=1)
@@ -173,7 +173,7 @@ class CategoryContract:
         return ancestor_id in category.lineage
 
 
-class PairingResolution(FrozenModel):
+class PairingResolution(DeepFrozenModel):
     """@brief 一次配对查询的三态结果与实际命中声明。"""
 
     state: PairingState

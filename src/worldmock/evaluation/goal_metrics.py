@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.intervals import valid_interval
+from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, LIFESTYLE_CATEGORY_FAMILIES, activity_family
 from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
@@ -20,16 +22,6 @@ EXTERNAL_CONSTRAINT_ERROR_CODES = frozenset({
     "DELIVERY_ROUTE_NOT_FOUND", "DELIVERY_ROUTE_UNREACHABLE", "DELIVERY_ROUTE_INFORMATION_UNKNOWN",
 })
 _TERMINAL_STATUSES = {"completed", "rejected", "cancelled", "failed"}
-_KIND_FAMILIES = {
-    "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
-    "watch": "entertainment", "play_game": "entertainment", "browse": "entertainment",
-    "read_mail": "entertainment", "wait": "rest", "chat": "social", "call": "social",
-}
-_CATEGORY_FAMILIES = {
-    "sport": "exercise", "household": "chore", "social": "social", "outdoor": "commute",
-    "hobby": "entertainment", "learning": "entertainment", "wellness": "rest",
-    "pet": "chore", "volunteer": "social",
-}
 
 
 def day_plan_metrics(events: list[dict[str, Any]], timezone: str) -> dict[str, Any]:
@@ -74,13 +66,7 @@ def _number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and float("-inf") < value < float("inf")
 
 
-def _activity_token(snapshot: dict) -> str | None:
-    """@brief 使用活动种类和真实目录品类形成领域家族令牌。"""
-    kind = snapshot.get("kind")
-    if kind == "lifestyle":
-        category = snapshot.get("category")
-        return f"lifestyle:{category}" if category in _CATEGORY_FAMILIES else None
-    return kind if kind in _KIND_FAMILIES else None
+
 
 
 def _progress_evidence(event: dict) -> dict | None:
@@ -90,7 +76,7 @@ def _progress_evidence(event: dict) -> dict | None:
     data = event.get("data", {})
     activity = data.get("activity", {})
     start, end = data.get("interval_start"), data.get("interval_end")
-    if not (_number(start) and _number(end) and end > start and end <= event.get("occurred_at", 0)):
+    if not (valid_interval(start, end) and end <= event.get("occurred_at", 0)):
         return None
     if not event.get("activity_id") or activity.get("activity_id") != event["activity_id"]:
         return None
@@ -99,7 +85,7 @@ def _progress_evidence(event: dict) -> dict | None:
     if activity.get("status") not in {"active", "paused", "completed", "truncated"}:
         return None
     started = activity.get("started_at")
-    return {"start": start, "end": end, "activity": activity, "token": _activity_token(activity),
+    return {"start": start, "end": end, "activity": activity, "token": activity_family(activity),
             "started_at": started if _number(started) and started <= start else None}
 
 
@@ -121,8 +107,9 @@ def _habitual_consistency(events: list[dict], zone: ZoneInfo) -> dict:
             missing["missing_activity_family_or_location"] += 1
             continue
         local = datetime.fromtimestamp(evidence["start"], zone)
-        family = (_CATEGORY_FAMILIES[activity["category"]] if activity["kind"] == "lifestyle"
-                  else _KIND_FAMILIES[activity["kind"]])
+        family = (LIFESTYLE_CATEGORY_FAMILIES[activity["category"]] if activity["kind"] == "lifestyle"
+                  else ACTIVITY_KIND_FAMILIES[activity["kind"]])
+        family = "commute" if family == "outing" else family
         key = (*identity[:2], activity["location_id"], local.hour)
         contexts[key].append({"day": local.date().isoformat(), "family": family,
                               "activity_id": event["activity_id"], "event_id": event.get("event_id")})

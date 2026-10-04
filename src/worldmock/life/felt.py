@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import math
 from bisect import bisect_right
 from collections.abc import Mapping
@@ -129,10 +130,9 @@ MOOD_PULSE_NEUROTICISM_FACTOR = 0.5
 MOOD_DISCOMFORT_TRIGGER_HOURS = 2.0
 
 
-class MealWindows(BaseModel):
+class MealWindows(FrozenModel):
     """@brief 人物卡片声明的午餐/晚餐窗口（自午夜起的小时数，半开区间 [start, end)）。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     lunch: tuple[float, float] | None = None
     dinner: tuple[float, float] | None = None
@@ -153,13 +153,12 @@ class MealWindows(BaseModel):
         return self
 
 
-class SocialExposure(BaseModel):
+class SocialExposure(FrozenModel):
     """@brief 一个结算段内的社交暴露量（小时/条数由结算侧从时间线拆解）。
 
     交谈/通话/共同用餐的小时同时计入清醒小时（账本各项线性叠加，拆解归调用方）。
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     awake_hours: float = Field(default=0.0, ge=0)
     conversation_hours: float = Field(default=0.0, ge=0)

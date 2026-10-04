@@ -1,0 +1,89 @@
+{
+  "accounts": {
+    "agent:1": 858739,
+    "agent:2": 819445,
+    "employer:zhangjiang": 3920000,
+    "merchant:general": 10000000,
+    "merchant:grocery": 10000000,
+    "transport:service": 10001816
+  },
+  "events": [
+    {
+      "data": {
+        "kind": "initial_funds_injected",
+        "resource_changes": {
+          "account:agent:1": 800000,
+          "account:agent:2": 800000,
+          "account:employer:zhangjiang": 4000000,
+          "account:external:scenario": -35600000,
+          "account:merchant:general": 10000000,
+          "account:merchant:grocery": 10000000,
+          "account:transport:service": 10000000
+        }
+      },
+      "event_seq": 1,
+      "event_type": "environment_event",
+      "occurred_at": 1767542400
+    },
+    {
+      "data": {
+        "resource_changes": {
+          "account:agent:2": -555,
+          "account:transport:service": 555
+        }
+      },
+      "event_seq": 52,
+      "event_type": "action_result",
+      "occurred_at": 1767571200
+    },
+    {
+      "data": {
+        "resource_changes": {
+          "account:agent:1": -555,
+          "account:transport:service": 555
+        }
+      },
+      "event_seq": 98,
+      "event_type": "action_result",
+      "occurred_at": 1767571500
+    },
+    {
+      "data": {
+        "resource_changes": {
+          "account:agent:2": 20000,
+          "account:employer:zhangjiang": -20000
+        }
+      },
+      "event_seq": 547,
+      "event_type": "action_result",
+      "occurred_at": 1767582276
+    },
+    {
+      "data": {
+        "resource_changes": {
+          "account:agent:1": 60000,
+          "account:employer:zhangjiang": -60000
+        }
+      },
+      "event_seq": 1305,
+      "event_type": "action_result",
+      "occurred_at": 1767603871
+    },
+    {
+      "data": {
+        "resource_changes": {
+          "account:agent:1": -706,
+          "account:transport:service": 706
+        }
+      },
+      "event_seq": 1319,
+      "event_type": "action_result",
+      "occurred_at": 1767603872
+    }
+  ],
+  "source": {
+    "database_sha256": "047572a41d92006694d94b045abd49e927796fecc6f44287642f82e7e662c0bd",
+    "run": "deepseek-multi-47931e06",
+    "selection": "resource_changes events and final checkpoint accounts"
+  }
+}

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import is_sha256
 import copy
-import hashlib
 import json
-import logging
 import re
 from collections import Counter
-from typing import NoReturn
 
 from jsonpointer import JsonPointerException, resolve_pointer
 
 from worldmock.errors import IntegrityError
-from worldmock.footprints.models import canonical_json
+from worldmock.footprints.models import canonical_json, sha256_json
 
 ENCODING_FIELD = "observation_value_encoding"
 DICTIONARY_FIELD = "observation_value_dictionary"
@@ -25,7 +23,6 @@ POINTER_RULE = (
     "complete value at that RFC 6901 pointer in this input."
 )
 _POINTER_PATTERN = re.compile(r"^/observation_value_dictionary/(0|[1-9][0-9]*)/value$")
-_SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 
 def encode_model_input(input_data: dict) -> dict:
@@ -39,7 +36,7 @@ def encode_model_input(input_data: dict) -> dict:
         encoded = literal
     decoded = decode_model_input(encoded)
     if canonical_json(decoded) != canonical_json(input_data):
-        _invalid("Encoded evidence does not round-trip to its canonical input")
+        raise IntegrityError("Encoded evidence does not round-trip to its canonical input")
     return encoded
 
 
@@ -53,7 +50,7 @@ def decode_model_input(encoded_input: dict) -> dict:
     for event_index, event in enumerate(_events(result)):
         data = event.get("data")
         if not isinstance(data, dict):
-            _invalid("Encoded evidence event data must be an object")
+            raise IntegrityError("Encoded evidence event data must be an object")
         for field, value in tuple(data.items()):
             if not isinstance(value, dict) or REFERENCE_FIELD not in value:
                 continue
@@ -62,20 +59,20 @@ def decode_model_input(encoded_input: dict) -> dict:
             data[field], index = _resolve_value(source, dictionary, event, field, value)
             used.add(index)
     if set(_pointer_sites(source)) != allowed_sites:
-        _invalid("Evidence contains a nested or misplaced value pointer")
+        raise IntegrityError("Evidence contains a nested or misplaced value pointer")
     if used != set(range(len(dictionary))):
-        _invalid("Evidence dictionary contains an unused entry")
+        raise IntegrityError("Evidence dictionary contains an unused entry")
     result.pop(ENCODING_FIELD)
     result.pop(DICTIONARY_FIELD)
-    if _digest(result) != marker["decoded_input_sha256"]:
-        _invalid("Decoded evidence disagrees with its canonical input digest")
+    if sha256_json(result) != marker["decoded_input_sha256"]:
+        raise IntegrityError("Decoded evidence disagrees with its canonical input digest")
     return result
 
 
 def encode_model_record(record: dict) -> dict:
     """@brief 仅替换记录的模型可见 input，保留未来目标和来源字段原值。"""
     if not isinstance(record, dict) or not isinstance(record.get("input"), dict):
-        _invalid("Delivery record requires an object input")
+        raise IntegrityError("Delivery record requires an object input")
     result = copy.deepcopy(record)
     result["input"] = encode_model_input(record["input"])
     return result
@@ -84,7 +81,7 @@ def encode_model_record(record: dict) -> dict:
 def decode_model_record(record: dict) -> dict:
     """@brief 从实际 LabelKit 行恢复完整逻辑记录。"""
     if not isinstance(record, dict) or not isinstance(record.get("input"), dict):
-        _invalid("Encoded delivery record requires an object input")
+        raise IntegrityError("Encoded delivery record requires an object input")
     result = copy.deepcopy(record)
     result["input"] = decode_model_input(record["input"])
     return result
@@ -93,11 +90,11 @@ def decode_model_record(record: dict) -> dict:
 def _validate_logical_input(input_data: dict) -> None:
     """@brief 拒绝会与唯一传输合同冲突的保留字段和引用形状。"""
     if not isinstance(input_data, dict) or not isinstance(input_data.get("events"), list):
-        _invalid("Logical evidence input requires an events list")
+        raise IntegrityError("Logical evidence input requires an events list")
     if ENCODING_FIELD in input_data or DICTIONARY_FIELD in input_data:
-        _invalid("Logical evidence input uses a reserved encoding field")
+        raise IntegrityError("Logical evidence input uses a reserved encoding field")
     if _pointer_sites(input_data):
-        _invalid("Logical evidence input uses the reserved value pointer field")
+        raise IntegrityError("Logical evidence input uses the reserved value pointer field")
     _events(input_data)
 
 
@@ -110,13 +107,13 @@ def _collect_candidates(input_data: dict) -> dict[str, dict]:
             continue
         data = event.get("data")
         if not isinstance(data, dict):
-            _invalid("Observation data must be an object")
+            raise IntegrityError("Observation data must be an object")
         for field, value in data.items():
-            identity = _digest([field, value])
+            identity = sha256_json([field, value])
             payload = canonical_json([field, value])
             previous = values.setdefault(identity, (payload, field, copy.deepcopy(value), []))
             if previous[0] != payload:
-                _invalid("Observation dictionary digest collision")
+                raise IntegrityError("Observation dictionary digest collision")
             previous[3].append((event_index, field))
             occurrences[identity] += 1
     return {identity: {"field": item[1], "value": item[2], "locations": item[3]}
@@ -159,24 +156,24 @@ def _render_encoding(input_data: dict, candidates: dict, selected: tuple[str, ..
 def _encoding_marker(input_data: dict) -> dict:
     """@brief 冻结表示版本、解析规则和解码后完整窗口摘要。"""
     return {"kind": ENCODING_KIND, "schema_version": ENCODING_VERSION, "standard": "RFC 6901",
-            "rule": POINTER_RULE, "decoded_input_sha256": _digest(input_data)}
+            "rule": POINTER_RULE, "decoded_input_sha256": sha256_json(input_data)}
 
 
 def _validate_encoding_marker(source: dict) -> dict:
     """@brief 验证唯一编码声明，不接受缺省或其他版本。"""
     if not isinstance(source, dict):
-        _invalid("Encoded evidence input must be an object")
+        raise IntegrityError("Encoded evidence input must be an object")
     marker = source.get(ENCODING_FIELD)
     expected = {"kind": ENCODING_KIND, "schema_version": ENCODING_VERSION,
                 "standard": "RFC 6901", "rule": POINTER_RULE}
     if not isinstance(marker, dict) or set(marker) != set(expected) | {"decoded_input_sha256"}:
-        _invalid("Evidence encoding marker has an invalid shape")
+        raise IntegrityError("Evidence encoding marker has an invalid shape")
     if any(marker.get(key) != value for key, value in expected.items()):
-        _invalid("Evidence encoding marker does not match the supported contract")
+        raise IntegrityError("Evidence encoding marker does not match the supported contract")
     if not isinstance(marker.get("decoded_input_sha256"), str):
-        _invalid("Evidence encoding marker has no canonical input digest")
-    if not _SHA256_PATTERN.fullmatch(marker["decoded_input_sha256"]):
-        _invalid("Evidence encoding marker has an invalid canonical input digest")
+        raise IntegrityError("Evidence encoding marker has no canonical input digest")
+    if not is_sha256(marker["decoded_input_sha256"]):
+        raise IntegrityError("Evidence encoding marker has an invalid canonical input digest")
     return marker
 
 
@@ -184,43 +181,43 @@ def _validate_dictionary(source: dict) -> list[dict]:
     """@brief 验证字典顺序、字段绑定、摘要和保留引用边界。"""
     dictionary = source.get(DICTIONARY_FIELD)
     if not isinstance(dictionary, list):
-        _invalid("Evidence dictionary must be an array")
+        raise IntegrityError("Evidence dictionary must be an array")
     identities = []
     for entry in dictionary:
         if not isinstance(entry, dict) or set(entry) != {"field", "sha256", "value"}:
-            _invalid("Evidence dictionary entry has an invalid shape")
+            raise IntegrityError("Evidence dictionary entry has an invalid shape")
         if not isinstance(entry["field"], str) or not isinstance(entry["sha256"], str):
-            _invalid("Evidence dictionary field and digest must be strings")
-        if not _SHA256_PATTERN.fullmatch(entry["sha256"]):
-            _invalid("Evidence dictionary entry has an invalid digest")
+            raise IntegrityError("Evidence dictionary field and digest must be strings")
+        if not is_sha256(entry["sha256"]):
+            raise IntegrityError("Evidence dictionary entry has an invalid digest")
         if _pointer_sites(entry["value"]):
-            _invalid("Evidence dictionary value contains a nested value pointer")
-        if _digest([entry["field"], entry["value"]]) != entry["sha256"]:
-            _invalid("Evidence dictionary entry digest does not match its value")
+            raise IntegrityError("Evidence dictionary value contains a nested value pointer")
+        if sha256_json([entry["field"], entry["value"]]) != entry["sha256"]:
+            raise IntegrityError("Evidence dictionary entry digest does not match its value")
         identities.append(entry["sha256"])
     if identities != sorted(set(identities)):
-        _invalid("Evidence dictionary entries are duplicated or out of order")
+        raise IntegrityError("Evidence dictionary entries are duplicated or out of order")
     return dictionary
 
 
 def _resolve_value(source: dict, dictionary: list[dict], event: dict, field: str, value: dict) -> tuple[object, int]:
     """@brief 只在 observation 数据直接字段解析本记录字典的单跳指针。"""
     if event.get("event_type") != "observation" or set(value) != {REFERENCE_FIELD}:
-        _invalid("Evidence value pointer is outside an observation data field")
+        raise IntegrityError("Evidence value pointer is outside an observation data field")
     pointer = value[REFERENCE_FIELD]
     match = _POINTER_PATTERN.fullmatch(pointer) if isinstance(pointer, str) else None
     if match is None:
-        _invalid("Evidence value pointer is outside its local dictionary")
+        raise IntegrityError("Evidence value pointer is outside its local dictionary")
     index = int(match.group(1))
     if index >= len(dictionary):
-        _invalid("Evidence value pointer index is outside its local dictionary")
+        raise IntegrityError("Evidence value pointer index is outside its local dictionary")
     try:
         resolved = resolve_pointer(source, pointer)
     except JsonPointerException as error:
-        _invalid(f"Evidence value pointer cannot be resolved: {error}")
+        raise IntegrityError(f"Evidence value pointer cannot be resolved: {error}")
     entry = dictionary[index]
-    if entry["field"] != field or _digest([field, resolved]) != entry["sha256"]:
-        _invalid("Evidence value pointer disagrees with its field or digest")
+    if entry["field"] != field or sha256_json([field, resolved]) != entry["sha256"]:
+        raise IntegrityError("Evidence value pointer disagrees with its field or digest")
     return copy.deepcopy(resolved), index
 
 
@@ -228,7 +225,7 @@ def _events(input_data: dict) -> list[dict]:
     """@brief 返回按原顺序保存的完整事件列表并拒绝错误 envelope。"""
     events = input_data.get("events") if isinstance(input_data, dict) else None
     if not isinstance(events, list) or any(not isinstance(event, dict) for event in events):
-        _invalid("Evidence input requires an ordered event object list")
+        raise IntegrityError("Evidence input requires an ordered event object list")
     return events
 
 
@@ -246,17 +243,8 @@ def _pointer_sites(value: object, path: tuple = ()) -> list[tuple]:
     return sites
 
 
-def _digest(value: object) -> str:
-    """@brief 计算 canonical JSON 的完整 SHA-256。"""
-    return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
 def _canonical_clone(value: object) -> object:
     """@brief 以 canonical JSON 打断 Python 对象别名并保留全部 JSON 值。"""
     return json.loads(canonical_json(value))
-
-
-def _invalid(message: str) -> NoReturn:
-    """@brief 记录并拒绝不完整、越界或被篡改的证据表示。"""
-    logging.error("%s", message)
-    raise IntegrityError(message)

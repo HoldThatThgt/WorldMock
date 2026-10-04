@@ -1,6 +1,7 @@
 """@brief 区分生活业务拒绝与必须终止运行的故障。"""
 
 import logging
+from typing import NoReturn
 
 
 class WorldMockError(RuntimeError):
@@ -40,3 +41,9 @@ class PreconditionError(BusinessRuleError):
         self.unmet = unmet
         self.suggested = suggested
         self.public_reason = public_reason
+
+
+def reject_value(message: str) -> NoReturn:
+    """@brief 为非运行异常的值校验记录一条英文日志并抛出原始 ValueError。"""
+    logging.error("%s", message)
+    raise ValueError(message)

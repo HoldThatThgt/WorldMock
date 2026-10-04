@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.corpora.manifest import safe_file
 import hashlib
 import json
 import re
@@ -69,7 +70,8 @@ def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> t
     必须一一对应（多、少、重复都按 IntegrityError 终止），保证呈现窗口
     与 start_activity(action="do") 的受理闭集一致。
     """
-    payload = json.loads(_safe_file(corpus_root, LIFESTYLE_ITEMS_PATH).read_text(encoding="utf-8"))
+    path = safe_file(corpus_root, LIFESTYLE_ITEMS_PATH, "Content file path is invalid")
+    payload = json.loads(path.read_text(encoding="utf-8"))
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list):
         raise IntegrityError("Lifestyle catalog items are missing")
@@ -123,7 +125,7 @@ def load_content_titles(
         relative, id_key = source
         if relative not in payloads:
             payloads[relative] = json.loads(
-                _safe_file(corpus_root, relative).read_text(encoding="utf-8"))
+                safe_file(corpus_root, relative, "Content file path is invalid").read_text(encoding="utf-8"))
         payload = payloads[relative]
         title = _content_title(payload, id_key, item.item_id)
         if not isinstance(title, str) or not title.strip():
@@ -161,10 +163,10 @@ def _content_title(payload: object, id_key: str, item_id: str) -> object:
 def load_subtitles(item: ContentItemConfig, corpus_root: Path) -> tuple[SubtitleCue, ...]:
     """@brief 校验字幕身份并解析完整 SRT 时间轴。"""
     if item.kind == "podcast_episode":
-        audio = _safe_file(corpus_root, item.audio_path)
+        audio = safe_file(corpus_root, item.audio_path, "Content file path is invalid")
         if hashlib.sha256(audio.read_bytes()).hexdigest() != item.audio_sha256:
             raise IntegrityError("Podcast audio hash mismatch")
-    path = _safe_file(corpus_root, item.timeline_path)
+    path = safe_file(corpus_root, item.timeline_path, "Content file path is invalid")
     content = path.read_bytes()
     if hashlib.sha256(content).hexdigest() != item.timeline_sha256:
         raise IntegrityError("Content timeline hash mismatch")
@@ -246,23 +248,3 @@ def _srt_seconds(value: str) -> float:
     hours, minutes, tail = value.split(":")
     seconds, millis = tail.split(",")
     return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(millis) / 1000
-
-
-def _safe_file(root: Path, relative: str) -> Path:
-    """@brief 拒绝任意路径和符号链接内容。"""
-    base = Path(root).resolve()
-    candidate = base / relative
-    path = candidate.resolve()
-    if _has_symlink(candidate, base) or base not in path.parents or not path.is_file():
-        raise IntegrityError("Content file path is invalid")
-    return path
-
-
-def _has_symlink(path: Path, root: Path) -> bool:
-    """@brief 在解析前拒绝文件及父目录符号链接。"""
-    current = path
-    while current != root and root in current.parents:
-        if current.is_symlink():
-            return True
-        current = current.parent
-    return current != root

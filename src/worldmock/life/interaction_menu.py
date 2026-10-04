@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
-import logging
+from worldmock.errors import reject_value
 from collections.abc import Sequence
 from typing import Any
 
 from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
-from worldmock.life.models import FrozenModel, START_ACTIVITY_ACTIONS
+from worldmock.base_models import FrozenModel
+from worldmock.life.models import (START_ACTIVITY_ACTIONS)
 from worldmock.life.readable import TRAVEL_WAYS
 
 #: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md「保护项修订」）：每份菜单必须保留，
@@ -75,7 +76,7 @@ class InteractionMenu(FrozenModel):
         _validate_names(self.allowed_actions, START_ACTIVITY_ACTIONS, "action")
         missing = PROTECTED_SELF_ACTIONS - set(self.allowed_actions)
         if missing:
-            _reject(f"interaction menu is missing protected actions: {sorted(missing)}")
+            reject_value(f"interaction menu is missing protected actions: {sorted(missing)}")
         return self
 
 
@@ -91,14 +92,14 @@ def resolve_interaction_menu(scenario: Any, agent_id: int, location_id: str) -> 
     location = _unique_item(scenario.locations, "location_id", location_id, "location")
     menus = getattr(scenario, "interaction_menus_by_location_kind", None)
     if not isinstance(menus, dict):
-        _integrity_error("Interaction menu location mapping is unavailable")
+        raise IntegrityError("Interaction menu location mapping is unavailable")
     location_menu = menus.get(location.kind)
     if not isinstance(location_menu, InteractionMenu):
-        _integrity_error("Interaction menu for the current location kind is unavailable")
+        raise IntegrityError("Interaction menu for the current location kind is unavailable")
     actions = set(location_menu.allowed_actions)
     agent_menu = getattr(agent, "interaction_menu", ...)
     if agent_menu is ... or agent_menu is not None and not isinstance(agent_menu, InteractionMenu):
-        _integrity_error("Interaction menu agent declaration is invalid")
+        raise IntegrityError("Interaction menu agent declaration is invalid")
     if agent_menu is not None:
         actions.intersection_update(agent_menu.allowed_actions)
     return InteractionMenu(allowed_actions=tuple(sorted(actions)))
@@ -128,7 +129,7 @@ def binding_action(way: str, canonical: str, **execution: Any) -> dict[str, Any]
     """
     verb, expected = WAYS[way]
     if expected != canonical:
-        _integrity_error("Interaction way does not map to the bound internal action")
+        raise IntegrityError("Interaction way does not map to the bound internal action")
     return {"verb": verb, "label": way, "canonical_action": canonical,
             "travel_mode": execution.pop("travel_mode", None), "note": None, **execution}
 
@@ -167,29 +168,17 @@ def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:
     """@brief 校验一个声明数组的文本、唯一性与闭集归属。"""
     if any(not isinstance(value, str) or not value.strip() for value in values):
-        _reject(f"interaction menu {label} names must be nonblank strings")
+        reject_value(f"interaction menu {label} names must be nonblank strings")
     if len(values) != len(set(values)):
-        _reject(f"interaction menu {label} names must not contain duplicates")
+        reject_value(f"interaction menu {label} names must not contain duplicates")
     unknown = set(values) - allowed
     if unknown:
-        _reject(f"interaction menu contains unknown {label} names: {sorted(unknown)}")
+        reject_value(f"interaction menu contains unknown {label} names: {sorted(unknown)}")
 
 
 def _unique_item(items: tuple[Any, ...], field: str, value: Any, label: str) -> Any:
     """@brief 从已准入场景取唯一身份对象，损坏运行时失败关闭。"""
     matches = [item for item in items if getattr(item, field, None) == value]
     if len(matches) != 1:
-        _integrity_error(f"Interaction menu {label} identity is missing or duplicated")
+        raise IntegrityError(f"Interaction menu {label} identity is missing or duplicated")
     return matches[0]
-
-
-def _reject(message: str) -> None:
-    """@brief 记录英文声明错误并以 Pydantic 可承接的 ValueError 拒绝。"""
-    logging.error(message)
-    raise ValueError(message)
-
-
-def _integrity_error(message: str) -> None:
-    """@brief 记录英文运行时完整性错误并终止。"""
-    logging.error(message)
-    raise IntegrityError(message)

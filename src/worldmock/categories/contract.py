@@ -20,9 +20,8 @@ from worldmock.categories.models import (
     ResolvedObject,
     ResolvedSlot,
 )
-from worldmock.categories.provenance import validate_numeric_sources
+from worldmock.categories.provenance import NUMERIC_SOURCE_METADATA_ROOTS, validate_numeric_sources
 
-_CONTRACT_EXCLUDED_NUMBERS = frozenset({"format_version", "contract_version", "sources", "review"})
 
 
 def build_category_contract(
@@ -36,7 +35,7 @@ def build_category_contract(
     :returns: 完成树、槽位和值解析的冻结契约。
     :raises CategoryError: 结构、来源或继承无效。
     """
-    validate_numeric_sources(raw_document, document.sources, _CONTRACT_EXCLUDED_NUMBERS)
+    validate_numeric_sources(raw_document, document.sources, NUMERIC_SOURCE_METADATA_ROOTS)
     declarations = _index_categories(document.categories)
     _validate_pairing_keys(document, declarations)
     resolved: dict[str, ResolvedCategory] = {}

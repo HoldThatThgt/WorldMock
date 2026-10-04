@@ -8,7 +8,7 @@ import pytest
 
 from tests.categories.conftest import raw_object
 from worldmock.categories import CategoryError, refresh_manifest_identity
-from worldmock.catalog import CatalogError, ObjectDeclaration, add_object, load_catalog
+from worldmock.catalog import CategoryError, ObjectDeclaration, add_object, load_catalog
 from worldmock.catalog import builder
 from worldmock.catalog.admission import UNIT_MISMATCH, validate_scenario_against_catalog
 
@@ -29,7 +29,7 @@ def test_exchange_resource_unit_mismatch_rejected(catalog_dir) -> None:
     payload["rules"][0]["unit"] = "yuan"
     path.write_text(json.dumps(payload), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_catalog(catalog_dir)
     assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
 
@@ -60,7 +60,7 @@ def test_builder_manifest_commit_failure_restores_object_and_manifest_bytes(
     """对象已经提交后清单写入失败，两个文件都恢复到原始字节。"""
     object_path, manifest_path = catalog_dir / "objects.jsonl", catalog_dir / "manifest.json"
     before = {path: path.read_bytes() for path in (object_path, manifest_path)}
-    original_write = builder._atomic_write
+    original_write = builder.atomic_write
     failed = False
 
     def fail_manifest_once(path, content):
@@ -75,7 +75,7 @@ def test_builder_manifest_commit_failure_restores_object_and_manifest_bytes(
             raise OSError("Injected manifest commit failure")
         original_write(path, content)
 
-    monkeypatch.setattr(builder, "_atomic_write", fail_manifest_once)
+    monkeypatch.setattr(builder, "atomic_write", fail_manifest_once)
     with pytest.raises(OSError, match="Injected manifest commit failure"):
         add_object(catalog_dir, ObjectDeclaration.model_validate(raw_object("milk-second")))
 
@@ -87,6 +87,6 @@ def test_builder_manifest_commit_failure_restores_object_and_manifest_bytes(
 
 def test_object_attribute_unknown_name_has_stable_error(loaded_catalog) -> None:
     """编译对象读取未知属性时不返回隐式空值。"""
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         loaded_catalog.objects["milk"].attribute("missing")
     assert excinfo.value.code == "CATALOG_ATTRIBUTE_MISSING"

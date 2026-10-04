@@ -12,6 +12,8 @@ import logging
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from worldmock.base_models import FrozenModel
+from worldmock.footprints.intervals import valid_interval
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,6 +97,30 @@ IntentKind = Literal[
     "运动",
     "外出",
 ]
+
+
+#: 活动种类对应的评估聚合家族；计划匹配仍使用活动种类本身作为令牌。
+ACTIVITY_KIND_FAMILIES = {
+    "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
+    "watch": "entertainment", "play_game": "entertainment", "browse": "entertainment",
+    "read_mail": "entertainment", "wait": "rest", "chat": "social", "call": "social",
+}
+#: 冻结生活活动品类对应的聚合家族；评估中的外出并入通勤规则由报告自身声明。
+LIFESTYLE_CATEGORY_FAMILIES = {
+    "sport": "exercise", "household": "chore", "social": "social", "outdoor": "outing",
+    "hobby": "entertainment", "learning": "entertainment", "wellness": "rest",
+    "pet": "chore", "volunteer": "social",
+}
+
+
+def activity_family(snapshot: Any) -> str | None:
+    """@brief 活动快照的领域家族令牌；生活活动只认真实冻结品类，缺失或未知品类不猜测。"""
+    kind = snapshot.get("kind")
+    if kind == "lifestyle":
+        category = snapshot.get("category")
+        known = isinstance(category, str) and category in LIFESTYLE_CATEGORY_FAMILIES
+        return f"lifestyle:{category}" if known else None
+    return kind if isinstance(kind, str) and kind in ACTIVITY_KIND_FAMILIES else None
 
 
 INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
@@ -228,11 +254,10 @@ class NextDecisionQuery(BaseModel):
     is_asleep: bool = False
 
 
-class PlanGoal(BaseModel):
+class PlanGoal(FrozenModel):
     """@brief 已登记的当日目标；推进时刻与活动标识是环境证据，remind_at/reminded_at 是提醒及其触发时刻，
     around_at 是大致时刻 around_time 换算出的当日绝对时刻（为空表示不限时刻，docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     intent_kind: IntentKind
     goal: str = Field(min_length=1, max_length=PLAN_GOAL_MAX_CHARS, pattern=r"\S")
     registered_at: int = Field(ge=0)
@@ -258,10 +283,9 @@ class PlanGoal(BaseModel):
         return self
 
 
-class DayPlan(BaseModel):
+class DayPlan(FrozenModel):
     """@brief 有序当日目标清单；空清单也是一次有效登记。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     day_end: int = Field(gt=0)
     goals: tuple[PlanGoal, ...] = Field(max_length=MAX_PLAN_GOALS)
 
@@ -475,16 +499,11 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> Da
     @param end 结算区间终点
     """
     activity_id = activity["activity_id"]
-    if activity["status"] in {"cancelled", "failed"} or end <= start:
+    if activity["status"] in {"cancelled", "failed"} or not valid_interval(start, end):
         return plan
     if any(goal.progress_activity_id == activity_id for goal in plan.goals):
         return plan
-    family = activity["kind"]
-    if family == "lifestyle":
-        category = activity.get("category")
-        if category is None:
-            return plan
-        family = f"lifestyle:{category}"
+    family = activity_family(activity)
     stop = min(end, plan.day_end)
     for index, goal in enumerate(plan.goals):
         if goal.progressed_at is not None or stop <= max(start, goal.registered_at):

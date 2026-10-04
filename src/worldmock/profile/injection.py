@@ -12,6 +12,7 @@ validate 在覆盖率低于 80% 时照旧失败（裁决 D4）。
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -62,10 +63,9 @@ _LABELED_COORDINATE = re.compile(r"(?:[东西]经|[南北]纬)\s*[-+]?\d+(?:\.\d
 _IDENTIFIER = re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![A-Za-z0-9])")
 
 
-class InputWarning(BaseModel):
+class InputWarning(FrozenModel):
     """@brief 一条运行输入警告（清单 input_warnings 的条目形状，拒绝未知字段）。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: InputWarningCode
     agent_id: int | None = Field(gt=0)

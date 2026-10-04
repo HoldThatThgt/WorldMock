@@ -9,12 +9,16 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,8 +26,8 @@ from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRANCH_THRESHOLD = 85.0
-TEST_COMMAND = ("uv", "run", "coverage", "run", "-m", "pytest", "-q")
-JSON_COMMAND = ("uv", "run", "coverage", "json")
+TEST_COMMAND = (sys.executable, "-m", "coverage", "run", "--parallel-mode", "-m", "pytest", "-q")
+JSON_COMMAND = (sys.executable, "-m", "coverage", "json")
 PRODUCTION_ROOTS = ("src/worldmock", "custom/agents", "custom/envs")
 REPORT_PATH = REPO_ROOT / "docs" / "dev" / "coverage-report.json"
 
@@ -224,13 +228,51 @@ def judge_gate(
     return branch_percent >= threshold and uncovered_count == 0
 
 
-def run_test_suite() -> int:
-    """@brief 在仓库根目录运行 uv run coverage run -m pytest -q，返回其退出码。"""
-    print(f"[coverage-gate] running: {' '.join(TEST_COMMAND)}")
-    return subprocess.call(TEST_COMMAND, cwd=REPO_ROOT)
+def test_shards(base: Path, count: int) -> list[list[str]]:
+    """@brief 按目录和文件稳定排序分片；目录内文件连续，每个文件只分配一次。"""
+    if count < 1:
+        raise ValueError("shards must be a positive integer")
+    files = sorted(path.relative_to(base).as_posix() for path in (base / "tests").rglob("test_*.py"))
+    if not files:
+        raise RuntimeError("test suite contains no test files")
+    size = (len(files) + count - 1) // count
+    return [files[start:start + size] for start in range(0, len(files), size)]
 
 
-def export_coverage_json() -> dict:
+def junit_summary(paths: list[Path]) -> dict[str, int]:
+    """@brief 汇总真实 pytest 报告，缺失报告报错；跳过和预期失败均不能放行。"""
+    summary = {name: 0 for name in ("tests", "failures", "errors", "skipped")}
+    for path in paths:
+        for suite in ET.parse(path).getroot().iter("testsuite"):
+            for name in summary:
+                summary[name] += int(suite.attrib.get(name, "0"))
+    return summary
+
+
+def _run_shard(files: list[str], report: Path, data: Path) -> int:
+    """@brief 独立运行一片，覆盖数据和测试报告不与历史运行共享。"""
+    command = [*TEST_COMMAND, *files, f"--junitxml={report}"]
+    environment = {**os.environ, "COVERAGE_FILE": str(data)}
+    print(f"[coverage-gate] running shard with {len(files)} files", flush=True)
+    return subprocess.call(command, cwd=REPO_ROOT, env=environment)
+
+
+def run_test_suite(directory: Path, shards: int = 1) -> tuple[int, dict[str, int]]:
+    """@brief 使用当前 Python 并行测试，合并本次独立数据后返回退出码和真实统计。"""
+    parts = test_shards(REPO_ROOT, shards)
+    reports = [directory / f"tests-{index}.xml" for index in range(len(parts))]
+    with ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        futures = [pool.submit(_run_shard, files, report, directory / ".coverage")
+                   for files, report in zip(parts, reports)]
+        codes = [future.result() for future in futures]
+    summary = junit_summary(reports)
+    environment = {**os.environ, "COVERAGE_FILE": str(directory / ".coverage")}
+    combined = subprocess.call([sys.executable, "-m", "coverage", "combine", str(directory)],
+                               cwd=REPO_ROOT, env=environment)
+    return (0 if all(code == 0 for code in codes) and combined == 0 else 1), summary
+
+
+def export_coverage_json(data_path: Path) -> dict:
     """@brief 导出 coverage JSON 到临时文件并解析返回。
 
     @throw RuntimeError  当 coverage json 命令以非零退出码结束时。
@@ -238,7 +280,8 @@ def export_coverage_json() -> dict:
     with tempfile.TemporaryDirectory() as tmp_dir:
         json_path = Path(tmp_dir) / "coverage.json"
         command = [*JSON_COMMAND, "-o", str(json_path)]
-        result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
+        environment = {**os.environ, "COVERAGE_FILE": str(data_path)}
+        result = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
             raise RuntimeError(f"coverage json failed (rc={result.returncode}): {detail}")
@@ -301,20 +344,10 @@ def write_report(report: dict, path: Path) -> None:
 
 
 def get_git_commit_hash() -> str:
-    """@brief 获取当前 Git commit hash；失败时返回 'unknown'。"""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return "unknown"
+    """@brief 获取实际被测提交，获取失败时不能生成虚构身份。"""
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT,
+                            capture_output=True, text=True, timeout=5, check=True)
+    return result.stdout.strip()
 
 
 def compute_manifest_hash(cov_data: dict) -> str:
@@ -343,17 +376,26 @@ def print_gate_summary(branch: BranchSummary, gaps: list[InterfaceGap], passed: 
     print(f"[coverage-gate] gate verdict: {verdict}")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """@brief 门禁主流程：跑测试、导出覆盖、判定达标、写报告，返回进程退出码。"""
-    test_rc = run_test_suite()
+    parser = argparse.ArgumentParser(description="Run the complete coverage gate with the current Python.")
+    parser.add_argument("--shards", type=int, default=1)
+    args = parser.parse_args(argv)
+    if args.shards < 1:
+        parser.error("--shards must be a positive integer")
     try:
-        cov_data = export_coverage_json()
-    except RuntimeError as error:
+        with tempfile.TemporaryDirectory(prefix="worldmock-coverage-") as name:
+            directory = Path(name)
+            test_rc, summary = run_test_suite(directory, args.shards)
+            cov_data = export_coverage_json(directory / ".coverage")
+    except (RuntimeError, OSError, ET.ParseError) as error:
         print(f"[coverage-gate] ERROR: {error}", file=sys.stderr)
         return 1
     branch = compute_branch_summary(cov_data)
     gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
-    passed = test_rc == 0 and judge_gate(branch.percent, len(gaps))
+    passed = (test_rc == 0 and summary["tests"] > 0 and summary["skipped"] == 0
+              and summary["failures"] == 0 and summary["errors"] == 0
+              and judge_gate(branch.percent, len(gaps)))
     
     # 生成证据 manifest 绑定
     snapshot_id = str(uuid4())
@@ -361,8 +403,11 @@ def main() -> int:
     source_identity = get_git_commit_hash()
     
     report = build_report(
-        branch, gaps, passed, " ".join(TEST_COMMAND), snapshot_id, manifest_hash, source_identity
+        branch, gaps, passed, f"python -m coverage run -m pytest -q (shards={args.shards})",
+        snapshot_id, manifest_hash, source_identity
     )
+    report["test_results"] = summary
+    report["shards"] = args.shards
     write_report(report, REPORT_PATH)
     print_gate_summary(branch, gaps, passed)
     if test_rc != 0:

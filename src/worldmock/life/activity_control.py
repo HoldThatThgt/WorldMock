@@ -38,7 +38,7 @@ from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, 
 from worldmock.life.name_resolution import near_names, resolve_name
 from worldmock.life.readable import duration_phrase, portion_phrase
 from worldmock.life.sessions import at_stay, moment_label, on_road
-from worldmock.life.work import work_start_blocker, work_totals
+from worldmock.life.work import work_start_refusal, work_totals
 
 if TYPE_CHECKING:
     from worldmock.life.admission import Context
@@ -287,9 +287,9 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
                        unmet=("activity_location",), suggested={"travel_to": place})
     if activity.kind == ActivityKind.WORK:
         worked, _ = work_totals(context.state, activity.agent_id, activity.target_id)
-        blocker = work_start_blocker(context.tasks[activity.target_id], worked, context.state.current_time)
-        if blocker is not None:
-            return Refusal("ACTIVITY_DURATION_INVALID", blocker, "Submit the completed work.")
+        refusal = work_start_refusal(context.tasks[activity.target_id], worked, context.state.current_time)
+        if refusal is not None:
+            return refusal
     blocking = [item.name for item in active_activities(context.state, activity.agent_id)
                 if item.activity_id != activity.activity_id and item.resource_claims & activity.resource_claims]
     if blocking:

@@ -2,31 +2,28 @@
 
 from __future__ import annotations
 
-import logging
+from worldmock.errors import reject_value
 from datetime import date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, StrictInt, model_validator
 
-from worldmock.life.models import FrozenModel, TravelMode
+from worldmock.base_models import FrozenModel
+from worldmock.life.models import (TravelMode)
 
-LOCATION_KINDS = frozenset({"home", "office", "outdoor", "fitness", "venue", "anywhere"})
+from worldmock.life.retrieval import LOCATION_KINDS
 #: 地图文件结构版本：数据集与三个目录共用；3 起固定生成种子与逐店品类声明哈希。
 #: 旧版本直接拒绝，不保留兼容解析（docs/CONTRACTS.md「冻结地图与场景引用」）。
 MAP_SCHEMA_VERSION = 3
 
 
-def reject(message: str) -> None:
-    """@brief 记录英文拒绝原因并中止不完整的地图声明。"""
-    logging.error(message)
-    raise ValueError(message)
 
 
 def require_aware(value: datetime) -> None:
     """@brief 拒绝没有明确时区的地图时间。"""
     if value.tzinfo is None or value.utcoffset() is None:
-        reject("Map timestamps must be timezone-aware")
+        reject_value("Map timestamps must be timezone-aware")
 
 
 class DataSource(FrozenModel):
@@ -45,7 +42,7 @@ class DataSource(FrozenModel):
         """@brief 来源取得时间必须明确时区。"""
         require_aware(self.retrieved_at)
         if self.fact_cutoff > self.retrieved_at.date():
-            reject("Source fact cutoff cannot follow retrieval date")
+            reject_value("Source fact cutoff cannot follow retrieval date")
         return self
 
 
@@ -65,11 +62,11 @@ class TemporalDeclaration(FrozenModel):
         if self.effective_to is not None:
             require_aware(self.effective_to)
             if self.effective_to <= self.effective_from:
-                reject("Declaration effective interval must be positive")
+                reject_value("Declaration effective interval must be positive")
         if self.reviewed_on > self.still_valid_on:
-            reject("Declaration review date cannot follow its validity date")
+            reject_value("Declaration review date cannot follow its validity date")
         if self.reviewed_on > self.source.fact_cutoff:
-            reject("Declaration review date cannot follow its source fact cutoff")
+            reject_value("Declaration review date cannot follow its source fact cutoff")
         return self
 
 
@@ -83,7 +80,7 @@ class OpeningInterval(FrozenModel):
     def validate_interval(self) -> "OpeningInterval":
         """@brief 营业区间必须正向且最多延续二十四小时。"""
         if not self.opens < self.closes <= self.opens + 1440:
-            reject("Opening interval must be positive and at most one day")
+            reject_value("Opening interval must be positive and at most one day")
         return self
 
 
@@ -97,17 +94,17 @@ class OpeningCalendar(TemporalDeclaration):
     def validate_calendar(self) -> "OpeningCalendar":
         """@brief 一周必须完整声明，日期必须规范且每天区间不得重叠。"""
         if set(self.weekly) != {str(day) for day in range(7)}:
-            reject("Opening calendar must explicitly declare all seven weekdays")
+            reject_value("Opening calendar must explicitly declare all seven weekdays")
         for key in self.exceptions:
             try:
                 if date.fromisoformat(key).isoformat() != key:
-                    reject("Opening exception date must use ISO format")
+                    reject_value("Opening exception date must use ISO format")
             except ValueError:
-                reject("Opening exception date must use ISO format")
+                reject_value("Opening exception date must use ISO format")
         for values in (*self.weekly.values(), *self.exceptions.values()):
             ordered = sorted(values, key=lambda value: value.opens)
             if any(first.closes > second.opens for first, second in zip(ordered, ordered[1:])):
-                reject("Opening intervals must not overlap")
+                reject_value("Opening intervals must not overlap")
         _check_weekly_overlap(self.weekly)
         return self
 
@@ -118,7 +115,7 @@ def _check_weekly_overlap(weekly: dict[str, tuple[OpeningInterval, ...]]) -> Non
         previous = weekly[str((day - 1) % 7)]
         current = weekly[str(day)]
         if any(left.closes - 1440 > right.opens for left in previous for right in current):
-            reject("Weekly opening intervals overlap across midnight")
+            reject_value("Weekly opening intervals overlap across midnight")
 
 
 class QuoteConfig(TemporalDeclaration):
@@ -133,7 +130,7 @@ def validate_declarations(values: tuple[TemporalDeclaration, ...], label: str) -
     ordered = sorted(values, key=lambda item: item.effective_from)
     for first, second in zip(ordered, ordered[1:]):
         if first.effective_to is None or first.effective_to > second.effective_from:
-            reject(f"{label} effective intervals overlap")
+            reject_value(f"{label} effective intervals overlap")
 
 
 class BrandConfig(FrozenModel):
@@ -169,10 +166,10 @@ class LocationConfig(FrozenModel):
     def validate_location(self) -> "LocationConfig":
         """@brief 活动环境必须显式合法且不得重复，营业声明不得重叠。"""
         kinds = set(self.location_kinds)
-        if len(kinds) != len(self.location_kinds) or not kinds <= LOCATION_KINDS:
-            reject("Location activity kinds must be unique supported values")
+        if len(kinds) != len(self.location_kinds) or not kinds <= set(LOCATION_KINDS):
+            reject_value("Location activity kinds must be unique supported values")
         if "anywhere" in kinds:
-            reject("Location activity kinds cannot use the activity-only anywhere value")
+            reject_value("Location activity kinds cannot use the activity-only anywhere value")
         validate_names(self.required_qualifications, "Location qualifications")
         validate_declarations(self.opening_calendars, "Opening calendar")
         return self
@@ -207,14 +204,14 @@ class SupplyConfig(FrozenModel):
         validate_names(self.delivery_destination_ids, "Delivery destinations")
         validate_names(self.required_qualifications, "Supply qualifications")
         if bool(self.delivery_destination_ids) != ("delivery" in self.fulfillment_modes):
-            reject("Delivery support must match its explicit destination scope")
+            reject_value("Delivery support must match its explicit destination scope")
         return self
 
 
 def validate_names(values: tuple[str, ...], label: str) -> None:
     """@brief 拒绝空白和重复身份。"""
     if len(values) != len(set(values)) or any(not value.strip() for value in values):
-        reject(f"{label} must contain unique nonblank values")
+        reject_value(f"{label} must contain unique nonblank values")
 
 
 def validate_price_versions(supplies: tuple[SupplyConfig, ...], changes) -> None:
@@ -223,7 +220,7 @@ def validate_price_versions(supplies: tuple[SupplyConfig, ...], changes) -> None
     for change in changes:
         identity = change.supply_id, change.price_version
         if identity in seen:
-            reject("Supply price versions must be unique across declarations and scheduled changes")
+            reject_value("Supply price versions must be unique across declarations and scheduled changes")
         seen.add(identity)
 
 
@@ -252,19 +249,19 @@ class RouteConfig(FrozenModel):
         """@brief 状态与距离时长必须一致，路线方式必须匹配路由配置。"""
         metrics = (self.distance_meters, self.duration_seconds, self.fare_fen)
         if self.status == "reachable" and any(value is None for value in metrics):
-            reject("Reachable route requires distance, duration, and fare")
+            reject_value("Reachable route requires distance, duration, and fare")
         if self.status != "reachable" and any(value is not None for value in metrics):
-            reject("Non-reachable route cannot contain reachable metrics")
+            reject_value("Non-reachable route cannot contain reachable metrics")
         if self.status == "unknown":
             if self.response_path is not None or self.response_sha256 is not None or not self.reason:
-                reject("Unknown route requires a reason and no response claim")
+                reject_value("Unknown route requires a reason and no response claim")
         elif self.response_path is None or self.response_sha256 is None:
-            reject("Known route status requires a frozen response")
+            reject_value("Known route status requires a frozen response")
         if self.origin_id == self.destination_id:
-            reject("Route endpoints must differ")
+            reject_value("Route endpoints must differ")
         expected = "foot" if self.mode == TravelMode.WALKING else "car"
         if self.routing_profile != expected or not self.source_url.startswith(self.routing_instance + "/"):
-            reject("Route mode, profile, and routing instance disagree")
+            reject_value("Route mode, profile, and routing instance disagree")
         return self
 
 
@@ -320,10 +317,10 @@ class MapDatasetDeclaration(FrozenModel):
         try:
             ZoneInfo(self.timezone)
         except ZoneInfoNotFoundError:
-            reject("Map timezone is invalid")
+            reject_value("Map timezone is invalid")
         west, south, east, north = self.bounds
         if not -180 <= west < east <= 180 or not -90 <= south < north <= 90:
-            reject("Map coordinate bounds are invalid")
+            reject_value("Map coordinate bounds are invalid")
         validate_names(self.route_modes, "Map route modes")
         return self
 
@@ -352,7 +349,7 @@ class StoreAssortment(FrozenModel):
         validate_names(self.category_ids, "Store categories")
         validate_names(self.object_ids, "Store objects")
         if not self.category_ids and not self.object_ids:
-            reject("Selling locations require a nonempty assortment")
+            reject_value("Selling locations require a nonempty assortment")
         return self
 
 
@@ -369,7 +366,7 @@ class CategoryAssignment(FrozenModel):
         validate_names(tuple(item.location_id for item in self.locations), "Assortment locations")
         for kind, values in self.kinds.items():
             if not kind.strip():
-                reject("Assortment kind must be nonblank")
+                reject_value("Assortment kind must be nonblank")
             validate_names(values, "Kind admission categories")
         return self
 

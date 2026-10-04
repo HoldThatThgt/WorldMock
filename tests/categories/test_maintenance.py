@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.categories.conftest import raw_object, review
-from worldmock.catalog import CatalogError, load_catalog
+from worldmock.catalog import CategoryError, load_catalog
 from worldmock.categories import CategoryError, refresh_manifest_identity
 from worldmock.categories.maintenance import (
     category_touches,
@@ -399,7 +399,7 @@ def test_publication_rejects_nonincreasing_version_when_catalog_and_real_scenari
     load_runtime_scenario(scenario, catalog_dir=candidate)
     before, candidate_before = _snapshot(source), _snapshot(candidate)
 
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         publish_catalog(source, candidate, tmp_path / "published", {}, (scenario,))
 
     assert excinfo.value.code == "CATEGORY_VERSION_NOT_INCREMENTED"

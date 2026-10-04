@@ -237,7 +237,7 @@ def test_reflection_snapshots_carry_their_source_and_both_checks_accept_it(tmp_p
     from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 
     from custom.agents.life_memory import memory_update_evidence
-    from worldmock.footprints.quality import _valid_subjective_snapshots
+    from worldmock.life.memory_evidence import valid_subjective_snapshots
     from worldmock.life.memory_evidence import _memory_evidence_data
 
     store = AgentMemoryStore(tmp_path, agent_id=1)
@@ -251,9 +251,9 @@ def test_reflection_snapshots_carry_their_source_and_both_checks_accept_it(tmp_p
                                  {"id": "r1", "type": "reflection", "text": "睡前想了想",
                                   "epistemic_status": "subjective", "source": "reflection"})
     assert _memory_evidence_data(evidence)["episodes"] == list(evidence.episodes)
-    assert _valid_subjective_snapshots(list(evidence.episodes), ["c1", "r1"])
+    assert valid_subjective_snapshots(list(evidence.episodes), ["c1", "r1"])
     forged = (evidence.episodes[0], {**evidence.episodes[1], "source": "activity_conclusion"})
-    assert not _valid_subjective_snapshots(list(forged), ["c1", "r1"])
+    assert not valid_subjective_snapshots(list(forged), ["c1", "r1"])
     with pytest.raises(ProtocolError, match="payload is invalid"):
         _memory_evidence_data(dataclasses.replace(evidence, episodes=forged))
     unchanged = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()

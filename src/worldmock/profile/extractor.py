@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 import json
 import logging
 import math
@@ -100,14 +101,13 @@ class ExtractionError(RuntimeError):
     """@brief 提取失败：凭据缺失、API 不可达或超次重试仍无法解析。"""
 
 
-class PersonaExtraction(BaseModel):
+class PersonaExtraction(FrozenModel):
     """@brief 三次一致性共识提取结果（编译入口消费，不进入提示合同）。
 
     demotion_notes 是共识后最终卡片上下班、到家锚点的降级说明（每个被置 null 的锚点一条，按核对顺序），
     编译警告把它接在一致性警告之后。
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     card: PersonaCard
     big_five: BigFiveProfile

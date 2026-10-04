@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 import json
 import logging
@@ -33,9 +34,9 @@ def _read_trace(path: Path) -> bytes:
     try:
         raw = path.read_bytes()
     except OSError as error:
-        _raise_integrity(f"Cannot read LabelKit trace {path.name}: {error}")
+        raise IntegrityError(f"Cannot read LabelKit trace {path.name}: {error}")
     if not raw.strip():
-        _raise_integrity("LabelKit trace is empty")
+        raise IntegrityError("LabelKit trace is empty")
     return raw
 
 
@@ -46,12 +47,12 @@ def _parse_rows(raw: bytes, name: str) -> list[dict]:
         for line in raw.decode("utf-8").splitlines():
             row = json.loads(line)
             if not isinstance(row, dict):
-                _raise_integrity("LabelKit trace row must be a JSON object")
+                raise IntegrityError("LabelKit trace row must be a JSON object")
             rows.append(row)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        _raise_integrity(f"Cannot parse LabelKit trace {name}: {error}")
+        raise IntegrityError(f"Cannot parse LabelKit trace {name}: {error}")
     if not rows:
-        _raise_integrity("LabelKit trace has no events")
+        raise IntegrityError("LabelKit trace has no events")
     return rows
 
 
@@ -60,7 +61,7 @@ def _validate_envelopes(rows: list[dict]) -> None:
     run_ids = set()
     for row in rows:
         if set(row) != _EVENT_FIELDS:
-            _raise_integrity("LabelKit trace event has an invalid envelope")
+            raise IntegrityError("LabelKit trace event has an invalid envelope")
         run_ids.add(row["run_id"])
         valid = (
             isinstance(row["ts"], str) and bool(row["ts"])
@@ -71,9 +72,9 @@ def _validate_envelopes(rows: list[dict]) -> None:
             and isinstance(row["payload"], dict)
         )
         if not valid:
-            _raise_integrity("LabelKit trace event has invalid field types")
+            raise IntegrityError("LabelKit trace event has invalid field types")
     if len(run_ids) != 1 or _RUN_ID.fullmatch(next(iter(run_ids), "")) is None:
-        _raise_integrity("LabelKit trace must contain one valid run_id")
+        raise IntegrityError("LabelKit trace must contain one valid run_id")
 
 
 def _valid_record_ids(value: object) -> bool:
@@ -91,7 +92,7 @@ def _validate_lifecycle(rows: list[dict], expected_count: int,
     starts = [row for row in rows if row["ev"] == "run.start"]
     ends = [row for row in rows if row["ev"] == "run.end"]
     if len(starts) != 1 or starts[0] is not rows[0] or not _run_event(starts[0]):
-        _raise_integrity("LabelKit trace must start with one run.start event")
+        raise IntegrityError("LabelKit trace must start with one run.start event")
     start_payload = starts[0]["payload"]
     start_identity = {
         "config_digest": config_digest,
@@ -99,20 +100,20 @@ def _validate_lifecycle(rows: list[dict], expected_count: int,
         "trace_schema_version": 1,
     }
     if any(start_payload.get(key) != value for key, value in start_identity.items()):
-        _raise_integrity("LabelKit trace run identity does not match its configuration")
+        raise IntegrityError("LabelKit trace run identity does not match its configuration")
     if not isinstance(start_payload.get("tool_version"), str) or not start_payload["tool_version"]:
-        _raise_integrity("LabelKit trace schema version is unsupported")
+        raise IntegrityError("LabelKit trace schema version is unsupported")
     if len(ends) != 1 or ends[0] is not rows[-1] or not _run_event(ends[0]):
-        _raise_integrity("LabelKit trace must end with one run.end event")
+        raise IntegrityError("LabelKit trace must end with one run.end event")
     payload = ends[0]["payload"]
     counts = payload.get("counts")
     if payload.get("exit_code") != 0 or not isinstance(counts, dict):
-        _raise_integrity("LabelKit trace did not record a successful run end")
+        raise IntegrityError("LabelKit trace did not record a successful run end")
     expected = {"scanned": expected_count, "ingested": expected_count, "emitted": expected_count}
     if any(counts.get(key) != value for key, value in expected.items()):
-        _raise_integrity("LabelKit trace counts do not preserve every source record")
+        raise IntegrityError("LabelKit trace counts do not preserve every source record")
     if any(counts.get(key) != 0 for key in _ZERO_COUNTS):
-        _raise_integrity("LabelKit trace contains rejected or failed source records")
+        raise IntegrityError("LabelKit trace contains rejected or failed source records")
 
 
 def _run_event(row: dict) -> bool:
@@ -125,7 +126,7 @@ def _validate_processing(rows: list[dict], expected_model_inputs: dict[str, str]
     """@brief 按事件顺序绑定每轮生成、独立评审、终态裁决与非绑定修复调用。"""
     by_digest = {digest: record_id for record_id, digest in expected_model_inputs.items()}
     if not expected_model_inputs or len(by_digest) != len(expected_model_inputs):
-        _raise_integrity("LabelKit model inputs are not uniquely traceable")
+        raise IntegrityError("LabelKit model inputs are not uniquely traceable")
     profiles = {record_id: set() for record_id in expected_model_inputs}
     rounds = {record_id: 0 for record_id in expected_model_inputs}
     verdicts = {}
@@ -139,18 +140,18 @@ def _validate_processing(rows: list[dict], expected_model_inputs: dict[str, str]
             else:
                 record_id, profile = _model_call_identity(row, by_digest, expected_models)
                 if verdicts.get(record_id) == "pass":
-                    _raise_integrity("LabelKit trace has a model call after a passing verdict")
+                    raise IntegrityError("LabelKit trace has a model call after a passing verdict")
                 profiles[record_id].add(profile)
         elif row["ev"] == "verify.verdict":
             record_id, verdict = _accept_verdict(row, rounds, profiles)
             verdicts[record_id] = verdict
             last_verdict_at = position
     if set(verdicts) != set(expected_model_inputs) or any(value != "pass" for value in verdicts.values()):
-        _raise_integrity("LabelKit trace has no final passing verdict for every source record")
+        raise IntegrityError("LabelKit trace has no final passing verdict for every source record")
     if any(value for value in profiles.values()):
-        _raise_integrity("LabelKit trace has unreviewed model calls after its final verdict")
+        raise IntegrityError("LabelKit trace has unreviewed model calls after its final verdict")
     if last_repair_at > last_verdict_at:
-        _raise_integrity("LabelKit trace has a schema repair call after its final verdict")
+        raise IntegrityError("LabelKit trace has a schema repair call after its final verdict")
 
 
 def _is_output_repair_call(row: dict) -> bool:
@@ -168,7 +169,7 @@ def _validate_repair_call(row: dict, expected_models: dict[str, str]) -> None:
     payload = row["payload"]
     expected_model = expected_models.get(payload.get("profile"))
     if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model, {"user"}):
-        _raise_integrity("LabelKit trace contains an unsuccessful model call")
+        raise IntegrityError("LabelKit trace contains an unsuccessful model call")
 
 
 def _safe_message_texts(messages: object) -> list[str]:
@@ -196,9 +197,9 @@ def _model_call_identity(row: dict, by_digest: dict[str, str],
     digest = _model_input_digest(payload)
     expected_model = expected_models.get(profile)
     if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model, {"system", "user"}):
-        _raise_integrity("LabelKit trace contains an unsuccessful model call")
+        raise IntegrityError("LabelKit trace contains an unsuccessful model call")
     if profile not in {"default", "judge"} or digest not in by_digest:
-        _raise_integrity("LabelKit trace model call is not bound to a source record")
+        raise IntegrityError("LabelKit trace model call is not bound to a source record")
     return by_digest[digest], profile
 
 
@@ -240,12 +241,12 @@ def _accept_verdict(row: dict, rounds: dict[str, int], profiles: dict[str, set])
     ids, payload = row["record_ids"], row["payload"]
     round_no, verdict = payload.get("round"), payload.get("verdict")
     if row["stage"] != "verify" or len(ids) != 1 or ids[0] not in rounds:
-        _raise_integrity("LabelKit trace verdict refers to an invalid source record")
+        raise IntegrityError("LabelKit trace verdict refers to an invalid source record")
     record_id = ids[0]
     if profiles[record_id] != {"default", "judge"}:
-        _raise_integrity("LabelKit trace lacks generation or review before a verdict")
+        raise IntegrityError("LabelKit trace lacks generation or review before a verdict")
     if type(round_no) is not int or round_no != rounds[record_id] + 1 or verdict not in {"pass", "fail"}:
-        _raise_integrity("LabelKit trace verdict sequence is invalid")
+        raise IntegrityError("LabelKit trace verdict sequence is invalid")
     rounds[record_id] = round_no
     profiles[record_id].clear()
     return record_id, verdict
@@ -255,7 +256,7 @@ def _model_input_digest(payload: dict) -> str:
     """@brief 从生成或评审提示中提取唯一完整模型输入并计算摘要。"""
     messages = payload.get("gen_ai.input.messages")
     if not isinstance(messages, list):
-        _raise_integrity("LabelKit trace model call has no complete request messages")
+        raise IntegrityError("LabelKit trace model call has no complete request messages")
     candidates = []
     for text in _message_texts(messages):
         if "[待标注数据] " in text:
@@ -263,7 +264,7 @@ def _model_input_digest(payload: dict) -> str:
         if "[原始数据] " in text:
             candidates.append(_marked_json_digest(text, "[原始数据] "))
     if len(candidates) != 1:
-        _raise_integrity("LabelKit trace model call must contain one complete source input")
+        raise IntegrityError("LabelKit trace model call must contain one complete source input")
     return candidates[0]
 
 
@@ -273,11 +274,13 @@ def _marked_json_digest(text: str, marker: str) -> str:
     try:
         value, _ = json.JSONDecoder().raw_decode(raw)
     except json.JSONDecodeError as error:
-        _raise_integrity(f"LabelKit trace source input is invalid JSON: {error}")
+        raise IntegrityError(f"LabelKit trace source input is invalid JSON: {error}")
     if not isinstance(value, dict):
-        _raise_integrity("LabelKit trace source input must be a JSON object")
-    canonical = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        raise IntegrityError("LabelKit trace source input must be a JSON object")
+    try:
+        return sha256_json(value)
+    except ValueError as error:
+        raise IntegrityError("LabelKit trace source input contains non-finite JSON") from error
 
 
 def _message_texts(messages: list[object]) -> list[str]:
@@ -285,20 +288,14 @@ def _message_texts(messages: list[object]) -> list[str]:
     texts = []
     for message in messages:
         if not isinstance(message, dict):
-            _raise_integrity("LabelKit trace request message is invalid")
+            raise IntegrityError("LabelKit trace request message is invalid")
         content = message.get("content")
         if isinstance(content, str):
             texts.append(content)
             continue
         if not isinstance(content, list):
-            _raise_integrity("LabelKit trace request content is invalid")
+            raise IntegrityError("LabelKit trace request content is invalid")
         for part in content:
             if isinstance(part, dict) and isinstance(part.get("text"), str):
                 texts.append(part["text"])
     return texts
-
-
-def _raise_integrity(message: str) -> NoReturn:
-    """@brief 记录 trace 完整性错误并终止发布。"""
-    logging.error("%s", message)
-    raise IntegrityError(message)

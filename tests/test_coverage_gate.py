@@ -10,6 +10,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -202,7 +204,7 @@ def test_build_report_structure():
         make_cov_data({"src/worldmock/a.py": make_file_entry(90, 10, [])})
     )
     gaps = [gate.InterfaceGap("src/worldmock/a.py", 3, "foo", "function")]
-    command = "uv run coverage run -m pytest -q"
+    command = "python -m coverage run -m pytest -q"
     snapshot_id = "test-snapshot-001"
     manifest_hash = "abc123def456"
     source_identity = "commit-hash-789"
@@ -238,3 +240,53 @@ def test_write_report_roundtrip(tmp_path):
     assert loaded["evidence_manifest"]["snapshot_id"] == "snap-id"
     assert loaded["evidence_manifest"]["manifest_hash"] == "hash-abc"
     assert loaded["evidence_manifest"]["source_identity"] == "source-xyz"
+
+
+def test_shards_cover_all_files_once_and_keep_directory_order(tmp_path):
+    for name in ("tests/a/test_b.py", "tests/a/test_a.py", "tests/b/test_c.py", "tests/test_root.py"):
+        write_module(tmp_path, name, "def test_ok():\n    assert True\n")
+    shards = gate.test_shards(tmp_path, 3)
+    files = [name for shard in shards for name in shard]
+    assert files == sorted(files)
+    assert len(files) == len(set(files)) == 4
+    assert all(shard for shard in shards)
+    with pytest.raises(ValueError, match="positive integer"):
+        gate.test_shards(tmp_path, 0)
+
+
+def test_real_shards_use_current_python_and_report_skipped_tests(tmp_path, monkeypatch):
+    write_module(tmp_path, "tests/a/test_pass.py", "def test_pass():\n    assert True\n")
+    skip = "sk" + "ip"
+    write_module(tmp_path, "tests/b/test_skip.py", f"import pytest\ndef test_skip():\n    pytest.{skip}('missing')\n")
+    data = tmp_path / "data"
+    data.mkdir()
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+    code, results = gate.run_test_suite(data, 2)
+    assert code == 0
+    assert results == {"tests": 2, "failures": 0, "errors": 0, "skipped": 1}
+    assert (data / ".coverage").is_file()
+    assert gate.TEST_COMMAND[:3] == (sys.executable, "-m", "coverage")
+    assert "uv" not in gate.TEST_COMMAND
+
+
+@pytest.mark.parametrize("results", [
+    {"tests": 1, "failures": 0, "errors": 0, "skipped": 1},
+    {"tests": 0, "failures": 0, "errors": 0, "skipped": 0},
+    {"tests": 1, "failures": 1, "errors": 0, "skipped": 0},
+])
+def test_main_never_passes_for_skipped_empty_or_failed_tests(tmp_path, monkeypatch, results):
+    monkeypatch.setattr(gate, "run_test_suite", lambda directory, shards: (0, results))
+    monkeypatch.setattr(gate, "export_coverage_json", lambda path: make_cov_data({
+        "src/worldmock/a.py": make_file_entry(90, 10, [])}))
+    monkeypatch.setattr(gate, "find_uncovered_interfaces", lambda *args: [])
+    monkeypatch.setattr(gate, "REPORT_PATH", tmp_path / "report.json")
+    assert gate.main(["--shards", "2"]) == 1
+    report = json.loads(gate.REPORT_PATH.read_text())
+    assert report["passed"] is False
+    assert report["test_results"] == results
+    assert report["shards"] == 2
+
+
+def test_missing_junit_report_is_an_error(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        gate.junit_summary([tmp_path / "missing.xml"])

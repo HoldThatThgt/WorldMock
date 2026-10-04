@@ -9,7 +9,7 @@ import pytest
 
 from tests.categories.conftest import raw_object
 from worldmock.categories import compute_catalog_identity, refresh_manifest_identity
-from worldmock.catalog import CatalogError, load_catalog, load_object_declarations
+from worldmock.catalog import CategoryError, load_catalog, load_object_declarations
 
 
 def test_load_catalog_returns_raw_and_compiled_views(catalog_dir: Path) -> None:
@@ -35,7 +35,7 @@ def test_load_object_declarations_retains_append_history(catalog_dir: Path) -> N
 
 def test_load_object_declarations_requires_existing_file(tmp_path: Path) -> None:
     """公开 raw loader 不能把缺失文件解释为空目录。"""
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_object_declarations(tmp_path / "missing.jsonl")
     assert excinfo.value.code == "CATALOG_OBJECTS_MISSING"
 
@@ -45,7 +45,7 @@ def test_non_monotonic_object_history_rejected(catalog_dir: Path) -> None:
     path = catalog_dir / "objects.jsonl"
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(raw_object()) + "\n")
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_object_declarations(path)
     assert excinfo.value.code == "CATALOG_VERSION_NOT_MONOTONIC"
 
@@ -57,7 +57,7 @@ def test_old_edges_raw_schema_rejected_after_identity_refresh(catalog_dir: Path)
     payload["edges"] = []
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_catalog(catalog_dir)
     assert excinfo.value.code == "CATALOG_SCHEMA_INVALID"
 
@@ -66,11 +66,11 @@ def test_manifest_missing_and_malformed_rejected(catalog_dir: Path) -> None:
     """清单缺失或不是严格模型时拒绝加载。"""
     path = catalog_dir / "manifest.json"
     path.unlink()
-    with pytest.raises(CatalogError) as missing:
+    with pytest.raises(CategoryError) as missing:
         load_catalog(catalog_dir)
     assert missing.value.code == "CATALOG_MANIFEST_MISSING"
     path.write_text("{}", encoding="utf-8")
-    with pytest.raises(CatalogError) as malformed:
+    with pytest.raises(CategoryError) as malformed:
         load_catalog(catalog_dir)
     assert malformed.value.code == "CATALOG_MALFORMED_MANIFEST"
 
@@ -170,7 +170,7 @@ def test_same_version_dependency_tamper_changes_digest_and_is_rejected_by_loader
     for field in ("version_major", "version_minor", "category_contract_version", "catalog_content_sha256"):
         assert manifest_after[field] == manifest_before[field]
     assert original.catalog_content_sha256 == before.catalog_content_sha256
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_catalog(catalog_dir)
     assert excinfo.value.code == "CATALOG_CONTENT_IDENTITY_MISMATCH"
     assert excinfo.value.message == "catalog identity fields mismatch: ['catalog_content_sha256']"
@@ -183,6 +183,6 @@ def test_unknown_rule_resource_rejected(catalog_dir: Path) -> None:
     payload["rules"][0]["resource_id"] = "unknown"
     path.write_text(json.dumps(payload), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         load_catalog(catalog_dir)
     assert excinfo.value.code == "EXCHANGE_RESOURCE_UNKNOWN"

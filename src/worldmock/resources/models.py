@@ -10,6 +10,7 @@ occurred_at 时间戳，保证全历史可重建、可对账。
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ OPEN_CONSERVATION = "open"
 SOURCE_DIRECTION = "source"
 DRAIN_DIRECTION = "drain"
 
-_AMOUNT_TYPES = (int, float)
+AMOUNT_TYPES = (int, float)
 
 
 class ResourceLedgerError(Exception):
@@ -30,13 +31,14 @@ class ResourceLedgerError(Exception):
 
     def __init__(self, code: str, message: str):
         """@brief 以“错误码: 详情”合成故障信息。"""
+        logging.getLogger(__name__).error("%s: %s", code, message)
         self.code = code
         super().__init__(f"{code}: {message}")
 
 
 def _require_amount(code: str, label: str, amount) -> None:
     """@brief 金额必须是有限正数（拒绝布尔、NaN、Inf 与零/负值）。"""
-    if type(amount) not in _AMOUNT_TYPES:
+    if type(amount) not in AMOUNT_TYPES:
         raise ResourceLedgerError(code, f"{label} must be an int or float, got {type(amount).__name__}")
     if isinstance(amount, float) and not math.isfinite(amount):
         raise ResourceLedgerError(code, f"{label} must be finite, got {amount}")
@@ -74,12 +76,12 @@ class ResourceMeta:
             raise ValueError(f"unknown resource kind: {self.kind}")
         if self.conservation not in (CLOSED_CONSERVATION, OPEN_CONSERVATION):
             raise ValueError(f"unknown conservation domain: {self.conservation}")
-        if type(self.bounds_min) not in _AMOUNT_TYPES or not math.isfinite(self.bounds_min):
+        if type(self.bounds_min) not in AMOUNT_TYPES or not math.isfinite(self.bounds_min):
             raise ValueError("bounds_min must be a finite number")
         if self.bounds_min < 0:
             raise ValueError("bounds_min cannot be negative: ledger invariant NEGATIVE_BALANCE is universal")
         if self.bounds_max is not None and (
-                type(self.bounds_max) not in _AMOUNT_TYPES
+                type(self.bounds_max) not in AMOUNT_TYPES
                 or not math.isfinite(self.bounds_max)
                 or self.bounds_max < self.bounds_min):
             raise ValueError("bounds_max must be a finite number not below bounds_min")

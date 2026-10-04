@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 from collections import defaultdict
 from pathlib import Path
@@ -68,7 +69,7 @@ def _validate_intervention(branch: dict, events: list[dict], checkpoint: dict) -
                "balance_fen": data["after_balance_fen"], "hypothesis": data["hypothesis"],
                "source_event_ids": data["source_event_ids"]}
     payload = {"tool_name": "counterfactual_intervention", "request": request}
-    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
+    digest = sha256_json(payload)
     if digest != data["intervention_sha256"] or digest != branch["frozen_run_manifest"]["intervention_sha256"]:
         raise IntegrityError("Replay intervention does not match the frozen branch")
     visible = {row["event_id"] for row in events[:checkpoint["event_seq"]]

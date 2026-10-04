@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.assets import atomic_write
+from worldmock.footprints.models import canonical_json
+from worldmock.corpora.manifest import safe_file
 import hashlib
 import json
 import os
@@ -79,7 +82,10 @@ def refresh_manifest_identity(catalog_dir: Path | str) -> CatalogIdentity:
     identity = compute_catalog_identity(directory, payload)
     payload.update(identity.manifest_fields())
     serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-    _replace_manifest(manifest_path, serialized)
+    try:
+        atomic_write(manifest_path, serialized.encode("utf-8"))
+    except OSError as error:
+        raise CategoryError("CATALOG_IDENTITY_WRITE_FAILED", str(error)) from error
     return identity
 
 
@@ -94,20 +100,21 @@ def _content_digest(directory: Path, manifest_payload: dict[str, Any]) -> str:
         _update_frame(digest, relative, _read_content_file(directory, relative))
     payload = dict(manifest_payload)
     payload.pop("catalog_content_sha256", None)
-    manifest = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    _update_frame(digest, "manifest.json", manifest.encode("utf-8"))
+    _update_frame(digest, "manifest.json", canonical_json(payload))
     return digest.hexdigest()
 
 
 def _read_content_file(directory: Path, relative: str) -> bytes:
     """@brief 读取目录身份文件；两个可选文件缺失时以空字节入摘要。"""
     path = directory / relative
-    if not path.is_file():
+    if not path.exists() and not path.is_symlink():
         if relative in _REQUIRED_FILES:
             raise CategoryError("CATALOG_IDENTITY_FILE_MISSING", f"{path} does not exist")
         return b""
     try:
-        return path.read_bytes()
+        validated = safe_file(directory, relative, "Catalog identity file path is invalid",
+                              lambda message: CategoryError("CATALOG_IDENTITY_READ_FAILED", f"{path}: {message}"))
+        return validated.read_bytes()
     except OSError as error:
         raise CategoryError("CATALOG_IDENTITY_READ_FAILED", f"{path}: {error}") from error
 
@@ -124,7 +131,9 @@ def _manifest_payload(directory: Path) -> dict[str, Any]:
     """@brief 读取 manifest JSON 对象。"""
     path = directory / "manifest.json"
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        file = safe_file(directory, "manifest.json", "Catalog manifest path is invalid",
+                         lambda message: CategoryError("CATALOG_MANIFEST_INVALID", f"{path}: {message}"))
+        payload = json.loads(file.read_bytes())
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise CategoryError("CATALOG_MANIFEST_INVALID", f"{path}: {error}") from error
     if not isinstance(payload, dict):
@@ -141,19 +150,3 @@ def _contract_version(content: bytes) -> int:
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         raise CategoryError("CATEGORY_CONTRACT_VERSION_INVALID", "contract_version must be positive integer")
     return version
-
-
-def _replace_manifest(path: Path, serialized: str) -> None:
-    """@brief 在目标目录创建临时文件，刷盘后以 os.replace 原子公开。"""
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".manifest-", suffix=".tmp", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(serialized)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except Exception:
-        if temporary.exists():
-            temporary.unlink()
-        raise

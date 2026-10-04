@@ -99,8 +99,8 @@ timeline
 
 | 组件 | 版本 | 位置 |
 | --- | --- | --- |
-| AS2 基线 | 基于 `670c94fff7c64c4f79b632125f2ccf968155e746` | `vendor/agentsociety2` 的维护分支 `worldmock-life`，锁定提交 `8768e14`（子模块指针） |
-| AS2 源码摘要 | `65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334` | `8768e14` 的源码摘要，运行身份按它比对 |
+| AS2 基线 | 基于 `670c94fff7c64c4f79b632125f2ccf968155e746` | `patches/agentsociety2/SERIES` 固定基线与有序补丁，源码由引导重建 |
+| AS2 源码摘要 | `bad0fe937ec4cbeaa8263674d8d7226f00109ef29a9ac86e4ce3af868b7c2358` | `SERIES` 中最终补丁源码摘要，运行身份按它比对 |
 | MCP | 1.26.0 | 取自 AS2 上游提交所锁定的版本 |
 | LiteLLM | 1.89.2 | 取自 AS2 上游提交所锁定的版本 |
 | Ray | 2.55.1 | 取自 AS2 上游提交所锁定的版本 |
@@ -112,6 +112,7 @@ timeline
 | --- | --- |
 | AS2 环境扩展 | `custom/envs/life_env.py` |
 | AS2 人物扩展 | `custom/agents/life_agent.py` |
+| WorldMock 记忆业务扩展 | `custom/agents/life_memory.py` 及同目录存储扩展 |
 | AS2 环境 actor 与代理扩展（只读查询转发） | `src/worldmock/life/read_query_runtime.py` |
 | 运行目录 | 项目 `runs/` 下 |
 

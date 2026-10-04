@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from worldmock.catalog.loader import load_catalog
-from worldmock.catalog.models import CatalogError
+from worldmock.catalog.models import CategoryError
 from worldmock.footprints.store import FootprintStore
 
 _LOG = logging.getLogger(__name__)
@@ -283,4 +283,4 @@ def _read_json(path: Path) -> dict:
 def _reject(code: str, message: str) -> None:
     """@brief 为维护拒绝记录稳定英文错误并抛出目录异常。"""
     _LOG.error("%s: %s", code, message)
-    raise CatalogError(code, message)
+    raise CategoryError(code, message)

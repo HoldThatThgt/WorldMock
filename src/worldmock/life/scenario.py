@@ -13,17 +13,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, model_validator
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import REFERENCEABLE_RESOURCES, default_affordances
 from worldmock.errors import IntegrityError
 from worldmock.life.felt import APPETITE_STARVING_KCAL
 from worldmock.life.interaction_menu import InteractionMenu
-from worldmock.life.models import (
-    ContractKind,
-    CurvePoint,
-    EfficiencyFactor,
-    FrozenModel,
-    TravelMode,
-)
+from worldmock.base_models import CurvePoint, EfficiencyFactor, FrozenModel
+from worldmock.life.models import (ContractKind, TravelMode)
 from worldmock.life.map_models import (
     DataSource, LocationConfig, LocationReference, MapDataset, MapDatasetReference, RouteConfig,
     SupplyConfig, SupplyReference, validate_names, validate_price_versions,
@@ -105,10 +100,6 @@ class BodyConfig(FrozenModel):
         return self
 
 
-#: 动机档案四个 level 资源名（weights/loss_aversion 的合法键闭集）。
-_MOTIVATION_LEVEL_RESOURCES = frozenset({
-    "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"})
-
 #: 大五特质与权重的固定键集合（与画像编译器输出合同一致）。
 _BIG_FIVE_TRAITS = frozenset({
     "openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"})
@@ -158,7 +149,7 @@ class MotivationProfile(FrozenModel):
             raise ValueError("motivation weights must be non-negative finite numbers")
         if abs(sum(self.weights.values()) - 1) > 1e-6:
             raise ValueError("motivation weights must sum to one")
-        if not self.loss_aversion or not set(self.loss_aversion) <= _MOTIVATION_LEVEL_RESOURCES:
+        if not self.loss_aversion or not set(self.loss_aversion) <= REFERENCEABLE_RESOURCES:
             raise ValueError("motivation loss_aversion keys must be a non-empty level resource subset")
         if any(not math.isfinite(value) or value < 1 for value in self.loss_aversion.values()):
             raise ValueError("motivation loss_aversion values must be at least one")

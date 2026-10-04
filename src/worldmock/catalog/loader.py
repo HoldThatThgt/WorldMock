@@ -21,7 +21,7 @@ from worldmock.catalog.compiler import compile_exchange_object
 from worldmock.catalog.models import (
     Catalog,
     CatalogEntryKind,
-    CatalogError,
+    CategoryError,
     CatalogManifest,
     CatalogModel,
     ObjectDeclaration,
@@ -59,13 +59,13 @@ def load_catalog(catalog_dir: Path | str) -> Catalog:
 
     :param catalog_dir: 完整冻结目录路径。
     :returns: 运行期只读目录视图。
-    :raises CatalogError: 任一摘要、Schema、来源、规则或对象无效。
+    :raises CategoryError: 任一摘要、Schema、来源、规则或对象无效。
     """
     directory = Path(catalog_dir).resolve()
     try:
         return _load_catalog(directory)
     except CategoryError as error:
-        raise CatalogError(error.code, error.message) from error
+        raise CategoryError(error.code, error.message) from error
 
 
 def load_object_declarations(path: Path | str) -> tuple[ObjectDeclaration, ...]:
@@ -73,11 +73,11 @@ def load_object_declarations(path: Path | str) -> tuple[ObjectDeclaration, ...]:
 
     :param path: raw 对象 JSONL 文件。
     :returns: 按文件顺序排列的严格对象声明。
-    :raises CatalogError: JSON、Schema 或版本链无效。
+    :raises CategoryError: JSON、Schema 或版本链无效。
     """
     file_path = Path(path)
     if not file_path.is_file():
-        raise CatalogError("CATALOG_OBJECTS_MISSING", f"{file_path} does not exist")
+        raise CategoryError("CATALOG_OBJECTS_MISSING", f"{file_path} does not exist")
     entries = _parse_jsonl(file_path, ObjectDeclaration)
     _validate_versions(entries, "object_id", "version", file_path)
     return tuple(entries)
@@ -136,12 +136,12 @@ def _load_manifest(directory: Path) -> tuple[CatalogManifest, dict]:
     """@brief 读取目录清单并同时保留原始载荷供内容摘要使用。"""
     path = directory / MANIFEST_FILE
     if not path.is_file():
-        raise CatalogError("CATALOG_MANIFEST_MISSING", f"{path} does not exist")
+        raise CategoryError("CATALOG_MANIFEST_MISSING", f"{path} does not exist")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         return CatalogManifest.model_validate(payload), payload
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as error:
-        raise CatalogError("CATALOG_MALFORMED_MANIFEST", f"{path}: {error}") from error
+        raise CategoryError("CATALOG_MALFORMED_MANIFEST", f"{path}: {error}") from error
 
 
 def _validate_identity(manifest: CatalogManifest, identity) -> None:
@@ -150,7 +150,7 @@ def _validate_identity(manifest: CatalogManifest, identity) -> None:
     actual = {name: getattr(manifest, name) for name in expected}
     if actual != expected:
         changed = sorted(name for name in expected if actual[name] != expected[name])
-        raise CatalogError(
+        raise CategoryError(
             "CATALOG_CONTENT_IDENTITY_MISMATCH", f"catalog identity fields mismatch: {changed}",
         )
 
@@ -158,7 +158,7 @@ def _validate_identity(manifest: CatalogManifest, identity) -> None:
 def _validate_contract_identity(manifest: CatalogManifest, contract_version: int) -> None:
     """@brief 要求解析契约版本与清单绑定版本一致。"""
     if manifest.category_contract_version != contract_version:
-        raise CatalogError(
+        raise CategoryError(
             "CATALOG_CONTRACT_VERSION_MISMATCH", "manifest binds another category contract version",
         )
 
@@ -171,7 +171,7 @@ def _latest_objects(path: Path) -> dict[str, ObjectDeclaration]:
 def _load_latest_entries(path: Path, model: type[_Entry], id_field: str) -> dict[str, _Entry]:
     """@brief 解析资源 JSONL 并返回逐身份末版本。"""
     if not path.is_file():
-        raise CatalogError("CATALOG_RESOURCE_FILE_MISSING", f"{path} does not exist")
+        raise CategoryError("CATALOG_RESOURCE_FILE_MISSING", f"{path} does not exist")
     entries = _parse_jsonl(path, model)
     _validate_versions(entries, id_field, "version", path)
     return {str(getattr(entry, id_field)): entry for entry in entries}
@@ -187,7 +187,7 @@ def _parse_jsonl(path: Path, model: type[_Entry]) -> list[_Entry]:
             payload = json.loads(raw_line)
             entries.append(model.model_validate(payload))
         except (json.JSONDecodeError, ValidationError) as error:
-            raise CatalogError(
+            raise CategoryError(
                 "CATALOG_SCHEMA_INVALID", f"{path.name} line {line_number}: {error}",
             ) from error
     return entries
@@ -201,7 +201,7 @@ def _validate_versions(entries: list, id_field: str, version_field: str, path: P
         version = int(getattr(entry, version_field))
         previous = versions.get(identity)
         if previous is not None and version <= previous:
-            raise CatalogError(
+            raise CategoryError(
                 "CATALOG_VERSION_NOT_MONOTONIC",
                 f"{path.name}: {identity} version {version} does not exceed previous {previous}",
             )
@@ -227,7 +227,7 @@ def _reject_tombstone_overwrites(
     for target_id, tombstone in tombstones.items():
         live = namespaces[tombstone.kind].get(target_id)
         if live is not None and live.version > tombstone.at_version:
-            raise CatalogError(
+            raise CategoryError(
                 "CATALOG_TOMBSTONE_CONFLICT",
                 f"{tombstone.kind.value} {target_id} has version beyond its tombstone",
             )

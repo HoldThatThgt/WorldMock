@@ -1,11 +1,17 @@
 # 特性规格：数字足迹接入 LabelKit
 
 > 状态：定稿冻结（FROZEN）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 18 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订「窗口构造规则」与验收矩阵「私有载体边界」（[实施计划](research/errands-workday-implementation-plan.md)作业 LK1–LK3、LK5）：决策提示的选取一句属更正既有表述；修订部分已实现并通过离线验收（该规格阶段 1 的就寝反思请求改带严格工具、阶段 2 的 `errands` 投影与个人事务事件；证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。数字足迹接入 LabelKit 的输入范围、加工责任、来源关联、信息范围、交付产物、长序列与数据划分，以及真实调用的生产与验证步骤以本规格为准；实现状态见 `docs/dev/implementation-status.md`。
-> 日期：2026-10-04
+> 日期：2026-10-05
 > 实施基线：`9b7fbc8`
 > 范围：`worldmock deliver` 从认证导出到不可变交付清单的全部加工与验证行为，`src/worldmock/delivery/` 与 `labelkit-projects/` 的模块行为，以及 `tests/delivery/` 覆盖的验收行为。
 
 本规格只定义流程与验证行为，不重复定义接口。模型输入与窗口编码的字段与合同、五类交付产物的最小字段、语义候选的上限与标签取值、真实调用配置、命令行参数与运行状态的权威定义在 `docs/CONTRACTS.md`：「LabelKit 输入结构与窗口编码」「LabelKit 训练记录与交付格式」「LabelKit 语义候选与标签值」「LabelKit 调用配置」「CLI 命令接口」。数字足迹的事件结构与导出认证的权威定义在 `docs/design/05-recording-engine.md`「数字足迹事件结构」，导出的一致性与校验行为见 `docs/design/05-recording-engine.md`。
+
+## 共享规则与可重建环境修订
+
+按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+
+LabelKit 由固定提交的 HTTPS 源制品与哈希依赖锁建立独立环境；引导核对制品身份，不要求私有 SSH 子模块。WorldMock 不在进程内导入 LabelKit；交付进程的退出码、产物与身份校验继续执行。
 
 ## 产品行为
 
@@ -261,3 +267,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 LK1–LK3、LK5、LK6），修订部分在冻结时未随文实现（该规格阶段 1、2 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：决策提示的选取照现行实现写明（取动作之前同人物、同决策最后一份不带 `purpose` 的请求并核对工具名，不满足即完整性故障、不回退；截断重试请求照此被选中），属更正既有表述；就寝反思请求晚于动作登记，不作动作 prompt；三个控制工具请求在意图与 `dreaming` 输入中的投影逐项只留 `activity_name` 与 `summary`，恒不带 `memories`、`views` 与请求级 `errands`，缺 `errands` 的控制请求被拒；待办层个人事务随层原文进入窗口，六种个人事务事件不带决策与动作身份、输入侧投影为空对象，提醒与办成两种事件人物可见、可作进度层来源；验收矩阵「私有载体边界」改写。补记未入表的就地改动：一日运行保真把控制工具改为 `items` 并裁去 `views` 后本规格未同步（`windows.py` 已如此实现）；文件头日期自 2026-09-18 起未随修订更新，本次改写 |
 | `2026-10-03-errands-workday-stage-1-review` | 2026-10-03 | 按[个人事务与工作安排规格](SPEC-errands-workday.md)阶段 1 的独立复核只作更正，不改条款语义：「窗口构造规则」dreaming 层 JSON 的来源由「动作前最后一次实际行动请求」改写为现行实现的选取规则（动作之前最后一份不带 `purpose` 且工具含该动作工具名的请求，不满足是完整性故障、不回退；截断重试请求照此被选中，就寝反思请求不会被选中），与同一条中动作窗口的写法一致（该规格 1.1 末段「交付窗口取最后一次行动请求」一类表述的更正）；实现见 `src/worldmock/delivery/windows.py` 的 `_decision_prompt_source` |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 LK7，按 `d8a41d3` 的代码与测试核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)；验收矩阵「私有载体边界」行状态改回「复跑通过」，证据列补 `errands` 口径的实际测试节点：逐项裁去且原事件不被修改（两项的收尾请求）、动作目标保留完整请求、缺 `errands` 键被拒（手写事件的窗口构造与唯一读取入口 `control_items`），以及真实引擎与认证导出上的投影、旧形状拒绝与三类窗口构造；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。本次复跑实测（2026-10-04，最终代码与测试提交 `a7e2fdc`）：`uv run --frozen --no-sync pytest tests/delivery/test_windows.py tests/integration/test_errand_delivery_windows.py tests/life/test_control_items.py -q -p no:cacheprovider` → 61 passed。证据为离线测试；完整自然日的真实 LabelKit 交付未执行 |
+| 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |

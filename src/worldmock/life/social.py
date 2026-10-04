@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 from collections.abc import Collection, Container
 from typing import Literal
 
@@ -44,10 +45,10 @@ CONTACT_REPLY_DELAY_SECONDS = 300
 HISTORY_LIMIT = 20
 
 
-class _SocialModel(BaseModel):
+class _SocialModel(FrozenModel):
     """@brief 社交域记录基类：字段封闭、不可变。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+
 
 
 class Contact(_SocialModel):

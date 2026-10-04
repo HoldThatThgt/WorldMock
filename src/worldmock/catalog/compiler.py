@@ -25,7 +25,7 @@ from worldmock.categories import (
 )
 from worldmock.catalog.models import (
     Acceptance,
-    CatalogError,
+    CategoryError,
     CompiledEdge,
     Efficiency,
     ExchangeObject,
@@ -48,7 +48,7 @@ def compile_exchange_object(
     :param contract: 冻结品类契约。
     :param rules: 与契约绑定的闭集规则。
     :returns: 现有运行模块可消费的 ExchangeObject 有效视图。
-    :raises CatalogError: 规则所需槽位缺失或类型错误。
+    :raises CategoryError: 规则所需槽位缺失或类型错误。
     """
     resolved = resolve_object_values(declaration, contract)
     edges = _compile_edges(resolved, contract, rules)
@@ -156,17 +156,17 @@ def _validate_dynamic_rule_attributes(
         _require_declared_slots(contract, obj.category_id, (rule.amount_slot,))
     elif isinstance(rule, InventoryTransformRule):
         if not contract.is_descendant(obj.category_id, rule.input_category_id):
-            raise CatalogError(
+            raise CategoryError(
                 "CATALOG_RECIPE_INPUT_CATEGORY_MISMATCH",
                 f"object {obj.object_id} does not belong directly to recipe input category",
             )
         unit = _attribute(obj, "inventory_unit")
         if unit != rule.inventory_unit:
-            raise CatalogError(
+            raise CategoryError(
                 "CATALOG_RECIPE_UNIT_MISMATCH", f"object {obj.object_id} has another inventory unit",
             )
     elif not isinstance(rule, TravelFareRule):
-        raise CatalogError("CATALOG_RULE_OPERATOR_UNKNOWN", f"unsupported rule type {type(rule).__name__}")
+        raise CategoryError("CATALOG_RULE_OPERATOR_UNKNOWN", f"unsupported rule type {type(rule).__name__}")
 
 
 def _require_declared_slots(
@@ -178,7 +178,7 @@ def _require_declared_slots(
     slots = contract.require_category(category_id).slots
     missing = sorted(set(slot_ids) - set(slots))
     if missing:
-        raise CatalogError(
+        raise CategoryError(
             "CATALOG_RULE_SLOT_UNDECLARED", f"category {category_id} lacks rule slots {missing}",
         )
 
@@ -189,7 +189,7 @@ def _serving(attributes: Mapping[str, Any]) -> Serving | None:
     if not any(present):
         return None
     if not all(present):
-        raise CatalogError("CATALOG_SERVING_INCOMPLETE", "serving quantity and unit must be declared together")
+        raise CategoryError("CATALOG_SERVING_INCOMPLETE", "serving quantity and unit must be declared together")
     return Serving(quantity=attributes["serving_quantity"], unit=attributes["serving_unit"])
 
 
@@ -217,7 +217,7 @@ def _efficiency(attributes: Mapping[str, Any], kind: CategoryKind) -> Efficiency
 def _attribute(obj: ResolvedObject, slot: str) -> Any:
     """@brief 返回规则引用槽位，不存在时明确失败。"""
     if slot not in obj.attributes:
-        raise CatalogError(
+        raise CategoryError(
             "CATALOG_RULE_ATTRIBUTE_MISSING", f"object {obj.object_id} lacks rule slot {slot}",
         )
     return obj.attributes[slot]
@@ -227,7 +227,7 @@ def _number_attribute(obj: ResolvedObject, slot: str) -> int | float:
     """@brief 要求规则槽位为非布尔数值。"""
     value = _attribute(obj, slot)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise CatalogError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not numeric")
+        raise CategoryError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not numeric")
     return value
 
 
@@ -235,7 +235,7 @@ def _string_attribute(obj: ResolvedObject, slot: str) -> str:
     """@brief 要求规则槽位为非空字符串。"""
     value = _attribute(obj, slot)
     if not isinstance(value, str) or not value.strip():
-        raise CatalogError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not string")
+        raise CategoryError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not string")
     return value
 
 
@@ -243,7 +243,7 @@ def _integer_attribute(obj: ResolvedObject, slot: str) -> int:
     """@brief 要求规则槽位为非负整数。"""
     value = _attribute(obj, slot)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise CatalogError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not integer")
+        raise CategoryError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not integer")
     return value
 
 
@@ -251,5 +251,5 @@ def _positive_integer_attribute(obj: ResolvedObject, slot: str) -> int:
     """@brief 要求规则槽位为正整数。"""
     value = _integer_attribute(obj, slot)
     if value < 1:
-        raise CatalogError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not positive")
+        raise CategoryError("CATALOG_RULE_ATTRIBUTE_INVALID", f"object {obj.object_id} slot {slot} is not positive")
     return value

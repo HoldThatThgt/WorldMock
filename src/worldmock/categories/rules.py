@@ -13,15 +13,14 @@ from worldmock.categories.common import (
     Action,
     CategoryError,
     Conservation,
-    FrozenModel,
+    DeepFrozenModel,
     ReviewRecord,
     SourceRecord,
     require_finite_number,
 )
 from worldmock.categories.models import CategoryContract
-from worldmock.categories.provenance import validate_numeric_sources
+from worldmock.categories.provenance import NUMERIC_SOURCE_METADATA_ROOTS, validate_numeric_sources
 
-_RULES_EXCLUDED_NUMBERS = frozenset({"format_version", "contract_version", "sources", "review"})
 
 
 class RuleOperator(StrEnum):
@@ -37,7 +36,7 @@ class RuleOperator(StrEnum):
     INVENTORY_TRANSFORM = "inventory_transform"
 
 
-class RuleBase(FrozenModel):
+class RuleBase(DeepFrozenModel):
     """@brief 每条闭集规则共有的身份、目标与守恒声明。"""
 
     rule_id: str = Field(pattern=r"\S")
@@ -147,7 +146,7 @@ ExchangeRule = Annotated[
     Field(discriminator="operator"),
 ]
 
-class ExchangeRulesDocument(FrozenModel):
+class ExchangeRulesDocument(DeepFrozenModel):
     """@brief `exchange-rules.json` 的严格原始模型。"""
 
     format_version: StrictInt = Field(ge=1, le=1)
@@ -193,7 +192,7 @@ def build_exchange_rules(
     """
     if document.contract_version != contract.contract_version:
         raise CategoryError("EXCHANGE_CONTRACT_VERSION_MISMATCH", "exchange rules bind another contract version")
-    validate_numeric_sources(raw_document, document.sources, _RULES_EXCLUDED_NUMBERS)
+    validate_numeric_sources(raw_document, document.sources, NUMERIC_SOURCE_METADATA_ROOTS)
     rules = _index_rules(document.rules, contract)
     _validate_pairing_references(contract, rules)
     return ExchangeRuleSet(

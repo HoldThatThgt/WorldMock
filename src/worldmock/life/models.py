@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.base_models import StrictModel, FrozenModel, CurvePoint, EfficiencyFactor
 import logging
 import re
 from datetime import date
@@ -29,19 +30,18 @@ from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 #: AgentState.errands。
 WORLD_SCHEMA_VERSION = 9
 
+#: 普通活动的派生时长上限。
+DERIVED_DURATION_CAP_SECONDS = 86400
+#: 消费活动的合法时长上界；越界拒绝，不截取。
+CONSUME_DURATION_CAP_SECONDS = 14400
+
 _LOGGER = logging.getLogger(__name__)
 
 
-class StrictModel(BaseModel):
-    """@brief 拒绝未知字段的领域模型基类。"""
-
-    model_config = ConfigDict(extra="forbid", frozen=False)
 
 
-class FrozenModel(BaseModel):
-    """@brief 拒绝未知字段且不可变的领域模型基类。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+
 
 
 def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
@@ -225,18 +225,10 @@ class ContractKind(StrEnum):
     PIECE = "piece"
 
 
-class CurvePoint(FrozenModel):
-    """@brief 分段线性曲线的一个输入输出节点。"""
-
-    input_value: float = Field(ge=0)
-    output_value: float = Field(ge=0)
 
 
-class EfficiencyFactor(FrozenModel):
-    """@brief 声明式效率因子：输入资源名 + 输出乘数曲线（引擎侧配置）。"""
 
-    input_resource: str = Field(min_length=1)
-    curve: tuple[CurvePoint, ...] = Field(min_length=1)
+
 
 
 class BodyState(StrictModel):
@@ -802,7 +794,7 @@ class ActivityStartParams(FrozenModel):
     """@brief 领域内部统一启动一个有时长生活活动。"""
 
     activity_type: ActivityKind
-    planned_duration_seconds: int = Field(gt=0, le=86_400)
+    planned_duration_seconds: int = Field(gt=0, le=DERIVED_DURATION_CAP_SECONDS)
     target_id: str | None = Field(
         default=None,
         description="Required for work, watch, play_game, read_mail, browse, and lifestyle.",
@@ -909,7 +901,7 @@ class ConsumeRequest(FrozenModel):
         }),
     ]
     use_mode: Literal["eat", "use"]
-    duration_seconds: int = Field(ge=60, le=14_400)
+    duration_seconds: int = Field(ge=60, le=CONSUME_DURATION_CAP_SECONDS)
 
 
 class PlanGoalInput(FrozenModel):
@@ -933,7 +925,7 @@ class PlanGoalInput(FrozenModel):
         return goal
 
 
-def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> None:
+def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> Sequence[PlanGoalInput]:
     """@brief 零点计划与修订两个入口共用的清单校验：条数超限与重复意图在同一次校验里一并报告。
 
     条数超过八条定位在 goals 本身（原值为提交的各条目）；每个重复的意图同时定位首次出现与其后每次出现的条目
@@ -960,6 +952,7 @@ def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> Non
         _LOGGER.error("Day plan contains duplicate intents")
     if errors:
         raise ValidationError.from_exception_data(model_name, errors)
+    return goals
 
 
 class PlanDayRequest(FrozenModel):
@@ -977,8 +970,7 @@ class PlanDayRequest(FrozenModel):
     @classmethod
     def validate_goals(cls, goals: tuple[PlanGoalInput, ...]) -> tuple[PlanGoalInput, ...]:
         """@brief 零点计划的输出经共用校验核验容量与意图唯一性，超限与重复意图逐条定位、同批报告。"""
-        _validate_plan_goals(goals, cls.__name__)
-        return goals
+        return _validate_plan_goals(goals, cls.__name__)
 
 
 class ReviseDayPlanRequest(ToolRequestModel):
@@ -991,8 +983,7 @@ class ReviseDayPlanRequest(ToolRequestModel):
     @classmethod
     def validate_goals(cls, goals: list[PlanGoalInput]) -> list[PlanGoalInput]:
         """@brief 修订请求经同一共用校验核验容量与意图唯一性，超限与重复意图逐条定位、同批报告。"""
-        _validate_plan_goals(goals, cls.__name__)
-        return goals
+        return _validate_plan_goals(goals, cls.__name__)
 
 
 class SendMessageRequest(FrozenModel):

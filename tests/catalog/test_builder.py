@@ -11,7 +11,7 @@ from tests.categories.conftest import raw_object
 from worldmock.categories import refresh_manifest_identity
 from worldmock.catalog import (
     CatalogEntryKind,
-    CatalogError,
+    CategoryError,
     ObjectDeclaration,
     ResourceDefinition,
     add_object,
@@ -56,7 +56,7 @@ def test_invalid_object_does_not_append_or_bump_manifest(catalog_dir: Path) -> N
     payload = raw_object("broken")
     payload["values"]["absolute"].pop("price_fen")
     declaration = ObjectDeclaration.model_validate(payload)
-    with pytest.raises(CatalogError):
+    with pytest.raises(CategoryError):
         add_object(catalog_dir, declaration)
     assert (object_path.read_bytes(), manifest_path.read_bytes()) == before
 
@@ -65,7 +65,7 @@ def test_object_version_must_be_exact_next_version(catalog_dir: Path) -> None:
     """已有身份只能追加恰好下一版本。"""
     payload = raw_object()
     payload["version"] = 3
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         add_object(catalog_dir, ObjectDeclaration.model_validate(payload))
     assert excinfo.value.code == "BUILDER_VERSION_NOT_INCREMENTED"
 
@@ -78,14 +78,14 @@ def test_deprecate_object_is_visible_and_blocks_revival(catalog_dir: Path) -> No
     assert "milk" in catalog.tombstoned_ids()
     payload = raw_object()
     payload["version"] = 2
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         add_object(catalog_dir, ObjectDeclaration.model_validate(payload))
     assert excinfo.value.code == "BUILDER_ENTRY_TOMBSTONED"
 
 
 def test_deprecate_unknown_target_rejected(catalog_dir: Path) -> None:
     """不存在的资源或对象不能写墓碑。"""
-    with pytest.raises(CatalogError) as excinfo:
+    with pytest.raises(CategoryError) as excinfo:
         deprecate(catalog_dir, CatalogEntryKind.OBJECT, "missing", "unknown")
     assert excinfo.value.code == "BUILDER_TARGET_UNKNOWN"
 

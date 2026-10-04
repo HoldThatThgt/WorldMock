@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.assets import atomic_write
+from worldmock.footprints.models import canonical_json, is_sha256
 import hashlib
 import json
 import os
@@ -89,7 +91,7 @@ def _count_rows(path: Path) -> int:
 
 def stable_json_bytes(value: Any) -> bytes:
     """@brief 生成确定性的 UTF-8 JSON。"""
-    text = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, default=_json_default)
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, default=_json_default, allow_nan=False)
     return (text + "\n").encode("utf-8")
 
 
@@ -106,30 +108,29 @@ def _json_default(value: Any) -> Any:
 
 def atomic_write_json(path: Path, value: Any) -> None:
     """@brief 原子写入确定性 JSON。"""
-    _atomic_write(path, stable_json_bytes(value))
+    write_artifact(path, stable_json_bytes(value))
 
 
 def atomic_write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     """@brief 原子写入确定性 JSONL。"""
     payload = b"".join(
-        json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+        canonical_json(row) + b"\n"
         for row in rows
     )
-    _atomic_write(path, payload)
+    write_artifact(path, payload)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
     """@brief 原子写入 UTF-8 文本。"""
-    _atomic_write(path, text.encode("utf-8"))
+    write_artifact(path, text.encode("utf-8"))
 
 
-def _atomic_write(path: Path, payload: bytes) -> None:
-    """@brief 在同一目录写临时文件后替换。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+
+
+
+def write_artifact(path: Path, payload: bytes) -> None:
+    """@brief 共用字节原子发布并保留评估错误分类。"""
     try:
-        temporary.write_bytes(payload)
-        os.replace(temporary, path)
-    except OSError as exc:
-        temporary.unlink(missing_ok=True)
-        raise EvaluationError("write_failed", f"cannot write evaluation artifact: {path}") from exc
+        atomic_write(path, payload)
+    except OSError as error:
+        raise EvaluationError("write_failed", f"cannot write evaluation artifact: {path}") from error

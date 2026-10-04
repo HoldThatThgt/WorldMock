@@ -1,0 +1,537 @@
+diff --git a/agentsociety2/agent/runner.py b/agentsociety2/agent/runner.py
+index 961aef5..adcd37b 100644
+--- a/agentsociety2/agent/runner.py
++++ b/agentsociety2/agent/runner.py
+@@ -43,6 +43,11 @@ from datetime import datetime
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Any, Callable, TypeVar
+ 
++from agentsociety2.society.decision_round import (
++    AgentCreateBatchRequest,
++    AgentStepBatchRequest,
++)
++
+ if TYPE_CHECKING:
+     from agentsociety2.agent.service_proxy import ServiceProxy
+ 
+@@ -58,6 +63,7 @@ def _ray_remote(fn: _F) -> _F:
+ 
+ __all__ = [
+     "step_agent_batch",
++    "create_direct_agents_batch",
+     "create_agents_batch",
+     "questionnaire_agent_batch",
+     "query_agent_task",
+@@ -107,28 +113,41 @@ def _workspace_for(workspace_root: str, agent_id: int) -> Path:
+ # Async cores (testable in-process, driven by the sync Ray wrappers below)
+ # ---------------------------------------------------------------------------
+ async def _step_agent_batch_async(
+-    agent_ids: list[int],
+-    workspace_root: str,
+-    agent_class_name: str,
+-    tick: int,
+-    t: datetime,
++    request: AgentStepBatchRequest,
+     service_proxy: "ServiceProxy",
+ ) -> list[dict]:
+-    cls = _resolve_agent_class(agent_class_name)
++    """@brief 运行绑定共同观察上下文的人物批次。
+ 
+-    async def _step_one(aid: int) -> dict:
+-        ws = _workspace_for(workspace_root, aid)
++    :param request: 批次的工作区、类与决策上下文。
++    :param service_proxy: 注入的共享运行服务。
++    :returns: 按上下文顺序排列的人物结果。
++    """
++    cls = _resolve_custom_agent(request.custom_root, request.agent_class_name)
++    async def _step_one(context: Any) -> dict:
++        aid = context.agent_id
++        ws = _workspace_for(request.workspace_root, aid)
+         try:
+             agent = await cls.from_workspace(ws, service_proxy)
+-            summary = await agent.step(tick, t)
+-            await agent.to_workspace(ws)
+-            try:
+-                await agent.close()
+-            except Exception:
+-                logging.getLogger(__name__).debug("Error closing agent %s", aid, exc_info=True)
+-            return {"id": aid, "ok": True, "summary": summary}
+-        except Exception as e:  # noqa: BLE001 — report per-agent failure, don't abort batch
+-            return {"id": aid, "ok": False, "error": repr(e)}
++            summary = await _run_bound_agent(agent, context, ws, request.tick)
++            return {
++                "id": aid,
++                "decision_id": context.decision_id,
++                "ok": True,
++                "summary": summary,
++            }
++        except Exception as exc:  # noqa: BLE001 - returned to Society for round abort
++            logging.getLogger(__name__).error(
++                "Agent %s decision %s failed: %s",
++                aid,
++                context.decision_id,
++                exc,
++            )
++            return {
++                "id": aid,
++                "decision_id": context.decision_id,
++                "ok": False,
++                "error": repr(exc),
++            }
+ 
+     # Run all agents in the batch CONCURRENTLY. Each agent is LLM-bound — its
+     # step() is a sequence of `await`-ed LLM/tool calls — so overlapping them
+@@ -137,7 +156,68 @@ async def _step_agent_batch_async(
+     # is still gated by the dispatcher's semaphore; per-agent workspaces and the
+     # injected service_proxy are concurrency-safe, so there is no shared mutable
+     # state to protect. gather() preserves input order in the returned list.
+-    return await asyncio.gather(*[_step_one(aid) for aid in agent_ids])
++    return await asyncio.gather(*[_step_one(context) for context in request.contexts])
++
++
++async def _run_bound_agent(agent: Any, context: Any, workspace: Path, tick: int) -> str:
++    """@brief 执行、保存并关闭人物，同时保留运行和关闭双重故障。"""
++    failure: BaseException | None = None
++    summary = ""
++    try:
++        agent.bind_decision_context(context)
++        summary = await agent.step(tick, context.observed_at)
++        await agent.to_workspace(workspace)
++    except BaseException as error:
++        failure = error
++    try:
++        await agent.close()
++    except BaseException as close_error:
++        if failure is not None:
++            raise BaseExceptionGroup(
++                "Agent decision and close both failed",
++                [failure, close_error],
++            ) from failure
++        raise
++    if failure is not None:
++        raise failure
++    return summary
++
++
++def _resolve_custom_agent(custom_root: str, class_name: str) -> Any:
++    """@brief 在 Ray worker 内扫描并解析自定义人物类。
++
++    :param custom_root: 包含 custom 目录的项目根。
++    :param class_name: 自定义人物类名。
++    :returns: 注册的人物类。
++    :raises RuntimeError: 扫描或注册存在错误。
++    :raises ValueError: 指定类不存在。
++    """
++    from agentsociety2.registry import (
++        get_agent_module_class,
++        scan_and_register_custom_modules,
++    )
++
++    result = scan_and_register_custom_modules(Path(custom_root))
++    errors = [*result.get("errors", []), *result.get("registration_errors", [])]
++    if errors:
++        raise RuntimeError(f"Custom module registration failed: {errors}")
++    cls = get_agent_module_class(class_name)
++    if cls is None:
++        raise ValueError(f"Agent class not found: {class_name}")
++    return cls
++
++
++async def _create_direct_agents_batch_async(request: AgentCreateBatchRequest) -> int:
++    """@brief 在 Ray worker 内创建自定义人物工作区。
++
++    :param request: 创建批次合同。
++    :returns: 已创建人物数量。
++    """
++    cls = _resolve_custom_agent(request.custom_root, request.agent_class_name)
++    for item in request.items:
++        workspace = _workspace_for(request.workspace_root, int(item["id"]))
++        cls.create(workspace, item["profile"], item["config"])
++    return len(request.items)
+ 
+ 
+ async def _create_agents_batch_async(
+@@ -264,16 +344,34 @@ async def _query_agent_task_async(
+ # ---------------------------------------------------------------------------
+ # Public Ray Tasks (sync wrappers — Ray 2.x forbids `@ray.remote` on async def)
+ # ---------------------------------------------------------------------------
++def _finish_llm_task(service_proxy: "ServiceProxy") -> dict[str, dict[str, int]]:
++    """@brief 先提取本任务统计，再释放任务拥有的 LLM 运行时。"""
++    try:
++        return service_proxy.take_token_stats()
++    finally:
++        service_proxy.close_llm_clients()
++
++
++def _run_worker_coroutine(
++    coroutine: Any,
++    service_proxy: "ServiceProxy",
++) -> tuple[Any, dict[str, dict[str, int]]]:
++    """@brief 在独立事件循环运行协程并保证所有退出路径释放 LLM。"""
++    try:
++        result = asyncio.run(coroutine)
++    finally:
++        token_stats = _finish_llm_task(service_proxy)
++    return result, token_stats
++
++
+ @_ray_remote
+ def step_agent_batch(
+-    agent_ids: list[int],
+-    workspace_root: str,
+-    agent_class_name: str,
+-    tick: int,
+-    t: datetime,
++    request: AgentStepBatchRequest,
+     service_proxy: "ServiceProxy",
+ ) -> list[dict]:
+-    """Run one ``step`` for every agent id in the batch.
++    """@brief 经同步 Ray 包装执行一个人物决策批次。
++
++Run one ``step`` for every agent id in the batch.
+ 
+     For each id: ``from_workspace`` → ``step`` → ``to_workspace``. Agents in a
+     batch run CONCURRENTLY via ``asyncio.gather`` — each is LLM-bound (a chain
+@@ -283,11 +381,7 @@ def step_agent_batch(
+     population comes from the driver submitting multiple such tasks.
+ 
+     Args:
+-        agent_ids: Agent ids in this batch.
+-        workspace_root: Directory holding ``agent_<id:04d>`` workspaces.
+-        agent_class_name: Registered agent class name.
+-        tick: Tick span (seconds) for this step.
+-        t: Current simulation time.
++        request: Bound contexts and immutable batch execution fields.
+         service_proxy: Shared service handles (env / llm / trace / replay).
+             Injected — never re-created inside the task.
+ 
+@@ -301,14 +395,20 @@ def step_agent_batch(
+         Also carries this task process's token-usage delta back to the driver
+         (``token_stats``) so the driver can aggregate it across all batches.
+     """
+-    results = asyncio.run(
+-        _step_agent_batch_async(
+-            agent_ids, workspace_root, agent_class_name, tick, t, service_proxy
+-        )
++    results, token_stats = _run_worker_coroutine(
++        _step_agent_batch_async(request, service_proxy), service_proxy
+     )
+-    # Drain this task's LLM clients' token stats (a delta since the last drain)
+-    # and return them alongside the per-agent results — no actor, no extra RPC.
+-    return {"results": results, "token_stats": service_proxy.take_token_stats()}
++    return {"results": results, "token_stats": token_stats}
++
++
++@_ray_remote
++def create_direct_agents_batch(request: AgentCreateBatchRequest) -> int:
++    """@brief 创建一批已明确 custom 根的自定义人物工作区。
++
++    :param request: 创建批次合同。
++    :returns: 已创建人物数量。
++    """
++    return asyncio.run(_create_direct_agents_batch_async(request))
+ 
+ 
+ @_ray_remote
+@@ -370,11 +470,13 @@ def query_agent_task(
+     Returns:
+         Op result dict.
+     """
+-    return asyncio.run(
++    result, _ = _run_worker_coroutine(
+         _query_agent_task_async(
+             agent_id, workspace_root, agent_class_name, op, payload, service_proxy
+-        )
++        ),
++        service_proxy,
+     )
++    return result
+ 
+ 
+ @_ray_remote
+@@ -415,7 +517,7 @@ def questionnaire_agent_batch(
+         ``token_stats`` carries this process's token-usage delta back to the
+         driver for aggregation (no actor, no extra RPC).
+     """
+-    results = asyncio.run(
++    results, token_stats = _run_worker_coroutine(
+         _questionnaire_agent_batch_async(
+             agent_ids,
+             workspace_root,
+@@ -424,6 +526,7 @@ def questionnaire_agent_batch(
+             t,
+             step_count,
+             service_proxy,
+-        )
++        ),
++        service_proxy,
+     )
+-    return {"results": results, "token_stats": service_proxy.take_token_stats()}
++    return {"results": results, "token_stats": token_stats}
+diff --git a/agentsociety2/agent/service_proxy.py b/agentsociety2/agent/service_proxy.py
+index 9081ddb..a275aa9 100644
+--- a/agentsociety2/agent/service_proxy.py
++++ b/agentsociety2/agent/service_proxy.py
+@@ -61,6 +61,10 @@ class LLMClientLike(Protocol):
+     ) -> Any:
+         ...
+ 
++    def close(self) -> None:
++        """@brief 释放当前进程内由客户端拥有的运行时资源。"""
++        ...
++
+ 
+ @runtime_checkable
+ class TraceLike(Protocol):
+@@ -134,6 +138,12 @@ class ServiceProxy:
+                 deltas.append(client.take_token_stats())
+         return merge_token_stats(*deltas) if deltas else {}
+ 
++    def close_llm_clients(self) -> None:
++        """@brief 释放三个角色已经创建的本地 LLM 运行时。"""
++        for client in (self.llm.default, self.llm.coder, self.llm.embedding):
++            if client is not None:
++                client.close()
++
+ 
+ # ═══════════════════════════════════════════════════════════
+ # Factory
+diff --git a/agentsociety2/config/llm_dispatcher.py b/agentsociety2/config/llm_dispatcher.py
+index 22cefd4..2cd90f5 100644
+--- a/agentsociety2/config/llm_dispatcher.py
++++ b/agentsociety2/config/llm_dispatcher.py
+@@ -25,7 +25,13 @@ from pathlib import Path
+ from typing import Any
+ 
+ from litellm import AllMessageValues
+-from litellm.exceptions import RateLimitError
++from litellm.exceptions import (
++    APIConnectionError,
++    InternalServerError,
++    RateLimitError,
++    ServiceUnavailableError,
++    Timeout,
++)
+ from litellm.types.utils import ModelResponse
+ 
+ from agentsociety2.config.config import Config
+@@ -40,6 +46,7 @@ __all__ = [
+     "AdaptiveSemaphore",
+     "LLMClient",
+     "LLMDispatchError",
++    "TRANSPORT_MAX_RETRIES",
+     "init_dispatchers",
+     "is_rate_limit_like_error",
+     "merge_token_stats",
+@@ -54,6 +61,10 @@ logger = get_logger()
+ # hard requirement, not a diagnostic — removing it reintroduces the stall at the
+ # per-process level (verified). litellm raises on expiry; the dispatcher retries.
+ _LLM_REQUEST_TIMEOUT = float(os.getenv("AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "60"))
++#: 只接受 LiteLLM 明确的连接、超时及服务暂时不可用异常，不按错误文本猜测。
++_TRANSPORT_ERRORS = (APIConnectionError, Timeout, InternalServerError, ServiceUnavailableError)
++#: 传输重试独立于调用者的普通重试预算，固定三次，耗尽后立即报告失败。
++TRANSPORT_MAX_RETRIES = 3
+ 
+ # Disable Ray's uv-runtime-env packaging (see comment below in init_dispatchers).
+ os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
+@@ -302,18 +313,27 @@ def _build_router(base_url: str, api_key: str, model: str) -> Any:
+     dispatcher's own retry loop (rate-limit backoff + bounded attempts) is
+     authoritative; litellm's internal retries are disabled to keep the total
+     attempt count predictable.
++
++    ``api_key`` may carry a comma-joined key pool (the multi-key credential
++    contract). Each key becomes its own deployment under the same ``model_name``
++    so litellm's default simple-shuffle strategy load-spreads across keys. The
++    ``openai/`` prefix routes each deployment through the OpenAI-compatible
++    client against ``base_url`` (custom_llm_provider="openai", api_base passed
++    through unchanged), so unknown model names need no provider registration.
+     """
+     from litellm import Router
+ 
++    keys = [item.strip() for item in api_key.split(",") if item.strip()]
+     model_list = [
+         {
+             "model_name": model,
+             "litellm_params": {
+                 "model": f"openai/{model}",
+-                "api_key": api_key,
++                "api_key": key,
+                 "api_base": base_url,
+             },
+         }
++        for key in keys
+     ]
+     return Router(model_list=model_list, cache_responses=True, num_retries=0)
+ 
+@@ -408,6 +428,20 @@ class LLMClient:
+         self._token_stats = {}
+         self._loop = None
+ 
++    def close(self) -> None:
++        """@brief 释放当前事件循环拥有的 LiteLLM Router。"""
++        router = self._router
++        self._router = None
++        self._sem = None
++        self._loop = None
++        if router is None:
++            return
++        try:
++            router.discard()
++        except Exception:
++            logger.exception("Failed to discard LiteLLM router")
++            raise
++
+     def _ensure_runtime(self) -> None:
+         """Build (or rebuild) the Router + semaphore for the current event loop."""
+         try:
+@@ -416,6 +450,7 @@ class LLMClient:
+             loop = None
+         if self._loop is loop and self._router is not None:
+             return
++        self.close()
+         self._router = _build_router(self.base_url, self.api_key, self.model_name)
+         initial = max(1, Config.LLM_RAY_CONCURRENCY)
+         # No hard cap: AIMD probes the real API ceiling freely and backs off
+@@ -456,91 +491,67 @@ class LLMClient:
+         """Return a copy of this client's token stats without clearing."""
+         return {model: dict(s) for model, s in self._token_stats.items()}
+ 
+-    async def call(
+-        self,
+-        model: str | None = None,
+-        messages: list[AllMessageValues] | None = None,
+-        stream: bool = False,
+-        max_retries: int = 3,
+-        base_delay: float = 1.0,
+-        max_delay: float = 60.0,
+-        **kwargs: Any,
+-    ) -> ModelResponse:
+-        """Send a completion request with per-loop AIMD gating + retry."""
+-        if stream:
++    async def call(self, model: str | None = None, messages: list[AllMessageValues] | None = None,
++                   max_retries: int = 3, **kwargs: Any) -> ModelResponse:
++        """@brief 发送模型请求；普通重试与三次传输重试分别计数，失败报告实际请求次数。"""
++        if kwargs.pop("stream", False):
++            logger.error("Streaming completion is not supported")
+             raise NotImplementedError(
+                 "streaming is not supported; callers must use stream=False"
+             )
+-        if messages is None:
+-            messages = []
+-        max_retries = max(max_retries, 1)
++        max_retries = max(max_retries, 0)
+         effective_model = model or self.model_name
+         self._ensure_runtime()
+-        router = self._router
+-        sem = self._sem
+-        assert sem is not None  # _ensure_runtime guarantees it
+-        last_error: Exception | None = None
+-        last_error_was_rate_limit = False
+-
+-        for attempt in range(max_retries + 1):
+-            await sem.acquire()
+-            t0 = time.monotonic()
+-            overloaded = False
++        ordinary_retries = transport_retries = attempts = 0
++        while True:
++            attempts += 1
+             try:
+-                response = await router.acompletion(
+-                    model=effective_model,
+-                    messages=messages,
+-                    stream=False,
+-                    timeout=_LLM_REQUEST_TIMEOUT,
+-                    **kwargs,
+-                )
+-                latency_ms = (time.monotonic() - t0) * 1000
+-                sem.record_latency(latency_ms, is_error=False)
+-                self._record_tokens(effective_model, response)
+-                return response
+-            except Exception as e:
+-                latency_ms = (time.monotonic() - t0) * 1000
+-                overloaded = is_rate_limit_like_error(e)
+-                sem.record_latency(latency_ms, is_error=overloaded)
+-                last_error = e
+-                last_error_was_rate_limit = overloaded
+-                if attempt >= max_retries:
++                return await self._complete_once(effective_model, messages or [], kwargs)
++            except Exception as error:
++                overloaded = is_rate_limit_like_error(error)
++                error_name = type(error).__name__
++                if isinstance(error, _TRANSPORT_ERRORS):
++                    exhausted = transport_retries >= TRANSPORT_MAX_RETRIES
++                    delay = 2.0 * (2**transport_retries)
++                    transport_retries += 1
++                else:
++                    exhausted = ordinary_retries >= max_retries
++                    delay = min(2.0**ordinary_retries, 60.0) if overloaded else 0.0
++                    ordinary_retries += 1
++                if exhausted:
++                    logger.error("Model request failed after %d attempts: %s", attempts, error_name)
+                     raise LLMDispatchError(
+-                        f"Failed to get valid response after {max_retries + 1} "
+-                        f"attempts. Last error: {e!s}",
++                        f"Failed to get valid response after {attempts} attempts. Last error type: {error_name}",
+                         rate_limit_like=overloaded,
+-                    ) from e
+-                if overloaded:
+-                    delay = min(base_delay * (2**attempt), max_delay)
+-                    logger.warning(
+-                        "Rate limit for '%s' via LLMClient(%s) (attempt %d/%d). "
+-                        "Backoff %.1fs. Error: %s",
+-                        effective_model,
+-                        self.model_type,
+-                        attempt + 1,
+-                        max_retries + 1,
+-                        delay,
+-                        e,
+-                    )
++                    ) from error
++                logger.warning(
++                    "Request failed for '%s' via LLMClient(%s) (attempt %d). Backoff %.1fs. Error: %s",
++                    effective_model, self.model_type, attempts, delay, error_name,
++                )
++                if delay:
+                     await asyncio.sleep(delay)
+-                else:
+-                    logger.warning(
+-                        "Request failed for '%s' via LLMClient(%s) (attempt %d/%d). "
+-                        "Retrying immediately. Error: %s",
+-                        effective_model,
+-                        self.model_type,
+-                        attempt + 1,
+-                        max_retries + 1,
+-                        e,
+-                    )
+-            finally:
+-                await sem.release(overloaded=overloaded)
+ 
+-        raise LLMDispatchError(
+-            f"Failed to get valid response after {max_retries + 1} attempts. "
+-            f"Last error: {last_error!s}",
+-            rate_limit_like=last_error_was_rate_limit,
+-        )
++    async def _complete_once(self, model: str, messages: list[AllMessageValues],
++                             kwargs: dict[str, Any]) -> ModelResponse:
++        """@brief 执行一次底层请求；释放并发许可后由调用者判断重试，成功时记录用量。"""
++        sem = self._sem
++        assert sem is not None  # _ensure_runtime 已建立并发许可。
++        await sem.acquire()
++        started = time.monotonic()
++        overloaded = False
++        try:
++            response = await self._router.acompletion(
++                model=model, messages=messages, stream=False, timeout=_LLM_REQUEST_TIMEOUT, **kwargs)
++            sem.record_latency((time.monotonic() - started) * 1000, is_error=False)
++            self._record_tokens(model, response)
++            return response
++        except Exception as error:
++            # 调用层统一记录英文错误日志，避免此处重复记录同一异常或输出供应商原始错误正文。
++            overloaded = is_rate_limit_like_error(error)
++            sem.record_latency((time.monotonic() - started) * 1000, is_error=overloaded)
++            raise
++        finally:
++            await sem.release(overloaded=overloaded)
+ 
+ 
+ # ═══════════════════════════════════════════════════════════

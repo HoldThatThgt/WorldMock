@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.timeline_labels import window_days, local_day_bounds
+from worldmock.footprints.intervals import valid_interval, body_settlements
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Mapping
@@ -170,14 +172,17 @@ def _snapshot(event: Mapping[str, Any]) -> Mapping[str, Any]:
 def _progress(events: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
     """@brief 某类活动的进度事件（按事件顺序）。"""
     return [event for event in events
-            if event.get("event_type") == "activity_progress" and _snapshot(event).get("kind") == kind]
+            if event.get("event_type") == "activity_progress" and _snapshot(event).get("kind") == kind
+            and valid_interval(event.get("data", {}).get("interval_start"),
+                               event.get("data", {}).get("interval_end"))]
 
 
 def _timeline(events: list[dict[str, Any]], agent: AgentWorkday, zone: ZoneInfo) -> _Timeline:
     """@brief 由一个人物的事件重建时间线：观察窗取共同身体结算区间的最早起点与最晚终点；预约任务的外出时段按 zone 的
     当地日期起算。"""
-    bodies = [event["data"] for event in events if event.get("event_type") == "environment_event"
-              and event.get("data", {}).get("kind") == "body_settlement"]
+    bodies = [event["data"] for event in body_settlements(events)
+              if valid_interval(event.get("data", {}).get("interval_start"),
+                                 event.get("data", {}).get("interval_end"))]
     start = min((data["interval_start"] for data in bodies), default=0)
     end = max((data["interval_end"] for data in bodies), default=0)
     trips = _trips(events)
@@ -196,7 +201,7 @@ def _counts_from(task: TaskSite, zone: ZoneInfo) -> int:
     if task.appointment_at is None:
         return task.open_from
     day = datetime.fromtimestamp(task.appointment_at, zone).date()
-    return min(task.open_from, int(datetime.combine(day, datetime.min.time(), zone).timestamp()))
+    return min(task.open_from, local_day_bounds(day, zone)[0])
 
 
 def _trips(events: list[dict[str, Any]]) -> tuple[_Trip, ...]:
@@ -243,12 +248,8 @@ def _settled(events: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _days(timeline: _Timeline, zone: ZoneInfo) -> list[date]:
-    """@brief 观察窗覆盖的各个本地日（窗口为空时没有）。"""
-    if timeline.end <= timeline.start:
-        return []
-    first = datetime.fromtimestamp(timeline.start, zone).date()
-    last = datetime.fromtimestamp(timeline.end - 1, zone).date()
-    return [first + timedelta(days=offset) for offset in range((last - first).days + 1)]
+    """@brief 观察窗覆盖的本地日使用共享切分规则。"""
+    return window_days({"start": timeline.start, "end": timeline.end, "timezone": zone.key})
 
 
 def _union(spans: _Spans) -> _Spans:

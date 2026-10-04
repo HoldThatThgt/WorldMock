@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 资源引擎
 
 > **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
-> **日期**：2026-10-04\
-> **版本**：v1.12\
+> **日期**：2026-10-05\
+> **版本**：v1.13\
 > **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-tool-interaction.md)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md)）；该规格阶段 1 不改本文。
 > **范围**：资源定义、内容与语料、目录发布、来源校验、检索和提供
@@ -15,6 +15,12 @@
 [品类契约规格](../dev/SPEC-category-contract.md)。餐馆与音频的本次行为以
 [一日行为规格](../dev/SPEC-dayrun-behavior.md)为准。
 本文只定义资源数据的准备、发布、校验、查询和读取职责。
+
+## 共享规则与可重建环境修订
+
+按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+
+语料文件只接受根内安全相对路径：拒绝绝对路径、任何 .. 组件、符号链接与非普通文件。曲线输入和输出必须是有限非负数且拒绝布尔值，效率资源名必须含非空白字符；生活与目录读取同一模型。目录发布与品类身份统一以字节原子写入。
 
 ## 1. 职责与边界
 
@@ -301,7 +307,7 @@ flowchart LR
 当前准备入口要求三个参数，命令在仓库根目录执行：
 
 ```sh
-uv run --no-sync python scripts/prepare_map.py --source-root corpora \
+python scripts/prepare_map.py --source-root corpora \
   --destination experiments/map-release-20260105 --random-seed 20260105
 ```
 
@@ -355,7 +361,7 @@ uv run --no-sync python scripts/prepare_map.py --source-root corpora \
 目录清单和空墓碑文件；不会从当前场景反推定义，也不会覆写人工维护的规则表。
 
 ```sh
-uv run --no-sync python scripts/build_catalog.py --check
+python scripts/build_catalog.py --check
 ```
 
 该检查验证资源和对象数目、静态数值来源覆盖，以及生成结果与在库目录逐字节相同；
@@ -627,3 +633,4 @@ sequenceDiagram
 | v1.10 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D3-04、D3-05、D3-06、D3-11）：`query_world` 改六键，来源筛选与购买同一解析，可执行筛选归模拟引擎，筛选先于切页、`total_count` 为筛选后总数，结果不附候选，除两种参数错误外无匹配为空页；可调用索引更正为四键并写明 `query_categories`（筛选不改变其计数口径）；指名购买来源的写法更正为地点显示名；每页大小改写为取场景参数；文件头修订行改为已落地阶段 2 与阶段 4（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入） |
 | v1.11 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D3-03）：版本事实改为生活场景结构 5（人物配置增必填可空的 `work_schedule`；目录保持 5.3），世界状态结构照阶段 2 为 9；文件头修订行改为已落地阶段 2–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.12 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D3-10）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+| 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |

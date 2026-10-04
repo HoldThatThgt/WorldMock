@@ -10,10 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from worldmock.corpora.manifest import safe_file
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
 from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.models import (
     ActivityKind,
+    DERIVED_DURATION_CAP_SECONDS,
     ActivityStatus,
     AgentState,
     SubmitWorkRequest,
@@ -95,16 +97,19 @@ def validate_work_start(agent: AgentState, task: RuntimeWorkTask, now: int, pres
 
 def work_start_seconds(task: RuntimeWorkTask, worked_seconds: int, now: int) -> int:
     """@brief 开工的派生时长：剩余合同秒数、距截止秒数与活动上限 86400 秒中的最小值。"""
-    return min(task.maximum_duration_seconds - worked_seconds, int(task.due_at.timestamp()) - now, 86_400)
+    return min(task.maximum_duration_seconds - worked_seconds, int(task.due_at.timestamp()) - now,
+               DERIVED_DURATION_CAP_SECONDS)
 
 
-def work_start_blocker(task: RuntimeWorkTask, worked_seconds: int, now: int) -> str | None:
-    """@brief 开工条件「距截止与剩余合同都不少于 60 秒」不成立时的一句原因，成立时为 None（第八章「工作」）。"""
+def work_start_refusal(task: RuntimeWorkTask, worked_seconds: int, now: int) -> Refusal | None:
+    """@brief 开工与恢复共用距截止、剩余合同的阻断原因和下一步。"""
     if int(task.due_at.timestamp()) - now < WORK_START_MINIMUM_SECONDS:
-        return "Less than one minute remains before the deadline; work cannot start."
-    if task.maximum_duration_seconds - worked_seconds < WORK_START_MINIMUM_SECONDS:
-        return "Less than one minute remains in the contract; work cannot start."
-    return None
+        reason = "Less than one minute remains before the deadline; work cannot start."
+    elif task.maximum_duration_seconds - worked_seconds < WORK_START_MINIMUM_SECONDS:
+        reason = "Less than one minute remains in the contract; work cannot start."
+    else:
+        return None
+    return Refusal("ACTIVITY_DURATION_INVALID", reason, "Submit the completed work.")
 
 
 def work_resume_cap(task: RuntimeWorkTask, worked_seconds: int, now: int) -> int:
@@ -345,23 +350,8 @@ def _read_hashed_file(root: Path, relative: str, digest: str, label: str) -> byt
 
 
 def _read_regular_file(root: Path, relative: str, label: str) -> bytes:
-    """@brief 在解析前拒绝越界路径和任意符号链接。"""
-    base = Path(root).resolve()
-    candidate = base / relative
-    path = candidate.resolve()
-    if _has_symlink(candidate, base) or base not in path.parents or not path.is_file():
-        raise IntegrityError(f"{label} path is invalid")
-    return path.read_bytes()
-
-
-def _has_symlink(path: Path, root: Path) -> bool:
-    """@brief 在解析前拒绝文件及父目录符号链接。"""
-    current = path
-    while current != root and root in current.parents:
-        if current.is_symlink():
-            return True
-        current = current.parent
-    return current != root
+    """@brief 通过唯一安全文件规则读取工作来源。"""
+    return safe_file(root, relative, f"{label} path is invalid").read_bytes()
 
 
 def _local_name(tag: str) -> str:

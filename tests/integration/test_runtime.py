@@ -176,8 +176,8 @@ def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> Non
     (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
 
 
-def test_imported_as2_is_the_locked_8768e14_source() -> None:
-    """实际导入的 AS2（按 MA10 安装）不打补丁即通过锁定核对。"""
+def test_imported_as2_matches_rebuildable_locked_source() -> None:
+    """实际导入的 AS2 与固定基线加补丁重建的唯一源码身份一致。"""
     files = require_locked_as2()
 
     assert files and all(label.startswith("agentsociety2/") for label, _ in files)
@@ -328,7 +328,7 @@ def test_experiment_registers_the_locked_as2_source_digest_verbatim() -> None:
 
     assert len(rows) == 1
     assert rows[0][1] == f"`{AS2_LOCKED_SOURCE_SHA256}`"
-    assert "`8768e14`" in rows[0][2]
+    assert "`SERIES`" in rows[0][2]
 
 
 def _hermetic_git(monkeypatch, tmp_path_factory) -> None:

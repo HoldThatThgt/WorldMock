@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -103,9 +104,9 @@ def _validate_checkpoint(manifest: dict, events: list[Event]) -> Checkpoint:
     checkpoint = Checkpoint.model_validate(manifest["checkpoint"])
     payload = checkpoint.model_dump(exclude={"record_sha256"})
     frozen = manifest["frozen_run_manifest"]
-    if hashlib.sha256(canonical_json(payload)).hexdigest() != checkpoint.record_sha256:
+    if sha256_json(payload) != checkpoint.record_sha256:
         raise IntegrityError("Export checkpoint record hash is invalid")
-    if checkpoint.manifest_sha256 != hashlib.sha256(canonical_json(frozen)).hexdigest():
+    if checkpoint.manifest_sha256 != sha256_json(frozen):
         raise IntegrityError("Export checkpoint references a different manifest")
     if (checkpoint.run_id != manifest["run_id"] or checkpoint.current_time != frozen["window"]["end"]
             or checkpoint.current_time != checkpoint.state["current_time"]

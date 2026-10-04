@@ -6,7 +6,7 @@
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
 
-个人事务与工作安排特性的分支头 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（含最终代码与测试提交 `a7e2fdc` 之后的两个运行查看器提交与全部实现后文档）已通过门禁：5,851 passed、0 failed、7 skipped，分支覆盖率 95.15%，未覆盖公共接口为零，现行报告由这次运行生成；此前最终代码与测试提交 `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2` 上的门禁结果相同（7 项都是既有平台或产物条件跳过），留作历史。数字见「基线记录」首节，完整证据见 [个人事务与工作安排验收记录](errands-workday-verification.md)。
+个人事务与工作安排特性的分支头 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（含最终代码与测试提交 `a7e2fdc` 之后的两个运行查看器提交与全部实现后文档）已通过门禁：5,851 passed、0 failed、7 skipped，分支覆盖率 95.15%，未覆盖公共接口为零，该报告是历史版本证据，本次须重新生成；此前最终代码与测试提交 `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2` 上的门禁结果相同（7 项都是既有平台或产物条件跳过），留作历史。数字见「基线记录」首节，完整证据见 [个人事务与工作安排验收记录](errands-workday-verification.md)。
 
 一日运行保真特性的最终代码提交 `147843655aa00621488a306e68ecf98c5273b3bf` 的门禁结果（4,987 passed、7 个既有跳过，分支 95.05%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第二节与 [一日运行保真验收记录](dayrun-fidelity-verification.md)。
 
@@ -23,11 +23,11 @@
 
 ```mermaid
 flowchart TB
-    A["跑全量测试<br/>uv run coverage run -m pytest -q"] --> B{"coverage json 导出成功？"}
+    A["跑全量测试<br/>python -m coverage run -m pytest -q"] --> B{"coverage json 导出成功？"}
     B -- "否" --> X["stderr 打印 ERROR<br/>不写报告，退出码 1"]
     B -- "是" --> C["汇总整体与逐文件分支覆盖率"]
     B -- "是" --> D["枚举生产根目录，抽取公共接口<br/>对照未执行行找出未覆盖接口"]
-    C --> E{"测试套件退出码为 0<br/>且分支覆盖率 ≥ 85.00<br/>且未覆盖公共接口数为 0"}
+    C --> E{"测试套件退出码为 0<br/>且无 skip/xfail、测试非空<br/>且分支覆盖率 ≥ 85.00<br/>且未覆盖公共接口数为 0"}
     D --> E
     E -- "是" --> P["写 docs/dev/coverage-report.json<br/>退出码 0（PASSED）"]
     E -- "否" --> Q["写 docs/dev/coverage-report.json<br/>退出码 1（FAILED）"]
@@ -63,18 +63,21 @@ flowchart TB
 ```bash
 # 一键门禁：跑全量 pytest → 导出 coverage JSON → 判定两项机器口径 →
 # 写 docs/dev/coverage-report.json；退出码 0=通过 / 1=不通过
-uv run python scripts/coverage_gate.py
+python scripts/coverage_gate.py --shards 4
 
-# 分项查看（需先有 .coverage 数据，可由门禁脚本产生）
-uv run coverage report          # 终端汇总表
-uv run coverage html            # HTML 明细
+# 分项查看：自行运行覆盖率测量后查看；门禁使用临时隔离数据目录
+python -m coverage run -m pytest -q
+python -m coverage report          # 终端汇总表
+python -m coverage html            # HTML 明细
 ```
 
-`docs/dev/coverage-report.json` 是生成物，每次运行覆盖重写，内容为：生成时间、执行命令、证据身份（本次运行的 `snapshot_id`、覆盖数据的 `manifest_hash`、被测源代码的 Git 提交哈希 `source_identity`，取不到时记为 `unknown`）、阈值、整体分支覆盖（covered / missing / total / percent / passed）、逐文件分支覆盖、未覆盖公共接口清单（`文件:行:函数名:种类`）、顶层判定位 `passed`。
+`docs/dev/coverage-report.json` 是生成物，每次运行覆盖重写，内容为：生成时间、执行命令、证据身份（本次运行的 `snapshot_id`、覆盖数据的 `manifest_hash`、被测源代码的 Git 提交哈希 `source_identity`；取不到提交身份即失败）、阈值、整体分支覆盖（covered / missing / total / percent / passed）、逐文件分支覆盖、未覆盖公共接口清单（`文件:行:函数名:种类`）、顶层判定位 `passed`。
+
+每次门禁使用当前解释器和独立 coverage 数据目录，各分片完整执行一次后合并；历史覆盖文件不能混入。任一测试失败、skip、xfail、空测试集或缺失报告均不能放行。
 
 ## 基线记录
 
-### 当前：个人事务与工作安排特性合入后
+### 历史：个人事务与工作安排特性合入后
 
 完整门禁的被测源码提交为 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（`964de50`，门禁运行时特性分支 `feat/errands-workday` 的分支头：个人事务与工作安排实施阶段 1–4、各阶段评审修复、
 两轮独立源码变异审查的补测与最终代码与测试提交 `a7e2fdc` 之后，另含实现后文档、登记表的阶段 7 标记与两个运行查看器提交 `1346e0d`、`6c81126`；`src/`、`custom/` 与 `scripts/` 自 `59b81a3` 起没有变化），

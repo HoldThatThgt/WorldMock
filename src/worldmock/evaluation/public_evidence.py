@@ -208,12 +208,11 @@ def _legacy_commute_shape(payload: Mapping[str, Any]) -> tuple[_Shape | None, st
 
 
 def worldmock_public_evidence(
-    event_rows: Sequence[JsonObject],
+    events: Sequence[Event],
     activity_rows: Sequence[JsonObject],
     activity_map: Mapping[str, str],
 ) -> tuple[PublicEvidence, ...]:
-    """@brief 从严格事件和活动提取 WorldMock 公开结构事实。"""
-    events = tuple(_event(row) for row in event_rows)
+    """@brief 消费适配器已校验的事件和活动，提取 WorldMock 公开结构事实。"""
     activities = {str(row.get("activity_id")): row for row in activity_rows}
     actions = _world_actions(events, activities, activity_map)
     evidence: list[PublicEvidence] = []
@@ -638,12 +637,7 @@ def _positive_integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def _event(row: JsonObject) -> Event:
-    """@brief 使用生产事件模型解析 WorldMock 输入。"""
-    try:
-        return Event.model_validate(row)
-    except ValidationError as exc:
-        raise EvaluationError("invalid_input", "WorldMock public evidence event is invalid") from exc
+
 
 
 def _mapping(value: Any) -> dict[str, Any]:

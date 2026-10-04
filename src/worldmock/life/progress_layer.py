@@ -32,7 +32,7 @@ from worldmock.life.settled_text import ActivityFacts, record_lines
 from worldmock.life.tool_layer import LayerContext
 
 #: 订单仍在途的状态（相关记录受保护）。
-_OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
+OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
 #: 被进度层消费的两种个人事务事件（人物可见）→ 记录类型；其余四种事务事件只供审计与指标，不进进度层。
 _ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_completed"}
 
@@ -286,7 +286,7 @@ def _protected(context: LayerContext, item: _Record, request: tuple[int, int | N
         occurred = int(datetime.fromisoformat(item.record["occurred_at"]).timestamp())
         if moment is None or occurred > moment:
             return True
-    return any(context.state.deliveries[order].status in _OPEN_ORDER_STATUSES
+    return any(context.state.deliveries[order].status in OPEN_ORDER_STATUSES
                for order in item.orders if order in context.state.deliveries)
 
 

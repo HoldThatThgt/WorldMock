@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from worldmock.errors import IntegrityError
-from worldmock.life.models import ActivityKind
-from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
+from worldmock.life.candidates import CANDIDATE_ACTIVITY_KINDS
+from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, activity_family
 
 #: 目录时间窗覆盖此刻的相关度。
 TIME_WINDOW_POINTS = 2
@@ -32,11 +32,6 @@ GOAL_FAMILY_POINTS = 2
 HABIT_POINTS = 1
 #: 运行清单中冻结习惯签名反应文本的键。
 MANIFEST_KEY = "persona_habit_responses"
-#: 候选类别 → 活动家族（生活活动另按品类细分为「lifestyle:<品类>」）。
-_KIND_FAMILIES = {"product": ActivityKind.CONSUME.value, "content": ActivityKind.WATCH.value,
-                  "game": ActivityKind.PLAY_GAME.value, "task": ActivityKind.WORK.value}
-
-
 @dataclass(frozen=True, slots=True)
 class RelevanceFacts:
     """@brief 一次取候选的相关度原料：场景时区的本地时刻、当日未推进目标的活动家族与习惯签名的反应文本。"""
@@ -56,9 +51,9 @@ def goal_families(goals: Iterable[Any] | None) -> frozenset[str]:
     return intent_families(goal.intent_kind for goal in goals or () if goal.progressed_at is None)
 
 
-def entry_family(kind: str, category: str) -> str:
+def entry_family(kind: str, category: str | None) -> str | None:
     """@brief 候选条目的活动家族：生活活动为「lifestyle:<品类>」，其余按候选类别对应的活动类型。"""
-    return f"lifestyle:{category}" if kind == "lifestyle" else _KIND_FAMILIES[kind]
+    return activity_family({"kind": CANDIDATE_ACTIVITY_KINDS[kind].value, "category": category})
 
 
 def entry_relevance(entry: Any, facts: RelevanceFacts, window: tuple[int, int] | None = None) -> int:

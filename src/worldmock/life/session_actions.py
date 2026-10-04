@@ -19,7 +19,7 @@ from worldmock.life import (activity_control, admission, errands, giving, memory
                             routing, sessions)
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened, is_eating
 from worldmock.life.basket import held_quantity, meal_portion
-from worldmock.life.content import restarts_from_beginning
+from worldmock.life.durations import capped_duration_seconds, derived_activity_duration
 from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.guidance import Refusal, guided, items_refusal, refusal_for_code
 from worldmock.life.error_contract import ErrorItem
@@ -35,6 +35,8 @@ from worldmock.life.models import (
     ActivityStatus,
     ChangeActivityRequest,
     ConcludeActivityRequest,
+    CONSUME_DURATION_CAP_SECONDS,
+    DERIVED_DURATION_CAP_SECONDS,
     ConsumeItem,
     ConsumeRequest,
     LIFESTYLE_TYPE_PREFIX,
@@ -55,15 +57,13 @@ from worldmock.life.name_resolution import StartOutcome, name_book, resolution_d
 from worldmock.life.named_purchase import PurchaseAsk, resolve_named_rows, resolve_named_supply
 from worldmock.life.readable import iso_time
 from worldmock.life.recipients import person_name, recipient_location
-from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
+from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, activity_family
 from worldmock.life.tool_layer import Candidate as ToolCandidate, LayerContext, refusal_for
-from worldmock.life.travel import route_for
+from worldmock.life.travel import planned_travel
 from worldmock.life.social_actions import social_duration_seconds
-from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_seconds, work_totals
+from worldmock.life.work import work_resume_cap, work_start_refusal, work_start_seconds, work_totals
 
 _LOGGER = logging.getLogger(__name__)
-#: 观看、游戏内容与生活活动派生时长的上限：超过时按此受理并在结果写明计划时长（裁决 #19）。
-DERIVED_DURATION_CAP_SECONDS = 86_400
 #: 回看的自述仍在记忆层时代替正文的说法（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。
 RECALL_IN_MEMORY_LAYER = "已在记忆层"
 #: 来源与去向判定中由受理时带说明拒绝、解析时照常选中的码：去向不是任何人物，与列出的标签写了另一个地点作 from。
@@ -407,9 +407,9 @@ class SessionActionMixin:
         mode = binding["selected_action"]["travel_mode"]
         draft = ActivityStartParams(activity_type=ActivityKind.TRAVEL, planned_duration_seconds=1,
                                     destination_id=destination, travel_mode=mode)
-        route = route_for(self.scenario, state.agents[pending.agent_id].location_id, draft)
-        duration = self.semantics.travel_planned_seconds(mode, route.duration_seconds, state.current_time)
-        if not 1 <= duration <= 86_400:
+        _, duration = planned_travel(self.scenario, self.semantics, state.agents[pending.agent_id].location_id,
+                                     draft, state.current_time)
+        if not 1 <= duration <= DERIVED_DURATION_CAP_SECONDS:
             _LOGGER.error("Derived route duration is outside domain bounds")
             raise BusinessRuleError("ROUTE_DURATION_INVALID")
         params = draft.model_copy(update={"planned_duration_seconds": duration})
@@ -433,30 +433,17 @@ class SessionActionMixin:
         if kind == ActivityKind.WORK:
             task = self.rules.task(target)
             worked, _ = work_totals(state, agent_id, target)
-            blocker = work_start_blocker(task, worked, state.current_time)
-            if blocker is not None:
-                _LOGGER.error("Work start is closer than one minute to its deadline or contract end")
-                raise guided("ACTIVITY_DURATION_INVALID", blocker, "Submit the completed work.")
+            refusal = work_start_refusal(task, worked, state.current_time)
+            if refusal is not None:
+                raise refusal.error()
             return work_start_seconds(task, worked, state.current_time)
-        if kind == ActivityKind.WATCH:
-            item = self.rules.content(target)
-            progress = state.agents[agent_id].content_progress.get(target)
-            position = progress.position_seconds if progress else 0
-            restart = restarts_from_beginning(position, item.duration_seconds)
-            duration = item.duration_seconds if restart else item.duration_seconds - position
-        elif kind == ActivityKind.PLAY_GAME and target in self.rules.contents:
-            duration = self.rules.content(target).duration_seconds
-        else:
-            duration = self.scenario.activity_feedback_seconds
-        return _capped_duration(duration)
+        item = self.rules.content(target) if kind == ActivityKind.WATCH or (
+            kind == ActivityKind.PLAY_GAME and target in self.rules.contents) else None
+        return derived_activity_duration(kind, state.agents[agent_id], item, self.scenario.activity_feedback_seconds)
 
     def _feedback_duration(self) -> int:
         """@brief 使用场景的结算间隔作为无独立时长合同活动的精确时长。"""
-        duration = self.scenario.activity_feedback_seconds
-        if duration < 60:
-            _LOGGER.error("Activity feedback duration is below the domain minimum")
-            raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
-        return duration
+        return capped_duration_seconds(self.scenario.activity_feedback_seconds)
 
     def _start_browse_action(self, state: WorldState, pending: PendingAction,
                              target: str) -> tuple[WorldState, ActionResult]:
@@ -473,7 +460,8 @@ class SessionActionMixin:
         if item is None:
             _LOGGER.error("Lifestyle item was not found in the frozen catalog")
             raise BusinessRuleError("LIFESTYLE_ACTIVITY_NOT_FOUND")
-        duration = _capped_duration(item.typical_duration_minutes * 60)
+        duration = derived_activity_duration(ActivityKind.LIFESTYLE, state.agents[pending.agent_id], item,
+                                             self.scenario.activity_feedback_seconds)
         params = ActivityStartParams(activity_type=ActivityKind.LIFESTYLE, planned_duration_seconds=duration,
                                      target_id=target)
         return self._start(state, pending, params)
@@ -482,8 +470,8 @@ class SessionActionMixin:
                            action: str) -> tuple[WorldState, ActionResult]:
         """@brief 启动 wait/sleep 动作对应的无目标自身活动。"""
         agent = state.agents[pending.agent_id]
-        duration = round(agent.body.sleep_need_hours * 3600) if action == "sleep" else self._feedback_duration()
         kind = ActivityKind.WAIT if action == "wait" else ActivityKind.SLEEP
+        duration = derived_activity_duration(kind, agent, None, self.scenario.activity_feedback_seconds)
         return self._start(state, pending, ActivityStartParams(activity_type=kind,
                                                                 planned_duration_seconds=duration))
 
@@ -534,7 +522,7 @@ class SessionActionMixin:
         mode = bindings[0]["selected_action"]["use_mode"]
         agent = state.agents[pending.agent_id]
         portions = [meal_portion(products[item], mode, held_quantity(agent, item)) for item in targets]
-        if not 60 <= max(seconds for _, seconds in portions) <= 14_400:
+        if not 60 <= max(seconds for _, seconds in portions) <= CONSUME_DURATION_CAP_SECONDS:
             _LOGGER.error("Derived food consumption duration is outside domain bounds")
             raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
         if any(mode not in products[item].use_modes for item in targets):
@@ -558,14 +546,15 @@ class SessionActionMixin:
         if plan is None or activity_id is None or state.current_time >= plan.day_end:
             return None
         activity = state.activities[activity_id]
-        family = activity.kind.value
+        snapshot = {"kind": activity.kind.value}
         if activity.kind == ActivityKind.LIFESTYLE:
             target = (activity.target_id or "").removeprefix(LIFESTYLE_TYPE_PREFIX)
             item = next((entry for entry in self.lifestyle_items if entry.activity_id == target), None)
             if item is None:
                 _LOGGER.error("Lifestyle goal category is unavailable")
                 raise BusinessRuleError("LIFESTYLE_ACTIVITY_NOT_FOUND")
-            family = f"lifestyle:{item.category}"
+            snapshot["category"] = item.category
+        family = activity_family(snapshot)
         return next((goal.intent_kind for goal in plan.goals if goal.progressed_at is None
                      and goal.registered_at <= state.current_time
                      and family in INTENT_ACTIVITY_FAMILIES[goal.intent_kind]), None)
@@ -914,14 +903,6 @@ def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
     label = memory_layer.noted_label(observed["memory_layer"], names[activity.activity_id], activity.progress_note)
     return None if label is None else {"activity": label, "progress_note": RECALL_IN_MEMORY_LAYER}
-
-
-def _capped_duration(duration: int) -> int:
-    """@brief 非出行活动的派生时长：不足 60 秒以 ACTIVITY_DURATION_INVALID 拒绝，超过 86400 秒按 86400 秒受理。"""
-    if duration < 60:
-        _LOGGER.error("Derived activity duration is below the domain minimum")
-        raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
-    return min(duration, DERIVED_DURATION_CAP_SECONDS)
 
 
 def _parallel_result_data(results: list[ActionResult]) -> dict:

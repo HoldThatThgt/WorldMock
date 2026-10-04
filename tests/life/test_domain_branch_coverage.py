@@ -890,10 +890,11 @@ def test_sleep_deficit_delta_recovers_only_for_sleep() -> None:
     assert sleeping < 0 < awake
 
 
-def test_entertainment_delta_watch_without_evidence_falls_back_to_accrual() -> None:
-    """观看活动缺费率证据时按清醒累积（证据错误在 activity_factors 层拦截）。"""
+def test_entertainment_delta_watch_without_evidence_is_rejected() -> None:
+    """观看证据缺失时预估与结算一样拒绝，不能改算清醒累积。"""
     watch = _activity(kind=ActivityKind.WATCH, target_id="movie-0001", data={})
-    assert _entertainment_delta(_context(), watch, 1.0) > 0
+    with pytest.raises(ValueError, match="watch activity entertainment evidence is incomplete"):
+        _entertainment_delta(_context(), watch, 1.0)
 
 
 def test_travel_candidate_rejects_short_or_energy_infeasible_legs() -> None:
@@ -1249,6 +1250,7 @@ class _StubClient:
 def _reviewer(result) -> WorkReviewer:
     reviewer = WorkReviewer.__new__(WorkReviewer)
     reviewer.client = _StubClient(result)
+    reviewer.purpose = "Work review"
     return reviewer
 
 

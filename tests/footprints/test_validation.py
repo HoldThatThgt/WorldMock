@@ -27,11 +27,7 @@ from worldmock.validation import build_coverage_targets, validate_project
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = PROJECT_ROOT / "scenarios" / "white-collar-12-weeks.json"
-_LABELKIT_CLI = PROJECT_ROOT / "vendor" / "labelkit" / ".venv" / (
-    "Scripts/labelkit.exe" if sys.platform == "win32" else "bin/labelkit")
-_REQUIRES_LABELKIT = pytest.mark.skipif(
-    not _LABELKIT_CLI.is_file(), reason="The isolated LabelKit CLI is not installed",
-)
+
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +128,7 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
     with pytest.raises(IntegrityError): validate_export(complete_export)
 
 
-@_REQUIRES_LABELKIT
+@pytest.mark.requires_labelkit
 def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypatch):
     """validate 全链路通过：品类准入+任务受理+阶段身份+persona_coverage.json。"""
     monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
@@ -152,7 +148,7 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypat
     assert document["agents"][0]["covered_items"] == report["covered_items"]
 
 
-@_REQUIRES_LABELKIT
+@pytest.mark.requires_labelkit
 def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator(tmp_path, monkeypatch):
     """校验入口与新建、打开、恢复同用 validate_manifest_stage_identity：新运行将冻结的阶段身份含退役的决策自述阶段即拒绝
     （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。"""
@@ -174,7 +170,7 @@ def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator
     assert seen == [None]
 
 
-@_REQUIRES_LABELKIT
+@pytest.mark.requires_labelkit
 def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch):
     """可执行比例低于 80% 时校验失败并列出缺失项（画像写了世界里没有的东西）。"""
     monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
@@ -191,7 +187,7 @@ def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch
     assert "播客" in str(caught.value)
 
 
-@_REQUIRES_LABELKIT
+@pytest.mark.requires_labelkit
 def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
     """世界素材品类准入纳入启动前校验：任一违例即拒绝。"""
     monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)

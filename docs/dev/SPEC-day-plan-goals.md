@@ -18,6 +18,12 @@
 > 重复意图逐条定位、超限同批报告；事务与工作负荷度量不并入三层。修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。
 > 文中「个人事务与工作安排规格裁决 X」指该规格「裁决记录」的编号。
 
+## 共享规则与可重建环境修订
+
+按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+
+计划、相关度与指标读取同一个活动家族函数；缺品类不猜进度，外部参照保留缺证或未归类。实际推进的有效区间为非布尔整数秒且起点小于终点。本次不改变 around_time、登记后的活动起点和同秒推进合同。
+
 ## 心智模型与范围
 
 当日目标清单由零点计划 `plan_day` 生成，人物可 `revise_day_plan` 修订；当日目标清单里只有 `remind_time` 产生提醒边界；
@@ -302,3 +308,4 @@ flowchart LR
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)「冻结条款修订」修订（个人事务与工作安排 DP1–DP14，随该规格冻结）：「心智模型与范围」把「只有 `remind_time` 产生提醒边界」限定在当日目标清单内，补当日目标与个人事务的分工，写明今日计划优先只对作息习惯成立、改不了场景声明的工作安排（收窄一日运行保真裁决 S11）；「提交与修订」补零点失效、`plan_day` 与修订都不读写个人事务；「事件驱动的决策节律」写明未完成事务不计在手承诺，决策机会表增事务提醒 `errand_reminder_due`（不进睡眠允许集合）；「人物可见内容与工具」补待办层 `errands` 与 `day_plan` 并列；「三层度量与质量导出」「度量输出合同」写明 `workload`、`routine_deviation` 与 `errand_metrics`、`conclusion_memories` 不并入三层；「当前工具交互约束」重复意图改为逐条定位、超限同批报告，并更正「尚未实现」的过期说法；验收台账表后说明更正两处过期说法并注明新证据登记在该规格验收台账，各行状态不变；文件头补修订说明。修订部分在冻结时未随文实现（该规格阶段 1（重复意图）、阶段 2（个人事务）、阶段 3（工作安排）实现后的核对见 `2026-10-04-errands-workday-implemented` 行）。 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 DP15，按 `d8a41d3` 的代码与测试核对）：文件头、「当前工具交互约束」末句与「验收台账」表后两处说明里的未实现说法统一改为已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。证据测试登记在该规格验收台账各行：「计划重复意图」`tests/life/test_revise_day_plan_json.py`、`tests/life/test_plan_day_duplicate_feedback.py`（修订入口经真实引擎、零点计划经真实后台任务，重复意图逐条定位、超限同批报告）；「事务提醒」`tests/life/test_errand_reminder.py`（清醒时到点提醒一次、睡眠中不交付不消耗、未完成事务不改变重估间隔与闭店预警）；「跨夜可见」`tests/life/test_errand_overnight.py`、`tests/life/test_day_planning.py`（零点失效、零点计划与修订之后事务不变，零点计划输入只读事务）；「事务与收尾记忆指标」`tests/evaluation/test_errand_metrics.py`、`tests/footprints/test_errand_export.py`、`tests/footprints/test_goal_export.py`（两个分组不并入 `day_plan_metrics`，当日目标报告的键集不变）；「计划与义务」`tests/integration/test_seven_layer_request.py`、`tests/life/test_day_planning.py`（系统层第 1、14 条与模板第八条逐字，零点计划输入的上班安排）；「工作负荷与作息偏离」`tests/evaluation/test_workload_metrics.py`、`tests/life/test_workload_report.py`。上表各行状态与条款正文不变 |
+| 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |

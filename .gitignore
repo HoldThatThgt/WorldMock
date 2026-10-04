@@ -16,5 +16,9 @@ CLAUDE.md
 
 # generated artifacts
 .coverage
+.coverage.*
+vendor/agentsociety2/
+vendor/labelkit/
+.work-shared-rules*.log
 argv.json
 docs/coverage-report.json

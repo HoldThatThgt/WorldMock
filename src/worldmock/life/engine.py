@@ -20,7 +20,7 @@ from worldmock.catalog.affordances import AffordanceView
 from worldmock.corpora import load_manifest
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError, ProtocolError
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
-                                        AssetRef, EventDraft, validate_resource_flows)
+                                        AssetRef, EventDraft, sha256_json, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import (activity_control, admission, contact_exchange, day_planning, errands, felt, projection,
                             relevance, reminders, same_moment, sessions, social_actions)
@@ -147,7 +147,7 @@ from worldmock.life.state_commit import (commit_state, flush_presentation, flush
                                          validated_payload)
 from worldmock.life.storefront_runtime import StorefrontRuntimeMixin, record_arrival_access
 from worldmock.life.storefront_state import initial_supply_state, map_provenance, validate_storefront_state
-from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
+from worldmock.life.travel import pay_travel_fare, planned_travel, update_travel, validate_routes
 from worldmock.life.work import (
     load_work_input,
     prepare_work_submission,
@@ -1159,10 +1159,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 在扣款前完成路线与品类规则复查。"""
         if request.activity_type != ActivityKind.TRAVEL:
             return None
-        route = route_for(self.scenario, agent.location_id, request)
+        route, expected = planned_travel(self.scenario, self.semantics, agent.location_id,
+                                        request, state.current_time)
         match = self.semantics.travel_match(route.mode.value)
-        expected = self.semantics.travel_planned_seconds(
-            route.mode.value, route.duration_seconds, state.current_time)
         if request.planned_duration_seconds != expected:
             raise BusinessRuleError("ROUTE_DURATION_MISMATCH")
         return route, match
@@ -1838,8 +1837,7 @@ def _put_agent_and_defer_game_turn(state: WorldState, agent) -> WorldState:
 def _request_sha(tool_name: str, request) -> str:
     """@brief 对工具名和规范化 Pydantic 请求计算稳定身份。"""
     payload = {"tool_name": tool_name, "request": request.model_dump(mode="json")}
-    content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(content).hexdigest()
+    return sha256_json(payload)
 
 
 def _datetime(epoch: int, timezone_name: str) -> datetime:

@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
 
 
+@pytest.mark.requires_labelkit
 @pytest.mark.parametrize("review_result", [
     "pass", "repaired", "exhausted", "citation_repaired", "missing_citation_repaired",
     "max_items_repaired", "max_items_exhausted", "history_repaired", "history_exhausted",

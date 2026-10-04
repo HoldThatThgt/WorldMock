@@ -35,8 +35,10 @@ from worldmock.life.models import ActivityKind, SessionState, SessionStatus
 from worldmock.life.name_resolution import START_SUFFIX
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
-from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
-                                         purchase_sentence, record_lines, tool_record, work_line)
+from worldmock.life.settled_text import (
+    SETTLED_STATUSES, ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
+    purchase_sentence, record_lines, tool_record, work_line,
+)
 from worldmock.life.tool_layer import LayerContext
 
 #: 记忆层 JSON 的字符上限（新常量，docs/dev/SPEC-persona-prompt.md 第三章「窗口」）。
@@ -45,9 +47,6 @@ MEMORY_WINDOW_CHARS = 8000
 REFLECTION_SHIFT_SECONDS = 6 * 3600
 #: 派生记忆层读取的本人事件类型。
 _EVENT_TYPES = ("action_requested", "action_result", "environment_event", "memory_updated")
-#: 成功的即时结果状态与未了结的订单状态。
-_SETTLED_STATUSES = frozenset({"completed", "in_progress"})
-_OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,13 +289,14 @@ def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
     """@brief 一个世界请求的 settled 句；下单逐订单一句，订单仍 pending 或 ready 时标未了结。"""
     context, key = build.context, (request.occurred_at, request.event_seq)
     orders = (result.data.get("data") or {}).get("orders", [])
-    if (request.data["tool_name"] == "start_activity" and orders and result.data.get("status") in _SETTLED_STATUSES
+    if (request.data["tool_name"] == "start_activity" and orders and result.data.get("status") in SETTLED_STATUSES
             and not request.data.get("reused")):
         deliveries = context.state.deliveries
         data = result.data.get("data") or {}
         moment = tool_record(context, request)["occurred_at"]
         return [*(_Line(purchase_sentence(context, order, data.get("answering")), key,
-                        open=deliveries[order["order_id"]].status in _OPEN_ORDER_STATUSES) for order in orders),
+                        open=deliveries[order["order_id"]].status
+                        in progress_layer.OPEN_ORDER_STATUSES) for order in orders),
                 *(_Line(give_sentence(context, moment, item), key) for item in data.get("given", []))]
     return [_Line(text, key) for text in record_lines(context, tool_record(context, request), [request, result])]
 
@@ -309,7 +309,7 @@ def _world_lines(build: _Build, event: Event) -> list[_Line]:
     if kind == "delivery_arrival":
         deliveries = context.state.deliveries
         return [_Line(record_lines(context, item.record, [event])[0], key,
-                      open=deliveries[item.orders[0]].status in _OPEN_ORDER_STATUSES)
+                      open=deliveries[item.orders[0]].status in progress_layer.OPEN_ORDER_STATUSES)
                 for item in progress_layer._delivery_records(context, event)]
     if kind not in {"message_arrival", "mail_arrival"}:
         return []

@@ -23,7 +23,8 @@ from dataclasses import dataclass
 
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life import felt, sleep
-from worldmock.life.models import ActivityKind, BodyState, CurvePoint
+from worldmock.base_models import CurvePoint
+from worldmock.life.models import (ActivityKind, BodyState)
 from worldmock.life.scenario import BodyConfig
 from worldmock.resources import FlowEntry, ResourceLedger, ResourceMeta
 from worldmock.resources.models import (

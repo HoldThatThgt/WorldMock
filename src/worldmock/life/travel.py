@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from worldmock.corpora.manifest import safe_file
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import ActivityStartParams, ActivityState, AgentState, WorldState
@@ -41,6 +42,14 @@ def route_for(scenario: LifeScenario, origin_id: str, request: ActivityStartPara
         logging.getLogger(__name__).error("Travel rejected: %s", reason)
         raise BusinessRuleError(reason)
     return matches[0]
+
+
+def planned_travel(scenario: LifeScenario, semantics, origin_id: str,
+                   request: ActivityStartParams, now: int) -> tuple[RouteConfig, int]:
+    """@brief 从当前地点选择冻结路线，并按出发秒对应的品类时段规则计算计划时长。"""
+    route = route_for(scenario, origin_id, request)
+    duration = semantics.travel_planned_seconds(request.travel_mode.value, route.duration_seconds, now)
+    return route, duration
 
 
 def pay_travel_fare(state: WorldState, scenario: LifeScenario, agent_id: int,
@@ -218,20 +227,5 @@ def _interpolate(geometry: list[tuple[float, float]], cumulative: list[float],
 
 
 def _safe_file(root: Path, relative: str) -> Path:
-    """@brief 将内容路径限制在冻结语料根目录。"""
-    base = Path(root).resolve()
-    candidate = base / relative
-    path = candidate.resolve()
-    if _has_symlink(candidate, base) or base not in path.parents or not path.is_file():
-        raise IntegrityError("Corpus file path is invalid")
-    return path
-
-
-def _has_symlink(path: Path, root: Path) -> bool:
-    """@brief 在解析前拒绝文件及父目录符号链接。"""
-    current = path
-    while current != root and root in current.parents:
-        if current.is_symlink():
-            return True
-        current = current.parent
-    return current != root
+    """@brief 从冻结语料根内取得普通路线文件。"""
+    return safe_file(root, relative, "Corpus file path is invalid")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from worldmock.evaluation.adapters import parse_world_event
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -202,7 +203,7 @@ def test_consume_category_uses_actual_closed_use_mode_for_evidence_and_duration(
             "request": {'items': [{'target': '持有物：面粉', 'way': '制作', 'from': None, 'to': None}], 'answering': None, 'prefer': None},
         }, "make-action"),
     ]
-    evidence = worldmock_public_evidence(events, [], mapping)
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in events], [], mapping)
     assert [(item.category, item.state) for item in evidence] == [
         ("eat", "requested"),
         ("product_use", "requested"),
@@ -278,7 +279,7 @@ def test_start_items_follow_the_started_activity_kind_then_the_order_then_the_wa
 
     def shapes(events: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
         return [(item.category, item.interaction, item.state, item.object_key)
-                for item in worldmock_public_evidence(events, [], {})]
+                for item in worldmock_public_evidence([parse_world_event(row) for row in events], [], {})]
 
     assert shapes([requested("随便看看", "内容：新闻"), started]) == [
         ("entertainment", "view", "requested", "feed-private"),
@@ -315,7 +316,7 @@ def test_purchase_payment_uses_canonical_resource_changes_and_preserves_actual_s
         "order": {"order_id": "order-private", "status": "delivered", "fulfillment": "delivery"},
     })
 
-    evidence = worldmock_public_evidence([request, result, delivered], [], {})
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result, delivered]], [], {})
 
     assert [(item.interaction, item.state) for item in evidence] == [
         ("order", "requested"),
@@ -328,7 +329,7 @@ def test_purchase_payment_uses_canonical_resource_changes_and_preserves_actual_s
     without_canonical["data"] = {key: value for key, value in result_data["data"].items()
                                  if key != "resource_changes"}
     no_payment = worldmock_public_evidence(
-        [request, _public_event(2, "action_result", without_canonical, "purchase-action")], [], {}
+        [parse_world_event(row) for row in [request, _public_event(2, "action_result", without_canonical, "purchase-action")]], [], {}
     )
     assert all(item.interaction != "pay" for item in no_payment)
 
@@ -367,7 +368,7 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
         }, "game-action"),
     ]
 
-    evidence = worldmock_public_evidence(events, [activity], {"browse": "browsing"})
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in events], [activity], {"browse": "browsing"})
     states = {(item.interaction, item.state) for item in evidence}
 
     assert ("report", "started") in states
@@ -382,7 +383,7 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
         "status": "completed", "data": {"activity": {
             "kind": "play_game", "status": "completed", "target_id": "game-private", "data": {}}},
     }, "game-action")
-    terminal_states = worldmock_public_evidence(terminal, [activity], {"browse": "browsing"})
+    terminal_states = worldmock_public_evidence([parse_world_event(row) for row in terminal], [activity], {"browse": "browsing"})
     assert ("play", "completed") in {(item.interaction, item.state) for item in terminal_states}
 
 
@@ -411,7 +412,7 @@ def test_mail_and_work_deadline_keep_public_facts_without_raw_text_or_failure_in
         _public_event(6, "environment_event", {"kind": "task_expired", "task_id": "task-private"}),
     ]
 
-    evidence = worldmock_public_evidence(events, [], {})
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in events], [], {})
     states = {(item.interaction, item.state) for item in evidence}
 
     assert {"received", "requested", "read"} <= {item.state for item in evidence}
@@ -438,7 +439,7 @@ def test_parallel_travel_and_watch_project_two_actual_activities() -> None:
             {},
         ]},
     }, "parallel-action")
-    evidence = worldmock_public_evidence([requested, settled], [], {})
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in [requested, settled]], [], {})
     assert {(item.interaction, item.state, item.object_key) for item in evidence} == {
         ("travel", "requested", "route-private"), ("travel", "started", "route-private"),
         ("view", "requested", "feed-private"), ("view", "started", "feed-private"),

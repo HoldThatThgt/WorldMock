@@ -4,7 +4,10 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import pytest
 
+
+@pytest.mark.requires_node
 def test_run_viewer_recorded_names():
     """@brief Node 缺失明确失败，防止核心页面回归被静默跳过。"""
     node = shutil.which("node")

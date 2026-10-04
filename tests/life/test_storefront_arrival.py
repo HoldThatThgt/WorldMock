@@ -5,12 +5,12 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 import shutil
 from pathlib import Path
 
 import pytest
 
+from tests.file_copy import link_or_copy
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  pause_request, report_request, stage_day_plan, start_activity,
                                  wake_by_mail)
@@ -49,7 +49,7 @@ def _write_json(path, value):
 def _restricted_engine(tmp_path):
     """@brief 复制正式冻结输入并声明进入资格，所有哈希按真实准入重新钉扎。"""
     corpus = tmp_path / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus, copy_function=os.link)
+    shutil.copytree(ROOT / "corpora", corpus, copy_function=link_or_copy)
     places_path = corpus / "zhangjiang-map/locations.json"
     places = json.loads(places_path.read_text(encoding="utf-8"))
     restricted = next(item for item in places["locations"] if item["location_id"] == STORE)
@@ -72,7 +72,7 @@ def _restricted_engine(tmp_path):
     document["map_dataset"]["sha256"] = dataset_sha
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
-    shutil.copytree(ROOT / "catalog", tmp_path / "catalog", copy_function=os.link)
+    shutil.copytree(ROOT / "catalog", tmp_path / "catalog", copy_function=link_or_copy)
     path = scenarios / "restricted.json"
     _write_json(path, document)
     return LifeEngine.create(path, tmp_path / "run-arrival", _identity(document, "restricted-arrival"))

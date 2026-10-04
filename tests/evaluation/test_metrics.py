@@ -120,7 +120,7 @@ def test_matching_human_reference_uses_same_date_and_support_mask(evaluation_fix
 def test_formal_window_uses_natural_week_blocks_and_ten_thousand_resamples(monkeypatch) -> None:
     """正式窗口先形成十二个完整自然周，再以周块执行一万次重抽样。"""
     scenario = load_scenario(FORMAL_SCENARIO)
-    blocks = metrics_module._date_blocks(scenario)
+    blocks = metrics_module.date_blocks(scenario)
     flattened = tuple(day for block in blocks for day in block)
 
     assert len(blocks) == 12

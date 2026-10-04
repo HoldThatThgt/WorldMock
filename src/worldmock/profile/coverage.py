@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from worldmock.base_models import FrozenModel
 from pydantic import BaseModel, ConfigDict, Field
 
 from worldmock.errors import IntegrityError
@@ -20,10 +21,9 @@ COVERAGE_THRESHOLD = 0.8
 COVERAGE_SCHEMA_VERSION = 1
 
 
-class CoverageTargets(BaseModel):
+class CoverageTargets(FrozenModel):
     """@brief 调用方给出的映射目标清单（世界目录/品类集，profile 不自行加载）。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     habit_response_keywords: tuple[str, ...] = ()
     content_genres: tuple[str, ...] = ()
@@ -33,19 +33,17 @@ class CoverageTargets(BaseModel):
     app_names: tuple[str, ...] = ()
 
 
-class MissingEntry(BaseModel):
+class MissingEntry(FrozenModel):
     """@brief 一条缺失映射：类别与未映射值。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: str
     value: str
 
 
-class PersonaCoverageReport(BaseModel):
+class PersonaCoverageReport(FrozenModel):
     """@brief persona_coverage.json 输出结构。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = COVERAGE_SCHEMA_VERSION
     total_items: int = Field(ge=0)

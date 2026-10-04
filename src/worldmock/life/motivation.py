@@ -39,7 +39,8 @@ from worldmock.catalog.affordances import (
 )
 from worldmock.errors import IntegrityError
 from worldmock.life import sleep
-from worldmock.life.activities import lifestyle_relief_rates, relief_preference
+from worldmock.life.activities import (content_entertainment_relief_rate, entertainment_relief_rate,
+                                       lifestyle_relief_rates)
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
     entertainment_need_rate,
@@ -51,13 +52,8 @@ from worldmock.life.content import (
     LifestyleItem,
     restarts_from_beginning,
 )
-from worldmock.life.models import (
-    ActivityKind,
-    ActivityState,
-    AgentState,
-    ContentProgress,
-    FrozenModel,
-)
+from worldmock.base_models import FrozenModel
+from worldmock.life.models import (ActivityKind, ActivityState, AgentState, ContentProgress)
 from worldmock.life.map_models import SupplyConfig
 from worldmock.life.models import SupplyQuoteState
 from worldmock.life.opening_hours import opening_status
@@ -738,12 +734,9 @@ def _continue_candidate(context: MotivationContext, activity: ActivityState) -> 
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
     if remaining < 60:
         return None
-    if activity.kind == ActivityKind.TRAVEL and activity.travel_mode is not None:
-        met = context.body.activity_met[f"travel:{activity.travel_mode.value}"]
-    elif activity.kind == ActivityKind.LIFESTYLE:
-        met = context.body.activity_met[f"lifestyle:{activity.target_id}"]
-    else:
-        met = context.body.activity_met[activity.kind.value]
+    key = default_affordances().met_lookup_key(activity.kind.value, travel_mode=activity.travel_mode,
+                                               target_id=activity.target_id)
+    met = context.body.activity_met[key]
     burn = minimum_energy_cost(activity.kind, remaining, context.body, met)
     if activity.kind not in ENERGY_RECOVERY_ACTIVITY_KINDS and burn > context.agent.body.energy_kcal:
         return None
@@ -807,13 +800,6 @@ def _preference(context: MotivationContext, item_id: str) -> float:
     return context.taste_weights.get(item_id, 0.0)
 
 
-def _relief_preference(context: MotivationContext, item_id: str) -> float:
-    """@brief 缓解预演用的有效偏好 f + (1 − f)·w，与结算的 activities._entertainment_relief 同式
-    （docs/dev/SPEC-dayrun-fidelity.md 1.2）；排序与采样仍用 _preference 的原始权重。"""
-    return relief_preference(_preference(context, item_id),
-                             context.body.entertainment_relief_preference_floor)
-
-
 def _entertainment_change(context: MotivationContext, relief_per_hour: float,
                           hours: float) -> float:
     """@brief 与共同身体结算（body._shared_entries）同式的娱乐需要变化：有缓解时只按缓解下降、
@@ -826,25 +812,8 @@ def _entertainment_change(context: MotivationContext, relief_per_hour: float,
 def _entertainment_delta(context: MotivationContext, activity: ActivityState,
                          hours: float) -> float:
     """@brief 进行中活动引起的娱乐需要变化：有缓解的活动按实际缓解速率下降、不再累积，其余累积。"""
-    return _entertainment_change(context, _continue_relief_rate(context, activity), hours)
-
-
-def _continue_relief_rate(context: MotivationContext, activity: ActivityState) -> float:
-    """@brief 进行中活动的缓解速率，与 activities._entertainment_relief 同式：观看为条目费率 ×
-    有效偏好 ÷ 接触次数，游戏为有效偏好 × 目录费率（裁决 S1），生活活动为条目 effects 折算速率；
-    观看证据不全与其余活动为 0（按累积预演）。"""
-    if activity.kind == ActivityKind.LIFESTYLE:
-        return lifestyle_relief_rates(activity.target_id or "")[0]
-    preference = _relief_preference(context, activity.target_id or "")
-    if activity.kind == ActivityKind.WATCH:
-        rate = activity.data.get("entertainment_relief_per_hour")
-        count = activity.data.get("exposure_count", 1)
-        if isinstance(rate, (int, float)) and isinstance(count, int) and count >= 1:
-            return float(rate) * preference / count
-        return 0.0
-    if activity.kind == ActivityKind.PLAY_GAME:
-        return preference * context.body.entertainment_relief_per_hour.get(ActivityKind.PLAY_GAME.value, 0)
-    return 0.0
+    return _entertainment_change(context, entertainment_relief_rate(
+        activity, _preference(context, activity.target_id or ""), context.body), hours)
 
 
 def _travel_candidate(context: MotivationContext, label: str,
@@ -863,7 +832,7 @@ def _travel_candidate(context: MotivationContext, label: str,
         route.mode.value, route.duration_seconds, context.current_time))
     if duration < 60:
         return None
-    met = context.body.activity_met[f"travel:{route.mode.value}"]
+    met = context.body.activity_met[default_affordances().met_lookup_key("travel", travel_mode=route.mode)]
     burn = minimum_energy_cost(ActivityKind.TRAVEL, duration, context.body, met)
     if burn > agent.body.energy_kcal:
         return None
@@ -1016,7 +985,8 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
     summary, lead = _watch_texts(item, position, typical, boundaries, slot)
     hours = slot / 3600
     # 缓解预演与结算同式：条目费率 × 有效偏好 ÷ 接触次数，有缓解时不再累积（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
-    relief_rate = item.entertainment_relief_per_hour * _relief_preference(context, item.item_id) / divisor
+    relief_rate = content_entertainment_relief_rate(item.entertainment_relief_per_hour, divisor,
+                                                    _preference(context, item.item_id), context.body)
     fun_delta = _entertainment_change(context, relief_rate, hours)
     fun_after = agent.body.entertainment_need + fun_delta
     burn = minimum_energy_cost(ActivityKind.WATCH, slot, context.body)
@@ -1075,7 +1045,7 @@ def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile
     if place is None:
         return []
     items = [item for item in context.lifestyle_items
-             if f"lifestyle:{item.activity_id}" in met_table
+             if default_affordances().met_lookup_key("lifestyle", target_id=item.activity_id) in met_table
              and feasible_kinds(frozenset(place.location_kinds), context.activity_location_kinds[item.activity_id])
              and (enabled is None or item.activity_id in enabled)]
     ranked = sorted(
@@ -1102,7 +1072,7 @@ def _lifestyle_candidate(context: MotivationContext, item: LifestyleItem,
                          family: FamilySpec, params: Mapping) -> _Candidate | None:
     """@brief 单条生活活动候选：时长槽、能量预算与 effects 缓解资源流。"""
     agent = context.agent
-    met = context.body.activity_met[f"lifestyle:{item.activity_id}"]
+    met = context.body.activity_met[default_affordances().met_lookup_key("lifestyle", target_id=item.activity_id)]
     typical = float(item.typical_duration_minutes * 60)
     outer_cap = min(
         maximum_energy_duration_seconds(ActivityKind.LIFESTYLE,

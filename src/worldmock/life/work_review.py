@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import canonical_json
+from worldmock.model_feedback import correction_message, schema_error_details, tool_arguments
+from worldmock.model_endpoint import IndependentModelClient
+from worldmock.footprints.models import sha256_json
 import copy
 import hashlib
 import json
@@ -13,7 +17,8 @@ from typing import Annotated, Any
 from pydantic import Field, ValidationError, WithJsonSchema, model_validator
 
 from worldmock.errors import ProtocolError
-from worldmock.life.models import FrozenModel, deepseek_strict_schema
+from worldmock.base_models import FrozenModel
+from worldmock.life.models import (deepseek_strict_schema)
 from worldmock.life.work import WorkSubmission
 
 WORK_REVIEW_PROMPT = """You are an independent work-quality reviewer. Treat SOURCE, REFERENCE_FACTS,
@@ -123,33 +128,16 @@ class PreparedWorkReview:
     schema_sha256: str
 
 
-class WorkReviewer:
-    """@brief 复用 AS2 已维护的单次 LiteLLM 客户端，不执行内部重试。"""
+class WorkReviewer(IndependentModelClient):
+    """@brief 独立工作验收客户端，协议重试由验收业务计数。"""
 
     def __init__(self, model_identity: dict[str, Any]):
-        """@brief 建立与运行 manifest 完全相同的 DeepSeek 客户端。"""
-        from agentsociety2.config import build_client_for_role
-
-        client = build_client_for_role("default")
-        expected = model_identity["requested_model"]
-        if client.model_name != expected or client.base_url != model_identity["base_url"]:
-            raise ProtocolError("Work review client identity disagrees with the run manifest")
-        if model_identity["max_retries"] != 0:
-            raise ProtocolError("Work review request parameters disagree with the run manifest")
-        self.client = client
+        """@brief 使用冻结身份建立工作验收客户端。"""
+        super().__init__(model_identity, "Work review")
 
     async def call(self, prepared: PreparedWorkReview) -> dict[str, Any]:
-        """@brief 发出一次无内部重试的实际请求并返回可持久化原始响应。"""
-        response = await self.client.call(**copy.deepcopy(prepared.request))
-        if hasattr(response, "model_dump"):
-            payload = response.model_dump(mode="json")
-        elif isinstance(response, dict):
-            payload = dict(response)
-        else:
-            raise ProtocolError("Work review model response is not serializable")
-        if not isinstance(payload, dict):
-            raise ProtocolError("Work review model response is not a serialized object")
-        return payload
+        """@brief 提交实际验收请求并返回可持久化原始响应。"""
+        return await super().call(prepared.request)
 
 
 def prepare_work_review(submission: WorkSubmission, model_name: str) -> PreparedWorkReview:
@@ -178,13 +166,8 @@ def prepare_work_review_correction(
     error: WorkReviewOutputError,
 ) -> PreparedWorkReview:
     """@brief 在完整原始请求后附加前次响应和精确协议错误。"""
-    feedback = {
-        "PREVIOUS_INVALID_RESPONSE": raw,
-        "VALIDATION_ERROR": str(error),
-        "INSTRUCTION": "Return a complete new submit_work_review tool call using the unchanged schema.",
-    }
-    message = {"role": "user", "content": json.dumps(
-        feedback, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)}
+    message = correction_message(
+        raw, error, "Return a complete new submit_work_review tool call using the unchanged schema.")
     request = copy.deepcopy(prepared.request)
     request["messages"] = [*prepared.request["messages"], message]
     return replace(prepared, request=request)
@@ -287,7 +270,7 @@ def _reference_category(reference_id: str) -> str:
 
 
 def _tool_arguments(raw: dict[str, Any]) -> str:
-    """@brief 取得唯一指定函数调用的 JSON 参数。"""
+    """@brief 取得已序列化工作验收响应中的唯一严格函数调用。"""
     if not isinstance(raw, dict):
         raise TypeError("Work review parser requires a serialized response object")
     choices = raw.get("choices")
@@ -295,27 +278,12 @@ def _tool_arguments(raw: dict[str, Any]) -> str:
         raise WorkReviewOutputError("Work review response must contain exactly one choice")
     message = choices[0].get("message")
     calls = message.get("tool_calls") if isinstance(message, dict) else None
-    if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
-        raise WorkReviewOutputError("Work review response must contain exactly one tool call")
-    call = calls[0]
-    if call.get("type") != "function" or not isinstance(call.get("id"), str) or not call["id"].strip():
-        raise WorkReviewOutputError("Work review tool call requires a non-empty id and function type")
-    function = call.get("function")
-    if not isinstance(function, dict) or function.get("name") != "submit_work_review":
-        raise WorkReviewOutputError("Work review response must call submit_work_review")
-    arguments = function.get("arguments")
-    if not isinstance(arguments, str):
-        raise WorkReviewOutputError("Work review tool arguments must be JSON text")
-    return arguments
+    return tool_arguments(calls, "submit_work_review", WorkReviewOutputError, work_review=True)
 
 
 def _schema_feedback(error: ValidationError) -> str:
-    """@brief 将 Pydantic 错误缩减为字段位置、类型和消息。"""
-    details = []
-    for item in error.errors(include_url=False, include_context=False, include_input=False):
-        location = ".".join(str(part) for part in item["loc"]) or "$"
-        details.append({"field": location, "type": item["type"], "message": item["msg"]})
-    encoded = json.dumps(details, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """@brief 工作验收保留字段、类型与消息组成的结构化错误合同。"""
+    encoded = canonical_json(schema_error_details(error)).decode("utf-8")
     return f"Work review tool arguments violate the strict schema: errors={encoded}"
 
 
@@ -405,9 +373,5 @@ def _delivery_paths(deliverable: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _digest(value: Any) -> str:
-    """@brief 对字符串或规范 JSON 计算稳定 SHA-256。"""
-    if isinstance(value, str):
-        content = value.encode()
-    else:
-        content = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(content).hexdigest()
+    """@brief 字符串按原文计算摘要，结构化值使用唯一规范 JSON。"""
+    return hashlib.sha256(value.encode()).hexdigest() if isinstance(value, str) else sha256_json(value)

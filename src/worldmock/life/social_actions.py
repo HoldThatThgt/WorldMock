@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError
 from worldmock.life import felt, social
 from worldmock.life.activities import ActivityAdvance, ActivityOrigin
-from worldmock.life.body import ActivityFactors, settle_body
+from worldmock.life.body import ActivityFactors, apply_social_ledger, settle_body
 from worldmock.life.guidance import Refusal
 from worldmock.life.models import (
     ActivityKind,
@@ -227,17 +227,11 @@ def _social_body_relief(body: BodyState, activity: ActivityState, seconds: int,
     hours = seconds / 3600
     if activity.kind == ActivityKind.CALL:
         exposure = felt.SocialExposure(awake_hours=hours, call_hours=hours)
-        return _apply_ledger(body, exposure)
+        return apply_social_ledger(body, exposure)
     shared = min(max(shared_seconds, 0), seconds) / 3600
-    after = _apply_ledger(body, felt.SocialExposure(awake_hours=hours, conversation_hours=shared))
+    after = apply_social_ledger(body, felt.SocialExposure(awake_hours=hours, conversation_hours=shared))
     declined = social.CHAT_RELIEF_DECLINED_PER_HOUR * (hours - shared)
     return after.model_copy(update={"social_need": max(0.0, after.social_need - declined)}, deep=True)
-
-
-def _apply_ledger(body: BodyState, exposure: felt.SocialExposure) -> BodyState:
-    """@brief 经 felt 账本推进社交需要（钳制 [0, 1] 由账本承担）。"""
-    need = felt.apply_social_need_ledger(body.social_need, exposure)
-    return body.model_copy(update={"social_need": need}, deep=True)
 
 
 def end_partner_chats(before: WorldState, after: WorldState) -> tuple[WorldState, list[int]]:

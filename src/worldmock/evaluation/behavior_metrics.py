@@ -15,6 +15,10 @@
 
 from __future__ import annotations
 
+from worldmock.life.schedule import ACTIVITY_KIND_FAMILIES, LIFESTYLE_CATEGORY_FAMILIES, activity_family
+from worldmock.footprints.intervals import valid_interval, body_settlements
+from worldmock.footprints.timeline_labels import local_day_bounds, window_days
+from worldmock.life.memory_evidence import valid_subjective_snapshot
 import math
 import statistics
 from collections import Counter
@@ -32,18 +36,8 @@ ACTIVITY_FAMILY_ORDER = (
 )
 
 #: 原始活动 kind 到家族的确定性映射；wait 计入休息，consume 需实际 eat 证据才计用餐。
-_KIND_FAMILY = {
-    "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
-    "watch": "entertainment", "play_game": "entertainment", "browse": "entertainment",
-    "read_mail": "entertainment", "wait": "rest",
-}
 
 #: lifestyle 快照携带 category（现有语料品类）或 family（闭集名）时的映射。
-_LIFESTYLE_CATEGORY_FAMILY = {
-    "sport": "exercise", "household": "chore", "social": "social", "outdoor": "outing",
-    "hobby": "entertainment", "learning": "entertainment", "wellness": "rest",
-    "pet": "chore", "volunteer": "social",
-}
 
 _FAMILY_ALIASES = {
     "sleep": "sleep", "睡眠": "sleep", "morning_routine": "morning_routine",
@@ -245,10 +239,7 @@ def _activity_progress_events(events: list[dict[str, Any]]) -> list[dict[str, An
     return [event for event in events if event.get("event_type") == "activity_progress"]
 
 
-def _body_settlement_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取每人每区间唯一的共同身体证据。"""
-    return [event for event in events if event.get("event_type") == "environment_event"
-            and event.get("data", {}).get("kind") == "body_settlement"]
+
 
 
 def _snapshot(event: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -261,7 +252,7 @@ def _silent_boundary_gate(events: list[dict[str, Any]], notes: list[str]) -> dic
     """@brief 计算清醒活动结算边界中未提供决策（decision_offered=false）的占比。"""
     sleep_ids = {event.get("activity_id") for event in _activity_progress_events(events)
                  if _snapshot(event).get("kind") == "sleep"}
-    waking = [event for event in _body_settlement_events(events)
+    waking = [event for event in body_settlements(events)
               if not event.get("data", {}).get("activity_ids")
               or any(identity not in sleep_ids for identity in event["data"]["activity_ids"])]
     known = [event for event in waking if "decision_offered" in event.get("data", {})]
@@ -380,7 +371,7 @@ def _wake_reason_distribution(events: list[dict[str, Any]], notes: list[str]) ->
 
     同刻轮次不写共同身体结算，其原因只在 decision_started.data.wake_reasons 中计数。
     """
-    boundaries = _body_settlement_events(events)
+    boundaries = body_settlements(events)
     counts, with_reasons = _reason_counts(boundaries)
     started = [event for event in events if event.get("event_type") == "decision_started"]
     started_counts, started_with_reasons = _reason_counts(started)
@@ -408,7 +399,7 @@ def _interval_minutes(event: Mapping[str, Any]) -> float:
     """@brief 取单个结算区间的分钟数（interval_end - interval_start）。"""
     data = event.get("data", {})
     start, end = data.get("interval_start"), data.get("interval_end")
-    if isinstance(start, (int, float)) and isinstance(end, (int, float)) and end >= start:
+    if valid_interval(start, end):
         return (end - start) / 60.0
     return 0.0
 
@@ -464,9 +455,9 @@ def _person_elapsed_minutes(events: list[dict[str, Any]], notes: list[str]) -> d
     """@brief 共同结算按人物取区间并集，保留活动家族的独立时间口径。"""
     by_agent: dict[str, list[tuple[float, float]]] = {}
     missing = 0
-    for event in _body_settlement_events(events):
+    for event in body_settlements(events):
         start, end = event.get("data", {}).get("interval_start"), event.get("data", {}).get("interval_end")
-        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or end <= start:
+        if not valid_interval(start, end):
             missing += 1
             continue
         by_agent.setdefault(str(event.get("agent_id")), []).append((start, end))
@@ -532,8 +523,7 @@ def _sleep_schedule(events: list[dict[str, Any]], timezone: str, notes: list[str
                                                    "end": _interval_end(event)})
         record["end"] = max(record["end"], _interval_end(event))
     valid = sorted((record for record in sessions.values()
-                    if isinstance(record["start"], (int, float))
-                    and isinstance(record["end"], (int, float)) and record["end"] > record["start"]),
+                    if valid_interval(record["start"], record["end"])),
                    key=lambda item: (item["start"], item["agent_id"]))
     if not valid:
         notes.append("无有效 sleep 活动区间，就寝与起床时刻无法计算")
@@ -633,8 +623,8 @@ def _family_of(snapshot_data: Mapping[str, Any]) -> str | None:
     """@brief 将活动快照映射到十类闭集；lifestyle 需 family/category 字段。"""
     kind = str(snapshot_data.get("kind"))
     if kind != "lifestyle":
-        return _KIND_FAMILY.get(kind)
-    for field, table in (("family", _FAMILY_ALIASES), ("category", _LIFESTYLE_CATEGORY_FAMILY)):
+        return ACTIVITY_KIND_FAMILIES.get(activity_family(snapshot_data))
+    for field, table in (("family", _FAMILY_ALIASES), ("category", LIFESTYLE_CATEGORY_FAMILIES)):
         value = snapshot_data.get(field)
         if isinstance(value, str) and value.lower() in table:
             return table[value.lower()]
@@ -666,9 +656,9 @@ def _agent_days(events: list[dict[str, Any]], agent_id: str, zone: ZoneInfo) -> 
     if not stamps:
         return 0
     dates = {datetime.fromtimestamp(stamp, zone).date() for stamp in stamps}
-    first = min(dates)
-    last = max(dates)
-    return (last - first).days + 1
+    start = local_day_bounds(min(dates), zone)[0]
+    end = local_day_bounds(max(dates), zone)[1]
+    return len(window_days({"start": start, "end": end, "timezone": zone.key}))
 
 
 def _js_buckets(family_minutes: Mapping[str, float]) -> list[float]:
@@ -794,12 +784,7 @@ def _episode_pairs(events: list[dict[str, Any]]) -> tuple[int, int, int, int]:
             malformed += 1
             continue
         for episode in episodes:
-            if (not isinstance(episode, Mapping)
-                    or set(episode) != {"id", "type", "text", "epistemic_status"}
-                    or not isinstance(episode["id"], str) or not episode["id"]
-                    or not isinstance(episode["type"], str) or not episode["type"]
-                    or not isinstance(episode["text"], str) or not episode["text"]
-                    or episode["epistemic_status"] != "subjective"):
+            if not valid_subjective_snapshot(episode):
                 malformed += 1
                 continue
             texts_found += 1

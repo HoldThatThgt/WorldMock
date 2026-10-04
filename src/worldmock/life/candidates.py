@@ -43,7 +43,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from worldmock.catalog.affordances import default_affordances
-from worldmock.life.models import ActivityKind
+from worldmock.footprints.models import sha256_json
+from worldmock.life.models import ActivityKind, DERIVED_DURATION_CAP_SECONDS
 from worldmock.life.scenario import LocationConfig
 
 #: 候选类别闭集（docs/CONTRACTS.md「候选与呈现合同」的「候选对象与来源」）。
@@ -68,7 +69,7 @@ ExclusionReason = Literal[
 
 #: 候选类别闭集的可枚举形式（成员与顺序与 `CandidateKind` 逐字一致）。
 CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product", "lifestyle", "content", "game", "task")
-#: 候选来源闭集的可枚举形式（成员与顺序与 `CandidateSource` 逐字一致）。
+#: 候选来源闭集及生成合并顺序（成员与顺序与 `CandidateSource` 逐字一致）。
 CANDIDATE_SOURCES: tuple[CandidateSource, ...] = ("on_site", "browsed", "carried", "activated")
 #: 排除原因码闭集的可枚举形式（成员与顺序与 `ExclusionReason` 逐字一致）。
 EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
@@ -91,11 +92,8 @@ ORDER_KEY_VERSION = 2
 FIXED_POINT_SCALE = 10_000
 #: 本轮可取候选的时间窗（秒），截至世界当前时刻加该值；候选只在此窗内自足。
 CANDIDATE_WINDOW_SECONDS = 86_400
-#: 生成段的来源顺序（合并序，也是确定性的一部分）。
-_SOURCE_ORDER: tuple[CandidateSource, ...] = ("on_site", "browsed", "carried", "activated")
-
 #: 候选类别 → 活动类型（资源占用判据按注册表取该类型的显式占用）。
-_ACTIVITY_OF_KIND: dict[str, ActivityKind | None] = {
+CANDIDATE_ACTIVITY_KINDS: dict[str, ActivityKind | None] = {
     "product": ActivityKind.CONSUME,
     "lifestyle": ActivityKind.LIFESTYLE,
     "content": ActivityKind.WATCH,
@@ -109,12 +107,6 @@ def fixed_point(value: float) -> int:
     return int(round(float(value) * FIXED_POINT_SCALE))
 
 
-def _digest(payload: Any) -> str:
-    """@brief 用 `hashlib` 对规范 JSON 求稳定摘要（跨进程不受哈希种子影响）。"""
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 @dataclass(frozen=True, slots=True)
 class LocationView:
     """@brief 一个地点的可行性门视图：地点类闭集、营业时段与所需活动时长。"""
@@ -125,7 +117,7 @@ class LocationView:
     #: 启动活动所需的最短时长（秒）：短于该值的候选无法受理。
     minimum_seconds: int = 0
     #: 启动活动允许的最长时长（秒）：长于该值的候选无法受理。
-    maximum_seconds: int = 86_400
+    maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
 
     @classmethod
     def from_config(cls, config: LocationConfig, status: str) -> "LocationView":
@@ -146,7 +138,7 @@ class CandidateEntry:
     location_kinds: frozenset[str] = field(default_factory=frozenset)
     #: 时长窗口（秒）。
     minimum_seconds: int = 0
-    maximum_seconds: int = 86_400
+    maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
     #: 目录级库存：0 表示缺货（世界事实）。
     stock: int = 1
     #: 目录级下架（墓碑语义：保留可读、拒绝新场景引用）。
@@ -314,7 +306,7 @@ def recall(inputs: CandidateInputs) -> CandidatePage:
 def generate_candidates(inputs: CandidateInputs) -> tuple[GeneratedCandidate, ...]:
     """@brief 生成段：按四个来源合并候选全集，同一对象取来源并集（第一个来源定序）。"""
     merged: dict[tuple[str, str], tuple[CandidateEntry, list[CandidateSource]]] = {}
-    for source in _SOURCE_ORDER:
+    for source in CANDIDATE_SOURCES:
         for entry in inputs.sources.get(source, ()):
             key = (entry.kind, entry.object_id)
             if key in merged:
@@ -365,7 +357,7 @@ def exclusion_counts(excluded: Sequence[Exclusion]) -> dict[str, int]:
 
 def cursor_identity(inputs: CandidateInputs, cursor: str | None) -> str:
     """@brief 游标身份：只由（冻结目录摘要、世界状态版本、排序键版本、游标）四项决定。"""
-    return _digest({"catalog_digest": inputs.catalog_digest,
+    return sha256_json({"catalog_digest": inputs.catalog_digest,
                     "world_state_version": int(inputs.state_version),
                     "order_key_version": ORDER_KEY_VERSION,
                     "cursor": cursor})
@@ -494,7 +486,7 @@ def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusion
 
 def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
     """@brief 候选与全部 ACTIVE 活动按同一注册表的显式占用交集判定（内容条目按内容品类的条件占用）。"""
-    kind = _ACTIVITY_OF_KIND[entry.kind]
+    kind = CANDIDATE_ACTIVITY_KINDS[entry.kind]
     claims = default_affordances().resource_claims(kind.value, content_kind=entry.content_kind)
     return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 

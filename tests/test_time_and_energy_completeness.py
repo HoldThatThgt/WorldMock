@@ -265,6 +265,14 @@ def test_removed_symbols_of_done_stages_are_absent() -> None:
     assert not left, left
 
 
+def test_activity_duration_limits_use_the_shared_model_constants() -> None:
+    """时长上限从唯一生产归宿导入，替代旧文件内常量的逐字钉。"""
+    from worldmock.life.models import CONSUME_DURATION_CAP_SECONDS, DERIVED_DURATION_CAP_SECONDS
+
+    assert DERIVED_DURATION_CAP_SECONDS == 86400
+    assert CONSUME_DURATION_CAP_SECONDS == 14400
+
+
 def test_required_symbols_of_done_stages_are_present() -> None:
     """已完成阶段登记的新增符号在每个列出路径中都能找到（目录下任一文件命中即算）。"""
     absent = [

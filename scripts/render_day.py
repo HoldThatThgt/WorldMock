@@ -5,7 +5,7 @@
 静默边界产生的分段折叠不单列；活动目标先取快照标题，再按名称索引解析为品名、地名、
 邮件主题、内容标题、生活活动名、任务标题与人名；种类名取 worldmock.life.readable 的中文种类表
 （单一来源），解析不到名称时只写中文种类名：时间线里不出现英文种类名与内部标识
-（docs/dev/SPEC-dayrun-fidelity.md 7.4）。按 agent_id 与场景时区（Asia/Shanghai）
+（docs/dev/SPEC-dayrun-fidelity.md 7.4）。按 agent_id 与冻结清单的场景时区
 的模拟日期过滤。同库同参数输出逐字节相同；name_index 与 day_rows 也接受已排序的事件正文，
 质量报告的时间线标签检查据此投影同一张时间线。
 
@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+from worldmock.footprints.timeline_labels import local_day_bounds
+from worldmock.footprints.intervals import valid_interval
 import argparse
 import json
 import re
@@ -30,8 +32,6 @@ if str(_SOURCE_ROOT) not in sys.path:
 
 from worldmock.life.readable import ACTIVITY_KIND_LABELS, BROWSE_LABELS, TRAVEL_WAYS  # noqa: E402
 
-#: 场景时区（修订合同：模拟日期按 Asia/Shanghai 切日）。
-SCENARIO_TIMEZONE = ZoneInfo("Asia/Shanghai")
 #: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、生活活动名、任务标题、人名（联系人与同世界人物）。
 NAME_KINDS = ("products", "locations", "messages", "contents", "lifestyles", "tasks", "people")
 #: 种类表之外的活动种类的中文名。
@@ -49,10 +49,7 @@ def _connect(sqlite_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _day_bounds(day: date) -> tuple[int, int]:
-    """@brief 返回该场景时区日期的左闭右开 epoch 秒边界。"""
-    start = datetime(day.year, day.month, day.day, tzinfo=SCENARIO_TIMEZONE)
-    return int(start.timestamp()), int((start + timedelta(days=1)).timestamp())
+
 
 
 def _progress_bodies(conn: sqlite3.Connection, agent_id: int) -> Iterator[dict]:
@@ -79,8 +76,11 @@ def _segments_for_day(progress: Iterable[dict], bounds: tuple[int, int]) -> list
     segments = []
     for body in progress:
         data = body.get("data") if isinstance(body.get("data"), dict) else {}
-        start = min(max(int(data.get("interval_start", 0)), day_start), day_end)
-        end = min(max(int(data.get("interval_end", 0)), day_start), day_end)
+        raw_start, raw_end = data.get("interval_start"), data.get("interval_end")
+        if not valid_interval(raw_start, raw_end):
+            continue
+        start = min(max(raw_start, day_start), day_end)
+        end = min(max(raw_end, day_start), day_end)
         if end <= start:
             continue
         snapshot = data.get("activity") if isinstance(data.get("activity"), dict) else {}
@@ -256,9 +256,9 @@ def _activity_label(snapshot: dict, names: dict) -> str:
     return ACTIVITY_KIND_LABELS.get(kind, _UNKNOWN_KIND_LABEL)
 
 
-def _fmt_clock(epoch: int) -> str:
+def _fmt_clock(epoch: int, timezone: str) -> str:
     """@brief epoch 秒转场景时区 HH:MM。"""
-    return datetime.fromtimestamp(epoch, SCENARIO_TIMEZONE).strftime("%H:%M")
+    return datetime.fromtimestamp(epoch, ZoneInfo(timezone)).strftime("%H:%M")
 
 
 def _fmt_duration(seconds: int) -> str:
@@ -272,15 +272,15 @@ def _fmt_duration(seconds: int) -> str:
     return f"{rest} 分钟"
 
 
-def day_rows(progress: Iterable[dict], names: dict, day: date) -> list[dict]:
+def day_rows(progress: Iterable[dict], names: dict, day: date, timezone: str) -> list[dict]:
     """@brief 该人物该日时间线的各行：起止、活动标签、总时长与段数，按起止与活动身份排序。
 
     :param progress: 该人物的 activity_progress 事件正文（按 event_seq）。
     :param names: name_index 建立的名称索引。
     """
-    runs = sorted(_merge_runs(_segments_for_day(progress, _day_bounds(day))),
+    runs = sorted(_merge_runs(_segments_for_day(progress, local_day_bounds(day, timezone))),
                   key=lambda run: (run["start"], run["end"], run["activity_id"]))
-    return [{"interval": f"{_fmt_clock(run['start'])}–{_fmt_clock(run['end'])}",
+    return [{"interval": f"{_fmt_clock(run['start'], timezone)}–{_fmt_clock(run['end'], timezone)}",
              "label": _activity_label(run["snapshot"], names), "duration": _fmt_duration(run["seconds"]),
              "count": run["count"]} for run in runs]
 
@@ -295,10 +295,10 @@ def _markdown(agent_id: int, day: date, rows: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_day_markdown(conn: sqlite3.Connection, agent_id: int, day: date) -> str:
+def render_day_markdown(conn: sqlite3.Connection, agent_id: int, day: date, timezone: str) -> str:
     """@brief 生成该人物该日的确定性时间线 markdown 全文。"""
     names = name_index(_name_bodies(conn))
-    return _markdown(agent_id, day, day_rows(_progress_bodies(conn, agent_id), names, day))
+    return _markdown(agent_id, day, day_rows(_progress_bodies(conn, agent_id), names, day, timezone))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -319,7 +319,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     conn = _connect(args.sqlite)
     try:
-        markdown = render_day_markdown(conn, args.agent, day)
+        manifest = json.loads((args.sqlite.parent / "manifest.json").read_bytes())
+        markdown = render_day_markdown(conn, args.agent, day, manifest["window"]["timezone"])
     finally:
         conn.close()
     target_dir = args.out / "timeline"

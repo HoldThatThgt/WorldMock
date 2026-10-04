@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import time
 from datetime import datetime
 from pathlib import Path
@@ -106,21 +105,21 @@ def _route_url(route, places: dict) -> str:
 def _validate_response(data: dict, route) -> None:
     """@brief 不可达必须是 NoRoute，成功响应必须与实际道路出行方式一致。"""
     if not isinstance(data, dict):
-        _reject(f"Route preparation requires a JSON object for {route.route_id}")
+        raise IntegrityError(f"Route preparation requires a JSON object for {route.route_id}")
     if data.get("code") == "NoRoute":
         return
     rows = data.get("routes")
     if data.get("code") != "Ok" or not isinstance(rows, list) or not rows:
-        _reject(f"Route preparation failed for {route.route_id}")
+        raise IntegrityError(f"Route preparation failed for {route.route_id}")
     value = rows[0]
     geometry = value.get("geometry", {})
     if (value.get("distance", 0) <= 0 or value.get("duration", 0) <= 0
             or geometry.get("type") != "LineString" or len(geometry.get("coordinates", [])) < 2):
-        _reject(f"Route response is incomplete for {route.route_id}")
+        raise IntegrityError(f"Route response is incomplete for {route.route_id}")
     actual = {step.get("mode") for leg in value.get("legs", []) for step in leg.get("steps", [])}
     expected = "walking" if route.routing_profile == "foot" else "driving"
     if actual != {expected}:
-        _reject(f"Route response mode is invalid for {route.route_id}")
+        raise IntegrityError(f"Route response mode is invalid for {route.route_id}")
 
 
 def _route_metadata(route, url: str, data: dict, path: Path, fare: int) -> dict:
@@ -150,7 +149,7 @@ def _route_fare(catalog, mode: str, data: dict) -> int:
     category = catalog.objects["travel-service"].category_id
     match = require_runtime_rule(catalog, category, Action(f"travel:{mode}"))
     if not isinstance(match.rule, TravelFareRule):
-        _reject("Travel category resolved to an incompatible exchange rule")
+        raise IntegrityError("Travel category resolved to an incompatible exchange rule")
     return evaluate_travel_fare(match.rule, data["routes"][0]["distance"], match.coefficient)
 
 
@@ -163,9 +162,3 @@ def _write_json(path: Path, payload: dict) -> None:
     """@brief 创建目录并保存可审阅 JSON，保持字段顺序和 Unicode。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _reject(message: str) -> None:
-    """@brief 记录英文错误并停止不可信地图发布。"""
-    logging.error(message)
-    raise IntegrityError(message)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.timeline_labels import window_days
 import hashlib
 import importlib.util
 import logging
@@ -104,7 +105,7 @@ def _write_timeline_projections(store: FootprintStore, stage: Path,
     for agent_id in sorted(int(item) for item in store.manifest["agent_ids"]):
         for day in days:
             markdown = module.render_day_markdown(
-                store.connection, agent_id, date.fromisoformat(day))
+                store.connection, agent_id, date.fromisoformat(day), store.manifest["window"]["timezone"])
             payload = markdown.encode("utf-8")
             relative = f"timeline/{agent_id}-{day}.md"
             atomic_write(stage / relative, payload)
@@ -132,11 +133,7 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
     end = datetime.fromtimestamp(events[-1].occurred_at, zone)
     if end <= start:
         raise IntegrityError("Export requires a positive confirmed time window")
-    days = []
-    cursor = start.date()
-    while cursor < end.date() or (cursor == end.date() and end.time().isoformat() != "00:00:00"):
-        days.append(cursor.isoformat())
-        cursor += timedelta(days=1)
+    days = [day.isoformat() for day in window_days({**run["window"], "end": events[-1].occurred_at})]
     ended = [event for event in events if event.event_type == "run_ended"]
     saved = (len(ended) == 1 and ended[0].occurred_at == run["window"]["end"]
              and events[-1].event_type == "checkpoint_created" and events[-1].event_seq > ended[0].event_seq)

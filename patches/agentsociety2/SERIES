@@ -1,0 +1,37 @@
+{
+  "schema_version": "as2-series-1",
+  "upstream": {
+    "url": "https://github.com/tsinghua-fib-lab/agentsociety",
+    "commit": "670c94fff7c64c4f79b632125f2ccf968155e746",
+    "archive": "baseline.tar.gz",
+    "sha256": "5adf4d1054397cd48c4174c526ee5adff2742b442f5b3832b99ab61119b05aad"
+  },
+  "patches": [
+    {
+      "file": "decision-round.patch",
+      "sha256": "95566a5d8ac578398c3bf59565c15c81b1af62e86de1c39def610361e04b3e21"
+    },
+    {
+      "file": "failure-propagation.patch",
+      "sha256": "e960042a3253e5211ef6f026c8885f59f5289bf4593440d4348394652825c513"
+    },
+    {
+      "file": "memory-checkpoints.patch",
+      "sha256": "ba29e4e39576805f5fb1e4238d66df00a3b089a97e46070e360b2c00628d9cf4"
+    },
+    {
+      "file": "model-lifecycle.patch",
+      "sha256": "718d4755835517b229a82726e22f3e416d1337b1233e346edcffad0fb51aa524"
+    },
+    {
+      "file": "package-metadata.patch",
+      "sha256": "2cda7b864178be11c28d6706083382dcf123570d45fef97436f64d02baad79e8"
+    }
+  ],
+  "source_sha256": "bad0fe937ec4cbeaa8263674d8d7226f00109ef29a9ac86e4ce3af868b7c2358",
+  "install_files": {
+    "pyproject.toml": "1e1b1e454999add2106f73c961620c684e4111ebc09b55a0e56309f249713e6b",
+    "README.md": "c8c860146cbd2b54cc61c134c2a3bc1a7d71479b6d71c0039b1ab976988e3e4c",
+    "LICENSE": "b65b784ed7e4318dc1c3e8944046d867edcc272c7f237ea99dcf0c0ce3a1e75d"
+  }
+}

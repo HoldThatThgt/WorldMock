@@ -21,37 +21,20 @@ from worldmock.categories import (
     SourceRecord,
     resolve_pairing,
 )
-from worldmock.categories.common import FrozenModel
+from worldmock.categories.common import DeepFrozenModel, ProvenanceType, Conservation
+from worldmock.base_models import CurvePoint, EfficiencyFactor
 
 LOGGER = logging.getLogger(__name__)
 
 
-class CatalogError(ValueError):
-    """@brief 目录加载或构建失败，携带稳定英文错误码。"""
-
-    def __init__(self, code: str, message: str):
-        """@brief 以稳定错误码和英文详情构造目录故障。
-
-        :param code: 稳定英文错误码，如 CATALOG_VERSION_NOT_MONOTONIC。
-        :param message: 面向维护者的英文失败详情。
-        """
-        self.code = code
-        self.message = message
-        LOGGER.error("%s: %s", code, message)
-        super().__init__(f"{code}: {message}")
 
 
-class CatalogModel(FrozenModel):
+
+class CatalogModel(DeepFrozenModel):
     """@brief 拒绝未知字段并深度冻结目录条目的模型基类。"""
 
 
-class ProvenanceType(StrEnum):
-    """@brief 静态数值来源的四分类。"""
 
-    FACT = "fact"
-    ANCHORED = "anchored"
-    ASSUMPTION = "assumption"
-    SCENARIO = "scenario"
 
 
 class ResourceKind(StrEnum):
@@ -61,11 +44,7 @@ class ResourceKind(StrEnum):
     ACCOUNT = "account"
 
 
-class Conservation(StrEnum):
-    """@brief 守恒域声明：开放（有源有漏）或封闭（零和）。"""
 
-    OPEN = "open"
-    CLOSED = "closed"
 
 
 class ObjectKind(StrEnum):
@@ -132,11 +111,7 @@ class AlertRule(CatalogModel):
         return self
 
 
-class CurvePoint(CatalogModel):
-    """@brief 效率/饱腹曲线上的一个插值点。"""
 
-    input_value: float
-    output_value: float
 
 
 class DrainRules(CatalogModel):
@@ -155,15 +130,7 @@ class DrainRules(CatalogModel):
     entertainment_relief_per_hour: Mapping[str, float] | None = None
 
 
-class EfficiencyFactor(CatalogModel):
-    """@brief 声明式效率因子：一个输入资源名与其分段线性输出乘数曲线。
 
-    引擎不感知任何具体因子：效率 = 各因子按其 ``input_resource`` 当前区间
-    取值后的连乘。新增因果边（如"能量饥饿拖累效率"）只是目录里多一行因子。
-    """
-
-    input_resource: str = Field(pattern=r"\S")
-    curve: tuple[CurvePoint, ...] = Field(min_length=1)
 
 
 class ResourceDefinition(CatalogModel):
@@ -331,7 +298,7 @@ class ExchangeObject(CatalogModel):
         :returns: 槽位有效值。
         """
         if name not in self.attributes:
-            raise CatalogError(
+            raise CategoryError(
                 "CATALOG_ATTRIBUTE_MISSING", f"object {self.object_id} lacks attribute {name}",
             )
         return self.attributes[name]

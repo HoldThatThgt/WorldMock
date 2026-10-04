@@ -162,7 +162,7 @@ def evaluate_metrics(
     channels = tuple(support["shared_channels"])
     left_common = _common_view(left, categories, channels, scenario)
     right_common = _common_view(right, categories, channels, scenario)
-    blocks = _date_blocks(scenario)
+    blocks = date_blocks(scenario)
     metrics = {
         "week_hour_rhythm": _rhythm_metric(left_common, right_common, categories, scenario),
         "weekday_weekend": _weekday_weekend_metric(left_common, right_common, categories, scenario),
@@ -218,7 +218,7 @@ def _rhythm_metric(
     """@brief 计算星期小时节律和块区间。"""
     left_hist = _week_hour_histogram(left, categories)
     right_hist = _week_hour_histogram(right, categories)
-    blocks = _date_blocks(scenario)
+    blocks = date_blocks(scenario)
     block_values = [
         _rhythm_block_distance(left, right, categories, block)
         for block in blocks
@@ -317,7 +317,7 @@ def _block_contrast_differences(
     right_map = dict(zip((day.calendar_date for day in right.days), _daily_counts(right, categories)))
     classes = {day.calendar_date: day.calendar_class for day in left.days}
     values: list[float | None] = []
-    for block in _date_blocks(scenario):
+    for block in date_blocks(scenario):
         left_value = _block_contrast(block, left_map, classes)
         right_value = _block_contrast(block, right_map, classes)
         values.append(_subtract(left_value, right_value))
@@ -388,7 +388,7 @@ def _duration_block_interval(
 ) -> JsonObject:
     """@brief 计算块平均时长差区间。"""
     values: list[float | None] = []
-    for block in _date_blocks(scenario):
+    for block in date_blocks(scenario):
         left_values = _block_durations(left, categories, groups, set(block))
         right_values = _block_durations(right, categories, groups, set(block))
         values.append(_mean_difference(left_values, right_values))
@@ -426,7 +426,7 @@ def _temporal_category(
     right_burst = finite_sample_burstiness(right_times)
     left_memory = interval_memory(left_times)
     right_memory = interval_memory(right_times)
-    blocks = _date_blocks(scenario)
+    blocks = date_blocks(scenario)
     burst_values = _temporal_block_differences(left, right, category, blocks, finite_sample_burstiness)
     memory_values = _temporal_block_differences(left, right, category, blocks, interval_memory)
     return {
@@ -519,7 +519,7 @@ def _entropy_block_differences(
 ) -> list[float | None]:
     """@brief 计算逐块类别熵差。"""
     values: list[float | None] = []
-    for block in _date_blocks(scenario):
+    for block in date_blocks(scenario):
         selected = set(block)
         left_values = _block_categories(left, categories, selected)
         right_values = _block_categories(right, categories, selected)
@@ -560,7 +560,7 @@ def _within_block_differences(
 ) -> list[float | None]:
     """@brief 以周块为单位计算同日型日间距离差。"""
     values: list[float | None] = []
-    for block in _date_blocks(scenario):
+    for block in date_blocks(scenario):
         selected = set(block)
         left_days = [item for item in left.days if item.calendar_date in selected]
         right_days = [item for item in right.days if item.calendar_date in selected]
@@ -824,7 +824,7 @@ def _jensen_shannon(left: Sequence[float], right: Sequence[float]) -> float | No
     return float(jensenshannon(left_array, right_array, base=2))
 
 
-def _date_blocks(scenario: EvaluationScenario) -> list[tuple[date, ...]]:
+def date_blocks(scenario: EvaluationScenario) -> list[tuple[date, ...]]:
     """@brief 把声明窗口分成连续且不丢日的自然日块。"""
     days = scenario.window.days
     size = scenario.block_days

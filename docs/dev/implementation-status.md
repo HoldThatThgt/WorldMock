@@ -6,6 +6,13 @@
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
 
+## 共享规则与可重建环境开发状态
+
+当前特性分支按[最终规格](SPEC-shared-rules-and-rebuildable-env.md)实现；
+实现文件清单、最终源码摘要、门禁命令和逐项证据集中记录于
+[本特性验收记录](shared-rules-and-rebuildable-env-verification.md)。
+下文历史全量数字与跳过计数只属于当时源码，不是本特性门禁结论。
+
 ## 个人事务与工作安排开发状态
 
 [个人事务与工作安排规格](SPEC-errands-workday.md)（FROZEN，版本表 1.0）已在特性分支 `feat/errands-workday` 实现并合入 main（自 `3b4afe5` 起，合并提交 `e54c37b`，合并结果与分支头逐文件相同）：实施阶段 1–5 与阶段 7 完成，阶段 6 配对全天复跑未执行（只报告，见下）；

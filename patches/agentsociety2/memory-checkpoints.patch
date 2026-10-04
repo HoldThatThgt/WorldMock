@@ -1,0 +1,1491 @@
+diff --git a/agentsociety2/agent/memory.py b/agentsociety2/agent/memory.py
+index 0d7c719..a14304e 100644
+--- a/agentsociety2/agent/memory.py
++++ b/agentsociety2/agent/memory.py
+@@ -7,6 +7,7 @@ English: Provides workspace-file storage for PersonAgent core memory.
+ from __future__ import annotations
+ 
+ import json
++from copy import deepcopy
+ from dataclasses import dataclass
+ from datetime import datetime
+ from pathlib import Path
+@@ -34,6 +35,19 @@ MEMORY_STABLE_TYPES = {
+     "conflict",
+     "resolution",
+ }
++MEMORY_EPISODE_TYPES = MEMORY_STABLE_TYPES | {
++    "commitment",
++    "goal",
++    "event",
++    "observation",
++    "routine",
++    "reflection",
++}
++PERSISTED_EPISODE_FIELDS = {
++    "id", "agent_id", "tick", "tick_duration_sec", "step_index", "time",
++    "step_count", "type", "importance", "keywords", "text", "source", "refs",
++    "merge_count", "epistemic_status",
++}
+ 
+ DEFAULT_MEMORY_MD = """# Memory
+ 
+@@ -82,8 +96,10 @@ MemoryEpisodeType = Literal[
+     "conflict",
+     "resolution",
+     "identity",
++    "event",
+     "observation",
+     "routine",
++    "reflection",
+ ]
+ 
+ 
+@@ -105,6 +121,7 @@ class ExtractedMemoryEpisode(BaseModel):
+     text: str = Field(min_length=1, max_length=1000)
+     source: str = Field(default="step_result", max_length=80)
+     refs: list[str] = Field(default_factory=list, max_length=8)
++    epistemic_status: Literal["subjective"] = "subjective"
+ 
+     @field_validator("keywords", "refs", mode="before")
+     @classmethod
+@@ -178,7 +195,7 @@ class MemoryConsolidationResult(BaseModel):
+ class AgentMemoryStore:
+     """Workspace file store for core agent memory.
+ 
+-    ``episodes.jsonl`` is the canonical append-only event memory source.
++    ``episodes.jsonl`` is the canonical event memory source.
+     ``MEMORY.md`` is compact context derived from episodes.
+ 
+     Args:
+@@ -277,32 +294,70 @@ class AgentMemoryStore:
+             A new default memory state dictionary.
+         """
+         return {
+-            "schema_version": 1,
++            "schema_version": 2,
+             "last_consolidated_tick": None,
+             "last_consolidated_episode_id": None,
+             "last_consolidated_step": 0,
+             "pending_episode_count": 0,
+             "episode_counter": 0,
++            "subjective_summary": "",
+         }
+ 
+     def read_state(self) -> dict[str, Any]:
+-        """Read memory state from disk.
+-
+-        Args:
+-            None.
++        """严格读取完整记忆状态，不接受损坏或旧结构。
+ 
+-        Returns:
+-            State dictionary merged with default keys.
++        :returns: 已验证的状态字典。
+         """
+         self.ensure()
+-        try:
+-            data = json.loads(self.state_path.read_text(encoding="utf-8") or "{}")
+-        except Exception:
+-            data = {}
+-        state = self.default_state()
+-        if isinstance(data, dict):
+-            state.update(data)
+-        return state
++        return self._read_state_file()
++
++    def validate_existing(self) -> None:
++        """校验恢复工作区的全部记忆文件和交叉身份。
++
++        :raises ValueError: 文件缺失、损坏或内容身份不一致。
++        """
++        for path in (self.memory_md_path, self.episodes_path, self.state_path):
++            if not path.is_file() or path.is_symlink():
++                raise ValueError(f"Memory workspace artifact is missing or unsafe: {path}")
++        if not self.memory_md_path.read_text(encoding="utf-8").strip():
++            raise ValueError("MEMORY.md must not be empty")
++        state = self._read_state_file()
++        records = self._read_episodes_file()
++        identifiers = [str(item["id"]) for item in records]
++        if len(identifiers) != len(set(identifiers)):
++            raise ValueError("Memory episode identities must be unique")
++        if state["episode_counter"] != len(records):
++            raise ValueError("Memory episode counter does not match persisted records")
++        consolidated = state["last_consolidated_episode_id"]
++        if consolidated is not None and consolidated not in identifiers:
++            raise ValueError("Last consolidated memory episode does not exist")
++        self._episodes_cache = records
++
++    def _read_state_file(self) -> dict[str, Any]:
++        """读取并验证一个完整 state.json 对象。
++
++        :returns: 不带默认补值的严格状态。
++        """
++        data = json.loads(self.state_path.read_text(encoding="utf-8"))
++        expected = set(self.default_state())
++        if not isinstance(data, dict) or set(data) != expected:
++            raise ValueError("Memory state schema is invalid")
++        integers = ("last_consolidated_step", "pending_episode_count", "episode_counter")
++        if data["schema_version"] != 2:
++            raise ValueError("Memory state schema version is invalid")
++        if not isinstance(data["subjective_summary"], str):
++            raise ValueError("Subjective memory summary must be a string")
++        if any(type(data[name]) is not int or data[name] < 0 for name in integers):
++            raise ValueError("Memory state counters must be non-negative integers")
++        tick = data["last_consolidated_tick"]
++        episode_id = data["last_consolidated_episode_id"]
++        if tick is not None and (type(tick) is not int or tick < 0):
++            raise ValueError("Last consolidated tick is invalid")
++        if episode_id is not None and (not isinstance(episode_id, str) or not episode_id):
++            raise ValueError("Last consolidated memory identity is invalid")
++        if data["pending_episode_count"] > data["episode_counter"]:
++            raise ValueError("Pending memory count exceeds the episode counter")
++        return data
+ 
+     def write_state(self, state: dict[str, Any]) -> None:
+         """Write memory state to disk.
+@@ -350,9 +405,32 @@ class AgentMemoryStore:
+         self.ensure()
+         text = self.normalize_memory_md(
+             content,
+-            max_chars=MemoryConsolidationConfig().max_memory_chars,
++            max_chars=MemoryConsolidationConfig().max_memory_chars - 1,
+         )
+-        self.memory_md_path.write_text(text.rstrip() + "\n", encoding="utf-8")
++        self.write_memory_view(text)
++        self.mark_subjective_consolidated(text, step_count=step_count, tick=tick)
++
++    def write_memory_view(self, content: str) -> bool:
++        """@brief 只刷新已装配的长期记忆视图，不触碰主观巩固计数。"""
++        self.ensure()
++        if not isinstance(content, str) or not content.startswith("# Memory") or len(content) > 4000:
++            raise ValueError("Memory view is invalid or exceeds its character budget")
++        normalized = content.rstrip() + "\n"
++        if self.memory_md_path.read_text(encoding="utf-8") == normalized:
++            return False
++        self.memory_md_path.write_text(normalized, encoding="utf-8")
++        return True
++
++    def read_subjective_summary(self) -> str:
++        """@brief 从严格记忆状态取模型主观归纳正文。"""
++        return self.read_state()["subjective_summary"]
++
++    def mark_subjective_consolidated(
++        self, content: str, *, step_count: int, tick: int | None,
++    ) -> None:
++        """@brief 持久保存主观归纳并只在真正巩固时重置待归纳计数。"""
++        if not isinstance(content, str) or len(content) > 4000:
++            raise ValueError("Subjective memory summary is invalid")
+         state = self.read_state()
+         last = self.recent(limit=1)
+         state.update(
+@@ -361,6 +439,7 @@ class AgentMemoryStore:
+                 "last_consolidated_episode_id": last[0]["id"] if last else None,
+                 "last_consolidated_step": step_count,
+                 "pending_episode_count": 0,
++                "subjective_summary": content,
+             }
+         )
+         self.write_state(state)
+@@ -394,92 +473,80 @@ class AgentMemoryStore:
+         return text.rstrip() + "\n"
+ 
+     def append_episodes(
+-        self,
+-        episodes: list[dict[str, Any]],
+-        *,
+-        tick: int,
+-        t: datetime,
+-        step_count: int,
++        self, episodes: list[dict[str, Any]], *, tick: int, t: datetime, step_count: int,
+     ) -> list[dict[str, Any]]:
+-        """Append normalized memory episodes and return written records.
+-
+-        Args:
+-            episodes: Raw episode dictionaries from the memory extractor.
+-            tick: Current simulation tick.
+-            t: Current simulation time.
+-            step_count: Current agent step count.
+-
+-        Returns:
+-            Episode records written to memory/episodes.jsonl.
+-        """
++        """@brief 严格追加已经过校验的记录并更新完整检查点计数。"""
+         self.ensure()
+         state = self.read_state()
+-        counter = int(state.get("episode_counter") or 0)
+-        written: list[dict[str, Any]] = []
++        counter = state["episode_counter"]
++        records = self._load_episodes_cache()
++        written = []
+         for raw in episodes:
+             text = " ".join(str(raw.get("text") or "").strip().split())
+             if not text:
+-                continue
++                raise RuntimeError("Memory store received an empty memory text")
+             counter += 1
+-            keywords_raw = raw.get("keywords")
+-            keywords = (
+-                [str(item).strip() for item in keywords_raw if str(item).strip()]
+-                if isinstance(keywords_raw, list)
+-                else []
+-            )
+-            refs_raw = raw.get("refs")
+-            refs = (
+-                [str(item).strip() for item in refs_raw if str(item).strip()]
+-                if isinstance(refs_raw, list)
+-                else []
+-            )
+-            try:
+-                importance = float(raw.get("importance", 0.5))
+-            except Exception:
+-                importance = 0.5
+-            importance = max(0.0, min(1.0, importance))
+-            record = {
+-                "id": f"m_{tick:08d}_{counter:06d}",
+-                "agent_id": self.agent_id,
+-                "tick": tick,
+-                "tick_duration_sec": tick,
+-                "step_index": step_count,
+-                "time": t.isoformat(),
+-                "step_count": step_count,
+-                "type": str(raw.get("type") or "observation").strip() or "observation",
+-                "importance": importance,
+-                "keywords": keywords,
+-                "text": text,
+-                "source": str(raw.get("source") or "step_result").strip()
+-                or "step_result",
+-                "refs": refs,
+-            }
++            episode_type = str(raw.get("type") or "observation").strip() or "observation"
++            record = self._build_episode_record(raw, text, episode_type, (tick, t, step_count, counter))
++            records.append(record)
+             written.append(record)
+-        if not written:
+-            return []
+-
+-        with self.episodes_path.open("a", encoding="utf-8") as f:
+-            for record in written:
+-                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+-        # Keep the in-memory cache in sync. If the cache was never loaded, leave
+-        # it None — a later iter_episodes() will lazy-load from disk (which now
+-        # includes these records). Single-writer per store → no race.
+-        if self._episodes_cache is not None:
+-            self._episodes_cache.extend(written)
++        if written:
++            with self.episodes_path.open("a", encoding="utf-8") as output:
++                for record in written:
++                    output.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+         state["episode_counter"] = counter
+-        state["pending_episode_count"] = int(
+-            state.get("pending_episode_count") or 0
+-        ) + len(written)
++        state["pending_episode_count"] += len(written)
+         self.write_state(state)
+-        return written
++        return deepcopy(written)
++
++
++    def _build_episode_record(
++        self, raw: dict[str, Any], text: str, episode_type: str,
++        stamp: tuple[int, datetime, int, int],
++    ) -> dict[str, Any]:
++        """@brief 将已验证正文与本步形成身份合成持久记忆记录。"""
++        tick, t, step_count, counter = stamp
++        keywords_raw = raw.get("keywords")
++        keywords = (
++            [str(item).strip() for item in keywords_raw if str(item).strip()]
++            if isinstance(keywords_raw, list)
++            else []
++        )
++        refs_raw = raw.get("refs")
++        refs = (
++            [str(item).strip() for item in refs_raw if str(item).strip()]
++            if isinstance(refs_raw, list)
++            else []
++        )
++        try:
++            importance = float(raw.get("importance", 0.5))
++        except Exception:
++            importance = 0.5
++        return {
++            "id": f"m_{tick:08d}_{counter:06d}",
++            "agent_id": self.agent_id,
++            "tick": tick,
++            "tick_duration_sec": tick,
++            "step_index": step_count,
++            "time": t.isoformat(),
++            "step_count": step_count,
++            "type": episode_type,
++            "importance": max(0.0, min(1.0, importance)),
++            "keywords": keywords,
++            "text": text,
++            "source": str(raw.get("source") or "step_result").strip() or "step_result",
++            "refs": refs,
++            "merge_count": 1,
++            "epistemic_status": "subjective",
++        }
++
+ 
+     def iter_episodes(self) -> list[dict[str, Any]]:
+         """Read all valid memory episodes.
+ 
+         Uses the in-memory cache (loaded once on first access, kept in sync by
+         append_episodes) so repeated calls no longer re-read/re-parse the whole
+-        episodes.jsonl. Returns a shallow copy so callers cannot mutate the
+-        cache.
++        episodes.jsonl. Returns independent records so callers cannot mutate the cache.
+ 
+         Args:
+             None.
+@@ -487,32 +554,73 @@ class AgentMemoryStore:
+         Returns:
+             Parsed episode dictionaries in file order.
+         """
+-        return list(self._load_episodes_cache())
++        return deepcopy(self._load_episodes_cache())
+ 
+     def _load_episodes_cache(self) -> list[dict[str, Any]]:
+-        """Lazily load and cache all episodes from disk.
+-
+-        Args:
+-            None.
++        """严格加载并缓存全部人物记忆记录。
+ 
+-        Returns:
+-            The in-memory episode list (the cache itself).
++        :returns: 按文件顺序排列的内部缓存。
+         """
+         if self._episodes_cache is None:
+             self.ensure()
+-            records: list[dict[str, Any]] = []
+-            for line in self.episodes_path.read_text(encoding="utf-8").splitlines():
+-                if not line.strip():
+-                    continue
+-                try:
+-                    item = json.loads(line)
+-                except Exception:
+-                    continue
+-                if isinstance(item, dict):
+-                    records.append(item)
+-            self._episodes_cache = records
++            self._episodes_cache = self._read_episodes_file()
+         return self._episodes_cache
+ 
++    def _read_episodes_file(self) -> list[dict[str, Any]]:
++        """逐行读取 episodes.jsonl，任何损坏立即失败。
++
++        :returns: 已验证的记忆记录。
++        """
++        records = []
++        for line_number, line in enumerate(
++            self.episodes_path.read_text(encoding="utf-8").splitlines(),
++            start=1,
++        ):
++            if not line.strip():
++                raise ValueError(f"Memory episode line {line_number} is blank")
++            item = json.loads(line)
++            self._validate_episode_record(item, line_number)
++            records.append(item)
++        return records
++
++    def _validate_episode_record(self, item: Any, line_number: int) -> None:
++        """校验一条已持久化记忆的字段、类型和人物身份。
++
++        :param item: JSON 解码后的记录。
++        :param line_number: 用于英文错误定位的文件行号。
++        """
++        if not isinstance(item, dict) or set(item) != PERSISTED_EPISODE_FIELDS:
++            raise ValueError(f"Memory episode line {line_number} has an invalid schema")
++        integer_fields = (
++            "agent_id",
++            "tick",
++            "tick_duration_sec",
++            "step_index",
++            "step_count",
++            "merge_count",
++        )
++        if any(type(item[name]) is not int or item[name] < 1 for name in ("step_index", "merge_count")):
++            raise ValueError(f"Memory episode line {line_number} has invalid counters")
++        if any(type(item[name]) is not int or item[name] < 0 for name in integer_fields):
++            raise ValueError(f"Memory episode line {line_number} has invalid counters")
++        if item["agent_id"] != self.agent_id or item["step_index"] != item["step_count"]:
++            raise ValueError(f"Memory episode line {line_number} has inconsistent identity")
++        if item["type"] not in MEMORY_EPISODE_TYPES:
++            raise ValueError(f"Memory episode line {line_number} has an invalid type")
++        if item["epistemic_status"] != "subjective":
++            raise ValueError(f"Memory episode line {line_number} has an invalid epistemic status")
++        importance = item["importance"]
++        if isinstance(importance, bool) or not isinstance(importance, (int, float)):
++            raise ValueError(f"Memory episode line {line_number} has invalid importance")
++        if not 0.0 <= float(importance) <= 1.0:
++            raise ValueError(f"Memory episode line {line_number} has invalid importance")
++        strings = (item["id"], item["time"], item["text"], item["source"])
++        lists = (item["keywords"], item["refs"])
++        if any(not isinstance(value, str) or not value for value in strings):
++            raise ValueError(f"Memory episode line {line_number} has empty text fields")
++        if any(not isinstance(value, list) or any(not isinstance(text, str) for text in value) for value in lists):
++            raise ValueError(f"Memory episode line {line_number} has invalid string lists")
++
+     def recent(self, *, limit: int = 8) -> list[dict[str, Any]]:
+         """Read the latest memory episodes.
+ 
+@@ -698,6 +806,7 @@ class AgentMemoryStore:
+                 return True, "consolidation interval"
+         return False, ""
+ 
++
+     @staticmethod
+     def _episode_importance(episode: dict[str, Any]) -> float:
+         """Return a bounded importance score from an episode.
+@@ -735,6 +844,7 @@ class AgentMemoryStore:
+             return importance >= 0.85
+         return False
+ 
++
+     def unconsolidated(self) -> list[dict[str, Any]]:
+         """Read episodes written after the last consolidation cursor.
+ 
+diff --git a/agentsociety2/agent/memory_runtime.py b/agentsociety2/agent/memory_runtime.py
+index 4003353..8f1f237 100644
+--- a/agentsociety2/agent/memory_runtime.py
++++ b/agentsociety2/agent/memory_runtime.py
+@@ -7,8 +7,9 @@ English: Encapsulates memory context, retrieval tools, extraction, and consolida
+ from __future__ import annotations
+ 
+ import asyncio
++import hashlib
+ import json
+-from collections.abc import Awaitable, Callable, Mapping
++from collections.abc import Awaitable, Callable
+ from contextlib import nullcontext
+ from dataclasses import dataclass
+ from datetime import datetime
+@@ -103,6 +104,18 @@ class MemoryRuntimeConfig:
+     consolidation: MemoryConsolidationConfig = MemoryConsolidationConfig()
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class MemoryStepOutcome:
++    """@brief 保存完成后区分新建、合并、视图与来源截止的记忆结果。"""
++
++    created_episodes: tuple[dict[str, Any], ...]
++    merged_episodes: tuple[dict[str, Any], ...]
++    memory_before_sha256: str | None
++    consolidated: bool = False
++    observation_event_id: str | None = None
++    verified_event_ids: tuple[str, ...] = ()
++
++
+ class PersonMemoryRuntime:
+     """Owns memory context, retrieval tools, extraction, and consolidation.
+ 
+@@ -197,6 +210,21 @@ class PersonMemoryRuntime:
+         self._store.ensure()
+         return self._store
+ 
++    def restore_store(self, workspace_root: Path) -> AgentMemoryStore | None:
++        """严格绑定并验证一个已经执行过步骤的记忆工作区。
++
++        :param workspace_root: 从共同检查点恢复的人物工作区。
++        :returns: 已验证的记忆存储；关闭记忆时为空。
++        """
++        if not self.enabled:
++            return None
++        if self._store is not None:
++            raise RuntimeError("Memory store was already bound")
++        store = AgentMemoryStore(workspace_root, agent_id=self.agent_id)
++        store.validate_existing()
++        self._store = store
++        return store
++
+     @property
+     def store(self) -> AgentMemoryStore | None:
+         """Return the current memory store.
+@@ -252,10 +280,11 @@ class PersonMemoryRuntime:
+                 {"error": "memory feature is disabled"},
+             )
+         if action == "memory_recent":
+-            data = {"episodes": store.recent(limit=int(args.get("limit") or 8))}
++            data = {"epistemic_status": "subjective", "episodes": store.recent(limit=int(args.get("limit") or 8))}
+             return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
+         if action == "memory_search":
+             data = {
++                "epistemic_status": "subjective",
+                 "episodes": store.search(
+                     str(args.get("query") or ""),
+                     limit=int(args.get("limit") or 20),
+@@ -263,29 +292,28 @@ class PersonMemoryRuntime:
+             }
+             return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
+         if action == "memory_range":
+-            start_step = args.get("start_step")
+-            end_step = args.get("end_step")
+-            start_tick = args.get("start_tick")
+-            end_tick = args.get("end_tick")
+-            data = {
+-                "episodes": store.range(
+-                    start_step=int(start_step) if start_step is not None else None,
+-                    end_step=int(end_step) if end_step is not None else None,
+-                    start_tick=int(start_tick) if start_tick is not None else None,
+-                    end_tick=int(end_tick) if end_tick is not None else None,
+-                    start_time=str(args.get("start_time") or "") or None,
+-                    end_time=str(args.get("end_time") or "") or None,
+-                    limit=int(args.get("limit") or 50),
+-                )
+-            }
++            data = {"epistemic_status": "subjective", "episodes": self._range_episodes(store, args)}
+             return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
+         if action == "memory_read":
+             ids = args.get("ids")
+             id_list = [str(item) for item in ids] if isinstance(ids, list) else []
+-            data = {"episodes": store.read_ids(id_list)}
++            data = {"epistemic_status": "subjective", "episodes": store.read_ids(id_list)}
+             return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
+         return False, f"unknown action: {action}", {"action": action}
+ 
++    @staticmethod
++    def _range_episodes(store: AgentMemoryStore, args: dict[str, Any]) -> list[dict[str, Any]]:
++        """@brief 按显式区间读取主观记忆。"""
++        return store.range(
++            start_step=int(args["start_step"]) if args.get("start_step") is not None else None,
++            end_step=int(args["end_step"]) if args.get("end_step") is not None else None,
++            start_tick=int(args["start_tick"]) if args.get("start_tick") is not None else None,
++            end_tick=int(args["end_tick"]) if args.get("end_tick") is not None else None,
++            start_time=str(args.get("start_time") or "") or None,
++            end_time=str(args.get("end_time") or "") or None,
++            limit=int(args.get("limit") or 50),
++        )
++
+     async def after_step(
+         self,
+         *,
+@@ -293,153 +321,71 @@ class PersonMemoryRuntime:
+         t: datetime,
+         step_count: int,
+         finish_memories: list[dict[str, Any]] | None = None,
+-    ) -> list[dict[str, Any]]:
+-        """Ingest step memories and refresh MEMORY.md when triggers fire.
+-
+-        Memory generation lives entirely in the step-mode ``finish`` tool —
+-        there is no dedicated extraction LLM call (no fallback). ``finish_memories``
+-        carries the episodes the model recorded inline; when it is absent or
+-        empty (e.g. the loop hit the turn limit without a finish, or the model
+-        reported nothing notable) nothing is recorded this step.
+-
+-        Args:
+-            tick: Current simulation tick.
+-            t: Current simulation time.
+-            step_count: Current agent step count.
+-            finish_memories: Memories recorded inline by the step-mode finish
+-                tool. ``None`` / empty means record nothing this step.
+-
+-        Returns:
+-            Episode records written during this step.
++        sleep_boundary: bool = False,
++    ) -> MemoryStepOutcome:
++        """严格保存 finish 记忆并按确定规则触发合并。
++
++        :param tick: 当前决策跨度秒数。
++        :param t: 当前模拟时间。
++        :param step_count: 当前人物步骤号。
++        :param finish_memories: finish 提交的记忆；允许空列表。
++        :param sleep_boundary: 本步骤是否为人物进入睡眠后的第一个边界。
++        :returns: 本步骤新建、合并及巩固的记忆结果。
++        :raises ValueError: finish 记忆结构无效。
++        :raises RuntimeError: 记忆保存或必要归纳失败。
+         """
+         store = self.store
+-        if store is None or not finish_memories:
+-            return []
+-        try:
+-            with self._span("memory.extract", operation_type="memory"):
+-                memories = self._validate_finish_memories(finish_memories)
+-        except Exception as exc:
+-            # Don't drop the whole step when the model supplied malformed
+-            # episodes: fall back to per-item validation, coercing any invalid
+-            # item into a minimal valid episode so the durable info the model
+-            # did provide still survives. Only truly empty input yields nothing.
+-            self._logger.warning(
+-                "Agent %s: finish-memory validation failed (%s); coercing "
+-                "individual items as fallback",
+-                self.agent_id,
+-                exc,
+-            )
+-            memories = self._validate_finish_memories_lenient(finish_memories)
+-            if not memories:
+-                return []
+-        with self._span("memory.append_episodes", operation_type="memory"):
+-            written = await asyncio.to_thread(
+-                store.append_episodes,
+-                memories,
++        if store is None:
++            return MemoryStepOutcome((), (), None)
++        before_digest = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()
++        known = {str(item["id"]) for item in store.iter_episodes()}
++        written = await self._persist_step_memories(finish_memories, tick=tick, t=t, step_count=step_count)
++        should, reason = await asyncio.to_thread(
++            store.should_consolidate,
++            written,
++            step_count=step_count,
++            config=self.config.consolidation,
++        )
++        if should:
++            written.extend(await self._consolidate_memory_md(
+                 tick=tick,
+                 t=t,
+                 step_count=step_count,
+-            )
+-        if not written:
++                reason=reason,
++                ))
++        by_id = {str(item["id"]): item for item in written}
++        created = tuple(item for identity, item in by_id.items() if identity not in known)
++        merged = tuple(item for identity, item in by_id.items() if identity in known)
++        consolidated = store.read_state()["last_consolidated_step"] == step_count
++        return MemoryStepOutcome(created, merged, before_digest, consolidated)
++
++    async def _persist_step_memories(
++        self, raw: Any, *, tick: int, t: datetime, step_count: int,
++    ) -> list[dict[str, Any]]:
++        """@brief 严格验证并保存本步模型自述，禁止静默漏写。"""
++        store = self._require_store()
++        with self._span("memory.extract", operation_type="memory"):
++            memories = self._validate_finish_memories(raw)
++        if not memories:
+             return []
+-        with self._span("memory.should_consolidate", operation_type="memory"):
+-            should, reason = await asyncio.to_thread(
+-                store.should_consolidate,
+-                written,
+-                step_count=step_count,
+-                config=self.config.consolidation,
+-            )
+-        if should:
+-            try:
+-                with self._span("memory.consolidate", operation_type="memory"):
+-                    await self._consolidate_memory_md(
+-                        tick=tick,
+-                        t=t,
+-                        step_count=step_count,
+-                        reason=reason,
+-                    )
+-            except Exception as exc:
+-                self._logger.warning(
+-                    "Agent %s: memory consolidation failed: %s", self.agent_id, exc
+-                )
++        written = await asyncio.to_thread(store.append_episodes, memories, tick=tick, t=t, step_count=step_count)
++        if not written:
++            raise RuntimeError("Memory store did not persist finish memories")
+         return written
+ 
+     def _validate_finish_memories(self, raw: Any) -> list[dict[str, Any]]:
+-        """Validate memories supplied inline by the step-mode ``finish`` tool.
+-
+-        Same episode shape as the ``record_step_memories`` tool; validated
+-        through :class:`MemoryExtractionResult` so malformed input raises (the
+-        caller then falls back to a dedicated extraction call). No LLM call.
++        """严格验证 finish 提供的全部记忆。
+ 
+-        Args:
+-            raw: The ``memories`` list from the finish tool arguments.
+-
+-        Returns:
+-            Validated episode dicts ready for ``store.append_episodes``.
++        :param raw: finish 的 memories 参数；允许零到八条。
++        :returns: 已验证记忆。
+         """
++        if raw is None:
++            return []
+         if not isinstance(raw, list):
+-            raise ValueError("finish `memories` must be a list")
++            raise ValueError("finish memories must be a list")
+         parsed = MemoryExtractionResult.model_validate({"memories": raw})
+         return [item.model_dump() for item in parsed.memories]
+ 
+-    def _validate_finish_memories_lenient(
+-        self, raw: Any
+-    ) -> list[dict[str, Any]]:
+-        """Best-effort fallback validation for finish memories.
+-
+-        Used when strict :meth:`_validate_finish_memories` raises (one bad
+-        item poisoned the whole list). Validates each item independently:
+-        valid episodes are kept as-is; invalid items are coerced into a
+-        minimal valid ``observation`` episode built from whatever text the
+-        model provided, tagged ``source=finish_memory_coerced`` so the
+-        downgrade is traceable. Items with no usable text are dropped.
+-
+-        Args:
+-            raw: The ``memories`` list from the finish tool arguments.
+-
+-        Returns:
+-            Validated/coerced episode dicts ready for ``store.append_episodes``
+-            (possibly empty).
+-        """
+-        if not isinstance(raw, list):
+-            return []
+-        from agentsociety2.agent.memory import ExtractedMemoryEpisode
+-
+-        coerced: list[dict[str, Any]] = []
+-        for item in raw:
+-            try:
+-                episode = ExtractedMemoryEpisode.model_validate(item)
+-                coerced.append(episode.model_dump())
+-                continue
+-            except Exception:
+-                self._logger.debug("Skipping malformed memory episode during validation", exc_info=True)
+-                pass
+-            # Coerce: salvage any text-like field from the raw item.
+-            text = ""
+-            if isinstance(item, Mapping):
+-                for key in ("text", "content", "summary", "description"):
+-                    candidate = str(item.get(key) or "").strip()
+-                    if candidate:
+-                        text = candidate
+-                        break
+-            elif isinstance(item, str):
+-                text = item.strip()
+-            if not text:
+-                continue
+-            try:
+-                episode = ExtractedMemoryEpisode.model_validate(
+-                    {
+-                        "type": "observation",
+-                        "importance": 0.4,
+-                        "text": text[:1000],
+-                        "source": "finish_memory_coerced",
+-                    }
+-                )
+-                coerced.append(episode.model_dump())
+-            except Exception:
+-                continue
+-        return coerced
+-
+     async def _consolidate_memory_md(
+         self,
+         *,
+@@ -447,66 +393,90 @@ class PersonMemoryRuntime:
+         t: datetime,
+         step_count: int,
+         reason: str,
+-    ) -> None:
+-        """Refresh MEMORY.md from current compact memory and recent episodes.
+-
+-        Args:
+-            tick: Current simulation tick.
+-            t: Current simulation time.
+-            step_count: Current agent step count.
+-            reason: Programmatic trigger reason.
++    ) -> list[dict[str, Any]]:
++        """用当前人物模型严格刷新通用 MEMORY.md。
+ 
+-        Returns:
+-            None.
++        :param tick: 当前决策跨度秒数。
++        :param t: 当前模拟时间。
++        :param step_count: 当前人物步骤号。
++        :param reason: 确定性触发原因。
+         """
+-        model_name = self._require_model_name()
+         store = self._require_store()
+-
+-        def _gather_consolidation_input() -> tuple[
+-            list[dict[str, Any]], list[dict[str, Any]], str
+-        ]:
+-            # All sync store I/O (now mostly cache-backed for unconsolidated/
+-            # search; read_memory_md is one small file read). Coalesced into a
+-            # single thread offload so none of it blocks the event loop.
+-            new_eps = [
+-                item
+-                for item in store.unconsolidated()
+-                if store.is_long_term_memory_candidate(item)
+-            ]
+-            if not new_eps:
+-                return [], [], ""
+-            keywords = {
+-                str(keyword)
+-                for episode in new_eps
+-                for keyword in episode.get("keywords", [])
+-                if str(keyword).strip()
+-            }
+-            related: list[dict[str, Any]] = []
+-            for keyword in sorted(keywords)[:12]:
+-                related.extend(store.search(keyword, limit=3))
+-            related_by_id = {str(item.get("id")): item for item in related}
+-            current_md = store.read_memory_md(max_chars=self.config.context_max_chars)
+-            return new_eps, list(related_by_id.values())[:30], current_md
+-
+-        new_episodes, related_list, current_md = await asyncio.to_thread(
+-            _gather_consolidation_input
++        bundle = await asyncio.to_thread(self._gather_consolidation_input, store)
++        if bundle is None:
++            return []
++        messages = self._consolidation_messages(bundle, tick, t, reason)
++        response = await self._dispatch_llm(
++            model=self._require_model_name(),
++            messages=messages,
++            stream=False,
+         )
+-        if not new_episodes:
+-            return
++        content = self._consolidation_content(response)
++        await asyncio.to_thread(
++            store.write_memory_md,
++            content,
++            step_count=step_count,
++            tick=tick,
++        )
++        return []
++
++
++    def _gather_consolidation_input(
++        self,
++        store: AgentMemoryStore,
++    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str] | None:
++        """收集尚未合并且适合长期保留的记忆。
++
++        :param store: 当前人物记忆存储。
++        :returns: 新记忆、相关旧记忆与当前摘要；无候选时为空。
++        """
++        episodes = [
++            item
++            for item in store.unconsolidated()
++            if store.is_long_term_memory_candidate(item)
++        ]
++        if not episodes:
++            return None
++        keywords = {
++            str(keyword)
++            for episode in episodes
++            for keyword in episode.get("keywords", [])
++            if str(keyword).strip()
++        }
++        related = []
++        for keyword in sorted(keywords)[:12]:
++            related.extend(store.search(keyword, limit=3))
++        unique = {str(item.get("id")): item for item in related}
++        current = store.read_memory_md(max_chars=self.config.context_max_chars)
++        return episodes, list(unique.values())[:30], current
++
++    def _consolidation_messages(
++        self,
++        bundle: tuple[list[dict[str, Any]], list[dict[str, Any]], str],
++        tick: int,
++        t: datetime,
++        reason: str,
++    ) -> list[dict[str, str]]:
++        """构建记忆合并请求。
++
++        :param bundle: 新记忆、相关旧记忆与当前摘要。
++        :param tick: 当前决策跨度秒数。
++        :param t: 当前模拟时间。
++        :param reason: 触发原因。
++        :returns: 模型消息。
++        """
++        episodes, related, current = bundle
+         payload = {
+             "reason": reason,
+             "tick": tick,
+             "time": t.isoformat(),
+-            "current_memory_md": current_md,
+-            "new_episodes": new_episodes[-30:],
+-            "related_old_episodes": related_list,
++            "current_memory_md": current,
++            "new_episodes": episodes[-30:],
++            "related_old_episodes": related,
+             "max_chars": self.config.context_max_chars,
+         }
+-        messages = [
+-            {
+-                "role": "system",
+-                "content": MEMORY_CONSOLIDATION_SYSTEM_PROMPT,
+-            },
++        return [
++            {"role": "system", "content": MEMORY_CONSOLIDATION_SYSTEM_PROMPT},
+             {
+                 "role": "user",
+                 "content": xml_block(
+@@ -515,81 +485,24 @@ class PersonMemoryRuntime:
+                 ),
+             },
+         ]
+-        with self._span(
+-            "llm.completion",
+-            operation_type="llm",
+-            llm_purpose="memory_consolidate",
+-            llm_model=model_name,
+-        ):
+-            response = await self._dispatch_llm(
+-                model=model_name,
+-                messages=messages,
+-                stream=False,
+-            )
+-        # 直接取 LLM 返回的 Markdown 文本作为新 MEMORY.md，不走 tool calling。
+-        content = ""
+-        if getattr(response, "choices", None):
+-            message = getattr(response.choices[0], "message", None)
+-            content = str(getattr(message, "content", "") or "")
+-        content = content.strip()
+-        if not content:
+-            # No usable output: keep the existing MEMORY.md. Warn (don't raise)
+-            # so this is visible — because the consolidation cursor is only
+-            # advanced on a successful write, a model that consistently returns
+-            # empty would re-trigger consolidation every step and burn LLM
+-            # calls. The caller already bounds this via interval_steps.
+-            self._logger.warning(
+-                "Agent %s: memory consolidation returned empty content; "
+-                "MEMORY.md left unchanged (consolidation may re-trigger).",
+-                self.agent_id,
+-            )
+-            return
+-        await asyncio.to_thread(
+-            store.write_memory_md, content, step_count=step_count, tick=tick
+-        )
+ 
+-    def _parse_tool_call_response(
+-        self, response: Any, expected_name: str
+-    ) -> dict[str, Any]:
+-        """Parse one required tool call argument object from an LLM response.
+ 
+-        Args:
+-            response: Raw LLM response object.
+-            expected_name: Required tool call function name.
++    @staticmethod
++    def _consolidation_content(response: Any) -> str:
++        """严格取得记忆合并 Markdown。
+ 
+-        Returns:
+-            Parsed tool argument dictionary.
++        :param response: 模型原始响应。
++        :returns: 非空 Markdown。
++        :raises RuntimeError: 响应或正文缺失。
+         """
+-        if not getattr(response, "choices", None):
+-            return {}
+-        message = getattr(response.choices[0], "message", None)
+-        tool_calls = getattr(message, "tool_calls", None) or []
+-        for tool_call in tool_calls:
+-            function = getattr(tool_call, "function", None)
+-            name = str(getattr(function, "name", "") or "").strip()
+-            if name != expected_name:
+-                continue
+-            raw_args = str(getattr(function, "arguments", "") or "{}")
+-            try:
+-                from agentsociety2.agent.json_utils import jr_parse_from_llm
+-
+-                parsed = jr_parse_from_llm(raw_args)
+-            except Exception:
+-                parsed = json.loads(raw_args)
+-            return dict(parsed) if isinstance(parsed, Mapping) else {}
++        choices = getattr(response, "choices", None)
++        if not choices:
++            raise RuntimeError("Memory consolidation response has no choices")
++        message = getattr(choices[0], "message", None)
+         content = str(getattr(message, "content", "") or "").strip()
+         if not content:
+-            return {}
+-        try:
+-            from agentsociety2.agent.json_utils import jr_parse_from_llm
+-
+-            parsed = jr_parse_from_llm(content)
+-        except Exception:
+-            try:
+-                parsed = json.loads(content)
+-            except Exception:
+-                return {}
+-        return dict(parsed) if isinstance(parsed, Mapping) else {}
++            raise RuntimeError("Memory consolidation returned empty content")
++        return content
+ 
+     def _require_model_name(self) -> str:
+         """Return the configured model name.
+diff --git a/agentsociety2/agent/person.py b/agentsociety2/agent/person.py
+index 0bf0001..d44cb6b 100644
+--- a/agentsociety2/agent/person.py
++++ b/agentsociety2/agent/person.py
+@@ -1,4 +1,4 @@
+-"""Workspace-backed PersonAgent (thin).
++"""@brief Workspace-backed PersonAgent (thin).
+ 
+ 中文：``PersonAgent`` 现在只负责 person 专属逻辑（memory、todo、person prompt、
+ observe），通用的 agent 机器（workspace / skill / tool / react）已下沉到
+@@ -10,12 +10,22 @@ tool / react) has been pushed down into ``agent.base``.
+ 
+ from __future__ import annotations
+ 
++import copy
++import hashlib
++import json
+ from datetime import datetime
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Any
+ 
+-from agentsociety2.agent.base import AgentBase, ReactToolResult
++from agentsociety2.agent.base import (
++    AgentBase,
++    MemoryUpdateEvidence,
++    ModelCallEvidence,
++    ReactLoopRequest,
++    ReactToolResult,
++)
+ from agentsociety2.agent.memory_runtime import (
++    MemoryStepOutcome,
+     MemoryRuntimeConfig,
+     PersonMemoryRuntime,
+ )
+@@ -28,8 +38,44 @@ if TYPE_CHECKING:
+ logger = get_logger()
+ 
+ 
++def _sha256_file(path: Path) -> str:
++    """@brief 计算一个已持久化普通文件的 SHA-256 内容身份。
++
++    :param path: 必须存在且不能是符号链接的文件。
++    :returns: 小写十六进制 SHA-256。
++    """
++    if not path.is_file() or path.is_symlink():
++        raise RuntimeError(f"Memory artifact is missing or unsafe: {path}")
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def _finish_step_schema_allowing_empty_memories() -> dict[str, Any]:
++    """@brief 构造允许空记忆列表的步骤 finish 工具 Schema。
++
++    :returns: 放宽 ``memories`` 下限为零到八条的 finish Schema。
++    """
++    from agentsociety2.agent.person_tools import finish_step_tool_schema
++
++    schema = copy.deepcopy(finish_step_tool_schema())
++    memories = schema["function"]["parameters"]["properties"]["memories"]
++    memories.pop("minItems", None)
++    memories["description"] = (
++        "Durable memory points extracted from this step (zero to eight items). "
++        "Use an empty list when nothing notable happened."
++    )
++    schema["function"]["description"] = (
++        "End this simulation step by recording the durable memory points "
++        "worth keeping from this step in `memories` (key decisions, events, "
++        "observations, intentions). Use an empty list only when nothing "
++        "notable happened this tick."
++    )
++    return schema
++
++
+ class PersonAgent(AgentBase):
+-    """Workspace-backed simulated person agent.
++    """@brief 实现具有工作区记忆和原生 ReAct 循环的人物。
++
++Workspace-backed simulated person agent.
+ 
+     Person-specific responsibilities:
+ 
+@@ -122,7 +168,9 @@ Minimal config example:
+         workspace_path: Path,
+         service_proxy: "ServiceProxy",
+     ) -> None:
+-        """Restore base state, then build person-specific runtime (memory).
++        """@brief 从严格人物工作区恢复动态状态和记忆。
++
++Restore base state, then build person-specific runtime (memory).
+ 
+         Args:
+             workspace_path: Agent workspace root.
+@@ -132,16 +180,19 @@ Minimal config example:
+         self._apply_person_config()
+         self._world_description: str = ""
+         self._build_memory_runtime()
++        if self._initialized_at is None:
++            self._memory_runtime.ensure_store(workspace_path)
++        else:
++            self._memory_runtime.restore_store(workspace_path)
+ 
+     def _build_memory_runtime(self) -> None:
+-        """Construct the ``PersonMemoryRuntime`` bound to this agent."""
++        """@brief 构造绑定当前人物和模型证据路径的记忆运行时。
++
++Construct the ``PersonMemoryRuntime`` bound to this agent."""
+         from agentsociety2.agent.memory import MemoryConsolidationConfig
+ 
+         cfg = self._config
+-        self._memory_runtime = PersonMemoryRuntime(
+-            agent_id=self.id,
+-            agent_name=self.name,
+-            config=MemoryRuntimeConfig(
++        config = MemoryRuntimeConfig(
+                 enabled=self._enable_memory,
+                 context_max_chars=self._memory_context_max_chars,
+                 recent_limit=self._recent_memory_limit,
+@@ -167,18 +218,68 @@ Minimal config example:
+                     ),
+                     max_memory_chars=self._memory_context_max_chars,
+                 ),
+-            ),
++            )
++        self._memory_runtime = self._new_memory_runtime(config)
++
++    def _new_memory_runtime(self, config: MemoryRuntimeConfig) -> PersonMemoryRuntime:
++        """@brief 用已解析的配置构造可由具体人物覆写的记忆运行时。"""
++        return PersonMemoryRuntime(
++            agent_id=self.id,
++            agent_name=self.name,
++            config=config,
+             get_model_name=lambda: self._model_name,
+-            dispatch_llm=lambda **kwargs: self._dispatcher.call(**kwargs),
++            dispatch_llm=self._dispatch_memory_llm,
+             get_profile=self.get_profile,
+             logger=logger,
+             trace_span=self.trace_span,
+         )
+ 
++    async def _dispatch_memory_llm(self, **request: Any) -> Any:
++        """@brief 调用人物模型并保存记忆合并证据。
++
++        :param request: 实际模型请求参数。
++        :returns: 原始模型响应。
++        """
++        request = {
++            **request,
++            "max_retries": 0,
++            "extra_body": {"thinking": {"type": "disabled"}},
++        }
++        context = getattr(self, "_decision_context", None)
++        call_id = self._next_model_call_id(1)
++        evidence = ModelCallEvidence(context, call_id, "request", 1, request)
++        await self._record_model_evidence(evidence)
++        try:
++            response = await self._dispatcher.call(**request)
++        except Exception as exc:
++            evidence = ModelCallEvidence(
++                context,
++                call_id,
++                "failure",
++                1,
++                request,
++                error=repr(exc),
++            )
++            await self._record_model_evidence(evidence)
++            raise
++        payload = self._serialize_model_response(response)
++        evidence = ModelCallEvidence(
++            context,
++            call_id,
++            "response",
++            1,
++            request,
++            response=payload,
++        )
++        await self._record_model_evidence(evidence)
++        return response
++
+     # ==================== to_workspace ====================
+ 
+     async def to_workspace(self, workspace_path: Path) -> None:
+-        """Write current dynamic state back to the workspace.
++        """@brief 把人物动态状态和已验证记忆写回工作区。
++
++Write current dynamic state back to the workspace.
+ 
+         Writes ``AGENT.json`` (profile / step_count / current_time / skills /
+         initialized_at). ``config.json`` is NOT rewritten.  Memory
+@@ -283,19 +384,28 @@ Minimal config example:
+         """Replace the ``finish`` tool per mode.
+ 
+         - ask / readonly mode: answer-only ``finish`` (external question).
+-        - step mode: ``finish`` with a short ``final`` AND inline ``memories``,
+-          so the model records step memories in the same call that ends the
+-          step — removing the separate memory-extraction LLM pass. ``step()``
+-          feeds the captured memories into ``memory_runtime.after_step``.
++        - step mode: ``finish`` with inline ``memories`` (zero to eight items;
++          an empty list is valid when nothing notable happened), so the model
++          records step memories in the same call that ends the step.
+         """
+         from agentsociety2.agent.person_tools import (
+             finish_ask_tool_schema,
+             finish_step_tool_schema,
+         )
+ 
+-        return {
+-            "finish": finish_ask_tool_schema() if readonly else finish_step_tool_schema()
+-        }
++        if readonly:
++            return {"finish": finish_ask_tool_schema()}
++        return {"finish": _finish_step_schema_allowing_empty_memories()}
++
++    def memory_sleep_boundary(self) -> bool:
++        """报告本步骤是否为人物进入睡眠后的第一个边界。
++
++        具体人物覆盖此钩子以驱动就寝后的巩固与反思；基类人物没有
++        睡眠概念，恒返回否。
++
++        :returns: 是否处于就寝后的第一个边界。
++        """
++        return False
+ 
+     def _dispatch_memory_tool(
+         self,
+@@ -308,34 +418,29 @@ Minimal config example:
+ 
+     # ==================== ReAct prompt hook ====================
+ 
+-    def build_react_messages(
+-        self,
+-        *,
+-        tick: int,
+-        t: datetime,
+-        observations: list[dict[str, Any]],
+-        question: str | None = None,
+-        readonly: bool = False,
+-        skill_hooks: list[dict[str, Any]] | None = None,
+-    ) -> list[dict[str, str]]:
+-        """Build ReAct prompt messages (person-specific)."""
++    def build_react_messages(self, request: ReactLoopRequest) -> list[dict[str, Any]]:
++        """@brief 构建人物 ReAct 提示。
++
++        :param request: 当前循环输入。
++        :returns: OpenAI 格式提示消息。
++        """
+         return build_react_messages(
+             name=self.name,
+             world_description=self._world_description,
+             skill_catalog=self.skill_runtime.skill_catalog(),
+             activated_skill_content=self.skill_runtime.activated_skill_content_xml(),
+-            observations=observations,
+-            agent_json=self.build_agent_json(tick=tick, t=t),
++            observations=request.observations,
++            agent_json=self.build_agent_json(tick=request.tick, t=request.t),
+             memory_context=self._build_memory_context()
+             if self._enable_memory
+             else None,
+-            todo_context=self._build_todo_context(t)
++            todo_context=self._build_todo_context(request.t)
+             if self._enable_todo_list
+             else None,
+-            question=question,
+-            readonly=readonly,
++            question=request.question,
++            readonly=request.readonly,
+             disable_skills=self.skill_runtime.visible_skill_count() == 0,
+-            skill_hooks=skill_hooks,
++            skill_hooks=request.skill_hooks,
+         )
+ 
+     # The generic ReAct loop, LLM call, and response parsing
+@@ -390,11 +495,15 @@ Minimal config example:
+     # ==================== step / ask ====================
+ 
+     async def step(self, tick: int, t: datetime) -> str:
+-        """Run one simulation step."""
++        """@brief 执行一个必须完整结束的人物决策步骤。
++
++        :param tick: 当前决策跨度秒数。
++        :param t: 当前带时区模拟时间。
++        :returns: finish 记忆摘要。
++        """
+         await self._ensure_initialized()
+         self._step_count += 1
+         self._current_time = t
+-
+         with self.trace_span(
+             "agent.step",
+             attributes={
+@@ -404,81 +513,118 @@ Minimal config example:
+                 "input.summary": {"time": t.isoformat(), "tick": tick},
+             },
+         ) as span:
+-            self._refresh_visible_skills()
+-            self.persist_agent_json(tick=tick, t=t)
+-
+-            initial_obs: list[dict[str, Any]] = []
+-            pre_hooks = await self.run_lifecycle_hooks("pre_step", tick=tick, t=t)
+-            skill_hooks: list[dict[str, Any]] | None = None
+-            if pre_hooks:
+-                skill_hooks = [
+-                    {
+-                        "skill": item["skill_id"],
+-                        "hook": item["hook_type"],
+-                        "ok": item["ok"],
+-                        "output": item["stdout"],
+-                    }
+-                    for item in pre_hooks
+-                    if item.get("ok") and item.get("stdout")
+-                ] or None
+-
+-            if self._env is not None:
+-                try:
+-                    with self.trace_span(
+-                        "react.tool",
+-                        attributes={
+-                            "operation.type": "react",
+-                            "react.action": "observe",
+-                        },
+-                    ) as obs_span:
+-                        _env_span = self._current_trace_span
+-                        _, observation = await self.ask_env(
+-                            {"id": self.id},
+-                            "<observe>",
+-                            readonly=True,
+-                            trace_id=_env_span.trace_id if _env_span else None,
+-                            parent_span_id=_env_span.span_id if _env_span else None,
+-                        )
+-                        obs_text = str(observation or "")
+-                        obs_span.attributes.update(
+-                            {
+-                                "result.ok": True,
+-                                "output.summary": {"observation": obs_text},
+-                            }
+-                        )
+-                        initial_obs.append(
+-                            {
+-                                "turn": 0,
+-                                "action": "observe",
+-                                "ok": True,
+-                                "observation": obs_text,
+-                            }
+-                        )
+-                except Exception:
+-                    logger.debug("Observation failed for agent", exc_info=True)
+-
+-            result = await self.run_react_loop(
+-                tick=tick, t=t, observations=initial_obs, skill_hooks=skill_hooks
+-            )
+-            post_hooks = await self.run_lifecycle_hooks("post_step", tick=tick, t=t)
+-            memory_episodes = await self._memory_runtime.after_step(
+-                tick=tick,
+-                t=t,
+-                step_count=self._step_count,
+-                finish_memories=self._last_finish_memories,
+-            )
++            result, counts = await self._run_person_step(tick, t)
+             span.attributes.update(
+                 {
+                     "step.count": self._step_count,
+                     "skill.visible_count": self.skill_runtime.visible_skill_count(),
+-                    "skill.pre_hook_count": len(pre_hooks),
+-                    "skill.post_hook_count": len(post_hooks),
+-                    "memory.episode_count": len(memory_episodes),
++                    **counts,
+                     "output.summary": {"result": result},
+                 }
+             )
+         return result
+ 
++    async def _run_person_step(self, tick: int, t: datetime) -> tuple[str, dict[str, int]]:
++        """@brief 执行人物步骤主体并收集计数。
++
++        :param tick: 当前决策跨度秒数。
++        :param t: 当前模拟时间。
++        :returns: 结果摘要和追踪计数。
++        """
++        self._refresh_visible_skills()
++        self.persist_agent_json(tick=tick, t=t)
++        pre_hooks = await self.run_lifecycle_hooks("pre_step", tick=tick, t=t)
++        observation = await self._observe_environment()
++        request = ReactLoopRequest(
++            tick,
++            t,
++            [self._observation_record(observation)],
++            skill_hooks=self._skill_hook_context(pre_hooks),
++        )
++        result = await self.run_react_loop(request)
++        post_hooks = await self.run_lifecycle_hooks("post_step", tick=tick, t=t)
++        outcome = await self._memory_runtime.after_step(
++            tick=tick,
++            t=t,
++            step_count=self._step_count,
++            finish_memories=self._last_finish_memories,
++            sleep_boundary=self.memory_sleep_boundary(),
++        )
++        await self._record_memory_update(outcome)
++        counts = {
++            "skill.pre_hook_count": len(pre_hooks),
++            "skill.post_hook_count": len(post_hooks),
++            "memory.episode_count": len(outcome.created_episodes) + len(outcome.merged_episodes),
++        }
++        return result, counts
++
++    async def _record_memory_update(self, outcome: MemoryStepOutcome) -> None:
++        """@brief 登记本次已完整落盘的人物记忆内容身份。
++
++        :param outcome: 当前步骤写入的主观记忆与事实视图结果。
++        """
++        context = getattr(self, "_decision_context", None)
++        store = self._memory_runtime.store
++        if context is None or store is None:
++            return
++        if self._env is None:
++            raise RuntimeError("Environment is not initialized")
++        memory_sha256 = _sha256_file(store.memory_md_path)
++        created = tuple(str(item["id"]) for item in outcome.created_episodes)
++        merged = tuple(str(item["id"]) for item in outcome.merged_episodes)
++        episode_snapshots = tuple(
++            {key: str(item[key]) for key in ("id", "type", "text", "epistemic_status")}
++            for item in outcome.created_episodes + outcome.merged_episodes
++        )
++        if not created and not merged and outcome.memory_before_sha256 == memory_sha256:
++            return
++        evidence = MemoryUpdateEvidence(
++            context=context, operation="append_episodes" if created or merged else "refresh_summary",
++            created_episode_ids=created, merged_episode_ids=merged,
++            episodes=episode_snapshots,
++            memory_before_sha256=outcome.memory_before_sha256 or "",
++            memory_sha256=memory_sha256, episodes_sha256=_sha256_file(store.episodes_path),
++            state_sha256=_sha256_file(store.state_path), consolidated=outcome.consolidated,
++            observation_event_id=outcome.observation_event_id,
++            verified_event_ids=outcome.verified_event_ids,
++        )
++        await self._env.record_memory_update(evidence)
++
++    async def _observe_environment(self) -> Any:
++        """@brief 执行必须成功的初始环境观察。
++
++        :returns: 环境观察投影。
++        :raises RuntimeError: 环境尚未初始化。
++        """
++        if self._env is None:
++            raise RuntimeError("Environment is not initialized")
++        _, observation = await self.ask_env({"id": self.id}, "<observe>", readonly=True)
++        return observation
++
++    @staticmethod
++    def _observation_record(observation: Any) -> dict[str, Any]:
++        """@brief 通用人物保持上游的文字观察投影，宿主可以覆写此钩子。"""
++        return {"turn": 0, "action": "observe", "ok": True, "observation": str(observation or "")}
++
++    @staticmethod
++    def _skill_hook_context(items: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
++        """@brief 筛选可展示的生命周期输出。
++
++        :param items: 生命周期执行结果。
++        :returns: 可放入提示的输出。
++        """
++        hooks = [
++            {
++                "skill": item["skill_id"],
++                "hook": item["hook_type"],
++                "ok": item["ok"],
++                "output": item["stdout"],
++            }
++            for item in items
++            if item.get("ok") and item.get("stdout")
++        ]
++        return hooks or None
++
+     async def ask(
+         self,
+         message: str,
+@@ -507,13 +653,8 @@ Minimal config example:
+                 self._current_time = now
+                 self._refresh_visible_skills()
+                 self.persist_agent_json(tick=None, t=now)
+-                answer_text = await self.run_react_loop(
+-                    tick=0,
+-                    t=now,
+-                    observations=[],
+-                    question=message,
+-                    readonly=readonly,
+-                )
++                request = ReactLoopRequest(0, now, [], message, readonly)
++                answer_text = await self.run_react_loop(request)
+             except Exception as exc:
+                 span.attributes["error.message"] = str(exc)[:300]
+                 raise

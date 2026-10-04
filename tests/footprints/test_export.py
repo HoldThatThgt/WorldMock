@@ -160,7 +160,7 @@ def test_export_timeline_projection_matches_render_day_output(tmp_path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     from datetime import date
-    expected = module.render_day_markdown(store.connection, 1, date(1970, 1, 1))
+    expected = module.render_day_markdown(store.connection, 1, date(1970, 1, 1), store.manifest["window"]["timezone"])
     actual = (tmp_path / 'export' / 'timeline' / '1-1970-01-01.md').read_text(encoding='utf-8')
     assert actual == expected
     assert '空档' in actual

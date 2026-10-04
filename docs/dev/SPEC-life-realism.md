@@ -9,10 +9,16 @@
 > 「产品行为」补个人事务；「单一行动阶段」补控制请求的 `errands` 与 `query_world` 六键；「记忆合同」写明事务变更不是记忆写入点、就寝反思经严格工具提交；
 > 「当日目标」补与个人事务、工作安排的边界；「画像编译」增下班与到家锚点、场景作息覆盖七字段并区分作息与工作安排；
 > 「呈现与导出」补交付窗口投影不带 `errands`；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。
-> 日期：2026-10-04
+> 日期：2026-10-05
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
 > 范围：人物的记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
+
+## 共享规则与可重建环境修订
+
+按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
+
+记忆合同的空数组、阈值巩固、人物卡片与相似同类合并由 WorldMock 人物扩展负责；存储与恢复继续复用 AS2 框架。候选种类、活动家族、中文名称与主观快照只读取各自唯一规则实现；记忆类型、来源、阈值与事实主观分区不变。
 
 ## 产品行为
 
@@ -599,7 +605,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | `scripts/inspect_run.py`、`scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正、时间线投影生成、“一天”视图 |
 | `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`scripts/build_catalog.py`、`scripts/build_lifestyle_corpus.py`、`src/worldmock/corpora/fetch.py`、`corpora/` | 正餐、地点、内容元数据、生活活动 Schema、联系人、工作材料；替换 `drama` 语料 |
 | `scenarios/multi-person.json`、`white-collar-12-weeks.json` | 按新 Schema 重新生成：人物卡片、联系人、地点、正餐、内容元数据、合同分配、日历补发薪与房租日 |
-| AS2 分支 `agent/person.py`、`agent_runtime.py`、`base/agent.py`、`memory_runtime.py`、`memory.py` | `reasoning_content` 回传；空记忆、巩固触发、巩固提示、相似合并（LifeAgent 删除对决策自述钩子的覆写，锁定的 AS2 不改） |
+| AS2 的必要生命周期补丁；`custom/agents/life_agent.py`、`life_memory.py`、`life_memory_store.py` | AS2 保留 `reasoning_content` 回传与严格存储；LifeAgent 维护观察单写，WorldMock 维护空记忆、巩固触发与提示、同类相似合并 |
 | `src/worldmock/life/motivation.py`、`observe.py`、`activities.py`、`projection.py` | 娱乐与生活活动候选的入选条件去掉「偏好权重为正」；地点类交集门与稳定原因码；候选上限与下推游标；被挡项带原因码而非静默消失 |
 | `src/worldmock/profile/taste.py` | 零权重语义改为「排最后」而非「不可选」 |
 | `src/worldmock/catalog/admission.py`、`affordances.py` | 地点与内容品类的 `location_kinds` 声明完整性校验；分区键齐备与分区可达性校验（准入期阻断） |
@@ -636,8 +642,8 @@ flowchart LR
 | --- | --- | --- | --- |
 | 单一行动阶段 | 没有只读查询或纠错的决策恰好一次模型请求，不产生自述请求；`decision_started` 与首个行动请求同批且在前，`data` 为闭集；回复正文有则写入 `action_requested.data.self_note` 并在本 session 的进度层出现，没有时不重问、不代写 | `tests/integration/test_seven_layer_request.py`、`tests/integration/test_life_agent_protocol.py`；[人物 Prompt 规格](SPEC-persona-prompt.md)验收台账「单一行动阶段」「回复正文」 | 代码层已验证；工具交互修订的查询扩展见[工具交互验收记录](tool-interaction-verification.md) |
 | 回复正文与交付窗口 | `self_note` 随实际请求进入动作与意图窗口并进入 dreaming 输入；实际请求中的 `reasoning_content` 原样保留；交付不重新渲染 `scene` | `tests/delivery/test_windows.py` | 代码层已验证 |
-| 记忆写入 | `conclude_activity.items[].memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻；relationship、preference 带 `subject`，同一对象后写的看法替换先写的，事件中两条都保留；反例：首次购买后只写「明天还想吃」时人设层 `preferences` 为空 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、`tests/life/test_persona_layer.py`（看法替换与「明天还想吃」反例）、一日行为端到端验收 | 代码层已验证 |
-| 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节；就寝反思恰好一次 `submit_reflection`、一至五条，引用非空、条内不重复且全部取自输入，正文超长或含身份串、自由文本、其他工具、多次调用与未知引用都不被接受；校验重试耗尽即运行故障，本轮中止、无 `memory_updated`；巩固摘要不进入人物决策提示；反思按睡眠开始时刻前推 6 小时的本地日期归属（23:00、01:00 入睡与 14:00 小睡） | AS2 分支记忆测试（巩固触发与归纳）、`tests/integration/test_conclude_memories.py` 的 `test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`、`tests/life/test_memory_layer.py`（反思归属日期）、`tests/life/test_persona_layer.py`（巩固摘要不进提示）、一日行为端到端验收；就寝反思的提交、校验与重试走 WorldMock 记忆运行时覆写的 `_run_reflection`，由 `tests/integration/test_strict_reflection.py` 的 `test_runtime_submits_reflection_through_the_only_strict_tool`、`test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`、`test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`、`test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database` 与 `tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported` 守卫；见[个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账「严格反思」 | 代码层已验证 |
+| 记忆写入 | `conclude_activity.items[].memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻；relationship、preference 带 `subject`，同一对象后写的看法替换先写的，事件中两条都保留；反例：首次购买后只写「明天还想吃」时人设层 `preferences` 为空 | `tests/as2/test_worldmock_life_hooks.py`（WorldMock 记忆存储与运行时）、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、`tests/life/test_persona_layer.py`（看法替换与「明天还想吃」反例）、一日行为端到端验收 | 代码层已验证 |
+| 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节；就寝反思恰好一次 `submit_reflection`、一至五条，引用非空、条内不重复且全部取自输入，正文超长或含身份串、自由文本、其他工具、多次调用与未知引用都不被接受；校验重试耗尽即运行故障，本轮中止、无 `memory_updated`；巩固摘要不进入人物决策提示；反思按睡眠开始时刻前推 6 小时的本地日期归属（23:00、01:00 入睡与 14:00 小睡） | `tests/as2/test_worldmock_life_hooks.py`（直接测试 WorldMock 记忆运行时的巩固触发与归纳）、`tests/integration/test_conclude_memories.py` 的 `test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`、`tests/life/test_memory_layer.py`（反思归属日期）、`tests/life/test_persona_layer.py`（巩固摘要不进提示）、一日行为端到端验收；就寝反思的提交、校验与重试走 WorldMock 记忆运行时覆写的 `_run_reflection`，由 `tests/integration/test_strict_reflection.py` 的 `test_runtime_submits_reflection_through_the_only_strict_tool`、`test_runtime_feeds_each_contract_violation_back_and_stores_only_the_corrected_reflection`、`test_runtime_stops_with_a_run_fault_after_three_validation_retries_and_stores_no_reflection`、`test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_run_database` 与 `tests/integration/test_verified_memory.py::test_sleep_reflection_is_subjective_and_its_id_is_reported` 守卫；见[个人事务与工作安排规格](SPEC-errands-workday.md#验收台账)验收台账「严格反思」 | 代码层已验证 |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重，也没有 `drive_summary`；体感只以环境层五项分级出现；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
 | 当日目标 | 清单、生命周期、修订、证据推进、威胁唤醒与三层度量按专属规格逐项验证 | [当日目标规格](SPEC-day-plan-goals.md)验收台账 | 本特性确定性验收通过 |
@@ -730,3 +736,4 @@ flowchart LR
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `34a41ee` 的代码与测试核对，`e377669` 复核）：验收矩阵画像编译、人物卡片覆盖率、呈现与导出三行改记 `代码层已验证`，证据位置补场景作息、输入警告与时间线标签的测试，矩阵前的状态说明随之改写；「单一行动阶段」行动行的原生 `tools` 补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；文件头改为修订部分已实现并通过离线验收 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)「冻结条款修订」修订（[实施计划](research/errands-workday-implementation-plan.md)文档同步作业 LR2–LR25，随该规格冻结），修订部分在冻结时未随文实现（阶段 1–4 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：「产品行为」补个人事务与总流程图节点；「与相邻规格的边界」增归属行；「单一行动阶段」补控制请求的 `errands`（备注键 `memo`，同一请求按取消、更新、新增求值），`query_world` 改为六键并写明两种参数错误之外无匹配为空页；「记忆合同」写明事务变更不是记忆写入点、可写内容的提示引导（其他延续打算写进暂停与收尾的 summary）与 `self_notes` 不含事务，就寝反思改经严格工具 `submit_reflection` 提交一至五条并采用与零点计划同形的有界校验重试，补反思不代替登记；「当日目标」补与个人事务、工作安排的边界；「画像编译」时间锚点增可空的下班与到家（乱序只降级不失败，降级说明只在共识后的卡片上生成并经画像编译警告透传），画像文本与人设层 `rhythm` 随之增项，场景作息覆盖扩为七项且新槽沿用现行冲突规则（冲突时该槽保留卡片值并记 `CARD_FIELD_CONFLICT`），区分作息与工作安排；「呈现与导出」补交付窗口裁去 `errands`；验收矩阵记忆巩固、画像编译两行改写，人物卡片落地效果补只报告项，新增一行指向该规格验收台账，「单一行动阶段」行的过时状态顺带更正；文件头补修订说明，日期改写 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)文档同步作业 LR26，按 `d8a41d3` 的代码与测试核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)；验收矩阵「记忆巩固」「画像编译」两行改回 `代码层已验证`，「个人事务、工作安排与查询筛选」行改记「本特性确定性验收通过」；「记忆巩固」行的就寝反思证据由 AS2 分支记忆测试改指守卫 WorldMock 覆写路径的 `tests/integration/test_strict_reflection.py`、`tests/integration/test_verified_memory.py` 中登记到验收台账的节点，「画像编译」行补下班与到家锚点、七字段覆盖与旧卡片被拒的测试节点；矩阵前的状态说明随之改写，`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。证据为离线测试；配对全天复跑（该规格阶段 6）未执行，「人物卡片落地效果」行仍为 `待真实运行` |
+| 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+from worldmock.base_models import StrictModel
+from worldmock.base_models import FrozenModel
 import json
 import logging
 import math
@@ -115,10 +118,9 @@ EventType = Literal[
 ]
 
 
-class AssetRef(BaseModel):
+class AssetRef(FrozenModel):
     """@brief 已完成落盘的素材身份，大小单位为字节。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     size_bytes: int = Field(ge=0)
     media_type: str
@@ -171,10 +173,9 @@ class Event(EventDraft):
     state_version_after: int = Field(ge=0)
 
 
-class Checkpoint(BaseModel):
+class Checkpoint(StrictModel):
     """@brief SQLite 完整事务提交的共同恢复点。"""
 
-    model_config = ConfigDict(extra="forbid")
     schema_version: Literal[1] = 1
     checkpoint_id: str
     run_id: str
@@ -189,4 +190,18 @@ class Checkpoint(BaseModel):
 
 def canonical_json(value: Any) -> bytes:
     """@brief 使用唯一 JSON 编码，使哈希与重放身份稳定。"""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).exception("Canonical JSON encoding failed")
+        raise
+
+
+def sha256_json(value: Any) -> str:
+    """@brief 对唯一规范 JSON 字节计算 SHA-256；非有限值直接拒绝。"""
+    return hashlib.sha256(canonical_json(value)).hexdigest()
+
+
+def is_sha256(value: Any) -> bool:
+    """@brief 仅接受恰好六十四个小写十六进制字符的字符串。"""
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)

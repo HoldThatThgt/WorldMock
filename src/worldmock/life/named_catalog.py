@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from worldmock.life.content import restarts_from_beginning
+from worldmock.life.durations import capped_duration_seconds, content_duration_seconds
 from worldmock.life.interaction_menu import CONTENT_WAYS, WAYS, binding_action
 from worldmock.life.object_labels import object_label
 from worldmock.life.presentation import GAME_CATEGORY
@@ -51,9 +52,9 @@ def _row(context: LayerContext, entry: tuple[str, str, Any], way: str, note: str
 
 
 def _lifestyle_rows(context: LayerContext, items: tuple) -> list[dict[str, Any]]:
-    """@brief 本人启用的生活活动：方式「进行」，说明为目录的典型时长。"""
+    """@brief 本人启用的生活活动：方式「进行」，说明为目录典型时长按活动上限封顶的受理秒数。"""
     return [_row(context, (object_label("lifestyle", item.name), "lifestyle", item.activity_id), _DO_WAY,
-                 duration_phrase(item.typical_duration_minutes * 60))
+                 duration_phrase(capped_duration_seconds(item.typical_duration_minutes * 60)))
             for item in sorted(items, key=lambda value: value.activity_id)]
 
 
@@ -71,7 +72,7 @@ def _content_rows(context: LayerContext) -> list[dict[str, Any]]:
         restart = restarts_from_beginning(position, item.duration_seconds)
         way = CONTENT_WAYS[(item.kind == "podcast_episode", restart)]
         kind = "game" if item.kind == GAME_CATEGORY else "content"
-        seconds = item.duration_seconds if restart else item.duration_seconds - position
+        seconds = content_duration_seconds(item, progress)
         rows.append(_row(context, (object_label(kind, title), kind, item.item_id), way, duration_phrase(seconds)))
     return rows
 

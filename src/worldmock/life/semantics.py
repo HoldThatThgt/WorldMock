@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.catalog import (
     Catalog,
-    CatalogError,
+    CategoryError,
     ExchangeObject,
     ObjectKind,
     ResourceDefinition,
@@ -55,8 +55,10 @@ from worldmock.catalog.affordances import (
 from worldmock.errors import IntegrityError
 from worldmock.life.map_data import load_map_dataset, select_map
 from worldmock.life.map_models import MapDataset
-from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor
+from worldmock.base_models import CurvePoint, EfficiencyFactor
+from worldmock.life.models import ContractKind
 from worldmock.life.category_contract import (
+    CONTRACT_OBJECT_IDS,
     RuntimeCategoryRule,
     admit_reachable_categories,
     optional_defined_rule,
@@ -83,11 +85,7 @@ ENERGY_RESOURCE = "energy_kcal"
 SLEEP_RESOURCE = "sleep_debt_hours"
 ENTERTAINMENT_RESOURCE = "entertainment_need"
 TRAVEL_OBJECT = "travel-service"
-CONTRACT_OBJECTS = {
-    ContractKind.HOURLY: "contract-hourly",
-    ContractKind.PIECE: "contract-piece",
-    ContractKind.PACKAGE: "contract-package",
-}
+
 
 #: 能量告警码：目录大写 → 引擎阈值参数名（引擎现行告警为小写形式）。
 ALERT_THRESHOLDS = (("HUNGRY", "hunger_threshold_kcal"), ("EMERGENCY_ENERGY", "emergency_threshold_kcal"))
@@ -238,7 +236,7 @@ class ScenarioSemantics:
 
     def contract_match(self, task) -> RuntimeCategoryRule:
         """@brief 复查任务合同品类配对并返回足迹所需命中身份。"""
-        target = self._object(CONTRACT_OBJECTS[task.contract_kind])
+        target = self._object(CONTRACT_OBJECT_IDS[task.contract_kind])
         return require_runtime_rule(self.catalog, target.category_id, Action.WORK_SETTLE)
 
     def travel_match(self, mode: str) -> RuntimeCategoryRule:
@@ -291,7 +289,7 @@ def load_runtime_scenario(
     try:
         catalog = load_catalog(directory)
         motivation_transforms = load_motivation_transforms(directory / "rules")
-    except CatalogError as error:
+    except CategoryError as error:
         raise IntegrityError(f"Catalog load failed: {error}") from error
     affordances = load_affordances(directory / AFFORDANCES_FILE)
     root = (Path(scenario_path).resolve().parent / document.corpus_root).resolve()
@@ -382,7 +380,7 @@ def _check_scheduled_prices(scenario: RuntimeScenario) -> None:
 def _check_contract_bindings(semantics: ScenarioSemantics) -> None:
     """@brief 在创建运行产物前确认每条合同规则的命名槽能由任务实例提供。"""
     for task in semantics.scenario.tasks:
-        target = semantics.catalog.objects[CONTRACT_OBJECTS[task.contract_kind]]
+        target = semantics.catalog.objects[CONTRACT_OBJECT_IDS[task.contract_kind]]
         match = optional_defined_rule(semantics.catalog, target.category_id, Action.WORK_SETTLE)
         if match is None:
             continue
@@ -603,7 +601,7 @@ def _catalog_refs(document: LifeScenario, catalog: Catalog,
             for role in CONTEXTUAL_AGENT_ROLES)
     object_ids = {item.product_id for item in document.products} | _inventory_object_ids(document)
     object_ids.add(TRAVEL_OBJECT)
-    object_ids.update(CONTRACT_OBJECTS[kind] for kind in {task.contract_kind for task in document.tasks})
+    object_ids.update(CONTRACT_OBJECT_IDS[kind] for kind in {task.contract_kind for task in document.tasks})
     objects = [ScenarioObjectRef(object_id=object_id) for object_id in sorted(object_ids)]
     return ScenarioCatalogRefs(
         catalog_major=document.catalog_version.major,
@@ -705,7 +703,7 @@ def _employer_account(
 def _contract_efficiency(catalog: Catalog, attribute: str):
     """@brief 从三种合同模板读取一致的标量效率参数（如笔记倍率）。"""
     values = []
-    for object_id in CONTRACT_OBJECTS.values():
+    for object_id in CONTRACT_OBJECT_IDS.values():
         obj = catalog.objects.get(object_id)
         if obj is None:
             raise IntegrityError(f"contract template {object_id} has no efficiency params")
@@ -718,7 +716,7 @@ def _contract_efficiency(catalog: Catalog, attribute: str):
 def _contract_work_efficiency_factors(catalog: Catalog) -> tuple[EfficiencyFactor, ...]:
     """@brief 从三种合同模板读取一致的工作效率因子列表并转为引擎配置。"""
     values = []
-    for object_id in CONTRACT_OBJECTS.values():
+    for object_id in CONTRACT_OBJECT_IDS.values():
         obj = catalog.objects.get(object_id)
         if obj is None:
             raise IntegrityError(f"contract template {object_id} has no efficiency params")

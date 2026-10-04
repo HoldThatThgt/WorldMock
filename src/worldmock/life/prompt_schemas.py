@@ -2,12 +2,20 @@
 
 依据 docs/dev/SPEC-persona-prompt.md 第一章与接口合同登记：系统层、工具层、人设层、记忆层、待办层、环境层、进度层各一份
 Schema，另有原生 tools 的一项定义。各层构建器的输出由测试逐层校验；发送前不做逐层校验（裁决 #2），运行时只有提示指纹
-（life_prompt.life_prompt_sha256）读取本模块。枚举是冻结闭集的字面副本（体感分级、方式、动作状态），由测试锁定与源头一致。
+（life_prompt.life_prompt_sha256）读取本模块。枚举直接读取各领域的冻结闭集，Schema 不维护字面副本。
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from worldmock.life import felt
+from worldmock.life.callable_index import MAX_EXAMPLES
+from worldmock.life.control_items import CONTROL_TOOLS
+from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
+from worldmock.life.models import ActionStatus
+from worldmock.life.schedule import INTENT_KINDS
+from worldmock.life.work_schedule import DUTY_DAYS, DUTY_STATUSES
 
 #: 带时区的 ISO 8601 时刻（秒精度）。
 _TIME = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"}
@@ -21,26 +29,21 @@ _LINES = {"type": "array", "items": _TEXT}
 #: 工具层目标类别闭集（英文值；场景联系人并入 person）。
 TARGET_KINDS = ("location", "product", "person", "content", "game", "catalog", "lifestyle", "task", "activity",
                 "message", "self")
-#: 五个生活动词（interaction_menu.LIFE_VERBS 的字面副本）。
-VERBS = ("travel", "interact", "obtain", "consume", "sleep")
-#: 工具层可列出的方式短语（interaction_menu.WAYS 键的字面副本，不含只写在请求里、由系统定方式的「购买」）。
-WAY_LABELS = ("步行", "驾车", "工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待", "到店", "远程下单",
-              "制作", "食用", "使用", "给予", "接着看", "从头再看", "接着听", "从头再听", "睡觉")
+#: 工具层可列出的方式，不含仅在请求中由系统确定方式的「购买」。
+WAY_LABELS = tuple(way for way in WAYS if way != "购买")
 #: 以目标名称为参数的其他工具。
-TARGET_TOOLS = ("report_status", "pause_activity", "conclude_activity", "submit_work", "send_message")
-#: 动作状态闭集（models.ActionStatus 值的字面副本）。
-ACTION_STATUSES = ("submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown")
-#: 十一种当日意图（schedule.IntentKind 的字面副本）。
-INTENT_KINDS = ("睡眠", "晨间例程", "通勤", "工作", "用餐", "休息", "娱乐", "社交", "家务", "运动", "外出")
-#: 五项体感分级文字（felt 分级表的字面副本）。
+TARGET_TOOLS = (*CONTROL_TOOLS, "submit_work", "send_message")
+#: 动作状态由生产枚举按声明顺序投影。
+ACTION_STATUSES = tuple(status.value for status in ActionStatus)
+#: 五项体感分级文字由实际分级表派生。
 BODY_LEVELS = {
-    "appetite": ("不饿", "有点想吃", "饿", "很饿", "饿得难受", "饿得发慌"),
-    "sleepiness": ("清醒", "有点乏", "困", "很困", "撑不住"),
-    "entertainment": ("不闷", "有点想放松", "很想放松"),
-    "social": ("不想找人", "想和人说说话", "有点孤单"),
-    "mood": ("很烦", "有点烦", "平静", "挺好", "很开心"),
+    "appetite": (felt.APETITE_BASE_LEVEL, *(label for _, label in felt.APPETITE_BANDS),
+                 felt.APPETITE_STARVING_LEVEL),
+    "sleepiness": (felt.SLEEPINESS_BASE_LEVEL, *(label for _, label in felt.SLEEPINESS_BANDS)),
+    "entertainment": (felt.ENTERTAINMENT_BASE_LEVEL, *(label for _, label in felt.ENTERTAINMENT_BANDS)),
+    "social": (felt.SOCIAL_BASE_LEVEL, *(label for _, label in felt.SOCIAL_BANDS)),
+    "mood": (felt.MOOD_BASE_LEVEL, *(label for _, label in felt.MOOD_BANDS)),
 }
-
 
 def _object(properties: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[str, Any]:
     """@brief 封闭对象：properties 中除 optional 以外的键都必填，不接受其他键。"""
@@ -63,7 +66,7 @@ def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
 
 
 _VERB_ACTION = _availability({
-    "action": {"enum": list(VERBS)}, "way": {"enum": list(WAY_LABELS)},
+    "action": {"enum": list(LIFE_VERBS)}, "way": {"enum": list(WAY_LABELS)},
     "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT, "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
 _CONTRACT = _object({"opens": _TIME, "deadline": _TIME, "place": _TEXT,
                      "remaining": _TEXT, "outlook": _NULLABLE_TEXT})
@@ -89,7 +92,7 @@ _TARGET["allOf"] = [
     {"if": {"properties": {"kind": {"const": "activity"}}},
      "then": {"properties": {"phase": {"enum": ["进行中", "刚结束"]}, "actions": {"maxItems": 0}}},
      "else": {"properties": {"phase": {"type": "null"}}}},
-    _tools_for("activity", ("report_status", "pause_activity", "conclude_activity")),
+    _tools_for("activity", CONTROL_TOOLS),
     _tools_for("task", ("submit_work",)),
     _tools_for("person", ("send_message",)),
     {"if": {"properties": {"kind": {"enum": ["activity", "task", "person"]}}}, "else": {
@@ -102,10 +105,8 @@ SYSTEM_LAYER_SCHEMA: dict[str, Any] = {
                "rules": {"type": "array", "minItems": 1, "uniqueItems": True, "items": _TEXT}}),
 }
 
-#: 可调用索引每个品类至多给出的示例名数（callable_index.MAX_EXAMPLES 的字面副本）。
-INDEX_EXAMPLES_MAX = 3
 _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
-                           "examples": {"type": "array", "maxItems": INDEX_EXAMPLES_MAX, "uniqueItems": True,
+                           "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "uniqueItems": True,
                                         "items": _TEXT}})
 #: 工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
@@ -123,7 +124,7 @@ TOOL_LAYER_SCHEMA: dict[str, Any] = {
 }
 
 
-_GROUP = _object({"kind": {"enum": list(TARGET_KINDS)}, "action": {"enum": [*VERBS, None]},
+_GROUP = _object({"kind": {"enum": list(TARGET_KINDS)}, "action": {"enum": [*LIFE_VERBS, None]},
                   "way": {"enum": [*WAY_LABELS, None]}, "shared": {"type": "object"},
                   "targets": {"type": "array", "minItems": 1, "items": {"type": "object"}}})
 COMPACT_TOOL_LAYER_SCHEMA: dict[str, Any] = {
@@ -191,10 +192,8 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
     }),
 }
 
-#: 上班安排的两种日子与当班日此刻状态的闭集（work_schedule.DUTY_DAYS、DUTY_STATUSES 的字面副本，规格 4.4 的顺序）。
-DUTY_DAYS = ("工作日", "休息日")
-DUTY_STATUSES = ("未到上班时间", "当班中", "休息时段", "已下班")
-#: 环境层 duty 的非空形状（docs/dev/SPEC-errands-workday.md 4.4）：休息日的 hours、place、status 为 null、breaks 为空；
+
+
 #: 工作日写班次、工作地点名与四种状态之一。
 _DUTY = _object({"day": {"enum": list(DUTY_DAYS)}, "hours": _NULLABLE_TEXT, "place": _NULLABLE_TEXT,
                  "breaks": {"type": "array", "items": _TEXT}, "status": {"enum": [*DUTY_STATUSES, None]}})

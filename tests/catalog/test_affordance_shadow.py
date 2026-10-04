@@ -23,7 +23,7 @@ from worldmock.catalog.affordances import (
 from worldmock.life.activities import (
     FEEDBACK_ACTIVITY_KINDS,
     _activity_met,
-    _entertainment_relief,
+    entertainment_relief_rate,
     resource_claims,
 )
 from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
@@ -359,7 +359,7 @@ def test_met_lookup_keys_match_activities(view) -> None:
 
 
 def test_relief_channels_match_activities(view) -> None:
-    """@brief L5：缓解通道四值 == activities._entertainment_relief 的分支语义。"""
+    """@brief L5：缓解通道四值 == activities.entertainment_relief_rate 的分支语义。"""
     assert view.relief_channel("wait") == "none"
     assert view.relief_channel("watch") == "content_rate"
     assert view.relief_channel("play_game") == "preference_rate"
@@ -372,9 +372,9 @@ def test_relief_channels_match_activities(view) -> None:
     play = SimpleNamespace(kind=ActivityKind.PLAY_GAME, data={})
     # 两个缓解通道都按有效偏好 f + (1 − f)·w 调幅度（docs/dev/SPEC-dayrun-fidelity.md 1.2）；none 通道没有缓解。
     effective = 0.5 + 0.5 * 0.5
-    assert _entertainment_relief(wait, 1.0, config) == 0
-    assert _entertainment_relief(watch, 0.5, config) == pytest.approx(0.3 * effective / 2)
-    assert _entertainment_relief(play, 0.5, config) == pytest.approx(effective * 0.45)
+    assert entertainment_relief_rate(wait, 1.0, config) == 0
+    assert entertainment_relief_rate(watch, 0.5, config) == pytest.approx(0.3 * effective / 2)
+    assert entertainment_relief_rate(play, 0.5, config) == pytest.approx(effective * 0.45)
 
 
 def test_enumeration_order(view) -> None:

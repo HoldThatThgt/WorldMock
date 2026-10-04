@@ -28,13 +28,13 @@ class CategoryError(ValueError):
         super().__init__(f"{code}: {message}")
 
 
-class FrozenModel(BaseModel):
+class DeepFrozenModel(BaseModel):
     """@brief 拒绝未知字段并禁止字段重新绑定的模型基类。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @model_validator(mode="after")
-    def freeze_containers(self) -> "FrozenModel":
+    def freeze_containers(self) -> "DeepFrozenModel":
         """@brief 递归冻结模型字段内的映射与序列。"""
         for field_name in type(self).model_fields:
             value = getattr(self, field_name)
@@ -109,7 +109,7 @@ class ReviewerType(StrEnum):
     DELEGATED_AGENT = "delegated_agent"
 
 
-class SourceRecord(FrozenModel):
+class SourceRecord(DeepFrozenModel):
     """@brief 一份来源记录，可覆盖一个或多个 JSON Pointer 子树。"""
 
     source_id: str = Field(pattern=r"\S")
@@ -136,7 +136,7 @@ class SourceRecord(FrozenModel):
         return self
 
 
-class ReviewRecord(FrozenModel):
+class ReviewRecord(DeepFrozenModel):
     """@brief 品类结构或规则发布的一份可审计审核记录。"""
 
     reviewer: str = Field(pattern=r"\S")

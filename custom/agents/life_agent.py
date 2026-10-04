@@ -46,7 +46,7 @@ from custom.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, re
                                            truncation_feedback, with_feedback)
 from worldmock.life import errands
 from worldmock.life.continuation import CONTINUATION_KEY
-from worldmock.life.control_items import ControlItem, control_errands, control_items
+from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items
 from worldmock.life.error_contract import (HOST_NAME_CODES, Candidate, ErrorItem, ErrorReport, activity_candidate,
                                            bind_report, host_report)
 from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR
@@ -177,7 +177,6 @@ _MEMORY_RUNTIME_ACTIONS = {
 _MEMORY_RESULT_FIELDS = ("type", "text", "time", "epistemic_status")
 
 #: 以活动名为参数的控制工具。
-_ACTIVITY_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 
 
 def life_action_tool_names() -> frozenset[str]:
@@ -341,6 +340,18 @@ class LifeAgent(PersonAgent):
     def _persona_card_text(self) -> str:
         """@brief 从公开人物档案字段确定性渲染人物卡片文本（记忆巩固与反思使用）。"""
         return persona_card_text(self.get_profile(), self.name)
+
+    @staticmethod
+    def _observation_record(observation: Any) -> dict[str, Any]:
+        """@brief 生活观察只写一份，结构化内容直接交给宿主提示装配。"""
+        record = {"turn": 0, "action": "observe", "ok": True}
+        if isinstance(observation, dict):
+            record["data"] = observation
+        elif isinstance(observation, str):
+            record["observation"] = observation
+        else:
+            record["observation"] = json.dumps(observation, ensure_ascii=False, default=str)
+        return record
 
     def _new_memory_runtime(self, config):
         """@brief 复用 AS2 构造接点装配 WorldMock 的事实与主观记忆视图。"""
@@ -770,7 +781,7 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     个人事务变更的问题一并逐项报全部。"""
     if action == "start_activity":
         return _validate_start_activity(request, names)
-    if action in _ACTIVITY_CONTROL_TOOLS:
+    if action in CONTROL_TOOLS:
         return _control_feedback(action, request, names)
     if action == "recall_task_summary":
         return _unknown_names(("task_name", "任务、目标或活动"), [request.task_name], names["recall_names"],

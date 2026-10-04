@@ -4,6 +4,12 @@
 > 日期：2026-10-04
 > 范围：文档地图、按任务阅读路径、权威层级与文件归属。本文件不定义任何接口与行为，只回答「该读哪一份」。
 
+## 共享规则与可重建环境
+
+[最终开发规格](dev/SPEC-shared-rules-and-rebuildable-env.md)是本特性的唯一实施权威，
+[原提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md)保留为历史分析。
+[验收记录](dev/shared-rules-and-rebuildable-env-verification.md)集中登记实现、测试与变异证据。
+
 ## 这是什么
 
 WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，再交给 LabelKit 生产模型训练数据与规则引擎测试数据。正式实验是上海张江白领的单人物十二周（2026-01-05 至 2026-03-30）。**数字足迹**指一次生活过程留下的、可追溯的观察、决策、执行、状态变化、结果、记忆与相互关系。

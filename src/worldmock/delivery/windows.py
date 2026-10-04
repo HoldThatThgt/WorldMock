@@ -11,7 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
-from worldmock.footprints.models import canonical_json
+from worldmock.footprints.models import canonical_json, sha256_json
 from worldmock.footprints.validation import validate_export
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
 from worldmock.life.prompt_schemas import USER_LAYER_NAMES
@@ -84,19 +84,19 @@ def _decision_prompt_source(action: dict, rows: list[dict]) -> dict:
                   and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]
                   and row["data"].get("phase") == "request" and not row["data"].get("purpose")]
     if not candidates:
-        _invalid_action_group("Action training has no recorded decision prompt")
+        raise IntegrityError("Action training has no recorded decision prompt")
     row = max(candidates, key=lambda item: item["event_seq"])
     request = row["data"].get("request")
     if not isinstance(request, dict):
-        _invalid_action_group("Action training has an invalid recorded decision prompt")
+        raise IntegrityError("Action training has an invalid recorded decision prompt")
     messages, tools = request.get("messages"), request.get("tools")
     if (not isinstance(messages, list) or not messages or not isinstance(tools, list)
             or any(not isinstance(message, dict) for message in messages)):
-        _invalid_action_group("Action training has an incomplete recorded decision prompt")
+        raise IntegrityError("Action training has an incomplete recorded decision prompt")
     names = {item.get("function", {}).get("name") for item in tools if isinstance(item, dict)
              and isinstance(item.get("function"), dict)}
     if action["data"].get("tool_name") not in names:
-        _invalid_action_group("Action training prompt does not expose the requested tool")
+        raise IntegrityError("Action training prompt does not expose the requested tool")
     return row
 
 
@@ -105,7 +105,7 @@ def _attach_decision_prompt(record: dict, source: dict) -> None:
     request = source["data"]["request"]
     record["input"]["decision_prompt"] = request
     record["provenance"]["decision_prompt_event_id"] = source["event_id"]
-    record["provenance"]["decision_prompt_sha256"] = hashlib.sha256(canonical_json(request)).hexdigest()
+    record["provenance"]["decision_prompt_sha256"] = sha256_json(request)
 
 
 def _decision_groups(events: list[dict]) -> dict[str, list[dict]]:
@@ -131,7 +131,7 @@ def _attach_decision_layers(record: dict, rows: list[dict], decisions: dict) -> 
         source = _decision_prompt_source(row, decisions.get(row["decision_id"], []))
         value = _request_layers(source["data"]["request"])
         layers.append({"action_event_id": row["event_id"], "layers": value})
-        sources.append({"event_id": source["event_id"], "sha256": hashlib.sha256(canonical_json(value)).hexdigest()})
+        sources.append({"event_id": source["event_id"], "sha256": sha256_json(value)})
     record["input"]["decision_layers"] = layers
     record["provenance"]["decision_layer_sources"] = sources
 
@@ -146,7 +146,7 @@ def _request_layers(request: dict) -> list[dict]:
         value = None
     names = tuple(layer.get("layer") for layer in value if isinstance(layer, dict)) if isinstance(value, list) else ()
     if names != USER_LAYER_NAMES or len(value) != len(USER_LAYER_NAMES):
-        _invalid_action_group("Dreaming requires the six-layer JSON of the recorded action request")
+        raise IntegrityError("Dreaming requires the six-layer JSON of the recorded action request")
     return value
 
 
@@ -154,7 +154,7 @@ def _validated_action_groups(event: dict, actions: dict, decisions: dict) -> tup
     """@brief 拒绝跨人物复用动作或决策身份形成的证据分组。"""
     agent_id = event["agent_id"]
     if agent_id is None:
-        _invalid_action_group("Action request must identify its agent")
+        raise IntegrityError("Action request must identify its agent")
     decision_rows = decisions[event["decision_id"]]
     action_rows = actions[event["action_id"]]
     _validate_action_group_agent(agent_id, decision_rows, "decision")
@@ -167,13 +167,9 @@ def _validate_action_group_agent(agent_id: int, rows: list[dict], group: str) ->
     foreign = any(row["agent_id"] not in {agent_id, None} for row in rows)
     unowned_visible = any(row["visibility"] == "agent" and row["agent_id"] != agent_id for row in rows)
     if foreign or unowned_visible:
-        _invalid_action_group(f"Action training {group} identity crosses agent boundaries")
+        raise IntegrityError(f"Action training {group} identity crosses agent boundaries")
 
 
-def _invalid_action_group(message: str) -> None:
-    """@brief 记录并拒绝跨人物动作训练来源。"""
-    logging.error("%s", message)
-    raise IntegrityError(message)
 
 
 def _record(task: str, events: list[dict], facts: dict, manifest: dict, prerequisite: dict) -> dict:
@@ -260,7 +256,7 @@ def _attach_evidence(record: dict, events: list[dict], indexed: dict, directory:
 
 def _window_identity(task: str, input_data: dict) -> str:
     """@brief 仅由模型可见输入生成公开窗口身份，避免承诺未来目标。"""
-    return hashlib.sha256(canonical_json([task, input_data])).hexdigest()
+    return sha256_json([task, input_data])
 
 
 def _expand_observed_results(events: list[dict], indexed: dict, cutoff: int) -> list[dict]:
@@ -271,7 +267,7 @@ def _expand_observed_results(events: list[dict], indexed: dict, cutoff: int) -> 
             continue
         references = observation["data"].get("progress_event_ids", [])
         if not isinstance(references, list):
-            _invalid_observed_result("Observed progress event references must be a list")
+            raise IntegrityError("Observed progress event references must be a list")
         for reference in references:
             source = _validated_observed_result(observation, reference, indexed, cutoff)
             if source is not None:
@@ -282,26 +278,22 @@ def _expand_observed_results(events: list[dict], indexed: dict, cutoff: int) -> 
 def _validated_observed_result(observation: dict, reference: object, indexed: dict, cutoff: int) -> dict | None:
     """@brief 核对进度来源为截止前同人物可见的结果或环境事件；动作请求与私有来源不展开，返回 None。"""
     if observation["visibility"] != "agent" or observation["agent_id"] is None:
-        _invalid_observed_result("Observed progress source must be an agent-visible observation")
+        raise IntegrityError("Observed progress source must be an agent-visible observation")
     if not isinstance(reference, str):
-        _invalid_observed_result("Observed progress reference has no event identity")
+        raise IntegrityError("Observed progress reference has no event identity")
     source = indexed.get(reference)
     if source is None:
-        _invalid_observed_result("Observed progress reference does not resolve to an exported event")
+        raise IntegrityError("Observed progress reference does not resolve to an exported event")
     if source["event_type"] in PRIVATE_EVENTS | {"action_requested"}:
         return None
     if (source["event_type"] not in PROGRESS_EVIDENCE_EVENTS or source["visibility"] != "agent"
             or source["agent_id"] != observation["agent_id"]):
-        _invalid_observed_result("Observed progress source is not a visible same-agent result or event")
+        raise IntegrityError("Observed progress source is not a visible same-agent result or event")
     if source["event_seq"] >= observation["event_seq"] or source["event_seq"] > cutoff:
-        _invalid_observed_result("Observed progress source is outside the current knowledge cutoff")
+        raise IntegrityError("Observed progress source is outside the current knowledge cutoff")
     return source
 
 
-def _invalid_observed_result(message: str) -> None:
-    """@brief 记录且拒绝无法证明属于当前知识窗口的结果。"""
-    logging.error("%s", message)
-    raise IntegrityError(message)
 
 
 def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:

@@ -8,6 +8,7 @@ environment_event（data.kind="day_plan_generated"）。幂等键为既有字段
 
 from __future__ import annotations
 
+from worldmock.model_feedback import correction_message, schema_feedback, tool_arguments
 import copy
 import json
 import logging
@@ -108,10 +109,7 @@ def fit_plan_day(payload: dict[str, Any], sentences: Sequence[str], model_name: 
 def prepare_plan_day_correction(request: dict[str, Any], raw: dict[str, Any],
                                 error: PlanDayOutputError) -> dict[str, Any]:
     """@brief 在原始请求之后附上前次响应与英文错误，要求重新提交完整清单。"""
-    feedback = {"PREVIOUS_INVALID_RESPONSE": raw, "VALIDATION_ERROR": str(error),
-                "INSTRUCTION": _CORRECTION_INSTRUCTION}
-    message = {"role": "user", "content": json.dumps(
-        feedback, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)}
+    message = correction_message(raw, error, _CORRECTION_INSTRUCTION)
     corrected = copy.deepcopy(request)
     corrected["messages"] = [*request["messages"], message]
     return corrected
@@ -201,27 +199,16 @@ def failure_draft(now: int, agent_id: int, link: tuple[str, int, str], error: Ba
 
 
 def _tool_arguments(raw: dict[str, Any]) -> str:
-    """@brief 取唯一 submit_day_plan 调用的参数文本；结构不符是可附回的输出错误。"""
+    """@brief 取得唯一零点计划调用的 JSON 参数。"""
     choices = raw.get("choices")
     if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        _LOGGER.error("Plan day response does not contain exactly one choice")
         raise PlanDayOutputError("response must contain exactly one choice")
     message = choices[0].get("message")
     calls = message.get("tool_calls") if isinstance(message, dict) else None
-    if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
-        raise PlanDayOutputError("response must contain exactly one submit_day_plan tool call")
-    function = calls[0].get("function")
-    if not isinstance(function, dict) or function.get("name") != PLAN_DAY_TOOL:
-        raise PlanDayOutputError("the only tool call must be submit_day_plan")
-    arguments = function.get("arguments")
-    if not isinstance(arguments, str):
-        raise PlanDayOutputError("submit_day_plan arguments must be a JSON string")
-    return arguments
+    return tool_arguments(calls, PLAN_DAY_TOOL, PlanDayOutputError)
 
 
 def _schema_feedback(error: ValidationError) -> str:
-    """@brief 把请求模型的校验错误压成一行英文说明（位置与原因），附回模型重试。"""
-    parts = []
-    for item in error.errors():
-        location = ".".join(str(part) for part in item.get("loc", ())) or "goals"
-        parts.append(f"{location}: {item.get('msg', 'invalid value')}")
-    return "; ".join(parts)
+    """@brief 保留零点计划的根字段名称并共用 Schema 错误格式。"""
+    return schema_feedback(error, "goals")

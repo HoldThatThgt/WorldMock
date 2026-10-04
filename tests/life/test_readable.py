@@ -71,14 +71,15 @@ def test_chinese_kind_tables_have_a_single_source() -> None:
     合成 ENGLISH_KIND_NAMES。"""
     import re
 
-    from worldmock.life import environment_layer, interaction_menu, readable
+    from worldmock.life import environment_layer, interaction_menu, readable, tool_layer
     from worldmock.life.models import ActivityKind
 
     assert environment_layer.PLACE_TYPES is readable.PLACE_TYPES
     assert environment_layer.ACTION_PHRASES is readable.ACTION_PHRASES
     assert interaction_menu.TRAVEL_WAYS is readable.TRAVEL_WAYS
+    assert tool_layer.ACTIVITY_DOING_LABELS is readable.ACTIVITY_DOING_LABELS
     assert set(readable.ACTIVITY_KIND_LABELS) == {kind.value for kind in ActivityKind}
-    tables = (readable.ACTIVITY_KIND_LABELS, readable.PLACE_TYPES, readable.ACTION_PHRASES, readable.TRAVEL_WAYS,
-              readable.BROWSE_LABELS)
+    tables = (readable.ACTIVITY_KIND_LABELS, readable.ACTIVITY_DOING_LABELS, readable.PLACE_TYPES,
+              readable.ACTION_PHRASES, readable.TRAVEL_WAYS, readable.BROWSE_LABELS)
     assert all(re.fullmatch(r"[一-鿿]+", label) for table in tables for label in table.values())
     assert readable.ENGLISH_KIND_NAMES == {key for table in tables for key in table}

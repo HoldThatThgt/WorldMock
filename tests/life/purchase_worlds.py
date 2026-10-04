@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,6 +20,7 @@ from zoneinfo import ZoneInfo
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
+from tests.file_copy import link_or_copy
 from tests.life.conftest import context
 from tests.life.routing_fixtures import stage
 from worldmock.categories.identity import refresh_manifest_identity
@@ -78,7 +78,7 @@ def build_world(root: Path, phones: dict[str, dict], places: dict[str, str] | No
     :param locations: 地点身份 → 要替换的地图字段（照字段名改，例如 opening_calendars 写成空表即营业未知）。
     """
     corpus = root / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
+    shutil.copytree(ROOT / "corpora", corpus, copy_function=link_or_copy)
     dataset = json.loads((corpus / _DATASET).read_text(encoding="utf-8"))
     if places or locations:
         rows = json.loads((corpus / _MAP / "locations.json").read_text(encoding="utf-8"))
@@ -170,14 +170,6 @@ def _rename_products(catalog: Path, products: dict[str, str]) -> None:
         lines.append(json.dumps(row, ensure_ascii=False))
     path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
     refresh_manifest_identity(catalog)
-
-
-def _link_or_copy(source: str, target: str) -> None:
-    """@brief 隔离语料副本：同一卷上用硬链接，跨卷时复制（改写前先解除链接，正式语料字节不变）。"""
-    try:
-        os.link(source, target)
-    except OSError:
-        shutil.copy2(source, target)
 
 
 def _write(path: Path, value: dict) -> str:

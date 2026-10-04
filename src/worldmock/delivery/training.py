@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 import json
 from pathlib import Path
@@ -77,7 +78,7 @@ def assign_splits(records: list[dict]) -> list[str]:
     assignments = {}
     for component in nx.connected_components(graph):
         identities = sorted(value for kind, value in component if kind == "source")
-        digest = hashlib.sha256(canonical_json(identities)).hexdigest()
+        digest = sha256_json(identities)
         bucket = int(digest[:8], 16) % 10
         split = "validation" if bucket == 8 else "test" if bucket == 9 else "train"
         assignments.update({value: split for kind, value in component if kind == "record"})

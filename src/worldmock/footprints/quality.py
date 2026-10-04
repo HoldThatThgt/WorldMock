@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.intervals import valid_interval, body_settlements
+from worldmock.life.memory_evidence import MEMORY_WRITE_POINTS, valid_subjective_snapshots
+from worldmock.footprints.models import is_sha256
 import logging
 import math
 import re
@@ -26,16 +29,13 @@ from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, HOST_NAME_CODE
 from worldmock.life.reply_guard import GUARD_PATTERNS
 from worldmock.life.same_moment import free_rejection_flags
 
-_ACTION_STATUSES = (
-    "submitted", "accepted", "in_progress", "completed", "rejected", "cancelled", "failed", "unknown",
-)
+from worldmock.life.models import ActionStatus
+
+_ACTION_STATUSES = tuple(status.value for status in ActionStatus)
 _ACTIVITY_STATUSES = ("active", "paused", "completed", "cancelled", "failed", "truncated")
 _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
 _CONTENT_TYPES = {"watch", "read_mail", "play_game", "browse"}
-_SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal", "conflict",
-                              "resolution", "identity", "routine", "reflection"})
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
-_WRITE_POINTS = ("activity_conclusion", "reflection")
 #: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
 _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 模型用量按用途分列时，无 purpose 的请求（人物决策的行动请求与记忆巩固、反思）的分组名。
@@ -182,10 +182,10 @@ def _activity_quality(activities: list[dict], events: list[Event]) -> dict:
     reasons = Counter(row["interruption_reason"] for row in interrupted
                       if isinstance(row.get("interruption_reason"), str) and row["interruption_reason"])
     known = [row["elapsed_seconds"] for row in activities if _is_nonnegative_number(row.get("elapsed_seconds"))]
-    shared = _body_settlement_events(events)
+    shared = body_settlements(events)
     intervals = [(event.data.get("interval_start"), event.data.get("interval_end")) for event in shared]
     valid_intervals = [(start, end) for start, end in intervals
-                       if _is_int(start) and _is_int(end) and end > start]
+                       if valid_interval(start, end)]
     person_seconds = _person_elapsed_seconds(shared)
     return {
         "status_counts": {status: statuses[status] for status in _ACTIVITY_STATUSES},
@@ -211,7 +211,7 @@ def _person_elapsed_seconds(events: list[Event]) -> dict[str, int]:
     by_agent: dict[str, list[tuple[int, int]]] = defaultdict(list)
     for event in events:
         start, end = event.data.get("interval_start"), event.data.get("interval_end")
-        if _is_int(start) and _is_int(end) and end > start:
+        if valid_interval(start, end):
             by_agent[str(event.agent_id)].append((start, end))
     totals = {}
     for agent_id, intervals in by_agent.items():
@@ -309,7 +309,7 @@ def _work_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
         start, end = event.data.get("interval_start"), event.data.get("interval_end")
         efficiency = event.data.get("activity_efficiency")
         sample = (float(end - start), float(efficiency)) if (
-            _is_int(start) and _is_int(end) and end > start and _is_nonnegative_number(efficiency)
+            valid_interval(start, end) and _is_nonnegative_number(efficiency)
         ) else None
         if sample is None:
             missing += 1
@@ -336,7 +336,7 @@ def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
         start, end = event.data.get("interval_start"), event.data.get("interval_end")
         efficiency = consumption.get("food_efficiency")
         sample = (float(end - start), float(efficiency)) if (
-            _is_int(start) and _is_int(end) and end > start and _is_nonnegative_number(efficiency)
+            valid_interval(start, end) and _is_nonnegative_number(efficiency)
         ) else None
         if sample is None:
             missing += 1
@@ -377,7 +377,7 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     决策轮的唤醒原因取 decision_started（同刻轮次不写共同身体结算），两份分列。跨决策预算耗尽的技术停顿
     （environment_event 种类 decision_budget_exhausted，docs/dev/SPEC-persona-prompt.md 第五章）单独计数。
     """
-    boundaries = _body_settlement_events(events)
+    boundaries = body_settlements(events)
     offered = sum(event.data.get(DECISION_OFFERED_FIELD) is True for event in boundaries)
     silent = sum(event.data.get(DECISION_OFFERED_FIELD) is False for event in boundaries)
     known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(boundaries)
@@ -410,10 +410,7 @@ def _same_moment_round_counts(started: list[Event]) -> dict[str, int]:
     return {str(count): distribution[count] for count in sorted(distribution)}
 
 
-def _body_settlement_events(events: list[Event]) -> list[Event]:
-    """@brief 共同身体结算是人物经过时长与边界的唯一来源。"""
-    return [event for event in events if event.event_type == "environment_event"
-            and event.data.get("kind") == "body_settlement"]
+
 
 
 def _wake_reason_distribution(progresses: list[Event]) -> tuple[Counter, Counter, int]:
@@ -558,9 +555,9 @@ def _inspect_memory_update(event: Event, state: dict) -> None:
 def _valid_write_points(data: dict, event: Event) -> bool:
     """@brief trigger 是写入点闭集的有序无重复子列表，decision_id 与事件所属决策一致。"""
     trigger = data.get("trigger")
-    if not isinstance(trigger, list) or any(point not in _WRITE_POINTS for point in trigger):
+    if not isinstance(trigger, list) or any(point not in MEMORY_WRITE_POINTS for point in trigger):
         return False
-    ordered = sorted(trigger, key=_WRITE_POINTS.index)
+    ordered = sorted(trigger, key=MEMORY_WRITE_POINTS.index)
     return (trigger == ordered and len(set(trigger)) == len(trigger)
             and isinstance(event.decision_id, str) and data.get("decision_id") == event.decision_id)
 
@@ -601,7 +598,7 @@ def _valid_memory_update_payload(data: dict) -> bool:
         return False
     if data.get("operation") == "refresh_summary" and data.get("memory_before_sha256") == data.get("memory_sha256"):
         return False
-    if any(not isinstance(data.get(name), str) or not re.fullmatch(r"[0-9a-f]{64}", data[name])
+    if any(not is_sha256(data.get(name))
            for name in ("memory_before_sha256", "memory_sha256", "episodes_sha256", "state_sha256")):
         return False
     if (type(data.get("consolidated")) is not bool or not isinstance(data.get("observation_event_id"), str)
@@ -611,26 +608,13 @@ def _valid_memory_update_payload(data: dict) -> bool:
     if (not isinstance(verified, list) or any(not isinstance(item, str) or not item for item in verified)
             or len(verified) != len(set(verified))):
         return False
-    return _valid_subjective_snapshots(episodes, identities)
+    return valid_subjective_snapshots(episodes, identities)
 
 
-def _snapshot_keys_valid(item: dict) -> bool:
-    """@brief 快照键集：四个基本键，或另加 source 且来源为就寝反思（宿主为反思条目标注来源）。"""
-    base = {"id", "type", "text", "epistemic_status"}
-    return set(item) == base or (set(item) == base | {"source"} and item["source"] == "reflection")
 
 
-def _valid_subjective_snapshots(episodes: list, identities: list[str]) -> bool:
-    """@brief 主观快照与本次实际持久身份一一对应。"""
-    if len(episodes) != len(identities):
-        return False
-    for item in episodes:
-        if (not isinstance(item, dict) or not _snapshot_keys_valid(item)
-                or item.get("id") not in identities or item.get("type") not in _SUBJECTIVE_TYPES
-                or not isinstance(item.get("text"), str)
-                or not item["text"] or item.get("epistemic_status") != "subjective"):
-            return False
-    return {item["id"] for item in episodes} == set(identities)
+
+
 
 
 def _inspect_memory_failure(event: Event, state: dict) -> None:

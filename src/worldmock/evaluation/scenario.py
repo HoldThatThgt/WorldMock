@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import is_sha256
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
@@ -106,16 +107,14 @@ def _validate_expected_labelkit(value: Mapping[str, Any]) -> None:
         raise EvaluationError("invalid_scenario", "expected_labelkit schema is invalid")
     if not isinstance(value["run_id"], str) or not value["run_id"]:
         raise EvaluationError("invalid_scenario", "expected LabelKit run_id is invalid")
-    if any(not _is_sha256(value[field]) for field in hashes):
+    if any(not is_sha256(value[field]) for field in hashes):
         raise EvaluationError("invalid_scenario", "expected LabelKit SHA-256 is invalid")
     for field in ("main_rows", "stream_rows"):
         if isinstance(value[field], bool) or not isinstance(value[field], int) or value[field] <= 0:
             raise EvaluationError("invalid_scenario", f"expected LabelKit {field} is invalid")
 
 
-def _is_sha256(value: Any) -> bool:
-    """@brief 判断字符串是否为小写十六进制 SHA-256。"""
-    return isinstance(value, str) and len(value) == 64 and all(item in "0123456789abcdef" for item in value)
+
 
 
 def _load_window(value: Any) -> TimeWindow:

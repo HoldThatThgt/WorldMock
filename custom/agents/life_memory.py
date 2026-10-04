@@ -11,17 +11,19 @@ from typing import TYPE_CHECKING, Any
 
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, MemoryStepOutcome, PersonMemoryRuntime
+from agentsociety2.agent.person_prompt import xml_block
+from custom.agents.life_memory_store import WorldMockMemoryStore
 from custom.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
                                            reflection_correction, reflection_insights, reflection_tool)
+from worldmock.life.memory_evidence import SUBJECTIVE_TYPES, valid_subjective_snapshot
 from worldmock.errors import ProtocolError
 
 if TYPE_CHECKING:
     from custom.agents.life_agent import LifeAgent
 
-_SUBJECTIVE_TYPES = frozenset({
-    "commitment", "relationship", "preference", "goal", "conflict",
-    "resolution", "identity", "routine", "reflection",
-})
+#: 结束活动主观记忆的固定巩固阈值，与框架通用巩固配置无关。
+_PENDING_THRESHOLD = 10
+_IMPORTANCE_THRESHOLD = 3.0
 #: 结束活动写入点与就寝反思的记忆来源（系统固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_SOURCE = "activity_conclusion"
 _REFLECTION_SOURCE = "reflection"
@@ -48,6 +50,27 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         )
         self._owner = owner
 
+    def ensure_store(self, workspace_root: Any) -> WorldMockMemoryStore | None:
+        """@brief 初次运行绑定宿主记忆存储，再创建框架检查点文件。"""
+        if not self.enabled:
+            return None
+        if self._store is None:
+            self._store = WorldMockMemoryStore(workspace_root, agent_id=self.agent_id)
+        self._store.ensure()
+        return self._store
+
+    def restore_store(self, workspace_root: Any) -> WorldMockMemoryStore | None:
+        """@brief 恢复必须绑定宿主存储并通过完整框架检查点验证。"""
+        if not self.enabled:
+            return None
+        if self._store is not None:
+            logging.error("Memory store was already bound")
+            raise RuntimeError("Memory store was already bound")
+        store = WorldMockMemoryStore(workspace_root, agent_id=self.agent_id)
+        store.validate_existing()
+        self._store = store
+        return store
+
     def build_context(self) -> dict[str, Any]:
         """@brief 记忆上下文只给最近条目窗口与文件路径，不给主观归纳；生活决策提示由七层组成，不读这里的条目与摘要
         （记忆层由环境派生，阈值巩固的摘要不进提示，裁决 #36）。
@@ -70,7 +93,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         """@brief 保存结束活动写下的主观条目、按阈值归纳，再确定性渲染当前事实窗口。
 
         finish_memories 承载宿主展平的 conclude_activity 逐项记忆与看法（经 control_items 读出，看法的 about 即存储的
-        subject，写入 AS2 前剥掉；签名沿用 AS2，不改锁定提交）；
+        subject，写入存储前剥掉）；
         阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/dev/SPEC-time-and-energy.md 第七章）。
         """
         store = self.store
@@ -153,16 +176,14 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
     def _consolidation_due(self, sleep_boundary: bool) -> tuple[bool, str]:
         """@brief 阈值巩固判定：就寝边界照常触发；否则只按未巩固条目中来源不是就寝反思的条目计条数与重要度。
 
-        阈值沿用 MemoryConsolidationConfig（10 条、重要度合计 3.0）；不调用 AS2 的 should_consolidate，因为它把
-        反思条目也计入待巩固条数与重要度。
+        宿主固定阈值为十条、重要度合计三；反思条目不计入这两个触发条件。
         """
         if sleep_boundary:
             return True, "sleep boundary"
-        config = self.config.consolidation
         pending = [item for item in self._require_store().unconsolidated() if item.get("source") != "reflection"]
-        if sum(float(item.get("importance") or 0.0) for item in pending) >= config.importance_accumulation_threshold:
+        if sum(float(item.get("importance") or 0.0) for item in pending) >= _IMPORTANCE_THRESHOLD:
             return True, "importance accumulation threshold"
-        if len(pending) >= config.pending_threshold:
+        if len(pending) >= _PENDING_THRESHOLD:
             return True, "pending episode threshold"
         return False, ""
 
@@ -173,7 +194,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         except (TypeError, ValueError):
             logging.error("WorldMock conclusion memory payload is invalid")
             raise
-        if any(item["type"] not in _SUBJECTIVE_TYPES or item["epistemic_status"] != "subjective"
+        if any(item["type"] not in SUBJECTIVE_TYPES or item["epistemic_status"] != "subjective"
                or item["source"] != _CONCLUSION_SOURCE for item in memories):
             logging.error("WorldMock conclusion memory must be subjective and system-sourced")
             raise ValueError("WorldMock conclusion memory must be subjective and system-sourced")
@@ -182,7 +203,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
     async def _append_subjective(
         self, memories: list[dict[str, Any]], *, tick: int, t: datetime, step_count: int,
     ) -> list[dict[str, Any]]:
-        """@brief 复用 AS2 相似合并，任何静默漏写均失败。"""
+        """@brief 宿主存储执行相似合并，任何静默漏写均失败。"""
         if not memories:
             return []
         store = self._require_store()
@@ -215,6 +236,19 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         await asyncio.to_thread(store.mark_subjective_consolidated,
                                 content[:4000], step_count=step_count, tick=tick)
         return True
+
+    @staticmethod
+    def _reflection_episodes(store: WorldMockMemoryStore) -> list[dict[str, Any]]:
+        """@brief 就寝反思只读取最近三十条宿主主观记忆。"""
+        return store.iter_episodes()[-30:]
+
+    @staticmethod
+    def _reflection_messages(episodes: list[dict[str, Any]], t: datetime) -> list[dict[str, str]]:
+        """@brief 由宿主形成严格反思请求，引用仅来自交给模型的记忆。"""
+        payload = {"time": t.isoformat(), "episodes": [
+            {key: str(item.get(key) or "") for key in ("id", "type", "time", "text")} for item in episodes]}
+        return [{"role": "system", "content": REFLECTION_PROMPT}, {"role": "user", "content": xml_block(
+            "memory_reflection_input", json.dumps(payload, ensure_ascii=False, indent=2, default=str))}]
 
 
 def render_memory_view(identity: str, facts: list[dict[str, Any]], summary: str) -> str:
@@ -293,6 +327,9 @@ def _episode_snapshot(item: dict[str, Any]) -> dict[str, str]:
     snapshot = {key: str(item[key]) for key in _SNAPSHOT_FIELDS}
     if item.get("source") == _REFLECTION_SOURCE:
         snapshot["source"] = _REFLECTION_SOURCE
+    if not valid_subjective_snapshot(snapshot):
+        logging.error("Subjective memory snapshot is invalid")
+        raise RuntimeError("Subjective memory snapshot is invalid")
     return snapshot
 
 

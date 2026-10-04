@@ -25,6 +25,7 @@ from worldmock.life.presentation import PoolEntry, PresentationContext, Presenta
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import task_listed, work_totals
 from worldmock.life.result_projection import browse_results, public_supply_row
+from worldmock.life.content import mail_headers
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
@@ -262,7 +263,7 @@ class ObservationMixin:
             self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
         data["content_progress"] = self._content_progress(agent)
         data["work_progress"] = self._work_progress_rows(agent)
-        data["messages"] = _mail_headers(agent, self.rules.messages)
+        data["messages"] = mail_headers(agent, self.rules.messages)
         data["affordance_contract"] = self._affordance_contract
         visible = set(projection.visible_supplies(self.state, agent, self.scenario)) | set(presented)
         context = self._discovery_context(agent)
@@ -652,19 +653,6 @@ class ObservationMixin:
                 "people_at_last_decision": people,
                 "known_task_ids": set(agent.visible_task_ids)}, deep=True)
         return staged.model_copy(update={"agents": agents}, deep=True)
-
-
-def _mail_headers(agent, messages) -> list[dict]:
-    """@brief 观察只展示已到达邮件的标题，已读邮件才展示正文（content 口径）。"""
-    result = []
-    for message_id in sorted(agent.visible_message_ids):
-        message = messages[message_id]
-        record = {"message_id": message_id, "thread_id": message.thread_id,
-                  "subject": message.subject, "read": message_id in agent.read_message_ids}
-        if record["read"]:
-            record["body"] = message.body
-        result.append(record)
-    return result
 
 
 def _route_catalog(routes: tuple, state, agent_id: int, semantics) -> list[dict]:

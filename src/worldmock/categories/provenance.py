@@ -11,6 +11,10 @@ from jsonpointer import JsonPointer, JsonPointerException
 from worldmock.categories.common import CategoryError, SourceRecord
 
 
+#: 合同与交换规则中不参与模拟静态数值来源覆盖的根元数据。
+NUMERIC_SOURCE_METADATA_ROOTS = frozenset({"format_version", "contract_version", "sources", "review"})
+
+
 def validate_numeric_sources(
     document: dict[str, Any],
     sources: Iterable[SourceRecord],

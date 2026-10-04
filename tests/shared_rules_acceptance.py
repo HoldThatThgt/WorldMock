@@ -1,0 +1,57 @@
+"""共享规则与可重建环境的逐条规格验收登记，节点必须指向真实行为测试。"""
+
+RULES = {
+    '规范 JSON 摘要': ('tests/test_shared_primitives.py::test_structured_digest_and_raw_string_contracts_use_same_bytes',),
+    'SHA-256 形式': ('tests/test_shared_primitives.py::test_sha256_format_is_strict',),
+    '安全文件': ('tests/test_shared_primitives.py::test_original_safe_file_consumers_reject_symlink_before_hash_or_schema',),
+    '原子写': ('tests/test_shared_primitives.py::test_atomic_publication_order_and_failed_replace_cleanup',),
+    '故障日志': ('tests/test_shared_primitives.py::test_value_error_rejection_logs_once_and_preserves_message',),
+    '活动时长': ('tests/life/test_shared_rules.py::test_content_duration_matches_tool_layer_named_catalog_and_admission',),
+    '开工阻断': ('tests/life/test_shared_rules.py::test_work_refusal_matches_listing_and_admission',),
+    '出行时长': ('tests/life/test_shared_rules.py::test_travel_plan_matches_tool_layer_admission_and_engine_validation',),
+    '缓解速率': ('tests/life/test_shared_rules.py::test_invalid_exposure_evidence_fails_both_preview_and_settlement',),
+    '候选种类': ('tests/life/test_shared_rules.py::test_candidate_kind_mapping_drives_real_generation_and_resource_filter',),
+    '活动家族': ('tests/life/test_shared_rules.py::test_unknown_lifestyle_family_does_not_advance_or_score',),
+    '中文活动名称': ('tests/life/test_readable.py::test_chinese_kind_tables_have_a_single_source',),
+    '睡眠通道': ('tests/life/test_body_flows.py::test_sleep_emits_no_entertainment_flow',),
+    '模块说明': ('tests/life/test_shared_rules.py::test_work_refusal_matches_listing_and_admission',),
+    '有效区间': ('tests/test_shared_primitives.py::test_interval_consumers_do_not_count_invalid_settlements',),
+    '共同身体结算筛选': ('tests/test_shared_primitives.py::test_body_settlement_subject_filter_is_shared_and_strict',),
+    '场景本地日': ('tests/test_shared_primitives.py::test_renderer_and_label_report_use_manifest_timezone_and_real_local_day',),
+    '主观记忆证据': ('tests/test_shared_primitives.py::test_independent_reflection_snapshot_is_valid_across_memory_quality_and_behavior',),
+    '日期区段': ('tests/evaluation/test_shared_event_parsing.py::test_metric_and_review_date_blocks_share_full_window_partition',),
+    '世界事件解析': ('tests/evaluation/test_shared_event_parsing.py::test_canonical_adapter_validates_each_event_once_for_statistics_and_public_evidence',),
+    '社交活动家族': ('tests/life/test_shared_rules.py::test_social_family_advances_the_social_goal',),
+    '邮件头': ('tests/life/test_shared_rules.py::test_mail_headers_match_content_revelation_and_observation',),
+    '社交资源分录': ('tests/life/test_shared_body.py::test_shared_activity_factors_use_social_met_and_declared_factors',),
+    '合同对象集合': ('tests/life/test_shared_rules.py::test_contract_templates_match_scenario_loading_and_resource_mapping',),
+    '独立模型客户端': ('tests/test_shared_model_clients.py::test_original_clients_share_single_call_serialization_and_request_isolation',),
+    '纠正消息': ('tests/test_shared_model_clients.py::test_three_corrections_keep_original_tools_budgets_and_channel_echo',),
+    '品类与目录错误': ('tests/test_shared_primitives.py::test_original_safe_file_consumers_reject_symlink_before_hash_or_schema',),
+    '公共枚举': ('tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones',),
+    '严格模型': ('tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction',),
+    '曲线与效率因子': ('tests/test_shared_primitives.py::test_curve_models_shared_by_life_and_catalog_reject_invalid_numbers',),
+}
+
+ENVIRONMENT = {
+    '源码与换行身份': (
+        'tests/test_bootstrap.py::test_original_full_patch_rebuilds_the_original_locked_identity',
+        'tests/test_bootstrap.py::test_series_rebuilds_the_real_package_and_refuses_source_corruption',
+        'tests/test_bootstrap.py::test_same_committed_source_identity_survives_autocrlf_checkouts',
+    ),
+    '环境引导与收据': (
+        'tests/test_bootstrap.py::test_bootstrap_checks_source_before_installs_and_uses_two_environments',
+        'tests/test_bootstrap.py::test_pip_offline_install_requires_hashes_and_source_build_uses_locked_backend',
+        'tests/test_bootstrap.py::test_exported_dependency_versions_and_all_hashes_match_original_lock',
+    ),
+    '门禁、可选部件与操作系统': (
+        'tests/test_coverage_gate.py::test_real_shards_use_current_python_and_report_skipped_tests',
+        'tests/test_coverage_gate.py::test_main_never_passes_for_skipped_empty_or_failed_tests',
+        'tests/test_environment_profiles.py::test_release_rejects_each_missing_component',
+        'tests/test_environment_profiles.py::test_cross_volume_copy_preserves_real_bytes_and_is_independent',
+    ),
+    '新机器检查': (
+        'tests/test_fresh_check.py::test_fresh_checkout_disables_submodules_ssh_and_pip_cache',
+        'tests/test_fresh_check.py::test_platform_comparison_rejects_mismatch_and_incomplete_evidence',
+    ),
+}

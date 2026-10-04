@@ -43,15 +43,19 @@ flowchart LR
 
 ## 安装
 
-使用 Python 3.12 和 uv。AS2 与 LabelKit 的 protobuf 依赖范围互斥，分别使用固定源码及各自环境。
+使用 Python 3.12、Git 和 Node。AS2 与 LabelKit 的 protobuf 依赖范围互斥，分别使用固定源码及各自环境。
+引导从仓库内上游源码与补丁重建 AS2，从固定 HTTPS 制品取得 LabelKit，不需要 SSH 密钥或预先安装 uv。
 
 ```sh
-git submodule update --init vendor/agentsociety2 vendor/labelkit
-uv sync --frozen
-uv sync --project vendor/labelkit --frozen
+python scripts/bootstrap.py --profile release
 ```
 
-AS2 必须是子模块指针锁定的提交 `8768e14`；实际导入的 AS2 包目录为空、无法导入或源码摘要不符时，
+Windows 可用 `py -3.12`，其它系统可用 `python3.12` 执行引导；找不到 Python 3.12 会明确失败。
+`--wheelhouse` 指定包含固定依赖和源码制品的离线目录；`--use-uv` 显式选择 uv 安装执行器。
+`dev` 档位可记录缺少 Node 或 LabelKit，但缺失检查不能取得完整放行。
+环境收据位于 `.work/environment-receipt.json`。安装步骤和平台验收边界见[运行配置](docs/manual/runtime.md#准备环境)。
+
+AS2 必须匹配 `patches/agentsociety2/SERIES` 登记的固定源码摘要；实际导入的包目录为空、无法导入或摘要不符时，
 `run`、`resume`、`replay` 与 `validate` 拒绝启动。
 
 DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件仅含 `DEEPSEEK_NODE_KEYS`，

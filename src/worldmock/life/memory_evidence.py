@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from worldmock.footprints.models import is_sha256
 from typing import Any
 
 from worldmock.errors import ProtocolError
@@ -45,9 +47,7 @@ def memory_write_points(requests: list, decision_id: str, observation: Any, writ
     return points
 
 
-def _is_sha256(value: Any) -> bool:
-    """@brief 判断字符串是否为规范小写 SHA-256。"""
-    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
 
 
 def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
@@ -60,7 +60,7 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
     hashes = (evidence.memory_before_sha256, evidence.memory_sha256,
               evidence.episodes_sha256, evidence.state_sha256)
     if (evidence.operation not in {"append_episodes", "refresh_summary"}
-            or any(not _is_sha256(value) for value in hashes)
+            or any(not is_sha256(value) for value in hashes)
             or type(evidence.consolidated) is not bool
             or not isinstance(evidence.observation_event_id, str)
             or not evidence.observation_event_id
@@ -70,7 +70,7 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
             or (evidence.operation == "append_episodes" and not identities)
             or (evidence.operation == "refresh_summary" and
                 (identities or evidence.memory_before_sha256 == evidence.memory_sha256))
-            or not _valid_memory_snapshots(episodes, identities)):
+            or not valid_subjective_snapshots(episodes, identities)):
         raise ProtocolError("Memory update payload is invalid")
     return {"operation": evidence.operation, "created_episode_ids": list(created),
             "merged_episode_ids": list(merged), "episodes": list(episodes),
@@ -84,27 +84,36 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
 
 
 #: 主观快照的键集：四个基本键；就寝反思另带来源 source=reflection（宿主标注，记忆层据此找归属日期）。
-_SNAPSHOT_KEYS = frozenset({"id", "type", "text", "epistemic_status"})
 
 
-def _snapshot_keys_valid(item: dict) -> bool:
-    """@brief 快照键集是四个基本键，或另加 source 且来源为就寝反思。"""
-    return set(item) == _SNAPSHOT_KEYS or (set(item) == _SNAPSHOT_KEYS | {"source"} and item["source"] == "reflection")
 
 
-def _valid_memory_snapshots(episodes: tuple[dict, ...], identities: tuple[str, ...]) -> bool:
-    """@brief 主观快照逐条对应本次新增或合并的稳定身份。"""
-    allowed = {"commitment", "relationship", "preference", "goal", "conflict",
-               "resolution", "identity", "routine", "reflection"}
-    if len(episodes) != len(identities):
+
+
+
+
+
+
+#: 实际主观记忆的类型闭集，写入和评估共用。
+SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal", "conflict",
+                              "resolution", "identity", "routine", "reflection"})
+#: 普通快照必须恰含四个字段，反思可另携系统来源。
+SUBJECTIVE_SNAPSHOT_FIELDS = frozenset({"id", "type", "text", "epistemic_status"})
+
+
+def valid_subjective_snapshot(item: Any) -> bool:
+    """@brief 校验实际主观条目快照，独立反思来源属于合法形状。"""
+    if not isinstance(item, Mapping):
         return False
-    for item in episodes:
-        if (not isinstance(item, dict)
-                or not _snapshot_keys_valid(item)
-                or item.get("id") not in identities or item.get("type") not in allowed
-                or not isinstance(item.get("text"), str) or not item["text"]
-                or item.get("epistemic_status") != "subjective"):
-            return False
-    return {item["id"] for item in episodes} == set(identities)
+    keys = set(item)
+    valid_keys = keys == SUBJECTIVE_SNAPSHOT_FIELDS or (
+        keys == SUBJECTIVE_SNAPSHOT_FIELDS | {"source"} and item["source"] == "reflection")
+    return (valid_keys and isinstance(item.get("id"), str) and bool(item["id"])
+            and item.get("type") in SUBJECTIVE_TYPES and isinstance(item.get("text"), str)
+            and bool(item["text"]) and item.get("epistemic_status") == "subjective")
 
 
+def valid_subjective_snapshots(episodes: Sequence, identities: Sequence[str]) -> bool:
+    """@brief 核对所有主观快照与本次持久身份一一对应。"""
+    return (len(episodes) == len(identities) and all(valid_subjective_snapshot(item) for item in episodes)
+            and {item["id"] for item in episodes} == set(identities))

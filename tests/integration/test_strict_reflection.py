@@ -24,7 +24,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.memory_runtime import MEMORY_REFLECTION_MAX_INSIGHTS
+from custom.agents.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
 from custom.agents import life_reflection
 from custom.agents.life_agent import LifeAgent
 from custom.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDATION_RETRIES, ReflectionOutputError,
@@ -566,9 +566,9 @@ async def test_corrected_reflection_is_recorded_once_by_the_real_engine(engine_f
     assert run.engine.state.activities[run.slept].concluded_at is not None
 
 
-def test_reflection_tool_schema_is_inline_strict_and_bound_to_the_as2_limit() -> None:
+def test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit() -> None:
     """补充证据：工具声明 strict，参数就是 ReflectionRequest 的严格 Schema（生成后不改写），两层对象全部属性必填、封闭，
-    序列化后没有引用定义；条数上限取 AS2 常量且为五。"""
+    序列化后没有引用定义；条数上限取宿主常量且为五。"""
     function = reflection_tool()["function"]
     assert (function["name"], function["strict"]) == (_TOOL, True)
     parameters = function["parameters"]

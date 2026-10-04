@@ -8,11 +8,13 @@ submit_reflection 不属于人物工具面，不进 tool_schema_sha256，文案�
 
 from __future__ import annotations
 
+from worldmock.model_feedback import correction_message, schema_feedback, tool_arguments
 import json
 import logging
 from typing import Annotated, Any
 
-from agentsociety2.agent.memory_runtime import MEMORY_REFLECTION_MAX_INSIGHTS
+#: WorldMock 独立就寝反思每次最多提交五条洞见。
+MEMORY_REFLECTION_MAX_INSIGHTS = 5
 from pydantic import Field, ValidationError, WithJsonSchema, field_validator
 
 from worldmock.life.models import ToolRequestModel, deepseek_strict_schema, validate_memory_text
@@ -22,8 +24,8 @@ REFLECTION_TOOL = "submit_reflection"
 #: 输出不合合同时附回错误的重试次数上限：首次之外至多再请求 3 次（连同首次至多四次模型调用），与传输重试分开计数。
 #: 数值与零点计划的校验重试相同，但各自独立，互不引用。
 REFLECTION_VALIDATION_RETRIES = 3
-#: 就寝反思的 system 文案（docs/CONTRACTS.md「请求组成」逐字登记，测试逐字比对）；条数上限与 AS2 常量
-#: MEMORY_REFLECTION_MAX_INSIGHTS 同为五条。阶段 1 的文本（docs/dev/SPEC-errands-workday.md 1.1）原样保留、各行不重新
+#: 就寝反思的 system 文案（docs/CONTRACTS.md「请求组成」逐字登记，测试逐字比对）；条数上限归宿主规则
+#: 宿主反思洞见闭集上限为五条。阶段 1 的文本（docs/dev/SPEC-errands-workday.md 1.1）原样保留、各行不重新
 #: 折行，其后空一行追加 3.3 的两句：反思不记下、不办成也不取消个人事务，输入是人物自己的记录、不是核验过的结果。两句在
 #: 文案里是不折行的一行，源码只为行宽拆成相邻的字符串。
 REFLECTION_PROMPT = """
@@ -139,10 +141,8 @@ def reflection_correction(messages: list[dict[str, Any]], response: Any,
     echoed = [{"name": _text_or_none(getattr(call, "name", None)),
                "arguments": _text_or_none(getattr(call, "arguments", None))}
               for call in (getattr(item, "function", None) for item in _tool_calls(response))]
-    feedback = {"PREVIOUS_INVALID_RESPONSE": echoed, "VALIDATION_ERROR": str(error),
-                "INSTRUCTION": _CORRECTION_INSTRUCTION}
-    content = json.dumps(feedback, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return [*(dict(message) for message in messages), {"role": "user", "content": content}]
+    message = correction_message(echoed, error, _CORRECTION_INSTRUCTION)
+    return [*(dict(item) for item in messages), message]
 
 
 def _tool_calls(response: Any) -> list[Any]:
@@ -155,29 +155,13 @@ def _tool_calls(response: Any) -> list[Any]:
 
 
 def _tool_arguments(response: Any) -> str:
-    """@brief 取恰好一次 submit_reflection 调用的参数文本；自由文本、其他工具与多次调用都是输出错误。"""
-    calls = _tool_calls(response)
-    if len(calls) != 1:
-        _LOGGER.error("Reflection response does not contain exactly one tool call")
-        raise ReflectionOutputError("response must contain exactly one submit_reflection tool call")
-    function = getattr(calls[0], "function", None)
-    if getattr(function, "name", None) != REFLECTION_TOOL:
-        _LOGGER.error("Reflection response calls another tool")
-        raise ReflectionOutputError("the only tool call must be submit_reflection")
-    arguments = getattr(function, "arguments", None)
-    if not isinstance(arguments, str):
-        _LOGGER.error("Reflection tool arguments are not a JSON string")
-        raise ReflectionOutputError("submit_reflection arguments must be a JSON string")
-    return arguments
+    """@brief 原始记忆响应经唯一工具参数校验，不读取自由正文。"""
+    return tool_arguments(_tool_calls(response), REFLECTION_TOOL, ReflectionOutputError)
 
 
 def _schema_feedback(error: ValidationError) -> str:
-    """@brief 把请求模型的校验错误压成一行英文说明（位置: 原因），附回模型重试。"""
-    parts = []
-    for item in error.errors():
-        location = ".".join(str(part) for part in item.get("loc", ())) or "arguments"
-        parts.append(f"{location}: {item.get('msg', 'invalid value')}")
-    return "; ".join(parts)
+    """@brief 保留反思根字段名称并共用 Schema 错误格式。"""
+    return schema_feedback(error, "arguments")
 
 
 def _text_or_none(value: Any) -> str | None:

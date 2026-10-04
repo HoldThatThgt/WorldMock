@@ -1050,14 +1050,13 @@ class TestReliefFloorPreview:
         assert watch.entertainment_delta == pytest.approx(accrual)
         assert self._engine_delta(activity, agent, int(watch.duration_seconds)) == pytest.approx(accrual)
 
-    def test_continue_watch_without_relief_evidence_previews_accrual(self, transforms):
-        """观看证据不全时评分器照旧失败开放：按清醒累积预演，不臆造缓解。"""
+    def test_continue_watch_without_relief_evidence_is_rejected(self, transforms):
+        """继续内容缺实际接触证据与结算一致失败；观察层保留自身的仪表失败处理。"""
         activity = _running(ActivityKind.WATCH, "movie-0001", 1800, {})
         context = _context(agent=_agent(need=0.5), active_activities=(activity,), contents=(_content(),),
                            taste_weights={"movie-0001": 1.0}, body=self.BODY)
-        scored = evaluate_motivation(context, _profile(), transforms, top_k=MAX_CANDIDATES)
-        keep = next(item.candidate for item in scored if item.candidate.family == "continue")
-        assert keep.entertainment_delta == pytest.approx(self.BODY.entertainment_need_per_awake_hour * 0.5)
+        with pytest.raises(ValueError, match="watch activity entertainment evidence is incomplete"):
+            evaluate_motivation(context, _profile(), transforms, top_k=MAX_CANDIDATES)
 
 
 class TestBrowseCandidate:

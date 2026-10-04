@@ -523,13 +523,13 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 4（版本 3 是一日运行保真的
     新节，版本 4 是个人事务与工作安排规格的两个新节）。"""
     events = [
-        _event(1, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
+        _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
-        _event(2, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+        _event(2, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "person_arrived"]}),
-        _event(3, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+        _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
-        _event(4, "environment_event", data={"kind": "body_settlement"}),
+        _event(4, "environment_event", agent_id=1, data={"kind": "body_settlement"}),
         _event(5, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
         _event(6, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["run_start"])),
         _event(7, "environment_event", agent_id=1, data={"kind": "decision_budget_exhausted",
@@ -640,7 +640,7 @@ def test_errand_reminder_due_is_a_known_wake_reason():
 
 
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
-    events = [_event(1, "environment_event", data={"kind": "body_settlement"}),
+    events = [_event(1, "environment_event", agent_id=1, data={"kind": "body_settlement"}),
               _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
               _event(3, "run_ended", occurred_at=1100)]
 

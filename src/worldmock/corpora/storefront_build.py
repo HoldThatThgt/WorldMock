@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 
 from worldmock.corpora.storefront import assortment_objects, frozen_price
@@ -15,12 +14,12 @@ def build_storefront_supplies(catalog, assignment, locations, assumptions: dict,
     stores = {item["location_id"]: item for item in assumptions["locations"]}
     places = {item.location_id: item for item in locations}
     if set(stores) != {item.location_id for item in assignment.locations}:
-        _fail("Store supply assumptions must cover exactly all selling locations")
+        raise IntegrityError("Store supply assumptions must cover exactly all selling locations")
     result = []
     for declaration in sorted(assignment.locations, key=lambda item: item.location_id):
         place = places[declaration.location_id]
         if not place.opening_calendars:
-            _fail("Selling locations require explicit opening calendars")
+            raise IntegrityError("Selling locations require explicit opening calendars")
         store = stores[place.location_id]
         for identity in sorted(assortment_objects(declaration, catalog)):
             obj = catalog.objects[identity]
@@ -43,9 +42,3 @@ def _supply(obj, declaration, store: dict, assumptions: dict, random_seed: int) 
         fulfillment_modes=store["fulfillment_modes"], delivery_destination_ids=store["delivery_destination_ids"],
         delivery_delay_seconds=store["delivery_delay_seconds"],
         required_qualifications=store["required_qualifications"], source=source)
-
-
-def _fail(message: str) -> None:
-    """@brief 记录英文错误并停止资料不完整的构建。"""
-    logging.error(message)
-    raise IntegrityError(message)

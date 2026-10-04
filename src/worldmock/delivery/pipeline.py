@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from worldmock.footprints.models import sha256_json
 import hashlib
 import json
 import logging
@@ -134,11 +135,11 @@ def run_labelkit(task: str, workspace: Path, project_root: Path, inputs: list[di
     """@brief 独立依赖环境调用固定 CLI，凭据只通过进程环境传递。"""
     if task in SEMANTIC_TASKS:
         if inputs is None:
-            _raise_integrity("Semantic LabelKit execution requires its complete logical inputs")
+            raise IntegrityError("Semantic LabelKit execution requires its complete logical inputs")
         encoded, _ = _load_source_bundle(task, workspace, trace_required=False)
         _verify_decoded_sources(encoded, inputs)
     elif inputs is not None:
-        _raise_integrity("Non-semantic LabelKit execution cannot receive semantic model inputs")
+        raise IntegrityError("Non-semantic LabelKit execution cannot receive semantic model inputs")
     binary = (project_root / "vendor/labelkit/.venv/Scripts/labelkit.exe" if os.name == "nt"
               else project_root / "vendor/labelkit/.venv/bin/labelkit")
     command = [str(binary), "run", "--config", str(workspace / "config.toml"),
@@ -171,7 +172,7 @@ def run_labelkit(task: str, workspace: Path, project_root: Path, inputs: list[di
 def write_model_inputs(task: str, inputs: list[dict], workspace: Path) -> dict:
     """@brief 以唯一字段字典格式写入 LabelKit 行和可核验来源索引。"""
     if task not in SEMANTIC_TASKS or not inputs:
-        _raise_integrity("Semantic model inputs require a supported task and non-empty records")
+        raise IntegrityError("Semantic model inputs require a supported task and non-empty records")
     encoded = [encode_model_record(record) for record in inputs]
     sources = [_model_source(task, line_no, row) for line_no, row in enumerate(encoded, 1)]
     data_receipt = write_jsonl(workspace / "data" / f"{task}.jsonl", encoded)
@@ -187,15 +188,15 @@ def verify_process(task: str, workspace: Path, inputs: list[dict]) -> list[dict]
     _verify_decoded_sources(encoded, inputs)
     identities = {record["provenance"]["window_id"] for record in inputs}
     if len(identities) != len(inputs) or len(rows) != len(inputs):
-        _raise_integrity("LabelKit process did not preserve every input window")
+        raise IntegrityError("LabelKit process did not preserve every input window")
     verified, seen = {}, set()
     for row in rows:
         line_no, original, source = _source_record(task, row, inputs, sources, seen)
         if row["_meta"]["verification"]["verdict"] != "pass":
-            _raise_integrity("LabelKit semantic verification did not pass")
+            raise IntegrityError("LabelKit semantic verification did not pass")
         semantic = {"target": row["target"]}
         if validate_annotation(semantic, original):
-            _raise_integrity("LabelKit output violated semantic or factual constraints")
+            raise IntegrityError("LabelKit output violated semantic or factual constraints")
         record = attach_facts(semantic, original)
         record["provenance"]["annotation_model"] = row["_meta"]["annotation"]["model"]
         record["provenance"]["labelkit_record_id"] = row["_meta"]["id"]
@@ -208,20 +209,20 @@ def _source_record(task: str, row: dict, inputs: list[dict], sources: list[dict]
                    seen: set[int]) -> tuple[int, dict, dict]:
     """@brief 用 LabelKit 来源位置和原始行摘要绑定语义候选。"""
     if set(row) != {"target", "_meta"}:
-        _raise_integrity("LabelKit semantic output must contain only target and _meta")
+        raise IntegrityError("LabelKit semantic output must contain only target and _meta")
     metadata = row.get("_meta")
     source = metadata.get("source") if isinstance(metadata, dict) else None
     line_no = source.get("line_no") if isinstance(source, dict) else None
     if source is None or source.get("file") != f"{task}.jsonl":
-        _raise_integrity("LabelKit output source file does not match the process input")
+        raise IntegrityError("LabelKit output source file does not match the process input")
     if type(line_no) is not int or line_no < 1 or line_no > len(inputs):
-        _raise_integrity("LabelKit output source line is outside the process input")
+        raise IntegrityError("LabelKit output source line is outside the process input")
     if line_no in seen:
-        _raise_integrity("LabelKit output source line is duplicated")
+        raise IntegrityError("LabelKit output source line is duplicated")
     original = inputs[line_no - 1]
     source = sources[line_no - 1]
     if metadata.get("id") != source["labelkit_record_id"]:
-        _raise_integrity("LabelKit output record identity does not match its source line")
+        raise IntegrityError("LabelKit output record identity does not match its source line")
     seen.add(line_no)
     return line_no, original, source
 
@@ -230,23 +231,23 @@ def _model_source(task: str, line_no: int, encoded: dict) -> dict:
     """@brief 从实际编码行重建逻辑窗口、模型摘要和 LabelKit 行身份。"""
     decoded = decode_model_record(encoded)
     if decoded.get("task") != task:
-        _raise_integrity("Encoded model record task does not match its source file")
+        raise IntegrityError("Encoded model record task does not match its source file")
     window_id = decoded.get("provenance", {}).get("window_id")
     if window_id != _window_identity(task, decoded["input"]):
-        _raise_integrity("Encoded model record has an invalid logical window identity")
-    model_record_sha256 = hashlib.sha256(canonical_json(encoded)).hexdigest()
+        raise IntegrityError("Encoded model record has an invalid logical window identity")
+    model_record_sha256 = sha256_json(encoded)
     source = {"schema_version": 1, "task": task, "source_line": line_no,
             "window_id": window_id,
             "decoded_input_sha256": encoded["input"][ENCODING_FIELD]["decoded_input_sha256"],
-            "model_input_sha256": hashlib.sha256(canonical_json(encoded["input"])).hexdigest(),
+            "model_input_sha256": sha256_json(encoded["input"]),
             "model_record_sha256": model_record_sha256,
             "labelkit_record_id": model_record_sha256[:16],
             "trace_path": f"out/{task}.trace.jsonl"}
     if task in {"action", "intent"}:
         provenance = decoded["provenance"]
-        prompt_digest = hashlib.sha256(canonical_json(decoded["input"]["decision_prompt"])).hexdigest()
+        prompt_digest = sha256_json(decoded["input"]["decision_prompt"])
         if provenance.get("decision_prompt_sha256") != prompt_digest:
-            _raise_integrity("Decision prompt source digest disagrees with the recorded request")
+            raise IntegrityError("Decision prompt source digest disagrees with the recorded request")
         source["decision_prompt_event_id"] = provenance["decision_prompt_event_id"]
         source["decision_prompt_sha256"] = prompt_digest
     return source
@@ -257,7 +258,7 @@ def _load_source_bundle(task: str, workspace: Path, trace_required: bool) -> tup
     encoded = _read_jsonl(workspace / "data" / f"{task}.jsonl")
     sources = _read_jsonl(workspace / "data" / f"{task}.source-index.jsonl")
     if not encoded or len(encoded) != len(sources):
-        _raise_integrity("Model input source index does not preserve every encoded line")
+        raise IntegrityError("Model input source index does not preserve every encoded line")
     trace_sha256 = None
     if trace_required:
         trace_sha256 = _completed_trace_digest(task, workspace, encoded)
@@ -266,7 +267,7 @@ def _load_source_bundle(task: str, workspace: Path, trace_required: bool) -> tup
         if trace_required:
             expected["trace_sha256"] = trace_sha256
         if source != expected:
-            _raise_integrity("Model input source index disagrees with its encoded line or trace")
+            raise IntegrityError("Model input source index disagrees with its encoded line or trace")
     return encoded, sources
 
 
@@ -285,7 +286,7 @@ def _completed_trace_digest(task: str, workspace: Path, encoded: list[dict]) -> 
         config_raw = (workspace / "config.toml").read_bytes()
         project_raw = (workspace / f"{task}.toml").read_bytes()
     except OSError as error:
-        _raise_integrity(f"Cannot read LabelKit trace identity files: {error}")
+        raise IntegrityError(f"Cannot read LabelKit trace identity files: {error}")
     return completed_trace_sha256(
         workspace / f"out/{task}.trace.jsonl", _trace_model_inputs(encoded),
         "sha256:" + hashlib.sha256(config_raw).hexdigest(),
@@ -299,9 +300,9 @@ def _trace_models(raw: bytes) -> dict[str, str]:
         config = tomllib.loads(raw.decode("utf-8"))
         models = {profile: config["llm"][profile]["model"] for profile in ("default", "judge")}
     except (UnicodeDecodeError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
-        _raise_integrity(f"Cannot read LabelKit model identities: {error}")
+        raise IntegrityError(f"Cannot read LabelKit model identities: {error}")
     if not all(isinstance(model, str) and model for model in models.values()):
-        _raise_integrity("LabelKit model identities are invalid")
+        raise IntegrityError("LabelKit model identities are invalid")
     return models
 
 
@@ -309,21 +310,21 @@ def _trace_model_inputs(encoded: list[dict]) -> dict[str, str]:
     """@brief 将实际编码行身份绑定到模型可见 input 的 canonical 摘要。"""
     result = {}
     for row in encoded:
-        record_sha256 = hashlib.sha256(canonical_json(row)).hexdigest()
-        input_sha256 = hashlib.sha256(canonical_json(row["input"])).hexdigest()
+        record_sha256 = sha256_json(row)
+        input_sha256 = sha256_json(row["input"])
         result[record_sha256[:16]] = input_sha256
     if len(result) != len(encoded):
-        _raise_integrity("Encoded model record identities are duplicated")
+        raise IntegrityError("Encoded model record identities are duplicated")
     return result
 
 
 def _verify_decoded_sources(encoded: list[dict], inputs: list[dict]) -> None:
     """@brief 证明实际模型行逐条恢复为本次内存中的完整 canonical 窗口。"""
     if len(encoded) != len(inputs):
-        _raise_integrity("Encoded model inputs do not preserve every logical window")
+        raise IntegrityError("Encoded model inputs do not preserve every logical window")
     for wire, original in zip(encoded, inputs, strict=True):
         if canonical_json(decode_model_record(wire)) != canonical_json(original):
-            _raise_integrity("Decoded model input differs from its complete logical window")
+            raise IntegrityError("Decoded model input differs from its complete logical window")
 
 
 def _published_model_source(source: dict) -> dict:
@@ -344,10 +345,4 @@ def _read_jsonl(path: Path) -> list[dict]:
     try:
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     except (OSError, json.JSONDecodeError) as error:
-        _raise_integrity(f"Cannot read model source file {path.name}: {error}")
-
-
-def _raise_integrity(message: str) -> NoReturn:
-    """@brief 记录交付边界错误并抛出统一完整性异常。"""
-    logging.error("%s", message)
-    raise IntegrityError(message)
+        raise IntegrityError(f"Cannot read model source file {path.name}: {error}")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 
 from worldmock.errors import IntegrityError
 
@@ -14,7 +13,7 @@ def assortment_objects(assortment, catalog) -> frozenset[str]:
     for category in assortment.category_ids:
         catalog.category_contract.require_category(category)
     if set(assortment.object_ids) - set(catalog.objects):
-        _fail("Store assortment references unknown catalog objects")
+        raise IntegrityError("Store assortment references unknown catalog objects")
     expanded = {obj.object_id for obj in catalog.objects.values()
                 if any(catalog.category_contract.is_descendant(obj.category_id, category)
                        for category in assortment.category_ids)}
@@ -35,7 +34,7 @@ def price_range(obj) -> tuple[int, int]:
     lower = obj.attributes.get("purchase_price_fen_min")
     upper = obj.attributes.get("purchase_price_fen_max")
     if type(lower) is not int or type(upper) is not int or not 0 < lower <= upper:
-        _fail(f"Catalog product {obj.object_id} requires positive integer purchase price bounds")
+        raise IntegrityError(f"Catalog product {obj.object_id} requires positive integer purchase price bounds")
     return lower, upper
 
 
@@ -51,18 +50,18 @@ def validate_assortments(dataset, catalog) -> None:
         place = places[declaration.location_id]
         if place.kind in {"convenience_store", "supermarket"} and {
                 "food", "prepared-meal"} & set(declaration.category_ids):
-            _fail("Convenience stores and supermarkets must select specific food subcategories")
+            raise IntegrityError("Convenience stores and supermarkets must select specific food subcategories")
         objects = assortment_objects(declaration, catalog)
         admission = dataset.category_assignment.kinds[place.kind]
         for identity in objects:
             obj = catalog.objects[identity]
             if not any(contract.is_descendant(obj.category_id, parent) for parent in admission):
-                _fail(f"Store {place.location_id} contains a product outside its kind admission")
+                raise IntegrityError(f"Store {place.location_id} contains a product outside its kind admission")
             if catalog.pairing("person", obj.category_id, Action.PURCHASE).state != PairingState.DEFINED:
-                _fail(f"Store product {identity} requires a defined purchase pairing")
+                raise IntegrityError(f"Store product {identity} requires a defined purchase pairing")
         supplied = {item.product_id for item in dataset.supplies if item.location_id == place.location_id}
         if supplied != objects:
-            _fail(f"Store {place.location_id} supply set differs from its complete assortment")
+            raise IntegrityError(f"Store {place.location_id} supply set differs from its complete assortment")
         _validate_richness(place, objects, catalog)
         _validate_quotes(dataset, declaration, objects, catalog)
         if place.kind == "restaurant":
@@ -78,14 +77,14 @@ def _validate_richness(place, objects: frozenset[str], catalog) -> None:
     minimum, categories = thresholds[place.kind]
     leaves = {catalog.objects[identity].category_id for identity in objects}
     if len(objects) < minimum or len(leaves) < categories:
-        _fail(f"Store {place.location_id} assortment is below the declared richness requirement")
+        raise IntegrityError(f"Store {place.location_id} assortment is below the declared richness requirement")
     contract = catalog.category_contract
     if place.kind == "merchant" and not any(contract.is_descendant(leaf, "durable") for leaf in leaves):
-        _fail("Merchant assortments require household goods")
+        raise IntegrityError("Merchant assortments require household goods")
     if place.kind == "convenience_store" and not any(
             contract.is_descendant(leaf, parent) for leaf in leaves
             for parent in ("food-soda", "food-dairy", "food-tea-juice")):
-        _fail("Convenience store assortments require drinks")
+        raise IntegrityError("Convenience store assortments require drinks")
 
 
 def _validate_admission(assignment, contract) -> None:
@@ -96,7 +95,7 @@ def _validate_admission(assignment, contract) -> None:
     for kind, categories in assignment.kinds.items():
         permitted = expected[kind] if kind in expected else ()
         if set(categories) != set(permitted):
-            _fail("Location kind admission disagrees with the declared category roots")
+            raise IntegrityError("Location kind admission disagrees with the declared category roots")
         for category in categories:
             contract.require_category(category)
 
@@ -111,11 +110,11 @@ def _validate_quotes(dataset, declaration, objects, catalog) -> None:
         expected = frozen_price(dataset.random_seed, declaration.location_id, obj,
                                 declaration.price_position_percent)
         if supply.initial_stock <= 0:
-            _fail("Published selling assortments require positive stock")
+            raise IntegrityError("Published selling assortments require positive stock")
         if not supply.quotes or any(not lower <= quote.price_fen <= upper for quote in supply.quotes):
-            _fail("Frozen supply quote is outside its product price bounds")
+            raise IntegrityError("Frozen supply quote is outside its product price bounds")
         if supply.quotes[0].price_fen != expected:
-            _fail("Initial frozen supply quote disagrees with the declared price position")
+            raise IntegrityError("Initial frozen supply quote disagrees with the declared price position")
 
 
 def _validate_menus(menus: dict[str, frozenset[str]]) -> None:
@@ -124,7 +123,7 @@ def _validate_menus(menus: dict[str, frozenset[str]]) -> None:
     for index, first in enumerate(ordered):
         for second in ordered[index + 1:]:
             if len(menus[first] - menus[second]) < 3 or len(menus[second] - menus[first]) < 3:
-                _fail("Every restaurant menu pair requires at least three distinct dishes on each side")
+                raise IntegrityError("Every restaurant menu pair requires at least three distinct dishes on each side")
 
 
 def _validate_positions(dataset, places: dict) -> None:
@@ -133,10 +132,6 @@ def _validate_positions(dataset, places: dict) -> None:
     convenience = [positions[key] for key, place in places.items() if place.kind == "convenience_store"]
     supermarkets = [positions[key] for key, place in places.items() if place.kind == "supermarket"]
     if any(high < low + 10 for high in convenience for low in supermarkets):
-        _fail("Convenience store price positions must exceed supermarket positions by at least ten points")
-
-
-def _fail(message: str) -> None:
-    """@brief 记录英文诊断并停止不完整的商品发布。"""
-    logging.error(message)
-    raise IntegrityError(message)
+        raise IntegrityError(
+            "Convenience store price positions must exceed supermarket positions by at least ten points"
+        )
