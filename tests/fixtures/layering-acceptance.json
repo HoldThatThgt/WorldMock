@@ -29,7 +29,8 @@
     "tests": [
       "tests/test_layering_acceptance.py::test_facade_keeps_public_signatures_and_has_no_business_mixin",
       "tests/test_layering_acceptance.py::test_context_has_one_state_owner_and_no_facade_back_reference",
-      "tests/life/test_engine_round.py::test_real_wait_round_advances_and_records_complete_activity"
+      "tests/life/test_engine_round.py::test_real_wait_round_advances_and_records_complete_activity",
+      "tests/life/test_action_dispatch_contract.py::test_read_only_tools_cannot_enter_action_dispatch"
     ],
     "implementation": [
       "src/worldmock/life/engine.py::LifeEngine",
