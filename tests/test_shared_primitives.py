@@ -64,6 +64,66 @@ def test_safe_file_rejects_declared_path_before_access(tmp_path, relative):
         safe_file(tmp_path, relative, 'consumer path rejected')
 
 
+def _reject_root_contained_reference(root, relative, payload, consumer):
+    """验证内容身份正确时，原消费者仍按声明或链接规则拒绝根内文件。"""
+    entry = SimpleNamespace(path=relative, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
+    operations = {'safe_file': (lambda: safe_file(root, relative, 'consumer path rejected'), 'consumer path rejected'),
+                  'corpus': (lambda: _validate_entry(root, entry), 'Corpus entry path is invalid'),
+                  'map': (lambda: map_data._read_file(root, entry), 'Map file path is invalid')}
+    operation, message = operations[consumer]
+    with pytest.raises(IntegrityError, match=f'^{message}$'):
+        operation()
+
+
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(tmp_path, consumer):
+    root = tmp_path / 'corpus'
+    root.mkdir()
+    (root / 'child').mkdir()
+    payload = b'{"normal":true}\n'
+    (root / 'normal.json').write_bytes(payload)
+    relative = 'child/../normal.json'
+    assert (root / relative).resolve() == root / 'normal.json'
+    normal = SimpleNamespace(path='normal.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
+    _validate_entry(root, normal)
+    assert map_data._read_file(root, normal) == {'normal': True}
+    _reject_root_contained_reference(root, relative, payload, consumer)
+
+
+@pytest.mark.parametrize('link_kind', ['file', 'directory'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, monkeypatch, link_kind, consumer):
+    root = tmp_path / 'corpus'
+    root.mkdir()
+    target = root / 'normal'
+    target.mkdir()
+    payload = b'{"normal":true}\n'
+    (target / 'file.json').write_bytes(payload)
+    link = root / 'alias'
+    destination = target if link_kind == 'directory' else target / 'file.json'
+    relative = 'alias/file.json' if link_kind == 'directory' else 'alias'
+    try:
+        link.symlink_to(destination, target_is_directory=link_kind == 'directory')
+    except OSError as error:
+        if getattr(error, 'winerror', None) != 1314:
+            raise
+        # Windows 无创建链接权限时模拟唯一链接标志，文件访问与消费者仍走真实路径。
+        if link_kind == 'directory':
+            link.mkdir()
+            (link / 'file.json').write_bytes(payload)
+        else:
+            link.write_bytes(payload)
+        original = Path.is_symlink
+        monkeypatch.setattr(Path, 'is_symlink', lambda path: path == link or original(path))
+    assert (root / relative).resolve().is_relative_to(root.resolve())
+    assert (root / relative).read_bytes() == payload
+    normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(),
+                             size_bytes=len(payload))
+    _validate_entry(root, normal)
+    assert map_data._read_file(root, normal) == {'normal': True}
+    _reject_root_contained_reference(root, relative, payload, consumer)
+
+
 def test_original_safe_file_consumers_reject_symlink_before_hash_or_schema(tmp_path, caplog, monkeypatch):
     outside = tmp_path / 'outside.json'
     outside.write_text('{}')

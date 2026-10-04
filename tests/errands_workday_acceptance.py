@@ -129,7 +129,7 @@ _REFLECTION_TESTS = [
     "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
     "tests/delivery/test_windows.py::test_reflection_requests_after_the_action_never_become_the_decision_prompt",
     "tests/life/test_engine_branch_coverage.py::test_only_action_requests_satisfy_the_predicate",
-    _REFLECTION + "test_reflection_tool_schema_is_inline_strict_and_bound_to_the_as2_limit",
+    _REFLECTION + "test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit",
     _REFLECTION + "test_reflection_records_only_valid_subjective_insights",
     _REFLECTION + "test_invalid_reflection_cannot_enter_memory",
     _REFLECTION + "test_reflection_requires_exactly_one_tool_call",
@@ -1121,10 +1121,10 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "reflection_accepts_another_tool",
-        _REFLECTION_MODULE,
-        _REFLECTION_SOURCE,
-        '    if getattr(function, "name", None) != REFLECTION_TOOL:\n',
-        "    if False:\n",
+        "worldmock.model_feedback",
+        "src/worldmock/model_feedback.py",
+        '        if _field(function, "name") != tool:\n',
+        "        if False:\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(

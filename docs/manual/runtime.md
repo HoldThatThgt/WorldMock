@@ -22,6 +22,18 @@ python scripts/bootstrap.py --profile release
 `--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
 环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要和缺失部件，路径均相对项目。
 
+### 使用已安装的环境
+
+引导建立 `.venv` 后，在当前终端激活它；后续手册和设计文档的 `python`、`worldmock` 命令均使用该环境。
+
+| 终端 | 激活命令 |
+| --- | --- |
+| POSIX shell | `source .venv/bin/activate` |
+| Windows PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows cmd | `.venv\Scripts\activate.bat` |
+
+独立 LabelKit CLI 使用下文的自身环境入口；它不使用 WorldMock 的虚拟环境。
+
 AS2 唯一来源是 `patches/agentsociety2/SERIES` 登记的上游源码与有序补丁，从生成目录
 `vendor/agentsociety2/packages/agentsociety2` 可编辑安装。启动时核对实际导入的 AS2 包：
 包目录为空、无法导入或源码摘要与锁定值不符时，`run`、`resume`、
@@ -114,13 +126,13 @@ flowchart LR
 离线检查见[入门流程](README.md#创建自己的第一个场景)。实际命令如下：
 
 ```bash
-uv run worldmock validate \
+worldmock validate \
   --scenario scenarios/my-persona-day.json \
   --coverage-out /tmp/my-persona-day-coverage.json
-uv run worldmock run \
+worldmock run \
   --scenario scenarios/my-persona-day.json \
   --output runs/my-persona-day
-uv run worldmock status --run-dir runs/my-persona-day
+worldmock status --run-dir runs/my-persona-day
 ```
 
 `validate` 通过时在标准输出打印一个 JSON 对象，含 `valid`、`scenario_id`、`model_identity`、`persona_coverage` 与
@@ -142,7 +154,7 @@ uv run worldmock status --run-dir runs/my-persona-day
 结束后导出到新目录：
 
 ```bash
-uv run worldmock export \
+worldmock export \
   --run-dir runs/my-persona-day \
   --output runs/my-persona-day/exports/final
 ```
@@ -157,7 +169,7 @@ uv run worldmock export \
 先从父运行已有记录中取得真实检查点标识，再替换命令里的 `CHECKPOINT_ID`：
 
 ```bash
-uv run worldmock resume \
+worldmock resume \
   --scenario scenarios/my-persona-day.json \
   --parent runs/my-persona-day \
   --checkpoint CHECKPOINT_ID \
@@ -197,7 +209,7 @@ uv run worldmock resume \
 先校验文件形状，不会调用模型，也不能证明来源事件确实有效：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 from pathlib import Path
 from worldmock.life.models import CounterfactualIntervention
 
@@ -209,7 +221,7 @@ PY
 然后以真实检查点启动新分支：
 
 ```bash
-uv run worldmock replay \
+worldmock replay \
   --scenario scenarios/my-persona-day.json \
   --parent runs/my-persona-day \
   --checkpoint CHECKPOINT_ID \

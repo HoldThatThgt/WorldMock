@@ -1,6 +1,6 @@
 {
   "version_major": 5,
-  "version_minor": 3,
+  "version_minor": 4,
   "category_requirements": {
     "declared_at": "2026-09-18",
     "spec": "docs/dev/SPEC-life-realism.md 世界素材品类要求",
@@ -66,5 +66,5 @@
   "category_contract_version": 3,
   "category_contract_sha256": "2d65d82284ac2e05f7d422291b1d1f56053513e500363bf4d62ce7bfe209c353",
   "exchange_rules_sha256": "d9a119da4f6d6786b2352e70037c3d01c581ace4cf8d1bffabe7cc43e7b0172b",
-  "catalog_content_sha256": "40615033ec5e140cc8ebddf82be4495cb7806c6fbbaf679fcc4e59840a83af78"
+  "catalog_content_sha256": "9c17f248ee90e713140fa5cae534b734f3895f3cb6e33932a76e81929afddf44"
 }

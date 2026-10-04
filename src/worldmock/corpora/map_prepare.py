@@ -86,7 +86,6 @@ def _fetch_response(url: str, route) -> dict:
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as error:
-        logging.exception("Route response retrieval failed for %s", route.route_id)
         raise IntegrityError(f"Route response retrieval failed for {route.route_id}") from error
     _validate_response(data, route)
     return data

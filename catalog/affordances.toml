@@ -16,7 +16,7 @@ version = 1
 #                       见 met_key_modes），lifestyle 用 "{item_id}"（开放命名空间前缀）。
 #   energy_floor_exempt 能量豁免：只供内部动机评分（派生 body.ENERGY_RECOVERY_ACTIVITY_KINDS），
 #                       能量不参与受理、准入与结算截断（docs/dev/SPEC-time-and-energy.md 第三章）。
-#   sleep_channel       recovery = 清债 | awake = 累积（body 结算分支）。
+#   sleep_channel       recovery | awake 为声明值；当前身体结算按 sleep 活动种类判定，不消费此字段。
 #   relief.channel      娱乐缓解通道三选一：none | preference_rate（play_game：偏好 x 目录费率）|
 #                       content_rate（watch：条目费率 x 偏好 / 接触次数）。
 #   resource_claims     全部占用均显式声明，槽位闭集 idle、travel、eyes、ears、hands、voice、work

@@ -641,7 +641,7 @@ def test_encode_rejects_dictionary_digest_collision(monkeypatch):
     """字典身份冲突守卫：摘要协作者失真时拒绝。"""
     import worldmock.delivery.evidence_encoding as encoding
 
-    monkeypatch.setattr(encoding, '_digest', lambda _value: 'constant-digest')
+    monkeypatch.setattr(encoding, 'sha256_json', lambda _value: 'constant-digest')
     with pytest.raises(IntegrityError, match='digest collision'):
         encode_model_input(logical_input())
 

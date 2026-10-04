@@ -45,7 +45,7 @@ flowchart LR
 目标文件已经存在时会拒绝覆盖：
 
 ```bash
-uv run --no-sync python - <<'PY'
+python - <<'PY'
 import json
 from pathlib import Path
 
@@ -196,7 +196,7 @@ legacy-root/
 已由数据提供方规范化好的目录，可以先离线核验：
 
 ```bash
-uv run --no-sync python - <<'PY'
+python - <<'PY'
 from pathlib import Path
 from worldmock.evaluation.adapters import adapt_human_reference
 from worldmock.evaluation.scenario import load_scenario
@@ -212,7 +212,7 @@ PY
 先运行配置验证；它不会读取密钥、请求模型或启动仿真：
 
 ```bash
-uv run --no-sync python - <<'PY'
+python - <<'PY'
 from pathlib import Path
 from worldmock.evaluation.scenario import load_scenario
 
@@ -224,7 +224,7 @@ PY
 准备命令会认证完整候选输入、计算统计并写盲评包。把输入路径换成实际目录，输出目录须尚不存在：
 
 ```bash
-uv run worldmock evaluate \
+worldmock evaluate \
   --legacy deliveries/legacy-white-collar \
   --worldmock exports/my-world \
   --scenario scenarios/my-evaluation.json \
@@ -286,7 +286,7 @@ uv run worldmock evaluate \
 示例用于三个真人评审；会话名称应替换成自己的真实会话标识：
 
 ```bash
-uv run --no-sync python - <<'PY'
+python - <<'PY'
 import hashlib
 import json
 from pathlib import Path
@@ -318,7 +318,7 @@ PY
 只生成收据不会提交结果。可以在发布前离线校验三份收据；此步骤会校验并解盲，应由评审组织者在全部评审完成后执行：
 
 ```bash
-uv run --no-sync python - <<'PY'
+python - <<'PY'
 from pathlib import Path
 from worldmock.evaluation.review import ingest_reviews
 from worldmock.evaluation.scenario import load_scenario
@@ -335,7 +335,7 @@ PY
 完成所有真实评审后，仍使用同一输出目录，只传 `--output` 和 `--reviews`：
 
 ```bash
-uv run worldmock evaluate --output evaluations/my-comparison --reviews \
+worldmock evaluate --output evaluations/my-comparison --reviews \
   reviews/my-comparison/reviewer-01.json \
   reviews/my-comparison/reviewer-02.json \
   reviews/my-comparison/reviewer-03.json

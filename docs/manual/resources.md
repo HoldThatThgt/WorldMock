@@ -1,6 +1,6 @@
 # 定义地点、门店供给与世界素材
 
-> 更新日期：2026-10-03。工具交互已实现；当前目录 5.3、品类契约与规则绑定 3、场景结构 5、地图结构 3。
+> 更新日期：2026-10-05。工具交互已实现；当前目录 5.4、品类契约与规则绑定 3、场景结构 5、地图结构 3。
 > 地图按场景种子分别冻结完整供给，商品价格范围和真实料理输入输出均参与加载与行为校验。
 > 合同以[工具交互规格](../dev/SPEC-tool-interaction.md)为准，世界结构 9、场景结构 5 与查询筛选以[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)为准；本页命令使用当前已发布格式。
 
@@ -78,7 +78,7 @@ flowchart LR
 再通过真实加载器校验。不修改地图、商品或目录，不调用模型，也不启动模拟。
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 import json
 from pathlib import Path
 from worldmock.life.scenario import load_scenario
@@ -179,7 +179,7 @@ PY
 当前地图准备命令是对**已通过加载校验的张江地图**重新取得路线，需联网：
 
 ```bash
-uv run python scripts/prepare_map.py \
+python scripts/prepare_map.py \
   --source-root corpora \
   --destination experiments/worldmock-map-release-20260105 \
   --random-seed 20260105
@@ -357,7 +357,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 新增对象后，构建按每店的 `category_ids` 后代对象与
 `object_ids` 并集完整生成该店实际供给，并验证全部属于kind准入池，不把准入池全部复制给各地点。
 正式场景显式选择对应全部商品和供给，不继续维护逐对象稀疏手填模式。
-当前发布为目录 5.3、品类和规则绑定 3、场景 5（个人事务与工作安排规格阶段 3 起）、地图 3，世界状态为 9（该规格阶段 2 起）。
+当前发布为目录 5.4、品类和规则绑定 3、场景 5（个人事务与工作安排规格阶段 3 起）、地图 3，世界状态为 9（该规格阶段 2 起）。
 目录 5.0 是已验收冻结的完整供给阶段；真实料理与后续目录变化已发布新版本；
 后续内容变更另发新版本，不同内容不能覆盖同版，最终认证记录实际版本和摘要。
 如果只是初始持有且不可购买，可通过人物 `initial_inventory` 引用对象，无需假造门店供给。
@@ -420,15 +420,15 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 输入齐备后执行：
 
 ```bash
-uv run python scripts/build_lifestyle_corpus.py
-uv run python scripts/build_lifestyle_corpus.py --check
+python scripts/build_lifestyle_corpus.py
+python scripts/build_lifestyle_corpus.py --check
 ```
 
 随后更新语料清单，重建资源目录并校验：
 
 ```bash
-uv run python scripts/build_catalog.py
-uv run python scripts/build_catalog.py --check
+python scripts/build_catalog.py
+python scripts/build_catalog.py --check
 ```
 
 这些构建命令固定写仓库内的正式基线；它们不是任意自定义目录的通用导入器。
@@ -515,7 +515,7 @@ uv run python scripts/build_catalog.py --check
 计算两个哈希的完整命令：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 import hashlib
 import json
 from pathlib import Path
@@ -621,7 +621,7 @@ flowchart TD
 计算单个文件身份的完整命令：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 import hashlib
 import json
 from pathlib import Path
@@ -634,7 +634,7 @@ PY
 ```
 
 目前没有“给任意语料目录自动补清单”的通用 CLI。
-`uv run worldmock prepare-corpora --output experiments/worldmock-corpora` 会联网重新取得固定来源子集，
+`worldmock prepare-corpora --output experiments/worldmock-corpora` 会联网重新取得固定来源子集，
 要求输出不存在；它不是扫描自定义文件并注册素材的命令。
 
 ## 验证修改
@@ -642,7 +642,7 @@ PY
 下面的完整离线命令针对前面创建的场景，检查实际加载、全部语料文件身份和世界素材要求：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 from pathlib import Path
 from worldmock.catalog import load_catalog
 from worldmock.catalog.admission import validate_world_categories
@@ -663,7 +663,7 @@ PY
 正式运行前再执行完整项目校验：
 
 ```bash
-uv run worldmock validate --scenario scenarios/my-resources.json
+worldmock validate --scenario scenarios/my-resources.json
 ```
 
 人物有 `background_story` 时，完整校验会调用模型编译画像并检查素材覆盖率，还会写出覆盖率报告。

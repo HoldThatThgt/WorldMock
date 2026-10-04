@@ -83,10 +83,6 @@ class WorldMockMemoryStore(AgentMemoryStore):
             )
             records.append(record)
             written.append(record)
-        if episodes and len(written) + len(merged_targets) != len(episodes):
-            logging.error("Memory store did not persist finish memories")
-            raise RuntimeError("Memory store did not persist finish memories")
-
         self._persist_episode_records(records, written, merged_targets)
         state["episode_counter"] = counter
         state["pending_episode_count"] = int(

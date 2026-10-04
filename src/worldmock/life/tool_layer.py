@@ -320,13 +320,12 @@ _OBJECT_CHECKS = {"travel_to": _travel_check, "work": _work_check, "watch": _tim
 
 
 def _derived_seconds(context: LayerContext, binding: dict, action: dict) -> int:
-    """@brief 与受理共用派生秒数：观看取剩余或全长，内容游戏取全长，其余游戏与阅读浏览等待取反馈间隔。"""
+    """@brief 与受理共用派生秒数：内容取剩余或全长，TextWorld 游戏与阅读浏览等待取反馈间隔。"""
     canonical = action["canonical_action"]
     kinds = {"sleep": ActivityKind.SLEEP, "watch": ActivityKind.WATCH, "play": ActivityKind.PLAY_GAME,
              "read": ActivityKind.READ_MAIL, "browse": ActivityKind.BROWSE, "wait": ActivityKind.WAIT}
     target = binding["object_id"]
-    item = context.rules.content(target) if canonical == "watch" or (
-        canonical == "play" and target in context.rules.contents) else None
+    item = context.rules.content(target) if canonical == "watch" else None
     return derived_activity_duration(kinds[canonical], context.state.agents[context.agent_id], item,
                                      context.scenario.activity_feedback_seconds)
 

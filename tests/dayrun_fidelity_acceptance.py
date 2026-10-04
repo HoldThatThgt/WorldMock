@@ -157,7 +157,7 @@ LEDGER: dict[str, list[str]] = {
         _PREVIEW + "test_watch_candidate_preview_equals_engine_settlement",
         _PREVIEW + "test_continue_preview_equals_engine_settlement",
         _PREVIEW + "test_zero_rate_content_previews_awake_accrual_like_the_engine",
-        _PREVIEW + "test_continue_watch_without_relief_evidence_previews_accrual",
+        _PREVIEW + "test_continue_watch_without_relief_evidence_is_rejected",
         "tests/integration/test_host_branch_coverage.py::test_build_society_create_mode_injects_taste_weights",
         _SCENARIO + "test_relief_preference_floor_field_states_value_meaning_and_hypothesis",
         _SCENARIO + "test_relief_preference_floor_is_registered_once_in_the_experiment_hypotheses",

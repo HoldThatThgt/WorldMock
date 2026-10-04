@@ -174,11 +174,12 @@ max_slot_attempts = 5
 
 ```bash
 mkdir -p labelkit-projects/out
-PYTHONPATH="$PWD/src:$PWD/vendor/labelkit" uv run --no-sync --project vendor/labelkit labelkit validate \
+PYTHONPATH="$PWD/src" vendor/labelkit/.venv/bin/labelkit validate \
   --config labelkit-projects/config.toml --project labelkit-projects/action.toml --console plain
 ```
 
 对 `dreaming.toml`、`intent.toml` 重复同一命令即可。不要加 `--probe`；该选项会实际请求模型服务。
+Windows 使用 `vendor/labelkit/.venv/Scripts/labelkit.exe`，并在当前终端将 `PYTHONPATH` 设为项目的 `src` 目录。
 这一步不证明输入经历完整，也不等于最终数据交付通过。
 
 `rules.toml` 还需要由真实足迹产生的 `data/rules-catalog.jsonl`。下面是**完整的临时验证脚本**；
@@ -186,7 +187,7 @@ PYTHONPATH="$PWD/src:$PWD/vendor/labelkit" uv run --no-sync --project vendor/lab
 退出后清理临时目录，不写正式交付、不读取密钥、不请求模型：
 
 ```bash
-uv run --no-sync python - <<'PY'
+python - <<'PY'
 import os
 import shutil
 import subprocess
@@ -208,10 +209,11 @@ with tempfile.TemporaryDirectory(prefix="worldmock-delivery-check-") as temporar
     catalog = create_catalog(windows["action"][0])
     write_jsonl(workspace / "data/rules-catalog.jsonl", [catalog])
     environment = dict(os.environ)
-    environment["PYTHONPATH"] = os.pathsep.join((str(root / "src"), str(root / "vendor/labelkit")))
+    environment["PYTHONPATH"] = str(root / "src")
+    labelkit = root / "vendor/labelkit/.venv" / ("Scripts/labelkit.exe" if os.name == "nt" else "bin/labelkit")
     for task in ("dreaming", "intent", "action", "rules"):
         subprocess.run([
-            "uv", "run", "--no-sync", "--project", str(root / "vendor/labelkit"), "labelkit", "validate",
+            str(labelkit), "validate",
             "--config", str(workspace / "config.toml"), "--project", str(workspace / f"{task}.toml"),
             "--console", "plain",
         ], env=environment, check=True)
@@ -223,8 +225,8 @@ PY
 完成配置和凭据准备后，以下命令会真实调用 LabelKit 模型；输出目录必须尚不存在：
 
 ```bash
-uv run worldmock export --run-dir runs/my-world --output exports/my-world
-uv run worldmock deliver --export exports/my-world --output deliveries/my-world
+worldmock export --run-dir runs/my-world --output exports/my-world
+worldmock deliver --export exports/my-world --output deliveries/my-world
 ```
 
 如果已有符合合同的真实反事实重演导出，给 `deliver` 增加

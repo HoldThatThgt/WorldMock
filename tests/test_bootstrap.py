@@ -2,7 +2,9 @@
 
 import gzip
 import io
+import importlib.metadata
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -54,7 +56,7 @@ def test_original_full_patch_rebuilds_the_original_locked_identity(tmp_path):
     assert len([path for path in package.rglob("*") if path.is_file()]) == 228
 
 
-def test_shrunk_source_keeps_framework_integrity_and_restores_upstream_scanner(tmp_path):
+def test_shrunk_source_keeps_framework_integrity_and_generic_scanner(tmp_path):
     import ast
 
     root = _source_repository(tmp_path)
@@ -67,9 +69,10 @@ def test_shrunk_source_keeps_framework_integrity_and_restores_upstream_scanner(t
     assert not {"text_bigrams", "bigram_jaccard", "_find_merge_target", "_within_merge_window"} & methods
     assert not {"_run_reflection", "_parse_reflection", "_persona_card"} & {
         node.name for node in ast.walk(runtime) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    with tarfile.open(ROOT / "patches/agentsociety2/baseline.tar.gz") as archive:
-        upstream = archive.extractfile("agentsociety2/backend/services/custom/compatibility.py").read()
-    assert (package / "backend/services/custom/compatibility.py").read_bytes() == upstream
+    scanner = (package / "backend/services/custom/compatibility.py").read_text(encoding="utf-8")
+    assert "WorldMock" not in scanner and "LifeEnv" not in scanner
+    scanner_methods = {node.name for node in ast.walk(ast.parse(scanner)) if isinstance(node, ast.FunctionDef)}
+    assert {"build_env_scan_diagnostic", "has_direct_environment_contract"} <= scanner_methods
 
 
 @pytest.mark.parametrize("artifact", ["archive", "patch"])
@@ -163,6 +166,7 @@ def test_recursive_backend_locks_do_not_conflict_with_application_dependencies(e
     assert all(len(values) == 1 for values in versions.values())
     assert versions["hatchling"] == {"1.32.4"}
     assert versions["setuptools"] == {"84.0.0"}
+    assert versions["editables"] == {"0.6"}
     assert versions["packaging"] == {"26.3" if export == "lock.txt" else "26.2"}
 
 
@@ -178,6 +182,38 @@ def test_pip_offline_install_requires_hashes_and_source_build_uses_locked_backen
     assert calls[0][-2:] == ["--find-links", str(tmp_path / "wheels")]
     assert "--no-deps" in calls[1] and "--no-build-isolation" in calls[1]
     assert "--upgrade" not in calls[0]
+
+
+def test_locked_hatchling_backend_installs_real_editable_source_offline(tmp_path, monkeypatch):
+    """@brief 用当前哈希锁后端执行真实离线安装，并证明源码修改直接生效。"""
+    locked = _requirements(ROOT / "requirements/build-lock.txt")
+    assert any(name == "editables" for name, _, _ in locked)
+    backend_paths = set()
+    for name, version, _ in locked:
+        distribution = importlib.metadata.distribution(name)
+        assert distribution.version == version
+        backend_paths.add(str(distribution.locate_file("")))
+    source = tmp_path / "source"
+    package = source / "locked_editable_probe"
+    package.mkdir(parents=True)
+    module = package / "__init__.py"
+    module.write_text('VALUE = "initial"\n', encoding="utf-8")
+    (source / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["hatchling==1.32.4"]\nbuild-backend = "hatchling.build"\n'
+        '[project]\nname = "locked-editable-probe"\nversion = "0.0.0"\n'
+        'dependencies = ["worldmock-unavailable-editable-dependency==0"]\n'
+        '[tool.hatch.build.targets.wheel]\npackages = ["locked_editable_probe"]\n', encoding="utf-8")
+    # 仅借用已安装且版本与哈希锁一致的后端，实际 pip 安装不得解析依赖或访问索引。
+    python = environment.create_environment(tmp_path / "environment")
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(sorted(backend_paths)))
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+    monkeypatch.setenv("PIP_CONFIG_FILE", os.devnull)
+    monkeypatch.setenv("PIP_NO_CACHE_DIR", "1")
+    environment.install_source(python, source)
+    command = [str(python), "-c", "import locked_editable_probe; print(locked_editable_probe.VALUE)"]
+    assert subprocess.check_output(command, cwd=tmp_path, text=True).strip() == "initial"
+    module.write_text('VALUE = "changed directly"\n', encoding="utf-8")
+    assert subprocess.check_output(command, cwd=tmp_path, text=True).strip() == "changed directly"
 
 
 def test_explicit_uv_missing_and_wrong_python_are_errors(monkeypatch, tmp_path):

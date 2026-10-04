@@ -1,5 +1,7 @@
 # 用户配置手册
 
+先按[运行配置](runtime.md#准备环境)建立并激活 WorldMock 环境；本手册的 `python` 和 `worldmock` 命令均在该环境中执行。
+
 > 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步入口表（作息含下班与到家、场景工作安排）。
 
@@ -40,7 +42,7 @@ flowchart LR
 它只写新配置，不调用模型，也不启动模拟。
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 import json
 from datetime import datetime
 from pathlib import Path
@@ -80,7 +82,7 @@ PY
 先做不调用模型的完整场景加载检查：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 from pathlib import Path
 from worldmock.life.scenario import load_scenario
 
@@ -93,7 +95,7 @@ PY
 准备好[模型凭据](runtime.md#填写模型凭据)后再执行完整校验；这个步骤会调用模型并写画像覆盖率报告：
 
 ```bash
-uv run worldmock validate \
+worldmock validate \
   --scenario scenarios/my-persona-day.json \
   --coverage-out /tmp/my-persona-day-coverage.json
 ```
@@ -105,7 +107,7 @@ uv run worldmock validate \
 校验通过后，使用新的输出目录开始运行：
 
 ```bash
-uv run worldmock run \
+worldmock run \
   --scenario scenarios/my-persona-day.json \
   --output runs/my-persona-day
 ```

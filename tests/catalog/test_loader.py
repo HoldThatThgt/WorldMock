@@ -22,6 +22,28 @@ def test_load_catalog_returns_raw_and_compiled_views(catalog_dir: Path) -> None:
     assert set(catalog.exchange_rules.rules) == {"buy-product", "eat-food"}
 
 
+def test_manifest_identity_publication_failure_keeps_previous_bytes(catalog_dir, monkeypatch, caplog):
+    """身份刷新发布失败保留旧清单与原异常，临时文件不残留。"""
+    from worldmock.footprints import assets
+
+    previous = (catalog_dir / "manifest.json").read_bytes()
+    failure = OSError("catalog publication unavailable")
+
+    def fail_replace(source, destination):
+        raise failure
+
+    monkeypatch.setattr(assets.os, "replace", fail_replace)
+    with pytest.raises(CategoryError) as rejected:
+        refresh_manifest_identity(catalog_dir)
+    assert rejected.value.code == "CATALOG_IDENTITY_WRITE_FAILED"
+    assert rejected.value.__cause__ is failure
+    assert (catalog_dir / "manifest.json").read_bytes() == previous
+    assert not list(catalog_dir.glob(".pending-*"))
+    errors = [record.getMessage() for record in caplog.records
+              if record.name == "worldmock.categories.common"]
+    assert errors == ["CATALOG_IDENTITY_WRITE_FAILED: catalog publication unavailable"]
+
+
 def test_load_object_declarations_retains_append_history(catalog_dir: Path) -> None:
     """公开 raw loader 保留完整追加历史并验证版本。"""
     second = raw_object()

@@ -116,7 +116,7 @@ def test_menu_resolution_fails_closed_on_a_damaged_runtime_view(
     """地点类映射缺失或非映射、地点类无冻结菜单、人物声明缺失或未冻结、人物身份缺失都以完整性错误终止并记日志。"""
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match=f"^{message}$"):
         resolve_interaction_menu(_menu_view(**overrides), 1, "home")
-    assert message in caplog.messages
+    assert caplog.messages == [f"WorldMock failure: {message}"]
 
 
 def test_assembly_pairing_lookup_leaves_non_defined_pairings_to_admission() -> None:

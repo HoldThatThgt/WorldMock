@@ -12,7 +12,7 @@
 | 活动家族 | 统一声明与读取；缺品类保持未知 | 计划不猜进度、评估缺证、生产受理拒绝 |
 | 时间与数值 | 时长上限一致，区间端点严格整数，曲线有限非负 | 一般活动 86400 秒、消费 60–14400 秒 |
 | 模型纠正 | 共用解析与 Schema 错误格式 | 各模型通道的回显、指令与重试预算 |
-| 记忆与 AS2 | WorldMock 维护同类记忆合并与观察单写业务，AS2 保留必要生命周期补丁 | 主观类型、来源字段、共同恢复、反思预算、故障传播 |
+| 记忆与 AS2 | WorldMock 维护同类记忆合并与观察单写业务，AS2 保留必要生命周期和完整直接环境注册补丁 | 主观类型、来源字段、共同恢复、反思预算、故障传播 |
 | 环境 | 固定公开源制品与有序补丁，独立 LabelKit 环境，标准库引导 | 实际生产字节身份，无 SSH、无隐式 uv、无旧来源分支 |
 | 放行 | 不允许测试跳过取得通过，双平台和 Linux 语料证据合并 | 85% 分支覆盖率、零未覆盖公共接口、真实总体实验独立 |
 
@@ -20,7 +20,7 @@
 历史版本表保留原始提交及当时结论；现行正文的安装来源、公共导入和职责按本特性更新。
 
 AS2 完整历史补丁已重建出原摘要 `65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334`；
-业务移出后的最终摘要为 `bad0fe937ec4cbeaa8263674d8d7226f00109ef29a9ac86e4ce3af868b7c2358`，由 SERIES 和运行时直接核对。
+业务移出后的最终摘要为 `bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46`，由 SERIES 和运行时直接核对。
 
 ## 实现与测试证据
 
@@ -52,8 +52,9 @@ AS2、环境、共享活动和 Linux 边界测试的组合为 239 passed。
 | --- | --- | --- |
 | 最终规格与验收 | 本规格、原提案、`shared-rules-and-rebuildable-env-verification.md`、`INDEX.md`、`implementation-status.md`、`VERIFICATION.md`、`coverage-baseline.md` | 唯一权威、完整范围、证据登记与平台放行 |
 | 全部设计章节 | `docs/design/01-architecture.md` 至 `09-io-formats.md`、README、SUMMARY 与 `worldmock-design.html` | 唯一规则归宿、领域语义、生成源码来源及重新汇编 |
-| 关联冻结规格 | AS2、时间与能量、一日运行保真、当日目标、生活真实性、生活运行时、品类合同、LabelKit 交付 | 删除现行旧来源/旧函数/错误职责，保留有意差异与旧实验边界 |
-| 合同和手册 | `CONTRACTS.md`、`ARCHITECTURE.md`、`EXPERIMENT.md`、根 README、manual/runtime、resources、rules、evaluation | 引导参数与收据、数值/路径合同、安装、睡眠与评估边界 |
+| 关联冻结规格 | AS2、时间与能量、人物 Prompt、一日运行保真、当日目标、生活真实性、生活运行时、品类合同、LabelKit 交付 | 删除现行旧来源/旧函数/错误职责，保留有意差异与旧实验边界 |
+| 合同和手册 | `CONTRACTS.md`、`ARCHITECTURE.md`、`EXPERIMENT.md`、根 README、manual/README、runtime、personas、delivery、resources、rules、evaluation | 引导参数与收据、数值/路径合同、安装、睡眠与评估边界 |
+| 冻结目录说明 | `catalog/affordances.toml`、`catalog/README.md`、`catalog/manifest.json`、目录生成器、三份场景 | 修正未启用睡眠通道的旧注释，按既有字节身份发布次版本 5.4，其余目录内容与业务数值保持 |
 
 生产修改包含共享规则的所属模块及原消费者、WorldMock 记忆扩展、环境引导与覆盖率门禁；
 新增补丁与哈希锁（LabelKit 应用锁和构建锁独立，避免 packaging 版本冲突），删除两个 gitlink 和 `.gitmodules`。

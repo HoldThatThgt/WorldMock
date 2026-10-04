@@ -370,7 +370,7 @@ def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(monkeypatc
     harness = _ActionHarness({"interaction_bindings": [row]})
     harness.scenario = SimpleNamespace()
     harness.semantics = SimpleNamespace(travel_planned_seconds=lambda *_: 673)
-    monkeypatch.setattr("worldmock.life.session_actions.route_for", lambda *_: SimpleNamespace(duration_seconds=610))
+    monkeypatch.setattr("worldmock.life.travel.route_for", lambda *_: SimpleNamespace(duration_seconds=610))
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, current_time=100)
     selected = harness._start_selection(_pending(), _request(("城西办公室", "步行", None, None)))
     assert selected[0]["selected_action"]["canonical_action"] == "travel_to"

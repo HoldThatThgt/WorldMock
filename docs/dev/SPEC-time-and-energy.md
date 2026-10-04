@@ -980,11 +980,11 @@ stateDiagram-v2
   取值，取代「`finish` 固定为 `decision_observation`」。模型不填、不选任何身份。字段定稿在记录引擎设计「已核验经历与主观
   记忆」中。
 - **瞬时的生活动作**（发消息、下单、提交成果）不是活动，不另写记忆；就寝反思保留。
-- **巩固。** 结束活动写入的条目，计入待巩固条数与重要度累计；就寝反思的条目不计。现状是反思条目也计入：AS2
-  `append_episodes` 每次写入都累加 `pending_episode_count`（`agent/memory.py:537-539`），`should_consolidate` 按
-  `unconsolidated()` 累计重要度（`:889-895`），而反思在归纳重置计数之后写入（`custom/agents/life_memory.py:73-76`）。AS2
-  不改，所以由 `life_memory.py` 的 `after_step` 自行判定阈值触发：只按 `unconsolidated()` 中 `source` 不为 `reflection`
-  的条目计条数与重要度，阈值沿用 `MemoryConsolidationConfig`（10 条、3.0）；就寝边界触发不变。
+- **巩固。** 结束活动写入的条目，计入待巩固条数与重要度累计；就寝反思的条目不计。
+  `custom/agents/life_memory.py` 的 `WorldMockMemoryRuntime` 负责三种业务触发：只按 `unconsolidated()` 中
+  `source` 不为 `reflection` 的条目计条数与重要度，固定阈值为十条或重要度累计 3.0；就寝边界触发不变。
+  阈值与同类记忆合并由 WorldMock 维护，AS2 的通用 `MemoryConsolidationConfig` 不承载这些生活业务规则。
+  当前源码来源、唯一摘要及测试归属按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)。
 
 ### 发给模型的内容不含内部身份
 

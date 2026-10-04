@@ -1,7 +1,7 @@
 # 调整世界规则与人物动机参数
 
-> 更新日期：2026-10-03。[工具交互规格](../dev/SPEC-tool-interaction.md)中的构建价格范围、完整类别供给、
-> 正式食材配方和发布身份已实现并发布（当前目录 5.3、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)，画像映射表不变。
+> 更新日期：2026-10-05。[工具交互规格](../dev/SPEC-tool-interaction.md)中的构建价格范围、完整类别供给、
+> 正式食材配方和发布身份已实现并发布（当前目录 5.4、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)，画像映射表不变。
 
 要改变人物的初始状态，先改[场景](scenarios.md)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
 再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
@@ -177,7 +177,7 @@ flowchart LR
 `recipe_output_bindings` 明确绑定输出对象，双方 `inventory_unit=item`，库存资源仍为 `inventory/item`，不新增多材料算子。
 制作完成才扣输入并入库输出，之后食用才产生食品能量；暂停、取消或提前结束不制造半件产物。
 原料 `ingredient` 是此次新增的真实品类分支，必须有来源、对象和规则；无产出做饭活动直接删除重复绑定。
-工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.3；旧输入直接拒绝，不提供迁移或兼容。
+工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.4；旧输入直接拒绝，不提供迁移或兼容。
 这些正式数据与生成行为已实现，没有为它们增加 `category check/refine/publish` 的参数或运行开关。
 
 ### 检查与发布品类修改
@@ -185,7 +185,7 @@ flowchart LR
 现有目录可直接离线检查：
 
 ```bash
-uv run worldmock category check --catalog catalog
+worldmock category check --catalog catalog
 ```
 
 查询某组配对时，先保存以下**完整文件**为 `experiments/worldmock-pairings.json`：
@@ -197,18 +197,18 @@ uv run worldmock category check --catalog catalog
 ```
 
 ```bash
-uv run worldmock category check --catalog catalog --queries experiments/worldmock-pairings.json
+worldmock category check --catalog catalog --queries experiments/worldmock-pairings.json
 ```
 
 检查报告可以包含 `undefined`；它本身不代表场景准入已通过。
 更改品类归属时，现有 `category refine` 可比较候选目录，`category publish` 在新目录中校验后原子发布：
 
 ```bash
-uv run worldmock category refine \
+worldmock category refine \
   --catalog catalog --candidate experiments/worldmock-candidate \
   --parent-category food
 
-uv run worldmock category publish \
+worldmock category publish \
   --catalog catalog --candidate experiments/worldmock-candidate \
   --output experiments/worldmock-published \
   --assignments experiments/worldmock-assignments.json \
@@ -276,7 +276,7 @@ driving_08 = 1.85
 当前交通锚点和生成方法见[交通快照说明](../../catalog/snapshots/traffic/README.md)。
 
 ```bash
-uv run python scripts/calibrate_traffic.py --check
+python scripts/calibrate_traffic.py --check
 ```
 
 该命令检查现有锚点的可复现输出；自定义实验表若有意偏离锚点，不能再声称它是原校准产物。
@@ -448,7 +448,7 @@ bedtime = "23:00-24:00"
 然后经真实场景装配读取。它不改正式目录、不调用模型、不启动模拟。
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 import json
 import shutil
 from pathlib import Path
@@ -487,14 +487,14 @@ PY
 对于正式基线，由生成器刷新资源、对象和目录清单：
 
 ```bash
-uv run python scripts/build_catalog.py
-uv run python scripts/build_catalog.py --check
+python scripts/build_catalog.py
+python scripts/build_catalog.py --check
 ```
 
 不要把这个固定基线生成器用于上面的独立目录。只读检查某份自定义目录：
 
 ```bash
-uv run worldmock category check --catalog experiments/rules-demo/catalog
+worldmock category check --catalog experiments/rules-demo/catalog
 ```
 
 正式运行前继续执行[资源文件校验](resources.md#验证修改)和完整项目校验；

@@ -55,6 +55,68 @@ def test_lifestyle_duration_matches_tool_layer_named_catalog_and_admission(engin
     assert accepted.planned_duration_seconds == 86_400
 
 
+@pytest.mark.parametrize("seconds", [14_400, 14_401])
+def test_consume_duration_limit_matches_listing_and_real_admission(engine_factory, monkeypatch, seconds):
+    """食用四小时在真实受理中开始，超过一秒则由工具预查与实际派发共同拒绝。"""
+    from worldmock.life.tool_layer import _consume_check
+
+    engine = engine_factory()
+    original = next(item for item in engine.scenario.products if "eat" in item.use_modes)
+    product = original.model_copy(update={"use_duration_seconds": seconds, "required_location_id": None})
+    monkeypatch.setitem(engine.rules.items, product.product_id, product)
+    state = engine.state.model_copy(deep=True)
+    agent = state.agents[1]
+    agent.inventory = {agent.location_id: {product.product_id: 1.0}}
+    context = replace(engine._layer_context(agent, (), []), state=state)
+    binding = {"object_id": product.product_id}
+    action = {"use_mode": "eat", "label": "食用"}
+    pending = SimpleNamespace(agent_id=1, action_id="shared-consume", decision_id="shared-decision",
+                              requested_event_id="shared-request")
+    listed = _consume_check(context, binding, action)
+    if seconds == 14_401:
+        assert listed.code == "ACTIVITY_DURATION_INVALID"
+        with pytest.raises(BusinessRuleError, match="ACTIVITY_DURATION_INVALID"):
+            engine._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
+        assert not state.activities
+        assert agent.inventory[agent.location_id][product.product_id] == 1.0
+        return
+    assert listed is None
+    changed, result = engine._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
+    activity = changed.activities[result.activity_id]
+    assert result.status == "in_progress"
+    assert activity.kind == ActivityKind.CONSUME
+    assert activity.planned_duration_seconds == 14_400
+    assert activity.data["request"]["duration_seconds"] == 14_400
+    assert activity.data["opened"] == {product.product_id: 1.0}
+
+
+def test_declared_sleep_channel_does_not_control_body_sleep_settlement(engine_factory, monkeypatch):
+    """注册表睡眠通道改为清醒声明后，真实睡眠仍恢复不足账和睡眠压力，且不产生娱乐分录。"""
+    from worldmock.catalog import affordances
+    from worldmock.life import activities
+    from worldmock.life.body import ActivityFactors, ENTERTAINMENT_RESOURCE, last_flows, settle_body, settle_shared_body
+    from worldmock.life.models import BodyState
+
+    engine = engine_factory()
+    registry = affordances.default_affordances()
+    changed_registry = replace(registry, kinds={**registry.kinds,
+                                                "sleep": replace(registry.kinds["sleep"], sleep_channel="awake")})
+    monkeypatch.setattr(affordances, "default_affordances", lambda: changed_registry)
+    monkeypatch.setattr(activities, "_AFFORDANCES", changed_registry)
+    config = engine.scenario.body
+    before = BodyState(energy_kcal=1600, sleep_pressure=0.6, sleep_deficit_hours=4, entertainment_need=0.3)
+    factors = ActivityFactors(config.activity_met["sleep"])
+    for settle in (lambda: settle_body(before, ActivityKind.SLEEP, 3600, config, factors),
+                   lambda: settle_shared_body(before, ((ActivityKind.SLEEP, factors),), 3600, config)):
+        last_flows()
+        result = settle()
+        assert result.after.sleep_deficit_hours == pytest.approx(3)
+        assert result.after.sleep_pressure < before.sleep_pressure
+        assert result.after.entertainment_need == before.entertainment_need
+        assert result.after.energy_kcal < before.energy_kcal
+        assert not [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
+
+
 def test_travel_plan_matches_tool_layer_admission_and_engine_validation(engine_factory, monkeypatch):
     """冻结路线选择的变化必须一起进入报价、逐项受理与引擎复查，错误时长仍明确拒绝。"""
     from worldmock.life.travel import route_for

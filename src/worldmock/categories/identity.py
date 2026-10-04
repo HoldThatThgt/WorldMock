@@ -7,8 +7,6 @@ from worldmock.footprints.models import canonical_json
 from worldmock.corpora.manifest import safe_file
 import hashlib
 import json
-import os
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any

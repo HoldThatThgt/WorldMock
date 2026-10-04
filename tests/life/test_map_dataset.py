@@ -222,7 +222,7 @@ def test_map_publication_rejects_missing_activity_environment_with_valid_file_id
         load_map_dataset(tmp_path, ref)
     assert "location_kinds" in str(failure.value)
     assert "Field required" in str(failure.value)
-    assert "Map dataset loading failed" in caplog.text
+    assert caplog.messages == [f"WorldMock failure: {failure.value}"]
 
 
 def test_unreachable_status_requires_real_no_route_evidence(tmp_path):
@@ -448,4 +448,5 @@ def test_category_assignment_rejects_an_empty_assortment_and_a_blank_kind(tmp_pa
     with pytest.raises(IntegrityError, match="^Map dataset validation failed: ") as failure:
         load_map_dataset(tmp_path, ref)
     assert f"Value error, {reason} [" in str(failure.value)
-    assert reason in caplog.text and "Map dataset loading failed" in caplog.text
+    assert reason in caplog.text
+    assert caplog.messages[-1] == f"WorldMock failure: {failure.value}"

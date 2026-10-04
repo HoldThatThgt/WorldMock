@@ -57,7 +57,7 @@ _WORK_REVIEW_TOOL_CHOICE = "required"
 #: （docs/dev/SPEC-time-and-energy.md「运行身份」）。
 _AS2_PACKAGE = "agentsociety2"
 #: AS2 锁定提交 8768e14 的源码摘要，与 docs/EXPERIMENT.md「AS2 基线与框架依赖」登记的值逐字相同。
-AS2_LOCKED_SOURCE_SHA256 = "bad0fe937ec4cbeaa8263674d8d7226f00109ef29a9ac86e4ce3af868b7c2358"
+AS2_LOCKED_SOURCE_SHA256 = "bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46"
 _AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
 #: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000

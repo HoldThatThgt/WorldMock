@@ -28,8 +28,6 @@ def derived_activity_duration(kind: ActivityKind, agent: AgentState, item: Any, 
     """@brief 从内容进度、生活活动目录、睡眠需要或反馈间隔推导非工作活动计划秒数。"""
     if kind == ActivityKind.WATCH:
         return content_duration_seconds(item, agent.content_progress.get(item.item_id))
-    if kind == ActivityKind.PLAY_GAME and item is not None:
-        return capped_duration_seconds(item.duration_seconds)
     if kind == ActivityKind.LIFESTYLE:
         return capped_duration_seconds(item.typical_duration_minutes * 60)
     if kind == ActivityKind.SLEEP:

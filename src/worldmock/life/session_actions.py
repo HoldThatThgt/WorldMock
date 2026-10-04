@@ -437,8 +437,7 @@ class SessionActionMixin:
             if refusal is not None:
                 raise refusal.error()
             return work_start_seconds(task, worked, state.current_time)
-        item = self.rules.content(target) if kind == ActivityKind.WATCH or (
-            kind == ActivityKind.PLAY_GAME and target in self.rules.contents) else None
+        item = self.rules.content(target) if kind == ActivityKind.WATCH else None
         return derived_activity_duration(kind, state.agents[agent_id], item, self.scenario.activity_feedback_seconds)
 
     def _feedback_duration(self) -> int:

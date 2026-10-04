@@ -43,6 +43,7 @@ from custom.agents.life_agent import (
     life_tool_schema_sha256,
 )
 from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
+from custom.agents.life_memory_store import WorldMockMemoryStore
 from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
@@ -1486,7 +1487,7 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
             raise OSError(marker)
         return []
 
-    monkeypatch.setattr(AgentMemoryStore, "append_episodes", fail_append)
+    monkeypatch.setattr(WorldMockMemoryStore, "append_episodes", fail_append)
 
     def run_actual_batch(request, proxy):
         async def done():
@@ -1658,7 +1659,7 @@ def _decision_failure(failure_point: str, environment: _StepEnvironment, dispatc
     elif failure_point == "model":
         monkeypatch.setattr(dispatcher, "call", fail_async)
     else:
-        monkeypatch.setattr(AgentMemoryStore, "append_episodes", fail)
+        monkeypatch.setattr(WorldMockMemoryStore, "append_episodes", fail)
     return injected
 
 

@@ -3009,3 +3009,65 @@ index fc8aabc..f3e4bf3 100644
 +        :returns: 远程结果。
 +        """
 +        return await ref
+diff --git a/agentsociety2/backend/services/custom/compatibility.py b/agentsociety2/backend/services/custom/compatibility.py
+index c25b1953..a303e912 100644
+--- a/agentsociety2/backend/services/custom/compatibility.py
++++ b/agentsociety2/backend/services/custom/compatibility.py
+@@ -18,7 +18,7 @@
+     "最终自定义环境模块必须落在 custom/envs/*.py。",
+     "类定义必须在目标文件内，不能只做 re-export。",
+     "环境类必须继承 EnvBase，注册 key 保持 class_name。",
+-    "至少提供一个合法 @tool 方法。",
++    "提供合法 @tool 方法，或实现完整直接环境合同。",
+     "必须实现 step()，并且默认支持无参实例化 cls()。",
+     "description() 必须可调用且返回非空短说明。",
+     "init_description() 必须可调用且返回非空初始化参数说明。",
+@@ -62,6 +62,17 @@ def get_registered_tool_names(obj: Any) -> list[str]:
+     return list(tools.keys())
+ 
+ 
++def has_direct_environment_contract(cls: type[Any]) -> bool:
++    """判断环境类是否完整实现直接调用合同。
++
++    :param cls: 待检查的环境类。
++    :returns: 全部直接环境方法都由子类实现时为真。
++    """
++    from agentsociety2.env.router_direct import DIRECT_ENVIRONMENT_METHODS
++
++    return all(overrides_base_method(cls, EnvBase, name) for name in DIRECT_ENVIRONMENT_METHODS)
++
++
+ def is_no_arg_constructible(cls: type[Any]) -> tuple[bool, list[str]]:
+     """Check whether a class can be instantiated with cls()."""
+ 
+@@ -99,6 +110,7 @@ def build_env_scan_diagnostic(
+ 
+     issues: list[CompatibilityIssue] = []
+     tool_names = get_registered_tool_names(cls)
++    has_direct_contract = has_direct_environment_contract(cls)
+     has_step = overrides_base_method(cls, EnvBase, "step")
+     is_no_arg, required_params = is_no_arg_constructible(cls)
+ 
+@@ -111,12 +123,12 @@ def build_env_scan_diagnostic(
+             )
+         )
+ 
+-    if not tool_names:
++    if not tool_names and not has_direct_contract:
+         issues.append(
+             CompatibilityIssue(
+                 code="missing_tools",
+                 check="registered_tools",
+-                message=f"{cls.__name__} 没有注册任何 @tool 方法",
++                message=f"{cls.__name__} has no @tool method or complete direct environment contract",
+             )
+         )
+ 
+@@ -184,6 +196,7 @@ def build_env_scan_diagnostic(
+         metadata={
+             "tool_names": tool_names,
+             "tool_count": len(tool_names),
++            "has_direct_contract": has_direct_contract,
+             "has_step": has_step,
+             "default_constructible": is_no_arg,
+             "type": cls.__name__,

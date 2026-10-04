@@ -253,7 +253,7 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert payload.decode("utf-8") == module.render_day_markdown(
-        engine.store.connection, 1, day)
+        engine.store.connection, 1, day, engine.scenario.timezone)
     # 时间线只写中文种类名（docs/dev/SPEC-dayrun-fidelity.md 7.4）：等待是「空档」，不写英文的 wait。
     assert "空档" in payload.decode("utf-8") and "wait" not in payload.decode("utf-8")
 

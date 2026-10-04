@@ -55,6 +55,14 @@ Windows 可用 `py -3.12`，其它系统可用 `python3.12` 执行引导；找�
 `dev` 档位可记录缺少 Node 或 LabelKit，但缺失检查不能取得完整放行。
 环境收据位于 `.work/environment-receipt.json`。安装步骤和平台验收边界见[运行配置](docs/manual/runtime.md#准备环境)。
 
+引导完成后，在当前终端激活 WorldMock 环境，再执行本文的 `python` 和 `worldmock` 命令：
+
+| 终端 | 激活命令 |
+| --- | --- |
+| POSIX shell | `source .venv/bin/activate` |
+| Windows PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows cmd | `.venv\Scripts\activate.bat` |
+
 AS2 必须匹配 `patches/agentsociety2/SERIES` 登记的固定源码摘要；实际导入的包目录为空、无法导入或摘要不符时，
 `run`、`resume`、`replay` 与 `validate` 拒绝启动。
 

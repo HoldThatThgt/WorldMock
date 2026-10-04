@@ -15,9 +15,11 @@
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](SPEC-shared-rules-and-rebuildable-env.md)修订。
-当前补丁源码摘要为 `bad0fe937ec4cbeaa8263674d8d7226f00109ef29a9ac86e4ce3af868b7c2358`，固定来源与补丁顺序见 `patches/agentsociety2/SERIES`。
+当前补丁源码摘要为 `bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46`，固定来源与补丁顺序见 `patches/agentsociety2/SERIES`。
 
-AS2 的调度、故障传播、恢复与模型生命周期保留必要补丁；人物记忆业务规则与观察单写由 WorldMock 扩展承担。上游环境扫描使用原文件，删除 WorldMock 专用扫描补丁。源码先精确重建历史身份，再缩小并发布唯一新摘要；历史提交和行号只描述当时实施证据。
+AS2 的调度、故障传播、恢复、完整直接环境合同注册校验与模型生命周期保留必要补丁；人物记忆业务规则与观察单写由 WorldMock 扩展承担。
+LifeEnv 经实际扫描注册并供运行装配、环境 actor 与只读查询使用；完整方法集合决定注册接受，不按生活环境类名特批。
+源码先精确重建历史身份，再缩小并发布唯一新摘要；历史提交和行号只描述当时实施证据。
 
 
 ## 选型理由与分层职责
@@ -228,7 +230,8 @@ def restore(workspace_path):
 AS2 每次决策从工作区重建人物对象，消息在准备阶段清空，同一秒的下一次决策拿不到上一决策的消息。
 
 **改动行为**：
-- 删除 LifeAgent 对决策自述钩子的覆写；AS2 基类钩子返回 `None`，一次决策只有一个行动阶段，锁定的 AS2 不改。
+- 删除 LifeAgent 对决策自述钩子的覆写；AS2 基类钩子返回 `None`，一次决策只有一个行动阶段；
+  续接逻辑由 LifeAgent 承担，不要求改动 AS2 的通用决策循环。
 - 同一人物同一模拟秒、同一 session 的相邻决策续接：环境从模型证据重建上一决策的末次请求与响应，在观察事件提交后经观察返回体的私有键交给宿主；
   LifeAgent 在 `prepare_react_loop` 之后把上一决策末次请求的全部消息、其最终 assistant 消息与一条对应其世界请求 `tool_call_id` 的
   tool 消息注入 AS2 的 `_react_messages`。AS2 只在 `_react_messages` 为空时构造初始消息，注入后不再重建。
@@ -314,9 +317,9 @@ observation_record = {
 
 **锁定源码**：以 `SERIES` 登记的最终源码摘要核对；生成到 `vendor/agentsociety2/packages/agentsociety2`，不依赖 fork 子模块
 
-**运行身份**：哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与锁定提交不符即拒绝启动
+**运行身份**：哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与 `SERIES` 最终摘要不符即拒绝启动
 
-**覆写点**（锁定提交不改，改动只在 WorldMock 的子类中）：本规格各节已登记的 LifeAgent 与记忆运行时覆写点——`_run_react_turn`
+**业务覆写点**（生活业务改动由 WorldMock 子类承担，AS2 通用合同保留必要补丁）：本规格各节已登记的 LifeAgent 与记忆运行时覆写点——`_run_react_turn`
 （「失败传播改动」，世界请求登记即结束本次决策）、`prepare_react_loop` 之后注入续接消息（「同秒续接与推理内容保留」）与记忆快照记录与就寝反思 `_run_reflection`
 （「记忆运行时改动」）——之外，[一日运行保真规格](SPEC-dayrun-fidelity.md)第四章与 7.2 补登四个 LifeAgent 覆写：
 - `_protocol_feedback_content`（AS2 `agent_runtime.py:808-822` 的静态方法）：宿主协议纠错改为与环境共用的错误结构

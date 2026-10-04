@@ -183,14 +183,14 @@ flowchart LR
 先从自己的场景导出实际正文，避免预览文件与运行输入不同：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 import json
 from pathlib import Path
 
 scene = json.loads(Path("scenarios/my-persona-day.json").read_text(encoding="utf-8"))
 Path("/tmp/my-persona.txt").write_text(scene["agents"][0]["background_story"], encoding="utf-8")
 PY
-uv run worldmock profile compile \
+worldmock profile compile \
   --text /tmp/my-persona.txt --out /tmp/my-persona.compiled.json
 ```
 
@@ -203,7 +203,7 @@ uv run worldmock profile compile \
 需要进一步检查提取稳定性时运行：
 
 ```bash
-uv run worldmock profile check --text /tmp/my-persona.txt
+worldmock profile check --text /tmp/my-persona.txt
 ```
 
 它执行三轮独立编译，每轮默认三次抽取，正常情况共九次模型请求，解析重试会增加调用量。
@@ -212,7 +212,7 @@ uv run worldmock profile check --text /tmp/my-persona.txt
 最后核对人物兴趣和习惯能否在这个世界中实现：
 
 ```bash
-uv run worldmock profile validate \
+worldmock profile validate \
   --scenario scenarios/my-persona-day.json \
   --coverage-out /tmp/my-persona-coverage.json
 ```

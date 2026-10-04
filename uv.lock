@@ -44,7 +44,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentsociety2", extras = ["analysis", "dev", "docs", "eda", "ml"], marker = "extra == 'all'", editable = "vendor/agentsociety2/packages/agentsociety2" },
+    { name = "agentsociety2", extras = ["analysis", "dev", "docs", "eda", "ml"], marker = "extra == 'all'" },
     { name = "aiohttp", specifier = ">=3.10.11" },
     { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "black", specifier = ">=25.12.0" },
@@ -557,6 +557,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/98/6549769f158126fa64fd6c1ac2eb59a18282146c939867a3eb31b7c1db07/duckdb-1.5.5-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7a6d2d11859d82a936ebdcb30ce3d8a1cbb3e990bff05c12abb9b54c44fa7bd1", size = 21510909, upload-time = "2026-07-22T10:54:19.681Z" },
     { url = "https://files.pythonhosted.org/packages/af/b7/5753b41d3124838f868f9f523362812d9fc45409e9e4dd70dcbb0a25826e/duckdb-1.5.5-cp312-cp312-win_amd64.whl", hash = "sha256:ddfbdb096c11d51ee22492397d342c90a82e62c5d09961477895934d0a25372f", size = 13168544, upload-time = "2026-07-22T10:54:22.789Z" },
     { url = "https://files.pythonhosted.org/packages/5c/28/44b679c7d46245f8398feae7edac959d1b83d4eb143e25b3fce0630b78bd/duckdb-1.5.5-cp312-cp312-win_arm64.whl", hash = "sha256:2725d2b9ace3a4e75d72fc5a239f6a44b502c580edadb8fb2676db772c5f9282", size = 13988684, upload-time = "2026-07-22T10:54:26.003Z" },
+]
+
+[[package]]
+name = "editables"
+version = "0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/f8/02a4e9a0cb961b0feeb431ac96b231c157ecdcbbeacafe9e2fdb4b1dde39/editables-0.6.tar.gz", hash = "sha256:1163834902381c4613787951c5914800fdf155ae08848a373b8ea5006780977c", size = 16763, upload-time = "2026-04-14T10:39:04.677Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/0e/d095533037fc9468f947b19f2da53f869804632b508808de41e86e801797/editables-0.6-py3-none-any.whl", hash = "sha256:d70e4698078a1d033e7786d9c64e5be070d058a67c21417024d38a58ac20aa43", size = 5438, upload-time = "2026-04-14T10:39:03.663Z" },
 ]
 
 [[package]]
@@ -2480,6 +2489,7 @@ dependencies = [
 
 [package.dev-dependencies]
 build = [
+    { name = "editables" },
     { name = "hatchling" },
     { name = "setuptools" },
 ]
@@ -2514,6 +2524,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 build = [
+    { name = "editables", specifier = "==0.6" },
     { name = "hatchling", specifier = "==1.32.4" },
     { name = "setuptools", specifier = "==84.0.0" },
 ]
