@@ -190,6 +190,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | 文档 | 必须同步的主题 |
 | --- | --- |
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md`、`shared-rules-and-rebuildable-env-verification.md` | 本规格为唯一开发权威；验收记录登记具体测试节点、实际结果与独立变异证据，冻结要求和验收完成分别记录 |
+| `docs/dev/coverage-report.json`、`shared-rules-fresh-macos.json`、`shared-rules-fresh-linux.json`、`shared-rules-platform-verification.json` | 实际机器报告和生产重建收据保留原被测提交；平台记录区分成功、失败和未执行，不能改写失败为通过 |
 | `docs/CONTRACTS.md` | 共享错误和纠正消息、引导参数、严格模型与安全文件输入合同 |
 | `docs/design/00-overview.md` | AS2 与宿主业务职责、固定 Python 3.12 与模型故障传播、相对交付引用、Windows 核心与重建验收及 Linux x86_64 TextWorld 必需门禁与锁定 aarch64 安装限制 |
 | `docs/design/01-architecture.md` | 唯一共享规则归宿与生成依赖来源 |
