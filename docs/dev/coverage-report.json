@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-10-04T20:52:24+00:00",
+  "generated_at": "2026-10-04T22:01:57+00:00",
   "command": "python scripts/run_tests.py --tier full --workers 6",
   "evidence_manifest": {
-    "snapshot_id": "dfa18326-795b-4596-81e3-e2e7f01aa051",
-    "manifest_hash": "9229b05ed549f470245c174cd722f4946888e3c07a5604b3f92f1b696664c22d",
-    "source_identity": "41a6f7c6dc3882b87fe1fae042d158110454102b"
+    "snapshot_id": "889a4528-fd3d-4684-a6e8-4806addf2679",
+    "manifest_hash": "503f6fdbb044762844199c97f8030efcabf38a738eeb34fc1e27e322d6bddfbe",
+    "source_identity": "e4eaed1caceaab50add6fe73fea90cc0f201e546"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 8540,
-    "missing_branches": 416,
+    "covered_branches": 8541,
+    "missing_branches": 415,
     "total_branches": 8956,
-    "percent": 95.36,
+    "percent": 95.37,
     "passed": true
   },
   "per_file_branch": [
@@ -985,9 +985,9 @@
     },
     {
       "file": "src/worldmock/life/session_actions.py",
-      "covered_branches": 217,
-      "missing_branches": 27,
-      "percent": 88.93
+      "covered_branches": 218,
+      "missing_branches": 26,
+      "percent": 89.34
     },
     {
       "file": "src/worldmock/life/session_bounds.py",
@@ -1290,13 +1290,6 @@
       "percent": 85.0
     }
   ],
-  "uncovered_public_interfaces": [
-    {
-      "file": "src/worldmock/life/session_actions.py",
-      "line": 1156,
-      "name": "dispatch",
-      "kind": "method"
-    }
-  ],
-  "passed": false
+  "uncovered_public_interfaces": [],
+  "passed": true
 }
