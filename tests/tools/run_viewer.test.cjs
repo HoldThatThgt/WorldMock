@@ -56,7 +56,7 @@ function database(events, world = {}) {
   };
 }
 
-/** @brief 执行整段页面脚本并暴露真实索引和渲染结果。 */
+/** @brief 执行整段页面脚本并暴露真实索引和渲染结果；建索引（页面加载数据库的同一入口）报错时关库后原样抛出。 */
 function viewer(events, world = {}) {
   const nodes = new Map();
   const errors = [];
@@ -86,7 +86,7 @@ function viewer(events, world = {}) {
   const run = source => vm.runInContext(source, context);
   const state = run('S');
   state.db = database(events, world);
-  run('buildIndex()');
+  try { run('buildIndex()'); } catch (error) { state.db.close(); throw error; }
   return {
     state, errors, run, get,
     activities() { run('renderActivities()'); return get('#act-body').innerHTML; },
@@ -275,6 +275,15 @@ test('context navigation, stage filter and all rule paths are available through 
     const growth = app.get('#ctx-body').innerHTML;
     assert.ok(growth.includes('ctx-rule'));
     assert.ok(growth.includes('当前源码规则'));
+    // 「增长与退出」随个人事务与工作安排规格修订的规则文字逐条在真实页面里可查看（页面一次显示所选的一条规则）。
+    for (const [rule, sentence] of [['todo', '未完成的个人事务取自人物状态，跨零点保留'],
+      ['environment', 'duty 由场景工作安排与世界时钟求值，今日计划改不了它'],
+      ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
+        '由人物可见的事务事件派生；二者不迁入记忆层。'],
+      ['tools', '去掉全部查询工具（世界查询与记忆查询），只留世界请求工具']]) {
+      app.get('#ctx-rule').onchange({target: {value: rule}});
+      assert.ok(app.get('#ctx-body').innerHTML.includes(sentence), sentence);
+    }
     assert.equal(app.get('#ctx-prev').disabled, true);
     assert.equal(app.get('#ctx-next').disabled, true);
     app.get('#ctx-stage').onchange({target:{value:'other'}});
@@ -305,6 +314,8 @@ test('context drills into tool layer targets and progress records and marks self
     const progressOptions = app.get('#ctx-item').innerHTML;
     assert.ok(progressOptions.includes('tool_call · start_activity · self_note（未经核验）'));
     assert.ok(progressOptions.includes('message_arrival · 王磊'));
+    assert.ok(progressOptions.includes('errand_completed · 囤咖啡豆'));
+    assert.ok(progressOptions.includes('errand_reminder · 买牛奶'));
     app.get('#ctx-item').value = '2';
     app.get('#ctx-item').onchange();
     assert.ok(app.get('#ctx-raw').textContent.startsWith('self_note（未经核验）：先给王磊点上'));
@@ -546,31 +557,32 @@ test('session requests display each task with its own progress sentence', t => {
   const item = (activity_name, summary, extra = {}) => ({activity_name, summary, ...extra});
   const view = viewer([
     event('action_requested', {tool_name: 'report_status', request: {
-      items: [item('整理访谈','完成提纲'),item('准备周会','列出议题')],
+      items: [item('整理访谈','完成提纲'),item('准备周会','列出议题')], errands: [],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      items: [item('整理访谈','已经提交纪要',{memories:[memory('纪要要当天交'),memory('先列提纲')],views:[]})],
+      items: [item('整理访谈','已经提交纪要',{memories:[memory('纪要要当天交'),memory('先列提纲')],views:[]})], errands: [],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
       items: [item('准备周会','议题定了',{memories:[],views:[]}),item('午饭','吃完了',{memories:[memory('菜饭偏咸')],views:[]})],
+      errands: [],
     }}),
     event('action_requested', {tool_name: 'pause_activity', request: {
-      items: [item('准备周会','先放一放')],
+      items: [item('准备周会','先放一放')], errands: [],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      items: [item('午饭','吃完了',{memories:[],views:[]})],
+      items: [item('午饭','吃完了',{memories:[],views:[]})], errands: [],
     }}),
     event('action_requested', {tool_name: 'report_status', request: {items: [
       item('整理访谈', '完成提纲'), item('准备周会', '列出议题'),
-    ]}}),
+    ], errands: []}}),
     event('action_requested', {tool_name: 'conclude_activity', request: {items: [
       item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
       item('午饭', '吃完了', {memories: [], views: []}),
-    ]}}),
-    event('action_requested', {tool_name: 'pause_activity', request: {items: [item('准备周会', '先放一放')]}}),
+    ], errands: []}}),
+    event('action_requested', {tool_name: 'pause_activity', request: {items: [item('准备周会', '先放一放')], errands: []}}),
     event('action_requested', {tool_name: 'conclude_activity', request: {items: [
       item('准备周会', '议题定了', {memories: [], views: []}),
-    ]}}),
+    ], errands: []}}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '请求 播报进展 · 整理访谈：完成提纲；准备周会：列出议题');
@@ -588,8 +600,12 @@ test('session requests display each task with its own progress sentence', t => {
     JSON.stringify(request)}).map(entry => [entry.name, entry.summary, entry.memories.map(one => one.text)])`)));
   assert.deepEqual(read({items: [
     item('整理访谈', '已经提交纪要', {memories: [memory('纪要要当天交')], views: [opinion('王磊', '王磊很靠谱')]}),
-  ]}), [['整理访谈','已经提交纪要',['纪要要当天交','王磊很靠谱']]]);
+  ], errands: []}), [['整理访谈','已经提交纪要',['纪要要当天交','王磊很靠谱']]]);
   assert.throws(() => read({task:['整理访谈'],summary:['完成']}), /requires items/);
+  // 带 items 而缺请求级 errands 的控制请求是旧形状记录，镜像实现同 control_items 一样报错（个人事务规格 2.9）。
+  assert.throws(() => read({items: [item('整理访谈', '已经提交纪要', {memories: [], views: []})]}), /requires errands/);
+  assert.throws(() => read({items: [item('整理访谈', '已经提交纪要', {memories: [], views: []})], errands: null}),
+    /requires errands/);
   assert.deepEqual(view.errors, []);
   for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined/);
 });
@@ -653,23 +669,309 @@ test('decision starts show their wake reasons from the frozen vocabulary', t => 
   const models = readFileSync(path.join(__dirname, '../../src/worldmock/footprints/models.py'), 'utf8');
   const vocabulary = models.match(/WAKE_REASON_NAMES = frozenset\(\{([\s\S]*?)\}\)/)[1];
   const names = [...vocabulary.matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
-  assert.equal(names.length, 20);
+  assert.equal(names.length, 21);
+  const due = epoch + 3600;
   const view = viewer([
     event('decision_started', {round_order: 0, wake_reasons: ['run_start']}),
     event('decision_started', {round_order: 0, wake_reasons: [
       'no_active_activity', 'plan_reminder_due', 'progress_report_due']}),
     event('decision_started', {round_order: 1, wake_reasons: []}),
     event('decision_started', {round_order: 0}),
-    event('decision_started', {round_order: 0, wake_reasons: names}),
+    // 词表含 errand_reminder_due：同一人物同一时刻先交付一条事务提醒，该原因才有事务名称可写。
+    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}]}),
+    errandEvent('errand_reminded', errandSnapshot({reminded_at: due}), {}, {occurred_at: due}),
+    event('decision_started', {round_order: 0, wake_reasons: names}, {occurred_at: due}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '决策开始 · 第 0 轮 · 唤醒：运行开始');
   assert.equal(view.summary(2), '决策开始 · 第 0 轮 · 唤醒：没有进行中的活动、计划提醒到点、该播报进展');
   assert.equal(view.summary(3), '决策开始 · 第 1 轮');
   assert.equal(view.summary(4), '决策开始 · 第 0 轮');
-  const labels = view.summary(5).split(' · 唤醒：')[1].split('、');
+  const labels = view.summary(7).split(' · 唤醒：')[1].split('、');
   assert.equal(labels.length, names.length);
-  labels.forEach((label, index) => assert.match(label, /^[一-鿿]+$/, names[index]));
+  labels.forEach((label, index) => assert.match(label,
+    names[index] === 'errand_reminder_due' ? /^[一-鿿]+「买牛奶」$/ : /^[一-鿿]+$/, names[index]));
+  assert.deepEqual(view.errors, []);
+});
+
+/** @brief 控制请求里的一条个人事务变更：八个键全部写出（src/worldmock/life/models.py 的 ErrandChange），fields 覆盖
+ *  该变更种类要写的键。 */
+function errandChange(change, name, fields = {}) {
+  return {change, name, outcome: null, item: null, quantity: null, memo: null, remind_time: null, reason: null,
+    ...fields};
+}
+
+/** @brief 事件载荷里的事务快照，按 ErrandState 的十二个字段（src/worldmock/life/errand_state.py）；fields 覆盖个别字段。 */
+function errandSnapshot(fields = {}) {
+  return {errand_id: 'action-0007:errand:0', name: '买牛奶', outcome: 'obtain', product_id: 'food-milk', quantity: 2,
+    progress: 0, memo: '下班顺路去便利店', registered_at: epoch, remind_at: epoch + 3600, reminded_at: null,
+    origin_action_id: 'action-0007', origin_event_id: 'event-0042', ...fields};
+}
+
+/** @brief 一条个人事务事件的存储形状（src/worldmock/life/errands.py 的 _draft）：environment_event，载荷为 {kind, errand}
+ *  另加 extra（quantity_added 或 reason），决策、动作与活动身份为空，提醒与办成两种人物可见。 */
+function errandEvent(kind, snapshot, extra = {}, envelope = {}) {
+  return event('environment_event', {kind, errand: snapshot, ...extra}, {
+    decision_id: null, action_id: null, activity_id: null, source_kind: 'environment',
+    visibility: ['errand_completed', 'errand_reminded'].includes(kind) ? 'agent' : 'system', ...envelope,
+  });
+}
+
+/** @brief 事务内部身份、来源动作与来源事件身份的形态：活动表、时间线与请求摘要里都不得出现。 */
+const ERRAND_IDENTITY = /action-00\d\d|errand:\d|event-0042/;
+
+test('control request summaries write each errand change kind and name after the activity summaries', t => {
+  const item = (activity_name, summary, extra = {}) => ({activity_name, summary, ...extra});
+  const added = errandChange('新增', '买牛奶', {outcome: '取得', item: '纯牛奶', quantity: 2,
+    memo: '下班顺路去便利店', remind_time: '18:30'});
+  const updated = errandChange('更新', '取快递', {memo: '改到明早去驿站', remind_time: '08:00'});
+  const cancelled = errandChange('取消', '订<蛋糕>', {reason: '聚会改期了'});
+  const view = viewer([
+    event('action_requested', {tool_name: 'report_status', request: {
+      items: [item('整理访谈', '完成提纲'), item('准备周会', '列出议题')], errands: [added]}}),
+    event('action_requested', {tool_name: 'pause_activity', request: {
+      items: [item('准备周会', '先放一放')], errands: [updated, cancelled]}}),
+    event('action_requested', {tool_name: 'conclude_activity', request: {
+      items: [item('午饭', '吃完了', {memories: [{type: 'routine', text: '菜饭偏咸'}], views: []})],
+      errands: [cancelled, updated, added]}, self_note: '吃完顺手把牛奶记上。'}),
+    event('action_requested', {tool_name: 'report_status', request: {items: [item('整理访谈', '完成提纲')], errands: []}}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '请求 播报进展 · 整理访谈：完成提纲；准备周会：列出议题 · 事务：新增「买牛奶」');
+  assert.equal(view.summary(2), '请求 暂停活动 · 准备周会：先放一放 · 事务：更新「取快递」、取消「订<蛋糕>」');
+  assert.equal(view.summary(3), '请求 结束活动 · 午饭：吃完了 · 记忆 1 条 · 事务：取消「订<蛋糕>」、更新「取快递」、新增「买牛奶」' +
+    ' · self_note（未经核验）：吃完顺手把牛奶记上。');
+  assert.equal(view.summary(4), '请求 播报进展 · 整理访谈：完成提纲');
+  const row = view.run('tlRow(S.events[1]).innerHTML');
+  assert.ok(row.includes('更新「取快递」、取消「订&lt;蛋糕&gt;」') && !row.includes('<蛋糕>'));
+  assert.deepEqual(view.errors, []);
+  for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /undefined|null/);
+});
+
+test('errand changes are read by the same rule as control_errands: eight keys present, values as written', t => {
+  const view = viewer([]);
+  t.after(() => view.close());
+  // 八个键与顺序取自 Python 读取入口的 _ERRAND_KEYS，镜像实现不得另立一套。
+  const reader = readFileSync(path.join(__dirname, '../../src/worldmock/life/control_items.py'), 'utf8');
+  const keys = [.../_ERRAND_KEYS = \(([^)]*)\)/.exec(reader)[1].matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
+  assert.equal(keys.length, 8);
+  assert.deepEqual(JSON.parse(JSON.stringify(view.run('ERRAND_CHANGE_KEYS'))), keys);
+  const read = request => JSON.parse(JSON.stringify(view.run(`controlErrands(${JSON.stringify(request)})`)));
+  const added = errandChange('新增', '买牛奶', {outcome: '取得', item: '纯牛奶', quantity: 2, remind_time: '18:30'});
+  const cancelled = errandChange('取消', '订<蛋糕>', {reason: '聚会改期了'});
+  assert.deepEqual(read({items: [], errands: [added, cancelled]}), [added, cancelled]);
+  assert.deepEqual(read({items: [], errands: [{...added, extra: 1}]}).map(Object.keys), [keys]);
+  assert.deepEqual(read({items: [], errands: []}), []);
+  // 只查键在不在，不查值的类型：值照请求所写读出（请求模型在记录之前已校验类型）。
+  assert.deepEqual(read({items: [], errands: [{...added, name: 5, quantity: '两份'}]}),
+    [{...added, name: 5, quantity: '两份'}]);
+  assert.throws(() => read({items: []}), /requires errands/);
+  assert.throws(() => read({items: [], errands: {}}), /requires errands/);
+  for (const entry of [null, '新增', 7, [added]]) {
+    assert.throws(() => read({items: [], errands: [entry]}), /errand change is not an object/, JSON.stringify(entry));
+  }
+  for (const key of keys) {
+    const {[key]: dropped, ...rest} = added;
+    assert.throws(() => read({items: [], errands: [added, rest]}), new RegExp(`errand change lacks ${key}$`), key);
+  }
+  assert.throws(() => read({items: [], errands: [{change: '新增', name: '买牛奶'}]}), /errand change lacks outcome$/);
+});
+
+test('a control request that is not in the current shape fails the timeline index instead of being summarised', () => {
+  const item = (activity_name, summary, extra = {}) => ({activity_name, summary, ...extra});
+  const requested = (tool_name, request) => [event('action_requested', {tool_name, request})];
+  const closing = [item('午饭', '吃完了', {memories: [], views: []})];
+  // 页面加载数据库走的就是建索引这一步（handleFiles 把它的报错显示为加载失败）：缺 errands 的旧形状记录不留读取分支。
+  for (const [tool, items] of [['report_status', [item('整理访谈', '完成提纲')]],
+    ['pause_activity', [item('准备周会', '先放一放')]], ['conclude_activity', closing]]) {
+    assert.throws(() => viewer(requested(tool, {items})), /Activity control request requires errands/, tool);
+    assert.throws(() => viewer(requested(tool, {items, errands: null})), /requires errands/, tool);
+    assert.throws(() => viewer(requested(tool, {items, errands: {}})), /requires errands/, tool);
+    assert.throws(() => viewer(requested(tool, {errands: []})), /requires items/, tool);
+    // 条目级的出入与缺键同等对待：一条变更不是对象或缺八键之一，整库不加载。
+    assert.throws(() => viewer(requested(tool, {items, errands: [null]})), /errand change is not an object/, tool);
+    assert.throws(() => viewer(requested(tool, {items, errands: [{change: '新增', name: '买牛奶'}]})),
+      /errand change lacks outcome/, tool);
+    const view = viewer(requested(tool, {items, errands: [errandChange('取消', '买牛奶', {reason: '不买了'})]}));
+    assert.ok(view.summary(1).endsWith(' · 事务：取消「买牛奶」'), view.summary(1));
+    view.close();
+  }
+  // 其他工具的请求不带 errands，照常显示。
+  const other = viewer([startRequest(['自己', 'interact', '等待'])]);
+  assert.equal(other.summary(1), '请求 开始活动 · 自己 · 等待');
+  other.close();
+});
+
+test('errand events show their Chinese wording, the errand name and the recorded product, never the errand identity', t => {
+  const due = epoch + 3600;
+  const kinds = [
+    ['errand_registered', '事务记下', {}, {}],
+    ['errand_updated', '事务更新', {memo: '改到晚饭后去', remind_at: due + 1800}, {}],
+    ['errand_progressed', '事务进展', {progress: 1}, {quantity_added: 1}],
+    ['errand_reminded', '事务提醒', {progress: 1, reminded_at: due}, {}],
+    ['errand_completed', '事务办成', {progress: 2, reminded_at: due}, {quantity_added: 1}],
+    ['errand_cancelled', '事务取消', {}, {reason: '聚会改期了'}],
+  ];
+  const view = viewer([
+    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}]}),
+    activity('action_accepted', 'act-wait', {kind: 'wait'}),
+    ...kinds.map(([kind, , fields, extra]) => errandEvent(kind, errandSnapshot(fields), extra)),
+  ]);
+  t.after(() => view.close());
+  kinds.forEach(([kind, label], index) => {
+    assert.equal(view.summary(index + 3), `世界事件 · ${label} · 「买牛奶」 · 商品 纯牛奶`, kind);
+    assert.equal(JSON.parse(view.run(`fetchBody(${index + 3})`)).data.errand.errand_id, 'action-0007:errand:0',
+      'the stored event keeps its snapshot');
+  });
+  const hidden = new RegExp(`${ERRAND_IDENTITY.source}|food-milk`);
+  view.state.events.forEach((entry, index) => {
+    assert.doesNotMatch(entry.sum, hidden);
+    assert.doesNotMatch(view.run(`tlRow(S.events[${index}]).innerHTML`), hidden);
+  });
+  assert.doesNotMatch(view.activities(), hidden);
+  assert.deepEqual(view.errors, []);
+});
+
+test('errand products are named from the errand item bindings when the run lists them nowhere else', t => {
+  // 引擎的观察只在 data.products 里列看得到或持有的商品，事务却可以指目录里的任一商品；全部商品名记在每次观察的
+  // errand_item_bindings（src/worldmock/life/errands.py 的 bindings：按商品身份排序的 {name, product_id}）。
+  const bindings = [{name: '康师傅 冰红茶', product_id: 'food-tea'}, {name: '纯牛奶', product_id: 'food-milk'},
+    {name: '素炒什锦食材包', product_id: 'ingredient-kit'}];
+  const observed = (fields = {}, envelope = {}) => event('observation',
+    {products: [], errand_bindings: [], errand_item_bindings: bindings, ...fields}, envelope);
+  const view = viewer([
+    observed(),
+    errandEvent('errand_registered', errandSnapshot()),
+    errandEvent('errand_registered', errandSnapshot({name: '补食材包', errand_id: 'action-0007:errand:1',
+      product_id: 'ingredient-kit'})),
+    errandEvent('errand_reminded', errandSnapshot({name: '囤冰红茶', errand_id: 'action-0007:errand:2',
+      product_id: 'food-tea'})),
+    observed({}, {agent_id: 2}),
+    event('action_result', {status: 'completed', order: {product_id: 'food-tea', total_price_fen: 450}}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(2), '世界事件 · 事务记下 · 「买牛奶」 · 商品 纯牛奶');
+  assert.equal(view.summary(3), '世界事件 · 事务记下 · 「补食材包」 · 商品 素炒什锦食材包');
+  assert.equal(view.summary(4), '世界事件 · 事务提醒 · 「囤冰红茶」 · 商品 康师傅 冰红茶');
+  assert.ok(view.summary(6).includes('订单 康师傅 冰红茶'), 'the same index names every other reader');
+  assert.deepEqual(JSON.parse(JSON.stringify([...view.state.nameIdx.targets])),
+    [['food-milk', '纯牛奶'], ['food-tea', '康师傅 冰红茶'], ['ingredient-kit', '素炒什锦食材包']],
+    'one row per product however many observations repeat the bindings');
+  assert.deepEqual(view.errors, []);
+  for (const entry of view.state.events) assert.doesNotMatch(entry.sum, /food-|ingredient-|action-00|errand:\d/);
+  view.reload([errandEvent('errand_registered', errandSnapshot())]);
+  assert.equal(view.summary(1), '世界事件 · 事务记下 · 「买牛奶」 · 商品 名称缺失（food-milk）',
+    'bindings of the previous run are dropped');
+});
+
+test('errand item bindings only fill names the run records nowhere else and never an empty or identity name', t => {
+  const view = viewer([
+    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}],
+      interaction_bindings: [{object_id: 'food-held', object: '持有物：全麦面包'}],
+      errand_item_bindings: [{name: '臻浓牛奶', product_id: 'food-milk'}, {name: '全麦面包', product_id: 'food-held'},
+        {name: '', product_id: 'food-empty'}, {name: ' food-raw ', product_id: 'food-raw'},
+        {name: '咖啡豆', product_id: 'food-coffee'}]}),
+    // 同一商品在后来的观察里另有写法时，取最先记录的有效名称；后来才出现在 data.products 的名称仍然优先。
+    event('observation', {products: [{product_id: 'food-late', name: '店里的叫法'}],
+      errand_item_bindings: [{name: '咖啡豆（新包装）', product_id: 'food-coffee'},
+        {name: '目录里的叫法', product_id: 'food-late'}]}),
+    ...['food-milk', 'food-held', 'food-empty', 'food-raw', 'food-coffee', 'food-late'].map((product_id, index) =>
+      errandEvent('errand_registered', errandSnapshot({product_id, errand_id: `action-0007:errand:${index}`}))),
+  ]);
+  t.after(() => view.close());
+  const products = [3, 4, 5, 6, 7, 8].map(sequence => view.summary(sequence).split(' · 商品 ')[1]);
+  assert.deepEqual(products, ['纯牛奶', '持有物：全麦面包', '名称缺失（food-empty）', '名称缺失（food-raw）', '咖啡豆',
+    '店里的叫法']);
+  assert.deepEqual(view.errors, ['Missing recorded object name: food-empty', 'Missing recorded object name: food-raw']);
+});
+
+test('an errand product without a recorded name is reported as missing and an errand is never named by its identity', t => {
+  const name = '<img src=x onerror=alert(1)>';
+  const view = viewer([
+    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'}]}),
+    errandEvent('errand_registered', errandSnapshot({name: '买早餐', product_id: 'food-unlisted'})),
+    errandEvent('errand_completed', errandSnapshot({progress: 2}), {quantity_added: 2}),
+    errandEvent('errand_registered', errandSnapshot({name: ' \t ', errand_id: 'action-0009:errand:1'})),
+    errandEvent('errand_registered', errandSnapshot({name, errand_id: 'action-0010:errand:0'})),
+    // 名称与事务内部身份相同（含两侧空白）不是有效名称：照缺失提示，身份不进时间线；没有名称键的快照同样缺失。
+    errandEvent('errand_updated', errandSnapshot({name: 'action-0011:errand:0', errand_id: 'action-0011:errand:0'})),
+    errandEvent('errand_cancelled', errandSnapshot({name: ' action-0012:errand:3 ', errand_id: 'action-0012:errand:3'}),
+      {reason: '不办了'}),
+    errandEvent('errand_registered', {errand_id: 'action-0013:errand:0', product_id: 'food-milk'}),
+    errandEvent('errand_registered', errandSnapshot({name: 7, errand_id: 'action-0014:errand:0'})),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(2), '世界事件 · 事务记下 · 「买早餐」 · 商品 名称缺失（food-unlisted）');
+  assert.equal(view.summary(3), '世界事件 · 事务办成 · 「买牛奶」 · 商品 纯牛奶');
+  assert.equal(view.summary(4), '世界事件 · 事务记下 · 名称缺失（个人事务） · 商品 纯牛奶');
+  assert.equal(view.summary(5), `世界事件 · 事务记下 · 「${name}」 · 商品 纯牛奶`);
+  assert.equal(view.summary(6), '世界事件 · 事务更新 · 名称缺失（个人事务） · 商品 纯牛奶');
+  assert.equal(view.summary(7), '世界事件 · 事务取消 · 名称缺失（个人事务） · 商品 纯牛奶');
+  assert.equal(view.summary(8), '世界事件 · 事务记下 · 名称缺失（个人事务） · 商品 纯牛奶');
+  assert.equal(view.summary(9), '世界事件 · 事务记下 · 名称缺失（个人事务） · 商品 纯牛奶');
+  const row = view.run('tlRow(S.events[4]).innerHTML');
+  assert.ok(row.includes('「&lt;img src=x onerror=alert(1)&gt;」') && !row.includes('<img'));
+  assert.deepEqual(view.errors.filter(error => error.includes('food-unlisted')),
+    ['Missing recorded object name: food-unlisted']);
+  assert.deepEqual(view.errors.filter(error => error.includes('errand name')),
+    [4, 6, 7, 8, 9].map(sequence => `Missing recorded errand name at event ${sequence}`));
+  assert.equal(view.errors.length, 6, view.errors.join('\n'));
+  assert.ok(view.errors.every(error => !/[一-鿿]/.test(error) && !ERRAND_IDENTITY.test(error)));
+  view.state.events.forEach((entry, index) => {
+    assert.doesNotMatch(entry.sum, ERRAND_IDENTITY);
+    assert.doesNotMatch(view.run(`tlRow(S.events[${index}]).innerHTML`), ERRAND_IDENTITY);
+  });
+  // 事务内部身份只用于判定名称是否有效，不留在页面的索引里。
+  assert.doesNotMatch(JSON.stringify([...view.state.summaries.values()]), ERRAND_IDENTITY);
+});
+
+test('the errand reminder wake reason names the errands reminded for that person at that moment', t => {
+  const due = epoch + 3600;
+  const reminded = (fields, envelope = {}) => errandEvent('errand_reminded',
+    errandSnapshot({remind_at: due, reminded_at: due, ...fields}), {}, {occurred_at: due, ...envelope});
+  const started = (wake_reasons, envelope = {}) => event('decision_started',
+    {round_id: 'round-0003', round_order: 0, world_state_version: 12, wake_reasons}, {occurred_at: due, ...envelope});
+  const view = viewer([
+    event('observation', {products: [{product_id: 'food-milk', name: '纯牛奶'},
+      {product_id: 'food-bread', name: '全麦面包'}, {product_id: 'food-coffee', name: '咖啡豆'}]}, {occurred_at: epoch}),
+    reminded({}),
+    reminded({name: '买面包', errand_id: 'action-0011:errand:1', product_id: 'food-bread'}),
+    reminded({name: '买咖啡豆', errand_id: 'action-0020:errand:0', product_id: 'food-coffee'}, {agent_id: 2}),
+    started(['plan_reminder_due', 'errand_reminder_due']),
+    started(['errand_reminder_due'], {agent_id: 2}),
+    started(['no_active_activity']),
+    started(['errand_reminder_due', 'plan_reminder_due'], {occurred_at: due + 3600}),
+    reminded({name: '买面包', errand_id: 'action-0011:errand:1', product_id: 'food-bread'}, {occurred_at: due + 3600}),
+    // 提醒事件在、快照却没有有效名称：两条提醒逐个写出，缺名的那条照缺失提示。
+    reminded({name: 'action-0030:errand:0', errand_id: 'action-0030:errand:0'}, {occurred_at: due + 7200}),
+    reminded({name: '买面包', errand_id: 'action-0011:errand:1', product_id: 'food-bread'}, {occurred_at: due + 7200}),
+    started(['errand_reminder_due'], {occurred_at: due + 7200}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(5), '决策开始 · 第 0 轮 · 唤醒：计划提醒到点、事务提醒到点「买牛奶」「买面包」');
+  assert.equal(view.summary(6), '决策开始 · 第 0 轮 · 唤醒：事务提醒到点「买咖啡豆」');
+  assert.equal(view.summary(7), '决策开始 · 第 0 轮 · 唤醒：没有进行中的活动');
+  // 另一时刻的提醒与排在决策之后的提醒都不算进来：记录里没有对应的提醒事件时，原因说法之后显示缺失提示，并输出
+  // 英文错误日志（「缺失与重新加载」），不是只留原因说法。
+  assert.equal(view.summary(8), '决策开始 · 第 0 轮 · 唤醒：事务提醒到点 名称缺失（个人事务）、计划提醒到点');
+  assert.equal(view.summary(12), '决策开始 · 第 0 轮 · 唤醒：事务提醒到点 名称缺失（个人事务）「买面包」');
+  assert.deepEqual(view.errors, ['Missing errand reminder record for wake reason at event 8',
+    'Missing recorded errand name at event 10']);
+  const row = view.run('tlRow(S.events[7]).innerHTML');
+  assert.ok(row.includes('事务提醒到点 名称缺失（个人事务）'), row);
+  assert.equal(view.summary(2), '世界事件 · 事务提醒 · 「买牛奶」 · 商品 纯牛奶');
+  assert.equal(view.summary(10), '世界事件 · 事务提醒 · 名称缺失（个人事务） · 商品 纯牛奶');
+  view.state.events.forEach((entry, index) => {
+    assert.doesNotMatch(entry.sum, ERRAND_IDENTITY);
+    assert.doesNotMatch(view.run(`tlRow(S.events[${index}]).innerHTML`), ERRAND_IDENTITY);
+  });
+  // 同一缺失只记一次日志：重排时间线不重复输出。
+  view.run('S.events.forEach(entry => { entry.sum = makeSummary(entry); })');
+  assert.equal(view.errors.length, 2, view.errors.join('\n'));
+  view.reload([started(['errand_reminder_due'])]);
+  assert.equal(view.summary(1), '决策开始 · 第 0 轮 · 唤醒：事务提醒到点 名称缺失（个人事务）',
+    'reminders of the previous run are dropped');
+  assert.equal(view.errors.at(-1), 'Missing errand reminder record for wake reason at event 1');
 });
 
 test('midnight plan model requests are named by their recorded purpose', t => {

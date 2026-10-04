@@ -759,12 +759,13 @@ async def _cleanup_runtime(society: Any, actor: Any, owned_ray: bool) -> list[Ba
 
 
 def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
-    """@brief 连接 DirectEnvActor、EnvRouterProxy、ServiceProxy 与 AgentSociety。"""
+    """@brief 连接 LifeEnvActor、LifeEnvProxy、ServiceProxy 与 AgentSociety；环境 actor 与代理取带只读查询转发的
+    Life 子类（src/worldmock/life/read_query_runtime.py），装配 AS2 原类时回看任务到不了环境。"""
     from agentsociety2.agent.service_proxy import build_service_proxy
     from agentsociety2.config.llm_dispatcher import build_client_for_role
-    from agentsociety2.env.direct_env_actor import DirectEnvActorSpec, get_direct_env_actor_class
-    from agentsociety2.env.env_router_proxy import EnvRouterProxy
+    from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
     from agentsociety2.society import AgentSociety, AgentSocietyConfig
+    from worldmock.life.read_query_runtime import LifeEnvProxy, life_env_actor_class
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
@@ -773,9 +774,9 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         ("LifeEnv",), {"LifeEnv": prepared.env_kwargs}, str(prepared.run_dir),
         str(prepared.project_root), clients,
     )
-    actor = get_direct_env_actor_class().remote(spec)
+    actor = life_env_actor_class().remote(spec)
     try:
-        env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])
+        env = LifeEnvProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])
         service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)
         config = AgentSocietyConfig(
             prepared.run_id, specs, "LifeAgent", env, service,
@@ -846,7 +847,7 @@ def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Map
     """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1、8.1）：逐人物按编号，再场景级。
 
     人物：场景作息覆盖（CARD_FIELD_OVERRIDDEN / CARD_FIELD_CONFLICT）、口味与内容（按实际注入的口味权重）、游戏权重条目、
-    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译的一致性警告；场景：配送路线与地点显示名。
+    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译留下的警告；场景：配送路线与地点显示名。
     """
     from worldmock.profile import injection
     from worldmock.profile.coverage import validate_coverage
@@ -1255,7 +1256,7 @@ def _render_card(card: Any) -> str:
 def _compile_persona(agent: Any) -> Any:
     """@brief 场景 background_story -> CompiledPersona（卡片与编译警告；真实调用走三次一致性抽取）。
 
-    编译警告（三次一致性低于 2/3 的字段）经输入警告 PERSONA_AGREEMENT_LOW 透传，不再丢弃。
+    编译警告（三次一致性低于 2/3 的字段、下班与到家锚点的降级说明）经输入警告 PERSONA_AGREEMENT_LOW 逐条透传，不再丢弃。
     """
     if agent.background_story is None:
         return None

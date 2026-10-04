@@ -345,14 +345,14 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
     events = [
         _public_event(1, "action_requested", {
             "tool_name": "report_status",
-            "request": {"items": [{"activity_name": browsing, "summary": "继续浏览。"}]},
+            "request": {"items": [{"activity_name": browsing, "summary": "继续浏览。"}], "errands": []},
         }, "continue-action"),
         _public_event(2, "action_result", {
             "status": "completed", "data": {"task": [browsing], "activity_ids": ["activity-private"]},
         }, "continue-action", "activity-private"),
         _public_event(3, "action_requested", {
             "tool_name": "pause_activity",
-            "request": {"items": [{"activity_name": browsing, "summary": "先暂停。"}]},
+            "request": {"items": [{"activity_name": browsing, "summary": "先暂停。"}], "errands": []},
         }, "pause-action"),
         _public_event(4, "action_result", {
             "status": "completed", "data": {"task": [browsing], "activity_ids": ["activity-private"]},

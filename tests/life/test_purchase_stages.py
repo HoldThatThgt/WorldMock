@@ -383,3 +383,52 @@ def test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route
     _, _, pickup = decide(engine, "pickup-several", _buy((_MILK, "到店", None)))
     assert pickup.data["reason"] == f"Pickup requires the caller at a selling store; the nearest is {_place(engine, nearest)}."
     assert pickup.data["next_step"] == system.data["next_step"]
+
+
+def test_home_words_in_from_keep_meaning_home_under_lossless_spellings(engine_factory) -> None:
+    """@brief from 写「家」「住处」的无损写法仍指本人住处（接口合同：地点显示名按精确、无损归一或去掉「地点：」前缀比对，
+    「家」「住处」指本人住处；个人事务与工作安排规格 5.2：来源的合法写法以现行实现为准）：带「地点：」前缀或带空白的
+    写法按名买纯牛奶，与照写「家」一样以 SUPPLY_NOT_AT_STORE 拒绝、原因写「这里没有可买的商品」，而不是不认识来源的
+    SOURCE_NOT_FOUND；列出的标签写明了门店、from 写「地点：家」时，宿主与环境都以 SUPPLY_SOURCE_MISMATCH 拒绝。都不下单。"""
+    engine = _world(engine_factory)
+    before = _world_facts(engine)
+    for index, word in enumerate(("地点：家", " 住 处")):
+        _, error, refused = decide(engine, f"home-spelling-{index}", _buy((_MILK, "远程下单", word)))
+        assert error == "" and (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_AT_STORE"), word
+        [item] = refused.data["items"]
+        assert (item["path"][-1], item["written"]) == ("from", word)
+        assert refused.data["reason"] == "The source has no purchasable supplies."
+        assert item["candidates"] and all(row["arguments"]["items"][0]["from"] is None for row in item["candidates"])
+    assert _world_facts(engine) == before
+    _browse(engine)
+    listed = _listed_remote_rows(engine, "look-before-home-spelling")[0]["object"]
+    before = _world_facts(engine)
+    _, error, mismatch = decide(engine, "listed-from-home-spelling", _buy((listed, "远程下单", "地点：家")))
+    assert error != "" and error.report.error_code == "SUPPLY_SOURCE_MISMATCH"
+    assert [(item.path[-1], item.written) for item in error.report.items] == [("from", "地点：家")]
+    assert (mismatch.status, mismatch.error_code) == ("rejected", "SUPPLY_SOURCE_MISMATCH")
+    assert _world_facts(engine) == before
+
+
+def test_an_unknown_source_near_a_place_without_supplies_never_offers_that_place(engine_factory) -> None:
+    """@brief SOURCE_NOT_FOUND 的候选是最相近的门店名与 App 称呼，一个也不相近时是此刻能买到这件商品的来源（接口合同
+    「活动受理拒绝码」；一日运行保真规格 3.3 解析规则 1）——候选来源只取有供给的门店，与查询一侧同一口径：from 写成与
+    一处没有任何供给的地点（住处、办公室、健身房、公园）相近的写法「<地点>旁」，宿主放行、环境以 SOURCE_NOT_FOUND
+    拒绝，一至三条候选只换 from，来源都是有供给的门店的显示名，那处地点不在其中；不下单。每处地点各用一个引擎。"""
+    probe = _world(engine_factory)
+    stores = {supply.location_id for supply in probe.scenario.supplies}
+    selling = {item.name for item in probe.scenario.locations if item.location_id in stores}
+    bare = [item for item in probe.scenario.locations if item.location_id not in stores]
+    assert {"home", "office", _PARK} <= {item.location_id for item in bare}
+    for index, location in enumerate(bare):
+        engine = probe if index == 0 else _world(engine_factory)
+        before, written = _world_facts(engine), f"{location.name}旁"
+        _, error, result = decide(engine, f"near-storeless-{index}", _buy((_MILK, "远程下单", written)))
+        assert error == "" and (result.status, result.error_code) == ("rejected", "SOURCE_NOT_FOUND"), written
+        [item] = result.data["items"]
+        assert (item["path"][-1], item["written"]) == ("from", written)
+        rows = [candidate["arguments"]["items"][0] for candidate in item["candidates"]]
+        sources = [row["from"] for row in rows]
+        assert 1 <= len(sources) <= 3 and location.name not in sources and set(sources) <= selling, (written, sources)
+        assert all((row["target"], row["way"], row["to"]) == (_MILK, "远程下单", None) for row in rows), written
+        assert _world_facts(engine) == before

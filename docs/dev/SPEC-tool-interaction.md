@@ -2,6 +2,8 @@
 
 > 状态：**FROZEN，已实现**；2026-10-01 按用户要求完成并发源码审查，并依据附件复审修订。
 > 新接口、供给、任务规则与验收守卫已实现；本次实际证据见[验收记录](tool-interaction-verification.md)。
+> 更正：`recall_task_summary` 在 `3b4afe5` 的真实 Ray 装配下到不了环境（装配的是 AS2 的 `EnvRouterProxy`，它没有 `read_query`），既有离线验收只覆盖进程内路径；跨进程转发已由[个人事务与工作安排规格](SPEC-errands-workday.md)阶段 1 补齐。
+> 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订「工具请求」「唯一错误结构」「所有入口必须覆盖」：三个控制工具增请求级 `errands` 与对应错误入口；`query_world` 改六键、返回改无损紧凑投影且不再逐项附候选；计划重复意图逐条定位；写明只读查询的执行位置。修订部分已实现并通过离线验收（该规格阶段 1 的执行位置与重复意图、阶段 2 的 `errands`、阶段 4 的查询；证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。另更正两处既有表述：购买来源的合法写法、四个失败阶段码。「实施与验收」的行为验收表行名不随本次修订增删改，新增验收登记在该规格的验收台账。逐行作业（TI1–TI17）见配套[实施计划](research/errands-workday-implementation-plan.md)，不在规格内。
 > 来源：[工具交互提案](PROPOSAL_2026-09-30_TOOL_INTERACTION.md)。
 > 实施状态：[开发状态](implementation-status.md)；接口字段唯一维护在[接口合同](../CONTRACTS.md)。
 
@@ -67,7 +69,7 @@ items 包含一至两项，每项恰为 `{target, way, from, to}`，四个键都
 | 食用、使用 | null；本人来源由引擎推导 | null；作用于本人 |
 | 给予 | null；本人来源由引擎推导 | 已知其他人物名称；继续要求同处 |
 | 制作 | null | null；输出归本人在当前地点的库存 |
-| 到店、远程下单、购买 | null 表示不约束来源，或门店名称、渠道称呼 | null 表示本人，或真实其他收货人名称 |
+| 到店、远程下单、购买 | null 表示不约束来源，或地点显示名（含「家」「住处」）、渠道称呼 | null 表示本人，或真实其他收货人名称 |
 
 `to=null` 对全部方式统一表示本人，不表示家或默认送回住处；本人的收货地仍是当前地点。
 人物名只用于他人；旧的“自己”收件人字符串直接拒绝。非转移动作不接受他人，给予不接受 null。
@@ -94,24 +96,49 @@ items 包含一至两项，每项恰为 `{target, way, from, to}`，四个键都
 现有控制工具已使用嵌套闭合 items 对象，现有 strict Schema 能表达这一结构，无需新增提供商能力。
 一至两项在本地校验，全部字段必填且 additionalProperties=false。提供商 strict 不代替 Pydantic 本地严格类型校验；
 各请求模型拒绝数值字符串、布尔冒充整数等类型转换，不改变无关输入模型的类型策略。`conclude_activity` 的 views、memories 仍必填可写 []。
+`report_status`、`pause_activity`、`conclude_activity` 各另有请求级必填字段 `errands`（与 `items` 平级，没有变更写 `[]`，一次至多四条）；
+每条是闭合对象，`change`、`name`、`outcome`、`item`、`quantity`、`memo`、`remind_time`、`reason` 八个键全部必填，
+`change` 只取「新增」「更新」「取消」，请求里没有「完成」；同一条未完成事务在一次请求里至多被一条更新或取消点名，两条新增不得同名，
+同一请求内按取消、更新、新增的次序求值。`start_activity`、`revise_day_plan` 不带该字段，不新增工具；各键类型与交叉约束只在接口合同定义。
 `revise_day_plan` 的 around_time、remind_time 均显示并接收本地 HH:MM 或 null；“约”仅用于说明。
 旧请求、旧候选、旧控制记录读取分支及不再使用的商品重名拒绝码直接删除，不增加兼容和迁移。
+缺 `errands` 键的控制请求按缺字段拒绝，事件与导出里的这类记录是完整性故障，同样不留读取分支。
 
 ### 只读查询
 
-固定 `query_world(name, way, category, offset)`，四个键都必填。
-name、way、category 为可空字符串，至少一个非 null，非 null 值不得为空白；offset 为非负 JSON 整数，拒绝布尔、字符串和非整数，首次写 0。
+固定 `query_world(name, way, category, from, available_only, offset)`，六个键都必填、无缺省；旧四键请求按缺字段拒绝，不留读取分支。
+name、way、category、from 为可空字符串，四者至少一个非 null，非 null 值不得为空白；四者全空时在四个位置各报一条，不落在空根位置，只写 from 合法。
+available_only 为严格 JSON 布尔，拒绝字符串、数字与 null，不单独构成查询条件。offset 为非负 JSON 整数，拒绝布尔、字符串和非整数，首次写 0。
 多条件按交集匹配；way 按现有方式闭集，category 只取本轮 callable_index 已展示的公开品类标签。
+way 写「购买」及其同义写法时等同于同时写「到店」与「远程下单」。
+from 是购买来源，写地点显示名（含「家」「住处」）或渠道称呼，与 `start_activity` 购买项的 from 同名同义，
+并与购买共用同一个来源解析纯函数，同一写法得到的门店集合逐一相等；from 只匹配供给条目，非供给条目一律排除；
+name 只写对象名称，门店名写在 name 里仍按地点目标匹配。
+available_only 为 true 时只留本轮冻结观察里已确认此刻可执行的条目：取该条目动作的 available
+（写了 way 只看方式命中的动作，way 为 null 时看全部动作以及以该目标为参数的工具，「购买」取两种取得动作任一可用），
+与工具层和环境受理同源；false 不筛选。保留的条目照常返回全部动作与工具，不可用的仍带原因。
 category 不是对象名称，不允许把“食品”当实际商品；标签由现有品类树和内容类别生成，不新增另一套分类词表。
-名称只使用已有确定性名称解析，不增加语义检索、向量库、模型裁决或商品需求推断。
+名称只使用已有确定性名称解析，不增加语义检索、向量库、模型裁决或商品需求推断；
+from 不按需求反查门店、不计算路线、不按距离或价格排序，两个新字段不引入否定、或、范围与表达式。
 
 返回 `{matches, total_count, next_offset}`，三个键都必填；next_offset 为整数或 null。
-matches 包含冻结观察中本人有权知道的名称、方式、available、reason、任务合同、公开费用和时长及完整请求候选。
+matches 每项是冻结目标的无损紧凑投影：键取 name、kind、phase、state、contract（仅任务）、actions、tools，
+动作取 action、way、available、reason、price、duration、quantity、note；只省略 null 与空集合，
+false、零价格、零剩余与明确的未知原因逐值保留（与「无损分组」同一规则）。
+不再逐项附完整请求候选：照抄 name 与所选动作的 way 即可提交，候选只出现在错误合同里；门店商品的来源标记 note 保留。
 同一冻结观察与筛选条件下按公开完整名称及内部稳定身份排序，内部身份不返回模型。
-沿用 candidate_presentation_limit 作为每页大小，不增加页长参数或配置；total_count 为权限内完整匹配数。
+沿用 candidate_presentation_limit 作为每页大小，不增加页长参数或配置；
+筛选在排序与切页之前施加，total_count 为全部筛选交集后的权限内完整匹配数，offset 的合法范围按它计算；排序键与每页大小不变。
 后续原样保持筛选条件并提交 next_offset；最后一页 next_offset=null，offset=total_count 返回空末页，
 offset>total_count 按参数错误返回合法范围。超过呈现窗口的商品必须能完整翻页，不能永久只看前二十项。
-空结果说明当前权限内无匹配；工具层索引显示可查询标签和完整数量，动态标签错误返回全部合法标签。
+offset 在范围内时，除错误入口表所列的两种查询参数错误（from 既不是地点显示名也不是渠道称呼；
+from 为 null、name 按对象名称解析无任何匹配且其写法恰是一个渠道称呼）外，
+任何筛选组合无匹配时返回 matches=[]、total_count=0、next_offset=null，不报错、不自动放宽、不换来源；
+from 解析成功但该来源没有权限内供给、或 name 的完整标签与 from 指向不同门店，都是合法空页。
+available_only=true 的空页只表示没有已确认此刻可执行的条目
+（报价未知、营业未知的条目也被滤掉；因人物级前置条件使全部动作不可用时同样是合法空页），不等于都不能做；
+工具层索引显示可查询标签和完整数量，动态标签错误返回全部合法标签。
+筛选不改变索引里各品类的计数口径，它仍是查询权限内的完整条目数。
 
 查询不能读取未读正文、验收答案、未揭示内容、他人私有库存或未知报价。
 指名购买本已允许的商品可查同等公开事实；读取已经冻结公开的供给不额外要求 browse 菜单，
@@ -122,6 +149,9 @@ offset>total_count 按参数错误返回合法范围。超过呈现窗口的商�
 query_world、recall_task_summary 和记忆查询可同批；先校验整批，任一无效则整批不执行，报告全部可独立确定错误。
 世界请求与任何查询混批、多个世界请求仍整批拒绝。结果直接作为 tool 消息返回，只保存模型工具交换证据，
 不登记世界动作、进度 events 或人物记忆，不推进模拟时间、不增加同刻决策轮数。
+执行位置：`query_world` 由宿主在本次冻结观察上本地求值；`recall_task_summary` 经环境代理的 `read_query` 送到唯一的环境 actor
+并等待真实结果对象，回看的业务拒绝以错误结构作为返回值。
+环境侧 `read_query` 的 `query_world` 分支是同一组纯函数的第二入口，两入口对同一观察、同一请求的结果逐值相等。
 每个含查询的模型回复仍消耗一次 MAX_REACT_TURNS；保留十六回合和最终世界请求保留回合。
 最终回合与截断重试不开放查询，只读问答沿用 finish，生活决策不增加 finish。
 原有“浏览”仍耗时并揭示新内容和供给。前两次名称类拒绝也不计同刻轮数，但仍计模型回合；
@@ -146,9 +176,12 @@ query_world、recall_task_summary 和记忆查询可同批；先校验整批，�
 | candidates | 至多三个 {tool, arguments, note}；note 必填可空、非空时为英文，arguments 是可直接提交的完整新请求 |
 
 allowed_values 从该位置的 Pydantic Enum、Literal、JSON Schema 或冻结对象的有限方式选项直接生成。
+本轮冻结观察里的有限集合同样完整返回：查询的公开品类标签，以及更新、取消个人事务时本人全部未完成事务名（至多八个）。
 已确定包含购买时 prefer 的合法值只有两条中文选项，无购买时只有 [null]；方式本身未合法时只给通用三值类型闭集，
 不猜依赖方式才能确定的后续条件。
 活动项数、分页范围、价格范围、格式、自由文本、对象名称不冒充静态枚举；分别在 expected 给约束，在 candidates 给可执行选项。
+个人事务名是本人此刻的有限集合，不属此列；商品名仍不进 allowed_values，新增个人事务时最接近的至多三个商品名写在 why。
+个人事务的名称类错误不带 candidates（完整请求候选要回显人物刚写的 summary 与记忆文字），与控制工具活动名错误不带候选的现行做法一致。
 未知方式返回方式闭集，存在对象但方式不支持时返回该对象可写方式；世界暂时不可用仍说明时间、地点、库存等真实条件。
 枚举为 null-only 时必须返回 [null]，不返回字符串“null”。合法枚举不能因为超过三条候选上限而截断。
 
@@ -180,10 +213,11 @@ allowed_values 从该位置的 Pydantic Enum、Literal、JSON Schema 或冻结�
 | 没有调用、多个世界请求、混批 | 定位到 tool_calls，expected 给合法组合；allowed_values 列本轮可用工具 |
 | 活动项超限、项内字段或重复对象 | 定位 items 或 items 中具体字段；expected 给一至两项、重复规则及原子受理要求 |
 | 控制请求及记忆种类 | 定位到 items 中具体元素和字段；记忆 type 返回实际合法种类闭集 |
-| 计划意图重复、时刻格式错误 | 定位到 goals 中具体元素；指出重复意图或 HH:MM 范围，意图枚举完整返回 |
-| 查询请求、名称或方式错误 | 同一结构；查询失败不登记世界，不以 NO_DATA 代替原因 |
+| 个人事务变更 | 定位到 `errands[j].<键>`；`change`、`outcome` 返回全部合法值，`expected` 给类型与格式，长度、单次条数与未完成条数上限随校验原因写在 `why`；缺键、类型、枚举、交叉约束、长度、单次条数、两条新增同名或同一事务被两条更新或取消点名，以及新增的名称与已有未完成事务归一后相同、结果种类与商品都与已有或同请求另一条新增相同、新增后未完成数超过八条，都是 `ARGUMENTS_INVALID`，`why` 写明冲突的事务名或上限；更新、取消的 `name` 找不到或不唯一为 `NAME_NOT_FOUND`、`NAME_AMBIGUOUS`，`allowed_values` 列本人全部未完成事务名（至多八个），不替换；新增的 `item` 解析不到唯一商品同为这两码，最接近的至多三个商品名写在 `why`，不把全量商品名放进 `allowed_values`；这些错误都不带 `candidates`；环境用同一函数复核，失败合并为一次 `ACTION_REQUEST_INVALID` |
+| 计划意图重复、时刻格式错误 | 零点计划与 `revise_day_plan` 共用同一校验函数；每个重复的意图同时定位首次出现与其后每次出现的 `goals[i].intent_kind`，条数超过八条与重复意图在同一次校验里一并报告、定位在 `goals`，不因超限提前返回。修订入口照错误合同给完整 path、written（该意图字符串；超限时为提交的 `goals`）与 allowed_values（全部意图）；零点计划入口不经这一错误结构，附回文本逐条列位置与原因。时刻错误指出 HH:MM 范围 |
+| 查询请求、名称、方式或来源错误 | 同一结构，顶层与明细码都是 `ARGUMENTS_INVALID`，不把环境名称类码带进宿主协议反馈；from 既不是地点显示名也不是渠道称呼时定位 from，allowed_values 为 []，expected 写 `null, a known place name, or a known channel name is required.`，why 与购买侧同句，candidates 给至多三条换了 from 的完整 `query_world` 请求（来源只取权限内有供给条目的门店与渠道）；from 为 null、name 按对象名称解析无任何匹配且其写法恰是一个渠道称呼时（与其余筛选是否为空无关）定位 name，expected 写 `A channel name belongs in from; name takes an object name.`，candidates 给一条把该值移到 from、name 写 null 的完整请求，不自动改写；available_only 非布尔按类型错误定位；来源、方式、品类错误一次全报，offset 范围只在全部筛选合法后计算；查询失败不登记世界，不以 NO_DATA 代替原因 |
 | 开工、购买、食用等业务失败 | 定位回原模型参数；expected 写明确的真实条件，unmet 保留既有领域约束 |
-| 输出截断、服务或证据失败 | 定位到 tool_calls 或该调用根；无参数枚举时 []，说明失败阶段，不伪造已执行结果 |
+| 输出截断、服务或证据失败 | 定位到 tool_calls 或该调用根；无参数枚举时 []，说明失败阶段，不伪造已执行结果；服务与证据失败的阶段码为 `MODEL_SERVICE_FAILED`、`EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED`、`TOOL_SERVICE_FAILED`，只标出失败阶段与调用位置，不是对请求参数的协议纠错；四码随个人事务与工作安排规格阶段 1 补登进接口合同的宿主错误码表 |
 
 可独立判定的错误一次全报；必须先有合法对象才能判断的后续业务条件不凭空推断。
 整组接受或拒绝，禁止部分执行后才发现另一项参数不合法。宿主与环境共用纯校验、方式映射和错误构造，
@@ -506,6 +540,8 @@ flowchart LR
 查询模型回合成本、成功行为和门店选择；发生数据或 Schema 变更时记录准确身份，不能把累计下降归因于某一处修改。
 完成各阶段后再发布三份正式场景并真实全天复验，不能用文档门禁代替生产行为和变异结果。
 
+注：下表行名被工具交互登记守卫按表解析，[个人事务与工作安排规格](SPEC-errands-workday.md)的任何阶段都不在本表增删改行；六键查询、个人事务与运行修复的验收登记在该规格的「验收台账」，守卫里的查询字段集断言随该规格阶段 4 由四键改为六键。
+
 | 行为验收 | 必须观察到的结果 |
 | --- | --- |
 | 八点普通工作通知，八点五十五到公司 | 可直接开始；不出现九点开放拒绝，wrong location时准确点名办公室 |
@@ -548,3 +584,5 @@ Shopify 将产品和地点库存分别管理；Dynamics 365 用品类展开商�
 | 版本 | 日期 | 修订 |
 | --- | --- | --- |
 | 工具交互定稿 | 2026-10-01 | 逐项请求、中文购买偏好、逐店商品集合与价格定位、品类分页、通知派生已实现；实际证据独立记录 |
+| 个人事务与工作安排修订 | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（[实施计划](research/errands-workday-implementation-plan.md)作业 TI1–TI11、TI14–TI17）：三个控制工具增请求级 `errands`（备注键 `memo`）与对应错误入口，事务名错误在 `allowed_values` 列本人全部未完成事务名、商品名错误把最接近的名称写在 `why`，都不带候选；`query_world` 改六键（`from`、`available_only`），「购买」展开为两种取得方式，返回改无损紧凑投影并不再逐项附候选，补筛选后计数、空页与两种参数错误的边界；计划重复意图同时定位首次与其后各次出现并与超限同批报告；写明 `query_world` 本地求值、`recall_task_summary` 经环境 actor。逐店供给、价格、通知派生开放、操作备忘与无损分组条款不变；「实施与验收」行为验收表不改。补记与更正既有表述：回看任务在 `3b4afe5` 的真实 Ray 装配下不可达；购买来源的合法写法是地点显示名（含「家」「住处」）或渠道称呼；四个失败阶段码此前只存在于代码。修订部分在冻结时未随文实现（该规格阶段 1、2、4 实现后的核对见「个人事务与工作安排修订已实现」行） |
+| 个人事务与工作安排修订已实现 | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 TI12，按 `d8a41d3` 的代码与测试核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)；只读查询的跨进程转发（`src/worldmock/life/read_query_runtime.py`）、计划重复意图逐条定位、三个控制工具的请求级 `errands` 与六键 `query_world` 都已落地，守卫 `tests/test_tool_interaction_acceptance.py` 的查询字段集断言已是六键；「个人事务与工作安排修订」行里的冻结期状态注记改为指向本行。条款正文不变，「实施与验收」行为验收表的行名不变；新增验收登记在该规格的验收台账（登记表 `tests/errands_workday_acceptance.py`）。证据为离线测试，配对全天复跑（该规格阶段 6）未执行 |

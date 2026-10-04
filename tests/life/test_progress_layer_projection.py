@@ -125,24 +125,25 @@ def _pending() -> PendingAction:
 @pytest.mark.parametrize("request_type", [ReportStatusRequest, PauseActivityRequest, ConcludeActivityRequest])
 def test_activity_control_takes_one_object_per_activity(request_type) -> None:
     """每项点名的活动是一个对象，活动名与自述写在同一对象里，结束另带该项的记忆与看法；模型接口不接受内部会话或活动定位
-    字段（docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    字段（docs/dev/SPEC-dayrun-fidelity.md 第六章）；请求级另有个人事务变更 errands（docs/dev/SPEC-errands-workday.md
+    2.2）。"""
     concluding = request_type is ConcludeActivityRequest
     extra = {"memories": [], "views": []} if concluding else {}
-    assert set(request_type.model_fields) == {"items"}
+    assert set(request_type.model_fields) == {"items", "errands"}
     names = ["观看Space Habitat（1月5日 09:00 起）", "等待（1月5日 09:00 起）"]
     items = [{"activity_name": name, "summary": summary, **extra} for name, summary in zip(names, ["看到一半", "还在等"])]
-    request = request_type(items=items)
+    request = request_type(items=items, errands=[])
     assert [(item.activity_name, item.summary) for item in request.items] == list(zip(names, ["看到一半", "还在等"]))
     with pytest.raises(ValidationError):
-        request_type(items=[])
+        request_type(items=[], errands=[])
     for leaked in ("session_id", "activity_id"):
         with pytest.raises(ValidationError):
-            request_type(items=items, **{leaked: "internal-7"})
+            request_type(items=items, errands=[], **{leaked: "internal-7"})
         with pytest.raises(ValidationError):
-            request_type(items=[{**items[0], leaked: "internal-7"}])
+            request_type(items=[{**items[0], leaked: "internal-7"}], errands=[])
     if concluding:
         with pytest.raises(ValidationError):
-            request_type(items=[{"activity_name": names[0], "summary": "看到一半"}])
+            request_type(items=[{"activity_name": names[0], "summary": "看到一半"}], errands=[])
 
 
 def test_report_status_maps_each_activity_to_its_own_note_and_goal_note() -> None:
@@ -162,7 +163,7 @@ def test_report_status_maps_each_activity_to_its_own_note_and_goal_note() -> Non
     assert state.agents[1].day_plan.goals[0].progress_note == ""
     assert state.activities[work.activity_id].progress_note == ""
     assert result.data == {"task": [work.name, leisure.name],
-                           "activity_ids": [work.activity_id, leisure.activity_id]}
+                           "activity_ids": [work.activity_id, leisure.activity_id], "errands": []}
 
 
 def test_control_names_resolve_to_one_own_activity_of_this_round() -> None:
@@ -207,7 +208,7 @@ def test_conclude_marks_named_just_ended_activities_and_keeps_their_status() -> 
     assert concluded.progress_note == "纪要已收尾"
     assert changed.activities[road.activity_id] == road and changed.activities[paused.activity_id] == paused
     assert changed.agents[1].day_plan.goals[0].progress_note == "纪要已收尾"
-    assert result.data == {"task": [work.name], "activity_ids": [work.activity_id], "memory_sources": [
+    assert result.data == {"task": [work.name], "activity_ids": [work.activity_id], "errands": [], "memory_sources": [
         {"task": work.name, "activity_id": work.activity_id, "session_id": work.session_ids[-1],
          "verified_event_ids": []}], "outcome": [
              {"activity": work.name, "outcome": "完成", "items": [], "note": "No item changes."}]}

@@ -8,15 +8,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from tests.life.conftest import (activity_name, advance_next, conclude_request, pause_request, report_request,
                                  stage_day_plan, start_activity, wake_by_mail)
 from tests.life.test_memory_layer import _act, _memo, _view, _walk
 from worldmock.errors import IntegrityError
 from worldmock.life import memory_layer, progress_layer
-from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_items, control_request
+from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items, control_request
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.memory_evidence import conclusion_has_memories, memory_write_points
 
@@ -36,7 +38,7 @@ def _stored(entry: dict, subject: str | None) -> dict:
 
 def test_current_shape_items_carry_views_as_subject_memories() -> None:
     """现行形状一项一个对象：结束工具每项先普通记忆（subject 为 null）、后看法（about 写作 subject）；播报与暂停没有记忆；
-    进度层与交付窗口的现行形状改写只留活动名与自述（进度层另留普通记忆），看法与偏好一律不带。"""
+    进度层与交付窗口的现行形状改写只留活动名与自述（进度层另留普通记忆），看法与偏好与请求级 errands 一律不带。"""
     request = conclude_request(_WORK, _WAIT, summary=["纪要写完了。", "等完了。"], memories=[[_PLAIN], []],
                                views=[[_FRIEND, _TASTE], []])
     work, wait = control_items("conclude_activity", request)
@@ -51,6 +53,8 @@ def test_current_shape_items_carry_views_as_subject_memories() -> None:
         {"activity_name": _WAIT, "summary": "等完了。", "memories": []}]}
     assert control_request("conclude_activity", request, memories=False) == {"items": [
         {"activity_name": _WORK, "summary": "纪要写完了。"}, {"activity_name": _WAIT, "summary": "等完了。"}]}
+    assert not any("errands" in control_request("conclude_activity", request, memories=memories)
+                   for memories in (True, False))
     for tool, model in (("report_status", report_request), ("pause_activity", pause_request)):
         read = control_items(tool, model(_WAIT, _WORK, summary=["还在等。", "写到一半。"]))
         assert read == (ControlItem(_WAIT, "还在等。"), ControlItem(_WORK, "写到一半。"))
@@ -95,14 +99,14 @@ def test_current_requests_preserve_each_items_content_and_order(tool: str) -> No
     ("start_activity", {"items": []}),
     ("report_status", ["不是对象"]),
     ("report_status", {"session_ids": ["session-1"], "summary": "最早的会话形状"}),
-    ("report_status", {"items": {"activity_name": _WAIT, "summary": "继续。"}}),
-    ("pause_activity", {"items": [{"activity_name": _WAIT}]}),
-    ("pause_activity", {"items": [{"activity_name": 7, "summary": "先停。"}]}),
-    ("conclude_activity", {"items": [{"activity_name": _WAIT, "summary": "等完了。", "memories": []}]}),
+    ("report_status", {"items": {"activity_name": _WAIT, "summary": "继续。"}, "errands": []}),
+    ("pause_activity", {"items": [{"activity_name": _WAIT}], "errands": []}),
+    ("pause_activity", {"items": [{"activity_name": 7, "summary": "先停。"}], "errands": []}),
+    ("conclude_activity", {"items": [{"activity_name": _WAIT, "summary": "等完了。", "memories": []}], "errands": []}),
     ("conclude_activity", {"items": [{"activity_name": _WAIT, "summary": "等完了。", "memories": ["一句话"],
-                                      "views": []}]}),
+                                      "views": []}], "errands": []}),
     ("conclude_activity", {"items": [{"activity_name": _WAIT, "summary": "等完了。", "memories": [],
-                                      "views": [{**_FRIEND, "about": None}]}]}),
+                                      "views": [{**_FRIEND, "about": None}]}], "errands": []}),
     ("conclude_activity", {"task": [_WAIT, _WORK], "summary": ["等完了。"], "memories": [[], []]}),
     ("conclude_activity", {"task": [_WAIT], "summary": ["等完了。"], "memories": [[_PLAIN], [_PLAIN]]}),
     ("conclude_activity", {"task": [_WAIT], "summary": ["等完了。"], "memories": [[{**_PLAIN, "subject": 3}]]}),
@@ -112,6 +116,86 @@ def test_unrecognised_or_malformed_requests_fail_as_integrity_errors(tool: str, 
     """@brief 旧数组、最早会话形状、非控制工具以及现行形状的缺字段和类型错误都明确拒绝。"""
     with pytest.raises(IntegrityError):
         control_items(tool, request_body)
+
+
+@pytest.mark.parametrize("tool", CONTROL_TOOLS)
+def test_a_current_request_without_errands_is_rejected(tool: str) -> None:
+    """@brief 带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-errands-workday.md 2.3、2.9）：唯一读取
+    入口 control_items 以完整性故障拒绝，经它读取的投影（进度层参数与交付窗口的 control_request）、请求级变更的读取
+    （control_errands）与收尾记忆的判定随之拒绝，不留读取分支；errands 不是列表同样拒绝。带空 errands 的同一请求照常读出。"""
+    builder = {"report_status": report_request, "pause_activity": pause_request, "conclude_activity": conclude_request}
+    current = builder[tool](_WAIT, summary="等完了。").model_dump(mode="json")
+    assert current["errands"] == []
+    assert control_items(tool, current) == (ControlItem(_WAIT, "等完了。"),)
+    lacking = {"items": current["items"]}
+    readers = [lambda request: control_items(tool, request), lambda request: control_errands(tool, request),
+               lambda request: control_request(tool, request, memories=True),
+               lambda request: control_request(tool, request, memories=False)]
+    if tool == "conclude_activity":
+        readers.append(conclusion_has_memories)
+    for read in readers:
+        with pytest.raises(IntegrityError, match=f"{tool} request lacks errands"):
+            read(lacking)
+        with pytest.raises(IntegrityError, match=f"{tool} request field must be a list"):
+            read({**lacking, "errands": None})
+
+
+_ERRAND_KEYS = ["change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+_ERRANDS = [
+    {"change": "新增", "name": "补一份素炒什锦食材包", "outcome": "取得", "item": "素炒什锦食材包", "quantity": 1,
+     "memo": "下班前下单送到家", "remind_time": "17:00", "reason": None},
+    {"change": "更新", "name": "囤冰红茶", "outcome": None, "item": None, "quantity": None, "memo": "周末去超市",
+     "remind_time": None, "reason": None},
+    {"change": "取消", "name": "晚饭吃掉素炒什锦", "outcome": None, "item": None, "quantity": None, "memo": None,
+     "remind_time": None, "reason": "改在公司吃了"},
+]
+
+
+class _ErrandChange(BaseModel):
+    """测试用的事务变更模型：八个键，声明顺序与请求形状相反（读出的键序不取决于模型或请求里的写法顺序）。"""
+
+    reason: str | None
+    remind_time: str | None
+    memo: str | None
+    quantity: int | None
+    item: str | None
+    outcome: str | None
+    name: str
+    change: str
+
+
+class _ErrandRequest(BaseModel):
+    """测试用的控制请求模型：逐项内容与请求级 errands。"""
+
+    items: list[dict[str, Any]]
+    errands: list[_ErrandChange]
+
+
+@pytest.mark.parametrize("tool", CONTROL_TOOLS)
+def test_control_errands_reads_every_change_in_order(tool: str) -> None:
+    """@brief control_errands 是请求级事务变更的读取入口：模型（嵌套的变更模型按 JSON 形状导出）与 JSON 形状都按请求顺序
+    读出每条变更，每条恰好八键、键序固定、值照写；没有变更时为空。不是控制工具、请求不是对象、缺 errands、errands 不是
+    列表、某条不是对象、某条缺一个键都是完整性故障。"""
+    body = {"items": [{"activity_name": _WAIT, "summary": "等完了。"}], "errands": _ERRANDS}
+    read = control_errands(tool, {"errands": [dict(reversed(entry.items())) for entry in _ERRANDS], "items": []})
+    assert read == tuple(_ERRANDS) and all(list(entry) == _ERRAND_KEYS for entry in read)
+    model = _ErrandRequest.model_validate(body)
+    assert control_errands(tool, model) == tuple(_ERRANDS) == control_errands(tool, model.model_dump(mode="json"))
+    builder = {"report_status": report_request, "pause_activity": pause_request, "conclude_activity": conclude_request}
+    real = builder[tool](_WAIT, errands=_ERRANDS)
+    assert control_errands(tool, real) == tuple(_ERRANDS) == control_errands(tool, real.model_dump(mode="json"))
+    assert control_errands(tool, {**body, "errands": []}) == ()
+    lacking = {key: value for key, value in _ERRANDS[2].items() if key != "reason"}
+    for wrong_tool, request, message in [
+        ("start_activity", body, "Tool is not an activity control tool: start_activity"),
+        (tool, ["不是对象"], f"{tool} request is not an object"),
+        (tool, {"items": body["items"]}, f"{tool} request lacks errands"),
+        (tool, {**body, "errands": _ERRANDS[0]}, f"{tool} request field must be a list"),
+        (tool, {**body, "errands": ["新增"]}, f"{tool} request entry is not an object"),
+        (tool, {**body, "errands": [_ERRANDS[0], lacking]}, f"{tool} request lacks reason"),
+    ]:
+        with pytest.raises(IntegrityError, match=message):
+            control_errands(wrong_tool, request)
 
 
 def _readers(engine) -> dict:

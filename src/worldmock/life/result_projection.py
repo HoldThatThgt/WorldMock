@@ -31,9 +31,10 @@ DELIVERY_ASSESSMENT_FIELDS = (
     "delivery_path", "source_supported", "contradiction", "source_excerpt", "rationale", "passed",
 )
 #: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因、改法、下一步与逐项明细由 life.guidance
-#: 生成（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），终局、名称归一与附带说明只含可读名称。
+#: 生成（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
+#: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-errands-workday.md 2.2「回执」）。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
-                        "notes")
+                        "notes", "errands")
 
 
 def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:

@@ -44,7 +44,9 @@ def observation():
     return {"agent_id": 1, "interaction_bindings": rows, "catalog_bindings": [], "locations": [],
             "person_bindings": [{"name": "人物：同事", "person_id": "agent:2"}], "message_bindings": [],
             "task_bindings": [{"task_name": "工作：会议总结", "task_id": "task:1"}], "goal_bindings": [],
-            "activity_bindings": [], "world_query_bindings": [], "world_query_page_size": 2,
+            "activity_bindings": [], "errand_bindings": [], "errand_item_bindings": [],
+            "world_query_bindings": [], "world_query_channels": [], "world_query_page_size": 2,
+            "home_location_id": "home",
             "tool_layer": {"targets": [], "callable_index": {"query_categories": []}}}
 
 
@@ -65,7 +67,8 @@ def agent_for(observation):
     agent._life_names = {"book": name_book(observation), "routing": routing_names(observation),
                          "known_persons": frozenset({"同事"}), "activity_names": (),
                          "recall_names": ("工作：会议总结",), "task_names": ("工作：会议总结",),
-                         "recipient_names": ("人物：同事",), "progressed_intents": ()}
+                         "recipient_names": ("人物：同事",), "progressed_intents": (),
+                         "errand_bindings": (), "errand_item_bindings": ()}
     agent._life_interaction_menu = SimpleNamespace(allowed_actions=tuple({value[1] for value in WAYS.values()}))
     return agent
 
@@ -121,7 +124,7 @@ def test_nonpurchase_preference_preserves_json_null():
 
 def test_strict_nested_type_positions_are_preserved():
     payload = {"items": [{"activity_name": "等待", "summary": "结束", "views": [], "memories": [
-        {"type": "invalid", "text": "记忆", "importance": "0.5", "keywords": [False]}]}]}
+        {"type": "invalid", "text": "记忆", "importance": "0.5", "keywords": [False]}]}], "errands": []}
     with pytest.raises(ValidationError) as caught:
         _validate_request(ConcludeActivityRequest, payload)
     rows = argument_feedback("conclude_activity", caught.value, ConcludeActivityRequest, payload).report.payload()["items"]
@@ -207,7 +210,8 @@ def test_read_batch_reports_every_error_with_real_call_indices(observation):
 
 def test_world_query_mixed_batches_are_atomic(observation):
     agent = agent_for(observation)
-    calls = [decision("start_activity", request()), decision("query_world", {"name": None, "way": "等待", "category": None, "offset": 0})]
+    query = {"name": None, "way": "等待", "category": None, "from": None, "available_only": False, "offset": 0}
+    calls = [decision("start_activity", request()), decision("query_world", query)]
     error = agent.validate_react_decisions(calls, False)
     assert feedback_report(error).payload()["items"][0]["path"] == ["tool_calls"]
     assert agent._life_action_count == 0
@@ -251,7 +255,7 @@ def test_old_control_records_are_rejected():
 def test_query_dispatch_has_no_world_side_effect(observation):
     agent = agent_for(observation)
     before = copy.deepcopy(observation)
-    query = {"name": None, "way": "等待", "category": None, "offset": 0}
+    query = {"name": None, "way": "等待", "category": None, "from": None, "available_only": False, "offset": 0}
     result = asyncio.run(agent.dispatch_react_tool("query_world", query))
     assert result.ok
     assert set(result.data) == {"matches", "total_count", "next_offset"}

@@ -26,9 +26,9 @@ _NOT_FOUND_FIX = "Use an exact known activity name."
 
 
 def _control(tool: str, *names: str) -> dict:
-    """控制工具的参数：一项一个对象，结束另带空的 memories 与 views。"""
+    """控制工具的参数：一项一个对象，结束另带空的 memories 与 views；请求级 errands 为空列表。"""
     extra = {"memories": [], "views": []} if tool == "conclude_activity" else {}
-    return {"items": [{"activity_name": name, "summary": "先这样。", **extra} for name in names]}
+    return {"items": [{"activity_name": name, "summary": "先这样。", **extra} for name in names], "errands": []}
 
 
 def _assert_shared_items(error, records: list[dict]) -> None:

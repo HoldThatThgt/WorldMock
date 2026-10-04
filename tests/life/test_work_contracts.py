@@ -490,7 +490,7 @@ def test_resume_plans_the_end_no_later_than_the_contract_deadline(deadline_engin
     observed = engine.observe(context(engine, "resumed-shown"))
     name = _named(work_id)(observed)[0]
     assert progress_calls(observed, "report_status")[-1]["result"]["details"] == {
-        "planned": [{"name": name, "duration": duration_phrase(due - now)}]}
+        "planned": [{"name": name, "duration": duration_phrase(due - now)}], "errands": []}
     assert duration_phrase(due - now) == "约 6 小时"
 
 
@@ -572,7 +572,8 @@ _WAKE_REASONS = (
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available", "task_due_soon",
     "work_review_result", "commitment_threatened", "reconsideration_interval", "location_hours_change",
     "person_arrived", "person_left", "activity_infeasible", "rejection_feedback", "discovery_result",
-    "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity", "plan_reminder_due")
+    "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity", "plan_reminder_due",
+    "errand_reminder_due")
 
 
 def _observe_at(engine, name: str, at: int, *, open_round: bool = False) -> tuple[object, dict]:

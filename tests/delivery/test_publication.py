@@ -50,14 +50,34 @@ def test_delivery_rejects_export_whose_final_checkpoint_has_another_world_schema
 
 
 def test_delivery_gate_is_world_schema_eight_and_rejects_version_seven_exports(tmp_path, monkeypatch):
-    """交付入口按世界结构版本 8 设门禁：版本 7 的导出在构造窗口前被拒绝（docs/dev/SPEC-persona-prompt.md 第七章）。"""
+    """交付入口按当前世界结构版本（9，docs/dev/SPEC-errands-workday.md 2.7）设门禁：版本 7 的导出在构造窗口前被拒绝
+    （docs/dev/SPEC-persona-prompt.md 第七章）。用例名沿用版本 8 时的登记（人物 Prompt 台账登记了这个节点）。"""
     def unexpected(*args): pytest.fail('A version 7 export reached window construction')
-    assert WORLD_SCHEMA_VERSION == 8
+    assert WORLD_SCHEMA_VERSION == 9
     source = tmp_path / 'source'
     _write_final_checkpoint(source, 7)
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
     with pytest.raises(IntegrityError, match='world schema version'):
         deliver(source, tmp_path / 'out', tmp_path)
+    assert not (tmp_path / 'out').exists()
+
+
+def test_delivery_gate_rejects_version_eight_exports(tmp_path, monkeypatch):
+    """世界结构版本 8（个人事务之前）的导出在构造窗口与运行 LabelKit 之前按版本拒绝，不迁移（docs/dev/SPEC-errands-workday.md
+    2.7，裁决 E7）；同形的版本 9 导出通过门禁、到达窗口构造。"""
+    def unexpected(*args): pytest.fail('A version 8 export reached window construction')
+    def reached(_directory): raise IntegrityError('windows reached')
+    old, current = tmp_path / 'old', tmp_path / 'current'
+    _write_final_checkpoint(old, 8)
+    _write_final_checkpoint(current, 9)
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
+    monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', unexpected)
+    with pytest.raises(IntegrityError, match='world schema version does not match'):
+        deliver(old, tmp_path / 'out', tmp_path)
+    assert not (tmp_path / 'out').exists()
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', reached)
+    with pytest.raises(IntegrityError, match='windows reached'):
+        deliver(current, tmp_path / 'out', tmp_path)
     assert not (tmp_path / 'out').exists()
 
 

@@ -67,7 +67,7 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
     _, paused = _observed_action(engine, "pause-wait", "pause_activity",
                                  pause_request(name, summary="先处理来信"))
     assert paused.status == "completed", paused.error_code
-    assert paused.data == {"task": [name], "activity_ids": [started.activity_id]}
+    assert paused.data == {"task": [name], "activity_ids": [started.activity_id], "errands": []}
     activity = engine.state.activities[started.activity_id]
     assert activity.status == ActivityStatus.PAUSED and activity.progress_note == "先处理来信"
     assert engine.scheduling_state().ready_agent_ids == (1,)  # 没有进行中活动，同一秒再决策

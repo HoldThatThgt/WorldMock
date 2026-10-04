@@ -674,12 +674,12 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
     import ray
     import worldmock.runtime as runtime
     from agentsociety2.config import llm_dispatcher
-    from agentsociety2.env import direct_env_actor, env_router_proxy
+    from worldmock.life import read_query_runtime
 
     monkeypatch.setattr(runtime, "_require_custom_modules", lambda root: None)
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(direct_env_actor, "get_direct_env_actor_class", lambda: ActorClass)
-    monkeypatch.setattr(env_router_proxy, "EnvRouterProxy", reject_router)
+    monkeypatch.setattr(read_query_runtime, "life_env_actor_class", lambda: ActorClass)
+    monkeypatch.setattr(read_query_runtime, "LifeEnvProxy", reject_router)
     monkeypatch.setattr(ray, "kill", lambda target, no_restart: calls.append(("kill", target, no_restart)))
     from worldmock.life.scenario import load_scenario
 
@@ -1016,14 +1016,14 @@ def _failing_plan_day_client(monkeypatch) -> None:
 def _society_config(env, identity, run_dir: Path, window: tuple[datetime, datetime], mode: str):
     """真实 AgentSociety 接真实 LifeEnv 的运行配置（同 test_life_agent_protocol 的 Society 装配，不经 Ray 与模型）。
 
-    环境路由是 AS2 的 DirectEnvActor 与它持有的 DirectRouter（生产链路去掉 Ray 代理与模块扫描）；
-    identity 带 run_id 与 agent_ids；window 为（起点, 终点）。
+    环境路由是生产装配所用的 LifeEnvActor（AS2 DirectEnvActor 的 Life 子类，带只读查询转发）与它持有的 DirectRouter
+    （生产链路去掉 Ray 代理与模块扫描）；identity 带 run_id 与 agent_ids；window 为（起点, 终点）。
     """
-    from agentsociety2.env.direct_env_actor import DirectEnvActor
     from agentsociety2.env.router_direct import DirectRouter
     from agentsociety2.society import AgentSocietyConfig
+    from worldmock.life.read_query_runtime import LifeEnvActor
 
-    actor = object.__new__(DirectEnvActor)
+    actor = object.__new__(LifeEnvActor)
     actor._router = DirectRouter(env_modules=[env], llm_clients_spec={"coder": "unused", "default": "unused"})
     actor._replay_proxy = None
     return AgentSocietyConfig(

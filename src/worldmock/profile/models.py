@@ -1,7 +1,8 @@
-"""@brief 画像编译 v2 结构合同：PersonaCard、大五与世界层动力学（docs/dev/SPEC-life-realism.md「画像编译」）。
+"""@brief 画像编译结构合同（卡片结构 3）：PersonaCard、大五与世界层动力学（docs/dev/SPEC-life-realism.md「画像编译」）。
 
 PersonaCard 从 background_story 抽取（三次一致性口径），承载身份、关系、当下
-处境、时间锚点、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 600
+处境、时间锚点（五个有序锚点与可空的下班、到家锚点，docs/dev/SPEC-errands-workday.md
+4.1）、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 600
 汉字的中文文本进入提示。大五仍抽取，但只进入 WorldDynamics（世界层动力学）：
 神经质→情绪脉冲幅度与半衰期、外向性→社交需要增长率与交谈缓解量、开放性→
 内部评分器多样性权重、宜人性→接受邀约与回复消息倾向、尽责性→内部评分器
@@ -19,10 +20,11 @@ from typing import Literal
 from pydantic import (BaseModel, ConfigDict, Field, field_validator,
                       model_validator)
 
-#: 卡片合同 schema 版本；v1（九参数动机档案）已删除，不保留兼容。
-SCHEMA_VERSION = 2
+#: 卡片合同 schema 版本：3 在时间锚点上增必填可空的下班、到家锚点；更早的结构（含 v1 九参数动机档案）一律拒绝，
+#: 不保留兼容。
+SCHEMA_VERSION = 3
 #: 卡片抽取提示版本（换提示词必须换版本号）。
-PROMPT_VERSION = "card-v2"
+PROMPT_VERSION = "card-v3"
 #: 卡片渲染汉字上限（docs/dev/SPEC-life-runtime.md「字符预算」，与 life/narration.py 同源常数；不互相 import，
 #: 两处同时钉死同一规格行）。
 PERSONA_CARD_HANZI_BUDGET = 600
@@ -137,6 +139,48 @@ class TimeWindow(_Frozen):
         return cls(start_hour=rounded_start, end_hour=rounded_end)
 
 
+def settle_work_anchors(
+        leave_home: TimeWindow, bedtime: TimeWindow, leave_work: TimeWindow | None,
+        arrive_home: TimeWindow | None) -> tuple[TimeWindow | None, TimeWindow | None, tuple[str, ...]]:
+    """@brief 下班与到家锚点按固定顺序核对（docs/dev/SPEC-errands-workday.md 4.1）：不合顺序约束或越过当日午夜的置 null。
+
+    先核 leave_work（出门起点 ≤ 下班起点 ≤ 就寝起点），再核 arrive_home（仍有效的下班起点，下班为 null 时取出门起点，
+    ≤ 到家起点 ≤ 就寝起点）；就寝取已回绕归一的窗口，与午餐、晚餐不设先后。首版不支持跨午夜的下班与到家：先后合格
+    的锚点，窗口终点还须不晚于当日 24 点（与场景窗口 0 ≤ 起点 < 终点 ≤ 24 同一口径）。卡片校验器与抽取的降级共用
+    本函数，所以「校验器接受」恰好等于「降级不改变任何值」。
+    @return (核对后的下班, 核对后的到家, 逐个被置 null 的锚点各一条英文说明，按核对顺序)
+    """
+    high = bedtime.start_hour
+    problems: list[str] = []
+    problem = _work_anchor_problem("leave_work", leave_work, ("leave_home", leave_home), high)
+    if problem is not None:
+        problems.append(problem)
+        leave_work = None
+    lower = ("leave_home", leave_home) if leave_work is None else ("leave_work", leave_work)
+    problem = _work_anchor_problem("arrive_home", arrive_home, lower, high)
+    if problem is not None:
+        problems.append(problem)
+        arrive_home = None
+    return leave_work, arrive_home, tuple(problems)
+
+
+def _work_anchor_problem(name: str, window: TimeWindow | None, lower: tuple[str, TimeWindow],
+                         high: float) -> str | None:
+    """@brief 一个下班或到家锚点的英文问题说明：起点不在下界起点与就寝起点之间，或（先后合格时）窗口终点越过当日
+    24 点；锚点为 null 或合格时为 None。
+    @param lower (下界锚点名, 下界窗口)
+    @param high 归一后的就寝起点
+    """
+    if window is None:
+        return None
+    label, bound = lower
+    if not bound.start_hour <= window.start_hour <= high:
+        return f"{name} start {window.start_hour:g} is outside {label} {bound.start_hour:g}..bedtime {high:g}"
+    if window.end_hour > 24.0:
+        return f"{name} window {window.start_hour:g}..{window.end_hour:g} runs past midnight"
+    return None
+
+
 class Identity(_Frozen):
     """@brief 身份：年龄、职业、居住方式。"""
 
@@ -170,12 +214,15 @@ class Situation(_Frozen):
 
 
 class TimeAnchors(_Frozen):
-    """@brief 时间锚点：起床、出门、午餐、晚餐、就寝窗口。
+    """@brief 时间锚点：起床、出门、午餐、晚餐、就寝五个有序窗口，另加可空的下班、到家窗口。
 
     构造时做确定性回绕归一：单调递增序列后出现的回绕小值（如 …18.5, 1.0
     的「凌晨一点才睡」）按跨午夜惯例 +24 读作次日锚点（1.0→25.0），与
     TimeWindow.from_clock_range 的跨午夜 +24 同构，归一结果落进卡片值。
     +24 后越过 30 小时地平线的是同日乱序而非回绕，仍由顺序校验拒绝。
+    leave_work、arrive_home 必填无缺省，null 表示没有固定时刻或故事未提及；两者不进回绕归一的名字元组，
+    也不进五锚点的全序校验，另由 validate_work_anchor_order 按 settle_work_anchors 的四条顺序约束与当日午夜上界
+    校验（docs/dev/SPEC-errands-workday.md 4.1）。
     """
 
     wake: TimeWindow
@@ -183,6 +230,8 @@ class TimeAnchors(_Frozen):
     lunch: TimeWindow
     dinner: TimeWindow
     bedtime: TimeWindow
+    leave_work: TimeWindow | None
+    arrive_home: TimeWindow | None
 
     @model_validator(mode="before")
     @classmethod
@@ -236,6 +285,15 @@ class TimeAnchors(_Frozen):
         starts = [window.start_hour for window in ordered]
         if starts != sorted(starts):
             raise ValueError(f"time anchors out of order: {starts}")
+        return self
+
+    @model_validator(mode="after")
+    def validate_work_anchor_order(self) -> "TimeAnchors":
+        """@brief 下班与到家的顺序约束与当日午夜上界：settle_work_anchors 报出任一条违反即拒绝（对归一后的出门与就寝
+        核对）。"""
+        problems = settle_work_anchors(self.leave_home, self.bedtime, self.leave_work, self.arrive_home)[2]
+        if problems:
+            raise ValueError("work anchors out of order: " + "; ".join(problems))
         return self
 
 
@@ -352,7 +410,7 @@ class PersonaSource(_Frozen):
 
 
 class CompiledPersona(_Frozen):
-    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v2；v1 明确拒绝）。"""
+    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v3；更早的结构明确拒绝）。"""
 
     schema_version: Literal[SCHEMA_VERSION] = SCHEMA_VERSION
     card: PersonaCard

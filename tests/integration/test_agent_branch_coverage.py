@@ -135,10 +135,14 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data.pop("person_bindings"), "person_bindings are invalid"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
     (lambda data: data.update(wake_reasons=[""]), "wake reasons are invalid"),
+    (lambda data: data.pop("errand_bindings"), "errand_bindings are invalid"),
+    (lambda data: data["errand_bindings"].append({"name": "补一份食品", "errand_id": "errand-x", "outcome": "obtain"}),
+     "errand_bindings are invalid"),
+    (lambda data: data["errand_item_bindings"].append("现有食品"), "errand_item_bindings are invalid"),
 ])
 def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
-    """缺层或层名不符、看法偏好或进度层元数据损坏、私有绑定损坏、菜单或唤醒原因损坏的观察不能转成模型请求：
-    都是损坏的宿主观察，在任何模型调用之前失败。"""
+    """缺层或层名不符、看法偏好或进度层元数据损坏、私有绑定损坏（含两类私有事务绑定缺失、缺键或不是对象）、菜单或唤醒
+    原因损坏的观察不能转成模型请求：都是损坏的宿主观察，在任何模型调用之前失败。"""
     data = copy.deepcopy(_observations()[0]["data"])
     change(data)
     with pytest.raises(RuntimeError, match=match):
@@ -206,8 +210,9 @@ def _choice(target: str, verb: str, way: str) -> dict:
 
 
 def _conclusion(*names: str) -> dict:
-    """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法）。"""
-    return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names]}
+    """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法；没有个人事务变更）。"""
+    return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names],
+            "errands": []}
 
 
 def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
@@ -240,8 +245,10 @@ def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> No
     assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
     for decision in (_decision("start_activity", _choice(_SUPPLY, "obtain", "远程下单")),
                      _decision("start_activity", _choice("商品目录", "interact", "浏览")),
-                     _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]}),
-                     _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}]}),
+                     _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
+                                                  "errands": []}),
+                     _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
+                                                 "errands": []}),
                      _decision("conclude_activity", _conclusion(_WORK, _NEWS)),
                      _decision("recall_task_summary", {"task_name": _NEWS})):
         assert person.validate_react_decisions([decision], False) == ""
@@ -256,9 +263,11 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
     assert set(REQUEST_MODELS) <= set(functions)
     assert not {"purchase", "consume", "set_activity_state", "discover_places", "finish"} & set(functions)
     assert person.validate_react_decisions([
-        _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}]})], False) == ""
+        _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}], "errands": []})],
+        False) == ""
     assert "not known" in person.validate_react_decisions([
-        _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}]})], False)
+        _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}], "errands": []})],
+        False)
     assert "NAME_NOT_FOUND: The name 陌生人 is not known." == person.validate_react_decisions([
         _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})], False)
     assert "activity-private-1" not in str(functions)
@@ -321,6 +330,19 @@ async def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state()
         await person.dispatch_react_tool("finish", {"answer": "不存在的生活决策结束工具"})
     with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch"):
         await person.dispatch_react_tool("memory_step_range", {"start_step": 0, "end_step": 1, "limit": 1})
+
+
+@pytest.mark.asyncio
+async def test_recall_dispatch_without_an_environment_fails_closed() -> None:
+    """回看由环境按冻结观察读出：人物还没有接上环境时，宿主本地校验通过的 recall_task_summary 在分派处明确失败（宿主内部
+    错误，不是人物可触发的业务情形），不虚构回看结果；回看不是世界请求，失败后本轮的世界请求名额仍在。"""
+    person = _prepared()
+    recall = {"task_name": _TASK}
+    assert person._env is None
+    assert person.validate_react_decisions([_decision("recall_task_summary", recall)], False) == ""
+    with pytest.raises(RuntimeError, match="Environment is not initialized"):
+        await person.dispatch_react_tool("recall_task_summary", recall)
+    assert person._life_action_count == 0
 
 
 def test_tool_messages_follow_memory_queries_only() -> None:

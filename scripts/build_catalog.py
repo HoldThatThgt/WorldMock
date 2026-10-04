@@ -2,8 +2,8 @@
 
 @file build_catalog.py
 @note 输入为已冻结的场景快照、食品白名单、原始食品记录及语料；不读取 scenarios/。
-      正式输出为 5 个资源、163 个对象（121 食品、30 正餐、8 耐用品、1 服务、3 合同）
-      与绑定品类契约、闭集交换规则和世界素材品类要求的 4.1 目录清单；
+      正式输出为 5 个资源、172 个对象（121 食品、30 正餐、8 耐用品、9 食材、1 服务、3 合同）
+      与绑定品类契约、闭集交换规则和世界素材品类要求的 5.3 目录清单；
       全部输出以 LF 换行写出，目录内容摘要与检出方式无关（.gitattributes 的 catalog/** eol=lf）。
       数值来源必须逐项覆盖；生成器不执行任意文本公式。
 
@@ -832,7 +832,7 @@ def expansion_context(entry: dict, raw: dict, checksum: str, wave: int) -> dict:
 
 
 def build_objects(data: dict) -> list[dict]:
-    """@brief 从冻结语料直接生成 163 条原生对象增量。"""
+    """@brief 从冻结语料直接生成全部原生对象增量，并叠加有来源的构建价格范围。"""
     frozen = [
         frozen_food_object(item, data["raw100"][item["product_id"].removeprefix("food-")],
                            data["off_sha"], data["bounds"])
@@ -899,7 +899,7 @@ def ingredient_objects() -> list[dict]:
 
 
 def manifest_base() -> dict:
-    """@brief 构造不含内容摘要的 4.1 清单声明。"""
+    """@brief 构造不含内容摘要的清单声明：目录版本与世界素材品类要求。"""
     return {
         "version_major": 5,
         "version_minor": 3,
@@ -987,7 +987,7 @@ def build() -> dict[str, str]:
     expected_objects = 45 + len(object_data["entries2"]) + len(object_data["meals"]) + len(ingredient_objects())
     assert len(objects) == expected_objects, (
         f"expected {expected_objects} objects (16+25+{len(object_data['entries2'])}"
-        f"+{len(object_data['meals'])} meals+1+3), got {len(objects)}")
+        f"+{len(object_data['meals'])} meals+{len(ingredient_objects())} ingredients+1+3), got {len(objects)}")
     for entry in resources:
         assert_full_coverage(entry["resource_id"], entry)
     for entry in objects:

@@ -23,7 +23,7 @@ from worldmock.life.semantics import load_runtime_scenario
 
 def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_factory) -> None:
     """运行开始在家：observed_at 为观察时刻，body 五项按固定顺序取观察的体感分级文字（没有数值），location 为停留、
-    地点名、场所类型「家」，菜单全开时 fixed_rules 为 []。"""
+    地点名、场所类型「家」，菜单全开时 fixed_rules 为 []；仓库场景的人物没有工作安排，duty 为 null。"""
     engine = engine_factory()
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "stay"))
@@ -34,7 +34,8 @@ def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_f
     assert layer == {"layer": "环境层", "observed_at": iso_time(engine.state.current_time, engine.scenario.timezone),
                      "body": {key: levels[key] for key in ("appetite", "sleepiness", "entertainment", "social",
                                                            "mood")},
-                     "location": {"session_kind": "stay", "name": home, "place_type": "家", "fixed_rules": []}}
+                     "location": {"session_kind": "stay", "name": home, "place_type": "家", "fixed_rules": []},
+                     "duty": None}
     assert list(layer["body"]) == ["appetite", "sleepiness", "entertainment", "social", "mood"]
     assert all(isinstance(value, str) for value in layer["body"].values())
 

@@ -326,7 +326,8 @@ def _next_opportunity(engine, offset: int = 60) -> None:
 
 def _control(activity_id: str, model, summary: str):
     """@brief 按本轮可见活动名点名一项活动的播报或暂停请求。"""
-    return lambda observed: model(items=[{"activity_name": _named(observed, activity_id), "summary": summary}])
+    return lambda observed: model(items=[{"activity_name": _named(observed, activity_id), "summary": summary}],
+                                  errands=[])
 
 
 def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:

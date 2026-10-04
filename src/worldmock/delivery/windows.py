@@ -75,7 +75,11 @@ def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) 
 
 
 def _decision_prompt_source(action: dict, rows: list[dict]) -> dict:
-    """@brief 选择动作前实际发送的最后一份人物行动请求，并核对目标工具。"""
+    """@brief 选取决策提示：取该动作之前最后一份不带 purpose 的请求，并核对其工具含该动作的工具名。
+
+    不满足是完整性故障，不回退到更早的请求。截断重试的请求照此被选中；就寝反思的请求晚于动作登记，事件序号在动作
+    之后，不会被选中（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。
+    """
     candidates = [row for row in rows if row["event_type"] == "model_request"
                   and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]
                   and row["data"].get("phase") == "request" and not row["data"].get("purpose")]
@@ -116,7 +120,8 @@ def _decision_groups(events: list[dict]) -> dict[str, list[dict]]:
 def _attach_decision_layers(record: dict, rows: list[dict], decisions: dict) -> None:
     """@brief dreaming 读实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
 
-    窗口内每个动作请求取同人物、同决策、动作前最后一次实际行动请求（与动作窗口同一 prompt 权威），把其首个 user
+    窗口内每个动作请求取同人物、同决策、动作之前最后一份不带 purpose 且工具含该动作工具名的请求（与动作窗口同一
+    prompt 权威与选取规则 _decision_prompt_source：截断重试照此被选中，就寝反思请求不会被选中），把其首个 user
     的六层 JSON 连同所属动作请求写入输入；请求事件身份与层 JSON 的 canonical 摘要写入来源。须在 _attach_evidence 之前调用。
     """
     layers, sources = [], []
@@ -210,10 +215,12 @@ def _visible_event(event: dict, directory: Path) -> dict:
 def _public_event_data(event: dict) -> dict:
     """@brief 证据行仅提供人物可见语义，私有状态保留在认证导出。
 
-    观察只提供原样保存的工具层、待办层、环境层与记忆层，不重新渲染；动作请求带人物回复正文 self_note。
+    观察只提供原样保存的工具层、待办层（含个人事务行）、环境层与记忆层，不重新渲染；动作请求带人物回复正文 self_note。
     结束活动写下的记忆与看法属于记忆写入：意图与 dreaming 窗口输入中三个控制工具的请求经 control_items 读出后
-    按现行形状只留每项的 activity_name 与 summary（items[].memories 与 items[].views 裁去，旧形状同样只留这两项）；
-    动作窗口的目标仍保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章，docs/dev/SPEC-dayrun-fidelity.md 第六章）。
+    按现行形状只留每项的 activity_name 与 summary（items[].memories 与 items[].views 裁去），请求级 errands 恒不带出；
+    缺 errands 的旧形状记录经 control_items 以完整性故障拒绝。投影写进新字典，不原地修改原事件，动作窗口的目标仍是
+    同一事件、保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章，docs/dev/SPEC-dayrun-fidelity.md 第六章，
+    docs/dev/SPEC-errands-workday.md 2.9）。其余事件（含个人事务的六种 environment_event）的公开投影为空对象。
     """
     data = event["data"]
     kind = event["event_type"]

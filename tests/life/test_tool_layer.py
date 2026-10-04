@@ -78,9 +78,10 @@ def _arguments(tool: str, name: str, item: dict, recipient: str | None) -> dict:
         routing = {"to": [recipient]} if item["way"] == "给予" else {}
         return start_arguments([name], [item["action"]], [item["way"]], **routing)
     if tool in {"report_status", "pause_activity"}:
-        return {"items": [{"activity_name": name, "summary": "继续。" if tool == "report_status" else "先停一下。"}]}
+        return {"items": [{"activity_name": name, "summary": "继续。" if tool == "report_status" else "先停一下。"}],
+                "errands": []}
     if tool == "conclude_activity":
-        return {"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}]}
+        return {"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}], "errands": []}
     if tool == "submit_work":
         return {"task_name": name, "deliverable": _paraphrased_submission().deliverable.model_dump(mode="json")}
     return {"recipient_name": name, "text": "你好"}

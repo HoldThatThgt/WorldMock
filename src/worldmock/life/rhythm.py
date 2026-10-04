@@ -6,6 +6,8 @@
 （schedule.next_decision_time）。静默边界在 activity_progress.data 留
 decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际命中的全部
 唤醒原因。滞回参照=上次实际提供决策时的分级（docs/dev/SPEC-life-runtime.md「滞回规则」）。
+个人事务的提醒时刻只对清醒人物进入下一决策候选；判定为清醒人物提供决策的边界交付其全部到点的事务提醒
+（docs/dev/SPEC-errands-workday.md 2.5）；未完成事务不计入在手承诺（裁决 E6）。
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD, validate_decision_rhythm
+from worldmock.life import errands
 from worldmock.life import felt
 from worldmock.life import reminders
 from worldmock.life import schedule as rhythm_schedule
@@ -187,6 +190,7 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
         next_progress_report_at=_next_progress_report_at(
             agent, state, inputs.progress_report_interval_seconds),
         plan_reminder_times=reminders.reminder_times(agent, state.current_time),
+        errand_reminder_times=errands.reminder_times(agent, state.current_time),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     ))
 
@@ -465,6 +469,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
         progress_report_due=_progress_report_due(agent, state, inputs.progress_report_interval_seconds),
         no_active_activity=not activities,
         plan_reminder_due=reminders.reminder_due(agent, now),
+        errand_reminder_due=bool(errands.reminders_due(agent, now)),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 
@@ -645,12 +650,13 @@ def settle_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldStat
 
 
 def decide_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldState":
-    """@brief 引擎侧判定段：唤醒判定与共同身体结算草稿的唤醒字段，并让被唤醒的活动对齐决策边界。"""
+    """@brief 引擎侧判定段：唤醒判定与共同身体结算草稿的唤醒字段，交付到点的个人事务提醒，并让被唤醒的活动对齐决策边界。"""
     from worldmock.life.activities import schedule_feedback
     from worldmock.life.engine import _put_activity
 
     staged, rhythms = decide_decision_rhythm(engine_rhythm_inputs(
         engine, staged, boundary.interval, boundary.arrivals, _boundary_progress_data(boundary)))
+    staged = _deliver_errand_reminders(staged, rhythms, boundary)
     for agent_id in rhythms:
         agent = staged.agents[agent_id]
         for activity in active_activities(staged, agent_id):
@@ -659,4 +665,17 @@ def decide_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldStat
                     continue
                 staged = _put_activity(staged, agent, schedule_feedback(
                     activity, boundary.target, engine.scenario.activity_feedback_seconds))
+    return staged
+
+
+def _deliver_errand_reminders(staged: WorldState, rhythms: dict[int, AgentRhythm],
+                              boundary: RhythmBoundary) -> WorldState:
+    """@brief 交付本边界的个人事务提醒（docs/dev/SPEC-errands-workday.md 2.5「调度口径」）：由唤醒判定决定，不看时钟——
+    判定结果含 errand_reminder_due 的人物（清醒且有已到点未提醒的事务，本边界为他提供了决策机会，含刚醒来的边界）把
+    全部到点的事务一并交付，提醒事件草稿追加到本边界的草稿（平常边界随 advance 提交，零点边界随零点节律入口提交）；
+    睡眠中的人物判定被过滤，不交付也不消耗，留到醒来的边界。"""
+    for agent_id, verdict in rhythms.items():
+        if rhythm_schedule.WakeReason.ERRAND_REMINDER_DUE.value in verdict.wake_reasons:
+            staged, drafts = errands.deliver_reminders(staged, agent_id)
+            boundary.drafts.extend(drafts)
     return staged

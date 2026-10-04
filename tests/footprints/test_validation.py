@@ -260,7 +260,7 @@ def test_profile_cli_compile_outputs_card_and_rendered_text(tmp_path, monkeypatc
 
     assert code == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
     assert result["card"]["identity"]["occupation"] == "产品经理"
     assert result["persona_card_text"].startswith("产品经理，32岁")
     assert "big_five" in result and "world_dynamics" in result and "source" in result

@@ -51,7 +51,8 @@ def test_memory_update_rejects_omitted_observed_source(engine_factory, wrong_obs
 def _requested(decision_id: str, tool_name: str = "conclude_activity", memories: tuple = (_MEMORY,)):
     """@brief 本人已持久化的 action_requested 事件（只含写入点推导读取的字段）。"""
     request = ({"items": [
-        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}]}
+        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}],
+                "errands": []}
                if tool_name == "conclude_activity" else start_arguments(["自己"], ["interact"], ["等待"]))
     return SimpleNamespace(decision_id=decision_id, data={"tool_name": tool_name, "request": request})
 
@@ -77,9 +78,9 @@ _NAME = "等待（1月5日 00:00 起）"
 
 
 @pytest.mark.parametrize("request_body,expected", [
-    ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": [_VIEW]}]},
+    ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": [_VIEW]}], "errands": []},
      ["activity_conclusion"]),
-    ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": []}]}, []),
+    ({"items": [{"activity_name": _NAME, "summary": "等完了。", "memories": [], "views": []}], "errands": []}, []),
 ], ids=["views-only", "nothing"])
 def test_write_points_read_current_control_items(request_body: dict, expected: list[str]) -> None:
     """收尾写入点只读取当前逐项请求；只写看法的收尾同样是写入点。"""

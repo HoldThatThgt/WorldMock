@@ -4,7 +4,13 @@
 回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收、结束的活动），二者都取
 settled_text 的共享句式（docs/dev/SPEC-persona-prompt.md 第三章「settled 的写法」）、
 回顾时段里已受理的 conclude_activity 请求记下的 summary 与记忆（经 control_items 读出，含看法与偏好；标「你自己记下的，
-未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。
+未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：可见任务、还没办完的个人事务、收件箱、在途订单及预计送达、
+联系人、上一天目标的推进情况。
+「个人事务」是只读键（docs/dev/SPEC-errands-workday.md 2.8）：行与待办层同一构造（errands.plan_rows），写名称、要办成
+什么、已办到哪、备注与提醒时刻，不登记来源事件；零点计划不创建、不更改、不终结事务，「待办任务」仍只是工作任务。
+「上班安排」是场景声明的工作安排按输入「计划日期」所指的本地日求值的结果（docs/dev/SPEC-errands-workday.md 4.6；
+零点边界上即新开始的一日）：与环境层 duty 同源（work_schedule.day_arrangement），不含 status，地点写显示名，
+没有工作安排为 null。
 不读身体数值、交互对象、私有绑定、未到期的预排事件与人物的主观记忆库，也不含内部身份。
 
 回顾时段自 day_start 至 now：零点边界上是刚结束的本地日（前一日零点至本次零点），启动路径上是生成时刻所在
@@ -15,12 +21,12 @@ day_start 那一刻结束的区间属于前一日，本次零点结束的末段�
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.footprints.experiences import project_verified_experiences
-from worldmock.life import progress_layer, projection
+from worldmock.life import errands, progress_layer, projection, work_schedule
 from worldmock.life.control_items import control_items
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, experience_sentence,
@@ -80,9 +86,11 @@ def plan_inputs(engine: Any, agent_id: int) -> PlanInputs:
         "生成时刻": f"{window.when(state.current_time)}（{_WEEKDAYS[local.weekday()]}）",
         "回顾时段": f"{window.when(window.start)} 至 {window.when(window.end)}",
         "人物": _persona(engine, agent_id),
+        "上班安排": _duty_arrangement(engine, agent_id),
         "动作结果": results,
         "收尾记录": conclusions,
         "待办任务": _task_rows(engine, agent, window),
+        "个人事务": errands.plan_rows(agent, _product_names(engine), zone),
         "收件箱": _inbox_rows(engine, agent, window),
         "在途订单": _pending_orders(engine, agent_id, window),
         "联系人": [{"称呼": row["salutation"], "关系": row["relation"]}
@@ -102,10 +110,12 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Wi
 
 
 def _persona(engine: Any, agent_id: int) -> dict[str, Any]:
-    """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）。"""
+    """@brief 场景声明的人物档案与背景原文（不读工作区里编译过的卡片）：下班、到家时段只取场景字段、未声明省略，只来自
+    卡片的下班与到家时刻不进这里（docs/dev/SPEC-errands-workday.md 4.2）。"""
     config = next(item for item in engine.scenario.agents if item.agent_id == agent_id)
     fields = {"名字": config.name, "背景": config.background_story, "健康习惯": config.health_habits,
               "社交风格": config.social_style, "午饭时段": _hours(config.lunch_window),
+              "下班时段": _hours(config.leave_work_window), "到家时段": _hours(config.arrive_home_window),
               "晚饭时段": _hours(config.dinner_window), "就寝时段": _hours(config.bedtime_window)}
     return {key: value for key, value in fields.items() if value is not None}
 
@@ -119,6 +129,14 @@ def _hours(window: tuple[float, float] | None) -> str | None:
         minutes = round(value * 60) % (24 * 60)
         parts.append(f"{minutes // 60:02d}:{minutes % 60:02d}")
     return "–".join(parts)
+
+
+def _duty_arrangement(engine: Any, agent_id: int) -> dict[str, Any] | None:
+    """@brief 计划日期当天的上班安排（与环境层 duty 同源，不含 status）；没有工作安排为 None。"""
+    config = next(item for item in engine.scenario.agents if item.agent_id == agent_id)
+    day = date.fromisoformat(plan_date(engine.state.current_time, engine.scenario.timezone))
+    places = {item.location_id: item.name for item in engine.scenario.locations}
+    return work_schedule.day_arrangement(config.work_schedule, day, places)
 
 
 def _experience_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[tuple[str, str], ...]:
@@ -192,6 +210,11 @@ def _task_rows(engine: Any, agent: Any, window: _Window) -> list[dict[str, Any]]
     return [{"任务": row["title"], "截止": window.when(row["due_at"]),
              "地点": _place(engine, row["required_location_id"]) if row.get("required_location_id") else None}
             for row in engine._visible_task_rows(agent)]
+
+
+def _product_names(engine: Any) -> dict[str, str]:
+    """@brief 冻结目录里可持有对象的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
+    return {product_id: item.name for product_id, item in engine.rules.items.items()}
 
 
 def _inbox_rows(engine: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:

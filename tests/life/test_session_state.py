@@ -100,8 +100,9 @@ def _ended_activity(status: str, **overrides) -> dict:
 
 
 def test_world_schema_version_is_8():
-    """WORLD_SCHEMA_VERSION 必须为 8（docs/dev/SPEC-persona-prompt.md 第七章「版本」：世界结构版本 8，只升一次）。"""
-    assert WORLD_SCHEMA_VERSION == 8
+    """WORLD_SCHEMA_VERSION 当前为 9（docs/dev/SPEC-errands-workday.md 2.7：新增个人事务的人物状态，世界结构由 8 升为 9，
+    只升一次）。用例名沿用版本 8 时的登记（时间与能量台账登记了这个节点），断言随结构版本更新。"""
+    assert WORLD_SCHEMA_VERSION == 9
 
 
 def test_session_opened_by_action_id_is_optional_and_nonblank():
@@ -405,14 +406,14 @@ def test_concluded_at_before_ended_at_is_rejected():
 
 
 # ---------------------------------------------------------------------------
-# WorldState.sessions 字段与 schema_version=8
+# WorldState.sessions 字段与 schema_version=9
 # ---------------------------------------------------------------------------
 
 
 def _minimal_world_state_dict(**overrides) -> dict:
     """构造最小合法 WorldState 字典（无代理、无库存）。"""
     base: dict = {
-        "schema_version": 8,
+        "schema_version": 9,
         "version": 0,
         "current_time": 1000,
         "end_time": 2000,
@@ -432,14 +433,16 @@ def _minimal_world_state_dict(**overrides) -> dict:
     return base
 
 
-def test_world_state_schema_version_8_is_valid():
-    """schema_version=8 的 WorldState 通过验证。"""
+def test_world_state_schema_version_9_is_valid():
+    """schema_version=9 的 WorldState 通过验证。"""
     ws = WorldState.model_validate(_minimal_world_state_dict())
-    assert ws.schema_version == 8
+    assert ws.schema_version == 9
 
 
 #: 人物提示七层之前的世界结构版本；其检查点必须以版本不符拒绝。
 _VERSION_7_WORLD_SCHEMA = 7
+#: 个人事务之前的世界结构版本（docs/dev/SPEC-errands-workday.md 2.7）；其检查点与导出必须以版本不符拒绝，不迁移。
+_VERSION_8_WORLD_SCHEMA = 8
 
 
 def _assert_only_schema_version_mismatch(error: ValidationError) -> None:
@@ -464,6 +467,34 @@ def test_run_with_version_7_world_state_is_rejected_on_open(engine_factory):
     engine.store.commit(payload, [EventDraft(
         event_type="environment_event", occurred_at=payload["current_time"],
         visibility="system", data={"kind": "test_version_7_world_state"})])
+    run_dir = engine.store.run_dir
+    engine.close()
+    with pytest.raises(ValidationError, match="schema_version") as caught:
+        LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    _assert_only_schema_version_mismatch(caught.value)
+
+
+def test_world_state_schema_version_8_is_rejected():
+    """版本 8 的旧世界状态（个人事务之前）以版本不符直接拒绝，不迁移不降级（docs/dev/SPEC-errands-workday.md 2.7，
+    裁决 E7）；同一份状态写成版本 9 即可通过，唯一的错误就是版本。"""
+    with pytest.raises(ValidationError) as caught:
+        WorldState.model_validate(_minimal_world_state_dict(schema_version=_VERSION_8_WORLD_SCHEMA))
+    _assert_only_schema_version_mismatch(caught.value)
+    assert WorldState.model_validate(_minimal_world_state_dict()).schema_version == WORLD_SCHEMA_VERSION
+
+
+def test_run_with_version_8_world_state_is_rejected_on_open(engine_factory):
+    """已落盘的版本 8 世界状态（人物状态里没有 errands 键，与版本 8 写出的检查点同形）在重新打开运行时以版本不符拒绝，
+    不迁移、不补字段（docs/dev/SPEC-errands-workday.md 2.7）。"""
+    engine = engine_factory()
+    payload = engine.state.model_dump(mode="json")
+    payload["schema_version"] = _VERSION_8_WORLD_SCHEMA
+    payload["version"] += 1
+    for agent in payload["agents"].values():
+        assert agent.pop("errands") == {}
+    engine.store.commit(payload, [EventDraft(
+        event_type="environment_event", occurred_at=payload["current_time"],
+        visibility="system", data={"kind": "test_version_8_world_state"})])
     run_dir = engine.store.run_dir
     engine.close()
     with pytest.raises(ValidationError, match="schema_version") as caught:

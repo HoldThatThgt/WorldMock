@@ -851,10 +851,17 @@ def _exchange(request: dict, phase: str = "request") -> SimpleNamespace:
     {**_ACTION_REQUEST, "extra_body": None},
     {key: value for key, value in _ACTION_REQUEST.items() if key != "tools"},
     {**_ACTION_REQUEST, "tools": [{"type": "function", "function": {"name": "finish"}}, "broken"]},
+    {"tools": [{"type": "function", "function": {"name": "submit_reflection"}}], "tool_choice": "required",
+     "extra_body": {"thinking": {"type": "disabled"}}},
+    {"tools": [{"type": "function", "function": {"name": "submit_reflection"}}], "tool_choice": "required",
+     "extra_body": {"thinking": {"type": "enabled"}}},
     None,
 ])
 def test_only_action_requests_satisfy_the_predicate(request_shape) -> None:
-    """带 purpose、思考关闭、没有 start_activity 的请求（零点计划、工作验收、只读问答、记忆巩固）都不是行动请求。"""
+    """带 purpose、思考关闭、没有 start_activity 的请求（零点计划、工作验收、只读问答、记忆巩固、就寝反思）都不是行动请求。
+
+    就寝反思的请求不带 purpose、带工具，但工具唯一为 submit_reflection（docs/dev/SPEC-errands-workday.md 1.1）：无论思考
+    开关怎样，都按工具中没有 start_activity 判为不是行动请求，不产生 decision_started。"""
     assert is_action_request(_ACTION_REQUEST) is True
     assert is_action_request({**_ACTION_REQUEST, "purpose": None}) is True
     assert is_action_request(request_shape) is False

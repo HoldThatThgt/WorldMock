@@ -38,7 +38,8 @@ def _memory(text="我以为自己已经吃过一顿饭。"):
 def _conclusion(*memories):
     """结束一项活动的 conclude_activity 请求（一项一个对象）；没有记忆与看法表示这次不写记忆。"""
     return {"items": [
-        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}]}
+        {"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。", "memories": list(memories), "views": []}],
+        "errands": []}
 
 
 def _tool_response(call_id, usage=None):
@@ -321,8 +322,10 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
     view = {"type": "relationship", "about": "王磊", "text": "王磊人不错。", "importance": 0.5, "keywords": ["同事"]}
     name = "等待（1月5日 00:00 起）"
     requests = {
-        "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}]},
-        "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}]},
+        "views_only": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": [view]}],
+                       "errands": []},
+        "nothing": {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": []}],
+                    "errands": []},
         "with_memory": _conclusion(_memory()),
     }
     events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
@@ -341,6 +344,42 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
         *({"code": "conclusion_without_memory_update", "event_id": f"event-{index + 1}", "agent_id": 1}
           for index, label in enumerate(requests) if label in {"views_only", "with_memory"}),
     ]
+
+
+def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
+    """个人事务变更不是记忆写入点（docs/dev/SPEC-errands-workday.md 2.2、3.4 第 2 项）：只记下一条事务、没有 memories 与
+    views 的收尾不要求同一决策写出收尾记忆，不报 conclusion_without_memory_update；同样带着这条事务变更、另写了一条记忆的
+    收尾照常要求，只有它被报出。"""
+    added = {"change": "新增", "name": "买牛奶", "outcome": "取得", "item": "纯牛奶", "quantity": 1, "memo": None,
+             "remind_time": None, "reason": None}
+    requests = {"errands_only": {**_conclusion(), "errands": [added]},
+                "errands_and_memory": {**_conclusion(_memory()), "errands": [added]}}
+    events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
+                     data={"tool_name": "conclude_activity", "request": request})
+              for index, (label, request) in enumerate(requests.items())]
+    events.append(_event(len(events) + 1, "run_ended", occurred_at=200))
+
+    memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
+
+    assert memory["problems"] == [{"code": "conclusion_without_memory_update", "event_id": "event-2", "agent_id": 1}]
+
+
+def test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault():
+    """质量报告经 control_items 读每一条 conclude_activity 请求（docs/dev/SPEC-errands-workday.md 2.9、2.3）：带 items 而缺
+    请求级 errands 的旧形状记录是完整性故障，重放（reused）的请求也不例外——收尾记忆的计数不读重放的请求，拒绝它的是记忆
+    核对这一处读取。同一条重放请求带着 errands（空列表）时报告照常生成、没有记忆问题。引擎只在原请求之后才写重放，这样
+    单独一条重放只能以已认证事件的形状构造。"""
+    def report(request: dict) -> dict:
+        """只有这一条重放的收尾请求与运行终点的事件集的质量报告。"""
+        events = [_event(1, "action_requested", agent_id=1, decision_id="decision", action_id="action",
+                         data={"tool_name": "conclude_activity", "reused": True, "request": request}),
+                  _event(2, "run_ended", occurred_at=200)]
+        return build_quality_report(events, [], _manifest(end=200))
+
+    current = _conclusion()
+    assert report(current)["memory_references"]["problem_count"] == 0
+    with pytest.raises(IntegrityError, match="conclude_activity request lacks errands"):
+        report({"items": current["items"]})
 
 
 def test_non_memory_tool_json_error_is_counted_without_memory_warning():
@@ -481,7 +520,8 @@ def test_progress_sources_must_be_this_persons_prior_events(source, valid):
 
 
 def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
-    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 3（一日运行保真的新节）。"""
+    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 4（版本 3 是一日运行保真的
+    新节，版本 4 是个人事务与工作安排规格的两个新节）。"""
     events = [
         _event(1, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
@@ -501,7 +541,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
     assert rhythm["decision_budget_exhausted_events"] == 1
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -517,18 +557,26 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
-    """报告的分组恰是记录引擎设计「质量报告」登记的十六组（docs/design/05-recording-engine.md），另有版本与运行身份；
-    其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里计数
-    （docs/dev/SPEC-dayrun-fidelity.md 2.4），新增的五节是输入警告、时间线标签、联系人回复守卫、名称类拒绝与截断。"""
+    """报告的分组恰是记录引擎设计「质量报告」登记的十八组（docs/design/05-recording-engine.md），顺序相同，另有版本与
+    运行身份；报告结构为 4，登记的版本句也写 4：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
+    在报告与登记句里都紧随 day_plan_metrics（docs/dev/SPEC-errands-workday.md 6.1），没有任何事务事件与收尾记忆时两组
+    都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
+    计数（docs/dev/SPEC-dayrun-fidelity.md 2.4），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
+    拒绝与截断。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200))
     design = Path(__file__).resolve().parents[2] / "docs" / "design" / "05-recording-engine.md"
-    grouping = design.read_text(encoding="utf-8").split("当前报告按 ", 1)[1].split(" 分组", 1)[0]
+    text = design.read_text(encoding="utf-8")
+    grouping = text.split("当前报告按 ", 1)[1].split(" 分组", 1)[0]
     documented = [name.strip().strip("`") for name in grouping.replace("\n", "").split("、")]
-    assert len(documented) == len(set(documented)) == 16
+    assert len(documented) == len(set(documented)) == 18
     assert documented[-5:] == ["input_warnings", "timeline_labels", "contact_reply_guard", "name_rejections",
                                "truncations"]
+    plan = documented.index("day_plan_metrics")
+    assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
+    assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4 and "报告 `schema_version` 为 4（" in text
+    assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
 
@@ -566,6 +614,29 @@ def test_decision_rhythm_counts_same_moment_rounds():
     rhythm = build_quality_report(foreign, [], _manifest())["decision_rhythm"]
     assert rhythm["same_moment_round_counts"] == {"1": 3, "3": 1}
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {"mystery": 1}
+
+
+def test_errand_reminder_due_is_a_known_wake_reason():
+    """个人事务提醒的唤醒原因 errand_reminder_due（docs/dev/SPEC-errands-workday.md 2.5）由质量报告按同一份足迹词表
+    分桶：共同身体结算与 decision_started 里的它都计入已知原因，与同刻到期的当日目标提醒各计一次，未识别的原因为空。"""
+    reasons = ["plan_reminder_due", "errand_reminder_due"]
+    events = [
+        _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+                                                         WAKE_REASONS_FIELD: reasons}),
+        _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started(reasons)),
+        _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+                                                         WAKE_REASONS_FIELD: ["errand_reminder_due"]}),
+        _event(4, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["errand_reminder_due"])),
+        _event(5, "run_ended", occurred_at=1100),
+    ]
+
+    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+
+    assert rhythm["wake_reason_counts"] == {"errand_reminder_due": 2, "plan_reminder_due": 1}
+    assert rhythm["decision_started_wake_reason_counts"] == {"errand_reminder_due": 2, "plan_reminder_due": 1}
+    assert rhythm["unrecognized_wake_reason_counts"] == {}
+    assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
+    assert rhythm["offered_boundaries"] == 2
 
 
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():

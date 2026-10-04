@@ -604,7 +604,7 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
 
     import worldmock.runtime as runtime
     from agentsociety2.config import llm_dispatcher
-    from agentsociety2.env import direct_env_actor
+    from worldmock.life import read_query_runtime
     from worldmock.life.scenario import load_scenario
 
     scenario, _ = load_scenario(SCENARIO)
@@ -612,7 +612,7 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
     monkeypatch.setattr(
-        direct_env_actor, "get_direct_env_actor_class",
+        read_query_runtime, "life_env_actor_class",
         lambda: Namespace(remote=lambda spec: (captured.__setitem__("spec", spec), "actor")[1]))
     from tests.profile.conftest import make_card
     from worldmock.profile.models import Tastes
@@ -1421,7 +1421,7 @@ def test_cli_profile_compile_writes_output_file(tmp_path, monkeypatch, capsys):
     assert cli.main(["profile", "compile", "--text", str(story), "--out", str(out)]) == 0
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["written"] == str(out) and receipt["warnings"] == []
-    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 2
+    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 3
 
 
 # ---------------------------------------------------------------------------

@@ -6,13 +6,15 @@ import logging
 import re
 from datetime import date
 from enum import StrEnum
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
 
 from pydantic import (ValidationError, BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
                       field_validator, model_validator)
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.life.errand_state import (ERRAND_NAME_MAX_CHARS, ERRAND_QUANTITY_MAX, ERRAND_QUANTITY_MIN,
+                                         ERRAND_TEXT_MAX_CHARS, MAX_ERRAND_CHANGES, ErrandState)
 from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 from worldmock.life.social import Message
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
@@ -20,11 +22,12 @@ from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
-#: 世界状态结构版本：版本不符的检查点直接拒绝；版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions；
-#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；版本 8
-#: （docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与 ActivityState.paused_at，
-#: 观察改为七层数据，其后新增字段都并入 8。
-WORLD_SCHEMA_VERSION = 8
+#: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移；版本 6 引入三级结构（Task→Session→Activity）与
+#: WorldState.sessions；版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；
+#: 版本 8（docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与
+#: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-errands-workday.md 2.7）新增只存未完成个人事务的
+#: AgentState.errands。
+WORLD_SCHEMA_VERSION = 9
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -379,6 +382,9 @@ class AgentState(StrictModel):
     # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
     plan_submitted_dates: set[str] = Field(default_factory=set)
+    # 未完成的个人事务（docs/dev/SPEC-errands-workday.md 2.1「存放」）：键为事务身份；完成或取消即移出，终态只在事件里；
+    # 不放进 DayPlan，零点置空与修订整表替换都不波及它。
+    errands: dict[str, ErrandState] = Field(default_factory=dict)
     # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
     inbox: dict[str, Message] = Field(default_factory=dict)
     read_inbox_ids: set[str] = Field(default_factory=set)
@@ -927,6 +933,35 @@ class PlanGoalInput(FrozenModel):
         return goal
 
 
+def _validate_plan_goals(goals: Sequence[PlanGoalInput], model_name: str) -> None:
+    """@brief 零点计划与修订两个入口共用的清单校验：条数超限与重复意图在同一次校验里一并报告。
+
+    条数超过八条定位在 goals 本身（原值为提交的各条目）；每个重复的意图同时定位首次出现与其后每次出现的条目
+    （goals[i].intent_kind，原值为该意图），按下标升序。不因超限提前返回（docs/dev/SPEC-errands-workday.md 1.3）。
+
+    :param goals: 已逐条通过条目校验的目标清单。
+    :param model_name: 发起校验的请求模型名，作为校验错误的标题。
+    """
+    errors: list[Any] = []
+    if len(goals) > MAX_PLAN_GOALS:
+        _LOGGER.error("Day plan exceeds eight goals")
+        errors.append({"type": "value_error", "loc": (), "input": [goal.model_dump(mode="json") for goal in goals],
+                       "ctx": {"error": ValueError("day goals require at most eight entries")}})
+    positions: dict[str, list[int]] = {}
+    for index, goal in enumerate(goals):
+        positions.setdefault(goal.intent_kind, []).append(index)
+    repeated = sorted((index, kind) for kind, indexes in positions.items() if len(indexes) > 1 for index in indexes)
+    for index, kind in repeated:
+        message = (f"intent_kind '{kind}' may occur only once; keep one goal for this intent "
+                   "and merge these entries into it")
+        errors.append({"type": "value_error", "loc": (index, "intent_kind"), "input": kind,
+                       "ctx": {"error": ValueError(message)}})
+    if repeated:
+        _LOGGER.error("Day plan contains duplicate intents")
+    if errors:
+        raise ValidationError.from_exception_data(model_name, errors)
+
+
 class PlanDayRequest(FrozenModel):
     """@brief 当日有序目标清单：零到八条，同一意图最多一条；零点计划的输出与修订请求共用这一形状。"""
 
@@ -941,11 +976,8 @@ class PlanDayRequest(FrozenModel):
     @field_validator("goals")
     @classmethod
     def validate_goals(cls, goals: tuple[PlanGoalInput, ...]) -> tuple[PlanGoalInput, ...]:
-        """@brief 请求入口核验容量与意图唯一性。"""
-        kinds = [goal.intent_kind for goal in goals]
-        if len(goals) > MAX_PLAN_GOALS or len(kinds) != len(set(kinds)):
-            _LOGGER.error("Day goals exceed capacity or contain duplicate intents")
-            raise ValueError("day goals must contain at most eight unique intents")
+        """@brief 零点计划的输出经共用校验核验容量与意图唯一性，超限与重复意图逐条定位、同批报告。"""
+        _validate_plan_goals(goals, cls.__name__)
         return goals
 
 
@@ -958,22 +990,8 @@ class ReviseDayPlanRequest(ToolRequestModel):
     @field_validator("goals")
     @classmethod
     def validate_goals(cls, goals: list[PlanGoalInput]) -> list[PlanGoalInput]:
-        """@brief 批内重复意图返回每个具体嵌套位置。"""
-        from pydantic import ValidationError
-
-        errors, seen = [], set()
-        if len(goals) > MAX_PLAN_GOALS:
-            _LOGGER.error("Revised day plan exceeds eight goals")
-            raise ValueError("goals requires at most eight entries")
-        for index, goal in enumerate(goals):
-            if goal.intent_kind in seen:
-                errors.append({"type": "value_error", "loc": (index, "intent_kind"),
-                               "input": goal.intent_kind.value,
-                               "ctx": {"error": ValueError("An intent may occur only once in the day plan")}})
-            seen.add(goal.intent_kind)
-        if errors:
-            _LOGGER.error("Revised day plan contains duplicate intents")
-            raise ValidationError.from_exception_data(cls.__name__, errors)
+        """@brief 修订请求经同一共用校验核验容量与意图唯一性，超限与重复意图逐条定位、同批报告。"""
+        _validate_plan_goals(goals, cls.__name__)
         return goals
 
 
@@ -1133,6 +1151,106 @@ def _validate_summary(summary: str) -> str:
     return summary
 
 
+#: HH:MM 钟点的 Schema 格式（与当日目标的 remind_time 同名同形）。
+_CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+#: 个人事务变更的交叉约束（docs/dev/SPEC-errands-workday.md 2.2「每条变更」）：按变更种类必须非空的键与必须为 null 的键；
+#: 其余键（新增的 memo、remind_time，更新的 memo、remind_time）可空。
+_ERRAND_REQUIRED = {"新增": ("outcome", "item", "quantity"), "更新": (), "取消": ("reason",)}
+_ERRAND_NULL = {"新增": ("reason",), "更新": ("outcome", "item", "quantity", "reason"),
+                "取消": ("outcome", "item", "quantity", "memo", "remind_time")}
+
+
+def _errand_text(value: str | None, limit: int, what: str) -> str | None:
+    """@brief 事务文字的字符上限（strict 端点禁 maxLength，由本地校验执行，上限只写在原因里）；null 原样通过。
+
+    :param what: 英文原因里的字段说法（errand name、errand memo、errand cancel reason）。
+    """
+    if value is not None and len(value) > limit:
+        _LOGGER.error("Errand change text exceeds its character limit")
+        raise ValueError(f"{what} must be within {limit} characters")
+    return value
+
+
+class ErrandChange(ToolRequestModel):
+    """@brief 控制工具请求级 errands 的一条个人事务变更（docs/dev/SPEC-errands-workday.md 2.2）：封闭对象，八个键全部必填，
+    按变更种类的交叉约束与字符、份数上限由本地校验执行（上限写在原因里，Schema 只给类型与格式）；没有「完成」。"""
+
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema(
+        "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。"))
+    change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")
+    name: str = Field(pattern=r"\S", description="事务的名称，新增时自己起，之后照待办层里的写法写。")
+    outcome: Annotated[Literal["取得", "吃掉"] | None, WithJsonSchema(
+        {"type": ["string", "null"], "enum": ["取得", "吃掉", None],
+         "description": "要办成的结果，从列出的两种里选一种。"})]
+    item: Annotated[str, Field(pattern=r"\S")] | None = Field(description="要取得或吃掉的商品名称。")
+    quantity: int | None = Field(description="要办成的份数。")
+    memo: Annotated[str, Field(pattern=r"\S")] | None = Field(description="用自己的话写打算怎么办、去哪办。")
+    remind_time: Annotated[str, Field(pattern=_CLOCK_PATTERN)] | None = Field(description="想被提醒去办这件事的钟点。")
+    reason: Annotated[str, Field(pattern=r"\S")] | None = Field(description="不办了的原因。")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        """@brief 事务名称不超过 30 字符。"""
+        return _errand_text(name, ERRAND_NAME_MAX_CHARS, "errand name")
+
+    @field_validator("memo")
+    @classmethod
+    def validate_memo(cls, memo: str | None) -> str | None:
+        """@brief 备注不超过 120 字符。"""
+        return _errand_text(memo, ERRAND_TEXT_MAX_CHARS, "errand memo")
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, reason: str | None) -> str | None:
+        """@brief 取消原因不超过 120 字符。"""
+        return _errand_text(reason, ERRAND_TEXT_MAX_CHARS, "errand cancel reason")
+
+    @field_validator("quantity")
+    @classmethod
+    def validate_quantity(cls, quantity: int | None) -> int | None:
+        """@brief 份数在 1 至 9 之间（null 由交叉约束判定）。"""
+        if quantity is not None and not ERRAND_QUANTITY_MIN <= quantity <= ERRAND_QUANTITY_MAX:
+            _LOGGER.error("Errand change quantity is out of range")
+            raise ValueError(f"errand quantity must be between {ERRAND_QUANTITY_MIN} and {ERRAND_QUANTITY_MAX}")
+        return quantity
+
+    @model_validator(mode="after")
+    def check_shape(self) -> "ErrandChange":
+        """@brief 按变更种类核对交叉约束：新增必须写完成依据、取消必须写原因，其余按表必须为 null；每个违背的键各报一条、
+        定位到该键（外层再加 errands 与条目下标），原值照写。"""
+        required, null = _ERRAND_REQUIRED[self.change], _ERRAND_NULL[self.change]
+        errors: list[Any] = []
+        for key in type(self).model_fields:
+            value = getattr(self, key)
+            if key in required and value is None:
+                message = f"{key} is required when change is {self.change}"
+            elif key in null and value is not None:
+                message = f"{key} must be null when change is {self.change}"
+            else:
+                continue
+            errors.append({"type": "value_error", "loc": (key,), "input": value,
+                           "ctx": {"error": ValueError(message)}})
+        if errors:
+            _LOGGER.error("Errand change violates the constraints of its change kind")
+            raise ValidationError.from_exception_data(type(self).__name__, errors)
+        return self
+
+
+#: 三个控制工具请求级 errands 的字段 Schema（内联，不用 $ref）与字段说明。
+_ERRANDS_SCHEMA = {"type": "array", "items": ErrandChange.model_json_schema(mode="validation")}
+_ERRANDS_PURPOSE = "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。"
+
+
+def _validate_errands(tool: str, errands: list[Any]) -> list[Any]:
+    """@brief 控制工具 errands 的条数上限：一次请求至多四条变更（strict 端点禁 maxItems，由本地校验执行，可为空列表）；
+    重名、同一事务被两条点名等与未完成事务相关的判定在 errands.change_issues（宿主与环境同一冻结观察）。"""
+    if len(errands) > MAX_ERRAND_CHANGES:
+        _LOGGER.error("Activity control request carries too many errand changes")
+        raise ValueError(f"{tool} takes at most four errand changes")
+    return errands
+
+
 class ActivityProgressItem(ToolRequestModel):
     """@brief 播报或暂停的一项：活动名与人物自述。"""
 
@@ -1156,11 +1274,13 @@ class ReportStatusRequest(ToolRequestModel):
     第六章：一项一个对象）。
 
     :param items: 本次播报的一至两项，每项写活动名与进展自述。
+    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-errands-workday.md 2.2）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     items: Annotated[list[ActivityProgressItem], WithJsonSchema(_PROGRESS_ITEMS_SCHEMA)] = Field(
         description="要播报进展的活动，一项一个对象。")
+    errands: Annotated[list[ErrandChange], WithJsonSchema(_ERRANDS_SCHEMA)] = Field(description=_ERRANDS_PURPOSE)
 
     @field_validator("items")
     @classmethod
@@ -1168,22 +1288,36 @@ class ReportStatusRequest(ToolRequestModel):
         """@brief 保证一至两项、活动名互不相同。"""
         return _validate_control_items("report_status", items)
 
+    @field_validator("errands")
+    @classmethod
+    def validate_errands(cls, errands: list[ErrandChange]) -> list[ErrandChange]:
+        """@brief 一次请求至多四条事务变更。"""
+        return _validate_errands("report_status", errands)
+
 
 class PauseActivityRequest(ToolRequestModel):
     """@brief 逐项写下人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
+    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-errands-workday.md 2.2）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     items: Annotated[list[ActivityProgressItem], WithJsonSchema(_PROGRESS_ITEMS_SCHEMA)] = Field(
         description="要暂停的进行中活动，一项一个对象。")
+    errands: Annotated[list[ErrandChange], WithJsonSchema(_ERRANDS_SCHEMA)] = Field(description=_ERRANDS_PURPOSE)
 
     @field_validator("items")
     @classmethod
     def validate_items(cls, items: list[ActivityProgressItem]) -> list[ActivityProgressItem]:
         """@brief 保证一至两项、活动名互不相同。"""
         return _validate_control_items("pause_activity", items)
+
+    @field_validator("errands")
+    @classmethod
+    def validate_errands(cls, errands: list[ErrandChange]) -> list[ErrandChange]:
+        """@brief 一次请求至多四条事务变更。"""
+        return _validate_errands("pause_activity", errands)
 
 
 #: 一次 conclude_activity 写入的记忆与看法合计上限、单条文字字符上限与关键词个数上限（docs/dev/SPEC-time-and-energy.md
@@ -1195,13 +1329,20 @@ MEMORY_KEYWORDS_MAX = 12
 _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 
 
-def _validate_memory_text(text: str) -> str:
-    """@brief 记忆与看法共用的上限：文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个。"""
+def validate_memory_text(text: str) -> str:
+    """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
+
+    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/dev/SPEC-errands-workday.md 1.1），不区分条目来源。
+
+    :param text: 模型写下的一条记忆文字。
+    :returns: 通过校验的原文。
+    :raises ValueError: 文字超长或含十六进制身份；英文原因由调用方的校验错误带给模型。
+    """
     if len(text) > MEMORY_TEXT_MAX_CHARS:
-        _LOGGER.error("Conclusion memory text exceeds its character limit")
+        _LOGGER.error("Memory text exceeds its character limit")
         raise ValueError("memory text exceeds 1000 characters")
     if _MEMORY_HEX_IDENTITY.search(text):
-        _LOGGER.error("Conclusion memory text contains a hexadecimal identifier")
+        _LOGGER.error("Memory text contains a hexadecimal identifier")
         raise ValueError("memory text contains a hexadecimal identifier")
     return text
 
@@ -1229,7 +1370,7 @@ class ConclusionMemory(ToolRequestModel):
     @classmethod
     def validate_text(cls, text: str) -> str:
         """@brief 在文字字段上校验长度与身份泄漏。"""
-        return _validate_memory_text(text)
+        return validate_memory_text(text)
 
     @field_validator("keywords")
     @classmethod
@@ -1255,7 +1396,7 @@ class ConclusionView(ToolRequestModel):
     @classmethod
     def validate_text(cls, text: str) -> str:
         """@brief 在文字字段上校验长度与身份泄漏。"""
-        return _validate_memory_text(text)
+        return validate_memory_text(text)
 
     @field_validator("keywords")
     @classmethod
@@ -1273,7 +1414,7 @@ class ActivityConclusionItem(ToolRequestModel):
     memories: Annotated[
         list[ConclusionMemory],
         WithJsonSchema({"type": "array", "items": ConclusionMemory.model_json_schema(mode="validation")}),
-    ] = Field(description="关于这项活动想记住的事，一条一个对象，没有就写空列表。")
+    ] = Field(description="关于这项活动、以后做决定用得上的新情况，一条一个对象，没有就写空列表。")
     views: Annotated[
         list[ConclusionView],
         WithJsonSchema({"type": "array", "items": ConclusionView.model_json_schema(mode="validation")}),
@@ -1291,6 +1432,7 @@ class ConcludeActivityRequest(ToolRequestModel):
     （docs/dev/SPEC-dayrun-fidelity.md 第六章）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。
+    :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-errands-workday.md 2.2）。
     """
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
@@ -1298,6 +1440,7 @@ class ConcludeActivityRequest(ToolRequestModel):
         list[ActivityConclusionItem],
         WithJsonSchema({"type": "array", "items": ActivityConclusionItem.model_json_schema(mode="validation")}),
     ] = Field(description="要结束的活动，一项一个对象。")
+    errands: Annotated[list[ErrandChange], WithJsonSchema(_ERRANDS_SCHEMA)] = Field(description=_ERRANDS_PURPOSE)
 
     @field_validator("items")
     @classmethod
@@ -1308,6 +1451,12 @@ class ConcludeActivityRequest(ToolRequestModel):
             _LOGGER.error("Conclude activity carries too many memories and views")
             raise ValueError("conclude_activity memories and views exceed eight entries in total")
         return items
+
+    @field_validator("errands")
+    @classmethod
+    def validate_errands(cls, errands: list[ErrandChange]) -> list[ErrandChange]:
+        """@brief 一次请求至多四条事务变更。"""
+        return _validate_errands("conclude_activity", errands)
 
 
 ActionRequest = Annotated[

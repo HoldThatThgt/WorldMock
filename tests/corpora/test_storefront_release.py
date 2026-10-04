@@ -16,7 +16,7 @@ from worldmock.corpora.storefront_build import build_storefront_supplies
 from worldmock.errors import IntegrityError
 from worldmock.life.basket import purchase_order
 from worldmock.life.map_data import load_map_dataset, select_map
-from worldmock.life.map_models import MapDatasetReference
+from worldmock.life.map_models import LocationConfig, MapDatasetReference
 from worldmock.life.models import AgentState, BodyState, PurchaseOrderRequest, WORLD_SCHEMA_VERSION, WorldState
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.storefront_state import initial_supply_state
@@ -183,3 +183,167 @@ def test_every_published_product_can_really_be_bought_at_its_store(release):
         assert outcome.state.supply_stock[supply.supply_id] == before - 1
         assert outcome.state.agents[1].inventory[supply.location_id][supply.product_id] >= 1
         state = outcome.state
+
+
+#: 仓库地图的门店：两家餐馆（菜单各自点名正餐）、便利店、超市与菜市场。
+_BONE_SOUP, _SICHUAN = "poi-3538660453", "poi-3538682404"
+_CONVENIENCE, _SUPERMARKET, _WET_MARKET = "poi-3538682402", "poi-3538763552", "poi-3538684972"
+_SUPPLY_SET_DIFFERS = "supply set differs from its complete assortment"
+
+
+def _assumptions() -> dict:
+    """随地图发布的供给假设；每次读一份新的，供用例改写。"""
+    return json.loads(Path("corpora/zhangjiang-map/supply-assumptions.json").read_text(encoding="utf-8"))
+
+
+def _declaration(dataset, location_id: str):
+    """仓库地图里一家门店的逐店声明。"""
+    return next(item for item in dataset.category_assignment.locations if item.location_id == location_id)
+
+
+def _redeclared(dataset, location_id: str, **changes):
+    """只改写一家门店的逐店声明，其余声明、地点与供给保持仓库地图原样。"""
+    declarations = tuple(item.model_copy(update=changes) if item.location_id == location_id else item
+                         for item in dataset.category_assignment.locations)
+    assignment = dataset.category_assignment.model_copy(update={"locations": declarations})
+    return dataset.model_copy(update={"category_assignment": assignment})
+
+
+def _rejection(action) -> str:
+    """执行一次发布步骤并返回它拒绝时的完整英文原因。"""
+    with pytest.raises(IntegrityError) as failure:
+        action()
+    return str(failure.value)
+
+
+def test_assortment_naming_an_object_outside_the_catalog_is_rejected(release):
+    """逐店声明点名目录里没有的对象时，发布校验与供给构建都拒绝，不会悄悄漏掉这件商品。"""
+    catalog, dataset = release
+    assert "meal-not-in-the-catalog" not in catalog.objects
+    menu = _declaration(dataset, _BONE_SOUP)
+    changed = _redeclared(dataset, _BONE_SOUP, object_ids=(*menu.object_ids, "meal-not-in-the-catalog"))
+    reason = "Store assortment references unknown catalog objects"
+    assert _rejection(lambda: validate_assortments(changed, catalog)) == reason
+    assert _rejection(lambda: build_storefront_supplies(
+        catalog, changed.category_assignment, dataset.locations, _assumptions(), dataset.random_seed)) == reason
+
+
+def test_store_cannot_publish_a_catalog_object_without_purchase_price_bounds(release):
+    """目录里的出行服务没有进价边界：门店声明点名它时，供给构建在生成冻结报价前拒绝并写明对象。"""
+    catalog, dataset = release
+    service = catalog.objects["travel-service"]
+    assert not {"purchase_price_fen_min", "purchase_price_fen_max"} & set(service.attributes)
+    market = _declaration(dataset, "market")
+    changed = _redeclared(dataset, "market", object_ids=(*market.object_ids, service.object_id))
+    assert _rejection(lambda: build_storefront_supplies(
+        catalog, changed.category_assignment, dataset.locations, _assumptions(), dataset.random_seed)
+    ) == "Catalog product travel-service requires positive integer purchase price bounds"
+
+
+@pytest.mark.parametrize("bounds", [
+    {"purchase_price_fen_min": 0}, {"purchase_price_fen_min": 748, "purchase_price_fen_max": 612},
+    {"purchase_price_fen_min": 612.0}, {"purchase_price_fen_max": True},
+], ids=["zero-lower", "inverted", "float-lower", "boolean-upper"])
+def test_frozen_quotes_require_positive_ordered_integer_bounds(release, bounds):
+    """进价边界不是正整数或上下界倒置的商品既不能生成冻结报价，也不能通过整张地图的发布校验。"""
+    catalog, dataset = release
+    obj = catalog.objects["food-6923644266066"]
+    assert (obj.attributes["purchase_price_fen_min"], obj.attributes["purchase_price_fen_max"]) == (612, 748)
+    broken = obj.model_copy(update={"attributes": {**obj.attributes, **bounds}})
+    reason = "Catalog product food-6923644266066 requires positive integer purchase price bounds"
+    assert _rejection(lambda: frozen_price(dataset.random_seed, _SUPERMARKET, broken, 45)) == reason
+    changed = replace(catalog, objects={**catalog.objects, obj.object_id: broken})
+    assert _rejection(lambda: validate_assortments(dataset, changed)) == reason
+
+
+@pytest.mark.parametrize(("location_id", "root"), [
+    (_CONVENIENCE, "food"), (_CONVENIENCE, "prepared-meal"), (_SUPERMARKET, "food"), (_SUPERMARKET, "prepared-meal"),
+])
+def test_convenience_store_and_supermarket_cannot_select_a_whole_food_root(release, location_id, root):
+    """便利店与超市只能逐个选择食品子品类：把整个食品根或正餐根写进逐店声明时发布校验拒绝。"""
+    catalog, dataset = release
+    selected = _declaration(dataset, location_id).category_ids
+    assert selected and root not in selected
+    changed = _redeclared(dataset, location_id, category_ids=(*selected, root))
+    assert _rejection(lambda: validate_assortments(changed, catalog)) == (
+        "Convenience stores and supermarkets must select specific food subcategories")
+
+
+@pytest.mark.parametrize(("location_id", "field", "addition"), [
+    (_BONE_SOUP, "object_ids", "food-6923644266066"), (_WET_MARKET, "category_ids", "food-soda"),
+], ids=["restaurant-names-packaged-milk", "wet-market-selects-soda"])
+def test_store_cannot_publish_products_outside_its_kind_admission(release, location_id, field, addition):
+    """门店只能发布地点类别准入根之下的商品：餐馆点名一件包装牛奶、菜市场选入汽水子品类时发布校验拒绝并点名门店。"""
+    catalog, dataset = release
+    declared = getattr(_declaration(dataset, location_id), field)
+    changed = _redeclared(dataset, location_id, **{field: (*declared, addition)})
+    assert _rejection(lambda: validate_assortments(changed, catalog)) == (
+        f"Store {location_id} contains a product outside its kind admission")
+
+
+def _without_one_supply(dataset):
+    """去掉一条已发布的供给：这家门店的实际供给比声明集合少一件。"""
+    return dataset.model_copy(update={"supplies": dataset.supplies[1:]}), dataset.supplies[0].location_id
+
+
+def _with_an_unsupplied_dish(dataset):
+    """一家餐馆的菜单多点名另一家餐馆的一道正餐而不补供给：声明集合比实际供给多一件。"""
+    menu = _declaration(dataset, _BONE_SOUP).object_ids
+    dish = next(item for item in _declaration(dataset, _SICHUAN).object_ids if item not in menu)
+    return _redeclared(dataset, _BONE_SOUP, object_ids=(*menu, dish)), _BONE_SOUP
+
+
+def _with_an_undeclared_supply(dataset):
+    """另一家餐馆的一条正餐供给改挂到本店而菜单不变：实际供给比声明集合多一件。"""
+    menu = _declaration(dataset, _BONE_SOUP).object_ids
+    stray = next(item for item in dataset.supplies
+                 if item.location_id == _SICHUAN and item.product_id not in menu)
+    moved = stray.model_copy(update={"supply_id": f"supply-{_BONE_SOUP}-{stray.product_id}",
+                                     "location_id": _BONE_SOUP})
+    return dataset.model_copy(update={"supplies": (*dataset.supplies, moved)}), _BONE_SOUP
+
+
+@pytest.mark.parametrize("defect", [_without_one_supply, _with_an_unsupplied_dish, _with_an_undeclared_supply],
+                         ids=["supply-missing", "declared-without-supply", "supply-outside-declaration"])
+def test_store_supplies_must_equal_the_complete_declared_assortment(release, defect):
+    """每家门店的实际供给必须与声明展开的完整集合逐件相同：少一条、声明了却没有供给、多出声明之外的供给都拒绝并点名
+    门店。"""
+    catalog, dataset = release
+    changed, location_id = defect(dataset)
+    assert _rejection(lambda: validate_assortments(changed, catalog)) == f"Store {location_id} {_SUPPLY_SET_DIFFERS}"
+
+
+@pytest.mark.parametrize("defect", ["store-without-assumptions", "assumptions-for-a-place-that-sells-nothing"])
+def test_supply_assumptions_must_cover_exactly_the_selling_locations(release, defect):
+    """供给假设须恰好覆盖全部售卖地点：漏掉一家门店、或给不售卖的住所也写了假设时，都不生成任何供给。"""
+    catalog, dataset = release
+    assumptions = _assumptions()
+    selling = {item.location_id for item in dataset.category_assignment.locations}
+    assert {row["location_id"] for row in assumptions["locations"]} == selling and "home" not in selling
+    if defect == "store-without-assumptions":
+        assumptions["locations"] = assumptions["locations"][1:]
+    else:
+        assumptions["locations"].append({**assumptions["locations"][0], "location_id": "home"})
+    assert _rejection(lambda: build_storefront_supplies(
+        catalog, dataset.category_assignment, dataset.locations, assumptions, dataset.random_seed)
+    ) == "Store supply assumptions must cover exactly all selling locations"
+
+
+def _without_opening_calendars(dataset, location_id: str) -> tuple:
+    """把一处地点改成不带营业日历的合法地图地点（地图模型允许空日历），其余地点原样。"""
+    return tuple(LocationConfig.model_validate({**item.model_dump(mode="json"), "opening_calendars": []})
+                 if item.location_id == location_id else item for item in dataset.locations)
+
+
+def test_selling_location_without_an_opening_calendar_gets_no_supplies(release):
+    """售卖地点必须显式声明营业日历：便利店的营业日历为空时供给构建拒绝，不替它假设营业时间；不售卖的住所没有营业
+    日历不受影响，生成的供给与已发布的逐条相同。"""
+    catalog, dataset = release
+    closed = _without_opening_calendars(dataset, _CONVENIENCE)
+    assert [item.opening_calendars for item in closed if item.location_id == _CONVENIENCE] == [()]
+    assert _rejection(lambda: build_storefront_supplies(
+        catalog, dataset.category_assignment, closed, _assumptions(), dataset.random_seed)
+    ) == "Selling locations require explicit opening calendars"
+    unstaffed_home = _without_opening_calendars(dataset, "home")
+    assert build_storefront_supplies(catalog, dataset.category_assignment, unstaffed_home, _assumptions(),
+                                     dataset.random_seed) == dataset.supplies

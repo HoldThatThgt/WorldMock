@@ -140,9 +140,10 @@ def test_observation_keeps_full_goal_text_in_the_todo_layer(engine_factory) -> N
 
 
 def _todo_context(agent, now: int, zone: str) -> LayerContext:
-    """只有人物与计划的待办层上下文。"""
+    """只有人物与计划的待办层上下文（没有个人事务，目录为空）。"""
     state = SimpleNamespace(agents={1: agent}, activities={}, current_time=now)
-    return LayerContext(state=state, scenario=SimpleNamespace(timezone=zone, locations=()), rules=None,
+    return LayerContext(state=state, scenario=SimpleNamespace(timezone=zone, locations=()),
+                        rules=SimpleNamespace(items={}),
                         semantics=None, agent_id=1, names={"sessions": {}, "activities": {}}, bindings=[],
                         menu=None)
 

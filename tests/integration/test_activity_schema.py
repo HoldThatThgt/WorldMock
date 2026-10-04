@@ -73,9 +73,11 @@ def _assert_closed(node: Any) -> None:
 
 
 def _control_payload(name: str, pairs: list[tuple[str, str]]) -> dict[str, Any]:
-    """活动控制参数：一项一个对象（活动名，自述）；结束工具每项另带空的 memories 与 views，播报与暂停不带。"""
+    """活动控制参数：一项一个对象（活动名，自述）；结束工具每项另带空的 memories 与 views，播报与暂停不带；请求级
+    errands（个人事务变更）为空列表。"""
     extra = {"memories": [], "views": []} if name == "conclude_activity" else {}
-    return {"items": [{"activity_name": activity, "summary": summary, **extra} for activity, summary in pairs]}
+    return {"items": [{"activity_name": activity, "summary": summary, **extra} for activity, summary in pairs],
+            "errands": []}
 
 
 def _properties(schema: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -137,9 +139,10 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_activity_control_schemas_use_paired_readable_activity_and_summary(name: str) -> None:
     """三条活动控制工具一项一个对象：每项点名可读活动并写人物自述，只有结束工具每项另带记忆与看法；外层键是 items
-    （不是提示字段黑名单里的 activities）；活动名不做 Schema 枚举（docs/dev/SPEC-dayrun-fidelity.md 第六章）。"""
+    （不是提示字段黑名单里的 activities）与请求级 errands；活动名不做 Schema 枚举（docs/dev/SPEC-dayrun-fidelity.md
+    第六章）；缺 errands 的请求被拒。"""
     schema = _function(name)["parameters"]
-    assert set(schema["properties"]) == set(schema["required"]) == {"items"}
+    assert set(schema["properties"]) == set(schema["required"]) == {"items", "errands"}
     item = schema["properties"]["items"]["items"]
     expected = {"activity_name", "summary", "memories", "views"} if name == "conclude_activity" else {
         "activity_name", "summary"}
@@ -151,11 +154,48 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
     REQUEST_MODELS[name].model_validate(valid)
     assert _host_error(name, valid) == ""
     assert _host_error(name, _control_payload(name, [("别的活动", "继续。")])).report.error_code == "NAME_NOT_FOUND"
-    for invalid in ({"items": []}, _control_payload(name, [(_WAIT, "a"), (_WAIT, "b")]),
-                    _control_payload(name, [(_WAIT, " ")]), {"items": [{"activity_name": _WAIT}]},
-                    {"task": [_WAIT], "summary": ["继续。"]}):
+    for invalid in ({"items": [], "errands": []}, _control_payload(name, [(_WAIT, "a"), (_WAIT, "b")]),
+                    _control_payload(name, [(_WAIT, " ")]), {"items": [{"activity_name": _WAIT}], "errands": []},
+                    {"task": [_WAIT], "summary": ["继续。"]}, {"items": valid["items"]}):
         with pytest.raises(ValidationError):
             REQUEST_MODELS[name].model_validate(invalid)
+
+
+#: 一条个人事务变更的八个键，Schema 与请求模型都按这个顺序（docs/dev/SPEC-errands-workday.md 2.2「每条变更」）。
+_ERRAND_KEYS = ["change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+
+
+@pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
+def test_control_tool_schemas_inline_the_errand_change_object(name: str) -> None:
+    """三个控制工具的请求级 errands 是内联的变更对象数组（docs/dev/SPEC-errands-workday.md 2.2）：模型本轮可见的函数
+    声明就是 DeepSeek strict 校验通过的请求模型 Schema，没有 $ref 与 $defs；变更对象封闭、八个键按序全部必填，change
+    的枚举只有新增、更新、取消三种（没有完成），outcome 是可空的取得、吃掉；item、memo、reason 是非空白字符串或 null，
+    remind_time 与当日目标同形，quantity 是整数或 null（上限由本地校验执行，Schema 不带长度与范围）。"""
+    schema = _function(name)["parameters"]
+    assert schema == deepseek_strict_schema(REQUEST_MODELS[name])
+    assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
+    errands = schema["properties"]["errands"]
+    change = errands["items"]
+    assert errands["type"] == "array" and change["type"] == "object"
+    _assert_closed(errands)
+    assert list(change["properties"]) == change["required"] == _ERRAND_KEYS
+    fields = change["properties"]
+    assert fields["change"]["enum"] == ["新增", "更新", "取消"] and fields["change"]["type"] == "string"
+    assert fields["outcome"]["enum"] == ["取得", "吃掉", None] and fields["outcome"]["type"] == ["string", "null"]
+    assert fields["name"]["pattern"] == r"\S"
+    for key in ("item", "memo", "reason"):
+        assert fields[key]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
+    goal = _function("revise_day_plan")["parameters"]["properties"]["goals"]["items"]["properties"]
+    assert fields["remind_time"]["anyOf"] == goal["remind_time"]["anyOf"]
+    assert fields["quantity"]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
+    assert not {"minimum", "maximum", "maxLength", "minLength", "maxItems"} & set(json.dumps(errands).split('"'))
+    add = {"change": "新增", "name": "补一份素炒什锦食材包", "outcome": "取得", "item": "素炒什锦食材包",
+           "quantity": 1, "memo": "下班前下单送到家", "remind_time": "17:00", "reason": None}
+    payload = {**_control_payload(name, [(_WAIT, "我还想等一会儿。")]), "errands": [add]}
+    assert list(Draft202012Validator(schema).iter_errors(payload)) == []
+    request = REQUEST_MODELS[name].model_validate(payload)
+    assert request.model_dump(mode="json")["errands"] == [add]
+    assert list(request.model_dump(mode="json")) == ["items", "errands"]
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
@@ -242,7 +282,7 @@ def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time(
 def test_provider_array_cardinality_gap_is_locally_rejected() -> None:
     """供应商不支持数组长度约束时，本地模型仍拒绝越界请求（含一至两项与记忆、看法合计八条的上限）。"""
     schema = _function("report_status")["parameters"]
-    invalid = {"items": []}
+    invalid = {"items": [], "errands": []}
     assert list(Draft202012Validator(schema).iter_errors(invalid)) == []
     with pytest.raises(ValidationError):
         REQUEST_MODELS["report_status"].model_validate(invalid)
@@ -251,7 +291,7 @@ def test_provider_array_cardinality_gap_is_locally_rejected() -> None:
     nine = [{"activity_name": _WAIT, "summary": "收尾。", "views": [view],
              "memories": [_memory(f"第{index}件想记住的事。") for index in range(8)]}]
     for items in ([], nine):
-        payload = {"items": items}
+        payload = {"items": items, "errands": []}
         assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
         with pytest.raises(ValidationError):
             REQUEST_MODELS["conclude_activity"].model_validate(payload)
@@ -276,7 +316,8 @@ def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> Non
     _assert_closed(memory_item)
     _assert_closed(view_item)
     assert "$ref" not in json.dumps(conclude) and "$defs" not in json.dumps(conclude)
-    payload = {"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": [_memory()], "views": []}]}
+    payload = {"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": [_memory()], "views": []}],
+               "errands": []}
     assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
     REQUEST_MODELS["conclude_activity"].model_validate(payload)
     agent = _prepared_agent()
@@ -295,7 +336,7 @@ def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> Non
 def test_conclusion_memory_rejects_fact_like_memory_types(retired_type: str) -> None:
     """人物记忆不接受事实型事件记录：Schema 枚举与本地请求模型都拒绝。"""
     payload = {"items": [{"activity_name": _WAIT, "summary": "收尾。", "views": [],
-                          "memories": [_memory("我以为今天已经吃过饭", kind=retired_type)]}]}
+                          "memories": [_memory("我以为今天已经吃过饭", kind=retired_type)]}], "errands": []}
     assert list(Draft202012Validator(_function("conclude_activity")["parameters"]).iter_errors(payload))
     with pytest.raises(ValidationError):
         REQUEST_MODELS["conclude_activity"].model_validate(payload)

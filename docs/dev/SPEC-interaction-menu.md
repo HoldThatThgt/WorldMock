@@ -6,6 +6,7 @@
 > 范围：按地点类与人物声明可选对象动作，并在观察、模型请求与环境执行中一致落实。
 > 日期：2026-10-01。工具交互修订已冻结，已实现；本次生产验收单独记录；新请求形状、只读查询和错误字段以[工具交互规格](SPEC-tool-interaction.md)为准，旧离线证据只证明修订前行为。
 > 本规格全部实现、文档同步和验收属于本次开发，不设延期项；全项目既有真实实验门禁继续有效。
+> 「观察与人物工具」中控制工具参数形状与 `query_world` 参数的条款按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（2026-10-02，逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM2–IM6）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。工作安排是环境层呈现的事实，不进入交互菜单，不改 `allowed_actions`。
 
 ## 心智模型
 
@@ -107,22 +108,22 @@ flowchart LR
 菜单解析缺失、未知名称、重复、坏类型或缺保护项时，宿主失败关闭并记录英文错误，不使用全量工具替代。
 提示的递归字段校验必须拒绝误入的 `interaction_menu` 和 `interaction_menus_by_location_kind`，
 不靠提示组装当前恰好未复制这些字段来代替合同校验。
-只读记忆路径不需要世界菜单；只读问答阶段开放记忆查询、`query_world` 与 `finish`。
-`query_world` 中读取世界领域事实仍按冻结菜单和归属校验，不能以只读阶段规避访问权限。
+只读记忆路径不需要世界菜单；只读问答阶段只开放记忆查询与 `finish`，不开放 `query_world`。
+生活决策中的 `query_world` 读取世界领域事实仍按冻结菜单和归属校验。
 
 | 工具路径 | 菜单要求 |
 | --- | --- |
 | 稳定模型工具 | 地点菜单不剪裁工具；状态、阶段、同刻上限和预算仍门控具体可用性 |
 | `start_activity` | 必填items/answering/prefer；items一至两项，每项恰为全键必填的{target,way,from,to}，整组原子受理；删除actions和平行targets/ways/from/to数组。宿主与环境共用方式解析，再核对allowed_actions；按名称调用仍检查菜单。to=null统一表示本人，其他人物写实名，旧“自己”值拒绝；食用、使用、制作与非转移动作两端null，给予from=null且to为其他人物。含到店/远程下单/购买项时prefer必须为“最快拿到”或“到手价最低”，否则必须为null；null不默认最快，旧英文枚举拒绝。失败候选为{tool,arguments,note}完整合法调用，不代人物执行 |
-| `query_world` | 稳定只读工具；name/way/category/offset全部必填，前三者可空但至少一个非空，offset为非负整数；category只取callable_index已展示的公开品类标签；返回matches/total_count/next_offset，next_offset必填可空，每页沿用现有上限20，按偏移可遍历全集；查询只限冻结观察可读事实，已公开供给不额外要求browse，真实耗时浏览仍须browse且查询不能揭示未知供给；任务检查已告知与归属，库存只读本人可读持有物；不提交世界请求、不推进时钟、不给data.supplies/工具层目标添加条目或可见凭据；不恢复discover_places或商品需求路线查询 |
+| `query_world` | 稳定只读工具；name/way/category/from/available_only/offset 六键全部必填、无缺省，旧四键请求按缺字段拒绝；name、way、category、from 可空但至少一个非 null，available_only 为布尔且不单独构成查询条件，offset 为非负整数；from 写地点显示名或渠道称呼，与购买请求共用同一来源解析，只匹配供给条目，不按需求反查门店、不计算路线；available_only=true 只留已确认此刻可执行的条目，可执行取冻结观察里该条目动作的 available，筛选先于排序与切页（个人事务与工作安排规格第五章，阶段 4 落地）；category只取callable_index已展示的公开品类标签；返回matches/total_count/next_offset，next_offset必填可空，每页沿用现有上限20，按偏移可遍历全集；查询只限冻结观察可读事实，已公开供给不额外要求browse，真实耗时浏览仍须browse且查询不能揭示未知供给；任务检查已告知与归属，库存只读本人可读持有物；不提交世界请求、不推进时钟、不给data.supplies/工具层目标添加条目或可见凭据；不恢复discover_places或商品需求路线查询 |
 | `recall_task_summary` | 接受可读任务名、当日目标名或活动名（会话名不在七层中出现，不接受）；找不到或不唯一时业务拒绝并列出可选名称 |
-| `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项，一项活动一个对象：`report_status`、`pause_activity` 为 `{activity_name, summary}`，`conclude_activity` 为 `{activity_name, summary, memories, views}`（一日运行保真规格第六章）；`activity_name` 为唯一可读活动名；先校验全部活动与阶段，再原子更新；报告可以恢复暂停的活动，结束作用于选中的进行中、暂停或待收尾的活动 |
+| `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项，一项活动一个对象：`report_status`、`pause_activity` 为 `{activity_name, summary}`，`conclude_activity` 为 `{activity_name, summary, memories, views}`（一日运行保真规格第六章）；三者另有请求级必填 `errands[]`（与 `items` 平级，可为 `[]`；新增、更新或取消个人事务，个人事务与工作安排规格 2.2，阶段 2 落地）；`activity_name` 为唯一可读活动名；先校验全部活动、阶段与事务变更，再原子更新；报告可以恢复暂停的活动，结束作用于选中的进行中、暂停或待收尾的活动；事务变更随活动控制提交，与活动控制一样不受地点菜单剪裁（见「声明与准入」），仍服从宿主与环境的同一校验 |
 | `submit_work`、`send_message` | 分别在工作或通讯领域条件满足时开放，正文由人物写入，任务与收件人用可读名称定位 |
 
 购买、出行、社交、商品目录浏览与游戏都由 `start_activity` 的私有绑定定位；相应标准动作按菜单限制。
 交谈和通话不能暂停。任务或人物名称不展示内部编号、索引或标识符。
 暂停的活动仍在观察与回看选项中可见；播报可在其开始地点恢复它，另核对当前资源与地点条件，能量不参与。
-原生工具整次运行不变（只剩最后一个回合时与输出截断后的那次重试时去掉记忆查询工具，后者见一日运行保真规格 7.2），不逐轮绑定名称枚举；恢复条件由待办层控制工具的 `available`、`reason` 说明，
+原生工具整次运行不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（`recall_task_summary`、`query_world` 与三个记忆查询），后者见一日运行保真规格 7.2），不逐轮绑定名称枚举；恢复条件由待办层控制工具的 `available`、`reason` 说明，
 不满足时由环境以同一原因业务拒绝。
 菜单控制必须同时出现在工具层（菜单排除的动作不列出）、本地决策校验和直接宿主派发校验，不能依赖模型自觉遵守。
 一次决策的菜单冻结不变；动作登记即结束本次决策，不向模型发送登记确认，同一秒接着决策时结算结果经续接的 tool 消息交还；
@@ -170,7 +171,9 @@ flowchart LR
 恢复校验必须发生在复制或发布子分支之前，不能留待新环境启动后才拒绝。
 代码身份继续绑定实际源码；不添加一个与场景哈希重复的新菜单版本层。
 
-`prompt_sha256` 绑定静态 system 模板，`tool_schema_sha256` 绑定全部静态工具 Schema、描述和注册表摘要。
+`prompt_sha256` 绑定生活与只读两份系统层以及七层 Schema，`tool_schema_sha256` 绑定人物工具面全部静态工具 Schema、描述和注册表摘要；
+零点计划的后台严格工具 `submit_day_plan` 及其模板不在这两个指纹内，由 `code_sha256` 绑定；
+个人事务与工作安排规格阶段 1 的就寝反思工具 `submit_reflection` 及其文案同样处理（该规格 1.1）。
 方式推导代替 `actions`、新增固定 `query_world`、完整调用候选和错误字段都改变静态工具 Schema 与提示身份；
 `tool_schema_sha256/prompt_sha256` 按实际新模板计算，旧工具身份不能恢复。
 不同地点/人物的运行时菜单不改变静态模板哈希，也不改变整次运行不变的原生工具，但必须改变冻结观察中工具层列出的动作。
@@ -232,6 +235,8 @@ flowchart LR
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「观察与人物工具」注明原生工具只在最后一个回合去掉记忆查询工具 |
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 10、11、18 行与其 3.5 修订（一日运行保真 IM1，随该规格冻结）：「地图地点与发现工具」的指名购买改为 `from` 可选约束、分段匹配与按 `prefer` 选定，浏览结果列完整标签；「观察与人物工具」`start_activity` 行改为全部目录类按名调用（归一唯一即受理，否则给候选、不替换），按名写的对象照常经菜单判定，`obtain` 可写方式「购买」并有请求级 `prefer`；三个控制工具行改为 `items[]`（`conclude_activity` 另带 `memories`、`views`）；可见性不限制按名调用；文件头补修订说明 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：文件头改为修订部分（按名调用、指名购买的 `from` 约束、分段匹配、方式「购买」与请求级 `prefer`、控制工具参数形状）已实现并通过离线验收；「观察与人物工具」原生工具的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；条款正文不变 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分在冻结时未随文实现（该规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM1–IM6）。改动：文件头；「观察与人物工具」`query_world` 行改六键并写来源与可执行筛选，三个控制工具行增请求级 `errands`（不受地点菜单剪裁）。顺带更正既有漂移：只读问答不开放 `query_world`；最后一个回合与截断重试去掉的是全部查询工具；`prompt_sha256` 绑定两份系统层与七层 Schema、`tool_schema_sha256` 只绑定人物工具面，后台严格工具由 `code_sha256` 绑定。工作安排不进入交互菜单，菜单声明、交集与拒绝条款不变 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 IM7，按 `d8a41d3` 的代码核对）：文件头改为修订部分（就寝反思的后台严格工具、控制工具的请求级 `errands`、`query_world` 六键）已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
 
 ## 当日目标保护项
 

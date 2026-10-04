@@ -428,3 +428,138 @@ test('all parsed block rules exist and every growth view retains explicit source
   const retired = /自述|scene|facts|decision_statement|render_scene|两阶段/;
   assert.equal(retired.test(JSON.stringify(plain(api.rules))), false);
 });
+
+/** @brief 一条规则的全部说明文字：填充说明与各步的说明相连。 */
+function ruleText(rule) {
+  return [rule.fill, ...plain(rule.steps).map(step => step[1])].join('');
+}
+
+test('the progress rule holds the two name-only errand records and keeps them out of the memory layer', () => {
+  const {api} = parser();
+  const progress = ruleText(api.rules.progress);
+  // 两种记录的类型名取自进度层的构造源码，规则文字须逐个点名。
+  const builder = read('src/worldmock/life/progress_layer.py');
+  const records = /_ERRAND_RECORDS = \{REMINDED_KIND: "([a-z_]+)", COMPLETED_KIND: "([a-z_]+)"\}/.exec(builder).slice(1);
+  assert.deepEqual(records, ['errand_reminder', 'errand_completed']);
+  for (const record of records) assert.ok(progress.includes(record), record);
+  assert.match(api.rules.progress.fill, /事务提醒与办成两种只写事务名称的记录/);
+  assert.match(progress, /事务提醒到点（errand_reminder）/);
+  assert.match(progress, /环境确认办成（errand_completed）/);
+  assert.match(progress, /只写事务名称/);
+  assert.match(progress, /二者不迁入记忆层/);
+  assert.match(progress, /self_note.*未经核验/, 'the earlier progress rules stay');
+});
+
+test('the todo and environment rules state where open errands and duty come from as the growth clause does', () => {
+  const {api} = parser();
+  const todo = ruleText(api.rules.todo);
+  assert.match(todo, /未完成的个人事务取自人物状态，跨零点保留/);
+  assert.match(todo, /办成或取消即移出/);
+  const environment = ruleText(api.rules.environment);
+  assert.match(environment, /duty 由场景工作安排与世界时钟求值，今日计划改不了它/);
+  assert.match(environment, /没有工作安排为 null/);
+  const clause = read('docs/dev/SPEC-run-viewer-context.md');
+  for (const phrase of ['待办层的未完成个人事务取自人物状态，跨零点保留，办成或取消后退出',
+    '环境层的 `duty` 由场景工作安排与世界时钟求值，今日计划改不了它',
+    '含事务提醒与办成两种只写名称的记录，二者不迁入记忆层']) assert.ok(clause.includes(phrase), phrase);
+});
+
+/** @brief Python 字典字面量里逐个写出的字符串键（按出现顺序）。 */
+function literalKeys(block) {
+  return [...block.matchAll(/"([a-z_]+)":/g)].map(match => match[1]);
+}
+
+/** @brief 宿主源码登记的工具面：世界请求工具、世界查询工具与记忆查询工具，各按宿主发给模型的顺序。 */
+function hostToolSurface() {
+  const agent = read('custom/agents/life_agent.py');
+  const models = read('src/worldmock/life/models.py');
+  const requests = literalKeys(/^REQUEST_MODELS: [^\n]*\{\n([\s\S]*?)^\}/m.exec(models)[1]);
+  const memory = literalKeys(/^_MEMORY_TOOL_MODELS: [^\n]*\{\n([\s\S]*?)^\}/m.exec(agent)[1]);
+  const worldQueries = literalKeys(/^_QUERY_TOOL_MODELS = \{([\s\S]*?)\}/m.exec(agent)[1]);
+  return {worldRequests: requests.filter(name => !worldQueries.includes(name)), worldQueries, memory};
+}
+
+test('the tool definition rule counts the tool surface the host offers and when query tools are withheld', () => {
+  const {api} = parser();
+  const {worldRequests, worldQueries, memory} = hostToolSurface();
+  assert.deepEqual(worldQueries, ['recall_task_summary', 'query_world']);
+  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [7, 2, 3]);
+  const numerals = {2: '两', 3: '三', 7: '七'};
+  const fill = api.rules.tools.fill;
+  assert.ok(fill.includes(`${numerals[worldRequests.length]}个世界请求工具`), fill);
+  assert.ok(fill.includes(`${numerals[worldQueries.length]}个世界查询工具`), fill);
+  assert.ok(fill.includes(`${numerals[memory.length]}个记忆查询工具`), fill);
+  for (const name of worldQueries) assert.ok(fill.includes(name), name);
+  assert.equal(fill.includes('八个世界请求工具'), false);
+  // 最后一个回合与截断重试去掉的是全部查询工具（世界查询与记忆查询），规则文字不得只说记忆查询。
+  const last = plain(api.rules.tools.steps).find(step => step[0] === '最后回合')[1];
+  assert.match(last, /只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具/);
+  assert.match(last, /世界查询与记忆查询/);
+});
+
+test('progress drill-down labels the two errand records with the errand name they carry', () => {
+  const {api} = parser();
+  const records = layers()[5].events.filter(record => record.type.startsWith('errand_'));
+  assert.deepEqual(records, [{occurred_at: '2026-09-28T10:35:00+08:00', type: 'errand_completed', errand: '囤咖啡豆'},
+    {occurred_at: '2026-09-28T10:40:00+08:00', type: 'errand_reminder', errand: '买牛奶'}]);
+  const parsed = api.parseRequest(event());
+  const items = plain(api.drillItems(parsed.blocks.find(block => block.key === 'progress')));
+  assert.deepEqual(items.slice(-2).map(item => item.label), [
+    '2026-09-28T10:35:00+08:00 · errand_completed · 囤咖啡豆', '2026-09-28T10:40:00+08:00 · errand_reminder · 买牛奶']);
+  assert.deepEqual(items.slice(-2).map(item => JSON.parse(item.text)), records);
+});
+
+test('the fixture action request is in the layer shape of the errands and workday feature and parses unchanged', () => {
+  const {api, errors} = parser();
+  const [, , , todo, environment, progress] = layers();
+  // 键序与行的键取自各层的构造源码：待办层增 errands（六键一行），环境层增 duty，进度层增两种事务记录。
+  const todoBuilder = read('src/worldmock/life/todo_layer.py');
+  assert.deepEqual(Object.keys(todo), literalKeys(/return \{"layer": "待办层"[\s\S]*?\}\n/.exec(todoBuilder)[0]));
+  assert.deepEqual(Object.keys(todo), ['layer', 'paused_activities', 'errands', 'day_plan']);
+  const rowBuilder = /def _row\([\s\S]*?return (\{[\s\S]*?\})\n\n/.exec(read('src/worldmock/life/errands.py'))[1];
+  assert.deepEqual(literalKeys(rowBuilder), ['name', 'done_when', 'progress', 'memo', 'remind_time', 'noted_on']);
+  assert.ok(todo.errands.length >= 2);
+  for (const row of todo.errands) assert.deepEqual(Object.keys(row), literalKeys(rowBuilder));
+  assert.deepEqual(todo.errands.map(row => row.remind_time), [null, '18:30'], 'a reminded errand and a pending one');
+  const environmentBuilder = read('src/worldmock/life/environment_layer.py');
+  assert.deepEqual(Object.keys(environment),
+    literalKeys(/return \{"layer": "环境层"[\s\S]*?"duty": _duty\(context\)\}/.exec(environmentBuilder)[0]));
+  assert.equal(Object.keys(environment).at(-1), 'duty');
+  const schedule = read('src/worldmock/life/work_schedule.py');
+  assert.deepEqual(Object.keys(environment.duty),
+    [...literalKeys(/return \{"day": DAY_WORK[\s\S]*?\}\n/.exec(schedule)[0]), 'status']);
+  assert.ok(/return \{\*\*arrangement, "status": /.test(schedule), 'duty adds status to the day arrangement');
+  assert.deepEqual(progress.events.map(record => record.type),
+    ['tool_call', 'message_arrival', 'tool_call', 'errand_completed', 'errand_reminder']);
+  // 原生工具是宿主此刻发给模型的十二个：七个世界请求、两个世界查询（含 query_world）、三个记忆查询，顺序相同。
+  const {worldRequests, worldQueries, memory} = hostToolSurface();
+  const names = fixture.action.tools.map(tool => tool.function.name);
+  assert.deepEqual(names, [...worldRequests, ...worldQueries, ...memory]);
+  assert.ok(names.includes('query_world'));
+  for (const name of ['report_status', 'pause_activity', 'conclude_activity']) {
+    const parameters = fixture.action.tools.find(tool => tool.function.name === name).function.parameters;
+    assert.deepEqual(parameters.required, ['items', 'errands'], name);
+  }
+  assert.deepEqual(fixture.continuation.tools, fixture.action.tools);
+  // 行动请求识别、六层切片与层序不随这些键改变：切片不校验层内的键。
+  const input = event();
+  assert.deepEqual(plain(api.classify(input.data.request)), {stage: 'action', label: '选择动作'});
+  const parsed = api.parseRequest(input);
+  const user = messageBlocks(parsed);
+  assert.deepEqual(plain(user.map(block => block.key)), LAYER_KEYS);
+  assert.equal(user.map(block => block.text).join(''), input.data.request.messages[1].content);
+  assert.deepEqual(plain(user[3].value.errands), todo.errands);
+  assert.deepEqual(plain(user[4].value.duty), environment.duty);
+  assert.deepEqual(JSON.parse(parsed.blocks.at(-1).text).map(tool => tool.function.name), names);
+  assert.equal(parsed.warnings.length, 0);
+  // 没有 errands 与 duty 的既有七层请求照旧识别与切片，与现行请求对照时只有这两层算内容变化。
+  const earlier = layers();
+  delete earlier[3].errands;
+  delete earlier[4].duty;
+  const before = api.parseRequest(event(withLayers(earlier)));
+  assert.equal(before.stage, 'action');
+  assert.deepEqual(plain(messageBlocks(before).map(block => block.key)), LAYER_KEYS);
+  const changed = plain(api.compare(parsed.blocks, before.blocks)).filter(row => row.status !== 'unchanged');
+  assert.deepEqual(changed.map(row => [row.key, row.status]), [['todo', 'changed'], ['environment', 'changed']]);
+  assert.equal(errors.length, 0);
+});

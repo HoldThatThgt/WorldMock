@@ -1,11 +1,12 @@
 """@brief 进度层：当前 session 的有序记录（docs/dev/SPEC-persona-prompt.md「进度层」）。
 
 记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、收到的直接消息
-与交谈邀请（全文）和邮件（主题）、订单送达，以及由截止时刻与提醒写入时刻推导的截止预警
-与目标提醒。session 下界是开启它的边界提交的末事件序号（session_bounds，与记忆层同一区间口径）：运行开始为 0，到达取到达
-所在的时钟推进提交，由决策引起的切换（出发、途中结束出行）取引起切换的那条结果所在的提交；推导记录按时刻取，决策切换的
-session 不含切换那一秒。同一秒内推导记录在前（截止在提醒前），事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：
-结果在整个 session 内保留。每条记录另有私有元数据（是否受保护、settled 句），供宿主按预算浓缩。
+与交谈邀请（全文）和邮件（主题）、订单送达、个人事务的提醒到点与办成（只写事务名，由人物可见的事务事件派生），
+以及由截止时刻与提醒写入时刻推导的截止预警与目标提醒。session 下界是开启它的边界提交的末事件序号（session_bounds，
+与记忆层同一区间口径）：运行开始为 0，到达取到达所在的时钟推进提交，由决策引起的切换（出发、途中结束出行）取引起
+切换的那条结果所在的提交；推导记录按时刻取，决策切换的 session 不含切换那一秒。同一秒内推导记录在前（截止在提醒前），
+事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：结果在整个 session 内保留。每条记录另有私有元数据
+（是否受保护、settled 句），供宿主按预算浓缩。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import schedule, sessions
 from worldmock.life.control_items import CONTROL_TOOLS, control_request
+from worldmock.life.errand_state import COMPLETED_KIND, REMINDED_KIND
 from worldmock.life.models import WorldState
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.recipients import agent_identity, person_name
@@ -31,6 +33,8 @@ from worldmock.life.tool_layer import LayerContext
 
 #: 订单仍在途的状态（相关记录受保护）。
 _OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
+#: 被进度层消费的两种个人事务事件（人物可见）→ 记录类型；其余四种事务事件只供审计与指标，不进进度层。
+_ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_completed"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,17 +175,25 @@ def _tool_calls(response: Event) -> list[dict]:
 
 
 def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
-    """@brief 本人收到的消息（直接消息与交谈邀请带全文，邮件只有主题）与本人订单的送达。"""
+    """@brief 本人收到的消息（直接消息与交谈邀请带全文，邮件只有主题）、本人订单的送达，以及个人事务的提醒到点与办成。"""
     records = []
     for event in store.read_agent_events("environment_event", context.agent_id, after=lower):
         kind = event.data.get("kind")
-        if kind not in {"message_arrival", "mail_arrival", "delivery_arrival"}:
-            continue
-        if kind == "delivery_arrival":
+        if kind in _ERRAND_RECORDS:
+            records.append(_errand_record(context, event))
+        elif kind == "delivery_arrival":
             records.extend(_delivery_records(context, event))
-        else:
+        elif kind in {"message_arrival", "mail_arrival"}:
             records.append(_message_record(context, event))
     return records
+
+
+def _errand_record(context: LayerContext, event: Event) -> _Record:
+    """@brief 个人事务事件派生的记录（docs/dev/SPEC-errands-workday.md 2.6）：errand_reminded 为 errand_reminder（提醒到点），
+    errand_completed 为 errand_completed（环境确认办成），都只写事务名；来源是该事件，计入观察的进度来源。"""
+    record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone),
+              "type": _ERRAND_RECORDS[event.data["kind"]], "errand": event.data["errand"]["name"]}
+    return _Record(record, (event,), _event_key(event.occurred_at, [event]))
 
 
 def _message_record(context: LayerContext, event: Event) -> _Record:

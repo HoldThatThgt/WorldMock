@@ -91,7 +91,7 @@ def _conclude_just_ended(observation: dict) -> tuple[str, dict]:
     names = pending_names(observation)
     memory = {"type": "routine", "text": "歇了一会儿，精神好些了。", "importance": 0.3, "keywords": ["休息"]}
     return "conclude_activity", {"items": [{"activity_name": name, "summary": "歇好了。", "memories": [memory],
-                                            "views": []} for name in names]}
+                                            "views": []} for name in names], "errands": []}
 
 
 def _tool_calls(observation: dict) -> list[dict]:

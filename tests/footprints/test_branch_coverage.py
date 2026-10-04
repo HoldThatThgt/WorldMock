@@ -60,7 +60,7 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
 def _conclusion(*memories):
     """结束一项活动的完整现行控制请求。"""
     return {"items": [{"activity_name": "等待（1月5日 00:00 起）", "summary": "等完了。",
-                       "memories": list(memories), "views": []}]}
+                       "memories": list(memories), "views": []}], "errands": []}
 
 
 def _tool_response(call_id, arguments, name="conclude_activity", usage=None, error=None, model="deepseek-flash"):

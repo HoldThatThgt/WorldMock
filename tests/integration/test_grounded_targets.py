@@ -159,7 +159,7 @@ def test_activity_controls_bind_current_readable_activity(phase) -> None:
             "activity_name"]
         extra = {"memories": [], "views": []} if name == "conclude_activity" else {}
         assert agent.validate_react_decisions([_decision(
-            name, items=[{"activity_name": _WORK, "summary": "继续推进。", **extra}])], False) == ""
+            name, items=[{"activity_name": _WORK, "summary": "继续推进。", **extra}], errands=[])], False) == ""
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)
 

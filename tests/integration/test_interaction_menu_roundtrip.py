@@ -142,7 +142,8 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     assert "conclude_activity" in [item["tool"] for item in ended["tools"]]
     assert "工作" not in _ways(arrived) and "等待" in _ways(arrived)
     assert arrived["environment_layer"]["location"]["fixed_rules"]
-    conclusion = {"items": [{"activity_name": walked, "summary": "到公司了。", "memories": [], "views": []}]}
+    conclusion = {"items": [{"activity_name": walked, "summary": "到公司了。", "memories": [], "views": []}],
+                  "errands": []}
     office_requests = await _decide(environment, second, arrived, "conclude_activity", conclusion)
     office_schema = _action_schema(office_requests[0])
     assert office_schema == _action_schema(home_requests[0])

@@ -106,6 +106,68 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     engine.state = staged
 
 
+def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
+    """预置人物的未完成个人事务（只置 AgentState.errands，键为事务身份，替换原有的事务）并保持存储版本连续：用于需要
+    指定记下时刻、累计量与提醒状态的用例。状态副本与一条系统可见的测试事件同一提交落库。"""
+    from worldmock.footprints.models import EventDraft
+
+    staged = engine.state.model_copy(deep=True)
+    staged.agents[agent_id] = staged.agents[agent_id].model_copy(
+        update={"errands": {item.errand_id: item for item in errands}}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_errands_staged"})])
+    engine.state = staged
+
+
+def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 1) -> str:
+    """经 FootprintStore 补登一条旧形状的控制请求及其结果（世界结构 8 的写法：带 items 而缺请求级 errands）：照该人物最近
+    一次 tool 请求的逐项内容，同一决策、动作身份另起，请求摘要按同一算法对旧形状重算，结果照原结果；世界状态不变、版本
+    加一。引擎自己写不出这种记录，只用于核对各读取方对旧记录的拒绝（docs/dev/SPEC-errands-workday.md 2.3、2.9）。
+    返回补登的动作身份。"""
+    import hashlib
+
+    from worldmock.footprints.models import EventDraft
+
+    requested = [event for event in engine.store.read_agent_events("action_requested", agent_id)
+                 if event.data["tool_name"] == tool][-1]
+    result = next(event for event in engine.store.read_agent_events("action_result", agent_id)
+                  if event.action_id == requested.action_id)
+    request = {"items": requested.data["request"]["items"]}
+    content = json.dumps({"tool_name": tool, "request": request}, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode()
+    action_id = f"{requested.action_id}-legacy"
+    data = {**requested.data, "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
+    staged = engine.state.model_copy(deep=True)
+    staged.version += 1
+    shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "decision_id": requested.decision_id,
+              "action_id": action_id}
+    engine.store.commit(staged.model_dump(mode="json"), [
+        EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
+        EventDraft(event_type="action_result", data={**result.data, "action_id": action_id}, **shared)])
+    engine.state = staged
+    return action_id
+
+
+def errand_add(name: str, item: str, outcome: str = "取得", quantity: int = 1, memo=None, remind_time=None) -> dict:
+    """一条「新增」事务变更（请求形状的八键字典）：完成依据为结果种类、商品名与份数，原因为 null。"""
+    return {"change": "新增", "name": name, "outcome": outcome, "item": item, "quantity": quantity, "memo": memo,
+            "remind_time": remind_time, "reason": None}
+
+
+def errand_update(name: str, memo=None, remind_time=None) -> dict:
+    """一条「更新」事务变更：按待办层名称点名，只替换备注与提醒钟点（null 即清空），完成依据与原因为 null。"""
+    return {"change": "更新", "name": name, "outcome": None, "item": None, "quantity": None, "memo": memo,
+            "remind_time": remind_time, "reason": None}
+
+
+def errand_cancel(name: str, reason: str) -> dict:
+    """一条「取消」事务变更：按待办层名称点名并写原因，其余键为 null。"""
+    return {"change": "取消", "name": name, "outcome": None, "item": None, "quantity": None, "memo": None,
+            "remind_time": None, "reason": reason}
+
+
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
@@ -302,32 +364,36 @@ def _summaries(names: tuple[str, ...], summary) -> list[str]:
     return list(summary) if isinstance(summary, (list, tuple)) else [summary for _ in names]
 
 
-def report_request(*names: str, summary="继续。"):
-    """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}。"""
+def report_request(*names: str, summary="继续。", errands=()):
+    """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}；请求级 errands 是个人事务
+    变更（errand_add、errand_update、errand_cancel 构造的八键字典），缺省为空列表。"""
     from worldmock.life.models import ReportStatusRequest
 
     return ReportStatusRequest(items=[{"activity_name": name, "summary": text}
-                                      for name, text in zip(names, _summaries(names, summary), strict=True)])
+                                      for name, text in zip(names, _summaries(names, summary), strict=True)],
+                               errands=list(errands))
 
 
-def pause_request(*names: str, summary="先停一下。"):
-    """暂停所点名活动的请求：一项一个对象 {activity_name, summary}。"""
+def pause_request(*names: str, summary="先停一下。", errands=()):
+    """暂停所点名活动的请求：一项一个对象 {activity_name, summary}；请求级 errands 缺省为空列表。"""
     from worldmock.life.models import PauseActivityRequest
 
     return PauseActivityRequest(items=[{"activity_name": name, "summary": text}
-                                       for name, text in zip(names, _summaries(names, summary), strict=True)])
+                                       for name, text in zip(names, _summaries(names, summary), strict=True)],
+                                errands=list(errands))
 
 
-def conclude_request(*names: str, summary="收尾。", memories=None, views=None):
+def conclude_request(*names: str, summary="收尾。", memories=None, views=None, errands=()):
     """结束所点名活动的请求：一项一个对象 {activity_name, summary, memories, views}；memories 与 views 逐项给出
-    （与 names 等长的列表的列表），默认都不写。"""
+    （与 names 等长的列表的列表），默认都不写；请求级 errands 缺省为空列表。"""
     from worldmock.life.models import ConcludeActivityRequest
 
     memories = memories if memories is not None else [[] for _ in names]
     views = views if views is not None else [[] for _ in names]
     return ConcludeActivityRequest(items=[
         {"activity_name": name, "summary": text, "memories": list(group), "views": list(seen)}
-        for name, text, group, seen in zip(names, _summaries(names, summary), memories, views, strict=True)])
+        for name, text, group, seen in zip(names, _summaries(names, summary), memories, views, strict=True)],
+        errands=list(errands))
 
 
 def pending_names(observed: dict) -> list[str]:

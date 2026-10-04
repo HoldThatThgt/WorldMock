@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 
 import pytest
@@ -330,7 +331,7 @@ def _layered_observation(identity, sequence, **extra):
     data = {
         'tool_layer': {'layer': '工具层', 'targets': [{'name': '自己', 'kind': 'self', 'phase': None, 'state': None,
                                                        'actions': [], 'tools': []}]},
-        'todo_layer': {'layer': '待办层', 'paused_activities': [], 'day_plan': None},
+        'todo_layer': {'layer': '待办层', 'paused_activities': [], 'errands': [], 'day_plan': None},
         'environment_layer': {'layer': '环境层', 'observed_at': '2026-01-05T07:30:00+08:00',
                               'body': {'appetite': '不饿', 'sleepiness': '清醒', 'entertainment': '平常',
                                        'social': '平常', 'mood': '平静'},
@@ -482,7 +483,7 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
     request = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。',
                           'memories': [{'type': 'reflection', 'text': _SECRET, 'importance': 0.6, 'keywords': ['辞职']}],
                           'views': [{'type': 'relationship', 'about': '王磊', 'text': _OPINION, 'importance': 0.5,
-                                     'keywords': ['同事']}]}]}
+                                     'keywords': ['同事']}]}], 'errands': []}
     requested, action, intent, dreams = _conclusion_windows(tmp_path, request)
 
     assert action['target']['request'] == requested
@@ -516,8 +517,82 @@ def test_retired_control_request_shapes_are_rejected_by_delivery(tmp_path):
             _public_event_data({'event_type': 'action_requested', 'data': {'tool_name': tool, 'request': request}})
     for tool in ('report_status', 'pause_activity'):
         shown = _public_event_data({'event_type': 'action_requested', 'data': {
-            'tool_name': tool, 'request': items, 'self_note': '收个尾。'}})
+            'tool_name': tool, 'request': {**items, 'errands': []}, 'self_note': '收个尾。'}})
         assert shown == {'tool_name': tool, 'request': items, 'self_note': '收个尾。'}
+
+
+def test_control_requests_without_errands_are_rejected_by_delivery(tmp_path):
+    """带 items 而缺请求级 errands 的控制请求是旧形状记录（docs/dev/SPEC-errands-workday.md 2.3、2.9）：交付构造窗口时经
+    control_items 以完整性故障拒绝，不当作没有事务变更的现行请求放行；三个控制工具的请求事件投影同样拒绝。带空 errands
+    的同一请求照常构造动作、意图与三个 dreaming 窗口，投影不带 errands。"""
+    lacking = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。', 'memories': [], 'views': []}]}
+    with pytest.raises(IntegrityError, match='conclude_activity request lacks errands'):
+        _conclusion_windows(tmp_path, lacking)
+    for tool in ('report_status', 'pause_activity', 'conclude_activity'):
+        items = {'items': [{'activity_name': _MINUTES, 'summary': '纪要写完了。',
+                            **({'memories': [], 'views': []} if tool == 'conclude_activity' else {})}]}
+        with pytest.raises(IntegrityError, match=f'{tool} request lacks errands'):
+            _public_event_data({'event_type': 'action_requested', 'data': {'tool_name': tool, 'request': items}})
+    current = {**lacking, 'errands': []}
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, current)
+    assert action['target']['request'] == requested and requested['data']['request'] == current
+    trimmed = {'tool_name': 'conclude_activity', 'request': {'items': [{'activity_name': _MINUTES,
+                                                                        'summary': '纪要写完了。'}]}}
+    assert _trimmed_shown(action, intent, dreams) == [trimmed] * 4
+
+
+_SECOND_SECRET = '其实早就不想做这份报表了。'
+_SECOND_OPINION = '李凡总把活推给别人。'
+_REPORT = '工作整理周报表（1月5日 10:00 起）'
+#: 规格 2.2 示例里的一条事务新增（请求级 errands 的一项，八键）。
+_KIT_ERRAND = {'change': '新增', 'name': '补一份素炒什锦食材包', 'outcome': '取得', 'item': '素炒什锦食材包',
+               'quantity': 1, 'memo': '下班前下单送到家', 'remind_time': '17:00', 'reason': None}
+
+
+def _two_item_conclusion() -> dict:
+    """结束两项活动的收尾请求：每项都写一条收尾记忆与一条看法，请求级 errands 记下一条事务。"""
+    def item(name: str, summary: str, secret: str, about: str, opinion: str) -> dict:
+        """一项：活动名、自述、一条收尾记忆与一条关于 about 的看法。"""
+        return {'activity_name': name, 'summary': summary,
+                'memories': [{'type': 'reflection', 'text': secret, 'importance': 0.6, 'keywords': ['工作']}],
+                'views': [{'type': 'relationship', 'about': about, 'text': opinion, 'importance': 0.5,
+                           'keywords': ['同事']}]}
+    return {'items': [item(_MINUTES, '纪要写完了。', _SECRET, '王磊', _OPINION),
+                      item(_REPORT, '周报表也交了。', _SECOND_SECRET, '李凡', _SECOND_OPINION)],
+            'errands': [dict(_KIT_ERRAND)]}
+
+
+def test_intent_and_dreaming_projections_drop_memories_views_and_errands_and_leave_the_event_intact(tmp_path):
+    """意图与 dreaming 窗口输入里的收尾请求投影恒不带请求级 errands，两项都只留 activity_name 与 summary（每一项的
+    memories 与 views 都裁去，不只第一项），与 memories、views 同等对待（docs/dev/SPEC-errands-workday.md 2.9）；投影写进
+    新字典，构造完动作、意图与三个 dreaming 窗口之后，原请求事件逐键不变，仍带完整的两项与 errands。"""
+    request = _two_item_conclusion()
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, copy.deepcopy(request))
+
+    trimmed = {'tool_name': 'conclude_activity', 'request': {'items': [
+        {'activity_name': _MINUTES, 'summary': '纪要写完了。'}, {'activity_name': _REPORT, 'summary': '周报表也交了。'}]}}
+    assert len(dreams) == 3
+    shown = [next(row for row in record['input']['events'] if row['event_id'] == 'target')['data']
+             for record in (intent, *dreams)]
+    assert shown == [trimmed] * 4
+    hidden = (_SECRET, _OPINION, _SECOND_SECRET, _SECOND_OPINION, _KIT_ERRAND['name'], _KIT_ERRAND['memo'])
+    for record in (action, intent, *dreams):
+        assert not [text for text in hidden if text in str(record['input'])]
+    assert requested['data'] == {'tool_name': 'conclude_activity', 'request': request}
+
+
+def test_the_action_target_keeps_the_full_control_request(tmp_path):
+    """动作窗口的目标是同一个请求事件，保留完整请求（两项的记忆与看法、请求级 errands）；之后构造意图与 dreaming 窗口的
+    投影不改动它，意图窗口的目标也是同一事件（docs/dev/SPEC-errands-workday.md 2.9「动作窗口的目标保留完整请求」）。"""
+    request = _two_item_conclusion()
+    requested, action, intent, dreams = _conclusion_windows(tmp_path, copy.deepcopy(request))
+
+    assert intent['input']['events'] and len(dreams) == 3
+    assert action['target']['request'] is requested and intent['target']['request'] is requested
+    kept = action['target']['request']['data']['request']
+    assert kept == request and kept['errands'] == [_KIT_ERRAND]
+    assert [[memory['text'] for memory in item['memories']] for item in kept['items']] == [[_SECRET], [_SECOND_SECRET]]
+    assert [[view['text'] for view in item['views']] for item in kept['items']] == [[_OPINION], [_SECOND_OPINION]]
 
 
 def test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started(tmp_path):
@@ -624,7 +699,8 @@ def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_win
     observed = _layered_observation('observed', 1)
     requested = event('requested', 3, 'action_requested', {
         'tool_name': 'conclude_activity', 'request': {'items': [
-            {'activity_name': '等待（1月5日 07:30 起）', 'summary': '歇好了。', 'memories': [], 'views': []}]},
+            {'activity_name': '等待（1月5日 07:30 起）', 'summary': '歇好了。', 'memories': [], 'views': []}],
+            'errands': []},
         'request_sha256': 'e' * 64, 'reused': False, 'self_note': None})
     requested['action_id'] = 'conclude'
     prompt = decision_prompt(requested, (observed, requested))
@@ -685,3 +761,64 @@ def test_plan_day_request_never_becomes_a_decision_prompt_or_window_input(tmp_pa
     assert action['provenance']['decision_prompt_event_id'] == prompt['event_id']
     for record in (action, intent):
         assert '零点计划输入' not in str(record['input']) and 'day_plan_generated' not in str(record['input'])
+
+
+def _reflection_request(identity, sequence, retry_of=None):
+    """就寝反思的一次模型请求：不带 purpose，思考关闭，工具唯一为 submit_reflection；校验重试的请求另带附回的 user 消息。"""
+    messages = [{'role': 'system', 'content': 'Reflect on a simulated person\'s recent memories.'},
+                {'role': 'user', 'content': '<memory_reflection_input>{"episodes":[]}</memory_reflection_input>'}]
+    if retry_of:
+        messages.append({'role': 'user', 'content': '{"VALIDATION_ERROR":"' + retry_of + '"}'})
+    return event(identity, sequence, 'model_request', {'phase': 'request', 'call_id': identity, 'request': {
+        'model': 'fixture', 'messages': messages, 'tool_choice': 'required',
+        'extra_body': {'thinking': {'type': 'disabled'}},
+        'tools': [{'type': 'function', 'function': {'name': 'submit_reflection', 'parameters': {}}}]}},
+        visibility='system')
+
+
+def test_reflection_requests_after_the_action_never_become_the_decision_prompt(tmp_path):
+    """含就寝反思的决策，其交付窗口的决策提示仍是动作之前的行动请求（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。
+
+    醒来那一轮先登记收尾请求，记忆运行时随后才发出就寝反思（一次不合合同、一次重试）：两条反思请求同样不带 purpose、
+    带工具，但事件序号都在 action_requested 之后。动作、意图与 dreaming 窗口取的都是动作之前最后一份不带 purpose 的
+    请求（工具含 conclude_activity 的行动请求）；反思的请求、响应与提示文字不进任何窗口输入。"""
+    observed = _layered_observation('visible', 1)
+    request = {'items': [{'activity_name': _MINUTES, 'summary': '睡醒了。', 'memories': [], 'views': []}],
+               'errands': []}
+    requested = event('target', 2, 'action_requested', {'tool_name': 'conclude_activity', 'request': request})
+    requested['action_id'] = 'conclude'
+    first = _reflection_request('reflection-1', 3)
+    refused = event('reflection-1-response', 4, 'model_response', {'phase': 'response', 'call_id': 'reflection-1'},
+                    visibility='system')
+    retry = _reflection_request('reflection-2', 5, retry_of='response must contain exactly one tool call')
+    written = event('memory', 6, 'memory_updated', {
+        'operation': 'append_episodes', 'trigger': ['reflection'], 'decision_id': 'decision',
+        'episodes': [{'id': 'm1', 'type': 'reflection', 'text': _SECRET, 'epistemic_status': 'subjective',
+                      'source': 'reflection'}]}, visibility='system')
+    completed = event('completed', 7, 'action_result', {'status': 'completed', 'message': 'Activities concluded'})
+    completed['action_id'] = 'conclude'
+    prompt = decision_prompt(requested, (observed, requested, first, refused, retry, written, completed))
+    rows = (observed, prompt, requested, first, refused, retry, written, completed)
+    assert [row['event_seq'] for row in rows] == list(range(1, 9))
+    assert prompt['event_seq'] < requested['event_seq'] < first['event_seq'] < retry['event_seq']
+    indexed = {row['event_id']: row for row in rows}
+    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': completed['event_seq'],
+                'window': {'start': '1970-01-01T08:00:00+08:00', 'end': '1970-01-02T08:00:00+08:00',
+                           'timezone': 'Asia/Shanghai'},
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+
+    action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
+                                     (manifest, tmp_path, indexed))
+    dreams = _dream_windows(list(rows), manifest, tmp_path, indexed)
+
+    for record in (action, intent):
+        assert record['provenance']['decision_prompt_event_id'] == prompt['event_id']
+        assert record['input']['decision_prompt'] == prompt['data']['request']
+        assert [tool['function']['name'] for tool in record['input']['decision_prompt']['tools']] == [
+            'conclude_activity']
+    assert len(dreams) == 3
+    for record in dreams:
+        assert [source['event_id'] for source in record['provenance']['decision_layer_sources']] == [prompt['event_id']]
+    for record in (action, intent, *dreams):
+        assert 'submit_reflection' not in str(record['input']) and 'memory_reflection_input' not in str(record['input'])
+        assert not {'reflection-1', 'reflection-2'} & set(record['provenance']['source_event_ids'])

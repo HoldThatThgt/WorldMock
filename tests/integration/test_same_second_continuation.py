@@ -26,13 +26,18 @@ from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from custom.agents.life_continuation import layer_changes, send_check  # noqa: E402
+from custom.agents.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view)
 from tests.life.conftest import (advance_next, advance_until_ready, context,  # noqa: E402
-                                 engine_factory as _engine_factory, pending_names,  # noqa: F401
-                                 stage_day_plan, start_activity, start_arguments, wake_by_mail)
+                                 engine_factory as _engine_factory, errand_add, errand_cancel,  # noqa: F401
+                                 errand_update, pending_names, stage_day_plan, start_activity, start_arguments,
+                                 wake_by_mail)
+from tests.life.routing_fixtures import MARKET, place  # noqa: E402
+from tests.life.test_errand_completion import MILK, home, market  # noqa: E402
+from tests.life.work_schedule_fixtures import declare  # noqa: E402
+from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.continuation import _session_changed  # noqa: E402
@@ -218,6 +223,26 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
 
 
 @pytest.mark.asyncio
+async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes(_engine_factory) -> None:
+    """同秒续接内时钟不动，环境层 duty 与所在地点一样在链内不变、不进 changes（docs/dev/SPEC-errands-workday.md 4.4）：
+    有工作安排的人物在周一零点先修订今日计划、同一秒再开始等待；链首 user 消息的环境层带非空 duty（未到上班时间），两次
+    观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里的今日计划，不带 duty，也不重述班次。"""
+    engine = _engine_factory(mutate=declare())
+    run = await _plan_then_wait(engine)
+    [previous], [request] = run["first"], run["second"]
+    head = json.loads(previous["messages"][1]["content"])[4]
+    assert head["layer"] == "环境层" and head["duty"]["status"] == "未到上班时间"
+    assert head["duty"]["hours"] == "09:00–18:00"
+    first, second = engine.store.read_agent_events("observation", 1)[-2:]
+    assert first.data["environment_layer"]["duty"] == second.data["environment_layer"]["duty"] == head["duty"]
+    assert run["observation"]["environment_layer"]["duty"] == head["duty"]
+    assert request["messages"][1] == previous["messages"][1]
+    tool = request["messages"][-1]
+    assert tool["role"] == "tool" and list(json.loads(tool["content"])["changes"]) == ["day_plan"]
+    assert "duty" not in tool["content"] and "09:00–18:00" not in tool["content"]
+
+
+@pytest.mark.asyncio
 async def test_another_persons_same_second_message_appears_once_in_the_whole_request(_engine_factory) -> None:
     """他人同秒发来的消息只在续接的 tool 消息 events 中出现一次（带全文），链首快照里没有它。"""
     engine = _engine_factory("multi-person.json")
@@ -328,7 +353,7 @@ async def test_a_same_second_departure_breaks_the_chain(_engine_factory) -> None
     def report(observation: dict) -> list:
         walk = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
         return [_reply("call-road", "report_status", {"items": [
-            {"activity_name": walk, "summary": "在路上了。"}]}, "边走边看消息。")]
+            {"activity_name": walk, "summary": "在路上了。"}], "errands": []}, "边走边看消息。")]
 
     contexts = [context(engine, "on-road", agent_id) for agent_id in engine.scheduling_state().ready_agent_ids]
     engine.begin_decision_round(contexts)
@@ -631,8 +656,9 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
 
 
 def _ended(names: list[str], summary: str) -> dict:
-    """给点名的活动收尾的参数：一项一个对象，写同一句自述，不写记忆与看法。"""
-    return {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []} for name in names]}
+    """给点名的活动收尾的参数：一项一个对象，写同一句自述，不写记忆与看法；没有个人事务变更。"""
+    return {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []} for name in names],
+            "errands": []}
 
 
 def _views() -> list[dict]:
@@ -654,7 +680,8 @@ async def test_changes_overlay_relationships_and_preferences_so_later_tool_messa
 
     def conclude(observation: dict) -> list:
         [name] = pending_names(observation)
-        arguments = {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": _views()}]}
+        arguments = {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": _views()}],
+                     "errands": []}
         return [_reply("call-end", "conclude_activity", arguments, "等完了，记下看法。")]
 
     head, _, _ = await _single(environment, "end", conclude)
@@ -703,7 +730,7 @@ async def test_real_pause_and_body_changes_reach_the_next_tool_message_once(_eng
     def pause(observation: dict) -> list:
         name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
         return [_reply("call-pause", "pause_activity", {"items": [
-            {"activity_name": name, "summary": "先停一下。"}]}, "邮件来了。")]
+            {"activity_name": name, "summary": "先停一下。"}], "errands": []}, "邮件来了。")]
 
     head, _, _ = await _single(environment, "pause", pause)
     paused, [second], _ = await _single(environment, "refused", _unavailable)
@@ -718,6 +745,102 @@ async def test_real_pause_and_body_changes_reach_the_next_tool_message_once(_eng
     assert later["body"] == observation["environment_layer"]["body"] and later["body"]["mood"] == "有点烦"
     assert "paused_activities" not in later
     assert observation["todo_layer"]["paused_activities"] == [item]
+
+
+#: 同一秒续接链里新增的两条个人事务（正式目录里的真实商品）：一条带备注与提醒钟点，一条要取得三份。
+_KIT_ERRAND = errand_add("周末补食材包", "素炒什锦食材包", memo="下班顺路去超市", remind_time="18:00")
+_TEA_ERRAND = errand_add("囤一箱冰红茶", "康师傅 冰红茶", quantity=3)
+
+
+@pytest.mark.asyncio
+async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_engine_factory) -> None:
+    """同一秒三次真实决策（docs/dev/SPEC-errands-workday.md 2.6「同秒续接」）：邮件唤醒时暂停进行中的等待并新增两条个人
+    事务，下一次决策的 tool 消息以 changes.errands.added 交还两条完整的待办层行（与那一刻观察的待办层逐字相同）；第二次
+    决策结束暂停的等待，同时更新一条的备注（提醒钟点清空）、取消另一条，再下一条 tool 消息的 changes 只写 errands 的
+    added（内容有变的那条完整行）与 removed（被取消的名称），不重复上一条已交还的行。两条 tool 消息的 result 各带按请求
+    顺序的回执；链首快照的待办层始终没有事务（续接前缀逐字节不变），叠加两次 changes 后模型所见的事务与第三次观察的
+    待办层相同。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    environment = _environment(engine)
+    await _single(environment, "wait", _wait_reply(reasoning="先等一刻钟。"))
+    wake_by_mail(engine, offset=300)
+    advance_next(engine)
+
+    def pause(observation: dict) -> list:
+        name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
+        return [_reply("call-pause", "pause_activity", {"items": [{"activity_name": name, "summary": "先停一下。"}],
+                                                        "errands": [_KIT_ERRAND, _TEA_ERRAND]}, "先把要买的记下。")]
+
+    def conclude(observation: dict) -> list:
+        [paused] = observation["todo_layer"]["paused_activities"]
+        changes = [errand_update("周末补食材包", memo="周六上午去菜场"), errand_cancel("囤一箱冰红茶", "家里还有半箱")]
+        return [_reply("call-end", "conclude_activity", {**_ended([paused["name"]], "不等了。"), "errands": changes},
+                       "改个主意。")]
+
+    head, _, _ = await _single(environment, "pause", pause)
+    noted, [second], _ = await _single(environment, "end", conclude)
+    observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
+    rows = noted["todo_layer"]["errands"]
+    assert head["todo_layer"]["errands"] == [] and [row["name"] for row in rows] == ["周末补食材包", "囤一箱冰红茶"]
+    earlier = _tool_payload(second)
+    assert earlier["changes"]["errands"] == {"added": rows}
+    assert earlier["result"]["details"]["errands"] == [{"errand": "周末补食材包", "change": "新增"},
+                                                       {"errand": "囤一箱冰红茶", "change": "新增"}]
+    [kit] = observation["todo_layer"]["errands"]
+    assert (kit["name"], kit["memo"], kit["remind_time"]) == ("周末补食材包", "周六上午去菜场", None)
+    later = _tool_payload(third)
+    assert later["changes"]["errands"] == {"added": [kit], "removed": ["囤一箱冰红茶"]}
+    assert later["result"]["details"]["errands"] == [{"errand": "周末补食材包", "change": "更新"},
+                                                     {"errand": "囤一箱冰红茶", "change": "取消"}]
+    assert third["messages"][:len(second["messages"])] == second["messages"]
+    chain_head = json.loads(third["messages"][1]["content"])
+    assert chain_head[3]["layer"] == "待办层" and chain_head[3]["errands"] == []
+    seen = _overlay(_overlay(_seen(chain_head), earlier["changes"]), later["changes"])
+    assert seen["errands"] == {kit["name"]: kit}
+
+
+@pytest.mark.asyncio
+async def test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events(
+        _engine_factory) -> None:
+    """同一秒三次真实决策（docs/dev/SPEC-errands-workday.md 2.4、2.6「同秒续接」）：人物在集市，邮件唤醒时结束进行中的
+    等待并新增「买一盒纯牛奶」（取得纯牛奶 1 份）；第二次决策到店买下一份，买下的那次提交里事务办成，写一条人物可见、
+    不带决策与动作身份的 errand_completed。第三次决策的 tool 消息里，这次办成作为 events 里一条只写名称的
+    errand_completed 记录恰好出现一次，changes 写这条事务从待办层移除；整次请求里办成记录只此一处，链首快照与前一条
+    tool 消息都没有它。第三次观察的进度层同样只有这一条办成记录，待办层没有事务。"""
+    engine = home(_engine_factory, {})
+    place(engine, 1, MARKET)
+    environment = _environment(engine)
+    await _single(environment, "wait", _wait_reply(reasoning="在集市等一会儿。"))
+    wake_by_mail(engine, offset=60)
+    advance_next(engine)
+    errand = errand_add("买一盒纯牛奶", MILK, memo="就在这家买")
+
+    def conclude(observation: dict) -> list:
+        name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
+        return [_reply("call-end", "conclude_activity", {**_ended([name], "不等了。"), "errands": [errand]},
+                       "想起要买奶。")]
+
+    buy = start_arguments([MILK], ["obtain"], ["到店"], **{"from": [market(engine)]})
+    await _single(environment, "note", conclude)
+    noted, [second], _ = await _single(environment, "buy", [_reply("call-buy", "start_activity", buy, "就在这买。")])
+    observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
+    [completed] = [event for event in engine.store.read_agent_events("environment_event", 1)
+                   if event.data.get("kind") == "errand_completed"]
+    assert (completed.visibility, completed.decision_id, completed.action_id) == ("agent", None, None)
+    assert completed.occurred_at == engine.state.current_time and engine.state.agents[1].errands == {}
+    record = {"occurred_at": iso_time(completed.occurred_at, engine.scenario.timezone), "type": "errand_completed",
+              "errand": "买一盒纯牛奶"}
+    payload = _tool_payload(third)
+    assert [row for row in payload["events"] if row["type"] == "errand_completed"] == [record]
+    assert payload["changes"]["errands"] == {"removed": ["买一盒纯牛奶"]}
+    assert payload["result"]["status"] == "completed" and "purchases" in payload["result"]["details"]
+    marker = '"type":"errand_completed"'
+    assert [message["role"] for message in third["messages"] if marker in (message.get("content") or "")] == ["tool"]
+    assert sum((message.get("content") or "").count(marker) for message in third["messages"]) == 1
+    assert marker not in second["messages"][-1]["content"]
+    assert [row for row in observation["progress_layer"]["events"] if row["type"] == "errand_completed"] == [record]
+    assert noted["todo_layer"]["errands"] and observation["todo_layer"]["errands"] == []
 
 
 @pytest.mark.asyncio
@@ -858,7 +981,7 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
                                                    "actions": [], "tools": []}], "callable_index": {"query_categories": []}},
                 {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
-                {"layer": "待办层", "paused_activities": [], "day_plan": None},
+                {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
                 {"layer": "环境层", "body": {"appetite": body}}, {"layer": "进度层"}]
 
     call = {"id": "call-earlier", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}
@@ -890,7 +1013,7 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     def layers(targets, paused, plan, body, views):
         return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
                                                    for row in targets], "callable_index": {"query_categories": []}}, {"layer": "人设层", "relationships": views, "preferences": []},
-                {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "day_plan": plan},
+                {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "errands": [], "day_plan": plan},
                 {"layer": "环境层", "body": body}, {"layer": "进度层"}]
 
     shop, desk = {"name": "店", "state": "营业"}, {"name": "工位", "state": None}
@@ -905,6 +1028,36 @@ def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
         "paused_activities": {"removed": ["读书（9月28日 09:00 起）"]},
         "relationships": [{"person": "王磊", "view": "靠谱"}]}
     assert layer_changes(head, [], head) == {}
+
+
+def test_layer_changes_report_errand_rows_added_changed_and_removed() -> None:
+    """待办层个人事务按名称进 changes（docs/dev/SPEC-errands-workday.md 2.6「同秒续接」）：added 是此刻新增或内容有变的
+    完整行（此刻顺序），removed 是已不在待办层的名称（办成或取消）；相对模型所见，此前 changes 已移除或已写入的不再重报；
+    errands 写在 paused_activities 之后、day_plan 之前；没有改动不写。"""
+    def layers(paused, errands, plan):
+        return [{"layer": "工具层", "targets": [], "callable_index": {"query_categories": []}},
+                {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
+                {"layer": "待办层", "paused_activities": paused, "errands": errands, "day_plan": plan},
+                {"layer": "环境层", "body": {"appetite": "不饿"}}, {"layer": "进度层"}]
+
+    def row(name: str, progress: str = "已取得 0 份", memo: str | None = None) -> dict:
+        return {"name": name, "done_when": f"取得{name} 1 份", "progress": progress, "memo": memo,
+                "remind_time": None, "noted_on": "2026-01-05"}
+
+    kit, tea, meal = row("食材包"), row("冰红茶"), row("素炒什锦")
+    paused = {"name": "读书（9月28日 09:00 起）", "place": "家"}
+    head = layers([paused], [kit, tea], None)
+    earlier = {"errands": {"removed": ["冰红茶"], "added": [meal]}}
+    noted = {**kit, "memo": "下班前下单"}
+    plan = {"date": "2026-01-05", "goals": []}
+    current = layers([], [noted, meal, row("牛奶")], plan)
+    changes = layer_changes(head, [earlier], current)
+    assert changes == {"paused_activities": {"removed": ["读书（9月28日 09:00 起）"]},
+                       "errands": {"added": [noted, row("牛奶")]}, "day_plan": plan}
+    assert list(changes) == ["paused_activities", "errands", "day_plan"]
+    assert layer_changes(head, [earlier], layers([paused], [meal], None)) == {"errands": {"removed": ["食材包"]}}
+    assert layer_changes(head, [], layers([paused], [kit, tea], None)) == {}
+    assert layer_changes(head, [earlier, {"errands": {"added": [noted]}}], layers([paused], [noted, meal], None)) == {}
 
 
 @pytest.mark.parametrize("switch", [None, 1, "on"])

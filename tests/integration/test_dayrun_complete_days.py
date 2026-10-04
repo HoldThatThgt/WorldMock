@@ -25,10 +25,12 @@ from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResp
 from tests.integration.test_unique_presence_run import _assert_once_each, _assert_readable, _identities
 from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.test_scheduling import _document, _write_scenario, _identity
+from worldmock.delivery.windows import prepare_windows
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.experiences import project_verified_experiences
+from worldmock.life.decision_start import is_action_request
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import REQUEST_MODELS, ActivityStatus
 from worldmock.life.narration import render_layer_json
@@ -40,6 +42,11 @@ _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
 #: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
 _DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None, "around_time": None},
               {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None, "around_time": None}]
+#: 这些种子的就寝反思首次不合合同（自由文本、没有工具调用），经一次校验重试改正（docs/dev/SPEC-errands-workday.md 1.1）：
+#: 两人的附回消息逐字相同、分处两条（人物，秒）续接链，观察重复门禁仍须为 1。
+_REFLECTION_RETRY_SEEDS = frozenset({20260106})
+#: 自由文本应答换来的英文校验错误（附回消息 VALIDATION_ERROR 的原文）。
+_ONE_CALL = "response must contain exactly one submit_reflection tool call"
 
 
 class _PlanDayClient(StubPlanDayClient):
@@ -83,9 +90,11 @@ class DayModel:
 
     async def call(self, **request):
         self.requests += 1
-        if "tools" not in request:
+        functions = {item["function"]["name"]: item["function"] for item in request.get("tools", [])}
+        if list(functions) == ["submit_reflection"]:
+            return self._reflection(request)
+        if not functions:
             return self._text(request)
-        functions = {item["function"]["name"]: item["function"] for item in request["tools"]}
         self.layers = json.loads(request["messages"][1]["content"])
         self.layers[0] = expand_tool_layer(self.layers[0])
         if not self.invalid_action_sent:
@@ -104,12 +113,20 @@ class DayModel:
         return _ModelResponse(f"call-{self.agent_id}-{self.requests}", action,
                               json.dumps(payload, ensure_ascii=False))
 
+    def _reflection(self, request):
+        """就寝反思：工具唯一为 submit_reflection，以这一个工具调用作答，引用输入里的第一条记忆。种子在
+        _REFLECTION_RETRY_SEEDS 中时，每次反思的首个请求（只有原始的 system 与 user 两条消息）先以没有工具调用的
+        自由文本作答，带附回消息的校验重试再以工具调用作答。"""
+        if self.seed in _REFLECTION_RETRY_SEEDS and len(request["messages"]) == 2:
+            return _TextResponse("我希望继续留意自己的感受。")
+        user = request["messages"][1]["content"]
+        payload = json.loads(user.split("<memory_reflection_input>")[1].split("</memory_reflection_input>")[0])
+        insights = [{"insight": "我希望继续留意自己的感受。", "refs": [payload["episodes"][0]["id"]]}]
+        return self._response("submit_reflection", {"insights": insights})
+
     def _text(self, request):
+        """不带工具的记忆运行时请求（阈值巩固）以一句纯文本作答。"""
         user = request["messages"][-1]["content"]
-        if "memory_reflection_input" in user:
-            payload = json.loads(user.split("<memory_reflection_input>")[1].split("</memory_reflection_input>")[0])
-            response = [{"insight": "我希望继续留意自己的感受。", "refs": [payload["episodes"][0]["id"]]}]
-            return _TextResponse(json.dumps(response, ensure_ascii=False))
         if "current_subjective_summary" in user:
             return _TextResponse("我希望把想法与实际经历分开。")
         return _TextResponse("我按眼前的情况决定接下来做什么。")
@@ -164,7 +181,8 @@ class DayModel:
         return next(name for name in self._objects() if name.startswith("地点：") and label in name)
 
     def _control(self, action, names):
-        return action, {"items": [{"activity_name": name, "summary": "按当前进展继续。"} for name in names]}
+        return action, {"items": [{"activity_name": name, "summary": "按当前进展继续。"} for name in names],
+                        "errands": []}
 
     def _conclude(self, names):
         """收尾点名的活动（一项一个对象）；第一次收尾顺带写下唯一一条主观记忆（来源由系统登记，记忆不带任何身份）。"""
@@ -173,7 +191,7 @@ class DayModel:
             items[0]["memories"] = [{"type": "reflection", "importance": 0.2, "keywords": ["猜想"],
                                      "text": "我以为自己已经吃过一顿饭。"}]
             self.subjective_written = True
-        return "conclude_activity", {"items": items}
+        return "conclude_activity", {"items": items, "errands": []}
 
     def _before_lunch(self, hour):
         running = self._running()
@@ -358,10 +376,74 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert any(event.event_type == "model_response" and event.data.get("error") for event in events)
     assert exported["experiment_completed"]
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
-    assert quality["schema_version"] == 3
+    assert quality["schema_version"] == 4
+    # 这一天两人都没有记下个人事务：事务指标没有样本，按质量报告的空值约定为 null（docs/dev/SPEC-errands-workday.md 6.1）。
+    assert quality["errand_metrics"] is None
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
     _assert_decision_events(events, _identities(engine))
+    retried = {model.seed in _REFLECTION_RETRY_SEEDS for model in models.values()}
+    assert len(retried) == 1
+    _assert_reflection_requests(events, tmp_path / "export", retried.pop())
+
+
+def _tool_names(event) -> list[str]:
+    """一条模型请求事件实际开放的工具名（没有工具时为空列表）。"""
+    return [tool["function"]["name"] for tool in event.data["request"].get("tools") or []]
+
+
+def _is_decision_request(event) -> bool:
+    """人物决策循环发出的请求：不带 purpose 且工具中有 start_activity（含最后一个回合与截断重试）。
+
+    记忆巩固不带工具，就寝反思只带 submit_reflection，都不带 purpose，按工具中没有 start_activity 排除
+    （docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。"""
+    return (event.event_type == "model_request" and not event.data.get("purpose")
+            and "start_activity" in _tool_names(event))
+
+
+def _assert_reflection_requests(events, export_dir, retried):
+    """规格 1.1：真实日运行里就寝反思经唯一严格工具提交——请求不带 purpose、思考关闭、tool_choice=required，不是
+    行动请求、不产生 decision_started；洞见落进带 source=reflection 快照的 memory_updated；含反思的决策，其动作与意图
+    窗口的决策提示仍是该决策里工具含 start_activity 的那份请求。retried 时每次反思恰有一次校验重试：两人的附回消息
+    逐字相同、分处两条（人物，秒）续接链（_assert_decision_events 已断言观察重复门禁仍为 1）。"""
+    reflections = [event for event in events if event.event_type == "model_request"
+                   and _tool_names(event) == ["submit_reflection"]]
+    assert {event.agent_id for event in reflections} == {1, 2}
+    assert set(Counter(event.decision_id for event in reflections).values()) == {2 if retried else 1}
+    retries = [event for event in reflections if len(event.data["request"]["messages"]) == 3]
+    assert len(retries) == (len(reflections) // 2 if retried else 0)
+    if retried:
+        [content] = {event.data["request"]["messages"][-1]["content"] for event in retries}
+        feedback = json.loads(content)
+        assert (feedback["VALIDATION_ERROR"], feedback["PREVIOUS_INVALID_RESPONSE"]) == (_ONE_CALL, [])
+        assert len({(event.agent_id, event.occurred_at) for event in retries}) == len(retries) >= 2
+    started = Counter(event.decision_id for event in events if event.event_type == "decision_started")
+    for event in reflections:
+        request = event.data["request"]
+        assert request["tool_choice"] == "required" and request["tools"][0]["function"]["strict"] is True
+        assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+        assert not event.data.get("purpose") and "purpose" not in request
+        assert is_action_request(request) is False
+        assert started[event.decision_id] == 1
+        assert not [item for item in events if item.event_type == "decision_started"
+                    and item.decision_id == event.decision_id and item.event_seq > event.event_seq]
+    updates = [event for event in events if event.event_type == "memory_updated"
+               and any(row.get("source") == "reflection" for row in event.data["episodes"])]
+    assert {event.decision_id for event in updates} == {event.decision_id for event in reflections}
+    assert all("reflection" in event.data["trigger"] for event in updates)
+    windows = prepare_windows(export_dir)
+    for reflection in reflections:
+        [action] = [event for event in events if event.event_type == "action_requested"
+                    and event.decision_id == reflection.decision_id]
+        assert action.event_seq < reflection.event_seq
+        prompt = max((event for event in events if _is_decision_request(event)
+                      and event.decision_id == reflection.decision_id and event.event_seq < action.event_seq),
+                     key=lambda event: event.event_seq)
+        for kind in ("action", "intent"):
+            [record] = [item for item in windows[kind] if item["target"]["request"]["action_id"] == action.action_id]
+            assert record["provenance"]["decision_prompt_event_id"] == prompt.event_id != reflection.event_id
+            offered = [tool["function"]["name"] for tool in record["input"]["decision_prompt"]["tools"]]
+            assert "start_activity" in offered and "submit_reflection" not in offered
 
 
 def _assert_decision_events(events, identities):
@@ -375,8 +457,7 @@ def _assert_decision_events(events, identities):
         request = by_seq[start.event_seq + 1]
         assert (request.event_type, request.decision_id) == ("model_request", start.decision_id)
         assert request.data["request"]["extra_body"] == {"thinking": {"type": "enabled"}}
-    requests = [event for event in events if event.event_type == "model_request" and not event.data.get("purpose")
-                and event.data["request"].get("tools")]
+    requests = [event for event in events if _is_decision_request(event)]
     assert all(json.loads(event.data["request"]["messages"][0]["content"])["layer"] == "系统层" for event in requests)
     assert all(event.data["self_note"] is None for event in events if event.event_type == "action_requested")
     observations = [event for event in events if event.event_type == "observation"]
@@ -437,9 +518,7 @@ def _assert_activity_protocol(engine, events, agent_id):
     :returns: 本人暂停（随后都已恢复）的次数。
     """
     own = [event for event in events if event.agent_id == agent_id]
-    offered = [{tool["function"]["name"] for tool in event.data["request"]["tools"]} for event in own
-               if event.event_type == "model_request" and event.data.get("purpose") != "plan_day"
-               and event.data["request"].get("tools")]
+    offered = [set(_tool_names(event)) for event in own if _is_decision_request(event)]
     assert offered and all({"finish", "plan_day"}.isdisjoint(names) for names in offered)
     written = [event for event in own if event.event_type == "memory_updated"
                and any(row["text"] == "我以为自己已经吃过一顿饭。" for row in event.data["episodes"])]

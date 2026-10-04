@@ -149,7 +149,7 @@ def test_resolves_names_from_seven_layer_observation_evidence_keys(tmp_path):
     observation = _observation({
         "tool_layer": {"layer": "工具层", "targets": [{"name": "地点：公司", "kind": "location", "phase": None,
                                                     "state": None, "actions": [], "tools": []}]},
-        "todo_layer": {"layer": "待办层", "paused_activities": [], "day_plan": None},
+        "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
         "environment_layer": {"layer": "环境层", "observed_at": "2026-01-05T07:00:00+08:00",
                               "body": {"appetite": "不饿", "sleepiness": "清醒", "entertainment": "平常",
                                        "social": "平常", "mood": "平静"},

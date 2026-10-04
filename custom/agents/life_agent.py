@@ -5,8 +5,10 @@ system 与六层 user 组成；可以先做记忆查询，世界请求登记即�
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
 在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。本地校验失败写成
 宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/dev/SPEC-dayrun-fidelity.md 第四章，
-custom/agents/life_feedback.py）。思考用尽输出上限的截断回合丢弃并纠错，随后以关闭思考、强制工具调用的请求重试一次
-（7.2，custom/agents/life_truncation.py）。
+custom/agents/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
+（worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
+（docs/dev/SPEC-errands-workday.md 2.3）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
+纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，custom/agents/life_truncation.py）。
 """
 
 from __future__ import annotations
@@ -42,8 +44,9 @@ from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, read
                                        user_message)
 from custom.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, retry_due, thinking_enabled, truncated,
                                            truncation_feedback, with_feedback)
+from worldmock.life import errands
 from worldmock.life.continuation import CONTINUATION_KEY
-from worldmock.life.control_items import ControlItem, control_items
+from worldmock.life.control_items import ControlItem, control_errands, control_items
 from worldmock.life.error_contract import (HOST_NAME_CODES, Candidate, ErrorItem, ErrorReport, activity_candidate,
                                            bind_report, host_report)
 from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR
@@ -53,7 +56,7 @@ from worldmock.life.name_resolution import StartOutcome, name_book, near_names, 
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
-from worldmock.life.world_query import QueryWorldRequest, query_world, validate_world_query
+from worldmock.life.world_query import QueryWorldRequest, query_argument_report, query_world, validate_world_query
 
 
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
@@ -268,6 +271,14 @@ class LifeAgent(PersonAgent):
         """@brief 返回固定职责描述，不调用 CodeGen 世界摘要。"""
         return "A typed life simulation whose visible facts arrive through LifeEnv.observe."
 
+    async def step(self, tick: int, t: datetime) -> str:
+        """@brief 保留人物决策失败的完整异常链，便于定位真实服务故障。"""
+        try:
+            return await super().step(tick, t)
+        except Exception:
+            logging.exception("LifeAgent decision failed for agent %s", self.id)
+            raise
+
     async def _observe_environment(self) -> dict[str, Any]:
         """@brief 使用 runner 绑定上下文直接读取 LifeEnv。"""
         if self._env is None:
@@ -432,7 +443,8 @@ class LifeAgent(PersonAgent):
 
 
     def _decision_error(self, decision: ReactDecision) -> str:
-        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义。"""
+        """@brief 结构严格类型校验后按冻结观察验证工具的完整语义；查询的请求模型错误与按冻结观察仍可独立判定的筛选错误
+        同批报告。"""
         model = self._life_request_models.get(decision.action)
         if model is None:
             item = ErrorItem(("tool_calls", 0, "function", "name"), decision.action, "TOOL_CALL_REQUIRED",
@@ -442,6 +454,9 @@ class LifeAgent(PersonAgent):
         try:
             validated = _validate_request(model, decision.args)
         except ValidationError as error:
+            if decision.action == "query_world":
+                report = query_argument_report(self._life_observation, error, decision.args)
+                return host_feedback(report, "Invalid query_world arguments.")
             return argument_feedback(decision.action, error, model, decision.args)
         if decision.action == "query_world":
             report = validate_world_query(self._life_observation, validated)
@@ -486,6 +501,7 @@ class LifeAgent(PersonAgent):
         try:
             return await super()._execute_react_tool(decision, readonly=readonly)
         except Exception as error:
+            logging.exception("LifeAgent tool dispatch failed: %s", decision.action)
             index = self._life_call_positions[decision.tool_call_id]
             feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))
             raise RuntimeError(feedback) from error
@@ -667,7 +683,9 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
 
     只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。people 是同世界其他人物的姓名（不论是否同处，
     私有绑定 person_bindings），供 relationship 记忆的对象校验。回看名称是任务名、待办层写出的目标文字、活动名与
-    记忆层 self_notes 所写的活动名（活动绑定的 note_labels）。
+    记忆层 self_notes 所写的活动名（活动绑定的 note_labels）；事务名不进回看名称。个人事务变更的本地校验读两类私有事务
+    绑定原样的行：errand_bindings（本人未完成事务的名称、事务身份、结果种类与商品身份）与 errand_item_bindings（全部
+    商品名到商品身份），与环境复核读同一份冻结观察（docs/dev/SPEC-errands-workday.md 2.3）。
     """
     objects = _binding_objects(data.get("interaction_bindings"))
     tasks = _binding_names(data, "task_bindings", "task_name")
@@ -685,6 +703,8 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "progressed_intents": _progressed_intents(todo),
         "routing": routing_names(data),
         "book": name_book(data),
+        "errand_bindings": _binding_rows(data, "errand_bindings", ("name", "errand_id", "outcome", "product_id")),
+        "errand_item_bindings": _binding_rows(data, "errand_item_bindings", ("name", "product_id")),
     }
 
 
@@ -714,11 +734,17 @@ def _binding_action(item: Any) -> tuple[str, str, str]:
 
 def _binding_names(data: dict[str, Any], key: str, field: str) -> tuple[str, ...]:
     """@brief 一类私有绑定的可读名称（任务、目标、活动或会话）。"""
+    return tuple(row[field] for row in _binding_rows(data, key, (field,)))
+
+
+def _binding_rows(data: dict[str, Any], key: str, fields: tuple[str, ...]) -> tuple[dict[str, Any], ...]:
+    """@brief 一类私有绑定原样的行：列表里每行都是对象且给定字段都是字符串；缺失或形状不符是损坏的宿主观察。"""
     rows = data.get(key)
     if not isinstance(rows, list) or any(
-            not isinstance(row, dict) or not isinstance(row.get(field), str) for row in rows):
+            not isinstance(row, dict) or any(not isinstance(row.get(field), str) for field in fields) for row in rows):
+        logging.error("LifeAgent private bindings %s are invalid", key)
         raise RuntimeError(f"LifeAgent {key} are invalid")
-    return tuple(row[field] for row in rows)
+    return tuple(rows)
 
 
 def _note_labels(rows: list[dict[str, Any]]) -> tuple[str, ...]:
@@ -740,11 +766,12 @@ def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
     """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）：精确或
     无损归一后唯一即受理（docs/dev/SPEC-dayrun-fidelity.md 3.1，worldmock.life.name_resolution），找不到的逐项写成
-    NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）；控制工具的活动名与结束工具关系看法的对象一并逐项报全部。"""
+    NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）；控制工具的活动名、结束工具关系看法的对象与请求级
+    个人事务变更的问题一并逐项报全部。"""
     if action == "start_activity":
         return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
-        return _control_feedback(action, control_items(action, request), names)
+        return _control_feedback(action, request, names)
     if action == "recall_task_summary":
         return _unknown_names(("task_name", "任务、目标或活动"), [request.task_name], names["recall_names"],
                               "task_name is not visible")
@@ -757,14 +784,20 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     return _validate_plan_goals(request.goals, names["progressed_intents"])
 
 
-def _control_feedback(action: str, items: tuple[ControlItem, ...], names: dict[str, Any]) -> str:
-    """@brief 控制工具（播报、暂停、结束）逐项核对名称，全部名称类错误合并成一次纠错（docs/dev/SPEC-dayrun-fidelity.md
-    3.1 第 5 条、第四章）：各项的活动名（NAME_NOT_FOUND、NAME_AMBIGUOUS）与各项关系看法的对象（SUBJECT_NOT_KNOWN，只有结束
-    工具带看法），明细按项的先后排列，码取第一项的码；都成立时为空串。"""
+def _control_feedback(action: str, request: BaseModel, names: dict[str, Any]) -> str:
+    """@brief 控制工具（播报、暂停、结束）逐项核对名称与请求级个人事务变更，全部问题合并成一次纠错
+    （docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章；docs/dev/SPEC-errands-workday.md 2.3）：各项的活动名
+    （NAME_NOT_FOUND、NAME_AMBIGUOUS）、各项关系看法的对象（SUBJECT_NOT_KNOWN，只有结束工具带看法），再是事务变更在冻结
+    观察私有事务绑定上的问题——与环境复核同一函数 errands.change_issues（更新或取消的名称找不到或有歧义、同一事务被点名
+    两次、商品名解析不到唯一商品、新增重名、同结果同商品、超过上限），路径到 errands[j].<键>、不带候选。明细按此先后
+    排列，码取第一项的码；都成立时为空串。请求经唯一读取入口 control_items 与 control_errands 读出。"""
+    items = control_items(action, request)
     total = len(items)
+    errand_issues = errands.change_issues(control_errands(action, request), names)
     issues = [*_name_issues(("activity_name", "活动"), [item.activity_name for item in items], names["activity_names"],
                             f"{action} activity_name names an activity that is not visible"),
-              *_subject_issues(items, names["known_persons"])]
+              *_subject_issues(items, names["known_persons"]),
+              *(HostIssue(item, sentence, sentence) for item, sentence in errand_issues)]
     return merged_feedback(issues, total, _name_fixes(total)) if issues else ""
 
 

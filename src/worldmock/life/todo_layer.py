@@ -1,8 +1,12 @@
-"""@brief 待办层：暂停的活动与今日计划（docs/dev/SPEC-persona-prompt.md「待办层」）。
+"""@brief 待办层：暂停的活动、还没办完的个人事务与今日计划（docs/dev/SPEC-persona-prompt.md「待办层」，
+docs/dev/SPEC-errands-workday.md 2.6）。
 
+键序为 layer、paused_activities、errands、day_plan。
 暂停的活动按暂停时刻从老到新（同刻按 activity_paused 事件顺序：同一秒两次决策先后暂停的，先暂停的在前），带暂停时刻、
 只能回去恢复的地点、客观进度与两个控制工具（report_status 表示恢复，conclude_activity 表示结束）的可用性；人在别处时
 恢复不可用，原因点名地点。
+个人事务（没有时为空列表）按记下的时刻与事务身份排序，每行只由 errands.todo_rows 构建：名称、要办成的事、已办到哪、
+备注、尚未提醒的提醒钟点与记下的本地日期；行内不含内部身份、状态枚举与可用性。
 今日计划在零点计划生成之前或当日结束之后为 null，之后按计划顺序列出至多八个目标的意图、文字、是否已推进、提醒时刻与
 大致时刻；
 目标行不显示人物自述（PlanGoal.progress_note 照存，不进提示）。目标的回看名称就是这里写出的目标文字（visible_goals 是
@@ -12,7 +16,7 @@
 from __future__ import annotations
 
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import activity_control
+from worldmock.life import activity_control, errands
 from worldmock.life.models import ActivityState, ActivityStatus, WorldState
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.schedule import PlanGoal, epoch_clock
@@ -20,13 +24,20 @@ from worldmock.life.tool_layer import Candidate, LayerContext, availability
 
 
 def todo_layer(context: LayerContext, store: FootprintStore) -> dict:
-    """@brief 待办层 JSON：暂停的活动与今日计划。"""
+    """@brief 待办层 JSON：暂停的活动、还没办完的个人事务与今日计划。"""
     paused = [item for item in context.state.activities.values()
               if item.agent_id == context.agent_id and item.status == ActivityStatus.PAUSED]
     order = _pause_order(store, context.agent_id, [item.paused_at for item in paused])
     paused.sort(key=lambda item: (item.paused_at, order.get(item.activity_id, 0)))
+    agent, names = context.state.agents[context.agent_id], _product_names(context)
     return {"layer": "待办层", "paused_activities": [_paused_item(context, item) for item in paused],
+            "errands": errands.todo_rows(agent, names, context.scenario.timezone),
             "day_plan": _day_plan(context)}
+
+
+def _product_names(context: LayerContext) -> dict[str, str]:
+    """@brief 冻结目录里可持有对象的商品身份 → 商品名（事务行的「要办成的事」按它写商品名）。"""
+    return {product_id: item.name for product_id, item in context.rules.items.items()}
 
 
 def _pause_order(store: FootprintStore, agent_id: int, moments: list[int]) -> dict[str, int]:

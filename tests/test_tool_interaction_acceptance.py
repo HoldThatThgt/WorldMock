@@ -65,7 +65,7 @@ def test_tool_interaction_declared_interface_contains_only_new_parameters():
     from worldmock.life.world_query import QueryWorldRequest
 
     assert set(StartActivityRequest.model_fields) == {"items", "answering", "prefer"}
-    assert set(QueryWorldRequest.model_fields) == {"name", "way", "category", "offset"}
+    assert set(QueryWorldRequest.model_fields) == {"name", "way", "category", "from_", "available_only", "offset"}
     assert "appointment" in WorkTaskConfig.model_fields
     assert {"available_at", "availability_kind", "appointment_reason"}.isdisjoint(WorkTaskConfig.model_fields)
 

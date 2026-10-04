@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
 from custom.agents.life_agent import (MemoryRecentRequest, MemorySearchRequest, MemoryTimeRangeRequest,  # noqa: E402
                                       ReadonlyFinishRequest)
 from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
+from worldmock.life.control_items import CONTROL_TOOLS  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
 from worldmock.life.world_query import QueryWorldRequest  # noqa: E402
@@ -98,3 +100,74 @@ def test_parameter_descriptions_are_purpose_only() -> None:
                     ":param memories: 与 task 等长；memories[i] 是关于 task[i] 的零至多条记忆，合计不超过八条。",
                     "私有绑定把（对象，动词，方式）映射为内部标准动作，不合法时业务拒绝 ACTION_REQUEST_INVALID。"):
         assert _violations(retired)
+
+
+#: 接口合同「人物工具与管理接口」里三个控制工具用途句与字段说明的定稿表（docs/dev/SPEC-errands-workday.md 3.2）。
+_CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "CONTRACTS.md"
+_CONTROL_TEXT_LEAD = "三个控制工具的用途句与字段说明定稿（与代码逐字相同）："
+#: 定稿表的位置列，按规格 3.2 的行序：三个用途句、收尾记忆、请求级 errands、每条变更的对象用途与它的八个键。
+_CONTROL_TEXT_POSITIONS = ["report_status", "pause_activity", "conclude_activity", "items[].memories", "errands",
+                           "每条变更", "change", "name", "outcome", "item", "quantity", "memo", "remind_time", "reason"]
+
+
+def _control_contract_texts() -> list[tuple[str, str]]:
+    """@brief 接口合同里导语之后的那张两列表：（位置，定稿）逐行，位置去掉代码标记。"""
+    lines = _CONTRACTS.read_text(encoding="utf-8").splitlines()
+    rows, start = [], lines.index(_CONTROL_TEXT_LEAD) + 1
+    for line in lines[start:]:
+        if line.startswith("|"):
+            rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+        elif rows:
+            break
+    header, separator, *body = rows
+    assert header == ["位置", "定稿"] and set("".join(separator)) == {"-"}
+    return [(position.strip("`"), text) for position, text in body]
+
+
+def test_control_tool_purposes_and_errand_descriptions_are_the_contract_text() -> None:
+    """三个控制工具的用途句与十一处参数说明（收尾记忆、请求级 errands、每条变更的对象用途与它的八个键）与接口合同的
+    定稿表逐字相同（docs/dev/SPEC-errands-workday.md 3.2）：定稿表恰好十四行、按规格的行序；每个工具的实际 Schema 都带
+    同样的 errands 说明；十四句都通过只写用途的扫描（一句中文、不含规则说法与拉丁单词）。"""
+    rows = _control_contract_texts()
+    assert [position for position, _ in rows] == _CONTROL_TEXT_POSITIONS
+    texts = dict(rows)
+    assert {tool: TOOL_DESCRIPTIONS[tool] for tool in CONTROL_TOOLS} == {tool: texts[tool] for tool in CONTROL_TOOLS}
+    schemas = {tool: deepseek_strict_schema(REQUEST_MODELS[tool]) for tool in CONTROL_TOOLS}
+    memories = schemas["conclude_activity"]["properties"]["items"]["items"]["properties"]["memories"]
+    assert memories["description"] == texts["items[].memories"]
+    keys = _CONTROL_TEXT_POSITIONS[6:]
+    for schema in schemas.values():
+        errands = schema["properties"]["errands"]
+        assert errands["description"] == texts["errands"]
+        assert errands["items"]["description"] == texts["每条变更"]
+        assert {key: field["description"] for key, field in errands["items"]["properties"].items()} == {
+            key: texts[key] for key in keys}
+    assert {text: _violations(text) for _, text in rows if _violations(text)} == {}
+    assert all(text.endswith("。") and text.count("。") == 1 for _, text in rows)
+
+
+#: 个人事务与工作安排规格 5.6 定稿 query_world 用途句的那一行的引导语。
+_PURPOSE_LEAD = "用途句定稿：「"
+_SPEC = Path(__file__).resolve().parents[2] / "docs" / "dev" / "SPEC-errands-workday.md"
+
+
+def test_query_world_purpose_is_the_contract_text_and_moves_only_the_tool_fingerprint(monkeypatch) -> None:
+    """query_world 的用途句逐字等于 docs/dev/SPEC-errands-workday.md 5.6 定稿的那一句（从规格原文读出）；换回旧句时只有
+    工具指纹变、提示指纹不变（本阶段不改系统层与层 Schema）；严格 Schema 的六个键全部必填、按 name, way, category, from,
+    available_only, offset 的顺序，from 是字符串或 null、available_only 是布尔，任何位置都没有字段说明。"""
+    from custom.agents.life_agent import life_tool_schema_sha256
+    from custom.agents.life_prompt import life_prompt_sha256
+
+    [line] = [line for line in _SPEC.read_text(encoding="utf-8").splitlines() if _PURPOSE_LEAD in line]
+    sentence = line.split(_PURPOSE_LEAD, 1)[1].split("」", 1)[0]
+    assert sentence and TOOL_DESCRIPTIONS["query_world"] == sentence
+    assert not _violations(sentence)
+    tools, prompt = life_tool_schema_sha256(), life_prompt_sha256()
+    monkeypatch.setitem(TOOL_DESCRIPTIONS, "query_world", "按已知名称、方式或公开品类查询世界，按返回的偏移量翻页。")
+    assert life_tool_schema_sha256() != tools and life_prompt_sha256() == prompt
+    schema = deepseek_strict_schema(QueryWorldRequest)
+    assert schema["required"] == ["name", "way", "category", "from", "available_only", "offset"]
+    assert list(schema["properties"]) == schema["required"]
+    assert schema["properties"]["from"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert schema["properties"]["available_only"]["type"] == "boolean"
+    assert _descriptions(schema, "query_world") == []

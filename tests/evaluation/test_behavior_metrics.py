@@ -297,12 +297,77 @@ def test_plan_day_requests_are_not_decision_requests() -> None:
     assert gate["value"] == 1 and gate["user_message_count"] == 1
 
 
+def _with_tools(event: dict[str, Any], *names: str) -> dict[str, Any]:
+    """@brief 给请求夹具加上实际开放的原生工具（只填函数名）。"""
+    event["data"]["request"]["tools"] = [{"type": "function", "function": {"name": name}} for name in names]
+    return event
+
+
+def test_reflection_requests_and_their_retries_are_not_decision_requests() -> None:
+    """@brief 就寝反思的请求只带 submit_reflection、不带 purpose（docs/dev/SPEC-errands-workday.md 1.1）：两个人物各有
+    一次校验重试，附回消息逐字相同、分处两条（人物，秒）续接链，也不进观察重复门禁与决策 token 中位数；工具中有
+    start_activity 的行动请求与不带工具的记忆巩固照计。"""
+    correction = ('{"INSTRUCTION":"Return a complete new submit_reflection tool call using the unchanged schema.",'
+                  '"PREVIOUS_INVALID_RESPONSE":[],'
+                  '"VALIDATION_ERROR":"response must contain exactly one submit_reflection tool call"}')
+    events = [
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _model_response(2, "act-1", 100),
+        _model_request(3, "consolidate-1", ["记忆归纳 1"]),
+        _model_response(4, "consolidate-1", 300),
+    ]
+    for seq, agent_id in ((5, 1), (9, 2)):
+        for offset, texts in ((0, [f"反思输入 {agent_id}"]), (2, [f"反思输入 {agent_id}", correction])):
+            call = f"reflect-{agent_id}-{offset}"
+            events += [_with_tools(_model_request(seq + offset, call, texts, agent_id=agent_id), "submit_reflection"),
+                       _model_response(seq + offset + 1, call, 20000)]
+    retries = [event for event in events if event["event_type"] == "model_request"
+               and correction in [message["content"] for message in event["data"]["request"]["messages"]]]
+    assert len({(event["agent_id"], event["occurred_at"]) for event in retries}) == 2
+
+    report = _report(events)
+
+    gate = report["gates"]["observation_repetition"]
+    assert (gate["value"], gate["pass"], gate["duplicated_observation_count"]) == (1, True, 0)
+    assert gate["user_message_count"] == 2
+    median = report["reports"]["decision_prompt_token_median"]
+    assert (median["value"], median["sample_size"]) == (200, 2)
+
+
+def test_tool_requests_without_start_activity_are_not_decision_requests() -> None:
+    """@brief 带工具的请求只在工具中有 start_activity 时才是人物决策请求（docs/dev/SPEC-errands-workday.md 1.1「身份与
+    判定」、docs/design/07-evaluation.md「2.1 协议门禁」「2.2 报告项」），不是「只要不是就寝反思就算」：只读问答的请求不带
+    purpose，工具是三个记忆查询与 finish（末回合只剩 finish）。它们的 user 文本即便与另一秒的行动请求逐字相同、prompt
+    token 很大，也不进观察重复门禁与决策 token 中位数。"""
+    events = [
+        _with_tools(_model_request(1, "act-1", ["观察 1"]), "start_activity", "conclude_activity"),
+        _model_response(2, "act-1", 100),
+        _with_tools(_model_request(3, "ask-1", ["观察 1"]),
+                    "memory_recent", "memory_search", "memory_time_range", "finish"),
+        _model_response(4, "ask-1", 20000),
+        _with_tools(_model_request(5, "ask-2", ["观察 1"]), "finish"),
+        _model_response(6, "ask-2", 30000),
+    ]
+    requests = [event for event in events if event["event_type"] == "model_request"]
+    assert len({event["occurred_at"] for event in requests}) == 3
+    assert not any(event["data"].get("purpose") for event in requests)
+
+    report = _report(events)
+
+    gate = report["gates"]["observation_repetition"]
+    assert (gate["value"], gate["pass"], gate["duplicated_observation_count"]) == (1, True, 0)
+    assert gate["user_message_count"] == 1
+    median = report["reports"]["decision_prompt_token_median"]
+    assert (median["value"], median["sample_size"]) == (100, 1)
+
+
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     """@brief 最终动作为进度播报或等待的决策不计入自主决策；等待按受理时实际开始的活动 kind=wait 判定
     （docs/design/07-evaluation.md「2.2 报告项」），不按请求里的动词或方式。"""
     events = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
-        _action(2, "d1", "report_status", {"items": [{"activity_name": "当前会话", "summary": "继续。"}]}),
+        _action(2, "d1", "report_status", {"items": [{"activity_name": "当前会话", "summary": "继续。"}],
+                                           "errands": []}),
         _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
         _start(4, "d2", "a2", "等待", "自己"),
         _accepted(5, "d2", "a2", "wait"),
@@ -345,9 +410,11 @@ def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
     control = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
         _action(2, "d1", "conclude_activity", {"items": [
-            {"activity_name": "等待（1月5日 08:00 起）", "summary": "等完了。", "memories": [], "views": []}]}),
+            {"activity_name": "等待（1月5日 08:00 起）", "summary": "等完了。", "memories": [], "views": []}],
+            "errands": []}),
         _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
-        _action(4, "d2", "pause_activity", {"items": [{"activity_name": "观看节目（1月5日 08:00 起）", "summary": "先停一下。"}]}),
+        _action(4, "d2", "pause_activity", {"items": [{"activity_name": "观看节目（1月5日 08:00 起）", "summary": "先停一下。"}],
+                                            "errands": []}),
         _event("decision_started", _clock(0, 8, 5), decision_id="d3"),
         _action(6, "d3", "revise_day_plan", {"goals": []}),
     ]
@@ -632,7 +699,8 @@ def test_memory_md_identity_residue_gate() -> None:
 
 
 def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> None:
-    """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量。"""
+    """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量；不带工作安排评估输入时工作负荷与作息偏离为 null
+    并写说明。"""
     events = [
         _event("decision_started", _clock(0, 8), decision_id="d1"),
         _model_request(2, "d1", ["当前观察：在家，精神不错"]),
@@ -653,6 +721,8 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     for keyword in ("decision_offered", "wake_reasons", "主观记忆快照", "MEMORY.md", "prompt token"):
         assert keyword in notes
     assert report["reports"]["early_arrival_minutes"]["value"] is None
+    assert (report["reports"]["workload"], report["reports"]["routine_deviation"]) == (None, None)
+    assert "未提供工作安排评估输入，workload 与 routine_deviation 为 null" in report["notes"]
 
 
 def test_report_groups_by_code_sha256() -> None:

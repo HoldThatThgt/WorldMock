@@ -22,8 +22,8 @@ from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionErro
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import (activity_control, admission, contact_exchange, day_planning, felt, projection, relevance,
-                            reminders, same_moment, sessions, social_actions)
+from worldmock.life import (activity_control, admission, contact_exchange, day_planning, errands, felt, projection,
+                            relevance, reminders, same_moment, sessions, social_actions)
 from worldmock.life.action_evidence import (
     _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
     _origin_terminal_result,
@@ -465,6 +465,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             drafts.extend(action_drafts)
             if not pending.reused:
                 staged = _remember_action(staged, pending, result)
+        staged, settled = errands.settle(staged, drafts)
+        drafts.extend(settled)
         recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
         presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions
@@ -679,6 +681,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
+        staged, credited = errands.settle(staged, drafts)
+        drafts.extend(credited)
         boundary = RhythmBoundary(target_epoch, interval, arrivals, drafts)
         if reminders.defers_rhythm(staged, target_epoch, self.scenario.timezone):
             staged = settle_engine_rhythm(self, staged, boundary)

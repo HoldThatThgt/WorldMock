@@ -51,6 +51,10 @@ def test_export_command_uses_authenticated_cutoff_and_manifest_code(tmp_path):
         assert exported_manifest["quality_report"]["sha256"] == hashlib.sha256(payload).hexdigest()
         metrics = quality["day_plan_metrics"][CODE]
         assert set(metrics) == {"habitual_consistency", "external_constraints", "deliberate_goals", "gates"}
+        # 当日目标报告的键集不因个人事务改变：事务指标是紧随其后的顶层分组，没有事务事件时为 null，不写进
+        # day_plan_metrics（docs/dev/SPEC-errands-workday.md 6.1）。
+        assert list(quality["day_plan_metrics"]) == [CODE] and "errand" not in json.dumps(quality["day_plan_metrics"])
+        assert (quality["errand_metrics"], quality["conclusion_memories"]) == (None, None)
         assert metrics["deliberate_goals"]["summary"]["progressed_count"] == progressed
         assert metrics["external_constraints"]["block_count"] == blocked
         assert metrics["gates"]["external_constraint_block_count"]["pass"] is (blocked == 0)

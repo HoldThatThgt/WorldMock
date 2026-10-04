@@ -3,6 +3,9 @@
 活动是生命周期单位（docs/dev/SPEC-time-and-energy.md 第七章）：每人两个名额；播报、暂停与结束逐项点名活动
 （「做什么＋对象＋开始时刻」，请求一项一个对象，经 control_items 读出活动名与自述）；会话是一段地点停留或一段路，由系统随出发与到达切换（life.sessions）。
 名额、待收尾、名称与控制记录的规则在 life.activity_control，本模块只做处理器接线。
+三个控制工具另带请求级的个人事务变更（docs/dev/SPEC-errands-workday.md 2.2）：活动名解析之后在同一冻结观察上复核
+（life.errands.change_issues，与宿主同一函数），活动状态转换之后才应用到人物状态，与活动转换同一事务提交；任何拒绝都使
+事务变更一并不生效，事务事件只在成功分支由 activity_control.record_changes 写出。
 """
 
 from __future__ import annotations
@@ -12,12 +15,12 @@ from dataclasses import replace
 from functools import partial
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life import (activity_control, admission, giving, memory_layer, order_routing, request_linking, routing,
-                            sessions)
+from worldmock.life import (activity_control, admission, errands, giving, memory_layer, order_routing, request_linking,
+                            routing, sessions)
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened, is_eating
 from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
-from worldmock.life.control_items import control_items
+from worldmock.life.control_items import control_errands, control_items
 from worldmock.life.guidance import Refusal, guided, items_refusal, refusal_for_code
 from worldmock.life.error_contract import ErrorItem
 from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
@@ -699,17 +702,50 @@ class SessionActionMixin:
                             status=ActionStatus.COMPLETED, occurred_at=state.current_time, message=message,
                             data={"task": list(names), "activity_ids": [item.activity_id for item in selected]})
 
+    def _errand_changes(self, pending: PendingAction, tool: str, request) -> tuple[dict, ...]:
+        """@brief 控制请求里的个人事务变更（经唯一读取入口 control_errands 读出）在本轮冻结观察上的环境复核：与宿主同一
+        函数（errands.change_issues）、同一份观察，全部问题合并成一次 ACTION_REQUEST_INVALID（业务拒绝，照常计入同刻
+        轮数，docs/dev/SPEC-errands-workday.md 2.3「环境复核」）。
+
+        :returns: 通过复核的各条变更（八键字典，按请求顺序；没有变更时为空，不读观察），交给 _apply_errands。
+        """
+        changes = control_errands(tool, request)
+        if not changes:
+            return changes
+        issues = errands.change_issues(changes, self._frozen_observation(pending))
+        if issues:
+            _LOGGER.error("Errand changes are invalid on the frozen observation")
+            raise errands.change_refusal(issues).error()
+        return changes
+
+    def _apply_errands(self, state: WorldState, pending: PendingAction,
+                       changes: tuple[dict, ...]) -> tuple[WorldState, list[dict]]:
+        """@brief 把已复核的事务变更应用到人物状态并放回世界副本（与活动转换同批，处理器在最后一次活动转换之后调用）：
+        来源为本动作与它的请求事件，受理时刻与场景时区换算提醒钟点。
+
+        :returns: （世界副本，回执 [{errand, change}]，按请求顺序；没有变更时世界原样、回执为空列表）。
+        """
+        if not changes:
+            return state, []
+        origin = errands.ErrandOrigin(pending.action_id, pending.requested_event_id, state.current_time,
+                                      self.scenario.timezone)
+        agent, receipt = errands.apply_changes(state.agents[pending.agent_id], changes,
+                                               self._frozen_observation(pending), origin)
+        return state.model_copy(update={"agents": {**state.agents, pending.agent_id: agent}}, deep=True), receipt
+
     def _report_status(self, state: WorldState, pending: PendingAction,
                         request: ReportStatusRequest) -> tuple[WorldState, ActionResult]:
         """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
 
         每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，工作的恢复距截止与
         剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。恢复的活动在结果中登记
-        resumed：活动名与恢复后的计划时长（秒，公开结果写成 details.planned）。
+        resumed：活动名与恢复后的计划时长（秒，公开结果写成 details.planned）。请求级的事务变更在活动名解析后复核、在
+        活动转换后应用，回执登记为 errands。
         """
         items = control_items("report_status", request)
         written = [item.activity_name for item in items]
         requested, selected = self._named_activities(state, pending, written)
+        changes = self._errand_changes(pending, "report_status", request)
         names = self._control_names(pending)
         changed, resumed = state, []
         for name, activity in zip(requested, selected, strict=True):
@@ -723,10 +759,10 @@ class SessionActionMixin:
                 planned = changed.activities[activity.activity_id].planned_end_at - changed.current_time
                 resumed.append({"name": name, "planned_duration_seconds": planned})
         changed = self._with_notes(changed, selected, [item.summary for item in items], anchor=True)
+        changed, receipt = self._apply_errands(changed, pending, changes)
         result = self._control_result(state, pending, "Activity status reported", requested, selected)
-        if resumed:
-            result = result.model_copy(update={"data": {**result.data, "resumed": resumed}})
-        return changed, _with_names(result, zip(written, requested))
+        data = {**result.data, "errands": receipt, **({"resumed": resumed} if resumed else {})}
+        return changed, _with_names(result.model_copy(update={"data": data}), zip(written, requested))
 
     def _resume_at_start_location(self, state: WorldState, pending: PendingAction,
                                   activity: ActivityState) -> WorldState:
@@ -756,11 +792,13 @@ class SessionActionMixin:
                          request: PauseActivityRequest) -> tuple[WorldState, ActionResult]:
         """@brief 暂停所选进行中活动（仍占名额）并写入自述；路上的活动、交谈与通话不能暂停。
 
-        每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。
+        每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。请求级的事务变更在活动名解析后复核、
+        在暂停后应用，回执登记为 errands。
         """
         items = control_items("pause_activity", request)
         written = [item.activity_name for item in items]
         requested, selected = self._named_activities(state, pending, written)
+        changes = self._errand_changes(pending, "pause_activity", request)
         context = self._admission_context(state, pending.agent_id, self._control_names(pending))
         for activity in selected:
             refusal = activity_control.control_refusal(context, "pause_activity", activity)
@@ -771,8 +809,10 @@ class SessionActionMixin:
             changed, _ = self._change(changed, pending, ChangeActivityRequest(
                 activity_id=activity.activity_id, operation=ActivityChange.PAUSE))
         changed = self._with_notes(changed, selected, [item.summary for item in items])
-        return changed, _with_names(self._control_result(state, pending, "Activity paused", requested, selected),
-                                    zip(written, requested))
+        changed, receipt = self._apply_errands(changed, pending, changes)
+        result = self._control_result(state, pending, "Activity paused", requested, selected)
+        result = result.model_copy(update={"data": {**result.data, "errands": receipt}})
+        return changed, _with_names(result, zip(written, requested))
 
     def _conclude_activity(self, state: WorldState, pending: PendingAction,
                             request: ConcludeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -781,11 +821,13 @@ class SessionActionMixin:
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
         并在结果中登记私有来源 memory_sources。进食收尾时丢弃开吃份量中没吃的部分，结果的 outcome 逐项写终局与份量，
-        未完成的浏览写未取得浏览结果（docs/dev/SPEC-persona-prompt.md 第五章「进食」、第六章）。
+        未完成的浏览写未取得浏览结果（docs/dev/SPEC-persona-prompt.md 第五章「进食」、第六章）。请求级的事务变更在活动名
+        解析后复核、在结束与收尾之后应用，回执登记为 errands；其后的任何拒绝都使事务变更一并不生效。
         """
         items = control_items("conclude_activity", request)
         written, summaries = [item.activity_name for item in items], [item.summary for item in items]
         requested, selected = self._named_activities(state, pending, written)
+        changes = self._errand_changes(pending, "conclude_activity", request)
         if not all(activity_control.occupies_slot(item) for item in selected):
             _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
@@ -807,8 +849,9 @@ class SessionActionMixin:
         if departed:
             changed, _ = sessions.end_transit(changed, pending.agent_id, self._place_names,
                                               opened_by_action_id=pending.action_id)
+        changed, receipt = self._apply_errands(changed, pending, changes)
         result = self._control_result(state, pending, "Activities concluded", requested, selected)
-        data = {**result.data, "memory_sources": self._memory_sources(pending, requested, selected)}
+        data = {**result.data, "errands": receipt, "memory_sources": self._memory_sources(pending, requested, selected)}
         outcome = self._conclusion_outcome(changed, pending.agent_id, requested, selected)
         if outcome:
             data["outcome"] = outcome

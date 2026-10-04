@@ -37,7 +37,7 @@ def compile_persona(source: str | Mapping, *,
     @param source background_story 文本，或含 background_story 的人物文档
     @param extraction 预取的共识结果（None 时真实调用提取层）
     @param config 映射规则表（None 时加载 persona-mapping.toml）
-    @return CompiledPersona（schema v2）
+    @return CompiledPersona（schema v3）
     @exception LegacyTemplateFieldError 文档携带旧模板字段
     """
     story = _resolve_story(source)
@@ -81,9 +81,13 @@ def _resolve_story(source: str | Mapping) -> str:
 
 
 def _warnings(extraction: PersonaExtraction) -> tuple[str, ...]:
-    """@brief 共识标黄字段（低于 2/3 众数占比）列进 warnings。"""
-    if not extraction.warning:
-        return ()
-    below = sorted(name for name, share in extraction.per_field.items()
-                   if share < 2 / 3)
-    return (f"field_agreement_below_two_thirds: {below}",)
+    """@brief 编译警告：共识标黄字段（低于 2/3 众数占比）一条在前，其后逐条接下班与到家锚点的降级说明。
+
+    没有一致性警告时降级说明照样列出（docs/dev/SPEC-errands-workday.md 4.1）。
+    """
+    agreement: tuple[str, ...] = ()
+    if extraction.warning:
+        below = sorted(name for name, share in extraction.per_field.items()
+                       if share < 2 / 3)
+        agreement = (f"field_agreement_below_two_thirds: {below}",)
+    return (*agreement, *extraction.demotion_notes)

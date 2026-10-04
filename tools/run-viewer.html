@@ -254,6 +254,7 @@ const S = {
   ignoredManifests: 0,   // 随库提供、却不是本库所属运行清单的 manifest.json 个数
   nameIdx: null,         // {locations:Map, targets:Map} 来自本次运行记录
   missingNames: new Set(), // 已报告名称缺失的对象
+  reminded: new Map(),   // 「人物@时刻」-> [{seq,name}]：事务提醒事件，供唤醒原因写事务名称
   fmt: null, tzOff: 28800,
   view: 'overview',
   day: null,             // {title, rows[], source} 解析后的 render_day timeline markdown
@@ -336,7 +337,12 @@ const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', gam
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:'邮件到达',
   delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期',
   day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
-  activity_resumed:'活动恢复', activity_truncated:'活动截断' };
+  activity_resumed:'活动恢复', activity_truncated:'活动截断',
+  errand_registered:'事务记下', errand_updated:'事务更新', errand_cancelled:'事务取消',
+  errand_progressed:'事务进展', errand_completed:'事务办成', errand_reminded:'事务提醒' };
+/* 六种个人事务事件（environment_event 的 kind）：载荷 data.errand 是事务快照，摘要写其中的事务名称与商品 */
+const ERRAND_KINDS = new Set(['errand_registered', 'errand_updated', 'errand_cancelled', 'errand_progressed',
+  'errand_completed', 'errand_reminded']);
 /* decision_started.data.wake_reasons 的唤醒原因闭集 */
 const WAKE_LABELS = {
   planned_end:'计划结束', felt_band_change:'体感变化', message_arrival:'消息到达', delivery_arrival:'配送送达',
@@ -345,6 +351,7 @@ const WAKE_LABELS = {
   person_arrived:'有人到来', person_left:'有人离开', activity_infeasible:'活动不可行',
   rejection_feedback:'拒绝反馈', discovery_result:'发现结果', wake_from_sleep:'睡醒', run_start:'运行开始',
   progress_report_due:'该播报进展', no_active_activity:'没有进行中的活动', plan_reminder_due:'计划提醒到点',
+  errand_reminder_due:'事务提醒到点',
 };
 const SESSION_KIND_LABELS = { stay:'停留', transit:'路上' };
 const SESSION_STATUS_LABELS = { active:'进行中', ended:'已结束' };
@@ -359,7 +366,9 @@ const ACCT_LABELS = { 'employer:zhangjiang':'雇主张江', 'merchant:general':'
 const typeLabel = t => TYPE_LABELS[t]||t;
 const bndLabel = b => BND_LABELS[b]||b;
 const envkLabel = k => ENVK_LABELS[k]||k;
-const wakeLabels = reasons => (Array.isArray(reasons)?reasons:[]).map(r=>WAKE_LABELS[r]||r).join('、');
+/** @brief 决策开始事件 e 的唤醒原因中文说法，以「、」相连；errand_reminder_due 之后写所提醒事务的名称。 */
+const wakeLabels = (reasons, e) => (Array.isArray(reasons)?reasons:[])
+  .map(r=>(WAKE_LABELS[r]||r)+(r==='errand_reminder_due'?remindedErrands(e):'')).join('、');
 const kindLabel = k => k==null?'':(KIND_LABELS[k]||k);
 const toolLabel = t => t==null?'—':(TOOL_LABELS[t]||t);
 const statusLabel = s => s==null?'—':(STATUS_LABELS[s]||s);
@@ -409,6 +418,61 @@ function targetLabel(t, title){
   if (S.nameIdx?.targets.has(s)) return S.nameIdx.targets.get(s);
   if (S.nameIdx?.locations.has(s)) return S.nameIdx.locations.get(s);
   return recordedName(S.nameIdx?.targets, s);
+}
+
+/* 个人事务没有有效名称时的缺失提示：事务内部身份不进时间线，括号里写对象种类而不写编号 */
+const ERRAND_NAME_MISSING = '名称缺失（个人事务）';
+
+/** @brief 事务快照里的有效名称：非空且不同于事务内部身份才有效，否则为 null。身份只用于这一次比较，不留在索引里。 */
+function errandName(name, id){
+  return typeof name==='string' && name.trim() && name.trim()!==String(id??'') ? name : null;
+}
+
+/** @brief 同一缺失只输出一次英文错误日志（key 区分缺失的对象，更换数据库时随缺失记录清空）。 */
+function reportMissing(key, ...message){
+  if (S.missingNames.has(key)) return;
+  console.error(...message);
+  S.missingNames.add(key);
+}
+
+/** @brief 事务名称只取记录所写（事件 seq 的事务快照，经 errandName 判定有效），写成「名称」；记录里没有有效名称时显示
+ *  缺失提示并输出英文错误日志，事务内部身份不作替代显示。 */
+function errandLabel(name, seq){
+  if (typeof name==='string') return `「${name}」`;
+  reportMissing(`errand-name@event:${seq}`, 'Missing recorded errand name at event', seq);
+  return ERRAND_NAME_MISSING;
+}
+
+/** @brief 个人事务事件的事务名称与商品：都取自事件载荷的事务快照，商品按名称索引显示（缺名照缺失提示），
+ *  快照里的事务内部身份不读出；不是事务事件时为空。 */
+function errandText(seq, s){
+  if (!ERRAND_KINDS.has(s.ekind)) return '';
+  return ` · ${errandLabel(s.errand, seq)}${s.product? ' · 商品 '+targetLabel(s.product):''}`;
+}
+
+/** @brief 事务提醒事件（errand_reminded）按「人物@时刻」归组并保持事件顺序，供决策开始的唤醒原因写事务名称。 */
+function buildReminders(){
+  S.reminded = new Map();
+  for (const e of S.events){
+    const s = S.summaries.get(e.seq);
+    if (e.type!=='environment_event' || s?.ekind!=='errand_reminded') continue;
+    const key = `${e.agent}@${e.t}`;
+    if (!S.reminded.has(key)) S.reminded.set(key, []);
+    S.reminded.get(key).push({seq:e.seq, name:s.errand});
+  }
+}
+
+/** @brief 唤醒原因 errand_reminder_due 所指事务的名称：同一人物在同一时刻、排在该决策之前交付的事务提醒事件
+ *  快照里的名称，按交付顺序逐个写出；记录里没有对应的提醒事件时在原因说法之后显示缺失提示并输出英文错误日志。
+ *  缺失提示与原因说法之间空一格，名称直接相连。 */
+function remindedErrands(e){
+  const rows = (S.reminded.get(`${e.agent}@${e.t}`)||[]).filter(row=>row.seq<e.seq);
+  if (!rows.length){
+    reportMissing(`errand-reminder@event:${e.seq}`, 'Missing errand reminder record for wake reason at event', e.seq);
+    return ` ${ERRAND_NAME_MISSING}`;
+  }
+  return rows.map(row=>errandLabel(row.name, row.seq))
+    .map(label=>label===ERRAND_NAME_MISSING? ` ${label}` : label).join('');
 }
 
 /* ---------- 查询封装 ---------- */
@@ -462,15 +526,26 @@ function buildNameIndex(){
     json_extract(body,'$.data.activity.title') AS label FROM events
     WHERE json_extract(body,'$.event_type') IN ('action_accepted','activity_progress')
     ORDER BY event_seq`), targets);
-  const bindings = q(`SELECT json_extract(item.value,'$.object_id') AS id,
+  supplementNames(q(`SELECT json_extract(item.value,'$.object_id') AS id,
     json_extract(item.value,'$.object') AS label
     FROM events e, json_each(e.body,'$.data.interaction_bindings') item
-    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`);
-  for (const row of bindings){
-    if (row.id && typeof row.label==='string' && row.label.trim() && row.label!==row.id
-        && !targets.has(row.id)) targets.set(row.id,row.label);
-  }
+    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`), targets);
+  /* 个人事务可以指目录里的任一商品，而 data.products 只列此刻看得到或持有的；每次观察的 errand_item_bindings 列全部
+     商品名到商品身份，按（商品，名称）归并后每种一行、按最早出现排列，不把逐次观察的全量行取回页面。 */
+  supplementNames(q(`SELECT json_extract(item.value,'$.product_id') AS id,
+    json_extract(item.value,'$.name') AS label
+    FROM events e, json_each(e.body,'$.data.errand_item_bindings') item
+    WHERE json_extract(e.body,'$.event_type')='observation'
+    GROUP BY id, label ORDER BY MIN(e.event_seq), id, label`), targets);
   S.nameIdx = {locations, targets};
+}
+
+/** @brief 只补缺的名称来源：对象已有名称时不动，没有时取最先记录的有效名称（非空且不同于对象编号）。 */
+function supplementNames(rows, names){
+  for (const row of rows){
+    if (row.id && typeof row.label==='string' && row.label.trim() && row.label.trim()!==row.id
+        && !names.has(row.id)) names.set(row.id, row.label);
+  }
 }
 
 /* ================================================================
@@ -561,9 +636,12 @@ function buildIndex(){
     S.summaries.set(r.seq,{cp:r['$.data.checkpoint_id']});
   });
   typeQuery('environment_event', ['$.data.kind','$.data.resource_changes','$.data.activity.name',
-                                  '$.data.day_plan.goals'], r=>{
+                                  '$.data.day_plan.goals','$.data.errand.name','$.data.errand.product_id',
+                                  '$.data.errand.errand_id'], r=>{
     S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.data.resource_changes'],
-      aname:r['$.data.activity.name'],goals:r['$.data.day_plan.goals']});
+      aname:r['$.data.activity.name'],goals:r['$.data.day_plan.goals'],
+      errand:errandName(r['$.data.errand.name'], r['$.data.errand.errand_id']),
+      product:r['$.data.errand.product_id']});
   });
   typeQuery('run_ended', ['$.data.end_time','$.wall_elapsed_ms'], r=>{
     S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
@@ -575,6 +653,7 @@ function buildIndex(){
   S.obs = S.obs.filter(o=>o.t!=null);
 
   buildNameIndex();
+  buildReminders();
 
   for (const e of S.events) e.sum = makeSummary(e);
 
@@ -602,17 +681,43 @@ function buildIndex(){
 /** @brief 控制工具请求的逐项内容，与 worldmock.life.control_items 同一规则：现行一项一个对象
  *  items[{activity_name, summary, memories, views}]，旧形状为 task[]、summary[] 与逐项的 memories[][]；
  *  返回 [{name, summary, memories}]：结束工具的 memories 含看法与偏好（先普通记忆、后 views），最早不带记忆字段的
- *  结束请求为 null，播报与暂停为空。 */
+ *  结束请求为 null，播报与暂停为空。请求级 errands（个人事务变更）必须是数组，缺键即报错（旧形状记录不留读取分支）。 */
 function controlItems(tool, req){
   if (!req || !Array.isArray(req.items)) throw new Error('Activity control request requires items');
+  if (!Array.isArray(req.errands)) throw new Error('Activity control request requires errands');
   return req.items.map(item=>({
     name:item.activity_name, summary:item.summary,
     memories:[...(item.memories||[]),...(item.views||[]).map(view=>({...view,subject:view.about}))]
   }));
 }
 
+/* 一条个人事务变更的八个键，与 worldmock.life.control_items 的 _ERRAND_KEYS 相同、同一顺序，全部必填 */
+const ERRAND_CHANGE_KEYS = ['change', 'name', 'outcome', 'item', 'quantity', 'memo', 'remind_time', 'reason'];
+
+/** @brief 控制工具请求里请求级的个人事务变更，worldmock.life.control_items.control_errands 的镜像，规则相同：errands 须是
+ *  数组，每条须是对象且八个键齐全（只查键在不在，不查值的类型），不符即报错；按请求顺序返回只含这八个键的对象，
+ *  值照请求所写。 */
+function controlErrands(req){
+  if (!req || !Array.isArray(req.errands)) throw new Error('Activity control request requires errands');
+  return req.errands.map(entry=>{
+    if (!entry || typeof entry!=='object' || Array.isArray(entry))
+      throw new Error('Activity control request errand change is not an object');
+    const change = {};
+    for (const key of ERRAND_CHANGE_KEYS){
+      if (!(key in entry)) throw new Error(`Activity control request errand change lacks ${key}`);
+      change[key] = entry[key];
+    }
+    return change;
+  });
+}
+
 function pairedSummaries(tool, req){
   return controlItems(tool, req).map(item=>`${item.name}：${item.summary}`).join('；');
+}
+/** @brief 控制请求摘要里的事务变更：逐条写种类（新增、更新、取消，照请求所写）与「事务名称」；没有变更时为空。 */
+function errandChanges(req){
+  const changes = controlErrands(req).map(entry=>`${entry.change}「${entry.name}」`);
+  return changes.length? ` · 事务：${changes.join('、')}` : '';
 }
 /** @brief start_activity 逐项显示「对象 · 动词：方式」；缺方式的旧请求只显示动作短语。 */
 function verbWay(verb, way){
@@ -648,9 +753,9 @@ function readableReq(tool, reqRaw){
       return req.task_name||'';
     case 'report_status':
     case 'pause_activity':
-      return pairedSummaries(tool, req);
+      return pairedSummaries(tool, req) + errandChanges(req);
     case 'conclude_activity':
-      return pairedSummaries(tool, req) + memoryCount(req);
+      return pairedSummaries(tool, req) + memoryCount(req) + errandChanges(req);
     case 'send_message':
       return `${req.recipient_name||''} · ${req.text||''}`;
     case 'revise_day_plan':
@@ -671,7 +776,7 @@ function makeSummary(e){
   const s = S.summaries.get(e.seq)||{};
   switch(e.type){
     case 'decision_started': {
-      const wake = wakeLabels(s.wake);
+      const wake = wakeLabels(s.wake, e);
       return `决策开始 · 第 ${s.round??'?'} 轮${wake?' · 唤醒：'+wake:''}`;
     }
     case 'observation': {
@@ -708,7 +813,7 @@ function makeSummary(e){
     case 'checkpoint_created': return '存档';
     case 'environment_event':
       return `世界事件 · ${envkLabel(s.ekind)||'—'}${s.aname?' · '+s.aname:''}` +
-        (s.ekind==='day_plan_generated'?dayPlanText(s.goals):'');
+        (s.ekind==='day_plan_generated'?dayPlanText(s.goals):'') + errandText(e.seq, s);
     case 'run_ended': return `运行结束 · 模拟时间 ${fmtT(s.end)} · 墙钟 ${fmtDur(Math.round((s.wall||0)/1000))}`;
     default: return '';
   }
@@ -1707,7 +1812,7 @@ function bindDnd(){
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
     S.runManifest=null; S.ignoredManifests=0;
-    S.nameIdx=null; S.missingNames=new Set(); S.day=null;
+    S.nameIdx=null; S.missingNames=new Set(); S.reminded=new Map(); S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
     RS.loaded=false; RS.items=[]; RS.kw='';

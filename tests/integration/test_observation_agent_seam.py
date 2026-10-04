@@ -99,7 +99,8 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     assert [item["tool"] for item in activity["tools"]] == ["report_status", "pause_activity", "conclude_activity"]
     for tool in ("report_status", "pause_activity"):
         assert "enum" not in schemas[tool]["parameters"]["properties"]["items"]["items"]["properties"]["activity_name"]
-        decision = ReactDecision("", tool, {"items": [{"activity_name": activity["name"], "summary": "继续。"}]}, "")
+        decision = ReactDecision("", tool, {"items": [{"activity_name": activity["name"], "summary": "继续。"}],
+                                            "errands": []}, "")
         assert agent.validate_react_decisions([decision], False) == ""
     user = agent.build_react_messages(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))[1]
     session_id = next(iter(engine.state.sessions))
@@ -121,7 +122,7 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
     decision = ReactDecision("", "conclude_activity", {"items": [
-        {"activity_name": "不存在的活动", "summary": "收尾。", "memories": [], "views": []}]}, "")
+        {"activity_name": "不存在的活动", "summary": "收尾。", "memories": [], "views": []}], "errands": []}, "")
     assert agent.validate_react_decisions([decision], False) == (
         "NAME_NOT_FOUND: The name 不存在的活动 is not known.")
 
@@ -160,7 +161,7 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
         view = {"type": "relationship", "about": about, "text": "他最近在办公室很忙。", "importance": 0.5,
                 "keywords": ["同事"]}
         return ReactDecision("", "conclude_activity", {"items": [
-            {"activity_name": waiting, "summary": "先收个尾。", "memories": [], "views": [view]}]}, "")
+            {"activity_name": waiting, "summary": "先收个尾。", "memories": [], "views": [view]}], "errands": []}, "")
 
     assert agent.validate_react_decisions([conclude("李凡")], False) == ""
     unknown = agent.validate_react_decisions([conclude("陌生人")], False)

@@ -1,4 +1,4 @@
-"""正式 4.1 目录数据、原生对象增量与可复现身份的验收。"""
+"""正式 5.3 目录数据、原生对象增量与可复现身份的验收。"""
 
 import hashlib
 import json
@@ -198,7 +198,7 @@ def test_manifest_binds_contract_rules_and_full_content() -> None:
 def test_life_scenarios_bind_catalog_four_and_explicit_empty_recipes() -> None:
     for path in sorted((ROOT / "scenarios").glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != 4:
+        if payload.get("schema_version") != 5:
             continue
         assert payload["catalog_version"] == {"major": 5, "minor": 3}
         assert payload["recipe_output_bindings"] == {"prepared-meal-vegetable-stir-fry": "meal-0030"}

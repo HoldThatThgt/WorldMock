@@ -4,11 +4,11 @@
     "messages": [
       {
         "role": "system",
-        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动与今日计划；环境层是此刻的身体感受与所在地点；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃；需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。\",\"你最多同时有两项活动，进行中、暂停与刚结束的都算；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、生活活动、内容、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。\",\"start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或渠道，prefer 必须写最快拿到或到手价最低；不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。只是「有点想吃」时，等平常的饭点再吃正餐，离饭点还早可以喝点东西或吃点手边的零食；到了「饿」，离平常饭点一小时以内可以提前准备或下单，更早就先垫一点；到了「很饿」或更饿，别等饭点，马上弄吃的。手边的、在路上的、这里能买的、能送到这里的都算；下单后要等送到，拿到手才能吃。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，不必因此提早上床；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。\",\"工作要在要求的地点做，留意截止时间与已完成的有效工时；工时达标不等于已经提交，提交前先结束正在做的工作，过了截止再提交会被拒绝。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。\"]}"
+        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到、拿到或吃掉的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。\",\"你最多同时有两项活动，进行中、暂停与刚结束的都算；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、生活活动、内容、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。\",\"start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或渠道，prefer 必须写最快拿到或到手价最低；不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。只是「有点想吃」时，等平常的饭点再吃正餐，离饭点还早可以喝点东西或吃点手边的零食；到了「饿」，离平常饭点一小时以内可以提前准备或下单，更早就先垫一点；到了「很饿」或更饿，别等饭点，马上弄吃的。手边的、在路上的、这里能买的、能送到这里的都算；下单后要等送到，拿到手才能吃。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，不必因此提早上床；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。\",\"工作要在要求的地点做，留意截止时间与已完成的有效工时；工时达标不等于已经提交，提交前先结束正在做的工作，过了截止再提交会被拒绝。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。\"]}"
       },
       {
         "role": "user",
-        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"activity\",\"action\":null,\"way\":null,\"shared\":{\"phase\":\"进行中\",\"state\":\"已进行约 1.5 小时\",\"tools\":[{\"tool\":\"report_status\",\"available\":true},{\"tool\":\"pause_activity\",\"available\":true},{\"tool\":\"conclude_activity\",\"available\":true}]},\"targets\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\"}]},{\"kind\":\"task\",\"action\":\"interact\",\"way\":\"工作\",\"shared\":{\"state\":\"进行中\",\"contract\":{\"deadline\":\"2026-09-28T18:00:00+08:00\",\"remaining\":\"有效工时还差约 2.5 小时（约 1.5/4 小时）\"},\"tools\":[{\"tool\":\"submit_work\",\"available\":false,\"reason\":\"先结束正在做的工作\"}],\"available\":false,\"reason\":\"已经在做这项工作\"},\"targets\":[{\"name\":\"工作：季度报告\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"state\":\"开放中\",\"available\":true,\"duration\":\"约 3 分钟\"},\"targets\":[{\"name\":\"地点：资料室\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"available\":true,\"price\":\"32 元\",\"duration\":\"约 12 分钟\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"available\":false,\"reason\":\"不在这家店\",\"price\":\"32 元\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"person\",\"action\":\"interact\",\"way\":\"交谈\",\"shared\":{\"state\":\"在这里\",\"tools\":[{\"tool\":\"send_message\",\"available\":true}],\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"人物：王磊\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]}],\"callable_index\":{\"query_categories\":[]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"林悦\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[{\"person\":\"母亲\",\"role\":\"母亲\",\"closeness\":null,\"channels\":[],\"view\":null},{\"person\":\"王磊\",\"role\":\"同事\",\"closeness\":null,\"channels\":[],\"view\":null}],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"听播客《晚高峰》（9月28日 08:20 起）\",\"paused_at\":\"2026-09-28T08:40:00+08:00\",\"place\":\"家\",\"progress\":\"听了约 20 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"要回到家才能继续\"},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}],\"day_plan\":{\"date\":\"2026-09-28\",\"goals\":[{\"intent_kind\":\"work\",\"goal\":\"写完季度报告\",\"progressed\":true,\"remind_time\":null},{\"intent_kind\":\"meal\",\"goal\":\"中午吃点热的\",\"progressed\":false,\"remind_time\":\"12:00\"}]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-09-28T10:43:00+08:00\",\"body\":{\"appetite\":\"有点饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"平常\",\"social\":\"平常\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"公司\",\"place_type\":\"办公室\",\"fixed_rules\":[]}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-09-28T09:02:00+08:00\",\"events\":[{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"工作：季度报告\",\"way\":\"工作\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":null},\"result\":{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activities started\",\"details\":{\"planned\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\",\"duration\":\"约 4 小时\"}]}}},{\"occurred_at\":\"2026-09-28T10:20:00+08:00\",\"type\":\"message_arrival\",\"sender\":\"王磊\",\"kind\":\"direct\",\"text\":\"中午要不要一起点外卖？我想吃牛肉面，你帮我也点一份吧。\"},{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"面馆出售的红烧牛肉面\",\"way\":\"远程下单\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":\"最快拿到\"},\"result\":{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Order placed\",\"details\":{\"purchases\":[{\"product\":\"红烧牛肉面\",\"quantity\":\"1 份\",\"paid\":\"28 元\",\"way\":\"远程下单\",\"destination\":\"公司\",\"expected_at\":\"10:55\"}]}},\"self_note\":\"先给王磊点上，他说想吃牛肉面。\"}]}]"
+        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"activity\",\"action\":null,\"way\":null,\"shared\":{\"phase\":\"进行中\",\"state\":\"已进行约 1.5 小时\",\"tools\":[{\"tool\":\"report_status\",\"available\":true},{\"tool\":\"pause_activity\",\"available\":true},{\"tool\":\"conclude_activity\",\"available\":true}]},\"targets\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\"}]},{\"kind\":\"task\",\"action\":\"interact\",\"way\":\"工作\",\"shared\":{\"state\":\"进行中\",\"contract\":{\"deadline\":\"2026-09-28T18:00:00+08:00\",\"remaining\":\"有效工时还差约 2.5 小时（约 1.5/4 小时）\"},\"tools\":[{\"tool\":\"submit_work\",\"available\":false,\"reason\":\"先结束正在做的工作\"}],\"available\":false,\"reason\":\"已经在做这项工作\"},\"targets\":[{\"name\":\"工作：季度报告\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"state\":\"开放中\",\"available\":true,\"duration\":\"约 3 分钟\"},\"targets\":[{\"name\":\"地点：资料室\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"available\":true,\"price\":\"32 元\",\"duration\":\"约 12 分钟\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"available\":false,\"reason\":\"不在这家店\",\"price\":\"32 元\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"person\",\"action\":\"interact\",\"way\":\"交谈\",\"shared\":{\"state\":\"在这里\",\"tools\":[{\"tool\":\"send_message\",\"available\":true}],\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"人物：王磊\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]}],\"callable_index\":{\"query_categories\":[]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"林悦\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[{\"person\":\"母亲\",\"role\":\"母亲\",\"closeness\":null,\"channels\":[],\"view\":null},{\"person\":\"王磊\",\"role\":\"同事\",\"closeness\":null,\"channels\":[],\"view\":null}],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"听播客《晚高峰》（9月28日 08:20 起）\",\"paused_at\":\"2026-09-28T08:40:00+08:00\",\"place\":\"家\",\"progress\":\"听了约 20 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"要回到家才能继续\"},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}],\"errands\":[{\"name\":\"买牛奶\",\"done_when\":\"取得纯牛奶 2 份\",\"progress\":\"已取得 0 份\",\"memo\":\"家里只剩半盒了\",\"remind_time\":null,\"noted_on\":\"2026-09-27\"},{\"name\":\"给妈妈带月饼\",\"done_when\":\"取得月饼礼盒 1 份\",\"progress\":\"已取得 0 份\",\"memo\":null,\"remind_time\":\"18:30\",\"noted_on\":\"2026-09-28\"}],\"day_plan\":{\"date\":\"2026-09-28\",\"goals\":[{\"intent_kind\":\"work\",\"goal\":\"写完季度报告\",\"progressed\":true,\"remind_time\":null},{\"intent_kind\":\"meal\",\"goal\":\"中午吃点热的\",\"progressed\":false,\"remind_time\":\"12:00\"}]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-09-28T10:43:00+08:00\",\"body\":{\"appetite\":\"有点饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"平常\",\"social\":\"平常\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"公司\",\"place_type\":\"办公室\",\"fixed_rules\":[]},\"duty\":{\"day\":\"工作日\",\"hours\":\"09:00–18:00\",\"place\":\"公司\",\"breaks\":[\"12:00–13:00\"],\"status\":\"当班中\"}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-09-28T09:02:00+08:00\",\"events\":[{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"工作：季度报告\",\"way\":\"工作\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":null},\"result\":{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activities started\",\"details\":{\"planned\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\",\"duration\":\"约 4 小时\"}]}}},{\"occurred_at\":\"2026-09-28T10:20:00+08:00\",\"type\":\"message_arrival\",\"sender\":\"王磊\",\"kind\":\"direct\",\"text\":\"中午要不要一起点外卖？我想吃牛肉面，你帮我也点一份吧。\"},{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"面馆出售的红烧牛肉面\",\"way\":\"远程下单\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":\"最快拿到\"},\"result\":{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Order placed\",\"details\":{\"purchases\":[{\"product\":\"红烧牛肉面\",\"quantity\":\"1 份\",\"paid\":\"28 元\",\"way\":\"远程下单\",\"destination\":\"公司\",\"expected_at\":\"10:55\"}]}},\"self_note\":\"先给王磊点上，他说想吃牛肉面。\"},{\"occurred_at\":\"2026-09-28T10:35:00+08:00\",\"type\":\"errand_completed\",\"errand\":\"囤咖啡豆\"},{\"occurred_at\":\"2026-09-28T10:40:00+08:00\",\"type\":\"errand_reminder\",\"errand\":\"买牛奶\"}]}]"
       }
     ],
     "stream": false,
@@ -17,37 +17,88 @@
         "type": "function",
         "function": {
           "name": "start_activity",
-          "description": "开始一项或两项活动：逐项写目标、动词与方式。",
+          "description": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项选择至多两个可见对象、动词与方式；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md 第五章）。\n\n三个数组等长、一至二项，逐项对应；私有绑定把（对象，动词，方式）映射为内部标准动作，不合法时业务拒绝\nACTION_REQUEST_INVALID。\n\n:param targets: 本次活动的可见对象名称，至多两项。\n:param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。\n:param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。",
             "properties": {
-              "targets": {
+              "items": {
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "pattern": "\\S",
+                      "title": "Target",
+                      "type": "string"
+                    },
+                    "way": {
+                      "pattern": "\\S",
+                      "title": "Way",
+                      "type": "string"
+                    },
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "From"
+                    },
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "To"
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "way",
+                    "from",
+                    "to"
+                  ],
+                  "title": "ActivityRequestItem",
+                  "type": "object"
                 },
-                "title": "Targets",
+                "title": "Items",
                 "type": "array"
               },
-              "actions": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Actions",
-                "type": "array"
+              "answering": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Answering"
               },
-              "ways": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Ways",
-                "type": "array"
+              "prefer": {
+                "description": "购买时选择最快拿到或到手价最低，不购买时写空值。",
+                "enum": [
+                  "最快拿到",
+                  "到手价最低",
+                  null
+                ],
+                "title": "Prefer",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
-              "targets",
-              "actions",
-              "ways"
+              "items",
+              "answering",
+              "prefer"
             ],
             "title": "StartActivityRequest",
             "type": "object"
@@ -62,7 +113,6 @@
           "description": "按任务名提交工作成果。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 按人物可读任务名称提交工作成果。",
             "properties": {
               "task_name": {
                 "pattern": "\\S",
@@ -71,7 +121,7 @@
               },
               "deliverable": {
                 "additionalProperties": false,
-                "description": "@brief AMI 会议整理任务公开要求的结构化成果。",
+                "description": "会议纪要的摘要、决定与行动项。",
                 "properties": {
                   "summary": {
                     "pattern": "\\S",
@@ -121,7 +171,6 @@
           "description": "按人物名给对方发一条消息。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 按人物可读收件人名称发送人物撰写的消息。",
             "properties": {
               "recipient_name": {
                 "pattern": "\\S",
@@ -146,54 +195,160 @@
       {
         "type": "function",
         "function": {
-          "name": "recall_task_summary",
-          "description": "按名称回看一项任务、目标或活动的进展，不改变世界。",
-          "parameters": {
-            "additionalProperties": false,
-            "description": "@brief 按本轮可见的任务、当日目标、活动或会话名称只读回看进展。",
-            "properties": {
-              "task_name": {
-                "pattern": "\\S",
-                "title": "Task Name",
-                "type": "string"
-              }
-            },
-            "required": [
-              "task_name"
-            ],
-            "title": "RecallTaskSummaryRequest",
-            "type": "object"
-          },
-          "strict": true
-        }
-      },
-      {
-        "type": "function",
-        "function": {
           "name": "report_status",
-          "description": "按活动名写下一两项活动的进展。",
+          "description": "按活动名写下一两项活动的进展，并写下个人事务的变更。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它。\n\n:param task: 本次播报的一至两个可读活动名称（做什么＋对象＋开始时刻）。\n:param summary: 与 task 按顺序对应的活动进展自述。",
             "properties": {
-              "task": {
+              "items": {
+                "description": "要播报进展的活动，一项一个对象。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一项活动：活动名与进展。",
+                  "properties": {
+                    "activity_name": {
+                      "description": "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。",
+                      "pattern": "\\S",
+                      "title": "Activity Name",
+                      "type": "string"
+                    },
+                    "summary": {
+                      "description": "用自己的话写这项活动到此刻的进展。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "activity_name",
+                    "summary"
+                  ],
+                  "title": "ActivityProgressItem",
+                  "type": "object"
                 },
-                "title": "Task",
+                "title": "Items",
                 "type": "array"
               },
-              "summary": {
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "要办成的结果，从列出的两种里选一种。",
+                      "enum": [
+                        "取得",
+                        "吃掉",
+                        null
+                      ],
+                      "title": "Outcome",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得或吃掉的商品名称。",
+                      "title": "Item"
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    }
+                  },
+                  "required": [
+                    "change",
+                    "name",
+                    "outcome",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
                 },
-                "title": "Summary",
+                "title": "Errands",
                 "type": "array"
               }
             },
             "required": [
-              "task",
-              "summary"
+              "items",
+              "errands"
             ],
             "title": "ReportStatusRequest",
             "type": "object"
@@ -205,29 +360,159 @@
         "type": "function",
         "function": {
           "name": "pause_activity",
-          "description": "按活动名暂停一两项进行中的活动并写下进展。",
+          "description": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项播报人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停。\n\n:param task: 本次暂停的一至两个可读活动名称。\n:param summary: 与 task 按顺序对应的活动进展自述。",
             "properties": {
-              "task": {
+              "items": {
+                "description": "要暂停的进行中活动，一项一个对象。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一项活动：活动名与进展。",
+                  "properties": {
+                    "activity_name": {
+                      "description": "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。",
+                      "pattern": "\\S",
+                      "title": "Activity Name",
+                      "type": "string"
+                    },
+                    "summary": {
+                      "description": "用自己的话写这项活动到此刻的进展。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "activity_name",
+                    "summary"
+                  ],
+                  "title": "ActivityProgressItem",
+                  "type": "object"
                 },
-                "title": "Task",
+                "title": "Items",
                 "type": "array"
               },
-              "summary": {
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "要办成的结果，从列出的两种里选一种。",
+                      "enum": [
+                        "取得",
+                        "吃掉",
+                        null
+                      ],
+                      "title": "Outcome",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得或吃掉的商品名称。",
+                      "title": "Item"
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    }
+                  },
+                  "required": [
+                    "change",
+                    "name",
+                    "outcome",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
                 },
-                "title": "Summary",
+                "title": "Errands",
                 "type": "array"
               }
             },
             "required": [
-              "task",
-              "summary"
+              "items",
+              "errands"
             ],
             "title": "PauseActivityRequest",
             "type": "object"
@@ -239,85 +524,273 @@
         "type": "function",
         "function": {
           "name": "conclude_activity",
-          "description": "按活动名结束一两项活动，写下总结与想记住的事。",
+          "description": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项写下自述与记忆并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额。\n\n:param task: 本次结束的一至两个可读活动名称。\n:param summary: 与 task 按顺序对应的活动进展自述。\n:param memories: 与 task 等长；memories[i] 是关于 task[i] 的零至多条记忆，合计不超过八条。",
             "properties": {
-              "task": {
+              "items": {
+                "description": "要结束的活动，一项一个对象。",
                 "items": {
-                  "type": "string"
-                },
-                "title": "Task",
-                "type": "array"
-              },
-              "summary": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Summary",
-                "type": "array"
-              },
-              "memories": {
-                "items": {
-                  "items": {
-                    "additionalProperties": false,
-                    "description": "@brief 结束活动时写下的一条人物记忆；来源与认知状态（subjective）由系统固定，模型不填任何身份。",
-                    "properties": {
-                      "type": {
-                        "enum": [
-                          "commitment",
-                          "relationship",
-                          "preference",
-                          "goal",
-                          "conflict",
-                          "resolution",
-                          "identity",
-                          "routine",
-                          "reflection"
+                  "additionalProperties": false,
+                  "description": "结束的一项活动：活动名、总结、想记住的事与看法。",
+                  "properties": {
+                    "activity_name": {
+                      "description": "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。",
+                      "pattern": "\\S",
+                      "title": "Activity Name",
+                      "type": "string"
+                    },
+                    "summary": {
+                      "description": "用自己的话写这项活动的总结。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    },
+                    "memories": {
+                      "description": "关于这项活动、以后做决定用得上的新情况，一条一个对象，没有就写空列表。",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "一条想记住的事：类型、文字、重要程度与关键词。",
+                        "properties": {
+                          "type": {
+                            "description": "这条记忆的类型，从列出的七种里选一种；对人的看法与对事物的偏好另外写。",
+                            "enum": [
+                              "commitment",
+                              "goal",
+                              "conflict",
+                              "resolution",
+                              "identity",
+                              "routine",
+                              "reflection"
+                            ],
+                            "title": "Type",
+                            "type": "string"
+                          },
+                          "text": {
+                            "description": "用自己的话写下想记住的事，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "importance": {
+                            "description": "这件事对自己的重要程度，0 到 1 之间的数。",
+                            "maximum": 1,
+                            "minimum": 0,
+                            "title": "Importance",
+                            "type": "number"
+                          },
+                          "keywords": {
+                            "description": "便于日后回想的几个关键词。",
+                            "items": {
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "title": "Keywords",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "text",
+                          "importance",
+                          "keywords"
                         ],
-                        "title": "Type",
-                        "type": "string"
+                        "title": "ConclusionMemory",
+                        "type": "object"
                       },
-                      "text": {
-                        "pattern": "\\S",
-                        "title": "Text",
-                        "type": "string"
+                      "title": "Memories",
+                      "type": "array"
+                    },
+                    "views": {
+                      "description": "这项活动让你形成的对人的看法或对事物的偏好，一条一个对象，没有就写空列表。",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "一条看法或偏好：类型、对象、文字、重要程度与关键词。",
+                        "properties": {
+                          "type": {
+                            "description": "看法的类型：对某个人的看法，或对某样东西、地方、事情的偏好。",
+                            "enum": [
+                              "relationship",
+                              "preference"
+                            ],
+                            "title": "Type",
+                            "type": "string"
+                          },
+                          "about": {
+                            "description": "看法或偏好的对象：人照人设层里的写法写名字或称呼，东西、地方或事情写它的名称。",
+                            "pattern": "\\S",
+                            "title": "About",
+                            "type": "string"
+                          },
+                          "text": {
+                            "description": "用自己的话写下这条看法或偏好，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "importance": {
+                            "description": "这条看法或偏好对自己的重要程度，0 到 1 之间的数。",
+                            "maximum": 1,
+                            "minimum": 0,
+                            "title": "Importance",
+                            "type": "number"
+                          },
+                          "keywords": {
+                            "description": "便于日后回想的几个关键词。",
+                            "items": {
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "title": "Keywords",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "about",
+                          "text",
+                          "importance",
+                          "keywords"
+                        ],
+                        "title": "ConclusionView",
+                        "type": "object"
                       },
-                      "importance": {
-                        "maximum": 1,
-                        "minimum": 0,
-                        "title": "Importance",
-                        "type": "number"
-                      },
-                      "keywords": {
-                        "items": {
+                      "title": "Views",
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "activity_name",
+                    "summary",
+                    "memories",
+                    "views"
+                  ],
+                  "title": "ActivityConclusionItem",
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "要办成的结果，从列出的两种里选一种。",
+                      "enum": [
+                        "取得",
+                        "吃掉",
+                        null
+                      ],
+                      "title": "Outcome",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
                           "pattern": "\\S",
                           "type": "string"
                         },
-                        "title": "Keywords",
-                        "type": "array"
-                      }
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得或吃掉的商品名称。",
+                      "title": "Item"
                     },
-                    "required": [
-                      "type",
-                      "text",
-                      "importance",
-                      "keywords"
-                    ],
-                    "title": "ConclusionMemory",
-                    "type": "object"
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    }
                   },
-                  "type": "array"
+                  "required": [
+                    "change",
+                    "name",
+                    "outcome",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
                 },
-                "title": "Memories",
+                "title": "Errands",
                 "type": "array"
               }
             },
             "required": [
-              "task",
-              "summary",
-              "memories"
+              "items",
+              "errands"
             ],
             "title": "ConcludeActivityRequest",
             "type": "object"
@@ -332,12 +805,11 @@
           "description": "用完整的新清单替换今日计划中尚未推进的目标。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 用请求中的目标替换全部未推进条目，已推进条目由环境保留。",
             "properties": {
               "goals": {
                 "items": {
                   "additionalProperties": false,
-                  "description": "@brief 当日目标条目：意图、目标文字与必填可空的 remind_time（场景本地 HH:MM，要在那一刻被提醒时填写，否则为 null）。",
+                  "description": "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。",
                   "properties": {
                     "intent_kind": {
                       "enum": [
@@ -372,12 +844,25 @@
                         }
                       ],
                       "title": "Remind Time"
+                    },
+                    "around_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Around Time"
                     }
                   },
                   "required": [
                     "intent_kind",
                     "goal",
-                    "remind_time"
+                    "remind_time",
+                    "around_time"
                   ],
                   "title": "PlanGoalInput",
                   "type": "object"
@@ -398,19 +883,122 @@
       {
         "type": "function",
         "function": {
+          "name": "recall_task_summary",
+          "description": "按名称回看一项任务、目标或活动的进展，不改变世界。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "task_name": {
+                "pattern": "\\S",
+                "title": "Task Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "task_name"
+            ],
+            "title": "RecallTaskSummaryRequest",
+            "type": "object"
+          },
+          "strict": true
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "query_world",
+          "description": "按已知名称、方式、公开品类或购买来源查询世界，可只看此刻能做的，按返回的偏移量翻页。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Name"
+              },
+              "way": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Way"
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Category"
+              },
+              "from": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "From"
+              },
+              "available_only": {
+                "title": "Available Only",
+                "type": "boolean"
+              },
+              "offset": {
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "way",
+              "category",
+              "from",
+              "available_only",
+              "offset"
+            ],
+            "title": "QueryWorldRequest",
+            "type": "object"
+          },
+          "strict": true
+        }
+      },
+      {
+        "type": "function",
+        "function": {
           "name": "memory_recent",
           "description": "读取自己最近的记忆。",
           "parameters": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
               "limit": {
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
                 "type": "integer"
               }
             },
             "required": [
               "limit"
             ],
-            "additionalProperties": false
+            "title": "MemoryRecentRequest",
+            "type": "object"
           },
           "strict": true
         }
@@ -421,12 +1009,17 @@
           "name": "memory_search",
           "description": "按关键词检索自己的记忆。",
           "parameters": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
               "query": {
+                "pattern": "\\S",
+                "title": "Query",
                 "type": "string"
               },
               "limit": {
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
                 "type": "integer"
               }
             },
@@ -434,7 +1027,8 @@
               "query",
               "limit"
             ],
-            "additionalProperties": false
+            "title": "MemorySearchRequest",
+            "type": "object"
           },
           "strict": true
         }
@@ -445,20 +1039,32 @@
           "name": "memory_time_range",
           "description": "读取某一时间段内自己的记忆。",
           "parameters": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
-              "start": {
+              "start_time": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+                "title": "Start Time",
                 "type": "string"
               },
-              "end": {
+              "end_time": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+                "title": "End Time",
                 "type": "string"
+              },
+              "limit": {
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
               }
             },
             "required": [
-              "start",
-              "end"
+              "start_time",
+              "end_time",
+              "limit"
             ],
-            "additionalProperties": false
+            "title": "MemoryTimeRangeRequest",
+            "type": "object"
           },
           "strict": true
         }
@@ -478,11 +1084,11 @@
     "messages": [
       {
         "role": "system",
-        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动与今日计划；环境层是此刻的身体感受与所在地点；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃；需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。\",\"你最多同时有两项活动，进行中、暂停与刚结束的都算；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、生活活动、内容、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。\",\"start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或渠道，prefer 必须写最快拿到或到手价最低；不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。只是「有点想吃」时，等平常的饭点再吃正餐，离饭点还早可以喝点东西或吃点手边的零食；到了「饿」，离平常饭点一小时以内可以提前准备或下单，更早就先垫一点；到了「很饿」或更饿，别等饭点，马上弄吃的。手边的、在路上的、这里能买的、能送到这里的都算；下单后要等送到，拿到手才能吃。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，不必因此提早上床；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。\",\"工作要在要求的地点做，留意截止时间与已完成的有效工时；工时达标不等于已经提交，提交前先结束正在做的工作，过了截止再提交会被拒绝。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。\"]}"
+        "content": "{\"layer\":\"系统层\",\"role\":\"你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。\",\"rules\":[\"请求由七层组成：本层是交互规则；工具层列出此刻可操作的目标，以及各目标的动作、条件与代价；人设层是你是谁；记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。\",\"每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。\",\"世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。说打算做或说已经做过，都不等于做了。\",\"进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，未经核验。待办层个人事务的文字是你自己记下的，办没办成由环境按实际结算确认，自己说办完了不算；办成或取消的事务不再列在待办层。消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。\",\"回复正文可以留空；写了会作为该次调用的 self_note 保留到本段停留或路程结束，不进入记忆。\",\"思考只在同一时刻的连续决策之间保留，时间推进后丢弃。以后要买到、拿到或吃掉的具体东西，在 report_status、pause_activity 或 conclude_activity 的 errands 里记成个人事务，它一直留在待办层，到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 summary，report_status 的 summary 只留到本段停留或路程结束。想记住的事只记以后做决定用得上的新情况，人设层已有的作息和待办层已有的事务不再记。\",\"时间只在你有进行中的活动时推进；没有进行中的活动时，同一时刻会继续请你决策。等待与睡觉也是活动。\",\"你最多同时有两项活动，进行中、暂停与刚结束的都算；活动一结束，同一时刻先用 conclude_activity 收尾，再做别的。\",\"出发前先结束或暂停手上的活动，交谈与通话不能暂停；路上开始的活动不能暂停，到达时与出行一起结束，再逐项收尾。\",\"暂停的活动只能回到原来的地点恢复，用 report_status 点名即恢复；在别处可以直接结束。\",\"工具层列出的动作都可以提交；available 为 false 的会被拒绝，原因就是 reason 所写，照着调整即可。\",\"名称照工具层、待办层中的写法填写；商品、生活活动、内容、地点都可以直接写名称，即使此刻没有展示；写得不准时会返回最接近的候选，不会替你改。\",\"start_activity 一项一个对象，写 target、way、from、to；方式决定动作。to 写 null 统一表示本人，给他人写实名；给予必须写他人，其他非转移动作的 from、to 都写 null。购买 from 可写门店或渠道，prefer 必须写最快拿到或到手价最低；不购买时 prefer 写 null。替别人办事时用 answering 关联未回复消息。\",\"人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。\",\"你会饿、会困、会累，饿着或困着做事会慢，走路比坐车更费力。只是「有点想吃」时，等平常的饭点再吃正餐，离饭点还早可以喝点东西或吃点手边的零食；到了「饿」，离平常饭点一小时以内可以提前准备或下单，更早就先垫一点；到了「很饿」或更饿，别等饭点，马上弄吃的。手边的、在路上的、这里能买的、能送到这里的都算；下单后要等送到，拿到手才能吃。每个饭点的正餐只吃一次，提前吃过的那顿就算吃过了。\",\"晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，不必因此提早上床；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。\",\"工作要在要求的地点做，留意截止时间与已完成的有效工时；工时达标不等于已经提交，提交前先结束正在做的工作，过了截止再提交会被拒绝。\",\"花钱量力而行；有人找你时，按你们的关系与当时的情况回应。联系人只能发消息或通话，不会来到你身边。\"]}"
       },
       {
         "role": "user",
-        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"activity\",\"action\":null,\"way\":null,\"shared\":{\"phase\":\"进行中\",\"state\":\"已进行约 1.5 小时\",\"tools\":[{\"tool\":\"report_status\",\"available\":true},{\"tool\":\"pause_activity\",\"available\":true},{\"tool\":\"conclude_activity\",\"available\":true}]},\"targets\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\"}]},{\"kind\":\"task\",\"action\":\"interact\",\"way\":\"工作\",\"shared\":{\"state\":\"进行中\",\"contract\":{\"deadline\":\"2026-09-28T18:00:00+08:00\",\"remaining\":\"有效工时还差约 2.5 小时（约 1.5/4 小时）\"},\"tools\":[{\"tool\":\"submit_work\",\"available\":false,\"reason\":\"先结束正在做的工作\"}],\"available\":false,\"reason\":\"已经在做这项工作\"},\"targets\":[{\"name\":\"工作：季度报告\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"state\":\"开放中\",\"available\":true,\"duration\":\"约 3 分钟\"},\"targets\":[{\"name\":\"地点：资料室\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"available\":true,\"price\":\"32 元\",\"duration\":\"约 12 分钟\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"available\":false,\"reason\":\"不在这家店\",\"price\":\"32 元\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"person\",\"action\":\"interact\",\"way\":\"交谈\",\"shared\":{\"state\":\"在这里\",\"tools\":[{\"tool\":\"send_message\",\"available\":true}],\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"人物：王磊\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]}],\"callable_index\":{\"query_categories\":[]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"林悦\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[{\"person\":\"母亲\",\"role\":\"母亲\",\"closeness\":null,\"channels\":[],\"view\":null},{\"person\":\"王磊\",\"role\":\"同事\",\"closeness\":null,\"channels\":[],\"view\":null}],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"听播客《晚高峰》（9月28日 08:20 起）\",\"paused_at\":\"2026-09-28T08:40:00+08:00\",\"place\":\"家\",\"progress\":\"听了约 20 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"要回到家才能继续\"},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}],\"day_plan\":{\"date\":\"2026-09-28\",\"goals\":[{\"intent_kind\":\"work\",\"goal\":\"写完季度报告\",\"progressed\":true,\"remind_time\":null},{\"intent_kind\":\"meal\",\"goal\":\"中午吃点热的\",\"progressed\":false,\"remind_time\":\"12:00\"}]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-09-28T10:43:00+08:00\",\"body\":{\"appetite\":\"有点饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"平常\",\"social\":\"平常\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"公司\",\"place_type\":\"办公室\",\"fixed_rules\":[]}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-09-28T09:02:00+08:00\",\"events\":[{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"工作：季度报告\",\"way\":\"工作\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":null},\"result\":{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activities started\",\"details\":{\"planned\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\",\"duration\":\"约 4 小时\"}]}}},{\"occurred_at\":\"2026-09-28T10:20:00+08:00\",\"type\":\"message_arrival\",\"sender\":\"王磊\",\"kind\":\"direct\",\"text\":\"中午要不要一起点外卖？我想吃牛肉面，你帮我也点一份吧。\"},{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"面馆出售的红烧牛肉面\",\"way\":\"远程下单\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":\"最快拿到\"},\"result\":{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Order placed\",\"details\":{\"purchases\":[{\"product\":\"红烧牛肉面\",\"quantity\":\"1 份\",\"paid\":\"28 元\",\"way\":\"远程下单\",\"destination\":\"公司\",\"expected_at\":\"10:55\"}]}},\"self_note\":\"先给王磊点上，他说想吃牛肉面。\"}]}]"
+        "content": "[{\"layer\":\"工具层\",\"groups\":[{\"kind\":\"activity\",\"action\":null,\"way\":null,\"shared\":{\"phase\":\"进行中\",\"state\":\"已进行约 1.5 小时\",\"tools\":[{\"tool\":\"report_status\",\"available\":true},{\"tool\":\"pause_activity\",\"available\":true},{\"tool\":\"conclude_activity\",\"available\":true}]},\"targets\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\"}]},{\"kind\":\"task\",\"action\":\"interact\",\"way\":\"工作\",\"shared\":{\"state\":\"进行中\",\"contract\":{\"deadline\":\"2026-09-28T18:00:00+08:00\",\"remaining\":\"有效工时还差约 2.5 小时（约 1.5/4 小时）\"},\"tools\":[{\"tool\":\"submit_work\",\"available\":false,\"reason\":\"先结束正在做的工作\"}],\"available\":false,\"reason\":\"已经在做这项工作\"},\"targets\":[{\"name\":\"工作：季度报告\"}]},{\"kind\":\"location\",\"action\":\"travel\",\"way\":\"步行\",\"shared\":{\"state\":\"开放中\",\"available\":true,\"duration\":\"约 3 分钟\"},\"targets\":[{\"name\":\"地点：资料室\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"远程下单\",\"shared\":{\"available\":true,\"price\":\"32 元\",\"duration\":\"约 12 分钟\",\"quantity\":\"1 份\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"product\",\"action\":\"obtain\",\"way\":\"到店\",\"shared\":{\"available\":false,\"reason\":\"不在这家店\",\"price\":\"32 元\"},\"targets\":[{\"name\":\"星巴克出售的拿铁\"}]},{\"kind\":\"person\",\"action\":\"interact\",\"way\":\"交谈\",\"shared\":{\"state\":\"在这里\",\"tools\":[{\"tool\":\"send_message\",\"available\":true}],\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"人物：王磊\"}]},{\"kind\":\"self\",\"action\":\"interact\",\"way\":\"等待\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]},{\"kind\":\"self\",\"action\":\"sleep\",\"way\":\"睡觉\",\"shared\":{\"available\":false,\"reason\":\"手上已有两项活动\"},\"targets\":[{\"name\":\"自己\"}]}],\"callable_index\":{\"query_categories\":[]}},{\"layer\":\"人设层\",\"identity\":{\"name\":\"林悦\",\"age\":null,\"occupation\":null,\"living_arrangement\":null},\"rhythm\":null,\"habits\":[],\"tastes\":null,\"coping\":null,\"relationships\":[{\"person\":\"母亲\",\"role\":\"母亲\",\"closeness\":null,\"channels\":[],\"view\":null},{\"person\":\"王磊\",\"role\":\"同事\",\"closeness\":null,\"channels\":[],\"view\":null}],\"preferences\":[]},{\"layer\":\"记忆层\",\"earlier_days\":[],\"earlier_today\":[]},{\"layer\":\"待办层\",\"paused_activities\":[{\"name\":\"听播客《晚高峰》（9月28日 08:20 起）\",\"paused_at\":\"2026-09-28T08:40:00+08:00\",\"place\":\"家\",\"progress\":\"听了约 20 分钟\",\"tools\":[{\"tool\":\"report_status\",\"available\":false,\"reason\":\"要回到家才能继续\"},{\"tool\":\"conclude_activity\",\"available\":true,\"reason\":null}]}],\"errands\":[{\"name\":\"买牛奶\",\"done_when\":\"取得纯牛奶 2 份\",\"progress\":\"已取得 0 份\",\"memo\":\"家里只剩半盒了\",\"remind_time\":null,\"noted_on\":\"2026-09-27\"},{\"name\":\"给妈妈带月饼\",\"done_when\":\"取得月饼礼盒 1 份\",\"progress\":\"已取得 0 份\",\"memo\":null,\"remind_time\":\"18:30\",\"noted_on\":\"2026-09-28\"}],\"day_plan\":{\"date\":\"2026-09-28\",\"goals\":[{\"intent_kind\":\"work\",\"goal\":\"写完季度报告\",\"progressed\":true,\"remind_time\":null},{\"intent_kind\":\"meal\",\"goal\":\"中午吃点热的\",\"progressed\":false,\"remind_time\":\"12:00\"}]}},{\"layer\":\"环境层\",\"observed_at\":\"2026-09-28T10:43:00+08:00\",\"body\":{\"appetite\":\"有点饿\",\"sleepiness\":\"清醒\",\"entertainment\":\"平常\",\"social\":\"平常\",\"mood\":\"平静\"},\"location\":{\"session_kind\":\"stay\",\"name\":\"公司\",\"place_type\":\"办公室\",\"fixed_rules\":[]},\"duty\":{\"day\":\"工作日\",\"hours\":\"09:00–18:00\",\"place\":\"公司\",\"breaks\":[\"12:00–13:00\"],\"status\":\"当班中\"}},{\"layer\":\"进度层\",\"session_started_at\":\"2026-09-28T09:02:00+08:00\",\"events\":[{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"工作：季度报告\",\"way\":\"工作\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":null},\"result\":{\"occurred_at\":\"2026-09-28T09:05:00+08:00\",\"status\":\"in_progress\",\"error_code\":null,\"message\":\"Activities started\",\"details\":{\"planned\":[{\"name\":\"工作写季度报告（9月28日 09:05 起）\",\"duration\":\"约 4 小时\"}]}}},{\"occurred_at\":\"2026-09-28T10:20:00+08:00\",\"type\":\"message_arrival\",\"sender\":\"王磊\",\"kind\":\"direct\",\"text\":\"中午要不要一起点外卖？我想吃牛肉面，你帮我也点一份吧。\"},{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"type\":\"tool_call\",\"tool\":\"start_activity\",\"arguments\":{\"items\":[{\"target\":\"面馆出售的红烧牛肉面\",\"way\":\"远程下单\",\"from\":null,\"to\":null}],\"answering\":null,\"prefer\":\"最快拿到\"},\"result\":{\"occurred_at\":\"2026-09-28T10:31:00+08:00\",\"status\":\"completed\",\"error_code\":null,\"message\":\"Order placed\",\"details\":{\"purchases\":[{\"product\":\"红烧牛肉面\",\"quantity\":\"1 份\",\"paid\":\"28 元\",\"way\":\"远程下单\",\"destination\":\"公司\",\"expected_at\":\"10:55\"}]}},\"self_note\":\"先给王磊点上，他说想吃牛肉面。\"},{\"occurred_at\":\"2026-09-28T10:35:00+08:00\",\"type\":\"errand_completed\",\"errand\":\"囤咖啡豆\"},{\"occurred_at\":\"2026-09-28T10:40:00+08:00\",\"type\":\"errand_reminder\",\"errand\":\"买牛奶\"}]}]"
       },
       {
         "role": "assistant",
@@ -511,37 +1117,88 @@
         "type": "function",
         "function": {
           "name": "start_activity",
-          "description": "开始一项或两项活动：逐项写目标、动词与方式。",
+          "description": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项选择至多两个可见对象、动词与方式；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md 第五章）。\n\n三个数组等长、一至二项，逐项对应；私有绑定把（对象，动词，方式）映射为内部标准动作，不合法时业务拒绝\nACTION_REQUEST_INVALID。\n\n:param targets: 本次活动的可见对象名称，至多两项。\n:param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。\n:param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。",
             "properties": {
-              "targets": {
+              "items": {
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "pattern": "\\S",
+                      "title": "Target",
+                      "type": "string"
+                    },
+                    "way": {
+                      "pattern": "\\S",
+                      "title": "Way",
+                      "type": "string"
+                    },
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "From"
+                    },
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "To"
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "way",
+                    "from",
+                    "to"
+                  ],
+                  "title": "ActivityRequestItem",
+                  "type": "object"
                 },
-                "title": "Targets",
+                "title": "Items",
                 "type": "array"
               },
-              "actions": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Actions",
-                "type": "array"
+              "answering": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Answering"
               },
-              "ways": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Ways",
-                "type": "array"
+              "prefer": {
+                "description": "购买时选择最快拿到或到手价最低，不购买时写空值。",
+                "enum": [
+                  "最快拿到",
+                  "到手价最低",
+                  null
+                ],
+                "title": "Prefer",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
-              "targets",
-              "actions",
-              "ways"
+              "items",
+              "answering",
+              "prefer"
             ],
             "title": "StartActivityRequest",
             "type": "object"
@@ -556,7 +1213,6 @@
           "description": "按任务名提交工作成果。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 按人物可读任务名称提交工作成果。",
             "properties": {
               "task_name": {
                 "pattern": "\\S",
@@ -565,7 +1221,7 @@
               },
               "deliverable": {
                 "additionalProperties": false,
-                "description": "@brief AMI 会议整理任务公开要求的结构化成果。",
+                "description": "会议纪要的摘要、决定与行动项。",
                 "properties": {
                   "summary": {
                     "pattern": "\\S",
@@ -615,7 +1271,6 @@
           "description": "按人物名给对方发一条消息。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 按人物可读收件人名称发送人物撰写的消息。",
             "properties": {
               "recipient_name": {
                 "pattern": "\\S",
@@ -640,54 +1295,160 @@
       {
         "type": "function",
         "function": {
-          "name": "recall_task_summary",
-          "description": "按名称回看一项任务、目标或活动的进展，不改变世界。",
-          "parameters": {
-            "additionalProperties": false,
-            "description": "@brief 按本轮可见的任务、当日目标、活动或会话名称只读回看进展。",
-            "properties": {
-              "task_name": {
-                "pattern": "\\S",
-                "title": "Task Name",
-                "type": "string"
-              }
-            },
-            "required": [
-              "task_name"
-            ],
-            "title": "RecallTaskSummaryRequest",
-            "type": "object"
-          },
-          "strict": true
-        }
-      },
-      {
-        "type": "function",
-        "function": {
           "name": "report_status",
-          "description": "按活动名写下一两项活动的进展。",
+          "description": "按活动名写下一两项活动的进展，并写下个人事务的变更。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它。\n\n:param task: 本次播报的一至两个可读活动名称（做什么＋对象＋开始时刻）。\n:param summary: 与 task 按顺序对应的活动进展自述。",
             "properties": {
-              "task": {
+              "items": {
+                "description": "要播报进展的活动，一项一个对象。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一项活动：活动名与进展。",
+                  "properties": {
+                    "activity_name": {
+                      "description": "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。",
+                      "pattern": "\\S",
+                      "title": "Activity Name",
+                      "type": "string"
+                    },
+                    "summary": {
+                      "description": "用自己的话写这项活动到此刻的进展。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "activity_name",
+                    "summary"
+                  ],
+                  "title": "ActivityProgressItem",
+                  "type": "object"
                 },
-                "title": "Task",
+                "title": "Items",
                 "type": "array"
               },
-              "summary": {
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "要办成的结果，从列出的两种里选一种。",
+                      "enum": [
+                        "取得",
+                        "吃掉",
+                        null
+                      ],
+                      "title": "Outcome",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得或吃掉的商品名称。",
+                      "title": "Item"
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    }
+                  },
+                  "required": [
+                    "change",
+                    "name",
+                    "outcome",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
                 },
-                "title": "Summary",
+                "title": "Errands",
                 "type": "array"
               }
             },
             "required": [
-              "task",
-              "summary"
+              "items",
+              "errands"
             ],
             "title": "ReportStatusRequest",
             "type": "object"
@@ -699,29 +1460,159 @@
         "type": "function",
         "function": {
           "name": "pause_activity",
-          "description": "按活动名暂停一两项进行中的活动并写下进展。",
+          "description": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项播报人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停。\n\n:param task: 本次暂停的一至两个可读活动名称。\n:param summary: 与 task 按顺序对应的活动进展自述。",
             "properties": {
-              "task": {
+              "items": {
+                "description": "要暂停的进行中活动，一项一个对象。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一项活动：活动名与进展。",
+                  "properties": {
+                    "activity_name": {
+                      "description": "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。",
+                      "pattern": "\\S",
+                      "title": "Activity Name",
+                      "type": "string"
+                    },
+                    "summary": {
+                      "description": "用自己的话写这项活动到此刻的进展。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "activity_name",
+                    "summary"
+                  ],
+                  "title": "ActivityProgressItem",
+                  "type": "object"
                 },
-                "title": "Task",
+                "title": "Items",
                 "type": "array"
               },
-              "summary": {
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
                 "items": {
-                  "type": "string"
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "要办成的结果，从列出的两种里选一种。",
+                      "enum": [
+                        "取得",
+                        "吃掉",
+                        null
+                      ],
+                      "title": "Outcome",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得或吃掉的商品名称。",
+                      "title": "Item"
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    }
+                  },
+                  "required": [
+                    "change",
+                    "name",
+                    "outcome",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
                 },
-                "title": "Summary",
+                "title": "Errands",
                 "type": "array"
               }
             },
             "required": [
-              "task",
-              "summary"
+              "items",
+              "errands"
             ],
             "title": "PauseActivityRequest",
             "type": "object"
@@ -733,85 +1624,273 @@
         "type": "function",
         "function": {
           "name": "conclude_activity",
-          "description": "按活动名结束一两项活动，写下总结与想记住的事。",
+          "description": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 逐项写下自述与记忆并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额。\n\n:param task: 本次结束的一至两个可读活动名称。\n:param summary: 与 task 按顺序对应的活动进展自述。\n:param memories: 与 task 等长；memories[i] 是关于 task[i] 的零至多条记忆，合计不超过八条。",
             "properties": {
-              "task": {
+              "items": {
+                "description": "要结束的活动，一项一个对象。",
                 "items": {
-                  "type": "string"
-                },
-                "title": "Task",
-                "type": "array"
-              },
-              "summary": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Summary",
-                "type": "array"
-              },
-              "memories": {
-                "items": {
-                  "items": {
-                    "additionalProperties": false,
-                    "description": "@brief 结束活动时写下的一条人物记忆；来源与认知状态（subjective）由系统固定，模型不填任何身份。",
-                    "properties": {
-                      "type": {
-                        "enum": [
-                          "commitment",
-                          "relationship",
-                          "preference",
-                          "goal",
-                          "conflict",
-                          "resolution",
-                          "identity",
-                          "routine",
-                          "reflection"
+                  "additionalProperties": false,
+                  "description": "结束的一项活动：活动名、总结、想记住的事与看法。",
+                  "properties": {
+                    "activity_name": {
+                      "description": "活动名：照工具层、待办层或进度层写出的名称原样抄写，包括「（9月28日 12:05 起）」这样的开始时刻。",
+                      "pattern": "\\S",
+                      "title": "Activity Name",
+                      "type": "string"
+                    },
+                    "summary": {
+                      "description": "用自己的话写这项活动的总结。",
+                      "pattern": "\\S",
+                      "title": "Summary",
+                      "type": "string"
+                    },
+                    "memories": {
+                      "description": "关于这项活动、以后做决定用得上的新情况，一条一个对象，没有就写空列表。",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "一条想记住的事：类型、文字、重要程度与关键词。",
+                        "properties": {
+                          "type": {
+                            "description": "这条记忆的类型，从列出的七种里选一种；对人的看法与对事物的偏好另外写。",
+                            "enum": [
+                              "commitment",
+                              "goal",
+                              "conflict",
+                              "resolution",
+                              "identity",
+                              "routine",
+                              "reflection"
+                            ],
+                            "title": "Type",
+                            "type": "string"
+                          },
+                          "text": {
+                            "description": "用自己的话写下想记住的事，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "importance": {
+                            "description": "这件事对自己的重要程度，0 到 1 之间的数。",
+                            "maximum": 1,
+                            "minimum": 0,
+                            "title": "Importance",
+                            "type": "number"
+                          },
+                          "keywords": {
+                            "description": "便于日后回想的几个关键词。",
+                            "items": {
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "title": "Keywords",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "text",
+                          "importance",
+                          "keywords"
                         ],
-                        "title": "Type",
-                        "type": "string"
+                        "title": "ConclusionMemory",
+                        "type": "object"
                       },
-                      "text": {
-                        "pattern": "\\S",
-                        "title": "Text",
-                        "type": "string"
+                      "title": "Memories",
+                      "type": "array"
+                    },
+                    "views": {
+                      "description": "这项活动让你形成的对人的看法或对事物的偏好，一条一个对象，没有就写空列表。",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "一条看法或偏好：类型、对象、文字、重要程度与关键词。",
+                        "properties": {
+                          "type": {
+                            "description": "看法的类型：对某个人的看法，或对某样东西、地方、事情的偏好。",
+                            "enum": [
+                              "relationship",
+                              "preference"
+                            ],
+                            "title": "Type",
+                            "type": "string"
+                          },
+                          "about": {
+                            "description": "看法或偏好的对象：人照人设层里的写法写名字或称呼，东西、地方或事情写它的名称。",
+                            "pattern": "\\S",
+                            "title": "About",
+                            "type": "string"
+                          },
+                          "text": {
+                            "description": "用自己的话写下这条看法或偏好，不写编号或身份串。",
+                            "pattern": "\\S",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "importance": {
+                            "description": "这条看法或偏好对自己的重要程度，0 到 1 之间的数。",
+                            "maximum": 1,
+                            "minimum": 0,
+                            "title": "Importance",
+                            "type": "number"
+                          },
+                          "keywords": {
+                            "description": "便于日后回想的几个关键词。",
+                            "items": {
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "title": "Keywords",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "about",
+                          "text",
+                          "importance",
+                          "keywords"
+                        ],
+                        "title": "ConclusionView",
+                        "type": "object"
                       },
-                      "importance": {
-                        "maximum": 1,
-                        "minimum": 0,
-                        "title": "Importance",
-                        "type": "number"
-                      },
-                      "keywords": {
-                        "items": {
+                      "title": "Views",
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "activity_name",
+                    "summary",
+                    "memories",
+                    "views"
+                  ],
+                  "title": "ActivityConclusionItem",
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "errands": {
+                "description": "要新增、更新或取消的个人事务，一条一个对象，没有就写空列表。",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "一条个人事务的变更：做什么、名称、要办成的事、备注、提醒钟点与取消原因。",
+                  "properties": {
+                    "change": {
+                      "description": "这条变更做什么，从列出的三种里选一种。",
+                      "enum": [
+                        "新增",
+                        "更新",
+                        "取消"
+                      ],
+                      "title": "Change",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "事务的名称，新增时自己起，之后照待办层里的写法写。",
+                      "pattern": "\\S",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "要办成的结果，从列出的两种里选一种。",
+                      "enum": [
+                        "取得",
+                        "吃掉",
+                        null
+                      ],
+                      "title": "Outcome",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
                           "pattern": "\\S",
                           "type": "string"
                         },
-                        "title": "Keywords",
-                        "type": "array"
-                      }
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要取得或吃掉的商品名称。",
+                      "title": "Item"
                     },
-                    "required": [
-                      "type",
-                      "text",
-                      "importance",
-                      "keywords"
-                    ],
-                    "title": "ConclusionMemory",
-                    "type": "object"
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "要办成的份数。",
+                      "title": "Quantity"
+                    },
+                    "memo": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "用自己的话写打算怎么办、去哪办。",
+                      "title": "Memo"
+                    },
+                    "remind_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "想被提醒去办这件事的钟点。",
+                      "title": "Remind Time"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "不办了的原因。",
+                      "title": "Reason"
+                    }
                   },
-                  "type": "array"
+                  "required": [
+                    "change",
+                    "name",
+                    "outcome",
+                    "item",
+                    "quantity",
+                    "memo",
+                    "remind_time",
+                    "reason"
+                  ],
+                  "title": "ErrandChange",
+                  "type": "object"
                 },
-                "title": "Memories",
+                "title": "Errands",
                 "type": "array"
               }
             },
             "required": [
-              "task",
-              "summary",
-              "memories"
+              "items",
+              "errands"
             ],
             "title": "ConcludeActivityRequest",
             "type": "object"
@@ -826,12 +1905,11 @@
           "description": "用完整的新清单替换今日计划中尚未推进的目标。",
           "parameters": {
             "additionalProperties": false,
-            "description": "@brief 用请求中的目标替换全部未推进条目，已推进条目由环境保留。",
             "properties": {
               "goals": {
                 "items": {
                   "additionalProperties": false,
-                  "description": "@brief 当日目标条目：意图、目标文字与必填可空的 remind_time（场景本地 HH:MM，要在那一刻被提醒时填写，否则为 null）。",
+                  "description": "今日计划的一个目标：意图、目标文字、提醒时刻与大致时刻。",
                   "properties": {
                     "intent_kind": {
                       "enum": [
@@ -866,12 +1944,25 @@
                         }
                       ],
                       "title": "Remind Time"
+                    },
+                    "around_time": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Around Time"
                     }
                   },
                   "required": [
                     "intent_kind",
                     "goal",
-                    "remind_time"
+                    "remind_time",
+                    "around_time"
                   ],
                   "title": "PlanGoalInput",
                   "type": "object"
@@ -892,19 +1983,122 @@
       {
         "type": "function",
         "function": {
+          "name": "recall_task_summary",
+          "description": "按名称回看一项任务、目标或活动的进展，不改变世界。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "task_name": {
+                "pattern": "\\S",
+                "title": "Task Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "task_name"
+            ],
+            "title": "RecallTaskSummaryRequest",
+            "type": "object"
+          },
+          "strict": true
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "query_world",
+          "description": "按已知名称、方式、公开品类或购买来源查询世界，可只看此刻能做的，按返回的偏移量翻页。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Name"
+              },
+              "way": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Way"
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Category"
+              },
+              "from": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "From"
+              },
+              "available_only": {
+                "title": "Available Only",
+                "type": "boolean"
+              },
+              "offset": {
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "way",
+              "category",
+              "from",
+              "available_only",
+              "offset"
+            ],
+            "title": "QueryWorldRequest",
+            "type": "object"
+          },
+          "strict": true
+        }
+      },
+      {
+        "type": "function",
+        "function": {
           "name": "memory_recent",
           "description": "读取自己最近的记忆。",
           "parameters": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
               "limit": {
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
                 "type": "integer"
               }
             },
             "required": [
               "limit"
             ],
-            "additionalProperties": false
+            "title": "MemoryRecentRequest",
+            "type": "object"
           },
           "strict": true
         }
@@ -915,12 +2109,17 @@
           "name": "memory_search",
           "description": "按关键词检索自己的记忆。",
           "parameters": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
               "query": {
+                "pattern": "\\S",
+                "title": "Query",
                 "type": "string"
               },
               "limit": {
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
                 "type": "integer"
               }
             },
@@ -928,7 +2127,8 @@
               "query",
               "limit"
             ],
-            "additionalProperties": false
+            "title": "MemorySearchRequest",
+            "type": "object"
           },
           "strict": true
         }
@@ -939,20 +2139,32 @@
           "name": "memory_time_range",
           "description": "读取某一时间段内自己的记忆。",
           "parameters": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
-              "start": {
+              "start_time": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+                "title": "Start Time",
                 "type": "string"
               },
-              "end": {
+              "end_time": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+                "title": "End Time",
                 "type": "string"
+              },
+              "limit": {
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
               }
             },
             "required": [
-              "start",
-              "end"
+              "start_time",
+              "end_time",
+              "limit"
             ],
-            "additionalProperties": false
+            "title": "MemoryTimeRangeRequest",
+            "type": "object"
           },
           "strict": true
         }

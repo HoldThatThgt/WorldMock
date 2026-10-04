@@ -1,11 +1,12 @@
 # 生活场景
 
-> 2026-10-01：[工具交互目标规格](../dev/SPEC-tool-interaction.md)已冻结，生产实现已完成。
-> 本手册现有命令示例仍针对当前实现；下述新规则是实施时必须同步的目标，不能当作已支持的CLI。
+> 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步个人事务与提醒（阶段 2）。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步场景结构 5 的工作安排（阶段 3）。
 
 生活场景决定模拟谁、从什么时候到什么时候、有哪些生活机会，以及世界开始时的状态。
 从[手册首页](README.md#创建自己的第一个场景)复制现有场景开始，按本页调整自己的条件。
-人物具体怎么过一天仍由人物决定，场景用于提供环境和机会。
+人物具体怎么过一天仍由人物决定；场景提供环境和机会，也可以声明人物定下的工作安排——它是每轮告诉人物的事实，环境不因此拒绝任何行动。
 
 [返回手册](README.md) · [人物画像](personas.md) · [世界素材](resources.md)
 
@@ -19,13 +20,13 @@
 
 新场景放在仓库的 `scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
 场景中的 `corpus_root` 则相对场景所在目录解析。不要把场景移动到 `scenarios/custom/` 等更深目录而不调整整个项目布局。
-`schema_version` 当前代码基线为3；工具交互目标发布为4，多余字段和旧发布输入都严格拒绝。
+`schema_version` 当前为 5：每个人物须显式写 `work_schedule`（对象或 `null`）；多余字段和旧结构的输入都严格拒绝。
 
 ## 看懂场景的组成
 
 ```mermaid
 flowchart TB
-    SCENE[场景] --> PEOPLE[人物与身体初值]
+    SCENE[场景] --> PEOPLE[人物、工作安排与身体初值]
     SCENE --> TIME[时间窗与日历]
     SCENE --> WORLD[地图、商品、供给和素材引用]
     SCENE --> EVENTS[任务、消息、工资、账单与供给变化]
@@ -45,7 +46,7 @@ flowchart TB
 | `activity_feedback_seconds`、`rotation_stale_seconds` | 必填；反馈间隔与长期未呈现阈值 |
 | `corpus_root`、`corpus_manifest_sha256`、`catalog_version`、`map_dataset` | 必填；语料、目录版本和地图身份 |
 | `accounts` | 必填非空数组；商家、雇主、出行服务和外部账户 |
-| `body`、`agents`、`interaction_menus_by_location_kind` | 必填；身体初值、人物和每个地点类的菜单 |
+| `body`、`agents`、`interaction_menus_by_location_kind` | 必填；身体初值、人物和每个地点类的菜单；每个人物条目另须显式写 `work_schedule`，见[声明工作安排](#声明工作安排) |
 | `locations`、`products`、`supplies` | 必填数组；选中的地点、商品与门店供给 |
 | `tasks`、`messages`、`contents`、`games` | 必填数组；工作、通知与可接触素材 |
 | `calendar` | 必填；特殊日期与生活情境 |
@@ -112,12 +113,21 @@ flowchart TB
 
 不要把反馈间隔当作“人物每十五分钟行动一次”。决策本身不耗时：没有进行中活动的人物在同一秒接着决策，
 只有人人都有事在做时，时间才根据活动完成、消息、任务、身体变化和其他事件推进。
-在手承诺包括尚未推进的当日目标、可见的未完成工作任务、暂停的活动与进行中的活动（等待除外）。
+在手承诺包括尚未推进的当日目标、可见的未完成工作任务、暂停的活动与进行中的活动（等待除外）。未完成的个人事务不算在手承诺，不改变两个重估间隔。
 当日目标由零点计划生成：运行开始时和每个场景本地零点（运行恰在零点结束时除外），系统为每个人物调用模型生成当天的
 有序目标，同一人物同一天只生成一次；人物醒着时可以修订。目标不填写时间段，每条带模型写的大致时刻 `around_time`
 （场景本地 `HH:MM`，可为空）：写了时，只有进行时段与它前后 90 分钟有交集的同类活动才算推进这条目标。
-只有 `remind_time`（场景本地 `HH:MM`，可为空）会在那一刻提醒人物，每条提醒只触发一次，能叫醒睡着的人；睡眠中除了提醒，只有睡够等专用唤醒条件才会结束睡眠。
+会在某一刻提醒人物的有两种：当日目标的 `remind_time` 与个人事务的 `remind_time`（都是场景本地 `HH:MM`，可为空），每次设定只触发一次。
+只有当日目标的提醒能叫醒睡着的人；个人事务的提醒在睡眠中不交付也不消耗，人物醒来的那一刻一并交付。
+睡眠中除了当日目标的提醒，只有睡够等专用唤醒条件才会结束睡眠。
 规则见[当日目标规格](../dev/SPEC-day-plan-goals.md)与[时间与能量规格](../dev/SPEC-time-and-energy.md)第四章。
+
+个人事务由人物在运行中自己记下（播报、暂停或收尾时写在请求的 `errands` 里），场景不能预置。
+它只表达能由结算确认的事：取得或吃掉某件具体商品若干份（1 至 9）；环境按真实结算确认办成，人物只能取消并写原因，没有截止与过期。
+「取得」不看地点：到店买下的东西留在门店，事务照样办成，要在家里用的东西应远程下单送到家。
+事务的提醒钟点不晚于写下它的时刻（新增或更新被受理时）时，指下一天的这个钟点。每人未完成事务至多 8 条，一次请求至多 4 条变更，
+名称至多 30 字符，备注与取消原因各至多 120 字符；事务跨零点保留并一直显示在待办层，零点计划与修订计划都不删它。
+这些上限是实验假设，见[实验设置](../EXPERIMENT.md#实验假设声明)；规则见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)第二章。
 
 ## 修改人物、身体与账户
 
@@ -203,18 +213,63 @@ flowchart LR
 引擎按注册表占用与准入事实（目标在场与实际地点、出行方式、物品状态）整体核验，能量不参与。
 菜单控制动作权限；画像偏好只影响选择和排序。
 
+## 声明工作安排
+
+每个人物条目必须显式写 `work_schedule`：没有固定班次写 `null`，这个人物就没有任何在岗语义。
+有固定班次时写一个对象。下面是 `agents[]` 条目里 `work_schedule` 一项的局部片段，示意形状：
+
+```json
+{
+  "work_schedule": {
+    "workplace_location_id": "office",
+    "weekly": {
+      "0": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
+      "1": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
+      "2": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
+      "3": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
+      "4": {"starts": 540, "ends": 1080, "breaks": [[720, 810]]},
+      "5": null,
+      "6": null
+    },
+    "exceptions": {"2026-02-14": {"starts": 540, "ends": 1080, "breaks": []}, "2026-02-17": null}
+  }
+}
+```
+
+`office` 换成场景实际选中的办公地点标识。示例只示意形状，原样放进白领十二周场景会被加载检查拒绝：
+完整声明还要按下面的规则覆盖场景日历里落在时间窗内的全部特殊日（该场景还有补班日、春节其余工作日与病假、事假日）。
+
+- 对象的三个键 `workplace_location_id`、`weekly`、`exceptions` 都必填，没有例外写 `{}`；班次的三个键 `starts`、`ends`、`breaks`
+  也都必填，没有休息时段写 `[]`；多写的键被拒。
+- `weekly` 七天全写，键 `"0"` 至 `"6"` 对应周一至周日，值为班次或 `null`（当日不当班）；`exceptions` 用规范的 `YYYY-MM-DD`
+  覆盖当天，值同样是班次或 `null`，优先于 `weekly`。系统不从星期或任务分布推断班次。
+- 时刻是当地零点起的分钟（`540` 是 09:00，`1440` 是 24:00），班次同日且 `starts < ends`；`breaks` 落在班次内、升序、互不重叠；
+  区间一律半开。不写时区，用场景的 `timezone`。
+- 加载时核对：工作地点是所选地点；落在场景时间窗内的日历日期里，补班日必须有班次，春节、病假、事假日必须不当班，
+  加班机会日与聚餐日不要求班次；时间窗外的日期不核对，写了例外也不拒绝。日历是场景级的，病假、事假日对所有声明了班次的人物同时生效。
+- 班次形状错误报 `Scenario validation failed`（明细在异常链）；地点与日历核对的错误是 `Work schedules are not admissible: …`，
+  逐条写明人物、日期与字段。
+- 现成三份场景的人物都写 `null`。
+
+**效果。** 声明了工作安排的人物每轮在环境层看到 `duty`：当班日写「工作日」、班次钟点、工作地点名、休息时段与状态
+（「未到上班时间」「当班中」「休息时段」「已下班」之一，只由时钟与班次决定，不看人物在不在场）；不当班的日子写「休息日」；
+没有工作安排的人物为 `null`。零点计划的输入另有计划日期当天的上班安排（不含状态），零点计划不把目标安排在上班时间离开上班地点。
+它是事实呈现，不是受理条件：出行照常列出、照常受理，零点计划、修订计划和交了手上的工作都不改变它；
+班内离岗由行为评估的工作负荷与作息偏离指标报告（`scripts/inspect_run.py <运行目录> workday --scenario <场景文件>`）。
+工作安排不改变任务的开放、开工、提交与迟交判定：班前到岗可以开工，班后可以继续做未到截止的任务。
+
 ## 配置工作任务和消息
 
-本节配置表描述当前场景结构3；待实现的场景4删除输入开放时间，见[工作通知与目标发布](#工作通知与目标发布)。
+任务不写开放时间：开放时刻由关联通知或预约派生，见[工作通知与目标发布](#工作通知与目标发布)。
 
 工作条目定义一个人物可以选择完成的合同。最稳妥的做法是复制模板中的 `tasks` 条目，
-保留已有输入和验收材料，先修改分配、开放时间、截止时间与报酬。
+保留已有输入和验收材料，先修改分配、通知或预约、截止时间与报酬。
 
 | 任务字段 | 填写规则 |
 | --- | --- |
 | `task_id`、`assignee_agent_id` | 任务标识唯一；受理人写 `agent:1` 或 `1`，必须存在于人物数组 |
 | `contract_kind` | `hourly`、`piece` 或 `package`，各自结算规则来自目录 |
-| `available_at`、`due_at` | 带时区；开始 ≤ 开放 < 截止 ≤ 结束；开工与恢复都不越过截止，距截止不足 60 秒的恢复被拒绝；未付款的逾期任务保留到截止当日结束，逾期提交以 `WORK_SUBMISSION_LATE` 业务拒绝 |
+| `appointment`、`due_at` | `appointment` 必填：普通工作写 `null`，真实预约写 `{starts_at, reason}`；`due_at` 带时区，晚于派生的开放时刻（最早本人关联通知的 `sent_at` 或预约 `starts_at`）、晚于场景开始且不晚于场景结束；开工与恢复都不越过截止，距截止不足 60 秒的恢复被拒绝；未付款的逾期任务保留到截止当日结束，逾期提交以 `WORK_SUBMISSION_LATE` 业务拒绝 |
 | `maximum_duration_seconds` | 正整数秒，任务允许的最大执行时长 |
 | `pay_fen` | 正整数分，具体付款语义由合同类型与交换规则决定 |
 | `employer_account_id`、`required_location_id` | 已声明的雇主账户和地点 |
@@ -258,7 +313,7 @@ flowchart LR
 | `spring_festival_dates`、`makeup_work_dates`、`overtime_opportunity_dates` | 日期数组，规范 `YYYY-MM-DD`，每个数组内部不重复，可为空 |
 | `sick_leave_date`、`personal_leave_date`、`social_dinner_date` | 各一个规范日期字符串，不能用 `null` 或空字符串替代 |
 
-日历日期定义情境和机会，不给人物写行动脚本。短场景可保留模板中落在窗口外的日期。
+日历日期定义情境和机会，不给人物写行动脚本。声明了 `work_schedule` 的人物另与日历交叉核对，只核对落在场景时间窗内的日历日期：补班日必须有班次，春节、病假、事假日必须不当班，加班机会日不要求班次。短场景可保留模板中落在窗口外的日期。
 
 账单、工资、调价和补货属于明确预排的世界事件，`due_at` 必须严格晚于场景开始、严格早于场景结束。
 下面是向既有场景增加一次工资和账单的局部片段；示例沿用模板账户：
@@ -305,8 +360,9 @@ flowchart LR
 | --- | --- |
 | `Scenario validation failed` | 查看异常链中的具体字段；排除旧字段、类型错误与跨引用错误 |
 | `Scenario corpus manifest identity is invalid` | 核对 `corpus_root` 与清单真实哈希；不要只改哈希掩盖素材损坏 |
-| `work task is outside the scenario interval` | 同步调整任务开放和截止时间，或移除窗口外任务和有关消息 |
+| `work task is outside the scenario interval` | 同步调整任务通知、预约和截止时间，或移除窗口外任务和有关消息 |
 | `interaction menu location kinds must exactly match declared location kinds` | 根据已选地点的实际 `kind` 补齐或删除菜单键 |
+| `work_schedule` 被拒（缺字段、工作地点不是所选地点、班次或休息时段非法、时间窗内的日期与日历不一致；地点与日历两类以 `Work schedules are not admissible: …` 列出） | 每个人物都显式写 `work_schedule`，没有固定班次写 `null`；按报错里的人物、日期与字段改正，见[声明工作安排](#声明工作安排) |
 | `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#编写地点与营业时间) |
 | `Selected locations share display names` | 同名地点在地图中写互不相同的 `branch_label` |
 | `Agent <编号> would see non-unique object labels` | 同一人物会同时看到两个相同的名称，例如两项工作同名、两位联系人同称谓；改掉其中一个 |
@@ -318,8 +374,8 @@ flowchart LR
 | 警告 `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO` | 卡片口味题材与内容 `genre` 按字面精确匹配，平台名不是题材；改画像正文的口味写法，或给内容补同一套题材词；没写 `background_story` 的人物没有口味权重，也报后者 |
 | 警告 `CONTENT_EMPTY_WITH_MEDIA_TASTES` | 场景没有内容，卡片却有口味题材，或媒介、习惯里有看、刷、听；补 `contents`，或确认人物本就没有可看的内容 |
 | 警告 `GAMES_WITHOUT_TASTE_WEIGHTS` | 场景有游戏，人物却没有口味权重（没写 `background_story`）；游戏缓解按下限偏好计 |
-| 警告 `COVERAGE_BELOW_THRESHOLD`、`PERSONA_AGREEMENT_LOW` | 卡片的世界覆盖率低于 80%，或画像编译的三次一致性偏低；见[人物画像](personas.md#预览与校验) |
-| 警告 `CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT` | 场景显式写的作息字段覆盖了卡片抽取值，有意为之即可；冲突时保留卡片值，让场景窗口与卡片其余时刻按起床、出门、午餐、晚餐、就寝排序 |
+| 警告 `COVERAGE_BELOW_THRESHOLD`、`PERSONA_AGREEMENT_LOW` | 卡片的世界覆盖率低于 80%，或画像编译留下了警告（三次一致性偏低，或下班、到家锚点因先后冲突降级为 null；原文在 `details.compiler_warning`）；见[人物画像](personas.md#预览与校验) |
+| 警告 `CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT` | 场景显式写的作息字段覆盖了卡片抽取值，有意为之即可；冲突时保留卡片值，让场景窗口与卡片其余时刻按起床、出门、午餐、晚餐、就寝排序，`leave_work_window`、`arrive_home_window` 另须满足下班不早于出门、到家不早于下班（没有下班时不早于出门）且二者不晚于就寝；卡片在新槽为 null 时冲突就保留 null；卡片抽取的下班、到家时刻也参与核对，场景就寝窗口早于它们时把下班、到家窗口也写进场景 |
 | 警告 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` | 配送门店到声明目的地没有可达驾车路线，或地点显示名带坐标、标识形态；见[世界素材](resources.md#验证修改) |
 | 修改配置后不能恢复旧运行 | 用新目录新建运行；恢复不是应用新配置的入口 |
 
@@ -336,3 +392,4 @@ flowchart LR
 启动前已收到的邮件与工作合同允许初始化，due_at必须晚于运行起点；不保留无通知旧行为。
 正式products/supplies列表包含选中门店全部声明商品和生成供给，不沿用旧稀疏选择。
 保持现有场景random_seed，按对应种子分别冻结供给发布；地图3、场景4、目录5.0分别在首次受影响阶段发布，后续目录内容变更另发版本，world8沿用。
+其后个人事务与工作安排规格把世界结构升为 9、场景结构升为 5，目录仍为 5.3。

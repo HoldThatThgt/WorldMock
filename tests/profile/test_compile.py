@@ -73,11 +73,11 @@ def test_compile_outputs_v2_contract_shape():
     payload = compiled.model_dump()
     assert set(payload) == {"schema_version", "card", "big_five", "world_dynamics",
                             "source", "warnings"}
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["card"]["identity"]["occupation"] == "产品经理"
     assert payload["world_dynamics"]["mood_pulse_amplitude"] > 0
     assert list(payload["warnings"]) == []
-    assert payload["source"]["prompt_version"] == "card-v2"
+    assert payload["source"]["prompt_version"] == "card-v3"
     assert payload["source"]["consensus"]["runs"] == 3
 
 
@@ -166,3 +166,26 @@ def test_compile_with_prebuilt_extraction_skips_llm():
     finally:
         compile_module.extract_persona = original
     assert compiled.card == extraction.card
+
+
+def _out_of_order(**overrides) -> str:
+    """@brief 下班 7 点早于出门 8 点、到家 23 点半晚于就寝 23 点的载荷：共识后两个工作锚点都被降级。"""
+    return make_payload(work_anchors={"leave_work": "07:00-07:30", "arrive_home": "23:30-24:00"}, **overrides)
+
+
+#: _out_of_order 载荷在共识后的两条降级说明（按核对顺序）。
+_DEMOTION_NOTES = ("work_anchor_demoted: leave_work start 7 is outside leave_home 8..bedtime 23",
+                   "work_anchor_demoted: arrive_home start 23.5 is outside leave_home 8..bedtime 23")
+
+
+def test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it():
+    """@brief 真实抽取与编译：下班、到家的降级说明进 CompiledPersona.warnings；有一致性警告时接在它之后，没有一致性警告时
+    单独列出；卡片照常编译、两个锚点为 null。"""
+    steady = extract_persona(STORY, n_runs=3, session=FakeSession([_out_of_order()] * 3))
+    assert steady.warning is False and steady.demotion_notes == _DEMOTION_NOTES
+    assert compile_persona(STORY, extraction=steady).warnings == _DEMOTION_NOTES
+    drifting = extract_persona(STORY, n_runs=3, session=FakeSession(
+        [_out_of_order(), _out_of_order(coping="去江边散步"), _out_of_order(coping="听老歌")]))
+    compiled = compile_persona(STORY, extraction=drifting)
+    assert compiled.warnings == ("field_agreement_below_two_thirds: ['coping']", *_DEMOTION_NOTES)
+    assert (compiled.card.time_anchors.leave_work, compiled.card.time_anchors.arrive_home) == (None, None)

@@ -17,14 +17,20 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail,
-                                 report_request)
+                                 errand_add, errand_cancel, progress_calls, stage_day_plan, start_activity, submit_round,
+                                 wake_by_mail, report_request, stage_legacy_control_request)
+from tests.life.routing_fixtures import HOME, MARKET, act, observe, open_world, place, routed, run_until
+from tests.life.test_errand_completion import (CHEN, DRINK, KIT_NAME, MILK, MILK_ID, WAIT, buy, first, give, home, note,
+                                               ready, result_event, settlement)
+from tests.life.test_errand_reminder import moment as local_moment, until
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
-from worldmock.life import progress_layer
+from worldmock.life import progress_layer, prompt_capacity
 from worldmock.life.guidance import rejection_guidance
-from worldmock.life.models import (PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
+from worldmock.life.models import (ActivityStatus, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
                                    SendMessageActionRequest, SessionStatus)
+from worldmock.life.prompt_capacity import ProgressBudget
+from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
 from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -671,3 +677,178 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     (entry,) = road["memory_layer"]["earlier_today"]
     assert [line.split("：", 1)[1] for line in entry["settled"] if "的消息：" in line] == ["第一条", "第二条"]
     assert road["presented_message_ids"] == [shown, hidden] and hidden in engine.state.agents[2].read_inbox_ids
+
+
+def test_an_errand_completed_in_the_session_is_one_record_and_folds_to_one_line(engine_factory) -> None:
+    """个人事务在本 session 内办成：进度层恰有一条只写名称的 errand_completed 记录，来源是办成事件（进入
+    progress_event_ids），事务同时从待办层消失；浓缩用的 settled 句折成「HH:MM 办成「<事务名>」」，跨日时带日期。取消的
+    事务只从待办层消失，不留记录。落在开启新 session 的那次提交里的办成归旧 session：同一轮里李凡先当面给陈曦一盒牛奶、
+    陈曦随后出发回家，这次提交开启她的路上 session，办成事件在其中却不属于路上 session 的进度层，只能从待办层消失看出
+    （docs/dev/SPEC-errands-workday.md 2.6）。"""
+    engine = open_world(engine_factory)
+    zone = engine.scenario.timezone
+    place(engine, 1, MARKET)
+    note(engine, "note", [errand_add("买牛奶", MILK), errand_add("做菜", KIT_NAME)])
+    waiting = buy(engine, "buy", also=(WAIT,))
+    [completed] = settlement(engine)
+    observed = observe(engine, "bought")
+    records = [row for row in _events(observed) if row["type"].startswith("errand")]
+    record = {"occurred_at": iso_time(completed.occurred_at, zone), "type": "errand_completed", "errand": "买牛奶"}
+    assert records == [record] and completed.event_id in observed["progress_event_ids"]
+    moment = datetime.fromtimestamp(completed.occurred_at, ZoneInfo(zone)).strftime("%H:%M")
+    assert _lines(observed, record) == [f"{moment} 办成「买牛奶」"]
+    assert [row["name"] for row in observed["todo_layer"]["errands"]] == ["做菜"]
+    later = SimpleNamespace(state=SimpleNamespace(current_time=completed.occurred_at + 86400),
+                            scenario=SimpleNamespace(timezone=zone))
+    assert record_lines(later, record, [completed]) == [f"1月5日 {moment} 办成「买牛奶」"]
+    wake_by_mail(engine, offset=60)
+    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids)
+    wait_name = activity_name(engine, next(row["activity_id"] for row in waiting.data["activities"]))
+    changes = [errand_cancel("做菜", "今晚在外面吃"), errand_add("再买一盒", MILK)]
+    act(engine, "cancel", conclude_request(wait_name, errands=changes), tool="conclude_activity")
+    after = observe(engine, "cancelled")
+    assert [row for row in _events(after) if row["type"].startswith("errand")] == [record]
+    assert [row["name"] for row in after["todo_layer"]["errands"]] == ["再买一盒"]
+    home_target = next(row["object"] for row in after["interaction_bindings"] if row["object_id"] == HOME)
+    place(engine, 2, MARKET, {MILK_ID: 1.0})
+    ready(engine, 2)
+    first(engine, 2)
+    walk = routed((home_target, "travel", "步行", None, None))
+    _, results = submit_round(engine, {1: ("start_activity", walk), 2: ("start_activity", give(engine, CHEN))}, "leave")
+    leaving, handed = sorted(results, key=lambda result: result.agent_id)
+    assert (leaving.status, handed.status) == ("in_progress", "completed"), (leaving.error_code, handed.error_code)
+    departed = settlement(engine)[-1]
+    assert (departed.data["kind"], departed.data["errand"]["name"]) == ("errand_completed", "再买一盒")
+    assert departed.caused_by == [result_event(engine, handed, agent_id=2).event_id]
+    assert departed.state_version_after == result_event(engine, leaving).state_version_after
+    road = observe(engine, "road")
+    assert road["progress_layer"]["session_started_at"] == iso_time(departed.occurred_at, zone)
+    assert [row for row in _events(road) if row["type"].startswith("errand")] == []
+    assert departed.event_id not in road["progress_event_ids"] and road["todo_layer"]["errands"] == []
+
+
+def _reminded_then_drunk(engine_factory):
+    """单人场景 12:30 在家、手边一份纯牛奶：12:31 的收尾里记下「吃掉纯牛奶 1 份」（提醒 12:40）与「取得食材包 1 份」，12:40
+    被提醒后结束等待、把奶喝完，第一条事务在同一段停留里办成。返回引擎与刚喝完、还没收尾的那项进食活动。"""
+    engine = home(engine_factory, {MILK_ID: 1.0})
+    note(engine, "note", [errand_add("喝牛奶", MILK, outcome="吃掉", remind_time="12:40"),
+                          errand_add("补食材包", KIT_NAME, memo="周末去超市")])
+    waited = act(engine, "wait", routed(WAIT))
+    until(engine, local_moment(engine, "2026-01-05 12:40"))
+    ended = act(engine, "end", conclude_request(activity_name(engine, waited.activity_id), summary="不等了。"),
+                tool="conclude_activity")
+    assert ended.status == "completed", (ended.error_code, ended.message)
+    drinking = act(engine, "drink", routed(DRINK))
+    assert drinking.status == "in_progress", (drinking.error_code, drinking.message)
+    run_until(engine, lambda current: current.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
+    assert [item.name for item in engine.state.agents[1].errands.values()] == ["补食材包"]
+    return engine, drinking
+
+
+def _errand_positions(observed: dict) -> dict[str, int]:
+    """进度层里两种个人事务记录各自唯一一条的下标（记录类型 → 下标）。"""
+    rows = _events(observed)
+    found = {row["type"]: index for index, row in enumerate(rows) if row["type"].startswith("errand")}
+    assert sorted(found) == ["errand_completed", "errand_reminder"]
+    assert len([row for row in rows if row["type"].startswith("errand")]) == 2
+    return found
+
+
+def test_real_errand_records_satisfy_a_progress_schema_that_admits_only_the_errand_name(engine_factory) -> None:
+    """进度层 Schema 登记了 errand_reminder 与 errand_completed 两种记录，内容字段恰为 errand（docs/dev/SPEC-errands-workday.md
+    2.6、6.4；接口合同「七层 Schema」）。真实请求、引擎与 SQLite 上，被提醒后把奶喝完的那次观察里两条记录各由落库的
+    errand_reminded、errand_completed 事件派生、只写事务名，整层通过校验；给任一条多写备注、提醒钟点或事务身份，或去掉
+    事务名，校验都以 ValueError 指明进度层与该记录的位置。"""
+    engine, _ = _reminded_then_drunk(engine_factory)
+    zone = engine.scenario.timezone
+    observed = observe(engine, "seen")
+    found, progress = _errand_positions(observed), observed["progress_layer"]
+    sources = {event.data["kind"]: event for event in engine.store.read_agent_events("environment_event", 1)
+               if event.data.get("kind") in {"errand_reminded", "errand_completed"}}
+    records = progress["events"]
+    for kind, source in (("errand_reminder", "errand_reminded"), ("errand_completed", "errand_completed")):
+        assert records[found[kind]] == {"occurred_at": iso_time(sources[source].occurred_at, zone), "type": kind,
+                                        "errand": "喝牛奶"}
+        assert sources[source].event_id in observed["progress_event_ids"]
+    validate_layer(progress)
+    extras = ({"memo": "睡前喝一份"}, {"remind_time": "12:40"}, {"errand_id": sources["errand_completed"].data[
+        "errand"]["errand_id"]})
+    for kind, position in found.items():
+        nameless = {key: value for key, value in records[position].items() if key != "errand"}
+        for changed in (*({**records[position], **extra} for extra in extras), nameless):
+            broken = [*records[:position], changed, *records[position + 1:]]
+            with pytest.raises(ValueError, match=rf"Prompt layer 进度层 violates its schema at \['events', {position}\]"):
+                validate_layer({**progress, "events": broken})
+
+
+def test_errand_records_seen_by_a_later_action_request_fold_under_capacity(engine_factory, monkeypatch) -> None:
+    """个人事务的两种记录与其他事件记录同一保护口径（docs/dev/SPEC-errands-workday.md 2.6；接口合同「可见期与提示预算」）：
+    只在比上次行动请求新时受保护。真实请求、引擎与 SQLite 上，被提醒后把奶喝完，下一次观察里提醒与办成两条记录都受
+    保护；再经一次记下行动请求的真实决策（给喝完的活动收尾）之后，两条都不再受保护，settled 句分别为空与「HH:MM 办成
+    「喝牛奶」」。此时按预算浓缩：较旧的一段折成一条 condensed，进度层不再有任何 errand 记录，办成折成的那一句在 lines 里
+    恰好一次，提醒不留句；只有上次行动请求之后的收尾调用原样保留。"""
+    from tests.life.test_session_attribution import _action_request_round
+
+    engine, drinking = _reminded_then_drunk(engine_factory)
+    fresh = observe(engine, "fresh")
+    assert all(fresh["progress_meta"][index]["protected"] for index in _errand_positions(fresh).values())
+    _action_request_round(engine, "close", "conclude_activity", conclude_request(
+        activity_name(engine, drinking.activity_id), summary="喝完了。"))
+    later = observe(engine, "later")
+    found, meta = _errand_positions(later), later["progress_meta"]
+    assert [meta[found[kind]]["protected"] for kind in ("errand_reminder", "errand_completed")] == [False, False]
+    [completed] = [event for event in settlement(engine) if event.data["kind"] == "errand_completed"]
+    clock = datetime.fromtimestamp(completed.occurred_at, ZoneInfo(engine.scenario.timezone)).strftime("%H:%M")
+    assert (meta[found["errand_reminder"]]["lines"], meta[found["errand_completed"]]["lines"]) == (
+        [], [f"{clock} 办成「喝牛奶」"])
+    request = {"model": prompt_capacity.MODEL_ALIAS, "max_tokens": 100, "tools": [],
+               "messages": [{"role": "system", "content": "系统层"}, {"role": "user", "content": "[]"}]}
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1000)
+    monkeypatch.setattr(prompt_capacity, "request_token_count", lambda candidate: 100 if "condensed" in json.dumps(
+        candidate["messages"][1]["content"], ensure_ascii=False) else 900)
+    budget = ProgressBudget((later["tool_layer"], later["progress_layer"]), tuple(meta))
+    events = json.loads(prompt_capacity.fit_request(request, budget)["messages"][1]["content"])[1]["events"]
+    assert [row["type"] for row in events] == ["condensed", "tool_call"]
+    assert events[1] == later["progress_layer"]["events"][-1] and events[1]["tool"] == "conclude_activity"
+    assert [line for line in events[0]["lines"] if "喝牛奶" in line and "办成" in line] == [f"{clock} 办成「喝牛奶」"]
+    assert not [line for line in events[0]["lines"] if "提醒" in line]
+
+
+def test_a_completion_record_follows_the_calls_of_its_second_by_event_sequence(engine_factory) -> None:
+    """errand_reminder 与 errand_completed 是事件记录，同一时刻排在由截止与提醒推导的记录之后、按事件序号排列
+    （接口合同「七层字段」进度层；docs/dev/SPEC-errands-workday.md 2.6）。真实请求、引擎与 SQLite 上，人物在集市收尾时
+    记下「取得纯牛奶 1 份」，同一秒到店买下：这一秒的记录依次是给出决策机会的邮件、记下事务的收尾、买下的请求、办成，
+    办成排在引起它的购买之后；进度来源以办成事件收尾，它的事件序号是全部来源里最大的。"""
+    engine = home(engine_factory, {})
+    place(engine, 1, MARKET)
+    note(engine, "note", [errand_add("买牛奶", MILK)])
+    assert buy(engine, "buy").status == "completed" and engine.state.agents[1].errands == {}
+    observed = observe(engine, "bought")
+    rows = _events(observed)
+    [completed] = [row for row in rows if row["type"] == "errand_completed"]
+    same_second = [(row["type"], row.get("tool")) for row in rows if row["occurred_at"] == completed["occurred_at"]]
+    assert same_second == [("message_arrival", None), ("tool_call", "conclude_activity"),
+                           ("tool_call", "start_activity"), ("errand_completed", None)]
+    sequences = {event.event_id: event.event_seq for event in engine.store.read_events(engine.store.last_event_seq)}
+    [event] = settlement(engine)
+    assert event.data["kind"] == "errand_completed" and observed["progress_event_ids"][-1] == event.event_id
+    assert sequences[event.event_id] == max(sequences[identity] for identity in observed["progress_event_ids"])
+
+
+def test_the_progress_layer_refuses_a_stored_control_request_without_errands(engine_factory) -> None:
+    """进度层经 control_items 读控制请求（docs/dev/SPEC-errands-workday.md 2.9、2.3）：真实播报之后的观察照现行形状写出
+    它的参数（每项活动名与自述，不带 errands）；经 FootprintStore 在同一 session 里补登一条带 items 而缺请求级 errands 的
+    旧形状播报及其结果后，下一次观察以完整性故障拒绝，不当作没有事务变更的请求放行。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, waited = _act(engine, "legacy-wait", "start_activity", start_activity("等待", "自己"))
+    name = activity_name(engine, waited.activity_id)
+    wake_by_mail(engine, offset=300)
+    advance_next(engine)
+    _, reported = _act(engine, "legacy-report", "report_status", report_request(name, summary="还在等。"))
+    assert reported.status == "completed"
+    (record,) = progress_calls(_observe(engine, "legacy-before"), "report_status")
+    assert record["arguments"] == {"items": [{"activity_name": name, "summary": "还在等。"}]}
+    stage_legacy_control_request(engine, "report_status")
+    with pytest.raises(IntegrityError, match="report_status request lacks errands"):
+        _observe(engine, "legacy-after")

@@ -3,8 +3,8 @@
 消息 = 上一决策末次请求的全部消息（system、链首快照 user、此前各原生回合）＋ 上一决策的最终 assistant（reasoning_content、
 content、tool_calls）＋ 一条对应其世界请求 tool_call_id 的 tool 消息。tool 消息是紧凑 JSON {result, changes, events}，空键
 省略：changes 相对于模型当前所见（链首快照依次叠加此前各 tool 消息的 changes）给出工具层目标的 updated 与 removed、
-待办层暂停活动的 added 与 removed、今日计划与身体感受的整体替换、人设层关系与偏好的更新项，以最新为准。记忆层与所在
-地点在链内不变（它们只随时间推进或 session 切换而变，两者都会断链）。原生 tools 不因续接改变。
+待办层暂停活动与个人事务（按名称）的 added 与 removed、今日计划与身体感受的整体替换、人设层关系与偏好的更新项，以最新
+为准。记忆层与所在地点在链内不变（它们只随时间推进或 session 切换而变，两者都会断链）。原生 tools 不因续接改变。
 
 发送前协议自检：续接链中每个 assistant 都须带非空 reasoning_content，缺失就断链（本决策此后都从新快照续写）；本次决策
 内的 assistant 缺失时以英文错误失败。预算第 0 步断链后同样从新快照续写（prompt_capacity.fit_request）。
@@ -38,7 +38,8 @@ def layer_changes(head_layers: Sequence[dict], applied: Sequence[dict], current:
     result: dict[str, Any] = {}
     targets = _keyed_changes(seen["targets"], now["targets"], ("updated", "removed"))
     paused = _keyed_changes(seen["paused_activities"], now["paused_activities"], ("added", "removed"))
-    for key, value in (("targets", targets), ("paused_activities", paused)):
+    errands = _keyed_changes(seen["errands"], now["errands"], ("added", "removed"))
+    for key, value in (("targets", targets), ("paused_activities", paused), ("errands", errands)):
         if value:
             result[key] = value
     for key in ("day_plan", "body"):
@@ -105,12 +106,14 @@ def _earlier_changes(message: Mapping[str, Any]) -> dict | None:
 
 
 def _view(layers: Sequence[dict]) -> dict:
-    """@brief 六层中续接会改动的部分：目标、暂停活动（按名称）、今日计划、身体感受、关系（按人物）与偏好（按对象）。"""
+    """@brief 六层中续接会改动的部分：目标、暂停活动与个人事务（按名称）、今日计划、身体感受、关系（按人物）与偏好
+    （按对象）。"""
     by_name = {layer["layer"]: layer for layer in layers}
     persona, todo = by_name["人设层"], by_name["待办层"]
     tools = expand_tool_layer(compact_render(by_name["工具层"]))
     return {"targets": {item["name"]: item for item in tools["targets"]},
             "paused_activities": {item["name"]: item for item in todo["paused_activities"]},
+            "errands": {item["name"]: item for item in todo["errands"]},
             "day_plan": todo["day_plan"], "body": by_name["环境层"]["body"],
             "relationships": {item["person"]: item for item in persona["relationships"]},
             "preferences": {item["subject"]: item for item in persona["preferences"]}}
@@ -119,9 +122,9 @@ def _view(layers: Sequence[dict]) -> dict:
 def _overlay(seen: dict, changes: Mapping[str, Any]) -> dict:
     """@brief 把一条 changes 叠加到所见视图：先去掉 removed，再按名称写入 updated/added；整体替换项直接替换。"""
     view = dict(seen)
-    for key in ("targets", "paused_activities", "relationships", "preferences"):
+    for key in ("targets", "paused_activities", "errands", "relationships", "preferences"):
         view[key] = dict(seen[key])
-    for key, written in (("targets", "updated"), ("paused_activities", "added")):
+    for key, written in (("targets", "updated"), ("paused_activities", "added"), ("errands", "added")):
         part = changes.get(key, {})
         for name in part.get("removed", []):
             view[key].pop(name, None)

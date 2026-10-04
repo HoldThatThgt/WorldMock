@@ -1,13 +1,15 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现  
-> **日期**：2026-10-01
-> **版本**：v1.16
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现；按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D9 作业），已随代码落地到阶段 1–4  
+> **日期**：2026-10-03
+> **版本**：v1.20
 > **目标读者**：算法工程师、开发工程师
 
 > 2026-10-01 按[工具交互规格](../dev/SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
 
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
+
+> 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9，阶段 3 场景结构 5、卡片结构 3。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
 
 ## 1. 模块概述
 
@@ -77,7 +79,7 @@ flowchart TB
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `schema_version` | Literal[8] | 是 | 世界结构版本；版本不符的旧状态（含版本 7）直接拒绝 |
+| `schema_version` | Literal[9] | 是 | 世界结构版本；版本不符的旧状态（含版本 8）直接拒绝 |
 | `version` | int | 是 | 状态版本号，ge=0 |
 | `current_time` | int | 是 | 当前模拟时间，UTC 纪元秒 |
 | `end_time` | int | 是 | 实验结束时间 |
@@ -137,9 +139,10 @@ flowchart TB
 不能由已取整的一份金额乘数量。商品的使用定义继承 `InventoryItemConfig`，保留 `category_id/inventory_unit`，
 已持有但未上架的物品仍可按使用合同消费或转换，不要求补造供给。
 展示不是资格上限：工具层的目标只是本轮展示的对象，工具层另附只列名称的可调用索引 `callable_index`（此地此刻可做的生活活动名称，
-内容与商品按品类的计数与至多 3 个示例名；不是目标，不带动作与条件），全部目录类对象都可以按名称调用（本轮未展示的生活活动、内容与游戏取观察
+内容与商品按品类的计数与至多 3 个示例名；另有第四键 `query_categories`，列查询权限内的公开品类标签与完整对象计数 `[{category, count}]`，
+`query_world` 的 `category` 取值来自它，查询筛选不改变其计数口径；不是目标，不带动作与条件），全部目录类对象都可以按名称调用（本轮未展示的生活活动、内容与游戏取观察
 私有的 `catalog_bindings`，没有列出路线的地点取观察私有的地点表 `locations`，`obtain` 可以按名称购买本轮未展示但存在的商品，按当前报价结算：
-`from` 是可选约束，写 null、门店名或渠道称呼（App 名，该渠道的成员门店），方式可写由系统定到店或远程下单的「购买」，多家都能服务时按
+`from` 是可选约束，写 null、地点显示名（含「家」「住处」）或渠道称呼（App 名，该渠道的成员门店），方式可写由系统定到店或远程下单的「购买」，多家都能服务时按
 请求级 `prefer` 选定一家）；名称找不到时只返回同类相近的至多三个完整 `{tool, arguments, note}` 候选且不替换，
 候选此刻可行的在前，形状为可以照填的请求 `{tool, arguments, note}`（`note` 为英文说明或 `null`，例如 `Estimated duration: 20 minutes`），受理时的名称归一
 写进 `details.resolved`（`[{written, as}]`），由 `from`、`to` 的 null 推导的本人方向说明与指名购买所选的门店、「购买」定下的方式写进 `details.notes`。
@@ -159,11 +162,20 @@ flowchart TB
 食用、使用、制作及其他方式的 `to` 只允许 `null`；给予必须写他人，不能给予本人。
 不接受在 `to` 填「自己」或本人姓名的旧写法；出行目的地由 `target` 与方式确定，`from/to` 不承载路线起止地点。
 
-控制工具只接受当前 `items` 对象数组，收尾的 `memories`、`views` 显式必填、允许空数组，不读旧平行数组。
+控制工具只接受当前 `items` 对象数组与请求级必填的 `errands` 数组（与 `items` 平级，允许空数组，一次至多 4 条变更）。
+每条事务变更是封闭对象，`change`、`name`、`outcome`、`item`、`quantity`、`memo`、`remind_time`、`reason` 八键全部必填：
+`change` 取「新增」「更新」「取消」，没有「完成」；`name` 为非空白字符串、至多 30 字符；
+新增时 `outcome`（「取得」或「吃掉」）、`item`、`quantity`（1 至 9 的整数）非空且 `reason` 为 null，`memo`、`remind_time` 可空；
+更新时 `outcome`、`item`、`quantity`、`reason` 为 null，`memo` 与 `remind_time` 为替换语义、null 即清空；取消时 `reason` 非空、其余为 null。
+非 null 的 `item`、`memo`、`reason` 须非空白，`memo` 与 `reason` 各至多 120 字符，`remind_time` 为场景本地 `HH:MM`。
+同一请求内按取消、更新、新增的次序求值：同一条未完成事务至多被一条更新或取消点名，两条新增不得同名；取消旧事务并以原名新增可在同一请求里完成。
+收尾的 `memories`、`views` 显式必填、允许空数组；不读旧平行数组，缺 `errands` 键的请求按缺字段拒绝。
+成功结果在 `details.errands` 给回执 `[{errand, change}]`（`errand` 为事务名称：更新与取消写待办层里的名称，新增写所写的名称），
+顺序同请求，没有变更时为 `[]`；被拒结果没有该键，请求被拒时同一请求的事务变更一并不生效。
 
-查询工具为 `query_world(name, way, category, offset)`、`recall_task_summary(task_name)` 与三个记忆查询；
+查询工具为 `query_world(name, way, category, from, available_only, offset)`、`recall_task_summary(task_name)` 与三个记忆查询；
 它们在生活决策中可同批即时返回，不登记世界请求、不推进时间、不计同刻轮数，仍占实际模型回合预算。
-`query_world` 四键 `name`、`way`、`category`、`offset` 均必填；前三键可空且至少一个非空白，`category` 匹配公开 `callable_index` 类别标签，`offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。返回 `{matches, total_count, next_offset}`，`next_offset` 必填可空；每批沿用现有 `candidate_presentation_limit=20`，还有匹配时返回下一偏移，否则为 `null`。同一冻结观察内可遍历完整权限内匹配集合，不公开超权限信息，不替代耗时浏览。外部只读问答仍只开放记忆与 `finish`。
+`query_world` 六键 `name`、`way`、`category`、`from`、`available_only`、`offset` 均必填、无缺省，旧四键请求按缺字段拒绝；`name`、`way`、`category`、`from` 可为 null 且至少一个非 null（四者全空时在四个位置各报一条；非 null 的 `name`、`way`、`category` 不得为空白，空白的 `from` 与其余无法解析的来源同按来源错误纠正），`from` 写购买来源（地点显示名，含「家」「住处」，或渠道称呼），与 `start_activity` 购买项的 `from` 经同一纯函数解析、只匹配供给条目；`available_only` 为严格布尔（拒绝字符串、数字与 null），true 只留已确认此刻可执行的条目（报价未知、营业未知的也被滤掉），不单独构成查询条件；`way` 写「购买」等同于同时写「到店」与「远程下单」；`category` 匹配公开 `callable_index` 的品类标签（`query_categories`，筛选不改变其计数口径），`offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`。返回恒为 `{matches, total_count, next_offset}`，`next_offset` 必填可空；筛选在排序与切页之前施加，`total_count` 是全部筛选交集后的完整匹配数；每批沿用现有 `candidate_presentation_limit=20`，还有匹配时返回下一偏移，否则为 `null`。除两种查询参数错误（`from` 既不是地点显示名也不是渠道称呼；`from` 为 null、`name` 按对象名称无任何匹配且其写法恰是一个渠道称呼）外，任何筛选组合无匹配时返回 `matches=[]`、`total_count=0`、`next_offset=null`，不报错、不自动放宽、不换来源。每项是冻结目标的无损紧凑投影（`name, kind, phase, state, contract, actions, tools`，紧凑规则复用工具层分组的实现），只省略 null 与空集合，不再逐项附 `candidates`，候选只出现在错误合同里。同一冻结观察内可遍历完整权限内匹配集合，不公开超权限信息，不替代耗时浏览。外部只读问答仍只开放记忆与 `finish`。
 世界查询不读取未读邮件正文或超权限供给。
 
 错误顶层为 `{error_code, reason, fix, items, unmet}`，`items[]` 为
@@ -175,6 +187,12 @@ flowchart TB
 候选为完整 `{tool, arguments, note}`，`note` 为英文说明或 `null`，参数严格使用当前接口。
 JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定位工具名、列本次实际提供的工具；混批定位 `tool_calls`。
 `reason`、`fix`、`message`、`why` 与错误日志均为英文，中文对象名原样保留；合法名称不作为全量枚举塞进错误。
+三个控制工具 `errands` 的错误都不带 `candidates`：更新、取消的 `name` 找不到或多于一个时（`NAME_NOT_FOUND`、`NAME_AMBIGUOUS`），
+`allowed_values` 列本人全部未完成事务名——它是此刻至多 8 个的有限集合，不属于上句所说的全量名称枚举，也不替换；
+新增的 `item` 解析不到唯一商品时，最接近的至多三个商品名写在 `why`，不把全量商品名放进 `allowed_values`；
+新增重名、同结果种类同商品、同一事务被两条更新或取消点名与新增后超过 8 条都是 `ARGUMENTS_INVALID`，`why` 写明冲突的事务名或上限。
+长度、条数等上限随校验原因写在 `why`，`expected` 给类型与格式；`path` 完整到 `errands[j].<键>`。
+宿主与环境对同一冻结观察调用同一函数判定；环境复核的失败合并为一次 `ACTION_REQUEST_INVALID`，不新增业务拒绝码。
 完整合同见[接口合同](../CONTRACTS.md)与[工具交互规格](../dev/SPEC-tool-interaction.md)。
 
 进度层的 `rejected_today` 从本人当天持久化结构化纠错与业务拒绝派生，跨会话保留、跨本地日期清空，
@@ -190,7 +208,16 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 预约只要求最早本人关联通知的 `sent_at <= appointment.starts_at`，后续合法提醒可晚于预约开始，不改变内部 `available_at`。
 邮件到达不公开正文；阅读结果保留实际所读正文，仅不重复任务合同时间、地点或验收答案。
 
+场景结构 5 起人物配置另有必填可空的 `work_schedule`（对象或 null）与可选的 `leave_work_window`、`arrive_home_window`，
+格式见[配置设计](08-configuration.md#工作安排声明)与接口合同。工作安排只随场景原始字节进入 `scenario_sha256`；
+环境层的 `duty` 每轮由场景与世界时钟求值、随观察事件的 `environment_layer` 原样保存，不新增 `WorldState` 或
+`AgentState` 字段，也不参与 `RuntimeWorkTask.available_at` 的派生。
+
 ### 3.2 AgentState（人物状态）
+
+下表是[当前状态模型](../../src/worldmock/life/models.py)的阅读摘要，未逐一列出 `last_decision_time`、`felt_bands_at_last_decision`、
+`people_at_last_decision`、`known_task_ids`、`mood_updated_at`、`discomfort_started_at`、`discomfort_pulse_hours`、`material_reveals`
+这些节律、体感与素材揭示的内部字段；完整字段由生产模型校验。
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -209,7 +236,7 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | `consecutive_rejections` | int | 是 | 连续业务拒绝次数，受理即归零；只作动机层挫败感的输入，不参与唤醒与冷却 |
 | `same_moment_rounds` | int | 是 | 本秒已进行的决策轮数，ge=0；受理、业务拒绝与重放各加一，名称类拒绝每人每秒前两次不加（第 3 次起照加，一日运行保真规格 3.4），时钟推进归零 |
 | `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`（世界结构版本 8 删去 `wait_only`；开始或恢复被拒后留在原阶段，现行阶梯不再进入 `conclude_only`，它只留在闭集中）；时钟推进复位为 `open` |
-| `pending_wake_reasons` | list[str] | 是 | 本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；人物消息送达而获得同刻机会时记 `message_arrival`；上一轮原因不带入 |
+| `pending_wake_reasons` | list[str] | 是 | 本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；人物消息送达而获得同刻机会时记 `message_arrival`；上一轮原因不带入；个人事务的提醒到点记 `errand_reminder_due`，它不在睡眠允许的原因之内，睡眠中不交付也不消耗，睡眠期间到点的在人物醒来的那个边界一并交付 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
 | `read_message_ids` | set[str] | 是 | 已读邮件 ID 集合：只由阅读动作在读完时写入，睡眠中不写 |
 | `visible_message_ids` | set[str] | 是 | 可见消息 ID 集合 |
@@ -223,6 +250,25 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | `outbox` | dict[str, Message] | 是 | 发给场景联系人的消息，按消息身份存放，缺省为空；联系人回复请求据此与收件箱组装双方往来；随世界结构版本 8 |
 | `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`，由零点计划生成，人物可修订；空清单仍为已提交，条目含环境推进证据、提醒 `remind_at`、`reminded_at`（`int \| None`：提醒的当日绝对时刻与触发时刻，只触发一次）与大致时刻 `around_at`（`int \| None`：`around_time` 换算出的当日绝对时刻，只用于推进判定，为空不限时刻），人物写下的 `progress_note` 照存但不呈现，旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
 | `plan_submitted_dates` | set[str] | 是 | 已生成当日计划的场景本地日期（ISO 日期，JSON 编码为排序列表）；零点计划 `plan_day` 的幂等键，既有字段；恢复、重放与反事实分支据此不重复生成 |
+| `errands` | dict[str, ErrandState] | 是 | 未完成的个人事务，按事务身份存放，缺省为空；每人至多 8 条（由请求校验执行）；只保存未完成事务，办成或取消即移出，终态、原因与证据只在同一提交的事件里；不放进 `DayPlan`，零点置空与计划修订都不波及；随世界结构版本 9 |
+
+`ErrandState`（一条未完成的个人事务）字段如下，随世界结构版本 9：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `errand_id` | str | 由来源动作身份与新增条目在请求中的序号确定性生成（`<动作身份>:errand:<序号>`），只存状态与事件，不进提示 |
+| `name` | str | 人物起的名称，非空白，记下后不可改，至多 30 字符（请求校验执行）；终结后名称可以再用 |
+| `outcome` | `obtain` 或 `eat` | 结果种类；请求里写「取得」「吃掉」；记下后不可改 |
+| `product_id` | str | 记下时由商品名解析到的唯一商品；记下后不可改 |
+| `quantity` | int | 要办成的份数，1 至 9 |
+| `progress` | float | 已累计量，按九位小数保存，恒小于数量；累计到数量减 1e-9 即办成并移出 |
+| `memo` | str \| None | 人物写的备注，至多 120 字符（请求校验执行）；只用于呈现，不参与结算与完成判定 |
+| `registered_at` | int | 记下的时刻 |
+| `remind_at` | int \| None | 提醒的绝对时刻：该钟点在受理时刻所在本地日的时刻严格晚于受理时刻取它，否则取下一本地日的同一钟点 |
+| `reminded_at` | int \| None | 已交付提醒的时刻；只提醒一次，更新时按新写的 `remind_time` 重新换算并清空，重新计一次；非空时须有 `remind_at` 且不早于它 |
+| `origin_action_id`、`origin_event_id` | str | 来源动作与请求事件 |
+
+事务不占活动名额，不经 `task_kind` 关联活动。
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
 活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（`completed`、`failed` 或 `cancelled` 而 `concluded_at` 为空；`truncated` 不收尾）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
@@ -365,7 +411,7 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 
 ## 版本历史
 
-以下记录保留当时的变更与验证证据；当前接口约束以正文和工具交互规格为准。
+以下记录保留当时的变更与验证证据；当前接口约束以正文和各特性规格为准。
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
@@ -387,3 +433,7 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.15 | 2026-09-29 | 按[一日运行保真规格](../dev/SPEC-dayrun-fidelity.md)同步（一日运行保真 IO1，随阶段 1、3、4 的代码落地，按 `e377669` 核对）：「WorldState」候选写成可照填的 `{target, action, way, from, to}`，工具层另附只列名称的可调用索引 `callable_index`，全部目录类对象按名称调用（未展示的生活活动、内容与游戏取 `catalog_bindings`，没有列出路线的地点取观察私有的地点表），`obtain` 的 `from` 可写门店名或渠道称呼、方式可写「购买」、多家都能服务时按请求级 `prefer` 选定，浏览结果列完整标签、完成的浏览在记忆层写浏览到的完整标签，`DeliveryState` 不带 `channel_id`（只在 `orders[]` 与 `purchases.jsonl`，世界结构仍为 8），`presentation_state` 承载 `last_presented_at`、可调用索引不写它；「AgentState」`same_moment_rounds` 名称类拒绝每人每秒前两次不加，`read_message_ids` 只由阅读动作写入、睡眠中不写，增 `read_inbox_ids` 行（睡眠中不记已读，醒来后的第一个边界再读），`day_plan` 目标增 `around_at`；「BodyState」社交需要的清醒按本区间 `body_settlement.activity_ids` 判定；文件头补修订说明，日期改写 |
 | v1.16 | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
+| v1.17 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D9 作业，阶段 1，按 `a1f680b` 核对）：阶段 1 的四项运行修复不改变任何状态字段与结构版本；「AgentState」表前注明该表是当前状态模型的阅读摘要，列出表中未收的节律、体感与素材揭示内部字段；版本历史前的说明句改为以正文和各特性规格为准；文件头补同步说明，日期改写 |
+| v1.18 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D9 作业，阶段 2，按 `d09d574` 核对）：世界结构版本 9（「WorldState」的 `schema_version` 行已随 `5bd75d6` 的代码改写），文件头补本规格首次受影响的发布说明；「AgentState」增 `errands` 行与 `ErrandState` 字段表，事务不占活动名额；`pending_wake_reasons` 注明 `errand_reminder_due` 不在睡眠允许的原因之内、睡眠中不交付也不消耗；「当前工具请求、查询与错误格式」写明控制工具请求级必填 `errands` 的字段面、交叉约束与上限、同一请求的求值次序与成功回执 `details.errands`，以及事务错误不带候选、事务名列入 `allowed_values`、商品名近似只写在 `why`；文件头阶段号改到阶段 2 |
+| v1.19 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D9 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「当前工具请求、查询与错误格式」`query_world` 六键与返回不再附候选（与记录引擎设计同句逐字一致）；「WorldState」可调用索引补第四键 `query_categories`，购买 `from` 的写法由门店名更正为地点显示名（含「家」「住处」）；不新增状态字段；文件头状态改为已落地阶段 1、2 与阶段 4 |
+| v1.20 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步（实施计划 D9 作业，阶段 3，按 `56451b4` 核对）：场景输入（场景结构 5）的 `work_schedule` 与下班、到家窗口；环境层 `duty` 由场景与世界时钟求值、随观察事件保存，不新增状态字段，也不参与任务开放时刻的派生；文件头该规格首次受影响发布的引用块在阶段 2 之后补阶段 3 的场景结构 5、卡片结构 3，状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |

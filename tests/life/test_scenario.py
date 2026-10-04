@@ -16,6 +16,9 @@ from worldmock.life.map_models import MapDataset, RouteConfig
 from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
+from tests.life.conftest import _mutated_scenario
+from tests.life.work_schedule_fixtures import STANDARD_SHIFT, weekday_schedule
+from worldmock.life.scenario import parse_scenario_document
 
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
@@ -183,13 +186,13 @@ def test_body_instance_and_rejection_ranges_are_enforced(
 
 def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files() -> None:
     """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：正式场景不声明，
-    文档与组装后的身体参数都取缺省 0.5；场景结构版本仍为 3，目录钉扎不变。"""
+    文档与组装后的身体参数都取缺省 0.5；场景结构版本为 5，目录钉扎不变。"""
     for path in (_FORMAL, Path("scenarios/multi-person.json"), Path("scenarios/multi-person-half-day.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert "entertainment_relief_preference_floor" not in payload["body"]
         assert LifeScenario.model_validate(payload).body.entertainment_relief_preference_floor == 0.5
         scenario, _ = load_scenario(path)
-        assert scenario.schema_version == 4
+        assert scenario.schema_version == 5
         assert scenario.body.entertainment_relief_preference_floor == 0.5
 
 
@@ -481,6 +484,27 @@ def test_product_use_cannot_require_a_location_outside_the_selected_world():
         RuntimeScenario.model_validate(payload)
 
 
+def test_runtime_view_rejects_inverted_product_price_bounds_and_admits_a_fixed_price(caplog) -> None:
+    """运行视图里商品的进价上下界不得倒置：正式场景导出的运行视图把一个商品的下界改成比上界高一分后不能重建，唯一的
+    校验错误落在该商品上，英文原因写明上下界须有序并留下错误日志；上下界相同的固定价商品照常成立。"""
+    from worldmock.life.scenario import ProductConfig
+
+    runtime, _ = load_scenario(_FORMAL)
+    payload = runtime.model_dump(mode="json")
+    index, product = next((index, item) for index, item in enumerate(payload["products"])
+                          if item["purchase_price_fen_min"] < item["purchase_price_fen_max"])
+    upper = product["purchase_price_fen_max"]
+    fixed = ProductConfig.model_validate({**product, "purchase_price_fen_min": upper})
+    assert (fixed.purchase_price_fen_min, fixed.purchase_price_fen_max) == (upper, upper)
+    assert "Product purchase price bounds are inverted" not in caplog.text
+    product["purchase_price_fen_min"] = upper + 1
+    with pytest.raises(ValidationError) as failure:
+        RuntimeScenario.model_validate(payload)
+    assert [(error["loc"], error["msg"]) for error in failure.value.errors()] == [
+        (("products", index), "Value error, product purchase price bounds must be ordered")]
+    assert "Product purchase price bounds are inverted" in caplog.text
+
+
 # 修订合同：人物、联系人、日历、独立地图与正餐供给。
 _V2_SCENARIOS = (
     _FORMAL,
@@ -736,18 +760,47 @@ def test_cross_midnight_bedtime_window_is_accepted() -> None:
     assert document.agents[0].bedtime_window == (23.5, 25.5)
 
 
+@pytest.mark.parametrize(
+    ("windows", "message"),
+    [
+        # 下班、到家窗口与午餐、晚餐同单位同校验：负起点、末端越过 24（不跨午夜）、退化区间各一例。
+        ({"leave_work_window": [-0.5, 18.0]}, "leave_work_window must satisfy 0 <= start < end <= 24"),
+        ({"leave_work_window": [23.5, 24.5]}, "leave_work_window must satisfy 0 <= start < end <= 24"),
+        ({"arrive_home_window": [19.0, 19.0]}, "arrive_home_window must satisfy 0 <= start < end <= 24"),
+        ({"arrive_home_window": [23.0, 25.0]}, "arrive_home_window must satisfy 0 <= start < end <= 24"),
+        # 两者都声明时下班起点不得晚于到家起点。
+        ({"leave_work_window": [19.0, 19.5], "arrive_home_window": [18.5, 20.0]},
+         "leave_work_window must not start after arrive_home_window"),
+    ],
+)
+def test_work_window_bounds_and_order_are_rejected(windows: dict, message: str) -> None:
+    """场景下班、到家窗口（docs/dev/SPEC-errands-workday.md 4.2）：越界、退化与下班晚于到家在文档校验层拒绝；正例为两者
+    都声明且起点相等、与午餐、晚餐、就寝不设先后（下班窗口压在晚餐窗口里也合法），未声明时两字段为 None 且不算已设。"""
+    payload = _payload()
+    payload["agents"][0].update(windows)
+    _assert_invalid(payload, message)
+    legal = _payload()
+    legal["agents"][0].update(leave_work_window=[18.5, 19.0], arrive_home_window=[18.5, 20.0])
+    agent = LifeScenario.model_validate(legal).agents[0]
+    assert (agent.leave_work_window, agent.arrive_home_window) == ((18.5, 19.0), (18.5, 20.0))
+    assert agent.dinner_window[0] <= agent.leave_work_window[0] < agent.dinner_window[1]
+    undeclared = LifeScenario.model_validate(_payload()).agents[0]
+    assert (undeclared.leave_work_window, undeclared.arrive_home_window) == (None, None)
+    assert {"leave_work_window", "arrive_home_window"}.isdisjoint(undeclared.model_fields_set)
+
+
 def test_three_scenarios_share_the_v2_schema() -> None:
     """三场景同 Schema：版本、重估间隔、钉扎哈希与人物卡片字段一致齐备。"""
     manifests = set()
     for path in _V2_SCENARIOS:
         document = _document(path)
-        assert document["schema_version"] == 4
+        assert document["schema_version"] == 5
         assert document["reconsideration_interval_seconds"] == 5400
         manifests.add(document["corpus_manifest_sha256"])
         for agent in document["agents"]:
             for field in ("chronotype_midsleep", "sleep_need_hours",
                           "lunch_window", "dinner_window", "bedtime_window",
-                          "contacts"):
+                          "contacts", "work_schedule"):
                 assert field in agent
         scenario, digest = load_scenario(path)
         assert len(digest) == 64
@@ -769,3 +822,126 @@ def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
     assert (agent.sleep_need_hours, agent.lunch_window, agent.bedtime_window) == (7.5, None, None)
     assert agent.model_dump() == document.agents[0].model_dump()
     assert load_scenario(_FORMAL)[0].agents[0].model_fields_set & rhythm == rhythm
+
+
+def _shift(**fields) -> dict:
+    """标准班次（09:00–18:00，午休 12:00–13:30）改写给定字段后的副本。"""
+    return {**STANDARD_SHIFT, **fields}
+
+
+def _weekly(day: str, shift: dict):
+    """把每周声明的某一天改成给定班次的改写函数。"""
+    return lambda schedule: schedule["weekly"].update({day: shift})
+
+
+_SHIFT_RANGE = "work shift must satisfy 0 <= starts < ends <= 1440"
+_BREAK_INSIDE = "work shift breaks must lie within the shift"
+_BREAK_ORDER = "work shift breaks must be ascending and must not overlap"
+_SEVEN_DAYS = "work_schedule weekly must declare all seven weekdays"
+_ISO_DATES = "work_schedule exception dates must use canonical ISO format"
+
+
+@pytest.mark.parametrize(("edit", "message"), [
+    (_weekly("0", _shift(starts=600, ends=600)), _SHIFT_RANGE),
+    (_weekly("1", _shift(starts=1200, ends=1500, breaks=[])), _SHIFT_RANGE),
+    (_weekly("2", _shift(breaks=[[500, 600]])), _BREAK_INSIDE),
+    (_weekly("3", _shift(breaks=[[720, 810], [780, 840]])), _BREAK_ORDER),
+    (_weekly("4", _shift(breaks=[[900, 930], [720, 810]])), _BREAK_ORDER),
+    (lambda schedule: schedule["weekly"].pop("6"), _SEVEN_DAYS),
+    (lambda schedule: schedule["weekly"].update({"7": None}), _SEVEN_DAYS),
+    (lambda schedule: schedule["exceptions"].update({"20260214": None}), _ISO_DATES),
+    (lambda schedule: schedule["exceptions"].update({"someday": None}), _ISO_DATES),
+    (_weekly("0", _shift(lunch=[720, 810])), "Extra inputs are not permitted"),
+    (_weekly("0", {"starts": 540, "ends": 1080}), "Field required"),
+], ids=["starts-not-before-ends", "ends-after-midnight", "break-outside-shift", "overlapping-breaks",
+        "descending-breaks", "weekly-missing-a-day", "weekly-extra-key", "non-canonical-date", "unparsable-date",
+        "unknown-shift-key", "missing-breaks"])
+def test_work_schedule_shape_errors_are_rejected(edit, message: str) -> None:
+    """班次形状错误留在场景模型的校验器（docs/dev/SPEC-errands-workday.md 4.3）：班次须同日且 starts < ends（≤ 1440），
+    休息时段落在班次内、升序、互不重叠；weekly 七天全写（周一为 "0"，多一天少一天都拒），例外日期是规范的 ISO 日期（基本
+    格式与无法解析的都拒）；班次多出的键与缺少的 breaks 都被拒，不设缺省。每个用例对应两个校验器的一处拒绝。"""
+    payload = _payload()
+    schedule = weekday_schedule(payload)
+    edit(schedule)
+    payload["agents"][0]["work_schedule"] = schedule
+    _assert_invalid(payload, message)
+
+
+def test_every_agent_declares_work_schedule_and_structure_four_is_rejected(tmp_path: Path) -> None:
+    """`work_schedule` 是人物配置的必填可空字段（4.3，裁决 W3）：删掉该键的文档经场景模型与真实入口
+    （parse_scenario_document 与 load_scenario）都被拒、原因点名该字段，写 null 照常加载，合法的工作安排照常加载；场景
+    结构升为 5，键仍在而版本写回 4 的文档经同样两个真实入口按版本拒绝；仓库三份场景的每个人物都显式写出 null。"""
+    missing = _payload()
+    del missing["agents"][0]["work_schedule"]
+    _assert_invalid(missing, r"agents\.0\.work_schedule\n\s+Field required")
+    assert LifeScenario.model_validate(_payload()).agents[0].work_schedule is None
+    declared = _payload()
+    declared["agents"][0]["work_schedule"] = weekday_schedule(declared)
+    assert LifeScenario.model_validate(declared).agents[0].work_schedule.weekly["5"] is None
+
+    keyless = _mutated_scenario(_FORMAL, lambda document: document["agents"][0].pop("work_schedule"),
+                                tmp_path / "no-work-schedule")
+    old = _mutated_scenario(_FORMAL, lambda document: document.update(schema_version=4), tmp_path / "structure-4")
+    for path, field in ((keyless, "work_schedule"), (old, "schema_version")):
+        for entry in (parse_scenario_document, load_scenario):
+            with pytest.raises(IntegrityError, match="Scenario validation failed") as failure:
+                entry(path)
+            assert field in str(failure.value.__cause__)
+
+    for path in _V2_SCENARIOS:
+        assert all(agent["work_schedule"] is None for agent in _document(path)["agents"])
+        scenario, _ = load_scenario(path)
+        assert scenario.schema_version == 5
+        assert scenario.agents and all(agent.work_schedule is None for agent in scenario.agents)
+
+
+def _scheduled_payload(edit) -> dict:
+    """正式场景文档的副本：人物 1 写上与场景日历一致的工作安排，再交给 edit(schedule) 改写。"""
+    payload = _payload()
+    schedule = weekday_schedule(payload)
+    edit(schedule)
+    payload["agents"][0]["work_schedule"] = schedule
+    return payload
+
+
+@pytest.mark.parametrize(("shift", "message"), [
+    (_shift(starts=-60, ends=540, breaks=[]), _SHIFT_RANGE),
+    (_shift(breaks=[[810, 720]]), _BREAK_INSIDE),
+    (_shift(breaks=[[720, 720]]), _BREAK_INSIDE),
+], ids=["starts-before-midnight", "inverted-break", "empty-break"])
+def test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rejected(shift: dict, message: str):
+    """班次是自当地零点起的分钟、落在同一天，休息时段是班次内的半开区间（docs/dev/SPEC-errands-workday.md 4.3；接口合同
+    「工作安排声明」：0 ≤ starts < ends ≤ 1440）：周一的班次从前一天 23:00 开始（starts 为负）时被场景模型拒绝；休息时段
+    两端都在班次内而止点早于或等于起点（13:30 到 12:00、12:00 到 12:00）时同样被拒，原因分别是班次范围与休息时段须落在
+    班次内。同一份文档不改周一班次时照常通过。"""
+    assert LifeScenario.model_validate(_scheduled_payload(lambda schedule: None)).agents[0].work_schedule is not None
+    _assert_invalid(_scheduled_payload(_weekly("0", shift)), message)
+
+
+def test_back_to_back_breaks_are_admitted_and_a_one_minute_overlap_is_not() -> None:
+    """休息时段互不重叠按半开区间判定（docs/dev/SPEC-errands-workday.md 4.3）：前一段的止点等于后一段的起点不算重叠，
+    12:00–13:00 紧接 13:00–13:30 的班次经场景模型照常加载、两段原样保留；后一段早开始一分钟才是重叠，被拒。"""
+    adjacent = _scheduled_payload(_weekly("0", _shift(breaks=[[720, 780], [780, 810]])))
+    shift = LifeScenario.model_validate(adjacent).agents[0].work_schedule.weekly["0"]
+    assert (shift.starts, shift.ends, shift.breaks) == (540, 1080, ((720, 780), (780, 810)))
+    _assert_invalid(_scheduled_payload(_weekly("0", _shift(breaks=[[720, 780], [779, 810]]))), _BREAK_ORDER)
+
+
+@pytest.mark.parametrize("key", ["workplace_location_id", "weekly", "exceptions"])
+def test_work_schedule_requires_all_three_keys_without_defaults(key: str) -> None:
+    """工作安排的三个键都必填、没有缺省（接口合同「工作安排声明」，裁决 W3）：删掉工作地点、每周声明或日期例外中的任意
+    一个键，场景模型都按缺字段拒绝并点名该键；没有日期例外须显式写空对象，写 {} 照常加载。"""
+    _assert_invalid(_scheduled_payload(lambda schedule: schedule.pop(key)),
+                    rf"agents\.0\.work_schedule\.{key}\n\s+Field required")
+    empty = _scheduled_payload(lambda schedule: schedule.update(exceptions={}))
+    assert LifeScenario.model_validate(empty).agents[0].work_schedule.exceptions == {}
+
+
+def test_work_schedule_rejects_an_unknown_key_such_as_a_timezone() -> None:
+    """工作安排不带时区字段（docs/dev/SPEC-errands-workday.md 4.3，复用场景唯一的 timezone），未知键拒绝（接口合同「工作
+    安排声明」）：多写 timezone 的安排被场景模型按未知字段拒绝并点名该键，不被悄悄丢弃；不多写时同一份安排照常加载，
+    加载出的安排只有三个键。"""
+    extra = _scheduled_payload(lambda schedule: schedule.update(timezone="Europe/Berlin"))
+    _assert_invalid(extra, r"agents\.0\.work_schedule\.timezone\n\s+Extra inputs are not permitted")
+    loaded = LifeScenario.model_validate(_scheduled_payload(lambda schedule: None)).agents[0].work_schedule
+    assert set(loaded.model_dump()) == {"workplace_location_id", "weekly", "exceptions"}

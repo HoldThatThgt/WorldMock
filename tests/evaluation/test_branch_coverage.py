@@ -1955,11 +1955,12 @@ def test_control_actions_bind_to_real_activities_and_closed_operations() -> None
                 "travel_mode": None, "status": "active", "data": {}}
     missing = _public_event(1, "action_requested",
                             {"tool_name": "report_status",
-                             "request": {"items": [{"activity_name": "不存在的活动", "summary": "继续。"}]}}, "control-1")
+                             "request": {"items": [{"activity_name": "不存在的活动", "summary": "继续。"}],
+                                         "errands": []}}, "control-1")
     assert worldmock_public_evidence([missing], [activity], {}) == ()
     invalid = _public_event(1, "action_requested",
                             {"tool_name": "pause_activity",
-                             "request": {"items": [{"activity_name": browsing, "summary": "暂停。"}]}},
+                             "request": {"items": [{"activity_name": browsing, "summary": "暂停。"}], "errands": []}},
                             "control-2")
     assert worldmock_public_evidence([invalid], [activity], {}) == ()
     deleted_tool = worldmock_public_evidence(
@@ -1971,7 +1972,8 @@ def test_control_actions_bind_to_real_activities_and_closed_operations() -> None
     assert deleted_tool == ()
     report = _public_event(1, "action_requested",
                            {"tool_name": "report_status",
-                            "request": {"items": [{"activity_name": browsing, "summary": "继续。"}]}}, "control-4")
+                            "request": {"items": [{"activity_name": browsing, "summary": "继续。"}], "errands": []}},
+                           "control-4")
     unexported = _public_event(2, "action_result",
                                {"status": "completed",
                                 "data": {"task": [browsing], "activity_ids": ["act-absent"]}}, "control-4")
@@ -2000,7 +2002,7 @@ def test_control_actions_project_each_selected_activity() -> None:
     request = _public_event(
         1, "action_requested",
         {"tool_name": "pause_activity",
-         "request": {"items": [{"activity_name": name, "summary": "暂停。"} for name in names]}},
+         "request": {"items": [{"activity_name": name, "summary": "暂停。"} for name in names], "errands": []}},
         "control-both",
     )
     result = _public_event(
@@ -2020,7 +2022,7 @@ def test_control_actions_project_each_selected_activity() -> None:
         1, "action_requested",
         {"tool_name": "conclude_activity",
          "request": {"items": [{"activity_name": name, "summary": summary, "memories": [], "views": []}
-                               for name, summary in zip(names, ["看完了。", "不看了。"])]}},
+                               for name, summary in zip(names, ["看完了。", "不看了。"])], "errands": []}},
         "conclude-both",
     )
     concluded = _public_event(

@@ -730,6 +730,7 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r'activity\.get\("location_id"\) != location_id', ["src/worldmock/footprints/experiences.py"]),
         (r"\bg\.kind\b", [_SESSION_ACTIONS]),
         (r"WORLD_SCHEMA_VERSION = 6\b", [_MODELS]),
+        (r"WORLD_SCHEMA_VERSION = 8\b", [_MODELS]),
         (r"世界状态结构版本 `WorldState\.schema_version` \| 5 \|", [_CONTRACTS]),
         (r"场景结构 3、世界状态结构 5", [_CONTRACTS]),
         (r"有效工作量达到合同要求后开放；任务名称", [_CONTRACTS]),
@@ -849,15 +850,15 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
 #: 阶段 → 完成后必须在每个列出路径中出现的符号（正则, 路径或目录列表）。
 REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
     "0": [
-        (r"WORLD_SCHEMA_VERSION = 8\b", [_MODELS]),
+        (r"WORLD_SCHEMA_VERSION = 9\b", [_MODELS]),
         (r"WORK_TASK_IN_PROGRESS", ["src/worldmock/life/work.py", _CONTRACTS]),
         (r"#### 活动受理拒绝码", [_CONTRACTS]),
         (r"WORLD_SCHEMA_VERSION", ["src/worldmock/delivery/pipeline.py"]),
         # 目标回看按意图解析；阶段 3 把回看改写为按任务、目标、活动与会话分派后，判定仍按 intent_kind。
         (r'item\.intent_kind == row\["intent_kind"\]', [_SESSION_ACTIONS]),
-        (r"Literal\[8\]", ["docs/design/09-io-formats.md"]),
+        (r"Literal\[9\]", ["docs/design/09-io-formats.md"]),
         (r"state\.schema_version", ["docs/design/06-delivery.md"]),
-        (r"世界结构版本为 `8`", [_CONTRACTS, _RECORDING]),
+        (r"世界结构版本为 `9`", [_CONTRACTS, _RECORDING]),
     ],
     "1": [
         (r"max_same_moment_decisions", ["src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",

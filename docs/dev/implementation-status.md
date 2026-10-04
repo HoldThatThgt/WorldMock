@@ -1,10 +1,65 @@
 # WorldMock 实现状态
 
-> 状态：一日运行保真特性已在集成分支 `dayrun-fidelity-impl` 实现并通过离线验收（阶段 7 真实复验未执行）；人物 Prompt 七层特性已在特性分支 `persona-prompt-seven-layers` 实现并通过离线验收（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
-> 日期：2026-09-29（增量修订；既有验收记录保留各自基线）
+> 状态：个人事务与工作安排特性已在特性分支 `feat/errands-workday` 实现并通过离线验收（自 main 的 `3b4afe5` 起，尚未合入 main；阶段 6 配对全天复跑与 strict 端点探针未执行）；工具交互特性已在 main 实现（`3b4afe5`），验收见其验收记录；一日运行保真特性已实现并通过离线验收，经 `938e289` 合入 main（阶段 7 真实复验未执行）；人物 Prompt 七层特性已实现并通过离线验收，经 `4a5b0e6` 合入 main（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
+> 日期：2026-10-04（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
+
+## 个人事务与工作安排开发状态
+
+[个人事务与工作安排规格](SPEC-errands-workday.md)（FROZEN，版本表 1.0）已在特性分支 `feat/errands-workday` 实现（自 main 的 `3b4afe5` 起，尚未合入 main）：实施阶段 1–5 与阶段 7 完成，阶段 6 配对全天复跑未执行（只报告，见下）；
+「裁决记录」二十二项全部按推荐定稿（含标 † 的 R1、E1、E4、W1、Q2）。实施基线为冻结提交 `e9c3ce5a88af2eff9572f18b2e92ea14523d2ec1`（`e9c3ce5`，变更集只含文档；其上全量测试 5177 passed、7 skipped、0 failed）；
+阶段 1、2、3、4 的最终代码提交分别为 `350587d`、`dca42a3`、`83fab86`、`8ef5aab`，阶段 4 与阶段 3 先后经 `cd33c96`、`59b81a3` 合入特性分支的主线；四个阶段各经一次独立评审，合计 27 项发现（6 项重大、21 项次要），全部在各阶段的修复提交里处理。
+`59b81a3` 之后的提交只改测试、登记表与文档，另有两个运行查看器提交（`1346e0d`、`6c81126`，只改 `tools/` 下的查看器、它的测试与夹具和文档，见下）；`src/`、`custom/` 与 `scripts/` 没有再变，`code_sha256` 不变。
+最终门禁在分支头 `964de503b71ed9931acbc34f4d853cfe6e4d0dc9`（`964de50`，含这两个查看器提交与全部实现后文档）上运行：隔离的干净检出上带覆盖率的十二个分片合计 5851 passed、7 skipped、0 failed、0 errors；
+分支覆盖率 95.15%（8520/8954），未覆盖公共接口为零，门禁报告由这次运行重新生成（`snapshot_id` 为 `64abe7a3-eeaf-4eb6-beba-a35939d02131`），随 `bcbd74a` 提交。
+此前在最终代码与测试提交 `a7e2fdc3e07a0c1962cd4312e6b9956ab6ea74a2`（`a7e2fdc`，两个查看器提交之前最后一个改动与生产代码相关的测试的提交）上的全量运行结果相同
+（5851 passed、7 skipped、0 failed，跳过均为既有的平台或产物条件跳过；分支覆盖率 95.15%，未覆盖公共接口为零，报告随 `8613139` 提交），留作历史。
+两轮独立源码变异审查共 230 个变异，115 个被既有测试杀死，115 个初次存活，
+其中 110 个判为真实缺口、全部补测并以原变异复验杀死，4 个判为规格之外，1 个等价，补测过程没有发现生产缺陷。
+验收台账 28 行的证据测试登记在 `tests/errands_workday_acceptance.py`（251 个不重复节点，分布在 62 个测试文件；另登记 101 个源码变异），由 `tests/test_errands_workday_acceptance.py` 逐行判定；「复跑指标（只报告）」一行没有节点。
+证据层级是离线测试：本特性没有发起任何真实 DeepSeek 调用。源码身份与发布身份、各阶段测试结果、评审与修复、变异审查、门禁、代码与规格的出入和文档一致性见[个人事务与工作安排验收记录](errands-workday-verification.md)，
+阶段见规格「实施计划」，逐文档的文档同步作业、逐阶段的文件修改清单与被钉点见配套[实施计划](research/errands-workday-implementation-plan.md)（实施台账）。
+
+| 范围 | 现行实现 |
+| --- | --- |
+| 运行修复 | 就寝反思经唯一严格工具 `submit_reflection` 提交（`tool_choice=required`，思考由 AS2 记忆调度关闭，不带 `purpose`），一至五条，引用非空、条内不重复且取自本次输入，正文同收尾记忆校验；输出不合合同时附回英文校验错误重试，首次之外至多三次（独立常量 `REFLECTION_VALIDATION_RETRIES`，与零点计划的次数同值），每次尝试是 AS2 记忆调度下的一次独立调用、校验错误随下一次请求的附回消息留证，耗尽即运行故障，不写入洞见、不登记 `memory_updated`；反思请求不产生 `decision_started`，交付窗口的决策提示仍取动作之前最后一份不带 `purpose` 且工具含该动作工具名的请求。回看任务经 `LifeEnvProxy.read_query` 送到环境 actor（`LifeEnvActor`，并发度固定为 1）并等待真实结果，`query_world` 由宿主在冻结观察上求值，环境分支受理时与之逐值相等、拒绝时给出同一份校验报告。零点计划与 `revise_day_plan` 共用校验，重复意图同时定位首次与其后各次出现，超限与重复同批报告。`LifeAgent.step` 在决策失败时写一条带异常链的英文日志后原样上抛，工具分发失败先写日志再按失败阶段码 `TOOL_SERVICE_FAILED` 抛出；四个失败阶段码（`MODEL_SERVICE_FAILED`、`EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED`、`TOOL_SERVICE_FAILED`）已补登进接口合同宿主错误码表。四项只改变 `code_sha256` |
+| 个人事务 | `AgentState.errands` 只存未完成事务（每人至多 8 条），完成或取消时移出，终态、原因与证据只写事件；`report_status`、`pause_activity`、`conclude_activity` 带请求级必填 `errands`（新增、更新、取消，一次至多四条，每条八键全必填，备注键为 `memo`，请求里没有「完成」），同一请求内按取消、更新、新增求值，与活动状态转换同批校验、同一事务提交，宿主与环境共用同一校验函数，成功结果在 `details.errands` 给回执 `[{errand, change}]`，事务名称与商品名称错误不带候选；完成依据为结果种类 × 商品 × 数量，只认记下之后的送达、到店成交、制作产出、收到的给予与进食的实际食用量，取得不含地点条件，每次提交结算一次；提醒时刻清醒时精确到点提供一次决策机会（唤醒原因 `errand_reminder_due`，不在睡眠允许集合内，睡眠中不形成边界、醒来的边界一并交付，同一边界多条合并为一次机会），该成员已同步进调度枚举、足迹侧词表与写入期校验、质量报告分桶；待办层增 `errands`，进度层增 `errand_reminder` 与 `errand_completed` 两种由事件派生的记录，同秒续接 `changes` 含事务的 `added` 与 `removed`；`environment_event` 下登记六个 `kind`，其中 `errand_completed`、`errand_reminded` 为人物可见，其余四种为 `system`，六种都不带决策与动作身份；零点计划输入增「个人事务」、模板增第七条；意图与 dreaming 窗口裁去 `errands`，缺 `errands` 键的控制请求是完整性故障，查看器对缺键的控制请求报错；查看器的控制请求摘要写各条事务变更的种类与名称，六种事务事件与唤醒原因 `errand_reminder_due` 写事务名称与商品名称（商品名称另从观察的 `errand_item_bindings` 补缺，缺名时显示缺失提示，事务内部身份不进活动表、时间线与请求摘要），内置的进度层规则文字写两种事务记录 |
+| 提示信息分工 | 系统层仍为 18 条：第 1 条待办层一句写入个人事务，第 4 条补事务文字是自己记下的、办没办成由环境按实际结算确认，第 6 条改为以后要买到、拿到或吃掉的具体东西记成个人事务，其他延续打算写进 `pause_activity` 或 `conclude_activity` 的 summary，`report_status` 的 summary 只留到本段停留或路程结束，想记住的事只记以后用得上的新情况；三个控制工具的用途句与 `memories`、`errands` 及其八个键的字段说明只写用途、不含「登记」一词；就寝反思文案末尾补两句（反思不登记、不办结、不取消事务；输入是人物自己的记录，不把取得、吃掉或办完说成事实）；三处逐字副本（`custom/agents/life_prompt.py`、人物 Prompt 规格「系统层」、接口合同「请求组成」）与测试同批，`prompt_sha256` 与 `tool_schema_sha256` 随之改变（两个指纹由函数计算，仓库里没有字面钉值，同批更新的是条数、键集与版本数字的断言） |
+| 作息与工作安排 | 卡片 `TimeAnchors` 增可空的 `leave_work`、`arrive_home`，抽取载荷以 `work_anchors` 单独取共识，不设缺省；新锚点不满足顺序约束（含窗口越过当日 24 点）时，单次采样与共识后的卡片用同一函数降级为 null、不触发解析重试，降级说明经 `PERSONA_AGREEMENT_LOW`（改为泛指画像编译留下的警告）透传；卡片结构 3、抽取提示 `card-v3`，缺两键的旧结构化卡片被拒；人设层 `rhythm` 增这两个键，画像文本在各自非空时追加分句；场景人物配置增可选的 `leave_work_window`、`arrive_home_window`，场景作息覆盖由五个字段扩为七个，覆盖与冲突规则不变（场景窗口落不下时该槽保留卡片值并记 `CARD_FIELD_CONFLICT`）；人物配置增必填可空的 `work_schedule`（每周班次、日期例外、休息时段），班次形状由模型校验器把关、跨引用在加载检查，只对场景时间窗内的日历日期与场景日历交叉核对，场景结构 5，三份仓库场景的全部人物写 null、`scenario_sha256` 随之改变；环境层在 `location` 之后增 `duty`，只由时钟与班次求值，零点计划、修订与工作提交都不改变它，同秒续接链内不变、不进 `changes`，环境不因班次新增拒绝、不写离岗事件；系统层第 1、14 条改写，零点计划模板增第八条、输入增「上班安排」（场景声明了下班、到家窗口时人物输入另含「下班时段」「到家时段」）；工作安排不参与任务开放与截止 |
+| 查询 | `query_world` 请求六键必填（`name`、`way`、`category`、`from`、`available_only`、`offset`），四个筛选至少一个非 null，四键旧请求被拒；来源解析与购买共用同一纯函数（`name_resolution.resolve_source`），冻结观察新增渠道索引 `world_query_channels` 与供给条目的 `location_id` 两项私有事实；可执行筛选取冻结观察里动作的 `available`，在排序与切页之前施加，`total_count` 为筛选后总数；结果只省略 null 与空集合（复用工具层分组的紧凑实现），不再逐项附候选；`from` 无法解析、以及 `from` 为 null 且 `name` 无任何匹配并恰为渠道称呼时按查询参数错误返回完整请求候选，其余无匹配为合法空页；只改用途句，两个新字段不带字段说明；环境侧同名分支（`LifeEnv.read_query`）在阶段 4 没有改动；工具交互规格「行为验收」表的行名未增删改 |
+| 度量与下游 | `quality.json` 的 `schema_version` 4，新增 `errand_metrics` 与 `conclusion_memories` 两组，只报告；行为评估 `reports` 增 `workload` 与 `routine_deviation`（输入为一个可选打包对象，结构标识 `behavior-metrics-1` 不变），由 `scripts/inspect_run.py workday --scenario <场景文件>` 给出，查询成本由 `scripts/inspect_run.py queries` 给出；世界结构 9、场景结构 5、卡片结构 3（`card-v3`）；地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 与 AS2 锁定摘要不变；交付入口按世界结构版本 9 设门禁 |
+
+未完成与出入：
+
+- **阶段 6 配对全天复跑未执行。** 规格「实施计划」阶段 6 只报告、不作门禁；它是计费的真实运行，只在用户明确要求时启动，本轮没有启动：规格计划每臂三次，实际每臂 0 次，未达复跑要求，
+  台账「复跑指标（只报告）」各项没有任何结果。阶段 3 之后场景与卡片结构都已升版，基线臂与处理臂不能共用同一份输入，启动时只能做到语义等价并如实登记差异；启动还要等数据集侧登记落地。
+  读取入口与未取得的指标见[验收记录「未执行」](errands-workday-verification.md#未执行)。
+- **strict 端点探针未运行。** `scripts/probe_deepseek_strict.py` 是计费的真实调用。真实的 strict 端点还没有收到过新的控制工具 Schema（可空整数 `quantity` 是此前没有用过的构造）
+  与六键 `query_world` Schema；已有的证据只是本地的 strict Schema 校验用例，这两份 Schema 能否被真实端点接受尚无证据。
+- **数据集侧登记不在本仓库的证据之内。** 规格[数据集侧登记](SPEC-errands-workday.md#数据集侧登记)各项（逐店声明、任务输入、料理、目录发布、预检、重建与运行驱动、场景与卡片、控制请求与 LabelKit、查询）
+  在 WorldMock-Dataset 仓库由另一会话处理，不计入本仓库验收台账，只阻塞阶段 6；验收记录没有登记数据集提交号。
+- **代码与规格、文档的出入**逐项登记在[验收记录「代码与规格的出入与裁定」](errands-workday-verification.md#代码与规格的出入与裁定)：规格没有定稿之处的六项裁定；实施台账与规格不一致而按规格实现的各项；
+  留给后续的一项——宿主 `revise_day_plan` 超限一项的 `written` 写的是所提交目标的条数，接口合同写的是所提交的目标本身（规格把该宿主函数列为不改动）。
+- **运行查看器的事务显示已实现（`1346e0d`、`6c81126`）。** 两份查看器规格在本特性冻结时修订的条款查看器已全部实现：控制请求摘要写事务变更，事务事件与事务提醒写事务名称与商品名称，
+  进度层规则文字写事务提醒与办成两种记录，工具定义条目写七个世界请求工具、两个世界查询工具与三个记忆查询工具。其中三处（请求摘要与事务事件的名称、进度层规则文字、工具定义条目）
+  是 `a7e2fdc` 上的全量运行之后的实现后文档核对查出、其后补齐的：`1346e0d` 实现这三处，`6c81126` 处理对 `1346e0d` 独立核对查出的七项（查看器另从观察的 `errand_item_bindings` 补商品名称，
+  事务变更按 `control_errands` 的规则逐条读取，个人事务缺名与找不到提醒事件时显示缺失提示，查看器夹具改为本特性的层形状），两份查看器规格各增版本表 `2026-10-04-errands-viewer` 行。
+  `tests/tools/` 的 Node 用例由 62 个增至 75 个：在 `6c81126` 上执行 `node --test tests/tools/run_viewer.test.cjs tests/tools/run_viewer_context.test.cjs` 为 75 pass、0 fail、0 skipped，
+  `tests/tools/test_run_viewer.py` 为 1 passed（离线证据）；这两个提交已包含在分支头 `964de50` 上的最终全量测试与覆盖率门禁之内（见上）。经过见[验收记录「全量门禁之后补齐的查看器事务显示」](errands-workday-verification.md#全量门禁之后补齐的查看器事务显示)。
+- 运行目录名标为 2026-10-01 的白领与商务两次全天运行跑在 `3b4afe5` 加未提交修复上，两份数据集预检未通过，只是本规格的设计依据，不是任何冻结规格的验收运行，不登记进「已具备的真实运行证据」。
+- AS2 锁定提交 `8768e14` 与 `AS2_LOCKED_SOURCE_SHA256` 未改动；`LifeEnvActor`、`LifeEnvProxy` 对三个 AS2 私有成员（`DirectEnvActor._router`、`DirectRouter._environment()`、`EnvRouterProxy._actor`）的依赖随锁定提交验证。
+
+被取代的条款：「工具交互开发状态」的「查询与任务回看」行（查询改为六键并带来源与可执行筛选、结果不再逐项附候选，回看任务经环境 actor 取真实结果）与「正式发布」行（现行为场景 5、世界 9；地图 3、目录 5.3、品类和规则绑定 3 不变）；
+「一日运行保真开发状态」的「运行输入警告与场景作息」行（场景作息覆盖字段由五项扩为七项，覆盖与冲突规则不变；`PERSONA_AGREEMENT_LOW` 改为泛指画像编译留下的警告）、
+「系统层与零点计划」行（第 14 条的计划优先只对习惯成立，对场景声明的工作安排不成立；零点计划模板增第七、第八条）、
+「按名调用与指名购买」行（`prefer` 的现行取值是「最快拿到」「到手价最低」，自工具交互特性起不再是英文词）、
+「错误合同」行（宿主错误码闭集为十五码：四个失败阶段码此前只在代码里，现已补登进接口合同，不再是十一码）、
+「控制工具」行（三个控制工具另带请求级 `errands`；该行所写经 `control_items` 读新旧形状已不成立，`control_items` 只读现行形状，旧记录与缺 `errands` 键的记录直接拒绝）与「下游」行（世界结构 9、质量报告 4）；
+「人物 Prompt 七层开发状态」的「同秒续接」行（`changes` 增个人事务的 `added` 与 `removed`，事务提醒与办成两种记录进 `events`）、「记忆层与人设层」行（能由结算确认的延续事项改由待办层的个人事务承载，人设层作息增下班与到家）、
+「下游」行（交付入口按世界结构版本 9 设门禁）与「世界结构版本 8」行（现行版本为 9）。旧节的表格原文不回改。
+本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态：项目整体仍为 NOT-COMPLETE，三项真实验收的状态见下文的验收项表。
 
 ## 工具交互开发状态
 
@@ -23,7 +78,7 @@
 | 正式发布 | 三份场景 4、两份地图 3、目录 5.3、品类和规则绑定 3，世界 8 |
 | 验收守卫 | 规格行为表逐行登记可执行节点；独立解释器真实源码变异，不放行存活、未执行或基础失败 |
 
-后续章节保留各特性当时的验收基线与历史接口说明；现行接口以合同和本节为准。
+后续章节保留各特性当时的验收基线与历史接口说明；现行接口以合同和本文件最前面的特性节为准，本节「查询与任务回看」「正式发布」两行已由「个人事务与工作安排开发状态」修订。
 
 
 ## 一日运行保真开发状态
@@ -246,7 +301,7 @@ flowchart LR
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
 | 运行期装配与检索 | **已接入地图输入，独立地图分支已验收**：`LocationConfig.location_kinds` 在冻结地图必填且非空，正式场景引用解析后的地点；`presentation.py`、`retrieval.py` 和 `activities.py` 读取该声明，候选、启动和恢复活动分别验证。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
-| 运行期接线与持久化 | **已落地**：`observe.py` 经 `presentation.py` 产出候选窗口并构造本轮交互对象；`start_activity` 按本轮观察的私有绑定把所选（对象，动词，方式）解析为内部标准动作。同一秒各轮沿用该秒首轮的呈现窗口，留痕按人物暂存于 `WorldState.same_moment_presentation`，时钟推进时 `engine.py` 经 `state_commit.flush_presentation` 逐人并入 `presentation_state` 并清空；当前世界版本为 8（7→8 见「当前世界格式」节），另保留共同身体结算时刻与威胁交付状态；6→7 新增同刻计数（`same_moment_rounds`、`same_moment_stage`）、本秒呈现暂存（`same_moment_presentation`）、地点会话、活动的收尾与播报锚点及会话归属、当日目标提醒（逐字段见「当前世界格式」节）；供给库存、报价、营业例外、逐供给可见凭据和 `presentation_state` 随世界状态持久化 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 8`、`WorldState.presentation_state`、`WorldState.same_moment_presentation`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps` 断言呈现留痕随决策提交写入本秒暂存、时钟推进时才并入 `presentation_state`，`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` 断言本秒暂存随检查点恢复 |
+| 运行期接线与持久化 | **已落地**：`observe.py` 经 `presentation.py` 产出候选窗口并构造本轮交互对象；`start_activity` 按本轮观察的私有绑定把所选（对象，动词，方式）解析为内部标准动作。同一秒各轮沿用该秒首轮的呈现窗口，留痕按人物暂存于 `WorldState.same_moment_presentation`，时钟推进时 `engine.py` 经 `state_commit.flush_presentation` 逐人并入 `presentation_state` 并清空；当前世界版本为 9（8→9、7→8 见「当前世界格式」节），另保留共同身体结算时刻与威胁交付状态；6→7 新增同刻计数（`same_moment_rounds`、`same_moment_stage`）、本秒呈现暂存（`same_moment_presentation`）、地点会话、活动的收尾与播报锚点及会话归属、当日目标提醒（逐字段见「当前世界格式」节）；供给库存、报价、营业例外、逐供给可见凭据和 `presentation_state` 随世界状态持久化 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 9`、`WorldState.presentation_state`、`WorldState.same_moment_presentation`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps` 断言呈现留痕随决策提交写入本秒暂存、时钟推进时才并入 `presentation_state`，`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` 断言本秒暂存随检查点恢复 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 
 ### 候选特性历史门禁输出（原命令与关键行）
@@ -318,9 +373,19 @@ $ uv run pytest -q
 - 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
 - 该行在 `docs/dev/SPEC-life-realism.md` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
 
-### 当前世界格式：`WorldState.schema_version` 为 8
+### 当前世界格式：`WorldState.schema_version` 为 9
 
-候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据；活动集合、共同身体时刻和威胁交付状态将版本提升至 5；数字人交互规格以版本 6 引入任务、会话与活动三级结构及 `WorldState.sessions`。时间与能量特性在阶段 0 把版本由 6 升为 7，且只升这一次：其后各阶段新增的世界结构字段与阶段 4 重列的占用名都并入版本 7。人物 Prompt 七层特性在阶段 1 把版本由 7 升为 8，同样只升一次：阶段 3–5 的新字段在发布前并入版本 8。生产模型使用严格版本常量，旧格式（含版本 7）由当前代码直接拒绝（`tests/life/test_session_state.py::test_world_state_schema_version_7_is_rejected`、`::test_run_with_version_7_world_state_is_rejected_on_open`），不转换旧检查点，也不保留迁移脚本；交付核对导出最终检查点的 `state.schema_version`，不等于当前版本即拒绝（`tests/delivery/test_publication.py::test_delivery_gate_is_world_schema_eight_and_rejects_version_seven_exports`）。
+候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据；活动集合、共同身体时刻和威胁交付状态将版本提升至 5；数字人交互规格以版本 6 引入任务、会话与活动三级结构及 `WorldState.sessions`。时间与能量特性在阶段 0 把版本由 6 升为 7，且只升这一次：其后各阶段新增的世界结构字段与阶段 4 重列的占用名都并入版本 7。人物 Prompt 七层特性在阶段 1 把版本由 7 升为 8，同样只升一次：阶段 3–5 的新字段在发布前并入版本 8。个人事务与工作安排特性在阶段 2 把版本由 8 升为 9，只升一次。生产模型使用严格版本常量，旧格式（含版本 8）由当前代码直接拒绝（`tests/life/test_session_state.py::test_world_state_schema_version_8_is_rejected`、`::test_run_with_version_8_world_state_is_rejected_on_open`），不转换旧检查点，也不保留迁移脚本；交付核对导出最终检查点的 `state.schema_version`，不等于当前版本即拒绝（`tests/delivery/test_publication.py::test_delivery_gate_rejects_version_eight_exports`）。
+
+8→9 的结构变化如下，字段名以 `src/worldmock/life/errand_state.py` 与 `src/worldmock/life/models.py` 为准，合同见 `docs/CONTRACTS.md`「领域枚举」节的版本 9 表，逐字段说明见 `docs/design/09-io-formats.md`「3.2 AgentState（人物状态）」：
+
+| 模型 | 8→9 变化 |
+| --- | --- |
+| `AgentState` | 新增 `errands`：事务身份到 `ErrandState` 的映射，只存未完成事务 |
+| `ErrandState` | `errand_id`、`name`、`outcome`、`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id` |
+| 观察事件（不属世界状态） | 待办层增 `errands`，私有绑定增 `errand_bindings`（未完成事务）与 `errand_item_bindings`（全部商品名到商品身份），均列入提示禁键 |
+
+生活场景同一特性升为结构 5：人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，结构 4 的场景按版本拒绝；`catalog_version` 不变。
 
 7→8 的结构变化如下，字段名以 `src/worldmock/life/models.py` 为准，合同见 `docs/CONTRACTS.md`「领域枚举」节的版本 8 表，逐字段说明见 `docs/design/09-io-formats.md`「3.1 WorldState（世界状态）」「3.2 AgentState（人物状态）」「3.4 ActivityState（活动状态）」：
 
@@ -345,7 +410,7 @@ $ uv run pytest -q
 | `ActivityState` | 新增 `concluded_at`（收尾时刻，终态且为空即待收尾）、`report_anchor_at`（播报锚点）、`session_ids`（先后所属的地点会话）、`name`；从原会话移来任务关联 `task_kind`、`task_ref`、`plan_goal_intent_kind` 与人物自述 `progress_note`、`note_updated_at`、`note_history`；`location_id` 固定为开始地点，结算不再以人物当前地点覆盖 |
 | `PlanGoal`（`AgentState.day_plan` 的当日目标） | 新增 `remind_at`（提醒时刻）与 `reminded_at`（提醒实际触发时刻） |
 
-打开、共同检查点恢复与分支必须使用版本 8 的状态以及一致的场景、地图、语料和代码身份；版本 7 及更早的检查点一律拒绝。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。同刻计数与呈现暂存、地点会话与待收尾随检查点恢复由时间与能量特性的完整门禁验证（`tests/life/test_same_moment_decisions.py::test_same_moment_state_survives_reopen`、`::test_presentation_staging_survives_reopen`，`tests/life/test_location_sessions.py::test_sessions_and_pending_conclusion_survive_reopen`）；记忆层与同秒续接随检查点恢复由人物 Prompt 特性的完整门禁验证（`tests/life/test_memory_layer.py::test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates`、`tests/integration/test_same_second_continuation.py::test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_request`）。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在该次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
+打开、共同检查点恢复与分支必须使用版本 9 的状态以及一致的场景、地图、语料和代码身份；版本 8 及更早的检查点一律拒绝。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。同刻计数与呈现暂存、地点会话与待收尾随检查点恢复由时间与能量特性的完整门禁验证（`tests/life/test_same_moment_decisions.py::test_same_moment_state_survives_reopen`、`::test_presentation_staging_survives_reopen`，`tests/life/test_location_sessions.py::test_sessions_and_pending_conclusion_survive_reopen`）；记忆层与同秒续接随检查点恢复由人物 Prompt 特性的完整门禁验证（`tests/life/test_memory_layer.py::test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates`、`tests/integration/test_same_second_continuation.py::test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_request`）；未完成的个人事务随检查点恢复（待办层逐字节相同，不重复记下、完成与提醒）由个人事务与工作安排特性的完整门禁验证（`tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing`）。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在该次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
 
 ## 已完成的确定性范围
 
@@ -419,11 +484,14 @@ $ uv run pytest -q
 - 结构化操作日志：`src/worldmock/opslog.py` 追加写 `logs/ops-<模拟日YYYYMMDD>.jsonl`，是 JSON-lines 定位日志、
   不是审计证据，写入失败只记 stderr。每条含 `at`、`sim_time`、`component`、`level`、`code`、`detail` 及关联键
   `agent_id`、`decision_id`、`round_id`、`action_id`、`event_seq_first/last`、`tokens_in/out`；
-  `event_seq_*` 可与 `footprints.sqlite` 的事件序号互相跳转。
+  `event_seq_*` 可与 `footprints.sqlite` 的事件序号互相跳转。人物决策失败与工具分发失败另经标准 logging 各写一条带完整异常链的英文 error 日志后上抛
+  （决策失败原样上抛，工具分发失败带失败阶段码 `TOOL_SERVICE_FAILED`）；它不是 ops 日志，也不是持久证据。
 - 人物模型接入：人物动作调用开启 DeepSeek thinking（`custom/agents/life_agent.py` 覆写
   `extra_body.thinking = enabled`），LabelKit 生成角色关闭 thinking、评审角色开启（`labelkit-projects/config.toml`
   的 `[llm.default]` 与 `[llm.judge]`）。thinking 模式拒绝 `tool_choice=required`，故工具选择用 `auto`，
   模型不产出工具调用时由 ReAct 协议纠错兜底；思考用尽输出上限（截断）后的那一次重试关闭思考并用 `tool_choice=required`，只开放世界请求（一日运行保真规格 7.2）；
+  就寝反思是记忆运行时的独立调用：唯一严格工具 `submit_reflection`、`tool_choice=required`，思考由 AS2 记忆调度以 `thinking=disabled` 关闭，所以不触发思考模式对 required 的拒绝；
+  输出不合合同时附回英文校验错误重试，首次之外至多三次，传输异常原样上抛、不计入校验重试（个人事务与工作安排规格 1.1）；
   WorldMock 的模型调用走 DeepSeek 的 strict 端点 `https://api.deepseek.com/beta`（7.5，LabelKit 用自己的端点）；推理原文经 `model_response` 数字足迹事件的
   `data.response.choices[0].message.reasoning_content` 落库。思考只在同秒续接中回传：同一人物、同一 session、同一秒的相邻决策，续接请求原样带上此前各 assistant 回合的 `reasoning_content`（思考模式下续接链中任一 assistant 缺该字段会得到 400，`max_retries=0` 不重试），宿主发送前自检，缺失即断链；时间推进、session 切换或反事实分支后请求从新快照构造，此前的思考不再出现；开关 `worldmock run --same-second-continuation on|off`（缺省开）冻结进清单 `stages.action` 与人物配置。模型请求超时为 300 秒
   （`src/worldmock/runtime.py` 设 `AGENTSOCIETY_LLM_REQUEST_TIMEOUT`，AS2 默认 60 秒）。

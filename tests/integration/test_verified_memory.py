@@ -18,6 +18,7 @@ from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from custom.agents.life_agent import _conclusion_memories
 from custom.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
+from custom.agents.life_reflection import REFLECTION_PROMPT, reflection_tool
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -53,7 +54,8 @@ def _concluded(text: str, kind: str = "goal", importance: float = 0.5,
     entry = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
     memories, views = ([entry], []) if about is None else ([], [{"type": kind, "about": about, **entry}])
     return _conclusion_memories("conclude_activity", {"items": [
-        {"activity_name": "等待（9月21日 16:00 起）", "summary": "收尾。", "memories": memories, "views": views}]})
+        {"activity_name": "等待（9月21日 16:00 起）", "summary": "收尾。", "memories": memories, "views": views}],
+        "errands": []})
 
 
 def _wait_fact(event_id="progress-1", seq=1):
@@ -156,6 +158,8 @@ def _sha256(path):
 
 @pytest.mark.asyncio
 async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
+    """就寝边界先做主观归纳、再经唯一严格工具 submit_reflection 提交反思（docs/dev/SPEC-errands-workday.md 1.1）：请求只带
+    这一个工具并强制调用，洞见固定为主观的 reflection 条目（重要度 0.8、无关键词、来源 reflection），其身份随本步结果报告。"""
     holder = {}
 
     async def dispatch(**request):
@@ -165,7 +169,14 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
         if holder["calls"] == 1:
             return _response("我想和朋友保持联系。")
         identity = holder["runtime"].store.iter_episodes()[0]["id"]
-        return _response(json.dumps([{"insight": "我更珍惜这段关系", "refs": [identity]}]))
+        assert request["tool_choice"] == "required" and "purpose" not in request
+        assert request["tools"] == [reflection_tool()]
+        assert request["tools"][0]["function"]["strict"] is True
+        assert request["messages"][0] == {"role": "system", "content": REFLECTION_PROMPT}
+        function = SimpleNamespace(name="submit_reflection", arguments=json.dumps(
+            {"insights": [{"insight": "我更珍惜这段关系", "refs": [identity]}]}))
+        message = SimpleNamespace(content=None, tool_calls=[SimpleNamespace(function=function)])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
     runtime, owner = _runtime(tmp_path, dispatch)
     holder["runtime"] = runtime
@@ -177,6 +188,8 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
     reflection = next(item for item in outcome.created_episodes if item["type"] == "reflection")
     assert reflection["epistemic_status"] == "subjective"
     assert reflection["source"] == "reflection"
+    assert reflection["text"] == "我更珍惜这段关系"
+    assert reflection["importance"] == 0.8 and reflection["keywords"] == []
     conclusion = next(item for item in outcome.created_episodes if item["type"] == "relationship")
     assert conclusion["source"] == "activity_conclusion"
     assert outcome.consolidated is True

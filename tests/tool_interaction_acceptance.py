@@ -1,31 +1,16 @@
-"""工具交互的行为登记与隔离源码变异执行，验收不修改共享工作树。"""
+"""工具交互的行为登记与源码变异清单；变异经共用执行器在隔离子进程里生效，验收不修改共享工作树。"""
 
 from __future__ import annotations
 
-import ast
-import hashlib
-import importlib.abc
-import importlib.util
-import json
-import os
 from pathlib import Path
-import subprocess
-import sys
-from dataclasses import dataclass
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from tests import mutation_runner
+from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, SourceMutation
 
-
-@dataclass(frozen=True)
-class SourceMutation:
-    """@brief 一个非等价源码变异与必须杀死它的独立行为用例。"""
-
-    name: str
-    module: str
-    source: str
-    original: str
-    replacement: str
-    tests: tuple[str, ...]
+#: 本台账的回执目录与两种超时（基线、单个变异），取共用执行器上移之前写死的值。
+RECEIPTS = REPO_ROOT / ".work/tool-interaction/mutation-receipts"
+BASELINE_TIMEOUT_SECONDS = 600
+MUTATION_TIMEOUT_SECONDS = 180
 
 
 BEHAVIOR = {
@@ -774,87 +759,7 @@ MUTATIONS += (
 )
 
 
-def mutated_source(mutation: SourceMutation) -> tuple[str, str]:
-    """@brief 只接受唯一且可编译的生产源码替换，返回原文与变异源码。"""
-    source = (REPO_ROOT / mutation.source).read_text(encoding="utf-8")
-    if source.count(mutation.original) != 1:
-        raise ValueError(f"Mutation source must occur exactly once: {mutation.name}")
-    changed = source.replace(mutation.original, mutation.replacement, 1)
-    if source == changed:
-        raise ValueError(f"Mutation must change production source: {mutation.name}")
-    ast.parse(changed, filename=mutation.source)
-    return source, changed
-
-
 def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutation | None = None) -> dict:
-    """@brief 在新解释器执行行为用例；收集失败、超时或基础失败不能冒充杀死变异。"""
-    command = [sys.executable, "-m", "tests.tool_interaction_acceptance", "--child"]
-    original = changed = ""
-    if mutation is not None:
-        original, changed = mutated_source(mutation)
-        path = directory / "mutation.json"
-        path.write_text(json.dumps({"module": mutation.module, "path": mutation.source, "source": changed}),
-                        encoding="utf-8")
-        command.extend(["--source", str(path)])
-    command.extend(nodes)
-    command.extend(["--basetemp", str(directory / "child")])
-    environment = {**os.environ, "AGENTSOCIETY_LLM_API_KEY": "test-only",
-                   "MEM0_TELEMETRY": "False", "ANONYMIZED_TELEMETRY": "False",
-                   "LITELLM_LOCAL_MODEL_COST_MAP": "True", "PYTHONUTF8": "1"}
-    result = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True,
-                            encoding="utf-8", timeout=600 if mutation is None else 180)
-    receipt = {"name": mutation.name if mutation else "baseline", "exit_code": result.returncode,
-               "tests": list(nodes), "stdout": result.stdout, "stderr": result.stderr,
-               "original_sha256": hashlib.sha256(original.encode()).hexdigest() if mutation else None,
-               "mutated_sha256": hashlib.sha256(changed.encode()).hexdigest() if mutation else None}
-    evidence = REPO_ROOT / ".work/tool-interaction/mutation-receipts"
-    evidence.mkdir(parents=True, exist_ok=True)
-    (evidence / f"{receipt['name']}.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2),
-                                                  encoding="utf-8")
-    return receipt
-
-
-class _MutatedLoader(importlib.abc.Loader):
-    """@brief 在模块首次导入时执行变异源码，避免旧函数引用掩盖变异。"""
-
-    def __init__(self, case: dict):
-        self.case = case
-
-    def create_module(self, spec):
-        """@brief 由 Python 创建正常模块对象。"""
-        return None
-
-    def exec_module(self, module):
-        """@brief 真实源码经编译后在正常模块命名空间执行。"""
-        path = str(REPO_ROOT / self.case["path"])
-        module.__file__ = path
-        exec(compile(self.case["source"], path, "exec"), module.__dict__)
-
-
-class _MutationFinder(importlib.abc.MetaPathFinder):
-    """@brief 仅替换指定生产模块，其余导入保持正常依赖解析。"""
-
-    def __init__(self, case: dict):
-        self.case = case
-
-    def find_spec(self, fullname, path=None, target=None):
-        """@brief 精确定位目标模块，不替换行为测试或其他生产模块。"""
-        if fullname == self.case["module"]:
-            return importlib.util.spec_from_loader(fullname, _MutatedLoader(self.case))
-        return None
-
-
-def _child() -> int:
-    """@brief 独立测试解释器入口，先安装源码加载器再收集行为测试。"""
-    arguments = sys.argv[2:]
-    if arguments[:1] == ["--source"]:
-        case = json.loads(Path(arguments[1]).read_text(encoding="utf-8"))
-        sys.meta_path.insert(0, _MutationFinder(case))
-        arguments = arguments[2:]
-    import pytest
-
-    return pytest.main([*arguments, "-q", "--tb=short", "--disable-warnings"])
-
-
-if __name__ == "__main__":
-    raise SystemExit(_child())
+    """@brief 以本台账的回执目录与超时调用共用变异执行器。"""
+    timeout = BASELINE_TIMEOUT_SECONDS if mutation is None else MUTATION_TIMEOUT_SECONDS
+    return mutation_runner.run_behavior(nodes, directory, mutation, RunSettings(CHILD_ENTRY, RECEIPTS, timeout))

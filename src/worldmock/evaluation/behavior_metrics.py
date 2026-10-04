@@ -9,6 +9,8 @@
 明示，相关协议门禁按不通过处理；不得把缺证据解释成零次事件。
 观察重复门禁按（人物，模拟秒）的续接链计：同一秒内的续接复用链首 user 合法。事件顶层 code_sha256 缺失时
 归入 code_sha256_unreported 组并注明，不猜测代码身份。
+工作负荷 workload 与作息偏离 routine_deviation 需要事件之外的输入（一个可选的打包对象，见 workload_metrics），
+没有它时两项为 null 并写说明；它们只报告，报告结构标识不变（docs/dev/SPEC-errands-workday.md 6.2）。
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from worldmock.evaluation.goal_metrics import day_plan_metrics
+from worldmock.evaluation.workload_metrics import WorkdayInputs, workday_reports
 
 #: 十类活动家族闭集（外出 outing 并入通勤，见 CONVENTIONS）。
 ACTIVITY_FAMILY_ORDER = (
@@ -85,6 +88,9 @@ UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 各协议门禁缺失证据时的统一说明前缀。
 _NOT_PROVIDED = "未提供"
 
+#: 行动请求才开放的世界请求工具；带工具而没有它的请求（就寝反思）不是人物决策请求。
+_ACTION_TOOL = "start_activity"
+
 
 def behavior_metrics_report(
     events: list[dict[str, Any]],
@@ -92,6 +98,7 @@ def behavior_metrics_report(
     timezone: str = "Asia/Shanghai",
     location_open_hours: Mapping[str, int] | None = None,
     memory_md_texts: Mapping[int | str, str] | None = None,
+    workday: WorkdayInputs | None = None,
 ) -> dict[str, Any]:
     """@brief 计算全部行为指标，按事件携带的 code_sha256 分组返回报告。
 
@@ -99,6 +106,7 @@ def behavior_metrics_report(
     :param timezone: 模拟时间的本地时区（默认与全部冻结场景一致的 Asia/Shanghai）。
     :param location_open_hours: 地点到开门整点小时的映射；提供才计算早到分钟。
     :param memory_md_texts: 人物编号到 MEMORY.md 文本的映射；提供才计算身份残留。
+    :param workday: 工作负荷与作息偏离的打包输入（workload_metrics.workday_inputs）；提供才计算这两项。
     :returns: {code_sha256: {schema_version, gates, reports, notes}} 的报告字典。
     """
     groups: dict[str, list[dict[str, Any]]] = {}
@@ -107,7 +115,7 @@ def behavior_metrics_report(
     reports: dict[str, Any] = {}
     goal_reports = day_plan_metrics(events, timezone)
     for code, group_events in sorted(groups.items()):
-        reports[code] = _group_report(group_events, timezone, location_open_hours, memory_md_texts)
+        reports[code] = _group_report(group_events, timezone, location_open_hours, memory_md_texts, workday)
         reports[code]["reports"].update({key: value for key, value in goal_reports[code].items() if key != "gates"})
         reports[code]["gates"].update(goal_reports[code]["gates"])
         if code == UNREPORTED_CODE_KEY:
@@ -120,8 +128,9 @@ def _group_report(
     timezone: str,
     location_open_hours: Mapping[str, int] | None,
     memory_md_texts: Mapping[int | str, str] | None,
+    workday: WorkdayInputs | None,
 ) -> dict[str, Any]:
-    """@brief 汇总单个代码组内的协议门禁、报告项与口径说明。"""
+    """@brief 汇总单个代码组内的协议门禁、报告项与口径说明；工作负荷与作息偏离按打包输入算一次，写在 social 之后。"""
     notes: list[str] = []
     gates = {
         "observation_repetition": _observation_gate(events, notes),
@@ -133,6 +142,8 @@ def _group_report(
     autonomous = _autonomous_decision_rate(events)
     wait_and_early = _wait_and_early_minutes(events, timezone, location_open_hours, notes)
     distribution = _activity_distribution(events, timezone)
+    workload = workday_reports(events, timezone, workday)
+    notes.extend(workload["notes"])
     reports = {
         "decision_prompt_token_median": token_median,
         "effective_autonomous_decision_rate": autonomous,
@@ -147,6 +158,8 @@ def _group_report(
         "activity_distribution": distribution,
         "persona_distinguishability": _persona_distinguishability(events),
         "social": _social(events, notes),
+        "workload": workload["workload"],
+        "routine_deviation": workload["routine_deviation"],
     }
     return {"schema_version": "behavior-metrics-1", "gates": gates, "reports": reports, "notes": notes}
 
@@ -165,11 +178,26 @@ def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) 
     return entry
 
 
+def _request_tool_names(request: Any) -> list[str]:
+    """@brief 一次模型请求实际开放的工具名；没有工具或形状不符时为空列表。"""
+    tools = request.get("tools") if isinstance(request, Mapping) else None
+    return [item["function"].get("name") for item in tools if isinstance(item, Mapping)
+            and isinstance(item.get("function"), Mapping)] if isinstance(tools, list) else []
+
+
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）。"""
-    return [event for event in events if event.get("event_type") == "model_request"
-            and event.get("data", {}).get("phase") == "request"
-            and not event.get("data", {}).get("purpose")]
+    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
+    只在工具中有 start_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
+    照计（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。"""
+    selected = []
+    for event in events:
+        data = event.get("data", {})
+        if event.get("event_type") != "model_request" or data.get("phase") != "request":
+            continue
+        names = _request_tool_names(data.get("request"))
+        if not event.get("data", {}).get("purpose") and (not names or _ACTION_TOOL in names):
+            selected.append(event)
+    return selected
 
 
 def _message_text(message: Mapping[str, Any]) -> str | None:
@@ -190,7 +218,8 @@ def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[st
     """@brief 统计同一 user 观察文本出现于不同（人物，模拟秒）续接链中的最大数目；门禁必须为 1。
 
     同一人物同一模拟秒内的决策构成一条续接链，链内各决策复用链首 user 合法，只计一次；
-    跨秒或跨人物重复仍计为重复。带 purpose 的系统请求（工作验收、零点计划）不参与统计。
+    跨秒或跨人物重复仍计为重复。带 purpose 的系统请求（工作验收、零点计划）不参与统计；就寝反思的请求（含校验重试，
+    其附回消息不带时刻与人物内容，不是观察）也不参与。
     """
     chains: dict[str, set[tuple[Any, Any]]] = {}
     user_messages = 0

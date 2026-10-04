@@ -1,8 +1,7 @@
 # 调整世界规则与人物动机参数
 
-> 更新日期：2026-10-01。[工具交互规格](../dev/SPEC-tool-interaction.md)中的构建价格范围、完整类别供给、
-> 正式食材配方和新发布身份已冻结，尚未实现。下面现有 CLI 命令仍操作当前格式，不支持新增槽位或自动类别供给；
-> 标为目标格式的内容是开发合同，不能当作当前可执行步骤。
+> 更新日期：2026-10-03。[工具交互规格](../dev/SPEC-tool-interaction.md)中的构建价格范围、完整类别供给、
+> 正式食材配方和发布身份已实现并发布（当前目录 5.3、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)，画像映射表不变。
 
 要改变人物的初始状态，先改[场景](scenarios.md)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
 再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
@@ -140,7 +139,7 @@ flowchart LR
 
 实际购买价格取[门店供给](resources.md#编写门店供给与商品)，再乘购买数量与品类配对系数，最终向上取整为分。
 调整某家店的价格应改供给；调整同一类商品的统一交换系数才改配对。
-目标格式的 `purchase_price_fen_min/purchase_price_fen_max` 只是对象构建边界，不是交易用的 `price_slot`。
+现行格式的 `purchase_price_fen_min/purchase_price_fen_max` 只是对象构建边界，不是交易用的 `price_slot`。
 两端通过现有品类槽位和对象差异解析，同币种正整数分、最小值不大于最大值，两端相等合法，每个数值须有来源。
 离线构建对 `[random_seed, location_id, object_id]` 使用
 `json.dumps(..., ensure_ascii=False, separators=(',', ':'))` 后编码为 UTF-8，取 SHA-256 摘要的无符号大端整数 `h`，
@@ -152,7 +151,7 @@ flowchart LR
 全部冻结报价及未来调价都须在范围内；订单仍保存实际成交价，不因之后调价重算已付款。
 规则只接受这些算子，不能写 `expression`、Python 表达式或嵌套公式。
 
-### 目标格式中的供给与制作边界
+### 供给与制作边界
 
 完整供给分类文件为 `corpora/zhangjiang-map/category-assignment.json`，按现有地点kind和品类树定义完整准入池；
 同一文件恰含必填 `kinds/locations/source`，全部地图kind包括不售卖地点的空数组均显式声明；
@@ -172,8 +171,8 @@ flowchart LR
 `recipe_output_bindings` 明确绑定输出对象，双方 `inventory_unit=item`，库存资源仍为 `inventory/item`，不新增多材料算子。
 制作完成才扣输入并入库输出，之后食用才产生食品能量；暂停、取消或提前结束不制造半件产物。
 原料 `ingredient` 是此次新增的真实品类分支，必须有来源、对象和规则；无产出做饭活动直接删除重复绑定。
-目标发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3，世界状态 8 保持；旧输入直接拒绝，不提供迁移或兼容。
-这些正式数据与生成行为尚未实现，不增加当前 `category check/refine/publish` 的假参数或运行开关。
+工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.3；旧输入直接拒绝，不提供迁移或兼容。
+这些正式数据与生成行为已实现，没有为它们增加 `category check/refine/publish` 的参数或运行开关。
 
 ### 检查与发布品类修改
 
@@ -312,7 +311,7 @@ discount = 0.9
 ### 单个人物的参数
 
 `agents[].motivation` 是场景中的可选对象，当前 `schema_version` 为 `1`。
-它与 `profile compile` 输出的 `CompiledPersona` 版本 `2` 是不同模型，不能整块互换。
+它与 `profile compile` 输出的 `CompiledPersona` 版本 `3` 是不同模型，不能整块互换。
 
 | 字段 | 必填与取值 |
 | --- | --- |
@@ -389,9 +388,10 @@ dinner = "18:30-19:30"
 bedtime = "23:00-24:00"
 ```
 
-这些缺省在故事没提到时补进卡片。场景人物写出 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`
-或 `bedtime_window` 时，人设层改取场景值，对应的缺省只在场景没写该字段时进入人设层；`wake` 与 `leave_home`
+这些缺省在故事没提到时补进卡片。场景人物写出 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、
+`bedtime_window`、`leave_work_window` 或 `arrive_home_window` 时，人设层改取场景值，对应的缺省只在场景没写该字段时进入人设层；`wake` 与 `leave_home`
 没有场景字段，故事不提时总取这里的缺省，见[人物画像](personas.md#正文与实际世界条件要一致)。
+下班与到家（卡片的 `leave_work`、`arrive_home`）没有缺省：本表 `[defaults.time_anchors]` 仍只有五个键，`version` 仍为 2，目录身份不变；故事与场景都没写固定时刻时，卡片与人设层的这两项为 null。
 
 独立文件可通过相对路径 `WORLDMOCK_PERSONA_MAPPING=experiments/persona-mapping.toml` 选择；
 这不是场景字段，也不会自动跟随另一个自定义 `catalog/` 目录。

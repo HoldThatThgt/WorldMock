@@ -1,0 +1,561 @@
+{
+  "review_date": "2026-10-02",
+  "simulation_timezone": "Asia/Shanghai",
+  "worldmock_base_commit": "3b4afe551f97d97a4f67ca22d55d4a4d88bc087a",
+  "path_base": "WorldMock repository root",
+  "run_base": "../WorldMock-Dataset/requests",
+  "runs": {
+    "white_before": "0001-white-collar-lianqiu/runs/2026-09-29-938e289-day-r2",
+    "white_after": "0001-white-collar-lianqiu/runs/2026-10-01-3b4afe5-dayrun-r2",
+    "business_before": "0002-business-sales-zhaoming/runs/2026-09-29-938e289-day-r3",
+    "business_after": "0002-business-sales-zhaoming/runs/2026-10-01-3b4afe5-dayrun-r3"
+  },
+  "execution_base": "../WorldMock-Dataset/execution/2026-10-01-3b4afe5-dayrun",
+  "metrics": {
+    "white_before": {
+      "world_requests": 126,
+      "world_rejections": 7,
+      "world_rejection_codes": {
+        "ACTIVITY_PRECONDITION_UNMET": 1,
+        "PLAN_REMIND_TIME_INVALID": 1,
+        "RESOURCE_CONFLICT": 1,
+        "SAME_MOMENT_ACTION_RESTRICTED": 3,
+        "WORK_REQUIRES_REWORK": 1
+      },
+      "name_errors": 46,
+      "other_error_codes": {
+        "ARGUMENTS_INVALID": 6,
+        "OUTPUT_TRUNCATED": 11,
+        "ROUTE_FIELDS_INVALID": 3,
+        "TOOL_CALL_REQUIRED": 1,
+        "TOO_MANY_TARGETS": 2
+      },
+      "protocol_error_responses": 71,
+      "decision_model_responses": 206,
+      "decision_tokens": {
+        "input_tokens": 4599492,
+        "output_tokens": 400344,
+        "total_tokens": 4999836
+      },
+      "budget_exhausted": 1,
+      "memory_protocol_problems": 1,
+      "models": [
+        "deepseek-flash"
+      ],
+      "model_tool_calls": {
+        "submit_day_plan": 4,
+        "start_activity": 101,
+        "conclude_activity": 39,
+        "report_status": 30,
+        "recall_task_summary": 6,
+        "memory_search": 2,
+        "submit_work": 2,
+        "submit_work_review": 2,
+        "revise_day_plan": 4,
+        "pause_activity": 2,
+        "send_message": 1
+      },
+      "episode_types": {
+        "routine": 25,
+        "reflection": 20,
+        "goal": 6,
+        "commitment": 6,
+        "preference": 7,
+        "relationship": 1
+      },
+      "unique_episode_ids": 65,
+      "world_queries": 0,
+      "successful_world_queries": 0,
+      "rejected_world_queries": 0,
+      "world_query_response_characters": 0,
+      "settled_work_tasks": 1
+    },
+    "white_after": {
+      "world_requests": 127,
+      "world_rejections": 3,
+      "world_rejection_codes": {
+        "SAME_MOMENT_ACTION_RESTRICTED": 1,
+        "SOURCE_NOT_FOUND": 1,
+        "WORK_REQUIRES_REWORK": 1
+      },
+      "name_errors": 0,
+      "other_error_codes": {
+        "ARGUMENTS_INVALID": 3,
+        "OUTPUT_TRUNCATED": 4,
+        "ROUTE_FIELDS_INVALID": 1
+      },
+      "protocol_error_responses": 9,
+      "decision_model_responses": 154,
+      "decision_tokens": {
+        "input_tokens": 2913522,
+        "output_tokens": 254198,
+        "total_tokens": 3167720
+      },
+      "budget_exhausted": 0,
+      "memory_protocol_problems": 1,
+      "models": [
+        "deepseek-flash"
+      ],
+      "model_tool_calls": {
+        "submit_day_plan": 3,
+        "start_activity": 52,
+        "conclude_activity": 38,
+        "submit_reflection": 2,
+        "report_status": 34,
+        "query_world": 13,
+        "recall_task_summary": 4,
+        "pause_activity": 4,
+        "submit_work": 2,
+        "submit_work_review": 2,
+        "memory_search": 2,
+        "memory_recent": 1
+      },
+      "episode_types": {
+        "routine": 32,
+        "reflection": 7,
+        "goal": 12,
+        "preference": 12,
+        "relationship": 1
+      },
+      "unique_episode_ids": 64,
+      "world_queries": 13,
+      "successful_world_queries": 11,
+      "rejected_world_queries": 2,
+      "world_query_response_characters": 72846,
+      "settled_work_tasks": 1
+    },
+    "business_before": {
+      "world_requests": 184,
+      "world_rejections": 13,
+      "world_rejection_codes": {
+        "ACTIVITY_CONCLUSION_REQUIRED": 1,
+        "ACTIVITY_PRECONDITION_UNMET": 1,
+        "MERCHANT_CLOSED": 1,
+        "MESSAGE_TEXT_TOO_LONG": 1,
+        "RESOURCE_CONFLICT": 2,
+        "SAME_MOMENT_ACTION_RESTRICTED": 3,
+        "WORK_REQUIRES_REWORK": 4
+      },
+      "name_errors": 41,
+      "other_error_codes": {
+        "ARGUMENTS_INVALID": 15,
+        "ARGUMENTS_NOT_JSON": 7,
+        "OUTPUT_TRUNCATED": 4,
+        "ROUTE_FIELDS_INVALID": 2,
+        "TOOL_CALL_REQUIRED": 7
+      },
+      "protocol_error_responses": 78,
+      "decision_model_responses": 287,
+      "decision_tokens": {
+        "input_tokens": 5820808,
+        "output_tokens": 396861,
+        "total_tokens": 6217669
+      },
+      "budget_exhausted": 0,
+      "memory_protocol_problems": 7,
+      "models": [
+        "deepseek-flash"
+      ],
+      "model_tool_calls": {
+        "submit_day_plan": 3,
+        "revise_day_plan": 6,
+        "start_activity": 115,
+        "conclude_activity": 67,
+        "report_status": 36,
+        "send_message": 9,
+        "recall_task_summary": 14,
+        "memory_recent": 5,
+        "submit_work": 9,
+        "submit_work_review": 10,
+        "memory_search": 13
+      },
+      "episode_types": {
+        "routine": 33,
+        "reflection": 41,
+        "commitment": 13,
+        "preference": 14,
+        "goal": 13,
+        "relationship": 3
+      },
+      "unique_episode_ids": 117,
+      "world_queries": 0,
+      "successful_world_queries": 0,
+      "rejected_world_queries": 0,
+      "world_query_response_characters": 0,
+      "settled_work_tasks": 5
+    },
+    "business_after": {
+      "world_requests": 152,
+      "world_rejections": 9,
+      "world_rejection_codes": {
+        "FULFILLMENT_NOT_SUPPORTED": 1,
+        "RESOURCE_CONFLICT": 3,
+        "SUPPLY_NOT_FOUND": 1,
+        "WORK_REQUIRES_REWORK": 4
+      },
+      "name_errors": 6,
+      "other_error_codes": {
+        "ARGUMENTS_INVALID": 8,
+        "ARGUMENTS_NOT_JSON": 1,
+        "OUTPUT_TRUNCATED": 3,
+        "ROUTE_FIELDS_INVALID": 1
+      },
+      "protocol_error_responses": 20,
+      "decision_model_responses": 217,
+      "decision_tokens": {
+        "input_tokens": 3931911,
+        "output_tokens": 309441,
+        "total_tokens": 4241352
+      },
+      "budget_exhausted": 0,
+      "memory_protocol_problems": 4,
+      "models": [
+        "deepseek-flash"
+      ],
+      "model_tool_calls": {
+        "submit_day_plan": 3,
+        "start_activity": 65,
+        "conclude_activity": 54,
+        "submit_reflection": 2,
+        "report_status": 32,
+        "query_world": 49,
+        "memory_search": 9,
+        "submit_work": 10,
+        "submit_work_review": 10,
+        "send_message": 1,
+        "recall_task_summary": 11,
+        "memory_recent": 7,
+        "revise_day_plan": 1
+      },
+      "episode_types": {
+        "routine": 35,
+        "reflection": 20,
+        "commitment": 6,
+        "goal": 21,
+        "preference": 5,
+        "relationship": 1
+      },
+      "unique_episode_ids": 88,
+      "world_queries": 49,
+      "successful_world_queries": 42,
+      "rejected_world_queries": 7,
+      "world_query_response_characters": 307206,
+      "settled_work_tasks": 6
+    }
+  },
+  "metric_notes": {
+    "layers": "World refusals and protocol errors have different denominators and must not be added.",
+    "tokens": "Recorded usage for decision model responses; not all memory calls or monetary cost.",
+    "queries": "Calls read from raw model tool calls; result payloads deduplicated by tool call identity.",
+    "causality": "Code, input assortment and model trajectory changed together; this is observational."
+  },
+  "source_identity": {
+    "runtime-source-index.json": {
+      "runtime_code_sha256": "6d29729cff361a1faa520b10e67dfa292323adfaa9144faa59fb87b5e41cd57c",
+      "files": {
+        "custom/agents/life_agent.py": {
+          "runtime_sha256": "3487cd773bfa157d47d027f838600c9cad88ac453a7040db6bd7df3625fb2911",
+          "reviewed_sha256": "3487cd773bfa157d47d027f838600c9cad88ac453a7040db6bd7df3625fb2911",
+          "matches": true
+        },
+        "custom/agents/life_memory.py": {
+          "runtime_sha256": "d62bbc7d91b89c6e6241ed4c79da53033c7886743642a6f2ae687283a85a72d0",
+          "reviewed_sha256": "d62bbc7d91b89c6e6241ed4c79da53033c7886743642a6f2ae687283a85a72d0",
+          "matches": true
+        },
+        "custom/agents/life_reflection.py": {
+          "runtime_sha256": "bca92bf5aa41d29688ba00f454717bf8d5ef66749e59c35d952e82c0caa86abd",
+          "reviewed_sha256": "bca92bf5aa41d29688ba00f454717bf8d5ef66749e59c35d952e82c0caa86abd",
+          "matches": true
+        },
+        "src/worldmock/life/models.py": {
+          "runtime_sha256": "ac849a2c91c45de758ecd410e89f2881d463dc7180b7eb26ff67f21ab11b5afa",
+          "reviewed_sha256": "08a9c03b2ba18af796140d5cb8efba9352f6ccdfee75ea19e871bce9c7290340",
+          "matches": false
+        },
+        "src/worldmock/life/read_query_runtime.py": {
+          "runtime_sha256": "2b27eb473293fa629bb89bea3bb2b86800c22bdbfb853e860c8d098b7cf157b1",
+          "reviewed_sha256": "2b27eb473293fa629bb89bea3bb2b86800c22bdbfb853e860c8d098b7cf157b1",
+          "matches": true
+        },
+        "src/worldmock/runtime.py": {
+          "runtime_sha256": "d1eb7743e8c1b9ce2deba9991c501cb2e34a3896a0f14200398bd9301bcd41e3",
+          "reviewed_sha256": "d1eb7743e8c1b9ce2deba9991c501cb2e34a3896a0f14200398bd9301bcd41e3",
+          "matches": true
+        }
+      }
+    },
+    "business-runtime-source-index.json": {
+      "runtime_code_sha256": "3ff7170066db9f7e650609959e0d1c6166429ba2476c826a015a5b968477afcc",
+      "files": {
+        "custom/agents/life_agent.py": {
+          "runtime_sha256": "3487cd773bfa157d47d027f838600c9cad88ac453a7040db6bd7df3625fb2911",
+          "reviewed_sha256": "3487cd773bfa157d47d027f838600c9cad88ac453a7040db6bd7df3625fb2911",
+          "matches": true
+        },
+        "custom/agents/life_memory.py": {
+          "runtime_sha256": "d62bbc7d91b89c6e6241ed4c79da53033c7886743642a6f2ae687283a85a72d0",
+          "reviewed_sha256": "d62bbc7d91b89c6e6241ed4c79da53033c7886743642a6f2ae687283a85a72d0",
+          "matches": true
+        },
+        "custom/agents/life_reflection.py": {
+          "runtime_sha256": "bca92bf5aa41d29688ba00f454717bf8d5ef66749e59c35d952e82c0caa86abd",
+          "reviewed_sha256": "bca92bf5aa41d29688ba00f454717bf8d5ef66749e59c35d952e82c0caa86abd",
+          "matches": true
+        },
+        "src/worldmock/life/models.py": {
+          "runtime_sha256": "08a9c03b2ba18af796140d5cb8efba9352f6ccdfee75ea19e871bce9c7290340",
+          "reviewed_sha256": "08a9c03b2ba18af796140d5cb8efba9352f6ccdfee75ea19e871bce9c7290340",
+          "matches": true
+        },
+        "src/worldmock/life/read_query_runtime.py": {
+          "runtime_sha256": "2b27eb473293fa629bb89bea3bb2b86800c22bdbfb853e860c8d098b7cf157b1",
+          "reviewed_sha256": "2b27eb473293fa629bb89bea3bb2b86800c22bdbfb853e860c8d098b7cf157b1",
+          "matches": true
+        },
+        "src/worldmock/runtime.py": {
+          "runtime_sha256": "d1eb7743e8c1b9ce2deba9991c501cb2e34a3896a0f14200398bd9301bcd41e3",
+          "reviewed_sha256": "d1eb7743e8c1b9ce2deba9991c501cb2e34a3896a0f14200398bd9301bcd41e3",
+          "matches": true
+        }
+      }
+    }
+  },
+  "current_review_tests": [
+    {
+      "command": "python -m pytest tests/life/test_tool_interaction_runtime.py tests/life/test_tool_protocol.py tests/life/test_world_query.py tests/life/test_memory_layer.py tests/life/test_persona_layer.py tests/integration/test_read_query_runtime.py tests/integration/test_strict_reflection.py -q --disable-warnings",
+      "exit_code": 0,
+      "passed": 132,
+      "warnings": 2,
+      "elapsed_seconds": 390.14,
+      "includes_real_ray_query_boundary": true,
+      "production_changes_in_this_review": false
+    },
+    {
+      "repository": "WorldMock",
+      "command": "python -m pytest tests/integration/test_strict_reflection.py tests/life/test_plan_day_duplicate_feedback.py tests/life/test_revise_day_plan_json.py -q --disable-warnings",
+      "passed": 11,
+      "exit_code": 0,
+      "elapsed_seconds": 0.19
+    },
+    {
+      "repository": "WorldMock-Dataset",
+      "command": "python -m pytest tests/test_current_runtime_datasets.py tests/test_labelkit_subjective_fields.py -q --disable-warnings",
+      "passed": 10,
+      "exit_code": 0,
+      "elapsed_seconds": 7.05
+    }
+  ],
+  "test_overlap": "The WorldMock groups overlap; their passed counts are not independent coverage totals.",
+  "historical_mutation_receipts": {
+    "runtime-mutation-tests.json": {
+      "sha256": "5b52bfb0bd552b6cdc664f6ce327f9519a277963a55da74ed57a469b595e50bf",
+      "receipt": [
+        {
+          "mutation": "unknown-memory-ref",
+          "exit_code": 1,
+          "killed": true
+        },
+        {
+          "mutation": "invalid-insight-count",
+          "exit_code": 1,
+          "killed": true
+        }
+      ]
+    },
+    "read-query-mutation.json": {
+      "sha256": "acc86205c6a8d78c37f58a597911379eb95bbe3ca1fd484d58da06d0f7a8ea67",
+      "receipt": {
+        "mutation": "missing-query-result",
+        "exit_code": 1,
+        "killed": true
+      }
+    },
+    "day-plan-mutation.json": {
+      "sha256": "7fd39404a46f5f7c9d0956517c961d2650030a6bd1d6cab3274072188db3aa26",
+      "receipt": {
+        "mutation": "plan-string-intent",
+        "exit_code": 1,
+        "killed": true
+      }
+    },
+    "plan-feedback-mutation.json": {
+      "sha256": "e1ca903b9281bfc1b495aab507d5753697ff5e63a58478f5da33f214a170236d",
+      "receipt": {
+        "mutation": "ambiguous-plan-feedback",
+        "exit_code": 1,
+        "killed": true
+      }
+    },
+    "mutation-tests.json": {
+      "sha256": "9ab088c1d9bdd8b205047d44d66deda8078d43af4b773db2962b543feaf876f3",
+      "receipt": [
+        {
+          "mutation": "wrong-quote-seed",
+          "exit_code": 1,
+          "killed": true
+        },
+        {
+          "mutation": "ambiguous-labels",
+          "exit_code": 1,
+          "killed": true
+        }
+      ]
+    },
+    "labelkit-privacy-mutation.json": {
+      "sha256": "534fd4525d49b83250a37e891cf395e83d0b120b448940a179f09299f9b740a2",
+      "receipt": {
+        "mutation": "labelkit-private-fields",
+        "exit_code": 1,
+        "killed": true
+      }
+    }
+  },
+  "mutations_rerun_during_review": false,
+  "dataset_preflight": {
+    "white": {
+      "file": "white-dataset-preflight.json",
+      "sha256": "1e270b80f8c78ddcdcd23893d124d3b7bee6dccb1e2cd467fa4cf8d6386b54ba",
+      "status": "fail",
+      "checks": [
+        {
+          "name": "家与公司的双向直达路线",
+          "status": "pass"
+        },
+        {
+          "name": "可达地点强连通",
+          "status": "pass"
+        },
+        {
+          "name": "规格行程路线",
+          "status": "pass"
+        },
+        {
+          "name": "全部配送目的地可达",
+          "status": "pass"
+        },
+        {
+          "name": "营业商户供给",
+          "status": "pass"
+        },
+        {
+          "name": "规格购买与购买渠道",
+          "status": "blocked"
+        },
+        {
+          "name": "规格对象真实观察窗口",
+          "status": "fail"
+        },
+        {
+          "name": "地点类别",
+          "status": "pass"
+        },
+        {
+          "name": "可见标签唯一",
+          "status": "pass"
+        },
+        {
+          "name": "人物实体名称",
+          "status": "blocked"
+        },
+        {
+          "name": "显示名称卫生",
+          "status": "pass"
+        },
+        {
+          "name": "内容题材与口味",
+          "status": "pass"
+        },
+        {
+          "name": "商品中文名称",
+          "status": "fail"
+        },
+        {
+          "name": "画像文本与身体参数",
+          "status": "pass"
+        },
+        {
+          "name": "check_work",
+          "status": "fail"
+        },
+        {
+          "name": "未满足的规格要求",
+          "status": "blocked"
+        }
+      ]
+    },
+    "business": {
+      "file": "business-dataset-preflight.json",
+      "sha256": "fe350cc3fc5dbd8db1af6959ac95353467ffc826cb2ecb1ad77406609efc0936",
+      "status": "fail",
+      "checks": [
+        {
+          "name": "家与公司的双向直达路线",
+          "status": "pass"
+        },
+        {
+          "name": "可达地点强连通",
+          "status": "pass"
+        },
+        {
+          "name": "规格行程路线",
+          "status": "pass"
+        },
+        {
+          "name": "全部配送目的地可达",
+          "status": "pass"
+        },
+        {
+          "name": "营业商户供给",
+          "status": "pass"
+        },
+        {
+          "name": "规格购买与购买渠道",
+          "status": "blocked"
+        },
+        {
+          "name": "规格对象真实观察窗口",
+          "status": "fail"
+        },
+        {
+          "name": "地点类别",
+          "status": "pass"
+        },
+        {
+          "name": "可见标签唯一",
+          "status": "pass"
+        },
+        {
+          "name": "人物实体名称",
+          "status": "blocked"
+        },
+        {
+          "name": "显示名称卫生",
+          "status": "pass"
+        },
+        {
+          "name": "内容题材与口味",
+          "status": "pass"
+        },
+        {
+          "name": "商品中文名称",
+          "status": "fail"
+        },
+        {
+          "name": "画像文本与身体参数",
+          "status": "pass"
+        },
+        {
+          "name": "check_work",
+          "status": "fail"
+        },
+        {
+          "name": "未满足的规格要求",
+          "status": "fail"
+        }
+      ]
+    }
+  },
+  "dataset_specification_acceptance": "not_certified",
+  "review_scope": "Proposal and audit only; no production implementation or commit in this review."
+}

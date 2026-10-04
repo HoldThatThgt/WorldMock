@@ -134,8 +134,10 @@ COMPACT_TOOL_LAYER_SCHEMA: dict[str, Any] = {
 
 TOOL_LAYER_SCHEMA["$defs"] = {"compact": COMPACT_TOOL_LAYER_SCHEMA}
 
-_RHYTHM = _object({key: _TEXT for key in ("wake", "leave_home", "lunch", "dinner", "bedtime", "sleep_midpoint",
-                                          "sleep_need")})
+#: 人设层作息九键（键序即渲染顺序）：下班与到家没有固定时刻时为 null，其余七键必为非空短语。
+_RHYTHM = _object({key: _NULLABLE_TEXT if key in ("leave_work", "arrive_home") else _TEXT
+                   for key in ("wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime",
+                               "sleep_midpoint", "sleep_need")})
 _TASTES = _object({key: {"type": "array", "items": _TEXT} for key in ("content_genres", "food_preferences", "media")})
 PERSONA_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "人设层",
@@ -171,6 +173,10 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT, "progressed": {"type": "boolean"},
                  "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                  "around_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}})
+#: 待办层的一条个人事务（docs/dev/SPEC-errands-workday.md 2.6）：六键，不含内部身份、状态枚举与可用性。
+_ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo": _NULLABLE_TEXT,
+                   "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+                   "noted_on": _DATE})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
     **_object({
@@ -179,11 +185,23 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
             "name": _TEXT, "paused_at": _TIME, "place": _TEXT, "progress": _TEXT,
             "tools": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [
                 _tool_action(("report_status",)), _tool_action(("conclude_activity",))]}})},
+        "errands": {"type": "array", "maxItems": 8, "items": _ERRAND},
         "day_plan": {"oneOf": [{"type": "null"}, _object({
             "date": _DATE, "goals": {"type": "array", "maxItems": 8, "items": _GOAL}})]},
     }),
 }
 
+#: 上班安排的两种日子与当班日此刻状态的闭集（work_schedule.DUTY_DAYS、DUTY_STATUSES 的字面副本，规格 4.4 的顺序）。
+DUTY_DAYS = ("工作日", "休息日")
+DUTY_STATUSES = ("未到上班时间", "当班中", "休息时段", "已下班")
+#: 环境层 duty 的非空形状（docs/dev/SPEC-errands-workday.md 4.4）：休息日的 hours、place、status 为 null、breaks 为空；
+#: 工作日写班次、工作地点名与四种状态之一。
+_DUTY = _object({"day": {"enum": list(DUTY_DAYS)}, "hours": _NULLABLE_TEXT, "place": _NULLABLE_TEXT,
+                 "breaks": {"type": "array", "items": _TEXT}, "status": {"enum": [*DUTY_STATUSES, None]}})
+_DUTY["if"] = {"properties": {"day": {"const": "休息日"}}}
+_DUTY["then"] = {"properties": {"hours": {"type": "null"}, "place": {"type": "null"},
+                                "status": {"type": "null"}, "breaks": {"maxItems": 0}}}
+_DUTY["else"] = {"properties": {"hours": _TEXT, "place": _TEXT, "status": {"enum": list(DUTY_STATUSES)}}}
 ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "环境层",
     **_object({
@@ -191,6 +209,7 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
         "body": _object({key: {"enum": list(levels)} for key, levels in BODY_LEVELS.items()}),
         "location": _object({"session_kind": {"enum": ["stay", "transit"]}, "name": _TEXT, "place_type": _TEXT,
                              "fixed_rules": {"type": "array", "uniqueItems": True, "items": _TEXT}}),
+        "duty": {"oneOf": [{"type": "null"}, _DUTY]},
     }),
 }
 
@@ -228,6 +247,8 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                                  "message": _TEXT}),
             _record("task_deadline", {"task": _TEXT, "stage": {"enum": ["due_soon", "expired"]}}),
             _record("plan_reminder", {"goal": _TEXT}),
+            _record("errand_reminder", {"errand": _TEXT}),
+            _record("errand_completed", {"errand": _TEXT}),
             _record("condensed", {"until_at": _TIME, "lines": _LINES}),
         ]}},
     }),

@@ -59,10 +59,11 @@ from tests.integration.test_life_agent_protocol import (
 )
 from tests.integration.test_verified_memory import _runtime
 from tests.life.conftest import (activity_name, advance_until_ready, context, engine_factory as _engine_factory,
-                                 stage_day_plan, start_activity, wake_by_mail, pause_request)
+                                 errand_add, stage_day_plan, start_activity, wake_by_mail, pause_request)
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.control_items import control_items
+from worldmock.life.errand_state import ERRAND_EVENT_KINDS
 from worldmock.life.models import ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage
 
 
@@ -81,9 +82,16 @@ def _observed(*activities: tuple[str, str]) -> list[dict]:
     return observations
 
 
+def _action_requests(requests: list[dict]) -> list[dict]:
+    """行动阶段的请求：工具中有 start_activity（docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）；不带工具的记忆
+    巩固与只带 submit_reflection 的就寝反思都不算。"""
+    return [request for request in requests
+            if "start_activity" in {item["function"]["name"] for item in request.get("tools") or []}]
+
+
 def _tool_names(requests: list[dict]) -> list[set[str]]:
     """逐个行动阶段请求读取实际开放的工具名。"""
-    return [{item["function"]["name"] for item in request["tools"]} for request in requests if "tools" in request]
+    return [{item["function"]["name"] for item in request["tools"]} for request in _action_requests(requests)]
 
 
 def _response_errors(environment: _Environment) -> list[str | None]:
@@ -137,7 +145,7 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
 
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(conclusion)]
     assert len(dispatcher.responses) == 1
-    assert len([item for item in dispatcher.requests if "tools" in item]) == 4
+    assert len(_action_requests(dispatcher.requests)) == 4
     assert all("finish" not in names for names in _tool_names(dispatcher.requests))
     assert _response_errors(environment) == [None, "TOOL_CALL_REQUIRED: The tool call batch is invalid.", None, None]
     assert len(agent._memory_runtime.calls) == 2
@@ -214,7 +222,8 @@ def test_only_conclude_activity_carries_memories() -> None:
     assert item_fields("conclude_activity") == {"activity_name", "summary", "memories", "views"}
     for tool in ("report_status", "pause_activity"):
         assert item_fields(tool) == {"activity_name", "summary"}
-        arguments = {"items": [{"activity_name": _WORK, "summary": "还在做。", "memories": [_memory()], "views": []}]}
+        arguments = {"items": [{"activity_name": _WORK, "summary": "还在做。", "memories": [_memory()], "views": []}],
+                     "errands": []}
         error = agent.validate_react_decisions([_decision(tool, arguments)], False)
         assert "not declared" in error
 
@@ -240,13 +249,15 @@ def _single(**changes: Any) -> dict:
 
 _LIMIT_CASES = {
     "three_items": ({"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}
-                               for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")]}, "one or two items"),
+                               for name in (_WORK, _WAIT, "午饭（1月5日 12:00 起）")], "errands": []},
+                    "one or two items"),
     "repeated_activity": (_conclude_args(_WAIT, _WAIT), "must be distinct"),
-    "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}]},
-                      "matching the declared format"),
+    "blank_summary": ({"items": [{"activity_name": _WAIT, "summary": " ", "memories": [], "views": []}],
+                       "errands": []}, "matching the declared format"),
     "summary_over_500_characters": ({"items": [{"activity_name": _WAIT, "summary": "长" * 501, "memories": [],
-                                                "views": []}]}, "within 500 characters"),
-    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}]}, "required field"),
+                                                "views": []}], "errands": []}, "within 500 characters"),
+    "views_missing": ({"items": [{"activity_name": _WAIT, "summary": "收尾。", "memories": []}], "errands": []},
+                      "required field"),
     "nine_memories_and_views_in_total": (_nine_entries(), "exceed eight"),
     "memory_with_a_subject": (_single(subject=None), "not declared"),
     "memory_of_a_view_type": (_single(type="relationship"), "outside the declared"),
@@ -259,6 +270,12 @@ _LIMIT_CASES = {
     "blank_text": (_single(text="   "), "matching the declared format"),
     "text_over_1000_characters": (_single(text="长" * 1001), "exceeds 1000 characters"),
     "hexadecimal_identity_in_text": (_single(text="我还记得 3e71a031bb3d 那一刻。"), "hexadecimal identifier"),
+    # 八位以上十六进制串不分大小写：全大写与大小写混写（恰好八位）的身份串同样不进记忆文字，看法的文字也一样。
+    "upper_case_hexadecimal_identity_in_text": (_single(text="我还记得 3E71A031BB3D 那一刻。"),
+                                                "hexadecimal identifier"),
+    "mixed_case_hexadecimal_identity_in_text": (_single(text="我还记得 3e71A031 那一刻。"), "hexadecimal identifier"),
+    "upper_case_hexadecimal_identity_in_view_text": (_single_view(text="他给我看过 3E71A031BB3D 那张单子。"),
+                                                     "hexadecimal identifier"),
     "thirteen_keywords": (_single(keywords=[f"词{index}" for index in range(13)]), "more than twelve keywords"),
     "importance_above_one": (_single(importance=1.5), "at most 1"),
     "importance_below_zero": (_single(importance=-0.1), "at least 0"),
@@ -304,7 +321,7 @@ async def test_conclusion_memory_limits_are_protocol_errors_retried_in_the_same_
     assert [call.request for call in environment.calls] == [ConcludeActivityRequest.model_validate(valid)]
     error = _response_errors(environment)[0]
     assert error.startswith("ARGUMENTS_INVALID:") and message in error
-    correction = [item for item in dispatcher.requests if "tools" in item][1]
+    correction = _action_requests(dispatcher.requests)[1]
     content = correction["messages"][-1]["content"]
     feedback = json.loads(content)
     assert (feedback["error_code"], feedback["instruction"]) == ("ARGUMENTS_INVALID", FEEDBACK_INSTRUCTION)
@@ -467,7 +484,8 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     name = activity_name(engine, wait_id)
     memories = [_memory("等了一刻钟，心里平静了。", importance=0.3)]
     views = [_view("陈母", "想起还没回妈妈的消息。", importance=0.4, keywords=("妈妈",))]
-    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}]}
+    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
+                  "errands": []}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
     person = await _person(environment, tmp_path / "agent_0001", model)
@@ -504,7 +522,8 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
     engine, environment, watch_id, wait_id = _engine_with_paused_watch_and_pending_wait(_engine_factory)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
     conclusion = {"items": [
-        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}]}
+        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
+        "errands": []}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
     person = await _person(environment, tmp_path / "agent_0001", model)
@@ -523,6 +542,41 @@ async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_fact
     assert [(item["text"], item["source"], item["epistemic_status"]) for item in stored] == [
         (memories[0]["text"], "activity_conclusion", "subjective")]
     assert update.data["created_episode_ids"] == [stored[0]["id"]]
+
+
+@pytest.mark.asyncio
+async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_engine_factory, tmp_path) -> None:
+    """被业务拒绝的收尾带着一条合法的个人事务新增（docs/dev/SPEC-errands-workday.md 2.2「原子性」）：真实 LifeAgent 经
+    LifeEnv 登记收尾（有刚结束的等待却只结束暂停的观看），宿主本地校验通过，登记时照常写入收尾记忆——memory_updated 的
+    触发点只有 activity_conclusion，新建条目只有这一条收尾记忆；事务变更不是记忆写入点，记忆里没有事务的文字。结算以
+    ACTIVITY_CONCLUSION_REQUIRED 拒绝，事务变更随整请求一并不生效：人物没有未完成事务，没有任何事务事件，结果没有回执键，
+    请求事件原样留着这条变更。"""
+    engine, environment, watch_id, _ = _engine_with_paused_watch_and_pending_wait(_engine_factory)
+    memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
+    noted = errand_add("补一份食材包", "素炒什锦食材包", memo="下班前下单送到家", remind_time="17:00")
+    conclusion = {"items": [
+        {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
+        "errands": [noted]}
+    model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
+                                           json.dumps(conclusion, ensure_ascii=False))])
+    person = await _person(environment, tmp_path / "agent_0001", model)
+
+    decision, result = await _decide(engine, environment, person, "rejected")
+
+    assert (result.status.value, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
+    assert "errands" not in result.data and engine.state.activities[watch_id].status.value == "paused"
+    [requested] = _events(engine, "action_requested", decision.decision_id)
+    assert requested.data["request"] == conclusion
+    [update] = _events(engine, "memory_updated", decision.decision_id)
+    assert update.data["trigger"] == ["activity_conclusion"]
+    stored = person._memory_runtime.store.iter_episodes()
+    assert [(item["text"], item["source"], item["epistemic_status"]) for item in stored] == [
+        (memories[0]["text"], "activity_conclusion", "subjective")]
+    assert update.data["created_episode_ids"] == [stored[0]["id"]]
+    assert not any(text in json.dumps(stored, ensure_ascii=False) for text in ("补一份食材包", "下班前下单送到家"))
+    assert engine.state.agents[1].errands == {}
+    assert [event for event in engine.store.read_agent_events("environment_event", 1)
+            if event.data.get("kind") in ERRAND_EVENT_KINDS] == []
 
 
 #: 八位以上的十六进制串（事件身份、摘要、条目编号中的长数字段）。
@@ -580,7 +634,7 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-search", "memory_search", json.dumps({"query": "散步", "limit": 5}, ensure_ascii=False)),
         _naming_offered("call-mismatch", lambda offered: {"items": [
-            {"activity_name": offered, "summary": "等完了。", "memories": []}]}),
+            {"activity_name": offered, "summary": "等完了。", "memories": []}], "errands": []}),
         _naming_offered("call-conclude", lambda offered: _conclude_args(
             offered, memories=[[_memory("等完这一刻钟，决定出门散步。", importance=0.2)]])),
     ])
@@ -626,7 +680,8 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     name = activity_name(engine, wait_id)
     memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2)]
     views = [_view("沈昊", "想给老朋友打个电话。", importance=0.3)]
-    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}]}
+    conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
+                  "errands": []}
     model = _ScriptedModel([
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False),
@@ -759,18 +814,22 @@ class _DayModel:
         self.reflections = 0
 
     async def call(self, **request):
-        """行动请求取下一条收尾；其余是记忆运行时的反思或巩固。"""
-        if "tools" in request:
-            arguments = self.conclusions.pop(0)
-            return _ModelResponse(f"call-{len(self.conclusions)}", "conclude_activity",
-                                  json.dumps(arguments, ensure_ascii=False))
+        """按工具分流：工具唯一为 submit_reflection 的是就寝反思，以这一个工具调用作答（五条洞见都引用输入里的第一条
+        记忆）；工具中有 start_activity 的是行动请求，取下一条收尾；不带工具的是阈值巩固。"""
+        names = [item["function"]["name"] for item in request.get("tools", [])]
         user = request["messages"][-1]["content"]
-        if "memory_reflection_input" in user:
+        if names == ["submit_reflection"]:
             self.reflections += 1
             body = user.split("<memory_reflection_input>", 1)[1].split("</memory_reflection_input>", 1)[0]
             cited = json.loads(body)["episodes"][0]["id"]
-            return _TextResponse(json.dumps(
-                [{"insight": text, "refs": [cited]} for text in _INSIGHTS], ensure_ascii=False))
+            insights = [{"insight": text, "refs": [cited]} for text in _INSIGHTS]
+            return _ModelResponse(f"reflection-{self.reflections}", "submit_reflection",
+                                  json.dumps({"insights": insights}, ensure_ascii=False))
+        if "start_activity" in names:
+            arguments = self.conclusions.pop(0)
+            return _ModelResponse(f"call-{len(self.conclusions)}", "conclude_activity",
+                                  json.dumps(arguments, ensure_ascii=False))
+        assert not names, names
         self.consolidations.append(json.loads(user))
         return _TextResponse("我在意把日子过得有条理。")
 

@@ -320,7 +320,7 @@ def test_unfinished_browse_concludes_without_a_browse_result(engine_factory) -> 
     assert ended.data["outcome"] == [{"activity": name, "outcome": "提前结束", "items": [],
                                       "note": "Browsing did not finish. No item changes."}]
     details = last_result(engine.observe(context(engine, "browse-seen")))["details"]
-    assert details == {"outcome": ended.data["outcome"]}
+    assert details == {"outcome": ended.data["outcome"], "errands": []}
     _, again = _round(engine, "browse-again", "start_activity", start_activity("浏览", "商品目录"))
     _run_out(engine, again.activity_id, "browse-again")
     assert advance_until_ready(engine)
