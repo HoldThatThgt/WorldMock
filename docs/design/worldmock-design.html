@@ -3935,7 +3935,7 @@ plt.savefig('review-preference-heatmap.png')</code></pre>
 <p>环境引导只提供 release/dev、wheelhouse 和显式 uv 安装选择，不增加场景配置层。收据绑定 Python、依赖锁、AS2 与 LabelKit 身份及缺失部件，全部项目路径相对仓库。release 缺 Node 或 LabelKit 失败；dev 可明确跳过相关检查，但不能取得完整放行。</p>
 <h2 id="design-configuration-current-responsibility">冻结输入与可重建测试</h2>
 <p>运行身份只从场景 JSON 读取人物身份、时间窗和时区，不为生成身份完整装配世界。生产新建与恢复仍执行实际冻结输入校验，不增加生产缓存或运行配置。
-测试工厂缓存以实际文件相对路径和真实字节为键，复制可变分支，只共享递归验证的不可变输入；临时场景和修改后的输入不使用正式缓存。场景副本使用相对资源引用，跨卷通过复制资源保持可重建，不保存机器绝对路径。</p>
+测试工厂缓存以实际文件相对路径和真实字节为键，复制可变分支，只共享递归验证的不可变输入；临时场景和修改后的输入不使用正式缓存。场景副本使用相对资源引用，可变工作区通过标准库普通独立 <code>copy2</code> 复制资源，不以硬链接共享仓库输入；修改副本不得改变源文件字节，不保存机器绝对路径。</p>
 <p>测试运行摘要还绑定实际读取的源码、测试、设计、依赖锁、补丁、场景与语料、根 <code>.gitattributes</code>，
 以及交付工程 <code>labelkit-projects</code> 的配置、hooks 和 schemas；该工程的 data、out 和 <code>__pycache__</code>
 不纳入输入，自动生成的计时与覆盖报告保留现有排除范围。

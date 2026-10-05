@@ -73,7 +73,7 @@ ENVIRONMENT = {
         'tests/test_coverage_gate.py::test_gate_uses_the_current_interpreter_and_the_shared_full_runner',
         'tests/test_coverage_gate.py::test_from_json_rejects_skipped_empty_failed_stale_or_incomplete_runs',
         'tests/test_environment_profiles.py::test_release_rejects_each_missing_component',
-        'tests/test_environment_profiles.py::test_cross_volume_copy_preserves_real_bytes_and_is_independent',
+        'tests/test_environment_profiles.py::test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged',
     ),
     '新机器检查': (
         'tests/test_fresh_check.py::test_fresh_checkout_disables_submodules_ssh_and_pip_cache',

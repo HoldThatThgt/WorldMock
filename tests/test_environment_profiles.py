@@ -1,9 +1,8 @@
-"""@brief 缺组件不能放行，跨卷复制和唯一辅助函数的行为验证。"""
+"""@brief 缺组件不能放行，可变测试世界必须与正式冻结输入隔离。"""
 
 import ast
-import errno
 import json
-import os
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,7 +10,6 @@ import pytest
 
 from scripts import bootstrap_environment as environment
 from tests import conftest as profiles
-from tests.file_copy import link_or_copy
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,27 +65,39 @@ def test_dev_environment_receipt_records_missing_without_absolute_paths(tmp_path
     assert json.loads(content) == result
 
 
-def test_cross_volume_copy_preserves_real_bytes_and_is_independent(tmp_path, monkeypatch):
-    source, target = tmp_path / "source", tmp_path / "target"
-    source.write_bytes(b"frozen\x00corpus\r\n")
-    monkeypatch.setattr(os, "link", lambda *args: (_ for _ in ()).throw(OSError(errno.EXDEV, "cross volume")))
-    link_or_copy(str(source), str(target))
-    assert target.read_bytes() == source.read_bytes()
-    target.write_bytes(b"changed")
-    assert source.read_bytes() == b"frozen\x00corpus\r\n"
+def test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged(tmp_path, monkeypatch):
+    """@brief 真实购买夹具改地图、供给和清单后，源文件字节及文件身份始终不变。"""
+    from tests.life import purchase_worlds
+
+    source_root = tmp_path / "source"
+    for name in ("corpora", "catalog", "scenarios"):
+        shutil.copytree(ROOT / name, source_root / name)
+    monkeypatch.setattr(purchase_worlds, "ROOT", source_root)
+    monkeypatch.setattr(purchase_worlds, "SCENARIO", source_root / "scenarios/white-collar-12-weeks.json")
+    corpus = source_root / "corpora"
+    relative_paths = ["manifest.json", "zhangjiang-map/locations.json",
+                      "zhangjiang-map/20260105/dataset.json", "zhangjiang-map/20260105/supplies.json"]
+    before = {relative: ((corpus / relative).read_bytes(), (corpus / relative).stat().st_ino)
+              for relative in relative_paths}
+    locations = json.loads((corpus / relative_paths[1]).read_text("utf-8"))["locations"]
+    supplies = json.loads((corpus / relative_paths[3]).read_text("utf-8"))["supplies"]
+    location_id, supply_id = locations[0]["location_id"], supplies[0]["supply_id"]
+    world = purchase_worlds.build_world(tmp_path / "world", {}, places={location_id: "隔离地点"},
+                                       supplies={supply_id: {"required_qualifications": ["isolation-oracle"]}})
+    changed_locations = json.loads((world.corpus / relative_paths[1]).read_text("utf-8"))["locations"]
+    changed_supplies = json.loads((world.corpus / relative_paths[3]).read_text("utf-8"))["supplies"]
+    assert changed_locations[0]["name"] == "隔离地点"
+    assert changed_supplies[0]["required_qualifications"] == ["isolation-oracle"]
+    for relative, (content, inode) in before.items():
+        source, copied = corpus / relative, world.corpus / relative
+        assert source.read_bytes() == content
+        assert source.stat().st_ino == inode
+        assert copied.stat().st_ino != inode
+        copied.write_bytes(b"isolated edit\n")
+        assert source.read_bytes() == content
 
 
-def test_same_volume_copy_uses_a_link_and_other_errors_propagate(tmp_path, monkeypatch):
-    source, target = tmp_path / "source", tmp_path / "target"
-    source.write_bytes(b"frozen")
-    link_or_copy(str(source), str(target))
-    assert source.stat().st_ino == target.stat().st_ino
-    monkeypatch.setattr(os, "link", lambda *args: (_ for _ in ()).throw(PermissionError("denied")))
-    with pytest.raises(PermissionError, match="denied"):
-        link_or_copy(str(source), str(tmp_path / "another"))
-
-
-def test_all_test_tree_copies_use_the_cross_volume_helper():
+def test_mutable_test_tree_copies_do_not_use_hard_links():
     violations = []
     for path in (ROOT / "tests").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
