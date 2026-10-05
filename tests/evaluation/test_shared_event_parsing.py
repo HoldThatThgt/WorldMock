@@ -1,10 +1,11 @@
 """真实适配入口只解析一次世界事件，再由统计和公开投影直接消费同一模型。"""
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 
-from tests.evaluation.conftest import make_evaluation_fixture
+from tests.evaluation.conftest import _write_canonical, _write_json, _write_labelkit
 from worldmock.evaluation.adapters import adapt_worldmock
 from worldmock.evaluation import adapters
 from worldmock.evaluation import metrics, review
@@ -12,9 +13,35 @@ from worldmock.evaluation.scenario import load_scenario
 from worldmock.footprints.models import Event
 
 
+def _canonical_world(tmp_path):
+    """@brief 用人工映射和真实导出建立完整自然日输入，不借用正式评估场景。"""
+    start = datetime(2026, 1, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
+    end = start + timedelta(days=1)
+    document = {
+        "scenario_id": "artificial-event-parsing", "schema_version": "evaluation-scenario-1",
+        "window": {"start": start.isoformat(), "end": end.isoformat(), "timezone": "Asia/Shanghai"},
+        "bootstrap": {"seed": 7, "repetitions": 100, "block_days": 7},
+        "review": {"seed": "artificial-review", "reviewer_count": 3, "dimensions": ["continuity"]},
+        "shared_profile": {"person_count": 1, "occupation_class": "white_collar", "timezone": "Asia/Shanghai"},
+        "special_dates": {},
+        "category_mappings": {"labelkit_sequence_class": {}, "labelkit_pattern": {},
+                              "worldmock_activity": {"browse": "internet_use"}},
+        "official_domain_map": {"internet_use": ["internet_use"]},
+        "official_reference": {"source": "Artificial unit-test reference; no empirical claim", "domains": {
+            "internet_use": {"label_zh": "人工浏览参照", "supported_duration_kinds": ["world_internet_session"],
+                             "urban": {"participant_minutes": 120, "participation_rate": 1},
+                             "working_age": {"participant_minutes": 120, "participation_rate": 1}}}},
+        "expected_labelkit": _write_labelkit(tmp_path / "labelkit", start, 1),
+    }
+    path = tmp_path / "evaluation.json"
+    _write_json(path, document)
+    worldmock_root = tmp_path / "worldmock"
+    _write_canonical(worldmock_root, document, "world-run", 9)
+    return load_scenario(path), worldmock_root
+
+
 def test_canonical_adapter_validates_each_event_once_for_statistics_and_public_evidence(tmp_path, monkeypatch):
-    evaluation_fixture = make_evaluation_fixture(tmp_path)
-    scenario = load_scenario(evaluation_fixture.scenario_path)
+    scenario, worldmock_root = _canonical_world(tmp_path)
     calls, adapter_calls, projected = [], [], []
     public = adapters.worldmock_public_evidence
     def counted_public(events, activities, mapping):
@@ -31,8 +58,8 @@ def test_canonical_adapter_validates_each_event_once_for_statistics_and_public_e
         calls.append(row['event_id'])
         return validate(row, **kwargs)
     monkeypatch.setattr(Event, 'model_validate', classmethod(counted))
-    view = adapt_worldmock(evaluation_fixture.worldmock_root, scenario)
-    rows = [json.loads(line) for line in (evaluation_fixture.worldmock_root / 'events.jsonl').read_text().splitlines()]
+    view = adapt_worldmock(worldmock_root, scenario)
+    rows = [json.loads(line) for line in (worldmock_root / 'events.jsonl').read_text().splitlines()]
     identities = [row['event_id'] for row in rows]
     assert adapter_calls == identities
     assert calls == identities * 2  # 独立导出身份认证与一次适配解析各核验一次，公开投影不再次核验。

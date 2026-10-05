@@ -31,7 +31,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 #: 语料根内登记手机配置的目录（每份配置一个文件）。
 PHONE_DIR = "scenario-phone"
-_MAP = "zhangjiang-map"
 _DATASET = json.loads(SCENARIO.read_text(encoding="utf-8"))["map_dataset"]["path"]
 
 
@@ -82,17 +81,19 @@ def build_world(root: Path, phones: dict[str, dict], places: dict[str, str] | No
     shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     dataset = json.loads((corpus / _DATASET).read_text(encoding="utf-8"))
     if places or locations:
-        rows = json.loads((corpus / _MAP / "locations.json").read_text(encoding="utf-8"))
+        path = corpus / dataset["locations_file"]["path"]
+        rows = json.loads(path.read_text(encoding="utf-8"))
         for row in rows["locations"]:
             row["name"] = (places or {}).get(row["location_id"], row["name"])
             row.update((locations or {}).get(row["location_id"], {}))
-        dataset["locations_file"]["sha256"] = _write(corpus / _MAP / "locations.json", rows)
+        dataset["locations_file"]["sha256"] = _write(path, rows)
     if supplies:
         dataset["supplies_file"]["sha256"] = _write(corpus / dataset["supplies_file"]["path"], _edited_supplies(corpus, supplies))
     dataset_sha = _write(corpus / _DATASET, dataset)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    changed = {_DATASET, dataset["locations_file"]["path"], dataset["supplies_file"]["path"]}
     for entry in manifest["entries"]:
-        if entry["path"].startswith(f"{_MAP}/"):
+        if entry["path"] in changed:
             path = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
     digests = {name: _register_phone(corpus, manifest, name, config) for name, config in phones.items()}
