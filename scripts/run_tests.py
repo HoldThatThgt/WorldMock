@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import platform
 import subprocess
@@ -22,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.bootstrap_sources import file_sha256
 DURATIONS = ROOT / "docs/dev/test-durations.json"
-INPUT_ROOTS = ("src/worldmock", "custom/agents", "custom/envs", "tests", "scripts", "scenarios",
-               "catalog", "corpora", "docs", "requirements", "patches", "labelkit-projects")
+INPUT_ROOTS = ("src/worldmock", "custom/agents", "custom/envs", "tests", "scripts", "docs",
+               "requirements", "patches", "labelkit-projects")
 GENERATED_REPORTS = {"docs/dev/test-durations.json", "docs/dev/coverage-report.json"}
 
 
@@ -43,7 +44,36 @@ def changed_paths(base):
     return sorted(paths)
 
 
-def source_digest():
+def _add_digest_file(digest, relative, path):
+    """@brief 把相对文件身份和真实字节一并加入摘要，避免文件边界混淆。"""
+    name, content = relative.encode("utf-8"), path.read_bytes()
+    digest.update(len(name).to_bytes(8, "big"))
+    digest.update(name)
+    digest.update(len(content).to_bytes(8, "big"))
+    digest.update(content)
+
+
+def environment_source_digest(environment_root):
+    """@brief 绑定显式环境目录的真实文件字节，缺少输入立即失败。"""
+    root = ROOT / Path(environment_root)
+    paths = []
+    for name in ("catalog", "corpora", "scenarios"):
+        directory = root / name
+        if not directory.is_dir():
+            logging.error("Test environment input directory is missing: %s", name)
+            raise FileNotFoundError(f"Test environment input directory is missing: {name}")
+        files = [path for path in directory.rglob("*") if path.is_file()]
+        if not files:
+            logging.error("Test environment input directory is empty: %s", name)
+            raise ValueError(f"Test environment input directory is empty: {name}")
+        paths.extend(files)
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        _add_digest_file(digest, path.relative_to(root).as_posix(), path)
+    return digest.hexdigest()
+
+
+def source_digest(environment_root=None):
     """@brief 绑定本次源码、测试、设计和冻结输入的真实字节，生成的计时与覆盖报告不进入输入。"""
     paths = {ROOT / name for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes")}
     for name in INPUT_ROOTS:
@@ -55,17 +85,16 @@ def source_digest():
             continue
         if relative.startswith("labelkit-projects/") and {"data", "out"} & set(Path(relative).parts[1:]):
             continue
-        name, content = relative.encode("utf-8"), path.read_bytes()
-        digest.update(len(name).to_bytes(8, "big"))
-        digest.update(name)
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
+        _add_digest_file(digest, relative, path)
+    if environment_root is not None:
+        digest.update(b"test-environment")
+        digest.update(bytes.fromhex(environment_source_digest(environment_root)))
     return digest.hexdigest()
 
 
-def require_unchanged_input(expected):
+def require_unchanged_input(expected, environment_root=None):
     """@brief 任意被测输入在收集和执行之间变化都拒绝本次结果。"""
-    if source_digest() != expected:
+    if source_digest(environment_root) != expected:
         raise RuntimeError("Test source input changed during this run")
 
 
@@ -91,7 +120,8 @@ def standard_reference(args, records, source):
     matches = matches and candidate["collection_sha256"] == digest
     matches = matches and candidate["environment"] == environment(args.workers)
     if not matches:
-        run(argparse.Namespace(tier="standard", workers=args.workers, base=args.base))
+        run(argparse.Namespace(tier="standard", workers=args.workers, base=args.base,
+                               environment_root=args.environment_root))
         candidate = json.loads(path.read_text("utf-8"))
     if (candidate["source_sha256"] != source or candidate["collection_sha256"] != digest
             or candidate["environment"] != environment(args.workers)):
@@ -99,10 +129,12 @@ def standard_reference(args, records, source):
     return candidate
 
 
-def collect(directory, tier, changed):
+def collect(directory, tier, changed, environment_root=None):
     """@brief 从真实 pytest 收集全部节点，由同一选择规则产生该层集合。"""
     path = directory / "collection.json"
-    command = [sys.executable, "-m", "pytest", "--collect-only", "-q", "--worldmock-manifest", str(path)]
+    command = [sys.executable, "-m", "pytest", "tests", "--collect-only", "-q", "--worldmock-manifest", str(path)]
+    if environment_root is not None:
+        command.extend(["--environment-root", str(environment_root)])
     result = _run(command, capture_output=True)
     if result.returncode or not path.is_file():
         raise RuntimeError(f"Test collection failed (rc={result.returncode}): {result.stdout}{result.stderr}")
@@ -143,7 +175,7 @@ def shards(records, workers, weights):
     return buckets
 
 
-def run_shard(index, shard, directory, coverage):
+def run_shard(index, shard, directory, coverage, environment_root=None):
     """@brief 单个 pytest 子进程只执行指定节点，输出、临时目录和回执彼此隔离。"""
     target = directory / f"shard-{index}"
     target.mkdir()
@@ -161,6 +193,8 @@ def run_shard(index, shard, directory, coverage):
         files = sorted(shard["files"], key=lambda name: (Path(name).parts[:-1], Path(name).name))
         command.extend(["pytest", "-q", *files, "--worldmock-selected", str(selected),
                         "--worldmock-receipt", str(receipt), "--basetemp", str(Path(temporary) / "pytest")])
+        if environment_root is not None:
+            command.extend(["--environment-root", str(environment_root)])
         with (target / "output.log").open("w", encoding="utf-8") as output:
             result = _run(command, stdout=output, stderr=subprocess.STDOUT)
     return {"index": index, "run_id": directory.name, "returncode": result.returncode,
@@ -236,7 +270,7 @@ def duration_report(records, tests, wall_seconds, environment, standard=None):
             "standard_reference": standard}
 
 
-def coverage_gate(directory):
+def coverage_gate(directory, environment_root=None):
     """@brief 合并本次正常源码覆盖数据，再由原覆盖率门禁判定，变异子进程不计入。"""
     data_file = directory / ".coverage"
     command = [sys.executable, "-m", "coverage", "combine", "--data-file", str(data_file), str(directory)]
@@ -257,7 +291,10 @@ def coverage_gate(directory):
         raise RuntimeError("Coverage summary belongs to a different run")
     summary["coverage_sha256"] = file_sha256(path)
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    result = _run([sys.executable, "scripts/coverage_gate.py", "--from-json", str(path)])
+    command = [sys.executable, "scripts/coverage_gate.py", "--from-json", str(path)]
+    if environment_root is not None:
+        command.extend(["--environment-root", str(environment_root)])
+    result = _run(command)
     if result.returncode:
         raise RuntimeError("Coverage gate failed")
 
@@ -267,20 +304,20 @@ def run(args):
     start = perf_counter()
     directory = ROOT / ".work/test-runs" / str(uuid4())
     directory.mkdir(parents=True)
-    source = source_digest()
+    source = source_digest(args.environment_root)
     changed = changed_paths(args.base)
-    all_records, records = collect(directory, args.tier, changed)
+    all_records, records = collect(directory, args.tier, changed, args.environment_root)
     if not records:
         raise RuntimeError("Selected test tier contains no tests")
     standard = standard_reference(args, all_records, source) if args.tier == "full" else None
     scheduled = shards(records, args.workers, duration_weights())
     print(f"[test-runner] {args.tier}: {len(records)}/{len(all_records)} nodes in {len(scheduled)} workers", flush=True)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(run_shard, index, shard, directory, args.tier == "full")
+        futures = [pool.submit(run_shard, index, shard, directory, args.tier == "full", args.environment_root)
                    for index, shard in enumerate(scheduled)]
         results = [future.result() for future in futures]
     tests = validate_receipts([row["nodeid"] for row in records], results, directory.name)
-    require_unchanged_input(source)
+    require_unchanged_input(source, args.environment_root)
     report = _summary(args, records, tests, results, changed, perf_counter() - start)
     report.update(source_sha256=source, run_id=directory.name)
     (directory / "summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -290,8 +327,8 @@ def run(args):
     if args.tier == "full":
         duration = duration_report(records, tests, report["wall_seconds"], report["environment"], standard)
         DURATIONS.write_text(json.dumps(duration, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        coverage_gate(directory)
-        require_unchanged_input(source)
+        coverage_gate(directory, args.environment_root)
+        require_unchanged_input(source, args.environment_root)
     print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
     return 0
 
@@ -325,6 +362,7 @@ def main():
     parser.add_argument("--tier", choices=("fast", "standard", "full"), default="fast")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--base", default="HEAD")
+    parser.add_argument("--environment-root", help="use this explicit environment directory for pytest inputs")
     args = parser.parse_args()
     if args.workers < 1:
         parser.error("--workers must be positive")

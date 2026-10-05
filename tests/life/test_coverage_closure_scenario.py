@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import logging
 from pathlib import Path
@@ -16,7 +18,7 @@ from worldmock.life.models import ActivityKind, ActivityStartParams
 from worldmock.life.scenario import RuntimeScenario, parse_scenario_document
 from worldmock.life.world_setup import load_scenario
 
-_FORMAL = Path("scenarios/white-collar-12-weeks.json")
+_FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _PHONE_PAIR = "phone simulation config path and hash must be declared together"
 #: 只声明手机模拟配置的一半：有路径无哈希、有哈希无路径。
 _HALF_PHONE_DECLARATIONS = (

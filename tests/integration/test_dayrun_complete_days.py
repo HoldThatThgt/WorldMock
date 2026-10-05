@@ -283,7 +283,7 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
     document = _document("multi-person.json")
     document["random_seed"] = seed
     if seed == 20260105:
-        document["map_dataset"] = _document("white-collar-12-weeks.json")["map_dataset"]
+        document["map_dataset"] = _document("single-person.json")["map_dataset"]
     # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
     # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
     # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。

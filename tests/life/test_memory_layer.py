@@ -6,6 +6,8 @@ session 结束（出发、到达、途中结束出行、实验截止）后，它
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from dataclasses import replace
 from worldmock.footprints.checkpoint import restore_branch
 
@@ -275,7 +277,7 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
         document.update(start_at="2026-01-05T22:10:00+08:00", end_at="2026-01-05T22:40:00+08:00", tasks=[],
                         messages=[], bills=[], payrolls=[])
 
-    engine = _custom_engine("white-collar-12-weeks.json", window, tmp_path, run_id="memory-end")
+    engine = _custom_engine("single-person.json", window, tmp_path, run_id="memory-end")
     try:
         stage_day_plan(engine, submitted=True)
         friend = engine.context.scenario.agents[0].contacts[0].salutation
@@ -749,7 +751,7 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
                  for agent_id in engine.context.store.manifest["agent_ids"]}
     checkpoint = engine.checkpoint(snapshots)
     restore_branch(engine.context.store, checkpoint.checkpoint_id, tmp_path / 'branch').close()
-    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), tmp_path / "branch")
+    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", tmp_path / "branch")
     try:
         assert restored.context.store not in memory_layer._CACHE
         after = restored.observe(context(restored, "r-after"))

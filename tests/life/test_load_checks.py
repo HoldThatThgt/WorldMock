@@ -11,6 +11,8 @@ work_schedule 为 null 的人物不核对；班次形状错误由场景模型的
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import hashlib
 import json
 import os
@@ -25,7 +27,6 @@ from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
 from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare, weekday_schedule
 from worldmock.catalog import load_catalog
-from worldmock.corpora.storefront_build import build_storefront_supplies
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.environment_layer import PLACE_TYPES
@@ -37,7 +38,7 @@ from worldmock.life.work_schedule import shift_on
 from worldmock.run_setup import input_warnings
 
 _ROOT = Path(__file__).resolve().parents[2]
-_SCENARIO = "white-collar-12-weeks.json"
+_SCENARIO = "single-person.json"
 _MAP_SEED = 20260105
 #: 仓库地图的三家餐馆（场景全选）：两家改成同名做消歧与拒绝样本，第三家改类别做越界样本。
 _BONE_SOUP, _SICHUAN, _CLAYPOT = "poi-3538660453", "poi-3538682404", "poi-3538682408"
@@ -47,7 +48,7 @@ _BONE_SOUP, _SICHUAN, _CLAYPOT = "poi-3538660453", "poi-3538682404", "poi-353868
 def corpus(tmp_path_factory) -> Path:
     """正式语料的一份隔离副本（本模块共用）：各用例只在其中另写地图变体文件，不改副本里的原文件。"""
     root = tmp_path_factory.mktemp("load-checks") / "corpora"
-    shutil.copytree(_ROOT / "corpora", root)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", root)
     return root
 
 
@@ -94,19 +95,18 @@ def _map_variant(corpus: Path, name: str, edit) -> tuple[Path, dict]:
                                if assignment["kinds"][kinds[row["location_id"]]]]
     _write_json(assignment_path, assignment)
     declarations = CategoryAssignment.model_validate(assignment)
-    catalog = load_catalog(_ROOT / "catalog")
+    catalog = load_catalog(ENVIRONMENT_ROOT / "catalog")
     assumptions_path = folder / "supply-assumptions.json"
     assumptions = json.loads(assumptions_path.read_text(encoding="utf-8"))
     selling = {row.location_id for row in declarations.locations}
     assumptions["locations"] = [row for row in assumptions["locations"] if row["location_id"] in selling]
     _write_json(assumptions_path, assumptions)
-    supplies = build_storefront_supplies(catalog, declarations,
-                                        tuple(LocationConfig.model_validate(row) for row in payload["locations"]),
-                                        assumptions, _MAP_SEED)
-    supply_file = folder / str(_MAP_SEED) / "supplies.json"
-    _write_json(supply_file, {"schema_version": 3, "supplies": [row.model_dump(mode="json") for row in supplies]})
     dataset = folder / str(_MAP_SEED) / "dataset.json"
     declaration = json.loads(dataset.read_text(encoding="utf-8"))
+    supply_file = isolated / declaration["supplies_file"]["path"]
+    supplies = json.loads(supply_file.read_text(encoding="utf-8"))
+    supplies["supplies"] = [row for row in supplies["supplies"] if row["location_id"] in selling]
+    _write_json(supply_file, supplies)
     declaration["locations_file"]["sha256"] = _sha(locations)
     declaration["supplies_file"]["sha256"] = _sha(supply_file)
     declaration["category_assignment_sha256"] = _sha(assignment_path)
@@ -118,7 +118,7 @@ def _map_variant(corpus: Path, name: str, edit) -> tuple[Path, dict]:
 
 def _scenario(tmp_path: Path, corpus: Path, pin: tuple[Path, dict] | None = None, mutate=None) -> Path:
     """正式场景的副本：语料根指向隔离副本，可换地图钉扎、可交给 mutate(document) 改写；目录随场景复制。"""
-    document = json.loads((_ROOT / "scenarios" / _SCENARIO).read_text(encoding="utf-8"))
+    document = json.loads((ENVIRONMENT_ROOT / "scenarios" / _SCENARIO).read_text(encoding="utf-8"))
     if pin is not None:
         corpus, reference = pin
         document["map_dataset"] = reference
@@ -132,7 +132,7 @@ def _scenario(tmp_path: Path, corpus: Path, pin: tuple[Path, dict] | None = None
     if mutate is not None:
         mutate(document)
     (tmp_path / "scenarios").mkdir()
-    shutil.copytree(_ROOT / "catalog", tmp_path / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
     path = tmp_path / "scenarios" / _SCENARIO
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return path
@@ -302,8 +302,8 @@ def test_branch_labels_are_checked_as_part_of_the_display_name(tmp_path: Path, c
 
 def test_existing_map_without_branch_labels_loads_unchanged() -> None:
     """仓库地图没有任何 branch_label：三个正式场景照常加载，运行时地点与地图地点逐字段相同，名称不变。"""
-    for name in ("white-collar-12-weeks.json", "multi-person.json", "multi-person-half-day.json"):
-        semantics, _ = load_runtime_scenario(_ROOT / "scenarios" / name)
+    for name in ("single-person.json", "multi-person.json", "multi-person-half-day.json"):
+        semantics, _ = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios" / name)
         raw = {item.location_id: item for item in semantics.scenario.map_dataset.locations}
         assert all(item.branch_label is None for item in raw.values())
         assert semantics.scenario.locations and all(
@@ -323,8 +323,8 @@ def test_projection_labels_are_the_load_time_labels(engine_factory) -> None:
     assert {"location", "contact", "catalog", "self"} <= kinds
 
 
-_FORMAL = _ROOT / "scenarios" / _SCENARIO
-_MULTI = _ROOT / "scenarios" / "multi-person.json"
+_FORMAL = ENVIRONMENT_ROOT / "scenarios" / _SCENARIO
+_MULTI = ENVIRONMENT_ROOT / "scenarios" / "multi-person.json"
 _NOT_ADMISSIBLE = "Work schedules are not admissible: "
 _MAKEUP = "calendar.makeup_work_dates requires a shift but work_schedule declares none"
 _OFF_DUTY = "must be off duty but work_schedule declares a shift"
@@ -464,7 +464,7 @@ _DELIVERING_STORES = ("market", "poi-3538763552", "poi-3538682402")
 def _deselect_delivering_stores(document: dict) -> None:
     """让场景只选地图的一个真子集：去掉三家配送门店，连同它们的供给与只属于它们的三类地点菜单。其余门店都不配送，
     留下的供给不再引用被去掉的地点，场景仍通过世界准入。"""
-    corpus = _ROOT / "corpora"
+    corpus = ENVIRONMENT_ROOT / "corpora"
     dataset = json.loads((corpus / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
     rows = json.loads((corpus / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))["supplies"]
     gone = {row["supply_id"] for row in rows if row["location_id"] in _DELIVERING_STORES}

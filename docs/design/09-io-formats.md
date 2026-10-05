@@ -3,7 +3,7 @@
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D9 作业），已随代码落地到阶段 1–4<br>
 > **日期**：2026-10-05
-> **版本**：v1.21
+> **版本**：v1.22
 > **目标读者**：算法工程师、开发工程师
 
 > 2026-10-01 按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
@@ -11,6 +11,11 @@
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 
 > 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9，阶段 3 场景结构 5、卡片结构 3。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
+
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
 
 <a name="design-09-io-formats-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -229,6 +234,11 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 环境层的 `duty` 每轮由场景与世界时钟求值、随观察事件的 `environment_layer` 原样保存，不新增 `WorldState` 或
 `AgentState` 字段，也不参与 `RuntimeWorkTask.available_at` 的派生。
 
+当前场景结构 6 在 `contents[]` 中要求非空 `title`，由引擎直接投影为标题；来源元数据提取由 Dataset 制作阶段完成。
+生活活动条目的 `effects` 为必填对象，键恰为 `entertainment`、`social`、`health`，值为有限数值 0–1，加载后不可变。
+启动生活活动时复制到既有 `ActivityState.data["effects"]`，后续推进、暂停恢复及检查点恢复只读该冻结副本。
+缺失效果记录错误并拒绝，不按活动身份查全局表或补零。
+
 <a name="io-formats-agentstate人物状态"></a>
 ### 3.2 AgentState（人物状态）
 
@@ -352,7 +362,7 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`、`partner_ended`、`plan_reminder`（当日目标提醒结束睡眠；与计划结束同秒时记 `planned_end`） |
 | `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended`、`partner_ended`（交谈对方结束，本人交谈同秒结束）、`plan_reminder` |
 | `next_interaction_at` | int \| None | 否 | 下一次交互边界（游戏回合与社交活动使用） |
-| `data` | dict | 是 | 活动数据；进食（使用方式为食用）另带开吃份量 `opened`（dict[str, float]，商品→开吃份数），摄入只按它与实际进度计算，暂停保留剩余，结束时写 `discarded`（开吃份量减已吃，商品→丢弃份数）且不补算摄入；随世界结构版本 8 |
+| `data` | dict | 是 | 活动数据；生活活动含开始时冻结的 `effects`；进食（使用方式为食用）另带开吃份量 `opened`（dict[str, float]，商品→开吃份数），摄入只按它与实际进度计算，暂停保留剩余，结束时写 `discarded`（开吃份量减已吃，商品→丢弃份数）且不补算摄入；`opened` 随世界结构版本 8 |
 | `concluded_at` | int \| None | 否 | 收尾时刻：只属于 `completed`、`failed`、`cancelled`，不早于 `ended_at`；终态而为空即待收尾，`truncated` 不收尾 |
 | `report_anchor_at` | int \| None | 否 | 播报锚点：开始、恢复以及对该活动播报时写入当前时刻 |
 | `paused_at` | int \| None | 否 | 暂停时刻：暂停时写入，恢复时清空；待办层的暂停活动按它从老到新排列；随世界结构版本 8 |
@@ -469,6 +479,7 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.18 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D9 作业，阶段 2，按 `d09d574` 核对）：世界结构版本 9（「WorldState」的 `schema_version` 行已随 `5bd75d6` 的代码改写），文件头补本规格首次受影响的发布说明；「AgentState」增 `errands` 行与 `ErrandState` 字段表，事务不占活动名额；`pending_wake_reasons` 注明 `errand_reminder_due` 不在睡眠允许的原因之内、睡眠中不交付也不消耗；「当前工具请求、查询与错误格式」写明控制工具请求级必填 `errands` 的字段面、交叉约束与上限、同一请求的求值次序与成功回执 `details.errands`，以及事务错误不带候选、事务名列入 `allowed_values`、商品名近似只写在 `why`；文件头阶段号改到阶段 2 |
 | v1.19 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D9 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「当前工具请求、查询与错误格式」`query_world` 六键与返回不再附候选（与记录引擎设计同句逐字一致）；「WorldState」可调用索引补第四键 `query_categories`，购买 `from` 的写法由门店名更正为地点显示名（含「家」「住处」）；不新增状态字段；文件头状态改为已落地阶段 1、2 与阶段 4 |
 | v1.20 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D9 作业，阶段 3，按 `56451b4` 核对）：场景输入（场景结构 5）的 `work_schedule` 与下班、到家窗口；环境层 `duty` 由场景与世界时钟求值、随观察事件保存，不新增状态字段，也不参与任务开放时刻的派生；文件头该规格首次受影响发布的引用块在阶段 2 之后补阶段 3 的场景结构 5、卡片结构 3，状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |

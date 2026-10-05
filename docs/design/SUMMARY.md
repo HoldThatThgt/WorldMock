@@ -5,6 +5,11 @@
 > **状态**：设计草稿已创建；资源与身体模型相关章节已修订，文档集整体尚未冻结
 
 
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+
 <a name="summary-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
@@ -30,7 +35,7 @@
 每章改了什么见该章版本表，各章文件头注明该规格修订的状态。
 发布身份为世界状态 9、质量报告 4（阶段 2），场景 5、卡片 3 与 `card-v3`（阶段 3）；
 当时地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。
-当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布为 5.4；其它上述格式版本不变。
+共享规则特性曾发布目录 5.4；当前场景结构为 6，具体环境及目录身份由 Dataset 发布清单绑定。
 该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)，
 实现状态见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
 只在用户要求时启动，未执行。
@@ -216,7 +221,7 @@ docs/design/
 
 <a name="summary-configurationmd"></a>
 ### 08-configuration.md
-- 场景配置文件（scenarios/*.json，场景结构 5；地点、商品和供给以身份引用，每个人物显式声明 `work_schedule`）
+- Dataset 场景配置文件（../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/*.json，场景结构 6；地点、商品和供给以身份引用，每个人物显式声明 `work_schedule`）
 - 场景绑定目录版本与语料清单哈希，详细设计引用资源引擎
 - 交换条件与投入产出引用交换引擎，活动与身体变化引用模拟引擎
 - 模型凭证（~/.config/worldmock/deepseek.env，权限 0600）
@@ -276,7 +281,7 @@ docs/design/
 个人事务由三个控制请求的 `errands` 新增、更新与取消，随人物状态跨日保留并显示在待办层，办成只由结算证据确认，事务提醒不结束睡眠；
 作息补下班与到家两个可空锚点，场景按人物声明 `work_schedule`，环境层 `duty` 每轮写明今天的上班安排；
 `query_world` 为六键请求，增购买来源与只看此刻能做的两个筛选，结果不再逐项附候选；
-世界结构 9、场景结构 5、卡片结构 3、质量报告结构 4。
+当前世界结构 9、场景结构 6、卡片结构 3、质量报告结构 4；本次环境归属验收另记实际收据。
 该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)，
 实现状态见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
 只在用户要求时启动，未执行；项目级十二周真实运行、三次隔离盲评和完整自然日交付仍未完成。

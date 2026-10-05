@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -87,7 +89,7 @@ def _profile(**overrides) -> MotivationProfile:
 
 @pytest.fixture(scope="module")
 def transforms():
-    loaded = load_motivation_transforms(PROJECT_ROOT / "catalog" / "rules")
+    loaded = load_motivation_transforms(ENVIRONMENT_ROOT / "catalog" / "rules")
     assert loaded is not None, "real catalog must ship catalog/rules/motivation.toml"
     return loaded
 
@@ -188,7 +190,7 @@ def _task(task_id="task-1", pay=50000, location="office", required=3600.0) -> Ru
 def _content(item_id="movie-0001", kind="feature_film", seconds=3600, relief=0.2,
              ) -> ContentItemConfig:
     return ContentItemConfig.model_validate({
-        "item_id": item_id, "kind": kind, "duration_seconds": seconds,
+        "item_id": item_id, "title": f"Test content {item_id}", "kind": kind, "duration_seconds": seconds,
         "timeline_path": "x.srt", "timeline_sha256": "d" * 64,
         "entertainment_relief_per_hour": relief, "experience_label": "Movie"})
 
@@ -204,9 +206,9 @@ def _location(location_id="market", open_hour=0, close_hour=24) -> LocationConfi
 
 @lru_cache(maxsize=1)
 def _lifestyle_fixture():
-    payload = json.loads((PROJECT_ROOT / "corpora/lifestyle/items.json").read_text(encoding="utf-8"))
+    payload = json.loads((ENVIRONMENT_ROOT / "corpora/lifestyle/items.json").read_text(encoding="utf-8"))
     met = {f"lifestyle:{row['activity_id']}": row["met_value"] for row in payload["items"]}
-    return load_lifestyle_items(PROJECT_ROOT / "corpora", met)
+    return load_lifestyle_items(ENVIRONMENT_ROOT / "corpora", met)
 
 
 def _context(**overrides) -> MotivationContext:
@@ -214,7 +216,7 @@ def _context(**overrides) -> MotivationContext:
     catalog_food_offers = overrides.pop("catalog_food_offers", ())
     defaults = dict(
         agent=_agent(), balance_fen=20_000, body=_body(), home_location_id="home",
-        lifestyle_items=_lifestyle_fixture(), activity_location_kinds=item_kinds(PROJECT_ROOT / "corpora"),
+        lifestyle_items=_lifestyle_fixture(), activity_location_kinds=item_kinds(ENVIRONMENT_ROOT / "corpora"),
         purchase_pairing_states={item.product.product_id: "defined" for item in food_offers},
         products=tuple(item.product for item in food_offers), supplies=tuple(item.supply for item in food_offers),
         catalog_supplies=tuple(item.supply for item in catalog_food_offers),
@@ -1027,6 +1029,8 @@ class TestReliefFloorPreview:
                   ActivityKind.LIFESTYLE: "jogging"}[kind]
         data = ({"entertainment_relief_per_hour": 0.2, "exposure_count": 2}
                 if kind == ActivityKind.WATCH else {})
+        if kind == ActivityKind.LIFESTYLE:
+            data = {"effects": {"entertainment": 0.17, "social": 0.05, "health": 0.09}}
         activity = _running(kind, target, 1800, data)
         agent = _agent(need=need, preferences={target: weight})
         context = _context(agent=agent, active_activities=(activity,), contents=(_content(),),
@@ -1128,9 +1132,9 @@ class TestContractModels:
     def test_contract_attention_keys_equal_registry_attention_required_kinds(self):
         """@brief 影子钉死：合同档案注意力键集 == 注册表 attention_required=true 键集
         （老画像 5 键在新注册表下仍合法——键集恰好相等）。"""
-        from worldmock.catalog.affordances import default_affordances
+        from worldmock.catalog.affordances import engine_affordances
         assert set(CONTRACT_PROFILE["attention_prior"]) == \
-            default_affordances().attention_required_kinds
+            engine_affordances().attention_required_kinds
 
     def test_transforms_missing_dir_is_none(self, tmp_path):
         assert load_motivation_transforms(tmp_path) is None

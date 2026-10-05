@@ -11,20 +11,21 @@ from pathlib import Path
 import pytest
 
 from tests.frozen_inputs import relative_corpus
+from tests import data_paths
 
 
 @pytest.fixture
 def engine_factory(tmp_path: Path, frozen_inputs):
-    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本；create_options 原样交给
+    """建立绑定人工环境但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本；create_options 原样交给
     LifeEngine.create（例如 persona_habit_responses，缺省为引擎直驱：不带新建运行的附加输入）。"""
     from worldmock.life.engine import LifeEngine
     from worldmock.life.models import ModelIdentity, RunIdentity
 
     created = []
 
-    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None,
+    def create(scenario_name: str = "single-person.json", mutate=None,
                create_options: dict | None = None) -> LifeEngine:
-        scenario_path = Path("scenarios") / scenario_name
+        scenario_path = data_paths.SCENARIOS_ROOT / scenario_name
         if mutate is not None:
             scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
         document = json.loads(scenario_path.read_text(encoding="utf-8"))
@@ -48,8 +49,8 @@ def engine_factory(tmp_path: Path, frozen_inputs):
                 tool_schema_sha256="1" * 64,
             ),
         )
-        formal = scenario_path.resolve().parent == (Path(__file__).resolve().parents[1] / "scenarios")
-        cache = frozen_inputs.use(scenario_path) if mutate is None and formal else nullcontext()
+        selected = scenario_path.resolve().parent == data_paths.SCENARIOS_ROOT
+        cache = frozen_inputs.use(scenario_path) if mutate is None and selected else nullcontext()
         with cache:
             engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
         created.append(engine)
@@ -62,13 +63,13 @@ def engine_factory(tmp_path: Path, frozen_inputs):
 
 
 def _mutated_scenario(source: Path, mutate, root: Path) -> Path:
-    """把正式场景副本交给 mutate(document) 改写，目录保持隔离，语料用相对路径引用。"""
+    """把人工场景副本交给 mutate(document) 改写，目录保持隔离，语料用相对路径引用。"""
     document = json.loads(source.read_text(encoding="utf-8"))
     mutate(document)
     corpus = (source.parent / document["corpus_root"]).resolve()
     document["corpus_root"] = relative_corpus(corpus, root / "scenarios")
     (root / "scenarios").mkdir(parents=True)
-    shutil.copytree(Path("catalog"), root / "catalog")
+    shutil.copytree(source.resolve().parent.parent / "catalog", root / "catalog")
     path = root / "scenarios" / source.name
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return path

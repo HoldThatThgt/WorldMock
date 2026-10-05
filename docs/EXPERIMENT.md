@@ -3,8 +3,8 @@
 
 > 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料、样本划分与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、13、25 行修订（一日运行保真 EXP1）：两个指纹再变、困意档界、娱乐与社交口径、名称类拒绝、轮转上界按分区，并登记该规格的实验假设；登记的实验假设与口径已随实现生效，两个指纹的变化（含工具层 `callable_index` 使 `prompt_sha256`、`start_activity` 的 `prefer` 与方式「购买」使 `tool_schema_sha256` 再变）已随实现落地。
 > 工具交互修订：按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结目标实验身份；本次修订已实现，发布身份与行为、变异证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
-> 个人事务与工作安排修订：按[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、5、7、11、14、15、16、17 行修订（个人事务与工作安排 EX2–EX18）：工作安排作为场景声明的事实、各阶段指纹与结构版本的目标身份、就寝反思的身份绑定、事务提醒进入决策边界、个人事务容量上限登记为实验假设。登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）：阶段 1（运行修复入库，只改变 `code_sha256`）、阶段 2（个人事务与提示分工：世界结构 `9`、质量报告结构 `4`，两个指纹改变）、阶段 3（作息与工作安排：场景结构 `5`、卡片结构 `3`，`prompt_sha256` 与仓库三份场景的 `scenario_sha256` 改变）与阶段 4（查询筛选与返回精简：只改变 `tool_schema_sha256` 与 `code_sha256`）。
-> 日期：2026-10-04
+> 个人事务与工作安排修订：按[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、5、7、11、14、15、16、17 行修订（个人事务与工作安排 EX2–EX18）：工作安排作为场景声明的事实、各阶段指纹与结构版本的目标身份、就寝反思的身份绑定、事务提醒进入决策边界、个人事务容量上限登记为实验假设。登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）：阶段 1（运行修复入库，只改变 `code_sha256`）、阶段 2（个人事务与提示分工：世界结构 `9`、质量报告结构 `4`，两个指纹改变）、阶段 3（作息与工作安排：场景结构 `5`、卡片结构 `3`，`prompt_sha256` 与当时三份场景的 `scenario_sha256` 改变）与阶段 4（查询筛选与返回精简：只改变 `tool_schema_sha256` 与 `code_sha256`）。
+> 日期：2026-10-05
 > 范围：单人物 84 天正式实验，上海张江白领，时区 Asia/Shanghai。
 > 接口签名、字段与目录结构见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`；行为规则见 `docs/dev/SPEC-*.md`；验收门禁见 `docs/VERIFICATION.md#verification-worldmock-验收标准`。
 
@@ -19,9 +19,24 @@
 | 正式日期 | Asia/Shanghai，2026-01-05 00:00:00 到 2026-03-30 00:00:00，左闭右开，共 84 天 |
 | 人物共同背景 | 白领；生活区为上海张江生活区，工作园区为张江高科技园区；与基线数据对齐到可证明的程度 |
 | 未共同定义的属性 | 年龄、工资、初始存款、身体参数单独声明为新实验假设，不能当作基线数据已匹配条件 |
-| 场景定义 | `scenarios/white-collar-12-weeks.json` |
+| 场景定义 | `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` |
 
 本文件绑定的全部能力均属于本次交付：不使用占位实现、跳过测试、延期清单或旧入口维持表面可用；接口穿刺是实现顺序，不是缩小最终范围。正式仿真不预设与基线数据相同的事件数量或意图比例——人物根据可见内容、需求、合同和记忆做出选择，世界日历只约束营业、工作机会和消息到达，不编写人物每天必须执行的活动序列。场景可以按人物声明工作安排（每周班次、日期例外与休息时段）：它由环境按世界时钟求值后作为事实呈现，不新增拒绝，也不编写班内必须执行的活动。依赖导入、原生工具调用和一个完整决策必须真实通过，才允许进入后续完整链路。
+
+<a name="experiment-环境发布与运行身份"></a>
+### 环境发布与运行身份
+
+本页的输入路径以 WorldMock 为当前工作目录，WorldMock-Dataset 为同一父目录下的相邻仓库。
+具体环境由 Dataset 的 `environment/zhangjiang-baseline/` 发布；WorldMock 源码仓不预制正式环境，
+只保留人工最小测试环境。完整环境行为回归显式选择发布目录，正式数据来源、数量和重建验收在 Dataset 完成。
+
+当前场景结构为 `6`，内容 `title` 必填非空；生活活动的 `effects` 必须恰含 `entertainment`、`social`、`health`，
+均为有限数值 0–1。标题由场景直接呈现，活动效果从实际环境条目载入、启动时冻结到活动状态，推进与恢复只读冻结值。
+身体、交通、品类及具体商品系数仍由环境绑定；活动闭集、动机算法参数及人物映射的唯一来源是 WorldMock 包资源，
+环境冻结的通用规则副本必须与包逐字节一致。显式映射文件可供画像编译研究，不能替换运行规则。
+
+本次双仓整理的放行仍以[环境数据归属规格](dev/SPEC-environment-data-ownership.md)要求的实际收据为准，
+历史模型运行、导出与冻结输入不改写，也不因此成为当前代码的新运行证明。
 
 <a name="experiment-时间窗与日历情境"></a>
 ## 时间窗与日历情境
@@ -60,7 +75,7 @@ timeline
 ### 交互菜单与运行身份
 
 正式场景中的 `interaction_menus_by_location_kind` 与每个人物的 `interaction_menu` 是实验条件。
-具体允许的对象动作以 `scenarios/white-collar-12-weeks.json` 的显式声明为准；地点类与人物
+具体允许的对象动作以 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` 的显式声明为准；地点类与人物
 声明求交集后，可见目标、决策阶段、回合预算与同刻上限的受限轮收窄本轮实际动作；不按人物状态或能量隐藏，
 当前不可行的动作照常列出并附说明；没有日首计划阶段。字段形状、保护项和拒绝语义统一见[交互菜单规格](dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)，本文件不另复制一份菜单。
 
@@ -70,7 +85,7 @@ timeline
 生成动态 Schema；菜单对本轮动作的收窄体现在工具层，随冻结观察留证。新建、打开既有运行、恢复及反事实分支继续核对
 场景、工具模板和代码身份，任一不匹配即拒绝，不补写旧运行或迁移旧场景。
 人物配置的 `work_schedule`、`leave_work_window`、`arrive_home_window` 同属场景字节，声明不同即不同实验条件，不得合并比较；
-仓库三份场景在个人事务与工作安排规格阶段 3 随场景结构升 5 显式写出 `work_schedule: null`，`scenario_sha256` 随之改变。
+当时三份场景在个人事务与工作安排规格阶段 3 随场景结构升 5 显式写出 `work_schedule: null`，`scenario_sha256` 随之改变。
 是否给正式十二周场景声明班次另行裁决，裁决后在「实验假设声明」登记取值与依据。
 
 代码身份 `code_sha256` 覆盖 `src`、`custom`、`pyproject.toml`、`uv.lock` 与实际导入的 AS2 包（包目录内除
@@ -156,7 +171,8 @@ flowchart LR
 
 对外入口只有 `worldmock`；每个命令的参数、行为、失败语义与运行状态枚举见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「CLI 命令接口」，本文件只绑定本次实验用哪几个命令以及怎么用。
 
-本次实验使用 `prepare-corpora`、`validate`、`run`、`resume`、`replay`、`status`、`export`、`deliver`、`evaluate`：正式窗口由 `run` 从 `scenarios/white-collar-12-weeks.json` 新建运行目录并执行到场景终点，`export` 的固定截止导出是全部加工的输入，`deliver` 是链路终点，`replay` 产生的反事实分支必须保留来源，`evaluate` 的结果与基线数据对照后交付。
+环境由 WorldMock-Dataset 发布，数据采集和制作按数据仓工具说明执行。
+本次实验使用 `validate`、`run`、`resume`、`replay`、`status`、`export`、`deliver`、`evaluate`：正式窗口由 `run` 从 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` 新建运行目录并执行到场景终点，`export` 的固定截止导出是全部加工的输入，`deliver` 是链路终点，`replay` 产生的反事实分支必须保留来源，`evaluate` 的结果与基线数据对照后交付。
 
 <a name="experiment-运行目录约定"></a>
 ### 运行目录约定
@@ -181,7 +197,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 <a name="experiment-场景参数"></a>
 ## 场景参数
 
-正式实验由 `scenarios/white-collar-12-weeks.json` 定义。参数的单位口径、来源类型与合法区间见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「身体参数与单位」；表内数值是本次实验的初始假设，之后只被时间与动作规则改动。
+正式实验由 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json` 定义。参数的单位口径、来源类型与合法区间见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「身体参数与单位」；表内数值是本次实验的初始假设，之后只被时间与动作规则改动。
 
 <a name="experiment-身体初始值"></a>
 ### 身体初始值
@@ -271,7 +287,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 该特性不添加前序任务依赖配置，也不把尚未准备好的材料伪装成预约等待。
 
 地图冻结路线实例的 `fare_fen` 与 `fare_source_kind=scenario`，场景选择引用后准入要求金额与
-`catalog/exchange-rules.json` 的 `travel_fare` 闭集算子求值一致。
+`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json` 的 `travel_fare` 闭集算子求值一致。
 当前 driving 最低 500 分、每米 0.2 分；walking 费率为零。数值来源、系数与取整规则统一归
 [品类契约规格](dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)和[接口合同](CONTRACTS.md#contracts-品类契约与目录字段)。
 
@@ -325,7 +341,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | 地图与路线 | 固定张江地点资料与逐方式道路记录；每个选中有向端点和方式显式为可达、不可达或未知，正式运行只读，不能用驾车响应证明步行 |
 | 交通与天气 | 静态道路条件和明确标为场景假设的天气、准备、排队参数 |
 
-本次实验的语料取值以 `corpora/manifest.json` 为准：哪些产品入选、地点的坐标取值、每份素材的哈希，都在取得完成后冻结；正式运行启动前逐项核验，缺内容不允许起跑。来源准入与失败语义见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「来源与准入」。
+本次实验的语料取值以 `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/manifest.json` 为准：哪些产品入选、地点的坐标取值、每份素材的哈希，都在取得完成后冻结；正式运行启动前逐项核验，缺内容不允许起跑。来源准入与失败语义见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「来源与准入」。
 
 <a name="experiment-地图与门店供给的实验身份"></a>
 ### 地图与门店供给的实验身份
@@ -346,10 +362,11 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 个人事务与工作安排规格阶段 2 发布世界结构 `9` 与质量报告结构 `4`，各只升一次，版本 `8` 的检查点与导出按版本拒绝；
 当时地图 `3`、目录 `5.3`、品类契约与规则绑定 `3`、导出清单 `2`、运行清单 `2` 与 AS2 锁定摘要不变。
 阶段 3 发布场景结构 `5` 与卡片结构 `3`（抽取提示 `card-v3`）：旧场景按版本拒绝，缺 `leave_work`、`arrive_home` 两个必填键的旧结构化卡片被拒；
-仓库三份场景的 `scenario_sha256` 随结构升版改变。
+当时三份场景的 `scenario_sha256` 随结构升版改变。
 每个独立阶段使用自己的代码、输入、工具和提示身份复验，正式认证记录实际已发布身份，不能预先宣称最终组合通过。
-当前发布为目录 `5.4`、品类绑定 `3`、地图结构 `3`、场景结构 `5`、卡片结构 `3`。
-共享规则特性按既有内容身份合同发布目录 `5.4`，只修正睡眠通道的说明；场景引用随之更新，业务数值与格式保持现行合同。
+当前场景结构为 `6`，品类绑定 `3`、地图结构 `3`、卡片结构 `3`；
+正式目录的具体版本和内容摘要由 Dataset 的环境清单绑定。
+共享规则特性曾按既有内容身份合同发布目录 `5.4`，只修正睡眠通道的说明；场景引用随之更新，业务数值与格式保持现行合同。
 类别供给声明由地图摘要和语料清单共同钉定，单一 `category-assignment.json` 保存 kind 准入池与逐店
 `{location_id, category_ids, object_ids, price_position_percent, source}`。每店实际集合为本店类别后代对象全集与显式对象并集，
 都须属于 kind 池；不将根池复制到每店，也不随机抽样。门店价格位置必须为 5–95 的整数，
@@ -459,3 +476,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 个人事务与工作安排规格阶段 4（查询筛选与返回精简）随与阶段 2 的合并落地（本特性没有阶段 4 的 EX 作业）：「交互菜单与运行身份」冻结时登记的阶段 4 身份（`query_world` 六键请求与用途句只改变 `tool_schema_sha256`，系统层与层 Schema 不变，四键旧请求按缺字段拒绝）与实现一致，正文不改；文件头改为阶段 1、2、4 已随代码落地、阶段 3 未实现 |
 | `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3（作息与工作安排）与配套实施计划的【同】作业 EX16 修订，随阶段 3 的代码落地（按 `56451b4` 核对）：场景结构升为 5（人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，三份仓库场景显式写出 `work_schedule: null`，`scenario_sha256` 改变）、卡片结构升为 3、抽取提示 `card-v3`，「地图与门店供给的实验身份」的当前发布句同步；系统层第 1、14 条与人设层、环境层 Schema 使 `prompt_sha256` 再变，`tool_schema_sha256` 不变；地图 3、目录 5.3、品类契约与规则绑定 3、导出清单 2、运行清单 2、行为评估结构标识与 AS2 锁定摘要不变；阶段 3 在自己的分支上从阶段 2 的中途开发，文件头当时改为阶段 1、3 已随代码落地，并入主线（阶段 2、4 之后）时改为阶段 1–4 已随代码落地，世界结构 `9`、质量报告结构 `4` 与阶段 4 的工具指纹照主线不变 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后（个人事务与工作安排 EX22、EX23，按 `d8a41d3` 的代码核对）：文件头改为登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地，并链接[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)；「自定义模块位置」已含 `src/worldmock/life/read_query_runtime.py`；「地图与门店供给的实验身份」的现行身份为世界结构 9、场景结构 5、卡片结构 3、质量报告结构 4，目录 `5.3`、品类绑定 `3`、地图结构 `3` 与 AS2 锁定摘要不变（锁定 `8768e14` 不变）；「实验假设声明」的个人事务容量上限与代码常量一致；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向各阶段行与本行；正文冻结值不动。配对全天复跑（该规格阶段 6）未执行：它是计费的真实运行，只在用户明确要求时启动，且只报告、不作门禁；本特性的证据为离线测试，「决策点节奏」中 `D` 的既有实测仍是该特性实施前的快照 |
+| `2026-10-05-environment-data-ownership` | 2026-10-05 | 正式环境身份归 Dataset；当前单人物文件 single-person.json、场景结构 6、显式标题及三项活动效果；通用规则包资源与冻结副本逐字节一致；历史运行证据不改写，最终组合放行另核对实际收据 |

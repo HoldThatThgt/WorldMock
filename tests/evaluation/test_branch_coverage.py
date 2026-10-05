@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from worldmock.evaluation.adapters import parse_world_event
 import hashlib
 import json
@@ -641,7 +643,7 @@ def test_claim_text_covers_all_result_statuses() -> None:
 # scenario.py：评估场景严格读取的全部拒绝分支（`docs/VERIFICATION.md#verification-worldmock-验收标准`「真实性评估与结论边界」的声明窗口合同）
 # ---------------------------------------------------------------------------
 
-FORMAL_SCENARIO = Path(__file__).parents[2] / "scenarios/evaluation.json"
+FORMAL_SCENARIO = ENVIRONMENT_ROOT / "scenarios/evaluation.json"
 
 
 def _load_mutated_scenario(tmp_path: Path, mutate: Callable[[dict], None]) -> None:

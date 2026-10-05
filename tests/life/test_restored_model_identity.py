@@ -6,6 +6,8 @@ two_stage_model_identity 下的旧运行清单）经同一清单校验函数 val
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
@@ -23,7 +25,7 @@ from worldmock.runtime import _require_runtime_identity
 from worldmock.run_setup import stage_model_identity
 from worldmock.run_setup import validate_manifest_stage_identity
 
-_SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+_SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _LIFECYCLES = ("open_existing", "restore", "from_workspace")
 #: 旧版本清单中的决策自述阶段（退役）。
 _RETIRED_STAGE = {"thinking": "disabled", "temperature": 1.0, "max_tokens": 8000, "tools": None,

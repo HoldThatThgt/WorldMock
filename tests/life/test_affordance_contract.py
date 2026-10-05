@@ -5,13 +5,13 @@ from __future__ import annotations
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context, start_activity
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.engine_context import AFFORDANCE_CONTRACT_KEYS, affordance_contract
 
 
 def test_contract_shape_matches_registry_one_to_one() -> None:
     """@brief 内部冻结合同只保留动作、发现、目标字段、反馈和游戏边界五键；能量不参与受理，不带能量投影。"""
-    view = default_affordances()
+    view = engine_affordances()
     contract = affordance_contract(view)
     assert list(contract) == list(view.kinds)
     assert AFFORDANCE_CONTRACT_KEYS == {"action", "target_discovery", "target_field",
@@ -27,7 +27,7 @@ def test_contract_shape_matches_registry_one_to_one() -> None:
 
 def test_contract_pins_current_registry_behavior() -> None:
     """@brief 关键活动从注册表派生的动作与目标字段保持确定。"""
-    contract = affordance_contract(default_affordances())
+    contract = affordance_contract(engine_affordances())
     assert contract["work"]["target_field"] == ["tasks", "task_id"]
     assert contract["read_mail"]["target_field"] == ["messages", "message_id"]
     assert contract["play_game"]["game_boundary"] is True

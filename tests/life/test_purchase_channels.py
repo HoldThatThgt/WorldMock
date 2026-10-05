@@ -14,6 +14,8 @@ source_scope 与查询的 from 得到逐一相等的门店集合，翻完的查�
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import logging
 import os
@@ -414,8 +416,8 @@ def filter_world(tmp_path_factory):
     """查询来源筛选用的另一份隔离语料（同一 channels 手机配置）：紫薇菜市场的九条供给都要求人物没有的资格 member
     （人物在那里没有权限内供给，盒马渠道仍有权限内的成员门店集市），纯牛奶的目录名称改为「盒马」（渠道称呼同时是商品名）。"""
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-    dataset = json.loads((ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
-    published = json.loads((ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))
+    dataset = json.loads((ENVIRONMENT_ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
+    published = json.loads((ENVIRONMENT_ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))
     supplies = {row["supply_id"]: {"required_qualifications": ["member"]} for row in published["supplies"]
                 if row["location_id"] == _ZIWEI}
     assert len(supplies) == 9
@@ -463,8 +465,8 @@ def closed_channel_world(tmp_path_factory):
     """@brief 盒马渠道没有任何权限内成员门店的隔离语料（同一 channels 手机配置）：它的两家成员门店集市与紫薇菜市场的全部
     供给都要求人物没有的资格 member；美团外卖渠道的好德与农工商超市照常。"""
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
-    dataset = json.loads((ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
-    published = json.loads((ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))
+    dataset = json.loads((ENVIRONMENT_ROOT / "corpora" / document["map_dataset"]["path"]).read_text(encoding="utf-8"))
+    published = json.loads((ENVIRONMENT_ROOT / "corpora" / dataset["supplies_file"]["path"]).read_text(encoding="utf-8"))
     supplies = {row["supply_id"]: {"required_qualifications": ["member"]} for row in published["supplies"]
                 if row["location_id"] in {_MARKET, _ZIWEI}}
     assert len(supplies) > 9

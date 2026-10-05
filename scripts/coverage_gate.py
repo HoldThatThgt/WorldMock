@@ -222,9 +222,11 @@ def judge_gate(
     return branch_percent >= threshold and uncovered_count == 0
 
 
-def run_test_suite(shards: int = 6) -> int:
+def run_test_suite(shards: int = 6, environment_root=None) -> int:
     """@brief 使用当前解释器调用唯一全量入口；分片数就是该入口的进程数。"""
     command = (*TEST_COMMAND[:-1], str(shards))
+    if environment_root is not None:
+        command = (*command, "--environment-root", str(environment_root))
     print(f"[coverage-gate] running: {' '.join(command)}", flush=True)
     return subprocess.call(command, cwd=REPO_ROOT)
 
@@ -261,7 +263,7 @@ def _read_worker_receipts(directory: Path, shards: list[dict]) -> list[dict]:
     return results
 
 
-def full_run_receipts(directory: Path) -> tuple[dict, dict]:
+def full_run_receipts(directory: Path, environment_root=None) -> tuple[dict, dict]:
     """@brief 将本次覆盖数据绑定到完整收集、源码输入和每个实际执行节点。"""
     runner = _runner()
     collection = json.loads((directory / "collection.json").read_text("utf-8"))
@@ -280,7 +282,7 @@ def full_run_receipts(directory: Path) -> tuple[dict, dict]:
         raise RuntimeError("Full run collection identity differs from its summary")
     if summary["environment"] != runner.environment(summary["workers"]):
         raise RuntimeError("Full run environment differs from the current gate")
-    runner.require_unchanged_input(summary["source_sha256"])
+    runner.require_unchanged_input(summary["source_sha256"], environment_root)
     tests = runner.validate_receipts(nodes, _read_worker_receipts(directory, summary["shards"]), directory.name)
     skipped = sum(any(phase["outcome"] == "skipped" for phase in value["phases"].values())
                   for value in tests.values())
@@ -387,16 +389,18 @@ def print_gate_summary(branch: BranchSummary, gaps: list[InterfaceGap], passed: 
     print(f"[coverage-gate] gate verdict: {verdict}")
 
 
-def _evaluate_coverage(path: Path) -> int:
+def _evaluate_coverage(path: Path, environment_root=None) -> int:
     """@brief 只评估同一完整运行的覆盖文件与回执，报告绑定实际输入和提交。"""
     cov_data = json.loads(path.read_text(encoding="utf-8"))
     if path.name != "coverage.json" or cov_data["run_id"] != path.parent.name:
         raise RuntimeError("Coverage report belongs to a different run")
-    results, summary = full_run_receipts(path.parent)
+    results, summary = full_run_receipts(path.parent, environment_root)
     branch = compute_branch_summary(cov_data)
     gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
     passed = results["tests"] > 0 and results["skipped"] == 0 and judge_gate(branch.percent, len(gaps))
     command = (*TEST_COMMAND[:-1], str(summary["workers"]))
+    if environment_root is not None:
+        command = (*command, "--environment-root", str(environment_root))
     report = build_report(branch, gaps, passed, "python " + " ".join(command[1:]),
                           path.parent.name, compute_manifest_hash(cov_data), get_git_commit_hash())
     report["test_results"] = results
@@ -413,11 +417,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="WorldMock complete coverage gate")
     parser.add_argument("--from-json", type=Path)
     parser.add_argument("--shards", type=int, default=6)
+    parser.add_argument("--environment-root", help="explicit published environment bound to the full run")
     args = parser.parse_args(argv)
     if args.shards < 1:
         parser.error("--shards must be a positive integer")
     try:
-        return run_test_suite(args.shards) if args.from_json is None else _evaluate_coverage(args.from_json)
+        if args.from_json is None:
+            return run_test_suite(args.shards, args.environment_root)
+        return _evaluate_coverage(args.from_json, args.environment_root)
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
         print(f"[coverage-gate] ERROR: {error}", file=sys.stderr)
         return 1

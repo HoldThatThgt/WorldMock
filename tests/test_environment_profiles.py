@@ -1,5 +1,7 @@
 """@brief 缺组件不能放行，可变测试世界必须与正式冻结输入隔离。"""
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import ast
 import json
 import shutil
@@ -71,9 +73,9 @@ def test_purchase_world_edits_leave_formal_input_bytes_and_inodes_unchanged(tmp_
 
     source_root = tmp_path / "source"
     for name in ("corpora", "catalog", "scenarios"):
-        shutil.copytree(ROOT / name, source_root / name)
-    monkeypatch.setattr(purchase_worlds, "ROOT", source_root)
-    monkeypatch.setattr(purchase_worlds, "SCENARIO", source_root / "scenarios/white-collar-12-weeks.json")
+        shutil.copytree(ENVIRONMENT_ROOT / name, source_root / name)
+    monkeypatch.setattr(purchase_worlds, "ENVIRONMENT_ROOT", source_root)
+    monkeypatch.setattr(purchase_worlds, "SCENARIO", source_root / "scenarios/single-person.json")
     corpus = source_root / "corpora"
     relative_paths = ["manifest.json", "zhangjiang-map/locations.json",
                       "zhangjiang-map/20260105/dataset.json", "zhangjiang-map/20260105/supplies.json"]

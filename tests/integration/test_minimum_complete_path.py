@@ -72,7 +72,7 @@ class _ReplyClient:
 
 def _engine(tmp_path) -> LifeEngine:
     """白领场景加同事联系人王磊；人物 10:30 在办公室，刚看过一件能送到办公室的集市食品，登记空计划。"""
-    document = _document("white-collar-12-weeks.json")
+    document = _document("single-person.json")
     document["agents"][0]["contacts"].append(_WANGLEI)
     engine = LifeEngine.create(_write_scenario(document, tmp_path), tmp_path / "run", _identity(document, "path"))
     stage_day_plan(engine)

@@ -40,7 +40,7 @@ class LifeRuleEngine:
         self.games = {item.game_id: item for item in scenario.games}
         self.subtitles = {item.item_id: load_subtitles(item, self.corpus_root)
                           for item in scenario.contents}
-        self.content_titles = load_content_titles(scenario.contents, self.corpus_root)
+        self.content_titles = load_content_titles(scenario.contents)
 
     def validate_start(self, agent: AgentState, request: ActivityStartParams, now: int,
                        present: str | None) -> dict:

@@ -7,6 +7,11 @@
 > 本文件是本次特性的唯一开发规格；提案中的机器现状、估计行数、顺序建议不是验收事实。
 > 范围：提案列出的共享规则、漂移修复、依赖来源、引导、门禁和重建验证；全部要求必须实现。
 
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
+
 <a name="shared-rules-用户行为与实现边界"></a>
 ## 用户行为与实现边界
 
@@ -58,7 +63,7 @@ flowchart LR
 | 活动时长 | `life.durations` 推导；上限归 `life.models`，一般活动封顶 86400 秒、消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
 | 开工阻断 | `life.work.work_start_refusal` | 工具层与受理层复用同一原因和下一步 |
 | 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用路线选择与时长；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
-| 缓解速率 | `life.activities` 的速率函数；MET 键从可供性注册表的 `met_lookup_key` 读取 | 预估与结算相同；继续内容缺少、布尔、非整数或小于一的 `exposure_count` 均明确报错，不默认接触一次；预估的既有资格拒绝处理仍保留 |
+| 缓解速率 | `life.activities` 的速率函数；MET 键从包内固定活动声明读取；生活活动效果来自环境并在启动时冻结 | 预估与结算相同；继续内容缺少、布尔、非整数或小于一的 `exposure_count` 均明确报错，不默认接触一次；预估的既有资格拒绝处理仍保留 |
 | 候选种类 | `life.candidates` | 删除无人使用的 `presentation.ACTIVITY_OF_KIND`；其它生产调用直接使用唯一映射 |
 | 活动家族 | `life.schedule.activity_family` | 生产受理缺生活活动仍以 `LIFESTYLE_ACTIVITY_NOT_FOUND` 拒绝；离线缺品类返回未知，计划不猜测进度、相关度不给家族加分、评估保留缺证和未归类统计 |
 | 中文活动名称 | `life.readable` | 工具层动词说明、时间线与报告都由唯一中文种类表派生，删除 `_DOING` 的复制表 |
@@ -175,13 +180,15 @@ wheelhouse 明确使用 `--no-index --find-links` 和固定源制品，不访问
 
 测试运行的唯一入口为 `scripts/run_tests.py`，快速、标准与全量集合按分层与测试层次规格定义。
 覆盖率门禁无参数或 `--shards N` 均调用同一 full runner，`--shards` 映射为 worker 数；
+完整发布环境回归须通过 `--environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline` 显式选择，
+门禁绑定该外部环境实际字节摘要，不使用旧根目录数据或隐式相邻仓搜索。
 按既有实测文件权重分配完整测试文件，每份文件内部保持正常目录收集顺序。
 每个预收集节点恰跑一次，进程与覆盖数据隔离，使用当前解释器的 coverage 后 combine，不需要 uv。
 runner 使用本次运行的唯一身份绑定 collection、summary、worker 选择清单和完成回执；覆盖数据生成后，
 其实际字节摘要也绑定到同一运行。`--from-json` 必须核对这些绑定，不能接受其它运行的绿色覆盖数据或回执。
 预收集、各 worker 选择与实际收集均非空且节点唯一，其全局多重集与完成回执精确相等；
 每个全量节点的 setup、call、teardown 三阶段完整且均为 passed，未知阶段结果也按失效回执拒绝。
-输入摘要绑定本次真实读取的源码、测试、设计、依赖锁、源码补丁、场景与语料、根 `.gitattributes`，
+输入摘要绑定本次真实读取的源码、测试、设计、依赖锁、源码补丁、人工测试环境与显式外部环境、根 `.gitattributes`，
 以及交付实际消费的 `labelkit-projects` 配置、hooks 和 schemas；该工程的 data、out 和 `__pycache__`
 不纳入输入，自动生成的计时与覆盖报告仍按现有排除范围处理。
 空集合、失败、跳过、缺失或失效收据、输入字节变化均不能报告 `passed: true`，不得另建测试执行器。

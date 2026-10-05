@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | `python scripts/bootstrap.py` | `--profile` 取 `release` 或 `dev`，默认 release；`--wheelhouse PATH` 只消费离线制品；`--use-uv` 显式选 uv，缺失报错 | Python 必须 3.12；固定来源先核对，哈希锁安装，源码不解析额外依赖；`.work/environment-receipt.json` 只记相对路径 |
 | `python scripts/fresh_check.py` | `--repository`、`--commit`、`--profile`、`--wheelhouse`、`--output`；`--compare` 读取两份实际平台结果 | 无子模块、无 SSH、无 pip 缓存的新 clone；任一命令失败退出；比较要求同提交、同源码摘要且都通过 |
-| `python scripts/coverage_gate.py` | `--shards N` 映射 worker 数；`--from-json` 核验 collection、summary、worker 选择与完成回执的同一运行身份及覆盖数据摘要 | 唯一入口 `scripts/run_tests.py` 按实测文件权重调度完整文件；当前解释器、进程数据隔离、选择/收集/完成节点多重集精确一致且无重复；全量节点三阶段完整且均 passed；输入字节、运行身份和覆盖摘要匹配，无失败、无跳过、非空、有效收据、分支至少 85%、公共接口零缺口才通过 |
+| `python scripts/coverage_gate.py` | `--shards N` 映射 worker 数；`--environment-root` 显式选择发布环境并绑定实际字节摘要；`--from-json` 核验 collection、summary、worker 选择与完成回执的同一运行身份及覆盖数据摘要 | 唯一入口 `scripts/run_tests.py` 按实测文件权重调度完整文件；当前解释器、进程数据隔离、选择/收集/完成节点多重集精确一致且无重复；全量节点三阶段完整且均 passed；输入字节、运行身份和覆盖摘要匹配，无失败、无跳过、非空、有效收据、分支至少 85%、公共接口零缺口才通过 |
 | 安装 profile | release 缺 Node 或 LabelKit 失败；dev 固定原因标明缺失和对应检查 | dev 缺部件不能产生最终通过收据；Windows 核心与重建证据和 Linux x86_64 TextWorld 证据共同放行 |
 
 Linux 完整环境的架构边界与安装限制以[冻结规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准；
@@ -32,6 +32,28 @@ LabelKit 固定制品身份、`node_version`、`missing_components`、`passed`�
 安全路径只接受根内相对普通文件，逐组件拒绝链接和父引用；所属错误构造只在失败时执行一次。
 公共曲线输入与输出均为有限非负数且拒绝布尔；资源名非空白，效率曲线非空。
 浅冻结与品类深冻结按各自语义使用，共同的严格模型仍拒绝未知字段。
+
+<a name="contracts-环境数据归属合同"></a>
+## 环境数据归属合同
+
+按[环境数据归属规格](dev/SPEC-environment-data-ownership.md)执行；完整放行须有本次代码与环境的验收收据。
+WorldMock-Dataset 维护具体世界的来源、地图、商品、内容、场景和制作工具，正式环境位于
+`environment/zhangjiang-baseline/`，其中 `corpora/`、`catalog/`、`scenarios/` 并列，单人物场景为 `single-person.json`。
+WorldMock 维护引擎、结构、加载校验、记录、导出及固定通用规则，不搜索相邻数据仓或隐式默认环境。
+
+| 输入 | 当前合同 |
+| --- | --- |
+| 场景路径 | 调用者显式指定；目录按场景位置解析，`corpus_root` 相对场景目录解析 |
+| 固定通用规则 | 标准库 `importlib.resources` 读取 `worldmock.data` 的 `affordances.toml`、`motivation.toml`、`persona-mapping.toml` |
+| 环境中的通用规则副本 | `catalog/affordances.toml`、`catalog/rules/motivation.toml`、`catalog/rules/persona-mapping.toml` 只绑定冻结身份，场景装配要求逐字节等于包资源；缺失或不同即英文日志并拒绝 |
+| 环境系数与对象 | 身体参数、交通系数、品类和商品具体数据仍由所选环境目录提供 |
+| 人物映射编译 | 缺省使用包资源；显式 `load_mapping_config(path)` 的结果可传给 `compile_persona(config=...)`，不改变实际运行的固定规则 |
+| 引擎测试 | 最小端到端使用人工 `tests/fixtures/environment/`；完整发布环境行为回归显式传 `--environment-root` |
+| 正式数据验收 | 来源、正式数量、固定元数据及可复现重建由 Dataset 执行；引擎保留通用加载与行为断言 |
+| 历史证据 | 已存运行、导出和冻结输入不改写；不提供旧场景兼容、迁移或回退数据源 |
+
+数据采集、地图准备、食品整理、正式目录生成、节目制作和交通校准在 Dataset 执行，
+WorldMock 删除数据准备命令与来源制作器。运行只读已校验的冻结环境。
 
 <a name="contracts-lifeenv-状态字段"></a>
 ## LifeEnv 状态字段
@@ -922,11 +944,14 @@ ScheduledKind = Literal[
 商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
-当前版本边界为地图文件结构 3、商品目录 5.4（major 5）、品类契约版本 3、交换规则绑定版本 3、场景结构 5、世界状态结构 9。
+当前版本边界为地图文件结构 3、品类契约版本 3、交换规则绑定版本 3、场景结构 6、世界状态结构 9；
+商品目录的具体版本及摘要以 Dataset 发布清单为准。
 这些版本分别约束不同输入，不能相互替代。地图文件结构随地点字段 `branch_label` 由 1 升到 2，数据集声明与地点、供给、路线三个目录文件
 同用这一版本，结构 1 的地图直接拒绝；仓库地图已按结构 2 重新发布（数据未变，只有结构版本与文件摘要变化），场景结构、世界状态结构与目录版本不变。
 其后随类别供给（见「类别供给的构建合同」）地图结构升到 3、场景结构升到 4、目录升到 5.x、品类契约与规则绑定升到 3，结构 3 以外的地图
-直接拒绝。场景结构随人物配置必填可空的 `work_schedule` 由 4 升到 5（见「工作安排声明」），结构 4 的场景按版本拒绝；含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点、旧结构地图和旧世界状态直接拒绝，
+直接拒绝。场景结构随人物配置必填可空的 `work_schedule` 由 4 升到 5（见「工作安排声明」），结构 4 的场景按版本拒绝。
+环境数据归属修订随内容必填 `title` 把场景结构由 5 升到 6；结构 5 及缺标题内容直接拒绝。
+含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点、旧结构地图和旧世界状态直接拒绝，
 不保留迁移脚本、兼容解析或回退数据源。
 
 <a name="contracts-类别供给的构建合同"></a>
@@ -956,7 +981,7 @@ price_fen=min+((max-min)*percent+50)//100。整数四舍五入，小幅扰动不
 固定扰动不配置，min=max合法；定位差至少十个百分点时同商品高低不逆转，舍入可同价。
 一次写入冻结Quote，观察、查询、购买、恢复不重抽。显式调价受对象范围约束，配送费单列，旧成交价不改写。
 地图种子等于场景random_seed，不同种子发布独立供给，共享地点路线来源但不改实验种子。
-当前实现采用上述合同；正式地图结构 3，目录 5.4，品类契约与规则绑定 3。
+当前实现采用上述合同；正式地图结构 3、场景结构 6、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准。
 
 <a name="contracts-营业与报价声明"></a>
 ### 营业与报价声明
@@ -2173,8 +2198,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 ## 品类契约与目录字段
 
 行为规则由 [品类契约规格](dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格) 定义；本节固定文件字段与命令输入。
-当前原生目录为 `5.4`；品类契约及交换规则的 `contract_version`
-均为 `3`；格式版本与运行结构版本分别校验。
+正式目录由 Dataset 环境清单绑定具体版本与内容摘要；品类契约及交换规则的 `contract_version`
+均为 `3`，场景结构为 `6`；格式版本与运行结构版本分别校验。
 原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
 
 | 文件 | 顶层字段 |
@@ -2230,6 +2255,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 <a name="contracts-语料内容目录字段"></a>
 ## 语料内容目录字段
 
+具体语料由 Dataset 发布，下表概括来源与内容身份。场景内容及生活活动的运行字段见后文。
+
 | 字段 | 含义 |
 | --- | --- |
 | `item_id`, `kind` | 稳定内容标识与食品、节目、游戏、工作、邮件、商品、路线等类别 |
@@ -2241,6 +2268,22 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | `access` | 人物、地点、时间、持有权和前置事件等访问条件 |
 | `evaluation_refs` | 参考答案或评价依据，仅验收端可用 |
 | `usage_rights` | 可用于内部处理、再分发和训练的条件及核对结果 |
+
+<a name="contracts-环境标题与活动效果"></a>
+### 环境标题与活动效果
+
+| 结构或阶段 | 必须提供与实际使用 |
+| --- | --- |
+| `LifeScenario`、`RuntimeScenario.schema_version` | 固定为 `6`；旧结构直接拒绝 |
+| 场景 `ContentItemConfig.title` | 必填非空字符串，去除首尾空白后仍非空；缺失或非法记录英文错误 |
+| 内容标题投影 | `load_content_titles(items)` 直接投影场景条目的 `title`；不按来源专属目录、内部身份或旧映射寻找标题 |
+| 环境 `LifestyleItem.effects` | 必填不可变映射；键恰好为 `entertainment`、`social`、`health`，值是有限数值 `[0, 1]`，不接受布尔、缺项或多项 |
+| 候选预演 | 使用实际 `corpus_root` 载入的活动条目效果，相同活动身份可在不同环境有不同效果 |
+| 活动启动 | 将条目效果复制为 `ActivityState.data["effects"]`，与该活动一起序列化 |
+| 结算与恢复 | 只读活动冻结效果；娱乐、社交缓解和健康相关情绪按既有算法结算，不重新读取全局活动文件；缺冻结效果记录英文错误并拒绝 |
+
+`effects.health` 影响既有情绪结算，不创建新的健康资源。内容元数据仍承担题材、来源与素材准入，
+标题写入场景后以该字段为唯一呈现来源；来源准备和标题填充在 Dataset 完成。
 
 <a name="contracts-lifeagent-人格与记忆字段"></a>
 ## LifeAgent 人格与记忆字段
@@ -2651,7 +2694,6 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 
 | 命令 | 参数 | 行为 |
 | --- | --- | --- |
-| `prepare-corpora` | - | 获取明确来源子集、核对文件、形成规范化目录与来源清单 |
 | `validate` | `scenario_path` | 校验场景、语料、依赖、规则和目标数据合同，不启动人物；结果的 `input_warnings` 列出与新建运行同一组运行输入警告（见「运行输入警告」），并逐条写到标准错误流，覆盖率低于 0.8 失败时也先写出 |
 | `run` | `scenario_path`, `output_dir`，可选 `--same-second-continuation on\|off`（缺省 `on`） | 从明确场景新建运行目录，经 AS2 执行到场景终点；已存在的运行目录不能被覆盖；同秒续接开关冻结进清单 `stages.action.same_second_continuation` 与人物配置（见「思考回传」），`resume`、`replay` 不接受该参数，继承父清单的值 |
 | `resume` | `parent_checkpoint`, `output_dir` | 指定父运行和完整检查点，在新的运行目录恢复；不允许隐式新建 |
@@ -2780,3 +2822,4 @@ RunPhase = Literal[
 | `2026-10-04-errands-workday-stage-3-review` | 2026-10-04 | 按[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 的复核更正：「人格与卡片字段」`time_anchors` 行写明「首版不支持跨午夜的下班与到家」的判定（窗口终点须不晚于当日 24 点，与场景窗口同一口径；就寝回绕到次日时起点不晚于就寝而越过 24 点的同样不合格），降级说明登记第三种固定英文格式 `<leave_work 或 arrive_home> window <s>..<e> runs past midnight`（每个锚点只取一条）；原实现在就寝回绕到次日时放行 24 点以后的到家；「工作安排声明」的声明例外写明预约任务从约定开始那一天起算，赴约前的路上也算（规格 4.5「含预约任务」）；文件头修订说明行补本行；阶段 3 并入主线（阶段 2、4 之后）时文件头修订说明行改为阶段 1–4 已随代码落地，「冻结地图与场景引用」版本边界句合并为场景结构 5、世界状态结构 9，「七层 Schema」重钉句的阶段 3 分句排在阶段 2 与阶段 4 之间 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)作业 C72）：按 `d8a41d3` 的代码（生产代码自 `59b81a3` 起到最终代码与测试提交 `a7e2fdc` 没有变化）逐节核对 C01–C66、C77–C79 所涉各节，登记的键名、枚举、上限、事件载荷、英文原因与生成参数取值同代码一致，没有改写条款；补齐以代码为准的英文文案三处：「个人事务」登记事务变更明细的 `expected` 与 `why`（请求模型的交叉约束、字符上限、份数与单次条数的原因，`errands.change_issues` 的六类情形）与环境合并拒绝的改法；「工具交互公开投影」的查询错误登记校验报告的 `reason`、`fix`，方式、品类、偏移三种明细的 `expected` 与 `allowed_values`，各明细的 `why`，以及宿主并批纠错的 `reason`、`fix`；「生成参数」登记就寝反思附回消息的序列化、`INSTRUCTION` 与 `VALIDATION_ERROR` 的写法。确认冻结时加的三处修订指针（C73 系统层、C74 零点计划模板、C75 就寝反思文案）已全部删去，「记忆字段」主观文字句的括注（C77）已删去；文件头修订说明行改为阶段 1–4 的修订均已实现并通过离线验收，链接[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday-freeze` 行里的冻结期状态注记改为指向其后各阶段行与本行。设计说明书随这批实现后文档重新汇编 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同；可供性声明注释更正按既有字节身份发布目录 5.4，业务数值及品类契约与规则绑定 3 不变 |
+| `2026-10-05-environment-data-ownership` | 2026-10-05 | 环境与制作工具归 Dataset；通用规则从包资源读取且冻结副本逐字节一致；场景结构 6、必填内容标题与不可变活动效果、启动冻结及恢复合同；删除引擎数据准备命令。最终放行另核对本次实际验收收据 |

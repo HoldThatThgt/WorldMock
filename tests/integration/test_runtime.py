@@ -1,6 +1,8 @@
 """runtime 运行壳、代码身份与共同恢复测试。"""
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 from worldmock.footprints.checkpoint import restore_branch
 
@@ -42,7 +44,7 @@ from worldmock.validation import validate_project
 from worldmock.run_setup import validate_stage_model_identity
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 #: 规格第八章「运行身份」规定的 AS2 身份拒绝文案。
 _AS2_REFUSAL = "AS2 runtime identity differs from the locked source"
 
@@ -124,7 +126,7 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
     from worldmock.profile.models import persona_card_struct
     from worldmock.profile.textgen import render_card
 
-    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     compiled: list[int] = []
     card = make_card()
 
@@ -666,7 +668,7 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
     monkeypatch.setattr(ray, "kill", lambda target, no_restart: calls.append(("kill", target, no_restart)))
     from worldmock.life.world_setup import load_scenario
 
-    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     scenario, _ = load_scenario(scenario_path)
     prepared = SimpleNamespace(project_root=tmp_path, run_dir=tmp_path / "run", env_kwargs={},
                                scenario_path=scenario_path, scenario=scenario,
@@ -701,7 +703,7 @@ def _npc_delivery_engine(tmp_path: Path):
     from tests.life.conftest import context, start_request
     from worldmock.life.engine import LifeEngine
 
-    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     from worldmock.life.world_setup import load_scenario
 
     scenario, _ = load_scenario(scenario_path)
@@ -925,7 +927,7 @@ async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeyp
     """从计划尚未生成的初始检查点普通恢复：LifeEnv.init 在首次决策之前生成一次；已生成的检查点恢复时不重复。"""
     from custom.envs.life_env import LifeEnv
 
-    scenario = Path("scenarios/white-collar-12-weeks.json")
+    scenario = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     child = _resume_branch(tmp_path, planned=False)
     client = _plan_day_client(monkeypatch)
     env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
@@ -953,7 +955,7 @@ async def test_counterfactual_init_waits_for_the_intervention_checkpoint(tmp_pat
     child = _resume_branch(tmp_path, planned=False,
                            metadata={"branch_kind": "counterfactual", "intervention_sha256": "a" * 64})
     _forbid_plan_day_client(monkeypatch)
-    env = LifeEnv(scenario_path="scenarios/white-collar-12-weeks.json", run_dir=str(child), open_existing=True)
+    env = LifeEnv(scenario_path=str(ENVIRONMENT_ROOT / "scenarios/single-person.json"), run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
         assert env.engine.context.state.agents[1].day_plan is None
@@ -973,7 +975,7 @@ async def test_plan_day_failure_during_resume_init_is_registered_before_raising(
             raise ConnectionError("plan day transport down")
 
     monkeypatch.setattr(runtime_module, "PlanDayClient", FailingClient)
-    env = LifeEnv(scenario_path="scenarios/white-collar-12-weeks.json", run_dir=str(child), open_existing=True)
+    env = LifeEnv(scenario_path=str(ENVIRONMENT_ROOT / "scenarios/single-person.json"), run_dir=str(child), open_existing=True)
     with pytest.raises(ConnectionError, match="transport down"):
         await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
@@ -1080,7 +1082,7 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", no_dispatchers)
     monkeypatch.setattr(society_module, "create_direct_agents_batch", SimpleNamespace(remote=create_workspaces))
     _failing_plan_day_client(monkeypatch)
-    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     scenario, _ = load_scenario(scenario_path)
     identity = RunIdentity(
         run_id="society-init", source_group_id="group-society-init",
@@ -1119,7 +1121,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     from worldmock.profile.models import Tastes
     from worldmock.profile.textgen import render_card
 
-    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     card = make_card(tastes=Tastes(content_genres=("剧情", "科幻"), food_preferences=(), media=()))
     compiled: list[int] = []
 
@@ -1156,7 +1158,7 @@ def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) ->
     from tests.profile.conftest import make_card
     from worldmock.profile.models import Tastes
 
-    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     card = make_card(tastes=Tastes(content_genres=(), food_preferences=(), media=()))
     monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', lambda agent: card)
 
@@ -1178,7 +1180,7 @@ def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
         raise AssertionError("restore path must not compile personas or tastes")
 
     monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', forbidden)
-    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
 
     specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
 
@@ -1192,7 +1194,7 @@ def test_content_genre_catalog_joins_contents_to_corpus_genres() -> None:
     from worldmock.run_setup import _content_genre_catalog
     from worldmock.life.world_setup import load_scenario
 
-    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     scenario, _ = load_scenario(scenario_path)
 
     genres = _content_genre_catalog(scenario_path, scenario)

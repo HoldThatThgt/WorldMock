@@ -1,0 +1,277 @@
+# 可供性注册表（affordance registry）——行为闭集的单一声明源。
+#
+# 设计文档：docs/design/02-exchange-engine.md（「可供性与活动声明」「交换规则的加载与准入」）。
+# 两级结构：kinds（引擎活动类型，结算与受理的最小单元）× families（动机家族，习惯归并键
+# + 候选生成器 + 注意力）。一个家族可跨多个 kind（entertainment = watch + play_game）；
+# 一个 kind 可以不属于任何动机候选家族（read_mail：unclassified 显式声明）。
+#
+# 本文件由引擎维护，声明跨环境的活动与动机规则。
+# 数据仓构建时从包资源生成冻结副本以绑定输入身份，不人工维护另一份规则。
+
+version = 1
+
+# ---------- 活动类型层 ----------
+# 字段语义（规范「可供性与活动声明」）：
+#   met_key             MET 查表键；参数化键写模板：travel 用 "{mode}"（封闭展开域
+#                       见 met_key_modes），lifestyle 用 "{item_id}"（开放命名空间前缀）。
+#   energy_floor_exempt 能量豁免：只供内部动机评分（派生 body.ENERGY_RECOVERY_ACTIVITY_KINDS），
+#                       能量不参与受理、准入与结算截断（docs/dev/SPEC-time-and-energy.md 第三章）。
+#   sleep_channel       recovery | awake 为声明值；当前身体结算按 sleep 活动种类判定，不消费此字段。
+#   relief.channel      娱乐缓解通道三选一：none | preference_rate（play_game：偏好 x 目录费率）|
+#                       content_rate（watch：条目费率 x 偏好 / 接触次数）。
+#   resource_claims     全部占用均显式声明，槽位闭集 idle、travel、eyes、ears、hands、voice、work
+#                       （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表）；conditional 子句按
+#                       mode:<出行方式> 或 content_kind:<内容品类> 追加占用：驾车另占 eyes、hands，
+#                       播客（podcast_episode）之外的观看另占 eyes。
+#   feedback_boundary   到期反馈边界资格（派生 activities.FEEDBACK_ACTIVITY_KINDS，
+#                       即 report_status 能播报进展的活动闭集）。
+#   game_boundary       play_game 专用 game_feedback 边界（真值时 feedback_boundary 必须为假；
+#                       其游戏交互走 game_action，不经到期反馈边界）。
+#   unclassified        显式声明：该 kind 的动作刻意不归入任何习惯家族（防拼写静默漏网）。
+#   action              启动该活动类型的内部标准动作（docs/dev/SPEC-agent-interaction.md
+#                       「对象与动作选择」）："none" 表示不经 start_activity 启动；人物所见是五个
+#                       动词与方式，经私有绑定映射回这里的内部名。
+#   target_discovery    观察目录直读 catalog_field（field/id_key）| 下钻结果 browse_result | none。
+
+[kinds.wait]
+met_key = "wait"
+energy_floor_exempt = true
+sleep_channel = "awake"
+relief = { channel = "none" }
+resource_claims = ["idle"]
+feedback_boundary = true
+action = "wait"
+target_discovery = "none"
+
+[kinds.sleep]
+met_key = "sleep"
+energy_floor_exempt = true
+sleep_channel = "recovery"
+relief = { channel = "none" }
+resource_claims = ["idle", "travel", "eyes", "ears", "hands", "voice", "work"]
+feedback_boundary = false
+action = "sleep"
+target_discovery = "none"
+
+[kinds.work]
+met_key = "work"
+energy_floor_exempt = false
+sleep_channel = "awake"
+relief = { channel = "none" }
+resource_claims = ["work", "idle"]
+feedback_boundary = true
+action = "work"
+target_discovery = { source = "catalog_field", field = "tasks", id_key = "task_id" }
+
+[kinds.watch]
+met_key = "watch"
+energy_floor_exempt = false
+sleep_channel = "awake"
+relief = { channel = "content_rate" }
+feedback_boundary = true
+action = "watch"
+target_discovery = "browse_result"
+
+# 播客只占 ears；其余内容品类的观看另占 eyes。
+[kinds.watch.resource_claims]
+base = ["ears"]
+conditional = [
+  { when = "content_kind:feature_film", add = ["eyes"] },
+  { when = "content_kind:drama_series", add = ["eyes"] },
+  { when = "content_kind:webnovel_excerpt", add = ["eyes"] },
+  { when = "content_kind:news_feed", add = ["eyes"] },
+  { when = "content_kind:joke_feed", add = ["eyes"] },
+  { when = "content_kind:subtitle_experience", add = ["eyes"] },
+  { when = "content_kind:game_session", add = ["eyes"] },
+]
+
+[kinds.play_game]
+met_key = "play_game"
+energy_floor_exempt = false
+sleep_channel = "awake"
+relief = { channel = "preference_rate" }
+resource_claims = ["eyes", "hands"]
+feedback_boundary = false
+game_boundary = true
+action = "play"
+target_discovery = { source = "catalog_field", field = "game_catalog", id_key = "game_id" }
+
+[kinds.travel]
+met_key = "travel:{mode}"
+# "{mode}" 模板的封闭展开域（= 冻结路线的 TravelMode 闭集）：MET 表必须恰好
+# 覆盖这些键（travel:driving / travel:walking），多键少键都在组装期拒绝。
+met_key_modes = ["driving", "walking"]
+energy_floor_exempt = false
+sleep_channel = "awake"
+relief = { channel = "none" }
+resource_claims = { base = ["travel", "idle"], conditional = [{ when = "mode:driving", add = ["eyes", "hands"] }] }
+feedback_boundary = true
+action = "travel_to"
+target_discovery = "none"
+
+[kinds.read_mail]
+met_key = "read_mail"
+energy_floor_exempt = false
+sleep_channel = "awake"
+relief = { channel = "none" }
+resource_claims = ["eyes", "hands"]
+feedback_boundary = true
+# 现状显式化：read_mail 不参与习惯份额（classify_action_event 返回 None）。
+unclassified = true
+action = "read"
+target_discovery = { source = "catalog_field", field = "messages", id_key = "message_id" }
+
+[kinds.browse]
+met_key = "browse"
+energy_floor_exempt = false
+sleep_channel = "awake"
+relief = { channel = "none" }
+resource_claims = ["eyes", "hands"]
+feedback_boundary = true
+action = "browse"
+target_discovery = { source = "catalog_field", field = "browse_targets" }
+
+[kinds.consume]
+met_key = "consume"
+energy_floor_exempt = true
+sleep_channel = "awake"
+relief = { channel = "none" }
+resource_claims = ["hands"]
+feedback_boundary = true
+action = "consume"
+target_discovery = "none"
+
+[kinds.lifestyle]
+met_key = "lifestyle:{item_id}"
+energy_floor_exempt = false
+sleep_channel = "awake"
+# 生活活动的缓解量来自环境条目 effects；不使用固定活动类型费率。
+relief = { channel = "none" }
+resource_claims = ["hands"]
+feedback_boundary = true
+action = "do"
+target_discovery = "browse_result"
+
+# ---------- 动机家族层 ----------
+# 字段语义（规范「可供性与活动声明」）：
+#   kinds             家族聚合的活动类型（引用完整性：必须都已声明）。
+#   attention         none = 不按内容品类采样；content_kind = 按品类键采样
+#                     （per_kind 为家族内每品类采样上限，pool_cap 为全局
+#                     MAX_CANDIDATES=26 内的家族配额：生存位 8 + lifestyle 4 +
+#                     娱乐 14）。
+#   habit_members     习惯归并路由（classify_action_event 的查表化）：一串动作名，
+#                     每个动作至多归一个家族；report_status 是会话进展自述，归 continue。
+#   candidate         候选生成器原型名 + 参数（规范「可供性与活动声明」八原型；原型函数保持 Python，
+#                     在 life/motivation.py 登记进 PROTOTYPE_GENERATORS）。
+#   comfort           情绪分量 comfort_type（该家族候选自带舒适属性）。
+#   enumeration_rank  候选池枚举序（升序遍历；省略 = 不参与枚举）。现行序：
+#                     eat(10) > sleep(20) > continue(30) > work(40，含去工作地点的
+#                     出行腿) > travel(50，回家腿) > browse(60) > lifestyle(60，
+#                     同秩按名声明的字母序后于 browse) > entertainment(70，池尾)。
+#   unclassified      家族显式声明：本身不收习惯事件。
+
+[families.eat]
+kinds = ["consume"]
+attention = { kind = "none" }
+habit_members = ["purchase", "consume"]
+candidate = { generator = "cheapest_feasible_meal" }
+enumeration_rank = 10
+
+[families.sleep]
+kinds = ["sleep"]
+attention = { kind = "none" }
+habit_members = ["sleep"]
+candidate = { generator = "clear_backlog", resource = "sleep_debt_hours", cap_seconds = 28800, fallback_seconds = 3600, min_session_seconds = 60 }
+comfort = true
+enumeration_rank = 20
+
+[families.continue]
+# "继续当前活动"跨全部活动类型；习惯路由收 report_status（会话进展自述）与
+# wait（不另起事由的等待）。
+kinds = ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail",
+         "browse", "consume", "lifestyle"]
+attention = { kind = "none" }
+habit_members = ["report_status", "wait"]
+candidate = { generator = "continue_current" }
+enumeration_rank = 30
+
+[families.work]
+kinds = ["work"]
+attention = { kind = "none" }
+habit_members = ["work", "submit_work"]
+# task_slot 原型内含"去任务地点的出行腿"（不在任务地点时先给出行候选）。
+candidate = { generator = "task_slot", max_tasks = 2 }
+enumeration_rank = 40
+
+[families.travel]
+kinds = ["travel"]
+attention = { kind = "none" }
+habit_members = ["travel_to"]
+candidate = { generator = "cheapest_route", destination = "home" }
+enumeration_rank = 50
+
+[families.browse]
+kinds = ["browse"]
+attention = { kind = "none" }
+habit_members = ["browse"]
+candidate = { generator = "catalog_visibility", probe_duration_seconds = 600 }
+enumeration_rank = 60
+
+[families.entertainment]
+kinds = ["watch", "play_game"]
+attention = { kind = "content_kind", sampling = "per_kind_top_n", per_kind = 2, pool_cap = 14 }
+habit_members = ["watch", "play"]
+candidate = { generator = "content_menu", min_session_seconds = 600, cap_seconds = 14400, slot_policy = "two_segments" }
+comfort = true
+enumeration_rank = 70
+
+# 内容品类子表：画像注意力键；条目标题由场景声明。
+# attention_required = false 是显式声明的不参与采样（现行静默采零的显式化）：
+# subtitle_experience 不参与注意力采样；game_session 走 game_catalog 独立面。
+[families.entertainment.content_kinds.feature_film]
+attention_required = true
+[families.entertainment.content_kinds.drama_series]
+attention_required = true
+[families.entertainment.content_kinds.podcast_episode]
+attention_required = true
+[families.entertainment.content_kinds.webnovel_excerpt]
+attention_required = true
+[families.entertainment.content_kinds.subtitle_experience]
+attention_required = false
+[families.entertainment.content_kinds.news_feed]
+attention_required = true
+[families.entertainment.content_kinds.joke_feed]
+attention_required = true
+[families.entertainment.content_kinds.game_session]
+attention_required = false
+
+[families.lifestyle]
+# 生活活动复用 content_menu 原型：环境条目与场景 MET 身份核对后按人物启用集过滤。
+# 每品类采一个候选，全局最多四个；枚举序在 browse 之后、娱乐之前。
+# 候选预演与活动结算共同使用环境条目的 effects。
+kinds = ["lifestyle"]
+attention = { kind = "content_kind", sampling = "per_kind_top_n", per_kind = 1, pool_cap = 4 }
+# 习惯归并：do 动作只启动生活活动目录条目，因此整条动作归本家族。
+habit_members = ["do"]
+candidate = { generator = "content_menu", min_session_seconds = 300, cap_seconds = 7200 }
+enumeration_rank = 60
+
+# 生活活动品类声明画像注意力键；画像编译器与场景准入核对同一键集。
+[families.lifestyle.content_kinds.sport]
+attention_required = true
+[families.lifestyle.content_kinds.hobby]
+attention_required = true
+[families.lifestyle.content_kinds.outdoor]
+attention_required = true
+[families.lifestyle.content_kinds.wellness]
+attention_required = true
+[families.lifestyle.content_kinds.household]
+attention_required = true
+[families.lifestyle.content_kinds.learning]
+attention_required = true
+[families.lifestyle.content_kinds.pet]
+attention_required = true
+[families.lifestyle.content_kinds.social]
+attention_required = true
+[families.lifestyle.content_kinds.volunteer]
+attention_required = true

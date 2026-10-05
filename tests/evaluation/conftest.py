@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests import data_paths
+
 import hashlib
 import json
 from dataclasses import dataclass
@@ -30,7 +32,7 @@ def evaluation_fixture(tmp_path: Path) -> EvaluationFixture:
 
 
 def make_evaluation_fixture(tmp_path: Path, days: int = 1) -> EvaluationFixture:
-    base_path = Path(__file__).parents[2] / "scenarios/evaluation.json"
+    base_path = data_paths.ENVIRONMENT_ROOT / "scenarios/evaluation.json"
     scenario = json.loads(base_path.read_text(encoding="utf-8"))
     start = datetime(2026, 1, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
     end = start + timedelta(days=days)

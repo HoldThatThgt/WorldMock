@@ -5,13 +5,18 @@
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D1 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **日期**：2026-10-05
-> **版本**：v1.13
+> **版本**：v1.14
 > **目标读者**：架构师、开发工程师、系统工程师
 
 本文承接[概述](00-overview.md#overview-worldmock-产品设计说明书-概述)，说明数字人、资源引擎、交换引擎、模拟引擎和记录引擎如何协作，
 以及数字足迹如何进入数据交付与行为评估。各引擎的内部规则由所属设计文档维护；
 跨模块字段与调用合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，文档权威归属见[文档入口](../INDEX.md#index-worldmock-文档入口)。
 职责划分不代表对应实现已经拆成独立服务，也不构成实现完成或真实运行验收。
+
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
 
 <a name="design-01-architecture-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -336,8 +341,8 @@ flowchart LR
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
 | 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../custom/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) |
-| 资源引擎 | [目录定义与加载](../../src/worldmock/catalog)、[语料整理](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
-| 交换引擎 | [规则声明](../../catalog)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
+| 资源引擎 | [目录定义与加载](../../src/worldmock/catalog)、[通用语料加载](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
+| 交换引擎 | [固定活动声明](../../src/worldmock/data/affordances.toml)及 Dataset 环境交换规则、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
 | 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) |
 | 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
 | 数据交付与评估 | [交付模块](../../src/worldmock/delivery)、[评估模块](../../src/worldmock/evaluation) | [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
@@ -474,6 +479,7 @@ flowchart TD
 | v1.10 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D1-20、D1-21）：`query_world` 六键请求、来源与可执行筛选、结果不附候选；查询阶段只更新工具与代码身份，写在「状态与记录」分阶段段落的段末（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）；文件头修订行改为已落地阶段 1、2 与阶段 4 |
 | v1.11 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D1-15–D1-19）：模拟引擎职责补上班安排求值；场景配置补工作安排与作息覆盖；状态与记录写明场景结构 5、卡片结构 3 与旧场景、旧卡片的拒绝；行为评估另读工作安排与作息窗口；「状态与记录」分阶段段落里工作安排阶段一句排在个人事务阶段与查询阶段之间；文件头修订行改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.12 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D1-27）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |

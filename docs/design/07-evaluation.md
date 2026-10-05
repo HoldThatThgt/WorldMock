@@ -4,7 +4,7 @@
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EV1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D7 作业），已随代码落地到阶段 1–4<br>
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **日期**：2026-10-05
-> **版本**：v1.15
+> **版本**：v1.16
 > **目标读者**：算法工程师、开发工程师
 
 <a name="design-07-evaluation-共享规则与可重建环境修订"></a>
@@ -540,7 +540,7 @@ stateDiagram-v2
 worldmock evaluate \
   --legacy legacy-root/ \
   --worldmock worldmock-export/ \
-  --scenario scenarios/evaluation.json \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/evaluation.json \
   --output evaluation-output/
 ```
 
@@ -888,6 +888,7 @@ flowchart LR
 | v1.12 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 4，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「2.2 报告项」工具交互行为报告段补查询成本由 `queries` 子命令只报告（规格 6.3 的八个键，含反思校验重试次数），口径引记录引擎设计「调试工具」；文件头状态改为已落地阶段 1、2 与阶段 4 |
 | v1.13 | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步（实施计划 D7 作业，阶段 3，按 `56451b4` 核对）：「2.2 报告项」增 `workload` 与 `routine_deviation` 两行，写明十个键（规格的八项另把声明例外拆成休息时段与任务外出两项）、按观察窗截取、不当班日不产生班次、任务外出含直接回工作地点的一程、早退口径，逐日偏离的键、参照（场景班次与覆盖后的作息窗口，不是当日计划）与班次两端在睡的标注，容差等于播报间隔、写进报告而不作用于偏离值；输入经 `behavior_metrics_report` 唯一新增的可选打包参数 `workday` 传入，不进 `quality.json`，结构标识 `behavior-metrics-1` 不变，说明为中文，产出入口为 `inspect_run` 的 `workday` 子命令；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），版本改写 |
 | v1.14 | 2026-10-04 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 的复核更正（规格 4.5「含预约任务」与 6.2 的输入「任务的预约与要求地点」）：「2.2 报告项」`workload` 写明任务外出的起算——普通任务从开放时刻，预约任务从约定开始那一天的当地零点（赴约前去往约定地点的路上与提前到达的等候也算，不等约定开始），都到首次付款结清为止；原实现只从约定开始算起，约定开始前出发赴约被记成缺勤与早退。键名与其余口径不变；文件头的日期、版本改写 |
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |

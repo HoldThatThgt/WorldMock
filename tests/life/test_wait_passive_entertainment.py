@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import pytest
 
 from worldmock.life.activities import ActivityOrigin, advance_activity, start_activity
@@ -14,7 +16,7 @@ from worldmock.life.world_setup import load_scenario
 @pytest.fixture(scope="module")
 def body_config():
     """读取正式冻结身体参数。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 @pytest.fixture(autouse=True)

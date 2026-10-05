@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import math
 from pathlib import Path
@@ -17,7 +19,7 @@ from worldmock.life.travel import (
     sample_location_track,
 )
 
-_CORPUS = Path("corpora")
+_CORPUS = (ENVIRONMENT_ROOT / "corpora")
 
 
 def _request(route, interval: int = 90, span: int = 720) -> LocationTrackRequest:
@@ -27,7 +29,7 @@ def _request(route, interval: int = 90, span: int = 720) -> LocationTrackRequest
 
 
 def _route(route_id: str):
-    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     return next(item for item in scenario.routes if item.route_id == route_id)
 
 

@@ -25,7 +25,8 @@ def load_map_dataset(root: Path, reference: MapDatasetReference) -> MapDataset:
         if (declaration.dataset_id, declaration.version) != (reference.dataset_id, reference.version):
             raise IntegrityError("Map dataset identity does not match the scenario pin")
         data = declaration.model_dump(mode="python")
-        assignment = FileReference(path="zhangjiang-map/category-assignment.json",
+        assignment_path = (Path(declaration.locations_file.path).parent / "category-assignment.json").as_posix()
+        assignment = FileReference(path=assignment_path,
                                    sha256=declaration.category_assignment_sha256)
         data["category_assignment"] = CategoryAssignment.model_validate(_read_file(root, assignment))
         for name in ("locations", "supplies", "routes"):

@@ -5,12 +5,14 @@ from __future__ import annotations
 from worldmock.corpora.manifest import safe_file
 import hashlib
 import json
+import logging
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from collections.abc import Mapping
+from types import MappingProxyType
 
-from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ActivityState, AgentState, ContentProgress
 from worldmock.life.scenario import ContentItemConfig, MessageConfig
@@ -26,6 +28,18 @@ class SubtitleCue:
     text: str
 
 
+def validate_lifestyle_effects(effects: Mapping[str, float]) -> None:
+    """@brief 环境与冻结活动共用三个效果的键、数值类型、有限性和范围校验。"""
+    expected = {"entertainment", "social", "health"}
+    if not isinstance(effects, Mapping) or set(effects) != expected:
+        logging.error("Lifestyle effects must declare entertainment, social, and health")
+        raise IntegrityError("Lifestyle effects are missing or invalid")
+    if any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
+           for value in effects.values()):
+        logging.error("Lifestyle effects must be finite numbers between zero and one")
+        raise IntegrityError("Lifestyle effects are missing or invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class LifestyleItem:
     """@brief 生活活动目录（corpora/lifestyle/items.json）的一条公开条目。"""
@@ -36,9 +50,17 @@ class LifestyleItem:
     typical_duration_minutes: int
     description: str
     met_value: float
+    #: 当前环境声明的娱乐、社交与健康效果，构造后不可变。
+    effects: Mapping[str, float]
     #: 目录声明的时间窗（start_hour, end_hour），场景时区的本地小时，半开区间；没有声明时为 None。
     #: 只作候选排序的相关度（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），不构成资格。
     time_window: tuple[int, int] | None = None
+
+
+    def __post_init__(self) -> None:
+        """@brief 校验当前环境的三个效果并冻结独立副本。"""
+        validate_lifestyle_effects(self.effects)
+        object.__setattr__(self, "effects", MappingProxyType(dict(self.effects)))
 
 
 def _time_window(row: dict) -> tuple[int, int] | None:
@@ -63,101 +85,49 @@ LIFESTYLE_ITEMS_PATH = "lifestyle/items.json"
 
 
 def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> tuple[LifestyleItem, ...]:
-    """@brief 装载生活活动目录并对照身体 MET 表核对身份闭集（fail-closed）。
-
-    观察不再逐条展开生活活动：目录按品类计数进 activity_summary，明细由
-    呈现窗口揭示。items.json 与 activity_met 的 lifestyle 键
-    必须一一对应（多、少、重复都按 IntegrityError 终止），保证呈现窗口
-    与 start_activity(action="do") 的受理闭集一致。
-    """
+    """@brief 装载当前环境的生活活动并核对身体 MET 表的身份闭集。"""
     path = safe_file(corpus_root, LIFESTYLE_ITEMS_PATH, "Content file path is invalid")
     payload = json.loads(path.read_text(encoding="utf-8"))
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list):
+        logging.error("Lifestyle catalog items are missing")
         raise IntegrityError("Lifestyle catalog items are missing")
     result: list[LifestyleItem] = []
     seen: set[str] = set()
     for row in items:
-        if not isinstance(row, dict):
-            raise IntegrityError("Lifestyle catalog row must be an object")
-        try:
-            item = LifestyleItem(
-                activity_id=str(row["activity_id"]),
-                name=str(row["name_zh"]),
-                category=str(row["category"]),
-                typical_duration_minutes=int(row["typical_duration_minutes"]),
-                description=str(row["description_zh"]),
-                met_value=float(row["met_value"]), time_window=_time_window(row))
-        except (KeyError, TypeError, ValueError) as error:
-            raise IntegrityError(f"Lifestyle catalog row is invalid: {error}") from error
+        item = _lifestyle_item(row)
         if item.activity_id in seen:
+            logging.error("Lifestyle catalog id is duplicated: %s", item.activity_id)
             raise IntegrityError(f"Lifestyle catalog id {item.activity_id!r} is duplicated")
         seen.add(item.activity_id)
         result.append(item)
-    expected = {key.removeprefix("lifestyle:") for key in activity_met
-                if key.startswith("lifestyle:")}
+    expected = {key.removeprefix("lifestyle:") for key in activity_met if key.startswith("lifestyle:")}
     if seen != expected:
+        logging.error("Lifestyle catalog ids do not match the declared activity MET keys")
         raise IntegrityError(
             f"Lifestyle catalog ids do not match activity_met lifestyle keys: "
             f"{sorted(expected - seen)} missing, {sorted(seen - expected)} unknown")
     return tuple(result)
 
 
-
-#: 内容条目标题的语料来源（内容类别 → (语料相对路径, 条目身份键)）由可供性
-#: 注册表派生（families.*.content_kinds.*.title_source，M0 影子等价已证与原
-#: 字面字典一致）；身份键为空串表示单记录身份文件（其 title 字段直接适用），
-#: 信息流和游戏会话使用时间轴同目录的身份目录，避免对人物展示内部编号。
-
-
-def load_content_titles(
-    items: tuple[ContentItemConfig, ...],
-    corpus_root: Path,
-    title_sources: Mapping[str, tuple[str, str]] | None = None,
-) -> dict[str, str]:
-    """@brief 从内容身份目录读取每个内容对象的人类可读名称。"""
-    sources = (default_affordances().title_sources
-               if title_sources is None else title_sources)
-    titles: dict[str, str] = {}
-    payloads: dict[str, object] = {}
-    for item in items:
-        source = _content_title_source(item, sources)
-        relative, id_key = source
-        if relative not in payloads:
-            payloads[relative] = json.loads(
-                safe_file(corpus_root, relative, "Content file path is invalid").read_text(encoding="utf-8"))
-        payload = payloads[relative]
-        title = _content_title(payload, id_key, item.item_id)
-        if not isinstance(title, str) or not title.strip():
-            raise IntegrityError(f"Content title is missing for {item.item_id!r}")
-        titles[item.item_id] = title.strip()
-    return titles
+def _lifestyle_item(row: object) -> LifestyleItem:
+    """@brief 把当前环境的一条活动记录转换为不可变内容条目。"""
+    if not isinstance(row, dict):
+        logging.error("Lifestyle catalog row must be an object")
+        raise IntegrityError("Lifestyle catalog row must be an object")
+    try:
+        return LifestyleItem(
+            activity_id=str(row["activity_id"]), name=str(row["name_zh"]), category=str(row["category"]),
+            typical_duration_minutes=int(row["typical_duration_minutes"]), description=str(row["description_zh"]),
+            met_value=float(row["met_value"]), effects=row["effects"], time_window=_time_window(row))
+    except (KeyError, TypeError, ValueError) as error:
+        logging.error("Lifestyle catalog row is invalid: %s", error)
+        raise IntegrityError(f"Lifestyle catalog row is invalid: {error}") from error
 
 
-def _content_title_source(
-    item: ContentItemConfig, sources: Mapping[str, tuple[str, str]],
-) -> tuple[str, str]:
-    """@brief 为内容对象定位其身份目录与条目键。"""
-    if item.kind in {"news_feed", "joke_feed"}:
-        return ((Path(item.timeline_path).parent / "feed-items.json").as_posix(), "item_id")
-    if item.kind == "game_session":
-        return ((Path(item.timeline_path).parent / "items.json").as_posix(), "item_id")
-    source = sources.get(item.kind)
-    if source is None:
-        raise IntegrityError(f"Content title source is missing for {item.kind!r}")
-    return source
-
-
-def _content_title(payload: object, id_key: str, item_id: str) -> object:
-    """@brief 从单记录或条目目录取已声明的标题。"""
-    if id_key:
-        if not isinstance(payload, list):
-            raise IntegrityError("Content title catalog must be a list")
-        matches = [row for row in payload if isinstance(row, dict) and row.get(id_key) == item_id]
-        if len(matches) != 1:
-            raise IntegrityError(f"Content title identity is missing or duplicated: {item_id!r}")
-        return matches[0].get("title")
-    return payload.get("title") if isinstance(payload, dict) else None
+def load_content_titles(items: tuple[ContentItemConfig, ...]) -> dict[str, str]:
+    """@brief 直接投影当前环境场景中已校验的内容标题。"""
+    return {item.item_id: item.title for item in items}
 
 
 def load_subtitles(item: ContentItemConfig, corpus_root: Path) -> tuple[SubtitleCue, ...]:

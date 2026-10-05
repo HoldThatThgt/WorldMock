@@ -1,0 +1,43 @@
+# 动机评分层通用变换参数，由引擎包资源提供。
+# 人物个体差异（weights/tau/beta/loss_aversion/comfort/emotion_sensitivity/attention_prior）
+# 全部来自场景 agents[].motivation 档案（画像编译器产物），本文件只放跨人物通用的变换形状。
+version = 1
+
+[prospect]
+# 前景理论价值函数形状：参考点由档案 comfort 提供；损失段斜率 = 档案 loss_aversion
+#（money 2.25 即 TK1992 中位损失厌恶系数 λ=2.25）；收益凹/损失凸指数 0.88 为
+# Tversky & Kahneman (1992) 中位估计（gain α = loss α = 0.88），此处作为损失段指数。
+loss_exponent = 0.88
+
+[homeostatic]
+# 内稳态边际收益的凹变换系数：坐标增益段 z^satiation_exponent（边际递减）。
+# v1 与 TK1992 α=0.88 同值锚定，独立成键以便与前景损失段分开调参。
+satiation_exponent = 0.88
+
+[normalization]
+# 各资源舒适坐标的归一尺度：把 fen/kcal/hours/ratio 折到可比 util 坐标（类型异构归一）。
+# 取值口径：让"一次典型行为的变化量"落在 O(1) util——廉价一餐 ≈300–1500 fen、
+# 一份正餐热量 ≈500–900 kcal、一夜睡眠债 ≈6–8 h、重度娱乐需要 ≈0.5–1.0。
+money_fen = 1000.0
+energy_kcal = 500.0
+sleep_debt_hours = 2.0
+entertainment_need = 0.25
+goal_progress = 1.0
+
+[cost]
+# 成本项的时间机会成本：时间与金钱折到同一坐标（fen/小时）。
+# 锚定：中国人社部 2024 年各省最低小时工资标准区间 ¥20–26/h，取中值 ≈¥24/h。
+time_value_fen_per_hour = 2400.0
+
+[habit]
+# 习惯项：足迹 action_requested 家族频率的指数贴现计数，归一到 [0,1] 后乘权重。
+# weight 上界约束习惯不得压过内稳态需求；discount 为逐条向前的事件贴现率（ Newest=1 ）。
+weight = 0.3
+discount = 0.9
+
+[provenance]
+prospect = { type = "anchored", source = "Tversky & Kahneman 1992, JRU 5:297-323, cumulative prospect theory (median alpha=0.88, lambda=2.25)", paths = ["prospect.loss_exponent"] }
+homeostatic = { type = "anchored", source = "Tversky & Kahneman 1992 value-function exponent reused for homeostatic satiation (v1); independent key kept for tuning", paths = ["homeostatic.satiation_exponent"] }
+normalization = { type = "assumption", source = "engineering scales chosen so typical per-action deltas are O(1) util (cheap meal 300-1500 fen, meal energy 500-900 kcal, overnight debt 6-8 h)", paths = ["normalization"] }
+cost = { type = "anchored", source = "China MOHRSS 2024 provincial minimum hourly wage standards (band CNY 20-26/h, midpoint 24)", paths = ["cost.time_value_fen_per_hour"] }
+habit = { type = "assumption", source = "habit weight capped below homeostatic weights sum; exponential recency discount 0.9 per earlier event", paths = ["habit"] }

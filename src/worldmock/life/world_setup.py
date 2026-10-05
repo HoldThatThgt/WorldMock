@@ -16,10 +16,11 @@ import hashlib
 from worldmock.life import relevance
 from worldmock.life.readable import _datetime
 from dataclasses import replace
+from importlib.resources import files
 from pathlib import Path
 from worldmock.catalog import load_catalog
 from worldmock.categories.common import CategoryError
-from worldmock.catalog.affordances import AFFORDANCES_FILE, load_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.corpora import load_manifest
 from worldmock.errors import IntegrityError
 from worldmock.life.map_data import load_map_dataset
@@ -62,10 +63,11 @@ def load_runtime_scenario(
     directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
     try:
         catalog = load_catalog(directory)
+        _require_engine_rules(directory)
         motivation_transforms = load_motivation_transforms(directory / "rules")
     except CategoryError as error:
         raise IntegrityError(f"Catalog load failed: {error}") from error
-    affordances = load_affordances(directory / AFFORDANCES_FILE)
+    affordances = engine_affordances()
     root = (Path(scenario_path).resolve().parent / document.corpus_root).resolve()
     dataset = load_map_dataset(root, document.map_dataset)
     semantics = assemble_semantics(document, catalog, dataset, motivation_transforms, affordances)
@@ -74,6 +76,21 @@ def load_runtime_scenario(
     check_work_schedules(semantics.scenario)
     _check_work_material(semantics.scenario, root)
     return replace(semantics, purchase_channels=load_purchase_channels(semantics.scenario, root)), digest
+
+
+def _require_engine_rules(directory: Path) -> None:
+    """@brief 冻结目录中的通用规则副本必须逐字节绑定已安装引擎的唯一规则资源。"""
+    packaged = files("worldmock.data")
+    for relative in ("affordances.toml", "rules/motivation.toml", "rules/persona-mapping.toml"):
+        try:
+            actual = (directory / relative).read_bytes()
+            expected = packaged.joinpath(Path(relative).name).read_bytes()
+        except OSError as error:
+            logging.error("Engine rule snapshot is missing: %s", relative)
+            raise IntegrityError(f"Engine rule snapshot is missing: {relative}") from error
+        if actual != expected:
+            logging.error("Engine rule snapshot does not match the installed engine: %s", relative)
+            raise IntegrityError(f"Engine rule snapshot does not match the installed engine: {relative}")
 
 
 def _check_work_material(scenario: RuntimeScenario, root: Path) -> None:

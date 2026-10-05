@@ -3,7 +3,7 @@
 
 > **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）<br>
 > **日期**：2026-10-05
-> **版本**：v1.5
+> **版本**：v1.6
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
 > 2026-10-01 按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
@@ -1095,7 +1095,7 @@ python3 scripts/inspect_run.py runs/white-collar body --agent 0
 python3 scripts/inspect_run.py runs/white-collar flows --tail 20
 python3 scripts/inspect_run.py runs/white-collar rerun
 python3 scripts/inspect_run.py runs/white-collar continuation --topic 咖啡 --baseline runs/white-collar-off
-python3 scripts/inspect_run.py runs/white-collar workday --scenario scenarios/white-collar-12-weeks.json
+python3 scripts/inspect_run.py runs/white-collar workday --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json
 python3 scripts/inspect_run.py runs/white-collar queries
 python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --date 2026-01-05 --out runs/white-collar
 ```
@@ -1237,6 +1237,7 @@ flowchart LR
 | `2026-10-03-errands-workday-stage-4` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 4（查询筛选与返回精简）同步（实施计划 D5-24、D5-25、D5-30，随阶段 4 的代码落地，阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）：「工具纠错、只读查询与当天操作备忘的证据」`query_world` 改六键（增 `from`、`available_only`，旧四键请求按缺字段拒绝），筛选先于切页，返回不再附候选，两种查询参数错误，与 09 同句逐字一致；「数字足迹事件结构」观察私有事实增渠道索引 `world_query_channels`，供给条目所属门店记在已禁的 `location_id`；指名购买 `from` 来源写法由「门店名」更正为地点显示名（含「家」「住处」）；「调试工具」增 `queries` 子命令（八个键与各自口径，只报告）；文件头状态改为已落地阶段 1、2 与阶段 4；版本号不变 |
 | `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 同步（实施计划 D5 作业，随阶段 3 的代码落地，按 `56451b4` 核对）：「事件字段」观察段登记环境层在 `location` 之后的必填可空键 `duty`（今天的上班安排 `day`、`hours`、`place`、`breaks`、`status`，没有工作安排为 `null`），班内离岗照常受理、不另写事件；「调试工具」增只读子命令 `inspect_run.py workday --scenario <场景文件>` 及示例（工作负荷与作息偏离，场景文件摘要须等于运行清单的 `scenario_sha256`，作息窗口取自人物工作区的结构化卡片，只报告）；文件头状态改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入），本规格首次受影响发布的引用块在阶段 2 之后补阶段 3 的场景结构 5、卡片结构 3 与抽取提示 `card-v3`；版本号不变 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)实现后文档（实施计划 D5-26、D5-27，按 `d8a41d3` 的代码与验收登记表核对）：「记录生活全过程的验收」增个人事务留证、个人事务检查点、严格反思留证三行，证据位置指向该规格验收台账的对应行（首行所引的台账行照规格现名写「事务变更与原子受理」，实施计划作业原文写作「事务登记与原子受理」），状态链接个人事务与工作安排验收记录；文件头状态行注明已实现并链接该验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；日期改写，版本号不变 |
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |

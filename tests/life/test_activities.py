@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import pytest
 
 from worldmock.errors import BusinessRuleError
@@ -41,7 +43,7 @@ def origin(name: str) -> ActivityOrigin:
 
 def test_activity_pause_resume_cancel_preserves_actual_progress() -> None:
     """暂停不算结束，恢复重算边界，退出保留已结算区间。"""
-    scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     feedback = scenario.activity_feedback_seconds
     person, activity = start_activity(
         agent(), ActivityStartParams(activity_type=ActivityKind.WAIT,
@@ -67,7 +69,7 @@ def test_activity_pause_resume_cancel_preserves_actual_progress() -> None:
 def test_pausing_a_paused_activity_is_refused_and_keeps_it_paused() -> None:
     """决策边界只对进行中的活动成立：已暂停的活动即使已结算到此刻也不在边界，再次暂停以 ACTIVITY_FEEDBACK_NOT_DUE
     拒绝，暂停状态与已结算进度不变。"""
-    scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     feedback = scenario.activity_feedback_seconds
     person, activity = start_activity(
         agent(), ActivityStartParams(activity_type=ActivityKind.WAIT,
@@ -84,7 +86,7 @@ def test_pausing_a_paused_activity_is_refused_and_keeps_it_paused() -> None:
 
 def test_direct_start_rejects_short_request_and_defers_shared_gates_to_engine() -> None:
     """领域构造检查最小时长；资源和共享能量由引擎在完整集合上检查。"""
-    config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    config = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
     person = agent()
     with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
         start_activity(person, ActivityStartParams(activity_type="wait", planned_duration_seconds=59),
@@ -104,7 +106,7 @@ def test_direct_start_rejects_short_request_and_defers_shared_gates_to_engine() 
 
 def test_completion_and_experiment_truncation_set_ended_at() -> None:
     """自然完成和实验截断具有不同边界并都记录实际结束时刻。"""
-    config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    config = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
     person, activity = start_activity(
         agent(), ActivityStartParams(activity_type="sleep", planned_duration_seconds=60),
         10, origin("one"), config)

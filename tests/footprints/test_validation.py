@@ -13,6 +13,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.integration.as2_fixtures import use_fake_as2
+from tests.data_paths import ENVIRONMENT_ROOT
 from tests.profile.conftest import make_card, make_window
 from tests.delivery.prompt_fixtures import layered_user, six_layers
 from worldmock.delivery.windows import prepare_windows
@@ -28,7 +29,7 @@ from worldmock.profile.coverage_targets import build_coverage_targets
 from worldmock.validation import validate_project
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = PROJECT_ROOT / "scenarios" / "white-collar-12-weeks.json"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 
 
 
@@ -217,16 +218,16 @@ def test_build_coverage_targets_derives_from_catalog_and_corpora():
     from worldmock.life.world_setup import load_scenario
 
     scenario = load_scenario(SCENARIO)[0]
-    targets = build_coverage_targets(scenario, load_catalog(PROJECT_ROOT / "catalog"),
-                                     PROJECT_ROOT / "corpora")
+    targets = build_coverage_targets(scenario, load_catalog(ENVIRONMENT_ROOT / "catalog"),
+                                     ENVIRONMENT_ROOT / "corpora")
 
     assert "紫薇公园" in targets.habit_response_keywords
     assert "悬疑" in targets.content_genres
     assert "牛肉炒面" in targets.food_kinds
     assert targets.media_kinds and set(targets.media_kinds) <= {
         "电影", "剧集", "播客", "网文", "新闻", "段子", "字幕体验", "游戏"}
-    again = build_coverage_targets(scenario, load_catalog(PROJECT_ROOT / "catalog"),
-                                   PROJECT_ROOT / "corpora")
+    again = build_coverage_targets(scenario, load_catalog(ENVIRONMENT_ROOT / "catalog"),
+                                   ENVIRONMENT_ROOT / "corpora")
     assert again == targets
 
 

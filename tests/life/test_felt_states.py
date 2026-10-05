@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import math
 import shutil
@@ -250,7 +252,7 @@ class TestLowEnergyAppetite:
 
 def _formal_body() -> BodyConfig:
     """读取正式场景组装后的身体配置。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 @pytest.mark.parametrize("emergency", [100.0, 60.0])
@@ -265,7 +267,7 @@ def test_body_config_rejects_emergency_threshold_not_above_starving(emergency: f
 def test_scenario_with_emergency_threshold_at_starving_constant_fails_to_load(tmp_path: Path) -> None:
     """目录紧急阈值改为 100 kcal 后，场景加载在组装身体配置时被拒。"""
     catalog = tmp_path / "catalog"
-    shutil.copytree(_ROOT / "catalog", catalog)
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", catalog)
     lines = (catalog / "resources.jsonl").read_text(encoding="utf-8").splitlines()
     changed = []
     for line in lines:
@@ -278,8 +280,8 @@ def test_scenario_with_emergency_threshold_at_starving_constant_fails_to_load(tm
     refresh_manifest_identity(catalog)
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
-    document = json.loads((_ROOT / "scenarios" / "white-collar-12-weeks.json").read_text(encoding="utf-8"))
-    document["corpus_root"] = str(_ROOT / "corpora")
+    document = json.loads((ENVIRONMENT_ROOT / "scenarios" / "single-person.json").read_text(encoding="utf-8"))
+    document["corpus_root"] = str(ENVIRONMENT_ROOT / "corpora")
     path = scenarios / "low-emergency.json"
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     with pytest.raises((ValidationError, IntegrityError), match="above the starving floor"):

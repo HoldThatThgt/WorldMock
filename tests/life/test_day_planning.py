@@ -5,6 +5,8 @@
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
@@ -41,7 +43,7 @@ from worldmock.life.schedule import NextDecisionQuery, PlanGoal, next_decision_t
 from worldmock.life.settled_text import activity_endings
 from worldmock.runtime import settle_pending_day_plans
 
-SCENARIO = "white-collar-12-weeks.json"
+SCENARIO = "single-person.json"
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 睡前在收尾里写下的一条记忆（人物自述）。
 _MEMORY = {"type": "commitment", "text": "明早七点半起床", "importance": 0.6, "keywords": ["起床"]}
@@ -87,7 +89,7 @@ def _beirut_engine(tmp_path: Path) -> LifeEngine:
     同一时刻的贝鲁特写法，带东八区偏移的任务、邮件、账单与工资不保留。
     """
     corpus = tmp_path / "corpora"
-    shutil.copytree(Path(__file__).resolve().parents[2] / "corpora", corpus)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     document = _document(SCENARIO)
     dataset = corpus / document["map_dataset"]["path"]
     dataset.write_text(json.dumps({**json.loads(dataset.read_text(encoding="utf-8")), "timezone": "Asia/Beirut"},
@@ -1000,7 +1002,7 @@ def test_resume_and_counterfactual_branches_follow_plan_submitted_dates(engine_f
     initial = engine.checkpoint(snapshots)
     settle_day_plans(engine, StubPlanDayClient(goals=[_goal("休息", "歇一会儿")]))
     planned = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
-    scenario_path = Path("scenarios") / SCENARIO
+    scenario_path = (ENVIRONMENT_ROOT / "scenarios") / SCENARIO
     restore_branch(engine.context.store, initial.checkpoint_id, tmp_path / 'resume', None).close()
     restore_branch(engine.context.store, planned.checkpoint_id, tmp_path / 'branch', {'branch_kind': 'counterfactual', 'intervention_sha256': 'a' * 64}).close()
     resumed = LifeEngine.open(scenario_path, tmp_path / "resume")

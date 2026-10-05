@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control
 from worldmock.life.guidance import DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal
@@ -338,7 +338,7 @@ def _claims(canonical: str, action: Mapping[str, Any], object_id: str, facts: Wo
         return frozenset()
     if canonical in {"chat", "call"}:
         return SOCIAL_RESOURCE_CLAIMS
-    view = default_affordances()
+    view = engine_affordances()
     kinds = [name for name, spec in view.kinds.items() if spec.action == canonical]
     if len(kinds) != 1:
         raise BusinessRuleError("ACTION_NOT_SUPPORTED")

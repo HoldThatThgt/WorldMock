@@ -17,7 +17,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from worldmock.catalog.affordances import (
     PROTOTYPE_GENERATORS,
     RESOURCE_CLAIM_SLOTS,
-    default_affordances,
+    engine_affordances,
     load_affordances,
 )
 from worldmock.life.activities import (
@@ -54,17 +54,6 @@ EXPECTED_CATALOG_FIELDS = {
     "play_game": ("game_catalog", "game_id"),
     "read_mail": ("messages", "message_id"),
     "browse": ("browse_targets", None),
-}
-EXPECTED_TITLE_SOURCES = {
-    "feature_film": ("movies/items.json", "item_id"),
-    "drama_series": ("drama/items.json", "item_id"),
-    "podcast_episode": ("podcasts/items.json", "item_id"),
-    "webnovel_excerpt": ("novels/items.json", "item_id"),
-    "subtitle_experience": ("sintel/media-identity.json", ""),
-    # M4：lifestyle 9 品类（条目名是 name_zh，标题注入按合同缺省不写）。
-    **{kind: ("lifestyle/items.json", "activity_id") for kind in (
-        "sport", "hobby", "outdoor", "wellness", "household", "learning",
-        "pet", "social", "volunteer")},
 }
 #: 现行习惯归并路由：（内部标准动作或工具名，人物所选方式，习惯家族）。start_activity 逐项按方式经私有绑定的
 #: 方式闭集（vocabulary.WAYS）映射为内部动作再归并（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「请求形状与
@@ -118,8 +107,8 @@ EXPECTED_RESOURCE_CLAIMS = {
 
 @pytest.fixture(scope="module")
 def view():
-    """@brief 仓库默认注册表的派生视图。"""
-    return default_affordances()
+    """@brief 引擎包通用注册表的派生视图。"""
+    return engine_affordances()
 
 
 def test_registry_entry_counts(view) -> None:
@@ -199,13 +188,17 @@ def test_energy_projection_is_gone_from_registry_and_observation_contract(view, 
         "unknown keys")
 
 
-def test_title_sources_match_content(view) -> None:
-    """@brief L2：标题来源映射 == 注册表派生（M2：字面字典已删，注册表即事实）。"""
+def test_registry_declares_no_environment_title_sources(view) -> None:
+    """@brief 标题由具体场景声明，通用注册表和内容模块不保存来源映射。"""
     import worldmock.life.content as content
 
-    assert view.title_sources == EXPECTED_TITLE_SOURCES
+    assert not hasattr(view, "title_sources")
     assert not hasattr(content, "TITLE_SOURCES")
-    assert content.default_affordances().title_sources == view.title_sources
+    for family in view.families.values():
+        for kind in family.content_kinds:
+            assert not hasattr(kind, "title_source")
+            assert not hasattr(kind, "corpus_path")
+            assert not hasattr(kind, "id_key")
 
 
 def test_attention_sampling_constants(view) -> None:
@@ -540,20 +533,20 @@ def test_unregistered_backlog_resource_rejected(tmp_path) -> None:
         "resource registry")
 
 
-def test_corpus_reference_must_exist(tmp_path) -> None:
-    """@brief 规则 2（语料半边）：提供 corpora_root 时 target_corpus 缺文件即拒绝；
-    文件在场则放行。"""
+def test_environment_corpus_reference_is_rejected(tmp_path) -> None:
+    """@brief 通用注册表不接受具体环境的语料路径声明。"""
     text = MINIMAL_TOML.replace(
         'target_discovery = "none"',
         'target_discovery = "browse_result"\ntarget_corpus = "lifestyle/items.json"')
-    path = tmp_path / "affordances.toml"
-    path.write_text(text, encoding="utf-8")
-    corpora = tmp_path / "corpora"
-    (corpora / "lifestyle").mkdir(parents=True)
-    from worldmock.errors import IntegrityError
+    _load_rejects(tmp_path, text, "target_corpus")
 
-    with pytest.raises(IntegrityError, match="target_corpus"):
-        load_affordances(path, corpora_root=corpora)
-    (corpora / "lifestyle/items.json").write_text("{}", encoding="utf-8")
-    assert load_affordances(path, corpora_root=corpora).kinds["wait"].target_corpus == \
-        "lifestyle/items.json"
+
+@pytest.mark.parametrize("source", ['"self_label"', '{ corpus_path = "movies/items.json", id_key = "item_id" }'])
+def test_environment_title_source_is_rejected(tmp_path, source) -> None:
+    """@brief 旧标题标签和语料定位声明都属于已删除的来源映射接口。"""
+    text = MINIMAL_TOML.replace(
+        'attention = { kind = "none" }',
+        'attention = { kind = "content_kind", sampling = "per_kind_top_n", per_kind = 1, pool_cap = 1 }')
+    text += ("\n[families.continue.content_kinds.feature_film]\n"
+             f"attention_required = true\ntitle_source = {source}\n")
+    _load_rejects(tmp_path, text, "title_source")

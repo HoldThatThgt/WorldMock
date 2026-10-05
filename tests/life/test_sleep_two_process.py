@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import math
 from pathlib import Path
 
@@ -563,7 +565,7 @@ class TestCurveValidation:
 @pytest.fixture(scope="module")
 def body_config():
     """读取正式场景组装后的身体配置。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 def raw_initial(hour: float, need: float, midsleep: float) -> float:
@@ -607,7 +609,7 @@ class TestInitialBodyFromUsualWake:
             document["agents"][0].update(chronotype_midsleep=4.75, sleep_need_hours=8.0,
                                          bedtime_window=[23.5, 24.5])
 
-        engine = _custom_engine("white-collar-12-weeks.json", lianqiu, tmp_path, run_id="lianqiu-start")
+        engine = _custom_engine("single-person.json", lianqiu, tmp_path, run_id="lianqiu-start")
         try:
             assert engine.context.scenario.start_at.hour == 0 and engine.context.scenario.start_at.minute == 0
             decision = context(engine, "first-look")

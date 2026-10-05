@@ -6,6 +6,11 @@
 > 范围：产品设计说明书的组织结构与阅读指引
 
 
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+
 <a name="readme-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
@@ -31,7 +36,7 @@
 每章改了什么见该章版本表，各章文件头注明该规格修订的状态。
 发布身份为世界状态 9、质量报告 4（阶段 2），场景 5、卡片 3 与 `card-v3`（阶段 3）；
 当时地图 3、目录 5.3、品类与规则绑定 3、导出清单 2、运行清单 2 不变。
-当前目录按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)发布为 5.4；其它上述格式版本不变。
+共享规则特性曾发布目录 5.4；当前场景结构为 6，具体环境及目录身份由 Dataset 发布清单绑定。
 该规格已实现；逐条证据、源码变异审查与门禁结果见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)，
 实现状态见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)。证据是离线测试；规格阶段 6 的配对全天复跑是计费的真实运行，
 只在用户要求时启动，未执行。
@@ -140,12 +145,12 @@ flowchart TB
 | 理解人物提示七层、记忆层与同秒续接 | [人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-七层请求) | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「调用并等待人物决策」→ [记录引擎](05-recording-engine.md#recording-engine-事件正文与资源证据)「事件正文与资源证据」→ [接口合同](../CONTRACTS.md#contracts-人物决策提示与生成参数)「人物决策提示与生成参数」 |
 | 理解个人事务怎样记下、跨日保留与办结 | [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二、三章 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「人物所见与可做之事」「依规则落实结算」「判断唤醒条件」→ [接口合同](../CONTRACTS.md#contracts-人物决策提示与生成参数)「人物决策提示与生成参数」 |
 | 理解下班与到家作息、场景工作安排与环境层上班安排 | [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第四章 | [模拟引擎](04-simulation-engine.md#simulation-engine-人物所见与可做之事)「初始化运行世界」「人物所见与可做之事」「接收当日目标并记录实际推进」→ [配置设计](08-configuration.md#configuration-工作安排声明) → [行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
-| 接入新的内容语料 | `03-resource-engine.md` | `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` → `catalog/README.md` |
+| 接入新的内容语料 | `03-resource-engine.md` | `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` → Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/README.md` |
 | 编译人物画像 | [人物画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译) | [人物与卡片合同](../CONTRACTS.md#contracts-人格与卡片字段) |
 | 理解记录、存储与恢复 | [记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | 事件、接口、分支、导出、诊断与验收均在同一文档 |
 | 对接 LabelKit | `06-delivery.md` | `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit` → LabelKit 文档 |
 | 设计评估指标 | `07-evaluation.md` | `VERIFICATION.md` → `EXPERIMENT.md` |
-| 配置实验场景 | `08-configuration.md` | `scenarios/` 示例 → `EXPERIMENT.md` |
+| 配置实验场景 | `08-configuration.md` | Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/` 示例 → `EXPERIMENT.md` |
 | 配置地点类与人物交互菜单 | [交互菜单规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单) | `08-configuration.md` → `04-simulation-engine.md` → `05-recording-engine.md` |
 | 解析输出数据 | `09-io-formats.md` | 记录引擎的事件与导出格式 → 数据交付格式 |
 | 追踪运行问题 | `05-recording-engine.md` | `scripts/inspect_run.py` |

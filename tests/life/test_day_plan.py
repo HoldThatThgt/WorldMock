@@ -1,5 +1,7 @@
 """当日目标登记、修订、实际推进与保存恢复合同。"""
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -325,7 +327,7 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
     engine.checkpoint({"agent:1": snapshot})
     directory = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), directory)
+    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", directory)
     try:
         assert restored.context.state.agents[1].day_plan == plan
         assert restored.scheduling_state().ready_agent_ids == (1,)

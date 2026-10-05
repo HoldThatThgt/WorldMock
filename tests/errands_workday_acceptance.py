@@ -1693,8 +1693,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     SourceMutation(
         "scenario_structure_four_admitted",
         'worldmock.life.scenario::LifeScenario',
-        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[5]\n',
-        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 5]\n',
+        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[6]\n',
+        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 6]\n',
         _STRUCTURE_FOUR_KILLERS,
     ),
     SourceMutation(

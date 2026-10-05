@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
@@ -419,7 +419,7 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
     """@brief 出行的路费（免费不写）、按出发时刻折算的时长与费力程度。"""
     route, seconds = _route(context, row["object_id"], action["travel_mode"])
-    key = default_affordances().met_lookup_key("travel", travel_mode=action["travel_mode"])
+    key = engine_affordances().met_lookup_key("travel", travel_mode=action["travel_mode"])
     effort = route_effort(context.semantics.body.activity_met[key])
     return {"price": money_phrase(route.fare_fen) if route.fare_fen > 0 else None,
             "duration": duration_phrase(seconds), "note": f"费力程度：{effort}"}

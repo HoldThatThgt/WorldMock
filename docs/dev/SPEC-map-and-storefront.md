@@ -9,6 +9,11 @@
 > 授权：本次任务要求审查提案、修订最终规格并完整实现。本文采用提案的建议产品范围，并纠正已失效的现状与业界判断。
 > 取代：[地图与门店供给提案](PROPOSAL-map-and-storefront.md)中待裁决的数据结构与实现范围。
 
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
+
 <a name="spec-map-and-storefront-产品行为与边界"></a>
 ## 产品行为与边界
 
@@ -58,7 +63,7 @@ flowchart LR
 运行时价格和库存不得从商品对象推断。
 运行期 `ProductConfig` 继承库存使用定义，保留 `category_id`、`inventory_unit`、规格与使用效果；不把报价或卖方塞回商品。
 
-当前实现使用目录 `5.4`、品类契约与交换规则绑定版本 `3`、地图结构 `3`、场景结构 `5`、世界结构 `9`。
+当前使用品类契约与交换规则绑定版本 `3`、地图结构 `3`、场景结构 `6`、世界结构 `9`；目录版本与摘要由 Dataset 清单绑定。
 本次首次受影响发布目标为目录 `5.0`、品类契约与交换规则绑定版本 `3`、场景结构 `4`、地图结构 `3`；世界结构 `8`
 保持现有字段形状。地图声明新增必填 `random_seed/category_assignment_sha256`，绑定生成种子与分类文件。
 独立阶段只更新受影响产物，料理及后续目录内容变更发布新版本；最终认证记录实际版本和摘要，禁止同版覆盖。
@@ -73,7 +78,7 @@ flowchart LR
 ## 按地点类别生成完整供给
 
 地点类别沿用 `LocationConfig.kind` 的现有词表，对象类别沿用品类契约的 `category_id` 与父子关系。
-分类声明保存在冻结 `corpora/zhangjiang-map/category-assignment.json`，同一文件分别声明地点类别准入池和每店实际供给，
+分类声明保存在冻结 Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json`，同一文件分别声明地点类别准入池和每店实际供给，
 不增加另一套地点或对象分类、供给引擎或运行策略层。
 文件恰含必填 `kinds/locations/source`：`kinds` 为现有地点 `kind` 到 `category_id` 数组的准入表，
 `locations` 为逐店声明数组；顶层与逐店 `source` 均复用完整 `DataSource`，不另造来源字符串。
@@ -450,7 +455,7 @@ WC 18:15 的第 3 轮一用完，购买就在受限轮被关闭，原因写得�
 <a name="tool-interaction-地点供给和价格-类别准入与逐店商品集合"></a>
 ### 类别准入与逐店商品集合
 
-同一冻结 `corpora/zhangjiang-map/category-assignment.json` 恰含 kinds、locations、source 三键：
+同一冻结 Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json` 恰含 kinds、locations、source 三键：
 kinds 为 kind 到 category_id 数组的准入表，locations 为逐店声明数组，source 沿用现有 DataSource。
 kind 使用现有 LocationConfig.kind，品类引用现有 category_id 并包含后代，由 is_descendant 判断。
 地点类别只决定允许售卖的范围，不把这个范围的全部对象复制到每一家店。
@@ -566,7 +571,7 @@ MapDataset 必填 random_seed、category_assignment_sha256，哈希同时绑定 
 | 权威文档 | `docs/CONTRACTS.md#contracts-worldmock-接口合同`、`docs/VERIFICATION.md#verification-worldmock-验收标准`、`docs/INDEX.md#index-worldmock-文档入口`、`docs/EXPERIMENT.md#experiment-worldmock-实验设置`、设计目录首页与 overview/architecture/exchange/resource/simulation/recording/configuration/io-formats |
 | 关联规格 | category-contract、life-runtime、life-realism、interaction-menu、decision-context 的购买身份、候选、工具、结构版本与来源条款；implementation-status 与 spec-coverage 台账 |
 | 品类与目录 | `src/worldmock/categories/rules.py`、`operators.py`、`src/worldmock/catalog/compiler.py`；正式契约、交换规则、对象与清单的新版本，保留库存转换与已解析商品使用合同 |
-| 数据与准入 | `corpora/zhangjiang-map/category-assignment.json`、按正式场景种子分别发布的地图供给集合、语料清单、许可通知、目录商品/合同、三份生活场景钉定引用、地图/目录/场景关系验证与准备脚本 |
+| 数据与准入 | Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json`、按正式场景种子分别发布的地图供给集合、语料清单、许可通知、目录商品/合同、数据仓三份生活场景钉定引用与制作工具；引擎验证地图/目录/场景关系 |
 | 运行时 | scenario、semantics、models、commerce、basket、travel、candidates、observe、engine、motivation、rhythm、scheduling、state_commit |
 | 人物边界 | tools 请求注册、LifeEnv、LifeAgent 动态 Schema/校验、interaction_menu、menu_execution、narration/projection |
 | 记录与交付 | 运行清单、footprints 存取与导出、checkpoint/branch、delivery manifest/trace validation 中受影响的身份及来源 |

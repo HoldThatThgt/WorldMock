@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import shutil
 from datetime import datetime
@@ -29,15 +31,15 @@ _DUE_TEXT = "2026-01-05T10:00:00+08:00"
 
 def _document(base_name: str) -> dict:
     """读入正式场景文档的可变深拷贝。"""
-    return json.loads((_PROJECT_ROOT / "scenarios" / base_name).read_text(encoding="utf-8"))
+    return json.loads((ENVIRONMENT_ROOT / "scenarios" / base_name).read_text(encoding="utf-8"))
 
 
 def _write_scenario(document: dict, tmp_path: Path) -> Path:
     """把改写文档与冻结目录复制到隔离结构中并返回路径。"""
-    document["corpus_root"] = relative_corpus(_PROJECT_ROOT / "corpora", tmp_path / "scenarios")
+    document["corpus_root"] = relative_corpus(ENVIRONMENT_ROOT / "corpora", tmp_path / "scenarios")
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir(parents=True)
-    shutil.copytree(_PROJECT_ROOT / "catalog", tmp_path / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
     path = scenarios / "custom.json"
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return path
@@ -133,8 +135,8 @@ def _midnight_epoch(date_text: str, timezone: str) -> int:
 
 def test_work_availability_reaches_only_the_assigned_person() -> None:
     """工作合同到期前只向场景指定的人物发布一次。"""
-    for name in ("multi-person.json", "white-collar-12-weeks.json"):
-        semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios" / name)
+    for name in ("multi-person.json", "single-person.json"):
+        semantics, _ = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios" / name)
         scenario = semantics.scenario
         start = int(scenario.start_at.timestamp())
         end = int(scenario.end_at.timestamp())
@@ -150,7 +152,7 @@ def test_work_availability_reaches_only_the_assigned_person() -> None:
 
 def test_calendar_flags_compile_at_local_midnight() -> None:
     """每个有旗标的自然日在场景时区 00:00 各一条，旗标名与观察侧一致。"""
-    semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/white-collar-12-weeks.json")
+    semantics, _ = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
     scenario = semantics.scenario
     start = int(scenario.start_at.timestamp())
     end = int(scenario.end_at.timestamp())
@@ -180,7 +182,7 @@ def test_calendar_flag_dispatch_is_zero_state_audit_event(tmp_path: Path) -> Non
     旗标在本地零点到期，该边界同时是零点计划边界：零点计划为每个人物登记新一天的计划
     （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章），除这项登记外世界不变。
     """
-    engine = _custom_engine("white-collar-12-weeks.json", lambda doc: None, tmp_path)
+    engine = _custom_engine("single-person.json", lambda doc: None, tmp_path)
     assert _environment_events(engine, "calendar_flag") == []
     due = _stage(engine, "calendar-2026-01-24")
     before = _bare_world(engine)
@@ -320,7 +322,7 @@ def test_payroll_insufficient_employer_refuses_without_crash(tmp_path: Path) -> 
 
 def _supply_for(product_id: str):
     """从正式地图取得具体集市供给，商品对象只提供规格。"""
-    semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/multi-person.json")
+    semantics, _ = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
     return next(item for item in semantics.scenario.supplies
                 if item.product_id == product_id and item.location_id == "market")
 
@@ -404,7 +406,7 @@ def test_document_rejects_price_change_for_undeclared_supply() -> None:
 def test_document_rejects_bill_with_undeclared_account() -> None:
     """文档校验拒绝引用未声明账户的账单。"""
     document = _document("multi-person.json")
-    document["corpus_root"] = str(_PROJECT_ROOT / "corpora")
+    document["corpus_root"] = str(ENVIRONMENT_ROOT / "corpora")
     document["bills"] = [{"bill_id": "ghost", "account_id": "agent:9",
                           "payee_account_id": "merchant:grocery", "amount_fen": 1,
                           "due_at": _DUE_TEXT}]
@@ -427,7 +429,7 @@ def test_price_change_requires_positive_amount_and_explicit_assumption_source() 
 def test_schedule_refs_cover_new_kinds_in_order() -> None:
     """目录准入引用只保留资金账户，供给调价独立接受地图关系准入。"""
     document = _document("multi-person.json")
-    document["corpus_root"] = str(_PROJECT_ROOT / "corpora")
+    document["corpus_root"] = str(ENVIRONMENT_ROOT / "corpora")
     document["bills"] = [{"bill_id": "b1", "account_id": "agent:1",
                           "payee_account_id": "merchant:grocery", "amount_fen": 5,
                           "due_at": "2026-01-05T09:30:00+08:00"}]
@@ -438,8 +440,8 @@ def test_schedule_refs_cover_new_kinds_in_order() -> None:
                                   "price_version": "v2", "amount_fen": 4_000, "source": _scheduled_source(),
                                   "due_at": "2026-01-05T09:50:00+08:00"}]
     parsed = LifeScenario.model_validate(document)
-    baseline, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/multi-person.json")
-    semantics = assemble_semantics(parsed, load_catalog(_PROJECT_ROOT / "catalog"), baseline.scenario.map_dataset)
+    baseline, _ = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
+    semantics = assemble_semantics(parsed, load_catalog(ENVIRONMENT_ROOT / "catalog"), baseline.scenario.map_dataset)
     refs = semantics.refs.schedule
     assert [(item.kind.value, item.account_id, item.object_id) for item in refs] == [
         ("bill_due", "agent:1", None),

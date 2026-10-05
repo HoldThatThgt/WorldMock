@@ -7,6 +7,8 @@ validate（validate_project 与 CLI）打印同一组警告，覆盖率低于 80
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
@@ -40,7 +42,7 @@ from worldmock.profile.injection import INPUT_WARNING_CODES, apply_scenario_rhyt
 from worldmock.profile.models import BigFiveProfile, HabitSignature, Tastes, persona_card_struct  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 _RHYTHM = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_window", "bedtime_window")
 #: WC 白领场景声明的作息（与卡片抽取值不同的中点、午餐与晚餐）。
 _WC_RHYTHM = {"chronotype_midsleep": 4.75, "sleep_need_hours": 8.0, "lunch_window": [12.0, 12.5],
@@ -153,7 +155,7 @@ def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[s
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     dataset_path = document["map_dataset"]["path"]
     corpus = tmp_path / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     places = json.loads((corpus / "zhangjiang-map/locations.json").read_text(encoding="utf-8"))
     next(item for item in places["locations"] if item["location_id"] == rename[0])["name"] = rename[1]
     routes = json.loads((corpus / "zhangjiang-map/routes.json").read_text(encoding="utf-8"))
@@ -172,7 +174,7 @@ def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[s
             entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
     document.update(corpus_root="../corpora", corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest))
     document["map_dataset"]["sha256"] = dataset_sha
-    shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
     (tmp_path / "scenarios").mkdir()
     path = tmp_path / "scenarios" / "map-variant.json"
     _rewrite(path, document)
@@ -192,7 +194,7 @@ def _phone_variant(tmp_path: Path, failure: str) -> Path:
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     dataset_path = document["map_dataset"]["path"]
     corpus = tmp_path / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus)
+    shutil.copytree(ENVIRONMENT_ROOT / "corpora", corpus)
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     sellers = {"merchant:grocery": "hema"}
     if failure == "seller-without-supply":
@@ -211,7 +213,7 @@ def _phone_variant(tmp_path: Path, failure: str) -> Path:
     pin = hashlib.sha256(b"phone config before regeneration").hexdigest() if failure == "stale-pin" else digest
     document.update(corpus_root="../corpora", corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest),
                     phone_simulation_config=_PHONE, phone_simulation_config_sha256=pin)
-    shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", tmp_path / "catalog")
     (tmp_path / "scenarios").mkdir()
     path = tmp_path / "scenarios" / "phone-variant.json"
     _rewrite(path, document)

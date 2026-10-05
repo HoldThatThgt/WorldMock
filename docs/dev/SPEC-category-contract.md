@@ -7,6 +7,11 @@
 > 裁决：依据用户要求，对 `docs/dev/PROPOSAL-category-contract.md` 完成实现前裁决；本规格取代该提案。
 > 范围：品类契约、属性继承、对象声明、配对准入、闭集交换算子、库存转换、细化建议、冻结身份及验证。
 
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
+
 <a name="spec-category-contract-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
@@ -55,7 +60,7 @@ flowchart LR
 <a name="spec-category-contract-冻结产物与品类树"></a>
 ## 冻结产物与品类树
 
-目录新增 `catalog/category-contract.json` 与 `catalog/exchange-rules.json`。
+Dataset 环境目录提供 `catalog/category-contract.json` 与 `catalog/exchange-rules.json`。
 契约含格式版本、契约版本、品类节点、属性槽位、属性增量和显式配对；不含结算公式。
 规则文件含格式版本、所绑定契约版本和规则。目录清单绑定两份产物的 SHA-256 与契约版本。
 读取时校验文件字节摘要，禁止同版本异内容静默生效。
@@ -250,17 +255,17 @@ closed 金额只能在既有账户间转移，不能由 source/drain 产生或�
 | --- | --- |
 | `src/worldmock/categories/` | 契约模型、严格来源、继承与槽位校验、稀疏配对、算子解析、细化与发布 |
 | `src/worldmock/catalog/` 的 `__init__.py`、`models.py`、`loader.py`、`compiler.py`、`builder.py`、`admission.py`、`inspect.py` | 原始对象增量、编译视图、绑定摘要、对象发布完整性及准入 |
-| `catalog/category-contract.json`、`catalog/exchange-rules.json`、`catalog/objects.jsonl`、`catalog/manifest.json` | 正式冻结数据与全部现有对象重新生成 |
-| `catalog/rules/travel-fare.toml`、`scripts/build_catalog.py` | 删除任意文本公式和代码里的品类密度窗；生成新格式 |
-| `catalog/resources.jsonl`、`catalog/rules/travel-time.toml` | 明确库存数量资源，出行时长改为数值配置 |
+| Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/` 中的契约、交换规则、对象和清单 | 正式冻结数据与全部现有对象重新生成 |
+| Dataset 的目录制作工具与环境交换规则 | 使用闭集交通计费算子；来源整理与目录生成在数据仓执行 |
+| Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/resources.jsonl`、`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/rules/travel-time.toml` | 明确库存数量资源，出行时长改为数值配置 |
 | `src/worldmock/life/semantics.py`、`scenario.py`、`engine.py`、`work.py`、`basket.py` | 真实准入、闭集结算、库存配方与运行身份 |
 | `src/worldmock/life/category_contract.py`、`inventory_recipe.py`、`run_identity.py`、`travel_time.py`、`activity_evidence.py`、`projection.py`、`rules.py` | 拆分品类准入、配方、身份、数值时长与事件证据；区分商店商品和持有库存 |
 | `src/worldmock/runtime.py`、`footprints/`、`delivery/` | 核查并按需要贯通恢复、导出与交付身份 |
-| `src/worldmock/cli.py`、`scenarios/*.json` | 品类维护命令、目录版本和配方输出绑定 |
+| `src/worldmock/cli.py`、Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/*.json` | 品类维护命令、目录版本和配方输出绑定 |
 | `tests/categories/`、`tests/catalog/`、`tests/life/`、`tests/integration/`、`tests/footprints/` | 反例、真实运行边界、恢复与导出测试 |
-| `tests/corpora/`、`tests/test_style_gate.py` | 语料对照有效对象与减少既有风格债务 |
-| `scripts/coverage_gate.py`、`scripts/migrate_scenarios.py` | 覆盖率产物路径与文档一致；删除过时场景迁移脚本 |
-| `docs/INDEX.md#index-worldmock-文档入口`、`CONTRACTS.md`、`ARCHITECTURE.md`、`EXPERIMENT.md`、`VERIFICATION.md`、`docs/design/`、`docs/dev/`、`catalog/README.md` | 规范、数据格式、职责、状态、测试追溯与来源一致性 |
+| `tests/corpora/`、`tests/test_style_gate.py` 与 Dataset 验收 | 引擎用人工树验证通用完整性；正式语料对照与来源验收归数据仓 |
+| `scripts/coverage_gate.py` | 覆盖率产物路径与文档一致；删除过时场景迁移脚本 |
+| `docs/INDEX.md#index-worldmock-文档入口`、`CONTRACTS.md`、`ARCHITECTURE.md`、`EXPERIMENT.md`、`VERIFICATION.md`、`docs/design/`、`docs/dev/`、Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/README.md` | 规范、数据格式、职责、状态、测试追溯与来源一致性 |
 
 <a name="spec-category-contract-验收与需求台账"></a>
 ## 验收与需求台账

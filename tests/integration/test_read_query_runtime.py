@@ -7,6 +7,8 @@
 覆盖率门禁只计主进程执行的行，变异执行器也只对主进程生效，所以四类缺一不可。
 """
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import inspect
 import os
 from pathlib import Path
@@ -30,7 +32,7 @@ from worldmock.life.schedule import PlanGoal
 from worldmock.life.world_query import QueryWorldRequest, query_world
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / 'scenarios' / 'white-collar-12-weeks.json'
+SCENARIO = ENVIRONMENT_ROOT / 'scenarios' / 'single-person.json'
 _ERROR_KEYS = {'error_code', 'reason', 'fix', 'items', 'unmet'}
 #: 真实 Ray 用例给 raylet 启动取系统配置的等待秒数（Ray 的 RAY_raylet_start_wait_time_s 配置，经子进程环境传入）。
 _RAYLET_START_WAIT_SECONDS = 180

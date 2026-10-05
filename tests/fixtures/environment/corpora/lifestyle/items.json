@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "items": [
+    {
+      "activity_id": "quiet-rest",
+      "name_zh": "安静休息",
+      "category": "rest",
+      "typical_duration_minutes": 15,
+      "description_zh": "在人工测试住处安静休息。",
+      "met_value": 1.0,
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 0,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.8,
+        "social": 0.1,
+        "health": 0.2
+      }
+    }
+  ]
+}

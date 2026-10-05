@@ -12,6 +12,21 @@
 [原提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md)保留为历史分析。
 [验收记录](dev/shared-rules-and-rebuildable-env-verification.md)集中登记实现、测试与变异证据。
 
+<a name="index-环境数据归属"></a>
+## 环境数据归属
+
+[环境数据归属规格](dev/SPEC-environment-data-ownership.md)定义双仓职责；实施与最终验收仍须核对对应收据。
+WorldMock-Dataset 在 `environment/zhangjiang-baseline/` 发布语料、目录和场景，并维护数据制作工具。
+WorldMock 安装包提供引擎和固定通用规则，通过显式场景路径加载环境；引擎仓只保留人工最小测试环境。
+
+```mermaid
+flowchart LR
+    D[WorldMock-Dataset：来源与制作工具] --> E[冻结环境：corpora、catalog、scenarios]
+    E -->|显式场景路径| W[WorldMock：加载与模拟]
+    P[WorldMock 安装包：固定通用规则] --> W
+    W --> R[运行记录、检查点与导出]
+```
+
 <a name="index-这是什么"></a>
 ## 这是什么
 
@@ -53,7 +68,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [人物画像](manual/personas.md#personas-人物画像) | 编写背景故事、作息、关系与人物初值，预览和校验卡片 |
 | [生活场景](manual/scenarios.md#scenarios-生活场景) | 自定义日期、人数、账户、菜单、任务、消息及预排事件 |
 | [世界素材](manual/resources.md#resources-定义地点门店供给与世界素材) | 准备地图、门店供给、商品、内容、语料和目录输入 |
-| [规则配置](manual/rules.md#rules-调整世界规则与人物动机参数) | 编写品类与交换规则，调整身体、动机和画像映射 |
+| [规则配置](manual/rules.md#rules-调整世界规则与人物动机参数) | 编写环境品类与交换规则，调整身体、交通和人物参数，理解包内固定通用规则 |
 | [运行配置](manual/runtime.md#runtime-运行配置) | 模型凭据、新建运行、恢复和反事实干预文件 |
 | [数据生成](manual/delivery.md#delivery-自定义训练数据交付) | LabelKit 项目、生成设置与规则测试数据 |
 | [真实性评估](manual/evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、人工参照和评审输入 |
@@ -75,6 +90,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [代码分层、文档测试解耦与测试分层提案](dev/PROPOSAL_2026-10-04_LAYERING_AND_TEST_TIERS.md) | 2026-10-04 可维护性评估第 1–3 项（按 `94595ca` 实测）：完整导入图（含函数内导入）的 17 处回边、无环守卫与 `LifeEngine` 拆分；现行文档的行号引用改为符号引用、突变锚点改为符号作用域、源码文本钉改为结构检查、已验收特性的增量规格合并后归档；按实测耗时把测试分成快速、标准与全量三层；不改变行为 | 未冻结提案 |
 | [共享规则单一归宿与可重建环境提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md) | 2026-10-04 历史分析（按 `94595ca` 实测）；已收敛为共享规则与可重建环境冻结规格，原机器状态不作为当前实现事实 | 未冻结提案 |
 | [让「等待」成为例外提案](dev/PROPOSAL_2026-10-05_IDLE_FILLERS.md) | 2026-10-04 五人共享世界运行的 43 次等待（按 `9cca694` 核对）：多数等的是到点没有决策机会的钟点，其余等的事到点会请人物决策而人物不知道；A 系统层第 7、14、15、16 条原位改写，B 零点计划模板第三、五、六条改写，C 班次与休息时段起止的四个唤醒原因；列出定稿文本、被改写的现行条款、指纹与完整日基线的影响、验收台账与变异清单、配对复跑指标，以及待用户裁决的十三项；不修改生产行为 | 未冻结提案 |
+| [环境数据归属规格](dev/SPEC-environment-data-ownership.md) | 正式环境与制作工具归数据仓；通用规则归引擎包；场景结构 6、环境标题与活动效果、显式环境加载及人工测试夹具 | FROZEN |
 | [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
 | [个人事务与工作安排规格](archive/errands-workday/SPEC-errands-workday.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护 | 归档 |
@@ -313,10 +329,11 @@ flowchart TB
 | `src/worldmock/life/` | 生活规则、身体、活动、社交、叙述 |
 | `src/worldmock/footprints/` | 事件存储、检查点与导出 |
 | `src/worldmock/profile/` | 人物卡片编译 |
-| `src/worldmock/corpora/` | 语料整理 |
+| `src/worldmock/corpora/` | 通用语料清单、地图与门店供给加载校验 |
+| `src/worldmock/data/` | 固定活动闭集、动机算法参数和人物映射包资源 |
 | `src/worldmock/delivery/` | LabelKit 交付 |
 | `src/worldmock/evaluation/` | 行为指标与协议门禁 |
-| `src/worldmock/catalog/` | 可供性注册表 |
+| `src/worldmock/catalog/` | 目录加载、校验与固定活动声明解析 |
 
 <a name="index-测试"></a>
 ### 测试
@@ -328,17 +345,18 @@ flowchart TB
 | `tests/integration/` | 跨模块集成与协议 |
 | `tests/delivery/` | LabelKit 交付行为 |
 | `tests/evaluation/` | 行为指标与协议门禁 |
-| `tests/catalog/` | 可供性注册表与目录数据 |
+| `tests/catalog/` | 固定活动声明与人工目录的加载行为 |
+| `tests/fixtures/environment/` | 引擎最小端到端的人工环境，不复制正式世界 |
 
 <a name="index-场景与配置"></a>
 ### 场景与配置
 
 | 路径 | 职责 |
 | --- | --- |
-| `scenarios/` | 实验场景定义 |
+| `WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/` | 数据仓的实验场景；单人物文件为 `single-person.json` |
 | `docs/manual/` | 当前可用配置的用户编写手册与校验示例 |
-| `corpora/` | 固化语料素材 |
-| `catalog/` | 目录注册表 |
+| `WorldMock-Dataset/environment/zhangjiang-baseline/corpora/` | 数据仓的固化语料、地图和来源 |
+| `WorldMock-Dataset/environment/zhangjiang-baseline/catalog/` | 数据仓的资源、商品、品类与环境系数 |
 | `labelkit-projects/` | LabelKit 项目配置 |
 
 <a name="index-状态与变更约定"></a>

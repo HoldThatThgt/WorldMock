@@ -9,6 +9,11 @@
 > 本规格全部实现、文档同步和验收属于本次开发，不设延期项；全项目既有真实实验门禁继续有效。
 > 「观察与人物工具」中控制工具参数形状与 `query_world` 参数的条款按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（2026-10-02，逐条作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业 IM2–IM6）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。工作安排是环境层呈现的事实，不进入交互菜单，不改 `allowed_actions`。
 
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
+
 <a name="spec-interaction-menu-心智模型"></a>
 ## 心智模型
 
@@ -197,7 +202,7 @@ flowchart LR
 | 提示字段 | `src/worldmock/life/narration.py` | 禁止观察工具支持菜单或整份地点声明被复制进 user |
 | 恢复身份 | `src/worldmock/runtime.py` | 在复制检查点分支之前拒绝场景身份漂移 |
 | 人物工具 | `custom/agents/life_agent.py`、`src/worldmock/life/models.py`、`session_actions.py`、`error_contract.py` | 删除动作数组、方式解析与菜单校验、固定只读查询派发、具体参数路径和合法约束 |
-| 场景输入 | `scenarios/white-collar-12-weeks.json`、`multi-person.json`、`multi-person-half-day.json` | 显式地点菜单及人物声明；`scenarios/evaluation.json` 是独立评估配置，不添加生活菜单 |
+| 场景输入 | Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json`、`multi-person.json`、`multi-person-half-day.json` | 显式地点菜单及人物声明；Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/evaluation.json` 是独立评估配置，不添加生活菜单 |
 | 行为证据 | 新增生活菜单与人物菜单测试；相关观察夹具、清单和恢复测试 | 准入、地点、人物、Schema、绕过、控制、身份、真实跨轮边界 |
 | 现行合同 | `docs/CONTRACTS.md#contracts-worldmock-接口合同`、`EXPERIMENT.md`、`VERIFICATION.md`；决策上下文、生活运行、人物规格 | 新字段、收窄顺序、身份与门禁 |
 | 设计文档 | `docs/design/01-architecture.md#architecture-worldmock-产品设计说明书-总体架构`、`03-resource-engine.md`、`04-simulation-engine.md`、`05-recording-engine.md`、`08-configuration.md`、`09-io-formats.md` | 对齐职责、声明、观察、执行、记录与输入；不复制完整合同 |

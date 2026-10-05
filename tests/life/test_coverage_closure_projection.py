@@ -24,7 +24,7 @@ from litellm import token_counter
 
 from tests.life.conftest import advance_next
 from tests.life.test_storefront_discovery import NOW, _location, _route, _source, _supply
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.categories import PairingState
 from worldmock.footprints.models import EventDraft
 from worldmock.life import discovery, presentation, prompt_capacity
@@ -289,7 +289,7 @@ def test_game_turn_stays_due_while_feedback_activities_realign_at_the_boundary(e
               "started_at": now, "planned_end_at": now + 7200, "last_settled_at": now, "elapsed_seconds": 0,
               "planned_duration_seconds": 7200, "next_interaction_at": turn, "origin_action_id": "act",
               "origin_decision_id": "dec", "origin_request_event_id": origin.event_id}
-    registry = default_affordances()
+    registry = engine_affordances()
     for identity, kind in (("game", ActivityKind.PLAY_GAME), ("wait", ActivityKind.WAIT)):
         state.activities[identity] = ActivityState(activity_id=identity, kind=kind,
                                                    resource_claims=set(registry.resource_claims(kind.value)),

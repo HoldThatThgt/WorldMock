@@ -1,3 +1,5 @@
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 """C4e 交付簇分支覆盖：pipeline 正反路径、编码往返、trace 校验、窗口边界、规则与训练门禁。
 
@@ -90,7 +92,7 @@ def _single_agent_export(tmp_path):
     """
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     initial_state = {'schema_version': WORLD_SCHEMA_VERSION, 'version': 0, 'current_time': 100}
     store = FootprintStore.create(tmp_path / 'run', manifest, initial_state)
@@ -126,7 +128,7 @@ def _replay_export_pair(tmp_path):
     """建立含完整动作的父导出与真实反事实分支导出。"""
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     initial_state = {'schema_version': WORLD_SCHEMA_VERSION, 'version': 0, 'current_time': 100}
     parent = FootprintStore.create(tmp_path / 'parent', manifest, initial_state)
@@ -337,7 +339,7 @@ def test_deliver_success_path_publishes_full_manifest(dataset_tmp_path, monkeypa
     assert manifest['schema_version'] == 2 and manifest['committed'] is True
     assert manifest['run_id'] == 'run' and manifest['source_group_id'] == 'run'
     assert manifest['map_dataset'] == map_provenance(
-        load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario)
+        load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario)
     assert set(manifest['labelkit']) == {'action', 'intent', 'dreaming', 'rules'}
     for task in SEMANTIC_TASKS:
         receipt = manifest['labelkit'][task]
@@ -959,7 +961,7 @@ def test_prepare_windows_rejects_export_without_any_task_window(tmp_path):
     """三类任务任一为空即拒绝（无人物可见事件的导出）。"""
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     store = FootprintStore.create(tmp_path / 'run', manifest, {'version': 0, 'current_time': 100})
     store.commit(store.state, [EventDraft(event_type='environment_event', occurred_at=100,
@@ -1206,7 +1208,7 @@ def test_replay_requires_visible_post_intervention_results(tmp_path):
     """干预后无人物可见结果的重演分支拒绝（无实际可见结果）。"""
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
@@ -1245,7 +1247,7 @@ def _replay_parts(tmp_path, *, request_override=None, second_intervention=False,
     """
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
@@ -1289,7 +1291,7 @@ def test_replay_requires_exactly_one_intervention(tmp_path):
     none_dir = tmp_path / 'no-intervention'
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     parent = FootprintStore.create(tmp_path / 'parent2', manifest, {'version': 0, 'current_time': 100})
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,

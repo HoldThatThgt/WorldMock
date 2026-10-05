@@ -155,6 +155,9 @@ def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutati
         command.extend(["--source", str(path)])
     command.extend(nodes)
     command.extend(["--basetemp", str(directory / "child")])
+    from tests.data_paths import ENVIRONMENT_ROOT
+
+    command.extend(["--environment-root", str(ENVIRONMENT_ROOT)])
     environment = {**os.environ, "AGENTSOCIETY_LLM_API_KEY": "test-only",
                    "MEM0_TELEMETRY": "False", "ANONYMIZED_TELEMETRY": "False",
                    "LITELLM_LOCAL_MODEL_COST_MAP": "True", "PYTHONUTF8": "1"}
