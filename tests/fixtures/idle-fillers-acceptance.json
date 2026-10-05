@@ -1,0 +1,104 @@
+{
+  "唤醒词表与同步点": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界同步点",
+    "tests": [],
+    "implementation": []
+  },
+  "清醒人物精确到点": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则",
+    "tests": [],
+    "implementation": []
+  },
+  "不结束活动、不写事件、不进提示": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则",
+    "tests": [],
+    "implementation": []
+  },
+  "睡眠": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则",
+    "tests": [],
+    "implementation": []
+  },
+  "没有工作安排的人不变": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界情形",
+    "tests": [],
+    "implementation": []
+  },
+  "重合、零点与日历": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界情形",
+    "tests": [],
+    "implementation": []
+  },
+  "落库、质量报告与恢复": {
+    "stage": "1",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制",
+    "tests": [],
+    "implementation": []
+  },
+  "系统层逐字": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层",
+    "tests": [],
+    "implementation": []
+  },
+  "第 7 条的事实有引擎证据": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层",
+    "tests": [],
+    "implementation": []
+  },
+  "旧读法不再出现": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层",
+    "tests": [],
+    "implementation": []
+  },
+  "夹具与查看器": {
+    "stage": "2",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-测试与夹具",
+    "tests": [],
+    "implementation": []
+  },
+  "模板逐字": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板",
+    "tests": [],
+    "implementation": []
+  },
+  "校验器与字段不变": {
+    "stage": "3",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板",
+    "tests": [],
+    "implementation": []
+  },
+  "完整日基线": {
+    "stage": "4",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-身份与基线",
+    "tests": [],
+    "implementation": []
+  },
+  "工程门禁": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-门禁与平台",
+    "tests": [],
+    "implementation": []
+  },
+  "文档一致性": {
+    "stage": "5",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-现行文档",
+    "tests": [],
+    "implementation": []
+  },
+  "复跑指标（只报告）": {
+    "stage": "6",
+    "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-配对复跑指标",
+    "tests": [],
+    "implementation": []
+  }
+}
