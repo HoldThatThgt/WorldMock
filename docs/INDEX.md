@@ -74,6 +74,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [未完成任务、人物行为约束与运行修复提案](archive/errands-workday/PROPOSAL_2026-10-02_TASK_MEMORY_AND_RUNTIME_FIXES.md) | 白领与商务两个人物全天运行证据（计数见 `docs/archive/errands-workday/2026-10-02-dayrun-review-evidence.json`）、业界研究、待办与作息方案、运行期间修复的入库建议及过时预检审查；已收敛为冻结规格 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，本文只保留设计背景、运行证据与取舍依据 | 归档 |
 | [代码分层、文档测试解耦与测试分层提案](dev/PROPOSAL_2026-10-04_LAYERING_AND_TEST_TIERS.md) | 2026-10-04 可维护性评估第 1–3 项（按 `94595ca` 实测）：完整导入图（含函数内导入）的 17 处回边、无环守卫与 `LifeEngine` 拆分；现行文档的行号引用改为符号引用、突变锚点改为符号作用域、源码文本钉改为结构检查、已验收特性的增量规格合并后归档；按实测耗时把测试分成快速、标准与全量三层；不改变行为 | 未冻结提案 |
 | [共享规则单一归宿与可重建环境提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md) | 2026-10-04 历史分析（按 `94595ca` 实测）；已收敛为共享规则与可重建环境冻结规格，原机器状态不作为当前实现事实 | 未冻结提案 |
+| [让「等待」成为例外提案](dev/PROPOSAL_2026-10-05_IDLE_FILLERS.md) | 2026-10-04 五人共享世界运行的 43 次等待（按 `9cca694` 核对）：多数等的是到点没有决策机会的钟点，其余等的事到点会请人物决策而人物不知道；A 系统层第 7、14、15、16 条原位改写，B 零点计划模板第三、五、六条改写，C 班次与休息时段起止的四个唤醒原因；列出定稿文本、被改写的现行条款、指纹与完整日基线的影响、验收台账与变异清单、配对复跑指标，以及待用户裁决的十三项；不修改生产行为 | 未冻结提案 |
 | [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
 | [个人事务与工作安排规格](archive/errands-workday/SPEC-errands-workday.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护 | 归档 |
@@ -400,3 +401,4 @@ flowchart TB
 | `2026-10-04-maintainability-proposals` | 2026-10-04 | 文档地图「特性规格与提案」登记两份未冻结提案：代码分层、文档测试解耦与测试分层提案，以及共享规则单一归宿与可重建环境提案。两者都不改变行为；按「权威层级」，裁决之前任何代码、测试与验收结论不得依赖其内容 |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项增量正文并回、历史原文归档、单一合同提示、机器验收台账及显式稳定标识；门禁覆盖全部现行文档和固定历史快照 |
+| `2026-10-05-idle-fillers-proposal` | 2026-10-05 | 文档地图「特性规格与提案」登记未冻结提案：让「等待」成为例外（系统层措辞、零点计划模板与班次边界唤醒）。它不改变行为；按「权威层级」，裁决之前任何代码、测试与验收结论不得依赖其内容 |
