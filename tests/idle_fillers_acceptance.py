@@ -24,7 +24,7 @@ IMPLEMENTATION_STAGES: frozenset[str] = frozenset({"1", "2", "3", "4", "5"})
 #: 只报告的阶段：台账行不登记测试与实现符号。
 REPORT_ONLY_STAGES: frozenset[str] = frozenset({"6"})
 #: 已完成的阶段，随每个阶段的提交增长。
-STAGES_DONE: frozenset[str] = frozenset({"1", "2"})
+STAGES_DONE: frozenset[str] = frozenset({"1", "2", "3"})
 
 #: 本特性新增或改动的生产文件，供延期标记与空壳函数扫描。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
@@ -36,6 +36,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/evaluation/workload_metrics.py",
     "tools/run-viewer.html",
     "custom/agents/life_prompt.py",
+    "src/worldmock/life/day_planning.py",
 )
 
 #: 本特性新增的测试文件与登记文件，供延期标记与空壳函数扫描。
@@ -77,9 +78,12 @@ MUTATION_ROWS: dict[str, dict] = {
         ("rule_14_clock_sentence_after_the_duty_sentence",),)},
     '第 16 条恢复「不必因此提早上床」': {"stage": '2', "clauses": (("rule_16_bedtime_reading_restored",),)},
     '第 15 条恢复「等平常的饭点再吃正餐」': {"stage": '2', "clauses": (("rule_15_meal_wait_reading_restored",),)},
-    '模板第三条去掉「几点去睡也不设提醒」': {"stage": '3', "clauses": ((),)},
-    '模板第五条恢复旧文': {"stage": '3', "clauses": ((),)},
-    '校验器拒绝例行意图且提醒为空的目标': {"stage": '3', "clauses": ((),)},
+    '模板第三条去掉「几点去睡也不设提醒」': {"stage": '3', "clauses": (("plan_template_rule_three_drops_bedtime_no_reminder",),)},
+    '模板第五条恢复旧文': {"stage": '3', "clauses": (("plan_template_rule_five_restores_the_old_text",),)},
+    '校验器拒绝例行意图且提醒为空的目标': {"stage": '3', "clauses": ((
+        "plan_validator_rejects_routine_goals_without_reminders",
+        "plan_remind_window_rejects_routine_goals_without_reminders",
+    ),)},
 }
 
 #: 经真实请求、引擎与 SQLite 的行为用例文件（T1–T15、T19、T20）与生成器、纯函数用例文件（T16、T17）的节点前缀。
@@ -181,6 +185,27 @@ _RULE_14_DUTY = ("环境层写了上班安排的日子，那是定下的安排�
 #: 只改插入句那一行：换成「上班安排一句再接插入句」并以条件表达式收住，其后两行原有的上班安排一句落进永不取值的
 #: else 分支；第 14 条因此以插入句结尾，上班安排一句仍只出现一次，其余各条与十八条的条数不变。
 _RULE_14_MOVED = f'"{_RULE_14_DUTY}{_RULE_14_CLOCK}" if True else'
+
+_DAY_PLANNING = "tests/life/test_day_planning.py::"
+#: 零点计划模板逐字用例：真实请求、接口合同与模块常量三者相等，第三、五、六条的新增断言（阶段 3）。
+_PLAN_TEMPLATE_KILLERS = (
+    _DAY_PLANNING + "test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times",
+)
+#: 例行意图且提醒为空的目标照常受理：新增的零点计划与修订用例，以及既有的零点计划用例（阶段 3）。
+_ROUTINE_GOAL_KILLERS = (
+    _DAY_PLANNING + "test_routine_goals_without_reminders_are_accepted_by_zero_hour_plan_and_revision",
+    _DAY_PLANNING + "test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried",
+)
+#: 改写前的模板第五条（变异把定稿换回它）。
+_PLAN_RULE_FIVE_BEFORE = ("五、人物档案的作息里已经有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒；"
+                          "写的时候写清楚哪里不同。")
+#: 零点计划与修订共用的清单校验把例行意图且提醒为空的目标逐条报错；models.py 不导入 ROUTINE_INTENT_KINDS，变异内联同一集合。
+_ROUTINE_GOALS_REJECTED = (
+    "    errors: list[Any] = [{\"type\": \"value_error\", \"loc\": (index, \"remind_time\"), \"input\": None,\n"
+    "                          \"ctx\": {\"error\": ValueError(\"routine goals require remind_time\")}}\n"
+    "                         for index, goal in enumerate(goals) if goal.remind_time is None\n"
+    "                         and goal.intent_kind in {\"睡眠\", \"晨间例程\", \"通勤\", \"用餐\"}]\n"
+)
 
 #: 规格「验收台账」变异表逐行落成的源码变异；变异名登记在 MUTATION_ROWS 的对应分句。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -336,6 +361,36 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         "正餐留到平常的饭点前后吃",
         "等平常的饭点再吃正餐",
         (_RETIRED_READINGS,),
+    ),
+    SourceMutation(
+        "plan_template_rule_three_drops_bedtime_no_reminder",
+        'worldmock.life.day_planning::PLAN_DAY_PROMPT',
+        "，几点去睡也不设提醒。",
+        "。",
+        _PLAN_TEMPLATE_KILLERS,
+    ),
+    SourceMutation(
+        "plan_template_rule_five_restores_the_old_text",
+        'worldmock.life.day_planning::PLAN_DAY_PROMPT',
+        ("五、人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标；"
+         "只写今天与平常不同的安排（写清楚哪里不同）、要办的事，以及照第三条要提醒的事。清单可以很短。"),
+        _PLAN_RULE_FIVE_BEFORE,
+        _PLAN_TEMPLATE_KILLERS,
+    ),
+    SourceMutation(
+        "plan_validator_rejects_routine_goals_without_reminders",
+        'worldmock.life.models::_validate_plan_goals',
+        "    errors: list[Any] = []\n",
+        _ROUTINE_GOALS_REJECTED,
+        _ROUTINE_GOAL_KILLERS,
+    ),
+    SourceMutation(
+        "plan_remind_window_rejects_routine_goals_without_reminders",
+        'worldmock.life.schedule::require_remind_window',
+        "    if goal.remind_at is not None and not now < goal.remind_at < day_end:\n",
+        ("    if (goal.remind_at is None and goal.intent_kind in ROUTINE_INTENT_KINDS) or (\n"
+         "            goal.remind_at is not None and not now < goal.remind_at < day_end):\n"),
+        _ROUTINE_GOAL_KILLERS,
     ),
 )
 

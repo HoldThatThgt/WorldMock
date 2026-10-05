@@ -3,7 +3,7 @@
 
 > 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 26 行修订（一日运行保真 VF1）：新增「一日运行保真特性门禁」，测试矩阵中补入该规格条款的十四行；该规格已全部实现并通过离线验收（证据见[一日运行保真验收记录](archive/dayrun-fidelity/dayrun-fidelity-verification.md)），这十四行已按实现改回 `离线覆盖`。
 > 个人事务与工作安排修订：随[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结，按其「实施计划」的冻结约定修订（个人事务与工作安排台账 VF2）：新增「个人事务与工作安排特性门禁」；该规格阶段 1–4（运行修复入库、个人事务与提示分工、作息与工作安排、查询筛选与返回精简）已实现，阶段 5 的全量测试、覆盖率门禁与独立源码变异审查已完成，离线验收的结果与证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)；阶段 6 配对全天复跑未执行（只报告，不作门禁）。测试矩阵已补入该规格条款。
-> 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「协议门禁」「报告项（Report-Only）」「测试矩阵」与「度量与下游」的「行为评估」（阶段 1）、「测试矩阵」（阶段 2）。
+> 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「协议门禁」「报告项（Report-Only）」「测试矩阵」与「度量与下游」的「行为评估」（阶段 1）、「测试矩阵」（阶段 2）、「度量与下游」的「首次受影响发布身份」（阶段 3）。
 > 日期：2026-10-05
 > 范围：放行门禁、report-only 边界、测试矩阵、验收原则、交付阶段与结论边界
 > 记录位置：实际通过的源码身份、命令与收据集中记录在 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`；本文件只定义判定方式与当前状态，不重复断言其通过
@@ -641,7 +641,8 @@ flowchart LR
 ### 首次受影响发布身份
 
 生产代码变更由 `code_sha256` 绑定；原生工具签名与查询字段变更由 `tool_schema_sha256` 绑定；
-系统层、七层 Schema 与模板合同的变更由 `prompt_sha256` 绑定；仓库场景输入变更由 `scenario_sha256` 绑定。
+两份系统层与七层 Schema 的变更由 `prompt_sha256` 绑定，零点计划与就寝反思的后台模板不在其内，只由 `code_sha256` 绑定；
+仓库场景输入变更由 `scenario_sha256` 绑定。
 提示和工具指纹由新建运行时的函数计算，不在仓库保存固定摘要常量。接口和字段形状改动同批更新键集、条数与版本断言。
 
 世界状态、场景、卡片与抽取提示、质量报告的当前结构边界以
@@ -843,3 +844,4 @@ flowchart LR
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 全量失败关闭、分层入口、完整节点回执、显式章节/源码定义及归档后真实验收状态 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1（班次与休息时段起止的唤醒）修订：「协议门禁」`silent_boundary_ratio` 的失败含义为静默续行边界占比过低、提供决策的边界过密，口径与阈值不变；「报告项（Report-Only）」的 `routine_deviation` 与「行为评估」写明容差 `tolerance_seconds` 等于播报间隔，是没有班次边界唤醒的运行里清醒且有进行中活动的人物在班次结束后首个决策机会的滞后上界，对修订前后两臂都成立，只写进报告、不作用于偏离值；测试矩阵「决策节律」「工作安排」两行补班次与休息时段起止的判据（清醒人物起止当秒得到机会、活动不被结束、不写事件、睡着的人没有因此产生的边界）与证据，表前说明补该规格改写的三行；文件头补该规格的修订说明；版本表并回此前被空行隔开的两行 |
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订：测试矩阵「七层提示」一行的括注写明第 7、14、15、16 条随等待例外原位改写（仍为 18 条，实际请求与接口合同唯一文本逐字相同），证据补 `tests/integration/test_seven_layer_request.py`、`tests/life/test_activity_wake_facts.py`、`tests/tools/test_run_viewer.py` 与该规格验收台账「系统层逐字」「第 7 条的事实有引擎证据」「旧读法不再出现」「夹具与查看器」；文件头修订说明补本阶段 |
+| `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）修订「度量与下游」的「首次受影响发布身份」：`prompt_sha256` 只绑定两份系统层与七层 Schema 的变更，零点计划与就寝反思的后台模板不在其内、只由 `code_sha256` 绑定，零点计划模板第三、五、六条的改写因此只改变 `code_sha256`；文件头修订说明补本阶段 |

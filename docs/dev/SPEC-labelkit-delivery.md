@@ -1,7 +1,7 @@
 <a name="spec-labelkit-delivery-特性规格数字足迹接入-labelkit"></a>
 # 特性规格：数字足迹接入 LabelKit
 
-> 状态：定稿冻结（FROZEN）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 18 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订「窗口构造规则」与验收矩阵「私有载体边界」（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 LK1–LK3、LK5）：决策提示的选取一句属更正既有表述；修订部分已实现并通过离线验收（该规格阶段 1 的就寝反思请求改带严格工具、阶段 2 的 `errands` 投影与个人事务事件；证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。数字足迹接入 LabelKit 的输入范围、加工责任、来源关联、信息范围、交付产物、长序列与数据划分，以及真实调用的生产与验证步骤以本规格为准；实现状态见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「下游」（阶段 1、阶段 2）。
+> 状态：定稿冻结（FROZEN）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 18 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订「窗口构造规则」与验收矩阵「私有载体边界」（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 LK1–LK3、LK5）：决策提示的选取一句属更正既有表述；修订部分已实现并通过离线验收（该规格阶段 1 的就寝反思请求改带严格工具、阶段 2 的 `errands` 投影与个人事务事件；证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。数字足迹接入 LabelKit 的输入范围、加工责任、来源关联、信息范围、交付产物、长序列与数据划分，以及真实调用的生产与验证步骤以本规格为准；实现状态见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「下游」（阶段 1、阶段 2、阶段 3）。
 > 日期：2026-10-05
 > 实施基线：`9b7fbc8`
 > 范围：`worldmock deliver` 从认证导出到不可变交付清单的全部加工与验证行为，`src/worldmock/delivery/` 与 `labelkit-projects/` 的模块行为，以及 `tests/delivery/` 覆盖的验收行为。
@@ -300,7 +300,7 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
   `submit_reflection` 与反思文案不进这两个指纹，由 `code_sha256` 绑定。地图 3、目录 5.3、品类合同与规则绑定 3、导出清单 2、运行清单 2、
   行为评估结构标识 `behavior-metrics-1` 与 AS2 锁定摘要不变。
   [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次边界唤醒（阶段 1）只改变 `code_sha256`：`prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4、场景结构 5、交付清单与 AS2 锁定摘要都不变。
-  [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的系统层第 7、14、15、16 条原位改写（阶段 2，仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变；`tool_schema_sha256`、世界结构 9 与场景结构 5 不变。
+  [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的系统层第 7、14、15、16 条原位改写（阶段 2，仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变；`tool_schema_sha256`、世界结构 9 与场景结构 5 不变；零点计划模板第三、五、六条的改写（阶段 3）只改变 `code_sha256`。
 
 <a name="dayrun-fidelity-下游与质量报告"></a>
 ## 下游与质量报告
@@ -365,3 +365,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订「下游」：「质量与指标」写明唤醒原因分桶把 `errand_reminder_due` 与新增的 `shift_start`、`shift_end`、`break_start`、`break_end` 都计入已知原因（分桶直接读足迹侧词表）；「版本」补：班次边界唤醒只改变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4、场景结构 5、交付清单与 AS2 锁定摘要都不变；状态行末补修订说明；版本表并回表外的末两行 |
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 修订「下游」：「版本」补独立一句，系统层第 7、14、15、16 条原位改写（仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9 与场景结构 5 不变；状态行末的修订说明补本阶段 |
+| `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订「下游」：「版本」在系统层改写一句之后补半句，零点计划模板第三、五、六条的改写只改变 `code_sha256`；状态行末的修订说明补本阶段 |

@@ -199,14 +199,33 @@
   "模板逐字": {
     "stage": "3",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times",
+      "tests/life/test_day_planning.py::test_plan_template_first_line_and_rule_eight_are_the_contract_text",
+      "tests/life/test_day_planning.py::test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched"
+    ],
+    "implementation": [
+      "src/worldmock/life/day_planning.py::PLAN_DAY_PROMPT",
+      "src/worldmock/life/day_planning.py::prepare_plan_day"
+    ]
   },
   "校验器与字段不变": {
     "stage": "3",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_day_planning.py::test_routine_goals_without_reminders_are_accepted_by_zero_hour_plan_and_revision",
+      "tests/life/test_day_planning.py::test_goal_time_schema_and_todo_rendering_stay_and_the_template_is_outside_both_fingerprints",
+      "tests/life/test_day_planning.py::test_zero_hour_plan_items_carry_around_time_and_a_malformed_one_is_retried"
+    ],
+    "implementation": [
+      "src/worldmock/life/day_planning.py::parse_plan_day",
+      "src/worldmock/life/schedule.py::registered_goals",
+      "src/worldmock/life/schedule.py::require_remind_window",
+      "src/worldmock/life/schedule.py::ROUTINE_INTENT_KINDS",
+      "src/worldmock/life/models.py::PlanGoalInput",
+      "src/worldmock/life/models.py::_validate_plan_goals",
+      "src/worldmock/life/todo_layer.py::_day_plan"
+    ]
   },
   "完整日基线": {
     "stage": "4",
