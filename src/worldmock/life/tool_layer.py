@@ -23,7 +23,7 @@ from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_por
 from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.control_items import CONTROL_TOOLS
-from worldmock.life.durations import derived_activity_duration
+from worldmock.life.durations import content_remaining_seconds, derived_activity_duration
 from worldmock.life.discovery import DiscoveryContext, place_row
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
 from worldmock.life.vocabulary import GIVE_WAY
@@ -412,6 +412,11 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
         held = agent.inventory.get(row.get("location_id") or agent.location_id, {}).get(product.product_id, 0)
         portion, seconds = meal_portion(product, action["use_mode"], held)
         return {**facts, "duration": duration_phrase(seconds), "quantity": portion_phrase(portion)}
+    if canonical == "watch":
+        item = context.rules.content(row["object_id"])
+        progress = context.state.agents[context.agent_id].content_progress.get(item.item_id)
+        seconds = content_remaining_seconds(item, progress)
+        return {**facts, "duration": duration_phrase(seconds)}
     seconds = _facts_seconds(context, row, action)
     return {**facts, "duration": duration_phrase(seconds) if seconds is not None and seconds >= 60 else None}
 
