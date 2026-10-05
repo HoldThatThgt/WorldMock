@@ -134,6 +134,19 @@ def test_complete_assortments_have_actual_stock_and_required_richness(kind: str)
         validate_assortments(incomplete, catalog)
 
 
+def test_assortment_excludes_unselected_same_category_products() -> None:
+    """@brief 同类商品在总目录中存在，也不能混入门店未选中且未供给的商品集合。"""
+    catalog = _catalog("restaurant", 2)
+    dataset = _redeclared(_dataset(catalog, "restaurant"), object_ids=("product-0",))
+    dataset = dataset.model_copy(update={"supplies": (dataset.supplies[0],)})
+    declaration = dataset.category_assignment.locations[0]
+    assert catalog.objects["product-0"].category_id == catalog.objects["product-1"].category_id
+    assert "product-1" not in declaration.object_ids
+    selected = assortment_objects(declaration, catalog)
+    assert selected == frozenset({"product-0"})
+    assert selected == {supply.product_id for supply in dataset.supplies}
+
+
 @pytest.mark.parametrize("kind", sorted(_MINIMUMS))
 def test_underfilled_assortments_are_rejected(kind: str) -> None:
     """@brief 完整供给也不能发布低于显式丰富度门槛的商品集合。"""

@@ -204,7 +204,11 @@
 | 覆盖与耗时 | [覆盖与耗时](docs/dev/SPEC-layering-and-test-tiers.md#layering-runner) | `tests/test_coverage_gate.py::test_gate_uses_the_current_interpreter_and_the_shared_full_runner`<br>`tests/test_coverage_gate.py::test_missing_coverage_json_fails_closed`<br>`tests/test_test_tiers.py::test_duration_report_covers_phases_slow_fast_tests_and_file_totals`<br>`tests/test_test_tiers.py::test_changed_engine_time_is_separate_from_default_fast_reference`<br>`tests/test_test_tiers.py::test_real_parallel_coverage_is_combined_for_the_current_normal_source` |
 | 文档设计一致 | [文档设计一致](docs/dev/SPEC-layering-and-test-tiers.md#layering-consistency) | `tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current`<br>`tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve` |
 
-完整日行为基线在 `tests/fixtures/dayrun-layering-baseline.json`：职责搬移前重复两次生成的日签名完全一致；职责搬移后必须重新走真实完整日，与原签名逐字节比较。`tests/fixtures/mutation-symbol-baseline.json` 保存原有 147 项变异的搬移前生成字节；生成等价不替代变异执行与基线成功。标准层墙钟采用相同源码、节点集合、环境和 worker 数的标准层实测，不能拿全量层部分耗时替代。
+分层与共享规则的完整日历史基线保持原始字节。当前结构 6 的完整日重新执行全部业务断言，逐字段核对真实
+存储与完整导出，并重建时间线比较全部正文；正式输入冻结与逐字节重建归数据仓，新旧格式输出不作摘要相同
+的声明。`tests/fixtures/mutation-symbol-baseline.json` 保存原有 147 项变异的搬移前生成字节；生成等价不替代
+变异执行与基线成功。标准层墙钟采用相同源码、节点集合、环境和 worker 数的标准层实测，不能拿全量层部分
+耗时替代。
 
 <a name="analysis-spec-coverage-其他现行特性的证据归属"></a>
 ## 其他现行特性的证据归属

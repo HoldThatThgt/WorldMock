@@ -6961,7 +6961,7 @@
     },
     {
       "source_path": "scenarios/white-collar-12-weeks.json",
-      "destination_path": "environment/zhangjiang-baseline/scenarios/white-collar-12-weeks.json",
+      "destination_path": "environment/zhangjiang-baseline/scenarios/single-person.json",
       "source_blob": "4ddffcea352e130654a3611f78936ffb417d3ee9",
       "size_bytes": 249593,
       "sha256": "b60417d044fc76fbe341f533b07f95b28a9646092ee2b46b918ec7dd05bb9054"
@@ -6972,5 +6972,23 @@
   "source_repository": "WorldMock",
   "destination_repository": "WorldMock-Dataset",
   "contract": "SPEC-environment-data-ownership.md",
-  "delivery_state": "engine_boundary_implemented_dataset_receipt_pending"
+  "delivery_state": "dataset_received",
+  "dataset_receipt": "execution/2026-10-06-environment-ownership/preparation.json",
+  "published_environment": {
+    "catalog_version": "5.5",
+    "life_scenario_schema_version": 6,
+    "unchanged_source_files": 986,
+    "unchanged_corpus_files": 976,
+    "changed_source_files": {
+      "catalog/README.md": "Document data ownership and current preparation commands.",
+      "catalog/affordances.toml": "Freeze the canonical engine package resource.",
+      "catalog/manifest.json": "Bind the current publication and source rule bytes.",
+      "catalog/objects.jsonl": "Update the moved preparation source artifact paths.",
+      "catalog/rules/motivation.toml": "Freeze the canonical engine package resource.",
+      "catalog/snapshots/traffic/weekday-hour-factors.json": "Update the moved calibration script path; factors unchanged.",
+      "scenarios/multi-person-half-day.json": "Publish schema 6 and source metadata titles with current catalog identity.",
+      "scenarios/multi-person.json": "Publish schema 6 and source metadata titles with current catalog identity.",
+      "scenarios/white-collar-12-weeks.json": "Publish as single-person.json with schema 6, titles and current catalog identity."
+    }
+  }
 }

@@ -66,6 +66,7 @@ BEHAVIOR = {
     ),
     '类别供给': (
         'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_and_required_richness',
+        'tests/corpora/test_storefront_release.py::test_assortment_excludes_unselected_same_category_products',
         'tests/corpora/test_storefront_release.py::test_every_published_product_can_really_be_bought_at_its_store',
         (
             'tests/corpora/test_storefront_release.py::test_restaurant_menu_pairs_require_distinct_dishes'
@@ -219,10 +220,7 @@ MUTATIONS += (
         'return frozenset(expanded | set(assortment.object_ids))',
         'return frozenset(obj.object_id for obj in catalog.objects.values() if obj.object_kind.value == "product")',
         (
-            (
-                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_'
-                'and_required_richness'
-            ),
+            'tests/corpora/test_storefront_release.py::test_assortment_excludes_unselected_same_category_products',
         ),
     ),
     SourceMutation(

@@ -442,6 +442,43 @@ def test_malformed_toml_rejected(tmp_path) -> None:
     _load_rejects(tmp_path, "version = 1\nkinds = [", "malformed")
 
 
+def test_non_utf8_registry_rejected(tmp_path, monkeypatch, caplog) -> None:
+    """@brief 显式选择的注册表无法按 UTF-8 解码时须拒绝，不能改读包内规则。"""
+    from worldmock.errors import IntegrityError
+
+    monkeypatch.chdir(tmp_path)
+    path = Path("selected-rules.toml")
+    path.write_bytes(MINIMAL_TOML.encode("utf-8") + b"\xff")
+    with pytest.raises(IntegrityError, match="Affordance registry cannot be read") as caught:
+        load_affordances(path)
+    assert isinstance(caught.value.__cause__, UnicodeDecodeError)
+    assert any("Affordance registry cannot be read" in message for message in caplog.messages)
+    assert all(message.isascii() for message in caplog.messages)
+
+
+def test_registry_read_failure_rejected(tmp_path, monkeypatch, caplog) -> None:
+    """@brief 显式文件存在但读取失败时保留原始故障并记录错误，不能返回其他注册表。"""
+    from worldmock.errors import IntegrityError
+
+    path = tmp_path / "selected-rules.toml"
+    path.write_text(MINIMAL_TOML, encoding="utf-8")
+    original_read = Path.read_text
+    failure = PermissionError("Access denied to explicitly selected rule registry")
+
+    def read(selected, **kwargs):
+        """@brief 模拟目标文件打开时的跨平台读取故障，其他文件保持真实读取。"""
+        if selected == path:
+            raise failure
+        return original_read(selected, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(IntegrityError, match="Affordance registry cannot be read") as caught:
+        load_affordances(path)
+    assert caught.value.__cause__ is failure
+    assert any("Access denied to explicitly selected rule registry" in message for message in caplog.messages)
+    assert all(message.isascii() for message in caplog.messages)
+
+
 def test_wrong_version_rejected(tmp_path) -> None:
     """@brief 版本：version != 1 即拒绝。"""
     _load_rejects(tmp_path, MINIMAL_TOML.replace("version = 1", "version = 2"), "version")
