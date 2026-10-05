@@ -9,6 +9,9 @@ decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际�
 唤醒原因。滞回参照=上次实际提供决策时的分级（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「滞回规则」）。
 个人事务的提醒时刻只对清醒人物进入下一决策候选；判定为清醒人物提供决策的边界交付其全部到点的事务提醒
 （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）；未完成事务不计入在手承诺（裁决 E6）。
+班次与休息时段的起止（life.duty_edges）恰在边界时在唤醒判定里记对应成员；严格晚于此刻的起止进入下一决策候选
+（睡眠中由 schedule.next_decision_time 剔除），清醒人物的起止另由 awake_duty_edge_times 进入下一时钟边界的候选，
+睡眠判定复用 is_asleep（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD, validate_decision_rhythm
+from worldmock.life import duty_edges
 from worldmock.life import errands
 from worldmock.life import felt
 from worldmock.life import reminders
@@ -224,6 +228,7 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
             next_progress_report_at=_next_progress_report_at(agent, state, inputs.progress_report_interval_seconds),
             plan_reminder_times=reminders.reminder_times(agent, state.current_time),
             errand_reminder_times=errands.reminder_times(agent, state.current_time),
+            duty_edge_times=duty_edges.edge_times_after(inputs.scenario, agent.agent_id, state.current_time),
             is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
         )
     )
@@ -374,6 +379,17 @@ def is_asleep(state: WorldState, agent_id: int) -> bool:
     @param agent_id 人物身份
     """
     return any(item.kind == ActivityKind.SLEEP for item in active_activities(state, agent_id))
+
+
+def awake_duty_edge_times(state: WorldState, scenario: RuntimeScenario) -> list[int]:
+    """@brief 下一时钟边界的班次与休息时段起止候选：每个清醒人物（is_asleep 为假）严格晚于此刻的起止时刻；睡眠中的
+    人物不计入，不形成静默边界，睡过的起止醒来后不补（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
+
+    @param state 世界状态
+    @param scenario 运行场景（人物的工作安排与时区）
+    """
+    return [moment for agent_id in state.agents if not is_asleep(state, agent_id)
+            for moment in duty_edges.edge_times_after(scenario, agent_id, state.current_time)]
 
 
 def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
@@ -542,6 +558,7 @@ def _wake_snapshot(
         no_active_activity=not activities,
         plan_reminder_due=reminders.reminder_due(agent, now),
         errand_reminder_due=bool(errands.reminders_due(agent, now)),
+        duty_edges_now=duty_edges.edges_at(inputs.scenario, agent.agent_id, now),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 

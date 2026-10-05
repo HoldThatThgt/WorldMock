@@ -669,7 +669,7 @@ test('decision starts show their wake reasons from the frozen vocabulary', t => 
   const models = readFileSync(path.join(__dirname, '../../src/worldmock/footprints/models.py'), 'utf8');
   const vocabulary = models.match(/WAKE_REASON_NAMES = frozenset\(\{([\s\S]*?)\}\)/)[1];
   const names = [...vocabulary.matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
-  assert.equal(names.length, 21);
+  assert.equal(names.length, 25);
   const due = epoch + 3600;
   const view = viewer([
     event('decision_started', {round_order: 0, wake_reasons: ['run_start']}),

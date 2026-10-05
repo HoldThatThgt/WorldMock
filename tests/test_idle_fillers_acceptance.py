@@ -6,9 +6,11 @@
           与变异表分别与登记一一对应且顺序相同，阶段列与登记相等；每行的规格锚点存在；已完成阶段的行列出会被收集、未被跳过、
           不是空壳的测试节点与解析到真实定义的实现符号，被引用的行为用例都有节点；只报告的阶段不登记节点；已完成阶段的变异
           表每个分句至少一个变异；特性文件存在、不重复，特性文件与登记了节点的测试文件里没有延期标记与空壳函数；每个变异名字
-          唯一，落在主进程执行的生产模块上，原文在所登记的定义内恰好出现一次、变异后可编译，杀手是登记在台账某一行的行为用例。
+          唯一，落在主进程执行的生产模块上，原文在所登记的定义内恰好出现一次、变异后可编译，杀手是登记在台账某一行的行为用例；
+          全部杀手用例在未变异的源码上先通过，随后每个变异被杀死（退出码 1，没有收集错误）。
 @note     表格解析取规格正文的稳定章节；节点解析、延期标记正则与空壳判定取自共用模块 tests/acceptance_guard.py；符号解析
-          取自文档门禁。变异的执行判定随阶段 1 的变异登记加入，「实施阶段全部完成」的判定随阶段 5 收尾加入。
+          取自文档门禁；变异执行取自共用模块 tests/mutation_runner.py（回执目录与既有两个登记分开），按变异参数化的执行
+          用例由分层机制自动标为变异层。「实施阶段全部完成」的判定随阶段 5 收尾加入。
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from __future__ import annotations
 import ast
 import json
 import re
+
+import pytest
 
 from scripts.documentation_gate import symbol_problem
 from scripts.documentation_refs import section_text
@@ -32,6 +36,7 @@ from tests.idle_fillers_acceptance import (
     REPORT_ONLY_STAGES,
     STAGE_IDS,
     STAGES_DONE,
+    run_behavior,
 )
 from tests.mutation_runner import REPO_ROOT, mutated_source, source_location
 
@@ -231,3 +236,23 @@ def test_mutation_rows_match_the_spec_table_and_cover_done_stages() -> None:
         names.extend(name for clause in entry["clauses"] for name in clause)
     assert sorted(names) == sorted(mutation.name for mutation in MUTATIONS)
     assert len(names) == len(set(names))
+
+
+@pytest.fixture(scope="session")
+def idle_fillers_mutation_baseline(tmp_path_factory):
+    """同一源码上全部杀手用例必须先通过，随后才运行各个独立变异。"""
+    directory = tmp_path_factory.mktemp("idle-fillers-baseline")
+    result = run_behavior(tuple(_killer_nodes()), directory)
+    (directory / "baseline-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert result["exit_code"] == 0, result["stdout"] + result["stderr"]
+    return result
+
+
+@pytest.mark.parametrize("mutation", MUTATIONS, ids=lambda mutation: mutation.name)
+def test_idle_fillers_source_mutation_is_killed(mutation, idle_fillers_mutation_baseline, tmp_path):
+    """每个非等价源码变异必须被行为断言杀死；未执行、存活、收集错误均不放行。"""
+    result = run_behavior(mutation.tests, tmp_path, mutation)
+    (tmp_path / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert result["original_sha256"] != result["mutated_sha256"]
+    assert result["exit_code"] == 1, result["stdout"] + result["stderr"]
+    assert "failed" in result["stdout"] and "ERROR collecting" not in result["stdout"]

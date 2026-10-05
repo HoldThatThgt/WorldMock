@@ -2,44 +2,133 @@
   "唤醒词表与同步点": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界同步点",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edges.py::test_duty_edge_members_follow_errand_reminder_due_and_stay_out_of_sleep",
+      "tests/life/test_shift_edges.py::test_each_duty_edge_member_is_filtered_while_asleep",
+      "tests/life/test_shift_edges.py::test_awake_snapshot_with_every_condition_lists_the_declaration_order",
+      "tests/life/test_shift_edges.py::test_next_decision_time_takes_duty_edges_only_while_awake",
+      "tests/life/test_wake_reasons.py::test_concrete_wake_reasons_are_preserved",
+      "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
+      "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
+      "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
+      "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
+      "tests/life/test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately",
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+    ],
+    "implementation": [
+      "src/worldmock/life/schedule.py::WakeReason",
+      "src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS",
+      "src/worldmock/life/schedule.py::DUTY_EDGE_REASONS",
+      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES"
+    ]
   },
   "清醒人物精确到点": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edge_runs.py::test_t1_a_waiting_person_is_asked_exactly_at_the_shift_end_and_the_wait_goes_on",
+      "tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status",
+      "tests/life/test_shift_edge_runs.py::test_t10_a_game_turn_after_the_edge_does_not_hide_the_edge_from_the_clock",
+      "tests/life/test_shift_edge_runs.py::test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget"
+    ],
+    "implementation": [
+      "src/worldmock/life/duty_edges.py::duty_edges",
+      "src/worldmock/life/duty_edges.py::edges_at",
+      "src/worldmock/life/duty_edges.py::edge_times_after",
+      "src/worldmock/life/schedule.py::evaluate_wake_reasons",
+      "src/worldmock/life/schedule.py::_clock_reasons",
+      "src/worldmock/life/schedule.py::next_decision_time",
+      "src/worldmock/life/rhythm.py::_wake_snapshot",
+      "src/worldmock/life/rhythm.py::next_decision_candidates",
+      "src/worldmock/life/rhythm.py::awake_duty_edge_times",
+      "src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._next_epoch"
+    ]
   },
   "不结束活动、不写事件、不进提示": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edge_runs.py::test_t3_edges_end_no_activity_write_no_new_kind_and_keep_the_shift_in_the_environment_layer",
+      "tests/life/test_shift_edge_runs.py::test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused",
+      "tests/life/test_shift_edge_runs.py::test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused",
+      "tests/life/test_shift_edge_runs.py::test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused",
+      "tests/life/test_shift_edge_runs.py::test_t12_in_a_game_the_turn_stays_and_the_game_only_stops_at_its_own_turn",
+      "tests/life/test_shift_edge_runs.py::test_t13_an_around_time_is_still_not_a_boundary"
+    ],
+    "implementation": [
+      "src/worldmock/life/schedule.py::WakeSnapshot",
+      "src/worldmock/life/schedule.py::evaluate_wake_reasons",
+      "src/worldmock/life/rhythm.py::decide_decision_rhythm",
+      "src/worldmock/life/rhythm.py::decide_engine_rhythm",
+      "src/worldmock/life/activities.py::end_sleep_by_reminder"
+    ]
   },
   "睡眠": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edge_runs.py::test_t4_a_sleeper_has_no_edge_boundaries_and_slept_edges_are_not_made_up",
+      "tests/life/test_shift_edge_runs.py::test_t5_of_two_people_on_one_shift_only_the_awake_one_is_asked_and_the_sleeper_sleeps_on",
+      "tests/life/test_shift_edge_runs.py::test_t19_an_alarm_at_the_shift_start_keeps_the_edge_after_the_reminder",
+      "tests/life/test_shift_edge_runs.py::test_t19_a_run_starting_on_a_shift_start_records_only_run_start"
+    ],
+    "implementation": [
+      "src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS",
+      "src/worldmock/life/schedule.py::evaluate_wake_reasons",
+      "src/worldmock/life/schedule.py::next_decision_time",
+      "src/worldmock/life/rhythm.py::is_asleep",
+      "src/worldmock/life/rhythm.py::awake_duty_edge_times",
+      "src/worldmock/life/time_advance.py::TimeAdvanceCoordinator._advance_one_activity"
+    ]
   },
   "没有工作安排的人不变": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界情形",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edge_runs.py::test_t6_people_without_a_schedule_get_no_edges_and_never_take_anothers"
+    ],
+    "implementation": [
+      "src/worldmock/life/duty_edges.py::duty_edges",
+      "src/worldmock/life/world_ops.py::agent_config"
+    ]
   },
   "重合、零点与日历": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界情形",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edge_runs.py::test_t7_rest_days_have_no_edges_and_a_date_exception_sets_the_clock",
+      "tests/life/test_shift_edge_runs.py::test_t8_coinciding_edges_reminders_and_a_planned_end_are_one_opportunity_in_enum_order",
+      "tests/life/test_shift_edge_runs.py::test_t9_midnight_edges_are_judged_by_the_midnight_rhythm",
+      "tests/life/test_shift_edges.py::test_midnight_edges_come_from_the_previous_and_next_local_day",
+      "tests/life/test_shift_edges.py::test_rest_days_and_missing_schedules_have_no_edges",
+      "tests/life/test_shift_edges.py::test_date_exceptions_override_the_weekly_shift",
+      "tests/life/test_shift_edges.py::test_strictly_later_excludes_the_query_second_and_exactly_at_includes_it",
+      "tests/life/test_shift_edges.py::test_dst_day_edges_match_shift_and_break_spans"
+    ],
+    "implementation": [
+      "src/worldmock/life/duty_edges.py::duty_edges",
+      "src/worldmock/life/duty_edges.py::edges_at",
+      "src/worldmock/life/duty_edges.py::edge_times_after",
+      "src/worldmock/life/schedule.py::_clock_reasons",
+      "src/worldmock/life/work_schedule.py::shift_on",
+      "src/worldmock/life/work_schedule.py::shift_span",
+      "src/worldmock/life/work_schedule.py::break_spans"
+    ]
   },
   "落库、质量报告与恢复": {
     "stage": "1",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_shift_edge_runs.py::test_t14_after_restore_and_a_counterfactual_branch_the_edge_fires_once",
+      "tests/life/test_shift_edge_runs.py::test_t15_the_four_names_are_known_wake_reasons_in_the_quality_report",
+      "tests/life/test_shift_edge_runs.py::test_t15_an_offline_run_with_a_shift_exports_validates_and_reports"
+    ],
+    "implementation": [
+      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES",
+      "src/worldmock/footprints/models.py::validate_decision_rhythm",
+      "src/worldmock/footprints/quality.py::build_quality_report",
+      "src/worldmock/life/duty_edges.py::edges_at"
+    ]
   },
   "系统层逐字": {
     "stage": "2",

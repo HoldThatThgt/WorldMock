@@ -4,6 +4,7 @@
 > 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](VERIFICATION.md#verification-incremental-evidence)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。2026-09-29 按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)的【同】作业 C1–C19 修订，修订部分已实现并通过离线验收；修订内容见「版本表」`2026-09-29-dayrun-fidelity` 行。
 > 本次工具交互合同于 2026-10-01 按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结，已实现；本次生产验收单独记录；既有验收只证明此前版本。
 > 2026-10-02 [个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结：本文件相应条款按[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1–4 的修订均已实现并通过离线验收（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）；冻结时在「请求组成」加的三处修订指针已随阶段 1、阶段 3 全部删去；修订内容见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review`、`2026-10-03-errands-workday-stage-2`、`2026-10-03-errands-workday-stage-4`、`2026-10-03-errands-workday-stage-3`、`2026-10-04-errands-workday-stage-3-review` 与 `2026-10-04-errands-workday-implemented` 各行。
+> 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -553,7 +554,10 @@ visible_task_ids 表示本人已知，由本人邮件到达写入；不能把新
 **效力与边界。** 工作安排是场景声明、环境求值的事实，不是人物的习惯：零点计划、`revise_day_plan` 与工作提交都不改变它，
 手上的工作交了，`duty` 仍是「当班中」；每轮只在环境层 `duty` 呈现（见「七层字段」），零点计划的输入另有计划日期当天的
 `上班安排`（见「请求组成」）。环境不因它新增任何拒绝，出行照常列出、照常受理；班内离岗由行为评估的工作负荷与作息偏离指标
-从事件与场景重算，不另写事件，不新增输入警告码，班次起止不新增唤醒原因。声明的例外只有场景事实：班次内声明的休息时段；
+从事件与场景重算，不另写事件，不新增输入警告码。班次与休息时段的起止是唤醒原因（`shift_start`、`shift_end`、`break_start`、
+`break_end` 四个成员）：只给清醒的人物在该时刻一次决策机会，不结束任何活动，不进入睡眠允许集合，不写事件，也不新增进度层记录；
+通常表现为环境层 `duty.status` 的变化，首尾相接的休息时段没有可见变化；闭集、触发条件与候选口径不在本文件，见
+[生活运行时规格的决策节律](dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离)。声明的例外只有场景事实：班次内声明的休息时段；
 前往本人已开放且未结清的工作任务的要求地点的外出（含预约任务，要求地点不是工作地点时；预约任务从约定开始那一天起算，赴约前的路上也算，不等约定开始）。当日不当班不产生班次。模型写的理由
 不构成例外；例外只影响指标口径，不影响受理。工作安排不参与任务开放时刻的编译（见「工作通知与开放合同」），不改变开工、恢复、
 提交与迟交判定，不延长或缩短任何截止；班前到岗可以开工，班后可以继续做未到截止的任务。
@@ -2780,3 +2784,4 @@ RunPhase = Literal[
 | `2026-10-04-errands-workday-stage-3-review` | 2026-10-04 | 按[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 的复核更正：「人格与卡片字段」`time_anchors` 行写明「首版不支持跨午夜的下班与到家」的判定（窗口终点须不晚于当日 24 点，与场景窗口同一口径；就寝回绕到次日时起点不晚于就寝而越过 24 点的同样不合格），降级说明登记第三种固定英文格式 `<leave_work 或 arrive_home> window <s>..<e> runs past midnight`（每个锚点只取一条）；原实现在就寝回绕到次日时放行 24 点以后的到家；「工作安排声明」的声明例外写明预约任务从约定开始那一天起算，赴约前的路上也算（规格 4.5「含预约任务」）；文件头修订说明行补本行；阶段 3 并入主线（阶段 2、4 之后）时文件头修订说明行改为阶段 1–4 已随代码落地，「冻结地图与场景引用」版本边界句合并为场景结构 5、世界状态结构 9，「七层 Schema」重钉句的阶段 3 分句排在阶段 2 与阶段 4 之间 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)作业 C72）：按 `d8a41d3` 的代码（生产代码自 `59b81a3` 起到最终代码与测试提交 `a7e2fdc` 没有变化）逐节核对 C01–C66、C77–C79 所涉各节，登记的键名、枚举、上限、事件载荷、英文原因与生成参数取值同代码一致，没有改写条款；补齐以代码为准的英文文案三处：「个人事务」登记事务变更明细的 `expected` 与 `why`（请求模型的交叉约束、字符上限、份数与单次条数的原因，`errands.change_issues` 的六类情形）与环境合并拒绝的改法；「工具交互公开投影」的查询错误登记校验报告的 `reason`、`fix`，方式、品类、偏移三种明细的 `expected` 与 `allowed_values`，各明细的 `why`，以及宿主并批纠错的 `reason`、`fix`；「生成参数」登记就寝反思附回消息的序列化、`INSTRUCTION` 与 `VALIDATION_ERROR` 的写法。确认冻结时加的三处修订指针（C73 系统层、C74 零点计划模板、C75 就寝反思文案）已全部删去，「记忆字段」主观文字句的括注（C77）已删去；文件头修订说明行改为阶段 1–4 的修订均已实现并通过离线验收，链接[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday-freeze` 行里的冻结期状态注记改为指向其后各阶段行与本行。设计说明书随这批实现后文档重新汇编 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同；可供性声明注释更正按既有字节身份发布目录 5.4，业务数值及品类契约与规则绑定 3 不变 |
+| `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1（班次与休息时段起止的唤醒）修订「工作安排声明」的效力与边界：班次与休息时段的起止是唤醒原因（`shift_start`、`shift_end`、`break_start`、`break_end`），只给清醒的人物在该时刻一次决策机会，不结束任何活动，不进入睡眠允许集合，不写事件，也不新增进度层记录；通常表现为环境层 `duty.status` 的变化，首尾相接的休息时段没有可见变化；闭集、触发条件与候选口径见生活运行时规格的决策节律；文件头补该规格的修订说明 |

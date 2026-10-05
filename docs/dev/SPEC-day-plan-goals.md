@@ -19,6 +19,8 @@
 > 重复意图逐条定位、超限同批报告；事务与工作负荷度量不并入三层。修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > 文中「个人事务与工作安排规格裁决 X」指该规格「裁决记录」的编号。
 
+> 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「心智模型与范围」「事件驱动的决策节律」「验收台账」（阶段 1）。
+
 <a name="spec-day-plan-goals-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
@@ -35,7 +37,8 @@
 清单不是全天时刻表，也不驱动活动自动执行。计划只写今天与平常不同的事和要办的事：人设层作息里已有的事（睡觉、起床、上下班、吃饭）不写，
 除非今天与平常不同或需要提醒；作息是默认，今日计划的具体安排优先于作息，身体的感觉只在较强一档才改；
 计划优先只对作息习惯成立：场景声明的工作安排（环境层 `duty`）是环境核验的事实，不是习惯，零点计划、`revise_day_plan` 与工作提交都改不了它，
-手上的工作交了 `duty` 仍是当班中；环境不因此新增任何拒绝，出行照常列出、照常受理，声明的例外（班次内声明的休息时段、
+手上的工作交了 `duty` 仍是当班中；班次与休息时段的起止只给清醒的人物各一次决策机会（唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`，
+[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)），不结束任何活动、不叫醒睡着的人，也不是提醒；环境不因此新增任何拒绝，出行照常列出、照常受理，声明的例外（班次内声明的休息时段、
 前往本人已开放且未结清的工作任务的要求地点）只影响行为评估的指标口径，当日不当班不产生班次
 （个人事务与工作安排规格 4.5、4.6，其裁决 W1，收窄一日运行保真裁决 S11）；平常的一天可以没有目标
 （[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 2.2、2.3，裁决 S11）。每条目标的大致时刻 `around_time` 只用于推进判定，不产生提醒，也不驱动活动。
@@ -129,6 +132,7 @@ flowchart LR
 | 当前活动失去可行性 | `activity_infeasible` 保留名称，当前无来源 |
 | `remind_time` 到期 | 精确在提醒时刻唤醒，记 `plan_reminder_due`，同时到期的合并；睡眠中结束睡眠 |
 | 个人事务的 `remind_time` 到期 | 人物清醒时精确在提醒时刻提供一次决策机会，记 `errand_reminder_due`；同一边界到期的多条事务合并为一次机会、该原因只计一次，每条事务各写一条 `errand_reminded` 事件，不改变事务状态；与 `plan_reminder_due` 同刻到期时按枚举顺序并列；睡眠中不入候选、不形成静默边界、不交付也不消耗，在人物醒来的那个边界交付 |
+| 声明了工作安排的人物，班次或休息时段开始、结束 | 人物清醒时精确在起止时刻提供一次决策机会，记 `shift_start`、`shift_end`、`break_start` 或 `break_end`（[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)）；同一秒重合的起止各记一次，与同秒的其他原因按枚举顺序并列；不结束任何活动、不写事件，也不是提醒；睡眠中不入候选、不形成静默边界、不叫醒，睡过的起止醒来后不补 |
 | 有在手承诺而无威胁 | 使用常规间隔，其他更早事件仍先发生 |
 | 无在手承诺 | 使用较长间隔，身体、消息、配送、营业、到达等现有事件仍先发生 |
 
@@ -138,7 +142,7 @@ flowchart LR
 [一日行为可信性规格](SPEC-dayrun-behavior.md#spec-dayrun-behavior-持续活动与必要唤醒)。
 
 下一决策候选和实际唤醒判定必须使用同一间隔与威胁边界。不得把重估定时当成轮询唯一来源，
-也不得虚构通用预约或同行人承诺。睡眠只接受睡眠允许原因（含 `plan_reminder_due`，不含 `errand_reminder_due`），不被重估唤醒。
+也不得虚构通用预约或同行人承诺。睡眠只接受睡眠允许原因（含 `plan_reminder_due`，不含 `errand_reminder_due` 与班次边界的四个成员），不被重估唤醒。
 游戏保留逐回合反馈。零点计划、修订和目标推进本身不推进世界时钟。
 
 <a name="spec-day-plan-goals-人物可见内容与工具"></a>
@@ -500,6 +504,8 @@ flowchart LR
 不在上表的验证范围内，证据登记在该规格验收台账「计划重复意图」「事务提醒」「跨夜可见」「事务与收尾记忆指标」「计划与义务」「工作负荷与作息偏离」各行；
 上表各行状态不变。修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 
+本文按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订的条款不在上表的验证范围内，证据登记在该规格的[验收台账](SPEC-idle-fillers.md#spec-idle-fillers-验收台账)；上表各行状态不变。
+
 本特性所有行都必须有实现与测试，禁止 skip、xfail、占位或延期。已有十二周正式运行、
 盲评与完整自然日 LabelKit 交付仍属项目总体验收，不能由本特性离线门禁替代。
 
@@ -522,6 +528,6 @@ flowchart LR
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」修订（个人事务与工作安排 DP1–DP14，随该规格冻结）：「心智模型与范围」把「只有 `remind_time` 产生提醒边界」限定在当日目标清单内，补当日目标与个人事务的分工，写明今日计划优先只对作息习惯成立、改不了场景声明的工作安排（收窄一日运行保真裁决 S11）；「提交与修订」补零点失效、`plan_day` 与修订都不读写个人事务；「事件驱动的决策节律」写明未完成事务不计在手承诺，决策机会表增事务提醒 `errand_reminder_due`（不进睡眠允许集合）；「人物可见内容与工具」补待办层 `errands` 与 `day_plan` 并列；「三层度量与质量导出」「度量输出合同」写明 `workload`、`routine_deviation` 与 `errand_metrics`、`conclusion_memories` 不并入三层；「当前工具交互约束」重复意图改为逐条定位、超限同批报告，并更正「尚未实现」的过期说法；验收台账表后说明更正两处过期说法并注明新证据登记在该规格验收台账，各行状态不变；文件头补修订说明。修订部分在冻结时未随文实现（该规格阶段 1（重复意图）、阶段 2（个人事务）、阶段 3（工作安排）实现后的核对见 `2026-10-04-errands-workday-implemented` 行）。 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 DP15，按 `d8a41d3` 的代码与测试核对）：文件头、「当前工具交互约束」末句与「验收台账」表后两处说明里的未实现说法统一改为已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。证据测试登记在该规格验收台账各行：「计划重复意图」`tests/life/test_revise_day_plan_json.py`、`tests/life/test_plan_day_duplicate_feedback.py`（修订入口经真实引擎、零点计划经真实后台任务，重复意图逐条定位、超限同批报告）；「事务提醒」`tests/life/test_errand_reminder.py`（清醒时到点提醒一次、睡眠中不交付不消耗、未完成事务不改变重估间隔与闭店预警）；「跨夜可见」`tests/life/test_errand_overnight.py`、`tests/life/test_day_planning.py`（零点失效、零点计划与修订之后事务不变，零点计划输入只读事务）；「事务与收尾记忆指标」`tests/evaluation/test_errand_metrics.py`、`tests/footprints/test_errand_export.py`、`tests/footprints/test_goal_export.py`（两个分组不并入 `day_plan_metrics`，当日目标报告的键集不变）；「计划与义务」`tests/integration/test_seven_layer_request.py`、`tests/life/test_day_planning.py`（系统层第 1、14 条与模板第八条逐字，零点计划输入的上班安排）；「工作负荷与作息偏离」`tests/evaluation/test_workload_metrics.py`、`tests/life/test_workload_report.py`。上表各行状态与条款正文不变 |
-
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |
+| `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订：「心智模型与范围」写明班次与休息时段的起止只给清醒的人物各一次决策机会，不结束任何活动、不叫醒睡着的人，也不是提醒；「事件驱动的决策节律」的决策机会表在事务提醒一行之后增班次与休息时段起止一行（`shift_start`、`shift_end`、`break_start`、`break_end`，清醒时精确到点、同秒重合的各记一次并按枚举顺序并列、不写事件，睡眠中不入候选、不形成静默边界、不叫醒，睡过的不补），睡眠允许原因的括注写明不含 `errand_reminder_due` 与班次边界的四个成员；验收台账表后说明补一句：按该规格修订的条款不在上表的验证范围内，证据登记在该规格的验收台账，上表各行状态不变；文件头补修订说明；版本表并回表外的末两行 |
