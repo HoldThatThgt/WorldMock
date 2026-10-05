@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/verification.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 一日行为实施与验收台账
 
 > 本特性全部实现并通过离线验收，无特性延期项。基线 `74edeaddccf1e051a0f7c98024ec95eeb6c48514`，分支 `codex/dayrun-behavior`。

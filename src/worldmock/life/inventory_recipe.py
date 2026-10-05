@@ -70,7 +70,7 @@ class InventoryRecipePlan:
 def is_inventory_recipe(catalog: Any, product: InventoryItemConfig) -> bool:
     """@brief 物品的 consume:use 规则是否为库存转换配方（与 prepare_inventory_recipe 同一判据）。
 
-    是则交互对象层列动词 obtain 的方式「制作」，否则列 consume 的「使用」（docs/dev/SPEC-time-and-energy.md 第五章
+    是则交互对象层列动词 obtain 的方式「制作」，否则列 consume 的「使用」（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章
     「请求形状与菜单」）；不支持使用方式或没有已定义 consume:use 配对的物品不是配方。只读配对，不抛业务拒绝。
     """
     if "use" not in product.use_modes:

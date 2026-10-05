@@ -1,4 +1,4 @@
-"""冻结观察中的可读对象、逐项的动词与方式和稳定的生活工具面（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。"""
+"""冻结观察中的可读对象、逐项的动词与方式和稳定的生活工具面（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」）。"""
 
 from __future__ import annotations
 
@@ -182,7 +182,7 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
 
 def test_revision_follows_current_day_plan_without_plan_tool() -> None:
     """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订整次运行都在，目标只收意图、正文与必填可空的
-    remind_time、around_time；待办层已推进的目标不能重交（时间与能量规格第四章；docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
+    remind_time、around_time；待办层已推进的目标不能重交（时间与能量规格第四章；docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。"""
     data = _data()
     unplanned = _functions(_prepare(data))
     assert "plan_day" not in unplanned and "revise_day_plan" in unplanned

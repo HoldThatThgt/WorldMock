@@ -1,6 +1,6 @@
 """进食分段结算必须守住库存、开吃份量、累计食用和热量的同一份量账本。
 
-开吃时本次份量从库存移入活动的 opened（docs/dev/SPEC-persona-prompt.md 第五章「进食」），之后只按 opened 与实际进度结算：
+开吃时本次份量从库存移入活动的 opened（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」），之后只按 opened 与实际进度结算：
 任一时刻「库存 ＋ 开吃份量中未吃的部分 ＋ 已吃 ＝ 初始」，其他份数不动，暂停期间库存被别处吃掉也不影响结算。
 """
 
@@ -31,7 +31,7 @@ def _ledger(agent, activity) -> float:
 def test_meal_partitions_reach_zero_without_losing_quantity_or_energy(engine_factory, steps: int) -> None:
     """持有 1.5 份开吃 1 份：任意等分推进都守住账本，开吃份量中未吃的部分降到零；每次 JSON 再水合不出现负库存或
     重复食用，库存留下的 0.5 份不动。"""
-    world = engine_factory().state
+    world = engine_factory().context.state
     agent, activity = _opened_meal(1.5, 1.0, steps * 60)
     initial = agent
     product, config = _product(), _body()

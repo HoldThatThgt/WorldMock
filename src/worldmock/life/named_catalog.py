@@ -1,4 +1,4 @@
-"""@brief 按名调用的私有绑定（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）：本轮没有列出、但人物可以直接写名称调用的
+"""@brief 按名调用的私有绑定（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 4 条）：本轮没有列出、但人物可以直接写名称调用的
 生活活动、内容与游戏（catalog_bindings），以及本人住处的地点身份（home_location_id）。
 
 曝光轮转与呈现上限只决定工具层列出哪些对象，不是资格上限：存在但没有列出的生活活动（本人启用集内）、内容与游戏照样可以
@@ -15,7 +15,8 @@ from typing import Any
 
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.durations import capped_duration_seconds, content_duration_seconds
-from worldmock.life.interaction_menu import CONTENT_WAYS, WAYS, binding_action
+from worldmock.life.vocabulary import CONTENT_WAYS, WAYS
+from worldmock.life.interaction_menu import binding_action
 from worldmock.life.object_labels import object_label
 from worldmock.life.presentation import GAME_CATEGORY
 from worldmock.life.readable import duration_phrase

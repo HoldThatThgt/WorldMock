@@ -1,4 +1,4 @@
-"""下限缓解与累积口径（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3、S1）。
+"""下限缓解与累积口径（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 D3、S1）。
 
 偏好只调幅度、不决定有无：实际缓解用有效偏好 f + (1 − f)·w（f 取场景 body 的下限偏好，缺省 0.5），
 全部排序仍用原始口味权重；有缓解的活动进行时不再累积娱乐需要，共同区间与单活动两条结算路径净效果相同，
@@ -29,9 +29,9 @@ from worldmock.life.activities import (
 from worldmock.life.body import last_flows, settle_shared_body
 from worldmock.life.candidates import CandidateEntry, CandidateInputs, LocationView, recall
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.profile.models import Tastes
-from worldmock.runtime import _agent_specs, _content_genre_catalog
+from worldmock.run_setup import _agent_specs, _content_genre_catalog
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
 #: 规格 1.2 的数值核对口径：内容缓解速率 0.30/小时（正式场景的网文条目），清醒累积 0.08/小时（目录），f = 0.5。
@@ -219,7 +219,7 @@ def test_single_and_shared_paths_settle_the_same_net_effect(body_config, case: s
 
 
 def test_parallel_relieving_activities_add_up_in_the_shared_settlement(body_config) -> None:
-    """共同身体结算先汇总各活动的缓解再限幅（同一身体通道先汇总，docs/dev/SPEC-dayrun-behavior.md「共同时间与身体结算」）：
+    """共同身体结算先汇总各活动的缓解再限幅（同一身体通道先汇总，docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格「共同时间与身体结算」）：
     观看不喜欢的网文（按下限 f 缓解）与慢跑（生活活动 effects 的缓解）同一区间进行时，一小时按两者缓解之和下降，不取
     其中较大的一项，也不叠加清醒累积。"""
     agent = _agent(0.9, {})
@@ -240,15 +240,15 @@ def test_parallel_relieving_activities_add_up_in_the_shared_settlement(body_conf
 
 def _stage_agent(engine, need: float, weights: dict[str, float]) -> None:
     """把人物 1 的娱乐需要与口味权重落盘为真实状态（版本 +1 并留痕）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[1]
     staged.agents[1] = agent.model_copy(update={
         "taste_weights": weights, "body": agent.body.model_copy(update={"entertainment_need": need})}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_relief_floor_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _start_watching(engine, item_id: str) -> str:
@@ -274,9 +274,9 @@ def _need_after(engine, hours: float) -> tuple[float, dict]:
 
     区间内活动集合不变时结算对时长线性，与引擎在中途边界分段结算的结果相同；返回娱乐需要与 body_settlement 正文。
     """
-    target = engine.state.current_time + round(hours * 3600)
-    staged = engine.state.model_copy(update={"current_time": target}, deep=True)
-    drafts, _ = engine._advance_activities(staged, target)
+    target = engine.context.state.current_time + round(hours * 3600)
+    staged = engine.context.state.model_copy(update={"current_time": target}, deep=True)
+    drafts, _ = engine.clock._advance_activities(staged, target)
     event = next(draft for draft in drafts if draft.data.get("kind") == "body_settlement" and draft.agent_id == 1)
     return staged.agents[1].body.entertainment_need, event.data
 
@@ -289,16 +289,16 @@ def test_committed_body_settlement_relieves_without_accrual(engine_factory, weig
     stage_day_plan(engine)
     _stage_agent(engine, 1.0, {_NOVEL: weight})
     activity_id = _start_watching(engine, _NOVEL)
-    started = engine.state.current_time
+    started = engine.context.state.current_time
     wake_by_mail(engine, offset=600)
     advance_next(engine)
-    elapsed = engine.state.current_time - started
+    elapsed = engine.context.state.current_time - started
     assert 0 < elapsed <= 600
-    settlement = [event for event in engine.store.read_agent_events("environment_event", 1)
+    settlement = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                   if event.data.get("kind") == "body_settlement"][-1]
     assert activity_id in settlement.data["activity_ids"]
     rate = _NOVEL_RATE * (0.5 + 0.5 * weight)
-    need = engine.state.agents[1].body.entertainment_need
+    need = engine.context.state.agents[1].body.entertainment_need
     assert need == pytest.approx(1.0 - rate * elapsed / 3600)
     assert settlement.data["body_settlement"]["after"]["entertainment_need"] == pytest.approx(need)
     flows = [row for row in settlement.data["resource_flows"] if row["resource"] == "entertainment_need"]
@@ -316,10 +316,10 @@ def test_watching_from_full_need_reaches_the_lower_band_in_the_specified_time(
     stage_day_plan(engine)
     _stage_agent(engine, 1.0, {_NOVEL: weight})
     activity_id = _start_watching(engine, _NOVEL)
-    activity = engine.state.activities[activity_id]
+    activity = engine.context.state.activities[activity_id]
     assert activity.data["entertainment_relief_per_hour"] == _NOVEL_RATE and activity.data["exposure_count"] == 1
-    assert engine.semantics.body.entertainment_need_per_awake_hour == 0.08
-    rate = _NOVEL_RATE * relief_preference(weight, engine.semantics.body.entertainment_relief_preference_floor)
+    assert engine.context.semantics.body.entertainment_need_per_awake_hour == 0.08
+    rate = _NOVEL_RATE * relief_preference(weight, engine.context.semantics.body.entertainment_relief_preference_floor)
     before, _ = _need_after(engine, still)
     after, settlement = _need_after(engine, crossed)
     assert felt.entertainment_need_level(before) == "很想放松"
@@ -363,17 +363,17 @@ def test_plain_awake_time_still_predicts_the_upward_entertainment_crossing(engin
     stage_day_plan(engine)
     _stage_agent(engine, _NEAR_BAND, {})
     activity_id = _start_waiting(engine)
-    start = engine.state.current_time
-    rate = engine.semantics.body.entertainment_need_per_awake_hour
+    start = engine.context.state.current_time
+    rate = engine.context.semantics.body.entertainment_need_per_awake_hour
     elapsed = _next_boundary(engine) - start
-    assert elapsed == 121 < engine.state.activities[activity_id].planned_end_at - start
+    assert elapsed == 121 < engine.context.state.activities[activity_id].planned_end_at - start
     assert felt.entertainment_need_level(_NEAR_BAND + rate * (elapsed - 1) / 3600) == "有点想放松"
     assert felt.entertainment_need_level(_NEAR_BAND + rate * elapsed / 3600) == "很想放松"
 
     advance_next(engine)
 
-    agent = engine.state.agents[1]
-    assert engine.state.current_time == start + elapsed
+    agent = engine.context.state.agents[1]
+    assert engine.context.state.current_time == start + elapsed
     assert agent.body.entertainment_need == pytest.approx(_NEAR_BAND + rate * elapsed / 3600)
     assert felt.entertainment_need_level(agent.body.entertainment_need) == "很想放松"
     assert "felt_band_change" in agent.pending_wake_reasons
@@ -387,8 +387,8 @@ def test_a_watch_session_creates_no_upward_entertainment_band_boundary(engine_fa
     stage_day_plan(engine)
     _stage_agent(engine, _NEAR_BAND, {})
     activity_id = _start_watching(engine, _NOVEL)
-    start = engine.state.current_time
-    rate = engine.semantics.body.entertainment_need_per_awake_hour
+    start = engine.context.state.current_time
+    rate = engine.context.semantics.body.entertainment_need_per_awake_hour
     awake_crossing = math.ceil((0.6 - _NEAR_BAND) / rate * 3600)
     assert awake_crossing == 121
 
@@ -396,11 +396,11 @@ def test_a_watch_session_creates_no_upward_entertainment_band_boundary(engine_fa
     advance_next(engine)
 
     assert boundary > start + awake_crossing
-    need = engine.state.agents[1].body.entertainment_need
-    relief = _NOVEL_RATE * relief_preference(0.0, engine.semantics.body.entertainment_relief_preference_floor)
+    need = engine.context.state.agents[1].body.entertainment_need
+    relief = _NOVEL_RATE * relief_preference(0.0, engine.context.semantics.body.entertainment_relief_preference_floor)
     assert need == pytest.approx(_NEAR_BAND - relief * (boundary - start) / 3600)
     assert felt.entertainment_need_level(need) == "有点想放松"
-    settlement = [event for event in engine.store.read_agent_events("environment_event", 1)
+    settlement = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                   if event.data.get("kind") == "body_settlement"][-1]
     assert settlement.data["interval_end"] == boundary and activity_id in settlement.data["activity_ids"]
     flows = [row for row in settlement.data["resource_flows"] if row["resource"] == "entertainment_need"]

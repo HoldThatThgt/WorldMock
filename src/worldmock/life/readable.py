@@ -1,12 +1,12 @@
 """@brief 七层提示共用的人读短语与中文种类表：带时区的时刻、本地日期、钟点、时长、金额、份数与个数。
 
-依据 docs/dev/SPEC-persona-prompt.md 第一章「通用格式」：时刻字段用带时区的 ISO 8601（秒精度、场景时区）；
+依据 docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「通用格式」：时刻字段用带时区的 ISO 8601（秒精度、场景时区）；
 短语里的时刻用场景本地 HH:MM，跨日时加「M月D日」；数量、价格与时长写成人读短语（「约 12 分钟」「32 元」
 「0.25 份」），不给原始秒数或以分为单位的整数。数字与单位之间留一个空格。各层构建器、公开结果与 settled 句
 都从这里取短语，全仓只有这一套口径。
 
-中文种类表（活动种类、场所类型、内部动作的说法、出行方式、浏览目录）也只在这里定义（docs/dev/SPEC-dayrun-fidelity.md
-7.4）：环境层、交互菜单与时间线渲染器 scripts/render_day.py 都取这几张表，环境层与交互菜单沿用的同名表就是这里的对象；
+中文种类表（活动种类、场所类型、内部动作的说法、出行方式、浏览目录）也只在这里定义（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）：环境层、交互
+菜单与时间线渲染器 scripts/render_day.py 都取这几张表，环境层与交互菜单沿用的同名表就是这里的对象；
 表的英文键合成 ENGLISH_KIND_NAMES，质量报告据此检查时间线里有没有漏出英文种类名。
 """
 
@@ -92,5 +92,10 @@ def portion_phrase(quantity: float) -> str:
 
 
 def count_phrase(count: int) -> str:
-    """@brief 个数写成「90 个」（工具层可调用索引的品类计数，docs/dev/SPEC-dayrun-fidelity.md 5.2）。"""
+    """@brief 个数写成「90 个」（工具层可调用索引的品类计数，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）。"""
     return f"{count} 个"
+
+
+def _datetime(epoch: int, timezone_name: str) -> datetime:
+    """@brief 将权威 UTC 秒转为场景时区的带时区日期时间。"""
+    return datetime.fromtimestamp(epoch, ZoneInfo(timezone_name))

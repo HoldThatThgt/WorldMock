@@ -35,7 +35,7 @@ def test_every_environment_clause_has_real_behavior_evidence():
 
 
 def test_frozen_current_as2_identity_agrees_with_installation_and_runtime():
-    from worldmock.runtime import AS2_LOCKED_SOURCE_SHA256
+    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256
     series = json.loads((ROOT / "patches/agentsociety2/SERIES").read_text(encoding="utf-8"))
     assert series["source_sha256"] == AS2_LOCKED_SOURCE_SHA256
     for name in ("docs/dev/SPEC-shared-rules-and-rebuildable-env.md", "docs/dev/SPEC-as2-integration.md",

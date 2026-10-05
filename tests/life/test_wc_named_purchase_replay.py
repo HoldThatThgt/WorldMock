@@ -1,4 +1,4 @@
-"""WC 白领 18:15 的三次指名购买离线重放（docs/dev/SPEC-dayrun-fidelity.md 3.2「按此设计，WC 18:15 的三次请求都会被
+"""WC 白领 18:15 的三次指名购买离线重放（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 「按此设计，WC 18:15 的三次请求都会被
 受理」、3.3「以 WC 18:15 走一遍」；验收台账「指名购买」）。
 
 tests/fixtures/dayrun_wc_named_purchase.json 从 4a5b0e6 白领全天运行（WorldMock-Dataset 的 0001-white-collar-lianqiu
@@ -76,7 +76,7 @@ def test_wc_named_purchase_requests_are_accepted_in_an_offline_replay(engine_fac
     _, error, result = decide(engine, f"wc-{recorded['model_response_event_seq']}", request)
     assert recorded["recorded_rejection"]["error_code"] in {"SUPPLY_NOT_FOUND", "ACTION_REQUEST_INVALID"}
     assert error == "" and (result.status, result.error_code) == ("completed", None)
-    names = {item.product_id: item.name for item in engine.scenario.products}
+    names = {item.product_id: item.name for item in engine.context.scenario.products}
     sources = {item["from"] for item in request["items"]}
     channel = _FIXTURE["channel"]["channel_id"] if sources & set(_FIXTURE["channel"]["names"]) else None
     written = [item["target"].removeprefix(f"{_FIXTURE['store']['name']}出售的") for item in request["items"]]
@@ -84,9 +84,9 @@ def test_wc_named_purchase_requests_are_accepted_in_an_offline_replay(engine_fac
     assert [(names[order["product_id"]], order["location_id"], order["destination_id"], order["fulfillment"],
              order["channel_id"]) for order in orders] == [
         (name, _STORE, "home", "delivery", channel) for name in written]
-    supplies = {item.supply_id: item for item in engine.scenario.supplies}
+    supplies = {item.supply_id: item for item in engine.context.scenario.supplies}
     assert {order["expected_at"] for order in orders} == {delivery_expected_at(
-        engine.semantics, supplies[orders[0]["supply_id"]], "home", engine.state.current_time)}
+        engine.context.semantics, supplies[orders[0]["supply_id"]], "home", engine.context.state.current_time)}
     assert sum(order["total_price_fen"] for order in orders) == result.data["total_price_fen"]
     if recorded["model_response_event_seq"] == 890:
         assert result.data["notes"] == [f"The target already names {_FIXTURE['store']['name']}; from may be null."] * 2
@@ -102,8 +102,8 @@ def test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store
     request = _FIXTURE["requests"][0]
     engine = _engine(engine_factory, wc_world, request["occurred_at"], "office")
     store = _FIXTURE["store"]["name"]
-    home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
-    before = dict(engine.state.deliveries)
+    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
+    before = dict(engine.context.state.deliveries)
     remote = {"items": [{"target": "番茄", "way": "远程下单", "from": store, "to": None}],
               "answering": None, "prefer": "最快拿到"}
     _, error, refused = decide(engine, "wc-office-remote", remote)
@@ -123,4 +123,4 @@ def test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store
     [item] = system.data["items"]
     assert (item["path"], item["written"], item["candidates"]) == (
         ["tool_calls", 0, "function", "arguments", "items", 0, "target"], "番茄", [])
-    assert dict(engine.state.deliveries) == before
+    assert dict(engine.context.state.deliveries) == before

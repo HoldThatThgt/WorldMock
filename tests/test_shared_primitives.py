@@ -20,7 +20,7 @@ from worldmock.corpora.manifest import _validate_entry, safe_file
 from worldmock.errors import IntegrityError, ProtocolError, reject_value
 from worldmock.evaluation import behavior_metrics, goal_metrics, workload_metrics
 from worldmock.footprints import assets, quality
-from worldmock.footprints.export import _load_render_day
+from worldmock.footprints.timeline_labels import _load_render_day
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
 from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days

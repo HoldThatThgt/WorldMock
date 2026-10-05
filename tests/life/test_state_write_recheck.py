@@ -1,4 +1,4 @@
-"""引擎写入路径域不变量复校（P0-2）与 taste_weights 运行时接线（docs/dev/SPEC-life-realism.md「动机层」「世界素材品类要求」）。
+"""引擎写入路径域不变量复校（P0-2）与 taste_weights 运行时接线（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」「世界素材品类要求」）。
 
 先红后绿：修复前 LifeEngine 的 16 处 store.commit 与 create 初始落盘不重跑
 WorldState.validate_world，五条不变量可被落盘（C6 探针实测 create 5/5、
@@ -81,31 +81,31 @@ def test_create_initial_persist_rejects_every_domain_invariant(name):
 def test_engine_write_path_rejects_drifted_state(engine_factory):
     """引擎 observe 写入路径：漂移状态在提交前被拒（修复前此处静默落盘）。"""
     engine = engine_factory()
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.supply_stock[next(iter(staged.supply_stock), "m1")] = -1
-    staged.version = engine.state.version + 1
-    engine.state = staged
+    staged.version = engine.context.state.version + 1
+    engine.context.state = staged
     with pytest.raises(IntegrityError):
         engine.observe(context(engine, "write-recheck"))
-    assert engine.store.state["version"] == staged.version - 1
+    assert engine.context.store.state["version"] == staged.version - 1
 
 
 def test_motivation_context_uses_persisted_taste_weights(engine_factory):
     """正例：人物持久化 taste_weights 进入 MotivationContext（接线后不再丢弃）。"""
     engine = engine_factory()
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     weights = {"movie-0001": 0.75}
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = agent.model_copy(update={"taste_weights": weights}, deep=True)
-    staged.version = engine.state.version + 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    staged.version = engine.context.state.version + 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_seed_taste"})])
-    engine.state = staged
+    engine.context.state = staged
 
-    profile = next(item.motivation for item in engine.scenario.agents
+    profile = next(item.motivation for item in engine.context.scenario.agents
                    if item.agent_id == 1 and item.motivation is not None)
-    wired = engine._motivation_context(engine.state.agents[1], profile)
+    wired = engine.observations._motivation_context(engine.context.state.agents[1], profile)
 
     assert dict(wired.taste_weights) == weights
 
@@ -113,8 +113,8 @@ def test_motivation_context_uses_persisted_taste_weights(engine_factory):
 def test_motivation_context_without_persisted_weights_stays_empty(engine_factory):
     """反例：无持久化权重时保持空映射（空=不抬升，不做缺省抬升）。"""
     engine = engine_factory()
-    profile = next(item.motivation for item in engine.scenario.agents
+    profile = next(item.motivation for item in engine.context.scenario.agents
                    if item.agent_id == 1 and item.motivation is not None)
-    wired = engine._motivation_context(engine.state.agents[1], profile)
+    wired = engine.observations._motivation_context(engine.context.state.agents[1], profile)
 
     assert dict(wired.taste_weights) == {}

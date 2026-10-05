@@ -209,7 +209,7 @@ def _ran(kind: str, started: int, **changes) -> dict:
 ])
 def test_progress_with_an_around_time_requires_the_activity_to_run_near_it(kind, intent, around, started, interval,
                                                                             progressed):
-    """推进判定（docs/dev/SPEC-dayrun-fidelity.md 8.2）：同家族、登记后的正时长结算，且活动在当日内的进行区间（活动
+    """推进判定（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）：同家族、登记后的正时长结算，且活动在当日内的进行区间（活动
     实际开始时刻至结算止点，不是结算区间起点）与 [around − 90 分钟, around + 90 分钟] ∩ 当日有正时长交集；大致时刻为空
     的目标沿用现行判定。"""
     assert GOAL_TIME_TOLERANCE_SECONDS == 5400
@@ -241,7 +241,7 @@ def test_around_time_skips_a_goal_outside_its_window_and_needs_the_actual_start(
 
 def test_around_time_is_required_nullable_hh_mm_and_needs_no_later_than_now():
     """around_time 必填可空、格式同 remind_time；换算为登记日的绝对时刻，不像提醒那样要求晚于登记时刻，状态里不越过
-    次日零点（docs/dev/SPEC-dayrun-fidelity.md 8.2）。"""
+    次日零点（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。"""
     for value in (None, "00:00", "08:15", "23:59"):
         assert PlanGoalInput(intent_kind="用餐", goal="午饭", remind_time=None, around_time=value).around_time == value
     for value in ("8:15", "24:00", "12:60", "08:15:00", "约 08:15", ""):
@@ -288,7 +288,7 @@ def registered_goals_at(now: int, *rows: tuple) -> list[PlanGoal]:
 
 
 def test_routine_intents_are_the_four_routine_kinds_of_the_closed_set():
-    """例行意图是十一种意图闭集中的睡眠、晨间例程、通勤、用餐（docs/dev/SPEC-dayrun-fidelity.md 2.3）。"""
+    """例行意图是十一种意图闭集中的睡眠、晨间例程、通勤、用餐（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 ）。"""
     assert ROUTINE_INTENT_KINDS == {"睡眠", "晨间例程", "通勤", "用餐"} and ROUTINE_INTENT_KINDS < set(INTENT_KINDS)
 
 
@@ -306,30 +306,30 @@ def test_day_boundary_expiry_and_agent_isolation():
 def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
     """零点计划经系统登记入口登记（不耗时，登记事件带完整计划），实际活动推进目标，检查点恢复后保持（第四章）。"""
     engine = engine_factory()
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     assert settle_day_plans(engine, planned("休息", "歇一歇"))[0]["goals"] == 1
-    registered = engine.store.read_agent_events("environment_event", 1)[-1]
-    assert registered.data["kind"] == "day_plan_generated" and engine.state.current_time == now
-    assert registered.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
-    assert engine.state.agents[1].day_plan.goals[0].registered_at == now
+    registered = engine.context.store.read_agent_events("environment_event", 1)[-1]
+    assert registered.data["kind"] == "day_plan_generated" and engine.context.state.current_time == now
+    assert registered.data["day_plan"] == engine.context.state.agents[1].day_plan.model_dump(mode="json")
+    assert engine.context.state.agents[1].day_plan.goals[0].registered_at == now
     assert advance_until_ready(engine)
     started = act(engine, "rest", "start_activity",
                   start_activity("等待", "自己"))
     advance_next(engine)
-    plan = engine.state.agents[1].day_plan
+    plan = engine.context.state.agents[1].day_plan
     assert plan.goals[0].progress_activity_id == started.activity_id
-    progress = engine.store.read_agent_events("activity_progress", 1)[-1]
+    progress = engine.context.store.read_agent_events("activity_progress", 1)[-1]
     assert progress.data["day_plan"] == plan.model_dump(mode="json")
-    assert progress.data["activity"]["location_id"] == engine.state.agents[1].location_id
-    snapshot = engine.store.assets.put_json({"agent_id": 1}, {"kind": "goal-test"})
+    assert progress.data["activity"]["location_id"] == engine.context.state.agents[1].location_id
+    snapshot = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "goal-test"})
     engine.checkpoint({"agent:1": snapshot})
-    directory = engine.store.run_dir
+    directory = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), directory)
     try:
-        assert restored.state.agents[1].day_plan == plan
+        assert restored.context.state.agents[1].day_plan == plan
         assert restored.scheduling_state().ready_agent_ids == (1,)
-        assert restored.state.agents[1].day_plan == plan
+        assert restored.context.state.agents[1].day_plan == plan
     finally:
         restored.close()
 
@@ -343,18 +343,18 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     shown = observed["todo_layer"]["day_plan"]["goals"][0]["goal"]
     assert shown == "歇一歇"
     recall = RecallTaskSummaryRequest(task_name=shown)
-    state, sequence = engine.state.model_dump(), engine.store.last_event_seq
+    state, sequence = engine.context.state.model_dump(), engine.context.store.last_event_seq
     before = engine.read_task_summary(1, recall, observed)
     expected = {"kind": "goal", "goal": "歇一歇", "intent_kind": "休息", "progressed": False}
     assert before["recall"] == expected
-    assert (engine.state.model_dump(), engine.store.last_event_seq) == (state, sequence)
+    assert (engine.context.state.model_dump(), engine.context.store.last_event_seq) == (state, sequence)
     shown = engine.observe(context(engine, "recall-shown"))["progress_layer"]["events"]
     assert not any(row.get("tool") == "recall_task_summary" for row in shown)
-    assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
+    assert engine.context.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     act(engine, "recall-rest", "start_activity", start_activity("等待", "自己"))
     advance_next(engine)
-    assert engine.state.agents[1].day_plan.goals[0].progressed_at is not None
+    assert engine.context.state.agents[1].day_plan.goals[0].progressed_at is not None
     # 等待按计划结束即成待收尾：当秒收尾之后才做别的（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "recall-rest-end").status == "completed"
     observed = engine.observe(context(engine, "recall-after"))
@@ -369,27 +369,27 @@ def test_empty_plan_is_registered_once_and_can_be_revised(engine_factory):
     系统登记入口的重复登记是协议错误，计划保持修订后的样子（第四章「输入、调用、失败与记录」）。"""
     engine = engine_factory()
     assert settle_day_plans(engine)[0]["goals"] == 0
-    assert engine.state.agents[1].day_plan.goals == ()
-    assert engine.state.agents[1].plan_submitted_dates == {"2026-01-05"}
+    assert engine.context.state.agents[1].day_plan.goals == ()
+    assert engine.context.state.agents[1].plan_submitted_dates == {"2026-01-05"}
     revised = act(engine, "add", "revise_day_plan", ReviseDayPlanRequest(
         goals=[{"intent_kind": "工作", "goal": "写报告", "remind_time": None, "around_time": None}]))
     assert revised.status == "completed"
-    plan = engine.state.agents[1].day_plan
+    plan = engine.context.state.agents[1].day_plan
     assert [item.goal for item in plan.goals] == ["写报告"]
     again = StubPlanDayClient()
     assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
     with pytest.raises(ProtocolError, match="already generated"):
         engine.register_day_plan(1, PlanDayRequest(goals=[]), [], [])
-    assert engine.state.agents[1].day_plan == plan
+    assert engine.context.state.agents[1].day_plan == plan
 
 
 def test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time(engine_factory):
     engine = engine_factory()
-    now = engine.state.current_time
-    agent = engine.state.agents[1].model_copy(update={"day_plan": DayPlan(
+    now = engine.context.state.current_time
+    agent = engine.context.state.agents[1].model_copy(update={"day_plan": DayPlan(
         day_end=now + 1000, goals=[goal("休息", registered=now), goal("晨间例程", registered=now)])})
     data = {"activity": activity("wait"), "interval_start": now, "interval_end": now + 60}
-    inputs = engine_rhythm_inputs(engine, engine.state, 60, progress_data={1: [data]})
+    inputs = engine_rhythm_inputs(engine.context, engine.context.state, 60, progress_data={1: [data]})
     result = _goal_and_deadline_pulses(agent, inputs)
     from worldmock.life.body import apply_mood_pulse
     assert result.body == apply_mood_pulse(agent.body, "goal_progressed")
@@ -408,10 +408,10 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
     """零点边界先按旧计划结算末段、旧计划随即失效，零点计划之后才为新的一天登记（第四章「运行时机」）。"""
     from tests.life.test_revision_contract import _commit_staged
     engine = engine_factory()
-    now = engine.state.current_time
-    midnight = day_end_seconds(now, engine.scenario.timezone)
-    staged = engine.state.model_copy(deep=True)
-    staged.current_time = midnight - engine.scenario.activity_feedback_seconds
+    now = engine.context.state.current_time
+    midnight = day_end_seconds(now, engine.context.scenario.timezone)
+    staged = engine.context.state.model_copy(deep=True)
+    staged.current_time = midnight - engine.context.scenario.activity_feedback_seconds
     staged.pending_events = []
     staged.agents[1] = staged.agents[1].model_copy(update={"next_decision_at": staged.current_time,
         "body_settled_at": staged.current_time,
@@ -421,16 +421,16 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
                   start_activity("等待", "自己"))
     boundary = engine.scheduling_state().next_event_at
     assert int(boundary.timestamp()) == midnight
-    engine.advance(midnight - engine.state.current_time, boundary)
-    assert engine.state.current_time == midnight and engine.midnight_rhythm_pending
-    assert engine.state.agents[1].day_plan is None
-    progress = engine.store.read_agent_events("activity_progress", 1)[-1].data["day_plan"]
+    engine.advance(midnight - engine.context.state.current_time, boundary)
+    assert engine.context.state.current_time == midnight and engine.midnight_rhythm_pending
+    assert engine.context.state.agents[1].day_plan is None
+    progress = engine.context.store.read_agent_events("activity_progress", 1)[-1].data["day_plan"]
     assert progress["day_end"] == midnight
     assert progress["goals"][0]["progressed_at"] == midnight
     assert progress["goals"][0]["progress_activity_id"] == started.activity_id
     settle_day_plans(engine, planned("休息", "新的一天先歇一歇"))
-    fresh = engine.state.agents[1].day_plan
-    assert fresh.day_end == day_end_seconds(midnight, engine.scenario.timezone)
+    fresh = engine.context.state.agents[1].day_plan
+    assert fresh.day_end == day_end_seconds(midnight, engine.context.scenario.timezone)
     assert [(item.goal, item.registered_at, item.progressed_at) for item in fresh.goals] == [
         ("新的一天先歇一歇", midnight, None)]
 
@@ -444,24 +444,24 @@ def test_late_plan_generation_registers_now_without_retroactive_progress(engine_
     assert advance_until_ready(engine)
     # 等待按计划结束即成待收尾，当秒收尾后才生成当日计划（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "before-plan-end").status == "completed"
-    registered_at = engine.state.current_time
+    registered_at = engine.context.state.current_time
     settle_day_plans(engine, planned("休息", "歇一歇"))
-    assert engine.state.agents[1].day_plan.goals[0].registered_at == registered_at
-    assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
+    assert engine.context.state.agents[1].day_plan.goals[0].registered_at == registered_at
+    assert engine.context.state.agents[1].day_plan.goals[0].progressed_at is None
 
 
 def test_revision_merged_limit_returns_domain_error_and_preserves_plan(engine_factory):
     from tests.life.test_revision_contract import _commit_staged
     engine = engine_factory()
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     goals = [goal(kind, registered=now - 60, progressed_at=now, progress_activity_id=f"a-{kind}")
              for kind in INTENT_KINDS[:8]]
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(update={"day_plan": DayPlan(
-        day_end=day_end_seconds(now, engine.scenario.timezone), goals=goals)})
+        day_end=day_end_seconds(now, engine.context.scenario.timezone), goals=goals)})
     _commit_staged(engine, staged)
-    original = engine.state.agents[1].day_plan
+    original = engine.context.state.agents[1].day_plan
     result = act(engine, "too-many", "revise_day_plan", ReviseDayPlanRequest(
         goals=[{"intent_kind": INTENT_KINDS[8], "goal": "多一条", "remind_time": None, "around_time": None}]))
     assert result.error_code == "PLAN_GOALS_INVALID"
-    assert engine.state.agents[1].day_plan == original
+    assert engine.context.state.agents[1].day_plan == original

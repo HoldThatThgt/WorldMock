@@ -1,3 +1,4 @@
+<a name="shared-rules-特性规格共享规则单一归宿与可重建环境"></a>
 # 特性规格：共享规则单一归宿与可重建环境
 
 > 状态：FROZEN；2026-10-05。冻结描述要求，实现和验收证据分别登记。
@@ -6,6 +7,7 @@
 > 本文件是本次特性的唯一开发规格；提案中的机器现状、估计行数、顺序建议不是验收事实。
 > 范围：提案列出的共享规则、漂移修复、依赖来源、引导、门禁和重建验证；全部要求必须实现。
 
+<a name="shared-rules-用户行为与实现边界"></a>
 ## 用户行为与实现边界
 
 同一条规则由所有调用点读取同一个实现；合法输入的既有结果保持一致，已确认的漂移按本规格统一。
@@ -26,12 +28,15 @@ flowchart LR
 ```
 
 不增加业务工具、模型调用、数据格式兼容、迁移或回退；旧身份直接拒绝。
-不实现另一个未冻结的[代码分层与测试分层提案](PROPOSAL_2026-10-04_LAYERING_AND_TEST_TIERS.md)。
-这里的快速检查是固定的重建检查命令，不建立新的测试档位注册表或通用配置框架。
+代码分层与测试层次已由主分支的[冻结规格](SPEC-layering-and-test-tiers.md#layering-outcome)实现，
+本次整合保留其引擎职责、现行文档归属与唯一测试入口；共享规则直接由实际职责对象消费。
+新机器快速检查仍是固定的重建检查集合，不新增测试层或通用配置框架。
 向上游提交改动属于外部协作，不是本次仓库功能。
 
+<a name="shared-rules-共享规则"></a>
 ## 共享规则
 
+<a name="shared-rules-摘要安全路径持久写入与错误"></a>
 ### 摘要、安全路径、持久写入与错误
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
@@ -45,13 +50,14 @@ flowchart LR
 安全路径校验顺序固定为声明路径、符号链接、解析边界、普通文件、文件身份。
 拒绝 `..` 是当前格式约束，不新增旧路径读取分支。
 
+<a name="shared-rules-活动规则"></a>
 ### 活动规则
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
 | --- | --- | --- |
 | 活动时长 | `life.durations` 推导；上限归 `life.models`，一般活动封顶 86400 秒、消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
 | 开工阻断 | `life.work.work_start_refusal` | 工具层与受理层复用同一原因和下一步 |
-| 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用路线选择与时长；引擎仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
+| 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用路线选择与时长；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
 | 缓解速率 | `life.activities` 的速率函数；MET 键从可供性注册表的 `met_lookup_key` 读取 | 预估与结算相同；继续内容缺少、布尔、非整数或小于一的 `exposure_count` 均明确报错，不默认接触一次；预估的既有资格拒绝处理仍保留 |
 | 候选种类 | `life.candidates` | 删除无人使用的 `presentation.ACTIVITY_OF_KIND`；其它生产调用直接使用唯一映射 |
 | 活动家族 | `life.schedule.activity_family` | 生产受理缺生活活动仍以 `LIFESTYLE_ACTIVITY_NOT_FOUND` 拒绝；离线缺品类返回未知，计划不猜测进度、相关度不给家族加分、评估保留缺证和未归类统计 |
@@ -66,6 +72,7 @@ flowchart LR
 该文件字节进入目录内容身份，因此按既有发布合同将目录次版本从 5.3 升为 5.4，同步生成器、清单、场景引用和当前文档。
 只修订说明，不改变资源、对象、身体数值或交换规则；品类与规则绑定版本仍为 3，历史运行不重写。
 
+<a name="shared-rules-事件区间日期记忆与评估"></a>
 ### 事件区间、日期、记忆与评估
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
@@ -81,6 +88,7 @@ flowchart LR
 | 社交资源分录 | 身体与社交动作读取同一个分录应用函数 | 原有资源守恒、双方身体结算和失败分类不变 |
 | 合同对象集合 | 目录的唯一合同对象集合 | 场景加载与资源映射直接读取同一集合 |
 
+<a name="shared-rules-模型客户端与公共模型"></a>
 ### 模型客户端与公共模型
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
@@ -95,6 +103,7 @@ flowchart LR
 公开名字保留仅限实际仍有业务职责的类和入口；不增加只供旧导入使用的别名或兼容包装。
 冻结的测试文本钉改为当前真实公共导入与行为断言，不保留重复常量来满足旧文本。
 
+<a name="shared-rules-其余已存在的同义规则表"></a>
 ### 其余已存在的同义规则表
 
 提示 Schema 的动词、方式、动作状态、意图、体感等级、活动控制工具、上班状态和可调用示例上限，
@@ -103,6 +112,7 @@ flowchart LR
 动机资源键读取可供性资源闭集，品类排除字段及资源数值类型也各自只声明一次。
 这些既有闭集的取值、顺序和领域语义不变，不新增业务行为。
 
+<a name="shared-rules-防漂移守卫"></a>
 ### 防漂移守卫
 
 `tests/test_single_source.py` 扫描 `src/worldmock` 与 `custom`，登记本节共享规则的唯一允许定义位置。
@@ -112,8 +122,10 @@ flowchart LR
 必须列明这些语义排除，不能为遗漏的业务克隆增加例外。已知业务克隆清单在验收时必须为空。
 守卫用临时样例证明新增克隆、复制常量表和错误归宿确实失败，而非只测试当前仓库能通过。
 
+<a name="shared-rules-可重建环境"></a>
 ## 可重建环境
 
+<a name="shared-rules-源码与换行身份"></a>
 ### 源码与换行身份
 
 根 `.gitattributes` 固定 Python、TOML、依赖锁为 LF；补丁和源制品按原始字节保存。
@@ -139,6 +151,7 @@ LabelKit 固定 `d0afd606decbc3f4aa64c64ef5339586120c5a7a` 的匿名 HTTPS 源�
 从已有源码与锁建立独立 `.venv`，WorldMock 不在进程内 import LabelKit。
 不发布新外部制品、不假定 LabelKit 许可；仅消费其当前公开固定源码。
 
+<a name="shared-rules-环境引导与收据"></a>
 ### 环境引导与收据
 
 `scripts/bootstrap.py` 只用标准库，参数为 `--profile release|dev`、`--wheelhouse`、`--use-uv`。
@@ -157,10 +170,21 @@ wheelhouse 明确使用 `--no-index --find-links` 和固定源制品，不访问
 收据包含 Python 版本、各依赖锁摘要、AS2 摘要、LabelKit 制品身份、Node 版本、profile 和缺失部件，
 只使用相对项目路径，不含机器身份、密钥或私有凭据。
 
+<a name="shared-rules-门禁可选部件与操作系统"></a>
 ### 门禁、可选部件与操作系统
 
-覆盖率门禁用 `sys.executable -m coverage`，不需要 uv；`--shards N` 以目录连续顺序分配测试文件，
-每个用例恰跑一次，每片使用独立 coverage 文件后 combine；测试失败或跳过不能报告 `passed: true`。
+测试运行的唯一入口为 `scripts/run_tests.py`，快速、标准与全量集合按分层与测试层次规格定义。
+覆盖率门禁无参数或 `--shards N` 均调用同一 full runner，`--shards` 映射为 worker 数；
+按既有实测文件权重分配完整测试文件，每份文件内部保持正常目录收集顺序。
+每个预收集节点恰跑一次，进程与覆盖数据隔离，使用当前解释器的 coverage 后 combine，不需要 uv。
+runner 使用本次运行的唯一身份绑定 collection、summary、worker 选择清单和完成回执；覆盖数据生成后，
+其实际字节摘要也绑定到同一运行。`--from-json` 必须核对这些绑定，不能接受其它运行的绿色覆盖数据或回执。
+预收集、各 worker 选择与实际收集均非空且节点唯一，其全局多重集与完成回执精确相等；
+每个全量节点的 setup、call、teardown 三阶段完整且均为 passed，未知阶段结果也按失效回执拒绝。
+输入摘要绑定本次真实读取的源码、测试、设计、依赖锁、源码补丁、场景与语料、根 `.gitattributes`，
+以及交付实际消费的 `labelkit-projects` 配置、hooks 和 schemas；该工程的 data、out 和 `__pycache__`
+不纳入输入，自动生成的计时与覆盖报告仍按现有排除范围处理。
+空集合、失败、跳过、缺失或失效收据、输入字节变化均不能报告 `passed: true`，不得另建测试执行器。
 保留整体分支覆盖率至少 85% 与未覆盖公共接口为零两项既有阈值。
 
 release 缺少 Node 或 LabelKit 即失败；dev 明确记录缺失，并按固定原因跳过对应检查，
@@ -176,6 +200,7 @@ Windows 必须完成跨平台核心与重建验收，Linux x86_64 必须实际�
 测试文件复制用唯一“同卷硬链接、跨卷复制”辅助函数；跨卷错误触发复制是文件复制的规定行为，
 不新增业务回退路径。守卫禁止直接 `copy_function=os.link`，测试模拟跨卷错误验证真实字节复制。
 
+<a name="shared-rules-新机器检查"></a>
 ### 新机器检查
 
 `scripts/fresh_check.py` 用 `git clone --no-recurse-submodules` 克隆指定提交到临时目录，
@@ -185,6 +210,7 @@ CI 在 Ubuntu x86_64 与 Windows 执行同一路径，checkout 不初始化子�
 快速检查涵盖共享规则、AS2 专用测试、身份与引导本身；Linux x86_64 的语料边界另执行对应实际测试。
 CI 比较两系统代码摘要，不能只分别检查摘要格式。
 
+<a name="shared-rules-文档原子同步清单"></a>
 ## 文档原子同步清单
 
 | 文档 | 必须同步的主题 |
@@ -203,11 +229,10 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/design/08-configuration.md`、`09-io-formats.md` | 环境 profile、收据、依赖锁、源码来源与严格数值 |
 | `docs/design/README.md`、`SUMMARY.md`、`worldmock-design.html` | 入口职责、当前目录身份与特性引用；重新生成汇编并通过 --check |
 | `docs/dev/SPEC-as2-integration.md` | 删除对子模块指针的现行安装依赖，登记记忆规则归属和新唯一摘要、测试位置 |
-| `docs/dev/SPEC-time-and-energy.md` | 推导函数权威归宿、时长上限与新的依赖来源，实际字节身份算法不变 |
-| `docs/dev/SPEC-dayrun-fidelity.md` | 预估与结算一致、中文名称单一来源、工具纠正原预算 |
 | `docs/dev/SPEC-day-plan-goals.md` | 统一活动家族，缺品类不猜进度的既有条款保留 |
-| `docs/dev/SPEC-life-realism.md` | 记忆规则实现归 WorldMock，阈值与语义不改变 |
-| `docs/dev/SPEC-persona-prompt.md` | 历史行号与现行源码来源分开，续接职责保持 LifeAgent，删除 AS2 固定旧来源的现行描述 |
+| `docs/dev/SPEC-life-realism.md` | 记忆规则实现归 WorldMock；人物 Prompt 已并入的七层请求与 LifeAgent 续接职责保持，阈值与语义不改变 |
+| `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：时长推导、预估结算、中文名称和纠正预算；固定源码来源与实际字节身份 |
+| `docs/dev/SPEC-layering-and-test-tiers.md` | 共享规则由实际职责对象直接消费；统一 full runner、实测文件权重调度、节点恰一次和同次收据核验 |
 | `docs/dev/SPEC-map-and-storefront.md` | 当前目录发布为 5.4，保留地图、场景及世界结构边界与历史发布版本 |
 | `docs/dev/SPEC-life-runtime.md`、`SPEC-category-contract.md`、`SPEC-labelkit-delivery.md` | 曲线、模型冻结、资源日志与制品安装来源 |
 | `docs/ARCHITECTURE.md`、`docs/EXPERIMENT.md` | 共享规则职责、固定源码补丁、宿主记忆与最终运行身份 |
@@ -221,6 +246,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 现行业务协议、同秒进度、重试预算、记忆类型和 sleep_channel 语义没有被本次规格推翻。
 无新增依赖层级配置、测试层级工具、运行兼容格式、热更新或外部发布功能。
 
+<a name="shared-rules-验收与闭合台账"></a>
 ## 验收与闭合台账
 
 验收记录保存需求名称、实现文件、具体测试节点、结果和变异审查证据；不允许 pending、defer、skip 或 xfail 作为完成。
@@ -229,8 +255,12 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 新功能按 `uncle-bob-review` 在干净提交的隔离 worktree 中执行语义变异，存活变异补测试后重审。
 真实模型全天运行与十二周实验仍由已有总体规格验收，本特性不凭离线测试声称这些实验完成。
 
+<a name="shared-rules-版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 修改 |
 | --- | --- | --- |
 | 共享规则与可重建环境冻结 | 2026-10-05 | 根据当前源码及并发审查裁决提案，冻结共享规则、环境重建、原子文档修订和完整验收边界 |
+
+| 主分支分层整合 | 2026-10-05 | 按主分支现行文档归属整合共享规则，历史增量规格保持归档；统一测试入口、权重分片及同次收据精确核验，合并后证据独立登记 |
+| 门禁独立复核 | 2026-10-05 | 明确同次运行身份和覆盖摘要绑定、真实输入范围、阶段全部通过及选择/收集/完成多重集恰一次 |

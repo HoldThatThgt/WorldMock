@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/decision-context-bob-projection.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # Bob report
 
 状态：COMPLETE。基线 204 passed；本报告映射 22 项验收要求，执行 29 个单一生产源码突变：killed 29，survived 0，invalid 0，inconclusive 0。未发现本范围 implementation missing 或 implementation diverged。这里不给整个规格的覆盖百分比或突变分数；其他协议与预算条款由另一审查负责。

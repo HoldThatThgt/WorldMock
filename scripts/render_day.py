@@ -5,7 +5,7 @@
 静默边界产生的分段折叠不单列；活动目标先取快照标题，再按名称索引解析为品名、地名、
 邮件主题、内容标题、生活活动名、任务标题与人名；种类名取 worldmock.life.readable 的中文种类表
 （单一来源），解析不到名称时只写中文种类名：时间线里不出现英文种类名与内部标识
-（docs/dev/SPEC-dayrun-fidelity.md 7.4）。按 agent_id 与冻结清单的场景时区
+（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称）。按 agent_id 与冻结清单的场景时区
 的模拟日期过滤。同库同参数输出逐字节相同；name_index 与 day_rows 也接受已排序的事件正文，
 质量报告的时间线标签检查据此投影同一张时间线。
 
@@ -14,8 +14,6 @@
 """
 from __future__ import annotations
 
-from worldmock.footprints.timeline_labels import local_day_bounds
-from worldmock.footprints.intervals import valid_interval
 import argparse
 import json
 import re
@@ -30,6 +28,8 @@ _SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(_SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(_SOURCE_ROOT))
 
+from worldmock.footprints.timeline_labels import local_day_bounds  # noqa: E402
+from worldmock.footprints.intervals import valid_interval  # noqa: E402
 from worldmock.life.readable import ACTIVITY_KIND_LABELS, BROWSE_LABELS, TRAVEL_WAYS  # noqa: E402
 
 #: 名称索引的类别：品名（带使用方式）、地名、邮件主题、内容标题、生活活动名、任务标题、人名（联系人与同世界人物）。

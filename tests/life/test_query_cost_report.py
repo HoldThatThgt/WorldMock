@@ -1,4 +1,4 @@
-"""查询成本子命令（scripts/inspect_run.py queries，docs/dev/SPEC-errands-workday.md 6.3，只报告）。
+"""查询成本子命令（scripts/inspect_run.py queries，docs/VERIFICATION.md#errands-workday-度量与下游-查询成本只报告，只报告）。
 
 按运行打印规格 6.3 的八个键：查询调用数、失败数、返回字符数、带筛选的调用数、筛选后为空的次数、从首次查询到购买结算的
 模型调用数与反思校验重试次数；口径只取已落库的模型工具交换证据（model_request、model_response），购买结算经
@@ -14,7 +14,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +31,7 @@ from custom.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputEr
                                            reflection_correction, reflection_insights, reflection_tool)
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse  # noqa: E402
 from tests.life.conftest import context, stage_day_plan  # noqa: E402
+from tests.acceptance_guard import acceptance_section  # noqa: E402
 from tests.life.purchase_worlds import at_clock  # noqa: E402
 from worldmock.footprints.models import EventDraft  # noqa: E402
 from worldmock.footprints.store import FootprintStore  # noqa: E402
@@ -39,7 +39,6 @@ from worldmock.life.models import REQUEST_MODELS, DeliveryState  # noqa: E402
 from worldmock.life.world_query import QueryWorldRequest  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SPEC = REPO_ROOT / "docs" / "dev" / "SPEC-errands-workday.md"
 #: 子进程以 UTF-8 输出。
 _UTF8 = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 #: 手工运行里决策循环请求的头两条消息与开放的工具（只看工具名）。
@@ -145,8 +144,8 @@ def test_query_cost_on_a_real_engine_exchange(engine_factory) -> None:
     [result] = engine.commit_decision_round("query-cost")
     assert (result.status, result.error_code) == ("completed", None) and len(result.data["orders"]) == 1
     assert pages[0]["total_count"] > 0 and pages[1]["total_count"] > 0
-    assert _report(engine.store.run_dir) == {
-        "run_id": engine.store.manifest["run_id"], "calls": 2, "failures": 0,
+    assert _report(engine.context.store.run_dir) == {
+        "run_id": engine.context.store.manifest["run_id"], "calls": 2, "failures": 0,
         "returned_chars": sum(len(text) for text in contents), "filtered_calls": 1,
         "empty_after_filter": int(pages[1]["total_count"] == 0), "model_calls_to_purchase": 2,
         "reflection_retries": 0}
@@ -282,10 +281,10 @@ def _files(run_dir: Path) -> dict[str, str]:
 
 def test_query_cost_of_a_run_without_queries_and_the_printed_keys(tmp_path) -> None:
     """没有查询的运行各计数为 0、从首次查询到购买结算为 null；子进程运行 `queries` 打印一个 JSON 对象，键序恰是规格
-    6.3 列出的八个键（QUERY_REPORT_KEYS 与规格原文逐一相同），运行目录的文件逐字节不变。有查询而其后没有本人购买
+    机器验收登记的八个键，运行目录的文件逐字节不变。有查询而其后没有本人购买
     结算的运行同样为 null。"""
-    keys = re.search(r"子命令 `queries` 按运行打印 `\{([^}`]*)\}`", SPEC.read_text(encoding="utf-8")).group(1)
-    assert list(_script().QUERY_REPORT_KEYS) == keys.split(", ")
+    keys = acceptance_section("errands-workday", "query_cost_keys")["keys"]
+    assert list(_script().QUERY_REPORT_KEYS) == keys
     quiet = _store(tmp_path / "quiet", "quiet", [*_turn(_request(100, 1, "d1", _HEAD),
                                                         [_call("call-buy", "start_activity", {})]),
                                                  *_purchase(100, 1, "d1", "o-1")])
@@ -294,7 +293,7 @@ def test_query_cost_of_a_run_without_queries_and_the_printed_keys(tmp_path) -> N
                             cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", env=_UTF8)
     assert result.returncode == 0, result.stderr
     printed = json.loads(result.stdout)
-    assert list(printed) == keys.split(", ")
+    assert list(printed) == keys
     assert printed == {"run_id": "quiet", "calls": 0, "failures": 0, "returned_chars": 0, "filtered_calls": 0,
                        "empty_after_filter": 0, "model_calls_to_purchase": None, "reflection_retries": 0}
     assert _files(quiet) == before

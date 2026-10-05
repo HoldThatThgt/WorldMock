@@ -1,7 +1,7 @@
 """两过程睡眠与睡眠不足账的公式数值点测试（修订合同 2026-09-18）。
 
 期望值一律用测试内独立推导的原始公式（raw_*）或冻结字面量表达，不复用
-被测模块的组合逻辑。困意档界按 docs/dev/SPEC-dayrun-fidelity.md 1.4 的 KSS 等价刻度重标定为 0.80 / 0.93 / 1.07 / 1.18：
+被测模块的组合逻辑。困意档界按 docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界  的 KSS 等价刻度重标定为 0.80 / 0.93 / 1.07 / 1.18：
 07:00 起床者的锚点轨迹（TestAnchorTrajectory）与两个真实人物的工作日稳态（TestWeekdaySteadyStateOnsets）都按新档界
 计算各档起点；困意公式本身不变。
 """
@@ -18,9 +18,9 @@ from tests.life.test_scheduling import _custom_engine
 from worldmock.life import felt, projection
 from worldmock.life.body import (ActivityFactors, BoundaryClock, initial_body,
                                  next_shared_body_boundary_seconds, settle_shared_body)
-from worldmock.life.engine import _initial_agent
+from worldmock.life.world_setup import _initial_agent
 from worldmock.life.models import ActivityKind, AgentState, BodyState
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.life.sleep import (
     DEFAULT_CHRONOTYPE_MIDSLEEP_H,
     GRADE_CANNOT_STAY_AWAKE_MIN,
@@ -224,7 +224,7 @@ def clock_text(wake_hour: float, seconds: int, with_seconds: bool = False) -> st
 
 
 class TestSleepinessGradeBands:
-    """困意五档分级的区间边界（左闭右开，docs/dev/SPEC-dayrun-fidelity.md 1.4）。"""
+    """困意五档分级的区间边界（左闭右开，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界 ）。"""
 
     @pytest.mark.parametrize("value,expected", [
         (0.0, SleepinessGrade.AWAKE),
@@ -289,7 +289,7 @@ class TestAnchorTrajectory:
 
     def test_band_onsets_under_the_default_assumption(self):
         # 各档首次出现的整秒：21:27:53 有点乏、22:41:08 困、次日 00:05:47 很困、01:23:25 撑不住；
-        # 与 docs/dev/SPEC-dayrun-fidelity.md 1.4 所写的「约 21:30、22:40、00:05、01:25」相差都不到 3 分钟。
+        # 与 docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界  所写的「约 21:30、22:40、00:05、01:25」相差都不到 3 分钟。
         onsets = band_onsets(7.0, wake_threshold(7.0), 4.0)
         assert [clock_text(7.0, onsets[name], with_seconds=True) for name in _RISING_BANDS] == [
             "21:27:53", "22:41:08", "00:05:47", "01:23:25"]
@@ -321,7 +321,7 @@ def steady_wake_pressure(bedtime_hour: float, wake_hour: float) -> float:
 
 
 class TestWeekdaySteadyStateOnsets:
-    """WC、BIZ 工作日稳态的各档起点与 docs/dev/SPEC-dayrun-fidelity.md 1.4 验收（提案 G3 表）一致。
+    """WC、BIZ 工作日稳态的各档起点与 docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界  验收（提案 G3 表）一致。
 
     稳态：人物每天从惯常就寝睡到工作日起床，其余时间清醒，起床时的压力取这一日程的周期不动点；此后一直醒着，
     阈值相位取人物的 chronotype_midsleep。起点为 felt.sleepiness_level 首次给出该档的整秒，按最近整分钟比较。
@@ -557,7 +557,7 @@ class TestCurveValidation:
 
 
 # ---------------------------------------------------------------------------
-# 作息初值与困意跨档预测（docs/dev/SPEC-time-and-energy.md 第八章「作息初值」「节律」）
+# 作息初值与困意跨档预测（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「作息初值」「节律」）
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -609,17 +609,17 @@ class TestInitialBodyFromUsualWake:
 
         engine = _custom_engine("white-collar-12-weeks.json", lianqiu, tmp_path, run_id="lianqiu-start")
         try:
-            assert engine.scenario.start_at.hour == 0 and engine.scenario.start_at.minute == 0
+            assert engine.context.scenario.start_at.hour == 0 and engine.context.scenario.start_at.minute == 0
             decision = context(engine, "first-look")
             engine.begin_decision_round([decision])
             observed = engine.observe(decision)
             assert observed["body"]["levels"]["sleepiness"] in {"困", "很困", "撑不住"}
             assert observed["environment_layer"]["body"]["sleepiness"] == observed["body"]["levels"]["sleepiness"]
-            config = engine.scenario.agents[0]
-            start = int(engine.scenario.start_at.timestamp())
+            config = engine.context.scenario.agents[0]
+            start = int(engine.context.scenario.start_at.timestamp())
             other = config.model_copy(update={"bedtime_window": (21.0, 22.0)})
-            assert _initial_agent(other, engine.scenario, "agent:1", start, {}).body == (
-                _initial_agent(config, engine.scenario, "agent:1", start, {}).body)
+            assert _initial_agent(other, engine.context.scenario, "agent:1", start, {}).body == (
+                _initial_agent(config, engine.context.scenario, "agent:1", start, {}).body)
         finally:
             engine.close()
 

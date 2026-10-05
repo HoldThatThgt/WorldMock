@@ -6,7 +6,7 @@ from worldmock.life.basket import held_quantity
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, AgentState, ConsumeRequest
 from worldmock.life.readable import portion_phrase
 
-#: 收尾结果终局的说法（docs/dev/SPEC-persona-prompt.md 第五章「进食」）：自然吃完、主动提前结束、失败。
+#: 收尾结果终局的说法（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」）：自然吃完、主动提前结束、失败。
 OUTCOME_COMPLETED, OUTCOME_ENDED_EARLY, OUTCOME_FAILED = "完成", "提前结束", "失败"
 #: 未完成的浏览在收尾结果中的说明（第六章「未完成浏览被写成采购完成」）。
 BROWSE_UNFINISHED_NOTE = "Browsing did not finish. No item changes."

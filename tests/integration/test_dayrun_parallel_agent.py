@@ -1,4 +1,4 @@
-"""人物用一组可读对象和逐项的动词与方式启动兼容的并行活动（docs/dev/SPEC-time-and-energy.md 第五章）。"""
+"""人物用一组可读对象和逐项的动词与方式启动兼容的并行活动（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章）。"""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from custom.agents.life_agent import LifeAgent
 from tests.integration.test_life_agent_protocol import (
     _add_objects, _context, _observations, _offer, _visible_object,
 )
-from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_request,
-                                 start_arguments)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan, start_request, start_arguments)  # noqa: F401
 from worldmock.life import sessions
 from worldmock.life.activity_control import object_display_name
 from worldmock.life.models import SessionKind, SessionStatus
@@ -93,18 +93,18 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
     assert travel == "步行" and watch in {"接着看", "接着听"}
     request = start_request(
         targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch])
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
     engine.submit_action(DirectToolCall(current, "parallel-readable", "start_activity", request))
-    assert engine.state.model_dump(mode="json") == before
+    assert engine.context.state.model_dump(mode="json") == before
     result = engine.commit_decision_round(current.round_id)[0]
     assert result.status.value == "in_progress"
-    assert len(engine.state.activities) == 2
-    started = moment_label(engine.state.current_time, engine.scenario.timezone)
-    assert {activity.name for activity in engine.state.activities.values()} == {
+    assert len(engine.context.state.activities) == 2
+    started = moment_label(engine.context.state.current_time, engine.context.scenario.timezone)
+    assert {activity.name for activity in engine.context.state.activities.values()} == {
         f"步行前往{object_display_name(place)}（{started} 起）",
         f"{watch}{object_display_name(content)}（{started} 起）",
     }
-    road = sessions.current_session(engine.state, 1)
-    assert road.kind == SessionKind.TRANSIT and set(road.activity_ids) == set(engine.state.activities)
-    assert [item.status for item in engine.state.sessions.values() if item.kind == SessionKind.STAY] == [
+    road = sessions.current_session(engine.context.state, 1)
+    assert road.kind == SessionKind.TRANSIT and set(road.activity_ids) == set(engine.context.state.activities)
+    assert [item.status for item in engine.context.state.sessions.values() if item.kind == SessionKind.STAY] == [
         SessionStatus.ENDED]

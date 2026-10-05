@@ -76,7 +76,7 @@ def test_habit_response_keyword_substring_matching():
 
 
 def test_app_name_substrings_no_longer_count_as_coverage_hits():
-    """App 名子串不算覆盖命中（docs/dev/SPEC-dayrun-fidelity.md 1.3）：WC 白领卡片的口味「B站视频」与习惯「刷B站」
+    """App 名子串不算覆盖命中（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）：WC 白领卡片的口味「B站视频」与习惯「刷B站」
     不因应用名「B站」算覆盖（旧规则按双向子串判为命中，覆盖率 0.92 而口味权重全零）；媒介「B站」与已核验的应用名
     精确相等，仍算命中。"""
     card = make_card(

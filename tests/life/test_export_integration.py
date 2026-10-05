@@ -61,13 +61,13 @@ def _send_message_to_model_contact(engine, round_id: str) -> None:
 def _wait_until_reply_due(engine, due: int) -> None:
     """人物在发消息的同一秒开始等待（瞬时动作后同秒再决策），时钟随后推进到回复送达时刻。"""
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, f"reply-wait-{due}")
-    while engine.state.current_time < due:
+    while engine.context.state.current_time < due:
         advance_next(engine)
 
 
 def _stage_final_interval(engine, seconds: int) -> None:
     """把隔离运行置于终点前的明确区间，并移除越过时钟的后台事件。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = staged.end_time - seconds
     staged.pending_events = []
     staged.agents[1] = staged.agents[1].model_copy(
@@ -77,8 +77,8 @@ def _stage_final_interval(engine, seconds: int) -> None:
     draft = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                        visibility="system", source_kind="scenario",
                        data={"kind": "test_final_interval", "seconds": seconds})
-    engine.store.commit(staged.model_dump(mode="json"), [draft])
-    engine.state = staged
+    engine.context.store.commit(staged.model_dump(mode="json"), [draft])
+    engine.context.state = staged
 
 
 def _wait_request(observation: dict) -> StartActivityRequest:
@@ -104,7 +104,7 @@ def _recorded_round(engine, round_id: str, tool_name: str, build) -> tuple:
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    layers = life_user_layers(observation, {"layer": "人设层", "name": engine.state.agents[1].name})
+    layers = life_user_layers(observation, {"layer": "人设层", "name": engine.context.state.agents[1].name})
     prompt = {"model": "fixture", "messages": [system_message(False), user_message(layers)],
               "tools": [{"type": "function", "function": {"name": tool_name, "parameters": {}}}]}
     call_id = f"{round_id}-model-call"
@@ -132,7 +132,7 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     完整请求，意图与 dreaming 窗口中的动作请求投影不含记忆正文（规格第七章「finish 并入 conclude_activity」、第九章交付链）；
     行动请求按真实七层记录，dreaming 读其中的层 JSON。"""
     engine = engine_factory()
-    duration = engine.scenario.activity_feedback_seconds
+    duration = engine.context.scenario.activity_feedback_seconds
     _stage_final_interval(engine, 2 * duration)
     _recorded_round(engine, "first-wait", "start_activity", _wait_request)
     assert engine.commit_decision_round("first-wait")[0].status == "in_progress"
@@ -148,21 +148,21 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     activity_id = started.activity_id
 
     advance_next(engine)
-    assert engine.state.current_time == engine.state.end_time
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+    assert engine.context.state.current_time == engine.context.state.end_time
+    terminal = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == action_id][-1]
-    requested = [event for event in engine.store.read_agent_events("action_requested", 1)
+    requested = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                  if event.action_id == action_id][0]
     assert terminal.data["status"] == "completed"
     assert terminal.activity_id == activity_id
     assert terminal.decision_id == ctx.decision_id
     assert requested.event_id in terminal.caused_by
-    assert terminal.data["activity"]["ended_at"] == engine.state.end_time
+    assert terminal.data["activity"]["ended_at"] == engine.context.state.end_time
 
-    agent_ref = engine.store.assets.put_json({"agent_id": 1}, {"kind": "export_chain_test"})
+    agent_ref = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "export_chain_test"})
     checkpoint = engine.checkpoint({"agent:1": agent_ref})
     export_dir = tmp_path / "life-export"
-    manifest = export_run(engine.store, checkpoint.last_event_seq, export_dir)
+    manifest = export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
     validated, events, activities = validate_export(export_dir)
     windows = prepare_windows(export_dir)
 
@@ -171,8 +171,8 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     activity = next(item for item in activities if item["activity_id"] == activity_id)
     assert activity["status"] == "completed"
     assert activity["location_id"] == observation["location_id"]
-    assert activity["segments"] == [{"started_at": engine.state.end_time - duration,
-                                     "ended_at": engine.state.end_time}]
+    assert activity["segments"] == [{"started_at": engine.context.state.end_time - duration,
+                                     "ended_at": engine.context.state.end_time}]
     action = next(item for item in windows["action"]
                   if item["target"]["request"]["action_id"] == action_id)
     outcomes = action["target"]["outcomes"]
@@ -196,25 +196,25 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
 
 def _assert_seven_layer_windows(engine, windows: dict, action: dict) -> None:
     """交付窗口读原样保存的四个环境层与 self_note，按 progress_event_ids 展开先前结果，dreaming 不含 decision_started
-    （docs/dev/SPEC-persona-prompt.md 第七章「交付」）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「交付」）。"""
     records = windows["action"] + windows["intent"] + windows["dreaming"]
     rows = [row for record in records for row in record["input"]["events"]]
     observed = [row for row in rows if row["event_type"] == "observation"]
     assert observed and all(set(row["data"]) == _OBSERVATION_LAYERS for row in observed)
-    stored = {event.event_id: event.data for event in engine.store.read_agent_events("observation", 1)}
+    stored = {event.event_id: event.data for event in engine.context.store.read_agent_events("observation", 1)}
     assert all(row["data"] == {key: stored[row["event_id"]][key] for key in _OBSERVATION_LAYERS} for row in observed)
     requested = [row for row in rows if row["event_type"] == "action_requested"]
     assert requested and all(row["data"]["self_note"] == _SELF_NOTE for row in requested)
     assert all(row["event_type"] != "decision_started" for record in windows["dreaming"]
                for row in record["input"]["events"])
     sent = {event.event_id: json.loads(event.data["request"]["messages"][1]["content"])
-            for event in engine.store.read_agent_events("model_request", 1) if not event.data.get("purpose")}
+            for event in engine.context.store.read_agent_events("model_request", 1) if not event.data.get("purpose")}
     for record in windows["dreaming"]:
         acted = [row["event_id"] for row in record["input"]["events"] if row["event_type"] == "action_requested"]
         assert acted and [item["action_event_id"] for item in record["input"]["decision_layers"]] == acted
         assert all(item["layers"] == sent[source["event_id"]] for item, source in
                    zip(record["input"]["decision_layers"], record["provenance"]["decision_layer_sources"]))
-    earlier ={event.event_id for event in engine.store.read_agent_events("action_result", 1)
+    earlier ={event.event_id for event in engine.context.store.read_agent_events("action_result", 1)
                if event.action_id == "action-first-wait"}
     shown = {row["event_id"] for row in action["input"]["events"]}
     assert earlier & shown, "the final decision's progress layer must expand an earlier decision's result"
@@ -225,7 +225,7 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     import importlib.util
 
     engine = engine_factory()
-    _stage_final_interval(engine, engine.scenario.activity_feedback_seconds)
+    _stage_final_interval(engine, engine.context.scenario.activity_feedback_seconds)
     ctx = context(engine, "timeline-wait")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
@@ -234,14 +234,14 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     engine.commit_decision_round("timeline-wait")
     advance_next(engine)
 
-    agent_ref = engine.store.assets.put_json({"agent_id": 1}, {"kind": "timeline_export_test"})
+    agent_ref = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "timeline_export_test"})
     checkpoint = engine.checkpoint({"agent:1": agent_ref})
     export_dir = tmp_path / "timeline-export"
-    manifest = export_run(engine.store, checkpoint.last_event_seq, export_dir)
+    manifest = export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
 
-    zone = ZoneInfo(engine.scenario.timezone)
+    zone = ZoneInfo(engine.context.scenario.timezone)
     # 覆盖窗口为 [start, end)：终点整点当日不在清单，取最后一个被覆盖时刻。
-    day = datetime.fromtimestamp(engine.state.current_time - 1, zone).date()
+    day = datetime.fromtimestamp(engine.context.state.current_time - 1, zone).date()
     relative = f"timeline/1-{day.isoformat()}.md"
     record = next(item for item in manifest["timeline"] if item["path"] == relative)
     payload = (export_dir / relative).read_bytes()
@@ -253,8 +253,8 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert payload.decode("utf-8") == module.render_day_markdown(
-        engine.store.connection, 1, day, engine.scenario.timezone)
-    # 时间线只写中文种类名（docs/dev/SPEC-dayrun-fidelity.md 7.4）：等待是「空档」，不写英文的 wait。
+        engine.context.store.connection, 1, day, engine.context.scenario.timezone)
+    # 时间线只写中文种类名（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）：等待是「空档」，不写英文的 wait。
     assert "空档" in payload.decode("utf-8") and "wait" not in payload.decode("utf-8")
 
 
@@ -272,17 +272,17 @@ def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_pa
     activity_id = started.activity_id
 
     advance_next(engine)
-    activity = engine.state.activities[activity_id]
+    activity = engine.context.state.activities[activity_id]
     assert activity.status == "truncated"
     assert activity.interruption_reason == "experiment_end"
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+    terminal = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == action_id][-1]
     assert terminal.data["activity"]["interruption_reason"] == "experiment_end"
 
-    agent_ref = engine.store.assets.put_json({"agent_id": 1}, {"kind": "truncated_export_test"})
+    agent_ref = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "truncated_export_test"})
     checkpoint = engine.checkpoint({"agent:1": agent_ref})
     export_dir = tmp_path / "truncated-export"
-    export_run(engine.store, checkpoint.last_event_seq, export_dir)
+    export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
     _, _, activities = validate_export(export_dir)
     quality = json.loads((export_dir / "quality.json").read_text())
 
@@ -319,7 +319,7 @@ def _offered(observed: dict, action: str, mode: str | None = None) -> StartActiv
 def _next_opportunity(engine, offset: int = 60) -> None:
     """@brief 以受控邮件到达把下一次决策机会钉在 offset 秒后并推进到那里。"""
     due = wake_by_mail(engine, offset=offset)
-    while engine.state.current_time < due:
+    while engine.context.state.current_time < due:
         advance_next(engine)
     assert engine.scheduling_state().ready_agent_ids == (1,)
 
@@ -355,7 +355,7 @@ def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:
     _, travel = _round(engine, "depart", "start_activity", lambda seen: _offered(seen, "travel_to", "walking"))
     ids["travel"] = travel.activity_id
     for step in range(64):
-        if engine.state.activities[ids["travel"]].status != "active":
+        if engine.context.state.activities[ids["travel"]].status != "active":
             break
         if engine.scheduling_state().ready_agent_ids:
             _round(engine, f"road-{step}", "report_status", _control(ids["travel"], ReportStatusRequest, "在路上。"))
@@ -368,7 +368,7 @@ def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:
 
 def _events(engine, event_type: str, action_id: str) -> list:
     """@brief 本人某动作的同类已提交事件。"""
-    return [event for event in engine.store.read_agent_events(event_type, 1) if event.action_id == action_id]
+    return [event for event in engine.context.store.read_agent_events(event_type, 1) if event.action_id == action_id]
 
 
 def test_person_conclusion_keeps_memories_in_request_and_registers_private_sources(engine_factory) -> None:
@@ -376,7 +376,7 @@ def test_person_conclusion_keeps_memories_in_request_and_registers_private_sourc
     并写一次原始动作终态（规格第七章「finish 并入 conclude_activity」、第八章「活动」）。"""
     engine = engine_factory()
     ids, observed = _lifecycle_run(engine)
-    waited = engine.state.activities[ids["wait"]]
+    waited = engine.context.state.activities[ids["wait"]]
     name = _named(observed["conclude"], ids["wait"])
     requested = _events(engine, "action_requested", "action-conclude")
     assert len(requested) == 1
@@ -398,7 +398,7 @@ def test_person_conclusion_keeps_memories_in_request_and_registers_private_sourc
                 if event.data["status"] != "in_progress"]
     assert [event.data["status"] for event in terminal] == ["cancelled"]
     assert requested[0].event_id in terminal[0].caused_by
-    assert engine.state.processed_actions["action-wait"].result["status"] == "cancelled"
+    assert engine.context.state.processed_actions["action-wait"].result["status"] == "cancelled"
     layers = json.dumps([observed["arrive"][key] for key in (
         "tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer")], ensure_ascii=False)
     assert "memory_sources" not in layers and ids["wait"] not in layers
@@ -409,7 +409,7 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
     activities.jsonl 逐项等于该最终检查点：人物结束的为 cancelled，暂停的为 paused（规格第七章、第八章「活动」）。"""
     engine = engine_factory()
     ids, _ = _lifecycle_run(engine)
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     lifecycle = [event for event in events if event.event_type == "environment_event"
                  and event.data.get("kind") in _LIFECYCLE_KINDS]
     expected = [("activity_paused", "watch", "action-pause", "paused"),
@@ -426,17 +426,17 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
         concluded = event.data["activity"]["concluded_at"]
         assert concluded == (event.occurred_at if event.data["kind"] == "activity_concluded" else None)
     assert not [event for event in events if "session" in str(event.data.get("kind", ""))]
-    sessions = sorted(engine.state.sessions.values(), key=lambda item: item.started_at)
-    travel = engine.state.activities[ids["travel"]]
+    sessions = sorted(engine.context.state.sessions.values(), key=lambda item: item.started_at)
+    travel = engine.context.state.activities[ids["travel"]]
     assert [(item.kind, item.status) for item in sessions] == [("stay", "ended"), ("transit", "ended"),
                                                               ("stay", "active")]
     assert sessions[0].ended_at == sessions[1].started_at == travel.started_at
     assert sessions[1].ended_at == sessions[2].started_at == travel.ended_at
     assert sessions[2].location_id == travel.destination_id and travel.session_ids == [sessions[1].session_id]
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "lifecycle_export_test"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "lifecycle_export_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     export_dir = tmp_path / "lifecycle-export"
-    manifest = export_run(engine.store, checkpoint.last_event_seq, export_dir)
+    manifest = export_run(engine.context.store, checkpoint.last_event_seq, export_dir)
     assert manifest["experiment_completed"] is False
     exported = {row["activity_id"]: row for row in (
         json.loads(line) for line in (export_dir / "activities.jsonl").read_text(encoding="utf-8").splitlines())}
@@ -457,7 +457,7 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
     留 message_arrival 送达记录并以 message_arrival 唤醒清醒的收件人；不改资源（裁决 #21）。"""
     engine = engine_factory()
     _send_message_to_model_contact(engine, "npc-reply")
-    sent_at = engine.state.current_time
+    sent_at = engine.context.state.current_time
     due = sent_at + CONTACT_REPLY_DELAY_SECONDS
 
     client = _StubReplyClient(texts=["好啊，老地方见。"])
@@ -472,18 +472,18 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
     assert "周五晚上一起吃饭" in request_payload["messages"][1]["content"]
 
     reply_id = settled[0]["reply_message_id"]
-    assert reply_id not in engine.state.agents[1].inbox
-    scheduled = [item for item in engine.state.pending_events if item.kind == "message_arrival"]
+    assert reply_id not in engine.context.state.agents[1].inbox
+    scheduled = [item for item in engine.context.state.pending_events if item.kind == "message_arrival"]
     assert [(item.agent_id, item.due_at) for item in scheduled] == [(1, due)]
 
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     evidence = [item for item in events if item.data.get("kind") == "model_npc_reply"]
     assert len(evidence) == 1 and evidence[0].occurred_at == sent_at
     assert evidence[0].data["source_kind"] == "model_npc"
     assert evidence[0].data["request"] == request_payload
     assert evidence[0].data["usage"]["prompt_tokens"] == 21
     assert evidence[0].data["response"]["model"] == "deepseek-flash"
-    # 后验守卫没有命中：只有一次尝试，不用兜底句（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    # 后验守卫没有命中：只有一次尝试，不用兜底句（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。
     assert [(item["request"], item["text"], item["matched"]) for item in evidence[0].data["attempts"]] == [
         (request_payload, "好啊，老地方见。", [])]
     assert evidence[0].data["guard_applied"] is False
@@ -493,17 +493,17 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
                 and item.data.get("message_id") == reply_id]
 
     _wait_until_reply_due(engine, due)
-    assert engine.state.current_time == due
-    inbox = engine.state.agents[1].inbox
+    assert engine.context.state.current_time == due
+    inbox = engine.context.state.agents[1].inbox
     assert inbox[reply_id].text == "好啊，老地方见。"
     assert inbox[reply_id].sender_id == "contact-chenxi-oldfriend"
     assert len(inbox[reply_id].text) <= 200
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     arrivals = [item for item in events if item.data.get("kind") == "message_arrival"
                 and item.data.get("message_id") == reply_id]
     assert len(arrivals) == 1 and arrivals[0].agent_id == 1 and arrivals[0].occurred_at == due
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    assert "message_arrival" in engine.state.agents[1].pending_wake_reasons
+    assert "message_arrival" in engine.context.state.agents[1].pending_wake_reasons
     # 只进收件箱：回复证据与送达事件不携带任何资源分录。
     assert not [item for item in [*evidence, *arrivals] if item.data.get("resource_changes")]
 
@@ -518,8 +518,8 @@ async def test_model_npc_reply_transport_failure_propagates(engine_factory) -> N
     with pytest.raises(OSError, match="connection reset"):
         await settle_pending_model_replies(engine, client=client)
 
-    assert engine.state.agents[1].inbox == {}
-    events = engine.store.read_events(engine.store.last_event_seq)
+    assert engine.context.state.agents[1].inbox == {}
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     assert not [item for item in events if item.data.get("kind") == "model_npc_reply"]
 
 
@@ -535,7 +535,7 @@ async def test_model_npc_reply_at_most_once_per_message(engine_factory) -> None:
 
     assert len(first) == 1 and second == []
     assert len(client.calls) == 1
-    assert len([item for item in engine.state.pending_events if item.kind == "message_arrival"]) == 1
-    _wait_until_reply_due(engine, engine.state.current_time + CONTACT_REPLY_DELAY_SECONDS)
-    inbox_ids = list(engine.state.agents[1].inbox)
+    assert len([item for item in engine.context.state.pending_events if item.kind == "message_arrival"]) == 1
+    _wait_until_reply_due(engine, engine.context.state.current_time + CONTACT_REPLY_DELAY_SECONDS)
+    inbox_ids = list(engine.context.state.agents[1].inbox)
     assert len(inbox_ids) == len(set(inbox_ids)) == 1

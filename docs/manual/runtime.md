@@ -1,17 +1,19 @@
+<a name="runtime-运行配置"></a>
 # 运行配置
 
-> 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步就寝反思的严格工具与校验重试（阶段 1）、个人事务与检查点恢复（阶段 2）、查询六键（阶段 4）。
+> 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步就寝反思的严格工具与校验重试（阶段 1）、个人事务与检查点恢复（阶段 2）、查询六键（阶段 4）。
 
 准备模型凭据、选择场景和新输出目录后，就能启动自己的生活模拟。
 本页也说明恢复已有运行和编写反事实干预文件的方法。
 
-[返回手册](README.md) · [生活场景](scenarios.md) · [数据生成](delivery.md)
+[返回手册](README.md#readme-用户配置手册) · [生活场景](scenarios.md#scenarios-生活场景) · [数据生成](delivery.md#delivery-自定义训练数据交付)
 
+<a name="runtime-准备环境"></a>
 ## 准备环境
 
 当前 Linux 64 位 release 环境与 TextWorld 验收使用 x86_64；Linux ARM64/aarch64 无法完成锁定组合的安装。
-平台支持范围以[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#门禁可选部件与操作系统)为准。
+平台支持范围以[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准。
 
 在仓库根目录执行，使用 Python 3.12 和项目锁定的依赖：
 
@@ -25,6 +27,7 @@ python scripts/bootstrap.py --profile release
 `--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
 环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要和缺失部件，路径均相对项目。
 
+<a name="runtime-使用已安装的环境"></a>
 ### 使用已安装的环境
 
 引导建立 `.venv` 后，在当前终端激活它；后续手册和设计文档的 `python`、`worldmock` 命令均使用该环境。
@@ -54,8 +57,12 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 新机器重建检查运行 `python scripts/fresh_check.py`，克隆指定提交且禁止 SSH、不使用 pip 缓存，
 执行相同引导、源码身份核对与固定快速检查。Windows 必须通过跨平台核心与重建检查，TextWorld 语料验收在 Linux x86_64 必跑；
 两者共同组成完整环境放行，任何跳过、xfail 或缺失证据都不能报完整通过。
-覆盖率门禁使用环境 Python 执行 `python scripts/coverage_gate.py --shards 4`，不要求 uv。
+测试统一由 `python scripts/run_tests.py --tier fast|standard|full --workers 4` 执行，集合按[分层与测试层次规格](../dev/SPEC-layering-and-test-tiers.md#layering-tiers)定义。
+覆盖率门禁使用环境 Python 执行 `python scripts/coverage_gate.py --shards 4`，不要求 uv；`--shards` 映射同一 full runner 的 worker 数。
+`--from-json` 只接受同一运行身份下的完整收集、worker 选择和完成回执及其覆盖摘要；
+全量节点三阶段必须完整且全部 passed，重复、跳过、旧绿色证据或输入字节变化均不能通过。
 
+<a name="runtime-填写模型凭据"></a>
 ## 填写模型凭据
 
 生活模拟读取固定文件 `~/.config/worldmock/deepseek.env`。文件只能包含 `DEEPSEEK_NODE_KEYS` 一个键。
@@ -81,6 +88,7 @@ chmod 600 ~/.config/worldmock/deepseek.env
 `0600` 是推荐文件权限；当前运行加载器校验文件、符号链接、键和值，没有实现权限位的强制检查。
 本页不要求打印凭据来验证配置。
 
+<a name="runtime-哪些模型参数可配置"></a>
 ## 哪些模型参数可配置
 
 当前生活模拟固定使用 DeepSeek 官方 OpenAI 格式的 strict 端点 `https://api.deepseek.com/beta` 和模型
@@ -107,14 +115,15 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 | --- | --- |
 | `run`、`resume`、`replay` | 固定私密文件中的 `DEEPSEEK_NODE_KEYS`，不以同名环境变量替代文件 |
 | `profile compile`、`profile check`、画像覆盖率校验 | 优先环境变量 `DEEPSEEK_NODE_KEYS`，其次私密文件，取池中第一把密钥 |
-| LabelKit 数据生成 | 使用其项目配置和凭据引用，见[数据生成](delivery.md) |
+| LabelKit 数据生成 | 使用其项目配置和凭据引用，见[数据生成](delivery.md#delivery-自定义训练数据交付) |
 
 画像抽取通过独立客户端请求 `https://api.deepseek.com/beta/chat/completions`，默认模型同为
 `deepseek-flash`，只使用密钥池第一把；直接调用抽取接口时可显式传入密钥。
 画像编译可用不等于模拟启动凭据已经齐备，两者的读取顺序与完整文件校验不同。
 当前读取与请求身份依据为[运行启动器](../../src/worldmock/runtime.py)、
-[画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../CONTRACTS.md#模型身份)。
+[画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../CONTRACTS.md#contracts-model-identity)。
 
+<a name="runtime-从校验到新建运行"></a>
 ## 从校验到新建运行
 
 ```mermaid
@@ -126,7 +135,7 @@ flowchart LR
     RUN --> EXPORT[固定截止导出]
 ```
 
-离线检查见[入门流程](README.md#创建自己的第一个场景)。实际命令如下：
+离线检查见[入门流程](README.md#readme-创建自己的第一个场景)。实际命令如下：
 
 ```bash
 worldmock validate \
@@ -142,7 +151,7 @@ worldmock status --run-dir runs/my-persona-day
 `input_warnings` 等键。`input_warnings` 是运行输入警告清单，每条为 `{code, agent_id, message, details}`，
 场景级警告（配送路线不可达、地点显示名可疑）的 `agent_id` 为 `null`；同一组警告也逐条写到标准错误流，
 格式为 `Input warning <警告码> (agent <人物编号>): <说明>`。警告不让校验失败，但人物卡片的可执行覆盖率低于 80% 时
-`validate` 仍然失败、标准输出为空，失败前照样写出警告；与人物有关的警告码和改法见[人物画像](personas.md#常见错误)。
+`validate` 仍然失败、标准输出为空，失败前照样写出警告；与人物有关的警告码和改法见[人物画像](personas.md#personas-常见错误)。
 
 `run` 会调用模型并持续模拟到场景结束；已存在的输出目录不能被覆盖。`run` 另接受 `--same-second-continuation on|off`（缺省 `on`）：
 关闭时同一秒的相邻决策不续接思考，每次决策都从新快照构造请求，只用于对比运行；开关冻结进运行清单，`resume` 与 `replay`
@@ -164,8 +173,9 @@ worldmock export \
 
 `--cutoff` 可指定事件序号截止点；不指定时使用当前导出逻辑的默认截止点。
 导出文件、检查点、运行身份及状态文件由程序管理；用户输入文件不应放进这些生成物里。
-产物格式见[记录引擎](../design/05-recording-engine.md)。
+产物格式见[记录引擎](../design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)。
 
+<a name="runtime-从检查点恢复"></a>
 ## 从检查点恢复
 
 恢复会把父运行中的共同检查点复制到新运行目录，然后继续模拟。
@@ -189,6 +199,7 @@ worldmock resume \
 世界结构 8 的旧检查点按版本拒绝。
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
 
+<a name="runtime-编写反事实干预文件"></a>
 ## 编写反事实干预文件
 
 反事实运行用于比较“同一个检查点下，如果这个人的余额不同，会发生什么”。
@@ -234,6 +245,7 @@ worldmock replay \
 
 程序会在恢复和应用干预时检查来源身份与可见性。不能用生成一段假想文本代替实际分支运行。
 
+<a name="runtime-常见错误"></a>
 ## 常见错误
 
 | 错误或现象 | 检查什么 |
@@ -250,6 +262,7 @@ worldmock replay \
 
 命令参数以[命令入口](../../src/worldmock/cli.py)为准；更多数据生成与评估步骤见对应手册页。
 
+<a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查
 
 原生工具包含七个世界请求、两个世界查询及三个记忆查询。start_activity删除actions，

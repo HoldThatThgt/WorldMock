@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import context, stage_day_plan, start_request
-from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
+from worldmock.life.vocabulary import LIFE_VERBS, WAYS
 from worldmock.life.models import StartActivityRequest
 
 
@@ -28,11 +30,13 @@ def _binding(observation: dict, kind: str, action: str | None = None) -> dict:
 
 def _deny_travel_at_home(engine) -> None:
     """@brief 把家的地点菜单收窄为不含前往（权威菜单随场景重算）。"""
-    menus = engine.scenario.interaction_menus_by_location_kind.copy()
+    menus = engine.context.scenario.interaction_menus_by_location_kind.copy()
     home = menus["home"]
     menus["home"] = home.model_copy(update={"allowed_actions": tuple(
         action for action in home.allowed_actions if action != "travel_to")})
-    engine.scenario = engine.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
 
 
 def test_observation_exposes_semantic_choices_and_keeps_bindings_private(engine_factory):
@@ -75,12 +79,12 @@ def test_travel_uses_exact_frozen_route_seconds(engine_factory):
     request = start_request(targets=[location["object"]], actions=["travel"], ways=[choice["label"]])
     _, result = _observed_action(engine, "travel-exact", request)
     assert result.status == "in_progress", result.error_code
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     assert activity.name.startswith(f"步行前往{location['object'].removeprefix('地点：')}")
-    route = next(route for route in engine.scenario.routes
+    route = next(route for route in engine.context.scenario.routes
                  if route.origin_id == "home" and route.destination_id == location["object_id"]
                  and route.mode.value == choice["travel_mode"])
-    expected = engine.semantics.travel_planned_seconds(
+    expected = engine.context.semantics.travel_planned_seconds(
         choice["travel_mode"], route.duration_seconds, activity.started_at)
     assert activity.planned_duration_seconds == expected
 
@@ -94,13 +98,13 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     location = _binding(preview, "location", "travel_to")
     request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])
     _deny_travel_at_home(engine)
-    before = engine.state.accounts.copy(), engine.state.activities.copy()
+    before = engine.context.state.accounts.copy(), engine.context.state.activities.copy()
     observed, result = _observed_action(engine, "denied-travel", request)
     listed = next(row for row in observed["tool_layer"]["targets"] if row["name"] == location["object"])
     assert listed["actions"] == []
     assert observed["environment_layer"]["location"]["fixed_rules"] == ["这里不能出发去别处"]
     assert result.error_code == "ACTION_REQUEST_INVALID"
-    assert (engine.state.accounts, engine.state.activities) == before
+    assert (engine.context.state.accounts, engine.context.state.activities) == before
 
     late = engine_factory()
     stage_day_plan(late)
@@ -110,15 +114,15 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     assert any(item["canonical_action"] == "travel_to"
                for item in _binding(offered, "location", "travel_to")["actions"])
     _deny_travel_at_home(late)
-    before = late.state.accounts.copy(), late.state.activities.copy()
+    before = late.context.state.accounts.copy(), late.context.state.activities.copy()
     late.submit_action(DirectToolCall(decision, "action-late-menu", "start_activity", request))
     result = late.commit_decision_round("late-menu")[0]
     assert result.error_code == "INTERACTION_MENU_DENIED"
-    assert (late.state.accounts, late.state.activities) == before
+    assert (late.context.state.accounts, late.context.state.activities) == before
 
 
 def test_availability_judges_the_menu_first_with_the_admission_reason(engine_factory):
-    """可用性与受理同序、菜单在先（docs/dev/SPEC-persona-prompt.md「工具层」）：观察之后菜单收窄，按本轮冻结绑定重算的
+    """可用性与受理同序、菜单在先（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）：观察之后菜单收窄，按本轮冻结绑定重算的
     可用性把被收窄的前往标为不可用，原因与共同结算以 INTERACTION_MENU_DENIED 拒绝时的原因一字不差。"""
     engine = engine_factory()
     stage_day_plan(engine)
@@ -127,7 +131,7 @@ def test_availability_judges_the_menu_first_with_the_admission_reason(engine_fac
     offered = engine.observe(decision)
     location = _binding(offered, "location", "travel_to")
     _deny_travel_at_home(engine)
-    recomputed = engine._layer_context(engine.state.agents[1], (), offered["interaction_bindings"])
+    recomputed = engine.observations._layer_context(engine.context.state.agents[1], (), offered["interaction_bindings"])
     note = next(action["note"] for row in recomputed.bindings if row["object"] == location["object"]
                 for action in row["actions"] if action["label"] == "步行")
     request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])

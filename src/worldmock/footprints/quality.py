@@ -58,7 +58,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
     报告结构 4：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
-    （docs/dev/SPEC-errands-workday.md 6.1）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
+    （docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -263,7 +263,7 @@ def _contact_summary(rows: list[dict]) -> dict:
 
 def _watch_repeats(rows: list[dict]) -> tuple[list[dict], int]:
     """@brief 按人物与内容汇总观看会话，只把从头重看（data.repeat 为 true）计为重复观看；接着看不计
-    （docs/dev/SPEC-time-and-energy.md 第七章「三层结构」）。恢复后的同一 activity 仍是一个会话。"""
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「三层结构」）。恢复后的同一 activity 仍是一个会话。"""
     groups: dict[tuple[Any, str], list[str]] = defaultdict(list)
     repeats: dict[tuple[Any, str], list[str]] = defaultdict(list)
     missing = 0
@@ -375,7 +375,7 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
     （缺省增量字段）计入缺失分母，不被当作任何一种边界。边界的唤醒原因取共同身体结算，
     决策轮的唤醒原因取 decision_started（同刻轮次不写共同身体结算），两份分列。跨决策预算耗尽的技术停顿
-    （environment_event 种类 decision_budget_exhausted，docs/dev/SPEC-persona-prompt.md 第五章）单独计数。
+    （environment_event 种类 decision_budget_exhausted，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）单独计数。
     """
     boundaries = body_settlements(events)
     offered = sum(event.data.get(DECISION_OFFERED_FIELD) is True for event in boundaries)
@@ -435,7 +435,7 @@ def _memory_quality(events: list[Event]) -> dict:
     """@brief 按写入点（trigger）核对系统登记的记忆来源、持久 episode 身份与观察事实窗口。
 
     写入点只有结束活动（activity_conclusion，对应同一决策已登记的 conclude_activity）与就寝反思（reflection，
-    对应醒来那一轮的观察）；收尾与反思同在一步时两项都核对（docs/design/05-recording-engine.md「质量报告」）。
+    对应醒来那一轮的观察）；收尾与反思同在一步时两项都核对（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「质量报告」）。
     """
     state = {
         "known": defaultdict(set), "conclusions": {}, "requests": set(), "reflections": set(),
@@ -815,7 +815,7 @@ def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
 
 
 def _contact_reply_guard_quality(events: list[Event]) -> dict:
-    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/dev/SPEC-dayrun-fidelity.md 7.3、第九章）。
+    """@brief 联系人回复守卫的命中、重试与兜底计数（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 、第九章）。
 
     命中按尝试计（首次与重试各算一次），类别也按尝试计；重试与兜底按回复计。没有 attempts 证据的回复单列，
     不当作未命中。
@@ -837,7 +837,7 @@ def _contact_reply_guard_quality(events: list[Event]) -> dict:
 
 
 def _name_rejection_quality(events: list[Event]) -> dict:
-    """@brief 名称类拒绝与其余协议错误分开计数（docs/dev/SPEC-dayrun-fidelity.md 3.4、第九章）。
+    """@brief 名称类拒绝与其余协议错误分开计数（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 、第九章）。
 
     宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的 protocol_feedback 错误码：
     名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
@@ -909,7 +909,7 @@ def _acceleration(events: list[Event], manifest: dict) -> dict:
 
 
 def _input_warning_quality(manifest: dict) -> dict:
-    """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3）：按警告码闭集、按人物统计清单冻结的 input_warnings。
+    """@brief 运行输入警告（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）：按警告码闭集、按人物统计清单冻结的 input_warnings。
 
     清单没有记录警告（引擎直驱为 null，或清单版本 2 之前的运行没有这个键）时计数为 null，不记为零；闭集外的码单列。
     只报告，不放行。
@@ -935,7 +935,8 @@ def _input_warning_quality(manifest: dict) -> dict:
 
 
 def _truncation_quality(events: list[Event]) -> dict:
-    """@brief 输出截断（docs/dev/SPEC-dayrun-fidelity.md 7.2、九）：提供商回复 finish_reason=length 的次数与按用途分列，
+    """@brief 输出截断（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 、九）：提供商回复 finish_reason=length 的
+    次数与按用途分列，
     以及这些回复实报的输出 token（截断回合整段丢弃，全部浪费）与其中的思考 token（completion_tokens_details.reasoning_tokens）。
 
     与 model_usage 同一去重：每个调用身份取一条终态。某次截断缺少对应计数时该合计为 null 并单列缺失次数，不记为零；

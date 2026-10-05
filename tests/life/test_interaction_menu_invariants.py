@@ -8,10 +8,12 @@ import pytest
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.errors import IntegrityError
-from worldmock.life.interaction_menu import ACTION_WAYS, CONTENT_WAYS, LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS, InteractionMenu, activity_phrase, binding_action, menu_allows_action, merged_selection, public_action
+from worldmock.life.vocabulary import ACTION_WAYS, CONTENT_WAYS, LIFE_VERBS, PURCHASE_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS
+from worldmock.life.readable import TRAVEL_WAYS
+from worldmock.life.interaction_menu import InteractionMenu, activity_phrase, binding_action, menu_allows_action, merged_selection, public_action
 from tests.life.conftest import select_start, start_arguments
 from worldmock.life.models import REQUEST_MODELS
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 
 def _bindings() -> list[dict]:
@@ -91,7 +93,7 @@ def test_scenario_menus_admit_only_current_start_actions():
 
 def test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions():
     """（对象，动词，方式）只按本轮绑定映射：内部动作名、表外短语、动词不符都不解析；旧短语「步行前往」只作方式同义表
-    （docs/dev/SPEC-dayrun-fidelity.md 3.1）在目标列出的方式里恰好命中「步行」时受理，不是方式闭集的成员；菜单按映射后的
+    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ）在目标列出的方式里恰好命中「步行」时受理，不是方式闭集的成员；菜单按映射后的
     内部动作判定。"""
     bindings = _bindings()
     walked = select_start(bindings, start_arguments(["地点：办公室"], ["travel"], ["步行"]))

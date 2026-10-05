@@ -8,10 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.acceptance_guard import DEFERRAL, resolve_problem, stub_functions, tables
+from tests.acceptance_guard import DEFERRAL, acceptance_section, resolve_problem, stub_functions
 from tests.tool_interaction_acceptance import BEHAVIOR, MUTATIONS, REPO_ROOT, run_behavior
 
-SPEC = REPO_ROOT / "docs/dev/SPEC-tool-interaction.md"
 FEATURE_SOURCES = (
     "src/worldmock/life/world_query.py", "src/worldmock/life/tool_groups.py",
     "src/worldmock/life/error_contract.py", "src/worldmock/life/inventory_recipe.py",
@@ -36,7 +35,8 @@ FEATURE_SOURCES = (
 
 def test_tool_interaction_every_spec_behavior_has_executable_tests():
     """规格行为逐项对应实际可收集测试，新增要求或缺项均直接失败。"""
-    matrix = next(table for table in tables(SPEC, "## 实施与验收") if table[0][0] == "行为验收")
+    matrix = next(table for table in acceptance_section("tool-interaction", "实施与验收")["tables"]
+                  if table[0][0] == "行为验收")
     required = {row[0] for row in matrix[1:]}
     assert set(BEHAVIOR) == required
     for behavior, nodes in BEHAVIOR.items():

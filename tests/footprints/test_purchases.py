@@ -1,4 +1,4 @@
-"""购买事实导出（docs/dev/SPEC-persona-prompt.md 第七章「导出」、第六章「混合动作的购买记录遗漏」）。
+"""购买事实导出（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「导出」、第六章「混合动作的购买记录遗漏」）。
 
 purchases.jsonl 的成功购买取动作结果顶层与逐项结果的订单，按订单去重、与整体状态无关、重放回执不重复计；
 尝试下单是方式为到店、远程下单或「购买」的请求，所写方式按宿主与环境同一张方式同义表归一（「外卖」「自取」等同义写法同样
@@ -12,16 +12,16 @@ import json
 
 import pytest
 
-from tests.life.conftest import engine_factory as _engine_factory  # noqa: F401
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.purchases import BROWSE_ACTIVITY_KIND, ORDER_WAYS, project_purchase_facts
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
-from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS, PURCHASE_WAYS, WAYS
+from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS, PURCHASE_WAYS, WAYS
 from worldmock.life.models import ActionResult, ActionStatus, ActivityKind, DeliveryState, active_activities
-from worldmock.life.name_resolution import WAY_SYNONYMS, way_options
+from worldmock.life.vocabulary import WAY_SYNONYMS, way_options
 from worldmock.life.session_actions import _parallel_result_data
 
 _WINDOW = {"start": 100, "end": 2000, "timezone": "UTC"}
@@ -120,7 +120,7 @@ def test_order_ways_and_browse_kind_are_the_interaction_menu_values() -> None:
 
 
 def test_purchase_rows_carry_the_order_channel_or_no_channel() -> None:
-    """purchases.jsonl 每行记订单载荷的 channel_id（from 解析为渠道时的 App 标识，docs/dev/SPEC-dayrun-fidelity.md 3.3
+    """purchases.jsonl 每行记订单载荷的 channel_id（from 解析为渠道时的 App 标识，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店
     解析规则）；原生订单未通过应用渠道取得时记 null；方式为「购买」的请求计为尝试下单。"""
     request = {"event_type": "action_requested", "agent_id": 1, "action_id": "buy", "event_id": "request-buy",
                "occurred_at": 110, "data": {"tool_name": "start_activity", "reused": False,
@@ -223,15 +223,15 @@ def _run_to_end_and_export(engine, directory) -> tuple[list[dict], list[dict]]:
     from tests.life.test_meal_outcome import _round
 
     for step in range(64):
-        if engine.state.current_time == engine.state.end_time:
+        if engine.context.state.current_time == engine.context.state.end_time:
             break
         if engine.scheduling_state().ready_agent_ids:
             _round(engine, f"day-{step}", *_keep_waiting(engine))
         else:
             advance_next(engine)
-    assert engine.state.current_time == engine.state.end_time
-    point = engine.checkpoint({"agent:1": engine.store.assets.put_json({"agent_id": 1}, {"kind": "purchases"})})
-    export_run(engine.store, point.last_event_seq, directory)
+    assert engine.context.state.current_time == engine.context.state.end_time
+    point = engine.checkpoint({"agent:1": engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "purchases"})})
+    export_run(engine.context.store, point.last_event_seq, directory)
     _, events, _ = validate_export(directory)
     rows = [json.loads(line) for line in (directory / "purchases.jsonl").read_text(encoding="utf-8").splitlines()]
     assert rows == project_purchase_facts(events)
@@ -266,19 +266,19 @@ def test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay(_engi
     assert mixed.status == "in_progress" and mixed.data["activity_results"][1]["orders"] == [order]
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    assert [item.kind for item in active_activities(engine.state, 1)] == [ActivityKind.CONSUME]
+    assert [item.kind for item in active_activities(engine.context.state, 1)] == [ActivityKind.CONSUME]
     decision = context(engine, "replay")
     engine.begin_decision_round([decision])
     engine.observe(decision)
     engine.submit_action(DirectToolCall(decision, "action-mixed", "start_activity", request))
     engine.commit_decision_round("replay")
     _, rows = _run_to_end_and_export(engine, tmp_path / "real-export")
-    results = [event for event in engine.store.read_agent_events("action_result", 1)
+    results = [event for event in engine.context.store.read_agent_events("action_result", 1)
                if event.action_id == "action-mixed"]
     [replayed] = [event for event in results if event.decision_id == "decision-replay-1"]
     assert replayed.data["reused"] is True
     assert replayed.data["data"]["orders"] == results[0].data["data"]["orders"] == [order]
-    requested = [event for event in engine.store.read_agent_events("action_requested", 1)
+    requested = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                  if event.action_id == "action-mixed"]
     assert [event.data["reused"] for event in requested] == [False, True]
     assert [row for row in rows if row["fact_kind"] == "purchase"] == [{
@@ -297,7 +297,7 @@ def test_real_run_export_counts_orders_written_with_way_synonyms(_engine_factory
     同义表里的写法下单——「外卖」（远程下单，受理并送到家）与「自取」（到店，人不在店里被拒）——另用「等着」开始等待；宿主都
     放行（与环境同一张同义表）。随后过到实验结束，导出的 purchases.jsonl 把两次下单与原词写的一样计为尝试下单，way 记归一后的
     「远程下单」「到店」，带各自的状态与错误码；等待不是下单，不计。逐行等于从导出事件的重算，并通过完整校验
-    （docs/dev/SPEC-dayrun-fidelity.md 3.1 方式同义、第九章导出）。"""
+    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  方式同义、第九章导出）。"""
     from tests.life.conftest import stage_day_plan, start_arguments
     from tests.life.purchase_worlds import decide
     from tests.life.test_dayrun_restaurants import _stage
@@ -334,7 +334,7 @@ _ORDER_SPELLINGS = {
 
 
 def test_order_attempts_classify_written_ways_through_the_way_synonym_table() -> None:
-    """尝试下单按宿主与环境同一张方式同义表归一所写方式（docs/dev/SPEC-dayrun-fidelity.md 3.1）：原词、同义写法与去空白、
+    """尝试下单按宿主与环境同一张方式同义表归一所写方式（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ）：原词、同义写法与去空白、
     全角的写法都计入并记归一后的下单方式；同义表里其余写法（指向吃、逛、等待、制作等）、其余方式与不是方式的写法都不计；
     一项请求里第一项不是下单方式时取其后第一个下单方式。表里每个指向下单方式的写法都在上面列出。"""
     others = [way for way in {*WAYS, *WAY_SYNONYMS, "随便买点", "Takeout"} if way not in _ORDER_SPELLINGS]

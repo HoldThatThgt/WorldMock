@@ -1,6 +1,7 @@
 """@brief 冻结地图、地点、门店供给与时态声明的严格数据模型。"""
 
 from __future__ import annotations
+from worldmock.life import models
 
 from worldmock.errors import reject_value
 from datetime import date, datetime
@@ -14,36 +15,14 @@ from worldmock.life.models import (TravelMode)
 
 from worldmock.life.retrieval import LOCATION_KINDS
 #: 地图文件结构版本：数据集与三个目录共用；3 起固定生成种子与逐店品类声明哈希。
-#: 旧版本直接拒绝，不保留兼容解析（docs/CONTRACTS.md「冻结地图与场景引用」）。
+#: 旧版本直接拒绝，不保留兼容解析（docs/CONTRACTS.md#contracts-worldmock-接口合同「冻结地图与场景引用」）。
 MAP_SCHEMA_VERSION = 3
 
 
 
 
-def require_aware(value: datetime) -> None:
-    """@brief 拒绝没有明确时区的地图时间。"""
-    if value.tzinfo is None or value.utcoffset() is None:
-        reject_value("Map timestamps must be timezone-aware")
 
 
-class DataSource(FrozenModel):
-    """@brief 一份事实或场景假设的来源、许可与适用边界。"""
-
-    kind: Literal["fact", "scenario"]
-    url: str = Field(pattern=r"\S")
-    retrieved_at: datetime
-    license: str = Field(pattern=r"\S")
-    notice: str = Field(pattern=r"\S")
-    fact_cutoff: date
-    applicability: str = Field(pattern=r"\S")
-
-    @model_validator(mode="after")
-    def validate_source(self) -> "DataSource":
-        """@brief 来源取得时间必须明确时区。"""
-        require_aware(self.retrieved_at)
-        if self.fact_cutoff > self.retrieved_at.date():
-            reject_value("Source fact cutoff cannot follow retrieval date")
-        return self
 
 
 class TemporalDeclaration(FrozenModel):
@@ -53,14 +32,14 @@ class TemporalDeclaration(FrozenModel):
     effective_to: datetime | None
     reviewed_on: date
     still_valid_on: date
-    source: DataSource
+    source: models.DataSource
 
     @model_validator(mode="after")
     def validate_temporal(self) -> "TemporalDeclaration":
         """@brief 拒绝无时区、倒置区间和不一致的核对日期。"""
-        require_aware(self.effective_from)
+        models._require_source_aware(self.effective_from)
         if self.effective_to is not None:
-            require_aware(self.effective_to)
+            models._require_source_aware(self.effective_to)
             if self.effective_to <= self.effective_from:
                 reject_value("Declaration effective interval must be positive")
         if self.reviewed_on > self.still_valid_on:
@@ -70,25 +49,13 @@ class TemporalDeclaration(FrozenModel):
         return self
 
 
-class OpeningInterval(FrozenModel):
-    """@brief 当地自然日起算的营业分钟区间；结束超过午夜表示跨日。"""
-
-    opens: int = Field(ge=0, lt=1440)
-    closes: int = Field(gt=0, le=2880)
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "OpeningInterval":
-        """@brief 营业区间必须正向且最多延续二十四小时。"""
-        if not self.opens < self.closes <= self.opens + 1440:
-            reject_value("Opening interval must be positive and at most one day")
-        return self
 
 
 class OpeningCalendar(TemporalDeclaration):
     """@brief 按周声明并由明确日期例外覆盖的营业日历。"""
 
-    weekly: dict[str, tuple[OpeningInterval, ...]]
-    exceptions: dict[str, tuple[OpeningInterval, ...]]
+    weekly: dict[str, tuple[models.OpeningInterval, ...]]
+    exceptions: dict[str, tuple[models.OpeningInterval, ...]]
 
     @model_validator(mode="after")
     def validate_calendar(self) -> "OpeningCalendar":
@@ -109,7 +76,7 @@ class OpeningCalendar(TemporalDeclaration):
         return self
 
 
-def _check_weekly_overlap(weekly: dict[str, tuple[OpeningInterval, ...]]) -> None:
+def _check_weekly_overlap(weekly: dict[str, tuple[models.OpeningInterval, ...]]) -> None:
     """@brief 同时核验跨午夜区间与次日营业区间是否重叠。"""
     for day in range(7):
         previous = weekly[str((day - 1) % 7)]
@@ -138,7 +105,7 @@ class BrandConfig(FrozenModel):
 
     brand_id: str = Field(pattern=r"\S")
     name: str = Field(pattern=r"\S")
-    source: DataSource
+    source: models.DataSource
 
 
 class LocationConfig(FrozenModel):
@@ -159,7 +126,7 @@ class LocationConfig(FrozenModel):
     opening_calendars: tuple[OpeningCalendar, ...]
     required_qualifications: tuple[str, ...]
     brand: BrandConfig | None
-    source: DataSource
+    source: models.DataSource
     affordances: dict[str, Any]
 
     @model_validator(mode="after")
@@ -193,7 +160,7 @@ class SupplyConfig(FrozenModel):
     delivery_destination_ids: tuple[str, ...]
     delivery_delay_seconds: int = Field(ge=0)
     required_qualifications: tuple[str, ...]
-    source: DataSource
+    source: models.DataSource
 
     @model_validator(mode="after")
     def validate_supply(self) -> "SupplyConfig":
@@ -242,7 +209,7 @@ class RouteConfig(FrozenModel):
     source_url: str = Field(pattern=r"\S")
     routing_instance: str = Field(pattern=r"\S")
     routing_profile: Literal["foot", "car"]
-    source: DataSource
+    source: models.DataSource
 
     @model_validator(mode="after")
     def validate_route(self) -> "RouteConfig":
@@ -304,7 +271,7 @@ class MapDatasetDeclaration(FrozenModel):
     timezone: str = Field(pattern=r"\S")
     bounds: tuple[float, float, float, float]
     prepared_at: datetime
-    source: DataSource
+    source: models.DataSource
     locations_file: FileReference
     supplies_file: FileReference
     routes_file: FileReference
@@ -313,7 +280,7 @@ class MapDatasetDeclaration(FrozenModel):
     @model_validator(mode="after")
     def validate_dataset(self) -> "MapDatasetDeclaration":
         """@brief 发布时区、选区边界、方式和时间必须明确有效。"""
-        require_aware(self.prepared_at)
+        models._require_source_aware(self.prepared_at)
         try:
             ZoneInfo(self.timezone)
         except ZoneInfoNotFoundError:
@@ -341,7 +308,7 @@ class StoreAssortment(FrozenModel):
     category_ids: tuple[str, ...]
     object_ids: tuple[str, ...]
     price_position_percent: StrictInt = Field(ge=5, le=95)
-    source: DataSource
+    source: models.DataSource
 
     @model_validator(mode="after")
     def validate_assortment(self) -> "StoreAssortment":
@@ -358,7 +325,7 @@ class CategoryAssignment(FrozenModel):
 
     kinds: dict[str, tuple[str, ...]]
     locations: tuple[StoreAssortment, ...]
-    source: DataSource
+    source: models.DataSource
 
     @model_validator(mode="after")
     def validate_assignment(self) -> "CategoryAssignment":

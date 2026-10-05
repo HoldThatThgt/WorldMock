@@ -29,16 +29,16 @@ from worldmock.life.settlement import settle_money_transfer
 if TYPE_CHECKING:
     from worldmock.life.semantics import ScenarioSemantics
 
-#: 开工的最短时长：距截止与剩余合同都不少于 60 秒（docs/dev/SPEC-time-and-energy.md 第八章「工作」）。
+#: 开工的最短时长：距截止与剩余合同都不少于 60 秒（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「工作」）。
 WORK_START_MINIMUM_SECONDS = 60
-#: 工具层任务目标 contract.outlook 的取值，只在时长上界不足时出现（docs/dev/SPEC-persona-prompt.md「工具层」）。
+#: 工具层任务目标 contract.outlook 的取值，只在时长上界不足时出现（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
 COMPLETION_OUTLOOK_SHORT = "到截止前做不完"
-#: 过了截止仍列出的未付款任务的 contract.outlook（docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。
+#: 过了截止仍列出的未付款任务的 contract.outlook（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「逾期工作从观察和工具中消失」）。
 COMPLETION_OUTLOOK_LATE = "已过截止"
-#: 正在做这项工作时提交的原因：工时达标、活动状态与提交条件分开说明（docs/dev/SPEC-persona-prompt.md 第六章）。
+#: 正在做这项工作时提交的原因：工时达标、活动状态与提交条件分开说明（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章）。
 _IN_PROGRESS_REFUSAL = Refusal("WORK_TASK_IN_PROGRESS", "This work activity is still in progress.",
                              "Conclude or pause this work activity before submitting.")
-#: 开工前提不满足时逐条的原因（docs/dev/SPEC-dayrun-fidelity.md 第四章：拒绝要写出具体原因）。
+#: 开工前提不满足时逐条的原因（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章：拒绝要写出具体原因）。
 _WORK_START_UNMET = {"required_skill": "The required skill level has not been met.",
                      "required_location_id": "Work requires presence at the declared workplace."}
 
@@ -134,7 +134,7 @@ def task_listed(task: RuntimeWorkTask, now: int, timezone_name: str) -> bool:
     """@brief 可见的未付款任务是否仍在观察与工具层中：截止前，或截止当日的本地日结束前（截止当天过了截止仍保留）。
 
     逾期保留只为说明原因：contract.outlook 写「已过截止」，submit_work 标不可用，提交以 WORK_SUBMISSION_LATE 业务拒绝；
-    不新增迟交规则（docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。
+    不新增迟交规则（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「逾期工作从观察和工具中消失」）。
     """
     due = int(task.due_at.timestamp())
     return now <= due or local_date(now, timezone_name) == local_date(due, timezone_name)
@@ -145,7 +145,7 @@ def contract_view(task: RuntimeWorkTask, totals: tuple[int, float], now: int,
     """@brief 工具层任务目标的 contract：截止时刻、有效工时的达标情况与到截止前能否做完。
 
     remaining 例：「有效工时已达标（约 6.4/4 小时）」「有效工时还差约 1.5 小时（约 2.5/4 小时）」「有效工时还差约 1 分钟
-    （约 0/0.02 小时）」；有效工时取一位小数，要求至多两位小数（docs/dev/SPEC-persona-prompt.md「工具层」与「通用格式」：
+    （约 0/0.02 小时）」；有效工时取一位小数，要求至多两位小数（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」与「通用格式」：
     时长写成人读短语，与 readable 的小数口径一致）。
 
     :param totals: work_totals 的（已做秒数，有效秒数）。
@@ -247,8 +247,8 @@ def load_work_oracle(root: Path, task: RuntimeWorkTask) -> dict[str, Any]:
 def submission_refusal(state: WorldState, agent_id: int, task: RuntimeWorkTask) -> Refusal | None:
     """@brief 提交一项工作时第一条不成立的条件：已结算、不可见、已过截止、正在做、有效工时不够；成立时为 None。
 
-    评审准备、受理与工具层 submit_work 的可用性共用这一判定（docs/dev/SPEC-time-and-energy.md「仍须修复」第 4 条，
-    docs/dev/SPEC-persona-prompt.md 第六章）：正在做时写「先结束正在做的工作」，与达标情况分开说明。
+    评审准备、受理与工具层 submit_work 的可用性共用这一判定（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「仍须修复」第 4 条，
+    docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章）：正在做时写「先结束正在做的工作」，与达标情况分开说明。
     """
     if task.task_id in state.paid_task_ids:
         return refusal_for_code("WORK_TASK_ALREADY_PAID")

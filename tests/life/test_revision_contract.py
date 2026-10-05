@@ -42,16 +42,16 @@ def _commit_staged(engine, staged) -> None:
     from worldmock.footprints.models import EventDraft
 
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_state_staged"},
     )])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _events(engine, event_type: str):
     """读取本人的已提交证据事件。"""
-    return [event for event in engine.store.read_events(engine.store.last_event_seq)
+    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
             if event.event_type == event_type and event.agent_id == 1]
 
 
@@ -65,9 +65,9 @@ def test_silent_sleep_boundary_settles_without_decision_events(engine_factory) -
     engine = engine_factory()
     result = _act(engine, "sleep-long", "start_activity", start_activity("睡觉", "自己"))
     assert result.status.value == "in_progress"
-    started_at = engine.state.current_time
+    started_at = engine.context.state.current_time
     advance_next(engine)
-    assert engine.state.current_time < engine.state.activities[result.activity_id].planned_end_at
+    assert engine.context.state.current_time < engine.context.state.activities[result.activity_id].planned_end_at
     assert engine.scheduling_state().ready_agent_ids == ()
     body = [event for event in _events(engine, "environment_event")
             if event.data.get("kind") == "body_settlement"]
@@ -83,8 +83,8 @@ def test_wait_end_offers_decision_with_actual_wake_reason(engine_factory) -> Non
     """等待长度由场景间隔推导，结束边界记录计划完成唤醒。"""
     engine = engine_factory()
     result = _act(engine, "wait", "start_activity", start_activity("等待", "自己"))
-    activity = engine.state.activities[result.activity_id]
-    assert activity.planned_duration_seconds == engine.scenario.activity_feedback_seconds
+    activity = engine.context.state.activities[result.activity_id]
+    assert activity.planned_duration_seconds == engine.context.scenario.activity_feedback_seconds
     advance_next(engine)
     assert engine.scheduling_state().ready_agent_ids == (1,)
     body = [event for event in _events(engine, "environment_event")
@@ -98,14 +98,14 @@ def test_sleep_is_not_interrupted_by_reconsideration(engine_factory) -> None:
     engine = engine_factory()
     result = _act(engine, "sleep", "start_activity", start_activity("睡觉", "自己"))
     activity_id = result.activity_id
-    planned_end = engine.state.activities[activity_id].planned_end_at
-    while engine.state.current_time < planned_end:
+    planned_end = engine.context.state.activities[activity_id].planned_end_at
+    while engine.context.state.current_time < planned_end:
         advance_next(engine)
-        if engine.state.current_time < planned_end:
+        if engine.context.state.current_time < planned_end:
             assert engine.scheduling_state().ready_agent_ids == ()
     assert advance_until_ready(engine)
-    assert engine.state.activities[activity_id].status.value == "completed"
-    assert "planned_end" in engine.state.agents[1].pending_wake_reasons
+    assert engine.context.state.activities[activity_id].status.value == "completed"
+    assert "planned_end" in engine.context.state.agents[1].pending_wake_reasons
 
 
 def test_public_observation_excludes_private_fields_and_supply_expires(engine_factory) -> None:
@@ -126,12 +126,12 @@ def test_public_observation_excludes_private_fields_and_supply_expires(engine_fa
     browse = _act(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
     assert browse.status.value == "in_progress"
     assert advance_until_ready(engine)
-    agent = engine.state.agents[1]
-    staged = engine.state.model_copy(deep=True)
+    agent = engine.context.state.agents[1]
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = max(agent.supply_browsed_at.values()) + 1801
     staged.agents[1] = staged.agents[1].model_copy(update={"body_settled_at": staged.current_time}, deep=True)
     _commit_staged(engine, staged)
-    assert projection.visible_supplies(engine.state, engine.state.agents[1], engine.scenario) == []
+    assert projection.visible_supplies(engine.context.state, engine.context.state.agents[1], engine.context.scenario) == []
 
 
 def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None:
@@ -145,7 +145,7 @@ def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None
     errors = [event.data["error"] for event in _events(engine, "model_response")
               if event.data.get("purpose") == "plan_day"]
     assert len(errors) == 2 and "exceeds 300 characters" in errors[0] and errors[1] is None
-    plan = engine.state.agents[1].day_plan
+    plan = engine.context.state.agents[1].day_plan
     assert [goal.goal for goal in plan.goals] == ["推进报告"]
     with pytest.raises(ProtocolError, match="already generated"):
         engine.register_day_plan(1, _goal_plan(), [], [])
@@ -155,17 +155,17 @@ def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None
     assert rejected.status.value == "rejected"
     assert rejected.error_code == "ACTION_REQUEST_INVALID"
     # 业务拒绝后在同一秒再决策（时间与能量规格第一章规则 2），进度层即公开拒绝结果。
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
     data = _observe_current(engine, "rejection-result")
     shown = last_result(data)
     assert shown["error_code"] == "ACTION_REQUEST_INVALID"
-    assert shown["occurred_at"] == iso_time(rejected.occurred_at, engine.scenario.timezone)
+    assert shown["occurred_at"] == iso_time(rejected.occurred_at, engine.context.scenario.timezone)
     assert "action_id" not in shown
-    assert engine.state.agents[1].day_plan == plan
+    assert engine.context.state.agents[1].day_plan == plan
     fixed = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="工作", goal="写完报告", remind_time=None,
                                                       around_time=None),])
     assert _act(engine, "fixed-plan", "revise_day_plan", fixed).status.value == "completed"
-    assert [goal.goal for goal in engine.state.agents[1].day_plan.goals] == ["写完报告"]
+    assert [goal.goal for goal in engine.context.state.agents[1].day_plan.goals] == ["写完报告"]
 
 
 def test_revise_day_plan_preserves_progressed_goal(engine_factory) -> None:
@@ -178,26 +178,26 @@ def test_revise_day_plan_preserves_progressed_goal(engine_factory) -> None:
     assert advance_until_ready(engine)
     # 等待按计划结束即成待收尾，当秒收尾后再修订（规格第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "rest-end").status == "completed"
-    original = engine.state.agents[1].day_plan.goals[0]
+    original = engine.context.state.agents[1].day_plan.goals[0]
     rejected = _act(engine, "rewrite", "revise_day_plan", ReviseDayPlanRequest(
         goals=[PlanGoalInput(intent_kind="休息", goal="改写休息", remind_time=None, around_time=None)]))
     assert rejected.error_code == "PLAN_GOAL_ALREADY_PROGRESSED"
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
     result = _act(engine, "append", "revise_day_plan", ReviseDayPlanRequest(
         goals=[PlanGoalInput(intent_kind="工作", goal="写报告", remind_time=None, around_time=None)]))
     assert result.status.value == "completed"
-    assert engine.state.agents[1].day_plan.goals[0] == original
-    assert engine.state.agents[1].day_plan.goals[1].intent_kind == "工作"
+    assert engine.context.state.agents[1].day_plan.goals[0] == original
+    assert engine.context.state.agents[1].day_plan.goals[1].intent_kind == "工作"
 
 
 def test_world_state_rejects_old_checkpoint_shapes(engine_factory) -> None:
     """结构版本字段是必需的，旧版本检查点不能加载。"""
     engine = engine_factory()
-    missing = engine.state.model_dump(mode="json")
+    missing = engine.context.state.model_dump(mode="json")
     missing.pop("schema_version")
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(missing)
-    previous = engine.state.model_dump(mode="json")
+    previous = engine.context.state.model_dump(mode="json")
     previous["schema_version"] = 4
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(previous)

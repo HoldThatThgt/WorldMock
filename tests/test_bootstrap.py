@@ -262,7 +262,7 @@ def test_dev_offline_missing_labelkit_remains_a_nonpassing_environment(tmp_path,
 
 
 def test_same_committed_source_identity_survives_autocrlf_checkouts(tmp_path):
-    from worldmock.runtime import runtime_code_sha256
+    from worldmock.run_setup import runtime_code_sha256
 
     seed = tmp_path / "seed"
     seed.mkdir()

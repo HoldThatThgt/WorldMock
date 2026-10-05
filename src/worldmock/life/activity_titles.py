@@ -1,8 +1,8 @@
-"""@brief 活动的展示标题：活动关联对象的名称（docs/CONTRACTS.md 活动控制行的 title）。
+"""@brief 活动的展示标题：活动关联对象的名称（docs/CONTRACTS.md#contracts-worldmock-接口合同 活动控制行的 title）。
 
 生活活动取目录名称，观看与游戏取内容标题，工作取任务标题，通话取联系人在本人通讯录里的称谓，交谈取对方姓名；
 等待、睡眠、出行、阅读邮件、浏览与使用没有标题（None）。标题写进活动快照与控制行，时间线据此显示中文名称
-（docs/dev/SPEC-dayrun-fidelity.md 7.4）。名称都是场景与目录里的静态事实，索引在引擎建立时算一次。
+（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。名称都是场景与目录里的静态事实，索引在引擎建立时算一次。
 """
 
 from __future__ import annotations
@@ -61,3 +61,17 @@ def activity_title(activity: ActivityState, index: TitleIndex) -> str | None:
     if activity.kind == ActivityKind.WORK:
         return index.tasks.get(activity.target_id)
     return None
+
+
+def activity_snapshot(activity, index: TitleIndex, lifestyles) -> dict:
+    """@brief 导出活动权威快照并为内容型活动附查看器直显标题。"""
+    payload = activity.model_dump(mode="json")
+    if activity.kind == ActivityKind.LIFESTYLE:
+        item_id = (activity.target_id or "").removeprefix("lifestyle:")
+        item = next((item for item in lifestyles if item.activity_id == item_id), None)
+        if item is not None:
+            payload["category"] = item.category
+    title = activity_title(activity, index)
+    if title is not None:
+        payload["title"] = title
+    return payload

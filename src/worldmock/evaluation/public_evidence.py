@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
 from worldmock.footprints.models import Event
-from worldmock.life.interaction_menu import WAYS
+from worldmock.life.vocabulary import WAYS
 
 
 _LEGACY_ACTIONS = {
@@ -35,7 +35,8 @@ _ACTION_OF_KIND = {
     "browse": "browse", "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
     "wait": "wait", "sleep": "sleep",
 }
-#: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」），按请求 items[] 逐活动投影。
+#: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」），按请求
+#: items[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
     "report_status": "report",
     "pause_activity": "pause",

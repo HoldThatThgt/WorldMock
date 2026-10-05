@@ -8,7 +8,8 @@ from pathlib import Path
 
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
-from worldmock.life.scenario import ContentItemConfig, load_scenario
+from worldmock.life.scenario import ContentItemConfig
+from worldmock.life.world_setup import load_scenario
 
 SCENARIOS = ("scenarios/white-collar-12-weeks.json", "scenarios/multi-person.json")
 
@@ -54,7 +55,7 @@ def test_movie_library_size_fields_and_manifest_agreement() -> None:
 
 
 def test_no_random_preference_floats_survive_in_both_scenarios() -> None:
-    """docs/dev/SPEC-life-realism.md「画像编译」：随机偏好浮点删除——两场景人物不再携带偏好浮点键。"""
+    """docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：随机偏好浮点删除——两场景人物不再携带偏好浮点键。"""
     movies = {movie["item_id"] for movie in _items("movies")}
     assert movies, "movie corpus must not be empty for the negative guard to bite"
     for path in SCENARIOS:

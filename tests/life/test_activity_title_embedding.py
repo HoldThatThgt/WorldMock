@@ -1,4 +1,4 @@
-"""活动事件内嵌人物可读标题：内容、生活活动，以及工作、通话与交谈（docs/dev/SPEC-dayrun-fidelity.md 7.4）。"""
+"""活动事件内嵌人物可读标题：内容、生活活动，以及工作、通话与交谈（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。"""
 
 from __future__ import annotations
 
@@ -32,12 +32,12 @@ def test_content_title_is_carried_into_activity_events(engine_factory) -> None:
     engine = engine_factory()
     binding, started = _start_visible(engine, "watch-title", "content")
     assert started.status == "in_progress", started.error_code
-    expected = engine.rules.content_titles[binding["object_id"]]
-    event = next(event for event in engine.store.read_agent_events("action_result", 1)
+    expected = engine.context.rules.content_titles[binding["object_id"]]
+    event = next(event for event in engine.context.store.read_agent_events("action_result", 1)
                  if event.action_id == "action-watch-title")
     assert event.data["data"]["activity"]["title"] == expected
     advance_next(engine)
-    progress = [event for event in engine.store.read_agent_events("activity_progress", 1)
+    progress = [event for event in engine.context.store.read_agent_events("activity_progress", 1)
                 if event.data["activity"]["target_id"] == binding["object_id"]]
     assert progress[-1].data["activity"]["title"] == expected
 
@@ -47,17 +47,17 @@ def test_wait_activity_has_no_media_title(engine_factory) -> None:
     engine = engine_factory()
     _, started = _start_visible(engine, "wait-title", "self")
     assert started.status == "in_progress", started.error_code
-    event = next(event for event in engine.store.read_agent_events("action_result", 1)
+    event = next(event for event in engine.context.store.read_agent_events("action_result", 1)
                  if event.action_id == "action-wait-title")
     assert "title" not in event.data["data"]["activity"]
 
 
 def _titles(engine, agent_id: int, activity_id: str, action_id: str) -> tuple:
     """@brief 同一活动的标题：受理结果快照、推进后的最后一条进度快照、观察控制行（八键）的 title。"""
-    accepted = next(event for event in engine.store.read_agent_events("action_result", agent_id)
+    accepted = next(event for event in engine.context.store.read_agent_events("action_result", agent_id)
                     if event.action_id == action_id)
     advance_next(engine)
-    progress = [event for event in engine.store.read_agent_events("activity_progress", agent_id)
+    progress = [event for event in engine.context.store.read_agent_events("activity_progress", agent_id)
                 if event.activity_id == activity_id]
     observed = engine.observe(context(engine, f"title-peek-{activity_id}", agent_id))
     rows = [row for row in observed["active_activities"] + observed["pending_conclusions"]
@@ -72,7 +72,7 @@ def test_work_title_is_the_task_title(engine_factory) -> None:
     stage_day_plan(engine)
     binding, started = _start_visible(engine, "work-title", "work_task")
     assert started.status == "in_progress", started.error_code
-    title = engine.rules.tasks[binding["object_id"]].title
+    title = engine.context.rules.tasks[binding["object_id"]].title
     assert _titles(engine, 1, started.activity_id, "action-work-title") == (title, title, title)
 
 
@@ -81,8 +81,8 @@ def test_call_title_is_the_contact_salutation(engine_factory) -> None:
     engine = engine_factory()
     binding, started = _start_visible(engine, "call-title", "contact")
     assert started.status == "in_progress", started.error_code
-    contact = next(item for item in engine.scenario.agents[0].contacts if item.contact_id == binding["object_id"])
-    assert engine.state.activities[started.activity_id].data["contact_id"] == contact.contact_id
+    contact = next(item for item in engine.context.scenario.agents[0].contacts if item.contact_id == binding["object_id"])
+    assert engine.context.state.activities[started.activity_id].data["contact_id"] == contact.contact_id
     salutation = contact.salutation
     assert _titles(engine, 1, started.activity_id, "action-call-title") == (salutation, salutation, salutation)
 
@@ -90,15 +90,15 @@ def test_call_title_is_the_contact_salutation(engine_factory) -> None:
 def test_chat_title_is_the_partner_name(engine_factory) -> None:
     """@brief 交谈的标题是对方姓名（交谈对象记在活动数据的 partner_id）。"""
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
-    first, second = engine.state.agents[1].name, engine.state.agents[2].name
+    first, second = engine.context.state.agents[1].name, engine.context.state.agents[2].name
     submit_round(engine, {1: ("start_activity", start_activity("交谈", f"人物：{second}")),
                           2: ("start_activity", start_activity("等待", "自己"))}, "chat-title")
     submit_round(engine, {2: ("start_activity", start_activity("交谈", f"人物：{first}"))}, "chat-accept")
-    chats = {item.agent_id: item for item in engine.state.activities.values() if item.kind == ActivityKind.CHAT}
+    chats = {item.agent_id: item for item in engine.context.state.activities.values() if item.kind == ActivityKind.CHAT}
     assert (chats[1].data["partner_id"], chats[2].data["partner_id"]) == ("agent:2", "agent:1")
     assert _titles(engine, 1, chats[1].activity_id, "action-chat-title-1") == (second, second, second)
-    accepted = next(event for event in engine.store.read_agent_events("action_result", 2)
+    accepted = next(event for event in engine.context.store.read_agent_events("action_result", 2)
                     if event.action_id == "action-chat-accept-2")
     assert accepted.data["data"]["activity"]["title"] == first

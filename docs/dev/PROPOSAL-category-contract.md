@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/PROPOSAL-category-contract.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 品类契约提案裁决记录
 
 > 状态：已裁决；由 `docs/dev/SPEC-category-contract.md` 取代，不再作为独立规范。

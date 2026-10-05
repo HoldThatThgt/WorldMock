@@ -11,14 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.life.conftest import (
-    advance_next,
-    context,
-    engine_factory as _engine_factory,
-    pending_names,
-    stage_day_plan,
-    start_arguments,
-)
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (advance_next, context, pending_names, stage_day_plan, start_arguments)  # noqa: F401
 from tests.integration.test_life_agent_protocol import _ModelResponse
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
@@ -68,12 +62,12 @@ async def _decide(environment, ctx, choose):
     observation = await environment.observe(ctx)
     dispatcher = _RoundDispatcher(choose(observation))
     person = _person(environment, ctx, dispatcher)
-    before = environment.engine.state.model_dump(mode="json")
+    before = environment.engine.context.state.model_dump(mode="json")
     request = ReactLoopRequest(0, ctx.observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": observation},
     ])
     await person.run_react_loop(request)
-    assert environment.engine.state.model_dump(mode="json") == before
+    assert environment.engine.context.state.model_dump(mode="json") == before
     assert len(dispatcher.requests) == 1
     assert person._react_messages[-1]["role"] == "assistant"
     assert person._react_messages[-1]["reasoning_content"]
@@ -133,7 +127,7 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     assert concluded.status.value == "completed"
     assert [row["task"] for row in concluded.data["memory_sources"]] == [waited]
 
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     starts = [event for event in events if event.event_type == "decision_started"]
     assert len(starts) == 2
     assert all(set(event.data) == {"round_id", "round_order", "world_state_version", "wake_reasons"}

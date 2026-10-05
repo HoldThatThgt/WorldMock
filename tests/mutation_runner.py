@@ -18,6 +18,7 @@ import hashlib
 import importlib.abc
 import importlib.util
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -34,8 +35,7 @@ class SourceMutation:
     """@brief 一个非等价源码变异与必须杀死它的独立行为用例。"""
 
     name: str
-    module: str
-    source: str
+    symbol: str
     original: str
     replacement: str
     tests: tuple[str, ...]
@@ -50,15 +50,94 @@ class RunSettings:
     timeout: int
 
 
+def source_location(symbol: str) -> tuple[str, str]:
+    """@brief 将当前定义符号解析为生产模块和仓库相对路径，不接受旧址映射。"""
+    module, separator, qualified = symbol.partition("::")
+    if (not separator or not qualified or not all(part.isidentifier() for part in qualified.split("."))
+            or not all(part.isidentifier() for part in module.split("."))):
+        logging.error("Invalid mutation symbol: %s", symbol)
+        raise ValueError(f"Invalid mutation symbol: {symbol}")
+    if module.startswith("worldmock."):
+        return module, "src/" + module.replace(".", "/") + ".py"
+    if module.startswith("custom."):
+        return module, module.replace(".", "/") + ".py"
+    logging.error("Mutation module is outside production roots: %s", module)
+    raise ValueError(f"Mutation module is outside production roots: {module}")
+
+
+def _import_bindings(tree: ast.AST) -> set[str]:
+    """@brief 取得导入绑定，纯别名赋值不能伪装成声明处。"""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(item.asname or item.name.split(".")[0] for item in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names.update(item.asname or item.name for item in node.names)
+    return names
+
+
+def _import_alias(value: ast.AST | None, imported: set[str]) -> bool:
+    """@brief 只识别导入对象的纯再导出，不拒绝真实构造或计算赋值。"""
+    while isinstance(value, ast.Attribute):
+        value = value.value
+    return isinstance(value, ast.Name) and value.id in imported
+
+
+def _definitions(nodes: list[ast.stmt], name: str, imported: set[str]) -> list[ast.AST]:
+    """@brief 在当前词法作用域查找真实定义，不把导入或再导出当作定义。"""
+    found = []
+    for node in nodes:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == name:
+                found.append(node)
+            continue
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if (not _import_alias(node.value, imported)
+                    and any(isinstance(target, ast.Name) and target.id == name for target in targets)):
+                found.append(node)
+        for _, value in ast.iter_fields(node):
+            if isinstance(value, list) and value and all(isinstance(child, ast.stmt) for child in value):
+                found.extend(_definitions(value, name, imported))
+    return found
+
+
+def _symbol_lines(source: str, symbol: str) -> tuple[int, int]:
+    """@brief 唯一定位嵌套定义的完整源码行范围，保留缩进和换行。"""
+    tree = ast.parse(source)
+    scope, imported = tree.body, _import_bindings(tree)
+    qualified = symbol.split("::", 1)[1]
+    node = None
+    for name in qualified.split("."):
+        matches = _definitions(scope, name, imported)
+        if len(matches) != 1:
+            logging.error("Mutation symbol does not resolve uniquely: %s", symbol)
+            raise ValueError(f"Mutation symbol does not resolve uniquely: {symbol}")
+        node = matches[0]
+        scope = getattr(node, "body", [])
+    return node.lineno - 1, node.end_lineno
+
+
 def mutated_source(mutation: SourceMutation) -> tuple[str, str]:
-    """@brief 只接受唯一且可编译的生产源码替换，返回原文与变异源码。"""
-    source = (REPO_ROOT / mutation.source).read_text(encoding="utf-8")
-    if source.count(mutation.original) != 1:
-        raise ValueError(f"Mutation source must occur exactly once: {mutation.name}")
-    changed = source.replace(mutation.original, mutation.replacement, 1)
+    """@brief 只替换符号作用域内唯一原文，并验证变异源码可编译。"""
+    _, relative = source_location(mutation.symbol)
+    source = (REPO_ROOT / relative).read_text(encoding="utf-8")
+    start, end = _symbol_lines(source, mutation.symbol)
+    lines = source.splitlines(keepends=True)
+    selected = "".join(lines[start:end])
+    if selected.count(mutation.original) != 1:
+        logging.error("Mutation source is not unique in symbol: %s", mutation.name)
+        raise ValueError(f"Mutation source must occur exactly once in symbol: {mutation.name}")
+    lines[start:end] = [selected.replace(mutation.original, mutation.replacement, 1)]
+    changed = "".join(lines)
     if source == changed:
+        logging.error("Mutation does not change production source: %s", mutation.name)
         raise ValueError(f"Mutation must change production source: {mutation.name}")
-    ast.parse(changed, filename=mutation.source)
+    try:
+        compile(changed, relative, "exec")
+    except SyntaxError:
+        logging.exception("Mutation source cannot compile: %s", mutation.name)
+        raise
     return source, changed
 
 
@@ -70,7 +149,8 @@ def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutati
     if mutation is not None:
         original, changed = mutated_source(mutation)
         path = directory / "mutation.json"
-        path.write_text(json.dumps({"module": mutation.module, "path": mutation.source, "source": changed}),
+        module, relative = source_location(mutation.symbol)
+        path.write_text(json.dumps({"module": module, "path": relative, "source": changed}),
                         encoding="utf-8")
         command.extend(["--source", str(path)])
     command.extend(nodes)

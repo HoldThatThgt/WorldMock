@@ -1,10 +1,10 @@
-"""@brief 社交动作的引擎侧执行：瞬时消息、交谈与通话前台活动（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
+"""@brief 社交动作的引擎侧执行：瞬时消息、交谈与通话前台活动（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。
 
 域校验与记录结构复用 life.social 纯函数；本模块补足引擎侧接线：构造 CHAT/CALL
 前台活动（这两种 kind 不在可供性注册表内，不经 activities.start_activity 的
 注册表 MET 查表）、按区间推进并结算社交需要账本（felt.apply_social_need_ledger）。
 
-交谈语义（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）：对方对发起人选择交谈，而发起人正有以对方为伙伴的
+交谈语义（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）：对方对发起人选择交谈，而发起人正有以对方为伙伴的
 进行中交谈，这就是接受：不再发邀请，接受方交谈的计划结束时刻对齐发起方；同一对人物只能有一项进行中交谈，重复发起
 以 CHAT_ALREADY_ACTIVE 拒绝。一方结束交谈时，对方以其为伙伴的进行中交谈在同一秒结束（partner_ended），成为待收尾。
 缓解按区间内双方交谈同时进行的秒数结算（每小时各按交谈账本缓解），其余秒数按发起方 0.2/小时，以推进前的状态判定，
@@ -14,6 +14,7 @@ social.ModelReplyRequest 待宿主执行（本仓库引擎无模型直连通道�
 """
 
 from __future__ import annotations
+from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 from dataclasses import dataclass
 
@@ -34,15 +35,9 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import BodyConfig
 
-#: 交谈代谢当量（experiment_assumption：坐姿交谈约 1.5 MET）。
-CHAT_MET = 1.5
-#: 通话代谢当量（experiment_assumption：坐姿通话约 1.3 MET）。
-CALL_MET = 1.3
-#: 交谈与通话的占用（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表：说与听）。
-SOCIAL_RESOURCE_CLAIMS = frozenset({"voice", "ears"})
 #: 一方结束交谈时对方交谈的结束原因（boundary_type 与 interruption_reason 同值）。
 PARTNER_ENDED = "partner_ended"
-#: 派生时长截取区间（秒，docs/dev/SPEC-time-and-energy.md 第五章「交谈」）：交谈 60–7200，通话 600–3600。
+#: 派生时长截取区间（秒，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）：交谈 60–7200，通话 600–3600。
 CHAT_DURATION_BOUNDS = (60, 7200)
 CALL_DURATION_BOUNDS = (600, 3600)
 
@@ -89,7 +84,7 @@ def late_acceptance_refusal(state: WorldState, agent_id: int, partner_id: str) -
     """@brief 接受交谈时发起方的交谈只剩不足一分钟：对齐后的交谈短于最短时长，以 ACTIVITY_TOO_SHORT 引导性拒绝。
 
     对方没有以本人为伙伴的进行中交谈（这次不是接受）时为 None；发起方结束后再对其发起交谈就是新邀请
-    （docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。交互对象层的交谈说明与受理用同一判定。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。交互对象层的交谈说明与受理用同一判定。
     """
     invitation = pair_chat(state, int(partner_id.split(":", 1)[1]), f"agent:{agent_id}")
     if invitation is None or invitation.planned_end_at - state.current_time >= CHAT_DURATION_BOUNDS[0]:
@@ -135,7 +130,8 @@ def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivit
 
 def start_call(agent: AgentState, contact: social.Contact, request: StartSocialActivityRequest,
                origin: ActivityOrigin, now: int) -> SocialStart:
-    """@brief 受理通话：面向场景联系人，10-60 分钟，占用说与听（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
+    """@brief 受理通话：面向场景联系人，10-60 分钟，
+    占用说与听（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。"""
     started = social.start_call(contact, request.duration_minutes)
     activity = _social_activity(agent, ActivityKind.CALL, started.duration_minutes * 60,
                                 origin, now,
@@ -154,7 +150,7 @@ def _social_activity(agent: AgentState, kind: ActivityKind, duration_seconds: in
         agent_id=agent.agent_id, location_id=agent.location_id, kind=kind,
         status=ActivityStatus.ACTIVE, started_at=now, planned_end_at=now + duration_seconds,
         last_settled_at=now, elapsed_seconds=0, planned_duration_seconds=duration_seconds,
-        target_id=None, resource_claims=set(SOCIAL_RESOURCE_CLAIMS),
+        target_id=None, resource_claims=set(social.SOCIAL_RESOURCE_CLAIMS),
         origin_action_id=origin.action_id, origin_decision_id=origin.decision_id,
         origin_request_event_id=origin.request_event_id, data=dict(data), report_anchor_at=now)
 
@@ -163,7 +159,7 @@ def shared_chat_seconds(state: WorldState, activity: ActivityState, target: int)
     """@brief 本区间内双方交谈同时进行的秒数：对方以本人为伙伴的交谈在区间起点进行中时取两者共同的部分，否则为 0。
 
     区间起点是本项推进前的结算时刻；对方的交谈按区间起点时的状态判定（本次推进中先结算完成的，按其结束时刻），
-    所以结果与人物推进顺序无关（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。
+    所以结果与人物推进顺序无关（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）。
     """
     start = activity.last_settled_at
     partner_id = str(activity.data.get("partner_id", ""))
@@ -188,7 +184,7 @@ def advance_social(activity: ActivityState, agent: AgentState, now: int,
     seconds = stop - activity.last_settled_at
     if seconds < 0:
         raise ValueError("activity settlement time moved backwards")
-    met = CHAT_MET if activity.kind == ActivityKind.CHAT else CALL_MET
+    met = social.CHAT_MET if activity.kind == ActivityKind.CHAT else social.CALL_MET
     factors = ActivityFactors(met=met)
     settlement = settle_body(agent.body, activity.kind, seconds, config, factors)
     body = _social_body_relief(settlement.after, activity, seconds, shared_seconds)
@@ -264,8 +260,7 @@ def end_partner_chats(before: WorldState, after: WorldState) -> tuple[WorldState
 
 def schedule_template_reply(state: WorldState, message: social.Message, contact: social.Contact) -> WorldState:
     """@brief template 策略联系人落一条占位回复（social.template_reply），登记为 CONTACT_REPLY_DELAY_SECONDS 后
-    送达的预排事件，到期写入收件箱并以 message_arrival 唤醒，睡眠中过滤（docs/CONTRACTS.md「联系人回复」）。"""
-    from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+    送达的预排事件，到期写入收件箱并以 message_arrival 唤醒，睡眠中过滤（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）。"""
 
     incoming = social.IncomingMessage(message_id=message.message_id, sender_id=message.sender_id,
                                       contact_id=contact.contact_id, text=message.text,

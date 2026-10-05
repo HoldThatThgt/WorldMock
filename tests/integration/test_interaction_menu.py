@@ -21,7 +21,8 @@ from tests.integration.test_life_agent_protocol import (
     _Environment, _GroundedCorrectionDispatcher, _ModelResponse, _SELF_OBJECT, _WAIT_CHOICE, _add_objects,
     _context, _observations, _offer, _visible_object, _wire_agent,
 )
-from worldmock.life.interaction_menu import WAYS, InteractionMenu, menu_allows_action, resolve_interaction_menu
+from worldmock.life.vocabulary import WAYS
+from worldmock.life.interaction_menu import InteractionMenu, menu_allows_action, resolve_interaction_menu
 from tests.life.conftest import select_start, start_arguments
 from worldmock.life.models import REQUEST_MODELS
 from tests.life.conftest import start_arguments

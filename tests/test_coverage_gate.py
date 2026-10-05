@@ -242,51 +242,203 @@ def test_write_report_roundtrip(tmp_path):
     assert loaded["evidence_manifest"]["source_identity"] == "source-xyz"
 
 
-def test_shards_cover_all_files_once_and_keep_directory_order(tmp_path):
-    for name in ("tests/a/test_b.py", "tests/a/test_a.py", "tests/b/test_c.py", "tests/test_root.py"):
-        write_module(tmp_path, name, "def test_ok():\n    assert True\n")
-    shards = gate.test_shards(tmp_path, 3)
-    files = [name for shard in shards for name in shard]
-    assert files == sorted(files)
-    assert len(files) == len(set(files)) == 4
-    assert all(shard for shard in shards)
-    with pytest.raises(ValueError, match="positive integer"):
-        gate.test_shards(tmp_path, 0)
+def test_gate_uses_the_current_interpreter_and_the_shared_full_runner(monkeypatch):
+    """@brief 没有 uv 的运行环境也调用同一当前解释器全量入口。"""
+    calls = []
+    monkeypatch.setattr(gate.subprocess, "call", lambda command, **kwargs: calls.append((command, kwargs)) or 7)
+    assert gate.run_test_suite() == 7
+    assert calls == [(gate.TEST_COMMAND, {"cwd": gate.REPO_ROOT})]
+    assert gate.TEST_COMMAND == (sys.executable, "scripts/run_tests.py", "--tier", "full", "--workers", "6")
+    assert gate.main(["--shards", "3"]) == 7
+    assert calls[-1][0] == (*gate.TEST_COMMAND[:-1], "3")
 
 
-def test_real_shards_use_current_python_and_report_skipped_tests(tmp_path, monkeypatch):
-    write_module(tmp_path, "tests/a/test_pass.py", "def test_pass():\n    assert True\n")
-    skip = "sk" + "ip"
-    write_module(tmp_path, "tests/b/test_skip.py", f"import pytest\ndef test_skip():\n    pytest.{skip}('missing')\n")
-    data = tmp_path / "data"
-    data.mkdir()
+def test_missing_coverage_json_fails_closed(tmp_path, monkeypatch):
+    """@brief 覆盖数据缺失不能读取旧结果或返回成功。"""
+    assert gate.main(["--from-json", str(tmp_path / "missing.json")]) == 1
+
+
+def test_missing_source_identity_is_an_error(monkeypatch):
+    """@brief 证据绑定不能用 unknown 掩盖 Git 身份读取失败。"""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(gate.subprocess, "run",
+                        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="missing repository"))
+    with pytest.raises(RuntimeError, match="Source identity lookup failed"):
+        gate.get_git_commit_hash()
+
+
+def _json_file(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+
+@pytest.fixture
+def full_run_files(tmp_path, monkeypatch):
+    """@brief 真实落盘同一次运行的 collection、summary、选择和完成回执。"""
+    from scripts import run_tests
+
+    for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+        (tmp_path / name).write_text("frozen", encoding="utf-8")
     monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
-    code, results = gate.run_test_suite(data, 2)
-    assert code == 0
-    assert results == {"tests": 2, "failures": 0, "errors": 0, "skipped": 1}
-    assert (data / ".coverage").is_file()
-    assert gate.TEST_COMMAND[:3] == (sys.executable, "-m", "coverage")
-    assert "uv" not in gate.TEST_COMMAND
-
-
-@pytest.mark.parametrize("results", [
-    {"tests": 1, "failures": 0, "errors": 0, "skipped": 1},
-    {"tests": 0, "failures": 0, "errors": 0, "skipped": 0},
-    {"tests": 1, "failures": 1, "errors": 0, "skipped": 0},
-])
-def test_main_never_passes_for_skipped_empty_or_failed_tests(tmp_path, monkeypatch, results):
-    monkeypatch.setattr(gate, "run_test_suite", lambda directory, shards: (0, results))
-    monkeypatch.setattr(gate, "export_coverage_json", lambda path: make_cov_data({
-        "src/worldmock/a.py": make_file_entry(90, 10, [])}))
-    monkeypatch.setattr(gate, "find_uncovered_interfaces", lambda *args: [])
+    monkeypatch.setattr(run_tests, "ROOT", tmp_path)
     monkeypatch.setattr(gate, "REPORT_PATH", tmp_path / "report.json")
-    assert gate.main(["--shards", "2"]) == 1
-    report = json.loads(gate.REPORT_PATH.read_text())
-    assert report["passed"] is False
-    assert report["test_results"] == results
-    assert report["shards"] == 2
+    monkeypatch.setattr(gate, "get_git_commit_hash", lambda: "actual-commit")
+    directory = tmp_path / ".work/test-runs/current"
+    records = [{"nodeid": "tests/test_actual.py::test_pass", "file": "tests/test_actual.py",
+                "markers": [], "imports": []}]
+    node = records[0]["nodeid"]
+    phases = {name: {"outcome": "passed", "duration": 0.1} for name in ("setup", "call", "teardown")}
+    receipt = {"run_id": directory.name, "exit_code": 0, "collected": [node], "tests": {node: {"phases": phases, "duration": 0.3}}}
+    summary = {"run_id": directory.name, "tier": "full", "selected_nodes": 1, "workers": 1,
+               "collection_sha256": run_tests.collection_digest(records),
+               "source_sha256": run_tests.source_digest(), "environment": run_tests.environment(1),
+               "shards": [{"index": 0, "run_id": directory.name, "returncode": 0, "wall_seconds": 1, "log": "shard-0/output.log"}]}
+    _json_file(directory / "collection.json", {"run_id": directory.name, "records": records})
+    _json_file(directory / "summary.json", summary)
+    _json_file(directory / "shard-0/selected.json", {"run_id": directory.name, "nodes": [node]})
+    _json_file(directory / "shard-0/receipt.json", receipt)
+    coverage = {**make_cov_data({"src/worldmock/a.py": make_file_entry(90, 10)}), "run_id": directory.name}
+    _json_file(directory / "coverage.json", coverage)
+    _bind_artifacts(directory, summary)
+    return directory, records, summary, receipt
 
 
-def test_missing_junit_report_is_an_error(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        gate.junit_summary([tmp_path / "missing.xml"])
+def _bind_artifacts(directory, summary):
+    """固定真实文件字节，在语义反例中仍给出一致的原生产快照。"""
+    from scripts import run_tests
+
+    summary["coverage_sha256"] = run_tests.file_sha256(directory / "coverage.json")
+    for shard in summary["shards"]:
+        target = directory / f"shard-{shard['index']}"
+        shard["receipt_sha256"] = run_tests.file_sha256(target / "receipt.json")
+        shard["selected_sha256"] = run_tests.file_sha256(target / "selected.json")
+    _json_file(directory / "summary.json", summary)
+
+
+def test_from_json_binds_complete_receipts_and_frozen_inputs(full_run_files):
+    directory, _, summary, _ = full_run_files
+    assert gate.main(["--from-json", str(directory / "coverage.json")]) == 0
+    report = json.loads(gate.REPORT_PATH.read_text("utf-8"))
+    assert report["passed"]
+    assert report["test_results"] == {"tests": 1, "failures": 0, "errors": 0, "skipped": 0}
+    assert report["shards"] == 1
+    assert report["evidence_manifest"]["source_sha256"] == summary["source_sha256"]
+    assert report["evidence_manifest"]["collection_sha256"] == summary["collection_sha256"]
+
+
+@pytest.mark.parametrize("damage", ["skipped", "failed", "setup_error", "empty", "missing_receipt",
+                                      "missing_selection", "missing_summary", "missing_collection",
+                                      "duplicate", "omitted", "extra", "wrong_tier", "wrong_count",
+                                      "wrong_collection", "stale_source", "stale_environment", "empty_shards",
+                                      "duplicate_shards", "empty_worker", "worker_failure", "receipt_failure",
+                                      "incomplete_phases", "not_run_outcome", "empty_outcome", "null_outcome",
+                                      "duplicate_worker_nodes"])
+def test_from_json_rejects_skipped_empty_failed_stale_or_incomplete_runs(full_run_files, damage):
+    directory, records, summary, receipt = full_run_files
+    node = records[0]["nodeid"]
+    if damage in {"skipped", "failed", "setup_error"}:
+        phase = "setup" if damage == "setup_error" else "call"
+        receipt["tests"][node]["phases"][phase]["outcome"] = "skipped" if damage == "skipped" else "failed"
+    elif damage in {"not_run_outcome", "empty_outcome", "null_outcome"}:
+        receipt["tests"][node]["phases"]["call"]["outcome"] = {
+            "not_run_outcome": "not-run", "empty_outcome": "", "null_outcome": None}[damage]
+    elif damage == "duplicate_worker_nodes":
+        receipt["collected"] = [node, node]
+        _json_file(directory / "shard-0/selected.json", {"run_id": directory.name, "nodes": [node, node]})
+    elif damage == "empty":
+        records.clear()
+    elif damage == "duplicate":
+        records.append(records[0])
+    elif damage == "omitted":
+        receipt["tests"].clear()
+    elif damage == "extra":
+        receipt["tests"]["tests/test_other.py::test_other"] = receipt["tests"][node]
+    elif damage == "wrong_tier":
+        summary["tier"] = "standard"
+    elif damage == "wrong_count":
+        summary["selected_nodes"] = 0
+    elif damage == "wrong_collection":
+        summary["collection_sha256"] = "different"
+    elif damage == "stale_source":
+        (gate.REPO_ROOT / "uv.lock").write_text("changed", encoding="utf-8")
+    elif damage == "stale_environment":
+        summary["environment"]["python"] = "different"
+    elif damage == "empty_shards":
+        summary["shards"].clear()
+    elif damage == "duplicate_shards":
+        summary["shards"].append(summary["shards"][0])
+    elif damage == "worker_failure":
+        summary["shards"][0]["returncode"] = 1
+    elif damage == "receipt_failure":
+        receipt["exit_code"] = 1
+    elif damage == "incomplete_phases":
+        del receipt["tests"][node]["phases"]["teardown"]
+    _json_file(directory / "collection.json", {"run_id": directory.name, "records": records})
+    _json_file(directory / "summary.json", summary)
+    _json_file(directory / "shard-0/receipt.json", receipt)
+    if damage == "empty_worker":
+        _json_file(directory / "shard-0/selected.json", {"run_id": directory.name, "nodes": []})
+    _bind_artifacts(directory, summary)
+    if damage.startswith("missing_"):
+        name = damage.removeprefix("missing_")
+        relative = {"receipt": "shard-0/receipt", "selection": "shard-0/selected"}.get(name, name)
+        (directory / f"{relative}.json").unlink()
+    assert gate.main(["--from-json", str(directory / "coverage.json")]) == 1
+    if gate.REPORT_PATH.exists():
+        report = json.loads(gate.REPORT_PATH.read_text("utf-8"))
+        assert report["passed"] is False
+        assert report["test_results"]["skipped"] == 1
+
+
+@pytest.mark.parametrize("artifact", ["coverage.json", "shard-0/receipt.json", "shard-0/selected.json",
+                                        "collection.json", "summary.json"])
+def test_other_run_artifacts_cannot_replace_current_run_artifacts(full_run_files, artifact):
+    """@brief 每个制品只属于本次运行；旧覆盖和回执也不能把实际失败替换成绿色。"""
+    import copy
+    import shutil
+
+    directory, records, summary, receipt = full_run_files
+    assert gate.main(["--from-json", str(directory / "coverage.json")]) == 0
+    previous = directory.with_name("previous")
+    shutil.copytree(directory, previous)
+    old_summary = copy.deepcopy(summary)
+    old_summary["run_id"] = previous.name
+    old_summary["shards"][0]["run_id"] = previous.name
+    old_receipt = copy.deepcopy(receipt)
+    old_receipt["run_id"] = previous.name
+    old_coverage = json.loads((previous / "coverage.json").read_text("utf-8"))
+    old_coverage["run_id"] = previous.name
+    _json_file(previous / "coverage.json", old_coverage)
+    _json_file(previous / "collection.json", {"run_id": previous.name, "records": records})
+    _json_file(previous / "shard-0/receipt.json", old_receipt)
+    _json_file(previous / "shard-0/selected.json", {"run_id": previous.name, "nodes": receipt["collected"]})
+    _bind_artifacts(previous, old_summary)
+    assert gate.main(["--from-json", str(previous / "coverage.json")]) == 0
+    if artifact == "coverage.json":
+        _json_file(directory / artifact, {**make_cov_data({"a.py": make_file_entry(60, 40)}),
+                                         "run_id": directory.name})
+    elif artifact == "shard-0/receipt.json":
+        receipt["tests"][records[0]["nodeid"]]["phases"]["call"]["outcome"] = "failed"
+        _json_file(directory / "shard-0/receipt.json", receipt)
+    _bind_artifacts(directory, summary)
+    expected = 1 if artifact in {"coverage.json", "shard-0/receipt.json"} else 0
+    assert gate.main(["--from-json", str(directory / "coverage.json")]) == expected
+    shutil.copyfile(previous / artifact, directory / artifact)
+    assert gate.main(["--from-json", str(directory / "coverage.json")]) == 1
+
+
+@pytest.mark.parametrize("artifact", ["coverage.json", "shard-0/receipt.json", "shard-0/selected.json"])
+def test_same_run_artifact_bytes_cannot_change_after_the_summary_was_frozen(full_run_files, artifact):
+    directory, _, _, _ = full_run_files
+    path = directory / artifact
+    value = json.loads(path.read_text("utf-8"))
+    if artifact == "coverage.json":
+        value["files"] = {"a.py": make_file_entry(100, 0)}
+    elif artifact == "shard-0/receipt.json":
+        node = next(iter(value["tests"]))
+        value["tests"][node]["duration"] += 1
+    else:
+        value["replacement"] = True
+    _json_file(path, value)
+    assert gate.main(["--from-json", str(directory / "coverage.json")]) == 1

@@ -2,7 +2,8 @@ import pytest
 from types import SimpleNamespace
 from typing import get_args
 
-from tests.life.conftest import context, engine_factory  # noqa: F401  (engine_factory 为 pytest 夹具)
+from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.life.conftest import (context)  # noqa: F401
 from worldmock.footprints.models import (
     CHAT_INVITE_KIND,
     DECISION_OFFERED_FIELD,
@@ -26,7 +27,7 @@ _SPEC_WAKE_REASONS = frozenset({
     "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
 })
 
-#: 规格事件类型冻结枚举 14 类（`docs/design/05-recording-engine.md`「事件类型枚举」逐字）。
+#: 规格事件类型冻结枚举 14 类（`docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「事件类型枚举」逐字）。
 _SPEC_EVENT_TYPES = (
     "observation", "decision_started", "model_request", "model_response", "action_requested",
     "action_accepted", "action_rejected", "activity_progress", "action_result",
@@ -104,7 +105,7 @@ def test_new_wake_reasons_are_accepted_by_validation():
 
 def _with_pending_reasons(engine, reasons):
     """把人物 1 的待处理唤醒原因改为给定列表，其余世界状态沿用引擎当前状态。"""
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     state.agents[1] = state.agents[1].model_copy(update={"pending_wake_reasons": reasons}, deep=True)
     return state
 
@@ -126,15 +127,14 @@ def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factor
 def _settlement_rhythm(engine, monkeypatch, verdict):
     """以一份共同身体结算草稿驱动 apply_decision_rhythm，verdict 非空时替换唤醒判定结果。
 
-    草稿照真实结算带 activity_ids（节律结算按它记社交账，docs/dev/SPEC-dayrun-fidelity.md 1.1）；此处区间为空。"""
+    草稿照真实结算带 activity_ids（节律结算按它记社交账，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-区间事实只有一个来源社交账与共同用餐 ）；此处区间为空。"""
     from worldmock.life import rhythm
 
     if verdict is not None:
         monkeypatch.setattr(rhythm.rhythm_schedule, "evaluate_wake_reasons", lambda snapshot: verdict)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     settlement = {"kind": "body_settlement", "interval_start": now, "interval_end": now, "activity_ids": []}
-    rhythm.apply_decision_rhythm(rhythm.engine_rhythm_inputs(
-        engine, engine.state, progress_data={1: [settlement]}))
+    rhythm.apply_decision_rhythm(rhythm.engine_rhythm_inputs(engine.context, engine.context.state, progress_data={1: [settlement]}))
     return settlement
 
 

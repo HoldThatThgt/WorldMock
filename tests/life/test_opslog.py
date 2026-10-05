@@ -17,7 +17,7 @@ from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
 
 def _records(engine: LifeEngine) -> list[dict]:
     """读取当前运行已落盘的全部操作日志记录。"""
-    logs = engine.store.run_dir / "logs"
+    logs = engine.context.store.run_dir / "logs"
     return [json.loads(line) for path in sorted(logs.glob("ops-*.jsonl"))
             for line in path.read_text(encoding="utf-8").splitlines()]
 
@@ -101,7 +101,7 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
     assert codes.count("DECISION_ROUND_BEGAN") == 1 and codes.count("DECISION_ROUND_COMMITTED") == 1
     committed = next(record for record in records if record["code"] == "DECISION_ROUND_COMMITTED")
     assert committed["round_id"] == "ops"
-    assert 1 <= committed["event_seq_first"] <= committed["event_seq_last"] <= engine.store.last_event_seq
+    assert 1 <= committed["event_seq_first"] <= committed["event_seq_last"] <= engine.context.store.last_event_seq
     exchanges = [record for record in records if record["code"] == "MODEL_EXCHANGE"]
     assert [record["detail"].split()[1] for record in exchanges] == ["request", "response"]
     response = exchanges[1]

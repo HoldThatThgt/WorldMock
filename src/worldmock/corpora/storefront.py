@@ -1,6 +1,7 @@
 """@brief 按现有品类树展开逐店商品集合并生成确定性整数分报价。"""
 
 from __future__ import annotations
+from worldmock.categories import Action, PairingState
 
 import hashlib
 import json
@@ -40,7 +41,6 @@ def price_range(obj) -> tuple[int, int]:
 
 def validate_assortments(dataset, catalog) -> None:
     """@brief 准入、完整集合、丰富度、菜单差异与所有冻结报价必须同时成立。"""
-    from worldmock.categories import Action, PairingState
 
     contract = catalog.category_contract
     _validate_admission(dataset.category_assignment, contract)

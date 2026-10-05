@@ -1,4 +1,4 @@
-"""个人事务结算的幂等与先后经真实请求、引擎与 SQLite（docs/dev/SPEC-errands-workday.md 2.4「先后」「只读一处」「结算函数」）。
+"""个人事务结算的幂等与先后经真实请求、引擎与 SQLite（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「先后」「只读一处」「结算函数」）。
 
 结算证据只在一处读取、每次提交恰好结算一次：重放的动作结果（带 reused）不算；重复到期的配送不再产生入库行；并行开始的
 合并结果只读顶层 orders，不再读逐项结果 activity_results 里的同一订单；决策轮提交与时钟推进提交各结算一次（数量为 3 的
@@ -14,7 +14,7 @@ from tests.life.conftest import conclude_request, context, errand_add, submit_ro
 from tests.life.routing_fixtures import HOME, MARKET, act, open_world, place, routed, run_until, stage
 from tests.life.test_errand_completion import (CHEN, MILK, MILK_ID, WAIT, arrival_of, assert_settlement, buy, first,
                                                give, held, home, market, note, ready, result_event, settlement)
-from worldmock.life.interaction_menu import GIVE_WAY
+from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.models import active_activities
 
 
@@ -32,12 +32,12 @@ def test_a_replayed_action_adds_nothing(engine_factory) -> None:
     engine.observe(replay)
     engine.submit_action(DirectToolCall(replay, bought.action_id, "start_activity", request))
     assert engine.commit_decision_round("replay") == [bought]
-    [replayed] = [event for event in engine.store.read_agent_events("action_result", 1)
+    [replayed] = [event for event in engine.context.store.read_agent_events("action_result", 1)
                   if event.action_id == bought.action_id and event.data.get("reused")]
     assert replayed.data["data"]["orders"] == bought.data["orders"]
     assert bought.data["orders"][0]["status"] == "delivered"
     assert settlement(engine) == [progressed] and held(engine).progress == 1.0
-    assert engine.state.agents[1].inventory[MARKET][MILK_ID] == 1.0
+    assert engine.context.state.agents[1].inventory[MARKET][MILK_ID] == 1.0
 
 
 def test_a_repeated_due_delivery_adds_nothing(engine_factory) -> None:
@@ -47,12 +47,12 @@ def test_a_repeated_due_delivery_adds_nothing(engine_factory) -> None:
     note(engine, "note", [errand_add("囤牛奶", MILK, quantity=2)])
     ordered = buy(engine, "order", way="远程下单")
     [order] = ordered.data["orders"]
-    scheduled = next(item for item in engine.state.pending_events
+    scheduled = next(item for item in engine.context.state.pending_events
                      if item.kind.value == "delivery_arrival" and order["order_id"] in item.data["order_ids"])
-    run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered")
+    run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered")
     [progressed] = settlement(engine)
     assert_settlement(progressed, arrival_of(engine, order["order_id"]), "errand_progressed", 1.0)
-    again = engine.state.current_time + 120
+    again = engine.context.state.current_time + 120
 
     def repeat(state):
         """同一配送事件换一个预排身份，两分钟后再到期一次。"""
@@ -61,13 +61,13 @@ def test_a_repeated_due_delivery_adds_nothing(engine_factory) -> None:
             "scheduled_id": f"{scheduled.scheduled_id}:again", "due_at": again, "sequence": sequence}))
         state.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
     stage(engine, repeat)
-    run_until(engine, lambda current: current.state.current_time >= again)
-    arrivals = [event for event in engine.store.read_agent_events("environment_event", 1)
+    run_until(engine, lambda current: current.context.state.current_time >= again)
+    arrivals = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                 if event.data.get("kind") == "delivery_arrival"]
     assert [[row["status"] for row in event.data["orders"]] for event in arrivals] == [["delivered"], ["delivered"]]
     assert [len(event.data["inventory_changes"]) for event in arrivals] == [1, 0]
     assert settlement(engine) == [progressed] and held(engine).progress == 1.0
-    assert engine.state.agents[1].inventory[HOME][MILK_ID] == 1.0
+    assert engine.context.state.agents[1].inventory[HOME][MILK_ID] == 1.0
 
 
 def test_a_parallel_start_counts_each_order_once(engine_factory) -> None:
@@ -98,7 +98,7 @@ def test_each_commit_settles_once(engine_factory) -> None:
     evidence = result_event(engine, bought)
     in_round = [event for event in settlement(engine) if event.state_version_after == evidence.state_version_after]
     assert [event.data["kind"] for event in in_round] == ["errand_progressed"] and held(engine).progress == 1.0
-    run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered")
+    run_until(engine, lambda current: current.context.state.deliveries[order["order_id"]].status == "delivered")
     arrival = arrival_of(engine, order["order_id"])
     in_advance = [event for event in settlement(engine) if event.state_version_after == arrival.state_version_after]
     assert [event.data["kind"] for event in in_advance] == ["errand_progressed"]
@@ -120,18 +120,18 @@ def test_evidence_ordered_before_the_noting_event_in_the_same_commit_does_not_co
         run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids)
         ready(engine, 2)
         first(engine, giver)
-        name = engine.state.activities[waited.activity_id].name
+        name = engine.context.state.activities[waited.activity_id].name
         noting = conclude_request(name, errands=[errand_add("买牛奶", MILK)])
         _, results = submit_round(engine, {1: ("conclude_activity", noting), 2: ("start_activity", give(engine, CHEN))},
                                   f"together-{giver}")
         assert all(result.status == "completed" for result in results)
         handed = next(result for result in results if result.agent_id == 2)
         gift = result_event(engine, handed, agent_id=2)
-        [registered] = [event for event in engine.store.read_agent_events("environment_event", 1)
+        [registered] = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                         if event.data.get("kind") == "errand_registered"]
         assert gift.occurred_at == registered.occurred_at
         assert (gift.event_seq < registered.event_seq) == (giver == 2)
-        assert engine.state.agents[1].inventory[HOME][MILK_ID] == 1.0
+        assert engine.context.state.agents[1].inventory[HOME][MILK_ID] == 1.0
         outcomes[giver] = (held(engine), settlement(engine), gift)
     errand, events, _ = outcomes[2]
     assert (errand.name, errand.progress) == ("买牛奶", 0.0) and events == []
@@ -148,7 +148,7 @@ def test_a_parallel_start_counts_each_gift_once(engine_factory) -> None:
     place(engine, 2, HOME, {MILK_ID: 1.0})
     note(engine, "note", [errand_add("囤牛奶", MILK, quantity=2)])
     ready(engine, 2)
-    [waiting] = active_activities(engine.state, 2)
+    [waiting] = active_activities(engine.context.state, 2)
     ended = act(engine, "end-wait", conclude_request(waiting.name), agent_id=2, tool="conclude_activity")
     assert ended.status == "completed", (ended.error_code, ended.message)
     handed = act(engine, "hand", routed((f"持有物：{MILK}", "consume", GIVE_WAY, None, CHEN), WAIT), agent_id=2)
@@ -159,11 +159,11 @@ def test_a_parallel_start_counts_each_gift_once(engine_factory) -> None:
     [progressed] = settlement(engine)
     assert_settlement(progressed, result_event(engine, handed, agent_id=2), "errand_progressed", 1.0)
     assert progressed.agent_id == 1 and (held(engine).progress, held(engine).quantity) == (1.0, 2)
-    assert engine.state.agents[1].inventory[HOME][MILK_ID] == 1.0 and settlement(engine, agent_id=2) == []
+    assert engine.context.state.agents[1].inventory[HOME][MILK_ID] == 1.0 and settlement(engine, agent_id=2) == []
 
 
 def test_two_evidence_events_in_one_commit_are_credited_in_event_order(engine_factory) -> None:
-    """结算按草稿先后扫描、命中即累加（docs/dev/SPEC-errands-workday.md 2.4「结算函数」）。两人都在集市，陈曦记下「取得
+    """结算按草稿先后扫描、命中即累加（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「结算函数」）。两人都在集市，陈曦记下「取得
     纯牛奶 2 份」；同一轮里她到店买下一份、李凡当面给她一份，两条动作结果都是她这条事务的证据、落在同一次提交。排在前面
     的那条结果让事务进展到 1 份，排在后面的那条让它办成：errand_progressed 以较早的结果事件为原因，errand_completed 以较晚
     的为原因，两条结算事件也按这个先后落库，各与自己的证据同一提交。"""
@@ -185,4 +185,4 @@ def test_two_evidence_events_in_one_commit_are_credited_in_event_order(engine_fa
     assert_settlement(completed, later, "errand_completed", 1.0)
     assert [event.data["errand"]["progress"] for event in (progressed, completed)] == [1.0, 2.0]
     assert later.event_seq < progressed.event_seq < completed.event_seq
-    assert engine.state.agents[1].errands == {} and engine.state.agents[1].inventory[MARKET][MILK_ID] == 2.0
+    assert engine.context.state.agents[1].errands == {} and engine.context.state.agents[1].inventory[MARKET][MILK_ID] == 2.0

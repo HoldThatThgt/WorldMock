@@ -63,19 +63,19 @@ def _live_day(engine) -> dict:
     _finish(engine, sleep.activity_id)
     _, walk = _start(engine, "to-restaurant", "location", RESTAURANT, "步行")
     _finish(engine, walk.activity_id)
-    location = next(item for item in engine.scenario.locations if item.location_id == RESTAURANT)
-    overrides = engine.state.opening_exceptions[RESTAURANT]
-    opening = engine.state.current_time
-    if opening_status(location, opening, engine.scenario.timezone, overrides) != "open":
-        opening = next_opening_change(location, opening, engine.scenario.timezone, overrides)
+    location = next(item for item in engine.context.scenario.locations if item.location_id == RESTAURANT)
+    overrides = engine.context.state.opening_exceptions[RESTAURANT]
+    opening = engine.context.state.current_time
+    if opening_status(location, opening, engine.context.scenario.timezone, overrides) != "open":
+        opening = next_opening_change(location, opening, engine.context.scenario.timezone, overrides)
         assert opening is not None
-        assert opening_status(location, opening, engine.scenario.timezone, overrides) == "open"
+        assert opening_status(location, opening, engine.context.scenario.timezone, overrides) == "open"
     for step in range(16):
-        if engine.state.current_time >= opening:
+        if engine.context.state.current_time >= opening:
             break
         _, waiting = _start(engine, f"wait-{step}", "self", None, "等待")
         _finish(engine, waiting.activity_id)
-    assert engine.state.current_time >= opening
+    assert engine.context.state.current_time >= opening
     _start(engine, "buy-meal", "supply", SUPPLY, "到店")
     assert advance_until_ready(engine)
     _, eating = _start(engine, "eat-meal", "holding", MEAL, "食用")
@@ -87,9 +87,9 @@ def test_rerun_metrics_on_a_real_engine_day(engine_factory) -> None:
     """真实引擎与存储产生的运行库：八项指标与引擎事实、质量报告 decision_rhythm 的同一口径一致。"""
     engine = engine_factory()
     ids = _live_day(engine)
-    events = engine.store.read_events(engine.store.last_event_seq)
-    rhythm = build_quality_report(events, [], engine.store.manifest)["decision_rhythm"]
-    metrics, lines = _metrics(engine.store.run_dir)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    rhythm = build_quality_report(events, [], engine.context.store.manifest)["decision_rhythm"]
+    metrics, lines = _metrics(engine.context.store.run_dir)
 
     assert metrics["idle_seconds"] == {1: 0}
     assert metrics["same_moment_rounds"] == rhythm["same_moment_round_counts"]
@@ -113,7 +113,7 @@ def test_rerun_metrics_on_a_real_engine_day(engine_factory) -> None:
     assert metrics["lowest_energy_before_meal"] == [
         {"agent_id": 1, "date": "2026-01-05", "ate": True, "energy_kcal": energy}]
     assert metrics["meal_count"] == 1
-    walked = engine.state.activities[ids["walk"]].elapsed_seconds
+    walked = engine.context.state.activities[ids["walk"]].elapsed_seconds
     assert metrics["walking_share"] == {"walking_seconds": walked, "travel_seconds": walked, "available": True}
     assert metrics["early_reminders"] == [{"agent_id": 1, "date": "2026-01-05", "earliest": "08:00", "early": True}]
     assert lines[7] == f"7. 步行占比：{walked}/{walked}（100%）"

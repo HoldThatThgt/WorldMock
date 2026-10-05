@@ -1,4 +1,4 @@
-"""@brief 工作负荷与作息偏离的只读子命令（scripts/inspect_run.py workday --scenario，docs/dev/SPEC-errands-workday.md 6.2）。
+"""@brief 工作负荷与作息偏离的只读子命令（scripts/inspect_run.py workday --scenario，docs/VERIFICATION.md#errands-workday-度量与下游-行为评估 ）。
 
 真实运行目录由 engine_factory 加 declare 改写的场景副本产生，只发真实请求：人物周一 09:00–18:00 当班，上班途中步行到
 办公室、15:00 班内离开回家。子命令以只读连接读回事件；班次、任务、住处与播报间隔取自 --scenario 场景文件，其摘要须等于
@@ -43,8 +43,8 @@ def _left_at_three(engine_factory, tmp_path: Path) -> tuple[Path, Path, list[dic
     读回的全部事件（Event.model_dump 的 JSON 形状）与引擎解析的场景文档。"""
     engine = engine_factory(mutate=_workday_run)
     _leave_on_duty_at_three(engine)
-    events = [event.model_dump(mode="json") for event in engine.store.read_events(engine.store.last_event_seq)]
-    document = engine.semantics.document
+    events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
+    document = engine.context.semantics.document
     engine.close()
     return tmp_path / "run-0", tmp_path / "scenario-0" / "scenarios" / SCENARIO_NAME, events, document
 

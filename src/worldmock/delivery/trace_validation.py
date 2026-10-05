@@ -196,7 +196,8 @@ def _model_call_identity(row: dict, by_digest: dict[str, str],
     profile = payload.get("profile")
     digest = _model_input_digest(payload)
     expected_model = expected_models.get(profile)
-    if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model, {"system", "user"}):
+    if (row["stage"] != "llm" or row["record_ids"]
+            or not _valid_model_evidence(payload, expected_model, {"system", "user"})):
         raise IntegrityError("LabelKit trace contains an unsuccessful model call")
     if profile not in {"default", "judge"} or digest not in by_digest:
         raise IntegrityError("LabelKit trace model call is not bound to a source record")

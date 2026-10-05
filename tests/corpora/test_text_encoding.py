@@ -99,7 +99,7 @@ def test_prepared_map_dataset_keeps_declaration_text_under_a_gbk_locale(monkeypa
         return real_load(root, reference) if len(loaded) == 1 else None
 
     monkeypatch.setattr(map_prepare, "load_map_dataset", load_frozen_only)
-    monkeypatch.setattr("worldmock.corpora.storefront.validate_assortments", lambda dataset, fare: None)
+    monkeypatch.setattr(map_prepare, "validate_assortments", lambda dataset, fare: None)
     monkeypatch.setattr(map_prepare, "_prepare_routes", lambda root, dataset, fare: [])
     destination = tmp_path / "prepared"
     map_prepare.prepare_map(destination, _FROZEN, 20260105)

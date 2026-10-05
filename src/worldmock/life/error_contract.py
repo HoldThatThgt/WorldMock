@@ -1,6 +1,8 @@
 """@brief 宿主与环境共用的完整工具调用错误合同。"""
 
 from __future__ import annotations
+from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
+from worldmock.life.vocabulary import way_options
 
 import logging
 from collections.abc import Mapping, Sequence
@@ -59,8 +61,6 @@ class Candidate:
 
 def activity_candidate(target: str, way: str, route: tuple = (None, None), note: str | None = None) -> Candidate:
     """@brief 从目标、方式和路线构造完整的新活动工具请求。"""
-    from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS
-    from worldmock.life.name_resolution import way_options
 
     prefer = "最快拿到" if way_options(way) & NAMED_PURCHASE_WAYS else None
     return Candidate("start_activity", {

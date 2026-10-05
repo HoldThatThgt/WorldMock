@@ -1,4 +1,4 @@
-"""个人事务变更的名称与错误在宿主与环境两侧一致（docs/dev/SPEC-errands-workday.md 2.2、2.3）。
+"""个人事务变更的名称与错误在宿主与环境两侧一致（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 、2.3）。
 
 经真实引擎：正式场景与目录建立的 LifeEngine 上，人物开始一段等待；每一轮先由同一次冻结观察（存进 SQLite 的观察事件）
 准备的 LifeAgent 在宿主一侧本地校验（validate_react_decisions，与生产的 ReAct 循环同一入口），再把同一请求原样登记给
@@ -94,7 +94,7 @@ def test_update_and_cancel_use_the_todo_layer_name(engine_factory) -> None:
     里的名称，名称不因所写的写法改变（不可改名），只替换备注与提醒；随后照待办层原样写名称取消它，取消事件带移出前的
     快照与原因，下一次观察的待办层不再列出它，另一条事务原样保留。"""
     engine, _, name = _waiting(engine_factory)
-    now, zone = engine.state.current_time, engine.scenario.timezone
+    now, zone = engine.context.state.current_time, engine.context.scenario.timezone
     kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, now - 120, memo="下班前下单")
     tea = _errand("action-a:errand:1", "囤冰红茶", _TEA, now - 60, quantity=3)
     stage_errands(engine, 1, [kit, tea])
@@ -103,7 +103,7 @@ def test_update_and_cancel_use_the_todo_layer_name(engine_factory) -> None:
     assert [row["name"] for row in observed["todo_layer"]["errands"]] == [_KIT_ERRAND, "囤冰红茶"]
     assert error == "" and updated.status == "completed"
     assert updated.data["errands"] == [{"errand": _KIT_ERRAND, "change": "更新"}]
-    renewed = engine.state.agents[1].errands[kit.errand_id]
+    renewed = engine.context.state.agents[1].errands[kit.errand_id]
     assert renewed == kit.model_copy(update={"memo": "周末去超市买", "remind_at": remind_epoch("18:30", now, zone)})
     _next_chance(engine)
     cancel = errand_cancel(_KIT_ERRAND, "公司楼下买到了")
@@ -113,7 +113,7 @@ def test_update_and_cancel_use_the_todo_layer_name(engine_factory) -> None:
     events = _errand_events(engine)
     assert [event.data["kind"] for event in events] == ["errand_updated", "errand_cancelled"]
     assert (events[1].data["errand"], events[1].data["reason"]) == (renewed.model_dump(mode="json"), "公司楼下买到了")
-    assert engine.state.agents[1].errands == {tea.errand_id: tea}
+    assert engine.context.state.agents[1].errands == {tea.errand_id: tea}
     after = engine.observe(context(engine, "after"))
     assert [row["name"] for row in after["todo_layer"]["errands"]] == ["囤冰红茶"]
 
@@ -124,7 +124,7 @@ def test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_
     没有候选。宿主一次纠错给出两条；绕过宿主的同一请求在环境被合并成一次拒绝、明细逐项相同，从不替换成近似的那一条——
     事务原样（备注没被更新、没有事务被取消），没有事务事件，暂停也没有发生。"""
     engine, wait_id, name = _waiting(engine_factory)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     staged = [_errand("action-a:errand:0", _KIT_ERRAND, _KIT, now - 120),
               _errand("action-a:errand:1", "囤 冰红茶", _TEA, now - 60),
               _errand("action-a:errand:2", "囤冰红茶", _TEA_JOINED, now - 60)]
@@ -139,8 +139,8 @@ def test_unknown_or_ambiguous_errand_name_lists_every_open_name_and_substitutes_
              open_names)]
     assert _host_rows(error) == expected and feedback_report(error).error_code == "NAME_NOT_FOUND"
     assert _refused(result) == expected
-    assert engine.state.agents[1].errands == {errand.errand_id: errand for errand in staged}
-    assert _errand_events(engine) == [] and engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.agents[1].errands == {errand.errand_id: errand for errand in staged}
+    assert _errand_events(engine) == [] and engine.context.state.activities[wait_id].status == ActivityStatus.ACTIVE
 
 
 def test_unknown_item_reports_nearest_product_names_in_why_without_candidates(engine_factory) -> None:
@@ -158,11 +158,11 @@ def test_unknown_item_reports_nearest_product_names_in_why_without_candidates(en
         _row((1, "item"), "康师傅　冰红茶", "NAME_AMBIGUOUS",
              "The product name 「康师傅　冰红茶」 matches several products: 「康师傅 冰红茶」、「康师傅冰红茶」.")]
     assert _host_rows(error) == expected and _refused(result) == expected
-    assert engine.state.agents[1].errands == {} and _errand_events(engine) == []
+    assert engine.context.state.agents[1].errands == {} and _errand_events(engine) == []
     exact = [errand_add("一瓶冰红茶", "康师傅 冰红茶"), errand_add("另一瓶冰红茶", "康师傅冰红茶")]
     _, error, accepted = _round(engine, "exact", "report_status", _arguments("report_status", name, exact))
     assert error == "" and accepted.status == "completed"
-    held = engine.state.agents[1].errands
+    held = engine.context.state.agents[1].errands
     assert [held[f"action-exact:errand:{index}"].product_id for index in (0, 1)] == [_TEA, _TEA_JOINED]
 
 
@@ -171,7 +171,7 @@ def test_cancel_requires_a_reason(engine_factory) -> None:
     errands[0].reason；宿主按参数错误纠正（ARGUMENTS_INVALID），绕过宿主时环境以 ACTION_REQUEST_INVALID 逐项给出同样的
     明细，事务原样留着。写了原因的取消被受理，取消事件带这条原因。"""
     engine, _, name = _waiting(engine_factory)
-    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.state.current_time - 120)
+    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.context.state.current_time - 120)
     stage_errands(engine, 1, [kit])
     whys = []
     for index, reason in enumerate((None, "  ")):
@@ -183,12 +183,12 @@ def test_cancel_requires_a_reason(engine_factory) -> None:
         assert feedback_report(error).error_code == "ARGUMENTS_INVALID"
         assert host[:4] == ([*_ROOT, 0, "reason"], reason, "ARGUMENTS_INVALID", []) and host[5] == []
         assert _refused(result) == [(host[0], reason, "ACTION_REQUEST_INVALID", *host[3:])]
-        assert engine.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
+        assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
         whys.append(host[4])
     assert whys[0] == "reason is required when change is 取消" and whys[1] != whys[0]
     _, error, result = _round(engine, "reasoned", "pause_activity",
                               _arguments("pause_activity", name, [errand_cancel(_KIT_ERRAND, "已经买到了")]))
-    assert error == "" and result.status == "completed" and engine.state.agents[1].errands == {}
+    assert error == "" and result.status == "completed" and engine.context.state.agents[1].errands == {}
     [event] = _errand_events(engine)
     assert (event.data["kind"], event.data["reason"]) == ("errand_cancelled", "已经买到了")
 
@@ -198,7 +198,7 @@ def test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_r
     一条未完成事务相同（errands[j].item）；名称与一条未完成事务归一后相同、与同请求较早一条新增归一后相同
     （errands[j].name，只报较晚的一条）；已有八条未完成事务时再新增（errands[j].change，上限只写在 why）。"""
     engine, _, name = _waiting(engine_factory)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     stage_errands(engine, 1, [_errand("action-a:errand:0", _KIT_ERRAND, _KIT, now - 120)])
     changes = [errand_add("再买一份食材包", "素炒什锦食材包"),
                errand_add("补一份 素炒什锦食材包", "素炒什锦", outcome="吃掉"),
@@ -211,7 +211,7 @@ def test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_r
         _row((3, "name"), "囤 茶", "ARGUMENTS_INVALID", "Two added errands share the name 「囤茶」.")]
     assert _host_rows(error) == expected and feedback_report(error).error_code == "ARGUMENTS_INVALID"
     assert _refused(result) == expected
-    products = [product for product in sorted(engine.rules.items) if product not in {_KIT, _MEAL, _TEA, _TEA_JOINED}]
+    products = [product for product in sorted(engine.context.rules.items) if product not in {_KIT, _MEAL, _TEA, _TEA_JOINED}]
     full = [_errand(f"action-s:errand:{index}", f"事务{index}", product, now - 600)
             for index, product in enumerate(products[:MAX_OPEN_ERRANDS])]
     stage_errands(engine, 1, full)
@@ -221,20 +221,20 @@ def test_duplicate_added_names_same_outcome_and_product_and_a_ninth_errand_are_r
     assert _host_rows(error) == expected and _refused(result) == expected
     assert feedback_report(error).payload()["items"][0]["expected"] == (
         "An addition that the open errands can still take is required.")
-    assert engine.state.agents[1].errands == {errand.errand_id: errand for errand in full}
+    assert engine.context.state.agents[1].errands == {errand.errand_id: errand for errand in full}
     assert _errand_events(engine) == []
 
 
 def test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_are_rejected(engine_factory) -> None:
-    """同一请求内的两种重复（docs/dev/SPEC-errands-workday.md 2.2「同一条未完成事务在一次请求里至多被一条更新或取消
+    """同一请求内的两种重复（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「同一条未完成事务在一次请求里至多被一条更新或取消
     点名」、2.3 表第 1 与第 4 行）：先更新、再以无损归一后同一条的写法取消同一条未完成事务；两条名称不同的新增结果种类
     与商品都相同。两处都是 ARGUMENTS_INVALID、不带候选、只报较晚的一条（errands[1].name 与 errands[3].item），why 写明
     冲突；宿主一次纠错与环境的合并拒绝逐项相同。整请求被拒：事务原样（备注没被更新、没被取消），没有事务事件，等待
     活动没有被播报。"""
     engine, wait_id, name = _waiting(engine_factory)
-    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.state.current_time - 120)
+    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.context.state.current_time - 120)
     stage_errands(engine, 1, [kit])
-    before = engine.state.activities[wait_id]
+    before = engine.context.state.activities[wait_id]
     changes = [errand_update(_KIT_ERRAND, memo="周末去超市买"), errand_cancel("补一份 素炒什锦食材包", "不买了"),
                errand_add("茶一", "康师傅 冰红茶"), errand_add("茶二", "康师傅 冰红茶", quantity=2)]
     _, error, result = _round(engine, "twice", "report_status", _arguments("report_status", name, changes))
@@ -244,8 +244,8 @@ def test_one_errand_named_twice_and_two_additions_with_one_outcome_and_product_a
         _row((3, "item"), "康师傅 冰红茶", "ARGUMENTS_INVALID", "Two added errands track the same outcome and product.")]
     assert _host_rows(error) == expected and feedback_report(error).error_code == "ARGUMENTS_INVALID"
     assert _refused(result) == expected
-    assert engine.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
-    assert engine.state.activities[wait_id] == before
+    assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
+    assert engine.context.state.activities[wait_id] == before
 
 
 def test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_is_accepted(engine_factory) -> None:
@@ -254,14 +254,14 @@ def test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_i
     回执与事件按请求顺序。终结之后名称可以再用：随后取消这条新事务，后来的一次请求再以原名新增照样受理；完成也把事务
     移出未完成集合（2.1），以完成之后留下的状态（只剩别的事务）预置，原名同样可以新增。"""
     engine, _, name = _waiting(engine_factory)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     old = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, now - 120, quantity=1, progress=0.5)
     stage_errands(engine, 1, [old])
     changes = [errand_cancel(_KIT_ERRAND, "改成两份"), errand_add(_KIT_ERRAND, "素炒什锦食材包", quantity=2, memo="多买一份")]
     _, error, result = _round(engine, "again", "report_status", _arguments("report_status", name, changes))
     assert error == "" and result.status == "completed"
     assert result.data["errands"] == [{"errand": _KIT_ERRAND, "change": "取消"}, {"errand": _KIT_ERRAND, "change": "新增"}]
-    [renewed] = engine.state.agents[1].errands.values()
+    [renewed] = engine.context.state.agents[1].errands.values()
     assert (renewed.errand_id, renewed.name, renewed.quantity, renewed.progress, renewed.memo) == (
         "action-again:errand:1", _KIT_ERRAND, 2, 0.0, "多买一份")
     cancelled, registered = _errand_events(engine)
@@ -270,7 +270,7 @@ def test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_i
     _next_chance(engine)
     _, error, result = _round(engine, "drop", "pause_activity",
                               _arguments("pause_activity", name, [errand_cancel(_KIT_ERRAND, "不买了")]))
-    assert error == "" and result.status == "completed" and engine.state.agents[1].errands == {}
+    assert error == "" and result.status == "completed" and engine.context.state.agents[1].errands == {}
     reused = [errand_add(_KIT_ERRAND, "素炒什锦食材包")]
     _, error, result = _round(engine, "reuse", "report_status", _arguments("report_status", name, reused))
     assert error == "" and result.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
@@ -279,7 +279,7 @@ def test_cancelling_and_adding_again_with_the_original_name_and_a_new_quantity_i
     stage_errands(engine, 1, [meal])
     _, error, result = _round(engine, "after-completion", "report_status", _arguments("report_status", name, reused))
     assert error == "" and result.status == "completed"
-    assert sorted(engine.state.agents[1].errands) == ["action-after-completion:errand:0", meal.errand_id]
+    assert sorted(engine.context.state.agents[1].errands) == ["action-after-completion:errand:0", meal.errand_id]
 
 
 def test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged(engine_factory) -> None:
@@ -288,10 +288,10 @@ def test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged
     排列、路径到 errands[j].<键>，与宿主那一次纠错的明细逐项相同。它不是免计的名称类拒绝：照常计入同刻轮数，人物在同一秒
     再得到一次机会。世界不变：事务、等待活动（没有被播报）与资源都原样，没有事务事件。"""
     engine, wait_id, name = _waiting(engine_factory)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, now - 120)
     stage_errands(engine, 1, [kit])
-    before, rounds = engine.state.activities[wait_id], engine.state.agents[1].same_moment_rounds
+    before, rounds = engine.context.state.activities[wait_id], engine.context.state.agents[1].same_moment_rounds
     changes = [errand_add("囤茶", "康师傅 冰红茶"), errand_update("补一份食材包", memo="晚点"),
                errand_add("买牛奶", "钢琴"), errand_add("囤 茶", "康师傅冰红茶")]
     _, error, result = _round(engine, "bypass", "report_status", _arguments("report_status", name, changes))
@@ -301,12 +301,12 @@ def test_a_request_bypassing_the_host_is_refused_once_and_the_world_is_unchanged
         _row((3, "name"), "囤 茶", "ARGUMENTS_INVALID", "Two added errands share the name 「囤茶」.")]
     assert _host_rows(error) == expected and _refused(result) == expected
     assert result.message == "; ".join(row[4] for row in expected)
-    assert [event.event_type for event in engine.store.read_agent_events("action_rejected", 1)
+    assert [event.event_type for event in engine.context.store.read_agent_events("action_rejected", 1)
             if event.action_id == "action-bypass"] == ["action_rejected"]
     assert _one(engine, "action_result", "action-bypass").data["error_code"] == "ACTION_REQUEST_INVALID"
-    assert result.data["same_moment_round"] == engine.state.agents[1].same_moment_rounds == rounds + 1
-    assert engine.state.agents[1].next_decision_at == now and 1 in engine.scheduling_state().ready_agent_ids
-    assert engine.state.agents[1].errands == {kit.errand_id: kit} and engine.state.activities[wait_id] == before
+    assert result.data["same_moment_round"] == engine.context.state.agents[1].same_moment_rounds == rounds + 1
+    assert engine.context.state.agents[1].next_decision_at == now and 1 in engine.scheduling_state().ready_agent_ids
+    assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and engine.context.state.activities[wait_id] == before
     assert _errand_events(engine) == []
 
 
@@ -322,10 +322,10 @@ _PROPERTY_ROUNDS = 60
 def _states(engine) -> dict[str, list]:
     """性质测试依次预置的四种未完成事务：没有；三条（取得食材包、取得冰红茶、吃掉素炒什锦）；名称只差一个空格的两条；
     已满八条。"""
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     kit = _errand("action-p:errand:0", _KIT_ERRAND, _KIT, now - 300)
     tea = _errand("action-p:errand:1", "囤 冰红茶", _TEA, now - 200)
-    products = [product for product in sorted(engine.rules.items) if product not in {_KIT, _MEAL, _TEA, _TEA_JOINED}]
+    products = [product for product in sorted(engine.context.rules.items) if product not in {_KIT, _MEAL, _TEA, _TEA_JOINED}]
     return {
         "none": [],
         "three": [kit, tea, _errand("action-p:errand:2", _MEAL_ERRAND, _MEAL, now - 100, outcome="eat", quantity=2)],
@@ -357,7 +357,7 @@ def _probe(engine, real, index: int, tool: str, arguments: dict):
     身份，由引擎结算每个动作的同一步骤（_resolve：分派、受理后的记账与事件草稿）在世界副本上判定，不提交。"""
     request = REQUEST_MODELS[tool].model_validate(arguments).model_dump(mode="json")
     probe = real.model_copy(update={"action_id": f"probe-{index}", "tool_name": tool, "request": request})
-    return engine._resolve(engine.state.model_copy(deep=True), probe)[1]
+    return engine.decisions._resolve(engine.context.state.model_copy(deep=True), probe)[1]
 
 
 def test_whatever_the_host_accepts_the_environment_accepts(engine_factory) -> None:
@@ -381,7 +381,7 @@ def test_whatever_the_host_accepts_the_environment_accepts(engine_factory) -> No
         real_changes = next(changes for _, changes in accepted)
         engine.submit_action(DirectToolCall(ctx, f"action-property-{state_name}", "report_status", REQUEST_MODELS[
             "report_status"].model_validate(_arguments("report_status", name, real_changes))))
-        real = engine._round.pending_actions[0]
+        real = engine.decisions.round.pending_actions[0]
         receipts = []
         for index, (tool, changes) in enumerate(accepted):
             result = _probe(engine, real, index, tool, _arguments(tool, name, changes))
@@ -396,7 +396,7 @@ def test_whatever_the_host_accepts_the_environment_accepts(engine_factory) -> No
 
 
 def test_a_name_of_30_characters_texts_of_120_characters_and_9_portions_are_accepted(engine_factory) -> None:
-    """@brief 上限都含端点（docs/dev/SPEC-errands-workday.md 2.1「名称至多 30 字符；备注与取消原因各至多 120 字符；数量 1 至
+    """@brief 上限都含端点（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 「名称至多 30 字符；备注与取消原因各至多 120 字符；数量 1 至
     9」）：恰好 30 个字符的名称、120 个字符的备注、9 份的新增被宿主与环境受理并照所写的记下；下一次观察的待办层原样列出
     名称、「取得素炒什锦食材包 9 份」与备注。随后以恰好 120 个字符的原因取消它同样受理，取消事件带这条原因。多一个字符与
     第 10 份的拒绝见 test_errand_requests.py 的结构错误用例。"""
@@ -406,26 +406,26 @@ def test_a_name_of_30_characters_texts_of_120_characters_and_9_portions_are_acce
     _, error, noted = _round(engine, "limits", "report_status", _arguments("report_status", name, added))
     assert error == "" and noted.status == "completed"
     assert noted.data["errands"] == [{"errand": long_name, "change": "新增"}]
-    [held] = engine.state.agents[1].errands.values()
+    [held] = engine.context.state.agents[1].errands.values()
     assert (held.name, held.product_id, held.quantity, held.memo) == (long_name, _KIT, 9, memo)
     _next_chance(engine)
     dropped = [errand_cancel(long_name, reason)]
     observed, error, result = _round(engine, "drop", "pause_activity", _arguments("pause_activity", name, dropped))
     [row] = observed["todo_layer"]["errands"]
     assert (row["name"], row["done_when"], row["memo"]) == (long_name, "取得素炒什锦食材包 9 份", memo)
-    assert error == "" and result.status == "completed" and engine.state.agents[1].errands == {}
+    assert error == "" and result.status == "completed" and engine.context.state.agents[1].errands == {}
     registered, cancelled = _errand_events(engine)
     assert (registered.data["kind"], registered.data["errand"]["quantity"]) == ("errand_registered", 9)
     assert (cancelled.data["kind"], cancelled.data["reason"]) == ("errand_cancelled", reason)
 
 
 def test_an_errand_that_a_request_only_updates_still_counts_as_open(engine_factory) -> None:
-    """@brief 只扣除本请求取消的事务（docs/dev/SPEC-errands-workday.md 2.2「重名、同结果同商品与上限都按扣除本请求取消之后的
+    """@brief 只扣除本请求取消的事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「重名、同结果同商品与上限都按扣除本请求取消之后的
     未完成集合判定」）：同一请求更新一条未完成事务、又新增一条，被更新的那条仍在未完成集合里。新增的名称与它归一后相同
     （errands[1].name）、结果种类与商品都与它相同（errands[1].item）、已有八条时再新增（errands[1].change）都是
     ARGUMENTS_INVALID，宿主与环境逐项相同；整请求被拒，备注没有被更新，没有事务事件。把更新换成取消，同一条新增就被受理。"""
     engine, _, name = _waiting(engine_factory)
-    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.state.current_time - 120)
+    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.context.state.current_time - 120)
     stage_errands(engine, 1, [kit])
     update = errand_update(_KIT_ERRAND, memo="晚点买")
     cases = {
@@ -438,7 +438,7 @@ def test_an_errand_that_a_request_only_updates_still_counts_as_open(engine_facto
     for round_id, (added, expected) in cases.items():
         _, error, result = _round(engine, round_id, "report_status", _arguments("report_status", name, [update, added]))
         assert _host_rows(error) == [expected] and _refused(result) == [expected]
-    assert engine.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
+    assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
     full = _states(engine)["full"]
     stage_errands(engine, 1, full)
     added = errand_add(_KIT_ERRAND, "素炒什锦食材包")
@@ -446,18 +446,18 @@ def test_an_errand_that_a_request_only_updates_still_counts_as_open(engine_facto
     _, error, result = _round(engine, "ninth", "pause_activity", _arguments("pause_activity", name, ninth))
     expected = _row((1, "change"), "新增", "ARGUMENTS_INVALID", "This addition would exceed the limit of 8 open errands.")
     assert _host_rows(error) == [expected] and _refused(result) == [expected]
-    assert engine.state.agents[1].errands == {errand.errand_id: errand for errand in full}
+    assert engine.context.state.agents[1].errands == {errand.errand_id: errand for errand in full}
     assert _errand_events(engine) == []
     _next_chance(engine)
     freed = [errand_cancel("事务0", "不办了"), added]
     _, error, result = _round(engine, "freed", "pause_activity", _arguments("pause_activity", name, freed))
     assert error == "" and result.status == "completed"
-    assert sorted(engine.state.agents[1].errands) == sorted(
+    assert sorted(engine.context.state.agents[1].errands) == sorted(
         ["action-freed:errand:1", *(errand.errand_id for errand in full[1:])])
 
 
 def test_obtaining_and_eating_one_product_are_two_additions_of_one_request(engine_factory) -> None:
-    """@brief 同请求的两条新增只有结果种类与商品都相同才冲突（docs/dev/SPEC-errands-workday.md 2.3 表第 4 行）：先取得、再吃掉
+    """@brief 同请求的两条新增只有结果种类与商品都相同才冲突（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误  表第 4 行）：先取得、再吃掉
     同一种商品是两件事。宿主与环境都受理，回执按请求顺序列两条新增，世界里以各自的条目下标记下（取得与吃掉、同一商品），
     各写一条 errand_registered，下一次观察的待办层两条都在。次序反过来（吃掉在前、取得在后）的另一种商品同样受理。"""
     engine, _, name = _waiting(engine_factory)
@@ -466,7 +466,7 @@ def test_obtaining_and_eating_one_product_are_two_additions_of_one_request(engin
     assert error == "" and result.status == "completed"
     assert result.data["errands"] == [{"errand": "买一份素炒什锦", "change": "新增"},
                                       {"errand": "晚饭吃掉素炒什锦", "change": "新增"}]
-    held = engine.state.agents[1].errands
+    held = engine.context.state.agents[1].errands
     assert [(key, item.outcome, item.product_id) for key, item in held.items()] == [
         ("action-both:errand:0", "obtain", _MEAL), ("action-both:errand:1", "eat", _MEAL)]
     assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered", "errand_registered"]
@@ -475,7 +475,7 @@ def test_obtaining_and_eating_one_product_are_two_additions_of_one_request(engin
     observed, error, result = _round(engine, "swapped", "pause_activity", _arguments("pause_activity", name, swapped))
     assert [row["done_when"] for row in observed["todo_layer"]["errands"]] == ["取得素炒什锦 1 份", "吃掉素炒什锦 1 份"]
     assert error == "" and result.status == "completed"
-    held = engine.state.agents[1].errands
+    held = engine.context.state.agents[1].errands
     assert [(held[key].outcome, held[key].product_id)
             for key in ("action-swapped:errand:0", "action-swapped:errand:1")] == [("eat", _TEA), ("obtain", _TEA)]
     assert len(_errand_events(engine)) == 4
@@ -487,15 +487,15 @@ _ACTIVITY_PATH = [*_ROOT[:-1], "items", 0, "activity_name"]
 
 @pytest.mark.parametrize("tool", _CONTROL_TOOLS)
 def test_an_unknown_activity_name_is_refused_before_the_errand_changes(engine_factory, tool: str) -> None:
-    """@brief 环境先解析活动名、再复核事务变更（docs/CONTRACTS.md「原子受理」「活动受理拒绝码」：活动名都解析出来之后，全部
+    """@brief 环境先解析活动名、再复核事务变更（docs/CONTRACTS.md#contracts-worldmock-接口合同「原子受理」「活动受理拒绝码」：活动名都解析出来之后，全部
     事务问题才合并成一次拒绝）。绕过宿主的请求既写了不存在的活动名、又点名一条不存在的事务：宿主一次纠错给出两条明细（活动
     名在前）；环境的那一次 ACTION_REQUEST_INVALID 只带活动名那一条（items[0].activity_name、NAME_NOT_FOUND），没有事务明细。
     活动名改对之后同一条事务变更才被报出：唯一明细在 errands[0].name，合法值列本人全部未完成事务名，与宿主逐项相同。两次
     都没有回执，事务、等待与事务事件原样。"""
     engine, wait_id, name = _waiting(engine_factory)
-    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.state.current_time - 120)
+    kit = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, engine.context.state.current_time - 120)
     stage_errands(engine, 1, [kit])
-    before, unknown = engine.state.activities[wait_id], "不存在的活动"
+    before, unknown = engine.context.state.activities[wait_id], "不存在的活动"
     wrong = [errand_update("不存在的事务", memo="晚点办")]
     errand_row = _row((0, "name"), "不存在的事务", "NAME_NOT_FOUND", "The errand name 「不存在的事务」 is not known.",
                       [_KIT_ERRAND])
@@ -504,5 +504,5 @@ def test_an_unknown_activity_name_is_refused_before_the_errand_changes(engine_fa
     assert [row[:3] for row in _refused(result)] == [(_ACTIVITY_PATH, unknown, "NAME_NOT_FOUND")]
     _, error, result = _round(engine, "errand-wrong", tool, _arguments(tool, name, wrong))
     assert _host_rows(error) == [errand_row] and _refused(result) == [errand_row]
-    assert engine.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
-    assert engine.state.activities[wait_id] == before
+    assert engine.context.state.agents[1].errands == {kit.errand_id: kit} and _errand_events(engine) == []
+    assert engine.context.state.activities[wait_id] == before

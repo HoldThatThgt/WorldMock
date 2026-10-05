@@ -1,5 +1,5 @@
 """能量不拦人：任何能量下活动照常受理、继续与恢复，结算在 0 截断，饥饿跨档在进行中活动里唤醒
-（docs/dev/SPEC-time-and-energy.md 第三章）。"""
+（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第三章）。"""
 
 from __future__ import annotations
 
@@ -20,23 +20,23 @@ from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ActivityKind, ActivityStatus, ReviseDayPlanRequest
-from worldmock.life.social_actions import CALL_MET, CHAT_MET
+from worldmock.life.social import CALL_MET, CHAT_MET
 
 _ROOT = Path(__file__).resolve().parents[2]
 
 
 def _set_energy(engine, energy_kcal: float) -> None:
     """@brief 将人物能量置于精确测试边界并持久提交。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[1]
     body = agent.body.model_copy(update={"energy_kcal": energy_kcal}, deep=True)
     staged.agents[1] = agent.model_copy(
         update={"body": body, "next_decision_at": staged.current_time}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_energy_position"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _observed_action(engine, round_id: str, action: str, object_id: str | None = None):
@@ -65,19 +65,19 @@ def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
     engine.submit_action(DirectToolCall(
         decision, "action-zero-energy-plan", "revise_day_plan", ReviseDayPlanRequest(goals=[])))
     result = engine.commit_decision_round("zero-energy-plan")[0]
-    assert result.status == "completed" and not engine.state.activities
+    assert result.status == "completed" and not engine.context.state.activities
     assert engine.scheduling_state().ready_agent_ids == (1,)
     with pytest.raises(ProtocolError, match="decision is due"):
         advance_next(engine)
     _, waited = _observed_action(engine, "zero-energy-wait", "wait")
     assert waited.status == "in_progress", waited.error_code
-    before = engine.state.agents[1].body
+    before = engine.context.state.agents[1].body
     advance_next(engine)
-    after = engine.state.agents[1].body
+    after = engine.context.state.agents[1].body
     assert after.energy_kcal == 0
     assert after.sleep_pressure > before.sleep_pressure
     assert after.entertainment_need > before.entertainment_need
-    events = engine.store.read_agent_events("environment_event", 1)
+    events = engine.context.store.read_agent_events("environment_event", 1)
     settlements = [item for item in events if item.data.get("kind") == "body_settlement"]
     assert settlements and all(item.data["activity_ids"] for item in settlements)
     assert waited.activity_id in settlements[-1].data["activity_ids"]
@@ -105,11 +105,11 @@ def test_zero_energy_observation_offers_every_action_without_energy_projection(e
 def test_routes_are_feasible_by_reachability_not_energy(engine_factory) -> None:
     """同一起终点的步行与驾车都按可达判定可行；费力标签区分方式，事件级路线不再带能量成本。"""
     engine = engine_factory()
-    routes = [item for item in engine.scenario.routes
+    routes = [item for item in engine.context.scenario.routes
               if item.origin_id == "home" and item.destination_id == "office"]
     costs = {item.mode.value: minimum_energy_cost(
         ActivityKind.TRAVEL, travel_quote(engine, item.mode.value, item.duration_seconds),
-        engine.scenario.body, engine.scenario.body.activity_met[f"travel:{item.mode.value}"])
+        engine.context.scenario.body, engine.context.scenario.body.activity_met[f"travel:{item.mode.value}"])
         for item in routes}
     assert costs["walking"] > costs["driving"]
     _set_energy(engine, (costs["walking"] + costs["driving"]) / 2)
@@ -117,7 +117,7 @@ def test_routes_are_feasible_by_reachability_not_energy(engine_factory) -> None:
     event_rows = [item for item in observed["routes"] if item["destination_id"] == "office"]
     assert event_rows and all("energy_feasible" not in item and "minimum_energy_cost_kcal" not in item
                               for item in event_rows)
-    office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
+    office = next(item.name for item in engine.context.scenario.locations if item.location_id == "office")
     public = target_actions(observed, f"地点：{office}")
     assert public["驾车"]["available"] is True and public["步行"]["available"] is True
     assert (public["驾车"]["note"], public["步行"]["note"]) == ("费力程度：轻松", "费力程度：费力")
@@ -138,15 +138,15 @@ def test_derived_duration_beyond_energy_is_accepted_and_settles_at_zero(engine_f
     """系统派生的完整时长远超剩余能量时照常受理；结算把能量截到 0，全程无 ValueError。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    duration = engine.scenario.activity_feedback_seconds
-    budget = minimum_energy_cost(ActivityKind.BROWSE, duration, engine.scenario.body)
+    duration = engine.context.scenario.activity_feedback_seconds
+    budget = minimum_energy_cost(ActivityKind.BROWSE, duration, engine.context.scenario.body)
     _set_energy(engine, budget / 2)
     _, result = _observed_action(engine, "browse-low-energy", "browse")
     assert result.status == "in_progress"
-    while engine.state.activities[result.activity_id].status == ActivityStatus.ACTIVE:
+    while engine.context.state.activities[result.activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
-    assert engine.state.activities[result.activity_id].status == ActivityStatus.COMPLETED
-    assert engine.state.agents[1].body.energy_kcal == 0
+    assert engine.context.state.activities[result.activity_id].status == ActivityStatus.COMPLETED
+    assert engine.context.state.agents[1].body.energy_kcal == 0
 
 
 def test_zero_energy_travel_and_work_are_accepted(engine_factory) -> None:
@@ -157,18 +157,18 @@ def test_zero_energy_travel_and_work_are_accepted(engine_factory) -> None:
     _, travel = _observed_action(engine, "zero-travel", "travel_to", "office")
     assert travel.status == "in_progress", travel.error_code
     advance_next(engine)
-    assert engine.state.agents[1].body.energy_kcal == 0
+    assert engine.context.state.agents[1].body.energy_kcal == 0
     worker = engine_factory()
     _at_task_start(worker)
     stage_day_plan(worker)
     _set_energy(worker, 0)
-    task = worker.scenario.tasks[0]
+    task = worker.context.scenario.tasks[0]
     _, work = _observed_action(worker, "zero-work", "work", task.task_id)
     assert work.status == "in_progress", work.error_code
     advance_next(worker)
-    activity = worker.state.activities[work.activity_id]
+    activity = worker.context.state.activities[work.activity_id]
     assert activity.elapsed_seconds > 0 and activity.effective_work_seconds > 0
-    assert worker.state.agents[1].body.energy_kcal == 0
+    assert worker.context.state.agents[1].body.energy_kcal == 0
 
 
 def test_zero_energy_resume_is_accepted(engine_factory) -> None:
@@ -183,19 +183,19 @@ def test_zero_energy_resume_is_accepted(engine_factory) -> None:
                                    ways=["接着看", "等待"])
     engine.submit_action(DirectToolCall(decision, "action-watch-and-wait", "start_activity", request))
     assert engine.commit_decision_round("watch-and-wait")[0].status == "in_progress"
-    watch = next(item.activity_id for item in engine.state.activities.values() if item.kind == ActivityKind.WATCH)
+    watch = next(item.activity_id for item in engine.context.state.activities.values() if item.kind == ActivityKind.WATCH)
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     paused = _act(engine, "pause-watch", "pause_activity",
                   pause_request(activity_name(engine, watch), summary="先停一下。"))
-    assert paused.status == "completed" and engine.state.activities[watch].status == ActivityStatus.PAUSED
+    assert paused.status == "completed" and engine.context.state.activities[watch].status == ActivityStatus.PAUSED
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    assert engine.state.agents[1].body.energy_kcal == 0
+    assert engine.context.state.agents[1].body.energy_kcal == 0
     resumed = _act(engine, "resume-watch", "report_status",
                    report_request(activity_name(engine, watch), summary="接着看。"))
     assert resumed.status == "completed", resumed.error_code
-    assert engine.state.activities[watch].status == ActivityStatus.ACTIVE
+    assert engine.context.state.activities[watch].status == ActivityStatus.ACTIVE
 
 
 def _act(engine, round_id: str, tool: str, request):
@@ -214,29 +214,29 @@ def test_checkpoint_with_overdrawn_activity_restores(engine_factory) -> None:
     _set_energy(engine, 0)
     _, watch = _observed_action(engine, "overdrawn-watch", "watch")
     assert watch.status == "in_progress"
-    planned_end = engine.state.activities[watch.activity_id].planned_end_at
+    planned_end = engine.context.state.activities[watch.activity_id].planned_end_at
     assert engine.scheduling_state().next_event_at.timestamp() < planned_end
     advance_next(engine)
-    assert engine.state.agents[1].body.energy_kcal == 0
-    assert engine.state.activities[watch.activity_id].status == ActivityStatus.ACTIVE
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "overdraft_restore_test"})
+    assert engine.context.state.agents[1].body.energy_kcal == 0
+    assert engine.context.state.activities[watch.activity_id].status == ActivityStatus.ACTIVE
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "overdraft_restore_test"})
     assert engine.checkpoint({"agent:1": reference}).checkpoint_id
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
     try:
-        assert restored.state.activities[watch.activity_id].status == ActivityStatus.ACTIVE
-        assert restored.state.agents[1].body.energy_kcal == 0
+        assert restored.context.state.activities[watch.activity_id].status == ActivityStatus.ACTIVE
+        assert restored.context.state.agents[1].body.energy_kcal == 0
         advance_next(restored)
-        assert restored.state.agents[1].body.energy_kcal == 0
+        assert restored.context.state.agents[1].body.energy_kcal == 0
     finally:
         restored.close()
 
 
 def _stage_morning(engine, energy_kcal: float, seconds_of_day: int = 8 * 3600) -> int:
     """@brief 把全部人物放到首日 seconds_of_day（默认 08:00）、困意稳定在「清醒」，人物 1 的能量取指定值，返回当前时刻。"""
-    staged = engine.state.model_copy(deep=True)
-    now = int(engine.scenario.start_at.timestamp()) + seconds_of_day
+    staged = engine.context.state.model_copy(deep=True)
+    now = int(engine.context.scenario.start_at.timestamp()) + seconds_of_day
     staged.current_time = now
     staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
     for agent_id, agent in staged.agents.items():
@@ -247,10 +247,10 @@ def _stage_morning(engine, energy_kcal: float, seconds_of_day: int = 8 * 3600) -
         staged.agents[agent_id] = agent.model_copy(
             update={"body": body, "body_settled_at": now, "next_decision_at": now}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system",
         data={"kind": "test_hunger_position"})])
-    engine.state = staged
+    engine.context.state = staged
     return now
 
 
@@ -267,15 +267,15 @@ def test_hunger_band_crossing_wakes_during_activity(engine_factory, energy, floo
     observed, started = _observed_action(engine, f"hungry-{action}", action)
     assert started.status == "in_progress", started.error_code
     assert observed["body"]["levels"]["appetite"] == before
-    met = CALL_MET if action == "call" else engine.scenario.body.activity_met["watch"]
-    burn = engine.scenario.body.basal_kcal_per_hour + (met - 1) * engine.scenario.body.mass_kg
+    met = CALL_MET if action == "call" else engine.context.scenario.body.activity_met["watch"]
+    burn = engine.context.scenario.body.basal_kcal_per_hour + (met - 1) * engine.context.scenario.body.mass_kg
     crossing = now + math.floor((energy - floor) * 3600 / burn) + 1
     assert engine.scheduling_state().next_event_at.timestamp() == crossing
     advance_next(engine)
-    assert engine.state.current_time == crossing
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.current_time == crossing
+    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    assert "felt_band_change" in engine.state.agents[1].pending_wake_reasons
+    assert "felt_band_change" in engine.context.state.agents[1].pending_wake_reasons
     decision = context(engine, f"after-{action}")
     engine.begin_decision_round([decision])
     assert engine.observe(decision)["body"]["levels"]["appetite"] == after
@@ -292,19 +292,19 @@ def test_hunger_band_crossing_wakes_during_chat(engine_factory) -> None:
     _, results = submit_round(engine, requests, "hungry-chat")
     chat = next(item for item in results if item.agent_id == 1)
     assert chat.status == "in_progress", chat.error_code
-    assert engine.state.activities[chat.activity_id].kind == ActivityKind.CHAT
-    body = engine.scenario.body
+    assert engine.context.state.activities[chat.activity_id].kind == ActivityKind.CHAT
+    body = engine.context.scenario.body
     burn = body.basal_kcal_per_hour + (CHAT_MET - 1) * body.mass_kg
     crossing = now + math.floor(5.0 * 3600 / burn) + 1
     while 1 not in (ready := engine.scheduling_state().ready_agent_ids):
         if ready:
-            submit_round(engine, {agent_id: wait for agent_id in ready}, f"filler-{engine.state.current_time}")
+            submit_round(engine, {agent_id: wait for agent_id in ready}, f"filler-{engine.context.state.current_time}")
         else:
             advance_next(engine)
-    assert engine.state.current_time == crossing
-    assert engine.state.activities[chat.activity_id].status == ActivityStatus.ACTIVE
-    assert "felt_band_change" in engine.state.agents[1].pending_wake_reasons
-    assert engine.state.agents[1].felt_bands_at_last_decision["appetite"] == "很饿"
+    assert engine.context.state.current_time == crossing
+    assert engine.context.state.activities[chat.activity_id].status == ActivityStatus.ACTIVE
+    assert "felt_band_change" in engine.context.state.agents[1].pending_wake_reasons
+    assert engine.context.state.agents[1].felt_bands_at_last_decision["appetite"] == "很饿"
     decision = context(engine, "after-chat", 1)
     engine.begin_decision_round([decision])
     assert engine.observe(decision)["body"]["levels"]["appetite"] == "饿得难受"
@@ -314,7 +314,7 @@ def test_hunger_crossing_just_before_lunch_end_wakes_during_wait(engine_factory)
     """13:20 起等待，第 480 秒（午餐窗口 13:30 结束之前）升到「饿得难受」：那一秒提供决策，原因含 felt_band_change。
 
     窗口终点餐时项跳变，分级又降回「很饿」；预测不晚于实际，不能把这段跨档推迟到窗口终点而跳过
-    （docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、第八章「节律」）。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第三章「让人物趁早吃」、第八章「节律」）。
     """
     engine = engine_factory()
     stage_day_plan(engine)
@@ -323,7 +323,7 @@ def test_hunger_crossing_just_before_lunch_end_wakes_during_wait(engine_factory)
     observed, started = _observed_action(engine, "hungry-wait", "wait")
     assert started.status == "in_progress", started.error_code
     assert observed["body"]["levels"]["appetite"] == "很饿"
-    body, windows = engine.scenario.body, engine.meal_windows_by_agent()[1]
+    body, windows = engine.context.scenario.body, engine.meal_windows_by_agent()[1]
     burn = body.basal_kcal_per_hour + (body.activity_met["wait"] - 1) * body.mass_kg
     at_lunch_end = energy - burn * 600 / 3600
     assert windows.lunch is not None and windows.lunch[1] == 13.5
@@ -331,10 +331,10 @@ def test_hunger_crossing_just_before_lunch_end_wakes_during_wait(engine_factory)
                                body.emergency_threshold_kcal) == "很饿"
     assert engine.scheduling_state().next_event_at.timestamp() == now + 480
     advance_next(engine)
-    assert engine.state.current_time == now + 480
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.current_time == now + 480
+    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    assert "felt_band_change" in engine.state.agents[1].pending_wake_reasons
+    assert "felt_band_change" in engine.context.state.agents[1].pending_wake_reasons
     decision = context(engine, "after-hungry-wait")
     engine.begin_decision_round([decision])
     assert engine.observe(decision)["body"]["levels"]["appetite"] == "饿得难受"
@@ -354,9 +354,9 @@ def test_motivation_internal_still_weighs_energy(engine_factory) -> None:
     恢复类的睡眠候选两种情形都在。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    rich = engine._observation_data(engine.state.agents[1])["motivation_internal"]
+    rich = engine.observations._observation_data(engine.context.state.agents[1])["motivation_internal"]
     _set_energy(engine, 0)
-    poor = engine._observation_data(engine.state.agents[1])["motivation_internal"]
+    poor = engine.observations._observation_data(engine.context.state.agents[1])["motivation_internal"]
     assert rich is not None and poor is not None
     families = {item["family"] for item in rich["candidates"]}
     starved = {item["family"] for item in poor["candidates"]}

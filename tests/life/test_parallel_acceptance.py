@@ -8,7 +8,7 @@ from tests.life.conftest import stage_day_plan
 from tests.life.test_parallel_activities import _advance_with_decisions, _start_pair, _start_pair_with_choices
 from worldmock.catalog.affordances import default_affordances
 
-#: 所选动作的内部标准动作 → 注册表活动类型（占用按类型声明，docs/dev/SPEC-time-and-energy.md 第五章占用表）。
+#: 所选动作的内部标准动作 → 注册表活动类型（占用按类型声明，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章占用表）。
 _KINDS = {"wait": "wait", "do": "lifestyle", "travel_to": "travel", "sleep": "sleep", "play": "play_game"}
 
 
@@ -17,7 +17,7 @@ def _registry_claims(engine, choice: tuple[dict, dict]) -> frozenset[str]:
     row, action = choice
     view = default_affordances()
     if action["canonical_action"] == "watch":
-        contents = {item.item_id: item for item in engine.scenario.contents}
+        contents = {item.item_id: item for item in engine.context.scenario.contents}
         return view.resource_claims("watch", content_kind=contents[row["object_id"]].kind)
     return view.resource_claims(_KINDS[action["canonical_action"]], travel_mode=action["travel_mode"])
 
@@ -29,7 +29,7 @@ def test_watch_can_share_time_with_compatible_activity(engine_factory, partner: 
     stage_day_plan(engine)
     result, choices = _start_pair_with_choices(engine, "watch", partner, f"watch-{partner}")
     assert result.status == "in_progress", result.error_code
-    activities = [item for item in engine.state.activities.values()
+    activities = [item for item in engine.context.state.activities.values()
                   if item.origin_action_id == result.action_id]
     assert len(activities) == 2
     assert len({item.activity_id for item in activities}) == 2
@@ -47,7 +47,7 @@ def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, par
     不留下首项活动；会话只剩运行开始的停留会话且未改动（第五章「并行准入」、第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    before = engine.state.model_dump(mode="json")
+    before = engine.context.state.model_dump(mode="json")
     result, choices = _start_pair_with_choices(engine, "watch", partner, f"watch-{partner}-conflict")
     assert result.status == "rejected"
     assert result.error_code == "RESOURCE_CONFLICT"
@@ -57,11 +57,11 @@ def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, par
     assert result.data["reason"] == f"{names[0]} cannot run together with {names[1]}."
     assert result.data["next_step"] == "Choose only one of the conflicting activities."
     assert result.data["unmet"] == ["resource_claims"]
-    assert engine.state.activities == {}
-    sessions = list(engine.state.sessions.values())
+    assert engine.context.state.activities == {}
+    sessions = list(engine.context.state.sessions.values())
     assert [(item.kind, item.status, item.activity_ids) for item in sessions] == [("stay", "active", [])]
-    assert engine.state.model_dump(mode="json")["sessions"] == before["sessions"]
-    assert engine.state.accounts == before["accounts"]
+    assert engine.context.state.model_dump(mode="json")["sessions"] == before["sessions"]
+    assert engine.context.state.accounts == before["accounts"]
 
 
 def test_parallel_progress_uses_one_shared_body_interval(engine_factory) -> None:
@@ -70,10 +70,10 @@ def test_parallel_progress_uses_one_shared_body_interval(engine_factory) -> None
     stage_day_plan(engine)
     started = _start_pair(engine, "watch", "wait", "shared-body")
     assert started.status == "in_progress", started.error_code
-    before = engine.store.last_event_seq
+    before = engine.context.store.last_event_seq
     for index in range(40):
         _advance_with_decisions(engine, index)
-        events = [item for item in engine.store.read_events(engine.store.last_event_seq)
+        events = [item for item in engine.context.store.read_events(engine.context.store.last_event_seq)
                   if item.event_seq > before]
         progress = [item for item in events if item.event_type == "activity_progress"
                     and item.action_id == started.action_id]

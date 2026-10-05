@@ -1,68 +1,62 @@
 """@brief 编排原生 AgentSociety2、DeepSeek、LifeAgent 与 LifeEnv。"""
 
 from __future__ import annotations
+from worldmock import run_setup
+from worldmock.life.read_query_runtime import LifeEnvProxy, life_env_actor_class
+from worldmock.life import social as social_domain
+from worldmock.life.social import ModelReplyRequest
+from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
+from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+from worldmock.life import day_planning
+from worldmock.life.day_plan_inputs import plan_inputs
+from worldmock.footprints.checkpoint import restore_branch
 
 from worldmock.footprints.models import sha256_json
 from worldmock.model_endpoint import IndependentModelClient
 import copy
 import hashlib
-import importlib.util
 import json
 import logging
-import os
 import shutil
-import subprocess
 import tempfile
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from dotenv import dotenv_values
 from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.checkpoint import restore_directory
 from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import (
-    CounterfactualIntervention,
-    ModelIdentity,
-    RunIdentity,
-)
+from worldmock.life.models import CounterfactualIntervention, RunIdentity
 from worldmock.catalog import validate_scenario_against_catalog
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.state_commit import commit_state
-from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
+from worldmock.life.semantics import ScenarioSemantics
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.run_identity import require_category_identity
 from worldmock.life.continuation import continuation_enabled
 from worldmock.life.reply_guard import FALLBACK_REPLY, REPLY_ATTEMPT_LIMIT, guard_matches, retry_request
-from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.opslog import OpsLogger
 from worldmock.profile.injection import apply_scenario_rhythm
-from worldmock.profile.models import PersonaCard, PersonaCardStruct, persona_card_struct
+from worldmock.profile.models import PersonaCardStruct
 
 logger = logging.getLogger(__name__)
 
 #: 自述、工具纠错与结束共享的有限回合预算。
-MAX_REACT_TURNS = 16
 
-#: 工作验收阶段参数（docs/dev/SPEC-life-realism.md「两阶段决策」：独立工作验收保持
+#: 工作验收阶段参数（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「两阶段决策」：独立工作验收保持
 #: disabled/required）。
-_WORK_REVIEW_THINKING = "disabled"
-_WORK_REVIEW_TOOL_CHOICE = "required"
 #: 运行身份覆盖的 AS2 导入包名；包目录由 importlib.util.find_spec 按实际导入解析
-#: （docs/dev/SPEC-time-and-energy.md「运行身份」）。
-_AS2_PACKAGE = "agentsociety2"
-#: AS2 锁定提交 8768e14 的源码摘要，与 docs/EXPERIMENT.md「AS2 基线与框架依赖」登记的值逐字相同。
-AS2_LOCKED_SOURCE_SHA256 = "bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46"
-_AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
+#: （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」）。
 #: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000
-#: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字；
-#: docs/dev/SPEC-dayrun-fidelity.md 7.3：联系人只通过消息来往）。中文模板逐字登记在 docs/CONTRACTS.md「联系人回复」。
+#: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」：独立调用、中文、不超过 200 汉字；
+#: docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ：联系人只通过消息来往）。中文模板逐字登记在
+#: docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」。
 _CONTACT_REPLY_PROMPT = (
     "你是消息收件人通讯录里的一名联系人，只通过消息和对方来往：你不在对方身边，也不会去找对方。"
     "根据你的联系人档案、这次来信与你们此前的往来，以你本人的口吻写一条自然、简短的中文回复。"
@@ -80,7 +74,7 @@ class RunRequest:
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
     :param same_second_continuation: 同秒续接开关（缺省开），冻结进清单 stages.action 与人物配置；
-        恢复与重放继承父清单的值（docs/dev/SPEC-persona-prompt.md 第二章「同秒续接」）。
+        恢复与重放继承父清单的值（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「同秒续接」）。
     """
 
     project_root: Path
@@ -170,7 +164,7 @@ async def run_world(request: RunRequest) -> RunResult:
     :returns: 已确认结束时间与模型用量。
     """
     try:
-        _configure_process(request.project_root)
+        run_setup._configure_process(request.project_root)
         prepared = _prepare_new_run(request)
         return await _execute(prepared)
     except Exception:
@@ -185,7 +179,7 @@ async def resume_world(request: ResumeRequest) -> RunResult:
     :returns: 子分支已确认结束时间与模型用量。
     """
     try:
-        _configure_process(request.project_root)
+        run_setup._configure_process(request.project_root)
         prepared = _prepare_resume(request)
         return await _execute(prepared)
     except Exception:
@@ -200,7 +194,7 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
     :returns: 子分支已确认结束时间与模型用量。
     """
     try:
-        _configure_process(request.base.project_root)
+        run_setup._configure_process(request.base.project_root)
         prepared = _prepare_resume(request.base, request.intervention)
         return await _execute(prepared)
     except Exception:
@@ -208,71 +202,12 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
         raise
 
 
-def _configure_process(project_root: Path) -> None:
-    """@brief 核对实际导入的 AS2 与锁定源码一致后，从唯一私密文件配置显式 DeepSeek 角色和 worker 导入路径。
-
-    AS2 身份在读取凭据、改写进程环境与导入任何 AS2 模块之前核对，run、resume、replay 共用。
-    """
-    root = Path(project_root).resolve()
-    if not (root / "custom" / "agents" / "life_agent.py").is_file():
-        raise FileNotFoundError("WorldMock project root is incomplete")
-    require_locked_as2()
-    secret = _read_deepseek_key()
-    variables = {
-        "WORKSPACE_PATH": str(root),
-        "AGENTSOCIETY_LLM_API_KEY": secret,
-        "AGENTSOCIETY_LLM_API_BASE": DEEPSEEK_BASE_URL,
-        "AGENTSOCIETY_LLM_MODEL": DEEPSEEK_MODEL,
-        "AGENTSOCIETY_CODER_LLM_API_KEY": secret,
-        "AGENTSOCIETY_CODER_LLM_API_BASE": DEEPSEEK_BASE_URL,
-        "AGENTSOCIETY_CODER_LLM_MODEL": DEEPSEEK_MODEL,
-        "AGENTSOCIETY_EMBEDDING_MODEL": "",
-        "LITELLM_LOCAL_MODEL_COST_MAP": "True",
-        "AGENTSOCIETY_LLM_REQUEST_TIMEOUT": "300",
-        "MEM0_TELEMETRY": "False",
-        "ANONYMIZED_TELEMETRY": "False",
-    }
-    os.environ.update(variables)
-    _prepend_pythonpath(root)
-    _require_loaded_config()
 
 
-def _read_deepseek_key() -> str:
-    """@brief 只读取固定私密配置中的多把 DeepSeek 节点密钥，不输出其内容。
-
-    值为逗号分隔的至少一个非空密钥段；逐段 strip、按出现顺序去重后
-    以逗号 join 返回（单把密钥也 join），由 Router 侧拆分为多 deployment。
-    """
-    path = Path.home() / ".config" / "worldmock" / "deepseek.env"
-    if not path.is_file() or path.is_symlink():
-        raise FileNotFoundError("DeepSeek credential file is missing or unsafe")
-    values = dotenv_values(path, interpolate=False)
-    unknown = set(values) - {"DEEPSEEK_NODE_KEYS"}
-    raw = values.get("DEEPSEEK_NODE_KEYS")
-    if unknown or not isinstance(raw, str) or not raw.strip():
-        raise IntegrityError("DeepSeek credential file has an invalid schema")
-    segments = [item.strip() for item in raw.split(",")]
-    if not segments or any(not item for item in segments):
-        raise IntegrityError("DeepSeek credential file has an invalid schema")
-    return ",".join(dict.fromkeys(segments))
 
 
-def _prepend_pythonpath(root: Path) -> None:
-    """@brief 让 Ray worker 从当前精确 checkout 导入 custom 与 worldmock。"""
-    current = [item for item in os.environ.get("PYTHONPATH", "").split(os.pathsep) if item]
-    required = [str(root), str(root / "src")]
-    os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys([*required, *current]))
 
 
-def _require_loaded_config() -> None:
-    """@brief 拒绝进程早先导入的不同 AS2 模型配置。"""
-    from agentsociety2.config.config import Config
-
-    expected = (DEEPSEEK_BASE_URL, DEEPSEEK_MODEL)
-    default = (Config.LLM_API_BASE, Config.LLM_MODEL)
-    coder = (Config.CODER_LLM_API_BASE, Config.CODER_LLM_MODEL)
-    if default != expected or coder != expected or Config.EMBEDDING_MODEL:
-        raise RuntimeError("AgentSociety2 was imported before the required model configuration")
 
 
 def _prepare_new_run(request: RunRequest) -> _PreparedRun:
@@ -295,7 +230,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
     }
     _ops_log(run_dir, scenario.timezone, scenario.start_at, "RUN_STARTED", "Run started",
              run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest,
-             stage_model_identity=stage_model_identity(request.same_second_continuation))
+             stage_model_identity=run_setup.stage_model_identity(request.same_second_continuation))
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, run_dir, request.run_id,
         scenario, scenario.start_at, kwargs, "create",
@@ -306,7 +241,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
 def _run_identity(request: RunRequest, scenario: RuntimeScenario) -> RunIdentity:
     """@brief 形成与场景、当前 LifeAgent 合同和代码（含锁定的 AS2）绑定的运行身份，另记检出的 Git 状态。"""
     root = Path(request.project_root)
-    git_commit, git_dirty = _git_state(root)
+    git_commit, git_dirty = run_setup._git_state(root)
     return RunIdentity(
         run_id=request.run_id,
         source_group_id=request.source_group_id,
@@ -314,8 +249,8 @@ def _run_identity(request: RunRequest, scenario: RuntimeScenario) -> RunIdentity
         start_at=scenario.start_at.isoformat(),
         end_at=scenario.end_at.isoformat(),
         timezone=scenario.timezone,
-        model_identity=_model_identity(),
-        code_sha256=runtime_code_sha256(root),
+        model_identity=run_setup._model_identity(),
+        code_sha256=run_setup.runtime_code_sha256(root),
         git_commit=git_commit,
         git_dirty=git_dirty,
     )
@@ -329,66 +264,8 @@ def _admit_scenario(semantics: ScenarioSemantics) -> None:
         raise IntegrityError(f"Scenario admission rejected by catalog: {detail}")
 
 
-def _model_identity() -> ModelIdentity:
-    """@brief 形成不含凭据的显式 DeepSeek、提示和工具身份。
-
-    顶层 thinking/tool_choice 取行动阶段参数并直接来自 LifeAgent 导出常量
-    （单一事实源）；各阶段完整形状见 stage_model_identity()。提示指纹绑定七层系统层与层 Schema。
-    """
-    from custom.agents.life_agent import (
-        ACTION_THINKING,
-        ACTION_TOOL_CHOICE,
-        life_tool_schema_sha256,
-    )
-    from custom.agents.life_prompt import life_prompt_sha256
-
-    return ModelIdentity(
-        provider="openai_compatible",
-        base_url=DEEPSEEK_BASE_URL,
-        requested_model=DEEPSEEK_MODEL,
-        thinking=ACTION_THINKING["thinking"]["type"],
-        tool_choice=ACTION_TOOL_CHOICE,
-        max_retries=0,
-        prompt_sha256=life_prompt_sha256(),
-        tool_schema_sha256=life_tool_schema_sha256(),
-    )
 
 
-def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any]:
-    """@brief 行动与工作验收两个阶段的完整冻结请求身份（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。
-
-    行动阶段参数取自 LifeAgent 导出常量（单一事实源）；运行中不变更。不发送 reasoning_effort
-    （以 None 表示该字段不进请求）。行动阶段另记运行开关 same_second_continuation（第二章「同秒续接」，缺省开）。
-    """
-    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
-    from custom.agents.life_agent import (
-        ACTION_THINKING,
-        ACTION_TOOL_CHOICE,
-        ACTION_MAX_TOKENS,
-    )
-
-    return {
-        "provider": "openai_compatible",
-        "base_url": DEEPSEEK_BASE_URL,
-        "requested_model": DEEPSEEK_MODEL,
-        "max_retries": 0,
-        "transport_max_retries": TRANSPORT_MAX_RETRIES,
-        "max_react_turns": MAX_REACT_TURNS,
-        "strict": True,
-        "reasoning_effort": None,
-        "stages": {
-            "action": {
-                "thinking": ACTION_THINKING["thinking"]["type"],
-                "tool_choice": ACTION_TOOL_CHOICE,
-                "max_tokens": ACTION_MAX_TOKENS,
-                "same_second_continuation": same_second_continuation,
-            },
-            "work_review": {
-                "thinking": _WORK_REVIEW_THINKING,
-                "tool_choice": _WORK_REVIEW_TOOL_CHOICE,
-            },
-        },
-    }
 
 
 def _prepare_resume(
@@ -445,106 +322,27 @@ def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> N
     清单的 git_commit 与 git_dirty 只记录，不参与比对。阶段身份先经五个入口共用的清单校验函数拒绝退役阶段与旧键，
     再做等值比对；同秒续接开关继承父清单的值（按父清单的开关构造期望身份），恢复与重放不能覆盖。
     """
-    from worldmock.validation import validate_manifest_stage_identity
 
-    identity = validate_manifest_stage_identity(manifest)
-    expected = _model_identity().model_dump(mode="json")
+    identity = run_setup.validate_manifest_stage_identity(manifest)
+    expected = run_setup._model_identity().model_dump(mode="json")
     if manifest.get("model_identity") != expected:
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")
-    if identity != stage_model_identity(continuation_enabled(manifest)):
+    if identity != run_setup.stage_model_identity(continuation_enabled(manifest)):
         raise IntegrityError("Checkpoint decision stage identity differs from the current LifeAgent contract")
-    if manifest.get("code_sha256") != runtime_code_sha256(project_root):
+    if manifest.get("code_sha256") != run_setup.runtime_code_sha256(project_root):
         raise IntegrityError("Checkpoint code identity differs from the current runtime")
 
 
-def runtime_code_sha256(project_root: Path) -> str:
-    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/dev/SPEC-time-and-energy.md「运行身份」）。
-
-    AS2 文件以 agentsociety2/<相对路径> 为标签，与安装位置无关；AS2 未通过锁定核对时拒绝给出代码身份。
-    """
-    root = Path(project_root).resolve()
-    files = [(path.relative_to(root).as_posix(), path)
-             for directory in (root / "src", root / "custom") for path in directory.rglob("*.py")]
-    files.extend((name, root / name) for name in ("pyproject.toml", "uv.lock"))
-    return _labeled_sha256([*files, *require_locked_as2()])
 
 
-def require_locked_as2() -> list[tuple[str, Path]]:
-    """@brief 核对实际导入的 AS2 包与固定基线加补丁的源码摘要，返回其（标签, 路径）文件表。
-
-    包目录为空、导入失败或摘要不符时以 IntegrityError 拒绝；读取或哈希 AS2 文件时的任何失败（条目缺失、
-    不安全或不可读）同样按摘要不符拒绝，只用规格的唯一拒绝文案。run、resume、replay 与 validate 共用。
-    """
-    files = _as2_source_files()
-    try:
-        digest = _labeled_sha256(files)
-    except (IntegrityError, OSError) as error:
-        raise IntegrityError(_AS2_IDENTITY_ERROR) from error
-    if digest != AS2_LOCKED_SOURCE_SHA256:
-        raise IntegrityError(_AS2_IDENTITY_ERROR)
-    return files
 
 
-def _as2_source_files() -> list[tuple[str, Path]]:
-    """@brief 列出实际导入的 AS2 包目录下除 __pycache__ 外的全部文件，标签为 agentsociety2/<相对路径>。
-
-    包目录取 importlib.util.find_spec 解析出的唯一目录；解析失败、不是唯一包目录或目录为空即拒绝。
-    """
-    try:
-        spec = importlib.util.find_spec(_AS2_PACKAGE)
-    except (ImportError, ValueError) as error:
-        raise IntegrityError(_AS2_IDENTITY_ERROR) from error
-    locations = list(spec.submodule_search_locations or ()) if spec is not None else []
-    if len(locations) != 1:
-        raise IntegrityError(_AS2_IDENTITY_ERROR)
-    package = Path(locations[0]).resolve()
-    files = [(f"agentsociety2/{path.relative_to(package).as_posix()}", path)
-             for path in package.rglob("*")
-             if "__pycache__" not in path.relative_to(package).parts
-             and (path.is_symlink() or not path.is_dir())]
-    if not files:
-        raise IntegrityError(_AS2_IDENTITY_ERROR)
-    return files
 
 
-def _labeled_sha256(files: list[tuple[str, Path]]) -> str:
-    """@brief 按标签排序，逐文件写入标签长度、标签、内容长度与内容；缺失或不安全的来源即拒绝。"""
-    digest = hashlib.sha256()
-    for label, path in sorted(files, key=lambda item: item[0]):
-        if not path.is_file() or path.is_symlink():
-            raise IntegrityError("Runtime identity source is missing or unsafe")
-        encoded = label.encode()
-        content = path.read_bytes()
-        digest.update(len(encoded).to_bytes(8, "big"))
-        digest.update(encoded)
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
-    return digest.hexdigest()
 
 
-def _git_state(project_root: Path) -> tuple[str | None, bool | None]:
-    """@brief 返回项目根所在 Git 检出的（HEAD 提交, 是否有未提交改动）；非 Git 检出或 git 失败时二者为 None。
-
-    未提交标志取 git status --porcelain 是否非空（显式含未跟踪文件，不含忽略文件）；二者只记录，不参与恢复比对。
-    """
-    head = _git_output(project_root, "rev-parse", "HEAD")
-    if head is None:
-        return None, None
-    status = _git_output(project_root, "status", "--porcelain", "--untracked-files=normal")
-    if status is None:
-        return None, None
-    return head.strip().decode("ascii"), bool(status.strip())
 
 
-def _git_output(project_root: Path, *arguments: str) -> bytes | None:
-    """@brief 在项目根执行一条只读 git 命令并返回标准输出；git 不可用或命令失败时返回 None。"""
-    command = ["git", "-C", str(project_root), *arguments]
-    try:
-        result = subprocess.run(command, capture_output=True, check=False,
-                                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
-    except OSError:
-        return None
-    return result.stdout if result.returncode == 0 else None
 
 
 def _ops_log(run_dir: Path, timezone_name: str, sim_time: int | datetime | None,
@@ -592,7 +390,7 @@ def _restore_branch(
     staged_run = stage_root / "run"
     child: FootprintStore | None = None
     try:
-        child = parent.restore(checkpoint.checkpoint_id, staged_run, branch_metadata)
+        child = restore_branch(parent, checkpoint.checkpoint_id, staged_run, branch_metadata)
         _restore_agents(checkpoint, child, staged_run, scenario)
         manifest, state = dict(child.manifest), child.state
         child.close()
@@ -661,7 +459,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
     if not bool(config.get("enable_memory", True)):
         raise IntegrityError("Restored LifeAgent must keep memory enabled")
     _validate_persona_card_struct(agent.get("profile"), agent_config)
-    if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != MAX_REACT_TURNS:
+    if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != run_setup.MAX_REACT_TURNS:
         logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
         raise IntegrityError("Restored LifeAgent max_react_turns must match the frozen runtime budget")
     store = AgentMemoryStore(workspace, agent_id=agent_id)
@@ -676,7 +474,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
 def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> None:
     """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。
 
-    新建运行保存的是经场景作息覆盖后的卡片（docs/dev/SPEC-dayrun-fidelity.md 2.1），覆盖是不动点：给出场景人物声明时，
+    新建运行保存的是经场景作息覆盖后的卡片（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ），覆盖是不动点：给出场景人物声明时，
     对恢复的卡片再覆盖一次必须不改任何值，否则说明卡片作息与场景显式声明的作息不一致。
     """
     struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
@@ -767,7 +565,6 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
     from agentsociety2.config.llm_dispatcher import build_client_for_role
     from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
     from agentsociety2.society import AgentSociety, AgentSocietyConfig
-    from worldmock.life.read_query_runtime import LifeEnvProxy, life_env_actor_class
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
@@ -794,14 +591,14 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     """@brief 人物工作区输入。新建运行：编译卡片、经场景作息覆盖渲染、注入口味权重，并计算运行输入警告——警告经
     create_options 冻结进运行清单 input_warnings，另逐条写一条 ops 警告，永不使创建失败
-    （docs/dev/SPEC-dayrun-fidelity.md 1.3）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
     """
     if prepared.workspace_mode != "create":
-        return _agent_specs(prepared.scenario, persona_compiler=_no_persona_compilation,
+        return run_setup._agent_specs(prepared.scenario, persona_compiler=_no_persona_compilation,
                             same_second_continuation=prepared.same_second_continuation)
-    compiled = {agent.agent_id: _compile_persona(agent)
+    compiled = {agent.agent_id: run_setup._compile_persona(agent)
                 for agent in sorted(prepared.scenario.agents, key=lambda item: item.agent_id)}
-    specs, warnings = creation_inputs(prepared.scenario_path, prepared.scenario, compiled,
+    specs, warnings = run_setup.creation_inputs(prepared.scenario_path, prepared.scenario, compiled,
                                       prepared.same_second_continuation)
     options = prepared.env_kwargs["create_options"]
     options["agent_taste_weights"] = {item["id"]: item["profile"].get("taste_weights", {}) for item in specs}
@@ -821,77 +618,15 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
 def habit_responses(specs: tuple[dict[str, Any], ...]) -> dict[int, list[str]]:
     """@brief 人设层习惯签名的反应文本（人物编号 → 文本，按卡片顺序）：取工作区输入里经场景作息覆盖后的结构化卡片，
     没有卡片的人物不出现；经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给相关度
-    （docs/dev/SPEC-dayrun-fidelity.md 5.1）。"""
+    （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
     return {spec["id"]: [habit["response"] for habit in spec["profile"]["persona_card_struct"]["habits"]]
             for spec in specs if "persona_card_struct" in spec["profile"]}
 
 
-def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
-                    same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
-    """@brief 新建运行与 validate 共用：由已编译的画像形成人物工作区输入并计算同一组运行输入警告。
-
-    工作区输入经 _agent_specs（卡片先经场景作息覆盖 apply_scenario_rhythm，再渲染、存结构化卡片与算口味权重）；
-    警告见 input_warnings。validate 用同一函数，所以两条路径对同一份编译结果给出相同的覆盖与警告。
-    @param scenario_path 冻结场景路径（解析语料根与目录）
-    @param scenario 原始加载的运行时场景（人物的 model_fields_set 可靠）
-    @param compiled 人物编号 → 编译结果（CompiledPersona，测试桩可给 PersonaCard；没有背景故事的人物为 None 或缺席）
-    @param same_second_continuation 同秒续接开关（冻结进人物配置）
-    @return（工作区输入, 输入警告）
-    """
-    specs = _agent_specs(scenario, persona_compiler=lambda agent: compiled.get(agent.agent_id),
-                         content_genres=_content_genre_catalog(scenario_path, scenario),
-                         same_second_continuation=same_second_continuation)
-    return specs, input_warnings(scenario_path, scenario, compiled, specs)
 
 
-def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
-                   specs: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    """@brief 运行输入警告（docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1、8.1）：逐人物按编号，再场景级。
-
-    人物：场景作息覆盖（CARD_FIELD_OVERRIDDEN / CARD_FIELD_CONFLICT）、口味与内容（按实际注入的口味权重）、游戏权重条目、
-    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译留下的警告；场景：配送路线与地点显示名。
-    """
-    from worldmock.profile import injection
-    from worldmock.profile.coverage import validate_coverage
-
-    genres = _content_genre_catalog(scenario_path, scenario)
-    contents = tuple({"item_id": item.item_id, "genre": tuple(genres.get(item.item_id) or ())}
-                     for item in scenario.contents)
-    games = tuple(item.game_id for item in scenario.games)
-    targets = _coverage_targets(scenario_path, scenario)
-    weights = {spec["id"]: spec["profile"].get("taste_weights") for spec in specs}
-    warnings: list[dict[str, Any]] = []
-    for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
-        card, notes = _compiled_parts(compiled.get(agent.agent_id))
-        taste = weights.get(agent.agent_id)
-        warnings += injection.taste_warnings(agent.agent_id, card, contents, taste)
-        warnings += injection.game_weight_warnings(agent.agent_id, games, taste)
-        if card is not None:
-            warnings += injection.coverage_warnings(agent.agent_id, validate_coverage(card, targets))
-            warnings += apply_scenario_rhythm(card, agent).warnings
-        warnings += injection.agreement_warnings(agent.agent_id, notes)
-    return [*warnings, *injection.delivery_route_warnings(scenario), *injection.location_name_warnings(scenario)]
 
 
-def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario) -> Any:
-    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。
-
-    场景钉定的手机配置核验失败（身份、结构或执行证据，verified_app_names 抛 IntegrityError）时不使创建失败：
-    按没有应用别名计算，覆盖率因此低于 80% 时照常记 COVERAGE_BELOW_THRESHOLD，另写一条英文 warning 日志
-    （docs/dev/SPEC-dayrun-fidelity.md 1.3「运行路径永不因警告失败」）；validate 用自己的目标集，照旧因同一核验失败。
-    """
-    from worldmock.catalog.loader import load_catalog
-    from worldmock.life.semantics import resolve_catalog_dir
-    from worldmock.profile.coverage_apps import verified_app_names
-    from worldmock.validation import build_coverage_targets
-
-    root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    try:
-        app_names = verified_app_names(scenario, root)
-    except IntegrityError as error:
-        logger.warning("Phone simulation config failed verification; run coverage counts no app names: %s", error)
-        app_names = ()
-    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root, app_names)
 
 
 def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:
@@ -921,7 +656,7 @@ def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
     """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无传输重试）。
 
     载荷带来信与它的事实（发件人姓名、场景本地时刻、presence 固定 remote、联系人的收货地名），以及双方往来与对方
-    实际收到的物品（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    实际收到的物品（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。
     """
     payload = {"contact": contact if contact is not None
                else {"contact_id": request.contact_id},
@@ -955,29 +690,29 @@ def parse_contact_reply(raw: dict[str, Any]) -> str:
 
 
 async def settle_pending_model_replies(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 执行引擎登记的联系人 model 回复并登记预排送达（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
+    """@brief 执行引擎登记的联系人 model
+    回复并登记预排送达（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」）。
 
     每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
     独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
     事件证据，回复经 social.finalize_model_reply 登记为 CONTACT_REPLY_DELAY_SECONDS
     后到期的预排送达，到期只进入收件箱（不改资源或任务）。回复经后验守卫：命中越界说法时在本次结算内
-    重试一次，仍命中则用固定兜底句（docs/dev/SPEC-dayrun-fidelity.md 7.3）。传输与结构异常按运行故障传播
+    重试一次，仍命中则用固定兜底句（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。传输与结构异常按运行故障传播
     （与工作验收同边界）；同一消息最多回复一次（幂等键 reply_to_message_id），重试也只写一条回复事件。
     """
-    from worldmock.life import social as social_domain
 
     pending = _pending_reply_requests(engine)
     if not pending:
         return []
     caller = client if client is not None else ContactReplyClient(
-        engine.store.manifest["model_identity"])
+        engine.context.store.manifest["model_identity"])
     settled = []
     for event, request in pending:
         model_request = prepare_contact_reply(
             request, _contact_profile(engine, request), caller.model_name)
         text, attempts = await _guarded_contact_reply(caller, model_request)
         reply = social_domain.finalize_model_reply(
-            request, text, f"reply-{request.reply_to_message_id}", engine.state.current_time)
+            request, text, f"reply-{request.reply_to_message_id}", engine.context.state.current_time)
         settled.append(_commit_contact_reply(engine, event, attempts, reply))
     return settled
 
@@ -1002,9 +737,8 @@ async def _guarded_contact_reply(caller: Any, model_request: dict[str, Any]) -> 
 
 def _pending_reply_requests(engine: Any) -> list[tuple[Any, Any]]:
     """@brief 取尚未回复的 pending 请求（事件序升序，幂等去重）。"""
-    from worldmock.life.social import ModelReplyRequest
 
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     replied = {event.data.get("reply_to_message_id") for event in events
                if event.event_type == "environment_event"
                and event.data.get("kind") == "model_npc_reply"}
@@ -1021,7 +755,7 @@ def _pending_reply_requests(engine: Any) -> list[tuple[Any, Any]]:
 
 def _contact_profile(engine: Any, request: Any) -> dict[str, Any] | None:
     """@brief 从场景声明查找联系人公开档案（找不到返回 None）。"""
-    for agent in engine.semantics.scenario.agents:
+    for agent in engine.context.semantics.scenario.agents:
         for contact in agent.contacts:
             if contact.contact_id == request.contact_id:
                 return {"contact_id": contact.contact_id,
@@ -1037,20 +771,18 @@ def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict],
 
     回复生成时即留 model_npc_reply 证据：request、response、usage 取最后一次尝试，attempts 保存每次尝试，
     guard_applied 表示两次都命中而改用了兜底句；收件箱条目在 CONTACT_REPLY_DELAY_SECONDS 后由预排事件
-    message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/CONTRACTS.md「联系人回复」）。
+    message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）。
     """
-    from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
-    from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
     recipient = int(reply.message.recipient_id.split(":", 1)[1])
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
     staged.pending_events.append(ScheduledEvent(
         scheduled_id=f"contact-reply:{reply.message.message_id}", kind=ScheduledKind.MESSAGE_ARRIVAL,
         due_at=staged.current_time + CONTACT_REPLY_DELAY_SECONDS, sequence=sequence, agent_id=recipient,
         data={"message": reply.message.model_dump(mode="json")}))
     staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    staged.version = engine.state.version + 1
+    staged.version = engine.context.state.version + 1
     last = attempts[-1]
     drafts = [
         EventDraft(event_type="environment_event", occurred_at=staged.current_time,
@@ -1063,8 +795,8 @@ def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict],
                          "reply": reply.message.model_dump(mode="json"),
                          "attempts": attempts, "guard_applied": bool(last["matched"])}),
     ]
-    commit_state(engine.store, staged, drafts)
-    engine.state = staged
+    commit_state(engine.context.store, staged, drafts)
+    engine.context.state = staged
     return {"reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
             "reply_message_id": reply.message.message_id,
             "source_kind": reply.source_kind}
@@ -1079,19 +811,18 @@ class PlanDayClient(IndependentModelClient):
 
 
 async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 零点计划后台任务（docs/dev/SPEC-time-and-energy.md 第四章「执行位置」）：为缺当日计划的人物生成当日计划。
+    """@brief 零点计划后台任务（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「执行位置」）：为缺当日计划的人物生成当日计划。
 
     与联系人回复并列：LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
     不读写人物工作区与记忆运行时，不产生 observation、decision_started、memory_updated。按
     plan_submitted_dates 找出缺当日计划的人物（按编号），运行已到终点或无人缺计划时在构造客户端之前返回。
     输出不合法时附回英文错误重试，至多 3 次；重试耗尽或传输失败时先提交已有尝试的证据再抛出（运行故障）。
     """
-    from worldmock.life import day_planning
 
-    missing = day_planning.agents_missing_plan(engine.state, engine.scenario.timezone)
+    missing = day_planning.agents_missing_plan(engine.context.state, engine.context.scenario.timezone)
     if not missing:
         return []
-    caller = client if client is not None else PlanDayClient(engine.store.manifest["model_identity"])
+    caller = client if client is not None else PlanDayClient(engine.context.store.manifest["model_identity"])
     registered = []
     for agent_id in missing:
         registered.append(await _generate_day_plan(engine, caller, agent_id))
@@ -1100,11 +831,9 @@ async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> li
 
 async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
     """@brief 为一个人物生成并登记当日计划：请求与响应逐次留证，合法输出经引擎系统登记入口与证据一次提交。"""
-    from worldmock.life import day_planning
-    from worldmock.life.day_plan_inputs import plan_inputs
 
-    now, timezone_name = engine.state.current_time, engine.scenario.timezone
-    inputs = plan_inputs(engine, agent_id)
+    now, timezone_name = engine.context.state.current_time, engine.context.scenario.timezone
+    inputs = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, agent_id)
     sentences = [sentence for sentence, _ in inputs.experiences]
     original, kept = day_planning.fit_plan_day(inputs.payload, sentences, caller.model_name)
     sources = [*(source for _, source in inputs.experiences[len(sentences) - kept:]), *inputs.sources]
@@ -1120,7 +849,7 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
         except day_planning.PlanDayOutputError as error:
             evidence.append(day_planning.response_draft(now, agent_id, link, raw, error))
             if attempt > day_planning.PLAN_DAY_VALIDATION_RETRIES:
-                commit_state(engine.store, engine.state, evidence)
+                commit_state(engine.context.store, engine.context.state, evidence)
                 raise ProtocolError("plan_day output remained invalid after three retries") from error
             attempt, previous = attempt + 1, evidence[-1].event_id
             request = day_planning.prepare_plan_day_correction(original, raw, error)
@@ -1133,15 +862,14 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
 
 async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple[list, tuple, int]) -> dict:
     """@brief 发出一次零点计划请求；传输或配置失败时先提交已有尝试的证据与失败证据再抛出。"""
-    from worldmock.life import day_planning
 
     evidence, link, agent_id = context
     try:
         return await caller.call(request)
     except BaseException as error:
         logger.error("Plan day model request failed: %s", type(error).__name__)
-        evidence.append(day_planning.failure_draft(engine.state.current_time, agent_id, link, error))
-        commit_state(engine.store, engine.state, evidence)
+        evidence.append(day_planning.failure_draft(engine.context.state.current_time, agent_id, link, error))
+        commit_state(engine.context.store, engine.context.state, evidence)
         raise
 
 
@@ -1157,121 +885,18 @@ def _require_custom_modules(project_root: Path) -> None:
         raise RuntimeError("LifeAgent or LifeEnv custom module registration failed")
 
 
-def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_genres=None,
-                 same_second_continuation: bool = True) -> tuple[dict[str, Any], ...]:
-    """@brief 从冻结生活人物形成原生 runner 工作区输入；同秒续接开关冻结进人物配置 profile["same_second_continuation"]。
-
-    新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
-    （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
-    profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-persona-prompt.md「人设层」），
-    并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
-    docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容与游戏目录，经 compute_taste_weights
-    匹配；写入工作区档案随检查点原样携带）。卡片先经场景作息覆盖（apply_scenario_rhythm，
-    docs/dev/SPEC-dayrun-fidelity.md 2.1：场景显式声明的作息字段优先），渲染文本与结构化字段都取覆盖后的卡片，
-    render_card 本身不变。恢复运行不重新编译也不重算——
-    人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
-    persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 CompiledPersona、PersonaCard 或 None，
-    不触发真实模型调用）。
-    """
-    entries = _taste_entries(scenario, content_genres)
-    specs = []
-    for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
-        profile = agent.model_dump(mode="json")
-        profile["id"] = agent.agent_id
-        profile["same_second_continuation"] = same_second_continuation
-        compiled = persona_compiler(agent) if persona_compiler is not None else _compile_persona(agent)
-        card = _compiled_parts(compiled)[0]
-        if card is not None:
-            card = apply_scenario_rhythm(card, agent).card
-            profile["persona_card"] = _render_card(card)
-            profile["persona_card_struct"] = persona_card_struct(card)
-            profile["taste_weights"] = _card_taste_weights(card, entries)
-        config = {
-            "enable_memory": True,
-            "enable_todo_list": False,
-            "max_react_turns": MAX_REACT_TURNS,
-            "disabled_skill_ids": [],
-            "default_activated_skill_ids": [],
-        }
-        specs.append({"id": agent.agent_id, "profile": profile, "config": config})
-    return tuple(specs)
 
 
-def _render_card(card: Any) -> str:
-    """@brief 编译卡片的渲染文本（记忆巩固与反思的人物段）。"""
-    from worldmock.profile.textgen import render_card
-
-    return render_card(card)
 
 
-def _compile_persona(agent: Any) -> Any:
-    """@brief 场景 background_story -> CompiledPersona（卡片与编译警告；真实调用走三次一致性抽取）。
-
-    编译警告（三次一致性低于 2/3 的字段、下班与到家锚点的降级说明）经输入警告 PERSONA_AGREEMENT_LOW 逐条透传，不再丢弃。
-    """
-    if agent.background_story is None:
-        return None
-    from worldmock.profile.compile import compile_persona
-
-    return compile_persona(agent.background_story)
 
 
-def _compiled_parts(result: Any) -> tuple[PersonaCard | None, tuple[str, ...]]:
-    """@brief 编译结果 → (卡片, 编译警告)：CompiledPersona 与带 card 的对象取其卡片与 warnings；
-    测试桩可直接给 PersonaCard（没有编译警告）或 None（没有背景故事）。"""
-    if result is None:
-        return None, ()
-    if isinstance(result, PersonaCard):
-        return result, ()
-    return result.card, tuple(getattr(result, "warnings", ()))
 
 
-def _taste_entries(scenario: RuntimeScenario,
-                   content_genres: dict[str, tuple[str, ...]] | None) -> tuple[dict, ...]:
-    """@brief 口味匹配的条目表：场景内容按 item_id、游戏按 game_id 在同一张题材表里取 genre。
-
-    游戏与内容同一算法（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）：题材表即 _content_genre_catalog
-    （内容语料条目 item_id -> genre，游戏库 games/library 的条目同在其中）；没有题材声明的条目 genre 为空，
-    权重为零，实际缓解走下限偏好。
-    """
-    genres = content_genres or {}
-    identities = ([item.item_id for item in scenario.contents]
-                  + [item.game_id for item in scenario.games])
-    return tuple({"item_id": identity, "genre": tuple(genres.get(identity) or ())}
-                 for identity in identities)
 
 
-def _card_taste_weights(card: Any, entries: tuple[dict, ...]) -> dict[str, float]:
-    """@brief 卡片口味 x 场景内容与游戏条目 -> 确定性权重（compute_taste_weights 生产接线）。
-
-    游戏条目与内容条目同算（精确交集 / 条目题材数），键为 game_id；没有题材声明的游戏权重为 0.0
-    （docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 S1）。
-    """
-    from worldmock.profile.taste import compute_taste_weights
-
-    return compute_taste_weights(card.tastes.content_genres, entries)
 
 
-def _content_genre_catalog(scenario_path: Path,
-                           scenario: RuntimeScenario) -> dict[str, tuple[str, ...]]:
-    """@brief 从内容语料条目收集 genre 表（item_id -> genre 元组，缺失即失败）。
-
-    @param scenario_path 冻结场景路径（用于解析相对 corpus_root）
-    @param scenario 组装后的运行时场景
-    @return 场景内容目录的 genre 查找表（条目缺失 genre 视为空口味）
-    """
-    from worldmock.catalog.admission import CONTENT_CORPORA
-
-    root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    genres: dict[str, tuple[str, ...]] = {}
-    for relative, mode in CONTENT_CORPORA:
-        document = json.loads((root / relative).read_text(encoding="utf-8"))
-        items = [document] if mode == "single" else (
-            document if isinstance(document, list) else [])
-        for item in items:
-            if isinstance(item, dict) and isinstance(item.get("item_id"), str):
-                genres[item["item_id"]] = tuple(item.get("genre") or [])
-    return genres
 
 
 def _no_persona_compilation(agent: Any) -> None:

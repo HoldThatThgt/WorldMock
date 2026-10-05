@@ -8,7 +8,7 @@ from typing import Any
 
 from worldmock.errors import IntegrityError
 from worldmock.life.commerce import deliver_order
-from worldmock.life.map_models import DataSource
+from worldmock.life.models import DataSource
 from worldmock.life.models import WorldState
 from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import ScenarioSemantics
@@ -70,7 +70,7 @@ def _reveal_event(state: WorldState, event: ScheduledEvent, semantics: ScenarioS
 
 
 def _deliver_message(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
-    """@brief 预排送达的联系人回复到期写入收件人收件箱，返回 message_arrival 送达记录（docs/CONTRACTS.md「联系人回复」）。"""
+    """@brief 预排送达的联系人回复到期写入收件人收件箱，返回 message_arrival 送达记录（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）。"""
     message = Message.model_validate(event.data["message"])
     agent = state.agents[event.agent_id]
     agent = agent.model_copy(update={"inbox": {**agent.inbox, message.message_id: message}}, deep=True)

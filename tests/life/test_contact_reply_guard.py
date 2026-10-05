@@ -1,4 +1,4 @@
-"""联系人回复不虚构到场（docs/dev/SPEC-dayrun-fidelity.md 7.3，裁决 D11）：请求事实、后验守卫、同一结算内的一次重试与兜底句。
+"""联系人回复不虚构到场（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场，裁决 D11）：请求事实、后验守卫、同一结算内的一次重试与兜底句。
 
 守卫样本取自一日运行的真实回复（tests/fixtures/dayrun-contact-replies.json）：WC 王磊 6 条回复里的 5 条越界回复与 BIZ
 刘洋的「我9点到公司」各命中登记的类别，7 条无害回复不命中（两次 4a5b0e6 运行只有 2 条无害回复，另 5 条取自同一数据集
@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 
 import pytest
+
+from scripts.documentation_refs import section_text
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context, start_activity, submit_round
@@ -71,18 +73,18 @@ def _send(engine, round_id: str, contact_id: str = _FRIEND, text: str = "周五�
                                         SendMessageActionRequest(recipient_name=recipient, text=text)))
     [result] = engine.commit_decision_round(round_id)
     assert result.status == "completed", (result.error_code, result.message)
-    return engine.state.current_time
+    return engine.context.state.current_time
 
 
 def _reply_events(engine) -> list:
     """@brief 全部 model_npc_reply 回复事件（事件序升序）。"""
-    return [event for event in engine.store.read_events(engine.store.last_event_seq)
+    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
             if event.data.get("kind") == "model_npc_reply"]
 
 
 def _scheduled_texts(engine) -> list[str]:
     """@brief 预排送达的联系人回复正文（按到期时刻与序号）。"""
-    return [item.data["message"]["text"] for item in engine.state.pending_events if item.kind == "message_arrival"]
+    return [item.data["message"]["text"] for item in engine.context.state.pending_events if item.kind == "message_arrival"]
 
 
 @pytest.mark.parametrize("sample", OVERREACH, ids=_sample_id)
@@ -122,7 +124,7 @@ def test_each_registered_alternative_catches_its_short_form(category: str, reply
 def test_contract_registers_the_template_guard_closed_set_and_fallback_verbatim() -> None:
     """接口合同「联系人回复」逐字登记 system 中文模板、四类正则闭集、纠正句与各类说法、兜底句。"""
     text = (_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")
-    section = text.split("\n### 联系人回复\n", 1)[1].split("\n### 社交拒绝错误码\n", 1)[0]
+    section = section_text(text, "contracts-contact-reply")
     assert f"```text\n{_CONTACT_REPLY_PROMPT}\n```" in section
     registered = re.search(r"逐字；类别码在前）：\n\n```text\n(.*?)\n```", section, flags=re.DOTALL)
     assert registered is not None
@@ -192,13 +194,13 @@ async def test_reply_request_carries_sender_name_now_presence_and_receive_locati
     await settle_pending_model_replies(engine, client=client)
     [request] = client.calls
     assert request["messages"][0] == {"role": "system", "content": _CONTACT_REPLY_PROMPT}
-    office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
-    expected = {"sender_name": engine.state.agents[1].name, "now": iso_time(sent_at, engine.scenario.timezone),
+    office = next(item.name for item in engine.context.scenario.locations if item.location_id == "office")
+    expected = {"sender_name": engine.context.state.agents[1].name, "now": iso_time(sent_at, engine.context.scenario.timezone),
                 "presence": "remote", "receive_location": office}
     payload = json.loads(request["messages"][1]["content"])
     assert {key: payload[key] for key in expected} == expected
     assert payload["incoming_message"] == "中午一起点外卖吗？"
-    [pending] = [event.data["request"] for event in engine.store.read_agent_events("environment_event", 1)
+    [pending] = [event.data["request"] for event in engine.context.store.read_agent_events("environment_event", 1)
                  if event.data.get("kind") == "model_npc_reply_pending"]
     assert {key: pending[key] for key in expected} == expected
     _send(engine, "guard-facts-friend")
@@ -212,7 +214,7 @@ async def test_each_incoming_message_gets_one_reply_event_even_after_a_retry(eng
     """重试仍只写一条回复事件，幂等键仍是来信的消息身份：再结算零调用、零事件。"""
     engine = engine_factory()
     _send(engine, "guard-once")
-    [message_id] = list(engine.state.agents[1].outbox)
+    [message_id] = list(engine.context.state.agents[1].outbox)
     client = _ScriptedReplies(OVERREACH[1]["reply"], HARMLESS[2]["reply"])
     first = await settle_pending_model_replies(engine, client=client)
     second = await settle_pending_model_replies(engine, client=client)
@@ -232,9 +234,9 @@ async def test_quality_report_counts_guard_hits_retries_and_fallbacks(engine_fac
     await settle_pending_model_replies(engine, client=_ScriptedReplies(OVERREACH[4]["reply"], OVERREACH[5]["reply"]))
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "quality-wait")
     advance_next(engine)
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "contact_reply_guard_test"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "contact_reply_guard_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
-    export_run(engine.store, checkpoint.last_event_seq, tmp_path / "export")
+    export_run(engine.context.store, checkpoint.last_event_seq, tmp_path / "export")
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
     assert quality["contact_reply_guard"] == {
         "replies": 2, "replies_without_guard_evidence": 0, "attempts": 4, "hits": 3, "retries": 2, "fallbacks": 1,

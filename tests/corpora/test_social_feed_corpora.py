@@ -9,7 +9,8 @@ from pathlib import Path
 
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
-from worldmock.life.scenario import ContentItemConfig, load_scenario
+from worldmock.life.scenario import ContentItemConfig
+from worldmock.life.world_setup import load_scenario
 
 SCENARIOS = ("scenarios/white-collar-12-weeks.json", "scenarios/multi-person.json")
 START = date(2026, 1, 5)
@@ -120,7 +121,7 @@ def test_both_scenarios_admit_social_feeds_with_full_preferences() -> None:
             item = _scenario_item(scenario, item_id)
             assert item.experience_label == spec["experience_label"]
             assert 0.2 <= item.entertainment_relief_per_hour <= 0.3
-        # docs/dev/SPEC-life-realism.md「画像编译」：人物不再携带逐流偏好浮点（0.4-0.8 断言随合同移除）。
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：人物不再携带逐流偏好浮点（0.4-0.8 断言随合同移除）。
         doc = json.loads(Path(path).read_text(encoding="utf-8"))
         for agent in doc["agents"]:
             assert "entertainment_preferences" not in agent, (

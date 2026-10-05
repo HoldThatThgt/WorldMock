@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/document-consistency-review.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 一日行为文档双向一致性审查
 
 > 审查对象：当前未提交工作树的 `SPEC-dayrun-behavior.md`、`CONTRACTS.md`、本次修改的设计、旧规格、手册与文档入口。

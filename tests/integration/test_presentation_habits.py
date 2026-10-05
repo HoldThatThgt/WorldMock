@@ -1,4 +1,4 @@
-"""人设层习惯签名进候选相关度的真实新建路径（docs/dev/SPEC-dayrun-fidelity.md 5.1，裁决 S4；验收台账「呈现」）。
+"""人设层习惯签名进候选相关度的真实新建路径（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ，裁决 S4；验收台账「呈现」）。
 
 新建运行经 runtime 的真实准备与装配（画像编译走真实 compile_persona、只打桩三次一致性抽取，见 test_input_warnings）：
 编译卡片的习惯签名反应文本经 create_options 冻结进运行清单 persona_habit_responses，引擎排序候选时据此给命中条目名或
@@ -23,7 +23,7 @@ async def test_run_creation_freezes_habit_responses_and_ranks_the_hit_entry_firs
                                 _extraction(make_card(habits=habits)))
     env = created["env"]
     try:
-        manifest = env.engine.store.manifest
+        manifest = env.engine.context.store.manifest
         assert manifest[MANIFEST_KEY] == {"1": ["起床后先晨间洗漱", "读几页小说"]}
         assert created["options"][MANIFEST_KEY] == {1: ["起床后先晨间洗漱", "读几页小说"]}
         assert manifest_habit_texts(manifest, 1) == ("起床后先晨间洗漱", "读几页小说")

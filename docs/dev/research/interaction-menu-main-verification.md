@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/interaction-menu-main-verification.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 交互菜单合入主分支的验收记录
 
 > 状态：COMPLETE；合并后的完整工程门禁、独立复核与文档检查均已通过。

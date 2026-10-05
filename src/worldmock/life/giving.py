@@ -1,4 +1,4 @@
-"""@brief 给予：把手边的持有物交给人物（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
+"""@brief 给予：把手边的持有物交给人物（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）。
 
 给予是瞬时动作，不占名额，任何人都不增加摄入：从本人手边移出每件 min(1, 持有)，记入对方持有（同世界人物入其同一地点的
 库存，场景联系人入 contact_holdings）。要求同处：同世界人物与本人在同一地点，联系人则本人位于其收货地点。内部标准动作

@@ -1,4 +1,4 @@
-"""三个控制工具请求级的个人事务变更经真实请求、引擎与 SQLite 受理（docs/dev/SPEC-errands-workday.md 2.2、2.3、2.7、2.9）。
+"""三个控制工具请求级的个人事务变更经真实请求、引擎与 SQLite 受理（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 、2.3、2.7、2.9）。
 
 经真实引擎：正式场景与目录建立的 LifeEngine 上，人物开始一段等待，再以 report_status、pause_activity、conclude_activity
 带上请求级 errands 逐轮登记并结算（begin_decision_round → observe → submit_action → commit_decision_round）。受理时事务变更
@@ -61,13 +61,13 @@ def _next_chance(engine) -> None:
 
 def _errand_events(engine) -> list:
     """人物 1 的全部事务事件（六种 kind），按事件顺序。"""
-    return [event for event in engine.store.read_agent_events("environment_event", 1)
+    return [event for event in engine.context.store.read_agent_events("environment_event", 1)
             if event.data.get("kind") in ERRAND_EVENT_KINDS]
 
 
 def _one(engine, event_type: str, action_id: str):
     """本动作唯一一条给定类型的事件。"""
-    (event,) = [item for item in engine.store.read_agent_events(event_type, 1) if item.action_id == action_id]
+    (event,) = [item for item in engine.context.store.read_agent_events(event_type, 1) if item.action_id == action_id]
     return event
 
 
@@ -90,8 +90,8 @@ def _assert_request_events(engine, result, events: list, kinds: list[str]) -> No
 
 def _resources(engine) -> tuple:
     """人物 1 的余额账户、库存与订单相关的世界事实（事务变更不改变它们）。"""
-    agent = engine.state.agents[1]
-    return engine.state.accounts, agent.inventory, engine.state.deliveries, engine.state.contact_holdings
+    agent = engine.context.state.agents[1]
+    return engine.context.state.accounts, agent.inventory, engine.context.state.deliveries, engine.context.state.contact_holdings
 
 
 def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_an_ordered_receipt(
@@ -102,14 +102,14 @@ def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_
     零累计量、按受理时刻换算提醒钟点；更新只替换备注与提醒；取消移出状态、事件带移出前的快照与原因；余额、库存与订单不变。
     下一次观察的待办层列出这些事务，进度层里该次调用的公开结果带同样的回执 details.errands。"""
     engine, wait_id, name = _waiting(engine_factory)
-    zone, noted_at, facts = engine.scenario.timezone, engine.state.current_time, _resources(engine)
+    zone, noted_at, facts = engine.context.scenario.timezone, engine.context.state.current_time, _resources(engine)
     kit = errand_add(_KIT_ERRAND, _KIT_NAME, memo="下班前下单送到家", remind_time="17:00")
     meal = errand_add(_MEAL_ERRAND, _MEAL_NAME, outcome="吃掉", quantity=2)
     _, reported = _act(engine, "report", "report_status", report_request(name, summary="还在等。", errands=[kit, meal]))
     assert reported.status == "completed"
     assert reported.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"},
                                         {"errand": _MEAL_ERRAND, "change": "新增"}]
-    held = engine.state.agents[1].errands
+    held = engine.context.state.agents[1].errands
     assert list(held) == ["action-report:errand:0", "action-report:errand:1"]
     requested = _one(engine, "action_requested", "action-report")
     first, second = held.values()
@@ -132,7 +132,7 @@ def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_
     assert [(row["name"], row["done_when"], row["progress"]) for row in rows] == [
         (_KIT_ERRAND, "取得素炒什锦食材包 1 份", "已取得 0 份"), (_MEAL_ERRAND, "吃掉素炒什锦 2 份", "已吃掉 0 份")]
     assert (paused.status, paused.data["errands"]) == ("completed", [{"errand": _KIT_ERRAND, "change": "更新"}])
-    assert engine.state.activities[wait_id].status == ActivityStatus.PAUSED
+    assert engine.context.state.activities[wait_id].status == ActivityStatus.PAUSED
     updated = _errand_events(engine)[2:]
     _assert_request_events(engine, paused, updated, ["errand_updated"])
     assert updated[0].data["errand"] == registered[0].data["errand"]
@@ -140,16 +140,16 @@ def test_each_control_tool_records_errand_changes_with_one_event_per_change_and_
     changes = [errand_cancel(_MEAL_ERRAND, "改在公司吃了"), errand_update(_KIT_ERRAND, memo="周末去超市买")]
     _, resumed = _act(engine, "resume", "report_status", report_request(name, summary="接着等。", errands=changes))
     assert resumed.status == "completed" and [row["name"] for row in resumed.data["resumed"]] == [name]
-    assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.activities[wait_id].status == ActivityStatus.ACTIVE
     assert resumed.data["errands"] == [{"errand": _MEAL_ERRAND, "change": "取消"},
                                        {"errand": _KIT_ERRAND, "change": "更新"}]
     cancelled, renewed = _errand_events(engine)[3:]
     _assert_request_events(engine, resumed, [cancelled, renewed], ["errand_cancelled", "errand_updated"])
     assert (cancelled.data["errand"], cancelled.data["reason"]) == (registered[1].data["errand"], "改在公司吃了")
-    kept = engine.state.agents[1].errands["action-report:errand:0"]
+    kept = engine.context.state.agents[1].errands["action-report:errand:0"]
     assert renewed.data["errand"] == kept.model_dump(mode="json")
     assert (kept.memo, kept.remind_at, kept.registered_at, kept.quantity) == ("周末去超市买", None, noted_at, 1)
-    assert list(engine.state.agents[1].errands) == ["action-report:errand:0"]
+    assert list(engine.context.state.agents[1].errands) == ["action-report:errand:0"]
 
     _next_chance(engine)
     tea = errand_add(_TEA_ERRAND, _TEA_NAME, quantity=3)
@@ -177,10 +177,10 @@ def test_empty_errands_is_valid_and_the_receipt_is_an_empty_list(engine_factory)
     assert last_result(observed)["details"]["errands"] == []
     for result in (reported, paused, concluded):
         assert result.status == "completed" and result.data["errands"] == []
-    assert engine.state.activities[wait_id].concluded_at == engine.state.current_time
+    assert engine.context.state.activities[wait_id].concluded_at == engine.context.state.current_time
     after = engine.observe(context(engine, "after"))
     assert last_result(after)["details"]["errands"] == [] and after["todo_layer"]["errands"] == []
-    assert engine.state.agents[1].errands == {} and _errand_events(engine) == []
+    assert engine.context.state.agents[1].errands == {} and _errand_events(engine) == []
 
 
 def _add(**fields) -> dict:
@@ -276,7 +276,7 @@ def test_every_structural_error_reports_the_full_errand_path(engine_factory, cas
     逐项相同（只差明细码）。被拒结果没有回执键，人物没有记下事务、没有事务事件，等待没有被播报、暂停或结束。"""
     tool, errands, expected = _STRUCTURAL[case]
     engine, wait_id, name = _waiting(engine_factory)
-    before = engine.state.activities[wait_id]
+    before = engine.context.state.activities[wait_id]
     request = _constructed(tool, name, errands)
     _, result = _act(engine, case, tool, request)
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
@@ -293,15 +293,15 @@ def test_every_structural_error_reports_the_full_errand_path(engine_factory, cas
         REQUEST_MODELS[tool].model_validate(arguments)
     host = argument_report(tool, caught.value, REQUEST_MODELS[tool], arguments)
     assert [{**item.payload(), "error_code": "ACTION_REQUEST_INVALID"} for item in host.items] == rows
-    assert "errands" not in result.data and engine.state.agents[1].errands == {} and _errand_events(engine) == []
-    assert engine.state.activities[wait_id] == before
+    assert "errands" not in result.data and engine.context.state.agents[1].errands == {} and _errand_events(engine) == []
+    assert engine.context.state.activities[wait_id] == before
 
 
 def _paused_watch_and_pending_wait(engine_factory):
     """人物看了五分钟内容后暂停，接着等待到点：暂停的观看与刚结束、待收尾的等待各占一个名额。（引擎，观看名，等待名）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    shown = engine._observation_data(engine.state.agents[1])
+    shown = engine.observations._observation_data(engine.context.state.agents[1])
     content, way = next((row["object"], item["label"]) for row in shown["interaction_bindings"]
                         if row["kind"] == "content" for item in row["actions"] if item["canonical_action"] == "watch")
     _, watch = _act(engine, "watch", "start_activity", start_activity(way, content))
@@ -311,7 +311,7 @@ def _paused_watch_and_pending_wait(engine_factory):
     assert _act(engine, "pause", "pause_activity", pause_request(watch_name))[1].status == "completed"
     _, wait = _act(engine, "wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
-    assert engine.state.activities[wait.activity_id].status == ActivityStatus.COMPLETED
+    assert engine.context.state.activities[wait.activity_id].status == ActivityStatus.COMPLETED
     return engine, watch_name, activity_name(engine, wait.activity_id)
 
 
@@ -324,7 +324,7 @@ def test_a_rejected_request_registers_no_errand_and_writes_no_errand_event(engin
     _, rejected = _act(engine, "refused", "conclude_activity", conclude_request(watch_name, errands=noted))
     assert (rejected.status, rejected.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
     assert "errands" not in rejected.data
-    assert engine.state.agents[1].errands == {} and _errand_events(engine) == []
+    assert engine.context.state.agents[1].errands == {} and _errand_events(engine) == []
     assert _one(engine, "action_requested", "action-refused").data["request"]["errands"] == noted
     observed, concluded = _act(engine, "accepted", "conclude_activity", conclude_request(wait_name, errands=noted))
     shown = next(record for record in observed["progress_layer"]["events"]
@@ -333,7 +333,7 @@ def test_a_rejected_request_registers_no_errand_and_writes_no_errand_event(engin
     assert observed["todo_layer"]["errands"] == [] and observed["todo_layer"]["paused_activities"][0]["name"] == (
         watch_name)
     assert concluded.status == "completed" and concluded.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
-    assert list(engine.state.agents[1].errands) == ["action-accepted:errand:0"]
+    assert list(engine.context.state.agents[1].errands) == ["action-accepted:errand:0"]
     assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered"]
 
 
@@ -342,7 +342,7 @@ def test_a_request_cannot_mark_an_errand_completed(engine_factory) -> None:
     明细的合法值是这三种；绕过宿主到达环境时同样以 ACTION_REQUEST_INVALID 拒绝、给同样的合法值，预置的未完成事务原样
     留在状态里（累计量仍为零），没有任何事务事件。"""
     engine, _, name = _waiting(engine_factory)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     staged = _errand("action-a:errand:0", _KIT_ERRAND, _KIT, now - 60)
     stage_errands(engine, 1, [staged])
     done = {**errand_update(_KIT_ERRAND), "change": "完成"}
@@ -358,7 +358,7 @@ def test_a_request_cannot_mark_an_errand_completed(engine_factory) -> None:
     assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     [row] = result.data["items"]
     assert (row["path"][-3:], row["allowed_values"]) == (["errands", 0, "change"], _CHANGES)
-    assert engine.state.agents[1].errands == {staged.errand_id: staged} and _errand_events(engine) == []
+    assert engine.context.state.agents[1].errands == {staged.errand_id: staged} and _errand_events(engine) == []
 
 
 def test_a_replayed_request_does_not_register_twice(engine_factory) -> None:
@@ -368,27 +368,27 @@ def test_a_replayed_request_does_not_register_twice(engine_factory) -> None:
     noted = report_request(name, errands=[errand_add(_KIT_ERRAND, _KIT_NAME)])
     _, first = _act(engine, "noted", "report_status", noted)
     assert first.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
-    held = dict(engine.state.agents[1].errands)
+    held = dict(engine.context.state.agents[1].errands)
     _next_chance(engine)
     replay = context(engine, "replay")
     engine.begin_decision_round([replay])
     engine.observe(replay)
     engine.submit_action(DirectToolCall(replay, "action-noted", "report_status", noted))
     assert engine.commit_decision_round("replay")[0] == first
-    assert engine.state.agents[1].errands == held
+    assert engine.context.state.agents[1].errands == held
     assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered"]
     _next_chance(engine)
     _, cancelled = _act(engine, "cancel", "pause_activity", pause_request(
         name, errands=[errand_cancel(_KIT_ERRAND, "不买了")]))
-    assert cancelled.status == "completed" and engine.state.agents[1].errands == {}
+    assert cancelled.status == "completed" and engine.context.state.agents[1].errands == {}
     again = context(engine, "again")
     engine.begin_decision_round([again])
     engine.observe(again)
     engine.submit_action(DirectToolCall(again, "action-noted", "report_status", noted))
     assert engine.commit_decision_round("again")[0] == first
-    assert engine.state.agents[1].errands == {}
+    assert engine.context.state.agents[1].errands == {}
     assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered", "errand_cancelled"]
-    replayed = [event for event in engine.store.read_agent_events("action_result", 1)
+    replayed = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-noted" and event.data.get("reused")]
     assert len(replayed) == 2 and all(event.data["data"]["errands"] == first.data["errands"] for event in replayed)
 
@@ -397,13 +397,13 @@ def _assert_nothing_noted(engine, rejected) -> None:
     """@brief 被拒的请求没有让任何事务变更生效：结果没有回执键，人物没有未完成事务、没有事务事件，此刻的观察里待办层与私有
     事务绑定都为空。"""
     assert rejected.status == "rejected" and "errands" not in rejected.data
-    assert engine.state.agents[1].errands == {} and _errand_events(engine) == []
+    assert engine.context.state.agents[1].errands == {} and _errand_events(engine) == []
     shown = engine.observe(context(engine, f"after-{rejected.action_id}"))
     assert shown["todo_layer"]["errands"] == [] and shown["errand_bindings"] == []
 
 
 def test_a_refused_pause_registers_no_errand_and_writes_no_errand_event(engine_factory) -> None:
-    """@brief 「请求因任何原因被业务拒绝时事务变更一并不生效」对 pause_activity 成立（docs/dev/SPEC-errands-workday.md 2.2
+    """@brief 「请求因任何原因被业务拒绝时事务变更一并不生效」对 pause_activity 成立（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消
     「原子性」）：事务变更通过复核之后暂停在活动检查处被拒——点名已经暂停的等待再暂停一次（ACTION_REQUEST_INVALID，明细定位
     在活动名），步行去公司的路上暂停出行（ACTIVITY_PAUSE_UNAVAILABLE）。两次都带同一条合法的新增：结果没有回执键，世界里
     没有记下事务、没有事务事件，下一次观察的待办层与私有事务绑定都为空，活动状态照旧。同一条新增随路上一次合法的播报就
@@ -415,7 +415,7 @@ def test_a_refused_pause_registers_no_errand_and_writes_no_errand_event(engine_f
     assert (again.status, again.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     assert [row["path"][-3:] for row in again.data["items"]] == [["items", 0, "activity_name"]]
     _assert_nothing_noted(engine, again)
-    assert engine.state.activities[wait_id].status == ActivityStatus.PAUSED
+    assert engine.context.state.activities[wait_id].status == ActivityStatus.PAUSED
     travel = _depart(engine, "to-office")
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
@@ -423,15 +423,15 @@ def test_a_refused_pause_registers_no_errand_and_writes_no_errand_event(engine_f
     _, refused = _act(engine, "pause-road", "pause_activity", pause_request(road, errands=noted))
     assert (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PAUSE_UNAVAILABLE")
     _assert_nothing_noted(engine, refused)
-    assert engine.state.activities[travel.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.activities[travel.activity_id].status == ActivityStatus.ACTIVE
     _, reported = _act(engine, "report-road", "report_status", report_request(road, errands=noted))
     assert reported.status == "completed" and reported.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
-    assert list(engine.state.agents[1].errands) == ["action-report-road:errand:0"]
+    assert list(engine.context.state.agents[1].errands) == ["action-report-road:errand:0"]
     assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered"]
 
 
 def test_a_refused_resume_registers_no_errand_and_writes_no_errand_event(engine_factory) -> None:
-    """@brief 同一条原子性对 report_status 成立，连同入口的边界（docs/dev/SPEC-errands-workday.md 2.2「入口」「原子性」）：
+    """@brief 同一条原子性对 report_status 成立，连同入口的边界（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「入口」「原子性」）：
     暂停的等待留在家里，人物步行到公司后点名它播报——恢复只在开始地点，被 ACTIVITY_PRECONDITION_UNMET 拒绝（unmet 为
     activity_location）。请求带的合法新增一并不生效：结果没有回执键，世界里没有记下事务、没有事务事件，待办层与私有事务
     绑定都为空，等待照旧暂停。暂停的活动在任何地点都可用 conclude_activity 结束：同一条新增随这次收尾被受理。"""
@@ -446,10 +446,10 @@ def test_a_refused_resume_registers_no_errand_and_writes_no_errand_event(engine_
     assert (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
     assert refused.data["unmet"] == ["activity_location"]
     _assert_nothing_noted(engine, refused)
-    assert engine.state.activities[wait_id].status == ActivityStatus.PAUSED
+    assert engine.context.state.activities[wait_id].status == ActivityStatus.PAUSED
     _, concluded = _act(engine, "conclude-elsewhere", "conclude_activity", conclude_request(name, errands=noted))
     assert concluded.status == "completed" and concluded.data["errands"] == [{"errand": _KIT_ERRAND, "change": "新增"}]
-    assert list(engine.state.agents[1].errands) == ["action-conclude-elsewhere:errand:0"]
+    assert list(engine.context.state.agents[1].errands) == ["action-conclude-elsewhere:errand:0"]
     assert [event.data["kind"] for event in _errand_events(engine)] == ["errand_registered"]
 
 
@@ -476,7 +476,7 @@ def _state_refusing(engine_factory, tool: str):
 
 @pytest.mark.parametrize("tool", sorted(_CONTROL_REQUESTS))
 def test_errand_changes_are_rechecked_before_the_activity_state_checks(engine_factory, tool: str) -> None:
-    """@brief 环境受理的次序（docs/CONTRACTS.md「原子受理」：先解析活动名，再在同一冻结观察上复核事务变更，活动状态转换
+    """@brief 环境受理的次序（docs/CONTRACTS.md#contracts-worldmock-接口合同「原子受理」：先解析活动名，再在同一冻结观察上复核事务变更，活动状态转换
     之后才应用）：绕过宿主的请求点名一项此刻不能这样控制的活动，又点名一条不存在的事务——拒绝是事务复核的合并拒绝
     （ACTION_REQUEST_INVALID，唯一明细在 errands[0].name、NAME_NOT_FOUND），不是活动状态的拒绝。事务改成一条合法的新增再
     提交，才轮到活动状态的拒绝（各工具各自的码，明细定位在活动名），这条新增同样没有被记下。"""

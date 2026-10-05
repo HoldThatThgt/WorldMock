@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from worldmock.corpora import load_manifest
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 _CORPUS = Path("corpora")
 _WORK = _CORPUS / "scenario-work"

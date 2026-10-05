@@ -9,9 +9,9 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import activity_factors, advance_activity_shared, shared_activity_factors
 from worldmock.life.body import ActivityFactors, last_flows, settle_shared_body
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, BodyState
-from worldmock.life.scenario import load_scenario
-from worldmock.life.social_actions import (CALL_MET, CHAT_MET, SOCIAL_RESOURCE_CLAIMS, advance_social_shared,
-                                           social_activity_change)
+from worldmock.life.world_setup import load_scenario
+from worldmock.life.social import CALL_MET, CHAT_MET, SOCIAL_RESOURCE_CLAIMS
+from worldmock.life.social_actions import advance_social_shared, social_activity_change
 
 
 def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
@@ -44,9 +44,9 @@ def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
 def test_shared_activity_factors_use_social_met_and_declared_factors(engine_factory) -> None:
     """结算与边界预测共用的单项系数：交谈、通话取社交常量 MET，其余活动与声明系数一致。"""
     engine = engine_factory()
-    config = engine.scenario.body
-    agent = engine.state.agents[1]
-    now = engine.state.current_time
+    config = engine.context.scenario.body
+    agent = engine.context.state.agents[1]
+    now = engine.context.state.current_time
     for kind, met in ((ActivityKind.CHAT, CHAT_MET), (ActivityKind.CALL, CALL_MET)):
         assert shared_activity_factors(_active(kind, now), agent, config) == ActivityFactors(met)
     wait = _active(ActivityKind.WAIT, now)
@@ -56,9 +56,9 @@ def test_shared_activity_factors_use_social_met_and_declared_factors(engine_fact
 def test_shared_settlement_and_activity_progress_reject_invalid_intervals(engine_factory) -> None:
     """负区间与暂停推进在公共边界拒绝；能量耗尽的非恢复活动照常结算到 0。"""
     engine = engine_factory()
-    config = engine.scenario.body
-    agent = engine.state.agents[1]
-    now = engine.state.current_time
+    config = engine.context.scenario.body
+    agent = engine.context.state.agents[1]
+    now = engine.context.state.current_time
     wait = _active(ActivityKind.WAIT, now)
     settlement = settle_shared_body(agent.body, ((ActivityKind.WAIT, ActivityFactors(1.3)),), 60, config)
     advanced = advance_activity_shared(wait, agent, now + 60, settlement)
@@ -81,10 +81,10 @@ def test_social_shared_progress_and_control_public_boundaries(engine_factory) ->
     同时进行的秒数按交谈账本（每小时 0.5），其余秒数按发起方 0.2/小时，清醒增长照常累计。
     """
     engine = engine_factory()
-    config = engine.scenario.body
-    agent = engine.state.agents[1]
+    config = engine.context.scenario.body
+    agent = engine.context.state.agents[1]
     agent = agent.model_copy(update={"body": agent.body.model_copy(update={"social_need": 0.5})}, deep=True)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     chat = _active(ActivityKind.CHAT, now)
     settlement = settle_shared_body(agent.body, ((ActivityKind.CHAT, ActivityFactors(CHAT_MET)),), 60, config)
     finished = advance_social_shared(chat, agent, now + 60, settlement, 60)

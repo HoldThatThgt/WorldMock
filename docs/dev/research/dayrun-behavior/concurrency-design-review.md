@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/concurrency-design-review.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 同一人物并行活动与持续性：只读设计核查
 
 范围：`/Users/atishoo/.codex/worktrees/dayrun-behavior/WorldMock`，读取时基线为 `74edeaddccf1e051a0f7c98024ec95eeb6c48514`。本报告只提出供父代理冻结的实现与验收边界，没有修改仓库，也没有执行测试或真实模型。此前的 reconciliation 工作树不属于本任务。

@@ -19,7 +19,7 @@ from worldmock.life.body import (
     settle_body,
 )
 from worldmock.life.models import ActivityKind, BodyState
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.resources import FlowEntry, ResourceLedger, audit_level_flows
 
 
@@ -154,7 +154,7 @@ def test_food_energy_cap_limits_source_amount_to_headroom(body_config) -> None:
 
 
 def test_sleep_recovery_beyond_deficit_clamps_at_zero(body_config) -> None:
-    """恢复量超过现有不足账时期末钳制为零（下限零，docs/dev/SPEC-life-runtime.md「睡眠不足账与效率曲线」）。"""
+    """恢复量超过现有不足账时期末钳制为零（下限零，docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「睡眠不足账与效率曲线」）。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0.5, entertainment_need=0)
     result = settle_body(body, ActivityKind.SLEEP, 3600, body_config, ActivityFactors(0.95))
 
@@ -225,7 +225,7 @@ def test_last_flows_returns_each_settlement_exactly_once(body_config) -> None:
 
 
 def test_overdrawn_settlement_drains_only_the_remaining_energy(body_config) -> None:
-    """透支结算不报错：能量分录只扣掉余额，期末以 0 截断（docs/dev/SPEC-time-and-energy.md「能量不拦人」）。"""
+    """透支结算不报错：能量分录只扣掉余额，期末以 0 截断（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。"""
     last_flows()
     body = BodyState(energy_kcal=10, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     result = settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))

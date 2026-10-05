@@ -1,16 +1,17 @@
+<a name="scenarios-生活场景"></a>
 # 生活场景
 
-> 2026-10-01：[工具交互规格](../dev/SPEC-tool-interaction.md)已冻结并已实现；本手册描述当前程序实际读取的配置。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步个人事务与提醒（阶段 2）。
-> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)同步场景结构 5 的工作安排（阶段 3）。
-> 2026-10-05：按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步当前目录 5.4；场景结构与世界业务数值不变。
+> 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒（阶段 2）。
+> 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步场景结构 5 的工作安排（阶段 3）。
 
 生活场景决定模拟谁、从什么时候到什么时候、有哪些生活机会，以及世界开始时的状态。
-从[手册首页](README.md#创建自己的第一个场景)复制现有场景开始，按本页调整自己的条件。
+从[手册首页](README.md#readme-创建自己的第一个场景)复制现有场景开始，按本页调整自己的条件。
 人物具体怎么过一天仍由人物决定；场景提供环境和机会，也可以声明人物定下的工作安排——它是每轮告诉人物的事实，环境不因此拒绝任何行动。
 
-[返回手册](README.md) · [人物画像](personas.md) · [世界素材](resources.md)
+[返回手册](README.md#readme-用户配置手册) · [人物画像](personas.md#personas-人物画像) · [世界素材](resources.md#resources-定义地点门店供给与世界素材)
 
+<a name="scenarios-选择起点与文件位置"></a>
 ## 选择起点与文件位置
 
 | 现成场景 | 适合用来修改什么 |
@@ -23,6 +24,7 @@
 场景中的 `corpus_root` 则相对场景所在目录解析。不要把场景移动到 `scenarios/custom/` 等更深目录而不调整整个项目布局。
 `schema_version` 当前为 5：每个人物须显式写 `work_schedule`（对象或 `null`）；多余字段和旧结构的输入都严格拒绝。
 
+<a name="scenarios-看懂场景的组成"></a>
 ## 看懂场景的组成
 
 ```mermaid
@@ -47,7 +49,7 @@ flowchart TB
 | `activity_feedback_seconds`、`rotation_stale_seconds` | 必填；反馈间隔与长期未呈现阈值 |
 | `corpus_root`、`corpus_manifest_sha256`、`catalog_version`、`map_dataset` | 必填；语料、目录版本和地图身份 |
 | `accounts` | 必填非空数组；商家、雇主、出行服务和外部账户 |
-| `body`、`agents`、`interaction_menus_by_location_kind` | 必填；身体初值、人物和每个地点类的菜单；每个人物条目另须显式写 `work_schedule`，见[声明工作安排](#声明工作安排) |
+| `body`、`agents`、`interaction_menus_by_location_kind` | 必填；身体初值、人物和每个地点类的菜单；每个人物条目另须显式写 `work_schedule`，见[声明工作安排](scenarios.md#scenarios-声明工作安排) |
 | `locations`、`products`、`supplies` | 必填数组；选中的地点、商品与门店供给 |
 | `tasks`、`messages`、`contents`、`games` | 必填数组；工作、通知与可接触素材 |
 | `calendar` | 必填；特殊日期与生活情境 |
@@ -58,13 +60,14 @@ flowchart TB
 购买渠道就是手机配置里的购买 App：称呼取 `app_display_names` 中该 App 的显示名，成员门店是 `purchase_apps_by_seller` 映射到它的
 卖家有供给的所选地点。人物在 `from` 写 App 称呼（去掉空白、不分大小写比较）时只在成员门店里买，几家都能服务时按请求的 `prefer`
 选定一家，订单记下 App 标识 `channel_id`；渠道没有自己的送达时长和服务范围，送达仍按选定门店的备货加路线，
-见[世界素材](resources.md#编写门店供给与商品)。
+见[世界素材](resources.md#resources-编写门店供给与商品)。
 配置文件要登记进语料清单，场景钉定的 SHA-256 与清单一致；配置的 `scenario_id`、`timezone` 与场景相同，`agent_id` 是场景中的人物。
 不钉定就没有渠道，`from` 写 App 名以 `SOURCE_NOT_FOUND` 拒绝；配置核验失败（身份、结构、场景身份或执行证据不符）时同样没有渠道：
 加载照常并写一条 warning 日志，`worldmock validate` 则以同一原因失败。加载时另查渠道准入：称呼在渠道之间不重复，也不等于任何所选
-地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即拒绝加载，报错见[校验自己的场景](#校验自己的场景)。
+地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即拒绝加载，报错见[校验自己的场景](scenarios.md#scenarios-校验自己的场景)。
 现成场景都没有钉定手机配置。
 
+<a name="scenarios-修改日期与模拟节奏"></a>
 ## 修改日期与模拟节奏
 
 下面是替换顶层同名字段的局部片段：
@@ -121,18 +124,19 @@ flowchart TB
 会在某一刻提醒人物的有两种：当日目标的 `remind_time` 与个人事务的 `remind_time`（都是场景本地 `HH:MM`，可为空），每次设定只触发一次。
 只有当日目标的提醒能叫醒睡着的人；个人事务的提醒在睡眠中不交付也不消耗，人物醒来的那一刻一并交付。
 睡眠中除了当日目标的提醒，只有睡够等专用唤醒条件才会结束睡眠。
-规则见[当日目标规格](../dev/SPEC-day-plan-goals.md)与[时间与能量规格](../dev/SPEC-time-and-energy.md)第四章。
+规则见[当日目标规格](../dev/SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格)与[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第四章。
 
 个人事务由人物在运行中自己记下（播报、暂停或收尾时写在请求的 `errands` 里），场景不能预置。
 它只表达能由结算确认的事：取得或吃掉某件具体商品若干份（1 至 9）；环境按真实结算确认办成，人物只能取消并写原因，没有截止与过期。
 「取得」不看地点：到店买下的东西留在门店，事务照样办成，要在家里用的东西应远程下单送到家。
 事务的提醒钟点不晚于写下它的时刻（新增或更新被受理时）时，指下一天的这个钟点。每人未完成事务至多 8 条，一次请求至多 4 条变更，
 名称至多 30 字符，备注与取消原因各至多 120 字符；事务跨零点保留并一直显示在待办层，零点计划与修订计划都不删它。
-这些上限是实验假设，见[实验设置](../EXPERIMENT.md#实验假设声明)；规则见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)第二章。
+这些上限是实验假设，见[实验设置](../EXPERIMENT.md#experiment-实验假设声明)；规则见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第二章。
 
+<a name="scenarios-修改人物身体与账户"></a>
 ## 修改人物、身体与账户
 
-人物字段及联系人详见[人物画像](personas.md)。增加人物时，为它分配唯一正整数 `agent_id`，
+人物字段及联系人详见[人物画像](personas.md#personas-人物画像)。增加人物时，为它分配唯一正整数 `agent_id`，
 同步修改属于它的任务受理人、邮件收件人、工资和账单引用。
 
 身体初值是顶层 `body` 对象，当前所有人物共享这份初值配置；睡眠需要和时型可以逐人物声明。
@@ -154,10 +158,10 @@ flowchart TB
 但当前运行初始化仍固定为 0，非零设置尚未生效。不要用它构造不同娱乐需要的实验。
 `body` 还可写 `entertainment_relief_preference_floor`：娱乐缓解的下限偏好 f，缺省 0.5，严格在 0 与 1 之间，越界加载拒绝。
 观看与玩游戏的实际缓解乘有效偏好 f + (1 − f) × 口味权重：口味对不上（权重 0）的内容也按 f 缓解，权重 1 的不变；
-候选排序仍按原始口味权重。取值是实验假设（敏感区间 0.3–0.7），见[实验设置](../EXPERIMENT.md#实验假设声明)。
+候选排序仍按原始口味权重。取值是实验假设（敏感区间 0.3–0.7），见[实验设置](../EXPERIMENT.md#experiment-实验假设声明)。
 饥饿与困意由身体和时刻计算，没有可直接设置的“饥饿值”或“疲劳值”。
 起点困意也不另设：系统按人物作息反推起点的睡眠压力（假定自最近一次惯常起床时刻起一直清醒），
-公式与起点落在惯常睡眠时段时的效果见[人物画像](personas.md#在场景中填写人物)。
+公式与起点落在惯常睡眠时段时的效果见[人物画像](personas.md#personas-在场景中填写人物)。
 能量不阻止任何活动，结算最低为 0；低能量只让人更饿、做事更慢。饥饿显示有两档低能量规则：
 能量低于目录紧急阈值（`energy_kcal` 的 `EMERGENCY_ENERGY` 告警规则，正式目录为 400 千卡）时至少「饿得难受」，
 低于代码常量 100 千卡（`APPETITE_STARVING_KCAL`）时为「饿得发慌」；两档都不受时刻与餐时窗口影响。
@@ -176,6 +180,7 @@ flowchart TB
 金额为整数分，`role` 必须满足所引用目录规则的账户角色要求。
 保留模板所需雇主、交通和商家账户；账户删改后，供给、任务和事件里的引用也必须一致。
 
+<a name="scenarios-限制人物可以做什么"></a>
 ## 限制人物可以做什么
 
 地点菜单在 `interaction_menus_by_location_kind` 中填写；键恰好覆盖已选地点的所有 `kind`，
@@ -214,6 +219,7 @@ flowchart LR
 引擎按注册表占用与准入事实（目标在场与实际地点、出行方式、物品状态）整体核验，能量不参与。
 菜单控制动作权限；画像偏好只影响选择和排序。
 
+<a name="scenarios-声明工作安排"></a>
 ## 声明工作安排
 
 每个人物条目必须显式写 `work_schedule`：没有固定班次写 `null`，这个人物就没有任何在岗语义。
@@ -259,9 +265,10 @@ flowchart LR
 班内离岗由行为评估的工作负荷与作息偏离指标报告（`scripts/inspect_run.py <运行目录> workday --scenario <场景文件>`）。
 工作安排不改变任务的开放、开工、提交与迟交判定：班前到岗可以开工，班后可以继续做未到截止的任务。
 
+<a name="scenarios-配置工作任务和消息"></a>
 ## 配置工作任务和消息
 
-任务不写开放时间：开放时刻由关联通知或预约派生，见[工作通知与目标发布](#工作通知与目标发布)。
+任务不写开放时间：开放时刻由关联通知或预约派生，见[工作通知与目标发布](scenarios.md#scenarios-工作通知与目标发布)。
 
 工作条目定义一个人物可以选择完成的合同。最稳妥的做法是复制模板中的 `tasks` 条目，
 保留已有输入和验收材料，先修改分配、通知或预约、截止时间与报酬。
@@ -277,7 +284,7 @@ flowchart LR
 | `required_skill`、`minimum_skill` | 场景人物已声明的技能名称与 0–1 门槛 |
 | `required_effective_seconds` | 正数秒，要求的有效工作量 |
 | `input_path`、`input_sha256` | 相对语料根目录的工作材料路径及其真实 SHA-256 |
-| `oracle_path`、`oracle_sha256` | 验收材料路径及其真实 SHA-256；材料格式见[世界素材](resources.md) |
+| `oracle_path`、`oracle_sha256` | 验收材料路径及其真实 SHA-256；材料格式见[世界素材](resources.md#resources-定义地点门店供给与世界素材) |
 
 不要只添加一个任务标题就期待它能执行。新材料需要满足当前工作提供器和验收器的格式。
 现有技能名可以在对应人物的 `skill_levels` 中调整数值；新建技能名不会自动创造新的工作算法。
@@ -303,8 +310,9 @@ flowchart LR
 场景消息按邮件呈现：到达时人物只看到主题，正文通过阅读取得；人物之间与联系人发来的直接消息则以全文呈现给人物。
 
 场景联系人可以填可空的 `receive_location_id`（地点标识）：直接配送给联系人或当面交给联系人的实物，以它为收货地点；
-为空时联系人不能收实物。联系人的其余字段见[人物画像](personas.md)。
+为空时联系人不能收实物。联系人的其余字段见[人物画像](personas.md#personas-人物画像)。
 
+<a name="scenarios-配置日历和预排事件"></a>
 ## 配置日历和预排事件
 
 `calendar` 必须包含下面这些键：
@@ -347,15 +355,16 @@ flowchart LR
 `source.kind` 必须为 `scenario`。补货 `product_releases` 使用 `release_id`、`supply_id`、`stock`、`due_at`、`source`，
 同样要求 `source.kind` 为 `scenario`；
 `stock` 是设置后的非负整数库存，不是本次增加量。
-两者都引用门店供给 `supply_id`，不是商品 `product_id`；来源结构和商品供给见[世界素材](resources.md)。
+两者都引用门店供给 `supply_id`，不是商品 `product_id`；来源结构和商品供给见[世界素材](resources.md#resources-定义地点门店供给与世界素材)。
 
+<a name="scenarios-校验自己的场景"></a>
 ## 校验自己的场景
 
-先按[入门流程](README.md#创建自己的第一个场景)调用 `load_scenario` 做离线检查，
+先按[入门流程](README.md#readme-创建自己的第一个场景)调用 `load_scenario` 做离线检查，
 再用 `worldmock validate` 核对依赖、语料与人物卡片覆盖率。完整校验会调用模型。
 `validate` 还逐条打印运行输入警告 `Input warning <警告码> (agent <编号>): <说明>`，同一组警告列在结果的 `input_warnings` 中，
 新建运行时冻结进运行清单。警告不让校验或新建运行失败（覆盖率低于 80% 时 `validate` 照旧失败），
-警告码见[接口合同](../CONTRACTS.md#运行输入警告)。
+警告码见[接口合同](../CONTRACTS.md#contracts-运行输入警告)。
 
 | 错误或现象 | 处理方法 |
 | --- | --- |
@@ -363,8 +372,8 @@ flowchart LR
 | `Scenario corpus manifest identity is invalid` | 核对 `corpus_root` 与清单真实哈希；不要只改哈希掩盖素材损坏 |
 | `work task is outside the scenario interval` | 同步调整任务通知、预约和截止时间，或移除窗口外任务和有关消息 |
 | `interaction menu location kinds must exactly match declared location kinds` | 根据已选地点的实际 `kind` 补齐或删除菜单键 |
-| `work_schedule` 被拒（缺字段、工作地点不是所选地点、班次或休息时段非法、时间窗内的日期与日历不一致；地点与日历两类以 `Work schedules are not admissible: …` 列出） | 每个人物都显式写 `work_schedule`，没有固定班次写 `null`；按报错里的人物、日期与字段改正，见[声明工作安排](#声明工作安排) |
-| `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#编写地点与营业时间) |
+| `work_schedule` 被拒（缺字段、工作地点不是所选地点、班次或休息时段非法、时间窗内的日期与日历不一致；地点与日历两类以 `Work schedules are not admissible: …` 列出） | 每个人物都显式写 `work_schedule`，没有固定班次写 `null`；按报错里的人物、日期与字段改正，见[声明工作安排](scenarios.md#scenarios-声明工作安排) |
+| `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#resources-编写地点与营业时间) |
 | `Selected locations share display names` | 同名地点在地图中写互不相同的 `branch_label` |
 | `Agent <编号> would see non-unique object labels` | 同一人物会同时看到两个相同的名称，例如两项工作同名、两位联系人同称谓；改掉其中一个 |
 | `Purchase channels are not admissible: …`，其后逐条列出 `name '<称呼>' is shared by channels <App 标识> and <App 标识>`、`channel <App 标识> name '<称呼>' equals location <地点标识>` 或 `channel <App 标识> has an empty name` | App 称呼在渠道之间去掉空白、不分大小写后重复，与所选地点的显示名相同，或为空；改手机配置 `app_display_names` 里的称呼并更新它在语料清单和场景里的 SHA-256，或改地点显示名 |
@@ -375,14 +384,15 @@ flowchart LR
 | 警告 `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO` | 卡片口味题材与内容 `genre` 按字面精确匹配，平台名不是题材；改画像正文的口味写法，或给内容补同一套题材词；没写 `background_story` 的人物没有口味权重，也报后者 |
 | 警告 `CONTENT_EMPTY_WITH_MEDIA_TASTES` | 场景没有内容，卡片却有口味题材，或媒介、习惯里有看、刷、听；补 `contents`，或确认人物本就没有可看的内容 |
 | 警告 `GAMES_WITHOUT_TASTE_WEIGHTS` | 场景有游戏，人物却没有口味权重（没写 `background_story`）；游戏缓解按下限偏好计 |
-| 警告 `COVERAGE_BELOW_THRESHOLD`、`PERSONA_AGREEMENT_LOW` | 卡片的世界覆盖率低于 80%，或画像编译留下了警告（三次一致性偏低，或下班、到家锚点因先后冲突降级为 null；原文在 `details.compiler_warning`）；见[人物画像](personas.md#预览与校验) |
+| 警告 `COVERAGE_BELOW_THRESHOLD`、`PERSONA_AGREEMENT_LOW` | 卡片的世界覆盖率低于 80%，或画像编译留下了警告（三次一致性偏低，或下班、到家锚点因先后冲突降级为 null；原文在 `details.compiler_warning`）；见[人物画像](personas.md#personas-预览与校验) |
 | 警告 `CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT` | 场景显式写的作息字段覆盖了卡片抽取值，有意为之即可；冲突时保留卡片值，让场景窗口与卡片其余时刻按起床、出门、午餐、晚餐、就寝排序，`leave_work_window`、`arrive_home_window` 另须满足下班不早于出门、到家不早于下班（没有下班时不早于出门）且二者不晚于就寝；卡片在新槽为 null 时冲突就保留 null；卡片抽取的下班、到家时刻也参与核对，场景就寝窗口早于它们时把下班、到家窗口也写进场景 |
-| 警告 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` | 配送门店到声明目的地没有可达驾车路线，或地点显示名带坐标、标识形态；见[世界素材](resources.md#验证修改) |
+| 警告 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` | 配送门店到声明目的地没有可达驾车路线，或地点显示名带坐标、标识形态；见[世界素材](resources.md#resources-验证修改) |
 | 修改配置后不能恢复旧运行 | 用新目录新建运行；恢复不是应用新配置的入口 |
 
 字段的最终边界见[场景加载器](../../src/worldmock/life/scenario.py)、
-[交互菜单合同](../CONTRACTS.md#交互菜单声明与有效菜单)和[运行配置](runtime.md)。
+[交互菜单合同](../CONTRACTS.md#contracts-交互菜单声明与有效菜单)和[运行配置](runtime.md#runtime-运行配置)。
 
+<a name="scenarios-工作通知与目标发布"></a>
 ## 工作通知与目标发布
 
 输入每项工作必填appointment=null（普通）或{starts_at,reason}（真实预约），删除available_at/availability_kind/appointment_reason；

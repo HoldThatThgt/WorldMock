@@ -1,12 +1,12 @@
-"""@brief 曝光轮转：按每个对象的「上次呈现时刻」给分区内最久未呈现的对象留固定名额（docs/dev/SPEC-life-runtime.md
-「曝光轮转」，docs/dev/SPEC-dayrun-fidelity.md 5.1）。
+"""@brief 曝光轮转：按每个对象的「上次呈现时刻」给分区内最久未呈现的对象留固定名额（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则
+「曝光轮转」，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。
 
 本模块是**纯函数模块**：不写世界状态、不做 IO、不调模型。它同时是「呈现顺序与名额」
 的唯一实现处，只读输入、只回结果——`last_presented_at` 的落库由引擎侧承担
-（`docs/CONTRACTS.md`「派生量字段」的 `presentation_state`），因此这里绝不出现
+（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「派生量字段」的 `presentation_state`），因此这里绝不出现
 任何状态写入，也不产生下架事件、不改目录、不改对象状态。
 
-三条判据边界（`docs/CONTRACTS.md`「候选与呈现合同」与规格同章「曝光轮转」「禁止永久退役」）：
+三条判据边界（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「候选与呈现合同」与规格同章「曝光轮转」「禁止永久退役」）：
 
 - **判据是每个对象各自的「上次呈现时刻」**，不是互动次数、不是任何偏好估计量，也不是人物级的共享偏移量或
   分区游标。合同明文禁止把 `exposure_count` 一类计数当作「受欢迎程度」参与轮转，所以池成员的行里**根本没有**
@@ -39,15 +39,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-#: 换新名额比例的契约缺省值（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」）。
+#: 换新名额比例的契约缺省值（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」）。
 DEFAULT_ROTATION_QUOTA_RATIO = 0.15
-#: 「本次不呈现」的原因码（docs/CONTRACTS.md「候选与呈现合同」的「排除原因码」闭集）。
+#: 「本次不呈现」的原因码（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「排除原因码」闭集）。
 ROTATION_DEFERRED = "ROTATION_DEFERRED"
 #: 同一子类在呈现窗口内的条数上限（反塌缩去重的可断言形式）。
 ROTATION_SUBTYPE_CAP_IN_WINDOW = 3
 #: 标签 Jaccard 去重的相似度阈值：达到即视为同一题材，超出子类上限即顺延。
 SUBTYPE_JACCARD_THRESHOLD = 0.6
-#: 该分区实测每天决策点数的中位数（docs/.../ROTATION-REFERENCES.md 给出 34 个 run 中位 71、范围 9–112.5）。
+#: 每日决策点数的缺省统计入参；上界口径见 docs/dev/SPEC-life-realism.md#spec-life-realism-呈现轮转 。
 #: 它只作上界函数的缺省入参，实测值应逐分区传入，不得当作真值硬编码判断。
 MEASURED_DAILY_DECISION_POINTS = 75
 

@@ -37,19 +37,21 @@ CHAPTERS: tuple[str, ...] = (
     "04-simulation-engine", "05-recording-engine", "06-delivery", "07-evaluation",
     "08-configuration", "09-io-formats",
 )
-#: 附录 A：从接口合同逐字摘录的节（按此顺序装配；标题须与合同里的标题逐字相同）。
+#: 附录 A：从接口合同逐字摘录的节（按此顺序装配；选择键是合同中显式标识）。
 APPENDIX_STEM = "10-contract-excerpts"
 APPENDIX_TITLE = "接口合同摘录：人物工具、模型请求与命令行"
 APPENDIX_SECTIONS: tuple[str, ...] = (
-    "人物工具与管理接口", "当日目标请求", "请求字段与结算检查", "请求模型的闭集与字面边界",
-    "动作状态与动作结果", "社交拒绝错误码", "七层字段", "七层 Schema", "请求组成", "工具返回通道",
-    "回合预算", "生成参数", "模型身份", "思考回传", "CLI 命令接口",
+    "contracts-person-tools", "contracts-day-goal-request", "contracts-request-settlement", "contracts-closed-request-models",
+    "contracts-action-results", "contracts-social-errors", "contracts-seven-layers", "contracts-seven-layer-schema",
+    "contracts-model-request", "contracts-tool-result-channel", "contracts-turn-budget", "contracts-generation-parameters",
+    "contracts-model-identity", "contracts-reasoning-return", "contracts-cli",
 )
 TITLE_PREFIX = "WorldMock 产品设计说明书 — "
 DOC_TITLE = "WorldMock 产品设计说明书（汇编版）"
 MERMAID_SRC = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
 CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 
+_ANCHOR_RE = re.compile(r'^<a name="([a-z][\w-]*)"></a>\s*$')
 _HEADING_RE = re.compile(r"^(#{1,5}) (.+?)\s*$")
 _TABLE_SEP_RE = re.compile(r"^\s*\|[\s:|-]+\|?\s*$")
 _LIST_RE = re.compile(r"^(\s*)(- |\d+\. )(.*)$")
@@ -72,7 +74,7 @@ class Chapter:
     """@brief 一个装配单元：章号、文件名、标题、显示标签、文件头元信息、版本表最新一行、正文与链接基准。
 
     `link_base` 是源文件相对 docs/design/ 的目录前缀（章节源为空，合同摘录为 `../`）；
-    `source_href` 是本文内找不到的同文件锚点应回退到的源文件路径。
+    `source_href` 是本文内未摘录章节所属合同源文件路径。
     """
 
     number: int
@@ -97,6 +99,7 @@ class Context:
     used_ids: set[str] = field(default_factory=set)
     anchors: dict[tuple[int, str], str] = field(default_factory=dict)
     queued_ids: dict[int, list[str]] = field(default_factory=dict)
+    chapter_ids: dict[int, str] = field(default_factory=dict)
     headings: list[tuple[int, str, str]] = field(default_factory=list)
 
     def enter(self, chapter: Chapter) -> None:
@@ -164,24 +167,28 @@ def latest_revision(lines: list[str]) -> list[str]:
     return rows[-1] if rows else []
 
 
-def extract_sections(text: str, titles: tuple[str, ...]) -> str:
-    """@brief 按标题逐字摘录合同里的节（到下一同级或更高级标题为止，跳过围栏内的伪标题），并把每节顶级标题提升为 h2。
-
-    找不到的标题直接报错：摘录以合同标题为键，合同改名时汇编必须随之修改。
-    """
+def extract_sections(text: str, identifiers: tuple[str, ...]) -> str:
+    """@brief 按显式稳定标识摘录合同正文；标题改名不影响选择，缺失标识立即中止。"""
     lines = text.replace("\r\n", "\n").split("\n")
     mask = fence_mask(lines)
-    heads = [(i, len(m.group(1)), m.group(2)) for i, (line, fenced) in enumerate(zip(lines, mask))
+    heads = [(i, len(m.group(1))) for i, (line, fenced) in enumerate(zip(lines, mask))
              if not fenced and (m := _HEADING_RE.match(line))]
     out: list[str] = []
-    for title in titles:
-        hit = next(((i, level) for i, level, text_ in heads if text_ == title), None)
+    for identifier in identifiers:
+        declarations = [i for i, (line, fenced) in enumerate(zip(lines, mask))
+                        if not fenced and line == f'<a name="{identifier}"></a>']
+        if len(declarations) != 1:
+            raise SystemExit(f"contract section identifier is not unique: {identifier}")
+        declaration = declarations[0]
+        hit = next(((i, level) for i, level in heads if i > declaration), None)
         if hit is None:
-            raise SystemExit(f"contract section not found: {title}")
+            raise SystemExit(f"contract section identifier has no heading: {identifier}")
         start, level = hit
-        end = next((i for i, lv, _ in heads if i > start and lv <= level), len(lines))
+        end = next((i for i, lv in heads if i > start and lv <= level), len(lines))
+        while end > start and (not lines[end - 1].strip() or _ANCHOR_RE.fullmatch(lines[end - 1])):
+            end -= 1
         shift = 2 - level
-        for line, fenced in zip(lines[start:end], mask[start:end]):
+        for line, fenced in zip(lines[declaration:end], mask[declaration:end]):
             match = None if fenced else _HEADING_RE.match(line)
             out.append(f"{'#' * (len(match.group(1)) + shift)} {match.group(2)}" if match else line)
         out.append("")
@@ -198,7 +205,7 @@ def contract_appendix(contracts: str) -> Chapter:
               "本附录把人物能调用的工具、请求字段与结算检查、拒绝码、人物看到的七层输入、请求组成与生成参数、"
               "模型身份以及命令行接口从接口合同里逐字摘录到一处，方便在同一份文件里查阅；"
               "合同其余各节（状态字段、地图与门店供给、社交接口、记录引擎、品类与语料、LabelKit 交付）仍在 "
-              "[接口合同](../CONTRACTS.md) 中。收录的节：" + "、".join(f"「{t}」" for t in APPENDIX_SECTIONS) + "。\n\n")
+              "[接口合同](../CONTRACTS.md) 中。收录节以合同的稳定章节标识选择，正文标题可随设计修订。\n\n")
     body = extract_sections(contracts, APPENDIX_SECTIONS)
     tail = "\n## 版本表\n\n| 版本 | 日期 | 修订内容 |\n| --- | --- | --- |\n| " + " | ".join(version) + " |\n" if version else ""
     chapter = parse_chapter(APPENDIX_STEM, header + body + tail, label="附录 A")
@@ -219,7 +226,7 @@ def split_row(line: str) -> list[str]:
 
 
 def heading_id(ctx: Context, level: int, text: str) -> str:
-    """@brief 标题锚点：章标题为 c{N}，其余为 c{N}-{slug}，重复时按出现顺序加 -1、-2。"""
+    """@brief 标题锚点：章标题为 c{N}，未声明显式标识的生成标题为 c{N}-{slug}，重复时按出现顺序加 -1、-2。"""
     base = f"c{ctx.chapter}" if level == 1 else f"c{ctx.chapter}-{slugify(text)}"
     candidate, suffix = base, 0
     while candidate in ctx.used_ids:
@@ -230,18 +237,17 @@ def heading_id(ctx: Context, level: int, text: str) -> str:
 
 
 def prescan_anchors(chapters: list[Chapter]) -> Context:
-    """@brief 预扫描全部章节的标题（跳过围栏）：按出现顺序分配文内锚点，并建立（章号，GitHub 锚点）→ 锚点的映射。
-
-    重复标题按出现顺序得到 -1、-2 后缀；映射只记首次出现（与 GitHub 的链接习惯一致），
-    正文转换按队列顺序取用同一批锚点，两遍扫描对同一源必然一致。
-    """
+    """@brief 预扫描显式章节标识与汇编生成标题，正文和目录共用同一标识队列。"""
     ctx = Context()
     for chapter in chapters:
         ctx.enter(chapter)
         queue = ctx.queued_ids.setdefault(chapter.number, [])
         lines = chapter.text.split("\n")
-        seen_h1 = False
+        seen_h1, pending = False, None
         for line, fenced in zip(lines, fence_mask(lines)):
+            if not fenced and (declaration := _ANCHOR_RE.fullmatch(line)):
+                pending = declaration.group(1)
+                continue
             match = None if fenced else _HEADING_RE.match(line)
             if not match:
                 continue
@@ -249,25 +255,27 @@ def prescan_anchors(chapters: list[Chapter]) -> Context:
             if level == 1 and seen_h1:
                 level = 2
             seen_h1 = seen_h1 or level == 1
-            hid = heading_id(ctx, level, text)
+            hid = pending or heading_id(ctx, level, text)
+            if pending:
+                if pending in ctx.used_ids:
+                    raise SystemExit(f"duplicate section identifier: {pending}")
+                ctx.used_ids.add(pending)
+                ctx.anchors[(chapter.number, pending)] = hid
+            pending = None
             queue.append(hid)
-            ctx.anchors.setdefault((chapter.number, slugify(text)), hid)
+            ctx.chapter_ids.setdefault(chapter.number, hid)
     return ctx
 
 
 def lookup_anchor(ctx: Context, number: int, anchor: str) -> str | None:
-    """@brief 用 GitHub 写法的锚点（已是 slug）找章内标题的文内锚点；找不到返回 None。"""
-    for key in (anchor, anchor.lower(), slugify(anchor), slugify(anchor.replace("-", " "))):
-        target = ctx.anchors.get((number, key))
-        if target:
-            return target
-    return None
+    """@brief 显式标识直接定位当前章节，不通过标题推测别名。"""
+    return ctx.anchors.get((number, anchor))
 
 
 def map_href(href: str, ctx: Context) -> str:
     """@brief 链接改写：本章与章节间的标题链接改为文内锚点；其余相对链接按链接基准改写；外部网址原样保留。
 
-    同文件锚点在本文内找不到时回退到源文件（合同摘录里指向未收录节的链接）；
+    未摘录的合同章节仍链接到其权威源文件；
     `design/0N-*.md` 形状的链接（合同指向设计章节）同样映射为文内锚点。
     """
     if href.startswith("#"):
@@ -280,7 +288,9 @@ def map_href(href: str, ctx: Context) -> str:
         return ctx.link_base + href
     number, anchor = int(match.group(1)), match.group(2)
     target = lookup_anchor(ctx, number, anchor) if anchor else None
-    return f"#{target}" if target else f"#c{number}"
+    if anchor and target is None:
+        raise SystemExit(f"section identifier does not exist: {href}")
+    return f"#{target}" if anchor else f"#{ctx.chapter_ids[number]}"
 
 
 def inline(text: str, ctx: Context) -> str:
@@ -365,6 +375,8 @@ def take_list(lines: list[str], i: int, ctx: Context) -> tuple[str, int]:
 def is_structural(line: str, lines: list[str], i: int) -> bool:
     """@brief 判断一行是否开启新的块（标题、围栏、表格、引用、列表、分隔线或空行）。"""
     stripped = line.strip()
+    if _ANCHOR_RE.fullmatch(line):
+        return True
     if not stripped or stripped.startswith(("#", "```", ">")) or re.match(r"^---+$", stripped):
         return True
     if stripped.startswith("|") and i + 1 < len(lines) and _TABLE_SEP_RE.match(lines[i + 1]):
@@ -413,7 +425,7 @@ def convert(text: str, ctx: Context) -> str:
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        if not stripped:
+        if not stripped or _ANCHOR_RE.fullmatch(line):
             i += 1
         elif stripped.startswith("```"):
             html, i = take_fence(lines, i)
@@ -451,7 +463,7 @@ def load_chapters(design_dir: Path = DESIGN_DIR, contracts_path: Path = CONTRACT
 def build_cover(chapters: list[Chapter], ctx: Context) -> str:
     """@brief 封面、章节一览与修订历史：全部取自章节文件头与版本表，不含时间戳。"""
     overview = "".join(
-        f"<tr><td>{esc(c.label)}</td><td><a href=\"#c{c.number}\">{esc(c.title)}</a></td>"
+        f"<tr><td>{esc(c.label)}</td><td><a href=\"#{ctx.chapter_ids[c.number]}\">{esc(c.title)}</a></td>"
         f"<td>{inline(c.meta.get('版本', '—'), ctx)}</td><td>{inline(c.meta.get('日期', '—'), ctx)}</td>"
         f"<td>{inline(c.meta.get('状态', '—').split('；')[0], ctx)}</td></tr>" for c in chapters)
     revisions = "".join(

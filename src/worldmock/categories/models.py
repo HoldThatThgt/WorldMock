@@ -1,6 +1,7 @@
 """@brief 品类契约的原始文档模型与冻结解析视图。"""
 
 from __future__ import annotations
+from worldmock.categories.common import CategoryError
 
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -154,7 +155,6 @@ class CategoryContract:
         :param category_id: 待查询的品类身份。
         :returns: 对应只读解析节点。
         """
-        from worldmock.categories.common import CategoryError
 
         category = self.categories.get(category_id)
         if category is None:

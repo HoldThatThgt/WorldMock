@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-reconciliation/industry-references.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 一日行为设计的业界参考详表
 
 这份细节文档只支持主报告的机制判断，不以论文或产品文档替代 WorldMock 的领域合同。

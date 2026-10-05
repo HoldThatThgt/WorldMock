@@ -1,14 +1,15 @@
-"""真实场景观察的工具层与私有动作绑定合同（docs/dev/SPEC-persona-prompt.md「工具层」）。"""
+"""真实场景观察的工具层与私有动作绑定合同（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
 
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
 from tests.life.conftest import target_actions, tool_targets
 from worldmock.life import projection
-from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
+from worldmock.life.vocabulary import LIFE_VERBS, WAYS
 from worldmock.life.tool_layer import BINDING_KINDS
 
 #: 发给人物模型的环境侧层。
@@ -26,8 +27,8 @@ def test_real_observation_uses_readable_objects_and_private_bindings(engine_fact
     内部身份不进工具层。
     """
     engine = engine_factory(scenario_name)
-    agent_id = engine.scenario.agents[0].agent_id
-    observed = engine._observation_data(engine.state.agents[agent_id])
+    agent_id = engine.context.scenario.agents[0].agent_id
+    observed = engine.observations._observation_data(engine.context.state.agents[agent_id])
     targets = observed["tool_layer"]["targets"]
     bindings = observed["interaction_bindings"]
     assert bindings and targets[:len(bindings)] and all(row["kind"] == "activity" for row in targets[len(bindings):])
@@ -51,13 +52,13 @@ def test_real_observation_uses_readable_objects_and_private_bindings(engine_fact
     for hidden in ("object_id", "session_id", "task_id", "product_id", "supply_id",
                    "price_version", "recent_action_results", "preconditions_met", "canonical_action"):
         assert f'"{hidden}"' not in text
-    for task in engine.scenario.tasks:
+    for task in engine.context.scenario.tasks:
         assert task.task_id not in text
     assert "scene" not in observed and "facts" not in observed and "recent_action_results" not in observed
 
 
 def test_food_energy_label_rounds_half_up_to_ten_kcal() -> None:
-    """@brief 食品每份热量按 5 进位取整到 10 千卡；不足 5 千卡写「几乎不含热量」（docs/EXPERIMENT.md「能量感知标签」）。"""
+    """@brief 食品每份热量按 5 进位取整到 10 千卡；不足 5 千卡写「几乎不含热量」（docs/EXPERIMENT.md#experiment-worldmock-实验设置「能量感知标签」）。"""
     assert projection.food_energy_label(245.0) == "每份约 250 千卡"
     assert projection.food_energy_label(244.9) == "每份约 240 千卡"
     assert projection.food_energy_label(1234.0) == "每份约 1230 千卡"
@@ -76,18 +77,18 @@ def test_route_effort_bands_follow_travel_met(met: float, effort: str) -> None:
 
 def _staged_at_market(engine, energy: float = 1600.0):
     """@brief 把人物放到门店所在地，手边与家里各有持有物，用于读取本轮工具层。"""
-    products = {item.product_id: item for item in engine.scenario.products}
-    food = next(item for item in engine.scenario.supplies
+    products = {item.product_id: item for item in engine.context.scenario.products}
+    food = next(item for item in engine.context.scenario.supplies
                 if item.location_id == "market" and "eat" in products[item.product_id].use_modes)
-    gadget = next(item for item in engine.scenario.supplies
+    gadget = next(item for item in engine.context.scenario.supplies
                   if item.location_id == "market" and "eat" not in products[item.product_id].use_modes)
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[1]
     agent.location_id = "market"
     agent.body.energy_kcal = energy
     agent.inventory = {"market": {food.product_id: 2.0, gadget.product_id: 1.0},
                        "home": {food.product_id: 1.0}}
-    engine.state = staged
+    engine.context.state = staged
     return products, food, gadget
 
 
@@ -95,18 +96,18 @@ def test_products_and_inventory_show_food_energy_and_elsewhere_holdings(engine_f
     """@brief 食品的商品与持有物目标状态带每份热量、非食品不带；持有物写持有份数；他处持有物名称带地点，食用标不可用。"""
     engine = engine_factory()
     products, food, gadget = _staged_at_market(engine)
-    observed = engine._observation_data(engine.state.agents[1])
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     targets = tool_targets(observed)
     offered = [row for row in observed["interaction_bindings"] if row["kind"] == "supply"]
     assert offered
     for row in offered:
-        product = products[engine.rules.supplies[row["object_id"]].product_id]
+        product = products[engine.context.rules.supplies[row["object_id"]].product_id]
         state = targets[row["object"]]["state"]
         if "eat" in product.use_modes:
             assert state == projection.food_energy_label(product.energy_kcal_per_unit)
         else:
             assert state is None
-    places = {item.location_id: item.name for item in engine.scenario.locations}
+    places = {item.location_id: item.name for item in engine.context.scenario.locations}
     label = projection.food_energy_label(products[food.product_id].energy_kcal_per_unit)
     here = targets[f"持有物：{products[food.product_id].name}"]
     elsewhere = targets[f"持有物：{products[food.product_id].name}（{places['home']}）"]
@@ -122,7 +123,7 @@ def test_low_energy_prompt_carries_levels_and_labels_but_no_body_numbers(engine_
     """@brief 低能量时环境层只含饥饿分级，工具层只含可读标签；身体数值只留在不进提示的 body.values。"""
     engine = engine_factory()
     _staged_at_market(engine, energy=60.0)
-    observed = engine._observation_data(engine.state.agents[1])
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     text = json.dumps([observed[key] for key in _LAYERS], ensure_ascii=False)
     assert observed["environment_layer"]["body"]["appetite"] == "饿得发慌"
     assert observed["body"]["values"]["energy_kcal"] == 60.0
@@ -136,12 +137,14 @@ def test_routes_carry_effort_and_only_reachable_routes_are_listed_at_zero_energy
     可用（能量不拦人）。"""
     engine = engine_factory()
     _staged_at_market(engine, energy=0.0)
-    unknown = next(item for item in engine.scenario.routes if item.origin_id == "market")
+    unknown = next(item for item in engine.context.scenario.routes if item.origin_id == "market")
     blocked = unknown.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
                                          "fare_fen": None, "reason": "no_route_record"})
-    engine.scenario = engine.scenario.model_copy(update={"routes": tuple(
-        blocked if item.route_id == unknown.route_id else item for item in engine.scenario.routes)})
-    observed = engine._observation_data(engine.state.agents[1])
+    scenario = engine.context.scenario.model_copy(update={"routes": tuple(
+        blocked if item.route_id == unknown.route_id else item for item in engine.context.scenario.routes)})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     places = [row for row in observed["interaction_bindings"] if row["kind"] == "location"]
     assert places
     trips = [(row, item) for row in places for item in tool_targets(observed)[row["object"]]["actions"]]

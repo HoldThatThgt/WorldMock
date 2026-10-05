@@ -1,6 +1,6 @@
 """WorldMock 人物记忆的已核验事实和主观自述隔离。
 
-主观条目只经 conclude_activity 逐项的记忆与看法写入，宿主按项展平并由系统固定来源（docs/dev/SPEC-time-and-energy.md 第七章）。
+主观条目只经 conclude_activity 逐项的记忆与看法写入，宿主按项展平并由系统固定来源（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章）。
 """
 
 import hashlib
@@ -22,7 +22,7 @@ from custom.agents.life_reflection import REFLECTION_PROMPT, reflection_tool
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.engine import _memory_evidence_data
+from worldmock.life.memory_evidence import _memory_evidence_data
 
 
 _TIME = datetime(2026, 9, 21, 8, tzinfo=timezone.utc)
@@ -158,7 +158,7 @@ def _sha256(path):
 
 @pytest.mark.asyncio
 async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
-    """就寝边界先做主观归纳、再经唯一严格工具 submit_reflection 提交反思（docs/dev/SPEC-errands-workday.md 1.1）：请求只带
+    """就寝边界先做主观归纳、再经唯一严格工具 submit_reflection 提交反思（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：请求只带
     这一个工具并强制调用，洞见固定为主观的 reflection 条目（重要度 0.8、无关键词、来源 reflection），其身份随本步结果报告。"""
     holder = {}
 
@@ -200,7 +200,7 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
 
 @pytest.mark.asyncio
 async def test_zero_recent_memory_limit_returns_no_recent_entries(tmp_path):
-    """recent_memory_limit 为 0 时最近条目为空列表（docs/dev/SPEC-persona-prompt.md 第六章「零条最近记忆失效」回归：
+    """recent_memory_limit 为 0 时最近条目为空列表（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「零条最近记忆失效」回归：
     AS2 存储会把 0 改回 8 条，去掉守卫即失败）；大于 0 时照常返回。"""
     runtime, _ = _runtime(tmp_path, config=MemoryRuntimeConfig(recent_limit=0))
     await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想休息"))

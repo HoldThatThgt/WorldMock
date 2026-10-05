@@ -22,6 +22,22 @@ def test_load_catalog_returns_raw_and_compiled_views(catalog_dir: Path) -> None:
     assert set(catalog.exchange_rules.rules) == {"buy-product", "eat-food"}
 
 
+def test_missing_catalog_preserves_the_single_category_failure(tmp_path, caplog):
+    """公共目录加载缺目录时保留唯一稳定错误与日志，不以同类异常包装原错误。"""
+    missing = tmp_path / "missing-catalog"
+    message = f"{missing.resolve() / 'manifest.json'} does not exist"
+    with pytest.raises(CategoryError) as rejected:
+        load_catalog(missing)
+    error = rejected.value
+    assert error.code == "CATALOG_MANIFEST_MISSING"
+    assert error.message == message
+    assert str(error) == f"CATALOG_MANIFEST_MISSING: {message}"
+    assert error.__cause__ is None and error.__context__ is None
+    errors = [record.getMessage() for record in caplog.records
+              if record.name == "worldmock.categories.common"]
+    assert errors == [f"CATALOG_MANIFEST_MISSING: {message}"]
+
+
 def test_manifest_identity_publication_failure_keeps_previous_bytes(catalog_dir, monkeypatch, caplog):
     """身份刷新发布失败保留旧清单与原异常，临时文件不残留。"""
     from worldmock.footprints import assets

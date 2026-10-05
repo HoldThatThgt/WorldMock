@@ -1,8 +1,8 @@
-"""@brief 画像编译结构合同（卡片结构 3）：PersonaCard、大五与世界层动力学（docs/dev/SPEC-life-realism.md「画像编译」）。
+"""@brief 画像编译结构合同（卡片结构 3）：PersonaCard、大五与世界层动力学（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。
 
 PersonaCard 从 background_story 抽取（三次一致性口径），承载身份、关系、当下
-处境、时间锚点（五个有序锚点与可空的下班、到家锚点，docs/dev/SPEC-errands-workday.md
-4.1）、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 600
+处境、时间锚点（五个有序锚点与可空的下班、到家锚点，docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 6
+00
 汉字的中文文本进入提示。大五仍抽取，但只进入 WorldDynamics（世界层动力学）：
 神经质→情绪脉冲幅度与半衰期、外向性→社交需要增长率与交谈缓解量、开放性→
 内部评分器多样性权重、宜人性→接受邀约与回复消息倾向、尽责性→内部评分器
@@ -26,23 +26,25 @@ from pydantic import (BaseModel, ConfigDict, Field, field_validator,
 SCHEMA_VERSION = 3
 #: 卡片抽取提示版本（换提示词必须换版本号）。
 PROMPT_VERSION = "card-v3"
-#: 卡片渲染汉字上限（docs/dev/SPEC-life-runtime.md「字符预算」，与 life/narration.py 同源常数；不互相 import，
+#: 卡片渲染汉字上限（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「字符预算」，与 life/narration.py 同源常数；不互相
+#: import，
 #: 两处同时钉死同一规格行）。
 PERSONA_CARD_HANZI_BUDGET = 600
 
 BIG_FIVE_DIMENSIONS = ("openness", "conscientiousness", "extraversion",
                        "agreeableness", "neuroticism")
-#: 已删除的旧模板字段（docs/dev/SPEC-life-realism.md「画像编译」）：出现在输入档案即明确报错，不静默兼容。
+#: 已删除的旧模板字段（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：出现在输入档案即明确报错，不静默兼容。
 LEGACY_TEMPLATE_FIELDS = frozenset({
     "occupation", "routine_preference", "consumption_preference", "risk_preference"})
 
-#: 睡眠需要小时数区间（docs/dev/SPEC-life-realism.md「画像编译」，合同常数；与 life/sleep.py 同口径）。
+#: 睡眠需要小时数区间（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」，合同常数；与 life/sleep.py 同口径）。
 SLEEP_NEED_MIN_H = 7.0
 SLEEP_NEED_MAX_H = 9.0
 DEFAULT_SLEEP_NEED_H = 7.5
 #: 时型（自由日睡眠中点）默认 04:00（Roenneberg MCTQ 典型中点，experiment_assumption）。
 DEFAULT_CHRONOTYPE_MIDSLEEP_H = 4.0
-#: 亲密度 0-30 整数刻度（Humanoid Agents closeness 0-30，docs/dev/SPEC-life-runtime.md「社交最小可行版」联系人同刻度）。
+#: 亲密度 0-30 整数刻度（Humanoid Agents closeness 0-30，
+#: docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」联系人同刻度）。
 INTIMACY_MIN = 0
 INTIMACY_MAX = 30
 
@@ -143,7 +145,7 @@ class TimeWindow(_Frozen):
 def settle_work_anchors(
         leave_home: TimeWindow, bedtime: TimeWindow, leave_work: TimeWindow | None,
         arrive_home: TimeWindow | None) -> tuple[TimeWindow | None, TimeWindow | None, tuple[str, ...]]:
-    """@brief 下班与到家锚点按固定顺序核对（docs/dev/SPEC-errands-workday.md 4.1）：不合顺序约束或越过当日午夜的置 null。
+    """@brief 下班与到家锚点按固定顺序核对（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：不合顺序约束或越过当日午夜的置 null。
 
     先核 leave_work（出门起点 ≤ 下班起点 ≤ 就寝起点），再核 arrive_home（仍有效的下班起点，下班为 null 时取出门起点，
     ≤ 到家起点 ≤ 就寝起点）；就寝取已回绕归一的窗口，与午餐、晚餐不设先后。首版不支持跨午夜的下班与到家：先后合格
@@ -223,7 +225,7 @@ class TimeAnchors(_Frozen):
     +24 后越过 30 小时地平线的是同日乱序而非回绕，仍由顺序校验拒绝。
     leave_work、arrive_home 必填无缺省，null 表示没有固定时刻或故事未提及；两者不进回绕归一的名字元组，
     也不进五锚点的全序校验，另由 validate_work_anchor_order 按 settle_work_anchors 的四条顺序约束与当日午夜上界
-    校验（docs/dev/SPEC-errands-workday.md 4.1）。
+    校验（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
     """
 
     wake: TimeWindow
@@ -337,7 +339,7 @@ class BigFiveProfile(_Frozen):
 
 
 class PersonaCard(_Frozen):
-    """@brief 结构化人物卡片（画像编译 v2 核心合同，docs/dev/SPEC-life-realism.md「画像编译」）。"""
+    """@brief 结构化人物卡片（画像编译 v2 核心合同，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。"""
 
     identity: Identity
     relationships: tuple[Relationship, ...] = Field(min_length=1, max_length=MAX_RELATIONSHIPS)
@@ -363,7 +365,7 @@ class PersonaCardStruct(PersonaCard):
     """@brief 人物 profile 中的结构化卡片 persona_card_struct：PersonaCard 去掉当下处境（situation 不进提示）。
 
     新建运行时由编译卡片导出（persona_card_struct），恢复时按本模型校验；其余字段与校验沿用 PersonaCard
-    （docs/dev/SPEC-persona-prompt.md 第一章「人设层」）。
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「人设层」）。
     """
 
     situation: None = Field(default=None, exclude=True)
@@ -375,7 +377,7 @@ def persona_card_struct(card: PersonaCard) -> dict:
 
 
 class WorldDynamics(_Frozen):
-    """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，docs/dev/SPEC-life-realism.md「画像编译」）。
+    """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。
 
     神经质→mood_pulse_amplitude/mood_halflife_minutes；外向性→
     social_need_growth_per_hour/conversation_relief_per_hour；开放性→

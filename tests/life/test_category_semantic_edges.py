@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from worldmock.errors import IntegrityError
-from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
+from worldmock.life.semantics import ScenarioSemantics
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.travel_time import parse_travel_time_profile
 
 ROOT = Path(__file__).resolve().parents[2]

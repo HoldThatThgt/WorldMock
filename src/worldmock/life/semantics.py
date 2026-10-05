@@ -7,8 +7,10 @@
 """
 
 from __future__ import annotations
+from worldmock.corpora.storefront import validate_assortments
+from worldmock.life.storefront_state import validate_price_bounds
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
@@ -17,7 +19,6 @@ from zoneinfo import ZoneInfo
 
 from worldmock.catalog import (
     Catalog,
-    CategoryError,
     ExchangeObject,
     ObjectKind,
     ResourceDefinition,
@@ -28,7 +29,6 @@ from worldmock.catalog import (
     ScenarioScheduleRef,
     ScheduleRefKind,
     SourceEdge,
-    load_catalog,
     validate_scenario_against_catalog,
 )
 from worldmock.categories import (
@@ -46,14 +46,9 @@ from worldmock.categories import (
     evaluate_purchase,
     evaluate_travel_fare,
 )
-from worldmock.catalog.affordances import (
-    AFFORDANCES_FILE,
-    AffordanceView,
-    default_affordances,
-    load_affordances,
-)
+from worldmock.catalog.affordances import AffordanceView, default_affordances
 from worldmock.errors import IntegrityError
-from worldmock.life.map_data import load_map_dataset, select_map
+from worldmock.life.map_data import select_map
 from worldmock.life.map_models import MapDataset
 from worldmock.base_models import CurvePoint, EfficiencyFactor
 from worldmock.life.models import ContractKind
@@ -64,7 +59,7 @@ from worldmock.life.category_contract import (
     optional_defined_rule,
     require_runtime_rule,
 )
-from worldmock.life.motivation import MotivationTransforms, load_motivation_transforms
+from worldmock.life.motivation import MotivationTransforms
 from worldmock.life.scenario import (
     AccountInstanceConfig,
     BodyConfig,
@@ -72,7 +67,6 @@ from worldmock.life.scenario import (
     LifeScenario,
     ProductConfig,
     RuntimeScenario,
-    parse_scenario_document,
     runtime_tasks,
 )
 from worldmock.life.travel_time import TravelTimeProfile, parse_travel_time_profile
@@ -111,7 +105,7 @@ class CandidateConstants:
     """@brief 候选与呈现常量在运行期的只读视图（取值来源是场景声明）。
 
     字段名与场景层同名同义，不在运行期另立口径；五个值都在场景加载时校验，
-    此处只做搬运（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+    此处只做搬运（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节）。
     """
 
     presentation_limit: int
@@ -144,7 +138,9 @@ class ScenarioSemantics:
     #: 可供性注册表派生视图（assemble_semantics 按场景目录加载并挂入；
     #: 下游各层经 semantics 访问，不直接读注册表文件）。
     affordances: AffordanceView = field(default_factory=default_affordances)
-    #: 购买渠道（profile.coverage_apps.PurchaseChannel，docs/dev/SPEC-dayrun-fidelity.md 3.3）：load_runtime_scenario 从
+    #: 购买渠道（profile.coverage_apps.PurchaseChannel，
+    #: docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）
+    #: ：load_runtime_scenario 从
     #: 场景钉定的手机配置派生并经准入后挂入；没有钉定手机配置（或只经 assemble_semantics 组装）时为空。
     purchase_channels: tuple = ()
 
@@ -154,7 +150,7 @@ class ScenarioSemantics:
 
         下游（候选层、轮转、观察投影与下推返回体）只经此处读取这五个值，
         不各自解析场景文档，也不在代码里另写一份缺省值
-        （docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+        （docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「场景常量」一节）。
         """
         scenario = self.scenario
         return CandidateConstants(
@@ -181,12 +177,10 @@ class ScenarioSemantics:
         查表键为场景时区的出发小时：walking 固定 1.0（自由流步行已合理），
         driving 走 driving_HH 分支（HH 为两位小时，00-23 工作日 profile）。
         """
-        hour = datetime.fromtimestamp(
-            departure_second, ZoneInfo(self.document.timezone)).hour
+        hour = datetime.fromtimestamp(departure_second, ZoneInfo(self.document.timezone)).hour
         return self.travel_time_profile.factor(mode, hour)
 
-    def travel_planned_seconds(self, mode: str, base_seconds: int,
-                               departure_second: int) -> int:
+    def travel_planned_seconds(self, mode: str, base_seconds: int, departure_second: int) -> int:
         """@brief 计划时长 = 冻结自由流时长 × factor(出发时刻)，向上取整。
 
         用 Decimal 精确乘法后 ROUND_CEILING，避免浮点误差让可复现的
@@ -222,14 +216,15 @@ class ScenarioSemantics:
         try:
             if isinstance(match.rule, WorkHourlyRule):
                 return evaluate_hourly_pay(
-                    _contract_value(task, match.rule.rate_slot), worked_seconds,
-                    _contract_value(task, match.rule.maximum_duration_slot), match.coefficient)
+                    _contract_value(task, match.rule.rate_slot),
+                    worked_seconds,
+                    _contract_value(task, match.rule.maximum_duration_slot),
+                    match.coefficient,
+                )
             if isinstance(match.rule, WorkPieceRule):
-                return evaluate_piece_pay(
-                    _contract_value(task, match.rule.rate_slot), piece_count, match.coefficient)
+                return evaluate_piece_pay(_contract_value(task, match.rule.rate_slot), piece_count, match.coefficient)
             if isinstance(match.rule, WorkPackageRule):
-                return evaluate_package_pay(
-                    _contract_value(task, match.rule.amount_slot), True, match.coefficient)
+                return evaluate_package_pay(_contract_value(task, match.rule.amount_slot), True, match.coefficient)
         except CategoryError as error:
             raise IntegrityError(f"Contract exchange failed: {error.code}") from error
         raise IntegrityError(f"Contract {task.task_id} resolved to an incompatible exchange rule")
@@ -265,82 +260,31 @@ class ScenarioSemantics:
         return obj
 
 
-def load_runtime_scenario(
-    scenario_path: Path, catalog_dir: Path | None = None,
-) -> tuple[ScenarioSemantics, str]:
-    """@brief 完整加载：文档校验、目录组装、路线费率核验、目录准入与世界准入。
-
-    世界准入（docs/dev/SPEC-dayrun-fidelity.md 8.1）：所选地点的 kind 属于环境层场所类型表，所选地点显示名唯一，
-    每个人物可能同时看到的对象名称唯一；越界或重名在加载时拒绝，不留到运行中途。购买渠道（3.3）从场景钉定的手机配置
-    派生并经准入后挂到 purchase_channels（load_checks.load_purchase_channels）。人物工作安排的跨引用（工作地点是所选地点，
-    场景时间窗内与场景日历一致；docs/dev/SPEC-errands-workday.md 4.3）同样在加载时拒绝（load_checks.check_work_schedules）。
-
-    :param scenario_path: 瘦身场景 JSON 路径。
-    :param catalog_dir: 目录根；缺省取场景兄弟目录 catalog/。
-    :returns: 组装结果与场景文件 SHA-256。
-    :raises IntegrityError: 文档、目录、组装、准入、世界准入、工作安排或渠道准入任一环节失败。
-    """
-    # 世界准入依赖环境层与呈现层，二者都间接导入本模块（经工具层、准入层）：模块级导入会成环，所以在此处导入。
-    from worldmock.life.load_checks import (check_location_kinds, check_visible_labels, check_work_schedules,
-                                            load_purchase_channels)
-
-    document, digest = parse_scenario_document(scenario_path)
-    directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
-    try:
-        catalog = load_catalog(directory)
-        motivation_transforms = load_motivation_transforms(directory / "rules")
-    except CategoryError as error:
-        raise IntegrityError(f"Catalog load failed: {error}") from error
-    affordances = load_affordances(directory / AFFORDANCES_FILE)
-    root = (Path(scenario_path).resolve().parent / document.corpus_root).resolve()
-    dataset = load_map_dataset(root, document.map_dataset)
-    semantics = assemble_semantics(document, catalog, dataset, motivation_transforms, affordances)
-    check_location_kinds(semantics.scenario)
-    check_visible_labels(semantics.scenario, root)
-    check_work_schedules(semantics.scenario)
-    _check_work_material(semantics.scenario, root)
-    return replace(semantics, purchase_channels=load_purchase_channels(semantics.scenario, root)), digest
-
-
-
-def _check_work_material(scenario: RuntimeScenario, root: Path) -> None:
-    """@brief 首次世界保存前核验每个任务的输入、验收材料和参考身份。"""
-    from worldmock.life.work import load_work_input, load_work_oracle
-
-    for task in scenario.tasks:
-        try:
-            load_work_input(root, task)
-            load_work_oracle(root, task)
-        except IntegrityError:
-            import logging
-
-            logging.error("Work material validation failed for task %s", task.task_id)
-            raise
-
 def resolve_catalog_dir(scenario_path: Path) -> Path:
     """@brief 场景文件的默认目录位置：scenarios/ 的兄弟目录 catalog/。"""
     return Path(scenario_path).resolve().parent.parent / "catalog"
 
 
-def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: MapDataset,
-                       motivation_transforms: MotivationTransforms | None = None,
-                       affordances: AffordanceView | None = None,
-                       ) -> ScenarioSemantics:
+def assemble_semantics(
+    document: LifeScenario,
+    catalog: Catalog,
+    map_dataset: MapDataset,
+    motivation_transforms: MotivationTransforms | None = None,
+    affordances: AffordanceView | None = None,
+) -> ScenarioSemantics:
     """@brief 组装运行时场景并执行目录准入（七条规则 fail-closed）。
 
     可供性注册表视图缺省取仓库默认注册表（引擎闭集的派生源）；
     load_runtime_scenario 按场景目录加载后显式传入，使目录表键集
     （MET/缓解）对照该场景钉定版本的注册表派生集校验。
     """
-    from worldmock.corpora.storefront import validate_assortments
 
     validate_assortments(map_dataset, catalog)
     view = default_affordances() if affordances is None else affordances
     pinned = (document.catalog_version.major, document.catalog_version.minor)
     loaded = (catalog.version_major, catalog.version_minor)
     if pinned != loaded:
-        raise IntegrityError(
-            f"Scenario pins catalog {pinned[0]}.{pinned[1]} but loaded {loaded[0]}.{loaded[1]}")
+        raise IntegrityError(f"Scenario pins catalog {pinned[0]}.{pinned[1]} but loaded {loaded[0]}.{loaded[1]}")
     body = _assemble_body(document, catalog, view)
     _check_lifestyle_declarations(document, body, view)
     items = _assemble_items(document, catalog)
@@ -351,7 +295,10 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: Ma
     _check_scheduled_prices(scenario)
     admit_reachable_categories(scenario, catalog)
     semantics = ScenarioSemantics(
-        document=document, catalog=catalog, scenario=scenario, body=body,
+        document=document,
+        catalog=catalog,
+        scenario=scenario,
+        body=body,
         refs=_catalog_refs(document, catalog, scenario),
         accounts=_ledger_accounts(document, services),
         travel_time_profile=parse_travel_time_profile(catalog.travel_time_rules_bytes),
@@ -367,15 +314,14 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: Ma
     return semantics
 
 
-
 def _check_scheduled_prices(scenario: RuntimeScenario) -> None:
     """@brief 正式构建时拒绝超出商品有来源价格边界的调价事件。"""
-    from worldmock.life.storefront_state import validate_price_bounds
 
     supplies = {item.supply_id: item for item in scenario.supplies}
     products = {item.product_id: item for item in scenario.products}
     for change in scenario.price_changes:
         validate_price_bounds(change.amount_fen, products[supplies[change.supply_id].product_id])
+
 
 def _check_contract_bindings(semantics: ScenarioSemantics) -> None:
     """@brief 在创建运行产物前确认每条合同规则的命名槽能由任务实例提供。"""
@@ -393,8 +339,7 @@ def _check_contract_bindings(semantics: ScenarioSemantics) -> None:
         elif isinstance(rule, WorkPackageRule):
             _contract_value(task, rule.amount_slot)
         else:
-            raise IntegrityError(
-                f"Contract {task.task_id} resolved to an incompatible exchange rule")
+            raise IntegrityError(f"Contract {task.task_id} resolved to an incompatible exchange rule")
 
 
 def _contract_value(task, slot: str) -> int:
@@ -412,11 +357,10 @@ def _contract_value(task, slot: str) -> int:
     return values[slot]
 
 
-def _assemble_body(document: LifeScenario, catalog: Catalog,
-                   view: AffordanceView) -> BodyConfig:
+def _assemble_body(document: LifeScenario, catalog: Catalog, view: AffordanceView) -> BodyConfig:
     """@brief 从三个 level 资源与合同效率参数组装身体运行配置（封闭键集
     对照可供性注册表派生集校验）；娱乐缓解的下限偏好取场景 body 的声明（缺省 0.5），
-    目录不含该常量（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）。"""
+    目录不含该常量（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 D3）。"""
     energy = _resource(catalog, ENERGY_RESOURCE)
     sleep = _resource(catalog, SLEEP_RESOURCE)
     entertainment = _resource(catalog, ENTERTAINMENT_RESOURCE)
@@ -428,29 +372,31 @@ def _assemble_body(document: LifeScenario, catalog: Catalog,
     maximum = energy.bounds.max if energy.bounds else None
     if maximum is None:
         raise IntegrityError(f"catalog resource {ENERGY_RESOURCE} must declare an upper bound")
-    return BodyConfig.model_validate({
-        "mass_kg": instance.mass_kg,
-        "initial_energy_kcal": instance.initial_energy_kcal,
-        "maximum_energy_kcal": maximum,
-        "initial_sleep_debt_hours": instance.initial_sleep_debt_hours,
-        "basal_kcal_per_hour": _positive(energy_rules.basal_kcal_per_hour, "basal_kcal_per_hour"),
-        "awake_sleep_debt_per_hour": _positive(sleep_rules.awake_sleep_debt_per_hour,
-                                               "awake_sleep_debt_per_hour"),
-        "sleep_recovery_per_hour": _positive(sleep_rules.sleep_recovery_per_hour,
-                                             "sleep_recovery_per_hour"),
-        "entertainment_need_per_awake_hour": _unit_value(
-            fun_rules.entertainment_need_per_awake_hour, "entertainment_need_per_awake_hour"),
-        "hunger_threshold_kcal": thresholds["hunger_threshold_kcal"],
-        "emergency_threshold_kcal": thresholds["emergency_threshold_kcal"],
-        "work_efficiency_factors": _contract_work_efficiency_factors(catalog),
-        "food_efficiency_curve": _curve(energy_rules.food_efficiency_curve, "food_efficiency_curve"),
-        "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET", view),
-        "entertainment_relief_per_hour": _closed_map(
-            fun_rules.entertainment_relief_per_hour, view.relief_keys, "entertainment relief"),
-        "entertainment_relief_preference_floor": instance.entertainment_relief_preference_floor,
-        "work_notes_multiplier": _contract_efficiency(catalog, "work_notes_multiplier"),
-        "source_kind": f"catalog:{catalog.version_major}.{catalog.version_minor}",
-    })
+    return BodyConfig.model_validate(
+        {
+            "mass_kg": instance.mass_kg,
+            "initial_energy_kcal": instance.initial_energy_kcal,
+            "maximum_energy_kcal": maximum,
+            "initial_sleep_debt_hours": instance.initial_sleep_debt_hours,
+            "basal_kcal_per_hour": _positive(energy_rules.basal_kcal_per_hour, "basal_kcal_per_hour"),
+            "awake_sleep_debt_per_hour": _positive(sleep_rules.awake_sleep_debt_per_hour, "awake_sleep_debt_per_hour"),
+            "sleep_recovery_per_hour": _positive(sleep_rules.sleep_recovery_per_hour, "sleep_recovery_per_hour"),
+            "entertainment_need_per_awake_hour": _unit_value(
+                fun_rules.entertainment_need_per_awake_hour, "entertainment_need_per_awake_hour"
+            ),
+            "hunger_threshold_kcal": thresholds["hunger_threshold_kcal"],
+            "emergency_threshold_kcal": thresholds["emergency_threshold_kcal"],
+            "work_efficiency_factors": _contract_work_efficiency_factors(catalog),
+            "food_efficiency_curve": _curve(energy_rules.food_efficiency_curve, "food_efficiency_curve"),
+            "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET", view),
+            "entertainment_relief_per_hour": _closed_map(
+                fun_rules.entertainment_relief_per_hour, view.relief_keys, "entertainment relief"
+            ),
+            "entertainment_relief_preference_floor": instance.entertainment_relief_preference_floor,
+            "work_notes_multiplier": _contract_efficiency(catalog, "work_notes_multiplier"),
+            "source_kind": f"catalog:{catalog.version_major}.{catalog.version_minor}",
+        }
+    )
 
 
 def _assemble_items(document: LifeScenario, catalog: Catalog) -> RuntimeItems:
@@ -463,13 +409,11 @@ def _assemble_items(document: LifeScenario, catalog: Catalog) -> RuntimeItems:
         if obj.object_kind != ObjectKind.PRODUCT:
             raise IntegrityError(f"catalog object {obj.object_id} is not a product")
         payload = _inventory_values(obj, _consume_edge(obj))
-        payload.update({name: obj.attributes[name] for name in
-                        ("purchase_price_fen_min", "purchase_price_fen_max")})
+        payload.update({name: obj.attributes[name] for name in ("purchase_price_fen_min", "purchase_price_fen_max")})
         products.append(ProductConfig.model_validate(payload))
     product_ids = {item.product_id for item in products}
     inventory_ids = _inventory_object_ids(document) - product_ids
-    inventory = tuple(_inventory_payload(_product_object(catalog, object_id))
-                      for object_id in sorted(inventory_ids))
+    inventory = tuple(_inventory_payload(_product_object(catalog, object_id)) for object_id in sorted(inventory_ids))
     return RuntimeItems(tuple(products), inventory)
 
 
@@ -481,11 +425,14 @@ def _inventory_payload(obj: ExchangeObject) -> InventoryItemConfig:
 def _inventory_values(obj: ExchangeObject, consume: SourceEdge | None) -> dict:
     """@brief 形成商品与库存对象共享的已解析静态语义。"""
     payload = {
-        "product_id": obj.object_id, "name": obj.name, "category_id": obj.category_id,
+        "product_id": obj.object_id,
+        "name": obj.name,
+        "category_id": obj.category_id,
         "inventory_unit": obj.attributes.get("inventory_unit"),
         "energy_kcal_per_unit": consume.amount if consume is not None else 0,
         "use_duration_seconds": _positive(obj.use_duration_seconds, "use_duration_seconds"),
-        "use_modes": obj.use_modes, "consumable": obj.consumable,
+        "use_modes": obj.use_modes,
+        "consumable": obj.consumable,
         "effect": obj.effect,
         "required_location_id": obj.required_location_id,
         "source_kind": f"catalog:{obj.object_id}:v{obj.version}",
@@ -497,8 +444,7 @@ def _inventory_values(obj: ExchangeObject, consume: SourceEdge | None) -> dict:
 
 def _inventory_object_ids(document: LifeScenario) -> set[str]:
     """@brief 汇总初始持有与所有显式配方输出对象身份。"""
-    held = {object_id for agent in document.agents for rows in agent.initial_inventory.values()
-            for object_id in rows}
+    held = {object_id for agent in document.agents for rows in agent.initial_inventory.values() for object_id in rows}
     return held | set(document.recipe_output_bindings.values())
 
 
@@ -511,8 +457,11 @@ def _product_object(catalog: Catalog, object_id: str) -> ExchangeObject:
 
 
 def _build_runtime(
-    document: LifeScenario, body: BodyConfig, items: RuntimeItems,
-    accounts: tuple[str, str], dataset: MapDataset,
+    document: LifeScenario,
+    body: BodyConfig,
+    items: RuntimeItems,
+    accounts: tuple[str, str],
+    dataset: MapDataset,
 ) -> RuntimeScenario:
     """@brief 用组装好的语义构造运行时场景并触发其全部跨引用校验。"""
     try:
@@ -522,83 +471,95 @@ def _build_runtime(
 
 
 def _runtime_payload(
-    document: LifeScenario, body: BodyConfig, items: RuntimeItems,
-    accounts: tuple[str, str], dataset: MapDataset,
+    document: LifeScenario,
+    body: BodyConfig,
+    items: RuntimeItems,
+    accounts: tuple[str, str],
+    dataset: MapDataset,
 ) -> RuntimeScenario:
     """@brief 构造运行时场景的载荷字典并执行模型校验；人物只搬运场景写出的字段，model_fields_set 仍是场景声明。"""
     locations, routes, supplies = select_map(dataset, document)
-    return RuntimeScenario.model_validate({
-        "schema_version": 5,
-        "map_dataset": dataset,
-        "scenario_id": document.scenario_id,
-        "timezone": document.timezone,
-        "start_at": document.start_at,
-        "end_at": document.end_at,
-        "random_seed": document.random_seed,
-        "activity_feedback_seconds": document.activity_feedback_seconds,
-        "max_same_moment_decisions": document.max_same_moment_decisions,
-        "candidate_presentation_limit": document.candidate_presentation_limit,
-        "candidate_pool_limit": document.candidate_pool_limit,
-        "rotation_quota_ratio": document.rotation_quota_ratio,
-        "rotation_stale_seconds": document.rotation_stale_seconds,
-        "retrieval_index_threshold": document.retrieval_index_threshold,
-        "corpus_root": document.corpus_root,
-        "corpus_manifest_sha256": document.corpus_manifest_sha256,
-        "phone_simulation_config": document.phone_simulation_config,
-        "phone_simulation_config_sha256": document.phone_simulation_config_sha256,
-        "body": body.model_dump(mode="python"),
-        "agents": [item.model_dump(mode="python", exclude_unset=True) for item in document.agents],
-        "locations": locations,
-        "interaction_menus_by_location_kind": {
-            kind: menu.model_dump(mode="python")
-            for kind, menu in document.interaction_menus_by_location_kind.items()
-        },
-        "routes": routes,
-        "supplies": supplies,
-        "products": [item.model_dump(mode="python") for item in items.products],
-        "inventory_items": [item.model_dump(mode="python") for item in items.inventory],
-        "tasks": runtime_tasks(document.tasks, document.messages),
-        "messages": [item.model_dump(mode="python") for item in document.messages],
-        "contents": [item.model_dump(mode="python") for item in document.contents],
-        "games": [item.model_dump(mode="python") for item in document.games],
-        "employer_account_id": accounts[0],
-        "transport_account_id": accounts[1],
-        "calendar": document.calendar.model_dump(mode="python"),
-        "bills": [item.model_dump(mode="python") for item in document.bills],
-        "payrolls": [item.model_dump(mode="python") for item in document.payrolls],
-        "price_changes": [item.model_dump(mode="python") for item in document.price_changes],
-        "product_releases": [item.model_dump(mode="python") for item in document.product_releases],
-        "recipe_output_bindings": dict(document.recipe_output_bindings),
-    })
+    return RuntimeScenario.model_validate(
+        {
+            "schema_version": 5, "map_dataset": dataset, "scenario_id": document.scenario_id,
+            "timezone": document.timezone, "start_at": document.start_at, "end_at": document.end_at,
+            "random_seed": document.random_seed,
+            "activity_feedback_seconds": document.activity_feedback_seconds,
+            "max_same_moment_decisions": document.max_same_moment_decisions,
+            "candidate_presentation_limit": document.candidate_presentation_limit,
+            "candidate_pool_limit": document.candidate_pool_limit,
+            "rotation_quota_ratio": document.rotation_quota_ratio,
+            "rotation_stale_seconds": document.rotation_stale_seconds,
+            "retrieval_index_threshold": document.retrieval_index_threshold,
+            "corpus_root": document.corpus_root,
+            "corpus_manifest_sha256": document.corpus_manifest_sha256,
+            "phone_simulation_config": document.phone_simulation_config,
+            "phone_simulation_config_sha256": document.phone_simulation_config_sha256,
+            "body": body.model_dump(mode="python"),
+            "agents": [item.model_dump(mode="python", exclude_unset=True) for item in document.agents],
+            "locations": locations,
+            "interaction_menus_by_location_kind": {
+                kind: menu.model_dump(mode="python")
+                for kind, menu in document.interaction_menus_by_location_kind.items()
+            },
+            "routes": routes,
+            "supplies": supplies,
+            "products": [item.model_dump(mode="python") for item in items.products],
+            "inventory_items": [item.model_dump(mode="python") for item in items.inventory],
+            "tasks": runtime_tasks(document.tasks, document.messages),
+            "messages": [item.model_dump(mode="python") for item in document.messages],
+            "contents": [item.model_dump(mode="python") for item in document.contents],
+            "games": [item.model_dump(mode="python") for item in document.games],
+            "employer_account_id": accounts[0],
+            "transport_account_id": accounts[1],
+            "calendar": document.calendar.model_dump(mode="python"),
+            "bills": [item.model_dump(mode="python") for item in document.bills],
+            "payrolls": [item.model_dump(mode="python") for item in document.payrolls],
+            "price_changes": [item.model_dump(mode="python") for item in document.price_changes],
+            "product_releases": [item.model_dump(mode="python") for item in document.product_releases],
+            "recipe_output_bindings": dict(document.recipe_output_bindings),
+        }
+    )
 
 
-def _catalog_refs(document: LifeScenario, catalog: Catalog,
-                  scenario: RuntimeScenario) -> ScenarioCatalogRefs:
+def _catalog_refs(document: LifeScenario, catalog: Catalog, scenario: RuntimeScenario) -> ScenarioCatalogRefs:
     """@brief 组装目录准入引用闭集：资源初值、账户实例、对象与预排表引用。"""
     money = _resource(catalog, MONEY_RESOURCE)
-    unit_index = {name: _resource(catalog, name).unit
-                  for name in (ENERGY_RESOURCE, SLEEP_RESOURCE, ENTERTAINMENT_RESOURCE)}
+    unit_index = {
+        name: _resource(catalog, name).unit for name in (ENERGY_RESOURCE, SLEEP_RESOURCE, ENTERTAINMENT_RESOURCE)
+    }
     instance = document.body
     resources = (
         (ENERGY_RESOURCE, instance.initial_energy_kcal),
         (SLEEP_RESOURCE, instance.initial_sleep_debt_hours),
         (ENTERTAINMENT_RESOURCE, instance.initial_entertainment_need),
     )
-    admitted = [ScenarioResourceRef(
-        resource_id=name, initial_value=value, unit=unit_index[name])
-        for name, value in resources]
+    admitted = [
+        ScenarioResourceRef(resource_id=name, initial_value=value, unit=unit_index[name]) for name, value in resources
+    ]
     accounts = [
-        ScenarioAccountRef(account_id=item.account_id, resource_id=money.resource_id,
-                           role=item.role, initial_value=item.money_fen, unit=money.unit)
+        ScenarioAccountRef(
+            account_id=item.account_id,
+            resource_id=money.resource_id,
+            role=item.role,
+            initial_value=item.money_fen,
+            unit=money.unit,
+        )
         for item in document.accounts
     ]
     agents = sorted(document.agents, key=lambda item: item.agent_id)
     if agents:
         first = agents[0]
         accounts.extend(
-            ScenarioAccountRef(account_id=f"agent:{first.agent_id}", resource_id=money.resource_id,
-                               role=role, initial_value=first.initial_balance_fen, unit=money.unit)
-            for role in CONTEXTUAL_AGENT_ROLES)
+            ScenarioAccountRef(
+                account_id=f"agent:{first.agent_id}",
+                resource_id=money.resource_id,
+                role=role,
+                initial_value=first.initial_balance_fen,
+                unit=money.unit,
+            )
+            for role in CONTEXTUAL_AGENT_ROLES
+        )
     object_ids = {item.product_id for item in document.products} | _inventory_object_ids(document)
     object_ids.add(TRAVEL_OBJECT)
     object_ids.update(CONTRACT_OBJECT_IDS[kind] for kind in {task.contract_kind for task in document.tasks})
@@ -614,8 +575,7 @@ def _catalog_refs(document: LifeScenario, catalog: Catalog,
 
 
 #: 目录预排引用覆盖日历与账户事件；供给调价、补货、邮件、任务和配送由场景或运行时校验。
-_SCHEDULE_REF_KINDS = frozenset({
-    ScheduledKind.CALENDAR_FLAG, ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL})
+_SCHEDULE_REF_KINDS = frozenset({ScheduledKind.CALENDAR_FLAG, ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL})
 
 
 def _schedule_refs(scenario: RuntimeScenario, catalog: Catalog) -> tuple[ScenarioScheduleRef, ...]:
@@ -631,19 +591,27 @@ def _schedule_refs(scenario: RuntimeScenario, catalog: Catalog) -> tuple[Scenari
             account_id = item.data["account_id"]
         elif item.kind == ScheduledKind.PAYROLL:
             account_id = item.data["employer_account_id"]
-        refs.append(ScenarioScheduleRef(kind=ScheduleRefKind(item.kind.value),
-                                        due_at=item.due_at, sequence=item.sequence,
-                                        object_id=object_id, object_version=object_version,
-                                        account_id=account_id))
+        refs.append(
+            ScenarioScheduleRef(
+                kind=ScheduleRefKind(item.kind.value),
+                due_at=item.due_at,
+                sequence=item.sequence,
+                object_id=object_id,
+                object_version=object_version,
+                account_id=account_id,
+            )
+        )
     return tuple(refs)
 
 
 def _ledger_accounts(
-    document: LifeScenario, services: Mapping[str, AccountInstanceConfig],
+    document: LifeScenario,
+    services: Mapping[str, AccountInstanceConfig],
 ) -> dict[str, int]:
     """@brief 运行账本账户集合：服务账户加人物账户，外部锚点除外。"""
-    accounts = {item.account_id: item.money_fen for item in services.values()
-                if not item.role.startswith(EXTERNAL_ROLE_PREFIX)}
+    accounts = {
+        item.account_id: item.money_fen for item in services.values() if not item.role.startswith(EXTERNAL_ROLE_PREFIX)
+    }
     for agent in document.agents:
         accounts[f"agent:{agent.agent_id}"] = agent.initial_balance_fen
     return accounts
@@ -664,8 +632,8 @@ def _check_route_fares(semantics: ScenarioSemantics) -> None:
         expected = semantics._travel_fare(match, route.distance_meters)
         if route.fare_fen != expected:
             raise IntegrityError(
-                f"Route {route.route_id} fare {route.fare_fen} disagrees with the"
-                f" catalog exchange value {expected}")
+                f"Route {route.route_id} fare {route.fare_fen} disagrees with the catalog exchange value {expected}"
+            )
 
 
 def _service_accounts(document: LifeScenario) -> dict[str, AccountInstanceConfig]:
@@ -682,7 +650,8 @@ def _role_account(services: Mapping[str, AccountInstanceConfig], role: str) -> s
 
 
 def _employer_account(
-    document: LifeScenario, services: Mapping[str, AccountInstanceConfig],
+    document: LifeScenario,
+    services: Mapping[str, AccountInstanceConfig],
 ) -> str:
     """@brief 从任务实例取得唯一雇主；无任务时要求唯一 employer 角色账户。"""
     task_accounts = {task.employer_account_id for task in document.tasks}
@@ -693,8 +662,7 @@ def _employer_account(
         return account_id
     if len(task_accounts) > 1:
         raise IntegrityError("Runtime scenario supports exactly one employer account")
-    matches = [item.account_id for item in services.values()
-               if item.role.startswith("employer:")]
+    matches = [item.account_id for item in services.values() if item.role.startswith("employer:")]
     if len(matches) != 1:
         raise IntegrityError("Scenario must declare exactly one employer account")
     return matches[0]
@@ -753,8 +721,7 @@ def _alert_thresholds(energy: ResourceDefinition) -> dict[str, float]:
     """@brief 按告警码映射把目录 alert_rules 解析为引擎阈值参数。"""
     thresholds: dict[str, float] = {}
     for code, parameter in ALERT_THRESHOLDS:
-        rules = [rule for rule in energy.alert_rules
-                 if rule.code.lower() == code.lower() and rule.below is not None]
+        rules = [rule for rule in energy.alert_rules if rule.code.lower() == code.lower() and rule.below is not None]
         if len(rules) != 1:
             raise IntegrityError(f"catalog resource {energy.resource_id} needs one {code} alert rule")
         thresholds[parameter] = rules[0].below
@@ -795,15 +762,14 @@ def _activity_met_map(values, label: str, view: AffordanceView) -> dict[str, flo
     if values is None:
         raise IntegrityError(f"catalog {label} table is missing")
     prefixes = view.met_open_prefixes
-    base = {key for key in values
-            if not any(key.startswith(prefix) for prefix in prefixes)}
+    base = {key for key in values if not any(key.startswith(prefix) for prefix in prefixes)}
     if base != view.met_closed_keys:
         raise IntegrityError(f"catalog {label} base keys must match the engine activity set")
     for key in values:
         prefix = next((p for p in prefixes if key.startswith(p)), None)
         if prefix is None:
             continue
-        activity_id = key[len(prefix):]
+        activity_id = key[len(prefix) :]
         if not activity_id or any(not (c.isalnum() and c.isascii()) and c != "-" for c in activity_id):
             raise IntegrityError(f"catalog {label} lifestyle key {key!r} is malformed")
     if any(not isinstance(value, (int, float)) or value <= 0 for value in values.values()):
@@ -811,23 +777,20 @@ def _activity_met_map(values, label: str, view: AffordanceView) -> dict[str, flo
     return dict(values)
 
 
-def _check_lifestyle_declarations(document: LifeScenario, body: BodyConfig,
-                                  view: AffordanceView | None = None) -> None:
+def _check_lifestyle_declarations(document: LifeScenario, body: BodyConfig, view: AffordanceView | None = None) -> None:
     """@brief 人物声明启用的生活活动必须存在于目录 MET 表（fail-closed）。"""
     prefix = (default_affordances() if view is None else view).met_open_prefixes[0]
-    known = {key[len(prefix):] for key in body.activity_met if key.startswith(prefix)}
+    known = {key[len(prefix) :] for key in body.activity_met if key.startswith(prefix)}
     for agent in document.agents:
         if agent.lifestyle_activities is None:
             continue
         unknown = sorted(set(agent.lifestyle_activities) - known)
         if unknown:
-            raise IntegrityError(
-                f"agent {agent.agent_id} declares unknown lifestyle activities: {unknown}")
+            raise IntegrityError(f"agent {agent.agent_id} declares unknown lifestyle activities: {unknown}")
 
 
 def _curve(points, label: str) -> tuple[CurvePoint, ...]:
     """@brief 把目录曲线点转换为引擎曲线模型。"""
     if not points:
         raise IntegrityError(f"catalog curve {label} is empty")
-    return tuple(CurvePoint(input_value=point.input_value, output_value=point.output_value)
-                 for point in points)
+    return tuple(CurvePoint(input_value=point.input_value, output_value=point.output_value) for point in points)

@@ -10,13 +10,14 @@ from pydantic import ValidationError
 
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
-from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeScenario, load_scenario
+from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeScenario
+from worldmock.life.world_setup import load_scenario
 from worldmock.life.map_data import load_map_dataset, validate_map_dataset
 from worldmock.life.map_models import MapDataset, RouteConfig
 from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
-from tests.life.conftest import _mutated_scenario
+from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, weekday_schedule
 from worldmock.life.scenario import parse_scenario_document
 
@@ -185,7 +186,7 @@ def test_body_instance_and_rejection_ranges_are_enforced(
 
 
 def test_relief_preference_floor_defaults_to_half_without_changing_scenario_files() -> None:
-    """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-dayrun-fidelity.md 1.2，裁决 D3）：正式场景不声明，
+    """下限偏好是场景层 body 的可选字段（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 D3）：正式场景不声明，
     文档与组装后的身体参数都取缺省 0.5；场景结构版本为 5，目录钉扎不变。"""
     for path in (_FORMAL, Path("scenarios/multi-person.json"), Path("scenarios/multi-person-half-day.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -226,8 +227,8 @@ def test_relief_preference_floor_field_states_value_meaning_and_hypothesis() -> 
 
 
 def test_relief_preference_floor_is_registered_once_in_the_experiment_hypotheses() -> None:
-    """docs/EXPERIMENT.md「实验假设声明」恰有一条登记下限偏好 f（docs/dev/SPEC-dayrun-fidelity.md 1.2 验收：f 在场景层字段
-    与 docs/EXPERIMENT.md 各登记一次）：取值是场景层字段的缺省值，写明敏感区间、有效偏好公式、取值范围与场景层字段名；
+    """docs/EXPERIMENT.md#experiment-worldmock-实验设置「实验假设声明」恰有一条登记下限偏好 f（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径  验收：f 在场景层字段
+    与 docs/EXPERIMENT.md#experiment-worldmock-实验设置 各登记一次）：取值是场景层字段的缺省值，写明敏感区间、有效偏好公式、取值范围与场景层字段名；
     除版本表外，其余章节不再写 f 的取值或字段名（「需求状态」只指向这一条）。"""
     from worldmock.life.scenario import BodyInstanceConfig
 
@@ -276,7 +277,7 @@ def test_task_skill_targets_must_be_declared() -> None:
         _replace(("tasks", 0, "required_skill"), "missing-skill"),
         "unknown skill",
     )
-    # docs/dev/SPEC-life-realism.md「画像编译」：随机偏好浮点字段整体删除——场景再携带该键按未知字段拒绝。
+    # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：随机偏好浮点字段整体删除——场景再携带该键按未知字段拒绝。
     payload = _replace(("agents", 0, "entertainment_preferences"), {"missing-content": 0.5})
     _assert_invalid(payload, "Extra inputs are not permitted")
 
@@ -774,7 +775,7 @@ def test_cross_midnight_bedtime_window_is_accepted() -> None:
     ],
 )
 def test_work_window_bounds_and_order_are_rejected(windows: dict, message: str) -> None:
-    """场景下班、到家窗口（docs/dev/SPEC-errands-workday.md 4.2）：越界、退化与下班晚于到家在文档校验层拒绝；正例为两者
+    """场景下班、到家窗口（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）：越界、退化与下班晚于到家在文档校验层拒绝；正例为两者
     都声明且起点相等、与午餐、晚餐、就寝不设先后（下班窗口压在晚餐窗口里也合法），未声明时两字段为 None 且不算已设。"""
     payload = _payload()
     payload["agents"][0].update(windows)
@@ -809,7 +810,7 @@ def test_three_scenarios_share_the_v2_schema() -> None:
 
 def test_runtime_agents_keep_the_declared_rhythm_fields() -> None:
     """组装后的运行时人物只把场景显式写出的字段记为已设（缺省值照旧由模型补齐，值不变），场景作息覆盖卡片据此只覆盖
-    显式声明的作息字段（docs/dev/SPEC-dayrun-fidelity.md 2.1）；声明全部五个字段的正式场景五个都记为已设。"""
+    显式声明的作息字段（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ）；声明全部五个字段的正式场景五个都记为已设。"""
     rhythm = {"chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_window", "bedtime_window"}
     payload = _payload()
     for name in rhythm - {"chronotype_midsleep"}:
@@ -857,7 +858,7 @@ _ISO_DATES = "work_schedule exception dates must use canonical ISO format"
         "descending-breaks", "weekly-missing-a-day", "weekly-extra-key", "non-canonical-date", "unparsable-date",
         "unknown-shift-key", "missing-breaks"])
 def test_work_schedule_shape_errors_are_rejected(edit, message: str) -> None:
-    """班次形状错误留在场景模型的校验器（docs/dev/SPEC-errands-workday.md 4.3）：班次须同日且 starts < ends（≤ 1440），
+    """班次形状错误留在场景模型的校验器（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：班次须同日且 starts < ends（≤ 1440），
     休息时段落在班次内、升序、互不重叠；weekly 七天全写（周一为 "0"，多一天少一天都拒），例外日期是规范的 ISO 日期（基本
     格式与无法解析的都拒）；班次多出的键与缺少的 breaks 都被拒，不设缺省。每个用例对应两个校验器的一处拒绝。"""
     payload = _payload()
@@ -910,7 +911,7 @@ def _scheduled_payload(edit) -> dict:
     (_shift(breaks=[[720, 720]]), _BREAK_INSIDE),
 ], ids=["starts-before-midnight", "inverted-break", "empty-break"])
 def test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rejected(shift: dict, message: str):
-    """班次是自当地零点起的分钟、落在同一天，休息时段是班次内的半开区间（docs/dev/SPEC-errands-workday.md 4.3；接口合同
+    """班次是自当地零点起的分钟、落在同一天，休息时段是班次内的半开区间（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ；接口合同
     「工作安排声明」：0 ≤ starts < ends ≤ 1440）：周一的班次从前一天 23:00 开始（starts 为负）时被场景模型拒绝；休息时段
     两端都在班次内而止点早于或等于起点（13:30 到 12:00、12:00 到 12:00）时同样被拒，原因分别是班次范围与休息时段须落在
     班次内。同一份文档不改周一班次时照常通过。"""
@@ -919,7 +920,7 @@ def test_a_shift_starting_before_midnight_and_an_inverted_or_empty_break_are_rej
 
 
 def test_back_to_back_breaks_are_admitted_and_a_one_minute_overlap_is_not() -> None:
-    """休息时段互不重叠按半开区间判定（docs/dev/SPEC-errands-workday.md 4.3）：前一段的止点等于后一段的起点不算重叠，
+    """休息时段互不重叠按半开区间判定（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：前一段的止点等于后一段的起点不算重叠，
     12:00–13:00 紧接 13:00–13:30 的班次经场景模型照常加载、两段原样保留；后一段早开始一分钟才是重叠，被拒。"""
     adjacent = _scheduled_payload(_weekly("0", _shift(breaks=[[720, 780], [780, 810]])))
     shift = LifeScenario.model_validate(adjacent).agents[0].work_schedule.weekly["0"]
@@ -938,7 +939,7 @@ def test_work_schedule_requires_all_three_keys_without_defaults(key: str) -> Non
 
 
 def test_work_schedule_rejects_an_unknown_key_such_as_a_timezone() -> None:
-    """工作安排不带时区字段（docs/dev/SPEC-errands-workday.md 4.3，复用场景唯一的 timezone），未知键拒绝（接口合同「工作
+    """工作安排不带时区字段（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ，复用场景唯一的 timezone），未知键拒绝（接口合同「工作
     安排声明」）：多写 timezone 的安排被场景模型按未知字段拒绝并点名该键，不被悄悄丢弃；不多写时同一份安排照常加载，
     加载出的安排只有三个键。"""
     extra = _scheduled_payload(lambda schedule: schedule.update(timezone="Europe/Berlin"))

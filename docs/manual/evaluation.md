@@ -1,11 +1,12 @@
+<a name="evaluation-自定义评估与盲评输入"></a>
 # 自定义评估与盲评输入
 
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
 从 [scenarios/evaluation.json](../../scenarios/evaluation.json) 复制完整文件修改。
-它和[人物运行场景](scenarios.md)是两种不同输入，不要把它传给 `worldmock run`。
+它和[人物运行场景](scenarios.md#scenarios-生活场景)是两种不同输入，不要把它传给 `worldmock run`。
 所有命令均在仓库根目录执行。
 
-[返回配置手册](README.md)
+[返回配置手册](README.md#readme-用户配置手册)
 
 ```mermaid
 flowchart LR
@@ -19,12 +20,14 @@ flowchart LR
     G --> I[报告和成功 manifest]
 ```
 
+<a name="evaluation-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 报告只将非布尔整数秒且起点小于终点的区间计为有效结算；缺活动品类仍报告未归类或缺证。日期按运行时区切分，反思快照使用主观来源校验，不能当作畸形活动经历。
 
+<a name="evaluation-先分清要编辑的文件"></a>
 ## 先分清要编辑的文件
 
 | 文件或目录 | 谁填写 | 用途 |
@@ -39,6 +42,7 @@ flowchart LR
 目前没有通用 `adapter.toml` 或任意字段重命名配置。可配置的适配入口是
 `category_mappings` 与 `official_domain_map`；输入文件结构仍须符合现有交付合同。
 
+<a name="evaluation-从完整示例开始"></a>
 ## 从完整示例开始
 
 下面命令会创建一个**完整的自定义评估配置**，保留现有基准交付身份与时间窗口，只修改评估名称及随机种子。
@@ -96,6 +100,7 @@ PY
 保留示例的完整维度集合最便于比较。加载器只检查字符串结构，不会替你检查新维度的语义实现；
 填写未实现名称会在生成盲评包时失败。评审一致性的 `alpha >= 0.80` 门槛也不是配置字段。
 
+<a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
 以下是 `category_mappings` 的**局部示例**；编辑完整配置中的现有映射，保留其他类别：
@@ -138,12 +143,13 @@ PY
 `observed_digital_session` 是旧数字交互会话，`world_internet_session` 是世界互联网会话。
 不能为了补齐图表就把数字交互时长当成全部现实生活时长。
 
+<a name="evaluation-绑定真实候选输入"></a>
 ## 绑定真实候选输入
 
 `--worldmock` 指向 `worldmock export` 生成的**已完成运行的足迹导出目录**，其中包含
 `manifest.json`、活动、事件、检查点和素材索引。
 评估要求 `experiment_completed: true`，检查点位于窗口终点，并验证实际导出内容。
-[训练数据交付](delivery.md)产生的 `training.jsonl` 不能替代这里的足迹导出。
+[训练数据交付](delivery.md#delivery-自定义训练数据交付)产生的 `training.jsonl` 不能替代这里的足迹导出。
 
 `--legacy` 指向旧 LabelKit 交付根目录。当前适配器固定读取以下文件族：
 
@@ -172,11 +178,12 @@ legacy-root/
 
 只有更换了已经认证的基准交付才更新这些值。改哈希不能替代修复链和完整审计。
 
+<a name="evaluation-可选真人参照"></a>
 ## 可选真人参照
 
 `--human-reference` 接受规范化的真实事件与活动目录；当前没有把手机日志或 CSV 自动转成该格式的命令。
 它复用 WorldMock 的事件和活动结构，只是不要求世界运行的检查点与完成事件。
-字段结构见[足迹数据合同](../CONTRACTS.md)；缺失的真实经历不能通过填造事件补齐。
+字段结构见[足迹数据合同](../CONTRACTS.md#contracts-worldmock-接口合同)；缺失的真实经历不能通过填造事件补齐。
 
 参照目录必须有 `manifest.json` 和两个 JSONL 文件。清单的必需内容如下，
 其中哈希由文件计算，不能照抄占位值：
@@ -207,6 +214,7 @@ print({"valid": True, "events": len(view.events), "activities": len(view.activit
 PY
 ```
 
+<a name="evaluation-离线验证并准备评审"></a>
 ## 离线验证并准备评审
 
 先运行配置验证；它不会读取密钥、请求模型或启动仿真：
@@ -239,6 +247,7 @@ worldmock evaluate \
 每位评审只读取分配给自己的包和统一评审指令。不要向评审提供 `unblinding-key.json` 或其他槽的材料。
 包中的 `judgeability` 已声明可判断性：`judgeable: false` 的维度必须填写 `unjudgeable`。
 
+<a name="evaluation-怎样填写评审收据"></a>
 ## 怎样填写评审收据
 
 每个槽单独一个完整 JSON 文件，放在评估输出目录**之外**，例如 `reviews/my-comparison/`。
@@ -330,6 +339,7 @@ print({"valid": True, "records": len(result["records"])})
 PY
 ```
 
+<a name="evaluation-评审后发布"></a>
 ## 评审后发布
 
 完成所有真实评审后，仍使用同一输出目录，只传 `--output` 和 `--reviews`：
@@ -357,4 +367,4 @@ worldmock evaluate --output evaluations/my-comparison --reviews \
 | 评审材料不可判断却填了偏好 | 根据包中 `judgeability` 改为真实的 `unjudgeable` 判断 |
 | 准备目录出现意外文件或哈希变化 | 收据放到外部目录；不要编辑已冻结的准备文件 |
 
-评估依据和完整结果边界见[评估设计](../design/07-evaluation.md)。
+评估依据和完整结果边界见[评估设计](../design/07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估)。

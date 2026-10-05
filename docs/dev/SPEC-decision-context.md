@@ -1,14 +1,16 @@
+<a name="spec-decision-context-特性规格决策上下文与工具结果"></a>
 # 特性规格：决策上下文与工具结果
 
-> 状态：FROZEN；2026-09-20 根据当前调用链、独立审查与官方协议裁决；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 2–7、14、27 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订（「冻结条款修订」第 10、11、14 行与其 3.5：按名调用、指名购买口径与公开结果键），修订部分已实现并通过离线验收。
+> 状态：FROZEN；2026-09-20 根据当前调用链、独立审查与官方协议裁决；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 2–7、14、27 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（「冻结条款修订」第 10、11、14 行与其 3.5：按名调用、指名购买口径与公开结果键），修订部分已实现并通过离线验收。
 > 范围：人物每次决策所见、动作登记与结算结果的通道、同秒续接与只读路径、七层归属和预算。
 > 本规格的所有实现与验收属于本次开发，不设延期项。全项目十二周实验等既有验收另按原规格执行。
 
-> 2026-10-01 按[工具交互规格](SPEC-tool-interaction.md)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
+> 2026-10-01 按[工具交互规格](SPEC-life-runtime.md#tool-interaction-工具请求)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
 > 本特性首次受影响的发布升级为场景 4、地图 3、目录 5.0、品类与规则绑定 3，世界结构仍为 8。各阶段独立发布；后续格式或内容再次变化时另升相应版本，禁止同目录版本覆盖内容。
 
-> 2026-10-02 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订：任务回看经环境 actor 转发的执行位置，同秒续接 `events` 的口径，公开结果 `details.errands`，`query_world` 六键与返回精简；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。
+> 2026-10-02 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订：任务回看经环境 actor 转发的执行位置，同秒续接 `events` 的口径，公开结果 `details.errands`，`query_world` 六键与返回精简；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 
+<a name="spec-decision-context-心智模型"></a>
 ## 心智模型
 
 人物每次决策选择一个世界请求，决策就是这次工具调用，回复正文可有可无。环境等本轮人物都提交后统一结算。
@@ -37,13 +39,14 @@ sequenceDiagram
 一次决策只有一个行动阶段：可以先做只读查询，也可能有协议纠错回合，世界请求登记即结束本次决策。
 每次实际请求都计入同一回合预算。世界时间、批量结算及世界写入权仍由环境独占。
 
+<a name="spec-decision-context-权威来源与裁决"></a>
 ## 权威来源与裁决
 
-字段、消息模板和预算的唯一来源是 [接口合同](../CONTRACTS.md#观察投影字段)。
-七层请求、单一行动阶段、回复正文与同秒续接的行为以[人物 Prompt 规格](SPEC-persona-prompt.md)为准，
-决策、回复正文与思考见其[第二章](SPEC-persona-prompt.md#二决策回复正文与思考)；本规格保留动作登记、回执隔离、
-公开结果字段与递归泄漏校验等约束，并定义此次行为变化及验收；人物其他行为沿用 [人物规格](SPEC-life-realism.md)，
-环境其他行为沿用 [生活运行规格](SPEC-life-runtime.md)。
+字段、消息模板和预算的唯一来源是 [接口合同](../CONTRACTS.md#contracts-观察投影字段)。
+七层请求、单一行动阶段、回复正文与同秒续接的行为以[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)为准，
+决策、回复正文与思考见其[第二章](SPEC-life-realism.md#persona-prompt-决策回复正文与思考)；本规格保留动作登记、回执隔离、
+公开结果字段与递归泄漏校验等约束，并定义此次行为变化及验收；人物其他行为沿用 [人物规格](SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像)，
+环境其他行为沿用 [生活运行规格](SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)。
 [研究记录](research/decision-context-feasibility.md)是裁决证据，不另立行为合同。
 
 | 提案问题 | 冻结裁决 |
@@ -54,6 +57,7 @@ sequenceDiagram
 | 句柄不进上下文意味着删 tool 消息 | 保留提供商要求的 tool_call_id 配对；清除消息正文中的内部登记回执。登记确认从不发给模型：登记后不追加 tool 消息；同秒续接时，对应该世界请求 `tool_call_id` 的 tool 消息是结算结果 |
 | 所有上限同一种失败方式 | 展示选择、协议重试、提示硬预算分别遵循所属合同 |
 
+<a name="spec-decision-context-地点发现与供给比较"></a>
 ## 地点发现与供给比较
 
 地点发现与购买都是生活动作；模型在 `start_activity` 中提交目标的可读名称与方式，由方式唯一推导内部动词，世界请求登记即结束本次决策，
@@ -62,7 +66,7 @@ sequenceDiagram
 购买与出行使用冻结观察中的报价结算（指名购买本轮未列出的商品时按当前报价结算），不让模型猜价格、版本或精确秒数。
 
 一次观察只冻结人物实际可见的比较事实；轮转与可见期只管展示与比较，不是购买资格的上限。
-`obtain` 的目标不在本轮列出时按场景供给指名解析（[一日运行保真规格](SPEC-dayrun-fidelity.md) 3.2、3.3、3.5）：`from` 是可选约束
+`obtain` 的目标不在本轮列出时按场景供给指名解析（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.2、3.3、3.5）：`from` 是可选约束
 （`null`、地点显示名（含住处的「家」「住处」写法）或渠道称呼），分段匹配依次以 `SUPPLY_NOT_FOUND`（没有这件商品，附至多 3 个可照填的候选）、`SUPPLY_NOT_AT_STORE`、
 `FULFILLMENT_NOT_SUPPORTED` 与 `ACTIVITY_PRECONDITION_UNMET` 业务拒绝；方式可写「购买」由系统定到店或远程下单，多于一个可服务的匹配时
 按请求级 `prefer` 选定一家并写进 `details.notes`，不再以 `SUPPLY_NAME_AMBIGUOUS` 拒绝；不自动换成别的商品。其余动词的目标也可以直接写名称：
@@ -70,9 +74,10 @@ sequenceDiagram
 道路状态、营业未知、公开供给库存、来源和假设说明是实际返回结果的一部分；全量库存和未接触结果不进提示。
 菜单和阶段限制、原生工具配对、单动作、回合预算、结果回灌及只读人物查询边界保持原义。
 
+<a name="spec-decision-context-同秒续接与只读路径"></a>
 ## 同秒续接与只读路径
 
-生活决策的请求由原生 `tools`、系统层 system 与六层 user 组成（[人物 Prompt 规格](SPEC-persona-prompt.md#一七层请求)第一章）。
+生活决策的请求由原生 `tools`、系统层 system 与六层 user 组成（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第一章）。
 system 整次运行逐字节不变；user 在每个时间点构造一次，同一行动阶段内动作前后逐字节相同。后续 assistant/tool 消息、
 只读查询结果与协议纠错可以增加，不能据此重建世界观察。
 
@@ -95,6 +100,7 @@ tool 消息是一个 JSON 对象 `{result, changes, events}`，空键省略：`r
 仅开放预算允许的 `memory_recent`、`memory_search`、`memory_time_range` 与只读 finish，不写生活世界或人物记忆。
 只读与生活决策的人设层同源，卡片派生字段遵守相同汉字上限。
 
+<a name="spec-decision-context-登记确认与结算结果"></a>
 ## 登记确认与结算结果
 
 生活动作返回宿主的 `ActionReceipt` 继续完整保存和校验，用于审计与幂等；世界请求登记后不向模型追加任何 tool 消息，
@@ -108,7 +114,7 @@ tool 消息是一个 JSON 对象 `{result, changes, events}`，空键省略：`r
 
 世界请求的公开结算结果在本 session 内一直留在进度层：`tool_call` 记录把调用、参数与公开结果合为一条，按事件顺序排列，
 回复正文作为该调用的 `self_note`；同秒续接时结果先随 tool 消息返回，时间推进后从事件并入进度层。
-session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt 规格](SPEC-persona-prompt.md#三进度与记忆的更新)第三章）。
+session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-进度与记忆的更新)第三章）。
 原始结果证据保持完整，模型只看到公开字段及可读对象名称；内部动作身份只供宿主关联，
 不给模型任何调用编号，也不把 `action_id` 或其他内部索引当作模型选择任务的入口；工具调用的协议位置下标只用于精确错误定位，不属于世界身份。
 公开结果字段为 `occurred_at`、`status`、`error_code`、`message` 与 `details`，工作结果另带公开 `work_review`；
@@ -130,6 +136,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 本 session 内每次请求的进度层都含已有的全部结果，结果游标删除。
 进度层接近上下文容量时按「预算与失败」浓缩；不删除或改写权威事件。
 
+<a name="spec-decision-context-即时查询操作备忘与紧凑结果"></a>
 ### 即时查询、操作备忘与紧凑结果
 
 `query_world(name, way, category, from, available_only, offset)`、`recall_task_summary` 与三个记忆查询可以同批；查询不登记世界请求、不结束决策、
@@ -162,11 +169,13 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 紧凑工具层和 `changes` 的分组编码必须无损且确定性，`changes.rejected_today` 对备忘整体替换；
 链首 user 字节稳定、单次冻结观察、完整证据与容量上界保持原合同。
 
+<a name="spec-decision-context-七层归属"></a>
 ## 七层归属
 
-原 `scene` 与 `facts` 的各项内容按唯一出现原则分入七层，归属见[人物 Prompt 规格「唯一出现原则」](SPEC-persona-prompt.md#唯一出现原则)。
+原 `scene` 与 `facts` 的各项内容按唯一出现原则分入七层，归属见[人物 Prompt 规格「唯一出现原则」](SPEC-life-realism.md#persona-prompt-七层请求-唯一出现原则)。
 邮件到达不公开正文；正文须经阅读活动结算后才可知，阅读结果保留实际所读正文，仅不重复任务合同时间、地点或验收答案。
 
+<a name="spec-decision-context-预算与失败"></a>
 ## 预算与失败
 
 发送每一次实际模型请求前，以所用模型的上下文窗口计算整次请求的 token 占用：原生 `tools`、系统层、六层 JSON、
@@ -177,6 +186,7 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 仍达阈值或超出输入额度时按容量故障停止，按系统层、工具定义、各 user 层、续接消息、预留输出分层记录 token 用量与英文错误日志。
 生活与只读各入口均执行相同发送前检查。材料揭示与商品可见期遵循原合同，不能与提示容量混为一谈。
 
+<a name="spec-decision-context-文件修改清单"></a>
 ## 文件修改清单
 
 | 责任 | 生产文件 | 验证文件 |
@@ -186,9 +196,10 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 | 决策证据与下游 | `life/decision_start.py`、`life/engine.py`、`footprints/models.py`、`footprints/quality.py`、`footprints/store.py`、`runtime.py`、`validation.py`、`delivery/windows.py`、`evaluation/behavior_metrics.py` | 事件字段、运行清单、足迹质量、观察重复门禁与 delivery 窗口测试 |
 | 规范一致性 | `CONTRACTS.md`、相关 `SPEC-*.md`、`INDEX.md`、`VERIFICATION.md`、实现状态、覆盖追溯、模拟／记录／交付设计 | 文档链接与锚点、条款到测试的双向核对 |
 
-逐文件的改动见[实施计划「文件修改清单」](research/persona-prompt-implementation-plan.md#文件修改清单)。
+逐文件的改动见[实施计划「文件修改清单」](../archive/persona-prompt/persona-prompt-implementation-plan.md)。
 新增模块只为拆分独立职责或满足生产文件长度限制，不增加框架或依赖。
 
+<a name="spec-decision-context-验收台账"></a>
 ## 验收台账
 
 每行必须有实际运行证据；纯结构匹配不能替代真实请求或环境结算路径。
@@ -209,8 +220,9 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 
 2026-09-20 版本逐项实现与实际通过的证据见 [验收记录](research/decision-context-verification.md)，
 包含完整 Git 修改清单、固定源码身份和两份独立源码突变报告；按人物 Prompt 规格修订的各行另以
-[该规格「验收台账」](SPEC-persona-prompt.md#验收台账)为准。
+[该规格「验收台账」](../VERIFICATION.md#verification-incremental-evidence)为准。
 
+<a name="spec-decision-context-版本表"></a>
 ## 版本表
 
 以下记录保留当时的变更与验证证据；当前接口约束以正文和工具交互规格为准。
@@ -220,18 +232,19 @@ session 结束后，结果按 `settled` 写法进入记忆层（[人物 Prompt �
 | 1 | 2026-09-20 | 将提案裁决为可实现合同；修正调用次数与工具时序，明确无兼容改名、无损公开结果、场景与预算边界 |
 | 2 | 2026-09-20 | 独立审查补全公开理由的文本边界、全部恢复入口的阶段身份验证和原生 runner 单次观察断言 |
 | 3 | 2026-09-20 | 对齐交互菜单作为冻结观察中的基础准入约束，保留日首计划、单动作阶段和只读路径 |
-| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 23 行修订：一轮决策为自述加一个世界请求，登记即结束，生活决策无 finish，只读问答保留只读 finish；动作写为动词与方式；删日首 `plan_day` 与来源引用句，当日目标由零点计划生成；进度层改为活动客观进度并按会话浓缩已收尾活动；饿时吃饭途径句是场景只保留名称与营业状态的例外。补记未入表的就地改动：2d97d3d（新增「当日目标边界」）、d998a31（自述输入含本轮已核验经历与主观记忆，记忆查询标明主观，来源引用句）、2913546（`start_activity` 可读名称与宿主绑定报价，`facts.progress.results` 公开结果字段与进度浓缩，邮件以可读名称选择，发送前整次 token 计数与 85% 浓缩） |
-| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 2–7、14、27 行修订，修订部分待实现（人物 Prompt 台账 DC1–DC7）。理由：决策自述阶段删除后，一次决策只有一个行动阶段，决策就是所选的世界请求；请求改为七层，`scene`、`facts` 退出；同秒续接改变了结果回到模型的通道。改动：文件头与范围；「心智模型」删自述节点与「两次请求」，时序改为同秒续接；「权威来源与裁决」删「第一次、第二次等于两次调用」「收件箱只有三条」「改名零风险」三行，句柄一行注明登记确认从不发给模型、续接时 tool 消息是结算结果，并指向人物 Prompt 规格第二章；「唯一命名」整节删除（原 :62 的 1.3 与 400 与合同和代码不符，一并消除）；「地点发现与供给比较」按指名购买改写，登记后不发送登记确认；「上下文与阶段相互独立」改名为「同秒续接与只读路径」，写续接链、tool 消息 `{result, changes, events}`、续接缓冲来源与断链条件，只读路径改为只读系统层、人设层与记忆层快照和外部问题；「登记确认与结算结果」保留回执隔离、`tool_call_id`、公开结果字段与递归泄漏校验，结果在本 session 内留在进度层、session 结束后进入记忆层，删结果游标；「场景信息」改为「七层归属」，只留邮件正文须阅读后可知一句；「预算与失败」按人物 Prompt 规格第四章；文件修改清单与验收台账改写并指向人物 Prompt 规格 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 23 行修订：一轮决策为自述加一个世界请求，登记即结束，生活决策无 finish，只读问答保留只读 finish；动作写为动词与方式；删日首 `plan_day` 与来源引用句，当日目标由零点计划生成；进度层改为活动客观进度并按会话浓缩已收尾活动；饿时吃饭途径句是场景只保留名称与营业状态的例外。补记未入表的就地改动：2d97d3d（新增「当日目标边界」）、d998a31（自述输入含本轮已核验经历与主观记忆，记忆查询标明主观，来源引用句）、2913546（`start_activity` 可读名称与宿主绑定报价，`facts.progress.results` 公开结果字段与进度浓缩，邮件以可读名称选择，发送前整次 token 计数与 85% 浓缩） |
+| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 2–7、14、27 行修订，修订部分待实现（人物 Prompt 台账 DC1–DC7）。理由：决策自述阶段删除后，一次决策只有一个行动阶段，决策就是所选的世界请求；请求改为七层，`scene`、`facts` 退出；同秒续接改变了结果回到模型的通道。改动：文件头与范围；「心智模型」删自述节点与「两次请求」，时序改为同秒续接；「权威来源与裁决」删「第一次、第二次等于两次调用」「收件箱只有三条」「改名零风险」三行，句柄一行注明登记确认从不发给模型、续接时 tool 消息是结算结果，并指向人物 Prompt 规格第二章；「唯一命名」整节删除（原 :62 的 1.3 与 400 与合同和代码不符，一并消除）；「地点发现与供给比较」按指名购买改写，登记后不发送登记确认；「上下文与阶段相互独立」改名为「同秒续接与只读路径」，写续接链、tool 消息 `{result, changes, events}`、续接缓冲来源与断链条件，只读路径改为只读系统层、人设层与记忆层快照和外部问题；「登记确认与结算结果」保留回执隔离、`tool_call_id`、公开结果字段与递归泄漏校验，结果在本 session 内留在进度层、session 结束后进入记忆层，删结果游标；「场景信息」改为「七层归属」，只留邮件正文须阅读后可知一句；「预算与失败」按人物 Prompt 规格第四章；文件修改清单与验收台账改写并指向人物 Prompt 规格 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；续接 tool 消息的 `events` 改为上一决策观察之后的新记录（不含调用与推导记录，同一条只出现一次），断链条件补开关关闭、模型证据或上一结果记录缺失，反事实分支在分支起点断链；原生 `tools` 注明最后一个回合去掉记忆查询工具；`details` 指向接口合同的键闭集 |
-| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 10、11、14 行与其 3.5 修订（一日运行保真 DC1，随该规格冻结）：「地点发现与供给比较」的指名购买改为 `from` 可选约束、分段匹配、方式「购买」与按 `prefer` 选定，不再报 `SUPPLY_NAME_AMBIGUOUS`，其余动词也按名调用（归一唯一即受理，否则给候选）；「登记确认与结算结果」补统一错误结构、`details` 的 `fix`、`items`、`resolved`、`notes` 与 `message` 取 `reason`，新键照常经递归泄漏校验；验收台账「七层归属与指名购买」行注明歧义一项被修订；文件头补修订说明 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 10、11、14 行与其 3.5 修订（一日运行保真 DC1，随该规格冻结）：「地点发现与供给比较」的指名购买改为 `from` 可选约束、分段匹配、方式「购买」与按 `prefer` 选定，不再报 `SUPPLY_NAME_AMBIGUOUS`，其余动词也按名调用（归一唯一即受理，否则给候选）；「登记确认与结算结果」补统一错误结构、`details` 的 `fix`、`items`、`resolved`、`notes` 与 `message` 取 `reason`，新键照常经递归泄漏校验；验收台账「七层归属与指名购买」行注明歧义一项被修订；文件头补修订说明 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：文件头改为修订部分（按名调用、指名购买的 `from` 约束、分段匹配、方式「购买」与按 `prefer` 选定、公开结果键与统一错误结构）已实现并通过离线验收；「同秒续接与只读路径」原生 `tools` 的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；验收台账不改 |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 按工具交互规格直接修订当前条款：逐项对象请求、方式推导、严格中文购买枚举与完整错误定位、即时只读查询、当天操作备忘及紧凑呈现；合同已实现，验收证据另列，历史验收不证明新增功能。 |
 | `2026-10-01-tool-interaction-review` | 2026-10-01 | 按附件复核定稿：开始活动改逐项对象、购买偏好用精确中文枚举且非购买为 null、to=null 统一本人、查询四键与二十项分页；合同已实现，验收证据另列，错误语言仍待澄清且暂维持英文。 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分在冻结时未随文实现（该规格阶段 1（只读查询转发）、阶段 2（个人事务）、阶段 4（查询）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 DC1–DC7）。改动：文件头；「同秒续接与只读路径」写明 `changes` 含待办层个人事务的增改删、`events` 只排除没有来源事件的推导记录；「登记确认与结算结果」`details` 增个人事务回执 `errands`；「即时查询、操作备忘与紧凑结果」写明 `query_world` 本地求值与 `recall_task_summary` 经环境 actor 转发的执行位置，`query_world` 改六键、筛选先于切页、返回不再逐项附候选、两种参数错误之外无匹配为合法空页。顺带更正既有漂移：把落在「当日目标边界」之后的两条 2026-10-01 版本行移回本表 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订，修订部分在冻结时未随文实现（该规格阶段 1（只读查询转发）、阶段 2（个人事务）、阶段 4（查询）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业 DC1–DC7）。改动：文件头；「同秒续接与只读路径」写明 `changes` 含待办层个人事务的增改删、`events` 只排除没有来源事件的推导记录；「登记确认与结算结果」`details` 增个人事务回执 `errands`；「即时查询、操作备忘与紧凑结果」写明 `query_world` 本地求值与 `recall_task_summary` 经环境 actor 转发的执行位置，`query_world` 改六键、筛选先于切页、返回不再逐项附候选、两种参数错误之外无匹配为合法空页。顺带更正既有漂移：把落在「当日目标边界」之后的两条 2026-10-01 版本行移回本表 |
 | `2026-10-03-errands-workday-source` | 2026-10-03 | 随个人事务与工作安排规格阶段 4 更正既有漂移：购买来源的合法写法为地点显示名（含住处）与渠道称呼（个人事务与工作安排规格 5.2，实施计划 DC10）。「地点发现与供给比较」指名购买句的 `from` 由「门店名」改为地点显示名（含住处的「家」「住处」写法），依据现行 `purchase_offers.source_scope`；分段匹配各句不改，行为不变 |
-| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 DC8，按 `d8a41d3` 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时写错而此时补正一处：「同秒续接与只读路径」`changes` 的键闭集所在位置由接口合同「工具返回通道」更正为「思考回传」的 tool 消息键表（接口合同把 `errands` 的 `added`、`removed` 登记在那张表里）。其余按该规格修订的各条与最终代码核对一致，条款正文不改 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 DC8，按 `d8a41d3` 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时写错而此时补正一处：「同秒续接与只读路径」`changes` 的键闭集所在位置由接口合同「工具返回通道」更正为「思考回传」的 tool 消息键表（接口合同把 `errands` 的 `added`、`removed` 登记在那张表里）。其余按该规格修订的各条与最终代码核对一致，条款正文不改 |
 
+<a name="spec-decision-context-当日目标边界"></a>
 ## 当日目标边界
 
-当日目标由零点计划生成，人物只可修订未推进目标及其提醒，遵循 [当日目标规格](SPEC-day-plan-goals.md)；
+当日目标由零点计划生成，人物只可修订未推进目标及其提醒，遵循 [当日目标规格](SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格)；
 实际进展只来自已结算活动。

@@ -1,4 +1,4 @@
-"""@brief 就寝反思经唯一严格工具提交的验收证据（docs/dev/SPEC-errands-workday.md 1.1，裁决 R1、R2）。
+"""@brief 就寝反思经唯一严格工具提交的验收证据（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交，裁决 R1、R2）。
 
 三类证据：
 
@@ -20,6 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from scripts.documentation_refs import section_text
+
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
@@ -33,7 +35,8 @@ from custom.agents.life_reflection import (REFLECTION_PROMPT, REFLECTION_VALIDAT
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _MultipleModelResponse, _TextResponse
 from tests.integration.test_verified_memory import _TIME, _concluded, _runtime
-from tests.life.conftest import context, engine_factory, stage_day_plan
+from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
 from tests.life.test_memory_evidence import _started, _until_ended
 from worldmock.errors import ProtocolError
 from worldmock.life.day_planning import PLAN_DAY_VALIDATION_RETRIES
@@ -372,15 +375,14 @@ async def test_runtime_makes_no_model_call_when_there_is_nothing_to_reflect_on(t
 
 def _first_text_block(document: Path, lead: str) -> str:
     """文档里某个引导句之后的第一个 text 代码块。"""
-    text = document.read_text(encoding="utf-8")
+    text = section_text(document.read_text(encoding="utf-8"), "contracts-model-request")
     block = re.search(r"```text\n(.*?)\n```", text.split(lead, 1)[1], flags=re.DOTALL)
     assert block is not None
     return block.group(1)
 
 
 #: 规格 3.3 节的标题：其后第一个 text 块是阶段 2 追加在反思文案末尾的两句。
-_ERRAND_LEAD = "### 3.3 就寝反思文案补句"
-#: 阶段 2 追加的两句（docs/dev/SPEC-errands-workday.md 3.3），在文案里是不折行的一行。
+#: 阶段 2 追加的两句（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-就寝反思文案补句），在文案里是不折行的一行。
 _ERRAND_SENTENCES = ("Reflection does not register, finish or cancel errands. The supplied episodes are the person's "
                      "own notes, not verified results; do not state as a fact that something was obtained, eaten or "
                      "finished.")
@@ -389,7 +391,7 @@ _ERRAND_SENTENCES = ("Reflection does not register, finish or cancel errands. Th
 @pytest.mark.asyncio
 async def test_reflection_prompt_is_the_contract_text(tmp_path) -> None:
     """反思的 system 文案由 WorldMock 自持：经记忆运行时实际发出的 system、模块常量与接口合同「请求组成」的登记块三者
-    逐字相同，也就是规格 1.1 的文本块之后空一行接 3.3 的补句（docs/dev/SPEC-errands-workday.md 3.3，阶段 2 追加）；
+    逐字相同，由唯一合同登记完整正文与补句（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-就寝反思文案补句，阶段 2 追加）；
     文案写的 one to five 与 AS2 的条数上限常量绑在一起（常量变而文案不变即失败）。"""
     script = _ReflectionScript(_valid)
     runtime, _ = _runtime(tmp_path, script)
@@ -399,8 +401,6 @@ async def test_reflection_prompt_is_the_contract_text(tmp_path) -> None:
     contract = _first_text_block(ROOT / "docs" / "CONTRACTS.md", "就寝反思的 system 文案（逐字）：")
     assert request["messages"][0] == {"role": "system", "content": REFLECTION_PROMPT}
     assert request["messages"][0]["content"] == REFLECTION_PROMPT == contract
-    spec = ROOT / "docs" / "dev" / "SPEC-errands-workday.md"
-    assert REFLECTION_PROMPT == _first_text_block(spec, "**文案。**") + "\n\n" + _first_text_block(spec, _ERRAND_LEAD)
     assert "Call submit_reflection exactly once with one to five insights." in REFLECTION_PROMPT
     assert MEMORY_REFLECTION_MAX_INSIGHTS == 5
     assert [line for line in REFLECTION_PROMPT.splitlines() if line[:2] in {"1.", "2.", "3."}] == [
@@ -412,7 +412,7 @@ async def test_reflection_prompt_is_the_contract_text(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_reflection_prompt_ends_with_the_errand_sentences(tmp_path) -> None:
-    """就寝反思文案的补句（docs/dev/SPEC-errands-workday.md 3.3，按裁决 Q1 的写法）：经真实记忆运行时在就寝边界实际发出
+    """就寝反思文案的补句（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-就寝反思文案补句，按裁决 Q1 的写法）：经真实记忆运行时在就寝边界实际发出
     的 system 以空一行接两句结尾——反思不记下、不办成也不取消个人事务；输入的记忆是人物自己的记录、不是核验过的结果，
     不把取得、吃掉或办完写成事实。两句是不折行的一行，与规格 3.3 的文本块逐字相同；它前面逐行就是阶段 1 的文案（规格
     1.1 的文本块，原有各行不重新折行）；接口合同「请求组成」的登记块以同样的空行与这一行结尾。补句不借用「已结算」的
@@ -423,11 +423,9 @@ async def test_reflection_prompt_ends_with_the_errand_sentences(tmp_path) -> Non
 
     [request] = script.requests
     lines = request["messages"][0]["content"].splitlines()
-    spec = ROOT / "docs" / "dev" / "SPEC-errands-workday.md"
-    assert lines[-1] == _ERRAND_SENTENCES == _first_text_block(spec, _ERRAND_LEAD)
-    assert lines[-2] == "" and "\n".join(lines[:-2]) == _first_text_block(spec, "**文案。**")
+    assert lines[-1] == _ERRAND_SENTENCES and lines[-2] == ""
     contract = _first_text_block(ROOT / "docs" / "CONTRACTS.md", "就寝反思的 system 文案（逐字）：")
-    assert contract.splitlines()[-2:] == ["", _ERRAND_SENTENCES]
+    assert contract.splitlines() == lines and contract.splitlines()[-2:] == ["", _ERRAND_SENTENCES]
     assert "settle" not in _ERRAND_SENTENCES.lower() and "_" not in _ERRAND_SENTENCES
     assert _ERRAND_SENTENCES.count(". ") == 1 and _ERRAND_SENTENCES.endswith("finished.")
 
@@ -463,13 +461,13 @@ async def _waking_decision(engine_factory, tmp_path, *replies) -> SimpleNamespac
     environment = LifeEnv()
     environment.engine = engine
     await environment.begin_decision_round((decision,))
-    model = _WakingModel(engine.state.activities[slept].name, *replies)
+    model = _WakingModel(engine.context.state.activities[slept].name, *replies)
     workspace = tmp_path / "people" / "agent_0001"
     LifeAgent.create(workspace, {"id": 1, "name": "Person 1", "occupation": "engineer"},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 16})
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
     agent = await LifeAgent.from_workspace(workspace, service)
-    assert type(agent).__module__ == "custom.agents.life_agent"
+    assert type(agent) is LifeAgent
     agent.bind_decision_context(decision)
     return SimpleNamespace(engine=engine, environment=environment, agent=agent, decision=decision,
                            model=model, slept=slept)
@@ -477,7 +475,7 @@ async def _waking_decision(engine_factory, tmp_path, *replies) -> SimpleNamespac
 
 def _decision_events(run: SimpleNamespace, event_type: str) -> list:
     """库里属于醒来那次决策的某类事件（按事件序号）。"""
-    events = run.engine.store.read_events(run.engine.store.last_event_seq)
+    events = run.engine.context.store.read_events(run.engine.context.store.last_event_seq)
     return [event for event in events
             if event.decision_id == run.decision.decision_id and event.event_type == event_type]
 
@@ -541,7 +539,7 @@ async def test_exhausted_reflection_leaves_evidence_but_no_memory_update_in_the_
     assert (result.data["status"], result.data["error_code"]) == ("failed", "DECISION_ROUND_ABORTED")
     assert last_error in result.data["message"]
     assert _decision_events(run, "memory_updated") == []
-    assert run.engine.state.activities[run.slept].concluded_at is None
+    assert run.engine.context.state.activities[run.slept].concluded_at is None
 
 
 @pytest.mark.asyncio
@@ -563,7 +561,7 @@ async def test_corrected_reflection_is_recorded_once_by_the_real_engine(engine_f
         ("reflection", _CORRECTED, "subjective")]
     [result] = await run.environment.commit_decision_round(run.decision.round_id)
     assert result.status == "completed"
-    assert run.engine.state.activities[run.slept].concluded_at is not None
+    assert run.engine.context.state.activities[run.slept].concluded_at is not None
 
 
 def test_reflection_tool_schema_is_inline_strict_and_bound_to_the_host_limit() -> None:
@@ -651,4 +649,3 @@ def test_reflection_retry_bound_is_its_own_constant_with_the_plan_day_value() ->
     """补充证据：反思的校验重试次数另设常量，数值与零点计划的相同（3），本模块不引用零点计划的那一个。"""
     assert REFLECTION_VALIDATION_RETRIES == PLAN_DAY_VALIDATION_RETRIES == 3
     assert not any(name.startswith("PLAN_DAY") for name in vars(life_reflection))
-    assert "day_planning" not in Path(life_reflection.__file__).read_text(encoding="utf-8")

@@ -1,17 +1,18 @@
 """@brief 按实际活动区间结算能量、两过程睡眠、睡眠不足账与娱乐需要。
 
-身体语义按 `docs/dev/SPEC-life-runtime.md`「身体语义：两过程睡眠、睡眠不足账、
+身体语义按 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「身体语义：两过程睡眠、睡眠不足账、
 体感分级」重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
 纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
 曲线输入改为 sleep_deficit_hours（sleep.work_efficiency / food_utilization）。
 娱乐需要在有缓解的活动进行时只按缓解下降、不再累积，共同区间与单活动两条路径以及边界预测同一口径
-（entertainment_need_rate，docs/dev/SPEC-dayrun-fidelity.md 1.2）。
-能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md「事件正文与资源证据」）；社交需要账本（felt.apply_
+（entertainment_need_rate，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
+能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「事件正文与资源证据」）；
+社交需要账本（felt.apply_
 social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
 valence）由引擎在结算边界调用本模块的包装函数驱动。
 
 能量不阻止任何活动：所有活动集合的结算都以 0 截断、不报错；低能量的代价只是饥饿上升与
-工作变慢（docs/dev/SPEC-time-and-energy.md「能量不拦人」）。边界预测对困意与饥饿做同一种
+工作变慢（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。边界预测对困意与饥饿做同一种
 跨档扫描，并把餐时窗口起止列为候选（同规格第八章「节律」）。
 """
 
@@ -37,7 +38,7 @@ from worldmock.resources.models import (
 
 #: 恢复类活动闭集（sleep/wait/consume）——自可供性注册表 kinds.*.energy_floor_exempt 派生。
 #: 只供内部动机评分按能量取舍（maximum_energy_duration_seconds），不代表世界规则：结算对所有活动
-#: 集合都以 0 截断（docs/dev/SPEC-time-and-energy.md「删除的机制」）。
+#: 集合都以 0 截断（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。
 ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
     ActivityKind(name) for name in default_affordances().energy_recovery_kinds)
 
@@ -55,7 +56,8 @@ CATALOG_SLEEP_RESOURCE = "sleep_debt_hours"
 BODY_FLOW_OWNER = "body"
 BODY_FLOW_OCCURRED_AT = 0
 
-#: 自上次 last_flows() 调用以来结算产生的分录证据流（docs/design/05-recording-engine.md「事件正文与资源证据」）。
+#: 自上次 last_flows()
+#: 调用以来结算产生的分录证据流（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「事件正文与资源证据」）。
 _flow_buffer: list[FlowEntry] = []
 
 
@@ -118,7 +120,7 @@ class ActivityFactors:
 
 
 #: 困意与饥饿跨档扫描的最大步长与扫描上限（秒）；步点变档后在该步内二分到整秒
-#: （docs/dev/SPEC-time-and-energy.md 第八章「节律」）。
+#: （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「节律」）。
 FELT_SCAN_STEP_SECONDS = 900
 FELT_SCAN_HORIZON_SECONDS = 86_400
 
@@ -194,7 +196,7 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
     """@brief 一个人物真实区间只结算一次基础消耗，运动负荷取最大值。
 
     消耗超过余额时能量以 0 截断：任何活动集合都照常结算，不因透支报错
-    （docs/dev/SPEC-time-and-energy.md「删除的机制」）。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。
     """
     if seconds < 0:
         raise ValueError("settlement duration cannot be negative")
@@ -225,7 +227,7 @@ def entertainment_need_rate(relief_per_hour: float, config: BodyConfig) -> float
     """@brief 清醒区间娱乐需要的每小时净变化，两条结算路径与动机评分共用同一口径。
 
     有缓解的活动进行时只按缓解下降、不再累积清醒增长；没有缓解时按清醒速率累积
-    （docs/dev/SPEC-dayrun-fidelity.md 1.2「累积口径统一为有缓解的活动进行时不再累积娱乐需要」）。
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 「累积口径统一为有缓解的活动进行时不再累积娱乐需要」）。
     睡眠区间不走本函数：娱乐需要在睡眠中不变。
     """
     if relief_per_hour > 0:
@@ -294,7 +296,7 @@ def maximum_energy_duration_seconds(
     """@brief 以同一完整成本函数求当前能量能够覆盖的最大整数墙钟秒数。
 
     只供内部动机评分（motivation_internal）按能量取舍；恢复类活动不受能量限制。
-    受理、结算与恢复都不调用本函数（docs/dev/SPEC-time-and-energy.md「删除的机制」）。
+    受理、结算与恢复都不调用本函数（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。
     """
     if energy_kcal < 0:
         raise ValueError("available energy cannot be negative")
@@ -346,7 +348,7 @@ def initial_body(config: BodyConfig, hour_of_day: float,
                  neuroticism_norm: float = 0.0) -> BodyState:
     """@brief 构造场景起点身体：初始睡眠不足账与按作息反推的初始 sleep_pressure。
 
-    experiment_assumption（docs/dev/SPEC-time-and-energy.md「作息初值」）：人物自起点之前最近一次惯常
+    experiment_assumption（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「作息初值」）：人物自起点之前最近一次惯常
     起床时刻 t_wake = (chronotype_midsleep + sleep_need_hours / 2) mod 24 起一直清醒。起床时刻的压力取
     睡满一个睡眠需要量后的衰减值（sleep.initial_sleep_pressure），此后按清醒过程推进到起点；不读
     bedtime_window，不预置任何活动。起点落在惯常睡眠时段内或接近它时，人物以困倦状态开始。
@@ -370,8 +372,8 @@ def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: Body
 
     能量阈值为饥饿、紧急阈值与 felt.APPETITE_STARVING_KCAL（800、400、100 kcal）；困意与饥饿从当前状态
     做跨档扫描（升档、降档都给候选），午餐、晚餐窗口的起止是候选，娱乐按与结算同一口径的净速率、社交按清醒增长速率
-    求下一档（有缓解的活动进行时娱乐需要不累积，不给升档候选，docs/dev/SPEC-dayrun-fidelity.md 1.2）；
-    效率曲线沿用 sleep_deficit_hours 轴上的节点（docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、
+    求下一档（有缓解的活动进行时娱乐需要不累积，不给升档候选，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）；
+    效率曲线沿用 sleep_deficit_hours 轴上的节点（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第三章「让人物趁早吃」、
     第八章「节律」）。clock 为 None 或睡眠时跳过依赖时刻的体感候选（娱乐需要在睡眠中不增长）。
     """
     actual = factors or ActivityFactors(config.activity_met[kind.value])
@@ -393,7 +395,7 @@ def next_shared_body_boundary_seconds(body: BodyState,
     """@brief 以实际共同结算的最大 MET 和合并效果预测下一个身体边界。
 
     交谈、通话照常预测（调用方按 CHAT_MET、CALL_MET 给出系数）；游戏按回合、睡眠按睡眠允许原因处理，
-    不另做预测（docs/dev/SPEC-time-and-energy.md「让人物趁早吃」）。
+    不另做预测（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「让人物趁早吃」）。
     """
     if any(kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME} for kind, _ in activities):
         return None
@@ -473,7 +475,7 @@ def _first_band_change(level_at: Callable[[int], str], breakpoints: Sequence[int
 
     breakpoints 是分级可能跳变的时刻（距现在的整秒）：跳变前一秒与跳变那一秒也作步点，二分区间不跨跳变，
     跳变之前刚发生、又被跳变抵消的跨档也能扫到。升档、降档都算变化；扫描范围内分级不变时没有候选
-    （docs/dev/SPEC-time-and-energy.md 第八章「节律」）。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「节律」）。
     """
     current = level_at(0)
     previous = 0
@@ -511,7 +513,7 @@ def _need_band_boundaries(projection: _FeltProjection) -> list[int]:
     """@brief 娱乐与社交需要到达更高一档的整秒。
 
     娱乐取与两条结算路径同一口径的净速率 entertainment_need_rate：有缓解的活动（观看、游戏、带缓解的生活活动）
-    进行时只按缓解下降、不再累积，没有升档候选；没有缓解时按清醒速率累积（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    进行时只按缓解下降、不再累积，没有升档候选；没有缓解时按清醒速率累积（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
     睡眠中娱乐需要不增长，调用方在睡眠时不做体感预测。社交按清醒增长速率。
     """
     body = projection.body
@@ -563,7 +565,7 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
     """@brief 娱乐需要分录：实际接触计 drain（有缓解时不再累积），其余清醒活动计 source。
 
     与共同区间路径同用 entertainment_need_rate 判定口径，同一活动在两条路径上的净效果相同
-    （docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
 
     :returns: (分录列表, 累积是否触及上限 1 需要钳制)。
     """

@@ -1,4 +1,4 @@
-"""环境层：观察时刻、五项体感分级与所在地点或路程（docs/dev/SPEC-persona-prompt.md「环境层」）。
+"""环境层：观察时刻、五项体感分级与所在地点或路程（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「环境层」）。
 
 体感取现有分级文字、数值不进提示；停留时写地点名与场所类型的中文标签，路程中写路段标签「去<目的地>的路上」与出行方式
 （现行路程中误写出发地）；fixed_rules 是本轮有效菜单排除的动作的可读说法，仓库场景菜单全开时为 []。场所类型标签覆盖
@@ -18,7 +18,7 @@ from worldmock.life.environment_layer import ACTION_PHRASES, PLACE_TYPES, enviro
 from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import iso_time
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 
 def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_factory) -> None:
@@ -30,8 +30,8 @@ def test_stay_writes_the_place_name_type_felt_levels_and_no_fixed_rules(engine_f
     layer = observed["environment_layer"]
     validate_layer(layer)
     levels = observed["body"]["levels"]
-    home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
-    assert layer == {"layer": "环境层", "observed_at": iso_time(engine.state.current_time, engine.scenario.timezone),
+    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
+    assert layer == {"layer": "环境层", "observed_at": iso_time(engine.context.state.current_time, engine.context.scenario.timezone),
                      "body": {key: levels[key] for key in ("appetite", "sleepiness", "entertainment", "social",
                                                            "mood")},
                      "location": {"session_kind": "stay", "name": home, "place_type": "家", "fixed_rules": []},
@@ -53,7 +53,7 @@ def test_transit_names_the_road_to_the_destination_and_the_travel_mode(engine_fa
     advance_next(engine)
     layer = engine.observe(context(engine, f"{way}-road"))["environment_layer"]
     validate_layer(layer)
-    places = {item.location_id: item.name for item in engine.scenario.locations}
+    places = {item.location_id: item.name for item in engine.context.scenario.locations}
     assert layer["location"] == {"session_kind": "transit", "name": f"去{places['office']}的路上",
                                  "place_type": label, "fixed_rules": []}
 
@@ -61,7 +61,7 @@ def test_transit_names_the_road_to_the_destination_and_the_travel_mode(engine_fa
 def test_fixed_rules_name_every_action_the_menu_excludes(engine_factory) -> None:
     """有效菜单只开放出行、等待与睡觉时，fixed_rules 按固定顺序为其余每个动作写一句「这里不能<说法>」。"""
     engine = engine_factory()
-    base = engine._layer_context(engine.state.agents[1], (), [])
+    base = engine.observations._layer_context(engine.context.state.agents[1], (), [])
     narrow = replace(base, menu=InteractionMenu(allowed_actions=("sleep", "travel_to", "wait")))
     layer = environment_layer(narrow, engine.observe(context(engine, "menu"))["body"]["levels"])
     validate_layer(layer)
@@ -82,9 +82,9 @@ def test_place_types_cover_every_scenario_location_kind_and_unknown_kinds_are_de
         kinds |= {item.kind for item in semantics.scenario.locations}
     assert kinds and kinds <= set(PLACE_TYPES)
     engine = engine_factory()
-    base = engine._layer_context(engine.state.agents[1], (), [])
+    base = engine.observations._layer_context(engine.context.state.agents[1], (), [])
     locations = tuple(item.model_copy(update={"kind": "observatory"}) if item.location_id == "home" else item
-                      for item in engine.scenario.locations)
-    broken = replace(base, scenario=engine.scenario.model_copy(update={"locations": locations}))
+                      for item in engine.context.scenario.locations)
+    broken = replace(base, scenario=engine.context.scenario.model_copy(update={"locations": locations}))
     with pytest.raises(IntegrityError, match="place type label"):
         environment_layer(broken, engine.observe(context(engine, "kind"))["body"]["levels"])

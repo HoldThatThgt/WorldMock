@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,14 +43,10 @@ from worldmock.life.body import (
     settle_body,
 )
 from worldmock.life.decision_start import is_action_request, maybe_action_request_start, response_self_note
-from worldmock.life.engine import (
-    LifeEngine,
-    _activity_progress_phrase,
-    _dedupe_revealed_cues,
-    _paused_activity_control,
-    _record_material_reveal,
-    _terminal_action_records,
-)
+from worldmock.life.engine import LifeEngine
+from worldmock.life.activity_evidence import dedupe_revealed_cues, record_material_reveal
+from worldmock.life.action_evidence import _terminal_action_records
+from worldmock.life.world_ops import _activity_progress_phrase, _paused_activity_control
 from worldmock.life.models import (ActionStatus, ActivityKind, ActivityStartParams, ActivityState, ActivityStatus,
                                    ActionResult, ChangeActivityRequest, ConsumeRequest, CounterfactualIntervention,
                                    CurvePoint, deepseek_strict_schema, MeetingMinutes, ModelIdentity, PendingAction,
@@ -57,13 +54,8 @@ from worldmock.life.models import (ActionStatus, ActivityKind, ActivityStartPara
                                    ReviseDayPlanRequest, RunIdentity, SameMomentStage, SendMessageActionRequest,
                                    SubmitWorkActionRequest, WorldState, active_activities)
 from worldmock.life.observe import _recent_meal_counts
-from worldmock.life.scenario import (
-    BodyConfig,
-    LifeScenario,
-    MotivationProfile,
-    parse_scenario_document,
-    load_scenario,
-)
+from worldmock.life.scenario import BodyConfig, LifeScenario, MotivationProfile, parse_scenario_document
+from worldmock.life.world_setup import load_scenario
 from worldmock.footprints.models import EventDraft
 from worldmock.runtime import settle_pending_day_plans
 
@@ -126,15 +118,15 @@ def _act_ready(engine, round_id: str, tool_name: str, request, agent_id: int = 1
 def _commit_staged(engine, staged) -> None:
     """把测试改造过的状态经存储落盘（保持版本连续），再换入引擎。"""
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_state_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _stage_agent(engine, **updates) -> None:
     """改造主角状态并落盘（保留其余世界事实）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(update=updates, deep=True)
     _commit_staged(engine, staged)
 
@@ -200,7 +192,7 @@ def _stage_submission(engine, rejected: bool = False):
     """完成公开工作并登记尚未结算的提交（返回动作标识）。"""
     _at_task_start(engine)
     _complete_required_work(engine)
-    engine._work_reviewer = _AcceptingReviewer(rejected)
+    engine.reviews.reviewer = _AcceptingReviewer(rejected)
     round_id = "cover-submit"
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
@@ -213,7 +205,7 @@ def _stage_submission(engine, rejected: bool = False):
 def _submission_action(engine) -> SubmitWorkActionRequest:
     """@brief 用人物可读任务名称提交测试会议纪要。"""
     original = _paraphrased_submission()
-    observed = engine.store.read_agent_events("observation", 1)[-1].data
+    observed = engine.context.store.read_agent_events("observation", 1)[-1].data
     task = next(row for row in observed["task_bindings"] if row["task_id"] == original.task_id)
     return SubmitWorkActionRequest(
         task_name=task["task_name"], deliverable=original.deliverable)
@@ -275,21 +267,21 @@ def felt_agent(body):
 
 
 def test_felt_values_expose_five_numeric_signals(body_config) -> None:
-    """体感数值组含五项信号，餐时窗口只放大食欲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """体感数值组含五项信号，餐时窗口只放大食欲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
     agent = felt_agent(felt_body(1600, social_need=0.4, mood_valence=0.2))
     plain = projection.felt_values(agent, 22.0)
     in_window = projection.felt_values(agent, 12.5, felt.MealWindows(lunch=(12.0, 13.5)))
     assert set(plain) == {"appetite", "sleepiness", "entertainment_need",
                           "social_need", "mood_valence"}
     assert plain["social_need"] == 0.4 and plain["mood_valence"] == 0.2
-    # 餐时项在窗口内加 0.15（experiment_assumption，docs/dev/SPEC-life-runtime.md「其他体感分级」）
+    # 餐时项在窗口内加 0.15（experiment_assumption，docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）
     assert in_window["appetite"] == pytest.approx(plain["appetite"] + 0.15)
     assert plain["sleepiness"] > 0
 
 
 def test_body_projection_renders_five_band_texts_and_numeric_values(body_config) -> None:
     """观察投影分级/数值两组：分级五项进提示，数值只进事件；低能量按紧急阈值与 100 kcal 两档显示饥饿
-    （docs/dev/SPEC-life-runtime.md「数值与分级的分离」，docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。"""
+    （docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「数值与分级的分离」，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「饥饿在低能量时不失灵」）。"""
     body = felt_body(1600, social_need=0.7, mood_valence=0.5, entertainment_need=0.7)
     levels = projection.body_projection(felt_agent(body), 20.0, body_config)["levels"]
     assert set(levels) == {"appetite", "sleepiness", "entertainment", "social", "mood"}
@@ -402,7 +394,7 @@ def test_world_state_rejects_activity_with_unknown_owner(engine_factory) -> None
     engine = engine_factory()
     started = _act(engine, "owner-wait", "start_activity",
                    start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.activities[started.activity_id] = staged.activities[started.activity_id].model_copy(
         update={"agent_id": 999}, deep=True)
     with pytest.raises(ValidationError, match="identity or owner"):
@@ -632,7 +624,7 @@ def test_schedule_sections_reject_each_invalid_shape(engine_factory) -> None:
                     "undeclared employer account")
     _assert_invalid(_replace(("payrolls", 0, "agent_id"), 99),
                     "unknown agent")
-    source = engine_factory().scenario.supplies[0].source.model_dump(mode="json")
+    source = engine_factory().context.scenario.supplies[0].source.model_dump(mode="json")
     payload = _payload()
     payload["price_changes"] = [{"change_id": "change-x", "supply_id": "supply-ghost",
                                  "price_version": "new-version", "source": source, "amount_fen": 100,
@@ -696,7 +688,7 @@ def test_parse_scenario_document_rejects_missing_invalid_and_mismatched(tmp_path
 
 def _rhythm_inputs(engine, staged, interval: int = 3600):
     """以引擎事实装配节律输入。"""
-    return rhythm.engine_rhythm_inputs(engine, staged, interval)
+    return rhythm.engine_rhythm_inputs(engine.context, staged, interval)
 
 
 def _consume_activity(engine, use_mode: str, activity_id: str = "activity-meal"):
@@ -707,18 +699,18 @@ def _consume_activity(engine, use_mode: str, activity_id: str = "activity-meal")
                              use_mode=use_mode, duration_seconds=600)
     return ActivityState.model_validate(_activity_state(
         activity_id=activity_id, kind=ActivityKind.CONSUME,
-        status=ActivityStatus.ACTIVE, started_at=engine.state.current_time,
-        planned_end_at=engine.state.current_time + 600,
-        last_settled_at=engine.state.current_time,
+        status=ActivityStatus.ACTIVE, started_at=engine.context.state.current_time,
+        planned_end_at=engine.context.state.current_time + 600,
+        last_settled_at=engine.context.state.current_time,
         planned_duration_seconds=600,
         data={"request": request.model_dump(mode="json")}).model_dump())
 
 
 def test_shared_meal_covers_social_accrual_only_for_eat_mode(engine_factory) -> None:
-    """共同在场堂食停止社交需要累积；外带取餐不覆盖（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """共同在场堂食停止社交需要累积；外带取餐不覆盖（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
     engine = engine_factory("multi-person.json")
-    now = engine.state.current_time
-    staged = engine.state.model_copy(deep=True)
+    now = engine.context.state.current_time
+    staged = engine.context.state.model_copy(deep=True)
     staged.activities["activity-meal"] = _consume_activity(engine, "eat")
     staged.agents[1] = staged.agents[1].model_copy(
         update={"current_activity_id": "activity-meal",
@@ -737,11 +729,11 @@ def test_shared_meal_covers_social_accrual_only_for_eat_mode(engine_factory) -> 
 
 
 def test_task_deadline_missed_pulses_negative_mood(engine_factory) -> None:
-    """任务到期未交叠加 −0.4 脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """任务到期未交叠加 −0.4 脉冲（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「其他体感分级」）。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = due
     staged.pending_events = [item for item in staged.pending_events if item.due_at > due]
     staged.agents[1] = staged.agents[1].model_copy(
@@ -756,7 +748,7 @@ def test_task_deadline_missed_pulses_negative_mood(engine_factory) -> None:
 def test_unknown_location_yields_no_opening_or_closing_candidates(engine_factory) -> None:
     """未知地点不产生营业变化唤醒候选。"""
     engine = engine_factory()
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(update={"location_id": "nowhere"}, deep=True)
     inputs = _rhythm_inputs(engine, staged)
     assert rhythm._current_location(staged.agents[1], inputs) is None
@@ -772,47 +764,50 @@ def test_unknown_location_yields_no_opening_or_closing_candidates(engine_factory
 def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> None:
     """收件箱头跳过无场景邮件配置的可见身份。"""
     engine = engine_factory()
-    agent = engine.state.agents[1].model_copy(
+    agent = engine.context.state.agents[1].model_copy(
         update={"visible_message_ids": {"ghost-mail"}}, deep=True)
-    inputs = projection.ProjectionInputs(state=engine.state, scenario=engine.scenario,
+    inputs = projection.ProjectionInputs(state=engine.context.state, scenario=engine.context.scenario,
                                          agent=agent, task_rows=())
     assert projection._inbox_rows(inputs) == []
 
 
 def test_visible_task_rows_keep_overdue_tasks_until_the_end_of_their_day(engine_factory) -> None:
     """未付款的逾期任务保留在可见任务行与工作池中，直到截止当日的本地日结束；次日零点起不再列出
-    （docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「逾期工作从观察和工具中消失」）。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
     next_day = int((task.due_at.replace(hour=0, minute=0, second=0) + timedelta(days=1)).timestamp())
     _stage_agent(engine, visible_task_ids={task.task_id})
-    rows = engine._visible_task_rows(engine.state.agents[1])
+    rows = engine.observations._visible_task_rows(engine.context.state.agents[1])
     assert [row["task_id"] for row in rows] == [task.task_id]
     for moment, listed in ((due + 60, [task.task_id]), (next_day - 1, [task.task_id]), (next_day, [])):
-        staged = engine.state.model_copy(deep=True)
+        staged = engine.context.state.model_copy(deep=True)
         staged.current_time = moment
         staged.pending_events = [item for item in staged.pending_events if item.due_at > moment]
         _commit_staged(engine, staged)
-        agent = engine.state.agents[1]
-        assert [row["task_id"] for row in engine._visible_task_rows(agent)] == listed
-        assert [entry.object_id for entry in engine._task_pool(agent)] == listed
+        agent = engine.context.state.agents[1]
+        assert [row["task_id"] for row in engine.observations._visible_task_rows(agent)] == listed
+        assert [entry.object_id for entry in engine.observations._task_pool(agent)] == listed
 
 
 def test_motivation_internal_returns_none_when_no_candidates(engine_factory, monkeypatch) -> None:
     """动机枚举为空时观察不携带内部动机仪表。"""
     engine = engine_factory()
     monkeypatch.setattr("worldmock.life.observe.evaluate_motivation", lambda *args: [])
-    assert engine._motivation_internal(engine.state.agents[1]) is None
+    assert engine.observations._motivation_internal(engine.context.state.agents[1]) is None
 
 
 def test_activity_summary_foods_row_requires_products(engine_factory) -> None:
     """活动品类计数只在场景声明商品时含 foods 行。"""
     engine = engine_factory()
-    summary = engine._activity_summary(engine.state.agents[1])
+    summary = engine.observations._activity_summary(engine.context.state.agents[1])
     assert "foods" in summary
-    engine.scenario = engine.scenario.model_copy(update={"products": (), "supplies": ()})
-    assert "foods" not in engine._activity_summary(engine.state.agents[1])
+    scenario = engine.context.scenario.model_copy(update={"products": (), "supplies": ()})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
+    engine.context.rules.supplies = {}
+    assert "foods" not in engine.observations._activity_summary(engine.context.state.agents[1])
 
 
 def test_recent_meal_counts_use_actual_settled_consumption() -> None:
@@ -860,7 +855,7 @@ def _exchange(request: dict, phase: str = "request") -> SimpleNamespace:
 def test_only_action_requests_satisfy_the_predicate(request_shape) -> None:
     """带 purpose、思考关闭、没有 start_activity 的请求（零点计划、工作验收、只读问答、记忆巩固、就寝反思）都不是行动请求。
 
-    就寝反思的请求不带 purpose、带工具，但工具唯一为 submit_reflection（docs/dev/SPEC-errands-workday.md 1.1）：无论思考
+    就寝反思的请求不带 purpose、带工具，但工具唯一为 submit_reflection（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：无论思考
     开关怎样，都按工具中没有 start_activity 判为不是行动请求，不产生 decision_started。"""
     assert is_action_request(_ACTION_REQUEST) is True
     assert is_action_request({**_ACTION_REQUEST, "purpose": None}) is True
@@ -918,10 +913,10 @@ def test_begin_decision_round_rejects_double_open_and_bad_contexts(engine_factor
     engine.commit_decision_round("one")
     advance_until_ready(engine)
     first = context(engine, "two-a")
-    second = DecisionContext(engine.state.run_id, "two-b", "decision-two-b-1", 1,
-                             datetime.fromtimestamp(engine.state.current_time,
-                                                    ZoneInfo(engine.scenario.timezone)),
-                             engine.state.version)
+    second = DecisionContext(engine.context.state.run_id, "two-b", "decision-two-b-1", 1,
+                             datetime.fromtimestamp(engine.context.state.current_time,
+                                                    ZoneInfo(engine.context.scenario.timezone)),
+                             engine.context.state.version)
     with pytest.raises(ProtocolError, match="disagree or repeat an agent"):
         engine.begin_decision_round([first, second])
 
@@ -936,7 +931,7 @@ def test_same_round_resubmit_is_idempotent_and_parameter_conflict_fails(engine_f
     first = engine.submit_action(call)
     second = engine.submit_action(call)
     assert second == first
-    assert len(engine._round.pending_actions) == 1
+    assert len(engine.decisions.round.pending_actions) == 1
     changed = start_request(targets=["自己"], actions=["sleep"], ways=["睡觉"])
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(ctx, "same-action", "start_activity", changed))
@@ -954,7 +949,7 @@ async def test_prepare_pending_work_review_rejects_missing_action(engine_factory
         await engine.prepare_pending_work_review("ghost-action")
     # 非工作提交的挂起动作不进入评审（静默返回，不记录评审）。
     await engine.prepare_pending_work_review("action-review-missing")
-    assert all(item.work_review is None for item in engine._round.pending_actions)
+    assert all(item.work_review is None for item in engine.decisions.round.pending_actions)
 
 
 @pytest.mark.parametrize("kind", ["wait", "work"])
@@ -973,8 +968,8 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
         request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
         tool = "start_activity"
     else:
-        task_id = engine.scenario.tasks[0].task_id
-        row = next(item for item in engine._visible_task_rows(engine.state.agents[1])
+        task_id = engine.context.scenario.tasks[0].task_id
+        row = next(item for item in engine.observations._visible_task_rows(engine.context.state.agents[1])
                    if item["task_id"] == task_id)
         request = start_request(
             targets=[f"工作：{row['title']}"], actions=["interact"], ways=["工作"])
@@ -984,7 +979,7 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
     # 在等待（或工作）仍进行时给一次决策机会：播报只针对进行中活动的锚点，等待结束那一秒它已是待收尾。
     wake_by_mail(engine, offset=60)
     advance_until_ready(engine)
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
     round_id = "busy-submit"
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
@@ -992,13 +987,13 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
     call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _submission_action(engine))
     engine.submit_action(call)
     await engine.prepare_pending_work_review(call.action_id)
-    pending = next(item for item in engine._round.pending_actions
+    pending = next(item for item in engine.decisions.round.pending_actions
                    if item.action_id == call.action_id)
     assert (pending.work_review is not None) == (kind == "wait")
     if kind == "work":
-        assert not [event for event in engine.store.read_agent_events("model_request", 1)
+        assert not [event for event in engine.context.store.read_agent_events("model_request", 1)
                     if event.action_id == call.action_id]
-    assert active_activities(engine.state, 1)
+    assert active_activities(engine.context.state, 1)
     engine.abort_decision_round(round_id, "test teardown")
 
 
@@ -1014,14 +1009,14 @@ async def test_prepare_pending_work_review_while_the_wait_awaits_conclusion(engi
     assert started.status == "in_progress"
     wake_by_mail(engine, offset=900)
     for step in range(16):
-        if engine.state.activities[started.activity_id].status != ActivityStatus.ACTIVE:
+        if engine.context.state.activities[started.activity_id].status != ActivityStatus.ACTIVE:
             break
         if engine.scheduling_state().ready_agent_ids:
             _act(engine, f"keep-waiting-{step}", "report_status", report_request(
                 activity_name(engine, started.activity_id), summary="继续等。"))
         else:
             advance_next(engine)
-    waited = engine.state.activities[started.activity_id]
+    waited = engine.context.state.activities[started.activity_id]
     assert waited.status == ActivityStatus.COMPLETED and waited.concluded_at is None
     assert engine.scheduling_state().ready_agent_ids == (1,)
     round_id = "submit-while-pending"
@@ -1031,11 +1026,11 @@ async def test_prepare_pending_work_review_while_the_wait_awaits_conclusion(engi
     call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _submission_action(engine))
     engine.submit_action(call)
     await engine.prepare_pending_work_review(call.action_id)
-    pending = next(item for item in engine._round.pending_actions if item.action_id == call.action_id)
-    assert pending.work_review is None and engine._work_reviewer.calls == 0
+    pending = next(item for item in engine.decisions.round.pending_actions if item.action_id == call.action_id)
+    assert pending.work_review is None and engine.reviews.reviewer.calls == 0
     result = engine.commit_decision_round(round_id)[0]
     assert (result.status, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
-    assert not [event for event in engine.store.read_agent_events("model_request", 1)
+    assert not [event for event in engine.context.store.read_agent_events("model_request", 1)
                 if event.data.get("purpose") == "work_review"]
 
 
@@ -1063,7 +1058,7 @@ def test_abort_decision_round_skips_memory_for_reused_action(engine_factory) -> 
     engine.submit_action(DirectToolCall(ctx, "action-abort-first",
                                         "start_activity", request))
     engine.abort_decision_round("abort-replay", BusinessRuleError("test abort"))
-    stored = engine.state.processed_actions["action-abort-first"]
+    stored = engine.context.state.processed_actions["action-abort-first"]
     assert "result" not in stored.model_dump() or stored.result is None or \
         stored.result.get("error_code") != "DECISION_ROUND_ABORTED"
 
@@ -1103,8 +1098,8 @@ def test_record_memory_update_rejects_invalid_evidence(engine_factory) -> None:
 def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> None:
     """开轮中、决策到期与边界不符的推进均协议拒绝。"""
     engine = engine_factory()
-    zone = ZoneInfo(engine.scenario.timezone)
-    target = datetime.fromtimestamp(engine.state.current_time + 900, zone)
+    zone = ZoneInfo(engine.context.scenario.timezone)
+    target = datetime.fromtimestamp(engine.context.state.current_time + 900, zone)
     with pytest.raises(ProtocolError, match="while an agent decision is due"):
         engine.advance(900, target)
     ctx = context(engine, "advance-guard")
@@ -1117,11 +1112,11 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
         start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     engine.commit_decision_round("advance-guard")
     with pytest.raises(ProtocolError, match="next scheduling boundary"):
-        engine.advance(601, datetime.fromtimestamp(engine.state.current_time + 600, zone))
+        engine.advance(601, datetime.fromtimestamp(engine.context.state.current_time + 600, zone))
 
 
 def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engine_factory) -> None:
-    """时钟边界跳跃守卫（docs/dev/SPEC-as2-integration.md「决策调度改动」、docs/dev/SPEC-life-runtime.md「共享时钟」；Uncle Bob 条款 docs/VERIFICATION.md「源码突变审查」）。
+    """时钟边界跳跃守卫（docs/dev/SPEC-as2-integration.md#spec-as2-integration-特性规格agentsociety-2-集成与改动「决策调度改动」、docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「共享时钟」；Uncle Bob 条款 docs/VERIFICATION.md#verification-worldmock-验收标准「源码突变审查」）。
 
     推进必须同时满足三条：tick 严格为正、t = 上次确认时刻 + tick、且命中
     下一调度边界；不得跨过新开始活动更早的结束边界。本用例瞄准
@@ -1130,7 +1125,7 @@ def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engi
     用例测不到它）。正例：精确推进到边界被接受。
     """
     engine = engine_factory()
-    zone = ZoneInfo(engine.scenario.timezone)
+    zone = ZoneInfo(engine.context.scenario.timezone)
     ctx = context(engine, "boundary-jump")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
@@ -1138,14 +1133,14 @@ def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engi
         ctx, "action-boundary-jump", "start_activity",
         start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     engine.commit_decision_round("boundary-jump")
-    now = engine.state.current_time
-    next_epoch = engine._next_epoch()
+    now = engine.context.state.current_time
+    next_epoch = engine.clock._next_epoch()
     assert next_epoch > now
     with pytest.raises(ProtocolError, match="next scheduling boundary"):
         engine.advance(2 * (next_epoch - now),
                        datetime.fromtimestamp(now + 2 * (next_epoch - now), zone))
     engine.advance(next_epoch - now, datetime.fromtimestamp(next_epoch, zone))
-    assert engine.state.current_time == next_epoch
+    assert engine.context.state.current_time == next_epoch
 
 
 def test_fail_run_rejects_empty_error(engine_factory) -> None:
@@ -1198,16 +1193,16 @@ def test_checkpoint_requires_complete_agent_snapshot_set(engine_factory) -> None
 def test_runtime_identity_validation_rejects_each_mismatch(engine_factory) -> None:
     """运行时身份三查（场景/语料/运行号）各自拒绝。"""
     engine = engine_factory()
-    pristine = engine.state
-    engine.state = pristine.model_copy(update={"scenario_sha256": "0" * 64})
+    pristine = engine.context.state
+    engine.context.state = pristine.model_copy(update={"scenario_sha256": "0" * 64})
     with pytest.raises(IntegrityError, match="scenario identity mismatch"):
-        engine._validate_runtime()
-    engine.state = pristine.model_copy(update={"content_manifest_sha256": "0" * 64})
+        engine.context.validate()
+    engine.context.state = pristine.model_copy(update={"content_manifest_sha256": "0" * 64})
     with pytest.raises(IntegrityError, match="corpus identity mismatch"):
-        engine._validate_runtime()
-    engine.state = pristine.model_copy(update={"run_id": "other-run"})
+        engine.context.validate()
+    engine.context.state = pristine.model_copy(update={"run_id": "other-run"})
     with pytest.raises(IntegrityError, match="run identity mismatch"):
-        engine._validate_runtime()
+        engine.context.validate()
 
 
 def test_run_identity_disagreements_rejected_at_create(tmp_path) -> None:
@@ -1231,21 +1226,21 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     with pytest.raises(ProtocolError, match="AgentSociety2 DecisionContext"):
         engine.begin_decision_round([SimpleNamespace()])
     wrong_run = DecisionContext("other-run", "r", "d-1", 1,
-                                datetime.fromtimestamp(engine.state.current_time,
-                                                       ZoneInfo(engine.scenario.timezone)),
-                                engine.state.version)
+                                datetime.fromtimestamp(engine.context.state.current_time,
+                                                       ZoneInfo(engine.context.scenario.timezone)),
+                                engine.context.state.version)
     with pytest.raises(ProtocolError, match="run or agent is invalid"):
         engine.begin_decision_round([wrong_run])
-    stale = DecisionContext(engine.state.run_id, "r2", "d-2", 1,
-                            datetime.fromtimestamp(engine.state.current_time + 1,
-                                                   ZoneInfo(engine.scenario.timezone)),
-                            engine.state.version)
+    stale = DecisionContext(engine.context.state.run_id, "r2", "d-2", 1,
+                            datetime.fromtimestamp(engine.context.state.current_time + 1,
+                                                   ZoneInfo(engine.context.scenario.timezone)),
+                            engine.context.state.version)
     with pytest.raises(ProtocolError, match="observation time is stale"):
         engine.begin_decision_round([stale])
-    versioned = DecisionContext(engine.state.run_id, "r3", "d-3", 1,
-                                datetime.fromtimestamp(engine.state.current_time,
-                                                       ZoneInfo(engine.scenario.timezone)),
-                                engine.state.version + 5)
+    versioned = DecisionContext(engine.context.state.run_id, "r3", "d-3", 1,
+                                datetime.fromtimestamp(engine.context.state.current_time,
+                                                       ZoneInfo(engine.context.scenario.timezone)),
+                                engine.context.state.version + 5)
     with pytest.raises(ProtocolError, match="world version is stale"):
         engine.begin_decision_round([versioned])
 
@@ -1257,10 +1252,10 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     engine.observe(ctx)
     with pytest.raises(ProtocolError, match="another decision round"):
         engine.submit_action(DirectToolCall(
-            DecisionContext(engine.state.run_id, "other-round", "d-4", 1,
-                            datetime.fromtimestamp(engine.state.current_time,
-                                                   ZoneInfo(engine.scenario.timezone)),
-                            engine.state.version),
+            DecisionContext(engine.context.state.run_id, "other-round", "d-4", 1,
+                            datetime.fromtimestamp(engine.context.state.current_time,
+                                                   ZoneInfo(engine.context.scenario.timezone)),
+                            engine.context.state.version),
             "a-2", "start_activity", request))
     with pytest.raises(ProtocolError, match="does not match its tool"):
         engine.submit_action(DirectToolCall(ctx, "a-3", "start_activity",
@@ -1281,10 +1276,10 @@ def test_submit_work_guards_review_presence_and_identity(engine_factory) -> None
     """未留证与身份不符的提交分别协议拒绝。"""
     engine = engine_factory()
     call = _stage_submission(engine)
-    pending = next(item for item in engine._round.pending_actions
+    pending = next(item for item in engine.decisions.round.pending_actions
                    if item.action_id == call.action_id)
     with pytest.raises(ProtocolError, match="no recorded semantic review"):
-        engine._public_work_review(pending)
+        engine.actions.public_work_review(pending)
     with pytest.raises(ProtocolError, match="no recorded semantic review"):
         engine.commit_decision_round("cover-submit")
     engine.abort_decision_round("cover-submit", "teardown")
@@ -1298,7 +1293,7 @@ def test_submit_work_guards_review_presence_and_identity(engine_factory) -> None
             summary="A different summary entirely.",
             decisions=("Different decision.",),
             action_items=("Different action.",))})
-    engine._round.pending_actions[0] = engine._round.pending_actions[0].model_copy(
+    engine.decisions.round.pending_actions[0] = engine.decisions.round.pending_actions[0].model_copy(
         update={"request": swapped.model_dump(mode="json")})
     with pytest.raises(ProtocolError, match="identity disagrees"):
         engine.commit_decision_round("cover-submit")
@@ -1309,10 +1304,10 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     engine = engine_factory()
     _at_task_start(engine)
     _complete_required_work(engine)
-    limit = engine.scenario.max_same_moment_decisions
-    assert not active_activities(engine.state, 1)
+    limit = engine.context.scenario.max_same_moment_decisions
+    assert not active_activities(engine.context.state, 1)
     _stage_agent(engine, same_moment_rounds=limit - 1)
-    engine._work_reviewer = _AcceptingReviewer(rejected=True)
+    engine.reviews.reviewer = _AcceptingReviewer(rejected=True)
     round_id = "rework-limit"
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
@@ -1327,9 +1322,9 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     assert result.message == result.data["reason"] == "The submitted work needs revision before acceptance."
     assert result.data["same_moment_round"] == limit
     assert result.data["max_same_moment_decisions"] == limit
-    assert result.data["next_decision_at"] == engine.state.current_time
-    agent = engine.state.agents[1]
-    assert agent.next_decision_at == engine.state.current_time
+    assert result.data["next_decision_at"] == engine.context.state.current_time
+    agent = engine.context.state.agents[1]
+    assert agent.next_decision_at == engine.context.state.current_time
     assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME
     assert agent.pending_wake_reasons == ["rejection_feedback", "no_active_activity"]
 
@@ -1345,7 +1340,7 @@ def test_boundary_action_requires_owned_current_activity(engine_factory) -> None
     from tests.life.conftest import stage_day_plan
 
     engine = engine_factory("multi-person.json")
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     _, results = submit_round(engine, {
         1: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"])),
@@ -1360,25 +1355,25 @@ def test_boundary_action_requires_owned_current_activity(engine_factory) -> None
                            pause_request(name, summary="先暂停"))
         assert wrong_owner.status.value == "rejected"
         assert wrong_owner.error_code == "ACTION_REQUEST_INVALID"
-    assert {item.status for item in engine.state.activities.values()} == {ActivityStatus.ACTIVE}
+    assert {item.status for item in engine.context.state.activities.values()} == {ActivityStatus.ACTIVE}
 
 
 def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
     """空闲人物播报、暂停或结束未知活动名都以 ACTION_REQUEST_INVALID 业务拒绝，并在同一秒再决策（第一章规则 2）。"""
     engine = engine_factory()
-    start = engine.state.current_time
+    start = engine.context.state.current_time
     requests = [("report_status", report_request("不存在的活动", summary="还在进行")),
                 ("pause_activity", pause_request("不存在的活动", summary="先暂停")),
                 ("conclude_activity", conclude_request("不存在的活动", summary="已结束"))]
     for index, (tool, request) in enumerate(requests):
         ghost = _act(engine, f"own-missing-{index}", tool, request)
         assert ghost.status.value == "rejected" and ghost.error_code == "ACTION_REQUEST_INVALID"
-        assert engine.state.current_time == start and engine.scheduling_state().ready_agent_ids == (1,)
+        assert engine.context.state.current_time == start and engine.scheduling_state().ready_agent_ids == (1,)
 
 
 @pytest.mark.parametrize("existing", [False, True])
 def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing) -> None:
-    """指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」，裁决 #19）：不存在的名称以 SUPPLY_NOT_FOUND 拒绝，
+    """指名购买（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「指名购买」，裁决 #19）：不存在的名称以 SUPPLY_NOT_FOUND 拒绝，
     世界不变；真实存在但未呈现、没有可见凭据的供给按标签到店购买，按当前报价结算，库存与持有各变一份。"""
     from tests.life.conftest import stage_day_plan
     from tests.life.test_commerce import _stage_open
@@ -1387,7 +1382,7 @@ def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factor
     engine = engine_factory()
     if existing:
         _stage_open(engine)
-        staged = engine.state.model_copy(deep=True)
+        staged = engine.context.state.model_copy(deep=True)
         for agent in staged.agents.values():
             agent.body_settled_at = staged.current_time
         staged.agents[1].location_id = "market"
@@ -1398,21 +1393,21 @@ def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factor
     engine.observe(ctx)
     object_name, way = "不存在的供给", "远程下单"
     if existing:
-        shown = set(engine._pending_visible_supplies[1])
-        discovery = engine._discovery_context(engine.state.agents[1])
-        hidden = [row for supply in engine.scenario.supplies if supply.location_id == "market"
+        shown = set(engine.observations.pending_visible_supplies[1])
+        discovery = engine.observations._discovery_context(engine.context.state.agents[1])
+        hidden = [row for supply in engine.context.scenario.supplies if supply.location_id == "market"
                   for row in [supply_row(discovery, supply)]
                   if row["supply_id"] not in shown and row["purchase_allowed"] and row["pickup_allowed"]
-                  and row["purchase_price_fen"] <= engine.state.accounts["agent:1"]]
+                  and row["purchase_price_fen"] <= engine.context.state.accounts["agent:1"]]
         assert shown and hidden
-        supply = next(item for item in engine.scenario.supplies
+        supply = next(item for item in engine.context.scenario.supplies
                       if item.supply_id == hidden[0]["supply_id"])
-        product = next(item for item in engine.scenario.products
+        product = next(item for item in engine.context.scenario.products
                        if item.product_id == supply.product_id)
-        place = next(item for item in engine.scenario.locations
+        place = next(item for item in engine.context.scenario.locations
                      if item.location_id == supply.location_id)
         object_name, way = f"{place.name}出售的{product.name}", "到店"
-    before = engine.state.model_copy(deep=True)
+    before = engine.context.state.model_copy(deep=True)
     request = start_request(targets=[object_name], actions=["obtain"], ways=[way])
     engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "start_activity", request))
     result = engine.commit_decision_round("buy-invisible")[0]
@@ -1420,17 +1415,17 @@ def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factor
         assert (result.status.value, result.error_code) == ("completed", None)
         [order] = result.data["orders"]
         assert (order["supply_id"], order["total_price_fen"]) == (supply.supply_id, hidden[0]["purchase_price_fen"])
-        assert engine.state.supply_stock[supply.supply_id] == before.supply_stock[supply.supply_id] - 1
-        assert engine.state.agents[1].inventory["market"][supply.product_id] == (
+        assert engine.context.state.supply_stock[supply.supply_id] == before.supply_stock[supply.supply_id] - 1
+        assert engine.context.state.agents[1].inventory["market"][supply.product_id] == (
             before.agents[1].inventory.get("market", {}).get(supply.product_id, 0) + 1)
-        assert engine.state.accounts["agent:1"] == before.accounts["agent:1"] - hidden[0]["purchase_price_fen"]
+        assert engine.context.state.accounts["agent:1"] == before.accounts["agent:1"] - hidden[0]["purchase_price_fen"]
         return
     assert (result.status.value, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    assert engine.state.accounts == before.accounts
-    assert engine.state.supply_stock == before.supply_stock
-    assert engine.state.agents[1].inventory == before.agents[1].inventory
-    assert engine.state.deliveries == before.deliveries
-    assert engine.state.pending_events == before.pending_events
+    assert engine.context.state.accounts == before.accounts
+    assert engine.context.state.supply_stock == before.supply_stock
+    assert engine.context.state.agents[1].inventory == before.agents[1].inventory
+    assert engine.context.state.deliveries == before.deliveries
+    assert engine.context.state.pending_events == before.pending_events
 
 
 def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
@@ -1445,7 +1440,7 @@ def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
     环境严格边界拒绝：人物修订为 ACTION_REQUEST_INVALID，系统入口为协议错误且不落盘（第四章）。"""
     engine = engine_factory()
     assert settle_day_plans(engine)[0]["goals"] == 0
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
         update={"pending_wake_reasons": ["wake_from_sleep"],
                 "next_decision_at": staged.current_time}, deep=True)
@@ -1459,14 +1454,14 @@ def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
     invalid = _act(engine, "revise-invalid", "revise_day_plan", forged)
     assert invalid.status.value == "rejected"
     assert invalid.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.agents[1].day_plan.goals == ()
+    assert engine.context.state.agents[1].day_plan.goals == ()
 
     fresh = engine_factory()
-    committed = fresh.store.last_event_seq
+    committed = fresh.context.store.last_event_seq
     with pytest.raises(ProtocolError, match="Generated day plan is invalid"):
         fresh.register_day_plan(1, PlanDayRequest.model_construct(goals=(invalid_goal,)), [], [])
-    assert fresh.state.agents[1].day_plan is None and not fresh.state.agents[1].plan_submitted_dates
-    assert fresh.store.last_event_seq == committed
+    assert fresh.context.state.agents[1].day_plan is None and not fresh.context.state.agents[1].plan_submitted_dates
+    assert fresh.context.store.last_event_seq == committed
 
 
 def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
@@ -1488,7 +1483,7 @@ def test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_cont
     assert rejected.error_code == "RECIPIENT_NOT_FOUND"
 
     multi = engine_factory("multi-person.json")
-    contact = next(item for item in multi.scenario.agents[0].contacts if item.contact_id == "contact-chenxi-colleague")
+    contact = next(item for item in multi.context.scenario.agents[0].contacts if item.contact_id == "contact-chenxi-colleague")
     assert contact.reply_policy == "none"
     observed = multi.observe(context(multi, "colleague-preview"))
     colleague = next(row for row in observed["interaction_bindings"]
@@ -1497,12 +1492,12 @@ def test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_cont
                            SendMessageActionRequest(recipient_name=colleague["object"], text="hi"))
     assert delivered.status.value == "completed" and delivered.error_code is None
     assert delivered.data["recipient_id"] == "contact-chenxi-colleague"
-    events = multi.store.read_events(multi.store.last_event_seq)
+    events = multi.context.store.read_events(multi.context.store.last_event_seq)
     assert [event.data["recipient_id"] for event in events if event.data.get("kind") == "message_arrival"
             and event.data.get("message_id") == delivered.data["message_id"]] == ["contact-chenxi-colleague"]
     assert not [event for event in events if event.data.get("kind") == "model_npc_reply_pending"]
-    assert not [item for item in multi.state.pending_events if item.kind == "message_arrival"]
-    assert not multi.state.agents[1].inbox
+    assert not [item for item in multi.context.state.pending_events if item.kind == "message_arrival"]
+    assert not multi.context.state.agents[1].inbox
 
 
 def test_call_rejects_unknown_contact(engine_factory) -> None:
@@ -1517,25 +1512,25 @@ def test_call_rejects_unknown_contact(engine_factory) -> None:
 def test_ready_is_false_after_run_end_and_terminal_action_missing(engine_factory) -> None:
     """运行结束后不再提供决策；缺失原始动作的终态登记失败关闭。"""
     engine = engine_factory()
-    staged = engine.state.model_copy(update={"current_time": engine.state.end_time})
-    engine.state = staged
-    assert engine._ready(1) is False
+    staged = engine.context.state.model_copy(update={"current_time": engine.context.state.end_time})
+    engine.context.state = staged
+    assert engine.clock._ready(1) is False
     result = ActionResult(action_id="ghost-action", agent_id=1,
                           status=ActionStatus.COMPLETED, occurred_at=0,
                           message="test")
     with pytest.raises(ProtocolError, match="origin action is missing"):
-        _terminal_action_records(engine.state, result)
+        _terminal_action_records(engine.context.state, result)
 
 
 def test_dedupe_and_material_and_visibility_helpers_guard_shapes(engine_factory) -> None:
     """字幕去重/材料登记/浏览可见对缺失与畸形数据失败关闭。"""
     engine = engine_factory()
     activity = _activity_state(kind=ActivityKind.WATCH)
-    _dedupe_revealed_cues(activity)  # 无 revealed 数据：直接返回
+    dedupe_revealed_cues(activity)  # 无 revealed 数据：直接返回
     activity.data["revealed"] = {"position_before_seconds": "not-a-number", "cues": []}
-    _dedupe_revealed_cues(activity)  # 形畸形：直接返回
-    agent = engine.state.agents[1]
-    unchanged = _record_material_reveal(agent, "", {"start_char": 0, "end_char": 10}, 0)
+    dedupe_revealed_cues(activity)  # 形畸形：直接返回
+    agent = engine.context.state.agents[1]
+    unchanged = record_material_reveal(agent, "", {"start_char": 0, "end_char": 10}, 0)
     assert unchanged is agent
     phrase = _activity_progress_phrase(_activity_state(elapsed_seconds=60,
                                                        planned_duration_seconds=120))
@@ -1565,11 +1560,11 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     hung_up = _act_ready(engine, "chat-cancel", "conclude_activity",
                          conclude_request(activity_name(engine, activity_id), summary="聊完了"))
     assert hung_up.status.value == "completed"
-    activity = engine.state.activities[activity_id]
+    activity = engine.context.state.activities[activity_id]
     assert activity.status == ActivityStatus.CANCELLED
     assert activity.boundary_type == "cancelled" and activity.interruption_reason == "agent_cancelled"
-    assert activity.concluded_at == engine.state.current_time
-    assert not active_activities(engine.state, 1)
+    assert activity.concluded_at == engine.context.state.current_time
+    assert not active_activities(engine.context.state, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -1580,8 +1575,7 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
 def _observed_with_presented(engine, monkeypatch, round_id: str, presented: list[str]):
     """开启单人决策轮并观察；观察数据只带给定的 presented_message_ids（其余观察键与本判定无关）。"""
     stage_day_plan(engine)
-    monkeypatch.setattr(engine, "_observation_data",
-                        lambda agent: {"agent_id": agent.agent_id, "presented_message_ids": list(presented)})
+    monkeypatch.setattr(engine.observations, '_observation_data', lambda agent: {'agent_id': agent.agent_id, 'presented_message_ids': list(presented)})
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     engine.observe(decision)
@@ -1597,11 +1591,11 @@ def test_presented_messages_come_from_the_decision_observation(engine_factory, m
     """已读只取本决策、本秒观察的 presented_message_ids；没有观察（引擎直驱）时什么也没呈现。"""
     engine = engine_factory()
     decision = _observed_with_presented(engine, monkeypatch, "presented", ["message-1", "message-2"])
-    now = engine.state.current_time
-    assert engine._presented_messages(_pending_for(decision, now)) == frozenset({"message-1", "message-2"})
+    now = engine.context.state.current_time
+    assert engine.decisions._presented_messages(_pending_for(decision, now)) == frozenset({"message-1", "message-2"})
     other = SimpleNamespace(agent_id=decision.agent_id, decision_id="decision-without-observation", observed_at=now)
-    assert engine._presented_messages(other) == frozenset()
-    assert engine._presented_messages(_pending_for(decision, now + 1)) == frozenset()
+    assert engine.decisions._presented_messages(other) == frozenset()
+    assert engine.decisions._presented_messages(_pending_for(decision, now + 1)) == frozenset()
 
 
 def test_ambiguous_decision_observation_is_a_protocol_error(engine_factory, monkeypatch) -> None:
@@ -1610,4 +1604,4 @@ def test_ambiguous_decision_observation_is_a_protocol_error(engine_factory, monk
     decision = _observed_with_presented(engine, monkeypatch, "ambiguous", ["message-1"])
     engine.observe(decision)
     with pytest.raises(ProtocolError, match="Decision observation is ambiguous"):
-        engine._presented_messages(_pending_for(decision, engine.state.current_time))
+        engine.decisions._presented_messages(_pending_for(decision, engine.context.state.current_time))

@@ -1,4 +1,4 @@
-"""strict 端点切换（docs/dev/SPEC-dayrun-fidelity.md 7.5 规则 2，裁决 D14、S6；验收台账「strict 端点」）。
+"""strict 端点切换（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-strict-端点  规则 2，裁决 D14、S6；验收台账「strict 端点」）。
 
 模型端点常量是 DeepSeek 的 strict（Beta）端点 https://api.deepseek.com/beta：validate（validate_project 的真实路径，
 进程配置走真实的 _configure_process）核对的阶段身份与写进 AS2 的默认、CODER 端点都是它；将冻结的阶段身份或进程里已导入的
@@ -7,6 +7,7 @@ AS2 配置仍是主站即拒绝。父运行清单冻结在主站的运行，经�
 """
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
 
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.checkpoint import snapshot_directory  # noqa: E402
 from worldmock.footprints.store import FootprintStore  # noqa: E402
 from worldmock.life.run_identity import category_identity  # noqa: E402
-from worldmock.life.semantics import load_runtime_scenario  # noqa: E402
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL  # noqa: E402
 from worldmock.profile.models import HabitSignature, Tastes  # noqa: E402
 from worldmock.runtime import ResumeRequest, _prepare_resume  # noqa: E402
@@ -93,7 +94,7 @@ def test_validate_checks_a_stage_identity_on_the_strict_endpoint(tmp_path, monke
     校验通过并报告两个阶段。"""
     _configure_as(monkeypatch, tmp_path, STRICT_ENDPOINT)
     checked = []
-    original = validation.validate_manifest_stage_identity
+    original = worldmock_run_setup_module.validate_manifest_stage_identity
 
     def spy(manifest=None):
         """记录 validate 核对的阶段身份与此刻 AS2 的两个端点环境变量。"""
@@ -102,16 +103,16 @@ def test_validate_checks_a_stage_identity_on_the_strict_endpoint(tmp_path, monke
                         os.environ["AGENTSOCIETY_CODER_LLM_API_BASE"]))
         return identity
 
-    monkeypatch.setattr(validation, "validate_manifest_stage_identity", spy)
+    monkeypatch.setattr(worldmock_run_setup_module, 'validate_manifest_stage_identity', spy)
     result = validation.validate_project(_validate_root(tmp_path), SCENARIO, persona_compiler=_covered,
                                          coverage_out=tmp_path / "coverage.json")
 
     assert DEEPSEEK_BASE_URL == STRICT_ENDPOINT
     [(manifest, identity, default_base, coder_base)] = checked
-    assert manifest is None and identity == runtime.stage_model_identity()
+    assert manifest is None and identity == worldmock_run_setup_module.stage_model_identity()
     assert identity["base_url"] == STRICT_ENDPOINT and identity["strict"] is True
     assert (default_base, coder_base) == (STRICT_ENDPOINT, STRICT_ENDPOINT)
-    assert runtime._model_identity().base_url == STRICT_ENDPOINT
+    assert worldmock_run_setup_module._model_identity().base_url == STRICT_ENDPOINT
     assert result["valid"] is True
     assert result["model_identity"] == {"stages": ["action", "work_review"], "consistent": True}
 
@@ -125,8 +126,8 @@ def test_validate_refuses_the_main_site(tmp_path, monkeypatch, where: str, error
     真实 _configure_process 在核对阶段身份之前拒绝。"""
     _configure_as(monkeypatch, tmp_path, MAIN_SITE if where == "as2_process" else STRICT_ENDPOINT)
     if where == "stage_identity":
-        current = runtime.stage_model_identity()
-        monkeypatch.setattr(runtime, "stage_model_identity", lambda *_args: {**current, "base_url": MAIN_SITE})
+        current = worldmock_run_setup_module.stage_model_identity()
+        monkeypatch.setattr(worldmock_run_setup_module, 'stage_model_identity', lambda *_args: {**current, 'base_url': MAIN_SITE})
 
     with pytest.raises(error, match=message):
         validation.validate_project(_validate_root(tmp_path), SCENARIO, persona_compiler=_covered,
@@ -137,12 +138,12 @@ def _parent_run(base: Path, base_url: str, *, stage: bool) -> str:
     """在 base/parent 建一个带可恢复检查点的父运行，返回检查点编号：清单的 model_identity（stage 为真时连同阶段身份）
     冻结着给定端点，其余为当前冻结值——即切换端点之前按原端点建立、检查点与清单一致的运行。"""
     semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
-    stage_identity = runtime.stage_model_identity()
+    stage_identity = worldmock_run_setup_module.stage_model_identity()
     if stage:
         stage_identity["base_url"] = base_url
     manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
-                "model_identity": {**runtime._model_identity().model_dump(mode="json"), "base_url": base_url},
-                "stage_model_identity": stage_identity, "code_sha256": runtime.runtime_code_sha256(ROOT),
+                "model_identity": {**worldmock_run_setup_module._model_identity().model_dump(mode="json"), "base_url": base_url},
+                "stage_model_identity": stage_identity, "code_sha256": worldmock_run_setup_module.runtime_code_sha256(ROOT),
                 "scenario_sha256": scenario_sha256, **category_identity(semantics)}
     state = {"version": 0, "current_time": 1767225600}
     parent = FootprintStore.create(base / "parent", manifest, state)

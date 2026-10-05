@@ -24,19 +24,19 @@ from worldmock.life.work import work_start_refusal
 def test_content_duration_matches_tool_layer_named_catalog_and_admission(engine_factory, monkeypatch):
     """同一进度的长内容、续看与不足一分钟重启在三条原入口中采用相同封顶秒数。"""
     engine = engine_factory()
-    original = engine.scenario.contents[0]
-    agent = engine.state.agents[1]
+    original = engine.context.scenario.contents[0]
+    agent = engine.context.state.agents[1]
     for duration, position, expected in ((200_000, 0, 86_400), (200_000, 199_970, 86_400),
                                          (1000, 200, 800), (1000, 970, 1000)):
         item = original.model_copy(update={"duration_seconds": duration})
         agent.content_progress[item.item_id] = ContentProgress(
             item_id=item.item_id, position_seconds=position, exposure_count=1)
-        monkeypatch.setitem(engine.rules.contents, item.item_id, item)
-        scenario = engine.scenario.model_copy(update={"contents": (item,)})
-        context = replace(engine._layer_context(agent, (), []), scenario=scenario)
+        monkeypatch.setitem(engine.context.rules.contents, item.item_id, item)
+        scenario = engine.context.scenario.model_copy(update={"contents": (item,)})
+        context = replace(engine.observations._layer_context(agent, (), []), scenario=scenario)
         binding, action = {"object_id": item.item_id}, {"canonical_action": "watch"}
         listed = _facts_seconds(context, binding, action)
-        accepted = engine._targeted_duration(engine.state, 1, ActivityKind.WATCH, item.item_id)
+        accepted = engine.actions._targeted_duration(engine.context.state, 1, ActivityKind.WATCH, item.item_id)
         assert listed == accepted == expected
         assert _content_rows(context)[0]["note"] == duration_phrase(accepted)
 
@@ -44,14 +44,14 @@ def test_content_duration_matches_tool_layer_named_catalog_and_admission(engine_
 def test_lifestyle_duration_matches_tool_layer_named_catalog_and_admission(engine_factory, monkeypatch):
     """生活活动的按名清单同样说明真实受理上限，而非未封顶的目录典型时长。"""
     engine = engine_factory()
-    item = replace(engine.lifestyle_items[0], typical_duration_minutes=2000)
-    agent = engine.state.agents[1]
-    context = replace(engine._layer_context(agent, (), []), lifestyle_items=(item,))
+    item = replace(engine.context.lifestyle_items[0], typical_duration_minutes=2000)
+    agent = engine.context.state.agents[1]
+    context = replace(engine.observations._layer_context(agent, (), []), lifestyle_items=(item,))
     assert _facts_seconds(context, {"object_id": item.activity_id}, {"canonical_action": "do"}) == 86_400
     assert _lifestyle_rows(context, (item,))[0]["note"] == duration_phrase(86_400)
-    monkeypatch.setattr(engine, "lifestyle_items", (item,))
-    monkeypatch.setattr(engine, "_start", lambda state, pending, params: params)
-    accepted = engine._start_lifestyle_action(engine.state, SimpleNamespace(agent_id=1), item.activity_id)
+    monkeypatch.setattr(engine.context, "lifestyle_items", (item,))
+    monkeypatch.setattr(engine.actions, "_start", lambda state, pending, params: params)
+    accepted = engine.actions._start_lifestyle_action(engine.context.state, SimpleNamespace(agent_id=1), item.activity_id)
     assert accepted.planned_duration_seconds == 86_400
 
 
@@ -61,13 +61,13 @@ def test_consume_duration_limit_matches_listing_and_real_admission(engine_factor
     from worldmock.life.tool_layer import _consume_check
 
     engine = engine_factory()
-    original = next(item for item in engine.scenario.products if "eat" in item.use_modes)
+    original = next(item for item in engine.context.scenario.products if "eat" in item.use_modes)
     product = original.model_copy(update={"use_duration_seconds": seconds, "required_location_id": None})
-    monkeypatch.setitem(engine.rules.items, product.product_id, product)
-    state = engine.state.model_copy(deep=True)
+    monkeypatch.setitem(engine.context.rules.items, product.product_id, product)
+    state = engine.context.state.model_copy(deep=True)
     agent = state.agents[1]
     agent.inventory = {agent.location_id: {product.product_id: 1.0}}
-    context = replace(engine._layer_context(agent, (), []), state=state)
+    context = replace(engine.observations._layer_context(agent, (), []), state=state)
     binding = {"object_id": product.product_id}
     action = {"use_mode": "eat", "label": "食用"}
     pending = SimpleNamespace(agent_id=1, action_id="shared-consume", decision_id="shared-decision",
@@ -77,12 +77,12 @@ def test_consume_duration_limit_matches_listing_and_real_admission(engine_factor
         assert listed is not None
         assert listed.code == "ACTIVITY_DURATION_INVALID"
         with pytest.raises(BusinessRuleError, match="ACTIVITY_DURATION_INVALID"):
-            engine._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
+            engine.actions._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
         assert not state.activities
         assert agent.inventory[agent.location_id][product.product_id] == 1.0
         return
     assert listed is None
-    changed, result = engine._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
+    changed, result = engine.actions._start_consume_action(state, pending, [product.product_id], [{"selected_action": action}])
     activity = changed.activities[result.activity_id]
     assert result.status == "in_progress"
     assert activity.kind == ActivityKind.CONSUME
@@ -105,7 +105,7 @@ def test_declared_sleep_channel_does_not_control_body_sleep_settlement(engine_fa
     monkeypatch.setattr(affordances, "default_affordances", lambda: changed_registry)
     monkeypatch.setattr(body, "default_affordances", lambda: changed_registry)
     monkeypatch.setattr(activities, "_AFFORDANCES", changed_registry)
-    config = engine.scenario.body
+    config = engine.context.scenario.body
     before = BodyState(energy_kcal=1600, sleep_pressure=0.6, sleep_deficit_hours=4, entertainment_need=0.3)
     factors = ActivityFactors(config.activity_met["sleep"])
     for settle in (lambda: settle_body(before, ActivityKind.SLEEP, 3600, config, factors),
@@ -124,21 +124,21 @@ def test_travel_plan_matches_tool_layer_admission_and_engine_validation(engine_f
     from worldmock.life.travel import route_for
 
     engine = engine_factory()
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     monkeypatch.setattr("worldmock.life.travel.route_for", lambda *args: route_for(*args).model_copy(
         update={"duration_seconds": 600}))
-    state = engine.state.model_copy(update={"current_time": engine.state.current_time + 8 * 3600})
-    context = replace(engine._layer_context(agent, (), []), state=state)
+    state = engine.context.state.model_copy(update={"current_time": engine.context.state.current_time + 8 * 3600})
+    context = replace(engine.observations._layer_context(agent, (), []), state=state)
     listed_route, listed_seconds = _route(context, "office", "driving")
-    assert listed_seconds == engine.semantics.travel_planned_seconds("driving", 600, state.current_time) > 600
-    monkeypatch.setattr(engine, "_start", lambda state, pending, params: params)
-    accepted = engine._start_travel_action(state, SimpleNamespace(agent_id=1), "office",
+    assert listed_seconds == engine.context.semantics.travel_planned_seconds("driving", 600, state.current_time) > 600
+    monkeypatch.setattr(engine.actions, "_start", lambda state, pending, params: params)
+    accepted = engine.actions._start_travel_action(state, SimpleNamespace(agent_id=1), "office",
                                            {"selected_action": {"travel_mode": "driving"}})
     assert accepted.planned_duration_seconds == listed_seconds
-    assert engine._travel_start_context(state, agent, accepted)[0] == listed_route
+    assert engine.actions._travel_start_context(state, agent, accepted)[0] == listed_route
     wrong = accepted.model_copy(update={"planned_duration_seconds": listed_seconds + 1})
     with pytest.raises(BusinessRuleError, match="ROUTE_DURATION_MISMATCH"):
-        engine._travel_start_context(state, agent, wrong)
+        engine.actions._travel_start_context(state, agent, wrong)
 
 
 @pytest.mark.parametrize("count", [None, True, False, 0, -1, 1.5, "1"])
@@ -185,13 +185,13 @@ def test_valid_content_rate_matches_preview_and_settlement(count):
 def test_work_refusal_matches_listing_and_admission(engine_factory):
     """截止前不足一分钟的开工拒绝由唯一规则供原工具层与受理层消费。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
-    state = engine.state.model_copy(update={"current_time": int(task.due_at.timestamp()) - 59})
-    context = replace(engine._layer_context(state.agents[1], (), []), state=state)
+    task = engine.context.scenario.tasks[0]
+    state = engine.context.state.model_copy(update={"current_time": int(task.due_at.timestamp()) - 59})
+    context = replace(engine.observations._layer_context(state.agents[1], (), []), state=state)
     expected = work_start_refusal(task, 0, state.current_time)
     assert _work_check(context, {"object_id": task.task_id}, {}) == expected
     with pytest.raises(BusinessRuleError) as caught:
-        engine._targeted_duration(state, 1, ActivityKind.WORK, task.task_id)
+        engine.actions._targeted_duration(state, 1, ActivityKind.WORK, task.task_id)
     assert caught.value.public_reason == expected.reason
     assert caught.value.suggested["next_step"] == expected.next_step
     activity = _running(ActivityKind.WORK, task.task_id, 3600, {}).model_copy(
@@ -252,28 +252,28 @@ def test_mail_headers_match_content_revelation_and_observation(engine_factory):
     from worldmock.life.content import mail_headers, reveal_mail
 
     engine = engine_factory()
-    agent = engine.state.agents[1]
-    message = engine.scenario.messages[0]
-    assert mail_headers(agent, engine.rules.messages) == engine._event_tool_support(agent, ())["messages"] == []
+    agent = engine.context.state.agents[1]
+    message = engine.context.scenario.messages[0]
+    assert mail_headers(agent, engine.context.rules.messages) == engine.observations._event_tool_support(agent, ())["messages"] == []
     delivered = agent.model_copy(update={"visible_message_ids": {message.message_id}}, deep=True)
     expected = [{"message_id": message.message_id, "thread_id": message.thread_id,
                  "subject": message.subject, "read": False}]
-    assert mail_headers(delivered, engine.rules.messages) == expected
-    assert engine._event_tool_support(delivered, ())["messages"] == expected
-    read, revealed = reveal_mail(SimpleNamespace(target_id=message.message_id), delivered, engine.rules.messages)
+    assert mail_headers(delivered, engine.context.rules.messages) == expected
+    assert engine.observations._event_tool_support(delivered, ())["messages"] == expected
+    read, revealed = reveal_mail(SimpleNamespace(target_id=message.message_id), delivered, engine.context.rules.messages)
     expected[0].update(read=True, body=message.body)
     assert revealed["body"] == message.body
-    assert mail_headers(read, engine.rules.messages) == expected
-    assert engine._event_tool_support(read, ())["messages"] == expected
+    assert mail_headers(read, engine.context.rules.messages) == expected
+    assert engine.observations._event_tool_support(read, ())["messages"] == expected
 
 
 def test_contract_templates_match_scenario_loading_and_resource_mapping(engine_factory, monkeypatch):
     """合同模板身份统一变化时，真实加载准入、合同匹配与身体效率参数必须一起消费新对象。"""
-    from worldmock.life import semantics
+    from worldmock.life import world_setup
     from worldmock.life.category_contract import CONTRACT_OBJECT_IDS
 
     engine = engine_factory()
-    objects = dict(engine.semantics.catalog.objects)
+    objects = dict(engine.context.semantics.catalog.objects)
     for kind, object_id in tuple(CONTRACT_OBJECT_IDS.items()):
         original = objects.pop(object_id)
         shared_id = f"shared-{object_id}"
@@ -281,10 +281,10 @@ def test_contract_templates_match_scenario_loading_and_resource_mapping(engine_f
             "object_id": shared_id,
             "attributes": {**original.attributes, "work_notes_multiplier": 1.75}})
         monkeypatch.setitem(CONTRACT_OBJECT_IDS, kind, shared_id)
-    catalog = replace(engine.semantics.catalog, objects=objects)
-    monkeypatch.setattr(semantics, "load_catalog", lambda _path: catalog)
+    catalog = replace(engine.context.semantics.catalog, objects=objects)
+    monkeypatch.setattr(world_setup, "load_catalog", lambda _path: catalog)
     root = Path(__file__).resolve().parents[2]
-    loaded, _ = semantics.load_runtime_scenario(root / "scenarios/white-collar-12-weeks.json", root / "catalog")
+    loaded, _ = world_setup.load_runtime_scenario(root / "scenarios/white-collar-12-weeks.json", root / "catalog")
     referenced = {item.object_id for item in loaded.refs.objects}
     assert {CONTRACT_OBJECT_IDS[task.contract_kind] for task in loaded.scenario.tasks} <= referenced
     assert not {"contract-hourly", "contract-piece", "contract-package"} & referenced

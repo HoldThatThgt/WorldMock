@@ -14,7 +14,7 @@ from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, ROUTINE_INTENT_KIN
 UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 外部约束闭集只保留营业、到达准入、路线与工作可用性；引导性拒绝（ACTIVITY_PRECONDITION_UNMET、
 #: ACTIVITY_CONCLUSION_REQUIRED、SESSION_LIMIT_EXCEEDED）是人物选了带说明的动作，计入 other_rejections
-#: （docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
+#: （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」）。
 EXTERNAL_CONSTRAINT_ERROR_CODES = frozenset({
     "MERCHANT_CLOSED", "MERCHANT_OPENING_UNKNOWN", "LOCATION_ACCESS_DENIED",
     "WORK_TASK_NOT_AVAILABLE", "WORK_SUBMISSION_LATE",
@@ -283,7 +283,8 @@ def _goal_counts(goals: list[dict]) -> dict:
 
 def _goal_summary(goals: list[dict]) -> dict:
     """@brief 推进比例只计非例行意图的目标，按首次登记的清单优先级输出，不从修订后的名次重排历史；例行意图
-    （schedule.ROUTINE_INTENT_KINDS）的目标照常判定与记录，另计一行 routine_goals（docs/dev/SPEC-dayrun-fidelity.md 2.3）。"""
+    （schedule.ROUTINE_INTENT_KINDS）的目标照常判定与记录，另计一行 routine_goals（
+    docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 ）。"""
     counted = [goal for goal in goals if not goal["routine"]]
     priorities = sorted({goal["initial_priority"] for goal in counted})
     return {**_goal_counts(counted), "by_priority": {

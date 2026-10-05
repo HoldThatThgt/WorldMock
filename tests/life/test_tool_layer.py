@@ -1,4 +1,4 @@
-"""工具层与可用性单一来源（docs/dev/SPEC-persona-prompt.md「工具层」、验收台账「可用性」）。
+"""工具层与可用性单一来源（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」、验收台账「可用性」）。
 
 性质测试：在真实引擎状态上，工具层（与待办层）列出的每一项动作与工具（逐项，不按等价类抽样）各在同一份已提交状态的独立
 副本上单独提交一次，互不影响：宿主（绑定真实 LifeEnv 的 LifeAgent，按该副本本轮观察冻结六层与私有绑定）对每一项的本地校验
@@ -12,6 +12,7 @@ validate_react_decisions 都返回空串（列出即可提交），并经宿主�
 """
 
 from __future__ import annotations
+import worldmock.life.engine_context as worldmock_life_engine_context_module
 
 import json
 import shutil
@@ -51,23 +52,23 @@ def _branch(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> LifeEngine
     """已提交状态的独立副本：复制运行目录，复用同一冻结规则目录、生活活动目录与父引擎已校验过的路线与游戏打开新的引擎
     （副本与父运行同一场景、同一内容，校验结论相同）。"""
     target = tmp_path / "branches" / label
-    shutil.copytree(engine.store.run_dir, target)
+    shutil.copytree(engine.context.store.run_dir, target)
     with monkeypatch.context() as patch:
-        patch.setattr(engine_module, "LifeRuleEngine", lambda scenario, root: engine.rules)
-        patch.setattr(engine_module, "load_lifestyle_items", lambda root, met: engine.lifestyle_items)
-        patch.setattr(engine_module, "validate_routes", lambda scenario, root: None)
-        patch.setattr(engine_module, "validate_game", lambda config, root: None)
-        return LifeEngine(engine.semantics, engine.scenario_sha256, engine.corpus_root, FootprintStore(target))
+        patch.setattr(worldmock_life_engine_context_module, 'LifeRuleEngine', lambda scenario, root: engine.context.rules)
+        patch.setattr(worldmock_life_engine_context_module, 'load_lifestyle_items', lambda root, met: engine.context.lifestyle_items)
+        patch.setattr(worldmock_life_engine_context_module, 'validate_routes', lambda scenario, root: None)
+        patch.setattr(worldmock_life_engine_context_module, 'validate_game', lambda config, root: None)
+        return LifeEngine(engine.context.semantics, engine.context.scenario_sha256, engine.context.corpus_root, FootprintStore(target))
 
 
 def _give_recipient(engine: LifeEngine, observed: dict) -> str | None:
     """给予的去向：工具层里此刻能给的人物目标（同处的同世界人物，或收货地点就是人物所在地点的联系人），没有时取第一个
     人物目标（身边没有能给的人，给予标不可用）。"""
-    config = next(item for item in engine.scenario.agents if item.agent_id == 1)
+    config = next(item for item in engine.context.scenario.agents if item.agent_id == 1)
     places = {item.contact_id: item.receive_location_id for item in config.contacts}
     rows = [row for row in observed["interaction_bindings"] if row["kind"] in {"person", "contact"}]
     here = [row["object"] for row in rows
-            if row["kind"] == "person" or places[row["object_id"]] == engine.state.agents[1].location_id]
+            if row["kind"] == "person" or places[row["object_id"]] == engine.context.state.agents[1].location_id]
     return next(iter([*here, *(row["object"] for row in rows)]), None)
 
 
@@ -102,7 +103,7 @@ def _host(engine: LifeEngine, decision, observed: dict) -> LifeAgent:
     """宿主：绑定真实 LifeEnv 与本轮宿主身份的 LifeAgent，按本轮观察冻结六层、菜单、私有绑定与工具面（与 run_react_loop
     开头同一准备）。"""
     person = LifeAgent()
-    name = engine.state.agents[decision.agent_id].name
+    name = engine.context.state.agents[decision.agent_id].name
     person._id, person._name, person._profile = decision.agent_id, name, {"id": decision.agent_id, "name": name}
     environment = LifeEnv()
     environment.engine = engine
@@ -122,7 +123,7 @@ def _submitted(branch: LifeEngine, label: str, listing: list, candidate: tuple, 
     person = _host(branch, decision, observed)
     arguments = _arguments(tool, name, item, recipient)
     assert person.validate_react_decisions([ReactDecision("", tool, arguments, "")], False) == "", candidate
-    branch._work_reviewer = StaticReviewer()
+    branch.reviews.reviewer = StaticReviewer()
     drive(person.dispatch_react_tool(tool, arguments))
     return branch.commit_decision_round(decision.round_id)[0]
 
@@ -141,7 +142,7 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
             result = _submitted(branch, f"{label}-{index}", listing, candidate, recipient)
         finally:
             branch.close()
-            shutil.rmtree(branch.store.run_dir)
+            shutil.rmtree(branch.context.store.run_dir)
         tool, name, item = candidate
         described = (tool, name, item.get("way"), result.error_code, result.data.get("reason"))
         if item["available"]:
@@ -154,9 +155,9 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
 def _commit(engine: LifeEngine, staged, data: dict) -> None:
     """把改写后的世界副本连同一条系统事件经存储提交（版本加一）。"""
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system", data=data)])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def test_every_listed_item_matches_admission_at_run_start(engine_factory, tmp_path, monkeypatch) -> None:
@@ -203,15 +204,15 @@ def test_restricted_round_marks_closed_items_with_the_same_moment_reason(engine_
     """达到同刻上限后的受限轮（只开放开始或恢复）：购买、发消息等不开放的动作标同刻限制原因，与受理一致。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(update={
-        "same_moment_rounds": engine.scenario.max_same_moment_decisions,
+        "same_moment_rounds": engine.context.scenario.max_same_moment_decisions,
         "same_moment_stage": SameMomentStage.START_OR_RESUME}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_restricted_staged"})])
-    engine.state = staged
+    engine.context.state = staged
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "restricted")
     assert "This same-moment stage only accepts its offered action types." in {item["reason"] for item in checked}
 
@@ -236,16 +237,16 @@ def test_road_activity_cannot_be_paused_and_matches_admission(engine_factory, tm
 
 def _stage_holding(engine, place: str, product_id: str) -> None:
     """在指定地点放一份持有物并持久提交。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[1]
     inventory = {key: dict(value) for key, value in agent.inventory.items()}
     inventory.setdefault(place, {})[product_id] = 1.0
     staged.agents[1] = agent.model_copy(update={"inventory": inventory}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_holding_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_factory, tmp_path, monkeypatch) -> None:
@@ -253,7 +254,7 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     恢复标不可用并点名家，结束可用；全部候选与受理一致。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    food = next(item for item in engine.scenario.products if "eat" in item.use_modes)
+    food = next(item for item in engine.context.scenario.products if "eat" in item.use_modes)
     _stage_holding(engine, "home", food.product_id)
     _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "away-wait")
     waiting = results[0].activity_id
@@ -267,7 +268,7 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     assert advance_until_ready(engine)
     submit_round(engine, {1: ("conclude_activity", conclude_request(activity_name(engine, walking[0].activity_id)))},
                  "away-arrive")
-    home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
+    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
     observed = engine.observe(context(engine, "away-seen"))
     eat = target_actions(observed, f"持有物：{food.name}（{home}）")["食用"]
     assert (eat["available"], eat["reason"]) == (False, f"This item is at {home} and must be used there.")
@@ -280,8 +281,7 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
 
 
 def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path) -> None:
-    """名称唯一：两款游戏同名的场景在加载时就被拒绝，原因写明重复的名称与两处来源（docs/dev/SPEC-dayrun-fidelity.md
-    8.1，不再等到运行中途）；绕过加载直接把运行时场景改成同名时，观察投影仍在给出任何绑定之前以 ValueError 失败关闭，
+    """名称唯一：两款游戏同名的场景在加载时就被拒绝，原因写明重复的名称与两处来源（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-场景加载时就该拒绝的问题 ，不再等到运行中途）；绕过加载直接把运行时场景改成同名时，观察投影仍在给出任何绑定之前以 ValueError 失败关闭，
     不让人物用一个名称指向两个对象。"""
     def mutate(document: dict) -> None:
         """第二款游戏改用第一款的名称。"""
@@ -296,13 +296,16 @@ def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path)
     try:
         stage_day_plan(engine)
         # 两款都在本轮游戏窗口里的游戏改成同名（窗口顺序由排序键与轮转决定，改名不改变顺序）。
-        shown = [row["game_id"] for row in engine._menu_windows(engine.state.agents[1])["game"].items
+        shown = [row["game_id"] for row in engine.observations._menu_windows(engine.context.state.agents[1])["game"].items
                  if "game_id" in row]
         assert len(shown) >= 2
-        first = next(game for game in engine.scenario.games if game.game_id == shown[0])
+        first = next(game for game in engine.context.scenario.games if game.game_id == shown[0])
         renamed = tuple(game.model_copy(update={"title": first.title}) if game.game_id == shown[1] else game
-                        for game in engine.scenario.games)
-        engine.scenario = engine.scenario.model_copy(update={"games": renamed})
+                        for game in engine.context.scenario.games)
+        scenario = engine.context.scenario.model_copy(update={"games": renamed})
+        engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+        engine.context.rules.scenario = scenario
+        engine.context.rules.games = {game.game_id: game for game in scenario.games}
         with pytest.raises(ValueError, match="interactive object labels must be unique"):
             engine.observe(context(engine, "repeated-names"))
     finally:
@@ -317,7 +320,7 @@ def test_tool_layer_fails_closed_when_an_activity_takes_a_target_name(engine_fac
     _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "clash-wait")
     waiting = results[0].activity_id
     observed = engine.observe(context(engine, "clash-seen"))
-    layer_context = engine._layer_context(engine.state.agents[1], (), observed["interaction_bindings"])
+    layer_context = engine.observations._layer_context(engine.context.state.agents[1], (), observed["interaction_bindings"])
     assert activity_name(engine, waiting) in tool_targets(observed)
     clashing = {**layer_context.names, "activities": {**layer_context.names["activities"], waiting: "自己"}}
     with pytest.raises(IntegrityError, match="Tool layer target names must be unique"):
@@ -325,14 +328,14 @@ def test_tool_layer_fails_closed_when_an_activity_takes_a_target_name(engine_fac
 
 
 def test_tool_layer_carries_the_callable_index_beside_the_targets(engine_factory) -> None:
-    """工具层 JSON 依次是 layer、targets 与只列名称的可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2）：
+    """工具层 JSON 依次是 layer、targets 与只列名称的可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：
     观察里的索引就是工具层附上的那一份，目标照旧；索引不是目标，不参与目标名称的唯一性判定——索引里写上与目标同名的
     名称，工具层也不失败关闭。"""
     engine = engine_factory()
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "index-beside"))
     assert list(observed["tool_layer"]) == ["layer", "targets", "callable_index"]
-    layer_context = engine._layer_context(engine.state.agents[1], (), observed["interaction_bindings"])
+    layer_context = engine.observations._layer_context(engine.context.state.agents[1], (), observed["interaction_bindings"])
     clashing = {"lifestyle": list(tool_targets(observed)), "contents": [], "goods": []}
     layer = tool_layer(layer_context, clashing)
     assert layer["callable_index"] is clashing and layer["targets"] == observed["tool_layer"]["targets"]
@@ -340,11 +343,11 @@ def test_tool_layer_carries_the_callable_index_beside_the_targets(engine_factory
 
 def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_path, monkeypatch) -> None:
     """正在做这项工作时：任务目标的 submit_work 标不可用「先结束正在做的工作」，工作活动是进行中的活动目标，合同写达标情况；
-    全部候选与受理一致（docs/dev/SPEC-persona-prompt.md 第六章「工时达标与提交状态」）。"""
+    全部候选与受理一致（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「工时达标与提交状态」）。"""
     engine = engine_factory()
     _at_task_start(engine)
     stage_day_plan(engine)
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     target = f"工作：{task.title}"
     submit_round(engine, {1: ("start_activity", start_activity("工作", target))}, "busy-work")
     wake_by_mail(engine, offset=600)
@@ -360,13 +363,13 @@ def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_pat
 def test_driving_marks_messages_and_submission_unavailable_with_the_admission_reason(engine_factory, tmp_path,
                                                                                    monkeypatch) -> None:
     """驾车途中：人物目标的 send_message 与任务目标的 submit_work 标不可用，原因取受理拒绝的原文「Cannot send a message while driving.」
-    「Cannot submit work while driving.」；车上的全部候选单独提交，可用性与受理一致（docs/dev/SPEC-persona-prompt.md「工具层」
+    「Cannot submit work while driving.」；车上的全部候选单独提交，可用性与受理一致（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」
     可用性只有一个来源）。"""
     engine = parallel_admission._engine(engine_factory, location="office", task=True, market=True)
     parallel_admission._driving(engine, "drive")
     observed = engine.observe(context(engine, "drive-seen"))
     assert observed["environment_layer"]["location"]["place_type"] == "驾车"
-    task = f"工作：{engine.scenario.tasks[0].title}"
+    task = f"工作：{engine.context.scenario.tasks[0].title}"
     assert target_tools(observed, task)["submit_work"] == {
         "tool": "submit_work", "available": False, "reason": "Cannot submit work while driving."}
     people = [row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
@@ -380,7 +383,7 @@ def test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admissio
                                                                                          monkeypatch) -> None:
     """17:29:01 同秒暂停的工作距截止不足 60 秒：待办层恢复（report_status）标不可用，原因与开工同一截止约束
     「Less than one minute remains before the deadline; work cannot start.」，结束照常可用；在开始地点、占用无冲突时截止先于占用判定；全部候选与受理一致
-    （docs/dev/SPEC-persona-prompt.md 第六章「开工与恢复使用同一截止约束」）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「开工与恢复使用同一截止约束」）。"""
 
     def mutate(document: dict) -> None:
         """首个任务的截止改为 17:30。"""
@@ -439,8 +442,8 @@ def test_resume_or_conclude_stage_opens_only_resuming_and_ending(engine_factory,
                         if row["kind"] == "content" for action in row["actions"]
                         if action["canonical_action"] == "watch")
     _start_then_pause(engine, "full-watch", start_activity(way, content))
-    _refuse(engine, "full-refused", engine.scenario.max_same_moment_decisions - 1)
-    assert engine.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
+    _refuse(engine, "full-refused", engine.context.scenario.max_same_moment_decisions - 1)
+    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "full")
     assert sorted(item["tool"] for item in checked if item["available"]) == [
         "conclude_activity", "conclude_activity", "report_status", "report_status"]
@@ -457,9 +460,9 @@ def test_conclude_pending_stage_opens_only_the_conclusion(engine_factory, tmp_pa
     _, [waited] = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "only-wait")
     assert advance_until_ready(engine)
     name = activity_name(engine, waited.activity_id)
-    refused = _refuse(engine, "only-refused", engine.scenario.max_same_moment_decisions)
+    refused = _refuse(engine, "only-refused", engine.context.scenario.max_same_moment_decisions)
     assert {item.data["reason"] for item in refused} == {f"Conclude the finished activities {name} first."}
-    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "only")
     assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity"]
     assert {item["reason"] for item in checked if not item["available"]} == {
@@ -469,16 +472,16 @@ def test_conclude_pending_stage_opens_only_the_conclusion(engine_factory, tmp_pa
 def test_conclude_pending_stage_with_two_pending_opens_each_conclusion(engine_factory, tmp_path, monkeypatch) -> None:
     """同刻受限轮「只收尾」有两项待收尾（真实到达：出行与路上的观看一起结束）：两项活动的 conclude_activity 都标可用，
     单独收尾其中一项也被受理（收尾阶段持续到没有待收尾活动），其余每一项都标同刻限制原因；逐项提交与受理一致（「列出即可
-    提交」，docs/dev/SPEC-persona-prompt.md「工具层」）。"""
+    提交」，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     travel_id, watch_id = same_moment_decisions._depart(
         engine, "two-depart", same_moment_decisions._content(engine, "two-depart"))
     same_moment_decisions._finish(engine, travel_id, "two-walk")
     names = [activity_name(engine, travel_id), activity_name(engine, watch_id)]
-    refused = _refuse(engine, "two-refused", engine.scenario.max_same_moment_decisions)
+    refused = _refuse(engine, "two-refused", engine.context.scenario.max_same_moment_decisions)
     assert {item.error_code for item in refused} == {"ACTIVITY_CONCLUSION_REQUIRED"}
-    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
     observed = engine.observe(context(engine, "two-preview"))
     assert [target_tools(observed, name)["conclude_activity"]["available"] for name in names] == [True, True]
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "two")
@@ -490,10 +493,10 @@ def test_conclude_pending_stage_with_two_pending_opens_each_conclusion(engine_fa
 def test_each_store_product_target_carries_its_source_marker_once(engine_factory) -> None:
     """门店商品目标的来源标记（类型、来源引用与事实截止日，取供给声明的来源）写在该目标第一个动作的 note 中，每个目标
     恰好一次，不含内部身份；远程下单的送达估计照写在它自己的 note；持有物与其他目标没有来源标记（地图与门店规格「地点
-    发现与候选呈现」，docs/dev/SPEC-persona-prompt.md 冻结条款修订 #24「来源标记落在工具层商品目标的 note」）。"""
+    发现与候选呈现」，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 冻结条款修订 #24「来源标记落在工具层商品目标的 note」）。"""
     engine = parallel_admission._engine(engine_factory, location="market", market=True)
     observed = engine.observe(context(engine, "source-marker"))
-    supplies = {row["object"]: engine.rules.supplies[row["object_id"]] for row in observed["interaction_bindings"]
+    supplies = {row["object"]: engine.context.rules.supplies[row["object_id"]] for row in observed["interaction_bindings"]
                 if row["kind"] == "supply"}
     targets = tool_targets(observed)
     assert supplies and any("delivery" in supply.fulfillment_modes for supply in supplies.values())
@@ -513,16 +516,16 @@ def test_each_store_product_target_carries_its_source_marker_once(engine_factory
 def _stage_store(engine: LifeEngine) -> dict[str, str]:
     """人物此刻在只能到店取餐、还没开门的饭店里，看过它的餐与集市三件能送到这里的食品（本秒置顶呈现）：其中一件卖完了，
     余额改为最便宜与最贵那两件的价钱之间（余额变动随同一事件记账）。返回 {closed, cheap, sold, dear: 供给身份}。"""
-    state = engine.state
+    state = engine.context.state
 
     def amount(supply) -> int:
         """@brief 按当前报价买一份的付款。"""
-        return engine.semantics.purchase_amount(supply.product_id, current_quote(state, supply.supply_id).price_fen, 1)
+        return engine.context.semantics.purchase_amount(supply.product_id, current_quote(state, supply.supply_id).price_fen, 1)
 
-    closed = next(item for item in engine.scenario.supplies if item.location_id == _CLOSED_AT_TEN)
-    foods = sorted((item for item in engine.scenario.supplies if item.location_id == MARKET
+    closed = next(item for item in engine.context.scenario.supplies if item.location_id == _CLOSED_AT_TEN)
+    foods = sorted((item for item in engine.context.scenario.supplies if item.location_id == MARKET
                     and _CLOSED_AT_TEN in item.delivery_destination_ids
-                    and "eat" in engine.rules.items[item.product_id].use_modes
+                    and "eat" in engine.context.rules.items[item.product_id].use_modes
                     and current_quote(state, item.supply_id) is not None), key=amount)
     chosen = {"closed": closed, "cheap": foods[0], "sold": foods[1], "dear": foods[-1]}
     balance = (amount(foods[0]) + amount(foods[-1])) // 2
@@ -550,14 +553,14 @@ def test_closed_sold_out_and_unaffordable_supplies_are_listed_and_refused_alike(
     chosen = _stage_store(engine)
     observed = engine.observe(context(engine, "store-seen"))
     names = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
-    declared_menu = {item.supply_id for item in engine.scenario.supplies if item.location_id == _CLOSED_AT_TEN}
+    declared_menu = {item.supply_id for item in engine.context.scenario.supplies if item.location_id == _CLOSED_AT_TEN}
     assert set(names) == set(chosen.values()) | declared_menu
 
     def reason(key: str, way: str) -> str | None:
         """@brief 某件供给某种方式的不可用原因。"""
         return target_actions(observed, names[chosen[key]])[way]["reason"]
 
-    market = next(item.name for item in engine.scenario.locations if item.location_id == MARKET)
+    market = next(item.name for item in engine.context.scenario.locations if item.location_id == MARKET)
     assert reason("closed", "到店") == refusal_for_code("MERCHANT_CLOSED").reason
     for key in ("cheap", "sold", "dear"):
         assert reason(key, "到店") == f"到店{names[chosen[key]]} requires presence at {market}."
@@ -597,7 +600,7 @@ def test_overdue_task_stays_listed_and_its_submission_is_refused_alike(tmp_path,
     try:
         work_contracts._stage_office(engine, work_contracts._clock("17:30:01"))
         observed = engine.observe(context(engine, "overdue-seen"))
-        target = tool_targets(observed)[f"工作：{engine.scenario.tasks[0].title}"]
+        target = tool_targets(observed)[f"工作：{engine.context.scenario.tasks[0].title}"]
         assert (target["contract"]["outlook"], target["actions"]) == ("已过截止", [])
         assert target["tools"] == [{"tool": "submit_work", "available": False,
                                    "reason": "The work submission deadline has passed."}]
@@ -613,20 +616,20 @@ def _without_routes(engine: LifeEngine, origin: str, destination: str) -> None:
     routes = tuple(RouteConfig.model_validate({
         **route.model_dump(), "status": "unreachable", "distance_meters": None, "duration_seconds": None,
         "fare_fen": None, "reason": "NoRoute"}) if (route.origin_id, route.destination_id) == (origin, destination)
-        else route for route in engine.scenario.routes)
-    scenario = engine.scenario.model_copy(update={"routes": routes})
-    engine.scenario = scenario
-    engine.semantics = replace(engine.semantics, scenario=scenario)
+        else route for route in engine.context.scenario.routes)
+    scenario = engine.context.scenario.model_copy(update={"routes": routes})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
 
 
 def test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them(engine_factory) -> None:
     """永久不能满足的不列（「工具层」「列出即可提交」）：人物在办公室，到一家饭店没有路线、技能够不上当日任务时，这家饭店与
     这项任务都不是工具层目标，名称不出现在工具层中。此前两者照常列出（饭店有步行与驾车），其余地点目标不受影响。按这两个
-    名称提交时按统一名称解析的分工（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）：任务名不在本轮私有绑定中，宿主以协议
+    名称提交时按统一名称解析的分工（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 4 条）：任务名不在本轮私有绑定中，宿主以协议
     纠错（本轮纠正，不交给环境）；饭店在冻结地点表中，名称成立，宿主放行，没有路线由环境以业务拒绝说明原因。"""
     engine = parallel_admission._engine(engine_factory, location=OFFICE, task=True)
-    restaurant = next(item for item in engine.scenario.locations if item.location_id == _CLOSED_AT_TEN)
-    task = engine.scenario.tasks[0]
+    restaurant = next(item for item in engine.context.scenario.locations if item.location_id == _CLOSED_AT_TEN)
+    task = engine.context.scenario.tasks[0]
     place_name, task_name = f"地点：{restaurant.name}", f"工作：{task.title}"
     before = engine.observe(context(engine, "impossible-before"))
     assert {row["way"] for row in tool_targets(before)[place_name]["actions"]} == {"步行", "驾车"}

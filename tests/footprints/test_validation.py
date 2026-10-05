@@ -1,3 +1,4 @@
+import worldmock.run_setup as worldmock_run_setup_module
 import hashlib
 import json
 import os
@@ -23,7 +24,8 @@ from worldmock.footprints.validation import validate_export
 from worldmock.life.models import StartActivityRequest
 from worldmock.profile.coverage import PersonaCoverageError
 from worldmock.profile.models import HabitSignature, Tastes
-from worldmock.validation import build_coverage_targets, validate_project
+from worldmock.profile.coverage_targets import build_coverage_targets
+from worldmock.validation import validate_project
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = PROJECT_ROOT / "scenarios" / "white-collar-12-weeks.json"
@@ -131,7 +133,7 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
 @pytest.mark.requires_labelkit
 def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypatch):
     """validate 全链路通过：品类准入+任务受理+阶段身份+persona_coverage.json。"""
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     coverage_out = tmp_path / "persona_coverage.json"
     result = validate_project(PROJECT_ROOT, SCENARIO,
                               persona_compiler=_compiler(_covered_card()),
@@ -151,18 +153,17 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypat
 @pytest.mark.requires_labelkit
 def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator(tmp_path, monkeypatch):
     """校验入口与新建、打开、恢复同用 validate_manifest_stage_identity：新运行将冻结的阶段身份含退役的决策自述阶段即拒绝
-    （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。"""
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。"""
     import worldmock.runtime as runtime
     import worldmock.validation as validation_module
 
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
-    retired = runtime.stage_model_identity()
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
+    retired = worldmock_run_setup_module.stage_model_identity()
     retired["stages"]["decision_statement"] = {"thinking": "disabled"}
-    monkeypatch.setattr(runtime, "stage_model_identity", lambda *_args: retired)
+    monkeypatch.setattr(worldmock_run_setup_module, 'stage_model_identity', lambda *_args: retired)
     seen = []
-    original = validation_module.validate_manifest_stage_identity
-    monkeypatch.setattr(validation_module, "validate_manifest_stage_identity",
-                        lambda manifest=None: seen.append(manifest) or original(manifest))
+    original = worldmock_run_setup_module.validate_manifest_stage_identity
+    monkeypatch.setattr(worldmock_run_setup_module, 'validate_manifest_stage_identity', lambda manifest=None: seen.append(manifest) or original(manifest))
 
     with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
         validate_project(PROJECT_ROOT, SCENARIO, persona_compiler=_compiler(_covered_card()),
@@ -173,7 +174,7 @@ def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator
 @pytest.mark.requires_labelkit
 def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch):
     """可执行比例低于 80% 时校验失败并列出缺失项（画像写了世界里没有的东西）。"""
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     uncovered = make_card(
         habits=(HabitSignature(trigger="通勤", response="听播客两集",
                                time_window=make_window(8.0, 9.0)),),
@@ -190,7 +191,7 @@ def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch
 @pytest.mark.requires_labelkit
 def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
     """世界素材品类准入纳入启动前校验：任一违例即拒绝。"""
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     import worldmock.validation as validation_module
 
     class _Violation:
@@ -213,7 +214,7 @@ def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
 def test_build_coverage_targets_derives_from_catalog_and_corpora():
     """覆盖率目标集从 catalog 品类/目录条目确定性派生。"""
     from worldmock.catalog.loader import load_catalog
-    from worldmock.life.scenario import load_scenario
+    from worldmock.life.world_setup import load_scenario
 
     scenario = load_scenario(SCENARIO)[0]
     targets = build_coverage_targets(scenario, load_catalog(PROJECT_ROOT / "catalog"),

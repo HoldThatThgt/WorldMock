@@ -1,6 +1,7 @@
 """@brief 加载并准入冻结地图文件、路线证据及场景选择范围。"""
 
 from __future__ import annotations
+from worldmock.life.readable import PLACE_TYPES
 
 from worldmock.corpora.manifest import safe_file
 import hashlib
@@ -185,7 +186,6 @@ def runtime_location(location: LocationConfig) -> LocationConfig:
 
 def _validate_assignment_locations(dataset: MapDataset) -> None:
     """@brief 每种地点类型包括空集合都须显式声明，每个售卖地点须恰有一份商品声明。"""
-    from worldmock.life.readable import PLACE_TYPES
 
     assignment = dataset.category_assignment
     kinds = {item.kind for item in dataset.locations} | set(PLACE_TYPES)

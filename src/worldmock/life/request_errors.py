@@ -1,6 +1,8 @@
 """@brief 宿主与环境从严格请求校验错误产生同一完整参数合同。"""
 
 from __future__ import annotations
+from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
+from worldmock.life.vocabulary import way_options
 
 import logging
 from collections.abc import Mapping, Sequence
@@ -93,8 +95,6 @@ def _allowed(schema: dict) -> list[Any]:
 
 def _purchase_preferences(arguments: dict) -> list[Any]:
     """@brief 活动方式合法后精确返回购买或非购买偏好闭集。"""
-    from worldmock.life.interaction_menu import NAMED_PURCHASE_WAYS
-    from worldmock.life.name_resolution import way_options
 
     rows = arguments.get("items")
     if not isinstance(rows, list) or not rows:

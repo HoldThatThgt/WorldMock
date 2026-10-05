@@ -33,7 +33,7 @@ def menu_action_error(menu: InteractionMenu, action: str, canonical_actions: Seq
     """@brief 在本地校验与直接派发边界复用一次冻结菜单。
 
     地点菜单只剪裁 start_activity 各项映射后的内部标准动作，其余稳定工具恒可调用
-    （docs/dev/SPEC-agent-interaction.md「保护项修订」）；映射取本轮私有绑定，不按短语反解。
+    （docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「保护项修订」）；映射取本轮私有绑定，不按短语反解。
 
     @param canonical_actions start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空）。
     @return 允许时为空字符串，禁止时为英文协议错误。

@@ -11,8 +11,9 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
-from worldmock.life.scenario import LifeScenario, load_scenario
-from worldmock.runtime import _agent_specs
+from worldmock.life.scenario import LifeScenario
+from worldmock.life.world_setup import load_scenario
+from worldmock.run_setup import _agent_specs
 
 
 SCENARIO = Path(__file__).resolve().parents[2] / 'scenarios/white-collar-12-weeks.json'
@@ -20,7 +21,7 @@ TRAITS = ('trait_source_kind',)
 
 
 def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer():
-    """冻结人物以人设层进入 user（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：身份取自结构化卡片，卡片关系在前、
+    """冻结人物以人设层进入 user（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「人设层」）：身份取自结构化卡片，卡片关系在前、
     对不上的场景联系人随后（亲密度 null、渠道为空）；卡片渲染文本、当下处境与画像元字段都不进提示；系统层没有身份前言。"""
     from tests.integration.test_life_agent_protocol import _observations
     from tests.profile.conftest import make_card
@@ -63,7 +64,7 @@ def test_persona_traits_cannot_be_silently_omitted(field):
 @pytest.mark.parametrize('field', ('occupation', 'routine_preference',
                                    'consumption_preference', 'risk_preference'))
 def test_deleted_template_fields_stay_out_of_documents(field):
-    """docs/dev/SPEC-life-realism.md「画像编译」：四个模板字段删除；文档中再次出现即被封闭模型拒绝。"""
+    """docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：四个模板字段删除；文档中再次出现即被封闭模型拒绝。"""
     value = json.loads(SCENARIO.read_text(encoding='utf-8'))
     value['agents'][0][field] = 'legacy'
     with pytest.raises(ValidationError):

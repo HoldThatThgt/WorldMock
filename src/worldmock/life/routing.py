@@ -1,6 +1,8 @@
 """@brief 逐项活动来源、本人或实名收货人及消息关联的统一纯校验。"""
 
 from __future__ import annotations
+from worldmock.life.vocabulary import way_options, way_verb
+from worldmock.life.object_labels import names_store, written_place
 
 import logging
 from collections.abc import Mapping
@@ -8,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life.interaction_menu import GIVE_WAY
+from worldmock.life.vocabulary import GIVE_WAY
 
 _INVALID = "ACTION_REQUEST_INVALID"
 RECIPIENT_NOT_FOUND = "RECIPIENT_NOT_FOUND"
@@ -113,7 +115,6 @@ def _issue(index: int | None, field: str, written: Any, reason: str, allowed: tu
 
 def _item_errors(index: int, item: Any, names: RoutingNames) -> list[RouteIssue]:
     """@brief 非购买来源必须 null，非转移去向必须 null，给予须实名他人。"""
-    from worldmock.life.name_resolution import way_options, way_verb
 
     verb, options = way_verb(item.way), way_options(item.way)
     purchase = verb == "obtain" and "制作" not in options
@@ -140,7 +141,6 @@ def _item_errors(index: int, item: Any, names: RoutingNames) -> list[RouteIssue]
 
 def _other_place(label: str, source: str, names: RoutingNames) -> bool:
     """@brief 目标门店与明确来源地点是否冲突。"""
-    from worldmock.life.name_resolution import names_store, written_place
 
     place = written_place(source, names.places, names.home)
     return place is not None and not names_store(label, place)

@@ -1,6 +1,6 @@
 """@brief 社交最小可行版的纯函数域：在场可见、消息、交谈、通话与联系人回复。
 
-`docs/dev/SPEC-life-runtime.md`「社交最小可行版」的域校验、可见性投影与
+`docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「社交最小可行版」的域校验、可见性投影与
 记录结构。本模块只产出结构与判定，不写足迹库、
 不调用模型、不结算资源；登记投递与独立模型调用由引擎层接线完成。
 可见性闭集（「社交最小可行版」）：他人观察只暴露姓名、活动家族与可交谈状态，
@@ -38,10 +38,10 @@ CALL_RELIEF_PER_HOUR = 0.4
 REPLY_SOURCE_KIND = "model_npc"
 #: template 策略的占位回复文本；正式模板渲染由引擎与语料层完成。
 TEMPLATE_REPLY_TEXT = "（模板自动回复）"
-#: experiment_assumption：联系人回复生成后到送达收件人的延迟（秒，实验常量；docs/dev/SPEC-time-and-energy.md
+#: experiment_assumption：联系人回复生成后到送达收件人的延迟（秒，实验常量；docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动
 #: 第一章「人物之间的消息」，裁决 #21）。回复登记为预排送达事件，到期写入收件箱并以 message_arrival 唤醒。
 CONTACT_REPLY_DELAY_SECONDS = 300
-#: 联系人回复请求中双方往来的条数上限（docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）。
+#: 联系人回复请求中双方往来的条数上限（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「联系人往来」）。
 HISTORY_LIMIT = 20
 
 
@@ -52,11 +52,11 @@ class _SocialModel(FrozenModel):
 
 
 class Contact(_SocialModel):
-    """@brief 场景联系人：按人物声明（「社交最小可行版」与 `docs/dev/SPEC-life-realism.md`「世界素材品类要求」）。
+    """@brief 场景联系人：按人物声明（「社交最小可行版」与 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`「世界素材品类要求」）。
 
     亲密度沿用 Humanoid Agents 的 closeness 0-30 口径；channels 为可用
     联系渠道（如电话、短信），由场景声明，引擎据此约束可达性。receive_location_id 是联系人收实物的地点
-    （docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：为空时不能收实物，人物在这个地点即与联系人同处。
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）：为空时不能收实物，人物在这个地点即与联系人同处。
     """
 
     contact_id: str
@@ -88,7 +88,7 @@ class PersonView(_SocialModel):
     隐私闭集（「社交最小可行版」）限定他人只暴露姓名、活动家族与可交谈状态，不暴露
     身体数值、余额、任务或记忆；person_id 是动作目标身份锚点（message/chat/call
     动作的身份枚举用本轮观察，见
-    `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」），不是隐私
+    `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「观察投影与提示合同」），不是隐私
     泄漏——scene 渲染仍只用姓名（含活动家族短语），身份只进 facts 层。
     """
 
@@ -142,7 +142,7 @@ class SentMessage(_SocialModel):
 class ChatStart(_SocialModel):
     """@brief 交谈发起结果：按发起方的前台活动结算（引擎活动通道执行）。
 
-    对方对发起方选择交谈即接受（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）；缓解按双方交谈同时进行的秒数
+    对方对发起方选择交谈即接受（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」）；缓解按双方交谈同时进行的秒数
     由 social_actions 结算。
     """
 
@@ -193,7 +193,7 @@ class ReplyFacts(_SocialModel):
     """@brief 回复请求里这次来信的事实：发件人姓名、场景本地时刻与联系人的收货地名（没有收货地点时为空）。
 
     now 是带时区的 ISO 8601（秒精度、场景时区）。联系人只通过消息来往，另由请求的 presence 固定为 remote
-    （docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    （docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。
     """
 
     sender_name: str = Field(min_length=1)
@@ -205,8 +205,9 @@ class ModelReplyRequest(_SocialModel):
     """@brief model 策略回复请求：引擎据此发起独立 DeepSeek 调用并存档。
 
     history 是双方此前的消息（按时间排序，至多 HISTORY_LIMIT 条），received 是联系人实际收到的物品
-    （docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）；sender_name 是写这条来信的人物、now 是场景本地时刻、
-    presence 固定 remote（联系人只通过消息来往）、receive_location 是联系人的收货地名（docs/dev/SPEC-dayrun-fidelity.md 7.3）。
+    （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「联系人往来」）；sender_name 是写这条来信的人物、now 是场景本地时刻、
+    presence 固定 remote（联系人只通过消息来往）、receive_location 是联系人的收货地名（
+    docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-联系人回复不虚构到场 ）。
     """
 
     contact_id: str
@@ -241,7 +242,7 @@ def people_here(agent_location: str,
 
     只暴露不透明身份、姓名、当前活动家族与可交谈状态；不暴露身体数值、
     余额、任务或记忆。身份（agent:<id> 不透明形式）供工具身份枚举与配对
-    校验使用（见 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」），scene 渲染仍只用姓名。列表保持输入顺序。
+    校验使用（见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「观察投影与提示合同」），scene 渲染仍只用姓名。列表保持输入顺序。
     """
     return [
         PersonView(
@@ -287,7 +288,7 @@ def start_chat(initiator_location: str, partner: AgentPresence,
     """@brief 交谈域校验：共同在场且对方可交谈；产出前台活动与邀请。
 
     邀请以 chat_invite 消息送达对方（「社交最小可行版」）；对方对发起方选择交谈即接受，缓解按双方交谈同时进行的
-    秒数结算（docs/dev/SPEC-time-and-energy.md 第五章「交谈」），活动本体按发起方前台活动由引擎结算。
+    秒数结算（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「交谈」），活动本体按发起方前台活动由引擎结算。
     """
     if partner.location != initiator_location:
         raise ValueError(
@@ -386,3 +387,12 @@ def template_reply(incoming: IncomingMessage, reply_message_id: str,
         created_at=created_at,
     )
     return ContactReply(message=message)
+
+
+CHAT_MET = 1.5
+
+
+CALL_MET = 1.3
+
+
+SOCIAL_RESOURCE_CLAIMS = frozenset({"voice", "ears"})

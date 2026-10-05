@@ -69,7 +69,7 @@ def _revise(engine, round_id: str, request: ReviseDayPlanRequest):
 
 def _stored_result(engine, round_id: str) -> dict:
     """SQLite 里这次修订的 action_result 事件正文。"""
-    [event] = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    [event] = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                if event.event_type == "action_result" and event.action_id == f"action-{round_id}"]
     return event.data
 
@@ -112,7 +112,7 @@ def test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries(en
     """修订入口经真实引擎：重复意图以 ACTION_REQUEST_INVALID 拒绝，items 给出首次与其后各次出现的完整 path、written
     （该意图）与 allowed_values（全部意图）；计划不变，SQLite 里的结果事件带同一份明细；合并后的修订受理。"""
     engine = _planned_engine(engine_factory)
-    plan = engine.state.agents[1].day_plan
+    plan = engine.context.state.agents[1].day_plan
     rejected = _revise(engine, "duplicate", _forged(_goals("休息", "工作", "休息", "休息")))
     assert (rejected.status.value, rejected.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
     items = rejected.data["items"]
@@ -121,18 +121,18 @@ def test_engine_rejects_a_duplicate_revision_locating_first_and_later_entries(en
         assert set(item) == set(ITEM_KEYS) and item["error_code"] == "ACTION_REQUEST_INVALID"
         assert item["allowed_values"] == list(INTENT_KINDS) and item["expected"] and item["candidates"] == []
     assert rejected.message == "; ".join([_reason("休息")] * 3) == rejected.data["reason"]
-    assert engine.state.agents[1].day_plan == plan
+    assert engine.context.state.agents[1].day_plan == plan
     stored = _stored_result(engine, "duplicate")
     assert stored["error_code"] == "ACTION_REQUEST_INVALID" and stored["data"]["items"] == items
     merged = ReviseDayPlanRequest(goals=[PlanGoalInput(**goal) for goal in _goals("休息", "工作")])
     assert _revise(engine, "merged", merged).status.value == "completed"
-    assert [goal.intent_kind for goal in engine.state.agents[1].day_plan.goals] == ["休息", "工作"]
+    assert [goal.intent_kind for goal in engine.context.state.agents[1].day_plan.goals] == ["休息", "工作"]
 
 
 def test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection(engine_factory):
     """超限加重复经真实引擎同批返回：goals 条目的 written 是提交的 goals，其后是重复意图的每个位置；不因超限提前返回。"""
     engine = _planned_engine(engine_factory)
-    plan = engine.state.agents[1].day_plan
+    plan = engine.context.state.agents[1].day_plan
     goals = _goals(*INTENT_KINDS[:8], INTENT_KINDS[3])
     rejected = _revise(engine, "over-capacity", _forged(goals))
     assert (rejected.status.value, rejected.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
@@ -145,7 +145,7 @@ def test_engine_reports_over_capacity_and_duplicates_in_the_same_rejection(engin
     assert rejected.data["items"][0]["allowed_values"] == []
     assert all(item["allowed_values"] == list(INTENT_KINDS) for item in rejected.data["items"][1:])
     assert rejected.message == "; ".join([_CAPACITY, _reason(kind), _reason(kind)])
-    assert engine.state.agents[1].day_plan == plan
+    assert engine.context.state.agents[1].day_plan == plan
     assert _stored_result(engine, "over-capacity")["data"]["items"] == rejected.data["items"]
 
 
@@ -158,7 +158,7 @@ def test_engine_keeps_at_most_eight_goals_with_one_goal_per_intent(engine_factor
     assert _located(rejected.data["items"]) == [(("goals",), nine, _CAPACITY)]
     eight = ReviseDayPlanRequest(goals=[PlanGoalInput(**goal) for goal in _goals(*INTENT_KINDS[:8])])
     assert _revise(engine, "eight", eight).status.value == "completed"
-    assert [goal.intent_kind for goal in engine.state.agents[1].day_plan.goals] == list(INTENT_KINDS[:8])
+    assert [goal.intent_kind for goal in engine.context.state.agents[1].day_plan.goals] == list(INTENT_KINDS[:8])
 
 
 async def _host_round(monkeypatch, responses: list[_ModelResponse]) -> tuple[_Environment, list[dict]]:
@@ -212,7 +212,7 @@ def _progressed(engine, *kinds: str) -> tuple:
     """已推进的当日目标（每次修订都原样保留在计划前缀），每个意图一条。"""
     from worldmock.life.schedule import PlanGoal
 
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     return tuple(PlanGoal(intent_kind=kind, goal=f"{kind}做过了", registered_at=now - 60, progressed_at=now,
                           progress_activity_id=f"activity-{kind}") for kind in kinds)
 
@@ -259,7 +259,7 @@ async def test_host_and_engine_accept_a_revision_that_fills_the_plan_to_exactly_
     requests, settled = await _real_host_round(monkeypatch, engine, f"eight-{kept}", [submitted])
     assert len(requests) == 1
     assert (settled.status.value, settled.error_code) == ("completed", None)
-    plan = engine.state.agents[1].day_plan.goals
+    plan = engine.context.state.agents[1].day_plan.goals
     assert [goal.intent_kind for goal in plan] == list(INTENT_KINDS[:8])
     assert [goal.progressed_at is not None for goal in plan] == [True] * kept + [False] * (8 - kept)
     assert [goal.goal for goal in plan[kept:]] == [goal["goal"] for goal in submitted]
@@ -275,13 +275,13 @@ async def test_host_corrects_a_revision_that_overflows_with_the_preserved_goals(
 
     engine = engine_factory()
     stage_day_plan(engine, goals=_progressed(engine, *INTENT_KINDS[:2]))
-    plan = engine.state.agents[1].day_plan
+    plan = engine.context.state.agents[1].day_plan
     overflow = _goals(*INTENT_KINDS[2:9])
     refused = _revise(engine, "engine-nine", ReviseDayPlanRequest(goals=[PlanGoalInput(**goal) for goal in overflow]))
     assert (refused.status.value, refused.error_code) == ("rejected", "PLAN_GOALS_INVALID")
     [refused_item] = refused.data["items"]
     assert (refused_item["path"], refused_item["written"]) == ([*_ROOT, "goals"], overflow)
-    assert engine.state.agents[1].day_plan == plan
+    assert engine.context.state.agents[1].day_plan == plan
 
     requests, settled = await _real_host_round(monkeypatch, engine, "host-nine", [overflow, overflow[:6]])
 
@@ -295,10 +295,10 @@ async def test_host_corrects_a_revision_that_overflows_with_the_preserved_goals(
     assert (item["path"], item["error_code"], item["why"]) == ([*_ROOT, "goals"], "ARGUMENTS_INVALID", _MERGED_CAPACITY)
     assert (item["path"], item["written"]) == (refused_item["path"], refused_item["written"]) == (
         [*_ROOT, "goals"], overflow)
-    registered = [event.data["request"] for event in engine.store.read_events(engine.store.last_event_seq)
+    registered = [event.data["request"] for event in engine.context.store.read_events(engine.context.store.last_event_seq)
                   if event.event_type == "action_requested" and event.decision_id == "decision-host-nine-1"]
     assert [request["goals"] for request in registered] == [overflow[:6]]
     assert (settled.status.value, settled.error_code) == ("completed", None)
-    merged = engine.state.agents[1].day_plan.goals
+    merged = engine.context.state.agents[1].day_plan.goals
     assert [goal.intent_kind for goal in merged] == list(INTENT_KINDS[:8])
     assert [goal.progressed_at is not None for goal in merged] == [True] * 2 + [False] * 6

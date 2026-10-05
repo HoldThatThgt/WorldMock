@@ -1,4 +1,4 @@
-"""待办层的个人事务与观察的私有事务绑定（docs/dev/SPEC-errands-workday.md 2.3、2.6）。
+"""待办层的个人事务与观察的私有事务绑定（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.6）。
 
 经真实引擎：正式场景与目录建立的 LifeEngine 上预置未完成事务（stage_errands 同一提交落库），再经 engine.observe 取得观察，
 并与 SQLite 里存下的观察事件逐值比对。待办层键序为 layer、paused_activities、errands、day_plan；事务行按记下的时刻与事务
@@ -46,7 +46,7 @@ def _three_errands(now: int) -> list[ErrandState]:
 
 def _stored_observation(engine, observed: dict) -> dict:
     """SQLite 里与这次观察同一事件身份的观察事件数据。"""
-    (event,) = [item for item in engine.store.read_agent_events("observation", 1)
+    (event,) = [item for item in engine.context.store.read_agent_events("observation", 1)
                 if item.event_id == observed["observation_event_id"]]
     return event.data
 
@@ -56,7 +56,7 @@ def test_todo_layer_lists_open_errands_between_paused_activities_and_day_plan(en
     「取得<商品名> N 份」或「吃掉<商品名> N 份」、「已取得 N 份」或「已吃掉 N 份」（尚无进展写 0 份，小数照份量短语）、
     备注（可为 null）、尚未提醒的钟点与记下的本地日期；整层通过待办层 Schema，与存进 SQLite 的观察事件逐值相同。"""
     engine = engine_factory()
-    now, zone = engine.state.current_time, engine.scenario.timezone
+    now, zone = engine.context.state.current_time, engine.context.scenario.timezone
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="用餐", goal="好好吃晚饭", registered_at=now),))
     stage_errands(engine, 1, _three_errands(now))
     observed = engine.observe(context(engine, "errand-todo"))
@@ -64,7 +64,7 @@ def test_todo_layer_lists_open_errands_between_paused_activities_and_day_plan(en
     assert list(todo) == ["layer", "paused_activities", "errands", "day_plan"]
     assert todo["day_plan"]["goals"][0]["goal"] == "好好吃晚饭"
     assert [list(row) for row in todo["errands"]] == [_ROW_KEYS] * 3
-    tea = engine.rules.items[_TEA].name
+    tea = engine.context.rules.items[_TEA].name
     assert todo["errands"] == [
         {"name": "补一份素炒什锦食材包", "done_when": "取得素炒什锦食材包 1 份", "progress": "已取得 0 份",
          "memo": "下班前下单送到家", "remind_time": epoch_clock(now + 17 * 3600, zone),
@@ -97,7 +97,7 @@ def test_todo_layer_errands_is_an_empty_list_without_errands(engine_factory) -> 
 def test_reminded_or_unset_reminder_shows_null_remind_time(engine_factory) -> None:
     """remind_time 只写尚未交付的提醒钟点：已交付的提醒与没有提醒时刻的事务都写 null（提醒时刻照存在状态里）。"""
     engine = engine_factory()
-    now, zone = engine.state.current_time, engine.scenario.timezone
+    now, zone = engine.context.state.current_time, engine.context.scenario.timezone
     stage_errands(engine, 1, [
         _errand("action-r:errand:0", "等提醒的事务", _KIT, now - 60, remind_at=now + 600),
         _errand("action-r:errand:1", "已提醒的事务", _MEAL, now - 60, outcome="eat", remind_at=now - 30,
@@ -106,7 +106,7 @@ def test_reminded_or_unset_reminder_shows_null_remind_time(engine_factory) -> No
     ])
     todo = engine.observe(context(engine, "errand-remind"))["todo_layer"]
     assert [row["remind_time"] for row in todo["errands"]] == [epoch_clock(now + 600, zone), None, None]
-    assert engine.state.agents[1].errands["action-r:errand:1"].remind_at == now - 30
+    assert engine.context.state.agents[1].errands["action-r:errand:1"].remind_at == now - 30
     validate_layer(todo)
 
 
@@ -116,7 +116,7 @@ def test_observation_carries_private_errand_bindings_outside_every_layer(engine_
     一层（五层照常渲染，事务身份与事务的商品身份不出现在提示文字里；任何一层带上这三个键即渲染失败）；事务名不是回看
     名称，按事务名回看任务以 TASK_NOT_FOUND 拒绝。"""
     engine = engine_factory()
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     stage_errands(engine, 1, _three_errands(now))
     observed = engine.observe(context(engine, "errand-bindings"))
     assert observed["errand_bindings"] == [
@@ -124,7 +124,7 @@ def test_observation_carries_private_errand_bindings_outside_every_layer(engine_
         {"name": "晚饭吃掉素炒什锦", "errand_id": "action-a:errand:0", "outcome": "eat", "product_id": _MEAL},
         {"name": "囤三瓶冰红茶", "errand_id": "action-a:errand:1", "outcome": "obtain", "product_id": _TEA},
     ]
-    items = engine.rules.items
+    items = engine.context.rules.items
     assert observed["errand_item_bindings"] == [{"name": items[product_id].name, "product_id": product_id}
                                                 for product_id in sorted(items)]
     assert {_KIT, _MEAL, _TEA} <= {row["product_id"] for row in observed["errand_item_bindings"]}
@@ -146,11 +146,11 @@ def test_observation_carries_private_errand_bindings_outside_every_layer(engine_
 
 
 def test_the_todo_layer_schema_closes_an_errand_row_to_exactly_its_six_keys(engine_factory) -> None:
-    """待办层 Schema 把事务行限定为恰好六键（docs/dev/SPEC-errands-workday.md 2.6、6.4；接口合同「七层 Schema」）：真实观察的
+    """待办层 Schema 把事务行限定为恰好六键（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 、6.4；接口合同「七层 Schema」）：真实观察的
     待办层（与存进 SQLite 的观察事件逐值相同）通过校验；在它的第一条事务行上多写内部身份、状态或可用性中的任何一个键，
     或少写六键中的任何一个，校验都以 ValueError 指明待办层与该行的位置，其余行原样不动。"""
     engine = engine_factory()
-    stage_errands(engine, 1, _three_errands(engine.state.current_time))
+    stage_errands(engine, 1, _three_errands(engine.context.state.current_time))
     observed = engine.observe(context(engine, "errand-closed"))
     todo = observed["todo_layer"]
     assert _stored_observation(engine, observed)["todo_layer"] == todo
@@ -166,7 +166,7 @@ def test_the_todo_layer_schema_closes_an_errand_row_to_exactly_its_six_keys(engi
 
 
 def test_each_persons_todo_layer_and_bindings_list_only_their_own_errands(engine_factory) -> None:
-    """事务由记下它的人物持有（docs/dev/SPEC-errands-workday.md 2.1、2.6）。两人场景经真实请求、引擎与 SQLite：陈曦在收尾
+    """事务由记下它的人物持有（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 、2.6）。两人场景经真实请求、引擎与 SQLite：陈曦在收尾
     请求里记下「买牛奶」之后，李凡的观察里待办层 errands 与私有 errand_bindings 都还是空的；李凡随后记下自己的「囤冰红茶」，
     两人的待办层与私有绑定各只列本人那一条，存进 SQLite 的本人观察事件与之逐值相同。"""
     from tests.life.conftest import errand_add
@@ -177,26 +177,26 @@ def test_each_persons_todo_layer_and_bindings_list_only_their_own_errands(engine
     note(engine, "mine", [errand_add("买牛奶", MILK)])
     alone = observe(engine, "alone", 2)
     assert alone["todo_layer"]["errands"] == [] and alone["errand_bindings"] == []
-    note(engine, "theirs", [errand_add("囤冰红茶", engine.rules.items[_TEA].name)], agent_id=2)
+    note(engine, "theirs", [errand_add("囤冰红茶", engine.context.rules.items[_TEA].name)], agent_id=2)
     for agent_id, name in ((1, "买牛奶"), (2, "囤冰红茶")):
         observed = observe(engine, f"both-{agent_id}", agent_id)
         assert [row["name"] for row in observed["todo_layer"]["errands"]] == [name]
         assert [row["name"] for row in observed["errand_bindings"]] == [name]
-        [stored] = [event for event in engine.store.read_agent_events("observation", agent_id)
+        [stored] = [event for event in engine.context.store.read_agent_events("observation", agent_id)
                     if event.event_id == observed["observation_event_id"]]
         assert stored.data["todo_layer"]["errands"] == observed["todo_layer"]["errands"]
         assert stored.data["errand_bindings"] == observed["errand_bindings"]
 
 
 def test_the_host_corrects_a_recall_by_the_name_of_an_open_errand(engine_factory) -> None:
-    """事务名不进回看名称，宿主与环境对同一冻结观察判定一致（docs/dev/SPEC-errands-workday.md 2.3 首句与末条）：真实引擎上
+    """事务名不进回看名称，宿主与环境对同一冻结观察判定一致（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误  首句与末条）：真实引擎上
     预置一条当日目标与三条未完成事务，冻结观察（存进 SQLite）并按它准备直接导入的 LifeAgent。按任何一条事务名回看任务，
     宿主都以 NAME_NOT_FOUND 纠正（不把这次回看放给环境），环境对同一份观察也以 TASK_NOT_FOUND 拒绝；同一份观察里
     待办层写出的当日目标名照常可以回看，宿主与环境都受理。"""
     from tests.life.test_name_resolution import _check, _open
 
     engine = engine_factory()
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="用餐", goal="好好吃晚饭", registered_at=now),))
     stage_errands(engine, 1, _three_errands(now))
     _, observed, host = _open(engine, "errand-recall")

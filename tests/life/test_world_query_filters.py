@@ -1,4 +1,4 @@
-"""世界查询的六键请求、来源筛选、只看此刻能做的、筛选后分页与只读保证（docs/dev/SPEC-errands-workday.md 5.1–5.6；验收台账
+"""世界查询的六键请求、来源筛选、只看此刻能做的、筛选后分页与只读保证（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-请求 –5.6；验收台账
 「查询请求」「来源筛选」「可执行筛选」「分页与返回」「查询只读」）。
 
 全部用例在白领场景的真实 LifeEngine、SQLite、直接导入的 LifeAgent 与 LifeEnv 上运行：一个引擎只开一个决策轮、只冻结
@@ -40,7 +40,7 @@ from tests.life.routing_fixtures import place, stage  # noqa: E402
 from tests.life.test_grounded_observation import _stage_progress_limits  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.guidance import default_reason  # noqa: E402
-from worldmock.life.interaction_menu import WAYS  # noqa: E402
+from worldmock.life.vocabulary import WAYS
 from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 from worldmock.life.object_labels import object_label, supply_label  # noqa: E402
 from worldmock.life.tool_groups import expand_tool_layer  # noqa: E402
@@ -292,7 +292,7 @@ def test_unknown_from_is_an_argument_error_with_candidates_from_permitted_source
     （「<地点>旁」），那个地点也不在候选里；空白写法与毫不相近的写法按门店身份顺序取前三家。查询不改世界。"""
     session = _open(_open_engine(engine_factory), "unknown-from")
     engine = session.engine
-    before, sequence = engine.state.model_dump(mode="json"), engine.store.last_event_seq
+    before, sequence = engine.context.state.model_dump(mode="json"), engine.context.store.last_event_seq
     places, permitted = _places(session.observed), _permitted(session.observed)
     allowed = {places[store] for store in permitted}
     arguments = _query("好德超市")
@@ -308,8 +308,8 @@ def test_unknown_from_is_an_argument_error_with_candidates_from_permitted_source
     for written in (" ", "", "xyz"):
         arguments = _query(written)
         assert _source_candidates(_ask(session, arguments), arguments) == [places[store] for store in permitted[:3]]
-    assert engine.state.model_dump(mode="json") == before
-    assert engine.store.last_event_seq == sequence
+    assert engine.context.state.model_dump(mode="json") == before
+    assert engine.context.store.last_event_seq == sequence
 
 
 def test_source_way_and_category_errors_are_reported_together_before_any_offset_check(engine_factory):
@@ -475,8 +475,8 @@ def _unknown_quote(engine_factory) -> None:
     """一件能远程下单的纯牛奶此刻没有已知报价（开轮之前改世界）：name=纯牛奶 照常列出它，远程下单 available 为 false、
     原因是报价未知、没有价格键；加 available_only 后它不在页里，total_count 少一。"""
     engine = _open_engine(engine_factory)
-    supply = next(item for item in engine.scenario.supplies
-                  if engine.rules.items[item.product_id].name == MILK and "delivery" in item.fulfillment_modes)
+    supply = next(item for item in engine.context.scenario.supplies
+                  if engine.context.rules.items[item.product_id].name == MILK and "delivery" in item.fulfillment_modes)
 
     def unknown(state) -> None:
         """这件纯牛奶的报价变成未知。"""
@@ -553,8 +553,8 @@ def test_every_filtered_match_is_accepted_with_its_full_name_and_an_available_wa
         _, error, result = decide(engine, f"accept-{index}", arguments)
         assert error == "" and (result.status, result.error_code) == ("completed", None), match["name"]
         [order] = result.data["orders"]
-        supply = engine.rules.supplies[order["supply_id"]]
-        assert supply_label(places[supply.location_id], engine.rules.items[supply.product_id].name) == match["name"]
+        supply = engine.context.rules.supplies[order["supply_id"]]
+        assert supply_label(places[supply.location_id], engine.context.rules.items[supply.product_id].name) == match["name"]
 
 
 def _written_ways(way: str | None):
@@ -659,10 +659,10 @@ def test_filtered_queries_leave_world_clock_events_credentials_and_presentation_
     action_requested 事件，冻结观察也不变；查询列出的门店商品并没有因此变成可见供给。"""
     session = _open(_open_engine(engine_factory), "read-only-filters")
     engine, observed = session.engine, session.observed
-    before, sequence, frozen = engine.state.model_dump(mode="json"), engine.store.last_event_seq, copy.deepcopy(observed)
-    agent = engine.state.agents[1]
+    before, sequence, frozen = engine.context.state.model_dump(mode="json"), engine.context.store.last_event_seq, copy.deepcopy(observed)
+    agent = engine.context.state.agents[1]
     seen = (set(agent.visible_supply_ids), dict(agent.supply_browsed_at), dict(agent.supply_browsed_location))
-    presented = (copy.deepcopy(engine.state.presentation_state), copy.deepcopy(engine.state.same_moment_presentation))
+    presented = (copy.deepcopy(engine.context.state.presentation_state), copy.deepcopy(engine.context.state.same_moment_presentation))
     places, listed = _places(observed), set()
     for arguments in (_query(places[HAODE], available_only=True), _query(way="购买", available_only=True),
                       _query(places[NONGGONGSHANG], name=MILK, way="远程下单"), _query("家", available_only=True),
@@ -671,14 +671,14 @@ def test_filtered_queries_leave_world_clock_events_credentials_and_presentation_
         listed |= set(_names(asked.page["matches"])) if asked.page else set()
     supplies = {entry["identity"].removeprefix("supply:") for entry in observed["world_query_bindings"]
                 if entry["match"]["name"] in listed and entry["location_id"] is not None}
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     assert supplies - seen[0] and not (supplies - seen[0]) & agent.visible_supply_ids
-    assert (engine.state.current_time, engine.state.version) == (before["current_time"], before["version"])
+    assert (engine.context.state.current_time, engine.context.state.version) == (before["current_time"], before["version"])
     assert (set(agent.visible_supply_ids), dict(agent.supply_browsed_at), dict(agent.supply_browsed_location)) == seen
-    assert (engine.state.presentation_state, engine.state.same_moment_presentation) == presented
-    assert engine.state.model_dump(mode="json") == before
-    assert engine.store.last_event_seq == sequence
-    assert not engine.store.read_agent_events("action_requested", 1)
+    assert (engine.context.state.presentation_state, engine.context.state.same_moment_presentation) == presented
+    assert engine.context.state.model_dump(mode="json") == before
+    assert engine.context.store.last_event_seq == sequence
+    assert not engine.context.store.read_agent_events("action_requested", 1)
     assert observed == frozen
 
 
@@ -688,7 +688,7 @@ def test_query_batch_is_validated_whole_before_any_query_runs(engine_factory):
     什么也没派发，世界状态、事件序号与冻结观察不变。只有合法只读查询的一批照常受理。"""
     session = _open(_open_engine(engine_factory), "query-batch")
     host, engine, observed = session.host, session.engine, session.observed
-    before, sequence, frozen = engine.state.model_dump(mode="json"), engine.store.last_event_seq, copy.deepcopy(observed)
+    before, sequence, frozen = engine.context.state.model_dump(mode="json"), engine.context.store.last_event_seq, copy.deepcopy(observed)
     valid = _query(_places(observed)[HAODE], way="远程下单", available_only=True)
     batch = [ReactDecision("", "query_world", valid, "", "call-valid"),
              ReactDecision("", "query_world", _query("好德超市", available_only=True), "", "call-unknown"),
@@ -704,8 +704,8 @@ def test_query_batch_is_validated_whole_before_any_query_runs(engine_factory):
     [item] = feedback_report(host.validate_react_decisions(mixed, False)).payload()["items"]
     assert (item["path"], item["written"]) == (["tool_calls"], ["start_activity", "query_world"])
     assert host._life_action_count == 0
-    assert engine.state.model_dump(mode="json") == before and engine.store.last_event_seq == sequence
-    assert not engine.store.read_agent_events("action_requested", 1)
+    assert engine.context.state.model_dump(mode="json") == before and engine.context.store.last_event_seq == sequence
+    assert not engine.context.store.read_agent_events("action_requested", 1)
     assert observed == frozen
     readonly = [batch[0], ReactDecision("", "query_world", _query(way="购买", available_only=True), "", "call-more"),
                 batch[2]]
@@ -728,7 +728,7 @@ def test_the_final_turn_offers_only_world_requests_after_queries_used_the_earlie
                   for index, arguments in enumerate(queries)), *_wait_reply()]
 
     asyncio.run(_single(_environment(engine), "final-turn", responses))
-    requests = [event.data["request"] for event in engine.store.read_agent_events("model_request", 1)
+    requests = [event.data["request"] for event in engine.context.store.read_agent_events("model_request", 1)
                 if event.decision_id == "decision-final-turn-1"]
     offered = [{item["function"]["name"] for item in request["tools"]} for request in requests]
     queries = {"query_world", "recall_task_summary", "memory_recent", "memory_search", "memory_time_range"}
@@ -737,7 +737,7 @@ def test_the_final_turn_offers_only_world_requests_after_queries_used_the_earlie
     assert (requests[3]["extra_body"], requests[3]["tool_choice"]) == ({"thinking": {"type": "enabled"}}, "auto")
     answers = [message["content"] for message in requests[3]["messages"] if message["role"] == "tool"]
     assert len(answers) == 3 and all('"total_count"' in answer for answer in answers)
-    [registered] = engine.store.read_agent_events("action_requested", 1)
+    [registered] = engine.context.store.read_agent_events("action_requested", 1)
     assert (registered.decision_id, registered.data["tool_name"]) == ("decision-final-turn-1", "start_activity")
 
 
@@ -755,7 +755,7 @@ def test_page_size_is_the_scenario_presentation_limit_and_follows_that_constant(
         stage_day_plan(engine)
         at_clock(engine, 10, 0)
         session = _open(engine, f"page-size-{limit}")
-        assert engine.scenario.candidate_presentation_limit == limit
+        assert engine.context.scenario.candidate_presentation_limit == limit
         assert session.observed["world_query_page_size"] == limit
         store = _places(session.observed)[HAODE]
         expected = _oracle(session.observed, lambda entry: entry["location_id"] == HAODE)
@@ -786,7 +786,7 @@ def test_supplies_of_a_store_the_person_may_not_enter_are_neither_frozen_nor_off
     at_clock(engine, 10, 0)
     session = _open(engine, "gated-store")
     observed, places = session.observed, _places(session.observed)
-    sold = {engine.rules.items[supply.product_id].name for supply in engine.scenario.supplies
+    sold = {engine.context.rules.items[supply.product_id].name for supply in engine.context.scenario.supplies
             if supply.location_id == NONGGONGSHANG}
     assert MILK in sold and len(sold) > 20
     assert NONGGONGSHANG not in _permitted(observed) and HAODE in _permitted(observed)

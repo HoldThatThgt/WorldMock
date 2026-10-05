@@ -16,7 +16,7 @@ from tests.life.conftest import advance_next, context, stage_day_plan, start_act
 from worldmock.categories import refresh_manifest_identity
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.engine import LifeEngine
-from worldmock.life.interaction_menu import WAYS
+from worldmock.life.vocabulary import WAYS
 from worldmock.life.map_models import MAP_SCHEMA_VERSION
 from worldmock.life.models import (
     ModelIdentity,
@@ -377,7 +377,7 @@ def _consume(engine: LifeEngine, round_id: str, way: str = "制作", action_id: 
     """人物只选择可读持有物与方式，领域推导数量和时长。
 
     持有物的 consume:use 规则是库存转换配方时只列动词 obtain 的「制作」，否则列 consume 的「使用」
-    （docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」）；两者都映射回内部动作 consume。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「请求形状与菜单」）；两者都映射回内部动作 consume。
     """
     current = context(engine, round_id)
     engine.begin_decision_round([current])
@@ -394,7 +394,7 @@ def _consume(engine: LifeEngine, round_id: str, way: str = "制作", action_id: 
 
 def _advance_to_completion(engine: LifeEngine, activity_id: str) -> None:
     """沿真实调度边界推进指定活动直到终态。"""
-    while engine.state.activities[activity_id].status.value not in {"completed", "cancelled", "failed"}:
+    while engine.context.state.activities[activity_id].status.value not in {"completed", "cancelled", "failed"}:
         advance_next(engine)
 
 
@@ -417,12 +417,12 @@ def _start(engine: LifeEngine, round_id: str, target_kind: str, action: str,
 def _stage_open_market(engine: LifeEngine) -> None:
     """把隔离运行推进到商家营业时段并显式保留浏览可见性。"""
     opening = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
-    now = max(engine.state.current_time, opening)
-    staged = engine.state.model_copy(deep=True)
+    now = max(engine.context.state.current_time, opening)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = now
     staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
     agent = staged.agents[1]
-    visible = {item.supply_id for item in engine.scenario.supplies}
+    visible = {item.supply_id for item in engine.context.scenario.supplies}
     staged.agents[1] = agent.model_copy(update={
         "visible_supply_ids": visible, "supply_browsed_at": {key: now for key in visible},
         "supply_browsed_location": {key: agent.location_id for key in visible}, "next_decision_at": now,
@@ -433,8 +433,8 @@ def _stage_open_market(engine: LifeEngine) -> None:
 
     event = EventDraft(event_type="environment_event", occurred_at=now, visibility="system",
                        source_kind="scenario", data={"kind": "test_open_market"})
-    engine.store.commit(staged.model_dump(mode="json"), [event])
-    engine.state = staged
+    engine.context.store.commit(staged.model_dump(mode="json"), [event])
+    engine.context.state = staged
 
 
 def test_recipe_fixture_loads_with_output_category_binding(tmp_path: Path) -> None:
@@ -442,10 +442,10 @@ def test_recipe_fixture_loads_with_output_category_binding(tmp_path: Path) -> No
     path = _fixture(tmp_path)
     engine = _engine(tmp_path, path, "load")
     try:
-        assert engine.scenario.recipe_output_bindings == {
+        assert engine.context.scenario.recipe_output_bindings == {
             **_read_json(_SCENARIO)["recipe_output_bindings"], _OUTPUT_CATEGORY: _OUTPUT_OBJECT}
-        assert {_INPUT_OBJECT, _OUTPUT_OBJECT} <= set(engine.rules.items)
-        assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(engine.rules.products)
+        assert {_INPUT_OBJECT, _OUTPUT_OBJECT} <= set(engine.context.rules.items)
+        assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(engine.context.rules.products)
     finally:
         engine.close()
 
@@ -460,13 +460,13 @@ def test_recipe_completes_once_after_readable_use(tmp_path: Path) -> None:
                                                   "from": None, "to": None}],
                                         "answering": None, "prefer": None}
         assert started.status.value == "in_progress"
-        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
+        assert engine.context.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
         _advance_to_completion(engine, started.activity_id)
-        inventory = engine.state.agents[1].inventory["home"]
+        inventory = engine.context.state.agents[1].inventory["home"]
         assert inventory == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
         transforms = [
             event.data["consumption"]["inventory_transform"]
-            for event in engine.store.read_events(engine.store.last_event_seq)
+            for event in engine.context.store.read_events(engine.context.store.last_event_seq)
             if event.event_type == "activity_progress"
             and event.activity_id == started.activity_id
             and event.data.get("consumption", {}).get("inventory_transform")
@@ -485,7 +485,7 @@ def test_recipe_pairing_coefficient_scales_actual_inventory(tmp_path: Path) -> N
     try:
         _, started = _consume(engine, "coefficient")
         _advance_to_completion(engine, started.activity_id)
-        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 2}
+        assert engine.context.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 2}
     finally:
         engine.close()
 
@@ -553,9 +553,9 @@ def test_food_coefficient_changes_body_settlement(tmp_path: Path) -> None:
         engine = _engine(tmp_path, path, f"food-{label}")
         try:
             _, started = _start(engine, f"food-{label}", "holding", "食用", product_id)
-            rate = engine.state.activities[started.activity_id].data["food_energy_kcal_per_hour"]
+            rate = engine.context.state.activities[started.activity_id].data["food_energy_kcal_per_hour"]
             _advance_to_completion(engine, started.activity_id)
-            outcomes.append((rate, engine.state.agents[1].body.energy_kcal))
+            outcomes.append((rate, engine.context.state.agents[1].body.energy_kcal))
         finally:
             engine.close()
     assert outcomes[1][0] == outcomes[0][0] * 2
@@ -567,12 +567,12 @@ def test_no_effect_use_rejects_without_inventory_change(tmp_path: Path) -> None:
     path = _fixture(tmp_path, input_state="no_effect")
     engine = _engine(tmp_path, path, "no-effect")
     try:
-        before = engine.state.agents[1].inventory.copy()
+        before = engine.context.state.agents[1].inventory.copy()
         _, result = _consume(engine, "no-effect", way="使用")
         assert result.status.value == "rejected"
         assert result.error_code == "CATEGORY_PAIRING_NO_EFFECT"
-        assert engine.state.agents[1].inventory == before
-        assert engine.state.activities == {}
+        assert engine.context.state.agents[1].inventory == before
+        assert engine.context.state.activities == {}
     finally:
         engine.close()
 
@@ -585,18 +585,18 @@ def test_recipe_completion_rechecks_inventory(tmp_path: Path) -> None:
     engine = _engine(tmp_path, path, "completion-shortage")
     try:
         _, started = _consume(engine, "completion-shortage")
-        staged = engine.state.model_copy(deep=True)
+        staged = engine.context.state.model_copy(deep=True)
         staged.agents[1].inventory["home"][_INPUT_OBJECT] = 0
         staged.version += 1
-        engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
             event_type="environment_event", occurred_at=staged.current_time,
             visibility="system", data={"kind": "test_inventory_exhausted"},
         )])
-        engine.state = staged
-        before = engine.state.model_dump(mode="json")
+        engine.context.state = staged
+        before = engine.context.state.model_dump(mode="json")
         with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_HELD"):
             _advance_to_completion(engine, started.activity_id)
-        assert engine.state.model_dump(mode="json") == before
-        assert engine.store.state == before
+        assert engine.context.state.model_dump(mode="json") == before
+        assert engine.context.store.state == before
     finally:
         engine.close()

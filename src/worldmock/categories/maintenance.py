@@ -1,6 +1,10 @@
 """@brief 品类影响检查、真实触达统计与新目录原子发布。"""
 
 from __future__ import annotations
+from worldmock.categories.common import CategoryError
+from worldmock.categories.contract import validate_category_attributes
+from worldmock.categories.identity import refresh_manifest_identity
+from worldmock.life.world_setup import load_runtime_scenario
 
 import ctypes
 import errno
@@ -72,8 +76,6 @@ def refinement_report(source: Path, candidate: Path, parent_category: str,
 
 def _object_suggestion(obj, contract, children: list[str]) -> dict:
     """@brief 用旧对象的有效属性检验子品类约束，保留全部匹配而不任选一个。"""
-    from worldmock.categories.common import CategoryError
-    from worldmock.categories.contract import validate_category_attributes
 
     matches = []
     for category in children:
@@ -152,7 +154,6 @@ def publish_catalog(source: Path, candidate: Path, destination: Path,
         try:
             shutil.copytree(candidate, staged)
             _apply_assignments(source, staged, assignments)
-            from worldmock.categories.identity import refresh_manifest_identity
             refresh_manifest_identity(staged)
             staged_catalog = load_catalog(staged)
             if (staged_catalog.version_major, staged_catalog.version_minor) <= (
@@ -255,7 +256,6 @@ def _apply_assignments(source: Path, staged: Path, assignments: dict[str, str]) 
 
 def _admit_scenarios(directory: Path, scenarios: tuple[Path, ...]) -> None:
     """@brief 使用真正的场景加载入口逐份完成目录与可触达规则准入。"""
-    from worldmock.life.semantics import load_runtime_scenario
 
     for scenario in scenarios:
         load_runtime_scenario(Path(scenario), catalog_dir=directory)

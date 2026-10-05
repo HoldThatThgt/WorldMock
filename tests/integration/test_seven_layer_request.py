@@ -1,4 +1,4 @@
-"""七层请求与单一行动阶段的宿主验收（docs/dev/SPEC-persona-prompt.md 第一章「请求组成」、第二章「单一行动阶段」）。
+"""七层请求与单一行动阶段的宿主验收（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「请求组成」、第二章「单一行动阶段」）。
 
 宿主部分：system 为逐字节不变的系统层 JSON，user 为固定层序的六层 JSON 数组，原生工具整次运行不变、只写用途、没有
 逐轮枚举；没有记忆查询的决策恰好一次模型请求，没有自述请求。引擎部分（真实 LifeEngine 与 SQLite）：decision_started
@@ -18,6 +18,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+
+from scripts.documentation_refs import section_text
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
@@ -42,7 +44,8 @@ from tests.integration.test_life_agent_protocol import (
     _wire_agent,
     _with_activities,
 )
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_request  # noqa: F401
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan, start_request)  # noqa: F401
 from tests.life.test_presentation_fidelity import _stage
 from worldmock.life.tool_groups import compact_render, expand_tool_layer
 from worldmock.life.world_query import QueryWorldRequest
@@ -120,26 +123,19 @@ async def test_system_layer_is_byte_identical_across_turns_and_decisions() -> No
 
 def _contract_system_layers() -> list[dict]:
     """接口合同「请求组成」逐字登记的系统层全文：生活决策在前，只读问答在后。"""
-    text = (_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")
+    text = section_text((_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8"),
+                        "contracts-model-request")
     blocks = re.findall(r"```json\n(\{\n  \"layer\": \"系统层\",.*?\n\})\n```", text, flags=re.DOTALL)
     return [json.loads(block) for block in blocks]
 
 
-def _spec_life_system_layer() -> tuple[str, list[str]]:
-    """本规格第一章「系统层」定稿的生活决策 role 与逐条 rules。"""
-    text = (_REPO_ROOT / "docs" / "dev" / "SPEC-persona-prompt.md").read_text(encoding="utf-8")
-    section = text.split("\n### 系统层\n", 1)[1].split("\n### 工具层\n", 1)[0]
-    role = re.search(r"^`role`：(.+)$", section, flags=re.MULTILINE)
-    assert role is not None
-    return role.group(1), re.findall(r"^\d+\. (.+)$", section, flags=re.MULTILINE)
-
 
 @pytest.mark.asyncio
 async def test_system_layers_are_the_contract_registration_verbatim() -> None:
-    """系统层文案与接口合同「请求组成」的登记逐字相同（docs/dev/SPEC-persona-prompt.md 验收台账「系统层与工具」）：真实生活
+    """系统层文案与接口合同「请求组成」的登记逐字相同（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 验收台账「系统层与工具」）：真实生活
     决策请求的 system、只读问答的 system 各是合同登记全文的紧凑序列化，键依次为 layer、role、rules；生活决策的 role 与
-    十八条 rules 也与本规格第一章定稿逐字相同（docs/dev/SPEC-dayrun-fidelity.md 2.2：新第 14 条，第 15、16 条改写，
-    第 4、12、18 条补句；docs/dev/SPEC-errands-workday.md 3.1：第 1、4、6 条原位改写，三处副本同批）。"""
+    十八条 rules 也与本规格第一章定稿逐字相同（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改：新第 14 条，第 15、16 条改写，
+    第 4、12、18 条补句；docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条：第 1、4、6 条原位改写，唯一合同文案与实际请求共同验证）。"""
     life, readonly = _contract_system_layers()
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -150,16 +146,15 @@ async def test_system_layers_are_the_contract_registration_verbatim() -> None:
     assert request["messages"][0]["content"] == render_layer_json(life)
     assert system_message(True)["content"] == render_layer_json(readonly)
     assert list(life) == list(readonly) == ["layer", "role", "rules"]
-    role, rules = _spec_life_system_layer()
-    assert (life["role"], life["rules"]) == (role, rules) and len(rules) == 18
+    assert life == LIFE_SYSTEM_LAYER and len(life["rules"]) == 18
 
 
 @pytest.mark.asyncio
 async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it() -> None:
-    """系统层第 14 条（docs/dev/SPEC-dayrun-fidelity.md 2.2、2.3，裁决 D6、S3、S11）：真实生活决策请求的系统层在第 13 条之后
+    """系统层第 14 条（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改、2.3，裁决 D6、S3、S11）：真实生活决策请求的系统层在第 13 条之后
     写作息默认规则——平常照作息，今日计划写明今天与平常不同的安排时按计划，身体的感觉到更强的一档才改作息；饥饿、困意两条
     顺延为第 15、16 条，按档位与饭点吃、照就寝时间睡；第 4 条补「消息只核验对方说过」，第 18 条补「联系人不会来到身边」
-    （7.3）。四个分句之后追加上班安排一句（docs/dev/SPEC-errands-workday.md 4.6，收窄裁决 S11）：环境层写了上班安排的
+    （7.3）。四个分句之后追加上班安排一句（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6，收窄裁决 S11）：环境层写了上班安排的
     日子，那是定下的安排而不是习惯，今日计划改不了它。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -181,41 +176,26 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
     assert "最接近的候选，不会替你改" in rules[11]
 
 
-#: 系统层第 16 条在个人事务规格之前的原文（docs/dev/SPEC-errands-workday.md 3.1：第 16 条不动，专指当日目标的提醒）。
+#: 系统层第 16 条在个人事务规格之前的原文（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条：第 16 条不动，专指当日目标的提醒）。
 _RULE_16 = ("晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，不必因此提早上床；"
             "很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；"
             "睡着时只有提醒或睡够了才会醒，早睡也就早醒。")
-#: 旧第 6 条的延续句（docs/dev/SPEC-errands-workday.md 3.4 逐字项）：它把 report_status 的 summary 也写成延续载体。
+#: 旧第 6 条的延续句（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-可判定口径 逐字项）：它把 report_status 的 summary 也写成延续载体。
 _RETIRED_SENTENCE = "需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary"
 
 
-def _errand_rules() -> list[str]:
-    """docs/dev/SPEC-errands-workday.md 3.1 给出的第 1、4、6 条定稿（该节的三个 text 块，按条号顺序）。"""
-    text = (_REPO_ROOT / "docs" / "dev" / "SPEC-errands-workday.md").read_text(encoding="utf-8")
-    section = text.split("\n### 3.1 系统层第 1、4、6 条\n", 1)[1].split("\n### 3.2 ", 1)[0]
-    return re.findall(r"```text\n(.*?)\n```", section, flags=re.DOTALL)
 
-
-#: 规格 3.1 定稿的第 1 条里的环境层一句（阶段 2 的写法；docs/dev/SPEC-errands-workday.md 4.6 在阶段 3 原位改写它）。
-_STAGE_TWO_ENVIRONMENT = "环境层是此刻的身体感受与所在地点"
-#: 第 14 条在工作安排之前的全文（docs/dev/SPEC-errands-workday.md 4.6：现有四个分句逐字保留，只在末尾追加）。
+#: 规格 3.1 定稿的第 1 条里的环境层一句（阶段 2 的写法；docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6 在阶段 3 原位改写它）。
+#: 第 14 条在工作安排之前的全文（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6：现有四个分句逐字保留，只在末尾追加）。
 _RULE_14_BEFORE_WORKDAY = ("人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与"
                            "平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天"
                            "不在平常的环境里，就按身体的感觉来。")
 
 
-def _workday_rules() -> tuple[str, str]:
-    """docs/dev/SPEC-errands-workday.md 4.6 给出的第 1 条环境层一句（行内代码）与第 14 条全文（该节第一个 text 块）。"""
-    text = (_REPO_ROOT / "docs" / "dev" / "SPEC-errands-workday.md").read_text(encoding="utf-8")
-    section = text.split("\n### 4.6 系统层第 1、14 条与零点计划模板\n", 1)[1].split("\n### 4.7 ", 1)[0]
-    clause = re.search(r"第 1 条的环境层一句改为：`([^`]+)`", section)
-    assert clause is not None
-    return clause.group(1), re.findall(r"```text\n(.*?)\n```", section, flags=re.DOTALL)[0]
-
 
 @pytest.mark.asyncio
 async def test_rules_1_and_14_state_the_duty_arrangement_verbatim() -> None:
-    """系统层第 1、14 条原位改写（docs/dev/SPEC-errands-workday.md 4.6，裁决 P1、W1）：真实生活决策请求的系统层仍是十八条。
+    """系统层第 1、14 条原位改写（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6，裁决 P1、W1）：真实生活决策请求的系统层仍是十八条。
     第 1 条只把环境层一句改成规格给出的「环境层是此刻的身体感受、所在地点与今天的上班安排」，其余分句（含阶段 2 改写的
     待办层一句）与规格 3.1 的定稿逐字相同；第 14 条与规格 4.6 的文本块逐字相同：改写之前的四个分句原样在前，末尾追加
     「环境层写了上班安排的日子……」一句。三处副本（LIFE_SYSTEM_LAYER、接口合同「请求组成」的登记、人物 Prompt 规格
@@ -226,23 +206,23 @@ async def test_rules_1_and_14_state_the_duty_arrangement_verbatim() -> None:
     await _run(agent, _observations())
 
     rules = json.loads(dispatcher.requests[0]["messages"][0]["content"])["rules"]
-    clause, rule_14 = _workday_rules()
-    stage_two_rule_1 = _errand_rules()[0]
+    life, _ = _contract_system_layers()
+    clause = "环境层是此刻的身体感受、所在地点与今天的上班安排"
+    rule_14 = life["rules"][13]
     assert clause == "环境层是此刻的身体感受、所在地点与今天的上班安排"
-    assert stage_two_rule_1.count(_STAGE_TWO_ENVIRONMENT) == 1
-    assert len(rules) == 18 and rules[0] == stage_two_rule_1.replace(_STAGE_TWO_ENVIRONMENT, clause)
+    assert len(rules) == 18 and clause in rules[0] and rules == life["rules"]
     assert rules[13] == rule_14 and rule_14.startswith(_RULE_14_BEFORE_WORKDAY)
     assert rule_14.removeprefix(_RULE_14_BEFORE_WORKDAY) == (
         "环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，"
         "写明的休息时段和工作要求去别处的外出除外。")
     life, _ = _contract_system_layers()
-    assert life["rules"] == rules == LIFE_SYSTEM_LAYER["rules"] == _spec_life_system_layer()[1]
+    assert life["rules"] == rules == LIFE_SYSTEM_LAYER["rules"]
     assert [index for index, rule in enumerate(rules) if "上班安排" in rule] == [0, 13]
 
 
 @pytest.mark.asyncio
 async def test_rules_1_4_6_divide_errands_summaries_and_memories() -> None:
-    """系统层第 1、4、6 条原位改写（docs/dev/SPEC-errands-workday.md 3.1，裁决 P1）：真实生活决策请求的系统层仍是十八条，
+    """系统层第 1、4、6 条原位改写（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条，裁决 P1）：真实生活决策请求的系统层仍是十八条，
     第 4、6 条与规格 3.1 的定稿逐字相同，第 1 条与它只差阶段 3 原位改写的环境层一句（规格 4.6）——第 1 条说待办层还列着
     没办完的个人事务；第 4 条说事务的文字是人物自己记下的，
     办没办成由环境按实际结算确认、办成或取消的不再列出，结尾仍是消息只核验了对方说过；第 6 条把以后要买到、拿到或吃掉的
@@ -256,10 +236,8 @@ async def test_rules_1_4_6_divide_errands_summaries_and_memories() -> None:
     await _run(agent, _observations())
 
     rules = json.loads(dispatcher.requests[0]["messages"][0]["content"])["rules"]
-    rule_1, rule_4, rule_6 = _errand_rules()
-    clause, _ = _workday_rules()
-    assert len(rules) == 18 and [rules[3], rules[5]] == [rule_4, rule_6]
-    assert rules[0] == rule_1.replace(_STAGE_TWO_ENVIRONMENT, clause)
+    life, _ = _contract_system_layers()
+    assert len(rules) == 18 and rules == life["rules"]
     assert "待办层是暂停的活动、还没办完的个人事务与今日计划" in rules[0]
     assert "办没办成由环境按实际结算确认，自己说办完了不算" in rules[3] and "办成或取消的事务不再列在待办层" in rules[3]
     assert rules[3].endswith("消息只核验了对方这样说过，说已经做了、正在赶来，都不等于发生了。")
@@ -273,22 +251,17 @@ async def test_rules_1_4_6_divide_errands_summaries_and_memories() -> None:
     assert [index for index, rule in enumerate(rules) if "待办" in rule] == [0, 3, 5, 11]
 
 
-def _document_section(path: Path, heading: str) -> str:
-    """文档里某个三级标题下的正文（到下一个二级或三级标题为止）。"""
-    text = path.read_text(encoding="utf-8").split(f"\n### {heading}\n", 1)[1]
-    return re.split(r"\n#{2,3} ", text, maxsplit=1)[0]
-
 
 def test_the_retired_continuation_sentence_is_gone_everywhere() -> None:
     """旧第 6 条的延续句「需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary」
-    （docs/dev/SPEC-errands-workday.md 3.4 逐字项）在四处都不再出现：LIFE_SYSTEM_LAYER 的规则、接口合同「请求组成」一节
+    （docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-可判定口径 逐字项）在当前生产请求、合同与汇编中不再出现：LIFE_SYSTEM_LAYER 的规则、接口合同「请求组成」一节
     （系统层 JSON 块与前后的说明都在其中）、人物 Prompt 规格「系统层」一节（编号列表与它前面的说明）与重新汇编的
     设计说明书；四处都写着新第 6 条，只把暂停与收尾的 summary 写成延续载体。记录旧运行的测试夹具、版本表与研究材料不在
     检查范围。"""
     places = {
         "LIFE_SYSTEM_LAYER": "\n".join(LIFE_SYSTEM_LAYER["rules"]),
-        "CONTRACTS.md 请求组成": _document_section(_REPO_ROOT / "docs" / "CONTRACTS.md", "请求组成"),
-        "SPEC-persona-prompt.md 系统层": _document_section(_REPO_ROOT / "docs" / "dev" / "SPEC-persona-prompt.md", "系统层"),
+        "CONTRACTS.md 请求组成": section_text((_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8"),
+                                                 "contracts-model-request"),
         "worldmock-design.html": (_REPO_ROOT / "docs" / "design" / "worldmock-design.html").read_text(encoding="utf-8"),
     }
     assert [name for name, text in places.items() if _RETIRED_SENTENCE in text] == []
@@ -298,7 +271,7 @@ def test_the_retired_continuation_sentence_is_gone_everywhere() -> None:
 
 @pytest.mark.asyncio
 async def test_the_system_layer_asks_for_no_particular_language() -> None:
-    """不作语言要求（docs/dev/SPEC-dayrun-fidelity.md 2.4，裁决 D18）：真实生活决策请求与只读问答的系统层都没有要人物用某种
+    """不作语言要求（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-语言不作要求，裁决 D18）：真实生活决策请求与只读问答的系统层都没有要人物用某种
     语言写的规则——role 与每条 rules 都不提中文、英文或语言；人物用英文写的收尾总结与记忆照常登记，不被纠错。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -320,7 +293,7 @@ async def test_the_system_layer_asks_for_no_particular_language() -> None:
     assert (item.summary, [entry.text for entry in item.memories]) == ("Waited a while and rested.", [memory["text"]])
 
 
-#: 系统层第 15 条用「」点名的饥饿档与第 16 条列举的困意档（docs/dev/SPEC-dayrun-fidelity.md 2.2：档位名与 felt.py 的
+#: 系统层第 15 条用「」点名的饥饿档与第 16 条列举的困意档（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改：档位名与 felt.py 的
 #: 分级文本逐字一致；仲裁档饥饿取「很饿」、困意取「很困」）。
 _RULE_HUNGER_BANDS = ["有点想吃", "饿", "很饿"]
 _RULE_SLEEPINESS_BANDS = ["有点乏", "困", "很困", "撑不住"]
@@ -345,7 +318,7 @@ def _rule_band_mentions(rules: list[str]) -> tuple[list[str], list[str]]:
 
 
 def test_felt_bands_named_by_the_rules_are_the_felt_band_texts() -> None:
-    """档位名与 felt.py 分级文本逐字一致（docs/dev/SPEC-dayrun-fidelity.md 2.2 验收）：词表取自 felt.py 的分级表；第 15 条点名的
+    """档位名与 felt.py 分级文本逐字一致（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改 验收）：词表取自 felt.py 的分级表；第 15 条点名的
     饥饿档是饥饿分级表的前三档，第 16 条依次列出困意分级表的全部四个非基档；把规则里的档改成分级表没有的说法会被抓住。"""
     from worldmock.life import felt
 
@@ -467,13 +440,13 @@ def _reply(content: str | None) -> dict:
 def _batches(engine, monkeypatch) -> list[list[str]]:
     """记下每次提交的事件类型批次。"""
     batches: list[list[str]] = []
-    original = engine.store.commit
+    original = engine.context.store.commit
 
     def commit(state, drafts):
         batches.append([draft.event_type for draft in drafts])
         return original(state, drafts)
 
-    monkeypatch.setattr(engine.store, "commit", commit)
+    monkeypatch.setattr(engine.context.store, "commit", commit)
     return batches
 
 
@@ -488,7 +461,7 @@ def _opened(engine, round_id: str):
 
 def _events(engine, event_type: str) -> list:
     """全部某类事件。"""
-    return [event for event in engine.store.read_events(engine.store.last_event_seq) if event.event_type == event_type]
+    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq) if event.event_type == event_type]
 
 
 def test_decision_started_is_committed_with_and_before_the_first_action_request(_engine_factory, monkeypatch):
@@ -587,13 +560,13 @@ def test_observe_stores_the_body_without_the_host_only_progress_keys(_engine_fac
     同样不存）。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    original = engine._observation_data
+    original = engine.observations._observation_data
     progress = {"layer": "进度层", "session_started_at": "2026-01-05T00:00:00+08:00", "events": []}
 
     def with_progress(agent):
         return {**original(agent), "progress_layer": progress, "progress_meta": [], "progress_event_ids": []}
 
-    monkeypatch.setattr(engine, "_observation_data", with_progress)
+    monkeypatch.setattr(engine.observations, '_observation_data', with_progress)
     decision = context(engine, "observed")
     engine.begin_decision_round([decision])
     returned = engine.observe(decision)
@@ -630,12 +603,12 @@ def test_system_layers_persona_memory_and_tools_validate_against_the_layer_schem
 
 def test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_the_around_time_schema(
         monkeypatch) -> None:
-    """prompt_sha256 只计算、不钉常量，随系统层与待办层 Schema 重钉（docs/dev/SPEC-dayrun-fidelity.md 2.2、8.2）：新运行的
+    """prompt_sha256 只计算、不钉常量，随系统层与待办层 Schema 重钉（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改、8.2）：新运行的
     模型身份记录的提示指纹就是按现行十八条系统层与带 around_time 的待办层 Schema 算出的值；去掉新第 14 条回到十七条、
     或去掉待办层目标的 around_time，指纹都不同。"""
     from custom.agents import life_prompt
     from worldmock.life import prompt_schemas
-    from worldmock.runtime import _model_identity
+    from worldmock.run_setup import _model_identity
 
     current = life_prompt.life_prompt_sha256()
     assert _model_identity().prompt_sha256 == current
@@ -647,27 +620,27 @@ def test_recorded_prompt_fingerprint_is_recomputed_from_the_eighteen_rules_and_t
     goal = todo["properties"]["day_plan"]["oneOf"][1]["properties"]["goals"]["items"]
     assert goal["properties"].pop("around_time") and "around_time" in goal["required"]
     goal["required"].remove("around_time")
-    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "待办层": todo})
+    monkeypatch.setattr(life_prompt, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "待办层": todo})
     assert life_prompt.life_prompt_sha256() != current
 
 
 def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
     """提示指纹绑定七层 Schema：任何一层的 Schema 改动都改变运行指纹。"""
-    from custom.agents.life_prompt import life_prompt_sha256
+    from custom.agents import life_prompt
     from worldmock.life import prompt_schemas
 
-    original = life_prompt_sha256()
+    original = life_prompt.life_prompt_sha256()
     changed = {**prompt_schemas.LAYER_SCHEMAS, "人设层": {**prompt_schemas.LAYER_SCHEMAS["人设层"], "title": "改"}}
-    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", changed)
-    assert life_prompt_sha256() != original
+    monkeypatch.setattr(life_prompt, "LAYER_SCHEMAS", changed)
+    assert life_prompt.life_prompt_sha256() != original
 
 
 def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:
-    """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-dayrun-fidelity.md 5.2）：它是工具层的必填键，形状为
+    """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引）：它是工具层的必填键，形状为
     lifestyle、contents、goods 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
     from custom.agents import life_prompt
     from worldmock.life import prompt_schemas
-    from worldmock.runtime import _model_identity
+    from worldmock.run_setup import _model_identity
 
     schema = prompt_schemas.TOOL_LAYER_SCHEMA
     assert "callable_index" in schema["required"]
@@ -678,19 +651,19 @@ def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None
     tools = copy.deepcopy(schema)
     tools["properties"].pop("callable_index")
     tools["required"].remove("callable_index")
-    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "工具层": tools})
+    monkeypatch.setattr(life_prompt, "LAYER_SCHEMAS", {**prompt_schemas.LAYER_SCHEMAS, "工具层": tools})
     assert life_prompt.life_prompt_sha256() != current
 
 
 @pytest.mark.asyncio
 async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity(_engine_factory, monkeypatch,
                                                                                   caplog) -> None:
-    """工具层的可调用索引（docs/dev/SPEC-dayrun-fidelity.md 5.2）随真实观察原样进入 user 消息的工具层，计入整次请求的容量
+    """工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引）随真实观察原样进入 user 消息的工具层，计入整次请求的容量
     计数（第四章预算不变）：同一请求去掉索引后计数更小；把窗口定在两者之间时，宿主在发送前以容量故障停止——不删减索引、
     不发请求——容量故障的分层记录单列索引的用量。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    _stage(engine, int(datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.scenario.timezone)).timestamp()), "home")
+    _stage(engine, int(datetime(2026, 1, 5, 12, 30, tzinfo=ZoneInfo(engine.context.scenario.timezone)).timestamp()), "home")
     decision = context(engine, "index-capacity")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
@@ -723,4 +696,3 @@ async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity
     assert tight.requests == [] and environment.calls == []
     message = next(record.message for record in caplog.records if "capacity exceeded" in record.message)
     assert "'工具层'" in message and "'工具层.callable_index'" in message
-

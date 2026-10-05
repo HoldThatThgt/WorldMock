@@ -1,6 +1,7 @@
 """@brief 按门店供给执行整单购买，并按持有商品执行多件进食结算。"""
 
 from __future__ import annotations
+from worldmock.life.commerce import held_quantity as commerce_held
 
 from dataclasses import dataclass
 
@@ -176,7 +177,7 @@ def plan_delivery(semantics: ScenarioSemantics, supplies: tuple[SupplyConfig, ..
                   destination_id: str, now: int) -> _Fulfillment:
     """@brief 纯函数：整单最慢备货后出发，加出发时刻的驾车规划时长即预计送达时刻。
 
-    购买结算、观察投影与吃饭途径句共用这一算法（docs/dev/SPEC-time-and-energy.md 第八章「呈现」）。
+    购买结算、观察投影与吃饭途径句共用这一算法（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「呈现」）。
     送达地不在任一供给的可配送目的地时以 DELIVERY_DESTINATION_NOT_SUPPORTED 拒绝；道路缺失、
     不可达或未知时按 `_delivery_route` 的业务拒绝码拒绝。
     """
@@ -260,13 +261,12 @@ def change_inventory(agent: AgentState, product_id: str, delta: float) -> dict:
 
 def held_quantity(agent: AgentState, product_id: str) -> float:
     """@brief 返回人物当前位置可以实际取得的商品份量（委托 commerce 口径）。"""
-    from worldmock.life.commerce import held_quantity as commerce_held
 
     return commerce_held(agent, product_id)
 
 
 def portion_duration(full_seconds: int, portion: float) -> int:
-    """@brief 按份量折算的进食时长：max(60, round(整份时长 × 份量)) 秒（docs/dev/SPEC-persona-prompt.md 第五章「进食」）。"""
+    """@brief 按份量折算的进食时长：max(60, round(整份时长 × 份量)) 秒（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」）。"""
     return max(60, round(full_seconds * portion))
 
 
@@ -296,7 +296,7 @@ def open_meal(agent: AgentState, request: ConsumeRequest) -> tuple[AgentState, d
 
 
 def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> int:
-    """@brief 多件进食时长取各件按份量折算后的最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md「商务与进食」）。"""
+    """@brief 多件进食时长取各件按份量折算后的最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。"""
     durations = []
     for item in request.items:
         product = products.get(item.product_id)
@@ -315,7 +315,8 @@ def validate_meal_use(agent: AgentState, products: dict[str, InventoryItemConfig
                       request: ConsumeRequest) -> None:
     """@brief 校验配方与普通使用共享的件数、使用方式和地点条件。"""
     if not 1 <= len(request.items) <= 3:
-        raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")  # docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」：1-3 件
+        raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")
     if request.use_mode == "use" and len(request.items) != 1:
         raise BusinessRuleError("NON_FOOD_USE_SINGLE_ITEM")
     for item in request.items:
@@ -348,7 +349,7 @@ def apply_meal_progress(agent: AgentState, products: dict[str, InventoryItemConf
                         activity: ActivityState, config: BodyConfig) -> AgentState:
     """@brief 按实际进度逐件累加已用份量、热量与效果。
 
-    食用只按开吃时移入的 opened 与实际进度结算，不再扣库存（docs/dev/SPEC-persona-prompt.md 第五章「进食」），所以暂停
+    食用只按开吃时移入的 opened 与实际进度结算，不再扣库存（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」），所以暂停
     期间别处吃掉同一商品不影响恢复；使用在完成时按持有扣一件（镜像 commerce 口径）。
     """
     request = ConsumeRequest.model_validate(activity.data["request"])

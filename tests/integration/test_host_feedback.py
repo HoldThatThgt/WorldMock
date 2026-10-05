@@ -1,4 +1,4 @@
-"""宿主协议纠错的错误合同（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」）。
+"""宿主协议纠错的错误合同（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」）。
 
 LifeAgent 覆写 AS2 的 _protocol_feedback_content（锁定提交不改）：纠错正文是共用错误结构 {error_code, reason, fix, items,
 unmet} 加固定 instruction「本次没有登记到世界；按 fix 修改后重新提交」，不带英文校验转储、input_value 与网址；宿主错误码
@@ -32,7 +32,8 @@ from tests.integration.test_life_agent_protocol import (_TASK, _WAIT, _WAIT_CHOI
 from tests.integration.test_output_truncation import _Truncated  # noqa: E402
 from tests.integration.test_same_second_continuation import _environment, _reply, _single  # noqa: E402
 from tests.integration.test_storefront_tools import _OFFER, _observed_offer  # noqa: E402
-from tests.life.conftest import engine_factory as _engine_factory, last_result, start_arguments  # noqa: E402,F401
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (last_result, start_arguments)  # noqa: F401
 from tests.life.test_named_purchase import _browsed, _hidden, _layer_context  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
@@ -134,7 +135,7 @@ def _offer_beside_another_store() -> LifeAgent:
 
 def _host_cases() -> dict[str, tuple[str, str]]:
     """宿主错误码闭集的每个码经真实宿主路径得到的（错误码，原因）：截断经 LifeAgent 覆写的 _parse_react_responses 判定
-    （docs/dev/SPEC-dayrun-fidelity.md 7.2），名称歧义经统一名称解析（同名的内容与游戏，3.1），来源不一致是列出的标签配
+    （docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 ），名称歧义经统一名称解析（同名的内容与游戏，3.1），来源不一致是列出的标签配
     冻结地点表里的另一个地点（3.2（b））。"""
     agent = _prepared()
     offer = _offer_beside_another_store()
@@ -209,7 +210,7 @@ def test_a_second_item_failing_is_reported_at_index_one_with_fill_in_candidates(
 
 def test_a_view_about_an_unknown_person_in_the_second_item_is_reported_at_index_one() -> None:
     """结束两项活动，第一项只写偏好、第二项的关系看法写了不认识的人：SUBJECT_NOT_KNOWN 的明细指向第二项（index 1），参数名
-    是 about、原文是所写的名字（docs/dev/SPEC-dayrun-fidelity.md 第四章 items、第六章 views）。"""
+    是 about、原文是所写的名字（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章 items、第六章 views）。"""
     data = _with_activities(_observations()[0]["data"], (_WORK, PHASE_ACTIVE), (_WAIT, PHASE_ACTIVE))
     agent = _prepared([{"turn": 0, "action": "observe", "ok": True, "data": data}])
     arguments = _conclude_args(_WORK, _WAIT, memories=[[], []],
@@ -313,16 +314,16 @@ def _obtain_arguments(target: str, candidate: dict | None = None) -> dict:
 async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_the_engine(_engine_factory) -> None:
     """真实 LifeEngine、LifeEnv 与 LifeAgent（脚本化模型）：人物把一件存在但没有列出的商品名写错，宿主按指名购买放行，
     环境以 SUPPLY_NOT_FOUND 拒绝，items[0] 的候选是可照填的请求；同一秒下一次决策把其中这件商品的候选逐字段原样提交，
-    宿主不纠错、环境受理并下单（docs/dev/SPEC-dayrun-fidelity.md 第四章验收：候选原样提交可受理）。"""
+    宿主不纠错、环境受理并下单（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章验收：候选原样提交可受理）。"""
     engine = _engine_factory()
     listed = _browsed(engine)
     supply = _hidden(engine, listed, unique_name=True)
     label = supply_label(_layer_context(engine), supply)
-    written = f"{engine.rules.items[supply.product_id].name}加冰"
+    written = f"{engine.context.rules.items[supply.product_id].name}加冰"
     environment = _environment(engine)
     await _single(environment, "misspelled", [_reply("call-misspelled", "start_activity",
                                                      _obtain_arguments(written), "买一份。")])
-    rejected = engine.store.read_agent_events("action_result", 1)[-1].data
+    rejected = engine.context.store.read_agent_events("action_result", 1)[-1].data
     assert (rejected["status"], rejected["error_code"]) == ("rejected", "SUPPLY_NOT_FOUND")
     seen: dict = {}
 
@@ -337,7 +338,7 @@ async def test_a_candidate_submitted_verbatim_is_accepted_through_the_host_and_t
     assert seen["candidate"]["arguments"]["items"] == [{"target": label, "way": "远程下单", "from": None, "to": None}]
     assert seen["details"]["reason"] and seen["details"]["items"][0]["written"] == written
     assert len(requests) == 1
-    accepted = engine.store.read_agent_events("action_result", 1)[-1].data
+    accepted = engine.context.store.read_agent_events("action_result", 1)[-1].data
     assert (accepted["status"], accepted["error_code"]) == ("completed", None)
     assert [order["supply_id"] for order in accepted["data"]["orders"]] == [supply.supply_id]
 

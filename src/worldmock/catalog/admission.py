@@ -129,7 +129,7 @@ def validate_scenario_against_catalog(
     refs: ScenarioCatalogRefs,
     catalog: Catalog,
 ) -> AdmissionResult:
-    """@brief 按 docs/design/03-resource-engine.md「准入边界」的八条规则校验场景引用闭集。
+    """@brief 按 docs/design/03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎「准入边界」的八条规则校验场景引用闭集。
 
     :param refs: 场景侧的资源初始化、账户声明、对象引用与预排表引用。
     :param catalog: 场景钉定版本的冻结目录视图。
@@ -847,7 +847,7 @@ def _check_partition_keys(root, violations) -> None:
     """@brief 素材可达性第一半：每个可检索条目必须齐备全部分区键。
 
     条目的检索分区键（内容为题材、语言、时长段）必须齐备；任一键缺省的条目
-    落不进任何分区，判定为不可达并阻断启动（docs/dev/SPEC-life-realism.md
+    落不进任何分区，判定为不可达并阻断启动（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像
     「素材可达性」）。
     """
     for entry in _retrieval_entries(root):
@@ -864,7 +864,7 @@ def _check_partition_feasibility(root, locations_path, violations) -> None:
 
     分区内至少有一条条目的 `location_kinds` 与场景至少一个地点的
     `location_kinds` 交集非空，否则该分区在场景里恒不可行，判定为不可达
-    （docs/dev/SPEC-life-realism.md「素材可达性」）。
+    （docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「素材可达性」）。
     """
     entries = _retrieval_entries(root)
     places = _place_kinds(root, locations_path)

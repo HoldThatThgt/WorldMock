@@ -19,9 +19,10 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.quality import build_quality_report
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ModelIdentity, RunIdentity
-from worldmock.life.scenario import load_scenario
-from worldmock.runtime import _model_identity, _require_runtime_identity, runtime_code_sha256, stage_model_identity
-from worldmock.validation import validate_stage_model_identity
+from worldmock.life.world_setup import load_scenario
+from worldmock.run_setup import _model_identity, runtime_code_sha256, stage_model_identity
+from worldmock.runtime import _require_runtime_identity
+from worldmock.run_setup import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
@@ -76,7 +77,7 @@ async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> N
     await env.init(datetime.fromtimestamp(
         scenario.start_at.timestamp(), ZoneInfo(scenario.timezone)))
     try:
-        manifest = env.engine.store.manifest
+        manifest = env.engine.context.store.manifest
     finally:
         await env.close()
 
@@ -100,7 +101,7 @@ def test_manifest_stage_identity_tampering_is_rejected(tmp_path) -> None:
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario),
                                stage_model_identity())
     try:
-        frozen = copy.deepcopy(engine.store.manifest["stage_model_identity"])
+        frozen = copy.deepcopy(engine.context.store.manifest["stage_model_identity"])
     finally:
         engine.close()
 
@@ -180,22 +181,22 @@ def test_engine_created_without_stage_identity_keeps_null_slot(tmp_path) -> None
     scenario, _ = load_scenario(_SCENARIO)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario))
     try:
-        assert engine.store.manifest["stage_model_identity"] is None
+        assert engine.context.store.manifest["stage_model_identity"] is None
     finally:
         engine.close()
 
 
 def test_engine_direct_runs_keep_input_warnings_null_and_unrecorded(tmp_path) -> None:
-    """运行输入警告只在新建运行时计算（docs/dev/SPEC-dayrun-fidelity.md 1.3）：引擎直驱没有计算，清单的 input_warnings
+    """运行输入警告只在新建运行时计算（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）：引擎直驱没有计算，清单的 input_warnings
     是 null 而不是空列表，质量报告据此把这一节记为未记录、计数为 null（不记为零）；新建运行算出的空列表照样冻结为 []。"""
     scenario, _ = load_scenario(_SCENARIO)
     direct = LifeEngine.create(_SCENARIO, tmp_path / "direct", _run_identity(scenario))
     created = LifeEngine.create(_SCENARIO, tmp_path / "created", _run_identity(scenario),
                                 create_options={"input_warnings": []})
     try:
-        frozen = (direct.store.manifest["input_warnings"], created.store.manifest["input_warnings"])
-        section = build_quality_report(direct.store.read_events(direct.store.last_event_seq), [],
-                                       direct.store.manifest)["input_warnings"]
+        frozen = (direct.context.store.manifest["input_warnings"], created.context.store.manifest["input_warnings"])
+        section = build_quality_report(direct.context.store.read_events(direct.context.store.last_event_seq), [],
+                                       direct.context.store.manifest)["input_warnings"]
     finally:
         direct.close()
         created.close()

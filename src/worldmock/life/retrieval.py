@@ -1,7 +1,7 @@
 """@brief 确定性检索：条目属性倒排索引、facet 计数与静态可达性判定。
 
-本模块是「检索：确定性索引与 facet」（docs/dev/SPEC-life-runtime.md）与「素材可达性」
-（docs/dev/SPEC-life-realism.md）的纯函数实现，被准入校验与静态检查脚本共用。三条
+本模块是「检索：确定性索引与 facet」（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则）与「素材可达性」
+（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像）的纯函数实现，被准入校验与静态检查脚本共用。三条
 硬约束决定了它的形状：
 
 - **索引必须确定性**：倒排索引（标签 → 对象标识）与 facet 计数都是纯文本、可 diff、
@@ -16,11 +16,11 @@
 **反塌缩，不是覆盖率**：`reachable` 只回答「该条目是否至少属于一个可检索分区、且该
 分区在场景里存在非空的地点可行组合」。它不要求任何条目被呈现过，也不承诺它在任何
 有限运行窗口内被呈现——它只保证「从未可达」这个状态本身可被判假，且判定不依赖任何
-运行期互动统计量（docs/dev/SPEC-life-realism.md「素材可达性」）。
+运行期互动统计量（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「素材可达性」）。
 
 **触发条件**：单一品类池规模超过场景常量 `retrieval_index_threshold` 时才建立倒排与
 facet；未超过时按品类下推。两条路径的查询入口与分区键完全相同，`INDEXED` 只记录本次
-走的是哪条路径，因此池变大时不必推倒重来（docs/dev/SPEC-life-runtime.md「检索」）。
+走的是哪条路径，因此池变大时不必推倒重来（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「检索」）。
 
 模块的 docstring 用中文，代码、日志与抛错用英文。
 """
@@ -41,7 +41,7 @@ FacetName = Literal["genre", "language", "duration_bucket"]
 #: 分区维度的枚举形态，顺序即分区键的字段顺序（确定性的一部分）。
 FACET_NAMES: tuple[FacetName, ...] = ("genre", "language", "duration_bucket")
 
-#: 地点类取值取自生活活动地点类的单一封闭集（docs/CONTRACTS.md「地点类词表」）。
+#: 地点类取值取自生活活动地点类的单一封闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「地点类词表」）。
 #: 与 `catalog/affordances.toml`、`corpora/lifestyle/enrichment.json` 三处逐值一致。
 LOCATION_KINDS: tuple[str, ...] = ("home", "office", "outdoor", "fitness", "venue", "anywhere")
 
@@ -52,7 +52,7 @@ ANYWHERE_KIND = "anywhere"
 #: 取整数值而非浮点，避免任何浮点比较参与分区判定。
 DURATION_BUCKET_BOUNDS: tuple[int, ...] = (3600, 7200)
 
-#: 单一品类池超过该规模即启用倒排与 facet（docs/CONTRACTS.md「场景常量」的缺省值）。
+#: 单一品类池超过该规模即启用倒排与 facet（docs/CONTRACTS.md#contracts-worldmock-接口合同「场景常量」的缺省值）。
 DEFAULT_RETRIEVAL_INDEX_THRESHOLD = 1000
 
 #: 检索路径的两种取值：索引命中与线性扫描（同入口、同结果，只用于留痕）。
@@ -250,7 +250,7 @@ def item_kinds(corpora_root: Any, relative: str = LIFESTYLE_RELATIVE
     """@brief 生活活动语料的地点类声明表：活动标识 -> 该条目需要的地点类集合。
 
     条目侧的声明是「我需要哪些地点类」，与地点侧的「我满足哪些地点类」同名同义
-    （docs/CONTRACTS.md「地点类词表」）。条目声明含 `anywhere` 表示恒可行。
+    （docs/CONTRACTS.md#contracts-worldmock-接口合同「地点类词表」）。条目声明含 `anywhere` 表示恒可行。
 
     :param corpora_root: 语料根目录。
     :param relative: 生活活动语料的相对路径。

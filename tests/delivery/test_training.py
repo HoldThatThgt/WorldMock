@@ -176,7 +176,7 @@ def test_high_precision_floats_round_trip_through_real_dataset_loader(dataset_tm
     datasets 的 Json(decode=False) 对对象形态列走 json_encode_field → pandas ujson，
     双精度被量化到 15 位有效数字且没有无损档位——1139.1499999999999 被改写成 1139.15，
     守恒检查随即 IntegrityError，唯一交付路径对真实记录必然失败。规格
-    （`docs/CONTRACTS.md`「数据集字段与划分」与 `docs/dev/SPEC-labelkit-delivery.md`
+    （`docs/CONTRACTS.md#contracts-worldmock-接口合同`「数据集字段与划分」与 `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit`
     「验收矩阵」）要求三列以 JSON 文本保存、以标准 json.loads
     逐记录核对原值并保留浮点数；文本形态的列被加载器短路原样返回，浮点逐位守恒。
     本测试用 16-17 位有效数字的浮点钉住该行为：修复前必然 IntegrityError，

@@ -228,7 +228,7 @@ def _legacy_audit(run_id: str, digest: str, main_rows: int, stream_rows: int) ->
     }
 
 
-#: 夹具活动类型的占用（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」的占用表）；数字交互只按活动类型判定。
+#: 夹具活动类型的占用（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」的占用表）；数字交互只按活动类型判定。
 ACTIVITY_CLAIMS = {"browse": ["eyes", "hands"], "wait": ["idle"]}
 
 

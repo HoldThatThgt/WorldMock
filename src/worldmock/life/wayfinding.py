@@ -1,4 +1,4 @@
-"""@brief 从此地出发的可达性与下一步去向的说法（docs/dev/SPEC-dayrun-fidelity.md 5.3，裁决 S9）。
+"""@brief 从此地出发的可达性与下一步去向的说法（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ，裁决 S9）。
 
 下一步提示只指向从当前地点可达的地点：目标此地直达时写「去<地点>」；此地去不了、经别处可以到时写「可经<中转地>前往
 <地点>」，中转地是从此地直达、且由它出发能到目标的地点（取总路程最短的一条路径上的第一站）；哪里都到不了时写「这里去不了
@@ -15,7 +15,7 @@ import heapq
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-#: 从此地出发哪里都到不了时，到店取得的门店的说法（docs/dev/SPEC-dayrun-fidelity.md 5.3）。
+#: 从此地出发哪里都到不了时，到店取得的门店的说法（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）。
 UNREACHABLE_STORE_STEP = "This store is unreachable from the current location."
 #: 能送达的地点从此地都到不了时的说法。
 UNREACHABLE_DELIVERY_STEP = "No eligible receiving location is reachable from here."

@@ -10,8 +10,11 @@ from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError
 from worldmock.life.map_data import load_map_dataset, select_map
-from worldmock.life.map_models import MAP_SCHEMA_VERSION, LocationConfig, MapDatasetReference, RouteConfig
-from tests.life.test_opening_hours import location, source
+from worldmock.life.map_models import (
+    MAP_SCHEMA_VERSION, LocationConfig, MapDatasetDeclaration, MapDatasetReference, RouteConfig, TemporalDeclaration,
+)
+from worldmock.life.models import DataSource
+from tests.life.test_opening_hours import calendar, location, source
 
 
 def write(path, value):
@@ -71,6 +74,41 @@ def scenario(**changes):
     for name, value in changes.items():
         setattr(result, name, value)
     return result
+
+
+def test_source_retrieval_requires_an_explicit_timezone(caplog):
+    """来源取得时刻在公共模型构造时要求时区，不能让未经声明的本地时刻进入事实来源。"""
+    accepted = DataSource.model_validate(source())
+    assert accepted.retrieved_at.utcoffset() is not None
+    payload = accepted.model_dump()
+    payload["retrieved_at"] = accepted.retrieved_at.replace(tzinfo=None)
+    with pytest.raises(ValidationError, match="Map timestamps must be timezone-aware"):
+        DataSource(**payload)
+    assert caplog.messages == ["Map timestamps must be timezone-aware"]
+
+
+def test_temporal_end_requires_an_explicit_timezone(caplog):
+    """生效截止的公共构造拒绝未声明时区的时刻，错误在区间比较前明确记录。"""
+    payload = {key: value for key, value in calendar(effective_to="2026-10-01T00:00:00+08:00").items()
+               if key not in {"weekly", "exceptions"}}
+    accepted = TemporalDeclaration.model_validate(payload)
+    assert accepted.effective_to.utcoffset() is not None
+    payload["effective_to"] = accepted.effective_to.replace(tzinfo=None)
+    with pytest.raises(ValidationError, match="Map timestamps must be timezone-aware"):
+        TemporalDeclaration(**payload)
+    assert caplog.messages == ["Map timestamps must be timezone-aware"]
+
+
+def test_dataset_preparation_requires_an_explicit_timezone(tmp_path, caplog):
+    """冻结地图发布声明的公共构造拒绝未声明时区的准备时刻，不猜测机器时区。"""
+    reference = create_dataset(tmp_path)
+    payload = json.loads((tmp_path / reference.path).read_text())
+    accepted = MapDatasetDeclaration.model_validate(payload)
+    assert accepted.prepared_at.utcoffset() is not None
+    payload["prepared_at"] = accepted.prepared_at.replace(tzinfo=None)
+    with pytest.raises(ValidationError, match="Map timestamps must be timezone-aware"):
+        MapDatasetDeclaration(**payload)
+    assert caplog.messages == ["Map timestamps must be timezone-aware"]
 
 
 def test_selected_map_preserves_unknown_route_and_instance_stock(tmp_path):
@@ -347,13 +385,13 @@ def test_preparation_fetches_full_selected_set_and_publishes_verifiable_version(
     write(folder / "supply-assumptions.json", {"source": "fixture"})
     (folder / "zhangjiang-probe.osm").write_text("<osm/>")
     catalog = load_catalog(Path("catalog"))
-    monkeypatch.setattr("worldmock.catalog.loader.load_catalog", lambda path: catalog)
-    monkeypatch.setattr("worldmock.corpora.storefront_build.build_storefront_supplies",
+    monkeypatch.setattr(map_prepare, "load_catalog", lambda path: catalog)
+    monkeypatch.setattr(map_prepare, "build_storefront_supplies",
                         lambda fare, assignment, locations, assumptions, seed:
                         load_map_dataset(source_root, MapDatasetReference(
                             dataset_id="test", version=1, path="zhangjiang-map/1/dataset.json",
                             sha256=hashlib.sha256((seed_folder / "dataset.json").read_bytes()).hexdigest())).supplies)
-    monkeypatch.setattr("worldmock.corpora.storefront.validate_assortments", lambda dataset, fare: None)
+    monkeypatch.setattr(map_prepare, "validate_assortments", lambda dataset, fare: None)
     calls, waits = [], []
     def fetch(url, **kwargs):
         calls.append(url)
@@ -402,8 +440,8 @@ def _repin(document):
 def test_formal_scenario_seed_must_agree_with_its_pinned_map(tmp_path, change):
     """@brief 同一地图身份与版本按种子各冻结一份报价：正式场景的种子与所钉地图的种子不一致时，真实加载入口在选图时
     拒绝并写明原因，不会拿另一个种子的报价继续运行。"""
-    from tests.life.conftest import _mutated_scenario
-    from worldmock.life.semantics import load_runtime_scenario
+    from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
+    from worldmock.life.world_setup import load_runtime_scenario
 
     path = _mutated_scenario(_FORMAL_SCENARIO, change, tmp_path)
     document = json.loads(path.read_text(encoding="utf-8"))

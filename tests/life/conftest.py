@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -14,73 +15,21 @@ import pytest
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
 from agentsociety2.society import DecisionContext, DirectToolCall  # noqa: E402
+from tests.frozen_inputs import relative_corpus  # noqa: E402
 
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
-from worldmock.life.scenario import load_scenario  # noqa: E402
 
 
-@pytest.fixture
-def engine_factory(tmp_path: Path):
-    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本；create_options 原样交给
-    LifeEngine.create（例如 persona_habit_responses，缺省为引擎直驱：不带新建运行的附加输入）。"""
-    created = []
-
-    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None,
-               create_options: dict | None = None) -> LifeEngine:
-        scenario_path = Path("scenarios") / scenario_name
-        if mutate is not None:
-            scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
-        scenario, _ = load_scenario(scenario_path)
-        run_id = f"test-{len(created)}-{scenario.scenario_id}"
-        identity = RunIdentity(
-            run_id=run_id,
-            source_group_id=f"group-{run_id}",
-            agent_ids=tuple(item.agent_id for item in scenario.agents),
-            start_at=scenario.start_at.isoformat(),
-            end_at=scenario.end_at.isoformat(),
-            timezone=scenario.timezone,
-            code_sha256="2" * 64,
-            model_identity=ModelIdentity(
-                provider="openai_compatible",
-                base_url="https://api.deepseek.com/beta",
-                requested_model="deepseek-flash",
-                thinking="enabled",
-                tool_choice="auto",
-                max_retries=0,
-                prompt_sha256="0" * 64,
-                tool_schema_sha256="1" * 64,
-            ),
-        )
-        engine = LifeEngine.create(scenario_path, tmp_path / f"run-{len(created)}", identity, None, create_options)
-        created.append(engine)
-        return engine
-
-    yield create
-    for engine in created:
-        try:
-            engine.close()
-        except Exception:
-            pass
 
 
-def _mutated_scenario(source: Path, mutate, root: Path) -> Path:
-    """把正式场景文档的副本交给 mutate(document) 改写，连同冻结目录写到 root 下（语料根改为正式语料的绝对路径）。"""
-    document = json.loads(source.read_text(encoding="utf-8"))
-    mutate(document)
-    document["corpus_root"] = str((source.parent / document["corpus_root"]).resolve())
-    (root / "scenarios").mkdir(parents=True)
-    shutil.copytree(Path("catalog"), root / "catalog")
-    path = root / "scenarios" / source.name
-    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
-    return path
 
 
 def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:
     """形成指向当前已提交世界的宿主上下文。"""
-    observed = datetime.fromtimestamp(engine.state.current_time, ZoneInfo(engine.scenario.timezone))
-    return DecisionContext(engine.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
-                           agent_id, observed, engine.state.version)
+    observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.scenario.timezone))
+    return DecisionContext(engine.context.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
+                           agent_id, observed, engine.context.state.version)
 
 
 def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), submitted: bool = False) -> None:
@@ -92,18 +41,18 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     from worldmock.life.day_planning import plan_date
     from worldmock.life.schedule import DayPlan, day_end_seconds
 
-    now = engine.state.current_time
-    day_end = day_end_seconds(now, engine.scenario.timezone)
-    staged = engine.state.model_copy(deep=True)
+    now = engine.context.state.current_time
+    day_end = day_end_seconds(now, engine.context.scenario.timezone)
+    staged = engine.context.state.model_copy(deep=True)
     agent = staged.agents[agent_id]
-    dates = set(agent.plan_submitted_dates) | ({plan_date(now, engine.scenario.timezone)} if submitted else set())
+    dates = set(agent.plan_submitted_dates) | ({plan_date(now, engine.context.scenario.timezone)} if submitted else set())
     staged.agents[agent_id] = agent.model_copy(
         update={"day_plan": DayPlan(day_end=day_end, goals=tuple(goals)), "plan_submitted_dates": dates}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_day_plan_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
@@ -111,42 +60,42 @@ def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
     指定记下时刻、累计量与提醒状态的用例。状态副本与一条系统可见的测试事件同一提交落库。"""
     from worldmock.footprints.models import EventDraft
 
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[agent_id] = staged.agents[agent_id].model_copy(
         update={"errands": {item.errand_id: item for item in errands}}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_errands_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 1) -> str:
     """经 FootprintStore 补登一条旧形状的控制请求及其结果（世界结构 8 的写法：带 items 而缺请求级 errands）：照该人物最近
     一次 tool 请求的逐项内容，同一决策、动作身份另起，请求摘要按同一算法对旧形状重算，结果照原结果；世界状态不变、版本
-    加一。引擎自己写不出这种记录，只用于核对各读取方对旧记录的拒绝（docs/dev/SPEC-errands-workday.md 2.3、2.9）。
+    加一。引擎自己写不出这种记录，只用于核对各读取方对旧记录的拒绝（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 、2.9）。
     返回补登的动作身份。"""
     import hashlib
 
     from worldmock.footprints.models import EventDraft
 
-    requested = [event for event in engine.store.read_agent_events("action_requested", agent_id)
+    requested = [event for event in engine.context.store.read_agent_events("action_requested", agent_id)
                  if event.data["tool_name"] == tool][-1]
-    result = next(event for event in engine.store.read_agent_events("action_result", agent_id)
+    result = next(event for event in engine.context.store.read_agent_events("action_result", agent_id)
                   if event.action_id == requested.action_id)
     request = {"items": requested.data["request"]["items"]}
     content = json.dumps({"tool_name": tool, "request": request}, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode()
     action_id = f"{requested.action_id}-legacy"
     data = {**requested.data, "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
     shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "decision_id": requested.decision_id,
               "action_id": action_id}
-    engine.store.commit(staged.model_dump(mode="json"), [
+    engine.context.store.commit(staged.model_dump(mode="json"), [
         EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
         EventDraft(event_type="action_result", data={**result.data, "action_id": action_id}, **shared)])
-    engine.state = staged
+    engine.context.state = staged
     return action_id
 
 
@@ -171,21 +120,21 @@ def errand_cancel(name: str, reason: str) -> dict:
 def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     """让给定对象进入下一次观察的呈现窗口：场景里其余可呈现对象（内容、游戏、生活活动与门店供给）都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
-    （docs/dev/SPEC-dayrun-fidelity.md 5.1），每个分区至多三个。经存储落盘并保持版本连续。"""
+    （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），每个分区至多三个。经存储落盘并保持版本连续。"""
     from worldmock.footprints.models import EventDraft
 
     wanted = set(object_ids)
-    everything = {*(item.item_id for item in engine.scenario.contents), *(item.game_id for item in engine.scenario.games),
-                  *(item.activity_id for item in engine.lifestyle_items),
-                  *(item.supply_id for item in engine.scenario.supplies)}
-    staged = engine.state.model_copy(deep=True)
+    everything = {*(item.item_id for item in engine.context.scenario.contents), *(item.game_id for item in engine.context.scenario.games),
+                  *(item.activity_id for item in engine.context.lifestyle_items),
+                  *(item.supply_id for item in engine.context.scenario.supplies)}
+    staged = engine.context.state.model_copy(deep=True)
     staged.presentation_state = {**staged.presentation_state,
                                  agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_brought_to_window"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def plan_day_response(goals: list[dict] | None = None, arguments: str | None = None) -> dict:
@@ -244,8 +193,8 @@ def settle_day_plans(engine: LifeEngine, client=None) -> list[dict]:
 
 def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
     """当前出发时刻的出行受理口径计划时长（travel-time 分时系数折算）。"""
-    return engine.semantics.travel_planned_seconds(
-        mode, base_seconds, engine.state.current_time)
+    return engine.context.semantics.travel_planned_seconds(
+        mode, base_seconds, engine.context.state.current_time)
 
 
 def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], round_id: str):
@@ -267,7 +216,7 @@ def advance_next(engine: LifeEngine) -> None:
     """推进到环境报告的下一个严格未来边界；零点边界照 LifeEnv.step 先生成当日计划（确定性空清单桩）再判定节律。"""
     state = engine.scheduling_state()
     assert state.next_event_at is not None
-    engine.advance(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
+    engine.advance(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
     if engine.midnight_rhythm_pending:
         settle_day_plans(engine)
 
@@ -296,9 +245,9 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
     """
     from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     at = staged.current_time + offset
-    message_id = engine.scenario.messages[0].message_id
+    message_id = engine.context.scenario.messages[0].message_id
     sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
     staged.pending_events.append(ScheduledEvent(
         scheduled_id=f"test-wake-mail-{sequence}", kind=ScheduledKind.MAIL_ARRIVAL,
@@ -306,10 +255,10 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
     staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
     staged.version += 1
     from worldmock.footprints.models import EventDraft
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_wake_mail_scheduled"})])
-    engine.state = staged
+    engine.context.state = staged
     return at
 
 
@@ -323,7 +272,7 @@ def start_arguments(targets, actions, ways, **fields) -> dict:
     """@brief 测试输入数组只存在于帮助函数，生产请求严格使用 items。"""
     sources = fields.pop("from", fields.pop("from_", [None for _ in targets]))
     destinations = fields.pop("to", [None for _ in targets])
-    from worldmock.life.name_resolution import way_options
+    from worldmock.life.vocabulary import way_options
     purchase = any(way_options(way) & {"到店", "远程下单", "购买"} for way in ways)
     return {"items": [{"target": target, "way": way, "from": source, "to": destination}
                       for target, way, source, destination in zip(targets, ways, sources, destinations)],
@@ -344,7 +293,7 @@ def start_request(**fields):
 
 def start_activity(way: str, *targets: str, **fields):
     """@brief 按「动词＋对象＋方式」构造启动请求：每个对象取同一方式短语，动词由方式唯一确定（第五章）。"""
-    from worldmock.life.interaction_menu import WAYS
+    from worldmock.life.vocabulary import WAYS
 
     payload = {"targets": list(targets), "actions": [WAYS[way][0] for _ in targets], "ways": [way for _ in targets]}
     payload.update(fields)
@@ -356,7 +305,7 @@ def activity_name(engine: LifeEngine, activity_id: str) -> str:
 
     同一轮可见的名称重复时观察另加「（第二次）」这类序号，这类用例改从观察的 activity_bindings 取名。
     """
-    return engine.state.activities[activity_id].name
+    return engine.context.state.activities[activity_id].name
 
 
 def _summaries(names: tuple[str, ...], summary) -> list[str]:

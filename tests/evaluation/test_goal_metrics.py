@@ -12,7 +12,7 @@ from worldmock.footprints.models import canonical_json
 
 CODE = "a" * 64
 ZONE = ZoneInfo("Asia/Shanghai")
-#: 外部约束闭集只保留营业、到达准入、路线与工作可用性（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，
+#: 外部约束闭集只保留营业、到达准入、路线与工作可用性（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，
 #: 做错了再说明」：删去 PICKUP_LOCATION_REQUIRED 与工作地点、技能不符的 ACTIVITY_PRECONDITION_UNMET）。
 FROZEN_EXTERNAL_CODES = {
     "MERCHANT_CLOSED", "MERCHANT_OPENING_UNKNOWN", "LOCATION_ACCESS_DENIED",
@@ -212,7 +212,7 @@ def _started(event: dict, started: int | None) -> dict:
     (clock(0, 21, 50), (clock(0, 21, 45), clock(0, 22)), False),
 ])
 def test_goal_with_an_around_time_counts_only_activity_that_ran_near_it(started, interval, counted):
-    """大致时刻（docs/dev/SPEC-dayrun-fidelity.md 8.2）与引擎同一判定：目标的 around_at 取自登记，活动在当日内的进行区间
+    """大致时刻（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）与引擎同一判定：目标的 around_at 取自登记，活动在当日内的进行区间
     （快照的实际开始时刻至结算止点）须与 [around − 90 分钟, around + 90 分钟] 有正时长交集；08:40 的浏览即使快照声称推进了
     大致时刻为 23:00 的娱乐目标也不计，21:00 开始的观看计入；快照没有开始时刻或开始时刻晚于结算起点时不计。"""
     registered = goal("娱乐", "睡前刷会儿", around_at=clock(0, 23))
@@ -245,7 +245,7 @@ def test_changing_only_the_around_time_keeps_the_instance_and_moves_its_window()
 
 
 def test_routine_goals_are_reported_apart_from_the_progress_ratio():
-    """推进比例只计非例行意图的目标（docs/dev/SPEC-dayrun-fidelity.md 2.3）：睡眠、晨间例程、通勤、用餐照常判定与记录，
+    """推进比例只计非例行意图的目标（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 ）：睡眠、晨间例程、通勤、用餐照常判定与记录，
     另计一行 routine_goals；按优先级的分组也只计非例行意图。"""
     goals = [goal("用餐", "午饭"), goal("工作", "写报告"), goal("通勤", "去公司"), goal("运动", "跑步")]
     worked = dict(goals[1], progressed_at=clock(0, 9), progress_activity_id="work")

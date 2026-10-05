@@ -285,7 +285,7 @@ def _located_partner_session(view: DatasetView):
 
 
 def test_activity_rows_carry_location_and_anonymous_companion(evaluation_fixture) -> None:
-    """GAP-4：活动记录增加地点与同伴两列；同伴只用匿名对象引用（docs/dev/SPEC-life-runtime.md「社交最小可行版」、docs/dev/SPEC-life-realism.md「呈现与导出」）。"""
+    """GAP-4：活动记录增加地点与同伴两列；同伴只用匿名对象引用（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「社交最小可行版」、docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「呈现与导出」）。"""
     scenario, left, right, support = _review_inputs(evaluation_fixture)
     session = _located_partner_session(left)
     left = replace(left, activities=(*left.activities, session))

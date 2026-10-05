@@ -1,17 +1,19 @@
+<a name="spec-dayrun-behavior-一日行为可信性特性开发规格"></a>
 # 一日行为可信性特性开发规格
 
 > 状态：FROZEN，已实现并通过本特性离线验收；所有条款同批交付，无特性延期项。
-> 部分条款由[时间与能量规格](SPEC-time-and-energy.md)修订，修订部分已实现并通过离线验收（证据见[时间与能量验收记录](research/time-and-energy-verification.md)）。
-> 部分条款按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；修订记录见「版本表」。
-> 「餐馆的实际进食路径」的指名购买口径按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订（2026-09-29，一日运行保真 DR1），修订部分已实现并通过离线验收；「共同时间与身体结算」与通用地图的购买条件条款被该规格引作依据，不改。
+> 部分条款由[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)修订，修订部分已实现并通过离线验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）。
+> 部分条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
+> 「餐馆的实际进食路径」的指名购买口径按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（2026-09-29，一日运行保真 DR1），修订部分已实现并通过离线验收；「共同时间与身体结算」与通用地图的购买条件条款被该规格引作依据，不改。
 > 开发基线：`74edead`；独立分支：`codex/dayrun-behavior`。
 > 来源：[行为提案](PROPOSAL-dayrun-behavior.md)；用户已授权确定细节、修订规格及完整实现。
-> 本文定义特性行为和验收；接口归 [CONTRACTS](../CONTRACTS.md)，记录格式归
-> [记录引擎设计](../design/05-recording-engine.md)。
-> 工具交互修订：按[工具交互规格](SPEC-tool-interaction.md)冻结本次目标行为；本次修订已实现，原离线验收只证明历史行为。
-> 部分条款按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（2026-10-02）：「人物入口与独立控制」的 `query_world` 六键与三个控制请求携带的个人事务变更，「共同时间与身体结算」的下一边界，「主观记忆与巩固」的自述边界、记忆层与就寝反思，「持续活动与必要唤醒」的个人事务提醒；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）；修订记录见「版本表」。
+> 本文定义特性行为和验收；接口归 [CONTRACTS](../CONTRACTS.md#contracts-worldmock-接口合同)，记录格式归
+> [记录引擎设计](../design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)。
+> 工具交互修订：按[工具交互规格](SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次目标行为；本次修订已实现，原离线验收只证明历史行为。
+> 部分条款按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（2026-10-02）：「人物入口与独立控制」的 `query_world` 六键与三个控制请求携带的个人事务变更，「共同时间与身体结算」的下一边界，「主观记忆与巩固」的自述边界、记忆层与就寝反思，「持续活动与必要唤醒」的个人事务提醒；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；修订记录见「版本表」。
 > 日期：2026-10-04
 
+<a name="spec-dayrun-behavior-人物体验与范围"></a>
 ## 人物体验与范围
 
 人物可以持续做事，同时进行按占用、目标、地点与出行方式准入的活动；
@@ -37,6 +39,7 @@ flowchart LR
 不增加另一套模拟、播放、账本或记忆检索框架。旧单活动槽和被替换的记忆权威合同直接删除，
 旧快照拒绝，不保留兼容字段、迁移或回退路径。
 
+<a name="spec-dayrun-behavior-等待与内容接触"></a>
 ## 等待与内容接触
 
 - 等待记录本人的实际开始、结束、状态与正时长区间。没有可核验等待对象时原因为空，
@@ -48,6 +51,7 @@ flowchart LR
 - 导出分别报告等待实际秒数、原因未知的等待秒数、真实内容接触区间；人的经过时长取区间并集，
   活动各自的时长可以重叠，不能拿活动时长总和冒充一天长度。
 
+<a name="spec-dayrun-behavior-真实音频来源与揭示"></a>
 ### 真实音频来源与揭示
 
 本次加入 `podcast_episode` 内容品类，使用 NASA 官方 Houston We Have a Podcast 的 Space Habitat，
@@ -59,8 +63,10 @@ flowchart LR
 不能以相交为由提前揭示整段，不能估算词速伪造逐词时间。暂停、倍速、恢复和片段结束均遵循
 真实媒体位置；实际人物提示明确为听取节目。该来源的使用与转载条件须随来源核验记录。
 
+<a name="spec-dayrun-behavior-同一人物的活动集合"></a>
 ## 同一人物的活动集合
 
+<a name="spec-dayrun-behavior-唯一状态与资源准入"></a>
 ### 唯一状态与资源准入
 
 `WorldState.activities` 是活动唯一事实源；删除 `AgentState.current_activity_id`，
@@ -104,6 +110,7 @@ flowchart LR
 暂停与终态不占资源，不同人物的个人资源互不排斥。原有地点、资格与持有量条件继续成立。
 组合由资源交集判定，不能另写一个允许组合白名单或给某个目标临时放行。
 
+<a name="spec-dayrun-behavior-人物入口与独立控制"></a>
 ### 人物入口与独立控制
 
 - 人物通过 `start_activity.items[]` 提交一至两项 `{target, way, from, to}` 与请求级 `answering`、`prefer`，删除旧平行数组和 `actions`。
@@ -142,6 +149,7 @@ flowchart LR
   途中结束出行时，路上开始的活动同样记 `route_ended` 并成为待收尾。到达不重置内容，接着听不增加接触次数。
   同时结束各自留证，在一轮内一并收尾。实验截止分别截断所有未结束活动，截断不是完成。
 
+<a name="spec-dayrun-behavior-共同时间与身体结算"></a>
 ### 共同时间与身体结算
 
 - 人物保存 `body_settled_at`。活动开始、控制及世界事件均发生在已经结算的共同世界边界。
@@ -160,10 +168,11 @@ flowchart LR
   data 包含 interval_start/end、activity_ids、body_settlement、resource_flows 及唯一的
   decision_offered/wake_reasons。各 `activity_progress` 用 body_settlement_event_id 引用它，
   只记录自身进度、activity_efficiency、消费和内容接触；
-  不复制身体账，不把联合代谢成本任意归给某条活动。（[一日运行保真规格](SPEC-dayrun-fidelity.md) 1.1 以本条为依据：
+  不复制身体账，不把联合代谢成本任意归给某条活动。（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 1.1 以本条为依据：
   社交账的清醒判定、交谈与通话的覆盖和共同用餐都取本区间共同身体结算的 `activity_ids`，不在推进后重新推断。）
 - 所有进度都参与当日目标匹配；每个目标和活动仍遵守原来的首次推进、一次情绪脉冲规则。
 
+<a name="spec-dayrun-behavior-餐馆的实际进食路径"></a>
 ## 餐馆的实际进食路径
 
 - 三个正式场景选中的三家餐馆必须显式关联已存在的 `prepared-meal` 商品，各有可自提且初始
@@ -177,7 +186,7 @@ flowchart LR
   （到店时取当前地点的门店；方式写「购买」时人在出售该商品的门店里、东西在那里交得到收货人手上即按到店处理，否则能送到收货地就远程下单），
   按当前报价同秒结算，价格、余额、营业与库存照常检查；
   按分段匹配报错：没有这件商品以 `SUPPLY_NOT_FOUND` 拒绝并附至多 3 个可照填的候选，`from` 限定的门店不卖、方式不支持或此刻不能服务
-  各有其码；不自动换成别的商品（[人物 Prompt 规格](SPEC-persona-prompt.md)第五章「指名购买」，按[一日运行保真规格](SPEC-dayrun-fidelity.md)
+  各有其码；不自动换成别的商品（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第五章「指名购买」，按[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要)
   3.2、3.5 修订）。
 - 当前地点可购的餐食由工具层商品目标表达：每份热量写在商品目标的 `state`（持有物另写持有份数），营业情况写在地点目标的 `state`，闭店等此刻不能买或不能吃的动作标
   `available=false` 并写原因；不另写当地有无餐食的摘要句，也没有吃饭途径句，吃饭途径由工具层目标与系统层规则表达。
@@ -189,8 +198,10 @@ flowchart LR
   中断与恢复保留已付费用、供给库存、交付状态、剩余持有量和已吃份额，不重新付款、交付或吃
   已消费部分。到达后发现不可购不撤销真实行程，也不虚构另一家餐食。
 
+<a name="spec-dayrun-behavior-已核验经历与人物自述"></a>
 ## 已核验经历与人物自述
 
+<a name="spec-dayrun-behavior-事件投影"></a>
 ### 事件投影
 
 记录引擎从本人已提交且不超过明确截止序号的事件生成 `verified_experiences`。
@@ -198,7 +209,7 @@ flowchart LR
 观察 data.verified_experiences 只提供本人在当前 observation 事件之前已提交的最近五条，
 按 event_seq 正序展示；本轮冻结 observation_event_id 绑定该窗口的截止。
 带身份的结构行只留在私有观察，作为记忆写入证据；已核验经历不再写成句子发给模型，
-已结束 session 的结算事实由记忆层的 `settled` 句表达（[人物 Prompt 规格](SPEC-persona-prompt.md)第三章）。
+已结束 session 的结算事实由记忆层的 `settled` 句表达（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第三章）。
 完整截止前缀用于离线投影与导出，不把完整历史复制到每轮观察。
 模型没有写入口；动作请求、受理、自述及模型反思均不能生成已核验经历。
 
@@ -213,6 +224,7 @@ flowchart LR
 禁止把累计量冒充区间增量后重复求和。投影重复读取、暂停恢复及检查点分支均幂等，
 不同人物不串记录；应存在而畸形的结算字段报错并记录日志，不猜测缺失事实。
 
+<a name="spec-dayrun-behavior-主观记忆与巩固"></a>
 ### 主观记忆与巩固
 
 - `conclude_activity` 每项的 `memories` 与 `views` 属于该项的 `activity_name`（一日运行保真规格第六章，原为 `memories[i]` 对应 `task[i]`），合计零至八条；模型写入、记忆查询返回和反思的
@@ -234,7 +246,7 @@ flowchart LR
   自行判定，阈值沿用 AS2，就寝反思的条目不计（时间与能量规格第七章）；巩固摘要不进入人物决策提示。
 - 事实投影的完整来源由事件库保存；提示中的近期事实只由记忆层给出：构建提示时由环境从已提交事件与世界状态派生，
   今天已结束的每个 session 一条（`earlier_today`），更早日期只留起源于该日且仍未了结的事项与归属该日的就寝反思
-  （`earlier_days`），JSON 不超过 8000 字符（[人物 Prompt 规格](SPEC-persona-prompt.md)第三章）。
+  （`earlier_days`），JSON 不超过 8000 字符（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第三章）。
   这里的未了结事项仍指本人在途的订单与未回复的直接消息；人物记下的未完成个人事务不进记忆层、不占这一字符窗口，由待办层 `errands` 呈现，
   环境确认办成的在进度层留一条只写名称的记录（个人事务与工作安排规格 2.6，阶段 2 落地）。
   memory_* 仅检索主观 episodes，不新增另一事实检索入口。`MEMORY.md` 与主观归纳不再拼入人物决策提示。
@@ -248,6 +260,7 @@ flowchart LR
   更新证据区分新增与合并，合法合并旧身份不得被质量检查误报重复；空输入且视图未改变可不写
   memory_updated，视图或反思实际改变时必须写证据。
 
+<a name="spec-dayrun-behavior-持续活动与必要唤醒"></a>
 ## 持续活动与必要唤醒
 
 工作通知在送达的同一事件批次使任务可知。任务输入必填 `appointment`，普通工作为 null，真实预约为 `{starts_at, reason}`，
@@ -284,12 +297,13 @@ flowchart LR
   未完成的个人事务不计入在手承诺，不构成 `commitment_threatened`，不改变重估间隔与闭店预警（个人事务与工作安排规格 2.5，阶段 2 落地）。
 - 威胁交付状态与身体时刻随共同检查点保存，恢复不重扣区间、不重复同一持续预警。
 
+<a name="spec-dayrun-behavior-实现顺序与完整验收"></a>
 ## 实现顺序与完整验收
 
-工具交互修订已实现并通过功能验收（证据见[工具交互验收记录](tool-interaction-verification.md)）；行为测试与独立变异测试按[工具交互规格](SPEC-tool-interaction.md#实施与验收)
+工具交互修订已实现并通过功能验收（证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)）；行为测试与独立变异测试按[工具交互规格](../VERIFICATION.md#verification-incremental-evidence)
 覆盖`items[]`原子组合、查询不计世界动作、英文精确错误、普通工作收件即开放与预约真实唤醒。
 错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现各自形成完整生产闭环并独立复验，
-阶段身份及行为与变异门禁见[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)；无双格式兼容，也不预先同升四种数据版本。
+阶段身份及行为与变异门禁见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)；无双格式兼容，也不预先同升四种数据版本。
 删除 `actions`、旧错误字段及旧候选读取路径，不能保留兼容、迁移或失败回退。
 
 先贯通人物真实工具启动步行与播放、共同身体结算、事件投影和恢复，再并行补全其他允许组合、
@@ -305,20 +319,21 @@ flowchart LR
 文件清单、逐条实现映射、命令与收据维护在[实施台账](research/dayrun-behavior/verification.md)中；
 新旧文档双向审查必须通过。
 
+<a name="spec-dayrun-behavior-版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 工具交互目标行为冻结并已实现：`items[]`、唯一方式解析、严格偏好、本人消费两端空值、只读回看与世界查询、英文逐位置错误和完整候选；任务通知完整且普通工作收件即开放，预约按真实开放唤醒；补行为与变异验收边界 |
 | `2026-09-24-activity-contracts` | 2026-09-24 | 补记 `2913546` 就地对齐工具面（当时未入表）：「人物入口与独立控制」以 `start_activity` 提交等长的 `{targets, actions}` 可读短语取代 `start_parallel_activities`；公开结果列活动可读名称，内部证据保留身份；控制改为报告、暂停、结束点名会话；游戏动作由可读对象与动作绑定；交谈和通话改为可结束 |
-| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 12–15 行修订，修订部分待实现：占用表按其第五章重列并补准入事实与两个名额，组合按其第五章判定，能量不参与准入与恢复；`start_activity` 改为 `{targets, actions, ways}` 与五个动词，取消 `finish`，控制点名活动，暂停的活动只在开始地点恢复，路上的活动不能暂停，到达与途中结束出行时路上的活动同秒结束并收尾，接着听不增加接触次数；时钟只在人人有进行中活动时推进，边界加计划提醒、餐时窗口起止与场景本地零点；到达收尾那一秒起呈现本店供给，饿时补吃饭途径句；经历写成句子，身份只留在私有观察；记忆经 `conclude_activity.memories` 写入，来源由系统登记；边界首轮之外允许同刻再决策，零点计划由后台任务 `plan_day` 生成；`activity_infeasible` 当前无来源 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 12–15 行修订，修订部分待实现：占用表按其第五章重列并补准入事实与两个名额，组合按其第五章判定，能量不参与准入与恢复；`start_activity` 改为 `{targets, actions, ways}` 与五个动词，取消 `finish`，控制点名活动，暂停的活动只在开始地点恢复，路上的活动不能暂停，到达与途中结束出行时路上的活动同秒结束并收尾，接着听不增加接触次数；时钟只在人人有进行中活动时推进，边界加计划提醒、餐时窗口起止与场景本地零点；到达收尾那一秒起呈现本店供给，饿时补吃饭途径句；经历写成句子，身份只留在私有观察；记忆经 `conclude_activity.memories` 写入，来源由系统登记；边界首轮之外允许同刻再决策，零点计划由后台任务 `plan_day` 生成；`activity_infeasible` 当前无来源 |
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格阶段 7 后的文档一致性核对：「主观记忆与巩固」按最终代码与该规格第七章改为阈值巩固由专用记忆运行时自行判定（阈值沿用 AS2，就寝反思的条目不计），不再说阈值触发复用 AS2 |
 | `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格实现后（阶段 9）：状态头「修订部分待实现」改为已实现并通过离线验收，链接时间与能量验收记录 |
-| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 12（经历部分）、15、23、24 行及第五章「来源与去向」修订（人物 Prompt 台账 DR1、DR2），修订部分待实现：准入事实加「给予」一行，`consume` 指向他人为给予（瞬时、同处、只转移、不增加摄入）；`start_activity` 为五个等长数组 `targets`、`actions`、`ways`、`from`、`to` 与请求级 `answering`，对象为工具层名称，`obtain` 可以指名未列出的商品；到店后呈现只管展示与比较，未呈现商品按指名购买解析，不存在时附近似候选且不替换；删当地餐食摘要句与吃饭途径句；进食按开吃份量，暂停保留剩余、结束丢弃未吃部分，丢弃不是消费；已核验经历不再写成句子发给模型；文件头注明修订待实现 |
-| `2026-09-27-persona-prompt-stage-3` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 12 行修订（人物 Prompt 台账 DR3，随阶段 3 代码），修订部分待实现：「主观记忆与巩固」中 relationship、preference 带 `subject`，只在人设层原地更新、不进记忆层；「本轮观察五条为唯一近期事实窗口」与 `MEMORY.md` 事实窗口改为记忆层（`earlier_today`、`earlier_days`，8000 字符窗口）；巩固摘要不进人物决策提示 |
+| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 12（经历部分）、15、23、24 行及第五章「来源与去向」修订（人物 Prompt 台账 DR1、DR2），修订部分待实现：准入事实加「给予」一行，`consume` 指向他人为给予（瞬时、同处、只转移、不增加摄入）；`start_activity` 为五个等长数组 `targets`、`actions`、`ways`、`from`、`to` 与请求级 `answering`，对象为工具层名称，`obtain` 可以指名未列出的商品；到店后呈现只管展示与比较，未呈现商品按指名购买解析，不存在时附近似候选且不替换；删当地餐食摘要句与吃饭途径句；进食按开吃份量，暂停保留剩余、结束丢弃未吃部分，丢弃不是消费；已核验经历不再写成句子发给模型；文件头注明修订待实现 |
+| `2026-09-27-persona-prompt-stage-3` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 12 行修订（人物 Prompt 台账 DR3，随阶段 3 代码），修订部分待实现：「主观记忆与巩固」中 relationship、preference 带 `subject`，只在人设层原地更新、不进记忆层；「本轮观察五条为唯一近期事实窗口」与 `MEMORY.md` 事实窗口改为记忆层（`earlier_today`、`earlier_days`，8000 字符窗口）；巩固摘要不进人物决策提示 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「给予」行写明方式须为「给予」、`to` 写人物目标的名称（食用、使用配人物以 `ACTION_REQUEST_INVALID` 拒绝）；当地餐食一条改为每份热量在商品目标的 `state`、营业情况在地点目标的 `state`，闭店等不能买的动作标不可用 |
-| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 11、22、27 行修订（一日运行保真 DR1，随该规格冻结）：「共同时间与身体结算」的 `body_settlement.activity_ids` 一条注明被该规格 1.1 引作社交账与共同用餐的唯一来源（条款不改）；「餐馆的实际进食路径」通用地图一条注明被该规格 8.1 引作配送路线只警告的依据（条款不改），到店指名购买补方式「购买」与分段匹配的报码、候选可照填；文件头补修订说明 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 11、22、27 行修订（一日运行保真 DR1，随该规格冻结）：「共同时间与身体结算」的 `body_settlement.activity_ids` 一条注明被该规格 1.1 引作社交账与共同用餐的唯一来源（条款不改）；「餐馆的实际进食路径」通用地图一条注明被该规格 8.1 引作配送路线只警告的依据（条款不改），到店指名购买补方式「购买」与分段匹配的报码、候选可照填；文件头补修订说明 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：「主观记忆与巩固」的记忆归属改为 `conclude_activity` 各项的 `memories` 与 `views` 属于该项的 `activity_name`（该规格第六章，冻结时漏改）；到店指名购买的方式「购买」与分段匹配的报码已随该规格 3.2、3.5 实现，文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收 |
-| `2026-09-29-dayrun-fidelity-purchase-way` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#35-更简单的购买请求裁决-s10)版本 0.7（实现复核后细化 3.5「收敛」第 2 条）同步「餐馆的实际进食路径」中到店指名购买的「购买」一句：人在出售该商品的门店里、东西在那里交得到收货人手上才按到店处理，否则能送到收货地就远程下单（送给不在店里的人时，到店也交不到对方手上）；其余条款不变 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分在冻结时未随文实现（该规格阶段 1、2、4 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：「人物入口与独立控制」`query_world` 改为 `name, way, category, from, available_only, offset` 六键、返回不再逐项附候选，三个控制请求另带请求级 `errands` 且与活动状态转换同批原子受理；「共同时间与身体结算」下一边界加清醒人物个人事务的未提醒时刻（睡眠中不形成静默边界）；「主观记忆与巩固」把「自由主观文字……不能进入……世界状态」改写为不能成为完成事实、结构化经历或客观指标的依据、不能改变世界事实（目标、活动自述与事务的文字作为记下的打算随人物状态保存），记忆层不承载个人事务，就寝反思经 `submit_reflection` 提交一至五条并采用有界校验重试；「持续活动与必要唤醒」增个人事务提醒一条（`errand_reminder_due` 不叫醒睡眠，同一边界多条合并为一次机会，不计入在手承诺）。顺带更正「实现顺序与完整验收」首段工具交互修订的状态（已实现并通过功能验收）；文件头补修订说明 |
-| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 DB11，按 `d8a41d3` 的代码核对）：`query_world` 六键与紧凑返回、三个控制请求的请求级 `errands`、下一边界的事务提醒时刻、自述边界与记忆层口径、就寝反思的严格工具与有界校验重试、个人事务提醒一条已随该规格阶段 1、2、4 实现，文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行），日期改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
+| `2026-09-29-dayrun-fidelity-purchase-way` | 2026-09-29 | 按[一日运行保真规格](SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10)版本 0.7（实现复核后细化 3.5「收敛」第 2 条）同步「餐馆的实际进食路径」中到店指名购买的「购买」一句：人在出售该商品的门店里、东西在那里交得到收货人手上才按到店处理，否则能送到收货地就远程下单（送给不在店里的人时，到店也交不到对方手上）；其余条款不变 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订，修订部分在冻结时未随文实现（该规格阶段 1、2、4 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：「人物入口与独立控制」`query_world` 改为 `name, way, category, from, available_only, offset` 六键、返回不再逐项附候选，三个控制请求另带请求级 `errands` 且与活动状态转换同批原子受理；「共同时间与身体结算」下一边界加清醒人物个人事务的未提醒时刻（睡眠中不形成静默边界）；「主观记忆与巩固」把「自由主观文字……不能进入……世界状态」改写为不能成为完成事实、结构化经历或客观指标的依据、不能改变世界事实（目标、活动自述与事务的文字作为记下的打算随人物状态保存），记忆层不承载个人事务，就寝反思经 `submit_reflection` 提交一至五条并采用有界校验重试；「持续活动与必要唤醒」增个人事务提醒一条（`errand_reminder_due` 不叫醒睡眠，同一边界多条合并为一次机会，不计入在手承诺）。顺带更正「实现顺序与完整验收」首段工具交互修订的状态（已实现并通过功能验收）；文件头补修订说明 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 DB11，按 `d8a41d3` 的代码核对）：`query_world` 六键与紧凑返回、三个控制请求的请求级 `errands`、下一边界的事务提醒时刻、自述边界与记忆层口径、就寝反思的严格工具与有界校验重试、个人事务提醒一条已随该规格阶段 1、2、4 实现，文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行），日期改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |

@@ -22,31 +22,31 @@ def _pending(action: str) -> SimpleNamespace:
 def test_short_content_is_rejected_by_listing_and_real_admission(engine_factory, monkeypatch, seconds):
     """正数但不足一分钟的内容不能获得计划时长，也不能创建实际活动。"""
     engine = engine_factory()
-    original = engine.scenario.contents[0]
+    original = engine.context.scenario.contents[0]
     item = original.model_copy(update={"duration_seconds": seconds})
-    monkeypatch.setitem(engine.rules.contents, item.item_id, item)
-    context = engine._layer_context(engine.state.agents[1], (), [])
+    monkeypatch.setitem(engine.context.rules.contents, item.item_id, item)
+    context = engine.observations._layer_context(engine.context.state.agents[1], (), [])
     for operation in (
         lambda: _facts_seconds(context, {"object_id": item.item_id}, {"canonical_action": "watch"}),
-        lambda: engine._start_targeted_action(engine.state, _pending("watch"), ActivityKind.WATCH, item.item_id),
+        lambda: engine.actions._start_targeted_action(engine.context.state, _pending("watch"), ActivityKind.WATCH, item.item_id),
     ):
         with pytest.raises(BusinessRuleError, match="ACTIVITY_DURATION_INVALID"):
             operation()
-    assert not engine.state.activities
+    assert not engine.context.state.activities
 
 
 @pytest.mark.parametrize("seconds, expected", [(60, 60), (86_400, 86_400), (86_401, 86_400)])
 def test_game_content_watch_duration_matches_plans_and_real_admission(engine_factory, monkeypatch, seconds, expected):
     """只能观看的游戏内容按真实 WATCH 受理，一分钟与一天边界在全部原计划消费者中一致。"""
     engine = engine_factory()
-    original = next(item for item in engine.scenario.contents if item.kind == "game_session")
+    original = next(item for item in engine.context.scenario.contents if item.kind == "game_session")
     item = original.model_copy(update={"duration_seconds": seconds})
-    monkeypatch.setitem(engine.rules.contents, item.item_id, item)
-    context = replace(engine._layer_context(engine.state.agents[1], (), []),
-                      scenario=engine.scenario.model_copy(update={"contents": (item,)}))
+    monkeypatch.setitem(engine.context.rules.contents, item.item_id, item)
+    context = replace(engine.observations._layer_context(engine.context.state.agents[1], (), []),
+                      scenario=engine.context.scenario.model_copy(update={"contents": (item,)}))
     assert _facts_seconds(context, {"object_id": item.item_id}, {"canonical_action": "watch"}) == expected
     assert _content_rows(context)[0]["note"] == duration_phrase(expected)
-    changed, result = engine._start_targeted_action(engine.state, _pending("game-content"),
+    changed, result = engine.actions._start_targeted_action(engine.context.state, _pending("game-content"),
                                                     ActivityKind.WATCH, item.item_id)
     activity = changed.activities[result.activity_id]
     assert result.status == "in_progress"
@@ -60,11 +60,11 @@ def test_game_content_watch_duration_matches_plans_and_real_admission(engine_fac
 def test_sleep_duration_uses_personal_need_in_listing_and_real_admission(engine_factory, hours, expected):
     """合法人物睡眠需要及非整秒需要，在呈现和实际受理中得到同一整秒计划。"""
     engine = engine_factory(mutate=lambda document: document["agents"][0].update(sleep_need_hours=hours))
-    agent = engine.state.agents[1]
+    agent = engine.context.state.agents[1]
     assert agent.body.sleep_need_hours == hours
-    context = engine._layer_context(agent, (), [])
+    context = engine.observations._layer_context(agent, (), [])
     assert _facts_seconds(context, {"object_id": "agent:1"}, {"canonical_action": "sleep"}) == expected
-    changed, result = engine._start_self_action(engine.state, _pending("sleep"), "sleep")
+    changed, result = engine.actions._start_self_action(engine.context.state, _pending("sleep"), "sleep")
     activity = changed.activities[result.activity_id]
     assert result.status == "in_progress"
     assert activity.kind == ActivityKind.SLEEP
@@ -76,20 +76,20 @@ def test_sleep_duration_uses_personal_need_in_listing_and_real_admission(engine_
 def test_feedback_duration_matches_listing_and_real_admission(engine_factory, seconds):
     """反馈间隔的合法上下界同时决定等待、阅读、浏览和可玩游戏的真实计划时长。"""
     engine = engine_factory(mutate=lambda document: document.update(activity_feedback_seconds=seconds))
-    message_id = engine.scenario.messages[0].message_id
-    game_id = engine.scenario.games[0].game_id
-    state = engine.state.model_copy(deep=True)
+    message_id = engine.context.scenario.messages[0].message_id
+    game_id = engine.context.scenario.games[0].game_id
+    state = engine.context.state.model_copy(deep=True)
     state.agents[1].visible_message_ids.add(message_id)
-    context = replace(engine._layer_context(state.agents[1], (), []), state=state)
+    context = replace(engine.observations._layer_context(state.agents[1], (), []), state=state)
     starts = (
         ("wait", "agent:1", ActivityKind.WAIT,
-         lambda: engine._start_self_action(state, _pending("wait"), "wait")),
+         lambda: engine.actions._start_self_action(state, _pending("wait"), "wait")),
         ("read", message_id, ActivityKind.READ_MAIL,
-         lambda: engine._start_targeted_action(state, _pending("read"), ActivityKind.READ_MAIL, message_id)),
+         lambda: engine.actions._start_targeted_action(state, _pending("read"), ActivityKind.READ_MAIL, message_id)),
         ("browse", "product_catalog", ActivityKind.BROWSE,
-         lambda: engine._start_browse_action(state, _pending("browse"), "product_catalog")),
+         lambda: engine.actions._start_browse_action(state, _pending("browse"), "product_catalog")),
         ("play", game_id, ActivityKind.PLAY_GAME,
-         lambda: engine._start_targeted_action(state, _pending("play"), ActivityKind.PLAY_GAME, game_id)),
+         lambda: engine.actions._start_targeted_action(state, _pending("play"), ActivityKind.PLAY_GAME, game_id)),
     )
     for canonical, target, kind, start in starts:
         assert _facts_seconds(context, {"object_id": target}, {"canonical_action": canonical}) == seconds

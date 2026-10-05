@@ -237,7 +237,7 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
 @pytest.mark.asyncio
 async def test_start_activity_description_says_notes_give_length_or_unmet_condition() -> None:
     """@brief 描述只写用途；动作的时长与未满足的条件改由工具层字段表达（duration、reason），「标为不可用会被拒绝、原因
-    就是 reason」只在系统层写一次（docs/dev/SPEC-persona-prompt.md 第一章「工具层」「系统层」）。"""
+    就是 reason」只在系统层写一次（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」「系统层」）。"""
     agent, environment, dispatcher = _configured([_action_response()], 3)
     await agent.run_react_loop(_request())
     request = dispatcher.requests[0]

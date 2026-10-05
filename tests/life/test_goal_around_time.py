@@ -1,4 +1,4 @@
-"""当日目标的大致时刻：真实引擎结算中只有在大致时刻前后进行的同家族活动才推进目标（docs/dev/SPEC-dayrun-fidelity.md 8.2）。
+"""当日目标的大致时刻：真实引擎结算中只有在大致时刻前后进行的同家族活动才推进目标（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 ）。
 
 零点计划（确定性桩）登记带 around_time 的目标，人物在真实 LifeEngine 里睡觉、浏览或进食，边界结算按活动的实际开始时刻
 与结算止点判定推进；同一份事件经 evaluation.goal_metrics 回放，目标推进与引擎一致（同一判定）。
@@ -22,15 +22,15 @@ _CODE = "c" * 64
 def _metrics_goals(engine: LifeEngine) -> dict[tuple[str, str], dict]:
     """同一份真实事件经 goal_metrics 回放出的全部目标实例，按（意图，文字）索引。"""
     events = [{**event.model_dump(mode="json"), "code_sha256": _CODE}
-              for event in engine.store.read_events(engine.store.last_event_seq)]
-    days = day_plan_metrics(events, engine.scenario.timezone)[_CODE]["deliberate_goals"]["per_agent_day"]
+              for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
+    days = day_plan_metrics(events, engine.context.scenario.timezone)[_CODE]["deliberate_goals"]["per_agent_day"]
     return {(goal["intent_kind"], goal["goal"]): goal for day in days.values() for goal in day["goals"]}
 
 
 def _assert_metrics_agree(engine: LifeEngine) -> None:
     """goal_metrics 对当前计划每个目标的推进结论（状态、推进时刻、活动）与引擎的推进证据相同。"""
     replayed = _metrics_goals(engine)
-    for goal in engine.state.agents[1].day_plan.goals:
+    for goal in engine.context.state.agents[1].day_plan.goals:
         instance = replayed[(goal.intent_kind, goal.goal)]
         assert instance["around_at"] == goal.around_at
         assert (instance["status"] == "progressed") is (goal.progressed_at is not None)
@@ -50,13 +50,13 @@ def test_sleep_begun_before_midnight_does_not_progress_a_sleep_goal_around_2330(
         settle_day_plans(engine)
         slept = _start(engine, "睡觉", "bedtime")
         boundary = engine.scheduling_state().next_event_at
-        engine.advance(int(boundary.timestamp()) - engine.state.current_time, boundary)
+        engine.advance(int(boundary.timestamp()) - engine.context.state.current_time, boundary)
         settle_day_plans(engine, StubPlanDayClient(goals=[_goal("睡眠", "照平常的点睡", None, around)]))
-        [goal] = engine.state.agents[1].day_plan.goals
+        [goal] = engine.context.state.agents[1].day_plan.goals
         assert goal.around_at == (None if around is None else _at(6, *map(int, around.split(":"))))
-        assert advance_until_ready(engine) and engine.state.activities[slept].status == "completed"
-        assert engine.state.activities[slept].started_at == _at(5, 23, 45)
-        [goal] = engine.state.agents[1].day_plan.goals
+        assert advance_until_ready(engine) and engine.context.state.activities[slept].status == "completed"
+        assert engine.context.state.activities[slept].started_at == _at(5, 23, 45)
+        [goal] = engine.context.state.agents[1].day_plan.goals
         assert goal.progressed_at == progressed_at
         assert goal.progress_activity_id == (slept if progressed_at else None)
         _assert_metrics_agree(engine)
@@ -74,9 +74,9 @@ def test_a_morning_browse_does_not_progress_an_evening_entertainment_goal(tmp_pa
         browse = _act(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
         assert browse.status == "in_progress", browse.error_code
         _run_out(engine, browse.activity_id, "browse")
-        activity = engine.state.activities[browse.activity_id]
+        activity = engine.context.state.activities[browse.activity_id]
         assert activity.started_at == _at(5, 8, 40) and activity.ended_at < _at(5, 21, 30)
-        [goal] = engine.state.agents[1].day_plan.goals
+        [goal] = engine.context.state.agents[1].day_plan.goals
         assert (goal.progress_activity_id == browse.activity_id) is progressed
         _assert_metrics_agree(engine)
     finally:
@@ -94,10 +94,10 @@ def test_a_lunch_goal_around_noon_is_progressed_by_eating_from_1020_not_from_093
         _stage_holding(engine, food.product_id, 1.0)
         _, eating = _start_eating(engine, food, "lunch")
         _run_out(engine, eating.activity_id, "lunch")
-        meal = engine.state.activities[eating.activity_id]
+        meal = engine.context.state.activities[eating.activity_id]
         hour, minute = map(int, start.split(":"))
         assert (meal.started_at, meal.ended_at) == (_at(5, hour, minute), _at(5, hour, minute + 25))
-        [goal] = engine.state.agents[1].day_plan.goals
+        [goal] = engine.context.state.agents[1].day_plan.goals
         assert (goal.around_at, goal.progressed_at) == (_at(5, 12), progressed_at)
         _assert_metrics_agree(engine)
     finally:

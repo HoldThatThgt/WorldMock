@@ -1,4 +1,4 @@
-"""@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/dev/SPEC-persona-prompt.md「进度层」）。
+"""@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
 
 公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文；业务拒绝时就是 reason）
 与 details（恒写，没有新事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、
@@ -31,8 +31,8 @@ DELIVERY_ASSESSMENT_FIELDS = (
     "delivery_path", "source_supported", "contradiction", "source_excerpt", "rationale", "passed",
 )
 #: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因、改法、下一步与逐项明细由 life.guidance
-#: 生成（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
-#: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-errands-workday.md 2.2「回执」）。
+#: 生成（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
+#: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「回执」）。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
                         "notes", "errands")
 
@@ -95,7 +95,7 @@ def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def browse_labels(browsed: list[dict[str, Any]], scenario: RuntimeScenario) -> list[str]:
-    """@brief 浏览结果的完整标签「<门店>出售的<商品>」（docs/dev/SPEC-dayrun-fidelity.md 5.3）：仍只列名称，不另标
+    """@brief 浏览结果的完整标签「<门店>出售的<商品>」（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：仍只列名称，不另标
     可得性（可得性在工具层的 available）；门店取场景的地点显示名，写法与工具层商品目标名、指名购买的标签同一来源
     （object_labels.supply_label），离开浏览地点后可照着按名下单。
 

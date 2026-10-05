@@ -1,4 +1,4 @@
-"""@brief 行为等价锚定：现有引擎真实一天的资金事件可在新账本逐分重建（docs/design/05-recording-engine.md「资金守恒验证」行为等价性）。
+"""@brief 行为等价锚定：现有引擎真实一天的资金事件可在新账本逐分重建（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「资金守恒验证」行为等价性）。
 
 数据源 fixtures/anchor-money.json：从真实运行 deepseek-multi-47931e06 只读抽取的钱事件与期末账户，
 切片记录原数据库 SHA-256，只含本验收需要的字段，不需要新机器保有完整运行目录。该运行

@@ -1,4 +1,4 @@
-"""@brief 工具层：本轮可操作的目标、各目标的动作与工具，以及可用性的单一来源（docs/dev/SPEC-persona-prompt.md「工具层」）。
+"""@brief 工具层：本轮可操作的目标、各目标的动作与工具，以及可用性的单一来源（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
 
 目标由本轮私有绑定（projection.interaction_bindings）与进行中、刚结束的活动组成；暂停的活动只在待办层。每个列出的动作与
 工具都带 available 与 reason：reason 由 refusal_for 按环境受理的同一顺序判定（菜单→决策到期→同刻阶段→待收尾→名额与出发前
@@ -26,7 +26,8 @@ from worldmock.life.control_items import CONTROL_TOOLS
 from worldmock.life.durations import derived_activity_duration
 from worldmock.life.discovery import DiscoveryContext, place_row
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
-from worldmock.life.interaction_menu import GIVE_WAY, InteractionMenu
+from worldmock.life.vocabulary import GIVE_WAY
+from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
 from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityStatus, ConsumeItem, ConsumeRequest,
                                    CONSUME_DURATION_CAP_SECONDS, DERIVED_DURATION_CAP_SECONDS,
@@ -53,7 +54,7 @@ _OPENING_STATES = {"open": "开着", "closed": "关着", "unknown": "开放时�
 _SOURCE_KINDS = {"fact": "事实", "scenario": "场景假设"}
 @dataclass(frozen=True, slots=True)
 class LayerContext:
-    """@brief 一次观察构建各层所用的只读世界切片，由 ObservationMixin 每次观察构造一次。
+    """@brief 一次观察构建各层所用的只读世界切片，由 ObservationBuilder 每次观察构造一次。
 
     :param names: activity_control.visible_names 的结果（会话名与活动名）。
     :param bindings: 本次观察最终的 interaction_bindings。
@@ -206,7 +207,7 @@ def _timed_check(context: LayerContext, binding: dict, action: dict) -> Refusal 
 def _lifestyle_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
     """@brief 生活活动：在冻结目录中、时长不短于一分钟、此地环境合适。
 
-    生活活动窗口已按当前地点施加地点类资格（地点类不符的条目不进窗口，docs/dev/SPEC-dayrun-fidelity.md 5.1），
+    生活活动窗口已按当前地点施加地点类资格（地点类不符的条目不进窗口，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ），
     窗口里的条目不会再标「这里不适合做这件事」；这里仍与受理（rules.validate_activity_location）同一判定，
     给不经窗口的绑定（按名调用）同样的原因。
     """
@@ -342,7 +343,8 @@ def annotated_bindings(context: LayerContext) -> list[dict]:
 
 def tool_layer(context: LayerContext, index: dict[str, Any]) -> dict:
     """@brief 工具层 JSON：绑定目标（按绑定顺序）之后是进行中与刚结束的活动目标，名称全局唯一；另附只列名称的可调用索引
-    callable_index（life.callable_index 按本轮呈现窗口构建，docs/dev/SPEC-dayrun-fidelity.md 5.2）：它不是目标，不带
+    callable_index（life.callable_index 按本轮呈现窗口构建，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：它不
+    是目标，不带
     动作与条件，不参与目标名称的唯一性判定。"""
     targets = [_binding_target(context, row) for row in context.bindings]
     targets.extend(_activity_target(context, activity) for activity in _activity_rows(context))
@@ -377,7 +379,7 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
 
 def _source_note(context: LayerContext, supply_id: str) -> str:
     """@brief 门店商品目标的来源标记：类型、来源引用与事实截止日，取供给声明的来源（地图与门店规格「地点发现与候选
-    呈现」；docs/dev/SPEC-persona-prompt.md 冻结条款修订 #24：落在工具层商品目标动作的 note，每个目标只写一次）。"""
+    呈现」；docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 冻结条款修订 #24：落在工具层商品目标动作的 note，每个目标只写一次）。"""
     source = context.rules.supplies[supply_id].source
     return f"来源：{_SOURCE_KINDS[source.kind]}（{source.url}），事实截止 {source.fact_cutoff.isoformat()}"
 

@@ -75,7 +75,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         """@brief 记忆上下文只给最近条目窗口与文件路径，不给主观归纳；生活决策提示由七层组成，不读这里的条目与摘要
         （记忆层由环境派生，阈值巩固的摘要不进提示，裁决 #36）。
 
-        recent_limit 为 0 时返回空列表：AS2 存储会把 0 改回 8 条（docs/dev/SPEC-persona-prompt.md 第六章「零条最近记忆失效」）。
+        recent_limit 为 0 时返回空列表：AS2 存储会把 0 改回 8 条（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「零条最近记忆失效」）。
         """
         store = self.store
         if store is None:
@@ -94,7 +94,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
 
         finish_memories 承载宿主展平的 conclude_activity 逐项记忆与看法（经 control_items 读出，看法的 about 即存储的
         subject，写入存储前剥掉）；
-        阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/dev/SPEC-time-and-energy.md 第七章）。
+        阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章）。
         """
         store = self.store
         if store is None:
@@ -139,7 +139,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         """@brief 就寝反思经唯一严格工具提交：没有可反思的记忆时不调用模型，校验通过的洞见才交给 AS2 存储。
 
         输出不合合同且重试耗尽时由 _validated_reflection 抛出运行故障：此前不写入任何洞见，也不返回空列表冒充空反思
-        （docs/dev/SPEC-errands-workday.md 1.1）。
+        （docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）。
         """
         store = self._require_store()
         episodes = await asyncio.to_thread(self._reflection_episodes, store)
@@ -303,7 +303,7 @@ def _classify_episodes(
 
 def memory_update_evidence(context: Any, store: Any, outcome: MemoryStepOutcome) -> MemoryUpdateEvidence | None:
     """@brief 本步已落盘记忆的证据（与 AS2 PersonAgent._record_memory_update 同一组字段）；就寝反思的快照条目另带
-    source=reflection，引擎据此给反思找归属日期（docs/dev/SPEC-persona-prompt.md 第三章「零点、反思与未了结」）。
+    source=reflection，引擎据此给反思找归属日期（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「零点、反思与未了结」）。
 
     本步既没有新增或合并条目、视图也没有变化时返回 None（不登记）。
     """

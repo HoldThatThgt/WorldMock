@@ -1,6 +1,7 @@
 """真实门店动作、逐供给呈现凭据和共同检查点恢复的合同验证。"""
 
 from __future__ import annotations
+from worldmock.footprints.checkpoint import restore_branch
 
 import copy
 import hashlib
@@ -61,13 +62,13 @@ def recovery_engine(tmp_path, request):
             "stock": 17, "due_at": "2026-01-05T08:00:01+08:00", "source": _price_source()}]
     engine = _custom_engine(SCENARIO.name, configure, tmp_path, run_id="storefront-recovery")
     stage_day_plan(engine)
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.opening_exceptions[STORE] = {"2026-01-06": [], "2026-01-07": [(540, 720), (780, 1380)]}
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         source_kind="scenario", data={"kind": "test_opening_exceptions_declared"})])
-    engine.state = staged
+    engine.context.state = staged
     yield engine, tmp_path / "scenarios/custom.json"
     engine.close()
 
@@ -102,7 +103,7 @@ def _discover(engine, name):
     _finish_activity(engine, result.activity_id, name)
     observed = engine.observe(context(engine, f"{name}-feedback"))
     assert SUPPLY in {item["supply_id"] for item in observed["supplies"]}
-    assert SUPPLY in engine.state.agents[1].visible_supply_ids
+    assert SUPPLY in engine.context.state.agents[1].visible_supply_ids
     return result, observed
 
 
@@ -115,8 +116,8 @@ def _named(identity, build):
 def _run_activity(engine, identity, phase):
     """@brief 通过环境边界与按活动名的进展播报把活动推进到完成。"""
     for step in range(64):
-        if engine.state.activities[identity].status != "active":
-            assert engine.state.activities[identity].status == "completed"
+        if engine.context.state.activities[identity].status != "active":
+            assert engine.context.state.activities[identity].status == "completed"
             return
         if engine.scheduling_state().ready_agent_ids:
             _action(engine, f"{phase}-continue-{step}", "report_status", _named(
@@ -129,7 +130,7 @@ def _run_activity(engine, identity, phase):
 def _conclude(engine, identity, phase):
     """@brief 活动按计划结束即成待收尾，人物在同一秒给它收尾（规格第七章「活动一结束就要结束它」）。"""
     _action(engine, f"{phase}-end-{identity}", "conclude_activity", _named(identity, conclude_request))
-    assert engine.state.activities[identity].concluded_at == engine.state.current_time
+    assert engine.context.state.activities[identity].concluded_at == engine.context.state.current_time
 
 
 def _finish_activity(engine, identity, phase):
@@ -144,15 +145,15 @@ def _purchase_selected_supply(engine, fulfillment):
         _, started = _action(engine, "travel-to-store", "start_activity",
                              lambda observed: _choice(observed, "travel_to", STORE, "walking"))
         _run_activity(engine, started.activity_id, "travel")
-        assert engine.state.agents[1].location_id == STORE
-        assert visible_supplies(engine.state, engine.state.agents[1], engine.scenario) == []
+        assert engine.context.state.agents[1].location_id == STORE
+        assert visible_supplies(engine.context.state, engine.context.state.agents[1], engine.context.scenario) == []
         _conclude(engine, started.activity_id, "travel")
         _discover(engine, "discover-after-arrival")
     _, result = _action(engine, "buy-selected", "start_activity",
-                        start_request(targets=[engine.rules.items[PRODUCT].name],
+                        start_request(targets=[engine.context.rules.items[PRODUCT].name],
                                       actions=["obtain"],
                                       ways=["到店" if fulfillment == "pickup" else "远程下单"],
-                                      from_=[engine.rules.locations[STORE].name]))
+                                      from_=[engine.context.rules.locations[STORE].name]))
     order = result.data["orders"][0]
     assert (order["supply_id"], order["product_id"], order["location_id"]) == (SUPPLY, PRODUCT, STORE)
     assert order["total_price_fen"] == 700 and order["price_version"] == "recovery-price-v2"
@@ -163,11 +164,11 @@ def _purchase_selected_supply(engine, fulfillment):
 
 def _business_state(engine):
     """@brief 提取重开和分支必须精确保留的世界事实与呈现证据。"""
-    payload = engine.state.model_dump(mode="json")
+    payload = engine.context.state.model_dump(mode="json")
     fields = ("current_time", "accounts", "supply_stock", "supply_quotes", "opening_exceptions",
               "agents", "activities", "deliveries", "pending_events", "presentation_state")
     return {**{name: payload[name] for name in fields}, "map_dataset": copy.deepcopy(
-        engine.store.manifest["map_dataset"])}
+        engine.context.store.manifest["map_dataset"])}
 
 
 def _directory_snapshot(root):
@@ -181,20 +182,20 @@ def _finish_order_and_consume(engine, order_id, phase):
     """@brief 待配送时明确等待真实到达，之后按商品身份消费到完成。"""
     for step in range(64):
         assert advance_until_ready(engine)
-        if engine.state.deliveries[order_id].status == "delivered":
+        if engine.context.state.deliveries[order_id].status == "delivered":
             break
         _, started = _action(engine, f"{phase}-await-delivery-{step}", "start_activity",
                              lambda observed: _choice(observed, "wait"))
         _finish_activity(engine, started.activity_id, f"{phase}-wait")
-    order = engine.state.deliveries[order_id]
+    order = engine.context.state.deliveries[order_id]
     assert order.status == "delivered"
-    assert engine.state.agents[1].inventory[order.destination_id][PRODUCT] >= 1
-    before = engine.state.agents[1].inventory[order.destination_id][PRODUCT]
+    assert engine.context.state.agents[1].inventory[order.destination_id][PRODUCT] >= 1
+    before = engine.context.state.agents[1].inventory[order.destination_id][PRODUCT]
     _, started = _action(engine, f"{phase}-consume", "start_activity",
                          lambda observed: _choice(observed, "consume", PRODUCT))
     _finish_activity(engine, started.activity_id, f"{phase}-eat")
-    assert engine.state.activities[started.activity_id].data["consumed"][PRODUCT] == pytest.approx(1)
-    assert engine.state.agents[1].inventory[order.destination_id][PRODUCT] == pytest.approx(before - 1)
+    assert engine.context.state.activities[started.activity_id].data["consumed"][PRODUCT] == pytest.approx(1)
+    assert engine.context.state.agents[1].inventory[order.destination_id][PRODUCT] == pytest.approx(before - 1)
 
 
 @pytest.mark.parametrize("fulfillment", ["pickup", "delivery"])
@@ -206,10 +207,10 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
     selected = next(item for item in observed["supplies"] if item["supply_id"] == SUPPLY)
     assert selected["price_fen"] == 700 and selected["current_stock"] == 17
     assert selected["quote"]["source"] == _price_source()
-    frozen = next(item for item in original.scenario.supplies if item.supply_id == SUPPLY)
+    frozen = next(item for item in original.context.scenario.supplies if item.supply_id == SUPPLY)
     assert frozen.quotes[0].price_fen != selected["price_fen"]
     expected = _business_state(original)
-    run_dir = original.store.run_dir
+    run_dir = original.context.store.run_dir
     original.close()
     stored = FootprintStore(run_dir)
     assert stored.state["supply_quotes"][SUPPLY]["price_fen"] == 700
@@ -218,28 +219,28 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
     branch = None
     try:
         assert _business_state(reopened) == expected
-        assert reopened.state.agents[1].qualifications == ("test-store-member",)
+        assert reopened.context.state.agents[1].qualifications == ("test-store-member",)
         order_id = _purchase_selected_supply(reopened, fulfillment)
         expected = _business_state(reopened)
-        reference = reopened.store.assets.put_json({"agent_id": 1}, {"kind": "storefront_recovery"})
+        reference = reopened.context.store.assets.put_json({"agent_id": 1}, {"kind": "storefront_recovery"})
         checkpoint = reopened.checkpoint({"agent:1": reference})
         _finish_order_and_consume(reopened, order_id, "parent")
         parent_after = _business_state(reopened)
         parent_files = _directory_snapshot(run_dir)
-        child_store = reopened.store.restore(checkpoint.checkpoint_id, tmp_path / "restored-branch")
+        child_store = restore_branch(reopened.context.store, checkpoint.checkpoint_id, tmp_path / 'restored-branch')
         child_store.close()
         assert _directory_snapshot(run_dir) == parent_files
         branch = LifeEngine.open(scenario_path, tmp_path / "restored-branch")
         assert _business_state(branch) == expected
-        assert branch.state.run_id != reopened.state.run_id
-        assert branch.store.manifest["parent_run_id"] == reopened.state.run_id
+        assert branch.context.state.run_id != reopened.context.state.run_id
+        assert branch.context.store.manifest["parent_run_id"] == reopened.context.state.run_id
         _finish_order_and_consume(branch, order_id, "child")
-        assert branch.state.supply_stock[SUPPLY] == reopened.state.supply_stock[SUPPLY] == 16
-        assert branch.state.agents[1].inventory == reopened.state.agents[1].inventory
-        assert branch.state.deliveries[order_id] == reopened.state.deliveries[order_id]
+        assert branch.context.state.supply_stock[SUPPLY] == reopened.context.state.supply_stock[SUPPLY] == 16
+        assert branch.context.state.agents[1].inventory == reopened.context.state.agents[1].inventory
+        assert branch.context.state.deliveries[order_id] == reopened.context.state.deliveries[order_id]
         assert _business_state(reopened) == parent_after
         assert _directory_snapshot(run_dir) == parent_files
-        events = branch.store.read_agent_events("action_result", 1)
+        events = branch.context.store.read_agent_events("action_result", 1)
         recorded = next(event.data["data"] for event in events if event.action_id == "action-discover-initial")
         assert recorded == discovery.data
     finally:
@@ -290,14 +291,14 @@ def _damage(payload, case, supply):
 def test_reopening_rejects_corrupted_storefront_facts(engine_factory, case, reason):
     """@brief SQLite 内容虽可解析，缺来源、损坏营业和伪造可见凭据仍必须拒绝恢复。"""
     engine = engine_factory()
-    payload = engine.state.model_dump(mode="json")
-    supply = engine.scenario.supplies[0].supply_id
+    payload = engine.context.state.model_dump(mode="json")
+    supply = engine.context.scenario.supplies[0].supply_id
     _damage(payload, case, supply)
     payload["version"] += 1
-    engine.store.commit(payload, [EventDraft(
+    engine.context.store.commit(payload, [EventDraft(
         event_type="environment_event", occurred_at=payload["current_time"], visibility="system",
         source_kind="scenario", data={"kind": "test_corrupted_storefront_snapshot"})])
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     with pytest.raises((IntegrityError, ValidationError), match=reason):
         LifeEngine.open(SCENARIO, run_dir)
@@ -306,7 +307,7 @@ def test_reopening_rejects_corrupted_storefront_facts(engine_factory, case, reas
 def test_reopening_rejects_map_identity_substitution(engine_factory):
     """@brief 恢复不能把原世界供给配到另一版地图声明。"""
     engine = engine_factory()
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     path = run_dir / "manifest.json"
     manifest = json.loads(path.read_text())
@@ -318,7 +319,7 @@ def test_reopening_rejects_map_identity_substitution(engine_factory):
 
 def _quote_timeline(engine):
     """@brief 用明确金额构造相邻声明、未知间隙及顺序故意反转的同秒调价。"""
-    scenario = engine.scenario
+    scenario = engine.context.scenario
     start = scenario.start_at
     supply = next(item for item in scenario.supplies if item.supply_id == SUPPLY)
     base = supply.quotes[0].model_dump(mode="json")
@@ -342,8 +343,8 @@ def _quote_timeline(engine):
 def _project_quote_events(engine, scenario, offset):
     """@brief 通过正式编译表和真实事件投影建立待恢复快照，独立于恢复核验函数。"""
     start = int(scenario.start_at.timestamp())
-    state = engine.state.model_copy(update=initial_supply_state(scenario, start), deep=True)
-    semantics = replace(engine.semantics, scenario=scenario)
+    state = engine.context.state.model_copy(update=initial_supply_state(scenario, start), deep=True)
+    semantics = replace(engine.context.semantics, scenario=scenario)
     events = compile_schedule(scenario, start, int(scenario.end_at.timestamp()))
     for event in events:
         if event.due_at > start + offset:
@@ -398,20 +399,20 @@ def test_reopening_after_price_change_preserves_paid_order_price(recovery_engine
     engine, scenario_path = recovery_engine
     discovery, _ = _discover(engine, "discover-before-purchase")
     order_id = _purchase_selected_supply(engine, "delivery")
-    paid = engine.state.deliveries[order_id].model_copy(deep=True)
+    paid = engine.context.state.deliveries[order_id].model_copy(deep=True)
     # 下单是瞬时动作：人物先在同一秒开始等待（时间与能量规格第一章规则 2），时钟才推进到调价边界。
     _action(engine, "wait-after-order", "start_activity", lambda observed: _choice(observed, "wait"))
     advance_next(engine)
-    assert engine.state.current_time == paid.created_at + 1
-    quote = engine.state.supply_quotes[SUPPLY]
+    assert engine.context.state.current_time == paid.created_at + 1
+    quote = engine.context.state.supply_quotes[SUPPLY]
     assert (quote.price_fen, quote.price_version) == (720, "recovery-price-v3")
     assert paid.price_version == "recovery-price-v2" and paid.total_price_fen == 700
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     reopened = LifeEngine.open(scenario_path, run_dir)
     try:
-        assert reopened.state.supply_quotes[SUPPLY] == quote
-        assert reopened.state.deliveries[order_id] == paid
+        assert reopened.context.state.supply_quotes[SUPPLY] == quote
+        assert reopened.context.state.deliveries[order_id] == paid
         assert paid.source["quote"] == _price_source()
     finally:
         reopened.close()
@@ -428,29 +429,29 @@ def test_failed_decision_commit_preserves_visible_supply_credentials(recovery_en
     observation = engine.observe(decision)
     engine.submit_action(DirectToolCall(decision, "failed-storefront-discover", "start_activity",
                                          _choice(observation, "browse")))
-    before_state = engine.state.model_dump(mode="json")
-    before_store = copy.deepcopy(engine.store.state)
-    before_seq = engine.store.last_event_seq
-    before_visible = copy.deepcopy(engine._pending_visible_supplies)
-    before_presentation = copy.deepcopy(engine._pending_presentation)
+    before_state = engine.context.state.model_dump(mode="json")
+    before_store = copy.deepcopy(engine.context.store.state)
+    before_seq = engine.context.store.last_event_seq
+    before_visible = copy.deepcopy(engine.observations.pending_visible_supplies)
+    before_presentation = copy.deepcopy(engine.observations.pending_presentation)
     assert before_visible and before_presentation
-    engine.store.connection.executescript("""
+    engine.context.store.connection.executescript("""
         CREATE TRIGGER fail_storefront_commit BEFORE UPDATE ON world_state
         BEGIN SELECT RAISE(ABORT, 'Injected storefront commit failure'); END;
     """)
     with pytest.raises(sqlite3.IntegrityError, match="Injected storefront commit failure"):
         engine.commit_decision_round(decision.round_id)
-    assert engine.state.model_dump(mode="json") == before_state
-    assert engine.store.state == before_store
-    assert engine.store.last_event_seq == before_seq
-    assert engine._pending_visible_supplies == before_visible
-    assert engine._pending_presentation == before_presentation
-    engine.store.connection.execute("DROP TRIGGER fail_storefront_commit")
+    assert engine.context.state.model_dump(mode="json") == before_state
+    assert engine.context.store.state == before_store
+    assert engine.context.store.last_event_seq == before_seq
+    assert engine.observations.pending_visible_supplies == before_visible
+    assert engine.observations.pending_presentation == before_presentation
+    engine.context.store.connection.execute("DROP TRIGGER fail_storefront_commit")
     result = engine.commit_decision_round(decision.round_id)[0]
     assert result.status == "in_progress"
-    assert engine._pending_visible_supplies == {}
+    assert engine.observations.pending_visible_supplies == {}
     # 呈现留痕随提交写入世界状态的本秒暂存（时间与能量规格第一章「同一秒内的呈现」），引擎缓存清空。
-    assert engine._pending_presentation == {}
-    assert engine.state.same_moment_presentation[1] == before_presentation[1]
-    assert engine.state.accounts == before_state["accounts"]
-    assert engine.state.supply_stock == before_state["supply_stock"]
+    assert engine.observations.pending_presentation == {}
+    assert engine.context.state.same_moment_presentation[1] == before_presentation[1]
+    assert engine.context.state.accounts == before_state["accounts"]
+    assert engine.context.state.supply_stock == before_state["supply_stock"]

@@ -8,6 +8,7 @@ import copy
 import json
 import os
 from contextlib import nullcontext
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -20,16 +21,9 @@ from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse
-from tests.life.conftest import (
-    advance_next,
-    advance_until_ready,
-    context,
-    engine_factory as _engine_factory,
-    pending_names,
-    stage_day_plan,
-    start_arguments,
-)
-from worldmock.life.interaction_menu import WAYS
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (advance_next, advance_until_ready, context, pending_names, stage_day_plan, start_arguments)  # noqa: F401
+from worldmock.life.vocabulary import WAYS
 from worldmock.life import prompt_capacity
 
 
@@ -71,12 +65,12 @@ async def _decide(environment: LifeEnv, decision, observation: dict,
     """让人物从已提交观察作一次真实模型动作（没有记忆查询时恰好一次请求），保留发送的请求。"""
     dispatcher = _Dispatcher(tool_name, arguments)
     person = _person(environment, decision, dispatcher)
-    before = environment.engine.state.model_dump(mode="json")
+    before = environment.engine.context.state.model_dump(mode="json")
     request = ReactLoopRequest(0, decision.observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": observation},
     ])
     await person.run_react_loop(request)
-    assert environment.engine.state.model_dump(mode="json") == before
+    assert environment.engine.context.state.model_dump(mode="json") == before
     assert len(dispatcher.requests) == 1
     return dispatcher.requests
 
@@ -100,11 +94,13 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     engine = _engine_factory()
     stage_day_plan(engine)
-    menus = dict(engine.scenario.interaction_menus_by_location_kind)
+    menus = dict(engine.context.scenario.interaction_menus_by_location_kind)
     office = menus["office"]
     menus["office"] = office.model_copy(update={"allowed_actions": tuple(
         action for action in office.allowed_actions if action != "work")})
-    engine.scenario = engine.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    scenario = engine.context.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
     environment = LifeEnv()
     environment.engine = engine
 
@@ -125,10 +121,10 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
     for _ in range(16):
-        if engine.state.agents[first.agent_id].location_id == "office":
+        if engine.context.state.agents[first.agent_id].location_id == "office":
             break
         advance_next(engine)
-    assert engine.state.agents[first.agent_id].location_id == "office"
+    assert engine.context.state.agents[first.agent_id].location_id == "office"
     assert advance_until_ready(engine)
 
     second = context(engine, "menu-office")
@@ -154,7 +150,7 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     assert "action_id" not in office_requests[0]["messages"][1]["content"]
     assert engine.commit_decision_round(second.round_id)[0].status.value == "completed"
 
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     requests = [event for event in events if event.event_type == "action_requested"]
     assert len(requests) == 2
     assert requests[0].data["request"] == walk

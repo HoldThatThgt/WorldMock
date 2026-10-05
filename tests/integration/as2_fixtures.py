@@ -2,11 +2,12 @@
 
 @file     as2_fixtures.py
 @brief    在临时目录写一个可被 importlib.util.find_spec 解析的包，让 runtime 的 AS2 身份解析到它；
-          摘要按 docs/dev/SPEC-time-and-energy.md「运行身份」独立计算（除 __pycache__ 外的全部文件，
+          摘要按 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「运行身份」独立计算（除 __pycache__ 外的全部文件，
           标签 agentsociety2/<相对路径>），不复用生产实现。
 """
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
 
 import hashlib
 from pathlib import Path
@@ -52,9 +53,9 @@ def use_fake_as2(monkeypatch, site: Path, files: dict[str, bytes] | None = None,
     name = f"worldmock_fake_as2_{uuid4().hex}"
     package = write_fake_as2(site, name, files)
     monkeypatch.syspath_prepend(str(site))
-    monkeypatch.setattr(runtime, "_AS2_PACKAGE", name)
+    monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', name)
     if locked:
-        monkeypatch.setattr(runtime, "AS2_LOCKED_SOURCE_SHA256", expected_as2_sha256(package))
+        monkeypatch.setattr(worldmock_run_setup_module, 'AS2_LOCKED_SOURCE_SHA256', expected_as2_sha256(package))
     return package
 
 

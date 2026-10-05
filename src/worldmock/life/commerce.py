@@ -1,6 +1,6 @@
 """@brief 在到期事件中交付已付款订单，购买统一由整单结算实现；送达与给予只入收货人的持有。
 
-收货人（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：同世界人物（agent:<id>，含付款人自己）入其库存的
+收货人（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）：同世界人物（agent:<id>，含付款人自己）入其库存的
 指定地点，场景联系人入 WorldState.contact_holdings；付款人仍是订单的 agent_id。
 """
 

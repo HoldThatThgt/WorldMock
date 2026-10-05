@@ -98,13 +98,13 @@ def arrival_engine(tmp_path, request):
               _custom_engine("white-collar-12-weeks.json", configure, tmp_path, run_id="arrival"))
     stage_day_plan(engine)
     if case == "closed":
-        staged = engine.state.model_copy(deep=True)
+        staged = engine.context.state.model_copy(deep=True)
         staged.opening_exceptions[STORE]["2026-01-05"] = [(0, 481)]
         staged.version += 1
-        engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
             event_type="environment_event", occurred_at=staged.current_time, visibility="system",
             source_kind="scenario", data={"kind": "test_minute_closing_declared"})])
-        engine.state = staged
+        engine.context.state = staged
     yield engine
     engine.close()
 
@@ -112,8 +112,8 @@ def arrival_engine(tmp_path, request):
 def _finish_activity(engine, identity, phase):
     """@brief 仅经真实时间边界与按活动名称播报推进活动到完成或失败。"""
     for step in range(64):
-        if engine.state.activities[identity].status != "active":
-            return engine.state.activities[identity]
+        if engine.context.state.activities[identity].status != "active":
+            return engine.context.state.activities[identity]
         if engine.scheduling_state().ready_agent_ids:
             _, result = _observed_action(engine, f"{phase}-report-{step}", "report_status",
                                         report_request(activity_name(engine, identity), summary="继续出行。"))
@@ -125,31 +125,31 @@ def _finish_activity(engine, identity, phase):
 
 def _travel(engine, destination, name):
     """@brief 按当前冻结地点名称驾车，实际支付交通费并在到达当秒收尾。"""
-    origin = engine.state.agents[1].location_id
-    route = next(item for item in engine.scenario.routes
+    origin = engine.context.state.agents[1].location_id
+    route = next(item for item in engine.context.scenario.routes
                  if item.origin_id == origin and item.destination_id == destination and item.mode == "driving")
-    before = dict(engine.state.accounts)
+    before = dict(engine.context.state.accounts)
     _, started = _observed_action(engine, name, "start_activity", lambda observed: start_activity(
         "驾车", next(row["object"] for row in observed["interaction_bindings"]
                    if row["kind"] == "location" and row["object_id"] == destination)))
     assert started.status == "in_progress", started.error_code
     activity = _finish_activity(engine, started.activity_id, name)
-    assert engine.state.agents[1].location_id == destination
+    assert engine.context.state.agents[1].location_id == destination
     assert activity.route_progress_meters == pytest.approx(route.distance_meters)
     assert activity.elapsed_seconds == activity.planned_duration_seconds
-    assert engine.state.accounts["agent:1"] == before["agent:1"] - route.fare_fen
-    assert engine.state.accounts[engine.scenario.transport_account_id] == (
-        before[engine.scenario.transport_account_id] + route.fare_fen)
+    assert engine.context.state.accounts["agent:1"] == before["agent:1"] - route.fare_fen
+    assert engine.context.state.accounts[engine.context.scenario.transport_account_id] == (
+        before[engine.context.scenario.transport_account_id] + route.fare_fen)
     assert route.fare_fen > 0
     _, ended = _observed_action(engine, f"{name}-conclude", "conclude_activity",
                                 conclude_request(activity_name(engine, activity.activity_id)))
     assert ended.status == "completed", ended.error_code
-    return engine.state.activities[activity.activity_id]
+    return engine.context.state.activities[activity.activity_id]
 
 
 def _purchase_facts(engine):
     """@brief 比较全部商务副作用，排除合法拒绝的节律字段。"""
-    payload = engine.state.model_dump(mode="json")
+    payload = engine.context.state.model_dump(mode="json")
     return {**{name: payload[name] for name in ("accounts", "supply_stock", "supply_quotes", "deliveries",
                                               "pending_events", "activities")},
             "inventory": payload["agents"]["1"]["inventory"],
@@ -158,8 +158,8 @@ def _purchase_facts(engine):
 
 def _supply_name(engine):
     """@brief 由正式门店和商品名称构造唯一可读供给名称，不向人物请求写内部身份。"""
-    store = next(item for item in engine.scenario.locations if item.location_id == STORE)
-    return supply_label(store.name, engine.rules.products[PRODUCT].name)
+    store = next(item for item in engine.context.scenario.locations if item.location_id == STORE)
+    return supply_label(store.name, engine.context.rules.products[PRODUCT].name)
 
 
 @pytest.mark.parametrize("arrival_engine,reason", [
@@ -168,11 +168,11 @@ def _supply_name(engine):
 def test_purchase_rechecks_changed_conditions_after_real_travel_without_reversing_it(arrival_engine, reason):
     """@brief 出发时可买，到达后闭店和售罄原子拒绝；调价使用当前冻结报价，已支付旅行始终保留。"""
     engine = arrival_engine
-    location = next(item for item in engine.scenario.locations if item.location_id == STORE)
-    assert opening_status(location, engine.state.current_time, engine.scenario.timezone,
-                          engine.state.opening_exceptions[STORE]) == "open"
-    old_quote = engine.state.supply_quotes[SUPPLY].model_copy(deep=True)
-    assert engine.state.supply_stock[SUPPLY] > 0
+    location = next(item for item in engine.context.scenario.locations if item.location_id == STORE)
+    assert opening_status(location, engine.context.state.current_time, engine.context.scenario.timezone,
+                          engine.context.state.opening_exceptions[STORE]) == "open"
+    old_quote = engine.context.state.supply_quotes[SUPPLY].model_copy(deep=True)
+    assert engine.context.state.supply_stock[SUPPLY] > 0
     travel = _travel(engine, STORE, "drive-to-store")
     assert travel.status == "completed" and travel.data["arrival"]["access_status"] == "allowed"
     before = _purchase_facts(engine)
@@ -184,13 +184,13 @@ def test_purchase_rechecks_changed_conditions_after_real_travel_without_reversin
         assert not result.data.get("resource_changes") and not result.data.get("inventory_changes")
     else:
         assert result.status == "completed", result.error_code
-        actual = engine.state.supply_quotes[SUPPLY]
+        actual = engine.context.state.supply_quotes[SUPPLY]
         assert actual.price_version != old_quote.price_version and actual.price_fen == 700
         assert result.data["total_price_fen"] == 700
-        assert before["accounts"]["agent:1"] - engine.state.accounts["agent:1"] == 700
-        assert engine.state.supply_stock[SUPPLY] == before["supply_stock"][SUPPLY] - 1
-        assert engine.state.agents[1].inventory[STORE][PRODUCT] == 1
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+        assert before["accounts"]["agent:1"] - engine.context.state.accounts["agent:1"] == 700
+        assert engine.context.state.supply_stock[SUPPLY] == before["supply_stock"][SUPPLY] - 1
+        assert engine.context.state.agents[1].inventory[STORE][PRODUCT] == 1
+    terminal = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-drive-to-store" and event.data["status"] == "completed"]
     assert len(terminal) == 1
     assert terminal[0].data["data"]["activity"]["route_progress_meters"] == travel.route_progress_meters
@@ -204,8 +204,8 @@ def test_arrival_rechecks_access_and_records_denial_without_undoing_real_travel(
     assert travel.status == "failed" and travel.interruption_reason == "LOCATION_ACCESS_DENIED"
     assert travel.data["arrival"]["missing_qualifications"] == ["arrival-member"]
     assert travel.data["arrival"]["access_status"] == "denied"
-    assert not active_activities(engine.state, 1)
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+    assert not active_activities(engine.context.state, 1)
+    terminal = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-drive-to-restricted-place" and event.data["status"] == "failed"]
     assert len(terminal) == 1
     recorded = terminal[0].data["data"]["activity"]
@@ -213,10 +213,10 @@ def test_arrival_rechecks_access_and_records_denial_without_undoing_real_travel(
     assert recorded["interruption_reason"] == "LOCATION_ACCESS_DENIED"
     assert terminal[0].data["error_code"] == "LOCATION_ACCESS_DENIED"
     assert 1 in engine.scheduling_state().ready_agent_ids
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
     observed = engine.observe(context(engine, "arrival-denial-feedback"))
-    public = public_result(terminal[0].data, engine.scenario)
-    place = next(item.name for item in engine.scenario.locations if item.location_id == STORE)
+    public = public_result(terminal[0].data, engine.context.scenario)
+    place = next(item.name for item in engine.context.scenario.locations if item.location_id == STORE)
     assert public["details"]["arrival"] == {"place": place, "access": "没能进去"}
     settled = [line for entry in observed["memory_layer"]["earlier_today"] for line in entry["settled"]]
     assert any(place in line and "失败" in line for line in settled)
@@ -226,7 +226,7 @@ def test_arrival_rechecks_access_and_records_denial_without_undoing_real_travel(
 def test_paused_lifestyle_cannot_resume_after_real_travel_to_incompatible_environment(arrival_engine):
     """@brief 居所活动实际启动并暂停，驾车到办公室后用 report_status 恢复时重验开始地点。"""
     engine = arrival_engine
-    item = next(item for item in engine.lifestyle_items if item.activity_id == HOME_ACTIVITY)
+    item = next(item for item in engine.context.lifestyle_items if item.activity_id == HOME_ACTIVITY)
     _, started = _observed_action(engine, "start-home-activity", "start_activity", start_activity("进行", item.name))
     assert started.status == "in_progress", started.error_code
     wake_by_mail(engine, offset=60)
@@ -234,15 +234,15 @@ def test_paused_lifestyle_cannot_resume_after_real_travel_to_incompatible_enviro
     name = activity_name(engine, started.activity_id)
     _, paused = _observed_action(engine, "pause-home-activity", "pause_activity", pause_request(name, summary="先暂停。"))
     assert paused.status == "completed", paused.error_code
-    original = copy.deepcopy(engine.state.activities[started.activity_id])
+    original = copy.deepcopy(engine.context.state.activities[started.activity_id])
     assert original.status == "paused" and original.elapsed_seconds > 0
     assert _travel(engine, "office", "drive-to-office").status == "completed"
     before = _purchase_facts(engine)
     _, rejected = _observed_action(engine, "resume-at-office", "report_status", report_request(name, summary="继续。"))
     assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
-    home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
+    home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
     assert rejected.data["reason"] == f"Resume {name} at its start location {home}; it can be concluded elsewhere."
     assert rejected.data["next_step"] == f"Travel to {home}." and rejected.data["unmet"] == ["activity_location"]
-    assert engine.state.activities[started.activity_id] == original
+    assert engine.context.state.activities[started.activity_id] == original
     assert _purchase_facts(engine) == before
-    assert not active_activities(engine.state, 1) and engine.state.agents[1].location_id == "office"
+    assert not active_activities(engine.context.state, 1) and engine.context.state.agents[1].location_id == "office"

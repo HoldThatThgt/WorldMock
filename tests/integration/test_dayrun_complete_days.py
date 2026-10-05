@@ -36,17 +36,24 @@ from worldmock.life.models import REQUEST_MODELS, ActivityStatus
 from worldmock.life.narration import render_layer_json
 from worldmock.life.prompt_schemas import USER_LAYER_NAMES, validate_layer
 from worldmock.life.world_query import QueryWorldRequest
-from worldmock.runtime import stage_model_identity
+from worldmock.run_setup import stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
 #: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
 _DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None, "around_time": None},
               {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None, "around_time": None}]
-#: 这些种子的就寝反思首次不合合同（自由文本、没有工具调用），经一次校验重试改正（docs/dev/SPEC-errands-workday.md 1.1）：
+#: 这些种子的就寝反思首次不合合同（自由文本、没有工具调用），经一次校验重试改正（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：
 #: 两人的附回消息逐字相同、分处两条（人物，秒）续接链，观察重复门禁仍须为 1。
 _REFLECTION_RETRY_SEEDS = frozenset({20260106})
 #: 自由文本应答换来的英文校验错误（附回消息 VALIDATION_ERROR 的原文）。
 _ONE_CALL = "response must contain exactly one submit_reflection tool call"
+
+
+@pytest.fixture(autouse=True)
+def _stable_day_baseline(monkeypatch):
+    """完整日固定记录身份与壁钟，业务时间仍由真实引擎推进。"""
+    from tests.dayrun_baseline import deterministic_day_runtime
+    deterministic_day_runtime(monkeypatch)
 
 
 class _PlanDayClient(StubPlanDayClient):
@@ -295,24 +302,24 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
     models = {agent_id: DayModel(seed, agent_id) for agent_id in (1, 2)}
     people_root = tmp_path / "people"
     people = await _people(environment, people_root, models)
-    start = engine.state.current_time
+    start = engine.context.state.current_time
     restored = False
     rounds = 0
     try:
         # 启动路径（时间与能量规格第四章「执行位置」）：同 AS2 Society.init，初始共同检查点经 LifeEnv.checkpoint
         # 提交之后，零点计划后台任务在首个 run_start 决策之前为每个人物生成当日计划。
         await environment.checkpoint(SocietyCheckpointRequest(
-            engine.state.run_id, "initial", engine.scheduling_state().current_time,
+            engine.context.state.run_id, "initial", engine.scheduling_state().current_time,
             tuple((key, str(people_root / f"agent_{key:04d}")) for key in sorted(people))))
-        while engine.state.current_time < engine.state.end_time:
+        while engine.context.state.current_time < engine.context.state.end_time:
             scheduling = engine.scheduling_state()
             if not scheduling.ready_agent_ids:
                 assert scheduling.next_event_at is not None
-                await environment.step(int(scheduling.next_event_at.timestamp()) - engine.state.current_time,
+                await environment.step(int(scheduling.next_event_at.timestamp()) - engine.context.state.current_time,
                                        scheduling.next_event_at)
                 continue
             rounds += 1
-            assert rounds < 250, (engine.state.current_time, {key: model.phase for key, model in models.items()})
+            assert rounds < 250, (engine.context.state.current_time, {key: model.phase for key, model in models.items()})
             contexts = [context(engine, f"day-{rounds}", agent_id) for agent_id in scheduling.ready_agent_ids]
             await environment.begin_decision_round(tuple(contexts))
             for decision in contexts:
@@ -322,33 +329,43 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
                 await person.to_workspace(people_root / f"agent_{decision.agent_id:04d}")
             results = await environment.commit_decision_round(contexts[0].round_id)
             assert all(result.error_code is None for result in results), results
-            if not restored and engine.state.current_time >= start + 13*3600:
-                snapshots = {f"agent:{key}": snapshot_directory(people_root / f"agent_{key:04d}", engine.store.assets)
+            if not restored and engine.context.state.current_time >= start + 13*3600:
+                snapshots = {f"agent:{key}": snapshot_directory(people_root / f"agent_{key:04d}", engine.context.store.assets)
                              for key in people}
                 engine.checkpoint(snapshots)
                 engine.close()
                 environment.engine = engine = LifeEngine.open(scenario_path, tmp_path / "run")
                 people = await _people(environment, people_root, models, restored=True)
                 restored = True
-        snapshots = {f"agent:{key}": snapshot_directory(people_root / f"agent_{key:04d}", engine.store.assets)
+        snapshots = {f"agent:{key}": snapshot_directory(people_root / f"agent_{key:04d}", engine.context.store.assets)
                      for key in people}
         engine.checkpoint(snapshots)
-        exported = export_run(engine.store, engine.store.last_event_seq, tmp_path / "export")
+        exported = export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
         _assert_day(engine, models, start, exported, tmp_path)
         assert restored
+        _assert_frozen_day(tmp_path, seed)
     finally:
         engine.close()
 
 
+def _assert_frozen_day(case, seed):
+    """将完整导出、资产和全部检查点与改动前的重复运行基线比较。"""
+    from tests.dayrun_baseline import day_baseline_signature
+
+    project = Path(__file__).resolve().parents[2]
+    baseline = json.loads((project / "tests/fixtures/dayrun-shared-rules-baseline.json").read_text(encoding="utf-8"))
+    assert day_baseline_signature(case, project) == baseline["cases"][str(seed)]
+
+
 def _assert_day(engine, models, start, exported, tmp_path):
-    events = engine.store.read_events(engine.store.last_event_seq)
-    assert engine.state.current_time - start == 86400
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    assert engine.context.state.current_time - start == 86400
     assert all(model.meals == 2 and model.invalid_parallel_sent for model in models.values())
-    assert all(agent.body_settled_at == engine.state.end_time for agent in engine.state.agents.values())
+    assert all(agent.body_settled_at == engine.context.state.end_time for agent in engine.context.state.agents.values())
     # 同刻上限（规则 3）：同一人物同一秒的决策轮数不超过上限加三。
     same_second = Counter((event.agent_id, event.occurred_at) for event in events
                           if event.event_type == "decision_started")
-    assert max(same_second.values()) <= engine.scenario.max_same_moment_decisions + 3
+    assert max(same_second.values()) <= engine.context.scenario.max_same_moment_decisions + 3
     _assert_start_day_plans(events, start)
     paused = 0
     for agent_id in (1, 2):
@@ -377,7 +394,7 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert exported["experiment_completed"]
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
     assert quality["schema_version"] == 4
-    # 这一天两人都没有记下个人事务：事务指标没有样本，按质量报告的空值约定为 null（docs/dev/SPEC-errands-workday.md 6.1）。
+    # 这一天两人都没有记下个人事务：事务指标没有样本，按质量报告的空值约定为 null（docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ）。
     assert quality["errand_metrics"] is None
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
@@ -396,7 +413,7 @@ def _is_decision_request(event) -> bool:
     """人物决策循环发出的请求：不带 purpose 且工具中有 start_activity（含最后一个回合与截断重试）。
 
     记忆巩固不带工具，就寝反思只带 submit_reflection，都不带 purpose，按工具中没有 start_activity 排除
-    （docs/dev/SPEC-errands-workday.md 1.1「身份与判定」）。"""
+    （docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与判定」）。"""
     return (event.event_type == "model_request" and not event.data.get("purpose")
             and "start_activity" in _tool_names(event))
 
@@ -526,7 +543,7 @@ def _assert_activity_protocol(engine, events, agent_id):
     kinds = Counter(event.data["kind"] for event in own if event.event_type == "environment_event"
                     and event.data.get("kind") in {"activity_concluded", "activity_paused", "activity_resumed"})
     assert kinds["activity_paused"] == kinds["activity_resumed"] and kinds["activity_concluded"] > 2
-    for activity in (item for item in engine.state.activities.values() if item.agent_id == agent_id):
+    for activity in (item for item in engine.context.state.activities.values() if item.agent_id == agent_id):
         if activity.status == ActivityStatus.TRUNCATED:
             assert activity.concluded_at is None
         elif activity.interruption_reason != "agent_cancelled":

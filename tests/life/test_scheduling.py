@@ -14,16 +14,14 @@ from worldmock.catalog import load_catalog
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.basket import purchase_order
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (
-    ModelIdentity,
-    PurchaseOrderRequest,
-    RunIdentity,
-    ScheduledKind,
-)
+from worldmock.life.models import ModelIdentity, PurchaseOrderRequest, RunIdentity
+from worldmock.scheduling.events import ScheduledKind
 from worldmock.life.scenario import LifeScenario, PriceChangeConfig
-from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
+from worldmock.life.semantics import assemble_semantics
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.scheduling.compile import compile_schedule
 from tests.life.conftest import advance_next
+from tests.frozen_inputs import relative_corpus
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DUE_TEXT = "2026-01-05T10:00:00+08:00"
@@ -36,7 +34,7 @@ def _document(base_name: str) -> dict:
 
 def _write_scenario(document: dict, tmp_path: Path) -> Path:
     """把改写文档与冻结目录复制到隔离结构中并返回路径。"""
-    document["corpus_root"] = str(_PROJECT_ROOT / "corpora")
+    document["corpus_root"] = relative_corpus(_PROJECT_ROOT / "corpora", tmp_path / "scenarios")
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir(parents=True)
     shutil.copytree(_PROJECT_ROOT / "catalog", tmp_path / "catalog")
@@ -78,15 +76,15 @@ def _custom_engine(base_name: str, mutate, tmp_path: Path, run_id: str = "sched"
 
 def _stage(engine: LifeEngine, scheduled_id: str) -> int:
     """把世界直接置于目标事件前一分钟，返回目标时刻。"""
-    event = next(item for item in engine.state.pending_events
+    event = next(item for item in engine.context.state.pending_events
                  if item.scheduled_id == scheduled_id)
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = event.due_at - 60
     staged.pending_events = [event]
     for agent_id, agent in staged.agents.items():
         staged.agents[agent_id] = agent.model_copy(
             update={"next_decision_at": event.due_at + 3600, "body_settled_at": staged.current_time}, deep=True)
-    engine.state = staged
+    engine.context.state = staged
     return event.due_at
 
 
@@ -99,7 +97,7 @@ def _fire(engine: LifeEngine, scheduled_id: str) -> int:
 
 def _environment_events(engine: LifeEngine, kind: str) -> list:
     """读取足迹中给定 kind 的环境事件。"""
-    return [event for event in engine.store.read_events(engine.store.last_event_seq)
+    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
             if event.event_type == "environment_event" and event.data.get("kind") == kind]
 
 
@@ -109,7 +107,7 @@ def _bare_world(engine: LifeEngine) -> dict:
     修订合同新增的节律/情绪/账本簿记（next_decision_at、mood、discomfort、
     felt 参照等）在结算边界自然演化，不属于预排事件语义。
     """
-    payload = engine.state.model_dump(mode="json", exclude={"version", "current_time",
+    payload = engine.context.state.model_dump(mode="json", exclude={"version", "current_time",
                                                             "pending_events"})
     volatile = {"next_decision_at", "pending_wake_reasons", "mood_updated_at",
                 "discomfort_started_at", "discomfort_pulse_hours",
@@ -180,27 +178,27 @@ def test_calendar_flag_dispatch_is_zero_state_audit_event(tmp_path: Path) -> Non
     """日历旗标到点零状态变更，只追加审计环境事件；观察侧注入路径保持。
 
     旗标在本地零点到期，该边界同时是零点计划边界：零点计划为每个人物登记新一天的计划
-    （docs/dev/SPEC-time-and-energy.md 第四章），除这项登记外世界不变。
+    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章），除这项登记外世界不变。
     """
     engine = _custom_engine("white-collar-12-weeks.json", lambda doc: None, tmp_path)
     assert _environment_events(engine, "calendar_flag") == []
     due = _stage(engine, "calendar-2026-01-24")
     before = _bare_world(engine)
-    energy = {identity: agent.body.energy_kcal for identity, agent in engine.state.agents.items()}
+    energy = {identity: agent.body.energy_kcal for identity, agent in engine.context.state.agents.items()}
     advance_next(engine)
-    for identity, agent in engine.state.agents.items():
+    for identity, agent in engine.context.state.agents.items():
         assert agent.body.energy_kcal == pytest.approx(
-            energy[identity] - engine.semantics.body.basal_kcal_per_hour / 60)
-    assert engine.state.current_time == due
+            energy[identity] - engine.context.semantics.body.basal_kcal_per_hour / 60)
+    assert engine.context.state.current_time == due
     events = _environment_events(engine, "calendar_flag")
     assert len(events) == 1
     assert events[0].data["flags"] == ["overtime_opportunity"]
     assert events[0].data["scheduled_id"] == "calendar-2026-01-24"
     registered = _environment_events(engine, "day_plan_generated")
     assert [(event.agent_id, event.occurred_at) for event in registered] == [
-        (identity, due) for identity in sorted(engine.state.agents)]
-    next_midnight = _midnight_epoch("2026-01-25", engine.scenario.timezone)
-    for agent in engine.state.agents.values():
+        (identity, due) for identity in sorted(engine.context.state.agents)]
+    next_midnight = _midnight_epoch("2026-01-25", engine.context.scenario.timezone)
+    for agent in engine.context.state.agents.values():
         assert agent.plan_submitted_dates == {"2026-01-24"}
         assert agent.day_plan.day_end == next_midnight and agent.day_plan.goals == ()
     after = _bare_world(engine)
@@ -209,7 +207,7 @@ def test_calendar_flag_dispatch_is_zero_state_audit_event(tmp_path: Path) -> Non
             agent.pop("day_plan")
             agent.pop("plan_submitted_dates")
     assert after == before
-    observation = engine._observation_data(engine.state.agents[1])
+    observation = engine.observations._observation_data(engine.context.state.agents[1])
     assert observation["calendar_context"]["overtime_opportunity"] is True
     assert observation["calendar_context"]["spring_festival"] is False
 
@@ -229,8 +227,8 @@ def test_bill_due_settles_transfer_via_ledger(tmp_path: Path) -> None:
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
     _fire(engine, "bill-rent-january")
-    assert engine.state.accounts["agent:1"] == 800_000 - 50_000
-    assert engine.state.accounts["merchant:grocery"] == 10_000_000 + 50_000
+    assert engine.context.state.accounts["agent:1"] == 800_000 - 50_000
+    assert engine.context.state.accounts["merchant:grocery"] == 10_000_000 + 50_000
     events = _environment_events(engine, "bill_due")
     assert len(events) == 1
     assert events[0].data["bill_paid"] is True
@@ -239,7 +237,7 @@ def test_bill_due_settles_transfer_via_ledger(tmp_path: Path) -> None:
 
 
 def test_bill_due_to_external_anchor_absorbs_credit(tmp_path: Path) -> None:
-    """docs/design/04-simulation-engine.md「预排事件」的房租/水电形态：付款入外部锚点，锚点侧吸收不入运行账。"""
+    """docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎「预排事件」的房租/水电形态：付款入外部锚点，锚点侧吸收不入运行账。"""
 
     def mutate(document: dict) -> None:
         document["bills"] = [{"bill_id": "utility-jan", "account_id": "agent:1",
@@ -248,8 +246,8 @@ def test_bill_due_to_external_anchor_absorbs_credit(tmp_path: Path) -> None:
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
     _fire(engine, "bill-utility-jan")
-    assert engine.state.accounts["agent:1"] == 800_000 - 12_000
-    assert "external:scenario" not in engine.state.accounts
+    assert engine.context.state.accounts["agent:1"] == 800_000 - 12_000
+    assert "external:scenario" not in engine.context.state.accounts
     events = _environment_events(engine, "bill_due")
     assert events[0].data["bill_paid"] is True
     assert sum(events[0].data["resource_changes"].values()) == 0
@@ -266,14 +264,14 @@ def test_bill_due_insufficient_funds_refuses_without_crash(tmp_path: Path) -> No
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
     due = _stage(engine, "bill-rent-impossible")
     before = _bare_world(engine)
-    energy = {identity: agent.body.energy_kcal for identity, agent in engine.state.agents.items()}
+    energy = {identity: agent.body.energy_kcal for identity, agent in engine.context.state.agents.items()}
     advance_next(engine)
-    for identity, agent in engine.state.agents.items():
+    for identity, agent in engine.context.state.agents.items():
         assert agent.body.energy_kcal == pytest.approx(
-            energy[identity] - engine.semantics.body.basal_kcal_per_hour / 60)
-    assert engine.state.current_time == due
-    assert engine.state.accounts["agent:1"] == 800_000
-    assert engine.state.accounts["merchant:grocery"] == 10_000_000
+            energy[identity] - engine.context.semantics.body.basal_kcal_per_hour / 60)
+    assert engine.context.state.current_time == due
+    assert engine.context.state.accounts["agent:1"] == 800_000
+    assert engine.context.state.accounts["merchant:grocery"] == 10_000_000
     events = _environment_events(engine, "bill_due")
     assert len(events) == 1
     assert events[0].data["bill_paid"] is False
@@ -290,8 +288,8 @@ def test_payroll_credits_agent_account(tmp_path: Path) -> None:
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
     _fire(engine, "payroll-salary-jan")
-    assert engine.state.accounts["employer:zhangjiang"] == 4_000_000 - 100_000
-    assert engine.state.accounts["agent:2"] == 800_000 + 100_000
+    assert engine.context.state.accounts["employer:zhangjiang"] == 4_000_000 - 100_000
+    assert engine.context.state.accounts["agent:2"] == 800_000 + 100_000
     events = _environment_events(engine, "payroll")
     assert len(events) == 1
     assert events[0].data["payroll_paid"] is True
@@ -308,8 +306,8 @@ def test_payroll_insufficient_employer_refuses_without_crash(tmp_path: Path) -> 
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
     _fire(engine, "payroll-salary-huge")
-    assert engine.state.accounts["employer:zhangjiang"] == 4_000_000
-    assert engine.state.accounts["agent:1"] == 800_000
+    assert engine.context.state.accounts["employer:zhangjiang"] == 4_000_000
+    assert engine.context.state.accounts["agent:1"] == 800_000
     events = _environment_events(engine, "payroll")
     assert events[0].data["payroll_paid"] is False
     assert events[0].data["resource_changes"] == {}
@@ -336,7 +334,7 @@ def _scheduled_source() -> dict:
 def _supply_request(engine, supply) -> PurchaseOrderRequest:
     """购买引用供给身份及当前世界报价。"""
     return PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1, "recipient_id": "agent:1",
-                                        "price_version": engine.state.supply_quotes[supply.supply_id].price_version},),
+                                        "price_version": engine.context.state.supply_quotes[supply.supply_id].price_version},),
                                 fulfillment="delivery", destination_id="home")
 
 
@@ -350,23 +348,23 @@ def test_price_change_updates_persisted_quote_and_purchase_uses_new_price(tmp_pa
                                       "due_at": _DUE_TEXT, "source": _scheduled_source()}]
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
-    old_product = engine.rules.products[supply.product_id]
-    old_quote = engine.state.supply_quotes[supply.supply_id].model_copy(deep=True)
+    old_product = engine.context.rules.products[supply.product_id]
+    old_quote = engine.context.state.supply_quotes[supply.supply_id].model_copy(deep=True)
     _fire(engine, "price-grocery-promo")
-    updated = engine.state.supply_quotes[supply.supply_id]
-    assert engine.rules.products[supply.product_id] is old_product
+    updated = engine.context.state.supply_quotes[supply.supply_id]
+    assert engine.context.rules.products[supply.product_id] is old_product
     assert updated.price_fen == 700 and updated.price_version == "promo-v1"
     assert updated.source == _scheduled_source()
     events = _environment_events(engine, "price_change")
     assert events[0].data["amount_fen"] == 700
     assert events[0].data["quote_before"] == old_quote.model_dump(mode="json")
     request = _supply_request(engine, supply)
-    outcome = purchase_order(engine.state, engine.semantics, 1, request)
-    assert engine.state.accounts["agent:1"] - outcome.state.accounts["agent:1"] == 700
+    outcome = purchase_order(engine.context.state, engine.context.semantics, 1, request)
+    assert engine.context.state.accounts["agent:1"] - outcome.state.accounts["agent:1"] == 700
     stale = request.model_copy(update={"items": (request.items[0].model_copy(
         update={"price_version": old_quote.price_version}),)})
     with pytest.raises(BusinessRuleError, match="PRICE_VERSION_MISMATCH"):
-        purchase_order(engine.state, engine.semantics, 1, stale)
+        purchase_order(engine.context.state, engine.context.semantics, 1, stale)
 
 
 def test_product_release_restocks_and_enables_purchase(tmp_path: Path) -> None:
@@ -381,15 +379,15 @@ def test_product_release_restocks_and_enables_purchase(tmp_path: Path) -> None:
                                          "stock": 3, "due_at": _DUE_TEXT, "source": _scheduled_source()}]
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
-    assert engine.state.supply_stock[supply.supply_id] == 0
+    assert engine.context.state.supply_stock[supply.supply_id] == 0
     request = _supply_request(engine, supply)
     with pytest.raises(BusinessRuleError, match="OUT_OF_STOCK"):
-        purchase_order(engine.state, engine.semantics, 1, request)
+        purchase_order(engine.context.state, engine.context.semantics, 1, request)
     _fire(engine, "release-umbrella-launch")
-    assert engine.state.supply_stock[supply.supply_id] == 3
+    assert engine.context.state.supply_stock[supply.supply_id] == 3
     events = _environment_events(engine, "product_release")
     assert events[0].data["stock_before"] == 0 and events[0].data["stock_after"] == 3
-    outcome = purchase_order(engine.state, engine.semantics, 1, request)
+    outcome = purchase_order(engine.context.state, engine.context.semantics, 1, request)
     assert outcome.state.supply_stock[supply.supply_id] == 2
 
 

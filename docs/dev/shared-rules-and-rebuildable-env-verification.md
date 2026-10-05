@@ -1,8 +1,15 @@
 # 共享规则与可重建环境验收记录
 
+> 代码基线：`08d61a7ae0a99812375a87df0e29b1490e06fd6f`
+> 引用出处：`docs/dev/coverage-report.json` @ `06e3ea0e04bcbb3022eac820a08005ef32b6b1c8`
+> 引用出处：`docs/dev/shared-rules-fresh-macos.json` @ `06e3ea0e04bcbb3022eac820a08005ef32b6b1c8`
+> 引用出处：`docs/dev/shared-rules-fresh-linux.json` @ `06e3ea0e04bcbb3022eac820a08005ef32b6b1c8`
+> 引用出处：`docs/dev/shared-rules-platform-verification.json` @ `06e3ea0e04bcbb3022eac820a08005ef32b6b1c8`
+> 本记录保留共享特性合并前的实测；当前主线整合独立登记已观察证据。补测、各变异与平台执行分别绑定正文声明的提交，不作为合并后全量或跨平台通过结论。
+
 > 规格：[最终开发规格](SPEC-shared-rules-and-rebuildable-env.md)。
 > 实施基线：`2cf230115f4084aef2376e9d77bc976efbed43ea`；分支 `codex/shared-rules-rebuildable-env`。
-> 本记录只按实际命令和当前源码登记证据，不继承其它特性的通过数字。
+> 本记录只按实际命令和各次被测源码登记证据，不继承其它特性的通过数字。
 
 ## 方案裁决与文档一致性
 
@@ -21,6 +28,25 @@
 
 AS2 完整历史补丁已重建出原摘要 `65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334`；
 业务移出后的最终摘要为 `bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46`，由 SERIES 和运行时直接核对。
+
+<a name="shared-rules-verification-主线整合证据"></a>
+## 主线整合证据
+
+共享特性与主线分层整合的完整日比较，使用已验收共享特性提交
+`06e3ea0e04bcbb3022eac820a08005ef32b6b1c8` 的隔离源码生成基线；未修改其生产源码，
+保留原有 61 个业务断言，只在测试侧使用主线已有身份固定与摘要辅助函数。
+两个独立 pytest 进程分别完成种子 `20260105` 和 `20260106`，合计 4 passed、0 failures、
+0 errors、0 skipped；每个种子的两次事件、资产、检查点和认证导出摘要逐字节相同。
+原始回执、导入来源和测试测量补丁保留为独立来源，属于脚本模型完整日，不是供应商模型实跑。
+
+| 基线或检查 | 当前作用与已观察结果 | 证据边界 |
+| --- | --- | --- |
+| `tests/fixtures/dayrun-layering-baseline.json` | 固定 `2cf230115f4084aef2376e9d77bc976efbed43ea` 的主线分层历史行为；保留与原有 147 个变异生成结果迁移证明的对应关系 | 不改写原基线，也不用于忽略共享特性授权的目录身份与记忆归属变化 |
+| `tests/fixtures/dayrun-shared-rules-baseline.json` | 固定隔离共享特性 `06e3ea0e04bcbb3022eac820a08005ef32b6b1c8` 的真实独立双跑摘要，作为现行完整日回归依据 | 基线来自合并前源码，不从合并后产物重录，不删除业务字段 |
+| 当前整合完整日输出 | 两个种子的签名分别与独立共享特性基线相等，已核对事件和导出工件、运行资产及检查点摘要 | 仅证明这些实际完整日输出的比较，不代表合并提交的全量、覆盖率或平台门禁已通过 |
+| 当前整合门禁 | 唯一 runner 核对同次运行身份、覆盖摘要、实际输入和阶段完成条件；节点结果、覆盖率与接口缺口以[现行机器门禁报告](coverage-report.json)登记 | 机器报告中的实际被测提交与输入摘要决定证据范围，合并前数字不能代表其它提交；平台证据分别按原来源判定 |
+
+以下实现与工程、平台、变异结果为正文声明提交的合并前实测。
 
 ## 实现与测试证据
 
@@ -167,9 +193,9 @@ Windows 的成功收据与 Ubuntu 收据的同提交摘要比较尚未取得，�
 | Shared schema field feedback | `src/worldmock/model_feedback.py` | `最终规格「纠正消息」` | tests/test_shared_model_clients.py::test_original_schema_feedback_uses_shared_sanitized_error_details | killed | AssertionError: assert 'goals: Input...ield required' == 'arguments: I...ield required' |
 | WorldMock error logging once | `src/worldmock/model_feedback.py` | `最终规格「故障日志」` | tests/test_shared_model_clients.py::test_original_tool_argument_consumers_reject_wrong_count_name_and_json_text | killed | assert 2 == 1 |
 | Declared ValueError logging | `src/worldmock/errors.py` | `最终规格「故障日志」` | tests/test_shared_primitives.py::test_value_error_rejection_logs_once_and_preserves_message | killed | AssertionError: assert [] == ['exact reason'] |
-| Production function clone detection | `src/worldmock/bob_copied_rule.py` | `最终规格「防漂移守卫」` | tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones | killed | AssertionError: assert not ['function clone: src/worldmock/bob_copied_rule.py:1:copied_date_blocks, src/worldmock/evaluation/metrics.py:827:date_blocks'] |
-| Production copied rule table detection | `src/worldmock/bob_copied_rule.py` | `最终规格「防漂移守卫」` | tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones | killed | AssertionError: assert not ['rule table clone: src/worldmock/bob_copied_rule.py:1, src/worldmock/life/memory_evidence.py:98'] |
-| Production wrong rule owner detection | `src/worldmock/bob_copied_rule.py` | `最终规格「防漂移守卫」` | tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones | killed | AssertionError: assert not ['wrong owner: src/worldmock/bob_copied_rule.py:1 defines canonical_json'] |
+| Production function clone detection | 临时生产文件 `bob_copied_rule.py`（变异工作树内） | `最终规格「防漂移守卫」` | tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones | killed | AssertionError: assert not ['function clone: temporary production file bob_copied_rule.py:1:copied_date_blocks, src/worldmock/evaluation/metrics.py:827:date_blocks'] |
+| Production copied rule table detection | 临时生产文件 `bob_copied_rule.py`（变异工作树内） | `最终规格「防漂移守卫」` | tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones | killed | AssertionError: assert not ['rule table clone: temporary production file bob_copied_rule.py:1, src/worldmock/life/memory_evidence.py:98'] |
+| Production wrong rule owner detection | 临时生产文件 `bob_copied_rule.py`（变异工作树内） | `最终规格「防漂移守卫」` | tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones | killed | AssertionError: assert not ['wrong owner: temporary production file bob_copied_rule.py:1 defines canonical_json'] |
 
 ### 活动与领域规则变异台账
 
@@ -216,7 +242,7 @@ Windows 的成功收据与 Ubuntu 收据的同提交摘要比较尚未取得，�
 | 接受平台源码摘要不一致 | `最终规格「新机器检查」` | `scripts/fresh_check.py`：Accept different platform runtime bytes | `tests/test_fresh_check.py::test_platform_comparison_rejects_mismatch_and_incomplete_evidence[code_sha256]` | killed；exit=1；Failed: DID NOT RAISE RuntimeError |
 | 覆盖率门禁接受跳过 | `最终规格「门禁、可选部件与操作系统」` | `scripts/coverage_gate.py`：Coverage gate passes a suite with skipped tests | `tests/test_coverage_gate.py::test_main_never_passes_for_skipped_empty_or_failed_tests` | killed；exit=1；AssertionError: assert 0 == 1;  +  where 0 = <function main at 0x107503920>(['--shards', '2']) |
 | 覆盖率门禁接受空测试 | `最终规格「门禁、可选部件与操作系统」` | `scripts/coverage_gate.py`：Coverage gate passes an empty test suite | `tests/test_coverage_gate.py::test_main_never_passes_for_skipped_empty_or_failed_tests` | killed；exit=1；AssertionError: assert 0 == 1;  +  where 0 = <function main at 0x10b30f920>(['--shards', '2']) |
-| 测试分片重复分配文件 | `最终规格「门禁、可选部件与操作系统」` | `scripts/coverage_gate.py`：Shard assignment runs a file more than once | `tests/test_coverage_gate.py::test_shards_cover_all_files_once_and_keep_directory_order` | killed；exit=1；AssertionError: assert 5 == 4;  +  where 5 = len(['tests/a/test_a.py', 'tests/a/test_b.py', 'tests/a/test_b.py', 'tests/b/test_c.py', 'tests/test_root.py']) |
+| 测试分片重复分配文件 | `最终规格「门禁、可选部件与操作系统」` | `scripts/coverage_gate.py`：Shard assignment runs a file more than once | `tests/test_coverage_gate.py::test_shards_cover_all_files_once_and_keep_directory_order` | killed；exit=1；AssertionError: assert 5 == 4;  +  where 5 = len(['temporary-suite/a/test_a.py', 'temporary-suite/a/test_b.py', 'temporary-suite/a/test_b.py', 'temporary-suite/b/test_c.py', 'temporary-suite/test_root.py']) |
 | 扩大记忆合并时间窗 | `最终规格「源码与换行身份」；AS2 集成规格「记忆运行时改动」` | `custom/agents/life_memory_store.py`：Merge a same-type episode beyond the preserved 24 hour window | `tests/as2/test_worldmock_memory_boundaries.py::test_host_merge_window_has_closed_twenty_four_hour_boundary` | killed；exit=1；AssertionError: assert ('m_00000060_000001' == 'm_00000060_000001';  |
 | 抬高记忆合并相似度阈值 | `最终规格「源码与换行身份」；AS2 集成规格「记忆运行时改动」` | `custom/agents/life_memory_store.py`：Reject an episode that meets the preserved similarity threshold | `tests/as2/test_worldmock_memory_boundaries.py::test_host_merge_similarity_uses_the_frozen_threshold` | killed；exit=1；AssertionError: assert 2 == 1;  +  where 2 = len([{'id': 'm_00000060_000001', 'agent_id': 1, 'tick': 60, 'tick_duration_sec': 60, ...}, {'id': 'm_00000060_000002', 'agent_id': 1, 'tick': 60, 'tick_duration_sec': 60, ...}]) |
 | 合并记忆更换原身份 | `最终规格「源码与换行身份」；AS2 集成规格「记忆运行时改动」` | `custom/agents/life_memory_store.py`：Give a merged episode a new identity instead of retaining it | `tests/as2/test_worldmock_memory_boundaries.py::test_host_merge_window_has_closed_twenty_four_hour_boundary` | killed；exit=1；AssertionError: assert ('m_00000060_000001' == 'm_00000060_000002';  |
@@ -229,6 +255,9 @@ Windows 的成功收据与 Ubuntu 收据的同提交摘要比较尚未取得，�
 | 重复写入生活观察 | `最终规格「源码与换行身份」` | `custom/agents/life_agent.py`：Emit both structured data and its textual duplicate for one life observation | `tests/as2/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message` | killed；exit=1；AssertionError: assert 'observation' not in {'turn': 0, 'action': 'observe', 'ok': True, 'data': {'scene': 'kitchen-sink-a1', 'items': [{'name': 'pan', 'count': 1}]}, ...} |
 
 ## 文件修改清单
+
+以下清单固定为 `2cf230115f4084aef2376e9d77bc976efbed43ea` 到 `06e3ea0e04bcbb3022eac820a08005ef32b6b1c8` 的共享特性变更；
+它不包含后续主线分层整合，不作为合并提交的文件修改清单。
 
 最终清单按实施基线与本分支实际 Git 变更生成。所有路径相对仓库，新增/修改/删除分别登记，每个文件恰一次。
 规格中的文档原子同步清单逐项覆盖全部现行设计、关联冻结规格、合同和操作手册；历史版本表保持当时身份。
@@ -532,3 +561,4 @@ Windows 的成功收据与 Ubuntu 收据的同提交摘要比较尚未取得，�
 | 版本 | 日期 | 修改 |
 | --- | --- | --- |
 | 共享规则与可重建环境 | 2026-10-05 | 记录并发方案裁决、完整实现和独立验收 |
+| 主线整合证据 | 2026-10-05 | 登记隔离共享特性完整日双跑及与整合输出的实际比较，现行全量证据由机器报告按被测身份登记 |

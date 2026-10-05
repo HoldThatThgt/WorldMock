@@ -1,4 +1,4 @@
-"""运行输入警告与场景作息覆盖的真实路径（docs/dev/SPEC-dayrun-fidelity.md 1.3、2.1，验收台账「输入警告」「场景作息」）。
+"""运行输入警告与场景作息覆盖的真实路径（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 、2.1，验收台账「输入警告」「场景作息」）。
 
 新建运行经 runtime 的真实准备与装配（_prepare_new_run → _build_society，画像编译走真实 compile_persona、只打桩三次一致性
 抽取）、LifeEnv 与引擎建立运行：警告冻结进运行清单、逐条写 ops 警告、导出后计入 quality.json，警告不使创建失败；
@@ -7,6 +7,7 @@ validate（validate_project 与 CLI）打印同一组警告，覆盖率低于 80
 """
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
 import hashlib
@@ -24,14 +25,14 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime  # noqa: E402
-from tests.life.conftest import (_mutated_scenario, advance_next, stage_day_plan, start_activity,  # noqa: E402
-                                 submit_round)
+from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
+from tests.life.conftest import (advance_next, stage_day_plan, start_activity, submit_round)  # noqa: F401
 from tests.profile.conftest import make_card, make_payload, make_window  # noqa: E402
 from tests.profile.test_extractor import FakeResponse, FakeSession  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life.day_plan_inputs import plan_inputs  # noqa: E402
-from worldmock.life.scenario import load_scenario  # noqa: E402
+from worldmock.life.world_setup import load_scenario
 from worldmock.profile.compile import compile_persona  # noqa: E402
 from worldmock.profile.coverage import PersonaCoverageError  # noqa: E402
 from worldmock.profile.extractor import PersonaExtraction, extract_persona  # noqa: E402
@@ -44,7 +45,7 @@ _RHYTHM = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "dinner_wi
 #: WC 白领场景声明的作息（与卡片抽取值不同的中点、午餐与晚餐）。
 _WC_RHYTHM = {"chronotype_midsleep": 4.75, "sleep_need_hours": 8.0, "lunch_window": [12.0, 12.5],
               "dinner_window": [18.5, 19.5], "bedtime_window": [23.5, 24.5]}
-#: 人设层 rhythm 的九键与键序（docs/dev/SPEC-errands-workday.md 4.1）。
+#: 人设层 rhythm 的九键与键序（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
 _RHYTHM_KEYS = ["wake", "leave_home", "lunch", "leave_work", "arrive_home", "dinner", "bedtime", "sleep_midpoint",
                 "sleep_need"]
 #: 写明下班与到家时刻的背景故事（真实抽取的输入；响应由脚本化会话给出）。
@@ -128,16 +129,16 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
 
     monkeypatch.setattr(compile_module, "extract_persona", lambda story: extraction)
     captured: dict = {}
-    original = runtime.creation_inputs
+    original = worldmock_run_setup_module.creation_inputs
 
     def recording(*arguments):
         captured["specs"], captured["warnings"] = result = original(*arguments)
         return result
 
-    monkeypatch.setattr(runtime, "creation_inputs", recording)
+    monkeypatch.setattr(worldmock_run_setup_module, 'creation_inputs', recording)
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(read_query_runtime, "life_env_actor_class",
+    monkeypatch.setattr(runtime, "life_env_actor_class",
                         lambda: SimpleNamespace(remote=lambda spec: (captured.__setitem__("actor", spec), "actor")[1]))
     prepared = runtime._prepare_new_run(runtime.RunRequest(ROOT, scenario_path, tmp_path / "run", "warned", "warned"))
     runtime._build_society(prepared)
@@ -152,7 +153,7 @@ def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[s
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     dataset_path = document["map_dataset"]["path"]
     corpus = tmp_path / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
+    shutil.copytree(ROOT / "corpora", corpus)
     places = json.loads((corpus / "zhangjiang-map/locations.json").read_text(encoding="utf-8"))
     next(item for item in places["locations"] if item["location_id"] == rename[0])["name"] = rename[1]
     routes = json.loads((corpus / "zhangjiang-map/routes.json").read_text(encoding="utf-8"))
@@ -169,7 +170,7 @@ def _map_variant(tmp_path: Path, rename: tuple[str, str], unknown_route: tuple[s
         if entry["path"] in {dataset_path, "zhangjiang-map/locations.json", "zhangjiang-map/routes.json"}:
             path = corpus / entry["path"]
             entry.update(sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
-    document.update(corpus_root=str(corpus), corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest))
+    document.update(corpus_root="../corpora", corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest))
     document["map_dataset"]["sha256"] = dataset_sha
     shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
     (tmp_path / "scenarios").mkdir()
@@ -191,7 +192,7 @@ def _phone_variant(tmp_path: Path, failure: str) -> Path:
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     dataset_path = document["map_dataset"]["path"]
     corpus = tmp_path / "corpora"
-    shutil.copytree(ROOT / "corpora", corpus, copy_function=_link_or_copy)
+    shutil.copytree(ROOT / "corpora", corpus)
     document = json.loads(SCENARIO.read_text(encoding="utf-8"))
     sellers = {"merchant:grocery": "hema"}
     if failure == "seller-without-supply":
@@ -208,7 +209,7 @@ def _phone_variant(tmp_path: Path, failure: str) -> Path:
         "size_bytes": (corpus / _PHONE).stat().st_size, "media_type": "application/json", "purpose": "phone simulation",
         "source": {"kind": "scenario", "license": "WorldMock-project", "selector": "complete frozen file"}})
     pin = hashlib.sha256(b"phone config before regeneration").hexdigest() if failure == "stale-pin" else digest
-    document.update(corpus_root=str(corpus), corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest),
+    document.update(corpus_root="../corpora", corpus_manifest_sha256=_rewrite(corpus / "manifest.json", manifest),
                     phone_simulation_config=_PHONE, phone_simulation_config_sha256=pin)
     shutil.copytree(ROOT / "catalog", tmp_path / "catalog")
     (tmp_path / "scenarios").mkdir()
@@ -217,18 +218,8 @@ def _phone_variant(tmp_path: Path, failure: str) -> Path:
     return path
 
 
-def _link_or_copy(source: str, target: str) -> None:
-    """隔离语料副本：同一卷上用硬链接，跨卷时复制（改写前先解除链接，正式语料字节不变）。"""
-    try:
-        os.link(source, target)
-    except OSError:
-        shutil.copy2(source, target)
-
-
 def _rewrite(path: Path, value: dict) -> str:
-    """解除硬链接后写入 JSON，返回新字节的 SHA-256。"""
-    if path.exists():
-        path.unlink()
+    """写入隔离目录中的 JSON，返回新字节的 SHA-256。"""
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -267,7 +258,7 @@ async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(_platform_card(), ("habits",)))
     env, warnings = created["env"], created["warnings"]
     try:
-        manifest = env.engine.store.manifest
+        manifest = env.engine.context.store.manifest
         assert manifest["schema_version"] == 2
         assert manifest["input_warnings"] == warnings == created["options"]["input_warnings"]
         codes = [item["code"] for item in warnings]
@@ -284,7 +275,7 @@ async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and
         stage_day_plan(env.engine, submitted=True)
         submit_round(env.engine, {1: ("start_activity", start_activity("等待", "自己"))}, "wait")
         advance_next(env.engine)
-        export_run(env.engine.store, env.engine.store.last_event_seq, tmp_path / "export")
+        export_run(env.engine.context.store, env.engine.context.store.last_event_seq, tmp_path / "export")
         quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
     finally:
         await env.close()
@@ -302,9 +293,9 @@ async def test_map_problems_are_frozen_as_scenario_warnings_and_creation_still_s
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
     env = created["env"]
     try:
-        manifest = env.engine.store.manifest
-        loaded = {(item.origin_id, item.destination_id, item.mode): item.status for item in env.engine.scenario.routes}
-        names = {item.location_id: item.name for item in env.engine.scenario.locations}
+        manifest = env.engine.context.store.manifest
+        loaded = {(item.origin_id, item.destination_id, item.mode): item.status for item in env.engine.context.scenario.routes}
+        names = {item.location_id: item.name for item in env.engine.context.scenario.locations}
     finally:
         await env.close()
     assert loaded[("market", "poi-1868478037", "driving")] == "unknown"
@@ -332,10 +323,10 @@ async def test_validate_prints_the_same_warnings_the_run_froze(tmp_path, monkeyp
     path = _scenario(tmp_path, **_WC_RHYTHM)
     created = await _create_run(tmp_path, monkeypatch, path, extraction)
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     monkeypatch.setattr(validation, "_compile_persona", lambda story: compiled)
     caplog.clear()
 
@@ -359,13 +350,13 @@ def test_validate_still_fails_below_the_coverage_threshold_after_printing_the_wa
 
     compiled = _compiled(_extraction(_platform_card()))
     path = _scenario(tmp_path, **_WC_RHYTHM)
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     monkeypatch.setattr(validation, "_compile_persona", lambda story: compiled)
 
     with caplog.at_level(logging.WARNING):
         code = main(["--project-root", str(_validate_root(tmp_path)), "validate", "--scenario", str(path),
                      "--coverage-out", str(tmp_path / "coverage.json")])
-    _, warnings = runtime.creation_inputs(path, load_scenario(path)[0], {1: compiled})
+    _, warnings = worldmock_run_setup_module.creation_inputs(path, load_scenario(path)[0], {1: compiled})
 
     assert code == 1 and capsys.readouterr().out == ""
     assert "COVERAGE_BELOW_THRESHOLD" in [item["code"] for item in warnings]
@@ -394,10 +385,10 @@ async def test_a_phone_config_that_fails_verification_never_fails_run_creation(
     with caplog.at_level(logging.WARNING):
         created = await _create_run(tmp_path, monkeypatch, path, extraction)
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
-    degraded = [record for record in caplog.records if record.name == "worldmock.runtime"]
+    degraded = [record for record in caplog.records if record.name == "worldmock.run_setup"]
     assert [(record.levelname, record.getMessage()) for record in degraded] == [
         ("WARNING", f"Phone simulation config failed verification; run coverage counts no app names: {reason}")]
     assert frozen == created["warnings"]
@@ -409,7 +400,7 @@ async def test_a_phone_config_that_fails_verification_never_fails_run_creation(
     assert [row["code"] for row in logged if row["component"] == "runtime" and row["level"] == "warn"] == [
         item["code"] for item in frozen]
 
-    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     monkeypatch.setattr(validation, "_compile_persona", lambda story: _compiled(extraction))
     caplog.clear()
     with caplog.at_level(logging.WARNING):
@@ -448,8 +439,8 @@ async def test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_sa
     created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path, **_WC_RHYTHM), _extraction(make_card()))
     env = created["env"]
     try:
-        body = env.engine.state.agents[1].body
-        person = plan_inputs(env.engine, 1).payload["人物"]
+        body = env.engine.context.state.agents[1].body
+        person = plan_inputs(env.engine.context, env.engine.observations, env.engine.midnight_rhythm_pending, 1).payload["人物"]
     finally:
         await env.close()
     profile = created["specs"][0]["profile"]
@@ -474,7 +465,7 @@ async def test_a_conflicting_scenario_window_keeps_the_card_value_and_is_frozen_
     path = _scenario(tmp_path, chronotype_midsleep=4.75, lunch_window=[6.0, 6.5])
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
     profile = created["specs"][0]["profile"]
@@ -489,7 +480,7 @@ async def test_a_conflicting_scenario_window_keeps_the_card_value_and_is_frozen_
 
 async def test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input(
         tmp_path, monkeypatch) -> None:
-    """场景作息覆盖七字段（docs/dev/SPEC-errands-workday.md 4.2）：场景在 WC 作息之外声明下班 18:00–18:30、到家
+    """场景作息覆盖七字段（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）：场景在 WC 作息之外声明下班 18:00–18:30、到家
     18:30–19:00，卡片两槽为 null——真实新建把两个窗口落进冻结的结构化卡片与卡片文本，清单各冻结一条
     CARD_FIELD_OVERRIDDEN（card_value 为 null）、没有冲突；真实请求的人设层显示两个窗口，零点计划的人物输入在午饭与
     晚饭时段之间写出下班、到家时段。"""
@@ -497,8 +488,8 @@ async def test_scenario_declared_work_windows_reach_the_card_the_persona_layer_a
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
     env = created["env"]
     try:
-        person = plan_inputs(env.engine, 1).payload["人物"]
-        frozen = env.engine.store.manifest["input_warnings"]
+        person = plan_inputs(env.engine.context, env.engine.observations, env.engine.midnight_rhythm_pending, 1).payload["人物"]
+        frozen = env.engine.context.store.manifest["input_warnings"]
     finally:
         await env.close()
     profile = created["specs"][0]["profile"]
@@ -529,8 +520,8 @@ async def test_card_only_work_anchors_never_enter_the_plan_input(tmp_path, monke
                                 _extraction(_card_with_work_anchors()))
     env = created["env"]
     try:
-        person = plan_inputs(env.engine, 1).payload["人物"]
-        frozen = env.engine.store.manifest["input_warnings"]
+        person = plan_inputs(env.engine.context, env.engine.observations, env.engine.midnight_rhythm_pending, 1).payload["人物"]
+        frozen = env.engine.context.store.manifest["input_warnings"]
     finally:
         await env.close()
     profile = created["specs"][0]["profile"]
@@ -552,7 +543,7 @@ async def test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_i
     path = _scenario(tmp_path, leave_work_window=[6.0, 6.5])
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
     profile = created["specs"][0]["profile"]
@@ -567,7 +558,7 @@ async def test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_i
 
 
 async def test_extracted_work_anchors_reach_the_real_request_persona_layer(tmp_path, monkeypatch) -> None:
-    """作息锚点贯通（docs/dev/SPEC-errands-workday.md 4.1）：真实抽取得到的下班、到家窗口经真实新建（画像编译、场景作息
+    """作息锚点贯通（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：真实抽取得到的下班、到家窗口经真实新建（画像编译、场景作息
     覆盖、人物装配）冻结进结构化卡片，卡片文本在作息行末追加两个分句；真实 LifeAgent 发出的行动请求里人设层 rhythm 按
     九键键序显示两个窗口。场景没有声明作息，卡片值原样到达。"""
     extraction = _extracted({"leave_work": "18:00-18:30", "arrive_home": "19:00-19:30"})
@@ -587,7 +578,7 @@ async def test_extracted_work_anchors_reach_the_real_request_persona_layer(tmp_p
 
 async def test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement(
         tmp_path, monkeypatch) -> None:
-    """降级说明的出口（docs/dev/SPEC-errands-workday.md 4.1）：真实抽取里下班早于出门的单次采样只为放行而降级，最终卡片的
+    """降级说明的出口（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）：真实抽取里下班早于出门的单次采样只为放行而降级，最终卡片的
     下班为 null 并带一条说明，各字段一致性都满；真实新建把它作为画像编译警告冻结进运行清单——恰好一条
     PERSONA_AGREEMENT_LOW，details 只有 compiler_warning（说明原文），消息不预设原因是一致性偏低；警告码仍在闭集 10 之内，
     创建不失败，人设层的下班为 null。"""
@@ -596,7 +587,7 @@ async def test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_bla
     assert extraction.demotion_notes == (note,) and extraction.warning is False
     created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path), extraction)
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
     profile = created["specs"][0]["profile"]
@@ -611,7 +602,7 @@ async def test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_bla
 
 async def test_every_compiler_warning_reaches_the_manifest_and_the_ops_log_in_compile_order(
         tmp_path, monkeypatch) -> None:
-    """画像编译警告逐条透传（docs/dev/SPEC-errands-workday.md 4.1「降级说明的出口」）：真实抽取里三次采样的应对各不相同
+    """画像编译警告逐条透传（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 「降级说明的出口」）：真实抽取里三次采样的应对各不相同
     （一致性警告），下班早于出门、到家晚于就寝（两条降级说明）；真实编译把降级说明接在一致性警告之后，真实新建把这三条
     按编译顺序各冻结为一条 PERSONA_AGREEMENT_LOW（details.compiler_warning 带原文），ops 警告记录逐条相同，一条不少。"""
     notes = ("work_anchor_demoted: leave_work start 7 is outside leave_home 8..bedtime 23",
@@ -624,7 +615,7 @@ async def test_every_compiler_warning_reaches_the_manifest_and_the_ops_log_in_co
     assert len(session.calls) == 3 and extraction.warning is True and extraction.demotion_notes == notes
     created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path), extraction)
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
 
@@ -650,14 +641,14 @@ async def test_every_compiler_warning_reaches_the_manifest_and_the_ops_log_in_co
 ])
 async def test_a_scenario_window_conflicting_with_a_card_work_anchor_keeps_every_card_anchor(
         tmp_path, monkeypatch, work, declared, kept) -> None:
-    """冲突时该槽保留卡片值、覆盖不降级任何卡片锚点（docs/dev/SPEC-errands-workday.md 4.2）走真实路径，卡片的下班、到家
+    """冲突时该槽保留卡片值、覆盖不降级任何卡片锚点（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖 ）走真实路径，卡片的下班、到家
     槽非空：场景只声明晚于卡片到家的下班，或只声明早于卡片下班的就寝——真实新建照常建立，清单恰好冻结一条
     CARD_FIELD_CONFLICT（card_value 为该槽的卡片值）、没有覆盖；冻结的结构化卡片、卡片文本与真实请求的人设层都保留
     卡片的下班、到家与就寝。"""
     card = _card_with_anchors(*work)
     created = await _create_run(tmp_path, monkeypatch, _scenario(tmp_path, **declared), _extraction(card))
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
     profile = created["specs"][0]["profile"]
@@ -674,14 +665,14 @@ async def test_a_scenario_window_conflicting_with_a_card_work_anchor_keeps_every
 
 async def test_scenario_windows_that_each_fit_alone_but_not_together_land_in_slot_order(
         tmp_path, monkeypatch) -> None:
-    """落槽顺序（午餐、下班、到家、晚餐、就寝，docs/CONTRACTS.md「场景作息覆盖」）走真实路径：场景同时声明下班
+    """落槽顺序（午餐、下班、到家、晚餐、就寝，docs/CONTRACTS.md#contracts-worldmock-接口合同「场景作息覆盖」）走真实路径：场景同时声明下班
     22:00–22:30 与就寝 21:00–22:00，各自都放得进卡片、合起来放不下——真实新建先落下班，清单冻结 bedtime_window 的
     CARD_FIELD_CONFLICT（保留卡片就寝）与 leave_work_window 的 CARD_FIELD_OVERRIDDEN；冻结的结构化卡片、卡片文本与
     真实请求的人设层的下班取场景值、就寝仍是卡片值。"""
     path = _scenario(tmp_path, leave_work_window=[22.0, 22.5], bedtime_window=[21.0, 22.0])
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(make_card()))
     try:
-        frozen = created["env"].engine.store.manifest["input_warnings"]
+        frozen = created['env'].engine.context.store.manifest["input_warnings"]
     finally:
         await created["env"].close()
     profile = created["specs"][0]["profile"]

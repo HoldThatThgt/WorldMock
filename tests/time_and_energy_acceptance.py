@@ -1,20 +1,17 @@
 """时间与能量规格的验收登记表（完整性守卫的数据源）。
 
 @file     time_and_energy_acceptance.py
-@brief    把 docs/dev/SPEC-time-and-energy.md「验收台账」的每一行登记到其归属阶段与证据测试，
-          并登记各阶段必须消失（REMOVED_SYMBOLS）与必须出现（REQUIRED_SYMBOLS）的代码与文档符号；
+@brief    把 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「验收台账」的每一行登记到其归属阶段与证据测试，
+          并登记各阶段必须消失（REMOVED_SYMBOLS）的生产符号；新增功能直接由已有行为测试验证；
           判定由 tests/test_time_and_energy_completeness.py 执行。
 @note     `stage` 取「完成后整行才可完整验证」的阶段，即台账行最后一个有贡献的阶段；
           贡献阶段可以并行合入时（如阶段 6 与阶段 1–5），取依赖图中依赖其全部贡献阶段的首个阶段；
           更早的阶段可以预先登记已经存在的测试。只有 `stage` 属于 STAGES_DONE 的行必须列出测试，
           但任何行列出的测试都必须能解析到存在且未被跳过的测试函数。
-          符号表语义：REQUIRED 的正则须在每个列出的路径中命中（目录下任一文件命中即算）；
-          REMOVED 的正则在列出路径下的任何文件中都不得命中。
+          删除符号检查覆盖 src 与 custom 的全部生产 Python 文件；不以单一旧文件或文档措辞为判定。
 """
 
 from __future__ import annotations
-
-from worldmock.runtime import AS2_LOCKED_SOURCE_SHA256
 
 #: 实施计划「实施阶段」中的全部阶段编号。
 STAGE_IDS = frozenset(str(n) for n in range(10))
@@ -657,18 +654,17 @@ _STAGE7_NO_NEW_FAULT_TESTS = [
 
 #: 阶段 7 完成的「文档一致性」行：文档门禁在真实仓库上通过；各阶段登记的文档符号（旧工具面、生活决策的 finish、
 #: 能量闸门、一秒边界等表述已删，新条款已写入）由本守卫逐条判定。冻结条款修订与文档同步作业的逐条核对、
-#: 「标题」引用与锚点的一次性核对结果写在本特性验收记录（docs/dev/research/time-and-energy-verification.md）。
+#: 「标题」引用与锚点的一次性核对结果写在本特性验收记录（docs/VERIFICATION.md#verification-时间与能量特性门禁）。
 _DOCUMENT_CONSISTENCY_TESTS = [
-    "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve",
+    "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve",
     "tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent",
-    "tests/test_time_and_energy_completeness.py::test_required_symbols_of_done_stages_are_present",
 ]
 
 #: 阶段 7 完成的「工程门禁」行：风格门禁零新增违规、文档门禁通过、覆盖率门禁的阈值与未覆盖公共接口判定、查看器回归；
 #: 覆盖率门禁在最终代码上的运行结果（重新生成并提交的 docs/dev/coverage-report.json）写在本特性验收记录。
 _ENGINEERING_GATE_TESTS = [
     "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
-    "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve",
+    "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve",
     "tests/test_coverage_gate.py::test_branch_threshold_boundary",
     "tests/test_coverage_gate.py::test_uncovered_public_interface_detection",
     "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
@@ -698,347 +694,26 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "工程门禁": {"stage": "7", "tests": _ENGINEERING_GATE_TESTS},
 }
 
-_AGENT = "custom/agents/life_agent.py"
-_ENGINE = "src/worldmock/life/engine.py"
-_MODELS = "src/worldmock/life/models.py"
-_SESSION_ACTIONS = "src/worldmock/life/session_actions.py"
-_CONTRACTS = "docs/CONTRACTS.md"
-_RECORDING = "docs/design/05-recording-engine.md"
-_SCHEDULE = "src/worldmock/life/schedule.py"
-_FOOTPRINT_MODELS = "src/worldmock/footprints/models.py"
-_IO_FORMATS = "docs/design/09-io-formats.md"
-_RUNTIME = "src/worldmock/runtime.py"
-_EXPERIMENT = "docs/EXPERIMENT.md"
-_MANUAL_RUNTIME = "docs/manual/runtime.md"
-_AS2_LOCKED_DIGEST = AS2_LOCKED_SOURCE_SHA256
-_BODY = "src/worldmock/life/body.py"
-_RHYTHM = "src/worldmock/life/rhythm.py"
-_PROJECTION = "src/worldmock/life/projection.py"
-_LIFE_RUNTIME = "docs/dev/SPEC-life-runtime.md"
-_INTERACTION_MENU = "src/worldmock/life/interaction_menu.py"
-_ADMISSION_MODULE = "src/worldmock/life/admission.py"
-_SOCIAL_ACTIONS = "src/worldmock/life/social_actions.py"
-_VIEWER = "tools/run-viewer.html"
-_VERIFICATION_RECORD = "docs/dev/research/time-and-energy-verification.md"
-
 #: 阶段 → 完成后必须从列出路径中消失的符号（正则, 路径或目录列表）。
-REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
-    "0": [
-        (r"not isinstance\(rows, list\) or not rows", [_AGENT]),
-        (r"interactive objects layer is unavailable", [_AGENT]),
-        (r'row\["submission_ready"\]', [_AGENT]),
-        (r'data\["activity"\]\["location_id"\] =', [_ENGINE]),
-        (r"if any\(activity\.kind == ActivityKind\.WORK", [_ENGINE]),
-        (r'activity\.get\("location_id"\) != location_id', ["src/worldmock/footprints/experiences.py"]),
-        (r"\bg\.kind\b", [_SESSION_ACTIONS]),
-        (r"WORLD_SCHEMA_VERSION = 6\b", [_MODELS]),
-        (r"WORLD_SCHEMA_VERSION = 8\b", [_MODELS]),
-        (r"世界状态结构版本 `WorldState\.schema_version` \| 5 \|", [_CONTRACTS]),
-        (r"场景结构 3、世界状态结构 5", [_CONTRACTS]),
-        (r"有效工作量达到合同要求后开放；任务名称", [_CONTRACTS]),
-        (r"世界结构版本为 `5`", [_CONTRACTS, _RECORDING]),
-        (r"Literal\[5\]", ["docs/design/09-io-formats.md"]),
-        (r"世界状态 `schema_version` \| 5 \|", ["docs/design/08-configuration.md"]),
-        (r"世界状态结构为 5", ["docs/design/03-resource-engine.md"]),
-        (r"世界结构 `4` 独立冻结", ["docs/EXPERIMENT.md"]),
-        (r"`schema_version=5`", ["docs/VERIFICATION.md"]),
-    ],
-    "1": [
-        (r"max_consecutive_rejections", ["src", "custom", "scenarios"]),
-        (r"maximum_rejections", ["src", "custom"]),
-        (r"def _after_unknown", [_ENGINE]),
-        (r'str\(error\) == "RESOURCE_CONFLICT" and running', [_ENGINE]),
-        (r'"next_decision_at": state\.current_time \+ 1\b', [_ENGINE]),
-        (r"_put_agent_and_defer_feedback", ["src"]),
-        (r"consecutive_rejections", [_SCHEDULE, "src/worldmock/life/rhythm.py"]),
-        (r"成员(?:集)?不可增删", [_SCHEDULE, _FOOTPRINT_MODELS]),
-        (r"self\._pending_presentation = _presentation_stamps", ["src/worldmock/life/observe.py"]),
-        (r"inbox\[reply\.message\.message_id\] = reply\.message", ["src/worldmock/runtime.py"]),
-        (r'"max_consecutive_rejections": 10', ["docs/manual/scenarios.md"]),
-    ],
-    "2": [
-        (r"INSUFFICIENT_ENERGY", ["src", "custom"]),
-        (r"energy_feasibility", ["src", "custom"]),
-        (r"ELIGIBILITY_ENERGY_INSUFFICIENT", ["src", "custom"]),
-        (r'"ELIGIBILITY_ENERGY_INSUFFICIENT",\s+# 能量不允许', [_CONTRACTS]),
-        (r"`interaction_menus_by_location_kind`、`energy_feasibility`", [_CONTRACTS]),
-        (r"minimum_energy_cost_kcal、resume_energy_feasible", [_CONTRACTS]),
-        (r"_require_energy_plan|energy_check|_remaining_activity_energy", [_ENGINE]),
-        (r"validate_activity_energy", ["src"]),
-        (r"activity would exhaust available energy", ["src"]),
-        (r"active_energy_entries|combined_energy_cost|maximum_combined_duration", ["src"]),
-        (r"shared_energy_cost|maximum_shared_energy_duration", ["src"]),
-        (r"\brecovery_kinds\b", [_ENGINE, _RHYTHM]),
-        (r"_activity_infeasible_signatures|activity_infeasible=", [_RHYTHM]),
-        (r"activity_infeasible: bool|snap\.activity_infeasible", ["src/worldmock/life/schedule.py"]),
-        (r"(?m)^def (body_observation|felt_levels|felt_values)\(", [_BODY]),
-        (r"alert_codes", ["src"]),
-        (r"energy_projection", [_ENGINE]),
-        (r"energy_feasible|minimum_energy_cost_kcal|resume_energy_feasible", ["src", "custom"]),
-        (r"delivery_delay_seconds", [_PROJECTION]),
-        (r"\| `commitment_threatened` \|[^|\n]*或当前活动不可行|能量或位置条件已不允许当前活动继续", [_LIFE_RUNTIME]),
-    ],
-    "3": [
-        (r"class FinishRequest|LifeMemoryEpisode|MemoryReadRequest|_validate_finish\b", ["custom"]),
-        (r'"memory_read"', ["src", "custom"]),
-        (r"_life_visible_refs|_episode_ids\(|_environment_source_ids|_bind_finish_reference_ids", ["custom"]),
-        (r"decision_observation", ["src", "custom"]),
-        (r"finish_without_memory_update|memory_update_without_successful_finish|unknown_memory_reference",
-         ["src"]),
-        (r"_response_tool_calls|_memory_references\(|references_checked", ["src/worldmock/footprints/quality.py"]),
-        (r"\bsession_name\b|\bcurrent_sessions\b|_session_sentences|_active_session_scene_rows", ["src", "custom"]),
-        (r"_validate_visible_binding_names", ["src/worldmock/life/observe.py"]),
-        (r"compact_by_task|_terminal_sessions", ["src/worldmock/life/prompt_capacity.py"]),
-        (r"SessionStatus\.(?:PAUSED|CONCLUDED|ABORTED)|invested_seconds|preconditions_unmet", ["src", "custom"]),
-        (r"_remember_terminal_activity|_terminal_after_action", ["src"]),
-        (r'"purchase" in actions', [_ENGINE, _AGENT]),
-        (r'_SAME_MOMENT_TOOLS|"(?:conclude_pending|start_or_resume|resume_or_conclude|conclude_only|wait_only)"',
-         [_AGENT]),
-        (r"finish\.memories 仍为零至八条|会话退出通道|\| refs \|", [_CONTRACTS]),
-        (r"动作后为记忆查询与 `finish`", [_CONTRACTS]),
-    ],
-    "4": [
-        (r"energy_projection|energy_limit_kinds", ["src", "custom", "catalog", "scripts"]),
-        (r"def canonical_action\(|\bACTION_LABELS\b|def (?:purchase_)?action_label\(", ["src", "custom"]),
-        (r"preconditions_met", ["src", "custom"]),
-        (r"chat_settlement|SocialRelief|chat_accepted", ["src", "custom"]),
-        (r"CONTACT_REPLY_NOT_MODEL", ["src", "custom"]),
-        (r"\| `CONTACT_REPLY_NOT_MODEL` \|", [_CONTRACTS]),
-        (r"CALL_DURATION_OUT_OF_RANGE", ["src", "custom"]),
-        (r"_DIGITAL_RESOURCES", ["src/worldmock/evaluation/adapters.py"]),
-        (r'"(?:PICKUP_LOCATION_REQUIRED|ACTIVITY_PRECONDITION_UNMET)"', ["src/worldmock/evaluation/goal_metrics.py"]),
-        (r'resource_claims = \[[^\]\n]*"(?:position|attention|device|vehicle)"', ["catalog/affordances.toml"]),
-        # 派生时长超过 86400 秒不再拒绝（裁决 #19）：旧的上下界拒绝式消失，改为取上限。
-        (r"duration < 60 or duration > 86_400|if not 60 <= duration <= 86_400", [_SESSION_ACTIONS]),
-        # 撤回 778beca 的剪裁：条件未满足的对象不再清空动作，也不再以条件不满足改写动作列表。
-        (r'if row\["preconditions_met"\] else \[\]|"actions": available or actions', [_PROJECTION]),
-        # 评审修复：到店与远程下单不按人物所在剪裁；facts.inventory 按现场地点注明不在手边。
-        (r'inputs\.agent\.location_id in supply\["delivery_destination_ids"\]', [_PROJECTION]),
-        (r"if place_id != inputs\.agent\.location_id", [_PROJECTION]),
-        # 评审修复：冻结观察不缓存；公开原因只取引导性拒绝写明的那一句，不读链式底层异常。
-        (r"_OBSERVATION_CACHE_SIZE|_frozen_observations|def _menu_actions|def _resolve_interaction_bindings",
-         ["src", "custom"]),
-        (r"raise error from ValueError\(", [_SESSION_ACTIONS]),
-        (r"_CJK|= error\.__cause__", ["src/worldmock/life/guidance.py"]),
-        # 评审修复：本轮才受理、被对方结束的交谈同样在同一秒收尾。
-        (r"previous is None", ["src/worldmock/life/same_moment.py"]),
-        # 评审修复：说明也可以是内容的时长；引用指向存在的标题。
-        (r"An action with a note has a|next step if you choose it", [_AGENT]),
-        (r"第七章「接着看」", ["src/worldmock/life/rules.py", "src/worldmock/footprints/quality.py",
-                            "src/worldmock/life/motivation.py", "tests/footprints/test_quality.py",
-                            "tests/life/test_motivation.py", "tests/life/test_news_feed.py"]),
-        (r"\| `ACTIVITY_TOO_SHORT` \| 折算后的社交活动时长不足 60 秒 \|", [_CONTRACTS]),
-    ],
-    "5": [
-        (r'"plan_day"', [_AGENT, "custom/envs/life_env.py", _MODELS, _ENGINE]),
-        (r"_DAY_START_WAKE_REASONS|_plan_required_before_other_actions|_visible_plan_day_contract", ["custom"]),
-        (r"def _plan_day\b|PLAN_ALREADY_SUBMITTED", ["src", "custom"]),
-        (r"based_on_action_id|Do not provide times or durations", [_AGENT]),
-        (r"九个工具|九个人物工具", ["custom/envs/life_env.py", _AGENT]),
-        (r"\| `PLAN_ALREADY_SUBMITTED` \||\| `plan_day` \| `goals:|九个模型工具名", [_CONTRACTS]),
-        (r"\| `plan_day`、`revise_day_plan` \|", [_CONTRACTS]),
-    ],
-    "6": [
-        (r'"vendor" / "agentsociety2"', [_RUNTIME]),
-        (r"哈希全部生产 Python 源码与根依赖锁定文件。", [_RUNTIME]),
-        (r"`vendor/agentsociety2` 的维护分支 `worldmock-life` \|", [_EXPERIMENT]),
-    ],
-    "7": [
-        (r"plan_day:'制定当日目标'|case 'plan_day':", [_VIEWER]),
-        (r"consecutive_rejections|连续拒绝", [_VIEWER]),
-    ],
+REMOVED_SYMBOLS: dict[str, list[str]] = {
+    "1": ["max_consecutive_rejections", "maximum_rejections", "_after_unknown", "_put_agent_and_defer_feedback"],
+    "2": ["INSUFFICIENT_ENERGY", "energy_feasibility", "ELIGIBILITY_ENERGY_INSUFFICIENT", "_require_energy_plan",
+          "energy_check", "_remaining_activity_energy", "validate_activity_energy", "active_energy_entries",
+          "combined_energy_cost", "maximum_combined_duration", "shared_energy_cost", "maximum_shared_energy_duration",
+          "energy_projection", "energy_feasible", "minimum_energy_cost_kcal", "resume_energy_feasible"],
+    "3": ["FinishRequest", "LifeMemoryEpisode", "MemoryReadRequest", "_validate_finish", "memory_read",
+          "_life_visible_refs", "_environment_source_ids", "_bind_finish_reference_ids", "decision_observation",
+          "finish_without_memory_update", "memory_update_without_successful_finish", "unknown_memory_reference",
+          "session_name", "current_sessions", "_session_sentences", "_active_session_scene_rows",
+          "_validate_visible_binding_names", "compact_by_task", "_terminal_sessions", "invested_seconds",
+          "preconditions_unmet", "_remember_terminal_activity", "_terminal_after_action"],
+    "4": ["energy_limit_kinds", "ACTION_LABELS",
+          "preconditions_met", "chat_settlement", "SocialRelief", "chat_accepted", "CONTACT_REPLY_NOT_MODEL",
+          "CALL_DURATION_OUT_OF_RANGE", "_OBSERVATION_CACHE_SIZE", "_frozen_observations", "_menu_actions",
+          "_resolve_interaction_bindings"],
+    "5": ["_DAY_START_WAKE_REASONS", "_plan_required_before_other_actions", "_visible_plan_day_contract", "_plan_day",
+          "PLAN_ALREADY_SUBMITTED", "based_on_action_id"],
 }
 
-#: 阶段 → 完成后必须在每个列出路径中出现的符号（正则, 路径或目录列表）。
-REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
-    "0": [
-        (r"WORLD_SCHEMA_VERSION = 9\b", [_MODELS]),
-        (r"WORK_TASK_IN_PROGRESS", ["src/worldmock/life/work.py", _CONTRACTS]),
-        (r"#### 活动受理拒绝码", [_CONTRACTS]),
-        (r"WORLD_SCHEMA_VERSION", ["src/worldmock/delivery/pipeline.py"]),
-        # 目标回看按意图解析；阶段 3 把回看改写为按任务、目标、活动与会话分派后，判定仍按 intent_kind。
-        (r'item\.intent_kind == row\["intent_kind"\]', [_SESSION_ACTIONS]),
-        (r"Literal\[9\]", ["docs/design/09-io-formats.md"]),
-        (r"state\.schema_version", ["docs/design/06-delivery.md"]),
-        (r"世界结构版本为 `9`", [_CONTRACTS, _RECORDING]),
-    ],
-    "1": [
-        (r"max_same_moment_decisions", ["src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",
-                                       "src/worldmock/life/motivation.py", _CONTRACTS,
-                                       "docs/design/08-configuration.md", "docs/manual/scenarios.md"]),
-        (r"activity_feedback_seconds: int = Field\(ge=60", ["src/worldmock/life/scenario.py"]),
-        (r'NO_ACTIVE_ACTIVITY = "no_active_activity"', [_SCHEDULE]),
-        (r'PLAN_REMINDER_DUE = "plan_reminder_due"', [_SCHEDULE]),
-        (r'"no_active_activity"', [_FOOTPRINT_MODELS]),
-        (r'"plan_reminder_due"', [_FOOTPRINT_MODELS]),
-        (r"SAME_MOMENT_ACTION_RESTRICTED", ["src/worldmock/life/same_moment.py", _CONTRACTS]),
-        (r"same_moment_rounds", [_MODELS, _CONTRACTS, _IO_FORMATS, _RECORDING]),
-        (r"same_moment_stage", [_MODELS, "src/worldmock/life/observe.py", _CONTRACTS]),
-        (r"same_moment_presentation", [_MODELS, "src/worldmock/life/state_commit.py", _IO_FORMATS]),
-        (r"validate_decision_rhythm", ["src/worldmock/life/decision_start.py", "src/worldmock/life/rhythm.py"]),
-        (r"CONTACT_REPLY_DELAY_SECONDS", ["src/worldmock/life/social.py", "src/worldmock/runtime.py", _CONTRACTS]),
-        (r"def test_", ["tests/life/test_same_moment_decisions.py"]),
-    ],
-    "2": [
-        (r"APPETITE_STARVING_KCAL = 100\.0", ["src/worldmock/life/felt.py"]),
-        (r"def appetite_level\(appetite: float, energy_kcal: float, emergency_kcal: float\)",
-         ["src/worldmock/life/felt.py"]),
-        (r"APPETITE_STARVING_KCAL < self\.emergency_threshold_kcal", ["src/worldmock/life/scenario.py"]),
-        (r"FELT_SCAN_STEP_SECONDS = 900", [_BODY]),
-        (r"FELT_SCAN_HORIZON_SECONDS = 86_400", [_BODY]),
-        (r"def _meal_window_boundaries", [_BODY]),
-        (r"wake_hour = \(chronotype_midsleep \+ sleep_need_hours / 2\) % 24", [_BODY]),
-        (r"def route_effort|def food_energy_label", [_PROJECTION]),
-        (r"预计 \{when\} 送到", ["src/worldmock/life/tool_layer.py"]),
-        (r"费力程度：", ["src/worldmock/life/tool_layer.py"]),
-        (r"def plan_delivery", ["src/worldmock/life/basket.py"]),
-        (r"def shared_activity_factors", ["src/worldmock/life/activities.py"]),
-        (r"delivery_eta", [_CONTRACTS, "docs/design/09-io-formats.md"]),
-        (r"`effort`", [_CONTRACTS]),
-        (r"2026-09-25-time-and-energy-stage-2", [_CONTRACTS, _LIFE_RUNTIME]),
-        (r"\| `activity_infeasible` \| 保留名称，当前无触发来源 \|", [_LIFE_RUNTIME]),
-        (r"APPETITE_STARVING_KCAL", ["docs/manual/rules.md", "docs/manual/scenarios.md"]),
-        (r"chronotype_midsleep \+ sleep_need_hours / 2", ["docs/manual/personas.md"]),
-        (r"人读送达时刻", ["docs/manual/resources.md"]),
-    ],
-    "3": [
-        (r"SLOT_LIMIT = 2\b", ["src/worldmock/life/activity_control.py"]),
-        (r"ACTIVITY_CONCLUSION_REQUIRED", ["src/worldmock/life/activity_control.py", _CONTRACTS]),
-        (r"ACTIVITY_PAUSE_UNAVAILABLE", ["src/worldmock/life/activity_control.py", _CONTRACTS]),
-        (r"SESSION_LIMIT_EXCEEDED", ["src/worldmock/life/activity_control.py", _CONTRACTS]),
-        (r"class SessionKind", [_MODELS]),
-        (r"ROUTE_ENDED = \"route_ended\"", ["src/worldmock/life/sessions.py"]),
-        (r"route_ended", [_CONTRACTS, _IO_FORMATS]),
-        (r"concluded_at", [_MODELS, _IO_FORMATS, _RECORDING]),
-        (r"report_anchor_at", [_MODELS, "src/worldmock/life/rhythm.py", "src/worldmock/life/activities.py",
-                               "docs/dev/SPEC-life-runtime.md"]),
-        (r"memories: Annotated\[", [_MODELS]),
-        (r"memory_sources", [_SESSION_ACTIONS, _CONTRACTS, _RECORDING]),
-        (r"MEMORY_WRITE_POINTS = \(\"activity_conclusion\", \"reflection\"\)", ["src/worldmock/life/memory_evidence.py"]),
-        (r"conclusion_without_memory_update", ["src/worldmock/footprints/quality.py", _RECORDING]),
-        (r"memory_update_without_source", ["src/worldmock/footprints/quality.py", _RECORDING]),
-        (r"activity_concluded", ["src/worldmock/life/activity_control.py", _RECORDING,
-                                 "docs/dev/SPEC-agent-interaction.md"]),
-        (r"activity_truncated", ["src/worldmock/life/activity_control.py", _RECORDING,
-                                 "docs/dev/SPEC-agent-interaction.md", _LIFE_RUNTIME]),
-        (r"async def _run_react_turn", [_AGENT]),
-        (r"_consolidation_due", ["custom/agents/life_memory.py"]),
-        (r"pending_conclusions", ["src/worldmock/life/projection.py", _CONTRACTS]),
-        (r"def request_kind", ["src/worldmock/life/same_moment.py"]),
-        # 意图与 dreaming 窗口裁去收尾记忆：一日运行保真规格第六章起经 control_items 按现行形状只留活动名与自述。
-        (r'control_request\(data\["tool_name"\], public\["request"\], memories=False\)',
-         ["src/worldmock/delivery/windows.py"]),
-        (r"\| `sessions` \| dict\[str, SessionState\]", [_IO_FORMATS]),
-        (r"\| 地点会话 \| `sessions`", [_CONTRACTS]),
-        (r"def test_", ["tests/life/test_location_sessions.py", "tests/integration/test_conclude_memories.py"]),
-    ],
-    "4": [
-        (r'LIFE_VERBS = \("travel", "interact", "obtain", "consume", "sleep"\)', [_INTERACTION_MENU]),
-        (r"WAYS: dict\[str, tuple\[str, str\]\]", [_INTERACTION_MENU]),
-        (r'VERB_WAY_SEPARATOR = "："', [_INTERACTION_MENU]),
-        (r"def resolve_selection|def binding_action|def public_action", [_INTERACTION_MENU]),
-        (r"    items: Annotated\[list\[ActivityRequestItem\]", [_MODELS]),
-        (r"items: \[\{target, way, from, to\}\]", [_CONTRACTS]),
-        (r'RESOURCE_CLAIM_SLOTS = frozenset\(\{"idle", "travel", "eyes", "ears", "hands", "voice", "work"\}\)',
-         ["src/worldmock/catalog/affordances.py"]),
-        (r'when = "content_kind:', ["catalog/affordances.toml"]),
-        (r"def require_group|def en_route|def present_location", [_ADMISSION_MODULE]),
-        (r"CHAT_ALREADY_ACTIVE", [_ADMISSION_MODULE, _CONTRACTS]),
-        (r"def rejection_guidance|def guided", ["src/worldmock/life/guidance.py"]),
-        (r'SOCIAL_RESOURCE_CLAIMS = frozenset\(\{"voice", "ears"\}\)', [_SOCIAL_ACTIONS]),
-        (r"CHAT_DURATION_BOUNDS = \(60, 7200\)", [_SOCIAL_ACTIONS]),
-        (r"CALL_DURATION_BOUNDS = \(600, 3600\)", [_SOCIAL_ACTIONS]),
-        (r"def shared_chat_seconds|def end_partner_chats|def pair_chat", [_SOCIAL_ACTIONS]),
-        (r"partner_ended", [_SOCIAL_ACTIONS, "src/worldmock/life/same_moment.py", _CONTRACTS, _IO_FORMATS]),
-        (r"WORK_START_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/work.py"]),
-        (r'COMPLETION_OUTLOOK_SHORT = "到截止前做不完"', ["src/worldmock/life/work.py"]),
-        (r"completion_outlook", ["src/worldmock/life/work.py", _CONTRACTS]),
-        (r"CONTENT_RESUME_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/content.py"]),
-        (r"def restarts_from_beginning", ["src/worldmock/life/content.py"]),
-        (r'"version_major": 5,\s*"version_minor": 4\b', ["catalog/manifest.json"]),
-        (r'"catalog_version": \{\s*"major": 5,\s*"minor": 4\s*\}',
-         ["scenarios/multi-person.json", "scenarios/multi-person-half-day.json",
-          "scenarios/white-collar-12-weeks.json"]),
-        (r"catalog/\*\* text=auto eol=lf", [".gitattributes"]),
-        (r"2026-09-25-time-and-energy-stage-4", [_CONTRACTS, _EXPERIMENT]),
-        (r"def test_", ["tests/life/test_parallel_admission.py", "tests/life/test_social_rounds.py"]),
-        # 评审修复：送达地判定、迟到的接受、显式公开原因、游戏会话的观看行与合入提交的台账行。送达地判定自一日运行保真
-        # 5.3 起分成送达地不在配送范围（delivery_destination）与配送路线缺失（delivery_route）两个条件，各一句原因，
-        # 取代共用的「暂时送不到这里」（tests/life/test_parallel_admission.py 的送达地用例与 test_browse_and_hints.py）。
-        (r'"delivery_destination"', [_ADMISSION_MODULE]),
-        (r'"delivery_route"', [_ADMISSION_MODULE]),
-        (r"The current place is outside this store's delivery area", ["src/worldmock/life/guidance.py"]),
-        (r"This location is outside the store's delivery area", [_CONTRACTS]),
-        (r"No usable delivery route connects this store to the current place", ["src/worldmock/life/guidance.py"]),
-        (r"No delivery route is available from this store to this location", [_CONTRACTS]),
-        (r"def late_acceptance_refusal", [_SOCIAL_ACTIONS]),
-        (r"The other person's conversation has less than one minute remaining", [_SOCIAL_ACTIONS, _CONTRACTS]),
-        (r"public_reason", ["src/worldmock/life/guidance.py", "src/worldmock/errors.py"]),
-        (r"def _watch_row", [_PROJECTION]),
-        (r"2026-09-26-time-and-energy-stage-4-review", [_CONTRACTS]),
-        (r"合入提交：`4013df3`（合并 `922d74e`；评审修复另见后续提交）。",
-         ["docs/dev/research/time-and-energy-implementation-plan.md"]),
-        (r"合入提交：`ecdc130`（合并 `11f61ac`；评审修复 `811fadd`）。",
-         ["docs/dev/research/time-and-energy-implementation-plan.md"]),
-    ],
-    "5": [
-        (r"async def settle_pending_day_plans\(engine: Any, client: Any \| None = None\)", [_RUNTIME]),
-        (r"class PlanDayClient", [_RUNTIME]),
-        (r"settle_pending_day_plans", ["custom/envs/life_env.py"]),
-        (r"def register_day_plan|def decide_midnight_rhythm", [_ENGINE]),
-        (r'PLAN_DAY_PURPOSE = "plan_day"', ["src/worldmock/life/day_planning.py"]),
-        (r"PLAN_DAY_VALIDATION_RETRIES = 3\b", ["src/worldmock/life/day_planning.py"]),
-        (r'"kind": "day_plan_generated"', ["src/worldmock/life/day_planning.py"]),
-        (r"day_plan_generated", ["src/worldmock/evaluation/goal_metrics.py"]),
-        (r"PLAN_REMIND_TIME_INVALID", [_ENGINE]),
-        (r"remind_at: int \| None|reminded_at: int \| None", [_SCHEDULE]),
-        (r"remind_time: Annotated\[str, Field\(pattern=", [_MODELS]),
-        (r"plan_reminder_times", [_SCHEDULE, _RHYTHM]),
-        (r'"plan_reminder"', ["src/worldmock/life/activities.py"]),
-        (r"def boundary_candidates|def defers_rhythm", ["src/worldmock/life/reminders.py"]),
-        (r"\$\.data\.purpose'\) IS NULL", ["src/worldmock/footprints/store.py"]),
-        (r'not event\.get\("data", \{\}\)\.get\("purpose"\)', ["src/worldmock/evaluation/behavior_metrics.py"]),
-        (r'"by_purpose"', ["src/worldmock/footprints/quality.py"]),
-        (r"def test_", ["tests/life/test_day_planning.py"]),
-        (r"PLAN_REMIND_TIME_INVALID", [_CONTRACTS]),
-        (r"day_plan_generated", [_CONTRACTS, _RECORDING, "docs/dev/SPEC-agent-interaction.md"]),
-        (r"怎样过一天", [_CONTRACTS]),
-        (r"submit_day_plan", [_CONTRACTS]),
-        (r"2026-09-25-time-and-energy-stage-5", [_CONTRACTS, _LIFE_RUNTIME]),
-        (r"remind_at", [_IO_FORMATS]),
-        (r"plan_submitted_dates", [_IO_FORMATS, _MANUAL_RUNTIME]),
-        (r"plan_reminder_due", [_LIFE_RUNTIME]),
-    ],
-    "6": [
-        (rf'AS2_LOCKED_SOURCE_SHA256 = "{_AS2_LOCKED_DIGEST}"', [_RUNTIME]),
-        (rf"\| AS2 源码摘要 \| `{_AS2_LOCKED_DIGEST}` \|", [_EXPERIMENT]),
-        (r'_AS2_PACKAGE = "agentsociety2"', [_RUNTIME]),
-        (r"importlib\.util\.find_spec\(_AS2_PACKAGE\)", [_RUNTIME]),
-        (r"AS2 runtime identity differs from the locked source", [_RUNTIME, _MANUAL_RUNTIME]),
-        (r"require_locked_as2\(\)", [_RUNTIME, "src/worldmock/validation.py"]),
-        (r"git_commit", [_MODELS, _ENGINE, _RUNTIME, _RECORDING, _EXPERIMENT]),
-        (r"git_dirty", [_MODELS, _ENGINE, _RUNTIME, _RECORDING, _EXPERIMENT]),
-        (r"--untracked-files=normal", [_RUNTIME]),
-        (r"python scripts/bootstrap\.py --profile release", ["README.md", _MANUAL_RUNTIME]),
-        (r"\*\*锁定源码\*\*：", ["docs/dev/SPEC-as2-integration.md"]),
-        (r"运行清单冻结的 `code_sha256` 覆盖", [_RECORDING]),
-        (r"代码身份含实际导入的 AS2", [_MANUAL_RUNTIME]),
-        (r"升级代码后旧检查点不能恢复", [_MANUAL_RUNTIME]),
-    ],
-    "7": [
-        (r"\$\.data\.same_moment_round", [_VIEWER]),
-        (r"\$\.data\.wake_reasons", [_VIEWER]),
-        (r"\$\.data\.purpose", [_VIEWER]),
-        (r"零点计划模型请求", [_VIEWER]),
-        (r"S\.world\?\.sessions", [_VIEWER]),
-        (r"plan_reminder:|route_ended:|partner_ended:", [_VIEWER]),
-        (r"day_plan_generated:.*activity_concluded:", [_VIEWER]),
-        (r'sub\.add_parser\("rerun"\)', ["scripts/inspect_run.py"]),
-        # 本特性验收记录：状态、被测源码身份、覆盖率门禁结果、VF4 突变合计与「无新增故障」逐项登记。
-        (r"> 状态：\*\*验收记录\*\*", [_VERIFICATION_RECORD]),
-        (r"`ef13dc58770af52000a1c2e81883561e85a0c904`", [_VERIFICATION_RECORD]),
-        (r"3978 passed、8 skipped.*94\.57%.*未覆盖公共接口 0", [_VERIFICATION_RECORD]),
-        (r"\| \*\*合计\*\* \| \*\*29\*\* \| \*\*29\*\* \| \*\*0\*\* \|", [_VERIFICATION_RECORD]),
-        (r"## 无新增故障", [_VERIFICATION_RECORD]),
-    ],
-}
+#: 已删除函数仅按真实定义检查，现有字典字段 canonical_action 保留。
+REMOVED_DEFINITIONS = frozenset({"canonical_action", "action_label", "purchase_action_label"})

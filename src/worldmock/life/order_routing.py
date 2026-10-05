@@ -1,10 +1,10 @@
-"""@brief 取得的收货人与拆单（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
+"""@brief 取得的收货人与拆单（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）。
 
 订单只有一个收货人，付款人仍是执行人物。同一请求中方式相同的各项按收货地拆成几笔整单（每笔一次付款、一次配送），
 整单的去重键为（供给，收货人）。收货地点不作参数：自己为当前地点，同世界人物为其所在地点，联系人为其收货地点。
 到店都要本人在店里；送给别人时，到店要收货人也在店里，远程下单要能送到收货人那里，否则以 ACTIVITY_PRECONDITION_UNMET
 拒绝（undeliverable）：远程下单按原因分「收货地点不在配送范围」（delivery_destination）与「配送路线缺失」（delivery_route）
-两句（docs/dev/SPEC-dayrun-fidelity.md 5.3），收货人此刻没有收货地点或到店时不在店里为「暂时送不到<名>那里」；送给自己时
+两句（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ），收货人此刻没有收货地点或到店时不在店里为「暂时送不到<名>那里」；送给自己时
 沿用 FULFILLMENT_NOT_SUPPORTED。
 """
 
@@ -25,7 +25,7 @@ from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.wayfinding import delivery_route_code
 
 _LOGGER = logging.getLogger(__name__)
-#: 远程下单送给别人却送不到时的两种原因（docs/dev/SPEC-dayrun-fidelity.md 5.3）：与本人送达地的
+#: 远程下单送给别人却送不到时的两种原因（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：与本人送达地的
 #: guidance.DELIVERY_DESTINATION_REASON、DELIVERY_ROUTE_REASON 同一说法，「这里」换成收货人那里。
 _RECIPIENT_DESTINATION_REASON = "The receiving location of {name} is outside this store's delivery area."
 _RECIPIENT_ROUTE_REASON = "No reachable delivery route connects this store to the receiving location of {name}."
@@ -100,7 +100,7 @@ def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int, r
                   supply: SupplyConfig | None = None) -> PreconditionError:
     """@brief 送不到别的收货人那里：ACTIVITY_PRECONDITION_UNMET，下一步先送到自己这里再当面给。
 
-    给出远程下单的供给、收货人此刻有收货地点时按原因分两句（docs/dev/SPEC-dayrun-fidelity.md 5.3，与本人送达地的
+    给出远程下单的供给、收货人此刻有收货地点时按原因分两句（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ，与本人送达地的
     admission._delivery_refusal 同一顺序）：收货地点不在该供给的可配送目的地为 delivery_destination「<名>那里不在这家店的
     配送范围内」；在配送范围内而门店到那里的配送路线缺失（没有、不可达或未知，wayfinding.delivery_route_code）为
     delivery_route「这家店到<名>那里没有能走的配送路线」。其余情形（收货人此刻没有收货地点：联系人没有收货地点、同世界

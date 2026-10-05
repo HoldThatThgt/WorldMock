@@ -28,7 +28,7 @@ from worldmock.life.models import (
     BodyState,
     ActivityStartParams,
 )
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 
 
@@ -108,7 +108,7 @@ def test_repeat_watch_uses_content_rate_and_exposure_count(body_config) -> None:
     second_result = advance_activity(second, repeated_person, 60, body_config)
 
     # 口味权重 0.7 按有效偏好 f + (1 − f)·w 折算（场景缺省 f = 0.5）：0.5 + 0.5 × 0.7 = 0.85
-    # （docs/dev/SPEC-dayrun-fidelity.md 1.2）；有缓解时不再累积。
+    # （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）；有缓解时不再累积。
     assert body_config.entertainment_relief_preference_floor == 0.5
     assert first_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.5 * 0.85 / 60)
     assert second_result.agent.body.entertainment_need == pytest.approx(0.8 - 0.5 * 0.85 / 2 / 60)
@@ -234,7 +234,7 @@ def test_hunger_crossing_reverted_by_meal_window_end_is_not_skipped(body_config)
     """午餐窗口终点前 231 秒升档、终点处餐时项跳变又降回：预测恰为升档的整秒，不推迟到窗口终点。
 
     升档与降回都落在同一个 900 秒步内，只在步点比较分级时看不到这一段；窗口终点的前一秒与那一秒作步点后，
-    扫描在升档所在的步内二分到整秒（docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、第八章「节律」）。
+    扫描在升档所在的步内二分到整秒（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第三章「让人物趁早吃」、第八章「节律」）。
     """
     config = _quiet(body_config)
     body = BodyState(energy_kcal=661.448507, sleep_pressure=0.2296, chronotype_midsleep=3.0,

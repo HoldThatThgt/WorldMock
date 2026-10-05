@@ -1,11 +1,12 @@
 """修订合同引擎侧口味接缝：profile 权重 -> AgentState -> MotivationContext。
 
-C8 交付了计算侧（runtime._agent_specs 写 profile["taste_weights"]）；本文件
+C8 交付了计算侧（worldmock_run_setup_module._agent_specs 写 profile["taste_weights"]）；本文件
 钉住引擎侧最后一段：注入值入 AgentState.taste_weights、恢复走检查点携带值
 （足迹库 WorldState，不重算）、无口味映射为空、observe 读侧拿到非空映射。
 """
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
 
 import os
 from datetime import datetime
@@ -16,7 +17,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
-from worldmock.life.scenario import load_scenario  # noqa: E402
+from worldmock.life.world_setup import load_scenario
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
 
@@ -61,7 +62,7 @@ async def test_life_env_init_injects_taste_weights_into_agent_state(tmp_path) ->
     await env.init(datetime.fromtimestamp(
         scenario.start_at.timestamp(), ZoneInfo(scenario.timezone)))
     try:
-        assert env.engine.state.agents[1].taste_weights == weights
+        assert env.engine.context.state.agents[1].taste_weights == weights
     finally:
         await env.close()
 
@@ -76,7 +77,7 @@ async def test_life_env_init_without_taste_weights_leaves_empty_mapping(tmp_path
     await env.init(datetime.fromtimestamp(
         scenario.start_at.timestamp(), ZoneInfo(scenario.timezone)))
     try:
-        assert env.engine.state.agents[1].taste_weights == {}
+        assert env.engine.context.state.agents[1].taste_weights == {}
     finally:
         await env.close()
 
@@ -91,7 +92,7 @@ async def test_engine_open_restores_checkpoint_weights_without_recompute(tmp_pat
     engine.close()
     reopened = LifeEngine.open(_SCENARIO, tmp_path / "run")
     try:
-        assert reopened.state.agents[1].taste_weights == sentinel
+        assert reopened.context.state.agents[1].taste_weights == sentinel
     finally:
         reopened.close()
 
@@ -111,7 +112,7 @@ async def test_life_env_open_existing_uses_checkpoint_weights(tmp_path) -> None:
     await env.init(datetime.fromtimestamp(
         scenario.start_at.timestamp(), ZoneInfo(scenario.timezone)))
     try:
-        assert env.engine.state.agents[1].taste_weights == sentinel
+        assert env.engine.context.state.agents[1].taste_weights == sentinel
     finally:
         await env.close()
 
@@ -124,8 +125,8 @@ async def test_card_without_tastes_carries_all_zero_weights(tmp_path) -> None:
                                _run_identity(scenario, "taste-seam-zero"), None,
                                {"agent_taste_weights": {1: zeroed}})
     try:
-        assert engine.state.agents[1].taste_weights == zeroed
-        assert set(engine.state.agents[1].taste_weights) == {
+        assert engine.context.state.agents[1].taste_weights == zeroed
+        assert set(engine.context.state.agents[1].taste_weights) == {
             item.item_id for item in scenario.contents}
     finally:
         engine.close()
@@ -139,9 +140,9 @@ async def test_motivation_context_reads_non_empty_taste_weights(tmp_path) -> Non
                                _run_identity(scenario, "taste-seam-observe"), None,
                                {"agent_taste_weights": {1: weights}})
     try:
-        profile = next(item.motivation for item in engine.scenario.agents
+        profile = next(item.motivation for item in engine.context.scenario.agents
                        if item.agent_id == 1 and item.motivation is not None)
-        context = engine._motivation_context(engine.state.agents[1], profile)
+        context = engine.observations._motivation_context(engine.context.state.agents[1], profile)
         assert context.taste_weights == weights
     finally:
         engine.close()

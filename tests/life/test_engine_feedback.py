@@ -41,14 +41,14 @@ def _start_visible_action(engine, round_id: str, canonical_action: str):
 
 def _lifecycle_records(engine, activity_id: str) -> list:
     """@brief 本人某项活动的生命周期记录（结束、暂停、恢复），按写入顺序。"""
-    return [event for event in engine.store.read_agent_events("environment_event", 1)
+    return [event for event in engine.context.store.read_agent_events("environment_event", 1)
             if event.activity_id == activity_id
             and event.data.get("kind") in {"activity_concluded", "activity_paused", "activity_resumed"}]
 
 
 def _request_event_id(engine, action_id: str) -> str:
     """@brief 某次动作的 action_requested 事件身份。"""
-    return next(event.event_id for event in engine.store.read_agent_events("action_requested", 1)
+    return next(event.event_id for event in engine.context.store.read_agent_events("action_requested", 1)
                 if event.action_id == action_id)
 
 
@@ -68,24 +68,24 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
                                  pause_request(name, summary="先处理来信"))
     assert paused.status == "completed", paused.error_code
     assert paused.data == {"task": [name], "activity_ids": [started.activity_id], "errands": []}
-    activity = engine.state.activities[started.activity_id]
+    activity = engine.context.state.activities[started.activity_id]
     assert activity.status == ActivityStatus.PAUSED and activity.progress_note == "先处理来信"
     assert engine.scheduling_state().ready_agent_ids == (1,)  # 没有进行中活动，同一秒再决策
 
     _, reported = _observed_action(engine, "resume-wait", "report_status",
                                    report_request(name, summary="继续休息"))
     assert reported.status == "completed", reported.error_code
-    activity = engine.state.activities[started.activity_id]
+    activity = engine.context.state.activities[started.activity_id]
     assert activity.status == ActivityStatus.ACTIVE and activity.progress_note == "继续休息"
-    assert activity.report_anchor_at == engine.state.current_time
+    assert activity.report_anchor_at == engine.context.state.current_time
     assert activity.note_history[-1]["note"] == "先处理来信"
 
     assert advance_until_ready(engine)
     _, concluded = _observed_action(engine, "conclude-wait", "conclude_activity",
                                     conclude_request(name, summary="休息结束"))
     assert concluded.status == "completed", concluded.error_code
-    now = engine.state.current_time
-    activity = engine.state.activities[started.activity_id]
+    now = engine.context.state.current_time
+    activity = engine.context.state.activities[started.activity_id]
     assert (activity.status, activity.interruption_reason, activity.concluded_at) == (
         ActivityStatus.CANCELLED, "agent_cancelled", now)
     records = _lifecycle_records(engine, started.activity_id)
@@ -95,9 +95,9 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
         assert event.data["activity_id"] == event.data["activity"]["activity_id"] == started.activity_id
     assert [event.data["activity"]["status"] for event in records] == ["paused", "active", "cancelled"]
     assert records[-1].data["activity"]["concluded_at"] == now
-    stored = engine.state.processed_actions["action-start-wait"].result
+    stored = engine.context.state.processed_actions["action-start-wait"].result
     assert stored["status"] == "cancelled" and stored["activity_id"] == started.activity_id
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+    terminal = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-start-wait"][-1]
     assert terminal.occurred_at == now and terminal.activity_id == started.activity_id
     assert terminal.data["status"] == "cancelled" and terminal.data["activity"]["concluded_at"] == now
@@ -111,13 +111,13 @@ def test_terminal_feedback_keeps_original_action_identity(engine_factory):
     stage_day_plan(engine)
     _, started = _start_visible_action(engine, "timed-wait", "wait")
     assert started.status == "in_progress", started.error_code
-    while engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
+    while engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
-    assert engine.state.processed_actions["action-timed-wait"].result["status"] == "completed"
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
+    assert engine.context.state.processed_actions["action-timed-wait"].result["status"] == "completed"
+    terminal = [event for event in engine.context.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-timed-wait"][-1]
-    requested = [event for event in engine.store.read_agent_events("action_requested", 1)
+    requested = [event for event in engine.context.store.read_agent_events("action_requested", 1)
                  if event.action_id == "action-timed-wait"][0]
     assert terminal.activity_id == started.activity_id
     assert requested.event_id in terminal.caused_by
@@ -125,16 +125,16 @@ def test_terminal_feedback_keeps_original_action_identity(engine_factory):
 
 def test_business_rejection_is_reported_in_progress_and_run_continues(engine_factory):
     """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因、下一步、改法与逐项明细（时间与能量规格第一章规则 2、
-    第五章；绕过宿主的名称类失败逐项写进 items，候选可以照填，docs/dev/SPEC-dayrun-fidelity.md 3.1）。"""
+    第五章；绕过宿主的名称类失败逐项写进 items，候选可以照填，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    before = engine.state.current_time
+    before = engine.context.state.current_time
     _, rejected = _observed_action(
         engine, "unknown-object", "start_activity",
         start_request(targets=["不存在的对象"], actions=["interact"], ways=["观看"]))
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.current_time == before
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.context.state.current_time == before
+    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
     assert engine.scheduling_state().ready_agent_ids == (1,)
     decision = context(engine, "after-rejection")
     engine.begin_decision_round([decision])
@@ -159,10 +159,10 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
                                    ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(decision, "action-recovered", "start_activity", request))
     assert engine.commit_decision_round("after-rejection")[0].status == "in_progress"
-    assert engine.state.current_time == before
-    assert engine.state.agents[1].consecutive_rejections == 0
-    assert engine.state.agents[1].same_moment_rounds == 2
-    assert engine.state.agents[1].next_decision_at > engine.state.current_time
+    assert engine.context.state.current_time == before
+    assert engine.context.state.agents[1].consecutive_rejections == 0
+    assert engine.context.state.agents[1].same_moment_rounds == 2
+    assert engine.context.state.agents[1].next_decision_at > engine.context.state.current_time
 
 
 def test_contexts_must_follow_seeded_scheduling_order(engine_factory):
@@ -177,15 +177,15 @@ def test_contexts_must_follow_seeded_scheduling_order(engine_factory):
 
 def _stage_random_seed(engine, seed: int) -> None:
     """@brief 把同一版本的竞争夹具绑定到一个明确随机种子。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.random_seed = seed
     staged.random_state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                        visibility="system", source_kind="scenario",
                        data={"kind": "test_random_seed", "random_seed": seed})
-    engine.store.commit(staged.model_dump(mode="json"), [event])
-    engine.state = staged
+    engine.context.store.commit(staged.model_dump(mode="json"), [event])
+    engine.context.state = staged
 
 
 def test_seed_changes_competition_order_and_checkpoint_restores_it(engine_factory):
@@ -197,10 +197,10 @@ def test_seed_changes_competition_order_and_checkpoint_restores_it(engine_factor
     first_order = first.scheduling_state().ready_agent_ids
     second_order = second.scheduling_state().ready_agent_ids
     assert first_order == (2, 1) and second_order == (1, 2)
-    snapshots = {f"agent:{agent_id}": first.store.assets.put_json(
-        {"agent_id": agent_id}, {"kind": "seed_restore_test"}) for agent_id in first.state.agents}
+    snapshots = {f"agent:{agent_id}": first.context.store.assets.put_json(
+        {"agent_id": agent_id}, {"kind": "seed_restore_test"}) for agent_id in first.context.state.agents}
     first.checkpoint(snapshots)
-    run_dir = first.store.run_dir
+    run_dir = first.context.store.run_dir
     first.close()
     restored = LifeEngine.open(Path("scenarios/multi-person.json"), run_dir)
     try:

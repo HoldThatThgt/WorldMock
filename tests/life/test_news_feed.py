@@ -18,7 +18,7 @@ from worldmock.life.readable import duration_phrase
 from worldmock.life.content import load_subtitles
 from worldmock.life.observe import _content_catalog
 from worldmock.life.models import active_activities, ContentProgress
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 FEED_ID = "news-feed"
 FEED_RATE = 0.25
@@ -28,7 +28,7 @@ SCENARIOS = ("multi-person.json", "white-collar-12-weeks.json")
 
 def _feed_relief_rate(body) -> float:
     """刷屏的实际缓解速率：费率 × 有效偏好 f + (1 − f)·w，f 取场景 body 的下限偏好
-    （docs/dev/SPEC-dayrun-fidelity.md 1.2）；有缓解时不再累积清醒增长。"""
+    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）；有缓解时不再累积清醒增长。"""
     floor = body.entertainment_relief_preference_floor
     return FEED_RATE * (floor + (1 - floor) * FEED_PREFERENCE)
 
@@ -59,16 +59,16 @@ def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
     """用完成的 wait 活动积累娱乐需要（边等边刷：净累积=清醒累积−被动缓解）。
 
     等待按计划结束即成待收尾，人物在同一秒给它收尾后再做别的（时间与能量规格第七章「活动一结束就要结束它」）。
-    等待中途的体感跨档（午夜起点的人物约 00:51 困意升到「撑不住」，docs/dev/SPEC-dayrun-fidelity.md 1.4）也提供决策：
+    等待中途的体感跨档（午夜起点的人物约 00:51 困意升到「撑不住」，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-困意档界 ）也提供决策：
     播报后接着等，不影响娱乐需要的累积。
     """
     for n in range(rounds):
-        assert seconds == engine.scenario.activity_feedback_seconds
+        assert seconds == engine.context.scenario.activity_feedback_seconds
         _act(engine, f"wait-{n}", "start_activity", ("wait", "agent:1"))
         advance_next(engine)
-        while active_activities(engine.state, 1):
+        while active_activities(engine.context.state, 1):
             if engine.scheduling_state().ready_agent_ids:
-                _decide(engine, f"wait-{n}-report-{engine.state.version}")
+                _decide(engine, f"wait-{n}-report-{engine.context.state.version}")
             advance_next(engine)
         assert conclude_pending(engine, f"wait-{n}-end").status == "completed"
 
@@ -113,14 +113,14 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
         assert feed.timeline_path == "feed/news-feed.srt"
         assert feed.entertainment_relief_per_hour == FEED_RATE
         assert feed.experience_label == "casual_news_feed_scroll"
-        # docs/dev/SPEC-life-realism.md「画像编译」：随机偏好浮点删除——场景人物不再携带任何偏好浮点键。
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：随机偏好浮点删除——场景人物不再携带任何偏好浮点键。
         doc = json.loads(Path(f"scenarios/{name}").read_text(encoding="utf-8"))
         assert all("entertainment_preferences" not in agent for agent in doc["agents"])
     engine = engine_factory()
     # 完整目录供引擎形成轮转展示窗口；这里锁定两个基线条目的分段元数据。
-    agent = engine.state.agents[1]
-    catalog = _content_catalog(engine.scenario, engine.rules.subtitles,
-                               engine.rules.content_titles, agent.content_progress)
+    agent = engine.context.state.agents[1]
+    catalog = _content_catalog(engine.context.scenario, engine.context.rules.subtitles,
+                               engine.context.rules.content_titles, agent.content_progress)
     feed_catalog = [row for row in catalog if row["kind"] == "news_feed"]
     sintel_catalog = [row for row in catalog if row["kind"] == "subtitle_experience"]
     expected_entries = [
@@ -138,20 +138,20 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
 
 
 def _seed_feed_taste(engine) -> None:
-    """注入确定性口味权重（docs/dev/SPEC-life-realism.md「画像编译」：结算偏好源=taste_weights，卡片入库前测试注入）。
+    """注入确定性口味权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：结算偏好源=taste_weights，卡片入库前测试注入）。
 
     经 staged 深拷贝 + 版本 +1 + 事件留痕提交，保持足迹库状态连续性。
     """
     from worldmock.footprints.models import EventDraft
 
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
         update={"taste_weights": {FEED_ID: FEED_PREFERENCE}}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_seed_feed_taste"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_factory) -> None:
@@ -161,62 +161,62 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
     engine = engine_factory()
     _seed_feed_taste(engine)
     _wait_awake(engine)
-    body = engine.semantics.body
-    energy_before = engine.state.agents[1].body.energy_kcal
-    need_before = engine.state.agents[1].body.entertainment_need
+    body = engine.context.semantics.body
+    energy_before = engine.context.state.agents[1].body.energy_kcal
+    need_before = engine.context.state.agents[1].body.entertainment_need
     # 纯等待只累计实际清醒时间的娱乐需要。
     wait_net = body.entertainment_need_per_awake_hour
     assert need_before == pytest.approx(wait_net * 900 / 3600)
 
     _act(engine, "scroll", "start_activity", ("watch", FEED_ID))
-    activity_id = next(item.activity_id for item in active_activities(engine.state, 1) if item.kind.value == "watch")
-    assert engine.state.activities[activity_id].name.startswith("接着看")  # 从没看过的内容也是接着看（从 0 起）
+    activity_id = next(item.activity_id for item in active_activities(engine.context.state, 1) if item.kind.value == "watch")
+    assert engine.context.state.activities[activity_id].name.startswith("接着看")  # 从没看过的内容也是接着看（从 0 起）
     wake_by_mail(engine, offset=planned)
     advance_next(engine)
     _act(engine, "scroll-stop", "conclude_activity",
          conclude_request(activity_name(engine, activity_id), summary="阅读到当前段落。"))
-    activity = engine.state.activities[activity_id]
+    activity = engine.context.state.activities[activity_id]
     assert activity.status.name == "CANCELLED"
     revealed = activity.data["revealed"]
     assert [cue["cue_id"] for cue in revealed["cues"]] == [1, 2]
     assert revealed["cues"][0]["text"] == f'{_items()[0]["title"]}\n{_items()[0]["body"]}'
     assert revealed["position_after_seconds"] == planned
-    progress = engine.state.agents[1].content_progress[FEED_ID]
+    progress = engine.context.state.agents[1].content_progress[FEED_ID]
     assert progress.position_seconds == planned
     assert progress.exposure_count == 1
     hours = planned / 3600
     met = body.activity_met["watch"]
     expected_cost = (body.basal_kcal_per_hour + max(met - 1, 0) * body.mass_kg) * hours
-    assert energy_before - engine.state.agents[1].body.energy_kcal == pytest.approx(expected_cost)
-    assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
+    assert energy_before - engine.context.state.agents[1].body.energy_kcal == pytest.approx(expected_cost)
+    assert need_before - engine.context.state.agents[1].body.entertainment_need == pytest.approx(
         _feed_relief_rate(body) * hours)
 
 
 def test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate(engine_factory) -> None:
     """多次独立短刷屏都是「接着看」：不算新的一次接触，接触次数保持 1，每次都按现行费率不摊薄地结算，合计等于
-    总接触时长乘费率（docs/dev/SPEC-time-and-energy.md 第七章「三层结构」）。"""
+    总接触时长乘费率（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「三层结构」）。"""
     ests = [item["estimated_read_seconds"] for item in _items()]
     durations = [ests[0] + ests[1], ests[2] + ests[3], ests[4] + ests[5]]
     engine = engine_factory()
     _seed_feed_taste(engine)
     _wait_awake(engine)
-    feed_rate = _feed_relief_rate(engine.semantics.body)
-    need_before = engine.state.agents[1].body.entertainment_need
+    feed_rate = _feed_relief_rate(engine.context.semantics.body)
+    need_before = engine.context.state.agents[1].body.entertainment_need
     relief = 0.0
     idle_growth = 0.0
     for n, duration in enumerate(durations, start=1):
         if n > 1:
             # 结束刷屏后没有进行中活动时同一秒再决策（时间与能量规格第一章规则 2）：两次刷屏之间以等待度过，
             # 下一次决策边界上先结束等待，刷屏仍单独结算。
-            before_idle = engine.state.agents[1].body.entertainment_need
+            before_idle = engine.context.state.agents[1].body.entertainment_need
             waited = _act(engine, f"between-scrolls-{n}", "start_activity", ("wait", "agent:1"))
             advance_next(engine)
             _act(engine, f"between-scrolls-end-{n}", "conclude_activity",
                  conclude_request(activity_name(engine, waited.activity_id), summary="等够了。"))
-            idle_growth += engine.state.agents[1].body.entertainment_need - before_idle
-        need_at_step = engine.state.agents[1].body.entertainment_need
+            idle_growth += engine.context.state.agents[1].body.entertainment_need - before_idle
+        need_at_step = engine.context.state.agents[1].body.entertainment_need
         _act(engine, f"scroll-{n}", "start_activity", ("watch", FEED_ID))
-        activity = next(item for item in active_activities(engine.state, 1) if item.kind.value == "watch")
+        activity = next(item for item in active_activities(engine.context.state, 1) if item.kind.value == "watch")
         assert activity.name.startswith("接着看") and activity.data["exposure_count"] == 1
         assert activity.data["start_position_seconds"] == sum(durations[:n - 1])
         wake_by_mail(engine, offset=duration)
@@ -224,13 +224,13 @@ def test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate(engi
         _act(engine, f"scroll-stop-{n}", "conclude_activity",
              conclude_request(activity_name(engine, activity.activity_id), summary="阅读到当前段落。"))
         step = feed_rate * (duration / 3600)
-        assert need_at_step - engine.state.agents[1].body.entertainment_need == pytest.approx(step)
+        assert need_at_step - engine.context.state.agents[1].body.entertainment_need == pytest.approx(step)
         relief += step
-    assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
+    assert need_before - engine.context.state.agents[1].body.entertainment_need == pytest.approx(
         relief - idle_growth)
     total = sum(durations) / 3600
     assert relief == pytest.approx(feed_rate * total)
-    progress = engine.state.agents[1].content_progress[FEED_ID]
+    progress = engine.context.state.agents[1].content_progress[FEED_ID]
     assert progress.position_seconds == sum(durations)
     assert progress.exposure_count == 1
 
@@ -242,24 +242,24 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     # 0.25×(0.5+0.5×0.6)×950/3600≈0.0528——保证断言观测的是未触底的总接触费率结算。
     _seed_feed_taste(engine)
     _wait_awake(engine, rounds=6)
-    need_before = engine.state.agents[1].body.entertainment_need
-    body = engine.semantics.body
+    need_before = engine.context.state.agents[1].body.entertainment_need
+    body = engine.context.semantics.body
     wait_net = body.entertainment_need_per_awake_hour
     assert need_before == pytest.approx(wait_net * 5400 / 3600)
 
     _act(engine, "long-scroll", "start_activity", ("watch", FEED_ID))
-    activity_id = next(item.activity_id for item in active_activities(engine.state, 1) if item.kind.value == "watch")
+    activity_id = next(item.activity_id for item in active_activities(engine.context.state, 1) if item.kind.value == "watch")
     wake_by_mail(engine)  # 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
-    assert engine.state.current_time == int(engine.scenario.start_at.timestamp()) + 5400 + 900
+    assert engine.context.state.current_time == int(engine.context.scenario.start_at.timestamp()) + 5400 + 900
     _act(engine, "pause-scroll", "pause_activity",
          pause_request(activity_name(engine, activity_id), summary="稍后继续阅读。"))
-    paused_at = engine.state.current_time
+    paused_at = engine.context.state.current_time
     # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）。
     _act(engine, "wait-while-paused", "start_activity", ("wait", "agent:1"))
     wake_by_mail(engine)
     advance_next(engine)
-    assert engine.state.current_time == paused_at + 900
+    assert engine.context.state.current_time == paused_at + 900
     # 等待在这一边界按计划结束：先当秒收尾，再恢复暂停的刷屏（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "wait-while-paused-end").status == "completed"
     _act(engine, "resume-scroll", "report_status",
@@ -269,13 +269,13 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     _act(engine, "finish-scroll", "conclude_activity",
          conclude_request(activity_name(engine, activity_id), summary="本次阅读结束。"))
 
-    activity = engine.state.activities[activity_id]
+    activity = engine.context.state.activities[activity_id]
     assert activity.status.name == "CANCELLED"
     assert activity.elapsed_seconds == 950
-    progress = engine.state.agents[1].content_progress[FEED_ID]
+    progress = engine.context.state.agents[1].content_progress[FEED_ID]
     assert progress.exposure_count == 1
     assert progress.position_seconds == 950
-    cues = [cue for event in engine.store.read_agent_events("activity_progress", 1)
+    cues = [cue for event in engine.context.store.read_agent_events("activity_progress", 1)
             if event.activity_id == activity_id
             for cue in event.data["activity"]["data"]["revealed"]["cues"]]
     ids = [cue["cue_id"] for cue in cues]
@@ -283,7 +283,7 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     assert 20 <= len(set(ids)) <= 30
     assert len(cues) - len(set(ids)) <= 1
     # 刷屏的 950 秒只按缓解下降、不再累积；暂停期间等待的 900 秒照常按清醒累积。
-    assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
+    assert need_before - engine.context.state.agents[1].body.entertainment_need == pytest.approx(
         _feed_relief_rate(body) * 950 / 3600
         - body.entertainment_need_per_awake_hour * 900 / 3600)
 
@@ -293,24 +293,24 @@ _PODCAST = "podcast-nasa-space-habitat-excerpt"
 
 def _position(engine, item_id: str, mark: tuple[str, int]) -> int:
     """观看位置：("at", 秒) 为从开头算起的位置，("left", 秒) 为距结尾还剩的秒数。"""
-    duration = next(item.duration_seconds for item in engine.scenario.contents if item.item_id == item_id)
+    duration = next(item.duration_seconds for item in engine.context.scenario.contents if item.item_id == item_id)
     kind, seconds = mark
     return seconds if kind == "at" else duration - seconds
 
 
 def _stage_content_progress(engine, progress: dict[str, tuple[tuple[str, int], int]]) -> None:
     """把人物 1 指定内容的观看进度（位置标记，接触次数）落盘为真实状态（版本 +1 并留痕）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     mapping = dict(staged.agents[1].content_progress)
     mapping.update({item_id: ContentProgress(item_id=item_id, position_seconds=_position(engine, item_id, mark),
                                              exposure_count=count)
                     for item_id, (mark, count) in progress.items()})
     staged.agents[1] = staged.agents[1].model_copy(update={"content_progress": mapping}, deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_content_progress_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _start_listed_content(engine, round_id: str, item_id: str) -> tuple[str, list[dict], object]:
@@ -344,7 +344,7 @@ def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_pos
     时长为全长、从 0 起放并记 repeat；播客对应「接着听」「从头再听」，只占耳朵。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    item = next(entry for entry in engine.scenario.contents if entry.item_id == item_id)
+    item = next(entry for entry in engine.context.scenario.contents if entry.item_id == item_id)
     if mark is not None:
         _stage_content_progress(engine, {item_id: (mark, 1)})
     position = 0 if mark is None or restart else _position(engine, item_id, mark)
@@ -353,7 +353,7 @@ def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_pos
     assert [(row["action"], row["way"], row["available"], row["duration"]) for row in listed] == [
         ("interact", way, True, duration_phrase(remaining))]
     assert result.status == "in_progress", result.error_code
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     assert activity.name.startswith(f"{way}{label.removeprefix('内容：')}（")
     assert activity.planned_duration_seconds == remaining
     assert (activity.data["repeat"], activity.data["start_position_seconds"]) == (restart, position)
@@ -379,12 +379,12 @@ def test_resuming_keeps_the_exposure_count_while_first_watch_and_restart_add_one
     _, listed, result = _start_listed_content(engine, f"exposure-{way}", item_id)
     assert result.status == "in_progress", result.error_code
     assert listed[0]["way"] == way
-    assert engine.state.activities[result.activity_id].data["exposure_count"] == settled[1]
-    started = engine.state.current_time
+    assert engine.context.state.activities[result.activity_id].data["exposure_count"] == settled[1]
+    started = engine.context.state.current_time
     wake_by_mail(engine, offset=120)
     advance_next(engine)
-    assert engine.state.current_time == started + 120
-    watched = engine.state.agents[1].content_progress[item_id]
+    assert engine.context.state.current_time == started + 120
+    watched = engine.context.state.agents[1].content_progress[item_id]
     assert (watched.position_seconds, watched.exposure_count) == settled
 
 
@@ -394,12 +394,12 @@ def test_content_longer_than_a_day_is_accepted_for_one_day(engine_factory, item_
     （138264 秒）、微博流与 novel-0003 从头开始不再以 ACTIVITY_DURATION_INVALID 拒绝，动作时长写受理的一天。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    item = next(entry for entry in engine.scenario.contents if entry.item_id == item_id)
+    item = next(entry for entry in engine.context.scenario.contents if entry.item_id == item_id)
     assert item.duration_seconds > 86_400
     _, listed, result = _start_listed_content(engine, f"long-{item_id}", item_id)
     assert [(row["way"], row["available"], row["duration"]) for row in listed] == [
         ("接着看", True, duration_phrase(86_400))]
     assert result.status == "in_progress", result.error_code
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     assert activity.planned_duration_seconds == 86_400
     assert (activity.data["repeat"], activity.data["start_position_seconds"]) == (False, 0)

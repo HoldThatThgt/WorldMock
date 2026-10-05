@@ -1,10 +1,10 @@
-"""场景加载时就拒绝的世界缺陷与同名地点的分店标签（docs/dev/SPEC-dayrun-fidelity.md 8.1）。
+"""场景加载时就拒绝的世界缺陷与同名地点的分店标签（docs/dev/SPEC-day-plan-goals.md#dayrun-fidelity-加载校验与当日目标推进-场景加载时就该拒绝的问题 ）。
 
 越界的地点类别（不在环境层 PLACE_TYPES）与重复的可见名称都经真实的 load_runtime_scenario 在加载时以 IntegrityError
 拒绝并写明原因，不再等到运行中途由环境层或观察投影抛出；同名地点由地图字段 branch_label 消歧，显示名「名称（分店）」
 进入工具层、提示与事件，并连同分店标签受可疑显示名检查（只警告）；没有 branch_label 的现有地图照常加载、名称不变。
 
-人物工作安排的跨引用（docs/dev/SPEC-errands-workday.md 4.3）同样经真实的 load_runtime_scenario 在加载时拒绝：工作地点
+人物工作安排的跨引用（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）同样经真实的 load_runtime_scenario 在加载时拒绝：工作地点
 不是所选地点，或场景时间窗内的日期与场景日历不一致，顶层英文明细写明人物、日期与字段；时间窗外的日期、加班机会日与
 work_schedule 为 null 的人物不核对；班次形状错误由场景模型的校验器拒绝，明细在异常链里。
 """
@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 
 from custom.agents.life_prompt import life_user_layers, user_message
-from tests.life.conftest import _mutated_scenario, context, stage_day_plan
+from tests.engine_fixture import (_mutated_scenario)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan)  # noqa: F401
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare, weekday_schedule
 from worldmock.catalog import load_catalog
 from worldmock.corpora.storefront_build import build_storefront_supplies
@@ -31,9 +32,9 @@ from worldmock.life.environment_layer import PLACE_TYPES
 from worldmock.life.load_checks import visible_object_labels
 from worldmock.life.map_models import CategoryAssignment, LocationConfig
 from worldmock.life.models import ModelIdentity, RunIdentity
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.work_schedule import shift_on
-from worldmock.runtime import input_warnings
+from worldmock.run_setup import input_warnings
 
 _ROOT = Path(__file__).resolve().parents[2]
 _SCENARIO = "white-collar-12-weeks.json"
@@ -260,12 +261,12 @@ def test_branch_labels_make_same_named_locations_load_and_distinguishable_in_the
         assert expected <= targets
         prompt = user_message(life_user_layers(observed, {"layer": "人设层"}))["content"]
         assert all(label in prompt for label in expected)
-        event = engine.store.read_events(engine.store.last_event_seq)[-1]
+        event = engine.context.store.read_events(engine.context.store.last_event_seq)[-1]
         assert event.event_type == "observation"
         catalog = {row["location_id"]: row["name"] for row in event.data["locations"]}
         assert catalog[_BONE_SOUP] == "菜饭骨头汤（紫薇路店）" and catalog[_SICHUAN] == "菜饭骨头汤（张江路店）"
         bindings = {row["object"] for row in observed["interaction_bindings"]}
-        assert bindings <= set(visible_object_labels(engine.scenario, engine.corpus_root)[1])
+        assert bindings <= set(visible_object_labels(engine.context.scenario, engine.context.corpus_root)[1])
     finally:
         engine.close()
 
@@ -314,7 +315,7 @@ def test_projection_labels_are_the_load_time_labels(engine_factory) -> None:
     """观察投影实际给出的对象名称都在加载时核对过的名称集合里（两处同一写法），覆盖地点、联系人、商品目录与自己。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    labels = set(visible_object_labels(engine.scenario, engine.corpus_root)[1])
+    labels = set(visible_object_labels(engine.context.scenario, engine.context.corpus_root)[1])
     observed = engine.observe(context(engine, "labels"))
     objects = [row["object"] for row in observed["interaction_bindings"]]
     assert objects and len(objects) == len(set(objects)) and set(objects) <= labels
@@ -357,7 +358,7 @@ def _clear_exceptions(document: dict) -> None:
 
 
 def test_work_schedule_workplace_must_be_a_selected_location(tmp_path: Path) -> None:
-    """工作地点必须是场景所选地点（docs/dev/SPEC-errands-workday.md 4.3）：写成所选地点之外的身份时加载即拒绝，顶层
+    """工作地点必须是场景所选地点（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：写成所选地点之外的身份时加载即拒绝，顶层
     明细写明人物与字段；写成所选的办公室时照常加载。"""
     path = _scheduled(tmp_path / "elsewhere", _FORMAL, declare(workplace="nowhere-office"))
     assert _rejection(path) == (
@@ -475,7 +476,7 @@ def _deselect_delivering_stores(document: dict) -> None:
 
 
 def test_a_workplace_in_the_map_but_not_selected_by_the_scenario_is_rejected(tmp_path: Path) -> None:
-    """工作地点必须是场景所选的地点，只在地图里有还不够（docs/dev/SPEC-errands-workday.md 4.3）：场景只选地图的一个真
+    """工作地点必须是场景所选的地点，只在地图里有还不够（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：场景只选地图的一个真
     子集（不选集市、超市与便利店）时，工作地点写办公室照常加载，集市仍在地图里而不在所选地点里；工作地点写集市时
     加载即拒绝，顶层明细点名人物、字段与该地点。"""
     office = _scheduled(tmp_path / "subset", _FORMAL, _deselect_delivering_stores, declare())
@@ -501,7 +502,7 @@ def test_the_window_starts_with_the_local_date_of_the_start_instant(tmp_path: Pa
 
 
 def test_calendar_dates_before_the_window_are_not_checked(tmp_path: Path) -> None:
-    """早于时间窗的日历日期不核对（docs/dev/SPEC-errands-workday.md 4.3）：场景改在 2026-03-01 开始，两个补班的周六与
+    """早于时间窗的日历日期不核对（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：场景改在 2026-03-01 开始，两个补班的周六与
     整个春节都在开始之前。工作安排只为窗内的病假、事假日写例外，对窗前的日期与日历相反（补班日 02-14 不当班、春节
     02-16 当班），照常加载。"""
     path = _scheduled(tmp_path, _FORMAL, _window(start="2026-03-01T00:00:00+08:00"), declare())
@@ -527,7 +528,7 @@ def test_a_date_whose_local_midnight_is_the_end_instant_is_outside_the_window(tm
 
 
 def test_the_calendar_binds_every_person_who_declares_a_schedule(tmp_path: Path) -> None:
-    """场景日历是场景级的，对所有声明了班次的人物同时生效（docs/dev/SPEC-errands-workday.md 4.3）：多人场景的时间窗延到
+    """场景日历是场景级的，对所有声明了班次的人物同时生效（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）：多人场景的时间窗延到
     2026-02-15 零点，补班日 02-14 落在窗内。两人都按日历声明时照常加载；人物 1 照旧、人物 2 把补班日写成不当班时加载即
     拒绝，明细只点名人物 2。"""
     longer = _window(end="2026-02-15T00:00:00+08:00")

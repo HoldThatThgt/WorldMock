@@ -10,13 +10,13 @@ def test_podcast_reveal_waits_for_audio_anchor(engine_factory) -> None:
     """@brief 音轨尚未越过字幕结束点时不提前揭示。"""
     engine = engine_factory()
     item_id = "podcast-nasa-space-habitat-excerpt"
-    item = engine.rules.content(item_id)
-    cues = engine.rules.subtitles[item_id]
+    item = engine.context.rules.content(item_id)
+    cues = engine.context.rules.subtitles[item_id]
     activity = ActivityState.model_construct(
         media_position_seconds=2,
         data={"start_position_seconds": 0, "exposure_count": 1},
     )
-    person, first = reveal_watch(activity, engine.state.agents[1], item, cues)
+    person, first = reveal_watch(activity, engine.context.state.agents[1], item, cues)
     assert first["cues"] == []
 
     activity.media_position_seconds = 3

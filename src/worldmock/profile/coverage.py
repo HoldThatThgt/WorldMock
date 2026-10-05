@@ -1,11 +1,11 @@
-"""@brief 人物卡片覆盖率校验：persona_coverage.json 结构（docs/CONTRACTS.md「人物卡片覆盖率产出」）。
+"""@brief 人物卡片覆盖率校验：persona_coverage.json 结构（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物卡片覆盖率产出」）。
 
 每条习惯签名的 response 与每个口味条目必须映射到世界中至少一个可执行目标
 或条目（映射目标清单作为输入由调用方给出目录/品类集）；可执行比例低于 80%
 时校验失败并列出缺失项。这一校验防止画像写了播客而世界里没有播客。
 匹配规则（确定性）：口味条目与目标品类集精确相等；习惯 response 与目标
 关键词互为子串（"公园慢跑半小时" 命中关键词 "慢跑"）。App 名只作媒介的精确命中，
-不以子串给习惯或内容题材算命中（docs/dev/SPEC-dayrun-fidelity.md 1.3：「B站视频」不因应用名「B站」算覆盖）。
+不以子串给习惯或内容题材算命中（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ：「B站视频」不因应用名「B站」算覆盖）。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from worldmock.errors import IntegrityError
 from worldmock.profile.models import PersonaCard
 
-#: 可执行比例阈值（docs/CONTRACTS.md「人物卡片覆盖率产出」合同常数：低于 0.8 校验失败）。
+#: 可执行比例阈值（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物卡片覆盖率产出」合同常数：低于 0.8 校验失败）。
 COVERAGE_THRESHOLD = 0.8
 COVERAGE_SCHEMA_VERSION = 1
 

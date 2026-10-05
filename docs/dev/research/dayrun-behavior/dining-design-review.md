@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/dining-design-review.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 餐馆进食路径只读设计核查
 
 > 核查位置：`/Users/atishoo/.codex/worktrees/dayrun-behavior/WorldMock`，起始 HEAD `74edead`。只读核查与 JSON 统计；未执行测试、真实模型调用、外部地图请求，未改仓库。本文是父层冻结规格的输入，不是实现或验收通过声明。

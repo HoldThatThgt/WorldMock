@@ -13,21 +13,15 @@ import argparse
 import ast
 import hashlib
 import json
-import os
 import subprocess
 import sys
-import tempfile
-import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRANCH_THRESHOLD = 85.0
-TEST_COMMAND = (sys.executable, "-m", "coverage", "run", "--parallel-mode", "-m", "pytest", "-q")
-JSON_COMMAND = (sys.executable, "-m", "coverage", "json")
+TEST_COMMAND = (sys.executable, "scripts/run_tests.py", "--tier", "full", "--workers", "6")
 PRODUCTION_ROOTS = ("src/worldmock", "custom/agents", "custom/envs")
 REPORT_PATH = REPO_ROOT / "docs" / "dev" / "coverage-report.json"
 
@@ -228,64 +222,69 @@ def judge_gate(
     return branch_percent >= threshold and uncovered_count == 0
 
 
-def test_shards(base: Path, count: int) -> list[list[str]]:
-    """@brief 按目录和文件稳定排序分片；目录内文件连续，每个文件只分配一次。"""
-    if count < 1:
-        raise ValueError("shards must be a positive integer")
-    files = sorted(path.relative_to(base).as_posix() for path in (base / "tests").rglob("test_*.py"))
-    if not files:
-        raise RuntimeError("test suite contains no test files")
-    size = (len(files) + count - 1) // count
-    return [files[start:start + size] for start in range(0, len(files), size)]
+def run_test_suite(shards: int = 6) -> int:
+    """@brief 使用当前解释器调用唯一全量入口；分片数就是该入口的进程数。"""
+    command = (*TEST_COMMAND[:-1], str(shards))
+    print(f"[coverage-gate] running: {' '.join(command)}", flush=True)
+    return subprocess.call(command, cwd=REPO_ROOT)
 
 
-def junit_summary(paths: list[Path]) -> dict[str, int]:
-    """@brief 汇总真实 pytest 报告，缺失报告报错；跳过和预期失败均不能放行。"""
-    summary = {name: 0 for name in ("tests", "failures", "errors", "skipped")}
-    for path in paths:
-        for suite in ET.parse(path).getroot().iter("testsuite"):
-            for name in summary:
-                summary[name] += int(suite.attrib.get(name, "0"))
-    return summary
+def _runner():
+    """@brief 复用唯一测试入口的集合身份与回执判定。"""
+    sys.path.insert(0, str(REPO_ROOT))
+    from scripts import run_tests
+
+    return run_tests
 
 
-def _run_shard(files: list[str], report: Path, data: Path) -> int:
-    """@brief 独立运行一片，覆盖数据和测试报告不与历史运行共享。"""
-    command = [*TEST_COMMAND, *files, f"--junitxml={report}"]
-    environment = {**os.environ, "COVERAGE_FILE": str(data)}
-    print(f"[coverage-gate] running shard with {len(files)} files", flush=True)
-    return subprocess.call(command, cwd=REPO_ROOT, env=environment)
+def _read_worker_receipts(directory: Path, shards: list[dict]) -> list[dict]:
+    """@brief 读取同一运行目录内的节点选择和真实回执，缺失或重复分片均报错。"""
+    indices = [shard["index"] for shard in shards]
+    if not indices or sorted(indices) != list(range(len(indices))):
+        raise RuntimeError("Full run worker indices are empty or duplicated")
+    results = []
+    for shard in shards:
+        target = directory / f"shard-{shard['index']}"
+        selection = json.loads((target / "selected.json").read_text("utf-8"))
+        if selection["run_id"] != directory.name:
+            raise RuntimeError("Full run worker selection belongs to a different run")
+        expected = selection["nodes"]
+        if not expected:
+            raise RuntimeError("Full run contains an empty worker selection")
+        receipt_path = target / "receipt.json"
+        selected_path = target / "selected.json"
+        if (_runner().file_sha256(receipt_path) != shard["receipt_sha256"]
+                or _runner().file_sha256(selected_path) != shard["selected_sha256"]):
+            raise RuntimeError("Full run worker artifacts differ from their original bytes")
+        receipt = json.loads(receipt_path.read_text("utf-8"))
+        results.append({**shard, "expected": expected, "receipt": receipt})
+    return results
 
 
-def run_test_suite(directory: Path, shards: int = 1) -> tuple[int, dict[str, int]]:
-    """@brief 使用当前 Python 并行测试，合并本次独立数据后返回退出码和真实统计。"""
-    parts = test_shards(REPO_ROOT, shards)
-    reports = [directory / f"tests-{index}.xml" for index in range(len(parts))]
-    with ThreadPoolExecutor(max_workers=len(parts)) as pool:
-        futures = [pool.submit(_run_shard, files, report, directory / ".coverage")
-                   for files, report in zip(parts, reports)]
-        codes = [future.result() for future in futures]
-    summary = junit_summary(reports)
-    environment = {**os.environ, "COVERAGE_FILE": str(directory / ".coverage")}
-    combined = subprocess.call([sys.executable, "-m", "coverage", "combine", str(directory)],
-                               cwd=REPO_ROOT, env=environment)
-    return (0 if all(code == 0 for code in codes) and combined == 0 else 1), summary
-
-
-def export_coverage_json(data_path: Path) -> dict:
-    """@brief 导出 coverage JSON 到临时文件并解析返回。
-
-    @throw RuntimeError  当 coverage json 命令以非零退出码结束时。
-    """
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        json_path = Path(tmp_dir) / "coverage.json"
-        command = [*JSON_COMMAND, "-o", str(json_path)]
-        environment = {**os.environ, "COVERAGE_FILE": str(data_path)}
-        result = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
-        if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(f"coverage json failed (rc={result.returncode}): {detail}")
-        return json.loads(json_path.read_text(encoding="utf-8"))
+def full_run_receipts(directory: Path) -> tuple[dict, dict]:
+    """@brief 将本次覆盖数据绑定到完整收集、源码输入和每个实际执行节点。"""
+    runner = _runner()
+    collection = json.loads((directory / "collection.json").read_text("utf-8"))
+    summary = json.loads((directory / "summary.json").read_text("utf-8"))
+    if collection["run_id"] != directory.name or summary["run_id"] != directory.name:
+        raise RuntimeError("Full run artifacts belong to a different run")
+    if runner.file_sha256(directory / "coverage.json") != summary["coverage_sha256"]:
+        raise RuntimeError("Coverage report differs from the original full run bytes")
+    records = collection["records"]
+    nodes = [row["nodeid"] for row in records]
+    if not nodes or len(nodes) != len(set(nodes)):
+        raise RuntimeError("Full run collection is empty or contains duplicate nodes")
+    if summary["tier"] != "full" or summary["selected_nodes"] != len(nodes):
+        raise RuntimeError("Coverage requires the complete full tier collection")
+    if summary["collection_sha256"] != runner.collection_digest(records):
+        raise RuntimeError("Full run collection identity differs from its summary")
+    if summary["environment"] != runner.environment(summary["workers"]):
+        raise RuntimeError("Full run environment differs from the current gate")
+    runner.require_unchanged_input(summary["source_sha256"])
+    tests = runner.validate_receipts(nodes, _read_worker_receipts(directory, summary["shards"]), directory.name)
+    skipped = sum(any(phase["outcome"] == "skipped" for phase in value["phases"].values())
+                  for value in tests.values())
+    return {"tests": len(tests), "failures": 0, "errors": 0, "skipped": skipped}, summary
 
 
 def build_report(
@@ -344,9 +343,21 @@ def write_report(report: dict, path: Path) -> None:
 
 
 def get_git_commit_hash() -> str:
-    """@brief 获取实际被测提交，获取失败时不能生成虚构身份。"""
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT,
-                            capture_output=True, text=True, timeout=5, check=True)
+    """@brief 获取实际提交身份；不能以 unknown 代替失败的证据来源。"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"[coverage-gate] ERROR: Source identity lookup failed: {error}", file=sys.stderr)
+        raise RuntimeError("Source identity lookup failed") from error
+    if result.returncode != 0:
+        print(f"[coverage-gate] ERROR: Source identity lookup failed: {result.stderr.strip()}", file=sys.stderr)
+        raise RuntimeError("Source identity lookup failed")
     return result.stdout.strip()
 
 
@@ -376,46 +387,40 @@ def print_gate_summary(branch: BranchSummary, gaps: list[InterfaceGap], passed: 
     print(f"[coverage-gate] gate verdict: {verdict}")
 
 
+def _evaluate_coverage(path: Path) -> int:
+    """@brief 只评估同一完整运行的覆盖文件与回执，报告绑定实际输入和提交。"""
+    cov_data = json.loads(path.read_text(encoding="utf-8"))
+    if path.name != "coverage.json" or cov_data["run_id"] != path.parent.name:
+        raise RuntimeError("Coverage report belongs to a different run")
+    results, summary = full_run_receipts(path.parent)
+    branch = compute_branch_summary(cov_data)
+    gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
+    passed = results["tests"] > 0 and results["skipped"] == 0 and judge_gate(branch.percent, len(gaps))
+    command = (*TEST_COMMAND[:-1], str(summary["workers"]))
+    report = build_report(branch, gaps, passed, "python " + " ".join(command[1:]),
+                          path.parent.name, compute_manifest_hash(cov_data), get_git_commit_hash())
+    report["test_results"] = results
+    report["shards"] = summary["workers"]
+    report["evidence_manifest"].update(source_sha256=summary["source_sha256"],
+                                       collection_sha256=summary["collection_sha256"])
+    write_report(report, REPORT_PATH)
+    print_gate_summary(branch, gaps, passed)
+    return 0 if passed else 1
+
+
 def main(argv: list[str] | None = None) -> int:
-    """@brief 门禁主流程：跑测试、导出覆盖、判定达标、写报告，返回进程退出码。"""
-    parser = argparse.ArgumentParser(description="Run the complete coverage gate with the current Python.")
-    parser.add_argument("--shards", type=int, default=1)
+    """@brief 全量入口委托唯一 runner；已合并覆盖只接受本次完整节点回执。"""
+    parser = argparse.ArgumentParser(description="WorldMock complete coverage gate")
+    parser.add_argument("--from-json", type=Path)
+    parser.add_argument("--shards", type=int, default=6)
     args = parser.parse_args(argv)
     if args.shards < 1:
         parser.error("--shards must be a positive integer")
     try:
-        with tempfile.TemporaryDirectory(prefix="worldmock-coverage-") as name:
-            directory = Path(name)
-            test_rc, summary = run_test_suite(directory, args.shards)
-            cov_data = export_coverage_json(directory / ".coverage")
-    except (RuntimeError, OSError, ET.ParseError) as error:
+        return run_test_suite(args.shards) if args.from_json is None else _evaluate_coverage(args.from_json)
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
         print(f"[coverage-gate] ERROR: {error}", file=sys.stderr)
         return 1
-    branch = compute_branch_summary(cov_data)
-    gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
-    passed = (test_rc == 0 and summary["tests"] > 0 and summary["skipped"] == 0
-              and summary["failures"] == 0 and summary["errors"] == 0
-              and judge_gate(branch.percent, len(gaps)))
-    
-    # 生成证据 manifest 绑定
-    snapshot_id = str(uuid4())
-    manifest_hash = compute_manifest_hash(cov_data)
-    source_identity = get_git_commit_hash()
-    
-    report = build_report(
-        branch, gaps, passed, f"python -m coverage run -m pytest -q (shards={args.shards})",
-        snapshot_id, manifest_hash, source_identity
-    )
-    report["test_results"] = summary
-    report["shards"] = args.shards
-    write_report(report, REPORT_PATH)
-    print_gate_summary(branch, gaps, passed)
-    if test_rc != 0:
-        print(
-            f"[coverage-gate] test suite exited rc={test_rc}; gate cannot pass",
-            file=sys.stderr,
-        )
-    return 0 if passed else 1
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """时间与能量规格的完整性守卫：验收台账全登记、已完成阶段有证据、无延期标记、符号增删到位。
 
 @file     test_time_and_energy_completeness.py
-@brief    以 tests/time_and_energy_acceptance.py 为数据源，对照 docs/dev/SPEC-time-and-energy.md
+@brief    以 tests/time_and_energy_acceptance.py 为数据源，对照 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动
           「验收台账」逐条判定：登记表恰好覆盖台账各行；实施阶段 0–7 全部完成；已完成阶段的行列出可解析、未被跳过的测试；
           生产目录与登记引用的测试文件中没有延期标记；已完成阶段的删除符号已消失、新增符号已出现。
 @note     延期标记的正则由字符串片段拼成，本文件自身不含任何标记字面量。
@@ -13,17 +13,17 @@ import ast
 import re
 from pathlib import Path
 
+from tests.acceptance_guard import acceptance_section
+
 from tests.time_and_energy_acceptance import (
     ACCEPTANCE,
     REMOVED_SYMBOLS,
-    REQUIRED_SYMBOLS,
+    REMOVED_DEFINITIONS,
     STAGE_IDS,
     STAGES_DONE,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC_PATH = REPO_ROOT / "docs" / "dev" / "SPEC-time-and-energy.md"
-LEDGER_HEADING = "## 验收台账"
 
 #: 延期标记（片段拼接，避免本文件命中自己的扫描）。
 #: 跳过标记覆盖 pytest 的跳过函数、跳过标记（含经 `from pytest import mark` 引用）与按导入跳过。
@@ -59,19 +59,9 @@ _NODE_ID = re.compile(r"^tests/[\w./-]+\.py::(?:\w+::)?\w+(?:\[.*\])?$")
 
 
 def _ledger_rows() -> list[str]:
-    """读取规格「验收台账」表格各行的首列文本（去掉表头与分隔行）。"""
-    lines = SPEC_PATH.read_text(encoding="utf-8").splitlines()
-    start = lines.index(LEDGER_HEADING) + 1
-    rows = []
-    for line in lines[start:]:
-        if line.startswith("## "):
-            break
-        if not line.startswith("|") or re.match(r"^\|\s*-+\s*\|", line):
-            continue
-        first = line.split("|")[1].strip()
-        if first != "契约点":
-            rows.append(first)
-    return rows
+    """@brief 读取机器验收数据中的要求名称，不解析规格散文。"""
+    (table,) = acceptance_section("time-and-energy", "验收台账")["tables"]
+    return [row[0] for row in table[1:]]
 
 
 def _all_node_ids() -> list[str]:
@@ -157,24 +147,27 @@ def _text_files(root: Path) -> list[Path]:
     return files
 
 
-def _matching_files(pattern: str, relative: str) -> list[str]:
-    """返回列出路径下命中正则的文件（仓库相对路径）。"""
-    regex = re.compile(pattern)
-    return [
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in _text_files(REPO_ROOT / relative)
-        if regex.search(path.read_text(encoding="utf-8"))
-    ]
-
-
-def _done_symbols(table: dict[str, list[tuple[str, list[str]]]]) -> list[tuple[str, str]]:
-    """展开已完成阶段的符号表为（正则, 路径）对。"""
-    return [
-        (pattern, relative)
-        for stage in sorted(STAGES_DONE)
-        for pattern, paths in table.get(stage, [])
-        for relative in paths
-    ]
+def _production_symbols(root: Path) -> dict[str, set[str]]:
+    """@brief 扫描整个生产包的实际定义、名称、字段与字面量，忽略注释及文档字符串。"""
+    found = {}
+    for directory in ("src", "custom"):
+        for path in sorted((root / directory).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                          if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                          and ast.get_docstring(node) is not None}
+            names = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    names.add(node.name)
+                elif isinstance(node, ast.Name):
+                    names.add(node.id)
+                elif isinstance(node, ast.Attribute):
+                    names.add(node.attr)
+                elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                    names.update(re.findall(r"[A-Za-z_]\w*", node.value))
+            found[path.relative_to(root).as_posix()] = names
+    return found
 
 
 def test_registry_covers_exactly_the_acceptance_ledger_rows() -> None:
@@ -195,11 +188,9 @@ def test_registry_entries_name_known_stages() -> None:
         bad = [node for node in entry["tests"] if not isinstance(node, str) or not _NODE_ID.match(node)]
         assert not bad, f"{row}: malformed node ids {bad}"
     assert STAGES_DONE <= STAGE_IDS
-    for table in (REMOVED_SYMBOLS, REQUIRED_SYMBOLS):
-        assert set(table) <= STAGE_IDS
-        for pattern, paths in (item for items in table.values() for item in items):
-            re.compile(pattern)
-            assert paths and all(isinstance(path, str) for path in paths), pattern
+    assert set(REMOVED_SYMBOLS) <= STAGE_IDS
+    assert all(re.fullmatch(r"[A-Za-z_]\w*", symbol)
+               for symbols in REMOVED_SYMBOLS.values() for symbol in symbols)
 
 
 def test_every_implementation_stage_is_done() -> None:
@@ -254,15 +245,17 @@ def test_no_deferral_markers() -> None:
 
 
 def test_removed_symbols_of_done_stages_are_absent() -> None:
-    """已完成阶段登记的删除符号在列出路径下的任何文件中都不再出现。"""
-    missing = [relative for _, relative in _done_symbols(REMOVED_SYMBOLS) if not (REPO_ROOT / relative).exists()]
-    assert not missing, f"registered paths do not exist: {missing}"
-    left = {
-        f"{pattern} @ {relative}": hits
-        for pattern, relative in _done_symbols(REMOVED_SYMBOLS)
-        if (hits := _matching_files(pattern, relative))
-    }
-    assert not left, left
+    """@brief 删除符号覆盖整个生产包，搬到另一个文件仍会失败。"""
+    removed = {symbol for stage in STAGES_DONE for symbol in REMOVED_SYMBOLS.get(stage, [])}
+    hits = {path: sorted(symbols & removed) for path, symbols in _production_symbols(REPO_ROOT).items()
+            if symbols & removed}
+    for directory in ("src", "custom"):
+        for path in sorted((REPO_ROOT / directory).rglob("*.py")):
+            definitions = {node.name for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                           if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+            if left := definitions & REMOVED_DEFINITIONS:
+                hits[path.relative_to(REPO_ROOT).as_posix()] = sorted(left)
+    assert not hits, hits
 
 
 def test_activity_duration_limits_use_the_shared_model_constants() -> None:
@@ -273,11 +266,9 @@ def test_activity_duration_limits_use_the_shared_model_constants() -> None:
     assert CONSUME_DURATION_CAP_SECONDS == 14400
 
 
-def test_required_symbols_of_done_stages_are_present() -> None:
-    """已完成阶段登记的新增符号在每个列出路径中都能找到（目录下任一文件命中即算）。"""
-    absent = [
-        f"{pattern} @ {relative}"
-        for pattern, relative in _done_symbols(REQUIRED_SYMBOLS)
-        if not (REPO_ROOT / relative).exists() or not _matching_files(pattern, relative)
-    ]
-    assert not absent, absent
+def test_removed_symbol_scan_detects_a_definition_moved_to_another_file(tmp_path) -> None:
+    """@brief 旧位置已清空但新位置仍有删除定义时，整个包的结构扫描能找到它。"""
+    path = tmp_path / "src" / "worldmock" / "elsewhere.py"
+    path.parent.mkdir(parents=True)
+    path.write_text('def _after_unknown():\n    return 1\n', encoding="utf-8")
+    assert _production_symbols(tmp_path)["src/worldmock/elsewhere.py"] == {"_after_unknown"}

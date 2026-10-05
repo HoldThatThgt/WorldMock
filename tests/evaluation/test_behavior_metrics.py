@@ -11,7 +11,7 @@ from worldmock.evaluation.behavior_metrics import (
     behavior_metrics_report,
 )
 from worldmock.footprints.models import canonical_json
-from worldmock.life.interaction_menu import WAYS
+from worldmock.life.vocabulary import WAYS
 
 ZONE = ZoneInfo("Asia/Shanghai")
 CODE_A = "a" * 64
@@ -304,7 +304,7 @@ def _with_tools(event: dict[str, Any], *names: str) -> dict[str, Any]:
 
 
 def test_reflection_requests_and_their_retries_are_not_decision_requests() -> None:
-    """@brief 就寝反思的请求只带 submit_reflection、不带 purpose（docs/dev/SPEC-errands-workday.md 1.1）：两个人物各有
+    """@brief 就寝反思的请求只带 submit_reflection、不带 purpose（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）：两个人物各有
     一次校验重试，附回消息逐字相同、分处两条（人物，秒）续接链，也不进观察重复门禁与决策 token 中位数；工具中有
     start_activity 的行动请求与不带工具的记忆巩固照计。"""
     correction = ('{"INSTRUCTION":"Return a complete new submit_reflection tool call using the unchanged schema.",'
@@ -335,8 +335,8 @@ def test_reflection_requests_and_their_retries_are_not_decision_requests() -> No
 
 
 def test_tool_requests_without_start_activity_are_not_decision_requests() -> None:
-    """@brief 带工具的请求只在工具中有 start_activity 时才是人物决策请求（docs/dev/SPEC-errands-workday.md 1.1「身份与
-    判定」、docs/design/07-evaluation.md「2.1 协议门禁」「2.2 报告项」），不是「只要不是就寝反思就算」：只读问答的请求不带
+    """@brief 带工具的请求只在工具中有 start_activity 时才是人物决策请求（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 「身份与
+    判定」、docs/design/07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估「2.1 协议门禁」「2.2 报告项」），不是「只要不是就寝反思就算」：只读问答的请求不带
     purpose，工具是三个记忆查询与 finish（末回合只剩 finish）。它们的 user 文本即便与另一秒的行动请求逐字相同、prompt
     token 很大，也不进观察重复门禁与决策 token 中位数。"""
     events = [
@@ -363,7 +363,7 @@ def test_tool_requests_without_start_activity_are_not_decision_requests() -> Non
 
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     """@brief 最终动作为进度播报或等待的决策不计入自主决策；等待按受理时实际开始的活动 kind=wait 判定
-    （docs/design/07-evaluation.md「2.2 报告项」），不按请求里的动词或方式。"""
+    （docs/design/07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估「2.2 报告项」），不按请求里的动词或方式。"""
     events = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
         _action(2, "d1", "report_status", {"items": [{"activity_name": "当前会话", "summary": "继续。"}],
@@ -403,7 +403,7 @@ def test_wait_is_judged_by_the_started_activity_kind_not_the_request() -> None:
 
 
 def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
-    """@brief 只做结束、暂停或修订的控制轮单列计数，既不算自主也不算被动（docs/design/07-evaluation.md「2.2 报告项」）。
+    """@brief 只做结束、暂停或修订的控制轮单列计数，既不算自主也不算被动（docs/design/07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估「2.2 报告项」）。
 
     待收尾活动当秒 conclude_activity 的收尾轮（时间与能量规格第七章）因此不稀释自主决策占比。
     """
@@ -568,7 +568,7 @@ def test_js_distance_hand_anchor() -> None:
 
 
 def test_reference_minutes_match_spec_constants() -> None:
-    """@brief 参照常量与 docs/VERIFICATION.md「真实性评估与结论边界」逐项一致（分钟换算）。"""
+    """@brief 参照常量与 docs/VERIFICATION.md#verification-worldmock-验收标准「真实性评估与结论边界」逐项一致（分钟换算）。"""
     assert TIME_USE_REFERENCE_MINUTES == {
         "sleep": 553, "hygiene": 50, "meals": 104, "work": 460, "transport": 44,
         "socializing": 21, "exercise": 41, "screen_entertainment": 165, "no_reference": 0,

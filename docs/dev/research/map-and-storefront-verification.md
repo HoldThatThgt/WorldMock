@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/map-and-storefront-verification.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # 地图与门店供给验收记录
 
 > 对应合同：[地图与门店供给规格](../SPEC-map-and-storefront.md)。

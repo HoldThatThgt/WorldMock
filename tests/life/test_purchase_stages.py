@@ -1,4 +1,4 @@
-"""指名购买的分段匹配、from 约束与由系统定方式的「购买」（docs/dev/SPEC-dayrun-fidelity.md 3.2（b）（c）（d）、3.5；验收台账
+"""指名购买的分段匹配、from 约束与由系统定方式的「购买」（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 （b）（c）（d）、3.5；验收台账
 「指名购买」与 3.5 的验收）。
 
 白领场景的真实 LifeEngine、SQLite 与 LifeAgent 上，同一次冻结观察先经宿主本地校验、再由环境受理：from 是可选约束——
@@ -50,12 +50,12 @@ def _buy(*items, prefer: str = "最快拿到") -> dict:
 
 def _world_facts(engine) -> tuple:
     """拒绝时必须不变的世界事实：余额、库存与订单。"""
-    return dict(engine.state.accounts), dict(engine.state.supply_stock), dict(engine.state.deliveries)
+    return dict(engine.context.state.accounts), dict(engine.context.state.supply_stock), dict(engine.context.state.deliveries)
 
 
 def _place(engine, location_id: str) -> str:
     """地点的显示名。"""
-    return next(item.name for item in engine.scenario.locations if item.location_id == location_id)
+    return next(item.name for item in engine.context.scenario.locations if item.location_id == location_id)
 
 
 def test_goods_from_a_store_that_does_not_sell_them_are_supply_not_at_store(engine_factory) -> None:
@@ -165,7 +165,7 @@ def test_system_purchase_on_the_road_is_not_buying_in_the_store_just_left(engine
     assert error == "" and walking.status == "in_progress"
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    assert engine.state.activities[walking.activity_id].status == "active"
+    assert engine.context.state.activities[walking.activity_id].status == "active"
     _, error, bought = decide(engine, "buy-on-the-road", _buy((_MILK, "购买", None)))
     assert error == "" and (bought.status, bought.error_code) == ("completed", None)
     assert [order["fulfillment"] for order in bought.data["orders"]] == ["delivery"]
@@ -186,7 +186,7 @@ def test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_
     [item] = refused.data["items"]
     assert (item["path"][-2], item["path"][-1], item["error_code"]) == (0, "target", "ACTIVITY_PRECONDITION_UNMET")
     assert _world_facts(engine) == before
-    [stored] = [event for event in engine.store.read_agent_events("action_rejected", 1)
+    [stored] = [event for event in engine.context.store.read_agent_events("action_rejected", 1)
                 if event.action_id == "action-system-none"]
     assert stored.data["unmet"] == ["required_location_id", "delivery_destination"]
 
@@ -196,18 +196,18 @@ def test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_stor
     家，离家最近的农工商超市只远程下单（去了也买不到），好德与集市到店、远程下单都行；拒绝的下一步是好德，不是农工商超市，
     未满足条件是要在那里与送不到这里，不下单；照着去了好德再写「购买」就按到店成单。"""
     engine = _world(engine_factory)
-    milk = next(item.product_id for item in engine.scenario.products if item.name == _MILK)
+    milk = next(item.product_id for item in engine.context.scenario.products if item.name == _MILK)
     _rescenario(engine, supplies=tuple(
         item.model_copy(update={"delivery_destination_ids": ("office",), "fulfillment_modes": (
             ("delivery",) if item.location_id == _SUPERMARKET else item.fulfillment_modes)})
-        if item.product_id == milk else item for item in engine.scenario.supplies))
+        if item.product_id == milk else item for item in engine.context.scenario.supplies))
     before = _world_facts(engine)
     home, haode, supermarket = _place(engine, "home"), _place(engine, _HAODE), _place(engine, _SUPERMARKET)
     _, error, refused = decide(engine, "system-pickup-store", _buy((_MILK, "购买", None)))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
     assert refused.data["reason"] == f"The caller is not at a selling store and delivery cannot reach {home}."
     assert refused.data["next_step"] == f"Go to {haode}." and supermarket not in refused.data["next_step"]
-    [stored] = [event for event in engine.store.read_agent_events("action_rejected", 1)
+    [stored] = [event for event in engine.context.store.read_agent_events("action_rejected", 1)
                 if event.action_id == "action-system-pickup-store"]
     assert stored.data["unmet"] == ["required_location_id", "delivery_destination"]
     assert _world_facts(engine) == before
@@ -231,7 +231,7 @@ def test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed
     _, error, bought = decide(engine, "system-listed", _buy((listed, "购买", None)))
     assert error == "" and (bought.status, bought.error_code) == ("completed", None)
     [order] = bought.data["orders"]
-    moment = clock_phrase(order["expected_at"], engine.state.current_time, engine.scenario.timezone)
+    moment = clock_phrase(order["expected_at"], engine.context.state.current_time, engine.context.scenario.timezone)
     assert order["fulfillment"] == "delivery"
     assert bought.data["notes"] == [f"「{listed}」「购买」定为远程下单：{listed}（预计 {moment} 送到）"]
     _, error, named = decide(engine, "system-named", _buy((_MILK, "购买", None)))
@@ -267,7 +267,7 @@ def test_a_name_class_item_leads_the_merged_rejection_even_when_it_comes_second(
     此刻服务不了（ACTIVITY_PRECONDITION_UNMET）、第 2 项没有这件商品（SUPPLY_NOT_FOUND）时，一次拒绝的码是 SUPPLY_NOT_FOUND、
     下一步取它的默认做法，items 按项序各写各的码；它是名称类拒绝，本秒前两次不计同刻轮数（3.4）。"""
     engine = _world(engine_factory, hour=11)
-    rounds = engine.state.agents[1].same_moment_rounds
+    rounds = engine.context.state.agents[1].same_moment_rounds
     soup = _place(engine, _SOUP)
     _, error, result = decide(engine, "unmet-then-missing",
                               _buy((_NOODLES, "购买", soup), ("不存在的商品", "远程下单", None)))
@@ -275,7 +275,7 @@ def test_a_name_class_item_leads_the_merged_rejection_even_when_it_comes_second(
     assert [(item["path"][-2], item["error_code"]) for item in result.data["items"]] == [
         (0, "ACTIVITY_PRECONDITION_UNMET"), (1, "SUPPLY_NOT_FOUND")]
     assert result.data["next_step"] == refusal_for_code("SUPPLY_NOT_FOUND").next_step
-    assert engine.state.agents[1].same_moment_rounds == rounds
+    assert engine.context.state.agents[1].same_moment_rounds == rounds
 
 
 def _listed_remote_rows(engine, round_id: str) -> list[dict]:
@@ -319,7 +319,7 @@ def test_a_listed_item_and_a_named_item_resolve_item_by_item_and_are_bought_toge
     那一项记下归一。"""
     engine = _world(engine_factory)
     _browse(engine)
-    sellers = {supply.supply_id: supply.seller_account_id for supply in engine.scenario.supplies}
+    sellers = {supply.supply_id: supply.seller_account_id for supply in engine.context.scenario.supplies}
     market: dict[str, list[str]] = {}
     for row in _listed_remote_rows(engine, "look-before-buying"):
         if row["object"].startswith(f"{_MARKET_NAME}出售的"):
@@ -331,15 +331,15 @@ def test_a_listed_item_and_a_named_item_resolve_item_by_item_and_are_bought_toge
     assert error == "" and (bought.status, bought.error_code) == ("completed", None)
     assert [(order["location_id"], order["fulfillment"]) for order in bought.data["orders"]] == [
         ("market", "delivery"), ("market", "delivery")]
-    products = [engine.rules.items[order["product_id"]].name for order in bought.data["orders"]]
+    products = [engine.context.rules.items[order["product_id"]].name for order in bought.data["orders"]]
     assert products == [listed.split("出售的", 1)[1], written]
     assert [row["written"] for row in bought.data["resolved"]] == [written]
 
 
 def _milk_supplies(engine) -> dict[str, object]:
     """各家门店出售的纯牛奶（门店身份 → 供给）。"""
-    return {supply.location_id: supply for supply in engine.scenario.supplies
-            if engine.rules.items[supply.product_id].name == _MILK}
+    return {supply.location_id: supply for supply in engine.context.scenario.supplies
+            if engine.context.rules.items[supply.product_id].name == _MILK}
 
 
 def test_an_unservable_source_offers_the_same_goods_that_can_be_served_elsewhere(engine_factory) -> None:
@@ -353,7 +353,7 @@ def test_an_unservable_source_offers_the_same_goods_that_can_be_served_elsewhere
     _, error, refused = decide(engine, "unservable-source", _buy((_MILK, "远程下单", _place(engine, _HAODE))))
     assert error == "" and (refused.status, refused.error_code) == ("rejected", "ACTIVITY_PRECONDITION_UNMET")
     assert refused.data["reason"] == "The current place is outside this store's delivery area."
-    arrival = {store: delivery_expected_at(engine.semantics, supply, "home", engine.state.current_time)
+    arrival = {store: delivery_expected_at(engine.context.semantics, supply, "home", engine.context.state.current_time)
                for store, supply in milk.items() if store != _HAODE}
     assert len(set(arrival.values())) == len(arrival) == 2
     [item] = refused.data["items"]
@@ -373,7 +373,7 @@ def test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route
     for supply in milk.values():
         _retarget(engine, supply.supply_id, tuple(spot for spot in supply.delivery_destination_ids if spot != _PARK))
     place(engine, 1, _PARK)
-    paths = shortest_paths(engine.scenario.routes, _PARK)
+    paths = shortest_paths(engine.context.scenario.routes, _PARK)
     nearest = min(milk, key=lambda store: paths[store][0])
     assert nearest not in {min(milk), max(milk, key=lambda store: paths[store][0])}
     _, error, system = decide(engine, "system-several", _buy((_MILK, "购买", None)))
@@ -416,9 +416,9 @@ def test_an_unknown_source_near_a_place_without_supplies_never_offers_that_place
     一处没有任何供给的地点（住处、办公室、健身房、公园）相近的写法「<地点>旁」，宿主放行、环境以 SOURCE_NOT_FOUND
     拒绝，一至三条候选只换 from，来源都是有供给的门店的显示名，那处地点不在其中；不下单。每处地点各用一个引擎。"""
     probe = _world(engine_factory)
-    stores = {supply.location_id for supply in probe.scenario.supplies}
-    selling = {item.name for item in probe.scenario.locations if item.location_id in stores}
-    bare = [item for item in probe.scenario.locations if item.location_id not in stores]
+    stores = {supply.location_id for supply in probe.context.scenario.supplies}
+    selling = {item.name for item in probe.context.scenario.locations if item.location_id in stores}
+    bare = [item for item in probe.context.scenario.locations if item.location_id not in stores]
     assert {"home", "office", _PARK} <= {item.location_id for item in bare}
     for index, location in enumerate(bare):
         engine = probe if index == 0 else _world(engine_factory)

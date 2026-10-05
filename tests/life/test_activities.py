@@ -23,7 +23,7 @@ from worldmock.life.models import (
     ChangeActivityRequest,
     ActivityStartParams,
 )
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 
 def agent() -> AgentState:

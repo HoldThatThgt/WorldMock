@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/decision-context-bob-protocol.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # Bob report
 
 状态：**COMPLETE**。当前审查范围没有未关闭的测试缺口，也没有发现实现缺失或规范偏离。

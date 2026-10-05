@@ -1,10 +1,11 @@
 """@brief 地点类与人物交互菜单的声明、交集，人物动词与方式的词表，以及按私有绑定解析的统一动作准入判断。
 
-人物所选的（对象，动词，方式）经本轮观察的私有绑定映射为内部标准动作（docs/dev/SPEC-time-and-energy.md 第五章
+人物所选的（对象，动词，方式）经本轮观察的私有绑定映射为内部标准动作（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章
 「请求形状与菜单」）；菜单、习惯归并与证据都按映射后的内部动作判定，不按短语反解。
 """
 
 from __future__ import annotations
+from worldmock.life import vocabulary
 
 from worldmock.errors import reject_value
 from collections.abc import Sequence
@@ -14,50 +15,11 @@ from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
 from worldmock.base_models import FrozenModel
-from worldmock.life.models import (START_ACTIVITY_ACTIONS)
-from worldmock.life.readable import TRAVEL_WAYS
+from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 
-#: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md「保护项修订」）：每份菜单必须保留，
+#: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「保护项修订」）：每份菜单必须保留，
 #: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。
 PROTECTED_SELF_ACTIONS = frozenset({"wait", "sleep"})
-
-#: 人物的五个生活动词（docs/dev/SPEC-time-and-energy.md 第五章「人物选择什么」）。
-LIFE_VERBS = ("travel", "interact", "obtain", "consume", "sleep")
-#: 方式短语闭集 → （动词，内部标准动作）；同一方式只属于一个动词。内容对象的四个续看方式都映射为观看。「购买」只写在
-#: 请求里（由系统定到店或远程下单，SYSTEM_PURCHASE_WAY），工具层不列出它。
-WAYS: dict[str, tuple[str, str]] = {
-    "步行": ("travel", "travel_to"), "驾车": ("travel", "travel_to"),
-    "工作": ("interact", "work"), "观看": ("interact", "watch"), "游玩": ("interact", "play"),
-    "交谈": ("interact", "chat"), "通话": ("interact", "call"), "阅读": ("interact", "read"),
-    "浏览": ("interact", "browse"), "进行": ("interact", "do"), "等待": ("interact", "wait"),
-    "到店": ("obtain", "purchase"), "远程下单": ("obtain", "purchase"), "购买": ("obtain", "purchase"),
-    "制作": ("obtain", "consume"),
-    "食用": ("consume", "consume"), "使用": ("consume", "consume"), "给予": ("consume", "consume"),
-    "接着看": ("interact", "watch"), "从头再看": ("interact", "watch"),
-    "接着听": ("interact", "watch"), "从头再听": ("interact", "watch"),
-    "睡觉": ("sleep", "sleep"),
-}
-#: 内部标准动作的缺省方式（出行、购买、使用与内容续看另有专门方式）。
-ACTION_WAYS = {
-    "work": "工作", "browse": "浏览", "watch": "观看", "play": "游玩", "chat": "交谈", "call": "通话",
-    "read": "阅读", "do": "进行", "wait": "等待", "sleep": "睡觉",
-}
-# 出行方式 → 方式短语 TRAVEL_WAYS 的唯一来源是 readable 的中文种类表（docs/dev/SPEC-dayrun-fidelity.md 7.4），
-# 文件头导入的就是那张表，照旧从本模块导出。
-PURCHASE_WAYS = {"pickup": "到店", "delivery": "远程下单"}
-#: 由系统定取得方式的「购买」（docs/dev/SPEC-dayrun-fidelity.md 3.5）：人在出售该商品的门店里就到店，否则能送到收货地
-#: 就远程下单；对任何商品目标都受理，工具层的商品目标不列出它。
-SYSTEM_PURCHASE_WAY = "购买"
-#: 按名称取得商品可写的方式：到店、远程下单与「购买」。
-NAMED_PURCHASE_WAYS = frozenset({*PURCHASE_WAYS.values(), SYSTEM_PURCHASE_WAY})
-USE_WAYS = {"eat": "食用", "use": "使用"}
-#: 把手边的持有物交给人物的方式（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：内部标准动作仍是 consume，
-#: 瞬时、不占名额、不增加任何人的摄入；菜单、可供性目录与品类配对不变。
-GIVE_WAY = "给予"
-#: 内容续看方式：（播客？，从头？）→ 方式短语。
-CONTENT_WAYS = {(False, False): "接着看", (False, True): "从头再看", (True, False): "接着听", (True, True): "从头再听"}
-#: 公开动作短语中动词与方式的分隔符：「travel：驾车」。
-VERB_WAY_SEPARATOR = "："
 
 #: 稳定工具面里唯一受菜单剪裁的工具：其对象的动作按映射后的内部动作由菜单判定。
 MENU_SCOPED_TOOL = "start_activity"
@@ -127,7 +89,7 @@ def binding_action(way: str, canonical: str, **execution: Any) -> dict[str, Any]
     :param way: 方式短语闭集 WAYS 中的一项；动词由方式唯一确定。
     :param canonical: 映射后的内部标准动作（须与方式的内部动作一致）。
     """
-    verb, expected = WAYS[way]
+    verb, expected = vocabulary.WAYS[way]
     if expected != canonical:
         raise IntegrityError("Interaction way does not map to the bound internal action")
     return {"verb": verb, "label": way, "canonical_action": canonical,
@@ -136,7 +98,7 @@ def binding_action(way: str, canonical: str, **execution: Any) -> dict[str, Any]
 
 def public_action(action: dict[str, Any]) -> dict[str, Any]:
     """@brief 交互对象公开行的一项动作：「动词：方式」的可读短语与未满足条件的一句说明（没有时为 null）。"""
-    return {"action": f"{action['verb']}{VERB_WAY_SEPARATOR}{action['label']}", "note": action["note"]}
+    return {"action": f"{action['verb']}{vocabulary.VERB_WAY_SEPARATOR}{action['label']}", "note": action["note"]}
 
 
 def named_supply_row(name: str, way: str) -> dict[str, Any]:
@@ -144,7 +106,7 @@ def named_supply_row(name: str, way: str) -> dict[str, Any]:
 
     :param way: 到店、远程下单或「购买」；「购买」的履约方式在解析时由系统决定，占位行上为 None。
     """
-    fulfillment = next((mode for mode, label in PURCHASE_WAYS.items() if label == way), None)
+    fulfillment = next((mode for mode, label in vocabulary.PURCHASE_WAYS.items() if label == way), None)
     action = binding_action(way, "purchase", fulfillment=fulfillment)
     return {"object": name, "kind": NAMED_SUPPLY_KIND, "object_id": None, "actions": [action],
             "selected_action": action}
@@ -162,7 +124,7 @@ def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
     if len(canonical) == 1:
         return True
     same = canonical[0] == canonical[1] and ways[0] == ways[1]
-    return same and canonical[0] in {"purchase", "consume"} and ways[0] not in {"制作", GIVE_WAY}
+    return same and canonical[0] in {"purchase", "consume"} and ways[0] not in {"制作", vocabulary.GIVE_WAY}
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

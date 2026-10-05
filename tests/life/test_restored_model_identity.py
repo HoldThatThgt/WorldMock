@@ -2,10 +2,11 @@
 
 清单阶段只剩 action 与 work_review，键名为 stage_model_identity；含退役阶段 decision_statement 的清单（含旧键
 two_stage_model_identity 下的旧运行清单）经同一清单校验函数 validate_manifest_stage_identity 以英文错误拒绝
-（docs/dev/SPEC-persona-prompt.md 第七章「清单」）。
+（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。
 """
 
 from __future__ import annotations
+import worldmock.run_setup as worldmock_run_setup_module
 
 import copy
 import json
@@ -17,9 +18,10 @@ from custom.envs.life_env import LifeEnv
 from tests.life.test_taste_seam import _run_identity
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
-from worldmock.life.scenario import load_scenario
-from worldmock.runtime import _require_runtime_identity, stage_model_identity
-from worldmock.validation import validate_manifest_stage_identity
+from worldmock.life.world_setup import load_scenario
+from worldmock.runtime import _require_runtime_identity
+from worldmock.run_setup import stage_model_identity
+from worldmock.run_setup import validate_manifest_stage_identity
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
 _LIFECYCLES = ("open_existing", "restore", "from_workspace")
@@ -86,7 +88,7 @@ def _tamper_manifest(run_dir, corruption):
     elif corruption == "wrong_action_parameters":
         stages["action"]["max_tokens"] = 4000
     elif corruption == "main_site_endpoint":
-        # 切换到 strict 端点之前冻结的运行：两处身份都记着主站（docs/dev/SPEC-dayrun-fidelity.md 7.5）。
+        # 切换到 strict 端点之前冻结的运行：两处身份都记着主站（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-strict-端点 ）。
         manifest["stage_model_identity"]["base_url"] = "https://api.deepseek.com"
         manifest["model_identity"]["base_url"] = "https://api.deepseek.com"
     path.write_text(json.dumps(manifest))
@@ -120,11 +122,11 @@ async def test_environment_lifecycles_restore_current_stage_identity(saved_envir
     """合法生产运行经每条恢复路径保留冻结身份与世界时钟；清单只有 action 与 work_review 两个阶段。"""
     environment = await _open_environment(lifecycle, saved_environment)
     try:
-        manifest = environment.engine.store.manifest
+        manifest = environment.engine.context.store.manifest
         assert manifest["stage_model_identity"] == stage_model_identity()
         assert set(manifest["stage_model_identity"]["stages"]) == {"action", "work_review"}
         assert "two_stage_model_identity" not in manifest
-        assert environment.engine.state.current_time == int(saved_environment[1].timestamp())
+        assert environment.engine.context.state.current_time == int(saved_environment[1].timestamp())
         assert environment.run_dir == saved_environment[0]
     finally:
         await environment.close()
@@ -134,14 +136,14 @@ async def test_environment_lifecycles_restore_current_stage_identity(saved_envir
 async def test_explicit_direct_engine_identity_remains_openable(engine_factory, lifecycle):
     """明确直驱创建的 null 身份继续可恢复，不生成模型身份。"""
     engine = engine_factory()
-    saved = engine.store.run_dir, engine.scenario.start_at
-    assert engine.store.manifest["stage_model_identity"] is None
+    saved = engine.context.store.run_dir, engine.context.scenario.start_at
+    assert engine.context.store.manifest["stage_model_identity"] is None
     engine.close()
 
     environment = await _open_environment(lifecycle, saved)
     try:
-        assert environment.engine.store.manifest["stage_model_identity"] is None
-        assert environment.engine.store.read_agent_events("decision_started", 1) == []
+        assert environment.engine.context.store.manifest["stage_model_identity"] is None
+        assert environment.engine.context.store.read_agent_events("decision_started", 1) == []
     finally:
         await environment.close()
 
@@ -149,7 +151,7 @@ async def test_explicit_direct_engine_identity_remains_openable(engine_factory, 
 def test_direct_engine_open_rejects_retired_stage(engine_factory):
     """公共引擎打开入口也独立拒绝退役阶段，不能只在环境包装层检查。"""
     engine = engine_factory()
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     path = run_dir / "manifest.json"
     manifest = json.loads(path.read_text())
@@ -191,7 +193,7 @@ def test_environment_validation_rejects_a_retired_stage(monkeypatch):
     import worldmock.runtime as runtime
 
     assert sorted(validate_manifest_stage_identity()["stages"]) == ["action", "work_review"]
-    monkeypatch.setattr(runtime, "stage_model_identity", _with_retired_stage)
+    monkeypatch.setattr(worldmock_run_setup_module, 'stage_model_identity', _with_retired_stage)
     with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
         validate_manifest_stage_identity()
 
@@ -199,16 +201,18 @@ def test_environment_validation_rejects_a_retired_stage(monkeypatch):
 def test_create_open_resume_and_replay_call_the_one_manifest_validator(monkeypatch, tmp_path):
     """新建（写清单前校验将冻结的阶段身份，建成后按打开校验）、打开（工作区加载与恢复同走打开）、恢复与重放都把清单交给
     同一个 validate_manifest_stage_identity；环境校验入口见 tests/footprints/test_validation.py。"""
-    import worldmock.validation as validation
+    import worldmock.runtime as runtime
+    from worldmock.life import engine_context, world_setup
 
     seen = []
-    original = validation.validate_manifest_stage_identity
+    original = validate_manifest_stage_identity
 
     def spy(manifest=None):
         seen.append(manifest.get("run_id"))
         return original(manifest)
 
-    monkeypatch.setattr(validation, "validate_manifest_stage_identity", spy)
+    for module in (world_setup, engine_context, runtime.run_setup):
+        monkeypatch.setattr(module, 'validate_manifest_stage_identity', spy)
     scenario, _ = load_scenario(_SCENARIO)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario, "one-validator"),
                                stage_model_identity())

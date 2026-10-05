@@ -1,17 +1,20 @@
 """@brief AgentSociety2 原生 LifeAgent，使用闭集生活工具直接调用 LifeEnv。
 
-一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求由原生 tools、系统层
+一次决策只有一个行动阶段（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）：请求由原生 tools、系统层
 system 与六层 user 组成；可以先做记忆查询，世界请求登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
 在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。本地校验失败写成
-宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/dev/SPEC-dayrun-fidelity.md 第四章，
+宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章，
 custom/agents/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
 （worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
-（docs/dev/SPEC-errands-workday.md 2.3）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
+（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
 纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，custom/agents/life_truncation.py）。
 """
 
 from __future__ import annotations
+from custom.agents.life_memory import WorldMockMemoryRuntime
+from worldmock.footprints.experiences import validate_verified_experiences
+from worldmock.catalog.affordances import AFFORDANCES_FILE
 
 import json
 import hashlib
@@ -49,10 +52,11 @@ from worldmock.life.continuation import CONTINUATION_KEY
 from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items
 from worldmock.life.error_contract import (HOST_NAME_CODES, Candidate, ErrorItem, ErrorReport, activity_candidate,
                                            bind_report, host_report)
-from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR
+from worldmock.life.vocabulary import VERB_WAY_SEPARATOR
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
-from worldmock.life.name_resolution import StartOutcome, name_book, near_names, resolve_name, resolve_start
+from worldmock.life.name_resolution import StartOutcome, name_book, near_names, resolve_start
+from worldmock.life.object_labels import resolve_name
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
@@ -156,7 +160,7 @@ _MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
 }
 
 #: 生活决策的工具面：八个人物工具（REQUEST_MODELS 顺序）与记忆查询；没有 finish。当日计划由零点后台任务生成，
-#: 不是人物工具（docs/dev/SPEC-time-and-energy.md 第四章）。
+#: 不是人物工具（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
 _TOOL_MODELS: dict[str, type[BaseModel]] = {
     **REQUEST_MODELS,
     **_MEMORY_TOOL_MODELS,
@@ -173,7 +177,7 @@ _MEMORY_RUNTIME_ACTIONS = {
     "memory_time_range": "memory_range",
 }
 
-#: 记忆查询返回给模型的字段（不含条目身份，docs/dev/SPEC-time-and-energy.md 第七章「发给模型的内容不含内部身份」）。
+#: 记忆查询返回给模型的字段（不含条目身份，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「发给模型的内容不含内部身份」）。
 _MEMORY_RESULT_FIELDS = ("type", "text", "time", "epistemic_status")
 
 #: 以活动名为参数的控制工具。
@@ -221,7 +225,7 @@ class LifeAgent(PersonAgent):
     @staticmethod
     def _protocol_feedback_content(error: str) -> str:
         """@brief 协议纠错正文（覆写 AS2 同名静态方法，锁定提交不改）：共用错误结构 {error_code, reason, fix, items,
-        unmet} 加固定 instruction，不带英文校验转储（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
+        unmet} 加固定 instruction，不带英文校验转储（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章）。"""
         return feedback_content(error)
 
     def _parse_react_responses(self, response: Any, *, readonly: bool = False) -> tuple[list[ReactDecision], str]:
@@ -246,7 +250,8 @@ class LifeAgent(PersonAgent):
 
 
     def _append_react_protocol_feedback(self, messages: list[dict[str, Any]], response: Any, error: str) -> None:
-        """@brief 把协议纠错加入下一回合的消息历史（覆写 AS2 同名方法，锁定提交不改，docs/dev/SPEC-dayrun-fidelity.md 7.2）。
+        """@brief 把协议纠错加入下一回合的消息历史（覆写 AS2 同名方法，锁定提交不改，
+        docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 ）。
 
         没有工具调用的回复（含截断回合）与截断重试（关闭思考的请求）的回合都不留在历史中：纠错作为一条 user 消息，本次
         决策中已有的相同纠错替换、不叠加，续接链前缀不动；这样本次决策此后带思考的请求里没有缺思考的 assistant。带工具
@@ -303,8 +308,9 @@ class LifeAgent(PersonAgent):
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400："Thinking mode does not support this
         tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
         兜底（"native tool_calls are required"）。截断之后的那一次重试按状态判定（上一回合的思考请求被截断，行动与
-        只读问答相同）：关闭思考并 tool_choice=required，max_tokens 不变，其余请求不变（docs/dev/SPEC-dayrun-fidelity.md
-        7.2）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；预算第 0 步结束续接后，本决策此后的回合
+        只读问答相同）：关闭思考并 tool_choice=required，max_tokens 不变，其余请求不变（
+        docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋 ）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；预算第 0 步
+        结束续接后，本决策此后的回合
         都从新快照续写。
         """
         request = super()._model_request(messages, tools)
@@ -355,7 +361,6 @@ class LifeAgent(PersonAgent):
 
     def _new_memory_runtime(self, config):
         """@brief 复用 AS2 构造接点装配 WorldMock 的事实与主观记忆视图。"""
-        from custom.agents.life_memory import WorldMockMemoryRuntime
 
         return WorldMockMemoryRuntime(self, config)
 
@@ -411,7 +416,6 @@ class LifeAgent(PersonAgent):
 
         观察身份缺失是损坏的宿主观察，在任何模型调用之前失败，不等到记忆写入时才暴露。
         """
-        from worldmock.footprints.experiences import validate_verified_experiences
 
         now = _observation_now(data)
         self._life_verified_experiences = validate_verified_experiences(
@@ -424,7 +428,7 @@ class LifeAgent(PersonAgent):
 
     async def _record_memory_update(self, outcome: MemoryStepOutcome) -> None:
         """@brief 登记本步已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：就寝反思的快照条目另带来源 reflection，
-        环境据此给反思找归属日期（docs/dev/SPEC-persona-prompt.md 第三章「零点、反思与未了结」）。"""
+        环境据此给反思找归属日期（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「零点、反思与未了结」）。"""
         context = getattr(self, "_decision_context", None)
         store = self._memory_runtime.store
         if context is None or store is None:
@@ -696,7 +700,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
     私有绑定 person_bindings），供 relationship 记忆的对象校验。回看名称是任务名、待办层写出的目标文字、活动名与
     记忆层 self_notes 所写的活动名（活动绑定的 note_labels）；事务名不进回看名称。个人事务变更的本地校验读两类私有事务
     绑定原样的行：errand_bindings（本人未完成事务的名称、事务身份、结果种类与商品身份）与 errand_item_bindings（全部
-    商品名到商品身份），与环境复核读同一份冻结观察（docs/dev/SPEC-errands-workday.md 2.3）。
+    商品名到商品身份），与环境复核读同一份冻结观察（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）。
     """
     objects = _binding_objects(data.get("interaction_bindings"))
     tasks = _binding_names(data, "task_bindings", "task_name")
@@ -775,8 +779,9 @@ def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
-    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）：精确或
-    无损归一后唯一即受理（docs/dev/SPEC-dayrun-fidelity.md 3.1，worldmock.life.name_resolution），找不到的逐项写成
+    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「工具层」）：精确或
+    无损归一后唯一即受理（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 ，worldmock.life.name_resolution），找不到
+    的逐项写成
     NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）；控制工具的活动名、结束工具关系看法的对象与请求级
     个人事务变更的问题一并逐项报全部。"""
     if action == "start_activity":
@@ -797,7 +802,8 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
 
 def _control_feedback(action: str, request: BaseModel, names: dict[str, Any]) -> str:
     """@brief 控制工具（播报、暂停、结束）逐项核对名称与请求级个人事务变更，全部问题合并成一次纠错
-    （docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章；docs/dev/SPEC-errands-workday.md 2.3）：各项的活动名
+    （docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 5 条、第四章；
+    docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-校验与错误 ）：各项的活动名
     （NAME_NOT_FOUND、NAME_AMBIGUOUS）、各项关系看法的对象（SUBJECT_NOT_KNOWN，只有结束工具带看法），再是事务变更在冻结
     观察私有事务绑定上的问题——与环境复核同一函数 errands.change_issues（更新或取消的名称找不到或有歧义、同一事务被点名
     两次、商品名解析不到唯一商品、新增重名、同结果同商品、超过上限），路径到 errands[j].<键>、不带候选。明细按此先后
@@ -919,7 +925,7 @@ def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
 
 def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
     """@brief 修订保留已推进目标并逐项明确重复意图位置；与保留的已推进目标合并后超过八条定位在 goals，原值为提交的各条目
-    （与环境的 PLAN_GOALS_INVALID 明细同形，docs/CONTRACTS.md「当日目标请求」）。"""
+    （与环境的 PLAN_GOALS_INVALID 明细同形，docs/CONTRACTS.md#contracts-worldmock-接口合同「当日目标请求」）。"""
     issues = []
     if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:
         reason = "At most eight goals are allowed including preserved progressed goals."
@@ -938,7 +944,6 @@ def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str
 
 def affordance_registry_sha256() -> str:
     """@brief 返回仓库默认可供性注册表文件的 SHA-256（工具面审计指纹输入）。"""
-    from worldmock.catalog.affordances import AFFORDANCES_FILE
 
     root = Path(__file__).resolve().parents[2]
     return hashlib.sha256(

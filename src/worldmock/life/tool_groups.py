@@ -13,7 +13,7 @@ _ACTION_FIELDS = ("available", "reason", "price", "duration", "quantity", "note"
 
 def compact(value: object) -> object:
     """@brief 只略去 null 和空集合，false 与零值保持原类型原值；返回新的字典与列表（叶值深拷贝），调用者改动结果不影响
-    输入。工具层分组与世界查询的返回项（docs/dev/SPEC-errands-workday.md 5.4）共用这一份紧凑规则。"""
+    输入。工具层分组与世界查询的返回项（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-返回 ）共用这一份紧凑规则。"""
     if isinstance(value, dict):
         return {key: compact(item) for key, item in value.items() if item is not None and item != [] and item != {}}
     if isinstance(value, list):

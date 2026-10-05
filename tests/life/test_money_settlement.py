@@ -1,4 +1,4 @@
-"""@brief 货币改道等价冒烟与 resource_flows 落迹正反例（docs/design/02-exchange-engine.md「校验资源分录」与「分阶段验证与完成条件」）。
+"""@brief 货币改道等价冒烟与 resource_flows 落迹正反例（docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎「校验资源分录」与「分阶段验证与完成条件」）。
 
 一天夹具（multi-person）期末六账户对账参照 tests/resources/test_equivalence_anchor.py
 的模式：把运行足迹中全部携带 resource_changes 的事件改写为 TransferEntry 序列，
@@ -35,9 +35,9 @@ MONEY = "money_fen"
 
 def _stage_open(engine) -> None:
     """把一天夹具移到商家营业时段并保留之后的真实后台事件。"""
-    zone = ZoneInfo(engine.scenario.timezone)
+    zone = ZoneInfo(engine.context.scenario.timezone)
     epoch = int(datetime(2026, 1, 5, 10, 0, tzinfo=zone).timestamp())
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.current_time = epoch
     staged.pending_events = [event for event in staged.pending_events if event.due_at > epoch]
     for agent_id, agent in staged.agents.items():
@@ -46,8 +46,8 @@ def _stage_open(engine) -> None:
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=epoch, visibility="system",
                        source_kind="scenario", data={"kind": "test_merchant_open"})
-    engine.store.commit(staged.model_dump(mode="json"), [event])
-    engine.state = staged
+    engine.context.store.commit(staged.model_dump(mode="json"), [event])
+    engine.context.state = staged
 
 
 def _wait() -> StartActivityRequest:
@@ -102,7 +102,7 @@ def _conclude_round(engine, round_id: str) -> list:
 
 def _transfer_entries(engine) -> list[TransferEntry]:
     """把足迹资金事件改写为双边转账分录（单一付款方、逐对金额相等）。"""
-    events = [event for event in engine.store.read_events(engine.store.last_event_seq)
+    events = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
               if event.data.get("resource_changes")]
     entries: list[TransferEntry] = []
     for event in events:
@@ -129,7 +129,7 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     purchase = _selected_round(engine, "buy", "purchase", mode="delivery")
     assert purchase[0].status in {"completed", "in_progress"}, purchase[0].error_code
     order = purchase[0].data["orders"][0]
-    supply = next(item for item in engine.scenario.supplies if item.supply_id == order["supply_id"])
+    supply = next(item for item in engine.context.scenario.supplies if item.supply_id == order["supply_id"])
     price = order["total_price_fen"]
     # 修订决策节律：静默边界不再唤醒；循环推进直到出行发起者获得决策机会
     while 1 not in engine.scheduling_state().ready_agent_ids:
@@ -137,14 +137,14 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
         if ready_now:
             submit_round(engine, {
                 agent_id: ("start_activity", _wait()) for agent_id in ready_now
-            }, f"hold-{engine.state.current_time}")
+            }, f"hold-{engine.context.state.current_time}")
         assert advance_until_ready(engine), "agent 1 never regained a decision"
     travel = _selected_round(engine, "to-office", "travel_to", "office", "driving")
     assert travel[0].status == "in_progress", travel[0].error_code
 
-    accounts = dict(engine.state.accounts)
+    accounts = dict(engine.context.state.accounts)
     # 修订合同正餐品类新增 merchant:restaurant 商家账户（v2 场景 7 个账本账户）。
-    assert set(accounts) == set(engine.semantics.accounts)
+    assert set(accounts) == set(engine.context.semantics.accounts)
     assert {"merchant:haode", "merchant:nonggongshang"} <= accounts.keys()
     assert "merchant:restaurant" in accounts
     entries = _transfer_entries(engine)
@@ -161,19 +161,19 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     assert report.real_final_total == report.injection_total == sum(accounts.values())
     assert report.final_total == report.initial_total == 0
 
-    settlement = engine.state.accounts[supply.seller_account_id] - \
-        engine.semantics.accounts[supply.seller_account_id]
+    settlement = engine.context.state.accounts[supply.seller_account_id] - \
+        engine.context.semantics.accounts[supply.seller_account_id]
     assert settlement == price
-    assert engine.state.accounts["agent:1"] == (
-        engine.semantics.accounts["agent:1"] - price - 555)
+    assert engine.context.state.accounts["agent:1"] == (
+        engine.context.semantics.accounts["agent:1"] - price - 555)
 
 
 def test_initial_injection_matches_semantics_accounts(engine_factory) -> None:
     """分录注资结果与语义初值账户逐分一致（含零初值账户）。"""
     engine = engine_factory("multi-person.json")
-    assert engine.state.accounts == dict(engine.semantics.accounts)
-    assert all(isinstance(value, int) for value in engine.state.accounts.values())
-    accounts = dict(engine.semantics.accounts)
+    assert engine.context.state.accounts == dict(engine.context.semantics.accounts)
+    assert all(isinstance(value, int) for value in engine.context.state.accounts.values())
+    accounts = dict(engine.context.semantics.accounts)
     accounts["agent:1"] = 0
     assert inject_initial_funds(accounts, 0) == accounts
 
@@ -186,7 +186,7 @@ def test_shared_body_event_carries_validated_body_flows(engine_factory) -> None:
     submit_round(engine, {1: ("start_activity", _wait()),
                           2: ("start_activity", _wait())}, "wait")
     advance_next(engine)
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     bodies = [event for event in events if event.event_type == "environment_event"
               and event.agent_id == 1 and event.data.get("kind") == "body_settlement"]
     progresses = [event for event in events if event.event_type == "activity_progress"
@@ -213,7 +213,7 @@ def test_non_settlement_events_never_carry_resource_flows(engine_factory) -> Non
     submit_round(engine, {1: ("start_activity", _wait()),
                           2: ("start_activity", _wait())}, "wait")
     advance_next(engine)
-    events = engine.store.read_events(engine.store.last_event_seq)
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
     other = [event for event in events if event.event_type not in {"activity_progress", "environment_event"}
              or (event.event_type == "environment_event" and event.data.get("kind") != "body_settlement")]
     assert other and all(RESOURCE_FLOWS_FIELD not in event.data for event in other)
@@ -235,7 +235,7 @@ def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> No
                           2: ("start_activity", _wait())}, "keep-waiting")
     advance_next(engine)
     bodies = sorted(
-        (event for event in engine.store.read_events(engine.store.last_event_seq)
+        (event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
          if event.event_type == "environment_event" and event.agent_id == 1
          and event.data.get("kind") == "body_settlement"),
         key=lambda event: event.data["interval_end"])

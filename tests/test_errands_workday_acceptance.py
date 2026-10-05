@@ -1,7 +1,7 @@
 """个人事务与工作安排规格的完整性守卫：台账逐行登记到阶段与测试、没有延后的实现、规格变异逐句有登记并被杀死。
 
 @file     test_errands_workday_acceptance.py
-@brief    以 tests/errands_workday_acceptance.py 为数据源，测试时解析 docs/dev/SPEC-errands-workday.md「验收台账」一节，
+@brief    以 tests/errands_workday_acceptance.py 为数据源，测试时解析 docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库「验收台账」一节，
           逐条判定：这一节只有一张表，表头为「契约点、阶段、必须通过的验证」三列；首列与登记表的键一一对应且顺序相同，
           阶段列与登记的阶段相等；已完成阶段的行必须列出节点，全部登记节点（含变异的杀手）解析到存在、会被收集且未被
           跳过的测试；只报告的行首列仍带「只报告」，表前仍写明复跑指标只报告、不作门禁；特性文件存在、不重复，特性文件
@@ -21,7 +21,7 @@ import json
 import pytest
 
 from tests import tool_interaction_acceptance
-from tests.acceptance_guard import DEFERRAL, NODE_ID, resolve_problem, section, stub_functions, tables
+from tests.acceptance_guard import DEFERRAL, NODE_ID, acceptance_section, resolve_problem, stub_functions
 from tests.errands_workday_acceptance import (
     EXTRA_MUTATIONS,
     FEATURE_PRODUCTION_FILES,
@@ -36,38 +36,25 @@ from tests.errands_workday_acceptance import (
     STAGES_DONE,
     run_behavior,
 )
-from tests.mutation_runner import REPO_ROOT, mutated_source
+from tests.mutation_runner import REPO_ROOT, mutated_source, source_location
 
-SPEC_PATH = REPO_ROOT / "docs" / "dev" / "SPEC-errands-workday.md"
 LEDGER_HEADING = "## 验收台账"
 LEDGER_HEADER = ["契约点", "阶段", "必须通过的验证"]
 #: 只报告行在规格中的固定说法（台账表前的说明句）与台账行首列必带的字样。
 REPORT_ONLY_PHRASE = "复跑指标只报告，不作门禁"
 REPORT_ONLY_MARK = "只报告"
 #: 规格变异段的起句与收句：两者之间（可跨多行）是逐句的变异清单，句与句以分号或顿号相接，段末是句号。
-MUTATION_LEAD = "源码变异必须覆盖："
-MUTATION_CLOSE = "每个非等价变异必须被行为测试杀死"
-_SENTENCE_SEPARATORS = "；、"
 #: 生产模块的两个根：路径前缀 → 模块名前缀（src 下是已安装的包，custom 下按仓库根的命名空间导入）。
 _MODULE_ROOTS = {"src/": "", "custom/": "custom."}
 
 
 def _ledger_rows() -> list[list[str]]:
     """「验收台账」唯一一张表的各行（去掉表头）：契约点、阶段、必须通过的验证。"""
-    (table,) = tables(SPEC_PATH, LEDGER_HEADING)
+    (table,) = acceptance_section("errands-workday", "验收台账")["tables"]
     header, *rows = table
     assert header == LEDGER_HEADER
     return rows
 
-
-def _mutation_paragraph() -> str:
-    """规格「源码变异必须覆盖」一段去掉起句与段末句号后的正文（各行直接相接）。"""
-    lines = section(SPEC_PATH, LEDGER_HEADING)
-    start = next(index for index, line in enumerate(lines) if line.startswith(MUTATION_LEAD))
-    end = next(index for index, line in enumerate(lines) if line.startswith(MUTATION_CLOSE))
-    text = "".join(line.strip() for line in lines[start:end])[len(MUTATION_LEAD):]
-    assert text.endswith("。"), text[-20:]
-    return text[:-1]
 
 
 def _killer_nodes() -> list[str]:
@@ -129,8 +116,7 @@ def test_report_only_rows_stay_report_only_in_the_spec() -> None:
     """只报告的行（配对全天复跑）在规格中仍写明只报告、不作门禁：台账表前的说明句照旧，行首列仍带「只报告」；凡首列带
     「只报告」的台账行都登记了说明。"""
     names = [row[0] for row in _ledger_rows()]
-    notes = [line for line in section(SPEC_PATH, LEDGER_HEADING) if line.strip() and not line.startswith("|")]
-    assert any(REPORT_ONLY_PHRASE in line for line in notes), notes
+    assert dict(REPORT_ONLY) == acceptance_section("errands-workday", "report_only")
     assert REPORT_ONLY and all(REPORT_ONLY.values())
     assert set(REPORT_ONLY) == {name for name in names if REPORT_ONLY_MARK in name}
     assert set(REPORT_ONLY) <= set(LEDGER)
@@ -181,13 +167,7 @@ def test_every_implementation_stage_is_done() -> None:
 def test_spec_mutation_sentences_are_registered_in_order_and_done_stages_are_covered() -> None:
     """规格「源码变异必须覆盖」一段逐句登记：登记的各句按顺序首尾相接（以分号或顿号相隔）恰好拼回规格原文，规格增删
     改一句而登记表不跟随即失败；每句的阶段在规格阶段之内，点名的变异都已登记；已完成阶段的每一句至少一个登记变异。"""
-    rest = _mutation_paragraph()
-    for sentence in SPEC_MUTATIONS:
-        assert rest.startswith(sentence), f"{sentence!r} is not next in the spec: {rest[:40]!r}"
-        rest = rest[len(sentence):]
-        assert rest == "" or rest[0] in _SENTENCE_SEPARATORS, f"{sentence!r} is followed by {rest[:10]!r}"
-        rest = rest[1:]
-    assert rest == "", f"spec sentences not registered: {rest!r}"
+    assert list(SPEC_MUTATIONS) == acceptance_section("errands-workday", "mutation_requirements")
     assert all(set(entry) == {"stage", "mutations"} for entry in SPEC_MUTATIONS.values())
     assert {entry["stage"] for entry in SPEC_MUTATIONS.values()} <= STAGE_IDS
     names = {mutation.name for mutation in MUTATIONS}
@@ -212,7 +192,8 @@ def test_mutations_are_named_once_and_anchored_in_main_process_production_code()
     assert all(EXTRA_MUTATIONS.values())
     ledger_nodes = {node for entry in LEDGER.values() for node in entry["tests"]}
     for mutation in MUTATIONS:
-        assert _module_name(mutation.source) == mutation.module, mutation.name
+        module, source = source_location(mutation.symbol)
+        assert _module_name(source) == module, mutation.name
         original, changed = mutated_source(mutation)
         assert original != changed, mutation.name
         assert mutation.tests and set(mutation.tests) <= ledger_nodes, mutation.name

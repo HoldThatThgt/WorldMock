@@ -1,67 +1,34 @@
 """@brief 同一冻结观察上的确定性名称、方式和完整请求候选。"""
 
 from __future__ import annotations
+from worldmock.life import object_labels
+from worldmock.life import vocabulary
 
-import re
-import unicodedata
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any, TypeVar
 
 from worldmock.life.error_contract import MAX_CANDIDATES, Candidate, ErrorItem, activity_candidate
-from worldmock.life.interaction_menu import (CONTENT_WAYS, NAMED_PURCHASE_WAYS, SYSTEM_PURCHASE_WAY,
-                                             VERB_WAY_SEPARATOR, WAYS, binding_action, named_supply_row)
-from worldmock.life.object_labels import OBJECT_PREFIXES, object_label
+from worldmock.life.vocabulary import CONTENT_WAYS, NAMED_PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS
+from worldmock.life.interaction_menu import binding_action, named_supply_row
+from worldmock.life.object_labels import object_label
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.routing import fill_route
 
 _Entry = TypeVar("_Entry")
 
 #: 活动名的开始时刻后缀「（M月D日 HH:MM 起）」：记忆层的短名（memory_layer）与名称解析共用这一个正则。
-START_SUFFIX = re.compile(r"（\d{1,2}月\d{1,2}日 \d{2}:\d{2} 起）")
 #: 邮件名称的到达时刻后缀（object_labels.mail_name 的写法经归一后：半角括号、没有空白）。
-_MAIL_STAMP = re.compile(r"\(\d{4}年\d{1,2}月\d{1,2}日\d{1,2}:\d{2}:\d{2}\)$")
 #: 场景数据的「（模拟）」标记经归一后的写法；比对时忽略。
-_SIMULATED = "(模拟)"
 #: 统一括号：方括号、方头括号、六角括号与尖括号都归成半角圆括号（全角圆括号、全角方括号先经 NFKC 归成半角；书名号与
 #: 引号不是括号，不动）。
-_BRACKETS = str.maketrans({"[": "(", "]": ")", "【": "(", "】": ")", "〔": "(", "〕": ")", "〖": "(", "〗": ")",
-                           "〈": "(", "〉": ")"})
 #: 可以增补或去掉的类别前缀（object_labels 的唯一写法，归一后以半角冒号结尾）。
-_PREFIXES = tuple(f"{prefix}:" for prefix in OBJECT_PREFIXES.values())
 #: 指本人住处的写法（归一、去掉前缀之后）：解析为人物 home_location_id 的地点；其余写法只给候选。
-HOME_WORDS = frozenset({"家", "住处"})
 #: start_activity 一次至多的项数（与宿主本地校验同一上限）。
 MAX_START_ITEMS = 2
 
 #: 方式同义闭集表（接口合同「请求模型的闭集与字面边界」）：人物常写的说法 → 它可能指的方式。只有在目标列出的方式里恰好
-#: 命中一个时才受理，动词仍须是该方式所属的动词（每个方式只属于一个动词，interaction_menu.WAYS）；表外的写法不受理。
-WAY_SYNONYMS: dict[str, frozenset[str]] = {key: frozenset(value) for key, value in {
-    "走路": {"步行"}, "走过去": {"步行"}, "步行前往": {"步行"},
-    "开车": {"驾车"}, "自驾": {"驾车"}, "驾车前往": {"驾车"}, "开车前往": {"驾车"},
-    "上班": {"工作"}, "办公": {"工作"},
-    "看": {"观看", "接着看", "从头再看"}, "收看": {"观看", "接着看", "从头再看"}, "观看": {"接着看", "从头再看"},
-    "继续看": {"接着看"}, "重看": {"从头再看"}, "重新看": {"从头再看"},
-    "听": {"接着听", "从头再听"}, "收听": {"接着听", "从头再听"}, "继续听": {"接着听"}, "重听": {"从头再听"},
-    "重新听": {"从头再听"},
-    "玩": {"游玩"}, "玩游戏": {"游玩"},
-    "聊天": {"交谈"}, "聊": {"交谈"}, "面谈": {"交谈"},
-    "打电话": {"通话"}, "电话": {"通话"},
-    "读": {"阅读"}, "看邮件": {"阅读"}, "查看": {"阅读", "浏览"},
-    "逛": {"浏览"}, "逛逛": {"浏览"},
-    "做": {"进行"}, "参加": {"进行"},
-    "等": {"等待"}, "等着": {"等待"}, "等候": {"等待"},
-    "到店购买": {"到店"}, "到店点单": {"到店"}, "堂食": {"到店"}, "自取": {"到店"},
-    "外卖": {"远程下单"}, "点外卖": {"远程下单"}, "配送": {"远程下单"}, "送货上门": {"远程下单"},
-    "网上下单": {"远程下单"}, "线上下单": {"远程下单"},
-    "买": {"购买"}, "下单": {"购买"}, "下单购买": {"购买"}, "点单": {"购买"}, "订购": {"购买"},
-    "做饭": {"制作"},
-    "吃": {"食用"}, "吃饭": {"食用"}, "用餐": {"食用"}, "进食": {"食用"},
-    "用": {"使用"},
-    "送": {"给予"}, "给": {"给予"}, "赠送": {"给予"},
-    "睡": {"睡觉"}, "睡眠": {"睡觉"}, "就寝": {"睡觉"},
-}.items()}
+#: 命中一个时才受理，动词仍须是该方式所属的动词（每个方式只属于一个动词，vocabulary.WAYS）；表外的写法不受理。
 
 #: 看内容的四种方式（内容对象与只能观看的游戏对象列出其中一种）。
 _WATCH_WAYS = frozenset(CONTENT_WAYS.values()) | {"观看"}
@@ -80,7 +47,8 @@ _WAY_KINDS: dict[str, frozenset[str]] = {
 _VERB_KINDS: dict[str, frozenset[str]] = {
     verb: frozenset().union(*(_WAY_KINDS[way] for way, (owner, _) in WAYS.items() if owner == verb))
     for verb in {owner for owner, _ in WAYS.values()}}
-#: 本轮没有列出也能按名调用的方式 → 类别（named_kind，docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条；「购买」见 3.5）。
+#: 本轮没有列出也能按名调用的方式 → 类别（named_kind，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 4 条；「购买」见 3.5
+#: ）。
 _NAMED_WAYS: dict[str, str] = {**{way: "content" for way in _WATCH_WAYS},
                                **{way: "supply" for way in NAMED_PURCHASE_WAYS},
                                "进行": "lifestyle", "游玩": "game", "步行": "location", "驾车": "location"}
@@ -93,7 +61,6 @@ _TRAVEL_MODES = {way: mode for mode, way in TRAVEL_WAYS.items()}
 #: from、to 都应为 null 的动词：写成目标本身或当前所在地点时是冗余的。
 _NULL_ROUTED_VERBS = frozenset({"travel", "interact", "sleep"})
 #: 取得时 from 与目标写明的门店一致的判定（供给标签「<门店>出售的<商品>」，object_labels.supply_label）。
-_SOLD_BY = "出售的"
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +132,7 @@ class StartItem:
     @property
     def action(self) -> str:
         """@brief 从方式闭集得到内部动词。"""
-        return way_verb(self.way)
+        return vocabulary.way_verb(self.way)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,13 +161,6 @@ class StartOutcome:
     notes: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class NameMatch:
-    """@brief 一个名称在一组可写名称里的解析：唯一时 name 为解析出的名称（照写的就是原文），否则为 None；matches 为同一级的
-    全部匹配（多于一个即有歧义，没有即找不到）。"""
-
-    name: str | None
-    matches: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,54 +172,30 @@ class _Item:
     resolved: tuple[dict, ...] = ()
 
 
-def fold(text: str) -> str:
-    """@brief 无损归一的基本写法：统一全半角（NFKC）与括号，去掉全部空白，忽略「（模拟）」。"""
-    unified = unicodedata.normalize("NFKC", text).translate(_BRACKETS)
-    return "".join(unified.split()).replace(_SIMULATED, "")
 
 
-@lru_cache(maxsize=8192)
-def _keys(text: str) -> tuple[str, str, str]:
-    """@brief 名称逐级放宽的比对键：归一写法；再去掉活动开始时刻（START_SUFFIX）与邮件到达时刻；再去掉类别前缀。"""
-    folded = fold(text)
-    named = _MAIL_STAMP.sub("", fold(START_SUFFIX.sub("", text)))
-    return folded, named, _unprefixed(named)
 
 
-def _unprefixed(key: str) -> str:
-    """@brief 去掉归一写法开头的类别前缀（只去 object_labels 的前缀，前缀后没有名称时不去）。"""
-    return next((key[len(prefix):] for prefix in _PREFIXES if key.startswith(prefix) and len(key) > len(prefix)), key)
 
 
-def bare_name(text: str) -> str:
-    """@brief 名称的最宽比对键：归一、去掉开始时刻与邮件时刻、去掉类别前缀（候选相似度也按它计算）。"""
-    return _keys(text)[2]
 
 
-def way_options(way: str) -> frozenset[str]:
-    """@brief 所写方式可能指的方式：方式闭集中的原词（去掉空白、统一全半角后），加上同义表列出的；都不是时为空集（不是
-    方式）。"""
-    key = "".join(unicodedata.normalize("NFKC", way).split())
-    return (frozenset({key}) if key in WAYS else frozenset()) | WAY_SYNONYMS.get(key, frozenset())
 
 
-def way_verb(way: str) -> str:
-    """@brief 方式及已声明同义方式唯一决定内部动词，表外值不推测。"""
-    owners = {WAYS[option][0] for option in way_options(way)}
-    return next(iter(owners)) if len(owners) == 1 else ""
 
 
 def named_kind(verb: str, way: str) -> str | None:
     """@brief 按「动词加方式」推出的按名调用类别（取代 is_named_purchase）：supply（取得的到店、远程下单与由系统定方式的
     「购买」）、lifestyle（进行）、content（观看与四种续看）、game（游玩）或 location（步行、驾车）；动词不是该方式所属的
     动词、方式不在闭集与同义表中，或推出不止一类时为 None。"""
-    kinds = {_NAMED_WAYS[option] for option in way_options(way) if option in _NAMED_WAYS and WAYS[option][0] == verb}
+    kinds = {_NAMED_WAYS[option] for option in vocabulary.way_options(way)
+             if option in _NAMED_WAYS and WAYS[option][0] == verb}
     return next(iter(kinds)) if len(kinds) == 1 else None
 
 
 def _hint(verb: str, way: str) -> frozenset[str]:
     """@brief 按动词与方式增补前缀时比对的类别：方式可能指的方式列在哪些类别上；方式不是方式时按动词推出。"""
-    options = way_options(way)
+    options = vocabulary.way_options(way)
     if options:
         return frozenset().union(*(_WAY_KINDS[option] for option in options))
     return _VERB_KINDS.get(verb, frozenset())
@@ -273,31 +209,19 @@ def lookup(written: str, targets: Sequence[Target], kinds: frozenset[str] = froz
     :returns: 匹配到的对象；多于一个即名称有歧义，空即找不到。
     """
     found = tuple(target for target in targets if target.label == written)
-    keys = _keys(written)
+    keys = object_labels._keys(written)
     for level in (0, 1):
-        found = found or tuple(target for target in targets if _keys(target.label)[level] == keys[level])
+        found = found or tuple(target for target in targets if object_labels._keys(target.label)[level] == keys[level])
     if found:
         return found
-    if keys[2] in HOME_WORDS and home is not None and (not kinds or "location" in kinds):
+    if keys[2] in object_labels.HOME_WORDS and home is not None and (not kinds or "location" in kinds):
         found = tuple(target for target in targets if target.label == home)
         if found:
             return found
     return tuple(target for target in targets
-                 if (not kinds or target.kind in kinds) and _keys(target.label)[2] == keys[2])
+                 if (not kinds or target.kind in kinds) and object_labels._keys(target.label)[2] == keys[2])
 
 
-def resolve_name(written: str, names: Iterable[str]) -> NameMatch:
-    """@brief 在一组可写名称（活动名、任务名、回看名称、收件人、人物与消息名称）中解析所写的名称：精确匹配，再按归一写法、
-    去掉开始时刻与邮件时刻、去掉类别前缀逐级放宽，第一级有匹配就停，唯一才受理。"""
-    unique = tuple(dict.fromkeys(names))
-    if written in unique:
-        return NameMatch(written, (written,))
-    keys = _keys(written)
-    for level in (0, 1, 2):
-        found = tuple(name for name in unique if _keys(name)[level] == keys[level])
-        if found:
-            return NameMatch(found[0] if len(found) == 1 else None, found)
-    return NameMatch(None, ())
 
 
 def pick_way(target: Target, verb: str, way: str) -> str | None:
@@ -305,7 +229,7 @@ def pick_way(target: Target, verb: str, way: str) -> str | None:
     该方式所属的动词，不由方式反推动词（时间与能量规格裁决 #20）；不相配时为 None。"""
     if (verb, way) in target.offers:
         return way
-    hits = way_options(way) & {offered for _, offered in target.offers}
+    hits = vocabulary.way_options(way) & {offered for _, offered in target.offers}
     if len(hits) != 1:
         return None
     chosen = next(iter(hits))
@@ -348,7 +272,8 @@ def rank(written: str, entries: Iterable[_Entry], names: Callable[[_Entry], Sequ
 def near_names(written: str, names: Iterable[str], limit: int = MAX_CANDIDATES) -> list[str]:
     """@brief 一组可写名称中与所写名称最相近的几个（按去掉前缀后的归一写法比较），供不是 start_activity 的名称参数的原因
     说明使用。"""
-    return rank(bare_name(written), dict.fromkeys(names), lambda name: (bare_name(name),), lambda name: True, limit)
+    return rank(object_labels.bare_name(written), dict.fromkeys(names),
+                lambda name: (object_labels.bare_name(name),), lambda name: True, limit)
 
 
 def name_book(observation: Mapping[str, Any]) -> NameBook:
@@ -444,7 +369,7 @@ def _acquisition_candidates(book: NameBook, written: str) -> tuple[Candidate, ..
     """@brief 未持有食品的下一步只使用同一冻结观察中可购买或制作的对象。"""
     pool = [target for target in book.targets if target.listed and
             any(verb == "obtain" or way == "制作" for verb, way in target.offers)]
-    chosen = rank(bare_name(written), pool, lambda target: (bare_name(target.label),),
+    chosen = rank(object_labels.bare_name(written), pool, lambda target: (object_labels.bare_name(target.label),),
                   lambda target: target.feasible)
     candidates = []
     for target in chosen:
@@ -460,7 +385,7 @@ def near_candidates(book: NameBook, written: str, verb: str, way: str, written_t
     可以照填的请求；没有列出路线的地点不作候选（去不了）。"""
     pool = [target for target in book.targets if (target.listed or target.kind in CATALOG_KINDS)
             and target.kind in _hint(verb, way)]
-    chosen = rank(bare_name(written), pool, lambda target: (bare_name(target.label),),
+    chosen = rank(object_labels.bare_name(written), pool, lambda target: (object_labels.bare_name(target.label),),
                   lambda target: target.feasible)
     return tuple(fill_in(target, verb, way, written_to) for target in chosen)
 
@@ -475,7 +400,7 @@ def resolve_start(book: NameBook, request: Any) -> StartOutcome:
             for index, item in enumerate(resolved_items)]
     normalized, records = [], []
     for item, label, way in zip(request.items, labels, ways):
-        destination, record = _person(book, way_verb(way), item.to)
+        destination, record = _person(book, vocabulary.way_verb(way), item.to)
         normalized.append(StartItem(label, way, item.from_, destination))
         records.extend(record)
     answering, answered = _answering(book, request.answering)
@@ -494,16 +419,17 @@ def _source_notes(book: NameBook, request: StartRequest) -> tuple[str, ...]:
     for item in request.items:
         if item.action != "obtain" or item.from_ is None:
             continue
-        store = written_place(item.from_, places, book.home)
-        if store is not None and names_store(item.target, store):
-            notes.append(f"The target already names {bare_name(store)}; from may be null.")
+        store = object_labels.written_place(item.from_, places, book.home)
+        if store is not None and object_labels.names_store(item.target, store):
+            notes.append(f"The target already names {object_labels.bare_name(store)}; from may be null.")
     return tuple(notes)
 
 
 def _resolve_item(book: NameBook, request: Any, index: int) -> _Item:
     """@brief 一项：对象唯一时再核对（动词，方式）；找不到而方式是到店、远程下单或「购买」时是指名购买（占位行）；其余为
     名称类失败。"""
-    written, verb, way = (request.items[index].target, way_verb(request.items[index].way), request.items[index].way)
+    item = request.items[index]
+    written, verb, way = item.target, vocabulary.way_verb(item.way), item.way
     if not verb:
         reason = "The way is outside the declared closed set."
         error = ErrorItem(("items", index, "way"), way, "WAY_NOT_OFFERED", tuple(WAYS),
@@ -514,7 +440,7 @@ def _resolve_item(book: NameBook, request: Any, index: int) -> _Item:
         return _chosen(matches[0], request, index)
     if matches:
         return _Item(None, _ambiguous(matches, request, index))
-    purchase = way_options(way) & NAMED_PURCHASE_WAYS
+    purchase = vocabulary.way_options(way) & NAMED_PURCHASE_WAYS
     if named_kind(verb, way) == "supply" and len(purchase) == 1:
         chosen = next(iter(purchase))
         return _Item(named_supply_row(written, chosen), resolved=_record(way, chosen))
@@ -523,11 +449,13 @@ def _resolve_item(book: NameBook, request: Any, index: int) -> _Item:
 
 def _chosen(target: Target, request: Any, index: int) -> _Item:
     """@brief 对象已唯一：动词与方式相配时选中该动作（名称或方式经归一的记一条）；商品目标写「购买」（或它的同义写法）时
-    是由系统定方式的占位行（docs/dev/SPEC-dayrun-fidelity.md 3.5：对任何商品目标都受理，工具层不列出它）；否则
+    是由系统定方式的占位行（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-更简单的购买请求裁决-s10 ：对任何商品目标都受理，工具层不列出它）；否则
     WAY_NOT_OFFERED。"""
-    written, verb, way = (request.items[index].target, way_verb(request.items[index].way), request.items[index].way)
+    item = request.items[index]
+    written, verb, way = item.target, vocabulary.way_verb(item.way), item.way
     chosen = pick_way(target, verb, way)
-    if chosen is None and target.kind == "supply" and verb == "obtain" and SYSTEM_PURCHASE_WAY in way_options(way):
+    if (chosen is None and target.kind == "supply" and verb == "obtain"
+            and SYSTEM_PURCHASE_WAY in vocabulary.way_options(way)):
         return _Item(named_supply_row(target.label, SYSTEM_PURCHASE_WAY),
                      resolved=(*_record(written, target.label), *_record(way, SYSTEM_PURCHASE_WAY)))
     if chosen is None:
@@ -559,7 +487,7 @@ def _to(request: Any, index: int) -> str | None:
 def _not_found(book: NameBook, request: Any, index: int) -> Failure:
     """@brief 未知名称仅在所选方式的对象类别中提供近名候选。"""
     item = request.items[index]
-    verb = way_verb(item.way)
+    verb = vocabulary.way_verb(item.way)
     candidates = near_candidates(book, item.target, verb, item.way, item.to)
     acquisition = verb == "consume" and item.way == "食用" and not candidates
     if acquisition:
@@ -576,7 +504,7 @@ def _not_found(book: NameBook, request: Any, index: int) -> Failure:
 def _ambiguous(matches: Sequence[Target], request: Any, index: int) -> Failure:
     """@brief 名称歧义返回完整可提交候选。"""
     item = request.items[index]
-    candidates = tuple(fill_in(target, way_verb(item.way), item.way, item.to)
+    candidates = tuple(fill_in(target, vocabulary.way_verb(item.way), item.way, item.to)
                        for target in matches[:MAX_CANDIDATES])
     reason = f"The name {item.target} identifies several known objects."
     error = ErrorItem(("items", index, "target"), item.target, "NAME_AMBIGUOUS",
@@ -604,26 +532,14 @@ def _way_failure(target: Target, request: Any, index: int) -> Failure:
 
 
 def channel_key(name: str) -> str:
-    """@brief 渠道称呼（App 名）的比较写法（docs/dev/SPEC-dayrun-fidelity.md 3.3 解析规则 1）：去掉全部空白、不分大小写，
+    """@brief 渠道称呼（App 名）的比较写法（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店  解析规则 1）：去
+    掉全部空白、不分大小写，
     其余逐字比较（不做全半角与括号归一）。"""
     return "".join(name.split()).casefold()
 
 
-def names_store(label: str, store: str) -> bool:
-    """@brief 所写的门店名是否就是标签「<门店>出售的<商品>」写明的门店（按归一写法比较，也认去掉「地点：」前缀的写法）。"""
-    folded = fold(label)
-    return any(folded.startswith(f"{key}{_SOLD_BY}") for key in (fold(store), bare_name(store)) if key)
 
 
-def written_place(written: str, places: Sequence[str], home: str | None = None) -> str | None:
-    """@brief 所写的地点名唯一对应的地点显示名：精确，再按归一写法与去掉「地点：」前缀逐级比对（resolve_name，第一级
-    有匹配就停）；「家」「住处」指本人住处 home。对应不上或不止一个时为 None。
-
-    :param places: 场景地点的显示名（冻结地点表）。
-    """
-    if bare_name(written) in HOME_WORDS and home is not None:
-        return home
-    return resolve_name(written, places).name
 
 
 #: 渠道表的一行：（渠道身份，称呼，成员门店）。购买侧取自场景语义的购买渠道，查询侧取自冻结观察的渠道索引。
@@ -632,7 +548,7 @@ ChannelRow = tuple[str, Sequence[str], Sequence[str]]
 
 @dataclass(frozen=True, slots=True)
 class SourceMatch:
-    """@brief 所写来源解析出的范围（docs/dev/SPEC-errands-workday.md 5.2）。
+    """@brief 所写来源解析出的范围（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）。
 
     :param store_ids: 范围内的门店（地点身份）；同一显示名的几处地点都在内。
     :param channel_id: 来源是渠道称呼时该渠道的身份，否则为 None。
@@ -646,8 +562,9 @@ class SourceMatch:
 
 def resolve_source(written: str, places: Mapping[str, str], home: str | None,
                    channels: Sequence[ChannelRow]) -> SourceMatch | None:
-    """@brief 所写购买来源的范围：购买与查询共用的纯函数，不读世界与环境上下文（docs/dev/SPEC-errands-workday.md 5.2，
-    docs/dev/SPEC-dayrun-fidelity.md 3.3 解析规则 1）。地点显示名（精确、无损归一或去掉「地点：」前缀后唯一，written_place；
+    """@brief 所写购买来源的范围：购买与查询共用的纯函数，不读世界与环境上下文（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ，
+    docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店  解析规则 1）。地点显示名（精确、无损归一或去掉「地点：」前缀后唯一，w
+    ritten_place；
     「家」「住处」指住处）是该显示名的地点；否则是渠道称呼（channel_key 比较）时是该渠道的成员门店并记下渠道身份；都不是
     时为 None。null 来源不归本函数（购买侧是全部门店，查询侧是不按来源筛选）。
 
@@ -655,7 +572,7 @@ def resolve_source(written: str, places: Mapping[str, str], home: str | None,
     :param home: 本人住处的地点身份；没有时为 None。
     :param channels: 渠道表（ChannelRow），按声明顺序；先命中的渠道生效。
     """
-    place = written_place(written, tuple(places.values()), places.get(home))
+    place = object_labels.written_place(written, tuple(places.values()), places.get(home))
     if place is not None:
         return SourceMatch(frozenset(identity for identity, name in places.items() if name == place), None, place)
     key = channel_key(written)
@@ -683,10 +600,10 @@ def _same_place(book: NameBook, written: str, anchor: str | None) -> bool:
     """@brief 所写的名称是否就是 anchor（按去掉前缀后的归一写法比较；「家」「住处」按本人住处比较）。"""
     if anchor is None:
         return False
-    key = bare_name(written)
-    if key in HOME_WORDS and book.home is not None:
+    key = object_labels.bare_name(written)
+    if key in object_labels.HOME_WORDS and book.home is not None:
         return book.home == anchor
-    return key == bare_name(anchor)
+    return key == object_labels.bare_name(anchor)
 
 
 def _person(book: NameBook, verb: str, destination: str | None) -> tuple[str | None, tuple[dict, ...]]:
@@ -694,7 +611,7 @@ def _person(book: NameBook, verb: str, destination: str | None) -> tuple[str | N
     （不是任何人物时环境以 RECIPIENT_NOT_FOUND 拒绝）。"""
     if destination is None or verb not in {"obtain", "consume"} or destination in book.people:
         return destination, ()
-    match = resolve_name(destination, book.people)
+    match = object_labels.resolve_name(destination, book.people)
     return (match.name, _record(destination, match.name)) if match.name is not None else (destination, ())
 
 
@@ -702,5 +619,5 @@ def _answering(book: NameBook, answering: str | None) -> tuple[str | None, tuple
     """@brief answering 写的消息名：按可见直接消息的名称解析，唯一时换成它（记一条归一记录），否则原样交给 routing。"""
     if answering is None or answering in book.messages:
         return answering, ()
-    match = resolve_name(answering, book.messages)
+    match = object_labels.resolve_name(answering, book.messages)
     return (match.name, _record(answering, match.name)) if match.name is not None else (answering, ())

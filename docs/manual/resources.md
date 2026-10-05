@@ -1,12 +1,13 @@
+<a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
 > 更新日期：2026-10-05。工具交互已实现；当前目录 5.4、品类契约与规则绑定 3、场景结构 5、地图结构 3。
 > 地图按场景种子分别冻结完整供给，商品价格范围和真实料理输入输出均参与加载与行为校验。
-> 合同以[工具交互规格](../dev/SPEC-tool-interaction.md)为准，世界结构 9、场景结构 5 与查询筛选以[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)为准；本页命令使用当前已发布格式。
+> 合同以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为准，世界结构 9、场景结构 5 与查询筛选以[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)为准；本页命令使用当前已发布格式。
 
 要让人物去新的地点、买新的商品、参加新的活动或接触自己的内容，需要同时准备**素材定义、场景引用和文件清单**。
 先从现有场景选择素材，确实需要改变素材本身时，再修改对应的目录或语料文件。
-本页命令都在仓库根目录执行；场景基础写法见[场景配置](scenarios.md)。
+本页命令都在仓库根目录执行；场景基础写法见[场景配置](scenarios.md#scenarios-生活场景)。
 
 ```mermaid
 flowchart LR
@@ -21,12 +22,14 @@ flowchart LR
     V --> W[人物可接触的世界]
 ```
 
+<a name="resources-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 语料和资源引用必须是根内相对路径，不能含 ..，不能使用符号链接；文件须为普通文件并符合声明的大小与摘要。修改内容后按现行身份发布流程重新生成声明，不能沿用旧摘要。
 
+<a name="resources-先找到应该修改的文件"></a>
 ## 先找到应该修改的文件
 
 | 想改变什么 | 编辑位置 | 场景如何引用 |
@@ -38,8 +41,9 @@ flowchart LR
 | 可参加的生活活动、地点要求、时间窗口 | `corpora/lifestyle/enrichment.json` 与生活活动生成器 | 运行时固定读取 `lifestyle/items.json` |
 | 可观看或阅读的具体内容 | 内容元数据、SRT 时间轴和场景的 `contents` | `item_id`、`timeline_path`、`timeline_sha256` |
 | 工作的实际材料和验收答案 | 语料中的输入、答案文件和场景的 `tasks` | `input_path`、`oracle_path` 及各自的 SHA-256 |
-| 全局身体、品类或交换规则 | `catalog/` 中的规则与资源定义 | 见[规则配置](rules.md) |
+| 全局身体、品类或交换规则 | `catalog/` 中的规则与资源定义 | 见[规则配置](rules.md#rules-调整世界规则与人物动机参数) |
 
+<a name="resources-哪些路径可以换"></a>
 ### 哪些路径可以换
 
 场景的 `corpus_root` 使用相对**场景文件所在目录**的路径，保证场景可以跨机器复制。
@@ -59,11 +63,12 @@ flowchart LR
 生活活动的名称与 MET 对应检查会使用场景语料根目录，但活动 `effects` 当前仍从**仓库内**
 `corpora/lifestyle/items.json` 读取并缓存。只切换 `corpus_root`，不能保证活动效果也切换到了另一份语料。
 
+<a name="resources-输入与生成文件"></a>
 ### 输入与生成文件
 
 | 文件 | 当前维护方式 | 修改时的注意点 |
 | --- | --- | --- |
-| `catalog/category-contract.json`、`exchange-rules.json`、`affordances.toml`、`rules/*.toml` | 人工维护的规则输入 | 修改后重新生成或刷新目录身份；见[规则配置](rules.md) |
+| `catalog/category-contract.json`、`exchange-rules.json`、`affordances.toml`、`rules/*.toml` | 人工维护的规则输入 | 修改后重新生成或刷新目录身份；见[规则配置](rules.md#rules-调整世界规则与人物动机参数) |
 | `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`overrides/tombstones.jsonl` | 正式基线由 `scripts/build_catalog.py` 生成 | 基线生成器会重写这些文件；独立自定义目录不要再用它覆盖 |
 | `scripts/catalog-snapshot-legacy-scenario.json` | 目录生成器仍在读取的冻结输入 | 文件名中的 `legacy` 不代表已停止使用；它不是运行场景 |
 | `corpora/lifestyle/enrichment.json` | 生活活动的人工补充字段 | `entries` 必须与生成器的活动身份一一对应 |
@@ -72,6 +77,7 @@ flowchart LR
 | `corpora/zhangjiang-map/category-assignment.json` | 已发布的冻结类别与逐店声明 | kind定义准入池；逐店类别和对象并集完整生成实际供给，不是运行策略开关 |
 | `corpora/manifest.json` | 全部语料的文件身份与来源清单 | 修改现有条目后更新大小、哈希和来源；新增文件必须新增清单条目 |
 
+<a name="resources-先完成一个最小修改减少一家门店的初始库存"></a>
 ## 先完成一个最小修改：减少一家门店的初始库存
 
 下面是完整可运行命令。它复制现有场景，在新场景中把一条供给的初始库存设为 `12`，
@@ -81,7 +87,7 @@ flowchart LR
 python - <<'PY'
 import json
 from pathlib import Path
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 source = Path("scenarios/white-collar-12-weeks.json")
 target = Path("scenarios/my-resources.json")
@@ -100,8 +106,9 @@ PY
 ```
 
 `open("x")` 要求目标不存在；已经创建过时，直接编辑该场景即可。
-这个例子验证了文件加载与跨引用；正式运行前的完整校验见[验证修改](#验证修改)。
+这个例子验证了文件加载与跨引用；正式运行前的完整校验见[验证修改](resources.md#resources-验证修改)。
 
+<a name="resources-编写地点与营业时间"></a>
 ## 编写地点与营业时间
 
 地图主文件声明身份、版本、坐标系、时区、边界、生成种子以及三个子文件的路径与哈希。
@@ -152,6 +159,7 @@ PY
 跨午夜营业可写 `{"opens": 1200, "closes": 1560}`，表示当晚 20:00 到次日 02:00。
 单个区间必须正向且不超过一天，相邻两天的跨日区间也不能重叠。
 
+<a name="resources-来源与有效期"></a>
 ### 来源与有效期
 
 地点和供给的 `source` 都要求 `kind`、`url`、`retrieved_at`、`license`、`notice`、`fact_cutoff`、`applicability`。
@@ -162,6 +170,7 @@ PY
 `effective_to: null` 表示未声明截止；同一对象的有效期不能重叠。
 地图发布日必须处于核对日与有效日之间。历史模拟日期和资料取得日期可以不同，但要在 `applicability` 中如实解释。
 
+<a name="resources-添加地点时还要补路线"></a>
 ### 添加地点时还要补路线
 
 每个场景选中的**有向地点对 × 地图出行方式**都必须有一条路线记录。
@@ -173,7 +182,7 @@ PY
 | `unreachable` | 冻结的 `NoRoute` 响应；不能填写距离、时长或车费 |
 | `unknown` | 非空 `reason`；不能声称已有响应，也不能填写可达指标 |
 
-基础时长来自冻结响应；实际计划时长还乘[出行时长规则](rules.md#出行时长)。
+基础时长来自冻结响应；实际计划时长还乘[出行时长规则](rules.md#rules-出行时长)。
 路线车费必须与当前交换规则重新计算的金额一致。
 
 当前地图准备命令是对**已通过加载校验的张江地图**重新取得路线，需联网：
@@ -191,6 +200,7 @@ python scripts/prepare_map.py \
 命令不提供城市搜索或任意地点配置参数，也不补齐完整语料目录或更新场景。
 新增地点前，先在源地图中补齐对应的显式路线状态；准备后纳入完整语料目录并更新下文身份引用。
 
+<a name="resources-编写门店供给与商品"></a>
 ## 编写门店供给与商品
 
 **商品描述“它是什么、怎么使用”，供给描述“哪家门店以什么条件出售”。**
@@ -203,6 +213,7 @@ python scripts/prepare_map.py \
 [种子 20260106 供给](../../corpora/zhangjiang-map/20260106/supplies.json)。
 供给保持独立报价、库存、卖方和履约定义。
 
+<a name="resources-完整类别供给与冻结价格"></a>
 ### 完整类别供给与冻结价格
 
 以下合同已由当前离线构建、地图加载及正式场景准入共同执行。
@@ -247,6 +258,7 @@ flowchart LR
     M --> R[运行读取冻结报价与真实库存]
 ```
 
+<a name="resources-只读查询与有时长浏览"></a>
 ### 只读查询与有时长浏览
 
 `query_world(name, way, category, from, available_only, offset)` 六键必填、无缺省，`name`、`way`、`category`、`from` 可空但至少一个非 null，
@@ -264,6 +276,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 {"name": null, "way": "购买", "category": null, "from": "<门店显示名>", "available_only": true, "offset": 0}
 ```
 
+<a name="resources-当前供给字段与发布注意事项"></a>
 ### 当前供给字段与发布注意事项
 
 | 供给字段 | 必填与约束 |
@@ -283,7 +296,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 请求级prefer必须写“最快拿到”或“到手价最低”，null不默认最快，旧英文值和“自己”字符串拒绝；
 `from` 留 `null`，系统就在全部门店里找能服务的：人在出售它的店里、东西在那里交得到收货人手上（收货人是自己，或此刻也在那家店里）
 就到店，否则在能送到收货地的门店里远程下单。`from` 是可选约束：
-地点显示名（含「家」「住处」）限定这一处，App 称呼限定该 App 的成员门店（见[生活场景](scenarios.md#看懂场景的组成)），其他写法以 `SOURCE_NOT_FOUND` 拒绝。
+地点显示名（含「家」「住处」）限定这一处，App 称呼限定该 App 的成员门店（见[生活场景](scenarios.md#scenarios-看懂场景的组成)），其他写法以 `SOURCE_NOT_FOUND` 拒绝。
 几家都能服务不算重名，按prefer选定一家：“最快拿到”到店就是人所在的这家、远程下单取预计送达最早的，“到手价最低”取到手价最低的，
 并列先比到手价、再比门店标识；所选门店写进受理结果的 `details.notes`。选定只看能否服务，营业、库存、报价与余额在结算时照常检查；
 哪家都服务不了时拒绝并写明该去哪家店（只写能到店买的店，只能远程下单的店去了也买不到）或哪家送不到，送给别人时下一步是先送到自己
@@ -304,7 +317,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 
 把这两个字段合并进目标供给的完整报价，同时更新该报价的假设来源。
 `700` 表示 7.00 元；必须处于该商品的有效价格范围内，并确认有效期覆盖本次模拟。
-运行中的定时调价和补货用场景 `price_changes`、`product_releases`，详见[场景配置](scenarios.md)。
+运行中的定时调价和补货用场景 `price_changes`、`product_releases`，详见[场景配置](scenarios.md#scenarios-生活场景)。
 
 三个正式场景显式选择 168 件可购买商品与每个种子的全部 431 条供给。三家餐馆的菜单均为十种正餐，
 是有来源的场景菜单分配，不能当作真实门店调查结果：
@@ -319,6 +332,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 库存、履约和价格派生假设见[供给假设](../../corpora/zhangjiang-map/supply-assumptions.json)。
 逐店完整集合必须通过丰富度和菜单差异门禁；不售卖地点保持无供给，售罄或闭店不自动补货。
 
+<a name="resources-新增商品对象"></a>
 ### 新增商品对象
 
 优先选已有品类，让使用方式、单位和规则继承下来。以下是**一条完整原始对象**；
@@ -350,7 +364,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 ```
 
 原始对象必填 `object_id`、`name`、`category_id`、`provenance`、正整数 `version`；
-`values` 可省略以完全继承。三个属性表的含义见[品类规则](rules.md#品类契约)。
+`values` 可省略以完全继承。三个属性表的含义见[品类规则](rules.md#rules-品类契约)。
 对象不能写编译后的 `edges` 或公式。每个数值必须恰好被一份来源记录覆盖；
 来源路径用 JSON Pointer，例如 `/values/absolute/energy_kcal_per_serving`。
 
@@ -366,6 +380,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 不足一份也可以吃：手边只剩零点几份时，份量取实际持有，进食时长按份量折算且不少于 60 秒，显示的份量、时长与热量同一口径。
 正式基线的食品生成器包含冻结白名单和品类映射；向食品语料随意追加一行不会自动得到完整可购买商品。
 
+<a name="resources-真实制作后再食用"></a>
 ### 真实制作后再食用
 
 人物习惯写明自己做饭时，正式数据提供一份可真实购买的食材包、单输入单输出库存转换规则和
@@ -378,6 +393,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 输入食材、食材包与配方的真实来源见[食材语料](../../corpora/ingredients/items.json)；
 正式行为夹具通过真实购买、制作和食用核对库存及热量，旧无产出料理活动已删除。
 
+<a name="resources-编写生活活动"></a>
 ## 编写生活活动
 
 活动目录固定读取 `lifestyle/items.json`，与资源目录 `activity_met` 中的 `lifestyle:<activity_id>` 必须一一对应。
@@ -433,6 +449,7 @@ python scripts/build_catalog.py --check
 
 这些构建命令固定写仓库内的正式基线；它们不是任意自定义目录的通用导入器。
 
+<a name="resources-编写内容与工作材料"></a>
 ## 编写内容与工作材料
 
 内容需要两层声明：语料文件提供元数据和时间轴，场景 `contents` 决定这次实验实际开放哪些条目。
@@ -490,6 +507,7 @@ python scripts/build_catalog.py --check
 只在媒体位置完整越过下一官方锚点后揭示该段文字；该时间轴没有逐词精度。
 来源使用条件见[语料通知](../../corpora/LICENSES.md)，不得暗示 NASA 认可本项目。
 
+<a name="resources-配置可玩的游戏"></a>
 ### 配置可玩的游戏
 
 `games/library/items.json` 是游戏的元数据目录；可执行的 TextWorld 游戏文件由场景 `games[]` 另行指定。
@@ -531,12 +549,14 @@ PY
 游戏文件还要加入语料清单。真正的启动校验见[游戏加载器](../../src/worldmock/life/game.py)；
 仅 JSON 格式和哈希正确，不能代替 TextWorld 可启动性检查。
 
+<a name="resources-工作材料"></a>
 ### 工作材料
 
 工作材料要与任务中的 `input_path/input_sha256` 和 `oracle_path/oracle_sha256` 对应。
 材料清单本身不会创建工作合同；还需在场景分配任务、地点、技能和受理人。
 当前世界准入还要求中文、`type: "scenario"`、足量且互不重复的材料，并保留 AMI 元数据。
 
+<a name="resources-编写工作验收答案"></a>
 ### 编写工作验收答案
 
 工作输入是人物逐步接触的 UTF-8 正文。隐藏答案由一份 oracle JSON 和它引用的参考摘要文件组成，
@@ -580,6 +600,7 @@ PY
 当前工作交付仍固定为会议纪要结构 `MeetingMinutes`，包括摘要、决定和行动项；
 换一个 `required_skill` 名称不会变成任意格式的文案、代码或其他交付任务。
 
+<a name="resources-正餐家庭储备和联系人"></a>
 ### 正餐、家庭储备和联系人
 
 这些文件还受目录 `category_requirements` 的世界素材要求约束。
@@ -592,9 +613,10 @@ PY
 | [联系人素材](../../corpora/scenario-contacts/contacts.json) | `personas` 列表声明人物身份，`contacts[]` 写所属 `persona_id`、`contact_id`、`contact_type`、名称、渠道、映射和回复策略。同事映射已有人物、策略为 `persona`；老友和家人映射为 `null`、策略为 `model` |
 
 联系人类型只支持 `colleague`、`old_friend`、`family`。真正用于运行的联系人仍需写入人物 `contacts`，
-详见[人物画像](personas.md)。正餐语料中的价格是素材声明；实际交易取地图供给的报价，修改它不会自动更新门店。
+详见[人物画像](personas.md#personas-人物画像)。正餐语料中的价格是素材声明；实际交易取地图供给的报价，修改它不会自动更新门店。
 从完整现有语料复制修改，可以保留当前要求的素材类别；不能只因这次场景未选择就删除固定准入所需文件。
 
+<a name="resources-修改后更新文件身份"></a>
 ## 修改后更新文件身份
 
 哈希针对**实际文件字节**计算，缩进或换行变化同样会改变哈希。更新顺序如下：
@@ -637,6 +659,7 @@ PY
 `worldmock prepare-corpora --output experiments/worldmock-corpora` 会联网重新取得固定来源子集，
 要求输出不存在；它不是扫描自定义文件并注册素材的命令。
 
+<a name="resources-验证修改"></a>
 ## 验证修改
 
 下面的完整离线命令针对前面创建的场景，检查实际加载、全部语料文件身份和世界素材要求：
@@ -647,7 +670,7 @@ from pathlib import Path
 from worldmock.catalog import load_catalog
 from worldmock.catalog.admission import validate_world_categories
 from worldmock.corpora.manifest import load_manifest
-from worldmock.life.scenario import load_scenario
+from worldmock.life.world_setup import load_scenario
 
 path = Path("scenarios/my-resources.json").resolve()
 scenario, _ = load_scenario(path)
@@ -667,7 +690,7 @@ worldmock validate --scenario scenarios/my-resources.json
 ```
 
 人物有 `background_story` 时，完整校验会调用模型编译画像并检查素材覆盖率，还会写出覆盖率报告。
-它不属于纯离线检查。模型配置见[运行配置](runtime.md)。
+它不属于纯离线检查。模型配置见[运行配置](runtime.md#runtime-运行配置)。
 完整校验还逐条打印运行输入警告 `Input warning <警告码> …`；警告本身不让校验失败，新建运行时冻结进运行清单。
 下表中地点类别、显示名、对象名称与购买渠道的错误，在前面的离线加载时就会出现。
 
@@ -681,7 +704,7 @@ worldmock validate --scenario scenarios/my-resources.json
 | `Selected locations use kinds that are not place types` | 所选地点的 `kind` 是否是九个场所类型之一 |
 | `Selected locations share display names` | 同名地点是否各有不同的 `branch_label` |
 | `Agent <编号> would see non-unique object labels` | 人物会同时看到的名称是否重复，例如两件所选商品同名、两条内容或游戏同标题 |
-| `Purchase channels are not admissible: …`，或日志 `Phone simulation config failed verification; …` | 场景钉定了手机配置时：改过的地点显示名是否与某个 App 称呼相同（去掉空白、不分大小写比较），App 的卖家是否仍有有货的供给；见[生活场景](scenarios.md#校验自己的场景) |
+| `Purchase channels are not admissible: …`，或日志 `Phone simulation config failed verification; …` | 场景钉定了手机配置时：改过的地点显示名是否与某个 App 称呼相同（去掉空白、不分大小写比较），App 的卖家是否仍有有货的供给；见[生活场景](scenarios.md#scenarios-校验自己的场景) |
 | `Lifestyle catalog ids do not match activity_met lifestyle keys` | 活动生成结果与资源目录是否同步重建 |
 | `CATALOG_CONTENT_IDENTITY_MISMATCH` | 规则或对象改变后是否刷新了目录清单 |
 | `CATEGORY_*` 素材准入错误 | 固定路径、必填元数据、世界素材数量或可达性要求是否满足 |
@@ -691,6 +714,6 @@ worldmock validate --scenario scenarios/my-resources.json
 
 实现细节可查[地图模型](../../src/worldmock/life/map_models.py)、[地图加载器](../../src/worldmock/life/map_data.py)、
 [语料清单模型](../../src/worldmock/corpora/manifest.py)、[世界素材准入](../../src/worldmock/catalog/admission.py)
-和[地图与门店供给规格](../dev/SPEC-map-and-storefront.md)。
+和[地图与门店供给规格](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格)。
 
-[返回配置手册](README.md) · [场景配置](scenarios.md) · [人物画像](personas.md) · [规则配置](rules.md)
+[返回配置手册](README.md#readme-用户配置手册) · [场景配置](scenarios.md#scenarios-生活场景) · [人物画像](personas.md#personas-人物画像) · [规则配置](rules.md#rules-调整世界规则与人物动机参数)

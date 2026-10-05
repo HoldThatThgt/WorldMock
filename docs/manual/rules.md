@@ -1,9 +1,10 @@
+<a name="rules-调整世界规则与人物动机参数"></a>
 # 调整世界规则与人物动机参数
 
-> 更新日期：2026-10-05。[工具交互规格](../dev/SPEC-tool-interaction.md)中的构建价格范围、完整类别供给、
-> 正式食材配方和发布身份已实现并发布（当前目录 5.4、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)，画像映射表不变。
+> 更新日期：2026-10-05。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
+> 正式食材配方和发布身份已实现并发布（当前目录 5.4、品类契约与规则绑定 3）；下文所说的格式即现行格式；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
 
-要改变人物的初始状态，先改[场景](scenarios.md)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
+要改变人物的初始状态，先改[场景](scenarios.md#scenarios-生活场景)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
 再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
 本页命令都在仓库根目录执行。
 
@@ -20,30 +21,33 @@ flowchart LR
     Q[人物映射表] --> K[画像编译结果]
 ```
 
+<a name="rules-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 一般活动的显示时长与受理时长共用推导，超过一天按一天；消费 60–14400 秒且越界拒绝。MET 键从活动注册表读取，效率曲线有限非负。sleep_channel 是当前声明字段，仍不驱动身体睡眠，不能靠配置该字段改变睡眠行为。
 
+<a name="rules-配置入口与生效范围"></a>
 ## 配置入口与生效范围
 
 | 文件或字段 | 可调整内容 | 实际加载方式 |
 | --- | --- | --- |
 | `catalog/category-contract.json` | 品类继承、槽位约束、共享值、品类配对 | 随场景所用目录加载，版本与规则绑定 |
 | `catalog/exchange-rules.json` | 已实现算子的字段与系数所引用的规则 | 随目录加载；不支持表达式或自定义算子代码 |
-| `catalog/affordances.toml` | 已实现活动的身体结算、占用资源、候选生成和发现声明 | 场景装配会读目录副本，但实际结算、内部动机等仍有多处固定读取仓库默认文件；见[活动声明](#活动声明) |
+| `catalog/affordances.toml` | 已实现活动的身体结算、占用资源、候选生成和发现声明 | 场景装配会读目录副本，但实际结算、内部动机等仍有多处固定读取仓库默认文件；见[活动声明](rules.md#rules-活动声明) |
 | `catalog/rules/travel-time.toml` | 驾车各小时的时长倍数 | 先被目录读取为不可变字节，再由运行场景解析 |
 | `catalog/rules/motivation.toml` | 跨人物的评分变换、归一化与习惯参数 | 从本次目录的 `rules/` 加载 |
 | `agents[].motivation` | 单个人物的内部评分参数 | 从场景加载，当前结构版本为 `1` |
 | `catalog/rules/persona-mapping.toml` | 画像编译中的大五映射和缺省时间锚点 | 优先 `WORLDMOCK_PERSONA_MAPPING`，否则仓库文件位置，再检查当前工作目录 |
 | `catalog/rules/off-foods.mapping.toml` | 已冻结食品来源的映射说明 | 纳入目录内容身份；当前没有执行该 TOML 的导入器 |
-| `catalog/resources.jsonl` 与合同品类属性 | 身体耗能、睡眠债、娱乐需要、效率曲线 | 目录生成结果；具体来源见[身体规则](#身体规则) |
+| `catalog/resources.jsonl` 与合同品类属性 | 身体耗能、睡眠债、娱乐需要、效率曲线 | 目录生成结果；具体来源见[身体规则](rules.md#rules-身体规则) |
 
 场景默认目录位置是“场景文件上两级目录下的 `catalog/`”。`catalog_version` 仅检查版本，不能选择路径。
 目录清单会绑定规则文件的原始字节；改注释也需要刷新身份。
 新建一个 TOML 文件、添加一个算子名或活动类型，不会自动新增引擎能力。
 
+<a name="rules-品类契约"></a>
 ## 品类契约
 
 先考虑把商品挂在已有品类下。只有现有品类确实无法表达共同属性或配对时，才新增品类。
@@ -109,6 +113,7 @@ flowchart LR
 `type` 为 `fact`、`anchored`、`assumption`、`scenario`；`producer` 为 `human`、`data_source`、`model`。
 数值使用绝对 JSON Pointer 标明来源范围，必须恰好覆盖一次。模型产出不能直接标成 `fact`。
 
+<a name="rules-交换规则"></a>
 ## 交换规则
 
 [`exchange-rules.json`](../../catalog/exchange-rules.json) 顶层要求
@@ -143,7 +148,7 @@ flowchart LR
 }
 ```
 
-实际购买价格取[门店供给](resources.md#编写门店供给与商品)，再乘购买数量与品类配对系数，最终向上取整为分。
+实际购买价格取[门店供给](resources.md#resources-编写门店供给与商品)，再乘购买数量与品类配对系数，最终向上取整为分。
 调整某家店的价格应改供给；调整同一类商品的统一交换系数才改配对。
 现行格式的 `purchase_price_fen_min/purchase_price_fen_max` 只是对象构建边界，不是交易用的 `price_slot`。
 两端通过现有品类槽位和对象差异解析，同币种正整数分、最小值不大于最大值，两端相等合法，每个数值须有来源。
@@ -157,6 +162,7 @@ flowchart LR
 全部冻结报价及未来调价都须在范围内；订单仍保存实际成交价，不因之后调价重算已付款。
 规则只接受这些算子，不能写 `expression`、Python 表达式或嵌套公式。
 
+<a name="rules-供给与制作边界"></a>
 ### 供给与制作边界
 
 完整供给分类文件为 `corpora/zhangjiang-map/category-assignment.json`，按现有地点kind和品类树定义完整准入池；
@@ -170,7 +176,7 @@ flowchart LR
 真实卖方、库存、资格和履约仍显式声明；对象不携带门店实际报价或供给库存。
 正式场景 `products/supplies` 显式包含选中门店全部声明商品及生成供给，加载和正式验收核对实际集合，
 缺项拒绝，不自动选择或补齐旧稀疏列表。
-正式场景还须满足[丰富度和餐馆菜单差异验收](../dev/SPEC-map-and-storefront.md#按地点类别生成完整供给)，
+正式场景还须满足[丰富度和餐馆菜单差异验收](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-按地点类别生成完整供给)，
 素材不足或未知拒绝发布，不随机补齐；菜单所需子类或明确对象必须有来源，不从店名猜菜系。
 
 正式做饭复用已存在的 `inventory_transform`，一份食材包作为单输入对象转换为一个已发布正餐对象，
@@ -180,6 +186,7 @@ flowchart LR
 工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），现行目录为 5.4；旧输入直接拒绝，不提供迁移或兼容。
 这些正式数据与生成行为已实现，没有为它们增加 `category check/refine/publish` 的参数或运行开关。
 
+<a name="rules-检查与发布品类修改"></a>
 ### 检查与发布品类修改
 
 现有目录可直接离线检查：
@@ -221,6 +228,7 @@ worldmock category publish \
 同一对象改挂品类要追加下一对象版本，不能跳过确认。可重复 `--scenario` 检查多个场景；输出目录必须不存在。
 发布不会改写原目录，也不会自动让运行命令找到 `experiments/worldmock-published`，还需按场景目录布局放置。
 
+<a name="rules-活动声明"></a>
 ## 活动声明
 
 [`affordances.toml`](../../catalog/affordances.toml) 有两层：`kinds` 声明引擎活动，`families` 将活动分组用于内部动机评分。
@@ -236,8 +244,8 @@ worldmock category publish \
 | --- | --- |
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
-| `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配。`content_rate`（观看）为条目费率 × 有效偏好 ÷ 接触次数，`preference_rate`（游戏）为有效偏好 × 目录费率；两个通道都用有效偏好 `f + (1 − f)·w`，游戏的口味权重 `w` 与内容同一算法，没有题材的条目 `w = 0`、按下限 `f` 缓解，见[身体规则](#身体规则) |
-| `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-time-and-energy.md)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
+| `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配。`content_rate`（观看）为条目费率 × 有效偏好 ÷ 接触次数，`preference_rate`（游戏）为有效偏好 × 目录费率；两个通道都用有效偏好 `f + (1 − f)·w`，游戏的口味权重 `w` 与内容同一算法，没有题材的条目 `w = 0`、按下限 `f` 缓解，见[身体规则](rules.md#rules-身体规则) |
+| `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
 | `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
 | `target_discovery` | `none`、`browse_result` 或带 `field/id_key` 的 `catalog_field` 声明 |
@@ -252,11 +260,12 @@ candidate = { generator = "task_slot", max_tasks = 2 }
 ```
 
 它控制内部动机评分为工作候选枚举多少任务，不改变模型提示中的候选呈现上限。
-用户可见候选数量由场景 `candidate_presentation_limit` 等参数控制，见[场景配置](scenarios.md)。
+用户可见候选数量由场景 `candidate_presentation_limit` 等参数控制，见[场景配置](scenarios.md#scenarios-生活场景)。
 
 修改活动声明后，需要检查资源目录中 MET/娱乐缓解键、语料路径、人物注意力键和工具菜单是否一致。
 单纯给 TOML 加一个新类型，并不能实现新的动作执行器。
 
+<a name="rules-出行时长"></a>
 ## 出行时长
 
 `travel-time.toml` 顶层必须恰好有 `version: 1`、`factors`、`provenance`。
@@ -281,11 +290,13 @@ python scripts/calibrate_traffic.py --check
 
 该命令检查现有锚点的可复现输出；自定义实验表若有意偏离锚点，不能再声称它是原校准产物。
 
+<a name="rules-动机评分"></a>
 ## 动机评分
 
 当前动机评分写入观察事件的 `motivation_internal`，供评估和研究使用；候选名次、概率和分数不会直接展示给模型。
 因此调这里的权重，不等于给人物下达动作指令。
 
+<a name="rules-跨人物的通用参数"></a>
 ### 跨人物的通用参数
 
 [`motivation.toml`](../../catalog/rules/motivation.toml) 必须保留以下五组运行字段：
@@ -314,6 +325,7 @@ discount = 0.9
 修改参数应同步说明；当前读取器主要验证运行字段，不把任意 provenance 文本当作已核验研究证据。
 文件缺席时该评分仪表不启用；文件存在但结构或数值错误会阻止场景装配。
 
+<a name="rules-单个人物的参数"></a>
 ### 单个人物的参数
 
 `agents[].motivation` 是场景中的可选对象，当前 `schema_version` 为 `1`。
@@ -361,6 +373,7 @@ discount = 0.9
 }
 ```
 
+<a name="rules-人物映射表"></a>
 ## 人物映射表
 
 [`persona-mapping.toml`](../../catalog/rules/persona-mapping.toml) 当前要求 `version = 2`，
@@ -396,15 +409,16 @@ bedtime = "23:00-24:00"
 
 这些缺省在故事没提到时补进卡片。场景人物写出 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`、
 `bedtime_window`、`leave_work_window` 或 `arrive_home_window` 时，人设层改取场景值，对应的缺省只在场景没写该字段时进入人设层；`wake` 与 `leave_home`
-没有场景字段，故事不提时总取这里的缺省，见[人物画像](personas.md#正文与实际世界条件要一致)。
+没有场景字段，故事不提时总取这里的缺省，见[人物画像](personas.md#personas-正文与实际世界条件要一致)。
 下班与到家（卡片的 `leave_work`、`arrive_home`）没有缺省：本表 `[defaults.time_anchors]` 仍只有五个键，`version` 仍为 2，目录身份不变；故事与场景都没写固定时刻时，卡片与人设层的这两项为 null。
 
 独立文件可通过相对路径 `WORLDMOCK_PERSONA_MAPPING=experiments/persona-mapping.toml` 选择；
 这不是场景字段，也不会自动跟随另一个自定义 `catalog/` 目录。
 当前运行时主要从编译结果接入人物卡片和口味权重，**尚未把整份 `world_dynamics` 自动应用到世界状态**。
 改变映射表可以改变编译输出，不能据此声称运行中的情绪、社交和邀约参数都已相应改变。
-需要明确人物睡眠与作息时，仍在场景人物字段中填写，详见[人物画像](personas.md)。
+需要明确人物睡眠与作息时，仍在场景人物字段中填写，详见[人物画像](personas.md#personas-人物画像)。
 
+<a name="rules-食品来源映射说明"></a>
 ## 食品来源映射说明
 
 `off-foods.mapping.toml` 当前是对已冻结 Open Food Facts 白名单结果的来源说明。
@@ -412,9 +426,10 @@ bedtime = "23:00-24:00"
 因此修改它不会自动抓取食品、增加商品、换算热量或更新份量。
 
 实际正式目录由 `scripts/build_catalog.py` 读取冻结食品语料、白名单和品类映射生成。
-食品定制入口及商品原始模型见[资源与素材](resources.md#新增商品对象)。
+食品定制入口及商品原始模型见[资源与素材](resources.md#resources-新增商品对象)。
 文件里保留的旧映射措辞不代表当前支持对象 `edges`、动态公式或缺失营养数据时的自动推断。
 
+<a name="rules-身体规则"></a>
 ## 身体规则
 
 当前没有独立的 `body-rules.toml` 或统一“身体配置文件”。它们分布在以下已实际加载的位置：
@@ -424,11 +439,11 @@ bedtime = "23:00-24:00"
 | 体重、初始能量、初始睡眠债 | 场景 `body` | 千克、千卡、小时；见场景手册的初值限制 |
 | 最大能量、饥饿与紧急阈值 | `resources.jsonl` 的 `energy_kcal.bounds/alert_rules` | 千卡；100 < 紧急阈值 < 饥饿阈值 ≤ 上限（100 为代码常量 `APPETITE_STARVING_KCAL`，不满足时加载拒绝）；紧急阈值同时是饥饿「至少饿得难受」的下限，能量低于 100 千卡时显示「饿得发慌」 |
 | 基础代谢、活动 MET | 能量资源的 `drain_rules` | 千卡/小时、活动强度；参与实际耗能；出行方式的 MET（`travel:<方式>`）决定路线标签：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」 |
-| 睡眠需要与昼夜节律 | 人物 `sleep_need_hours`、`chronotype_midsleep` | 当前两过程睡眠算法消费这些人物参数；起点困意由这两项按惯常起床时刻反推，见[人物画像](personas.md#在场景中填写人物) |
+| 睡眠需要与昼夜节律 | 人物 `sleep_need_hours`、`chronotype_midsleep` | 当前两过程睡眠算法消费这些人物参数；起点困意由这两项按惯常起床时刻反推，见[人物画像](personas.md#personas-在场景中填写人物) |
 | 目录中的睡眠变化率 | `sleep_debt_hours.drain_rules` | 仍要求正数并装配，但 `awake_sleep_debt_per_hour`、`sleep_recovery_per_hour` 不能覆盖当前睡眠算法 |
 | 目录中的 `food_efficiency_curve` | 能量资源的 `drain_rules` | 仍要求合法曲线并装配，但实际食品利用率由睡眠模型计算，不读取这张目录曲线 |
 | 娱乐需要增长、活动缓解率 | `entertainment_need.drain_rules` | 0–1 的每小时变化率；缓解键与活动声明匹配；有缓解的活动进行时娱乐需要只按缓解下降，不再按清醒速率增长 |
-| 口味不合时的缓解下限 | 场景 `body.entertainment_relief_preference_floor` | 下限偏好 `f`，开区间 (0, 1)，缺省 `0.5`；观看与游戏的实际缓解为缓解速率 × (`f + (1 − f)·w`)，`w` 是口味权重，候选排序仍用 `w`；实验假设，见[实验假设声明](../EXPERIMENT.md#实验假设声明)；目录不含此键，改它不涉及目录版本 |
+| 口味不合时的缓解下限 | 场景 `body.entertainment_relief_preference_floor` | 下限偏好 `f`，开区间 (0, 1)，缺省 `0.5`；观看与游戏的实际缓解为缓解速率 × (`f + (1 − f)·w`)，`w` 是口味权重，候选排序仍用 `w`；实验假设，见[实验假设声明](../EXPERIMENT.md#experiment-实验假设声明)；目录不含此键，改它不涉及目录版本 |
 | 工作效率因子、笔记倍率 | 合同品类解析后的属性 | 所有合同模板需一致；曲线必须能合法插值 |
 
 正式基线生成器从 `scripts/catalog-snapshot-legacy-scenario.json` 的 `body` 读取基础身体参数，
@@ -440,8 +455,9 @@ bedtime = "23:00-24:00"
 场景输入和目录部分字段仍使用 `sleep_debt_hours` 字样，不表示存在两份可以分别调节的睡眠状态。
 工作效率曲线的睡眠输入最终读取这份睡眠不足账；食品利用率则直接调用睡眠模型。
 困意分级的下界是「有点乏」0.80、「困」0.93、「很困」1.07、「撑不住」1.18（困意 1 即模型自身的入睡条件），
-按 KSS（卡罗林斯卡困倦量表）等价刻度标定，属实验假设，见[实验假设声明](../EXPERIMENT.md#实验假设声明)。
+按 KSS（卡罗林斯卡困倦量表）等价刻度标定，属实验假设，见[实验假设声明](../EXPERIMENT.md#experiment-实验假设声明)。
 
+<a name="rules-在独立目录中调参并验证"></a>
 ## 在独立目录中调参并验证
 
 下面是完整离线示例：复制规则目录和现有场景，降低习惯项权重，提升目录次版本，刷新真实目录身份，
@@ -453,7 +469,7 @@ import json
 import shutil
 from pathlib import Path
 from worldmock.categories.identity import refresh_manifest_identity
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 root = Path("experiments/rules-demo")
 root.mkdir(parents=True, exist_ok=False)
@@ -497,8 +513,8 @@ python scripts/build_catalog.py --check
 worldmock category check --catalog experiments/rules-demo/catalog
 ```
 
-正式运行前继续执行[资源文件校验](resources.md#验证修改)和完整项目校验；
-`worldmock validate` 在有背景故事时会调用模型，详见[运行配置](runtime.md)。
+正式运行前继续执行[资源文件校验](resources.md#resources-验证修改)和完整项目校验；
+`worldmock validate` 在有背景故事时会调用模型，详见[运行配置](runtime.md#runtime-运行配置)。
 
 | 常见错误 | 原因与处理 |
 | --- | --- |
@@ -514,4 +530,4 @@ worldmock category check --catalog experiments/rules-demo/catalog
 [活动声明加载器](../../src/worldmock/catalog/affordances.py)、[场景语义装配](../../src/worldmock/life/semantics.py)
 和[画像映射器](../../src/worldmock/profile/mapper.py)。
 
-[返回配置手册](README.md) · [场景配置](scenarios.md) · [人物画像](personas.md) · [资源与素材](resources.md)
+[返回配置手册](README.md#readme-用户配置手册) · [场景配置](scenarios.md#scenarios-生活场景) · [人物画像](personas.md#personas-人物画像) · [资源与素材](resources.md#resources-定义地点门店供给与世界素材)

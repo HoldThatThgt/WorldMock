@@ -1,4 +1,4 @@
-"""个人事务跨夜可见，且不进记忆层、不被浓缩经真实请求、引擎与 SQLite（docs/dev/SPEC-errands-workday.md 2.1、2.6、2.8）。
+"""个人事务跨夜可见，且不进记忆层、不被浓缩经真实请求、引擎与 SQLite（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 、2.6、2.8）。
 
 正式场景建立的 LifeEngine 上，人物以收尾请求的 errands 记下事务。事务存在 AgentState.errands，不在 DayPlan 里：零点使
 旧计划失效、零点计划登记新计划、revise_day_plan 整表替换与目标推进都不改动它，零点前后待办层的事务行逐字相同。待办层
@@ -47,27 +47,27 @@ def test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_pl
     engine = evening(engine_factory, "23:40")
     note(engine, "note", [errand_add("周末补食材包", KIT_NAME, memo="下班顺路去超市", remind_time="18:00"),
                           errand_add("早饭喝两份奶", MILK, outcome="吃掉", quantity=2)])
-    held = dict(engine.state.agents[1].errands)
+    held = dict(engine.context.state.agents[1].errands)
     rows = observe(engine, "noted")["todo_layer"]["errands"]
     assert [(row["name"], row["noted_on"], row["remind_time"]) for row in rows] == [
         ("周末补食材包", "2026-01-05", "18:00"), ("早饭喝两份奶", "2026-01-05", None)]
     assert act(engine, "wait", routed(WAIT)).status == "in_progress"
     midnight = moment(engine, "2026-01-06 00:00")
     run_until(engine, _just_before(midnight))
-    engine.advance(midnight - engine.state.current_time, engine.scheduling_state().next_event_at)
-    assert engine.midnight_rhythm_pending and engine.state.agents[1].day_plan is None
-    assert engine.state.agents[1].errands == held
+    engine.advance(midnight - engine.context.state.current_time, engine.scheduling_state().next_event_at)
+    assert engine.midnight_rhythm_pending and engine.context.state.agents[1].day_plan is None
+    assert engine.context.state.agents[1].errands == held
     settle_day_plans(engine, StubPlanDayClient(goals=[_REST]))
-    assert [goal.goal for goal in engine.state.agents[1].day_plan.goals] == [_REST["goal"]]
-    assert engine.state.agents[1].errands == held
+    assert [goal.goal for goal in engine.context.state.agents[1].day_plan.goals] == [_REST["goal"]]
+    assert engine.context.state.agents[1].errands == held
     assert observe(engine, "planned")["todo_layer"]["errands"] == rows
-    run_until(engine, lambda current: current.state.agents[1].day_plan.goals[0].progressed_at is not None)
-    assert engine.state.agents[1].errands == held
+    run_until(engine, lambda current: current.context.state.agents[1].day_plan.goals[0].progressed_at is not None)
+    assert engine.context.state.agents[1].errands == held
     breakfast = PlanGoalInput(intent_kind="用餐", goal="早饭喝杯牛奶", remind_time=None, around_time="07:30")
     revised = act(engine, "revise", ReviseDayPlanRequest(goals=[breakfast]), tool="revise_day_plan")
     assert revised.status == "completed", revised.error_code
-    assert [goal.goal for goal in engine.state.agents[1].day_plan.goals] == [_REST["goal"], "早饭喝杯牛奶"]
-    assert engine.state.agents[1].errands == held
+    assert [goal.goal for goal in engine.context.state.agents[1].day_plan.goals] == [_REST["goal"], "早饭喝杯牛奶"]
+    assert engine.context.state.agents[1].errands == held
     assert observe(engine, "revised")["todo_layer"]["errands"] == rows
     assert [event.data["kind"] for event in errand_events(engine)] == ["errand_registered", "errand_registered"]
 
@@ -95,9 +95,9 @@ def test_an_errand_stays_when_the_memory_layer_overflows_its_window(engine_facto
     _arrive(engine, "arrive", _walk(engine, "walk").activity_id)
     _long_stay(engine, "office", "班")
     _walk(engine, "back", "home")
-    layer_context = engine._layer_context(engine.state.agents[1], (), [])
+    layer_context = engine.observations._layer_context(engine.context.state.agents[1], (), [])
     monkeypatch.setattr(memory_layer, "MEMORY_WINDOW_CHARS", 10 ** 6)
-    untrimmed = memory_view(layer_context, engine.store).layer
+    untrimmed = memory_view(layer_context, engine.context.store).layer
     monkeypatch.setattr(memory_layer, "MEMORY_WINDOW_CHARS", MEMORY_WINDOW_CHARS)
 
     observed = observe(engine, "road")
@@ -159,13 +159,13 @@ def _home_session(engine_factory, noted: list[dict], reported: list[dict]) -> tu
     assert drinking.status == "in_progress"
     at = wake_by_mail(engine, 1, offset=540)
     assert at == moment(engine, "2026-01-05 12:40")
-    run_until(engine, lambda current: current.state.current_time == at
+    run_until(engine, lambda current: current.context.state.current_time == at
               and 1 in current.scheduling_state().ready_agent_ids)
     name = activity_name(engine, drinking.activity_id)
     reported_result = act(engine, "report", report_request(name, summary="还在喝。", errands=reported),
                           tool="report_status")
     assert reported_result.status == "completed", reported_result.error_code
-    run_until(engine, lambda current: current.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
+    run_until(engine, lambda current: current.context.state.activities[drinking.activity_id].status != ActivityStatus.ACTIVE)
     _, finished = _act(engine, "finish", "conclude_activity", conclude_request(name, summary="喝完了。"))
     assert finished.status == "completed", finished.error_code
     _walk(engine, "walk")
@@ -185,7 +185,7 @@ def test_the_memory_layer_writes_no_line_for_errands(engine_factory) -> None:
     _, plain = _home_session(engine_factory, [], [])
 
     assert {event.data["kind"] for event in errand_events(engine)} == set(ERRAND_EVENT_KINDS)
-    assert engine.state.agents[1].errands and len(engine.state.agents[1].errands) == 1
+    assert engine.context.state.agents[1].errands and len(engine.context.state.agents[1].errands) == 1
     layer = road["memory_layer"]
     assert layer["earlier_today"] and layer == plain["memory_layer"]
     text = json.dumps(layer, ensure_ascii=False)

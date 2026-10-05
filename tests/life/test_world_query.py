@@ -27,7 +27,7 @@ def _observation(count=47, page_size=20):
 
 
 def _request(source=None, **fields):
-    """固定六个必填字段（docs/dev/SPEC-errands-workday.md 5.1），用显式过滤条件构造查询；source 写到键 from。"""
+    """固定六个必填字段（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-请求 ），用显式过滤条件构造查询；source 写到键 from。"""
     return QueryWorldRequest(**{"name": None, "way": None, "category": "食品", "from": source,
                                 "available_only": False, "offset": 0, **fields})
 
@@ -84,7 +84,7 @@ def test_world_query_available_only_requires_a_json_boolean(value):
 @pytest.mark.parametrize("field", ["name", "way", "category", "from"])
 def test_world_query_rejects_blank_and_coerced_filters(field):
     """字符串条件不能为空白，数字与布尔不能冒充名称、标签或来源。名称、方式与品类的空白写法由请求模型拒绝；来源的空白
-    写法既不是地点显示名也不是渠道称呼，按 docs/dev/SPEC-errands-workday.md 5.5 第一行在 from 位置报查询参数错误，
+    写法既不是地点显示名也不是渠道称呼，按 docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-错误  第一行在 from 位置报查询参数错误，
     候选是换了 from 的完整查询（夹具里唯一有供给条目的门店「商店」）。"""
     for value in (12, True):
         with pytest.raises(ValidationError):
@@ -168,7 +168,7 @@ def test_world_query_intersection_uses_existing_deterministic_name_and_way_rules
 
 def test_world_query_reports_all_dynamic_errors_and_full_legal_values():
     """动态标签与方式独立报错，合法闭集不受三条候选限制；未知来源与方式、品类错误一次全报，按方式、品类、来源的顺序，
-    偏移量范围只在全部筛选合法后计算，所以越界的偏移量此时不另报（docs/dev/SPEC-errands-workday.md 5.5）。"""
+    偏移量范围只在全部筛选合法后计算，所以越界的偏移量此时不另报（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-错误 ）。"""
     observation = _observation()
     report = validate_world_query(observation, _request(way="随便做", category="商品"))
     payload = report.payload()
@@ -208,10 +208,10 @@ def test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes
     engine = engine_factory()
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "query-frozen"))
-    before = engine.state.model_dump(mode="json")
-    evidence_seq = engine.store.last_event_seq
+    before = engine.context.state.model_dump(mode="json")
+    evidence_seq = engine.context.store.last_event_seq
     goods = [entry for entry in observed["world_query_bindings"] if entry["identity"].startswith("supply:")]
-    assert len(goods) > engine.scenario.candidate_presentation_limit
+    assert len(goods) > engine.context.scenario.candidate_presentation_limit
     categories = sorted({entry["category"] for entry in goods})
     for category in categories:
         offset, names = 0, []
@@ -226,11 +226,11 @@ def test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes
         expected = {entry["match"]["name"] for entry in observed["world_query_bindings"]
                     if entry["category"] == category}
         assert set(names) == expected and len(names) == len(expected)
-    assert engine.state.model_dump(mode="json") == before
-    assert engine.store.last_event_seq == evidence_seq
+    assert engine.context.state.model_dump(mode="json") == before
+    assert engine.context.store.last_event_seq == evidence_seq
 
 
-#: 返回项、动作与工具的键闭集（docs/dev/SPEC-errands-workday.md 5.4），以及任何位置都不得出现的内部键。
+#: 返回项、动作与工具的键闭集（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-返回 ），以及任何位置都不得出现的内部键。
 _MATCH_KEYS = {"name", "kind", "phase", "state", "contract", "actions", "tools"}
 _ACTION_KEYS = {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
 _TOOL_KEYS = {"tool", "available", "reason"}
@@ -267,7 +267,7 @@ def test_world_query_matches_are_compact_targets_without_candidates(engine_facto
     """真实引擎 10:00 在家：返回项是冻结目标的无损紧凑投影——顶层恒为三键，项、动作与工具的键取自闭集，任何位置都没有
     null 与空集合；门店商品到店动作 available 为 false 且带原因、远程下单 available 为 true 且不带 reason 键，首个动作的
     来源标记仍在；返回里没有逐项候选与内部身份，冻结条目照存完整目标（null 保留、无候选），构造候选的函数已删除；宿主
-    本地求值与环境 read_query 的页逐值相等（docs/dev/SPEC-errands-workday.md 5.4）。"""
+    本地求值与环境 read_query 的页逐值相等（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-返回 ）。"""
     import worldmock.life.world_query as world_query
     from custom.envs.life_env import LifeEnv
     from tests.life.conftest import context, stage_day_plan
@@ -373,7 +373,7 @@ def _unknown_source_query(observed):
 def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engine_factory, build, accepted):
     """通过真实环境即时查询，禁止写状态、消费生活轮数或追加世界事件。`query_world` 的两个入口——宿主在本次冻结观察上
     本地求值的纯函数与环境的 `read_query`——对同一观察、同一请求：受理时结果逐值相等，拒绝时给出同一份校验报告。
-    来源筛选、只看此刻能做的与二者同写、未知来源各一例（docs/dev/SPEC-errands-workday.md 5.6），世界在 10:00（门店营业）。"""
+    来源筛选、只看此刻能做的与二者同写、未知来源各一例（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-执行位置与保留约束 ），世界在 10:00（门店营业）。"""
     import asyncio
 
     from custom.envs.life_env import LifeEnv
@@ -388,7 +388,7 @@ def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engi
     observed = engine.observe(frozen)
     environment = LifeEnv()
     environment.engine = engine
-    before, sequence = engine.state.model_dump(mode="json"), engine.store.last_event_seq
+    before, sequence = engine.context.state.model_dump(mode="json"), engine.context.store.last_event_seq
     request = build(observed)
     report = validate_world_query(observed, request)
     result = asyncio.run(environment.read_query(frozen, "query_world", request))
@@ -405,5 +405,5 @@ def test_environment_read_query_keeps_world_clock_round_and_store_unchanged(engi
         assert all(item["allowed_values"] for item in result["items"] if item["path"][-1] != "from")
         assert all(item["allowed_values"] == [] and item["candidates"] for item in result["items"]
                    if item["path"][-1] == "from")
-    assert engine.state.model_dump(mode="json") == before
-    assert engine.store.last_event_seq == sequence
+    assert engine.context.state.model_dump(mode="json") == before
+    assert engine.context.store.last_event_seq == sequence

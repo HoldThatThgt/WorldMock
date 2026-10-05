@@ -1,25 +1,29 @@
+<a name="architecture-worldmock-产品设计说明书-总体架构"></a>
 # WorldMock 产品设计说明书 — 总体架构
 
-> **状态**：DRAFT；职责设计，现行接口与行为以所属合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）\
-> **工具交互修订**：按[工具交互规格](../dev/SPEC-tool-interaction.md)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
-> **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-errands-workday.md)分阶段同步（[实施计划](../dev/research/errands-workday-implementation-plan.md) D1 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../dev/errands-workday-verification.md)）。
+> **状态**：DRAFT；职责设计，现行接口与行为以所属合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）\
+> **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
+> **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D1 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **日期**：2026-10-05
 > **版本**：v1.13
 > **目标读者**：架构师、开发工程师、系统工程师
 
-本文承接[概述](00-overview.md)，说明数字人、资源引擎、交换引擎、模拟引擎和记录引擎如何协作，
+本文承接[概述](00-overview.md#overview-worldmock-产品设计说明书-概述)，说明数字人、资源引擎、交换引擎、模拟引擎和记录引擎如何协作，
 以及数字足迹如何进入数据交付与行为评估。各引擎的内部规则由所属设计文档维护；
-跨模块字段与调用合同见[接口合同](../CONTRACTS.md)，文档权威归属见[文档入口](../INDEX.md)。
+跨模块字段与调用合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，文档权威归属见[文档入口](../INDEX.md#index-worldmock-文档入口)。
 职责划分不代表对应实现已经拆成独立服务，也不构成实现完成或真实运行验收。
 
+<a name="design-01-architecture-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
 按[共享规则与可重建环境规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)修订；验收结果独立记录。
 
 共享规则分别归属于记录、资源和生活模块的唯一实现，呈现、受理、结算与评估直接复用。基础模型位于不依赖业务模块的叶子模块；深度冻结仍属于品类合同。AS2 负责调度、模型服务和恢复，WorldMock 负责人物的记忆业务规则。
 
+<a name="architecture-系统定位与总体规格"></a>
 ## 1. 系统定位与总体规格
 
+<a name="architecture-系统定位"></a>
 ### 1.1 系统定位
 
 WorldMock 模拟并记录任意性格数字人的数字足迹。数字人依据自身画像、需求、观察和记忆选择行动，
@@ -34,23 +38,24 @@ WorldMock 模拟并记录任意性格数字人的数字足迹。数字人依据�
 | 过程记录 | 观察、决策、执行、状态变化、结果与记忆都有来源和关联，支持检查点恢复及反事实分支 |
 | 数据交付 | 记录引擎提供固定截止的认证导出，数据交付通过 LabelKit 加工并校验成品 |
 
-白领生活、单数字人和连续十二周是已有实验场景的设置，具体身份见[实验定义](../EXPERIMENT.md)。
+白领生活、单数字人和连续十二周是已有实验场景的设置，具体身份见[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
 实验时长和内容样本不构成产品覆盖范围或模拟时长上限；可配置时长也不代表任意长度的运行已经完成验证。
 
 | 能力 | 可选性 | 规格 |
 | --- | --- | --- |
 | 人物决策 | 必选 | AS2 驱动的自主决策，基于观察、需求、记忆选择行动 |
-| 交互菜单 | 必选 | 场景按地点类与人物声明允许的对象动作，随观察冻结并由环境重验；`start_activity.items[]` 每项含目标、方式、来源和去向，内部动作由目标与方式唯一解析；任务回看和世界查询归只读，工具面以接口合同为准；[冻结规格](../dev/SPEC-interaction-menu.md) |
-| 身体模型 | 必选 | 维护身体相关资源，计算睡眠演化、体感分级和活动效率；执行边界见[模拟引擎](04-simulation-engine.md#实际区间身体变化与效率) |
+| 交互菜单 | 必选 | 场景按地点类与人物声明允许的对象动作，随观察冻结并由环境重验；`start_activity.items[]` 每项含目标、方式、来源和去向，内部动作由目标与方式唯一解析；任务回看和世界查询归只读，工具面以接口合同为准；[冻结规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单) |
+| 身体模型 | 必选 | 维护身体相关资源，计算睡眠演化、体感分级和活动效率；执行边界见[模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率) |
 | 活动执行 | 必选 | 工作、进食、睡眠、娱乐、购物、出行六大类活动；每人两个活动名额 |
 | 资源结算 | 必选 | 金钱双边转账；能量与娱乐需要流水结算；睡眠和共享时钟按各自规则核验 |
-| 资源引擎 | 必选 | 统一资源定义、内容与语料、目录发布、检索与提供；[详细设计](03-resource-engine.md) |
+| 资源引擎 | 必选 | 统一资源定义、内容与语料、目录发布、检索与提供；[详细设计](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
 | 社交互动 | 可选，v1.0 最小可行版 | 看见同地他人，与联系人通讯 |
-| 记录引擎 | 必选 | 事件、素材、检查点、分支、导出与诊断统一见[记录引擎设计](05-recording-engine.md) |
+| 记录引擎 | 必选 | 事件、素材、检查点、分支、导出与诊断统一见[记录引擎设计](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
 | 检查点恢复 | 必选 | 完整世界与工作区快照，支持从已验证的共同检查点建立新分支 |
 | LabelKit 交付 | 必选 | JSONL 格式导出，包含动作序列、意图、dreaming |
 | 行为评估 | 必选 | 多维度指标评估，生成对比报告 |
 
+<a name="architecture-系统边界"></a>
 ### 1.2 系统边界
 
 系统包含数字人与环境的交互、资源与内容提供、交换规则、时间与活动推进、
@@ -60,8 +65,10 @@ WorldMock 模拟并记录任意性格数字人的数字足迹。数字人依据�
 社会级宏观模拟或真实银行、电商等外部业务系统集成，也不保证与任何特定真实个体的行为一致。
 资源和规则使用运行前整理并绑定的版本。
 
+<a name="architecture-总体架构与职责分工"></a>
 ## 2. 总体架构与职责分工
 
+<a name="architecture-总体架构"></a>
 ### 2.1 总体架构
 
 资源引擎提供世界里可使用的定义与内容，交换引擎提供条件和转换规则。
@@ -88,23 +95,25 @@ flowchart TB
 LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环境入口。
 现有代码文件可以承载多个引擎的处理逻辑，不能仅凭目录名称判定职责归属。
 
+<a name="architecture-职责与交接"></a>
 ### 2.2 职责与交接
 
 | 负责方 | 负责什么 | 向协作方交付什么 |
 | --- | --- | --- |
-| [数字人](../dev/SPEC-life-realism.md) | 画像、七层提示组装、行动选择、收尾记忆与反思 | 向模拟引擎提交动作请求（播报、暂停与收尾请求可携带个人事务的新增、更新与取消），提供决策和记忆证据 |
-| [资源引擎](03-resource-engine.md) | 资源与对象定义、内容与固化语料、版本与来源、查询与提供 | 返回指定版本的定义、属性、匹配条目、内容片段与素材引用 |
-| [交换引擎](02-exchange-engine.md) | 维护与查询交换规则，校验条件，计算投入产出，校验资源分录 | 返回条件判定、资源变化明细、履约条件或拒绝原因 |
-| [模拟引擎](04-simulation-engine.md) | 初始化、观察与决策机会、动作受理、时间推进、实际活动与会话切换、身体变化与效率、零点计划（运行时后台任务 `plan_day`，不经人物）、计划与提醒、个人事务的受理、按结算证据确认办成与事务提醒、按场景工作安排求值今天的上班安排、状态更新、恢复后的执行 | 向数字人提供观察与反馈，向记录引擎提交实际过程、结果与共同快照 |
-| [记录引擎](05-recording-engine.md) | 保存与关联足迹、素材和状态，校验记录一致性，保存检查点，构建分支存储，认证导出与诊断 | 返回保存确认、已核验的恢复材料、认证导出和客观统计 |
-| [数据交付](06-delivery.md) | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
-| [行为评估](07-evaluation.md) | 根据已保存事实计算行为指标、比较实验并形成真实性评价；工作负荷与作息偏离两个只报告项另读一个可选的打包输入（各人物的班次、任务的预约与要求地点、住处、覆盖后的作息窗口与播报间隔），缺输入的人物报告 null | 评估报告与证据关联 |
+| [数字人](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) | 画像、七层提示组装、行动选择、收尾记忆与反思 | 向模拟引擎提交动作请求（播报、暂停与收尾请求可携带个人事务的新增、更新与取消），提供决策和记忆证据 |
+| [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) | 资源与对象定义、内容与固化语料、版本与来源、查询与提供 | 返回指定版本的定义、属性、匹配条目、内容片段与素材引用 |
+| [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) | 维护与查询交换规则，校验条件，计算投入产出，校验资源分录 | 返回条件判定、资源变化明细、履约条件或拒绝原因 |
+| [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) | 初始化、观察与决策机会、动作受理、时间推进、实际活动与会话切换、身体变化与效率、零点计划（运行时后台任务 `plan_day`，不经人物）、计划与提醒、个人事务的受理、按结算证据确认办成与事务提醒、按场景工作安排求值今天的上班安排、状态更新、恢复后的执行 | 向数字人提供观察与反馈，向记录引擎提交实际过程、结果与共同快照 |
+| [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) | 保存与关联足迹、素材和状态，校验记录一致性，保存检查点，构建分支存储，认证导出与诊断 | 返回保存确认、已核验的恢复材料、认证导出和客观统计 |
+| [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付) | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
+| [行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) | 根据已保存事实计算行为指标、比较实验并形成真实性评价；工作负荷与作息偏离两个只报告项另读一个可选的打包输入（各人物的班次、任务的预约与要求地点、住处、覆盖后的作息窗口与播报间隔），缺输入的人物报告 null | 评估报告与证据关联 |
 
 LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
-Dreaming 按当前[交付规格](../dev/SPEC-labelkit-delivery.md)消费认证导出，
+Dreaming 按当前[交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit)消费认证导出，
 默认不写回仍在运行的数字人；数字人运行中的记忆与反思由人物模块维护。
 反事实分支中的实际执行由模拟引擎编排，分支保存和来源关系由记录引擎维护。
 
+<a name="architecture-状态归属与写入边界"></a>
 ### 2.3 状态归属与写入边界
 
 | 对象 | 负责方 | 修改边界 |
@@ -130,10 +139,12 @@ Dreaming 按当前[交付规格](../dev/SPEC-labelkit-delivery.md)消费认证�
 （同秒续接原样带回的调用参数与改动、当日操作备忘与被拒结果明细照原始证据回显所写内容，不在此列）；
 事务文字不进 `self_notes`，记忆层也不为它写 `settled` 句。
 这条交接沿用现有 AS2 人物循环、记忆存储和检查点，不增加第二套运行或记忆框架。
-完整行为与验收见[一日行为规格](../dev/SPEC-dayrun-behavior.md)。
+完整行为与验收见[一日行为规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格)。
 
+<a name="architecture-端到端数据流"></a>
 ## 3. 端到端数据流
 
+<a name="architecture-准备与初始化"></a>
 ### 3.1 准备与初始化
 
 ```mermaid
@@ -153,6 +164,7 @@ flowchart LR
 原生品类契约、对象属性增量与库存转换继续有效；商品使用合同可覆盖不在售的持有物，购买另由门店供给确定报价与卖方。
 缺少必要定义、规则或素材时明确失败，不补造可继续运行的世界。
 
+<a name="architecture-地图与门店供给的交接"></a>
 ### 地图与门店供给的交接
 
 ```mermaid
@@ -182,6 +194,7 @@ flowchart LR
 结果恒为 `{matches, total_count, next_offset}`，逐项是冻结目标的无损紧凑投影、不再附候选，只进入模型与 tool 交换证据，
 不生成进度层 `events`、世界动作或人物记忆。
 
+<a name="architecture-观察行动与执行"></a>
 ### 3.2 观察、行动与执行
 
 ```mermaid
@@ -229,7 +242,7 @@ sequenceDiagram
 记录引擎在相应交互边界保存观察、决策、执行与记忆证据。
 有效菜单由地点类与人物声明求交集，随本轮观察冻结；阶段与可见目标继续收窄。
 宿主的本地校验与直接派发按冻结菜单失败关闭，环境重验阻止绕过模型工具 Schema，候选、事实与资源目录保持完整。详细合同见
-[交互菜单规格](../dev/SPEC-interaction-menu.md)。
+[交互菜单规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)。
 决策不耗时；有进行中活动且无唤醒条件才静默续行。
 
 宿主与环境复用现有 Pydantic、JSON Schema、名称和方式映射，避免各自解释同一请求。
@@ -243,6 +256,7 @@ sequenceDiagram
 后续提醒不改变开放时刻。通知完整性和素材有效性在加载前验证，任务合同只在工具层目标中公开，邮件正文仍须阅读。
 故障按所属合同终止并保存错误，不把失败包装成成功经历。
 
+<a name="architecture-事件驱动的时间推进"></a>
 ### 3.3 事件驱动的时间推进
 
 每个数字人都有进行中活动且没有待收尾活动时，模拟引擎才推进到最近一个需要处理的时刻：
@@ -266,8 +280,9 @@ flowchart LR
 ```
 
 资源结算可以有固定间隔，结算时刻作为事件参与上述选择；结算间隔不等于数字人的决策间隔。
-时间与唤醒规则由[模拟引擎](04-simulation-engine.md)、[运行时规格](../dev/SPEC-life-runtime.md)及[时间与能量规格](../dev/SPEC-time-and-energy.md)维护。
+时间与唤醒规则由[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)、[运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)及[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)维护。
 
+<a name="architecture-检查点恢复与反事实分支"></a>
 ### 3.4 检查点、恢复与反事实分支
 
 ```mermaid
@@ -282,8 +297,9 @@ flowchart LR
 检查点包含共同边界上的世界状态、数字人工作区及恢复所需材料。
 记录引擎负责核验和提供这些材料，模拟引擎负责恢复外部运行实例、施加已声明的干预并继续执行。
 假设文本和实际重新模拟得到的结果分别标明来源，新分支结果不改写原分支经历。
-完整规则见[记录引擎](05-recording-engine.md#恢复与反事实分支)与[模拟引擎](04-simulation-engine.md)。
+完整规则见[记录引擎](05-recording-engine.md#recording-engine-恢复与反事实分支)与[模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)。
 
+<a name="architecture-数据交付与评估"></a>
 ### 3.5 数据交付与评估
 
 ```mermaid
@@ -296,8 +312,9 @@ flowchart LR
 
 离线 Dreaming 基于已有足迹归纳经历或提出假设，默认不写回运行中的数字人。
 实际反事实运行由明确的运行请求触发，并按新的分支身份保存；不能将生成的假设文本冒充执行结果。
-交付和评估的输入范围、校验与发布条件见[交付规格](../dev/SPEC-labelkit-delivery.md)和[验收门禁](../VERIFICATION.md)。
+交付和评估的输入范围、校验与发布条件见[交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit)和[验收门禁](../VERIFICATION.md#verification-worldmock-验收标准)。
 
+<a name="architecture-已采用的设计决策"></a>
 ## 4. 已采用的设计决策
 
 | 设计点 | 设计决策 |
@@ -311,39 +328,43 @@ flowchart LR
 | 恢复与分支 | 从已核验的共同检查点构建新分支，保留父运行和来源关系 |
 | 失败处理 | 按所属合同明确拒绝或中止，保留原因；记录失败不得返回成功确认 |
 
+<a name="architecture-现有代码与职责的对应关系"></a>
 ## 5. 现有代码与职责的对应关系
 
 下表用于定位现有实现。同一文件可能承载多个引擎的处理逻辑，职责按实际输入与输出判断。
 
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../custom/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md) |
-| 资源引擎 | [目录定义与加载](../../src/worldmock/catalog)、[语料整理](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md) |
-| 交换引擎 | [规则声明](../../catalog)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
-| 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md) |
-| 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md) |
-| 数据交付与评估 | [交付模块](../../src/worldmock/delivery)、[评估模块](../../src/worldmock/evaluation) | [数据交付](06-delivery.md)、[行为评估](07-evaluation.md) |
+| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../custom/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) |
+| 资源引擎 | [目录定义与加载](../../src/worldmock/catalog)、[语料整理](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
+| 交换引擎 | [规则声明](../../catalog)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
+| 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) |
+| 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
+| 数据交付与评估 | [交付模块](../../src/worldmock/delivery)、[评估模块](../../src/worldmock/evaluation) | [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
 
 LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项顶层职责。
 身体相关资源、体感与活动效率在模拟引擎中计算，资源定义来自资源引擎，
 具体交换投入产出由交换引擎计算，准确数值和变化原因交给记录引擎保存。
 
+<a name="architecture-配置接口与数据结构"></a>
 ## 6. 配置、接口与数据结构
 
+<a name="architecture-配置与运行入口"></a>
 ### 6.1 配置与运行入口
 
 | 配置或入口 | 架构职责 | 具体规格 |
 | --- | --- | --- |
-| 场景 | 选择数字人、时间范围、地点、交互菜单、作息覆盖与工作安排、初值，以及资源和规则版本 | [配置设计](08-configuration.md)、[交互菜单规格](../dev/SPEC-interaction-menu.md)、[实验定义](../EXPERIMENT.md) |
-| 资源目录与语料 | 提供定义、来源、版本和实际可读取内容 | [资源引擎](03-resource-engine.md) |
-| 交换规则 | 声明使用条件、资源占用、转换和履约条件 | [交换引擎](02-exchange-engine.md) |
-| 模型凭证 | 在运行环境中读取，不进入仓库或数字足迹 | [配置设计](08-configuration.md) |
-| 命令行入口 | 发起准备、校验、运行、恢复、查询、导出、交付和评估 | [接口合同](../CONTRACTS.md) |
+| 场景 | 选择数字人、时间范围、地点、交互菜单、作息覆盖与工作安排、初值，以及资源和规则版本 | [配置设计](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格)、[交互菜单规格](../dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单)、[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置) |
+| 资源目录与语料 | 提供定义、来源、版本和实际可读取内容 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
+| 交换规则 | 声明使用条件、资源占用、转换和履约条件 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
+| 模型凭证 | 在运行环境中读取，不进入仓库或数字足迹 | [配置设计](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) |
+| 命令行入口 | 发起准备、校验、运行、恢复、查询、导出、交付和评估 | [接口合同](../CONTRACTS.md#contracts-worldmock-接口合同) |
 
 运行参数与场景选定版本后，由模拟引擎组织加载与准入，资源和交换引擎分别核验自己的输入。
 具体命令签名和字段只在所属合同维护，不在总体架构中另列一套示例接口。
-Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑定见[实验定义](../EXPERIMENT.md)。
+Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑定见[实验定义](../EXPERIMENT.md#experiment-worldmock-实验设置)。
 
+<a name="architecture-状态与记录"></a>
 ### 6.2 状态与记录
 
 工具交互按独立端到端阶段发布：任务输入阶段升场景结构 4；供给价格形状变化时升地图结构 3、品类与规则绑定 3，并发布新目录。
@@ -372,11 +393,13 @@ flowchart LR
 资金通过账户身份关联，以最小货币单位整数保存；身体资源和睡眠模型保留各自单位与变化规则。
 体感分级、商品每份热量与路线费力供数字人理解处境，准确数值进入足迹与评估；发给模型的请求按七层 JSON 组织，
 同一信息只出现一次，不含内部身份。
-状态字段与修改权限见[接口合同](../CONTRACTS.md)，事件、检查点与导出格式见
-[记录引擎](05-recording-engine.md)；输入输出导航见[格式说明](09-io-formats.md)。
+状态字段与修改权限见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，事件、检查点与导出格式见
+[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)；输入输出导航见[格式说明](09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式)。
 
+<a name="architecture-验收与实现状态"></a>
 ## 7. 验收与实现状态
 
+<a name="architecture-时间跨度与性能基准"></a>
 ### 7.1 时间跨度与性能基准
 
 系统按配置执行模拟，不设置十二周或其他固定长度上限。
@@ -392,25 +415,48 @@ flowchart LR
 | 事件写入 | 写入负载测试达到每秒至少 1000 条事件，吞吐由实际写入耗时测量 |
 | 其他规模 | 记录实际人物数、模拟时长、事件量、耗时、峰值内存和存储增长，按实际结果评估 |
 
+<a name="architecture-一致性与交付验收"></a>
 ### 7.2 一致性与交付验收
 
 工具交互修订已实现；新增请求、查询、任务通知和类别供给必须经生产入口行为测试及独立变异测试，
 按错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现的独立端到端阶段逐项放行与复验，
-各自只更新实际改变的身份，退役格式在该阶段删除，门禁见[工具交互特性门禁](../VERIFICATION.md#工具交互特性门禁)。
+各自只更新实际改变的身份，退役格式在该阶段删除，门禁见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)。
 
 | 验收对象 | 判定要求 | 权威文档 |
 | --- | --- | --- |
-| 世界推进与交换 | 实际区间可对账，规则结果与已落实状态一致，故障如实反馈 | [运行时规格](../dev/SPEC-life-runtime.md)、[时间与能量规格](../dev/SPEC-time-and-energy.md)、[人物 Prompt 规格](../dev/SPEC-persona-prompt.md)、[个人事务与工作安排规格](../dev/SPEC-errands-workday.md) |
-| 数字足迹与恢复 | 事件和状态连续、引用完整，检查点可核验，分支保留来源关系 | [记录引擎](05-recording-engine.md) |
-| 训练数据与规则测试数据 | 输入范围、来源、独立校验、真实加载与执行满足交付要求 | [交付规格](../dev/SPEC-labelkit-delivery.md) |
-| 工程质量与行为真实性 | 执行当前门禁，报告测试与真实运行证据的适用范围 | [验收门禁](../VERIFICATION.md) |
+| 世界推进与交换 | 实际区间可对账，规则结果与已落实状态一致，故障如实反馈 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)、[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)、[人物 Prompt 规格](../dev/SPEC-life-realism.md#persona-prompt-七层请求)、[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库) |
+| 数字足迹与恢复 | 事件和状态连续、引用完整，检查点可核验，分支保留来源关系 | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
+| 训练数据与规则测试数据 | 输入范围、来源、独立校验、真实加载与执行满足交付要求 | [交付规格](../dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit) |
+| 工程质量与行为真实性 | 执行当前门禁，报告测试与真实运行证据的适用范围 | [验收门禁](../VERIFICATION.md#verification-worldmock-验收标准) |
 
-代码覆盖率的统计范围、分支门槛和公共接口门槛见[覆盖率基线](../dev/coverage-baseline.md)；
-模块设计与规格条款对应的测试证据见[规格覆盖分析](../dev/ANALYSIS-spec-coverage.md)。
+代码覆盖率的统计范围、分支门槛和公共接口门槛见[覆盖率基线](../dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线)；
+模块设计与规格条款对应的测试证据见[规格覆盖分析](../dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵)。
 各引擎已实现的能力、尚未完成的部分与验收方法在所属设计中逐项说明。
-全项目的实测结果与未完成项见[实现状态](../dev/implementation-status.md)；
+全项目的实测结果与未完成项见[实现状态](../dev/implementation-status.md#implementation-status-worldmock-实现状态)；
 本文不以模块存在或文档已整合代替实现完成声明。
 
+
+<a name="design-architecture-current-responsibility"></a>
+## 实际生产依赖与状态归属
+
+```mermaid
+flowchart TD
+    ENV[LifeEnv] --> ENGINE[LifeEngine 门面]
+    ENGINE --> CONTEXT[EngineContext 唯一世界状态]
+    ENGINE --> OBS[ObservationBuilder]
+    ENGINE --> DEC[DecisionCoordinator]
+    ENGINE --> ACTION[ActionHandlers]
+    ENGINE --> TIME[TimeAdvanceCoordinator]
+    ENGINE --> WORK[WorkReviewCoordinator]
+    ENGINE --> EVIDENCE[ModelEvidenceRecorder]
+    ENGINE --> COUNTER[CounterfactualRuntime]
+    ACTION --> STORE[StorefrontRuntime]
+    ASSEMBLY[world_setup 世界装配] --> TYPES[基础类型与纯规则]
+    CONTEXT --> RECORD[FootprintStore 持久提交]
+```
+门面保留 LifeEnv 使用的公开方法签名，职责对象持有同一个上下文和必要的具名协作者。上下文不保存第二份场景或状态，不保存门面、服务字典或回调注册表。生产导入图覆盖模块级、函数内和显式动态导入，只有静态类型分支不参与运行期图；最终图无环。
+
+<a name="architecture-版本历史"></a>
 ## 版本历史
 
 | 版本 | 日期 | 修订内容 |
@@ -428,4 +474,6 @@ flowchart LR
 | v1.10 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D1-20、D1-21）：`query_world` 六键请求、来源与可执行筛选、结果不附候选；查询阶段只更新工具与代码身份，写在「状态与记录」分阶段段落的段末（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）；文件头修订行改为已落地阶段 1、2 与阶段 4 |
 | v1.11 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D1-15–D1-19）：模拟引擎职责补上班安排求值；场景配置补工作安排与作息覆盖；状态与记录写明场景结构 5、卡片结构 3 与旧场景、旧卡片的拒绝；行为评估另读工作安排与作息窗口；「状态与记录」分阶段段落里工作安排阶段一句排在个人事务阶段与查询阶段之间；文件头修订行改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.12 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D1-27）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+
+| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |

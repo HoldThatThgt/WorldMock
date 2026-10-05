@@ -1,5 +1,5 @@
 """start_activity 的整组合同：（对象，动词，方式）经本轮私有绑定映射为内部动作后由地点菜单逐项判定；并行准入
-整组拒绝，原因与下一步经下一次观察呈现给人物（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」
+整组拒绝，原因与下一步经下一次观察呈现给人物（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「请求形状与菜单」
 「并行准入」「动作照常列出，做错了再说明」）。"""
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from custom.agents.life_menu import menu_action_error
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _decide
 from tests.integration.test_life_agent_protocol import _WAIT_CHOICE, _offer, _visible_object
-from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_request,
-                                 start_arguments)  # noqa: F401
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan, start_request, start_arguments)  # noqa: F401
 from worldmock.life import prompt_capacity
 from worldmock.life.interaction_menu import InteractionMenu
 from tests.life.conftest import select_start, start_arguments
@@ -69,8 +69,8 @@ def test_menu_denies_the_whole_group_when_one_item_is_outside_it(wait_first: boo
 
 def _world(engine) -> tuple:
     """@brief 整组拒绝要保持不变的世界事实：位置、账户余额、库存与活动。"""
-    agent = engine.state.agents[1]
-    return agent.location_id, dict(engine.state.accounts), agent.inventory, dict(engine.state.activities)
+    agent = engine.context.state.agents[1]
+    return agent.location_id, dict(engine.context.state.accounts), agent.inventory, dict(engine.context.state.activities)
 
 
 @pytest.mark.asyncio

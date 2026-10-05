@@ -288,7 +288,7 @@ class TestHomeostatic:
         assert "restores energy 100->" in eat.candidate.reason
 
     def test_money_at_comfort_keeps_price_out_of_homeostatic(self, transforms):
-        # docs/dev/SPEC-life-realism.md「动机层」：价格只在成本项计一次——购餐与持餐候选的 homeostatic
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：价格只在成本项计一次——购餐与持餐候选的 homeostatic
         # 完全一致（钱坐标不含价格流），价格损失全量落在成本项。
         base = dict(food_offers=(_food_offer(price=800),), supply_stock={"supply-food-1": 5},
                     locations={"market": _location()})
@@ -318,7 +318,7 @@ class TestHomeostatic:
         scored = evaluate_motivation(context, profile, transforms)
         candidate = next(item for item in scored
                          if item.candidate.family == "eat").candidate
-        # docs/dev/SPEC-life-realism.md「动机层」：价格只进成本项——内稳态钱坐标只含折现的延期钱流。
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：价格只进成本项——内稳态钱坐标只含折现的延期钱流。
         money_after = context.balance_fen
         energy_after = agent.body.energy_kcal + candidate.energy_delta
         deficit_after = agent.body.sleep_deficit_hours + candidate.sleep_deficit_delta
@@ -483,13 +483,13 @@ class TestCost:
         scored = evaluate_motivation(context, _profile(), transforms)
         travel = next(item for item in scored if item.candidate.family == "travel")
         hours = travel.candidate.duration_seconds / 3600
-        # docs/dev/SPEC-life-realism.md「动机层」：价格单计 + 时间机会成本，整体按候选时长归一到单位小时口径。
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：价格单计 + 时间机会成本，整体按候选时长归一到单位小时口径。
         expected = (600 + hours * transforms.time_value_fen_per_hour) \
             / transforms.money_scale_fen / hours
         assert travel.components["cost"] == pytest.approx(expected, rel=1e-6)
 
     def test_cost_normalized_per_hour_across_durations(self, transforms):
-        """@brief docs/dev/SPEC-life-realism.md「动机层」单位小时效用：10 分钟与 120 分钟零价格候选的时间成本可比。"""
+        """@brief docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」单位小时效用：10 分钟与 120 分钟零价格候选的时间成本可比。"""
         short = _context(agent=_agent(need=0.5), contents=(_content("movie-a",
                                                                     seconds=600),),
                          taste_weights={"movie-a": 0.8})
@@ -717,7 +717,7 @@ class TestEntertainmentSegmentSlots:
         resumed, resumed_rate = watch(1800)
         finished, finished_rate = watch(6780)
         tail, tail_rate = watch(6780 - 30)
-        # 缓解预演按有效偏好 f + (1 − f)·w（f = 0.5，w = 0.8）：docs/dev/SPEC-dayrun-fidelity.md 1.2。
+        # 缓解预演按有效偏好 f + (1 − f)·w（f = 0.5，w = 0.8）：docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 。
         effective = 0.5 + 0.5 * 0.8
         assert first_rate == pytest.approx(0.35 * effective)
         assert resumed_rate == pytest.approx(0.35 * effective / 2)
@@ -854,7 +854,7 @@ class TestLifestyleCandidates:
 
 
 # ---------------------------------------------------------------------------
-# docs/dev/SPEC-life-realism.md「动机层」评分器修正
+# docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」评分器修正
 # ---------------------------------------------------------------------------
 
 class TestScorerContract:
@@ -894,7 +894,7 @@ class TestScorerContract:
         assert [item.summary for item in _eat_candidates(context)] == ["Buy and eat food-b (supply-food-b)"]
 
     def test_same_entertainment_family_capped_at_two(self, transforms):
-        # 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md「动机层」）。
+        # 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
         contents = tuple(_content(f"movie-{index:04d}", "feature_film", 3600, 0.2)
                          for index in range(1, 6))
         context = _context(contents=contents,
@@ -905,7 +905,7 @@ class TestScorerContract:
         assert 0 < len(entertainment) <= ENTERTAINMENT_FAMILY_CAP == 2
 
     def test_need_below_floor_suppresses_entertainment(self, transforms):
-        # 娱乐需要低于 0.3 时不生成娱乐候选；恰在 0.3 时恢复生成（docs/dev/SPEC-life-realism.md「动机层」）。
+        # 娱乐需要低于 0.3 时不生成娱乐候选；恰在 0.3 时恢复生成（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
         contents = (_content(),)
         taste = {"movie-0001": 0.8}
         low = _context(agent=_agent(need=0.29), contents=contents, taste_weights=taste)
@@ -916,7 +916,7 @@ class TestScorerContract:
         assert any(item.candidate.family == "entertainment" for item in high_scored)
 
     def test_lifestyle_enabled_set_scopes_sampling(self, transforms):
-        # 生活活动只从人物启用集采样：启用集外的目录内条目不进候选（docs/dev/SPEC-life-realism.md「动机层」）。
+        # 生活活动只从人物启用集采样：启用集外的目录内条目不进候选（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
         met = {"lifestyle:jogging": 7.0, "lifestyle:archery": 4.3, "lifestyle:yoga": 3.0}
         body = _body().model_copy(update={"activity_met": dict(_body().activity_met, **met)})
         context = _context(body=body, lifestyle_enabled=("yoga",))
@@ -943,7 +943,7 @@ class TestScorerContract:
             "Buy and eat food-fresh (supply-food-fresh)", "Buy and eat food-old (supply-food-old)"]
 
     def test_zero_taste_weights_keep_entertainment_ranked_last(self, transforms):
-        # docs/dev/SPEC-life-realism.md「画像编译」：口味权重是排序信号不是准入条件。
+        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：口味权重是排序信号不是准入条件。
         # 零权重条目仍在候选集里，只排在非零权重之后；不做 0.5 缺省抬升。
         contents = (_content("movie-0001", "feature_film", 3600, 0.2),
                     _content("movie-0002", "feature_film", 3600, 0.2))
@@ -989,7 +989,7 @@ def _running(kind: ActivityKind, target_id: str, seconds: int, data: dict) -> Ac
 
 
 class TestReliefFloorPreview:
-    """@brief 评分器的缓解预演与引擎实际结算同式（docs/dev/SPEC-dayrun-fidelity.md 1.2）。
+    """@brief 评分器的缓解预演与引擎实际结算同式（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
 
     预演用有效偏好 f + (1 − f)·w、有缓解时不再累积；以同一身体参数经引擎的共同身体结算
     （shared_activity_factors → settle_shared_body）求同一时长的实际变化逐一核对。
@@ -1168,8 +1168,10 @@ def _profiled_engine(engine_factory):
     engine = engine_factory()
     agents = tuple(item.model_copy(
         update={"motivation": _profile()} if item.agent_id == 1 else {"motivation": None})
-        for item in engine.scenario.agents)
-    engine.scenario = engine.scenario.model_copy(update={"agents": agents}, deep=True)
+        for item in engine.context.scenario.agents)
+    scenario = engine.context.scenario.model_copy(update={"agents": agents}, deep=True)
+    engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+    engine.context.rules.scenario = scenario
     return engine
 
 
@@ -1205,12 +1207,12 @@ class TestEngineInjection:
         初态的 top-5 提示通常被 watch 候选占据（relief=none 使生活候选的内稳态
         分量天然靠后），故断言打在完整枚举池上。"""
         engine = _profiled_engine(engine_factory)
-        agent = engine.state.agents[1]
-        profile = next(a.motivation for a in engine.scenario.agents
+        agent = engine.context.state.agents[1]
+        profile = next(a.motivation for a in engine.context.scenario.agents
                        if a.agent_id == 1 and a.motivation is not None)
         scored = evaluate_motivation(
-            engine._motivation_context(agent, profile), profile,
-            engine.semantics.motivation_transforms, top_k=MAX_CANDIDATES)
+            engine.observations._motivation_context(agent, profile), profile,
+            engine.context.semantics.motivation_transforms, top_k=MAX_CANDIDATES)
         lifestyle = [item for item in scored if item.candidate.family == "lifestyle"]
         assert 0 < len(lifestyle) <= 4
         for item in lifestyle:
@@ -1221,8 +1223,10 @@ class TestEngineInjection:
         engine = engine_factory()
         # 真实场景现已携带编译档案；本测试显式剥离以验证“无档案”分支。
         agents = tuple(item.model_copy(update={"motivation": None})
-                       for item in engine.scenario.agents)
-        engine.scenario = engine.scenario.model_copy(update={"agents": agents}, deep=True)
+                       for item in engine.context.scenario.agents)
+        scenario = engine.context.scenario.model_copy(update={"agents": agents}, deep=True)
+        engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+        engine.context.rules.scenario = scenario
         data = engine.observe(round_context(engine, "r-plain", agent_id=1))
         assert "motivation_internal" not in data
 
@@ -1235,7 +1239,7 @@ class TestEngineInjection:
         for engine in (plain, hinted):
             _, committed = submit_round(engine, {1: request}, "r-settle")
             results.append([item.model_dump(mode="json") for item in committed])
-            states.append(engine.state.model_dump(mode="json"))
+            states.append(engine.context.state.model_dump(mode="json"))
         # 事件 UUID 逐运行随机（origin_request_event_id）、工厂按创建序分配 run_id，
         # 两者都与提示无关，剔除后必须逐字节一致。
         noise_keys = {"origin_request_event_id", "run_id"}
@@ -1262,7 +1266,7 @@ class TestEngineInjection:
 
     def test_missing_transforms_disable_hints(self, engine_factory):
         engine = _profiled_engine(engine_factory)
-        engine.semantics = replace(engine.semantics, motivation_transforms=None)
+        engine.context.semantics = replace(engine.context.semantics, motivation_transforms=None)
         data = engine.observe(round_context(engine, "r-off", agent_id=1))
         assert "motivation_internal" not in data
 
@@ -1275,7 +1279,7 @@ class TestMarketSummary:
         data = engine.observe(round_context(engine, "r-mkt", agent_id=1))
         assert not [row for row in data["tool_layer"]["targets"] if row["kind"] == "product"
                     and "出售的" in row["name"]]
-        assert data["market_summary"] == {"supply_count": len(engine.scenario.supplies)}
+        assert data["market_summary"] == {"supply_count": len(engine.context.scenario.supplies)}
         assert not {"open", "price_range_fen", "price_version"} & data["market_summary"].keys()
 
     def test_summary_stays_public_when_market_opens(self, engine_factory):
@@ -1284,12 +1288,15 @@ class TestMarketSummary:
         submit_round(engine, {1: request}, "r-mkt-open")
         advance_next(engine)
         data = engine.observe(round_context(engine, "r-mkt-open2", agent_id=1))
-        assert data["market_summary"] == {"supply_count": len(engine.scenario.supplies)}
+        assert data["market_summary"] == {"supply_count": len(engine.context.scenario.supplies)}
         assert data["supplies"] == []
 
     def test_no_store_scenario_omits_summary(self, engine_factory):
         engine = engine_factory()
-        engine.scenario = engine.scenario.model_copy(update={"supplies": ()})
+        scenario = engine.context.scenario.model_copy(update={"supplies": ()})
+        engine.context.semantics = replace(engine.context.semantics, scenario=scenario)
+        engine.context.rules.scenario = scenario
+        engine.context.rules.supplies = {}
         data = engine.observe(round_context(engine, "r-mkt-none", agent_id=1))
         assert "market_summary" not in data
 

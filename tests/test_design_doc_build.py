@@ -3,14 +3,19 @@
 @file     test_design_doc_build.py
 @brief    用合成 Markdown 验证子集转换（表格转义管道与代码片段管道、列表续接与嵌套、引用块硬换行、
           mermaid 围栏、围栏内的伪标题、章节间链接映射、标题锚点去重），并在真实章节上验证确定性与
-          「已提交汇编文件与源一致」（docs/VERIFICATION.md「工程门禁」的「设计说明书汇编与源一致」
+          「已提交汇编文件与源一致」（docs/VERIFICATION.md#verification-worldmock-验收标准「工程门禁」的「设计说明书汇编与源一致」
           整行的机器证据）。
 """
 
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import sys
+import re
+
+import pytest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +40,17 @@ def _chapter(stem: str, body: str) -> object:
     text = (f"# WorldMock 产品设计说明书 — 章{stem[:2]}\n\n> **状态**：DRAFT；说明  \n> **日期**：2026-09-29  \n"
             f"> **版本**：v1.0\\\n\n{body}\n\n## 版本历史\n\n| 版本 | 日期 | 修订内容 |\n| --- | --- | --- |\n"
             f"| v1.0 | 2026-09-29 | 初稿 |\n")
-    return builder.parse_chapter(stem, text)
+    lines, seen, fenced = [], {}, False
+    for line in text.splitlines(keepends=True):
+        if line.startswith("```"):
+            fenced = not fenced
+        if not fenced and (match := re.match(r"^(#{1,5}) (.+)", line)):
+            base = f"c{int(stem[:2])}" if len(match[1]) == 1 else f"c{int(stem[:2])}-{builder.slugify(match[2])}"
+            suffix = seen.get(base, 0)
+            seen[base] = suffix + 1
+            lines.append(f'<a name="{base + (f"-{suffix}" if suffix else "")}"></a>\n')
+        lines.append(line)
+    return builder.parse_chapter(stem, "".join(lines))
 
 
 def test_table_cells_keep_escaped_and_code_span_pipes():
@@ -70,7 +85,7 @@ def test_mermaid_fence_and_fenced_pseudo_headings():
 
 def test_sibling_links_map_to_in_document_anchors_and_others_stay():
     """@brief 指向兄弟章节的链接改为文内锚点（有锚点时精确到标题，否则到章）；上级目录链接原样保留。"""
-    chapters = [_chapter("00-overview", "见[模拟](01-simulation.md#实际区间)与[章](01-simulation.md)，"
+    chapters = [_chapter("00-overview", "见[模拟](01-simulation.md#c1-实际区间)与[章](01-simulation.md)，"
                                         "以及[合同](../CONTRACTS.md#字段)。"),
                 _chapter("01-simulation", "## 实际区间\n\n正文。")]
     html = builder.assemble(chapters)
@@ -81,10 +96,18 @@ def test_sibling_links_map_to_in_document_anchors_and_others_stay():
 
 def test_same_chapter_anchor_links_get_the_chapter_prefix():
     """@brief 本章内 `#锚点` 链接（GitHub 写法，含编号标题的 `8-判断唤醒条件`）改为带章号的文内锚点；找不到的原样保留。"""
-    chapters = [_chapter("04-simulation", "## 8. 判断唤醒条件\n\n见[前文](#8-判断唤醒条件)与[缺失](#没有这个标题)。")]
+    chapters = [_chapter("04-simulation", "## 8. 判断唤醒条件\n\n见[前文](#c4-8-判断唤醒条件)与[缺失](#没有这个标题)。")]
     html = builder.assemble(chapters)
     assert 'href="#c4-8-判断唤醒条件">前文</a>' in html
     assert 'href="#没有这个标题">缺失</a>' in html
+
+
+def test_missing_sibling_identifier_aborts_instead_of_opening_the_chapter():
+    """@brief 章节路径存在但稳定标识缺失时终止汇编，不能改链到整章掩盖断链。"""
+    chapters = [_chapter("00-overview", "见[缺失](01-simulation.md#missing-section)。"),
+                _chapter("01-simulation", "## 实际区间\n\n正文。")]
+    with pytest.raises(SystemExit, match="section identifier does not exist"):
+        builder.assemble(chapters)
 
 
 def test_heading_ids_are_unique_and_the_build_is_deterministic():
@@ -109,13 +132,15 @@ def test_contract_sections_are_excerpted_verbatim_with_promoted_headings():
     """@brief 摘录按标题取到下一同级标题为止，跳过围栏内的伪标题，每节顶级标题提升为 h2；标题找不到即报错。"""
     contracts = ("# 合同\n\n## 甲\n\n### 工具\n\n表格。\n\n#### 子节\n\n细则。\n\n```text\n### 假标题\n```\n\n"
                  "### 其他\n\n略。\n\n## 命令行\n\n命令。\n\n### 枚举\n\n值。\n\n## 尾\n")
-    excerpt = builder.extract_sections(contracts, ("工具", "命令行"))
-    assert excerpt.startswith("## 工具\n\n表格。\n\n### 子节\n\n细则。\n\n```text\n### 假标题\n```\n")
+    contracts = contracts.replace("### 工具\n", '<a name="contract-tools"></a>\n### 工具\n')
+    contracts = contracts.replace("## 命令行\n", '<a name="contract-cli"></a>\n## 命令行\n')
+    excerpt = builder.extract_sections(contracts, ("contract-tools", "contract-cli"))
+    assert excerpt.startswith('<a name="contract-tools"></a>\n## 工具\n\n表格。\n\n### 子节\n\n细则。\n\n```text\n### 假标题\n```\n')
     assert "## 其他" not in excerpt and "## 命令行\n\n命令。\n\n### 枚举\n\n值。" in excerpt
     try:
-        builder.extract_sections(contracts, ("不存在",))
+        builder.extract_sections(contracts, ("missing-section",))
     except SystemExit as error:
-        assert "不存在" in str(error)
+        assert "missing-section" in str(error)
     else:
         raise AssertionError("missing section must abort the build")
 
@@ -126,7 +151,10 @@ def test_contract_appendix_rewrites_links_relative_to_the_assembled_page():
                  "[本节](#工具)与[别处](#别处)。\n\n### 别处\n\n略。\n\n## 版本表\n\n| 版本 | 日期 | 修订内容 |\n"
                  "| --- | --- | --- |\n| `v` | 2026-09-29 | 初稿 |\n")
     chapters = [_chapter("05-recording-engine", "## 事件\n\n正文。")]
-    builder.APPENDIX_SECTIONS, saved = ("工具",), builder.APPENDIX_SECTIONS
+    contracts = contracts.replace("### 工具\n", '<a name="contract-tools"></a>\n### 工具\n')
+    contracts = contracts.replace("### 别处\n", '<a name="contract-elsewhere"></a>\n### 别处\n')
+    contracts = contracts.replace("#事件", "#c5-事件").replace("#工具", "#contract-tools").replace("#别处", "#contract-elsewhere")
+    builder.APPENDIX_SECTIONS, saved = ("contract-tools",), builder.APPENDIX_SECTIONS
     try:
         chapters.append(builder.contract_appendix(contracts))
         html = builder.assemble(chapters)
@@ -134,8 +162,8 @@ def test_contract_appendix_rewrites_links_relative_to_the_assembled_page():
         builder.APPENDIX_SECTIONS = saved
     assert 'href="../dev/SPEC-x.md#节">规格</a>' in html
     assert 'href="#c5-事件">记录</a>' in html
-    assert 'href="#c10-工具">本节</a>' in html
-    assert 'href="../CONTRACTS.md#别处">别处</a>' in html
+    assert 'href="#contract-tools">本节</a>' in html
+    assert 'href="../CONTRACTS.md#contract-elsewhere">别处</a>' in html
     assert '<a href="#c10">附录 A　接口合同摘录：人物工具、模型请求与命令行</a>' in html
     assert "<td>附录 A</td><td><code>v</code></td><td>2026-09-29</td><td>初稿</td>" in html
 
@@ -147,7 +175,8 @@ def test_repository_chapters_assemble_deterministically_and_the_committed_html_i
     document = builder.assemble(chapters)
     assert document == builder.assemble(builder.load_chapters())
     for chapter in chapters:
-        assert f'<a href="#c{chapter.number}">' in document
+        identifiers = builder.prescan_anchors([chapter]).chapter_ids
+        assert f'<a href="#{identifiers[chapter.number]}">' in document
         lines = chapter.text.split("\n")
         for line, fenced in zip(lines, builder.fence_mask(lines)):
             if not fenced and line.startswith("## "):
@@ -157,3 +186,50 @@ def test_repository_chapters_assemble_deterministically_and_the_committed_html_i
                  "revise_day_plan", "submit_work", "send_message", "memory_recent"):
         assert f"<code>{tool}</code>" in appendix
     assert builder.check_current(document) == []
+
+
+@pytest.mark.parametrize("output_state", ("current", "outdated", "missing"))
+def test_check_command_detects_source_changes_and_missing_output(tmp_path, output_state):
+    """@brief 真实命令只接受当前汇编，源正文变化与输出缺失均失败，检查过程不改写输出。"""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "build_design_doc.py"
+    shutil.copyfile(REPO_ROOT / "scripts" / script.name, script)
+    design = tmp_path / "docs" / "design"
+    design.mkdir(parents=True)
+    for chapter in (REPO_ROOT / "docs" / "design").glob("*.md"):
+        shutil.copyfile(chapter, design / chapter.name)
+    shutil.copyfile(REPO_ROOT / "docs" / "CONTRACTS.md", design.parent / "CONTRACTS.md")
+    command = [sys.executable, str(script)]
+    subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, check=True, timeout=30)
+    assembled = design / "worldmock-design.html"
+    original = assembled.read_bytes()
+    if output_state == "outdated":
+        chapter = design / "00-overview.md"
+        chapter.write_text(chapter.read_text(encoding="utf-8") + "\n源正文变化导致重新汇编内容不同。\n",
+                           encoding="utf-8")
+    elif output_state == "missing":
+        assembled.unlink()
+    result = subprocess.run(command + ["--check"], cwd=tmp_path, capture_output=True,
+                            text=True, check=False, timeout=30)
+    assert (result.returncode == 0) is (output_state == "current"), result.stdout + result.stderr
+    assert assembled.exists() is (output_state != "missing")
+    if assembled.exists():
+        assert assembled.read_bytes() == original
+
+
+def test_explicit_section_survives_heading_rename_without_visible_markup():
+    """@brief 相同显式标识随正文标题改名保留，生成物不展示标记标签。"""
+    first = builder.parse_chapter("00-overview", '<a name="durable-rule"></a>\n# Original\n')
+    renamed = builder.parse_chapter("00-overview", '<a name="durable-rule"></a>\n# Renamed\n')
+    for chapter in (first, renamed):
+        html = builder.assemble([chapter])
+        assert 'id="durable-rule"' in html and '&lt;a name=' not in html
+
+
+def test_appendix_identifier_survives_title_rename_and_duplicate_identifier_aborts():
+    """@brief 附录选择不依赖中文标题，重复标识不会静默选取第一次。"""
+    text = '<a name="durable-contract"></a>\n### Renamed interface\n\nBody.\n'
+    assert '## Renamed interface' in builder.extract_sections(text, ("durable-contract",))
+    with pytest.raises(SystemExit, match="not unique"):
+        builder.extract_sections(text + text, ("durable-contract",))

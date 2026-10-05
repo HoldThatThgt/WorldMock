@@ -1,7 +1,7 @@
 """个人事务与工作安排规格的验收登记表（完整性守卫的数据源）。
 
 @file     errands_workday_acceptance.py
-@brief    把 docs/dev/SPEC-errands-workday.md「验收台账」的每一行登记到所属阶段与证据测试节点（LEDGER），登记台账之后
+@brief    把 docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库「验收台账」的每一行登记到所属阶段与证据测试节点（LEDGER），登记台账之后
           「源码变异必须覆盖」一段的每一句到杀死它的源码变异（SPEC_MUTATIONS、MUTATIONS），并冻结本特性新增或改动的生产
           文件与新增测试文件（FEATURE_PRODUCTION_FILES、FEATURE_TEST_FILES），供延期标记与空壳函数扫描。判定由
           tests/test_errands_workday_acceptance.py 执行；变异经共用执行器 tests/mutation_runner.py 在隔离子进程里生效。
@@ -661,7 +661,7 @@ _WORKLOAD_TESTS = [
 #: 验收台账行（首列原文）→ 所属阶段与证据测试节点；未完成阶段的行随该阶段的提交补节点。
 #: 阶段 5 的「工程门禁」行：风格门禁零新增违规、覆盖率门禁的阈值与未覆盖公共接口判定、文档链接门禁在真实仓库上通过。
 #: 全量测试与覆盖率门禁在最终代码上的运行结果（重新生成并提交的 docs/dev/coverage-report.json）写在本特性验收记录。
-_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
+_DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve"
 _ENGINEERING_GATE_TESTS = [
     "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
     "tests/test_coverage_gate.py::test_branch_threshold_boundary",
@@ -991,8 +991,7 @@ _TARGET_TOOL_KILLERS = (_QUERY_FILTERS + "test_available_only_without_way_counts
 MUTATIONS: tuple[SourceMutation, ...] = (
     SourceMutation(
         "decision_failure_swallowed_after_log",
-        _AGENT_MODULE,
-        _AGENT_SOURCE,
+        'custom.agents.life_agent::LifeAgent.step',
         (
             '            logging.exception("LifeAgent decision failed for agent %s", self.id)\n'
             '            raise\n'
@@ -1006,8 +1005,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "tool_dispatch_failure_loses_stage_code",
-        _AGENT_MODULE,
-        _AGENT_SOURCE,
+        'custom.agents.life_agent::LifeAgent._execute_react_tool',
         (
             '            feedback = _stage_feedback("TOOL_SERVICE_FAILED", ("tool_calls", index))\n'
             '            raise RuntimeError(feedback) from error\n'
@@ -1021,24 +1019,21 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "plan_duplicates_report_only_a_generic_error",
-        _MODELS_MODULE,
-        _MODELS_SOURCE,
+        'worldmock.life.models::_validate_plan_goals',
         "        raise ValidationError.from_exception_data(model_name, errors)\n",
         '        raise ValueError("day goals must contain at most eight unique intents")\n',
         _PLAN_DUPLICATE_KILLERS,
     ),
     SourceMutation(
         "plan_duplicates_locate_only_later_entries",
-        _MODELS_MODULE,
-        _MODELS_SOURCE,
+        'worldmock.life.models::_validate_plan_goals.repeated',
         "if len(indexes) > 1 for index in indexes)\n",
         "if len(indexes) > 1 for index in indexes[1:])\n",
         _PLAN_DUPLICATE_KILLERS,
     ),
     SourceMutation(
         "plan_over_capacity_returns_before_duplicates",
-        _MODELS_MODULE,
-        _MODELS_SOURCE,
+        'worldmock.life.models::_validate_plan_goals',
         (
             '        errors.append({"type": "value_error", "loc": (), "input": '
             '[goal.model_dump(mode="json") for goal in goals],\n'
@@ -1049,8 +1044,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "assembly_proxy_reverts_to_the_as2_class",
-        _RUNTIME_MODULE,
-        _RUNTIME_SOURCE,
+        'worldmock.runtime::_build_society.env',
         '        env = LifeEnvProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])\n',
         (
             '        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n'
@@ -1060,8 +1054,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "assembly_service_proxy_reverts_to_the_as2_class",
-        _RUNTIME_MODULE,
-        _RUNTIME_SOURCE,
+        'worldmock.runtime::_build_society.service',
         "        service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)\n",
         (
             "        from agentsociety2.env.env_router_proxy import EnvRouterProxy\n\n"
@@ -1073,8 +1066,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "assembly_actor_reverts_to_the_as2_class",
-        _RUNTIME_MODULE,
-        _RUNTIME_SOURCE,
+        'worldmock.runtime::_build_society.actor',
         "    actor = life_env_actor_class().remote(spec)\n",
         (
             "    from agentsociety2.env.direct_env_actor import get_direct_env_actor_class\n\n"
@@ -1084,32 +1076,28 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "proxy_returns_without_awaiting_the_remote_result",
-        _READ_QUERY_MODULE,
-        _READ_QUERY_SOURCE,
+        'worldmock.life.read_query_runtime::LifeEnvProxy.read_query',
         "        return await self._actor.read_query.remote(context, tool, request)\n",
         "        return self._actor.read_query.remote(context, tool, request)\n",
         _PROXY_KILLERS,
     ),
     SourceMutation(
         "actor_answers_without_the_environment",
-        _READ_QUERY_MODULE,
-        _READ_QUERY_SOURCE,
+        'worldmock.life.read_query_runtime::LifeEnvActor.read_query',
         "        return await self._router._environment().read_query(context, tool, request)\n",
         "        return {}\n",
         _ACTOR_KILLERS,
     ),
     SourceMutation(
         "actor_class_allows_concurrent_calls",
-        _READ_QUERY_MODULE,
-        _READ_QUERY_SOURCE,
+        'worldmock.life.read_query_runtime::life_env_actor_class',
         "    return ray.remote(max_concurrency=1)(LifeEnvActor)\n",
         "    return ray.remote(max_concurrency=2)(LifeEnvActor)\n",
         _CONCURRENCY_KILLERS,
     ),
     SourceMutation(
         "reflection_accepts_free_text",
-        _REFLECTION_MODULE,
-        _REFLECTION_SOURCE,
+        'custom.agents.life_reflection::reflection_insights.arguments',
         "    arguments = _tool_arguments(response)\n",
         (
             "    try:\n"
@@ -1121,56 +1109,49 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "reflection_accepts_another_tool",
-        "worldmock.model_feedback",
-        "src/worldmock/model_feedback.py",
+        'worldmock.model_feedback::tool_arguments',
         '        if _field(function, "name") != tool:\n',
         "        if False:\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_skips_unknown_reference_check",
-        _REFLECTION_MODULE,
-        _REFLECTION_SOURCE,
+        'custom.agents.life_reflection::reflection_insights',
         "    if problems:\n",
         "    if False:\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_count_bound_widened",
-        _REFLECTION_MODULE,
-        _REFLECTION_SOURCE,
+        'custom.agents.life_reflection::ReflectionRequest.require_insights',
         "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS:\n",
         "        if not 1 <= len(insights) <= MEMORY_REFLECTION_MAX_INSIGHTS + 1:\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_text_validation_skipped",
-        _REFLECTION_MODULE,
-        _REFLECTION_SOURCE,
+        'custom.agents.life_reflection::ReflectionInsight.validate_insight',
         "        return validate_memory_text(insight)\n",
         "        return insight\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_retry_bound_zero",
-        _REFLECTION_MODULE,
-        _REFLECTION_SOURCE,
+        'custom.agents.life_reflection::REFLECTION_VALIDATION_RETRIES',
         "REFLECTION_VALIDATION_RETRIES = 3\n",
         "REFLECTION_VALIDATION_RETRIES = 0\n",
         _REFLECTION_CONTRACT_KILLERS,
     ),
     SourceMutation(
         "reflection_retries_without_a_bound",
-        _MEMORY_MODULE,
-        _MEMORY_SOURCE,
+        'custom.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
         "                if attempt > REFLECTION_VALIDATION_RETRIES:\n",
         "                if False:\n",
         _REFLECTION_RETRY_KILLERS,
     ),
     SourceMutation(
         "reflection_failure_returns_an_empty_list",
-        _MEMORY_MODULE,
-        _MEMORY_SOURCE,
+        'custom.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
         (
             "                    raise ProtocolError(\n"
             '                        f"memory reflection output remained invalid after three retries: {error}") '
@@ -1181,48 +1162,42 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "reflection_correction_accumulates_messages",
-        _MEMORY_MODULE,
-        _MEMORY_SOURCE,
+        'custom.agents.life_memory::WorldMockMemoryRuntime._validated_reflection',
         "                messages, attempt = reflection_correction(original, response, error), attempt + 1\n",
         "                messages, attempt = reflection_correction(messages, response, error), attempt + 1\n",
         _REFLECTION_RETRY_KILLERS,
     ),
     SourceMutation(
         "decision_prompt_ignores_action_order",
-        _WINDOWS_MODULE,
-        _WINDOWS_SOURCE,
+        'worldmock.delivery.windows::_decision_prompt_source.candidates',
         '                  and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]\n',
         '                  and row["agent_id"] == action["agent_id"]\n',
         _WINDOW_KILLERS,
     ),
     SourceMutation(
         "version_8_world_state_accepted",
-        _MODELS_MODULE,
-        _MODELS_SOURCE,
+        'worldmock.life.models::WorldState.schema_version',
         "    schema_version: Literal[WORLD_SCHEMA_VERSION]\n",
         "    schema_version: Literal[WORLD_SCHEMA_VERSION, 8]\n",
         _VERSION_8_STATE_KILLERS,
     ),
     SourceMutation(
         "version_8_export_passes_delivery_gate",
-        _PIPELINE_MODULE,
-        _PIPELINE_SOURCE,
+        'worldmock.delivery.pipeline::_require_current_world_schema',
         "    if schema_version != WORLD_SCHEMA_VERSION:\n",
         "    if schema_version not in {WORLD_SCHEMA_VERSION, 8}:\n",
         _VERSION_8_EXPORT_KILLERS,
     ),
     SourceMutation(
         "todo_layer_omits_errands",
-        _TODO_LAYER_MODULE,
-        _TODO_LAYER_SOURCE,
+        'worldmock.life.todo_layer::todo_layer',
         '            "errands": errands.todo_rows(agent, names, context.scenario.timezone),\n',
         '            "errands": [],\n',
         _TODO_ERRANDS_KILLERS,
     ),
     SourceMutation(
         "errand_changes_applied_before_rejection",
-        _SESSION_ACTIONS_MODULE,
-        _SESSION_ACTIONS_SOURCE,
+        'worldmock.life.session_actions::ActionHandlers._conclude_activity.changes',
         '        changes = self._errand_changes(pending, "conclude_activity", request)\n',
         (
             '        changes = self._errand_changes(pending, "conclude_activity", request)\n'
@@ -1233,24 +1208,21 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "request_can_mark_errand_completed",
-        _MODELS_MODULE,
-        _MODELS_SOURCE,
+        'worldmock.life.models::ErrandChange.change',
         '    change: Literal["新增", "更新", "取消"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
         '    change: Literal["新增", "更新", "取消", "完成"] = Field(description="这条变更做什么，从列出的三种里选一种。")\n',
         _COMPLETED_CHANGE_KILLERS,
     ),
     SourceMutation(
         "items_without_errands_accepted",
-        _CONTROL_ITEMS_MODULE,
-        _CONTROL_ITEMS_SOURCE,
+        'worldmock.life.control_items::control_items',
         '        _list(_field(body, "errands", tool), tool)\n',
         "",
         _ERRANDS_KEY_KILLERS,
     ),
     SourceMutation(
         "errand_name_takes_first_candidate",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_open_name',
         "    return _named_rows(written, rows)\n",
         (
             "    found, matches = _named_rows(written, rows)\n"
@@ -1263,48 +1235,42 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "duplicates_judged_before_cancels",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_plan.remaining',
         '    remaining = [row for row in rows if row["errand_id"] not in cancelled]\n',
         "    remaining = list(rows)\n",
         _CANCELS_FIRST_KILLERS,
     ),
     SourceMutation(
         "errand_named_twice_accepted",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_plan_targets',
         '        elif found[0]["errand_id"] in named:\n',
         "        elif False:\n",
         _DOUBLED_KILLERS,
     ),
     SourceMutation(
         "added_twins_with_one_product_accepted",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_added_conflicts.doubled',
         "    doubled = [other for other in earlier if other in plan.products\n",
         "    doubled = [other for other in () if other in plan.products\n",
         _DOUBLED_KILLERS,
     ),
     SourceMutation(
         "pending_order_counts_as_obtained",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_handed.handed',
         '    handed = [order for order in orders if order["status"] == "delivered"]\n',
         '    handed = [order for order in orders if order["status"] in {"delivered", "pending"}]\n',
         _REMOTE_ORDER_KILLERS,
     ),
     SourceMutation(
         "accepted_event_counts_as_evidence",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::evidence_rows',
         '    if event_type == "action_result":\n',
         '    if event_type in {"action_result", "action_accepted"}:\n',
         _RESULT_ONLY_KILLERS,
     ),
     SourceMutation(
         "activity_start_counts_as_eaten",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::evidence_rows',
         '        return [] if data.get("reused") else _handed(data.get("data") or {})\n',
         (
             '        payload = data.get("data") or {}\n'
@@ -1319,8 +1285,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "progressed_goal_counts_as_completion",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::settle',
         (
             "    for index, draft in enumerate(drafts):\n"
             "        for row in evidence_rows(draft.event_type, draft.agent_id, draft.data):\n"
@@ -1339,8 +1304,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "self_report_counts_as_completion",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::settle',
         "    if not settled:\n        return state, []\n",
         (
             "    for draft in drafts:\n"
@@ -1358,16 +1322,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "unfinished_making_counts_as_obtained",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_consumed.transform',
         '    transform = consumption.get("inventory_transform")\n',
         '    transform = data["activity"]["data"].get("inventory_recipe")\n',
         _MAKING_KILLERS,
     ),
     SourceMutation(
         "holdings_at_noting_count_as_obtained",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::apply_changes',
         '    return agent.model_copy(update={"errands": errands}), receipt\n',
         (
             "    held = {product: sum(place.get(product, 0.0) for place in agent.inventory.values())\n"
@@ -1381,32 +1343,28 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "evidence_before_noting_event_counts",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::settle',
         "            if errand is None or noted.get(errand.errand_id, -1) > index:\n",
         "            if errand is None:\n",
         _NOTING_ORDER_KILLERS,
     ),
     SourceMutation(
         "interval_begun_before_noting_counts",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::settle',
         "            if row.interval_start is not None and row.interval_start < errand.registered_at:\n",
         "            if False:\n",
         _INTERVAL_KILLERS,
     ),
     SourceMutation(
         "gift_is_not_obtained",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_handed',
         '    handed += payload.get("given", [])\n',
         "",
         _RECIPIENT_KILLERS,
     ),
     SourceMutation(
         "ownership_follows_event_agent",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::evidence_rows',
         (
             '    if event_type == "action_result":\n'
             '        return [] if data.get("reused") else _handed(data.get("data") or {})\n'
@@ -1424,8 +1382,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "nested_results_orders_counted",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_handed.orders',
         '    orders = payload.get("orders", [])\n',
         (
             '    orders = [*payload.get("orders", []),\n'
@@ -1435,112 +1392,95 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "round_commit_settles_twice",
-        _ENGINE_MODULE,
-        _ENGINE_SOURCE,
-        "        staged, settled = errands.settle(staged, drafts)\n",
+        'worldmock.life.decision_coordinator::DecisionCoordinator.commit_decision_round',
+        '        (staged, settled) = errands.settle(staged, drafts)\n',
         (
-            "        staged, settled = errands.settle(staged, drafts)\n"
-            "        staged, again = errands.settle(staged, drafts)\n"
-            "        settled = settled + again\n"
+            '        (staged, settled) = errands.settle(staged, drafts)\n        staged, again = errands.settle(staged, drafts)\n        settled = settled + again\n'
         ),
         _ONCE_PER_COMMIT_KILLERS,
     ),
     SourceMutation(
         "advance_commit_settles_twice",
-        _ENGINE_MODULE,
-        _ENGINE_SOURCE,
-        "        staged, credited = errands.settle(staged, drafts)\n",
+        'worldmock.life.time_advance::TimeAdvanceCoordinator.advance',
+        '        (staged, credited) = errands.settle(staged, drafts)\n',
         (
-            "        staged, credited = errands.settle(staged, drafts)\n"
-            "        staged, again = errands.settle(staged, drafts)\n"
-            "        credited = credited + again\n"
+            '        (staged, credited) = errands.settle(staged, drafts)\n        staged, again = errands.settle(staged, drafts)\n        credited = credited + again\n'
         ),
         _ONCE_PER_COMMIT_KILLERS,
     ),
     SourceMutation(
         "replayed_result_counts",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::evidence_rows',
         '        return [] if data.get("reused") else _handed(data.get("data") or {})\n',
         '        return _handed(data.get("data") or {})\n',
         _REPLAY_KILLERS,
     ),
     SourceMutation(
         "condensation_drops_completion_line",
-        _SETTLED_TEXT_MODULE,
-        _SETTLED_TEXT_SOURCE,
+        'worldmock.life.settled_text::record_lines',
         "        return [f\"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」\"]\n",
         "        return []\n",
         _FOLDED_LINE_KILLERS,
     ),
     SourceMutation(
         "cancelled_errand_stays_armed",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_apply_one',
         '        errands.pop(plan.targets[index]["errand_id"])\n',
         '        errands.get(plan.targets[index]["errand_id"])\n',
         _CANCELLED_REMINDER_KILLERS,
     ),
     SourceMutation(
         "reminder_completes_errand",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::deliver_reminders',
         "        errands[errand.errand_id] = reminded\n",
         "        errands.pop(errand.errand_id)\n",
         _AWAKE_REMINDER_KILLERS,
     ),
     SourceMutation(
         "errand_reminder_wakes_sleep",
-        _SCHEDULE_MODULE,
-        _SCHEDULE_SOURCE,
+        'worldmock.life.schedule::SLEEP_ALLOWED_REASONS',
         "     WakeReason.PLAN_REMINDER_DUE}\n",
         "     WakeReason.PLAN_REMINDER_DUE, WakeReason.ERRAND_REMINDER_DUE}\n",
         _SLEEPER_REMINDER_KILLERS,
     ),
     SourceMutation(
         "open_errands_are_commitments",
-        _RHYTHM_MODULE,
-        _RHYTHM_SOURCE,
-        "    if (plan is not None and not rhythm_schedule.day_plan_expired(plan, inputs.state.current_time)\n",
-        "    if agent.errands or (plan is not None and not rhythm_schedule.day_plan_expired(plan, inputs.state.current_time)\n",
+        'worldmock.life.rhythm::_has_commitments',
+        '    if (\n        plan is not None\n',
+        '    if agent.errands or (\n        plan is not None\n',
         _COMMITMENT_KILLERS,
     ),
     SourceMutation(
         "errand_wake_reason_missing_from_vocabulary",
-        _FOOTPRINT_MODELS_MODULE,
-        _FOOTPRINT_MODELS_SOURCE,
+        'worldmock.footprints.models::WAKE_REASON_NAMES',
         '    "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",\n',
         '    "progress_report_due", "no_active_activity", "plan_reminder_due",\n',
         _AWAKE_REMINDER_KILLERS,
     ),
     SourceMutation(
         "sleeper_reminder_time_is_a_boundary",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::boundary_times',
         "    return [moment for agent_id, agent in state.agents.items() if not _asleep(state, agent_id)\n",
         "    return [moment for agent_id, agent in state.agents.items()\n",
         _SLEEPER_REMINDER_KILLERS,
     ),
     SourceMutation(
         "reminder_recorded_without_delivery",
-        _RHYTHM_MODULE,
-        _RHYTHM_SOURCE,
+        'worldmock.life.rhythm::_deliver_errand_reminders',
         "        if rhythm_schedule.WakeReason.ERRAND_REMINDER_DUE.value in verdict.wake_reasons:\n",
         "        if True:\n",
         _SLEEPER_REMINDER_KILLERS,
     ),
     SourceMutation(
         "simultaneous_reminders_write_one_event",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::deliver_reminders',
         '    return state.model_copy(update={"agents": agents}), drafts\n',
         '    return state.model_copy(update={"agents": agents}), drafts[:1]\n',
         _TOGETHER_KILLERS,
     ),
     SourceMutation(
         "midnight_clears_errands",
-        _ENGINE_MODULE,
-        _ENGINE_SOURCE,
+        'worldmock.life.time_advance::TimeAdvanceCoordinator.advance',
         (
             "            staged = _put_agent(staged, staged.agents[agent_id].model_copy("
             'update={"day_plan": None}, deep=True))\n'
@@ -1553,16 +1493,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "plan_revision_drops_errands",
-        _ENGINE_MODULE,
-        _ENGINE_SOURCE,
+        'worldmock.life.session_actions::ActionHandlers._revise_day_plan.changed_agent',
         '        changed_agent = agent.model_copy(update={"day_plan": plan}, deep=True)\n',
         '        changed_agent = agent.model_copy(update={"day_plan": plan, "errands": {}}, deep=True)\n',
         _OVERNIGHT_KILLERS,
     ),
     SourceMutation(
         "condensation_drops_todo_errands",
-        _PROMPT_CAPACITY_MODULE,
-        _PROMPT_CAPACITY_SOURCE,
+        'worldmock.life.prompt_capacity::fit_request',
         '            layers[index] = {**layers[index], "events": records}\n',
         (
             '            layers[index] = {**layers[index], "events": records}\n'
@@ -1573,37 +1511,30 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "memory_overflow_drops_todo_errands",
-        _OBSERVE_MODULE,
-        _OBSERVE_SOURCE,
-        '                "tool_layer": tool_layer(context, index), "todo_layer": todo_layer(context, self.store),\n',
+        'worldmock.life.observe::ObservationBuilder._layer_data',
+        '            "todo_layer": todo_layer(context, self.context.store),\n',
         (
-            '                "tool_layer": tool_layer(context, index),\n'
-            '                "todo_layer": {**todo_layer(context, self.store), **(\n'
-            '                    {"errands": []} if len(str(memory.layer)) > memory_layer.MEMORY_WINDOW_CHARS // 2\n'
-            "                    else {})},\n"
+            '            "todo_layer": {**todo_layer(context, self.context.store), **(\n                {"errands": []} if len(str(memory.layer)) > memory_layer.MEMORY_WINDOW_CHARS // 2\n                else {})},\n'
         ),
         _OVERFLOW_KILLERS,
     ),
     SourceMutation(
         "checkpoint_omits_errands",
-        _MODELS_MODULE,
-        _MODELS_SOURCE,
+        'worldmock.life.models::AgentState.errands',
         "    errands: dict[str, ErrandState] = Field(default_factory=dict)\n",
         "    errands: dict[str, ErrandState] = Field(default_factory=dict, exclude=True)\n",
         _CHECKPOINT_KILLERS,
     ),
     SourceMutation(
         "progress_arguments_carry_errands",
-        _PROGRESS_LAYER_MODULE,
-        _PROGRESS_LAYER_SOURCE,
+        'worldmock.life.progress_layer::_arguments',
         "    return control_request(tool, request, memories=True)\n",
         '    return {**control_request(tool, request, memories=True), "errands": request["errands"]}\n',
         _SEPARATION_KILLERS,
     ),
     SourceMutation(
         "self_notes_carry_errand_text",
-        _MEMORY_LAYER_MODULE,
-        _MEMORY_LAYER_SOURCE,
+        'worldmock.life.memory_layer::_self_notes',
         "            notes.extend((item.activity_name, text) for text in texts if text.strip())\n",
         (
             "            notes.extend((item.activity_name, text) for text in texts if text.strip())\n"
@@ -1615,24 +1546,21 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "system_layer_copy_diverges",
-        _PROMPT_MODULE,
-        _PROMPT_SOURCE,
+        'custom.agents.life_prompt::LIFE_SYSTEM_LAYER',
         '        "到提醒时刻只提醒一次，不会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         '        "到提醒时刻只提醒一次，会叫醒睡着的你；其他需要延续的打算写进 pause_activity 或 conclude_activity 的 "\n',
         _VERBATIM_KILLERS,
     ),
     SourceMutation(
         "errand_agent_events_written_as_system",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::_draft',
         '                      visibility="agent" if kind in AGENT_VISIBLE_KINDS else "system",\n',
         '                      visibility="system",\n',
         _VISIBLE_KILLERS,
     ),
     SourceMutation(
         "settlement_event_inherits_evidence_identity",
-        _ERRANDS_MODULE,
-        _ERRANDS_SOURCE,
+        'worldmock.life.errands::settle',
         "            settled.append(_credit(open_sets[row.owner_id], errand, row, head))\n",
         (
             "            settled.append(_credit(open_sets[row.owner_id], errand, row, head).model_copy(\n"
@@ -1642,16 +1570,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "control_projection_carries_errands",
-        _CONTROL_ITEMS_MODULE,
-        _CONTROL_ITEMS_SOURCE,
+        'worldmock.life.control_items::control_request',
         '    return {"items": rows}\n',
         '    return {"items": rows, "errands": list(control_errands(tool, request))}\n',
         _ERRANDS_PROJECTION_KILLERS,
     ),
     SourceMutation(
         "control_projection_trims_first_item_only",
-        _CONTROL_ITEMS_MODULE,
-        _CONTROL_ITEMS_SOURCE,
+        'worldmock.life.control_items::control_request',
         (
             "    for item in control_items(tool, request):\n"
             '        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}\n'
@@ -1666,16 +1592,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "projection_mutates_source_event",
-        _WINDOWS_MODULE,
-        _WINDOWS_SOURCE,
+        'worldmock.delivery.windows::_public_event_data.public',
         '        public = {key: data[key] for key in ("tool_name", "request", "self_note") if key in data}\n',
         "        public = data\n",
         _INTACT_KILLERS,
     ),
     SourceMutation(
         "errand_metrics_use_goal_denominator",
-        _ERRAND_METRICS_MODULE,
-        _ERRAND_METRICS_SOURCE,
+        'worldmock.evaluation.errand_metrics::errand_metrics.registered',
         "    registered = len(lives)\n",
         (
             '    registered = sum(len(event["data"]["day_plan"]["goals"]) for event in events\n'
@@ -1685,40 +1609,35 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "extraction_drops_stated_work_anchor",
-        _EXTRACTOR_MODULE,
-        _EXTRACTOR_SOURCE,
+        'worldmock.profile.extractor::_work_anchors',
         '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
         '        anchors.leave_home, anchors.bedtime, None, parsed["arrive_home"])\n',
         _STATED_ANCHOR_KILLERS,
     ),
     SourceMutation(
         "extraction_drops_stated_arrive_home",
-        _EXTRACTOR_MODULE,
-        _EXTRACTOR_SOURCE,
+        'worldmock.profile.extractor::_work_anchors',
         '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n',
         '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], None)\n',
         _STATED_ANCHOR_KILLERS,
     ),
     SourceMutation(
         "leave_work_takes_a_default",
-        _EXTRACTOR_MODULE,
-        _EXTRACTOR_SOURCE,
+        'worldmock.profile.extractor::_work_anchors.parsed',
         "None if raw[name] is None else TimeWindow.from_clock_range(raw[name])",
         'TimeWindow.from_clock_range(raw[name] or "18:00-18:30")',
         _NO_DEFAULT_KILLERS,
     ),
     SourceMutation(
         "work_anchors_join_wraparound",
-        _CARD_MODELS_MODULE,
-        _CARD_MODELS_SOURCE,
+        'worldmock.profile.models::TimeAnchors.normalize_wraparound.names',
         '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")\n',
         '        names = ("wake", "leave_home", "lunch", "dinner", "bedtime", "leave_work", "arrive_home")\n',
         _WRAPAROUND_KILLERS,
     ),
     SourceMutation(
         "out_of_order_work_anchor_fails_the_card",
-        _EXTRACTOR_MODULE,
-        _EXTRACTOR_SOURCE,
+        'worldmock.profile.extractor::_work_anchors',
         (
             "    leave_work, arrive_home, problems = settle_work_anchors(\n"
             '        anchors.leave_home, anchors.bedtime, parsed["leave_work"], parsed["arrive_home"])\n'
@@ -1728,24 +1647,21 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "persona_layer_drops_work_anchor",
-        _PERSONA_LAYER_MODULE,
-        _PERSONA_LAYER_SOURCE,
+        'custom.agents.life_persona::_card_fields',
         '"leave_work": _optional_window(anchors.leave_work)',
         '"leave_work": None',
         _PERSONA_ANCHOR_KILLERS,
     ),
     SourceMutation(
         "persona_layer_drops_arrive_home",
-        _PERSONA_LAYER_MODULE,
-        _PERSONA_LAYER_SOURCE,
+        'custom.agents.life_persona::_card_fields',
         '"arrive_home": _optional_window(anchors.arrive_home)',
         '"arrive_home": None',
         _PERSONA_ANCHOR_KILLERS,
     ),
     SourceMutation(
         "host_renders_work_schedule",
-        _PERSONA_LAYER_MODULE,
-        _PERSONA_LAYER_SOURCE,
+        'custom.agents.life_persona::persona_layer.layer',
         '        "preferences": [dict(item) for item in views["preferences"]],\n',
         (
             '        "preferences": [dict(item) for item in views["preferences"]],\n'
@@ -1755,72 +1671,63 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "scenario_work_windows_missing_from_plan_input",
-        _DAY_PLAN_INPUTS_MODULE,
-        _DAY_PLAN_INPUTS_SOURCE,
-        '"下班时段": _hours(config.leave_work_window), "到家时段": _hours(config.arrive_home_window),',
-        '"下班时段": None, "到家时段": None,',
+        'worldmock.life.day_plan_inputs::_persona.fields',
+        '"下班时段": _hours(config.leave_work_window),\n        "到家时段": _hours(config.arrive_home_window),',
+        '"下班时段": None,\n        "到家时段": None,',
         _SCENARIO_WORK_WINDOW_KILLERS,
     ),
     SourceMutation(
         "override_skips_null_card_slot",
-        _INJECTION_MODULE,
-        _INJECTION_SOURCE,
+        'worldmock.profile.injection::_window_overrides',
         "        if field not in declared:\n            continue\n",
         "        if field not in declared or getattr(anchors, slot) is None:\n            continue\n",
         _SCENARIO_WORK_WINDOW_KILLERS,
     ),
     SourceMutation(
         "calendar_cross_check_skipped",
-        _LOAD_CHECKS_MODULE,
-        _LOAD_CHECKS_SOURCE,
+        'worldmock.life.load_checks::check_work_schedules.problems',
         "problems = [*_workplace_problems(scenario), *_calendar_problems(scenario)]",
         "problems = [*_workplace_problems(scenario)]",
         _CALENDAR_CHECK_KILLERS,
     ),
     SourceMutation(
         "scenario_structure_four_admitted",
-        _SCENARIO_MODULE,
-        _SCENARIO_SOURCE,
+        'worldmock.life.scenario::LifeScenario',
         '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[5]\n',
         '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 5]\n',
         _STRUCTURE_FOUR_KILLERS,
     ),
     SourceMutation(
         "rest_day_inferred_from_weekday",
-        _WORK_SCHEDULE_MODULE,
-        _WORK_SCHEDULE_SOURCE,
+        'worldmock.life.work_schedule::shift_on',
         "return schedule.weekly[str(day.weekday())]",
         "return None if day.weekday() >= 5 else next(item for item in schedule.weekly.values() if item is not None)",
         _REST_DAY_KILLERS,
     ),
     SourceMutation(
         "exception_dates_ignored",
-        _WORK_SCHEDULE_MODULE,
-        _WORK_SCHEDULE_SOURCE,
+        'worldmock.life.work_schedule::shift_on',
         "if key in schedule.exceptions:",
         "if False:",
         _REST_DAY_KILLERS,
     ),
     SourceMutation(
         "break_shown_as_on_duty",
-        _WORK_SCHEDULE_MODULE,
-        _WORK_SCHEDULE_SOURCE,
+        'worldmock.life.work_schedule::duty_status',
         "if any(begin <= now < finish for begin, finish in break_spans(shift, day, zone)):",
         "if False:",
         _BREAK_KILLERS,
     ),
     SourceMutation(
         "everyone_gets_a_shift",
-        _ENVIRONMENT_LAYER_MODULE,
-        _ENVIRONMENT_LAYER_SOURCE,
+        'worldmock.life.environment_layer::_duty.config',
         "if item.agent_id == context.agent_id)",
         "if item.work_schedule is not None)",
         _UNSCHEDULED_KILLERS,
     ),
     SourceMutation(
         "duty_vanishes_after_plan_revision",
-        _ENVIRONMENT_LAYER_MODULE,
-        _ENVIRONMENT_LAYER_SOURCE,
+        'worldmock.life.environment_layer::environment_layer',
         '"duty": _duty(context)',
         (
             '"duty": None if (context.state.agents[context.agent_id].day_plan\n'
@@ -1831,16 +1738,14 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "duty_vanishes_after_work_submission",
-        _ENVIRONMENT_LAYER_MODULE,
-        _ENVIRONMENT_LAYER_SOURCE,
+        'worldmock.life.environment_layer::environment_layer',
         '"duty": _duty(context)',
         '"duty": None if context.state.paid_task_ids else _duty(context)',
         _SUBMISSION_DUTY_KILLERS,
     ),
     SourceMutation(
         "shift_gates_task_opening",
-        _WORK_MODULE,
-        _WORK_SOURCE,
+        'worldmock.life.work::_within',
         "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp())",
         (
             "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp()) "
@@ -1850,32 +1755,28 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "plan_input_carries_duty_status",
-        _WORK_SCHEDULE_MODULE,
-        _WORK_SCHEDULE_SOURCE,
+        'worldmock.life.work_schedule::day_arrangement',
         '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks]}',
         '"breaks": [_span_text(begin, finish) for begin, finish in shift.breaks], "status": STATUS_ON_DUTY}',
         _PLAN_INPUT_STATUS_KILLERS,
     ),
     SourceMutation(
         "query_compaction_drops_false_and_zero",
-        _TOOL_GROUPS_MODULE,
-        _TOOL_GROUPS_SOURCE,
+        'worldmock.life.tool_groups::compact',
         "if item is not None and item != [] and item != {}",
         "if item and item != [] and item != {}",
         _COMPACT_KILLERS,
     ),
     SourceMutation(
         "query_source_filter_ignored",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_matching_entries.selected',
         '                and (stores is None or entry["location_id"] in stores)\n',
         "                and True\n",
         _SOURCE_FILTER_KILLERS,
     ),
     SourceMutation(
         "query_source_resolved_by_plain_name_equality",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_source_stores',
         (
             '    match = resolve_source(written, places, observation["home_location_id"], _channel_rows(observation))\n'
             "    return None if match is None else match.store_ids\n"
@@ -1888,8 +1789,7 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "query_environment_branch_writes_world",
-        "custom.envs.life_env",
-        "custom/envs/life_env.py",
+        'custom.envs.life_env::LifeEnv.read_query',
         "            return error.payload() if error else query_world(observed, request)\n",
         (
             "            engine.state.version += 1\n"
@@ -1899,40 +1799,35 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "query_new_keys_get_defaults",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::QueryWorldRequest',
         '    from_: str | None = Field(alias="from")\n    available_only: bool\n',
         '    from_: str | None = Field(default=None, alias="from")\n    available_only: bool = False\n',
         _FOUR_KEY_KILLERS,
     ),
     SourceMutation(
         "unknown_source_returns_an_empty_page",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_filter_issues',
         "    if source is not None and _source_stores(observation, source) is None:\n",
         "    if False:\n",
         _UNKNOWN_SOURCE_KILLERS,
     ),
     SourceMutation(
         "source_candidates_include_unpermitted_places",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_source_issue.stores',
         "    stores = _permitted_stores(observation)\n",
         "    stores = frozenset(places)\n",
         _UNKNOWN_SOURCE_KILLERS,
     ),
     SourceMutation(
         "query_purchase_way_not_expanded",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_query_ways',
         "    return options | frozenset(PURCHASE_WAYS.values()) if SYSTEM_PURCHASE_WAY in options else options\n",
         "    return options\n",
         _PURCHASE_WAY_KILLERS,
     ),
     SourceMutation(
         "available_filter_applied_after_paging",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::query_world',
         (
             "    entries = _matching_entries(observation, request)\n"
             '    end = min(request.offset + observation["world_query_page_size"], len(entries))\n'
@@ -1949,24 +1844,21 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     ),
     SourceMutation(
         "available_judged_on_unmatched_way_actions",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_executable',
         '        return any(action["available"] for action in match["actions"] if action["way"] in ways)\n',
         '        return any(action["available"] for action in match["actions"])\n',
         _WRITTEN_WAY_KILLERS,
     ),
     SourceMutation(
         "available_without_way_ignores_tools",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::_executable',
         '    return any(row["available"] for row in (*match["actions"], *match["tools"]))\n',
         '    return any(row["available"] for row in match["actions"])\n',
         _TARGET_TOOL_KILLERS,
     ),
     SourceMutation(
         "query_total_count_before_filtering",
-        _WORLD_QUERY_MODULE,
-        _WORLD_QUERY_SOURCE,
+        'worldmock.life.world_query::query_world',
         '"total_count": len(entries),',
         '"total_count": len(observation["world_query_bindings"]),',
         _TRAVERSAL_KILLERS,

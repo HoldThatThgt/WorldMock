@@ -1,4 +1,4 @@
-"""统一名称解析与名称类拒绝的同刻预算（docs/dev/SPEC-dayrun-fidelity.md 3.1、3.4，验收台账「名称解析」「名称类预算」）。
+"""统一名称解析与名称类拒绝的同刻预算（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析 、3.4，验收台账「名称解析」「名称类预算」）。
 
 真实 LifeEngine、SQLite 与 LifeAgent 上：同一冻结观察交给宿主本地校验与环境受理，两边调用同一组解析函数
 （worldmock.life.name_resolution）——精确匹配、无损归一（前缀、全半角、开始时刻、邮件时刻、「（模拟）」、「家」）唯一即受理并把
@@ -33,12 +33,14 @@ from worldmock.life import same_moment  # noqa: E402
 from worldmock.life.error_contract import (ENVIRONMENT_NAME_CODES, HOST_ERROR_CODES, HOST_NAME_CODES,  # noqa: E402
                                            NAME_REJECTION_CODES, host_report)
 from worldmock.life.guidance import default_reason  # noqa: E402
-from worldmock.life.interaction_menu import WAYS
+from worldmock.life.vocabulary import WAYS
 from tests.life.conftest import select_start  # noqa: E402
 from worldmock.life.models import REQUEST_MODELS, StartActivityRequest  # noqa: E402
-from worldmock.life.name_resolution import (WAY_SYNONYMS, name_book, named_kind, resolve_name,  # noqa: E402
-                                            resolve_start, way_options)
-from worldmock.life.name_resolution import way_verb, _duration_note
+from worldmock.life.vocabulary import WAY_SYNONYMS, way_options
+from worldmock.life.name_resolution import name_book, named_kind, resolve_start
+from worldmock.life.object_labels import resolve_name
+from worldmock.life.vocabulary import way_verb
+from worldmock.life.name_resolution import _duration_note
 from worldmock.life.name_resolution import SourceMatch, near_source_names, resolve_source  # noqa: E402
 from worldmock.life.readable import duration_phrase
 from worldmock.life.object_labels import mail_name, object_label  # noqa: E402
@@ -58,7 +60,7 @@ def _morning(engine_factory):
     engine = engine_factory()
     stage_day_plan(engine)
     now = int(_MORNING.timestamp())
-    food = next(item for item in engine.scenario.products if "eat" in item.use_modes)
+    food = next(item for item in engine.context.scenario.products if "eat" in item.use_modes)
 
     def change(state):
         """@brief 推到 09:30，开放当日任务与邮件，放一份食物在家。"""
@@ -77,8 +79,8 @@ def _morning(engine_factory):
 
 def _mail_label(engine, message_id):
     """邮件名称从真实完整主题与时刻派生。"""
-    message = next(row for row in engine.scenario.messages if row.message_id == message_id)
-    return object_label("mail", mail_name(message.subject, int(message.sent_at.timestamp()), engine.scenario.timezone))
+    message = next(row for row in engine.context.scenario.messages if row.message_id == message_id)
+    return object_label("mail", mail_name(message.subject, int(message.sent_at.timestamp()), engine.context.scenario.timezone))
 
 def _host(ctx, observed: dict) -> LifeAgent:
     """按同一次冻结观察准备好的生活人物（宿主本地校验）。"""
@@ -104,7 +106,7 @@ def _check(host: LifeAgent, tool: str, arguments: dict) -> str:
 
 def _pending(engine, ctx, tool: str, request) -> SimpleNamespace:
     """与冻结观察对应的待结算动作（环境按它读同一次冻结观察）。"""
-    return SimpleNamespace(agent_id=1, decision_id=ctx.decision_id, observed_at=engine.state.current_time,
+    return SimpleNamespace(agent_id=1, decision_id=ctx.decision_id, observed_at=engine.context.state.current_time,
                            action_id=f"probe-{tool}", tool_name=tool, request=request.model_dump(mode="json"))
 
 
@@ -139,7 +141,7 @@ def _catalog(observed: dict, kind: str, doable: bool) -> dict:
 def _selection(engine, ctx, arguments: dict):
     """环境对这次 start_activity 的名称解析（受理路径的同一函数）：绑定行，解析不出为 None。"""
     request = StartActivityRequest.model_validate(arguments)
-    return engine._start_selection(_pending(engine, ctx, "start_activity", request), request)
+    return engine.actions._start_selection(_pending(engine, ctx, "start_activity", request), request)
 
 
 def test_exact_normalised_and_candidate_paths_through_host_and_engine(engine_factory) -> None:
@@ -242,7 +244,7 @@ def test_a_mail_written_in_other_brackets_is_that_mail_and_a_bare_subject_is_amb
                                         StartActivityRequest.model_validate(arguments)))
     [result] = engine.commit_decision_round("two-replies")
     assert (result.status, result.data["resolved"]) == ("in_progress", [{"written": written, "as": labels[0]}])
-    assert engine.state.activities[result.activity_id].target_id == _REPLY_IDS[0]
+    assert engine.context.state.activities[result.activity_id].target_id == _REPLY_IDS[0]
 
 
 def test_start_suffix_task_prefix_and_recall_names_resolve_for_the_other_tools(engine_factory) -> None:
@@ -251,7 +253,7 @@ def test_start_suffix_task_prefix_and_recall_names_resolve_for_the_other_tools(e
     engine = _morning(engine_factory)
     error, started = _decide(engine, "suffix-start", "start_activity", _start(["自己"], ["interact"], ["等待"]))
     assert (error, started.status) == ("", "in_progress")
-    full = engine.state.activities[started.activity_id].name
+    full = engine.context.state.activities[started.activity_id].name
     assert full.endswith("（1月5日 09:30 起）")
     title = full.removesuffix("（1月5日 09:30 起）")
     assert advance_until_ready(engine)
@@ -266,13 +268,13 @@ def test_start_suffix_task_prefix_and_recall_names_resolve_for_the_other_tools(e
     for written in (title, full.replace("（", "(").replace("）", ")")):
         assert _check(host, "conclude_activity", conclusion(written)) == ""
         request = REQUEST_MODELS["conclude_activity"].model_validate(conclusion(written))
-        names, _ = engine._named_activities(engine.state, _pending(engine, ctx, "conclude_activity", request),
+        names, _ = engine.actions._named_activities(engine.context.state, _pending(engine, ctx, "conclude_activity", request),
                                             [written])
         assert names == [full]
     bare = task.removeprefix("工作：")
     assert _check(host, "recall_task_summary", {"task_name": bare}) == ""
     recall = REQUEST_MODELS["recall_task_summary"].model_validate({"task_name": bare})
-    assert engine._task_binding(_pending(engine, ctx, "recall_task_summary", recall), bare)["task_name"] == task
+    assert engine.actions._task_binding(_pending(engine, ctx, "recall_task_summary", recall), bare)["task_name"] == task
     engine.submit_action(DirectToolCall(ctx, "action-suffix-conclude", "conclude_activity",
                                         REQUEST_MODELS["conclude_activity"].model_validate(conclusion(title))))
     [concluded] = engine.commit_decision_round("suffix-conclude")
@@ -374,7 +376,7 @@ def test_way_synonym_is_accepted_only_on_a_unique_hit(engine_factory) -> None:
                                                                                    ["走路"]))))
     [walking] = engine.commit_decision_round("synonym")
     assert (walking.status, walking.data["resolved"]) == ("in_progress", [{"written": "走路", "as": "步行"}])
-    assert engine.state.activities[walking.activity_id].travel_mode == "walking"
+    assert engine.context.state.activities[walking.activity_id].travel_mode == "walking"
 
 
 def test_a_synonym_hitting_two_listed_ways_is_not_accepted() -> None:
@@ -425,7 +427,7 @@ def test_candidates_for_unlisted_activities_carry_the_catalog_duration_as_their_
     engine = _morning(engine_factory)
     _, observed, host = _open(engine, "candidate-notes")
     catalog = {row["object"]: row for row in observed["catalog_bindings"] if row["kind"] == "lifestyle"}
-    minutes = {f"活动：{item.name}": item.typical_duration_minutes for item in engine.lifestyle_items}
+    minutes = {f"活动：{item.name}": item.typical_duration_minutes for item in engine.context.lifestyle_items}
     near = next(row["object"] for row in catalog.values() if row["reason"] is None) + "准备"
     error = _check(host, "start_activity", _start([near], ["interact"], ["进行"]))
     unlisted = [candidate for candidate in error.report.items[0].candidates if candidate.arguments["items"][0]["target"] in catalog]
@@ -468,7 +470,7 @@ def test_candidates_are_feasible_first_and_submittable_verbatim(engine_factory) 
                                         StartActivityRequest.model_validate(chosen.arguments)))
     [result] = engine.commit_decision_round("candidates")
     assert (result.status, result.error_code) == ("in_progress", None)
-    assert chosen.arguments["items"][0]["target"].split("：", 1)[1] in engine.state.activities[result.activity_id].name
+    assert chosen.arguments["items"][0]["target"].split("：", 1)[1] in engine.context.state.activities[result.activity_id].name
 
 
 def test_blank_names_fail_the_request_contract_without_world_actions(engine_factory) -> None:
@@ -477,7 +479,7 @@ def test_blank_names_fail_the_request_contract_without_world_actions(engine_fact
 
     engine = _morning(engine_factory)
     _, _, host = _open(engine, "blank-name")
-    sequence = engine.store.last_event_seq
+    sequence = engine.context.store.last_event_seq
     for written in ("", "   "):
         arguments = _start([written], ["travel"], ["步行"])
         error = _check(host, "start_activity", arguments)
@@ -487,7 +489,7 @@ def test_blank_names_fail_the_request_contract_without_world_actions(engine_fact
             StartActivityRequest.model_validate(arguments)
     error = _check(host, "start_activity", _start(["（模拟）"], ["travel"], ["步行"]))
     assert error.report.error_code == "NAME_NOT_FOUND" and not error.report.items[0].candidates
-    assert engine.store.last_event_seq == sequence
+    assert engine.context.store.last_event_seq == sequence
 
 
 def test_held_item_candidates_keep_null_self_route_and_actual_ways(engine_factory) -> None:
@@ -509,7 +511,7 @@ def test_held_item_candidates_keep_null_self_route_and_actual_ways(engine_factor
                                         StartActivityRequest.model_validate(chosen)))
     [result] = engine.commit_decision_round("held-candidates")
     assert (result.status, result.error_code) == ("in_progress", None)
-    assert engine.state.activities[result.activity_id].kind == "consume"
+    assert engine.context.state.activities[result.activity_id].kind == "consume"
 
 
 def test_a_candidate_for_an_unlisted_way_takes_the_first_available_listed_way(engine_factory) -> None:
@@ -529,7 +531,7 @@ def test_a_candidate_for_an_unlisted_way_takes_the_first_available_listed_way(en
     assert [row["candidates"] for row in refused.data["items"]] == [[candidate.payload()]]
     accepted, started = _decide(engine, "unlisted-way-fixed", candidate.tool, candidate.arguments)
     assert accepted == "" and (started.status, started.error_code) == ("in_progress", None)
-    assert engine.state.activities[started.activity_id].kind == "consume"
+    assert engine.context.state.activities[started.activity_id].kind == "consume"
 
 
 def test_a_candidate_skips_unavailable_ways_and_otherwise_keeps_the_first_listed_one() -> None:
@@ -568,16 +570,16 @@ def test_two_spellings_of_one_object_for_the_same_recipient_are_a_repeated_targe
     [issue] = combination_issues(outcome.request, routing_names(observed))
     assert (issue.index, issue.field, issue.written, issue.allowed_values) == (1, "target", "联系人：陈母", ())
     assert issue.reason == issue.detail == "A repeated target needs a different recipient."
-    before = dict(engine.state.activities)
+    before = dict(engine.context.state.activities)
     error, refused = _decide(engine, "repeated", "start_activity", twice)
     assert error.report.error_code == "ROUTE_FIELDS_INVALID" and error.report.reason == issue.reason
     [item] = error.report.items
     assert (tuple(item.path[-2:]), item.written, tuple(item.candidates)) == ((1, "target"), "联系人：陈母", ())
     assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
-    assert engine.state.activities == before
+    assert engine.context.state.activities == before
     accepted, called = _decide(engine, "single", "start_activity", _start(["陈母"], ["interact"], ["通话"]))
     assert accepted == "" and (called.status, called.error_code) == ("in_progress", None)
-    assert set(engine.state.activities) - set(before) == {called.activity_id}
+    assert set(engine.context.state.activities) - set(before) == {called.activity_id}
 
 
 def _variants(label: str) -> list[str]:
@@ -651,7 +653,7 @@ def test_unlisted_catalog_objects_are_callable_by_name_with_the_usual_checks(eng
     content = next(row for row in observed["catalog_bindings"] if row["kind"] == "content")
     error, started = _decide(engine, "catalog-do", "start_activity", _start([doable["object"]], ["interact"], ["进行"]))
     assert (error, started.status) == ("", "in_progress")
-    assert engine.state.activities[started.activity_id].target_id == doable["object_id"]
+    assert engine.context.state.activities[started.activity_id].target_id == doable["object_id"]
     engine = _morning(engine_factory)
     error, refused = _decide(engine, "catalog-blocked", "start_activity", _start([blocked["object"]], ["interact"],
                                                                                  ["进行"]))
@@ -661,7 +663,7 @@ def test_unlisted_catalog_objects_are_callable_by_name_with_the_usual_checks(eng
     error, watched = _decide(engine, "catalog-watch", "start_activity", _start([content["object"]], ["interact"],
                                                                                [content["way"]]))
     assert (error, watched.status) == ("", "in_progress")
-    assert engine.state.activities[watched.activity_id].target_id == content["object_id"]
+    assert engine.context.state.activities[watched.activity_id].target_id == content["object_id"]
 
 
 @pytest.mark.parametrize("location", ["home", "office"])
@@ -672,7 +674,7 @@ def test_self_route_fields_must_be_null_at_every_current_location(engine_factory
     ctx, observed, host = _open(engine, f"self-route-{location}")
     target = next(row for row in observed["interaction_bindings"] if row["kind"] == "location")
     way = target["actions"][0]["label"]
-    for fields in ({"from": [engine._place_names[location]]}, {"to": [target["object"]]}, {"from": ["自己"]}):
+    for fields in ({"from": [{item.location_id: item.name for item in engine.context.scenario.locations}[location]]}, {"to": [target["object"]]}, {"from": ["自己"]}):
         error = _check(host, "start_activity", _start([target["object"]], ["travel"], [way], **fields))
         assert error.report.error_code == "ROUTE_FIELDS_INVALID"
         assert error.report.items[0].allowed_values == (None,)
@@ -693,20 +695,20 @@ def test_two_name_rejections_in_one_second_are_free_and_the_third_counts(engine_
     """同一秒两次名称类拒绝不计同刻轮数、不施加 service_refused 情绪脉冲，人物同一秒再决策；第三次照常计轮、照常施加脉冲；
     质量报告 name_rejections 与之同口径（环境三次，其中两次免计）。"""
     engine = _morning(engine_factory)
-    now = engine.state.current_time
-    mood = engine.state.agents[1].body.mood_valence
+    now = engine.context.state.current_time
+    mood = engine.context.state.agents[1].body.mood_valence
     rounds = []
     for index in range(3):
         error, result = _decide(engine, f"budget-{index}", "start_activity", _unknown_purchase(index))
-        agent = engine.state.agents[1]
+        agent = engine.context.state.agents[1]
         assert error == "" and (result.status, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
         rounds.append((agent.same_moment_rounds, result.data["same_moment_round"], agent.body.mood_valence))
-        assert agent.next_decision_at == now and engine.state.current_time == now
+        assert agent.next_decision_at == now and engine.context.state.current_time == now
     assert rounds[0] == rounds[1] == (0, 0, mood)
     assert rounds[2][:2] == (1, 1) and rounds[2][2] < mood
-    assert same_moment.latest_rejection_code(engine.state, 1) == "SUPPLY_NOT_FOUND"
-    events = engine.store.read_events(engine.store.last_event_seq)
-    report = build_quality_report(events, [], engine.store.manifest)["name_rejections"]
+    assert same_moment.latest_rejection_code(engine.context.state, 1) == "SUPPLY_NOT_FOUND"
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    report = build_quality_report(events, [], engine.context.store.manifest)["name_rejections"]
     assert (report["environment_rejections"], report["environment_free_rejections"]) == (3, 2)
     assert report["environment_codes"]["SUPPLY_NOT_FOUND"] == 3
 
@@ -716,10 +718,10 @@ def test_a_name_rejection_beside_other_rejections_follows_the_same_count(engine_
     engine = _morning(engine_factory)
     error, first = _decide(engine, "mixed-0", "start_activity", _start(["联系人：陈母"], ["interact"], ["游玩"]))
     assert error.report.error_code == "WAY_NOT_OFFERED" and first.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.agents[1].same_moment_rounds == 1
+    assert engine.context.state.agents[1].same_moment_rounds == 1
     _, second = _decide(engine, "mixed-1", "start_activity", _unknown_purchase(1))
-    assert second.error_code == "SUPPLY_NOT_FOUND" and engine.state.agents[1].same_moment_rounds == 1
-    assert same_moment.latest_rejection_code(engine.state, 1) == "ACTION_REQUEST_INVALID"
+    assert second.error_code == "SUPPLY_NOT_FOUND" and engine.context.state.agents[1].same_moment_rounds == 1
+    assert same_moment.latest_rejection_code(engine.context.state, 1) == "ACTION_REQUEST_INVALID"
     assert same_moment.free_rejection_flags(["ACTION_REQUEST_INVALID", "SUPPLY_NOT_FOUND", "TASK_NOT_FOUND",
                                              "SOURCE_NOT_FOUND"]) == [False, True, True, False]
 
@@ -730,7 +732,7 @@ def _rejected_rounds(engine, label: str, count: int) -> list[int]:
     for index in range(count):
         error, result = _decide(engine, f"{label}-{index}", "start_activity", _unknown_purchase(index))
         assert error == "" and result.error_code == "SUPPLY_NOT_FOUND"
-        rounds.append(engine.state.agents[1].same_moment_rounds)
+        rounds.append(engine.context.state.agents[1].same_moment_rounds)
     return rounds
 
 
@@ -739,7 +741,7 @@ def test_the_two_free_name_rejections_start_again_in_the_next_second(engine_fact
     的名额），这一秒第三次才照常计轮。"""
     engine = _morning(engine_factory)
     assert _rejected_rounds(engine, "first-second", 2) == [0, 0]
-    later = engine.state.current_time + 60
+    later = engine.context.state.current_time + 60
 
     def next_minute(state) -> None:
         """@brief 时钟推进到 09:31，人物即刻有决策机会。"""
@@ -760,7 +762,7 @@ def test_each_person_has_their_own_two_free_name_rejections(engine_factory) -> N
         _, results = submit_round(engine, {1: ("start_activity", request), 2: ("start_activity", request)},
                                   f"both-{index}")
         assert {result.error_code for result in results} == {"SUPPLY_NOT_FOUND"}
-        rounds = {agent_id: agent.same_moment_rounds for agent_id, agent in engine.state.agents.items()}
+        rounds = {agent_id: agent.same_moment_rounds for agent_id, agent in engine.context.state.agents.items()}
         assert rounds == ({1: 0, 2: 0} if index < 2 else {1: 1, 2: 1}), index
 
 
@@ -770,11 +772,11 @@ def test_a_replayed_name_rejection_always_counts_a_round(engine_factory) -> None
     engine = _morning(engine_factory)
     request = StartActivityRequest.model_validate(_unknown_purchase(0))
     _, [first] = submit_round(engine, {1: ("start_activity", request)}, "replayed")
-    assert first.error_code == "SUPPLY_NOT_FOUND" and engine.state.agents[1].same_moment_rounds == 0
-    body = engine.state.agents[1].body
+    assert first.error_code == "SUPPLY_NOT_FOUND" and engine.context.state.agents[1].same_moment_rounds == 0
+    body = engine.context.state.agents[1].body
     _, [again] = submit_round(engine, {1: ("start_activity", request)}, "replayed")
     assert again == first
-    assert (engine.state.agents[1].same_moment_rounds, engine.state.agents[1].body) == (1, body)
+    assert (engine.context.state.agents[1].same_moment_rounds, engine.context.state.agents[1].body) == (1, body)
 
 
 def test_host_and_environment_share_one_name_class_closed_set() -> None:
@@ -818,7 +820,7 @@ _SOURCE_CHANNELS = (("hema", ("盒马App", "盒马"), ("poi-c",)), ("meituan", (
 
 
 def test_resolve_source_places_home_words_channels_and_unknown() -> None:
-    """购买与查询共用的来源解析（docs/dev/SPEC-errands-workday.md 5.2，只吃所写来源、地点名表、住处与渠道表）：地点显示名
+    """购买与查询共用的来源解析（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ，只吃所写来源、地点名表、住处与渠道表）：地点显示名
     照写、全半角与空白归一、带「地点：」前缀都解析为该地点（同名的两处地点都在范围内）；「家」「住处」是住处的显示名与身份，
     没有住处时不认；渠道称呼去掉空白、不分大小写比较，范围是成员门店并记下渠道身份与所写的称呼；全角字母不归一，不是渠道；
     地点先于渠道；都不是时为 None。"""

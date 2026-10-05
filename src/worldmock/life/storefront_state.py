@@ -1,12 +1,14 @@
 """@brief 管理门店供给的初始事实、当前报价、来源与恢复不变量。"""
 
 from __future__ import annotations
+from worldmock.scheduling.compile import compile_schedule
+from worldmock.scheduling.events import ScheduledKind
 
 import logging
 from typing import TYPE_CHECKING
 
 from worldmock.errors import IntegrityError
-from worldmock.life.map_models import DataSource
+from worldmock.life.models import DataSource
 from worldmock.life.models import SupplyQuoteState, WorldState
 from worldmock.life.opening_hours import quote_at
 
@@ -76,8 +78,6 @@ def changed_quote(previous: SupplyQuoteState | None, supply: SupplyConfig,
 
 def expected_supply_quotes(scenario, now: int) -> dict[str, SupplyQuoteState | None]:
     """@brief 从运行起点按真实预排顺序推导报价，用于核验而不覆盖持久化世界。"""
-    from worldmock.scheduling.compile import compile_schedule
-    from worldmock.scheduling.events import ScheduledKind
 
     start = int(scenario.start_at.timestamp())
     supplies = {item.supply_id: item for item in scenario.supplies}

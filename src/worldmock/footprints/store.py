@@ -186,7 +186,7 @@ class FootprintStore:
     def last_agent_action_request_seq(self, agent_id: int) -> int:
         """@brief 最近一次行动请求的事件序号（没有时为 0）。
 
-        行动请求的唯一判定（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：不带 purpose、thinking 开启、
+        行动请求的唯一判定（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）：不带 purpose、thinking 开启、
         原生 tools 含 start_activity 的 model_request；零点计划、工作评审与只读问答都不算。不读提示文本。
         """
         row = self.connection.execute("""
@@ -211,7 +211,7 @@ class FootprintStore:
         return row[0] if row is not None else 0
 
     def commit_last_seq(self, event_seq: int) -> int:
-        """@brief event_seq 所在提交的末事件序号（docs/dev/SPEC-persona-prompt.md 第三章「归属」）。
+        """@brief event_seq 所在提交的末事件序号（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「归属」）。
 
         一次提交的事件在同一事务内连续分配序号，共享 state_version_before 与 state_version_after；推进版本的提交之后
         同版本追加的观察与模型证据版本对不同（before 等于 after），不属于该提交。只从 event_seq 向后读到提交结束。
@@ -328,11 +328,6 @@ class FootprintStore:
             self.assets.read(reference)
         return checkpoint
 
-    def restore(self, checkpoint: str, destination: Path, branch_metadata: dict | None = None) -> FootprintStore:
-        """@brief 从已提交共同检查点创建独立运行分支。"""
-        from worldmock.footprints.checkpoint import restore_branch
-
-        return restore_branch(self, checkpoint, destination, branch_metadata)
 
     def close(self) -> None:
         """@brief 关闭单写入连接，不改变运行或事件状态。"""

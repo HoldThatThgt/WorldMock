@@ -1,6 +1,11 @@
 """@brief 为已审阅地点集合准备全部有向路线，核验真实出行方式后发布冻结地图。"""
 
 from __future__ import annotations
+from worldmock.catalog.loader import load_catalog
+from worldmock.corpora.storefront_build import build_storefront_supplies
+from worldmock.corpora.storefront import validate_assortments
+from worldmock.categories import Action, TravelFareRule, evaluate_travel_fare
+from worldmock.life.category_contract import require_runtime_rule
 
 import hashlib
 import json
@@ -35,8 +40,6 @@ def prepare_map(destination: Path, frozen_root: Path, random_seed: int) -> MapDa
         copied = target / relative
         copied.parent.mkdir(parents=True, exist_ok=True)
         copied.write_bytes((source / relative).read_bytes())
-    from worldmock.catalog.loader import load_catalog
-    from worldmock.corpora.storefront_build import build_storefront_supplies
 
     fare = load_catalog(source.parent / "catalog")
     assumptions = json.loads((source / "zhangjiang-map/supply-assumptions.json").read_text(encoding="utf-8"))
@@ -53,7 +56,6 @@ def prepare_map(destination: Path, frozen_root: Path, random_seed: int) -> MapDa
         payload[f"{name}_file"]["sha256"] = _sha(target / relative)
     _write_json(folder / "dataset.json", payload)
     result = reference.model_copy(update={"version": payload["version"], "sha256": _sha(folder / "dataset.json")})
-    from worldmock.corpora.storefront import validate_assortments
 
     validate_assortments(load_map_dataset(target, result), fare)
     return result
@@ -140,8 +142,6 @@ def _route_metadata(route, url: str, data: dict, path: Path, fare: int) -> dict:
 
 def _route_fare(catalog, mode: str, data: dict) -> int:
     """@brief 复用品类契约的出行算子，路线准备与运行结算使用相同规则。"""
-    from worldmock.categories import Action, TravelFareRule, evaluate_travel_fare
-    from worldmock.life.category_contract import require_runtime_rule
 
     if data["code"] == "NoRoute":
         return 0

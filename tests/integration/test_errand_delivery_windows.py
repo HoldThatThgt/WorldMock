@@ -1,4 +1,4 @@
-"""含个人事务的导出经交付窗口（docs/dev/SPEC-errands-workday.md 2.7、2.9）。
+"""含个人事务的导出经交付窗口（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 、2.9）。
 
 经真实引擎、FootprintStore、SQLite、认证导出与 prepare_windows：两人场景（陈曦与李凡都在家）里，陈曦以收尾请求记下三条
 事务（一条带提醒钟点），到点的边界提醒她，她在提醒带来的那次决策里以播报更新一条、取消一条；李凡随后两次当面给她一份
@@ -24,8 +24,8 @@ import pytest  # noqa: E402
 from agentsociety2.agent.base import ModelCallEvidence  # noqa: E402
 
 from custom.agents.life_prompt import life_user_layers, system_message, user_message  # noqa: E402
-from tests.life.conftest import (activity_name, engine_factory, errand_add, errand_cancel,  # noqa: E402,F401
-                                 errand_update, report_request)
+from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.life.conftest import (activity_name, errand_add, errand_cancel, errand_update, report_request)  # noqa: F401
 from tests.life.routing_fixtures import (HOME, _keep_busy, act, open_world, place, routed, run_until,  # noqa: E402
                                          stage)
 from tests.life.test_errand_completion import CHEN, KIT_NAME, MILK, MILK_ID, WAIT, give, note, ready  # noqa: E402
@@ -56,7 +56,7 @@ def _record_prompts(engine, monkeypatch) -> None:
 
     def recorded(call):
         """先记下本决策的行动请求，再登记世界请求。"""
-        persona = {"layer": "人设层", "name": engine.state.agents[call.context.agent_id].name}
+        persona = {"layer": "人设层", "name": engine.context.state.agents[call.context.agent_id].name}
         layers = life_user_layers(observed[call.context.decision_id], persona)
         prompt = {"model": "fixture", "messages": [system_message(False), user_message(layers)],
                   "tools": [{"type": "function", "function": {"name": call.tool_name, "parameters": {}}}]}
@@ -93,9 +93,9 @@ def _errand_day(engine_factory, monkeypatch, tmp_path) -> tuple[list[dict], dict
 
 def _export(engine, export_dir: Path) -> Path:
     """在此刻创建共同检查点并认证导出到 export_dir（运行已到终点）。"""
-    checkpoint = engine.checkpoint({f"agent:{agent_id}": engine.store.assets.put_json(
-        {"agent_id": agent_id}, {"kind": "errand_windows_test"}) for agent_id in engine.state.agents})
-    assert export_run(engine.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
+    checkpoint = engine.checkpoint({f"agent:{agent_id}": engine.context.store.assets.put_json(
+        {"agent_id": agent_id}, {"kind": "errand_windows_test"}) for agent_id in engine.context.state.agents})
+    assert export_run(engine.context.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
     return export_dir
 
 
@@ -116,12 +116,12 @@ def _errand_life(engine_factory, monkeypatch):
         ready(engine, 2)
         handed = act(engine, label, give(engine, CHEN), agent_id=2)
         assert handed.status == "completed", (handed.error_code, handed.message)
-    assert engine.state.agents[1].errands and "囤两份牛奶" not in {
-        errand.name for errand in engine.state.agents[1].errands.values()}
+    assert engine.context.state.agents[1].errands and "囤两份牛奶" not in {
+        errand.name for errand in engine.context.state.agents[1].errands.values()}
     ready(engine, 1)
     tool, request = _keep_busy(engine, 1, "after")
     assert act(engine, "after", request, tool=tool).status in {"completed", "in_progress"}
-    run_until(engine, lambda current: current.state.current_time == current.state.end_time)
+    run_until(engine, lambda current: current.context.state.current_time == current.context.state.end_time)
     return engine
 
 
@@ -217,17 +217,17 @@ def _legacy_request(engine, requested: dict) -> None:
     content = json.dumps({"tool_name": "report_status", "request": request}, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode()
     data = {**requested["data"], "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="action_requested", occurred_at=staged.current_time, agent_id=1,
         decision_id=requested["decision_id"], action_id="action-legacy-1", source_kind="model", data=data)])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def test_control_requests_with_errands_reach_windows_without_them_and_legacy_requests_are_refused(
         engine_factory, monkeypatch, tmp_path) -> None:  # noqa: F811
-    """交付边界经真实请求、引擎、SQLite 与认证导出（docs/dev/SPEC-errands-workday.md 2.9、2.3）：记下三条事务的收尾与
+    """交付边界经真实请求、引擎、SQLite 与认证导出（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-交付边界 、2.3）：记下三条事务的收尾与
     提醒带来的那次播报（一条更新、一条取消）都带请求级 errands。意图窗口与陈曦每个显示它们的 dreaming 窗口里，两个请求的
     投影恒不带 errands，每项只留活动名与自述；动作与意图窗口的目标就是导出里的那个请求事件，逐键相等、保留完整的 errands
     （构造窗口的投影没有原地改写它）。这段生活没有任何收尾记忆，导出的 conclusion_memories 按空值约定为 null。随后经

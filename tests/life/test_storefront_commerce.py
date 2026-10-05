@@ -10,7 +10,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life.basket import held_quantity, purchase_order
 from worldmock.life.commerce import deliver_order
 from worldmock.life.models import AgentState, BodyState, PurchaseOrderRequest, WORLD_SCHEMA_VERSION, WorldState
-from worldmock.life.semantics import load_runtime_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.storefront_state import initial_supply_state
 from worldmock.scheduling.effects import apply_scheduled_effect
 

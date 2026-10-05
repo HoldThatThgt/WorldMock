@@ -1,4 +1,4 @@
-"""生活活动的地点类资格、排序与轮转（docs/dev/SPEC-dayrun-fidelity.md 5.1，裁决 S8、S4；验收台账「呈现」）。
+"""生活活动的地点类资格、排序与轮转（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ，裁决 S8、S4；验收台账「呈现」）。
 
 全部经真实引擎的观察路径（engine.observe 与它装配的呈现窗口）：生活活动窗口按当前地点施加地点类资格，排除项带
 ELIGIBILITY_LOCATION_KIND_MISMATCH；排序键为（非零口味，−口味×注意力，−相关度，哈希决胜键），零口味时的顺序是
@@ -33,13 +33,13 @@ _HABIT = "起床后先晨间洗漱"
 
 def _epoch(engine: LifeEngine, day: int, hour: int) -> int:
     """场景时区 2026 年 1 月 day 日 hour 点的纪元秒。"""
-    return int(datetime(2026, 1, day, hour, tzinfo=ZoneInfo(engine.scenario.timezone)).timestamp())
+    return int(datetime(2026, 1, day, hour, tzinfo=ZoneInfo(engine.context.scenario.timezone)).timestamp())
 
 
 def _stage(engine: LifeEngine, moment: int | None = None, location: str | None = None,
            stamps: dict[str, int] | None = None) -> None:
     """把没有活动的隔离运行置于 moment（地点 location、呈现留痕 stamps），经存储提交（版本加一）。"""
-    staged = engine.state.model_copy(deep=True)
+    staged = engine.context.state.model_copy(deep=True)
     now = staged.current_time if moment is None else moment
     staged.current_time = now
     staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
@@ -49,18 +49,18 @@ def _stage(engine: LifeEngine, moment: int | None = None, location: str | None =
     if stamps is not None:
         staged.presentation_state = {1: dict(stamps)}
     staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system", data={"kind": "test_staged"})])
-    engine.state = staged
+    engine.context.state = staged
 
 
 def _present(engine: LifeEngine, label: str) -> dict:
     """一次呈现：真实观察（窗口与留痕由观察算出），随后按决策轮提交与时钟推进的同一对函数并入留痕、时钟前进一分钟。"""
     observed = engine.observe(context(engine, label))
-    staged = flush_presentation(stage_presentation(engine.state, engine._pending_presentation))
-    engine._pending_presentation.clear()
-    engine.state = staged
-    _stage(engine, engine.state.current_time + 60)
+    staged = flush_presentation(stage_presentation(engine.context.state, engine.observations.pending_presentation))
+    engine.observations.pending_presentation.clear()
+    engine.context.state = staged
+    _stage(engine, engine.context.state.current_time + 60)
     return observed
 
 
@@ -80,14 +80,14 @@ def _lifestyle(observed: dict) -> list[str]:
 
 def _allowed(engine: LifeEngine, place: str) -> list[str]:
     """该地点的地点类允许的全部生活活动（目录声明的地点类与地点声明相容）。"""
-    kinds = frozenset(engine.rules.locations[place].location_kinds)
-    return sorted(item.activity_id for item in engine.lifestyle_items
-                  if location_kinds_allow(kinds, engine.rules.activity_location_kinds[item.activity_id]))
+    kinds = frozenset(engine.context.rules.locations[place].location_kinds)
+    return sorted(item.activity_id for item in engine.context.lifestyle_items
+                  if location_kinds_allow(kinds, engine.context.rules.activity_location_kinds[item.activity_id]))
 
 
 def _hashed(engine: LifeEngine, ids, day: str) -> list[str]:
     """按决胜键 sha256(场景|人物|日期|对象) 的顺序排列。"""
-    return sorted(ids, key=lambda item: tiebreak_digest(engine.scenario.scenario_id, 1, day, item))
+    return sorted(ids, key=lambda item: tiebreak_digest(engine.context.scenario.scenario_id, 1, day, item))
 
 
 def test_lifestyle_window_excludes_location_kind_mismatches_with_the_reason_code(engine_factory) -> None:
@@ -99,11 +99,11 @@ def test_lifestyle_window_excludes_location_kind_mismatches_with_the_reason_code
     for place in ("home", "office"):
         _stage(engine, location=place)
         allowed = set(_allowed(engine, place))
-        window = engine._menu_windows(engine.state.agents[1])["lifestyle"]
+        window = engine.observations._menu_windows(engine.context.state.agents[1])["lifestyle"]
         shown = [row["activity_id"] for row in window.items]
         assert shown and set(shown) <= allowed
         mismatched = {item.object_id for item in window.excluded if item.reason == "ELIGIBILITY_LOCATION_KIND_MISMATCH"}
-        assert mismatched == {item.activity_id for item in engine.lifestyle_items} - allowed
+        assert mismatched == {item.activity_id for item in engine.context.lifestyle_items} - allowed
         assert window.exclusion_counts["ELIGIBILITY_LOCATION_KIND_MISMATCH"] == len(mismatched) > 0
         deferred = {item.object_id for item in window.excluded if item.reason == "ROTATION_DEFERRED"}
         assert deferred == allowed - set(shown)
@@ -121,12 +121,12 @@ def test_zero_taste_order_is_not_alphabetical_and_changes_with_the_date(engine_f
     sha256(场景|人物|日期|对象) 排序，不是对象标识的字母序；同一时刻换到第二天，顺序随之改变。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    assert engine.state.agents[1].taste_weights == {}
+    assert engine.context.state.agents[1].taste_weights == {}
     allowed = _allowed(engine, "home")
     first = _lifestyle(engine.observe(context(engine, "hash-day-1")))
     assert first == _hashed(engine, allowed, "2026-01-05")[:20]
     assert first != allowed[:20] and first != sorted(first)
-    _stage(engine, engine.state.current_time + _DAY)
+    _stage(engine, engine.context.state.current_time + _DAY)
     second = _lifestyle(engine.observe(context(engine, "hash-day-2")))
     assert second == _hashed(engine, allowed, "2026-01-06")[:20]
     assert second != first
@@ -137,11 +137,11 @@ def test_relevance_puts_time_window_goal_family_and_habit_hits_ahead(engine_fact
     冻结在运行清单的习惯签名「起床后先晨间洗漱」给晨间洗漱 +1（时间窗 5–10 点 +2）；其余按目录时间窗覆盖此刻 +2，
     同分的按哈希决胜。窗口依次是 4 分、3 分、2 分的条目，此刻不在时间窗里的条目排在它们之后。"""
     engine = engine_factory(create_options={MANIFEST_KEY: {1: [_HABIT]}})
-    assert engine.store.manifest[MANIFEST_KEY] == {"1": [_HABIT]}
+    assert engine.context.store.manifest[MANIFEST_KEY] == {"1": [_HABIT]}
     _stage(engine, _epoch(engine, 5, 7))
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="运动", goal="练一会儿瑜伽",
-                                           registered_at=engine.state.current_time),))
-    windows = {item.activity_id: item.time_window for item in engine.lifestyle_items}
+                                           registered_at=engine.context.state.current_time),))
+    windows = {item.activity_id: item.time_window for item in engine.context.lifestyle_items}
     in_window = [item for item in _allowed(engine, "home") if windows[item][0] <= 7 < windows[item][1]]
     order = _lifestyle(engine.observe(context(engine, "relevance")))
     assert order[:2] == ["yoga", "wellness-morning-wash"]
@@ -160,18 +160,18 @@ def test_goal_families_keep_the_plan_at_the_start_of_the_second(engine_factory) 
     engine = engine_factory()
     _stage(engine, _epoch(engine, 5, 7))
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="运动", goal="练一会儿瑜伽",
-                                           registered_at=engine.state.current_time),))
-    now = engine.state.current_time
+                                           registered_at=engine.context.state.current_time),))
+    now = engine.context.state.current_time
     first, revised = _round(engine, "family-revise", "revise_day_plan", ReviseDayPlanRequest(goals=[
         PlanGoalInput(intent_kind="家务", goal="收拾房间", remind_time=None, around_time=None),]))
-    assert revised.status == "completed" and engine.state.current_time == now
-    assert [goal.intent_kind for goal in engine.state.agents[1].day_plan.goals] == ["家务"]
+    assert revised.status == "completed" and engine.context.state.current_time == now
+    assert [goal.intent_kind for goal in engine.context.state.agents[1].day_plan.goals] == ["家务"]
     second, _ = _round(engine, "family-same-second", "start_activity", start_activity("观看", "不存在的对象"))
-    assert engine.state.current_time == now
+    assert engine.context.state.current_time == now
     assert _lifestyle(first)[0] == "yoga" and _lifestyle(second) == _lifestyle(first)
     _stage(engine, now + 1)
     later = _lifestyle(engine.observe(context(engine, "family-next-second")))
-    items = {item.activity_id: item for item in engine.lifestyle_items}
+    items = {item.activity_id: item for item in engine.context.lifestyle_items}
     chores = [item for item in _allowed(engine, "home") if items[item].category in {"household", "pet"}
               and (items[item].time_window or (0, 0))[0] <= 7 < (items[item].time_window or (0, 0))[1]]
     assert chores and later[0] != "yoga"
@@ -183,13 +183,13 @@ def test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries(engine_
     它们的排序键在最后）；只改上次呈现时刻，名额就跟着换人。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    now = engine.state.current_time
+    now = engine.context.state.current_time
     ranked = _hashed(engine, _allowed(engine, "home"), "2026-01-05")
     never, oldest, older, old = ranked[-4:]
     stamps = {item: now - 60 for item in ranked if item != never}
     stamps.update({oldest: now - 30 * _DAY, older: now - 10 * _DAY, old: now - 8 * _DAY})
     _stage(engine, stamps=stamps)
-    slots = rotation_quota_slots(engine.scenario.candidate_presentation_limit, engine.scenario.rotation_quota_ratio)
+    slots = rotation_quota_slots(engine.context.scenario.candidate_presentation_limit, engine.context.scenario.rotation_quota_ratio)
     order = _lifestyle(engine.observe(context(engine, "quota")))
     assert slots == 3 and order[:slots] == [never, oldest, older]
     assert old not in order and order[slots:] == ranked[:17]
@@ -204,9 +204,9 @@ def test_rotation_has_no_shared_offset_across_partitions(engine_factory) -> None
     engine = engine_factory()
     stage_day_plan(engine)
     before = _lifestyle(engine.observe(context(engine, "partition-before")))
-    stamps = {item.item_id: engine.state.current_time - 60 for item in engine.scenario.contents}
+    stamps = {item.item_id: engine.context.state.current_time - 60 for item in engine.context.scenario.contents}
     _stage(engine, stamps=stamps)
-    assert len(engine.state.presentation_state[1]) == len(engine.scenario.contents)
+    assert len(engine.context.state.presentation_state[1]) == len(engine.context.scenario.contents)
     assert _lifestyle(engine.observe(context(engine, "partition-after"))) == before
 
 
@@ -215,8 +215,8 @@ def test_the_ceiling_n_over_k_bound_holds_per_partition(engine_factory) -> None:
     对象数，k 由场景常量导出），呈现经真实观察，留痕按提交路径并入。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    slots = rotation_quota_slots(engine.scenario.candidate_presentation_limit, engine.scenario.rotation_quota_ratio)
-    windows = engine._menu_windows(engine.state.agents[1])
+    slots = rotation_quota_slots(engine.context.scenario.candidate_presentation_limit, engine.context.scenario.rotation_quota_ratio)
+    windows = engine.observations._menu_windows(engine.context.state.agents[1])
     pools = {kind: {row.get("activity_id") or row.get("game_id") or row.get("item_id") for row in window.items}
              | set(window.deferred) for kind, window in windows.items()}
     bounds = {kind: math.ceil(len(pool) / slots) for kind, pool in pools.items()}

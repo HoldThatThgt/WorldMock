@@ -1,0 +1,166 @@
+{
+  "cases": {
+    "20260105": {
+      "artifacts": {
+        "activities.jsonl": "775d7babc4fbe71dd54c3511e0b6837b18b93a13b7cac55f8da4fdadc68df6ee",
+        "asset-index.jsonl": "1b986f7a0da146da43c46f3cbc52b55a22cfbd4f2c5c578a909297ceac62b934",
+        "assets/30f3d2df494c597be855433a065288af06906490e46df7c68219b76493bc8bf8": "30f3d2df494c597be855433a065288af06906490e46df7c68219b76493bc8bf8",
+        "assets/45475c0eac2395841b5c02313b02409d920fa037e657fb4bbf7f99413a180b57": "45475c0eac2395841b5c02313b02409d920fa037e657fb4bbf7f99413a180b57",
+        "assets/4e8f1cc8efea29e4ef1aef384cfa424468e2d05d48b817f6cb8145355cec5e98": "4e8f1cc8efea29e4ef1aef384cfa424468e2d05d48b817f6cb8145355cec5e98",
+        "events.jsonl": "8baae5c1c3a3725f6587e97113b74a883441ca88f2a68eb7153f594c6f100d60",
+        "manifest.json": "aa50bc571527da9964c9e42ab7fadeb0bd544841f91d4ba836a28232bb4fd9bb",
+        "purchases.jsonl": "cbbb20922e87e4c068c54d213e5118125e522c6b0cba423784dc8459fad93749",
+        "quality.json": "275c49a7a2fbb19ec8e168f4cf2c1db7c804f98b83dd1f8d73ad9da6a8a4c37e",
+        "timeline/1-2026-01-05.md": "a52a40e2da75dfa581d7fc92c1f80b652bd10b8d93ef798585455a4f5a814803",
+        "timeline/2-2026-01-05.md": "2edc942785a3109bcb506a8c3c2eae9a6f0179f7ea8bd3ece043ffff817f3411",
+        "verified-experiences.jsonl": "96f15b36fe9b0db01d445a49100c608c8909f6daf0594066fdd3b1bbff3606ff"
+      },
+      "checkpoints_sha256": "eeb81a6507be8b5345a81108060fcd2cc2b70431fb6e2d5acf6c990f86b8805d",
+      "run_assets": [
+        [
+          "1f50ff0d0cbfa2732cec91a1dea294a6202d40d23d81154f88be254fabe357ba",
+          20480
+        ],
+        [
+          "2ac208d2fb118d3cbf0268221a986c3debe9d36a473c9a8fee8b74f732a0d1be",
+          266
+        ],
+        [
+          "30f3d2df494c597be855433a065288af06906490e46df7c68219b76493bc8bf8",
+          20480
+        ],
+        [
+          "45475c0eac2395841b5c02313b02409d920fa037e657fb4bbf7f99413a180b57",
+          20480
+        ],
+        [
+          "4e8f1cc8efea29e4ef1aef384cfa424468e2d05d48b817f6cb8145355cec5e98",
+          267
+        ],
+        [
+          "6e08330350f72c4e0feab5bf8521b4ce60d0acd59dbf78009271f309363daa6e",
+          10240
+        ],
+        [
+          "89bdca151873d7f5f9d5cc8608f014c88fe8cce65a4efcfa775aec2e9eedc865",
+          10240
+        ],
+        [
+          "dae420a5b08e0065684c5158ca0ee27fb36e4a98caec929fa1531aabd38d2ea3",
+          10240
+        ],
+        [
+          "fe68885e8ecd60e1d204dfda4890105fbdbd1b8ea696f51a30cdbcad38dcd735",
+          265
+        ]
+      ]
+    },
+    "20260106": {
+      "artifacts": {
+        "activities.jsonl": "0d2554cafe7c861a9484901b8d9fcb3bd9da3bfde422634ce722a78889403166",
+        "asset-index.jsonl": "ae75855b3f4e23cd3ba90da14e46f4dc0ecbab19ee9d2397bd61ba19037702a5",
+        "assets/8d420beeb47e6967dca9b4729127cbf9d7ac3c9956298fb851bec94b6aef59e8": "8d420beeb47e6967dca9b4729127cbf9d7ac3c9956298fb851bec94b6aef59e8",
+        "assets/f2e436a5b421c6d7c43e0311c2a45b74c3e5d9fe1bab30e6a7b38dcbb8c1d567": "f2e436a5b421c6d7c43e0311c2a45b74c3e5d9fe1bab30e6a7b38dcbb8c1d567",
+        "assets/f378bbf9f32c2e8ddf9ef82d66a2f1fc787ae4ac7f105ae9cbbe51cee1decd25": "f378bbf9f32c2e8ddf9ef82d66a2f1fc787ae4ac7f105ae9cbbe51cee1decd25",
+        "events.jsonl": "09c1afddbd6d65a6140b27e1517b6d7522aeead834ae4f8cd4b62757dcc85c39",
+        "manifest.json": "dbae9298f66e98233f136368feb3d11fe768927aacb3cf1a94dc3f62925437db",
+        "purchases.jsonl": "68f940f463b587b7d97b276fbd55a1cf88ccc50969454a01c2a8d07c86f3a75c",
+        "quality.json": "eb046ee3195c9b30f78dc224dd7a744b4a92839ccca6a1c7a16994ed129f739f",
+        "timeline/1-2026-01-05.md": "063b9e344ce366a42c2377614f6ca0c11a6fc1fe896fb4723892df44c4ce198b",
+        "timeline/2-2026-01-05.md": "25a8ad8d7f714a1bf5f4519bb44831dc796393542573b2e4d4680693a81b1692",
+        "verified-experiences.jsonl": "a8e439870d5b10bca8e24ef1b26dec2e553cc1c89ffb02e645b0acf946144b2d"
+      },
+      "checkpoints_sha256": "2c00625283bff03d3457bdf4803f57b9aea429f26dfde8a1c5bf73991a43200f",
+      "run_assets": [
+        [
+          "89bdca151873d7f5f9d5cc8608f014c88fe8cce65a4efcfa775aec2e9eedc865",
+          10240
+        ],
+        [
+          "8d420beeb47e6967dca9b4729127cbf9d7ac3c9956298fb851bec94b6aef59e8",
+          20480
+        ],
+        [
+          "8d91abc02c5b064295bb344f0bc8a2e96ed944e26278352f2a44acd05c0d4e80",
+          20480
+        ],
+        [
+          "906a160c274a5e9ecafbcf064d62f1fc755d9d49eb5e1645443c4f1c61cf357f",
+          265
+        ],
+        [
+          "cae38cb6303ee826841b24cdbd4f7911f1e673cf7e7e896da522bde18bd77397",
+          266
+        ],
+        [
+          "cc3af8c2bc0a93344e74cc451341e2f59fa32104f2f68485016a5a6d0a40c338",
+          20480
+        ],
+        [
+          "dae420a5b08e0065684c5158ca0ee27fb36e4a98caec929fa1531aabd38d2ea3",
+          10240
+        ],
+        [
+          "f2e436a5b421c6d7c43e0311c2a45b74c3e5d9fe1bab30e6a7b38dcbb8c1d567",
+          20480
+        ],
+        [
+          "f378bbf9f32c2e8ddf9ef82d66a2f1fc787ae4ac7f105ae9cbbe51cee1decd25",
+          267
+        ]
+      ]
+    }
+  },
+  "generation": {
+    "as2_source_tree_sha256": "bb655cb3b4d7a68c725431a507192389b4e6770015e9673d6f5e9ef92dba1c46",
+    "cases_sha256": "04b17ea9b81336cf0b8be88f2b344cccdbe369c670bd2ea14c3bf48f91b18b2c",
+    "harness_sha256": "0df08156ec91278d49794dad0fdd09344f12b55064fafd842940831b3e4d373e",
+    "measurement_test_sha256": "250da6f54a6e1d09a3887e1233a74bbf1310c250226ea2604163e1561b1756b9",
+    "normalization": "existing main DayBaseline only; deterministic UUID/wall clock via existing helper; no business fields removed",
+    "original_assertions_preserved": 61,
+    "original_test_sha256": "85b368f5ae41fa6919bf96e3c82aaa897a805d4fe7534a68c9b5f5e848c805cb",
+    "production_module_sha256": {
+      "agentsociety2.agent.person": "21eddd42382d9dba11b722fd3a676a41083a5da69b45c35a9a53edbc0f1bc7e1",
+      "custom.agents.life_agent": "4f4ec30a20e06f879f58284fc11d6e33bed42378b89ea85e4e0fc7545fec16fe",
+      "custom.envs.life_env": "b37340b30843346ada8c44eb31fdc51cfbdf1406d5900e5f0c38d07119f2782a",
+      "worldmock.life.engine": "62dfd1e2e8d422c7148335402f5051c205f74a7f322e2550fe8b774f7d59053a"
+    },
+    "runs": [
+      {
+        "case_signatures": {
+          "20260105": "1135431aae4cbbd99e423a784aa61aa406085cca79bc526d4aca64cd49c804f3",
+          "20260106": "57d074bd93a99b71714c3220a8a53b4a17bc985bf3175484abf6762d87aaf87c"
+        },
+        "errors": 0,
+        "execution_receipt_sha256": "da990cf1d10cd5c5f876d17d138ae17a7730da48bf5deeb21beed39a925b29f0",
+        "failures": 0,
+        "interpreter": "Python 3.12.13",
+        "run": "feature-a",
+        "skipped": 0,
+        "test_module": "tests/integration/test_dayrun_complete_days.py",
+        "tests": 2,
+        "wall_seconds": 289.969
+      },
+      {
+        "case_signatures": {
+          "20260105": "1135431aae4cbbd99e423a784aa61aa406085cca79bc526d4aca64cd49c804f3",
+          "20260106": "57d074bd93a99b71714c3220a8a53b4a17bc985bf3175484abf6762d87aaf87c"
+        },
+        "errors": 0,
+        "execution_receipt_sha256": "a5ed62f02a1a8f1eec606245141a62aa869f3c66a108e6d79305c4bf8a0a29aa",
+        "failures": 0,
+        "interpreter": "Python 3.12.13",
+        "run": "feature-b",
+        "skipped": 0,
+        "test_module": "tests/integration/test_dayrun_complete_days.py",
+        "tests": 2,
+        "wall_seconds": 290.201
+      }
+    ],
+    "source_commit": "06e3ea0e04bcbb3022eac820a08005ef32b6b1c8",
+    "successful_independent_runs": 2,
+    "total_passing_real_day_cases": 4
+  },
+  "measurement_only": true,
+  "source_commit": "06e3ea0e04bcbb3022eac820a08005ef32b6b1c8"
+}

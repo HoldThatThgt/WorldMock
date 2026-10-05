@@ -1,3 +1,7 @@
+> 归档基线：2cf230115f4084aef2376e9d77bc976efbed43ea
+> 原始路径：`docs/dev/research/dayrun-behavior/bob-memory/report.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 # Bob report
 
 **Status:** COMPLETE for the declared semantic review and the follow-up exact-patch recheck. Three valid mutants survived at `d998a31`; all three were killed by the added assertions at clean commit `aa22dc830d6a66d13f14a22a04babae5cb41ec98`. The clean registered temporary trees are retained under the skill's failed-removal rule; this is a cleanup limit, not an untested implementation gate.

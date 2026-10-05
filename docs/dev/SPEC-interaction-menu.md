@@ -1,13 +1,15 @@
+<a name="spec-interaction-menu-特性规格交互菜单"></a>
 # 特性规格：交互菜单
 
 > 状态：FROZEN；2026-09-20，依据现有运行入口、并发独立审查和业界机制核查裁决。
-> 部分条款按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)）；修订记录见「版本表」。
-> 「地图地点与发现工具」与「观察与人物工具」中关于按名调用、指名购买与控制工具参数形状的条款按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)修订（2026-09-29，一日运行保真 IM1）；修订部分已实现并通过离线验收。
+> 部分条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
+> 「地图地点与发现工具」与「观察与人物工具」中关于按名调用、指名购买与控制工具参数形状的条款按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（2026-09-29，一日运行保真 IM1）；修订部分已实现并通过离线验收。
 > 范围：按地点类与人物声明可选对象动作，并在观察、模型请求与环境执行中一致落实。
-> 日期：2026-10-01。工具交互修订已冻结，已实现；本次生产验收单独记录；新请求形状、只读查询和错误字段以[工具交互规格](SPEC-tool-interaction.md)为准，旧离线证据只证明修订前行为。
+> 日期：2026-10-01。工具交互修订已冻结，已实现；本次生产验收单独记录；新请求形状、只读查询和错误字段以[工具交互规格](SPEC-life-runtime.md#tool-interaction-工具请求)为准，旧离线证据只证明修订前行为。
 > 本规格全部实现、文档同步和验收属于本次开发，不设延期项；全项目既有真实实验门禁继续有效。
-> 「观察与人物工具」中控制工具参数形状与 `query_world` 参数的条款按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订（2026-10-02，逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM2–IM6）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](errands-workday-verification.md)）。工作安排是环境层呈现的事实，不进入交互菜单，不改 `allowed_actions`。
+> 「观察与人物工具」中控制工具参数形状与 `query_world` 参数的条款按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（2026-10-02，逐条作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业 IM2–IM6）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。工作安排是环境层呈现的事实，不进入交互菜单，不改 `allowed_actions`。
 
+<a name="spec-interaction-menu-心智模型"></a>
 ## 心智模型
 
 地点决定这里允许做什么，人物声明决定这个人允许做什么，两者取交集。
@@ -32,15 +34,16 @@ flowchart LR
 条目候选、排除原因、呈现上限、轮转、内容切片与人物生活活动启用声明保持原合同。
 菜单不删除目录或候选；关闭工具不伪造条目的候选排除原因。
 
+<a name="spec-interaction-menu-权威来源与范围裁决"></a>
 ## 权威来源与范围裁决
 
 固定模型工具由 `worldmock.life.models.REQUEST_MODELS` 定义（`plan_day` 已移出人物工具），新增固定只读工具 `query_world`。
 地点菜单只剪裁 `start_activity` 经方式解析得到的内部动作，并约束 `query_world` 中对应领域的读取资格。
 有时长地点发现仍作为可读对象和动作，不增加独立的有时长模型工具。
 不新增动词、别名、策略语言、第三方依赖、迁移、兼容读取或缺省放行；人物的五个动词与方式经私有绑定映射为内部标准动作，
-菜单按内部动作判定，不新增动作名（[时间与能量规格](SPEC-time-and-energy.md)第五章「请求形状与菜单」）。
-[接口合同](../CONTRACTS.md)、[运行规格](SPEC-life-runtime.md)、[人物规格](SPEC-life-realism.md)
-与[决策上下文规格](SPEC-decision-context.md)的现行机制继续收窄菜单，不被菜单放宽。
+菜单按内部动作判定，不新增动作名（[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「请求形状与菜单」）。
+[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)、[运行规格](SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)、[人物规格](SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像)
+与[决策上下文规格](SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果)的现行机制继续收窄菜单，不被菜单放宽。
 研究依据见[可行性核查](research/interaction-menu-feasibility.md)。
 
 | 提案中的问题 | 冻结裁决 |
@@ -53,6 +56,7 @@ flowchart LR
 | 办公室散文提示 | 删除工具描述中固定的办公室娱乐偏好，以声明决定约束；不动态拼写工具描述 |
 | 只隐藏模型工具 | 同时执行宿主校验与环境结算校验，直接调用不能绕过 |
 
+<a name="spec-interaction-menu-声明与准入"></a>
 ## 声明与准入
 
 场景文档与运行时场景都必须具有 `interaction_menus_by_location_kind`。
@@ -65,7 +69,7 @@ flowchart LR
 
 | 字段 | 形状 | 来源 |
 | --- | --- | --- |
-| `allowed_actions` | 无重复的非空字符串数组 | `START_ACTIVITY_ACTIONS` 的标准动作名（内部闭集，模型可见动词见[时间与能量规格](SPEC-time-and-energy.md)第五章） |
+| `allowed_actions` | 无重复的非空字符串数组 | `START_ACTIVITY_ACTIONS` 的标准动作名（内部闭集，模型可见动词见[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章） |
 
 未知名称、空白名称、重复、空集合、错误类型、遗漏必填字段、地点类覆盖不完整均拒绝。
 场景文件入口通过既有 `IntegrityError` 报告准入失败，并记录英文错误日志；内部 Pydantic 校验提供英文原因。
@@ -82,6 +86,7 @@ flowchart LR
 目标尚未发现时，声明允许动作不等于本轮开放；当前不可行时照常列出并附说明。
 更新所有在版本控制内的正式场景及相应测试输入；旧缺字段场景拒绝，不写迁移脚本。
 
+<a name="spec-interaction-menu-地图地点与发现工具"></a>
 ## 地图地点与发现工具
 
 地图与门店供给特性中，场景只选择地点身份，菜单地点类来自冻结地图中被选地点的 `kind`。
@@ -92,9 +97,10 @@ flowchart LR
 查询只读冻结观察可读范围，不推进时间、不占活动名额，也不能读取未告知任务或他人私有状态。
 它遵循冻结菜单、工具层列出的动作、本地校验、环境重验和 `INTERACTION_MENU_DENIED` 的合同。
 禁止发现不得删除已存在地图事实；发现与呈现只管展示与比较，购买资格不以返回为限，`obtain` 可以按名称指名未返回的商品
-（[人物 Prompt 规格](SPEC-persona-prompt.md)第五章「指名购买」，按[一日运行保真规格](SPEC-dayrun-fidelity.md) 3.2、3.3、3.5 改为 `from` 可选约束、
+（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第五章「指名购买」，按[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.2、3.3、3.5 改为 `from` 可选约束、
 分段匹配与按请求级 `prefer` 选定）；它消耗一次生活动作，结果结算后写进进度层，浏览结果列完整标签「<门店>出售的<商品>」。
 
+<a name="spec-interaction-menu-观察与人物工具"></a>
 ## 观察与人物工具
 
 观察顶层工具支持数据新增必填 `interaction_menu`，形状就是 `allowed_actions` 的有效菜单。
@@ -128,11 +134,11 @@ flowchart LR
 菜单控制必须同时出现在工具层（菜单排除的动作不列出）、本地决策校验和直接宿主派发校验，不能依赖模型自觉遵守。
 一次决策的菜单冻结不变；动作登记即结束本次决策，不向模型发送登记确认，同一秒接着决策时结算结果经续接的 tool 消息交还；
 只读工具、单动作协议与纠错预算保持原规格。
-已有活动时，新启动和瞬时动作仍按正常菜单开放，按[时间与能量规格](SPEC-time-and-energy.md)第五章准入，不隐式暂停任何已有活动。
+已有活动时，新启动和瞬时动作仍按正常菜单开放，按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章准入，不隐式暂停任何已有活动。
 活动控制按可读活动名（做什么＋对象＋开始时刻）分别开放；恢复须回到活动开始的地点，另核对当前资源与地点条件，能量不参与。
 双对象动作须一次校验全部对象，不能重新开放被菜单移除的动作；可见性只管展示与比较，不限制按名调用（含 `obtain` 的指名购买），
 按名写的对象照常经菜单与准入判定。
-完整并行行为见[一日行为规格](SPEC-dayrun-behavior.md#人物入口与独立控制)。
+完整并行行为见[一日行为规格](SPEC-dayrun-behavior.md#spec-dayrun-behavior-人物入口与独立控制)。
 
 | 既有下钻品类 | 对应菜单资格（内部标准动作；人物动词：`play`、`work`、`watch`、`do` 属 `interact`，`consume` 属 `consume`，库存转换配方属 `obtain` 的「制作」） |
 | --- | --- |
@@ -145,6 +151,7 @@ flowchart LR
 品类真实存在性继续由现有观察和下钻入口判定；菜单不把任意字符串创造为生活活动品类。
 不存在的下钻品类保留 `BROWSE_CATEGORY_NOT_FOUND`，只有真实存在但菜单禁止的品类才报告菜单拒绝。
 
+<a name="spec-interaction-menu-环境执行与拒绝"></a>
 ## 环境执行与拒绝
 
 动作登记仍只确认提交，世界行为在共同结算时确定。环境依据权威场景、人物和当前结算状态重新计算菜单。
@@ -164,6 +171,7 @@ flowchart LR
 活动控制保持原规则，任何菜单都不能放宽活动归属、反馈边界与游戏命令。
 恢复请求的活动不存在或不属于当前人物时，由原活动身份校验拒绝；不以菜单错误掩盖既有领域错误。
 
+<a name="spec-interaction-menu-实验身份与恢复"></a>
 ## 实验身份与恢复
 
 菜单声明保存在场景文件，原始 JSON 字节的 `scenario_sha256` 已将其纳入运行身份。
@@ -179,6 +187,7 @@ flowchart LR
 不同地点/人物的运行时菜单不改变静态模板哈希，也不改变整次运行不变的原生工具，但必须改变冻结观察中工具层列出的动作。
 不得以两个模板哈希一致宣称场景等价，不做旧运行兼容、补写或迁移。
 
+<a name="spec-interaction-menu-文件修改清单"></a>
 ## 文件修改清单
 
 | 责任 | 文件 | 修改范围 |
@@ -190,15 +199,154 @@ flowchart LR
 | 人物工具 | `custom/agents/life_agent.py`、`src/worldmock/life/models.py`、`session_actions.py`、`error_contract.py` | 删除动作数组、方式解析与菜单校验、固定只读查询派发、具体参数路径和合法约束 |
 | 场景输入 | `scenarios/white-collar-12-weeks.json`、`multi-person.json`、`multi-person-half-day.json` | 显式地点菜单及人物声明；`scenarios/evaluation.json` 是独立评估配置，不添加生活菜单 |
 | 行为证据 | 新增生活菜单与人物菜单测试；相关观察夹具、清单和恢复测试 | 准入、地点、人物、Schema、绕过、控制、身份、真实跨轮边界 |
-| 现行合同 | `docs/CONTRACTS.md`、`EXPERIMENT.md`、`VERIFICATION.md`；决策上下文、生活运行、人物规格 | 新字段、收窄顺序、身份与门禁 |
-| 设计文档 | `docs/design/01-architecture.md`、`03-resource-engine.md`、`04-simulation-engine.md`、`05-recording-engine.md`、`08-configuration.md`、`09-io-formats.md` | 对齐职责、声明、观察、执行、记录与输入；不复制完整合同 |
-| 导航与交付证据 | `docs/INDEX.md`、`docs/design/README.md`、`docs/dev/implementation-status.md`、`ANALYSIS-spec-coverage.md`、提案、冻结规格及研究记录 | 唯一权威入口、修改清单、条款到测试及实测结果 |
+| 现行合同 | `docs/CONTRACTS.md#contracts-worldmock-接口合同`、`EXPERIMENT.md`、`VERIFICATION.md`；决策上下文、生活运行、人物规格 | 新字段、收窄顺序、身份与门禁 |
+| 设计文档 | `docs/design/01-architecture.md#architecture-worldmock-产品设计说明书-总体架构`、`03-resource-engine.md`、`04-simulation-engine.md`、`05-recording-engine.md`、`08-configuration.md`、`09-io-formats.md` | 对齐职责、声明、观察、执行、记录与输入；不复制完整合同 |
+| 导航与交付证据 | `docs/INDEX.md#index-worldmock-文档入口`、`docs/design/README.md#readme-worldmock-设计文档集`、`docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`、`ANALYSIS-spec-coverage.md`、提案、冻结规格及研究记录 | 唯一权威入口、修改清单、条款到测试及实测结果 |
 
-`docs/design/02-exchange-engine.md` 的交换职责不变，但须同步方式解析后的准入、具体错误路径与完整调用候选；
+`docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎` 的交换职责不变，但须同步方式解析后的准入、具体错误路径与完整调用候选；
 菜单仍由模拟引擎在规则执行前重验。
 总体、交付、评估设计没有菜单行为变化时只核查现有引用，不为凑清单改写。
 已存在的并发改动必须保留；每次编辑前重新读当前内容，不整文件恢复基线。
 
+
+<a name="dayrun-fidelity-呈现与浏览"></a>
+## 呈现与浏览
+
+<a name="dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序"></a>
+### 生活活动的地点类资格与排序
+
+**改造前观察。**
+
+- 地点类资格没有在候选生成时施加：生活活动窗口以 `moment=False` 取候选（`src/worldmock/life/observe.py`），`local_hour` 为空，地点资格判定（现定位 `src/worldmock/life/candidates.py::_location_reason`）提前返回；
+  与 `src/worldmock/life/presentation.py` 的说明和 [life-runtime 规格「统一候选契约」](SPEC-life-runtime.md#spec-life-runtime-统一候选契约生成资格排序三段)（资格段含地点要求）、[「两条排除纪律」](SPEC-life-runtime.md#spec-life-runtime-两条排除纪律)（地点类交集为空可排除）不一致。
+  工具层随后用 `refusal_for_code("ELIGIBILITY_LOCATION_KIND_MISMATCH")`（`src/worldmock/life/tool_layer.py`）给其中大部分标「这里不适合做这件事」，环境在开始时同样拒绝（`src/worldmock/life/activities.py`）：
+  条目占了窗口名额却不能做。WC 2080 行里 1201 行（58%），BIZ 43%，在办公室占 67%。
+- 零口味时按对象标识排序：排序键是（非零口味、−口味×注意力、对象标识）（`src/worldmock/life/candidates.py`），零口味时就是字母序：WC 104 次观察里 17 条始终固定，
+  183 项里 40 项从没出现，包括洗碗和家常做饭。
+- 轮转当时按人物级偏移量进行：`_rotation_offset` 取该人物已呈现记录的条数，内容、游戏、生活活动与商品共用（[改造前呈现与浏览记录](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)）。
+  WC 只有 42 个不同窗口，17 + 42 × 3 = 143 正好等于出现过的条目数；走完一圈约需 56 个窗口，一天走不完。
+  [life-runtime 规格「曝光轮转」](SPEC-life-runtime.md#spec-life-runtime-曝光轮转)与[接口合同「派生量字段」](../CONTRACTS.md#contracts-派生量字段)要求轮转以每个对象的 `last_presented_at` 判定、换新名额留给长期未呈现的对象，
+  「不按检索分区记游标」；当时的共享偏移量是实现偏差，不是规格。
+
+**设计。**
+
+1. **施加地点类资格**（裁决 S8）：生活活动窗口按当前地点与时刻取候选，地点类不符的条目不进窗口，排除项记 `ELIGIBILITY_LOCATION_KIND_MISMATCH`（闭集内已有）。
+   这是世界事实，不是软偏好；被排除的条目仍可按名调用（第三章）。人物 Prompt 规格「工具层」:199 与接口合同 :684-685「运行内可能满足的条件照常列出并标原因」
+   只约束进了窗口的目标的动作，不要求把地点类不符的条目放进窗口；时间与能量规格裁决 #11「动作不按状态隐藏」针对的是身体与占用状态，不是地点类。两处补一句说明。
+2. **相关度层**（裁决 S4）：排序键改为（非零口味，−口味×注意力，−相关度，哈希）。相关度只取人物自己的事实与目录事实：
+   - 目录 `time_window` 覆盖此刻：+2；
+   - 属于当日未推进目标的活动家族：+2；
+   - 人设层习惯签名的反应文本命中条目名或品类：+1。
+   决胜键改为 `sha256(场景|人物|日期|对象)`，不再用对象标识（对象标识使零口味时的顺序退化为字母序；人物规格「候选确定性」:308「同分时以稳定的对象标识决胜」随之改写）。
+   `ORDER_KEY_VERSION`（`src/worldmock/life/candidates.py::ORDER_KEY_VERSION`）升到 2：它只参与游标身份（`src/worldmock/life/candidates.py::cursor_identity`），不在运行清单里，升版使在途游标失效；[接口合同「排序键与游标」](../CONTRACTS.md#contracts-排序键与游标)同步。
+   提案另有「今天已经做过 −1」「在家时的家务与自理类 +1」与「20 条里至多留 4 条例行名额」三项：第一项把互动记录当排序输入，与 life-runtime :884「禁止把互动次数当作判据」相抵；
+   后两项是系统替人物做的偏好，与「规则只限制物理、经济和任务可行性，不替人物优化人生」相抵，且与 0.15 的换新名额（`rotation_quota_ratio`）竞争。本文不采用，列为 S4 的另一选项。
+3. **轮转按冻结条款实现**：每个对象记 `last_presented_at`，换新名额按场景 `rotation_quota_ratio` 留给该分区内最久未呈现的对象，其余按排序键；
+   不新增分区游标（提案「每个分区各自一个游标」不采用）。`⌈N ÷ k⌉` 的上界（:878、:882）按分区成立。
+
+与数据集方案 3.6 的关系：数据集收窄池子，系统保证排序不退化。两边都做。
+
+<a name="dayrun-fidelity-呈现与浏览-只列名称的可调用索引"></a>
+### 只列名称的可调用索引
+
+工具层新增字段 `callable_index`（裁决 S5；Schema 登记进 `prompt_schemas.py` 与接口合同「七层字段」:661）：此地此刻可做的生活活动只列名称（家中 107 条、约 415 字）；
+内容和商品只给品类计数与示例名（每类至多 3 个）。它不是目标，不带动作与条件；写在索引里的名称按第三章按名调用，受理时照常做资格与准入判定。
+索引不计入单次呈现上限（它不是候选条目；life-runtime「两级上限」:849、人物规格「呈现上限与下推游标」:319-322 与接口合同「场景常量」:1004 补一句「上限只约束目标条目」），
+但计入整次请求的容量计数（第四章预算不变）。
+
+**验收。** 索引里每个名称都能按名调用；索引不含被地点类资格排除的活动；容量计数含索引。
+
+<a name="dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性"></a>
+### 浏览结果与提示看可达性
+
+**改造前观察**（BIZ 午餐往返 17 段的系统侧原因；下列源码定位当前对应职责）：浏览是全局的（`src/worldmock/life/rules.py::LifeRuleEngine.validate_start`、`src/worldmock/life/observe.py::ObservationBuilder._complete_product_browse`），每次 56 条供给里的 20 条，其中 17 条全天在任何地方都买不到；
+进度层的浏览结果只列商品名不带店名（`src/worldmock/life/result_projection.py`），模型把全局目录当成了当前餐馆的菜单；商品可见性绑定在浏览的地点（`src/worldmock/life/projection.py`，有效期 1800 秒），
+人一离开商品就从工具层消失（在场门店的供给不经浏览就进入商品池，`src/worldmock/life/observe.py`；指名路径本就不查可见凭据，`src/worldmock/life/storefront_runtime.py`）；
+下一步提示当时只看供给声明的目的地、不看可达性（到店 `src/worldmock/life/admission.py::_place_refusal`「去{place}」，配送 `src/worldmock/life/admission.py::_delivery_refusal`「去 X 或 Y 再下单」）；
+「暂时送不到这里」当时同时覆盖 4 个 `DELIVERY_*` 码（原因映射对应 `src/worldmock/life/guidance.py::_DEFAULT_REASONS`，配送准入对应 `src/worldmock/life/admission.py::_delivery_refusal` 也使用了同句）。反证：14:59 商品和地点同时出现在工具层时，模型 5 分钟内就完成了购买。
+
+**设计。**
+
+- 浏览结果列**完整标签**「<门店>出售的<商品>」而不是裸商品名：仍是「只列名称」（人物 Prompt 规格「唯一出现原则」:141、接口合同 :766、地图与门店规格 :119），
+  不另标可得性（可得性在工具层的 `available`）。结果进入进度层，session 结束后随 `settled` 进记忆层。
+- 下一步提示先检查可达性与配送路线：不可达时用英文说明经由哪里可以到（如 `Travel via 满松科技园 to reach the store.`），没有可达的就说 `The store cannot be reached from your current location.`。
+- 「送达地不对」和「配送路线缺失」分成两个原因：`ACTIVITY_PRECONDITION_UNMET` 的 `unmet` 取 `delivery_destination` 或 `delivery_route`，原因句各写一句
+  （接口合同 :270 与时间与能量规格 :978 的固定句「暂时送不到这里」改写；地图与门店规格 :484「履约不支持、路径不可达、资料未知必须可区分」是依据）。
+- **可见性绑定不放宽**（裁决 D17）：地图与门店供给提案 :75 已裁决「直接下钻和有时长浏览只授权实际窗口」，地图与门店规格 :86-90、接口合同 :897 与 life-runtime :722-724
+  的 1800 秒与离开呈现地点失效不变；离开后人物凭进度层、记忆层里带店名的浏览结果按名下单（第三章）。提案「商品可见性不只绑定在浏览地点」列为另一选项。
+- **不可达的路线不列出**（裁决 S9）：`src/worldmock/life/projection.py` 只列 `reachable` 路线是人物 Prompt 规格「工具层」:199「永久不能满足的不列」与时间与能量规格 :583
+  的规定，不改；去不了的地点由被拒时的 `reason`、`next_step` 与本节的下一步提示说明。提案「照常列出并标 `available=false`」列为另一选项。
+
+**验收。** 浏览结果为完整标签；离开浏览地点后同名商品仍可按名下单；下一步提示只指向从当前地点可达的地点；两种配送原因各一例。
+
+<a name="errands-workday-查询筛选与返回精简"></a>
+## 查询筛选与返回精简
+
+<a name="errands-workday-查询筛选与返回精简-请求"></a>
+### 请求
+
+`query_world(name, way, category, from, available_only, offset)`，六个键全部必填、无缺省；旧四键请求按缺字段拒绝，不留读取分支。
+
+| 键 | 类型 | 含义 |
+| --- | --- | --- |
+| `name`、`way`、`category` | 字符串或 null | 既有含义不变；非 null 不得为空白 |
+| `from` | 字符串或 null | 购买来源：地点显示名（含「家」「住处」）或渠道称呼，与 `start_activity` 购买项的 `from` 同名同义 |
+| `available_only` | 布尔 | true 只留已确认此刻可执行的条目；false 不筛选；拒绝字符串、数字与 null |
+| `offset` | 非负整数 | 既有含义不变 |
+
+- `name`、`way`、`category`、`from` 至少一个非 null；`available_only` 不单独构成查询条件。四者全空时在四个位置各报一条，不落在空根位置。只写 `from` 合法。
+- `name` 只写对象名称，`from` 只写购买来源。门店名写在 `name` 里仍按地点目标匹配。`from` 只匹配供给条目，非供给条目一律排除。
+- `way` 写「购买」（及其同义写法）时等同于同时写「到店」与「远程下单」。
+- 筛选不改变工具层可调用索引里各品类的计数口径（`query_categories`）：它仍是查询权限内的完整条目数。可调用索引在代码与层 Schema 里是四键，接口合同与设计文档写「恰好三键」属既有漂移，随阶段 4 更正。
+
+<a name="errands-workday-查询筛选与返回精简-来源解析"></a>
+### 来源解析
+
+来源解析与购买共用一个不依赖环境上下文的纯函数：入参为所写来源、地点名表、住处、渠道表；购买侧与查询侧都调用它，同一写法得到的门店集合逐一相等。
+来源的合法写法以现行实现为准（全部地点显示名与住处、渠道称呼）；多份现行文档把购买来源写成「门店名」属既有漂移，逐份更正见实施计划。
+冻结观察已有地点表与住处身份，只新增两项私有事实：渠道索引 `world_query_channels`（渠道身份、称呼、成员门店，列入提示禁键）与每个供给条目所属门店（键名 `location_id`，已在禁键内）。不再冻结地点与住处的副本。
+`from` 不按需求反查门店、不计算路线、不按距离或价格排序；查询仍不是地点发现接口。
+
+<a name="errands-workday-查询筛选与返回精简-只看此刻能做的"></a>
+### 只看此刻能做的
+
+- 可执行取本轮冻结观察里该条目动作的 `available`，与工具层、环境受理同源，不另算。写了 `way` 时只看方式命中的动作；`way` 为 null 时看全部动作以及以该目标为参数的工具的 `available`。「购买」取两种取得动作中任一可用。
+- 保留的条目照常返回其全部动作与工具（不可用的仍带原因）。
+- 筛选在排序与切页之前施加；`total_count` 是全部筛选交集后的完整匹配数，`offset` 合法范围按它计算；排序键与每页大小不变，不新增页长或排序参数。
+- 报价未知、营业未知的条目也被滤掉：true 的含义是「已确认可执行」，空页不等于「都不能买」。人不在店里时到店动作不可用，筛选只会留下能配送的条目；配送不通时就是空页。
+- 可执行是按本人为收货人、此刻此地的一份求值，成功仍以结算时重验为准。因人物级前置条件（如先收尾）使全部动作不可用时，结果为合法空页。
+
+<a name="errands-workday-查询筛选与返回精简-返回"></a>
+### 返回
+
+- 顶层恒为 `{matches, total_count, next_offset}` 三键，不新增说明键。各键取值合法、`offset` 在范围内时，除 5.5 第二行外任何筛选组合无匹配都返回 `matches=[]`、`total_count=0`、`next_offset=null`，不报错、不自动放宽、不换来源；`total_count` 为 0 时合法的 `offset` 只有 0，越界仍按既有错误处理。
+- 每项是冻结目标的无损紧凑投影：键取 `name, kind, phase, state, contract`（仅任务）`, actions, tools`；动作取 `action, way, available, reason, price, duration, quantity, note`。只省略 null 与空集合；false、零价格、零剩余与明确的未知原因逐值保留。紧凑规则复用工具层分组已有的实现。
+- **不再逐项附 `candidates`**（裁决 Q2，修订工具交互规格刚冻结并实现的条款）：照抄 `name` 与所选动作的 `way` 即可提交；候选只出现在错误合同里。冻结条目里的候选与构造它的函数一并删除，不留双形状。门店商品的来源标记 `note` 首版保留。
+
+<a name="errands-workday-查询筛选与返回精简-错误"></a>
+### 错误
+
+| 情形 | 处理 |
+| --- | --- |
+| `from` 既不是地点显示名也不是渠道称呼 | 查询参数错误：`path` 为 `from`，`allowed_values` 为 `[]`，`expected` 为 `null, a known place name, or a known channel name is required.`；`candidates` 至多三条换了 `from` 的完整 `query_world` 请求，候选来源只取权限内有供给条目的门店与渠道 |
+| `from` 为 null，`name` 按对象名称解析无任何匹配，且其写法恰是一个渠道称呼（与其余筛选是否为空无关） | 查询参数错误：`path` 为 `name`，`expected` 为 `A channel name belongs in from; name takes an object name.`，`candidates` 给一条把该值移到 `from`、`name` 写 null 的完整请求；不自动改写 |
+| `from` 解析成功但该来源没有权限内供给 | 合法空页，不泄露不可访问门店 |
+| `name` 写完整标签而 `from` 写另一家店 | 合法空页（查询是交集筛选，不是购买请求） |
+
+顶层与明细码都是 `ARGUMENTS_INVALID`，不把环境名称类码带进宿主协议反馈。来源错误与方式、品类错误一次全报；`offset` 范围只在全部筛选合法后计算。
+
+<a name="errands-workday-查询筛选与返回精简-执行位置与保留约束"></a>
+### 执行位置与保留约束
+
+- `query_world` 的权威求值点是宿主本地冻结观察；环境侧同名分支保留（裁决 Q3），其代码不必改。
+- 本阶段不改系统层：只改 `query_world` 的用途句，两个新字段与现有四个字段一样不带字段说明。因此只变 `tool_schema_sha256` 与 `code_sha256`，可独立验收与归因。用途句唯一权威见 `docs/CONTRACTS.md#contracts-person-tools`。
+- 筛选不产生可见凭据、不更新呈现时刻、不扩大读取权限；两个字段不引入否定、或、范围与表达式。
+- 工具交互规格的既有条款带上两个新键后保持：同一模型回合内的多个只读查询整批先校验后执行，与世界请求混批整批拒绝；最终回合与截断重试不开放查询。
+- 工具交互登记守卫的钉点：既有变异按真实定义符号定位，限定该定义内的唯一片段；搬移后生成字节与原基线逐项相同；查询请求字段集的四键断言随阶段 4 同批改为六键；工具交互规格「行为验收」表的行名在任何阶段都不增删改，新增的查询验收只写在本文的验收台账。
+- 查看器里的查询请求分支在真实运行下不可达（只读查询不登记为世界动作），不计入验收。
+
+
+<a name="spec-interaction-menu-验收台账"></a>
 ## 验收台账
 
 每个要求必须有真实行为断言；测试存在、接口可导入、覆盖率百分比不能单独代替完成证据。
@@ -222,24 +370,28 @@ flowchart LR
 执行证据及逐条测试映射统一记于[交互菜单验收记录](research/interaction-menu-verification.md)。
 该记录必须如实区分本特性离线完成与全项目尚未完成的正式长期实验。
 
+<a name="spec-interaction-menu-版本表"></a>
 ## 版本表
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
 | `2026-10-01-tool-interaction` | 2026-10-01 | 冻结尚未实现的一项一个items对象、方式推导、中文购买偏好与null本人语义、公开品类偏移query_world、完整调用候选及位置数组path/allowed_values/expected/why错误；菜单仍按内部动作判定，旧数组和值删除 |
 | 1 | 2026-09-20 | 纠正提案事实与身份判据，冻结地点类和人物交集、工具及活动类型双重约束、控制保护、执行拒绝及全部验收 |
-| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 24 行修订：菜单仍以内部能力名判定，人物所选动词与方式经私有绑定映射后判定；删能量与日首计划门控；不按人物状态隐藏动作，未满足条件的带说明；控制作用于活动，恢复须回到开始地点；`plan_day` 移出人物工具，不再有保护资格，模型工具改为八项。补记未入表的就地改动：2d97d3d（新增「当日目标保护项」）、d998a31（并行启动工具的菜单要求、已有活动时相容启动照常开放、活动控制按点名身份开放）、2913546（工具面改为九项稳定工具，菜单只剪裁 `start_activity` 的动作闭集，`InteractionMenu` 改为单字段 `allowed_actions`，保护项改为 `wait`、`sleep`，控制按可读名称，不因连续业务拒绝终止运行） |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 24 行修订：菜单仍以内部能力名判定，人物所选动词与方式经私有绑定映射后判定；删能量与日首计划门控；不按人物状态隐藏动作，未满足条件的带说明；控制作用于活动，恢复须回到开始地点；`plan_day` 移出人物工具，不再有保护资格，模型工具改为八项。补记未入表的就地改动：2d97d3d（新增「当日目标保护项」）、d998a31（并行启动工具的菜单要求、已有活动时相容启动照常开放、活动控制按点名身份开放）、2913546（工具面改为九项稳定工具，菜单只剪裁 `start_activity` 的动作闭集，`InteractionMenu` 改为单字段 `allowed_actions`，保护项改为 `wait`、`sleep`，控制按可读名称，不因连续业务拒绝终止运行） |
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对（IM1–IM9 已落地）：「观察与人物工具」的 `recall_task_summary` 行补「当日目标名」，与时间与能量规格第七章及代码一致 |
-| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 24、28 行修订（人物 Prompt 台账 IM1、IM2），修订部分待实现：菜单条款的载体改为七层，菜单排除的动作不列入工具层，场所固定规则写在环境层 `location.fixed_rules`，删「完整候选与 `scene` / `facts` 保持原合同」及候选合同中的「事实」；同一秒续接的每次决策仍各自冻结观察，登记不回显，结算结果经续接 tool 消息交还；展示与购买资格分开，`obtain` 可以指名未列出或未返回的商品，其余动词的对象须是本轮列出的名称；原生工具整次运行不变，不逐轮绑定名称枚举，菜单控制落在工具层、本地校验与宿主派发校验，恢复条件由待办层 `available`、`reason` 说明并由环境以同一原因拒绝；运行时菜单只改变冻结观察；文件头注明修订待实现 |
-| `2026-09-27-persona-prompt-stage-4` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 28 行修订（人物 Prompt 台账 IM3，随阶段 4 代码），修订部分待实现：下钻品类表「物品」行补给予：`to` 写人物名时显示“给予”，内部标准动作仍为 `consume`，菜单、可供性目录与品类配对不变，不新增动作名 |
+| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 24、28 行修订（人物 Prompt 台账 IM1、IM2），修订部分待实现：菜单条款的载体改为七层，菜单排除的动作不列入工具层，场所固定规则写在环境层 `location.fixed_rules`，删「完整候选与 `scene` / `facts` 保持原合同」及候选合同中的「事实」；同一秒续接的每次决策仍各自冻结观察，登记不回显，结算结果经续接 tool 消息交还；展示与购买资格分开，`obtain` 可以指名未列出或未返回的商品，其余动词的对象须是本轮列出的名称；原生工具整次运行不变，不逐轮绑定名称枚举，菜单控制落在工具层、本地校验与宿主派发校验，恢复条件由待办层 `available`、`reason` 说明并由环境以同一原因拒绝；运行时菜单只改变冻结观察；文件头注明修订待实现 |
+| `2026-09-27-persona-prompt-stage-4` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 28 行修订（人物 Prompt 台账 IM3，随阶段 4 代码），修订部分待实现：下钻品类表「物品」行补给予：`to` 写人物名时显示“给予”，内部标准动作仍为 `consume`，菜单、可供性目录与品类配对不变，不新增动作名 |
 | `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「观察与人物工具」注明原生工具只在最后一个回合去掉记忆查询工具 |
-| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](SPEC-dayrun-fidelity.md#冻结条款修订)「冻结条款修订」第 10、11、18 行与其 3.5 修订（一日运行保真 IM1，随该规格冻结）：「地图地点与发现工具」的指名购买改为 `from` 可选约束、分段匹配与按 `prefer` 选定，浏览结果列完整标签；「观察与人物工具」`start_activity` 行改为全部目录类按名调用（归一唯一即受理，否则给候选、不替换），按名写的对象照常经菜单判定，`obtain` 可写方式「购买」并有请求级 `prefer`；三个控制工具行改为 `items[]`（`conclude_activity` 另带 `memories`、`views`）；可见性不限制按名调用；文件头补修订说明 |
+| `2026-09-29-dayrun-fidelity` | 2026-09-29 | 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 10、11、18 行与其 3.5 修订（一日运行保真 IM1，随该规格冻结）：「地图地点与发现工具」的指名购买改为 `from` 可选约束、分段匹配与按 `prefer` 选定，浏览结果列完整标签；「观察与人物工具」`start_activity` 行改为全部目录类按名调用（归一唯一即受理，否则给候选、不替换），按名写的对象照常经菜单判定，`obtain` 可写方式「购买」并有请求级 `prefer`；三个控制工具行改为 `items[]`（`conclude_activity` 另带 `memories`、`views`）；可见性不限制按名调用；文件头补修订说明 |
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：文件头改为修订部分（按名调用、指名购买的 `from` 约束、分段匹配、方式「购买」与请求级 `prefer`、控制工具参数形状）已实现并通过离线验收；「观察与人物工具」原生工具的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；条款正文不变 |
-| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](SPEC-errands-workday.md#冻结条款修订)修订，修订部分在冻结时未随文实现（该规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](research/errands-workday-implementation-plan.md)的文档同步作业 IM1–IM6）。改动：文件头；「观察与人物工具」`query_world` 行改六键并写来源与可执行筛选，三个控制工具行增请求级 `errands`（不受地点菜单剪裁）。顺带更正既有漂移：只读问答不开放 `query_world`；最后一个回合与截断重试去掉的是全部查询工具；`prompt_sha256` 绑定两份系统层与七层 Schema、`tool_schema_sha256` 只绑定人物工具面，后台严格工具由 `code_sha256` 绑定。工作安排不进入交互菜单，菜单声明、交集与拒绝条款不变 |
-| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](research/errands-workday-implementation-plan.md)作业 IM7，按 `d8a41d3` 的代码核对）：文件头改为修订部分（就寝反思的后台严格工具、控制工具的请求级 `errands`、`query_world` 六键）已实现并通过离线验收，链接[个人事务与工作安排验收记录](errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
+| `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订，修订部分在冻结时未随文实现（该规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业 IM1–IM6）。改动：文件头；「观察与人物工具」`query_world` 行改六键并写来源与可执行筛选，三个控制工具行增请求级 `errands`（不受地点菜单剪裁）。顺带更正既有漂移：只读问答不开放 `query_world`；最后一个回合与截断重试去掉的是全部查询工具；`prompt_sha256` 绑定两份系统层与七层 Schema、`tool_schema_sha256` 只绑定人物工具面，后台严格工具由 `code_sha256` 绑定。工作安排不进入交互菜单，菜单声明、交集与拒绝条款不变 |
+| `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 IM7，按 `d8a41d3` 的代码核对）：文件头改为修订部分（就寝反思的后台严格工具、控制工具的请求级 `errands`、`query_world` 六键）已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
 
+<a name="spec-interaction-menu-当日目标保护项"></a>
 ## 当日目标保护项
 
-`revise_day_plan` 名称与菜单保护资格保留，具体开放条件按 [当日目标规格](SPEC-day-plan-goals.md) 执行，
+`revise_day_plan` 名称与菜单保护资格保留，具体开放条件按 [当日目标规格](SPEC-day-plan-goals.md#spec-day-plan-goals-当日目标特性开发规格) 执行，
 已有计划允许修订未推进目标；`plan_day` 不在人物工具与菜单中，当日计划由零点后台任务 `plan_day` 经引擎的系统登记入口写入。
 菜单不得绕过目标请求的本地与环境校验。
+
+| `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |

@@ -21,7 +21,6 @@ from worldmock.catalog.compiler import compile_exchange_object
 from worldmock.catalog.models import (
     Catalog,
     CatalogEntryKind,
-    CategoryError,
     CatalogManifest,
     CatalogModel,
     ObjectDeclaration,
@@ -62,10 +61,7 @@ def load_catalog(catalog_dir: Path | str) -> Catalog:
     :raises CategoryError: 任一摘要、Schema、来源、规则或对象无效。
     """
     directory = Path(catalog_dir).resolve()
-    try:
-        return _load_catalog(directory)
-    except CategoryError as error:
-        raise CategoryError(error.code, error.message) from error
+    return _load_catalog(directory)
 
 
 def load_object_declarations(path: Path | str) -> tuple[ObjectDeclaration, ...]:

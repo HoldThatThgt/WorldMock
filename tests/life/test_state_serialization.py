@@ -150,7 +150,7 @@ def _errand(errand_id: str, registered_at: int, progress: float) -> ErrandState:
 
 
 def test_open_errands_round_trip_through_json_with_a_byte_stable_encoding(tmp_path: Path) -> None:
-    """人物的未完成事务随世界状态往返（docs/dev/SPEC-errands-workday.md 2.1「存放」、2.7）：JSON 模式按事务身份为键写出
+    """人物的未完成事务随世界状态往返（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-范围与状态 「存放」、2.7）：JSON 模式按事务身份为键写出
     完整快照，读回逐值相等；规范编码不随字典插入顺序变化；经 FootprintStore 落盘再打开后状态字节相同。"""
     first, second = _errand("action-2:errand:0", 3, 0.1 + 0.2), _errand("action-1:errand:1", 2, 1.0)
     forward, backward = _world_state(), _world_state()

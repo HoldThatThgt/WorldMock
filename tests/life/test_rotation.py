@@ -1,7 +1,7 @@
-"""曝光轮转模块的判据、界与反塌缩测试（docs/VERIFICATION.md「工程门禁」的「候选与呈现一致性」）。
+"""曝光轮转模块的判据、界与反塌缩测试（docs/VERIFICATION.md#verification-worldmock-验收标准「工程门禁」的「候选与呈现一致性」）。
 
-断言口径取自 `docs/dev/SPEC-life-runtime.md`「曝光轮转」「禁止永久退役」两节与
-`docs/dev/SPEC-dayrun-fidelity.md` 5.1：轮转以每个对象的上次呈现时刻判定，换新名额留给该分区内最久未呈现的对象，
+断言口径取自 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「曝光轮转」「禁止永久退役」两节与
+`docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要` 5.1：轮转以每个对象的上次呈现时刻判定，换新名额留给该分区内最久未呈现的对象，
 不设共享偏移量或分区游标，`⌈N ÷ k⌉` 的上界按分区成立。
 """
 
@@ -33,7 +33,7 @@ from worldmock.life.rotation import (
 
 _DAY = 86_400
 _STALE = 7 * _DAY
-#: 契约缺省单次呈现上限（docs/CONTRACTS.md「场景常量」）。
+#: 契约缺省单次呈现上限（docs/CONTRACTS.md#contracts-worldmock-接口合同「场景常量」）。
 _LIMIT = 20
 #: 两次呈现之间的模拟间隔（秒）：远小于「长期未呈现」阈值，刚呈现过的对象在一轮扫描里都不再算长期未呈现。
 _STEP = 60
@@ -204,7 +204,7 @@ def test_exact_bound_is_not_the_continuous_relaxation() -> None:
     assert math.isclose(exact, math.ceil(pool_size / slots) / points, rel_tol=0, abs_tol=0)
 
 
-#: docs/EXPERIMENT.md「决策点节奏」记录的实测区间：中位 71、范围 9–112.5、保守取值 60。
+#: docs/EXPERIMENT.md#experiment-worldmock-实验设置「决策点节奏」记录的实测区间：中位 71、范围 9–112.5、保守取值 60。
 _MEASURED_INTERVAL = (9.0, 112.5)
 _MEASURED_MEDIAN = 71.0
 _MEASURED_CONSERVATIVE = 60.0

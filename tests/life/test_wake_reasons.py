@@ -136,7 +136,7 @@ def test_sleep_accepts_only_existing_sleep_reasons():
 
 
 def test_scenario_rejects_idle_interval_shorter_than_regular(engine_factory):
-    document = engine_factory().semantics.document.model_dump(mode="json")
+    document = engine_factory().context.semantics.document.model_dump(mode="json")
     assert LifeScenario.model_validate(document).idle_reconsideration_interval_seconds == 10800
     document["idle_reconsideration_interval_seconds"] = document["reconsideration_interval_seconds"] - 1
     with pytest.raises(ValidationError, match="must not be shorter"):
@@ -145,10 +145,10 @@ def test_scenario_rejects_idle_interval_shorter_than_regular(engine_factory):
 
 def test_commitments_exclude_messages_history_and_completed_activities(engine_factory):
     engine = engine_factory()
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     now = state.current_time
     agent = state.agents[1].model_copy(update={"visible_task_ids": set(), "day_plan": None})
-    inputs = engine_rhythm_inputs(engine, state)
+    inputs = engine_rhythm_inputs(engine.context, state)
     assert not _has_commitments(agent, inputs)
     pending = DayPlan(day_end=now + 1000, goals=[goal("工作", registered=now)])
     assert _has_commitments(agent.model_copy(update={"day_plan": pending}), inputs)
@@ -186,24 +186,24 @@ def test_unread_inbox_message_yields_message_arrival_then_is_marked_read(engine_
     from worldmock.life.social import Message
 
     engine = engine_factory()
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     state.agents[1].last_decision_time = state.current_time
     message = Message(message_id="message-unread", kind="direct", sender_id="agent:2", recipient_id="agent:1",
                       text="到家了吗", created_at=state.current_time)
     state.agents[1].inbox = {message.message_id: message}
-    changed, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    changed, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert "message_arrival" in rhythms[1].wake_reasons
     assert "message-unread" in changed.agents[1].read_inbox_ids
-    _, again = apply_decision_rhythm(engine_rhythm_inputs(engine, changed))
+    _, again = apply_decision_rhythm(engine_rhythm_inputs(engine.context, changed))
     assert "message_arrival" not in again[1].wake_reasons
 
 
 def test_game_turn_due_offers_decision_on_an_otherwise_silent_boundary(engine_factory):
-    """游戏保持逐回合反馈：交互边界到期即提供决策，不经唤醒条件枚举（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
+    """游戏保持逐回合反馈：交互边界到期即提供决策，不经唤醒条件枚举（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。"""
     from worldmock.life.rhythm import apply_decision_rhythm
 
     engine = engine_factory()
-    state = engine._snapshot_decision_references(engine.state.model_copy(deep=True), [1])
+    state = engine.observations._snapshot_decision_references(engine.context.state.model_copy(deep=True), [1])
     now = state.current_time
     game = ActivityState(activity_id="game", agent_id=1, location_id=state.agents[1].location_id,
                          kind=ActivityKind.PLAY_GAME, status=ActivityStatus.ACTIVE, started_at=now,
@@ -211,17 +211,17 @@ def test_game_turn_due_offers_decision_on_an_otherwise_silent_boundary(engine_fa
                          planned_duration_seconds=3600, next_interaction_at=now + 600,
                          origin_action_id="act", origin_decision_id="dec", origin_request_event_id="evt")
     state.activities["game"] = game
-    _, quiet = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    _, quiet = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert not quiet[1].offered and quiet[1].wake_reasons == []
     state.activities["game"] = game.model_copy(update={"next_interaction_at": now})
-    changed, due = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    changed, due = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
     assert due[1].offered and due[1].wake_reasons == [] and changed.agents[1].next_decision_at == now
 
 
 def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_factory):
     engine = engine_factory()
-    state = engine.state.model_copy(deep=True)
-    task = engine.scenario.tasks[0]
+    state = engine.context.state.model_copy(deep=True)
+    task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
     state.current_time = due - 1901
     state.pending_events = []
@@ -235,8 +235,8 @@ def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_fa
     assert started.status == "in_progress"
     assert engine.scheduling_state().next_event_at.timestamp() == due - 1800
     advance_next(engine)
-    assert engine.state.current_time == due - 1800
-    assert {"task_due_soon", "commitment_threatened"}.issubset(engine.state.agents[1].pending_wake_reasons)
+    assert engine.context.state.current_time == due - 1800
+    assert {"task_due_soon", "commitment_threatened"}.issubset(engine.context.state.agents[1].pending_wake_reasons)
 
 
 @pytest.mark.parametrize("bound_to_location", [False, True])
@@ -245,12 +245,12 @@ def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bo
     from zoneinfo import ZoneInfo
     from tests.life.test_revision_contract import _commit_staged
     engine = engine_factory()
-    state = engine.state.model_copy(deep=True)
-    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.scenario.timezone))
+    state = engine.context.state.model_copy(deep=True)
+    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.context.scenario.timezone))
     closing_minute = local.hour * 60 + local.minute + 17
     closing = int(local.replace(second=0).timestamp()) + 17 * 60
     state.pending_events = []
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     location_id = task.required_location_id if bound_to_location else state.agents[1].location_id
     state.agents[1] = state.agents[1].model_copy(update={
         "location_id": location_id, "visible_task_ids": {task.task_id},
@@ -266,25 +266,25 @@ def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bo
     if bound_to_location:
         assert engine.scheduling_state().next_event_at.timestamp() == closing - 900
         advance_next(engine)
-        assert engine.state.current_time == closing - 900
+        assert engine.context.state.current_time == closing - 900
         assert {"location_hours_change", "commitment_threatened"}.issubset(
-            engine.state.agents[1].pending_wake_reasons)
+            engine.context.state.agents[1].pending_wake_reasons)
     else:
         assert engine.scheduling_state().next_event_at.timestamp() != closing - 900
         step = 0
-        while engine.state.current_time < closing:
+        while engine.context.state.current_time < closing:
             if engine.scheduling_state().ready_agent_ids:
                 step += 1
                 _keep_waiting(engine, f"closing-continue-{step}")
             else:
                 advance_next(engine)
-        assert "commitment_threatened" not in engine.state.agents[1].pending_wake_reasons
+        assert "commitment_threatened" not in engine.context.state.agents[1].pending_wake_reasons
 
 
 def _keep_waiting(engine, name: str) -> None:
     """就绪时先给刚结束的活动收尾（第七章「活动一结束就要结束它」），有进行中活动就播报，否则开始下一段等待。"""
-    waiting = pending_conclusions(engine.state, 1)
-    running = active_activities(engine.state, 1)
+    waiting = pending_conclusions(engine.context.state, 1)
+    running = active_activities(engine.context.state, 1)
     if waiting:
         request = ("conclude_activity", conclude_request(*(activity_name(engine, item.activity_id)
                                                            for item in waiting)))
@@ -300,7 +300,7 @@ def _stage_task_warning(engine, task_ids: set[str], due: int, lead_seconds: int 
     """把真实引擎放到预警前并同步身体结算时钟。"""
     from worldmock.footprints.models import EventDraft
 
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     now = due - lead_seconds
     state.current_time = now
     state.pending_events = []
@@ -311,10 +311,10 @@ def _stage_task_warning(engine, task_ids: set[str], due: int, lead_seconds: int 
         "day_plan": DayPlan(day_end=due + 10000, goals=()),
     }, deep=True)
     state.version += 1
-    engine.store.commit(state.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(state.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system",
         source_kind="scenario", data={"kind": "test_warning_clock"})])
-    engine.state = state
+    engine.context.state = state
 
 
 def _task_warning_ids(agent) -> set[str]:
@@ -326,9 +326,9 @@ def _task_warning_ids(agent) -> set[str]:
 def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
     """第二个任务进入预警窗口时，即使第一项仍未完成也再次提醒。"""
     engine = engine_factory()
-    first, second = engine.scenario.tasks[:2]
+    first, second = engine.context.scenario.tasks[:2]
     due = int(first.due_at.timestamp())
-    engine.rules.tasks[second.task_id] = second.model_copy(update={
+    engine.context.rules.tasks[second.task_id] = second.model_copy(update={
         "available_at": datetime.fromtimestamp(due - 3600, first.due_at.tzinfo),
         "due_at": datetime.fromtimestamp(due + 100, first.due_at.tzinfo)})
     _stage_task_warning(engine, {first.task_id, second.task_id}, due)
@@ -336,71 +336,71 @@ def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
                   start_activity("等待", "自己"))
     assert started.status == "in_progress"
     advance_next(engine)
-    assert engine.state.current_time == due - 1800
-    assert _task_warning_ids(engine.state.agents[1]) == {first.task_id}
+    assert engine.context.state.current_time == due - 1800
+    assert _task_warning_ids(engine.context.state.agents[1]) == {first.task_id}
     ended = act(engine, "first-warning-ack", "conclude_activity",
                 conclude_request(activity_name(engine, started.activity_id), summary="结束等待。"))
     assert ended.status == "completed"
     assert act(engine, "first-warning-rest", "start_activity", start_activity("等待", "自己")).status == "in_progress"
-    while engine.state.current_time < due - 1700:
+    while engine.context.state.current_time < due - 1700:
         advance_next(engine)
-    assert engine.state.current_time == due - 1700
-    assert "task_due_soon" in engine.state.agents[1].pending_wake_reasons
-    assert _task_warning_ids(engine.state.agents[1]) == {first.task_id, second.task_id}
+    assert engine.context.state.current_time == due - 1700
+    assert "task_due_soon" in engine.context.state.agents[1].pending_wake_reasons
+    assert _task_warning_ids(engine.context.state.agents[1]) == {first.task_id, second.task_id}
 
 
 def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> None:
     """睡眠区间经过预警时不标记交付，醒来且威胁仍在才标记。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
-    sleep_seconds = round(engine.state.agents[1].body.sleep_need_hours * 3600)
+    sleep_seconds = round(engine.context.state.agents[1].body.sleep_need_hours * 3600)
     _stage_task_warning(engine, {task.task_id}, due, sleep_seconds + 1750)
     started = act(engine, "sleep-warning", "start_activity",
                   start_activity("睡觉", "自己"))
     assert started.status == "in_progress"
     wake_by_mail(engine, offset=101)
     advance_next(engine)
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
-    assert _task_warning_ids(engine.state.agents[1]) == set()
-    while engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
+    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert _task_warning_ids(engine.context.state.agents[1]) == set()
+    while engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
-    assert engine.state.current_time == due - 1750
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
-    assert "task_due_soon" in engine.state.agents[1].pending_wake_reasons
-    assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
+    assert engine.context.state.current_time == due - 1750
+    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
+    assert "task_due_soon" in engine.context.state.agents[1].pending_wake_reasons
+    assert _task_warning_ids(engine.context.state.agents[1]) == {task.task_id}
 
 
 def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory) -> None:
     """共同检查点恢复后，持续成立的同一任务威胁不会再次唤醒。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
     _stage_task_warning(engine, {task.task_id}, due)
     started = act(engine, "checkpoint-wait", "start_activity",
                   start_activity("等待", "自己"))
     advance_next(engine)
-    assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
+    assert _task_warning_ids(engine.context.state.agents[1]) == {task.task_id}
     ended = act(engine, "checkpoint-ack", "conclude_activity",
                 conclude_request(activity_name(engine, started.activity_id), summary="结束等待。"))
     assert ended.status == "completed"
     assert act(engine, "checkpoint-rest", "start_activity", start_activity("等待", "自己")).status == "in_progress"
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     assert checkpoint.checkpoint_id
-    run_dir = engine.store.run_dir
+    run_dir = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
     try:
-        assert _task_warning_ids(restored.state.agents[1]) == {task.task_id}
+        assert _task_warning_ids(restored.context.state.agents[1]) == {task.task_id}
         wake_by_mail(restored, offset=60)
         while not restored.scheduling_state().ready_agent_ids:
             advance_next(restored)
-        reasons = restored.state.agents[1].pending_wake_reasons
+        reasons = restored.context.state.agents[1].pending_wake_reasons
         assert "message_arrival" in reasons
         assert "task_due_soon" not in reasons
         assert "commitment_threatened" not in reasons
-        assert _task_warning_ids(restored.state.agents[1]) == {task.task_id}
+        assert _task_warning_ids(restored.context.state.agents[1]) == {task.task_id}
     finally:
         restored.close()
 
@@ -408,7 +408,7 @@ def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory)
 def _warning_step(engine, state, **changes):
     """用引擎实际装配输入测试同一边界的威胁状态转换，不重复结算身体。"""
     from worldmock.life.rhythm import apply_decision_rhythm
-    inputs = replace(engine_rhythm_inputs(engine, state), interval_seconds=0, **changes)
+    inputs = replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0, **changes)
     changed, verdicts = apply_decision_rhythm(inputs)
     return changed, verdicts[1].wake_reasons
 
@@ -416,9 +416,9 @@ def _warning_step(engine, state, **changes):
 def test_changed_task_deadline_warns_again_and_completed_task_clears_signature(engine_factory):
     """任务身份相同时，真实截止改变仍是新威胁；完成任务清除旧交付状态。"""
     engine = engine_factory()
-    task = engine.scenario.tasks[0]
+    task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     state.current_time = due - 1000
     agent = state.agents[1]
     agent.body_settled_at = state.current_time
@@ -445,15 +445,15 @@ def test_changed_closing_time_and_new_local_commitment_warn_independently(engine
     """同地点闭店时刻改变、同一闭店新增受威胁任务分别触发新提醒。"""
     from zoneinfo import ZoneInfo
     engine = engine_factory()
-    first = engine.scenario.tasks[0]
-    second = next(task for task in engine.scenario.tasks[1:]
+    first = engine.context.scenario.tasks[0]
+    second = next(task for task in engine.context.scenario.tasks[1:]
                   if task.required_location_id == first.required_location_id)
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     agent = state.agents[1]
     agent.location_id = first.required_location_id
     agent.last_decision_time = state.current_time
     agent.visible_task_ids = agent.known_task_ids = {first.task_id}
-    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.scenario.timezone))
+    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.context.scenario.timezone))
     close_minute = local.hour * 60 + local.minute + 10
     state.opening_exceptions[agent.location_id][local.date().isoformat()] = [(0, close_minute)]
     state, reasons = _warning_step(engine, state)
@@ -500,7 +500,7 @@ def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine
     started = act(engine, "zero-energy-watch", "start_activity",
                   start_activity("接着看", "内容：Sintel"))
     assert started.status == "in_progress"
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     state.agents[1].body.energy_kcal = 0
     state.agents[1].visible_task_ids = set()
     state.agents[1].last_decision_time = state.current_time
@@ -515,10 +515,10 @@ def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine
 def _assert_rhythm_scheduled(engine) -> None:
     """@brief 有进行中活动时动作成功之后：下一次决策取决策节律的候选时刻（第一章规则 4、7），不另排下一秒，
     也不留待处理的唤醒原因。"""
-    agent, now = engine.state.agents[1], engine.state.current_time
+    agent, now = engine.context.state.agents[1], engine.context.state.current_time
     assert agent.pending_wake_reasons == [] and agent.next_decision_at > now + 1
     assert agent.next_decision_at == next_decision_candidates(
-        agent.model_copy(update={"last_decision_time": now}), engine_rhythm_inputs(engine, engine.state))
+        agent.model_copy(update={"last_decision_time": now}), engine_rhythm_inputs(engine.context, engine.context.state))
 
 
 def _start_browse(engine, name: str) -> tuple[dict, str]:
@@ -541,11 +541,11 @@ def _pinned(engine, observed: dict, browse_id: str) -> list[str]:
     """@brief 浏览结果回灌到观察：该次浏览返回的供给全部呈现，且排在未经浏览返回的供给之前（置顶）；返回置顶的前缀。
 
     直驱引擎没有宿主请求推进进度层截止点，更早的浏览结果仍在近期结果中，一并置顶。"""
-    browsed = {row["supply_id"] for item in engine.state.activities.values() if item.kind == ActivityKind.BROWSE
+    browsed = {row["supply_id"] for item in engine.context.state.activities.values() if item.kind == ActivityKind.BROWSE
                for row in item.data.get("revealed", {}).get("items", [])}
     order = _supply_order(observed)
     head = order[:next((index for index, supply_id in enumerate(order) if supply_id not in browsed), len(order))]
-    returned = {row["supply_id"] for row in engine.state.activities[browse_id].data["revealed"]["items"]}
+    returned = {row["supply_id"] for row in engine.context.state.activities[browse_id].data["revealed"]["items"]}
     assert returned and returned <= set(head)
     return head
 
@@ -555,11 +555,11 @@ def _browse_alone_to_its_end(engine) -> str:
     该轮观察仍置顶同一批结果，并在该轮再开始一次浏览，返回其活动身份。"""
     _, browse_id = _start_browse(engine, "alone")
     _finish(engine, browse_id, "alone")
-    assert engine.state.current_time == engine.state.activities[browse_id].planned_end_at
+    assert engine.context.state.current_time == engine.context.state.activities[browse_id].planned_end_at
     ended = _conclude(engine, "alone-end", browse_id)
     assert ended["wake_reasons"] == ["planned_end", "no_active_activity"]
     pinned = _pinned(engine, ended, browse_id)
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
     again, next_id = _start_browse(engine, "alone-again")
     assert again["wake_reasons"] == ["no_active_activity"] and _supply_order(again)[:len(pinned)] == pinned
     return next_id
@@ -570,10 +570,10 @@ def _end_browse_early(engine, browse_id: str) -> None:
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     assert _conclude(engine, "early-end", browse_id)["wake_reasons"] == ["message_arrival"]
-    assert engine.state.activities[browse_id].status == ActivityStatus.CANCELLED
-    assert "revealed" not in engine.state.activities[browse_id].data
-    agent = engine.state.agents[1]
-    assert agent.pending_wake_reasons == ["no_active_activity"] and agent.next_decision_at == engine.state.current_time
+    assert engine.context.state.activities[browse_id].status == ActivityStatus.CANCELLED
+    assert "revealed" not in engine.context.state.activities[browse_id].data
+    agent = engine.context.state.agents[1]
+    assert agent.pending_wake_reasons == ["no_active_activity"] and agent.next_decision_at == engine.context.state.current_time
 
 
 def _browse_beside_a_wait(engine) -> None:
@@ -585,7 +585,7 @@ def _browse_beside_a_wait(engine) -> None:
     _, waiting = _observed_act(engine, "beside-wait", "start_activity", start_activity("等待", "自己"))
     assert waiting.status == "in_progress"
     _finish(engine, browse_id, "beside")
-    assert engine.state.current_time == engine.state.activities[browse_id].planned_end_at
+    assert engine.context.state.current_time == engine.context.state.activities[browse_id].planned_end_at
     ended = _conclude(engine, "beside-end", browse_id)
     assert ended["wake_reasons"] == ["planned_end"]
     _pinned(engine, ended, browse_id)
@@ -596,7 +596,7 @@ def _browse_beside_a_wait(engine) -> None:
 
 def _recorded_wake_reasons(engine) -> dict[str, list[list[str]]]:
     """@brief 人物 1 在决策开始、观察与共同身体结算中留下的全部唤醒原因。"""
-    events = engine.store.read_agent_events
+    events = engine.context.store.read_agent_events
     return {
         "decision_started": [event.data["wake_reasons"] for event in events("decision_started", 1)],
         "observation": [event.data["wake_reasons"] for event in events("observation", 1)],
@@ -606,7 +606,7 @@ def _recorded_wake_reasons(engine) -> dict[str, list[list[str]]]:
 
 
 def test_browse_results_return_in_observation_never_as_discovery_result(engine_factory, monkeypatch):
-    """discovery_result 保留在闭集中、当前没有触发来源（docs/dev/SPEC-time-and-energy.md 第一章规则 6）：浏览是活动，
+    """discovery_result 保留在闭集中、当前没有触发来源（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章规则 6）：浏览是活动，
     结果随浏览结束回灌到随后的观察，不另排下一秒。独自浏览到计划结束、本人提前结束、在进行中的等待旁浏览三种情形里，
     决策开始、观察与共同身体结算的唤醒原因都不含它；判定函数仍把置位的标志映射为该原因（闭集保留），
     而节律为每个边界装配的判定输入从不置位。"""
@@ -642,8 +642,8 @@ def test_low_energy_bands_match_the_decision_reference(engine_factory, energy, b
     _stage_morning(engine, energy)
     started = act(engine, "low-energy-watch", "start_activity", start_activity("接着看", "内容：Sintel"))
     assert started.status == "in_progress"
-    assert engine.state.agents[1].felt_bands_at_last_decision["appetite"] == band
-    state = engine.state.model_copy(deep=True)
+    assert engine.context.state.agents[1].felt_bands_at_last_decision["appetite"] == band
+    state = engine.context.state.model_copy(deep=True)
     state, reasons = _warning_step(engine, state)
     assert "felt_band_change" not in reasons
 
@@ -671,7 +671,7 @@ def test_scenario_progress_report_interval_default(engine_factory):
     """场景参数 progress_report_interval_seconds 缺省 1800。"""
     from worldmock.life.scenario import LifeScenario
 
-    document = engine_factory().semantics.document.model_dump(mode="json")
+    document = engine_factory().context.semantics.document.model_dump(mode="json")
     assert LifeScenario.model_validate(document).progress_report_interval_seconds == 1800
 
 
@@ -681,7 +681,7 @@ def test_scenario_rejects_non_positive_progress_report_interval(engine_factory, 
     from pydantic import ValidationError
     from worldmock.life.scenario import LifeScenario
 
-    document = engine_factory().semantics.document.model_dump(mode="json")
+    document = engine_factory().context.semantics.document.model_dump(mode="json")
     document["progress_report_interval_seconds"] = value
     with pytest.raises(ValidationError):
         LifeScenario.model_validate(document)
@@ -714,9 +714,9 @@ def test_progress_report_due_counts_only_active_activities_from_their_anchor(eng
     """播报只针对本人进行中的活动：锚点 report_anchor_at（未经受理路径构造的活动取开始时刻）距今满间隔才到期；
     暂停、刚结束与他人的活动不参与；下一播报候选是进行中活动锚点加间隔中严格晚于现在的最早者（第八章「活动」）。"""
     engine = engine_factory("multi-person.json")
-    state = engine.state.model_copy(deep=True)
+    state = engine.context.state.model_copy(deep=True)
     now, agent = state.current_time, state.agents[1]
-    interval = engine.semantics.document.progress_report_interval_seconds
+    interval = engine.context.semantics.document.progress_report_interval_seconds
 
     def activity(key: str, anchor: int | None, *, status: ActivityStatus = ActivityStatus.ACTIVE,
                  agent_id: int = 1, started: int = now - 3600) -> ActivityState:
@@ -759,11 +759,11 @@ def _wake_at(engine, moment: int, name: str) -> list[str]:
     """@brief 推进到 moment 的决策机会并返回其唤醒原因；途中的其他机会以修订目标应答（不动播报锚点）。"""
     for step in range(32):
         if engine.scheduling_state().ready_agent_ids:
-            if engine.state.current_time == moment:
-                return list(engine.state.agents[1].pending_wake_reasons)
+            if engine.context.state.current_time == moment:
+                return list(engine.context.state.agents[1].pending_wake_reasons)
             assert act(engine, f"{name}-{step}", "revise_day_plan", _REVISE).status == "completed"
         else:
-            assert engine.state.current_time < moment
+            assert engine.context.state.current_time < moment
             advance_next(engine)
     pytest.fail("No decision was offered at the expected moment")
 
@@ -774,9 +774,9 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
     engine = _custom_engine("white-collar-12-weeks.json", _report_every_ten_minutes, tmp_path, "report-anchor")
     try:
         stage_day_plan(engine)
-        start = engine.state.current_time
+        start = engine.context.state.current_time
         wait_id = act(engine, "anchor-wait", "start_activity", start_activity("等待", "自己")).activity_id
-        assert engine.state.activities[wait_id].report_anchor_at == start
+        assert engine.context.state.activities[wait_id].report_anchor_at == start
         wake_by_mail(engine, offset=300)
         assert _wake_at(engine, start + 300, "anchor-first") == ["message_arrival"]
         observed = engine.observe(context(engine, "anchor-content"))
@@ -786,25 +786,25 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
         watched = act(engine, "anchor-watch", "start_activity", start_activity(label, target))
         assert watched.status == "in_progress"
         watch_id = watched.activity_id
-        assert engine.state.activities[watch_id].report_anchor_at == start + 300
+        assert engine.context.state.activities[watch_id].report_anchor_at == start + 300
         assert _wake_at(engine, start + 600, "anchor-due") == ["progress_report_due"]
         names = [activity_name(engine, wait_id), activity_name(engine, watch_id)]
         assert act(engine, "anchor-pause", "pause_activity", pause_request(
             names[0], summary="先停下。")).status == "completed"
-        assert engine.state.activities[wait_id].report_anchor_at == start
+        assert engine.context.state.activities[wait_id].report_anchor_at == start
         wake_by_mail(engine, offset=100)
         assert _wake_at(engine, start + 700, "anchor-paused") == ["message_arrival"]
-        agent = engine.state.agents[1]
-        assert not _progress_report_due(agent, engine.state, 600)
-        assert _next_progress_report_at(agent, engine.state, 600) == start + 900
+        agent = engine.context.state.agents[1]
+        assert not _progress_report_due(agent, engine.context.state, 600)
+        assert _next_progress_report_at(agent, engine.context.state, 600) == start + 900
         assert act(engine, "anchor-note", "revise_day_plan", _REVISE).status == "completed"
         assert _wake_at(engine, start + 900, "anchor-watch-due") == ["progress_report_due"]
         resumed = act(engine, "anchor-resume", "report_status", report_request(*names, summary=["接着等。", "接着看。"]))
         assert resumed.status == "completed"
-        now = engine.state.current_time
-        assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
-        assert {engine.state.activities[key].report_anchor_at for key in (wait_id, watch_id)} == {now}
-        assert _next_progress_report_at(engine.state.agents[1], engine.state, 600) == now + 600
+        now = engine.context.state.current_time
+        assert engine.context.state.activities[wait_id].status == ActivityStatus.ACTIVE
+        assert {engine.context.state.activities[key].report_anchor_at for key in (wait_id, watch_id)} == {now}
+        assert _next_progress_report_at(engine.context.state.agents[1], engine.context.state, 600) == now + 600
     finally:
         engine.close()
 
@@ -815,27 +815,27 @@ def test_sleeping_person_gets_no_progress_report_wakeups(tmp_path):
     engine = _custom_engine("white-collar-12-weeks.json", _report_every_ten_minutes, tmp_path, "report-sleep")
     try:
         stage_day_plan(engine)
-        start = engine.state.current_time
+        start = engine.context.state.current_time
         sleep_id = act(engine, "report-sleep", "start_activity", start_activity("睡觉", "自己")).activity_id
-        assert engine.state.activities[sleep_id].report_anchor_at == start
+        assert engine.context.state.activities[sleep_id].report_anchor_at == start
         due_while_asleep = []
         for _ in range(96):
-            if engine.state.activities[sleep_id].status != ActivityStatus.ACTIVE:
+            if engine.context.state.activities[sleep_id].status != ActivityStatus.ACTIVE:
                 break
             assert engine.scheduling_state().ready_agent_ids == ()
             advance_next(engine)
-            if engine.state.activities[sleep_id].status == ActivityStatus.ACTIVE:
-                due_while_asleep.append(_progress_report_due(engine.state.agents[1], engine.state, 600))
-        woke = engine.state.current_time
-        assert engine.state.activities[sleep_id].status == ActivityStatus.COMPLETED
+            if engine.context.state.activities[sleep_id].status == ActivityStatus.ACTIVE:
+                due_while_asleep.append(_progress_report_due(engine.context.state.agents[1], engine.context.state, 600))
+        woke = engine.context.state.current_time
+        assert engine.context.state.activities[sleep_id].status == ActivityStatus.COMPLETED
         assert any(due_while_asleep)  # 播报在睡眠中到期
-        settlements = [event.data for event in engine.store.read_agent_events("environment_event", 1)
+        settlements = [event.data for event in engine.context.store.read_agent_events("environment_event", 1)
                        if event.data.get("kind") == "body_settlement" and start < event.data["interval_end"] < woke]
         assert settlements and all(not data["decision_offered"] and data["wake_reasons"] == []
                                    for data in settlements)
-        reasons = engine.state.agents[1].pending_wake_reasons
+        reasons = engine.context.state.agents[1].pending_wake_reasons
         assert "wake_from_sleep" in reasons and "progress_report_due" not in reasons
-        assert not _progress_report_due(engine.state.agents[1], engine.state, 600)
-        assert _next_progress_report_at(engine.state.agents[1], engine.state, 600) is None
+        assert not _progress_report_due(engine.context.state.agents[1], engine.context.state, 600)
+        assert _next_progress_report_at(engine.context.state.agents[1], engine.context.state, 600) is None
     finally:
         engine.close()

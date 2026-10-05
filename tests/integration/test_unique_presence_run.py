@@ -1,4 +1,4 @@
-"""唯一出现原则的性质测试（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」「通用格式」、验收台账「唯一出现」）。
+"""唯一出现原则的性质测试（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章「唯一出现原则」「通用格式」、验收台账「唯一出现」）。
 
 真实 LifeEngine、SQLite、LifeEnv 与启用记忆的 LifeAgent（从工作区装配、经 AS2 step），只替换远程模型传输：双人场景
 10:00 起，陈曦先查一次记忆再浏览商品目录，李凡同一秒发来一条直接消息；浏览结束后陈曦收尾并写下对李凡的看法与一条偏好，
@@ -15,7 +15,7 @@
 计数时，同秒续接里被后续 tool 消息 changes 按名称取代（updated、added）或移除（removed）的链首旧条目不算另一处呈现
 （第二章「同秒续接」：changes 相对于模型当前所见，以最新为准）；assistant 回合只计 content 与 reasoning_content，
 它的 tool_calls 是模型自己那次调用的原样回放，不是环境呈现的信息。
-个人事务另有一段单人运行（docs/dev/SPEC-errands-workday.md 2.6「唯一出现的口径」）：记下（被宿主纠正一次）、更新、取消、
+个人事务另有一段单人运行（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 「唯一出现的口径」）：记下（被宿主纠正一次）、更新、取消、
 办成与一次绕过宿主被环境拒绝的变更都在其中，事务的完整行只在待办层，事务名在别处只作为 errand 键，只有规格的三处
 回显位置例外。
 """
@@ -47,7 +47,8 @@ from custom.agents.life_prompt import life_user_layers, system_message, user_mes
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_ModelResponse, _TextResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view as _opinion)
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_arguments  # noqa: E402,F401
+from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.life.conftest import (context, stage_day_plan, start_arguments)  # noqa: F401
 from tests.life.conftest import errand_add, errand_cancel, errand_update, wake_by_mail  # noqa: E402
 from tests.life.routing_fixtures import stage  # noqa: E402
 from tests.life.test_errand_completion import KIT, KIT_NAME, MILK, MILK_ID, home  # noqa: E402
@@ -101,7 +102,7 @@ class _Script:
         self.agent_id, self.requests, self.phase = agent_id, [], "query" if agent_id == 1 else "message"
 
     async def call(self, **request):
-        """保存请求；行动请求（工具中有 start_activity，docs/dev/SPEC-errands-workday.md 1.1）按剧本返回一个工具调用，
+        """保存请求；行动请求（工具中有 start_activity，docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库-就寝反思经严格工具提交 ）按剧本返回一个工具调用，
         记忆运行时不带工具的请求返回一句话。这段运行到不了就寝边界：带工具而不是行动请求的请求（就寝反思）出现即失败，
         不被当作行动请求作答。"""
         names = [item["function"]["name"] for item in request.get("tools") or []]
@@ -195,10 +196,10 @@ def _engine(engine_factory):
         document["messages"].append({**document["messages"][0], **_MAIL})
 
     engine = engine_factory("multi-person.json", mutate=mutate)
-    for agent_id in engine.state.agents:
+    for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id, submitted=True)
-    now = int(datetime(2026, 1, 5, 10, 0, tzinfo=ZoneInfo(engine.scenario.timezone)).timestamp())
-    task = next(item.task_id for item in engine.scenario.tasks if item.task_id.startswith("task-"))
+    now = int(datetime(2026, 1, 5, 10, 0, tzinfo=ZoneInfo(engine.context.scenario.timezone)).timestamp())
+    task = next(item.task_id for item in engine.context.scenario.tasks if item.task_id.startswith("task-"))
 
     def change(state) -> None:
         """@brief 推到 10:00，两人都在这一秒决策，陈曦看得到当日任务。"""
@@ -216,12 +217,12 @@ async def _people(environment: LifeEnv, root, models: dict) -> dict:
     people = {}
     for agent_id, model in models.items():
         workspace = root / f"agent_{agent_id:04d}"
-        name = environment.engine.state.agents[agent_id].name
+        name = environment.engine.context.state.agents[agent_id].name
         LifeAgent.create(workspace, {"id": agent_id, "name": name, "occupation": "engineer"},
                          {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
         service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
         people[agent_id] = await LifeAgent.from_workspace(workspace, service)
-    earlier = datetime(2026, 1, 4, 19, 30, tzinfo=ZoneInfo(environment.engine.scenario.timezone))
+    earlier = datetime(2026, 1, 4, 19, 30, tzinfo=ZoneInfo(environment.engine.context.scenario.timezone))
     people[1]._memory_runtime.store.append_episodes(
         _stored_memories(_conclude_args("散步（1月4日 19:00 起）", memories=[[_memory(_EPISODE)]])),
         tick=0, t=earlier, step_count=0)
@@ -236,11 +237,11 @@ async def _run(environment: LifeEnv, people: dict, models: dict) -> None:
     while done < 3:
         scheduling = engine.scheduling_state()
         if not scheduling.ready_agent_ids:
-            await environment.step(int(scheduling.next_event_at.timestamp()) - engine.state.current_time,
+            await environment.step(int(scheduling.next_event_at.timestamp()) - engine.context.state.current_time,
                                    scheduling.next_event_at)
             continue
         rounds += 1
-        assert rounds < 60, (engine.state.current_time, models[1].phase)
+        assert rounds < 60, (engine.context.state.current_time, models[1].phase)
         contexts = [context(engine, f"unique-{rounds}", agent_id) for agent_id in scheduling.ready_agent_ids]
         await environment.begin_decision_round(tuple(contexts))
         for decision in contexts:
@@ -364,7 +365,7 @@ def _assert_once_each(request: dict) -> None:
 
 def _identities(engine) -> set[str]:
     """运行里的内部身份：活动、供给、订单、消息、任务、联系人与带连字符的地点身份，以及同世界人物身份。"""
-    state, scenario = engine.state, engine.scenario
+    state, scenario = engine.context.state, engine.context.scenario
     names = {*state.activities, *(item.supply_id for item in scenario.supplies), *state.deliveries,
              *(item.message_id for item in scenario.messages), *(item.task_id for item in scenario.tasks),
              *(contact.contact_id for agent in scenario.agents for contact in agent.contacts),
@@ -591,7 +592,7 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
         ("items", 1, "memories", 0, "keywords", 2), False, "ARGUMENTS_INVALID"),)).payload()
     _assert_readable(continued(error), identities)
     leaked = copy.deepcopy(error)
-    leaked["items"][0]["path"].append(engine.scenario.tasks[0].task_id)
+    leaked["items"][0]["path"].append(engine.context.scenario.tasks[0].task_id)
     with pytest.raises(AssertionError):
         _assert_readable(continued(leaked), identities)
 
@@ -617,7 +618,7 @@ def test_the_presence_and_readability_checks_have_teeth(_engine_factory) -> None
         with pytest.raises(AssertionError):
             _scan(broken)
     with pytest.raises(AssertionError):
-        _assert_readable(continued({"result": {"details": {"note": f"见 {engine.scenario.tasks[0].task_id}"}}}),
+        _assert_readable(continued({"result": {"details": {"note": f"见 {engine.context.scenario.tasks[0].task_id}"}}}),
                          identities)
 
 
@@ -719,11 +720,11 @@ async def _errand_run(environment: LifeEnv, person: LifeAgent, script: _ErrandSc
     while script.phase != "done":
         scheduling = engine.scheduling_state()
         if not scheduling.ready_agent_ids:
-            await environment.step(int(scheduling.next_event_at.timestamp()) - engine.state.current_time,
+            await environment.step(int(scheduling.next_event_at.timestamp()) - engine.context.state.current_time,
                                    scheduling.next_event_at)
             continue
         rounds += 1
-        assert rounds < 40, (engine.state.current_time, script.phase)
+        assert rounds < 40, (engine.context.state.current_time, script.phase)
         decision = context(engine, f"errand-{rounds}")
         await environment.begin_decision_round((decision,))
         if script.phase == "bypass":
@@ -802,7 +803,7 @@ def _row_leaks(request: dict, names: list[str], strip: bool = True) -> list[str]
 
 @pytest.mark.asyncio
 async def test_an_errand_full_row_appears_only_in_the_todo_layer(_engine_factory, tmp_path) -> None:
-    """个人事务的完整行只在待办层（docs/dev/SPEC-errands-workday.md 2.6「唯一出现的口径」）：真实 LifeEngine、SQLite、LifeEnv
+    """个人事务的完整行只在待办层（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 「唯一出现的口径」）：真实 LifeEngine、SQLite、LifeEnv
     与从工作区装配、启用记忆的 LifeAgent，单人白领 12:30 在家、手边一盒纯牛奶。陈曦开始等待；12:31 邮件来时播报并记下
     「吃掉纯牛奶」的事务，备注超过 120 字被宿主就地纠正后连同另两条一起记下（新增带备注）；12:45 等待结束时收尾，更新食材包
     的备注、取消冰红茶；同一秒续接开始喝奶；12:50 邮件来时一次绕过宿主的请求把食材包备注写成超长，环境整请求拒绝；随后
@@ -818,7 +819,7 @@ async def test_an_errand_full_row_appears_only_in_the_todo_layer(_engine_factory
     environment, script = LifeEnv(), _ErrandScript()
     environment.engine = engine
     workspace = tmp_path / "agent_0001"
-    LifeAgent.create(workspace, {"id": 1, "name": engine.state.agents[1].name, "occupation": "engineer"},
+    LifeAgent.create(workspace, {"id": 1, "name": engine.context.state.agents[1].name, "occupation": "engineer"},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=script), trace=None)
     person = await LifeAgent.from_workspace(workspace, service)
@@ -826,12 +827,12 @@ async def test_an_errand_full_row_appears_only_in_the_todo_layer(_engine_factory
         results = await _errand_run(environment, person, script)
         [rejected] = [result for result in results if result.error_code is not None]
         assert rejected.error_code == "ACTION_REQUEST_INVALID" and rejected.data["items"][0]["written"] == _BYPASSED_MEMO
-        events = [event for event in engine.store.read_agent_events("environment_event", 1)
+        events = [event for event in engine.context.store.read_agent_events("environment_event", 1)
                   if event.data.get("kind") in ERRAND_EVENT_KINDS]
         kinds = [event.data["kind"] for event in events]
         assert kinds.count("errand_registered") == 3 and kinds.count("errand_completed") == 1
         assert (kinds.count("errand_updated"), kinds.count("errand_cancelled")) == (1, 1)
-        corrected = [event.data["protocol_feedback"] for event in engine.store.read_agent_events("model_response", 1)
+        corrected = [event.data["protocol_feedback"] for event in engine.context.store.read_agent_events("model_response", 1)
                      if event.data.get("protocol_feedback")]
         assert [item["path"][-3:] for report in corrected for item in report["items"]] == [["errands", 0, "memo"]]
         names = [_DRINK_ERRAND, _KIT_ERRAND, _TEA_ERRAND]

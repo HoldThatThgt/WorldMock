@@ -1,6 +1,7 @@
 """@brief 取得冻结生活来源并原子发布可追溯语料目录。"""
 
 from __future__ import annotations
+from worldmock.corpora.map_prepare import prepare_map
 
 import hashlib
 import json
@@ -194,7 +195,6 @@ def _local_name(tag: str) -> str:
 
 def _fetch_geodata(root: Path) -> None:
     """@brief 为当前冻结地图的完整地点范围重建真实 walking/driving 路由。"""
-    from worldmock.corpora.map_prepare import prepare_map
 
     frozen_root = Path(__file__).resolve().parents[3] / "corpora"
     for random_seed in (20260105, 20260106):

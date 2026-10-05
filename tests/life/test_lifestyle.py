@@ -20,7 +20,8 @@ from worldmock.life.models import (
     StartActivityRequest,
     deepseek_strict_schema,
 )
-from worldmock.life.scenario import AgentConfig, load_scenario
+from worldmock.life.scenario import AgentConfig
+from worldmock.life.world_setup import load_scenario
 
 from tests.life.conftest import advance_next, context, stage_day_plan, start_request
 from tests.life.test_parallel_activities import _advance_with_decisions
@@ -106,7 +107,7 @@ def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
     """从当前生活活动窗口选择此处能做（动作没有说明）的条目，引擎用目录时长和 MET 结算。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    body = engine.scenario.body
+    body = engine.context.scenario.body
     decision = context(engine, "lifestyle-visible")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
@@ -117,21 +118,21 @@ def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
     engine.submit_action(DirectToolCall(decision, "action-lifestyle-visible", "start_activity", request))
     result = engine.commit_decision_round("lifestyle-visible")[0]
     assert result.activity_id
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     assert activity.kind == ActivityKind.LIFESTYLE
     assert activity.target_id == item["activity_id"]
     assert activity.planned_duration_seconds == item["typical_duration_minutes"] * 60
     met = body.activity_met[f"lifestyle:{item['activity_id']}"]
-    before = engine.state.agents[1].body.energy_kcal
+    before = engine.context.state.agents[1].body.energy_kcal
     for index in range(100):
-        if engine.state.activities[result.activity_id].status.value != "active":
+        if engine.context.state.activities[result.activity_id].status.value != "active":
             break
         _advance_with_decisions(engine, index)
-    activity = engine.state.activities[result.activity_id]
+    activity = engine.context.state.activities[result.activity_id]
     hours = activity.planned_duration_seconds / 3600
     expected_cost = (body.basal_kcal_per_hour + max(met - 1, 0) * body.mass_kg) * hours
     assert activity.status.value == "completed"
-    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before - expected_cost)
+    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before - expected_cost)
 
 
 def test_engine_rejects_unknown_lifestyle_id(engine_factory) -> None:
@@ -152,7 +153,7 @@ def test_engine_honors_agent_lifestyle_declaration(engine_factory) -> None:
     """人物生活活动声明之外的目录条目不进入可操作窗口。"""
     engine = engine_factory("multi-person.json")
     declarations = {item.agent_id: item.lifestyle_activities
-                    for item in engine.scenario.agents}
+                    for item in engine.context.scenario.agents}
     assert declarations[1] is not None and "yoga" in declarations[1]
     assert "sport-badminton" not in declarations[1]
     observed = engine.observe(context(engine, "lifestyle-undeclared"))
@@ -196,7 +197,7 @@ def test_agent_config_lifestyle_validation() -> None:
 
 
 # ---------------------------------------------------------------------------
-# docs/dev/SPEC-life-realism.md「动机层」：生活活动 effects 的 relief 通道（结算真正缓解需要池）
+# docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：生活活动 effects 的 relief 通道（结算真正缓解需要池）
 # ---------------------------------------------------------------------------
 
 class TestLifestyleRelief:
@@ -223,6 +224,7 @@ class TestLifestyleRelief:
         # 跑步（effects.entertainment=0.2）结算 30 分钟：娱乐需要按费率下降，
         # 且缓解走 ResourceLedger 分录（settle:lifestyle:entertainment_relief）。
         body, agent, activity = self._relief_fixture()
+        last_flows()  # 分录按读取边界累积，本用例只验收随后这次结算。
         advance = advance_activity(activity, agent, 1800, body)
         _fun_rate, _social_rate, _health_rate = lifestyle_relief_rates("jogging")
         assert _fun_rate > 0
@@ -233,7 +235,7 @@ class TestLifestyleRelief:
         assert sum(entry.amount for entry in flows) == pytest.approx(_fun_rate * 0.5)
 
     def test_jogging_relieves_social_need_and_lifts_mood(self):
-        # effects.social 与 effects.health：社交需要下降、情绪正向脉冲（docs/dev/SPEC-life-realism.md「动机层」）。
+        # effects.social 与 effects.health：社交需要下降、情绪正向脉冲（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
         body, agent, activity = self._relief_fixture()
         advance = advance_activity(activity, agent, 1800, body)
         _fun_rate, social_rate, health_rate = lifestyle_relief_rates("jogging")
@@ -249,15 +251,15 @@ class TestLifestyleRelief:
 
         engine = engine_factory()
         scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
-        assert engine.semantics.body == scenario.body  # 引擎语义体即场景身体配置
+        assert engine.context.semantics.body == scenario.body  # 引擎语义体即场景身体配置
         activity = ActivityState(
-            activity_id="a-jog", agent_id=1, location_id=engine.state.agents[1].location_id,
+            activity_id="a-jog", agent_id=1, location_id=engine.context.state.agents[1].location_id,
             kind=ActivityKind.LIFESTYLE,
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
             target_id="jogging", origin_action_id="a", origin_decision_id="d",
             origin_request_event_id="e")
-        factors = activity_factors(activity, engine.state.agents[1], engine.semantics.body)
+        factors = activity_factors(activity, engine.context.state.agents[1], engine.context.semantics.body)
         assert factors.entertainment_relief_per_hour == pytest.approx(
             lifestyle_relief_rates("jogging")[0])
 
