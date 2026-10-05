@@ -4,7 +4,7 @@
 > **状态**：DRAFT；职责设计，现行接口与行为以所属合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）\
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D1 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
-> **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.3 事件驱动的时间推进」「6.2 状态与记录」（阶段 1）。
+> **让「等待」成为例外修订**：按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.3 事件驱动的时间推进」「6.2 状态与记录」（阶段 1、阶段 2）。
 > **日期**：2026-10-05
 > **版本**：v1.14
 > **目标读者**：架构师、开发工程师、系统工程师
@@ -383,6 +383,8 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 查询阶段只更新 `tool_schema_sha256` 与 `code_sha256`；旧四键查询请求按缺字段拒绝。
 [让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止唤醒只更新 `code_sha256`：
 `prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 都不变，没有声明工作安排的场景行为不变。
+同一规格的系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 与 `code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 不变；
+改写之前的运行按身份拒绝恢复与重放，不创建兼容读取路径。
 
 ```mermaid
 flowchart LR
@@ -482,3 +484,4 @@ flowchart TD
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「3.3 事件驱动的时间推进」的边界清单补清醒人物的班次与休息时段起止，起止只在当秒给声明了该工作安排、此刻清醒的人物一次决策机会，活动照常继续，睡眠中的人物不计入它们的边界候选、不形成静默边界，睡过的起止不补；「6.2 状态与记录」分阶段身份补班次边界唤醒只更新 `code_sha256`，两个提示指纹、世界结构 9、质量报告结构 4 与场景结构 5 不变；版本表去掉隔开末两行的空行；文件头增该规格修订行，版本改为 v1.14 |
+| `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 同步：「6.2 状态与记录」分阶段身份补系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 与 `code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 不变，改写之前的运行按身份拒绝恢复与重放、不创建兼容读取路径；文件头修订行补「6.2 状态与记录」（阶段 2） |

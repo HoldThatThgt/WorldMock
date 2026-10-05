@@ -133,26 +133,68 @@
   "系统层逐字": {
     "stage": "2",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim",
+      "tests/integration/test_seven_layer_request.py::test_system_layer_is_byte_identical_across_turns_and_decisions",
+      "tests/integration/test_seven_layer_request.py::test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it",
+      "tests/integration/test_seven_layer_request.py::test_rules_1_and_14_state_the_duty_arrangement_verbatim",
+      "tests/integration/test_seven_layer_request.py::test_rules_1_4_6_divide_errands_summaries_and_memories",
+      "tests/integration/test_seven_layer_request.py::test_rules_7_14_16_say_when_decisions_come_and_that_clock_times_are_approximate",
+      "tests/integration/test_seven_layer_request.py::test_felt_bands_named_by_the_rules_are_the_felt_band_texts",
+      "tests/integration/test_seven_layer_request.py::test_the_system_layer_asks_for_no_particular_language",
+      "tests/integration/test_life_agent_protocol.py::test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages",
+      "tests/integration/test_decision_context_protocol.py::test_start_activity_description_says_notes_give_length_or_unmet_condition",
+      "tests/integration/test_tool_description_references.py::test_interaction_rules_live_only_in_the_system_layer"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER",
+      "custom/agents/life_prompt.py::system_message"
+    ]
   },
   "第 7 条的事实有引擎证据": {
     "stage": "2",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_revision_contract.py::test_wait_end_offers_decision_with_actual_wake_reason",
+      "tests/life/test_wake_reasons.py::test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports",
+      "tests/life/test_wake_reasons.py::test_sleeping_person_gets_no_progress_report_wakeups",
+      "tests/life/test_same_moment_decisions.py::test_awake_recipient_gets_same_second_opportunity",
+      "tests/life/test_day_planning.py::test_reminders_wake_once_merge_and_fire_after_the_goal_progressed",
+      "tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",
+      "tests/life/test_activity_wake_facts.py::test_an_own_delivery_during_a_wait_offers_a_decision_and_the_wait_goes_on",
+      "tests/life/test_activity_wake_facts.py::test_a_task_opening_during_a_wait_offers_a_decision_and_the_wait_goes_on",
+      "tests/life/test_activity_wake_facts.py::test_a_sleeper_gets_no_decision_when_an_own_delivery_arrives",
+      "tests/life/test_activity_wake_facts.py::test_a_sleeper_gets_no_decision_when_a_task_opens",
+      "tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status"
+    ],
+    "implementation": [
+      "src/worldmock/life/schedule.py::evaluate_wake_reasons",
+      "src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS",
+      "src/worldmock/life/rhythm.py::decide_decision_rhythm",
+      "src/worldmock/life/same_moment.py::merge_message_readiness",
+      "src/worldmock/life/activities.py::end_sleep_by_reminder"
+    ]
   },
   "旧读法不再出现": {
     "stage": "2",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_system_layer"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER"
+    ]
   },
   "夹具与查看器": {
     "stage": "2",
     "spec": "docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-测试与夹具",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/integration/test_seven_layer_request.py::test_viewer_fixture_system_layers_are_the_host_system_message",
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+    ],
+    "implementation": [
+      "custom/agents/life_prompt.py::system_message"
+    ]
   },
   "模板逐字": {
     "stage": "3",

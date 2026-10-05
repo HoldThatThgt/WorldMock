@@ -24,7 +24,7 @@ IMPLEMENTATION_STAGES: frozenset[str] = frozenset({"1", "2", "3", "4", "5"})
 #: 只报告的阶段：台账行不登记测试与实现符号。
 REPORT_ONLY_STAGES: frozenset[str] = frozenset({"6"})
 #: 已完成的阶段，随每个阶段的提交增长。
-STAGES_DONE: frozenset[str] = frozenset({"1"})
+STAGES_DONE: frozenset[str] = frozenset({"1", "2"})
 
 #: 本特性新增或改动的生产文件，供延期标记与空壳函数扫描。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
@@ -35,6 +35,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/footprints/models.py",
     "src/worldmock/evaluation/workload_metrics.py",
     "tools/run-viewer.html",
+    "custom/agents/life_prompt.py",
 )
 
 #: 本特性新增的测试文件与登记文件，供延期标记与空壳函数扫描。
@@ -43,6 +44,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/test_idle_fillers_acceptance.py",
     "tests/life/test_shift_edges.py",
     "tests/life/test_shift_edge_runs.py",
+    "tests/life/test_activity_wake_facts.py",
 )
 
 #: 规格「验收台账」变异表逐行登记：行首列原文 → 阶段与各分句（以「；」分隔）登记的变异名；已完成阶段的每个分句至少一个变异。
@@ -69,10 +71,12 @@ MUTATION_ROWS: dict[str, dict] = {
     '取了别人的工作安排': {"stage": '1', "clauses": (("generator_reads_the_first_persons_schedule",),)},
     '起止像闹钟一样结束睡眠': {"stage": '1', "clauses": (("edge_ends_sleep_like_an_alarm",),)},
     '起止到点时重排或结束清醒人物进行中的活动': {"stage": '1', "clauses": (("edge_reschedules_the_awake_activity",),)},
-    '第 7 条「手上的活动照常进行」改成「手上的活动随之结束」': {"stage": '2', "clauses": ((),)},
-    '第 14 条的插入句移到上班安排一句之后': {"stage": '2', "clauses": ((),)},
-    '第 16 条恢复「不必因此提早上床」': {"stage": '2', "clauses": ((),)},
-    '第 15 条恢复「等平常的饭点再吃正餐」': {"stage": '2', "clauses": ((),)},
+    '第 7 条「手上的活动照常进行」改成「手上的活动随之结束」': {"stage": '2', "clauses": (
+        ("rule_7_activity_ends_at_the_event",),)},
+    '第 14 条的插入句移到上班安排一句之后': {"stage": '2', "clauses": (
+        ("rule_14_clock_sentence_after_the_duty_sentence",),)},
+    '第 16 条恢复「不必因此提早上床」': {"stage": '2', "clauses": (("rule_16_bedtime_reading_restored",),)},
+    '第 15 条恢复「等平常的饭点再吃正餐」': {"stage": '2', "clauses": (("rule_15_meal_wait_reading_restored",),)},
     '模板第三条去掉「几点去睡也不设提醒」': {"stage": '3', "clauses": ((),)},
     '模板第五条恢复旧文': {"stage": '3', "clauses": ((),)},
     '校验器拒绝例行意图且提醒为空的目标': {"stage": '3', "clauses": ((),)},
@@ -158,6 +162,25 @@ def _vocabulary_lacks(member: str) -> SourceMutation:
     return SourceMutation(f"vocabulary_lacks_{member}", "worldmock.footprints.models::WAKE_REASON_NAMES",
                           _VOCABULARY_LINE, f"    {remaining},\n", (_T2,))
 
+
+_LIFE_PROMPT = "custom.agents.life_prompt::LIFE_SYSTEM_LAYER"
+_SEVEN_LAYERS = "tests/integration/test_seven_layer_request.py::"
+#: 系统层三方逐字（接口合同登记、模块常量与实际请求）与第 7、14、16 条新说法的正向断言。
+_SYSTEM_VERBATIM = _SEVEN_LAYERS + "test_system_layers_are_the_contract_registration_verbatim"
+_IDLE_PHRASES = _SEVEN_LAYERS + "test_rules_7_14_16_say_when_decisions_come_and_that_clock_times_are_approximate"
+#: 第 14 条的结尾断言：以插入的钟点一句再接上班安排一句结尾。
+_RULE_14_ENDING = _SEVEN_LAYERS + "test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it"
+#: 第 15、16 条旧读法的反向断言。
+_RETIRED_READINGS = _SEVEN_LAYERS + "test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_system_layer"
+#: 第 14 条在模块常量里独占一个源码行的插入句（规格「系统层」：整句插入句落在同一源码行内）。
+_RULE_14_CLOCK = ("作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，到时不一定会请你决策："
+                  "差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。")
+#: 第 14 条末尾逐字不动的上班安排一句（模块常量里紧跟插入句的两个源码行）。
+_RULE_14_DUTY = ("环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，"
+                 "手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。")
+#: 只改插入句那一行：换成「上班安排一句再接插入句」并以条件表达式收住，其后两行原有的上班安排一句落进永不取值的
+#: else 分支；第 14 条因此以插入句结尾，上班安排一句仍只出现一次，其余各条与十八条的条数不变。
+_RULE_14_MOVED = f'"{_RULE_14_DUTY}{_RULE_14_CLOCK}" if True else'
 
 #: 规格「验收台账」变异表逐行落成的源码变异；变异名登记在 MUTATION_ROWS 的对应分句。
 MUTATIONS: tuple[SourceMutation, ...] = (
@@ -285,6 +308,34 @@ MUTATIONS: tuple[SourceMutation, ...] = (
             "                    and activity.next_interaction_at <= boundary.target):\n"
         ),
         (_T3,),
+    ),
+    SourceMutation(
+        "rule_7_activity_ends_at_the_event",
+        _LIFE_PROMPT,
+        "手上的活动照常进行",
+        "手上的活动随之结束",
+        (_SYSTEM_VERBATIM, _IDLE_PHRASES),
+    ),
+    SourceMutation(
+        "rule_14_clock_sentence_after_the_duty_sentence",
+        _LIFE_PROMPT,
+        f'"{_RULE_14_CLOCK}"',
+        _RULE_14_MOVED,
+        (_RULE_14_ENDING,),
+    ),
+    SourceMutation(
+        "rule_16_bedtime_reading_restored",
+        _LIFE_PROMPT,
+        "还没到就寝时间就照常过晚上",
+        "不必因此提早上床",
+        (_RETIRED_READINGS,),
+    ),
+    SourceMutation(
+        "rule_15_meal_wait_reading_restored",
+        _LIFE_PROMPT,
+        "正餐留到平常的饭点前后吃",
+        "等平常的饭点再吃正餐",
+        (_RETIRED_READINGS,),
     ),
 )
 

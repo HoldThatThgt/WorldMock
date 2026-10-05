@@ -4,7 +4,7 @@
 > 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料、样本划分与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、13、25 行修订（一日运行保真 EXP1）：两个指纹再变、困意档界、娱乐与社交口径、名称类拒绝、轮转上界按分区，并登记该规格的实验假设；登记的实验假设与口径已随实现生效，两个指纹的变化（含工具层 `callable_index` 使 `prompt_sha256`、`start_activity` 的 `prefer` 与方式「购买」使 `tool_schema_sha256` 再变）已随实现落地。
 > 工具交互修订：按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结目标实验身份；本次修订已实现，发布身份与行为、变异证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
 > 个人事务与工作安排修订：按[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、5、7、11、14、15、16、17 行修订（个人事务与工作安排 EX2–EX18）：工作安排作为场景声明的事实、各阶段指纹与结构版本的目标身份、就寝反思的身份绑定、事务提醒进入决策边界、个人事务容量上限登记为实验假设。登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）：阶段 1（运行修复入库，只改变 `code_sha256`）、阶段 2（个人事务与提示分工：世界结构 `9`、质量报告结构 `4`，两个指纹改变）、阶段 3（作息与工作安排：场景结构 `5`、卡片结构 `3`，`prompt_sha256` 与仓库三份场景的 `scenario_sha256` 改变）与阶段 4（查询筛选与返回精简：只改变 `tool_schema_sha256` 与 `code_sha256`）。
-> 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「交互菜单与运行身份」「决策点节奏」（阶段 1）。
+> 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「交互菜单与运行身份」「决策点节奏」（阶段 1）与「交互菜单与运行身份」（阶段 2）。
 > 日期：2026-10-05
 > 范围：单人物 84 天正式实验，上海张江白领，时区 Asia/Shanghai。
 > 接口签名、字段与目录结构见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`；行为规则见 `docs/dev/SPEC-*.md`；验收门禁见 `docs/VERIFICATION.md#verification-worldmock-验收标准`。
@@ -90,6 +90,8 @@ timeline
 `items[].memories` 的字段说明改变 `tool_schema_sha256`。阶段 3 的系统层第 1、14 条与人设层、环境层 Schema 再次改变 `prompt_sha256`，工具面不变；
 零点计划模板与输入不在 `prompt_sha256` 内，只由 `code_sha256` 绑定。阶段 4 的 `query_world` 六键请求（`name`、`way`、`category`、`from`、
 `available_only`、`offset`）与用途句改变 `tool_schema_sha256`，系统层与层 Schema 不变；四键旧请求按缺字段拒绝。
+[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)把系统层第 7、14、15、16 条原位改写（仍为 18 条），改变 `prompt_sha256`，
+工具面与各层 Schema 不变，`tool_schema_sha256` 不变；该改写实施前后的运行不可合并比较。
 运行清单的阶段身份 `stage_model_identity` 只有 `action` 与 `work_review` 两个阶段键，
 含 `decision_statement` 的旧清单被拒绝；同秒续接开关 `same_second_continuation`（`worldmock run --same-second-continuation on|off`，
 缺省 `on`）冻结进 `stages.action` 与人物配置，恢复与重放继承父清单的值，不能覆盖，恢复时人物配置与父清单不符即拒绝。
@@ -464,3 +466,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | `2026-10-03-errands-workday-stage-3` | 2026-10-03 | 按[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3（作息与工作安排）与配套实施计划的【同】作业 EX16 修订，随阶段 3 的代码落地（按 `56451b4` 核对）：场景结构升为 5（人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，三份仓库场景显式写出 `work_schedule: null`，`scenario_sha256` 改变）、卡片结构升为 3、抽取提示 `card-v3`，「地图与门店供给的实验身份」的当前发布句同步；系统层第 1、14 条与人设层、环境层 Schema 使 `prompt_sha256` 再变，`tool_schema_sha256` 不变；地图 3、目录 5.3、品类契约与规则绑定 3、导出清单 2、运行清单 2、行为评估结构标识与 AS2 锁定摘要不变；阶段 3 在自己的分支上从阶段 2 的中途开发，文件头当时改为阶段 1、3 已随代码落地，并入主线（阶段 2、4 之后）时改为阶段 1–4 已随代码落地，世界结构 `9`、质量报告结构 `4` 与阶段 4 的工具指纹照主线不变 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后（个人事务与工作安排 EX22、EX23，按 `d8a41d3` 的代码核对）：文件头改为登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地，并链接[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)；「自定义模块位置」已含 `src/worldmock/life/read_query_runtime.py`；「地图与门店供给的实验身份」的现行身份为世界结构 9、场景结构 5、卡片结构 3、质量报告结构 4，目录 `5.3`、品类绑定 `3`、地图结构 `3` 与 AS2 锁定摘要不变（锁定 `8768e14` 不变）；「实验假设声明」的个人事务容量上限与代码常量一致；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向各阶段行与本行；正文冻结值不动。配对全天复跑（该规格阶段 6）未执行：它是计费的真实运行，只在用户明确要求时启动，且只报告、不作门禁；本特性的证据为离线测试，「决策点节奏」中 `D` 的既有实测仍是该特性实施前的快照 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1（班次与休息时段起止的唤醒）修订：「决策点节奏」的触发点清单补班次与休息时段的起止，四个成员（`shift_start`、`shift_end`、`break_start`、`break_end`）是触发点，清醒的人物精确在该时刻获得一次决策机会、进行中的活动继续，睡眠中的人物不计入候选、睡过的不补；声明了工作安排的人物每个当班日由起止直接新增的提供决策的边界至多 2 + 2 × 休息时段数 个，与既有机会同秒的不另计，这些边界上同一秒的再决策与其后引出的边界照常计入 `D`，仓库三份场景不受影响；「交互菜单与运行身份」写明班次边界唤醒只改变 `code_sha256`，两个指纹、世界结构 9、质量报告结构 4、场景结构与 AS2 锁定摘要都不变，没有声明班次的场景行为不变；文件头补该规格的修订说明，日期改为 2026-10-05 |
+| `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订：「交互菜单与运行身份」写明系统层这四条原位改写（仍为 18 条）改变 `prompt_sha256`，工具面与各层 Schema 不变、`tool_schema_sha256` 不变，该改写实施前后的运行不可合并比较；文件头修订说明补本阶段 |
