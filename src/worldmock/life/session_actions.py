@@ -171,7 +171,8 @@ class ActionHandlers:
     def _conclude_activity(
         self, state: WorldState, pending: PendingAction, request: ConcludeActivityRequest
     ) -> tuple[WorldState, ActionResult]:
-        """@brief 结束所选活动并写下总结，释放名额；途中结束出行时路上的其他活动随之结束。
+        """@brief 结束所选活动（进行中、暂停中或待收尾）并写下总结；进行中与待收尾的由此释放名额；途中结束出行时路上的其他
+        活动随之结束。
 
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
@@ -183,7 +184,7 @@ class ActionHandlers:
         (written, summaries) = ([item.activity_name for item in items], [item.summary for item in items])
         (requested, selected) = self._named_activities(state, pending, written)
         changes = self._errand_changes(pending, "conclude_activity", request)
-        if not all((activity_control.occupies_slot(item) for item in selected)):
+        if not all((activity_control.concludable(item) for item in selected)):
             _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
         waiting = activity_control.pending_conclusions(state, pending.agent_id)
@@ -221,7 +222,7 @@ class ActionHandlers:
     def _pause_activity(
         self, state: WorldState, pending: PendingAction, request: PauseActivityRequest
     ) -> tuple[WorldState, ActionResult]:
-        """@brief 暂停所选进行中活动（仍占名额）并写入自述；路上的活动、交谈与通话不能暂停。
+        """@brief 暂停所选进行中活动（让出名额）并写入自述；路上的活动、交谈与通话不能暂停。
 
         每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。请求级的事务变更在活动名解析后复核、
         在暂停后应用，回执登记为 errands。
@@ -285,7 +286,8 @@ class ActionHandlers:
         """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
 
         每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，工作的恢复距截止与
-        剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。恢复的活动在结果中登记
+        剩余合同都不少于 60 秒，要有空名额，且与进行中活动的占用不冲突；多项逐项对已恢复前几项的状态判定），与工具层、
+        待办层的可用性一字不差。恢复的活动在结果中登记
         resumed：活动名与恢复后的计划时长（秒，公开结果写成 details.planned）。请求级的事务变更在活动名解析后复核、在
         活动转换后应用，回执登记为 errands。
         """

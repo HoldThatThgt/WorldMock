@@ -76,8 +76,8 @@ class DayModel:
 
     生活决策没有 finish（时间与能量规格第七章「finish 并入 conclude_activity」）：一轮决策恰好登记一个世界请求，
     登记即结束本轮。刚结束的活动当秒用 conclude_activity 收尾（第七章「活动一结束就要结束它」），唯一一条主观记忆
-    随第一次收尾的 memories 写入。出发前先处理手上的事：午饭前暂停等待（暂停的活动留在家里占一个名额，回家后在
-    开始地点接着等），晚饭前直接结束它，两个名额都空着时边走边看。
+    随第一次收尾的 memories 写入。出发前先处理手上的事：午饭前暂停等待（暂停的活动留在家里，不占名额，回家后在
+    开始地点接着等），晚饭前直接结束它，手上没有暂停的活动时边走边看。
     """
 
     model_name = "deepseek-flash"
@@ -218,7 +218,7 @@ class DayModel:
         target = self._place(_RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)])
         self.phase = "walk"
         if self._paused():
-            # 暂停的等待仍占一个名额，只步行前往。
+            # 有暂停的等待时只步行前往（脚本的选择，暂停的活动不占名额）。
             return self._start((target, "travel", "步行"))
         content = self._content()
         return self._start((target, "travel", "步行"), (content, "interact", self._watch_way(content)))

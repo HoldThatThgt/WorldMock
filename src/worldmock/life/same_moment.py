@@ -2,8 +2,8 @@
 
 依据 docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「规则」与「实现约定」：决策不消耗模拟时间；没有进行中活动或有待收尾活动
 的人物在同一秒再决策（规则 2）；同一人物同一秒的决策轮数由场景 max_same_moment_decisions 封顶，达到上限后至多再给
-三个受限轮，每个受限轮只开放一类动作（规则 3：有待收尾只开放收尾；否则有空名额开始或恢复；名额被暂停活动占满时恢复
-或结束；开始或恢复被拒后留在原阶段）；受限轮用完仍要同一秒再决策时，环境不替人物造活动，写 decision_budget_exhausted
+三个受限轮，每个受限轮只开放一类动作（规则 3：有待收尾只开放收尾；没有进行中与待收尾的活动时开始或恢复，暂停的活动不占
+名额，所以不再按名额分流；开始或恢复被拒后留在原阶段）；受限轮用完仍要同一秒再决策时，环境不替人物造活动，写 decision_budget_exhausted
 并把下一次决策排在一个结算间隔之后（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」）；
 有进行中活动且没有待收尾活动时瞬时动作成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的
 唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；名称类拒绝
@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from worldmock.footprints.models import EventDraft
-from worldmock.life.activity_control import occupies_slot, pending_conclusions
+from worldmock.life.activity_control import concludable, pending_conclusions
 from worldmock.life.error_contract import NAME_REJECTION_CODES
 from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.vocabulary import GIVE_WAY
@@ -43,8 +43,9 @@ FREE_NAME_REJECTIONS_PER_SECOND = 2
 RESTRICTED_EXCLUDED_ACTIONS = frozenset({"purchase"})
 
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、wait、conclude、conclude_pending、other）：
-#: conclude 指结束占名额的活动，conclude_pending 指只点名待收尾活动（全部或其中几项；待收尾活动也占名额，所以开放
-#: 结束的阶段同样接受它），受限轮的收尾与结束因此都不会被业务拒绝；收尾阶段一直持续到没有待收尾活动。
+#: conclude 指结束能结束的活动（进行中、暂停中或待收尾），conclude_pending 指只点名待收尾活动（全部或其中几项；开放
+#: 结束的阶段同样接受它），受限轮的收尾因此不会被业务拒绝；收尾阶段一直持续到没有待收尾活动。resume_or_conclude 与
+#: conclude_only 留在阶段闭集与本表中，现行阶梯不再进入它们（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R2）。
 _STAGE_REQUEST_KINDS = {
     SameMomentStage.OPEN: frozenset({"start", "resume", "wait", "conclude", "conclude_pending", "other"}),
     SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_pending"}),
@@ -53,20 +54,6 @@ _STAGE_REQUEST_KINDS = {
     SameMomentStage.CONCLUDE_ONLY: frozenset({"conclude", "conclude_pending"}),
 }
 
-#: 达到上限、本轮后没有进行中活动也没有待收尾活动时的下一阶段：键为（本轮阶段, 名额是否被占满）。
-#: 进入受限轮或收尾之后按名额分流：有空名额开始或恢复，名额满恢复或结束；开始或恢复被拒后名额不变，留在原阶段。
-_LADDER = {
-    (SameMomentStage.OPEN, False): SameMomentStage.START_OR_RESUME,
-    (SameMomentStage.OPEN, True): SameMomentStage.RESUME_OR_CONCLUDE,
-    (SameMomentStage.CONCLUDE_PENDING, False): SameMomentStage.START_OR_RESUME,
-    (SameMomentStage.CONCLUDE_PENDING, True): SameMomentStage.RESUME_OR_CONCLUDE,
-    (SameMomentStage.START_OR_RESUME, False): SameMomentStage.START_OR_RESUME,
-    (SameMomentStage.START_OR_RESUME, True): SameMomentStage.RESUME_OR_CONCLUDE,
-    (SameMomentStage.RESUME_OR_CONCLUDE, False): SameMomentStage.START_OR_RESUME,
-    (SameMomentStage.RESUME_OR_CONCLUDE, True): SameMomentStage.RESUME_OR_CONCLUDE,
-    (SameMomentStage.CONCLUDE_ONLY, False): SameMomentStage.START_OR_RESUME,
-    (SameMomentStage.CONCLUDE_ONLY, True): SameMomentStage.CONCLUDE_ONLY,
-}
 #: 达到同刻上限后至多再给的受限轮数（规则 3）；用完仍要同一秒再决策即跨决策预算耗尽。
 RESTRICTED_ROUNDS = 3
 #: 跨决策预算耗尽时写入的 environment_event 种类（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章，裁决 #25）。
@@ -83,7 +70,6 @@ class RoundOutcome:
     :param rejected: 本轮是否为业务拒绝（重放按存档结果）
     :param limit: 场景的同刻决策上限
     :param pending: 本轮结算后人物是否有待收尾活动
-    :param slots_full: 本轮结算后两个名额是否都被占着
     """
 
     now: int
@@ -92,7 +78,6 @@ class RoundOutcome:
     rejected: bool
     limit: int
     pending: bool = False
-    slots_full: bool = False
 
 
 def count_round(agent: AgentState) -> AgentState:
@@ -145,7 +130,8 @@ def next_stage(outcome: RoundOutcome) -> SameMomentStage:
     """@brief 本轮之后的受限轮阶段（规则 3）。
 
     未达上限保持 open；达到上限后有待收尾活动只开放收尾（conclude_pending）；有进行中活动且没有待收尾时不再进入受限轮，
-    阶段保持不变直到时钟推进复位；否则按（本轮阶段, 名额是否占满）的阶梯推进。
+    阶段保持不变直到时钟推进复位；否则（没有进行中与待收尾的活动，两个名额都空着）一律开始或恢复（start_or_resume），
+    开始或恢复被拒后留在这一阶段。
     """
     agent = outcome.agent
     if agent.same_moment_rounds < outcome.limit:
@@ -154,7 +140,7 @@ def next_stage(outcome: RoundOutcome) -> SameMomentStage:
         return SameMomentStage.CONCLUDE_PENDING
     if outcome.active:
         return agent.same_moment_stage
-    return _LADDER[(agent.same_moment_stage, outcome.slots_full)]
+    return SameMomentStage.START_OR_RESUME
 
 
 def schedule_after_round(outcome: RoundOutcome,
@@ -208,7 +194,7 @@ def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequen
     :param pending_ids: 人物当前全部待收尾活动身份。
     :param ways: start_activity 各项的方式（给予是瞬时的，与受限轮排除的动作同样归入 other）。
     :returns: wait（只等待）、start（开始持续活动，不含受限轮排除的动作）、resume（只恢复暂停活动）、
-              conclude_pending（只点名待收尾活动，全部或其中几项）、conclude（只结束占名额的活动）或 other。
+              conclude_pending（只点名待收尾活动，全部或其中几项）、conclude（只结束能结束的活动）或 other。
     """
     if tool_name == "start_activity":
         if list(canonical_actions) == ["wait"]:
@@ -219,7 +205,7 @@ def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequen
     if tool_name == "conclude_activity":
         if named and {item.activity_id for item in named} <= pending_ids:
             return "conclude_pending"
-        return "conclude" if named and all(occupies_slot(item) for item in named) else "other"
+        return "conclude" if named and all(concludable(item) for item in named) else "other"
     return "other"
 
 
@@ -230,7 +216,7 @@ def stage_refusal(stage: SameMomentStage, request_kind: str) -> Refusal | None:
 
     :param stage: 人物当前的受限轮阶段
     :param request_kind: 引擎派生的请求类：start（开始持续活动）、resume（恢复暂停活动）、wait（只等待）、
-                         conclude（结束占名额的活动）、conclude_pending（只点名待收尾活动）、other
+                         conclude（结束能结束的活动）、conclude_pending（只点名待收尾活动）、other
     """
     if request_kind in _STAGE_REQUEST_KINDS.get(stage, frozenset()):
         return None

@@ -226,11 +226,11 @@ _PROGRESS_LAYER = "tests/life/test_progress_layer_projection.py::"
 _MEMORIES = "tests/integration/test_conclude_memories.py::"
 _AGENT_BRANCHES = "tests/integration/test_agent_branch_coverage.py::"
 
-#: 阶段 3 预先登记：同刻决策行中依赖名额与待收尾的各支（受限轮的收尾、恢复或结束与只开放结束；只能收尾的轮次
-#: 不消耗人物消息的机会）。
+#: 阶段 3 预先登记：同刻决策行中依赖名额与待收尾的各支（受限轮的收尾；暂停的活动不占名额，两项都暂停到上限后进入
+#: 开始或恢复，同时做两件事规格阶段 1 起不再进入恢复或结束与只开放结束；只能收尾的轮次不消耗人物消息的机会）。
 _SAME_MOMENT_TESTS += [
     _LOCATION + "test_just_ended_requires_conclusion_in_the_same_second",
-    _LOCATION + "test_two_slots_full_block_new_activities_until_conclusion",
+    _LOCATION + "test_two_running_activities_block_a_third_until_one_is_paused",
     _LOCATION + "test_both_paused_redecide_same_second_until_one_resumes",
     "tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable",
     "tests/life/test_tool_layer.py::test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons",
@@ -239,11 +239,11 @@ _SAME_MOMENT_TESTS += [
     _SAME_MOMENT + name for name in (
         "test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three",
         "test_conclude_pending_stage_accepts_only_concluding_every_pending_activity",
-        "test_both_slots_paused_open_resume_or_conclude",
-        "test_other_request_in_resume_or_conclude_stays_in_the_stage",
-        "test_rejected_resume_with_full_slots_stays_in_resume_or_conclude",
+        "test_both_paused_at_the_limit_open_start_or_resume",
+        "test_concluding_a_paused_activity_in_start_or_resume_is_restricted",
+        "test_rejected_resume_with_both_paused_stays_in_start_or_resume",
         "test_restricted_conclusions_endings_and_waits_pass_the_stage_check",
-        "test_conclusion_and_slot_branches_of_the_ladder",
+        "test_conclusion_branch_and_start_or_resume_of_the_ladder",
         "test_conclusion_only_round_does_not_use_up_message_opportunity",
     )
 ]

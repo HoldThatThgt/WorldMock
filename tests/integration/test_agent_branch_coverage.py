@@ -193,7 +193,7 @@ _SLOTS_FULL = "两件事都在做，先结束一件"
 
 
 def _restricted_data(stage: str) -> dict:
-    """标上同刻受限轮阶段的观察：一项进行中、一项暂停的活动占满名额；门店的到店与远程下单标不可用并写原因。"""
+    """标上同刻受限轮阶段的观察：一项进行中、一项暂停的活动（暂停的不占名额）；门店的到店与远程下单标不可用并写原因。"""
     data = copy.deepcopy(_observations()[0]["data"])
     data["same_moment_stage"] = stage
     _add_objects(data, _visible_object(_SUPPLY, "supply", "supply-visible",

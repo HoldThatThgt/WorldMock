@@ -71,7 +71,7 @@ _DEFAULT_REASONS = {
     'ACTIVITY_CONCLUSION_REQUIRED': 'Conclude the finished activities before starting another action.',
     'ACTIVITY_PAUSE_UNAVAILABLE': 'This activity cannot be paused at its current phase or location.',
     'ACTIVITY_PRECONDITION_UNMET': 'The requested activity has unmet world prerequisites.',
-    'SESSION_LIMIT_EXCEEDED': 'Active, paused and pending-conclusion activities occupy both available slots.',
+    'SESSION_LIMIT_EXCEEDED': 'Active and pending-conclusion activities occupy both available slots.',
     'RESOURCE_CONFLICT': 'The requested activity conflicts with an occupied resource.',
     'PLAYBACK_SPEED_NOT_ALLOWED': 'Playback speed can only change for currently playing content.',
     'SOCIAL_PARTNER_NOT_FOUND': 'The named conversation partner is unknown.',

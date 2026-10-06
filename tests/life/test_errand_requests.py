@@ -298,7 +298,7 @@ def test_every_structural_error_reports_the_full_errand_path(engine_factory, cas
 
 
 def _paused_watch_and_pending_wait(engine_factory):
-    """人物看了五分钟内容后暂停，接着等待到点：暂停的观看与刚结束、待收尾的等待各占一个名额。（引擎，观看名，等待名）。"""
+    """人物看了五分钟内容后暂停，接着等待到点：有暂停的观看与刚结束、待收尾的等待（只有后者占名额）。（引擎，观看名，等待名）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     shown = engine.observations._observation_data(engine.context.state.agents[1])

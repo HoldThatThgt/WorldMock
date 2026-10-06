@@ -463,7 +463,6 @@ class DecisionCoordinator:
             rejected=rejection is not None,
             limit=self.context.scenario.max_same_moment_decisions,
             pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
-            slots_full=activity_control.free_slots(state, agent.agent_id) == 0,
         )
         if same_moment.budget_exhausted(outcome):
             code = (None if free else rejection) or same_moment.latest_rejection_code(state, agent.agent_id)

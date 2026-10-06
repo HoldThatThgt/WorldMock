@@ -373,6 +373,8 @@ class SameMomentStage(StrEnum):
     """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
+    暂停的活动不占名额以后，阶梯不再按名额分流：resume_or_conclude 与 conclude_only 留在闭集中（世界结构版本仍为 9），
+    现行阶梯不再进入它们（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R2）。
     只开放等待的阶段随世界结构版本 8 删除（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「失败后强制等待与跨决策预算」）。
     """
 
@@ -1331,7 +1333,7 @@ class ReportStatusRequest(ToolRequestModel):
 
 
 class PauseActivityRequest(ToolRequestModel):
-    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停（一项一个对象）。
+    """@brief 逐项写下人物自述并暂停所选进行中活动；暂停让出名额，恢复要有空名额，路上的活动不能暂停（一项一个对象）。
 
     :param items: 本次暂停的一至两项，每项写活动名与进展自述。
     :param errands: 请求级的个人事务变更，零至四条（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 ）。
@@ -1463,7 +1465,7 @@ class ActivityConclusionItem(ToolRequestModel):
 
 
 class ConcludeActivityRequest(ToolRequestModel):
-    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额；一项一个对象
+    """@brief 逐项写下总结、记忆与看法并结束所选活动（进行中、暂停中或刚结束待收尾），进行中与待收尾的结束后释放名额；一项一个对象
     （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。
 
     :param items: 本次结束的一至两项；全部项的 memories 与 views 合计不超过八条。

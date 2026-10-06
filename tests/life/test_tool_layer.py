@@ -430,10 +430,10 @@ def _refuse(engine: LifeEngine, label: str, times: int) -> list:
     return results
 
 
-def test_resume_or_conclude_stage_opens_only_resuming_and_ending(engine_factory, tmp_path, monkeypatch) -> None:
-    """同刻受限轮「恢复或结束」（真实到达，不改计数）：等待与观看先后在家暂停，两个名额都被暂停的活动占着；同一秒再被拒
-    两次后本秒轮数达到上限，阶段为 RESUME_OR_CONCLUDE。此时待办层两项暂停活动的恢复与结束（共四项）可用，其余每一项都标
-    同刻限制原因；逐项提交与受理一致。"""
+def test_both_paused_at_the_limit_open_starting_and_resuming_not_ending(engine_factory, tmp_path, monkeypatch) -> None:
+    """两项都暂停到同刻上限（真实到达，不改计数）：等待与观看先后在家暂停，暂停的活动不占名额；同一秒再被拒到上限后阶段
+    为开始或恢复（START_OR_RESUME），不再进入恢复或结束。此时待办层两项暂停活动的恢复可用、结束标同刻限制原因，开始等待
+    可用；逐项提交与受理一致。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _start_then_pause(engine, "full-wait", start_activity("等待", "自己"))
@@ -442,13 +442,16 @@ def test_resume_or_conclude_stage_opens_only_resuming_and_ending(engine_factory,
                         if row["kind"] == "content" for action in row["actions"]
                         if action["canonical_action"] == "watch")
     _start_then_pause(engine, "full-watch", start_activity(way, content))
-    _refuse(engine, "full-refused", engine.context.scenario.max_same_moment_decisions - 1)
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
+    same_moment_decisions._reach_limit(engine)
+    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
+    observed = engine.observe(context(engine, "full-stage"))
+    paused = [tool for item in observed["todo_layer"]["paused_activities"] for tool in item["tools"]]
+    restricted = refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason
+    assert sorted((tool["tool"], tool["available"], tool.get("reason")) for tool in paused) == [
+        ("conclude_activity", False, restricted), ("conclude_activity", False, restricted),
+        ("report_status", True, None), ("report_status", True, None)]
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "full")
-    assert sorted(item["tool"] for item in checked if item["available"]) == [
-        "conclude_activity", "conclude_activity", "report_status", "report_status"]
-    assert {item["reason"] for item in checked if not item["available"]} == {
-        refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason}
+    assert [item["available"] for item in checked if item.get("way") == "等待"] == [True]
 
 
 def test_conclude_pending_stage_opens_only_the_conclusion(engine_factory, tmp_path, monkeypatch) -> None:

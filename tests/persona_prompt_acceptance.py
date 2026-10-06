@@ -268,7 +268,7 @@ LEDGER: dict[str, list[str]] = {
         "test_availability_judges_the_menu_first_with_the_admission_reason",
         _TOOL + "test_submit_while_working_says_finish_the_work_first",
         _TOOL + "test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason",
-        _TOOL + "test_resume_or_conclude_stage_opens_only_resuming_and_ending",
+        _TOOL + "test_both_paused_at_the_limit_open_starting_and_resuming_not_ending",
         _TOOL + "test_conclude_pending_stage_opens_only_the_conclusion",
         _TOOL + "test_conclude_pending_stage_with_two_pending_opens_each_conclusion",
         _SAME_MOMENT + "test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three",

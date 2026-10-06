@@ -1,11 +1,13 @@
 """同刻决策（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章）：决策不耗时，同一秒再决策、同刻上限与受限轮阶梯。
 
-第一章规则 3 的收尾与名额三支（conclude_pending、resume_or_conclude、conclude_only）依赖第七章的待收尾与两个名额：
-活动一结束就要当秒收尾，收尾前时钟不推进；两个名额都被暂停活动占着时同一秒再决策。
+第一章规则 3 的收尾一支（conclude_pending）依赖第七章的待收尾：活动一结束就要当秒收尾，收尾前时钟不推进；暂停的活动
+不占名额，两项都暂停时同一秒再决策，到达上限后与没有活动时一样进入开始或恢复（resume_or_conclude 与 conclude_only 留在
+阶段闭集中，现行阶梯不再进入）。
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections import Counter
 from pathlib import Path
@@ -603,8 +605,9 @@ def test_same_moment_state_survives_reopen(engine_factory) -> None:
 
 
 def test_restricted_stage_check_and_ladder_units() -> None:
-    """受限轮复核与阶梯的逐阶段口径：open 全开，start_or_resume 开始/恢复/等待；wait_only 已从阶段闭集删除
-    （规则 3，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）。"""
+    """受限轮复核与阶梯的逐阶段口径：open 全开，start_or_resume 开始/恢复/等待；resume_or_conclude 与 conclude_only 留在
+    闭集中、复核口径不变（阶梯不再进入它们）；wait_only 已从阶段闭集删除（规则 3，
+    docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）。"""
     from worldmock.errors import BusinessRuleError
 
     assert [stage.value for stage in SameMomentStage] == [
@@ -815,7 +818,7 @@ def test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_l
 
 
 def _two_paused(engine: LifeEngine, name: str) -> tuple[str, str, int]:
-    """@brief 同一请求开始等待与观看，一分钟后同时暂停两项：两个名额都被暂停活动占着；返回两项身份与当时时刻。"""
+    """@brief 同一请求开始等待与观看，一分钟后同时暂停两项：没有进行中活动，两个名额都空着；返回两项身份与当时时刻。"""
     first, second = _start(engine, f"{name}-start", ("自己", "等待"), _content(engine, name))
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
@@ -828,79 +831,65 @@ def _two_paused(engine: LifeEngine, name: str) -> tuple[str, str, int]:
     return first, second, engine.context.state.current_time
 
 
-def _blocked_until_limit(engine: LifeEngine, name: str) -> None:
-    """@brief 名额满时开始新活动以 SESSION_LIMIT_EXCEEDED 拒绝，同一秒反复直到达到同刻上限，进入 resume_or_conclude。"""
-    while engine.context.state.agents[1].same_moment_rounds < engine.context.scenario.max_same_moment_decisions:
-        blocked = _wait(engine, f"{name}-blocked-{engine.context.state.agents[1].same_moment_rounds}")
-        assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
-    assert engine.observe(context(engine, f"{name}-stage"))["same_moment_stage"] == "resume_or_conclude"
-
-
-@pytest.mark.parametrize("first_move", ["resume", "conclude"])
-def test_both_slots_paused_open_resume_or_conclude(engine_factory, first_move) -> None:
-    """两个名额都被暂停活动占着：没有进行中活动，同一秒再决策；达到上限后只开放恢复或结束（resume_or_conclude）。
-    恢复其一即有进行中活动，时钟可推进；结束其一只释放名额，同一秒继续决策并转入 start_or_resume，恢复另一项后
-    时钟推进；同一秒的轮数不超过上限加三（第一章规则 2、3，第七章「两项都暂停时」）。"""
+@pytest.mark.parametrize("first_move", ["resume", "start"])
+def test_both_paused_at_the_limit_open_start_or_resume(engine_factory, first_move) -> None:
+    """两项都暂停：没有进行中活动，同一秒再决策；暂停的活动不占名额，达到上限后进入开始或恢复（start_or_resume），不再
+    按名额分流进入恢复或结束。恢复其一或开始一项新活动都被受理，有了进行中活动，时钟可推进；同一秒的轮数为上限加一
+    （第一章规则 2、3，第七章「两项都暂停时」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     first, second, now = _two_paused(engine, "ladder")
     limit = engine.context.scenario.max_same_moment_decisions
-    _blocked_until_limit(engine, "ladder")
-    assert same_moment.stage_refusal(SameMomentStage.RESUME_OR_CONCLUDE, "resume") is None
-    if first_move == "conclude":
-        ended = _act(engine, "ladder-conclude", "conclude_activity", conclude_request(activity_name(engine, first)))
-        assert ended.status == "completed"
-        assert engine.context.state.activities[first].status == ActivityStatus.CANCELLED
-        agent = engine.context.state.agents[1]
-        assert (agent.same_moment_stage, agent.next_decision_at, engine.context.state.current_time) == (
-            SameMomentStage.START_OR_RESUME, now, now)
-        assert agent.pending_wake_reasons == ["no_active_activity"]
-    resumed = _act(engine, "ladder-resume", "report_status", report_request(
-        activity_name(engine, second), summary="接着看。"))
-    assert resumed.status == "completed"
-    assert engine.context.state.activities[second].status == ActivityStatus.ACTIVE
+    _reach_limit(engine)
+    assert engine.observe(context(engine, "ladder-stage"))["same_moment_stage"] == "start_or_resume"
+    if first_move == "resume":
+        moved = _act(engine, "ladder-resume", "report_status", report_request(
+            activity_name(engine, second), summary="接着看。"))
+        assert moved.status == "completed"
+        expected = [ActivityStatus.PAUSED, ActivityStatus.ACTIVE]
+    else:
+        moved = _wait(engine, "ladder-new-wait")
+        assert moved.status == "in_progress"
+        assert engine.context.state.activities[moved.activity_id].status == ActivityStatus.ACTIVE
+        expected = [ActivityStatus.PAUSED, ActivityStatus.PAUSED]
+    assert [engine.context.state.activities[key].status for key in (first, second)] == expected
     agent = engine.context.state.agents[1]
     assert agent.next_decision_at > now and agent.pending_wake_reasons == []
-    expected = limit + (2 if first_move == "conclude" else 1)
-    assert agent.same_moment_rounds == _rounds_at(engine, now) == expected <= limit + 3
+    assert agent.same_moment_rounds == _rounds_at(engine, now) == limit + 1
     advance_next(engine)
     assert engine.context.state.current_time > now
 
 
-def test_other_request_in_resume_or_conclude_stays_in_the_stage(engine_factory) -> None:
-    """resume_or_conclude 中开始新活动越界（SAME_MOMENT_ACTION_RESTRICTED）；名额仍满，留在 resume_or_conclude（不再收窄为
-    只开放结束），越界的选项在工具层标同刻限制；结束一项后有空名额，转入 start_or_resume，等待被受理，另一项仍暂停，
-    同一秒的轮数恰为上限加三（第一章规则 3，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）。"""
+def test_concluding_a_paused_activity_in_start_or_resume_is_restricted(engine_factory) -> None:
+    """两项都暂停、达到上限后的 start_or_resume 中结束暂停的活动越界（SAME_MOMENT_ACTION_RESTRICTED），留在 start_or_resume，
+    待办层的结束照同一原因标不可用、恢复可用；之后的等待被受理，两项仍暂停，同一秒的轮数为上限加二（第一章规则 3）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     first, second, now = _two_paused(engine, "narrow")
     limit = engine.context.scenario.max_same_moment_decisions
-    _blocked_until_limit(engine, "narrow")
-    outside = _wait(engine, "narrow-outside")
+    _reach_limit(engine)
+    outside = _act(engine, "narrow-outside", "conclude_activity", conclude_request(activity_name(engine, first)))
     assert outside.status == "rejected" and outside.error_code == _RESTRICTED
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
+    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
     staged = engine.observe(context(engine, "narrow-stage"))
-    assert staged["same_moment_stage"] == "resume_or_conclude"
-    assert (target_actions(staged, "自己")["等待"]["available"], target_actions(staged, "自己")["等待"]["reason"]) == (
+    assert staged["same_moment_stage"] == "start_or_resume"
+    tools = target_tools(staged, activity_name(engine, first))
+    assert (tools["conclude_activity"]["available"], tools["conclude_activity"]["reason"]) == (
         False, outside.data["reason"])
-    ended = _act(engine, "narrow-conclude", "conclude_activity", conclude_request(activity_name(engine, first)))
-    assert ended.status == "completed"
-    agent = engine.context.state.agents[1]
-    assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME and agent.next_decision_at == now
+    assert tools["report_status"]["available"] is True
     assert _wait(engine, "narrow-wait").status == "in_progress"
-    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED
+    assert {engine.context.state.activities[key].status for key in (first, second)} == {ActivityStatus.PAUSED}
     agent = engine.context.state.agents[1]
     assert agent.next_decision_at > now
-    assert agent.same_moment_rounds == _rounds_at(engine, now) == limit + 3
+    assert agent.same_moment_rounds == _rounds_at(engine, now) == limit + 2
     advance_next(engine)
     assert engine.context.state.current_time > now
 
 
-def test_rejected_resume_with_full_slots_stays_in_resume_or_conclude(engine_factory) -> None:
-    """两个名额都被暂停活动占着，在开始地点以外恢复被拒（ACTIVITY_PRECONDITION_UNMET）：留在 resume_or_conclude，被拒的恢复
-    在待办层照原因标不可用；在别处结束那项暂停活动后有空名额，转入 start_or_resume，等待被受理；同一秒的轮数恰为上限加三
-    （第一章规则 3「开始或恢复被拒后留在原阶段」，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）。"""
+def test_rejected_resume_with_both_paused_stays_in_start_or_resume(engine_factory) -> None:
+    """两项都暂停（一项在家、一项在办公室），达到上限后进入 start_or_resume；在开始地点以外恢复被拒
+    （ACTIVITY_PRECONDITION_UNMET）后留在 start_or_resume，被拒的恢复在待办层照原因标不可用；之后的等待被受理，在别处的
+    那项仍暂停，同一秒的轮数为上限加二（第一章规则 3「开始或恢复被拒后留在原阶段」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     (home,) = _start(engine, "away-home-wait", ("自己", "等待"))
@@ -918,17 +907,15 @@ def test_rejected_resume_with_full_slots_stays_in_resume_or_conclude(engine_fact
     now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
     assert _act(engine, "away-pause-office", "pause_activity", pause_request(
         activity_name(engine, office), summary="停一下。")).status == "completed"
-    _blocked_until_limit(engine, "away")
+    _reach_limit(engine)
     elsewhere = _act(engine, "away-resume-home", "report_status", report_request(home_name, summary="想接着等。"))
     assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
+    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
     marked = target_tools(engine.observe(context(engine, "away-marked")), home_name)["report_status"]
     assert (marked["available"], marked["reason"]) == (False, elsewhere.data["reason"])
-    ended = _act(engine, "away-conclude-home", "conclude_activity", conclude_request(home_name))
-    assert ended.status == "completed" and engine.context.state.activities[home].concluded_at == now
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
     assert _wait(engine, "away-wait").status == "in_progress"
-    assert engine.context.state.agents[1].same_moment_rounds == _rounds_at(engine, now) == limit + 3
+    assert engine.context.state.activities[home].status == ActivityStatus.PAUSED
+    assert engine.context.state.agents[1].same_moment_rounds == _rounds_at(engine, now) == limit + 2
     advance_next(engine)
     assert engine.context.state.current_time > now
 
@@ -943,8 +930,8 @@ def _unit_activity(key: str, status: ActivityStatus, *, concluded: bool = False)
         origin_decision_id="decision", origin_request_event_id="event", concluded_at=1900 if concluded else None)
 
 
-#: 受限轮各阶段开放的请求类（第一章规则 3）：收尾一支只收点名待收尾活动（全部或其中几项）的结束，名额满只开放恢复或结束，
-#: conclude_only 只开放结束，有空名额开始或恢复（等待始终可选）。
+#: 受限轮各阶段开放的请求类（第一章规则 3）：收尾一支只收点名待收尾活动（全部或其中几项）的结束，开始或恢复一支开放
+#: 开始、恢复与等待；resume_or_conclude（恢复或结束）与 conclude_only（只开放结束）留在闭集中，阶梯不再进入，复核口径不变。
 _STAGE_OPENS = {
     SameMomentStage.CONCLUDE_PENDING: {"conclude_pending"},
     SameMomentStage.RESUME_OR_CONCLUDE: {"resume", "conclude", "conclude_pending"},
@@ -954,9 +941,9 @@ _STAGE_OPENS = {
 
 
 def test_restricted_conclusions_endings_and_waits_pass_the_stage_check() -> None:
-    """受限轮复核的收尾与名额分支：只点名待收尾活动（全部或其中一项）记 conclude_pending，结束占名额的活动（含待收尾与
-    进行中的活动一起点名）记 conclude；resume_or_conclude 与 conclude_only 都接受二者，conclude_pending 只接受前者，所以
-    受限轮的收尾、结束与等待不会被业务拒绝（第一章规则 3；逐项收尾与工具层逐项标注同一判定）。"""
+    """受限轮复核的收尾与结束：只点名待收尾活动（全部或其中一项）记 conclude_pending，结束能结束的活动（进行中、暂停中或
+    待收尾，含暂停与进行中的活动一起点名）记 conclude；resume_or_conclude 与 conclude_only 都接受二者，conclude_pending 只接受
+    前者，所以受限轮的收尾不会被业务拒绝（第一章规则 3；逐项收尾与工具层逐项标注同一判定）。"""
     just_ended, road = _unit_activity("a", ActivityStatus.COMPLETED), _unit_activity("b", ActivityStatus.CANCELLED)
     paused, running = _unit_activity("p", ActivityStatus.PAUSED), _unit_activity("x", ActivityStatus.ACTIVE)
     done, pending, none = _unit_activity("d", ActivityStatus.COMPLETED, concluded=True), frozenset("ab"), frozenset()
@@ -986,10 +973,11 @@ def test_restricted_conclusions_endings_and_waits_pass_the_stage_check() -> None
                 assert (refusal.code, refusal.reason) == (_RESTRICTED, _RESTRICTED_REASON)
 
 
-def test_conclusion_and_slot_branches_of_the_ladder() -> None:
-    """受限轮阶梯的收尾与名额分支（第一章规则 3）：有待收尾即从收尾一支开始（含交谈对方在同一秒结束造成的新待收尾），
-    收尾后按名额分流；名额满时恢复或结束，开始或恢复被拒后留在原阶段（不再升级为只开放结束或只开放等待），结束释放名额
-    后开始或恢复；有进行中活动时阶段不变；有待收尾时同一秒再决策，不按决策节律。"""
+def test_conclusion_branch_and_start_or_resume_of_the_ladder() -> None:
+    """受限轮阶梯（第一章规则 3）：有待收尾即从收尾一支开始（含交谈对方在同一秒结束造成的新待收尾）；没有进行中与待收尾的
+    活动时一律开始或恢复，不再按名额分流，开始或恢复被拒后留在这一阶段；手工写入的 resume_or_conclude 与 conclude_only
+    也转入开始或恢复；有进行中活动时阶段不变；有待收尾时同一秒再决策，不按决策节律。轮次结果不再带名额字段，任何
+    没有进行中活动的轮次都不会进入 resume_or_conclude 或 conclude_only。"""
     open_, pending_stage = SameMomentStage.OPEN, SameMomentStage.CONCLUDE_PENDING
     resume_or_conclude, start_or_resume = SameMomentStage.RESUME_OR_CONCLUDE, SameMomentStage.START_OR_RESUME
     ladder = [
@@ -997,22 +985,27 @@ def test_conclusion_and_slot_branches_of_the_ladder() -> None:
         (open_, 3, {"pending": True}, pending_stage),
         (start_or_resume, 5, {"pending": True, "active": True}, pending_stage),
         (pending_stage, 4, {}, start_or_resume),
-        (pending_stage, 4, {"slots_full": True}, resume_or_conclude),
-        (open_, 3, {"slots_full": True}, resume_or_conclude),
-        (resume_or_conclude, 4, {}, start_or_resume),
-        (resume_or_conclude, 4, {"slots_full": True}, resume_or_conclude),
+        (open_, 3, {}, start_or_resume),
         (start_or_resume, 4, {}, start_or_resume),
-        (start_or_resume, 4, {"slots_full": True}, resume_or_conclude),
+        (resume_or_conclude, 4, {}, start_or_resume),
         (SameMomentStage.CONCLUDE_ONLY, 5, {}, start_or_resume),
-        (SameMomentStage.CONCLUDE_ONLY, 5, {"slots_full": True}, SameMomentStage.CONCLUDE_ONLY),
         (resume_or_conclude, 4, {"active": True}, resume_or_conclude),
+        (start_or_resume, 4, {"active": True}, start_or_resume),
     ]
     for stage, rounds, flags, expected in ladder:
         agent = AgentState.model_construct(same_moment_rounds=rounds, same_moment_stage=stage)
         outcome = same_moment.RoundOutcome(now=100, agent=agent, active=flags.get("active", False), rejected=False,
-                                           limit=3, pending=flags.get("pending", False),
-                                           slots_full=flags.get("slots_full", False))
+                                           limit=3, pending=flags.get("pending", False))
         assert same_moment.next_stage(outcome) == expected, (stage, rounds, flags)
+    assert "slots_full" not in {field.name for field in dataclasses.fields(same_moment.RoundOutcome)}
+    dead = {resume_or_conclude, SameMomentStage.CONCLUDE_ONLY}
+    for stage in SameMomentStage:
+        for rounds in range(6):
+            for pending in (False, True):
+                agent = AgentState.model_construct(same_moment_rounds=rounds, same_moment_stage=stage)
+                outcome = same_moment.RoundOutcome(now=100, agent=agent, active=False, rejected=False, limit=3,
+                                                   pending=pending)
+                assert same_moment.next_stage(outcome) not in dead, (stage, rounds, pending)
     agent = AgentState.model_construct(same_moment_rounds=1, same_moment_stage=open_)
     waiting = same_moment.RoundOutcome(now=100, agent=agent, active=True, rejected=False, limit=3, pending=True)
     assert same_moment.schedule_after_round(waiting, lambda: pytest.fail("pending conclusion must redecide now")) == (

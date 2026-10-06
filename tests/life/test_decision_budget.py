@@ -11,10 +11,10 @@ import json
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (activity_name, advance_next, conclude_request, context, stage_day_plan,
-                                 start_activity)
-from tests.life.test_same_moment_decisions import (_act, _blocked_until_limit, _content, _finish, _invalid_start,
-                                                   _other_requests, _start, _two_paused, _wait)
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 pause_request, stage_day_plan, start_activity, wake_by_mail)
+from tests.life.test_same_moment_decisions import (_act, _content, _finish, _invalid_start, _other_requests,
+                                                   _start)
 from worldmock.footprints.quality import build_quality_report
 from worldmock.life import same_moment
 from worldmock.life.models import ActivityStatus, AgentState, SameMomentStage, active_activities
@@ -81,25 +81,33 @@ def test_restricted_rounds_used_up_without_an_activity_pause_technically(engine_
 
 
 def test_a_successful_last_restricted_round_carries_the_latest_rejection_code(engine_factory) -> None:
-    """两个名额都被暂停活动占着：受限轮里越界两次，最后一个受限轮结束其中一项（受理）后仍没有进行中活动，预算耗尽；
-    事件带本秒最近一次的拒绝码（SAME_MOMENT_ACTION_RESTRICTED），另一项仍暂停，环境不替人物恢复或开始任何活动。"""
+    """等待到点待收尾、观看已暂停：同一秒做别的被拒到上限（ACTIVITY_CONCLUSION_REQUIRED），收尾阶段里越界两次，最后一个
+    受限轮收尾（受理）后仍没有进行中活动，预算耗尽；事件带本秒最近一次的拒绝码（SAME_MOMENT_ACTION_RESTRICTED），暂停的
+    观看仍暂停，环境不替人物恢复或开始任何活动。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    first, second, now = _two_paused(engine, "latest")
+    wait_id, watch_id = _start(engine, "latest-start", ("自己", "等待"), _content(engine, "latest"))
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    assert _act(engine, "latest-pause", "pause_activity", pause_request(
+        activity_name(engine, watch_id), summary="先停一下。")).status == "completed"
+    _finish(engine, wait_id, "latest")
+    now, limit = engine.context.state.current_time, engine.context.scenario.max_same_moment_decisions
     feedback = engine.context.scenario.activity_feedback_seconds
-    _blocked_until_limit(engine, "latest")
-    for index in range(2):
-        assert _wait(engine, f"latest-outside-{index}").error_code == _RESTRICTED
+    codes = [_act(engine, f"latest-other-{index}", *_other_requests()[index % 2]).error_code
+             for index in range(limit + 2)]
+    assert codes == ["ACTIVITY_CONCLUSION_REQUIRED"] * limit + [_RESTRICTED] * 2
     assert not _exhausted(engine)
-    ended = _act(engine, "latest-conclude", "conclude_activity", conclude_request(activity_name(engine, first)))
-    assert ended.status == "completed"
+    ended = _act(engine, "latest-conclude", "conclude_activity", conclude_request(activity_name(engine, wait_id)))
+    assert ended.status == "completed" and engine.context.state.agents[1].same_moment_rounds == limit + 3
     (event,) = _exhausted(engine)
     assert event.data == {"kind": _KIND, "error_code": _RESTRICTED, "next_decision_at": now + feedback}
     assert engine.context.state.agents[1].next_decision_at == now + feedback
-    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED and not active_activities(engine.context.state, 1)
+    assert engine.context.state.activities[watch_id].status == ActivityStatus.PAUSED
+    assert not active_activities(engine.context.state, 1)
     advance_next(engine)
     assert engine.context.state.current_time > now
-    assert engine.context.state.activities[second].status == ActivityStatus.PAUSED
+    assert engine.context.state.activities[watch_id].status == ActivityStatus.PAUSED
 
 
 def test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget(engine_factory) -> None:

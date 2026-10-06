@@ -434,7 +434,7 @@ def _engine_with_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str]:
 
 
 def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str, str]:
-    """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻暂停的观看与刚结束的等待各占一个名额。"""
+    """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻有暂停的观看与刚结束、待收尾的等待（只有后者占名额）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     shown = engine.observations._observation_data(engine.context.state.agents[1])

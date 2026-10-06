@@ -72,7 +72,7 @@ def _run_out(engine, activity_id: str) -> None:
 def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path: Path):
     """经真实购买与消费入口，恢复只吃剩余量，消费分录与投影严格守恒。
 
-    暂停的餐食留在餐馆的停留会话里占着名额，按活动名在开始地点恢复；主动结束的等待在导出中为 cancelled，
+    暂停的餐食留在餐馆的停留会话里（不占名额），按活动名在开始地点恢复；主动结束的等待在导出中为 cancelled，
     餐食的暂停、恢复与收尾各留一条生命周期记录，导出的活动状态与最终检查点逐项一致。
     """
     def lunch(document):
@@ -108,7 +108,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         assert 0 < eaten < 1
         _action(engine, "pause", "pause_activity", pause_request(
             activity_name(engine, meal.activity_id), summary="这顿饭吃到一半，先停一下。"))
-        # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）；暂停的餐食仍占一个名额。
+        # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）；暂停的餐食不占名额。
         _, waited = _start(engine, "wait-paused-meal", "self", None, "等待")
         restaurant = sessions.current_session(engine.context.state, 1)
         assert (restaurant.kind, restaurant.location_id) == (SessionKind.STAY, RESTAURANT)

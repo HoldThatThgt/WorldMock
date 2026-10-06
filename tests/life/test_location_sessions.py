@@ -1,6 +1,6 @@
 """地点会话与活动生命周期（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章、第一章受限轮中依赖名额与待收尾的三支）。
 
-会话是一段地点停留或一段路，由系统随出发与到达切换；每人两个活动名额，进行中、暂停与待收尾的活动各占一个；
+会话是一段地点停留或一段路，由系统随出发与到达切换；每人两个活动名额，进行中与待收尾的活动各占一个，暂停的不占；
 活动一结束就成为待收尾，同一秒 conclude_activity，做别的以 ACTIVITY_CONCLUSION_REQUIRED 拒绝，收尾前时钟不推进。
 """
 
@@ -24,7 +24,7 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.readable import duration_phrase, iso_time
-from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTaskSummaryRequest, SameMomentStage, SessionKind,
+from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTaskSummaryRequest, SessionKind,
                                    SessionStatus, StartActivityRequest, active_activities)
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
@@ -325,7 +325,7 @@ def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> N
 
 
 def test_paused_activity_can_be_concluded_elsewhere(engine_factory) -> None:
-    """人在别处可以直接结束暂停的活动：取消并收尾，名额释放。"""
+    """人在别处可以直接结束暂停的活动：取消并收尾。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "wait-then-leave")
@@ -383,53 +383,56 @@ def test_ending_travel_midway_ends_road_activities_and_stays_at_origin(engine_fa
     assert _conclude(engine, "conclude-content", watch_id).status == "completed"
 
 
-def test_two_slots_full_block_new_activities_until_conclusion(engine_factory) -> None:
-    """两个名额被进行中或暂停中的活动占满时不能开始新活动（SESSION_LIMIT_EXCEEDED 点名两项），conclude_activity 后释放。
-
-    达到同刻上限后名额被暂停活动占满，受限轮只开放恢复或结束；结束一项后只开放开始或恢复。
-    """
+def test_two_running_activities_block_a_third_until_one_is_paused(engine_factory) -> None:
+    """两项进行中的活动占满两个名额时不能开始第三项：SESSION_LIMIT_EXCEEDED 点名两项，下一步写结束或暂停其中一项；
+    暂停其中一项就让出名额（暂停的活动不占名额），第三项被受理，暂停的那项仍暂停（第七章「两个名额」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "full")
     _wake(engine)
+    blocked = _wait(engine, "third")
+    listed = f"{_name(engine, waited)}、{_name(engine, watched)}"
+    assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
+    assert blocked.message == blocked.data["reason"] == f"Both activity slots are occupied by {listed}."
+    assert blocked.data["next_step"] == f"Conclude or pause one of {listed} first."
     _round(engine, "pause-wait", "pause_activity", pause_request(_name(engine, waited), summary="停。"))
     _wake(engine)
-    blocked = _wait(engine, "third")
-    assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert _name(engine, waited) in blocked.message and _name(engine, watched) in blocked.message
-    _round(engine, "pause-watch", "pause_activity", pause_request(_name(engine, watched), summary="也停。"))
-    still = _wait(engine, "third-again")
-    assert still.status == "rejected" and still.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
-    assert _conclude(engine, "free-one", waited).status == "completed"
-    assert engine.context.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
     assert _wait(engine, "third-after").status == "in_progress"
+    assert engine.context.state.activities[waited].status == ActivityStatus.PAUSED
+    assert len(active_activities(engine.context.state, 1)) == 2
+    assert activity_control.free_slots(engine.context.state, 1) == 0
 
 
 def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_factory) -> None:
-    """只剩一个名额（另一个被暂停的活动占着）却要同时开始两项：SESSION_LIMIT_EXCEEDED，原因说只剩一个名额、不能同时
-    开始两项并点名占着名额的活动，下一步是先结束它；只开始一项被受理（第五章「并行准入」）。"""
+    """只剩一个名额（另一个被进行中的等待占着）却要同时开始两项：名额判定先于整组准入，以 SESSION_LIMIT_EXCEEDED 拒绝，
+    原因说只剩一个名额并点名占着名额的活动，下一步是先结束或暂停它；暂停等待之后再开始两项（等待与观看）被受理，暂停的
+    活动不占名额（第五章「并行准入」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "one-slot-wait")
     _wake(engine)
     name = _name(engine, waited.activity_id)
-    _round(engine, "one-slot-pause", "pause_activity", pause_request(name, summary="先停。"))
-    content = _pick(_preview(engine, "one-slot"), "watch", kind="content")
-    blocked = _start(engine, "one-slot-two", ("自己", "interact", "等待"), content)
+    observed = _preview(engine, "one-slot")
+    contents = [(row["object"], action["verb"], action["label"]) for row in observed["interaction_bindings"]
+                if row["kind"] == "content" for action in row["actions"] if action["canonical_action"] == "watch"]
+    assert len({item[0] for item in contents[:2]}) == 2
+    blocked = _start(engine, "one-slot-two", *contents[:2])
     assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
     assert blocked.message == blocked.data["reason"] == (
         f"Only one activity slot remains because {name} occupies a slot.")
-    assert blocked.data["next_step"] == f"Conclude one of {name} first."
-    assert _start(engine, "one-slot-one", content).status == "in_progress"
+    assert blocked.data["next_step"] == f"Conclude or pause one of {name} first."
+    _round(engine, "one-slot-pause", "pause_activity", pause_request(name, summary="先停。"))
+    both = _start(engine, "one-slot-two-again", ("自己", "interact", "等待"), contents[0])
+    assert both.status == "in_progress" and len(_started_ids(both)) == 2
+    assert engine.context.state.activities[waited.activity_id].status == ActivityStatus.PAUSED
 
 
 def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check(engine_factory) -> None:
-    """名额已满且仍有进行中活动时选择出行：名额判定在出发前判定之前，以 SESSION_LIMIT_EXCEEDED 拒绝（两件事都在做、
-    先结束一件，点名两项），不报 ACTIVITY_PRECONDITION_UNMET，人仍停留在原地（第五章判定顺序）。
+    """两项都在进行、名额已满时选择出行：名额判定在出发前判定之前，以 SESSION_LIMIT_EXCEEDED 拒绝，不带出发前的未满足
+    条件（第五章判定顺序）。
 
-    两项都在进行时受理判定先看名额，不带出发前的未满足条件；暂停等待之后观看仍在进行、名额仍满，出行照常列出并带
-    名额说明（第五章「动作照常列出，做错了再说明」），经真实决策轮得到同一拒绝。
+    暂停等待之后它让出名额，观看仍在进行：出行照常列出并带出发前的说明（第五章「动作照常列出，做错了再说明」），经真实
+    决策轮以 ACTIVITY_PRECONDITION_UNMET 拒绝，只点名进行中的观看，人仍停留在原地。
     """
     engine = engine_factory()
     stage_day_plan(engine)
@@ -440,14 +443,16 @@ def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check
     _wake(engine)
     _round(engine, "pause-the-wait", "pause_activity", pause_request(_name(engine, waited), summary="先停。"))
     _wake(engine)
-    observed = _preview(engine, "listed-full-depart")
+    observed = _preview(engine, "listed-depart-beside-paused")
     office = _pick(observed, "travel_to", mode="walking", place="office")[0]
     walk = target_actions(observed, office)["步行"]
-    assert walk["reason"].startswith("Both activity slots are occupied by ") and _name(engine, watched) in walk["reason"]
-    rejected = _depart(engine, "depart-with-full-slots")
-    assert rejected.status == "rejected" and rejected.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert rejected.message.startswith("Both activity slots are occupied by ")
-    assert _name(engine, waited) in rejected.message and _name(engine, watched) in rejected.message
+    watching = _name(engine, watched)
+    assert (walk["available"], walk["reason"]) == (
+        False, f"Conclude or pause the current activities {watching} before departure.")
+    rejected = _depart(engine, "depart-beside-paused")
+    assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
+    assert rejected.data["reason"] == walk["reason"] and _name(engine, waited) not in rejected.message
+    assert rejected.data["suggested"]["conclude_or_pause"] == [watching]
     assert sessions.current_session(engine.context.state, 1).kind == SessionKind.STAY
     assert engine.context.state.activities[watched].status == ActivityStatus.ACTIVE
 
