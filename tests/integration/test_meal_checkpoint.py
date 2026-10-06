@@ -14,14 +14,13 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request,
                                  context, stage_day_plan, wake_by_mail, start_request, pause_request, report_request)
-from tests.life.test_dayrun_restaurants import RESTAURANT, MEAL, SUPPLY  # noqa: E402
-from tests.life.test_scheduling import _custom_engine  # noqa: E402
+from tests.life.test_dayrun_restaurants import STORE_ID, FOOD_ID, STORE_FOOD_ID  # noqa: E402
+from tests.life.scenario_fixtures import create_engine  # noqa: E402
 from worldmock.footprints.experiences import project_verified_experiences  # noqa: E402
 from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life import sessions  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import ActivityStatus, SessionKind
-from worldmock.life.opening_hours import next_opening_change, opening_status
 
 
 def _action(engine, name: str, tool: str, request):
@@ -77,41 +76,34 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
     """
     def lunch(document):
         document["start_at"] = "2026-01-05T08:00:00+08:00"
+        # 低初始能量让完整食用分录不受身体上限截断，保留精确热量守恒断言。
+        document["body"]["initial_energy_kcal"] = 1200
 
-    engine = _custom_engine("single-person.json", lunch, tmp_path, "meal-checkpoint")
+    engine = create_engine("single-person.json", lunch, tmp_path, "meal-checkpoint")
     try:
         stage_day_plan(engine)
-        _, trip = _start(engine, "travel", "location", RESTAURANT, "步行")
+        _, trip = _start(engine, "travel", "location", STORE_ID, "步行")
         _run_out(engine, trip.activity_id)
-        location = next(item for item in engine.context.scenario.locations if item.location_id == RESTAURANT)
-        opening = engine.context.state.current_time
-        if opening_status(location, opening, engine.context.scenario.timezone) == "closed":
-            opening = next_opening_change(location, opening, engine.context.scenario.timezone)
-        assert opening is not None
-        for step in range(16):
-            if engine.context.state.current_time >= opening:
-                break
-            _, waiting = _start(engine, f"opening-{step}", "self", None, "等待")
-            _run_out(engine, waiting.activity_id)
-        assert engine.context.state.current_time >= opening
-        stock = engine.context.state.supply_stock[SUPPLY]
         balance = engine.context.state.accounts["agent:1"]
-        _, bought = _start(engine, "buy", "supply", SUPPLY, "到店")
+        _, bought = _start(engine, "buy", "supply", STORE_FOOD_ID, "到店")
         paid = bought.data["orders"][0]["total_price_fen"]
         assert advance_until_ready(engine)
-        duration = engine.context.rules.products[MEAL].use_duration_seconds
-        _, meal = _start(engine, "eat", "holding", MEAL, "食用")
+        duration = 1200
+        _, meal = _start(engine, "eat", "holding", FOOD_ID, "食用")
         halfway = wake_by_mail(engine, offset=duration // 2)
         while engine.context.state.current_time < halfway:
+            if engine.scheduling_state().ready_agent_ids:
+                _action(engine, f"meal-continue-{engine.context.state.version}", "report_status",
+                        report_request(activity_name(engine, meal.activity_id), summary="继续吃饭。"))
             advance_next(engine)
-        eaten = engine.context.state.activities[meal.activity_id].data["consumed"][MEAL]
+        eaten = engine.context.state.activities[meal.activity_id].data["consumed"][FOOD_ID]
         assert 0 < eaten < 1
         _action(engine, "pause", "pause_activity", pause_request(
             activity_name(engine, meal.activity_id), summary="这顿饭吃到一半，先停一下。"))
         # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）；暂停的餐食不占名额。
         _, waited = _start(engine, "wait-paused-meal", "self", None, "等待")
         restaurant = sessions.current_session(engine.context.state, 1)
-        assert (restaurant.kind, restaurant.location_id) == (SessionKind.STAY, RESTAURANT)
+        assert (restaurant.kind, restaurant.location_id) == (SessionKind.STAY, STORE_ID)
         assert {meal.activity_id, waited.activity_id} <= set(restaurant.activity_ids)
         wake = wake_by_mail(engine, offset=60)
         snapshot = engine.context.state.model_dump(mode="json")
@@ -121,36 +113,35 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         cutoff = engine.context.store.last_event_seq
         facts_before = project_verified_experiences(engine.context.store.read_events(cutoff), agent_id=1, cutoff_seq=cutoff)
         engine.close()
-        engine = LifeEngine.open(tmp_path / "scenarios" / "custom.json", run_dir)
+        engine = LifeEngine.open(tmp_path / "environment-meal-checkpoint" / "scenarios" / "scenario.json", run_dir)
         assert engine.context.state.model_dump(mode="json") == snapshot
         while engine.context.state.current_time < wake:
             advance_next(engine)
-        assert engine.context.state.activities[meal.activity_id].data["consumed"][MEAL] == eaten
+        assert engine.context.state.activities[meal.activity_id].data["consumed"][FOOD_ID] == eaten
         _action(engine, "end-wait", "conclude_activity", conclude_request(
             activity_name(engine, waited.activity_id), summary="不等了，回去吃饭。"))
         _action(engine, "resume", "report_status", report_request(
             activity_name(engine, meal.activity_id), summary="继续吃完这顿饭。"))
         _run_out(engine, meal.activity_id)
-        assert engine.context.state.activities[meal.activity_id].data["consumed"][MEAL] == 1
-        assert engine.context.state.agents[1].inventory[RESTAURANT][MEAL] == pytest.approx(0)
-        assert engine.context.state.supply_stock[SUPPLY] == stock - 1
+        assert engine.context.state.activities[meal.activity_id].data["consumed"][FOOD_ID] == 1
+        assert engine.context.state.agents[1].inventory[STORE_ID][FOOD_ID] == pytest.approx(0)
         assert engine.context.state.accounts["agent:1"] == balance - paid
         assert len(engine.context.state.deliveries) == 1
         events = engine.context.store.read_events(engine.context.store.last_event_seq)
         facts = project_verified_experiences(events, agent_id=1, cutoff_seq=events[-1].event_seq)
         assert facts[:len(facts_before)] == facts_before
         consumed = [row for row in facts if row["kind"] == "consumed"]
-        assert sum(row["interval_quantity"] for row in consumed) == pytest.approx(1)
-        assert consumed[-1]["cumulative_quantity"] == 1
+        assert sum(row["interval_portion"] for row in consumed) == pytest.approx(1)
+        assert consumed[-1]["cumulative_portion"] == 1
         progresses = [row for row in events if row.event_type == "activity_progress"
                       and row.activity_id == meal.activity_id]
         assert sum(row.data["interval_end"] - row.data["interval_start"] for row in progresses) == duration
         energy_gains = [flow["amount"] for row in progresses for flow in row.data.get("resource_flows", [])
                         if flow["resource"] == "energy_kcal" and flow["cause"] == "food:intake"]
-        expected = sum(row["interval_quantity"] * next(
+        expected = sum(row["interval_portion"] * next(
             event.data["consumption"]["food_efficiency"] for event in progresses
             if event.event_id == row["source_event_id"]) for row in consumed)
-        assert sum(energy_gains) == pytest.approx(expected * engine.context.rules.products[MEAL].energy_kcal_per_unit)
+        assert sum(energy_gains) == pytest.approx(expected * 600)
         lifecycle = [row.data["kind"] for row in events if row.event_type == "environment_event"
                      and row.activity_id == meal.activity_id]
         assert lifecycle == ["activity_paused", "activity_resumed", "activity_concluded"]

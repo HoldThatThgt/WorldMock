@@ -27,7 +27,8 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
-from worldmock.life.run_identity import category_identity
+from worldmock.life.engine import LifeEngine
+from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
 from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _cleanup_runtime, _contact_profile, _execute, _intervention_sha256, _ops_crash_log, _pending_reply_requests, _prepare_new_run, _prepare_resume, _require_custom_modules, _require_runtime_identity, _require_run_shell, _terminate_failed_actor, parse_contact_reply, prepare_contact_reply, resume_world, replay_world, run_world
 from worldmock.run_setup import _configure_process, _model_identity, _prepend_pythonpath, _read_deepseek_key, _require_loaded_config, runtime_code_sha256
@@ -317,53 +318,30 @@ def test_prepare_new_run_rejects_catalog_admission(tmp_path, monkeypatch):
     """目录准入七条规则任一违例即拒绝启动。"""
     import worldmock.runtime as runtime
 
-    monkeypatch.setattr(runtime, "validate_scenario_against_catalog", lambda refs, catalog:
-                        SimpleNamespace(ok=False, violations=(
-                            SimpleNamespace(code="X", detail="violation"),)))
+    def reject(scenario, catalog):
+        """@brief 唯一登记器的拒绝必须向真实启动准备入口传播。"""
+        raise IntegrityError("Scenario rejected by catalog")
+
+    monkeypatch.setattr("worldmock.catalog.admission.validate_scenario_against_catalog", reject)
     request = RunRequest(ROOT, SCENARIO, tmp_path / "run", "identity", "identity")
     with pytest.raises(IntegrityError, match="rejected by catalog"):
         _prepare_new_run(request)
 
 
-def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
-                     missing=(), agent_initialized=False):
-    """按测试需要写入最小严格 LifeAgent 工作区。"""
-    workspace = tmp_path / "agent"
-    workspace.mkdir()
-    agent = agent_document if agent_document is not None else {
-        "schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1,
-        "initialized_at": "2026-01-01T00:00:00+00:00" if agent_initialized else None,
-        "profile": {"id": 1, "same_second_continuation": True}}
-    config = config_document if config_document is not None else {"enable_memory": True, "max_react_turns": 16}
-    if "AGENT.json" not in missing:
-        (workspace / "AGENT.json").write_text(
-            agent if isinstance(agent, str) else json.dumps(agent))
-    if "config.json" not in missing:
-        (workspace / "config.json").write_text(
-            config if isinstance(config, str) else json.dumps(config))
-    return workspace
-
-
 def _parent_store(tmp_path, workspace_builder=None, snapshots_override=None):
     """建立带可恢复检查点的父运行（当前模型/代码身份）。"""
-    from worldmock.run_setup import stage_model_identity
-
-    semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
-    manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
-                "model_identity": _model_identity().model_dump(mode="json"),
-                "stage_model_identity": stage_model_identity(),
-                "code_sha256": runtime_code_sha256(ROOT),
-                "scenario_sha256": scenario_sha256,
-                **category_identity(semantics)}
-    state = {"version": 0, "current_time": 1767225600}
-    parent = FootprintStore.create(tmp_path / "parent", manifest, state)
-    workspace = (workspace_builder or _agent_workspace)(tmp_path)
+    semantics, _ = load_runtime_scenario(SCENARIO)
+    identity = current_run_identity(semantics.scenario, "parent")
+    engine = LifeEngine.create(SCENARIO, tmp_path / "parent", identity,
+                               worldmock_run_setup_module.stage_model_identity())
+    parent = engine.context.store
+    state = engine.context.state.model_dump(mode="json")
+    workspace = workspace_builder(tmp_path) if workspace_builder else write_agent_workspace(tmp_path / "agent")
     snapshots = snapshots_override if snapshots_override is not None else {
         "agent:1": snapshot_directory(workspace, parent.assets),
-        "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"}),
+        "life": parent.assets.put_json({"state_version": state["version"]}, {"kind": "life_checkpoint"}),
     }
-    checkpoint = parent.checkpoint(state, snapshots)
-    return parent, checkpoint
+    return parent, parent.checkpoint(state, snapshots)
 
 
 def test_prepare_resume_restores_branch_and_logs_resume(tmp_path):
@@ -574,8 +552,6 @@ def test_terminate_failed_actor_preserves_double_fault(monkeypatch):
     assert [type(item) for item in caught.value.exceptions] == [ValueError, OSError]
 
 
-
-
 def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
     """scanner 真实通过 LifeAgent 与 LifeEnv；错误结果拒绝。"""
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
@@ -596,8 +572,8 @@ def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
     assert worldmock_run_setup_module._compile_persona(quiet) is None
     card = SimpleNamespace()
     compiled = SimpleNamespace(card=card, warnings=("field_agreement_below_two_thirds: ['coping']",))
-    monkeypatch.setattr(worldmock_run_setup_module, "compile_persona", lambda story: compiled)
-    monkeypatch.setattr(worldmock_run_setup_module, "render_card", lambda value: "rendered-card")
+    monkeypatch.setattr("worldmock.profile.compile.compile_persona", lambda story: compiled)
+    monkeypatch.setattr("worldmock.profile.textgen.render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
     assert worldmock_run_setup_module._compile_persona(story_agent) is compiled
     assert worldmock_run_setup_module._compiled_parts(compiled) == (card, compiled.warnings)
@@ -778,14 +754,20 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
     from worldmock.life.models import RunIdentity, SendMessageActionRequest
     from worldmock.life.world_setup import load_scenario
 
-    scenario, _ = load_scenario(SCENARIO)
+    from tests.engine_fixture import _mutated_scenario
+    contact = {"contact_id": "reply-colleague", "salutation": "沈昊", "relation": "colleague",
+               "closeness": 15, "channels": ["message", "phone"], "reply_policy": "model",
+               "receive_location_id": "office"}
+    scenario_path = _mutated_scenario(SCENARIO, lambda document: document["agents"][0].update(contacts=[contact]),
+                                     tmp_path / "scenario")
+    scenario, _ = load_scenario(scenario_path)
     identity = RunIdentity(
         run_id="settle-direct", source_group_id="group-settle-direct",
         agent_ids=tuple(item.agent_id for item in scenario.agents),
         start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
         timezone=scenario.timezone, code_sha256="4" * 64,
         model_identity=_model_identity())
-    engine = LifeEngine.create(SCENARIO, tmp_path / "run", identity)
+    engine = LifeEngine.create(scenario_path, tmp_path / "run", identity)
     try:
         from agentsociety2.society import DecisionContext, DirectToolCall
         from custom.envs.life_env import LifeEnv
@@ -804,10 +786,10 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
         assert results[0].status == "completed"
         # 回复登记为预排送达（裁决 #21）：本轮提交后尚未进入收件箱。
         assert not [item for item in engine.context.state.agents[1].inbox.values()
-                    if item.sender_id == "contact-chenxi-oldfriend"]
+                    if item.sender_id == "reply-colleague"]
         replies = [item.data["message"] for item in engine.context.state.pending_events if item.kind == "message_arrival"]
         assert len(replies) == 1 and replies[0]["text"] == "好啊，老地方见。"
-        assert replies[0]["sender_id"] == "contact-chenxi-oldfriend"
+        assert replies[0]["sender_id"] == "reply-colleague"
         assert built and built[0]["requested_model"] == "deepseek-flash"
     finally:
         engine.close()
@@ -1034,10 +1016,9 @@ def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agent
     from worldmock.life.world_setup import load_scenario
     from worldmock.validation import validate_persona_coverage
 
-    plain = load_scenario(SCENARIO)[0].agents[0].model_copy(update={"background_story": None})
-    scenario = SimpleNamespace(
-        scenario_id="probe", corpus_root=str(ENVIRONMENT_ROOT / "corpora"), agents=[plain],
-        locations=(), contents=(), games=(), routes=(), supplies=(), phone_simulation_config=None)
+    source = load_scenario(SCENARIO)[0]
+    scenario = source.model_copy(update={"agents": tuple(agent.model_copy(update={"background_story": None})
+                                                          for agent in source.agents)})
     document = validate_persona_coverage(
         SCENARIO, _scenario=scenario, _corpus_root=ENVIRONMENT_ROOT / "corpora",
         coverage_out=tmp_path / "persona_coverage.json")
@@ -1045,51 +1026,18 @@ def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agent
     assert json.loads((tmp_path / "persona_coverage.json").read_text())["threshold"] == 0.8
 
 
-def test_scenario_content_kinds_include_declared_games():
-    """场景声明游戏时媒介闭集纳入 game_session。"""
-    from worldmock.profile.coverage_targets import _scenario_content_kinds
+def test_persona_coverage_targets_read_real_registered_food_apps_and_content_kinds():
+    """@brief 画像覆盖直接取真实登记目录，食品、应用和媒介标签与运行一致。"""
+    from worldmock.exchange.types import CONTENT_KIND_LABELS
+    from worldmock.profile.coverage_targets import build_coverage_targets
 
-    plain = SimpleNamespace(contents=[SimpleNamespace(kind="feature_film")], games=None)
-    assert _scenario_content_kinds(plain) == {"feature_film"}
-    gamer = SimpleNamespace(contents=[SimpleNamespace(kind="news_feed")],
-                            games=[SimpleNamespace(game_id="g1")])
-    assert _scenario_content_kinds(gamer) == {"news_feed", "game_session"}
-
-
-def test_corpus_items_tolerates_missing_or_broken_documents(tmp_path):
-    """语料条目读取：缺失与坏文档返回空，items 模式按装载方式展开。"""
-    from worldmock.profile import coverage_targets
-
-    assert coverage_targets._corpus_items(tmp_path, "absent/items.json") == []
-    (tmp_path / "broken.json").write_text("{not json")
-    assert coverage_targets._corpus_items(tmp_path, "broken.json") == []
-    saved = coverage_targets.CONTENT_CORPORA
-    try:
-        coverage_targets.CONTENT_CORPORA = (("weird/items.json", "items"),)
-        (tmp_path / "weird").mkdir()
-        (tmp_path / "weird" / "items.json").write_text(json.dumps({"items": [{"item_id": "i1"}]}))
-        assert coverage_targets._corpus_items(tmp_path, "weird/items.json") == [{"item_id": "i1"}]
-        (tmp_path / "weird" / "items.json").write_text(json.dumps(["plain"]))
-        assert coverage_targets._corpus_items(tmp_path, "weird/items.json") == []
-        coverage_targets.CONTENT_CORPORA = (("movies/items.json", "list"),)
-        (tmp_path / "movies").mkdir(exist_ok=True)
-        (tmp_path / "movies" / "items.json").write_text(json.dumps([{"item_id": "m1"}]))
-        assert coverage_targets._corpus_items(tmp_path, "movies/items.json") == [{"item_id": "m1"}]
-    finally:
-        coverage_targets.CONTENT_CORPORA = saved
-
-
-def test_require_task_assignees_rejects_unassigned_tasks():
-    """任务受理人缺失时按稳定错误码拒绝。"""
-    from worldmock.validation import _require_task_assignees
-
-    scenario = SimpleNamespace(tasks=[SimpleNamespace(
-        task_id="task-1", assignee_agent_id=None, input_path="materials/contract.pdf")])
-    with pytest.raises(IntegrityError, match="Task assignee admission rejected"):
-        _require_task_assignees(scenario)
-    valid = SimpleNamespace(tasks=[SimpleNamespace(
-        task_id="task-1", assignee_agent_id="1", input_path="materials/contract.pdf")])
-    _require_task_assignees(valid)
+    semantics, _ = load_runtime_scenario(SCENARIO)
+    root = (SCENARIO.parent / semantics.scenario.corpus_root).resolve()
+    targets = build_coverage_targets(semantics.scenario, semantics.catalog, root)
+    assert targets.food_kinds == tuple(sorted(food.name for food in semantics.catalog.foods.values()))
+    assert targets.app_names == tuple(sorted(app.name for app in semantics.catalog.apps.values()))
+    assert targets.media_kinds == tuple(CONTENT_KIND_LABELS.values())
+    assert set(place.display_name for place in semantics.catalog.locations.values()) <= set(targets.habit_response_keywords)
 
 
 # ---------------------------------------------------------------------------
@@ -1356,16 +1304,16 @@ def test_cli_profile_compile_writes_output_file(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("workspace_builder, message", [
-    (lambda tmp: _agent_workspace(tmp, missing=("AGENT.json",)),
+    (lambda tmp: write_agent_workspace(tmp / "agent", missing=("AGENT.json",)),
      "artifact is missing or unsafe"),
-    (lambda tmp: _agent_workspace(tmp, agent_document="{damaged", config_document={}),
+    (lambda tmp: write_agent_workspace(tmp / "agent", agent_document="{damaged", config_document={}),
      "artifact is invalid"),
-    (lambda tmp: _agent_workspace(tmp, agent_document={"schema_version": 2,
+    (lambda tmp: write_agent_workspace(tmp / "agent", agent_document={"schema_version": 2,
                                                        "agent_class": "LifeAgent",
                                                        "agent_id": 1, "initialized_at": None},
                                    config_document={}),
      "does not match the manifest"),
-    (lambda tmp: _agent_workspace(tmp, config_document={"enable_memory": False}),
+    (lambda tmp: write_agent_workspace(tmp / "agent", config_document={"enable_memory": False}),
      "must keep memory enabled"),
 ])
 def test_restore_rejects_invalid_agent_workspaces(tmp_path, workspace_builder, message):
@@ -1387,7 +1335,7 @@ def test_restore_rejects_missing_changed_or_wrong_type_agent_budget(tmp_path, bu
     if budget is not None:
         config["max_react_turns"] = budget
     parent, checkpoint = _parent_store(
-        tmp_path, workspace_builder=lambda path: _agent_workspace(path, config_document=config))
+        tmp_path, workspace_builder=lambda path: write_agent_workspace(path / "agent", config_document=config))
     try:
         with pytest.raises(IntegrityError, match="max_react_turns must match"):
             _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "parent",

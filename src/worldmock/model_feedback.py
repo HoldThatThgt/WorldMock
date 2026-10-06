@@ -36,24 +36,20 @@ def _field(value: Any, name: str) -> Any:
     return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)
 
 
-def tool_arguments(calls: Any, tool: str, error_type: type[Exception], work_review: bool = False) -> str:
-    """@brief 核对唯一指定工具调用并提取原始 JSON 参数，工作验收另核对调用句柄。"""
+
+
+def tool_arguments(calls: Any, tool: str, error_type: type[Exception]) -> str:
+    """@brief 核对唯一指定工具调用并提取原始 JSON 参数。"""
     message = None
     if not isinstance(calls, list) or len(calls) != 1:
-        message = ("Work review response must contain exactly one tool call" if work_review
-                   else f"response must contain exactly one {tool} tool call")
-    elif work_review and (_field(calls[0], "type") != "function"
-                          or not isinstance(_field(calls[0], "id"), str) or not _field(calls[0], "id").strip()):
-        message = "Work review tool call requires a non-empty id and function type"
+        message = f"response must contain exactly one {tool} tool call"
     else:
         function = _field(calls[0], "function")
         arguments = _field(function, "arguments")
         if _field(function, "name") != tool:
-            message = (f"Work review response must call {tool}" if work_review
-                       else f"the only tool call must be {tool}")
+            message = f"the only tool call must be {tool}"
         elif not isinstance(arguments, str):
-            message = ("Work review tool arguments must be JSON text" if work_review
-                       else f"{tool} arguments must be a JSON string")
+            message = f"{tool} arguments must be a JSON string"
         else:
             return arguments
     if not issubclass(error_type, WorldMockError):

@@ -10,7 +10,7 @@ import pytest
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.errors import IntegrityError
-from worldmock.life.vocabulary import ACTION_WAYS, CONTENT_WAYS, LIFE_VERBS, PURCHASE_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS
+from worldmock.life.vocabulary import ACTION_WAYS, LIFE_VERBS, PURCHASE_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import InteractionMenu, activity_phrase, binding_action, menu_allows_action, merged_selection, public_action
 from tests.life.conftest import select_start, start_arguments
@@ -41,11 +41,8 @@ def test_every_way_maps_to_one_verb_and_covers_every_internal_action():
     assert {WAYS[way] for way in TRAVEL_WAYS.values()} == {("travel", "travel_to")}
     assert {WAYS[way] for way in PURCHASE_WAYS.values()} == {("obtain", "purchase")}
     assert {WAYS[way] for way in USE_WAYS.values()} == {("consume", "consume")}
-    assert WAYS["制作"] == ("obtain", "consume")
     assert WAYS["睡觉"] == ("sleep", "sleep") and WAYS["等待"] == ("interact", "wait")
-    assert set(CONTENT_WAYS.values()) == {"接着看", "从头再看", "接着听", "从头再听"}
-    assert {WAYS[way] for way in CONTENT_WAYS.values()} == {("interact", "watch")}
-    for retired in ("步行前往", "驾车前往", "到店购买", "配送到当前位置", "travel_to", "wait"):
+    for retired in ("步行前往", "驾车前往", "到店购买", "配送到当前位置", "travel_to", "wait", "制作", "接着看", "从头再看", "接着听", "从头再听"):
         assert retired not in WAYS
 
 
@@ -60,27 +57,24 @@ def test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_priva
     delivery = binding_action("远程下单", "purchase", fulfillment="delivery")
     assert delivery["fulfillment"] == "delivery" and delivery["travel_mode"] is None
     assert public_action(delivery) == {"action": "obtain：远程下单", "note": None}
-    cook = binding_action("制作", "consume", use_mode="use")
-    assert cook["use_mode"] == "use" and public_action(cook)["action"] == "obtain：制作"
-    assert public_action(binding_action("接着看", "watch"))["action"] == "interact：接着看"
+    assert public_action(binding_action("打开", "use_app"))["action"] == "interact：打开"
     with pytest.raises(IntegrityError):
         binding_action("步行", "wait")
     assert activity_phrase(drive) == "驾车前往"
     assert activity_phrase(binding_action("步行", "travel_to", travel_mode="walking")) == "步行前往"
-    assert activity_phrase(binding_action("从头再看", "watch")) == "从头再看"
+    assert activity_phrase(binding_action("打开", "use_app")) == "打开"
 
 
 def test_merged_selection_combines_one_order_or_one_meal_only():
     """两项同为方式相同的取得合成一单，同为方式相同的使用合成一餐；到店与远程下单不合成一单，「制作」一次只做一件、
     不合并；其余两项各自开始。"""
-    assert merged_selection(["watch"], ["接着看"])
+    assert merged_selection(["use_app"], ["打开"])
     assert merged_selection(["purchase", "purchase"], ["到店", "到店"])
     assert merged_selection(["purchase", "purchase"], ["远程下单", "远程下单"])
     assert not merged_selection(["purchase", "purchase"], ["到店", "远程下单"])
     assert merged_selection(["consume", "consume"], ["食用", "食用"])
-    assert not merged_selection(["consume", "consume"], ["制作", "制作"])
     assert not merged_selection(["consume", "consume"], ["食用", "使用"])
-    assert not merged_selection(["travel_to", "watch"], ["驾车", "接着听"])
+    assert not merged_selection(["travel_to", "use_app"], ["驾车", "打开"])
     assert not merged_selection(["work", "consume"], ["工作", "食用"])
 
 
@@ -90,7 +84,8 @@ def test_scenario_menus_admit_only_current_start_actions():
     for menu in scenario.interaction_menus_by_location_kind.values():
         assert set(menu.allowed_actions) <= START_ACTIVITY_ACTIONS
         assert {"wait", "sleep"} <= set(menu.allowed_actions)
-    assert {"submit_work", "send_message"} <= set(REQUEST_MODELS)
+    assert "send_message" in REQUEST_MODELS
+    assert "submit_work" not in REQUEST_MODELS
 
 
 def test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions():
@@ -119,7 +114,7 @@ def test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_a
     assert not menu_allows_action(menu, "start_activity", ["wait", "travel_to"])
     assert not menu_allows_action(menu, "start_activity", [])
     assert menu_allows_action(menu, "start_activity", ["wait"])
-    assert menu_allows_action(menu, "submit_work", [])
+    assert menu_allows_action(menu, "send_message", [])
     with pytest.raises(ValueError):
         InteractionMenu(allowed_actions=("sleep", "submit", "wait"))
     with pytest.raises(ValueError):

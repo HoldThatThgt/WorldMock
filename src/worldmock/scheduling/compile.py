@@ -1,7 +1,7 @@
 """@brief 场景材料到时间有序预排表的确定性编译（docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎「预排事件」）。
 
-加载时把邮件、任务、日历、资金、供给报价边界与补货编译为确定事件；
-引擎按模拟时刻、序号与稳定身份依次处理，不通过周期轮询更新供给。
+加载时把邮件、日历、账单、工资与应用推送编译为确定事件；
+引擎按模拟时刻、序号与稳定身份依次处理，不通过周期轮询生成事实。
 """
 
 from __future__ import annotations
@@ -32,16 +32,6 @@ def compile_schedule(scenario: RuntimeScenario, start: int, end: int) -> list[Sc
         if start < due < end:
             rows.append((due, message.recipient_agent_id, ScheduledKind.MAIL_ARRIVAL,
                          {"message_id": message.message_id}, f"mail-{message.message_id}"))
-    for task in scenario.tasks:
-        due = int(task.available_at.timestamp())
-        if start < due < end:
-            agent_id = int(task.assignee_agent_id.removeprefix("agent:"))
-            rows.append((due, agent_id, ScheduledKind.WORK_AVAILABLE,
-                         {"task_id": task.task_id}, f"work-{task.task_id}-{agent_id}"))
-        deadline = int(task.due_at.timestamp())
-        if start < deadline <= end:
-            rows.append((deadline, None, ScheduledKind.TASK_EXPIRED,
-                         {"task_id": task.task_id}, f"expired-{task.task_id}"))
     rows.extend(_calendar_rows(scenario, start, end))
     rows.extend(_bill_rows(scenario, start, end))
     rows.extend(_payroll_rows(scenario, start, end))

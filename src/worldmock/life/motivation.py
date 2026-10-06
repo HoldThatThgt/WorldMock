@@ -1,24 +1,7 @@
-"""@brief 动机评分层：为决策时刻枚举有界候选行为并按四分量打分。
+"""@brief 只读枚举真实可做活动，按内稳态、习惯、情绪与成本给出候选参考。
 
-求值器按“内稳态 + 习惯 + 情绪 − 成本”四分量给每个候选行为打分，softmax(V/tau)
-只作排序参考，top-k 连同相对呈现（rank、softmax 概率、四分量权衡）与英文
-理由写入 observation.data.motivation_internal（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：内部
-仪表不进提示，只供评估与研究）。不暴露绝对总分，负分会被模型误读成
-“不值得做”。提示是建议不是账：求值只读状态，任何失败都在引擎侧
-fail-open（不注入、不崩），结算路径完全不感知本模块。
-
-评分器口径（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）：成本按候选时长归一（单位小时效用），
-价格只在成本项计一次；进食候选按热量门槛/缺口匹配取前三；同一娱乐
-家族至多两条候选，娱乐需要低于 0.3 时不生成娱乐候选；生活活动只从
-人物启用集采样并按 effects 折算缓解；近 24 小时已食用商品按 1/(1+次数)
-降权（Rolls 1981 感官特异性饱足）；候选偏好权重来自 taste_weights
-（画像编译 v2 的确定性口味匹配，无缺省抬升），排序用原始权重，观看与游戏的
-缓解预演按有效偏好 f + (1 − f)·w、有缓解时不再累积，与结算同式
-（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
-
-通用变换形状（前景指数、归一尺度、时间价值、习惯权重）来自
-catalog/rules/motivation.toml；个体参数（weights/tau/beta/loss_aversion/
-comfort/emotion_sensitivity/attention_prior）来自场景 agents[].motivation 档案。
+食品候选按实际热量缺口生成，app 缓解读取固定内容分类，工作目标读取真实累计秒数。
+通用评分参数来自冻结规则，人物参数来自场景动机档案，候选不会改变世界状态。
 """
 
 from __future__ import annotations
@@ -46,7 +29,6 @@ from worldmock.life.activities import entertainment_relief_rate, lifestyle_relie
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
     entertainment_need_rate,
-    interpolate,
     maximum_energy_duration_seconds,
     minimum_energy_cost,
 )
@@ -54,7 +36,7 @@ from worldmock.life.content import (
     LifestyleItem,
 )
 from worldmock.base_models import FrozenModel
-from worldmock.catalog.models import Catalog
+from worldmock.catalog.models import Catalog, WorkTopic
 from worldmock.exchange.constants import FOOD_CONSTANTS
 from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.exchange.types import FoodCategory
@@ -65,7 +47,6 @@ from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import (
     BodyConfig,
     MotivationProfile,
-    RuntimeWorkTask,
 )
 
 #: 可供性注册表视图（冻结文件加载一次；家族闭集、习惯归并路由、枚举序、
@@ -185,15 +166,16 @@ class MotivationContext:
     menu: InteractionMenu
     lifestyle_items: tuple[LifestyleItem, ...]
     activity_location_kinds: Mapping[str, frozenset[str]]
-    tasks: tuple[RuntimeWorkTask, ...]
-    task_totals: Mapping[str, tuple[int, float]]
+    work_topics: tuple[WorkTopic, ...]
+    topic_totals: Mapping[str, int]
+    workplace_location_id: str | None
     #: 继续活动只读取实际进行中的活动，不从应用内容目录生成候选。
     active_activities: tuple[ActivityState, ...]
     habit_events: tuple[tuple[str, Mapping], ...]
     consecutive_rejections: int
     #: 同刻决策上限（场景 max_same_moment_decisions）：受挫度的分母。
     max_same_moment_decisions: int
-    total_effective_seconds: float
+    total_work_seconds: int
     current_time: int
     end_time: int
     timezone: str
@@ -217,7 +199,7 @@ class _Candidate:
     energy_delta: float = 0.0
     sleep_deficit_delta: float = 0.0
     entertainment_delta: float = 0.0
-    goal_effective_seconds: float = 0.0
+    goal_work_seconds: float = 0.0
     comfort_type: bool = False
     work_type: bool = False
 
@@ -279,29 +261,15 @@ def _emotion_state(context: MotivationContext, profile: MotivationProfile) -> tu
     """@brief v1 简化情绪评估：受挫度与目标缺口，各自线性落在 [0,1]。
 
     受挫度 = 连续拒绝次数 / 同刻上限，截到 1（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「实现约定」）；
-    目标缺口 = 1 - 有效工时进度比（累计口径，按日切窗需要日粒度足迹聚合，v1 先用累计对单日志向的比值，注明简化）。
+    目标缺口 = 1 - 实际工时进度比（累计口径，按日切窗需要日粒度足迹聚合，v1 先用累计对单日志向的比值，注明简化）。
     """
     frustration = (min(1.0, context.consecutive_rejections / context.max_same_moment_decisions)
                    if context.max_same_moment_decisions > 0 else 0.0)
-    aspiration_seconds = max(1.0, float(profile.aspiration["daily_effective_work_seconds"]))
-    progress = min(1.0, context.total_effective_seconds / aspiration_seconds)
+    aspiration_seconds = max(1.0, float(profile.aspiration["daily_work_seconds"]))
+    progress = min(1.0, context.total_work_seconds / aspiration_seconds)
     return frustration, 1.0 - progress
 
 
-def _work_efficiency_snapshot(body: BodyConfig, energy_kcal: float,
-                              sleep_deficit_hours: float,
-                              entertainment_need: float) -> float:
-    """@brief 以给定身体状态取工作效率因子起点插值连乘（工具因子不适用）。
-
-    因子的输入资源名是目录标识（body.CATALOG_SLEEP_RESOURCE 口径）：
-    "sleep_debt_hours" 与 "sleep_deficit_hours" 都解析到不足账数值。
-    """
-    values = {"sleep_deficit_hours": sleep_deficit_hours, "sleep_debt_hours": sleep_deficit_hours,
-              "energy_kcal": energy_kcal, "entertainment_need": entertainment_need}
-    product = 1.0
-    for factor in body.work_efficiency_factors:
-        product *= interpolate(factor.curve, values[factor.input_resource])
-    return product
 
 
 def _awake_deficit_delta(body_state, hours: float) -> float:
@@ -331,10 +299,10 @@ def _homeostatic(candidate: _Candidate, context: MotivationContext,
     energy_after = agent.body.energy_kcal + candidate.energy_delta
     deficit_after = agent.body.sleep_deficit_hours + candidate.sleep_deficit_delta
     fun_after = agent.body.entertainment_need + candidate.entertainment_delta
-    aspiration_seconds = max(1.0, float(profile.aspiration["daily_effective_work_seconds"]))
-    goal_now = min(1.0, context.total_effective_seconds / aspiration_seconds) - 1.0
-    goal_after = min(1.0, (context.total_effective_seconds
-                           + candidate.goal_effective_seconds) / aspiration_seconds) - 1.0
+    aspiration_seconds = max(1.0, float(profile.aspiration["daily_work_seconds"]))
+    goal_now = min(1.0, context.total_work_seconds / aspiration_seconds) - 1.0
+    goal_after = min(1.0, (context.total_work_seconds
+                           + candidate.goal_work_seconds) / aspiration_seconds) - 1.0
     coordinates = (
         ("money_fen", (context.balance_fen - profile.comfort["balance_fen"]) / transforms.money_scale_fen,
          (money_after - profile.comfort["balance_fen"]) / transforms.money_scale_fen),
@@ -565,14 +533,7 @@ def _continue_candidate(context: MotivationContext, activity: ActivityState) -> 
         energy_delta = max(0.0, min(rate * hours, headroom)) - burn
     debt_delta = _sleep_deficit_delta(context, activity.kind, hours)
     fun_delta = _entertainment_delta(context, activity, hours)
-    goal_seconds = 0.0
-    if activity.kind == ActivityKind.WORK:
-        efficiency = _work_efficiency_snapshot(
-            context.body, context.agent.body.energy_kcal,
-            context.agent.body.sleep_deficit_hours, context.agent.body.entertainment_need)
-        skill = float(context.agent.skill_levels.get(
-            activity.data.get("required_skill", ""), 0) or 0)
-        goal_seconds = remaining * efficiency * skill
+    goal_seconds = remaining if activity.kind == ActivityKind.WORK else 0
     minutes = remaining / 60
     summary = f"Continue {activity.kind.value} for {minutes:.0f} min"
     reason = (f"Continuing current {activity.kind.value} activity for {minutes:.0f} min"
@@ -587,7 +548,7 @@ def _continue_candidate(context: MotivationContext, activity: ActivityState) -> 
         energy_delta=energy_delta,
         sleep_deficit_delta=debt_delta,
         entertainment_delta=fun_delta,
-        goal_effective_seconds=goal_seconds,
+        goal_work_seconds=goal_seconds,
         comfort_type=activity.kind in {ActivityKind.USE_APP})
 
 
@@ -664,70 +625,34 @@ def _travel_candidate(context: MotivationContext, label: str,
 
 def _work_candidates(context: MotivationContext,
                      params: Mapping) -> tuple[_Candidate | None, list[_Candidate]]:
-    """@brief 工作候选：至多 max_tasks 个报酬最高的可用任务，外加去工作地点的出行腿。
-
-    可用口径与 validate_work_start 一致（可见、有效期内、技能达标）；工作
-    候选只在人物已位于任务地点时给出，否则给出去该地点的出行候选。
-    """
-    agent = context.agent
-    now = context.current_time
-    available = []
-    for task in context.tasks:
-        if now >= int(task.due_at.timestamp()):
-            continue
-        if agent.skill_levels.get(task.required_skill, 0) < task.minimum_skill:
-            continue
-        available.append(task)
-    available.sort(key=lambda item: (-item.pay_fen, item.task_id))
+    """@brief 未完成主题按身份稳定取有限候选，在工作地点以外只生成一条实际出行候选。"""
+    available = [topic for topic in context.work_topics
+                 if topic.target_seconds - context.topic_totals[topic.topic_id] >= 60]
+    available.sort(key=lambda topic: topic.topic_id)
     if not available:
         return None, []
-    travel = None
-    work: list[_Candidate] = []
-    for task in available[:params["max_tasks"]]:
-        if agent.location_id != task.required_location_id:
-            if travel is None:
-                travel = _travel_candidate(context, f"work ({task.task_id})",
-                                           task.required_location_id)
-            continue
-        worked, effective = context.task_totals.get(task.task_id, (0, 0.0))
-        candidate = _work_slot_candidate(context, task, worked, effective, now)
-        if candidate is not None:
-            work.append(candidate)
-    return travel, work
+    if context.agent.location_id != context.workplace_location_id:
+        return _travel_candidate(context, "workplace", context.workplace_location_id), []
+    work = [_work_slot_candidate(context, topic, context.topic_totals[topic.topic_id])
+            for topic in available[:params["max_tasks"]]]
+    return None, [candidate for candidate in work if candidate is not None]
 
 
-def _work_slot_candidate(context: MotivationContext, task: RuntimeWorkTask,
-                         worked: int, effective: float, now: int) -> _Candidate | None:
-    """@brief 在任务地点的一个工作候选：时长槽、折现报酬与目标进度。"""
+def _work_slot_candidate(context: MotivationContext, topic: WorkTopic,
+                         worked: int) -> _Candidate | None:
+    """@brief 工作主题候选按真实时长推进目标；工资独立结算，不把主题虚构为付费任务。"""
     agent = context.agent
-    slot = min(task.maximum_duration_seconds - worked,
-               maximum_energy_duration_seconds(ActivityKind.WORK,
-                                               agent.body.energy_kcal, context.body),
-               int(task.due_at.timestamp()) - now, MAX_CANDIDATE_SECONDS)
+    slot = min(topic.target_seconds - worked,
+               maximum_energy_duration_seconds(ActivityKind.WORK, agent.body.energy_kcal, context.body),
+               MAX_CANDIDATE_SECONDS)
     if slot < 60:
         return None
-    efficiency = _work_efficiency_snapshot(
-        context.body, agent.body.energy_kcal, agent.body.sleep_deficit_hours,
-        agent.body.entertainment_need) * agent.skill_levels[task.required_skill]
-    goal_seconds = slot * efficiency
-    required = max(1.0, task.required_effective_seconds)
-    already = min(1.0, effective / required)
-    after = min(1.0, (effective + goal_seconds) / required)
-    deferred = float(task.pay_fen) * (after - already)
     hours = slot / 3600
     burn = minimum_energy_cost(ActivityKind.WORK, slot, context.body)
-    return _Candidate(
-        family=FAMILY_WORK,
-        summary=f"Work task {task.task_id} for {slot / 60:.0f} min",
-        reason=(f"Working {task.task_id} for {slot / 60:.0f} min yields about "
-                f"{round(deferred)} fen and advances goal progress"),
-        money_deferred_fen=deferred,
-        duration_seconds=slot,
-        energy_delta=-burn,
-        sleep_deficit_delta=_awake_deficit_delta(agent.body, hours),
-        entertainment_delta=_entertainment_accrual(context, hours),
-        goal_effective_seconds=goal_seconds,
-        work_type=True)
+    return _Candidate(family=FAMILY_WORK, summary=f"Work topic {topic.topic_id} for {slot / 60:.0f} min",
+        reason=f"Working on {topic.topic_id} for {slot / 60:.0f} min advances actual work hours",
+        duration_seconds=slot, energy_delta=-burn, sleep_deficit_delta=_awake_deficit_delta(agent.body, hours),
+        entertainment_delta=_entertainment_accrual(context, hours), goal_work_seconds=slot, work_type=True)
 
 
 
@@ -848,7 +773,7 @@ def _continue_current_adapter(context: MotivationContext, profile: MotivationPro
 def _cheapest_route_adapter(context: MotivationContext, profile: MotivationProfile,
                             family: FamilySpec) -> list[_Candidate]:
     """@brief cheapest_route 原型：可负担最低票价出行腿（travel 家族；
-    destination=home；task_location 腿内建在 task_slot 原型里）。"""
+    destination=home；工作地点出行腿由 task_slot 原型生成）。"""
     label = family.generator_params.get("destination", "home")
     candidate = _travel_candidate(context, label, context.home_location_id)
     return [candidate] if candidate is not None else []
@@ -864,7 +789,7 @@ def _content_menu_adapter(context: MotivationContext, profile: MotivationProfile
 
 def _task_slot_adapter(context: MotivationContext, profile: MotivationProfile,
                        family: FamilySpec) -> list[_Candidate]:
-    """@brief task_slot 原型：去工作地点出行腿 + 至多 max_tasks 个任务候选
+    """@brief task_slot 原型：工作地点出行腿与有界工作主题候选
     （work 家族；出行腿排在任务前，与现行枚举序一致）。"""
     travel, work = _work_candidates(context, family.generator_params)
     return [candidate for candidate in (travel, *work) if candidate is not None]

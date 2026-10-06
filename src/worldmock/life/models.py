@@ -6,7 +6,7 @@ from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.vocabulary import way_options
 from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
-from worldmock.base_models import StrictModel, FrozenModel, CurvePoint, EfficiencyFactor
+from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError, reject_value
 import logging
 import re
@@ -260,12 +260,6 @@ class TravelMode(StrEnum):
     WALKING = "walking"
 
 
-class ContractKind(StrEnum):
-    """@brief 工作合同的计酬方式。"""
-
-    PACKAGE = "package"
-    HOURLY = "hourly"
-    PIECE = "piece"
 
 
 
@@ -323,7 +317,7 @@ class SessionTaskKind(StrEnum):
     """@brief 活动关联的任务类型闭集（从原会话移到活动）。"""
 
     GOAL = "goal"
-    WORK_TASK = "work_task"
+    WORK_TOPIC = "work_topic"
     NONE = "none"
 
 
@@ -400,12 +394,10 @@ class AgentState(StrictModel):
     name: str = Field(min_length=1)
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
-    skill_levels: dict[str, float] = Field(default_factory=dict)
     body: BodyState
     inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)
     body_settled_at: int = Field(ge=0)
-    delivered_warning_signatures: set[str] = Field(default_factory=set)
     next_decision_at: int = Field(ge=0)
     # 连续业务拒绝次数：只作动机层挫败感的输入，不参与唤醒与冷却。
     consecutive_rejections: int = Field(default=0, ge=0)
@@ -415,13 +407,11 @@ class AgentState(StrictModel):
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
-    visible_task_ids: set[str] = Field(default_factory=set)
     # 决策节律簿记（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）
     # ：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
     people_at_last_decision: frozenset[str] = frozenset()
-    known_task_ids: set[str] = Field(default_factory=set)
     pending_wake_reasons: list[str] = Field(default_factory=list)
     # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
@@ -438,17 +428,11 @@ class AgentState(StrictModel):
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
-    # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）：
-    # 自上次决策以来新读到的区间，单次 ≤2000 字符。
-    material_reveals: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_serializer(
         "active_effects",
         "read_message_ids",
         "visible_message_ids",
-        "visible_task_ids",
-        "known_task_ids",
-        "delivered_warning_signatures",
         "plan_submitted_dates",
         "read_inbox_ids",
         "people_at_last_decision",
@@ -474,7 +458,6 @@ class ActivityState(StrictModel):
     last_settled_at: int = Field(ge=0)
     elapsed_seconds: int = Field(ge=0)
     planned_duration_seconds: int = Field(gt=0)
-    effective_work_seconds: float = Field(default=0, ge=0)
     media_position_seconds: float = Field(default=0, ge=0)
     route_progress_meters: float = Field(default=0, ge=0)
     next_interaction_at: int | None = Field(default=None, ge=0)
@@ -536,11 +519,11 @@ CONCLUDABLE_TERMINAL_STATUSES = frozenset({ActivityStatus.COMPLETED, ActivitySta
 
 
 def _validate_task_reference(kind: SessionTaskKind, reference: str | None, intent: str | None) -> None:
-    """@brief 活动的任务类型与引用配对：none 时无引用，goal/work_task 必带引用，goal 的意图等于引用。"""
+    """@brief 活动的任务类型与引用配对：none 时无引用，goal/work_topic 必带引用，goal 的意图等于引用。"""
     if kind == SessionTaskKind.NONE and reference is not None:
         raise ValueError("task_ref must be null when task_kind is none")
     if kind != SessionTaskKind.NONE and reference is None:
-        raise ValueError("task_ref required for goal and work_task")
+        raise ValueError("task_ref required for goal and work_topic")
     if kind == SessionTaskKind.GOAL and intent != reference:
         _LOGGER.error("Goal activity intent disagrees with its task reference")
         raise ValueError("goal activity intent must match task_ref")
@@ -599,8 +582,6 @@ class PendingAction(StrictModel):
     request_sha256: str = Field(min_length=64, max_length=64)
     requested_event_id: str = Field(min_length=1)
     reused: bool = False
-    work_review: dict[str, Any] | None = None
-    work_review_event_id: str | None = None
 
 
 class DecisionRoundState(StrictModel):
@@ -643,7 +624,6 @@ class WorldState(StrictModel):
     contact_holdings: dict[str, dict[str, float]] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
-    paid_task_ids: set[str] = Field(default_factory=set)
     #: 呈现派生量（docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
@@ -652,10 +632,6 @@ class WorldState(StrictModel):
     random_seed: int
     random_state: str = Field(min_length=1)
 
-    @field_serializer("paid_task_ids", when_used="json")
-    def serialize_world_sets(self, value: set[str]) -> list[str]:
-        """@brief 按稳定顺序编码世界结算集合。"""
-        return sorted(value)
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":
@@ -966,31 +942,8 @@ class StartSocialActivityRequest(FrozenModel):
     duration_minutes: int = Field(gt=0, le=120)
 
 
-class MeetingMinutes(FrozenModel):
-    """@brief AMI 会议整理任务公开要求的结构化成果。"""
-
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema("会议纪要的摘要、决定与行动项。"))
-    summary: str = Field(pattern=r"\S")
-    decisions: tuple[Annotated[str, Field(pattern=r"\S")], ...]
-    action_items: tuple[Annotated[str, Field(pattern=r"\S")], ...]
-
-    @model_validator(mode="after")
-    def validate_text(self) -> "MeetingMinutes":
-        """@brief 拒绝空白摘要、决定或行动项。"""
-        values = (self.summary, *self.decisions, *self.action_items)
-        if any(not value.strip() for value in values):
-            raise ValueError("meeting minutes text must not be blank")
-        return self
 
 
-class SubmitWorkRequest(FrozenModel):
-    """@brief 提交符合当前 AMI 合同公开 Schema 的会议纪要。"""
-
-    task_id: str = Field(pattern=r"\S")
-    deliverable: Annotated[
-        MeetingMinutes,
-        WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation")),
-    ]
 
 
 #: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
@@ -1052,12 +1005,6 @@ class StartActivityRequest(ToolRequestModel):
         return prefer
 
 
-class SubmitWorkActionRequest(ToolRequestModel):
-    """@brief 按人物可读任务名称提交工作成果。"""
-
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
-    task_name: str = Field(pattern=r"\S")
-    deliverable: Annotated[MeetingMinutes, WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation"))]
 
 
 class SendMessageActionRequest(ToolRequestModel):
@@ -1459,7 +1406,6 @@ def rejection_reason_text(error: Exception) -> str:
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "start_activity": StartActivityRequest,
-    "submit_work": SubmitWorkActionRequest,
     "send_message": SendMessageActionRequest,
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,

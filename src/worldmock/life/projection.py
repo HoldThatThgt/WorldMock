@@ -23,7 +23,7 @@ from worldmock.life.vocabulary import ACTION_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
-from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
+from worldmock.life.object_labels import (SELF_LABEL, mail_name, object_label, remote_holding_label,
                                           supply_label)
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
@@ -46,7 +46,7 @@ class ProjectionInputs:
     state: WorldState
     scenario: RuntimeScenario
     agent: AgentState
-    #: 可见未结清、技能够得上且仍列出的任务行；ObservationBuilder 按截止日期及技能条件投影。
+    #: 当前人物已分配、尚未完成的工作主题行。
     task_rows: tuple[dict[str, Any], ...] = ()
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
@@ -305,9 +305,8 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 def _task_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 工作任务对象：开工动作照常列出；过了截止仍列出的任务不列开工动作（永久不能满足）。技能不够的任务
     不在 task_rows 中（观察侧已去掉，不列目标）。"""
-    return [{"object_id": row["task_id"], "kind": "work_task", "name": row["title"],
-             "actions": ["work"] if inputs.state.current_time <= row["due_at"] else []}
-            for row in inputs.task_rows]
+    return [{"object_id": row["topic_id"], "kind": "work_topic", "name": row["topic"],
+             "actions": ["work"]} for row in inputs.task_rows]
 
 
 def _place_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:

@@ -58,3 +58,15 @@ def test_catalog_graph_does_not_recreate_published_edges(loaded_catalog):
     shifted = loaded_catalog.map_data.model_copy(update={"seed": 123456})
     catalog = replace(loaded_catalog, map_data=shifted)
     assert catalog.graph.path("home", "office") == loaded_catalog.graph.path("home", "office")
+
+
+def test_published_graph_attributes_cannot_change_shared_route_distances():
+    """@brief 共享图的边长度和节点属性不能跨世界被改写，结构冻结也必须覆盖属性。"""
+    graph = hand_graph([("a", "b", 301)])
+    with pytest.raises(TypeError):
+        graph._network["a"]["b"]["length_m"] = 1
+    with pytest.raises(TypeError):
+        graph._network.nodes["a"]["name"] = "changed"
+    with pytest.raises(TypeError):
+        graph._network.graph["name"] = "changed"
+    assert graph.distance_meters("a", "b") == 301

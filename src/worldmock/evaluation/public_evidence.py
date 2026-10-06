@@ -263,8 +263,6 @@ def _world_request_shape(
     request: Mapping[str, Any],
 ) -> _Shape | None:
     """@brief 映射一个稳定工具请求并用结果中的对象字段回链。"""
-    if tool_name == "submit_work":
-        return _Shape("work", "submit", "task", _string(request.get("task_name")), {})
     if tool_name == "send_message":
         return _Shape("social", "message", "person", _string(request.get("recipient_name")), {})
     return None
@@ -383,8 +381,6 @@ def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
     started = _start_action(action)
     if started == "purchase":
         return _purchase_result(event, action)
-    if action.tool_name == "submit_work":
-        return _work_result(event, action)
     state = _result_state(event, action)
     rows = [_from_event(event, action.shape, state)]
     if started == "travel_to" and _account_changes(event, action):
@@ -422,23 +418,6 @@ def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
     return rows
 
 
-def _work_result(event: Event, action: _Action) -> list[PublicEvidence]:
-    """@brief 依据独立验收布尔值和实际付款投影工作结果。"""
-    payload = _result_payload(event.data)
-    review = _mapping(payload.get("work_review"))
-    accepted = review.get("accepted")
-    if accepted is True:
-        state = "accepted"
-    elif accepted is False:
-        state = "rejected"
-    else:
-        state = _result_state(event, action)
-    rows = [_from_event(event, action.shape, state)]
-    payment = payload.get("payment_fen")
-    if accepted is True and _positive_integer(payment) and _account_changes(event, action):
-        paid = _Shape("work", "pay", "task", action.shape.object_key, {})
-        rows.append(_from_event(event, paid, "paid"))
-    return rows
 
 
 def _result_state(event: Event, action: _Action) -> str | None:
@@ -477,11 +456,9 @@ def _world_environment(event: Event) -> PublicEvidence | None:
         state = order.get("status") if order.get("status") in {"ready", "delivered"} else kind.removeprefix("delivery_")
         shape = _Shape("purchase", interaction, "order", key, _fulfillment(order.get("fulfillment")))
         return _from_event(event, shape, str(state))
-    if kind in {"work_available", "task_expired"}:
-        interaction = "notify" if kind == "work_available" else "deadline"
-        state = "available" if kind == "work_available" else "reached"
-        shape = _Shape("work", interaction, "task", _string(event.data.get("task_id")), {})
-        return _from_event(event, shape, state)
+    if kind == "work_topic_completed":
+        shape = _Shape("work", "complete", "task", _string(event.data.get("topic_id")), {})
+        return _from_event(event, shape, "completed")
     return None
 
 

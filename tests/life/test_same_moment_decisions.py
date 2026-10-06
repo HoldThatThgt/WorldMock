@@ -22,8 +22,7 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  context, pending_names, progress_calls, settle_day_plans, stage_day_plan,
                                  start_activity, submit_round, target_actions, target_tools, wake_by_mail,
                                  start_request, pause_request, report_request)
-from tests.life.test_scheduling import _custom_engine, _document, _write_scenario
-from tests.life.test_progress_layer_projection import _activity
+from tests.life.scenario_fixtures import create_engine, read_scenario, write_scenario
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import same_moment
@@ -44,6 +43,15 @@ _RESTRICTED = "SAME_MOMENT_ACTION_RESTRICTED"
 _RESTRICTED_REASON = "This same-moment stage only accepts its offered action types."
 
 
+def _contacts(document):
+    """@brief 当前测试明确声明可通话母亲和模型回复老友，不依赖人工环境默认通讯录。"""
+    document["agents"][0]["contacts"] = [
+        {"contact_id": "mother", "salutation": "母亲", "relation": "母亲", "closeness": 24,
+         "channels": ["phone"], "reply_policy": "none"},
+        {"contact_id": "friend", "salutation": "好友", "relation": "朋友", "closeness": 16,
+         "channels": ["phone"], "reply_policy": "model"}]
+
+
 def _act(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1):
     """@brief 单人物按真实顺序观察、登记并结算一轮，返回该人物结果。"""
     _, results = submit_round(engine, {agent_id: (tool, request)}, name)
@@ -57,7 +65,7 @@ def _wait(engine: LifeEngine, name: str, agent_id: int = 1):
 
 def _invalid_start(engine: LifeEngine, name: str, agent_id: int = 1):
     """@brief 选择不存在的对象，得到稳定的业务拒绝 ACTION_REQUEST_INVALID。"""
-    return _act(engine, name, "start_activity", start_activity("观看", "不存在的对象"), agent_id)
+    return _act(engine, name, "start_activity", start_activity("打开", "不存在的对象"), agent_id)
 
 
 def _revise(engine: LifeEngine, name: str):
@@ -111,7 +119,7 @@ def _rounds_at(engine: LifeEngine, moment: int, agent_id: int = 1) -> int:
 def test_run_start_and_instant_action_redecide_in_same_second(engine_factory) -> None:
     """运行开始与瞬时动作之后同一秒再决策；第二轮只记 no_active_activity（规则 2、6）。启动路径的零点计划不是决策，
     之后的首个决策仍带 run_start（第四章「运行时机」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     start = engine.context.state.current_time
     settle_day_plans(engine)
     assert engine.context.state.agents[1].pending_wake_reasons == ["run_start"]
@@ -135,7 +143,7 @@ def test_run_start_and_instant_action_redecide_in_same_second(engine_factory) ->
 def test_activity_end_boundary_offers_no_active_activity_and_redecides(engine_factory) -> None:
     """活动结束的边界兜底 no_active_activity 写入共同身体结算；当秒先给刚结束的活动收尾，之后的瞬时动作同秒再决策
     （规则 2、5；第七章「活动一结束就要结束它」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "end-wait")
     _finish(engine, waited.activity_id, "end-wait")
@@ -163,7 +171,7 @@ def test_activity_end_boundary_offers_no_active_activity_and_redecides(engine_fa
 
 def test_business_rejection_redecides_in_same_second_with_rejection_feedback(engine_factory) -> None:
     """业务拒绝后同一秒再决策，原因按枚举顺序；结果数据用同刻轮次三键（规则 2、6，实现约定）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     now = engine.context.state.current_time
     rejected = _invalid_start(engine, "reject-once")
@@ -182,7 +190,7 @@ def test_business_rejection_redecides_in_same_second_with_rejection_feedback(eng
 
 def test_rejection_with_active_activity_retries_until_limit_then_follows_rhythm(engine_factory) -> None:
     """有进行中活动时业务拒绝在同一秒再给机会，达到上限后按决策节律，不进受限轮（规则 4）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "active-wait")
     wake_by_mail(engine, offset=60)
@@ -213,7 +221,7 @@ def _unavailable_start(observed: dict) -> tuple[str, str, str]:
 def test_rejected_start_stays_in_start_or_resume_and_marks_the_option(engine_factory) -> None:
     """达到上限先只开放开始或恢复；开始被拒后留在原阶段（不再升级为只开放等待），被拒的选项在工具层照原因标不可用；
     之后的等待被受理，同秒轮数不超过上限加三（规则 3，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     now = engine.context.state.current_time
     limit = engine.context.scenario.max_same_moment_decisions
@@ -238,11 +246,9 @@ def test_rejected_start_stays_in_start_or_resume_and_marks_the_option(engine_fac
 
 def test_out_of_bounds_request_is_rejected_and_counted(engine_factory) -> None:
     """绕过本地校验的越界请求以 SAME_MOMENT_ACTION_RESTRICTED 业务拒绝并计入同刻轮数（实现约定）。"""
-    from tests.life.test_category_runtime import _stage_open_market
 
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    _stage_open_market(engine)
     limit = engine.context.scenario.max_same_moment_decisions
     observed = engine.observe(context(engine, "bounds-preview"))
     contact = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "contact")
@@ -266,7 +272,7 @@ def test_out_of_bounds_request_is_rejected_and_counted(engine_factory) -> None:
 
 def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_factory) -> None:
     """start_or_resume 接受开始持续活动与恢复暂停活动；点名未暂停活动（已收尾的活动）的播报越界（规则 3）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     first = _wait(engine, "resume-first-wait")
     _finish(engine, first.activity_id, "resume-first")
@@ -298,7 +304,7 @@ def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_f
         activity_name(engine, second.activity_id), summary="不等了。")).status == "completed"
     _stage_agent(engine, same_moment_rounds=engine.context.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
-    watched = _act(engine, "resume-watch", "start_activity", start_activity("接着看", "内容：Sintel"))
+    watched = _act(engine, "resume-watch", "start_activity", start_activity("打开", "应用：抖音"))
     assert watched.status == "in_progress"
 
 
@@ -310,7 +316,7 @@ def test_feedback_interval_60_bounds_same_second_rounds(tmp_path) -> None:
         """@brief 等待的计划时长取最小的结算间隔。"""
         document["activity_feedback_seconds"] = 60
 
-    engine = _custom_engine("single-person.json", feedback_60, tmp_path, "feedback-60")
+    engine = create_engine("single-person.json", feedback_60, tmp_path, "feedback-60")
     try:
         stage_day_plan(engine)
         limit = engine.context.scenario.max_same_moment_decisions
@@ -343,9 +349,9 @@ def test_feedback_interval_60_bounds_same_second_rounds(tmp_path) -> None:
 
 def test_replay_round_counts_toward_same_moment_rounds(engine_factory) -> None:
     """幂等重放计入同刻轮数、按存档结果同秒再决策，不重做脉冲与连续拒绝计数（规则 9）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    request = start_activity("观看", "不存在的对象")
+    request = start_activity("打开", "不存在的对象")
     first = _act(engine, "replayed", "start_activity", request)
     assert first.status == "rejected"
     body = engine.context.state.agents[1].body
@@ -377,7 +383,7 @@ def test_clock_advances_only_when_everyone_has_an_active_activity(engine_factory
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
-                          2: ("start_activity", start_activity("观看", "不存在的对象"))}, "clock-0")
+                          2: ("start_activity", start_activity("打开", "不存在的对象"))}, "clock-0")
     assert engine.scheduling_state().ready_agent_ids == (2,)
     with pytest.raises(ProtocolError, match="decision is due"):
         advance_next(engine)
@@ -402,7 +408,7 @@ def test_clock_advances_only_when_everyone_has_an_active_activity(engine_factory
 
 def test_report_with_active_activity_does_not_redecide_in_same_second(engine_factory) -> None:
     """有进行中活动时播报成功后不在同一秒再给机会，下一次按决策节律（规则 4）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "report-wait")
     wake_by_mail(engine, offset=300)
@@ -419,7 +425,7 @@ def test_report_with_active_activity_does_not_redecide_in_same_second(engine_fac
 
 def test_wake_reasons_replaced_per_round_single_bedtime_reflection(engine_factory) -> None:
     """醒来那一秒只有首轮（给睡眠收尾）带 wake_from_sleep，之后的同刻轮次按本轮替换原因（规则 6）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     slept = _act(engine, "reflection-sleep", "start_activity", start_activity("睡觉", "自己"))
     assert slept.status == "in_progress"
@@ -445,7 +451,7 @@ def test_sleep_does_not_wake_for_no_active_activity(engine_factory) -> None:
     assert not verdict.decision_offered and verdict.wake_reasons == []
     awake = evaluate_wake_reasons(WakeSnapshot(now=1000, no_active_activity=True))
     assert [item.value for item in awake.wake_reasons] == ["no_active_activity"]
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     slept = _act(engine, "quiet-sleep", "start_activity", start_activity("睡觉", "自己"))
     advance_next(engine)
@@ -464,9 +470,22 @@ def _short_intervals(document: dict) -> None:
     document["progress_report_interval_seconds"] = 86400
 
 
+def _daylight_intervals(document):
+    """@brief 白天与低娱乐需要使重估候选早于体感跨档，明确隔离待验证的节律。"""
+    _short_intervals(document)
+    document["start_at"] = "2026-01-05T09:00:00+08:00"
+    document["body"]["initial_entertainment_need"] = 0.2
+
+
+def _idle_intervals(document):
+    """@brief 明确无工作主题义务，以验证等待的空闲节律。"""
+    _daylight_intervals(document)
+    document["agents"][0]["work_topic_ids"] = []
+
+
 def test_first_decision_includes_reconsideration_candidate(tmp_path) -> None:
     """首次决策（从未决策过）即含重估候选；重估候选恒为本次决策时刻加间隔（规则 7）。"""
-    engine = _custom_engine("single-person.json", _short_intervals, tmp_path, "reconsider")
+    engine = create_engine("single-person.json", _idle_intervals, tmp_path, "reconsider")
     try:
         stage_day_plan(engine)
         assert engine.context.state.agents[1].last_decision_time is None
@@ -487,48 +506,47 @@ def test_first_decision_includes_reconsideration_candidate(tmp_path) -> None:
 
 
 def test_idle_interval_only_while_waiting_without_commitments(tmp_path) -> None:
-    """只在等待且没有其他在手承诺时用空闲重估间隔；有可见未完成任务时用常规间隔。"""
-    engine = _custom_engine("single-person.json", _short_intervals, tmp_path, "idle-interval")
+    """等待无主题义务使用空闲重估间隔，已分配且未完成主题使用常规间隔。"""
+    idle = create_engine("single-person.json", _idle_intervals, tmp_path, "idle-interval")
+    assigned = create_engine("single-person.json", _daylight_intervals, tmp_path, "assigned-interval")
     try:
-        stage_day_plan(engine)
-        start = engine.context.state.current_time
-        assert not engine.context.state.agents[1].visible_task_ids
-        _wait(engine, "idle-wait")
-        assert engine.context.state.agents[1].next_decision_at == start + 1200
-        state = engine.context.state.model_copy(deep=True)
-        state.agents[1].last_decision_time = start - 600
-        _, verdicts = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
-        assert "reconsideration_interval" not in verdicts[1].wake_reasons
-        state.agents[1].visible_task_ids = {engine.context.scenario.tasks[0].task_id}
-        _, verdicts = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
-        assert "reconsideration_interval" in verdicts[1].wake_reasons
+        for engine, interval in ((idle, 1200), (assigned, 600)):
+            stage_day_plan(engine)
+            start = engine.context.state.current_time
+            _wait(engine, f"wait-{interval}")
+            assert engine.context.state.agents[1].next_decision_at == start + interval
+            state = engine.context.state.model_copy(deep=True)
+            state.agents[1].last_decision_time = start - 600
+            _, verdicts = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
+            assert ("reconsideration_interval" in verdicts[1].wake_reasons) == (interval == 600)
     finally:
-        engine.close()
+        idle.close()
+        assigned.close()
 
 
-def _game_intervals(document: dict) -> None:
-    """@brief 结算间隔一小时、重估十分钟、播报半小时：游戏开始后的节律候选早于游戏的计划结束。"""
+def _app_intervals(document: dict) -> None:
+    """@brief 结算间隔一小时、重估十分钟、播报半小时：应用开始后的节律候选早于应用的计划结束。"""
     document["activity_feedback_seconds"] = 3600
     document["reconsideration_interval_seconds"] = 600
     document["idle_reconsideration_interval_seconds"] = 1200
     document["progress_report_interval_seconds"] = 1800
 
 
-def test_game_start_follows_decision_rhythm(tmp_path) -> None:
-    """开始游戏后下一决策按决策节律（规则 7）：重估与播报候选照常，不被游戏的计划结束取代。"""
-    engine = _custom_engine("single-person.json", _game_intervals, tmp_path, "game-rhythm")
+def test_app_start_follows_decision_rhythm(tmp_path) -> None:
+    """打开应用后下一决策按决策节律（规则 7）：重估与播报候选照常，不被应用的计划结束取代。"""
+    engine = create_engine("single-person.json", _app_intervals, tmp_path, "game-rhythm")
     try:
         stage_day_plan(engine)
         observed = engine.observe(context(engine, "game-rhythm-preview"))
         target, label = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
-                             for action in row["actions"] if action["canonical_action"] == "play")
+                             for action in row["actions"] if action["canonical_action"] == "use_app")
         now = engine.context.state.current_time
         played = _act(engine, "game-rhythm-play", "start_activity", start_activity(label, target))
         agent = engine.context.state.agents[1]
         rhythm = next_decision_candidates(agent.model_copy(update={"last_decision_time": now}),
                                           engine_rhythm_inputs(engine.context, engine.context.state))
         assert played.status == "in_progress" and agent.next_decision_at == rhythm == now + 600
-        assert engine.context.state.activities[played.activity_id].planned_end_at > now + 1800
+        assert engine.context.state.activities[played.activity_id].planned_end_at == now + 1800
         assert advance_until_ready(engine) and engine.context.state.current_time == now + 600
         assert engine.context.state.agents[1].pending_wake_reasons == ["reconsideration_interval"]
     finally:
@@ -537,7 +555,7 @@ def test_game_start_follows_decision_rhythm(tmp_path) -> None:
 
 def test_service_refused_pulse_at_most_once_per_second(engine_factory) -> None:
     """同一人物同一模拟秒至多施加一次 service_refused 脉冲；下一秒照常施加（拒绝的情绪代价）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     before = engine.context.state.agents[1].body
     _invalid_start(engine, "pulse-1")
@@ -551,7 +569,6 @@ def test_service_refused_pulse_at_most_once_per_second(engine_factory) -> None:
     later = engine.context.state.agents[1].body
     _invalid_start(engine, "pulse-3")
     assert engine.context.state.agents[1].body == apply_mood_pulse(later, "service_refused")
-    assert same_moment.refusal_pulse_key("WORK_REQUIRES_REWORK") == "work_review_returned"
     assert same_moment.refusal_pulse_key("CATEGORY_PAIRING_NO_EFFECT") is None
     assert same_moment.refusal_pulse_key("CATEGORY_PAIRING_UNDEFINED") is None
     assert same_moment.refusal_pulse_key("RESOURCE_CONFLICT") == "service_refused"
@@ -559,7 +576,11 @@ def test_service_refused_pulse_at_most_once_per_second(engine_factory) -> None:
 
 def test_motivation_internal_survives_parameter_swap(engine_factory) -> None:
     """受挫度分母换为同刻上限后，有动机档案的人物观察仍产出 motivation_internal（「一·动机」）。"""
-    engine = engine_factory()
+    from tests.life.test_motivation import CONTRACT_PROFILE
+    def motivated(document):
+        _contacts(document)
+        document["agents"][0]["motivation"] = CONTRACT_PROFILE
+    engine = engine_factory(mutate=motivated)
     stage_day_plan(engine)
     assert any(item.agent_id == 1 and item.motivation is not None for item in engine.context.scenario.agents)
     _invalid_start(engine, "motivation-reject")
@@ -571,22 +592,22 @@ def test_motivation_internal_survives_parameter_swap(engine_factory) -> None:
 
 def test_scenario_with_max_consecutive_rejections_is_rejected(tmp_path) -> None:
     """含旧键 max_consecutive_rejections 的场景按未知字段拒绝（场景参数）。"""
-    document = _document("single-person.json")
+    document = read_scenario("single-person.json")
     assert "max_consecutive_rejections" not in document
     assert LifeScenario.model_validate(document).max_same_moment_decisions == 3
     document["max_consecutive_rejections"] = 10
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         LifeScenario.model_validate(document)
-    path = _write_scenario(document, tmp_path)
+    path = write_scenario(document, tmp_path)
     with pytest.raises(IntegrityError, match="Scenario validation failed") as caught:
         load_scenario(path)
     assert "Extra inputs are not permitted" in str(caught.value.__cause__)
     assert "max_consecutive_rejections" in json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_same_moment_state_survives_reopen(engine_factory) -> None:
+def test_same_moment_state_survives_reopen(engine_factory, tmp_path) -> None:
     """同刻轮数与受限轮阶段随世界状态保存，重开后在同一秒按原阶段继续（实现约定）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     _reach_limit(engine)
     _invalid_start(engine, "reopen-restricted")
@@ -594,7 +615,7 @@ def test_same_moment_state_survives_reopen(engine_factory) -> None:
     assert (saved.same_moment_rounds, saved.same_moment_stage) == (4, SameMomentStage.START_OR_RESUME)
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(_FORMAL, run_dir)
+    restored = LifeEngine.open(tmp_path / "scenario-0" / "scenarios" / "single-person.json", run_dir)
     try:
         agent = restored.context.state.agents[1]
         assert (agent.same_moment_rounds, agent.same_moment_stage) == (4, SameMomentStage.START_OR_RESUME)
@@ -632,7 +653,7 @@ def test_restricted_stage_check_and_ladder_units() -> None:
 def test_restricted_observation_marks_closed_actions_unavailable(engine_factory) -> None:
     """受限轮的观察私有证据带 same_moment_stage；受限只由工具层的 available 与 reason 表达：本阶段不开放的动作标不可用，
     原因是同刻限制的原文（不写次数），开放的等待照常可用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     opened = engine.observe(context(engine, "note-open"))
     contact = next(row["object"] for row in opened["interaction_bindings"] if row["kind"] == "contact")
@@ -651,11 +672,9 @@ def test_restricted_observation_marks_closed_actions_unavailable(engine_factory)
 def test_start_or_resume_schema_matches_engine_dispatch(engine_factory) -> None:
     """同一受限轮观察下工具层照常列出购买并标不可用（原因为同刻限制），提交同一购买由引擎以 SAME_MOMENT_ACTION_RESTRICTED
     拒绝，拒绝原因与 reason 一字不差（E5-3，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」可用性单一来源）。"""
-    from tests.life.test_category_runtime import _stage_open_market
 
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    _stage_open_market(engine)
     opened = engine.observe(context(engine, "schema-open"))
     target, label = next((row["object"], action["label"]) for row in opened["interaction_bindings"]
                          for action in row["actions"]
@@ -701,7 +720,7 @@ def _depart(engine: LifeEngine, name: str, *companions: tuple[str, str]) -> list
 
 def _content(engine: LifeEngine, name: str) -> tuple[str, str]:
     """@brief 本轮可以观看的一项内容（对象名与动作短语）。"""
-    return _pick(engine.observe(context(engine, f"{name}-content")), "watch", kind="content")
+    return _pick(engine.observe(context(engine, f"{name}-content")), "use_app", kind="app")
 
 
 def _other_requests() -> tuple[tuple[str, object], ...]:
@@ -716,7 +735,7 @@ def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_
     达到上限后只开放收尾（conclude_pending）：工具层把两项活动的 conclude_activity 都标可用、其余标同刻限制，只点名其中
     一项即受理，阶段留在收尾直到没有待收尾活动，再收尾另一项；按受限轮开放的动作走完，同一秒的轮数不超过上限加三
     （第一章规则 1–3，第七章「活动一结束就要结束它」；docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」「列出即可提交」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     travel_id, watch_id = _depart(engine, "pending-depart", _content(engine, "pending-depart"))
     _finish(engine, travel_id, "pending-walk")
@@ -762,7 +781,7 @@ def test_conclude_pending_stage_accepts_only_concluding_every_pending_activity(e
     """conclude_pending 只接受点名待收尾活动的 conclude_activity：开始、播报与修订计划都以
     SAME_MOMENT_ACTION_RESTRICTED 拒绝（受限轮复核先于收尾要求），计入同刻轮数，阶段不变，时钟不推进（第一章规则 3）；
     收尾用掉最后一个受限轮后仍没有进行中活动，按跨决策预算技术停顿（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "only-conclude-wait")
     _finish(engine, waited.activity_id, "only-conclude")
@@ -788,7 +807,7 @@ def test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_l
     """同一请求开始等待与观看，等待先到点待收尾、观看仍在进行：做别的屡次以 ACTIVITY_CONCLUSION_REQUIRED 拒绝，
     达到同刻上限的那次拒绝也不按决策节律排期（虽有进行中活动），人物仍在当秒就绪、推进被拒，阶段转入 conclude_pending；
     收尾后只剩进行中的观看，按决策节律排期，时钟随即推进（第一章规则 2、3，第七章「活动一结束就要结束它」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     wait_id, watch_id = _start(engine, "beside-start", ("自己", "等待"), _content(engine, "beside"))
     _finish(engine, wait_id, "beside")
@@ -838,7 +857,7 @@ def test_both_paused_at_the_limit_open_start_or_resume(engine_factory, first_mov
     """两项都暂停：没有进行中活动，同一秒再决策；暂停的活动不占名额，达到上限后进入开始或恢复（start_or_resume），不再
     按名额分流进入恢复或结束。恢复其一或开始一项新活动都被受理，有了进行中活动，时钟可推进；同一秒的轮数为上限加一
     （第一章规则 2、3，第七章「两项都暂停时」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     first, second, now = _two_paused(engine, "ladder")
     limit = engine.context.scenario.max_same_moment_decisions
@@ -865,7 +884,7 @@ def test_both_paused_at_the_limit_open_start_or_resume(engine_factory, first_mov
 def test_concluding_a_paused_activity_in_start_or_resume_is_restricted(engine_factory) -> None:
     """两项都暂停、达到上限后的 start_or_resume 中结束暂停的活动越界（SAME_MOMENT_ACTION_RESTRICTED），留在 start_or_resume，
     待办层的结束照同一原因标不可用、恢复可用；之后的等待被受理，两项仍暂停，同一秒的轮数为上限加二（第一章规则 3）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     first, second, now = _two_paused(engine, "narrow")
     limit = engine.context.scenario.max_same_moment_decisions
@@ -892,7 +911,7 @@ def test_rejected_resume_with_both_paused_stays_in_start_or_resume(engine_factor
     """两项都暂停（一项在家、一项在办公室），达到上限后进入 start_or_resume；在开始地点以外恢复被拒
     （ACTIVITY_PRECONDITION_UNMET）后留在 start_or_resume，被拒的恢复在待办层照原因标不可用；之后的等待被受理，在别处的
     那项仍暂停，同一秒的轮数为上限加二（第一章规则 3「开始或恢复被拒后留在原阶段」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     (home,) = _start(engine, "away-home-wait", ("自己", "等待"))
     wake_by_mail(engine, offset=60)
@@ -958,7 +977,7 @@ def test_restricted_conclusions_endings_and_waits_pass_the_stage_check() -> None
         (("report_status", [], [paused], none), "resume"),
         (("report_status", [], [paused, running], none), "other"),
         (("start_activity", ["wait"], [], none), "wait"),
-        (("start_activity", ["wait", "watch"], [], none), "start"),
+        (("start_activity", ["wait", "use_app"], [], none), "start"),
         (("start_activity", ["purchase"], [], none), "other"),
         (("send_message", [], [], none), "other"),
     ]
@@ -1125,7 +1144,7 @@ def test_restricted_round_does_not_use_up_message_opportunity(engine_factory) ->
     _stage_agent(engine, 2, same_moment_rounds=engine.context.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
     _, results = submit_round(engine, {1: _message_to(engine, 2, "看到回我"),
-                                       2: ("start_activity", start_activity("观看", "不存在的对象"))},
+                                       2: ("start_activity", start_activity("打开", "不存在的对象"))},
                               "restricted-send")
     message_id = next(item.data["message_id"] for item in results if item.agent_id == 1)
     assert engine.context.state.agents[2].same_moment_stage == SameMomentStage.START_OR_RESUME
@@ -1150,7 +1169,7 @@ def test_conclusion_only_round_does_not_use_up_message_opportunity(engine_factor
     both = start_request(targets=["自己", target], actions=["interact", WAYS[action][0]], ways=["等待", action])
     submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))},
                  "unread-start")
-    watch = next(item for item in active_activities(engine.context.state, 1) if item.kind == ActivityKind.WATCH)
+    watch = next(item for item in active_activities(engine.context.state, 1) if item.kind == ActivityKind.USE_APP)
     staged = engine.context.state.model_copy(deep=True)
     ends = staged.current_time + 300
     staged.activities[watch.activity_id] = watch.model_copy(
@@ -1207,7 +1226,7 @@ def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> No
 def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
     """交谈与通话是同一种动作，整组开始被拒（都占 talk，RESOURCE_CONFLICT）时，交谈邀请随整组撤回：对方收件箱不变，
     同秒与其后的边界都不以 message_arrival 唤醒对方；交谈与观看不是同一种，同一请求照常受理（同时做两件事规格「乙」）。"""
-    engine = engine_factory("multi-person.json")
+    engine = engine_factory("multi-person.json", mutate=_contacts)
     now = _both_waiting(engine, woken=(1,))
     _act(engine, "paired-end-wait", *_end_wait(engine, 1))
     inbox = dict(engine.context.state.agents[2].inbox)
@@ -1230,19 +1249,20 @@ def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
     accepted = _act(engine, "paired-watch-start", "start_activity", start_request(
         targets=[_person_name(engine, 1, 2), content], actions=["interact", "interact"], ways=["交谈", way]))
     assert accepted.status == "in_progress", (accepted.error_code, accepted.message)
-    assert sorted(item.kind.value for item in active_activities(engine.context.state, 1)) == ["chat", "watch"]
+    assert sorted(item.kind.value for item in active_activities(engine.context.state, 1)) == ["chat", "use_app"]
 
 
 @pytest.mark.asyncio
 async def test_contact_reply_arrival_filtered_during_sleep(engine_factory) -> None:
     """联系人回复在 CONTACT_REPLY_DELAY_SECONDS 后送达收件箱并留送达记录；收件人在睡眠中不被唤醒（裁决 #21），
     也不读（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）。"""
-    from tests.life.test_export_integration import _StubReplyClient, _send_message_to_model_contact
+    from tests.life.test_export_integration import _StubReplyClient
     from worldmock.runtime import settle_pending_model_replies
 
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    _send_message_to_model_contact(engine, "reply-sleep")
+    assert _act(engine, "reply-sleep", "send_message", SendMessageActionRequest(
+        recipient_name="联系人：好友", text="周五晚上一起吃饭？")).status == "completed"
     due = engine.context.state.current_time + CONTACT_REPLY_DELAY_SECONDS
     reply_id = (await settle_pending_model_replies(engine, client=_StubReplyClient()))[0]["reply_message_id"]
     assert _act(engine, "reply-sleep-start", "start_activity", start_activity("睡觉", "自己")).status == "in_progress"
@@ -1275,11 +1295,11 @@ def _supply_order(observed: dict) -> list[str]:
 def test_same_second_rounds_keep_presentation_window_and_rotation(engine_factory) -> None:
     """同一秒各轮沿用该秒首轮的呈现窗口与轮转判据（各对象的上次呈现时刻）；时钟推进时留痕并入，轮转判据才变
     （「同一秒内的呈现」；轮转按每个对象的 last_presented_at，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-生活活动的地点类资格与排序 ）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     now, last = engine.context.state.current_time, engine.observations._last_presented(1)
-    first, _ = _observed_act(engine, "window-1", "start_activity", start_activity("观看", "不存在的对象"))
-    second, _ = _observed_act(engine, "window-2", "start_activity", start_activity("观看", "不存在的对象"))
+    first, _ = _observed_act(engine, "window-1", "start_activity", start_activity("打开", "不存在的对象"))
+    second, _ = _observed_act(engine, "window-2", "start_activity", start_activity("打开", "不存在的对象"))
     assert engine.context.state.current_time == now
     assert _presented(second) == _presented(first)
     assert engine.observations._last_presented(1) == last
@@ -1291,46 +1311,6 @@ def test_same_second_rounds_keep_presentation_window_and_rotation(engine_factory
     assert set(staged) <= set(engine.context.state.presentation_state[1])
     assert engine.observations._last_presented(1) != last and all(engine.observations._last_presented(1)[item] == now for item in staged)
 
-
-def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) -> None:
-    """本 session 最近一次浏览结果在其后的观察中置顶，同一秒后续各轮动作与首轮相同（可选的仍可选，按世界事实没有取得
-    方式的照常列出、动作为空）；结果在整个 session 内保留，浏览调用的结果只列名称，写完整标签「<门店>出售的<商品>」
-    （「同一秒内的呈现」、docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」、docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 5.3）。"""
-    from tests.life.test_commerce import _choice, _stage_open
-
-    engine = engine_factory()
-    _stage_open(engine)
-    stage_day_plan(engine)
-    _, browse = _observed_act(engine, "pin-browse", "start_activity",
-                              _choice(engine.observe(context(engine, "pin-preview")), "browse"))
-    assert browse.status == "in_progress"
-    _finish(engine, browse.activity_id, "pin-browse")
-    pins = [row["supply_id"] for row in engine.context.state.activities[browse.activity_id].data["revealed"]["items"]]
-    decision = context(engine, "pin-first")
-    engine.begin_decision_round([decision])
-    first = engine.observe(decision)
-    order = _supply_order(first)
-    shown = [pin for pin in pins if pin in order]
-    assert shown and order[:len(shown)] == shown
-    browsed = next(row for row in progress_calls(first, "start_activity") if "browse_items" in row["result"]["details"])
-    labels = {row["object_id"]: row["object"] for row in first["interaction_bindings"] if row["kind"] == "supply"}
-    assert all("出售的" in label for label in browsed["result"]["details"]["browse_items"])
-    assert all(label in browsed["result"]["details"]["browse_items"] for label in (labels[pin] for pin in shown))
-    engine.submit_action(DirectToolCall(decision, "action-pin-first", "conclude_activity", conclude_request(
-        activity_name(engine, browse.activity_id), summary="看完了。")))
-    assert engine.commit_decision_round("pin-first")[0].status == "completed"
-    second, _ = _observed_act(engine, "pin-second", "start_activity", start_activity("等待", "自己"))
-    assert _supply_order(second) == order
-
-    def pinned_actions(observed: dict) -> dict[str, list]:
-        """@brief 置顶浏览结果在工具层列出的动词与方式（按可读对象名；可用性随待收尾是否了结而变）。"""
-        public = {row["name"]: [(item["action"], item["way"]) for item in row["actions"]]
-                  for row in observed["tool_layer"]["targets"]}
-        return {row["object"]: public[row["object"]] for row in observed["interaction_bindings"]
-                if row["object_id"] in shown}
-
-    assert pinned_actions(second) == pinned_actions(first) and len(pinned_actions(second)) == len(shown)
-    assert any(pinned_actions(second).values())
 
 
 def test_two_agents_same_round_keep_their_presentation_stamps(engine_factory) -> None:
@@ -1348,15 +1328,15 @@ def test_two_agents_same_round_keep_their_presentation_stamps(engine_factory) ->
         assert set(staged[agent_id].stamps) <= set(engine.context.state.presentation_state[agent_id])
 
 
-def test_presentation_staging_survives_reopen(engine_factory) -> None:
+def test_presentation_staging_survives_reopen(engine_factory, tmp_path) -> None:
     """本秒的呈现暂存随世界状态保存；重开后同一秒仍沿用该秒首轮的呈现窗口（检查点封存，实现约定）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    first, _ = _observed_act(engine, "reopen-window-1", "start_activity", start_activity("观看", "不存在的对象"))
+    first, _ = _observed_act(engine, "reopen-window-1", "start_activity", start_activity("打开", "不存在的对象"))
     staged = engine.context.state.same_moment_presentation[1]
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(_FORMAL, run_dir)
+    restored = LifeEngine.open(tmp_path / "scenario-0" / "scenarios" / "single-person.json", run_dir)
     try:
         assert restored.context.state.same_moment_presentation[1] == staged
         second, _ = _observed_act(restored, "reopen-window-2", "start_activity", start_activity("等待", "自己"))
@@ -1379,9 +1359,9 @@ def _presented(observed: dict) -> list[str]:
 def test_same_second_results_stay_in_the_progress_layer(engine_factory) -> None:
     """同一秒的后续决策从进度层看到此前本人世界请求的公开结果：被拒绝的带原因与下一步，消息与修订写已受理；结果在整个
     session 内保留，时间推进后仍在；进度层不含内部身份（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」，取代「刚才」一句）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    first, rejected = _observed_act(engine, "now-reject", "start_activity", start_activity("观看", "不存在的对象"))
+    first, rejected = _observed_act(engine, "now-reject", "start_activity", start_activity("打开", "不存在的对象"))
     assert progress_calls(first) == [] and rejected.status == "rejected"
     second, sent = _observed_act(engine, "now-message", "send_message", _contact_message(first))
     (refused,) = progress_calls(second)
@@ -1411,11 +1391,9 @@ def test_purchase_result_names_the_order_in_the_progress_layer(engine_factory) -
     """购买是瞬时动作：同一秒的下一轮进度层里该调用的 details.purchases 写商品名、份数、付款、送达地点与时刻、收货人与
     所回应的消息，不含供给或订单身份；方式是请求参数，只在该调用的 arguments.ways 中，结果不复述（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求
     「进度层」：details 不复述参数）。"""
-    from tests.life.test_category_runtime import _stage_open_market
 
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    _stage_open_market(engine)
     observed = engine.observe(context(engine, "order-preview"))
     row, action = next((row, action) for row in observed["interaction_bindings"] if row["kind"] == "supply"
                        for action in row["actions"] if action["canonical_action"] == "purchase"
@@ -1423,8 +1401,7 @@ def test_purchase_result_names_the_order_in_the_progress_layer(engine_factory) -
     bought = _act(engine, "order-buy", "start_activity", start_activity(action["label"], row["object"]))
     assert bought.status == "completed", bought.error_code
     after = engine.observe(context(engine, "order-after"))
-    product = next(item.name for item in engine.context.scenario.products
-                   if item.product_id == engine.context.rules.supplies[row["object_id"]].product_id)
+    product = engine.context.semantics.catalog.foods[row["food_id"]].name
     record = progress_calls(after)[-1]
     (purchase,) = record["result"]["details"]["purchases"]
     assert set(purchase) == {"product", "quantity", "paid", "destination", "expected_at", "recipient", "request"}
@@ -1519,7 +1496,7 @@ def test_read_observed_messages_marks_only_presented_messages_of_open_rounds(eng
     restricted = observed.model_copy(deep=True)
     restricted.agents[1].same_moment_stage = SameMomentStage.START_OR_RESUME
     assert same_moment.read_observed_messages(settled, restricted, {1: frozenset({"m1"})}) == settled
-    ended = _activity("ended-wait", "等待", status=ActivityStatus.COMPLETED, elapsed=60)
+    ended = _unit_activity("ended-wait", ActivityStatus.COMPLETED)
     pending = observed.model_copy(update={"activities": {**observed.activities, ended.activity_id: ended}})
     assert pending_conclusions(pending, 1)
     assert same_moment.read_observed_messages(settled, pending, {1: frozenset({"m1"})}) == settled

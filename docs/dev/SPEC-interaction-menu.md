@@ -1,6 +1,8 @@
 <a name="spec-interaction-menu-特性规格交互菜单"></a>
 # 特性规格：交互菜单
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题上限准入。
+
 > 引用出处：`src/worldmock/life/observe.py::ObservationBuilder._complete_product_browse` @ `d46b4d89898d687cc5cdf07e68f39df33a328081`
 
 > 引用出处：`src/worldmock/life/admission.py::_delivery_refusal` @ `55e6a0f4c6ed6a015e334b01513767eefc227880`
@@ -134,7 +136,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 | `query_world` | 稳定只读工具；name/way/category/from/available_only/offset 六键全部必填、无缺省，旧四键请求按缺字段拒绝；name、way、category、from 可空但至少一个非 null，available_only 为布尔且不单独构成查询条件，offset 为非负整数；from 写地点显示名或渠道称呼，与购买请求共用同一来源解析，只匹配固定食品供给，不按需求反查门店、不计算路线；available_only=true 只留已确认此刻可执行的条目，可执行取冻结观察里该条目动作的 available，筛选先于排序与切页（个人事务与工作安排规格第五章，阶段 4 落地）；category只取callable_index已展示的公开品类标签；返回matches/total_count/next_offset，next_offset必填可空，每页沿用现有上限20，按偏移可遍历全集；查询只限冻结观察可读事实，不提交世界请求、不推进时钟、不给data.supplies或工具层目标添加条目；app 与内容不进入查询结果，人物通过始终列出的 app 目标启动 `use_app`；任务检查已告知与归属，库存只读本人可读持有物；不恢复discover_places或商品需求路线查询 |
 | `recall_task_summary` | 接受可读任务名、当日目标名或活动名（会话名不在七层中出现，不接受）；找不到或不唯一时业务拒绝并列出可选名称 |
 | `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项，一项活动一个对象：`report_status`、`pause_activity` 为 `{activity_name, summary}`，`conclude_activity` 为 `{activity_name, summary, memories, views}`（一日运行保真规格第六章）；三者另有请求级必填 `errands[]`（与 `items` 平级，可为 `[]`；新增、更新或取消个人事务，个人事务与工作安排规格 2.2，阶段 2 落地）；`activity_name` 为唯一可读活动名；先校验全部活动、阶段与事务变更，再原子更新；报告可以恢复暂停的活动，结束作用于选中的进行中、暂停或待收尾的活动；事务变更随活动控制提交，与活动控制一样不受地点菜单剪裁（见「声明与准入」），仍服从宿主与环境的同一校验 |
-| `submit_work`、`send_message` | 分别在工作或通讯领域条件满足时开放，正文由人物写入，任务与收件人用可读名称定位 |
+| `send_message` | 在通讯领域条件满足时开放，正文由人物写入，收件人用可读名称定位；工作主题只经 `start_activity` 与三个活动控制工具推进 |
 
 购买、出行、社交、生活活动与 app 使用都由 `start_activity` 的私有绑定定位；相应标准动作按菜单限制。
 每个登记 app 始终作为 `kind="app"` 的目标列出，只提供方式「打开」和标准动作 `use_app`；app 不进入候选、轮转或
@@ -154,7 +156,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 
 | 既有目标类别 | 对应菜单资格（内部标准动作；人物方式「工作」「打开」「进行」属 `interact`，「食用」「使用」「给予」属 `consume`，库存转换配方属 `obtain` 的「制作」） |
 | --- | --- |
-| `work_contract` | `start_activity` 的 `work` 动作 |
+| `work_topic` | `start_activity` 的 `work` 动作；公开工具层目标类别仍为 `task` |
 | `app` | `start_activity` 的 `use_app` 动作；内容由所选 app 的绑定决定 |
 | 现有生活活动品类 | `start_activity` 的 `do` 动作 |
 | 物品 | `start_activity` 的 `consume` 动作；食物显示“食用”，耐用品显示“使用”；交给他人显示“给予”（`to` 写人物名），内部标准动作仍为 `consume`（收件人不是自己），菜单、可供性目录与品类配对不变，不新增动作名 |
@@ -179,7 +181,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 业务拒绝只产生公开结果并允许人物下一次决策；不因连续业务拒绝终止运行。
 已结算请求的幂等重放不重做领域动作，也不重复计为新拒绝。
 既有重放证据仍可追加，必须标记 `reused=true`，不能误报为一次新执行。
-工作提交在独立工作验收调用前检查领域资格，拒绝不触发模型费用或评审证据。
+工作主题与其他持续活动共用菜单、地点、主题剩余上限、名额与占用校验；拒绝不累计工时。
 活动控制保持原规则，任何菜单都不能放宽活动归属、反馈边界与 app 使用准入。
 恢复请求的活动不存在或不属于当前人物时，由原活动身份校验拒绝；不以菜单错误掩盖既有领域错误。
 
@@ -205,7 +207,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 | 责任 | 文件 | 修改范围 |
 | --- | --- | --- |
 | 声明与共享计算 | `src/worldmock/life/interaction_menu.py`、`scenario.py`、`semantics.py` | 模型、准入、交集、动作资格与原样装配 |
-| 观察与执行 | `src/worldmock/life/observe.py`、`engine.py`、`menu_execution.py` | 冻结有效菜单、环境重验、工作验收前置检查 |
+| 观察与执行 | `src/worldmock/life/observe.py`、`tool_layer.py`、`admission.py`、`work.py` | 冻结有效菜单、环境重验、工作地点与主题剩余上限检查 |
 | 提示字段 | `src/worldmock/life/narration.py` | 禁止观察工具支持菜单或整份地点声明被复制进 user |
 | 恢复身份 | `src/worldmock/runtime.py` | 在复制检查点分支之前拒绝场景身份漂移 |
 | 人物工具 | `custom/agents/life_agent.py`、`src/worldmock/life/models.py`、`session_actions.py`、`error_contract.py` | 删除动作数组、方式解析与菜单校验、固定只读查询派发、具体参数路径和合法约束 |
@@ -366,7 +368,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 | 模型与本地一致 | 捕获实际模型请求验证稳定工具和可读动作；菜单禁止动作在本地和直接派发均拒绝 |
 | 方式解析与错误 | 无 `actions` 仍正确解析内部动作；旧字段、非法方式与 prefer 全部拒绝，真实模型回执含完整位置数组 path、全部合法闭集、英文 expected 和 why，候选可整份通过请求校验 |
 | 世界只读查询 | 模型可在决策内按公开品类和next_offset读取超过20条的完整冻结结果后提交一个世界请求；每条只出现一次；菜单禁止读取、未告知任务与他人私有食品持有不泄露，状态、时钟、呈现记录及活动名额不变 |
-| 环境不可绕过 | 直接请求被禁止动作形成 `INTERACTION_MENU_DENIED`；无领域副作用；工作拒绝不调用评审 |
+| 环境不可绕过 | 直接请求被禁止动作形成 `INTERACTION_MENU_DENIED`；无领域副作用；工作主题上限在名额与占用冲突之前核对，不调用独立评审 |
 | 控制与阶段 | 当日计划由零点计划生成；等待/睡眠入口保留；活动控制保留，恢复须回到开始地点并受实际资源与地点约束；世界请求登记即结束本轮，只读阶段保持原规则 |
 | 候选合同保持 | 菜单不删候选或排除统计；下钻和目标的游标、轮转校验仍生效，固定菜单不限制指名购买 |
 | 身份与恢复 | 地点/人物声明变更改变场景哈希；不同场景拒绝打开/恢复；移除固定散文使工具模板哈希变化且旧身份被拒绝 |
@@ -398,6 +400,7 @@ app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开�
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：交互菜单验收改为 `use_app`、所选 app 的内容绑定与空内容拒绝；删除旧游戏动作验收。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题上限准入 |
 
 <a name="spec-interaction-menu-当日目标保护项"></a>
 ## 当日目标保护项

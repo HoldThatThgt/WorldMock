@@ -28,6 +28,12 @@ class Graph:
         network.add_nodes_from(published.nodes)
         network.add_weighted_edges_from(((edge.a, edge.b, edge.length_m) for edge in published.edges),
                                        weight="length_m")
+        network.graph = MappingProxyType(network.graph)
+        network._node = MappingProxyType({node: MappingProxyType(data) for node, data in network._node.items()})
+        network._adj = MappingProxyType({
+            node: MappingProxyType({neighbor: MappingProxyType(data) for neighbor, data in adjacent.items()})
+            for node, adjacent in network._adj.items()
+        })
         object.__setattr__(self, "_network", nx.freeze(network))
 
     def shortest_paths(self, origin: str) -> Mapping[str, tuple[int, tuple[str, ...]]]:

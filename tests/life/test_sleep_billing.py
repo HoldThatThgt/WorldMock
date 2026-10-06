@@ -17,7 +17,9 @@ import pytest
 
 from tests.life.conftest import (advance_next, conclude_request, context, layer_start, settle_day_plans,
                                  stage_day_plan, start_activity, submit_round)
-from tests.life.test_day_planning import _decide, _late_engine, _start
+from tests.life.test_work_topics import _engine_act
+from worldmock.life.activity_control import pending_conclusions
+from tests.life.conftest import activity_name, report_request, wake_by_mail
 from worldmock.footprints.models import EventDraft
 from worldmock.life import rhythm
 from worldmock.life.activity_control import is_pending_conclusion
@@ -25,6 +27,26 @@ from worldmock.life.felt import SOCIAL_NEED_AWAKE_RATE, SOCIAL_NEED_CALL_RATE, S
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, BodyState, active_activities
 from worldmock.life.schedule import PlanGoal
 from worldmock.life.sleep import SLEEP_TIME_CONSTANT_H
+
+
+def _billing_decision(engine, name, call=None):
+    """@brief 通过当前真实观察和动作入口应对睡眠计费边界。"""
+    if call is None:
+        pending = pending_conclusions(engine.context.state, 1)
+        running = active_activities(engine.context.state, 1)
+        if pending:
+            call = ('conclude_activity', conclude_request(*(activity_name(engine, item.activity_id) for item in pending)))
+        elif running:
+            call = ('report_status', report_request(*(activity_name(engine, item.activity_id) for item in running)))
+        else:
+            call = ('start_activity', start_activity('等待', '自己'))
+    return _engine_act(engine, name, *call)
+
+
+def _start_sleep(engine, name):
+    result = _engine_act(engine, name, 'start_activity', start_activity('睡觉', '自己'))
+    assert result.status == 'in_progress', result.error_code
+    return result.activity_id
 
 
 def _stage_body(engine, agent_id: int = 1, **fields) -> None:
@@ -85,7 +107,7 @@ def test_sleep_completing_at_a_boundary_leaves_social_need_unchanged(engine_fact
     engine = engine_factory()
     settle_day_plans(engine)
     _stage_body(engine, social_need=0.2, entertainment_need=0.3)
-    slept = _start(engine, "睡觉", "night")
+    slept = _start_sleep(engine, "night")
     end = engine.context.state.activities[slept].planned_end_at
 
     _, after, settlement = _sleep_until_it_ends(engine, slept)
@@ -102,7 +124,7 @@ def test_sleep_ended_early_by_a_reminder_leaves_social_need_unchanged(engine_fac
     engine = engine_factory()
     settle_day_plans(engine)
     _stage_body(engine, social_need=0.2, entertainment_need=0.3)
-    slept = _start(engine, "睡觉", "nap")
+    slept = _start_sleep(engine, "nap")
     remind = engine.context.state.current_time + 2 * 3600 + 7 * 60
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="晨间例程", goal="起床", registered_at=engine.context.state.current_time,
                                            remind_at=remind),))
@@ -121,12 +143,12 @@ def test_first_awake_interval_after_waking_accrues_a_quarter_hour(engine_factory
     engine = engine_factory()
     settle_day_plans(engine)
     _stage_body(engine, social_need=0.2)
-    slept = _start(engine, "睡觉", "night")
+    slept = _start_sleep(engine, "night")
     _sleep_until_it_ends(engine, slept)
     woke = engine.context.state.current_time
     assert engine.context.state.agents[1].body.social_need == 0.2
-    _decide(engine, "woke")
-    _decide(engine, "up")
+    _billing_decision(engine, "woke")
+    _billing_decision(engine, "up")
     assert [item.kind for item in active_activities(engine.context.state, 1)] == [ActivityKind.WAIT]
 
     before, after, settlement = _advance(engine)
@@ -147,18 +169,20 @@ def _nap_or_default(engine) -> None:
         if idle and len(sleeps) == 1 and sleeps[0].ended_at is not None and now - sleeps[0].ended_at >= 3600:
             stage_day_plan(engine, goals=(PlanGoal(intent_kind="休息", goal="小睡起来", registered_at=now,
                                                    remind_at=now + 65 * 60),))
-            _decide(engine, f"nap-{now}", ("start_activity", start_activity("睡觉", "自己")))
+            _billing_decision(engine, f"nap-{now}", ("start_activity", start_activity("睡觉", "自己")))
         else:
-            _decide(engine, f"round-{now}-{engine.context.state.version}")
+            _billing_decision(engine, f"round-{now}-{engine.context.state.version}")
 
 
-def test_social_ledger_awake_classification_follows_the_settlement_activity_ids(tmp_path: Path) -> None:
+def test_social_ledger_awake_classification_follows_the_settlement_activity_ids(engine_factory) -> None:
     """性质：真实运行的每个边界，社交账都按该区间共同身体结算的 activity_ids 分清醒与睡眠——集合含睡眠则不增长，
     否则按区间小时数 +0.04/小时。覆盖跨零点的睡眠（零点路径）、按计划结束与被提醒结束的睡眠和醒后的等待。"""
-    engine = _late_engine(tmp_path, "2026-01-05T23:30:00+08:00", "billing")
+    engine = engine_factory(mutate=lambda document: document.update(
+        start_at='2026-01-05T23:30:00+08:00', end_at='2026-01-07T00:00:00+08:00',
+        bills=[], payrolls=[], messages=[]))
     settle_day_plans(engine)
     _stage_body(engine, social_need=0.0)
-    _start(engine, "睡觉", "bedtime")
+    _start_sleep(engine, "bedtime")
     seen: list[tuple[bool, bool]] = []
     while sum(ended for _, ended in seen) < 2 or not all(asleep is False for asleep, _ in seen[-3:]):
         assert len(seen) < 60, seen
@@ -196,12 +220,20 @@ def _stage_meal(engine, product_id: str) -> None:
 def _keep_partner_waiting(engine) -> None:
     """同伴（人物 2）的等待到点：收尾后接着等待；本用例里人物 1 在进餐期间不会就绪。"""
     while engine.scheduling_state().ready_agent_ids:
-        assert engine.scheduling_state().ready_agent_ids == (2,)
-        pending = [item.name for item in engine.context.state.activities.values()
-                   if item.agent_id == 2 and is_pending_conclusion(item)]
-        call = (("conclude_activity", conclude_request(*pending)) if pending
-                else ("start_activity", start_activity("等待", "自己")))
-        submit_round(engine, {2: call}, f"partner-{engine.context.state.version}")
+        requests = {}
+        for agent_id in engine.scheduling_state().ready_agent_ids:
+            pending = pending_conclusions(engine.context.state, agent_id)
+            running = active_activities(engine.context.state, agent_id)
+            if pending:
+                call = ('conclude_activity', conclude_request(
+                    *(activity_name(engine, item.activity_id) for item in pending)))
+            elif running:
+                call = ('report_status', report_request(
+                    *(activity_name(engine, item.activity_id) for item in running)))
+            else:
+                call = ('start_activity', start_activity('等待', '自己'))
+            requests[agent_id] = call
+        submit_round(engine, requests, f"partner-{engine.context.state.version}")
 
 
 def test_meal_finished_exactly_at_the_boundary_still_counts_as_shared(engine_factory) -> None:
@@ -210,15 +242,15 @@ def test_meal_finished_exactly_at_the_boundary_still_counts_as_shared(engine_fac
     engine = engine_factory("multi-person.json")
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
-    food = next(item for item in engine.context.scenario.products
-                if "eat" in item.use_modes and item.use_duration_seconds == 1500)
-    _stage_meal(engine, food.product_id)
+    food = engine.context.semantics.catalog.foods['beef-noodles']
+    _stage_meal(engine, food.food_id)
     observed = engine.observe(context(engine, "meal-preview"))
     eat = layer_start(observed, f"持有物：{food.name}", "食用")
     _, results = submit_round(engine, {1: ("start_activity", eat), 2: ("start_activity", start_activity("等待", "自己"))},
                               "meal")
     assert [result.status for result in results] == ["in_progress", "in_progress"]
     meal = next(result.activity_id for result in results if result.agent_id == 1)
+    wake_by_mail(engine, offset=120)
     end = engine.context.state.activities[meal].planned_end_at
     ends = []
     while engine.context.state.current_time < end:
@@ -238,10 +270,13 @@ def test_a_call_ending_at_the_boundary_is_billed_once_by_the_call_ledger(engine_
     """通话在边界按计划结束：每个区间（含结束的那一段）的社交需要只按通话结算推进一次（清醒 +0.04、通话 −0.4，
     每小时）。节律结算段按本区间共同身体结算的 activity_ids 判定交谈与通话覆盖，不按推进后的状态：通话在本边界
     已结束，节律结算段也不再叠加一次清醒增长。"""
-    engine = engine_factory()
+    def contact(document):
+        document['agents'][0]['contacts'] = [{'contact_id': 'mother', 'salutation': '母亲', 'relation': '母亲',
+            'closeness': 24, 'channels': ['phone'], 'reply_policy': 'none'}]
+    engine = engine_factory(mutate=contact)
     settle_day_plans(engine)
     _stage_body(engine, social_need=0.8)
-    _, results = submit_round(engine, {1: ("start_activity", start_activity("通话", "联系人：陈母"))}, "call")
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("通话", "联系人：母亲"))}, "call")
     assert results[0].status == "in_progress", results[0].error_code
     called = results[0].activity_id
     end = engine.context.state.activities[called].planned_end_at
@@ -249,7 +284,7 @@ def test_a_call_ending_at_the_boundary_is_billed_once_by_the_call_ledger(engine_
     intervals = []
     while engine.context.state.activities[called].status == ActivityStatus.ACTIVE:
         while engine.scheduling_state().ready_agent_ids:
-            _decide(engine, f"call-{engine.context.state.version}")
+            _billing_decision(engine, f"call-{engine.context.state.version}")
         before, after, settlement = _advance(engine)
         assert called in settlement["activity_ids"]
         assert after.social_need - before.social_need == pytest.approx(rate * _hours(settlement)), settlement

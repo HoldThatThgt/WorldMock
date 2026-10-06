@@ -1,7 +1,7 @@
 """暂停的活动不占并行名额（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-甲名额）。
 
 每人两个并行名额，占名额的是进行中与待收尾的活动，暂停的不占：一项暂停时可以同时开始两项；只有暂停的活动时可以出发，
-它们留在原地，在别处也能直接结束；恢复暂停的活动要有空名额，依次检查开始地点、工作截止与约束、空名额、占用冲突，没有
+它们留在原地，在别处也能直接结束；恢复暂停的活动要有空名额，依次检查开始地点、主题剩余时长、空名额、占用冲突，没有
 空名额以 SESSION_LIMIT_EXCEEDED 拒绝并点名进行中的活动，待办层的可用性与受理同文；名额超限的下一步按被点名活动能否
 暂停写（裁决 R3、R4）；两项都暂停到同刻上限后进入开始或恢复。全部经真实请求、引擎与 SQLite 存储。
 """
@@ -13,7 +13,7 @@ from tests.life.conftest import (advance_next, pause_request, report_request, st
 from tests.life.test_location_sessions import (_conclude, _depart, _name, _pick, _preview, _round, _start,
                                                _started_ids, _two_parallel, _until_ended, _wait, _wake)
 from tests.life.test_same_moment_decisions import _reach_limit
-from tests.life import test_work_contracts as work_contracts
+from tests.life.test_same_moment_decisions import _contacts
 from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ActivityStatus, SameMomentStage, SessionKind
@@ -30,7 +30,7 @@ def _contents(engine: LifeEngine, name: str) -> list[tuple[str, str, str]]:
     """@brief 本轮可以观看的全部内容（对象名、动词与方式），按观察顺序。"""
     observed = _preview(engine, name)
     return [(row["object"], action["verb"], action["label"]) for row in observed["interaction_bindings"]
-            if row["kind"] == "content" for action in row["actions"] if action["canonical_action"] == "watch"]
+            if row["kind"] == "app" for action in row["actions"] if action["canonical_action"] == "use_app"]
 
 
 def _paused_wait(engine: LifeEngine, name: str) -> str:
@@ -52,7 +52,7 @@ def _resume(engine: LifeEngine, name: str, activity_id: str):
 def test_two_item_start_beside_a_paused_activity_is_accepted(engine_factory) -> None:
     """一项暂停时同时开始两项被受理：暂停的活动不占名额，两个空名额都给新开始的两项；暂停的那项仍暂停（旧行为是只剩一个
     名额、整组拒绝）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     paused = _paused_wait(engine, "lunch")
     assert activity_control.free_slots(engine.context.state, 1) == 2
@@ -67,7 +67,7 @@ def test_two_item_start_beside_a_paused_activity_is_accepted(engine_factory) -> 
 def test_resume_with_two_running_is_refused_naming_both_until_one_is_concluded(engine_factory) -> None:
     """两项进行时恢复暂停的第三项：SESSION_LIMIT_EXCEEDED，原因点名进行中的两项、下一步写结束或暂停其中一项，待办层的恢复
     标不可用且原因一字不差；结束其中一项后恢复被受理；之后再开始第三项又以名额占满拒绝，点名恢复的那项与仍在进行的那项。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     paused = _paused_wait(engine, "third")
     waited, watched = _two_parallel(engine, "third-pair")
@@ -97,7 +97,7 @@ def test_resume_with_two_running_is_refused_naming_both_until_one_is_concluded(e
 def test_departure_with_only_paused_activities_leaves_them_in_place(engine_factory) -> None:
     """只有暂停的活动时出发被受理：两项暂停的活动不占名额也不算进行中，留在出发地的停留会话里；到达后在别处可以直接
     结束其中一项（取消并收尾），另一项仍暂停，在别处恢复按开始地点拒绝（地点先于名额）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "leave-pair")
     _wake(engine)
@@ -122,35 +122,12 @@ def test_departure_with_only_paused_activities_leaves_them_in_place(engine_facto
     assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
 
 
-def test_resume_checks_the_work_deadline_before_the_free_slot(engine_factory) -> None:
-    """恢复的检查次序，工作截止先于名额：17:29:01 暂停工作后同秒开始等待与观看占满名额，17:29:30 恢复工作时距截止不足
-    60 秒、名额也占满且与等待的占用冲突，拒绝报截止（腾出名额也解决不了它），待办层同一原因。"""
-
-    def mutate(document: dict) -> None:
-        """首个任务的截止改为 17:30。"""
-        document["tasks"][0]["due_at"] = work_contracts._DEADLINE
-
-    engine = engine_factory("white-collar-12-weeks.json", mutate)
-    work_contracts._stage_office(engine, work_contracts._clock("17:20:00"))
-    work_id = work_contracts._start_work(engine, "late-start")
-    work_contracts._decide_at(engine, work_contracts._clock("17:29:01"))
-    assert work_contracts._pause(engine, "late-pause", work_id).status == "completed"
-    started = _start(engine, "late-pair", ("自己", "interact", "等待"), _contents(engine, "late-contents")[0])
-    assert started.status == "in_progress", started.error_code
-    work_contracts._decide_at(engine, work_contracts._clock("17:29:30"))
-    assert activity_control.free_slots(engine.context.state, 1) == 0
-    refused = _resume(engine, "late-resume", work_id)
-    deadline = "Less than one minute remains before the deadline; work cannot start."
-    assert refused.status == "rejected" and refused.error_code == "ACTIVITY_DURATION_INVALID"
-    assert refused.data["reason"] == deadline
-    marked = target_tools(_preview(engine, "late-todo"), _name(engine, work_id))["report_status"]
-    assert (marked["available"], marked["reason"]) == (False, deadline)
 
 
 def test_resume_checks_the_free_slot_before_resource_conflicts(engine_factory) -> None:
     """恢复的检查次序，名额先于占用冲突：暂停的等待与进行中的另一段等待占用冲突，两项进行时恢复报名额占满（点名两项，
     不报冲突）；暂停观看腾出名额后再恢复，才报与那段等待的占用冲突。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     paused = _paused_wait(engine, "order")
     waited, watched = _two_parallel(engine, "order-pair")
@@ -171,9 +148,9 @@ def test_resume_checks_the_free_slot_before_resource_conflicts(engine_factory) -
 def test_full_slots_with_a_call_say_pause_only_the_pausable_one(engine_factory) -> None:
     """名额被一段等待与一通电话占满：通话不能暂停，下一步写「结束其中一项，或暂停等待」，暂停只点名等待；暂停通话确实被
     拒（与 pause_activity 的判定同源）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    started = _start(engine, "call-pair", ("自己", "interact", "等待"), ("联系人：陈母", "interact", "通话"))
+    started = _start(engine, "call-pair", ("自己", "interact", "等待"), ("联系人：母亲", "interact", "通话"))
     assert started.status == "in_progress", (started.error_code, started.message)
     waited, called = _started_ids(started)
     _wake(engine)
@@ -188,9 +165,9 @@ def test_full_slots_with_a_call_say_pause_only_the_pausable_one(engine_factory) 
 
 def test_full_slots_on_the_road_say_conclude_only(engine_factory) -> None:
     """名额被出行与路上开始的观看占满：路上的活动都不能暂停，下一步只写「结束其中一项」；工具层列出的等待带同一原因。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    content = _pick(_preview(engine, "road-content"), "watch", kind="content")
+    content = _pick(_preview(engine, "road-content"), "use_app", kind="app")
     travel_id, watch_id = _started_ids(_depart(engine, "road", content))
     _wake(engine)
     listed = _occupying(engine)
@@ -206,7 +183,7 @@ def test_full_slots_on_the_road_say_conclude_only(engine_factory) -> None:
 def test_both_paused_at_the_limit_accept_a_two_item_start(engine_factory) -> None:
     """两项都暂停到同刻上限：阶段为开始或恢复（不再进入恢复或结束），同时开始两项被受理，两项暂停的活动仍暂停，同一秒的
     轮数为上限加一，之后时钟推进。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "limit-pair")
     _wake(engine)

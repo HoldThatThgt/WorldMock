@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from typing import Any
 
 from worldmock.catalog.affordances import engine_affordances
@@ -41,15 +40,17 @@ _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 class WorldFacts:
     """@brief 准入判定所需的冻结目录：任务、供给、可持有物与内容（引擎取自规则，投影取自场景）。"""
 
-    tasks: Mapping[str, Any]
+    work_topics: Mapping[str, Any]
     items: Mapping[str, Any]
+    #: 当前人物工作安排中的现场地点，无工作安排时为空。
+    workplace_location_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Context:
     """@brief 一次准入判定的世界与可读名称：地点身份→地点名，活动身份→本轮活动名。
 
-    :param tasks: 冻结工作任务目录（任务身份→配置）；恢复暂停的工作时核对截止与合同余量。
+    :param work_topics: 冻结工作主题目录；恢复暂停的工作时核对主题剩余工时。
     :param graph: 已登记的连通图，下一步提示据此查询目标地点。
     """
 
@@ -58,7 +59,7 @@ class Context:
     place_names: Mapping[str, str]
     graph: Graph
     activity_names: Mapping[str, str] = field(default_factory=dict)
-    tasks: Mapping[str, Any] = field(default_factory=dict)
+    work_topics: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,8 +88,6 @@ class Item:
     holding: bool = False
     site: bool = False
     held_at: str | None = None
-    #: 工作真实开放时刻，普通工作从邮件到达派生，预约使用约定时刻。
-    work_opens: datetime | None = None
 
 
 def en_route(state: WorldState, agent_id: int) -> bool:
@@ -117,9 +116,8 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
     item = Item(canonical=canonical, way=action["label"],
                 label=f"{activity_phrase(action)}{activity_control.object_display_name(row)}",
                 claims=_claims(canonical, action, object_id, facts))
-    if canonical == "work" and object_id in facts.tasks:
-        task = facts.tasks[object_id]
-        return replace(item, place=task.required_location_id, work_opens=task.available_at)
+    if canonical == "work" and object_id in facts.work_topics:
+        return replace(item, place=facts.workplace_location_id)
     if canonical == "purchase" and action.get("fulfillment") == "pickup":
         return replace(item, place=row["store_id"])
     if canonical == "purchase":
@@ -182,9 +180,6 @@ def hands_free_refusal(context: Context, what: str) -> Refusal | None:
 
 def _presence_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
     """@brief 目标在场与实际地点：要在某地做的事需要人在那里，途中与同一请求出发都不算在场；远程下单要能送到这里。"""
-    if item.work_opens is not None and context.state.current_time < int(item.work_opens.timestamp()):
-        return Refusal("WORK_TASK_NOT_AVAILABLE", f"Work opens at {item.work_opens.isoformat()}.",
-                       "Wait until the appointment start.", ("available_at",))
     return (_place_refusal(context, item, present, departs) or _site_refusal(item, present, departs)
             or _partner_refusal(context, item, present, departs))
 

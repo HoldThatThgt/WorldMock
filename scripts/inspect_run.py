@@ -17,7 +17,7 @@ rerun 只读计算 docs/VERIFICATION.md#verification-时间与能量特性门禁
 continuation 只读给出 docs/VERIFICATION.md#verification-人物-prompt-七层特性门禁的逐决策指标与合计（JSON）；--baseline 先核对
 两份清单（同一提交、同一场景文件、同一模型身份，只有 same_second_continuation 不同），不可比即拒绝比较。
 workday 只读打印 docs/VERIFICATION.md#errands-workday-度量与下游-行为评估 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
-班次、任务、住处与播报间隔取自 --scenario 场景文件（其摘要须等于运行清单的 scenario_sha256，否则拒绝、不打印），
+班次、住处与播报间隔取自 --scenario 场景文件（其摘要须等于运行清单的 scenario_sha256，否则拒绝、不打印），
 作息窗口取自运行目录里人物工作区的结构化卡片。
 queries 只读给出 docs/VERIFICATION.md#errands-workday-度量与下游-查询成本只报告「查询成本」的八个键（JSON），口径取已落库的模型工具交换证据，
 只报告，不作门禁。
@@ -274,7 +274,7 @@ def eat_progress(conn: sqlite3.Connection) -> list[tuple[int, str, int]]:
                    "json_extract(body, '$.data.consumption.items')")
     meals = []
     for agent, activity_id, start, use_mode, items in rows:
-        quantities = [item.get("interval_quantity") for item in json.loads(items or "[]") if isinstance(item, dict)]
+        quantities = [item.get("interval_portion") for item in json.loads(items or "[]") if isinstance(item, dict)]
         if use_mode == "eat" and isinstance(start, int) and any(
                 isinstance(value, (int, float)) and value > 0 for value in quantities):
             meals.append((agent, activity_id, start))
@@ -686,7 +686,7 @@ def _workspace_cards(run_dir: Path, agent_ids: list[int]) -> tuple[dict[int, dic
 
 
 def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印工作负荷与作息偏离（JSON，只报告）：班次、任务、住处与播报间隔取自 --scenario 场景文件，其摘要须等于
+    """@brief 打印工作负荷与作息偏离（JSON，只报告）：班次、住处与播报间隔取自 --scenario 场景文件，其摘要须等于
     运行清单的 scenario_sha256（不等即以英文错误退出、不打印任何内容）；作息窗口取自运行工作区的结构化卡片。"""
     from worldmock.evaluation.workload_metrics import workday_inputs, workday_reports
     from worldmock.life.scenario import parse_scenario_document

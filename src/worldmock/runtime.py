@@ -267,6 +267,7 @@ def _prepare_resume(
     from worldmock.life.continuation import continuation_enabled
     from worldmock.life.run_identity import require_environment_identity
     from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.life.models import WorldState
 
     destination = Path(request.run_dir).resolve()
     _require_run_shell(destination)
@@ -285,6 +286,7 @@ def _prepare_resume(
         if parent.manifest.get("scenario_sha256") != scenario_digest:
             raise IntegrityError("Checkpoint scenario identity differs from the requested scenario")
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
+        WorldState.model_validate(checkpoint.state)
         _require_runtime_identity(parent.manifest, Path(request.project_root))
         require_environment_identity(parent.manifest, semantics)
         manifest, state = _restore_branch(parent, checkpoint, destination, metadata, scenario)

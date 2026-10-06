@@ -48,7 +48,7 @@ from worldmock.life.presentation import stage_presentation
 from worldmock.life.engine_context import EngineContext
 from worldmock.life.activity_titles import activity_title, activity_snapshot
 
-_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel", "submit_work": "review"}
+_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel"}
 
 
 class DecisionCoordinator:
@@ -496,8 +496,6 @@ class DecisionCoordinator:
             "next_decision_at": next_decision_at,
             **guidance,
         }
-        if str(error) == "WORK_REQUIRES_REWORK":
-            data["work_review"] = self.actions.public_work_review(pending)
         if isinstance(error, PreconditionError):
             data["unmet"] = error.unmet
             if error.suggested is not None:

@@ -58,7 +58,7 @@ from worldmock.life.readable import local_date
 #: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选对象与来源」）。
 FOOD_CATEGORY = "foods"
 #: 工作合同的下钻键。
-TASK_CATEGORY = "work_contract"
+WORK_TOPIC_CATEGORY = "work_topic"
 
 @dataclass(frozen=True, slots=True)
 class PoolEntry:

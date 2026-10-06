@@ -293,7 +293,7 @@ _REMINDER_TESTS = [
     _REMINDER + "test_completed_or_cancelled_errands_are_not_reminded",
     _REMINDER + "test_updating_the_reminder_clock_arms_it_again",
     _REMINDER + "test_a_reminder_due_at_local_midnight_is_delivered_by_the_midnight_rhythm",
-    _REMINDER + "test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning",
+    _REMINDER + "test_open_errands_do_not_change_the_reconsideration_interval",
     _ERRAND_EXPORT,
     "tests/footprints/test_quality.py::test_errand_reminder_due_is_a_known_wake_reason",
 ]
@@ -557,7 +557,7 @@ _WORK_SCHEDULE = "tests/life/test_work_schedule.py::"
 #: 的同一场景相同；真实 LifeAgent 的同秒续接链内 duty 不变、不进 changes。末一个是 Schema 枚举与闭集一致的补充证据。
 _DUTY_TESTS = [
     _WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",
-    _WORK_SCHEDULE + "test_duty_stays_on_duty_after_the_work_is_submitted",
+    _WORK_SCHEDULE + "test_duty_stays_on_duty_after_topic_completion",
     _WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",
     _WORK_SCHEDULE + "test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly",
     _WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",
@@ -571,7 +571,6 @@ _DUTY_TESTS = [
 #: 场景里任务的开放与截止、工具层任务目标的合同与开工动作逐值相同。
 _WORK_CONTRACT_BOUNDARY_TESTS = [
     _WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",
-    _WORK_SCHEDULE + "test_shifts_do_not_change_task_opening_or_deadline",
 ]
 #: 「计划与义务」：直接导入的 LifeAgent 发出的真实请求里系统层仍是十八条，第 1 条只把环境层一句改成含今天的上班安排、
 #: 第 14 条在四个分句之后依次是让「等待」成为例外规格插入的钟点一句与规格 4.6 的上班安排一句（后者逐字不动），与接口
@@ -601,15 +600,13 @@ _WORKLOAD_REPORT = "tests/life/test_workload_report.py::"
 #: 非零退出、不打印；作息窗口取自运行工作区的结构化卡片，没有卡片时按 null 计并写说明。
 _WORKLOAD_TESTS = [
     _WORKLOAD + "test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave",
-    _WORKLOAD + "test_a_real_task_outing_is_not_absence_and_a_declared_rest_day_counts_nothing",
     _WORKLOAD + "test_workload_fields_follow_their_definitions_on_a_hand_built_day",
-    _WORKLOAD + "test_breaks_and_task_outings_are_not_absence_and_rest_days_are_left_out",
-    _WORKLOAD + "test_travel_to_an_appointment_before_it_starts_is_a_task_outing_not_absence_or_early_leave",
+    _WORKLOAD + "test_declared_breaks_are_not_absence_and_rest_days_are_left_out",
     _WORKLOAD + "test_routine_deviation_reports_three_items_with_evidence_tolerance_and_sleep_flags",
     _WORKLOAD + "test_people_without_a_schedule_have_null_leave_items_and_still_report_arrival_home",
     _WORKLOAD + "test_missing_inputs_are_null_with_a_note",
     _WORKLOAD + "test_routine_deviation_uses_none_of_the_removed_plan_deviation_names",
-    _WORKLOAD + "test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_scenario_and_cards",
+    _WORKLOAD + "test_workday_inputs_take_shifts_home_windows_and_interval_from_the_scenario_and_cards",
     _WORKLOAD + "test_reports_are_byte_reproducible",
     _WORKLOAD_REPORT + "test_workday_command_prints_the_four_keys_for_a_real_run",
     _WORKLOAD_REPORT + "test_workday_command_rejects_a_scenario_that_is_not_the_runs_scenario",
@@ -805,7 +802,7 @@ _SLEEPER_REMINDER_KILLERS = (
     _REMINDER + "test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake"
                 "_boundary",)
 _COMMITMENT_KILLERS = (
-    _REMINDER + "test_open_errands_change_neither_the_reconsideration_interval_nor_the_closing_warning",)
+    _REMINDER + "test_open_errands_do_not_change_the_reconsideration_interval",)
 _TOGETHER_KILLERS = (_REMINDER + "test_errands_due_together_are_one_opportunity_with_one_event_each",)
 _PROMPT_CAPACITY_MODULE = "worldmock.life.prompt_capacity"
 _PROMPT_CAPACITY_SOURCE = "src/worldmock/life/prompt_capacity.py"
@@ -902,8 +899,7 @@ _REST_DAY_KILLERS = (
 _BREAK_KILLERS = (_WORK_SCHEDULE + "test_duty_follows_the_clock_through_a_working_day",)
 _UNSCHEDULED_KILLERS = (_WORK_SCHEDULE + "test_people_without_a_schedule_have_no_duty_while_others_keep_theirs",)
 _PLAN_REVISION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_revising_the_day_plan_does_not_change_duty",)
-_SUBMISSION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_duty_stays_on_duty_after_the_work_is_submitted",)
-_TASK_OPENING_KILLERS = (_WORK_SCHEDULE + "test_work_can_start_before_the_shift_and_continue_after_it",)
+_TOPIC_COMPLETION_DUTY_KILLERS = (_WORK_SCHEDULE + "test_duty_stays_on_duty_after_topic_completion",)
 #: 零点计划输入带上 status 的杀手（主进程内经真实引擎与零点计划后台任务，零点计划输入按本名调用
 #: work_schedule.day_arrangement）：当班日的「上班安排」多出 status 键，载荷与请求不再是四键。环境层 duty 本来就带
 #: status，这一变异不改变它。
@@ -1666,21 +1662,12 @@ MUTATIONS: tuple[SourceMutation, ...] = (
         _PLAN_REVISION_DUTY_KILLERS,
     ),
     SourceMutation(
-        "duty_vanishes_after_work_submission",
+        "duty_vanishes_after_topic_completion",
         'worldmock.life.environment_layer::environment_layer',
         '"duty": _duty(context)',
-        '"duty": None if context.state.paid_task_ids else _duty(context)',
-        _SUBMISSION_DUTY_KILLERS,
-    ),
-    SourceMutation(
-        "shift_gates_task_opening",
-        'worldmock.life.work::_within',
-        "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp())",
-        (
-            "return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp()) "
-            "and (now + 8 * 3600) % 86400 >= 540 * 60"
-        ),
-        _TASK_OPENING_KILLERS,
+        '"duty": None if any(item.kind.value == "work" and item.status.value == "completed" '
+        'for item in context.state.activities.values()) else _duty(context)',
+        _TOPIC_COMPLETION_DUTY_KILLERS,
     ),
     SourceMutation(
         "plan_input_carries_duty_status",
@@ -1852,7 +1839,6 @@ SPEC_MUTATIONS: dict[str, dict[str, object]] = {
     "所有人物套班次": {"stage": "3", "mutations": ("everyone_gets_a_shift",)},
     "计划修订后 `duty` 消失": {"stage": "3", "mutations": ("duty_vanishes_after_plan_revision",)},
     "休息时段显示为当班中": {"stage": "3", "mutations": ("break_shown_as_on_duty",)},
-    "班次并入任务开放判定": {"stage": "3", "mutations": ("shift_gates_task_opening",)},
     "忽略例外日期": {"stage": "3", "mutations": ("exception_dates_ignored",)},
     "宿主在人设层重复渲染工作安排": {"stage": "3", "mutations": ("host_renders_work_schedule",)},
     "忽略来源": {"stage": "4", "mutations": ("query_source_filter_ignored",)},
@@ -1915,7 +1901,7 @@ EXTRA_MUTATIONS: dict[str, str] = {
                                         "接受 4）。",
     "plan_input_carries_duty_status": "实施计划阶段 3「突变审查的目标」：零点计划输入带上 `status`（day_arrangement 的"
                                       "当班日形状多出 status 键）。",
-    "duty_vanishes_after_work_submission": "实施计划阶段 3「突变审查的目标」：`submit_work` 之后 `duty` 变 null（环境层"
+    "duty_vanishes_after_topic_completion": "实施计划阶段 3「突变审查的目标」：主题完成之后 `duty` 变 null（环境层"
                                            "在有任务付款结清后把 duty 投影成 null；同句的计划修订一半对应规格「计划"
                                            "修订后 `duty` 消失」）。",
     "unknown_source_returns_an_empty_page": "实施计划阶段 4「突变审查的目标」「未知来源不报错而返回空页」：来源写法既不是"

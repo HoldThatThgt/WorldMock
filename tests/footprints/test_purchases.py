@@ -20,6 +20,8 @@ def test_actual_order_facts_preserve_food_store_app_and_fixed_money(fulfillment,
     rows = project_purchase_facts([event, event])
     assert len(rows) == 1
     row = rows[0]
+    assert {"food_id", "store_id", "app_id", "unit_price_fen", "delivery_fee_fen",
+            "total_price_fen", "quantity"} <= row.keys()
     assert row["food_id"] == "beef-noodles" and row["store_id"] == store and row["app_id"] == app
     assert row["unit_price_fen"] == 2800 and row["delivery_fee_fen"] == fee
     assert row["total_price_fen"] == 2800 + fee and row["quantity"] == 1

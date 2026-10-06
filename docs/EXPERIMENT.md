@@ -1,6 +1,8 @@
 <a name="experiment-worldmock-实验设置"></a>
 # WorldMock 实验设置
 
+> 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题实验参数。
+
 > 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境发布与运行身份、经济参数、能量感知标签、身体初始值、效率曲线、需求状态、实验假设声明」（阶段 1）；「地图与门店供给的实验身份」（阶段 2）；「内容与语料绑定、实验身份与范围」（阶段 3）；再次修订「交互菜单与运行身份、内容与语料绑定、决策点节奏、实验假设声明」（阶段 4）。
 
 
@@ -105,11 +107,11 @@ timeline
 工具面与各层 Schema 不变，`tool_schema_sha256` 不变；该改写实施前后的运行不可合并比较；零点计划模板第三、五、六条的改写只改变 `code_sha256`。
 [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列可供性占用声明（只有同一种动作互斥）：`tool_schema_sha256` 绑定引擎包资源 `src/worldmock/data/affordances.toml` 的字节，因而与 `code_sha256` 一起改变，`prompt_sha256`、世界结构 9、质量报告结构 4、场景结构 6 不变；活动占用随世界状态保存并在恢复时与注册表逐项核对，此前的检查点与运行不能再恢复或重放，实施前后的运行不可合并比较。
 
-[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)阶段 4 把娱乐目标改为 app，工具层可调用索引改为 `lifestyle`、`goods`、`query_categories` 三键，进度层加入 app 推送与 app 内容结果；最终八项占用闭集也随包资源字节进入工具指纹。因此 `tool_schema_sha256` 与 `prompt_sha256` 在本阶段都改变，本阶段前后的运行不可合并比较。`submit_work`、工作 Schema、系统层第 2 条和 `work_review` 阶段键仍保留到阶段 5，不能由阶段 4 的身份变化推断它们已经删除。
+[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送)阶段 4 把娱乐目标改为 app，工具层可调用索引改为 `lifestyle`、`goods`、`query_categories` 三键，进度层加入 app 推送与 app 内容结果；最终八项占用闭集也随包资源字节进入工具指纹。因此 `tool_schema_sha256` 与 `prompt_sha256` 在本阶段都改变，本阶段前后的运行不可合并比较。阶段 5 又删除独立工作交付工具和评审阶段，改为工作主题累计，并同步系统层第 2 条；阶段 6 才改其余五条系统层文本并形成最终提示指纹。
 
 [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)把系统层第 8 条原位改写（阶段 3，仍为 18 条），改变 `prompt_sha256`，
 工具面与各层 Schema 不变，`tool_schema_sha256` 不变；该改写实施前后的运行不可合并比较。
-运行清单的阶段身份 `stage_model_identity` 只有 `action` 与 `work_review` 两个阶段键，
+运行清单的阶段身份 `stage_model_identity` 只有 `action` 一个阶段键，
 含 `decision_statement` 的旧清单被拒绝；同秒续接开关 `same_second_continuation`（`worldmock run --same-second-continuation on|off`，
 缺省 `on`）冻结进 `stages.action` 与人物配置，恢复与重放继承父清单的值，不能覆盖，恢复时人物配置与父清单不符即拒绝。
 开与关两臂的对比用只读子命令 `scripts/inspect_run.py continuation --baseline`，两份清单除运行身份与该开关外必须相同。
@@ -246,7 +248,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | --- | --- | --- | --- |
 | 食品利用效率 | `sleep_deficit_hours` | (0, 0.90)、(8, 0.90)、(16, 0.85)、(24, 0.80) | 线性 |
 
-食品利用效率与能量上限保留为 WorldMock 身体常数，来源 `worldmock:<RULES_VERSION>`。工作主题按真实秒数积累，相关运行消费者在阶段 5 切换，不把有效工时或计酬曲线作为新环境参数。
+食品利用效率与能量上限保留为 WorldMock 身体常数，来源 `worldmock:<RULES_VERSION>`。工作主题按真实秒数积累，现行运行消费者不读取工作效率或计酬曲线。
 
 <a name="experiment-需求状态"></a>
 ### 需求状态
@@ -286,13 +288,17 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 费用与速度常数归 `worldmock.exchange`，由 `RULES_VERSION = 1` 绑定。无工作包、计时或计件交换；工作主题进度与工资账单由所属行为阶段接入。数值是仿真假设，不能当作具体真实门店的报价事实。
 
 <a name="experiment-工作参数"></a>
+
 ### 工作参数
 
 | 参数 | 取值 | 单位 | 依据 |
 | --- | --- | --- | --- |
-| 工作速率 | 该场景下工作技能对应的等级 | - | 直接使用 |
-| 工作笔记倍率 | 1.10 | - | `body.work_notes_multiplier` |
-| 工作评审最大调用次数 | 3 | 次 | 初次调用加最多两次输出协议纠正 |
+| 工作主题 | 由 `work_topics.json` 登记，人物只通过 `agents[].work_topic_ids` 分配 | - | 场景与目录冻结身份 |
+| 目标工时 | `target_hours` 为有限正数，`round(target_hours × 3600)` 至少为 60 | 小时 | 目录准入时换算为 `target_seconds` |
+| 累计工时 | 本人物、本主题全部非失败工作活动的实际经过秒数之和 | 秒 | `work_totals`；暂停、休息和并行的非工作活动不计 |
+| 单次时长 | `min(target_seconds − worked_seconds, DERIVED_DURATION_CAP_SECONDS)` | 秒 | 开始与恢复共用；剩余不足 60 秒拒绝 |
+
+主题参数只含稳定身份、名称与目标工时。工资只来自场景明确登记的 `payrolls[]`，不从主题累计推导。
 
 <a name="experiment-活动节奏与同刻决策上限"></a>
 ### 活动节奏与同刻决策上限
@@ -328,7 +334,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | --- | --- |
 | 食品 | 登记目录保留真实食品名称，类别仅 snack、drink、meal；价格显式为合成假设，热量和食用时长来自固定类别常数 |
 | app 内容 | `contents.json` 登记真实作品名、完整摘要、摘要来源、时长与至少一个绑定 app；类型闭集为 article、image_text、short_video、long_video、live，不登记字幕、音轨、分段资产、游戏或评估引用 |
-| 工作 | 工作材料不进入内容目录；阶段 4 仍保持现行工作任务行为，工作主题与任务链删除由阶段 5 同步完成 |
+| 工作 | `work_topics.json` 登记主题与目标工时；人物经 `work_topic_ids` 分配，按实际工作秒数累计；内容目录不承载工作输入或答案 |
 | 邮件 | 48 个冻结场景线程，明确标为场景创作 |
 | 商品与门店供给 | 同类型食品店铺共享完整菜单，食品全店同价；app 绑定与固定每单配送费分别登记，不声明店铺库存、营业或资格 |
 | 地图与路线 | 真实地点名称与合成连通加权图边长分别说明；完整路径、最短距离和固定方式费用由已发布图与规则计算 |
@@ -465,3 +471,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：内容改为五类 app 内容与摘要来源；推送窗口固定为当地 08:00–21:00 整点，app 使用固定 1800 秒并按内容类型缓解；两个指纹随 app 协议变化，工作协议仍待阶段 5。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题与目标工时实验参数 |

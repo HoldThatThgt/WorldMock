@@ -1,6 +1,8 @@
 <a name="spec-layering-and-test-tiers-代码分层文档引用与测试分层开发规格"></a>
 # 代码分层、文档引用与测试分层开发规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题依赖边界。
+
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「测试只读输入缓存、生活引擎的职责对象、行为不变基线、生产依赖方向」（阶段 1）与「快速、标准与全量层」（阶段 4）。
 
 > 状态：FROZEN；本次完整实现的开发合同，验收证据另行登记。
@@ -75,7 +77,7 @@ flowchart TD
 | 环境基础模型与地点闭集 | `catalog.models` 与 `exchange.types`；目录与场景统一导入，不维持独立地图/供给模型合同 |
 | 社交占用及效率常量 | 已有纯函数模块 `life/social.py` |
 | 时间文字与状态替换 | `life/readable.py` 与 `life/world_ops.py` |
-| 场景读取、语义组装、准入和工作材料校验 | 顶层 `life/world_setup.py` 编排；底层解析和语义模块不回调装配层 |
+| 场景读取、语义组装、准入和工作主题分配校验 | 顶层 `life/world_setup.py` 编排；底层解析和语义模块不回调装配层 |
 | 足迹分支恢复 | `footprints/checkpoint.py` 编排，`store.py` 只承担存取 |
 | 时间线渲染加载 | 由时间线渲染所属底层模块承担，不回调导出编排 |
 | 进程配置、运行与阶段身份、人物输入准备 | `worldmock/run_setup.py`；提取实际依赖闭包，不能与 `validation` 重新成环 |
@@ -100,7 +102,6 @@ flowchart TB
     FACADE --> DEC[DecisionCoordinator<br/>决策轮次与请求受理]
     FACADE --> ACTION[ActionHandlers<br/>活动、消费、工作与社交动作]
     FACADE --> CLOCK[TimeAdvanceCoordinator<br/>时钟、活动推进与零点边界]
-    FACADE --> WORK[WorkReviewCoordinator<br/>准备、调用与工作验收]
     FACADE --> EVIDENCE[ModelEvidenceRecorder<br/>模型往来与记忆证据]
     ACTION --> STORE[StorefrontRuntime<br/>门店访问、报价与购买]
     CONTEXT --> RECORD[FootprintStore<br/>唯一持久提交]
@@ -111,12 +112,12 @@ flowchart TB
 职责对象持有上下文和明确需要的具名协作者，不允许 `__getattr__`、字段转发、整门面注入或旧私有方法代理。
 
 决策轮次与延迟决策开始归决策协调；呈现及可见供给暂存归观察构造；待提交动作事件归动作处理；
-工作验收器归工作验收协调；请求事件索引归证据登记；零点边界归时间推进。
+工作主题准入与播报回执归动作处理，实际工时累计与完成事件归时间推进；请求事件索引归证据登记；零点边界归时间推进。
 初始化、重新打开、检查点、反事实干预与关闭按实际职责由门面编排，不另立状态权威。
 活动快照、名称和用餐窗口等纯投影下沉所属模块。
 `continuation`、`rhythm` 和环境的只读查询必须接收所需状态或具名协作者，不回调引擎私有方法。
 
-资源与规则引擎简化不扩大 `EngineContext` 字段集；既有语义持有新 `Catalog`，地点活动环境由固定类型派生。目录对象、绑定与规则身份改写不建立第二份世界状态，工作评审对象的物理退役仍归阶段 5。
+资源与规则引擎简化不扩大 `EngineContext` 字段集；既有语义持有新 `Catalog`，地点活动环境由固定类型派生。目录对象、绑定与规则身份改写不建立第二份世界状态；工作主题累计由活动事实派生，不恢复已删除的评审协调对象。
 
 <a name="layering-documents"></a>
 ## 现行文档与历史证据
@@ -276,7 +277,7 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 | 当前权威 | `docs/INDEX.md`、`ARCHITECTURE.md`、`CONTRACTS.md`、`VERIFICATION.md`、`EXPERIMENT.md`、`docs/dev/implementation-status.md`、`coverage-baseline.md`、`ANALYSIS-spec-coverage.md`；当前基础 SPEC 与手册同步所属正文和引用 |
 | 总体设计 | `docs/design/00-overview.md`、`01-architecture.md`：唯一状态权威、门面与职责对象和单向依赖 |
 | 交换与资源设计 | `docs/design/02-exchange-engine.md`、`03-resource-engine.md`：纯规则和基础词表、类型与资源装配边界 |
-| 模拟设计 | `docs/design/04-simulation-engine.md`：上下文、职责对象、观察、受理、推进、工作验收和证据登记实际调用关系 |
+| 模拟设计 | `docs/design/04-simulation-engine.md`：上下文、职责对象、观察、受理、活动与工作主题推进和证据登记的实际调用关系 |
 | 记录设计 | `docs/design/05-recording-engine.md`：恢复由检查点编排、存储只存取、时间线加载归属和行为摘要证据 |
 | 交付与评估设计 | `docs/design/06-delivery.md`、`07-evaluation.md`：现行正文引用、身份边界与完整验收证据；不改业务规则 |
 | 配置与格式设计 | `docs/design/08-configuration.md`、`09-io-formats.md`：相对路径、冻结输入和身份不变；不增加运行配置或持久字段 |
@@ -344,3 +345,4 @@ summary、worker 选择清单及完成回执的运行身份与节点多重集；
 | `2026-10-06-rrs-0` | 2026-10-07 | 随资源与规则简化冻结扩展现行特性集合；归档原文与固定历史变异保留身份，当前变异守卫按有效登记交集核对 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：删除 TextWorld 外部测试分类，app 使用与 app 内容按真实引擎依赖归入现有测试层。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题依赖边界 |

@@ -1,6 +1,8 @@
 <a name="recording-engine-worldmock-产品设计说明书-记录引擎"></a>
 # WorldMock 产品设计说明书 — 记录引擎
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题证据与质量报告。
+
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）；「地图与门店供给证据」、「地图与供给的恢复身份」、「检查点创建」、「持久化结构」、「必须保存的内容」（阶段 2）；「事件字段、事件类型、事件正文、活动进度、已核验经历、共同身体结算与决策证据」（阶段 4，app 使用与推送）。
 
 
@@ -166,7 +168,7 @@ flowchart TB
 | 时间 | `occurred_at` (模拟时间), `observed_at` (观察事件), `recorded_at` (程序时间), `wall_elapsed_ms` |
 | 观察 | 实际可见层数据、进度来源与私有绑定；app 结果记录公开 `app_content`，不保存 `content_refs` 或分段范围；`observation_version` 不含未来或未授权内容 |
 | 请求与执行 | `action_name`, `params`, `status`, `start_time`, `end_time`, `progress`, `interruption_reason` |
-| 结果 | `feedback`, `resource_changes`, `deliverable`, `counterparty`, `review_result`, `failure_reason` |
+| 结果 | `feedback`、`resource_changes`、`counterparty`、`failure_reason`；工作活动进度另含 `work{topic_id, worked_seconds, remaining_seconds}` |
 | 状态关联 | `state_version_before`, `state_version_after` (可回到检查点和事件重建状态) |
 | 来源与可见性 | `source_kind` 取闭集 `environment`、`model`、`scenario`、`external`（默认 `environment`）；`visibility` 取闭集 `agent`、`evaluation`、`system`（默认 `agent`） |
 | 素材引用 | `artifact_refs`：`AssetRef` 列表，每项含 `sha256`、`size_bytes`、`media_type` 与 `source` |
@@ -239,8 +241,8 @@ flowchart TB
 不重复、不补发。它们不在睡眠允许的原因之内：睡眠中的人物不计入候选、不形成静默边界、不被叫醒，睡过的起止醒来后不补；
 运行第一秒恰在起止上时只记 `run_start`。
 
-阶段 4 在 `break_end` 后追加 `app_push`，共同身体结算与 `decision_started` 使用同一 25 项有序闭集；
-它不进入四项睡眠允许集合。三个工作原因到阶段 5 才删除，届时词表才成为最终 22 项。
+`app_push` 排在 `break_end` 之后，共同身体结算与 `decision_started` 使用同一最终 22 项有序闭集；
+它不进入四项睡眠允许集合。
 
 <a name="recording-engine-事件类型枚举"></a>
 #### 事件类型枚举
@@ -272,7 +274,7 @@ EventType = Literal[
 `app_push`，
 登记在下表 `environment_event` 行）；
 零点计划的模型请求与响应复用 `model_request`、`model_response`，以 `data.purpose` 区分。
-阶段 4 不登记 `work_topic_completed`；该子类型随工作主题在阶段 5 替换现行工作任务事件。
+阶段 5 登记 `work_topic_completed`：它在人物的主题实际累计工时首次达标时出现一次，并投影为进度层 `work_completed`。
 
 <a name="recording-engine-事件正文与资源证据"></a>
 #### 事件正文与资源证据
@@ -461,13 +463,10 @@ flowchart LR
 未知工具、JSON 语法错误、批组合错误与嵌套参数错误均能从事件重建，不依赖英语错误串反解析。
 实际提供商响应、请求与原生 tool 配对原样保存，结构化纠错是旁列证据，不能改写实际响应字节。
 
-工作场景输入只保留显式必填的 `appointment`：普通工作写 `null`，真实预约写 `{starts_at, reason}`；
-删除输入 `available_at`、`availability_kind`、`appointment_reason`。内部 `RuntimeWorkTask.available_at`
-由最早发给本人且关联该任务的邮件 `sent_at` 或预约 `starts_at` 派生，不写回输入、不增加检查点字段。
-普通工作收到通知后，在地点及既有截止、技能、素材条件满足时即可开始；任务的 `contract.opens` 使用同一派生时刻。
-每封 `related_task_id` 非空的邮件都必须关联已存在的任务，且收件人必须是该任务受派人；另外，每个任务都至少有一封本人关联邮件。
-预约只要求最早本人关联通知的 `sent_at <= appointment.starts_at`，后续合法提醒可晚于预约开始，不改变内部 `available_at`。
-邮件到达不公开正文；阅读结果保留实际所读正文，仅不重复任务合同时间、地点或验收答案。
+工作场景输入只以 `agents[].work_topic_ids` 分配目录主题；分配了主题的人物必须声明工作安排，主题地点就是工作地点。
+主题自运行开始可见，没有预约、截止、技能、材料、通知邮件、交付或评审证据。主题累计从非失败工作活动的真实区间重算，
+每次结算记录 `topic_id`、`worked_seconds` 与 `remaining_seconds`，首次达标记录 `work_topic_completed`。
+邮件到达仍不公开正文；阅读结果保留实际所读正文，邮件不带工作主题引用。
 
 `query_world`、`recall_task_summary` 与记忆查询只读冻结观察权限；它们即时返回，
 不产生 `action_requested`、资源分录或世界活动，不计模拟时间和同刻轮数，仍占实际模型回合预算。
@@ -973,17 +972,18 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 
 
 `quality.json` 是同一批冻结事实的只读统计：动作结果计数、已记录活动与内容接触区间汇总（重复观看只计从头重看）、
-已记录转换效率的摘要、记忆来源检查、实际模型用量（含零点计划，按 `purpose` 分列：`model_usage.by_purpose` 逐项给出
+食品利用效率、工作主题累计、记忆来源检查、实际模型用量（含零点计划，按 `purpose` 分列：`model_usage.by_purpose` 逐项给出
 `purpose`、`request_events`、`provider_responses` 与 `token_usage`；人物决策中发出的请求不带 `purpose`，记为 `decision`，
-另有 `work_review` 与 `plan_day`）、冻结价格估算和实测加速比。
+后台用途只有 `plan_day`）、冻结价格估算和实测加速比。
 `activities.known_elapsed_seconds` 是各活动自身时间之和；同人并行时另以共同身体结算区间并集报告
 `activities.person_elapsed_seconds_by_agent`，不能将前者冒充人物一天的经过时长。决策节律中，
 边界计数与边界的唤醒原因只从每人每区间唯一的共同身体结算读取，决策轮的唤醒原因从 `decision_started` 读取，
 两份唤醒原因分列：`decision_rhythm` 另按人物与模拟秒统计 `decision_started` 的同刻轮数分布
 （`same_moment_round_counts`，键为同一人物同一秒的轮数，值为出现次数），并按 `decision_started.data.wake_reasons`
 统计轮次原因（`decision_started_wake_reason_counts`，闭集外成员计入
-`unrecognized_decision_started_wake_reason_counts`）；食品与工作效率读取对应活动自身进度。
-报告 `schema_version` 为 4（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
+`unrecognized_decision_started_wake_reason_counts`）；食品利用效率读取进食活动进度；`work_topics` 读取工作活动与主题完成证据。
+报告 `schema_version` 为 5；新增 `work_topics{topics, completed, worked_seconds_by_topic, reports}`，
+删除 `conversion_efficiency.work`，`model_usage.by_purpose` 不再有 `work_review`。此前 `schema_version` 4（版本 2 起 `decision_rhythm` 不再统计决策自述，删去 `decision_started_with_decision_statement` 与
 `decision_started_missing_decision_statement`，另以 `decision_budget_exhausted_events` 计 `decision_budget_exhausted` 事件数；
 版本 3 是[一日运行保真规格](../dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要)的新节，全部只报告不放行；版本 4 是
 [个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)的两个新节 `errand_metrics` 与 `conclusion_memories`，同样只报告）。
@@ -1264,3 +1264,4 @@ flowchart LR
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-app` | 2026-10-07 | app 内容接触的 `data.content` 与 `played[]`、`app_push` 环境事件、公开 `app_content` 结果；阶段 4 唤醒词表仍为 25 项，工作事件留到阶段 5；版本保持 v1.6 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题证据与质量报告，保留特性版本 v1.6 |

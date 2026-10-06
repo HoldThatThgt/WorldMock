@@ -1,6 +1,8 @@
 <a name="io-formats-worldmock-产品设计说明书-输入输出格式"></a>
 # WorldMock 产品设计说明书 — 输入输出格式
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作活动状态格式。
+
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「WorldState（世界状态）、AgentState（人物状态）、ActivityState（活动状态）、当前工具请求、查询与错误格式、职责与边界」（阶段 1）；「1.1 职责与边界」（阶段 3）。
 
 
@@ -331,55 +333,49 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 [观察投影字段](../CONTRACTS.md#contracts-观察投影字段)。
 
 <a name="io-formats-activitystate活动状态"></a>
+
 ### 3.4 ActivityState（活动状态）
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `activity_id` | str | 是 | 活动 ID |
-| `agent_id` | int | 是 | 人物 ID |
-| `location_id` | str | 是 | 开始地点（出行为出发地）；结算不覆盖，到达地点见 `data.arrival.location_id` |
-| `kind` | ActivityKind | 是 | 活动类型 |
-| `status` | ActivityStatus | 是 | 活动状态 |
-| `started_at` | int | 是 | 开始时间 |
-| `ended_at` | int \| None | 否 | 结束时间（终态必填） |
-| `planned_end_at` | int | 是 | 计划结束时间 |
-| `last_settled_at` | int | 是 | 上次结算时间 |
-| `elapsed_seconds` | int | 是 | 已用时长 |
-| `planned_duration_seconds` | int | 是 | 计划时长 |
-| `media_position_seconds` | float | 是 | 媒体位置 |
-| `route_progress_meters` | float | 是 | 路线进度，米 |
-| `target_id` | str \| None | 否 | 目标 ID |
-| `destination_id` | str \| None | 否 | 目的地 ID |
-| `travel_mode` | TravelMode \| None | 否 | 出行方式 |
-| `resource_claims` | set[str] | 是 | 资源占用，取第五章占用名（`wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`）；观看另按 `data.content_kind`（播客只占 `watch`，其余内容另占 `screen`），恢复时按注册表核对，旧占用名不符即拒绝 |
-| `origin_action_id` | str | 是 | 源动作 ID |
-| `origin_decision_id` | str | 是 | 源决策 ID |
-| `origin_request_event_id` | str | 是 | 源请求事件 ID |
-| `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`、`partner_ended`、`plan_reminder`（当日目标提醒结束睡眠；与计划结束同秒时记 `planned_end`） |
-| `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended`、`partner_ended`（交谈对方结束，本人交谈同秒结束）、`plan_reminder` |
-| `next_interaction_at` | int \| None | 否 | 下一次交互边界（游戏回合与社交活动使用） |
-| `data` | dict | 是 | 活动数据；生活活动含开始时冻结的 `effects`；进食（使用方式为食用）另带开吃份量 `opened`（dict[str, float]，商品→开吃份数），摄入只按它与实际进度计算，暂停保留剩余，结束时写 `discarded`（开吃份量减已吃，商品→丢弃份数）且不补算摄入；`opened` 随世界结构版本 8 |
-| `concluded_at` | int \| None | 否 | 收尾时刻：只属于 `completed`、`failed`、`cancelled`，不早于 `ended_at`；终态而为空即待收尾，`truncated` 不收尾 |
-| `report_anchor_at` | int \| None | 否 | 播报锚点：开始、恢复以及对该活动播报时写入当前时刻 |
-| `paused_at` | int \| None | 否 | 暂停时刻：暂停时写入，恢复时清空；待办层的暂停活动按它从老到新排列；随世界结构版本 8 |
-| `session_ids` | list[str] | 是 | 先后所属的地点会话 |
-| `name` | str | 是 | 可读名称「<做什么><对象>（<M月D日> HH:MM 起）」，结束后不改 |
-| `task_kind`、`task_ref`、`plan_goal_intent_kind` | str、str \| None、str \| None | 是 | 从原会话移来：活动服务的任务（`goal`、`work_task` 或 `none`）及引用，`goal` 时意图等于引用 |
-| `progress_note`、`note_updated_at`、`note_history` | str、int \| None、list | 是 | 从原会话移来的人物自述：`report_status`、`pause_activity`、`conclude_activity` 的 `summary` 写入 `progress_note`（至多 500 字符），前一条推入 `note_history`；提示中的 summary 在本 session 内是进度层对应调用的参数，session 结束后是记忆层的 `self_notes`（只取 pause、conclude） |
+| `activity_id` | str | 是 | 活动身份 |
+| `agent_id` | int | 是 | 人物身份 |
+| `location_id` | str | 是 | 开始地点；出行的到达地点另见 `data.arrival.location_id` |
+| `kind` | ActivityKind | 是 | `wait`、`sleep`、`work`、`use_app`、`travel`、`read_mail`、`consume`、`lifestyle`、`chat` 或 `call` |
+| `status` | ActivityStatus | 是 | `active`、`paused`、`completed`、`cancelled`、`failed` 或 `truncated` |
+| `started_at`、`ended_at` | int、int 或 null | 是、否 | 开始与终态结束时刻 |
+| `planned_end_at`、`last_settled_at` | int、int | 是 | 计划结束与上次结算时刻 |
+| `elapsed_seconds`、`planned_duration_seconds` | int、int | 是 | 实际累计秒数与计划时长；没有有效工时字段 |
+| `media_position_seconds`、`route_progress_meters` | float、float | 是 | 活动内媒体快照与路线进度 |
+| `next_interaction_at` | int 或 null | 否 | 下一次静默交互边界；app 内容完成可使用 |
+| `target_id`、`destination_id`、`travel_mode` | str 或 null | 否 | 目标、目的地与出行方式 |
+| `resource_claims` | set[str] | 是 | 恰从 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`talk`、`travel` 取值；同一种动作互斥 |
+| `origin_action_id`、`origin_decision_id`、`origin_request_event_id` | str | 是 | 来源身份，只供审计 |
+| `boundary_type`、`interruption_reason` | str 或 null | 否 | 真实结束或中断原因；`boundary_type` 不含 `game_feedback` |
+| `data` | dict | 是 | 按活动类型保存下面的冻结数据 |
+| `concluded_at`、`report_anchor_at`、`paused_at` | int 或 null | 否 | 收尾、播报锚点与暂停时刻 |
+| `session_ids`、`name` | list[str]、str | 是 | 先后所属会话与可读活动名 |
+| `task_kind`、`task_ref`、`plan_goal_intent_kind` | str、str 或 null、str 或 null | 是 | `task_kind` 取 `goal`、`work_topic` 或 `none`；公共目标类别仍可写 `task` |
+| `progress_note`、`note_updated_at`、`note_history` | str、int 或 null、list | 是 | 人物经控制工具写下的叙述；上一条进入历史，`recall_task_summary` 可回看 |
 
-`elapsed_seconds`、`effective_work_seconds`、`media_position_seconds` 等进度随每次结算累加；工具层活动目标的 `state` 写的客观进度从这些字段与任务累计读取。
+工具层的客观进度由活动秒数、人物全局内容进度与工作主题累计派生。人物自述不改变这些字段。
+工作主题的累计不是新增的 AgentState 状态：`worked_seconds(agent, topic)` 从本人物、本主题全部非失败工作活动的
+`elapsed_seconds` 求和。
 
-`ActivityChange` 为 `pause/resume/cancel`。活动 `data` 的目标字段如下，实际消费者随对应阶段生效：
+`ActivityChange` 为 `pause`、`resume`、`cancel`。活动 `data` 的目标字段如下：
 
-| 活动 | 数据 | 生效阶段 |
-| --- | --- | --- |
-| travel | `trip_id, path, distance_meters, travel_payment, arrival` | 阶段 2 |
-| consume | `request, consumed, opened, discarded, food_energy_kcal_per_hour` | 阶段 3 |
-| use_app | `app_id, content_id, content_kind, summary, start_position_seconds, pinned_by_push_id, draw_index, played`，位置是运行快照，恢复按全局进度覆盖 | 阶段 4 |
-| work | `topic_id, worked_before_seconds` | 阶段 5 |
-| lifestyle | `effects`，开始时冻结条目效果 | 保留 |
+| 活动 | 数据 |
+| --- | --- |
+| `travel` | `trip_id, path, distance_meters, travel_payment, arrival` |
+| `consume` | `request, consumed, opened, discarded, food_energy_kcal_per_hour` |
+| `use_app` | `app_id, content_id, content_kind, summary, start_position_seconds, pinned_by_push_id, draw_index, played`；位置只是运行快照，恢复按人物全局内容进度覆盖 |
+| `work` | `topic_id, worked_before_seconds` |
+| `lifestyle` | `effects`，开始时冻结 |
+| `chat`、`call` | 沿用社交活动字段 |
 
-本阶段活动种类与边界运行闭集仍保持当前值；阶段 4 再删除 game_feedback 和旧观看、游戏、浏览活动。
+每次工作结算另写
+`activity_progress.data.work{topic_id, worked_seconds, remaining_seconds}`；首次达到目标写
+`work_topic_completed{topic_id, worked_seconds}`。没有工作材料、效率、截止、交付或评审字段。
 
 <a name="io-formats-labelkit-交付格式"></a>
 ## LabelKit 交付格式
@@ -496,3 +492,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「3.2 AgentState」的 `occupied_resources` 与「3.4 ActivityState」的 `resource_claims` 占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（播客只占 `watch`，其余观看另占 `screen`）；字段形状不变，世界结构仍为 9，带旧占用名的检查点恢复时与注册表核对不符而拒绝 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作活动状态格式，版本号不变 |

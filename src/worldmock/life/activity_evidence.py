@@ -84,18 +84,3 @@ def dedupe_revealed_cues(activity) -> None:
         return
     revealed["cues"] = [cue for cue in cues
                         if isinstance(cue, dict) and cue.get("start_seconds", start - 1) >= start]
-
-
-def record_material_reveal(agent, task_id, material, occurred_at):
-    """@brief 登记工作材料本区间新读取的字符范围。"""
-    if not task_id:
-        return agent
-    entry = {
-        "task_id": task_id,
-        "at": occurred_at,
-        "start_char": material.get("start_char", 0),
-        "end_char": material.get("end_char", 0),
-        "chars": max(0, int(material.get("end_char", 0)) - int(material.get("start_char", 0))),
-    }
-    reveals = list(agent.material_reveals)[-63:] + [entry]
-    return agent.model_copy(update={"material_reveals": reveals}, deep=True)

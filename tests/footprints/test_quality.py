@@ -118,7 +118,8 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
         _event(13, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
         _event(14, "activity_progress", data={
             "activity": {"kind": "work"},
-            "interval_start": 104, "interval_end": 114, "activity_efficiency": 0.8,
+            "interval_start": 104, "interval_end": 114,
+            "work": {"topic_id": "topic-sales", "worked_seconds": 10, "remaining_seconds": 28790},
         }),
         _event(15, "activity_progress", data={
             "activity": {"kind": "consume"},
@@ -146,7 +147,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     assert report["activities"]["terminal_interruptions"] == 2
     assert report["content_contact"]["contact_seconds"] == 1100
     assert report["content_contact"]["repeat_watch"]["repeated_sessions"] == 1
-    assert report["conversion_efficiency"]["work"]["weighted_mean"] == 0.8
+    assert "work" not in report["conversion_efficiency"]
     assert report["conversion_efficiency"]["food"]["weighted_mean"] == 0.9
     assert report["memory_references"] == {
         "memory_update_events": 2, "persisted_episode_ids": 2,
@@ -202,7 +203,7 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
     assert report["model_usage"]["token_usage"]["complete_tokens"] is None
     assert report["model_usage"]["token_usage"]["provider_responses_missing_usage"] == 1
     assert report["model_usage"]["estimated_cost"]["known_estimate_usd"] is None
-    assert report["conversion_efficiency"]["work"]["weighted_mean"] is None
+    assert "work" not in report["conversion_efficiency"]
     assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
 
 
@@ -941,3 +942,15 @@ def test_protocol_quality_uses_structured_evidence_without_log_inference():
     assert report["name_rejections"]["host_protocol_errors"] == 0
     assert report["name_rejections"]["other_protocol_codes"] == {"ARGUMENTS_NOT_JSON": 1}
     assert report["memory_references"]["problem_count"] == 0
+
+
+def test_work_progress_does_not_create_conversion_efficiency():
+    """@brief 工作进度只留下真实秒数，质量报告转换效率只记录食物热量利用。"""
+    events = [_event(1, "activity_progress", occurred_at=110, agent_id=1, activity_id="work-real",
+        data={"activity": {"kind": "work", "activity_id": "work-real"}, "interval_start": 100,
+              "interval_end": 110, "work": {"topic_id": "topic-sales", "worked_seconds": 10,
+                                              "remaining_seconds": 28790}})]
+    activity = _activity("work-real", "work", 10, "active", target_id="topic-sales")
+    report = build_quality_report(events, [activity], _manifest())
+    assert set(report["conversion_efficiency"]) == {"food", "method"}
+    assert report["conversion_efficiency"]["food"]["weighted_mean"] is None

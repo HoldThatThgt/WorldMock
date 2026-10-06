@@ -26,7 +26,7 @@ LIFE_SYSTEM_LAYER: dict[str, Any] = {
         "记忆层是此前各段停留、路程与更早日期中已经发生的事；待办层是暂停的活动、还没办完的个人事务与今日计划；"
         "环境层是此刻的身体感受、所在地点与今天的上班安排；进度层是本段停留或路程中已经发生的事。",
         "每次决策恰好提交一个世界请求：start_activity、report_status、pause_activity、"
-        "conclude_activity、revise_day_plan、submit_work、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。",
+        "conclude_activity、revise_day_plan、send_message 之一；提交前可以查询自己的记忆、回看任务或查询已知世界。只读查询可以同批，世界请求单独提交。",
         "世界请求提交后只是登记；环境结算后，结果写进进度层，同一时刻接着决策时，结果随工具结果返回。"
         "说打算做或说已经做过，都不等于做了。",
         "进度层的结果与记忆层的 settled 是环境核验的事实；self_note、self_notes 以及人设层的看法与偏好是你自己写下的，"
@@ -95,7 +95,6 @@ READONLY_SYSTEM_LAYER: dict[str, Any] = {
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "start_activity": "开始一项或两项活动：逐项写目标、方式、来源与收货人。",
     "query_world": "按已知名称、方式、公开品类或购买来源查询世界，可只看此刻能做的，按返回的偏移量翻页。",
-    "submit_work": "按任务名提交工作成果。",
     "send_message": "按人物名给对方发一条消息。",
     "recall_task_summary": "按名称回看一项任务、目标或活动的进展，不改变世界。",
     "report_status": "按活动名写下一两项活动的进展，并写下个人事务的变更。",

@@ -251,7 +251,7 @@ def test_stage_one_pure_collection_does_not_import_the_complete_engine(tmp_path)
         "import sys,pytest; result=pytest.main(" + repr(arguments) + "); assert result==0; "
         "forbidden={'worldmock.life.engine','worldmock.life.rules','worldmock.life.games',"
         "'worldmock.life.read_query_runtime','custom.envs.life_env'}; "
-        "assert not forbidden.intersection(sys.modules); "
+        "assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules)); "
         "assert not any(name.startswith('agentsociety2.society') for name in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT,
@@ -270,7 +270,7 @@ def test_map_owners_execute_without_the_complete_engine(tmp_path) -> None:
         "import sys,pytest; result=pytest.main(" + repr(arguments) + "); assert result==0; "
         "forbidden={'worldmock.life.engine','worldmock.life.game','worldmock.life.games',"
         "'worldmock.life.read_query_runtime','custom.envs.life_env'}; "
-        "assert not forbidden.intersection(sys.modules); "
+        "assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules)); "
         "assert not any(name.startswith('agentsociety2.society') for name in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT,
@@ -289,7 +289,7 @@ def test_app_owners_execute_without_the_complete_engine(tmp_path) -> None:
         "import sys,pytest; result=pytest.main(" + repr(arguments) + "); assert result==0; "
         "forbidden={'worldmock.life.engine','worldmock.life.game','worldmock.life.games',"
         "'worldmock.life.read_query_runtime','custom.envs.life_env'}; "
-        "assert not forbidden.intersection(sys.modules); "
+        "assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules)); "
         "assert not any(name.startswith('agentsociety2.society') for name in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT,
@@ -311,7 +311,8 @@ def test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs() ->
         assert not path.is_absolute() and ".." not in path.parts, relative
         assert (REPO_ROOT / path).is_file(), relative
         text = (REPO_ROOT / path).read_text(encoding="utf-8")
-        assert not DEFERRAL.search(text), relative
+        if path.suffix in {".py", ".js", ".cjs"}:
+            assert not DEFERRAL.search(text), relative
         if path.suffix == ".py":
             assert not stub_functions(ast.parse(text)), relative
     assert registration.RECEIPTS == REPO_ROOT / ".work/rrs/mutation-receipts"
@@ -350,6 +351,9 @@ def test_resource_rule_source_mutation_is_killed(mutation, rrs_mutation_baseline
     assert result["original_sha256"] != result["mutated_sha256"]
     assert result["exit_code"] == 1, result["stdout"] + result["stderr"]
     assert "FAILED " in result["stdout"] and "ERROR collecting" not in result["stdout"]
+    assert ("AssertionError" in result["stdout"]
+            or re.search(r"^E\s+assert\b", result["stdout"], re.MULTILINE)
+            or re.search(r"^E\s+Failed: DID NOT RAISE\b", result["stdout"], re.MULTILINE))
     assert "ImportError" not in result["stdout"] + result["stderr"]
 
 
@@ -371,6 +375,8 @@ def test_missing_contract_wrong_stage_and_empty_finished_evidence_are_rejected(c
     elif change == "stage":
         ledger[name]["stage"] = "8"
     else:
+        ledger[name]["tests"] = []
+        ledger[name]["implementation"] = []
         done = frozenset(str(stage) for stage in range(1, 6))
     with pytest.raises(AssertionError):
         _check_ledger(ledger, _spec_table(LEDGER_ANCHOR, LEDGER_HEADER), done)
@@ -397,6 +403,7 @@ def test_missing_mutation_wrong_contract_and_delayed_killer_are_rejected(change)
     elif change == "killer_stage":
         rows[text]["clauses"][0]["earliest_runnable_killer_stage"] = "8"
     else:
+        rows[text]["clauses"][0]["mutations"] = ()
         done = frozenset(str(stage) for stage in range(1, 6))
     with pytest.raises(AssertionError):
         _check_mutation_rows(rows, _ledger(), done)

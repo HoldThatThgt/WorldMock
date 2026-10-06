@@ -23,15 +23,14 @@ from tests.integration.test_life_agent_protocol import (
     _OBSERVED_AT, _TASK, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
 )
 from worldmock.life.activity_control import PHASE_ACTIVE
-from worldmock.life.models import MeetingMinutes, REQUEST_MODELS, deepseek_strict_schema
-from worldmock.life.work_review import WorkReviewResponse
+from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
 from tests.life.conftest import start_arguments
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
 #: 稳定工具面的八件人物动作工具；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
 _ACTION_TOOLS = {
-    "start_activity", "submit_work", "send_message", "recall_task_summary",
+    "start_activity", "send_message", "recall_task_summary",
     "report_status", "pause_activity", "conclude_activity", "revise_day_plan",
 }
 
@@ -126,7 +125,7 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
     error = _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"]))
-    assert error.report.error_code == "NAME_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
+    assert error.report.error_code == "WORK_TOPIC_NOT_FOUND" and error.report.items[0].written == "internal:task:1"
     for way in ("interact", "invented_way"):
         error = _host_error("start_activity", start_arguments(["自己"], ["interact"], [way]))
         assert error.report.error_code == "WAY_NOT_OFFERED" and error.report.items[0].path[-1] == "way"
@@ -232,17 +231,12 @@ def test_control_tool_fields_carry_format_and_source_descriptions(name: str) -> 
 def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None:
     """工作与通讯保留正文生成，身份字段是可读名称：不做 Schema 枚举，由宿主按任务、人物与回看绑定校验；会话名不在七层中
     出现，不是回看名称。"""
-    submit = _function("submit_work")["parameters"]
+    assert "submit_work" not in {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
     message = _function("send_message")["parameters"]
     recall = _function("recall_task_summary")["parameters"]
-    assert set(submit["properties"]) == {"task_name", "deliverable"}
-    assert "enum" not in submit["properties"]["task_name"]
-    assert submit["properties"]["deliverable"] == MeetingMinutes.model_json_schema(mode="validation")
     assert set(message["properties"]) == {"recipient_name", "text"}
     assert "enum" not in message["properties"]["recipient_name"]
     assert set(recall["properties"]) == {"task_name"}
-    deliverable = {"summary": "要点。", "decisions": ["推进。"], "action_items": ["复盘。"]}
-    assert _host_error("submit_work", {"task_name": _TASK, "deliverable": deliverable}) == ""
     assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
     assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}).report.error_code == "NAME_NOT_FOUND"
     for name in (_TASK, _WAIT):
@@ -301,7 +295,7 @@ def test_provider_array_cardinality_gap_is_locally_rejected() -> None:
         MemorySearchRequest.model_validate(search)
 
 
-def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> None:
+def test_conclusion_memory_and_view_nested_schemas_remain_strict() -> None:
     """收尾记忆、看法与工作评审的嵌套数据仍由原生严格 Schema 内联约束，没有引用与未知字段：普通记忆没有对象字段、类型
     只取七类，看法与偏好另写在 views 并用 about 写对象（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第六章）。"""
     conclude = _function("conclude_activity")["parameters"]
@@ -324,12 +318,7 @@ def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> Non
     agent.build_react_tool_schemas(readonly=False)
     assert agent.validate_react_decisions(
         [ReactDecision("", "conclude_activity", payload, "")], False) == ""
-    review = deepseek_strict_schema(WorkReviewResponse)
-    _assert_closed(review)
-    assert "$ref" not in json.dumps(review)
-    with pytest.raises(ValidationError):
-        WorkReviewResponse.model_validate({
-            "reference_assessments": [], "delivery_assessments": [], "accepted": False})
+
 
 
 @pytest.mark.parametrize("retired_type", ["event", "observation"])

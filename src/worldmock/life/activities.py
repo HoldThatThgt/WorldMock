@@ -265,9 +265,8 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
     """@brief 从活动方式和当前内容类型形成结算系数。"""
     met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
     relief = entertainment_relief_rate(activity, config)
-    skill, tool = _work_factors(activity, agent, config)
     food = _food_energy_rate(activity)
-    return ActivityFactors(met, relief, skill, tool, food)
+    return ActivityFactors(met, relief, food_energy_kcal_per_hour=food)
 
 
 def entertainment_relief_rate(activity: ActivityState, config: BodyConfig) -> float:
@@ -284,22 +283,6 @@ def content_entertainment_relief_rate(kind: str) -> float:
     return CONTENT_RELIEF_PER_HOUR[ContentKind(kind)]
 
 
-def _work_factors(activity: ActivityState, agent: AgentState,
-                  config: BodyConfig) -> tuple[float, float]:
-    """@brief 核对活动冻结的所需技能和工作工具倍率。"""
-    if activity.kind != ActivityKind.WORK:
-        return 1, 1
-    required = activity.data.get("required_skill")
-    skill = activity.data.get("skill_level")
-    multiplier = activity.data.get("work_notes_multiplier")
-    actual = agent.skill_levels.get(required, 0) if isinstance(required, str) else None
-    if not isinstance(skill, (int, float)) or skill < 0 or skill != actual:
-        raise ValueError("work activity skill evidence is invalid")
-    if (not isinstance(multiplier, (int, float)) or multiplier < 1
-            or multiplier != config.work_notes_multiplier):
-        raise ValueError("work activity tool multiplier evidence is invalid")
-    tool = float(multiplier) if "work_notes" in agent.active_effects else 1
-    return float(skill), tool
 
 
 def _food_energy_rate(activity: ActivityState) -> float:
@@ -323,13 +306,10 @@ def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig,
 def _advanced_activity(activity: ActivityState, stop: int, elapsed: int,
                        settlement: BodySettlement, completed: bool) -> ActivityState:
     """@brief 投影活动本身的累计进度。"""
-    work = activity.effective_work_seconds
     media = activity.media_position_seconds
-    if activity.kind == ActivityKind.WORK:
-        work += settlement.duration_seconds * settlement.work_efficiency
     if activity.kind == ActivityKind.USE_APP:
         media += stop - activity.last_settled_at
-    updates = {"last_settled_at": stop, "elapsed_seconds": elapsed, "effective_work_seconds": work,
+    updates = {"last_settled_at": stop, "elapsed_seconds": elapsed,
                "media_position_seconds": media}
     if completed:
         updates.update(status=ActivityStatus.COMPLETED, boundary_type="planned_end", ended_at=stop,
@@ -356,7 +336,7 @@ def _resume(agent: AgentState, activity: ActivityState, now: int,
             cap: int | None) -> tuple[AgentState, ActivityState]:
     """@brief 从保留进度恢复活动并形成新的结束边界；恢复即重置播报锚点并清空暂停时刻。
 
-    有上限时剩余时长截到上限（工作不越过合同截止）。
+    有主题上限时剩余时长截到尚未完成的实际秒数。
     """
     if activity.status != ActivityStatus.PAUSED:
         raise BusinessRuleError("ACTIVITY_NOT_PAUSED")

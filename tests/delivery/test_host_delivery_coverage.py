@@ -62,7 +62,9 @@ from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.world_setup import load_runtime_scenario
-from worldmock.life.storefront_state import map_provenance
+from worldmock.life.run_identity import environment_identity
+from tests.life.purchase_worlds import registered_world
+from worldmock.life.models import WorldState
 
 ROOT = Path(__file__).resolve().parents[2]
 SEMANTIC_TASKS = ('action', 'intent', 'dreaming')
@@ -82,6 +84,28 @@ def event(identity, sequence, kind, data, visibility='agent', agent_id=1):
 # ---------------------------------------------------------------------------
 
 
+def _fixture_state(run_id, version=0, current_time=100):
+    """事件投影夹具使用登记人物和完整严格世界结构，时钟窗口为显式夹具事实。"""
+    _, state = registered_world(balance=800)
+    agent = state.agents[1].model_copy(update={"body_settled_at": current_time, "next_decision_at": current_time,
+                                             "body": state.agents[1].body.model_copy(update={"energy_kcal": 100})})
+    value = state.model_copy(update={"run_id": run_id, "version": version, "current_time": current_time,
+                                    "end_time": 200, "timezone": "UTC", "agents": {1: agent}})
+    return WorldState.model_validate(value.model_dump()).model_dump(mode="json")
+
+
+def _funded_store(path, manifest):
+    """用当前账本规则记录完整初始注资，导出可从资金事实重建共同账户。"""
+    state = _fixture_state(manifest["run_id"])
+    store = FootprintStore.create(path, manifest, state)
+    money = {f"account:{key}": amount for key, amount in state["accounts"].items()}
+    money["account:external:scenario"] = -sum(state["accounts"].values())
+    store.commit(state, [EventDraft(event_id=f"{manifest['run_id']}-initial-funds", event_type="environment_event",
+        occurred_at=100, visibility="evaluation", source_kind="scenario",
+        data={"kind": "initial_funds_injected", "resource_changes": money})])
+    return store
+
+
 def _single_agent_export(tmp_path):
     """建立可通过正式导出认证的单人物动作证据（观察+请求+终态+检查点）。
 
@@ -92,14 +116,14 @@ def _single_agent_export(tmp_path):
     """
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'schema_version': 3,
+                'environment_identity': environment_identity(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    initial_state = {'schema_version': WORLD_SCHEMA_VERSION, 'version': 0, 'current_time': 100}
-    store = FootprintStore.create(tmp_path / 'run', manifest, initial_state)
+    store = _funded_store(tmp_path / 'run', manifest)
     drafts = [
         EventDraft(event_id='fixture-observation-1', event_type='observation', occurred_at=100,
                    agent_id=1, decision_id='decision',
-                   data={'balance_fen': 800, 'energy_kcal': 100}),
+                   data={'balance_fen': 800, 'energy_kcal': 100, 'verified_experiences': []}),
         EventDraft(event_id='fixture-prompt-1', event_type='model_request', occurred_at=100,
                    agent_id=1, decision_id='decision', visibility='agent', data={
                        'phase': 'request', 'request': {
@@ -114,7 +138,7 @@ def _single_agent_export(tmp_path):
                                      'answering': None, 'prefer': None}}),
     ]
     store.commit(store.state, drafts)
-    store.commit({'schema_version': WORLD_SCHEMA_VERSION, 'version': 1, 'current_time': 200},
+    store.commit({**store.state, 'schema_version': WORLD_SCHEMA_VERSION, 'version': 1, 'current_time': 200},
                  [EventDraft(event_id='fixture-run-end-1', event_type='run_ended', occurred_at=200)])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
@@ -128,13 +152,13 @@ def _replay_export_pair(tmp_path):
     """建立含完整动作的父导出与真实反事实分支导出。"""
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'schema_version': 3,
+                'environment_identity': environment_identity(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    initial_state = {'schema_version': WORLD_SCHEMA_VERSION, 'version': 0, 'current_time': 100}
-    parent = FootprintStore.create(tmp_path / 'parent', manifest, initial_state)
+    parent = _funded_store(tmp_path / 'parent', manifest)
     drafts = [
         EventDraft(event_type='observation', occurred_at=100, agent_id=1, decision_id='decision',
-                   data={'balance_fen': 800}),
+                   data={'balance_fen': 800, 'verified_experiences': []}),
         EventDraft(event_type='model_request', occurred_at=100, agent_id=1, decision_id='decision',
                    visibility='agent', data={'phase': 'request', 'request': {
                        'messages': [{'role': 'system', 'content': 'Parent prompt'}, layered_user()],
@@ -158,16 +182,19 @@ def _replay_export_pair(tmp_path):
     digest = hashlib.sha256(canonical_json(
         {'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
     child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
-    child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
+    child.commit({**child.state, 'accounts': {**child.state['accounts'], 'agent:1': 50},
+                  'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
         event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
         caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',
                                              'intervention_kind': 'set_balance_fen',
                                              'hypothesis': request['hypothesis'],
                                              'source_event_ids': request['source_event_ids'],
                                              'intervention_sha256': digest,
-                                             'before_balance_fen': 800, 'after_balance_fen': 50})])
+                                             'before_balance_fen': 800, 'after_balance_fen': 50,
+                                             'resource_changes': {'account:agent:1': -750,
+                                                                  'account:external:scenario': 750}})])
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
-                                          decision_id='branch-decision', data={'balance_fen': 50}),
+                                          decision_id='branch-decision', data={'balance_fen': 50, 'verified_experiences': []}),
                                EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
                                           decision_id='branch-decision', visibility='system', data={
                                               'phase': 'request', 'request': {
@@ -338,8 +365,8 @@ def test_deliver_success_path_publishes_full_manifest(dataset_tmp_path, monkeypa
     assert calls == ['action', 'intent', 'dreaming', 'rules']
     assert manifest['schema_version'] == 2 and manifest['committed'] is True
     assert manifest['run_id'] == 'run' and manifest['source_group_id'] == 'run'
-    assert manifest['map_dataset'] == map_provenance(
-        load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario)
+    assert manifest['environment_identity'] == environment_identity(
+        load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0])
     assert set(manifest['labelkit']) == {'action', 'intent', 'dreaming', 'rules'}
     for task in SEMANTIC_TASKS:
         receipt = manifest['labelkit'][task]
@@ -961,12 +988,13 @@ def test_prepare_windows_rejects_export_without_any_task_window(tmp_path):
     """三类任务任一为空即拒绝（无人物可见事件的导出）。"""
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'schema_version': 3,
+                'environment_identity': environment_identity(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    store = FootprintStore.create(tmp_path / 'run', manifest, {'version': 0, 'current_time': 100})
+    store = _funded_store(tmp_path / 'run', manifest)
     store.commit(store.state, [EventDraft(event_type='environment_event', occurred_at=100,
                                           visibility='system', data={'kind': 'silent'})])
-    store.commit({'version': 1, 'current_time': 200},
+    store.commit({**store.state, 'version': 1, 'current_time': 200},
                  [EventDraft(event_type='run_ended', occurred_at=200)])
     reference = store.assets.put_json({'saved': True}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
@@ -1208,11 +1236,12 @@ def test_replay_requires_visible_post_intervention_results(tmp_path):
     """干预后无人物可见结果的重演分支拒绝（无实际可见结果）。"""
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'schema_version': 3,
+                'environment_identity': environment_identity(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
+    parent = _funded_store(tmp_path / 'parent', manifest)
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
-                                                       agent_id=1, data={'balance_fen': 800})])[0]
+                                                       agent_id=1, data={'balance_fen': 800, 'verified_experiences': []})])[0]
     reference = parent.assets.put_json({'state': 'parent'}, {'kind': 'fixture'})
     checkpoint = parent.checkpoint(parent.state, {'agent:1': reference, 'life': reference})
     request = {'kind': 'set_balance_fen', 'agent_id': 1, 'balance_fen': 50,
@@ -1221,14 +1250,17 @@ def test_replay_requires_visible_post_intervention_results(tmp_path):
     digest = hashlib.sha256(canonical_json(
         {'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
     child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
-    child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
+    child.commit({**child.state, 'accounts': {**child.state['accounts'], 'agent:1': 50},
+                  'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
         event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
         caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',
                                              'intervention_kind': 'set_balance_fen',
                                              'hypothesis': request['hypothesis'],
                                              'source_event_ids': request['source_event_ids'],
                                              'intervention_sha256': digest,
-                                             'before_balance_fen': 800, 'after_balance_fen': 50})])
+                                             'before_balance_fen': 800, 'after_balance_fen': 50,
+                                             'resource_changes': {'account:agent:1': -750,
+                                                                  'account:external:scenario': 750}})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     _finish_export(parent, source_dir)
     _finish_export(child, replay_dir)
@@ -1247,11 +1279,12 @@ def _replay_parts(tmp_path, *, request_override=None, second_intervention=False,
     """
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'schema_version': 3,
+                'environment_identity': environment_identity(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
+    parent = _funded_store(tmp_path / 'parent', manifest)
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
-                                                       agent_id=1, data={'balance_fen': 800})])[0]
+                                                       agent_id=1, data={'balance_fen': 800, 'verified_experiences': []})])[0]
     reference = parent.assets.put_json({'state': 'parent'}, {'kind': 'fixture'})
     checkpoint = parent.checkpoint(parent.state, {'agent:1': reference, 'life': reference})
     request = {'kind': 'set_balance_fen', 'agent_id': 1, 'balance_fen': 50,
@@ -1266,18 +1299,20 @@ def _replay_parts(tmp_path, *, request_override=None, second_intervention=False,
             'hypothesis': request['hypothesis'],
             'source_event_ids': request['source_event_ids'],
             'intervention_sha256': digest,
-            'before_balance_fen': 800, 'after_balance_fen': 50}
+            'before_balance_fen': 800, 'after_balance_fen': 50,
+            'resource_changes': {'account:agent:1': -750, 'account:external:scenario': 750}}
     drafts = [EventDraft(event_type='environment_event', occurred_at=occurred_at, agent_id=1,
                          visibility=intervention_visibility, caused_by=[observed.event_id],
                          data=data)]
     if second_intervention:
         drafts.append(EventDraft(event_type='environment_event', occurred_at=occurred_at,
                                  agent_id=1, visibility=intervention_visibility,
-                                 data=dict(data)))
-    child.commit({'version': child.state['version'] + 1, 'current_time': occurred_at}, drafts)
-    child.commit({'version': child.state['version'] + 1, 'current_time': occurred_at},
+                                 data={**data, 'before_balance_fen': 50, 'resource_changes': {}}))
+    child.commit({**child.state, 'accounts': {**child.state['accounts'], 'agent:1': 50},
+                  'version': child.state['version'] + 1, 'current_time': occurred_at}, drafts)
+    child.commit({**child.state, 'version': child.state['version'] + 1, 'current_time': occurred_at},
                  [EventDraft(event_type='observation', occurred_at=occurred_at, agent_id=1,
-                             data={'balance_fen': 50})])
+                             data={'balance_fen': 50, 'verified_experiences': []})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     _finish_export(parent, source_dir)
     _finish_export(child, replay_dir)
@@ -1291,16 +1326,17 @@ def test_replay_requires_exactly_one_intervention(tmp_path):
     none_dir = tmp_path / 'no-intervention'
     manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'},
-                'map_dataset': map_provenance(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0].scenario),
+                'schema_version': 3,
+                'environment_identity': environment_identity(load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0]),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    parent = FootprintStore.create(tmp_path / 'parent2', manifest, {'version': 0, 'current_time': 100})
+    parent = _funded_store(tmp_path / 'parent2', manifest)
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
-                                                       agent_id=1, data={'balance_fen': 800})])[0]
+                                                       agent_id=1, data={'balance_fen': 800, 'verified_experiences': []})])[0]
     reference = parent.assets.put_json({'state': 'parent'}, {'kind': 'fixture'})
     checkpoint = parent.checkpoint(parent.state, {'agent:1': reference, 'life': reference})
     child = restore_branch(parent, checkpoint.checkpoint_id, none_dir, {'branch_kind': 'counterfactual', 'intervention_sha256': '0' * 64})
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
-                                          data={'balance_fen': 800})])
+                                          data={'balance_fen': 800, 'verified_experiences': []})])
     source_dir, replay_dir = tmp_path / 'source-export2', tmp_path / 'replay-export2'
     _finish_export(parent, source_dir)
     _finish_export(child, replay_dir)

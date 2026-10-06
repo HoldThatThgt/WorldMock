@@ -23,9 +23,8 @@ ACTIVITY_KIND_LABELS = {"wait": "空档", "sleep": "睡觉", "work": "工作", "
 ACTIVITY_DOING_LABELS = {**ACTIVITY_KIND_LABELS, "wait": "等待", "travel": "赶路", "read_mail": "看邮件",
                          "lifestyle": "做生活活动", "call": "打电话"}
 #: 场所类型（地点 kind）→ 中文标签；覆盖仓库场景的全部地点类型，未知类型是场景缺陷。
-PLACE_TYPES = {"home": "家", "office": "办公室", "merchant": "商户", "restaurant": "餐馆",
-               "convenience_store": "便利店", "supermarket": "超市", "wet_market": "菜市场", "fitness": "健身房",
-               "park": "公园"}
+PLACE_TYPES = {"home": "家", "office": "办公室", "park": "公园", "fitness": "健身房",
+               "restaurant": "餐馆", "cafe": "咖啡馆", "convenience_store": "便利店", "supermarket": "超市"}
 #: 内部标准动作的说法（环境层 fixed_rules 句子「这里不能<说法>」），按此顺序列出。
 ACTION_PHRASES = {"travel_to": "出发去别处", "work": "工作", "use_app": "打开应用",
                   "chat": "当面交谈", "call": "打电话", "read": "看邮件",

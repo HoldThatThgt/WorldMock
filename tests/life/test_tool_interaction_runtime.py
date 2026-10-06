@@ -1,4 +1,4 @@
-"""工具交互规格的任务通知、操作备忘与无损呈现行为验收。"""
+"""工具交互的真实邮件、操作备忘、只读证据与无损呈现行为验收。"""
 
 from __future__ import annotations
 
@@ -6,154 +6,15 @@ from tests.data_paths import ENVIRONMENT_ROOT
 
 import json
 from copy import deepcopy
-from dataclasses import replace
-from datetime import datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic import ValidationError
 
-from worldmock.errors import IntegrityError, PreconditionError
+from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
-from worldmock.life import rhythm
-from worldmock.life.models import AgentState, BodyState, WorldState
 from worldmock.life.progress_layer import rejected_today
-from worldmock.life.scenario import LifeScenario, RuntimeWorkTask, WorkTaskConfig, runtime_tasks
 from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
-from worldmock.life.work import validate_work_start
-from worldmock.scheduling.compile import compile_schedule
-from worldmock.scheduling.effects import apply_scheduled_effect
-from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 from tests.life.conftest import context, stage_day_plan
-
-
-def _document():
-    return json.loads((ENVIRONMENT_ROOT / "scenarios/multi-person.json").read_text(encoding="utf-8"))
-
-
-def _agent(agent_id=1):
-    return AgentState(agent_id=agent_id, name=f"Person {agent_id}", location_id="home",
-                      balance_account_id=f"agent:{agent_id}", skill_levels={"office": 1},
-                      body=BodyState(energy_kcal=1000, sleep_pressure=0, entertainment_need=0), body_settled_at=0, next_decision_at=0)
-
-
-def _task_document():
-    return deepcopy(_document()["tasks"][0])
-
-
-def _notifications(task, starts, recipient=1):
-    from worldmock.life.scenario import MessageConfig
-
-    return tuple(MessageConfig(message_id=f"mail-{index}", thread_id="thread", recipient_agent_id=recipient,
-                               sent_at=moment, subject=task.title, body="Private actual body",
-                               related_task_id=task.task_id) for index, moment in enumerate(starts))
-
-
-def test_ordinary_work_opens_at_first_notification_and_wrong_place_is_explicit():
-    raw = _task_document()
-    raw["required_skill"] = "office"
-    task = WorkTaskConfig.model_validate(raw)
-    first = task.due_at.replace(hour=8, minute=0)
-    runtime = runtime_tasks((task,), _notifications(task, (first, first + timedelta(hours=2))))[0]
-    assert runtime.available_at == first
-    agent = _agent().model_copy(update={"visible_task_ids": {task.task_id}})
-    validate_work_start(agent, runtime, int(first.replace(hour=8, minute=55).timestamp()), runtime.required_location_id)
-    with pytest.raises(PreconditionError) as error:
-        validate_work_start(agent, runtime, int(first.replace(hour=8, minute=55).timestamp()), "home")
-    assert error.value.unmet == ["required_location_id"]
-
-
-def test_removed_input_opening_is_rejected_and_appointment_is_explicit():
-    raw = _task_document()
-    raw["available_at"] = raw["due_at"]
-    with pytest.raises(ValidationError):
-        WorkTaskConfig.model_validate(raw)
-    raw.pop("available_at")
-    raw.pop("appointment")
-    with pytest.raises(ValidationError):
-        WorkTaskConfig.model_validate(raw)
-    raw["appointment"] = {"starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
-    task = WorkTaskConfig.model_validate(raw)
-    notices = _notifications(task, (task.due_at.replace(hour=8), task.due_at.replace(hour=11)))
-    runtime = runtime_tasks((task,), notices)[0]
-    assert runtime.available_at == task.appointment.starts_at
-    with pytest.raises(PreconditionError, match="WORK_TASK_NOT_AVAILABLE") as error:
-        validate_work_start(_agent().model_copy(update={"visible_task_ids": {task.task_id}}), runtime,
-                            int(task.due_at.replace(hour=9).timestamp()), runtime.required_location_id)
-    assert "10:00:00+08:00" in error.value.public_reason
-
-
-@pytest.mark.parametrize("fault", ["missing", "wrong_recipient", "unknown_task", "wrong_title", "late_first"])
-def test_notification_coverage_checks_every_notice(fault):
-    raw = _document()
-    task = raw["tasks"][0]
-    related = [row for row in raw["messages"] if row.get("related_task_id") == task["task_id"]]
-    if fault == "missing":
-        raw["messages"] = [row for row in raw["messages"] if row not in related]
-    elif fault == "wrong_recipient":
-        related[-1]["recipient_agent_id"] = 2
-    elif fault == "unknown_task":
-        related[-1]["related_task_id"] = "unknown"
-    elif fault == "wrong_title":
-        related[-1]["subject"] = "Other task"
-    else:
-        task["appointment"] = {"starts_at": "2026-01-05T07:00:00+08:00", "reason": "Scheduled meeting"}
-    with pytest.raises(ValidationError):
-        LifeScenario.model_validate(raw)
-
-
-def test_appointment_mail_reveals_only_assignee_without_false_opening():
-    raw = _document()
-    task = raw["tasks"][0]
-    task["appointment"] = {"starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
-    document = LifeScenario.model_validate(raw)
-    tasks = runtime_tasks(document.tasks, document.messages)
-    scenario = SimpleNamespace(**{key: getattr(document, key) for key in
-                               ("messages", "timezone", "calendar", "bills", "payrolls", "price_changes",
-                                "product_releases")}, tasks=tasks, supplies=())
-    first = next(row for row in document.messages if row.related_task_id == task["task_id"])
-    start, end = int(document.start_at.timestamp()), int(document.end_at.timestamp())
-    scheduled = compile_schedule(scenario, start, end)
-    openings = [row for row in scheduled if row.kind == ScheduledKind.WORK_AVAILABLE
-                and row.data["task_id"] == task["task_id"]]
-    assert len(openings) == 1 and openings[0].due_at == int(tasks[0].available_at.timestamp())
-    mail = next(row for row in scheduled if row.kind == ScheduledKind.MAIL_ARRIVAL
-                and row.data["message_id"] == first.message_id)
-    state = WorldState.model_construct(agents={1: _agent(), 2: _agent(2)})
-    changed = apply_scheduled_effect(state, mail, SimpleNamespace(scenario=scenario)).state
-    assert task["task_id"] in changed.agents[1].visible_task_ids
-    assert task["task_id"] not in changed.agents[2].visible_task_ids
-    assert changed.agents[2].visible_message_ids == set()
-    assert openings[0].due_at > mail.due_at
-    assert not any(row.kind == ScheduledKind.WORK_AVAILABLE and row.data["task_id"] == task["task_id"]
-                   for row in scheduled if row.due_at == mail.due_at)
-
-
-def test_initial_observation_sees_already_delivered_appointment_and_contract(engine_factory):
-    def mutate(document):
-        task = document["tasks"][0]
-        document["start_at"] = "2026-01-05T08:30:00+08:00"
-        task["appointment"] = {"starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
-    engine = engine_factory(mutate=mutate)
-    stage_day_plan(engine)
-    task = engine.context.scenario.tasks[0]
-    assert task.task_id in engine.context.state.agents[1].visible_task_ids
-    observed = engine.observe(context(engine, "initial-appointment"))
-    target = next(row for row in observed["tool_layer"]["targets"] if row["name"] == f"工作：{task.title}")
-    assert set(target["contract"]) == {"opens", "deadline", "place", "remaining", "outlook"}
-    assert target["contract"]["opens"].endswith("10:00:00+08:00")
-    assert target["contract"]["place"] == engine.context.rules.locations[task.required_location_id].name
-    assert target["actions"][0]["available"] is False
-    assert "10:00:00+08:00" in target["actions"][0]["reason"]
-    notice = next(row for row in engine.context.scenario.messages if row.message_id in engine.context.state.agents[1].visible_message_ids)
-    public = [observed[key] for key in ("tool_layer", "progress_layer", "memory_layer", "todo_layer")]
-    assert notice.body not in json.dumps(public, ensure_ascii=False)
-
-
-def test_work_material_is_validated_before_first_world_save(engine_factory):
-    with pytest.raises(IntegrityError, match="Work input"):
-        engine_factory(mutate=lambda document: document["tasks"][0].update(input_path="ami/missing-material.txt"))
 
 
 def _layer():
@@ -161,8 +22,8 @@ def _layer():
               "price": 0, "duration": "0 minutes", "quantity": None, "note": None}
     return {"layer": "工具层", "callable_index": {}, "targets": [
         {"name": "Task", "kind": "task", "phase": None, "state": None,
-         "contract": {"opens": "soon", "deadline": "later", "place": "Office", "remaining": "0", "outlook": None},
-         "actions": [action], "tools": [{"tool": "submit_work", "available": False, "reason": "Not complete"}]},
+         "contract": {"topic": "Quarter report", "target": "约 8 小时", "done": "约 8 小时", "remaining": "约 0 小时"},
+         "actions": [action], "tools": []},
         {"name": "Active", "kind": "activity", "phase": "进行中", "state": "Waiting", "actions": [],
          "tools": [{"tool": "report_status", "available": True, "reason": None}]},
     ]}
@@ -218,43 +79,12 @@ def test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day(eng
     assert engine.context.store.read_agent_events("model_response", 1)
 
 
-
-def test_appointment_wakes_only_at_real_opening_and_never_wakes_sleep(engine_factory):
-    from worldmock.life.schedule import WakeReason, evaluate_wake_reasons
-
-    def mutate(document):
-        task = document["tasks"][0]
-        task["appointment"] = {"starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
-    engine = engine_factory(mutate=mutate)
-    task = engine.context.scenario.tasks[0]
-    mail = next(row for row in engine.context.state.pending_events if row.kind == ScheduledKind.MAIL_ARRIVAL
-                and engine.context.rules.messages[row.data["message_id"]].related_task_id == task.task_id)
-    state = engine.context.state.model_copy(update={"current_time": mail.due_at}, deep=True)
-    state = apply_scheduled_effect(state, mail, engine.context.semantics).state
-    state.agents[1].last_decision_time = mail.due_at
-    inputs = rhythm.engine_rhythm_inputs(engine.context, state, arrival_flags={1: {'message_arrival'}})
-    facts = {"task": set(), "closing": set()}
-    snapshot = rhythm._wake_snapshot(state.agents[1], inputs, facts, set())
-    reasons = evaluate_wake_reasons(snapshot).wake_reasons
-    assert WakeReason.MESSAGE_ARRIVAL in reasons and WakeReason.TASK_AVAILABLE not in reasons
-    assert WakeReason.MESSAGE_ARRIVAL not in evaluate_wake_reasons(snapshot.model_copy(update={"is_asleep": True})).wake_reasons
-    opening = next(row for row in state.pending_events if row.kind == ScheduledKind.WORK_AVAILABLE
-                   and row.data["task_id"] == task.task_id)
-    state.current_time = opening.due_at
-    state = apply_scheduled_effect(state, opening, engine.context.semantics).state
-    inputs = rhythm.engine_rhythm_inputs(engine.context, state, arrival_flags={1: {'task_available'}})
-    snapshot = rhythm._wake_snapshot(state.agents[1], inputs, facts, set())
-    assert WakeReason.TASK_AVAILABLE in evaluate_wake_reasons(snapshot).wake_reasons
-    assert WakeReason.TASK_AVAILABLE not in evaluate_wake_reasons(snapshot.model_copy(update={"is_asleep": True})).wake_reasons
-
-
-def test_mail_reading_keeps_actual_body_and_only_full_task_name(engine_factory):
+def test_mail_reading_keeps_actual_subject_and_body_only(engine_factory):
     from worldmock.life.content import reveal_mail
     from worldmock.life.result_projection import public_result
 
     engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
-    notice = next(row for row in engine.context.scenario.messages if row.related_task_id == task.task_id)
+    notice = engine.context.scenario.messages[0]
     agent = engine.context.state.agents[1].model_copy(update={"visible_message_ids": {notice.message_id}})
     activity = SimpleNamespace(target_id=notice.message_id)
     changed, revealed = reveal_mail(activity, agent, engine.context.rules.messages)
@@ -262,18 +92,15 @@ def test_mail_reading_keeps_actual_body_and_only_full_task_name(engine_factory):
               "message": "Mail reading completed", "data": {"activity": {"kind": "read_mail",
                                                                          "data": {"revealed": revealed}}}}
     mail = public_result(result, engine.context.scenario)["details"]["mail"]
-    assert mail == {"subject": notice.subject, "body": notice.body, "task": f"工作：{task.title}"}
+    assert mail == {"subject": notice.subject, "body": notice.body}
     assert changed.read_message_ids == {notice.message_id}
     assert not {"opens", "deadline", "place", "oracle", "expected"}.intersection(mail)
 
 
-def test_memo_and_appointment_survive_persistent_reopen(engine_factory, tmp_path):
+def test_memo_survives_persistent_reopen(engine_factory, tmp_path):
     from worldmock.life.engine import LifeEngine
 
-    def mutate(document):
-        document["tasks"][0]["appointment"] = {
-            "starts_at": "2026-01-05T10:00:00+08:00", "reason": "Scheduled interview"}
-    engine = engine_factory(mutate=mutate)
+    engine = engine_factory()
     stage_day_plan(engine)
     now = engine.context.state.current_time
     report = {"error_code": "NAME_NOT_FOUND", "reason": "Unknown object", "items": [
@@ -287,18 +114,13 @@ def test_memo_and_appointment_survive_persistent_reopen(engine_factory, tmp_path
     expected = rejected_today(SimpleNamespace(state=engine.context.state, scenario=engine.context.scenario, agent_id=1), engine.context.store)
     run_directory = engine.context.store.run_dir
     engine.close()
-    scenario_path = tmp_path / "scenario-0" / "scenarios" / "single-person.json"
+    scenario_path = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
     reopened = LifeEngine.open(scenario_path, run_directory)
     try:
         observed = reopened.observe(context(reopened, "reopened-memo"))
         assert observed["progress_layer"]["rejected_today"] == expected
-        assert reopened.context.state.agents[1].visible_task_ids == staged.agents[1].visible_task_ids
-        opening = next(row for row in reopened.context.state.pending_events if row.kind == ScheduledKind.WORK_AVAILABLE
-                       and row.data["task_id"] == reopened.context.scenario.tasks[0].task_id)
-        assert opening.due_at == int(reopened.context.scenario.tasks[0].appointment.starts_at.timestamp())
     finally:
         reopened.close()
-
 
 
 def test_actual_frozen_tool_layer_and_prompt_groups_restore_identically(engine_factory):
@@ -319,7 +141,6 @@ def test_actual_frozen_tool_layer_and_prompt_groups_restore_identically(engine_f
     public_names = {row["name"] for row in original["targets"]}
     grouped_names = {row["name"] for group in compact["groups"] for row in group["targets"]}
     assert grouped_names == public_names
-
 
 
 def test_memo_caps_recent_entries_and_reason_without_truncating_audit(engine_factory):

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from tests.life.conftest import activity_name, advance_until_ready, last_result, start_activity, target_actions
-from tests.life.test_work_contracts import _shared_round, _stage_shared_work
+from tests.life.conftest import activity_name, advance_until_ready, last_result, start_activity, submit_round, target_actions
+from tests.life.test_work_topics import _engine_work
 from worldmock.life.models import active_activities
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
 
@@ -12,33 +12,25 @@ def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(e
     """同一工作仍在进行时照常列出并带说明；选了就以 RESOURCE_CONFLICT 返回原因与下一步，未达同刻上限时同一秒再决策，
     不按最早结束延后（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」）。"""
     engine = engine_factory()
-    _stage_shared_work(engine)
-    task = engine.context.scenario.tasks[0]
-
-    def work_request(observed):
-        """取本轮冻结的可读任务名启动工作。"""
-        binding = next(row for row in observed["interaction_bindings"]
-                       if row["kind"] == "work_task" and row["object_id"] == task.task_id)
-        return start_activity("工作", binding["object"])
-
-    _shared_round(engine, "resource-lock-start", {1: ("start_activity", work_request)})
-    engine.commit_decision_round("resource-lock-start")
-    running = next(item for item in active_activities(engine.context.state, 1))
+    topic, identity = _engine_work(engine, "resource-lock")
+    running = engine.context.state.activities[identity]
     name = activity_name(engine, running.activity_id)
-    reason = f"工作{task.title} cannot run together with {name}."
+    reason = f"工作{topic.topic} cannot run together with {name}."
     assert advance_until_ready(engine)
     ready = engine.scheduling_state().ready_agent_ids
     assert 1 in ready and running.activity_id in {item.activity_id for item in active_activities(engine.context.state, 1)}
     observed = engine.observations._observation_data(engine.context.state.agents[1])
-    listed = target_actions(observed, f"工作：{task.title}")["工作"]
+    listed = target_actions(observed, f"工作：{topic.topic}")["工作"]
     assert (listed["available"], listed["reason"]) == (False, reason)
-    binding = next(row for row in observed["interaction_bindings"] if row["object_id"] == task.task_id)
+    binding = next(row for row in observed["interaction_bindings"] if row["object_id"] == topic.topic_id)
+    assert binding["kind"] == "work_topic"
     assert [item["note"] for item in binding["actions"]] == [reason]
     rounds = engine.context.state.agents[1].same_moment_rounds
     assert rounds < engine.context.scenario.max_same_moment_decisions - 1
     now = engine.context.state.current_time
-    _shared_round(engine, "resource-lock-repeat", {agent_id: ("start_activity", work_request) for agent_id in ready})
-    result = next(item for item in engine.commit_decision_round("resource-lock-repeat") if item.agent_id == 1)
+    _, results = submit_round(engine, {agent_id: ("start_activity", start_activity("工作", binding["object"]))
+                                      for agent_id in ready}, "resource-lock-repeat")
+    result = next(item for item in results if item.agent_id == 1)
     assert result.status == "rejected" and result.error_code == "RESOURCE_CONFLICT"
     assert (result.data["reason"], result.data["next_step"]) == (reason, f"Conclude or pause {name} first.")
     agent = engine.context.state.agents[1]

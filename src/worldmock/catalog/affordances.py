@@ -45,7 +45,7 @@ RESOURCE_CLAIM_SLOTS = frozenset({
 _CLAIM_CONDITION_DIMENSIONS = frozenset({"mode"})
 #: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
 #: 的动作全集，外加会话进展自述这一个独立工具名。
-HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
+HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status"}
 #: 出行方式闭集（与 life.models.TravelMode 一致；"{mode}" 模板的合法展开域）。
 TRAVEL_MODES = frozenset({"driving", "walking"})
 #: 结算通道可引用的资源注册表 id（catalog/resources.jsonl 的四类资源）。

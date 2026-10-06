@@ -76,7 +76,7 @@ class TestFieldBlacklist:
             enforce_field_blacklist(payload)
 
     @pytest.mark.parametrize("internal_key", [
-        "session_id", "activity_id", "task_id", "route_id", "product_id",
+        "session_id", "activity_id", "task_id", "topic_id", "app_id", "food_id", "store_id", "product_id",
         "supply_id", "order_id", "message_id", "contact_id", "price_version",
         "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id", "errand_id",
     ])
@@ -130,6 +130,18 @@ class TestRenderLayerJson:
         """黑名单字段在渲染入口即被拦截，不产生文本。"""
         with pytest.raises(ForbiddenObservationFieldError, match="progress_meta"):
             render_layer_json([{"layer": "进度层", "events": []}, {"progress_meta": []}])
+
+    def test_parameter_error_path_is_visible_but_graph_path_is_private(self) -> None:
+        """真实错误指出待修正参数；内部地图路径不能借同名字段进入提示。"""
+        from worldmock.life.error_contract import ErrorItem, host_report
+
+        item = ErrorItem(("items", 0, "target"), "不存在的对象", "NAME_NOT_FOUND")
+        report = host_report("NAME_NOT_FOUND", items=(item,)).payload()
+        assert json.loads(render_layer_json({"details": report})) == {"details": report}
+        for value in (["home", "office"], "private-map-path"):
+            report["items"][0]["path"] = value
+            with pytest.raises(ForbiddenObservationFieldError, match="path"):
+                render_layer_json({"details": report})
 
 
 class TestHanziCounter:

@@ -483,8 +483,8 @@ test('the tool definition rule counts the tool surface the host offers and when 
   const {api} = parser();
   const {worldRequests, worldQueries, memory} = hostToolSurface();
   assert.deepEqual(worldQueries, ['recall_task_summary', 'query_world']);
-  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [7, 2, 3]);
-  const numerals = {2: '两', 3: '三', 7: '七'};
+  assert.deepEqual([worldRequests.length, worldQueries.length, memory.length], [6, 2, 3]);
+  const numerals = {2: '两', 3: '三', 6: '六'};
   const fill = api.rules.tools.fill;
   assert.ok(fill.includes(`${numerals[worldRequests.length]}个世界请求工具`), fill);
   assert.ok(fill.includes(`${numerals[worldQueries.length]}个世界查询工具`), fill);

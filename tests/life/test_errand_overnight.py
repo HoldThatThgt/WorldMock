@@ -16,9 +16,24 @@ from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next, conclude_request, context, errand_add,
                                  errand_cancel, errand_update, report_request, settle_day_plans, stage_day_plan,
                                  start_activity, wake_by_mail)
-from tests.life.routing_fixtures import act, observe, routed, run_until
-from tests.life.test_errand_completion import DRINK, KIT_NAME, MILK, MILK_ID, WAIT, errand_events, home, note
-from tests.life.test_errand_reminder import TEA, evening, moment
+from tests.life.routing_fixtures import (
+    DRINK_NAME,
+    EAT_MEAL_ITEM,
+    EAT_SNACK_ITEM,
+    MEAL_ID,
+    MEAL_NAME,
+    SNACK_ID,
+    SNACK_NAME,
+    WAIT_ITEM,
+    act,
+    errand_events,
+    errand_note,
+    observe,
+    routed,
+    run_until,
+    single_person_home,
+)
+from tests.life.test_errand_reminder import evening, moment
 from tests.life.test_memory_layer import _act, _arrive, _chars, _memo, _replied, _walk
 from worldmock.life import memory_layer, prompt_capacity
 from worldmock.life.errand_state import ERRAND_EVENT_KINDS
@@ -45,13 +60,13 @@ def test_an_errand_stays_in_the_todo_layer_after_midnight_plan_generation_and_pl
     休息目标由环境保留）后事务仍原样，待办层的事务行照旧。整个过程只有两条记下事件，零点、计划登记、目标推进与修订都不写
     事务事件。"""
     engine = evening(engine_factory, "23:40")
-    note(engine, "note", [errand_add("周末补食材包", KIT_NAME, memo="下班顺路去超市", remind_time="18:00"),
-                          errand_add("早饭喝两份奶", MILK, outcome="吃掉", quantity=2)])
+    errand_note(engine, "note", [errand_add("周末补食材包", MEAL_NAME, memo="下班顺路去超市", remind_time="18:00"),
+                          errand_add("早饭喝两份奶", SNACK_NAME, outcome="吃掉", quantity=2)])
     held = dict(engine.context.state.agents[1].errands)
     rows = observe(engine, "noted")["todo_layer"]["errands"]
     assert [(row["name"], row["noted_on"], row["remind_time"]) for row in rows] == [
         ("周末补食材包", "2026-01-05", "18:00"), ("早饭喝两份奶", "2026-01-05", None)]
-    assert act(engine, "wait", routed(WAIT)).status == "in_progress"
+    assert act(engine, "wait", routed(WAIT_ITEM)).status == "in_progress"
     midnight = moment(engine, "2026-01-06 00:00")
     run_until(engine, _just_before(midnight))
     engine.advance(midnight - engine.context.state.current_time, engine.scheduling_state().next_event_at)
@@ -89,7 +104,7 @@ def test_an_errand_stays_when_the_memory_layer_overflows_its_window(engine_facto
     待办层不占记忆层的字符窗口，也不随记忆层截取。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _long_stay(engine, "home", "家", (errand_add("周末补食材包", KIT_NAME, memo="下班顺路去超市", remind_time="18:00"),))
+    _long_stay(engine, "home", "家", (errand_add("周末补食材包", MEAL_NAME, memo="下班顺路去超市", remind_time="18:00"),))
     rows = observe(engine, "noted")["todo_layer"]["errands"]
     assert [row["name"] for row in rows] == ["周末补食材包"]
     _arrive(engine, "arrive", _walk(engine, "walk").activity_id)
@@ -114,9 +129,9 @@ def test_a_condensed_request_still_carries_the_todo_layer_errands(engine_factory
     """记下一条事务后接着等待（这一决策像真实宿主那样记下了行动模型请求，此前的进度记录因而可以浓缩）：由下一次冻结观察
     准备的真实 LifeAgent 发出行动请求时整次请求达到上下文阈值，进度层被折叠成 condensed 记录才回到阈值以下；发出的请求
     里待办层与观察中的待办层逐字相同（事务行照旧），除进度层外的各层都不改。"""
-    engine = home(engine_factory, {})
-    note(engine, "note", [errand_add("周末补食材包", KIT_NAME, memo="下班顺路去超市", remind_time="18:00")])
-    assert _replied(engine, "wait", "start_activity", routed(WAIT), "接着等一会儿。").status == "in_progress"
+    engine = single_person_home(engine_factory, {})
+    errand_note(engine, "note", [errand_add("周末补食材包", MEAL_NAME, memo="下班顺路去超市", remind_time="18:00")])
+    assert _replied(engine, "wait", "start_activity", routed(WAIT_ITEM), "接着等一会儿。").status == "in_progress"
     decision = context(engine, "condensed")
     observed = engine.observe(decision)
     host = LifeAgent()
@@ -153,9 +168,9 @@ def _folded(request: dict) -> bool:
 def _home_session(engine_factory, noted: list[dict], reported: list[dict]) -> tuple:
     """单人白领 12:30 在家、手边一份纯牛奶：12:31 收尾时记下 noted，随即喝奶；12:40 一封邮件给的决策机会里播报喝奶并带
     reported，奶喝完后收尾，再出门去公司。返回（引擎，路上的观察）。"""
-    engine = home(engine_factory, {MILK_ID: 1.0})
-    note(engine, "note", noted)
-    drinking = act(engine, "drink", routed(DRINK))
+    engine = single_person_home(engine_factory, {MEAL_ID: 1.0})
+    errand_note(engine, "note", noted)
+    drinking = act(engine, "drink", routed(EAT_MEAL_ITEM))
     assert drinking.status == "in_progress"
     at = wake_by_mail(engine, 1, offset=540)
     assert at == moment(engine, "2026-01-05 12:40")
@@ -177,9 +192,9 @@ def test_the_memory_layer_writes_no_line_for_errands(engine_factory) -> None:
     12:40 的播报里取消食材包、更新冰红茶的备注，喝奶先累计、喝完即办成；另一遍同样的请求都不带事务变更。出门后路上的
     记忆层两遍逐字节相同：六种事务事件（记下、更新、取消、累计、办成、提醒）都不给记忆层添 settled 句或自述，事务的名称、
     备注与取消原因都不在记忆层里，也没有「办成」句（它只用于进度层折叠）。"""
-    noted = [errand_add("清空冰箱里那盒奶", MILK, outcome="吃掉", memo="午饭后趁凉喝"),
-             errand_add("周末补食材包", KIT_NAME, memo="下班顺路去超市"),
-             errand_add("囤一箱冰红茶", TEA, quantity=3, remind_time="12:40")]
+    noted = [errand_add("吃完那碗牛肉面", MEAL_NAME, outcome="吃掉", memo="午饭后趁热吃"),
+             errand_add("周末补食材包", MEAL_NAME, memo="下班顺路去超市"),
+             errand_add("囤一箱冰红茶", DRINK_NAME, quantity=3, remind_time="12:40")]
     reported = [errand_cancel("周末补食材包", "柜子里还剩一包"), errand_update("囤一箱冰红茶", memo="等打折再囤")]
     engine, road = _home_session(engine_factory, noted, reported)
     _, plain = _home_session(engine_factory, [], [])
@@ -189,6 +204,6 @@ def test_the_memory_layer_writes_no_line_for_errands(engine_factory) -> None:
     layer = road["memory_layer"]
     assert layer["earlier_today"] and layer == plain["memory_layer"]
     text = json.dumps(layer, ensure_ascii=False)
-    for written in ("清空冰箱里那盒奶", "午饭后趁凉喝", "周末补食材包", "下班顺路去超市", "柜子里还剩一包", "囤一箱冰红茶",
+    for written in ("吃完那碗牛肉面", "午饭后趁热吃", "周末补食材包", "下班顺路去超市", "柜子里还剩一包", "囤一箱冰红茶",
                     "等打折再囤", "办成"):
         assert written not in text

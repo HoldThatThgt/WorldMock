@@ -74,6 +74,11 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "location_id",
     "destination_id",
     "content_id",
+    "app_id",
+    "food_id",
+    "store_id",
+    "topic_id",
+    "work_topics",
     "interaction_bindings",
     "task_bindings",
     "goal_bindings",
@@ -140,7 +145,8 @@ def _walk_blacklist(node: object, path: str, parent_key: str | None) -> None:
         for key, value in node.items():
             child_key = str(key)
             child_path = f"{path}.{child_key}"
-            _raise_if_forbidden(child_key, child_path, parent_key)
+            if child_key != "path" or not _is_error_parameter_path(node):
+                _raise_if_forbidden(child_key, child_path, parent_key)
             if child_key in BODY_VALUE_KEYS and isinstance(value, (int, float)):
                 logging.error("Numeric body state rejected: %s", child_path)
                 raise ForbiddenObservationFieldError(
@@ -149,6 +155,14 @@ def _walk_blacklist(node: object, path: str, parent_key: str | None) -> None:
     elif isinstance(node, (list, tuple)):
         for index, item in enumerate(node):
             _walk_blacklist(item, f"{path}[{index}]", parent_key)
+
+
+def _is_error_parameter_path(item: dict) -> bool:
+    """@brief 完整工具错误项的参数位置可公开；地图内部路径仍属于禁键。"""
+    required = {"path", "written", "error_code", "allowed_values", "expected", "why", "candidates"}
+    position = item.get("path")
+    return (required <= item.keys() and isinstance(position, list) and bool(position)
+            and position[0] == "tool_calls" and all(type(part) in (str, int) for part in position))
 
 
 def enforce_field_blacklist(payload: object) -> None:

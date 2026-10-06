@@ -1,6 +1,6 @@
 """@brief 活动的展示标题：活动关联对象的名称（docs/CONTRACTS.md#contracts-worldmock-接口合同 活动控制行的 title）。
 
-生活活动取目录名称，app 使用取应用名，内容标题单独写入快照，工作取任务标题，通话取联系人称谓，交谈取对方姓名；
+生活活动取目录名称，app 使用取应用名，内容标题单独写入快照，工作取主题，通话取联系人称谓，交谈取对方姓名；
 等待、睡眠、出行、阅读邮件没有标题（None）。标题写进活动快照与控制行，时间线据此显示中文名称
 （docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）。名称都是场景与目录里的静态事实，索引在引擎建立时算一次。
 """
@@ -22,7 +22,7 @@ class TitleIndex:
     :param lifestyles: 生活活动条目身份 → 名称。
     :param apps: 应用身份 → 名称。
     :param contents: 内容身份 → 标题。
-    :param tasks: 工作任务身份 → 任务标题。
+    :param work_topics: 工作主题身份 → 主题名称。
     :param contacts: （人物身份，联系人身份）→ 该人物通讯录里的称谓。
     :param people: 同世界人物的不透明身份 agent:<id> → 姓名。
     """
@@ -30,7 +30,7 @@ class TitleIndex:
     lifestyles: Mapping[str, str]
     apps: Mapping[str, str]
     contents: Mapping[str, str]
-    tasks: Mapping[str, str]
+    work_topics: Mapping[str, str]
     contacts: Mapping[tuple[int, str], str]
     people: Mapping[str, str]
 
@@ -41,7 +41,7 @@ def title_index(scenario: RuntimeScenario, lifestyle_names: Mapping[str, str],
     return TitleIndex(
         lifestyles=lifestyle_names, apps={key: app.name for key, app in catalog.apps.items()},
         contents={key: item.title for key, item in catalog.contents.items()},
-        tasks={item.task_id: item.title for item in scenario.tasks},
+        work_topics={key: item.topic for key, item in catalog.work_topics.items()},
         contacts={(agent.agent_id, contact.contact_id): contact.salutation
                   for agent in scenario.agents for contact in agent.contacts},
         people={f"agent:{agent.agent_id}": agent.name for agent in scenario.agents})
@@ -63,7 +63,7 @@ def activity_title(activity: ActivityState, index: TitleIndex) -> str | None:
     if activity.kind == ActivityKind.USE_APP:
         return index.apps.get(activity.target_id)
     if activity.kind == ActivityKind.WORK:
-        return index.tasks.get(activity.target_id)
+        return index.work_topics.get(activity.target_id)
     return None
 
 

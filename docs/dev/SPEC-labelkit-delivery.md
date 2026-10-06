@@ -1,6 +1,8 @@
 <a name="spec-labelkit-delivery-特性规格数字足迹接入-labelkit"></a>
 # 特性规格：数字足迹接入 LabelKit
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的单一行动阶段身份。
+
 > 状态：定稿冻结（FROZEN）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 18 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订「窗口构造规则」与验收矩阵「私有载体边界」（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 LK1–LK3、LK5）：决策提示的选取一句属更正既有表述；修订部分已实现并通过离线验收（该规格阶段 1 的就寝反思请求改带严格工具、阶段 2 的 `errands` 投影与个人事务事件；证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。数字足迹接入 LabelKit 的输入范围、加工责任、来源关联、信息范围、交付产物、长序列与数据划分，以及真实调用的生产与验证步骤以本规格为准；实现状态见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「下游」（阶段 1、阶段 2、阶段 3）；按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「下游」（阶段 3）；按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「证据窗口与输入结构」（阶段 4）。
 > 日期：2026-10-07
 > 实施基线：`9b7fbc8`
@@ -118,7 +120,7 @@ flowchart LR
 - 前置状态只在窗口开始前已经观察过时给出；若同一观察已在 `events` 中，只保留引用，不复制 `events[0].data`；没有可依据的观察时明确标为未观察。
 - 边界类型区分活动完成、容量切断与实验结束，不从未来目标推测边界；窗口内的活动边界只保留真正观察到的完成、取消、失败与截断原因。
 - 人物可见的素材引用在此展开为实际内容；文本与结构化素材给出正文，二进制素材保留模态引用；内容与引用摘要不符时立即失败。
-- 动作与意图窗口仅从上述实际人物请求提取模型可见输入，不把原始私有事件、人物响应、reasoning、记忆更新或工作评审请求整体复制进证据；实际请求中续接的前序 assistant 消息（含 `reasoning_content`）是 prompt 的一部分，原样保留。dreaming 窗口按当日可见经历读取 `self_note` 与层 JSON，不再读决策自述与 `scene`：层 JSON 取窗口内每个动作请求所属决策、动作之前最后一份不带 `purpose` 且工具含该动作工具名的请求的首个 user（与动作窗口同一 prompt 权威与选取规则，不满足是完整性故障、不回退；截断重试请求照此被选中，就寝反思请求不会被选中），随请求事件身份与 canonical 摘要发布，字段见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「窗口声明与字段字典编码」；缺失时失败。`report_status`、`pause_activity`、`conclude_activity` 三个控制工具的请求在意图与 `dreaming` 输入中的投影逐项只留 `activity_name` 与 `summary`，恒不带各项的 `memories`、`views` 与请求级 `errands`（三者同等对待，投影函数签名不变；变的只是窗口事件中动作请求的投影，原事件不被原地修改）；控制请求经唯一读取入口读出，缺 `errands` 键即完整性故障；动作目标保留完整请求；实际请求与层 JSON 是模型收到的原文，照原样保留，其中可以含有进度层参数或记忆层 `self_notes` 里此前常规收尾写下的记忆原文，以及待办层里的个人事务。
+- 动作与意图窗口仅从上述实际人物请求提取模型可见输入，不把原始私有事件、人物响应、reasoning 或记忆更新整体复制进证据；实际请求中续接的前序 assistant 消息（含 `reasoning_content`）是 prompt 的一部分，原样保留。dreaming 窗口按当日可见经历读取 `self_note` 与层 JSON，不再读决策自述与 `scene`：层 JSON 取窗口内每个动作请求所属决策、动作之前最后一份不带 `purpose` 且工具含该动作工具名的请求的首个 user（与动作窗口同一 prompt 权威与选取规则，不满足是完整性故障、不回退；截断重试请求照此被选中，就寝反思请求不会被选中），随请求事件身份与 canonical 摘要发布，字段见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「窗口声明与字段字典编码」；缺失时失败。`report_status`、`pause_activity`、`conclude_activity` 三个控制工具的请求在意图与 `dreaming` 输入中的投影逐项只留 `activity_name` 与 `summary`，恒不带各项的 `memories`、`views` 与请求级 `errands`（三者同等对待，投影函数签名不变；变的只是窗口事件中动作请求的投影，原事件不被原地修改）；控制请求经唯一读取入口读出，缺 `errands` 键即完整性故障；动作目标保留完整请求；实际请求与层 JSON 是模型收到的原文，照原样保留，其中可以含有进度层参数或记忆层 `self_notes` 里此前常规收尾写下的记忆原文，以及待办层里的个人事务。
 - 观察事件按字段级公开投影；认证环境事件以 `data.kind = "app_push"` 标识推送，内容类型写在同一事件的 `data.content_kind`。`app_push` 是唯一有公开投影的 `environment_event`，第一种非空投影恰为 `{kind: "app_push", app, kind_label, summary}`，其中 `kind_label = CONTENT_KIND_LABELS[content_kind]`。禁用的菜单、旧游戏目录与内部状态（旧导出另含能量可行性）不能因事件 `visibility=agent` 而进入输入。目标 `outcomes` 只收动作相关的公开结算事件，排除全部私有事件。观察的待办层原样进入窗口（含未完成个人事务的名称、办成条件、进度、备注、提醒钟点与记下的日期），事务的内部身份与私有绑定不进入输入。六种个人事务事件属于 `environment_event`，决策身份与动作身份都为空，只经 `caused_by` 关联：不进入任何动作窗口的目标与结果，也不落进任何决策的分组（触发它的证据可以是别人的动作）。`errand_registered`、`errand_updated`、`errand_cancelled`、`errand_progressed` 为 `system` 可见，只供审计与指标；被进度层消费的只有 `errand_completed` 与 `errand_reminded`，二者人物可见，满足下一条对进度层来源事件「同人物可见」的要求，在窗口里作为事件出现时公开投影仍为空对象；含事务提醒与办成记录的导出必须能构造动作、意图与 `dreaming` 三类窗口。
 - 追溯性证据只并入当前观察的进度层来源事件（`progress_event_ids`）所指的先前结果，并且必须以截止前同人物可见的权威结果为准；引用不得指向观察本身或截止之后。
 - 可见来源按请求人物核对，同一不透明标识跨人物复用时的判定见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「窗口声明与字段字典编码」；不依赖标识字符串的组成方式代替人物字段校验，也不静默删掉冲突来源后继续发布。
@@ -258,7 +260,7 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
   观察事件保存的待办层含 `errands`、环境层含 `duty`；私有绑定增 `errand_bindings`（名称、事务身份、结果种类、商品身份）与
   `errand_item_bindings`（全部商品名到商品身份），连同 `errand_id` 列入提示禁键；阶段 4 另增渠道索引 `world_query_channels`（列入提示禁键）
   与供给条目的私有键 `location_id`（已在禁键内）。
-- **清单。** `stages` 只剩 `action`、`work_review`，`action` 增 `same_second_continuation`；`two_stage_model_identity` 改名为 `stage_model_identity`。
+- **清单。** `stages` 恰为 `action`，`action` 带 `same_second_continuation`；`two_stage_model_identity` 已改名为 `stage_model_identity`，五个入口拒绝带 `work_review` 的清单。
   新建、打开、恢复、从工作区加载与校验五个入口经同一校验函数拒绝含 `decision_statement` 的清单；恢复与重放继承开关。
 - **质量与指标。** 删除 `decision_started_with_decision_statement`、`decision_started_missing_decision_statement`；dreaming 私有事件集等于私有事件集；
   统计 `decision_budget_exhausted`。观察重复门禁改按（人物，模拟秒）的续接链计：链内复用链首 user 合法，跨秒重复仍失败。
@@ -370,3 +372,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3 修订「下游」：「版本」补独立一句，系统层第 8 条原位改写（仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9 与当前场景结构 6 不变；状态行末补该规格的修订说明 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：`app_push` 成为唯一具有公开投影的环境事件；其余窗口选择、个人事务与来源核验规则保持不变。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步单一行动阶段身份 |

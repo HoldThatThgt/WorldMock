@@ -1,6 +1,8 @@
 <a name="overview-worldmock-产品设计说明书-概述"></a>
 # WorldMock 产品设计说明书 — 概述
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题工程依据。
+
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2、阶段 3）与「需求映射表、核心术语、算法与工程背书总表、设计决策、非功能约束、设计假设、开放问题、参考文献」（阶段 4）。
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
@@ -106,7 +108,7 @@ flowchart TB
 | **[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)** | 消费记录引擎的认证导出，通过 LabelKit 加工训练数据与规则夹具；离线经历回顾、反思与假设推演（Dreaming）在此进行，默认不写回运行中的数字人 |
 | **app** | 人物选择的娱乐入口；所有登记 app 始终显示，环境只从该 app 绑定的内容中抽取并推进全局内容进度 |
 | **app 推送** | 当前地点会话内的一条 app 内容提醒；状态依次为 pending、opened、released，人物可以不打开 |
-| **工作主题** | 阶段 5 接入的工作累计单位；阶段 4 仍保留现行工作任务协议，不据本术语提前宣称工作切换完成 |
+| **工作主题** | 场景分配给人物的工作累计单位；目录给出目标工时，人物的非失败工作活动按实际经过秒数累计 |
 
 <a name="overview-缩写"></a>
 ### 2.2 缩写
@@ -156,10 +158,10 @@ flowchart TB
 | --- | --- | --- |
 | 数字人依据体感与处境自主选择活动，环境校验可行性 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎)「组织观察与决策机会」「收齐并有序受理动作」 | DRAFT |
 | 人物只选对象与方式；查询不改变世界，可按购买来源与只看此刻能做的筛选，报错明确指出参数位置和合法选项 | [工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)、[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)第五章、[模拟引擎](04-simulation-engine.md#simulation-engine-校验与占用安排) | 已实现，验收证据另列 |
-| 普通工作收件即开放，到公司即可开始；现实预约活动按约定开放 | [模拟引擎](04-simulation-engine.md#simulation-engine-工作通知与开放时刻) | 已实现，验收证据另列 |
+| 人物自运行开始看到已分配且未完成的工作主题，只在工作地点开始或恢复，按实际经过秒数累计 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」 | 已实现，验收证据另列 |
 | 地点按 kind 池与逐店类别、对象声明提供不同完整供给，门店价格位置加确定性偏移后一次构建报价 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎)、[配置管理](08-configuration.md#configuration-worldmock-产品设计说明书-配置规格) | 已实现，验收证据另列 |
 | 身体相关资源的变化影响体感和活动效率 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
-| 工作消耗时间和能量，按有效工作量推进并依合同取得报酬 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
+| 工作消耗时间和能量，按实际经过秒数推进主题；工资由场景独立登记 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」 | 已实现，验收证据另列 |
 | 购买食品与实际进食分别结算，进食按热量与食品利用效率补充能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-推进实际活动)「推进实际活动」与[交换投入产出](02-exchange-engine.md#exchange-engine-计算投入产出) | DRAFT |
 | 睡眠改变睡眠压力并恢复睡眠不足，睡眠期间仍消耗能量 | [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)「实际区间、身体变化与效率」 | DRAFT |
 | 覆盖 app 使用与 app 内容、邮件、导航、购物 | [资源引擎](03-resource-engine.md#resource-engine-交换对象与内容条目)「交换对象与内容条目」 | DRAFT |
@@ -189,7 +191,7 @@ flowchart TB
 | Agent 框架 | AgentSociety 2 | 开源项目，已验证的多 Agent 调度与模型服务 |
 | 能量与体感 | 进食热量、基础代谢与活动消耗决定可用能量；结合昼夜节律和餐时生成饥饿体感，低能量时饥饿分级不被昼夜项与餐时项压低，另设「饿得发慌」档；能量不阻断任何活动，最低为 0 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「其他体感分级」「转换效率算法」及其来源、假设标注；能量不阻断的依据见[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-能量不拦人)第三章；低能量分界是实验假设，见[实验定义](../EXPERIMENT.md#experiment-实验假设声明)「实验假设声明」 |
 | 睡眠模型 | 两过程模型计算睡眠压力和困意；独立记录睡眠不足并计算效率 | [运行时规格](../dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则)「两过程睡眠模型」「睡眠不足账与效率曲线」；食品利用效率关系为仿真假设 |
-| 工作验收 | 基于提交内容的 LLM 判定 | LLM-as-a-Judge 范式 |
+| 工作主题 | 工作活动的真实经过秒数跨活动累计，达到目录目标工时即完成；播报文字不改变工时 | [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-工作主题与叙述) |
 | 内容呈现 | 人物选择 app，环境从该 app 的绑定内容中确定性抽取；推送内容优先，完成后在剩余活动时长内接续 | [资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送) |
 | 数字足迹存储 | SQLite 事务 + 文件引用 | 事件溯源（Event Sourcing）模式 |
 | 检查点恢复 | 完整状态快照 + 增量事件 | Git 的 snapshot + delta 模型 |
@@ -294,3 +296,4 @@ flowchart TB
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐入口统一为 app，内容由 app 绑定、确定性抽取、推送优先并使用全局进度；删除 TextWorld、旧游戏与 facet 设计。版本保持 v1.13。 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题累计的工程依据，版本号不变 |

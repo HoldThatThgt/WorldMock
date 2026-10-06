@@ -27,7 +27,7 @@ def name_bindings(context: LayerContext, lifestyle: tuple, home_location_id: str
     :param home_location_id: 人物的住处（「家」「住处」按它解析）。
     """
     listed = {row["object"] for row in context.bindings}
-    rows = _lifestyle_rows(context, lifestyle)
+    rows = [*_lifestyle_rows(context, lifestyle), *_work_topic_rows(context)]
     return {"catalog_bindings": [row for row in rows if row["object"] not in listed],
             "home_location_id": home_location_id}
 
@@ -50,3 +50,11 @@ def _lifestyle_rows(context: LayerContext, items: tuple) -> list[dict[str, Any]]
     return [_row(context, (object_label("lifestyle", item.name), "lifestyle", item.activity_id), _DO_WAY,
                  duration_phrase(capped_duration_seconds(item.typical_duration_minutes * 60)))
             for item in sorted(items, key=lambda value: value.activity_id)]
+
+
+def _work_topic_rows(context: LayerContext) -> list[dict[str, Any]]:
+    """@brief 已分配主题的私有名称绑定保留完成后的真实拒绝，不把完成主题列为工具目标。"""
+    config = next(item for item in context.scenario.agents if item.agent_id == context.agent_id)
+    return [_row(context, (object_label("work_topic", context.rules.work_topics[topic_id].topic),
+                           "work_topic", topic_id), "工作", None)
+            for topic_id in sorted(config.work_topic_ids)]

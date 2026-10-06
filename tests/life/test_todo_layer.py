@@ -12,13 +12,13 @@ import pytest
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  stage_day_plan, start_activity, start_request, submit_round, target_tools,
                                  tool_targets, wake_by_mail, pause_request)
-from tests.life.test_meal_outcome import _food, _round, _stage_holding, _start_eating
+from tests.life.routing_fixtures import decision_round, run_until, selected_food, stage_food_holding, start_eating
 from tests.life.test_same_moment_decisions import _act, _content, _start
 from worldmock.footprints.models import EventDraft
 from worldmock.life.vocabulary import WAYS
 from worldmock.life.models import ActivityKind, ActivityStatus, SendMessageActionRequest, paused_activities
 from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.readable import iso_time, local_date
+from worldmock.life.readable import iso_time, local_date, portion_phrase
 from worldmock.life.schedule import INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds
 
 
@@ -67,18 +67,19 @@ def test_paused_activities_are_ordered_by_pause_time_not_start_time(engine_facto
 def test_same_second_pauses_from_two_decisions_follow_the_pause_event_order(engine_factory) -> None:
     """同一秒两次决策先后暂停两项活动（暂停时刻相同）：待办层按暂停事件顺序列出，先暂停的在前，而不是按活动身份。
 
-    人物 1 一次开始收听与等待（等待的活动身份排在后面），人物 2 在等；两人同一秒被邮件叫醒：人物 1 先暂停等待，人物 2 同一轮
-    给人物 1 发消息，人物 1 因此同一秒再获得一次决策，暂停收听。"""
+    人物 1 一次开始使用 app 与等待（等待的活动身份排在后面），人物 2 在等；两人同一秒被邮件叫醒：人物 1 先暂停等待，
+    人物 2 同一轮给人物 1 发消息，人物 1 因此同一秒再获得一次决策，暂停 app 使用。"""
     engine = engine_factory("multi-person.json")
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
-    podcast = "内容：Space Habitat (English interview excerpt)"
-    both = start_request(targets=[podcast, "自己"], actions=[WAYS["接着听"][0], WAYS["等待"][0]], ways=["接着听", "等待"])
+    app, app_way = _content(engine, "tie")
+    both = start_request(targets=[app, "自己"], actions=[WAYS[app_way][0], WAYS["等待"][0]],
+                         ways=[app_way, "等待"])
     submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))}, "tie")
     ids = sorted(item.activity_id for item in engine.context.state.activities.values() if item.agent_id == 1)
     kinds = {engine.context.state.activities[activity_id].kind: activity_id for activity_id in ids}
-    listen, wait = kinds[ActivityKind.WATCH], kinds[ActivityKind.WAIT]
-    assert ids == [listen, wait]
+    app_use, wait = kinds[ActivityKind.USE_APP], kinds[ActivityKind.WAIT]
+    assert ids == [app_use, wait]
     wake_by_mail(engine, 1, offset=120)
     wake_by_mail(engine, 2, offset=120)
     advance_next(engine)
@@ -86,28 +87,34 @@ def test_same_second_pauses_from_two_decisions_follow_the_pause_event_order(engi
     message = SendMessageActionRequest(recipient_name=f"人物：{engine.context.state.agents[1].name}", text="在吗")
     submit_round(engine, {1: ("pause_activity", pause), 2: ("send_message", message)}, "tie-first")
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    pause = pause_request(activity_name(engine, listen), summary="也停一下。")
+    pause = pause_request(activity_name(engine, app_use), summary="也停一下。")
     submit_round(engine, {1: ("pause_activity", pause)}, "tie-second")
     moments = {engine.context.state.activities[activity_id].paused_at for activity_id in ids}
     assert moments == {engine.context.state.current_time}
     todo = engine.observe(context(engine, "tie-seen"))["todo_layer"]
     assert [item["name"] for item in todo["paused_activities"]] == [activity_name(engine, wait),
-                                                                    activity_name(engine, listen)]
+                                                                    activity_name(engine, app_use)]
 
 
 def test_paused_meal_progress_is_only_the_eaten_and_left_portions(engine_factory) -> None:
     """暂停的进食在待办层的客观进度只写「已吃 X 份，剩 Y 份」，不另写还剩时长。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 1.0)
-    _, started = _start_eating(engine, food, "todo-meal")
+    food = selected_food(engine)
+    stage_food_holding(engine, food.food_id, 1.0)
+    _, started = start_eating(engine, food, "todo-meal")
     wake_by_mail(engine, offset=750)
     advance_next(engine)
     name = activity_name(engine, started.activity_id)
-    _round(engine, "todo-meal-pause", "pause_activity", pause_request(name, summary="先停一下。"))
+    decision_round(engine, "todo-meal-pause", "pause_activity", pause_request(name, summary="先停一下。"))
     (item,) = engine.observe(context(engine, "todo-meal-seen"))["todo_layer"]["paused_activities"]
-    assert (item["name"], item["progress"]) == (name, "已吃 0.5 份，剩 0.5 份")
+    activity = engine.context.state.activities[started.activity_id]
+    planned = sum(row["quantity"] for row in activity.data["request"]["items"])
+    eaten = sum(activity.data["consumed"].values())
+    assert 0 < eaten < planned
+    assert (item["name"], item["progress"]) == (
+        name, f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(planned - eaten)}")
+    assert "分钟" not in item["progress"]
 
 
 def test_resume_elsewhere_is_unavailable_and_names_the_place(engine_factory) -> None:
@@ -121,7 +128,7 @@ def test_resume_elsewhere_is_unavailable_and_names_the_place(engine_factory) -> 
     preview = engine.observe(context(engine, "away-preview"))
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
     _, walking = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "away-walk")
-    assert advance_until_ready(engine)
+    run_until(engine, lambda current: current.context.state.agents[1].location_id == "office")
     submit_round(engine, {1: ("conclude_activity", conclude_request(activity_name(engine, walking[0].activity_id)))},
                  "away-arrive")
     home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")

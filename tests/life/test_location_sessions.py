@@ -25,6 +25,7 @@ from tests.life.conftest import (advance_next, advance_until_ready, context, pro
                                  conclude_request, pause_request, report_request)
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.models import EventDraft
+from tests.life.test_same_moment_decisions import _contacts
 from worldmock.life import activity_control, sessions
 from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTaskSummaryRequest, SessionKind,
@@ -33,33 +34,6 @@ from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTa
 _FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
-def test_graph_departure_and_arrival_switch_real_sessions_without_engine():
-    """@brief 真实世界模型的出发与到达转换可直接验证，完整引擎接线留给集成阶段。"""
-    from tests.life.test_travel_graph import travel_case
-    from worldmock.life.travel import record_arrival, update_travel
-
-    catalog, _, state, trip = travel_case()
-    names = {identity: place.display_name for identity, place in catalog.locations.items()}
-    state = sessions.open_stay(state, 1, names)
-    state = sessions.begin_transit(state, 1, "office", names, opened_by_action_id="action-1")
-    transit = sessions.current_session(state, 1)
-    assert transit.kind == SessionKind.TRANSIT and transit.origin_id == "home"
-    assert transit.destination_id == "office" and state.agents[1].location_id == "home"
-    state = sessions.assign(state, transit.session_id, ["travel-1"])
-    done_at = 1000 + trip.duration_seconds
-    completed = state.activities["travel-1"].model_copy(update={"elapsed_seconds": trip.duration_seconds,
-        "last_settled_at": done_at, "status": ActivityStatus.COMPLETED, "ended_at": done_at})
-    activity, agent = update_travel(completed, trip, state.agents[1])
-    record_arrival(activity, agent)
-    agent = agent.model_copy(update={"body_settled_at": done_at})
-    state = state.model_copy(update={"current_time": done_at, "activities": {"travel-1": activity}, "agents": {1: agent}})
-    state, ended = sessions.end_transit(state, 1, names)
-    assert ended == [] and sessions.current_session(state, 1).location_id == "office"
-    assert state.sessions[transit.session_id].status == SessionStatus.ENDED
-    assert state.activities["travel-1"].location_id == "home"
-    from worldmock.life.models import WorldState
-
-    assert WorldState.model_validate_json(state.model_dump_json()).agents[1].location_id == "office"
 
 
 def _round(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1):
@@ -169,15 +143,15 @@ def test_run_start_opens_one_stay_session_per_agent(engine_factory) -> None:
 
 def test_departure_and_arrival_switch_sessions_and_end_road_activities(engine_factory) -> None:
     """出发切到路上会话，到达当秒出行完成、路上开始的活动以 route_ended 结束并成为待收尾，开始目的地的停留会话。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     home = sessions.current_session(engine.context.state, 1)
-    content = _pick(_preview(engine, "content"), "watch", kind="content")
-    started = _depart(engine, "depart", content)
+    content = _pick(_preview(engine, "app"), "use_app", kind="app")
+    started = _depart(engine, "depart", content, destination="park")
     travel_id, watch_id = _started_ids(started)
     road = sessions.current_session(engine.context.state, 1)
     assert engine.context.state.sessions[home.session_id].status == SessionStatus.ENDED
-    assert road.kind == SessionKind.TRANSIT and road.origin_id == "home" and road.destination_id == "office"
+    assert road.kind == SessionKind.TRANSIT and road.origin_id == "home" and road.destination_id == "park"
     assert road.name.startswith("去") and "的路上（" in road.name
     assert engine.context.state.activities[watch_id].session_ids == [road.session_id]
     _until_ended(engine, travel_id, "walk")
@@ -188,7 +162,7 @@ def test_departure_and_arrival_switch_sessions_and_end_road_activities(engine_fa
         ActivityStatus.CANCELLED, "route_ended", "route_ended")
     assert watch.ended_at == arrived and watch.concluded_at is None
     office = sessions.current_session(engine.context.state, 1)
-    assert office.kind == SessionKind.STAY and office.location_id == "office" and office.started_at == arrived
+    assert office.kind == SessionKind.STAY and office.location_id == "park" and office.started_at == arrived
     assert engine.context.state.sessions[road.session_id].ended_at == arrived
     assert {"planned_end", "no_active_activity"} <= set(engine.context.state.agents[1].pending_wake_reasons)
     observed = _preview(engine, "arrived")
@@ -199,7 +173,7 @@ def test_departure_and_arrival_switch_sessions_and_end_road_activities(engine_fa
 
 def test_just_ended_requires_conclusion_in_the_same_second(engine_factory) -> None:
     """待收尾时做别的以 ACTIVITY_CONCLUSION_REQUIRED 拒绝并点名；收尾前时钟不推进；收尾后释放名额再开始。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "first-wait")
     _until_ended(engine, waited.activity_id, "first-wait")
@@ -225,7 +199,7 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     第四章）；结束它可用，别的动作都标「先给刚结束的<睡眠>收尾」，conclude_activity 点名这段睡眠并被受理
     （第七章「活动一结束就要结束它」）。"""
     from agentsociety2.society import DirectToolCall
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     slept = _start(engine, "no-plan-sleep", ("自己", "sleep", "睡觉"))
     assert advance_until_ready(engine, limit=200)
     sleep = engine.context.state.activities[slept.activity_id]
@@ -247,9 +221,9 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
 
 def test_other_activity_keeps_running_while_the_ended_one_is_concluded(engine_factory) -> None:
     """边走边看时内容先结束：当秒只收尾内容，出行不受影响；收尾后时钟照常推进。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    content = _pick(_preview(engine, "short-content"), "watch", kind="content")
+    content = _pick(_preview(engine, "short-content"), "use_app", kind="app")
     travel_id, watch_id = _started_ids(_depart(engine, "long-depart", content))
 
     def shorten(state) -> None:
@@ -279,7 +253,7 @@ def _wake(engine: LifeEngine, offset: int = 60) -> int:
 
 def _two_parallel(engine: LifeEngine, name: str) -> list[str]:
     """@brief 同一请求开始等待与观看（占用互不冲突），两个名额都被进行中活动占着。"""
-    content = _pick(_preview(engine, name), "watch", kind="content")
+    content = _pick(_preview(engine, name), "use_app", kind="app")
     started = _start(engine, name, ("自己", "interact", "等待"), content)
     assert started.status == "in_progress", started.error_code
     return _started_ids(started)
@@ -294,9 +268,9 @@ def _lifecycle_events(engine: LifeEngine) -> list:
 def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -> None:
     """名额未满而有进行中活动时选择出行：出行照常列出并带说明；选了以 ACTIVITY_PRECONDITION_UNMET 返回原因「需要先
     结束或暂停手上的事：<活动名>」与下一步；暂停后出发被受理，暂停的活动留在原地。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    watched = _start(engine, "home-watch", _pick(_preview(engine, "home-watch"), "watch", kind="content"))
+    watched = _start(engine, "home-watch", _pick(_preview(engine, "home-watch"), "use_app", kind="app"))
     _wake(engine)
     name = _name(engine, watched.activity_id)
     observed = _preview(engine, "listed-depart")
@@ -326,7 +300,7 @@ def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -
 
 def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> None:
     """在别处恢复以 ACTIVITY_PRECONDITION_UNMET 拒绝并点名开始地点；回到开始地点后归入那里的新停留会话并可恢复。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "wait-home")
     _wake(engine)
@@ -360,7 +334,7 @@ def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> N
 
 def test_paused_activity_can_be_concluded_elsewhere(engine_factory) -> None:
     """人在别处可以直接结束暂停的活动：取消并收尾。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "wait-then-leave")
     _wake(engine)
@@ -378,9 +352,9 @@ def test_paused_activity_can_be_concluded_elsewhere(engine_factory) -> None:
 def test_pausing_an_activity_on_the_road_is_unavailable(engine_factory) -> None:
     """路上的活动（出行本身与路上开始的活动）不能暂停：ACTIVITY_PAUSE_UNAVAILABLE 带原因与下一步（可以直接结束），
     活动照常进行。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    content = _pick(_preview(engine, "road-content"), "watch", kind="content")
+    content = _pick(_preview(engine, "road-content"), "use_app", kind="app")
     travel_id, watch_id = _started_ids(_depart(engine, "road", content))
     _wake(engine)
     for index, activity_id in enumerate((travel_id, watch_id)):
@@ -396,9 +370,9 @@ def test_pausing_an_activity_on_the_road_is_unavailable(engine_factory) -> None:
 
 def test_ending_travel_midway_ends_road_activities_and_stays_at_origin(engine_factory) -> None:
     """途中结束出行：路上会话结束，路上开始的其他活动以 route_ended 成为待收尾，人仍在出发地并开始该地的停留会话。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    content = _pick(_preview(engine, "midway-content"), "watch", kind="content")
+    content = _pick(_preview(engine, "midway-content"), "use_app", kind="app")
     travel_id, watch_id = _started_ids(_depart(engine, "midway", content))
     road = sessions.current_session(engine.context.state, 1)
     now = _wake(engine)
@@ -420,7 +394,7 @@ def test_ending_travel_midway_ends_road_activities_and_stays_at_origin(engine_fa
 def test_two_running_activities_block_a_third_until_one_is_paused(engine_factory) -> None:
     """两项进行中的活动占满两个名额时不能开始第三项：SESSION_LIMIT_EXCEEDED 点名两项，下一步写结束或暂停其中一项；
     暂停其中一项就让出名额（暂停的活动不占名额），第三项被受理，暂停的那项仍暂停（第七章「两个名额」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "full")
     _wake(engine)
@@ -441,14 +415,14 @@ def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_fac
     """只剩一个名额（另一个被进行中的等待占着）却要同时开始两项：名额判定先于整组准入，以 SESSION_LIMIT_EXCEEDED 拒绝，
     原因说只剩一个名额并点名占着名额的活动，下一步是先结束或暂停它；暂停等待之后再开始两项（等待与观看）被受理，暂停的
     活动不占名额（第五章「并行准入」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "one-slot-wait")
     _wake(engine)
     name = _name(engine, waited.activity_id)
     observed = _preview(engine, "one-slot")
     contents = [(row["object"], action["verb"], action["label"]) for row in observed["interaction_bindings"]
-                if row["kind"] == "content" for action in row["actions"] if action["canonical_action"] == "watch"]
+                if row["kind"] == "app" for action in row["actions"] if action["canonical_action"] == "use_app"]
     assert len({item[0] for item in contents[:2]}) == 2
     blocked = _start(engine, "one-slot-two", *contents[:2])
     assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
@@ -468,7 +442,7 @@ def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check
     暂停等待之后它让出名额，观看仍在进行：出行照常列出并带出发前的说明（第五章「动作照常列出，做错了再说明」），经真实
     决策轮以 ACTIVITY_PRECONDITION_UNMET 拒绝，只点名进行中的观看，人仍停留在原地。
     """
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "running-pair")
     with pytest.raises(BusinessRuleError, match="^SESSION_LIMIT_EXCEEDED$") as raised:
@@ -499,7 +473,7 @@ def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check
 ], ids=["removed-parallel-arrays", "duplicate-targets", "three-items"])
 def test_start_request_shape_errors_are_action_request_invalid(engine_factory, body) -> None:
     """旧数组、逐项目标重复或超过两项直接违反当前模式；绕过宿主构造的坏模型仍由环境原子拒绝。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     with pytest.raises(ValidationError):
         StartActivityRequest.model_validate({"answering": None, "prefer": None, **body})
@@ -533,7 +507,7 @@ def test_start_request_shape_errors_are_action_request_invalid(engine_factory, b
 
 def test_both_paused_redecide_same_second_until_one_resumes(engine_factory) -> None:
     """两项都暂停时同一秒再决策；结束其一后仍同秒再决策；恢复其一后时钟可推进。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     first, second = _two_parallel(engine, "both")
     now = _wake(engine)
@@ -550,28 +524,11 @@ def test_both_paused_redecide_same_second_until_one_resumes(engine_factory) -> N
     assert engine.context.state.current_time > now
 
 
-def test_arrival_denied_fails_travel_and_starts_stay_at_destination(engine_factory, monkeypatch) -> None:
-    """到达被拒：出行记为 failed 并成为待收尾；人已在目的地，开始目的地的停留会话。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    travel = _depart(engine, "denied-depart")
-    guarded = tuple(item.model_copy(update={"required_qualifications": ("门禁卡",)})
-                    if item.location_id == "office" else item for item in engine.context.scenario.locations)
-    monkeypatch.setattr(engine.context, "semantics", replace(engine.context.semantics, scenario=engine.context.scenario.model_copy(update={'locations': guarded})))
-    _until_ended(engine, travel.activity_id, "denied-walk")
-    activity = engine.context.state.activities[travel.activity_id]
-    assert activity.status == ActivityStatus.FAILED and activity.interruption_reason == "LOCATION_ACCESS_DENIED"
-    assert activity.concluded_at is None
-    stay = sessions.current_session(engine.context.state, 1)
-    assert stay.kind == SessionKind.STAY and stay.location_id == "office" == engine.context.state.agents[1].location_id
-    assert engine.scheduling_state().ready_agent_ids == (1,)
-    assert _conclude(engine, "conclude-denied", travel.activity_id).status == "completed"
-
 
 def test_experiment_end_ends_every_session_without_conclusion(engine_factory) -> None:
     """实验截止时所有会话结束；进行中的活动按 truncated 处理，不要求收尾。"""
     from tests.life.test_export_integration import _stage_final_interval
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     _stage_final_interval(engine, 600)
     stage_day_plan(engine)
     waited = _wait(engine, "wait-to-end")
@@ -602,7 +559,7 @@ def test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_
     活动（含暂停的）写一条带截断快照、回链开始请求的 activity_truncated；同源两项的聚合终态不带快照，导出的
     activities.jsonl 仍逐行等于最终检查点（第八章「活动」）。"""
     from tests.life.test_export_integration import _stage_final_interval
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     _stage_final_interval(engine, 600)
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "end-pair")
@@ -635,7 +592,7 @@ def test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_
 
 def test_same_named_activities_get_ordinals_instead_of_failing(engine_factory) -> None:
     """同一分钟内先后开始的同名活动同轮可见时追加「（第二次）」，不抛错，名称仍能唯一解析。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     first = _wait(engine, "same-1")
     _wake(engine, offset=30)
@@ -658,7 +615,7 @@ def test_same_named_activities_get_ordinals_instead_of_failing(engine_factory) -
 def test_cross_day_duplicate_activity_names_get_ordinals(engine_factory) -> None:
     """跨日重名的活动不抛错：名称用绝对日期；仍然重名时（例如跨年同日）同轮追加序号，回看与播报都能唯一解析。会话名不在
     七层中出现，观察不绑定会话名（回看的名称只取七层中出现的名称）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "today")
     stay = sessions.current_session(engine.context.state, 1)
@@ -696,7 +653,7 @@ def test_cross_day_duplicate_activity_names_get_ordinals(engine_factory) -> None
 def test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument(engine_factory) -> None:
     """自述不当事实：播报的 summary 只作为进度层该调用的参数出现，工具层的活动目标只写客观进度，待办层与环境层也不复述
     （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "self-report")
     _wake(engine)
@@ -724,18 +681,17 @@ def _recall(engine: LifeEngine, name: str, task_name: str) -> dict:
 
 def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_factory) -> None:
     """回看可按任务名或活动名（目标名见当日目标用例）；结果在下一次观察进度层该调用的 details.recall 中呈现，不带身份；
-    截止是带时区的 ISO 时刻，自述照原文写、不逐条标注未经核验（系统层规则统一说明）。会话名不在七层中出现，回看会话名以
+    工作主题按实际累计工时回看，自述照原文写、不逐条标注未经核验（系统层规则统一说明）。会话名不在七层中出现，回看会话名以
     TASK_NOT_FOUND 业务拒绝（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「通用格式」、第八章「回看的名称只取七层中出现的名称」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    task = next(iter(engine.context.scenario.tasks))
-    _stage(engine, lambda state: state.agents[1].visible_task_ids.add(task.task_id))
+    topic = engine.context.scenario.work_topics[0]
     waited = _wait(engine, "recall-wait")
     name = _name(engine, waited.activity_id)
     stay = sessions.current_session(engine.context.state, 1)
-    assert _recall(engine, "recall-task", f"工作：{task.title}") == {
-        "kind": "task", "name": f"工作：{task.title}",
-        "due_at": iso_time(int(task.due_at.timestamp()), engine.context.scenario.timezone)}
+    assert _recall(engine, "recall-task", f"工作：{topic.topic}") == {
+        "kind": "task", "name": f"工作：{topic.topic}", "note_history": [],
+        "contract": {"topic": topic.topic, "target": "约 8 小时", "done": "约 0 小时", "remaining": "约 8 小时"}}
     before = _recall(engine, "recall-activity", name)
     home = next(item.name for item in engine.context.scenario.locations if item.location_id == "home")
     assert {key: before[key] for key in ("kind", "name", "place", "phase")} == {
@@ -755,9 +711,9 @@ def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_f
 def test_recall_of_content_started_with_a_walk_names_the_road(engine_factory) -> None:
     """边走边看：和步行同一请求开始的内容，回看的地点是它所属的那段路「去<目的地>的路上」，不是出发地；
     到达收尾后仍是那段路（第七章 recall_task_summary「活动给 {名称, 地点, …}」）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    content = _pick(_preview(engine, "road-recall"), "watch", kind="content")
+    content = _pick(_preview(engine, "road-recall"), "use_app", kind="app")
     travel_id, watch_id = _started_ids(_depart(engine, "road-recall", content))
     road = f"去{({item.location_id: item.name for item in engine.context.scenario.locations})['office']}的路上"
     assert _recall(engine, "recall-road-content", _name(engine, watch_id))["place"] == road
@@ -768,17 +724,17 @@ def test_recall_of_content_started_with_a_walk_names_the_road(engine_factory) ->
     assert (after["place"], after["phase"]) == (road, "已收尾")
 
 
-def test_sessions_and_pending_conclusion_survive_reopen(engine_factory) -> None:
+def test_sessions_and_pending_conclusion_survive_reopen(engine_factory, tmp_path) -> None:
     """地点会话与待收尾随世界状态保存；重开后仍须在同一秒收尾。"""
     from worldmock.life.engine import LifeEngine
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     travel = _depart(engine, "reopen-depart")
     _until_ended(engine, travel.activity_id, "reopen-walk")
     saved = dict(engine.context.state.sessions)
     run_dir = engine.context.store.run_dir
     engine.close()
-    restored = LifeEngine.open(_FORMAL, run_dir)
+    restored = LifeEngine.open(tmp_path / "scenario-0" / "scenarios" / "single-person.json", run_dir)
     try:
         assert restored.context.state.sessions == saved
         rejected = _wait(restored, "reopen-other")
@@ -791,7 +747,7 @@ def test_sessions_and_pending_conclusion_survive_reopen(engine_factory) -> None:
 def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory, tmp_path: Path) -> None:
     """暂停、恢复与结束逐活动各写一条带快照、含本次请求事件的 environment_event；导出的活动与最终检查点逐项一致。"""
     from worldmock.footprints.export import export_run
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     first, second = _two_parallel(engine, "records")
     _wake(engine)
@@ -827,15 +783,15 @@ def test_slot_counting_durations_and_session_helpers_are_pure(engine_factory) ->
     assert activity_control.new_activity_count(["consume", "consume"], ["食用", "食用"]) == 1
     assert activity_control.new_activity_count(["consume", "consume"], ["食用", "使用"]) == 2
     assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行", "远程下单"]) == 1
-    assert activity_control.new_activity_count(["travel_to", "watch"], ["步行", "接着听"]) == 2
+    assert activity_control.new_activity_count(["travel_to", "use_app"], ["步行", "打开"]) == 2
     assert [duration_phrase(value) for value in (59, 600, 5400)] == ["不到 1 分钟", "约 10 分钟", "约 1.5 小时"]
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     waited = _wait(engine, "helpers")
     activity = engine.context.state.activities[waited.activity_id]
-    work = activity.model_copy(update={"kind": "work", "elapsed_seconds": 7200, "effective_work_seconds": 5400,
+    work = activity.model_copy(update={"kind": "work", "elapsed_seconds": 7200,
                                        "planned_duration_seconds": 7200}, deep=True)
-    assert activity_control.objective_progress(work) == "已做约 2 小时，有效约 1.5 小时，还剩不到 1 分钟"
+    assert activity_control.objective_progress(work) == "已做约 2 小时，还剩不到 1 分钟"
     stay = sessions.current_session(engine.context.state, 1)
     assert sessions.end_transit(engine.context.state, 1, {item.location_id: item.name for item in engine.context.scenario.locations}) == (engine.context.state, [])
     assert not sessions.on_road(engine.context.state, activity.model_copy(update={"session_ids": []}))
@@ -853,7 +809,7 @@ def test_slot_counting_durations_and_session_helpers_are_pure(engine_factory) ->
 
 def test_world_state_rejects_a_body_settled_ahead_of_the_clock(engine_factory) -> None:
     """恢复时世界状态的人物不变量仍按原样拒绝：身体结算时刻不能晚于世界时钟（与会话集合校验同在 validate_world）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     document = engine.context.state.model_dump(mode="json")
     document["agents"]["1"]["body_settled_at"] = engine.context.state.current_time + 1
     with pytest.raises(ValueError, match="body settlement is ahead of world time"):

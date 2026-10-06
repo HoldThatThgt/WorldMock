@@ -15,6 +15,7 @@ decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际�
 """
 
 from __future__ import annotations
+from worldmock.life.work import work_totals
 from worldmock.life.activities import shared_activity_factors
 from worldmock.life import projection as projection_module
 from worldmock.life.models import ActivityKind
@@ -88,8 +89,6 @@ class RhythmInputs:
     state: WorldState
     scenario: RuntimeScenario
     body_config: BodyConfig
-    #: 任务截止时刻表（task_id -> epoch 秒）。
-    task_due: dict[str, int]
     #: 本结算间隔秒数（用于到期未交等区间穿越判定）。
     interval_seconds: int
     #: 距上一次实际决策的重估间隔（场景参数，缺省 5400）。
@@ -156,10 +155,7 @@ def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, 
     agents = {}
     for agent_id in sorted(state.agents):
         agent = state.agents[agent_id]
-        warning_facts = _warning_signatures(agent, inputs)
-        current = set().union(*warning_facts.values())
-        delivered = set(agent.delivered_warning_signatures) & current
-        verdict = rhythm_schedule.evaluate_wake_reasons(_wake_snapshot(agent, inputs, warning_facts, delivered))
+        verdict = rhythm_schedule.evaluate_wake_reasons(_wake_snapshot(agent, inputs))
         # 收件箱在唤醒判定之后才记为已读（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「人物之间的消息」）：
         # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。睡眠中也不读（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-不适脉冲与睡眠中的消息 ）：
         # 睡眠中送达的消息保持未读，醒来后的第一个边界才记已读并施加阅读效果。到点的提醒记为已触发，只触发一次。
@@ -174,8 +170,6 @@ def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, 
         offered = verdict.decision_offered
         reasons = [reason.value for reason in verdict.wake_reasons]
         if offered:
-            delivered.update(_delivered_warning_signatures(warning_facts, verdict))
-        if offered:
             next_at = state.current_time
         else:
             candidate = next_decision_candidates(agent, inputs)
@@ -184,7 +178,6 @@ def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, 
             update={
                 "next_decision_at": next_at,
                 "pending_wake_reasons": reasons if offered else [],
-                "delivered_warning_signatures": delivered,
             },
             deep=True,
         )
@@ -216,7 +209,6 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
             reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
             idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
             has_commitments=_has_commitments(agent, inputs),
-            next_task_due_at=_next_task_due(agent, inputs),
             next_progress_report_at=_next_progress_report_at(agent, state, inputs.progress_report_interval_seconds),
             plan_reminder_times=reminders.reminder_times(agent, state.current_time),
             errand_reminder_times=errands.reminder_times(agent, state.current_time),
@@ -247,7 +239,7 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
         agent = agent.model_copy(update={"body": decay_mood(agent.body, (now - agent.mood_updated_at) / 60)}, deep=True)
     agent = _apply_awake_social_ledger(agent, inputs)
     agent = _settle_discomfort(agent, _felt_levels(agent, inputs), now)
-    agent = _goal_and_deadline_pulses(agent, inputs)
+    agent = _goal_progress_pulses(agent, inputs)
     return agent.model_copy(update={"mood_updated_at": now}, deep=True)
 
 
@@ -384,8 +376,8 @@ def awake_duty_edge_times(state: WorldState, scenario: RuntimeScenario) -> list[
             for moment in duty_edges.edge_times_after(scenario, agent_id, state.current_time)]
 
 
-def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 实际目标首次推进产生情绪脉冲，任务到期未交产生失约脉冲。"""
+def _goal_progress_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
+    """@brief 实际目标首次推进产生情绪脉冲，工作主题没有任务截止或失约事件。"""
     now = inputs.state.current_time
     body = agent.body
     plan = agent.day_plan
@@ -398,16 +390,11 @@ def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentS
         if changed != plan:
             body = apply_mood_pulse(body, "goal_progressed")
             plan = changed
-    window_start = now - inputs.interval_seconds
-    for task_id in sorted(agent.visible_task_ids):
-        due = inputs.task_due.get(task_id)
-        if due is not None and task_id not in inputs.state.paid_task_ids and window_start < due <= now:
-            body = apply_mood_pulse(body, "task_deadline_missed")
     return agent.model_copy(update={"body": body, "day_plan": plan}, deep=True)
 
 
 def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 在手承诺：未推进目标、可见未完成任务、暂停活动或等待之外的进行中活动。
+    """@brief 在手承诺：未推进目标、已分配未完成工作主题、暂停活动或等待之外的进行中活动。
 
     进行中的等待不算在手承诺（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「拒绝的情绪代价与重估间隔」）：
     只在等待（或无活动）且没有其余各项时返回假，此时用空闲重估间隔。
@@ -419,7 +406,10 @@ def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
         and any(goal.progressed_at is None for goal in plan.goals)
     ):
         return True
-    if any(task_id not in inputs.state.paid_task_ids for task_id in agent.visible_task_ids):
+    config = next(item for item in inputs.scenario.agents if item.agent_id == agent.agent_id)
+    topics = {topic.topic_id: topic for topic in inputs.scenario.work_topics}
+    if any(work_totals(inputs.state, agent.agent_id, topic_id) < topics[topic_id].target_seconds
+           for topic_id in config.work_topic_ids):
         return True
     return any(
         activity.agent_id == agent.agent_id
@@ -432,58 +422,17 @@ def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
     )
 
 
-def _task_signature(task_id: str, due_at: int) -> str:
-    """@brief 将任务身份和具体截止编码为稳定事实签名。"""
-    return json.dumps(["task", task_id, due_at], ensure_ascii=False, separators=(",", ":"))
-
-
-def _next_task_due(agent: AgentState, inputs: RhythmInputs, eligible: set[str] | None = None) -> int | None:
-    """@brief 返回尚未交付预警的所有可见未完成任务中的最近截止。"""
-    signatures = eligible
-    if signatures is None:
-        signatures = set().union(*_warning_signatures(agent, inputs).values())
-        signatures |= {
-            _task_signature(task_id, due)
-            for task_id, due in inputs.task_due.items()
-            if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
-        }
-        signatures -= agent.delivered_warning_signatures
-    return min(
-        (
-            due
-            for task_id, due in inputs.task_due.items()
-            if task_id in agent.visible_task_ids
-            and task_id not in inputs.state.paid_task_ids
-            and _task_signature(task_id, due) in signatures
-            and due > inputs.state.current_time
-        ),
-        default=None,
-    )
-
-
-def _warning_signatures(agent: AgentState, inputs: RhythmInputs) -> dict[str, set[str]]:
-    """@brief 仅记录本阶段仍然有效的真实工作截止预警签名。"""
-    now = inputs.state.current_time
-    task = {_task_signature(task_id, due) for task_id, due in inputs.task_due.items()
-            if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
-            and due - rhythm_schedule.TASK_DUE_SOON_SECONDS <= now < due}
-    return {"task": task}
 
 
 
 
-def _delivered_warning_signatures(facts: dict[str, set[str]], verdict: rhythm_schedule.WakeVerdict) -> set[str]:
-    """@brief 只把本次实际提供的具体预警标为已交付。"""
-    reasons = set(verdict.wake_reasons)
-    delivered: set[str] = set()
-    if rhythm_schedule.WakeReason.TASK_DUE_SOON in reasons:
-        delivered.update(facts["task"])
-    return delivered
 
 
-def _wake_snapshot(
-    agent: AgentState, inputs: RhythmInputs, facts: dict[str, set[str]], delivered: set[str]
-) -> rhythm_schedule.WakeSnapshot:
+
+
+
+
+def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.WakeSnapshot:
     """@brief 装配该边界的唤醒判定输入（与上一次实际决策比较）。"""
     state = inputs.state
     now = state.current_time
@@ -505,9 +454,6 @@ def _wake_snapshot(
         message_arrived=any(message_id not in agent.read_inbox_ids for message_id in agent.inbox)
         or "message_arrival" in flags,
         delivery_arrived="delivery_arrival" in flags,
-        task_newly_visible="task_available" in flags,
-        next_task_due_at=_next_task_due(agent, inputs, facts["task"] - delivered),
-        work_review_returned="work_review_result" in flags,
         last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
         idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
@@ -618,12 +564,11 @@ def local_hour(epoch: int, timezone_name: str) -> float:
 def engine_rhythm_inputs(
     context, state, interval: int = 0, arrival_flags: dict | None = None, progress_data: dict | None = None
 ) -> RhythmInputs:
-    """@brief 引擎侧装配决策节律输入束（任务截止表、重估间隔与餐时窗口）。"""
+    """@brief 引擎侧装配决策节律输入束（重估间隔与餐时窗口）。"""
     return RhythmInputs(
         state=state,
         scenario=context.scenario,
         body_config=context.semantics.body,
-        task_due={task_id: int(task.due_at.timestamp()) for task_id, task in context.rules.tasks.items()},
         interval_seconds=interval or context.scenario.activity_feedback_seconds,
         reconsideration_interval_seconds=context.semantics.document.reconsideration_interval_seconds,
         idle_reconsideration_interval_seconds=context.semantics.document.idle_reconsideration_interval_seconds,

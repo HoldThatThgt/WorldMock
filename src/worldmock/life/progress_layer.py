@@ -186,6 +186,11 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
             records.extend(_delivery_records(context, event))
         elif kind in {"message_arrival", "mail_arrival"}:
             records.append(_message_record(context, event))
+        elif kind == "work_topic_completed" and event.visibility == "agent":
+            topic = context.rules.work_topics[event.data["topic_id"]]
+            record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone),
+                      "type": "work_completed", "topic": topic.topic}
+            records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
         elif kind == "app_push" and event.visibility == "agent":
             record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone), "type": "app_push",
                       "app": event.data["app"], "title": event.data["title"],
@@ -212,9 +217,6 @@ def _message_record(context: LayerContext, event: Event) -> _Record:
         subject = context.rules.messages[message_id].subject
         record = {"occurred_at": moment, "type": "message_arrival", "sender": None, "kind": "mail",
                   "subject": subject}
-        task_id = context.rules.messages[message_id].related_task_id
-        if task_id is not None:
-            record["task"] = f"工作：{context.rules.tasks[task_id].title}"
         return _Record(record, (event,), _event_key(event.occurred_at, [event]))
     message = context.state.agents[context.agent_id].inbox[message_id]
     sender = _sender(context, message.sender_id)
@@ -242,7 +244,7 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
         receiver = ("" if order["recipient_id"] == agent_identity(context.agent_id) else
                     f"，收货人{person_name(context.state, context.scenario, context.agent_id, order['recipient_id'])}")
         messages = {"delivered": f"已送到{places[order['destination_id']]}{receiver}", "cancelled": "订单已取消",
-                    "ready": f"可以到{places[order['location_id']]}取了"}
+                    "ready": f"可以到{places[order['store_id']]}取了"}
         record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery", "order": label,
                   "status": order["status"], "message": messages[order["status"]]}
         records.append(_Record(record, (event,), _event_key(event.occurred_at, [event]), (order["order_id"],)))
@@ -260,14 +262,6 @@ def _derived_records(context: LayerContext, started_at: int) -> list[_Record]:
         return (moment > started_at if decided else moment >= started_at) and moment <= now
 
     records = []
-    tasks = [row for row in context.bindings if row["kind"] == "work_task"]
-    for order, row in enumerate(tasks):
-        due = int(context.rules.tasks[row["object_id"]].due_at.timestamp())
-        for moment, stage in ((due - schedule.TASK_DUE_SOON_SECONDS, "due_soon"), (due, "expired")):
-            if in_range(moment):
-                record = {"occurred_at": iso_time(moment, zone), "type": "task_deadline", "task": row["object"],
-                          "stage": stage}
-                records.append(_Record(record, (), (moment, 0, 0, order, 0)))
     plan = context.state.agents[context.agent_id].day_plan
     for order, goal in enumerate(plan.goals if plan is not None else ()):
         if goal.reminded_at is not None and in_range(goal.reminded_at):

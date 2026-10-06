@@ -8,6 +8,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
+import networkx as nx
 from pydantic import BaseModel, ConfigDict
 
 from tests.frozen_inputs import FrozenInputs, assert_deeply_immutable, clone_semantics, input_digest, object_digest
@@ -120,3 +121,13 @@ def test_object_guard_distinguishes_container_types_and_typed_mapping_keys():
     assert object_digest([1]) != object_digest((1,))
     assert object_digest({1: "value", "1": "value"}) != object_digest({"1": "value"})
     assert object_digest(b"raw") != object_digest("raw")
+
+
+def test_graph_freeze_alone_does_not_satisfy_shared_input_contract():
+    """@brief 成熟图容器的结构冻结不能掩盖仍可改写的边属性。"""
+    graph = nx.freeze(nx.Graph([("a", "b", {"length_m": 301})]))
+    with pytest.raises(AssertionError, match="mutable dict"):
+        assert_deeply_immutable(graph)
+    original = object_digest(graph)
+    graph["a"]["b"]["length_m"] = 1
+    assert object_digest(graph) != original

@@ -20,7 +20,7 @@ CLAUSES = frozenset({
 })
 NEW_PRODUCTION = (
     "counterfactual_runtime", "decision_coordinator", "engine", "engine_context", "model_evidence", "observe",
-    "session_actions", "storefront_runtime", "time_advance", "vocabulary", "work_review_runtime", "world_ops", "world_setup",
+    "session_actions", "storefront_runtime", "time_advance", "vocabulary", "world_ops", "world_setup",
 )
 ARCHIVED_FEATURES = ("time-and-energy", "persona-prompt", "dayrun-fidelity", "tool-interaction", "errands-workday")
 FEATURES = (*ARCHIVED_FEATURES, "resource-rule-simplification")
@@ -75,7 +75,7 @@ def test_facade_keeps_public_signatures_and_has_no_business_mixin():
     assignments = {node.attr for node in ast.walk(constructor)
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
         and isinstance(node.value, ast.Name) and node.value.id == "self"}
-    assert assignments == {"context", "observations", "actions", "decisions", "clock", "reviews", "evidence",
+    assert assignments == {"context", "observations", "actions", "decisions", "clock", "evidence",
                            "counterfactual"}
     methods = {node.name: node for node in facade.body
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}

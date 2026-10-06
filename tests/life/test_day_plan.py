@@ -19,7 +19,7 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     PlanDayRequest, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
 )
-from worldmock.life.rhythm import _goal_and_deadline_pulses, engine_rhythm_inputs
+from worldmock.life.rhythm import _goal_progress_pulses, engine_rhythm_inputs
 from worldmock.life.schedule import (
     GOAL_TIME_TOLERANCE_SECONDS, INTENT_KINDS, ROUTINE_INTENT_KINDS, DayPlan, PlanGoal, RemindTimeInvalid,
     day_end_seconds, day_plan_expired, expired_plan_agent_ids, initial_day_plan, progress_day_plan,
@@ -392,18 +392,18 @@ def test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time(engine
         day_end=now + 1000, goals=[goal("休息", registered=now), goal("晨间例程", registered=now)])})
     data = {"activity": activity("wait"), "interval_start": now, "interval_end": now + 60}
     inputs = engine_rhythm_inputs(engine.context, engine.context.state, 60, progress_data={1: [data]})
-    result = _goal_and_deadline_pulses(agent, inputs)
+    result = _goal_progress_pulses(agent, inputs)
     from worldmock.life.body import apply_mood_pulse
     assert result.body == apply_mood_pulse(agent.body, "goal_progressed")
-    assert _goal_and_deadline_pulses(result, inputs).body == result.body
+    assert _goal_progress_pulses(result, inputs).body == result.body
     assert result.day_plan.goals[1].progressed_at is None
     for changed in ({"agent_id": 2}, {"status": "cancelled"}, {"status": "failed"}):
         data["activity"] = activity("wait", **changed)
-        assert _goal_and_deadline_pulses(agent, inputs) == agent
+        assert _goal_progress_pulses(agent, inputs) == agent
     data["activity"] = activity("wait")
     data["interval_end"] = now
-    assert _goal_and_deadline_pulses(agent, inputs) == agent
-    assert _goal_and_deadline_pulses(agent, replace(inputs, progress_data={})) == agent
+    assert _goal_progress_pulses(agent, inputs) == agent
+    assert _goal_progress_pulses(agent, replace(inputs, progress_data={})) == agent
 
 
 def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factory):

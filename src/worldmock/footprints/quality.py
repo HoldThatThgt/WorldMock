@@ -257,36 +257,14 @@ def _contact_summary(rows: list[dict]) -> dict:
 
 
 def _efficiency_quality(events: list[Event]) -> dict:
-    """@brief 使用每个真实结算区间加权工作与食品转换效率。"""
-    work, work_missing = _work_efficiency_samples(events)
+    """@brief 只以真实食品结算区间加权热量利用效率。"""
     food, food_missing = _food_efficiency_samples(events)
     return {
-        "work": _weighted_efficiency(work, work_missing, "no_work_activity_progress"),
         "food": _weighted_efficiency(food, food_missing, "no_food_consumption_progress"),
         "method": "Duration-weighted values from persisted activity_progress settlements",
     }
 
 
-def _work_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, float]], int]:
-    """@brief 读取工作活动每个结算区间的时长与效率。"""
-    samples = []
-    missing = 0
-    for event in events:
-        if event.event_type != "activity_progress":
-            continue
-        activity = event.data.get("activity")
-        if not isinstance(activity, dict) or activity.get("kind") != "work":
-            continue
-        start, end = event.data.get("interval_start"), event.data.get("interval_end")
-        efficiency = event.data.get("activity_efficiency")
-        sample = (float(end - start), float(efficiency)) if (
-            valid_interval(start, end) and _is_nonnegative_number(efficiency)
-        ) else None
-        if sample is None:
-            missing += 1
-        else:
-            samples.append(sample)
-    return samples, missing
 
 
 def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, float]], int]:

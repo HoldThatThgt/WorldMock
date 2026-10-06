@@ -168,7 +168,7 @@ def _agent_labels(scenario: RuntimeScenario, agent, lifestyle: tuple[LifestyleIt
     本人收件的场景邮件与「自己」。"""
     enabled = None if agent.lifestyle_activities is None else set(agent.lifestyle_activities)
     assigned = set(agent.work_topic_ids)
-    labels = [(object_label("work_task", item.topic), f"topic:{item.topic_id}") for item in scenario.work_topics
+    labels = [(object_label("work_topic", item.topic), f"topic:{item.topic_id}") for item in scenario.work_topics
               if item.topic_id in assigned]
     labels += [(object_label("lifestyle", item.name), f"lifestyle:{item.activity_id}") for item in lifestyle
                if enabled is None or item.activity_id in enabled]

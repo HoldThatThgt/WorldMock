@@ -3,7 +3,7 @@
 身体语义按 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「身体语义：两过程睡眠、睡眠不足账、
 体感分级」重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
 纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
-曲线输入改为 sleep_deficit_hours（sleep.work_efficiency / food_utilization）。
+食品利用效率曲线输入为 sleep_deficit_hours。
 娱乐需要在有缓解的活动进行时只按缓解下降、不再累积，共同区间与单活动两条路径以及边界预测同一口径
 （entertainment_need_rate，docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
 能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎「事件正文与资源证据」）；
@@ -12,7 +12,7 @@ social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood
 valence）由引擎在结算边界调用本模块的包装函数驱动。
 
 能量不阻止任何活动：所有活动集合的结算都以 0 截断、不报错；低能量的代价只是饥饿上升与
-工作变慢（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。边界预测对困意与饥饿做同一种
+困意增加（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。边界预测对困意与饥饿做同一种
 跨档扫描，并把餐时窗口起止列为候选（同规格第八章「节律」）。
 """
 
@@ -49,10 +49,6 @@ ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
 ENERGY_RESOURCE = "energy_kcal"
 SLEEP_DEFICIT_RESOURCE = "sleep_deficit_hours"
 ENTERTAINMENT_RESOURCE = "entertainment_need"
-#: 目录侧（catalog/objects.jsonl，冻结数据不可改）效率因子仍以资源标识
-#: "sleep_debt_hours" 声明睡眠轴输入；这是目录数据身份而非状态字段别名——
-#: 求值侧把该目录标识映射到后继状态字段 sleep_deficit_hours（节点值一致）。
-CATALOG_SLEEP_RESOURCE = "sleep_debt_hours"
 #: 结算函数不携带人物身份与墙钟：分录以固定 owner 与占位时间戳落地，
 #: 引擎接线时以真实 agent 与 occurred_at 重盖（resource_flows 字典不含时间戳）。
 BODY_FLOW_OWNER = "body"
@@ -106,17 +102,14 @@ class BodySettlement:
     extra_energy_kcal: float
     food_energy_kcal: float
     food_efficiency: float | None
-    work_efficiency: float
 
 
 @dataclass(frozen=True, slots=True)
 class ActivityFactors:
-    """@brief 当前活动方式和人物偏好形成的结算系数。"""
+    """@brief 当前活动方式的真实身体消耗、娱乐缓解和食物热量速率。"""
 
     met: float
     entertainment_relief_per_hour: float = 0
-    work_skill_factor: float = 1
-    work_tool_factor: float = 1
     food_energy_kcal_per_hour: float = 0
 
 
@@ -134,18 +127,6 @@ class BoundaryClock:
     meal_windows: felt.MealWindows | None = None
 
 
-def interpolate(points: tuple[CurvePoint, ...], value: float) -> float:
-    """@brief 在线性节点间插值，并在两端钳制。"""
-    if value <= points[0].input_value:
-        return points[0].output_value
-    if value >= points[-1].input_value:
-        return points[-1].output_value
-    for left, right in zip(points, points[1:]):
-        if left.input_value <= value <= right.input_value:
-            span = right.input_value - left.input_value
-            ratio = (value - left.input_value) / span
-            return left.output_value + ratio * (right.output_value - left.output_value)
-    raise ValueError("curve interpolation interval is missing")
 
 
 def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyConfig,
@@ -188,8 +169,7 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
                       neuroticism_norm=body.neuroticism_norm,
                       entertainment_need=entertainment)
     _flow_buffer.extend(entries)
-    efficiency = _work_efficiency(body, after, kind, config, factors) if kind == ActivityKind.WORK else 1.0
-    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None, efficiency)
+    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None)
 
 
 def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
@@ -219,9 +199,7 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
                                     "sleep_deficit_hours": deficit,
                                     "entertainment_need": entertainment}, deep=True)
     _flow_buffer.extend(entries)
-    work = next((factors for kind, factors in activities if kind == ActivityKind.WORK), None)
-    efficiency = _work_efficiency(body, after, ActivityKind.WORK, config, work) if work else 1.0
-    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None, efficiency)
+    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None)
 
 
 def entertainment_need_rate(relief_per_hour: float, config: BodyConfig) -> float:
@@ -276,7 +254,7 @@ def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySett
         energy = BODY_CONSTANTS.maximum_energy_kcal
     after = body.model_copy(update={"energy_kcal": energy}, deep=True)
     _flow_buffer.extend(entries)
-    return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency, 1.0)
+    return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency)
 
 
 def minimum_energy_cost(kind: ActivityKind, seconds: int, config: BodyConfig,
@@ -419,9 +397,6 @@ def _net_burn_per_hour(factors: ActivityFactors, config: BodyConfig) -> float:
 
 def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
     """@brief 返回当前活动用于边界预测的效率曲线节点（输入 sleep_deficit_hours）。"""
-    if kind == ActivityKind.WORK:
-        return tuple(CurvePoint(input_value=p.input_hours, output_value=p.output_factor)
-                     for p in sleep.WORK_EFFICIENCY_CURVE)
     if kind == ActivityKind.CONSUME:
         return BODY_CONSTANTS.food_efficiency_curve
     return ()
@@ -593,66 +568,3 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
                           f"settle:{kind.value}:awake_entertainment_need",
                           BODY_FLOW_OCCURRED_AT)], True
     return [], True
-
-
-def _work_efficiency(before: BodyState, after: BodyState, kind: ActivityKind,
-                     config: BodyConfig, factors: ActivityFactors | None) -> float:
-    """@brief 按目录因子列表通用合成工作效率：各因子在输入资源区间上取值连乘。
-
-    sleep_deficit_hours 轴上的因子由 sleep.work_efficiency 曲线求值（修订合同
-    「睡眠不足账与效率曲线」：效率曲线输入改为不足账，节点值不变）；其余输入资源沿用目录声明。
-    区间取值按梯形平均（方向无关）；非 work 观察值取区间起点插值快照。最后乘入
-    冻结人物技能与实际工具因子（沿用既有行为）。
-    """
-    if kind != ActivityKind.WORK:
-        return _apply_work_factors(_factor_snapshot(config, before), kind, factors)
-    product = 1.0
-    for factor in config.work_efficiency_factors:
-        product *= _curve_average(factor.curve,
-                                  _resource_value(before, factor.input_resource),
-                                  _resource_value(after, factor.input_resource))
-    return _apply_work_factors(product, kind, factors)
-
-
-def _factor_snapshot(config: BodyConfig, body: BodyState) -> float:
-    """@brief 以给定身体状态对各效率因子取起点插值连乘。"""
-    product = 1.0
-    for factor in config.work_efficiency_factors:
-        product *= interpolate(factor.curve, _resource_value(body, factor.input_resource))
-    return product
-
-
-def _resource_value(body: BodyState, resource: str) -> float:
-    """@brief 读取身体资源余额；因子引用未知资源名属目录错误，fail-closed。"""
-    if resource in (SLEEP_DEFICIT_RESOURCE, CATALOG_SLEEP_RESOURCE):
-        return body.sleep_deficit_hours
-    if resource == ENERGY_RESOURCE:
-        return body.energy_kcal
-    if resource == ENTERTAINMENT_RESOURCE:
-        return body.entertainment_need
-    raise ValueError(f"work efficiency factor references unknown resource {resource!r}")
-
-
-def _curve_average(points: tuple[CurvePoint, ...], start: float, end: float) -> float:
-    """@brief 对区间起止输入值在分段线性曲线上做梯形面积平均（方向无关）。"""
-    low, high = (start, end) if start <= end else (end, start)
-    if high <= low:
-        return interpolate(points, start)
-    cuts = [low] + [point.input_value for point in points if low < point.input_value < high]
-    cuts.append(high)
-    area = 0.0
-    for left, right in zip(cuts, cuts[1:]):
-        a = interpolate(points, left)
-        b = interpolate(points, right)
-        area += (a + b) * (right - left) / 2
-    return area / (high - low)
-
-
-def _apply_work_factors(value: float, kind: ActivityKind,
-                        factors: ActivityFactors | None) -> float:
-    """@brief 将冻结人物技能与实际工具效果乘入工作效率。"""
-    if kind != ActivityKind.WORK or factors is None:
-        return value
-    if factors.work_skill_factor < 0 or factors.work_tool_factor < 0:
-        raise ValueError("work efficiency factors cannot be negative")
-    return value * factors.work_skill_factor * factors.work_tool_factor

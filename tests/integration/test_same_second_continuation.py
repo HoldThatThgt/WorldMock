@@ -31,12 +31,12 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from custom.agents.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
+from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace  # noqa: E402
 from tests.integration.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
                                                         _memory, _stored_memories, _view)
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
 from tests.life.conftest import (advance_next, advance_until_ready, context, errand_add, errand_cancel, errand_update, pending_names, stage_day_plan, start_activity, start_arguments, wake_by_mail)  # noqa: F401
-from tests.life.routing_fixtures import MARKET, place  # noqa: E402
-from tests.life.test_errand_completion import MILK, home, market  # noqa: E402
+from tests.life.routing_fixtures import DRINK_NAME, FOOD_STORE, SNACK_NAME, place, single_person_home  # noqa: E402
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.life.readable import iso_time  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
@@ -446,7 +446,7 @@ async def test_missing_model_evidence_breaks_the_chain(_engine_factory) -> None:
     ctx = context(engine, "direct")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("观看", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-direct", "start_activity", start_activity("打开", "不存在的对象")))
     assert engine.commit_decision_round("direct")[0].status == "rejected"
     observation, [request], _ = await _single(_environment(engine), "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
@@ -469,7 +469,7 @@ def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict 
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
     if response is not None:
         engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, request, response=response))
-    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("观看", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, "action-recorded", "start_activity", start_activity("打开", "不存在的对象")))
     assert engine.commit_decision_round("recorded")[0].status == "rejected"
 
 
@@ -749,8 +749,8 @@ async def test_real_pause_and_body_changes_reach_the_next_tool_message_once(_eng
 
 
 #: 同一秒续接链里新增的两条个人事务（正式目录里的真实商品）：一条带备注与提醒钟点，一条要取得三份。
-_KIT_ERRAND = errand_add("周末补食材包", "素炒什锦食材包", memo="下班顺路去超市", remind_time="18:00")
-_TEA_ERRAND = errand_add("囤一箱冰红茶", "康师傅 冰红茶", quantity=3)
+_SNACK_ERRAND = errand_add("周末补薯片", SNACK_NAME, memo="下班顺路去超市", remind_time="18:00")
+_TEA_ERRAND = errand_add("囤三杯柠檬茶", DRINK_NAME, quantity=3)
 
 
 @pytest.mark.asyncio
@@ -771,11 +771,11 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
     def pause(observation: dict) -> list:
         name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
         return [_reply("call-pause", "pause_activity", {"items": [{"activity_name": name, "summary": "先停一下。"}],
-                                                        "errands": [_KIT_ERRAND, _TEA_ERRAND]}, "先把要买的记下。")]
+                                                        "errands": [_SNACK_ERRAND, _TEA_ERRAND]}, "先把要买的记下。")]
 
     def conclude(observation: dict) -> list:
         [paused] = observation["todo_layer"]["paused_activities"]
-        changes = [errand_update("周末补食材包", memo="周六上午去菜场"), errand_cancel("囤一箱冰红茶", "家里还有半箱")]
+        changes = [errand_update("周末补薯片", memo="周六上午去超市"), errand_cancel("囤三杯柠檬茶", "家里还有饮料")]
         return [_reply("call-end", "conclude_activity", {**_ended([paused["name"]], "不等了。"), "errands": changes},
                        "改个主意。")]
 
@@ -783,17 +783,17 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
     noted, [second], _ = await _single(environment, "end", conclude)
     observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
     rows = noted["todo_layer"]["errands"]
-    assert head["todo_layer"]["errands"] == [] and [row["name"] for row in rows] == ["周末补食材包", "囤一箱冰红茶"]
+    assert head["todo_layer"]["errands"] == [] and [row["name"] for row in rows] == ["周末补薯片", "囤三杯柠檬茶"]
     earlier = _tool_payload(second)
     assert earlier["changes"]["errands"] == {"added": rows}
-    assert earlier["result"]["details"]["errands"] == [{"errand": "周末补食材包", "change": "新增"},
-                                                       {"errand": "囤一箱冰红茶", "change": "新增"}]
+    assert earlier["result"]["details"]["errands"] == [{"errand": "周末补薯片", "change": "新增"},
+                                                       {"errand": "囤三杯柠檬茶", "change": "新增"}]
     [kit] = observation["todo_layer"]["errands"]
-    assert (kit["name"], kit["memo"], kit["remind_time"]) == ("周末补食材包", "周六上午去菜场", None)
+    assert (kit["name"], kit["memo"], kit["remind_time"]) == ("周末补薯片", "周六上午去超市", None)
     later = _tool_payload(third)
-    assert later["changes"]["errands"] == {"added": [kit], "removed": ["囤一箱冰红茶"]}
-    assert later["result"]["details"]["errands"] == [{"errand": "周末补食材包", "change": "更新"},
-                                                     {"errand": "囤一箱冰红茶", "change": "取消"}]
+    assert later["changes"]["errands"] == {"added": [kit], "removed": ["囤三杯柠檬茶"]}
+    assert later["result"]["details"]["errands"] == [{"errand": "周末补薯片", "change": "更新"},
+                                                     {"errand": "囤三杯柠檬茶", "change": "取消"}]
     assert third["messages"][:len(second["messages"])] == second["messages"]
     chain_head = json.loads(third["messages"][1]["content"])
     assert chain_head[3]["layer"] == "待办层" and chain_head[3]["errands"] == []
@@ -805,24 +805,25 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
 async def test_an_errand_completed_in_the_same_second_appears_once_in_the_continuation_events(
         _engine_factory) -> None:
     """同一秒三次真实决策（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 、2.6「同秒续接」）：人物在集市，邮件唤醒时结束进行中的
-    等待并新增「买一盒纯牛奶」（取得纯牛奶 1 份）；第二次决策到店买下一份，买下的那次提交里事务办成，写一条人物可见、
+    等待并新增「买一杯柠檬茶」（取得柠檬茶 1 份）；第二次决策到店买下一份，买下的那次提交里事务办成，写一条人物可见、
     不带决策与动作身份的 errand_completed。第三次决策的 tool 消息里，这次办成作为 events 里一条只写名称的
     errand_completed 记录恰好出现一次，changes 写这条事务从待办层移除；整次请求里办成记录只此一处，链首快照与前一条
     tool 消息都没有它。第三次观察的进度层同样只有这一条办成记录，待办层没有事务。"""
-    engine = home(_engine_factory, {})
-    place(engine, 1, MARKET)
+    engine = single_person_home(_engine_factory, {})
+    place(engine, 1, FOOD_STORE)
     environment = _environment(engine)
-    await _single(environment, "wait", _wait_reply(reasoning="在集市等一会儿。"))
+    await _single(environment, "wait", _wait_reply(reasoning="在店里等一会儿。"))
     wake_by_mail(engine, offset=60)
     advance_next(engine)
-    errand = errand_add("买一盒纯牛奶", MILK, memo="就在这家买")
+    errand = errand_add("买一杯柠檬茶", DRINK_NAME, memo="就在这家买")
 
     def conclude(observation: dict) -> list:
         name = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "activity")
         return [_reply("call-end", "conclude_activity", {**_ended([name], "不等了。"), "errands": [errand]},
-                       "想起要买奶。")]
+                       "想起要买茶。")]
 
-    buy = start_arguments([MILK], ["obtain"], ["到店"], **{"from": [market(engine)]})
+    store = engine.context.semantics.catalog.locations[FOOD_STORE].name
+    buy = start_arguments([DRINK_NAME], ["obtain"], ["到店"], **{"from": [store]})
     await _single(environment, "note", conclude)
     noted, [second], _ = await _single(environment, "buy", [_reply("call-buy", "start_activity", buy, "就在这买。")])
     observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
@@ -831,10 +832,10 @@ async def test_an_errand_completed_in_the_same_second_appears_once_in_the_contin
     assert (completed.visibility, completed.decision_id, completed.action_id) == ("agent", None, None)
     assert completed.occurred_at == engine.context.state.current_time and engine.context.state.agents[1].errands == {}
     record = {"occurred_at": iso_time(completed.occurred_at, engine.context.scenario.timezone), "type": "errand_completed",
-              "errand": "买一盒纯牛奶"}
+              "errand": "买一杯柠檬茶"}
     payload = _tool_payload(third)
     assert [row for row in payload["events"] if row["type"] == "errand_completed"] == [record]
-    assert payload["changes"]["errands"] == {"removed": ["买一盒纯牛奶"]}
+    assert payload["changes"]["errands"] == {"removed": ["买一杯柠檬茶"]}
     assert payload["result"]["status"] == "completed" and "purchases" in payload["result"]["details"]
     marker = '"type":"errand_completed"'
     assert [message["role"] for message in third["messages"] if marker in (message.get("content") or "")] == ["tool"]
@@ -1130,26 +1131,21 @@ def test_resume_and_replay_cannot_override_the_switch(command, tmp_path) -> None
 
 def _parent_run(tmp_path: Path, switch: bool, profile_switch: bool):
     """父运行：清单冻结开关 switch，检查点中人物工作区的配置冻结 profile_switch。"""
-    from tests.integration.test_host_branch_coverage import _agent_workspace
     from worldmock.footprints.checkpoint import snapshot_directory
-    from worldmock.footprints.store import FootprintStore
-    from worldmock.life.run_identity import category_identity
+    from worldmock.run_setup import stage_model_identity
     from worldmock.life.world_setup import load_runtime_scenario
-    from worldmock.run_setup import _model_identity, runtime_code_sha256, stage_model_identity
 
-    semantics, digest = load_runtime_scenario(SCENARIO)
-    manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
-                "model_identity": _model_identity().model_dump(mode="json"),
-                "stage_model_identity": stage_model_identity(switch), "code_sha256": runtime_code_sha256(ROOT),
-                "scenario_sha256": digest, **category_identity(semantics)}
-    state = {"version": 0, "current_time": 1767225600}
-    tmp_path.mkdir(parents=True)
-    parent = FootprintStore.create(tmp_path / "parent", manifest, state)
+    semantics, _ = load_runtime_scenario(SCENARIO)
+    identity = current_run_identity(semantics.scenario, "parent")
+    engine = LifeEngine.create(SCENARIO, tmp_path / "parent", identity, stage_model_identity(switch),
+                               {"same_second_continuation": switch})
+    parent = engine.context.store
+    state = engine.context.state.model_dump(mode="json")
     agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
              "profile": {"id": 1, "same_second_continuation": profile_switch}}
-    workspace = _agent_workspace(tmp_path, agent_document=agent)
+    workspace = write_agent_workspace(tmp_path / "agent", agent_document=agent)
     snapshots = {"agent:1": snapshot_directory(workspace, parent.assets),
-                 "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"})}
+                 "life": parent.assets.put_json({"state_version": state["version"]}, {"kind": "life_checkpoint"})}
     return parent, parent.checkpoint(state, snapshots)
 
 

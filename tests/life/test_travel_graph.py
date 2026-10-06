@@ -15,7 +15,8 @@ from worldmock.life.travel import (
     persisted_trip, plan_trip, planned_travel, record_arrival, require_travel_duration, travel_activity_data,
     update_travel,
 )
-from worldmock.life.models import ActivityStartParams
+from worldmock.life import sessions
+from worldmock.life.models import ActivityStartParams, SessionKind, SessionStatus
 
 ARTIFICIAL = Path(__file__).resolve().parents[1] / "fixtures/environment/catalog"
 
@@ -234,3 +235,29 @@ def test_minimum_length_driving_trip_is_quoted_accepted_and_initialized():
     with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
         start_activity(agent, ActivityStartParams(activity_type="wait", planned_duration_seconds=59),
                        state.current_time, ActivityOrigin("wait", "d", "r"), semantics.body)
+
+
+def test_graph_departure_and_arrival_switch_real_sessions_without_engine():
+    """@brief 真实世界模型的出发与到达转换可直接验证，完整引擎接线留给集成阶段。"""
+
+    catalog, _, state, trip = travel_case()
+    names = {identity: place.display_name for identity, place in catalog.locations.items()}
+    state = sessions.open_stay(state, 1, names)
+    state = sessions.begin_transit(state, 1, "office", names, opened_by_action_id="action-1")
+    transit = sessions.current_session(state, 1)
+    assert transit.kind == SessionKind.TRANSIT and transit.origin_id == "home"
+    assert transit.destination_id == "office" and state.agents[1].location_id == "home"
+    state = sessions.assign(state, transit.session_id, ["travel-1"])
+    done_at = 1000 + trip.duration_seconds
+    completed = state.activities["travel-1"].model_copy(update={"elapsed_seconds": trip.duration_seconds,
+        "last_settled_at": done_at, "status": ActivityStatus.COMPLETED, "ended_at": done_at})
+    activity, agent = update_travel(completed, trip, state.agents[1])
+    record_arrival(activity, agent)
+    agent = agent.model_copy(update={"body_settled_at": done_at})
+    state = state.model_copy(update={"current_time": done_at, "activities": {"travel-1": activity}, "agents": {1: agent}})
+    state, ended = sessions.end_transit(state, 1, names)
+    assert ended == [] and sessions.current_session(state, 1).location_id == "office"
+    assert state.sessions[transit.session_id].status == SessionStatus.ENDED
+    assert state.activities["travel-1"].location_id == "home"
+
+    assert WorldState.model_validate_json(state.model_dump_json()).agents[1].location_id == "office"

@@ -1,6 +1,8 @@
 <a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的退役工作材料与验收正文。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）；「编写地点」、「名称真实、数值合成」（阶段 2）；「正餐、家庭储备和联系人」（阶段 3）；「只读查询、app 目录与内容、生活活动示例」（阶段 4）。
 
 环境目录说明“这个世界有什么”，规则由 WorldMock 包提供。编辑店铺类型、食品、app 绑定与内容，再按地点生成地图、刷新身份并检查整个环境。运行只读已发布快照；修改不改变已经运行的世界。
@@ -191,59 +193,8 @@ app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。人物�
 
 发布校验逐条检查 app 引用与反向绑定。没有绑定内容的 app 仍会在人物工具层列出，但打开动作不可用并返回
 `APP_CONTENT_EMPTY`；不能从别的 app 借内容。修改后刷新 `catalog/manifest.json`，再用 `worldmock validate`
-验证全部场景。工作材料仍由下一节维护，阶段 4 不把它们当成 app 内容。
+验证全部场景。工作主题只在 `catalog/work_topics.json` 登记，app 内容继续由本节目录维护。
 
-
-<a name="resources-工作材料"></a>
-### 工作材料
-
-工作材料要与任务中的 `input_path/input_sha256` 和 `oracle_path/oracle_sha256` 对应。
-材料清单本身不会创建工作合同；还需在场景分配任务、地点、技能和受理人。
-当前世界准入还要求中文、`type: "scenario"`、足量且互不重复的材料，并保留 AMI 元数据。
-
-<a name="resources-编写工作验收答案"></a>
-### 编写工作验收答案
-
-工作输入是人物逐步接触的 UTF-8 正文。隐藏答案由一份 oracle JSON 和它引用的参考摘要文件组成，
-不能把答案放进人物输入。可从现有输入（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-work/inputs/work-0001.txt`）、
-现有答案（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-work/references/work-0001.oracle.json`）和
-现有参考摘要（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-work/references/work-0001.reference.json`）复制。
-
-下面是自定义 `scenario-work/references/custom-work.oracle.json` 的**完整示例**：
-
-```json
-{
-  "type": "scenario",
-  "material_id": "custom-work",
-  "source_reference": "references/custom-work.reference.json",
-  "expected": {
-    "material_id": "custom-work",
-    "decisions": ["首期仅开放关注关系内的图文发布。"],
-    "action_items": ["产品经理更新需求说明中的发布范围。"]
-  },
-  "piece_count": 1
-}
-```
-
-对应 `scenario-work/references/custom-work.reference.json` 的**完整示例**：
-
-```json
-{
-  "type": "scenario",
-  "material_id": "custom-work",
-  "language": "zh",
-  "summary_sentences": ["评审确定首期发布范围，产品经理负责同步需求说明。"]
-}
-```
-
-`expected` 必须是对象；语义验收读取 `decisions`、`action_items` 两个列表，
-并从参考文件加载非空字符串列表 `summary_sentences` 作为摘要。
-`source_reference` 相对 oracle 路径的**第一个目录分量**解析：本例的基准是 `scenario-work/`，不是 `references/`。
-计件合同必须提供非负整数 `piece_count`，实际付款按它计算；时薪和总包合同不用它确定金额。
-输入、oracle 和参考文件都要进入语料清单，任务的 oracle 哈希只填写 oracle 文件本身的 SHA-256。
-这些答案应准确对应输入正文；加载成功不等于模型语义验收一定通过。
-当前工作交付仍固定为会议纪要结构 `MeetingMinutes`，包括摘要、决定和行动项；
-换一个 `required_skill` 名称不会变成任意格式的文案、代码或其他交付任务。
 
 <a name="resources-正餐家庭储备和联系人"></a>
 ### 正餐、家庭储备和联系人

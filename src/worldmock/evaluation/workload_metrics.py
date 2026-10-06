@@ -1,24 +1,6 @@
-"""@brief 行为评估的工作负荷与作息偏离（docs/VERIFICATION.md#errands-workday-度量与下游-行为评估 ）：从冻结足迹事件与一个可选的打包输入重算，只报告。
-
-打包输入（WorkdayInputs）带各人物的工作安排、本人任务的要求地点与开放时刻（含预约）、住处、覆盖后的下班与到家窗口
-（取自结构化卡片）与播报间隔；不解析任何提示文本，参照物是场景班次与作息窗口，不是当日计划。证据只取三类事件：
-出行、工作与睡眠的 activity_progress（结算区间与活动快照；到达写在快照的 data.arrival）、每人每区间的共同身体结算
-（界定观察窗）与带 task_id 和 payment_fen 的已完成动作结果（任务结清时刻）。区间一律半开。
-
-所在地点只由出行重建：首次出行之前在该次出行的出发地（没有出行时在住处），两次出行之间在前一次的终点（到达处；没有
-到达即取消，回到出发地）。班次按观察窗截取，只统计有工作安排的人物与当班日；不当班的日子不产生班次，不进统计。声明
-的例外只有两种场景事实：班次内声明的休息时段（人在哪里都算），与本人已开放且未结清的任务要求地点（不是工作地点）的
-外出——去往那里的路上、在那里的时间，以及从那里直接回工作地点的一程。普通任务从开放时刻（最早的本人通知）算起；
-预约任务（规格 4.5「含预约任务」）从约定开始那一天的当地零点算起，赴约前去往约定地点的路上与提前到达的等候也算，
-不等约定开始；两者都到首次付款结清为止。其余不在工作地点的班次时间是缺勤。
-
-报告说明沿用行为评估的中文惯例。容差 `tolerance_seconds` 等于播报间隔，是没有班次边界唤醒的运行里清醒且有进行中活动的
-人物在班次结束后首个决策机会的滞后上界；同一份评估代码读修订前后两臂的导出，这个定义对两臂都成立；它只写进报告，
-不作用于偏离值。
-"""
+"""@brief 从真实活动区间重算班次工作负荷与作息偏离，不包含任务预约、期限、效率或任务付款。"""
 
 from __future__ import annotations
-from worldmock.life.scenario import runtime_tasks
 
 from worldmock.footprints.timeline_labels import window_days, local_day_bounds
 from worldmock.footprints.intervals import valid_interval, body_settlements
@@ -36,39 +18,27 @@ if TYPE_CHECKING:
 NO_INPUT_NOTE = "未提供工作安排评估输入，workload 与 routine_deviation 为 null"
 MISSING_AGENT_NOTE = "人物 {agent_id} 缺少工作安排评估输入，workload 与 routine_deviation 为 null"
 
-#: workload 每个人物的十个量（规格 6.2 的八项，另把声明例外拆成休息时段与任务外出两项）。
+#: 每个人物的八个实际班次与出勤量。
 WORKLOAD_KEYS = (
-    "shift_seconds", "at_workplace_seconds", "work_activity_seconds", "effective_work_seconds",
-    "idle_at_workplace_seconds", "break_seconds", "task_outing_seconds", "declared_exception_seconds",
+    "shift_seconds", "at_workplace_seconds", "work_activity_seconds",
+    "idle_at_workplace_seconds", "break_seconds", "declared_exception_seconds",
     "absence_seconds", "early_leave_seconds",
 )
 
-#: 从未结清的任务的结清时刻（开放到观察结束之后）。
-_NEVER = 2 ** 62
 
 _Spans = list[tuple[int, int]]
 
 
-@dataclass(frozen=True, slots=True)
-class TaskSite:
-    """@brief 一项本人工作任务的要求地点与开放时刻（epoch 秒）；预约任务另带约定开始，否则为 None。"""
-
-    task_id: str
-    location_id: str
-    open_from: int
-    appointment_at: int | None
 
 
 @dataclass(frozen=True, slots=True)
 class AgentWorkday:
-    """@brief 一个人物的评估输入：工作安排（None 为没有工作安排）、住处、覆盖后的下班与到家窗口（自当地零点起的小时，
-    卡片里为 null 时为 None）与本人的任务。"""
+    """@brief 一个人物的评估输入：工作安排、住处和覆盖后的下班、到家窗口。"""
 
     work_schedule: WorkSchedule | None
     home_location_id: str
     leave_work_window: tuple[float, float] | None
     arrive_home_window: tuple[float, float] | None
-    tasks: tuple[TaskSite, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,33 +64,24 @@ class _Trip:
 
 @dataclass(frozen=True, slots=True)
 class _Timeline:
-    """@brief 一个人物在观察窗内的时间线：观察窗、出行、停留（起、止、地点）、工作区间（起、止、效率）、睡眠区间与
-    各本人任务算作任务外出的半开时段（起、止）。"""
+    """@brief 从真实事件重建观察窗、出行、停留、工作和睡眠区间。"""
 
     start: int
     end: int
     trips: tuple[_Trip, ...]
     stays: tuple[tuple[int, int, str], ...]
-    work: tuple[tuple[int, int, float], ...]
+    work: tuple[tuple[int, int], ...]
     sleep: tuple[tuple[int, int], ...]
-    task_windows: Mapping[str, tuple[int, int]]
 
 
 def workday_inputs(document: LifeScenario, cards: Mapping[int, Mapping[str, Any] | None]) -> WorkdayInputs:
-    """@brief 由场景文档与各人物的结构化卡片打包评估输入：工作安排、住处、按指派人物分开的任务（开放时刻取装配后的
-    通知或预约）与播报间隔取自场景文档；下班与到家窗口只取卡片 time_anchors 的 leave_work、arrive_home（覆盖已写进
-    卡片），没有卡片或该锚点为 null 时为 None。"""
+    """@brief 场景提供班次、住处和播报间隔；卡片 time_anchors 提供下班与到家窗口。"""
 
-    tasks = runtime_tasks(document.tasks, document.messages)
     agents = {}
     for agent in document.agents:
         card = cards.get(agent.agent_id)
-        own = tuple(TaskSite(task.task_id, task.required_location_id, int(task.available_at.timestamp()),
-                             None if task.appointment is None else int(task.appointment.starts_at.timestamp()))
-                    for task in tasks if int(task.assignee_agent_id.removeprefix("agent:")) == agent.agent_id)
         agents[agent.agent_id] = AgentWorkday(agent.work_schedule, agent.home_location_id,
-                                              _card_window(card, "leave_work"), _card_window(card, "arrive_home"),
-                                              own)
+                                              _card_window(card, "leave_work"), _card_window(card, "arrive_home"))
     return WorkdayInputs(agents, document.progress_report_interval_seconds)
 
 
@@ -180,30 +141,20 @@ def _progress(events: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
 
 
 def _timeline(events: list[dict[str, Any]], agent: AgentWorkday, zone: ZoneInfo) -> _Timeline:
-    """@brief 由一个人物的事件重建时间线：观察窗取共同身体结算区间的最早起点与最晚终点；预约任务的外出时段按 zone 的
-    当地日期起算。"""
+    """@brief 按真实身体结算和活动进度重建人物时间线，观察窗取共同身体区间的两端。"""
     bodies = [event["data"] for event in body_settlements(events)
               if valid_interval(event.get("data", {}).get("interval_start"),
                                  event.get("data", {}).get("interval_end"))]
     start = min((data["interval_start"] for data in bodies), default=0)
     end = max((data["interval_end"] for data in bodies), default=0)
     trips = _trips(events)
-    work = tuple((event["data"]["interval_start"], event["data"]["interval_end"],
-                  float(event["data"]["activity_efficiency"])) for event in _progress(events, "work"))
+    work = tuple((event["data"]["interval_start"], event["data"]["interval_end"])
+                 for event in _progress(events, "work") if _snapshot(event).get("status") != "failed")
     sleep = tuple((event["data"]["interval_start"], event["data"]["interval_end"])
                   for event in _progress(events, "sleep"))
-    settled = _settled(events)
-    windows = {task.task_id: (_counts_from(task, zone), settled.get(task.task_id, _NEVER)) for task in agent.tasks}
-    return _Timeline(start, end, trips, _stays(trips, agent.home_location_id, start, end), work, sleep, windows)
+    return _Timeline(start, end, trips, _stays(trips, agent.home_location_id, start, end), work, sleep)
 
 
-def _counts_from(task: TaskSite, zone: ZoneInfo) -> int:
-    """@brief 本人任务开始算作任务外出的时刻：普通任务为开放时刻；预约任务为约定开始那一天的当地零点（赴约前去往约定
-    地点的路上已算，不等约定开始）。"""
-    if task.appointment_at is None:
-        return task.open_from
-    day = datetime.fromtimestamp(task.appointment_at, zone).date()
-    return min(task.open_from, local_day_bounds(day, zone)[0])
 
 
 def _trips(events: list[dict[str, Any]]) -> tuple[_Trip, ...]:
@@ -237,16 +188,6 @@ def _stays(trips: tuple[_Trip, ...], home: str, start: int, end: int) -> tuple[t
     return tuple(stay for stay in stays if stay[1] > stay[0])
 
 
-def _settled(events: list[dict[str, Any]]) -> dict[str, int]:
-    """@brief 各任务首次付款结清的时刻（已完成、内层数据带 task_id 与 payment_fen 的动作结果）。"""
-    settled: dict[str, int] = {}
-    for event in events:
-        data = event.get("data", {})
-        inner = data.get("data")
-        if (event.get("event_type") == "action_result" and data.get("status") == "completed"
-                and isinstance(inner, dict) and "task_id" in inner and "payment_fen" in inner):
-            settled.setdefault(str(inner["task_id"]), event["occurred_at"])
-    return settled
 
 
 def _days(timeline: _Timeline, zone: ZoneInfo) -> list[date]:
@@ -307,34 +248,13 @@ def _at(timeline: _Timeline, location: str) -> _Spans:
     return [(start, end) for start, end, place in timeline.stays if place == location]
 
 
-def _valid(timeline: _Timeline, task: TaskSite) -> _Spans:
-    """@brief 任务算作任务外出的时间（已开放且未结清；预约任务从约定当天的当地零点起）。"""
-    return [timeline.task_windows[task.task_id]]
 
 
-def _outings(timeline: _Timeline, agent: AgentWorkday, workplace: str) -> _Spans:
-    """@brief 任务外出的时间（还没扣休息时段）：要求地点不是工作地点的本人任务开放且未结清时（预约任务从约定当天的
-    当地零点起），在去那里的路上与在那里的时间；以及从那里直接回工作地点的一程——前提是离开前那段停留里任务有算作
-    外出的时间。"""
-    pieces: _Spans = []
-    for task in agent.tasks:
-        if task.location_id == workplace:
-            continue
-        valid = _valid(timeline, task)
-        toward = [(trip.start, trip.end) for trip in timeline.trips if trip.destination == task.location_id]
-        pieces += _intersect(_at(timeline, task.location_id) + toward, valid)
-        for index, trip in enumerate(timeline.trips):
-            arrived = timeline.trips[index - 1].end if index else timeline.start
-            if (trip.origin == task.location_id and trip.destination == workplace
-                    and _intersect([(arrived, trip.start)], valid)):
-                pieces.append((trip.start, trip.end))
-    return _union(pieces)
 
 
 def _workload(timeline: _Timeline, agent: AgentWorkday, zone: ZoneInfo) -> dict[str, Any]:
     """@brief 一个有工作安排的人物在观察窗内各当班日的十个量之和（有效工作秒数求和后保留六位小数）；不当班的日子与
     完全落在观察窗外的班次不计。"""
-    outings = _outings(timeline, agent, agent.work_schedule.workplace_location_id)
     totals: dict[str, Any] = dict.fromkeys(WORKLOAD_KEYS, 0)
     for day in _days(timeline, zone):
         shift = shift_on(agent.work_schedule, day)
@@ -344,42 +264,31 @@ def _workload(timeline: _Timeline, agent: AgentWorkday, zone: ZoneInfo) -> dict[
         span = (max(begin, timeline.start), min(finish, timeline.end))
         if span[1] <= span[0]:
             continue
-        row = _duty_day(timeline, agent, outings, span, list(break_spans(shift, day, zone)))
+        row = _duty_day(timeline, agent, span, list(break_spans(shift, day, zone)))
         for key in WORKLOAD_KEYS:
             totals[key] += row[key]
-    totals["effective_work_seconds"] = round(totals["effective_work_seconds"], 6)
     return totals
 
 
-def _duty_day(timeline: _Timeline, agent: AgentWorkday, outings: _Spans, span: tuple[int, int],
+def _duty_day(timeline: _Timeline, agent: AgentWorkday, span: tuple[int, int],
               breaks: _Spans) -> dict[str, Any]:
-    """@brief 一个当班日（已截到观察窗的班次）的十个量：班次时间分成在工作地点、休息时段（不在工作地点的部分）、任务外出
-    与缺勤四份；工作活动与有效工时按班次内的进度区间计；在岗空闲是在工作地点而没有工作活动的时间。"""
+    """@brief 班次按停留、休息与缺勤拆分，工作只计班次内真实工作活动经过秒数。"""
     shift = [span]
     rests = _intersect(breaks, shift)
     present = _intersect(_at(timeline, agent.work_schedule.workplace_location_id), shift)
-    working = _intersect([(start, end) for start, end, _ in timeline.work], shift)
-    away = _subtract(_intersect(outings, shift), rests)
-    absent = _subtract(_subtract(_subtract(shift, rests), present), away)
-    effective = sum(_length(_intersect([(start, end)], shift)) * efficiency
-                    for start, end, efficiency in timeline.work)
+    working = _intersect(list(timeline.work), shift)
+    absent = _subtract(_subtract(shift, rests), present)
     return {"shift_seconds": _length(shift), "at_workplace_seconds": _length(present),
-            "work_activity_seconds": _length(working), "effective_work_seconds": effective,
+            "work_activity_seconds": _length(working),
             "idle_at_workplace_seconds": _length(_subtract(present, working)), "break_seconds": _length(rests),
-            "task_outing_seconds": _length(away), "declared_exception_seconds": _length(rests) + _length(away),
+            "declared_exception_seconds": _length(rests),
             "absence_seconds": _length(absent), "early_leave_seconds": _early_leave(timeline, agent, span, rests)}
 
 
-def _open_at(timeline: _Timeline, task: TaskSite, instant: int) -> bool:
-    """@brief 某一时刻任务算作任务外出（已开放且未结清；预约任务从约定当天的当地零点起）。"""
-    start, end = timeline.task_windows[task.task_id]
-    return start <= instant < end
 
 
 def _early_leave(timeline: _Timeline, agent: AgentWorkday, span: tuple[int, int], rests: _Spans) -> int:
-    """@brief 早退秒数：班次内最后一次从工作地点出发，到班次结束前没有回到工作地点，且出发时刻不在休息时段内、目的地
-    不是出发时刻算作任务外出的本人任务要求地点（已开放且未结清；预约任务从约定当天的当地零点起）时，为出发到班次结束
-    的时长；否则为 0（休息时段内离开后的时间记作缺勤）。"""
+    """@brief 班内最后一次离开工作地点后未在下班前回来且出发不在休息时段时，计算早退秒数。"""
     workplace = agent.work_schedule.workplace_location_id
     departures = [trip for trip in timeline.trips if trip.origin == workplace and span[0] <= trip.start < span[1]]
     if not departures:
@@ -388,9 +297,7 @@ def _early_leave(timeline: _Timeline, agent: AgentWorkday, span: tuple[int, int]
     back = any(trip.end_location == workplace and trip.start >= last.start and trip.end < span[1]
                for trip in timeline.trips)
     rest = any(start <= last.start < end for start, end in rests)
-    site = last.destination != workplace and any(
-        task.location_id == last.destination and _open_at(timeline, task, last.start) for task in agent.tasks)
-    return 0 if back or rest or site else span[1] - last.start
+    return 0 if back or rest else span[1] - last.start
 
 
 def _moment(epoch: int | None, zone: ZoneInfo) -> str | None:

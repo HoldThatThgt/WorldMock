@@ -15,7 +15,6 @@ from worldmock.life.body import (
     ActivityFactors,
     apply_food,
     body_resource_metas,
-    interpolate,
     last_flows,
     minimum_energy_cost,
     settle_body,
@@ -118,7 +117,7 @@ def test_sleep_emits_no_entertainment_flow(body_config) -> None:
 def test_relief_activity_drains_entertainment_need(body_config) -> None:
     """实际接触按人物偏好系数降低娱乐需要，是一笔 drain。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.8)
-    settle_body(body, ActivityKind.WATCH, 3600, body_config, ActivityFactors(1, 0.21))
+    settle_body(body, ActivityKind.USE_APP, 3600, body_config, ActivityFactors(1, 0.21))
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
     assert len(flows) == 1
@@ -166,7 +165,7 @@ def test_sleep_recovery_beyond_deficit_clamps_at_zero(body_config) -> None:
 def test_entertainment_relief_beyond_need_drains_only_the_need(body_config) -> None:
     """缓解量超过现有娱乐需要时 drain 金额截断到需要本身，期末为零。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.05)
-    result = settle_body(body, ActivityKind.WATCH, 3600, body_config, ActivityFactors(1, 0.21))
+    result = settle_body(body, ActivityKind.USE_APP, 3600, body_config, ActivityFactors(1, 0.21))
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
     assert result.after.entertainment_need == 0
@@ -189,7 +188,7 @@ def test_entertainment_accrual_beyond_one_clamps_at_one(body_config) -> None:
 @pytest.mark.parametrize("kind,relief", [
     (ActivityKind.WORK, 0),
     (ActivityKind.SLEEP, 0),
-    (ActivityKind.WATCH, 0.21),
+    (ActivityKind.USE_APP, 0.21),
     (ActivityKind.WAIT, 0),
     (ActivityKind.CONSUME, 0),
 ])
@@ -255,7 +254,7 @@ def test_full_history_replay_matches_incremental_settlement(body_config) -> None
     steps = [
         (ActivityKind.WAIT, 3600, None),
         (ActivityKind.SLEEP, 3600, ActivityFactors(0.95)),
-        (ActivityKind.WATCH, 3600, ActivityFactors(1, 0.21)),
+        (ActivityKind.USE_APP, 3600, ActivityFactors(1, 0.21)),
     ]
     for kind, seconds, factors in steps:
         states.append(settle_body(states[-1], kind, seconds, body_config, factors).after)

@@ -167,7 +167,7 @@ def test_progress_schema_registers_app_push_and_both_errand_records() -> None:
     记录即不合 Schema。"""
     records = LAYER_SCHEMAS["进度层"]["properties"]["events"]["items"]["oneOf"]
     assert sorted(item["properties"]["type"]["const"] for item in records) == sorted((
-        "tool_call", "message_arrival", "delivery", "task_deadline", "plan_reminder", "errand_reminder",
+        "tool_call", "message_arrival", "delivery", "work_completed", "plan_reminder", "errand_reminder",
         "errand_completed", "condensed", "app_push"))
     layer = {"layer": "进度层", "session_started_at": "2026-01-05T10:00:00+08:00", "rejected_today": []}
     record = {"occurred_at": "2026-01-05T12:40:00+08:00", "errand": "买牛奶"}
@@ -193,7 +193,7 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     （原因与下一步）、暂停等待后（待办层）、邮件到达、路上（路程与进行中的出行）、到达待收尾（刚结束的活动与到达结果）与收尾后。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _stage(engine, "market", 700)
+    _stage(engine, "noodle-1", 700)
     submit_round(engine, {1: ("revise_day_plan", ReviseDayPlanRequest(goals=[
         PlanGoalInput(intent_kind="用餐", goal="中午好好吃一顿", remind_time="12:00",
                       around_time="12:30")]))}, "layers-plan")
@@ -329,52 +329,50 @@ def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
     """正在工作时：截止时刻与有效工时的剩余要求只在任务目标的 contract 出现一次；工作活动目标的状态不写「还差」，
     待办层与进度层不重复合同。"""
     engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
+    topic = engine.context.scenario.work_topics[0]
     staged = engine.context.state.model_copy(deep=True)
-    moment = int(task.available_at.timestamp())
+    moment = staged.current_time
     staged.current_time = moment
     staged.pending_events = [event for event in staged.pending_events if event.due_at > moment]
     agent = staged.agents[1]
-    staged.agents[1] = agent.model_copy(update={"location_id": task.required_location_id,
-        "visible_task_ids": {*agent.visible_task_ids, task.task_id}, "body_settled_at": moment}, deep=True)
+    staged.agents[1] = agent.model_copy(update={"location_id": "office", "body_settled_at": moment}, deep=True)
     staged.version += 1
     engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=moment, visibility="system", data={"kind": "test_work_position"})])
     engine.context.state = staged
     stage_day_plan(engine)
-    task = f"工作：{engine.context.scenario.tasks[0].title}"
+    task = f"工作：{topic.topic}"
     submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "contract-work")
     wake_by_mail(engine, offset=600)
     advance_next(engine)
     observed = _checked(engine, "contract-seen")
     contract = tool_targets(observed)[task]["contract"]
     rendered = _rendered(observed)
-    assert rendered.count(contract["deadline"]) == 1 and rendered.count(contract["remaining"]) == 1
+    assert set(contract) == {"topic", "target", "done", "remaining"}
     (working,) = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "activity"]
-    assert "还差" not in working["state"] and "有效" in working["state"]
+    assert "还差" in working["state"] and "有效" not in working["state"]
     for key in ("todo_layer", "progress_layer", "environment_layer"):
         text = json.dumps(observed[key], ensure_ascii=False)
-        assert contract["deadline"] not in text and contract["remaining"] not in text
+        assert "contract" not in text and "deadline" not in text
 
 
 def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_factory) -> None:
     """工作暂停后：暂停的工作在待办层只有名称、暂停时刻、地点、客观进度与两个工具（通过 Schema），不写截止与工时要求；
     截止时刻与有效工时的剩余要求仍只在任务目标的 contract 出现一次。"""
     engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
+    topic = engine.context.scenario.work_topics[0]
     staged = engine.context.state.model_copy(deep=True)
-    moment = int(task.available_at.timestamp())
+    moment = staged.current_time
     staged.current_time = moment
     staged.pending_events = [event for event in staged.pending_events if event.due_at > moment]
     agent = staged.agents[1]
-    staged.agents[1] = agent.model_copy(update={"location_id": task.required_location_id,
-        "visible_task_ids": {*agent.visible_task_ids, task.task_id}, "body_settled_at": moment}, deep=True)
+    staged.agents[1] = agent.model_copy(update={"location_id": "office", "body_settled_at": moment}, deep=True)
     staged.version += 1
     engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=moment, visibility="system", data={"kind": "test_work_position"})])
     engine.context.state = staged
     stage_day_plan(engine)
-    task = f"工作：{engine.context.scenario.tasks[0].title}"
+    task = f"工作：{topic.topic}"
     _, results = submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "paused-contract-work")
     wake_by_mail(engine, offset=600)
     advance_next(engine)
@@ -385,9 +383,9 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
     assert item["name"] == name and name not in tool_targets(observed)
     contract = tool_targets(observed)[task]["contract"]
     rendered = _rendered(observed)
-    assert rendered.count(contract["deadline"]) == 1 and rendered.count(contract["remaining"]) == 1
+    assert set(contract) == {"topic", "target", "done", "remaining"}
     todo = json.dumps(observed["todo_layer"], ensure_ascii=False)
-    assert not any(text in todo for text in (contract["deadline"], contract["remaining"], "截止", "工时"))
+    assert not any(text in todo for text in ("contract", "deadline", "截止"))
 
 
 

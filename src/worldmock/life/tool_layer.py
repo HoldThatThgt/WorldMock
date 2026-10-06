@@ -38,14 +38,14 @@ from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.sessions import current_session
 from worldmock.life.travel import planned_travel
-from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_refusal,
+from worldmock.life.work import (contract_view, validate_work_start, work_start_refusal,
                                  work_start_seconds, work_totals)
 
 if TYPE_CHECKING:
     from worldmock.life.rules import LifeRuleEngine
 
 #: 私有绑定类别 → 工具层目标类别（联系人与人物独立，邮件为 message，工作任务为 task）。
-BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "holding",
+BINDING_KINDS = {"work_topic": "task", "location": "location", "supply": "product", "holding": "holding",
                  "app": "app", "lifestyle": "lifestyle",
                  "person": "person", "contact": "contact", "mail": "message", "self": "self"}
 @dataclass(frozen=True, slots=True)
@@ -77,7 +77,6 @@ class Candidate:
     binding: dict | None = None
     action: dict | None = None
     activity_id: str | None = None
-    task_id: str | None = None
     recipient_id: str | None = None
 
 
@@ -105,9 +104,6 @@ def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
     if candidate.tool in CONTROL_TOOLS:
         activity = context.state.activities[candidate.activity_id]
         return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
-    if candidate.tool == "submit_work":
-        return (admission.hands_free_refusal(_admission_context(context), "submit work")
-                or submission_refusal(context.state, context.agent_id, context.rules.tasks[candidate.task_id]))
     return admission.hands_free_refusal(_admission_context(context), "send a message")
 
 
@@ -129,14 +125,17 @@ def _admission_context(context: LayerContext) -> admission.Context:
     """@brief 准入判定使用与受理相同的世界、可读名称和登记图。"""
     return admission.Context(state=context.state, agent_id=context.agent_id,
                              place_names={item.location_id: item.display_name for item in context.scenario.locations},
-                             activity_names=context.names["activities"], tasks=context.rules.tasks,
+                             activity_names=context.names["activities"], work_topics=context.rules.work_topics,
                              graph=context.semantics.catalog.graph)
 
 
 def _world_facts(context: LayerContext) -> admission.WorldFacts:
     """@brief 准入判定用的冻结目录（与受理取同一规则目录）。"""
     rules = context.rules
-    return admission.WorldFacts(tasks=rules.tasks, items=context.semantics.catalog.foods)
+    config = next(item for item in context.scenario.agents if item.agent_id == context.agent_id)
+    workplace = config.work_schedule.workplace_location_id if config.work_schedule is not None else None
+    return admission.WorldFacts(work_topics=rules.work_topics, items=context.semantics.catalog.foods,
+                                workplace_location_id=workplace)
 
 
 def _start_refusal(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
@@ -179,14 +178,13 @@ def _route(context: LayerContext, destination_id: str, mode: str):
 
 def _work_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
     """@brief 开工：距截止与剩余合同都不少于 60 秒，且在合同开放区间内。"""
-    task = context.rules.tasks[binding["object_id"]]
-    worked, _ = work_totals(context.state, context.agent_id, task.task_id)
-    refusal = work_start_refusal(task, worked, context.state.current_time)
+    topic = context.rules.work_topic(binding["object_id"], context.agent_id)
+    worked = work_totals(context.state, context.agent_id, topic.topic_id)
+    refusal = work_start_refusal(topic, worked)
     if refusal is not None:
         return refusal
-    now = context.state.current_time
-    validate_work_start(context.state.agents[context.agent_id], task, now,
-                        admission.present_location(context.state, context.agent_id))
+    config = next(item for item in context.scenario.agents if item.agent_id == context.agent_id)
+    validate_work_start(config, topic, admission.present_location(context.state, context.agent_id))
     return None
 
 
@@ -214,7 +212,7 @@ def _lifestyle_check(context: LayerContext, binding: dict, action: dict) -> Refu
         return refusal_for_code("LIFESTYLE_ACTIVITY_NOT_FOUND")
     present = admission.present_location(context.state, context.agent_id)
     location = context.rules.locations.get(present) if present is not None else None
-    if not location_kinds_allow(frozenset(location.location_kinds) if location is not None else frozenset(), needed):
+    if not location_kinds_allow(frozenset({location.kind}) if location is not None else frozenset(), needed):
         return refusal_for_code("ELIGIBILITY_LOCATION_KIND_MISMATCH")
     return None
 
@@ -245,8 +243,9 @@ def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refus
     agent = context.state.agents[context.agent_id]
     item = PurchaseItem(store_id=binding["store_id"], food_id=binding["food_id"], quantity=1,
                         recipient_id=f"agent:{context.agent_id}")
+    app_id = binding.get("app_id") if action["fulfillment"] == "delivery" else None
     request = PurchaseOrderRequest(items=(item,), fulfillment=action["fulfillment"],
-                                   destination_id=agent.location_id, app_id=binding.get("app_id"))
+                                   destination_id=agent.location_id, app_id=app_id)
     validate_purchase_order(context.state, context.semantics, context.agent_id, request)
     return None
 
@@ -328,14 +327,10 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
     kind = BINDING_KINDS[row["kind"]]
     target: dict[str, Any] = {"name": row["object"], "kind": kind, "phase": None, "state": _state(context, row)}
     if kind == "task":
-        task = context.rules.tasks[row["object_id"]]
-        target["contract"] = contract_view(task, work_totals(context.state, context.agent_id, task.task_id),
-                                           context.state.current_time, (context.scenario.timezone,
-                                           context.rules.locations[task.required_location_id].name))
+        topic = context.rules.work_topic(row["object_id"], context.agent_id)
+        target["contract"] = contract_view(topic, work_totals(context.state, context.agent_id, topic.topic_id))
     target["actions"] = [_verb_action(context, row, action) for action in row["actions"]]
-    if kind == "task":
-        target["tools"] = [_tool_action(context, Candidate("submit_work", task_id=row["object_id"]))]
-    elif kind in {"person", "contact"}:
+    if kind in {"person", "contact"}:
         target["tools"] = [_tool_action(context, Candidate("send_message", recipient_id=row["object_id"]))]
     else:
         target["tools"] = []
@@ -404,9 +399,9 @@ def _facts_seconds(context: LayerContext, row: dict, action: dict) -> int | None
     """@brief 有时长动作的计划秒数：工作取距截止与剩余合同，生活活动取目录时长，交谈与通话取场景派生，其余同受理。"""
     canonical = action["canonical_action"]
     if canonical == "work":
-        task = context.rules.tasks[row["object_id"]]
-        worked, _ = work_totals(context.state, context.agent_id, task.task_id)
-        return work_start_seconds(task, worked, context.state.current_time)
+        topic = context.rules.work_topic(row["object_id"], context.agent_id)
+        worked = work_totals(context.state, context.agent_id, topic.topic_id)
+        return work_start_seconds(topic, worked)
     if canonical == "do":
         item = next((entry for entry in context.lifestyle_items if entry.activity_id == row["object_id"]), None)
         return derived_activity_duration(ActivityKind.LIFESTYLE, context.state.agents[context.agent_id], item,
@@ -473,11 +468,22 @@ def _activity_target(context: LayerContext, activity) -> dict:
     """@brief 活动目标：名称取本轮可见活动名，阶段为进行中或刚结束，状态为客观进度（刚结束另写终局），三个控制工具。"""
     pending = activity_control.is_pending_conclusion(activity)
     progress = activity_control.objective_progress(activity)
+    last_report = None
+    if activity.kind == ActivityKind.WORK:
+        topic = context.rules.work_topic(activity.target_id, context.agent_id)
+        contract = contract_view(topic, work_totals(context.state, context.agent_id, topic.topic_id))
+        progress = f"已做{contract['done']}，还差{contract['remaining']}"
+        reports = [item for item in context.state.activities.values() if item.agent_id == context.agent_id
+                   and item.kind == ActivityKind.WORK and item.target_id == topic.topic_id and item.progress_note]
+        latest = max(reports, key=lambda item: (item.note_updated_at or item.started_at, item.activity_id),
+                     default=None)
+        last_report = latest.progress_note if latest is not None else None
     state = f"{activity_control.ending_phrase(activity)}，{progress}" if pending else progress
     tools = [_tool_action(context, Candidate(tool, activity_id=activity.activity_id)) for tool in CONTROL_TOOLS]
     return {"name": context.names["activities"][activity.activity_id], "kind": "activity",
             "phase": activity_control.PHASE_PENDING if pending else activity_control.PHASE_ACTIVE,
-            "state": state, "actions": [], "tools": tools}
+            "state": state, "actions": [], "tools": tools,
+            **({"last_report": last_report} if last_report is not None else {})}
 
 
 def with_bindings(context: LayerContext, bindings: list[dict]) -> LayerContext:

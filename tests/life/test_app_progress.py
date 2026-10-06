@@ -60,7 +60,7 @@ def test_app_activity_keeps_app_title_and_records_current_content_title():
     catalog = semantics.catalog
     titles = TitleIndex(lifestyles={}, apps={key: app.name for key, app in catalog.apps.items()},
                         contents={key: item.title for key, item in catalog.contents.items()},
-                        tasks={}, contacts={}, people={})
+                        work_topics={}, contacts={}, people={})
     first = state.activities[activity_id]
     snapshot = activity_snapshot(first, titles, ())
     assert activity_title(first, titles) == snapshot["title"] == "抖音"

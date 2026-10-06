@@ -6,16 +6,12 @@ from pathlib import Path
 import logging
 
 from worldmock.errors import BusinessRuleError, PreconditionError
-from worldmock.catalog.graph import Graph
-from worldmock.catalog.models import App, Content
+from worldmock.catalog.models import App, Catalog, Content, WorkTopic
 from worldmock.life.content import load_content_titles
 from worldmock.life.activities import require_location_kinds
 from worldmock.life.retrieval import item_kinds
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState
-from worldmock.life.scenario import (
-    LifeScenario,
-    RuntimeWorkTask,
-)
+from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.travel import plan_trip, travel_activity_data
 from worldmock.life.work import validate_work_start
 
@@ -23,20 +19,20 @@ from worldmock.life.work import validate_work_start
 class LifeRuleEngine:
     """@brief 使用有类型 Python 函数组装状态转换，不实现通用表达式语言。"""
 
-    def __init__(self, scenario: LifeScenario, corpus_root: Path, graph: Graph):
+    def __init__(self, scenario: RuntimeScenario, catalog: Catalog, corpus_root: Path):
         """@brief 绑定已经全量校验的场景和内容目录。"""
         self.scenario = scenario
-        self.graph = graph
+        self.graph = catalog.graph
         self.corpus_root = Path(corpus_root).resolve()
         self.locations = {item.location_id: item for item in scenario.locations}
         self.activity_location_kinds = item_kinds(self.corpus_root)
-        self.tasks = {item.task_id: item for item in scenario.tasks}
         self.messages = {item.message_id: item for item in scenario.messages}
-        self.contents = {item.content_id: item for item in scenario.contents}
-        self.apps = {item.app_id: item for item in scenario.apps}
-        self.contents_by_app = {app_id: tuple(sorted(item.content_id for item in scenario.contents
-                                                    if app_id in item.app_ids)) for app_id in self.apps}
-        self.content_titles = load_content_titles(scenario.contents)
+        self.foods = catalog.foods
+        self.contents = catalog.contents
+        self.apps = catalog.apps
+        self.work_topics = catalog.work_topics
+        self.contents_by_app = catalog.contents_by_app
+        self.content_titles = load_content_titles(tuple(catalog.contents.values()))
 
     def validate_start(self, agent: AgentState, request: ActivityStartParams, now: int,
                        present: str | None) -> dict:
@@ -48,7 +44,7 @@ class LifeRuleEngine:
         kind = request.activity_type
         self.validate_activity_location(agent, kind, request.target_id, present)
         if kind == ActivityKind.WORK:
-            return self._validate_work(agent, request, now, present)
+            return self._validate_work(agent, request, present)
         if kind == ActivityKind.USE_APP:
             app = self.app(request.target_id)
             if not self.contents_by_app[app.app_id]:
@@ -64,23 +60,17 @@ class LifeRuleEngine:
                                                   request.destination_id, request.travel_mode))
         return {}
 
-    def _validate_work(self, agent: AgentState, request: ActivityStartParams, now: int, present: str | None) -> dict:
-        """@brief 开工校验：可见、有效期内、技能达标且人在指定地点；位置不符时建议前往该地（只写地点名）。"""
-        task = self.task(request.target_id)
+    def _validate_work(self, agent: AgentState, request: ActivityStartParams, present: str | None) -> dict:
+        """@brief 主题必须分配给本人且人在工作地点；不以时刻、技能或叙述决定资格。"""
+        topic = self.work_topic(request.target_id, agent.agent_id)
+        config = next(item for item in self.scenario.agents if item.agent_id == agent.agent_id)
         try:
-            validate_work_start(agent, task, now, present)
+            validate_work_start(config, topic, present)
         except PreconditionError as exc:
             if "required_location_id" in exc.unmet:
-                loc = self.locations.get(task.required_location_id)
-                exc.suggested = {"travel_to": loc.name if loc else "指定地点"}
+                exc.suggested = {"travel_to": self.locations[config.work_schedule.workplace_location_id].name}
             raise
-        if request.planned_duration_seconds > task.maximum_duration_seconds:
-            raise BusinessRuleError("WORK_DURATION_EXCEEDS_CONTRACT")
-        if now + request.planned_duration_seconds > int(task.due_at.timestamp()):
-            raise BusinessRuleError("WORK_WOULD_MISS_DEADLINE")
-        return {"task_id": task.task_id, "required_skill": task.required_skill,
-                "skill_level": agent.skill_levels[task.required_skill],
-                "work_notes_multiplier": self.scenario.body.work_notes_multiplier}
+        return {"topic_id": topic.topic_id}
 
     def validate_activity_location(self, agent: AgentState, kind: ActivityKind, target_id: str | None,
                                    present: str | None) -> None:
@@ -91,15 +81,21 @@ class LifeRuleEngine:
             logging.getLogger(__name__).error("Lifestyle activity is not in the frozen corpus: %s", target_id)
             raise BusinessRuleError("LIFESTYLE_ACTIVITY_NOT_FOUND")
         location = self.locations.get(present) if present is not None else None
-        place_kinds = frozenset(location.location_kinds) if location is not None else frozenset()
+        place_kinds = frozenset({location.kind.value}) if location is not None else frozenset()
         require_location_kinds(place_kinds, self.activity_location_kinds[target_id])
 
 
-    def task(self, task_id: str | None) -> RuntimeWorkTask:
-        """@brief 取得一个冻结工作任务，否则业务拒绝。"""
-        if task_id not in self.tasks:
-            raise BusinessRuleError("WORK_TASK_NOT_FOUND")
-        return self.tasks[task_id]
+    def work_topic(self, topic_id: str | None, agent_id: int | None = None) -> WorkTopic:
+        """@brief 取得真实登记且在指定人物分配内的主题，未知或未分配明确拒绝。"""
+        if topic_id not in self.work_topics:
+            logging.error("Work topic is not registered: %s", topic_id)
+            raise BusinessRuleError("WORK_TOPIC_NOT_FOUND")
+        if agent_id is not None:
+            config = next(item for item in self.scenario.agents if item.agent_id == agent_id)
+            if topic_id not in config.work_topic_ids:
+                logging.error("Work topic is not assigned to this agent: %s", topic_id)
+                raise BusinessRuleError("WORK_TOPIC_NOT_FOUND")
+        return self.work_topics[topic_id]
 
     def content(self, content_id: str) -> Content:
         """@brief 取得一个已经登记的内容。"""

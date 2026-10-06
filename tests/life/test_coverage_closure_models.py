@@ -30,11 +30,10 @@ _IDENTITY = {
 }
 _ENDPOINT_MISMATCH = "Model identity endpoint does not match the configured DeepSeek model"
 
-#: 字段说明登记的六种必须携带业务目标的活动类型。
+#: 字段说明登记的四种必须携带业务目标的活动类型。
 _TARGETED_KINDS = (
     ActivityKind.WORK,
-    ActivityKind.WATCH,
-    ActivityKind.PLAY_GAME,
+    ActivityKind.USE_APP,
     ActivityKind.READ_MAIL,
     ActivityKind.LIFESTYLE,
 )

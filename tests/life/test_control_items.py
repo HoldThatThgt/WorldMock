@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from tests.life.conftest import (activity_name, advance_next, conclude_request, pause_request, report_request,
                                  stage_day_plan, start_activity, wake_by_mail)
+from tests.life.routing_fixtures import with_colleague
 from tests.life.test_memory_layer import _act, _memo, _view, _walk
 from worldmock.errors import IntegrityError
 from worldmock.life import memory_layer, progress_layer
@@ -216,7 +217,7 @@ def _readers(engine) -> dict:
 
 def test_readers_project_current_items_events_consistently(engine_factory) -> None:
     """@brief 真实暂停、恢复、结束和出门后，各读者从逐项事件提取自述、记忆与看法。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=with_colleague)
     stage_day_plan(engine)
     friend = engine.context.scenario.agents[0].contacts[0].salutation
     _, waited = _act(engine, "g-wait", "start_activity", start_activity("等待", "自己"))

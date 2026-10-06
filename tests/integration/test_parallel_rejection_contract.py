@@ -26,10 +26,9 @@ _MILK = "便利店出售的牛奶"
 #: 本轮私有绑定：游戏的游玩与观看、内容的接着看、供给的远程下单都在只含等待与睡觉的菜单之外。
 _BINDINGS = [binding for _, binding in (
     _visible_object("自己", "self", "self", _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep")),
-    _visible_object("游戏：象棋", "game", "game-1", _offer("interact", "游玩", "play")),
-    _visible_object("游戏：象棋直播", "game", "stream-1", _offer("interact", "观看", "watch")),
-    _visible_object("内容：纪录片", "content", "content-1", _offer("interact", "接着看", "watch")),
-    _visible_object(_MILK, "supply", "supply-1", _offer("obtain", "远程下单", "purchase", fulfillment="delivery")),
+    _visible_object("应用：抖音", "app", "douyin", _offer("interact", "打开", "use_app")),
+    _visible_object("应用：哔哩哔哩", "app", "bilibili", _offer("interact", "打开", "use_app")),
+    _visible_object(_MILK, "supply", "milk", _offer("obtain", "远程下单", "purchase", fulfillment="delivery"), store_id="store-1"),
 )]
 _MENU = InteractionMenu(allowed_actions=("sleep", "wait"))
 _DENIED = "interaction menu denies start_activity"
@@ -45,8 +44,7 @@ def _menu_error(targets: list[str], actions: list[str], ways: list[str]) -> str:
 
 
 @pytest.mark.parametrize("target,verb,way", [
-    ("游戏：象棋", "interact", "游玩"), ("游戏：象棋直播", "interact", "观看"),
-    ("内容：纪录片", "interact", "接着看"), (_MILK, "obtain", "远程下单"),
+    ("应用：抖音", "interact", "打开"), ("应用：哔哩哔哩", "interact", "打开"), (_MILK, "obtain", "远程下单"),
 ])
 def test_location_menu_denies_actions_outside_its_closed_set(target: str, verb: str, way: str) -> None:
     """@brief 人物能点名对象，仍不能绕过地点已冻结的动作允许集合：方式经私有绑定映射为内部动作后判定。"""
@@ -62,7 +60,7 @@ def test_protected_self_actions_remain_usable(verb: str, way: str) -> None:
 @pytest.mark.parametrize("wait_first", [True, False])
 def test_menu_denies_the_whole_group_when_one_item_is_outside_it(wait_first: bool) -> None:
     """@brief 一个请求整组算一个生活动作：两项中有一项在菜单外，整组被菜单拒绝，与组内先后无关。"""
-    pair = [("自己", "interact", "等待"), ("游戏：象棋", "interact", "游玩")]
+    pair = [("自己", "interact", "等待"), ("应用：抖音", "interact", "打开")]
     targets, actions, ways = (list(column) for column in zip(*(pair if wait_first else pair[::-1])))
     assert _menu_error(targets, actions, ways) == _DENIED
 
@@ -89,9 +87,9 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     engine.begin_decision_round([first])
     observed = await environment.observe(first)
     office = next(row for row in observed["interaction_bindings"] if row["object_id"] == "office")
-    game = next(row for row in observed["interaction_bindings"]
-                if row["kind"] == "game" and any(action["label"] == "游玩" for action in row["actions"]))
-    pair = [(office["object"], "travel", "驾车"), (game["object"], "interact", "游玩")]
+    app = next(row for row in observed["interaction_bindings"]
+                if row["kind"] == "app" and any(action["label"] == "打开" for action in row["actions"]))
+    pair = [(office["object"], "travel", "驾车"), (app["object"], "interact", "打开")]
     targets, actions, ways = (list(column) for column in zip(*(pair if drive_first else pair[::-1])))
     before = _world(engine)
     await _decide(environment, first, observed, "start_activity",
@@ -102,9 +100,9 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     assert _world(engine) == before
     reason, next_step = result.data["reason"], result.data["next_step"]
     assert next_step == "Choose only one of the conflicting activities."
-    assert all(row["object"].split("：", 1)[1] in reason for row in (office, game))
+    assert all(row["object"].split("：", 1)[1] in reason for row in (office, app))
     for text in (reason, next_step):
-        assert office["object_id"] not in text and game["object_id"] not in text and "agent:" not in text
+        assert office["object_id"] not in text and app["object_id"] not in text and "agent:" not in text
     second = context(engine, "conflict-explained")
     engine.begin_decision_round([second])
     shown = await environment.observe(second)

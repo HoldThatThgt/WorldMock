@@ -1,6 +1,8 @@
 <a name="spec-as2-integration-特性规格agentsociety-2-集成与改动"></a>
 # 特性规格：AgentSociety 2 集成与改动
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的app、推送与工作主题职责。
+
 > 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态`）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 5、17 行；AS2 锁定提交不改），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 14 行补登三个 LifeAgent 覆写点（AS2 锁定提交不改），修订部分已实现并通过离线验收；2026-10-02 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AS1–AS14）：补登就寝反思 `_run_reflection`、`LifeAgent.step` 与工具分发日志、环境 actor 与代理子类（AS2 锁定提交不改），同步控制请求 `errands` 与 `query_world` 六键；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）
 > 日期：2026-10-05
 > 实施基线：WorldMock `9b7fbc8`；AS2 分支 `vendor/agentsociety2` 的 `worldmock-life`（锁定提交 `8768e14`，基线提交 `670c94ff`）；人物 Prompt 修订的代码基线 `3ea5b06`
@@ -167,7 +169,7 @@ result = env.submit_action(call, context=context, action_id=action_id)
 1. 保存失败、必要观察失败、人物执行失败向上报告并停止运行
 2. 删除合成结束结果和只保留 `finish` 的路径
 3. 生活决策在世界请求登记后由 LifeAgent 覆写的 `_run_react_turn` 结束本次决策，其后不向模型追加 tool 消息，AS2 锁定提交不改；回合预算耗尽仍无登记的世界请求即失败。只读问答保留 `finish`，`finish` 不得与其他工具同批返回
-4. 记忆校验失败、必要归纳失败与保存失败向上传播；就寝反思输出不合严格工具合同属于协议违约，不是业务拒绝：先按与零点计划同形的有界校验重试——在原始消息之后加一条 user 消息，带上一次不合法的工具调用、英文校验错误与重新提交的指令，总是基于原始消息、不逐次累积；首次之外至多三次（连同首次至多四次模型调用，另设独立常量，与零点计划的次数同值），与传输重试分开计数；工作验收的协议纠正次数不作先例。每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证并各自计入模型用量，校验错误随下一次请求的附回消息留证，WorldMock 不覆写 AS2 的记忆调度。耗尽即运行故障、本轮中止，最后一次错误写进故障原因，不写入任何洞见、不登记 `memory_updated`、不降级为空反思
+4. 记忆校验失败、必要归纳失败与保存失败向上传播；就寝反思输出不合严格工具合同属于协议违约，不是业务拒绝：先按与零点计划同形的有界校验重试——在原始消息之后加一条 user 消息，带上一次不合法的工具调用、英文校验错误与重新提交的指令，总是基于原始消息、不逐次累积；首次之外至多三次（连同首次至多四次模型调用，另设独立常量，与零点计划的次数同值），与传输重试分开计数。每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证并各自计入模型用量，校验错误随下一次请求的附回消息留证，WorldMock 不覆写 AS2 的记忆调度。耗尽即运行故障、本轮中止，最后一次错误写进故障原因，不写入任何洞见、不登记 `memory_updated`、不降级为空反思
 5. 必要观察和证据保存的致命异常穿过原有 catch 分支传播，不把空观察或持久化故障转换成可继续的普通工具结果
 
 **算法**：
@@ -401,7 +403,7 @@ observation_record = {
 
 继承 `EnvBase`，实现生活环境：
 - 观察、动作接收、活动推进、资源结算
-- 内容提供、数字足迹
+- app 内容与推送、工作主题累计、数字足迹
 - 使用现有环境注册、工具声明和生命周期；actor 与代理为 WorldMock 子类 `LifeEnvActor`、`LifeEnvProxy`
 - 只读查询：`read_query(context, tool, request)` 按决策身份取本决策唯一一条已提交观察，应答 `recall_task_summary`（及 `query_world` 的第二入口）；工具与请求类型不符、找不到唯一观察是协议违约；不写事件、不改世界版本与时钟、不计同刻轮数
 
@@ -456,9 +458,9 @@ LifeAgent 的全部请求模型按严格 JSON 类型及各字段既有范围、�
 | 程序错误 | 根因 | 修复 | 七层呈现 |
 | --- | --- | --- | --- |
 | 直接消息截断，没有全文入口 | 收件头取 `text[:40]`（`src/worldmock/life/projection.py`），直接消息不可阅读（:1024-1033），一经展示即记为已读（`src/worldmock/life/same_moment.py`） | 直接消息以全文进入进度层；「已读」改为全文已呈现 | 进度层 `message_arrival.text`；之后记忆层 settled |
-| 恢复工作越过合同截止 | `_resume` 只算「现在＋剩余」（`src/worldmock/life/activities.py::_resume`），截止约束只在开工时生效（`src/worldmock/life/session_actions.py`） | 恢复上限取 min（距截止，合同上限减已累计），由 `_resume_at_start_location`（`src/worldmock/life/session_actions.py::ActionHandlers._resume_at_start_location`）算出传入；不足 60 秒以 `ACTIVITY_DURATION_INVALID` 业务拒绝；截止同秒仍按「晚于截止才算迟交」 | task 目标 `contract.deadline`；恢复结果的计划时长 |
-| 工时达标与提交状态不一致 | 私有 `submission_ready` 把「已达标」与「未在做」合成一个布尔（`src/worldmock/life/observe.py`），提示里没有已完成的有效工时 | 三件事分开：`contract.remaining` 写达标情况，activity 目标 `state` 写进行中，`submit_work` 标不可用并写英文 `End the active work activity first.`；不新增唤醒原因 | 工具层三个字段各说一件事 |
-| 逾期工作从观察和工具中消失 | 观察跳过已过截止的任务（`src/worldmock/life/observe.py`、:286-287、:623-625） | 未付款的逾期任务保留到截止当日结束；`outlook` 写「已过截止」；提交以 `WORK_SUBMISSION_LATE` 业务拒绝（代码已有，登记进接口合同）；不新增迟交规则，不把没有提交说成提交失败 | task 目标保留 |
+
+
+
 | 不足一份的食物无法消费 | 执行固定一份（`src/worldmock/life/session_actions.py`），按一份核库存后拒绝（`src/worldmock/life/basket.py`） | 第五章「进食」 | 商品目标 `consume` 的 `quantity`、`duration` |
 | 混合动作的购买记录遗漏 | 并行结果整体为 `in_progress`，订单在顶层 `data.orders`；数据集侧 `simulate_phone.py` 只收整体 `completed` | 导出新增购买事实（第七章），按订单去重，与整体状态无关；数据集侧改读它 | 不在七层 |
 | 零条最近记忆失效 | 覆写 `build_context` 时丢了 `>0` 守卫（`custom/agents/life_memory.py::WorldMockMemoryRuntime.build_context`），AS2 又把 0 改回 8 | 恢复守卫：零条返回空列表 | 记忆层不再单列最近条目；零值仍按零处理 |
@@ -579,15 +581,6 @@ AS2 锁定提交不变。结构化宿主反馈存于 `model_response.data.protoc
 <a name="dayrun-fidelity-评审模型调用与叙述"></a>
 ## 评审、模型调用与叙述
 
-<a name="dayrun-fidelity-评审模型调用与叙述-中文逐字摘录按字数核对"></a>
-### 中文逐字摘录按字数核对
-
-**规则。** 先做 NFKC 与大小写归一，把非词字符换成空格，再删除与汉字、假名相邻的空格；有效长度 = 字母数字串个数 + 汉字与假名字数 ÷ 2，至少为 3；
-纯英文时行为逐位不变（拉丁词仍按「至少 3 个」计）。边界：5 个汉字仍然拒绝，6 个汉字通过；改动一个字就不匹配。评审模型的判定仍须经此核对，核对不通过仍拒绝。
-life-runtime 规格「内容提供行为」（:536-541，接受同义改写、没有自动重试）与接口合同「经来源核实的原文片段」（:916-919）不变。
-
-**验收。** 在 BIZ 的 6 次评审记录上重算：第 2、3、4、6 次（评审模型判接受）按新规则 17/17、17/17、17/17、18/18 通过，第 1、5 次仍拒；WC 的英文评审结果不变。
-
 <a name="dayrun-fidelity-评审模型调用与叙述-输出截断与思考螺旋"></a>
 ### 输出截断与思考螺旋
 
@@ -602,7 +595,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 1. `LifeAgent` 覆写 `_parse_react_responses` 与 `_append_react_protocol_feedback`（后者是「替换不叠加」所必需，LifeAgent 已自行重设 `self._react_messages`，`custom/agents/life_agent.py::LifeAgent._append_react_protocol_feedback`）：
    `finish_reason=length` 且正文为空时丢弃截断的回合，改发第四章结构的纠错（`error_code=OUTPUT_TRUNCATED`，`reason` 为英文截断说明，
    `fix` 为英文提交单个世界请求的说明）；相同的纠错替换，不叠加。
-2. 重试一次时关闭思考并强制工具调用：`thinking.type=disabled` 加 `tool_choice=required`，与工作验收、零点计划两个阶段现行的组合相同（接口合同「生成参数」）；
+2. 重试一次时关闭思考并强制工具调用：`thinking.type=disabled` 加 `tool_choice=required`，与零点计划和就寝反思的现行组合相同（接口合同「生成参数」）；
    只在这一次重试发送，按状态而不是按请求种类判定，因为 `_model_request` 也服务只读问答。DeepSeek 文档（2026-09-29 核对）：没有独立的思考 token 预算，`max_tokens`
    同时覆盖思考与输出（默认非思考 8K、思考 64K、`reasoning_effort=max` 128K，上限 384K）；`reasoning_effort` 是 `thinking` 对象内的字段，取 `none`、`low`、`high`、`max`，
    只改变思考的多少，不保证出结果；`required` 与指名工具在思考模式下返回 400，必须先关闭思考；文档没有写达到 `max_tokens` 时会强制给出结果。
@@ -685,7 +678,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 提示的唯一权威文本见 `docs/CONTRACTS.md#contracts-model-request`。
 
 **失败。** 输出不合合同属于协议违约，不是业务拒绝：不写入任何洞见、不登记 `memory_updated`、不降级为空反思。
-处理方式取与零点计划同形的有界校验重试（裁决 R2）：附回英文校验错误重新请求，首次之外至多三次（连同首次至多四次模型调用，另设独立常量，与零点计划的次数同值），与传输重试分开计数；耗尽即运行故障，本轮中止。工作验收的协议纠正次数不同，不作先例。
+处理方式取与零点计划同形的有界校验重试（裁决 R2）：附回英文校验错误重新请求，首次之外至多三次（连同首次至多四次模型调用，另设独立常量，与零点计划的次数同值），与传输重试分开计数；耗尽即运行故障，本轮中止。
 
 - 附回消息的形状与零点计划相同：在原始消息之后加一条 user 消息，带上一次不合法的工具调用、英文校验错误与重新提交的指令；总是基于原始消息，不逐次累积。
 - 每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证，各自计入模型用量；校验错误随下一次请求的附回消息留证，耗尽时最后一次错误写进运行故障原因。不覆写 AS2 的记忆调度。
@@ -743,7 +736,7 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 | 决策调度 | 只对就绪人物执行 batch；收齐动作后按环境顺序结算；有人就绪不推进，无人就绪才取下一时间边界；下一边界必须是未来时刻且不含重复人物 | `tests/as2/test_society_decision_round.py`（`test_society_uses_environment_order_then_commits`、`test_society_redecides_before_advancing_when_agent_remains_ready`）、`tests/as2/test_decision_round.py`（`test_scheduling_state_requires_future_boundary`、`test_scheduling_state_rejects_duplicate_agents`） | 代码层已验证 |
 | 时间约定统一 | 推进同时满足三条：`tick` 严格为正、**时间对账成立**（见 `docs/CONTRACTS.md`「生命周期」）、且命中下一个调度边界 | `tests/life/test_engine_branch_coverage.py::test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary`、`tests/integration/test_env_lifecycle_coverage.py`（`env.step(tick, next_event_at)` 调用形） | 代码层已验证 |
 | 确定性工具调用与身份绑定 | 决策上下文不可变且身份完整；直接工具调用必须携带已校验请求；一次决策只提交一个宿主绑定动作，宿主字段不出现在工具 Schema | `tests/integration/test_life_agent_protocol.py`（`test_native_react_submits_one_host_bound_life_action`、`test_life_agent_schema_is_closed_and_host_fields_are_hidden`）、`tests/as2/test_decision_round.py`（`test_decision_context_is_immutable_and_complete`、`test_direct_tool_call_requires_validated_request`） | 代码层已验证 |
-| 工具面与证据回调 | 只暴露七个世界请求工具、两个世界查询工具与三个记忆查询工具，原生工具整次运行逐字节不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具）且不带逐轮名称枚举，工具 Schema 指纹与注册表摘要绑定；生活决策请求的 system 为系统层、user 为六层 JSON 数组，观察写一次 | `tests/integration/test_life_agent_protocol.py`（`test_life_tool_schema_fingerprint_pins_registry_digest`、`test_react_messages_are_system_layer_and_six_layer_user`）、`tests/integration/test_seven_layer_request.py`（`test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn`）；截断重试见 `tests/integration/test_output_truncation.py`（`test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`、`test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only`） | 代码层已验证 |
+| 工具面与证据回调 | 只暴露六个世界请求工具、两个世界查询工具与三个记忆查询工具，共十一项原生工具；稳定面为八项，原生工具整次运行逐字节不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具）且不带逐轮名称枚举，工具 Schema 指纹与注册表摘要绑定；生活决策请求的 system 为系统层、user 为六层 JSON 数组，观察写一次 | `tests/integration/test_life_agent_protocol.py`（`test_life_tool_schema_fingerprint_pins_registry_digest`、`test_react_messages_are_system_layer_and_six_layer_user`）、`tests/integration/test_seven_layer_request.py`（`test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn`）；截断重试见 `tests/integration/test_output_truncation.py`（`test_a_truncated_turn_is_dropped_and_retried_once_without_thinking`、`test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only`） | 代码层已验证 |
 | 失败传播 | 回合预算耗尽仍无登记的世界请求、工具执行失败、证据写入失败均致命且不触发新的模型调用；只读问答的 `finish` 与其他工具同批时整批拒绝且无部分执行 | `tests/as2/test_agent_react_validation.py`（`test_loop_exhaustion_is_fatal`、`test_finish_mixed_with_action_is_rejected_atomically`、`test_mixed_batch_is_rejected_without_partial_execution`、`test_tool_execution_failure_is_fatal_without_new_model_call`）、`tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit` | 代码层已验证 |
 | 必要观察与证据保存 | 响应证据写入失败是致命错误且不再发起模型调用；空观察或持久化故障不转换成可继续的普通工具结果 | `tests/as2/test_agent_react_validation.py`（`test_response_evidence_failure_is_fatal_without_new_model_call`、`test_unserializable_response_is_fatal_without_protocol_feedback`） | 代码层已验证 |
 | 恢复与检查点 | 缺少快照、校验失败或记忆损坏时立即终止，不发布子分支；完整检查点保留父目录与精确工作区 | `tests/integration/test_runtime.py`（`test_restore_rejects_corrupt_used_memory_before_branch_publish`、`test_counterfactual_branch_freezes_intervention_before_publish`）、`tests/footprints/test_store.py`（`test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`、`test_incomplete_checkpoint_never_creates_child`）、`tests/life/test_counterfactual.py` | 代码层已验证 |
@@ -782,3 +775,4 @@ DeepSeek 的 `max_tokens` 同时覆盖思考与输出（默认 64K，`reasoning_
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AS16，按 `d8a41d3` 的代码与测试核对）：就寝反思的 `_run_reflection` 覆写（`custom/agents/life_memory.py`、`custom/agents/life_reflection.py`）、`LifeAgent.step` 与工具分发日志、`LifeEnvActor` 与 `LifeEnvProxy`（`src/worldmock/life/read_query_runtime.py`）均已落地，文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)；验收矩阵「严格反思」「只读查询转发」两行的证据位置改为实际登记的测试节点，状态改记 `代码层已验证`，状态说明随之改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。AS2 锁定提交 `8768e14` 与 AS2 源码摘要不变（`vendor/agentsociety2` 仍在该提交，`AS2_LOCKED_SOURCE_SHA256` 未改）。证据为离线测试，「真实端点集成」行仍为 `待真实运行` |
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步 app、推送与工作主题职责 |

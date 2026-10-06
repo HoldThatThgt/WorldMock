@@ -29,7 +29,6 @@ from worldmock.life import (
 from worldmock.life.action_evidence import _origin_terminal_draft, _origin_terminal_result, _terminal_action_records
 from worldmock.life.activity_evidence import (
     meal_consumption_data as _meal_consumption_data,
-    record_material_reveal as _record_material_reveal,
 )
 from worldmock.life.activity_titles import activity_title
 from worldmock.life.activities import (
@@ -63,7 +62,7 @@ from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
 from worldmock.life.models import validated_payload
 from worldmock.life.presentation import flush_presentation, stage_presentation
 from worldmock.life.travel import persisted_trip, record_arrival, update_travel
-from worldmock.life.work import reveal_work_progress
+from worldmock.life.work import work_completion_draft, work_progress_data
 from worldmock.scheduling.effects import process_scheduled_events
 
 from worldmock.life.engine_context import EngineContext
@@ -223,6 +222,11 @@ class TimeAdvanceCoordinator:
                     state, activity, target, settlement, body_event.event_id
                 )
                 drafts.append(progress)
+                if activity.kind == ActivityKind.WORK:
+                    completed = work_completion_draft(
+                        state, activity, self.context.rules.work_topic(activity.target_id), progress.event_id)
+                    if completed is not None:
+                        drafts.append(completed)
                 if terminal is not None:
                     (result, event) = terminal
                     results.append(result)
@@ -274,8 +278,6 @@ class TimeAdvanceCoordinator:
             "body_settlement_event_id": body_event_id,
             **effects,
         }
-        if activity.kind == ActivityKind.WORK:
-            data["activity_efficiency"] = settlement.work_efficiency
         flows = _resource_flows_data(activity.agent_id, target)
         if flows:
             data[RESOURCE_FLOWS_FIELD] = flows
@@ -328,17 +330,7 @@ class TimeAdvanceCoordinator:
                 state, activity, self.context.semantics.catalog, before_consumed["media_position_seconds"])
             state.agents, state.activities, state.sessions = changed.agents, changed.activities, changed.sessions
         if activity.kind == ActivityKind.WORK:
-            material = reveal_work_progress(
-                state,
-                self.context.corpus_root,
-                self.context.rules.task(activity.target_id),
-                activity.agent_id,
-                activity.activity_id,
-            )
-            evidence["work_material"] = material
-            state.agents[agent.agent_id] = _record_material_reveal(
-                state.agents[agent.agent_id], activity.target_id, material, state.current_time
-            )
+            evidence["work"] = work_progress_data(state, activity, self.context.rules.work_topic(activity.target_id))
         if activity.kind == ActivityKind.CONSUME:
             evidence["consumption"] = self._apply_consume_effect(
                 state, activity, completed, before_consumed["consumed"])

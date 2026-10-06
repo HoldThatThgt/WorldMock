@@ -36,23 +36,13 @@ from worldmock.life.models import (
     ReviseDayPlanRequest,
     SameMomentStage,
     SendMessageRequest,
-    SubmitWorkActionRequest,
     StartSocialActivityRequest,
-    SubmitWorkRequest,
     WorldState,
     active_activities,
 )
 from worldmock.life.schedule import RemindTimeInvalid, day_plan_expired, registered_goals, revise_day_plan
 from worldmock.life.storefront_runtime import StorefrontRuntime
 from worldmock.life.travel import pay_travel_fare, planned_travel, require_travel_duration
-from worldmock.life.work import (
-    load_work_input,
-    prepare_work_submission,
-    settle_work,
-    validate_work_duration,
-    work_totals,
-)
-from worldmock.life.work_review import WorkReviewDecision, prepare_work_review, public_work_review, review_matches
 
 import logging
 from dataclasses import replace
@@ -107,8 +97,6 @@ from worldmock.life.models import (
     SessionTaskKind,
     StartActivityRequest,
     StartSocialActivityRequest,
-    SubmitWorkRequest,
-    SubmitWorkActionRequest,
     WorldState,
 )
 from worldmock.life.name_resolution import StartOutcome, name_book, resolution_data, resolve_start
@@ -119,7 +107,7 @@ from worldmock.life.recipients import person_name, recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, activity_family
 from worldmock.life.tool_layer import Candidate as ToolCandidate, LayerContext, refusal_for
 from worldmock.life.social_actions import social_duration_seconds
-from worldmock.life.work import work_resume_cap, work_start_refusal, work_start_seconds, work_totals
+from worldmock.life.work import contract_view, work_resume_cap, work_start_refusal, work_start_seconds, work_totals
 
 _LOGGER = logging.getLogger(__name__)
 RECALL_IN_MEMORY_LAYER = "已在记忆层"
@@ -255,9 +243,9 @@ class ActionHandlers:
         """
         if activity.kind != ActivityKind.WORK:
             return None
-        task = self.context.rules.task(activity.target_id)
-        (worked, _) = work_totals(state, agent_id, task.task_id)
-        return work_resume_cap(task, worked, state.current_time)
+        task = self.context.rules.work_topic(activity.target_id)
+        worked = work_totals(state, agent_id, task.topic_id)
+        return work_resume_cap(task, worked)
 
     def _resume_at_start_location(
         self, state: WorldState, pending: PendingAction, activity: ActivityState
@@ -309,8 +297,21 @@ class ActionHandlers:
         changed = self._with_notes(changed, selected, [item.summary for item in items], anchor=True)
         (changed, receipt) = self._apply_errands(changed, pending, changes)
         result = self._control_result(state, pending, "Activity status reported", requested, selected)
-        data = {**result.data, "errands": receipt, **({"resumed": resumed} if resumed else {})}
+        work = self._reported_work(changed, pending.agent_id, requested, selected)
+        data = {**result.data, "errands": receipt, **({"resumed": resumed} if resumed else {}),
+                **({"work": work} if work else {})}
         return (changed, _with_names(result.model_copy(update={"data": data}), zip(written, requested)))
+
+    def _reported_work(self, state: WorldState, agent_id: int, names: list[str], activities: list) -> list[dict]:
+        """@brief 播报回执只展示真实主题累计工时，文字自述不改变完成状态。"""
+        rows = []
+        for name, activity in zip(names, activities, strict=True):
+            if activity.kind != ActivityKind.WORK:
+                continue
+            topic = self.context.rules.work_topic(activity.target_id, agent_id)
+            contract = contract_view(topic, work_totals(state, agent_id, topic.topic_id))
+            rows.append({"name": name, "done": contract["done"], "remaining": contract["remaining"]})
+        return rows
 
     def _apply_errands(
         self, state: WorldState, pending: PendingAction, changes: tuple[dict, ...]
@@ -437,7 +438,7 @@ class ActionHandlers:
         }
 
     def _recall_activity(self, state: WorldState, agent_id: int, row: dict, observed: dict) -> dict:
-        """@brief 活动回看：名称、地点、已做与有效时长、阶段与自述。
+        """@brief 活动回看：名称、地点、实际已做时长、阶段与自述历史。
 
         地点取活动最近所属会话的说法：路上开始的活动（含出行本身）为「去<目的地>的路上」，停留中的为该地点；
         未归入会话的活动取开始地点。自述仍在记忆层时只写活动名与「已在记忆层」。
@@ -446,7 +447,7 @@ class ActionHandlers:
         activity = state.activities[row["activity_id"]]
         remembered = _remembered(observed, activity)
         if remembered is not None:
-            return remembered
+            return {**remembered, "note_history": list(activity.note_history)}
         places = place_names(self.context.scenario)
         place = (
             sessions.place_label(state.sessions[activity.session_ids[-1]], places)
@@ -459,7 +460,7 @@ class ActionHandlers:
             "phase": activity_control.activity_phase(activity),
             "objective_progress": activity_control.objective_progress(activity),
         }
-        return {**view, **_self_report(activity.progress_note)}
+        return {**view, "note_history": list(activity.note_history), **_self_report(activity.progress_note)}
 
     def _recall_goal(self, state: WorldState, agent_id: int, row: dict, observed: dict) -> dict:
         """@brief 目标回看：目标文字、意图与是否已推进。"""
@@ -475,24 +476,25 @@ class ActionHandlers:
         return {"goal": goal.goal, "intent_kind": goal.intent_kind, "progressed": goal.progressed_at is not None}
 
     def _recall_task(self, state: WorldState, agent_id: int, row: dict, observed: dict) -> dict:
-        """@brief 任务回看：名称、截止（带时区 ISO）与最近一条相关活动自述；该自述仍在记忆层时只写那项活动在记忆层中的
-        名称与「已在记忆层」。"""
-        task = self.context.rules.task(row["task_id"])
+        """@brief 主题回看保留累计真实工时、最近播报与跨活动历史；记忆层中的叙述以已有名称指向。"""
+        topic = self.context.rules.work_topic(row["topic_id"], agent_id)
         notes = [
             item
             for item in state.activities.values()
             if item.agent_id == agent_id
-            and item.task_kind == SessionTaskKind.WORK_TASK
-            and (item.task_ref == task.task_id)
+            and item.task_kind == SessionTaskKind.WORK_TOPIC
+            and (item.task_ref == topic.topic_id)
             and item.progress_note
         ]
         latest = max(notes, key=lambda item: (item.note_updated_at or item.started_at, item.started_at), default=None)
         remembered = _remembered(observed, latest)
         if remembered is not None:
-            return remembered
+            return {**remembered, "note_history": [note for item in notes for note in item.note_history]}
         view = {
             "name": row["task_name"],
-            "due_at": iso_time(int(task.due_at.timestamp()), self.context.scenario.timezone),
+            "contract": contract_view(topic, work_totals(state, agent_id, topic.topic_id)),
+            "note_history": [note for item in sorted(notes, key=lambda value: (value.started_at, value.activity_id))
+                             for note in item.note_history],
         }
         return {**view, **_self_report(latest.progress_note if latest else "")}
 
@@ -648,12 +650,12 @@ class ActionHandlers:
     def _targeted_duration(self, state: WorldState, agent_id: int, kind: ActivityKind, target: str) -> int:
         """@brief 合同、内容进度与反馈间隔共用单一时长规则，工作拒绝沿用共享原因与建议。"""
         if kind == ActivityKind.WORK:
-            task = self.context.rules.task(target)
-            worked, _ = work_totals(state, agent_id, target)
-            refusal = work_start_refusal(task, worked, state.current_time)
+            task = self.context.rules.work_topic(target, agent_id)
+            worked = work_totals(state, agent_id, target)
+            refusal = work_start_refusal(task, worked)
             if refusal is not None:
                 raise refusal.error()
-            return work_start_seconds(task, worked, state.current_time)
+            return work_start_seconds(task, worked)
         return derived_activity_duration(
             kind, state.agents[agent_id], None, self.context.scenario.activity_feedback_seconds
         )
@@ -725,20 +727,7 @@ class ActionHandlers:
             raise BusinessRuleError("OBSERVATION_NOT_FOUND")
         return matches[0].data
 
-    def _task_binding(self, pending: PendingAction, name: str) -> dict:
-        """@brief 可读任务名称在当前决策观察中唯一对应的任务绑定（精确或无损归一后唯一，如「整理纪要」即「工作：整理纪要」）；
-        找不到或对应不止一项时以 WORK_TASK_NOT_FOUND 拒绝。"""
-        rows = self._frozen_observation(pending)["task_bindings"]
-        match = resolve_name(name, [row["task_name"] for row in rows])
-        matches = [row for row in rows if row["task_name"] == match.name]
-        if len(matches) != 1:
-            _LOGGER.error("Work task name is unavailable or ambiguous")
-            raise BusinessRuleError("WORK_TASK_NOT_FOUND")
-        return matches[0]
 
-    def _task_id_for_name(self, pending: PendingAction, name: str) -> str:
-        """@brief 从当前决策观察唯一解析工作合同的可读名称（精确或无损归一后唯一）。"""
-        return self._task_binding(pending, name)["task_id"]
 
     def _send_message_action(
         self, state: WorldState, pending: PendingAction, request: SendMessageActionRequest
@@ -761,17 +750,6 @@ class ActionHandlers:
         )
         return (changed, _with_names(result, [(request.recipient_name, match.name)]))
 
-    def _submit_work_action(
-        self, state: WorldState, pending: PendingAction, request: SubmitWorkActionRequest
-    ) -> tuple[WorldState, ActionResult]:
-        """@brief 将人物可读任务名称（精确或无损归一后唯一）映射为合同身份，交给独立工作验收路径；驾车时不能提交成果
-        （第五章「并行准入」）。名称经归一的写进结果 details.resolved。"""
-        admission.require_hands_free(self._admission_context(state, pending.agent_id), "submit work")
-        row = self._task_binding(pending, request.task_name)
-        (changed, result) = self._submit_work(
-            state, pending, SubmitWorkRequest(task_id=row["task_id"], deliverable=request.deliverable)
-        )
-        return (changed, _with_names(result, [(request.task_name, row["task_name"])]))
 
     def _refreshed_result(self, state: WorldState, result: ActionResult) -> ActionResult:
         """@brief 受理结果中的活动快照换成命名与归入会话之后的权威快照。"""
@@ -792,9 +770,9 @@ class ActionHandlers:
     def _task_link(self, state: WorldState, agent_id: int, activity: ActivityState) -> dict:
         """@brief 活动关联的任务：工作任务或当日首个匹配目标（按既有活动家族规则），否则不关联。"""
         goal = self._plan_goal_for_activity(state, agent_id, activity.activity_id)
-        if activity.kind == ActivityKind.WORK and activity.target_id in self.context.rules.tasks:
+        if activity.kind == ActivityKind.WORK and activity.target_id in self.context.rules.work_topics:
             return {
-                "task_kind": SessionTaskKind.WORK_TASK,
+                "task_kind": SessionTaskKind.WORK_TOPIC,
                 "task_ref": activity.target_id,
                 "plan_goal_intent_kind": goal,
             }
@@ -891,6 +869,9 @@ class ActionHandlers:
         destination = recipient_location(context.state, self.context.scenario, context.agent_id, row["recipient_id"])
         if destination is None and way == PURCHASE_WAYS["delivery"]:
             _LOGGER.error("Named purchase recipient has no receiving place")
+            if row["to_self"]:
+                raise guided("ACTIVITY_PRECONDITION_UNMET", "Place the order before departing or after arriving.",
+                             "Wait until you arrive, then place the order.", ("delivery_destination",))
             raise order_routing.undeliverable(
                 context.state, self.context.scenario, context.agent_id, row["recipient_id"]
             )
@@ -963,6 +944,10 @@ class ActionHandlers:
         outcome = self._start_outcome(pending)
         if not outcome.failures:
             return BusinessRuleError("ACTION_REQUEST_INVALID")
+        if any(failure.item.error_code == "WORK_TOPIC_NOT_FOUND" for failure in outcome.failures):
+            return Refusal("WORK_TOPIC_NOT_FOUND", "The named work topic is not assigned to you.",
+                           "Use an exact known work topic name.",
+                           items=tuple(failure.item for failure in outcome.failures)).error()
         default = refusal_for_code("ACTION_REQUEST_INVALID")
         return Refusal(
             "ACTION_REQUEST_INVALID",
@@ -1015,17 +1000,16 @@ class ActionHandlers:
             agent_id=agent_id,
             place_names=place_names(self.context.scenario),
             activity_names=names or {},
-            tasks=self.context.rules.tasks,
+            work_topics=self.context.rules.work_topics,
             graph=self.context.semantics.catalog.graph,
         )
 
-    @property
-    def _world_facts(self) -> admission.WorldFacts:
+    def _world_facts(self, agent_id: int) -> admission.WorldFacts:
         """@brief 准入判定用的冻结目录：任务、供给、可持有物与内容。"""
-        return admission.WorldFacts(
-            tasks=self.context.rules.tasks,
-            items=self.context.semantics.catalog.foods,
-        )
+        config = agent_config(self.context.scenario, agent_id)
+        workplace = config.work_schedule.workplace_location_id if config.work_schedule is not None else None
+        return admission.WorldFacts(work_topics=self.context.rules.work_topics,
+                                    items=self.context.semantics.catalog.foods, workplace_location_id=workplace)
 
     def _require_individual_start(self, state: WorldState, pending: PendingAction, selection: list[dict]) -> None:
         """@brief 实际转换前汇总每項可独立判定的世界前置条件。"""
@@ -1081,7 +1065,8 @@ class ActionHandlers:
 
         selection 是派发时解析的本轮绑定（_start_selection，菜单判定、受限轮复核与受理共用这一次解析），解析不出时
         以 ACTION_REQUEST_INVALID 拒绝。整组先按名额、目标在场与实际地点、出行方式、占用、物品状态的顺序判定
-        （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」），再派发，结果与组内先后无关：合成一单或一餐的两项
+        （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」），再派发；
+        结果与组内先后无关：合成一单或一餐的两项
         一次派发，其余逐项派发，瞬时的取得（到店、远程下单）可与持续活动同一请求。
         """
         if selection is None:
@@ -1096,7 +1081,8 @@ class ActionHandlers:
         activity_control.require_start_admission(state, pending.agent_id, (actions, labels), names)
         admission.require_group(
             self._admission_context(state, pending.agent_id, names),
-            [admission.selection_item(row, row["selected_action"], self._world_facts) for row in selection],
+            [admission.selection_item(row, row["selected_action"], self._world_facts(pending.agent_id))
+             for row in selection],
         )
         if merged_selection(actions, labels):
             targets = [item["object_id"] for item in selection]
@@ -1132,7 +1118,6 @@ class ActionHandlers:
         if pending.tool_name == "start_activity":
             return self._start_activity(state, pending, selection)
         handlers = {
-            "submit_work": self._submit_work_action,
             "send_message": self._send_message_action,
             "report_status": self._report_status,
             "pause_activity": self._pause_activity,
@@ -1204,10 +1189,7 @@ class ActionHandlers:
         data = self.context.rules.validate_start(
             agent, request, state.current_time, admission.present_location(state, pending.agent_id)
         )
-        if request.activity_type == ActivityKind.WORK:
-            validate_work_duration(
-                state, self.context.rules.task(request.target_id), pending.agent_id, request.planned_duration_seconds
-            )
+        data.update(self._work_start_data(state, pending.agent_id, request))
         travel_context = self._travel_start_context(state, agent, request)
         claims = resource_claims(request)
         self._require_available_resources(state, pending.agent_id, claims)
@@ -1245,6 +1227,20 @@ class ActionHandlers:
             data=result_data,
         )
         return (changed, result)
+
+    def _work_start_data(self, state: WorldState, agent_id: int, request: ActivityStartParams) -> dict:
+        """@brief 工作启动按累计实际工时复核主题剩余时长，冻结起点工时。"""
+        if request.activity_type != ActivityKind.WORK:
+            return {}
+        topic = self.context.rules.work_topic(request.target_id, agent_id)
+        worked = work_totals(state, agent_id, topic.topic_id)
+        refusal = work_start_refusal(topic, worked)
+        if refusal is not None:
+            raise refusal.error()
+        if request.planned_duration_seconds != work_start_seconds(topic, worked):
+            _LOGGER.error("Work activity duration differs from the remaining topic time")
+            raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
+        return {"worked_before_seconds": worked}
 
     def _require_available_resources(
         self, state: WorldState, agent_id: int, claims: set[str], exclude_id: str | None = None
@@ -1338,48 +1334,6 @@ class ActionHandlers:
             data={"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)})
         return changed, result
 
-    def _submit_work(
-        self, state: WorldState, pending: PendingAction, request: SubmitWorkRequest
-    ) -> tuple[WorldState, ActionResult]:
-        """@brief 独立验收结构化工作并支付唯一报酬。"""
-        submission = prepare_work_submission(
-            state, self.context.semantics, self.context.corpus_root, pending.agent_id, request
-        )
-        if pending.work_review is None:
-            raise ProtocolError("Eligible work submission has no recorded semantic review")
-        review = WorkReviewDecision.model_validate(pending.work_review)
-        prepared = prepare_work_review(submission, self.context.store.manifest["model_identity"]["requested_model"])
-        if not review_matches(review, prepared):
-            raise ProtocolError("Work review identity disagrees with the current submission")
-        outcome = settle_work(state, submission, review.accepted)
-        feedback = public_work_review(review, submission.source)
-        agent_after = outcome.state.agents[pending.agent_id].model_copy(
-            update={"body": apply_mood_pulse(outcome.state.agents[pending.agent_id].body, "work_review_passed")},
-            deep=True,
-        )
-        agents = dict(outcome.state.agents)
-        agents[pending.agent_id] = agent_after
-        outcome_state = outcome.state.model_copy(update={"agents": agents}, deep=True)
-        data = {
-            "task_id": request.task_id,
-            "payment_fen": outcome.payment_fen,
-            "worked_seconds": outcome.worked_seconds,
-            "effective_seconds": outcome.effective_seconds,
-            "work_review": feedback,
-            "resource_changes": {
-                f"account:{self.context.rules.task(request.task_id).employer_account_id}": -outcome.payment_fen,
-                f"account:{state.agents[pending.agent_id].balance_account_id}": outcome.payment_fen,
-            },
-        }
-        result = ActionResult(
-            action_id=pending.action_id,
-            agent_id=pending.agent_id,
-            status=ActionStatus.COMPLETED,
-            occurred_at=state.current_time,
-            message="Work accepted and paid",
-            data=data,
-        )
-        return (outcome_state, result)
 
     def _revise_day_plan(
         self, state: WorldState, pending: PendingAction, request: ReviseDayPlanRequest
@@ -1465,7 +1419,7 @@ class ActionHandlers:
             state = contact_exchange.record_outgoing(state, agent.agent_id, sent.message)
             if contact.reply_policy == "model":
                 reply = contact_exchange.reply_request(
-                    state, self.context.store, self.context.scenario, sent.message, contact
+                    state, self.context.store, self.context.semantics, sent.message, contact
                 )
                 drafts.append(
                     EventDraft(
@@ -1569,15 +1523,6 @@ class ActionHandlers:
         self.pending_event_drafts.clear()
         return drained
 
-    def public_work_review(self, pending: PendingAction) -> dict:
-        """@brief 从本次系统评审生成可随动作结果公开的人物反馈。"""
-        if pending.work_review is None:
-            raise ProtocolError("Rejected work submission has no recorded semantic review")
-        request = SubmitWorkActionRequest.model_validate(pending.request)
-        task = self.context.rules.task(self._task_id_for_name(pending, request.task_name))
-        source = load_work_input(self.context.corpus_root, task)
-        review = WorkReviewDecision.model_validate(pending.work_review)
-        return public_work_review(review, source)
 
 
 def _source_placeholder(row: dict) -> dict:

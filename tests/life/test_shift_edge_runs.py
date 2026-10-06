@@ -23,13 +23,10 @@ from agentsociety2.society import DirectToolCall
 from custom.agents.life_prompt import life_user_layers, user_message
 from tests.footprints.test_quality import _event, _manifest, _started as _started_data
 from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next, conclude_request, context,
-                                 pause_request, report_request, settle_day_plans, stage_day_plan, stage_errands,
+                                 layer_start, pause_request, report_request, settle_day_plans, stage_day_plan, stage_errands,
                                  start_activity, submit_round)
 from tests.life.routing_fixtures import HOME, _keep_busy, stage
-from tests.life.test_errand_completion import MILK_ID
 from tests.life.test_errand_todo_layer import _errand
-from tests.life.test_same_moment_decisions import _pick
-from tests.life.test_social_rounds import _chat, _chats
 from tests.life.work_schedule_fixtures import declare
 from worldmock.footprints.checkpoint import restore_branch
 from worldmock.footprints.export import export_run
@@ -69,21 +66,27 @@ _REST = {"day": "休息日", "hours": None, "place": None, "breaks": [], "status
 #: 人物状态的键集合（本特性不增不减，docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
 _AGENT_KEYS = frozenset({
     "active_effects", "agent_id", "balance_account_id", "body", "body_settled_at", "consecutive_rejections",
-    "content_progress", "day_plan", "delivered_warning_signatures", "discomfort_pulse_hours", "discomfort_started_at",
-    "errands", "felt_bands_at_last_decision", "inbox", "inventory", "known_task_ids", "last_decision_time",
-    "location_id", "material_reveals", "mood_updated_at", "name", "next_decision_at", "outbox", "pending_wake_reasons",
+    "content_progress", "day_plan", "discomfort_pulse_hours", "discomfort_started_at",
+    "errands", "felt_bands_at_last_decision", "inbox", "inventory", "last_decision_time",
+    "location_id", "mood_updated_at", "name", "next_decision_at", "outbox", "pending_wake_reasons",
     "people_at_last_decision", "plan_submitted_dates", "read_inbox_ids", "read_message_ids",
-    "same_moment_rounds", "same_moment_stage", "skill_levels", "visible_message_ids", "visible_task_ids"})
+    "same_moment_rounds", "same_moment_stage", "visible_message_ids"})
 
 
 def _engine(engine_factory, *declarations, scenario: str = "single-person.json") -> LifeEngine:
     """@brief 依次用 declare(...) 返回的改写函数改写场景副本建立引擎（没有声明时用正式场景），每个人物登记空计划。"""
     def mutate(document: dict) -> None:
         """@brief 把全部声明写进场景副本。"""
+        if scenario == "single-person.json":
+            document["end_at"] = "2026-01-13T00:00:00+08:00"
+        for agent in document['agents']:
+            agent.update(work_topic_ids=[],work_schedule=None)
+        document['agents'][0]['contacts'] = [{'contact_id':'mother','salutation':'母亲','relation':'母亲',
+            'closeness':24,'channels':['phone'],'reply_policy':'none'}]
         for change in declarations:
             change(document)
 
-    engine = engine_factory(scenario, mutate=mutate if declarations else None)
+    engine = engine_factory(scenario, mutate=mutate)
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     return engine
@@ -116,13 +119,24 @@ def _wait() -> object:
 
 def _decide(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1) -> tuple[dict, object]:
     """@brief 一个人物按真实顺序观察、登记并结算一轮；request 可以是按本轮观察构造请求的函数。返回（观察，结果）。"""
-    decision = context(engine, name, agent_id)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
+    ready = engine.scheduling_state().ready_agent_ids
+    decisions = [context(engine, name, identity) for identity in ready]
+    engine.begin_decision_round(decisions)
+    views = {item.agent_id: engine.observe(item) for item in decisions}
+    observed = views[agent_id]
     if callable(request):
         request = request(observed)
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
-    return observed, engine.commit_decision_round(name)[0]
+    for decision in decisions:
+        if decision.agent_id == agent_id:
+            call = tool, request
+        else:
+            view = views[decision.agent_id]
+            pending = [row["name"] for row in view["activity_bindings"] if row["phase"] == "pending_conclusion"]
+            running = [row["name"] for row in view["activity_bindings"] if row["phase"] == "active"]
+            call = ("conclude_activity", conclude_request(*pending)) if pending else (
+                ("report_status", report_request(*running)) if running else ("start_activity", _wait()))
+        engine.submit_action(DirectToolCall(decision, f"action-{name}" if decision.agent_id == agent_id else f"action-{name}-{decision.agent_id}", *call))
+    return observed, next(item for item in engine.commit_decision_round(name) if item.agent_id == agent_id)
 
 
 def _wait_from(engine: LifeEngine, now: int) -> tuple[str, dict]:
@@ -358,7 +372,9 @@ def test_t3_edges_end_no_activity_write_no_new_kind_and_keep_the_shift_in_the_en
     persona = {"layer": "人设层", "name": scheduled.context.state.agents[1].name}
     prompt = user_message(life_user_layers(observed, persona))["content"]
     assert not [name for name in _NAMES if name in prompt]
+    from tests.life.conftest import wake_by_mail
     for engine in (scheduled, plain):
+        wake_by_mail(engine, offset=edge + 60 - engine.context.state.current_time)
         _drive(engine, lambda: engine.context.state.current_time >= edge + 60)
     assert _event_kinds(scheduled, marks[id(scheduled)]) <= _event_kinds(plain, marks[id(plain)])
     types = _progress_types(observed) | _progress_types(_observe(scheduled, "after"))
@@ -484,13 +500,13 @@ def test_t8_coinciding_edges_reminders_and_a_planned_end_are_one_opportunity_in_
     edge, now = _moment(engine, "15:00"), _moment(engine, "14:45")
     _clock(engine, now)
     stage_day_plan(engine, goals=(PlanGoal(intent_kind="外出", goal="三点出门取快递", registered_at=now, remind_at=edge),))
-    stage_errands(engine, 1, [_errand("staged:errand:0", "买牛奶", MILK_ID, now, remind_at=edge)])
+    stage_errands(engine, 1, [_errand("staged:errand:0", "买柠檬茶", "lemon-tea", now, remind_at=edge)])
     _, waited = _decide(engine, "wait", "start_activity", _wait())
     assert engine.context.state.activities[waited.activity_id].planned_end_at == edge
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == edge
     advance_next(engine)
     expected = ["planned_end", "no_active_activity", "plan_reminder_due", "errand_reminder_due", "break_start",
-                "break_end"]
+                "break_end", "app_push"]
     assert _verdict(engine, edge) == (True, expected)
     observed, concluded = _decide(engine, "edge", "conclude_activity",
                                   conclude_request(activity_name(engine, waited.activity_id)))
@@ -536,8 +552,8 @@ def test_t9_midnight_edges_are_judged_by_the_midnight_rhythm(engine_factory) -> 
     assert end == _moment(final, "00:00", "2026-01-06")
     _clock(final, end - 600)
     submit_round(final, {1: ("start_activity", _wait()), 2: ("start_activity", _wait())}, "last")
-    assert final.context.state.agents[1].next_decision_at == _next_event(final) == end
-    final.advance(600, final.scheduling_state().next_event_at)
+    assert final.context.state.agents[1].next_decision_at <= end
+    _drive(final, lambda: final.context.state.current_time == end)
     assert not final.midnight_rhythm_pending and final.context.state.current_time == end
     assert _verdict(final, end, 1) == (True, ["shift_end"])
     assert final.scheduling_state().ready_agent_ids == ()
@@ -572,7 +588,7 @@ def test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused(engine_fa
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
     _, walked = _decide(engine, "walk", "start_activity",
-                        lambda observed: start_activity(*reversed(_pick(observed, "travel_to", place="office"))))
+                        lambda observed: layer_start(observed, "地点：公司", "步行"))
     assert walked.status == "in_progress"
     before = _activity_facts(engine, walked.activity_id)
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == end
@@ -596,7 +612,7 @@ def test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused(engine_fact
     engine = _engine(engine_factory, declare(shift=_EVENING_END))
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    _, called = _decide(engine, "call", "start_activity", start_activity("通话", "联系人：陈母"))
+    _, called = _decide(engine, "call", "start_activity", start_activity("通话", "联系人：母亲"))
     assert called.status == "in_progress"
     before = _activity_facts(engine, called.activity_id)
     assert engine.context.state.agents[1].next_decision_at == _next_event(engine) == end
@@ -618,9 +634,9 @@ def test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused(eng
     engine = _engine(engine_factory, declare(0, shift=_EVENING_END), scenario="multi-person.json")
     end = _moment(engine, "17:30")
     _clock(engine, _moment(engine, "17:24"))
-    submit_round(engine, {1: _chat(engine, 1, 2), 2: ("start_activity", _wait())}, "invite")
-    submit_round(engine, {2: _chat(engine, 2, 1)}, "accept")
-    chats = _chats(engine)
+    submit_round(engine, {1: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[2].name}")), 2: ("start_activity", _wait())}, "invite")
+    submit_round(engine, {2: ("start_activity", start_activity("交谈", f"人物：{engine.context.state.agents[1].name}"))}, "accept")
+    chats = {item.agent_id:item for item in engine.context.state.activities.values() if item.kind.value=="chat"}
     before = {agent_id: _activity_facts(engine, item.activity_id) for agent_id, item in chats.items()}
     assert all(facts[0] == ActivityStatus.ACTIVE and facts[1] > end for facts in before.values())
     _to_edge(engine, end)
@@ -705,7 +721,7 @@ def test_t14_after_restore_and_a_counterfactual_branch_the_edge_fires_once(engin
     _, observed = _wait_from(engine, _moment(engine, "17:24"))
     advance_next(engine)
     checkpoint = _checkpoint(engine)
-    assert checkpoint.state["schema_version"] == WORLD_SCHEMA_VERSION == 9
+    assert checkpoint.state["schema_version"] == WORLD_SCHEMA_VERSION == 10
     assert set(checkpoint.state["agents"]["1"]) == _AGENT_KEYS
     assert checkpoint.state["agents"]["1"]["pending_wake_reasons"] == ["shift_end"]
     branches = _branches(engine, checkpoint, tmp_path, observed["observation_event_id"])

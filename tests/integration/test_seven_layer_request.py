@@ -33,7 +33,6 @@ from custom.agents.life_prompt import (LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, lif
 from tests.integration.test_life_agent_protocol import (
     _Environment,
     _GroundedCorrectionDispatcher,
-    _MEMORY_TOOL_NAMES,
     _ModelResponse,
     _TASK,
     _WAIT,
@@ -470,8 +469,8 @@ def test_no_card_persona_layer_keeps_the_name_and_scene_contacts() -> None:
 
 @pytest.mark.asyncio
 async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_last_turn() -> None:
-    """原生工具：八个人物工具（REQUEST_MODELS 顺序）加三个记忆查询，description 只写用途，没有逐轮枚举；
-    只剩最后一个回合时去掉记忆查询，其余字节不变。"""
+    """原生工具：六个世界请求、两个世界查询与三个记忆查询，description 只写用途，没有逐轮枚举；
+    只剩最后一个回合时去掉全部查询，六个世界请求的字节不变。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("memory", "memory_recent", '{"limit":1}'),
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -479,33 +478,38 @@ async def test_native_tools_are_stable_purpose_only_and_drop_memory_only_on_the_
     await _run(agent, _second_observation())
 
     first, last = (item["tools"] for item in dispatcher.requests)
-    assert [item["function"]["name"] for item in first] == [*(name for name in REQUEST_MODELS if name != "recall_task_summary"),
-        "recall_task_summary", "query_world", "memory_recent", "memory_search", "memory_time_range"]
-    assert last == first[:7]
+    world_tools = ["start_activity", "send_message", "report_status", "pause_activity", "conclude_activity",
+                   "revise_day_plan"]
+    queries = ["recall_task_summary", "query_world", "memory_recent", "memory_search", "memory_time_range"]
+    assert [item["function"]["name"] for item in first] == [*world_tools, *queries]
+    assert [item["function"]["name"] for item in last] == world_tools
+    assert last == first[:len(world_tools)]
     assert all(item["function"]["description"] == TOOL_DESCRIPTIONS[item["function"]["name"]] for item in first)
     models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS, "query_world": QueryWorldRequest}
     assert all(item["function"]["parameters"] == deepseek_strict_schema(models[item["function"]["name"]])
                for item in first)
     for name in ("target", "way"):
         assert "enum" not in first[0]["function"]["parameters"]["properties"]["items"]["items"]["properties"][name]
-    assert _MEMORY_TOOL_NAMES.isdisjoint(item["function"]["name"] for item in last)
+    assert set(queries).isdisjoint(item["function"]["name"] for item in last)
 
 
 @pytest.mark.asyncio
 async def test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude() -> None:
     """没有记忆查询的决策恰好一次模型请求，参数符合行动行（思考开启、auto、8000）；登记后不追加 tool 消息。"""
+    work = {"items": [{"target": _TASK, "way": "工作", "from": None, "to": None}],
+            "answering": None, "prefer": None}
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("action", "submit_work", json.dumps(
-            {"task_name": _TASK, "deliverable": {"summary": "要点。", "decisions": ["推进。"],
-                                                 "action_items": ["复盘。"]}}, ensure_ascii=False))])
+        _ModelResponse("action", "start_activity", json.dumps(work, ensure_ascii=False))])
     agent, environment = _agent(dispatcher)
-    assert await _run(agent, _observations()) == "submit_work registered"
+    assert await _run(agent, _observations()) == "start_activity registered"
 
     [request] = dispatcher.requests
     assert [item.phase for item in environment.evidence] == ["request", "response"]
     assert (request["tool_choice"], request["max_tokens"], request["extra_body"]) == (
         "auto", 8000, {"thinking": {"type": "enabled"}})
     assert "temperature" not in request and len(environment.calls) == 1
+    assert environment.calls[0].tool_name == "start_activity"
+    assert environment.calls[0].request.model_dump(mode="json", by_alias=True) == work
     assert [item["role"] for item in agent._react_messages] == ["system", "user", "assistant"]
 
 
@@ -722,7 +726,7 @@ def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
 
 def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None:
     """工具层 Schema 登记可调用索引 callable_index（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引）：它是工具层的必填键，形状为
-    lifestyle、contents、goods 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
+    lifestyle、goods、query_categories 三个键；新运行的模型身份记录的提示指纹按带索引的 Schema 算出，去掉索引指纹就不同。"""
     from custom.agents import life_prompt
     from worldmock.life import prompt_schemas
     from worldmock.run_setup import _model_identity
@@ -730,7 +734,7 @@ def test_prompt_fingerprint_binds_the_callable_index_schema(monkeypatch) -> None
     schema = prompt_schemas.TOOL_LAYER_SCHEMA
     assert "callable_index" in schema["required"]
     assert set(schema["properties"]["callable_index"]["properties"]) == {
-        "lifestyle", "contents", "goods", "query_categories"}
+        "lifestyle", "goods", "query_categories"}
     current = life_prompt.life_prompt_sha256()
     assert _model_identity().prompt_sha256 == current
     tools = copy.deepcopy(schema)
@@ -766,7 +770,8 @@ async def test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity
     layers = json.loads(request["messages"][1]["content"])
     assert compact_render(expand_tool_layer(layers[0])) == compact_render(observed["tool_layer"])
     assert list(layers[0]) == ["layer", "groups", "callable_index"]
-    assert len(layers[0]["callable_index"]["lifestyle"]) == 104 and layers[5]["events"] == []
+    assert layers[0]["callable_index"]["lifestyle"] == [item.name for item in engine.context.lifestyle_items]
+    assert layers[0]["callable_index"]["lifestyle"] == ["安静休息"] and layers[5]["events"] == []
     bare = [{key: value for key, value in layers[0].items() if key != "callable_index"}, *layers[1:]]
     without = prompt_capacity.request_token_count({**request, "messages": [request["messages"][0],
                                                                            user_message(bare)]})

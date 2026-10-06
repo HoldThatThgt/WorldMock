@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import (engine_factory)  # noqa: F401
 from tests.life.conftest import (StubPlanDayClient, advance_next, context, settle_day_plans, start_request)  # noqa: F401
+from tests.life.routing_fixtures import run_activity_out, selected_food, stage_food_holding, start_eating
 from tests.life.test_day_planning import _goal, _late_engine
-from tests.life.test_meal_outcome import _food, _run_out, _stage_holding, _start_eating
 
 from agentsociety2.society import DirectToolCall
 from worldmock.cli import main
@@ -126,10 +126,10 @@ def test_exported_quality_counts_only_non_routine_goals_and_agrees_with_engine_p
     try:
         settle_day_plans(engine, StubPlanDayClient(goals=[_goal("用餐", "午饭提前到十点多吃", None, "12:00"),
                                                           _goal("娱乐", "睡前看会儿剧", None, "23:00")]))
-        food = _food(engine)
-        _stage_holding(engine, food.product_id, 1.0)
-        _, eating = _start_eating(engine, food, "early-lunch")
-        _run_out(engine, eating.activity_id, "early-lunch")
+        food = selected_food(engine)
+        stage_food_holding(engine, food.food_id, 1.0)
+        _, eating = start_eating(engine, food, "early-lunch")
+        run_activity_out(engine, eating.activity_id, "early-lunch")
         lunch, evening = engine.context.state.agents[1].day_plan.goals
         assert (lunch.progress_activity_id, evening.progressed_at) == (eating.activity_id, None)
         destination = tmp_path / "export"

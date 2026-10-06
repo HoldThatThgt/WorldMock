@@ -25,6 +25,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime_module
+from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.integration.as2_fixtures import (
     FAKE_AS2_FILES,
     expected_as2_sha256,
@@ -86,12 +87,11 @@ def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
     identity = stage_model_identity()
     stages = identity["stages"]
 
-    assert set(stages) == {"action", "work_review"}
+    assert set(stages) == {"action"}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
                                 "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS,
                                 "same_second_continuation": True}
     assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
-    assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
     assert identity["base_url"] == "https://api.deepseek.com/beta"
     assert identity["max_retries"] == 0 and identity["strict"] is True
     assert identity["reasoning_effort"] is None
@@ -135,6 +135,9 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
     from worldmock.profile.textgen import render_card
 
     scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
+    configured = scenario.agents[0].model_copy(update={"background_story": "测试人物的真实画像背景。",
+                                                      "bedtime_window": (22.0, 23.0)})
+    scenario = scenario.model_copy(update={"agents": (configured,)})
     compiled: list[int] = []
     card = make_card()
 
@@ -155,18 +158,6 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
     assert restored[0]["config"]["max_react_turns"] == 16
 
 
-def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> None:
-    """写入 runtime 恢复验证使用的最小严格 LifeAgent 工作区。"""
-    workspace.mkdir()
-    agent = {
-        "schema_version": 1,
-        "agent_class": "LifeAgent",
-        "agent_id": 1,
-        "initialized_at": "2026-01-01T00:00:00+00:00" if initialized else None,
-        "profile": {"id": 1, "same_second_continuation": True},
-    }
-    (workspace / "AGENT.json").write_text(json.dumps(agent))
-    (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
 
 
 def test_imported_as2_matches_rebuildable_locked_source() -> None:
@@ -465,7 +456,7 @@ def test_restore_publishes_database_agents_and_status_together(tmp_path) -> None
     state = {"version": 0, "current_time": 1, "run_id": "parent"}
     parent = FootprintStore.create(parent_dir, manifest, state)
     workspace = tmp_path / "agent"
-    _write_agent_workspace(workspace)
+    write_agent_workspace(workspace)
     snapshots = {
         "agent:1": snapshot_directory(workspace, parent.assets),
         "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"}),
@@ -498,7 +489,7 @@ def test_counterfactual_branch_freezes_intervention_before_publish(tmp_path) -> 
     state = {"version": 0, "current_time": 1, "run_id": "parent"}
     parent = FootprintStore.create(parent_dir, manifest, state)
     workspace = tmp_path / "agent"
-    _write_agent_workspace(workspace)
+    write_agent_workspace(workspace)
     snapshots = {
         "agent:1": snapshot_directory(workspace, parent.assets),
         "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"}),
@@ -538,7 +529,7 @@ def test_restore_rejects_corrupt_used_memory_before_branch_publish(tmp_path) -> 
     state = {"version": 0, "current_time": 1, "run_id": "parent"}
     parent = FootprintStore.create(parent_dir, manifest, state)
     workspace = tmp_path / "agent"
-    _write_agent_workspace(workspace, initialized=True)
+    write_agent_workspace(workspace, initialized=True)
     (workspace / "memory").mkdir()
     (workspace / "MEMORY.md").write_text("# Memory\n")
     (workspace / "memory" / "episodes.jsonl").write_text("{damaged}\n")
@@ -740,9 +731,15 @@ def _npc_delivery_engine(tmp_path: Path):
     from tests.life.conftest import context, start_request
     from worldmock.life.engine import LifeEngine
 
-    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+    from tests.engine_fixture import _mutated_scenario
     from worldmock.life.world_setup import load_scenario
 
+    source = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+    contact = {"contact_id": "contact-chenxi-oldfriend", "salutation": "沈昊", "relation": "friend",
+               "closeness": 20, "channels": ["message", "phone"], "reply_policy": "model",
+               "receive_location_id": "office"}
+    scenario_path = _mutated_scenario(source, lambda document: document["agents"][0].update(contacts=[contact]),
+                                     tmp_path / "scenario")
     scenario, _ = load_scenario(scenario_path)
     run_id = "npc-delivery-test"
     from worldmock.life.models import RunIdentity
@@ -906,7 +903,7 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         assert order.index("checkpoint_created") < order.index("day_plan_generated")
         assert not {"observation", "decision_started", "memory_updated"} & set(order)
         assert {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces} == before
-        assert set(stage_model_identity()["stages"]) == {"action", "work_review"}
+        assert set(stage_model_identity()["stages"]) == {"action"}
         _forbid_plan_day_client(monkeypatch)
         await env.checkpoint(_checkpoint_request(engine, tmp_path, "again"))
     finally:

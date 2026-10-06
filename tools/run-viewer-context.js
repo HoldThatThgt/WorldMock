@@ -115,7 +115,7 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；custom/agents/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '七个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
+      fill: '六个世界请求工具、两个世界查询工具（query_world、recall_task_summary）与三个记忆查询工具，'
         + '严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],

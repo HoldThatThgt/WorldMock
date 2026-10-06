@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from worldmock.categories.identity import refresh_manifest_identity
 from worldmock.errors import IntegrityError
 from worldmock.life.felt import (
     APPETITE_ANCHOR_KCAL_DEFAULT,
@@ -264,28 +263,10 @@ def test_body_config_rejects_emergency_threshold_not_above_starving(emergency: f
     assert BodyConfig.model_validate(accepted).emergency_threshold_kcal == 100.5
 
 
-def test_scenario_with_emergency_threshold_at_starving_constant_fails_to_load(tmp_path: Path) -> None:
-    """目录紧急阈值改为 100 kcal 后，场景加载在组装身体配置时被拒。"""
-    catalog = tmp_path / "catalog"
-    shutil.copytree(ENVIRONMENT_ROOT / "catalog", catalog)
-    lines = (catalog / "resources.jsonl").read_text(encoding="utf-8").splitlines()
-    changed = []
-    for line in lines:
-        record = json.loads(line)
-        for rule in record.get("alert_rules") or []:
-            if rule.get("code") == "EMERGENCY_ENERGY":
-                rule["below"] = 100
-        changed.append(json.dumps(record, ensure_ascii=False))
-    (catalog / "resources.jsonl").write_text("\n".join(changed) + "\n", encoding="utf-8")
-    refresh_manifest_identity(catalog)
-    scenarios = tmp_path / "scenarios"
-    scenarios.mkdir()
-    document = json.loads((ENVIRONMENT_ROOT / "scenarios" / "single-person.json").read_text(encoding="utf-8"))
-    document["corpus_root"] = str(ENVIRONMENT_ROOT / "corpora")
-    path = scenarios / "low-emergency.json"
-    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
-    with pytest.raises((ValidationError, IntegrityError), match="above the starving floor"):
-        load_runtime_scenario(path)
+def test_environment_cannot_override_system_energy_threshold(engine_factory) -> None:
+    """@brief 环境只能声明体重，不能覆盖固定的饥饿规则。"""
+    with pytest.raises(IntegrityError, match='Scenario validation failed'):
+        engine_factory(mutate=lambda document: document.update(body={'emergency_threshold_kcal': 100}))
 
 
 @pytest.mark.parametrize(
@@ -424,9 +405,6 @@ class TestMood:
 
     def test_pulse_table_values(self) -> None:
         assert MOOD_PULSES == {
-            "work_review_passed": 0.3,
-            "work_review_returned": -0.3,
-            "task_deadline_missed": -0.4,
             "message_received": 0.1,
             "discomfort_hourly": -0.1,
             "goal_progressed": 0.05,
@@ -483,7 +461,7 @@ class TestMood:
 
     def test_multi_pulse_superposition_and_decay(self) -> None:
         # 0 → +0.3 → 衰减 45min → 0.15 → +0.1 → 0.25 → 衰减 45min → 0.125。
-        valence = apply_mood_pulse(0.0, MOOD_PULSES["work_review_passed"], 0.0)
+        valence = apply_mood_pulse(0.0, 0.3, 0.0)
         assert valence == pytest.approx(0.3)
         valence = decay_mood_valence(valence, 45.0, 0.0)
         assert valence == pytest.approx(0.15)
@@ -495,7 +473,7 @@ class TestMood:
 
     def test_multi_pulse_with_neuroticism(self) -> None:
         # N=1：任务到期未交 −0.4×1.5=−0.6；衰减 58.5 分钟后 −0.3。
-        valence = apply_mood_pulse(0.0, MOOD_PULSES["task_deadline_missed"], 1.0)
+        valence = apply_mood_pulse(0.0, -0.4, 1.0)
         assert valence == pytest.approx(-0.6)
         valence = decay_mood_valence(valence, 58.5, 1.0)
         assert valence == pytest.approx(-0.3)

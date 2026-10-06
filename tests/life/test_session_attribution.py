@@ -21,7 +21,7 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
 from tests.life.test_dayrun_restaurants import _stage
 from tests.life.test_memory_layer import (_act, _clock, _contact_message, _mail_line, _observe, _remote_order,
                                           _walk)
-from tests.life.test_progress_events import _stage_task_near_due
+from tests.life.test_same_moment_decisions import _contacts
 from worldmock.life import prompt_capacity, progress_layer, schedule
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.models import ActivityStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
@@ -66,7 +66,11 @@ def test_arrival_commit_belongs_wholly_to_the_transit_session(engine_factory) ->
     walk = _walk(engine, "arrive-walk")
     trip = engine.context.state.activities[walk.activity_id]
     wake_by_mail(engine, offset=trip.planned_end_at - engine.context.state.current_time)
-    assert advance_until_ready(engine)
+    while engine.context.state.activities[walk.activity_id].status == ActivityStatus.ACTIVE:
+        if engine.scheduling_state().ready_agent_ids:
+            _act(engine, f"arrival-continue-{engine.context.state.version}", "report_status",
+                 report_request(activity_name(engine, walk.activity_id), summary="继续走到公司。"))
+        advance_next(engine)
     arrived = engine.context.state.current_time
     assert arrived == trip.planned_end_at
     assert engine.context.state.activities[walk.activity_id].status == ActivityStatus.COMPLETED
@@ -117,19 +121,19 @@ def test_departure_commit_belongs_wholly_to_the_old_session(engine_factory) -> N
 def test_answering_binds_progress_messages_and_only_unreplied_memory_messages(engine_factory) -> None:
     """answering 只关联可见的直接消息：进度层 message_arrival 的消息回复过也能关联；那段停留结束后，记忆层里已回复的消息全文
     仍在（记为已呈现），但不能再关联，只有未回复的可以。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
     contacts = {item.salutation: item for item in engine.context.scenario.agents[0].contacts}
-    replied = _contact_message(engine, contacts["陈母"].contact_id, "到公司了吗")
-    open_ = _contact_message(engine, contacts["沈昊"].contact_id, "周末打球")
-    _act(engine, "bind-reply", "send_message", SendMessageActionRequest(recipient_name="联系人：陈母", text="到了"))
+    replied = _contact_message(engine, contacts["母亲"].contact_id, "到公司了吗")
+    open_ = _contact_message(engine, contacts["好友"].contact_id, "周末打球")
+    _act(engine, "bind-reply", "send_message", SendMessageActionRequest(recipient_name="联系人：母亲", text="到了"))
     home = _observe(engine, "bind-home")
     assert [row["message_id"] for row in home["message_bindings"]] == [replied, open_]
     _walk(engine, "bind-walk")
     road = _observe(engine, "bind-road")
     assert road["presented_message_ids"] == [replied, open_]
-    assert road["message_bindings"] == [{"name": f"沈昊 {_clock(engine, engine.context.state.current_time)} 的消息",
-                                         "message_id": open_, "sender_id": contacts["沈昊"].contact_id}]
+    assert road["message_bindings"] == [{"name": f"好友 {_clock(engine, engine.context.state.current_time)} 的消息",
+                                         "message_id": open_, "sender_id": contacts["好友"].contact_id}]
 
 
 def test_chat_invitation_writes_no_settled_line_for_condensation(engine_factory) -> None:
@@ -168,23 +172,14 @@ def test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences(en
     assert expected in plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1).payload["动作结果"]
 
 
-def test_due_soon_record_uses_the_wake_lead_time(engine_factory, monkeypatch) -> None:
-    """截止预警的提前量与唤醒同源（schedule.TASK_DUE_SOON_SECONDS）：改动这一个常量，进度层的 due_soon 随之移动。"""
-    engine = engine_factory()
-    monkeypatch.setattr(schedule, "TASK_DUE_SOON_SECONDS", 2700)
-    name = _stage_task_near_due(engine, 2700)
-    events = _observe(engine, "lead-seen")["progress_layer"]["events"]
-    records = [row for row in events if row["type"] == "task_deadline"]
-    assert records == [{"occurred_at": iso_time(engine.context.state.current_time, engine.context.scenario.timezone),
-                        "type": "task_deadline", "task": name, "stage": "due_soon"}]
 
 
 def test_open_order_record_stays_uncondensed_while_older_records_fold(engine_factory, monkeypatch) -> None:
     """预算浓缩（第四章）：上次行动请求之前的记录中，仍在途订单的下单记录受保护、不被折叠；它之前的一段未受保护记录先折成
     condensed，它之后的记录不与之前的连成一段。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_contacts)
     stage_day_plan(engine)
-    _stage(engine, "market", 1500)
+    _stage(engine, "home", 1500)
     _act(engine, "fold-revise", "revise_day_plan", _REVISE)
     order = _remote_order(engine, "fold-order")
     friend = engine.context.scenario.agents[0].contacts[0].salutation

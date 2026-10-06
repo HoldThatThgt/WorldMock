@@ -25,7 +25,7 @@ from worldmock.footprints.timeline_labels import _load_render_day
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
 from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days
-from worldmock.life import content, day_planning, memory_evidence, work_review
+from worldmock.life import content, day_planning, memory_evidence
 from worldmock.model_feedback import schema_error_details
 
 
@@ -39,17 +39,15 @@ def test_structured_digest_and_raw_string_contracts_use_same_bytes():
     value = {'中文': ['é', 1], 'nested': {'b': 2, 'a': 1}}
     expected = '{"nested":{"a":1,"b":2},"中文":["é",1]}'.encode('utf-8')
     assert canonical_json(value) == expected
-    assert sha256_json(value) == work_review._digest(value) == hashlib.sha256(expected).hexdigest()
-    assert work_review._digest('汉字\r\n') == hashlib.sha256('汉字\r\n'.encode()).hexdigest()
-    assert work_review._digest('text') != sha256_json('text')
+    assert sha256_json(value) == hashlib.sha256(expected).hexdigest()
 
 
 @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')])
 def test_digest_consumers_reject_nonfinite_values_with_log(value, caplog):
-    for operation in (canonical_json, sha256_json, work_review._digest):
+    for operation in (canonical_json, sha256_json):
         with pytest.raises(ValueError):
             operation({'nested': value})
-    assert sum('Canonical JSON encoding failed' in record.message for record in caplog.records) == 3
+    assert sum('Canonical JSON encoding failed' in record.message for record in caplog.records) == 2
 
 
 @pytest.mark.parametrize('value,valid', [('a'*64, True), ('0'*64, True), ('A'*64, False), ('g'*64, False),
@@ -238,13 +236,10 @@ def test_atomic_publication_order_and_failed_replace_cleanup(tmp_path, monkeypat
 @pytest.mark.parametrize('invalid', [True, False, float('nan'), float('inf'), -1])
 def test_curve_models_shared_by_body_and_life_reject_invalid_numbers(invalid):
     from worldmock.exchange.body import BODY_CONSTANTS
-    from worldmock.life.models import CurvePoint as LifeCurve
-    assert LifeCurve is CurvePoint
     assert all(isinstance(point, CurvePoint) for point in BODY_CONSTANTS.food_efficiency_curve)
-    for model in (CurvePoint, LifeCurve):
-        for key in ('input_value', 'output_value'):
-            with pytest.raises(ValidationError):
-                model(**{'input_value': 1, 'output_value': 1, key: invalid})
+    for key in ('input_value', 'output_value'):
+        with pytest.raises(ValidationError):
+            CurvePoint(**{'input_value': 1, 'output_value': 1, key: invalid})
 
 
 def test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction():
@@ -274,7 +269,7 @@ def test_interval_consumers_do_not_count_invalid_settlements(start, end):
     assert not valid_interval(start, end)
     assert quality._activity_quality([], [event])['body_settlements_missing_interval'] == 1
     assert behavior_metrics._person_elapsed_minutes([row], [])['missing_interval_events'] == 1
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None, ())
+    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
     timeline = workload_metrics._timeline([row], agent, __import__('zoneinfo').ZoneInfo('UTC'))
     assert (timeline.start, timeline.end) == (0, 0)
     progress = {**row, 'event_type': 'activity_progress', 'activity_id': 'activity',
@@ -314,7 +309,7 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert behavior_metrics._agent_days([{'agent_id': 1, 'occurred_at': start},
                                         {'agent_id': 1, 'occurred_at': end-1}], '1', zone_info) == 1
     body = _body(start, end).model_dump()
-    agent = workload_metrics.AgentWorkday(None, 'home', None, None, ())
+    agent = workload_metrics.AgentWorkday(None, 'home', None, None)
     timeline = workload_metrics._timeline([body], agent, zone_info)
     assert workload_metrics._days(timeline, zone_info) == [day]
 

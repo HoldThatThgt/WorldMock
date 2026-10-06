@@ -251,7 +251,17 @@
       ]
     }
   },
-  "messages": [],
+  "messages": [
+    {
+      "message_id": "test-mail",
+      "thread_id": "test-mail-thread",
+      "recipient_agent_id": 1,
+      "sent_at": "2026-01-05T23:59:00+08:00",
+      "subject": "人工测试通知",
+      "body": "这是用于验证邮件到达和阅读的人工通知。",
+      "attachment_sha256": null
+    }
+  ],
   "calendar": {
     "spring_festival_dates": [],
     "makeup_work_dates": [],

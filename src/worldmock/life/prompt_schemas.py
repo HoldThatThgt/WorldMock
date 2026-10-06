@@ -35,7 +35,7 @@ TARGET_KINDS = ("location", "product", "holding", "person", "contact", "self", "
 #: 工具层可列出的方式，不含仅在请求中由系统确定方式的「购买」。
 WAY_LABELS = tuple(way for way in WAYS if way != "购买")
 #: 以目标名称为参数的其他工具。
-TARGET_TOOLS = (*CONTROL_TOOLS, "submit_work", "send_message")
+TARGET_TOOLS = (*CONTROL_TOOLS, "send_message")
 #: 动作状态由生产枚举按声明顺序投影。
 ACTION_STATUSES = tuple(status.value for status in ActionStatus)
 #: 五项体感分级文字由实际分级表派生。
@@ -71,8 +71,7 @@ def _tool_action(tools: tuple[str, ...]) -> dict[str, Any]:
 _VERB_ACTION = _availability({
     "action": {"enum": list(LIFE_VERBS)}, "way": {"enum": list(WAY_LABELS)},
     "price": _NULLABLE_TEXT, "duration": _NULLABLE_TEXT, "quantity": _NULLABLE_TEXT, "note": _NULLABLE_TEXT})
-_CONTRACT = _object({"opens": _TIME, "deadline": _TIME, "place": _TEXT,
-                     "remaining": _TEXT, "outlook": _NULLABLE_TEXT})
+_CONTRACT = _object({"topic": _TEXT, "target": _TEXT, "done": _TEXT, "remaining": _TEXT})
 
 
 def _tools_for(kind: str, tools: tuple[str, ...]) -> dict[str, Any]:
@@ -85,10 +84,10 @@ def _tools_for(kind: str, tools: tuple[str, ...]) -> dict[str, Any]:
 
 _TARGET = _object({
     "name": _TEXT, "kind": {"enum": list(TARGET_KINDS)}, "phase": {"enum": ["进行中", "刚结束", None]},
-    "state": _NULLABLE_TEXT, "contract": _CONTRACT,
+    "state": _NULLABLE_TEXT, "contract": _CONTRACT, "last_report": _TEXT,
     "actions": {"type": "array", "items": _VERB_ACTION},
     "tools": {"type": "array", "items": _tool_action(TARGET_TOOLS)},
-}, optional=("contract",))
+}, optional=("contract", "last_report"))
 _TARGET["allOf"] = [
     {"if": {"properties": {"kind": {"const": "task"}}}, "then": {"required": ["contract"]},
      "else": {"not": {"required": ["contract"]}}},
@@ -96,7 +95,7 @@ _TARGET["allOf"] = [
      "then": {"properties": {"phase": {"enum": ["进行中", "刚结束"]}, "actions": {"maxItems": 0}}},
      "else": {"properties": {"phase": {"type": "null"}}}},
     _tools_for("activity", CONTROL_TOOLS),
-    _tools_for("task", ("submit_work",)),
+    _tools_for("task", ()),
     _tools_for("person", ("send_message",)),
     _tools_for("contact", ("send_message",)),
     {"if": {"properties": {"kind": {"enum": ["activity", "task", "person", "contact"]}}}, "else": {
@@ -220,8 +219,10 @@ _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES
                        "app_content": _object({"app": _TEXT, "title": _TEXT,
                                                "kind": {"enum": list(CONTENT_KIND_LABELS.values())},
                                                "summary": {"type": "string", "maxLength": 200},
-                                               "pushed": {"type": "boolean"}})}},
-                   "work_review": {"type": "object"}}, optional=("work_review",))
+                                               "pushed": {"type": "boolean"}}),
+                       "work": {"type": "array", "items": _object(
+                           {"name": _TEXT, "done": _TEXT, "remaining": _TEXT})}}},
+                   })
 
 
 def _record(kind: str, fields: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -231,8 +232,8 @@ def _record(kind: str, fields: dict[str, Any], optional: tuple[str, ...] = ()) -
 
 _MESSAGE_RECORD = _record("message_arrival", {
     "sender": _NULLABLE_TEXT, "kind": {"enum": ["direct", "chat_invite", "mail"]},
-    "text": _TEXT, "subject": _TEXT, "task": _TEXT,
-}, optional=("text", "subject", "task"))
+    "text": _TEXT, "subject": _TEXT,
+}, optional=("text", "subject"))
 _MESSAGE_RECORD["if"] = {"properties": {"kind": {"const": "mail"}}}
 _MESSAGE_RECORD["then"] = {"required": ["subject"], "not": {"required": ["text"]}}
 _MESSAGE_RECORD["else"] = {"required": ["text"], "not": {"required": ["subject"]},
@@ -253,7 +254,7 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                                  "message": _TEXT}),
             _record("app_push", {"app": _TEXT, "title": _TEXT, "kind": {"enum": list(CONTENT_KIND_LABELS.values())},
                                   "summary": {"type": "string", "maxLength": 200}}),
-            _record("task_deadline", {"task": _TEXT, "stage": {"enum": ["due_soon", "expired"]}}),
+            _record("work_completed", {"topic": _TEXT}),
             _record("plan_reminder", {"goal": _TEXT}),
             _record("errand_reminder", {"errand": _TEXT}),
             _record("errand_completed", {"errand": _TEXT}),

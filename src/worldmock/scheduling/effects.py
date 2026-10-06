@@ -40,7 +40,7 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
         sleeping = any(item.kind == ActivityKind.SLEEP for item in active_activities(state, event.agent_id))
         wake = "app_push" if "push_id" in data and not sleeping else None
         return ScheduledOutcome(changed, data, wake, "environment")
-    if event.kind in {ScheduledKind.TASK_EXPIRED, ScheduledKind.CALENDAR_FLAG}:
+    if event.kind == ScheduledKind.CALENDAR_FLAG:
         return ScheduledOutcome(state, dict(event.data), "message_arrival")
     if event.kind == ScheduledKind.BILL_DUE:
         return _bill_due(state, event)
@@ -72,26 +72,16 @@ def process_scheduled_events(state: WorldState, target: int, semantics: Scenario
 
 
 def _reveal_event(state: WorldState, event: ScheduledEvent, semantics: ScenarioSemantics) -> ScheduledOutcome:
-    """@brief 到达邮件和可用任务只增加对应人物的实际可见身份。"""
-    if event.kind not in {ScheduledKind.MAIL_ARRIVAL, ScheduledKind.WORK_AVAILABLE}:
+    """@brief 普通邮件到达只增加对应人物的可见邮件，不创建工作资格或任务状态。"""
+    if event.kind != ScheduledKind.MAIL_ARRIVAL:
         logging.error("Unsupported scheduled event kind: %s", event.kind)
         raise IntegrityError(f"Unsupported scheduled event kind: {event.kind}")
     agent = state.agents[event.agent_id]
-    if event.kind == ScheduledKind.MAIL_ARRIVAL:
-        visible = set(agent.visible_message_ids) | {event.data["message_id"]}
-        message = next(item for item in semantics.scenario.messages if item.message_id == event.data["message_id"])
-        tasks = set(agent.visible_task_ids)
-        if message.related_task_id is not None:
-            tasks.add(message.related_task_id)
-        agent = agent.model_copy(update={"visible_message_ids": visible, "visible_task_ids": tasks}, deep=True)
-    else:
-        visible = set(agent.visible_task_ids) | {event.data["task_id"]}
-        agent = agent.model_copy(update={"visible_task_ids": visible}, deep=True)
-    agents = dict(state.agents)
-    agents[agent.agent_id] = agent
+    visible = set(agent.visible_message_ids) | {event.data["message_id"]}
+    agent = agent.model_copy(update={"visible_message_ids": visible}, deep=True)
+    agents = {**state.agents, agent.agent_id: agent}
     changed = state.model_copy(update={"agents": agents}, deep=True)
-    wake = "message_arrival" if event.kind == ScheduledKind.MAIL_ARRIVAL else "task_available"
-    return ScheduledOutcome(changed, dict(event.data), wake)
+    return ScheduledOutcome(changed, dict(event.data), "message_arrival")
 
 
 def _deliver_message(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:

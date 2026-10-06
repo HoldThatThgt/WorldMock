@@ -221,7 +221,7 @@ def reveal_mail(activity: ActivityState, agent: AgentState,
     changed = agent.model_copy(update={"read_message_ids": read}, deep=True)
     message = messages[message_id]
     data = {"message_id": message_id, "thread_id": message.thread_id, "subject": message.subject,
-            "body": message.body, "related_task_id": message.related_task_id,
+            "body": message.body,
             "attachment_sha256": message.attachment_sha256}
     return changed, data
 

@@ -1,13 +1,13 @@
 """@brief 零点计划 plan_day 的只读输入装配（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章「输入、调用、失败与记录」）。
 
 输入全部来自世界状态与足迹记录，不读人物工作区与记忆运行时：人物档案与场景背景原文（background_story）、
-回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收、结束的活动），二者都取
+回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、结束的活动），二者都取
 settled_text 的共享句式（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「settled 的写法」）、
 回顾时段里已受理的 conclude_activity 请求记下的 summary 与记忆（经 control_items 读出，含看法与偏好；标「你自己记下的，
-未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：可见任务、还没办完的个人事务、收件箱、在途订单及预计送达、
+未经核验」；被拒与重放的请求不列），以及此刻可见的事实子集：工作主题、还没办完的个人事务、收件箱、在途订单及预计送达、
 联系人、上一天目标的推进情况。
 「个人事务」是只读键（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-零点计划修订与只读问答 ）：行与待办层同一构造（errands.plan_rows），写名称、要办成
-什么、已办到哪、备注与提醒时刻，不登记来源事件；零点计划不创建、不更改、不终结事务，「待办任务」仍只是工作任务。
+什么、已办到哪、备注与提醒时刻，不登记来源事件；零点计划不创建、不更改、不终结事务，「待办任务」只呈现分配的工作主题。
 「上班安排」是场景声明的工作安排按输入「计划日期」所指的本地日求值的结果（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6；
 零点边界上即新开始的一日）：与环境层 duty 同源（work_schedule.day_arrangement），不含 status，地点写显示名，
 没有工作安排为 null。
@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life import errands, progress_layer, projection, work_schedule
 from worldmock.life.control_items import control_items
+from worldmock.life.work import contract_view, work_totals
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.life.settled_text import (
     ActivityFacts,
@@ -172,7 +173,7 @@ def _experience_sentences(
 
 
 def _result_sentences(context: Any, observations: Any, agent_id: int, window: _Window) -> tuple[list[str], list[str]]:
-    """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：发消息、下单、提交工作、
+    """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：发消息、下单、
     送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败、重放的请求与其余工具不写。"""
     store = context.store
     context = observations._layer_context(context.state.agents[agent_id], (), [])
@@ -248,15 +249,17 @@ def _conclusion_records(context: Any, agent_id: int, window: _Window) -> tuple[l
 
 
 def _task_rows(context: Any, observations: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
-    """@brief 此刻可见且未付款、未过截止的任务：名称、截止与要求的地点。"""
-    return [
-        {
-            "任务": row["title"],
-            "截止": window.when(row["due_at"]),
-            "地点": _place(context, row["required_location_id"]) if row.get("required_location_id") else None,
-        }
-        for row in observations._visible_task_rows(agent)
-    ]
+    """@brief 已分配且未完成的主题只写主题、目标和实际已做，不写不存在的截止或任务验收。"""
+    config = next(item for item in context.scenario.agents if item.agent_id == agent.agent_id)
+    rows = []
+    for topic_id in config.work_topic_ids:
+        topic = context.rules.work_topics[topic_id]
+        worked = work_totals(context.state, agent.agent_id, topic_id)
+        if worked >= topic.target_seconds:
+            continue
+        view = contract_view(topic, worked)
+        rows.append({"主题": topic.topic, "目标": view["target"], "已做": view["done"]})
+    return rows
 
 
 def _product_names(context: Any) -> dict[str, str]:

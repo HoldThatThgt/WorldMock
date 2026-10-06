@@ -33,7 +33,7 @@ MAX_START_ITEMS = 2
 
 #: 方式 → 列出这种方式的私有绑定类别（按动词与方式增补前缀、限定比对范围的依据）。
 _WAY_KINDS: dict[str, frozenset[str]] = {
-    "步行": frozenset({"location"}), "驾车": frozenset({"location"}), "工作": frozenset({"work_task"}),
+    "步行": frozenset({"location"}), "驾车": frozenset({"location"}), "工作": frozenset({"work_topic"}),
     "打开": frozenset({"app"}), "交谈": frozenset({"person"}), "通话": frozenset({"contact"}),
     "阅读": frozenset({"mail"}), "进行": frozenset({"lifestyle"}),
     "等待": frozenset({"self"}), "到店": frozenset({"supply"}), "远程下单": frozenset({"supply"}),
@@ -52,7 +52,7 @@ _NAMED_WAYS: dict[str, str] = {**{way: "supply" for way in NAMED_PURCHASE_WAYS},
 #: named_kind 的全部取值：商品、生活活动与地点。
 NAMED_KINDS = ("supply", "lifestyle", "location")
 #: 目录绑定（catalog_bindings）里的私有绑定类别：本轮没有列出的生活活动。
-CATALOG_KINDS = frozenset({"lifestyle"})
+CATALOG_KINDS = frozenset({"lifestyle", "work_topic"})
 #: 出行方式 → 冻结路线的出行方式（没有列出路线的地点按所写方式找路线，由环境判定）。
 _TRAVEL_MODES = {way: mode for mode, way in TRAVEL_WAYS.items()}
 #: from、to 都应为 null 的动词：写成目标本身或当前所在地点时是冗余的。
@@ -489,6 +489,11 @@ def _not_found(book: NameBook, request: Any, index: int) -> Failure:
     acquisition = verb == "consume" and item.way == "食用" and not candidates
     if acquisition:
         candidates = _acquisition_candidates(book, item.target)
+    if item.way == "工作":
+        reason = "The named work topic is not assigned to you."
+        error = ErrorItem(("items", index, "target"), item.target, "WORK_TOPIC_NOT_FOUND",
+                          expected="Use an exact known work topic name.", why=reason, candidates=candidates)
+        return Failure(error, reason, reason)
     reason = f"No known object named {item.target} supports this way; changing spelling cannot create an object."
     expected = ("A held edible item is required; purchase it first." if acquisition and candidates
                 else "A known object name in the selected way's category is required.")

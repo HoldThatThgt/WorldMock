@@ -79,12 +79,12 @@ class EngineContext:
         from worldmock.life.rules import LifeRuleEngine
 
         self.corpus_root = Path(self.corpus_root).resolve()
-        self.rules = LifeRuleEngine(self.scenario, self.corpus_root, self.semantics.catalog.graph)
+        self.state = WorldState.model_validate(self.store.state)
+        self.rules = LifeRuleEngine(self.scenario, self.semantics.catalog, self.corpus_root)
         self.affordance_contract = affordance_contract(self.semantics.affordances)
         self.lifestyle_items = load_lifestyle_items(self.corpus_root, self.scenario.body.activity_met)
         names = {item.activity_id: item.name for item in self.lifestyle_items}
         self.titles = title_index(self.scenario, names, self.semantics.catalog)
-        self.state = WorldState.model_validate(self.store.state)
         self.ops = OpsLogger(self.store.run_dir, self.scenario.timezone)
         self.validate()
 
@@ -94,7 +94,7 @@ class EngineContext:
         return self.semantics.scenario
 
     def validate(self) -> None:
-        """@brief 在新建和恢复时核对场景、内容、决策阶段、路线、游戏和状态身份。"""
+        """@brief 在新建和恢复时核对场景、内容、决策阶段、路线、内容与状态身份。"""
         if self.state.scenario_sha256 != self.scenario_sha256:
             logging.error("Runtime scenario identity mismatch")
             raise IntegrityError("Runtime scenario identity mismatch")

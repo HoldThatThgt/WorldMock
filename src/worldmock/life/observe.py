@@ -7,10 +7,7 @@ docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第一章）、私有�
 
 from __future__ import annotations
 from worldmock.life.world_query import attach_world_query
-from worldmock.life.models import MeetingMinutes
-from worldmock.life.work import visible_work_material
 import logging
-from worldmock.life.work import work_totals as totals
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.models import LIFESTYLE_TYPE_PREFIX
 from worldmock.life.readable import _datetime
@@ -42,14 +39,14 @@ from worldmock.life import (
     request_linking,
     sessions,
 )
-from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation, TravelMode
+from worldmock.life.models import ActivityStatus, SameMomentPresentation, TravelMode
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
-from worldmock.life.work import task_listed, work_totals
+from worldmock.life.work import work_totals
 from worldmock.life.content import mail_headers
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
@@ -110,7 +107,7 @@ class ObservationBuilder:
         """@brief 本次观察各层共用的只读上下文：活动名避开任务名、目标名（待办层的目标文字）与对象名，绑定动作的 note 取
         可用性原因。"""
         goals = [goal.goal for goal in visible_goals(self.context.state, agent.agent_id) or ()]
-        taken = [f"工作：{row['title']}" for row in task_rows] + goals + [row["object"] for row in bindings]
+        taken = [f"工作：{row['topic']}" for row in task_rows] + goals + [row["object"] for row in bindings]
         context = LayerContext(
             state=self.context.state,
             scenario=self.context.scenario,
@@ -173,7 +170,7 @@ class ObservationBuilder:
             for full in names["activities"].values()
         }
         return {
-            "task_bindings": [{"task_name": f"工作：{row['title']}", "task_id": row["task_id"]} for row in task_rows],
+            "task_bindings": [{"task_name": f"工作：{row['topic']}", "topic_id": row["topic_id"]} for row in task_rows],
             "goal_bindings": goals,
             "activity_bindings": [
                 {
@@ -308,8 +305,6 @@ class ObservationBuilder:
         data: dict[str, Any] = {}
         menu = resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id)
         data["interaction_menu"] = menu.model_dump(mode="json")
-        data["content_progress"] = self._content_progress(agent)
-        data["work_progress"] = self._work_progress_rows(agent)
         data["messages"] = mail_headers(agent, self.context.rules.messages)
         data["affordance_contract"] = self.context.affordance_contract
         context = self._discovery_context(agent)
@@ -324,11 +319,7 @@ class ObservationBuilder:
         data["inventory"] = agent.inventory
         data["available_inventory"] = agent.inventory.get(agent.location_id, {})
         data["held_foods"] = self._inventory_item_contracts(agent)
-        data["tasks"] = [
-            self._visible_task(item, agent.agent_id)
-            for item in sorted(agent.visible_task_ids)
-            if item not in self.context.state.paid_task_ids and self._task_listed(item)
-        ]
+        data["work_topics"] = self._work_topic_rows(agent)
         data["routes"] = _route_catalog(
             self.context.scenario, self.context.state, agent.agent_id, self.context.semantics
         )
@@ -345,56 +336,41 @@ class ObservationBuilder:
         data["locations"] = _location_catalog(self.context.scenario)
         return data
 
-    def _work_progress_rows(self, agent) -> list[dict]:
-        """@brief 工作目录：已投入/有效/合同剩余工时（私有证据；呈现只在工具层任务目标的 contract，docs/CONTRACTS.md#contracts-worldmock-接口合同「七层字段」）。"""
-        rows = []
-        for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.context.state.paid_task_ids:
-                continue
-            task = self.context.rules.tasks[task_id]
-            (worked, effective) = work_totals(self.context.state, agent.agent_id, task_id)
-            rows.append(
-                {
-                    "task_id": task_id,
-                    "worked_seconds": worked,
-                    "effective_seconds": effective,
-                    "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
-                }
-            )
-        return rows
 
-    def _task_listed(self, task_id: str) -> bool:
-        """@brief 未付款任务是否仍列出：截止前，或截止当日的本地日结束前（work.task_listed）。"""
-        return task_listed(
-            self.context.rules.tasks[task_id], self.context.state.current_time, self.context.scenario.timezone
-        )
+
+
+    def _work_topic_rows(self, agent) -> list[dict]:
+        """@brief 私有证据列出本人所有已分配主题与实际累计工时，不复制任务状态。"""
+        config = agent_config(self.context.scenario, agent.agent_id)
+        return [{"topic_id": topic_id, "topic": self.context.rules.work_topics[topic_id].topic,
+                 "target_seconds": self.context.rules.work_topics[topic_id].target_seconds,
+                 "worked_seconds": work_totals(self.context.state, agent.agent_id, topic_id)}
+                for topic_id in sorted(config.work_topic_ids)]
 
     def _visible_task_rows(self, agent) -> list[dict]:
-        """@brief 可见、未结清且仍列出（截止前或截止当日内）的任务行：task_id、标题、截止、剩余合同工时与前置条件字段。
+        """@brief 工具层从运行开始列出已分配且尚未完成的工作主题。"""
+        return [row for row in self._work_topic_rows(agent) if row["worked_seconds"] < row["target_seconds"]]
 
-        未付款的逾期任务保留到截止当日的本地日结束（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「逾期工作从观察和工具中消失」）。
-        """
-        rows = []
-        for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.context.state.paid_task_ids or not self._task_listed(task_id):
-                continue
-            task = self.context.rules.tasks[task_id]
-            due = int(task.due_at.timestamp())
-            (worked, _) = work_totals(self.context.state, agent.agent_id, task_id)
-            rows.append(
-                {
-                    "task_id": task_id,
-                    "title": task.title,
-                    "due_at": due,
-                    "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
-                    "required_location_id": task.required_location_id,
-                    "required_skill": task.required_skill,
-                    "minimum_skill": task.minimum_skill,
-                    "maximum_duration_seconds": task.maximum_duration_seconds,
-                    "required_effective_seconds": task.required_effective_seconds,
-                }
-            )
-        return rows
+    def _motivation_evidence(self, agent) -> tuple:
+        """@brief 动机输入只使用已分配主题、真实请求和实际工作秒数。"""
+        rows = self._visible_task_rows(agent)
+        topics = tuple(self.context.rules.work_topics[row["topic_id"]] for row in rows)
+        requested = self.context.store.read_agent_events("action_requested", agent.agent_id)
+        habit = tuple((event.data.get("tool_name"), event.data.get("request")
+                       if isinstance(event.data.get("request"), dict) else {}) for event in requested)
+        worked = sum(item.elapsed_seconds for item in self.context.state.activities.values()
+                     if item.agent_id == agent.agent_id and item.kind == ActivityKind.WORK
+                     and item.status != ActivityStatus.FAILED)
+        return topics, habit, worked
+
+    def _work_topic_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 品类摘要由尚未完成主题派生，工作不进入曝光轮转。"""
+        config = agent_config(self.context.scenario, agent.agent_id)
+        workplace = config.work_schedule.workplace_location_id if config.work_schedule is not None else None
+        return tuple(PoolEntry(object_id=row["topic_id"], kind="task", minimum_seconds=60,
+                               maximum_seconds=row["target_seconds"], required_location_id=workplace,
+                               row=row, category=presentation.WORK_TOPIC_CATEGORY)
+                     for row in self._visible_task_rows(agent))
 
     def _route_rows(self, agent) -> list[dict]:
         """@brief 地点目标的出行方式来自登记图，工具层使用相同行程计算路费、时长与费力。"""
@@ -436,17 +412,6 @@ class ObservationBuilder:
         }
 
 
-    def _visible_task(self, task_id: str, agent_id: int) -> dict:
-        """@brief 返回公开合同、交付 Schema 和仅按实际工作揭示的正文。"""
-        task = self.context.rules.tasks[task_id]
-        data = task.model_dump(mode="json", exclude={"oracle_path", "oracle_sha256", "input_path"})
-        (worked, effective) = work_totals(self.context.state, agent_id, task_id)
-        data["deliverable_schema"] = MeetingMinutes.model_json_schema()
-        data["material"] = visible_work_material(self.context.state, self.context.corpus_root, task, agent_id)
-        data["worked_seconds"] = worked
-        data["effective_seconds"] = effective
-        data["remaining_contract_seconds"] = max(0, task.maximum_duration_seconds - worked)
-        return data
 
     def _visible_product(self, food_id: str) -> dict:
         """@brief 食品事实原样读取唯一目录 Food。"""
@@ -461,18 +426,6 @@ class ObservationBuilder:
         return [self._visible_product(food_id) for food_id, quantity in sorted(
             agent.inventory.get(agent.location_id, {}).items()) if quantity > 0]
 
-    def _content_progress(self, agent) -> dict[str, dict]:
-        """@brief 返回人物已观看位置、接触次数、展示标题和当前媒体剩余时长。"""
-        result = {}
-        for item_id, progress in sorted(agent.content_progress.items()):
-            item = self.context.rules.content(item_id)
-            data = progress.model_dump(mode="json")
-            data["remaining_media_seconds"] = max(0.0, item.duration_seconds - progress.position_seconds)
-            title = self.context.rules.content_titles.get(item_id)
-            if title is not None:
-                data["title"] = title
-            result[item_id] = data
-        return result
 
     def _motivation_internal(self, agent) -> dict | None:
         """@brief 计算内部动机仪表（observation.data.motivation_internal，不进提示）。
@@ -509,51 +462,26 @@ class ObservationBuilder:
         """@brief 真实食品候选只读 Catalog、当前场景地点与固定规则，不注入口味或报价。"""
         now = self.context.state.current_time
         config = agent_config(self.context.scenario, agent.agent_id)
-        tasks, habit, effective_total, requested = self._motivation_evidence(agent, now)
+        topics, habit, worked_total = self._motivation_evidence(agent)
         catalog = self.context.semantics.catalog
         return MotivationContext(agent=agent, balance_fen=self.context.state.accounts[agent.balance_account_id],
             body=self.context.semantics.body, home_location_id=config.home_location_id, catalog=catalog,
             location_ids=frozenset(place.location_id for place in self.context.scenario.locations),
             menu=resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id),
-            tasks=tuple(tasks), task_totals={task.task_id: totals(self.context.state, agent.agent_id, task.task_id)
-                                          for task in tasks},
+            work_topics=tuple(topics),
+            topic_totals={topic.topic_id: work_totals(self.context.state, agent.agent_id, topic.topic_id)
+                          for topic in topics},
+            workplace_location_id=(config.work_schedule.workplace_location_id
+                                   if config.work_schedule is not None else None),
             active_activities=active_activities(self.context.state, agent.agent_id),
             habit_events=habit, consecutive_rejections=agent.consecutive_rejections,
             max_same_moment_decisions=self.context.scenario.max_same_moment_decisions,
-            total_effective_seconds=effective_total, current_time=now, end_time=self.context.state.end_time,
+            total_work_seconds=worked_total, current_time=now, end_time=self.context.state.end_time,
             timezone=self.context.scenario.timezone, lifestyle_items=self.context.lifestyle_items,
             activity_location_kinds=self.context.rules.activity_location_kinds,
             lifestyle_enabled=config.lifestyle_activities,
             recent_meal_counts=_recent_meal_counts(self.context.state.activities.values(), agent.agent_id, now))
 
-    def _motivation_evidence(self, agent, now: int) -> tuple:
-        """@brief 汇聚可见任务、习惯事件、请求足迹与有效工时总量（动机输入）。"""
-        tasks = [
-            self.context.rules.tasks[item]
-            for item in sorted(agent.visible_task_ids)
-            if item not in self.context.state.paid_task_ids
-            and now <= int(self.context.rules.tasks[item].due_at.timestamp())
-        ]
-        requested = self.context.store.read_agent_events("action_requested", agent.agent_id)
-        habit = tuple(
-            (
-                (
-                    event.data.get("tool_name"),
-                    event.data.get("request") if isinstance(event.data.get("request"), dict) else {},
-                )
-                for event in requested
-            )
-        )
-        effective_total = sum(
-            (
-                item.effective_work_seconds
-                for item in self.context.state.activities.values()
-                if item.agent_id == agent.agent_id
-                and item.kind == ActivityKind.WORK
-                and (item.status != ActivityStatus.FAILED)
-            )
-        )
-        return (tasks, habit, effective_total, requested)
 
     def _activity_summary(self, agent) -> dict[str, int]:
         """@brief 一行品类计数：五类可选对象各按生成段的池规模报数，明细由下钻读取。
@@ -563,8 +491,8 @@ class ObservationBuilder:
         """
         pools = (
             self._lifestyle_pool(agent),
-            self._product_pool(agent, menu=True),
-            self._task_pool(agent),
+            self._product_pool(agent),
+            self._work_topic_pool(agent),
         )
         summary: dict[str, int] = {}
         for pool in pools:
@@ -625,24 +553,6 @@ class ObservationBuilder:
         )
 
 
-    def _task_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 工作池：本人可见、未结清且仍列出（截止前或截止当日内）的合同。"""
-        rows = []
-        for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.context.state.paid_task_ids or not self._task_listed(task_id):
-                continue
-            rows.append(
-                PoolEntry(
-                    object_id=task_id,
-                    kind="task",
-                    minimum_seconds=60,
-                    maximum_seconds=self.context.rules.tasks[task_id].maximum_duration_seconds,
-                    required_location_id=self.context.rules.tasks[task_id].required_location_id,
-                    row={"task_id": task_id, "category": presentation.TASK_CATEGORY},
-                    category=presentation.TASK_CATEGORY,
-                )
-            )
-        return tuple(rows)
 
     def _snapshot_decision_references(self, staged, agent_ids: list[int]):
         """@brief 决策落定后更新滞回参照：分级/在场人物/已知任务（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「滞回规则」）
@@ -660,7 +570,6 @@ class ObservationBuilder:
                     "last_decision_time": staged.current_time,
                     "felt_bands_at_last_decision": levels,
                     "people_at_last_decision": people,
-                    "known_task_ids": set(agent.visible_task_ids),
                 },
                 deep=True,
             )

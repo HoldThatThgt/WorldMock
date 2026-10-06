@@ -6,7 +6,7 @@ import pytest
 
 from tests.life.conftest import (activity_name, advance_until_ready, context, stage_day_plan, start_activity,
                                  submit_round, wake_by_mail, report_request)
-from tests.life.test_scheduling import _custom_engine
+from tests.life.scenario_fixtures import create_engine
 from tests.life.test_social_rounds import _chat, _contact_name, _people, _person, _template_contact, _wait
 from worldmock.errors import BusinessRuleError
 from worldmock.life.content import mail_headers, reveal_mail
@@ -76,7 +76,7 @@ def test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_
     （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，做错了再说明」）。multi-person 场景真实引擎：人物 2 邀请
     人物 1 交谈、再给人物 1 发消息；人物 1 给 template 策略联系人发消息，占位回复在 CONTACT_REPLY_DELAY_SECONDS 后以
     message_arrival 送达，同一秒一封场景邮件也到达。四条都在收件箱，交互对象里只有那封场景邮件可阅读。"""
-    engine = _custom_engine("multi-person.json", _template_contact, tmp_path, "inbox-not-mail")
+    engine = create_engine("multi-person.json", _template_contact, tmp_path, "inbox-not-mail")
     _people(engine)
     submit_round(engine, {1: _wait(), 2: _chat(engine, 2, 1)}, "inbox-invite")
     assert engine.scheduling_state().ready_agent_ids == (1,)

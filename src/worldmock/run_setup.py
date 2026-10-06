@@ -24,10 +24,8 @@ logger = logging.getLogger(__name__)
 MAX_REACT_TURNS = 16
 
 
-_WORK_REVIEW_THINKING = "disabled"
 
 
-_WORK_REVIEW_TOOL_CHOICE = "required"
 
 
 _AS2_PACKAGE = "agentsociety2"
@@ -133,7 +131,7 @@ def _model_identity() -> ModelIdentity:
 
 
 def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any]:
-    """@brief 行动与工作验收两个阶段的完整冻结请求身份（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）。
+    """@brief 行动阶段的完整冻结请求身份（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第二章「单一行动阶段」）。
 
     行动阶段参数取自 LifeAgent 导出常量（单一事实源）；运行中不变更。不发送 reasoning_effort
     （以 None 表示该字段不进请求）。行动阶段另记运行开关 same_second_continuation（第二章「同秒续接」，缺省开）。
@@ -160,10 +158,6 @@ def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any
                 "tool_choice": ACTION_TOOL_CHOICE,
                 "max_tokens": ACTION_MAX_TOKENS,
                 "same_second_continuation": same_second_continuation,
-            },
-            "work_review": {
-                "thinking": _WORK_REVIEW_THINKING,
-                "tool_choice": _WORK_REVIEW_TOOL_CHOICE,
             },
         },
     }
@@ -375,6 +369,8 @@ def _compiled_parts(result: Any) -> tuple[PersonaCard | None, tuple[str, ...]]:
 
 
 RETIRED_STAGE_IDENTITY_KEY = "two_stage_model_identity"
+#: 退役工作验收阶段，与决策自述阶段同样拒绝。
+RETIRED_STAGE_NAME = "work_review"
 
 
 def validate_manifest_stage_identity(manifest: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
@@ -400,7 +396,7 @@ def validate_manifest_stage_identity(manifest: Mapping[str, Any] | None = None) 
 
 
 def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
-    """@brief 阶段 model_identity 一致性校验：只有行动与工作验收两个阶段（LifeAgent 常量单一事实源）。
+    """@brief 阶段 model_identity 一致性校验：只允许行动阶段（LifeAgent 常量单一事实源）。
 
     五个入口经 validate_manifest_stage_identity 调用本函数；含退役的决策自述阶段的身份以英文错误拒绝
     （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。行动阶段的运行开关 same_second_continuation 须为布尔值
@@ -413,10 +409,14 @@ def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dic
         raise IntegrityError("Stage model identity must be an object")
     problems = _identity_problems(actual)
     stages = actual.get("stages")
-    if isinstance(stages, dict) and RETIRED_DECISION_STATEMENT in stages:
-        raise IntegrityError(f"Model identity stage {RETIRED_DECISION_STATEMENT} is retired")
-    if not isinstance(stages, dict) or set(stages) != {"action", "work_review"}:
-        raise IntegrityError("Model identity stages must be exactly action, work_review")
+    if isinstance(stages, dict):
+        for retired in (RETIRED_DECISION_STATEMENT, RETIRED_STAGE_NAME):
+            if retired in stages:
+                logger.error("Model identity stage %s is retired", retired)
+                raise IntegrityError(f"Model identity stage {retired} is retired")
+    if not isinstance(stages, dict) or set(stages) != {"action"}:
+        logger.error("Model identity stages must be exactly action")
+        raise IntegrityError("Model identity stages must be exactly action")
     from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
 
     action = stages.get("action")
@@ -427,10 +427,8 @@ def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dic
                        "tool_choice": ACTION_TOOL_CHOICE,
                        "max_tokens": ACTION_MAX_TOKENS,
                        "same_second_continuation": switch}
-    expected_review = {"thinking": "disabled", "tool_choice": "required"}
-    for name, expected in (("action", expected_action), ("work_review", expected_review)):
-        if stages.get(name) != expected:
-            problems.append(f"stage {name} is {stages.get(name)!r}, expected {expected!r}")
+    if action != expected_action:
+        problems.append(f"stage action is {action!r}, expected {expected_action!r}")
     if problems:
         raise IntegrityError("Stage model identity is inconsistent: " + "; ".join(problems))
     return actual

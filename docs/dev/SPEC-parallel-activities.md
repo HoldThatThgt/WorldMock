@@ -1,6 +1,8 @@
 <a name="spec-parallel-activities-同时做两件事开发规格"></a>
 # 同时做两件事开发规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题恢复检查次序。
+
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）；「占用声明、各种情形、随实现一起改的测试」（阶段 4，app 使用取代旧娱乐动作）。
 
 > 状态：FROZEN。本文件是本修复的唯一开发规格；条款随阶段 1–3 的提交逐阶段生效，某阶段落地之前，当前行为与提示文本仍以所属正文与接口合同为准。
@@ -44,7 +46,7 @@ flowchart LR
 | R1 | 暂停的活动个数不设上限（issue 待裁决 1，按试验分支） |
 | R2 | 同刻受限轮的 `resume_or_conclude`、`conclude_only` 两个阶段不再被进入，但留在阶段闭集中，世界结构版本仍为 9（沿用 `conclude_only` 已有的「留在闭集中，现行阶梯不再进入」的写法）；阶梯的按名额分流删除 |
 | R3 | 名额超限的下一步按被点名活动能否暂停写：都能暂停写 `Conclude or pause one of … first.`，都不能写 `Conclude one of … first.`，混合时写 `Conclude one of …, or pause …, first.`；能否暂停与 `pause_activity` 的判定同源（进行中、不在路上、不是交谈或通话）。`RESOURCE_CONFLICT` 等别处的下一步不改 |
-| R4 | 恢复暂停的活动依次检查：开始地点、工作截止与约束、空名额、占用冲突；没有空名额以 `SESSION_LIMIT_EXCEEDED` 拒绝，原因点名进行中的活动。一个请求里恢复多项时逐项检查，与开始两项的写法一致 |
+| R4 | 恢复暂停的活动依次检查：开始地点、工作主题剩余上限、空名额、占用冲突；没有空名额以 `SESSION_LIMIT_EXCEEDED` 拒绝，原因点名进行中的活动。一个请求里恢复多项时逐项检查，与开始两项的写法一致 |
 | R5 | 「同一种」的粒度按试验分支：睡眠与一切互斥；驾车一行与旧表等价（只能再听播客或和人说话）；生活活动整体算一种；食用、制作、使用同算一种（issue 待裁决 3、10） |
 | R6 | 旧的身体部位占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 退役，解析时与此前退役的名字一样拒绝；仍带旧占用名的外部环境目录（WorldMock-Dataset 发布的正式环境与各请求自带的目录）加载时被拒绝，要随新占用名重新发布，这是数据集一侧的工作 |
 | R7 | 正式目录、场景与语料由 WorldMock-Dataset 发布，不在本仓库，目录版本由发布方决定；引擎的占用声明是包资源 `src/worldmock/data/affordances.toml`，仓库人工测试环境里的副本与它逐字节相同，随之同步并刷新测试环境目录的清单身份（冻结时写的「目录由 5.4 升到 5.5」在与引擎资源分离后的 `main` 合流时改为本条） |
@@ -84,7 +86,7 @@ flowchart LR
 
 | 位置 | 改动 |
 | --- | --- |
-| `src/worldmock/life/activity_control.py` | `occupies_slot` 只认进行中与待收尾；新增「能结束」与「能暂停」的判定，`_pause_refusal`、`_conclude_refusal` 改用它们；名额拒绝抽成开始、出行与恢复共用的一个函数，`_report_refusal` 在工作截止之后、占用冲突之前调用；下一步按 R3；模块与函数文档字符串随改 |
+| `src/worldmock/life/activity_control.py` | `occupies_slot` 只认进行中与待收尾；新增「能结束」与「能暂停」的判定，`_pause_refusal`、`_conclude_refusal` 改用它们；名额拒绝抽成开始、出行与恢复共用的一个函数，`_report_refusal` 在工作主题上限之后、名额与占用冲突之前调用；下一步按 R3；模块与函数文档字符串随改 |
 | `src/worldmock/life/session_actions.py` | `_conclude_activity` 用「能结束」判定；文档字符串里「仍占名额」「释放名额」随改 |
 | `src/worldmock/life/same_moment.py` | 删去按名额分流的阶梯与 `RoundOutcome` 的名额字段，`next_stage` 在没有进行中与待收尾时返回开始或恢复；`request_kind` 用「能结束」判定；两个阶段在 `_STAGE_REQUEST_KINDS` 里的条目保留 |
 | `src/worldmock/life/decision_coordinator.py` | 构造轮次结果时不再传名额字段 |
@@ -211,7 +213,7 @@ flowchart LR
 | --- | --- | --- |
 | 1 | `tests/life/test_location_sessions.py` | 名额占满、只剩一个名额、带暂停活动出行三个用例按新规则改写：两项进行时第三项被拒，暂停一项后受理；一项暂停时开始两项受理；一项进行一项暂停时出行按出发前仍有进行中活动拒绝 |
 | 1 | `tests/life/test_same_moment_decisions.py`、`tests/life/test_tool_layer.py`、`tests/life/test_decision_budget.py` | 依赖「两项都暂停进入恢复或结束」的用例改写为两项都暂停到上限后进入开始或恢复、开始被受理；阶梯单元用例去掉名额分支；最后一轮受限请求成功仍耗尽预算的用例改走待收尾路径；含义已不成立的改名并同步 `tests/time_and_energy_acceptance.py` 与 `tests/persona_prompt_acceptance.py` |
-| 1 | `tests/life/test_paused_slots.py`（新增） | 经真实请求、引擎与 SQLite：一项暂停时开始两项受理；两项进行时恢复被拒并点名两项、待办层同一原因，结束一项后恢复受理、第三项再被拒；只有暂停的活动时出发受理且它们留在原地；暂停的活动在别处可直接结束；恢复的检查次序（工作截止先于名额、名额先于占用冲突）；下一步的三种写法（含通话不可暂停）；两项暂停到同刻上限后开始被受理 |
+| 1 | `tests/life/test_paused_slots.py`（新增） | 经真实请求、引擎与 SQLite：一项暂停时开始两项受理；两项进行时恢复被拒并点名两项、待办层同一原因，结束一项后恢复受理、第三项再被拒；只有暂停的活动时出发受理且它们留在原地；暂停的活动在别处可直接结束；恢复的检查次序（工作主题上限先于名额、名额先于占用冲突）；下一步的三种写法（含通话不可暂停）；两项暂停到同刻上限后开始被受理 |
 | 4 | `tests/catalog/test_affordance_shadow.py` | 占用闭集断言为八个名字，十三个退役名字都被拒绝；逐对核对只有同种、睡眠一行与驾车一行有交集 |
 | 4 | `tests/life/test_parallel_acceptance.py`、`tests/life/test_parallel_admission.py`、`tests/life/test_parallel_activities.py`、`tests/life/test_paused_slots.py`、`tests/life/test_candidates.py` | 旧观看、游戏与浏览占用用例改为 `use_app`；断言两个 app 使用同种拒绝，app 使用与吃饭或交谈可并行，驾车与 app 使用冲突 |
 | 4 | `tests/fixtures/environment/catalog/affordances.toml`、`tests/catalog/test_engine_package_resources.py` | 测试环境副本与包资源逐字节同步；包资源断言八个占用名与 app 使用占用 |
@@ -292,3 +294,4 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 | `2026-10-06-parallel-activities-baseline-scope` | 2026-10-06 | 合流后完整日改为逐字段核对实际存储，R10、身份一节与阶段 5 由「POSIX 平台生成新夹具」改为「发布环境重新发布后运行完整回归」；场景结构随环境数据归属规格为 6 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 资源占用闭集改为八个名字；旧观看、游戏和浏览占用合并为 `use_app`，驾车只允许再交谈；乙表和相关用例由资源与规则引擎简化规格取代 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题恢复检查次序 |

@@ -1,6 +1,8 @@
 <a name="spec-life-runtime-特性规格lifeenv-运行时行为与结算规则"></a>
 # 特性规格：LifeEnv 运行时行为与结算规则
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题运行合同。
+
 > 引用出处：`src/worldmock/run_setup.py::_card_taste_weights` @ `d46b4d89898d687cc5cdf07e68f39df33a328081`
 
 > 引用出处：`src/worldmock/profile/taste.py::compute_taste_weights` @ `d46b4d89898d687cc5cdf07e68f39df33a328081`
@@ -62,7 +64,7 @@
 | 地点会话 | 一段地点停留或两地之间的一段路，及其所含活动与 `app_pushes` | 环境随出发与到达开始和结束；推送按本 session 写入 pending/opened/released 状态 |
 | 当日计划与提醒 | 当日有序目标及其提醒时刻 | 零点计划生成，人物清醒时修订 |
 | 个人事务 | 人物记下的未完成事务：名称、完成依据（结果种类、商品、数量）、已累计量、备注与提醒时刻；办成或取消的事务移出状态，终态、原因与证据只留在事件 | 人物经 `report_status`、`pause_activity`、`conclude_activity` 的 `errands` 登记、更新与取消；累计与办成只由环境按结算证据写入；零点处理、`revise_day_plan` 与目标推进不读写它，零点计划只读 |
-| 工作 | 任务、输入材料、截止时间、交付物、验收、合同及付款状态 | 任务来源、交付动作与独立验收环节 |
+| 工作主题累计 | 人物被分配的主题及其目标工时；已做秒数从本人物、本主题全部非失败工作活动派生，上一条叙述留在活动 | 场景分配主题；环境按实际工作区间累计并在首次达到目标时写完成事件；人物只能写叙述 |
 | 内容接触 | 每人每条内容的全局 `content_progress` 与已完成轮次 `played` | app 使用按实际经过时间写回；切 app、暂停与恢复共用，只有真实完成才递增轮次并释放推送 |
 | 记忆 | AS2 的人物记忆条目、记忆版本、来源事件与检索结果 | 人物记忆流程；环境不代写“人物应当喜欢什么” |
 
@@ -73,7 +75,8 @@
 - 人物实际收到的，是确定性规则换算出的体感分级，以及七层请求中的可读事实（见「观察投影与提示合同」）
 - 准确数值只进入数字足迹与评估；训练数据导出的信息范围裁剪见 `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「来源与可见性」
 
-食品、类型菜单和固定价格是只读目录定义，app 绑定也是目录事实；世界只保存实际订单、食品持有与实际活动，不保存营业、报价、库存或工作日历状态。
+食品、类型菜单、固定价格、app 绑定与工作主题都是只读目录定义；世界只保存实际订单、食品持有与活动，
+工作主题累计从活动派生，不另存开放、截止、材料、交付、评审、合同或工作日历状态。
 
 <a name="spec-life-runtime-生命周期行为"></a>
 ### 生命周期行为
@@ -120,7 +123,7 @@ sequenceDiagram
 **时间推进规则**：
 1. 先处理当前时刻已到期的通知或活动，再选出需要决策的人物
 2. 人物完成本轮选择后，环境先结算本轮请求
-3. 无人就绪时（每个人物都有进行中活动且都没有待收尾活动，等待与睡眠都算），调度器再计算下一边界：活动完成、图上出行到达与配送送达、app 内容完成的 `next_interaction_at`、当地 08:00–21:00 推送整点、通知到达、需要重新评估的身体变化、人物选择的等待结束、场景本地零点、当日目标提醒、个人事务提醒、班次与休息时段的起止（这两项只对清醒的人物，睡眠中的人物不计）或实验结束。阶段 4 仍保留工作任务截止边界；它随工作任务在阶段 5 删除
+3. 无人就绪时（每个人物都有进行中活动且都没有待收尾活动，等待与睡眠都算），调度器再计算下一边界：活动完成、图上出行到达与配送送达、app 内容完成的 `next_interaction_at`、当地 08:00–21:00 推送整点、通知到达、需要重新评估的身体变化、人物选择的等待结束、场景本地零点、当日目标提醒、个人事务提醒、班次与休息时段的起止（这两项只对清醒的人物，睡眠中的人物不计）或实验结束。工作主题没有截止边界。
 4. 每次推进严格大于零；即时事件在当前边界按稳定序号处理；同一秒的再决策不推进时钟，轮数受同刻上限约束
 5. 同刻再决策：人物没有进行中活动或有待收尾活动时，在同一模拟秒再获得决策机会，直到有一项进行中活动且没有待收尾活动；适用于运行开始、活动结束、瞬时动作之后与业务拒绝之后。决策本身不消耗模拟时间
 6. 同一人物同一模拟秒的决策轮数以场景参数 `max_same_moment_decisions` 封顶，时钟推进即归零（取值见 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「场景参数」章的「活动节奏与同刻决策上限」节）；达到上限仍不满足第 5 条的结束条件时进入受限轮：每轮只开放一类动作，收尾、结束与等待不会被业务拒绝，阶梯见 `docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动`「一、决策不耗时：时间只在做事时流动」规则 3
@@ -144,13 +147,15 @@ sequenceDiagram
 
 **是否提供决策机会，只由唤醒条件决定**。
 
-唤醒条件和原因闭集由模拟引擎维护。成员只经本文件版本表与数字人交互规格登记的九个同步点增删。阶段 4 当前闭集为 25 项：阶段 3 的 24 项加入 `app_push`；三个工作相关名字保留到阶段 5，届时最终闭集为 22 项。
-对应的 `ScheduledKind` 在阶段 4 当前为 9 项：两项旧工作预排事件仍在，另有 `app_push`；阶段 5 删除两项旧工作事件后才是最终 7 项。
+唤醒条件和原因闭集由模拟引擎维护。成员只经本文件版本表与数字人交互规格登记的九个同步点增删。
+阶段 5 删除 `task_available`、`task_due_soon`、`work_review_result` 后，现行闭集是最终 22 项。
+`ScheduledKind` 同步删除 `work_available`、`task_expired`，现行为七项：
+`mail_arrival`、`delivery_arrival`、`calendar_flag`、`bill_due`、`payroll`、`message_arrival`、`app_push`。
 
 ```python
 WakeReason = Literal[
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
-    "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
+    "commitment_threatened",
     "reconsideration_interval", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
     "progress_report_due", "no_active_activity", "plan_reminder_due",
@@ -169,8 +174,8 @@ WakeReason = Literal[
 | `planned_end` | 活动由世界结束：到达引擎派生的计划时长、被提醒结束睡眠，或交谈对方结束（`partner_ended`）；交谈对方结束而本人仍有其他进行中活动时，同刻轮也记此原因 |
 | `felt_band_change` | 任一体感分级与上一次实际提供决策时的分级不同 |
 | `message_arrival`、`delivery_arrival` | 新消息或配送到达本人 |
-| `task_available`、`task_due_soon`、`work_review_result` | 已知任务真正开放、任务截止前 30 分钟、工作验收结果返回；提前收到预约通知不构成 `task_available` |
-| `commitment_threatened` | 已有承诺进入任务截止预警；阶段 4 仍由现行工作任务使用，阶段 5 与旧工作合同一起收敛 |
+
+| `commitment_threatened` | 保留枚举成员，现行工作主题没有截止预警，当前没有触发来源 |
 | `reconsideration_interval` | 距上次实际决策达到当前在手承诺对应的常规或空闲间隔 |
 | `person_arrived`、`person_left` | 同一地点的在场人物集合变化 |
 | `activity_infeasible` | 保留名称，当前无触发来源 |
@@ -212,12 +217,12 @@ WakeReason = Literal[
 - 个人事务提醒时刻（睡眠中不计入）
 - 班次与休息时段的起止时刻（只对声明了工作安排的人物，睡眠中不计入）
 - 进行中活动的播报到期
-- 阶段 4 仍在使用的任务截止精确预警边界；阶段 5 随旧工作任务退出
+
 - 当前在手承诺对应的重估间隔到期
 
 常规间隔 `reconsideration_interval_seconds` 默认 5400 秒；空闲间隔
 `idle_reconsideration_interval_seconds` 默认 10800 秒，不能短于常规间隔。进行中的等待不算在手承诺；人物只在等待、
-且没有未推进目标、可见未完成的工作任务、暂停活动或其他进行中活动时用空闲间隔。
+且没有未推进目标、已分配但未完成的工作主题、暂停活动或其他进行中活动时用空闲间隔。
 未完成的个人事务不计入在手承诺，不改变常规与空闲间隔及闭店预警（[个人事务与工作安排规格](SPEC-as2-integration.md#errands-workday-运行修复入库) 2.5）。
 两者沿用场景配置；在手承诺闭集、切换和精确威胁候选见
 [当日目标的决策节律](SPEC-day-plan-goals.md#spec-day-plan-goals-事件驱动的决策节律)。睡眠继续仅接受睡眠允许的原因。
@@ -392,9 +397,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 按事件加脉冲并以半衰期衰减。
 
 脉冲表：
-- 工作验收通过 +0.3
-- 被退回 −0.3
-- 任务到期未交 −0.4
+
 - 收到人物或联系人的消息 +0.1（睡眠中送达的，醒来后的第一个边界阅读时才计）
 - 连续两小时以上饿（饥饿分级“饿”及以上，含“饿得发慌”）或困 −0.1/小时；两小时门槛只判一次：连续不适时长减去两小时为可计费小时，
   每个边界按新增的可计费小时施加，未施加时不消耗计费小时
@@ -445,11 +448,11 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 可用能量：kcal（实验中的可用能量状态，不等于人体全部储存热量）
 - 睡眠不足：小时（与食品能量独立，进食不会直接消除）
 - 娱乐需要：归一化状态与明确变化规则；随生活积累，实际娱乐可改变，需要考虑喜好、重复与时长
-- 工作需要：截止时间、合同、任务与经济目标；从工作义务与人物经济处境产生，不设置固定「每小时必须工作」脚本
+- 工作主题：目录给出主题与目标工时，场景按人物分配；进度只取实际工作秒数，未达到目标就是未完成，不设效率、截止或提交状态
 
 所有数值变化由明确规则计算。人物提示描述其处境与选项，允许拖延、过度娱乐、拒绝购买或再次观看。
 
-**规则只限制物理、经济和任务可行性，不替人物优化人生。**
+**规则只限制物理、经济与工作地点等实际可行性，不替人物优化人生。**
 
 <a name="spec-life-runtime-转换效率算法"></a>
 ### 转换效率算法
@@ -511,7 +514,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 | 活动 | 执行与结算 |
 | --- | --- |
 | 进食 | 类别热量 × 实际消费份额，经 BODY_CONSTANTS 食品利用效率并受能量上限；按 opened/consumed/discarded 留证 |
-| 工作 | 输入材料、投入时间、产出物和验收可追溯；失败、延期和返工保留 |
+| 工作 | 按主题累计全部非失败工作活动的实际经过秒数；每次结算写主题、已做与剩余，首次达到目标写完成事件；叙述不改变工时 |
 | 睡眠 | 持续恢复睡眠状态；按实际睡眠部分结算，中断后不直接恢复到满值 |
 | app 使用 | 固定计划 1800 秒；按实际经过时间推进 app 内抽取的内容，暂停与切 app 写回人物全局 `content_progress`，恢复取最新全局位置；若内容已被另一 app 完成，则从新一轮位置 0 开始。只有真实完成才递增轮次并把关联推送置为 released |
 | 购物 | 按固定食品价格与份数结算；每单一笔转账，外卖加一次 500 分配送费；取得不增加能量 |
@@ -520,19 +523,19 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 | 等待 | 可以由人物选择；世界其他事件照常发生，身体状态继续变化 |
 
 **资金记录**：
-- 工资与消费记录付款方和收款方
-- 雇主、商家与人物账户之间的金额对应
-- 实验初始资金和外部注入明确留痕
-- 任务报酬受合同与雇主资源约束，不能通过重复提交同一交付物无限取得工资
 
-**工作质量**：
-- 由实际交付物评估
-- 模型调用耗时不等于人物工作耗时
-- 有效工作量控制任务进度，模型产出的文本还必须通过内容验收，不能用累计时间替代真实生产结果
+- 工资与消费记录付款方和收款方。
+- 雇主、商家与人物账户之间的金额对应。
+- 实验初始资金和外部注入明确留痕。
+- 工资只由场景 `payrolls[]` 的预排事实支付；主题没有报酬字段，主题完成不触发付款。
 
-**验证**：见 `tests/life/test_body.py`、`test_commerce.py`、`test_work_review.py`、`test_activities.py`。
+**工作叙述与事实**：
 
-食品消费请求仍用 `product_id`，事件与经历用 `food_id`；非食品娱乐与工作的结算行由所属阶段同步。
+- 工作事实只由真实活动秒数累计；暂停、休息与并行的非工作活动不计。
+- `report_status.items[].summary` 写入 `progress_note` 与历史，模型文字不改变工时或完成状态。
+- 达到目标只生成一次 `work_topic_completed` 与 `work_completed`，没有提交、评审或返工环节。
+
+食品消费请求仍用 `product_id`，事件与经历用 `food_id`；app 内容与工作主题分别使用各自的进度字段。
 
 <a name="spec-life-runtime-语料进入环境与内容提供"></a>
 ## 语料进入环境与内容提供
@@ -564,70 +567,29 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 <a name="spec-life-runtime-内容提供行为"></a>
 ### 内容提供行为
 
-**阶段 4 的工作过渡与邮件反馈**：
-- 人物收到的任务具备输入材料、交付要求、可用工具、截止时间、合同及验收条件
-- 实际输出纪要、回复或其他成果存成素材，验收结果单独记录
-- 来源数据的参考摘要用于检查，不提前提供；人物完成与否由交付和验收判定
-- 工作说明与交付格式先可见，正文随实际工作进度揭示
-- 观察不能免费取得未接触的完整转写
-- 纪要包含摘要、决定与行动项
-- 来源文件的原始会议标识仍保留为语料元数据
+**工作主题与邮件**：
 
-**任务通知与可用性**：
-- 每封非空 `related_task_id` 邮件必须引用存在的任务，收件人与该任务的 `assignee_agent_id` 一致；每项工作另须至少一封关联通知，缺失或逐封错配时拒绝加载。
-- 每项任务的输入只声明必填 `appointment`：普通工作为 null，真实预约为 `{starts_at, reason}`，两个预约键必填，
-  `starts_at` 带时区，`reason` 非空。删除输入 `available_at`、`availability_kind`、`appointment_reason`，不接受旧形状。
-- 普通工作由场景编译生成 `RuntimeWorkTask.available_at`，等于最早发给受派人且关联本任务的邮件 `sent_at`。
-  邮件到达的同一事件批次写入 `visible_task_ids`，人物到达要求地点即可开工，不另等办公室上班钟点或读完邮件。
-- 非空 `appointment` 只用于现实中必须提前约定的活动；内部 `available_at` 取 `appointment.starts_at`，最早关联通知不得晚于该时刻。
-  后续关联提醒可以在开始之后送达，不改变已派生的开放时刻。
-  提前收到通知时任务可知、开工不可用，英文原因返回约定依据与开放时刻。
-- `visible_task_ids` 表示人物已知任务；通知只公开合同元信息，邮件正文仍须阅读。任务目标的
-  `contract{opens, place, deadline, remaining, outlook}` 写真实开放、公开地点名、截止及进度，不含内部身份。
-  五项合同事实只在任务目标出现；邮件到达与阅读结果中的任务引用只用关联任务完整名称，不再复制合同元信息。
-  到达结果不公开正文，阅读结果保留实际正文，不公开验收答案。
-- `WORK_AVAILABLE` 只在真实开放时触发 `task_available`，不再揭示未知任务。通知与开放同秒时先处理整批事件，再观察与唤醒一次。
-  预约收件只以 `message_arrival` 提供机会，不能把新可见误当已经开放；睡眠过滤照常。
-- `available_at` 可以早于运行起点；`due_at` 必须晚于运行起点与开放时刻。运行起点已送达的通知与已开放事实
-  在首次观察前原子初始化；未送达的通知不能因 `available_at` 提前泄露。恢复不重复告知或重复开放唤醒。
-- 地点、技能、余额与截止照常限制受理。正式任务的输入材料必须在通知前已有效，缺失材料在加载时拒绝；
-  当前合同没有任务依赖模型，不得假称存在依赖完成判定。现成会议材料的分析与纪要整理属于普通工作，
-  标题含会议不构成预约依据；本特性不新增任务依赖接口，也不保留无通知时按开放时刻揭示任务的路径。
-- 输入 `WorkTaskConfig` 与编译后的 `RuntimeWorkTask` 分开；运行期受理、调度和合同呈现共用内部派生 `available_at`，
-  不让每个消费者重新扫描邮箱，也不把派生字段写回场景或增加检查点字段。
+- 目录 `work_topics.json` 只登记 `topic_id`、`topic`、`target_hours`；场景以 `agents[].work_topic_ids` 分配。
+- 已分配且未完成的主题从运行开始可见，不依赖通知、邮件、预约或预排开放事件。
+- 主题没有截止、材料、技能、交付物、评审或付款状态；邮件与主题彼此独立，不带主题引用。
+- 有分配主题的人物必须声明工作安排；主题的工作地点是 `work_schedule.workplace_location_id`。
 
-**工作提交**：
-- 场景必须为工作合同声明唯一可读的 `WorkTaskConfig.title`；人物只用该标题提交，
-  引擎从冻结观察私下绑定 `task_id`、来源材料和验收，不以内部编号作为展示名
-- 不要求人物再次填写来源内部的 `meeting_id`
-- 不要求人物生成另一个全局唯一的 `submission_id`
-- 宿主动作身份记录每次提交，已付款任务集合防止重复付款
+**实际累计与完成**：
 
-**工作验收**：
-使用独立 DeepSeek 调用，结合完整来源、隐藏参考与实际交付判断事实支持、必需内容覆盖和矛盾，接受同义改写。字符相等、词面相似度或工作时间均不能单独代替语义验收。
-
-**验收协议**：
-- 请求、原始响应、用量、模型身份和校验结果保存为证据
-- 模型返回逐项判断，代码决定最终接受与付款
-- 验收模型的传输或结构错误终止运行，内容不合格作为可返工的业务结果
-- 没有自动重试或替代验收
-- 逐字摘录须经本地来源核对才被接受，按字数计：先做 NFKC 与大小写归一，把非词字符换成空格，再删除与汉字、假名相邻的空格；
-  有效长度 = 字母数字串个数 + 汉字与假名字数 ÷ 2，至少为 3（纯英文时仍按「至少 3 个词」，与原口径逐位相同）；核对不通过仍拒绝
-
-**反馈内容**：
-- 接受与拒绝均向人物返回已留证评审的公开反馈
-- 必需事实的覆盖统计，以及缺失内容和交付字段的具体改进依据
-- 事后反馈可包含已接触来源的摘录与评审理由，区分覆盖不足、不受来源支持和矛盾
-- 不直接返回隐藏参考答案对象、内部参考身份、私有路径和哈希
+- 已做工时是本人物、本主题全部非失败工作活动的实际 `elapsed_seconds` 之和；暂停、休息和并行的非工作活动不计。
+- 开始与恢复的计划时长都是主题剩余目标与 `DERIVED_DURATION_CAP_SECONDS` 的较小值；剩余不足一分钟时用固定原因与下一步拒绝。
+- 工具层主题目标以 `contract{topic,target,done,remaining}` 呈现；工作活动可另带 `last_report`。
+- 每次实际推进写 `activity_progress.data.work{topic_id,worked_seconds,remaining_seconds}`；首次达标写一次 `work_topic_completed`，公开进度投影为 `work_completed{topic}`。
+- `report_status.items[].summary` 只更新工作叙述，不改变工时；没有 `submit_work` 或独立工作评审请求。
 
 **历史邮件处理**：
 若人物改变历史邮件的情节，不能继续把历史后续回复当作对新邮件的真实反应。新的同事反馈来自其他模拟人物或明确环境规则，保留其生成来源。
 
-app 内容不走本节的工作材料揭示协议。人物选择 app 后，环境在其绑定内容中按推送优先与全局进度抽取；公开结果只返回
+**app 内容**：
+人物选择 app 后，环境在该 app 的绑定内容中按有效推送优先与全局进度抽取；公开结果只返回
 `app_content{app,title,kind,summary,pushed}`。消息、邮件或推送记录都不算内容消费，只有 app 活动的实际推进才改变内容进度。
-本节保留的任务、提交与评审条款只描述阶段 5 前的工作行为，不得据此把工作材料当成 app 内容。
 
-**验证**：见 `tests/life/test_work_review.py`、`test_work_review_protocol.py`、`test_work_contracts.py`。
+**验证**：工作主题的现行行为节点为 `tests/life/test_work_topics.py` 与 `tests/life/test_work_protocol.py`；app 内容的节点按阶段 4 登记。
 
 <a name="spec-life-runtime-导航与配送"></a>
 ### 导航与配送
@@ -756,7 +718,7 @@ app 内容不走本节的工作材料揭示协议。人物选择 app 后，环�
 
 资金仍用账户间双边分录，人物账户来自初始余额；工资与账单按明确预排事实结算，不根据人物财富推断能力。
 购买只使用固定食品单价与份数，每单一次把货款和一次配送费付给 `merchant:<store_id>`，没有品类系数、供给报价、库存或补货。步行不扣款，驾车付给 `transport:service`。
-工作交付与评审消费者在工作阶段退出，本阶段不以食品结算构造工作收入；明确工资事实仍按既有预排事件执行。
+工作主题没有付款、提交或评审状态；完成主题不产生工资。明确工资事实仍按 `payroll` 预排事件执行并留下双边分录。
 
 <a name="spec-life-runtime-观察投影与提示合同"></a>
 ## 观察投影与提示合同
@@ -780,9 +742,12 @@ app 内容不走本节的工作材料揭示协议。人物选择 app 后，环�
 
 进度层只含当前地点会话（一段停留或一段路）的有序记录，不按会话分组列出历史会话；更早的会话由记忆层呈现。
 结算结果归进度层，内部身份、报价版本和状态维护不暴露给模型；层内字段以 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「观察投影字段」为准。
-阶段 4 的工具层目标加入 `kind=app`，可调用索引恰含 `lifestyle`、`goods`、`query_categories`；进度层加入完整摘要的
-`app_push`，动作结果加入封闭 `details.app_content{app,title,kind,summary,pushed}`。这些 app Schema 在本阶段重钉
-`prompt_sha256`；`submit_work` 与工作字段保持到阶段 5。
+工具层目标含始终列出的 app 与尚未完成的工作主题；可调用索引恰含 `lifestyle`、`goods`、`query_categories`。
+任务目标的 `contract` 恰含 `topic`、`target`、`done`、`remaining`，工作活动目标另带 `last_report`。
+进度层记录 `app_push` 与 `work_completed{occurred_at,type,topic}`；动作结果可带封闭的
+`details.app_content{app,title,kind,summary,pushed}` 与 `details.work[{name,done,remaining}]`，不含 `work_review`。
+原生工具为 11 个，环境稳定面为 8 个，没有 `submit_work`；模型阶段键恰为 `action`。
+本阶段重钉最终工作工具 Schema；系统层第 7、8、12、13、17 条仍归阶段 6。
 
 <a name="spec-life-runtime-不进入提示的字段"></a>
 ### 不进入提示的字段
@@ -808,7 +773,8 @@ app 内容不走本节的工作材料揭示协议。人物选择 app 后，环�
 受理后按当前报价在同一秒批量结算，价格、余额、营业与库存照常检查；不自动换成别的商品（该规格 3.2、3.3、3.5）。
 字段合同见 [地图与门店供给合同](../CONTRACTS.md#contracts-地图与门店供给合同)。
 
-**阶段 5 前的工作材料**：现行提示不含材料正文，只保留任务目标与实际结果；阶段 4 不把工作材料映射成 app 内容。
+**工作主题**：工具层只呈现主题、目标工时、已做与剩余工时；工作活动另可呈现上一次播报。
+主题没有可揭示正文、材料区间或独立结果评审。
 
 **app 内容结果**：选择 app 后由环境抽取内容，提示只在成功结果中公开 app 名、内容标题、内容类型、完整摘要和是否来自推送。
 没有字幕、材料区间、分段资产或内容内部身份揭示；消息和 `app_push` 记录都不算内容消费。
@@ -827,7 +793,7 @@ app 使用的公开结果在 `details.app_content`；全局位置、完成轮次
 （`added` 为新增或内容有变的完整行，`removed` 为名称）属于续接消息，不在六层快照的唯一出现口径之内；
 两种新记录有来源事件，随 tool 消息的 `events` 各出现一次。
 目标行不显示人物自述（`progress_note` 照存，不进提示）；同一段 summary 只在进度层或记忆层之一出现。
-工作验收使用已有公开反馈，不含完整活动快照和内部参考；权威事件保持完整，
+工作主题的公开累计取自权威活动区间，不依赖人物叙述；权威事件保持完整，
 容量浓缩只处理发送给模型的进度层 JSON。具体边界见
 [决策上下文规格](SPEC-decision-context.md#spec-decision-context-登记确认与结算结果)，字段见接口合同。
 
@@ -894,8 +860,8 @@ app 使用的公开结果在 `details.app_content`；全局位置、完成轮次
 
 环境受理时按权威场景、人物位置和当前状态重验菜单。禁止的标准动作在
 领域副作用前以 `INTERACTION_MENU_DENIED` 拒绝，并沿用业务拒绝节律、结果回灌
-和幂等规则。工作提交若不满足领域资格，不得进入独立评审。进行中与暂停活动的播报、暂停和结束保留
-独立控制规则；恢复须回到开始地点，重验注册表占用、地点、归属与身份，能量不参与。
+和幂等规则。工作主题与其他持续活动一样经 `start_activity` 开始，不存在提交或独立评审入口。进行中与暂停活动的播报、
+暂停和结束保留独立控制规则；恢复须回到开始地点，并按地点、主题剩余上限、名额与占用的次序复核；能量不参与准入。
 
 菜单只控制入口和启动资格，不改变 `affordance_contract`、候选生成、世界事实排除、排除原因计数、
 呈现上限、游标或轮转。候选与呈现仍完整执行本规格的统一合同；菜单不为关闭的入口伪造候选排除原因。
@@ -1226,7 +1192,7 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
   同一秒叠成「很烦」。名称类拒绝不施加该脉冲，每人每秒至多 2 次，第 3 次起照常施加（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.4）。
 - 时钟推进时人人都有进行中活动。按现行口径（`src/worldmock/life/rhythm.py`，任何进行中或暂停的活动都算在手承诺），空闲间隔永远
   用不上。改为：进行中的等待不算在手承诺。人物只在等待、且没有未推进目标、可见未完成任务、暂停活动或其他进行中活动时，
-  才用 `idle_reconsideration_interval_seconds`。句中「可见未完成任务」指工作任务；未完成的个人事务不计入在手承诺，
+  才用 `idle_reconsideration_interval_seconds`。句中「可见未完成任务」指已分配但未完成的工作主题；未完成的个人事务不计入在手承诺，
   不改变常规与空闲重估间隔及闭店预警（个人事务与工作安排规格 2.5，其裁决 E6）。睡眠照常不受重估间隔影响。
 
 <a name="time-and-energy-决策不耗时时间只在做事时流动-场景参数"></a>
@@ -1357,13 +1323,13 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 | 动词 | 对象与方式 | 覆盖的能力 |
 | --- | --- | --- |
 | `travel` | 目的地；步行或驾车 | 前往地点 |
-| `interact` | 人、app、工作任务、生活活动或自己；对象给出可用方式 | 工作、打开 app、交谈、通话、阅读邮件、生活活动、等待 |
+| `interact` | 人、app、工作主题、生活活动或自己；对象给出可用方式 | 工作、打开 app、交谈、通话、阅读邮件、生活活动、等待 |
 | `obtain` | 商品与取得方式；到店、远程下单、购买（由系统定到店或远程下单）或制作；`from` 可写地点显示名（含「家」「住处」）或渠道称呼（可选约束），`to=null` 表示本人，他人写真实人物名称；购买的 `prefer` 写「最快拿到」或「到手价最低」 | 购买与订单；制作须对象、材料与产物规则齐备才开放 |
 | `consume` | 已取得的物品及其使用方式；`from=null`，食用与使用的 `to=null`，给予的 `to` 写人物 | 食用、使用由环境确定本人；给予只转移持有 |
 | `sleep` | 自己 | 入睡；时长由身体睡眠需要派生，只有计划结束、醒来与计划提醒能结束它 |
 
-发消息与提交成果仍是独立工具 `send_message`、`submit_work`（正文与成果由人物撰写），分类上属于 `interact`，但不经
-`start_activity`；它们是瞬时动作，不占名额。世界请求工具为 `start_activity`、`submit_work`、`send_message`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`；
+发消息是独立工具 `send_message`（正文由人物撰写），分类上属于 `interact`，但不经
+`start_activity`；它是瞬时动作，不占名额。工作主题经 `start_activity` 开始。世界请求工具为 `start_activity`、`send_message`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`；
 任务回看 `recall_task_summary`、世界查询 `query_world` 与记忆工具属于只读查询；
 `plan_day`、`finish` 删除。
 
@@ -1473,7 +1439,7 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 不是交谈或通话）：都能暂停为 `Conclude or pause one of … first.`，都不能为 `Conclude one of … first.`，混合时为
 `Conclude one of …, or pause …, first.`，暂停只点名能暂停的。出发前仍要结束或暂停进行中的活动（`ACTIVITY_PRECONDITION_UNMET`，
 只点名进行中的活动）；只有暂停的活动时可以出发，它们留在原地。
-恢复暂停的活动也要有空名额，依次检查开始地点（`ACTIVITY_PRECONDITION_UNMET`）、工作截止与合同（`ACTIVITY_DURATION_INVALID`）、
+恢复暂停的活动也要有空名额，依次检查开始地点（`ACTIVITY_PRECONDITION_UNMET`）、工作主题剩余上限（`ACTIVITY_DURATION_INVALID`）、
 空名额（`SESSION_LIMIT_EXCEEDED`，原因与下一步同上）与占用冲突（`RESOURCE_CONFLICT`）；一个请求里恢复两项时逐项检查，与开始两项的写法一致，
 前一项恢复后即占名额。工具层与待办层的 `available`、`reason` 与受理同文。
 
@@ -1963,7 +1929,7 @@ app 内容按实际经过时间，以内容类型的固定每小时速率缓解�
 - 看法与偏好单独放进 `views`，用 `about` 写对象；`memories[].type` 只取另外 7 类（commitment、goal、conflict、resolution、identity、routine、reflection），没有 `subject` 字段。
   「一维与二维混淆」和「`subject` 误填」在结构上无法写出。宿主把 `views` 转回现行的 `subject` 再写入记忆，存储形状与接口合同「记忆字段」（:1466-1476）不变：
   请求里叫 `about`、存储里叫 `subject`，两个名字指同一件事，接口合同注明对应关系。
-- 字段名 `activity_name` 取代 `task`，避免与工作任务混淆。
+- 字段名 `activity_name` 取代 `task`，避免与当日目标和工作主题混淆。
 - 每个字段写一句「格式与来源」说明（如「照待办层或进度层原样抄写，包括『（9月28日 12:05 起）』这样的开始时刻」）；现行请求模型的多数字段没有 `description`
   （`src/worldmock/life/models.py::purpose_only_schema` 只替换对象级说明，字段级说明保留）。工具 description 仍只写用途（所属现行合同、:1098）；
   字段说明是参数 Schema 的一部分，不是 description，两处各补一句区分。
@@ -2131,48 +2097,32 @@ allowed_values 从该位置的 Pydantic Enum、Literal、JSON Schema 或冻结�
 不能宣称立即执行成功。同一次请求重复出现的错误合并到操作备忘，不增加重复次数触发的特殊放宽规则。
 
 <a name="tool-interaction-普通工作与预约活动"></a>
-## 普通工作与预约活动
 
-输入 WorkTaskConfig 只增加必填 appointment：null 表示普通工作，或 `{starts_at, reason}` 表示预约。
-预约两个键都必填，starts_at 带时区，reason 非空并说明现实预约依据；不依据任务标题推断类型。
-删除输入 available_at、availability_kind、appointment_reason，不保留重复通知时间及旧字段。
-“会议分析与工作总结”是独立办公，不因标题含“会议”而成为预约。
-不新增前序任务依赖配置；工作素材在通知前有效，首次世界保存和观察之前复用既有加载器核验，缺素材拒绝正式构建。
+## 工作主题
 
-每封非空 related_task_id 通知都须引用存在任务，收件人为该任务受派人物，逐封校验；
-每任务另须至少一封覆盖通知，名称指同一完整标题；缺通知或错配拒绝构建。
-装配时生成 RuntimeWorkTask：内部 available_at 对普通工作取最早本人关联邮件 sent_at，对预约取 starts_at。
-这是运行时事实，供调度与工作判断使用，不要求作者重复填写，不写回输入或新增检查点字段。
-预约最早通知不晚于 starts_at，后续合法提醒可晚于开始但不改变开放时间；due_at 晚于内部 available_at 和运行起点，不晚于运行结束；开放可早于运行起点。
-启动先应用已送达通知和已开放任务，再生成首次观察。素材、技能、工资、地点、工时和真实截止保持原合同。
+工作主题由目录 `work_topics.json` 登记，场景只用 `agents[].work_topic_ids` 分配。主题没有开放时刻、截止、
+预约、通知邮件、材料、技能、交付物、评审和任务报酬；分配给人物且尚未完成的主题从运行开始就可见。
+人物只在 `work_schedule.workplace_location_id` 指定的工作地点开始主题；分配了主题的人物必须声明工作安排。
 
-同一模拟秒先应用邮件到达及相关任务开放事实，再构建人物观察；两者没有可供模型决策的中间状态。
-邮件到达把关联任务写入 visible_task_ids，它只表示本人已知任务，不能用该集合新增来替代真正开放事件。
-普通任务此时已开放；预约任务已知但动作 available=false，reason 写准确的约定时刻。
-提前收到预约邮件只产生邮件通知，不产生 task_available；WORK_AVAILABLE 仍在实际内部 available_at 唤醒。
-睡眠中不唤醒规则保留，人物醒来时看到已到达的通知和已开放的工作。
+累计工时 `worked_seconds(agent, topic)` 是本人物、本主题全部非失败工作活动的 `elapsed_seconds` 之和。
+暂停、休息和并行的非工作活动不计，没有效率折扣。开始与恢复的计划时长都是
+`min(target_seconds − worked_seconds, DERIVED_DURATION_CAP_SECONDS)`；恢复依次核对地点、主题上限、名额与占用。
+剩余不足一分钟时以 `ACTIVITY_DURATION_INVALID` 拒绝，原因为
+“Less than one minute of the topic remains; work cannot start.”，下一步为 “Choose another activity.”。
 
-任务 contract 为 `{opens, deadline, place, remaining, outlook}`：opens/deadline 是带时区的可读绝对时间，
-place 是要求地点的公开名称。合同五键只在任务目标出现；邮件到达不公开正文，阅读结果保留实际所读正文；两种结果只引用关联任务完整名称，
-不重复任务合同的时刻、地点或验收答案。
-提交、回看和工具层名称都从同一任务合同与已知集合生成。
-在错误地点尝试开放工作返回地点条件，不返回“尚未开放”；预约未到点返回开放时刻，不返回 NAME_NOT_FOUND。
-到截止同秒的提交仍按原合同允许；超过截止拒绝，逾期展示保留到当地日结束。
+工具层任务目标的 `contract` 恰含 `topic`、`target`、`done`、`remaining` 四键。工作活动目标另带
+`last_report`，取跨 session 保留的上一条 `progress_note`。人物仍用 `report_status.items[].summary`
+描述这段工作做了什么；文字不改变工时。每次实际结算写
+`activity_progress.data.work{topic_id, worked_seconds, remaining_seconds}`。首次达到目标工时时写人物可见的
+`work_topic_completed{topic_id, worked_seconds}` 事件与进度层 `work_completed{occurred_at,type,topic}`；
+已完成主题离开工具层，按名重启仍走同一不足一分钟拒绝，不另设完成错误码。
 
-```mermaid
-sequenceDiagram
-    participant Mail as 邮件事件
-    participant World as 世界状态
-    participant Persona as 人物
-    Mail->>World: 08:00 普通工作通知到达
-    World->>World: 标记任务已知并应用08:00开放事件
-    World->>Persona: 任务已开放，要求办公室，正文尚未阅读
-    Persona->>World: 到达办公室后请求工作
-    World->>Persona: 按地点与业务事实受理
-    Mail->>World: 提前收到10:00会议通知
-    World->>Persona: 会议已知，10:00才开放
-    World->>Persona: 10:00真实开放唤醒
-```
+验收必须同时观察到：
+
+- 已分配主题从运行开始可见，未分配主题不能开始；工作地点以人物工作安排为准。
+- 实际工作秒数跨活动、暂停与恢复连续累计，人物叙述、休息和并行的非工作活动不增加工时。
+- 首次越过目标只产生一次完成事件和一条进度记录；完成主题不再列出。
+- `recall_task_summary` 仍返回工作活动的 `note_history`；没有 `submit_work`、评审调用或付款副作用。
 
 <a name="tool-interaction-料理与习惯"></a>
 ## 料理与习惯
@@ -2190,7 +2140,7 @@ sequenceDiagram
 - 「已完成」只由确定性环境代码按结算证据写入；请求里没有「标记完成」。「已取消」由人物请求触发并必须写原因。
 - 事务是人物记下的打算，与当日目标文字、活动自述同类：它随人物状态保存，但不是世界事实，不改变余额、库存、身体、订单与验收。文字字段只用于呈现，不参与结算与完成判定。
   一日行为规格与接口合同「记忆字段」里「自由主观文字永远不能进入世界状态」一句据此改写为「不能成为完成事实、结构化经历或客观指标的依据，也不能改变任何世界事实」：目标文字与活动自述早已随人物状态保存，原句本就不精确。
-- 工作任务、订单、未回复消息的呈现位置与完成事实不变，待办层不复述它们（裁决 E1）。
+- 工作主题、订单、未回复消息的呈现位置与完成事实不变，待办层不复述它们（裁决 E1）。
 
 ```mermaid
 stateDiagram-v2
@@ -2376,7 +2326,7 @@ stateDiagram-v2
 ### 零点计划、修订与只读问答
 
 - 零点置空当日计划、修订计划与推进目标都不改变事务；零点计划只读取事务，不能创建、更改或终结事务。
-- 零点计划输入包含只读“个人事务”：名称、完成条件、已推进数量、备注与提醒时刻；“待办任务”仍指工作任务。
+- 零点计划输入包含只读“个人事务”：名称、完成条件、已推进数量、备注与提醒时刻；“待办任务”只指已分配且未完成的工作主题。
 - 零点计划不照抄日常作息和事务：天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒
   （模板第三条，按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)改写）；可以为打算执行的事务写一条今天的目标。
 - 模板完整文本唯一登记在 `docs/CONTRACTS.md#contracts-model-request`，从真实请求与合同比较；模板不进提示指纹，由代码身份绑定。
@@ -2422,7 +2372,7 @@ stateDiagram-v2
 | 身体语义 | 两过程睡眠阈值与演化逐点符合公式；睡眠不足账与效率曲线的钳制与插值；饥饿、娱乐、社交需要的分级阈值；能量低于 400 kcal 时至少“饿得难受”，低于 100 kcal 为“饿得发慌”；初始睡眠压力按惯常起床时刻反推；困意档界为 0.80、0.93、1.07、1.18 且两份常数一致，档的名称与个数不变；社交账的清醒按本区间共同身体结算的活动集合判定，在边界结束的睡眠不计清醒；睡眠中送达的消息醒来后的第一个边界才计阅读效果；不适脉冲的两小时门槛只判一次 | `tests/life/test_sleep_two_process.py`（`TestSleepinessGradeBands`、`TestWeekdaySteadyStateOnsets`、`TestAnchorTrajectory`）、`tests/life/test_felt_states.py`、`tests/life/test_body.py`；社交账的清醒口径见 `tests/life/test_sleep_billing.py`，脉冲与睡眠中的消息见 `tests/life/test_discomfort_and_sleep_messages.py`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「睡眠计费」「困意档界」「不适脉冲与消息」 | 代码层已验证 |
 | 资源结算 | 能量与娱乐分录分开结算；能量对所有活动集合以 0 截断、不报错；精确总成本经多次反馈结算不变；娱乐按有效偏好 `f + (1 − f)·w` 缓解，不喜欢的内容也有下限缓解、游戏走下限，有缓解时不累积娱乐需要，两条结算路径对同一内容净效果相同 | `tests/life/test_body.py`；下限缓解、单调性、游戏权重与两条路径一致见 `tests/life/test_relief_floor.py`，评分器预演与引擎一致见 `tests/life/test_motivation.py` 的 `TestReliefFloorPreview`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「下限缓解」 | 代码层已验证 |
 | 具体活动结算 | 暂停、恢复与取消保留实际进度；完成与实验截断设置结束时刻；字幕只揭示实际播放区间；主动结束、暂停与恢复逐活动各写一条 `environment_event`；投入与有效秒数随结算累加；进食按开吃份量结算：4 份里拿 1 份、吃到 300/1500 秒时结束，摄入 0.2、丢弃 0.8、库存 3，暂停保留剩余并可恢复，持有 0.25 份时受理且时长 375 秒，收尾结果写终局与份量；给予只转移持有、要求同处，任何人的摄入都不变 | `tests/life/test_activities.py`、`tests/life/test_content_game.py`；新增 `tests/life/test_meal_outcome.py`、`tests/life/test_giving.py` | 代码层已验证 |
-| 工作与验收 | 计时与计件合同按实际合格工时与冻结件数结算；过期、重复与无资金在语义付款前停止；评审协议纠正、耗尽与零重试；逐字摘录按字数核对：五个汉字拒、六个通过、改一字不匹配，纯英文逐位不变 | `tests/life/test_work_contracts.py`、`tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py`；摘录按字数核对见 `tests/life/test_work_review_excerpts.py`（含商务运行六次评审记录重算与英文评审逐位不变）；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「中文摘录」 | 代码层已验证 |
+| 工作主题累计 | 已分配主题从运行开始可见，只在工作地点开始；非失败工作活动按实际经过秒数跨活动累计，暂停、休息与并行的非工作活动不计；主题剩余上限、四键 contract、last_report、一次性完成事件和公开投影一致；没有提交、截止、材料或评审 | `tests/life/test_work_topics.py`的 `test_real_eight_hours_end_planned_and_emit_completion_once_with_actual_progress`、`test_resume_refusals_follow_location_then_topic_then_slots_then_claims` 与 `tests/life/test_work_protocol.py`的 `test_work_contract_and_reports_use_real_hours_without_submission`、`test_work_prompt_schema_rejects_old_contract_review_and_completion_shapes` | 阶段 5 定向行为节点已存在；最终阶段收据待登记 |
 | 语料准入 | 场景目录逐条通过引用完整性、单位与守恒检查；正式清单逐文件校验与选定条数；AMI 输入与隐藏参考分离；TextWorld 使用真实重置与步进 | `tests/catalog/test_admission.py`、`tests/corpora/test_corpora.py` | 代码层已验证 |
 | 导航与配送 | 路线报价一次预付且不可负担时不改动任何账户；walking 记录零车费不虚构付款；定位轨迹确定且不构成人物决策；交通时间因子随日期时段变化 | `tests/life/test_travel_cost.py`、`tests/life/test_travel_trajectory.py`、`tests/life/test_travel_time.py` | 代码层已验证 |
 | 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户身份唯一，经营角色允许多个卖方账户；出行报价符合目录闭集规则；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
@@ -2441,7 +2391,7 @@ stateDiagram-v2
 | 社交 | 在场可见字段闭合，途中人物不算在场；交谈要求双方同处一地且对方清醒、不在主动游戏，对方对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，同一对人物重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒的收件人在同一秒获得决策机会，睡眠中不唤醒；消息汉字上限边界；交谈与通话的费率与派生时长边界，不因派生值拒绝；联系人策略为闭集且回复至多一次，给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落一条占位回复，联系人回复预排送达、睡眠中过滤；直接消息以全文进入收件人的进度层；发给场景联系人的消息记入发送人的 `outbox`，联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；`receive_location_id` 为空的联系人不能收实物，给予联系人要求本人位于其收货地点；睡眠中送达的消息在醒来后的第一个边界才读 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_same_moment_decisions.py`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py`；睡眠中不读消息见 `tests/life/test_discomfort_and_sleep_messages.py` 的 `test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_waking`、`test_the_boundary_decision_segment_reads_no_message_while_asleep`、`test_a_round_observed_while_asleep_marks_no_message_read`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「不适脉冲与消息」 | 代码层已验证 |
 | 只读查询转发与故障传播 | 真实 Ray 下回看任务返回结果字典而非远端引用，世界状态与事件序号不变；`query_world` 两入口逐值相等；环境 actor 并发度为 1；决策失败与工具分发失败各有英文日志，异常对象、类型与失败阶段码不变 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「只读查询转发」「故障传播」；只读查询转发见 `tests/integration/test_read_query_runtime.py` 的 `test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`、`test_task_recall_crosses_real_ray_without_world_mutation`、`test_unwrapped_actor_read_query_equals_direct_environment_call`、`test_life_env_actor_class_fixes_single_concurrency_without_parameters` 与 `tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged`（两入口逐值相等）；故障传播见 `tests/integration/test_host_failure_stages.py` 的 `test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage`、`test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged` 与 `tests/integration/test_life_agent_protocol.py::test_decision_failure_is_logged_once_and_reraised_unchanged` | 代码层已验证 |
 | 个人事务 | 登记与原子受理、名称与错误、跨夜可见、完成依据、结算幂等、提醒、检查点恢复与唯一出现按专属规格逐项验证 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 2 各行；`tests/life/test_errand_requests.py`（变更与原子受理）、`tests/life/test_errand_names.py`（名称与错误）、`tests/life/test_errand_overnight.py`（跨夜可见）、`tests/life/test_errand_completion.py`（完成依据）、`tests/life/test_errand_settlement_idempotence.py`（结算幂等）、`tests/life/test_errand_reminder.py`（提醒）、`tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing`（检查点恢复）、`tests/integration/test_unique_presence_run.py::test_an_errand_full_row_appears_only_in_the_todo_layer`（唯一出现） | 代码层已验证 |
-| 工作安排与上班安排呈现 | 工作安排加载校验；环境层 `duty` 在班前、当班中、休息时段、班后、休息日与无工作安排各状态；修订计划与提交工作后不变；班内离岗照常受理；班次不改变任务开放与截止；班次与休息时段的起止当秒 `duty.status` 随之变化并给清醒人物一次决策机会，起止不结束任何活动、不写事件、不新增进度层记录、唤醒原因不进提示，没有工作安排的人物没有因此新增的边界，检查点恢复与反事实分支后起止只触发一次 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 3 各行；班次边界唤醒见[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的[验收台账](SPEC-idle-fillers.md#spec-idle-fillers-验收台账)「不结束活动、不写事件、不进提示」「没有工作安排的人不变」「落库、质量报告与恢复」三行（登记在 `tests/fixtures/idle-fillers-acceptance.json`）；加载校验见 `tests/life/test_load_checks.py` 的 `test_work_schedule_workplace_must_be_a_selected_location`、`test_a_malformed_shift_or_break_is_rejected_by_the_real_loader`、`test_work_schedule_must_agree_with_the_calendar_inside_the_window`；`duty` 各状态与不变性见 `tests/life/test_work_schedule.py` 的 `test_duty_follows_the_clock_through_a_working_day`、`test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly`、`test_people_without_a_schedule_have_no_duty_while_others_keep_theirs`、`test_revising_the_day_plan_does_not_change_duty`、`test_duty_stays_on_duty_after_the_work_is_submitted`、`test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds`、`test_shifts_do_not_change_task_opening_or_deadline` | 代码层已验证 |
+| 工作安排与上班安排呈现 | 工作安排加载校验；有分配主题的人物必须声明工作安排，主题地点就是工作地点；环境层 `duty` 只由声明与时钟求值，修订计划与主题完成不改变它；班内离岗照常受理；班次不生成主题开放或截止，班前可开始、班后可继续 | `tests/life/test_load_checks.py::test_work_schedule_workplace_must_be_a_selected_location`、`tests/life/test_work_schedule.py::test_duty_stays_on_duty_after_topic_completion`、`test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds`、`test_work_can_start_before_the_shift_and_continue_after_it` | 代码层节点已存在；阶段 5 最终收据待登记 |
 | 世界查询筛选与返回 | 六键必填、四键旧请求被拒；来源与购买解析得到的门店集合逐一相等；可执行筛选在切页之前施加；任意筛选组合沿 `next_offset` 遍历等于完整匹配集，false 与零值保留、无逐项候选；查询只读 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 4 各行；`tests/life/test_world_query.py` 的 `test_world_query_requires_every_declared_field`、`test_world_query_rejects_the_retired_four_key_request`、`test_world_query_matches_are_compact_targets_without_candidates`，`tests/life/test_world_query_filters.py::test_frozen_food_query_app_source_uses_actual_store_binding_and_category`，`tests/life/test_world_query_filters.py` 的 `test_available_only_judges_only_the_actions_of_the_written_way`、`test_filtered_traversal_equals_the_complete_match_set_and_counts_after_filtering`、`test_filtered_queries_leave_world_clock_events_credentials_and_presentation_unchanged` | 代码层已验证 |
 | 真实端点集成 | 真实 DeepSeek 端点与完整活动结算的集成测试通过 | 正式运行记录见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | 待真实运行 |
 
@@ -2492,3 +2442,4 @@ stateDiagram-v2
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐统一为 app 使用、全局内容进度与 session 推送；当前唤醒闭集 25 项、预排事件 9 项，工作相关成员留到阶段 5；固定 1800 秒与五类缓解率，八项占用闭集 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题运行合同 |

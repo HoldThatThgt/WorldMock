@@ -55,7 +55,6 @@ def _body_settlement_data(settlement) -> dict:
         "extra_energy_kcal": settlement.extra_energy_kcal,
         "food_energy_kcal": settlement.food_energy_kcal,
         "food_efficiency": settlement.food_efficiency,
-        "work_efficiency": settlement.work_efficiency,
     }
 
 

@@ -12,6 +12,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import WorldState
 from worldmock.life.readable import clock_phrase, iso_time, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
+from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.social import (HISTORY_LIMIT, Contact, IncomingMessage, Message, ModelReplyRequest, ReceivedItem,
                                    ReplyFacts, ReplyHistoryEntry, model_reply_request)
 
@@ -23,14 +24,15 @@ def record_outgoing(state: WorldState, agent_id: int, message: Message) -> World
     return state.model_copy(update={"agents": {**state.agents, agent_id: changed}}, deep=True)
 
 
-def reply_request(state: WorldState, store: FootprintStore, scenario: RuntimeScenario, message: Message,
+def reply_request(state: WorldState, store: FootprintStore, semantics: ScenarioSemantics, message: Message,
                   contact: Contact) -> ModelReplyRequest:
     """@brief model 策略联系人对 message 的回复请求：来信及其事实、双方此前的往来与联系人实际收到的物品。"""
+    scenario = semantics.scenario
     incoming = IncomingMessage(message_id=message.message_id, sender_id=message.sender_id,
                                contact_id=contact.contact_id, text=message.text, received_at=message.created_at)
     agent_id = int(message.sender_id.split(":", 1)[1])
     return model_reply_request(incoming, _history(state, scenario, (agent_id, contact), message.message_id),
-                               _received(state, store, scenario, contact.contact_id),
+                               _received(state, store, semantics, contact.contact_id),
                                _facts(state, scenario, agent_id, contact))
 
 
@@ -56,16 +58,17 @@ def _history(state: WorldState, scenario: RuntimeScenario, pair: tuple[int, Cont
                  for item, speaker in rows)
 
 
-def _received(state: WorldState, store: FootprintStore, scenario: RuntimeScenario,
+def _received(state: WorldState, store: FootprintStore, semantics: ScenarioSemantics,
               contact_id: str) -> tuple[ReceivedItem, ...]:
     """@brief 联系人实际收到的物品：收货人是它的已送达订单（送达时刻）与当面给予（给予时刻），按时刻排序。"""
-    names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
-    rows = [(order.expected_at, order.product_id, float(order.quantity)) for order in state.deliveries.values()
+    scenario = semantics.scenario
+    names = {food.food_id: food.name for food in semantics.catalog.foods.values()}
+    rows = [(order.expected_at, order.food_id, float(order.quantity)) for order in state.deliveries.values()
             if order.recipient_id == contact_id and order.status == "delivered"]
     for agent_id in state.agents:
         for event in store.read_agent_events("action_result", agent_id):
             given = [] if event.data.get("reused") else (event.data.get("data") or {}).get("given", [])
-            rows.extend((event.occurred_at, item["product_id"], item["quantity"])
+            rows.extend((event.occurred_at, item["food_id"], item["quantity"])
                         for item in given if item["recipient_id"] == contact_id)
     return tuple(ReceivedItem(item=names[product], quantity=portion_phrase(quantity),
                               time=clock_phrase(moment, state.current_time, scenario.timezone))

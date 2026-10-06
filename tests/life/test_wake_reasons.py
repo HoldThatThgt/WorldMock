@@ -1,6 +1,7 @@
 """环境事件、承诺威胁与双重估间隔的精确边界合同。"""
 
 from tests.data_paths import ENVIRONMENT_ROOT
+from tests.engine_fixture import engine_factory  # noqa: F401
 
 import json
 from dataclasses import replace
@@ -27,8 +28,7 @@ from worldmock.life.schedule import (
 
 NOW = 1000000
 FROZEN = (
-    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available",
-    "task_due_soon", "work_review_result", "commitment_threatened", "reconsideration_interval",
+    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "commitment_threatened", "reconsideration_interval",
     "person_arrived", "person_left", "activity_infeasible", "rejection_feedback",
     "discovery_result", "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity",
     "plan_reminder_due", "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end",
@@ -59,9 +59,6 @@ def test_sleep_allowed_reasons_add_only_plan_reminder_due():
     ({"felt_bands_now": {"appetite": 1}}, ["felt_band_change"]),
     ({"message_arrived": True}, ["message_arrival"]),
     ({"delivery_arrived": True}, ["delivery_arrival"]),
-    ({"task_newly_visible": True}, ["task_available"]),
-    ({"next_task_due_at": NOW + 1800}, ["task_due_soon", "commitment_threatened"]),
-    ({"work_review_returned": True}, ["work_review_result"]),
     ({"people_present_now": {"person"}}, ["person_arrived"]),
     ({"people_present_before": {"person"}}, ["person_left"]),
     ({"discovery_result_ready": True}, ["discovery_result"]),
@@ -74,8 +71,7 @@ def test_concrete_wake_reasons_are_preserved(fields, expected):
 
 
 @pytest.mark.parametrize("fields", [
-    {}, {"planned_end": NOW + 1}, {"next_task_due_at": NOW + 1801},
-    {"next_task_due_at": NOW},
+    {}, {"planned_end": NOW + 1},
     {"last_decision_time": NOW - 10799},
     {"has_commitments": True, "last_decision_time": NOW - 5399},
 ])
@@ -100,19 +96,11 @@ def test_custom_intervals_and_earlier_events_remain_effective():
     assert next_decision_time(query.model_copy(update={"felt_band_crossing_times": (NOW + 20,)})) == NOW + 20
 
 
-@pytest.mark.parametrize("field,deadline,expected", [
-    ("next_task_due_at", NOW + 1901, NOW + 101),
-])
-def test_warning_candidates_are_exact_not_feedback_aligned(field, deadline, expected):
-    query = NextDecisionQuery(now=NOW, last_decision_time=NOW, has_commitments=True, **{field: deadline})
-    assert next_decision_time(query) == expected
-    snapshot = WakeSnapshot(now=expected, has_commitments=True, **{field: deadline})
-    assert WakeReason.COMMITMENT_THREATENED in evaluate_wake_reasons(snapshot).wake_reasons
 
 
 def test_sleep_accepts_only_existing_sleep_reasons():
     snapshot = WakeSnapshot(now=NOW, is_asleep=True, has_commitments=True,
-                            last_decision_time=NOW - 20000, next_task_due_at=NOW + 100,
+                            last_decision_time=NOW - 20000,
                             message_arrived=True)
     assert not evaluate_wake_reasons(snapshot).decision_offered
     assert reasons(is_asleep=True, planned_end=NOW, wake_from_sleep=True, run_start=True) == [
@@ -121,7 +109,6 @@ def test_sleep_accepts_only_existing_sleep_reasons():
     query = NextDecisionQuery(now=NOW, is_asleep=True, planned_end=NOW + 20000,
                               last_decision_time=NOW, has_commitments=True)
     assert next_decision_time(query) == NOW + 20000
-    assert next_decision_time(query.model_copy(update={"next_task_due_at": NOW + 1900})) == NOW + 20000
     assert next_decision_time(NextDecisionQuery(now=NOW)) is None
 
 
@@ -135,10 +122,10 @@ def test_scenario_rejects_idle_interval_shorter_than_regular(engine_factory):
 
 def test_commitments_exclude_messages_history_and_completed_activities(engine_factory):
     from tests.life.test_day_plan import act, goal
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda document: document["agents"][0].update(work_topic_ids=[]))
     state = engine.context.state.model_copy(deep=True)
     now = state.current_time
-    agent = state.agents[1].model_copy(update={"visible_task_ids": set(), "day_plan": None})
+    agent = state.agents[1].model_copy(update={"day_plan": None})
     inputs = engine_rhythm_inputs(engine.context, state)
     assert not _has_commitments(agent, inputs)
     pending = DayPlan(day_end=now + 1000, goals=[goal("工作", registered=now)])
@@ -148,10 +135,6 @@ def test_commitments_exclude_messages_history_and_completed_activities(engine_fa
     assert not _has_commitments(agent.model_copy(update={"day_plan": history}), inputs)
     assert not _has_commitments(agent.model_copy(update={"day_plan": pending.model_copy(
         update={"day_end": now})}), inputs)
-    visible = agent.model_copy(update={"visible_task_ids": {"task"}})
-    assert _has_commitments(visible, inputs)
-    state.paid_task_ids.add("task")
-    assert not _has_commitments(visible, inputs)
     item = ActivityState(activity_id="a", agent_id=1, location_id=agent.location_id,
         kind=ActivityKind.WAIT,
         status=ActivityStatus.PAUSED, started_at=now, planned_end_at=now + 600,
@@ -167,7 +150,7 @@ def test_commitments_exclude_messages_history_and_completed_activities(engine_fa
     state.activities["b"] = item.model_copy(update={"activity_id": "b"})
     assert _has_commitments(agent, inputs)
     state.activities["b"] = item.model_copy(update={"activity_id": "b", "status": ActivityStatus.ACTIVE,
-                                                    "kind": ActivityKind.WATCH})
+                                                    "kind": ActivityKind.USE_APP})
     assert _has_commitments(agent, inputs)
 
 
@@ -189,46 +172,8 @@ def test_unread_inbox_message_yields_message_arrival_then_is_marked_read(engine_
     assert "message_arrival" not in again[1].wake_reasons
 
 
-def test_game_turn_due_offers_decision_on_an_otherwise_silent_boundary(engine_factory):
-    """游戏保持逐回合反馈：交互边界到期即提供决策，不经唤醒条件枚举（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。"""
-    from worldmock.life.rhythm import apply_decision_rhythm
-
-    engine = engine_factory()
-    state = engine.observations._snapshot_decision_references(engine.context.state.model_copy(deep=True), [1])
-    now = state.current_time
-    game = ActivityState(activity_id="game", agent_id=1, location_id=state.agents[1].location_id,
-                         kind=ActivityKind.PLAY_GAME, status=ActivityStatus.ACTIVE, started_at=now,
-                         planned_end_at=now + 3600, last_settled_at=now, elapsed_seconds=0,
-                         planned_duration_seconds=3600, next_interaction_at=now + 600,
-                         origin_action_id="act", origin_decision_id="dec", origin_request_event_id="evt")
-    state.activities["game"] = game
-    _, quiet = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
-    assert not quiet[1].offered and quiet[1].wake_reasons == []
-    state.activities["game"] = game.model_copy(update={"next_interaction_at": now})
-    changed, due = apply_decision_rhythm(engine_rhythm_inputs(engine.context, state))
-    assert due[1].offered and due[1].wake_reasons == [] and changed.agents[1].next_decision_at == now
 
 
-def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_factory):
-    from tests.life.test_day_plan import act, goal
-    engine = engine_factory()
-    state = engine.context.state.model_copy(deep=True)
-    task = engine.context.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    state.current_time = due - 1901
-    state.pending_events = []
-    state.agents[1] = state.agents[1].model_copy(update={"visible_task_ids": {task.task_id},
-        "body_settled_at": state.current_time,
-        "next_decision_at": state.current_time, "day_plan": DayPlan(day_end=due + 10000, goals=())})
-    from tests.life.test_revision_contract import _commit_staged
-    _commit_staged(engine, state)
-    started = act(engine, "warning-wait", "start_activity",
-                  start_activity("等待", "自己"))
-    assert started.status == "in_progress"
-    assert engine.scheduling_state().next_event_at.timestamp() == due - 1800
-    advance_next(engine)
-    assert engine.context.state.current_time == due - 1800
-    assert {"task_due_soon", "commitment_threatened"}.issubset(engine.context.state.agents[1].pending_wake_reasons)
 
 
 
@@ -250,117 +195,14 @@ def _keep_waiting(engine, name: str) -> None:
     assert act(engine, name, *request).status in {"completed", "in_progress"}
 
 
-def _stage_task_warning(engine, task_ids: set[str], due: int, lead_seconds: int = 1901) -> None:
-    """把真实引擎放到预警前并同步身体结算时钟。"""
-    from worldmock.footprints.models import EventDraft
-
-    state = engine.context.state.model_copy(deep=True)
-    now = due - lead_seconds
-    state.current_time = now
-    state.pending_events = []
-    agent = state.agents[1]
-    state.agents[1] = agent.model_copy(update={
-        "body_settled_at": now, "next_decision_at": now,
-        "visible_task_ids": task_ids, "known_task_ids": task_ids,
-        "day_plan": DayPlan(day_end=due + 10000, goals=()),
-    }, deep=True)
-    state.version += 1
-    engine.context.store.commit(state.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=now, visibility="system",
-        source_kind="scenario", data={"kind": "test_warning_clock"})])
-    engine.context.state = state
 
 
-def _task_warning_ids(agent) -> set[str]:
-    """读取已经交付的具体任务截止签名。"""
-    return {row[1] for entry in agent.delivered_warning_signatures
-            if (row := json.loads(entry))[0] == "task"}
 
 
-def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
-    """第二个任务进入预警窗口时，即使第一项仍未完成也再次提醒。"""
-    from tests.life.test_day_plan import act, goal
-    engine = engine_factory()
-    first, second = engine.context.scenario.tasks[:2]
-    due = int(first.due_at.timestamp())
-    engine.context.rules.tasks[second.task_id] = second.model_copy(update={
-        "available_at": datetime.fromtimestamp(due - 3600, first.due_at.tzinfo),
-        "due_at": datetime.fromtimestamp(due + 100, first.due_at.tzinfo)})
-    _stage_task_warning(engine, {first.task_id, second.task_id}, due)
-    started = act(engine, "two-task-wait", "start_activity",
-                  start_activity("等待", "自己"))
-    assert started.status == "in_progress"
-    advance_next(engine)
-    assert engine.context.state.current_time == due - 1800
-    assert _task_warning_ids(engine.context.state.agents[1]) == {first.task_id}
-    ended = act(engine, "first-warning-ack", "conclude_activity",
-                conclude_request(activity_name(engine, started.activity_id), summary="结束等待。"))
-    assert ended.status == "completed"
-    assert act(engine, "first-warning-rest", "start_activity", start_activity("等待", "自己")).status == "in_progress"
-    while engine.context.state.current_time < due - 1700:
-        advance_next(engine)
-    assert engine.context.state.current_time == due - 1700
-    assert "task_due_soon" in engine.context.state.agents[1].pending_wake_reasons
-    assert _task_warning_ids(engine.context.state.agents[1]) == {first.task_id, second.task_id}
 
 
-def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> None:
-    """睡眠区间经过预警时不标记交付，醒来且威胁仍在才标记。"""
-    from tests.life.test_day_plan import act, goal
-    engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    sleep_seconds = round(engine.context.state.agents[1].body.sleep_need_hours * 3600)
-    _stage_task_warning(engine, {task.task_id}, due, sleep_seconds + 1750)
-    started = act(engine, "sleep-warning", "start_activity",
-                  start_activity("睡觉", "自己"))
-    assert started.status == "in_progress"
-    wake_by_mail(engine, offset=101)
-    advance_next(engine)
-    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
-    assert _task_warning_ids(engine.context.state.agents[1]) == set()
-    while engine.context.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
-    assert engine.context.state.current_time == due - 1750
-    assert engine.context.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
-    assert "task_due_soon" in engine.context.state.agents[1].pending_wake_reasons
-    assert _task_warning_ids(engine.context.state.agents[1]) == {task.task_id}
 
 
-def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory) -> None:
-    """共同检查点恢复后，持续成立的同一任务威胁不会再次唤醒。"""
-    from tests.life.test_day_plan import act, goal
-    from worldmock.life.engine import LifeEngine
-    engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    _stage_task_warning(engine, {task.task_id}, due)
-    started = act(engine, "checkpoint-wait", "start_activity",
-                  start_activity("等待", "自己"))
-    advance_next(engine)
-    assert _task_warning_ids(engine.context.state.agents[1]) == {task.task_id}
-    ended = act(engine, "checkpoint-ack", "conclude_activity",
-                conclude_request(activity_name(engine, started.activity_id), summary="结束等待。"))
-    assert ended.status == "completed"
-    assert act(engine, "checkpoint-rest", "start_activity", start_activity("等待", "自己")).status == "in_progress"
-    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
-    checkpoint = engine.checkpoint({"agent:1": reference})
-    assert checkpoint.checkpoint_id
-    run_dir = engine.context.store.run_dir
-    engine.close()
-    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
-    try:
-        assert _task_warning_ids(restored.context.state.agents[1]) == {task.task_id}
-        wake_by_mail(restored, offset=60)
-        while not restored.scheduling_state().ready_agent_ids:
-            advance_next(restored)
-        reasons = restored.context.state.agents[1].pending_wake_reasons
-        assert "message_arrival" in reasons
-        assert "task_due_soon" not in reasons
-        assert "commitment_threatened" not in reasons
-        assert _task_warning_ids(restored.context.state.agents[1]) == {task.task_id}
-    finally:
-        restored.close()
 
 
 def _warning_step(engine, state, **changes):
@@ -371,48 +213,22 @@ def _warning_step(engine, state, **changes):
     return changed, verdicts[1].wake_reasons
 
 
-def test_changed_task_deadline_warns_again_and_completed_task_clears_signature(engine_factory):
-    """任务身份相同时，真实截止改变仍是新威胁；完成任务清除旧交付状态。"""
-    engine = engine_factory()
-    task = engine.context.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    state = engine.context.state.model_copy(deep=True)
-    state.current_time = due - 1000
-    agent = state.agents[1]
-    agent.body_settled_at = state.current_time
-    agent.last_decision_time = state.current_time
-    agent.visible_task_ids = agent.known_task_ids = {task.task_id}
-    due_map = {task.task_id: due}
-    state, reasons = _warning_step(engine, state, task_due=due_map)
-    assert "task_due_soon" in reasons and "commitment_threatened" in reasons
-    original = set(state.agents[1].delivered_warning_signatures)
-    state, reasons = _warning_step(engine, state, task_due=due_map)
-    assert "task_due_soon" not in reasons and "commitment_threatened" not in reasons
-    state, reasons = _warning_step(engine, state, task_due={task.task_id: due + 60})
-    assert "task_due_soon" in reasons and "commitment_threatened" in reasons
-    assert original.isdisjoint(state.agents[1].delivered_warning_signatures)
-    signature = next(iter(state.agents[1].delivered_warning_signatures))
-    assert json.loads(signature) == ["task", task.task_id, due + 60]
-    state.paid_task_ids.add(task.task_id)
-    state, reasons = _warning_step(engine, state, task_due={task.task_id: due + 60})
-    assert not state.agents[1].delivered_warning_signatures
-    assert "commitment_threatened" not in reasons
 
 
 
 
-def test_activity_infeasible_has_no_source_and_threat_only_from_deadline():
+def test_activity_infeasible_and_commitment_threatened_have_no_retired_source():
     """activity_infeasible 保留名称但没有来源：快照不再有该字段，全部标志齐开也不产生它。"""
     assert WakeReason.ACTIVITY_INFEASIBLE.value == "activity_infeasible"
     assert "activity_infeasible" not in WakeSnapshot.model_fields
     everything = reasons(planned_end=NOW, felt_bands_now={"appetite": 1}, message_arrived=True,
-                         delivery_arrived=True, task_newly_visible=True, work_review_returned=True,
+                         delivery_arrived=True,
                          people_present_now={"person"},
                          discovery_result_ready=True, wake_from_sleep=True, run_start=True,
                          progress_report_due=True, no_active_activity=True)
     assert "activity_infeasible" not in everything
     assert "commitment_threatened" not in everything
-    assert "commitment_threatened" in reasons(next_task_due_at=NOW + 1800)
+    assert "next_task_due_at" not in WakeSnapshot.model_fields
 
 
 def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine_factory):
@@ -420,16 +236,14 @@ def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine
     from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     started = act(engine, "zero-energy-watch", "start_activity",
-                  start_activity("接着看", "内容：Sintel"))
+                  start_activity("打开", "应用：哔哩哔哩"))
     assert started.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
     state.agents[1].body.energy_kcal = 0
-    state.agents[1].visible_task_ids = set()
     state.agents[1].last_decision_time = state.current_time
     for _ in range(2):
         state, reasons = _warning_step(engine, state)
         assert "activity_infeasible" not in reasons and "commitment_threatened" not in reasons
-        assert not state.agents[1].delivered_warning_signatures
         assert state.activities[started.activity_id].status == ActivityStatus.ACTIVE
         state.activities[started.activity_id].elapsed_seconds += 1
 
@@ -443,121 +257,39 @@ def _assert_rhythm_scheduled(engine) -> None:
         agent.model_copy(update={"last_decision_time": now}), engine_rhythm_inputs(engine.context, engine.context.state))
 
 
-def _start_browse(engine, name: str) -> tuple[dict, str]:
-    """@brief 开始一次商品目录浏览（浏览是占名额的活动），返回该轮观察与活动身份。"""
-    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
-    observed, result = _observed_act(engine, name, "start_activity", start_activity("浏览", "商品目录"))
-    assert result.status == "in_progress", result.error_code
-    _assert_rhythm_scheduled(engine)
-    return observed, result.activity_id
 
 
-def _conclude(engine, name: str, activity_id: str) -> dict:
-    """@brief 一轮只结束点名的活动，返回该轮观察。"""
-    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
-    observed, result = _observed_act(engine, name, "conclude_activity",
-                                     conclude_request(activity_name(engine, activity_id)))
-    assert result.status == "completed", result.error_code
-    return observed
 
 
-def _pinned(engine, observed: dict, browse_id: str) -> list[str]:
-    """@brief 浏览结果回灌到观察：该次浏览返回的供给全部呈现，且排在未经浏览返回的供给之前（置顶）；返回置顶的前缀。
-
-    直驱引擎没有宿主请求推进进度层截止点，更早的浏览结果仍在近期结果中，一并置顶。"""
-    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
-    browsed = {row["supply_id"] for item in engine.context.state.activities.values() if item.kind == ActivityKind.BROWSE
-               for row in item.data.get("revealed", {}).get("items", [])}
-    order = _supply_order(observed)
-    head = order[:next((index for index, supply_id in enumerate(order) if supply_id not in browsed), len(order))]
-    returned = {row["supply_id"] for row in engine.context.state.activities[browse_id].data["revealed"]["items"]}
-    assert returned and returned <= set(head)
-    return head
 
 
-def _browse_alone_to_its_end(engine) -> str:
-    """@brief 独自浏览到计划结束：结束边界以 planned_end 唤醒并置顶结果；收尾后同一秒以 no_active_activity 再决策，
-    该轮观察仍置顶同一批结果，并在该轮再开始一次浏览，返回其活动身份。"""
-    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
-    _, browse_id = _start_browse(engine, "alone")
-    _finish(engine, browse_id, "alone")
-    assert engine.context.state.current_time == engine.context.state.activities[browse_id].planned_end_at
-    ended = _conclude(engine, "alone-end", browse_id)
-    assert ended["wake_reasons"] == ["planned_end", "no_active_activity"]
-    pinned = _pinned(engine, ended, browse_id)
-    assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time
-    again, next_id = _start_browse(engine, "alone-again")
-    assert again["wake_reasons"] == ["no_active_activity"] and _supply_order(again)[:len(pinned)] == pinned
-    return next_id
 
 
-def _end_browse_early(engine, browse_id: str) -> None:
-    """@brief 本人提前结束浏览：浏览取消、没有结果，同一秒以 no_active_activity 再决策。"""
-    wake_by_mail(engine, offset=60)
-    assert advance_until_ready(engine)
-    assert _conclude(engine, "early-end", browse_id)["wake_reasons"] == ["message_arrival"]
-    assert engine.context.state.activities[browse_id].status == ActivityStatus.CANCELLED
-    assert "revealed" not in engine.context.state.activities[browse_id].data
-    agent = engine.context.state.agents[1]
-    assert agent.pending_wake_reasons == ["no_active_activity"] and agent.next_decision_at == engine.context.state.current_time
 
 
-def _browse_beside_a_wait(engine) -> None:
-    """@brief 在进行中的等待旁浏览：浏览先到计划结束，以 planned_end 唤醒并在该边界的观察置顶结果；收尾后等待仍在
-    进行，下一次决策按决策节律，不在同一秒或下一秒；等待结束的边界以 planned_end 与 no_active_activity 唤醒。"""
-    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
-    _, browse_id = _start_browse(engine, "beside")
-    wake_by_mail(engine, offset=60)
-    assert advance_until_ready(engine)
-    _, waiting = _observed_act(engine, "beside-wait", "start_activity", start_activity("等待", "自己"))
-    assert waiting.status == "in_progress"
-    _finish(engine, browse_id, "beside")
-    assert engine.context.state.current_time == engine.context.state.activities[browse_id].planned_end_at
-    ended = _conclude(engine, "beside-end", browse_id)
-    assert ended["wake_reasons"] == ["planned_end"]
-    _pinned(engine, ended, browse_id)
-    _assert_rhythm_scheduled(engine)
-    _finish(engine, waiting.activity_id, "wait")
-    assert _conclude(engine, "wait-end", waiting.activity_id)["wake_reasons"] == ["planned_end", "no_active_activity"]
 
 
-def _recorded_wake_reasons(engine) -> dict[str, list[list[str]]]:
-    """@brief 人物 1 在决策开始、观察与共同身体结算中留下的全部唤醒原因。"""
-    events = engine.context.store.read_agent_events
-    return {
-        "decision_started": [event.data["wake_reasons"] for event in events("decision_started", 1)],
-        "observation": [event.data["wake_reasons"] for event in events("observation", 1)],
-        "body_settlement": [event.data["wake_reasons"] for event in events("environment_event", 1)
-                            if event.data.get("kind") == "body_settlement"],
-    }
 
 
-def test_browse_results_return_in_observation_never_as_discovery_result(engine_factory, monkeypatch):
-    """discovery_result 保留在闭集中、当前没有触发来源（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章规则 6）：浏览是活动，
-    结果随浏览结束回灌到随后的观察，不另排下一秒。独自浏览到计划结束、本人提前结束、在进行中的等待旁浏览三种情形里，
-    决策开始、观察与共同身体结算的唤醒原因都不含它；判定函数仍把置位的标志映射为该原因（闭集保留），
-    而节律为每个边界装配的判定输入从不置位。"""
-    from tests.life.test_commerce import _stage_open
-    evaluated = []
 
-    def recording(snapshot):
-        verdict = evaluate_wake_reasons(snapshot)
-        evaluated.append((snapshot, verdict))
-        return verdict
 
-    monkeypatch.setattr(schedule_module, "evaluate_wake_reasons", recording)
-    engine = engine_factory()
-    _stage_open(engine)
-    stage_day_plan(engine)
-    _end_browse_early(engine, _browse_alone_to_its_end(engine))
-    _browse_beside_a_wait(engine)
-    recorded = _recorded_wake_reasons(engine)
-    assert all(recorded.values())
-    assert not [reasons for rows in recorded.values() for reasons in rows if "discovery_result" in reasons]
-    assert len(evaluated) >= len(recorded["body_settlement"]) > 0
-    assert not [snapshot for snapshot, verdict in evaluated
-                if snapshot.discovery_result_ready or WakeReason.DISCOVERY_RESULT in verdict.wake_reasons]
-    assert reasons(discovery_result_ready=True) == ["discovery_result"]
+def _stage_morning(engine, energy):
+    """@brief 真实状态提交固定晨间身体边界，后续由实际引擎观察和动作验证。"""
+    from worldmock.footprints.models import EventDraft
+    state = engine.context.state.model_copy(deep=True)
+    now = int(engine.context.scenario.start_at.timestamp()) + 8*3600
+    state.current_time = now
+    state.pending_events = [event for event in state.pending_events if event.due_at > now]
+    for agent_id, agent in state.agents.items():
+        update = {"sleep_pressure": 0.2, "entertainment_need": 0.0}
+        if agent_id == 1:
+            update["energy_kcal"] = energy
+        state.agents[agent_id] = agent.model_copy(update={"body": agent.body.model_copy(update=update),
+            "body_settled_at": now, "next_decision_at": now})
+    state.version += 1
+    engine.context.store.commit(state.model_dump(mode="json"), [EventDraft(event_type="environment_event",
+        occurred_at=now, visibility="system", data={"kind": "test_morning_position"})])
+    engine.context.state = state
 
 
 @pytest.mark.parametrize(("energy", "band"), [(300.0, "饿得难受"), (60.0, "饿得发慌")])
@@ -565,11 +297,11 @@ def test_low_energy_bands_match_the_decision_reference(engine_factory, energy, b
     """低能量下决策参照快照与唤醒判定传入同一能量与紧急阈值：分级同源，不误报 felt_band_change。
     08:00 昼夜谷底按公式只有「很饿」，两档都只能来自低能量规则。"""
     from tests.life.test_day_plan import act, goal
-    from tests.life.test_energy_feasibility import _stage_morning
+
 
     engine = engine_factory()
     _stage_morning(engine, energy)
-    started = act(engine, "low-energy-watch", "start_activity", start_activity("接着看", "内容：Sintel"))
+    started = act(engine, "low-energy-watch", "start_activity", start_activity("打开", "应用：哔哩哔哩"))
     assert started.status == "in_progress"
     assert engine.context.state.agents[1].felt_bands_at_last_decision["appetite"] == band
     state = engine.context.state.model_copy(deep=True)
@@ -698,12 +430,11 @@ def _wake_at(engine, moment: int, name: str) -> list[str]:
     pytest.fail("No decision was offered at the expected moment")
 
 
-def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports(tmp_path):
+def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports(engine_factory):
     """播报锚点在开始、对该活动播报与恢复时写入当前时刻，暂停不动锚点；progress_report_due 只由进行中活动距其锚点
     满间隔触发，暂停的活动不再播报（第八章「活动」，第七章「播报与控制都作用于活动」）。"""
     from tests.life.test_day_plan import act, goal
-    from tests.life.test_scheduling import _custom_engine
-    engine = _custom_engine("single-person.json", _report_every_ten_minutes, tmp_path, "report-anchor")
+    engine = engine_factory(mutate=_report_every_ten_minutes)
     try:
         stage_day_plan(engine)
         start = engine.context.state.current_time
@@ -713,8 +444,8 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
         assert _wake_at(engine, start + 300, "anchor-first") == ["message_arrival"]
         observed = engine.observe(context(engine, "anchor-content"))
         target, label = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
-                             if row["kind"] == "content" for action in row["actions"]
-                             if action["canonical_action"] == "watch")
+                             if row["kind"] == "app" for action in row["actions"]
+                             if action["canonical_action"] == "use_app")
         watched = act(engine, "anchor-watch", "start_activity", start_activity(label, target))
         assert watched.status == "in_progress"
         watch_id = watched.activity_id
@@ -741,12 +472,11 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
         engine.close()
 
 
-def test_sleeping_person_gets_no_progress_report_wakeups(tmp_path):
+def test_sleeping_person_gets_no_progress_report_wakeups(engine_factory):
     """睡眠是进行中活动，播报锚点照常到期，但睡眠中的边界不因 progress_report_due 提供决策；醒来时睡眠已结束待收尾，
     也不再为它播报（第八章「活动」，第一章不变项）。"""
     from tests.life.test_day_plan import act, goal
-    from tests.life.test_scheduling import _custom_engine
-    engine = _custom_engine("single-person.json", _report_every_ten_minutes, tmp_path, "report-sleep")
+    engine = engine_factory(mutate=_report_every_ten_minutes)
     try:
         stage_day_plan(engine)
         start = engine.context.state.current_time

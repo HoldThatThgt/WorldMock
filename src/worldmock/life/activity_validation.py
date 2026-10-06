@@ -27,7 +27,13 @@ def _target_is_valid(activity: ActivityState, state: WorldState, rules,
     target = activity.target_id
     data = activity.data
     if kind == ActivityKind.WORK:
-        valid = target in rules.tasks and data.get("task_id") == target
+        owner = people.get(activity.agent_id)
+        valid = (target in rules.work_topics and data.get("topic_id") == target
+                 and owner is not None and target in owner.work_topic_ids
+                 and set(data) == {"topic_id", "worked_before_seconds"}
+                 and isinstance(data.get("worked_before_seconds"), int)
+                 and not isinstance(data.get("worked_before_seconds"), bool)
+                 and data["worked_before_seconds"] >= 0)
     elif kind == ActivityKind.USE_APP:
         valid = (target in rules.apps and data.get("app_id") == target
                  and data.get("content_id") in rules.contents_by_app[target])

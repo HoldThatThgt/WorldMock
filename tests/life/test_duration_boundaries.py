@@ -7,8 +7,6 @@ import pytest
 
 from worldmock.errors import BusinessRuleError
 from worldmock.life.models import ActivityKind
-from worldmock.life.named_catalog import _content_rows
-from worldmock.life.readable import duration_phrase
 from worldmock.life.tool_layer import _facts_seconds
 
 
@@ -18,42 +16,20 @@ def _pending(action: str) -> SimpleNamespace:
                            requested_event_id="duration-request")
 
 
-@pytest.mark.parametrize("seconds", [1, 59])
-def test_short_content_is_rejected_by_listing_and_real_admission(engine_factory, monkeypatch, seconds):
-    """正数但不足一分钟的内容不能获得计划时长，也不能创建实际活动。"""
-    engine = engine_factory()
-    original = engine.context.scenario.contents[0]
-    item = original.model_copy(update={"duration_seconds": seconds})
-    monkeypatch.setitem(engine.context.rules.contents, item.item_id, item)
+@pytest.mark.parametrize('feedback', [60, 86400])
+def test_app_duration_is_fixed_in_listing_and_real_admission(engine_factory, feedback):
+    """@brief 应用的三十分钟计划与内容时长、场景反馈间隔无关。"""
+    from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS
+    engine = engine_factory(mutate=lambda document: document.update(activity_feedback_seconds=feedback))
     context = engine.observations._layer_context(engine.context.state.agents[1], (), [])
-    for operation in (
-        lambda: _facts_seconds(context, {"object_id": item.item_id}, {"canonical_action": "watch"}),
-        lambda: engine.actions._start_targeted_action(engine.context.state, _pending("watch"), ActivityKind.WATCH, item.item_id),
-    ):
-        with pytest.raises(BusinessRuleError, match="ACTIVITY_DURATION_INVALID"):
-            operation()
-    assert not engine.context.state.activities
-
-
-@pytest.mark.parametrize("seconds, expected", [(60, 60), (86_400, 86_400), (86_401, 86_400)])
-def test_game_content_watch_duration_matches_plans_and_real_admission(engine_factory, monkeypatch, seconds, expected):
-    """只能观看的游戏内容按真实 WATCH 受理，一分钟与一天边界在全部原计划消费者中一致。"""
-    engine = engine_factory()
-    original = next(item for item in engine.context.scenario.contents if item.kind == "game_session")
-    item = original.model_copy(update={"duration_seconds": seconds})
-    monkeypatch.setitem(engine.context.rules.contents, item.item_id, item)
-    context = replace(engine.observations._layer_context(engine.context.state.agents[1], (), []),
-                      scenario=engine.context.scenario.model_copy(update={"contents": (item,)}))
-    assert _facts_seconds(context, {"object_id": item.item_id}, {"canonical_action": "watch"}) == expected
-    assert _content_rows(context)[0]["note"] == duration_phrase(expected)
-    changed, result = engine.actions._start_targeted_action(engine.context.state, _pending("game-content"),
-                                                    ActivityKind.WATCH, item.item_id)
+    assert _facts_seconds(context, {'object_id': 'bilibili'}, {'canonical_action': 'use_app'}) == 1800
+    changed, result = engine.actions._start_targeted_action(
+        engine.context.state, _pending('app'), ActivityKind.USE_APP, 'bilibili')
     activity = changed.activities[result.activity_id]
-    assert result.status == "in_progress"
-    assert activity.kind == ActivityKind.WATCH
-    assert activity.planned_duration_seconds == expected
-    assert activity.data["content_kind"] == "game_session"
-    assert activity.data["start_position_seconds"] == 0
+    assert result.status == 'in_progress'
+    assert activity.planned_duration_seconds == APP_USE_DEFAULT_SECONDS == 1800
+    assert activity.kind == ActivityKind.USE_APP
+    assert 'content_id' in activity.data
 
 
 @pytest.mark.parametrize("hours, expected", [(7.0, 25_200), (7.123456, 25_644), (9.0, 32_400)])
@@ -75,9 +51,12 @@ def test_sleep_duration_uses_personal_need_in_listing_and_real_admission(engine_
 @pytest.mark.parametrize("seconds", [60, 86_400])
 def test_feedback_duration_matches_listing_and_real_admission(engine_factory, seconds):
     """反馈间隔的合法上下界同时决定等待、阅读、浏览和可玩游戏的真实计划时长。"""
-    engine = engine_factory(mutate=lambda document: document.update(activity_feedback_seconds=seconds))
+    def with_mail(document):
+        document['activity_feedback_seconds'] = seconds
+        document['messages'] = [{'message_id': 'duration-mail', 'thread_id': 'duration-thread',
+            'recipient_agent_id': 1, 'sent_at': document['start_at'], 'subject': '边界邮件', 'body': '测试正文'}]
+    engine = engine_factory(mutate=with_mail)
     message_id = engine.context.scenario.messages[0].message_id
-    game_id = engine.context.scenario.games[0].game_id
     state = engine.context.state.model_copy(deep=True)
     state.agents[1].visible_message_ids.add(message_id)
     context = replace(engine.observations._layer_context(state.agents[1], (), []), state=state)
@@ -86,10 +65,6 @@ def test_feedback_duration_matches_listing_and_real_admission(engine_factory, se
          lambda: engine.actions._start_self_action(state, _pending("wait"), "wait")),
         ("read", message_id, ActivityKind.READ_MAIL,
          lambda: engine.actions._start_targeted_action(state, _pending("read"), ActivityKind.READ_MAIL, message_id)),
-        ("browse", "product_catalog", ActivityKind.BROWSE,
-         lambda: engine.actions._start_browse_action(state, _pending("browse"), "product_catalog")),
-        ("play", game_id, ActivityKind.PLAY_GAME,
-         lambda: engine.actions._start_targeted_action(state, _pending("play"), ActivityKind.PLAY_GAME, game_id)),
     )
     for canonical, target, kind, start in starts:
         assert _facts_seconds(context, {"object_id": target}, {"canonical_action": canonical}) == seconds

@@ -37,7 +37,7 @@ from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import (
     SETTLED_STATUSES, ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
-    purchase_sentence, record_lines, tool_record, work_line,
+    purchase_sentence, record_lines, tool_record,
 )
 from worldmock.life.tool_layer import LayerContext
 
@@ -304,8 +304,6 @@ def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
 def _world_lines(build: _Build, event: Event) -> list[_Line]:
     """@brief 世界事件的 settled 句：直接消息（全文，未回复时标未了结）、邮件（主题）、送达与新工作；交谈邀请不写。"""
     context, kind, key = build.context, event.data.get("kind"), (event.occurred_at, event.event_seq)
-    if kind == "work_available":
-        return [_Line(work_line(context, event), key)]
     if kind == "delivery_arrival":
         deliveries = context.state.deliveries
         return [_Line(record_lines(context, item.record, [event])[0], key,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.data_paths import ENVIRONMENT_ROOT
 
 import json
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,6 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
-    ContentProgress,
 )
 from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -51,60 +51,8 @@ def _rendered(observation: dict) -> str:
     return json.dumps([observation[key] for key in _LAYERS], ensure_ascii=False)
 
 
-def _stage_open_single_stock(engine) -> str:
-    """让一个公开商品处于营业时段且只剩一件。"""
-    supply = engine.context.scenario.supplies[0]
-    product_id = supply.product_id
-    local = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.scenario.timezone))
-    now = int(local.replace(hour=12, minute=0, second=0).timestamp())
-    state = engine.context.state.model_copy(deep=True)
-    state.current_time = now
-    state.pending_events = [item for item in state.pending_events if item.due_at > now]
-    state.supply_stock[supply.supply_id] = 1
-    agent = state.agents[1]
-    inventory = {"office": {product_id: 0.0}, "home": {product_id: 1.0}}
-    state.agents[1] = agent.model_copy(
-        update={"visible_supply_ids": {supply.supply_id}, "supply_browsed_at": {supply.supply_id: now},
-                "supply_browsed_location": {supply.supply_id: "office"}, "location_id": "office",
-                "inventory": inventory, "next_decision_at": now, "body_settled_at": now}, deep=True)
-    _commit_test_state(engine, state, "test_single_stock")
-    return supply.supply_id
 
 
-def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -> None:
-    """真实观察列出可购买的供给：人在办公室时到店标不可用（需要在店里），远程下单可用；结算最后一件后下一轮再没有可用的
-    取得方式（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    supply_id = _stage_open_single_stock(engine)
-    product_id = next(item.product_id for item in engine.context.scenario.supplies if item.supply_id == supply_id)
-    first_context = context(engine, "purchase-grounded")
-    engine.begin_decision_round([first_context])
-    observation = engine.observe(first_context)
-    supply = next(item for item in observation["supplies"] if item["supply_id"] == supply_id)
-    binding = next(item for item in observation["interaction_bindings"]
-                   if item["kind"] == "supply" and item["object_id"] == supply_id)
-    ways = target_actions(observation, binding["object"])
-    assert [(way, row["available"]) for way, row in ways.items()] == [("到店", False), ("远程下单", True)]
-    store = next(item.name for item in engine.context.scenario.locations if item.location_id == supply["location_id"])
-    assert ways["到店"]["reason"] == f"到店{binding['object']} requires presence at {store}."
-    assert [(item["label"], item["note"]) for item in binding["actions"]] == [
-        (way, row["reason"]) for way, row in ways.items()]
-    assert supply["current_stock"] == 1 and "initial_stock" not in supply
-    assert observation["available_inventory"][product_id] == 0
-    request = start_request(targets=[binding["object"]], actions=["obtain"], ways=["远程下单"])
-    engine.submit_action(DirectToolCall(first_context, "action-purchase-grounded", "start_activity", request))
-    result = engine.commit_decision_round("purchase-grounded")[0]
-    assert result.status == "completed"
-    assert engine.context.state.supply_stock[supply_id] == 0
-    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "purchase-then-wait")
-    wake_by_mail(engine, agent_id=1, offset=900)
-    advance_next(engine)
-    refreshed = engine.observe(context(engine, "purchase-sold-out"))
-    sold_out = next(item for item in refreshed["supplies"] if item["supply_id"] == supply_id)
-    assert sold_out["current_stock"] == 0 and "initial_stock" not in sold_out
-    assert not [row for row in refreshed["tool_layer"]["targets"] if row["name"] == binding["object"]
-                and any(action["available"] for action in row["actions"])]
 
 
 def test_observation_keeps_current_time_without_plan_conversion_anchors(engine_factory) -> None:
@@ -141,13 +89,11 @@ def test_observation_keeps_full_goal_text_in_the_todo_layer(engine_factory) -> N
     assert _rendered(observation).count("目" * 300) == 8
 
 
-def _todo_context(agent, now: int, zone: str) -> LayerContext:
-    """只有人物与计划的待办层上下文（没有个人事务，目录为空）。"""
-    state = SimpleNamespace(agents={1: agent}, activities={}, current_time=now)
-    return LayerContext(state=state, scenario=SimpleNamespace(timezone=zone, locations=()),
-                        rules=SimpleNamespace(items={}),
-                        semantics=None, agent_id=1, names={"sessions": {}, "activities": {}}, bindings=[],
-                        menu=None)
+def _todo_context(engine, agent, now: int) -> LayerContext:
+    """@brief 用实际引擎的已登记目录与人物构造边界时刻的只读待办视图。"""
+    state = engine.context.state.model_copy(deep=True)
+    state.current_time = now
+    return replace(engine.observations._layer_context(agent, (), []), state=state)
 
 
 def test_goal_projection_survives_bedtime_and_expires_at_local_midnight(engine_factory) -> None:
@@ -158,171 +104,29 @@ def test_goal_projection_survives_bedtime_and_expires_at_local_midnight(engine_f
     day_end = day_end_seconds(now, zone)
     agent = engine.context.state.agents[1]
     agent.day_plan = DayPlan(day_end=day_end, goals=())
-    assert todo_layer(_todo_context(agent, day_end - 1, zone), engine.context.store)["day_plan"] == {
+    assert todo_layer(_todo_context(engine, agent, day_end - 1), engine.context.store)["day_plan"] == {
         "date": datetime.fromtimestamp(day_end - 1, ZoneInfo(zone)).date().isoformat(), "goals": []}
-    assert todo_layer(_todo_context(agent, day_end, zone), engine.context.store)["day_plan"] is None
+    assert todo_layer(_todo_context(engine, agent, day_end), engine.context.store)["day_plan"] is None
     agent.day_plan = DayPlan(day_end=day_end, goals=(
         PlanGoal(intent_kind="睡眠", goal="十一点前睡下", registered_at=now, remind_at=day_end - 3600),
         PlanGoal(intent_kind="休息", goal="睡前歇一会儿", registered_at=now)))
-    goals = todo_layer(_todo_context(agent, day_end - 1, zone), engine.context.store)["day_plan"]["goals"]
+    goals = todo_layer(_todo_context(engine, agent, day_end - 1), engine.context.store)["day_plan"]["goals"]
     assert [(row["intent_kind"], row["remind_time"]) for row in goals] == [("睡眠", "23:00"), ("休息", None)]
     agent.day_plan = None
-    assert todo_layer(_todo_context(agent, day_end - 1, zone), engine.context.store)["day_plan"] is None
+    assert todo_layer(_todo_context(engine, agent, day_end - 1), engine.context.store)["day_plan"] is None
 
 
-def _stage_progress_limits(engine, tail: str = "contract") -> None:
-    """形成工作合同剩余五十九秒和全部内容媒体剩余九秒的真实状态；tail 为 deadline 时另把时刻放在截止前五十九秒。"""
-    task = engine.context.scenario.tasks[0]
-    now = int(task.available_at.timestamp()) if tail == "contract" else int(task.due_at.timestamp()) - 59
-    worked = task.maximum_duration_seconds - 59
-    state = engine.context.state.model_copy(deep=True)
-    state.current_time = now
-    state.pending_events = [item for item in state.pending_events if item.due_at > now]
-    agent = state.agents[1]
-    drained = {
-        content.item_id: ContentProgress(
-            item_id=content.item_id,
-            position_seconds=content.duration_seconds - 9,
-            exposure_count=1,
-        )
-        for content in engine.context.scenario.contents
-    }
-    visible = set(agent.visible_task_ids)
-    visible.add(task.task_id)
-    state.agents[1] = agent.model_copy(
-        update={"location_id": task.required_location_id, "visible_task_ids": visible,
-                "content_progress": drained, "next_decision_at": now, "body_settled_at": now},
-        deep=True,
-    )
-    activity = ActivityState(
-        activity_id="completed-work-limit",
-        agent_id=1,
-        location_id=task.required_location_id,
-        kind="work",
-        status="completed",
-        started_at=now - worked,
-        ended_at=now,
-        planned_end_at=now,
-        last_settled_at=now,
-        concluded_at=now,
-        elapsed_seconds=worked,
-        planned_duration_seconds=worked,
-        effective_work_seconds=task.required_effective_seconds,
-        target_id=task.task_id,
-        resource_claims={"work"},
-        origin_action_id="work-limit-action",
-        origin_decision_id="work-limit-decision",
-        origin_request_event_id="work-limit-request",
-    )
-    state.activities[activity.activity_id] = activity
-    _commit_test_state(engine, state, "test_progress_limits")
 
 
-@pytest.mark.parametrize(("tail", "note"), [
-    ("contract", "Less than one minute remains in the contract; work cannot start."),
-    ("deadline", "Less than one minute remains before the deadline; work cannot start."),
-], ids=["contract", "deadline"])
-def test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note(
-        engine_factory, tail: str, note: str) -> None:
-    """不按人物状态剪裁（第五章、第八章「工作」「呈现」）：剩余不足 60 秒的内容列为「从头再看」并写全长；
-    距截止或剩余合同不足 60 秒的任务照常列出工作动作并标不可用，选了以 ACTIVITY_DURATION_INVALID 返回同一原因与
-    下一步；已达标且没在做的工作提交可用，合同写「有效工时已达标」。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _stage_progress_limits(engine, tail)
-    observed_context = context(engine, "progress-limits")
-    engine.begin_decision_round([observed_context])
-    observation = engine.observe(observed_context)
-    task = observation["tasks"][0]
-    assert task["remaining_contract_seconds"] == 59
-    assert task["worked_seconds"] == engine.context.scenario.tasks[0].maximum_duration_seconds - 59
-    assert task["effective_seconds"] == engine.context.scenario.tasks[0].required_effective_seconds
-    assert task["material"]["end_char"] == task["material"]["total_chars"]
-    assert {row["remaining_media_seconds"] for row in observation["content_progress"].values()} == {9}
-    work = next(row for row in observation["interaction_bindings"]
-                if row["kind"] == "work_task" and row["object_id"] == task["task_id"])
-    assert target_actions(observation, work["object"])["工作"]["reason"] == note
-    assert target_tools(observation, work["object"])["submit_work"]["available"] is True
-    assert tool_targets(observation)[work["object"]]["contract"]["remaining"].startswith("有效工时已达标")
-    contents = {item.item_id: item for item in engine.context.scenario.contents}
-    listed = [row for row in observation["interaction_bindings"] if row["kind"] == "content"]
-    assert listed
-    for row in listed:
-        item = contents[row["object_id"]]
-        way = "从头再听" if item.kind == "podcast_episode" else "从头再看"
-        (action,) = tool_targets(observation)[row["object"]]["actions"]
-        assert (action["way"], action["duration"]) == (way, duration_phrase(min(item.duration_seconds, 86_400)))
-        assert tool_targets(observation)[row["object"]]["state"].endswith("完了")
-    engine.submit_action(DirectToolCall(observed_context, "action-progress-limits", "start_activity",
-                                        start_activity("工作", work["object"])))
-    result = engine.commit_decision_round("progress-limits")[0]
-    assert result.status == "rejected" and result.error_code == "ACTIVITY_DURATION_INVALID"
-    assert (result.data["reason"], result.data["next_step"]) == (note, "Submit the completed work.")
-    assert not any(item.kind == "work" and item.status == "active" for item in engine.context.state.activities.values())
 
 
-def _stage_titled_progress(engine) -> None:
-    """形成电影、字幕体验与新闻流三条已开始内容的真实进度状态。"""
-    state = engine.context.state.model_copy(deep=True)
-    agent = state.agents[1]
-    staged = {
-        "movie-0001": ContentProgress(item_id="movie-0001", position_seconds=600, exposure_count=1),
-        "sintel-en-subtitles": ContentProgress(
-            item_id="sintel-en-subtitles", position_seconds=300, exposure_count=1),
-        "news-feed": ContentProgress(item_id="news-feed", position_seconds=120, exposure_count=2),
-    }
-    state.agents[1] = agent.model_copy(update={"content_progress": staged}, deep=True)
-    _commit_test_state(engine, state, "test_content_progress_titles")
 
 
-def test_real_observation_content_progress_titles(engine_factory) -> None:
-    """已开始内容条目携带语料展示标题；feed 条目不写 title 键。"""
-    engine = engine_factory()
-    _stage_titled_progress(engine)
-    observed_context = context(engine, "content-progress-titles")
-    engine.begin_decision_round([observed_context])
-    observation = engine.observe(observed_context)
-    progress = observation["content_progress"]
-    movies = json.loads((ENVIRONMENT_ROOT / "corpora/movies/items.json").read_text(encoding="utf-8"))
-    movie_title = next(row["title"] for row in movies if row["item_id"] == "movie-0001")
-    identity = json.loads((ENVIRONMENT_ROOT / "corpora/sintel/media-identity.json").read_text(encoding="utf-8"))
-
-    assert progress["movie-0001"]["title"] == movie_title
-    assert progress["sintel-en-subtitles"]["title"] == identity["title"]
-    assert set(progress["movie-0001"]) == {
-        "item_id", "position_seconds", "exposure_count",
-        "remaining_media_seconds", "title"}
-    assert progress["news-feed"]["title"] == "中文新闻流（1000 条标题+摘要）"
-    assert set(progress["news-feed"]) == {
-        "item_id", "position_seconds", "exposure_count", "remaining_media_seconds", "title"}
 
 
-def _start_active_activity(engine, kind: str) -> str:
-    """经真实 start_activity 入口开始工作、驾车或浏览，返回进行中活动身份。"""
-    from tests.life.test_revision_contract import _act
-    from tests.life.test_travel_time import _stage_peak, _start_driving
-    from tests.life.test_work_review import _at_task_start
-
-    if kind == "drive":
-        _stage_peak(engine)
-        stage_day_plan(engine)
-        return _start_driving(engine, "active-drive")[1].activity_id
-    if kind == "work":
-        _at_task_start(engine)
-        stage_day_plan(engine)
-        task_id = engine.context.scenario.tasks[0].task_id
-        observed = engine.observe(context(engine, "active-work-preview"))
-        binding, action = next((row, action) for row in observed["interaction_bindings"]
-                               for action in row["actions"]
-                               if row["object_id"] == task_id and action["canonical_action"] == "work")
-        request = start_request(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
-    else:
-        stage_day_plan(engine)
-        request = start_activity("浏览", "商品目录")
-    return _act(engine, f"active-{kind}", "start_activity", request).activity_id
 
 
-@pytest.mark.parametrize("kind", ["work", "drive", "browse"])
+@pytest.mark.parametrize("kind", ["work", "drive", "app"])
 def test_real_observation_during_active_activity_keeps_decision_open(engine_factory, kind: str) -> None:
     """工作、驾车、浏览进行中被唤醒时观察照常：进行中的活动是工具层的活动目标（三个控制工具），「自己」的等待照常列出，
     每个列出的目标都有名称，决策可以继续（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。"""
@@ -345,7 +149,8 @@ def test_real_observation_during_active_activity_keeps_decision_open(engine_fact
 
 def test_motivation_context_wires_enabled_set_and_recent_meals(engine_factory) -> None:
     """动机上下文三接线：启用集直通声明、近 24h 进食计数、口味权重空映射不抬升。"""
-    engine = engine_factory()
+    from tests.life.test_motivation import CONTRACT_PROFILE
+    engine = engine_factory(mutate=lambda document: document["agents"][0].update({"motivation": CONTRACT_PROFILE}))
     agent = engine.context.state.agents[1]
     config = next(item for item in engine.context.scenario.agents if item.agent_id == 1)
     profile = config.motivation
@@ -370,7 +175,7 @@ def test_motivation_context_wires_enabled_set_and_recent_meals(engine_factory) -
     wired = engine.observations._motivation_context(agent, profile)
     assert wired.recent_meal_counts == {"food-a": 2, "food-b": 1}
     assert wired.lifestyle_enabled == config.lifestyle_activities
-    assert wired.taste_weights == {}
+    assert not hasattr(wired, "taste_weights")
     # 边界内的实际结算计入；窗口外和其他人物的活动不计。
     from worldmock.life.observe import _recent_meal_counts
     stale = consumed_activity("stale", now - 86_401, "eat", {"food-stale": 3})
@@ -389,7 +194,7 @@ def test_observation_people_facts_and_contacts_identity_layers(engine_factory) -
     contacts = [row for row in data["tool_layer"]["targets"] if row["name"].startswith("联系人：")]
     config = next(item for item in engine.context.scenario.agents if item.agent_id == 1)
     assert [row["name"] for row in contacts] == [f"联系人：{item.salutation}" for item in config.contacts]
-    assert all(row["kind"] == "person" for row in contacts)
+    assert all(row["kind"] == "contact" for row in contacts)
     assert {row["object_id"] for row in data["interaction_bindings"] if row["kind"] in {"person", "contact"}}
     text = _rendered(data)
     assert '"person_id"' not in text and '"contact_id"' not in text and "agent:" not in text
@@ -400,13 +205,91 @@ def test_observation_people_facts_and_contacts_identity_layers(engine_factory) -
 def test_holding_targets_show_product_display_names(engine_factory) -> None:
     """手边持有物是工具层的「持有物：<目录展示名>」目标，不出现商品标识。"""
     engine = engine_factory()
-    held = next(item for item in engine.context.scenario.products if item.name)
+    held = next(item for item in engine.context.scenario.foods if item.category.value == "meal")
     data = engine.observations._observation_data(engine.context.state.agents[1])
     assert f"持有物：{held.name}" not in tool_targets(data)
     staged = engine.context.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
-        update={"inventory": {staged.agents[1].location_id: {held.product_id: 1.0}}}, deep=True)
+        update={"inventory": {staged.agents[1].location_id: {held.food_id: 1.0}}}, deep=True)
     engine.context.state = staged
     data = engine.observations._observation_data(engine.context.state.agents[1])
     assert f"持有物：{held.name}" in tool_targets(data)
-    assert held.product_id not in json.dumps(data["tool_layer"], ensure_ascii=False)
+    assert held.food_id not in json.dumps(data["tool_layer"], ensure_ascii=False)
+
+
+def _start_active_activity(engine, kind: str) -> str:
+    """经真实请求开始工作、出行或应用使用，不读旧材料、路线时段或浏览夹具。"""
+    from tests.life.test_work_protocol import at_workplace
+    stage_day_plan(engine)
+    if kind == "work":
+        at_workplace(engine)
+        topic = engine.context.scenario.work_topics[0]
+        request = start_activity("工作", f"工作：{topic.topic}")
+    elif kind == "drive":
+        place = next(item.name for item in engine.context.scenario.locations if item.location_id == "office")
+        request = start_activity("驾车", f"地点：{place}")
+    else:
+        app = next(item.name for item in engine.context.scenario.apps if item.app_id == "douyin")
+        request = start_activity("打开", f"应用：{app}")
+    _, results = submit_round(engine, {1: ("start_activity", request)}, f"active-{kind}")
+    assert results[0].status == "in_progress"
+    return results[0].activity_id
+
+
+def test_real_observation_fixed_menu_purchase_keeps_food_available(engine_factory) -> None:
+    """真实固定菜单不因买过一份消失；到店地点资格和远程配送仍由同一受理入口判定。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    observed_context = context(engine, "fixed-menu-purchase")
+    engine.begin_decision_round([observed_context])
+    observation = engine.observe(observed_context)
+    binding = next(row for row in observation["interaction_bindings"] if row["kind"] == "supply"
+                   and row["store_id"] == "noodle-1")
+    ways = target_actions(observation, binding["object"])
+    assert not ways["到店"]["available"] and ways["远程下单"]["available"]
+    engine.submit_action(DirectToolCall(observed_context, "action-fixed-menu", "start_activity",
+                                      start_activity("远程下单", binding["object"])))
+    result = engine.commit_decision_round(observed_context.round_id)[0]
+    assert result.status == "completed"
+    refreshed = engine.observe(context(engine, "fixed-menu-refresh"))
+    assert target_actions(refreshed, binding["object"])["远程下单"]["available"]
+    assert "current_stock" not in json.dumps(refreshed)
+
+
+def test_real_observation_topic_tail_work_uses_shared_minute_refusal(engine_factory) -> None:
+    """真实非失败活动累计后余下五十九秒，工作目标和受理返回同一原因与下一步。"""
+    engine = engine_factory()
+    from tests.life.test_work_protocol import at_workplace
+    at_workplace(engine)
+    topic = engine.context.scenario.work_topics[0]
+    state = engine.context.state.model_copy(deep=True)
+    now = state.current_time
+    worked = topic.target_seconds - 59
+    activity = ActivityState(activity_id="completed-topic-tail", agent_id=1, location_id="office", kind="work",
+        status="completed", started_at=now-worked, ended_at=now, planned_end_at=now,
+        last_settled_at=now, concluded_at=now, elapsed_seconds=worked, planned_duration_seconds=worked,
+        target_id=topic.topic_id, resource_claims={"work"}, origin_action_id="tail-action",
+        origin_decision_id="tail-decision", origin_request_event_id="tail-request",
+        data={"topic_id": topic.topic_id, "worked_before_seconds": 0})
+    state.activities[activity.activity_id] = activity
+    _commit_test_state(engine, state, "test_work_topic_tail")
+    decision = context(engine, "topic-tail")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    target = f"工作：{topic.topic}"
+    reason = "Less than one minute of the topic remains; work cannot start."
+    assert target_actions(observed, target)["工作"]["reason"] == reason
+    engine.submit_action(DirectToolCall(decision, "tail-start", "start_activity", start_activity("工作", target)))
+    result = engine.commit_decision_round(decision.round_id)[0]
+    assert (result.error_code, result.data["reason"], result.data["next_step"]) == (
+        "ACTIVITY_DURATION_INVALID", reason, "Choose another activity.")
+
+
+def test_real_observation_uses_registered_app_and_content_names(engine_factory) -> None:
+    """私有证据来自唯一登记目录，旧媒体位置、游戏目录和工作材料不再出现。"""
+    engine = engine_factory()
+    data = engine.observe(context(engine, "registered-names"))
+    assert data["contents"] == [{"content_id": item.content_id, "title": item.title, "kind": item.kind.value}
+                                for item in engine.context.semantics.catalog.contents.values()]
+    assert {row["app_id"] for row in data["apps"]} == set(engine.context.semantics.catalog.apps)
+    assert not {"content_progress", "game_catalog", "tasks", "discovery_catalog"} & data.keys()

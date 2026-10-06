@@ -28,7 +28,7 @@ from worldmock.life.models import REQUEST_MODELS
 from tests.life.conftest import start_arguments
 
 #: 条件已满足（没有说明）的工作对象：菜单剪裁与条件说明无关。
-_TASK = _visible_object("整理会议纪要", "work_task", "task-visible", _offer("interact", "工作", "work"))
+_TASK = _visible_object("整理会议纪要", "work_topic", "topic-visible", _offer("interact", "工作", "work"))
 _WORK_CHOICE = start_arguments(["整理会议纪要"], ["interact"], ["工作"])
 
 

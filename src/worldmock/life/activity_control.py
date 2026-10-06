@@ -144,7 +144,7 @@ def object_display_name(binding: dict) -> str:
 
 
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度的人读短语：已做时长、工作的有效时长、进行或暂停中的还剩时长；食用只写「已吃 X 份，剩 Y 份」
+    """@brief 活动客观进度的人读短语：已做时长、进行或暂停中的还剩时长；食用只写「已吃 X 份，剩 Y 份」
     （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「待办层」，不另写还剩时长）。
 
     工作不写「还差」：合同剩余只在工具层任务目标的 contract（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
@@ -154,8 +154,6 @@ def objective_progress(activity: ActivityState) -> str:
         eaten = sum(activity.data.get("consumed", {}).values())
         return f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(max(0.0, planned - eaten))}"
     parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
-    if activity.kind == ActivityKind.WORK:
-        parts.append(f"有效{duration_phrase(activity.effective_work_seconds)}")
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
         parts.append(f"还剩{duration_phrase(remaining)}")
@@ -293,9 +291,9 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
 
 
 def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 播报与恢复：状态、恢复地点、工作的截止约束、空名额与恢复后的占用（按这个顺序）。
+    """@brief 播报与恢复：状态、恢复地点、工作的主题上限、空名额与恢复后的占用（按这个顺序）。
 
-    地点与截止先于名额：腾出名额解决不了它们，名额拒绝不该让人物白白结束或暂停别的活动；名额先于占用冲突，与开始
+    地点与主题上限先于名额：腾出名额解决不了它们，名额拒绝不该让人物白白结束或暂停别的活动；名额先于占用冲突，与开始
     请求的名额先于整组准入一致（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-裁决记录 R4）。
     """
     if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
@@ -309,8 +307,8 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
                        f"Resume {name} at its start location {place}; it can be concluded elsewhere.",
                        unmet=("activity_location",), suggested={"travel_to": place})
     if activity.kind == ActivityKind.WORK:
-        worked, _ = work_totals(context.state, activity.agent_id, activity.target_id)
-        refusal = work_start_refusal(context.tasks[activity.target_id], worked, context.state.current_time)
+        worked = work_totals(context.state, activity.agent_id, activity.target_id)
+        refusal = work_start_refusal(context.work_topics[activity.target_id], worked)
         if refusal is not None:
             return refusal
     refusal = slot_refusal(context.state, activity.agent_id, 1, context.activity_names)

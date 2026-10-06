@@ -39,7 +39,12 @@ def test_delivery_reaches_every_selected_place_and_survives_restore_once(destina
     semantics, state = registered_world(destination)
     before = state.model_dump(mode="json")
     merchant_before = state.accounts["merchant:noodle-1"]
-    outcome = purchase_order(state, semantics, 1, order_request(destination=destination))
+    failure = None
+    try:
+        outcome = purchase_order(state, semantics, 1, order_request(destination=destination))
+    except BusinessRuleError as error:
+        failure = error
+    assert failure is None, f"Every selected destination must accept delivery: {failure}"
     order, event = outcome.orders[0], outcome.scheduled[0]
     distance = semantics.catalog.shortest_m("noodle-1", destination)
     assert order.expected_at == state.current_time + delivery_seconds(distance)

@@ -118,56 +118,16 @@ def _activity_terminal_draft(activity, occurred_at: int,
 
 
 def _pending_causes(pending: PendingAction) -> list[str]:
-    """@brief 将动作请求和适用的独立工作验收作为直接原因。"""
-    causes = [pending.requested_event_id]
-    if pending.work_review_event_id:
-        causes.append(pending.work_review_event_id)
-    return causes
+    """@brief 动作结果只回链实际登记的动作请求。"""
+    return [pending.requested_event_id]
 
 
-def _work_review_request_draft(now: int, pending: PendingAction, link: tuple[str, int, str | None],
-                               request: dict) -> EventDraft:
-    """@brief 形成系统私有的完整工作验收模型请求证据。"""
-    call_id, attempt, previous_event_id = link
-    causes = [pending.requested_event_id]
-    if previous_event_id:
-        causes.append(previous_event_id)
-    data = {"phase": "request", "purpose": "work_review", "call_id": call_id,
-            "attempt": attempt, "request": request, "response": None, "error": None}
-    return EventDraft(event_type="model_request", occurred_at=now, agent_id=pending.agent_id,
-                      decision_id=pending.decision_id, action_id=pending.action_id,
-                      caused_by=causes, visibility="system",
-                      source_kind="model", data=data)
 
 
-def _work_review_failure_draft(now: int, pending: PendingAction,
-                               link: tuple[str, str, int], error: BaseException) -> EventDraft:
-    """@brief 形成工作验收配置或传输失败证据。"""
-    call_id, request_event_id, attempt = link
-    data = {"phase": "failure", "purpose": "work_review", "call_id": call_id,
-            "attempt": attempt, "request": None, "response": None, "error": repr(error)}
-    return _work_review_terminal_draft(now, pending, request_event_id, data)
 
 
-def _work_review_response_draft(now: int, pending: PendingAction,
-                                link: tuple[str, str, int], outcome: tuple) -> EventDraft:
-    """@brief 形成带原始响应、用量和本地验收结论的工作评审证据。"""
-    call_id, request_event_id, attempt = link
-    raw, decision, error = outcome
-    data = {"phase": "response", "purpose": "work_review", "call_id": call_id,
-            "attempt": attempt, "request": None, "response": raw,
-            "usage": raw.get("usage") if isinstance(raw, dict) else None,
-            "review_decision": decision.model_dump(mode="json") if decision else None,
-            "error": repr(error) if error else None}
-    return _work_review_terminal_draft(now, pending, request_event_id, data)
 
 
-def _work_review_terminal_draft(now: int, pending: PendingAction,
-                                request_event_id: str, data: dict) -> EventDraft:
-    """@brief 将工作验收终态直接回链其唯一请求。"""
-    return EventDraft(event_type="model_response", occurred_at=now, agent_id=pending.agent_id,
-                      decision_id=pending.decision_id, action_id=pending.action_id,
-                      caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
 
 
 def _result_event_data(result: ActionResult, state: WorldState,

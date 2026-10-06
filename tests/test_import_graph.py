@@ -19,7 +19,8 @@ FOUNDATION = frozenset({
     "worldmock.exchange.types",
 })
 # 运行配置尚未初始化前不能导入的重依赖与命令行启动边界。
-DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.life.observe', 'ObservationBuilder._layer_data', 'worldmock.life.environment_layer'): '出行纯观察不提前装载完整环境层',
+DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {('worldmock.runtime', '_prepare_resume', 'worldmock.life.models'): '恢复发布前按现行世界模型拒绝退役身份，不提前加载完整引擎',
+ ('worldmock.life.observe', 'ObservationBuilder._layer_data', 'worldmock.life.environment_layer'): '出行纯观察不提前装载完整环境层',
  ('worldmock.life.relevance', 'entry_family', 'worldmock.life.candidates'): '纯清单加载不导入候选执行模块',
  ('worldmock.life.relevance', 'entry_family', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
  ('worldmock.life.relevance', 'intent_families', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',

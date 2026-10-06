@@ -23,7 +23,6 @@ RECONSIDERATION_INTERVAL_SECONDS = 5400
 IDLE_RECONSIDERATION_INTERVAL_SECONDS = 10800
 #: 当前地点的闭店预警窗口。
 #: 可见工作任务的截止预警窗口。
-TASK_DUE_SOON_SECONDS = 1800
 #: 有序目标清单的容量上限。
 MAX_PLAN_GOALS = 8
 #: 单条自然语言目标的字符上限。
@@ -43,9 +42,6 @@ class WakeReason(str, Enum):
     FELT_BAND_CHANGE = "felt_band_change"
     MESSAGE_ARRIVAL = "message_arrival"
     DELIVERY_ARRIVAL = "delivery_arrival"
-    TASK_AVAILABLE = "task_available"
-    TASK_DUE_SOON = "task_due_soon"
-    WORK_REVIEW_RESULT = "work_review_result"
     COMMITMENT_THREATENED = "commitment_threatened"
     RECONSIDERATION_INTERVAL = "reconsideration_interval"
     PERSON_ARRIVED = "person_arrived"
@@ -207,9 +203,6 @@ class WakeSnapshot(BaseModel):
     felt_bands_at_last_decision: dict[str, int] = {}
     message_arrived: bool = False
     delivery_arrived: bool = False
-    task_newly_visible: bool = False
-    next_task_due_at: int | None = None
-    work_review_returned: bool = False
     last_decision_time: int | None = None
     reconsideration_interval_seconds: int = RECONSIDERATION_INTERVAL_SECONDS
     idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
@@ -256,7 +249,6 @@ class NextDecisionQuery(BaseModel):
     reconsideration_interval_seconds: int = RECONSIDERATION_INTERVAL_SECONDS
     idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
     has_commitments: bool = False
-    next_task_due_at: int | None = None
     next_progress_report_at: int | None = None
     #: 当日未触发的提醒时刻（睡眠中不剔除，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
     plan_reminder_times: tuple[int, ...] = ()
@@ -334,9 +326,6 @@ def initial_day_plan(goals: Sequence[PlanGoal], day_end: int) -> DayPlan:
                                                 for goal in goals))
 
 
-def _task_due_soon(now: int, due_at: int | None) -> bool:
-    """@brief 截止预警窗口判定：[due-30min, due) 内视为即将截止。"""
-    return due_at is not None and due_at - TASK_DUE_SOON_SECONDS <= now < due_at
 
 
 
@@ -384,14 +373,6 @@ def _event_reasons(snap: WakeSnapshot) -> list[WakeReason]:
         reasons.append(WakeReason.MESSAGE_ARRIVAL)
     if snap.delivery_arrived:
         reasons.append(WakeReason.DELIVERY_ARRIVAL)
-    if snap.task_newly_visible:
-        reasons.append(WakeReason.TASK_AVAILABLE)
-    if _task_due_soon(snap.now, snap.next_task_due_at):
-        reasons.append(WakeReason.TASK_DUE_SOON)
-    if snap.work_review_returned:
-        reasons.append(WakeReason.WORK_REVIEW_RESULT)
-    if _task_due_soon(snap.now, snap.next_task_due_at):
-        reasons.append(WakeReason.COMMITMENT_THREATENED)
     if _reconsideration_due(snap):
         reasons.append(WakeReason.RECONSIDERATION_INTERVAL)
     if snap.people_present_now - snap.people_present_before:
@@ -451,8 +432,6 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
         candidates.append(
             query.last_decision_time + reconsideration_interval(query)
         )
-    if not query.is_asleep and query.next_task_due_at is not None:
-        candidates.append(query.next_task_due_at - TASK_DUE_SOON_SECONDS)
     if query.next_progress_report_at is not None:
         candidates.append(query.next_progress_report_at)
     candidates.extend(query.plan_reminder_times)

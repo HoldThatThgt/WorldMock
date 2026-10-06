@@ -25,7 +25,7 @@ from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
 from tests.integration.test_unique_presence_run import _assert_once_each, _assert_readable, _identities
 from tests.life.conftest import StubPlanDayClient, context, start_arguments
-from tests.life.test_scheduling import _document, _write_scenario, _identity
+from tests.life.scenario_fixtures import read_scenario, run_identity, write_scenario
 from worldmock.delivery.windows import prepare_windows
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints import timeline_labels
@@ -284,10 +284,8 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 @pytest.mark.parametrize("seed", [20260105, 20260106])
 async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed, monkeypatch):
     monkeypatch.setattr(runtime_module, "PlanDayClient", _PlanDayClient)
-    document = _document("multi-person.json")
+    document = read_scenario("multi-person.json")
     document["random_seed"] = seed
-    if seed == 20260105:
-        document["map_dataset"] = _document("single-person.json")["map_dataset"]
     # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
     # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
     # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。
@@ -299,10 +297,14 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
             "thread_id": f"walking-check-{identity}", "recipient_agent_id": identity,
             "sent_at": "2026-01-05T11:02:00+08:00", "subject": "Arrival reminder",
             "body": "Please send a note when you arrive.", "related_task_id": None})
-    scenario_path = _write_scenario(document, tmp_path)
+    scenario_path = write_scenario(document, tmp_path / "environment")
     environment = LifeEnv()
-    environment.engine = engine = LifeEngine.create(scenario_path, tmp_path / "run",
-                                                    _identity(document, f"day-{seed}"), stage_model_identity())
+    environment.engine = engine = LifeEngine.create(
+        scenario_path,
+        tmp_path / "run",
+        run_identity(document, f"day-{seed}"),
+        stage_model_identity(),
+    )
     models = {agent_id: DayModel(seed, agent_id) for agent_id in (1, 2)}
     people_root = tmp_path / "people"
     people = await _people(environment, people_root, models)

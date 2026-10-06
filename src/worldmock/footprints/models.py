@@ -39,7 +39,7 @@ WAKE_REASONS_FIELD = "wake_reasons"
 #: 故在此登记足迹侧词表，两侧由测试互锁防漂移。
 WAKE_REASON_NAMES = frozenset({
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
-    "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
+    "commitment_threatened",
     "reconsideration_interval", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
     "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",

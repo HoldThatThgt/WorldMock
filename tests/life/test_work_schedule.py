@@ -23,17 +23,17 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import (StubPlanDayClient, advance_next, conclude_pending, context, layer_start,
-                                 settle_day_plans, stage_day_plan, target_actions, tool_targets, wake_by_mail)
-from tests.life.test_work_contracts import (AcceptingReviewer, _clock, _completed_work_state, _decide, _decide_at,
-                                            _drive, _pause, _resume, _stage_office, _start_work, _submission)
+from tests.life.conftest import (StubPlanDayClient, activity_name, advance_next, conclude_pending, context, layer_start,
+                                 pause_request, report_request, settle_day_plans, stage_day_plan, start_activity,
+                                 target_actions, wake_by_mail)
+from tests.evaluation.test_workload_metrics import _clock, _decide, _decide_at, _drive, _start_work
+from tests.life.test_work_topics import _engine_until, _engine_work
 from tests.life.work_schedule_fixtures import STANDARD_SHIFT, declare
-from worldmock.catalog.affordances import engine_affordances
 from worldmock.footprints.models import EventDraft
 from worldmock.life import sessions
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ReviseDayPlanRequest, SubmitWorkActionRequest
+from worldmock.life.models import ReviseDayPlanRequest
 from worldmock.life.narration import enforce_field_blacklist
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.scenario import WorkSchedule, WorkShift
@@ -43,12 +43,15 @@ from worldmock.life.work_schedule import (DAY_REST, DAY_WORK, DUTY_DAYS, DUTY_ST
 
 _FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 _ZONE = "Asia/Shanghai"
-_PLACES = {"office": "张江高科技园区办公室（冻结场景锚点）", "home": "张江居所（冻结场景锚点）"}
+_PLACES = {"office": "公司", "home": "家"}
 
 
 def _schedule(**changes) -> WorkSchedule:
     """十二周场景人物 1 的工作安排（与场景日历一致，可按 declare 的关键字覆盖），经场景模型校验。"""
     document = json.loads(_FORMAL.read_text(encoding="utf-8"))
+    document['end_at'] = '2026-03-30T00:00:00+08:00'
+    document['calendar']['makeup_work_dates'] = ['2026-02-14']
+    document['calendar']['spring_festival_dates'] = ['2026-02-16']
     declare(**changes)(document)
     return WorkSchedule.model_validate(document["agents"][0]["work_schedule"])
 
@@ -130,6 +133,30 @@ _REST = {"day": "休息日", "hours": None, "place": None, "breaks": [], "status
 _OTHER_LAYERS = ("tool_layer", "todo_layer", "memory_layer", "progress_layer")
 
 
+def _commit_clock_location(engine, moment):
+    """@brief 为纯班次边界观察预置时钟和办公室停留，仍经真实存储提交。"""
+    staged = engine.context.state.model_copy(deep=True)
+    staged.current_time = moment
+    staged.pending_events = [item for item in staged.pending_events if item.due_at > moment]
+    for agent_id, agent in staged.agents.items():
+        staged.agents[agent_id] = agent.model_copy(update={
+            'location_id': 'office', 'body_settled_at': moment, 'next_decision_at': moment})
+    staged = sessions.end_all(staged)
+    for agent_id in staged.agents:
+        staged = sessions.open_stay(staged, agent_id, _PLACES)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode='json'), [EventDraft(
+        event_type='environment_event', occurred_at=moment, visibility='system',
+        data={'kind': 'test_duty_boundary'})])
+    engine.context.state = staged
+
+
+def _no_schedule(document):
+    """@brief 明确声明没有工作主题或工作安排的人物。"""
+    for agent in document['agents']:
+        agent.update(work_topic_ids=[], work_schedule=None)
+
+
 def _checked(engine, observed: dict, agent_id: int = 1) -> dict:
     """核对一次观察的环境层：通过 Schema 与字段黑名单、键序固定，与落库的观察事件逐值相同；返回观察。"""
     layer = observed["environment_layer"]
@@ -171,7 +198,7 @@ def test_duty_follows_the_clock_through_a_working_day(engine_factory) -> None:
     _only_in_the_environment_layer(start)
     statuses = {}
     for moment in ("09:00:00", "09:30:00", "12:00:00", "12:30:00", "13:30:00", "17:59:59", "18:00:00"):
-        _stage_office(engine, _clock(moment))
+        _commit_clock_location(engine, _clock(moment))
         observed = _observe(engine, f"at-{moment}")
         duty = observed["environment_layer"]["duty"]
         assert {key: duty[key] for key in _WORKDAY} == _WORKDAY
@@ -193,7 +220,7 @@ def test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shi
 
     weekly_off = monday(weekly={"0": None})
     assert _duty_of(weekly_off, "weekly-null") == _REST
-    _stage_office(weekly_off, _clock("10:00:00"))
+    _commit_clock_location(weekly_off, _clock("10:00:00"))
     assert _duty_of(weekly_off, "weekly-null-at-office") == _REST
     assert _duty_of(monday(exceptions={"2026-01-05": None}), "exception-null") == _REST
     excepted_on = monday(weekly={"0": None}, exceptions={"2026-01-05": STANDARD_SHIFT})
@@ -207,55 +234,26 @@ def test_people_without_a_schedule_have_no_duty_while_others_keep_theirs(engine_
     assert [item.agent_id for item in engine.context.scenario.agents] == [1, 2]
     assert _duty_of(engine, "scheduled", 1) == {**_WORKDAY, "status": "未到上班时间"}
     assert _duty_of(engine, "unscheduled", 2) is None
-    assert _duty_of(engine_factory(), "repository") is None
+    assert _duty_of(engine_factory(mutate=_no_schedule), "no-schedule") is None
 
 
-def _stage_finished_work(engine, worked: int) -> None:
-    """把世界置于首个任务开放后 worked 秒：人在办公室停留，这项任务的工作已做够合同有效工时并已收尾（只置状态，同
-    test_work_review 的预置做法），当秒可以决策。"""
-    task = engine.context.scenario.tasks[0]
-    staged = _completed_work_state(engine, task, worked, float(task.required_effective_seconds))
-    done = next(item for item in staged.activities.values() if item.target_id == task.task_id)
-    staged.activities[done.activity_id] = done.model_copy(
-        update={"resource_claims": set(engine_affordances().resource_claims("work"))})
-    now = staged.current_time
-    staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
-    staged = sessions.open_stay(sessions.end_all(staged), 1, {item.location_id: item.name for item in engine.context.scenario.locations})
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=now, visibility="system", source_kind="scenario",
-        data={"kind": "test_finished_work_staged"})])
-    engine.context.state = staged
-
-
-@pytest.mark.asyncio
-async def test_duty_stays_on_duty_after_the_work_is_submitted(engine_factory) -> None:
-    """手上的工作交了也还在班上（4.5）：14:00 在办公室、首个任务已做够有效工时，经真实 submit_work、独立验收准备与
-    结算提交并付款；提交前后的 duty 都是「当班中」，逐值相同。"""
-    engine = engine_factory(mutate=declare())
-    task = engine.context.scenario.tasks[0]
-    _stage_finished_work(engine, 6 * 3600)
-    assert engine.context.state.current_time == _clock("14:00:00")
-    engine.reviews.reviewer = AcceptingReviewer()
-    decision = context(engine, "submit")
-    engine.begin_decision_round([decision])
-    observed = _checked(engine, engine.observe(decision))
-    before = observed["environment_layer"]["duty"]
-    [name] = [row["task_name"] for row in observed["task_bindings"] if row["task_id"] == task.task_id]
-    engine.submit_action(DirectToolCall(decision, "action-submit", "submit_work", SubmitWorkActionRequest(
-        task_name=name, deliverable=_submission(task).deliverable)))
-    await engine.prepare_pending_work_review("action-submit")
-    submitted = engine.commit_decision_round("submit")[0]
-    assert submitted.status == "completed" and submitted.data["payment_fen"] == task.pay_fen
-    assert engine.context.state.paid_task_ids == {task.task_id}
-    assert before == _duty_of(engine, "after-submit") == {**_WORKDAY, "status": "当班中"}
+def test_duty_stays_on_duty_after_topic_completion(engine_factory) -> None:
+    """@brief 真实累计满主题目标后仍按声明班次显示当班状态。"""
+    def daytime(document):
+        declare()(document)
+        document['start_at'] = '2026-01-05T09:00:00+08:00'
+    engine = engine_factory(mutate=daytime)
+    _, work_id = _engine_work(engine, 'duty-completion')
+    before = _duty_of(engine, 'before-completion')
+    _engine_until(engine, lambda: engine.context.state.activities[work_id].status == 'completed', 'duty-work')
+    assert before == _duty_of(engine, 'after-completion') == {**_WORKDAY, 'status': '当班中'}
 
 
 def test_revising_the_day_plan_does_not_change_duty(engine_factory) -> None:
     """今日计划改不了上班安排（4.5）：10:00 在办公室、今日计划为空时 duty 是「当班中」；真实 revise_day_plan 写下
     「下午三点回家」被受理，同一秒的下一次观察里目标在待办层，duty 逐值不变且非空。计划有目标后 duty 消失时失败。"""
     engine = engine_factory(mutate=declare())
-    _stage_office(engine, _clock("10:00:00"))
+    _commit_clock_location(engine, _clock("10:00:00"))
     stage_day_plan(engine)
     decision = context(engine, "revise")
     engine.begin_decision_round([decision])
@@ -275,7 +273,7 @@ def test_environment_layer_is_byte_identical_after_checkpoint_restore(engine_fac
     """检查点恢复后环境层逐字节相同（4.4）：12:30 在办公室（休息时段）提交共同检查点，原运行与从检查点恢复的分支对同一
     时刻各观察一次，两份环境层序列化后逐字节相同、duty 非空。分支用引擎创建时那份改写后的场景文件打开。"""
     engine = engine_factory(mutate=declare())
-    _stage_office(engine, _clock("12:30:00"))
+    _commit_clock_location(engine, _clock("12:30:00"))
     snapshots = {f"agent:{agent_id}": engine.context.store.assets.put_json({"agent_id": agent_id}, {"kind": "continuation"})
                  for agent_id in engine.context.store.manifest["agent_ids"]}
     checkpoint = engine.checkpoint(snapshots)
@@ -293,7 +291,7 @@ def test_environment_layer_is_byte_identical_after_checkpoint_restore(engine_fac
 def _leave_for_home(engine) -> tuple[dict, dict, object, Counter]:
     """10:00 在办公室，经真实观察看到回家的步行并请求它、结算后让一封邮件在一分钟后到达并推进到那时，在路上再观察；
     返回（办公室的观察，路上的观察，动作结果，这一段产生的事件按 (event_type, data.kind) 计数）。"""
-    _stage_office(engine, _clock("10:00:00"))
+    _commit_clock_location(engine, _clock("10:00:00"))
     since = engine.context.store.last_event_seq
     decision = context(engine, "leave")
     engine.begin_decision_round([decision])
@@ -314,7 +312,7 @@ def test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_
     进行中；一分钟后在路上，duty 照样按时钟求值为「当班中」；同样的动作在没有工作安排的同一场景里产生的事件，按
     (event_type, data.kind) 计数完全相同，不另写事件。"""
     scheduled, road, result, kinds = _leave_for_home(engine_factory(mutate=declare()))
-    plain, plain_road, plain_result, plain_kinds = _leave_for_home(engine_factory())
+    plain, plain_road, plain_result, plain_kinds = _leave_for_home(engine_factory(mutate=_no_schedule))
     assert scheduled["environment_layer"]["duty"]["status"] == "当班中"
     assert plain["environment_layer"]["duty"] is None and plain_road["environment_layer"]["duty"] is None
     assert road["environment_layer"]["location"]["session_kind"] == "transit"
@@ -331,49 +329,22 @@ def test_work_can_start_before_the_shift_and_continue_after_it(engine_factory) -
     （未到上班时间）真实 start_activity 工作被受理为进行中；另一次运行 17:30 开工后照常播报做过 18:00，18:30（已下班）
     工作仍在进行，暂停后同一秒恢复被受理、工作回到进行中。班次并入任务开放判定时 08:30 的开工被拒绝。"""
     early = engine_factory(mutate=declare())
-    task = early.context.scenario.tasks[0]
-    assert (task.available_at.isoformat(), task.due_at.isoformat()) == ("2026-01-05T08:00:00+08:00",
-                                                                        "2026-01-05T20:00:00+08:00")
-    _stage_office(early, _clock("08:30:00"))
+    _commit_clock_location(early, _clock("08:30:00"))
     assert _duty_of(early, "before-shift")["status"] == "未到上班时间"
-    early_work = _start_work(early, "early-start")
+    stage_day_plan(early)
+    early_work = _start_work(early, "early-start").activity_id
     assert early.context.state.activities[early_work].status == "active"
     late = engine_factory(mutate=declare())
-    _stage_office(late, _clock("17:30:00"))
-    work_id = _start_work(late, "late-start")
+    _commit_clock_location(late, _clock("17:30:00"))
+    stage_day_plan(late)
+    work_id = _start_work(late, "late-start").activity_id
     _decide_at(late, _clock("18:30:00"))
     assert late.context.state.activities[work_id].status == "active"
     assert _duty_of(late, "after-shift")["status"] == "已下班"
-    assert _pause(late, "after-shift-pause", work_id).status == "completed"
-    resumed = _resume(late, "after-shift-resume", work_id)
+    assert _decide(late, "after-shift-pause", "pause_activity", pause_request(activity_name(late, work_id))).status == "completed"
+    resumed = _decide(late, "after-shift-resume", "report_status", report_request(activity_name(late, work_id)))
     assert (resumed.status, resumed.error_code) == ("completed", None)
     assert late.context.state.activities[work_id].status == "active" and late.context.state.current_time == _clock("18:30:00")
-
-
-def _task_targets(engine, moments: tuple[str, ...]) -> list[dict]:
-    """在给定钟点把人置于办公室并观察，返回每次观察里首个任务的工具层目标（合同、开工动作与提交工具）。"""
-    name = f"工作：{engine.context.scenario.tasks[0].title}"
-    rows = []
-    for moment in moments:
-        _stage_office(engine, _clock(moment))
-        rows.append(tool_targets(_observe(engine, f"task-{moment}"))[name])
-    return rows
-
-
-def test_shifts_do_not_change_task_opening_or_deadline(engine_factory) -> None:
-    """班次不参与任务开放时刻的编译、不延长或缩短截止（4.7）：有工作安排与没有工作安排的同一场景，全部任务的开放与
-    截止时刻逐一相同；08:30（班前）与 18:30（班后）在办公室看到的首个任务目标（合同的开放、截止与剩余，开工动作）
-    逐值相同，开放写 08:00、截止写 20:00。"""
-    scheduled = engine_factory(mutate=declare())
-    plain = engine_factory()
-    assert [(item.task_id, item.available_at, item.due_at) for item in scheduled.context.scenario.tasks] == [
-        (item.task_id, item.available_at, item.due_at) for item in plain.context.scenario.tasks]
-    moments = ("08:30:00", "18:30:00")
-    targets = _task_targets(scheduled, moments)
-    assert targets == _task_targets(plain, moments)
-    assert [(row["contract"]["opens"], row["contract"]["deadline"]) for row in targets] == [
-        ("2026-01-05T08:00:00+08:00", "2026-01-05T20:00:00+08:00")] * 2
-    assert all(row["actions"][0]["available"] for row in targets)
 
 
 #: 08:30–18:00、两段休息（12:30–13:00 与 15:00–15:15）的班次：班次与第一段休息的起点都不在整点上。
@@ -388,7 +359,7 @@ def test_status_is_the_break_inside_every_declared_break(engine_factory) -> None
     engine = engine_factory(mutate=declare(shift=_TWO_BREAKS))
     statuses = {}
     for moment in ("12:45:00", "13:00:00", "14:59:59", "15:00:00", "15:14:59", "15:15:00"):
-        _stage_office(engine, _clock(moment))
+        _commit_clock_location(engine, _clock(moment))
         statuses[moment] = _duty_of(engine, f"at-{moment}")["status"]
     assert statuses == {"12:45:00": "休息时段", "13:00:00": "当班中", "14:59:59": "当班中", "15:00:00": "休息时段",
                         "15:14:59": "休息时段", "15:15:00": "当班中"}
@@ -407,7 +378,7 @@ def test_duty_and_the_plan_input_write_every_break_and_the_declared_minutes(engi
     settle_day_plans(engine, client)
     [request] = client.calls
     assert json.loads(request["messages"][1]["content"])["上班安排"] == arrangement
-    _stage_office(engine, _clock("10:00:00"))
+    _commit_clock_location(engine, _clock("10:00:00"))
     assert _duty_of(engine, "two-breaks") == {**arrangement, "status": "当班中"}
 
 
@@ -416,7 +387,7 @@ def test_status_is_on_duty_at_home_inside_the_shift(engine_factory) -> None:
     人物 10:00 在办公室，经真实 start_activity 步行回家、到家并收尾那一程，这时还不到午休。下一次真实观察里人停留在
     家，duty 仍是工作日安排、状态「当班中」，工作地点仍写办公室；人不在工作地点不让状态变成「已下班」。"""
     engine = engine_factory(mutate=declare())
-    _stage_office(engine, _clock("10:00:00"))
+    _commit_clock_location(engine, _clock("10:00:00"))
     left = _decide(engine, "walk-home", "start_activity", lambda observed: layer_start(observed, _HOME_TARGET, "步行"))
     assert left.status == "in_progress"
     _drive(engine, "to-home", lambda: engine.context.state.agents[1].location_id == "home")

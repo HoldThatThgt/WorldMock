@@ -1,6 +1,6 @@
 """决策阶段身份的五个入口验收：新建、打开（含工作区加载与恢复）、普通恢复与反事实重放、环境校验。
 
-清单阶段只剩 action 与 work_review，键名为 stage_model_identity；含退役阶段 decision_statement 的清单（含旧键
+清单阶段只剩 action，键名为 stage_model_identity；含退役阶段 decision_statement 的清单（含旧键
 two_stage_model_identity 下的旧运行清单）经同一清单校验函数 validate_manifest_stage_identity 以英文错误拒绝
 （docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「清单」）。
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from custom.envs.life_env import LifeEnv
-from tests.life.test_taste_seam import _run_identity
+from tests.integration.runtime_fixtures import current_run_identity
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.world_setup import load_scenario
@@ -47,7 +47,7 @@ async def saved_environment(tmp_path):
     run_dir = tmp_path / "run"
     environment = LifeEnv(
         scenario_path=str(_SCENARIO), run_dir=str(run_dir),
-        run_identity=_run_identity(scenario, "restored-stage-identity").model_dump(mode="json"),
+        run_identity=current_run_identity(scenario, "restored-stage-identity").model_dump(mode="json"),
     )
     await environment.init(scenario.start_at)
     await environment.to_workspace(run_dir)
@@ -76,6 +76,8 @@ def _tamper_manifest(run_dir, corruption):
     stages = manifest["stage_model_identity"]["stages"]
     if corruption == "retired_stage":
         stages["decision_statement"] = dict(_RETIRED_STAGE)
+    elif corruption == "retired_work_review":
+        stages["work_review"] = dict(_RETIRED_STAGE)
     elif corruption == "unknown_stage":
         stages["monologue"] = dict(stages["action"])
     elif corruption == "old_manifest_key":
@@ -99,7 +101,8 @@ def _tamper_manifest(run_dir, corruption):
 @pytest.mark.parametrize("lifecycle", _LIFECYCLES)
 @pytest.mark.parametrize(("corruption", "message"), (
     ("retired_stage", "stage decision_statement is retired"),
-    ("unknown_stage", "stages must be exactly action, work_review"),
+    ("retired_work_review", "stage work_review is retired"),
+    ("unknown_stage", "stages must be exactly action"),
     ("old_manifest_key", "key two_stage_model_identity is retired"),
     ("old_statement_manifest", "stage decision_statement is retired"),
     ("missing_stage_identity", "decision stage identity is missing"),
@@ -121,12 +124,12 @@ async def test_environment_lifecycles_reject_invalid_saved_stage_identity(
 
 @pytest.mark.parametrize("lifecycle", _LIFECYCLES)
 async def test_environment_lifecycles_restore_current_stage_identity(saved_environment, lifecycle):
-    """合法生产运行经每条恢复路径保留冻结身份与世界时钟；清单只有 action 与 work_review 两个阶段。"""
+    """合法生产运行经每条恢复路径保留冻结身份与世界时钟；清单只有 action 两个阶段。"""
     environment = await _open_environment(lifecycle, saved_environment)
     try:
         manifest = environment.engine.context.store.manifest
         assert manifest["stage_model_identity"] == stage_model_identity()
-        assert set(manifest["stage_model_identity"]["stages"]) == {"action", "work_review"}
+        assert set(manifest["stage_model_identity"]["stages"]) == {"action"}
         assert "two_stage_model_identity" not in manifest
         assert environment.engine.context.state.current_time == int(saved_environment[1].timestamp())
         assert environment.run_dir == saved_environment[0]
@@ -168,7 +171,7 @@ def test_direct_engine_open_rejects_retired_stage(engine_factory):
 def test_new_run_rejects_a_retired_stage_identity(tmp_path):
     """新建入口在写清单前拒绝含退役阶段的身份，不留下运行目录内容。"""
     scenario, _ = load_scenario(_SCENARIO)
-    identity = _run_identity(scenario, "retired-stage-create")
+    identity = current_run_identity(scenario, "retired-stage-create")
 
     with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
         LifeEngine.create(_SCENARIO, tmp_path / "run", identity, _with_retired_stage())
@@ -194,7 +197,7 @@ def test_environment_validation_rejects_a_retired_stage(monkeypatch):
     """环境校验入口以新运行将冻结的清单调用同一清单校验函数：当前身份含退役阶段即拒绝，合法身份返回两个阶段。"""
     import worldmock.runtime as runtime
 
-    assert sorted(validate_manifest_stage_identity()["stages"]) == ["action", "work_review"]
+    assert sorted(validate_manifest_stage_identity()["stages"]) == ["action"]
     monkeypatch.setattr(worldmock_run_setup_module, 'stage_model_identity', _with_retired_stage)
     with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
         validate_manifest_stage_identity()
@@ -213,10 +216,10 @@ def test_create_open_resume_and_replay_call_the_one_manifest_validator(monkeypat
         seen.append(manifest.get("run_id"))
         return original(manifest)
 
-    for module in (world_setup, engine_context, runtime.run_setup):
+    for module in (engine_context, worldmock_run_setup_module):
         monkeypatch.setattr(module, 'validate_manifest_stage_identity', spy)
     scenario, _ = load_scenario(_SCENARIO)
-    engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario, "one-validator"),
+    engine = LifeEngine.create(_SCENARIO, tmp_path / "run", current_run_identity(scenario, "one-validator"),
                                stage_model_identity())
     engine.close()
     LifeEngine.open(_SCENARIO, tmp_path / "run").close()

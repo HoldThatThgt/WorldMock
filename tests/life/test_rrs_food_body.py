@@ -156,7 +156,7 @@ def test_food_fixed_body_efficiency_energy_cap_and_resource_source(body_config):
         assert result.food_efficiency == pytest.approx(efficiency)
         assert result.food_energy_kcal == pytest.approx(600 * efficiency)
         assert result.after.energy_kcal == 2400
-        assert result.work_efficiency == 1
+        assert not hasattr(result, "work_efficiency")
         assert [(flow.direction, flow.amount) for flow in last_flows()] == [("source", 100)]
 
 

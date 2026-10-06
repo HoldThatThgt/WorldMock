@@ -17,6 +17,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
+import networkx as nx
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,8 @@ def relative_corpus(corpus, scenario_directory):
 
 def _children(value):
     """@brief 枚举输入数据的成员，不遍历类、函数或解释器内部状态。"""
+    if isinstance(value, nx.Graph):
+        return [("graph", value.graph), ("nodes", value._node), ("adjacency", value._adj)]
     if isinstance(value, BaseModel):
         return [(name, getattr(value, name)) for name in type(value).model_fields]
     if is_dataclass(value):
@@ -57,8 +60,10 @@ def assert_deeply_immutable(value, seen=None):
         raise AssertionError("Shared frozen input contains a mutable model")
     if is_dataclass(value) and not value.__dataclass_params__.frozen:
         raise AssertionError("Shared frozen input contains a mutable dataclass")
+    if isinstance(value, nx.Graph) and not nx.is_frozen(value):
+        raise AssertionError("Shared frozen input contains a mutable graph")
     supported = (type(None), str, int, float, bool, bytes, Path, date, datetime, Decimal, Enum,
-                 tuple, frozenset, MappingProxyType, BaseModel)
+                 tuple, frozenset, MappingProxyType, BaseModel, nx.Graph)
     if not isinstance(value, supported) and not is_dataclass(value):
         raise AssertionError(f"Shared input has no immutability contract: {type(value).__name__}")
     for _, child in _children(value):
@@ -71,8 +76,11 @@ def clone_semantics(semantics):
     for field in fields(semantics):
         if field.name not in copied:
             assert_deeply_immutable(getattr(semantics, field.name))
-    document, scenario, body, accounts = deepcopy(
-        (semantics.document, semantics.scenario, semantics.body, dict(semantics.accounts)))
+    document, scenario, body = (
+        type(value).model_validate(deepcopy(value.model_dump(mode="python")))
+        for value in (semantics.document, semantics.scenario, semantics.body)
+    )
+    accounts = deepcopy(dict(semantics.accounts))
     return replace(semantics, document=document, scenario=scenario, body=body, accounts=accounts)
 
 
@@ -87,7 +95,7 @@ def _canonical(value):
         return {"type": kind, "members": sorted((_canonical(child) for _, child in children), key=repr)}
     if isinstance(value, (list, tuple)):
         return {"type": kind, "members": [_canonical(child) for _, child in children]}
-    if isinstance(value, BaseModel) or is_dataclass(value):
+    if isinstance(value, (BaseModel, nx.Graph)) or is_dataclass(value):
         return {"type": kind, "members": {str(key): _canonical(child) for key, child in children}}
     if isinstance(value, (Path, date, datetime, Decimal, Enum)):
         return {"type": kind, "value": str(value)}

@@ -20,7 +20,7 @@ RULES = {
     '故障日志': ('tests/test_shared_primitives.py::test_value_error_rejection_logs_once_and_preserves_message',),
     '活动时长': (
         'tests/life/test_app_ui.py::test_app_duration_matches_tool_layer_and_admission',
-        'tests/life/test_shared_rules.py::test_consume_duration_limit_matches_listing_and_real_admission',
+        'tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest',
         'tests/life/test_duration_boundaries.py::test_sleep_duration_uses_personal_need_in_listing_and_real_admission',
         'tests/life/test_duration_boundaries.py::test_feedback_duration_matches_listing_and_real_admission',
     ),
@@ -46,7 +46,7 @@ RULES = {
     '社交资源分录': ('tests/life/test_shared_body.py::test_shared_activity_factors_use_social_met_and_declared_factors',),
     '环境登记身份': ('tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes',),
     '独立模型客户端': ('tests/test_shared_model_clients.py::test_original_clients_share_single_call_serialization_and_request_isolation',),
-    '纠正消息': ('tests/test_shared_model_clients.py::test_three_corrections_keep_original_tools_budgets_and_channel_echo',),
+    '纠正消息': ('tests/test_shared_model_clients.py::test_plan_and_reflection_corrections_keep_tools_budgets_and_channel_echo',),
     '环境登记错误': ('tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample',),
     '公共枚举': ('tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones',),
     '严格模型': ('tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction',

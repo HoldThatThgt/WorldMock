@@ -15,10 +15,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 #: 私有绑定类别 → 名称前缀（名称写成「<前缀>：<名称>」）。
-OBJECT_PREFIXES = {"work_task": "工作", "location": "地点", "holding": "持有物", "app": "应用",
+OBJECT_PREFIXES = {"work_topic": "工作", "location": "地点", "holding": "持有物", "app": "应用",
                    "lifestyle": "活动", "person": "人物", "contact": "联系人", "mail": "邮件"}
-#: 商品目录对象的名称（浏览动作的对象）。
-CATALOG_LABEL = "商品目录"
 #: 「自己」对象的名称（等待与睡觉两个受保护动作的对象）。
 SELF_LABEL = "自己"
 

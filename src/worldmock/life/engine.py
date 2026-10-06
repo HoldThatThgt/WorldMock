@@ -31,7 +31,6 @@ from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.storefront_runtime import StorefrontRuntime
 from worldmock.life.time_advance import TimeAdvanceCoordinator
-from worldmock.life.work_review_runtime import WorkReviewCoordinator
 from worldmock.life.world_setup import create_world, open_world
 from worldmock.life.world_ops import meal_windows_by_agent
 from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
@@ -52,7 +51,6 @@ class LifeEngine:
         self.actions = ActionHandlers(self.context, StorefrontRuntime(self.context))
         self.decisions = DecisionCoordinator(self.context, self.actions, self.observations)
         self.clock = TimeAdvanceCoordinator(self.context, self.observations)
-        self.reviews = WorkReviewCoordinator(self.context, self.actions)
         self.evidence = ModelEvidenceRecorder(self.context, self.decisions)
         self.counterfactual = CounterfactualRuntime(self.context)
 
@@ -101,12 +99,6 @@ class LifeEngine:
         """@brief 将真实宿主请求交给决策协调登记。"""
         return self.decisions.submit_action(call)
 
-    async def prepare_pending_work_review(self, action_id: str) -> None:
-        """@brief 为已登记的工作动作执行独立验收。"""
-        pending = next((item for item in self.decisions.round.pending_actions if item.action_id == action_id), None)
-        if pending is None:
-            raise ProtocolError("Pending work review action does not exist")
-        await self.reviews.prepare(pending)
 
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
         """@brief 按冻结顺序原子结算一轮。"""

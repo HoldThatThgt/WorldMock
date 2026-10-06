@@ -1,7 +1,7 @@
 """@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
 
 公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文；业务拒绝时就是 reason）
-与 details（恒写，没有新事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、
+与 details（恒写，没有新事实时为 {}）。details 只放本次新产生的可读事实：购买的商品、份数、
 付款、送达地点与预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长（开始与恢复），到达，浏览得到的
 商品的完整标签「<门店>出售的<商品>」，读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现），回看，拒绝的原因、改法与下一步（没有时为 null）
 及逐项明细（items，候选为可照填的请求），终局，已关联的订单，名称归一（resolved）与附带说明（notes）；不复述参数（购买
@@ -16,25 +16,11 @@ from worldmock.life.object_labels import supply_label
 from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 
-#: 工作公开评审的汇总字段，禁止带入隐藏参考、答案或完整结果树。
-WORK_REVIEW_SUMMARY_FIELDS = (
-    "accepted", "required_fact_total", "required_fact_passed", "required_fact_missing",
-    "missing_content_categories",
-)
-#: 必需事实的公开判断；内部参考身份仅可转换为公开内容品类。
-REFERENCE_ASSESSMENT_FIELDS = (
-    "content_category", "covered", "source_supported", "contradiction", "source_excerpt",
-    "rationale", "passed",
-)
-#: 实际交付项的公开判断；路径只指人物自己提交的内容。
-DELIVERY_ASSESSMENT_FIELDS = (
-    "delivery_path", "source_supported", "contradiction", "source_excerpt", "rationale", "passed",
-)
 #: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因、改法、下一步与逐项明细由 life.guidance
 #: 生成（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要 第四章「错误合同」），终局、名称归一与附带说明只含可读名称；errands 是控制
 #: 工具受理的事务变更回执 [{errand, change}]（只有名称，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-记下更新取消 「回执」）。
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "fix", "items", "outcome", "linked_orders", "resolved",
-                        "notes", "errands")
+                        "notes", "errands", "work")
 
 
 def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
@@ -47,8 +33,6 @@ def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str
     public = {"occurred_at": iso_time(result["occurred_at"], scenario.timezone), "status": result["status"],
               "error_code": result.get("error_code"), "message": result["message"],
               "details": _details(result, scenario)}
-    if "work_review" in payload:
-        public["work_review"] = _public_review(payload["work_review"])
     return public
 
 
@@ -106,9 +90,6 @@ def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, 
     if revealed is None:
         return None
     mail = {"subject": revealed["subject"], "body": revealed["body"]}
-    related = revealed.get("related_task_id")
-    if related is not None:
-        mail["task"] = f"工作：{next(task.title for task in scenario.tasks if task.task_id == related)}"
     return mail
 
 
@@ -125,19 +106,3 @@ def _people(scenario: RuntimeScenario) -> dict[str, str]:
     people = {f"agent:{item.agent_id}": item.name for item in scenario.agents}
     people.update({contact.contact_id: contact.salutation for item in scenario.agents for contact in item.contacts})
     return people
-
-
-
-
-
-
-def _public_review(review: dict[str, Any]) -> dict[str, Any]:
-    """@brief 将工作评审及两种逐项判断逐层限制在既有公开字段集合。"""
-    result = {key: review[key] for key in WORK_REVIEW_SUMMARY_FIELDS}
-    result["required_fact_assessments"] = [
-        {key: item[key] for key in REFERENCE_ASSESSMENT_FIELDS}
-        for item in review["required_fact_assessments"]]
-    result["delivery_assessments"] = [
-        {key: item[key] for key in DELIVERY_ASSESSMENT_FIELDS}
-        for item in review["delivery_assessments"]]
-    return result

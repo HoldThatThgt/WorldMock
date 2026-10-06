@@ -12,6 +12,7 @@ from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import os
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,12 +25,13 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 import worldmock.runtime as runtime  # noqa: E402
 import worldmock.validation as validation  # noqa: E402
 from tests.integration.as2_fixtures import use_fake_as2, write_project  # noqa: E402
-from tests.integration.test_host_branch_coverage import _agent_workspace  # noqa: E402
+from tests.integration.runtime_fixtures import write_agent_workspace  # noqa: E402
 from tests.profile.conftest import make_card, make_window  # noqa: E402
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.footprints.checkpoint import snapshot_directory  # noqa: E402
 from worldmock.footprints.store import FootprintStore  # noqa: E402
-from worldmock.life.run_identity import category_identity  # noqa: E402
+from worldmock.life.engine import LifeEngine  # noqa: E402
+from worldmock.life.models import RunIdentity  # noqa: E402
 from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL  # noqa: E402
 from worldmock.profile.models import HabitSignature, Tastes  # noqa: E402
@@ -116,7 +118,7 @@ def test_validate_checks_a_stage_identity_on_the_strict_endpoint(tmp_path, monke
     assert (default_base, coder_base) == (STRICT_ENDPOINT, STRICT_ENDPOINT)
     assert worldmock_run_setup_module._model_identity().base_url == STRICT_ENDPOINT
     assert result["valid"] is True
-    assert result["model_identity"] == {"stages": ["action", "work_review"], "consistent": True}
+    assert result["model_identity"] == {"stages": ["action"], "consistent": True}
 
 
 @pytest.mark.parametrize(("where", "error", "message"), [
@@ -137,24 +139,29 @@ def test_validate_refuses_the_main_site(tmp_path, monkeypatch, where: str, error
 
 
 def _parent_run(base: Path, base_url: str, *, stage: bool) -> str:
-    """在 base/parent 建一个带可恢复检查点的父运行，返回检查点编号：清单的 model_identity（stage 为真时连同阶段身份）
-    冻结着给定端点，其余为当前冻结值——即切换端点之前按原端点建立、检查点与清单一致的运行。"""
-    semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
+    """@brief 真实引擎创建完整世界和当前环境身份，检查点明确冻结端点差异供恢复核对。"""
+    semantics, _ = load_runtime_scenario(SCENARIO)
+    scenario = semantics.scenario
+    identity = RunIdentity(run_id="parent", source_group_id="parent", agent_ids=(1,),
+        start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(), timezone=scenario.timezone,
+        model_identity=worldmock_run_setup_module._model_identity(),
+        code_sha256=worldmock_run_setup_module.runtime_code_sha256(ROOT))
+    engine = LifeEngine.create(SCENARIO, base / "parent", identity)
+    parent = engine.context.store
     stage_identity = worldmock_run_setup_module.stage_model_identity()
     if stage:
         stage_identity["base_url"] = base_url
-    manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
-                "model_identity": {**worldmock_run_setup_module._model_identity().model_dump(mode="json"), "base_url": base_url},
-                "stage_model_identity": stage_identity, "code_sha256": worldmock_run_setup_module.runtime_code_sha256(ROOT),
-                "scenario_sha256": scenario_sha256, **category_identity(semantics)}
-    state = {"version": 0, "current_time": 1767225600}
-    parent = FootprintStore.create(base / "parent", manifest, state)
+    parent.manifest["stage_model_identity"] = stage_identity
+    parent.manifest["model_identity"]["base_url"] = base_url
+    (parent.run_dir / "manifest.json").write_text(json.dumps(parent.manifest))
+    state = engine.context.state.model_dump(mode="json")
     try:
-        snapshots = {"agent:1": snapshot_directory(_agent_workspace(base), parent.assets),
-                     "life": parent.assets.put_json({"state_version": 0}, {"kind": "life_checkpoint"})}
+        workspace = write_agent_workspace(base / "agent")
+        snapshots = {"agent:1": snapshot_directory(workspace, parent.assets),
+                     "life": parent.assets.put_json({"state_version": state["version"]}, {"kind": "life_checkpoint"})}
         return parent.checkpoint(state, snapshots).checkpoint_id
     finally:
-        parent.close()
+        engine.close()
 
 
 @pytest.mark.parametrize(("stage", "message"), [

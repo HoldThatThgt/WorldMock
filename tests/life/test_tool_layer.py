@@ -24,13 +24,11 @@ from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
                                  stage_day_plan, start_activity, start_arguments, submit_round, target_actions,
-                                 target_tools, tool_targets, wake_by_mail, pause_request)
-from tests.life import test_parallel_admission as parallel_admission
+                                 target_tools, tool_targets, wake_by_mail, pause_request, start_request)
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 HOME, OFFICE, PERSON_TARGET = "home", "office", "人物：李凡"
-from tests.life.test_work_review import StaticReviewer, _at_task_start, _paraphrased_submission
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -57,7 +55,8 @@ def _give_recipient(engine: LifeEngine, observed: dict) -> str | None:
     rows = [row for row in observed["interaction_bindings"] if row["kind"] in {"person", "contact"}]
     here = [row["object"] for row in rows
             if row["kind"] == "person" or places[row["object_id"]] == engine.context.state.agents[1].location_id]
-    return next(iter([*here, *(row["object"] for row in rows)]), None)
+    people = [row["name"] for row in observed["person_bindings"]]
+    return next(iter([*here, *(row["object"] for row in rows), *people]), None)
 
 
 def _arguments(tool: str, name: str, item: dict, recipient: str | None) -> dict:
@@ -71,8 +70,6 @@ def _arguments(tool: str, name: str, item: dict, recipient: str | None) -> dict:
                 "errands": []}
     if tool == "conclude_activity":
         return {"items": [{"activity_name": name, "summary": "收尾。", "memories": [], "views": []}], "errands": []}
-    if tool == "submit_work":
-        return {"task_name": name, "deliverable": _paraphrased_submission().deliverable.model_dump(mode="json")}
     return {"recipient_name": name, "text": "你好"}
 
 
@@ -111,7 +108,6 @@ def _submitted(branch: LifeEngine, label: str, listing: list, candidate: tuple, 
     person = _host(branch, decision, observed)
     arguments = _arguments(tool, name, item, recipient)
     assert person.validate_react_decisions([ReactDecision("", tool, arguments, "")], False) == "", candidate
-    branch.reviews.reviewer = StaticReviewer()
     drive(person.dispatch_react_tool(tool, arguments))
     return branch.commit_decision_round(decision.round_id)[0]
 
@@ -125,6 +121,13 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
     listing = _candidates(observed)
     recipient = _give_recipient(engine, observed)
     for index, candidate in enumerate(listing):
+        if candidate[2].get("way") == "给予" and recipient is None:
+            person = _host(engine, context(engine, f"{label}-missing-recipient"), observed)
+            arguments = _arguments(*candidate, recipient)
+            error = person.validate_react_decisions([ReactDecision("", candidate[0], arguments, "")], False)
+            assert candidate[2]["available"] is False
+            assert error == "ROUTE_FIELDS_INVALID: Giving requires a known other person."
+            continue
         branch = _branch(engine, tmp_path, monkeypatch, f"{label}-{index}")
         try:
             result = _submitted(branch, f"{label}-{index}", listing, candidate, recipient)
@@ -312,7 +315,7 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     preview = engine.observe(context(engine, "away-preview"))
     office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
     _, walking = submit_round(engine, {1: ("start_activity", start_activity("步行", office))}, "away-walk")
-    assert advance_until_ready(engine)
+    _finish(engine, walking[0].activity_id, "away-walk")
     submit_round(engine, {1: ("conclude_activity", conclude_request(activity_name(engine, walking[0].activity_id)))},
                  "away-arrive")
     home = next(item.display_name for item in engine.context.scenario.locations if item.location_id == "home")
@@ -358,42 +361,8 @@ def test_tool_layer_carries_the_callable_index_beside_the_targets(engine_factory
     assert layer["callable_index"] is clashing and layer["targets"] == observed["tool_layer"]["targets"]
 
 
-def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_path, monkeypatch) -> None:
-    """正在做这项工作时：任务目标的 submit_work 标不可用「先结束正在做的工作」，工作活动是进行中的活动目标，合同写达标情况；
-    全部候选与受理一致（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第六章「工时达标与提交状态」）。"""
-    engine = engine_factory()
-    _at_task_start(engine)
-    stage_day_plan(engine)
-    task = engine.context.scenario.tasks[0]
-    target = f"工作：{task.title}"
-    submit_round(engine, {1: ("start_activity", start_activity("工作", target))}, "busy-work")
-    wake_by_mail(engine, offset=600)
-    advance_next(engine)
-    observed = engine.observe(context(engine, "busy-seen"))
-    assert target_tools(observed, target)["submit_work"] == {
-        "tool": "submit_work", "available": False, "reason": "This work activity is still in progress."}
-    assert tool_targets(observed)[target]["contract"]["remaining"].startswith("有效工时还差")
-    assert any(row["kind"] == "activity" and row["phase"] == "进行中" for row in observed["tool_layer"]["targets"])
-    _assert_admission_matches(engine, tmp_path, monkeypatch, "busy")
 
 
-def test_driving_marks_messages_and_submission_unavailable_with_the_admission_reason(engine_factory, tmp_path,
-                                                                                   monkeypatch) -> None:
-    """驾车途中：人物目标的 send_message 与任务目标的 submit_work 标不可用，原因取受理拒绝的原文「Cannot send a message while driving.」
-    「Cannot submit work while driving.」；车上的全部候选单独提交，可用性与受理一致（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」
-    可用性只有一个来源）。"""
-    engine = parallel_admission._engine(engine_factory, location="office", task=True)
-    parallel_admission._driving(engine, "drive")
-    observed = engine.observe(context(engine, "drive-seen"))
-    assert observed["environment_layer"]["location"]["place_type"] == "驾车"
-    task = f"工作：{engine.context.scenario.tasks[0].title}"
-    assert target_tools(observed, task)["submit_work"] == {
-        "tool": "submit_work", "available": False, "reason": "Cannot submit work while driving."}
-    people = [row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
-    assert people and all(target_tools(observed, name)["send_message"] == {
-        "tool": "send_message", "available": False, "reason": "Cannot send a message while driving."} for name in people)
-    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "driving")
-    assert {"Cannot send a message while driving.", "Cannot submit work while driving."} <= {item["reason"] for item in checked}
 
 
 
@@ -473,8 +442,8 @@ def test_conclude_pending_stage_with_two_pending_opens_each_conclusion(engine_fa
     destination = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
     app = next(row["object"] for row in preview["interaction_bindings"] if row["kind"] == "app"
                and any(action["note"] is None for action in row["actions"]))
-    _, [started] = submit_round(engine, {1: ("start_activity", start_arguments(
-        [destination, app], ["travel", "interact"], ["步行", "打开"]))}, "two-depart")
+    _, [started] = submit_round(engine, {1: ("start_activity", start_request(
+        targets=[destination, app], actions=["travel", "interact"], ways=["步行", "打开"]))}, "two-depart")
     assert started.status == "in_progress"
     travel_id, app_id = (item["activity_id"] for item in started.data["activities"])
     _finish(engine, travel_id, "two-walk")
@@ -507,8 +476,44 @@ def test_a_co_present_person_asleep_can_be_messaged_but_not_talked_to(engine_fac
     advance_next(engine)
     assert engine.scheduling_state().ready_agent_ids == (1,)
     observed = engine.observe(context(engine, "company-seen"))
-    assert tool_targets(observed)[PERSON_TARGET]["state"] == "正在睡觉"
-    assert target_actions(observed, PERSON_TARGET)["交谈"]["reason"] == refusal_for_code(
+    person = f"人物：{engine.context.state.agents[2].name}"
+    assert tool_targets(observed)[person]["state"] == "正在睡觉"
+    assert target_actions(observed, person)["交谈"]["reason"] == refusal_for_code(
         "CHAT_PARTNER_NOT_AVAILABLE").reason
-    assert target_tools(observed, PERSON_TARGET)["send_message"]["available"] is True
+    assert target_tools(observed, person)["send_message"]["available"] is True
     _assert_admission_matches(engine, tmp_path, monkeypatch, "company")
+
+
+def test_driving_marks_messages_unavailable_with_the_admission_reason(engine_factory, tmp_path, monkeypatch) -> None:
+    """@brief 真实驾车途中，联系人消息工具列出的拒绝原因与宿主派发后实际受理一致。"""
+    def contact(document):
+        document["agents"][0]["contacts"] = [{"contact_id": "colleague", "salutation": "同事", "relation": "colleague",
+            "closeness": 10, "channels": ["message"], "reply_policy": "none", "receive_location_id": "office"}]
+    engine = engine_factory(mutate=contact)
+    stage_day_plan(engine)
+    office = next(item.display_name for item in engine.context.scenario.locations if item.location_id == "office")
+    _, started = submit_round(engine, {1: ("start_activity", start_activity("驾车", f"地点：{office}"))}, "drive-message")
+    assert started[0].status == "in_progress"
+    wake_by_mail(engine, offset=60)
+    advance_next(engine)
+    observed = engine.observe(context(engine, "drive-message-preview"))
+    message = target_tools(observed, "联系人：同事")["send_message"]
+    assert message["available"] is False
+    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "drive-message")
+    assert message in checked
+
+
+def test_app_bound_store_pickup_is_available_and_matches_real_acceptance(engine_factory):
+    """真实应用绑定餐馆的到店取餐不携带应用来源，菜单和受理必须一致。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _place(engine, 1, "noodle-1")
+    data = engine.observe(context(engine, "pickup-availability"))
+    [target] = [item for item in data["tool_layer"]["targets"] if item["name"] == "一心面馆出售的牛肉面"]
+    [pickup] = [action for action in target["actions"] if action["way"] == "到店"]
+    assert pickup["available"] is True and pickup["reason"] is None
+    _, [result] = submit_round(engine, {1: ("start_activity", start_activity("到店", target["name"]))}, "pickup-order")
+    assert result.status == "completed", (result.error_code, result.message)
+    [order] = result.data["orders"]
+    assert order["fulfillment"] == "pickup" and order["app_id"] is None and order["status"] == "delivered"
+    assert engine.context.state.agents[1].inventory["noodle-1"]["beef-noodles"] == 1

@@ -33,7 +33,7 @@ def _affected_fields(request: dict, code: str) -> list[tuple[str | int, ...]]:
             paths.append(("items", index, field))
         return paths
     if "task_name" in request:
-        field = "deliverable" if code == "WORK_REQUIRES_REWORK" else "task_name"
+        field = "task_name"
     elif "recipient_name" in request:
         field = "text" if code == "MESSAGE_TEXT_TOO_LONG" else "recipient_name"
     else:
@@ -49,14 +49,5 @@ def _domain_item(request: dict, code: str, reason: str, observation: dict,
         written = written[segment]
     expected = reason
     allowed = ()
-    if len(path) == 3 and path[-1] in {"target", "way"}:
-        name = request["items"][path[1]]["target"]
-        target = next((row for row in observation["tool_layer"]["targets"] if row["name"] == name), None)
-        if target is not None and "contract" in target:
-            contract = target["contract"]
-            expected += (f" Required place: {contract['place']}; opens: {contract['opens']}; "
-                         f"deadline: {contract['deadline']}.")
-        if target is not None and path[-1] == "way":
-            allowed = tuple(action["way"] for action in target["actions"])
     return ErrorItem(path=path, written=written, error_code=code, allowed_values=allowed,
                      expected=expected, why=reason)

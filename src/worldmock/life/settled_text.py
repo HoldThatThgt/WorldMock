@@ -1,7 +1,7 @@
 """@brief settled 写法的确定性句子（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「settled 的写法」）。
 
 只写人物可见、成功（completed 或 in_progress）且不是重放的世界请求与世界事件：下单（带所回应的消息与收货人）、给予、
-发消息、提交工作各一句，在本段结束的活动每项一句（起止含暂停区间、终局、实际份量或有效工时，完成的浏览另写浏览到的
+发消息各一句，在本段结束的活动每项一句（起止含暂停区间、终局、实际份量，阅读完成另写实际读到的
 完整标签），收到的直接消息（全文）、
 邮件（主题）、送达与新工作各一句。不写失败的请求、记忆查询、回看、report_status、暂停与恢复、revise_day_plan、提醒、
 截止预警、身体结算与交谈邀请。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的
@@ -69,6 +69,8 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
         return [f"{when} 收到{record['sender']}的消息：{record['text']}"]
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
+    if kind == "work_completed":
+        return [f"{_clock(context, record['occurred_at'])} 完成工作主题「{record['topic']}」"]
     if kind == "errand_completed":
         return [f"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」"]
     return []
@@ -76,10 +78,10 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
 
 def activity_sentence(context: LayerContext, activity: ActivityState,
                       pauses: Sequence[tuple[int, int]] = ()) -> str:
-    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，工作另写有效工时，进食另写吃掉与丢弃的份数
+    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，进食另写吃掉与丢弃的份数
     （与收尾结果 details.outcome 同一结算事实）。
 
-    例：「工作：会议纪要（1月5日 09:10 起）：09:10–11:50（暂停 10:43–11:16），提前结束，有效工时约 2 小时」。
+    例：「工作：会议纪要（1月5日 09:10 起）：09:10–11:50（暂停 10:43–11:16），提前结束」。
     """
     now, zone = context.state.current_time, context.scenario.timezone
     name = context.names["activities"].get(activity.activity_id, activity.name)
@@ -87,8 +89,6 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
     end = clock_phrase(activity.ended_at or activity.last_settled_at, now, zone)
     paused = "、".join(f"{clock_phrase(begin, now, zone)}–{clock_phrase(until, now, zone)}" for begin, until in pauses)
     sentence = f"{name}：{start}–{end}{f'（暂停 {paused}）' if paused else ''}，{activity_control.ending_phrase(activity)}"
-    if activity.kind == ActivityKind.WORK:
-        sentence += f"，有效工时{duration_phrase(activity.effective_work_seconds)}"
     if is_eating(activity):
         sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
         discarded = sum(activity.data.get("discarded", {}).values())
@@ -127,10 +127,6 @@ def give_sentence(context: LayerContext, moment: str, item: dict[str, Any]) -> s
     return f"{_clock(context, moment)} 把{product} {portion_phrase(item['quantity'])}给了{person}"
 
 
-def work_line(context: LayerContext, event: Event) -> str:
-    """@brief 新工作到来（environment_event 的 work_available）的句子：「09:00 收到新工作「<任务>」」。"""
-    moment = clock_phrase(event.occurred_at, context.state.current_time, context.scenario.timezone)
-    return f"{moment} 收到新工作「{context.rules.tasks[event.data['task_id']].title}」"
 
 
 def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
@@ -209,10 +205,6 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts
     if result is None:
         return []
     status, tool = result["status"], record["tool"]
-    if tool == "submit_work" and (status in SETTLED_STATUSES or result.get("error_code") == "WORK_REQUIRES_REWORK"):
-        task = record["arguments"]["task_name"].split("：", 1)[-1]
-        verdict = "通过" if status in SETTLED_STATUSES else "未通过"
-        return [f"{_clock(context, record['occurred_at'])} 提交「{task}」，{verdict}"]
     if status not in SETTLED_STATUSES:
         return []
     payload = result.get("data") or {}

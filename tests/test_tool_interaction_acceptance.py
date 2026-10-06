@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -91,3 +92,4 @@ def test_tool_interaction_source_mutation_is_killed(mutation, mutation_baseline,
     assert result["original_sha256"] != result["mutated_sha256"]
     assert result["exit_code"] == 1, result["stdout"] + result["stderr"]
     assert "failed" in result["stdout"] and "ERROR collecting" not in result["stdout"]
+    assert "AssertionError" in result["stdout"] or re.search(r"^E\s+assert\b", result["stdout"], re.MULTILINE)

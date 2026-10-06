@@ -1,6 +1,8 @@
 <a name="spec-idle-fillers-让等待成为例外开发规格"></a>
 # 让「等待」成为例外开发规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的最终唤醒和预排闭集。
+
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）及 app 内容、推送与唤醒同步点（阶段 4）。
 
 > 状态：FROZEN。本文件是本特性的唯一开发规格；阶段 1–3 已实现，门禁与变异证据另行登记。阶段 4 的旧格式第三份完整日夹具计划未执行，当前验收由环境数据归属合同替代；其余验收与配对复跑不得称为已完成。
@@ -100,9 +102,10 @@ A 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 - 不写行动次序（`docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条`「不新增行动次序的模型指令」）。第 7 条的事件清单只对醒着的人成立，睡着时的提醒由第 6、16 条说明。
 - 第 7、14、15、16 条在模块常量里分行书写时，变异登记要用的「手上的活动照常进行」「不为凑钟点干等」「还没到就寝时间就照常过晚上」「正餐留到平常的饭点前后吃」与第 14 条整句插入句各自落在同一源码行内。
 
-第 7 条每句的引擎依据：活动做满工具层写的时长由计划结束给出机会，做得久的中途按播报间隔与重估间隔给出机会（`src/worldmock/life/schedule.py::evaluate_wake_reasons`）；
-本人订单送达、提醒到点、有人联系、app 推送、现行工作开放与班次、休息时段的起止在当时给出机会且活动继续，配送的机会给付款人，会提前结束活动的只有当日目标提醒且只结束睡眠（`src/worldmock/life/activities.py::end_sleep_by_reminder`）；
-睡眠由 `src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS` 过滤，所以限定「醒着时」。人物之间的消息在收件人已达同刻决策上限时顺延到下一边界。阶段 4 保留三个工作相关唤醒名与两种工作预排事件，阶段 5 才删除；系统层其余文字在阶段 6 统一重钉，不能把本阶段写成最终提示合同。
+阶段 5 的引擎依据已经收敛：活动到计划结束、播报间隔、重估间隔、订单送达、提醒、联系人消息、app 推送、
+班次与休息时段起止分别提供约定的决策机会；工作主题可见与完成都不产生唤醒，三个旧工作原因及两种工作预排事件已经删除。
+睡眠仍由 `src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS` 过滤，允许集合保持四项。上面的第 7 条引文保留为阶段 6
+要重钉的提示文本来源；其中“有工作可以开始做了”不再是阶段 5 的引擎事实，也不能作为阶段 5 的提示指纹通过收据。
 
 A 改变 `prompt_sha256` 与 `code_sha256`；`tool_schema_sha256`、世界结构与场景结构不变。
 
@@ -137,7 +140,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 
 某个结算边界的那一秒如果是某人工作安排中某个本地日班次的开始或结束（含前一日写到 24:00、落在当日零点的结束），或该班次某个休息时段的开始或结束，而他此刻没有在睡，他就在这一秒得到一次决策机会；其余什么都不发生。
 
-- 阶段 3 的闭集为 24 个；阶段 4 在既有次序中加入 `app_push` 后为 25 个。三个工作相关名字保留到阶段 5，最终闭集才是 22 个；本阶段不得把最终表写成当前表。
+- 阶段 5 删除三个工作相关名字，现行 `WakeReason` 为最终 22 项；班次与休息时段四项及 `app_push` 均保留。睡眠允许集合仍只有四项。
 - 四个成员都不进入睡眠允许集合，`src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS` 逐字节不动；睡着的人不计入下一边界与下一次决策机会的候选，不形成静默边界，不被叫醒，睡过的起止醒来后不补。
 - 不结束、不暂停、不开始任何活动：活动状态、计划结束时刻与下一次交互时刻都不变；不新增拒绝，不写事件，不新增进度层记录；唤醒原因不进提示，人物看到的变化只有环境层 `duty.status` 与观察时刻。
 - 起止时刻由场景工作安排与世界时钟直接求值，不存交付状态：日期例外优先于每周声明，区间半开，按当地墙钟换算（R7），写作 1440 的止点落在次日当地零点；不当班的日子本身没有起止（前一日写到 24:00 的结束照记），没有工作安排的人物没有这些时刻。
@@ -187,22 +190,24 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 设计刻意不做的事：不按处境收窄（在路上或不在岗也给机会）；不给模型新的进度层记录；`around_time` 不被任何新代码读取。
 
 <a name="spec-idle-fillers-班次边界同步点"></a>
-### 新增成员的同步点
 
-唤醒原因闭集不在接口合同。阶段 4 的 25 项有序表由 `tests/life/test_wake_reasons.py` 直接守住；同步点如下，三个工作名字在阶段 5 删除后再一起收敛为最终 22 项：
+### 最终成员的同步点
 
-1. `src/worldmock/life/schedule.py::WakeReason`
-2. `src/worldmock/footprints/models.py::WAKE_REASON_NAMES`（新名字另起一行）
-3. `tests/footprints/test_event_fields.py` 的成员表
-4. `tests/life/test_wake_reasons.py` 的有序成员表
-5. `tests/life/test_work_contracts.py` 只守阶段 5 前仍存在的工作行为，不再拥有完整有序成员表
-6. `tools/run-viewer.html` 的唤醒原因标签表
-7. `tests/tools/run_viewer.test.cjs` 的成员数断言
-8. `docs/dev/SPEC-life-runtime.md` 的冻结词表与触发表，`docs/design/05-recording-engine.md` 的登记
-9. 系统层第 7 条向醒着的人列出的事件类别（`docs/CONTRACTS.md#contracts-model-request` 与 `custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER`）：新增成员若给醒着的人带来事件驱动的决策机会，同步核对这一条，改写经规格与提示指纹
+阶段 5 的最终 22 项有序表由 `tests/life/test_wake_reasons.py` 直接守住。九处同步关系如下：
 
-`tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due` 不改，它是守卫。质量报告直接读足迹侧词表，不是同步点；漏登足迹侧词表会让带新原因的事件落不了库。
-声明了班次且跨过起止的既有用例照常通过：`tests/life/test_work_schedule.py`、`tests/evaluation/test_workload_metrics.py`、`tests/life/test_workload_report.py`、`tests/life/test_day_planning.py`、`tests/integration/test_same_second_continuation.py`。
+- `src/worldmock/life/schedule.py::WakeReason` 定义最终闭集。
+- `src/worldmock/footprints/models.py::WAKE_REASON_NAMES` 逐项镜像。
+- `tests/footprints/test_event_fields.py` 守事件字段成员。
+- `tests/life/test_wake_reasons.py` 守有序成员表与睡眠允许集合。
+- `tests/life/test_work_topics.py` 守工作主题完成不产生旧工作唤醒。
+- `tools/run-viewer.html` 提供唤醒原因标签。
+- `tests/tools/run_viewer.test.cjs` 守查看器成员数。
+- `docs/dev/SPEC-life-runtime.md` 的冻结词表与触发表，以及 `docs/design/05-recording-engine.md` 的登记，与最终闭集一致。
+- 系统层第 7 条仍由阶段 6 改写并重钉提示指纹；阶段 5 的引擎与记录闭集不能借该后续文本宣称提示已经通过。
+
+`tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due` 保持不变。
+质量报告直接读足迹侧词表；漏登足迹侧词表会让带新原因的事件无法落库。
+声明班次且跨过起止的既有用例继续核对班次、工作负荷、当日计划与同秒续接行为。
 
 <a name="spec-idle-fillers-容差定义"></a>
 ### 作息偏离容差
@@ -521,3 +526,4 @@ C 的行为用例：
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：当前唤醒闭集由阶段 3 的 24 项加入 `app_push` 成为 25 项，app 内容完成取代游戏边界；三个工作名字留到阶段 5，最终表为 22 项 |
+| `2026-10-06-rrs-work` | 2026-10-07 | 同步最终唤醒与预排闭集，提示规则后续边界保持明确 |

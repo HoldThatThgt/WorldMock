@@ -20,7 +20,6 @@ from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.models import App, Content, Food, Location, WorkTopic
 from worldmock.exchange.types import LocationKind
-from worldmock.life.models import ContractKind
 from worldmock.life.social import Contact
 from worldmock.life.sleep import (
     DEFAULT_CHRONOTYPE_MIDSLEEP_H,
@@ -261,72 +260,12 @@ class AgentConfig(DeepFrozenModel):
         return self
 
 
-class WorkAppointment(DeepFrozenModel):
-    """@brief 需要真实预约的活动开始时刻和预约依据。"""
-
-    starts_at: datetime
-    reason: str = Field(min_length=1, pattern=r"\S")
-
-    @model_validator(mode="after")
-    def validate_start(self) -> "WorkAppointment":
-        """@brief 预约时刻必须明确时区。"""
-        _aware(self.starts_at, "starts_at")
-        return self
 
 
-class WorkTaskConfig(DeepFrozenModel):
-    """@brief 一个可见后才能执行和提交的独立工作合同（按人物分配）。
-
-    assignee_agent_id 必填（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「世界素材品类要求」：合同按人分配），引用场景内已声明
-    人物（"agent:<id>" 或裸数字 id 两种规范写法，与 A10 ScenarioTaskRef 同名同义）。
-    """
-
-    task_id: str = Field(min_length=1)
-    title: str = Field(min_length=1, pattern=r"\S")
-    assignee_agent_id: str = Field(pattern=r"\S")
-    contract_kind: ContractKind
-    appointment: WorkAppointment | None
-    due_at: datetime
-    maximum_duration_seconds: int = Field(gt=0)
-    pay_fen: int = Field(gt=0)
-    employer_account_id: str = Field(min_length=1)
-    required_location_id: str = Field(min_length=1)
-    required_skill: str = Field(min_length=1)
-    minimum_skill: float = Field(ge=0, le=1)
-    required_effective_seconds: float = Field(gt=0, allow_inf_nan=False)
-    input_path: str = Field(min_length=1)
-    input_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    oracle_path: str = Field(min_length=1)
-    oracle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-    @model_validator(mode="after")
-    def validate_dates(self) -> "WorkTaskConfig":
-        """@brief 截止必须带时区，预约时截止必须晚于开始。"""
-        _aware(self.due_at, "due_at")
-        if self.appointment is not None and self.due_at <= self.appointment.starts_at:
-            logging.error("Work deadline must follow appointment start")
-            _invalid("work deadline must follow appointment start")
-        return self
 
 
-class RuntimeWorkTask(WorkTaskConfig):
-    """@brief 装配出的任务事实，开放时刻仅由通知或预约派生。"""
-
-    available_at: datetime
 
 
-def runtime_tasks(tasks: tuple, messages: tuple) -> tuple[RuntimeWorkTask, ...]:
-    """@brief 普通工作取最早本人通知，预约工作取约定开始。"""
-    result = []
-    for task in tasks:
-        notices = [item for item in messages if item.related_task_id == task.task_id]
-        if not notices:
-            logging.error("Work task has no covering notification: %s", task.task_id)
-            _invalid("work task requires a covering notification")
-        opening = min(item.sent_at for item in notices) if task.appointment is None else task.appointment.starts_at
-        payload = task.model_dump(mode="python", exclude={"available_at"})
-        result.append(RuntimeWorkTask.model_validate({**payload, "available_at": opening}))
-    return tuple(result)
 
 
 class MessageConfig(DeepFrozenModel):
