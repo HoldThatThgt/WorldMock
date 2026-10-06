@@ -210,7 +210,7 @@ flowchart LR
 | 1 | `tests/life/test_location_sessions.py` | 名额占满、只剩一个名额、带暂停活动出行三个用例按新规则改写：两项进行时第三项被拒，暂停一项后受理；一项暂停时开始两项受理；一项进行一项暂停时出行按出发前仍有进行中活动拒绝 |
 | 1 | `tests/life/test_same_moment_decisions.py`、`tests/life/test_tool_layer.py`、`tests/life/test_decision_budget.py` | 依赖「两项都暂停进入恢复或结束」的用例改写为两项都暂停到上限后进入开始或恢复、开始被受理；阶梯单元用例去掉名额分支；最后一轮受限请求成功仍耗尽预算的用例改走待收尾路径；含义已不成立的改名并同步 `tests/time_and_energy_acceptance.py` 与 `tests/persona_prompt_acceptance.py` |
 | 1 | `tests/life/test_paused_slots.py`（新增） | 经真实请求、引擎与 SQLite：一项暂停时开始两项受理；两项进行时恢复被拒并点名两项、待办层同一原因，结束一项后恢复受理、第三项再被拒；只有暂停的活动时出发受理且它们留在原地；暂停的活动在别处可直接结束；恢复的检查次序（工作截止先于名额、名额先于占用冲突）；下一步的三种写法（含通话不可暂停）；两项暂停到同刻上限后开始被受理 |
-| 2 | `tests/catalog/test_affordance_shadow.py` | 期望占用表换新；闭集断言为十一个名字，十个退役名字（含五个身体部位名）都被拒绝；新增逐对核对：只有同种、睡眠一行与驾车一行有交集 |
+| 2 | `tests/catalog/test_affordance_shadow.py` | 期望占用表换新；闭集断言为十一个名字，九个退役名字（此前退役的四个与五个身体部位名）都被拒绝；新增逐对核对：只有同种、睡眠一行与驾车一行有交集 |
 | 2 | `tests/life/test_news_feed.py`、`tests/life/test_parallel_acceptance.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_domain_branch_coverage.py`、`tests/life/test_state_serialization.py`、`tests/life/test_grounded_observation.py`、`tests/life/test_candidates.py`、`tests/life/test_parallel_admission.py`、`tests/life/test_same_moment_decisions.py` | 旧占用名换新；断言跨种组合被拒的三个用例改为同种组合，另加跨种受理的断言 |
 | 2 | `tests/catalog/test_catalog_data.py`、`tests/life/test_semantics.py`、`tests/life/test_work_efficiency_factors.py` | 目录 5.5 |
 | 3 | `tests/integration/test_life_agent_protocol.py`、`tests/fixtures/viewer-context.json` | 见「丙」；查看器夹具 `action` 与 `continuation` 两处系统层换新，`legacy_` 开头的两处不动 |
@@ -285,3 +285,4 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 | 版本 | 日期 | 修改 |
 | --- | --- | --- |
 | `2026-10-06-parallel-activities-freeze` | 2026-10-06 | 按 issue #4 的用户裁定 D1–D3 冻结；实施取舍 R1–R10 沿用试验分支或 issue 的正式修复范围 |
+| `2026-10-06-parallel-activities-record` | 2026-10-06 | 阶段 1–3 实现后更正计数：退役的占用名是九个（此前退役的 `position`、`attention`、`device`、`vehicle` 与五个身体部位名），不是十个 |
