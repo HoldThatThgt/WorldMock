@@ -6,6 +6,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import os
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -59,37 +60,23 @@ def test_sha256_format_is_strict(value, valid):
 
 
 @pytest.mark.parametrize('relative', ['../outside', '/outside', '\\outside', 'C:\\outside', 'C:outside',
-                                      '\\\\server\\share\\outside', 'a/../outside', ''])
+                                      '\\\\server\\share\\outside', 'a/../outside', '', 'a\\b.json',
+                                      'top.json:stream', 'a/b\x00c.json', 'a/x.', 'a/. /f.json', 'a/..../f.json',
+                                      'NUL', 'a/con.json', 'COM1', 'a?b.json', 'a/"q".json', 'a/b\tc.json',
+                                      'a\udcff.json', 'x' * 256, '.', 'a/C:/b.txt', 'a/C:b.txt',
+                                      'zz/Q:/C:../top.txt', 'zz/Q:/C:b.txt'])
 def test_safe_file_rejects_declared_path_before_access(tmp_path, monkeypatch, relative):
-    """带盘符或根（含 Windows 上无盘符的根路径）、含父引用或为空的声明，在检查链接与文件之前就被拒绝。"""
+    """带盘符或根（含 Windows 上无盘符的根路径）、含父引用、为空或只指向根本身，或在任一平台不能原样保存（反斜杠、
+    数据流冒号与其他 Windows 禁用字符、控制字符、孤立代理码点、设备名、以点或空格结尾或超过 255 字节的组件；中间组件
+    形似盘符时逐级拼接会变成盘符相对路径）的声明，在检查链接与文件之前就被拒绝。"""
     def accessed(path):
         raise AssertionError(f'declared path was accessed before rejection: {path}')
 
     monkeypatch.setattr(Path, 'is_symlink', accessed)
+    monkeypatch.setattr(Path, 'is_junction', accessed)
     monkeypatch.setattr(Path, 'is_file', accessed)
     with pytest.raises(IntegrityError, match='consumer path rejected'):
         safe_file(tmp_path, relative, 'consumer path rejected')
-
-
-def test_safe_file_rejects_the_root_itself_at_the_boundary(tmp_path):
-    with pytest.raises(IntegrityError, match='consumer path rejected'):
-        safe_file(tmp_path, '.', 'consumer path rejected')
-
-
-@pytest.mark.parametrize('relative', ['a/C:/b.txt', 'a/C:b.txt', 'zz/Q:/C:../top.txt', 'zz/Q:/C:b.txt'])
-def test_safe_file_checks_drive_shaped_components_as_names_inside_the_root(tmp_path, monkeypatch, relative):
-    """中间组件形似盘符时仍按根内的一个名字检查：链接检查只落在根以内，也不会借盘符相对路径改指根内别的文件。"""
-    root = tmp_path / 'corpus'
-    (root / 'a').mkdir(parents=True)
-    (root / 'a' / 'b.txt').write_bytes(b'b')
-    (root / 'top.txt').write_bytes(b'top')
-    monkeypatch.chdir(root / 'a')
-    checked = []
-    original = Path.is_symlink
-    monkeypatch.setattr(Path, 'is_symlink', lambda path: checked.append(path) or original(path))
-    with pytest.raises(IntegrityError, match='consumer path rejected'):
-        safe_file(root, relative, 'consumer path rejected')
-    assert checked and all(root.resolve() in path.parents for path in checked)
 
 
 def _reject_root_contained_reference(root, relative, payload, consumer):
@@ -150,6 +137,34 @@ def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, 
     _validate_entry(root, normal)
     assert map_data._read_file(root, normal) == {'normal': True}
     _reject_root_contained_reference(root, relative, payload, consumer)
+
+
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+def test_safe_file_consumers_reject_directory_junction_that_resolves_inside_root(tmp_path, monkeypatch, consumer):
+    """Windows 目录联接不是符号链接（is_symlink 为假），但同样是链接组件，即使解析后仍在根内也拒绝。"""
+    root = tmp_path / 'corpus'
+    target = root / 'normal'
+    target.mkdir(parents=True)
+    payload = b'{"normal":true}\n'
+    (target / 'file.json').write_bytes(payload)
+    link = root.resolve() / 'alias'
+    if os.name == 'nt':
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+        assert link.is_junction() and not link.is_symlink()
+    else:
+        # POSIX 没有目录联接：以真实目录模拟唯一的联接标志，文件访问与消费者仍走真实路径。
+        link.mkdir()
+        (link / 'file.json').write_bytes(payload)
+        original = Path.is_junction
+        monkeypatch.setattr(Path, 'is_junction', lambda path: path == link or original(path))
+    assert (root / 'alias/file.json').read_bytes() == payload
+    normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
+    assert safe_file(root, 'normal/file.json', 'consumer path rejected').read_bytes() == payload
+    _validate_entry(root, normal)
+    assert map_data._read_file(root, normal) == {'normal': True}
+    _reject_root_contained_reference(root, 'alias/file.json', payload, consumer)
 
 
 def test_original_safe_file_consumers_reject_symlink_before_hash_or_schema(tmp_path, caplog, monkeypatch):

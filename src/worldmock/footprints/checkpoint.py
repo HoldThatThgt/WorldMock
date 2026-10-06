@@ -5,12 +5,15 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import shutil
 import tarfile
 import tempfile
-from pathlib import Path
+import unicodedata
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
+from worldmock.corpora.manifest import relative_declaration
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import AssetStore, atomic_write
 from worldmock.footprints.models import AssetRef, EventDraft, canonical_json
@@ -18,43 +21,75 @@ from worldmock.footprints.store import FootprintStore
 
 
 def snapshot_directory(directory: Path, assets: AssetStore) -> AssetRef:
-    """@brief 保存目录中完整普通文件，拒绝符号链接并固定归档元信息。"""
+    """@brief 保存目录中完整普通文件，拒绝符号链接与目录联接并固定归档元信息；
+    成员名先按恢复时的同一规则核对，恢复不了的快照不会被保存。"""
     root = Path(directory).resolve()
     if not root.is_dir():
         raise IntegrityError("Participant workspace is missing")
+    files = sorted(_workspace_files(root))
+    entries = [tarfile.TarInfo(path.relative_to(root).as_posix()) for path in files]
+    _check_members(entries, "Participant workspace contains an unsafe file name")
     content = io.BytesIO()
     with tarfile.open(fileobj=content, mode="w") as archive:
-        for path in sorted(root.rglob("*")):
-            if path.is_symlink():
-                raise IntegrityError("Participant workspace contains a symbolic link")
-            if path.is_file():
-                raw = path.read_bytes()
-                entry = tarfile.TarInfo(path.relative_to(root).as_posix())
-                entry.size = len(raw)
-                entry.mode = 0o600
-                entry.mtime = 0
-                archive.addfile(entry, io.BytesIO(raw))
+        for path, entry in zip(files, entries):
+            raw = path.read_bytes()
+            entry.size = len(raw)
+            entry.mode = 0o600
+            entry.mtime = 0
+            archive.addfile(entry, io.BytesIO(raw))
     return assets.put(content.getvalue(), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
 
 
+def _workspace_files(root: Path) -> list[Path]:
+    """@brief 自上而下列出工作区里的普通文件；遇到符号链接或目录联接立即拒绝，不进入它指向的目录。"""
+    files: list[Path] = []
+    for directory, dirnames, filenames in root.walk():
+        for name in (*dirnames, *filenames):
+            if (directory / name).is_symlink() or (directory / name).is_junction():
+                raise IntegrityError("Participant workspace contains a symbolic link")
+        files.extend(path for name in filenames if (path := directory / name).is_file())
+    return files
+
+
 def restore_directory(reference: AssetRef, assets: AssetStore, destination: Path) -> None:
-    """@brief 仅展开已校验的普通相对文件，不覆盖已有目标目录。"""
+    """@brief 全部成员核对通过后才展开普通相对文件，不覆盖已有目标目录，也不让两个成员写到同一个文件。"""
     destination = Path(destination)
     if destination.exists():
         raise IntegrityError("Participant restore destination already exists")
     content = assets.read(reference)
-    with tarfile.open(fileobj=io.BytesIO(content), mode="r:") as archive:
-        members = archive.getmembers()
-        for member in members:
-            path = Path(member.name)
-            if not member.isfile() or path.is_absolute() or ".." in path.parts:
-                raise IntegrityError("Workspace snapshot contains an unsafe member")
-        destination.mkdir(parents=True)
-        for member in members:
-            source = archive.extractfile(member)
-            if source is None:
-                raise IntegrityError("Workspace snapshot content is missing")
-            atomic_write(destination / member.name, source.read())
+    try:
+        with tarfile.open(fileobj=io.BytesIO(content), mode="r:") as archive:
+            members = archive.getmembers()
+            _check_members(members)
+            destination.mkdir(parents=True)
+            for member in members:
+                source = archive.extractfile(member)
+                if source is None:
+                    raise IntegrityError("Workspace snapshot content is missing")
+                target = destination / member.name
+                # 目标目录是新建的：写入前已存在只能是先前成员的别名（Windows 8.3 短名、大小写或 Unicode 规范化）。
+                if os.path.lexists(target):
+                    raise IntegrityError("Workspace snapshot contains an unsafe member")
+                atomic_write(target, source.read())
+    except tarfile.TarError as exc:
+        raise IntegrityError("Workspace snapshot archive is invalid") from exc
+
+
+def _check_members(members: list[tarfile.TarInfo],
+                   message: str = "Workspace snapshot contains an unsafe member") -> None:
+    """@brief 快照保存前与恢复展开前核对全部成员：只接受普通文件（稀疏、连续等变体不算），名字可移植，忽略大小写与
+    Unicode 规范形式后互不重名，且没有文件同时是另一个成员的上级目录。"""
+    files: set[str] = set()
+    for member in members:
+        if member.type != tarfile.REGTYPE or member.issparse() or not relative_declaration(member.name):
+            raise IntegrityError(message)
+        key = unicodedata.normalize("NFD", unicodedata.normalize("NFD", member.name).casefold())
+        key = PurePosixPath(key).as_posix()
+        if key in files:
+            raise IntegrityError(message)
+        files.add(key)
+    if files & {parent.as_posix() for key in files for parent in PurePosixPath(key).parents}:
+        raise IntegrityError(message)
 
 
 def restore_branch(store: FootprintStore, checkpoint_id: str, destination: Path,

@@ -8,9 +8,12 @@ from __future__ import annotations
 from worldmock.footprints.checkpoint import restore_branch
 
 import hashlib
+import io
 import json
 import os
 import sqlite3
+import tarfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -517,6 +520,169 @@ def test_restore_directory_rejects_existing_destination_and_unsafe_members(tmp_p
     destination.rmdir()
     with pytest.raises(IntegrityError, match="unsafe member"):
         restore_directory(reference, assets, destination)
+
+
+def _workspace_snapshot(assets, members):
+    """以（成员名, 成员类型）构造工作区快照素材；普通文件的内容是成员名本身。"""
+    content = io.BytesIO()
+    with tarfile.open(fileobj=content, mode="w") as archive:
+        for name, kind in members:
+            entry = tarfile.TarInfo(name)
+            entry.type = kind
+            raw = name.encode("utf-8", "surrogateescape") if kind == tarfile.REGTYPE else b""
+            entry.size = len(raw)
+            archive.addfile(entry, io.BytesIO(raw))
+    return assets.put(content.getvalue(), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
+
+
+def _forbid_restore_writes(monkeypatch):
+    """核对必须先于展开：任何写入都让用例失败，回归时也不会真的写到临时目录之外。"""
+    from worldmock.footprints import checkpoint
+
+    def written(path, raw):
+        raise AssertionError(f"restore wrote before rejecting the snapshot: {path}")
+
+    monkeypatch.setattr(checkpoint, "atomic_write", written)
+
+
+@pytest.mark.parametrize("names", [
+    ("/x",), ("\\x",), ("C:x",), ("D:x",), ("C:\\x",), ("\\\\server\\share\\x",), ("a/../../x",),
+    ("a\\..\\..\\x",), (".",), ("a\\b",), ("NUL",), ("a/nul.txt",), ("NUL .txt",), ("CON",), ("COM1.log",),
+    ("lpt¹",), ("x.",), ("x ",), ("a./b",), ("notes:1.md",), ("a?b",), ("a/b\x01c",), ("a\udcff",), ("x" * 256,),
+    ("x", "X"), ("memory/state.json", "memory/STATE.json"), ("dup", "dup"), ("a/b", "a//b"),
+    ("caf\u00e9", "cafe\u0301"), ("a", "a/b"), ("a/b", "a"), ("A", "a/b"),
+])
+def test_restore_directory_rejects_members_that_escape_or_cannot_be_restored_faithfully(tmp_path, monkeypatch, names):
+    """每个平台上都拒绝带盘符或根、含父引用、不只用 "/" 分隔、是 Windows 设备名、含禁用字符或孤立代理码点、
+    一级超过 255 字节、以点或空格结尾、忽略大小写与 Unicode 规范形式后重名，或文件同时是另一成员上级目录的成员
+    （Windows 上 "/x"、"\\x"、"D:x" 会写到目标目录之外，"x" 与 "x." 互相覆盖）；核对先于展开，目标目录不会被创建。"""
+    from worldmock.footprints.checkpoint import restore_directory
+
+    _forbid_restore_writes(monkeypatch)
+    assets = AssetStore(tmp_path / "assets")
+    reference = _workspace_snapshot(assets, [(name, tarfile.REGTYPE) for name in names])
+    with pytest.raises(IntegrityError, match="unsafe member"):
+        restore_directory(reference, assets, tmp_path / "restore" / "agent")
+    assert not (tmp_path / "restore").exists()
+
+
+@pytest.mark.parametrize("kind", [tarfile.DIRTYPE, tarfile.SYMTYPE, tarfile.AREGTYPE, tarfile.CONTTYPE,
+                                  tarfile.GNUTYPE_SPARSE])
+def test_restore_directory_rejects_members_that_are_not_plain_regular_files(tmp_path, monkeypatch, kind):
+    """快照只写普通文件；目录、链接，以及同样算作文件的旧式、连续与稀疏成员（稀疏成员可声明远大于归档的长度）都拒绝。"""
+    from worldmock.footprints.checkpoint import restore_directory
+
+    _forbid_restore_writes(monkeypatch)
+    assets = AssetStore(tmp_path / "assets")
+    reference = _workspace_snapshot(assets, [("AGENT.json", tarfile.REGTYPE), ("memory", kind)])
+    with pytest.raises(IntegrityError, match="unsafe member"):
+        restore_directory(reference, assets, tmp_path / "restore")
+    assert not (tmp_path / "restore").exists()
+
+
+def test_restore_directory_rejects_a_member_that_aliases_an_earlier_file(tmp_path):
+    """文件系统给长名生成 8.3 短名时，"LONGFI~1.JSO" 与先写的 "longfilename.json" 是同一个文件，后者不能被静默覆盖；
+    文件系统不生成短名时两者是不同的文件，照常恢复。"""
+    from worldmock.footprints.checkpoint import restore_directory
+
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "longfilename.json").write_bytes(b"probe")
+    aliases = (probe / "LONGFI~1.JSO").exists()
+    assets = AssetStore(tmp_path / "assets")
+    reference = _workspace_snapshot(assets, [("longfilename.json", tarfile.REGTYPE),
+                                             ("LONGFI~1.JSO", tarfile.REGTYPE)])
+    destination = tmp_path / "restore"
+    if aliases:
+        with pytest.raises(IntegrityError, match="unsafe member"):
+            restore_directory(reference, assets, destination)
+        assert (destination / "longfilename.json").read_bytes() == b"longfilename.json"
+    else:
+        restore_directory(reference, assets, destination)
+        assert (destination / "LONGFI~1.JSO").read_bytes() == b"LONGFI~1.JSO"
+
+
+@pytest.mark.parametrize("corrupt", [lambda archive: archive[:515], lambda archive: b"\x01" * 1024],
+                         ids=["truncated-member-data", "not-a-tar"])
+def test_restore_directory_reports_a_corrupt_archive_as_an_integrity_error(tmp_path, corrupt):
+    from worldmock.footprints.checkpoint import restore_directory
+
+    assets = AssetStore(tmp_path / "assets")
+    archive = assets.read(_workspace_snapshot(assets, [("AGENT.json", tarfile.REGTYPE)]))
+    reference = assets.put(corrupt(archive), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
+    with pytest.raises(IntegrityError, match="archive is invalid"):
+        restore_directory(reference, assets, tmp_path / "restore")
+
+
+def test_snapshot_and_restore_keep_every_workspace_file_byte_for_byte(tmp_path):
+    """真实工作区的文件名（人物身份、配置、记忆、提示快照）照常快照并逐字节恢复；空目录不进归档。"""
+    from worldmock.footprints.checkpoint import restore_directory, snapshot_directory
+
+    assets = AssetStore(tmp_path / "assets")
+    workspace = tmp_path / "workspace"
+    files = {"AGENT.json": b'{"id": 1}', "config.json": b'{"max_react_turns": 16}',
+             "MEMORY.md": "# 记忆\r\n".encode("utf-8"), "memory/episodes.jsonl": b"",
+             "memory/state.json": b"{}", "life_prompt_snapshot.json": b'{"persona": {}}'}
+    for relative, raw in files.items():
+        (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
+        (workspace / relative).write_bytes(raw)
+    (workspace / "skills").mkdir()
+    destination = tmp_path / "restored"
+    restore_directory(snapshot_directory(workspace, assets), assets, destination)
+    restored = {path.relative_to(destination).as_posix(): path.read_bytes()
+                for path in destination.rglob("*") if path.is_file()}
+    assert restored == files
+
+
+def test_snapshot_directory_refuses_a_workspace_that_restore_would_reject(tmp_path):
+    """快照与恢复用同一成员检查：同一个名字的 NFC 与 NFD 写法在 NTFS、ext4 上是两个文件，恢复到 APFS 会互相覆盖，
+    所以快照时就拒绝，不保存恢复不了的快照；文件系统本身把它们当作同一个文件时只剩一个，照常快照。"""
+    from worldmock.footprints.checkpoint import snapshot_directory
+
+    assets = AssetStore(tmp_path / "assets")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "café.md").write_bytes(b"nfc")
+    (workspace / "café.md").write_bytes(b"nfd")
+    if len(list(workspace.iterdir())) == 2:
+        with pytest.raises(IntegrityError, match="unsafe file name"):
+            snapshot_directory(workspace, assets)
+        assert not [path for path in (tmp_path / "assets").rglob("*") if path.is_file()]
+    else:
+        snapshot_directory(workspace, assets)
+
+
+def test_snapshot_directory_rejects_directory_junctions(tmp_path, monkeypatch):
+    """Windows 目录联接不是符号链接（is_symlink 为假），快照同样拒绝，而且在进入联接之前拒绝：不列出它指向的目录
+    （指回工作区的联接会让逐层遍历无穷展开）。"""
+    from worldmock.footprints.checkpoint import snapshot_directory
+
+    assets = AssetStore(tmp_path / "assets")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "AGENT.json").write_text("{}")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside")
+    link = workspace.resolve() / "linked"
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(outside), str(link))
+        assert link.is_junction() and not link.is_symlink()
+    else:
+        # POSIX 没有目录联接：以真实目录模拟唯一的联接标志，仍执行真实拒绝入口。
+        link.mkdir()
+        (link / "secret.txt").write_text("outside")
+        original = Path.is_junction
+        monkeypatch.setattr(Path, "is_junction", lambda path: path == link or original(path))
+    scanned = []
+    scandir = os.scandir
+    monkeypatch.setattr(os, "scandir", lambda path=".": scanned.append(Path(path)) or scandir(path))
+    with pytest.raises(IntegrityError, match="symbolic link"):
+        snapshot_directory(workspace, assets)
+    assert workspace.resolve() in scanned
+    assert link not in scanned and outside.resolve() not in scanned
 
 
 def _store_with_checkpoint(tmp_path):

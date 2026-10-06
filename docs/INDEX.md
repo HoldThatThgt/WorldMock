@@ -95,7 +95,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [环境数据归属规格](dev/SPEC-environment-data-ownership.md) | 正式环境与制作工具归数据仓；通用规则归引擎包；场景结构 6、环境标题与活动效果、显式环境加载及人工测试夹具 | FROZEN |
 | [以 app 为入口的资源与规则引擎简化提案](dev/PROPOSAL_2026-10-06_RESOURCE_AND_RULE_SIMPLIFICATION.md) | 原文需求、随机加权地图、同类店铺同商品、全地图外卖、三类食品、app 娱乐与推送、主题工时工作、系统固定规则及双仓替换验收；本次仅设计 | 未冻结提案 |
 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，改的是引擎包资源 `src/worldmock/data/affordances.toml`，仍带旧占用名的已发布环境须按新占用名重新发布（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成；阶段 1（暂停的活动不占名额）、阶段 2（只有同一种动作互斥）与阶段 3（系统层第 8 条）已实现 | FROZEN |
-| [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner | FROZEN |
+| [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner；「安全文件」一行 2026-10-06 补 Windows 路径加固 | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
 | [个人事务与工作安排规格](archive/errands-workday/SPEC-errands-workday.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护 | 归档 |
 | [个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md) | 源码身份与发布身份（各阶段提交、结构版本与两个指纹）、实施过程与各阶段测试结果、评审与修复、两轮独立源码变异审查、全量门禁与覆盖率（`a7e2fdc` 上的运行，以及含两个查看器提交的分支头 `964de50` 上的最终运行）、验收台账逐行登记（证据节点来自 `tests/errands_workday_acceptance.py`）、代码与规格的出入与裁定（含 `a7e2fdc` 的全量门禁之后由 `1346e0d`、`6c81126` 补齐的查看器事务显示）、文档一致性、环境敏感项；证据层级为离线测试，配对全天复跑（阶段 6，只报告）与 strict 端点探针未执行 | 归档 |
@@ -431,5 +431,6 @@ flowchart TB
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）实现后：文档地图里生活运行时、人物规格、当日目标、LabelKit 交付四行中由该规格阶段 3 修订的部分（零点计划修订一节的写法；零点计划的写法与提醒；零点计划模板改写的指纹叙述）改为修订条款已实现；该规格一行注明阶段 3 已实现 |
 | `2026-10-05-cross-platform-baseline-proposal` | 2026-10-05 | 文档地图「特性规格与提案」登记未冻结提案：完整日行为基线跨平台一致（快照归档次序、工作区文本换行、工作区路径分隔符与平台数学库四处原因；2026-10-06 按 macOS 导出修订）。它不改变行为；按「权威层级」，裁决之前任何代码、测试与验收结论不得依赖其内容 |
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
+| `2026-10-06-windows-path-safety` | 2026-10-06 | 文档地图共享规则与可重建环境规格一行注明「安全文件」2026-10-06 补 Windows 路径加固（无盘符的根路径算绝对路径，反斜杠、目录联接与任一平台不能原样保存的名字一并拒绝，工作区快照与恢复的成员名使用同一声明规则） |
 | `2026-10-06-parallel-activities-freeze` | 2026-10-06 | 文档地图「特性规格与提案」登记冻结规格[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)（`FROZEN`），「按任务读」加实现与审查入口；被它修订的现行文档在各阶段提交时注明 |
 | `2026-10-06-parallel-activities-record` | 2026-10-06 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1–3 实现后：文档地图里生活运行时、数字人交互、人物规格、一日行为、地图与门店供给、LabelKit 交付六行注明被该规格修订的部分与阶段，写修订条款已实现；该规格一行注明阶段 1–3 已实现 |

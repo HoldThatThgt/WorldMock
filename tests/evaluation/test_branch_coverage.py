@@ -1368,6 +1368,11 @@ def _reject_ingest(scenario, output: Path, records: list[Path], match: str) -> N
         (lambda i: i.update(selection_coverage={}), "selection coverage does not match scenario"),
         (lambda i: i.update(packets=i["packets"][:2]), "review packet count does not match scenario"),
         (lambda i: i["packets"][0].update(reviewer_slot="rogue"), "review packet slot is invalid"),
+        (lambda i: i["packets"][0].update(reviewer_slot="reviewer-/../../../outside"), "review packet slot is invalid"),
+        (lambda i: i["packets"][0].update(reviewer_slot="reviewer-\\..\\..\\..\\outside"),
+         "review packet slot is invalid"),
+        (lambda i: i["packets"][0].update(reviewer_slot="reviewer-01/../reviewer-02"), "review packet slot is invalid"),
+        (lambda i: i["packets"][0].update(reviewer_slot="reviewer-1"), "review packet slot is invalid"),
     ],
 )
 def test_ingest_rejects_tampered_review_index(
