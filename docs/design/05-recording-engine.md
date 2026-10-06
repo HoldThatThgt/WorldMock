@@ -1,7 +1,7 @@
 <a name="recording-engine-worldmock-产品设计说明书-记录引擎"></a>
 # WorldMock 产品设计说明书 — 记录引擎
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）；「地图与门店供给证据」、「地图与供给的恢复身份」、「检查点创建」、「持久化结构」、「必须保存的内容」（阶段 2）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）；「地图与门店供给证据」、「地图与供给的恢复身份」、「检查点创建」、「持久化结构」、「必须保存的内容」（阶段 2）；「事件字段、事件类型、事件正文、活动进度、已核验经历、共同身体结算与决策证据」（阶段 4，app 使用与推送）。
 
 
 > **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）<br>
@@ -164,7 +164,7 @@ flowchart TB
 | 记录身份 | `schema_version`, `run_id`, `event_id`, `event_seq` (严格递增), `event_type` |
 | 参与与关联 | `agent_id`; 适用时有 `decision_id`, `action_id`, `activity_id`; `caused_by` 连接直接相关事件 |
 | 时间 | `occurred_at` (模拟时间), `observed_at` (观察事件), `recorded_at` (程序时间), `wall_elapsed_ms` |
-| 观察 | 实际可见字段、`content_refs`, `material_ranges`; `observation_version`，不含未来或未授权内容 |
+| 观察 | 实际可见层数据、进度来源与私有绑定；app 结果记录公开 `app_content`，不保存 `content_refs` 或分段范围；`observation_version` 不含未来或未授权内容 |
 | 请求与执行 | `action_name`, `params`, `status`, `start_time`, `end_time`, `progress`, `interruption_reason` |
 | 结果 | `feedback`, `resource_changes`, `deliverable`, `counterparty`, `review_result`, `failure_reason` |
 | 状态关联 | `state_version_before`, `state_version_after` (可回到检查点和事件重建状态) |
@@ -193,7 +193,7 @@ flowchart TB
 每个供给条目所属门店记在条目的私有键 `location_id`（已在禁键内），不另冻结地点与住处的副本。
 人物请求如何由七层组成见[人物决策提示合同](../CONTRACTS.md#contracts-model-request)。
 
-请求同一动作的重试沿用动作标识；真实重复观看或再次购买必须产生新动作标识。完整原始事件保存世界事实、自述和推断三者的来源区别，既不删除重复行为，也不把相同素材的哈希当作事件标识；环境准确值、人物表达的感受与设备可见痕迹并不等价。
+请求同一动作的重试沿用动作标识；再次打开 app 或再次购买必须产生新动作标识。完整原始事件保存世界事实、自述和推断三者的来源区别，既不删除重复行为，也不把相同内容身份当作事件标识；环境准确值、人物表达的感受与设备可见痕迹并不等价。
 
 `agent_id` 为整数或空值；`occurred_at` 与存在时的 `observed_at` 使用模拟时刻的整数秒。
 `decision_id`、`action_id`、`activity_id` 为字符串或空值，`caused_by` 为事件标识字符串列表，
@@ -239,6 +239,9 @@ flowchart TB
 不重复、不补发。它们不在睡眠允许的原因之内：睡眠中的人物不计入候选、不形成静默边界、不被叫醒，睡过的起止醒来后不补；
 运行第一秒恰在起止上时只记 `run_start`。
 
+阶段 4 在 `break_end` 后追加 `app_push`，共同身体结算与 `decision_started` 使用同一 25 项有序闭集；
+它不进入四项睡眠允许集合。三个工作原因到阶段 5 才删除，届时词表才成为最终 22 项。
+
 <a name="recording-engine-事件类型枚举"></a>
 #### 事件类型枚举
 
@@ -261,12 +264,15 @@ EventType = Literal[
 ]
 ```
 
-闭集不变。活动的结束、暂停、恢复与实验截止的截断，零点计划的计划登记，跨决策预算耗尽，以及个人事务的新增、更新、取消、累计、完成与提醒，
+顶层 `EventType` 闭集不变。活动的结束、暂停、恢复与实验截止的截断，零点计划的计划登记，
+跨决策预算耗尽、app 推送，以及个人事务的新增、更新、取消、累计、完成与提醒，
 都复用 `environment_event`，以 `data.kind` 区分
 （`activity_concluded`、`activity_paused`、`activity_resumed`、`activity_truncated`、`day_plan_generated`、`decision_budget_exhausted`、
-`errand_registered`、`errand_updated`、`errand_cancelled`、`errand_progressed`、`errand_completed`、`errand_reminded`，
+`errand_registered`、`errand_updated`、`errand_cancelled`、`errand_progressed`、`errand_completed`、`errand_reminded`、
+`app_push`，
 登记在下表 `environment_event` 行）；
 零点计划的模型请求与响应复用 `model_request`、`model_response`，以 `data.purpose` 区分。
+阶段 4 不登记 `work_topic_completed`；该子类型随工作主题在阶段 5 替换现行工作任务事件。
 
 <a name="recording-engine-事件正文与资源证据"></a>
 #### 事件正文与资源证据
@@ -281,9 +287,9 @@ EventType = Literal[
 | `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；生活决策的宿主校验错误另以 `data.protocol_feedback` 保存完整结构化纠错，合法响应为 `null`，不得只保留英语错误串而丢弃位置与枚举；模型服务失败的 `failure` 证据同样带 `protocol_feedback`，其 `error_code` 为失败阶段码 `MODEL_SERVICE_FAILED`；证据写入、记忆查询与工具分发失败的阶段码为 `EVIDENCE_WRITE_FAILED`、`MEMORY_QUERY_FAILED`、`TOOL_SERVICE_FAILED`：证据写入失败与工具分发失败以运行故障上抛，记忆查询失败作为失败的 tool 结果回给模型、可在剩余回合内重试。四个码只标出失败阶段与调用位置，不是对请求参数的协议纠错，登记在[接口合同的宿主错误码表](../CONTRACTS.md#contracts-tool-result-channel)（随个人事务与工作安排规格阶段 1 补登）；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应。就寝反思的请求与响应不带 `data.purpose`，经 AS2 记忆调度留证，带本次决策的 `decision_id`：每次尝试各有自己的调用身份（`data.call_id` 取本次决策内递增的模型调用序号，`data.attempt` 恒为 1，不用 `plan_day` 的 `attempt:<n>` 编号），响应证据在本地校验之前写入、`error` 为空，响应只以 `caused_by` 回链本次请求，校验重试的请求不回链前次响应；质量报告的用量与截断按调用身份各计一次 |
 | `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验。三个控制工具的 `request` 是现行形状 `{"items": [{activity_name, summary}], "errands": [...]}`（结束每项另带 `memories` 与 `views`；`errands` 为请求级必填数组、可为 `[]`、一次至多 4 条，每条恰为 `{change, name, outcome, item, quantity, memo, remind_time, reason}` 八键，全部必填、按变更种类可为 null，`change` 取「新增」「更新」「取消」，没有「完成」；同一请求内按取消、更新、新增的次序求值，同一条未完成事务在一次请求里至多被一条更新或取消点名，两条新增不得同名，取消与以原名重新新增可在同一请求里完成）。`control_items` 模块是控制请求的唯一读取入口（`control_items` 读逐项内容，`control_errands` 读请求级事务变更），经它读取的环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆证据、零点计划输入、质量报告与交付窗口一律读当前形状；缺 `errands` 键的记录与旧 `task[]`、`summary[]`、逐项 `memories[][]` 一样按完整性故障直接拒绝，不留读取分支；查看器是独立的镜像实现，同步为缺键报错。看法与偏好的对象 `views[].about` 只随请求原文保存在这里，不写入 AS2 记忆条目；事务文字同样只随请求原文保存在这里，进度层的工具调用参数略去 `errands`，本 session 内由结果的 `details.errands` 回执可见 |
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付。`action_rejected` 的 `data` 与同一拒绝的 `action_result` 按共用错误结构（[一日运行保真规格](../dev/SPEC-as2-integration.md#dayrun-fidelity-错误合同)第四章）带 `error_code`、一句原因 `reason`（`action_result` 的 `message` 就是它，不再拼接英文码与校验转储）、改法 `fix`（没有时为 null）、下一步 `next_step` 与私有的 `unmet`、`suggested`，每次拒绝均带实际错误位置的 `items[{path, written, error_code, allowed_values, expected, why, candidates}]`，不带 `resolved` 与 `notes`；受理结果的 `action_result.data` 在名称经无损归一时带 `resolved`（`[{written, as}]`，指名购买写的商品名记为解析出的完整标签），食用、使用、制作的请求中 `from`、`to` 已是 null、本人方向由环境推导，指名购买按 `prefer` 选定门店、按「购买」定下到店或远程下单时带说明 `notes`，都原样进入公开结果。三个控制工具的事务变更与同一请求的活动状态转换同批校验、同一事务提交：活动名先按既有规则解析，其后事务变更在同一冻结观察上用与宿主同一的函数复核，任何一条不合法即全部问题合并为一次 `ACTION_REQUEST_INVALID` 业务拒绝（照常计同刻轮数），世界不变；请求因其他原因被业务拒绝时事务变更一并不生效，也不写任何事务事件（三种由请求触发的事务事件只在成功分支生成，每条被受理的变更恰好一条，内容没有变化的更新也写）。不新增业务拒绝码，逐项明细的 `path` 完整到 `errands[j].<键>`，事务变更的明细不带 `candidates`：更新、取消的 `name` 错误（`NAME_NOT_FOUND`、`NAME_AMBIGUOUS`）在 `allowed_values` 列本人全部未完成事务名，新增的 `item` 错误把最接近的至多三个商品名写在 `why`；重名、同结果同商品、同一事务被第二条更新或取消点名与未完成数超过 8 记 `ARGUMENTS_INVALID`，上限只写在 `why` |
-| `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
-| `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id`、请求关联 `request_message_id` 与渠道 `channel_id`（`data.orders[]` 的每个订单一列：`from` 解析为购买渠道时是该渠道的 App 标识，否则 `null`；只在订单载荷与导出的 `purchases.jsonl`，不进世界状态的 `DeliveryState`），被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数；未完成的浏览 `note` 为「未取得浏览结果」）；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照。三个控制工具的受理结果另带事务回执 `data.errands`（公开结果的 `details.errands`，`[{errand, change}]`，按请求顺序，没有变更时为 `[]`；`errand` 为事务名称：新增写所写的名称，更新与取消写待办层里的名称）；被拒结果没有该键 |
-| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；当日目标的提醒到期不另写事件，记于唤醒原因；班次与休息时段的起止同样不写事件，只记于唤醒原因（`shift_start`、`shift_end`、`break_start`、`break_end`），环境层 `duty.status` 的变化随观察留证；个人事务的提醒只在实际交付决策机会时写事件：同一边界到期的多条事务合并为一次决策机会，每条事务各写一条 `errand_reminded`（见本行末），进度层的提醒记录由该事件派生，不由状态推导。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`、`around_at`（大致时刻 `around_time` 换算出的当日绝对时刻，可为 null），`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近一次计入同刻轮数的拒绝码 `error_code`（免计的名称类拒绝不算，没有时为 `null`）与下次决策时刻 `next_decision_at`。个人事务的每次变化写一条，`data` 为 `{kind, errand}`（`errand` 为事务快照，即 `ErrandState` 的 JSON 形状）：`data.kind` 取 `errand_registered`、`errand_updated`、`errand_cancelled`（控制请求受理时每条被受理的变更一条，`caused_by` 为请求事件，`visibility=system`；新增与更新写受理后的快照，取消写移出前的快照并另带 `reason`），`errand_progressed`（结算证据命中但未达数量，`visibility=system`，快照为累计后的状态）、`errand_completed`（结算证据命中并达到数量，`visibility=agent`，事务已移出状态，快照的 `progress` 写最终累计量；这两种另带本条证据的数量 `quantity_added`，`caused_by` 为证据事件）或 `errand_reminded`（提醒实际交付时写，`visibility=agent`，`caused_by` 为空，快照带交付时刻 `reminded_at`）。六种事件的 `decision_id`、`action_id` 与 `activity_id` 都为空，只经 `caused_by` 关联：不进入任何动作窗口的目标，也不落进别人那次决策的分组（证据可以是别人的动作，例如他人买给本人）。六种事件 `source_kind=environment`，事件顶层 `agent_id` 为事务所有人，不得含 `activity` 与 `resource_changes` 键；一条事件只对应一条事务，与触发它的事件、世界状态同一次提交。`errand_completed` 与 `errand_reminded` 被进度层消费，必须是人物可见的（交付窗口要求每个进度来源都是本人可见的结果或事件），其余四种不向人物呈现，只供审计与指标 |
+| `activity_progress` | 自身实际区间、活动进度、效率、消费和 app 内容接触，引用共同身体结算事件；`data.content` 写当前内容的实际区间，`data.played[]` 写本次真实完成的内容轮次；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
+| `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id`、请求关联 `request_message_id` 与渠道 `channel_id`（`data.orders[]` 的每个订单一列：`from` 解析为购买渠道时是该渠道的 App 标识，否则 `null`；只在订单载荷与导出的 `purchases.jsonl`，不进世界状态的 `DeliveryState`），被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数）；`use_app` 结果另带 `data.app_content{app,title,kind,summary,pushed}`；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照。三个控制工具的受理结果另带事务回执 `data.errands`（公开结果的 `details.errands`，`[{errand, change}]`，按请求顺序，没有变更时为 `[]`；`errand` 为事务名称：新增写所写的名称，更新与取消写待办层里的名称）；被拒结果没有该键 |
+| `environment_event` | 实际自主事件与唯一共同身体结算；`data.kind=app_push` 的人物可见推送固定带 `app`、`title`、`content_kind`、`summary`，内容类型不得覆盖事件判别键；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；当日目标的提醒到期不另写事件，记于唤醒原因；班次与休息时段的起止同样不写事件，只记于唤醒原因（`shift_start`、`shift_end`、`break_start`、`break_end`），环境层 `duty.status` 的变化随观察留证；个人事务的提醒只在实际交付决策机会时写事件：同一边界到期的多条事务合并为一次决策机会，每条事务各写一条 `errand_reminded`（见本行末），进度层的提醒记录由该事件派生，不由状态推导。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`、`around_at`（大致时刻 `around_time` 换算出的当日绝对时刻，可为 null），`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近一次计入同刻轮数的拒绝码 `error_code`（免计的名称类拒绝不算，没有时为 `null`）与下次决策时刻 `next_decision_at`。个人事务的每次变化写一条，`data` 为 `{kind, errand}`（`errand` 为事务快照，即 `ErrandState` 的 JSON 形状）：`data.kind` 取 `errand_registered`、`errand_updated`、`errand_cancelled`（控制请求受理时每条被受理的变更一条，`caused_by` 为请求事件，`visibility=system`；新增与更新写受理后的快照，取消写移出前的快照并另带 `reason`），`errand_progressed`（结算证据命中但未达数量，`visibility=system`，快照为累计后的状态）、`errand_completed`（结算证据命中并达到数量，`visibility=agent`，事务已移出状态，快照的 `progress` 写最终累计量；这两种另带本条证据的数量 `quantity_added`，`caused_by` 为证据事件）或 `errand_reminded`（提醒实际交付时写，`visibility=agent`，`caused_by` 为空，快照带交付时刻 `reminded_at`）。六种事件的 `decision_id`、`action_id` 与 `activity_id` 都为空，只经 `caused_by` 关联：不进入任何动作窗口的目标，也不落进别人那次决策的分组（证据可以是别人的动作，例如他人买给本人）。六种事件 `source_kind=environment`，事件顶层 `agent_id` 为事务所有人，不得含 `activity` 与 `resource_changes` 键；一条事件只对应一条事务，与触发它的事件、世界状态同一次提交。`errand_completed` 与 `errand_reminded` 被进度层消费，必须是人物可见的（交付窗口要求每个进度来源都是本人可见的结果或事件），其余四种不向人物呈现，只供审计与指标 |
 | `environment_event` 的联系人回复 | 发给 `model` 策略联系人的消息登记一条 `data.kind="model_npc_reply_pending"`（`request` 为回复请求字段面，含发件人姓名、场景本地时刻、`presence=remote`、收货地名、双方往来与对方收到的物品）；回复生成时写一条 `data.kind="model_npc_reply"`：`visibility=system`、`source_kind=model`（原值 `model_npc` 在 `data.source_kind`），`caused_by` 为待回复登记；`data.request`、`data.response`、`data.usage` 取最后一次尝试，`data.attempts[{request, response, text, matched}]` 按顺序记每次尝试（后验守卫命中时同一次结算内重试一次），`data.guard_applied` 为 true 表示两次都命中、回复是固定兜底句；重试也只写这一条，幂等键仍是来信的消息身份（[接口合同「联系人回复」](../CONTRACTS.md#contracts-contact-reply)） |
 | `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；就寝反思的快照条目带来源标记，引擎据此识别反思并确定其归属日期；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
@@ -354,7 +360,7 @@ EventType = Literal[
 <a name="recording-engine-activity_progress-事件"></a>
 ##### activity_progress 事件
 
-保存模拟引擎提交的本活动实际区间、效率、消费和内容接触，以及
+保存模拟引擎提交的本活动实际区间、效率、消费和 app 内容接触，以及
 `body_settlement_event_id`；身体变化与公共资源流只在该区间的共同身体结算事件中保存。
 活动快照的 `location_id` 为开始地点（出行为出发地），结算不改写；到达地点取 `data.arrival.location_id`，
 不另设「当前地点」字段。
@@ -364,6 +370,10 @@ EventType = Literal[
 `activity_efficiency` 留证；共同身体结算不归属其中某个活动。阶段含义见
 [模拟引擎的实际区间、身体变化与效率](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)。
 上游没有提供的测量值必须保持未知，不能补造数值或把缺失当作零变化。
+
+`use_app` 的本区间接触写在 `data.content`，记录内容身份、类型与实际起止位置；只有真实到达内容末尾时，
+才把 `{content_id, kind, from_position, to_position}` 追加到 `data.played[]`。暂停、恢复动作与静默接续本身不能
+伪造完成记录；全局 `ContentProgress{content_id,position_seconds,completed_rounds}` 由提交后的世界状态核对。
 
 `resource_flows` 必须是字典列表，每项恰好含 `resource`、`owner`、`direction`、`amount`、`cause` 五个键。
 `resource`、`owner`、`cause` 为非空字符串；`direction` 仅取 `source` 或 `drain`；
@@ -377,7 +387,8 @@ EventType = Literal[
 `waited`、`consumed`、`arrived`、`played`。路线到达取其中的真实终态与 `data.arrival.location_id`，
 包括组合动作中先完成的出行子活动，不依赖聚合 `action_result`。每条经历带
 `kind`、`agent_id`、`activity_id`、`source_event_id`、`event_seq`、`occurred_at` 和类型载荷。
-等待只证明正时长区间；实际食用取 eat 的区间增量；到达取路线真实终态；播放取媒体位置正向区间。
+等待只证明正时长区间；实际食用取 eat 的区间增量；到达取路线真实终态；`played` 只取
+`activity_progress.data.played[]` 中真实完成的 app 内容轮次，并保留内容类型与实际位置区间。
 请求、受理、购买、人物文字、反思和零点计划均不能产生这些事实。畸形结算拒绝投影并记录英文错误日志。
 完整事件前缀用于固定截止离线导出；每次观察在私有证据 `verified_experiences` 中保存该观察事件前本人最近五条，按事件序号正序，
 供记忆写入的来源核对；这五条及由它们生成的句子都不进人物提示，结构行与来源身份保留在私有观察和原事件库；零点计划读当日已核验经历的句子。
@@ -1252,3 +1263,4 @@ flowchart LR
 | `2026-10-06-windows-path-safety` | 2026-10-06 | 「恢复行为」补人物工作区快照与恢复的成员规则：快照不进入符号链接与目录联接，快照与恢复按同一组检查核对成员；恢复先核对全部成员再展开，名字须能在任何平台上原样保存、互不重名，写入时遇到别名拒绝，归档损坏同样拒绝 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
+| `2026-10-06-rrs-app` | 2026-10-07 | app 内容接触的 `data.content` 与 `played[]`、`app_push` 环境事件、公开 `app_content` 结果；阶段 4 唤醒词表仍为 25 项，工作事件留到阶段 5；版本保持 v1.6 |

@@ -196,8 +196,7 @@ class ActivityKind(StrEnum):
     WAIT = "wait"
     SLEEP = "sleep"
     WORK = "work"
-    WATCH = "watch"
-    PLAY_GAME = "play_game"
+    USE_APP = "use_app"
     TRAVEL = "travel"
     READ_MAIL = "read_mail"
     CONSUME = "consume"
@@ -245,7 +244,6 @@ class ActivityChange(StrEnum):
     PAUSE = "pause"
     RESUME = "resume"
     CANCEL = "cancel"
-    CHANGE_SPEED = "change_speed"
 
 
 class FulfillmentKind(StrEnum):
@@ -302,9 +300,9 @@ class BodyState(StrictModel):
 class ContentProgress(StrictModel):
     """@brief 人物对一个内容项目的实际接触进度。"""
 
-    item_id: str = Field(min_length=1)
+    content_id: str = Field(min_length=1)
     position_seconds: float = Field(ge=0)
-    exposure_count: int = Field(ge=0)
+    completed_rounds: int = Field(ge=0)
 
 
 class SessionStatus(StrEnum):
@@ -327,6 +325,15 @@ class SessionTaskKind(StrEnum):
     GOAL = "goal"
     WORK_TASK = "work_task"
     NONE = "none"
+
+
+class AppPush(StrictModel):
+    """@brief 当前地点或路途会话内的一条应用推送及其消费状态。"""
+
+    push_id: str = Field(min_length=1)
+    content_id: str = Field(min_length=1)
+    issued_at: int = Field(ge=0)
+    status: Literal["pending", "opened", "released"]
 
 
 class SessionState(StrictModel):
@@ -352,6 +359,8 @@ class SessionState(StrictModel):
     activity_ids: list[str] = Field(default_factory=list)
     name: str = Field(pattern=r"\S")
     opened_by_action_id: str | None = Field(default=None, min_length=1)
+    #: 本会话已发出的应用推送；已释放条目仍保留，阻止同应用再次推送。
+    app_pushes: dict[str, AppPush] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_session(self) -> "SessionState":
@@ -472,7 +481,6 @@ class ActivityState(StrictModel):
     target_id: str | None = None
     destination_id: str | None = None
     travel_mode: TravelMode | None = None
-    playback_speed: float = Field(default=1, ge=0.5, le=2)
     resource_claims: set[str] = Field(default_factory=set)
     origin_action_id: str = Field(min_length=1)
     origin_decision_id: str = Field(min_length=1)
@@ -742,10 +750,9 @@ def _expected_activity_claims(activity: ActivityState) -> set[str]:
         return set(SOCIAL_RESOURCE_CLAIMS)
 
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
-    content_kind = activity.data.get("content_kind") if activity.kind == ActivityKind.WATCH else None
     try:
         return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode,
-                                                         content_kind=content_kind))
+))
     except (KeyError, ValueError) as error:
         _LOGGER.error("World activity kind or travel mode has no resource declaration")
         raise ValueError("world activity resource declaration is invalid") from error
@@ -753,8 +760,7 @@ def _expected_activity_claims(activity: ActivityState) -> set[str]:
 
 _TARGETED_ACTIVITY_KINDS = frozenset({
     ActivityKind.WORK,
-    ActivityKind.WATCH,
-    ActivityKind.PLAY_GAME,
+    ActivityKind.USE_APP,
     ActivityKind.READ_MAIL,
     ActivityKind.LIFESTYLE,
 })
@@ -767,7 +773,7 @@ class ActivityStartParams(FrozenModel):
     planned_duration_seconds: int = Field(gt=0, le=DERIVED_DURATION_CAP_SECONDS)
     target_id: str | None = Field(
         default=None,
-        description="Required for work, watch, play_game, read_mail, browse, and lifestyle.",
+        description="Required for work, use_app, read_mail, and lifestyle.",
     )
     destination_id: str | None = Field(
         default=None,
@@ -777,7 +783,6 @@ class ActivityStartParams(FrozenModel):
         default=None,
         description="Required for travel.",
     )
-    playback_speed: float = Field(default=1, ge=0.5, le=2)
 
     @model_validator(mode="after")
     def validate_target(self) -> "ActivityStartParams":
@@ -791,29 +796,16 @@ class ActivityStartParams(FrozenModel):
 
 
 class ChangeActivityRequest(FrozenModel):
-    """@brief 领域内部统一暂停、恢复、退出或变更播放速度。"""
+    """@brief 领域内部统一暂停、恢复或退出。"""
 
     activity_id: str = Field(min_length=1)
     operation: ActivityChange
-    playback_speed: float | None = Field(
-        default=None,
-        ge=0.5,
-        le=2,
-        description="Required only when operation is change_speed.",
-    )
     resume_cap_seconds: int | None = Field(
         default=None,
         ge=60,
         description="Resume only: the longest remaining run from now (work deadline and contract limit).",
     )
 
-    @model_validator(mode="after")
-    def validate_speed(self) -> "ChangeActivityRequest":
-        """@brief 只允许变速操作携带速度。"""
-        needs_speed = self.operation == ActivityChange.CHANGE_SPEED
-        if needs_speed != (self.playback_speed is not None):
-            raise ValueError("playback_speed is required only for change_speed")
-        return self
 
 
 class PurchaseItem(FrozenModel):

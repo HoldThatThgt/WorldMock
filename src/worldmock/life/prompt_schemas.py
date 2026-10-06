@@ -11,6 +11,7 @@ from worldmock.life.tool_groups import expand_tool_layer
 
 from typing import Any
 
+from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.life import felt
 from worldmock.life.callable_index import MAX_EXAMPLES
 from worldmock.life.control_items import CONTROL_TOOLS
@@ -29,8 +30,8 @@ _NULLABLE_TEXT = {"type": ["string", "null"], "minLength": 1}
 _LINES = {"type": "array", "items": _TEXT}
 
 #: 工具层目标类别闭集（英文值；场景联系人并入 person）。
-TARGET_KINDS = ("location", "product", "person", "content", "game", "lifestyle", "task", "activity",
-                "message", "self")
+TARGET_KINDS = ("location", "product", "holding", "person", "contact", "self", "task", "activity",
+                "message", "app", "lifestyle")
 #: 工具层可列出的方式，不含仅在请求中由系统确定方式的「购买」。
 WAY_LABELS = tuple(way for way in WAYS if way != "购买")
 #: 以目标名称为参数的其他工具。
@@ -97,7 +98,8 @@ _TARGET["allOf"] = [
     _tools_for("activity", CONTROL_TOOLS),
     _tools_for("task", ("submit_work",)),
     _tools_for("person", ("send_message",)),
-    {"if": {"properties": {"kind": {"enum": ["activity", "task", "person"]}}}, "else": {
+    _tools_for("contact", ("send_message",)),
+    {"if": {"properties": {"kind": {"enum": ["activity", "task", "person", "contact"]}}}, "else": {
         "properties": {"tools": {"maxItems": 0}}}},
 ]
 
@@ -113,7 +115,6 @@ _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "patte
 #: 工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
     "lifestyle": {"type": "array", "uniqueItems": True, "items": _TEXT},
-    "contents": {"type": "array", "items": _INDEX_CATEGORY},
     "goods": {"type": "array", "items": _INDEX_CATEGORY},
     "query_categories": {"type": "array", "items": _object({"category": _TEXT,
                           "count": {"type": "integer", "minimum": 0}})},
@@ -215,7 +216,11 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
 }
 
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
-                   "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": {"type": "object"},
+                   "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": {"type": "object", "properties": {
+                       "app_content": _object({"app": _TEXT, "title": _TEXT,
+                                               "kind": {"enum": list(CONTENT_KIND_LABELS.values())},
+                                               "summary": {"type": "string", "maxLength": 200},
+                                               "pushed": {"type": "boolean"}})}},
                    "work_review": {"type": "object"}}, optional=("work_review",))
 
 
@@ -246,6 +251,8 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
             _MESSAGE_RECORD,
             _record("delivery", {"order": _TEXT, "status": {"enum": ["ready", "delivered", "cancelled"]},
                                  "message": _TEXT}),
+            _record("app_push", {"app": _TEXT, "title": _TEXT, "kind": {"enum": list(CONTENT_KIND_LABELS.values())},
+                                  "summary": {"type": "string", "maxLength": 200}}),
             _record("task_deadline", {"task": _TEXT, "stage": {"enum": ["due_soon", "expired"]}}),
             _record("plan_reminder", {"goal": _TEXT}),
             _record("errand_reminder", {"errand": _TEXT}),

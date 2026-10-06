@@ -21,6 +21,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.types import START_ACTIVITY_ACTIONS
 
 #: 注册表文件名（位于目录顶层，与 resources.jsonl/objects.jsonl 平级）。
 AFFORDANCES_FILE = "affordances.toml"
@@ -28,11 +29,7 @@ AFFORDANCES_FILE = "affordances.toml"
 #: 内部标准动作闭集（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「对象与动作选择」）：交互菜单、习惯归并、
 #: 证据与本注册表的
 #: kinds.*.action 共用这一份声明；它不是人物词表，人物所见的五个动词与方式经私有绑定映射回这里的内部名。
-_PACKAGE_START_ACTIVITY_ACTIONS = frozenset({
-    "travel_to", "work", "browse", "purchase", "consume", "watch", "play",
-    "chat", "call", "read", "do", "wait", "sleep",
-})
-RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
+RELIEF_CHANNELS = frozenset({"none", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
 TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
 ATTENTION_KINDS = frozenset({"none", "content_kind"})
@@ -42,14 +39,13 @@ ATTENTION_KINDS = frozenset({"none", "content_kind"})
 #: screen 只用来让驾车拒绝播客以外的内容；旧的身体部位名（idle、eyes、ears、hands、voice）与更早退役的名字
 #: 一样不在闭集内，加载期拒绝。
 RESOURCE_CLAIM_SLOTS = frozenset({
-    "wait", "work", "watch", "screen", "play_game", "read_mail", "browse", "consume", "lifestyle", "talk",
-    "travel",
+    "wait", "work", "use_app", "read_mail", "consume", "lifestyle", "talk", "travel",
 })
 #: 条件占用的维度：mode:<出行方式> 与 content_kind:<内容品类>（后者须是某家族声明的内容品类）。
-_CLAIM_CONDITION_DIMENSIONS = frozenset({"mode", "content_kind"})
+_CLAIM_CONDITION_DIMENSIONS = frozenset({"mode"})
 #: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
 #: 的动作全集，外加会话进展自述这一个独立工具名。
-HABIT_ACTIONS = _PACKAGE_START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
+HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
 #: 出行方式闭集（与 life.models.TravelMode 一致；"{mode}" 模板的合法展开域）。
 TRAVEL_MODES = frozenset({"driving", "walking"})
 #: 结算通道可引用的资源注册表 id（catalog/resources.jsonl 的四类资源）。
@@ -75,7 +71,7 @@ PROTOTYPE_GENERATORS: dict[str, Callable[..., list]] = {}
 #: kinds 层允许的字段键（未知键拒绝，防拼写静默失效）。
 _KIND_KEYS = frozenset({
     "met_key", "met_key_modes", "energy_floor_exempt", "sleep_channel", "relief",
-    "resource_claims", "feedback_boundary", "game_boundary",
+    "resource_claims", "feedback_boundary",
     "unclassified", "action", "target_discovery",
 })
 #: families 层允许的字段键。
@@ -103,7 +99,6 @@ class KindSpec:
     resource_claims: tuple[str, ...] = ()
     conditional_claims: tuple[tuple[str, tuple[str, ...]], ...] = ()
     feedback_boundary: bool = False
-    game_boundary: bool = False
     unclassified: bool = False
     action: str = "none"
     target_discovery: str = "none"
@@ -159,7 +154,7 @@ class AffordanceView:
         generator ≠ none（lifestyle 家族是纯声明面，不生成候选、不收习惯
         份额——与现行 motivation.FAMILIES 的 7 家族一致）。"""
         return frozenset(name for name, family in self.families.items()
-                         if family.generator != "none")
+                         if family.generator != "none" or family.habit_members)
 
     def families_by_rank(self) -> tuple[FamilySpec, ...]:
         """@brief 参与候选枚举的家族（enumeration_rank 升序，generator=none 除外）。"""
@@ -236,8 +231,7 @@ class AffordanceView:
         return frozenset(name for name, spec in self.kinds.items()
                          if spec.energy_floor_exempt)
 
-    def resource_claims(self, kind_value: str, travel_mode: Any = None,
-                        content_kind: str | None = None) -> frozenset[str]:
+    def resource_claims(self, kind_value: str, travel_mode: Any = None) -> frozenset[str]:
         """@brief 活动类型的显式占用集合，含按出行方式与内容品类追加的条件占用。
 
         :param travel_mode: 出行方式（mode:<方式> 条件的取值）；非出行活动为 None。
@@ -245,7 +239,7 @@ class AffordanceView:
         """
         spec = self.kinds[kind_value]
         claims = set(spec.resource_claims)
-        values = {"mode": getattr(travel_mode, "value", travel_mode), "content_kind": content_kind}
+        values = {"mode": getattr(travel_mode, "value", travel_mode)}
         for condition, extra in spec.conditional_claims:
             dimension, _, value = condition.partition(":")
             if values[dimension] == value:
@@ -260,11 +254,6 @@ class AffordanceView:
         return frozenset(name for name, spec in self.kinds.items()
                          if spec.feedback_boundary)
 
-    @property
-    def game_boundary_kinds(self) -> frozenset[str]:
-        """@brief 游戏反馈边界闭集（game_boundary = true；与 feedback 互斥）。"""
-        return frozenset(name for name, spec in self.kinds.items()
-                         if spec.game_boundary)
 
     @property
     def target_catalog_fields(self) -> dict[str, tuple[str, str | None]]:
@@ -319,7 +308,6 @@ def load_affordances(path: Path) -> AffordanceView:
                                  for name, body in families_raw.items()})
     view = _build_view(kinds, families)
     _check_habit_coverage(view)
-    _check_claim_content_kinds(view)
     return view
 
 
@@ -362,7 +350,7 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         raise IntegrityError(f"Affordance kind {name!r} relief channel is invalid")
     claims, conditional = _parse_resource_claims(name, body.get("resource_claims", []))
     action = body.get("action", "none")
-    if action != "none" and action not in _PACKAGE_START_ACTIVITY_ACTIONS:
+    if action != "none" and action not in START_ACTIVITY_ACTIONS:
         raise IntegrityError(f"Affordance kind {name!r} action is invalid")
     discovery_source, target_field, target_id_key = _parse_target_discovery(name, body)
     if relief.get("channel", "none") == "content_rate" and discovery_source not in (
@@ -370,10 +358,6 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         raise IntegrityError(
             f"Affordance kind {name!r} relief content_rate requires entry-level target discovery")
     feedback = _require_bool(name, body, "feedback_boundary")
-    game = _require_bool(name, body, "game_boundary")
-    if feedback and game:
-        raise IntegrityError(
-            f"Affordance kind {name!r} game_boundary and feedback_boundary are mutually exclusive")
     return KindSpec(
         name=name,
         met_key=met_key,
@@ -384,7 +368,6 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         resource_claims=claims,
         conditional_claims=conditional,
         feedback_boundary=feedback,
-        game_boundary=game,
         unclassified=_require_bool(name, body, "unclassified"),
         action=action,
         target_discovery=discovery_source,
@@ -631,14 +614,3 @@ def _check_habit_coverage(view: AffordanceView) -> None:
             raise IntegrityError(
                 f"Affordance kind {name!r} ({spec.action}) is covered by no habit_members "
                 f"and declares no unclassified flag")
-
-
-def _check_claim_content_kinds(view: AffordanceView) -> None:
-    """@brief 条件占用 content_kind:<品类> 只能引用某家族声明的内容品类（防拼写静默不生效）。"""
-    declared = {kind.name for family in view.families.values() for kind in family.content_kinds}
-    for spec in view.kinds.values():
-        for condition, _ in spec.conditional_claims:
-            dimension, _, value = condition.partition(":")
-            if dimension == "content_kind" and value not in declared:
-                raise IntegrityError(
-                    f"Affordance kind {spec.name!r} conditional content kind {value!r} is not declared")

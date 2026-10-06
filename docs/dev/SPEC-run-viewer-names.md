@@ -1,10 +1,10 @@
 <a name="spec-run-viewer-names-运行查看器对象名称"></a>
 # 运行查看器对象名称
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地点名称」、「运行内对象名称」（阶段 2）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地点名称」（阶段 2）与「活动标题、运行内对象名称」（阶段 4）。
 
 > 状态：FROZEN；「活动标题」按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 21 行修订（一日运行保真 RV1），修订部分已实现并通过离线验收（`tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py`、`tests/footprints/test_render_day.py`）；「运行内对象名称」按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 RV1），「运行内对象名称」与「缺失与重新加载」另按查看器实现的独立核对补充三处（商品名称的补缺来源 `data.errand_item_bindings`、事务变更的逐条读取规则、个人事务的缺失提示），两次修订的条款都已实现并通过离线验收：缺 `errands` 键即报错与六种事务事件、事务提醒的中文说法随该规格阶段 2 的代码实现，请求摘要写事务变更、事务事件与事务提醒写事务名称与商品名称由 `1346e0d` 实现，补充的三处与对 `1346e0d` 独立核对后的修正由 `6c81126` 实现（`tests/tools/run_viewer.test.cjs`，经 `tests/tools/test_run_viewer.py` 执行；逐条证据见「版本表」`2026-10-04-errands-viewer` 行）；修订记录见「版本表」；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「运行内对象名称」（阶段 1）。
-> 日期：2026-10-05
+> 日期：2026-10-07
 > 验收记录：[查看器名称验收](run-viewer-names-verification.md)（修订前的行为）。
 
 <a name="spec-run-viewer-names-范围与依据"></a>
@@ -33,20 +33,17 @@
 
 活动受理和进展中的 `data.activity.title` 必须传到活动表与时间线，且优先于同目标的目录名称。
 同一活动合并后保留自身最后记录的有效标题，不得被另一个活动的标题覆盖。
-引擎为生活活动、观看、游戏、工作、通话与交谈都生成中文标题（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 7.4），
+引擎为生活活动、app 使用、工作、通话与交谈都生成中文标题（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 7.4），
 种类的中文说法以 `src/worldmock/life/readable.py` 的中文种类表为单一来源；活动表与时间线不出现 `call`、`work` 等英文种类名，
 也不出现 `task-` 一类内部标识形态。
 请求中的目标可通过本次运行记录的目标名称关联。
-内容名称直接取运行所冻结的场景 `contents[].title`，标题必填且非空；来源标题整理在 Dataset 完成，
+app 使用标题取 app 名，当前抽中的内容标题随活动快照追加显示；内容名称直接取运行冻结目录的 `contents[].title`，标题必填且非空；来源标题整理在 Dataset 完成，
 不再由引擎读取来源专属标题映射，归属见[环境数据归属规格](SPEC-environment-data-ownership.md)。
-短剧台词选段必须保留原始描述，不猜测剧名，不将字幕段数推断为剧集集数。
 
 <a name="spec-run-viewer-names-运行内对象名称"></a>
 ## 运行内对象名称
 
-名称索引从本次运行冻结的 `foods`、`apps` 和地点定义读取食品、app 与地点名称，累计实际观察中的邮件主题、工作主题标题，以及浏览受理结果
-`data.data.items` 中的内容标题和生活活动名称。电影、短剧、小说、游戏、商品和生活活动
-均使用已记录的名称，不依赖编号前缀拼接“剧集 #0007”等替代名称。
+名称索引从本次运行冻结的 `foods`、`apps`、`contents` 和地点定义读取食品、app、内容与地点名称，累计实际观察中的邮件主题、工作主题标题和生活活动名称。商品、app 内容和生活活动均使用已记录的名称，不依赖编号前缀拼接替代名称。
 `data.interaction_bindings` 中对象身份与可读对象名称的绑定只补充缺失名称，不能覆盖活动标题或目录名称。
 `data.errand_item_bindings` 中商品身份与商品名的绑定同样只补充缺失名称，排在 `data.interaction_bindings` 之后：
 个人事务可以指目录里的任一商品，食品观察只列此刻呈现或持有的，事务快照里的商品名由这份绑定补上。
@@ -62,6 +59,7 @@
 与唤醒原因 `errand_reminder_due` 用中文说法显示并写事务名称，快照中的商品按既有名称索引显示，
 缺名时照「缺失与重新加载」提示。事务内部身份不进活动表、时间线与请求摘要。
 唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`（[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止）用中文说法「班次开始」「班次结束」「休息时段开始」「休息时段结束」显示；它们没有伴随事件，不带名称，不适用「缺失与重新加载」的缺失提示。
+唤醒原因与环境事件 `app_push` 统一显示为「app 推送」，并使用同一事件记录里的 app 名和内容标题；事件判别键仍是 `app_push`，内容类型不充当事件名。
 
 <a name="spec-run-viewer-names-缺失与重新加载"></a>
 ## 缺失与重新加载
@@ -97,3 +95,4 @@
 | `2026-10-04-errands-viewer-recorded` | 2026-10-04 | 登记查看器个人事务条款的实现提交，条款正文不变：`2026-10-04-errands-viewer` 行里的「本行所在提交」改写为提交号 `6c81126`；文件头写明各条款由哪个提交实现（缺键报错与中文说法随个人事务与工作安排规格阶段 2 的代码，请求摘要与事务事件、事务提醒的名称为 `1346e0d`，补充的三处与修正为 `6c81126`）；`2026-10-04-errands-workday-implemented` 行补一句指向 `2026-10-04-errands-viewer` 行。出入的发现与补齐经过见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)：三处出入由 `a7e2fdc` 最终全量运行之后的实现后文档核对查出，其后以查看器测试补齐；登记本行时在 `6c81126` 的查看器代码与测试上重新执行，`node --test tests/tools/run_viewer.test.cjs tests/tools/run_viewer_context.test.cjs` 为 75 个用例全部通过（两个文件各 48 个与 27 个），`tests/tools/test_run_viewer.py` 为 1 passed |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订「运行内对象名称」：班次与休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end` 用中文说法「班次开始」「班次结束」「休息时段开始」「休息时段结束」显示，它们没有伴随事件，不带名称，不适用缺失提示；实现为 `tools/run-viewer.html` 的 `WAKE_LABELS` 增四个标签，`tests/tools/run_viewer.test.cjs` 的「decision starts show their wake reasons from the frozen vocabulary」把存储词表的 25 个唤醒原因逐个显示为中文、不输出错误日志（经 `tests/tools/test_run_viewer.py` 执行）；状态行末补修订说明，日期改写 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：活动标题改为 app 名与当前内容标题，名称索引直接读取 app 与内容目录，`app_push` 显示为「app 推送」。 |

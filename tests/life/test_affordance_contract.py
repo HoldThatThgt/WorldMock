@@ -15,14 +15,13 @@ def test_contract_shape_matches_registry_one_to_one() -> None:
     contract = affordance_contract(view)
     assert list(contract) == list(view.kinds)
     assert AFFORDANCE_CONTRACT_KEYS == {"action", "target_discovery", "target_field",
-                                        "feedback_eligible", "game_boundary"}
+                                        "feedback_eligible"}
     for name, spec in view.kinds.items():
         entry = contract[name]
         assert set(entry) == AFFORDANCE_CONTRACT_KEYS
         assert entry["action"] == spec.action
         assert entry["target_discovery"] == spec.target_discovery
         assert entry["feedback_eligible"] == (name in view.feedback_kinds)
-        assert entry["game_boundary"] == (name in view.game_boundary_kinds)
 
 
 def test_contract_pins_current_registry_behavior() -> None:
@@ -30,8 +29,7 @@ def test_contract_pins_current_registry_behavior() -> None:
     contract = affordance_contract(engine_affordances())
     assert contract["work"]["target_field"] == ["tasks", "task_id"]
     assert contract["read_mail"]["target_field"] == ["messages", "message_id"]
-    assert contract["play_game"]["game_boundary"] is True
-    assert contract["watch"]["target_discovery"] == "browse_result"
+    assert contract["use_app"]["target_field"] == ["apps", "app_id"]
 
 
 def test_engine_contract_remains_frozen_across_decisions(engine_factory) -> None:

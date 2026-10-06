@@ -444,16 +444,17 @@ $ uv run pytest -q
 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵` 的旧覆盖计数只保留历史审计身份，不能作为当前工具面的覆盖证明。
 
 <a name="implementation-status-已落地的条款口味权重降级为排序信号"></a>
-### 已落地的条款：口味权重降级为排序信号
+### 已取代的历史条款：口味权重曾作为排序信号
 
-一条已落地并可指向真实测试：口味权重是排序信号而不是准入条件，零权重不出局。
+资源与规则引擎简化之前，口味权重只影响娱乐候选排序、不作为准入条件；本节原记录的定向运行结果为
+`2 passed, 76 deselected`。这项结果只证明当时的实现，不再作为现行候选或 app 工具面的验收结论。
 
-- 实现：娱乐候选的入选条件改为 `attention_prior[kind] > 0`（`src/worldmock/life/motivation.py`），
-  `preference` 只出现在排序键里；`src/worldmock/profile/taste.py` 的权重取值域包含零且语义不是「不可选」。
-- 测试：`tests/life/test_motivation.py::TestScorerContract.test_zero_taste_weights_keep_entertainment_ranked_last`
-  与 `test_unstated_genre_items_stay_in_candidate_pool`（本文件修订时实测 `2 passed, 76 deselected`）。
-- 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
-- 该行在 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
+阶段 4 已删除内容、游戏与目录浏览候选，候选种类收敛为 `product`、`lifestyle`、`task`；app 始终作为工具目标列出，
+画像 `tastes` 只进入散文，不生成候选数值权重。当前纯所有者节点是
+`tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、
+`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership` 与
+`tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index`。
+完整引擎组合属于阶段 1–5 同一集成波次，须由阶段 5 回执闭合；本节不据这些登记宣称已经通过。
 
 <a name="implementation-status-当前世界格式worldstateschema_version-为-9"></a>
 ### 当前世界格式：`WorldState.schema_version` 为 9

@@ -13,18 +13,20 @@ import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import context, stage_day_plan, start_activity, tool_targets
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activities import location_kinds_allow
 from worldmock.life.candidates import ORDER_KEY_VERSION, tiebreak_digest
-from worldmock.life.engine import LifeEngine
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from worldmock.life.engine import LifeEngine
 from worldmock.life.models import PlanGoalInput, ReviseDayPlanRequest
 from worldmock.life.relevance import MANIFEST_KEY
 from worldmock.life.rotation import rotation_quota_slots
 from worldmock.life.schedule import PlanGoal
-from worldmock.life.state_commit import flush_presentation, stage_presentation
+from worldmock.life.presentation import flush_presentation, stage_presentation
 
 _DAY = 86_400
 #: 习惯签名的反应文本：命中生活活动「晨间洗漱」的条目名。
@@ -66,6 +68,8 @@ def _present(engine: LifeEngine, label: str) -> dict:
 
 def _round(engine: LifeEngine, name: str, tool: str, request) -> tuple[dict, object]:
     """一轮真实决策：观察、登记并结算，返回本轮观察与人物的结果。"""
+    from agentsociety2.society import DirectToolCall
+
     decision = context(engine, name)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
@@ -199,25 +203,25 @@ def test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries(engine_
 
 
 def test_rotation_has_no_shared_offset_across_partitions(engine_factory) -> None:
-    """不共享偏移量：内容分区的对象全部刚呈现过，生活活动分区的窗口与没有任何留痕时逐项相同（旧实现按人物已留痕的
+    """不共享偏移量：食品分区的对象全部刚呈现过，生活活动分区的窗口与没有任何留痕时逐项相同（旧实现按人物已留痕的
     对象数定游标，别的分区一呈现，本分区的换新名额就换人）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = _lifestyle(engine.observe(context(engine, "partition-before")))
-    stamps = {item.item_id: engine.context.state.current_time - 60 for item in engine.context.scenario.contents}
+    stamps = {identity: engine.context.state.current_time - 60 for identity in engine.context.semantics.catalog.foods}
     _stage(engine, stamps=stamps)
-    assert len(engine.context.state.presentation_state[1]) == len(engine.context.scenario.contents)
+    assert len(engine.context.state.presentation_state[1]) == len(engine.context.semantics.catalog.foods)
     assert _lifestyle(engine.observe(context(engine, "partition-after"))) == before
 
 
 def test_the_ceiling_n_over_k_bound_holds_per_partition(engine_factory) -> None:
-    """连续 ⌈N ÷ k⌉ 次呈现之后，内容、游戏、生活活动三个分区各自的每个可呈现对象至少出现一次（N 取该分区资格段保留的
+    """连续 ⌈N ÷ k⌉ 次呈现之后，生活活动分区的每个可呈现对象至少出现一次（N 取该分区资格段保留的
     对象数，k 由场景常量导出），呈现经真实观察，留痕按提交路径并入。"""
     engine = engine_factory()
     stage_day_plan(engine)
     slots = rotation_quota_slots(engine.context.scenario.candidate_presentation_limit, engine.context.scenario.rotation_quota_ratio)
     windows = engine.observations._menu_windows(engine.context.state.agents[1])
-    pools = {kind: {row.get("activity_id") or row.get("game_id") or row.get("item_id") for row in window.items}
+    pools = {kind: {row["activity_id"] for row in window.items}
              | set(window.deferred) for kind, window in windows.items()}
     bounds = {kind: math.ceil(len(pool) / slots) for kind, pool in pools.items()}
     assert len(pools["lifestyle"]) == len(_allowed(engine, "home"))
@@ -232,6 +236,6 @@ def test_the_ceiling_n_over_k_bound_holds_per_partition(engine_factory) -> None:
         assert max(first_seen[kind].values()) < bounds[kind], (kind, bounds[kind])
 
 
-def test_order_key_version_is_two() -> None:
-    """排序键加相关度、决胜键改哈希：ORDER_KEY_VERSION 为 2（只参与游标身份，升版使在途游标失效）。"""
-    assert ORDER_KEY_VERSION == 2
+def test_order_key_version_is_three() -> None:
+    """排序键加相关度、决胜键改哈希：ORDER_KEY_VERSION 为 3（只参与游标身份，升版使在途游标失效）。"""
+    assert ORDER_KEY_VERSION == 3

@@ -19,8 +19,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.life import admission, felt, social
-from worldmock.life.content import restarts_from_beginning
-from worldmock.life.vocabulary import ACTION_WAYS, CONTENT_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
+from worldmock.life.vocabulary import ACTION_WAYS, GIVE_WAY, PURCHASE_WAYS, USE_WAYS
 from worldmock.life.readable import TRAVEL_WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
@@ -79,8 +78,7 @@ def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPr
         presences.append(social.AgentPresence(
             agent_id=f"agent:{other.agent_id}", name=other.name, location=other.location_id,
             activity_family=" + ".join(sorted(kind.value for kind in kinds)) if kinds else "idle",
-            awake=ActivityKind.SLEEP not in kinds,
-            actively_gaming=ActivityKind.PLAY_GAME in kinds))
+            awake=ActivityKind.SLEEP not in kinds))
     return presences
 
 
@@ -243,7 +241,7 @@ def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[
     identity, kind = row["object_id"], row["kind"]
     menu = inputs.extras.get("interaction_menu")
     actions = [action for action in _interaction_actions(inputs, row)
-               if menu is None or action["canonical_action"] in menu.allowed_actions]
+               if kind == "app" or menu is None or action["canonical_action"] in menu.allowed_actions]
     result = {"object": _interaction_object_label(inputs, row), "kind": kind, "object_id": identity,
               "actions": actions}
     if kind == "supply":
@@ -274,8 +272,6 @@ def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[
         return [binding_action(USE_WAYS["eat"], "consume", use_mode="eat"), binding_action(GIVE_WAY, "consume")]
     if row["kind"] == "supply":
         return _supply_actions(inputs, row)
-    if row.get("way") is not None:
-        return [binding_action(row["way"], "watch")]
     return [binding_action(ACTION_WAYS[action], action) for action in row["actions"]]
 
 
@@ -298,8 +294,7 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     rows.extend(_place_object_rows(inputs))
     rows.extend(_supply_object_rows(inputs))
     rows.extend(_holding_object_rows(inputs))
-    rows.extend(_content_object_rows(inputs))
-    rows.extend(_game_object_rows(inputs))
+    rows.extend(_app_object_rows(inputs))
     rows.extend(_lifestyle_object_rows(inputs))
     rows.extend(_person_object_rows(inputs))
     rows.extend(_mail_object_rows(inputs))
@@ -346,36 +341,10 @@ def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 
-def _content_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的内容对象：方式为「接着看」或「从头再看」（播客为「接着听」或「从头再听」），都映射为观看。"""
-    if not inputs.extras.get("content_rows"):
-        return []
-    contents = {item.item_id: item for item in inputs.scenario.contents}
-    return [{**_watch_row(inputs, contents[row["item_id"]]), "kind": "content", "name": row["title"]}
-            for row in inputs.extras.get("content_rows", [])]
 
 
-def _watch_row(inputs: ProjectionInputs, item: Any) -> dict[str, Any]:
-    """@brief 一条可观看内容的动作：已看完或剩余不足 60 秒的从头派生（「从头再看」），否则「接着看」（第八章「呈现」）。"""
-    progress = inputs.agent.content_progress.get(item.item_id)
-    position = progress.position_seconds if progress else 0
-    restart = restarts_from_beginning(position, item.duration_seconds)
-    return {"object_id": item.item_id, "actions": ["watch"],
-            "way": CONTENT_WAYS[(item.kind == "podcast_episode", restart)]}
 
 
-def _game_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的游戏对象：可玩的游戏只接受游玩；内容侧的游戏会话只能观看，方式同内容对象。"""
-    if not inputs.extras.get("game_rows"):
-        return []
-    contents = {item.item_id: item for item in inputs.scenario.contents}
-    rows = []
-    for row in inputs.extras.get("game_rows", []):
-        if "game_id" in row:
-            rows.append({"object_id": row["game_id"], "kind": "game", "name": row["title"], "actions": ["play"]})
-        else:
-            rows.append({**_watch_row(inputs, contents[row["item_id"]]), "kind": "game", "name": row["title"]})
-    return rows
 
 
 def _lifestyle_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -413,3 +382,9 @@ def _self_object_row(inputs: ProjectionInputs) -> dict[str, Any]:
     """@brief 「自身」对象：等待与睡眠两个受保护动作恒可见。"""
     return {"object_id": f"agent:{inputs.agent.agent_id}", "kind": "self", "name": inputs.agent.name,
             "actions": ["wait", "sleep"]}
+
+
+def _app_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 已登记应用始终列出，只提供打开动作，内容由应用使用规则选择。"""
+    return [{"object_id": app.app_id, "kind": "app", "name": app.name, "actions": ["use_app"]}
+            for app in sorted(inputs.scenario.apps, key=lambda item: item.app_id)]

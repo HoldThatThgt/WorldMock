@@ -572,10 +572,10 @@ def test_resume_with_less_than_a_minute_to_the_deadline_is_a_business_rejection(
 #: 唤醒原因闭集：达标不是唤醒原因（第六章「工时达标与提交状态不一致」不新增唤醒原因）。
 _WAKE_REASONS = (
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available", "task_due_soon",
-    "work_review_result", "commitment_threatened", "reconsideration_interval", "location_hours_change",
+    "work_review_result", "commitment_threatened", "reconsideration_interval",
     "person_arrived", "person_left", "activity_infeasible", "rejection_feedback", "discovery_result",
     "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity", "plan_reminder_due",
-    "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end")
+    "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end", "app_push")
 
 
 def _observe_at(engine, name: str, at: int, *, open_round: bool = False) -> tuple[object, dict]:

@@ -15,7 +15,7 @@ from worldmock.catalog.models import Location
 from worldmock.exchange.types import PLACE_KIND_ENVIRONMENTS
 
 #: 候选类别闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
-CandidateKind = Literal["product", "lifestyle", "content", "game", "task"]
+CandidateKind = Literal["product", "lifestyle", "task"]
 
 #: 候选来源闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
 CandidateSource = Literal["on_site", "carried", "activated"]
@@ -31,7 +31,7 @@ ExclusionReason = Literal[
 ]
 
 #: 候选类别闭集的可枚举形式（成员与顺序与 `CandidateKind` 逐字一致）。
-CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product", "lifestyle", "content", "game", "task")
+CANDIDATE_KINDS: tuple[CandidateKind, ...] = ("product", "lifestyle", "task")
 #: 候选来源闭集及生成合并顺序（成员与顺序与 `CandidateSource` 逐字一致）。
 CANDIDATE_SOURCES: tuple[CandidateSource, ...] = ("on_site", "carried", "activated")
 #: 排除原因码闭集的可枚举形式（成员与顺序与 `ExclusionReason` 逐字一致）。
@@ -53,8 +53,6 @@ CANDIDATE_WINDOW_SECONDS = 86_400
 CANDIDATE_ACTIVITY_KINDS: dict[str, ActivityKind | None] = {
     "product": ActivityKind.CONSUME,
     "lifestyle": ActivityKind.LIFESTYLE,
-    "content": ActivityKind.WATCH,
-    "game": ActivityKind.PLAY_GAME,
     "task": ActivityKind.WORK,
 }
 
@@ -98,8 +96,6 @@ class CandidateEntry:
     #: 口味权重的查找键（缺省取 object_id）。
     #: 条目声明的代谢当量：生活活动等按条目查表的活动在此给出；None 表示按活动类型查表。
     met: float | None = None
-    #: 内容条目的内容品类（占用按它判定：播客只占 ears）；非内容条目为 None。
-    content_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,7 +381,7 @@ def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusion
 def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
     """@brief 候选与全部 ACTIVE 活动按同一注册表的显式占用交集判定（内容条目按内容品类的条件占用）。"""
     kind = CANDIDATE_ACTIVITY_KINDS[entry.kind]
-    claims = engine_affordances().resource_claims(kind.value, content_kind=entry.content_kind)
+    claims = engine_affordances().resource_claims(kind.value)
     return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 
 

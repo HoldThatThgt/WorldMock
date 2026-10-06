@@ -141,8 +141,21 @@
   "占用闭集与并行准入": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-闭集",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/catalog/test_affordance_shadow.py::test_final_claim_slots_and_activity_kinds_are_closed",
+      "tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected",
+      "tests/catalog/test_affordance_shadow.py::test_only_same_kind_sleep_and_driving_share_claims",
+      "tests/catalog/test_affordance_shadow.py::test_app_claims_match_activity_admission",
+      "tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected[list-watch]",
+      "tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body",
+      "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel",
+      "tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/affordances.py::RESOURCE_CLAIM_SLOTS",
+      "src/worldmock/catalog/affordances.py::_parse_resource_claims",
+      "src/worldmock/life/admission.py::require_group"
+    ]
   },
   "场景 7 与世界 10 的拒绝边界": {
     "stage": "1",
@@ -371,26 +384,95 @@
   "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app",
+      "tests/life/test_app_progress.py::test_initialize_app_usage_does_not_mutate_previous_strict_world",
+      "tests/life/test_app_ui.py::test_empty_app_tool_reason_matches_actual_start_refusal",
+      "tests/life/test_app_ui.py::test_app_target_and_app_content_schemas_are_closed",
+      "tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index",
+      "tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates",
+      "tests/life/test_app_progress.py::test_real_app_interval_advances_entertainment_goal_and_retired_kinds_do_not",
+      "tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position",
+      "tests/life/test_app_progress.py::test_short_content_continues_silently_until_plan_and_repeats_allowed",
+      "tests/life/test_app_progress.py::test_content_completion_occurs_at_actual_end_only",
+      "tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state",
+      "tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once",
+      "tests/life/test_app_progress.py::test_plan_end_and_active_conclude_preserve_partial_content_progress",
+      "tests/life/test_app_progress.py::test_reopen_after_conclusion_keeps_opened_push_and_latest_global_position",
+      "tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body",
+      "tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel",
+      "tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title"
+    ],
+    "implementation": [
+      "src/worldmock/life/content.py::choose_app_content",
+      "src/worldmock/life/content.py::initialize_app_usage",
+      "src/worldmock/life/content.py::settle_app_usage",
+      "src/worldmock/life/content.py::resume_app_usage",
+      "src/worldmock/life/schedule.py::activity_family",
+      "src/worldmock/life/schedule.py::progress_day_plan"
+    ]
   },
   "推送与消费关联（推送与消费关联）": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_app_push.py::test_open_reopen_release_and_after_22_follow_current_session_only",
+      "tests/life/test_app_push.py::test_departure_and_arrival_invalidate_old_pushes_without_deleting_history",
+      "tests/life/test_app_push.py::test_release_only_changes_current_session_and_keeps_historical_matching_push",
+      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
+      "tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state",
+      "tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once",
+      "tests/life/test_app_ui.py::test_app_target_and_app_content_schemas_are_closed",
+      "tests/life/test_app_ui.py::test_current_push_title_and_kind_are_visible_until_released"
+    ],
+    "implementation": [
+      "src/worldmock/life/app_push.py::open_app_push",
+      "src/worldmock/life/app_push.py::release_app_pushes",
+      "src/worldmock/scheduling/effects.py::process_scheduled_events"
+    ]
   },
   "时间窗口精确（时间窗口精确）": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window",
+      "tests/life/test_app_push.py::test_push_grid_preserves_fold_zero_and_gap_pretransition_offset",
+      "tests/life/test_app_push.py::test_distinct_declared_grid_points_at_same_epoch_are_preserved",
+      "tests/life/test_app_push.py::test_each_app_is_issued_once_per_session_even_after_release",
+      "tests/life/test_app_push.py::test_no_eligible_app_is_system_visible_without_person_record_or_wake",
+      "tests/life/test_app_push.py::test_push_grid_uses_local_hours_and_strict_window[Asia/Shanghai]"
+    ],
+    "implementation": [
+      "src/worldmock/scheduling/compile.py::_push_rows",
+      "src/worldmock/life/app_push.py::issue_app_push"
+    ]
   },
   "随机和状态可恢复（随机和状态可恢复）": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-娱乐app内容与推送",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_app_progress.py::test_b30_exact_seed_bytes_open_and_continuation_keys_survive_roundtrip",
+      "tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app",
+      "tests/life/test_app_progress.py::test_paused_resume_retains_content_pin_and_random_state",
+      "tests/life/test_app_push.py::test_push_draw_uses_one_b30_stream_sorted_candidates_and_stable_identity",
+      "tests/life/test_app_push.py::test_queue_is_popped_before_effect_checkpoint_and_restore_never_reissues",
+      "tests/life/test_app_push.py::test_push_identity_validation_rejects_unregistered_references_in_historical_session",
+      "tests/life/test_commerce.py::test_delivery_reaches_every_selected_place_and_survives_restore_once",
+      "tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery",
+      "tests/life/test_rrs_food_body.py::test_food_category_defines_equal_snack_intake_and_three_fixed_rates",
+      "tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake",
+      "tests/life/test_rrs_food_body.py::test_food_fixed_body_efficiency_energy_cap_and_resource_source",
+      "tests/life/test_rrs_food_body.py::test_food_actual_portion_duration_bounds_and_multi_item_longest",
+      "tests/life/test_rrs_food_body.py::test_food_ending_discards_only_opened_remainder_without_extra_intake",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title"
+    ],
+    "implementation": [
+      "src/worldmock/life/randomness.py::random_stream",
+      "src/worldmock/life/content.py::resume_app_usage",
+      "src/worldmock/scheduling/effects.py::process_scheduled_events"
+    ]
   },
   "最终唤醒词表": {
     "stage": "5",
@@ -401,8 +483,15 @@
   "游戏链退出": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-删除清单",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_app_vocabulary.py::test_game_way_cannot_be_restored_in_the_public_way_table",
+      "tests/life/test_app_vocabulary.py::test_game_runtime_and_textworld_dependencies_are_removed",
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+    ],
+    "implementation": [
+      "src/worldmock/life/vocabulary.py::WAYS",
+      "src/worldmock/life/models.py::ActivityKind"
+    ]
   },
   "工作由时间决定（工作由时间决定）": {
     "stage": "5",
@@ -425,8 +514,22 @@
   "app 目标与 Schema": {
     "stage": "4",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-观察与工具面",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_app_progress.py::test_open_only_selects_selected_app_and_denies_empty_app",
+      "tests/life/test_app_progress.py::test_initialize_app_usage_does_not_mutate_previous_strict_world",
+      "tests/life/test_app_ui.py::test_empty_app_tool_reason_matches_actual_start_refusal",
+      "tests/life/test_app_ui.py::test_app_target_and_app_content_schemas_are_closed",
+      "tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index",
+      "tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates",
+      "tests/life/test_app_progress.py::test_real_app_interval_advances_entertainment_goal_and_retired_kinds_do_not",
+      "tests/life/test_app_ui.py::test_current_push_title_and_kind_are_visible_until_released",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
+      "tests/life/test_app_progress.py::test_app_activity_keeps_app_title_and_records_current_content_title"
+    ],
+    "implementation": [
+      "src/worldmock/life/tool_layer.py::_binding_target",
+      "src/worldmock/life/prompt_schemas.py::_RESULT"
+    ]
   },
   "工具面与工作 Schema": {
     "stage": "5",

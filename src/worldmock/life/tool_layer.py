@@ -20,12 +20,11 @@ from worldmock.life.activities import location_kinds_allow
 from worldmock.life.basket import (meal_portion,
                                   validate_meal_use, validate_purchase_order)
 from worldmock.life.commerce import held_quantity
-from worldmock.exchange.constants import FOOD_CONSTANTS
+from worldmock.exchange.constants import APP_USE_DEFAULT_SECONDS, FOOD_CONSTANTS
 from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
-from worldmock.exchange.types import FOOD_CATEGORY_LABELS
-from worldmock.life.content import restarts_from_beginning
+from worldmock.exchange.types import CONTENT_KIND_LABELS, FOOD_CATEGORY_LABELS
 from worldmock.life.control_items import CONTROL_TOOLS
-from worldmock.life.durations import content_remaining_seconds, derived_activity_duration
+from worldmock.life.durations import derived_activity_duration
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
 from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.interaction_menu import InteractionMenu
@@ -37,6 +36,7 @@ from worldmock.life.projection import food_energy_label, route_effort
 from worldmock.life.readable import ACTIVITY_DOING_LABELS, clock_phrase, duration_phrase, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
+from worldmock.life.sessions import current_session
 from worldmock.life.travel import planned_travel
 from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_refusal,
                                  work_start_seconds, work_totals)
@@ -44,12 +44,10 @@ from worldmock.life.work import (contract_view, submission_refusal, validate_wor
 if TYPE_CHECKING:
     from worldmock.life.rules import LifeRuleEngine
 
-#: 私有绑定类别 → 工具层目标类别（场景联系人并入 person，邮件为 message，工作任务为 task）。
-BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
-                 "content": "content", "game": "game", "lifestyle": "lifestyle",
-                 "person": "person", "contact": "person", "mail": "message", "self": "self"}
-#: 供给来源类型的说法（DataSource.kind：事实或场景假设）。
-_SOURCE_KINDS = {"fact": "事实", "scenario": "场景假设"}
+#: 私有绑定类别 → 工具层目标类别（联系人与人物独立，邮件为 message，工作任务为 task）。
+BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "holding",
+                 "app": "app", "lifestyle": "lifestyle",
+                 "person": "person", "contact": "contact", "mail": "message", "self": "self"}
 @dataclass(frozen=True, slots=True)
 class LayerContext:
     """@brief 一次观察构建各层所用的只读世界切片，由 ObservationBuilder 每次观察构造一次。
@@ -138,8 +136,7 @@ def _admission_context(context: LayerContext) -> admission.Context:
 def _world_facts(context: LayerContext) -> admission.WorldFacts:
     """@brief 准入判定用的冻结目录（与受理取同一规则目录）。"""
     rules = context.rules
-    return admission.WorldFacts(tasks=rules.tasks, items=context.semantics.catalog.foods,
-                                contents=rules.contents)
+    return admission.WorldFacts(tasks=rules.tasks, items=context.semantics.catalog.foods)
 
 
 def _start_refusal(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
@@ -278,21 +275,27 @@ def _give_check(context: LayerContext, binding: dict, action: dict) -> Refusal |
             or giving.handover_refusal(context.state, context.scenario, context.agent_id))
 
 
+
+def _app_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
+    """@brief 应用没有绑定内容时用与受理完全相同的拒绝合同。"""
+    if not context.semantics.catalog.contents_by_app[binding["object_id"]]:
+        return refusal_for_code("APP_CONTENT_EMPTY")
+    return None
+
+
 #: 内部标准动作 → 对象自身条件的判定。
-_OBJECT_CHECKS = {"travel_to": _travel_check, "work": _work_check, "watch": _timed_check, "play": _timed_check,
+_OBJECT_CHECKS = {"travel_to": _travel_check, "work": _work_check, "use_app": _app_check,
                   "read": _timed_check, "wait": _timed_check, "sleep": _sleep_check,
                   "do": _lifestyle_check, "chat": _chat_check, "call": _no_check, "purchase": _purchase_check,
                   "consume": _consume_check}
 
 
 def _derived_seconds(context: LayerContext, binding: dict, action: dict) -> int:
-    """@brief 与受理共用派生秒数：内容取剩余或全长，TextWorld 游戏与阅读浏览等待取反馈间隔。"""
+    """@brief 持续时长与受理同源；应用固定约三十分钟，其余按活动规则计算。"""
     canonical = action["canonical_action"]
-    kinds = {"sleep": ActivityKind.SLEEP, "watch": ActivityKind.WATCH, "play": ActivityKind.PLAY_GAME,
+    kinds = {"sleep": ActivityKind.SLEEP, "use_app": ActivityKind.USE_APP,
              "read": ActivityKind.READ_MAIL, "wait": ActivityKind.WAIT}
-    target = binding["object_id"]
-    item = context.rules.content(target) if canonical == "watch" else None
-    return derived_activity_duration(kinds[canonical], context.state.agents[context.agent_id], item,
+    return derived_activity_duration(kinds[canonical], context.state.agents[context.agent_id], None,
                                      context.scenario.activity_feedback_seconds)
 
 
@@ -332,7 +335,7 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
     target["actions"] = [_verb_action(context, row, action) for action in row["actions"]]
     if kind == "task":
         target["tools"] = [_tool_action(context, Candidate("submit_work", task_id=row["object_id"]))]
-    elif kind == "person":
+    elif kind in {"person", "contact"}:
         target["tools"] = [_tool_action(context, Candidate("send_message", recipient_id=row["object_id"]))]
     else:
         target["tools"] = []
@@ -369,11 +372,6 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
         held = agent.inventory.get(row.get("location_id") or agent.location_id, {}).get(product.food_id, 0)
         portion, seconds = meal_portion(product, action["use_mode"], held)
         return {**facts, "duration": duration_phrase(seconds), "quantity": portion_phrase(portion)}
-    if canonical == "watch":
-        item = context.rules.content(row["object_id"])
-        progress = context.state.agents[context.agent_id].content_progress.get(item.item_id)
-        seconds = content_remaining_seconds(item, progress)
-        return {**facts, "duration": duration_phrase(seconds)}
     seconds = _facts_seconds(context, row, action)
     return {**facts, "duration": duration_phrase(seconds) if seconds is not None and seconds >= 60 else None}
 
@@ -423,8 +421,8 @@ def _state(context: LayerContext, row: dict) -> str | None:
     kind = row["kind"]
     if kind in {"supply", "holding"}:
         return _product_state(context, row)
-    if kind in {"content", "game"} and row["object_id"] in context.rules.contents:
-        return _content_state(context, row["object_id"])
+    if kind == "app":
+        return _app_state(context, row["object_id"])
     if kind == "person":
         return _person_state(context, int(str(row["object_id"]).split(":", 1)[1]))
     if kind == "mail":
@@ -453,16 +451,6 @@ def _product_state(context: LayerContext, row: dict) -> str:
     return state
 
 
-def _content_state(context: LayerContext, item_id: str) -> str:
-    """@brief 内容目标的状态：没看过、看过一部分或看完了（播客写「听」）。"""
-    item = context.rules.content(item_id)
-    verb = "听" if item.kind == "podcast_episode" else "看"
-    progress = context.state.agents[context.agent_id].content_progress.get(item_id)
-    if progress is None or progress.position_seconds <= 0:
-        return f"没{verb}过"
-    if restarts_from_beginning(progress.position_seconds, item.duration_seconds):
-        return f"{verb}完了"
-    return f"{verb}过一部分"
 
 
 def _person_state(context: LayerContext, agent_id: int) -> str:
@@ -495,3 +483,13 @@ def _activity_target(context: LayerContext, activity) -> dict:
 def with_bindings(context: LayerContext, bindings: list[dict]) -> LayerContext:
     """@brief 换上最终私有绑定（动作 note 已按可用性填写）的同一上下文。"""
     return replace(context, bindings=bindings)
+
+
+def _app_state(context: LayerContext, app_id: str) -> str:
+    """@brief 当前会话未释放的推送显示标题与类型，否则显示真实内容条数。"""
+    session = current_session(context.state, context.agent_id)
+    push = session.app_pushes.get(app_id) if session is not None else None
+    if push is not None and push.status != "released":
+        content = context.semantics.catalog.contents[push.content_id]
+        return f"有推送：《{content.title}》（{CONTENT_KIND_LABELS[content.kind]}）"
+    return f"{len(context.semantics.catalog.contents_by_app[app_id])} 条内容"

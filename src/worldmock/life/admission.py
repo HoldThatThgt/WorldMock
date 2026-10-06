@@ -43,7 +43,6 @@ class WorldFacts:
 
     tasks: Mapping[str, Any]
     items: Mapping[str, Any]
-    contents: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +312,4 @@ def _claims(canonical: str, action: Mapping[str, Any], object_id: str, facts: Wo
     kinds = [name for name, spec in view.kinds.items() if spec.action == canonical]
     if len(kinds) != 1:
         raise BusinessRuleError("ACTION_NOT_SUPPORTED")
-    content = facts.contents.get(object_id) if canonical == "watch" else None
-    return view.resource_claims(kinds[0], travel_mode=action.get("travel_mode"),
-                                content_kind=getattr(content, "kind", None))
+    return view.resource_claims(kinds[0], travel_mode=action.get("travel_mode"))

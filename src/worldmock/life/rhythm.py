@@ -166,11 +166,6 @@ def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, 
         if not is_asleep(state, agent_id):
             agent = read_new_messages(agent)
         agent = reminders.mark_reminded(agent, state.current_time)
-        if _game_turn_due(inputs.state, agent):
-            # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）
-            # ：交互边界到期即提供决策，
-            # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
-            verdict = rhythm_schedule.WakeVerdict(decision_offered=True, wake_reasons=verdict.wake_reasons)
         for data in inputs.progress_data.get(agent_id, []):
             if data.get("kind") == "body_settlement":
                 data[DECISION_OFFERED_FIELD] = verdict.decision_offered
@@ -527,6 +522,7 @@ def _wake_snapshot(
         plan_reminder_due=reminders.reminder_due(agent, now),
         errand_reminder_due=bool(errands.reminders_due(agent, now)),
         duty_edges_now=duty_edges.edges_at(inputs.scenario, agent.agent_id, now),
+        app_push_arrived="app_push" in flags,
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 
@@ -566,15 +562,6 @@ def _current_location(agent: AgentState, inputs: RhythmInputs):
     return None
 
 
-
-
-def _game_turn_due(state: WorldState, agent: AgentState) -> bool:
-    """@brief 游戏交互边界到期（next_interaction_at == now 且活动进行中）。"""
-
-    return any(
-        item.kind == ActivityKind.PLAY_GAME and item.next_interaction_at == state.current_time
-        for item in active_activities(state, agent.agent_id)
-    )
 
 
 def _woke_from_sleep(state: WorldState, agent_id: int, now: int) -> bool:
@@ -703,8 +690,6 @@ def decide_engine_rhythm(context, staged, boundary: RhythmBoundary) -> "WorldSta
         agent = staged.agents[agent_id]
         for activity in active_activities(staged, agent_id):
             if activity.next_interaction_at is not None and activity.next_interaction_at <= boundary.target:
-                if activity.kind == ActivityKind.PLAY_GAME:
-                    continue
                 staged = _put_activity(
                     staged,
                     agent,

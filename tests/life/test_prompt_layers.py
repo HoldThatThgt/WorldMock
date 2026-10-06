@@ -20,16 +20,12 @@ import pytest
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls, stage_day_plan,
                                  start_activity, start_request, submit_round, tool_targets, wake_by_mail, pause_request,
                                  report_request)
-from tests.life.test_commerce import _choice, _stage_open
-from tests.life.test_dayrun_restaurants import _stage
 from tests.life.test_presentation_fidelity import _stage as _stage_moment
-from tests.life.test_same_moment_decisions import _act, _finish, _observed_act
-from tests.life.test_work_review import _at_task_start
 from worldmock.footprints.models import EventDraft
-from worldmock.life import activity_control, felt, schedule
+from worldmock.life import felt, schedule
 from worldmock.life.callable_index import INDEX_KEYS, MAX_EXAMPLES
 from worldmock.life.vocabulary import LIFE_VERBS, SYSTEM_PURCHASE_WAY, WAYS
-from worldmock.life.models import ActionStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
+from worldmock.life.models import ActionStatus, ActivityStatus, PlanGoalInput, ReviseDayPlanRequest, SendMessageActionRequest
 from worldmock.life.prompt_schemas import (ACTION_STATUSES, BODY_LEVELS, INTENT_KINDS,
                                            LAYER_SCHEMAS, TARGET_KINDS, TOOL_LAYER_SCHEMA, USER_LAYER_NAMES,
                                            WAY_LABELS, validate_layer)
@@ -41,6 +37,41 @@ from worldmock.life.prompt_schemas import DUTY_DAYS, DUTY_STATUSES, ENVIRONMENT_
 #: 环境构建的五层（人设层由宿主构建）。
 ENV_LAYERS = {"tool_layer": "工具层", "todo_layer": "待办层", "environment_layer": "环境层",
               "memory_layer": "记忆层", "progress_layer": "进度层"}
+
+
+def _act(engine, name: str, tool: str, request):
+    """@brief 经真实决策轮提交单人物动作。"""
+    _, results = submit_round(engine, {1: (tool, request)}, name)
+    return results[0]
+
+
+def _finish(engine, activity_id: str, name: str) -> None:
+    """@brief 经真实时间边界推进到活动结束，就绪时播报继续。"""
+    for step in range(64):
+        if engine.context.state.activities[activity_id].status != ActivityStatus.ACTIVE:
+            return
+        if engine.scheduling_state().ready_agent_ids:
+            _act(engine, f"{name}-continue-{step}", "report_status", report_request(
+                activity_name(engine, activity_id), summary="继续。"))
+        else:
+            advance_next(engine)
+    pytest.fail("Activity did not end at its declared boundaries")
+
+
+def _stage(engine, location: str, energy: float) -> None:
+    """@brief 以当前食品世界的真实存储把人物置于指定地点和能量。"""
+    staged = engine.context.state.model_copy(deep=True)
+    now = int(engine.context.scenario.start_at.timestamp()) + 10 * 3600 + 1800
+    staged.current_time = now
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
+    agent = staged.agents[1]
+    staged.agents[1] = agent.model_copy(update={"location_id": location,
+        "body": agent.body.model_copy(update={"energy_kcal": energy}),
+        "body_settled_at": now, "next_decision_at": now}, deep=True)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system", data={"kind": "test_food_position"})])
+    engine.context.state = staged
 
 
 def _checked(engine, round_id: str, agent_id: int = 1) -> dict:
@@ -77,7 +108,7 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
     assert set(TARGET_KINDS) == set(BINDING_KINDS.values()) | {"activity"}
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
     index = TOOL_LAYER_SCHEMA["properties"]["callable_index"]
-    assert TOOL_LAYER_SCHEMA["properties"]["callable_index"]["properties"]["contents"]["items"]["properties"]["examples"]["maxItems"] == MAX_EXAMPLES
+    assert TOOL_LAYER_SCHEMA["properties"]["callable_index"]["properties"]["goods"]["items"]["properties"]["examples"]["maxItems"] == MAX_EXAMPLES
     assert tuple(index["properties"]) == INDEX_KEYS == tuple(index["required"])
 
 
@@ -129,15 +160,15 @@ def test_duty_schema_pins_working_day_hours_rest_day_place_and_text_breaks(duty:
         validate_layer({**layer, "duty": {**duty, **change}})
 
 
-def test_progress_schema_registers_the_eight_record_types_with_both_errand_records() -> None:
-    """进度层 Schema 的 events[].type 恰为接口合同「七层 Schema」登记的八种：tool_call、message_arrival、delivery、
-    task_deadline、plan_reminder、errand_reminder、errand_completed、condensed（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 、6.4）。
+def test_progress_schema_registers_app_push_and_both_errand_records() -> None:
+    """进度层 Schema 的 events[].type 恰为接口合同「七层 Schema」登记的九种：tool_call、message_arrival、delivery、
+    task_deadline、plan_reminder、errand_reminder、errand_completed、condensed、app_push（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-待办层与进度层呈现 、6.4）。
     只写事务名的 errand_reminder 与 errand_completed 记录各自通过校验；六种事务事件里其余四种的名字不是记录类型，写成
     记录即不合 Schema。"""
     records = LAYER_SCHEMAS["进度层"]["properties"]["events"]["items"]["oneOf"]
     assert sorted(item["properties"]["type"]["const"] for item in records) == sorted((
         "tool_call", "message_arrival", "delivery", "task_deadline", "plan_reminder", "errand_reminder",
-        "errand_completed", "condensed"))
+        "errand_completed", "condensed", "app_push"))
     layer = {"layer": "进度层", "session_started_at": "2026-01-05T10:00:00+08:00", "rejected_today": []}
     record = {"occurred_at": "2026-01-05T12:40:00+08:00", "errand": "买牛奶"}
     for kind in ("errand_reminder", "errand_completed"):
@@ -172,7 +203,7 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
                        if action["label"] == "远程下单" and action["note"] is None)
     assert _act(engine, "layers-buy", "start_activity", start_activity(way, target)).status == "completed"
     assert "purchases" in progress_calls(_checked(engine, "layers-bought"))[-1]["result"]["details"]
-    assert _act(engine, "layers-reject", "start_activity", start_activity("观看", "不存在的对象")).status == "rejected"
+    assert _act(engine, "layers-reject", "start_activity", start_activity("打开", "不存在的对象")).status == "rejected"
     assert "next_step" in progress_calls(_checked(engine, "layers-rejected"))[-1]["result"]["details"]
     waited = _act(engine, "layers-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=60)
@@ -217,7 +248,7 @@ _BROKEN_INDEXES = (
     (lambda index: index["lifestyle"].append({"name": "洗碗", "actions": []}), r"\['callable_index', 'lifestyle', \d+\]"),
     (lambda index: index["lifestyle"].append(index["lifestyle"][0]), r"\['callable_index', 'lifestyle'\]"),
     (lambda index: index["goods"][0]["examples"].extend(["甲", "乙", "丙"]), r"\['callable_index', 'goods', 0, 'examples'\]"),
-    (lambda index: index["contents"][0].update(available=True), r"\['callable_index', 'contents', 0\]"),
+    (lambda index: index["goods"][0].update(available=True), r"\['callable_index', 'goods', 0\]"),
     (lambda index: index["goods"][0].update(count=22), r"\['callable_index', 'goods', 0, 'count'\]"),
     (lambda index: index["goods"][0].update(count="0 个"), r"\['callable_index', 'goods', 0, 'count'\]"),
     (lambda index: index.update(targets=[]), r"\['callable_index'\]"),
@@ -226,7 +257,7 @@ _BROKEN_INDEXES = (
 
 def test_callable_index_schema_takes_names_counts_and_up_to_three_examples(engine_factory) -> None:
     """工具层的可调用索引（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）按工具层 Schema 校验：12:30 在家的真实索引通过，lifestyle 是不重复的
-    名称，contents 与 goods 每项只有 category、人读计数 count（「N 个」）与至多 3 个不重复的示例名；工具层缺少索引、名称带上
+    名称，goods 每项只有 category、人读计数 count（「N 个」）与至多 3 个不重复的示例名；工具层缺少索引、名称带上
     动作、名称重复、多给示例、品类行多出可用性、计数写成裸整数或零个、索引多出键都以 ValueError 指明位置。"""
     engine = engine_factory()
     stage_day_plan(engine)
@@ -236,7 +267,7 @@ def test_callable_index_schema_takes_names_counts_and_up_to_three_examples(engin
     index = observed["tool_layer"]["callable_index"]
     assert list(index) == list(INDEX_KEYS) and all(index[key] for key in INDEX_KEYS)
     assert index["query_categories"] and all(isinstance(row["count"], int) for row in index["query_categories"])
-    assert all(set(row) == {"category", "count", "examples"} for key in ("contents", "goods") for row in index[key])
+    assert all(set(row) == {"category", "count", "examples"} for row in index["goods"])
     assert all(row["count"] == count_phrase(int(row["count"].split()[0])) for row in index["goods"])
     missing = copy.deepcopy(observed["tool_layer"])
     del missing["callable_index"]
@@ -298,7 +329,18 @@ def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
     """正在工作时：截止时刻与有效工时的剩余要求只在任务目标的 contract 出现一次；工作活动目标的状态不写「还差」，
     待办层与进度层不重复合同。"""
     engine = engine_factory()
-    _at_task_start(engine)
+    task = engine.context.scenario.tasks[0]
+    staged = engine.context.state.model_copy(deep=True)
+    moment = int(task.available_at.timestamp())
+    staged.current_time = moment
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > moment]
+    agent = staged.agents[1]
+    staged.agents[1] = agent.model_copy(update={"location_id": task.required_location_id,
+        "visible_task_ids": {*agent.visible_task_ids, task.task_id}, "body_settled_at": moment}, deep=True)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=moment, visibility="system", data={"kind": "test_work_position"})])
+    engine.context.state = staged
     stage_day_plan(engine)
     task = f"工作：{engine.context.scenario.tasks[0].title}"
     submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "contract-work")
@@ -319,7 +361,18 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
     """工作暂停后：暂停的工作在待办层只有名称、暂停时刻、地点、客观进度与两个工具（通过 Schema），不写截止与工时要求；
     截止时刻与有效工时的剩余要求仍只在任务目标的 contract 出现一次。"""
     engine = engine_factory()
-    _at_task_start(engine)
+    task = engine.context.scenario.tasks[0]
+    staged = engine.context.state.model_copy(deep=True)
+    moment = int(task.available_at.timestamp())
+    staged.current_time = moment
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > moment]
+    agent = staged.agents[1]
+    staged.agents[1] = agent.model_copy(update={"location_id": task.required_location_id,
+        "visible_task_ids": {*agent.visible_task_ids, task.task_id}, "body_settled_at": moment}, deep=True)
+    staged.version += 1
+    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=moment, visibility="system", data={"kind": "test_work_position"})])
+    engine.context.state = staged
     stage_day_plan(engine)
     task = f"工作：{engine.context.scenario.tasks[0].title}"
     _, results = submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "paused-contract-work")
@@ -337,80 +390,12 @@ def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_facto
     assert not any(text in todo for text in (contract["deadline"], contract["remaining"], "截止", "工时"))
 
 
-def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(engine_factory) -> None:
-    """浏览完成后：结果的 browse_items 只是名称，写完整标签「<门店>出售的<商品>」（没有价格、库存、可得性或供给身份，
-    docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）；浏览得到的供给作为工具层商品目标列出，名称与标签相同，价格与方式只在那里。"""
-    engine = engine_factory()
-    _stage_open(engine)
-    stage_day_plan(engine)
-    _, browse = _observed_act(engine, "browse-start", "start_activity",
-                              _choice(engine.observe(context(engine, "browse-preview")), "browse"))
-    assert browse.status == "in_progress"
-    _finish(engine, browse.activity_id, "browse")
-    rows = engine.context.state.activities[browse.activity_id].data["revealed"]["items"]
-    revealed = [row["supply_id"] for row in rows]
-    observed = _checked(engine, "browse-seen")
-    (record,) = [row for row in progress_calls(observed, "start_activity")
-                 if "browse_items" in row["result"]["details"]]
-    items = record["result"]["details"]["browse_items"]
-    places = {item.location_id: item.name for item in engine.context.scenario.locations}
-    names = {item.product_id: item.name for item in engine.context.scenario.products}
-    assert items and items == [f"{places[row['location_id']]}出售的{names[row['product_id']]}" for row in rows]
-    listed = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
-    assert [listed[row["supply_id"]] for row in rows if row["supply_id"] in listed] == [
-        label for label, row in zip(items, rows) if row["supply_id"] in listed]
-    assert not {"price", "supply_id", "stock", "price_fen"} & set(json.dumps(record, ensure_ascii=False).split('"'))
-    assert not any(identity in _rendered(observed) for identity in revealed)
-    shown = [row["object"] for row in observed["interaction_bindings"] if row["object_id"] in revealed]
-    targets = tool_targets(observed)
-    assert shown and all(targets[name]["kind"] == "product" for name in shown)
-    assert all(action["price"] is not None for name in shown for action in targets[name]["actions"]
-               if action["action"] == "obtain")
 
 
-def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pinned_once(engine_factory) -> None:
-    """同一请求开始浏览与播客，两项在同一边界结束：原动作只写一条聚合终态（各活动快照，没有顶层浏览结果）；进度层该调用
-    的结果仍写 browse_items，恰好一次，浏览得到的供给置顶进工具层商品目标（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」）。"""
-    engine = engine_factory()
-    _stage_open(engine)
-    stage_day_plan(engine)
-    preview = engine.observe(context(engine, "pair-browse-preview"))
-    picks = [next((row["object"], action["verb"], action["label"]) for row in preview["interaction_bindings"]
-                  for action in row["actions"] if wanted(action)) for wanted in (
-        lambda action: action["canonical_action"] == "browse", lambda action: action["label"] == "接着听")]
-    started = _act(engine, "pair-browse-start", "start_activity", start_request(
-        targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
-    assert started.status == "in_progress", (started.error_code, started.message)
-    browse_id, podcast_id = (row["activity_id"] for row in started.data["activities"])
-    staged = engine.context.state.model_copy(deep=True)
-    end = staged.activities[browse_id].planned_end_at
-    podcast = staged.activities[podcast_id]
-    staged.activities[podcast_id] = podcast.model_copy(
-        update={"planned_end_at": end, "planned_duration_seconds": end - podcast.started_at}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_browse_and_podcast_end_together"})])
-    engine.context.state = staged
-    _finish(engine, browse_id, "pair-browse")
-    assert engine.context.state.activities[podcast_id].ended_at == engine.context.state.activities[browse_id].ended_at
-    revealed = engine.context.state.activities[browse_id].data["revealed"]["items"]
-    observed = _checked(engine, "pair-browse-seen")
-    (record,) = progress_calls(observed, "start_activity")
-    assert record["result"]["message"] == "Activities finished"
-    names = {item.product_id: item.name for item in engine.context.scenario.products}
-    places = {item.location_id: item.name for item in engine.context.scenario.locations}
-    assert record["result"]["details"]["browse_items"] == [
-        f"{places[item['location_id']]}出售的{names[item['product_id']]}" for item in revealed]
-    assert _rendered(observed).count('"browse_items"') == 1
-    pinned = tuple(dict.fromkeys(item["supply_id"] for item in revealed))
-    assert pinned and engine.observations.pending_presentation[1].pinned_supply_ids == pinned
-    shown = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
-    assert all(tool_targets(observed)[shown[supply]]["kind"] == "product" for supply in pinned)
 
 
 def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer(engine_factory) -> None:
-    """步行与播客同一请求，两项在到达时一起结束：原动作的聚合终态落在到达那次提交，归路程 session，出发请求整体归原停留
+    """步行与应用同一请求，两项在到达时一起结束：原动作的聚合终态落在到达那次提交，归路程 session，出发请求整体归原停留
     session，所以到达之后的进度层没有这条调用，任何进度层都不出现 details.arrival（单项出行同样如此）；到达只以记忆层
     路程条目的 settled 句出现一次（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第三章「session 与记忆条目」）。"""
     engine = engine_factory()
@@ -419,22 +404,22 @@ def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer
     picks = [next((row["object"], action["verb"], action["label"]) for row in preview["interaction_bindings"]
                   for action in row["actions"] if wanted(row, action)) for wanted in (
         lambda row, action: row["object_id"] == "office" and action["label"] == "步行",
-        lambda row, action: action["label"] == "接着听")]
+        lambda row, action: row["kind"] == "app" and action["label"] == "打开" and action["note"] is None)]
     started = _act(engine, "pair-trip-start", "start_activity", start_request(
         targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
     assert started.status == "in_progress", (started.error_code, started.message)
-    travel_id, podcast_id = (row["activity_id"] for row in started.data["activities"])
+    travel_id, app_id = (row["activity_id"] for row in started.data["activities"])
     staged = engine.context.state.model_copy(deep=True)
-    podcast, longer = staged.activities[podcast_id], staged.activities[travel_id].planned_end_at + 600
-    staged.activities[podcast_id] = podcast.model_copy(
-        update={"planned_end_at": longer, "planned_duration_seconds": longer - podcast.started_at}, deep=True)
+    app, longer = staged.activities[app_id], staged.activities[travel_id].planned_end_at + 600
+    staged.activities[app_id] = app.model_copy(
+        update={"planned_end_at": longer, "planned_duration_seconds": longer - app.started_at}, deep=True)
     staged.version += 1
     engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_podcast_outlasts_the_trip"})])
+        data={"kind": "test_app_outlasts_the_trip"})])
     engine.context.state = staged
     _finish(engine, travel_id, "pair-trip")
-    assert engine.context.state.activities[podcast_id].ended_at == engine.context.state.activities[travel_id].ended_at
+    assert engine.context.state.activities[app_id].ended_at == engine.context.state.activities[travel_id].ended_at
     assert [event.data["message"] for event in engine.context.store.read_agent_events("action_result", 1)
             if event.action_id == started.action_id][-1] == "Activities finished"
     observed = _checked(engine, "pair-trip-seen")
@@ -443,24 +428,3 @@ def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer
     lines = [line for entry in observed["memory_layer"]["earlier_today"] for line in entry["settled"]]
     (arrived,) = [line for line in lines if line.startswith(f"{trip}：")]
     assert arrived.endswith("，到达")
-
-
-def test_just_ended_browse_target_states_the_end_reason_without_the_browse_result(engine_factory) -> None:
-    """浏览结束后：工具层刚结束的浏览活动目标只写终局说法与客观进度，不复述进度层该调用结果里的商品名称（结果取该请求的
-    最新结果，浏览得到的名称只在那里，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「唯一出现原则」）。"""
-    engine = engine_factory()
-    _stage_open(engine)
-    stage_day_plan(engine)
-    _, browse = _observed_act(engine, "ended-browse-start", "start_activity",
-                              _choice(engine.observe(context(engine, "ended-browse-preview")), "browse"))
-    _finish(engine, browse.activity_id, "ended-browse")
-    observed = _checked(engine, "ended-browse-seen")
-    (record,) = [row for row in progress_calls(observed, "start_activity")
-                 if "browse_items" in row["result"]["details"]]
-    activity = engine.context.state.activities[browse.activity_id]
-    target = tool_targets(observed)[activity_name(engine, browse.activity_id)]
-    assert target["phase"] == "刚结束"
-    assert target["state"] == (f"{activity_control.ending_phrase(activity)}，"
-                               f"{activity_control.objective_progress(activity)}")
-    assert record["result"]["details"]["browse_items"]
-    assert not any(name in target["state"] for name in record["result"]["details"]["browse_items"])

@@ -24,15 +24,13 @@ _LEGACY_ACTIONS = {
 }
 _TARGETED_ACTIONS = {
     "work": ("work", "work", "task"),
-    "watch": ("entertainment", "view", "content"),
-    "play": ("entertainment", "play", "game"),
+    "use_app": ("entertainment", "view", "app"),
     "read": ("work", "read", "message"),
-    "browse": ("browsing", "browse", "content"),
 }
 #: 结果活动快照的 kind → 内部标准动作（start_activity 逐项证据按实际开始的活动分类）。
 _ACTION_OF_KIND = {
-    "travel": "travel_to", "work": "work", "watch": "watch", "play_game": "play", "read_mail": "read",
-    "browse": "browse", "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
+    "travel": "travel_to", "work": "work", "use_app": "use_app", "read_mail": "read",
+    "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
     "wait": "wait", "sleep": "sleep",
 }
 #: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「稳定工具面」），按请求
@@ -44,7 +42,7 @@ _SESSION_CONTROL_TOOLS = {
 }
 #: 公开终态取自活动快照的启动动作；其余动作以动作自身终态为准。
 _ACTIVITY_BACKED_ACTIONS = frozenset({
-    "travel_to", "work", "watch", "play", "read", "browse", "consume"})
+    "travel_to", "work", "use_app", "read", "consume"})
 _RESULT_STATES = {
     "accepted": "started",
     "in_progress": "started",
@@ -360,9 +358,8 @@ def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> 
     data = _mapping(row.get("data"))
     category = worldmock_activity_category(kind or "", data, activity_map)
     types = {
-        "work": ("work", "task"), "watch": ("view", "content"),
-        "play_game": ("play", "game"), "read_mail": ("read", "message"),
-        "browse": ("browse", "content"), "travel": ("travel", "route"),
+        "work": ("work", "task"), "use_app": ("view", "app"), "read_mail": ("read", "message"),
+        "travel": ("travel", "route"),
         "consume": ("consume", "product"),
     }
     mapped = types.get(kind or "")
@@ -462,7 +459,7 @@ def _result_state(event: Event, action: _Action) -> str | None:
     if status == "completed":
         if started == "read" and _mapping(_mapping(activity.get("data")).get("revealed")):
             return "read"
-        if started == "watch":
+        if started == "use_app":
             return "viewed"
     return status
 

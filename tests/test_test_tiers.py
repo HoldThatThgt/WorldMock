@@ -31,15 +31,12 @@ def _record(name="test_plain", markers=(), imports=(), file="tests/test_sample.p
     ("from custom.envs.life_env import LifeEnv\ndef test_any(): pass", [], set()),
     ("from tests.mutation_runner import SourceMutation", [], set()),
     ("from tests.mutation_runner import SourceMutation", ["errands_mutation_baseline"], set()),
-    ("from textworld import start\ndef test_any(): pass", [], set()),
-    ("from worldmock.life.game import validate_game\ndef test_any(): pass", [], set()),
     ("from tests.integration.test_dayrun_complete_days import DayModel\ndef test_any(): pass", [], set()),
     ("from worldmock.life.engine import LifeEngine as Driver\n"
      "def test_any(): Driver.create(None, None, None)", [], {"engine"}),
     ("from worldmock.life.engine import LifeEngine as Driver\n"
      "def unused(): Driver.create(None, None, None)\n"
      "def test_any(): pass", [], set()),
-    ("from textworld import start as load\ndef test_any(): load('game')", [], {"external"}),
     ("import subprocess as process\ndef test_any(): process.run(['node', 'test.cjs'])", [], {"external"}),
     ("import subprocess\nfrom pathlib import Path\n"
      "def test_any(): subprocess.run([str(Path('vendor/labelkit/.venv/bin/labelkit'))])", [], {"external"}),

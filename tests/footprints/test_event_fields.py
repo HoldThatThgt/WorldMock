@@ -26,6 +26,7 @@ _SPEC_WAKE_REASONS = frozenset({
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
     "progress_report_due", "no_active_activity", "plan_reminder_due", "errand_reminder_due",
     "shift_start", "shift_end", "break_start", "break_end",
+    "app_push",
 })
 
 #: 规格事件类型冻结枚举 14 类（`docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎`「事件类型枚举」逐字）。

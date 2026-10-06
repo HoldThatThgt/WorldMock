@@ -39,19 +39,6 @@ def _put_agent(state: WorldState, agent) -> WorldState:
     return state.model_copy(update={"agents": agents}, deep=True)
 
 
-def _put_agent_and_defer_game_turn(state: WorldState, agent) -> WorldState:
-    """@brief 保存人物，并把本秒到期的游戏回合顺延一秒：防止达到同刻上限后游戏回合让人物在同一秒再就绪。"""
-    agents = dict(state.agents)
-    agents[agent.agent_id] = agent
-    activities = dict(state.activities)
-    for activity in active_activities(state, agent.agent_id):
-        if activity.kind == ActivityKind.PLAY_GAME and activity.next_interaction_at == state.current_time:
-            activities[activity.activity_id] = activity.model_copy(
-                update={"next_interaction_at": state.current_time + 1}, deep=True
-            )
-    return state.model_copy(update={"agents": agents, "activities": activities}, deep=True)
-
-
 def _request_sha(tool_name: str, request) -> str:
     """@brief 对工具名和规范化 Pydantic 请求计算稳定身份。"""
     payload = {"tool_name": tool_name, "request": request.model_dump(mode="json")}

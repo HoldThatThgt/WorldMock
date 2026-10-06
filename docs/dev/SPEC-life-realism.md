@@ -1,7 +1,7 @@
 <a name="spec-life-realism-特性规格人物决策与画像"></a>
 # 特性规格：人物决策与画像
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「世界素材品类要求、`location_kinds` 的运行期强制语义」（阶段 1）；「画像编译、地图、门店供给与活动环境、商务与进食、动机层、候选确定性、呈现上限与下推游标、呈现轮转、素材淘汰与检索机制的禁止项、验收矩阵、工具层的紧凑编码与即时查询、单一行动阶段、工作安排声明」（阶段 3）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「世界素材品类要求、`location_kinds` 的运行期强制语义」（阶段 1）；「画像编译、地图、门店供给与活动环境、商务与进食、动机层、候选确定性、呈现上限与下推游标、呈现轮转、素材淘汰与检索机制的禁止项、验收矩阵、工具层的紧凑编码与即时查询、单一行动阶段、工作安排声明」（阶段 3）；「app 内容边界、工具层、进度层、动机层与素材可达性」（阶段 4）。
 
 > 状态：FROZEN——条款已裁决。既有测试证据保留原源码身份；正式地点活动环境、供给候选与交易由地图特性完整实现并重新验收，不能沿用历史数字宣称完成。正式十二周、隔离盲评与 LabelKit 完整自然日交付仍待真实运行。
 > 部分条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
@@ -89,7 +89,7 @@ flowchart TD
 | --- | --- |
 | 社交行为规则：在场可见、消息、交谈、通话、联系人及其回复策略 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「社交最小可行版」 |
 | 七层请求：各层字段与唯一出现、系统层、同秒续接、提示预算 | [人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求) |
-| 观察投影与提示合同：禁止进入提示的字段、商品可见期、材料与字幕增量 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「观察投影与提示合同」 |
+| 观察投影与提示合同：禁止进入提示的字段、app 目标、app 内容结果与 `app_push` 进度记录 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「观察投影与提示合同」 |
 | 身体语义：两过程睡眠、睡眠不足账、体感分级、社交需要与情绪的数值和滞回 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「身体语义：两过程睡眠、睡眠不足账、体感分级」 |
 | 决策节律：结算边界不等于决策机会、唤醒条件清单、静默边界 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「决策节律：结算边界与唤醒条件分离」 |
 | 类型、签名、字段、枚举、上限常量与提示模板 | `docs/CONTRACTS.md#contracts-worldmock-接口合同` |
@@ -253,7 +253,7 @@ dreaming 的任务取值、每份材料必须携带的字段与分支绑定见 `
 
 - 成本按候选时长归一为单位小时效用，价格只在成本项计一次
 - 进食候选以 `category=meal` 识别正餐，优先满足能量缺口的实际持有食品，并返回前三名
-- 同一娱乐家族至多两条候选；娱乐需要低于 0.3 时不生成娱乐候选
+- 娱乐候选是人物可选择的 app；app 始终列出，不因内部动机分数、候选轮转或索引窗口消失
 - 生活活动只从人物启用集采样，并具备 relief 通道
 - 近 24 小时内已食用的食品在进食候选中按 `1 / (1 + 次数)` 降权，这是 Rolls 1981 的感官特异性饱足
 
@@ -302,7 +302,7 @@ flowchart LR
 | 家的可供性 | 晨间例程（洗漱 15 分钟）与家中储备食品：场景初始储备 7 份早餐类食品，进食扣减，选择支持配送的门店供给补充至家中；储备为场景假设并留痕 |
 | 办公室的可供性 | 茶水间饮水（免费、5 分钟、微量娱乐缓解）、会议室（会议任务）、同事在场 |
 | 正餐 | 食品类别 `snack/drink/meal` 固定每份热量 200/100/600 千卡；食品提供名称、价格与同类店铺一致绑定 |
-| 内容 | 每个场景观看条目必填非空 `title`，引擎直接呈现、不按来源映射找标题；内容元数据仍须有 `title`、`genre[]`、`language`、`age_rating`；白领场景拒绝 `age_rating ≥ 18` 的条目；现有 `drama` 语料（英文视觉小说脚本）整体替换；此外每个条目必须携带可作检索分区键的条目属性——题材（`genre[]`）、语言（`language`）、时长段（由 `duration_seconds` 落格）三项不得缺省，检索分区即由这三项的组合构成 |
+| 内容 | 每条内容的 `kind` 取 `article`、`image_text`、`short_video`、`long_video`、`live`；必填非空 `title`、`summary`、正时长与至少一个 `app_id`。`summary_source` 区分源摘要与合成摘要；标题与摘要直接来自 `contents.json`，没有分段、字幕、资产、facet 或评估引用 |
 | 工作 | 84 天至少 20 份互不相同、与人物职业匹配的中文输入材料；`tasks[].assignee_agent_id` 必填，合同按人分配；每项至少有一封关联通知邮件，每封非空 `related_task_id` 均引用存在任务且收件人为该任务受派人物；正式材料在通知前已经有效 |
 | 生活活动 | 条目 Schema 增加 `location_kinds`、`time_window`、`needs_partner`、`effects`（必填不可变映射，恰含 entertainment/social/health 三键、有限数值 0–1）；从实际语料根加载，预演读条目效果，启动冻结到活动状态、推进与恢复只读冻结值；启用集由画像编译产生 |
 | 联系人 | 每个人物都要配到至少两名联系人：同事与其他人物对应，老友或家人由场景联系人担任；联系人与回复策略的行为规则见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「社交最小可行版」 |
@@ -331,26 +331,12 @@ flowchart LR
 <a name="spec-life-realism-素材可达性"></a>
 ### 素材可达性
 
-**准入校验每个条目至少属于一个可检索分区，且该分区可达。** 条目不可达的定义是：不存在任何一条路径让该条目进入
-某次决策的候选集。这是对全局可达性的要求，**不是覆盖率要求**：本规格不要求每个条目都被呈现过，
-也不承诺它在任何有限运行窗口内被呈现；它只保证「从未可达」这个状态本身可被判假，
-且判定方式不依赖任何运行期互动统计量。
+内容可达当且仅当它绑定至少一个已登记 app。准入逐条检查 `app_ids`：空集合、未知 app 或反向索引不一致都阻断启动，
+并报告内容与 app 的可读名称。可达性不依赖地点分区、facet、运行期曝光统计或模型判断。
 
-校验在准入期执行，逐条目给出结论与证据，规则如下：
-
-- 条目的检索分区键（内容为题材、语言、时长段）必须齐备；任一键缺省的条目落不进任何分区，判定为不可达
-- 每个分区必须存在非空的地点可行组合：分区内至少有一条条目的 `location_kinds` 与场景至少一个地点的
-  `location_kinds` 交集非空，否则该分区在场景里恒不可行，判定为不可达
-- 声明的可达路径必须在有限次检索组合内可达；不得使用近似最近邻、向量检索或以模型输出为准的检索机制，
-  《对象模型重分析》已判定这类机制的结果不确定且与「同输入逐字节相同输出」冲突
-- 不可达条目在分区报告里逐条列出并阻断启动；报告不因条目数量少而放行
-
-语料里已有 86 条内容在内容语料中查不到对应条目（含 80 条 `game_session`），其中 5 条落在 `attention_required`
-品类却因权重恒零被排除在娱乐候选之外——那是「画像偏好被当成排除条件」的实例，见「画像编译」；
-本节的不可达是分区缺失导致的，两者是独立缺陷，修好其中一个另一个仍然存在。
-
-依据：《对象模型重分析》「被裁掉的对象怎么办」中影子集穷尽的算术——影子集的作用是反塌缩而非覆盖，
-对应的门禁是静态可达性检查，而覆盖率不可断言。
+人物选择 app，环境才在这个 app 绑定的内容中按全局 `content_progress` 抽取；推送优先指向同一 session 的 pending 内容。
+app 即使没有内容也始终列出，但打开动作不可用并返回 `APP_CONTENT_EMPTY`。这一行为把「能选哪个 app」与
+「app 内实际接触哪条内容」分开，同时保证每次内容足迹能追溯到人物选择、app 绑定、推送状态和真实完成位置。
 
 <a name="spec-life-realism-素材淘汰与检索机制的禁止项"></a>
 ### 素材淘汰与检索机制的禁止项
@@ -657,11 +643,11 @@ flowchart LR
 
 | 冻结观察与解组后的字段 | 含义 |
 | --- | --- |
-| `name`、`kind` | 可读名称；类别取地点、商品、人物、内容、游戏、目录、生活、任务、活动、消息、自己（在提案八类之外补游戏、目录、生活，场景联系人并入人物） |
+| `name`、`kind` | 可读名称；阶段 4 的目标类别含地点、商品、人物、app、生活、任务、活动、消息、自己；旧内容、游戏与目录目标删除。工作任务保留到阶段 5 |
 | `phase` | 只有活动目标有：「进行中」或「刚结束」；其他为 `null` |
-| `state` | 此刻的可读状态：营业情况、每份热量、在场的人在做什么、内容剩余与否、邮件是否已读、活动的客观进度（刚结束时写终态原因）；没有时为 `null`。工作活动不再写「还差」，剩余只在 `contract` |
+| `state` | 此刻的可读状态：营业情况、每份热量、在场的人在做什么、app 是否有可打开内容、邮件是否已读、活动的客观进度（刚结束时写终态原因）；没有时为 `null`。app 没有绑定内容时仍列出，打开动作 `available=false` 且原因对应 `APP_CONTENT_EMPTY`；工作剩余只在 `contract` |
 | `contract` | 只有任务目标有，恰好 `opens`、`deadline`、`place`、`remaining`、`outlook` 五键；`opens` 为带时区开放时刻，`place` 为公开地点名；`remaining`（有效工时的达标情况，例如「有效工时已达标（约 6.4/4 小时）」）、`outlook`（「到截止前做不完」「已过截止」或 `null`） |
-| `actions[]` | 冻结观察保存的动作与方式；`action` 是环境由方式推导的五类动词之一，人物请求不再填写，`way` 取方式闭集（新增「给予」）；`available`、`reason`（不可用时必填，可用时为 `null`）；`price`、`duration`、`quantity`（可为小数份）、`note` |
+| `actions[]` | 冻结观察保存动作与方式；app 使用的动作是打开，提交 `use_app`，固定时长 `APP_USE_DEFAULT_SECONDS=1800`；其余动作继续使用现行方式。每项带 `available`、`reason`，可选价格、时长、数量与说明 |
 | `tools[]` | 以本目标名称为参数的其他工具（`report_status`、`pause_activity`、`conclude_activity`、`submit_work`、`send_message`），各带 `available`、`reason` |
 
 - **可用性只有一个来源。** `available` 与 `reason` 由一个与环境受理同序的判定函数产生（菜单→同刻阶段→待收尾→名额与出发前→准入组→
@@ -674,9 +660,9 @@ flowchart LR
 - **活动也是目标。** 进行中与刚结束的活动是控制工具的对象；暂停的活动只在待办层。
 - **他处持有物与送达的订单。** 他处持有物作为目标列出，名称带地点，食用与使用标不可用并写明只能在当地用；送达的订单成为持有物目标。
 - **逾期任务保留。** 未付款的逾期任务保留到截止当日的本地日结束：`outlook` 写「已过截止」，`submit_work` 标不可用并写原因（第六章）。
-- **展示不是资格上限。** `targets` 是本轮展示的目标；所有目录类对象都可以按名调用（一日运行保真规格 3.1），指名购买按第五章解析，不受轮转与可见期限制。
-- **可调用索引。** `callable_index` 只列此地此刻可做的生活活动名称，内容和商品只给品类计数与每类至多 3 个示例名；
-  另有 `query_categories[{category, count}]`，列 `query_world` 的 `category` 可写的公开类别标签与本轮查询权限内该类的完整条目数
+- **展示不是资格上限。** `targets` 是本轮展示的目标；app 始终作为目标列出，不进入候选裁剪、轮转或可调用索引。商品继续按名查询。
+- **可调用索引。** `callable_index` 恰含 `lifestyle`、`goods`、`query_categories` 三键；`lifestyle` 列此地此刻可做的生活活动，`goods` 提供商品品类计数与示例名；
+  `query_categories[{category, count}]` 列 `query_world` 的 `category` 可写的公开类别标签与本轮查询权限内该类完整条目数
   （整数，不按呈现窗口截断，也不受查询筛选影响）；它不是目标，不带动作与条件，
   不计入单次呈现上限、计入整次请求的容量计数；索引里的名称按名调用，受理时照常做资格与准入判定。
 - **`to` 的候选**是 `null`（本人）或本层的他人人物目标。
@@ -803,13 +789,14 @@ JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首
 | `tool_call` | `tool`、`arguments`、`result`，可选 `self_note` | 一次世界请求连同公开结果。全部即时查询保存在模型交互证据，不登记 `action_requested` 或进度层事件；`conclude_activity` 参数略去 relationship、preference 记忆（改形后即各项的 `views`）；`report_status`、`pause_activity`、`conclude_activity` 的参数略去请求级 `errands`（先例：`views`），本 session 内由结果的回执可见 |
 | `message_arrival` | `sender`、`kind`（`direct`、`chat_invite`、`mail`），`text` 或 `subject` | 直接消息与交谈邀请带全文；邮件只有主题，正文在阅读结果中；邮件的 `sender` 可为 `null`（场景没有发件人字段） |
 | `delivery` | `order`、`status`、`message` | 订单的可读名称与送达进展；`status` 取 `ready`、`delivered`、`cancelled` |
+| `app_push` | `app`、`title`、`kind`、`summary` | 当前 session 内人物可见的 app 推送；推送记录不是内容消费，打开或释放后仍按 session 状态留证 |
 | `task_deadline` | `task`、`stage` | `due_soon` 在截止前 1800 秒（与唤醒同源），`expired` 在截止时刻；截止时刻本身只在工具层 |
 | `plan_reminder` | `goal` | 当日目标的提醒到时；提醒时刻本身只在待办层 |
 | `errand_reminder` | `errand` | 个人事务的提醒到点，只写事务名；提醒钟点本身只在待办层；同一边界到期的多条事务各一条 |
 | `errand_completed` | `errand` | 环境按结算证据确认事务办成，只写事务名；该事务随后从待办层消失（取消的事务不产生记录） |
 | `condensed` | `until_at`、`lines` | 预算浓缩产生的折叠记录，`lines` 为 settled 写法的句子（第四章）；`errand_completed` 折成一句只含时刻与事务名的句子（只用于折叠，记忆层不为它写 `settled` 句），`errand_reminder` 与 `plan_reminder` 一样折叠后不留句 |
 
-- **`result`** 含 `occurred_at`、`status`（取现行动作状态闭集）、`error_code`、`message` 与 `details`，工作结果另带公开 `work_review`。
+- **`result`** 含 `occurred_at`、`status`（取现行动作状态闭集）、`error_code`、`message` 与 `details`，工作结果在阶段 5 前仍带公开 `work_review`。成功打开 app 时，`details.app_content` 恰为 `{app, title, kind, summary, pushed}`；内容类型与环境事件的 `data.kind=app_push` 分开。
   `details` 只放本次新产生的可读事实（商品、份数、付款、送达地点与时刻、计划时长、进食的实际份量、终局 `outcome`、近似候选 `candidates`、个人事务变更的回执 `errands`（`[{errand, change}]`，`errand` 为事务名称；只在成功结果里，被拒结果没有该键）），不复述参数（个人事务变更的回执是声明的例外），不含内部身份与资源账户。调用与结果合为一条记录，不给模型任何调用编号。
   按一日运行保真规格第四章，宿主纠错与环境拒绝共用一个错误结构（`error_code`、`reason`、`fix`、`items`、`unmet`）：公开的 `details` 另增
   `fix`（一句可照做的改法）、逐项明细 `items[]`（`path`、`written`、`error_code`、`allowed_values`、`expected`、英文 `why` 与至多 3 个可照填的 `candidates`）、
@@ -1251,22 +1238,22 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | 画像编译 | 卡片字段完整；结构化字段存入 `persona_card_struct` 并渲染为人设层 JSON，不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对；大五分数与权重不进提示；四个模板字段与随机浮点已删除；场景只声明部分作息字段时只覆盖这些字段，覆盖后锚点乱序时保留卡片值并记警告，身体结算、零点计划输入与人设层三处同值，`validate` 与运行路径结果一致；故事写明时产出下班、到家窗口，未提及为 null 且不取缺省；下班摇摆不改变其余五个锚点；乱序时降级为 null、不失败，三次采样各自乱序但共识合法时不降级，降级说明经画像编译警告透传；场景作息覆盖为七字段，下班、到家两槽沿用现行冲突规则（冲突时该槽保留卡片值并记 `CARD_FIELD_CONFLICT`），卡片槽为 null 时覆盖与告警照常；缺下班、到家两键的旧结构化卡片被拒，卡片结构 3 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py`、`tests/life/test_persona_layer.py`；场景作息见 `tests/profile/test_injection.py` 的 `test_only_explicitly_declared_fields_are_overridden`、`test_out_of_order_window_keeps_the_card_value_and_records_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_a_scenario_declaring_only_the_midpoint_changes_only_the_midpoint_in_the_request`、`test_body_settlement_day_plan_inputs_and_the_persona_layer_read_the_same_rhythm`、`test_restore_verifies_the_frozen_card_rhythm_against_the_scenario`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「场景作息」；下班与到家锚点见 `tests/profile/test_extractor.py` 的 `test_stated_work_anchors_are_extracted_into_the_card`、`test_unmentioned_work_anchors_stay_null_without_toml_defaults`、`test_wavering_leave_work_does_not_change_the_five_anchors`、`test_out_of_order_consensus_demotes_leave_work_then_arrive_home_and_still_compiles`、`test_samples_out_of_order_on_their_own_but_legal_in_consensus_are_not_demoted`，`tests/profile/test_compile.py::test_demotion_notes_follow_the_agreement_warning_and_stand_alone_without_it` 与 `tests/integration/test_input_warnings.py` 的 `test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_blame_agreement`、`test_extracted_work_anchors_reach_the_real_request_persona_layer`；七字段覆盖见 `tests/profile/test_injection.py` 的 `test_a_null_card_slot_takes_the_scenario_work_window_and_is_reported_as_overridden`、`test_a_scenario_window_violating_the_work_anchor_order_keeps_the_card_value_as_a_conflict` 与 `tests/integration/test_input_warnings.py` 的 `test_scenario_declared_work_windows_reach_the_card_the_persona_layer_and_the_plan_input`、`test_a_conflicting_scenario_work_window_keeps_the_null_card_slot_and_is_frozen_as_a_conflict`；旧结构化卡片被拒见 `tests/life/test_persona_layer.py::test_structured_card_without_work_anchor_keys_is_rejected_on_restore`；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「作息锚点」 | 代码层已验证 |
 | 人物卡片覆盖率 | 习惯关键词、食品名称、五个类型标签与全部 app 名称形成实际目标集；低于 0.8 的 validate 失败，运行只警告；六警告闭集 |
 | 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加；4 份里拿 1 份，吃到 240/1200 秒时结束：摄入 0.2、丢弃 0.8、库存 3；暂停保留剩余并可恢复；持有 0.25 份时受理、时长 300 秒、热量按 0.25 份；收尾结果写终局与份量 | `tests/life/test_commerce.py`、`tests/life/test_meal_outcome.py` | 代码层已验证 |
-| 素材可达性 | 每个条目至少属于一个可检索分区且分区可达；分区键缺省或分区在场景里恒不可行的条目被逐条列出并阻断启动 | `tests/catalog/test_reachability_admission.py`（准入侧两个错误码 `CATEGORY_PARTITION_KEY_MISSING`、`CATEGORY_PARTITION_LOCATION_INFEASIBLE` 与阻断启动）、`tests/life/test_retrieval.py`（`reachability_report`）、`scripts/check_reachability.py`（静态守卫） | 历史证据保留；[当前组合守卫](research/map-and-storefront-main-verification.md)确认 7384 条素材、142 个分区全部可达 |
-| 候选与呈现 | 同一（世界状态、人物、场景）两次投影逐字节相同；软偏好不出局；被排除项带原因码；单次呈现不超上限；全量遍历等于一次全量的有序子序列；轮转不改目录、不改对象状态、不产生下架事件；最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D` | `tests/life/test_candidate_wiring.py`、`tests/life/test_candidates.py`、`tests/life/test_rotation.py`；门禁 `scripts/coverage_gate.py` | 代码层已验证 |
+| 素材可达性 | 每条内容至少绑定一个已登记 app；无绑定或引用未知 app 在启动前拒绝；内容不再建立检索分区、facet 或静态可达性脚本 | `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes` | 阶段 4 纯目录节点已登记；完整引擎组合待阶段 5 |
+| 候选与呈现 | 候选种类恰为 `product`、`lifestyle`、`task`；世界事实排除带原因码，相关度只改变顺序而不改变成员；同一输入与游标身份确定；轮转不改目录或对象状态 | `tests/life/test_candidates.py::test_candidates_have_only_product_lifestyle_and_task_kinds`、`tests/life/test_candidates.py::test_actual_world_constraints_are_reported`、`tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`、`tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic`、`tests/life/test_rotation.py` | 阶段 4 纯候选节点已登记；完整引擎组合待阶段 5 |
 | 呈现与导出 | 时间线投影与 `render_day.py` 输出一致且合并静默边界与同一活动；盲评记录含地点与同伴列；时间线只出现中文名称：没有 `call`、`work` 等英文种类名，没有 `task-` 形态的标识，质量报告的时间线标签检查为零 | `tests/footprints/test_export.py`；`tests/life/test_timeline_labels.py::test_exported_timeline_names_chats_calls_and_work_in_chinese`、`tests/footprints/test_render_day.py`（工作、通话与交谈的行写任务、联系人与人物名，无法解析的目标只写中文种类名）、`tests/footprints/test_quality.py::test_timeline_labels_count_english_kind_names_and_internal_ids_in_the_rendered_timeline`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「时间线」 | 代码层已验证（`tools/run-viewer.html` 的“一天”视图按手工核对验收） |
 | 人物卡片落地效果 | 两次同代码运行的作息落在场景作息覆盖后的就寝窗口内；进食多样性与人格可区分性按报告口径结算；下班、到家相对参照窗口的偏离与工作负荷按行为评估 `routine_deviation`、`workload` 只报告 | `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` 的正式运行记录；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「复跑指标（只报告）」；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「复跑指标（只报告）」 | 待真实运行 |
 
-当前口味、可达性与候选呈现的证据如下，完整工程通过结论取本次全量回执。
+当前 app 内容绑定、候选闭集与呈现确定性的证据如下，完整工程通过结论取本次全量回执。
 原复判过程、数量和当时的缺陷见 [改造前固定提交原文](https://github.com/HoldThatThgt/WorldMock/blob/2cf230115f4084aef2376e9d77bc976efbed43ea/docs/dev/SPEC-life-realism.md)，该链接只定位原文，不证明本次执行。
 
 | 当前判据 | 实际测试定义 |
 | --- | --- |
-| 两次投影确定性、墙钟与 Python 哈希种子不进入结果 | `tests/life/test_candidates.py::TestDeterminism` |
-| 软偏好只排序、不排除；被排除项有原因码 | `tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders`、`tests/life/test_candidates.py::TestExclusionDiscipline` |
+| 同一候选输入两次逐字节一致，状态版本进入游标身份，哈希决胜不读取 Python 内建哈希或墙钟 | `tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic` |
+| 相关度只排序、不改变成员；被排除项使用闭集原因码 | `tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership`、`tests/life/test_candidates.py::test_actual_world_constraints_are_reported` |
 | 单次呈现受冻结场景上限约束；公开对象与私有绑定逐项对应 | `tests/life/test_candidate_contract_boundaries.py::test_presentation_windows_obey_frozen_limit`、`tests/life/test_candidate_contract_boundaries.py::test_public_window_has_only_currently_bound_objects` |
 | 查询全集分页无损、false 与零保留；不改变世界、时钟、持久存储或呈现凭据 | `tests/life/test_world_query.py::test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero`、`tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged` |
 | 轮转不改目录或对象状态、不下架；未展示间隔遵循精确上界 | `tests/life/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting`、`tests/life/test_rotation.py::test_worst_case_unpresented_interval_is_bounded_by_exact_form`、`tests/life/test_rotation.py::test_exact_bound_is_not_the_continuous_relaxation` |
-| 分区缺键与场景恒不可行在准入时拒绝；检索不保证展示 | `tests/catalog/test_reachability_admission.py`、`tests/life/test_retrieval.py::test_reachability_does_not_promise_exposure` |
+| 内容不再进入检索分区；每条内容通过至少一个 app 绑定可达，绑定缺失或未知在目录登记时拒绝 | `tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample`、`tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes` |
 | 曝光凭据由提交写入本秒暂存，推进时钟后写入正式轮转状态，恢复保留 | `tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps`、`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` |
 
 <a name="spec-life-realism-版本表"></a>
@@ -1312,3 +1299,4 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订「七层请求」的「待办层」：`paused_activities[].tools` 中恢复的可用性按受理的次序判定，人在别处时原因点名地点，名额被进行中与待收尾的活动占满时标不可用、原因与 `SESSION_LIMIT_EXCEEDED` 同文；暂停的活动不占名额；文件头补修订说明、日期改为 2026-10-06 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐目标统一为 app；内容以五类、摘要、时长和 app 绑定准入；工具层、进度层与素材可达性改为 app 内容和 app 推送协议 |

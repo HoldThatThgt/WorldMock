@@ -1,31 +1,23 @@
-"""@brief 按实际接触区间揭示字幕、邮件和商品目录内容。"""
+"""@brief 管理 app 内容抽取、全局消费进度与生活活动、邮件内容。"""
 
 from __future__ import annotations
 
 from worldmock.corpora.manifest import safe_file
-import hashlib
 import json
 import logging
 import math
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Mapping
 from types import MappingProxyType
 
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.life.models import ActivityState, AgentState, ContentProgress
-from worldmock.life.scenario import ContentItemConfig, MessageConfig
-
-
-@dataclass(frozen=True, slots=True)
-class SubtitleCue:
-    """@brief SRT 时间轴中的一个可揭示字幕片段。"""
-
-    cue_id: int
-    start_seconds: float
-    end_seconds: float
-    text: str
+from worldmock.catalog.models import Catalog, Content
+from worldmock.exchange.types import CONTENT_KIND_LABELS
+from worldmock.life import randomness
+from worldmock.life.app_push import open_app_push, release_app_pushes
+from worldmock.life.models import ActivityState, AgentState, ContentProgress, WorldState
+from worldmock.life.scenario import MessageConfig
 
 
 def validate_lifestyle_effects(effects: Mapping[str, float]) -> None:
@@ -69,15 +61,6 @@ def _time_window(row: dict) -> tuple[int, int] | None:
     if window is None:
         return None
     return (int(window["start_hour"]), int(window["end_hour"]))
-
-
-#: 「接着看」的最短剩余：已看完或剩余不足 60 秒的内容给全长并从头派生（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「呈现」）。
-CONTENT_RESUME_MINIMUM_SECONDS = 60
-
-
-def restarts_from_beginning(position_seconds: float, duration_seconds: float) -> bool:
-    """@brief 内容是否从头再看：已看完或剩余不足 60 秒；否则接着看，从上次位置开始、时长取剩余。"""
-    return duration_seconds - position_seconds < CONTENT_RESUME_MINIMUM_SECONDS
 
 
 #: 生活活动目录语料路径（相对 corpus root）。
@@ -125,54 +108,106 @@ def _lifestyle_item(row: object) -> LifestyleItem:
         raise IntegrityError(f"Lifestyle catalog row is invalid: {error}") from error
 
 
-def load_content_titles(items: tuple[ContentItemConfig, ...]) -> dict[str, str]:
-    """@brief 直接投影当前环境场景中已校验的内容标题。"""
-    return {item.item_id: item.title for item in items}
+def load_content_titles(items: tuple[Content, ...]) -> dict[str, str]:
+    """@brief 直接投影登记内容的可读标题。"""
+    return {item.content_id: item.title for item in items}
 
 
-def load_subtitles(item: ContentItemConfig, corpus_root: Path) -> tuple[SubtitleCue, ...]:
-    """@brief 校验字幕身份并解析完整 SRT 时间轴。"""
-    if item.kind == "podcast_episode":
-        audio = safe_file(corpus_root, item.audio_path, "Content file path is invalid")
-        if hashlib.sha256(audio.read_bytes()).hexdigest() != item.audio_sha256:
-            raise IntegrityError("Podcast audio hash mismatch")
-    path = safe_file(corpus_root, item.timeline_path, "Content file path is invalid")
-    content = path.read_bytes()
-    if hashlib.sha256(content).hexdigest() != item.timeline_sha256:
-        raise IntegrityError("Content timeline hash mismatch")
-    blocks = re.split(r"\r?\n\r?\n", content.decode("utf-8-sig").strip())
-    try:
-        cues = tuple(_parse_block(block) for block in blocks)
-    except Exception as error:
-        raise IntegrityError("Subtitle timeline is invalid") from error
-    if not cues or any(left.end_seconds > right.start_seconds for left, right in zip(cues, cues[1:])):
-        raise IntegrityError("Subtitle timeline is empty or overlaps")
-    return cues
 
 
-def reveal_watch(activity: ActivityState, agent: AgentState, item: ContentItemConfig,
-                 cues: tuple[SubtitleCue, ...]) -> tuple[AgentState, dict]:
-    """@brief 只返回本次实际媒体位置新跨过的字幕。"""
-    previous = agent.content_progress.get(item.item_id)
-    start = activity.data.get("last_revealed_position_seconds",
-                              activity.data.get("start_position_seconds", 0))
-    stop = min(item.duration_seconds, activity.media_position_seconds)
-    if item.kind == "podcast_episode":
-        visible = [cue for cue in cues if start < cue.end_seconds <= stop]
-    else:
-        visible = [cue for cue in cues if cue.start_seconds < stop and cue.end_seconds > start]
-    count = activity.data["exposure_count"]
-    progress = ContentProgress(item_id=item.item_id, position_seconds=stop, exposure_count=count)
-    mapping = dict(agent.content_progress)
-    mapping[item.item_id] = progress
-    changed = agent.model_copy(update={"content_progress": mapping}, deep=True)
-    activity.data["last_revealed_position_seconds"] = stop
-    data = {"experience": item.experience_label, "position_before_seconds": start,
-            "position_after_seconds": stop,
-            "cues": [{"cue_id": cue.cue_id, "start_seconds": cue.start_seconds,
-                      "end_seconds": cue.end_seconds, "text": cue.text} for cue in visible],
-            "exposure_count": count}
-    return changed, data
+def choose_app_content(catalog: Catalog, app_id: str, random_state: str, key: str) -> Content:
+    """@brief 只从所选 app 排序后的绑定内容均匀抽取，不排除已完成内容。"""
+    candidates = sorted(catalog.contents_by_app[app_id])
+    if not candidates:
+        logging.error("Selected app has no content: %s", app_id)
+        raise BusinessRuleError("APP_CONTENT_EMPTY")
+    stream = randomness.random_stream(random_state, key)
+    return catalog.contents[candidates[stream.randrange(len(candidates))]]
+
+
+def _content_snapshot(agent: AgentState, activity: ActivityState, item: Content,
+                      pinned_by_push_id: str | None) -> ActivityState:
+    """@brief 从全局位置建立当前内容快照，并立即排出静默内容边界。"""
+    progress = agent.content_progress.get(item.content_id)
+    position = progress.position_seconds if progress is not None else 0
+    repeat = progress is not None and progress.completed_rounds >= 1
+    data = {**activity.data, "app_id": activity.target_id, "content_id": item.content_id,
+            "content_kind": item.kind.value, "summary": item.summary, "start_position_seconds": position,
+            "pinned_by_push_id": pinned_by_push_id, "repeat": repeat}
+    next_at = min(activity.last_settled_at + math.ceil(item.duration_seconds - position), activity.planned_end_at)
+    return activity.model_copy(update={"data": data, "media_position_seconds": position,
+                                       "next_interaction_at": next_at, "boundary_type": None}, deep=True)
+
+
+def initialize_app_usage(state: WorldState, activity: ActivityState, catalog: Catalog,
+                         action_id: str) -> WorldState:
+    """@brief 准入成功后打开当前会话推送，或按打开键选择内容并创建快照。"""
+    changed, push = open_app_push(state, activity.agent_id, activity.target_id)
+    changed = changed.model_copy(deep=True)
+    item = (catalog.contents[push.content_id] if push is not None else choose_app_content(
+        catalog, activity.target_id, state.random_state, f"{action_id}:{activity.target_id}"))
+    activity = activity.model_copy(update={"data": {"draw_index": 0, "played": []}}, deep=True)
+    changed.activities[activity.activity_id] = _content_snapshot(
+        changed.agents[activity.agent_id], activity, item, push.push_id if push is not None else None)
+    return changed
+
+
+def app_content_result(activity: ActivityState, catalog: Catalog) -> dict:
+    """@brief 把已经实际选中的内容投影为封闭的公开动作结果。"""
+    item = catalog.contents[activity.data["content_id"]]
+    return {"app": catalog.apps[activity.target_id].name, "title": item.title,
+            "kind": CONTENT_KIND_LABELS[item.kind], "summary": item.summary,
+            "pushed": activity.data["pinned_by_push_id"] is not None}
+
+
+def resume_app_usage(state: WorldState, activity: ActivityState, catalog: Catalog) -> WorldState:
+    """@brief 保留当前内容，从最新全局位置恢复；恢复本身不消费也不释放推送。"""
+    changed = state.model_copy(deep=True)
+    item = catalog.contents[activity.data["content_id"]]
+    changed.activities[activity.activity_id] = _content_snapshot(
+        changed.agents[activity.agent_id], activity, item, activity.data["pinned_by_push_id"])
+    return changed
+
+
+def store_app_progress(agent: AgentState, activity: ActivityState) -> AgentState:
+    """@brief 把当前真实游标写入全局进度，保留已经完成的轮数。"""
+    content_id = activity.data["content_id"]
+    previous = agent.content_progress.get(content_id)
+    progress = ContentProgress(content_id=content_id, position_seconds=activity.media_position_seconds,
+                               completed_rounds=previous.completed_rounds if previous is not None else 0)
+    return agent.model_copy(update={"content_progress": {**agent.content_progress, content_id: progress}}, deep=True)
+
+
+def settle_app_usage(state: WorldState, activity: ActivityState, catalog: Catalog,
+                     position_before: float) -> tuple[WorldState, dict]:
+    """@brief 每个真实推进区间写全局进度；真实完成增加一轮、解除推送并静默接续。"""
+    changed = state.model_copy(deep=True)
+    item = catalog.contents[activity.data["content_id"]]
+    completed = activity.media_position_seconds >= item.duration_seconds
+    agent = store_app_progress(changed.agents[activity.agent_id], activity)
+    progress = agent.content_progress[item.content_id]
+    if completed:
+        progress = progress.model_copy(update={"position_seconds": 0,
+                                               "completed_rounds": progress.completed_rounds + 1})
+        agent.content_progress[item.content_id] = progress
+        activity = activity.model_copy(update={"data": {**activity.data, "played": [*activity.data["played"], {
+            "content_id": item.content_id, "kind": item.kind.value,
+            "from_position": activity.data["start_position_seconds"], "to_position": item.duration_seconds}]}},
+            deep=True)
+    changed.agents[agent.agent_id] = agent
+    evidence = {"content_id": item.content_id, "app_id": activity.target_id, "kind": item.kind.value,
+                "position_before_seconds": position_before, "position_after_seconds": activity.media_position_seconds,
+                "completed": completed, "completed_rounds_after": progress.completed_rounds}
+    if completed:
+        changed = release_app_pushes(changed, agent.agent_id, item.content_id)
+        if activity.last_settled_at < activity.planned_end_at:
+            draw_index = activity.data["draw_index"] + 1
+            activity.data["draw_index"] = draw_index
+            following = choose_app_content(catalog, activity.target_id, changed.random_state,
+                                           f"{activity.activity_id}:{draw_index}")
+            activity = _content_snapshot(agent, activity, following, None)
+    changed.activities[activity.activity_id] = activity
+    return changed, evidence
 
 
 def reveal_mail(activity: ActivityState, agent: AgentState,
@@ -202,19 +237,3 @@ def mail_headers(agent: AgentState, messages: dict[str, MessageConfig]) -> list[
             record["body"] = message.body
         result.append(record)
     return result
-
-
-def _parse_block(block: str) -> SubtitleCue:
-    """@brief 解析一个严格三段式 SRT block。"""
-    lines = block.splitlines()
-    if len(lines) < 3 or " --> " not in lines[1]:
-        raise ValueError("invalid SRT block")
-    start, end = lines[1].split(" --> ", 1)
-    return SubtitleCue(int(lines[0]), _srt_seconds(start), _srt_seconds(end), "\n".join(lines[2:]))
-
-
-def _srt_seconds(value: str) -> float:
-    """@brief 将 SRT 时间戳转换为秒。"""
-    hours, minutes, tail = value.split(":")
-    seconds, millis = tail.split(",")
-    return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(millis) / 1000

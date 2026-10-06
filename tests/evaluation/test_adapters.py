@@ -230,28 +230,33 @@ def test_worldmock_activity_duration_uses_the_same_consume_category(evaluation_f
 
 
 @pytest.mark.parametrize("activity_type,claims,digital", [
-    ("watch", ["ears", "eyes"], True),
-    ("watch", ["ears"], True),
-    ("work", ["idle", "work"], True),
-    ("play_game", ["eyes", "hands"], True),
-    ("read_mail", ["eyes", "hands"], True),
-    ("browse", [], True),
-    ("consume", ["hands"], False),
-    ("travel", ["eyes", "hands", "idle", "travel"], False),
-    ("chat", ["ears", "voice"], False),
-    ("wait", ["device", "internet", "phone"], False),
+    ("use_app", ["use_app"], True),
+    ("use_app", [], True),
+    ("work", ["work"], True),
+    ("read_mail", ["read_mail"], True),
+    ("consume", ["consume"], False),
+    ("travel", ["travel", "use_app"], False),
+    ("chat", ["talk"], False),
+    ("wait", ["wait"], False),
 ])
 def test_digital_interaction_follows_activity_type_regardless_of_claim_names(
-    evaluation_fixture, activity_type, claims, digital,
+    activity_type, claims, digital,
 ) -> None:
-    """数字交互只按活动类型判定（工作、观看、游戏、读信、浏览），与占用名无关：占用重列后播客只占 ears、
-    驾车也占 eyes 与 hands（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）；占用原样保留为来源通道。"""
-    scenario = load_scenario(evaluation_fixture.scenario_path)
+    """@brief 工作、使用应用与读信属于数字交互；驾车占用应用资源也不改变其出行类型。"""
+    from types import SimpleNamespace
+    from worldmock.evaluation.models import TimeWindow
+
+    start = datetime(2026, 1, 5, tzinfo=timezone.utc)
+    window = TimeWindow(start, start + timedelta(days=1), "UTC")
+    scenario = SimpleNamespace(window=window, official_domain_map={}, worldmock_activity_map={
+        "use_app": "entertainment", "work": "work", "read_mail": "entertainment",
+        "consume": "meal", "travel": "commute", "chat": "social", "wait": "rest",
+    })
     delivery = VerifiedDelivery(
         "world-run", "world-dataset", scenario.window, Path("events.jsonl"),
         Path("activities.jsonl"), {}, {}, ("world-run",),
     )
-    row, _ = _world_activity("world-run", 1, scenario.window.start + timedelta(hours=9))
+    row, _ = _world_activity("world-run", 1, scenario.window.start + timedelta(hours=9), activity_type="wait")
     row.update(activity_type=activity_type, resource_claims=claims)
     if activity_type == "consume":
         row["data"] = {"request": {"use_mode": "eat"}}
@@ -497,7 +502,7 @@ def test_graph_travel_result_projects_trip_identity_and_full_path():
     from worldmock.life.world_setup import load_runtime_scenario
 
     _, _, state, trip = travel_case("driving")
-    snapshot = activity_snapshot(state.activities["travel-1"], TitleIndex({}, {}, {}, {}, {}), ())
+    snapshot = activity_snapshot(state.activities["travel-1"], TitleIndex({}, {}, {}, {}, {}, {}), ())
     request = _public_event(1, "action_requested", {"tool_name": "start_activity", "request": {
         "items": [{"target": "地点：公司", "way": "驾车", "from": None, "to": None}],
         "answering": None, "prefer": None}}, "action-1")

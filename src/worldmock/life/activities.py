@@ -16,7 +16,9 @@ from worldmock.life.body import (
     BodySettlement,
     settle_body,
 )
-from worldmock.life.content import validate_lifestyle_effects
+from worldmock.exchange.constants import CONTENT_RELIEF_PER_HOUR
+from worldmock.exchange.types import ContentKind
+from worldmock.life.content import store_app_progress, validate_lifestyle_effects
 from worldmock.life.models import (
     ActivityChange,
     ActivityKind,
@@ -123,7 +125,6 @@ def start_activity(agent: AgentState, request: ActivityStartParams, now: int, or
         target_id=request.target_id,
         destination_id=request.destination_id,
         travel_mode=request.travel_mode,
-        playback_speed=request.playback_speed,
         resource_claims=resource_claims(request),
         origin_action_id=origin.action_id,
         origin_decision_id=origin.decision_id,
@@ -135,7 +136,7 @@ def start_activity(agent: AgentState, request: ActivityStartParams, now: int, or
 
 def change_activity(agent: AgentState, activity: ActivityState, request: ChangeActivityRequest,
                     now: int, feedback_seconds: int) -> tuple[AgentState, ActivityState]:
-    """@brief 对暂停、恢复、退出和倍速变化执行显式状态转换。"""
+    """@brief 对暂停、恢复和退出执行显式状态转换。"""
     if activity.agent_id != agent.agent_id or activity.activity_id != request.activity_id:
         raise BusinessRuleError("ACTIVITY_NOT_OWNED")
     if request.operation == ActivityChange.PAUSE:
@@ -144,15 +145,9 @@ def change_activity(agent: AgentState, activity: ActivityState, request: ChangeA
     if request.operation == ActivityChange.RESUME:
         resumed_agent, resumed = _resume(agent, activity, now, request.resume_cap_seconds)
         return resumed_agent, schedule_feedback(resumed, now, feedback_seconds)
-    if request.operation == ActivityChange.CANCEL:
-        if activity.status == ActivityStatus.ACTIVE:
-            _require_decision_boundary(agent, activity, now)
-        return _cancel(agent, activity)
-    if activity.kind != ActivityKind.WATCH or activity.status != ActivityStatus.ACTIVE:
-        raise BusinessRuleError("PLAYBACK_SPEED_NOT_ALLOWED")
-    _require_decision_boundary(agent, activity, now)
-    changed = activity.model_copy(update={"playback_speed": request.playback_speed}, deep=True)
-    return agent.model_copy(deep=True), schedule_feedback(changed, now, feedback_seconds)
+    if activity.status == ActivityStatus.ACTIVE:
+        _require_decision_boundary(agent, activity, now)
+    return _cancel(agent, activity)
 
 
 def schedule_feedback(activity: ActivityState, now: int, feedback_seconds: int) -> ActivityState:
@@ -248,15 +243,11 @@ def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> t
     return changed, agent.model_copy(deep=True)
 
 
-def resource_claims(request: ActivityStartParams, content_kind: str | None = None) -> set[str]:
-    """@brief 从注册表取得活动显式占用及条件占用（驾车按出行方式，观看按内容品类：播客只占 ears）。
-
-    :param content_kind: 观看内容的品类（rules.validate_start 从场景内容取得并写入 activity.data）；其余活动为 None。
-    """
+def resource_claims(request: ActivityStartParams) -> set[str]:
+    """@brief 从注册表取得活动占用；驾车按出行方式声明额外占用。"""
     return set(_AFFORDANCES.resource_claims(
         request.activity_type.value,
-        travel_mode=request.travel_mode.value if request.travel_mode is not None else None,
-        content_kind=content_kind))
+        travel_mode=request.travel_mode.value if request.travel_mode is not None else None))
 
 
 def shared_activity_factors(activity: ActivityState, agent: AgentState,
@@ -271,58 +262,26 @@ def shared_activity_factors(activity: ActivityState, agent: AgentState,
 
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
-    """@brief 从方式和人物内容偏好形成活动结算系数。"""
+    """@brief 从活动方式和当前内容类型形成结算系数。"""
     met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
-    channel = _AFFORDANCES.relief_channel(activity.kind.value)
-    preference = agent.taste_weights.get(activity.target_id or "", 0) if channel != "none" else 0
-    relief = entertainment_relief_rate(activity, preference, config)
+    relief = entertainment_relief_rate(activity, config)
     skill, tool = _work_factors(activity, agent, config)
     food = _food_energy_rate(activity)
     return ActivityFactors(met, relief, skill, tool, food)
 
 
-def relief_preference(weight: float, floor: float) -> float:
-    """@brief 实际缓解用的有效偏好 f + (1 − f)·w（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ）。
-
-    偏好只调幅度、不决定有无：w = 0（不喜欢或没有题材声明）按下限 f 缓解，w = 1 不变，对 w 严格单调；
-    不用 max(w, f)，那会把低于 f 的权重拉成并列。只作用于实际缓解与评分器里同口径的缓解预演，
-    全部排序仍用原始口味权重 w。
-
-    @param weight 原始口味权重 w（taste_weights，缺项按 0）
-    @param floor 下限偏好 f，取值 (0, 1)（场景 body.entertainment_relief_preference_floor）
-    @return 有效偏好
-    """
-    return floor + (1 - floor) * weight
+def entertainment_relief_rate(activity: ActivityState, config: BodyConfig) -> float:
+    """@brief app 按当前内容类型固定缓解，生活活动按冻结效果缓解。"""
+    if activity.kind == ActivityKind.USE_APP:
+        return content_entertainment_relief_rate(activity.data["content_kind"])
+    if activity.kind == ActivityKind.LIFESTYLE:
+        return lifestyle_relief_rates(_frozen_lifestyle_effects(activity))[0]
+    return 0.0
 
 
-def entertainment_relief_rate(activity: ActivityState, preference: float, config: BodyConfig) -> float:
-    """@brief 按注册表缓解通道（kinds.*.relief.channel 三值）计算娱乐缓解速率。
-
-    content_rate：watch 按条目费率 × 有效偏好 ÷ 接触次数。preference_rate：有效偏好 × 目录费率（play_game）。
-    有效偏好由原始口味权重经 relief_preference 与场景下限偏好折算（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，
-    裁决 S1：游戏与内容同一算法）。none：lifestyle 按条目 effects 折算缓解
-    （docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
-    none——effects 是条目级数据，不在目录活动费率表内），其余活动没有缓解。
-    """
-    channel = _AFFORDANCES.relief_channel(activity.kind.value)
-    if channel == "none":
-        if activity.kind == ActivityKind.LIFESTYLE:
-            return lifestyle_relief_rates(_frozen_lifestyle_effects(activity))[0]
-        return 0.0
-    if channel == "content_rate":
-        return content_entertainment_relief_rate(activity.data.get("entertainment_relief_per_hour"),
-                                                 activity.data.get("exposure_count"), preference, config)
-    effective = relief_preference(preference, config.entertainment_relief_preference_floor)
-    return effective * config.entertainment_relief_per_hour.get(activity.kind.value, 0)
-
-
-def content_entertainment_relief_rate(rate, exposure_count, preference: float, config: BodyConfig) -> float:
-    """@brief 内容费率乘有效偏好并按接触次数分摊；预估与结算严格校验同一证据。"""
-    if (type(rate) not in (int, float) or not math.isfinite(rate) or rate < 0
-            or type(exposure_count) is not int or exposure_count < 1):
-        logging.error("Watch activity entertainment evidence is incomplete")
-        raise ValueError("watch activity entertainment evidence is incomplete")
-    return float(rate) * relief_preference(preference, config.entertainment_relief_preference_floor) / exposure_count
+def content_entertainment_relief_rate(kind: str) -> float:
+    """@brief 内容类型只读系统固定缓解常数，不引入口味或接触次数。"""
+    return CONTENT_RELIEF_PER_HOUR[ContentKind(kind)]
 
 
 def _work_factors(activity: ActivityState, agent: AgentState,
@@ -368,16 +327,15 @@ def _advanced_activity(activity: ActivityState, stop: int, elapsed: int,
     media = activity.media_position_seconds
     if activity.kind == ActivityKind.WORK:
         work += settlement.duration_seconds * settlement.work_efficiency
-    if activity.kind == ActivityKind.WATCH:
-        media += settlement.duration_seconds * activity.playback_speed
+    if activity.kind == ActivityKind.USE_APP:
+        media += stop - activity.last_settled_at
     updates = {"last_settled_at": stop, "elapsed_seconds": elapsed, "effective_work_seconds": work,
                "media_position_seconds": media}
     if completed:
         updates.update(status=ActivityStatus.COMPLETED, boundary_type="planned_end", ended_at=stop,
                        next_interaction_at=None)
     elif activity.next_interaction_at == stop:
-        boundary = "game_feedback" if activity.kind == ActivityKind.PLAY_GAME else "feedback"
-        updates.update(boundary_type=boundary)
+        updates.update(boundary_type=None if activity.kind == ActivityKind.USE_APP else "feedback")
     return activity.model_copy(update=updates, deep=True)
 
 
@@ -385,6 +343,8 @@ def _pause(agent: AgentState, activity: ActivityState, now: int) -> tuple[AgentS
     """@brief 暂停指定活动并释放其显式资源；写入暂停时刻 paused_at（待办层按它排序）。"""
     if activity.status != ActivityStatus.ACTIVE:
         raise BusinessRuleError("ACTIVITY_NOT_ACTIVE")
+    if activity.kind == ActivityKind.USE_APP:
+        agent = store_app_progress(agent, activity)
     return (agent.model_copy(deep=True),
             activity.model_copy(update={"status": ActivityStatus.PAUSED,
                                         "boundary_type": "paused",
@@ -430,9 +390,8 @@ def at_decision_boundary(activity: ActivityState, now: int) -> bool:
     """
     if activity.status != ActivityStatus.ACTIVE:
         return False
-    if activity.kind == ActivityKind.PLAY_GAME:
-        return activity.next_interaction_at == now and activity.boundary_type == "game_feedback"
-    return activity.kind in FEEDBACK_ACTIVITY_KINDS and now >= activity.last_settled_at
+    return (activity.kind in FEEDBACK_ACTIVITY_KINDS or activity.kind == ActivityKind.USE_APP) and (
+        now >= activity.last_settled_at)
 
 
 def _require_decision_boundary(agent: AgentState, activity: ActivityState, now: int) -> None:

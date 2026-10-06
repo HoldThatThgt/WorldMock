@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall
 from worldmock.life.world_ops import _failure_draft
 from worldmock.life.world_ops import _put_agent
-from worldmock.life.world_ops import _put_agent_and_defer_game_turn
 from worldmock.life.world_ops import _request_sha
 
 import logging
@@ -414,16 +413,7 @@ class DecisionCoordinator:
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
         """@brief 受理计入同刻轮数并清零连续拒绝，按同刻规则或决策节律安排下一次决策（第一章规则 2、4、7）。"""
         agent = same_moment.count_round(state.agents[agent_id])
-        game = next(
-            (
-                item
-                for item in active_activities(state, agent_id)
-                if item.kind == ActivityKind.PLAY_GAME and item.next_interaction_at is not None
-            ),
-            None,
-        )
-        game_turn = (lambda: game.next_interaction_at) if game is not None else None
-        (next_at, reasons, stage) = self._round_schedule(state, agent, None, game_turn)
+        (next_at, reasons, stage) = self._round_schedule(state, agent, None)
         changed = agent.model_copy(
             update={
                 "next_decision_at": next_at,
@@ -490,7 +480,7 @@ class DecisionCoordinator:
                 "pending_wake_reasons": reasons, "same_moment_stage": stage, "body": body,
             }, deep=True,
         )
-        changed = _put_agent_and_defer_game_turn(state, changed_agent)
+        changed = _put_agent(state, changed_agent)
         logging.info("Action rejected: %s", rejection_reason_text(error))
         guidance = rejection_guidance(error)
         guidance.update(
@@ -555,7 +545,7 @@ class DecisionCoordinator:
         agent = agent.model_copy(
             update={"next_decision_at": next_at, "pending_wake_reasons": reasons, "same_moment_stage": stage}, deep=True
         )
-        changed = _put_agent_and_defer_game_turn(state, agent)
+        changed = _put_agent(state, agent)
         return (changed, result, [first, second, *self.actions.drain_drafts()])
 
     def _decision_self_note(self, context: "DecisionContext") -> str | None:

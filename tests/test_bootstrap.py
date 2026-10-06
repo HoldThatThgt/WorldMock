@@ -155,8 +155,7 @@ def test_exported_dependency_versions_and_all_hashes_match_original_lock(lock, e
         artifacts = [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]
         assert hashes == {artifact["hash"] for artifact in artifacts}
     if export == "lock.txt":
-        textworld = [marker for name, version, marker in rows if name == "textworld"]
-        assert textworld == [" ; sys_platform != 'win32'"]
+        assert "textworld" not in {name for name, version, marker in rows}
         assert ("hatchling", "1.32.4") in originals
 
 

@@ -71,7 +71,7 @@ class Contact(_SocialModel):
 class AgentPresence(_SocialModel):
     """@brief 同世界其他人物的在场事实（引擎观察侧输入）。
 
-    awake 与 actively_gaming 由引擎按活动状态推导；本模块只消费判定。
+    awake 由引擎按活动状态推导；本模块只消费判定。
     """
 
     agent_id: str
@@ -79,7 +79,6 @@ class AgentPresence(_SocialModel):
     location: str
     activity_family: str
     awake: bool
-    actively_gaming: bool
 
 
 class PersonView(_SocialModel):
@@ -232,8 +231,8 @@ class ContactReply(_SocialModel):
 
 
 def can_talk(presence: AgentPresence) -> bool:
-    """@brief 可交谈判定：清醒且非主动游戏（「社交最小可行版」）。"""
-    return presence.awake and not presence.actively_gaming
+    """@brief 可交谈判定：人物清醒（「社交最小可行版」）。"""
+    return presence.awake
 
 
 def people_here(agent_location: str,

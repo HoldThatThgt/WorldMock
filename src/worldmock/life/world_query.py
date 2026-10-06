@@ -141,10 +141,6 @@ def _category(context: Any, binding: dict | None) -> str | None:
     if kind in {"supply", "holding"}:
         food_id = binding["food_id"] if kind == "supply" else identity
         return FOOD_CATEGORY_LABELS[context.semantics.catalog.foods[food_id].category]
-    if kind == "content" or kind == "game" and identity in context.rules.contents:
-        return BROWSE_LABELS[context.rules.contents[identity].kind]
-    if kind == "game":
-        return BROWSE_LABELS["game_session"]
     return None
 
 

@@ -10,6 +10,7 @@ from worldmock.catalog.affordances import AffordanceView
 from worldmock.errors import IntegrityError
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.content import load_lifestyle_items
+from worldmock.life.app_push import validate_app_pushes
 from worldmock.life.models import WorldState
 from worldmock.life.run_identity import require_environment_identity
 from worldmock.life.scenario import RuntimeScenario
@@ -23,18 +24,17 @@ if TYPE_CHECKING:
     from worldmock.life.rules import LifeRuleEngine
 
 
-#: 观察合同条目的五键闭集；宿主与环境校验同一形状。
+#: 观察合同条目的四键闭集；宿主与环境校验同一形状。
 AFFORDANCE_CONTRACT_KEYS = frozenset({
-    "action", "target_discovery", "target_field", "feedback_eligible", "game_boundary"})
+    "action", "target_discovery", "target_field", "feedback_eligible"})
 
 
 def affordance_contract(view: AffordanceView) -> dict[str, dict]:
     """@brief 从可供性派生视图构造观察合同冻结块（docs/design/02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎「可供性与活动声明」）。
 
-    合同随场景组装后不变，键集见 AFFORDANCE_CONTRACT_KEYS；游戏继续交互走 game_boundary。
+    合同随场景组装后不变，键集见 AFFORDANCE_CONTRACT_KEYS。
     """
     feedback = view.feedback_kinds
-    game = view.game_boundary_kinds
     contract: dict[str, dict] = {}
     for name, spec in view.kinds.items():
         contract[name] = {
@@ -44,7 +44,6 @@ def affordance_contract(view: AffordanceView) -> dict[str, dict]:
                 [spec.target_field, spec.target_id_key] if spec.target_discovery == "catalog_field" else None
             ),
             "feedback_eligible": name in feedback,
-            "game_boundary": name in game,
         }
     return contract
 
@@ -84,7 +83,7 @@ class EngineContext:
         self.affordance_contract = affordance_contract(self.semantics.affordances)
         self.lifestyle_items = load_lifestyle_items(self.corpus_root, self.scenario.body.activity_met)
         names = {item.activity_id: item.name for item in self.lifestyle_items}
-        self.titles = title_index(self.scenario, names, self.rules.content_titles)
+        self.titles = title_index(self.scenario, names, self.semantics.catalog)
         self.state = WorldState.model_validate(self.store.state)
         self.ops = OpsLogger(self.store.run_dir, self.scenario.timezone)
         self.validate()
@@ -111,6 +110,7 @@ class EngineContext:
 
         validate_activity_targets(self.state, self.rules, self.scenario)
         self._validate_inventory_foods()
+        validate_app_pushes(self.state, self.semantics.catalog)
 
     def _validate_inventory_foods(self) -> None:
         """@brief 恢复的持有食品必须存在于当前冻结环境。"""

@@ -14,7 +14,7 @@ def test_fresh_checkout_disables_submodules_ssh_and_pip_cache(tmp_path, monkeypa
     monkeypatch.setattr(fresh.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)))
     monkeypatch.setattr(fresh.subprocess, "check_output", lambda *args, **kwargs: "locked-commit\n")
     monkeypatch.setattr(fresh, "quick_check", lambda *args: {"passed": True, "code_sha256": "a" * 64})
-    monkeypatch.setattr(fresh, "python312", lambda: ["python3.12"])
+    monkeypatch.setattr(fresh, "python_command", lambda: ["python3.12"])
     result = fresh.fresh_check("https://example.invalid/repo", "locked-commit", wheelhouse=tmp_path)
     assert "--no-recurse-submodules" in calls[0][0]
     assert calls[1][0] == ["git", "checkout", "--detach", "locked-commit"]

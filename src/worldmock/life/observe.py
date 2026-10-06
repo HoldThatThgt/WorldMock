@@ -14,7 +14,6 @@ from worldmock.life.work import work_totals as totals
 from worldmock.life.models import ActivityKind, ActivityStatus
 from worldmock.life.models import LIFESTYLE_TYPE_PREFIX
 from worldmock.life.readable import _datetime
-from worldmock.life.content import SubtitleCue
 from math import ceil
 from worldmock.life.models import ActivityKind
 
@@ -41,6 +40,7 @@ from worldmock.life import (
     projection,
     relevance,
     request_linking,
+    sessions,
 )
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation, TravelMode
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
@@ -69,7 +69,7 @@ class ObservationBuilder:
 
         商品呈现经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，同一秒各轮沿用该秒首轮的
         呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「进度层」）。
-        工具层另附只列名称的可调用索引（callable_index：内容、游戏与生活活动窗口资格段保留的全部条目，此刻从这里能得到的
+        工具层另附只列名称的可调用索引（callable_index：生活活动窗口资格段保留的全部条目，此刻从这里能得到的
         商品，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）：它不是候选条目，不计入单次呈现上限，也不写呈现留痕。
         """
         config = agent_config(self.context.scenario, agent.agent_id)
@@ -190,8 +190,7 @@ class ObservationBuilder:
         }
 
     def _projection_extras(self, agent, product_rows: list[dict], menu: dict[str, PresentationWindow]) -> dict:
-        """@brief 装配私有绑定的只读辅助输入：有效菜单（菜单外的能力不列出）、手边持有物中的库存转换配方（列「制作」）、
-        路线、可达地点、本轮呈现的商品、内容、游戏与生活活动，以及活动控制行。"""
+        """@brief 装配私有绑定的只读辅助输入：有效菜单（菜单外的能力不列出）、路线、可达地点、本轮呈现的食品与生活活动，以及活动控制行。"""
         return {
             "interaction_menu": resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id),
             "content_titles": self.context.rules.content_titles,
@@ -200,8 +199,6 @@ class ObservationBuilder:
             "reachable_places": self._reachable_places(agent),
             "product_rows": product_rows,
             "activity_rows": self._activity_rows(agent),
-            "content_rows": list(menu["content"].items),
-            "game_rows": list(menu["game"].items),
             "lifestyle_rows": list(menu["lifestyle"].items),
         }
 
@@ -237,9 +234,10 @@ class ObservationBuilder:
         """@brief 固定菜单一次形成真实食品呈现窗口，候选排序不读取口味或报价。"""
         context = self._presentation_context(agent)
         entries = self._product_pool(agent)
-        inputs = presentation.candidate_inputs(context, presentation.entry_sources(entries), moment=False,
-                                               last_presented_at={entry.object_id: self._last_presented(agent.agent_id).get(
-                                                   entry.row["food_id"], 0) for entry in entries})
+        inputs = presentation.candidate_inputs(
+            context, presentation.entry_sources(entries), moment=False,
+            last_presented_at={entry.object_id: self._last_presented(agent.agent_id).get(
+                entry.row["food_id"], 0) for entry in entries})
         window = presentation.present(entries, inputs, "product", None)
         return {"products": list(window.items), "window": window}
 
@@ -260,8 +258,6 @@ class ObservationBuilder:
         facts = self._relevance_facts(self.context.state, agent)
         windows: dict[str, PresentationWindow] = {}
         for kind, entries in (
-            ("content", self._content_pool(agent)),
-            ("game", self._game_pool(agent)),
             ("lifestyle", self._lifestyle_pool(agent)),
         ):
             inputs = presentation.candidate_inputs(
@@ -336,7 +332,15 @@ class ObservationBuilder:
         data["routes"] = _route_catalog(
             self.context.scenario, self.context.state, agent.agent_id, self.context.semantics
         )
-        data["game_catalog"] = _game_catalog(self.context.scenario)
+        catalog = self.context.semantics.catalog
+        data["apps"] = [{"app_id": app.app_id, "name": app.name,
+                         "content_count": len(catalog.contents_by_app[app.app_id])}
+                        for app in catalog.apps.values()]
+        data["contents"] = [{"content_id": item.content_id, "title": item.title, "kind": item.kind.value}
+                            for item in catalog.contents.values()]
+        session = sessions.current_session(self.context.state, agent.agent_id)
+        data["app_pushes"] = ({key: push.model_dump(mode="json") for key, push in session.app_pushes.items()}
+                              if session is not None else {})
         data["calendar_context"] = _calendar_context(self.context.scenario, self.context.state.current_time)
         data["locations"] = _location_catalog(self.context.scenario)
         return data
@@ -512,18 +516,13 @@ class ObservationBuilder:
             location_ids=frozenset(place.location_id for place in self.context.scenario.locations),
             menu=resolve_interaction_menu(self.context.scenario, agent.agent_id, agent.location_id),
             tasks=tuple(tasks), task_totals={task.task_id: totals(self.context.state, agent.agent_id, task.task_id)
-                                          for task in tasks}, contents=tuple(self.context.scenario.contents),
-            content_category_counts={kind: sum(item.kind == kind for item in self.context.scenario.contents)
-                                     for kind in {item.kind for item in self.context.scenario.contents}},
-            content_progress=agent.content_progress,
+                                          for task in tasks},
             active_activities=active_activities(self.context.state, agent.agent_id),
             habit_events=habit, consecutive_rejections=agent.consecutive_rejections,
             max_same_moment_decisions=self.context.scenario.max_same_moment_decisions,
             total_effective_seconds=effective_total, current_time=now, end_time=self.context.state.end_time,
             timezone=self.context.scenario.timezone, lifestyle_items=self.context.lifestyle_items,
             activity_location_kinds=self.context.rules.activity_location_kinds,
-            content_segments={item_id: tuple(cue.end_seconds for cue in cues)
-                              for item_id, cues in self.context.rules.subtitles.items()},
             lifestyle_enabled=config.lifestyle_activities,
             recent_meal_counts=_recent_meal_counts(self.context.state.activities.values(), agent.agent_id, now))
 
@@ -563,10 +562,8 @@ class ObservationBuilder:
         `foods`、游戏与工作各占一键），因此模型看到的键一定可下钻。
         """
         pools = (
-            self._content_pool(agent),
             self._lifestyle_pool(agent),
             self._product_pool(agent, menu=True),
-            self._game_pool(agent),
             self._task_pool(agent),
         )
         summary: dict[str, int] = {}
@@ -600,34 +597,6 @@ class ObservationBuilder:
         """@brief 已选门店的固定食品菜单，没有浏览凭据或旧库存状态。"""
         return _supply_entries(self._discovery_context(agent))
 
-    def _content_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 内容池：目录全量条目自带题材标签（排序键原料，不参与资格判定）。
-
-        行的其余字段由 `_content_catalog` 同源补齐（分段、标题、进度），因此下钻行形状
-        与既有一致；`category` 取内容品类，是它的下钻键。
-        """
-        rows = {
-            row["item_id"]: row
-            for row in _content_catalog(
-                self.context.scenario,
-                self.context.rules.subtitles,
-                self.context.rules.content_titles,
-                agent.content_progress,
-            )
-        }
-        return tuple(
-            (
-                PoolEntry(
-                    object_id=item.item_id,
-                    kind="content",
-                    tags=tuple(getattr(item, "genre", ()) or ()),
-                    row=rows[item.item_id],
-                    category=item.kind,
-                )
-                for item in sorted(self.context.scenario.contents, key=lambda value: value.item_id)
-                if item.kind != presentation.GAME_CATEGORY
-            )
-        )
 
     def _lifestyle_pool(self, agent) -> tuple[PoolEntry, ...]:
         """@brief 生活活动池：只含本人启用集内的目录条目（启用集是世界事实）。"""
@@ -655,50 +624,6 @@ class ObservationBuilder:
             )
         )
 
-    def _game_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 游戏池：`game_session` 下钻键下的全部条目（内容侧会话 + 场景声明身份）。
-
-        `game_session` 同时是内容品类与游戏身份的下钻键：两者共用同一池与同一键，否则该
-        键下的一半条目没有链路可走（「某一品类走了不经过生成段的枚举路径」即违规）。
-        """
-        rows = {
-            row["item_id"]: row
-            for row in _content_catalog(
-                self.context.scenario,
-                self.context.rules.subtitles,
-                self.context.rules.content_titles,
-                agent.content_progress,
-            )
-        }
-        games = tuple(
-            (
-                PoolEntry(
-                    object_id=item.game_id,
-                    kind="game",
-                    row={
-                        "game_id": item.game_id,
-                        "seed": item.seed,
-                        "title": item.title,
-                        "category": presentation.GAME_CATEGORY,
-                    },
-                    category=presentation.GAME_CATEGORY,
-                )
-                for item in self.context.scenario.games
-            )
-        )
-        sessions = tuple(
-            (
-                PoolEntry(
-                    object_id=item.item_id,
-                    kind="game",
-                    row=rows[item.item_id],
-                    category=presentation.GAME_CATEGORY,
-                )
-                for item in sorted(self.context.scenario.contents, key=lambda value: value.item_id)
-                if item.kind == presentation.GAME_CATEGORY
-            )
-        )
-        return (*games, *sessions)
 
     def _task_pool(self, agent) -> tuple[PoolEntry, ...]:
         """@brief 工作池：本人可见、未结清且仍列出（截止前或截止当日内）的合同。"""
@@ -780,39 +705,8 @@ def _location_catalog(scenario) -> list[dict]:
             for item in scenario.locations]
 
 
-def _game_catalog(scenario) -> list[dict]:
-    """@brief 返回可新建 TextWorld 会话的稳定游戏身份（事件级）。"""
-    return [{"game_id": item.game_id, "seed": item.seed} for item in scenario.games]
 
 
-def _content_catalog(scenario, subtitles: dict, titles: dict, progress: dict[str, ContentProgress]) -> list[dict]:
-    """@brief 返回人物可选择内容及其分段结构，不暴露本地路径和哈希。"""
-
-    fields = {"item_id", "kind", "duration_seconds", "entertainment_relief_per_hour", "experience_label"}
-    result = []
-    for item in scenario.contents:
-        data = item.model_dump(mode="json", include=fields)
-        cues = subtitles.get(item.item_id, ())
-        total = len(cues)
-        data["segments_total"] = total
-        data["typical_segment_seconds"] = (
-            round(item.duration_seconds / total, 1) if total else float(item.duration_seconds)
-        )
-        if item.item_id in titles:
-            data["title"] = titles[item.item_id]
-        record = progress.get(item.item_id)
-        if record is not None:
-            completed = sum(1 for cue in cues if cue.end_seconds <= record.position_seconds)
-            data["progress"] = {
-                "position_seconds": record.position_seconds,
-                "remaining_seconds": max(0.0, item.duration_seconds - record.position_seconds),
-                "segments_total": total,
-                "segments_completed": completed,
-                "segments_remaining": max(0, total - completed),
-                "current_segment": min(completed + 1, total),
-            }
-        result.append(data)
-    return result
 
 
 def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:

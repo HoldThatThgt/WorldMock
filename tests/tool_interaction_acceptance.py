@@ -105,18 +105,6 @@ MUTATIONS += (
 
 
     SourceMutation(
-        'habit_media_progress_not_persisted',
-        'worldmock.life.content::reveal_watch.changed',
-        'changed = agent.model_copy(update={"content_progress": mapping}, deep=True)',
-        'changed = agent.model_copy(deep=True)',
-        (
-            (
-                'tests/life/test_tool_interaction_habits.py::test_declared_habit_runs_with_real_prere'
-                'quisites_and_settlement[lunch-break-media]'
-            ),
-        ),
-    ),
-    SourceMutation(
         'work_delay_nine',
         'worldmock.life.scenario::runtime_tasks.opening',
         'min(item.sent_at for item in notices) if task.appointment is None',

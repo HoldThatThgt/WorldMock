@@ -1,4 +1,4 @@
-"""@brief 阶段1保留包规则原字节，环境副本始终逐字节绑定。"""
+"""@brief 阶段4保留包规则冻结字节，环境副本始终逐字节绑定。"""
 
 from importlib.resources import files
 from pathlib import Path
@@ -16,12 +16,12 @@ RULE_SNAPSHOTS = ("affordances.toml", "rules/motivation.toml", "rules/persona-ma
 
 
 def test_artificial_rule_snapshots_equal_engine_package(catalog_dir):
-    """@brief 三份TOML和清单真实加载，阶段1不提前收紧旧包声明。"""
+    """@brief 三份TOML和清单真实加载，阶段4加载最终八种占用声明。"""
     for relative in RULE_SNAPSHOTS:
         assert (catalog_dir / relative).read_bytes() == files("worldmock.data").joinpath(Path(relative).name).read_bytes()
     catalog = load_catalog(catalog_dir)
     assert len(catalog.manifest.files) == 9
-    assert len(RESOURCE_CLAIM_SLOTS) == 11
+    assert len(RESOURCE_CLAIM_SLOTS) == 8
     assert engine_affordances().met_lookup_key("wait") == "wait"
     assert load_motivation_transforms(catalog_dir / "rules").loss_exponent == 0.88
 

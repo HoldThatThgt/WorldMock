@@ -65,15 +65,11 @@ _DEFAULT_REASONS = {
     'ACTIVITY_PRECONDITION_UNMET': 'The requested activity has unmet world prerequisites.',
     'SESSION_LIMIT_EXCEEDED': 'Active and pending-conclusion activities occupy both available slots.',
     'RESOURCE_CONFLICT': 'The requested activity conflicts with an occupied resource.',
-    'PLAYBACK_SPEED_NOT_ALLOWED': 'Playback speed can only change for currently playing content.',
     'SOCIAL_PARTNER_NOT_FOUND': 'The named conversation partner is unknown.',
     'SOCIAL_ACTIVITY_OPERATION_UNKNOWN': 'This operation is not allowed for conversations or calls.',
     'CONTACT_NOT_FOUND': 'The named contact is unknown.',
     'MESSAGE_NOT_VISIBLE': 'The mail has not arrived for this person.',
-    'CONTENT_NOT_FOUND': 'The named content is unknown.',
-    'CONTENT_TIMELINE_NOT_FOUND': 'This content has no published playback timeline.',
-    'CONTENT_END_EXCEEDED': 'The requested playback duration exceeds the remaining content.',
-    'GAME_NOT_FOUND': 'The named game is unknown.',
+    'APP_CONTENT_EMPTY': 'This app has no content to use.',
     'LIFESTYLE_ACTIVITY_NOT_FOUND': 'The named lifestyle activity is unknown.',
     'ROUTE_DURATION_MISMATCH': 'The requested travel duration differs from the published graph.',
     'WORK_TASK_NOT_FOUND': 'The named work task is unknown.',
@@ -134,8 +130,6 @@ _DEFAULT_FIXES = {
     'RECIPIENT_NOT_FOUND': 'Use null for the caller, or the exact name of a known other person.',
     'MESSAGE_TEXT_TOO_LONG': 'Shorten the message to at most 300 characters.',
     'MESSAGE_NOT_VISIBLE': 'Select a mail message that has arrived.',
-    'CONTENT_NOT_FOUND': 'Use an exact published content name.',
-    'GAME_NOT_FOUND': 'Use an exact published game name.',
     'LIFESTYLE_ACTIVITY_NOT_FOUND': 'Use an exact published lifestyle activity name.',
     'WORK_TASK_NOT_FOUND': 'Use an exact known work task name.',
     'WORK_TASK_NOT_VISIBLE': 'Select a disclosed work task.',
@@ -159,6 +153,7 @@ _DEFAULT_FIXES = {
 
 #: 抛出处没有写下一步时按错误码给的做法。
 _DEFAULT_NEXT_STEPS = {
+    'APP_CONTENT_EMPTY': 'Choose another app.',
     'WORK_REQUIRES_REWORK': 'Revise the work according to the review before resubmission.',
     'WORK_INCOMPLETE': 'Continue the work until its effective progress reaches the contract.',
     'WORK_SUBMISSION_LATE': 'Choose another action; the submission deadline has passed.',

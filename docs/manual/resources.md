@@ -1,7 +1,7 @@
 <a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）；「编写地点」、「名称真实、数值合成」（阶段 2）；「正餐、家庭储备和联系人」（阶段 3）。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）；「编写地点」、「名称真实、数值合成」（阶段 2）；「正餐、家庭储备和联系人」（阶段 3）；「只读查询、app 目录与内容、生活活动示例」（阶段 4）。
 
 环境目录说明“这个世界有什么”，规则由 WorldMock 包提供。编辑店铺类型、食品、app 绑定与内容，再按地点生成地图、刷新身份并检查整个环境。运行只读已发布快照；修改不改变已经运行的世界。
 
@@ -99,7 +99,7 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 
 
 <a name="resources-只读查询与有时长浏览"></a>
-### 只读查询与有时长浏览
+### 只读查询
 
 `query_world(name, way, category, from, available_only, offset)` 六键必填、无缺省，`name`、`way`、`category`、`from` 可空但至少一个非 null，
 `available_only` 写 true 或 false，offset为非负整数。`from` 写购买来源（地点显示名，含「家」「住处」，或 App 称呼），只匹配门店供给；
@@ -107,7 +107,7 @@ WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图�
 category使用本轮callable_index已经展示的公开品类标签，非法时返回当轮全部合法标签。
 结果为matches/total_count/next_offset，next_offset必填可空；每页沿用现有上限20，按偏移可遍历同一冻结权限下的全集。
 筛选在排序与切页之前施加，`total_count` 是筛选后的总数；每项不再附候选，照抄 `name` 与所选动作的 `way` 即可提交。
-查询不推进时间、不授予呈现凭据，也不恢复按商品需求搜索门店和路线的旧发现请求；现有有时长商品目录浏览保持真实揭示和留痕。
+查询不推进时间、不授予内容消费或推送状态，也不恢复耗时浏览活动；商品只从固定菜单查询，app 与内容不进入查询索引。
 人物可通过现行只读工具调用查询；结果只含本轮冻结观察有权知道的对象。
 
 只看某家店此刻能买的东西，局部示例如下（现成场景没有钉定手机配置，所以 `from` 写门店显示名而不是 App 称呼）：
@@ -152,6 +152,7 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 按名写它时以「这里不适合做这件事」拒绝。`time_window` 只参与排序（此刻落在窗口内的排得更靠前），`needs_partner` 只做了
 数据形状校验，二者都没有接成运行时的时间或伙伴受理限制。`effects` 分别折算为娱乐缓解、社交缓解和健康相关情绪变化
 （娱乐缓解不按人物口味调整），从本次环境条目读入并在活动开始时冻结；健康效果并不创建独立的“健康值”资源。
+生活活动只描述真实进行的事情；不要用「刷手机」或「随便看看」代替 app 使用。数字内容写入 app 与内容目录，由人物选择 app 后再抽取。
 
 下面是 `enrichment.json` 的 `entries` 中一个**完整条目值**，可替换已有 `3d-printing` 条目的值：
 
@@ -169,108 +170,29 @@ category使用本轮callable_index已经展示的公开品类标签，非法时�
 正式来源、数量和可复现重建的验收在 Dataset 执行；引擎用人工最小环境验证加载、候选、结算与恢复行为。
 
 <a name="resources-编写内容与工作材料"></a>
-## 编写内容与工作材料
+## 编写 app 目录与内容
 
-内容需要两层声明：语料文件提供元数据和时间轴，场景 `contents` 决定这次实验实际开放哪些条目。
-只把文件放进 `corpora/` 不会让人物自动看到它。
+app 写在 `catalog/apps.json`，内容写在 `catalog/contents.json`。人物选择 app，环境只在该 app 的绑定内容中抽取；
+内容不直接作为工具目标，也不进入候选、轮转或只读查询索引。
 
-| 素材 | 当前读取位置与格式 |
+每个 app 提供稳定 `app_id` 与人物可见的真实名称。每条内容至少包含稳定身份、非空 `title`、`kind`、非空
+`summary`、`summary_source`、正整数 `duration_seconds` 与非空 `app_ids`：
+
+| 字段 | 写法 |
 | --- | --- |
-| 电影、剧集、网文元数据 | `movies/items.json`、`drama/items.json`、`novels/items.json`，顶层列表 |
-| 新闻和段子 | `feed/items.json`、`jokes/items.json`；各自的 `feed-items.json` 还声明整条流的检索元数据 |
-| 社交流 | `social/weibo/feed-items.json`、`social/zhihu/feed-items.json`、`social/movie_reviews/feed-items.json` |
-| 游戏 | `games/library/items.json`，预生成文件由场景 `games` 引用 |
-| 字幕体验 | `sintel/media-identity.json`，单个对象 |
-| NASA 播客选段 | `podcasts/items.json`、官方页快照、音频选段与原始锚点身份文件；见下文 |
-| 工作材料 | `scenario-work/materials.json` 的 `materials` 列表；任务另外引用实际输入文件和隐藏验收文件 |
+| `kind` | 只取 `article`、`image_text`、`short_video`、`long_video`、`live` |
+| `summary` | 人物实际看到的完整摘要，最多 200 个 Unicode 字符 |
+| `summary_source` | 真实摘要写来源 URL；合成摘要明确写 `kind=synthetic` 与 notice |
+| `app_ids` | 排序、无重复、至少一个；每项引用已登记 app |
+| `duration_seconds` | 内容的声明时长；它不改变 app 使用固定 1800 秒的活动计划 |
 
-内容元数据至少包含非空 `title`、非空列表 `genre`、非空 `language`、非负整数 `age_rating`。
-检索还需要 `duration_seconds`；新闻、段子等阅读条目可用 `estimated_read_seconds`。
-`genres` 这样的展示文本不能代替机器读取的 `genre` 列表。
-`genre` 也是人物口味的匹配词表：人物卡片的口味题材（`content_genres`）与条目 `genre` 按字面精确匹配，
-口味权重是两者相同的题材数除以条目的题材数；平台名（如「B站视频」）不是题材。
-两边要用同一套题材词，否则 `worldmock validate` 报 `TASTE_GENRES_UNMATCHED` 或 `CONTENT_WEIGHTS_ALL_ZERO`。
-当前世界素材准入要求剧集 `language: "zh"`，并执行目录清单中声明的年龄分级上限。
+目录没有字幕时间轴、分段、媒体资产、题材 facet、年龄分级、口味权重、评估引用或游戏文件。真实作品和 app 名称可以保留，
+摘要来源与合成声明必须可追溯；时长与缓解率属于模拟规则，不能冒充外部平台事实。
 
-场景 `contents[]` 的完整条目形状如下；哈希必须从实际时间轴计算，不能照抄其他文件的值：
+发布校验逐条检查 app 引用与反向绑定。没有绑定内容的 app 仍会在人物工具层列出，但打开动作不可用并返回
+`APP_CONTENT_EMPTY`；不能从别的 app 借内容。修改后刷新 `catalog/manifest.json`，再用 `worldmock validate`
+验证全部场景。工作材料仍由下一节维护，阶段 4 不把它们当成 app 内容。
 
-```json
-{
-  "item_id": "sintel-en-subtitles",
-  "title": "Sintel 字幕体验",
-  "kind": "subtitle_experience",
-  "duration_seconds": 630,
-  "timeline_path": "sintel/sintel_en.srt",
-  "timeline_sha256": "4ed7e1f1bc5ff69fe33606960e4c048ba6766237bf33b132fef76e1a92cb64b2",
-  "entertainment_relief_per_hour": 0.3,
-  "experience_label": "subtitle_experience"
-}
-```
-
-每条内容必填非空 `title`；引擎直接将它用于呈现、名称解析和活动标题，不读取来源专属标题映射。
-场景结构必须为 `6`，旧结构与缺标题条目直接拒绝。
-
-`kind` 只接受 `feature_film`、`drama_series`、`podcast_episode`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
-`subtitle_experience`、`game_session`。时长为正整数秒，娱乐缓解率为每小时 0–1。
-观看的实际缓解是缓解率 × 有效偏好 ÷ 接触次数，有效偏好为 f + (1 − f) × 口味权重，f 取场景 `body.entertainment_relief_preference_floor`
-（缺省 0.5）：口味对不上的内容也按 f 缓解；玩游戏按目录的游戏缓解费率乘同一有效偏好。
-时间轴使用 SRT：片段编号、`HH:MM:SS,mmm --> HH:MM:SS,mmm`、正文，片段间空行；必须非空且不重叠。
-人物按实际接触进度看到正文，不会直接看到整份文件。
-内容对象的方式为「接着看」或「从头再看」（播客为「接着听」或「从头再听」）：未看完的（含没看过的）从上次位置接着看、
-时长取剩余；已看完或剩余不足 60 秒的从头再看、时长取全长。接触次数只在第一次看和从头再看时加一。
-派生时长超过 86400 秒的条目（例如超过一天的信息流）按 86400 秒受理，受理结果写明计划时长，不再因过长被拒绝。
-
-现有 NASA `podcast_episode` 使用 Houston We Have a Podcast — Space Habitat 的
-00:01:52–00:14:58 英文访谈选段，选段媒体时长 786 秒。
-官方页快照（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/nasa-space-habitat.source.html`）、
-原始锚点与音频身份（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/nasa-space-habitat.identity.json`）、
-本地音频选段（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/nasa-space-habitat.excerpt.mp3`）和
-派生时间轴（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/podcasts/podcast-0001.srt`）随语料清单绑定。
-按 Dataset 的播客制作与复核说明检查官方段落锚点、SRT 和身份文件；WorldMock 不提供该来源制作器。
-只在媒体位置完整越过下一官方锚点后揭示该段文字；该时间轴没有逐词精度。
-来源使用条件见语料通知（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/LICENSES.md`），不得暗示 NASA 认可本项目。
-
-<a name="resources-配置可玩的游戏"></a>
-### 配置可玩的游戏
-
-`games/library/items.json` 是游戏的元数据目录；可执行的 TextWorld 游戏文件由场景 `games[]` 另行指定。
-元数据条目不会自动生成可玩的游戏。以下是 `games[]` 中的**完整现有条目**：
-
-```json
-{
-  "game_id": "textworld-1201",
-  "seed": 1201,
-  "game_path": "textworld/game-1201.json",
-  "game_sha256": "4e0fc25651a001168e3c20f1b618f7c168a4cfb17e86fce82f40dcb6688cef43",
-  "walkthrough_sha256": "9fb16a3c81cbe9c8146f927e8354bd4c2430072e9bd371f789978bc3afe15f6a"
-}
-```
-
-五个字段都必填：`game_id` 非空且在场景中唯一，`seed` 为正整数，`game_path` 相对语料根目录。
-游戏文件必须是能够被 TextWorld 启动的 JSON，并包含 `metadata.walkthrough`。
-更改场景 `seed` 不会重新生成游戏；需要先准备对应的可执行文件。
-`game_sha256` 是完整游戏文件的字节哈希，`walkthrough_sha256` 是攻略值规范序列化后的哈希，两者不同。
-游戏与内容同样按题材取口味权重：题材取内容元数据（含 `games/library/items.json`）中 `item_id` 等于该 `game_id` 的条目的 `genre`；
-没有这种题材声明的游戏权重为 0，缓解按下限偏好 f。现有 `textworld-*` 游戏都没有题材声明。
-
-计算两个哈希的完整命令：
-
-```bash
-python - <<'PY'
-import hashlib
-import json
-from pathlib import Path
-
-content = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/textworld/game-1201.json").read_bytes()
-walkthrough = json.loads(content)["metadata"]["walkthrough"]
-encoded = json.dumps(walkthrough, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-print(json.dumps({"game_sha256": hashlib.sha256(content).hexdigest(),
-                  "walkthrough_sha256": hashlib.sha256(encoded).hexdigest()}, indent=2))
-PY
-```
-
-游戏文件还要加入语料清单。真正的启动校验见[游戏加载器](../../src/worldmock/life/game.py)；
-仅 JSON 格式和哈希正确，不能代替 TextWorld 可启动性检查。
 
 <a name="resources-工作材料"></a>
 ### 工作材料

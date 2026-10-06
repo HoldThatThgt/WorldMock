@@ -530,7 +530,7 @@ test('the fixture action request is in the layer shape of the errands and workda
     [...literalKeys(/return \{"day": DAY_WORK[\s\S]*?\}\n/.exec(schedule)[0]), 'status']);
   assert.ok(/return \{\*\*arrangement, "status": /.test(schedule), 'duty adds status to the day arrangement');
   assert.deepEqual(progress.events.map(record => record.type),
-    ['tool_call', 'message_arrival', 'tool_call', 'errand_completed', 'errand_reminder']);
+    ['tool_call', 'message_arrival', 'tool_call', 'app_push', 'errand_completed', 'errand_reminder']);
   // 原生工具是宿主此刻发给模型的十二个：七个世界请求、两个世界查询（含 query_world）、三个记忆查询，顺序相同。
   const {worldRequests, worldQueries, memory} = hostToolSurface();
   const names = fixture.action.tools.map(tool => tool.function.name);
@@ -562,4 +562,30 @@ test('the fixture action request is in the layer shape of the errands and workda
   const changed = plain(api.compare(parsed.blocks, before.blocks)).filter(row => row.status !== 'unchanged');
   assert.deepEqual(changed.map(row => [row.key, row.status]), [['todo', 'changed'], ['environment', 'changed']]);
   assert.equal(errors.length, 0);
+});
+
+/** @brief 当前协议夹具使用登记应用事实，保留闭合推送字段与原始摘要，不代表新完整引擎录制。 */
+test('the current fixture preserves app targets and the complete closed push record', () => {
+  const {api} = parser();
+  const [tool, , , todo, , progress] = layers();
+  assert.deepEqual(Object.keys(tool.callable_index), ['lifestyle', 'goods', 'query_categories']);
+  const apps = tool.groups.filter(group => group.kind === 'app');
+  assert.deepEqual(apps.map(group => [group.action, group.way, group.targets[0].name]),
+    [['interact', '打开', '应用：哔哩哔哩'], ['interact', '打开', '应用：美团']]);
+  assert.equal(apps[0].shared.state, '有推送：《测试长视频》（长视频）');
+  assert.equal(apps[1].shared.state, '0 条内容');
+  assert.equal(apps[1].shared.reason, 'This app has no content to use.');
+  assert.equal(todo.paused_activities[0].name, '打开哔哩哔哩（9月28日 08:20 起）');
+  const push = progress.events[3];
+  assert.deepEqual(Object.keys(push), ['occurred_at', 'type', 'app', 'title', 'kind', 'summary']);
+  const catalog = JSON.parse(read('tests/fixtures/environment/catalog/contents.json'));
+  const content = catalog.contents.find(row => row.content_id === 'c-long');
+  assert.equal(push.type, 'app_push');
+  assert.equal(push.title, content.title);
+  assert.equal(push.kind, '长视频');
+  assert.equal(push.summary, content.summary);
+  const block = api.parseRequest(event()).blocks.find(row => row.key === 'progress');
+  const item = plain(api.drillItems(block))[3];
+  assert.equal(item.label, '2026-09-28T10:33:00+08:00 · app_push');
+  assert.deepEqual(JSON.parse(item.text), push);
 });

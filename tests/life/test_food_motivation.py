@@ -13,7 +13,7 @@ def food_context(balance=30000):
         home_location_id="home", catalog=semantics.catalog,
         location_ids=frozenset(place.location_id for place in semantics.scenario.locations),
         menu=InteractionMenu(allowed_actions=("consume", "wait", "sleep")), lifestyle_items=(),
-        activity_location_kinds={}, tasks=(), task_totals={}, contents=(), content_progress={},
+        activity_location_kinds={}, tasks=(), task_totals={},
         active_activities=(), habit_events=(), consecutive_rejections=0, max_same_moment_decisions=4,
         total_effective_seconds=0, current_time=state.current_time, end_time=state.end_time,
         timezone=state.timezone)

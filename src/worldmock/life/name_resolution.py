@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from worldmock.life.error_contract import MAX_CANDIDATES, Candidate, ErrorItem, activity_candidate
-from worldmock.life.vocabulary import CONTENT_WAYS, NAMED_PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS
+from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS, SYSTEM_PURCHASE_WAY, WAYS
 from worldmock.life.interaction_menu import binding_action, named_supply_row
 from worldmock.life.object_labels import object_label
 from worldmock.life.readable import TRAVEL_WAYS
@@ -31,17 +31,14 @@ MAX_START_ITEMS = 2
 #: 方式同义闭集表（接口合同「请求模型的闭集与字面边界」）：人物常写的说法 → 它可能指的方式。只有在目标列出的方式里恰好
 #: 命中一个时才受理，动词仍须是该方式所属的动词（每个方式只属于一个动词，vocabulary.WAYS）；表外的写法不受理。
 
-#: 看内容的四种方式（内容对象与只能观看的游戏对象列出其中一种）。
-_WATCH_WAYS = frozenset(CONTENT_WAYS.values()) | {"观看"}
 #: 方式 → 列出这种方式的私有绑定类别（按动词与方式增补前缀、限定比对范围的依据）。
 _WAY_KINDS: dict[str, frozenset[str]] = {
-    **{way: frozenset({"content", "game"}) for way in _WATCH_WAYS},
     "步行": frozenset({"location"}), "驾车": frozenset({"location"}), "工作": frozenset({"work_task"}),
-    "游玩": frozenset({"game"}), "交谈": frozenset({"person"}), "通话": frozenset({"contact"}),
+    "打开": frozenset({"app"}), "交谈": frozenset({"person"}), "通话": frozenset({"contact"}),
     "阅读": frozenset({"mail"}), "进行": frozenset({"lifestyle"}),
     "等待": frozenset({"self"}), "到店": frozenset({"supply"}), "远程下单": frozenset({"supply"}),
     "购买": frozenset({"supply"}),
-    "食用": frozenset({"holding"}),
+    "食用": frozenset({"holding"}), "使用": frozenset({"holding"}),
     "给予": frozenset({"holding"}), "睡觉": frozenset({"self"}),
 }
 #: 动词 → 它的方式列在哪些类别上（所写方式不是方式时按动词增补前缀）。
@@ -50,13 +47,12 @@ _VERB_KINDS: dict[str, frozenset[str]] = {
     for verb in {owner for owner, _ in WAYS.values()}}
 #: 本轮没有列出也能按名调用的方式 → 类别（named_kind，docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-统一名称解析  第 4 条；「购买」见 3.5
 #: ）。
-_NAMED_WAYS: dict[str, str] = {**{way: "content" for way in _WATCH_WAYS},
-                               **{way: "supply" for way in NAMED_PURCHASE_WAYS},
-                               "进行": "lifestyle", "游玩": "game", "步行": "location", "驾车": "location"}
-#: named_kind 的全部取值：商品、生活活动、内容、游戏与地点。
-NAMED_KINDS = ("supply", "lifestyle", "content", "game", "location")
-#: 目录绑定（catalog_bindings）里的私有绑定类别：本轮没有列出的生活活动、内容与游戏。
-CATALOG_KINDS = frozenset({"lifestyle", "content", "game"})
+_NAMED_WAYS: dict[str, str] = {**{way: "supply" for way in NAMED_PURCHASE_WAYS},
+                               "进行": "lifestyle", "步行": "location", "驾车": "location"}
+#: named_kind 的全部取值：商品、生活活动与地点。
+NAMED_KINDS = ("supply", "lifestyle", "location")
+#: 目录绑定（catalog_bindings）里的私有绑定类别：本轮没有列出的生活活动。
+CATALOG_KINDS = frozenset({"lifestyle"})
 #: 出行方式 → 冻结路线的出行方式（没有列出路线的地点按所写方式找路线，由环境判定）。
 _TRAVEL_MODES = {way: mode for mode, way in TRAVEL_WAYS.items()}
 #: from、to 都应为 null 的动词：写成目标本身或当前所在地点时是冗余的。
@@ -69,7 +65,7 @@ class Target:
     """@brief 一个可以写名称调用的对象。
 
     :param label: 唯一写法：工具层目标名、目录绑定名，或冻结地点表的「地点：<显示名>」。
-    :param kind: 私有绑定类别（location、supply、holding、lifestyle、content、game、person、contact 等）。
+    :param kind: 私有绑定类别（location、supply、holding、lifestyle、app、person、contact 等）。
     :param object_id: 内部身份（只供环境解析，不进提示）。
     :param offers: 列出的（动词，方式）；没有列出路线的地点为步行与驾车（路线由环境判定）。
     :param blocked: 与 offers 逐项对应的此刻不可用的原因（可用为 None）。
@@ -187,7 +183,7 @@ class _Item:
 
 def named_kind(verb: str, way: str) -> str | None:
     """@brief 按「动词加方式」推出的按名调用类别（取代 is_named_purchase）：supply（取得的到店、远程下单与由系统定方式的
-    「购买」）、lifestyle（进行）、content（观看与四种续看）、game（游玩）或 location（步行、驾车）；动词不是该方式所属的
+    「购买」）、lifestyle（进行）或 location（步行、驾车）；动词不是该方式所属的
     动词、方式不在闭集与同义表中，或推出不止一类时为 None。"""
     kinds = {_NAMED_WAYS[option] for option in vocabulary.way_options(way)
              if option in _NAMED_WAYS and WAYS[option][0] == verb}

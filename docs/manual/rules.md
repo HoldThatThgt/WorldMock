@@ -1,9 +1,9 @@
 <a name="rules-调整世界规则与人物动机参数"></a>
 # 调整世界规则与人物动机参数
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约、交换规则、供给与制作边界、检查与发布品类修改、出行时长、食品来源映射说明、配置入口与生效范围、身体规则、在独立目录中调参并验证」（阶段 1）；「活动声明、单个人物的参数、人物映射表」（阶段 3）。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约、交换规则、供给与制作边界、检查与发布品类修改、出行时长、食品来源映射说明、配置入口与生效范围、身体规则、在独立目录中调参并验证」（阶段 1）；「活动声明、单个人物的参数、人物映射表」（阶段 3）；再次修订「活动声明」（阶段 4）。
 
-> 更新日期：2026-10-06。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
+> 更新日期：2026-10-07。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
 > 正式食材配方和发布身份已实现；当前场景结构 6、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
 > 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步「活动声明」的占用名（阶段 2）；仍带旧占用名副本的外部环境在装配时被拒绝，要由 WorldMock-Dataset 按新占用名重新发布。
 
@@ -72,11 +72,11 @@ flowchart LR
 | --- | --- |
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
-| `resource_claims` | 占用名 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）：每种动作占自己的名字，只有同一种动作互斥，睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT`；环境目录副本须与包字节一致 |
-| `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
+| `resource_claims` | 占用名恰为 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`talk`、`travel`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）：每种动作占自己的名字，只有同一种动作互斥；睡眠占全部八项；驾车除自身 `travel` 外追加 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle`，只允许并行交谈；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT`；环境目录副本须与包字节一致 |
+| `feedback_boundary` | app 使用与其他持续活动在内容完成或定期反馈边界结算；旧游戏专用边界和内容品类条件占用已经删除 |
 | `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
 | `families.<家族>.candidate` | 已登记生成器及其允许参数；未知生成器或参数会拒绝 |
-| `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`watch`），不是模型看到的五个动词；按名精确归并，每个动作名至多归一个家族 |
+| `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`use_app`），不是模型看到的五个动词；按名精确归并，每个动作名至多归一个家族 |
 
 例如以下是包内 `families.work` 的声明形状，供理解固定候选生成参数：
 
@@ -90,7 +90,7 @@ candidate = { generator = "task_slot", max_tasks = 2 }
 WorldMock 发布活动声明变更时，需要检查环境资源中的 MET/娱乐缓解键、固定规则和工具菜单是否一致。
 单纯给 TOML 加一个新类型，并不能实现新的动作执行器。
 
-食品使用固定类别常数、菜单与店铺 app 绑定，没有口味缓解参数或供给约束。现行占用闭集保留到娱乐阶段的最后消费者退役，不通过环境配置另加活动或占用名。
+食品使用固定类别常数、菜单与店铺 app 绑定，没有口味缓解参数或供给约束。娱乐统一使用 `use_app`，app 内容完成形成静默结算边界；不通过环境配置另加活动或占用名。
 
 <a name="rules-出行时长"></a>
 ## 出行时长

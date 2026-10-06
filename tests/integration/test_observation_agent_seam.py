@@ -161,28 +161,6 @@ def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engi
         ("tool_calls", 0, "function", "arguments", "items", 0, "views", 0, "about"), "陌生人")]
 
 
-def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
-    """观察中已播放字幕的嵌套列表必须隔离，调用者修改它不能篡改世界进度。"""
-    engine = _engine_factory()
-    settle_day_plans(engine)
-    wake_by_mail(engine, offset=600)
-    shown = engine.observations._observation_data(engine.context.state.agents[1])
-    subtitle = next(row for row in shown["interaction_bindings"]
-                    if row["kind"] == "content" and row["object_id"] == "sintel-en-subtitles")
-    [way] = [item["label"] for item in subtitle["actions"] if item["canonical_action"] == "watch"]
-    assert way == "接着看"
-    _submit(engine, "copy-watch", "start_activity", start_request(
-        targets=[subtitle["object"]], actions=["interact"], ways=[way]))
-    assert advance_until_ready(engine)
-    ctx = context(engine, "copy-observe")
-    engine.begin_decision_round([ctx])
-    observation = engine.observe(ctx)
-    control = observation["active_activities"][0]
-    actual = engine.context.state.activities[control["activity_id"]].data["revealed"]["cues"]
-    assert len(actual) > 0
-    count = len(actual)
-    control["data"]["revealed"]["cues"].clear()
-    assert len(actual) == count
 
 
 async def _agent_action(engine, round_id: str, action: str, payload: dict):
@@ -212,33 +190,33 @@ async def _agent_action(engine, round_id: str, action: str, payload: dict):
 
 
 @pytest.mark.asyncio
-async def test_real_game_observation_starts_visible_game_and_restores_activity(_engine_factory) -> None:
-    """模型用可读游戏名启动活动，私有游戏身份随检查点恢复。"""
+async def test_real_app_observation_starts_visible_app_and_restores_activity(_engine_factory) -> None:
+    """模型用可读应用名启动活动，私有应用身份随检查点恢复。"""
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
     settle_day_plans(engine)
     shown = engine.observations._observation_data(engine.context.state.agents[1])
-    game = next(row for row in shown["interaction_bindings"]
-                if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
+    app = next(row for row in shown["interaction_bindings"]
+                if row["kind"] == "app" and any(item["label"] == "打开" and item["note"] is None for item in row["actions"]))
     observation, result, schemas = await _agent_action(
-        engine, "game-start", "start_activity",
-        start_arguments([game["object"]], ["interact"], ["游玩"]))
+        engine, "app-start", "start_activity",
+        start_arguments([app["object"]], ["interact"], ["打开"]))
     assert [target["kind"] for target in observation["tool_layer"]["targets"]
-            if target["name"] == game["object"]] == ["game"]
+            if target["name"] == app["object"]] == ["app"]
     assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["items"]["items"]["properties"]["target"]
-    assert game["object_id"] not in str(schemas["start_activity"])
+    assert app["object_id"] not in str(schemas["start_activity"])
     activity = engine.context.state.activities[result.activity_id]
-    assert activity.target_id == game["object_id"]
+    assert activity.target_id == app["object_id"]
     observation["active_activities"].append({"observer_write": "must stay outside the world"})
     assert all("observer_write" not in item.data for item in engine.context.state.activities.values())
-    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "game_seam_checkpoint"})
+    reference = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "app_seam_checkpoint"})
     engine.checkpoint({"agent:1": reference})
     run_dir = engine.context.store.run_dir
     engine.close()
     restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     try:
-        assert restored.context.state.activities[activity.activity_id].target_id == game["object_id"]
+        assert restored.context.state.activities[activity.activity_id].target_id == app["object_id"]
         visible = restored.observations._observation_data(restored.context.state.agents[1])
         names = [target["name"] for target in visible["tool_layer"]["targets"] if target["kind"] == "activity"]
         assert activity.name in names

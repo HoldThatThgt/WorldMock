@@ -19,6 +19,7 @@ from worldmock.life.request_errors import argument_report
 from worldmock.life.activity_titles import activity_title
 from worldmock.life.control_items import control_items
 from worldmock.life.activities import change_activity, resource_claims, schedule_feedback, start_activity
+from worldmock.life.content import app_content_result, initialize_app_usage, resume_app_usage
 from worldmock.life.basket import meal_duration, meal_food_rate, open_meal, validate_meal_inventory, validate_meal_use
 from worldmock.life.body import apply_mood_pulse
 from worldmock.life.models import (
@@ -653,9 +654,8 @@ class ActionHandlers:
             if refusal is not None:
                 raise refusal.error()
             return work_start_seconds(task, worked, state.current_time)
-        item = self.context.rules.content(target) if kind == ActivityKind.WATCH else None
         return derived_activity_duration(
-            kind, state.agents[agent_id], item, self.context.scenario.activity_feedback_seconds
+            kind, state.agents[agent_id], None, self.context.scenario.activity_feedback_seconds
         )
 
     def _start_targeted_action(
@@ -690,8 +690,7 @@ class ActionHandlers:
         """@brief 按 action 枚举路由到对应领域启动路径（各分支复用既有领域处理器）。"""
         targeted_kinds = {
             "work": ActivityKind.WORK,
-            "watch": ActivityKind.WATCH,
-            "play": ActivityKind.PLAY_GAME,
+            "use_app": ActivityKind.USE_APP,
             "read": ActivityKind.READ_MAIL,
         }
         if action == "travel_to":
@@ -1026,7 +1025,6 @@ class ActionHandlers:
         return admission.WorldFacts(
             tasks=self.context.rules.tasks,
             items=self.context.semantics.catalog.foods,
-            contents=self.context.rules.contents,
         )
 
     def _require_individual_start(self, state: WorldState, pending: PendingAction, selection: list[dict]) -> None:
@@ -1211,7 +1209,7 @@ class ActionHandlers:
                 state, self.context.rules.task(request.target_id), pending.agent_id, request.planned_duration_seconds
             )
         travel_context = self._travel_start_context(state, agent, request)
-        claims = resource_claims(request, data.get("content_kind"))
+        claims = resource_claims(request)
         self._require_available_resources(state, pending.agent_id, claims)
         origin = _activity_origin(state, pending)
         (agent, activity) = start_activity(agent, request, state.current_time, origin, self.context.semantics.body)
@@ -1228,10 +1226,13 @@ class ActionHandlers:
             item = next(item for item in self.context.lifestyle_items if item.activity_id == request.target_id)
             data["effects"] = dict(item.effects)
         activity.data.update(data)
-        if request.activity_type == ActivityKind.WATCH:
-            activity.media_position_seconds = data["start_position_seconds"]
         changed = _put_activity(changed_state, agent, activity)
+        if request.activity_type == ActivityKind.USE_APP:
+            changed = initialize_app_usage(changed, activity, self.context.semantics.catalog, pending.action_id)
+            activity = changed.activities[activity.activity_id]
         result_data = {"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)}
+        if activity.kind == ActivityKind.USE_APP:
+            result_data["app_content"] = app_content_result(activity, self.context.semantics.catalog)
         if payment is not None:
             result_data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         result = ActionResult(
@@ -1291,15 +1292,16 @@ class ActionHandlers:
                 data={"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)},
             )
             return (changed, result)
-        if request.operation.value == "change_speed" and current.kind == ActivityKind.WATCH:
-            remaining = current.planned_duration_seconds - current.elapsed_seconds
-            content = self.context.rules.content(current.target_id)
-            if current.media_position_seconds + remaining * request.playback_speed > content.duration_seconds:
-                raise BusinessRuleError("CONTENT_END_EXCEEDED")
         (agent, activity) = change_activity(
             agent, current, request, state.current_time, self.context.scenario.activity_feedback_seconds
         )
         changed = _put_activity(state, agent, activity)
+        if request.operation == ActivityChange.RESUME and current.kind == ActivityKind.USE_APP:
+            changed = resume_app_usage(changed, activity, self.context.semantics.catalog)
+            activity = changed.activities[activity.activity_id]
+        result_data = {"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)}
+        if activity.kind == ActivityKind.USE_APP:
+            result_data["app_content"] = app_content_result(activity, self.context.semantics.catalog)
         result = ActionResult(
             action_id=pending.action_id,
             agent_id=agent.agent_id,
@@ -1307,7 +1309,7 @@ class ActionHandlers:
             occurred_at=state.current_time,
             activity_id=activity.activity_id,
             message="Activity changed",
-            data={"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)},
+            data=result_data,
         )
         return (changed, result)
 

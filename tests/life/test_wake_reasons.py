@@ -32,6 +32,7 @@ FROZEN = (
     "person_arrived", "person_left", "activity_infeasible", "rejection_feedback",
     "discovery_result", "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity",
     "plan_reminder_due", "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end",
+    "app_push",
 )
 
 

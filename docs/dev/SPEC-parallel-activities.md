@@ -1,7 +1,7 @@
 <a name="spec-parallel-activities-同时做两件事开发规格"></a>
 # 同时做两件事开发规格
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）；「占用声明、各种情形、随实现一起改的测试」（阶段 4，app 使用取代旧娱乐动作）。
 
 > 状态：FROZEN。本文件是本修复的唯一开发规格；条款随阶段 1–3 的提交逐阶段生效，某阶段落地之前，当前行为与提示文本仍以所属正文与接口合同为准。
 > 日期：2026-10-07。
@@ -12,8 +12,8 @@
 <a name="spec-parallel-activities-用户得到什么"></a>
 ## 用户得到什么
 
-人物午休时可以先把剧看起来，外卖到了边吃边看：暂停的上午工作不再占掉一个名额。
-吃东西可以配读邮件、刷手机、看剧，工作时可以等人，看剧时可以聊天：环境只拦同一种的两件。
+人物午休时可以先打开 app，外卖到了边吃边用 app：暂停的上午工作不再占掉一个名额。
+吃东西可以配读邮件或打开 app，工作时可以等人，app 使用时可以聊天：环境只拦同一种的两件。
 系统层第 8 条告诉人物哪些事环境会拦、哪些要自己按常理判断、两样吃的怎样算一顿，以及暂停的活动不占名额。
 
 ```mermaid
@@ -70,14 +70,14 @@ flowchart LR
 
 | 情形 | 旧行为 | 新行为 |
 | --- | --- | --- |
-| 午休时工作暂停，同时开始看剧与吃饭 | 只剩一个名额，整组拒绝 | 受理 |
+| 午休时工作暂停，同时打开 app 与吃饭 | 只剩一个名额，整组拒绝 | 受理 |
 | 一项进行、一项暂停，再开始一项 | 名额占满拒绝 | 受理 |
 | 两项进行，恢复暂停的第三项 | 不会出现（暂停的那项已占名额） | `SESSION_LIMIT_EXCEEDED`，点名进行中的两项；结束或暂停其中一项后可以恢复 |
 | 两项都暂停，选择出行 | 名额占满拒绝 | 受理，两项留在原地 |
 | 一项进行、一项暂停，选择出行 | 名额占满拒绝 | 出发前仍有进行中的活动，以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，只点名进行中的那项 |
 | 两项都暂停，同刻轮数到上限 | 进入「恢复或结束」 | 进入「开始或恢复」 |
 | 在别处结束暂停的活动 | 受理 | 受理 |
-| 名额被一项通话与一项观看占满 | 下一步写结束或暂停任一项 | `Conclude one of …, or pause …, first.`，暂停只点名观看 |
+| 名额被一项通话与一项 app 使用占满 | 下一步写结束或暂停任一项 | `Conclude one of …, or pause …, first.`，暂停只点名 app 使用 |
 
 <a name="spec-parallel-activities-名额落点"></a>
 ### 代码落点
@@ -97,26 +97,25 @@ flowchart LR
 <a name="spec-parallel-activities-占用声明"></a>
 ### 占用声明
 
-准入机制不变：注册表显式声明每种动作的占用，同一人物进行中活动的占用交集非空即 `RESOURCE_CONFLICT`。改的只是声明，每种动作占自己的名字：
+准入机制不变：注册表显式声明每种动作的占用，同一人物进行中活动的占用交集非空即 `RESOURCE_CONFLICT`。
+阶段 4 将旧娱乐动作合并为 `use_app`；每种动作只占自己的名字：
 
 | 动作 | 声明的占用 | 与谁互斥 |
 | --- | --- | --- |
 | 等待 | `wait` | 另一段等待 |
 | 工作 | `work` | 另一项工作 |
-| 观看与收听内容 | `watch`；播客以外的内容另占 `screen` | 另一项观看或收听 |
-| 玩游戏 | `play_game` | 另一局游戏 |
+| 打开 app | `use_app` | 另一项 app 使用 |
 | 读信 | `read_mail` | 另一封信 |
-| 浏览 | `browse` | 另一次浏览 |
 | 食用、制作、使用 | `consume` | 另一项食用、制作或使用（同一请求里同一方式的两样食物照旧合成一顿，只占一个名额） |
 | 生活活动 | `lifestyle` | 另一项生活活动 |
 | 交谈、通话 | `talk` | 另一段交谈或通话 |
 | 步行 | `travel` | 另一段出行 |
-| 驾车 | `travel`，另占 `wait`、`work`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle` | 除听播客与说话以外的全部 |
-| 睡眠 | 全部十一个名字 | 全部 |
+| 驾车 | `travel`，另占 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle` | 除说话以外的全部 |
+| 睡眠 | 全部八个名字 | 全部 |
 
-占用闭集为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个；`screen` 只用来让驾车拒绝播客以外的内容。
-
-与旧表相比只放开、不收紧：新放开吃 ∥ 生活活动、吃 ∥ 读信或浏览、生活活动 ∥ 读信或浏览或游戏、观看 ∥ 读信或浏览或游戏、观看 ∥ 交谈或通话、等待 ∥ 工作、等待 ∥ 步行、读信、浏览与游戏两两之间、生活活动 ∥ 观看；仍然互斥的是全部同种的两件、睡眠与任何动作、驾车与上表八种。在场、免手、持有与地点等其他准入检查不变（步行 ∥ 工作仍因不在工作地点被拒）。
+占用闭集为 `wait`、`work`、`use_app`、`read_mail`、`consume`、`lifestyle`、`talk`、`travel`
+八个。互斥只来自同种占用、睡眠全占用和驾车一行；驾车只可再与交谈或通话并行。
+在场、持有与地点等其他准入检查不变（步行 ∥ 工作仍因不在工作地点被拒）。
 
 <a name="spec-parallel-activities-占用落点"></a>
 ### 代码与数据落点
@@ -213,9 +212,9 @@ flowchart LR
 | 1 | `tests/life/test_location_sessions.py` | 名额占满、只剩一个名额、带暂停活动出行三个用例按新规则改写：两项进行时第三项被拒，暂停一项后受理；一项暂停时开始两项受理；一项进行一项暂停时出行按出发前仍有进行中活动拒绝 |
 | 1 | `tests/life/test_same_moment_decisions.py`、`tests/life/test_tool_layer.py`、`tests/life/test_decision_budget.py` | 依赖「两项都暂停进入恢复或结束」的用例改写为两项都暂停到上限后进入开始或恢复、开始被受理；阶梯单元用例去掉名额分支；最后一轮受限请求成功仍耗尽预算的用例改走待收尾路径；含义已不成立的改名并同步 `tests/time_and_energy_acceptance.py` 与 `tests/persona_prompt_acceptance.py` |
 | 1 | `tests/life/test_paused_slots.py`（新增） | 经真实请求、引擎与 SQLite：一项暂停时开始两项受理；两项进行时恢复被拒并点名两项、待办层同一原因，结束一项后恢复受理、第三项再被拒；只有暂停的活动时出发受理且它们留在原地；暂停的活动在别处可直接结束；恢复的检查次序（工作截止先于名额、名额先于占用冲突）；下一步的三种写法（含通话不可暂停）；两项暂停到同刻上限后开始被受理 |
-| 2 | `tests/catalog/test_affordance_shadow.py` | 期望占用表换新；闭集断言为十一个名字，九个退役名字（此前退役的四个与五个身体部位名）都被拒绝；新增逐对核对：只有同种、睡眠一行与驾车一行有交集 |
-| 2 | `tests/life/test_news_feed.py`、`tests/life/test_parallel_acceptance.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_domain_branch_coverage.py`、`tests/life/test_state_serialization.py`、`tests/life/test_grounded_observation.py`、`tests/life/test_candidates.py`、`tests/life/test_parallel_admission.py`、`tests/life/test_same_moment_decisions.py` | 旧占用名换新；断言跨种组合被拒的三个用例改为同种组合，另加跨种受理的断言 |
-| 2 | `tests/fixtures/environment/catalog/affordances.toml`、`tests/catalog/test_engine_package_resources.py` | 测试环境副本与包资源逐字节同步；包资源的观看占用断言换新 |
+| 4 | `tests/catalog/test_affordance_shadow.py` | 占用闭集断言为八个名字，十三个退役名字都被拒绝；逐对核对只有同种、睡眠一行与驾车一行有交集 |
+| 4 | `tests/life/test_parallel_acceptance.py`、`tests/life/test_parallel_admission.py`、`tests/life/test_parallel_activities.py`、`tests/life/test_paused_slots.py`、`tests/life/test_candidates.py` | 旧观看、游戏与浏览占用用例改为 `use_app`；断言两个 app 使用同种拒绝，app 使用与吃饭或交谈可并行，驾车与 app 使用冲突 |
+| 4 | `tests/fixtures/environment/catalog/affordances.toml`、`tests/catalog/test_engine_package_resources.py` | 测试环境副本与包资源逐字节同步；包资源断言八个占用名与 app 使用占用 |
 | 3 | `tests/integration/test_life_agent_protocol.py`、`tests/fixtures/viewer-context.json` | 见「丙」；查看器夹具 `action` 与 `continuation` 两处系统层换新，`legacy_` 开头的两处不动 |
 | 3 | `tests/integration/test_seven_layer_request.py`（新增断言） | 第 8 条含「暂停的不算」「恢复暂停的活动要有空位」「环境只拦同一种的两件」，不再含「进行中、暂停与刚结束的都算」 |
 
@@ -292,3 +291,4 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 | `2026-10-06-parallel-activities-reconcile` | 2026-10-06 | 与把引擎资源和发布环境分开的 `main` 合流：占用声明的落点改为包资源 `src/worldmock/data/affordances.toml` 与测试环境副本；目录版本不再由本仓库决定（R6、R7、乙的落点、身份表、阶段 2 的文档与测试行、验收行随之改写） |
 | `2026-10-06-parallel-activities-baseline-scope` | 2026-10-06 | 合流后完整日改为逐字段核对实际存储，R10、身份一节与阶段 5 由「POSIX 平台生成新夹具」改为「发布环境重新发布后运行完整回归」；场景结构随环境数据归属规格为 6 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 资源占用闭集改为八个名字；旧观看、游戏和浏览占用合并为 `use_app`，驾车只允许再交谈；乙表和相关用例由资源与规则引擎简化规格取代 |

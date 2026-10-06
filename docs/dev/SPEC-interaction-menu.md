@@ -5,7 +5,7 @@
 
 > 引用出处：`src/worldmock/life/admission.py::_delivery_refusal` @ `55e6a0f4c6ed6a015e334b01513767eefc227880`
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「浏览结果与提示看可达性」、「地图地点与发现工具」（阶段 2）；「来源解析、只看此刻能做的、执行位置与保留约束、验收台账」（阶段 3）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「浏览结果与提示看可达性」、「地图地点与发现工具」（阶段 2）；「来源解析、只看此刻能做的、执行位置与保留约束、验收台账」（阶段 3）；再次修订「地图地点与发现工具、观察与人物工具、环境执行与拒绝、验收台账」（阶段 4）。
 
 > 状态：FROZEN；2026-09-20，依据现有运行入口、并发独立审查和业界机制核查裁决。
 > 部分条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
@@ -101,14 +101,14 @@ flowchart LR
 ## 地图地点与发现工具
 
 地图与门店供给特性中，场景只选择地点身份，菜单地点类来自目录中被选地点的 `kind`。活动环境由固定映射派生，地点不另声明 `business_kind` 或 `location_kinds`。地点发现从全目录发布图读取最短距离，路径可经过未被选择的节点。
-商品目录浏览是 `interact` 的浏览对象，正式场景和人物菜单仍以 `browse` 动作限制。
-只读 `query_world` 读取已经冻结公开的供给不额外要求 `browse` 菜单，指名购买本已允许的商品可查同等公开事实；
-真实耗时浏览仍须 `browse` 准入，查询不能揭示未知供给、给 `data.supplies` 或工具层目标添加条目或可见凭据。
+只读 `query_world` 读取已经冻结公开的食品供给，不额外要求耗时活动，也不提供内容或 app 检索。
+app 作为 `kind="app"` 的工具目标始终列出，人物用方式「打开」启动 `use_app`；实际内容由环境从所选 app 的绑定内容中选择，
+没有绑定内容的 app 仍列出但以 `APP_CONTENT_EMPTY` 标为不可用。
 查询只读冻结观察可读范围，不推进时间、不占活动名额，也不能读取未告知任务或他人私有状态。
 它遵循冻结菜单、工具层列出的动作、本地校验、环境重验和 `INTERACTION_MENU_DENIED` 的合同。
 禁止发现不得删除已存在地图事实；发现与呈现只管展示与比较，购买资格不以返回为限，`obtain` 可以按名称指名未返回的商品
 （[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第五章「指名购买」，按[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.2、3.3、3.5 改为 `from` 可选约束、
-分段匹配与按请求级 `prefer` 选定）；它消耗一次生活动作，结果结算后写进进度层，浏览结果列完整标签「<门店>出售的<商品>」。
+分段匹配与按请求级 `prefer` 选定）；购买消耗一次生活动作，结果结算后写进进度层，食品供给使用完整标签「<门店>出售的<商品>」。
 
 <a name="spec-interaction-menu-观察与人物工具"></a>
 ## 观察与人物工具
@@ -131,12 +131,14 @@ flowchart LR
 | --- | --- |
 | 稳定模型工具 | 地点菜单不剪裁工具；状态、阶段、同刻上限和预算仍门控具体可用性 |
 | `start_activity` | 必填items/answering/prefer；items一至两项，每项恰为全键必填的{target,way,from,to}，整组原子受理；删除actions和平行targets/ways/from/to数组。宿主与环境共用方式解析，再核对allowed_actions；按名称调用仍检查菜单。to=null统一表示本人，其他人物写实名，旧“自己”值拒绝；食用、使用、制作与非转移动作两端null，给予from=null且to为其他人物。含到店/远程下单/购买项时prefer必须为“最快拿到”或“到手价最低”，否则必须为null；null不默认最快，旧英文枚举拒绝。失败候选为{tool,arguments,note}完整合法调用，不代人物执行 |
-| `query_world` | 稳定只读工具；name/way/category/from/available_only/offset 六键全部必填、无缺省，旧四键请求按缺字段拒绝；name、way、category、from 可空但至少一个非 null，available_only 为布尔且不单独构成查询条件，offset 为非负整数；from 写地点显示名或渠道称呼，与购买请求共用同一来源解析，只匹配供给条目，不按需求反查门店、不计算路线；available_only=true 只留已确认此刻可执行的条目，可执行取冻结观察里该条目动作的 available，筛选先于排序与切页（个人事务与工作安排规格第五章，阶段 4 落地）；category只取callable_index已展示的公开品类标签；返回matches/total_count/next_offset，next_offset必填可空，每页沿用现有上限20，按偏移可遍历全集；查询只限冻结观察可读事实，已公开供给不额外要求browse，真实耗时浏览仍须browse且查询不能揭示未知供给；任务检查已告知与归属，库存只读本人可读持有物；不提交世界请求、不推进时钟、不给data.supplies/工具层目标添加条目或可见凭据；不恢复discover_places或商品需求路线查询 |
+| `query_world` | 稳定只读工具；name/way/category/from/available_only/offset 六键全部必填、无缺省，旧四键请求按缺字段拒绝；name、way、category、from 可空但至少一个非 null，available_only 为布尔且不单独构成查询条件，offset 为非负整数；from 写地点显示名或渠道称呼，与购买请求共用同一来源解析，只匹配固定食品供给，不按需求反查门店、不计算路线；available_only=true 只留已确认此刻可执行的条目，可执行取冻结观察里该条目动作的 available，筛选先于排序与切页（个人事务与工作安排规格第五章，阶段 4 落地）；category只取callable_index已展示的公开品类标签；返回matches/total_count/next_offset，next_offset必填可空，每页沿用现有上限20，按偏移可遍历全集；查询只限冻结观察可读事实，不提交世界请求、不推进时钟、不给data.supplies或工具层目标添加条目；app 与内容不进入查询结果，人物通过始终列出的 app 目标启动 `use_app`；任务检查已告知与归属，库存只读本人可读持有物；不恢复discover_places或商品需求路线查询 |
 | `recall_task_summary` | 接受可读任务名、当日目标名或活动名（会话名不在七层中出现，不接受）；找不到或不唯一时业务拒绝并列出可选名称 |
 | `report_status`、`pause_activity`、`conclude_activity` | `items[]` 一至两项，一项活动一个对象：`report_status`、`pause_activity` 为 `{activity_name, summary}`，`conclude_activity` 为 `{activity_name, summary, memories, views}`（一日运行保真规格第六章）；三者另有请求级必填 `errands[]`（与 `items` 平级，可为 `[]`；新增、更新或取消个人事务，个人事务与工作安排规格 2.2，阶段 2 落地）；`activity_name` 为唯一可读活动名；先校验全部活动、阶段与事务变更，再原子更新；报告可以恢复暂停的活动，结束作用于选中的进行中、暂停或待收尾的活动；事务变更随活动控制提交，与活动控制一样不受地点菜单剪裁（见「声明与准入」），仍服从宿主与环境的同一校验 |
 | `submit_work`、`send_message` | 分别在工作或通讯领域条件满足时开放，正文由人物写入，任务与收件人用可读名称定位 |
 
-购买、出行、社交、商品目录浏览与游戏都由 `start_activity` 的私有绑定定位；相应标准动作按菜单限制。
+购买、出行、社交、生活活动与 app 使用都由 `start_activity` 的私有绑定定位；相应标准动作按菜单限制。
+每个登记 app 始终作为 `kind="app"` 的目标列出，只提供方式「打开」和标准动作 `use_app`；app 不进入候选、轮转或
+`callable_index`。没有绑定内容时目标保持可见并说明不可用，直接请求也以 `APP_CONTENT_EMPTY` 拒绝。
 交谈和通话不能暂停。任务或人物名称不展示内部编号、索引或标识符。
 暂停的活动仍在观察与回看选项中可见；播报可在其开始地点恢复它，另核对当前资源与地点条件，能量不参与。
 原生工具整次运行不变（只剩最后一个回合时与输出截断后的那次重试时去掉全部查询工具（`recall_task_summary`、`query_world` 与三个记忆查询），后者见一日运行保真规格 7.2），不逐轮绑定名称枚举；恢复条件由待办层控制工具的 `available`、`reason` 说明，
@@ -150,16 +152,15 @@ flowchart LR
 按名写的对象照常经菜单与准入判定。
 完整并行行为见[一日行为规格](SPEC-dayrun-behavior.md#spec-dayrun-behavior-人物入口与独立控制)。
 
-| 既有下钻品类 | 对应菜单资格（内部标准动作；人物动词：`play`、`work`、`watch`、`do` 属 `interact`，`consume` 属 `consume`，库存转换配方属 `obtain` 的「制作」） |
+| 既有目标类别 | 对应菜单资格（内部标准动作；人物方式「工作」「打开」「进行」属 `interact`，「食用」「使用」「给予」属 `consume`，库存转换配方属 `obtain` 的「制作」） |
 | --- | --- |
-| `game_session` | `start_activity` 的 `play` 动作 |
 | `work_contract` | `start_activity` 的 `work` 动作 |
-| 注册表内容品类 | `start_activity` 的 `watch` 动作 |
+| `app` | `start_activity` 的 `use_app` 动作；内容由所选 app 的绑定决定 |
 | 现有生活活动品类 | `start_activity` 的 `do` 动作 |
 | 物品 | `start_activity` 的 `consume` 动作；食物显示“食用”，耐用品显示“使用”；交给他人显示“给予”（`to` 写人物名），内部标准动作仍为 `consume`（收件人不是自己），菜单、可供性目录与品类配对不变，不新增动作名 |
 
-品类真实存在性继续由现有观察和下钻入口判定；菜单不把任意字符串创造为生活活动品类。
-不存在的下钻品类保留 `BROWSE_CATEGORY_NOT_FOUND`，只有真实存在但菜单禁止的品类才报告菜单拒绝。
+目标真实存在性继续由现有观察和按名入口判定；菜单不把任意字符串创造为生活活动或 app。
+`query_world.category` 只接受 `callable_index.query_categories` 已列出的固定食品品类，非法品类按既有完整参数错误合同拒绝。
 
 <a name="spec-interaction-menu-环境执行与拒绝"></a>
 ## 环境执行与拒绝
@@ -167,7 +168,8 @@ flowchart LR
 动作登记仍只确认提交，世界行为在共同结算时确定。环境依据权威场景、人物和当前结算状态重新计算菜单。
 违反动作准入的直接请求在产生领域副作用前返回业务拒绝
 `INTERACTION_MENU_DENIED`，写英文错误日志和既有 `action_rejected` / `action_result` 证据，
-下次观察按现有公开结果通道交付。拒绝不能扣款、消耗内容、开始或恢复活动、推进游戏、发送消息。
+下次观察按现有公开结果通道交付。拒绝不能扣款、开始或恢复活动、推进 app 内容或全局内容进度、
+改变推送状态、发送消息。
 全部接口失败同时返回英文错误说明，`items[]` 每项包含
 `path/written/error_code/allowed_values/expected/why/candidates`。
 `path` 为从本次模型工具调用根开始的完整位置数组，例如
@@ -178,7 +180,7 @@ flowchart LR
 已结算请求的幂等重放不重做领域动作，也不重复计为新拒绝。
 既有重放证据仍可追加，必须标记 `reused=true`，不能误报为一次新执行。
 工作提交在独立工作验收调用前检查领域资格，拒绝不触发模型费用或评审证据。
-活动控制保持原规则，任何菜单都不能放宽活动归属、反馈边界与游戏命令。
+活动控制保持原规则，任何菜单都不能放宽活动归属、反馈边界与 app 使用准入。
 恢复请求的活动不存在或不属于当前人物时，由原活动身份校验拒绝；不以菜单错误掩盖既有领域错误。
 
 <a name="spec-interaction-menu-实验身份与恢复"></a>
@@ -359,7 +361,7 @@ flowchart LR
 | 要求 | 必须观察到的结果 |
 | --- | --- |
 | 显式声明与准入 | 全部正式场景可加载；缺字段、未知、重复、空集合、坏类型、地点类漏项或多项、保护项缺失均拒绝并留日志 |
-| 地点与人物交集 | 条目相同而地点菜单不同导致可读动作集合不同；同地点两个人物动作集合不同；游戏与工作动作正确区分 |
+| 地点与人物交集 | 条目相同而地点菜单不同导致可读动作集合不同；同地点两个人物动作集合不同；`use_app` 与工作动作正确区分，app 目标只来自登记目录 |
 | 观察冻结 | 相同状态输出确定性菜单；本轮查询使用同一冻结观察；同一秒续接的每次决策各自冻结观察；换地点后的下一次观察更新；记忆查询不需世界菜单，世界只读查询仍守领域读取边界 |
 | 模型与本地一致 | 捕获实际模型请求验证稳定工具和可读动作；菜单禁止动作在本地和直接派发均拒绝 |
 | 方式解析与错误 | 无 `actions` 仍正确解析内部动作；旧字段、非法方式与 prefer 全部拒绝，真实模型回执含完整位置数组 path、全部合法闭集、英文 expected 和 why，候选可整份通过请求校验 |
@@ -375,7 +377,7 @@ flowchart LR
 执行证据及逐条测试映射统一记于[交互菜单验收记录](research/interaction-menu-verification.md)。
 该记录必须如实区分本特性离线完成与全项目尚未完成的正式长期实验。
 
-本阶段食品查询和购买按同类型菜单、全店同价、店铺 app 绑定验证；不存在私有店铺库存、报价版本或营业验收。历史执行记录按其原始代码身份保留，不能代替本阶段节点。
+本阶段食品查询和购买按同类型菜单、全店同价、店铺 app 绑定验证；app 打开只使用所选 app 的绑定内容，空内容 app 拒绝，商店 app 绑定仍用于食品来源。不再验收私有店铺库存、报价版本、营业或旧游戏动作。历史执行记录按其原始代码身份保留，不能代替本阶段节点。
 
 <a name="spec-interaction-menu-版本表"></a>
 ## 版本表
@@ -395,6 +397,7 @@ flowchart LR
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 IM7，按 `d8a41d3` 的代码核对）：文件头改为修订部分（就寝反思的后台严格工具、控制工具的请求级 `errands`、`query_world` 六键）已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：交互菜单验收改为 `use_app`、所选 app 的内容绑定与空内容拒绝；删除旧游戏动作验收。 |
 
 <a name="spec-interaction-menu-当日目标保护项"></a>
 ## 当日目标保护项

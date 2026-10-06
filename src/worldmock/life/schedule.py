@@ -65,6 +65,7 @@ class WakeReason(str, Enum):
     SHIFT_END = "shift_end"
     BREAK_START = "break_start"
     BREAK_END = "break_end"
+    APP_PUSH = "app_push"
 
 
 SLEEP_ALLOWED_REASONS = frozenset(
@@ -112,7 +113,7 @@ IntentKind = Literal[
 #: 活动种类对应的评估聚合家族；计划匹配仍使用活动种类本身作为令牌。
 ACTIVITY_KIND_FAMILIES = {
     "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
-    "watch": "entertainment", "play_game": "entertainment",
+    "use_app": "entertainment",
     "read_mail": "entertainment", "wait": "rest", "chat": "social", "call": "social",
 }
 #: 冻结生活活动品类对应的聚合家族；评估中的外出并入通勤规则由报告自身声明。
@@ -140,7 +141,7 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
     "工作": frozenset({"work"}),
     "用餐": frozenset({"consume"}),
     "休息": frozenset({"wait", "lifestyle:wellness"}),
-    "娱乐": frozenset({"watch", "play_game", "lifestyle:hobby"}),
+    "娱乐": frozenset({"use_app", "lifestyle:hobby"}),
     "社交": frozenset({"chat", "call", "lifestyle:social"}),
     "家务": frozenset({"lifestyle:household", "lifestyle:pet"}),
     "运动": frozenset({"lifestyle:sport"}),
@@ -227,6 +228,8 @@ class WakeSnapshot(BaseModel):
     errand_reminder_due: bool = False
     #: 本边界恰好成立的班次与休息时段起止成员（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）：同一秒重合的各记一次。
     duty_edges_now: frozenset[WakeReason] = frozenset()
+    #: 本边界实际收到应用推送，睡眠过滤仍由既有允许集合负责。
+    app_push_arrived: bool = False
     is_asleep: bool = False
 
 
@@ -418,6 +421,8 @@ def _clock_reasons(snap: WakeSnapshot) -> list[WakeReason]:
     if snap.errand_reminder_due:
         reasons.append(WakeReason.ERRAND_REMINDER_DUE)
     reasons.extend(member for member in DUTY_EDGE_REASONS if member in snap.duty_edges_now)
+    if snap.app_push_arrived:
+        reasons.append(WakeReason.APP_PUSH)
     return reasons
 
 

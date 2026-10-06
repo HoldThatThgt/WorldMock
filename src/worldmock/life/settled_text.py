@@ -151,8 +151,7 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
     if fact["kind"] == "consumed":
         names = {item.food_id: item.name for item in scenario.foods}
         return f"{span} 吃了{names[fact['food_id']]}"
-    podcast = any(item.item_id == fact["content_id"] and item.kind == "podcast_episode" for item in scenario.contents)
-    return f"{span} {'听了' if podcast else '看了'}《{context.rules.content_titles[fact['content_id']]}》"
+    return f"{span} 使用应用观看了《{context.rules.content_titles[fact['content_id']]}》"
 
 
 def activity_endings(events: Iterable[Event]) -> dict[str, Event]:

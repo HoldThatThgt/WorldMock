@@ -13,13 +13,15 @@
       "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
       "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
       "tests/life/test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately",
-      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names"
+      "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
+      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"
     ],
     "implementation": [
       "src/worldmock/life/schedule.py::WakeReason",
       "src/worldmock/life/schedule.py::SLEEP_ALLOWED_REASONS",
       "src/worldmock/life/schedule.py::DUTY_EDGE_REASONS",
-      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES"
+      "src/worldmock/footprints/models.py::WAKE_REASON_NAMES",
+      "src/worldmock/scheduling/effects.py::ScheduledOutcome"
     ]
   },
   "清醒人物精确到点": {
@@ -28,8 +30,9 @@
     "tests": [
       "tests/life/test_shift_edge_runs.py::test_t1_a_waiting_person_is_asked_exactly_at_the_shift_end_and_the_wait_goes_on",
       "tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status",
-      "tests/life/test_shift_edge_runs.py::test_t10_a_game_turn_after_the_edge_does_not_hide_the_edge_from_the_clock",
-      "tests/life/test_shift_edge_runs.py::test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget"
+      "tests/life/test_shift_edge_runs.py::test_t10_an_app_boundary_after_the_edge_does_not_hide_the_edge_from_the_clock",
+      "tests/life/test_shift_edge_runs.py::test_t20_an_edge_ends_the_technical_pause_after_the_same_second_budget",
+      "tests/life/test_shift_edges.py::test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge"
     ],
     "implementation": [
       "src/worldmock/life/duty_edges.py::duty_edges",
@@ -52,8 +55,9 @@
       "tests/life/test_shift_edge_runs.py::test_t11_on_the_road_the_walk_goes_on_and_pausing_is_still_refused",
       "tests/life/test_shift_edge_runs.py::test_t11_in_a_call_the_call_goes_on_and_pausing_is_still_refused",
       "tests/life/test_shift_edge_runs.py::test_t11_in_a_conversation_both_chats_go_on_and_pausing_is_still_refused",
-      "tests/life/test_shift_edge_runs.py::test_t12_in_a_game_the_turn_stays_and_the_game_only_stops_at_its_own_turn",
-      "tests/life/test_shift_edge_runs.py::test_t13_an_around_time_is_still_not_a_boundary"
+      "tests/life/test_shift_edge_runs.py::test_t12_an_app_keeps_its_boundary_and_can_pause_at_the_shift_end",
+      "tests/life/test_shift_edge_runs.py::test_t13_an_around_time_is_still_not_a_boundary",
+      "tests/life/test_shift_edges.py::test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet"
     ],
     "implementation": [
       "src/worldmock/life/schedule.py::WakeSnapshot",
@@ -165,7 +169,9 @@
       "tests/life/test_activity_wake_facts.py::test_a_task_opening_during_a_wait_offers_a_decision_and_the_wait_goes_on",
       "tests/life/test_activity_wake_facts.py::test_a_sleeper_gets_no_decision_when_an_own_delivery_arrives",
       "tests/life/test_activity_wake_facts.py::test_a_sleeper_gets_no_decision_when_a_task_opens",
-      "tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status"
+      "tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status",
+      "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
+      "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"
     ],
     "implementation": [
       "src/worldmock/life/schedule.py::evaluate_wake_reasons",

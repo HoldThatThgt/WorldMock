@@ -1,7 +1,7 @@
 <a name="spec-day-plan-goals-当日目标特性开发规格"></a>
 # 当日目标特性开发规格
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「场景加载时就该拒绝的问题」（阶段 1）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「场景加载时就该拒绝的问题」（阶段 1）与「度量输出合同」（阶段 4）。
 
 > 状态：已实现并通过本特性确定性验收；行为合同已冻结，证据见文末台账。日期：2026-09-21。
 > 生成方式、提醒与部分节律由[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)修订；修订条款已实现并通过离线验收，台账中被修订两行的证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)。
@@ -220,7 +220,7 @@ flowchart LR
   | work | work |
   | consume | meal |
   | wait、lifestyle:wellness | rest |
-  | watch、play_game、browse、read_mail、lifestyle:hobby、lifestyle:learning | entertainment |
+  | use_app、read_mail、lifestyle:hobby、lifestyle:learning | entertainment |
   | chat、call、lifestyle:social、lifestyle:volunteer | social |
   | lifestyle:household、lifestyle:pet | chore |
   | lifestyle:sport | exercise |
@@ -534,3 +534,4 @@ flowchart LR
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 修订「心智模型与范围」：作息是默认、较强一档才改之后补一句，作息里的钟点、目标文字里的钟点与大致时刻都只是大概，系统层写明临近即可去做、略早略晚都算照常；验收台账表后说明沿用阶段 1 的那一句；文件头修订说明补本阶段 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订：「心智模型与范围」天天如此的事改为人物档案与背景里的六项（睡觉、起床、上下班、吃饭、休息、每天的消遣），除非今天与平常不同或照模板第三条需要提醒才写成目标，清单可以很短、零条仍然合法；「提交与修订」写明 `goal` 可写粗略时段，零点计划模板要求只给和人约好的事写钟点（环境不校验），环境不解读文字；「零点计划与计划提醒」的「计划与提醒」同样改写天天如此的事与清单长度，零点计划不为就寝写提醒，要按时起床的写起床时刻的提醒，要按时到的事写该出门时刻的提醒（一条目标含多件时填最早的），只打算在某个时段做的事填 null，在家进行的约定由零点计划按模板第三条自行判断、环境不校验，提醒为空的例行意图目标照常受理；「当日目标带大致时刻，只有在那前后进行的活动才算推进」写明大致时刻主要落在今天特有的目标和带提醒的目标上，大致时刻在就寝前后的睡眠目标不被跨零点的睡眠推进，带起床提醒、大致时刻在起床前后的睡眠目标会被当夜睡眠推进，都按同一判定、计入 `routine_goals`、不入推进比例；验收台账表后说明沿用阶段 1 的那一句；文件头修订说明补本阶段 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐度量家族改由 `use_app` 承载，删除观看、游戏与浏览的旧活动映射。 |

@@ -32,6 +32,8 @@ class ScheduledKind(StrEnum):
     PAYROLL = "payroll"
     #: 联系人回复的预排送达（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）：到期写入收件箱并以 message_arrival 唤醒。
     MESSAGE_ARRIVAL = "message_arrival"
+    #: 应用整点推送机会，到期时以人物当前会话判定资格。
+    APP_PUSH = "app_push"
 
 
 class ScheduledEvent(_StrictScheduledModel):

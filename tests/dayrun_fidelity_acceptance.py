@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 _BILLING = "tests/life/test_sleep_billing.py::"
-_PREVIEW = "tests/life/test_motivation.py::TestReliefFloorPreview::"
 _SCENARIO = "tests/life/test_scenario.py::"
 _INJECTION = "tests/profile/test_injection.py::"
 _WARNINGS = "tests/integration/test_input_warnings.py::"
@@ -87,10 +86,7 @@ LEDGER: dict[str, list[str]] = {'睡眠计费': ['tests/life/test_sleep_billing.
           'tests/life/test_sleep_billing.py::test_meal_finished_exactly_at_the_boundary_still_counts_as_shared',
           'tests/life/test_sleep_billing.py::test_a_call_ending_at_the_boundary_is_billed_once_by_the_call_ledger',
           'tests/life/test_sleep_billing.py::test_ledger_without_a_draft_falls_back_to_activities_ending_now'],
- '下限缓解': ['tests/life/test_motivation.py::TestReliefFloorPreview::test_watch_candidate_preview_equals_engine_settlement',
-          'tests/life/test_motivation.py::TestReliefFloorPreview::test_continue_preview_equals_engine_settlement',
-          'tests/life/test_motivation.py::TestReliefFloorPreview::test_zero_rate_content_previews_awake_accrual_like_the_engine',
-          'tests/life/test_motivation.py::TestReliefFloorPreview::test_continue_watch_without_relief_evidence_is_rejected',
+ '下限缓解': ['tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body',
           'tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants',
           'tests/life/test_scenario.py::test_structure_seven_rejects_body_and_message_retired_fields'],
  '输入警告': ['tests/profile/test_injection.py::test_the_warning_code_set_is_the_closed_six',
@@ -233,17 +229,16 @@ LEDGER: dict[str, list[str]] = {'睡眠计费': ['tests/life/test_sleep_billing.
         'tests/life/test_presentation_fidelity.py::test_refresh_quota_goes_to_the_longest_unpresented_lifestyle_entries',
         'tests/life/test_presentation_fidelity.py::test_rotation_has_no_shared_offset_across_partitions',
         'tests/life/test_presentation_fidelity.py::test_the_ceiling_n_over_k_bound_holds_per_partition',
-        'tests/life/test_presentation_fidelity.py::test_order_key_version_is_two',
+        'tests/life/test_presentation_fidelity.py::test_order_key_version_is_three',
         'tests/life/test_rotation.py::test_rotation_criterion_is_last_presented_at_not_exposure_count',
         'tests/life/test_rotation.py::test_quota_goes_to_the_longest_unpresented_members_first',
         'tests/life/test_rotation.py::test_bound_holds_per_partition_regardless_of_other_partitions',
         'tests/life/test_rotation.py::test_equally_stale_members_are_released_in_order_key_order',
         'tests/life/test_rotation.py::test_rotation_has_no_cursor_and_depends_only_on_the_stamps',
         'tests/life/test_rotation.py::test_quota_is_capped_by_subtype_count_only_not_by_tag_similarity',
-        'tests/life/test_candidates.py::TestClosedSets::test_order_key_version_is_two_and_enters_the_cursor_identity',
-        'tests/life/test_candidates.py::TestExclusionDiscipline::test_catalog_view_applies_location_kinds_only_when_asked',
-        'tests/life/test_candidates.py::TestOrdering::test_hash_of_scenario_person_date_and_object_breaks_ties',
-        'tests/life/test_candidates.py::TestOrdering::test_relevance_orders_after_taste_and_before_the_hash',
+        'tests/life/test_candidates.py::test_candidates_and_cursor_are_deterministic',
+        'tests/life/test_candidates.py::test_actual_world_constraints_are_reported',
+        'tests/life/test_candidates.py::test_relevance_changes_order_without_changing_membership',
         'tests/life/test_relevance.py::test_points_are_the_three_adopted_terms',
         'tests/life/test_relevance.py::test_entry_relevance_adds_time_window_goal_family_and_habit_hits',
         'tests/life/test_relevance.py::test_goal_families_come_from_unprogressed_goals_through_the_intent_table',
@@ -266,8 +261,8 @@ LEDGER: dict[str, list[str]] = {'睡眠计费': ['tests/life/test_sleep_billing.
  '浏览与提示': [
         'tests/life/test_wayfinding.py::test_go_step_directly_names_the_destination_even_for_a_multi_hop_path',
         'tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields',
-        'tests/life/test_prompt_layers.py::test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only',
-        'tests/life/test_tool_layer.py::test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them',
+        'tests/life/test_app_ui.py::test_all_apps_always_listed_without_content_candidates_or_index',
+        'tests/life/test_app_ui.py::test_empty_app_tool_reason_matches_actual_start_refusal',
         'tests/life/test_food_presentation.py::test_actual_menu_sources_are_activated_and_never_claim_browse_history',
         'tests/life/test_food_motivation.py::test_current_food_menu_projects_real_families_and_never_enumerates_browse',
         'tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places',
@@ -484,7 +479,7 @@ RULINGS: dict[str, list[str]] = {'D1': ['tests/profile/test_coverage.py::test_ap
  'S4': ['tests/life/test_presentation_fidelity.py::test_relevance_puts_time_window_goal_family_and_habit_hits_ahead',
         'tests/life/test_presentation_fidelity.py::test_zero_taste_order_is_not_alphabetical_and_changes_with_the_date',
         'tests/life/test_relevance.py::test_points_are_the_three_adopted_terms',
-        'tests/life/test_candidates.py::TestOrdering::test_hash_of_scenario_person_date_and_object_breaks_ties'],
+        ],
  'S5': [
         'tests/integration/test_seven_layer_request.py::test_callable_index_rides_in_the_tool_layer_and_counts_toward_capacity',
         'tests/life/test_callable_index.py::test_every_food_index_example_resolves_to_the_actual_fixed_menu',
@@ -503,7 +498,7 @@ RULINGS: dict[str, list[str]] = {'D1': ['tests/profile/test_coverage.py::test_ap
         'tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps',
     ],
  'S9': [
-        'tests/life/test_tool_layer.py::test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them',
+        'tests/life/test_app_ui.py::test_empty_app_tool_reason_matches_actual_start_refusal',
         'tests/life/test_named_purchase.py::test_onsite_name_purchase_has_no_app_and_remote_guidance_uses_real_places',
         'tests/life/test_purchase_apps.py::test_unbound_app_refuses_with_exact_reason_and_bound_app_next_step',
     ],
@@ -663,4 +658,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     'tests/integration/test_storefront_tools.py',
     'tests/life/test_food_presentation.py',
     'tests/life/test_food_motivation.py',
+    'tests/life/test_app_ui.py',
+    'tests/life/test_app_progress.py',
+    'tests/life/test_mail_reading.py',
 )

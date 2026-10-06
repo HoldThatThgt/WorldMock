@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.exchange.types import START_ACTIVITY_ACTIONS
 from worldmock.errors import IntegrityError
 from worldmock.life import sessions, work_schedule
 from worldmock.life.models import ActivityKind, SessionKind

@@ -22,10 +22,10 @@ OWNERS = {'base_models.py': ('StrictModel',
  'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
  'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
  'life/models.py': ('DERIVED_DURATION_CAP_SECONDS', 'CONSUME_DURATION_CAP_SECONDS', 'validated_payload'),
- 'life/durations.py': ('capped_duration_seconds', 'content_duration_seconds', 'derived_activity_duration'),
+ 'life/durations.py': ('capped_duration_seconds', 'derived_activity_duration'),
  'life/work.py': ('work_start_refusal',),
  'life/travel.py': ('planned_travel',),
- 'life/activities.py': ('entertainment_relief_rate', 'content_entertainment_relief_rate', 'relief_preference'),
+ 'life/activities.py': ('entertainment_relief_rate', 'content_entertainment_relief_rate'),
  'life/candidates.py': ('CANDIDATE_ACTIVITY_KINDS', 'CANDIDATE_SOURCES'),
  'life/schedule.py': ('activity_family', 'ACTIVITY_KIND_FAMILIES', 'LIFESTYLE_CATEGORY_FAMILIES'),
  'life/readable.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS'),
@@ -35,6 +35,7 @@ OWNERS = {'base_models.py': ('StrictModel',
                              'valid_subjective_snapshot',
                              'valid_subjective_snapshots'),
  'life/content.py': ('mail_headers',),
+ 'life/randomness.py': ('random_stream',),
  'life/control_items.py': ('CONTROL_TOOLS',),
  'evaluation/metrics.py': ('date_blocks',),
  'evaluation/adapters.py': ('parse_world_event',),
@@ -165,6 +166,19 @@ def _sample(root, relative, source):
 
 def test_production_shared_rules_have_one_owner_and_no_business_clones():
     assert not single_source_violations(ROOT)
+
+
+def test_current_registry_and_observation_contract_retire_energy_and_game_keys():
+    """@brief 当前可供性声明和真实观察合同都没有已退役的能量投影与游戏边界字段。"""
+    from worldmock.catalog.affordances import KindSpec, engine_affordances
+    from worldmock.life.engine_context import AFFORDANCE_CONTRACT_KEYS, affordance_contract
+
+    assert "energy_projection" not in KindSpec.__dataclass_fields__
+    assert AFFORDANCE_CONTRACT_KEYS == {"action", "target_discovery", "target_field", "feedback_eligible"}
+    rows = affordance_contract(engine_affordances())
+    assert "use_app" in rows
+    assert all(set(row) == AFFORDANCE_CONTRACT_KEYS for row in rows.values())
+    assert all(not {"energy_projection", "game_boundary"} & row.keys() for row in rows.values())
 
 
 def test_new_function_clone_fails_even_with_different_name_and_docstring(tmp_path):

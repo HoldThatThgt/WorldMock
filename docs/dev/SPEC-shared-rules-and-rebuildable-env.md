@@ -1,7 +1,7 @@
 <a name="shared-rules-特性规格共享规则单一归宿与可重建环境"></a>
 # 特性规格：共享规则单一归宿与可重建环境
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「活动规则、共享规则、防漂移守卫、新机器检查、文档原子同步清单、摘要、安全路径、持久写入与错误」（阶段 1）；「摘要、安全路径、持久写入与错误」（阶段 2）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「活动规则、共享规则、防漂移守卫、新机器检查、文档原子同步清单、摘要、安全路径、持久写入与错误」（阶段 1）；「摘要、安全路径、持久写入与错误」（阶段 2）；「app 资源与内容规则、活动常数、候选种类与平台证据边界」（阶段 4）。
 
 > 状态：FROZEN；2026-10-05。冻结描述要求，实现和验收证据分别登记。
 > 2026-10-06 修订「共享规则」的「安全文件」一行（Windows 路径加固），见版本表。
@@ -54,7 +54,7 @@ flowchart LR
 | 图上出行响应 | `catalog.graph.Graph` 提供最短距离与完整路径，等长按完整路径元组字典序决胜 | 出行、配送、地点比较与记录读取同一结果，禁止重新解释道路响应、几何或交通状态 |
 | 规范 JSON 摘要 | `footprints.models.canonical_json` 和 `sha256_json`；UTF-8、键排序、紧凑分隔符、拒绝 NaN 与无穷值 | 候选、请求、工作验收的结构化值、环境目录身份、交付 trace 使用相同字节；工作验收纯字符串仍哈希原文，这是独立输入合同 |
 | SHA-256 形式 | `footprints.models.is_sha256`；仅小写十六进制 64 字符 | 原先业务函数与直接正则匹配调用相同谓词；字段 Schema 保留既有模式；非字符串不能通过 |
-| 安全文件 | `corpora.manifest`；声明须是只用 `/` 分隔的根内相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、`..` 与反斜杠，以及任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、Windows 禁用字符与数据流冒号、控制字符、孤立代理码点、超过 255 字节）；解析前检查根以内每个组件的符号链接与目录联接，拒绝越界和非普通文件 | 语料清单、七份目录、包资源副本与环境目录身份的实际入口；退役业务消费者随所属阶段删除；工作区快照与恢复的成员名使用同一声明规则；错误文案与构造函数由所属入口传入，只在失败时构造一次，不改变错误分类 |
+| 安全文件 | `corpora.manifest`；声明须是只用 `/` 分隔的根内相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、`..` 与反斜杠，以及任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、Windows 禁用字符与数据流冒号、控制字符、孤立代理码点、超过 255 字节）；解析前检查根以内每个组件的符号链接与目录联接，拒绝越界和非普通文件 | app 与内容引用、语料清单、七份目录、包资源副本与环境目录身份的实际入口；退役业务消费者随所属阶段删除；工作区快照与恢复的成员名使用同一声明规则；错误文案与构造函数由所属入口传入，只在失败时构造一次，不改变错误分类 |
 | 原子写 | `footprints.assets.atomic_write`；只写字节，创建父目录、同目录临时文件、文件 fsync、os.replace，POSIX 同步父目录；Windows 按平台能力执行文件同步与替换 | 素材、内容 manifest、环境目录身份等写入；临时文件失败清理，异常转换为所属模块错误；JSON 文件使用 LF |
 | 故障日志 | `WorldMockError` 构造已经记录错误，删除额外先记日志再抛出的包装 | 同一故障只生成一条构造日志；稳定英文错误内容与异常因果链保留；普通声明 ValueError 的日志拒绝共用 `errors.reject_value` |
 
@@ -66,18 +66,17 @@ flowchart LR
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
 | --- | --- | --- |
-| 活动时长 | `life.durations` 推导；上限归 `life.models`，一般活动封顶 86400 秒、消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
+| 活动时长 | `life.durations` 推导；生活活动上限归 `life.models`，app 使用固定 `APP_USE_DEFAULT_SECONDS=1800`，消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
 | 开工阻断 | `life.work.work_start_refusal` | 工具层与受理层复用同一原因和下一步 |
 | 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用图最短路与固定速度时长（阶段 2 接入）；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
-| 缓解速率 | `life.activities` 的速率函数；MET 键从包内固定活动声明读取；生活活动效果来自环境并在启动时冻结 | 预估与结算相同；继续内容缺少、布尔、非整数或小于一的 `exposure_count` 均明确报错，不默认接触一次；预估的既有资格拒绝处理仍保留 |
-| 候选种类 | `life.candidates` | 删除无人使用的 `presentation.ACTIVITY_OF_KIND`；其它生产调用直接使用唯一映射 |
+| 缓解速率 | `life.activities` 的固定内容类型速率：article 0.2、image_text 0.2、short_video 0.3、long_video 0.4、live 0.3；生活活动效果来自环境并在启动时冻结 | 预估与结算按相同类型和实际经过时间；暂停不缓解，内容真实完成才递增轮次 |
+| 候选种类 | `life.candidates` 恰为 `product`、`lifestyle`、`task`；app 始终列出，不进入候选 | 生产调用直接使用唯一映射；可调用索引恰含 `lifestyle`、`goods`、`query_categories` |
 | 活动家族 | `life.schedule.activity_family` | 生产受理缺生活活动仍以 `LIFESTYLE_ACTIVITY_NOT_FOUND` 拒绝；离线缺品类返回未知，计划不猜测进度、相关度不给家族加分、评估保留缺证和未归类统计 |
 | 中文活动名称 | `life.readable` | 工具层动词说明、时间线与报告都由唯一中文种类表派生，删除 `_DOING` 的复制表 |
 | 睡眠通道 | 保留可供性注册表声明，身体睡眠仍使用现行睡眠判定 | 不启用 `sleep_channel`，手册准确说明其当前语义 |
 | 模块说明 | 工具层说明明确受理会调用其资格判定 | 不将本次规则抽取描述为取消既有受理检查 |
 
-按名调用清单必须描述受理时实际采用的封顶时长，包含超过一天的内容。
-游戏轨迹内容按观看（WATCH）的内容时长规则处理并受一般活动上限约束；TextWorld 游戏按场景反馈间隔处理，不增加游戏轨迹内容的 PLAY_GAME 入口。
+按名调用清单必须描述受理时实际采用的时长；app 目标固定显示 1800 秒，没有观看、游戏或浏览时长分支。
 函数移动时同步修订 monkeypatch 测试，使测试确实替换新的权威调用点。
 可供性声明中声称 `sleep_channel` 已控制身体结算的旧注释改为当前未启用的语义。
 三份包 TOML 副本逐字节绑定新目录清单；目录只登记对象、绑定与图，规则常数归 `worldmock.exchange` 并由 `RULES_VERSION` 绑定。历史运行不重写，app 缓解与工作消费者在所属后续阶段切换。
@@ -203,13 +202,9 @@ runner 使用本次运行的唯一身份绑定 collection、summary、worker 选
 
 release 缺少 Node 或 LabelKit 即失败；dev 明确记录缺失，并按固定原因跳过对应检查，
 不能因此取得最终通过。删除 validation 的静默跳过，使用同一 profile 规则。
-本项目当前 Linux 64 位 release 环境与 TextWorld 语料验收范围为 x86_64。
-锁定 TextWorld 1.7.0 的安装脚本按 `uname -m` 从固定 Inform7 Linux 归档选择编译器；
-归档包含 i386、x86_64、ppc 与 armv6lhf 制品，缺少 aarch64 制品。
-因此 Linux ARM64/aarch64 下该锁定组合无法完成安装，不在当前完整环境支持范围，不能产生通过收据。
-Windows 必须完成跨平台核心与重建验收，Linux x86_64 必须实际执行 TextWorld 语料验收；
-完整放行必须合并两者成功证据，任何缺少的检查都不能当通过。
-不把 Windows 无 wheel 的组件强行装进环境，也不把其依赖留成无法安装的无条件传递依赖。
+阶段 4 只登记当前 macOS 上实际执行的 app 资源与纯行为门禁；它不等于完整引擎闭环，也不是跨平台放行。
+Windows 重建回执尚未执行，必须单独标为未执行；没有真实成功回执时不能据 macOS 结果宣称 Windows 或跨机器通过。
+阶段 1–5 的最小完整引擎闭环到阶段 5 才首次要求，平台状态继续按实际运行分别登记。
 
 可变测试工作区使用标准库 `shutil.copytree` 的普通独立 `copy2` 复制，不以硬链接共享仓库输入，
 不增加复制辅助抽象或回退路径；真实夹具构建和修改后必须保持源文件字节不变，副本与源文件不共享 inode。
@@ -234,7 +229,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/dev/SPEC-shared-rules-and-rebuildable-env.md`、`shared-rules-and-rebuildable-env-verification.md` | 本规格为唯一开发权威；验收记录登记具体测试节点、实际结果与独立变异证据，冻结要求和验收完成分别记录 |
 | `docs/dev/coverage-report.json`、`shared-rules-fresh-macos.json`、`shared-rules-fresh-linux.json`、`shared-rules-platform-verification.json` | 实际机器报告和生产重建收据保留原被测提交；平台记录区分成功、失败和未执行，不能改写失败为通过 |
 | `docs/CONTRACTS.md` | 共享错误和纠正消息、引导参数、严格模型与安全文件输入合同 |
-| `docs/design/00-overview.md` | AS2 与宿主业务职责、固定 Python 3.12 与模型故障传播、相对交付引用、Windows 核心与重建验收及 Linux x86_64 TextWorld 必需门禁与锁定 aarch64 安装限制 |
+| `docs/design/00-overview.md` | AS2 与宿主业务职责、固定 Python 3.12 与模型故障传播、相对交付引用、app 资源和内容规则，以及 macOS 当前证据与尚未执行的 Windows 回执边界 |
 | `docs/design/01-architecture.md` | 唯一共享规则归宿与生成依赖来源 |
 | `docs/design/02-exchange-engine.md` | 活动时长、预估和结算、社交分录共用规则 |
 | `docs/design/03-resource-engine.md` | 路径安全、严格环境登记、固定身体常数与只读目录模型 |
@@ -247,14 +242,14 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/dev/SPEC-as2-integration.md` | 删除对子模块指针的现行安装依赖，登记记忆规则归属和新唯一摘要、测试位置 |
 | `docs/dev/SPEC-day-plan-goals.md` | 统一活动家族，缺品类不猜进度的既有条款保留 |
 | `docs/dev/SPEC-life-realism.md` | 记忆规则实现归 WorldMock；人物 Prompt 已并入的七层请求与 LifeAgent 续接职责保持，阈值与语义不改变 |
-| `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：时长推导、预估结算、中文名称和纠正预算；固定源码来源与实际字节身份 |
+| `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：app 固定时长、五类缓解率、全局内容进度、session 推送、八项占用、中文名称和纠正预算；固定源码来源与实际字节身份 |
 | `docs/dev/SPEC-layering-and-test-tiers.md` | 共享规则由实际职责对象直接消费；统一 full runner、实测文件权重调度、节点恰一次和同次收据核验 |
 | `docs/dev/SPEC-map-and-storefront.md` | 当前目录七份 JSON 与 RULES_VERSION 身份，地图消费者随阶段 2 切换；历史发布版本保留在记录 |
 | `docs/dev/SPEC-life-runtime.md`、`SPEC-resource-and-rule-simplification.md`、`SPEC-labelkit-delivery.md` | 固定规则、环境登记身份、模型冻结、资源日志与制品安装来源 |
 | `docs/ARCHITECTURE.md`、`docs/EXPERIMENT.md` | 共享规则职责、固定源码补丁、宿主记忆与最终运行身份 |
 | `README.md`、`docs/manual/runtime.md` | 替换安装步骤，记录 Python、Node、profile、离线和新机器检查 |
 | `docs/manual/README.md`、`personas.md`、`delivery.md`、`scenarios.md` | 入口说明激活后的命令环境，画像命令删除隐式 uv，LabelKit 使用独立已安装 CLI；场景手册区分历史与当前目录身份 |
-| `docs/manual/resources.md`、`rules.md`、`evaluation.md` | 路径、睡眠通道和评估边界 |
+| `docs/manual/resources.md`、`rules.md`、`evaluation.md` | app 目录与内容、路径、睡眠通道和评估边界 |
 | `docs/VERIFICATION.md`、`docs/dev/coverage-baseline.md` | 无 uv 门禁、跳过拒绝放行、双平台与语料证据边界 |
 | 原提案、`docs/INDEX.md`、`docs/dev/implementation-status.md` | 指向本规格，标记历史提案不再是实施权威 |
 
@@ -282,3 +277,4 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `2026-10-06-windows-path-safety` | 2026-10-06 | 「安全文件」补 Windows 下的声明规则：无盘符的根路径算绝对路径，反斜杠与任一平台不能原样保存的名字一并拒绝，目录联接与符号链接同样拒绝；工作区快照与恢复的成员名使用同一声明规则；消费者补列工作材料、出行响应与文字游戏；文件头增本次修订行；版本表去掉隔开末两行的空行 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
+| `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：共享活动规则登记 app 固定时长、五类固定缓解率与三种候选；删除文字游戏门禁，分开记录当前 macOS 证据和未执行的 Windows 回执 |

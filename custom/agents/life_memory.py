@@ -278,7 +278,7 @@ def _fact_line(fact: dict[str, Any]) -> str:
     elif kind == "arrived":
         detail = f"到达 {fact['location_id']}，进入状态 {fact['access_status']}"
     elif kind == "played":
-        detail = (f"播放 {fact['content_id']} 的媒体位置 "
+        detail = (f"观看 {fact['content_id']} 的媒体位置 "
                   f"{_amount(fact['position_before_seconds'])} 至 {_amount(fact['position_after_seconds'])} 秒")
     else:
         logging.error("Verified experience kind is invalid")

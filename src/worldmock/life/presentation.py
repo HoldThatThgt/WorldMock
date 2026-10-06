@@ -6,7 +6,7 @@
 模块本身**不写世界状态**：`last_presented_at` 由引擎在提交路径写入
 （docs/CONTRACTS.md#contracts-worldmock-接口合同「派生量字段」的 `presentation_state`）。
 
-五类可选对象（product / lifestyle / content / game / task）共用入口 `present`，返回体形
+三类可选对象（product / lifestyle / task）共用入口 `present`，返回体形
 状一致：`PresentationWindow` 携带 `items`（本次呈现行）、`total`（该分区过滤后的候选总
 数）、`next_cursor`（下一页游标，最后一页为 None）、`excluded`（带闭集原因码的被排除
 项）与 `presented` / `deferred`（引擎落库与审计用）。行形状由 `life.observe` 侧按品类给
@@ -57,8 +57,7 @@ from worldmock.life.readable import local_date
 
 #: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选对象与来源」）。
 FOOD_CATEGORY = "foods"
-#: 游戏会话与工作合同的下钻键。
-GAME_CATEGORY = "game_session"
+#: 工作合同的下钻键。
 TASK_CATEGORY = "work_contract"
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +67,7 @@ class PoolEntry:
     object_id: str
     kind: CandidateKind
     row: dict[str, Any]
-    #: 下钻键：活动品类摘要的键（`foods` 覆盖商品，内容取内容品类）。
+    #: 下钻键：活动品类摘要的键（`foods` 覆盖食品）。
     category: str = ""
     #: 排序键的口味查找键（缺省取对象标识）。
     minimum_seconds: int = 0
@@ -91,8 +90,7 @@ class PoolEntry:
                               location_kinds=self.location_kinds,
                               minimum_seconds=self.minimum_seconds,
                               maximum_seconds=self.maximum_seconds,
-                              enabled=self.enabled, met=self.met,
-                              content_kind=self.category if self.kind == "content" else None)
+                              enabled=self.enabled, met=self.met)
 
 
 @dataclass(frozen=True, slots=True)

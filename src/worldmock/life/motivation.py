@@ -42,8 +42,7 @@ from worldmock.catalog.affordances import (
 from worldmock.catalog.graph import Graph
 from worldmock.errors import IntegrityError
 from worldmock.life import sleep
-from worldmock.life.activities import (content_entertainment_relief_rate, entertainment_relief_rate,
-                                       lifestyle_relief_rates)
+from worldmock.life.activities import entertainment_relief_rate, lifestyle_relief_rates
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
     entertainment_need_rate,
@@ -53,7 +52,6 @@ from worldmock.life.body import (
 )
 from worldmock.life.content import (
     LifestyleItem,
-    restarts_from_beginning,
 )
 from worldmock.base_models import FrozenModel
 from worldmock.catalog.models import Catalog
@@ -61,12 +59,11 @@ from worldmock.exchange.constants import FOOD_CONSTANTS
 from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.exchange.types import FoodCategory
 from worldmock.life.interaction_menu import InteractionMenu
-from worldmock.life.models import (ActivityKind, ActivityState, AgentState, ContentProgress, TravelMode)
+from worldmock.life.models import (ActivityKind, ActivityState, AgentState, TravelMode)
 from worldmock.life.travel import plan_trip
 from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import (
     BodyConfig,
-    ContentItemConfig,
     MotivationProfile,
     RuntimeWorkTask,
 )
@@ -80,7 +77,6 @@ FAMILY_CONTINUE = "continue"
 FAMILY_SLEEP = "sleep"
 FAMILY_EAT = "eat"
 FAMILY_TRAVEL = "travel"
-FAMILY_BROWSE = "browse"
 FAMILY_ENTERTAINMENT = "entertainment"
 FAMILY_WORK = "work"
 FAMILY_LIFESTYLE = "lifestyle"
@@ -94,17 +90,6 @@ FAMILIES = _AFFORDANCES.motivation_families
 MAX_CANDIDATES = 26
 DEFAULT_TOP_K = 5
 
-#: 娱乐候选按品类采样的每品类上限（7 内容品类 x 2 = 14 条娱乐候选）——
-#: 自注册表 families.entertainment.attention.per_kind 派生。
-ENTERTAINMENT_PER_KIND = _AFFORDANCES.attention_params(FAMILY_ENTERTAINMENT)["per_kind"]
-
-#: 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」冻结值：代码侧钳制，
-#: 注册表 per_kind 声明大于该值时仍按 2 截断）。
-ENTERTAINMENT_FAMILY_CAP = 2
-#: 娱乐需要低于该值时不生成娱乐候选（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」冻结值 0.3）。
-ENTERTAINMENT_NEED_FLOOR = 0.3
-#: 进食候选的热量门槛（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：正餐热量不低于 300 kcal，规格冻结值）。
-MEAL_KCAL_FLOOR = 300.0
 #: 进食候选返回的前三名条数（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」冻结值）。
 MEAL_CANDIDATE_COUNT = 3
 #: 成本项归一的最小时长（小时，60 秒；防零除，experiment_assumption）。
@@ -202,10 +187,7 @@ class MotivationContext:
     activity_location_kinds: Mapping[str, frozenset[str]]
     tasks: tuple[RuntimeWorkTask, ...]
     task_totals: Mapping[str, tuple[int, float]]
-    #: 内容候选是品类摘要 + 每品类 top-2 采样（引擎侧 _sample_contents 装配），
-    #: 不是全量目录；评分器对传入列表仍按品类重采样，直接构造全量亦安全。
-    contents: tuple[ContentItemConfig, ...]
-    content_progress: Mapping[str, ContentProgress]
+    #: 继续活动只读取实际进行中的活动，不从应用内容目录生成候选。
     active_activities: tuple[ActivityState, ...]
     habit_events: tuple[tuple[str, Mapping], ...]
     consecutive_rejections: int
@@ -215,13 +197,6 @@ class MotivationContext:
     current_time: int
     end_time: int
     timezone: str
-    #: 全量供给目录（不经浏览可见性门控）：浏览候选的存在性依据。
-    #: 内容分段边界（item_id -> 各段结束秒）：娱乐候选的分段时长槽依据。
-    content_segments: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
-    #: 品类摘要（kind -> 条目数）：观察 activity_summary 的内容段同源。
-    content_category_counts: Mapping[str, int] = field(default_factory=dict)
-    #: 确定性口味权重（画像编译 v2 的 taste_weights，item_id -> [0,1]；
-    #: 缺省空映射=未接线，条目权重一律 0，不做 0.5 缺省抬升）。
     #: 人物启用的生活活动闭集（None=全局启用，与 AgentConfig 语义一致）。
     lifestyle_enabled: tuple[str, ...] | None = None
     #: 近 24 小时各商品已进食次数（product_id -> n）：进食候选降权依据。
@@ -448,13 +423,7 @@ def _enumerate_candidates(context: MotivationContext,
                           profile: MotivationProfile) -> list[_Candidate]:
     """@brief 按注册表 enumeration_rank 排序遍历家族枚举候选并截断到 MAX_CANDIDATES。
 
-    现行优先级（注册表枚举序）：进食(10，门槛筛选取前三) > 睡眠(20) >
-    继续当前活动(30) > 去工作地点+工作任务至多2(40) > 回家(50) >
-    浏览商品目录(60) > 生活活动(60，同秩按名排在 browse 后；每品类 top-1
-    采样 ≤4，只从人物启用集采样) > 娱乐(70，每品类 top-2 采样 ≤14、需要
-    ≥0.3)。生存与目标导向优先于消遣，浏览（工具性：解锁进食候选的枚举）
-    排在纯消遣之前；内容类候选在池尾按采样权重排序，截断从队尾开始，
-    保证任何决策点的候选数不超过 MAX_CANDIDATES 且存活的是最强候选。
+    生成器与枚举次序直接由冻结注册表决定。应用使用只参与实际活动的习惯分类，不生成内容候选；生活活动仍按目录采样。
     """
     pool: list[_Candidate] = []
     for family in _AFFORDANCES.families_by_rank():
@@ -619,7 +588,7 @@ def _continue_candidate(context: MotivationContext, activity: ActivityState) -> 
         sleep_deficit_delta=debt_delta,
         entertainment_delta=fun_delta,
         goal_effective_seconds=goal_seconds,
-        comfort_type=activity.kind in {ActivityKind.WATCH, ActivityKind.PLAY_GAME})
+        comfort_type=activity.kind in {ActivityKind.USE_APP})
 
 
 def _wait_texts(minutes: float) -> tuple[str, str]:
@@ -643,9 +612,6 @@ def _entertainment_accrual(context: MotivationContext, hours: float) -> float:
     return min(1.0, projected) - context.agent.body.entertainment_need
 
 
-def _preference(context: MotivationContext, item_id: str) -> float:
-    """@brief 旧娱乐消费的真实口味读点，随 app 消费者在下一阶段整体退出。"""
-    return context.agent.taste_weights.get(item_id, 0.0)
 
 
 def _entertainment_change(context: MotivationContext, relief_per_hour: float,
@@ -661,7 +627,7 @@ def _entertainment_delta(context: MotivationContext, activity: ActivityState,
                          hours: float) -> float:
     """@brief 进行中活动引起的娱乐需要变化：有缓解的活动按实际缓解速率下降、不再累积，其余累积。"""
     return _entertainment_change(context, entertainment_relief_rate(
-        activity, _preference(context, activity.target_id or ""), context.body), hours)
+        activity, context.body), hours)
 
 
 def _travel_candidate(context: MotivationContext, label: str,
@@ -764,107 +730,10 @@ def _work_slot_candidate(context: MotivationContext, task: RuntimeWorkTask,
         work_type=True)
 
 
-def _entertainment_candidates(context: MotivationContext,
-                              profile: MotivationProfile,
-                              family: FamilySpec) -> list[_Candidate]:
-    """@brief 娱乐候选：每内容品类采 top-N（attention_prior x 口味加权）。
-
-    docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」：娱乐需要低于 0.3 时不生成娱乐候选；同一娱乐家族
-    （内容品类）至多两条候选（代码侧钳制 ENTERTAINMENT_FAMILY_CAP，注册表
-    per_kind 更大时仍按 2 截断）。偏好权重只来自 taste_weights（确定性
-    口味匹配），无缺省抬升。时长槽按分段语义给：一次约两段典型时长，
-    看完的内容从头再来；缓解速率与引擎口径一致（条目费率 x 有效偏好 ÷ 当前
-    接触次数，首次与重复同式；有效偏好见 activities.relief_preference，排序仍用原始口味）。
-    """
-    agent = context.agent
-    if agent.body.entertainment_need < ENTERTAINMENT_NEED_FLOOR:
-        return []
-    per_kind = min(family.attention_params["per_kind"], ENTERTAINMENT_FAMILY_CAP)
-    pool_cap = family.attention_params["pool_cap"]
-    ranked = sorted(
-        context.contents, key=lambda item: item.content_id)
-    sampled: list = []
-    taken_per_kind: dict[str, int] = {}
-    for item in ranked:
-        taken = taken_per_kind.get(item.kind, 0)
-        if taken >= per_kind:
-            continue
-        taken_per_kind[item.kind] = taken + 1
-        sampled.append(item)
-    candidates = []
-    for item in sampled[:pool_cap]:
-        candidate = _watch_candidate(context, item, family)
-        if candidate is not None:
-            candidates.append(candidate)
-    return candidates
 
 
-def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
-                     family: FamilySpec) -> _Candidate | None:
-    """@brief 单条内容的观看候选：时长槽、相对呈现摘要与缓解资源流。"""
-    agent = context.agent
-    params = family.generator_params
-    progress = context.content_progress.get(item.item_id)
-    position = progress.position_seconds if progress else 0.0
-    exposures = progress.exposure_count if progress else 0
-    boundaries = context.content_segments.get(item.item_id) or ()
-    segments_total = len(boundaries) or 1
-    typical = item.duration_seconds / segments_total
-    remaining = item.duration_seconds - position
-    # 已看完或剩余不足 60 秒的从头再看，接触次数加一（第八章「呈现」）；接着看从上次位置开始，不算新的一次接触（第七章「三层结构」）。
-    restart = progress is None or restarts_from_beginning(position, item.duration_seconds)
-    if restarts_from_beginning(position, item.duration_seconds):
-        position = 0.0
-        remaining = item.duration_seconds
-    divisor = exposures + 1 if restart else max(exposures, 1)
-    outer_cap = min(remaining,
-                    maximum_energy_duration_seconds(ActivityKind.WATCH,
-                                                    agent.body.energy_kcal, context.body),
-                    MAX_CANDIDATE_SECONDS, context.end_time - context.current_time)
-    slot = min(typical * 2, outer_cap)
-    slot = max(slot, min(float(params["min_session_seconds"]), outer_cap))
-    if slot < 60:
-        return None
-    summary, lead = _watch_texts(item, position, typical, boundaries, slot)
-    hours = slot / 3600
-    # 缓解预演与结算同式：条目费率 × 有效偏好 ÷ 接触次数，有缓解时不再累积（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径）。
-    relief_rate = content_entertainment_relief_rate(item.entertainment_relief_per_hour, divisor,
-                                                    _preference(context, item.item_id), context.body)
-    fun_delta = _entertainment_change(context, relief_rate, hours)
-    fun_after = agent.body.entertainment_need + fun_delta
-    burn = minimum_energy_cost(ActivityKind.WATCH, slot, context.body)
-    return _Candidate(
-        family=family.name,
-        summary=summary,
-        reason=(f"{lead} relieves entertainment need "
-                f"{agent.body.entertainment_need:.2f}->{fun_after:.2f}"),
-        duration_seconds=slot,
-        energy_delta=-burn,
-        sleep_deficit_delta=_awake_deficit_delta(agent.body, hours),
-        entertainment_delta=fun_delta,
-        comfort_type=True)
 
 
-def _watch_texts(item: ContentItemConfig, position: float, typical: float,
-                 boundaries: tuple[float, ...], slot: float) -> tuple[str, str]:
-    """@brief 观看候选的动作摘要与理由引导语（分段/续看/整看三形态）。"""
-    verb, noun = ("Read", "chapter") if item.kind == "webnovel_excerpt" else ("Watch", "segment")
-    segments_total = len(boundaries) or 1
-    remaining = item.duration_seconds - position
-    started = position > 0 and remaining > 0
-    each = f"~{typical:.0f} sec each" if typical < 120 else f"~{typical / 60:.0f} min each"
-    if segments_total > 1:
-        segment_index = min(bisect_right(boundaries, position) + 1, segments_total)
-        summary = f"{verb} {noun} {segment_index} of {item.item_id} (~{slot / 60:.0f} min)"
-        lead = (f"Continuing {item.item_id} at {noun} {segment_index}/{segments_total}"
-                if started else f"{verb}ing one {noun} of {item.item_id} ({each})")
-    elif started:
-        summary = f"Continue {item.item_id} from minute {position / 60:.0f} (~{slot / 60:.0f} min)"
-        lead = f"Continuing {item.item_id} from minute {position / 60:.0f}"
-    else:
-        summary = f"{verb} {item.item_id} (~{slot / 60:.0f} min)"
-        lead = f"{verb}ing {item.item_id}"
-    return summary, lead
 
 
 def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile,
@@ -989,16 +858,8 @@ def _cheapest_route_adapter(context: MotivationContext, profile: MotivationProfi
 
 def _content_menu_adapter(context: MotivationContext, profile: MotivationProfile,
                           family: FamilySpec) -> list[_Candidate]:
-    """@brief content_menu 原型：分层菜单内容候选（entertainment/lifestyle 家族）。
-
-    两种条目来源形态：封闭内容条目（场景 contents，如 watch 品类）走娱乐
-    分支；开放命名空间条目（met_key 含 "{item_id}" 的 kind，目录来自语料、
-    身份来自场景 MET 表）走生活活动分支。采样参数（per_kind/pool_cap）与
-    候选参数（min_session_seconds/cap_seconds）都按调用家族自取。
-    """
-    if any("{item_id}" in _AFFORDANCES.kinds[kind].met_key for kind in family.kinds):
-        return _lifestyle_candidates(context, profile, family)
-    return _entertainment_candidates(context, profile, family)
+    """@brief content_menu 原型只从本人启用的生活活动目录生成候选。"""
+    return _lifestyle_candidates(context, profile, family)
 
 
 def _task_slot_adapter(context: MotivationContext, profile: MotivationProfile,

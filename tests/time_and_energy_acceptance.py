@@ -100,7 +100,7 @@ _SAME_MOMENT_TESTS = [
 _CANDIDATE_TIME_TESTS = [
     _SAME_MOMENT + "test_first_decision_includes_reconsideration_candidate",
     _SAME_MOMENT + "test_idle_interval_only_while_waiting_without_commitments",
-    _SAME_MOMENT + "test_game_start_follows_decision_rhythm",
+    'tests/life/test_shift_edges.py::test_t10_app_content_boundary_after_shift_end_does_not_hide_the_edge',
     "tests/life/test_wake_reasons.py::test_commitments_exclude_messages_history_and_completed_activities",
 ]
 
@@ -152,7 +152,7 @@ _STAGE2_CANDIDATE_TIME_TESTS = [
     "tests/life/test_energy_feasibility.py::test_hunger_crossing_just_before_lunch_end_wakes_during_wait",
     "tests/life/test_activity_effects.py::test_body_boundary_uses_curve_node_and_food_net_energy",
     "tests/life/test_activity_effects.py::test_meal_window_edges_are_boundary_candidates",
-    "tests/life/test_activity_effects.py::test_chat_and_call_are_predicted_but_sleep_and_game_are_not",
+    'tests/life/test_shift_edges.py::test_t12_app_can_pause_at_shift_edge_and_content_completion_stays_quiet',
     "tests/life/test_engine_branch_coverage.py::test_next_body_boundary_skips_zero_rates_when_nothing_due",
 ]
 
@@ -351,7 +351,6 @@ _SHADOW = "tests/catalog/test_affordance_shadow.py::"
 _DOMAIN = "tests/life/test_domain_branch_coverage.py::"
 _MENU_INVARIANTS = "tests/life/test_interaction_menu_invariants.py::"
 _CONTRACT = "tests/test_start_activity_contract.py::"
-_NEWS_FEED = "tests/life/test_news_feed.py::"
 _WORK_REVIEW = "tests/life/test_work_review.py::"
 _PARALLEL_REJECTION = "tests/integration/test_parallel_rejection_contract.py::"
 
@@ -395,7 +394,7 @@ _SAME_MOMENT_TESTS += [
 
 #: 阶段 4 完成能量不拦人行：可供性注册表删 energy_projection，观察合同键为五个。
 _STAGE4_ENERGY_NEVER_BLOCKS_TESTS = [
-    _SHADOW + "test_energy_projection_is_gone_from_registry_and_observation_contract",
+    'tests/test_single_source.py::test_current_registry_and_observation_contract_retire_energy_and_game_keys',
     # 评审修复：手边两件食品合成一餐照常开始，不因组内两项都占 hands 而被拒。
     _ADMISSION + "test_two_foods_are_one_meal_and_only_same_way_obtains_are_one_order",
 ]
@@ -406,8 +405,6 @@ _STAGE4_ENERGY_NEVER_BLOCKS_TESTS = [
 #: 联系人回复策略与交谈缓解的双方同时秒数。
 _FIVE_VERBS_TESTS = [
     _ADMISSION + name for name in (
-        "test_driving_with_podcast_or_hands_free_call_is_accepted_and_ends_at_arrival",
-        "test_driving_with_eyes_or_hands_activities_is_a_resource_conflict_in_either_order",
         "test_driving_with_office_work_pickup_or_face_chat_fails_target_presence",
         "test_work_with_eating_watching_or_podcast_is_accepted_and_settles_one_shared_body",
         "test_overlapping_pairs_are_resource_conflicts",
@@ -418,7 +415,6 @@ _FIVE_VERBS_TESTS = [
         "test_zero_stock_supply_is_listed_with_its_ways_marked_sold_out",
         "test_listed_actions_are_menu_allowed_and_self_is_always_offered",
         "test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwise",
-        "test_content_beyond_one_day_is_accepted_with_the_86400_second_cap",
     )
 ] + [
     _SOCIAL_ROUNDS + name for name in (
@@ -438,16 +434,16 @@ _FIVE_VERBS_TESTS = [
     _MENU_INVARIANTS + "test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private",
     _MENU_INVARIANTS + "test_merged_selection_combines_one_order_or_one_meal_only",
     _MENU_INVARIANTS + "test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions",
-    _SHADOW + "test_claim_slots_are_the_eleven_kind_names_and_retired_names_are_rejected",
-    _SHADOW + "test_conditional_claims_reject_unknown_dimension_and_undeclared_content_kind",
-    _SHADOW + "test_resource_claims_match_activities",
-    _SHADOW + "test_habit_routes_cover_every_way",
-    _SHADOW + "test_habit_routing_reads_ways_not_verbs_or_retired_phrases",
+    'tests/catalog/test_affordance_shadow.py::test_final_claim_slots_and_activity_kinds_are_closed',
+    'tests/catalog/test_affordance_shadow.py::test_retired_claim_names_are_rejected',
+    'tests/catalog/test_affordance_shadow.py::test_app_claims_match_activity_admission',
+    'tests/life/test_app_ui.py::test_opened_app_habit_is_entertainment_without_app_candidates',
+    'tests/life/test_app_ui.py::test_game_and_watch_ways_are_retired_and_open_synonyms_resolve',
     "tests/evaluation/test_goal_metrics.py::test_guided_rejections_count_as_other_rejections_not_external_constraints",
     "tests/evaluation/test_adapters.py::test_digital_interaction_follows_activity_type_regardless_of_claim_names",
     "tests/evaluation/test_adapters.py::test_start_items_follow_the_started_activity_kind_then_the_order_then_the_way",
     "tests/evaluation/test_behavior_metrics.py::test_wait_is_judged_by_the_started_activity_kind_not_the_request",
-    "tests/life/test_candidates.py::TestExclusionDiscipline::test_driving_keeps_only_the_podcast_candidate",
+    'tests/catalog/test_affordance_shadow.py::test_driving_blocks_app_and_meals_but_allows_talk',
     "tests/life/test_activity_location_kinds.py::test_en_route_is_no_place_for_a_lifestyle_activity",
     _DOMAIN + "test_social_actions_choosing_chat_with_the_inviter_accepts",
     _DOMAIN + "test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap",
@@ -456,7 +452,7 @@ _FIVE_VERBS_TESTS = [
     _DOMAIN + "test_validate_work_start_en_route_is_not_at_the_workplace",
     "tests/life/test_engine_branch_coverage.py::"
     "test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_contact",
-    _NEWS_FEED + "test_content_longer_than_a_day_is_accepted_for_one_day",
+    'tests/life/test_app_ui.py::test_app_duration_matches_tool_layer_and_admission',
     "tests/life/test_parallel_acceptance.py::test_incompatible_pair_is_rejected_without_partial_state",
     "tests/life/test_opslog.py::test_opslog_component_follows_the_internal_action_of_the_chosen_way",
     _PARALLEL_REJECTION + "test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_person",
@@ -466,23 +462,23 @@ _FIVE_VERBS_TESTS = [
     "tests/integration/test_grounded_targets.py::test_start_rejects_invalid_pairs_before_dispatch",
     _AGENT_BRANCHES + "test_empty_interactive_layer_decision_continues_without_failure",
     _AGENT_BRANCHES + "test_visible_objects_freeze_verb_way_and_bound_internal_action",
-    "tests/integration/test_storefront_tools.py::test_closed_supply_remains_a_fact_without_a_purchase_action",
+    'tests/life/test_food_presentation.py::test_product_targets_use_current_store_or_real_delivery_apps',
     "tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start",
     "tests/life/test_interaction_menu_runtime.py::"
     "test_observation_exposes_semantic_choices_and_keeps_bindings_private",
     "tests/life/test_interaction_menu_runtime.py::test_menu_rejects_unoffered_semantic_action_before_travel",
     "tests/life/test_public_observation_contract.py::"
     "test_real_observation_uses_readable_objects_and_private_bindings",
-    "tests/life/test_parallel_acceptance.py::test_watch_can_share_time_with_compatible_activity",
+    'tests/life/test_app_progress.py::test_real_admission_blocks_driving_and_same_app_kind_accepts_eating_parallel',
     "tests/life/test_parallel_acceptance.py::test_parallel_progress_uses_one_shared_body_interval",
     "tests/life/test_work_contracts.py::test_work_start_rejects_skill_location_and_deadline_boundaries",
-    "tests/life/test_content_game.py::test_arrived_mail_is_read_through_its_object",
+    'tests/life/test_mail_reading.py::test_arrived_mail_is_read_through_its_object',
 ]
 
 #: 阶段 4 评审修复，五个动词与并行：合成一单或一餐只在方式相同时（「制作」不合并）；要停在一个地点做的事按整组开始
 #: 之后人在哪里判定、与组内先后无关；到店与远程下单不按人物所在剪裁（不在店里、此地送不到时带说明并引导）；瞬时的
 #: 取得可与持续活动同一请求（评估证据逐项对应）；驾车与远程下单同一请求「先下单，再出发」；接受时对方交谈快结束以
-#: ACTIVITY_TOO_SHORT 引导；只能观看的游戏会话与内容同一呈现；说明给时长或未满足的条件；公开原因只取引导性拒绝写明的
+#: ACTIVITY_TOO_SHORT 引导；应用独立列出并显示当前会话推送；说明给时长或未满足的条件；公开原因只取引导性拒绝写明的
 #: 那一句；交谈邀请、人物消息与联系人回复不是阅读对象；名称只从本决策唯一的观察解析、不缓存。
 _FIVE_VERBS_TESTS += [
     _ADMISSION + name for name in (
@@ -494,7 +490,6 @@ _FIVE_VERBS_TESTS += [
         "test_an_instant_obtain_joins_a_timed_activity_in_one_request",
         "test_making_with_a_pickup_at_the_store_places_the_order_and_starts_the_making",
         "test_driving_with_a_remote_order_in_one_request_says_order_first",
-        "test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_length",
         "test_malformed_request_gets_the_default_reason_without_the_validation_text",
         "test_a_repeated_observation_of_one_decision_is_ambiguous_on_every_read",
     )
@@ -503,17 +498,14 @@ _FIVE_VERBS_TESTS += [
     _SOCIAL_ROUNDS + "test_chat_accepted_and_ended_by_the_partner_in_one_round_is_concluded_before_the_clock_moves",
     "tests/integration/test_decision_context_protocol.py::"
     "test_start_activity_description_says_notes_give_length_or_unmet_condition",
-    "tests/life/test_content_game.py::"
-    "test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_mail_objects",
+    'tests/life/test_mail_reading.py::test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_mail_objects',
 ]
 
-#: 阶段 4 完成会话、活动与记忆行的剩余两支：接着看同一内容不增加接触次数（从头再看才加一，质量报告只把从头再看计为重看）；
+#: 应用会话保持唯一全局进度，暂停恢复不增完成轮数，只有真实内容末尾增加轮数；
 #: 名额未满而有进行中活动时选择出行，以 ACTIVITY_PRECONDITION_UNMET 点名要先处理的活动并给出下一步。
 _SESSIONS_AND_MEMORY_TESTS += [
-    _NEWS_FEED + "test_resuming_keeps_the_exposure_count_while_first_watch_and_restart_add_one",
-    _NEWS_FEED + "test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate",
-    "tests/life/test_motivation.py::TestEntertainmentSegmentSlots::test_resume_keeps_exposures_and_restart_adds_one",
-    "tests/footprints/test_quality.py::test_repeat_watch_counts_only_sessions_restarted_from_the_beginning",
+    'tests/life/test_app_progress.py::test_other_app_completed_round_resume_consumes_nothing_then_real_end_adds_once',
+    'tests/life/test_app_progress.py::test_content_relief_is_fixed_for_each_kind_and_applied_to_real_body',
     _ADMISSION + "test_departure_with_a_running_activity_names_it_in_reason_and_next_step",
 ]
 
@@ -526,11 +518,11 @@ _SESSIONS_AND_MEMORY_TESTS += [
 ]
 
 #: 阶段 4 对「本机运行修复」行（阶段 7 收尾）的预先登记：截止前不足 60 秒的开工带说明且选择时业务拒绝、
-#: 「做不完」只在时长上界不足时出现、内容按「接着看」与「从头再看」列出并给对应时长。
+#: 「做不完」只在时长上界不足时出现、应用跨次暂停恢复沿唯一全局位置继续。
 _STAGE4_LOCAL_RUN_FIX_TESTS = [
     _WORK_REVIEW + "test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_and_next_step",
     _WORK_REVIEW + "test_completion_outlook_appears_only_when_the_time_upper_bound_is_short",
-    _NEWS_FEED + "test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_position",
+    'tests/life/test_app_progress.py::test_cross_app_pause_resumes_latest_global_position',
     "tests/life/test_grounded_observation.py::test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note",
 ]
 

@@ -50,6 +50,6 @@ def menu_context(location="home", balance=30000):
     inputs = ProjectionInputs(state, scenario, agent,
         extras={"product_rows": [entry.row for entry in entries], "interaction_menu": menu, "activity_rows": []})
     bindings = interaction_bindings(inputs)
-    facts = admission.WorldFacts(semantics.catalog.work_topics, semantics.catalog.foods, semantics.catalog.contents)
+    facts = admission.WorldFacts(semantics.catalog.work_topics, semantics.catalog.foods)
     names = activity_control.visible_names(state, 1, {})
     return LayerContext(state, scenario, facts, semantics, 1, names, bindings, menu)

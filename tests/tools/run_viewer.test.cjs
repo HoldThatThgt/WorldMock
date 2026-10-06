@@ -1285,31 +1285,29 @@ test('overview lists every frozen input warning under its person or at scenario 
     .replace(/\r\n/g, '\n');
   const codes = [.../InputWarningCode = Literal\[\n([\s\S]*?)\n\]/.exec(injection)[1].matchAll(/"([A-Z_]+)"/g)]
     .map(match => match[1]);
-  assert.equal(codes.length, 10);
-  const scenarioCodes = ['DELIVERY_ROUTE_UNAVAILABLE', 'LOCATION_NAME_SUSPICIOUS'];
+  assert.equal(codes.length, 6);
+  const scenarioCodes = ['LOCATION_NAME_SUSPICIOUS'];
   const personal = codes.filter(code => !scenarioCodes.includes(code));
   const second = personal.filter((_, index) => index % 2), first = personal.filter((_, index) => !(index % 2));
-  const route = '门店 dinner（鹅庄台湾美食）到目的地 home（家）没有可达的驾车路线（unknown），3 项配送供给送不到。';
   // 清单顺序故意打乱：人物 2 的警告在前，一条场景级夹在两人之间；页面按人物编号、再场景级排列。
   const warnings = [
-    ...second.map(code => inputWarning(code, 2, `李明：${code}`)), inputWarning(scenarioCodes[0], null, route),
+    ...second.map(code => inputWarning(code, 2, `李明：${code}`)),
     ...first.map(code => inputWarning(code, 1, `陈曦：${code}`)),
-    inputWarning(scenarioCodes[1], null, '地点 poi-1 的显示名「肯德基<东经121.50°>」带坐标。'),
+    inputWarning(scenarioCodes[0], null, '地点 poi-1 的显示名「肯德基<东经121.50°>」带坐标。'),
   ];
   const view = await loadedViewer(t, [droppedFile('manifest.json', runManifest({input_warnings: warnings}))]);
   const card = warningCard(view.overview());
   assert.deepEqual(warningRows(card), [
     ...first.map(code => ['陈曦', code, `陈曦：${code}`]), ...second.map(code => ['李明', code, `李明：${code}`]),
-    ['场景级', scenarioCodes[0], route],
-    ['场景级', scenarioCodes[1], '地点 poi-1 的显示名「肯德基&lt;东经121.50°&gt;」带坐标。'],
+    ['场景级', scenarioCodes[0], '地点 poi-1 的显示名「肯德基&lt;东经121.50°&gt;」带坐标。'],
   ]);
   assert.deepEqual(new Set(warningRows(card).map(row => row[1])), new Set(codes));
-  assert.ok(card.includes('共 10 条：人物 8 条、场景级 2 条') && card.includes('manifest.json'));
+  assert.ok(card.includes('共 6 条：人物 5 条、场景级 1 条') && card.includes('manifest.json'));
   assert.ok(!card.includes('<东经'));
   view.get('#agent-filter').value = '2';
   const filtered = warningCard(view.overview());
-  assert.deepEqual(warningRows(filtered).map(row => row[0]), [...second.map(() => '李明'), '场景级', '场景级']);
-  assert.ok(filtered.includes('当前筛选 6 条'));
+  assert.deepEqual(warningRows(filtered).map(row => row[0]), [...second.map(() => '李明'), '场景级']);
+  assert.ok(filtered.includes('当前筛选 3 条'));
   assert.deepEqual(view.errors, []);
   const firstOnly = await loadedViewer(t, [droppedFile('manifest.json',
     runManifest({input_warnings: warnings.filter(item => item.agent_id === 1)}))]);
@@ -1340,9 +1338,9 @@ test('warnings that were not computed or are empty are stated and a missing mani
 
 test('the manifest is bound to the world state run, preferred over the export copy and never another run', async t => {
   const child = runManifest({branch_kind: 'resume', parent_run_id: 'parent-run',
-    input_warnings: [inputWarning('TASTE_GENRES_UNMATCHED', 1, '子运行清单冻结的警告')]});
+    input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '子运行清单冻结的警告')]});
   const exported = {run_id: 'viewer-test-run', frozen_run_manifest: {...child,
-    input_warnings: [inputWarning('TASTE_GENRES_UNMATCHED', 1, '导出清单中的副本')]}};
+    input_warnings: [inputWarning('COVERAGE_BELOW_THRESHOLD', 1, '导出清单中的副本')]}};
   // 恢复分支的库以父运行的事件开头，世界状态与清单才是本运行；同目录的 LabelKit 输入清单也写着本运行的 run_id。
   const run = directoryEntry('resumed', [
     directoryEntry('labelkit-input', [fileEntry('manifest.json',
@@ -1357,7 +1355,7 @@ test('the manifest is bound to the world state run, preferred over the export co
     [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})]);
   assert.equal(view.state.runId, 'parent-run', 'the first event belongs to the parent run');
   const card = warningCard(view.overview());
-  assert.deepEqual(warningRows(card), [['陈曦', 'TASTE_GENRES_UNMATCHED', '子运行清单冻结的警告']]);
+  assert.deepEqual(warningRows(card), [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '子运行清单冻结的警告']]);
   assert.ok(card.includes('resumed/manifest.json') && !card.includes('frozen_run_manifest'));
   assert.equal(view.state.ignoredManifests, 2);
   assert.equal(view.state.memFiles['1'].memoryMd, '今天把纪要交了。');
@@ -1365,11 +1363,11 @@ test('the manifest is bound to the world state run, preferred over the export co
   // 运行清单在前、导出副本在后时同样取运行清单本身。
   const directFirst = await loadedViewer(t, [droppedFile('manifest.json', child)], [exportDirectory()]);
   assert.deepEqual(warningRows(warningCard(directFirst.overview())),
-    [['陈曦', 'TASTE_GENRES_UNMATCHED', '子运行清单冻结的警告']]);
+    [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '子运行清单冻结的警告']]);
 
   const exportOnly = await loadedViewer(t, [], [exportDirectory()]);
   const copy = warningCard(exportOnly.overview());
-  assert.deepEqual(warningRows(copy), [['陈曦', 'TASTE_GENRES_UNMATCHED', '导出清单中的副本']]);
+  assert.deepEqual(warningRows(copy), [['陈曦', 'COVERAGE_BELOW_THRESHOLD', '导出清单中的副本']]);
   assert.ok(copy.includes('worldmock-export/manifest.json · frozen_run_manifest'));
 
   const strangers = await loadedViewer(t, [parent, droppedFile('manifest.json', '{"run_id": "viewer-test-run"')]);

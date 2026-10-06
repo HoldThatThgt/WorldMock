@@ -278,6 +278,25 @@ def test_map_owners_execute_without_the_complete_engine(tmp_path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_app_owners_execute_without_the_complete_engine(tmp_path) -> None:
+    """@brief 应用与推送的全部实际所有者执行后仍未加载完整引擎和 AS2 执行链。"""
+    nodes = {node for case in registration.BEHAVIOUR_CASES.values() if case["owner_stage"] == "4"
+             for node in case["owner_nodes"]}
+    assert nodes
+    arguments = [*sorted(nodes), "-q", "--environment-profile", "dev", "-p", "no:cacheprovider",
+                 "--basetemp", str(tmp_path / "owners")]
+    script = (
+        "import sys,pytest; result=pytest.main(" + repr(arguments) + "); assert result==0; "
+        "forbidden={'worldmock.life.engine','worldmock.life.game','worldmock.life.games',"
+        "'worldmock.life.read_query_runtime','custom.envs.life_env'}; "
+        "assert not forbidden.intersection(sys.modules); "
+        "assert not any(name.startswith('agentsociety2.society') for name in sys.modules)"
+    )
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT,
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs() -> None:
     """@brief 四个生产根与测试清单只保存现有文件，不允许延期标记和空壳函数。"""
     production, tests = registration.FEATURE_PRODUCTION_FILES, registration.FEATURE_TEST_FILES

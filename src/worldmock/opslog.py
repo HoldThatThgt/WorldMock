@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 #: 操作日志的封闭组件与级别集合，供埋点复用保持取值稳定。
 OPS_COMPONENTS = frozenset(
-    {"engine", "agent_runtime", "memory", "review", "commerce", "travel", "checkpoint", "runtime"})
+    {"engine", "agent_runtime", "memory", "review", "commerce", "travel", "checkpoint", "runtime", "push"})
 OPS_LEVELS = frozenset({"info", "warn", "error"})
 
 

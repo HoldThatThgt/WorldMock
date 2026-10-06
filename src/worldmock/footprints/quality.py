@@ -34,7 +34,7 @@ from worldmock.life.models import ActionStatus
 _ACTION_STATUSES = tuple(status.value for status in ActionStatus)
 _ACTIVITY_STATUSES = ("active", "paused", "completed", "cancelled", "failed", "truncated")
 _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
-_CONTENT_TYPES = {"watch", "read_mail", "play_game", "browse"}
+_CONTENT_TYPES = {"use_app", "read_mail"}
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 #: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
 _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
@@ -229,7 +229,6 @@ def _content_quality(activities: list[dict]) -> dict:
     summaries = {kind: _contact_summary([row for row in rows if row.get("activity_type") == kind])
                  for kind in sorted(_CONTENT_TYPES)}
     overall = _contact_summary(rows)
-    repeats, missing_targets = _watch_repeats(rows)
     return {
         "content_activity_types": sorted(_CONTENT_TYPES),
         "session_count": len(rows),
@@ -238,12 +237,6 @@ def _content_quality(activities: list[dict]) -> dict:
         "duration_complete": overall["duration_complete"],
         "sessions_missing_duration": overall["sessions_missing_duration"],
         "by_activity_type": summaries,
-        "repeat_watch": {
-            "repeated_sessions": sum(item["repeated_sessions"] for item in repeats),
-            "groups": repeats,
-            "watch_sessions_missing_target": missing_targets,
-            "method": "Watch sessions that restarted the same content from the beginning (repeat=true)",
-        },
     }
 
 
@@ -261,28 +254,6 @@ def _contact_summary(rows: list[dict]) -> dict:
     }
 
 
-def _watch_repeats(rows: list[dict]) -> tuple[list[dict], int]:
-    """@brief 按人物与内容汇总观看会话，只把从头重看（data.repeat 为 true）计为重复观看；接着看不计
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第七章「三层结构」）。恢复后的同一 activity 仍是一个会话。"""
-    groups: dict[tuple[Any, str], list[str]] = defaultdict(list)
-    repeats: dict[tuple[Any, str], list[str]] = defaultdict(list)
-    missing = 0
-    for row in rows:
-        if row.get("activity_type") != "watch":
-            continue
-        target = row.get("target_id")
-        if not isinstance(target, str) or not target:
-            missing += 1
-            continue
-        groups[(row.get("agent_id"), target)].append(row["activity_id"])
-        data = row.get("data")
-        if isinstance(data, dict) and data.get("repeat") is True:
-            repeats[(row.get("agent_id"), target)].append(row["activity_id"])
-    repeated = []
-    for key, identities in sorted(repeats.items(), key=lambda item: (str(item[0][0]), item[0][1])):
-        repeated.append({"agent_id": key[0], "target_id": key[1], "sessions": len(groups[key]),
-                         "repeated_sessions": len(identities), "activity_ids": sorted(identities)})
-    return repeated, missing
 
 
 def _efficiency_quality(events: list[Event]) -> dict:

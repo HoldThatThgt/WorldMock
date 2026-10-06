@@ -398,7 +398,7 @@ def next_shared_body_boundary_seconds(body: BodyState,
     交谈、通话照常预测（调用方按 CHAT_MET、CALL_MET 给出系数）；游戏按回合、睡眠按睡眠允许原因处理，
     不另做预测（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「让人物趁早吃」）。
     """
-    if any(kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME} for kind, _ in activities):
+    if any(kind == ActivityKind.SLEEP for kind, _ in activities):
         return None
     factors = ActivityFactors(max((item.met for _, item in activities), default=1.0),
                               entertainment_relief_per_hour=sum(

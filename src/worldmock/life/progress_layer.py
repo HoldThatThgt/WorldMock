@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import schedule, sessions
@@ -118,7 +119,7 @@ def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> l
     """
     requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
-    records = []
+    records: list[_Record] = []
     for index, request in enumerate(requests):
         later = next((item.event_seq for item in requests[index + 1:] if item.action_id == request.action_id), None)
         own = [event for event in results if event.action_id == request.action_id
@@ -176,7 +177,7 @@ def _tool_calls(response: Event) -> list[dict]:
 
 def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
     """@brief 本人收到的消息（直接消息与交谈邀请带全文，邮件只有主题）、本人订单的送达，以及个人事务的提醒到点与办成。"""
-    records = []
+    records: list[_Record] = []
     for event in store.read_agent_events("environment_event", context.agent_id, after=lower):
         kind = event.data.get("kind")
         if kind in _ERRAND_RECORDS:
@@ -185,6 +186,11 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> 
             records.extend(_delivery_records(context, event))
         elif kind in {"message_arrival", "mail_arrival"}:
             records.append(_message_record(context, event))
+        elif kind == "app_push" and event.visibility == "agent":
+            record = {"occurred_at": iso_time(event.occurred_at, context.scenario.timezone), "type": "app_push",
+                      "app": event.data["app"], "title": event.data["title"],
+                      "kind": CONTENT_KIND_LABELS[event.data["content_kind"]], "summary": event.data["summary"]}
+            records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
     return records
 
 

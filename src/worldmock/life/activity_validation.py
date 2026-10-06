@@ -28,10 +28,9 @@ def _target_is_valid(activity: ActivityState, state: WorldState, rules,
     data = activity.data
     if kind == ActivityKind.WORK:
         valid = target in rules.tasks and data.get("task_id") == target
-    elif kind == ActivityKind.WATCH:
-        valid = target in rules.contents and data.get("content_id") == target
-    elif kind == ActivityKind.PLAY_GAME:
-        valid = target in rules.games and data.get("game_id") == target
+    elif kind == ActivityKind.USE_APP:
+        valid = (target in rules.apps and data.get("app_id") == target
+                 and data.get("content_id") in rules.contents_by_app[target])
     elif kind == ActivityKind.READ_MAIL:
         valid = target in rules.messages and data.get("message_id") == target
     elif kind == ActivityKind.LIFESTYLE:

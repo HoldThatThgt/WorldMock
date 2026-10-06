@@ -81,6 +81,9 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
     mail = _read_mail(payload, scenario)
     if mail is not None:
         details["mail"] = mail
+    if "app_content" in payload:
+        details["app_content"] = {key: payload["app_content"][key]
+                                  for key in ("app", "title", "kind", "summary", "pushed")}
     details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
     return details
 
