@@ -20,7 +20,7 @@ FEATURE_SOURCES = (
     "src/worldmock/life/models.py", "src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",
     "src/worldmock/catalog/models.py", "src/worldmock/catalog/admission.py",
     "src/worldmock/exchange/types.py", "src/worldmock/exchange/constants.py",
-    "src/worldmock/life/map_models.py", "src/worldmock/life/map_data.py",
+    "src/worldmock/catalog/graph.py", "src/worldmock/life/travel.py", "src/worldmock/life/wayfinding.py",
     "src/worldmock/life/name_resolution.py", "src/worldmock/life/routing.py",
     "src/worldmock/life/named_purchase.py", "src/worldmock/life/storefront_state.py",
     "src/worldmock/life/work.py", "src/worldmock/life/observe.py", "src/worldmock/life/progress_layer.py",
