@@ -28,7 +28,6 @@ from worldmock.life.vocabulary import PURCHASE_WAYS
 from worldmock.life.models import ActivityKind, ActivityState, TravelMode
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.recipients import agent_identity, person_name
-from worldmock.life.result_projection import browse_labels
 from worldmock.life.tool_layer import LayerContext
 
 #: 成功的结果状态：只有这些结果写 settled 句。
@@ -94,27 +93,11 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
         sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
         discarded = sum(activity.data.get("discarded", {}).values())
         sentence += f"，丢弃 {portion_phrase(discarded)}" if discarded > 0 else ""
-    return sentence + _browse_clause(context, activity) + _recipe_clause(context, activity)
+    return sentence
 
 
-def _recipe_clause(context: LayerContext, activity: ActivityState) -> str:
-    """@brief 已完成的库存转换附实际输入与产物；没有结算的制作不声称得到菜品。"""
-    recipe = activity.data.get("inventory_recipe")
-    if recipe is None or not activity.data.get("recipe_applied"):
-        return ""
-    source = context.rules.items[recipe["input_object_id"]].name
-    output = context.rules.items[recipe["output_object_id"]].name
-    return (f"，消耗{source} {portion_phrase(float(recipe['input_quantity']))}，"
-            f"制作得到{output} {portion_phrase(float(recipe['output_quantity']))}")
 
 
-def _browse_clause(context: LayerContext, activity: ActivityState) -> str:
-    """@brief 完成的浏览另写浏览到的完整标签「，浏览到<门店>出售的<商品>、……」：session 结束后浏览结果随 settled
-    进记忆层，离开浏览地点后人物照着按名下单（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ，裁决 D17）；没有取得结果的
-    浏览不写。"""
-    revealed = activity.data.get("revealed") if activity.kind == ActivityKind.BROWSE else None
-    labels = browse_labels([revealed], context.scenario) if isinstance(revealed, dict) else []
-    return f"，浏览到{'、'.join(labels)}" if labels else ""
 
 
 def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: str | None) -> str:
@@ -124,7 +107,7 @@ def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: s
     :param answering: 下单请求的 answering（关联消息的名称），订单没有关联时不写。
     """
     now, zone = context.state.current_time, context.scenario.timezone
-    product = context.rules.items[order["product_id"]].name
+    product = context.semantics.catalog.foods[order["food_id"]].name
     sentence = (f"{clock_phrase(order['created_at'], now, zone)} {PURCHASE_WAYS[order['fulfillment']]}"
                 f"{'买' if order['fulfillment'] == 'pickup' else ''}{product} {portion_phrase(order['quantity'])}，"
                 f"付 {money_phrase(order['total_price_fen'])}")
@@ -139,7 +122,7 @@ def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: s
 
 def give_sentence(context: LayerContext, moment: str, item: dict[str, Any]) -> str:
     """@brief 一次给予的句子：「10:40 把牛肉炒面 1 份给了王磊」（moment 为请求时刻的带时区 ISO）。"""
-    product = context.rules.items[item["product_id"]].name
+    product = context.semantics.catalog.foods[item["food_id"]].name
     person = person_name(context.state, context.scenario, context.agent_id, item["recipient_id"])
     return f"{_clock(context, moment)} 把{product} {portion_phrase(item['quantity'])}给了{person}"
 
@@ -166,8 +149,8 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
     if fact["kind"] == "waited":
         return f"{span} 等待了{duration_phrase(fact['duration_seconds'])}"
     if fact["kind"] == "consumed":
-        names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
-        return f"{span} 吃了{names[fact['product_id']]}"
+        names = {item.food_id: item.name for item in scenario.foods}
+        return f"{span} 吃了{names[fact['food_id']]}"
     podcast = any(item.item_id == fact["content_id"] and item.kind == "podcast_episode" for item in scenario.contents)
     return f"{span} {'听了' if podcast else '看了'}《{context.rules.content_titles[fact['content_id']]}》"
 

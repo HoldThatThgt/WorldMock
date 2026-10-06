@@ -227,7 +227,7 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
     """@brief 一次送达事件中本人所下每个订单一条 delivery 记录：订单名称、状态与送达进展（收货人不是自己时写明收货人）。"""
     zone, now = context.scenario.timezone, context.state.current_time
     places = {item.location_id: item.name for item in context.scenario.locations}
-    names = {item_id: item.name for item_id, item in context.rules.items.items()}
+    names = {item_id: item.name for item_id, item in context.semantics.catalog.foods.items()}
     records = []
     for order in event.data.get("orders", []):
         if order["agent_id"] != context.agent_id:

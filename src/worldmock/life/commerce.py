@@ -19,7 +19,7 @@ def deliver_order(state: WorldState, order_id: str) -> tuple[WorldState, Deliver
         return state.model_copy(deep=True), order.model_copy(deep=True)
     if state.current_time < order.expected_at:
         raise BusinessRuleError("DELIVERY_NOT_DUE")
-    changed = add_holding(state, order.recipient_id, order.destination_id, (order.product_id, order.quantity))
+    changed = add_holding(state, order.recipient_id, order.destination_id, (order.food_id, order.quantity))
     changed_order = order.model_copy(update={"status": "delivered"}, deep=True)
     deliveries = dict(changed.deliveries)
     deliveries[order_id] = changed_order

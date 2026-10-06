@@ -13,142 +13,44 @@ BASELINE_TIMEOUT_SECONDS = 600
 MUTATION_TIMEOUT_SECONDS = 180
 
 
-BEHAVIOR = {
-    '八点普通工作通知，八点五十五到公司': (
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_ordinary_work_opens_at_first_notif'
-            'ication_and_wrong_place_is_explicit'
-        ),
-    ),
-    '提前收到十点预约会议': (
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_removed_input_opening_is_rejected_'
-            'and_appointment_is_explicit'
-        ),
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_appointment_wakes_only_at_real_ope'
-            'ning_and_never_wakes_sleep'
-        ),
-    ),
-    '未读、阅读与睡眠': (
-        'tests/life/test_tool_interaction_runtime.py::test_notification_coverage_checks_every_notice',
-        'tests/life/test_tool_interaction_runtime.py::test_mail_reading_keeps_actual_body_and_only_full_task_name',
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_appointment_mail_reveals_only_assi'
-            'gnee_without_false_opening'
-        ),
-    ),
-    '全部接口错误入口': (
-        'tests/life/test_tool_protocol.py::test_purchase_preference_closed_values_are_complete',
-        'tests/life/test_tool_protocol.py::test_nonpurchase_preference_preserves_json_null',
-        'tests/life/test_tool_protocol.py::test_strict_nested_type_positions_are_preserved',
-        'tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields',
-        'tests/life/test_tool_protocol.py::test_root_validator_keeps_argument_root_and_original_json',
-        'tests/life/test_tool_protocol.py::test_cross_field_interval_and_goal_bounds_keep_explicit_locations',
-        'tests/life/test_tool_protocol.py::test_native_purchase_routing_derives_way_without_action_field',
-        'tests/life/test_tool_protocol.py::test_native_recipe_and_giving_aliases_keep_actual_route_conditions',
-        'tests/life/test_tool_protocol.py::test_parser_reports_malformed_json_and_unknown_tool_complete_locations',
-        (
-            'tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_s'
-            'tage_without_parsing_exception_text'
-        ),
-        'tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage',
-        (
-            'tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_r'
-            'eal_call_without_claiming_execution'
-        ),
-        'tests/life/test_tool_interaction_runtime.py::test_plan_times_display_exact_declared_local_format',
-    ),
-    '原子批次': (
-        'tests/life/test_tool_protocol.py::test_read_batch_reports_every_error_with_real_call_indices',
-        'tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic',
-        'tests/life/test_tool_protocol.py::test_route_errors_return_null_only_and_all_independent_fields',
-    ),
-    '类别供给': (
-        'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_and_required_richness',
-        'tests/corpora/test_storefront_release.py::test_assortment_excludes_unselected_same_category_products',
-        'tests/corpora/test_storefront_release.py::test_every_published_product_can_really_be_bought_at_its_store',
-        (
-            'tests/corpora/test_storefront_release.py::test_restaurant_menu_pairs_require_distinct_dishes'
-        ),
-        'tests/corpora/test_storefront_release.py::test_loaded_store_must_keep_every_declared_supply',
-    ),
-    '地点定价': (
-        (
-            'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_and_respects_fixed_prices'
-        ),
-        'tests/corpora/test_storefront_release.py::test_frozen_quotes_require_positive_ordered_integer_bounds',
-        'tests/corpora/test_storefront_release.py::test_convenience_price_positions_exceed_supermarket_positions',
-        'tests/life/test_storefront_schedule.py::test_price_change_bounds_are_atomic_and_preserve_orders',
-    ),
-    '购买与食用': (
-        'tests/life/test_tool_interaction_recipe.py::test_published_recipe_debits_input_and_creates_edible_output',
-        'tests/life/test_tool_protocol.py::test_deleted_activity_fields_are_rejected',
-        'tests/life/test_tool_protocol.py::test_new_schema_and_candidates_are_complete_and_strict',
-        'tests/life/test_tool_protocol.py::test_consistent_store_source_preserves_success_note',
-    ),
-    '料理': (
-        'tests/life/test_tool_interaction_recipe.py::test_published_recipe_debits_input_and_creates_edible_output',
-        (
-            'tests/life/test_tool_interaction_recipe.py::test_recipe_without_real_input_is_reject'
-            'ed_and_narration_cannot_create_food'
-        ),
-        (
-            'tests/life/test_tool_interaction_habits.py::test_every_frozen_habit_has_a_complete_e'
-            'xplicit_native_fixture'
-        ),
-        (
-            'tests/life/test_tool_interaction_habits.py::test_declared_habit_runs_with_real_prere'
-            'quisites_and_settlement'
-        ),
-    ),
-    '查询与预算': (
-        (
-            'tests/life/test_world_query.py::test_world_query_paginates_complete_frozen_set_and_p'
-            'reserves_false_and_zero'
-        ),
-        'tests/life/test_world_query.py::test_world_query_offset_requires_nonnegative_json_integer',
-        (
-            'tests/life/test_world_query.py::test_world_query_real_engine_reads_all_goods_without'
-            '_browse_or_world_changes'
-        ),
-        'tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged',
-        'tests/life/test_world_query.py::test_world_query_does_not_return_internal_identity_or_private_evidence',
-        'tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query',
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exc'
-            'hange_without_progress_events'
-        ),
-    ),
-    '操作备忘': (
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_memo_is_derived_across_sessions_wi'
-            'th_acceptance_and_clears_next_day'
-        ),
-        'tests/life/test_tool_interaction_runtime.py::test_memo_and_appointment_survive_persistent_reopen',
-    ),
-    '紧凑呈现': (
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero'
-            '_contract_and_control_tools'
-        ),
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_actual_frozen_tool_layer_and_promp'
-            't_groups_restore_identically'
-        ),
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_compact_prompt_continuation_preser'
-            'ves_head_and_exact_target_changes'
-        ),
-    ),
-    '文档与身份': (
-        'tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve',
-        (
-            'tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_'
-            'and_the_committed_html_is_current'
-        ),
-    ),
-}
+BEHAVIOR = {'八点普通工作通知，八点五十五到公司': ('tests/life/test_tool_interaction_runtime.py::test_ordinary_work_opens_at_first_notification_and_wrong_place_is_explicit',),
+ '提前收到十点预约会议': ('tests/life/test_tool_interaction_runtime.py::test_removed_input_opening_is_rejected_and_appointment_is_explicit',
+                'tests/life/test_tool_interaction_runtime.py::test_appointment_wakes_only_at_real_opening_and_never_wakes_sleep'),
+ '未读、阅读与睡眠': ('tests/life/test_tool_interaction_runtime.py::test_notification_coverage_checks_every_notice',
+              'tests/life/test_tool_interaction_runtime.py::test_mail_reading_keeps_actual_body_and_only_full_task_name',
+              'tests/life/test_tool_interaction_runtime.py::test_appointment_mail_reveals_only_assignee_without_false_opening'),
+ '全部接口错误入口': ('tests/life/test_tool_protocol.py::test_purchase_preference_closed_values_are_complete',
+              'tests/life/test_tool_protocol.py::test_nonpurchase_preference_preserves_json_null',
+              'tests/life/test_tool_protocol.py::test_strict_nested_type_positions_are_preserved',
+              'tests/life/test_tool_protocol.py::test_engine_revalidates_constructed_bad_requests_with_complete_fields',
+              'tests/life/test_tool_protocol.py::test_root_validator_keeps_argument_root_and_original_json',
+              'tests/life/test_tool_protocol.py::test_cross_field_interval_and_goal_bounds_keep_explicit_locations',
+              'tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field',
+                    'tests/life/test_tool_protocol.py::test_parser_reports_malformed_json_and_unknown_tool_complete_locations',
+              'tests/integration/test_host_failure_stages.py::test_model_service_failure_persists_stage_without_parsing_exception_text',
+              'tests/integration/test_host_failure_stages.py::test_evidence_write_failure_stops_with_structured_stage',
+              'tests/integration/test_host_failure_stages.py::test_tool_service_failure_points_to_real_call_without_claiming_execution',
+              'tests/life/test_tool_interaction_runtime.py::test_plan_times_display_exact_declared_local_format'),
+ '原子批次': ('tests/life/test_tool_protocol.py::test_read_batch_reports_every_error_with_real_call_indices',
+          'tests/life/test_tool_protocol.py::test_world_query_mixed_batches_are_atomic',
+          'tests/life/test_tool_protocol.py::test_route_errors_return_null_only_and_all_independent_fields'),
+ '购买与食用': ('tests/life/test_commerce.py::test_no_app_store_pickup_is_immediate_local_holding',
+           'tests/life/test_commerce.py::test_multiple_food_rows_pay_one_fee_one_transfer_and_one_delivery',
+           'tests/life/test_rrs_food_body.py::test_food_split_pause_resume_and_repeated_progress_conserve_raw_intake'),
+ '查询与预算': ('tests/life/test_world_query.py::test_world_query_paginates_complete_frozen_set_and_preserves_false_and_zero',
+           'tests/life/test_world_query.py::test_world_query_offset_requires_nonnegative_json_integer',
+           'tests/life/test_world_query.py::test_world_query_real_engine_reads_all_goods_without_browse_or_world_changes',
+           'tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged',
+           'tests/life/test_world_query.py::test_world_query_does_not_return_internal_identity_or_private_evidence',
+           'tests/life/test_tool_protocol.py::test_final_turn_and_truncation_retry_disable_every_query',
+           'tests/life/test_tool_interaction_runtime.py::test_read_queries_keep_actual_model_exchange_without_progress_events'),
+ '操作备忘': ('tests/life/test_tool_interaction_runtime.py::test_memo_is_derived_across_sessions_with_acceptance_and_clears_next_day',
+          'tests/life/test_tool_interaction_runtime.py::test_memo_and_appointment_survive_persistent_reopen'),
+ '紧凑呈现': ('tests/life/test_tool_interaction_runtime.py::test_compact_layer_preserves_false_zero_contract_and_control_tools',
+          'tests/life/test_tool_interaction_runtime.py::test_actual_frozen_tool_layer_and_prompt_groups_restore_identically',
+          'tests/life/test_tool_interaction_runtime.py::test_compact_prompt_continuation_preserves_head_and_exact_target_changes'),
+ '文档与身份': ('tests/test_documentation_gate.py::test_real_repository_documents_and_source_references_resolve',
+           'tests/test_design_doc_build.py::test_repository_chapters_assemble_deterministically_and_the_committed_html_is_current')}
 
 MUTATIONS = (
     SourceMutation(
@@ -187,144 +89,21 @@ MUTATIONS = (
             ),
         ),
     ),
-    SourceMutation(
-        'recipe_no_input_debit',
-        'worldmock.life.inventory_recipe::_inventory_from_balances',
-        'local[plan.input_object_id] = balances[(plan.resource_id, input_owner)]',
-        'local[plan.input_object_id] = agent.inventory[agent.location_id][plan.input_object_id]',
-        (
-            (
-                'tests/life/test_tool_interaction_recipe.py::test_published_recipe_debits_input_and_c'
-                'reates_edible_output'
-            ),
-        ),
-    ),
-    SourceMutation(
-        'recipe_no_output_credit',
-        'worldmock.life.inventory_recipe::_inventory_from_balances',
-        'local[plan.output_object_id] = balances[(plan.resource_id, output_owner)]',
-        'local[plan.output_object_id] = 0',
-        (
-            (
-                'tests/life/test_tool_interaction_recipe.py::test_published_recipe_debits_input_and_c'
-                'reates_edible_output'
-            ),
-        ),
-    ),
+
+
 )
 
 MUTATIONS += (
-    SourceMutation(
-        'assortment_full_pool',
-        'worldmock.corpora.storefront::assortment_objects',
-        'return frozenset(expanded | set(assortment.object_ids))',
-        'return frozenset(obj.object_id for obj in catalog.objects.values() if obj.object_kind.value == "product")',
-        (
-            'tests/corpora/test_storefront_release.py::test_assortment_excludes_unselected_same_category_products',
-        ),
-    ),
-    SourceMutation(
-        'restaurant_menus_identical',
-        'worldmock.corpora.storefront::validate_assortments',
-        '    _validate_menus(menus)',
-        '    pass',
-        (
-            (
-                'tests/corpora/test_storefront_release.py::test_restaurant_menu_pairs_require_distinct_dishes'
-            ),
-        ),
-    ),
-    SourceMutation(
-        'assortment_window_cut',
-        'worldmock.corpora.storefront::assortment_objects',
-        'return frozenset(expanded | set(assortment.object_ids))',
-        'return frozenset(sorted(expanded | set(assortment.object_ids))[:20])',
-        (
-            (
-                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_'
-                'and_required_richness'
-            ),
-        ),
-    ),
-    SourceMutation(
-        'category_inheritance_exact_only',
-        'worldmock.categories.models::CategoryContract.is_descendant',
-        'return ancestor_id in category.lineage',
-        'return ancestor_id == category_id',
-        (
-            (
-                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_'
-                'and_required_richness'
-            ),
-        ),
-    ),
-    SourceMutation(
-        'price_position_ignored',
-        'worldmock.corpora.storefront::frozen_price.percent',
-        'percent = position + digest_integer % 11 - 5',
-        'percent = 50 + digest_integer % 11 - 5',
-        (
-            (
-                'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_and_respects_fixed_prices'
-            ),
-        ),
-    ),
-    SourceMutation(
-        'price_outside_bounds',
-        'worldmock.corpora.storefront::frozen_price',
-        'return lower + ((upper - lower) * percent + 50) // 100',
-        'return upper + 1',
-        (
-            (
-                'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_and_respects_fixed_prices'
-            ),
-        ),
-    ),
-    SourceMutation(
-        'quote_bound_check_removed',
-        'worldmock.corpora.storefront::_validate_quotes',
-        'if not supply.quotes or any(not lower <= quote.price_fen <= upper for quote in supply.quotes):',
-        'if not supply.quotes:',
-        (
-            'tests/corpora/test_storefront_release.py::test_invalid_frozen_supply_is_rejected',
-        ),
-    ),
-    SourceMutation(
-        'reprice_bound_check_removed',
-        'worldmock.life.storefront_state::changed_quote',
-        '    validate_price_bounds(event.data["amount_fen"], product)',
-        '    pass',
-        (
-            'tests/life/test_storefront_schedule.py::test_price_change_bounds_are_atomic_and_preserve_orders',
-        ),
-    ),
-    SourceMutation(
-        'reprice_changes_accepted_orders',
-        'worldmock.scheduling.effects::_price_change',
-        (
-            'changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)\n    return S'
-            'cheduledOutcome(changed, {**event.data, "quote_before": previous.model_dump(mode="js'
-            'on"),'
-        ),
-        (
-            'changed = state.model_copy(update={"supply_quotes": quotes, "deliveries": {key: orde'
-            'r.model_copy(update={"total_price_fen": quote.price_fen}) for key, order in state.de'
-            'liveries.items()}}, deep=True)\n    return ScheduledOutcome(changed, {**event.data, "'
-            'quote_before": previous.model_dump(mode="json"),'
-        ),
-        (
-            'tests/life/test_storefront_schedule.py::test_price_change_bounds_are_atomic_and_preserve_orders',
-        ),
-    ),
-    SourceMutation(
-        'effective_product_price_range_reversed',
-        'worldmock.categories.contract::_validate_values',
-        'if lower is not None and upper is not None and lower > upper:',
-        'if False:',
-        (
-            'tests/corpora/test_storefront_release.py::test_price_ranges_inherit_and_preserve_explicit_overrides',
-        ),
-    ),
+
+
+
+
+
+
+
+
+
+
     SourceMutation(
         'habit_media_progress_not_persisted',
         'worldmock.life.content::reveal_watch.changed',
@@ -651,10 +430,10 @@ MUTATIONS += (
     SourceMutation(
         'native_purchase_route_loses_way',
         'worldmock.life.routing::_item_errors.purchase',
-        'purchase = verb == "obtain" and "制作" not in options',
+        'purchase = verb == "obtain"',
         'purchase = False',
         (
-            'tests/life/test_tool_protocol.py::test_native_purchase_routing_derives_way_without_action_field',
+            'tests/life/test_purchase_apps.py::test_native_purchase_routing_derives_way_without_action_field',
         ),
     ),
 )

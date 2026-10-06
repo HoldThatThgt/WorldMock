@@ -30,10 +30,6 @@ class LifeRuleEngine:
         self.scenario = scenario
         self.graph = graph
         self.corpus_root = Path(corpus_root).resolve()
-        self.products = {item.product_id: item for item in scenario.products}
-        self.items = {item.product_id: item
-                      for item in (*scenario.products, *scenario.inventory_items)}
-        self.supplies = {item.supply_id: item for item in scenario.supplies}
         self.locations = {item.location_id: item for item in scenario.locations}
         self.activity_location_kinds = item_kinds(self.corpus_root)
         self.tasks = {item.task_id: item for item in scenario.tasks}
@@ -63,10 +59,6 @@ class LifeRuleEngine:
             if request.target_id not in agent.visible_message_ids:
                 raise BusinessRuleError("MESSAGE_NOT_VISIBLE")
             return {"message_id": request.target_id}
-        if kind == ActivityKind.BROWSE:
-            if request.target_id != "product_catalog":
-                raise BusinessRuleError("BROWSE_TARGET_NOT_FOUND")
-            return {"catalog": "all_products"}
         if kind == ActivityKind.TRAVEL:
             return travel_activity_data(plan_trip(self.graph, agent.location_id,
                                                   request.destination_id, request.travel_mode))
@@ -120,11 +112,6 @@ class LifeRuleEngine:
         place_kinds = frozenset(location.location_kinds) if location is not None else frozenset()
         require_location_kinds(place_kinds, self.activity_location_kinds[target_id])
 
-    def product(self, product_id: str | None) -> InventoryItemConfig:
-        """@brief 取得一个冻结可持有对象，否则业务拒绝。"""
-        if product_id not in self.items:
-            raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        return self.items[product_id]
 
     def task(self, task_id: str | None) -> RuntimeWorkTask:
         """@brief 取得一个冻结工作任务，否则业务拒绝。"""

@@ -19,10 +19,12 @@ valence）由引擎在结算边界调用本模块的包装函数驱动。
 from __future__ import annotations
 
 import math
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from worldmock.catalog.affordances import engine_affordances
+from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
 from worldmock.life import felt, sleep
 from worldmock.base_models import CurvePoint
 from worldmock.life.models import (ActivityKind, BodyState)
@@ -69,10 +71,9 @@ def last_flows() -> tuple[FlowEntry, ...]:
 
 
 def body_resource_metas(config: BodyConfig) -> tuple[ResourceMeta, ...]:
-    """@brief 从身体参数组装三个 level 资源元信息（bounds 与现行 clamp 语义一致）。"""
+    """@brief 系统能量元信息与身体状态分录域；身体规则不接受环境覆盖。"""
     return (
-        ResourceMeta(ENERGY_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0,
-                     config.maximum_energy_kcal),
+        RESOURCE_METAS[ENERGY_RESOURCE],
         ResourceMeta(SLEEP_DEFICIT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0,
                      sleep.SLEEP_DEFICIT_MAX_H),
         ResourceMeta(ENTERTAINMENT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0, 1),
@@ -187,8 +188,8 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
                       neuroticism_norm=body.neuroticism_norm,
                       entertainment_need=entertainment)
     _flow_buffer.extend(entries)
-    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None,
-                          _work_efficiency(body, after, kind, config, factors))
+    efficiency = _work_efficiency(body, after, kind, config, factors) if kind == ActivityKind.WORK else 1.0
+    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None, efficiency)
 
 
 def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
@@ -258,24 +259,24 @@ def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, Activ
 
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
     """@brief 以进食开始时睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
-    if calories < 0:
-        raise ValueError("food calories cannot be negative")
+    if not math.isfinite(calories) or calories < 0:
+        logging.error("Food calories must be finite and nonnegative: %s", calories)
+        raise ValueError("Food calories must be finite and nonnegative")
     efficiency = sleep.food_utilization_efficiency(body.sleep_deficit_hours)
     gained = calories * efficiency
     projected = body.energy_kcal + gained
-    capped = projected > config.maximum_energy_kcal
-    amount = min(gained, config.maximum_energy_kcal - body.energy_kcal) if capped else gained
+    capped = projected > BODY_CONSTANTS.maximum_energy_kcal
+    amount = min(gained, BODY_CONSTANTS.maximum_energy_kcal - body.energy_kcal) if capped else gained
     entries = []
     if amount > 0:
         entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, amount,
                                  "food:intake", BODY_FLOW_OCCURRED_AT))
     energy, _deficit, _entertainment = _settle_via_ledger(config, body, entries)
     if capped:
-        energy = config.maximum_energy_kcal
+        energy = BODY_CONSTANTS.maximum_energy_kcal
     after = body.model_copy(update={"energy_kcal": energy}, deep=True)
     _flow_buffer.extend(entries)
-    return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency,
-                          _factor_snapshot(config, body))
+    return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency, 1.0)
 
 
 def minimum_energy_cost(kind: ActivityKind, seconds: int, config: BodyConfig,
@@ -422,8 +423,7 @@ def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
         return tuple(CurvePoint(input_value=p.input_hours, output_value=p.output_factor)
                      for p in sleep.WORK_EFFICIENCY_CURVE)
     if kind == ActivityKind.CONSUME:
-        return tuple(CurvePoint(input_value=p.input_hours, output_value=p.output_factor)
-                     for p in sleep.FOOD_UTILIZATION_CURVE)
+        return BODY_CONSTANTS.food_efficiency_curve
     return ()
 
 

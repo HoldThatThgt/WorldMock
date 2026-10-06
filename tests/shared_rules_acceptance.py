@@ -1,6 +1,11 @@
 """共享规则与可重建环境的逐条规格验收登记，节点必须指向真实行为测试。"""
 
 RULES = {
+    '图上出行响应': (
+        'tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order',
+        'tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare',
+        'tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields',
+    ),
     '规范 JSON 摘要': ('tests/test_shared_primitives.py::test_structured_digest_and_raw_string_contracts_use_same_bytes',),
     'SHA-256 形式': ('tests/test_shared_primitives.py::test_sha256_format_is_strict',),
     '安全文件': (

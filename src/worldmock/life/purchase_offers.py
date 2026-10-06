@@ -1,192 +1,143 @@
-"""@brief 指名购买的来源范围、可服务的供给与按偏好选定（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-指名购买from-是约束不是语法 、3.3、3.5
-）。
-
-来源范围（source_scope）：from 为 null 是全部门店；其余写法交给与查询共用的纯函数 name_resolution.resolve_source
-（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）：是地点的显示名（精确、无损归一或去掉「地点：」前缀后唯一，「家」「住处」指本人
-住处）时是该地点；是渠道称呼（去掉空白、不分大小写，其余逐字比较，name_resolution.channel_key）时是该渠道的成员门店，
-并记下 channel_id；都不是时为 None（SOURCE_NOT_FOUND）。渠道只是门店集合的称呼（裁决 D8、S7），不带交付语义。
-
-可服务（offers，分段匹配的 M3）：到店要人此刻就在那家店里（途中不在任何店里）且供给支持到店；远程下单要供给支持配送且能
-送到收货地（在配送范围内、配送路线走得通，送达时刻按 basket.delivery_expected_at：最慢备货加出发时刻的计划驾车时长）；
-「购买」人在出售它的店里、且东西在那里交得到收货人手上（handed_over：收货人是自己，或此刻也在那家店里）就到店，否则能送到
-收货地就远程下单（系统不定一个交不到收货人手上的方式）；显式写的到店照所写处理。多于一个可服务的供给时按请求级 prefer
-选定（choose）：最快拿到 远程下单取预计送达最早者、到店取从当前地点出发路线最短者，到手价最低 取到手价最低者（一份按当前报价
-与购买配对计价）；并列时先比到手价、再比门店标识，最后比供给标识（确定性）。价格、余额、营业与库存仍由整单结算照常检查。
-本模块只读世界、场景与语义，不改状态。
-"""
+"""@brief 从真实食品菜单与目录 app 绑定选择到店或配送购买。"""
 
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from worldmock.catalog.models import Food
+from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
 from worldmock.life.admission import present_location
-from worldmock.life.basket import delivery_expected_at
+from worldmock.life.name_resolution import delivery_sources, near_source_names, resolve_source
 from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
-from worldmock.life.name_resolution import near_source_names, resolve_source
-from worldmock.life.storefront_state import current_quote
 
 if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
 
-#: 请求级偏好（models.PURCHASE_PREFERENCES）的缺省值：prefer 为 null 时按最快。
-#: 到店与远程下单两种方式短语。
+#: 购买方式的唯一人类可读短语。
 PICKUP_WAY, DELIVERY_WAY = PURCHASE_WAYS["pickup"], PURCHASE_WAYS["delivery"]
 
 
 @dataclass(frozen=True, slots=True)
 class SourceScope:
-    """@brief from 限定的来源范围。
-
-    :param store_ids: 范围内的门店（地点身份）；None 表示全部门店（from 为 null）。
-    :param channel_id: from 是渠道称呼时该渠道的 App 标识（订单记 channel_id），否则为 None。
-    :param name: 范围的可读说法：地点显示名或所写的渠道称呼（from 为 null 时为 None）。
-    """
+    """@brief 来源限定的登记门店集合及实际 app 身份。"""
 
     store_ids: frozenset[str] | None = None
-    channel_id: str | None = None
+    app_id: str | None = None
     name: str | None = None
 
-    def contains(self, location_id: str) -> bool:
-        """@brief 地点是否在范围内。"""
-        return self.store_ids is None or location_id in self.store_ids
+    def contains(self, store_id: str) -> bool:
+        """@brief 判断实际门店是否属于请求来源。"""
+        return self.store_ids is None or store_id in self.store_ids
 
 
 @dataclass(frozen=True, slots=True)
 class Offer:
-    """@brief 一条此刻可服务的供给。
+    """@brief 固定菜单食品的一条当前可服务购买选择。"""
 
-    :param supply: 场景供给。
-    :param way: 此刻能用的方式（到店或远程下单）。
-    :param speed: 快慢：远程下单为预计送达时刻，到店为从当前地点出发的路程秒数（人就在店里，为 0）。
-    :param price: 到手价（一份，分）；报价未知或购买配对不是 defined 时为 None（排在最后）。
-    :param expected_at: 远程下单的预计送达时刻；到店为 None。
-    """
-
-    supply: Any
+    store_id: str
+    food: Food
     way: str
     speed: int
-    price: int | None
+    price: int
+    app_id: str | None = None
     expected_at: int | None = None
 
 
+def menu_foods(context: LayerContext) -> tuple[tuple[str, Food], ...]:
+    """@brief 已选门店中的实际目录食品，使用同品类共享固定菜单。"""
+    selected = {place.location_id for place in context.scenario.locations}
+    return tuple((store_id, food) for store_id, foods in context.semantics.catalog.foods_by_store.items()
+                 if store_id in selected for food_id in foods for food in (context.semantics.catalog.foods[food_id],))
+
+
 def source_scope(context: LayerContext, source: str | None) -> SourceScope | None:
-    """@brief from 决定的来源范围（3.3 解析规则 1）：null → 全部门店；地点显示名 → 该地点；渠道称呼 → 成员门店并记下
-    channel_id；都不是 → None。非 null 的写法由与查询共用的纯函数 name_resolution.resolve_source 解析。"""
+    """@brief 地点名称限定单店，app 名称限定真实绑定店铺，空来源不限定。"""
     if source is None:
         return SourceScope()
-    match = resolve_source(source, _places(context), _home(context), _channel_rows(context))
-    return None if match is None else SourceScope(match.store_ids, match.channel_id, match.name)
+    match = resolve_source(source, _places(context), _home(context), delivery_sources(context.semantics.catalog))
+    return None if match is None else SourceScope(match.store_ids, match.app_id, match.name)
 
 
 def near_sources(context: LayerContext, written: str, feasible: Callable[[frozenset[str]], bool]) -> list[str]:
-    """@brief SOURCE_NOT_FOUND 的候选来源：有供给的门店的显示名与渠道称呼中与所写最相近的至多 3 个（范围内此刻能买到这件
-    商品的在前，name_resolution.rank）；一个也不相近时取此刻能买到的来源。渠道取它的第一个称呼。排名由与查询共用的纯函数
-    name_resolution.near_source_names 完成。
-
-    :param feasible: 一个来源范围（门店身份集合）此刻能不能买到这件商品。
-    """
-    stores = (supply.location_id for supply in context.scenario.supplies)
-    return near_source_names(written, _places(context), stores, _channel_rows(context), feasible)
+    """@brief 返回实际目录来源的近名候选，不自动替换来源。"""
+    return near_source_names(written, _places(context), (store for store, _ in menu_foods(context)),
+                             delivery_sources(context.semantics.catalog), feasible)
 
 
-def offers(context: LayerContext, supplies: Iterable[Any], way: str,
+def offers(context: LayerContext, foods: Iterable[tuple[str, Food]], way: str,
            destination_id: str | None) -> tuple[str, list[Offer]]:
-    """@brief 可服务的供给与定下的方式（分段匹配的 M3）：到店、远程下单按所写方式；「购买」人在出售它的店里、且东西在那里
-    交得到收货人手上（handed_over）就到店，否则远程下单到收货地。显式写的到店只看人在不在店里（人物自己选的方式；送给不在
-    店里的人由整单结算以「暂时送不到<名>那里」拒绝）。
-
-    :param destination_id: 收货地（收货人此刻的收货地点：送给自己为人此刻所在的地点）；收货人此刻没有收货地点时为 None。
-    """
-    candidates = list(supplies)
+    """@brief 根据人在店内及 app 绑定选择实际到店或配送方式。"""
+    candidates = tuple(foods)
     if way == SYSTEM_PURCHASE_WAY:
-        here = handed_over(_pickups(context, candidates), destination_id)
-        return (PICKUP_WAY, here) if here else (DELIVERY_WAY, _deliveries(context, candidates, destination_id))
+        pickups = handed_over(_pickups(context, candidates), destination_id)
+        return (PICKUP_WAY, pickups) if pickups else (DELIVERY_WAY, _deliveries(context, candidates, destination_id))
     if way == PICKUP_WAY:
         return way, _pickups(context, candidates)
     return way, _deliveries(context, candidates, destination_id)
 
 
-def serves(context: LayerContext, supply: Any, way: str, destination_id: str | None) -> bool:
-    """@brief 一条供给此刻能不能按所写方式（「购买」为到店或远程下单之一）把东西交到收货人手上（候选排序：可行的在前）：
-    到店另要东西在店里交得到收货人手上（handed_over），与整单结算同一判定。"""
-    chosen, served = offers(context, (supply,), way, destination_id)
+def serves(context: LayerContext, food: tuple[str, Food], way: str, destination_id: str | None) -> bool:
+    """@brief 判断同一实际菜单项是否可以在当前地点交到收货人手中。"""
+    chosen, served = offers(context, (food,), way, destination_id)
     return bool(handed_over(served, destination_id) if chosen == PICKUP_WAY else served)
 
 
 def handed_over(pickups: Iterable[Offer], destination_id: str | None) -> list[Offer]:
-    """@brief 到店可服务的供给中，东西在店里就交得到收货人手上的：收货地就是那家店。送给自己时收货地是人此刻所在的地点，
-    人在店里即成立；送给别人时是收货人此刻的收货地点——同世界人物此刻也在那家店里，或联系人的收货地点就是那家店（与给予的
-    同处规则一致）——与整单结算（order_routing）到店时的核对同一判定。"""
-    return [offer for offer in pickups if offer.supply.location_id == destination_id]
+    """@brief 到店购买只有收货人也能在门店收货时即时交付。"""
+    return [offer for offer in pickups if offer.store_id == destination_id]
 
 
 def choose(served: Sequence[Offer], prefer: str) -> Offer:
-    """@brief 按偏好选定一条可服务的供给（3.5「收敛」第 5 条）：最快拿到 先比快慢，到手价最低 先比到手价；并列时比到手价、
-    门店标识与供给标识。"""
+    """@brief 按请求偏好及登记门店身份确定性选择一条实际购买。"""
     return min(served, key=lambda offer: order_key(offer, prefer))
 
 
 def order_key(offer: Offer, prefer: str) -> tuple:
-    """@brief 选定与候选排序的键：最快拿到 为（快慢，到手价，门店标识，供给标识），到手价最低 为（到手价，门店标识，供给标识）；
-    到手价未知的排在最后。"""
+    """@brief 最快比较送达时间和到手价，最便宜比较含配送费价格；同值按店铺身份。"""
     if prefer not in {"最快拿到", "到手价最低"}:
         logging.error("Purchase preference is outside the declared set")
         raise ValueError("purchase preference must be 最快拿到 or 到手价最低")
-    tail = (offer.price if offer.price is not None else math.inf, offer.supply.location_id, offer.supply.supply_id)
+    tail = (offer.price, offer.store_id)
     return tail if prefer == "到手价最低" else (offer.speed, *tail)
 
 
-def landed_price(context: LayerContext, supply: Any) -> int | None:
-    """@brief 一份的到手价：当前报价经购买配对计价（与公开供给行的 purchase_price_fen 同一入口）；报价未知或配对不是
-    defined 时为 None。"""
-    quote = current_quote(context.state, supply.supply_id)
-    if quote is None or context.semantics.purchase_pairing(supply.product_id).state != "defined":
-        return None
-    return context.semantics.purchase_amount(supply.product_id, quote.price_fen, 1)
-
-
-def nearest_store(context: LayerContext, location_ids: Iterable[str]) -> str:
-    """@brief 按登记图总米数选择最近门店，同长按地点身份。"""
+def nearest_store(context: LayerContext, store_ids: Iterable[str]) -> str:
+    """@brief 按登记图米数与地点身份选择最近实际门店。"""
     origin = context.state.agents[context.agent_id].location_id
-    graph = context.semantics.catalog.graph
-    return min(set(location_ids), key=lambda identity: (graph.distance_meters(origin, identity), identity))
+    return min(set(store_ids), key=lambda identity: (context.semantics.catalog.shortest_m(origin, identity), identity))
 
 
-def _pickups(context: LayerContext, supplies: Sequence[Any]) -> list[Offer]:
-    """@brief 到店可服务的供给：支持到店，且人此刻就在那家店里（途中不在任何店里）。"""
+def _pickups(context: LayerContext, foods: Sequence[tuple[str, Food]]) -> list[Offer]:
+    """@brief 当前确实位于门店的到店购买，固定食品价格且没有 app。"""
     here = present_location(context.state, context.agent_id)
-    return [Offer(supply, PICKUP_WAY, 0, landed_price(context, supply)) for supply in supplies
-            if here is not None and supply.location_id == here and "pickup" in supply.fulfillment_modes]
+    return [Offer(store, food, PICKUP_WAY, 0, food.price_fen) for store, food in foods if store == here]
 
 
-def _deliveries(context: LayerContext, supplies: Sequence[Any], destination_id: str | None) -> list[Offer]:
-    """@brief 远程下单可服务的供给：支持配送，且能送到收货地（有预计送达时刻）。"""
+def _deliveries(context: LayerContext, foods: Sequence[tuple[str, Food]],
+                destination_id: str | None) -> list[Offer]:
+    """@brief 绑定至少一个 app 的门店向任意已选收货地点配送，固定费用与时长。"""
     if destination_id is None:
         return []
+    catalog = context.semantics.catalog
     rows = []
-    for supply in supplies:
-        if "delivery" not in supply.fulfillment_modes:
+    for store, food in foods:
+        apps = catalog.apps_by_store[store]
+        if not apps:
             continue
-        expected = delivery_expected_at(context.semantics, supply, destination_id, context.state.current_time)
-        rows.append(Offer(supply, DELIVERY_WAY, expected, landed_price(context, supply), expected))
+        expected = context.state.current_time + delivery_seconds(catalog.shortest_m(store, destination_id))
+        rows.append(Offer(store, food, DELIVERY_WAY, expected, food.price_fen + delivery_fee_fen(),
+                          min(apps), expected))
     return rows
 
 
 def _home(context: LayerContext) -> str | None:
-    """@brief 本人住处的地点身份（「家」「住处」按它解析）。"""
-    return next((item.home_location_id for item in context.scenario.agents if item.agent_id == context.agent_id), None)
+    """@brief 本人真实住处的登记地点身份。"""
+    return next(item.home_location_id for item in context.scenario.agents if item.agent_id == context.agent_id)
 
 
 def _places(context: LayerContext) -> dict[str, str]:
-    """@brief 场景全部地点：地点身份 → 显示名（来源解析的地点名表）。"""
-    return {item.location_id: item.name for item in context.scenario.locations}
-
-
-def _channel_rows(context: LayerContext) -> tuple:
-    """@brief 场景语义里的购买渠道写成来源解析的渠道表（name_resolution.ChannelRow：渠道身份、称呼、成员门店），按声明顺序。"""
-    return tuple((channel.channel_id, channel.names, channel.store_location_ids)
-                 for channel in context.semantics.purchase_channels)
+    """@brief 已选地点身份及含分店名的显示名称。"""
+    return {item.location_id: item.display_name for item in context.scenario.locations}

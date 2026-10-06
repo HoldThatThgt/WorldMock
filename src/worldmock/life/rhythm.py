@@ -29,7 +29,6 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD, validate_decision_rhythm
 from worldmock.life import duty_edges
 from worldmock.life import errands
@@ -222,9 +221,7 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
             reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
             idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
             has_commitments=_has_commitments(agent, inputs),
-            location_hours_change_times=tuple(_location_change_times(agent, inputs)),
             next_task_due_at=_next_task_due(agent, inputs),
-            location_closing_at=(_closing_at(agent, inputs) if _commitment_signatures(agent, inputs) else None),
             next_progress_report_at=_next_progress_report_at(agent, state, inputs.progress_report_interval_seconds),
             plan_reminder_times=reminders.reminder_times(agent, state.current_time),
             errand_reminder_times=errands.reminder_times(agent, state.current_time),
@@ -470,39 +467,14 @@ def _next_task_due(agent: AgentState, inputs: RhythmInputs, eligible: set[str] |
 
 
 def _warning_signatures(agent: AgentState, inputs: RhythmInputs) -> dict[str, set[str]]:
-    """@brief 从当前威胁事实生成任务与闭店签名（能量不构成不可行，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。"""
+    """@brief 仅记录本阶段仍然有效的真实工作截止预警签名。"""
     now = inputs.state.current_time
-    task = {
-        _task_signature(task_id, due)
-        for task_id, due in inputs.task_due.items()
-        if task_id in agent.visible_task_ids
-        and task_id not in inputs.state.paid_task_ids
-        and due - rhythm_schedule.TASK_DUE_SOON_SECONDS <= now < due
-    }
-    closing: set[str] = set()
-    close_at = _closing_at(agent, inputs)
-    if close_at is not None and close_at - rhythm_schedule.CLOSING_WARNING_SECONDS <= now < close_at:
-        for commitment in _commitment_signatures(agent, inputs):
-            closing.add(
-                json.dumps(
-                    ["closing", agent.location_id, close_at, commitment], ensure_ascii=False, separators=(",", ":")
-                )
-            )
-    return {"task": task, "closing": closing}
+    task = {_task_signature(task_id, due) for task_id, due in inputs.task_due.items()
+            if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
+            and due - rhythm_schedule.TASK_DUE_SOON_SECONDS <= now < due}
+    return {"task": task}
 
 
-def _commitment_signatures(agent: AgentState, inputs: RhythmInputs) -> set[str]:
-    """@brief 仅由结构化地点任务证明当前地点的闭店威胁。"""
-    locations = {task.task_id: task.required_location_id for task in inputs.scenario.tasks}
-    return {
-        f"task:{task_id}:{inputs.task_due[task_id]}"
-        for task_id in agent.visible_task_ids
-        if (
-            task_id in inputs.task_due
-            and task_id not in inputs.state.paid_task_ids
-            and locations.get(task_id) == agent.location_id
-        )
-    }
 
 
 def _delivered_warning_signatures(facts: dict[str, set[str]], verdict: rhythm_schedule.WakeVerdict) -> set[str]:
@@ -511,8 +483,6 @@ def _delivered_warning_signatures(facts: dict[str, set[str]], verdict: rhythm_sc
     delivered: set[str] = set()
     if rhythm_schedule.WakeReason.TASK_DUE_SOON in reasons:
         delivered.update(facts["task"])
-    if rhythm_schedule.WakeReason.LOCATION_HOURS_CHANGE in reasons:
-        delivered.update(facts["closing"])
     return delivered
 
 
@@ -547,8 +517,6 @@ def _wake_snapshot(
         reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
         idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
         has_commitments=_has_commitments(agent, inputs),
-        location_closing_at=(_closing_at(agent, inputs) if facts["closing"] - delivered else None),
-        location_just_opened=_just_opened(agent, inputs),
         people_present_now=frozenset(item["name"] for item in _people_here(state, agent)),
         people_present_before=agent.people_at_last_decision,
         discovery_result_ready=("discovery_result" in agent.pending_wake_reasons and agent.next_decision_at <= now),
@@ -586,32 +554,8 @@ def _band_index(level: str) -> int:
     return _BAND_ORDER.index(level) if level in _BAND_ORDER else -1
 
 
-def _closing_at(agent: AgentState, inputs: RhythmInputs) -> int | None:
-    """@brief 以统一营业日历查找当前营业区间的下一次变化。"""
-    location = _current_location(agent, inputs)
-    if location is None:
-        return None
-    now = inputs.state.current_time
-    overrides = inputs.state.opening_exceptions[location.location_id]
-    if opening_status(location, now, inputs.scenario.timezone, overrides) != "open":
-        return None
-    return next_opening_change(location, now, inputs.scenario.timezone, overrides)
 
 
-def _just_opened(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 用上一决策至本边界的真实营业变化判断刚开门，不按固定小时推断。"""
-    location = _current_location(agent, inputs)
-    if location is None:
-        return False
-    now = inputs.state.current_time
-    before = agent.last_decision_time if agent.last_decision_time is not None else now - 1
-    overrides = inputs.state.opening_exceptions[location.location_id]
-    changed = next_opening_change(location, before, inputs.scenario.timezone, overrides)
-    return (
-        changed is not None
-        and changed <= now
-        and opening_status(location, now, inputs.scenario.timezone, overrides) == "open"
-    )
 
 
 def _current_location(agent: AgentState, inputs: RhythmInputs):
@@ -622,18 +566,6 @@ def _current_location(agent: AgentState, inputs: RhythmInputs):
     return None
 
 
-def _location_change_times(agent: AgentState, inputs: RhythmInputs) -> list[int]:
-    """@brief 下一决策直接调度营业状态变化，包括分钟边界、跨日和日期例外。"""
-    location = _current_location(agent, inputs)
-    if location is None:
-        return []
-    change = next_opening_change(
-        location,
-        inputs.state.current_time,
-        inputs.scenario.timezone,
-        inputs.state.opening_exceptions[location.location_id],
-    )
-    return [change] if change is not None else []
 
 
 def _game_turn_due(state: WorldState, agent: AgentState) -> bool:

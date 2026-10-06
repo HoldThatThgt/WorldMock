@@ -1,7 +1,7 @@
 <a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）；「编写地点」、「名称真实、数值合成」（阶段 2）。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）；「编写地点」、「名称真实、数值合成」（阶段 2）；「正餐、家庭储备和联系人」（阶段 3）。
 
 环境目录说明“这个世界有什么”，规则由 WorldMock 包提供。编辑店铺类型、食品、app 绑定与内容，再按地点生成地图、刷新身份并检查整个环境。运行只读已发布快照；修改不改变已经运行的世界。
 
@@ -326,18 +326,15 @@ PY
 <a name="resources-正餐家庭储备和联系人"></a>
 ### 正餐、家庭储备和联系人
 
-这些文件还受目录 `category_requirements` 的世界素材要求约束。
-它们与场景初值并存，修改素材清单不会自动改写人物的初始状态。
+食品与人物初值分别维护。食品在 `catalog/foods.json` 定义名称、类别、固定每份价格与店铺绑定；热量和完整食用秒数取包内类别常数，不在素材另写逐食品营养或报价。
 
-| 文件 | 写法与需要同步的内容 |
+| 数据 | 写法与同步内容 |
 | --- | --- |
-| 正餐（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/meals/items.json`） | 顶层 `items`；每餐有 `meal_id`、名称、份量、每份热量、`energy_source`、`price_fen`、`meal_duration_minutes`、堂食或配送声明。热量来源需有数据库、URL、取得日期、每百克热量和换算说明，并有同名可消费目录对象 |
-| 家庭储备（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scene-stock/home-pantry.json`） | `items[]` 的 `object_id` 必须是可消费目录对象，`quantity` 是份数；总量满足目录早餐储备要求。实际人物库存仍写 `agents[].initial_inventory` |
-| 联系人素材（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/scenario-contacts/contacts.json`） | `personas` 列表声明人物身份，`contacts[]` 写所属 `persona_id`、`contact_id`、`contact_type`、名称、渠道、映射和回复策略。同事映射已有人物、策略为 `persona`；老友和家人映射为 `null`、策略为 `model` |
+| 食品菜单 | 同类型食品店铺全有或全无；`store_ids="all"` 不展开到住宅；每份 `price_fen` 全店相同 |
+| 人物储备 | `agents[].initial_inventory` 按地点、`food_id` 和正数份数声明；目录变化不自动改写持有 |
+| 联系人 | 运行联系人仍写入人物 `contacts`；同世界自主人物应在 `agents` 中声明，联系人不会启动额外人物 |
 
-联系人类型只支持 `colleague`、`old_friend`、`family`。真正用于运行的联系人仍需写入人物 `contacts`，
-详见[人物画像](personas.md#personas-人物画像)。正餐语料中的价格是素材声明；实际交易取地图供给的报价，修改它不会自动更新门店。
-从完整现有语料复制修改，可以保留当前要求的素材类别；不能只因这次场景未选择就删除固定准入所需文件。
+联系人关系、渠道与回复策略见[人物画像](personas.md#personas-人物画像)。本人只能在食品持有地点食用或给予，购买、送达和进食分别留证；目录名称真实与价格合成分别说明。
 
 <a name="resources-修改后更新文件身份"></a>
 ## 修改后更新文件身份

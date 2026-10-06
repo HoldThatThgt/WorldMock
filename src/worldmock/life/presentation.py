@@ -37,6 +37,7 @@
 """
 
 from __future__ import annotations
+from worldmock.life.models import SameMomentPresentation, WorldState
 
 import json
 import logging
@@ -52,8 +53,6 @@ from worldmock.life.candidates import (
     LocationView,
 )
 from worldmock.life.models import DERIVED_DURATION_CAP_SECONDS, active_activities
-from worldmock.life.projection import hour_of_day
-from worldmock.life.opening_hours import opening_status
 from worldmock.life.readable import local_date
 
 #: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选对象与来源」）。
@@ -72,17 +71,14 @@ class PoolEntry:
     #: 下钻键：活动品类摘要的键（`foods` 覆盖商品，内容取内容品类）。
     category: str = ""
     #: 排序键的口味查找键（缺省取对象标识）。
-    bucket: str | None = None
     minimum_seconds: int = 0
     maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
     required_location_id: str | None = None
     location_kinds: frozenset[str] = frozenset()
     #: 目录级库存；0 表示缺货（世界事实）。
-    stock: int = 1
     #: 生活活动按条目声明的代谢当量。
     met: float | None = None
     #: 目录级下架（墓碑语义：保留可读、拒绝新场景引用）。
-    retired: bool = False
     #: 在本人启用集内（世界事实，不是偏好推断）。
     enabled: bool = True
     #: 题材标签（轮转的标签 Jaccard 去重用）。
@@ -95,8 +91,7 @@ class PoolEntry:
                               location_kinds=self.location_kinds,
                               minimum_seconds=self.minimum_seconds,
                               maximum_seconds=self.maximum_seconds,
-                              stock=self.stock, retired=self.retired,
-                              enabled=self.enabled, bucket=self.bucket, met=self.met,
+                              enabled=self.enabled, met=self.met,
                               content_kind=self.category if self.kind == "content" else None)
 
 
@@ -130,10 +125,8 @@ class PresentationContext:
 
 
 def location_views(context: PresentationContext) -> dict[str, LocationView]:
-    """@brief 地点活动环境与营业日历由同一个冻结声明解释。"""
-    return {item.location_id: LocationView.from_config(item, opening_status(
-        item, context.state.current_time, context.scenario.timezone,
-        context.state.opening_exceptions.get(item.location_id))) for item in context.scenario.locations}
+    """@brief 地点环境使用已登记类型，不读取营业日历。"""
+    return {item.location_id: LocationView.from_config(item) for item in context.scenario.locations}
 
 
 def current_location(context: PresentationContext) -> LocationView | None:
@@ -141,12 +134,9 @@ def current_location(context: PresentationContext) -> LocationView | None:
     return location_views(context).get(context.agent.location_id)
 
 
-def local_hour(context: PresentationContext) -> float:
-    """@brief 人物当前地点的本地时刻（自午夜起的小时数，含小数）。"""
-    return hour_of_day(int(context.state.current_time), context.scenario.timezone)
 
 
-def _order_key(entry: PoolEntry, inputs: CandidateInputs) -> tuple[int, int, int, str]:
+def _order_key(entry: PoolEntry, inputs: CandidateInputs) -> tuple[int, str]:
     """@brief 该条目的完整稳定排序键（游标即上一页最后一条的该键），与候选契约排序段同一口径。"""
     return candidates.ordered_candidate(entry.as_candidate(), inputs).order_key()
 
@@ -230,7 +220,7 @@ def _deferred(entries: tuple[PoolEntry, ...], presented: frozenset[str],
                  if entry.object_id not in already)
 
 
-def _next_cursor(inputs: CandidateInputs, key: tuple[int, int, int, str] | None,
+def _next_cursor(inputs: CandidateInputs, key: tuple[int, str] | None,
                  has_more: bool) -> str | None:
     """@brief 下一页游标：上一页最后一条的完整稳定排序键；最后一页为空。
 
@@ -246,7 +236,7 @@ def _next_cursor(inputs: CandidateInputs, key: tuple[int, int, int, str] | None,
                       separators=(",", ":"))
 
 
-def _page_bounds(ids: tuple[str, ...], keys: dict[str, tuple[int, int, int, str]], cursor: str | None,
+def _page_bounds(ids: tuple[str, ...], keys: dict[str, tuple[int, str]], cursor: str | None,
                  inputs: CandidateInputs) -> tuple[int, int]:
     """@brief 本次下推在有序候选里的起止位置：游标给起点，页长由单次呈现上限给出。
 
@@ -268,8 +258,8 @@ def _page_bounds(ids: tuple[str, ...], keys: dict[str, tuple[int, int, int, str]
     return (anchor, anchor + limit)
 
 
-def cursor_key(cursor: str) -> tuple[int, int, int, str]:
-    """@brief 解出游标承载的完整稳定排序键（三项整数与一项非空哈希决胜键）；载荷形状不合法即报错，不静默从头开始。"""
+def cursor_key(cursor: str) -> tuple[int, str]:
+    """@brief 解出游标承载的完整稳定排序键（相关度整数与非空哈希决胜键）；载荷形状不合法即报错，不静默从头开始。"""
     try:
         payload = json.loads(cursor)
     except json.JSONDecodeError as error:
@@ -279,13 +269,13 @@ def cursor_key(cursor: str) -> tuple[int, int, int, str]:
         logging.error("Candidate cursor fields do not match the generated shape")
         raise ValueError("candidate cursor fields do not match the generated shape")
     values, identity = payload["key"], payload["identity"]
-    if (not isinstance(values, list) or len(values) != 4
-            or any(type(value) is not int for value in values[:3])
-            or not isinstance(values[3], str) or not values[3].strip()
+    if (not isinstance(values, list) or len(values) != 2
+            or type(values[0]) is not int
+            or not isinstance(values[1], str) or not values[1].strip()
             or not isinstance(identity, str) or not identity.strip()):
         logging.error("Candidate cursor contains an invalid order key or identity")
         raise ValueError("candidate cursor payload is not a stable order key")
-    return (values[0], values[1], values[2], values[3])
+    return (values[0], values[1])
 
 
 def present(entries: tuple[PoolEntry, ...], inputs: CandidateInputs, kind: CandidateKind,
@@ -342,7 +332,7 @@ def _exclusions(entries: tuple[PoolEntry, ...], filtered: tuple[Exclusion, ...],
     return tuple(sorted(excluded, key=lambda item: (item.kind, item.object_id)))
 
 
-def _ordered_ids(entries: tuple[PoolEntry, ...], keys: dict[str, tuple[int, int, int, str]],
+def _ordered_ids(entries: tuple[PoolEntry, ...], keys: dict[str, tuple[int, str]],
                  inputs: CandidateInputs) -> tuple[str, ...]:
     """@brief 本次呈现口径下的完整有序序列：轮转换新名额 + 排序键补位 + 反塌缩去重。
 
@@ -401,21 +391,20 @@ def _diversified(entries: tuple[PoolEntry, ...], sorted_ids: tuple[str, ...],
 
 def entry_sources(entries: tuple[PoolEntry, ...], on_site: frozenset[str] = frozenset(),
                   carried: frozenset[str] = frozenset()) -> dict:
-    """@brief 生成段的四来源：在场 ∪ 浏览时效内 ∪ 随身持有 ∪ 画像激活集。
+    """@brief 生成段的实际来源：在场、实际持有和目录菜单启用来源。
 
     @param entries 该分区的池条目。
     @param on_site 当前地点常驻对象的标识集合。
     @param carried 当前手边持有对象的标识集合。
     @return 键取 `CandidateSource` 的来源映射，值为候选条目序列。
     """
-    browsed = tuple(entry.as_candidate() for entry in entries
+    activated = tuple(entry.as_candidate() for entry in entries
                     if entry.object_id not in on_site and entry.object_id not in carried)
     return {"on_site": tuple(entry.as_candidate() for entry in entries
                              if entry.object_id in on_site),
-            "browsed": browsed,
             "carried": tuple(entry.as_candidate() for entry in entries
                              if entry.object_id in carried),
-            "activated": ()}
+            "activated": activated}
 
 
 def candidate_inputs(context: PresentationContext, sources: dict, moment: bool = True,
@@ -431,7 +420,7 @@ def candidate_inputs(context: PresentationContext, sources: dict, moment: bool =
     能量不构成排除（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「删除的机制」）。决胜键取场景、人物与场景时区的本地日期。
 
     @param context 只读世界切片。
-    @param sources 生成段的四来源映射（`entry_sources` 的产物）。
+    @param sources 生成段的实际来源映射（`entry_sources` 的产物）。
     @param moment 是否施加当下可行性事实（地点、营业时段、资源占用）。
     @param last_presented_at 按对象标识记录的上次呈现时刻（纪元秒），即轮转的判据。
     @param relevance 相关度（对象标识 → 整数分），缺省为全 0。
@@ -448,10 +437,8 @@ def candidate_inputs(context: PresentationContext, sources: dict, moment: bool =
         location=current_location(context),
         locations=location_views(context), sources=sources,
         occupied_resources=occupied,
-        local_hour=(local_hour(context) if moment else None), current_time=now,
+        current_time=now,
         window_end_time=now + candidates.CANDIDATE_WINDOW_SECONDS,
-        taste_weights=dict(context.agent.taste_weights),
-        attention_priors=dict(getattr(motivation, "attention_prior", {}) or {}),
         presentation_limit=int(constants.presentation_limit),
         rotation_constants=constants, require_location_instance=moment,
         last_presented_at=dict(last_presented_at or {}), relevance=dict(relevance or {}),
@@ -460,3 +447,40 @@ def candidate_inputs(context: PresentationContext, sources: dict, moment: bool =
         state_version=int(context.state.version),
         catalog_digest=str(context.state.content_manifest_sha256),
         profile_digest=str(context.scenario.scenario_id))
+
+
+def stage_presentation(state: WorldState, pending: dict[int, SameMomentPresentation]) -> WorldState:
+    """@brief 把本轮各人物观察的呈现留痕写入世界状态中的本秒暂存（决策轮提交路径）。
+
+    观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此观察先把留痕
+    记在引擎内存，随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
+    保留该秒首轮置顶的浏览结果（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「同一秒内的呈现与「刚才」」）。
+
+    @param state 本轮提交的世界状态。
+    @param pending 本轮观察产生的人物→呈现暂存；空字典表示没有留痕。
+    @return 写入暂存后的世界状态（没有留痕时即原状态）。
+    """
+    if not pending:
+        return state
+    staging = dict(state.same_moment_presentation)
+    for agent_id, entry in pending.items():
+        earlier = staging.get(agent_id)
+        staging[agent_id] = entry if earlier is None else SameMomentPresentation(
+            stamps={**earlier.stamps, **entry.stamps})
+    return state.model_copy(update={"same_moment_presentation": staging}, deep=True)
+
+def flush_presentation(state: WorldState) -> WorldState:
+    """@brief 时钟推进时把本秒暂存的呈现留痕逐人并入 `presentation_state` 并清空暂存。
+
+    这里只覆盖派生量字段，不改目录、不改对象状态、不产生下架事件；多人同轮观察各自保留留痕，
+    后观察者不覆盖前者。
+
+    @param state 推进前的世界状态。
+    @return 并入留痕后的世界状态（没有暂存时即原状态）。
+    """
+    if not state.same_moment_presentation:
+        return state
+    presented = dict(state.presentation_state)
+    for agent_id, entry in state.same_moment_presentation.items():
+        presented[agent_id] = {**presented.get(agent_id, {}), **entry.stamps}
+    return state.model_copy(update={"presentation_state": presented, "same_moment_presentation": {}}, deep=True)

@@ -263,7 +263,7 @@ def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Ma
                     same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
     """@brief 新建运行与 validate 共用：由已编译的画像形成人物工作区输入并计算同一组运行输入警告。
 
-    工作区输入经 _agent_specs（卡片先经场景作息覆盖 apply_scenario_rhythm，再渲染、存结构化卡片与算口味权重）；
+    工作区输入经 _agent_specs（卡片先经场景作息覆盖 apply_scenario_rhythm，再渲染并存结构化卡片）；
     警告见 input_warnings。validate 用同一函数，所以两条路径对同一份编译结果给出相同的覆盖与警告。
     @param scenario_path 冻结场景路径（解析语料根与目录）
     @param scenario 原始加载的运行时场景（人物的 model_fields_set 可靠）
@@ -272,83 +272,53 @@ def creation_inputs(scenario_path: Path, scenario: RuntimeScenario, compiled: Ma
     @return（工作区输入, 输入警告）
     """
     specs = _agent_specs(scenario, persona_compiler=lambda agent: compiled.get(agent.agent_id),
-                         content_genres=_content_genre_catalog(scenario_path, scenario),
                          same_second_continuation=same_second_continuation)
-    return specs, input_warnings(scenario_path, scenario, compiled, specs)
+    return specs, input_warnings(scenario_path, scenario, compiled)
 
 
-def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Mapping[int, Any],
-                   specs: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
-    """@brief 运行输入警告（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 、2.1、8.1）：逐人物按编号，再场景级。
-
-    人物：场景作息覆盖（CARD_FIELD_OVERRIDDEN / CARD_FIELD_CONFLICT）、口味与内容（按实际注入的口味权重）、游戏权重条目、
-    世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译留下的警告；场景：配送路线与地点显示名。
-    """
+def input_warnings(scenario_path: Path, scenario: RuntimeScenario,
+                   compiled: Mapping[int, Any]) -> list[dict[str, Any]]:
+    """@brief 按真实登记目录计算人物覆盖、空内容、作息、编译和地点显示名警告。"""
     from worldmock.profile import injection
     from worldmock.profile.coverage import validate_coverage
-    from worldmock.profile.injection import apply_scenario_rhythm
 
-
-    genres = _content_genre_catalog(scenario_path, scenario)
-    contents = tuple({"item_id": item.item_id, "genre": tuple(genres.get(item.item_id) or ())}
-                     for item in scenario.contents)
-    games = tuple(item.game_id for item in scenario.games)
-    targets = _coverage_targets(scenario_path, scenario)
-    weights = {spec["id"]: spec["profile"].get("taste_weights") for spec in specs}
+    catalog = load_catalog(resolve_catalog_dir(scenario_path))
+    targets = _coverage_targets(scenario_path, scenario, catalog)
     warnings: list[dict[str, Any]] = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
         card, notes = _compiled_parts(compiled.get(agent.agent_id))
-        taste = weights.get(agent.agent_id)
-        warnings += injection.taste_warnings(agent.agent_id, card, contents, taste)
-        warnings += injection.game_weight_warnings(agent.agent_id, games, taste)
+        warnings += injection.content_empty_warnings(agent.agent_id, card, catalog)
         if card is not None:
             warnings += injection.coverage_warnings(agent.agent_id, validate_coverage(card, targets))
-            warnings += apply_scenario_rhythm(card, agent).warnings
+            warnings += injection.apply_scenario_rhythm(card, agent).warnings
         warnings += injection.agreement_warnings(agent.agent_id, notes)
-    return [*warnings, *injection.delivery_route_warnings(scenario), *injection.location_name_warnings(scenario)]
+    return [*warnings, *injection.location_name_warnings(scenario)]
 
 
-def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario) -> Any:
-    """@brief 与 validate 同一覆盖率目标集：场景兄弟目录 catalog/ 的目录与场景语料根。
-
-    场景钉定的手机配置核验失败（身份、结构或执行证据，verified_app_names 抛 IntegrityError）时不使创建失败：
-    按没有应用别名计算，覆盖率因此低于 80% 时照常记 COVERAGE_BELOW_THRESHOLD，另写一条英文 warning 日志
-    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 「运行路径永不因警告失败」）；validate 用自己的目标集，照旧因同一核验失败。
-    """
-    from worldmock.profile.coverage_apps import verified_app_names
+def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario, catalog: Any) -> Any:
+    """@brief 从真实登记目录与已验证的生活活动语料构造同一覆盖目标集。"""
     from worldmock.profile.coverage_targets import build_coverage_targets
 
-
     root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    try:
-        app_names = verified_app_names(scenario, root)
-    except IntegrityError as error:
-        logger.warning("Phone simulation config failed verification; run coverage counts no app names: %s", error)
-        app_names = ()
-    return build_coverage_targets(scenario, load_catalog(resolve_catalog_dir(scenario_path)), root, app_names)
+    return build_coverage_targets(scenario, catalog, root)
 
 
-def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_genres=None,
+def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None,
                  same_second_continuation: bool = True) -> tuple[dict[str, Any], ...]:
     """@brief 从冻结生活人物形成原生 runner 工作区输入；同秒续接开关冻结进人物配置 profile["same_second_continuation"]。
 
     新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
     （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
     profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「人设层」），
-    并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
-    docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：card.tastes.content_genres x 场景内容与游戏目录，经
-    compute_taste_weights
-    匹配；写入工作区档案随检查点原样携带）。卡片先经场景作息覆盖（apply_scenario_rhythm，
-    docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-场景作息覆盖卡片抽取值 ：场景显式声明的作息字段优先），渲染文本与结构化字段都取覆盖后的卡片，
-    render_card 本身不变。恢复运行不重新编译也不重算——
+    卡片先经场景作息覆盖（apply_scenario_rhythm），渲染文本与结构化字段都取覆盖后的卡片。
+    人物的口味只保留散文，不派生口味权重或注意力参数。恢复运行不重新编译，
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
-    persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 CompiledPersona、PersonaCard 或 None，
+    persona_compiler 供测试注入确定性桩（persona_compiler 返回 CompiledPersona、PersonaCard 或 None，
     不触发真实模型调用）。
     """
     from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.models import PersonaCard, persona_card_struct
 
-    entries = _taste_entries(scenario, content_genres)
     specs = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
         profile = agent.model_dump(mode="json")
@@ -360,7 +330,6 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
             card = apply_scenario_rhythm(card, agent).card
             profile["persona_card"] = _render_card(card)
             profile["persona_card_struct"] = persona_card_struct(card)
-            profile["taste_weights"] = _card_taste_weights(card, entries)
         config = {
             "enable_memory": True,
             "enable_todo_list": False,
@@ -403,57 +372,6 @@ def _compiled_parts(result: Any) -> tuple[PersonaCard | None, tuple[str, ...]]:
     if isinstance(result, PersonaCard):
         return result, ()
     return result.card, tuple(getattr(result, "warnings", ()))
-
-
-def _taste_entries(scenario: RuntimeScenario,
-                   content_genres: dict[str, tuple[str, ...]] | None) -> tuple[dict, ...]:
-    """@brief 口味匹配的条目表：场景内容按 item_id、游戏按 game_id 在同一张题材表里取 genre。
-
-    游戏与内容同一算法（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）：题材表即 _content_genre_catalog
-    （内容语料条目 item_id -> genre，游戏库 games/library 的条目同在其中）；没有题材声明的条目 genre 为空，
-    权重为零，实际缓解走下限偏好。
-    """
-    genres = content_genres or {}
-    identities = ([item.item_id for item in scenario.contents]
-                  + [item.game_id for item in scenario.games])
-    return tuple({"item_id": identity, "genre": tuple(genres.get(identity) or ())}
-                 for identity in identities)
-
-
-def _card_taste_weights(card: Any, entries: tuple[dict, ...]) -> dict[str, float]:
-    """@brief 卡片口味 x 场景内容与游戏条目 -> 确定性权重（compute_taste_weights 生产接线）。
-
-    游戏条目与内容条目同算（精确交集 / 条目题材数），键为 game_id；没有题材声明的游戏权重为 0.0
-    （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）。
-    """
-    from worldmock.profile.taste import compute_taste_weights
-
-
-    return compute_taste_weights(card.tastes.content_genres, entries)
-
-
-def _content_genre_catalog(scenario_path: Path,
-                           scenario: RuntimeScenario) -> dict[str, tuple[str, ...]]:
-    """@brief 从内容语料条目收集 genre 表（item_id -> genre 元组，缺失即失败）。
-
-    @param scenario_path 冻结场景路径（用于解析相对 corpus_root）
-    @param scenario 组装后的运行时场景
-    @return 场景内容目录的 genre 查找表（条目缺失 genre 视为空口味）
-    """
-    from worldmock.catalog.admission import CONTENT_CORPORA
-
-
-    root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-    genres: dict[str, tuple[str, ...]] = {}
-    for relative, mode in CONTENT_CORPORA:
-        document = json.loads((root / relative).read_text(encoding="utf-8"))
-        items = [document] if mode == "single" else (
-            document if isinstance(document, list) else [])
-        for item in items:
-            if isinstance(item, dict) and isinstance(item.get("item_id"), str):
-                genres[item["item_id"]] = tuple(item.get("genre") or [])
-    return genres
-
 
 
 RETIRED_STAGE_IDENTITY_KEY = "two_stage_model_identity"

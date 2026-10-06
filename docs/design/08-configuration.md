@@ -1,7 +1,7 @@
 <a name="configuration-worldmock-产品设计说明书-配置规格"></a>
 # WorldMock 产品设计说明书 — 配置规格
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「规则来源与配置边界、资源目录引用、规则配置入口、校验清单、校验报告、错误分类与提示、配置版本与运行绑定、规则维护、配置层级、加载与校验、参数归属、文件位置与合同、地图引用与门店供给初值、语料引用、交互菜单声明、身体资源初值」（阶段 1）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「规则来源与配置边界、资源目录引用、规则配置入口、校验清单、校验报告、错误分类与提示、配置版本与运行绑定、规则维护、配置层级、加载与校验、参数归属、文件位置与合同、地图引用与门店供给初值、语料引用、交互菜单声明、身体资源初值」（阶段 1）；「3.4 人物差异与衍生体感」（阶段 3）。
 
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 CF1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D8 作业），已随代码落地到阶段 1–4<br>
@@ -70,6 +70,7 @@
 | 环境归属与等待行为整合 | 2026-10-06 | Codex | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | Claude | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「规则来源与配置边界」补可供性占用声明重列为每种动作占自己的名字（只有同一种动作互斥）后，包资源 `src/worldmock/data/affordances.toml` 的字节与 `tool_schema_sha256` 随之改变，仍带旧占用名副本的外部环境在装配时被拒绝、要由 WorldMock-Dataset 按新占用名重新发布；不新增配置字段，场景结构 6、地图结构 3、品类契约与规则绑定 3、世界结构 9 不变；文件头增该规格修订行，版本改为 v1.21 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | HoldThatThgt | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-store` | 2026-10-07 | HoldThatThgt | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 
 <a name="configuration-模块概述"></a>
 ## 1. 模块概述
@@ -207,6 +208,8 @@ null，不读映射表缺省），AgentConfig 的缺省值不进卡片。
 初始睡眠压力按惯常起床时刻反推。饥饿与困意由资源、时刻和人物参数派生，
 场景不另存可自由改写的饥饿条或疲劳条；身体变化与体感的执行边界见
 [模拟引擎](04-simulation-engine.md#simulation-engine-实际区间身体变化与效率)。人物余额使用 `initial_balance_fen`，单位为整数分。
+
+食品利用效率由 `BODY_CONSTANTS.food_efficiency_curve` 唯一维护。画像口味保留散文，不构成人物参数；作息和身体初值仍按冻结字段与场景覆盖规则读取，不增加缓解下限。
 
 <a name="configuration-工作安排声明"></a>
 ### 工作安排声明

@@ -16,12 +16,11 @@ from worldmock.life.vocabulary import way_options
 #: 下单的取得方式短语（与 life.interaction_menu.NAMED_PURCHASE_WAYS 的取值相同：到店、远程下单与由系统定方式的「购买」）。
 ORDER_WAYS = ("到店", "远程下单", "购买")
 #: 方式「浏览」开始的活动类型。
-BROWSE_ACTIVITY_KIND = "browse"
 
 
 def project_purchase_facts(events: list[dict]) -> list[dict]:
     """@brief 按事件顺序投影 purchase、order_attempt、app_browse 三类事实行（依次排列）。"""
-    return _purchases(events) + _order_attempts(events) + _app_browses(events)
+    return _purchases(events) + _order_attempts(events)
 
 
 def _purchases(events: list[dict]) -> list[dict]:
@@ -36,10 +35,12 @@ def _purchases(events: list[dict]) -> list[dict]:
                 continue
             seen.add(order["order_id"])
             rows.append({"fact_kind": "purchase", "agent_id": order["agent_id"], "order_id": order["order_id"],
-                         "product_id": order["product_id"], "supply_id": order["supply_id"],
+                         "food_id": order["food_id"], "store_id": order["store_id"],
+                         "app_id": order["app_id"], "unit_price_fen": order["unit_price_fen"],
+                         "delivery_fee_fen": order["delivery_fee_fen"],
                          "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
                          "fulfillment": order["fulfillment"], "recipient_id": order["recipient_id"],
-                         "request_message_id": order["request_message_id"], "channel_id": order.get("channel_id"),
+                         "request_message_id": order["request_message_id"],
                          "created_at": order["created_at"], "action_id": event["action_id"],
                          "source_event_id": event["event_id"]})
     return rows
@@ -90,15 +91,3 @@ def _ordered(written: str) -> str | None:
     为它（如「外卖」为远程下单、「自取」为到店、「买」为「购买」），否则为 None。"""
     hits = way_options(written) & frozenset(ORDER_WAYS)
     return next(iter(hits)) if len(hits) == 1 else None
-
-
-def _app_browses(events: list[dict]) -> list[dict]:
-    """@brief 浏览活动：按首次出现排序，状态与来源取截止前最后一次权威快照。"""
-    latest: dict[str, tuple[dict, str]] = {}
-    for event in events:
-        snapshot = event["data"].get("activity")
-        if snapshot is not None and snapshot["kind"] == BROWSE_ACTIVITY_KIND:
-            latest[snapshot["activity_id"]] = (snapshot, event["event_id"])
-    return [{"fact_kind": "app_browse", "agent_id": snapshot["agent_id"], "activity_id": activity_id,
-             "started_at": snapshot["started_at"], "status": snapshot["status"], "source_event_id": source}
-            for activity_id, (snapshot, source) in latest.items()]

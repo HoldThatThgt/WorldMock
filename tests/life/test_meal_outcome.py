@@ -1,376 +1,178 @@
-"""进食的开吃份量、不足一份与收尾结果（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「进食」、第六章）。
-
-真实 LifeEngine 与 SQLite 上：开吃时每件取 min(1, 持有) 从库存移入活动数据 opened，摄入只按 opened 与实际进度结算；
-4 份里拿 1 份吃到 300/1500 秒时结束：摄入 0.2、丢弃 0.8、库存 3；暂停保留剩余并可恢复（恢复不再核库存，暂停期间别的
-进食吃掉同一商品也不再抛出未捕获的 PRODUCT_NOT_HELD）；持有 0.25 份时受理、时长 375 秒、热量按 0.25 份；实验截止截断
-不丢弃；收尾结果 details.outcome 逐项写终局（完成、提前结束、失败）与已吃、丢弃、剩余份量，人物写「吃完了」不改变它；
-未完成的浏览收尾写「提前结束，未取得浏览结果」。
-"""
-
-from __future__ import annotations
+"""@brief 阶段三纯食品生命周期：真实活动推进、暂停恢复、份量结算和收尾证据。"""
 
 import pytest
-from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 last_result, layer_start, stage_day_plan, start_activity, target_actions, wake_by_mail,
-                                 pause_request, report_request)
-from tests.life.test_domain_branch_coverage import _agent, _consume, _product, _use_activity
-from tests.life.test_export_integration import _stage_final_interval
+from tests.life.test_rrs_food_body import body_config, food_activity, food_agent, food_request, foods
 from worldmock.errors import BusinessRuleError
-from worldmock.footprints.models import EventDraft
+from worldmock.life.activities import advance_activity, change_activity, truncate_activity
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened
-from worldmock.life.basket import meal_duration, meal_portion, open_meal, portion_duration
-from worldmock.life.models import ActivityStatus, ConsumeItem, ConsumeRequest, active_activities
-from worldmock.life.readable import duration_phrase
+from worldmock.life.basket import apply_meal_progress, meal_duration, meal_food_rate, meal_portion, open_meal
+from worldmock.life.basket import portion_duration
+from worldmock.life.body import last_flows
+from worldmock.life.models import ActivityStatus, ChangeActivityRequest
 from worldmock.life.sleep import food_utilization_efficiency
 
 
-def _food(engine, seconds: int = 1500):
-    """场景中整份进食时长为 seconds 秒的食品。"""
-    return next(item for item in engine.context.scenario.products
-                if "eat" in item.use_modes and item.use_duration_seconds == seconds)
+def _opened(initial, quantity, foods, body_config):
+    """@brief 以实际正餐类别时长开餐，库存份量转入活动 opened。"""
+    request = food_request(quantity=quantity, duration=portion_duration(1200, quantity))
+    agent, opened = open_meal(food_agent(quantity=initial), request)
+    activity = food_activity(request, opened)
+    activity.data["food_energy_kcal_per_hour"] = (meal_food_rate(foods, request)
+                                                 * food_utilization_efficiency(agent.body.sleep_deficit_hours))
+    return agent, activity
 
 
-def _stage_holding(engine, product_id: str, quantity: float) -> None:
-    """在家里放指定份数的持有物并持久提交（保持存储版本连续）。"""
-    staged = engine.context.state.model_copy(deep=True)
-    agent = staged.agents[1]
-    inventory = {key: dict(value) for key, value in agent.inventory.items()}
-    inventory.setdefault("home", {})[product_id] = quantity
-    staged.agents[1] = agent.model_copy(update={"inventory": inventory}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_meal_holding_staged"})])
-    engine.context.state = staged
+def _advance(agent, activity, now, foods, body_config):
+    """@brief 真实活动结算身体消耗，再以实际累计差额结算食品摄入。"""
+    advance = advance_activity(activity, agent, now, body_config)
+    return apply_meal_progress(advance.agent, foods, advance.activity, body_config), advance.activity
 
 
-def _round(engine, name: str, tool: str, request):
-    """单人物按真实顺序观察、登记并结算一轮，返回（本轮观察，结果）。"""
-    decision = context(engine, name)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
-    return observed, engine.commit_decision_round(name)[0]
+def _change(agent, activity, operation, now):
+    """@brief 使用生产活动状态转换，暂停与恢复本身不消费份数。"""
+    return change_activity(agent, activity, ChangeActivityRequest(activity_id=activity.activity_id,
+                                                                  operation=operation), now, 900)
 
 
-def _start_eating(engine, food, label: str):
-    """按工具层的持有物目标与「食用」开始进食，返回（开始前的工具层动作，结果）。"""
-    observed = engine.observe(context(engine, f"{label}-preview"))
-    action = target_actions(observed, f"持有物：{food.name}")["食用"]
-    _, result = _round(engine, label, "start_activity", layer_start(observed, f"持有物：{food.name}", "食用"))
-    assert result.status == "in_progress", result.error_code
-    return action, result
+def _outcome(activity, agent):
+    """@brief 从活动终局与当地实际持有投影收尾结果。"""
+    return conclusion_outcome(activity, "吃饭", {"beef-noodles": "牛肉面"}, agent)
 
 
-def _run_out(engine, activity_id: str, label: str) -> None:
-    """只经真实时间边界推进到活动不再进行；中途的决策机会以播报继续全部进行中的活动。"""
-    for step in range(96):
-        if engine.context.state.activities[activity_id].status != ActivityStatus.ACTIVE:
-            return
-        if engine.scheduling_state().ready_agent_ids:
-            running = active_activities(engine.context.state, 1)
-            _round(engine, f"{label}-report-{step}", "report_status", report_request(
-                *(item.name for item in running), summary="继续。"))
-        else:
-            advance_next(engine)
-    pytest.fail("Activity did not end at its declared boundaries")
+def test_ending_a_meal_at_240_of_1200_seconds_eats_0_2_discards_0_8_and_keeps_3(body_config, foods):
+    """@brief 正餐固定 1200 秒，吃 240 秒后收尾只摄入 0.2 份，丢弃 0.8 份，持有仍为 3 份。"""
+    agent, activity = _opened(4, 1, foods, body_config)
+    agent, activity = _advance(agent, activity, 240, foods, body_config)
+    agent, activity = _change(agent, activity, "cancel", 240)
+    ended = discard_opened(activity)
+    assert (ended.data["consumed"], ended.data["discarded"]) == ({"beef-noodles": 0.2}, {"beef-noodles": 0.8})
+    assert _outcome(ended, agent) == {"activity": "吃饭", "outcome": "提前结束", "items": [
+        {"product": "牛肉面", "eaten": "0.2 份", "discarded": "0.8 份", "remaining": "3 份"}], "note": None}
 
 
-def _intake(engine, activity_id: str, kcal: float) -> tuple[float, float, float]:
-    """活动各区间的（食用份量合计，按区间效率折算的应得热量，食物实际流入热量）。"""
-    events = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
-              if event.event_type == "activity_progress" and event.activity_id == activity_id]
-    eaten = sum(item["interval_quantity"] for event in events for item in event.data["consumption"]["items"])
-    expected = kcal * sum(item["interval_quantity"] * event.data["consumption"]["food_efficiency"]
-                          for event in events for item in event.data["consumption"]["items"])
-    gained = sum(flow["amount"] for event in events for flow in event.data.get("resource_flows", [])
-                 if flow["resource"] == "energy_kcal" and flow["cause"] == "food:intake")
-    return eaten, expected, gained
+def test_ending_a_meal_early_adds_no_energy_for_the_discarded_portion(body_config, foods):
+    """@brief 提前结束与丢弃不补算剩余热量。"""
+    agent, activity = _opened(4, 1, foods, body_config)
+    last_flows()
+    agent, activity = _advance(agent, activity, 240, foods, body_config)
+    gains = [flow.amount for flow in last_flows() if flow.cause == "food:intake"]
+    assert gains == [pytest.approx(108)]
+    before = agent.body.energy_kcal
+    agent, activity = _change(agent, activity, "cancel", 240)
+    ended = discard_opened(activity)
+    assert agent.body.energy_kcal == before and ended.data["discarded"] == {"beef-noodles": 0.8}
+    assert last_flows() == ()
 
 
-def _held(engine, product_id: str) -> float:
-    """家里该商品的持有份数。"""
-    return engine.context.state.agents[1].inventory["home"][product_id]
+def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_took_the_stock(body_config, foods):
+    """@brief 两餐分别持有 opened，第二餐吃掉库存后第一餐恢复仍按自己的余份结算。"""
+    agent, first = _opened(1.5, 1, foods, body_config)
+    agent, first = _advance(agent, first, 600, foods, body_config)
+    agent, first = _change(agent, first, "pause", 600)
+    paused_body = agent.body
+    assert first.data["consumed"] == {"beef-noodles": 0.5}
+    agent, first = _advance(agent, first, 900, foods, body_config)
+    assert agent.body == paused_body and first.data["consumed"] == {"beef-noodles": 0.5}
+    request = food_request(quantity=0.5, duration=600)
+    agent, opened = open_meal(agent, request)
+    second = food_activity(request, opened, "second")
+    second.started_at, second.last_settled_at, second.planned_end_at = 900, 900, 1500
+    second.data["food_energy_kcal_per_hour"] = meal_food_rate(foods, request) * 0.9
+    agent, second = _advance(agent, second, 1500, foods, body_config)
+    assert second.status == ActivityStatus.COMPLETED and agent.inventory == {"home": {"beef-noodles": 0}}
+    agent, first = _change(agent, first, "resume", 1500)
+    before = agent.body.energy_kcal
+    assert first.data["consumed"] == {"beef-noodles": 0.5}
+    agent, first = _advance(agent, first, 2100, foods, body_config)
+    assert first.status == ActivityStatus.COMPLETED and first.data["consumed"] == {"beef-noodles": 1.0}
+    assert agent.body.energy_kcal > before
+    assert discard_opened(first).data["discarded"] == {"beef-noodles": 0.0}
+    assert agent.inventory == {"home": {"beef-noodles": 0}}
 
 
-def _items(food, eaten: str, discarded: str, remaining: str) -> list[dict]:
-    """收尾结果里一件食品的份量。"""
-    return [{"product": food.name, "eaten": eaten, "discarded": discarded, "remaining": remaining}]
+def test_ending_a_paused_meal_discards_the_opened_remainder_without_intake(body_config, foods):
+    """@brief 暂停后取消只丢弃本餐未吃余份，不增加摄入。"""
+    agent, activity = _opened(4, 1, foods, body_config)
+    agent, activity = _advance(agent, activity, 240, foods, body_config)
+    agent, activity = _change(agent, activity, "pause", 240)
+    before = agent.body.energy_kcal
+    agent, activity = _change(agent, activity, "cancel", 900)
+    ended = discard_opened(activity)
+    assert agent.body.energy_kcal == before
+    assert ended.data["discarded"] == {"beef-noodles": 0.8}
+    assert _outcome(ended, agent)["outcome"] == "提前结束"
 
 
-def test_ending_a_meal_at_300_of_1500_seconds_eats_0_2_discards_0_8_and_keeps_3(engine_factory) -> None:
-    """4 份里拿 1 份开吃（库存 3，opened 1），吃到 300/1500 秒时结束：摄入 0.2、丢弃 0.8、库存 3，不补算摄入；人物总结写
-    「吃完了」，结果仍是提前结束；终局与份量进入下一次观察进度层该调用的公开结果。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 4.0)
-    action, started = _start_eating(engine, food, "meal")
-    assert (action["available"], action["quantity"], action["duration"]) == (True, "1 份", duration_phrase(1500))
-    meal = engine.context.state.activities[started.activity_id]
-    assert (meal.planned_duration_seconds, meal.data["opened"], _held(engine, food.product_id)) == (
-        1500, {food.product_id: 1.0}, 3.0)
-    at = wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    assert engine.context.state.current_time == at
-    name = activity_name(engine, meal.activity_id)
-    _, ended = _round(engine, "meal-end", "conclude_activity", conclude_request(name, summary="吃完了"))
-    assert ended.status == "completed"
-    outcome = [{"activity": name, "outcome": "提前结束", "items": _items(food, "0.2 份", "0.8 份", "3 份"),
-                "note": None}]
-    assert ended.data["outcome"] == outcome
-    meal = engine.context.state.activities[meal.activity_id]
-    assert (meal.status, meal.data["consumed"], meal.data["discarded"], meal.data["opened"]) == (
-        ActivityStatus.CANCELLED, {food.product_id: 0.2}, {food.product_id: 0.8}, {food.product_id: 1.0})
-    assert _held(engine, food.product_id) == 3.0
-    eaten, expected, gained = _intake(engine, meal.activity_id, food.energy_kcal_per_unit)
-    assert eaten == pytest.approx(0.2) and gained == pytest.approx(expected) and gained > 0
-    assert last_result(engine.observe(context(engine, "meal-seen")))["details"]["outcome"] == outcome
+def test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder(body_config, foods):
+    """@brief 真实进食后的失败终态只按已有摄入投影，失败不创造热量。"""
+    agent, activity = _opened(4, 1, foods, body_config)
+    agent, activity = _advance(agent, activity, 240, foods, body_config)
+    activity = activity.model_copy(update={"status": ActivityStatus.FAILED, "ended_at": 240}, deep=True)
+    before = agent.body.energy_kcal
+    ended = discard_opened(activity)
+    assert _outcome(ended, agent)["outcome"] == "失败"
+    assert ended.data["discarded"] == {"beef-noodles": 0.8}
+    assert agent.body.energy_kcal == before
 
 
-def test_ending_a_meal_early_adds_no_energy_for_the_discarded_portion(engine_factory) -> None:
-    """吃到 300/1500 秒时结束：同一秒的收尾只丢弃开吃份量的剩余 0.8 份，不补算摄入，人物能量与收尾前相同；
-    能量只来自进度结算里已吃的 0.2 份（第五章「进食」：结束丢弃 opened 减已吃的部分，不补算摄入）。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 4.0)
-    _, started = _start_eating(engine, food, "early")
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    before = engine.context.state.agents[1].body.energy_kcal
-    name = activity_name(engine, started.activity_id)
-    _, ended = _round(engine, "early-end", "conclude_activity", conclude_request(name))
-    assert ended.status == "completed"
-    meal = engine.context.state.activities[started.activity_id]
-    assert (meal.data["consumed"], meal.data["discarded"]) == ({food.product_id: 0.2}, {food.product_id: 0.8})
-    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before)
-    eaten, expected, gained = _intake(engine, meal.activity_id, food.energy_kcal_per_unit)
-    assert eaten == pytest.approx(0.2) and gained == pytest.approx(expected)
+def test_less_than_one_portion_is_eaten_for_a_scaled_duration_and_energy(body_config, foods):
+    """@brief 四分之一份正餐实际进食 300 秒，原始摄入 150 千卡，净流入 135 千卡。"""
+    assert meal_portion(foods["beef-noodles"], "eat", 0.25) == (0.25, 300)
+    agent, activity = _opened(0.25, 0.25, foods, body_config)
+    assert activity.data["request"]["items"] == [{"product_id": "beef-noodles", "quantity": 0.25}]
+    last_flows()
+    agent, activity = _advance(agent, activity, 300, foods, body_config)
+    assert activity.data["consumed"] == {"beef-noodles": 0.25}
+    assert [flow.amount for flow in last_flows() if flow.cause == "food:intake"] == [135]
+    assert _outcome(discard_opened(activity), agent)["items"] == [
+        {"product": "牛肉面", "eaten": "0.25 份", "discarded": "0 份", "remaining": "0 份"}]
 
 
-def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_took_the_stock(
-        engine_factory) -> None:
-    """持有 1.5 份：开吃 A 取 1 份（库存 0.5），吃到一半暂停，剩余 0.5 份留在 A 里别处不能用；再开吃 B 只能取手边的 0.5 份
-    （时长 750 秒），吃完后库存为 0；恢复 A 不再核库存，吃完 A 的开吃份量，两餐都以完成收尾、丢弃为 0。
-
-    回归：旧口径下 B 按一份核库存后吃掉 1 份，恢复 A 推进到结算时抛出未捕获的 PRODUCT_NOT_HELD（basket.py 的缺货路径）。
-    """
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 1.5)
-    _, first = _start_eating(engine, food, "meal-a")
-    wake_by_mail(engine, offset=750)
-    advance_next(engine)
-    name_a = activity_name(engine, first.activity_id)
-    _round(engine, "meal-a-pause", "pause_activity", pause_request(name_a, summary="先停一下。"))
-    paused = engine.context.state.activities[first.activity_id]
-    assert (paused.status, paused.data["consumed"], _held(engine, food.product_id)) == (
-        ActivityStatus.PAUSED, {food.product_id: 0.5}, 0.5)
-    action, second = _start_eating(engine, food, "meal-b")
-    assert (action["quantity"], action["duration"]) == ("0.5 份", duration_phrase(750))
-    other = engine.context.state.activities[second.activity_id]
-    assert (other.planned_duration_seconds, other.data["opened"], _held(engine, food.product_id)) == (
-        750, {food.product_id: 0.5}, 0.0)
-    _run_out(engine, second.activity_id, "meal-b")
-    name_b = activity_name(engine, second.activity_id)
-    assert advance_until_ready(engine)
-    _, done_b = _round(engine, "meal-b-end", "conclude_activity", conclude_request(name_b))
-    assert done_b.data["outcome"] == [{"activity": name_b, "outcome": "完成",
-                                       "items": _items(food, "0.5 份", "0 份", "0 份"), "note": None}]
-    _, resumed = _round(engine, "meal-a-resume", "report_status",
-                        report_request(name_a, summary="接着吃。"))
-    assert resumed.status == "completed", resumed.error_code
-    _run_out(engine, first.activity_id, "meal-a")
-    assert engine.context.state.activities[first.activity_id].status == ActivityStatus.COMPLETED
-    _, done_a = _round(engine, "meal-a-end", "conclude_activity", conclude_request(name_a))
-    assert done_a.data["outcome"] == [{"activity": name_a, "outcome": "完成",
-                                       "items": _items(food, "1 份", "0 份", "0 份"), "note": None}]
-    assert engine.context.state.activities[first.activity_id].data["discarded"] == {food.product_id: 0.0}
-    assert _held(engine, food.product_id) == 0.0
-    assert _intake(engine, first.activity_id, food.energy_kcal_per_unit)[0] == pytest.approx(1.0)
+def test_experiment_cutoff_truncation_discards_nothing(body_config, foods):
+    """@brief 实验截止仅截断实际活动，不丢弃本餐余份，也不动未开封食品。"""
+    agent, activity = _opened(4, 1, foods, body_config)
+    agent, activity = _advance(agent, activity, 600, foods, body_config)
+    ended, agent = truncate_activity(activity, agent, 600)
+    assert ended.status == ActivityStatus.TRUNCATED and ended.data["consumed"] == {"beef-noodles": 0.5}
+    assert "discarded" not in ended.data
+    assert agent.inventory == {"home": {"beef-noodles": 3.0}}
 
 
-def test_ending_a_paused_meal_discards_the_opened_remainder_without_intake(engine_factory) -> None:
-    """4 份里开吃 1 份，吃到 300/1500 秒时暂停（已吃 0.2），暂停期间另等一刻钟（暂停不结算进食），再结束这项暂停的进食：
-    丢弃 opened 减已吃的 0.8 份并写进活动与收尾结果，状态为提前结束；收尾那一秒不补算摄入（能量与收尾前相同，进度结算
-    只有暂停前的 0.2 份），其他 3 份不动（第五章「进食」：结束进行中或暂停的进食都丢弃剩余）。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 4.0)
-    _, started = _start_eating(engine, food, "held")
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    name = activity_name(engine, started.activity_id)
-    _, paused = _round(engine, "held-pause", "pause_activity", pause_request(name, summary="先停一下。"))
-    assert paused.status == "completed"
-    _, waited = _round(engine, "held-wait", "start_activity", start_activity("等待", "自己"))
-    assert advance_until_ready(engine)
-    _round(engine, "held-wait-end", "conclude_activity", conclude_request(activity_name(engine, waited.activity_id)))
-    meal = engine.context.state.activities[started.activity_id]
-    assert (meal.status, meal.data["consumed"], meal.data["opened"]) == (
-        ActivityStatus.PAUSED, {food.product_id: 0.2}, {food.product_id: 1.0})
-    before = engine.context.state.agents[1].body.energy_kcal
-    _, ended = _round(engine, "held-end", "conclude_activity", conclude_request(name, summary="吃完了"))
-    assert ended.status == "completed"
-    assert ended.data["outcome"] == [{"activity": name, "outcome": "提前结束",
-                                      "items": _items(food, "0.2 份", "0.8 份", "3 份"), "note": None}]
-    meal = engine.context.state.activities[started.activity_id]
-    assert (meal.status, meal.data["consumed"], meal.data["discarded"]) == (
-        ActivityStatus.CANCELLED, {food.product_id: 0.2}, {food.product_id: 0.8})
-    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before)
-    assert _intake(engine, meal.activity_id, food.energy_kcal_per_unit)[0] == pytest.approx(0.2)
-    assert _held(engine, food.product_id) == 3.0
+def test_portion_duration_and_meal_portion_share_one_basis(foods):
+    """@brief 份量、时长均按类别常数计算，小份保留一分钟下限。"""
+    assert [portion_duration(1200, portion) for portion in (1.0, 0.25, 0.5, 0.01)] == [1200, 300, 600, 60]
+    assert meal_portion(foods["beef-noodles"], "eat", 4) == (1, 1200)
+    assert meal_portion(foods["beef-noodles"], "eat", 0.25) == (0.25, 300)
+    assert meal_portion(foods["beef-noodles"], "eat", 0) == (0, 60)
 
 
-def _stage_failed(engine, activity_id: str) -> None:
-    """把进行中的进食置为失败结束、待收尾（引擎目前没有让进食失败的结算路径，终态只能预置；收尾走真实路径）。"""
-    staged = engine.context.state.model_copy(deep=True)
-    now = staged.current_time
-    staged.activities[activity_id] = staged.activities[activity_id].model_copy(update={
-        "status": ActivityStatus.FAILED, "ended_at": now, "last_settled_at": now, "next_interaction_at": None,
-        "boundary_type": "failed", "interruption_reason": "test_failed"}, deep=True)
-    staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=now, visibility="system",
-        data={"kind": "test_meal_failed"})])
-    engine.context.state = staged
-
-
-def test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder(engine_factory) -> None:
-    """失败结束、待收尾的进食经真实收尾：结果 details.outcome 写「失败」与已吃 0.2、丢弃 0.8、剩余 3 份，丢弃写进活动数据，
-    不补算摄入，人物写「吃完了」也不改变终局（第五章「进食」收尾结果逐项写终局）。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 4.0)
-    _, started = _start_eating(engine, food, "failed")
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    _stage_failed(engine, started.activity_id)
-    name = activity_name(engine, started.activity_id)
-    before = engine.context.state.agents[1].body.energy_kcal
-    _, ended = _round(engine, "failed-end", "conclude_activity", conclude_request(name, summary="吃完了"))
-    assert ended.status == "completed"
-    assert ended.data["outcome"] == [{"activity": name, "outcome": "失败",
-                                      "items": _items(food, "0.2 份", "0.8 份", "3 份"), "note": None}]
-    meal = engine.context.state.activities[started.activity_id]
-    assert (meal.status, meal.data["discarded"]) == (ActivityStatus.FAILED, {food.product_id: 0.8})
-    assert engine.context.state.agents[1].body.energy_kcal == pytest.approx(before)
-    assert last_result(engine.observe(context(engine, "failed-seen")))["details"]["outcome"] == ended.data["outcome"]
-
-
-def test_less_than_one_portion_is_eaten_for_a_scaled_duration_and_energy(engine_factory) -> None:
-    """持有 0.25 份时食用可用、受理：工具层的数量 0.25 份与时长 375 秒同一口径，时长为 max(60, round(1500 × 0.25))，
-    热量按 0.25 份结算（第六章「不足一份的食物无法消费」的回归：固定一份时该动作不可用并以 PRODUCT_NOT_HELD 拒绝）。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 0.25)
-    efficiency = food_utilization_efficiency(engine.context.state.agents[1].body.sleep_deficit_hours)
-    action, started = _start_eating(engine, food, "quarter")
-    assert (action["available"], action["reason"], action["quantity"], action["duration"]) == (
-        True, None, "0.25 份", duration_phrase(375))
-    meal = engine.context.state.activities[started.activity_id]
-    request = meal.data["request"]
-    assert (meal.planned_duration_seconds, request["duration_seconds"], request["items"]) == (
-        375, 375, [{"product_id": food.product_id, "quantity": 0.25}])
-    assert meal.data["food_energy_kcal_per_hour"] * 375 / 3600 == pytest.approx(
-        0.25 * food.energy_kcal_per_unit * efficiency)
-    _run_out(engine, meal.activity_id, "quarter")
-    eaten, expected, gained = _intake(engine, meal.activity_id, food.energy_kcal_per_unit)
-    assert eaten == pytest.approx(0.25) and gained == pytest.approx(expected) and gained > 0
-    assert _held(engine, food.product_id) == 0.0
-    assert advance_until_ready(engine)
-    name = activity_name(engine, meal.activity_id)
-    _, done = _round(engine, "quarter-end", "conclude_activity", conclude_request(name))
-    assert done.data["outcome"] == [{"activity": name, "outcome": "完成",
-                                     "items": _items(food, "0.25 份", "0 份", "0 份"), "note": None}]
-
-
-def test_experiment_cutoff_truncation_discards_nothing(engine_factory) -> None:
-    """实验截止截断正在进行的进食：已吃的份量照常结算，开吃份量的剩余不丢弃（不写 discarded），其他份数不动。"""
-    engine = engine_factory()
-    _stage_final_interval(engine, 600)
-    stage_day_plan(engine)
-    food = _food(engine)
-    _stage_holding(engine, food.product_id, 4.0)
-    _, started = _start_eating(engine, food, "cutoff")
-    _run_out(engine, started.activity_id, "cutoff")
-    meal = engine.context.state.activities[started.activity_id]
-    assert (meal.status, meal.data["consumed"], meal.data["opened"]) == (
-        ActivityStatus.TRUNCATED, {food.product_id: 0.4}, {food.product_id: 1.0})
-    assert "discarded" not in meal.data and _held(engine, food.product_id) == 3.0
-
-
-def test_unfinished_browse_concludes_without_a_browse_result(engine_factory) -> None:
-    """浏览没做完就结束：收尾结果写「提前结束，未取得浏览结果」，不写浏览得到的商品与购买；做完的浏览收尾不写终局。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    _, started = _round(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
-    assert started.status == "in_progress", started.error_code
-    wake_by_mail(engine, offset=300)
-    advance_next(engine)
-    name = activity_name(engine, started.activity_id)
-    _, ended = _round(engine, "browse-end", "conclude_activity", conclude_request(name, summary="逛完了。"))
-    assert ended.data["outcome"] == [{"activity": name, "outcome": "提前结束", "items": [],
-                                      "note": "Browsing did not finish. No item changes."}]
-    details = last_result(engine.observe(context(engine, "browse-seen")))["details"]
-    assert details == {"outcome": ended.data["outcome"], "errands": []}
-    _, again = _round(engine, "browse-again", "start_activity", start_activity("浏览", "商品目录"))
-    _run_out(engine, again.activity_id, "browse-again")
-    assert advance_until_ready(engine)
-    _, done = _round(engine, "browse-done", "conclude_activity",
-                     conclude_request(activity_name(engine, again.activity_id)))
-    assert done.status == "completed"
-    assert done.data["outcome"][0]["items"] == []
-    assert done.data["outcome"][0]["note"] == "No item changes."
-
-
-def test_portion_duration_and_meal_portion_share_one_basis() -> None:
-    """份量与时长同一口径：食用取 min(1, 持有)，时长 max(60, round(整份 × 份量))；使用为一件与目录时长。"""
-    assert [portion_duration(1500, portion) for portion in (1.0, 0.25, 0.5, 0.01)] == [1500, 375, 750, 60]
-    food = _product(duration=1500)
-    assert meal_portion(food, "eat", 4.0) == (1.0, 1500)
-    assert meal_portion(food, "eat", 0.25) == (0.25, 375)
-    assert meal_portion(food, "eat", 0.0) == (0.0, 60)
-    tool = _product(product_id="item-dry", use_modes=("use",), consumable=False, kcal=0, duration=600)
-    assert meal_portion(tool, "use", 0.3) == (1.0, 600)
-
-
-def test_meal_duration_is_validated_against_the_scaled_portion() -> None:
-    """进食时长校验按份量折算：0.25 份的整份 1500 秒食品只能是 375 秒。"""
-    products = {"food-1": _product(duration=1500)}
-    quarter = ConsumeRequest(items=(ConsumeItem(product_id="food-1", quantity=0.25),), use_mode="eat",
-                             duration_seconds=375)
-    assert meal_duration(products, quarter) == 375
+def test_meal_duration_is_validated_against_the_scaled_portion(foods):
+    """@brief 四分之一份正餐必须对应 300 秒，不能继续使用一整份时长。"""
+    request = food_request(quantity=0.25, duration=300)
+    assert meal_duration(foods, request) == 300
     with pytest.raises(BusinessRuleError, match="MEAL_DURATION_MUST_BE_LONGEST"):
-        meal_duration(products, quarter.model_copy(update={"duration_seconds": 1500}))
+        meal_duration(foods, request.model_copy(update={"duration_seconds": 1200}))
 
 
-def test_open_meal_moves_the_portion_out_of_stock_only_for_eating() -> None:
-    """开吃把本次份量从手边库存移入 opened，其他地点与其他份数不动；使用不开封。"""
-    agent = _agent(inventory={"home": {"food-1": 4.0}, "office": {"food-1": 2.0}})
-    opened_agent, opened = open_meal(agent, _consume(quantity=1))
-    assert opened == {"food-1": 1.0}
-    assert opened_agent.inventory == {"home": {"food-1": 3.0}, "office": {"food-1": 2.0}}
-    assert open_meal(agent, _consume(use_mode="use")) == (agent, {})
+def test_open_meal_moves_the_portion_out_of_stock_only_for_eating():
+    """@brief 开餐只移出当地本次食品份量；非进食请求被明确拒绝。"""
+    agent = food_agent(quantity=4)
+    agent.inventory["office"] = {"beef-noodles": 2}
+    changed, opened = open_meal(agent, food_request())
+    assert opened == {"beef-noodles": 1}
+    assert changed.inventory == {"home": {"beef-noodles": 3}, "office": {"beef-noodles": 2}}
+    with pytest.raises(BusinessRuleError, match="PRODUCT_USE_MODE_NOT_ALLOWED"):
+        open_meal(agent, food_request().model_copy(update={"use_mode": "use"}))
 
 
-def test_conclusion_outcome_names_failure_and_explicitly_reports_no_item_changes() -> None:
-    """终局只按结算状态；未发生库存变化的活动明确说明，不从自述伪造产物。"""
-    food = _use_activity(_consume(), status=ActivityStatus.FAILED, ended_at=300, elapsed_seconds=300)
-    food.data.update(opened={"food-1": 1.0}, consumed={"food-1": 0.2})
-    ended = discard_opened(food)
-    assert ended.data["discarded"] == {"food-1": 0.8}
-    row = conclusion_outcome(ended, "吃饭", {"food-1": "面"}, _agent(inventory={"home": {"food-1": 2.0}}))
-    assert row == {"activity": "吃饭", "outcome": "失败", "items": [
-        {"product": "面", "eaten": "0.2 份", "discarded": "0.8 份", "remaining": "2 份"}], "note": None}
-    use = _use_activity(_consume(use_mode="use"), status=ActivityStatus.CANCELLED, ended_at=0)
-    assert discard_opened(use) is use
-    assert conclusion_outcome(use, "用", {}, _agent()) == {
-        "activity": "用", "outcome": "提前结束", "items": [], "note": "No item changes."}
+def test_conclusion_outcome_names_failure_and_explicitly_reports_no_item_changes(body_config, foods):
+    """@brief 食品收尾只投影已结算份数，非食品活动明确没有物品变化。"""
+    agent, activity = _opened(4, 1, foods, body_config)
+    agent, activity = _advance(agent, activity, 240, foods, body_config)
+    failed = activity.model_copy(update={"status": ActivityStatus.FAILED, "ended_at": 240}, deep=True)
+    assert _outcome(discard_opened(failed), agent)["outcome"] == "失败"
+    waiting = activity.model_copy(update={"kind": "wait", "status": ActivityStatus.CANCELLED, "ended_at": 240}, deep=True)
+    assert discard_opened(waiting) is waiting
+    assert conclusion_outcome(waiting, "等待", {}, agent) == {
+        "activity": "等待", "outcome": "提前结束", "items": [], "note": "No item changes."}

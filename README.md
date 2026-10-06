@@ -1,7 +1,7 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
-> 按[资源与规则引擎简化规格](docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「实验与数据、命令」（阶段 1）。
+> 按[资源与规则引擎简化规格](docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「实验与数据、命令」（阶段 1）；食品菜单、店铺 app 与实际消费的阅读入口（阶段 3）。
 
 
 WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，

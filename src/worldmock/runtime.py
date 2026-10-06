@@ -490,6 +490,9 @@ def _validate_persona_card_struct(profile: Any, agent_config: Any = None) -> Non
     from worldmock.profile.injection import apply_scenario_rhythm
     from worldmock.profile.models import PersonaCardStruct
 
+    if isinstance(profile, dict) and "taste_weights" in profile:
+        logger.error("Restored persona profile contains retired taste weights")
+        raise IntegrityError("Restored persona profile contains retired taste weights")
     struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
     if struct is None:
         return
@@ -604,7 +607,7 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 
 
 def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
-    """@brief 人物工作区输入。新建运行：编译卡片、经场景作息覆盖渲染、注入口味权重，并计算运行输入警告——警告经
+    """@brief 人物工作区输入。新建运行：编译卡片、经场景作息覆盖渲染，并计算运行输入警告——警告经
     create_options 冻结进运行清单 input_warnings，另逐条写一条 ops 警告，永不使创建失败
     （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ）。恢复运行不重新编译，人物 profile 随检查点工作区恢复、警告随父清单继承。
     """
@@ -619,7 +622,6 @@ def _society_specs(prepared: _PreparedRun) -> tuple[dict[str, Any], ...]:
     specs, warnings = run_setup.creation_inputs(prepared.scenario_path, prepared.scenario, compiled,
                                       prepared.same_second_continuation)
     options = prepared.env_kwargs["create_options"]
-    options["agent_taste_weights"] = {item["id"]: item["profile"].get("taste_weights", {}) for item in specs}
     options["input_warnings"] = warnings
     options["persona_habit_responses"] = habit_responses(specs)
     writer = OpsLogger(prepared.run_dir, prepared.scenario.timezone)
@@ -799,7 +801,7 @@ def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict],
     """
     from worldmock.footprints.models import EventDraft, canonical_json
     from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
-    from worldmock.life.state_commit import commit_state
+    from worldmock.life.models import validated_payload
     from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 
@@ -824,7 +826,7 @@ def _commit_contact_reply(engine: Any, pending_event: Any, attempts: list[dict],
                          "reply": reply.message.model_dump(mode="json"),
                          "attempts": attempts, "guard_applied": bool(last["matched"])}),
     ]
-    commit_state(engine.context.store, staged, drafts)
+    engine.context.store.commit(validated_payload(staged), drafts)
     engine.context.state = staged
     return {"reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
             "reply_message_id": reply.message.message_id,
@@ -864,7 +866,7 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
     """@brief 为一个人物生成并登记当日计划：请求与响应逐次留证，合法输出经引擎系统登记入口与证据一次提交。"""
     from worldmock.life import day_planning
     from worldmock.life.day_plan_inputs import plan_inputs
-    from worldmock.life.state_commit import commit_state
+    from worldmock.life.models import validated_payload
 
 
     now, timezone_name = engine.context.state.current_time, engine.context.scenario.timezone
@@ -884,7 +886,7 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
         except day_planning.PlanDayOutputError as error:
             evidence.append(day_planning.response_draft(now, agent_id, link, raw, error))
             if attempt > day_planning.PLAN_DAY_VALIDATION_RETRIES:
-                commit_state(engine.context.store, engine.context.state, evidence)
+                engine.context.store.commit(validated_payload(engine.context.state), evidence)
                 raise ProtocolError("plan_day output remained invalid after three retries") from error
             attempt, previous = attempt + 1, evidence[-1].event_id
             request = day_planning.prepare_plan_day_correction(original, raw, error)
@@ -898,7 +900,7 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
 async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple[list, tuple, int]) -> dict:
     """@brief 发出一次零点计划请求；传输或配置失败时先提交已有尝试的证据与失败证据再抛出。"""
     from worldmock.life import day_planning
-    from worldmock.life.state_commit import commit_state
+    from worldmock.life.models import validated_payload
 
 
     evidence, link, agent_id = context
@@ -907,7 +909,7 @@ async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple
     except BaseException as error:
         logger.error("Plan day model request failed: %s", type(error).__name__)
         evidence.append(day_planning.failure_draft(engine.context.state.current_time, agent_id, link, error))
-        commit_state(engine.context.store, engine.context.state, evidence)
+        engine.context.store.commit(validated_payload(engine.context.state), evidence)
         raise
 
 

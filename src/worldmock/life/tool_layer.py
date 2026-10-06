@@ -14,13 +14,15 @@ from dataclasses import dataclass, replace
 from typing import Any, TYPE_CHECKING
 
 from worldmock.catalog.affordances import engine_affordances
-from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
 from worldmock.life.activities import location_kinds_allow
-from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_portion, plan_delivery,
+from worldmock.life.basket import (meal_portion,
                                   validate_meal_use, validate_purchase_order)
-from worldmock.life.category_contract import require_item_rules
+from worldmock.life.commerce import held_quantity
+from worldmock.exchange.constants import FOOD_CONSTANTS
+from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
+from worldmock.exchange.types import FOOD_CATEGORY_LABELS
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.control_items import CONTROL_TOOLS
 from worldmock.life.durations import content_remaining_seconds, derived_activity_duration
@@ -31,12 +33,10 @@ from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivitySt
                                    CONSUME_DURATION_CAP_SECONDS, DERIVED_DURATION_CAP_SECONDS,
                                    PurchaseItem, PurchaseOrderRequest, SameMomentStage, WorldState,
                                    active_activities)
-from worldmock.life.opening_hours import opening_status
 from worldmock.life.projection import food_energy_label, route_effort
 from worldmock.life.readable import ACTIVITY_DOING_LABELS, clock_phrase, duration_phrase, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
-from worldmock.life.storefront_state import current_quote
 from worldmock.life.travel import planned_travel
 from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_refusal,
                                  work_start_seconds, work_totals)
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 #: 私有绑定类别 → 工具层目标类别（场景联系人并入 person，邮件为 message，工作任务为 task）。
 BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
-                 "catalog": "catalog", "content": "content", "game": "game", "lifestyle": "lifestyle",
+                 "content": "content", "game": "game", "lifestyle": "lifestyle",
                  "person": "person", "contact": "person", "mail": "message", "self": "self"}
 #: 供给来源类型的说法（DataSource.kind：事实或场景假设）。
 _SOURCE_KINDS = {"fact": "事实", "scenario": "场景假设"}
@@ -138,7 +138,7 @@ def _admission_context(context: LayerContext) -> admission.Context:
 def _world_facts(context: LayerContext) -> admission.WorldFacts:
     """@brief 准入判定用的冻结目录（与受理取同一规则目录）。"""
     rules = context.rules
-    return admission.WorldFacts(tasks=rules.tasks, supplies=rules.supplies, items=rules.items,
+    return admission.WorldFacts(tasks=rules.tasks, items=context.semantics.catalog.foods,
                                 contents=rules.contents)
 
 
@@ -244,63 +244,30 @@ def _no_check(context: LayerContext, binding: dict, action: dict) -> Refusal | N
 
 
 def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
-    """@brief 取得：履约方式、报价、库存、营业、送达与余额，按整单结算的顺序判定。"""
-    state, agent = context.state, context.state.agents[context.agent_id]
-    supply = context.rules.supplies[binding["object_id"]]
-    fulfillment = action["fulfillment"]
-    present = admission.present_location(state, context.agent_id)
-    valid = (supply.location_id == present and "pickup" in supply.fulfillment_modes if fulfillment == "pickup"
-             else "delivery" in supply.fulfillment_modes)
-    if not valid:
-        return refusal_for_code("FULFILLMENT_NOT_SUPPORTED")
-    quote = current_quote(state, supply.supply_id)
-    if not (binding.get("quote") or {}).get("price_version") or quote is None:
-        return refusal_for_code("SUPPLY_QUOTE_UNKNOWN")
-    if state.supply_stock[supply.supply_id] < 1:
-        return refusal_for_code("OUT_OF_STOCK")
-    location = next(item for item in context.scenario.locations if item.location_id == supply.location_id)
-    status = opening_status(location, state.current_time, context.scenario.timezone,
-                            state.opening_exceptions[supply.location_id])
-    if status != "open":
-        return refusal_for_code("MERCHANT_OPENING_UNKNOWN" if status == "unknown" else "MERCHANT_CLOSED")
-    if fulfillment == "delivery":
-        plan_delivery(context.semantics, (supply,), agent.location_id, state.current_time)
-    amount = context.semantics.purchase_amount(supply.product_id, quote.price_fen, 1)
-    if state.accounts[agent.balance_account_id] < amount:
-        return refusal_for_code("INSUFFICIENT_FUNDS")
-    item = PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=binding["quote"]["price_version"],
+    """@brief 真实食品购买直接复用整单校验，价格与 app 绑定均来自目录。"""
+    agent = context.state.agents[context.agent_id]
+    item = PurchaseItem(store_id=binding["store_id"], food_id=binding["food_id"], quantity=1,
                         recipient_id=f"agent:{context.agent_id}")
-    validate_purchase_order(state, context.semantics, context.agent_id, PurchaseOrderRequest(
-        items=(item,), fulfillment=fulfillment, destination_id=agent.location_id))
+    request = PurchaseOrderRequest(items=(item,), fulfillment=action["fulfillment"],
+                                   destination_id=agent.location_id, app_id=binding.get("app_id"))
+    validate_purchase_order(context.state, context.semantics, context.agent_id, request)
     return None
 
 
 def _consume_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
-    """@brief 食用、使用与制作：按份量折算的时长、使用方式、品类规则与地点，再核对手边是否持有（食用有就行，不足一份
-    也可以吃；使用要一件；配方另核输入）。份量与时长和受理共用 basket.meal_portion。"""
-    from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
-
-    agent, products = context.state.agents[context.agent_id], context.rules.items
-    product = products.get(binding["object_id"])
-    if product is None:
+    """@brief 实际食品食用要求手边持有、合法份量及固定类别时长。"""
+    agent, foods = context.state.agents[context.agent_id], context.semantics.catalog.foods
+    food = foods.get(binding["object_id"])
+    if food is None:
         return refusal_for_code("PRODUCT_NOT_FOUND")
-    mode = action["use_mode"]
-    portion, seconds = meal_portion(product, mode, held_quantity(agent, product.product_id))
+    portion, seconds = meal_portion(food, action["use_mode"], held_quantity(agent, food.food_id))
     if not 60 <= seconds <= CONSUME_DURATION_CAP_SECONDS:
         return refusal_for_code("ACTIVITY_DURATION_INVALID")
-    if mode not in product.use_modes:
-        return refusal_for_code("ACTION_REQUEST_INVALID")
     if portion <= 0:
         return refusal_for_code("PRODUCT_NOT_HELD")
-    request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=portion),), use_mode=mode,
+    request = ConsumeRequest(items=(ConsumeItem(product_id=food.food_id, quantity=portion),), use_mode="eat",
                              duration_seconds=seconds)
-    matches = require_item_rules(context.semantics.catalog, products, [product.product_id], Action(f"consume:{mode}"))
-    validate_meal_use(agent, products, request)
-    recipe = prepare_inventory_recipe(agent, RecipeContext(context.semantics.catalog, products,
-                                                           context.scenario.recipe_output_bindings),
-                                      request, matches[0])
-    if recipe is None and held_quantity(agent, product.product_id) + 1e-9 < portion:
-        return refusal_for_code("PRODUCT_NOT_HELD")
+    validate_meal_use(agent, foods, request)
     return None
 
 
@@ -313,7 +280,7 @@ def _give_check(context: LayerContext, binding: dict, action: dict) -> Refusal |
 
 #: 内部标准动作 → 对象自身条件的判定。
 _OBJECT_CHECKS = {"travel_to": _travel_check, "work": _work_check, "watch": _timed_check, "play": _timed_check,
-                  "read": _timed_check, "browse": _timed_check, "wait": _timed_check, "sleep": _sleep_check,
+                  "read": _timed_check, "wait": _timed_check, "sleep": _sleep_check,
                   "do": _lifestyle_check, "chat": _chat_check, "call": _no_check, "purchase": _purchase_check,
                   "consume": _consume_check}
 
@@ -322,7 +289,7 @@ def _derived_seconds(context: LayerContext, binding: dict, action: dict) -> int:
     """@brief 与受理共用派生秒数：内容取剩余或全长，TextWorld 游戏与阅读浏览等待取反馈间隔。"""
     canonical = action["canonical_action"]
     kinds = {"sleep": ActivityKind.SLEEP, "watch": ActivityKind.WATCH, "play": ActivityKind.PLAY_GAME,
-             "read": ActivityKind.READ_MAIL, "browse": ActivityKind.BROWSE, "wait": ActivityKind.WAIT}
+             "read": ActivityKind.READ_MAIL, "wait": ActivityKind.WAIT}
     target = binding["object_id"]
     item = context.rules.content(target) if canonical == "watch" else None
     return derived_activity_duration(kinds[canonical], context.state.agents[context.agent_id], item,
@@ -363,9 +330,6 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
                                            context.state.current_time, (context.scenario.timezone,
                                            context.rules.locations[task.required_location_id].name))
     target["actions"] = [_verb_action(context, row, action) for action in row["actions"]]
-    if row["kind"] == "supply" and target["actions"]:
-        first = target["actions"][0]
-        first["note"] = "；".join(filter(None, (first["note"], _source_note(context, row["object_id"]))))
     if kind == "task":
         target["tools"] = [_tool_action(context, Candidate("submit_work", task_id=row["object_id"]))]
     elif kind == "person":
@@ -375,11 +339,6 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
     return target
 
 
-def _source_note(context: LayerContext, supply_id: str) -> str:
-    """@brief 门店商品目标的来源标记：类型、来源引用与事实截止日，取供给声明的来源（地图与门店规格「地点发现与候选
-    呈现」；docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 冻结条款修订 #24：落在工具层商品目标动作的 note，每个目标只写一次）。"""
-    source = context.rules.supplies[supply_id].source
-    return f"来源：{_SOURCE_KINDS[source.kind]}（{source.url}），事实截止 {source.fact_cutoff.isoformat()}"
 
 
 def _tool_action(context: LayerContext, candidate: Candidate) -> dict:
@@ -405,9 +364,9 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
     if action["label"] == GIVE_WAY:
         return {**facts, "quantity": portion_phrase(giving.give_quantity(_held_at_row(context, row)))}
     if canonical == "consume":
-        product = context.rules.items[row["object_id"]]
+        product = context.semantics.catalog.foods[row["object_id"]]
         agent = context.state.agents[context.agent_id]
-        held = agent.inventory.get(row.get("location_id") or agent.location_id, {}).get(product.product_id, 0)
+        held = agent.inventory.get(row.get("location_id") or agent.location_id, {}).get(product.food_id, 0)
         portion, seconds = meal_portion(product, action["use_mode"], held)
         return {**facts, "duration": duration_phrase(seconds), "quantity": portion_phrase(portion)}
     if canonical == "watch":
@@ -429,13 +388,15 @@ def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
 
 
 def _purchase_facts(context: LayerContext, row: dict, action: dict) -> dict:
-    """@brief 取得的价格（报价已知时）与份数；远程下单另写送到这里的预计时刻。"""
-    price = (row.get("quote") or {}).get("purchase_price_fen")
-    facts = {"price": money_phrase(price) if price is not None else None, "quantity": portion_phrase(1)}
-    if action["fulfillment"] == "delivery":
+    """@brief 固定食品价格与配送费，配送时间由真实登记图计算。"""
+    food = context.semantics.catalog.foods[row["food_id"]]
+    delivery = action["fulfillment"] == "delivery"
+    price = food.price_fen + (delivery_fee_fen() if delivery else 0)
+    facts = {"price": money_phrase(price), "quantity": portion_phrase(1)}
+    if delivery:
         agent = context.state.agents[context.agent_id]
-        expected = delivery_expected_at(context.semantics, context.rules.supplies[row["object_id"]],
-                                        agent.location_id, context.state.current_time)
+        distance = context.semantics.catalog.shortest_m(row["store_id"], agent.location_id)
+        expected = context.state.current_time + delivery_seconds(distance)
         when = clock_phrase(expected, context.state.current_time, context.scenario.timezone)
         facts["note"] = f"预计 {when} 送到"
     return facts
@@ -477,17 +438,19 @@ def _held_at_row(context: LayerContext, row: dict) -> float:
     return context.state.agents[context.agent_id].inventory.get(place, {}).get(row["object_id"], 0)
 
 
-def _product_state(context: LayerContext, row: dict) -> str | None:
-    """@brief 商品目标的状态：持有物写持有份数，食品另写每份热量。"""
-    if row["kind"] == "supply":
-        product = context.rules.items[context.rules.supplies[row["object_id"]].product_id]
-        parts = []
+def _product_state(context: LayerContext, row: dict) -> str:
+    """@brief 食品目标写固定类别和每份热量，门店食品另写实际可用 app。"""
+    food_id = row["food_id"] if row["kind"] == "supply" else row["object_id"]
+    food = context.semantics.catalog.foods[food_id]
+    state = f"{FOOD_CATEGORY_LABELS[food.category]}，每份约 {FOOD_CONSTANTS[food.category].energy_kcal:g} 千卡"
+    if row["kind"] == "holding":
+        state = f"持有 {portion_phrase(_held_at_row(context, row))}，{state}"
     else:
-        product = context.rules.items[row["object_id"]]
-        parts = [f"持有 {portion_phrase(_held_at_row(context, row))}"]
-    if "eat" in product.use_modes:
-        parts.append(food_energy_label(product.energy_kcal_per_unit))
-    return "，".join(parts) or None
+        apps = context.semantics.catalog.apps_by_store[row["store_id"]]
+        if apps:
+            names = "、".join(context.semantics.catalog.apps[app_id].name for app_id in apps)
+            state += f"；可用{names}下单"
+    return state
 
 
 def _content_state(context: LayerContext, item_id: str) -> str:

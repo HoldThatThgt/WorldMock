@@ -37,7 +37,7 @@ def todo_layer(context: LayerContext, store: FootprintStore) -> dict:
 
 def _product_names(context: LayerContext) -> dict[str, str]:
     """@brief 冻结目录里可持有对象的商品身份 → 商品名（事务行的「要办成的事」按它写商品名）。"""
-    return {product_id: item.name for product_id, item in context.rules.items.items()}
+    return {product_id: item.name for product_id, item in context.semantics.catalog.foods.items()}
 
 
 def _pause_order(store: FootprintStore, agent_id: int, moments: list[int]) -> dict[str, int]:

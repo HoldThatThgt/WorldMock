@@ -1,10 +1,10 @@
 """个人事务的完成依据与结算经真实请求、引擎与 SQLite（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 、2.7）。
 
 正式场景（单人白领与两人的 multi-person）建立的 LifeEngine 上，人物以收尾请求的 errands 记下事务，随后经真实的购买、配送、
-给予、制作与进食产生结算证据。事务只按证据累计：动作结果顶层已送达的订单（到店成交）、配送送达事件的新入库行、当面给予
-（都按收货人归属），进食区间的实际食用量与制作完整结束时的产出；下单受理、未送达的订单、开始进食、本人买给别人或联系人的、
-制作未完成、推进了当日目标的活动、声称办成的自述、记下前已持有的与记下前开始的进度区间都不算。累计达到数量减 1e-9 即办成并移出待办层，不足时保持未完成并记下累计量；
-缺货、闭店或买不起被拒时事务与累计量不变；办成之后名称与商品可以再记一条新事务；同一轮里先给予、后取消时证据不落到
+给予与进食产生结算证据。事务只按证据累计：动作结果顶层已送达的订单（到店成交）、配送送达事件的新入库行、当面给予
+（都按收货人归属）与进食区间的实际食用量；下单受理、未送达的订单、开始进食、本人买给别人或联系人的、
+推进了当日目标的活动、声称办成的自述、记下前已持有的与记下前开始的进度区间都不算。累计达到数量减 1e-9 即办成并移出待办层，不足时保持未完成并记下累计量；
+买不起被拒时事务与累计量不变；办成之后名称与商品可以再记一条新事务；同一轮里先给予、后取消时证据不落到
 已取消的事务。errand_progressed（系统可见）与 errand_completed（人物可见）以证据事件为唯一原因、与证据同一提交，
 人物为事务所有人，决策、动作与活动身份为空。
 """
@@ -12,8 +12,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-
-import pytest
 
 from tests.life.conftest import (advance_next, conclude_request, errand_add, errand_cancel, report_request,
                                  stage_day_plan, stage_errands, submit_round, wake_by_mail)
@@ -24,14 +22,11 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.errand_state import ERRAND_EVENT_KINDS
 from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.models import ActivityStatus, active_activities
-from worldmock.life.readable import iso_time, local_date
+from worldmock.life.readable import iso_time
 from worldmock.life.schedule import PlanGoal
-from worldmock.life.storefront_state import current_quote
 
 #: 正式目录里的纯牛奶：商品名唯一（三家店有售），集市可到店买、可远程下单送到家；整份喝完要 900 秒。
 MILK, MILK_ID = "纯牛奶", "food-6923644266066"
-#: 食材包与它制作的产物（制作 3000 秒，完整结束时一次扣一包、得一份）。
-KIT, KIT_NAME, MEAL, MEAL_NAME = "ingredient-vegetable-kit", "素炒什锦食材包", "meal-0030", "素炒什锦"
 #: 两人场景里人物 2（李凡）眼中的人物 1（陈曦）。
 CHEN = "人物：陈曦"
 WAIT = ("自己", "interact", "等待", None, None)
@@ -77,7 +72,7 @@ def home(engine_factory, holdings: dict[str, float]):
         person.location_id, person.body_settled_at, person.next_decision_at = HOME, now, now
         person.inventory = {HOME: dict(holdings)}
     stage(engine, change)
-    assert engine.context.rules.items[MILK_ID].name == MILK and engine.context.rules.items[MEAL].name == MEAL_NAME
+    assert engine.context.semantics.catalog.foods[MILK_ID].name == MILK
     return engine
 
 
@@ -306,28 +301,6 @@ def test_an_order_and_a_gift_for_a_contact_outside_the_world_count_for_nobody(en
     assert todo_rows(observe(engine, "after")) == [("买牛奶", "取得纯牛奶 1 份", "已取得 0 份")]
 
 
-def test_unfinished_making_does_not_count_and_the_finished_output_does(engine_factory) -> None:
-    """人物开始用食材包制作素炒什锦（3000 秒），一分钟后播报时记下「取得素炒什锦 1 份」：之后每个未完成制作的进度区间都
-    没有库存转换，不算取得；制作完整结束的那次进度结算带库存转换的产出，事务以它为原因办成，家里有了一份素炒什锦。"""
-    engine = home(engine_factory, {KIT: 1.0})
-    making = act(engine, "make", routed((f"持有物：{KIT_NAME}", "consume", "制作", None, None)))
-    assert making.status == "in_progress", (making.error_code, making.message)
-    wake_by_mail(engine, 1, offset=60)
-    run_until(engine, lambda current: 1 in current.scheduling_state().ready_agent_ids)
-    name = engine.context.state.activities[making.activity_id].name
-    noted = act(engine, "note", report_request(name, errands=[errand_add("做一份菜", MEAL_NAME)]), tool="report_status")
-    assert noted.status == "completed"
-    run_until(engine, lambda current: current.context.state.activities[making.activity_id].status != ActivityStatus.ACTIVE)
-    after = [event for event in progress_events(engine, making.activity_id) if event.occurred_at > noted.occurred_at]
-    unfinished = [event for event in after if "inventory_transform" not in event.data["consumption"]]
-    finished = [event for event in after if "inventory_transform" in event.data["consumption"]]
-    assert len(unfinished) >= 2 and len(finished) == 1 and finished[0] == after[-1]
-    assert finished[0].data["activity"]["status"] == "completed"
-    [completed] = settlement(engine)
-    assert_settlement(completed, finished[0], "errand_completed", 1.0)
-    assert engine.context.state.agents[1].inventory[HOME][MEAL] == 1.0 and engine.context.state.agents[1].errands == {}
-
-
 def test_eating_counts_the_actual_interval_quantity(engine_factory) -> None:
     """「吃掉纯牛奶 1 份」：开始喝的那次受理（活动开始）不算；喝到一半（450/900 秒）的边界写 errand_progressed 加 0.5 份，
     喝完的边界再加 0.5 份办成——按进度结算的本区间实际食用量累计，不是按份数一次算。累计量达到数量减 1e-9 即办成：再记下
@@ -404,47 +377,22 @@ def _mail_chance(engine) -> None:
               and 1 in current.scheduling_state().ready_agent_ids)
 
 
-def test_an_out_of_stock_rejection_leaves_the_errand_and_its_progress_unchanged(engine_factory) -> None:
-    """「取得纯牛奶 2 份」到店买到一份后集市卖完了：再到店买以 OUT_OF_STOCK 业务拒绝，事务与累计量原样，没有新的事务事件；
-    待办层照旧写「已取得 1 份」，行里只有六个键（不重算可用性，缺货原因只在该次购买的拒绝结果里）。"""
-    engine = open_world(engine_factory)
-    place(engine, 1, MARKET)
-    note(engine, "note", [errand_add("囤牛奶", MILK, quantity=2)])
-    buy(engine, "buy")
-    before, events = held(engine), errand_events(engine)
-    assert before.progress == 1.0
-    stage(engine, lambda state: state.supply_stock.__setitem__(f"supply-market-{MILK_ID}", 0))
-    refused = buy(engine, "sold-out")
-    assert (refused.status, refused.error_code) == ("rejected", "OUT_OF_STOCK")
-    assert held(engine) == before and errand_events(engine) == events
-    [row] = observe(engine, "after")["todo_layer"]["errands"]
-    assert list(row) == ["name", "done_when", "progress", "memo", "remind_time", "noted_on"]
-    assert (row["name"], row["progress"]) == ("囤牛奶", "已取得 1 份")
-
-
 def _little_money(document: dict) -> None:
     """场景副本：在 with_colleague 之上把陈曦的初始余额改为 1 元，买不起一份纯牛奶。"""
     with_colleague(document)
     next(item for item in document["agents"] if item["agent_id"] == 1).update(initial_balance_fen=100)
 
 
-def test_a_closed_store_or_an_unaffordable_purchase_leaves_the_errand_open(engine_factory) -> None:
-    """余额只有 1 元的人物在集市记下「取得纯牛奶 1 份」：集市当天闭店（世界里的营业例外）时到店买以 MERCHANT_CLOSED
-    业务拒绝；撤掉例外重新开门后再买，价钱高于余额，以 INSUFFICIENT_FUNDS 业务拒绝。两次拒绝后事务原样未完成、没有新的
-    事务事件，待办层照旧列着它，行里只有六个键（闭店与买不起的原因只在该次购买的拒绝结果里，待办层不重算可用性）。"""
+def test_an_unaffordable_purchase_leaves_the_errand_open(engine_factory) -> None:
+    """余额只有 1 元的人物在集市记下「取得纯牛奶 1 份」：固定食品价高于余额，以 INSUFFICIENT_FUNDS 拒绝。
+    事务与累计量原样未完成，没有新的事务事件，待办层仍保留原来的六个键与累计量。
+    """
     engine = open_world(engine_factory, mutate=_little_money)
-    supply = f"supply-market-{MILK_ID}"
-    price = engine.context.semantics.purchase_amount(MILK_ID, current_quote(engine.context.state, supply).price_fen, 1)
+    price = engine.context.semantics.catalog.foods[MILK_ID].price_fen
     assert price > engine.context.state.accounts["agent:1"] == 100
     place(engine, 1, MARKET)
     note(engine, "note", [errand_add("买牛奶", MILK)])
     before, events = held(engine), errand_events(engine)
-    today = local_date(engine.context.state.current_time, engine.context.scenario.timezone)
-    stage(engine, lambda state: state.opening_exceptions[MARKET].__setitem__(today, []))
-    closed = buy(engine, "closed")
-    assert (closed.status, closed.error_code) == ("rejected", "MERCHANT_CLOSED")
-    assert held(engine) == before and errand_events(engine) == events
-    stage(engine, lambda state: state.opening_exceptions[MARKET].pop(today))
     unaffordable = buy(engine, "unaffordable")
     assert (unaffordable.status, unaffordable.error_code) == ("rejected", "INSUFFICIENT_FUNDS")
     assert held(engine) == before and errand_events(engine) == events
@@ -545,57 +493,3 @@ def test_progress_short_of_the_tolerance_stays_open(engine_factory) -> None:
 
 
 #: 「使用」方式的两种消费：用食材包制作素炒什锦（库存转换，产物入库），与使用一包纸巾（目录里只能使用的非食品，300 秒）。
-_USED = [pytest.param(KIT, "制作", MEAL, id="making"), pytest.param("item-tissues", "使用", None, id="using")]
-
-
-@pytest.mark.parametrize(("product_id", "way", "output"), _USED)
-def test_making_or_using_an_item_is_not_eating_it(engine_factory, product_id: str, way: str, output) -> None:
-    """「吃掉」的依据只是本人进食活动的食用量（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「依据」）：人物记下「吃掉<物品> 1 份」，
-    随后把这件物品用掉——用食材包制作素炒什锦，或使用一包纸巾。活动完整结束的那次进度结算以「使用」方式写下该物品的
-    本区间用量 1 份（制作另带库存转换），这不是进食：没有任何结算事件，事务仍未完成、累计 0 份，待办层照旧列着它；物品
-    照样用掉，制作的产物照样入库。"""
-    engine = home(engine_factory, {product_id: 1.0})
-    name = engine.context.rules.items[product_id].name
-    note(engine, "note", [errand_add("吃掉它", name, outcome="吃掉")])
-    noted = held(engine)
-    using = act(engine, "use", routed((f"持有物：{name}", "consume", way, None, None)))
-    assert using.status == "in_progress", (using.error_code, using.message)
-    run_until(engine, lambda current: current.context.state.activities[using.activity_id].status != ActivityStatus.ACTIVE,
-              limit=80)
-    finished = progress_events(engine, using.activity_id)[-1]
-    consumption = finished.data["consumption"]
-    assert consumption["use_mode"] == "use" and ("inventory_transform" in consumption) == (output is not None)
-    assert [(item["product_id"], item["interval_quantity"]) for item in consumption["items"]] == [(product_id, 1.0)]
-    assert finished.data["interval_start"] >= noted.registered_at
-    inventory = engine.context.state.agents[1].inventory[HOME]
-    assert inventory[product_id] == 0.0 and (output is None or inventory[output] == 1.0)
-    assert settlement(engine) == [] and held(engine) == noted and noted.progress == 0.0
-    assert todo_rows(observe(engine, "after")) == [("吃掉它", f"吃掉{name} 1 份", "已吃掉 0 份")]
-
-
-def test_a_making_interval_begun_before_noting_yields_no_output_evidence(engine_factory) -> None:
-    """制作产出也是活动进度类证据，同样要求结算区间的起点不早于记下的时刻（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-完成依据与结算 「先后」）。
-    与进食一样请求造不出这种情形，这里经真实时钟推进、以预置状态造出：人物用食材包制作素炒什锦，推进到制作结束前的最后
-    一个边界，预置一条「取得素炒什锦 1 份」的事务，记下时刻在这个边界之后一秒。制作完整结束的那个区间起点早于记下时刻，
-    它的产出不算：素炒什锦照样入库，没有结算事件，事务仍未完成、累计 0 份。"""
-    engine = home(engine_factory, {KIT: 1.0})
-    making = act(engine, "make", routed((f"持有物：{KIT_NAME}", "consume", "制作", None, None)))
-    assert making.status == "in_progress", (making.error_code, making.message)
-    end = engine.context.state.activities[making.activity_id].planned_end_at
-
-    def last_boundary(current) -> bool:
-        """没人要决策，且下一边界就是制作的计划结束时刻。"""
-        state = current.scheduling_state()
-        return not state.ready_agent_ids and int(state.next_event_at.timestamp()) == end
-    run_until(engine, last_boundary, limit=80)
-    last = engine.context.state.current_time
-    assert engine.context.state.activities[making.activity_id].last_settled_at <= last < end
-    staged = _errand("staged:errand:0", "做一份菜", MEAL, last + 1)
-    stage_errands(engine, 1, [staged])
-    advance_next(engine)
-    assert engine.context.state.current_time == end
-    finished = progress_events(engine, making.activity_id)[-1]
-    assert "inventory_transform" in finished.data["consumption"] and finished.data["activity"]["status"] == "completed"
-    assert finished.data["interval_start"] <= last < staged.registered_at
-    assert engine.context.state.agents[1].inventory[HOME][MEAL] == 1.0
-    assert settlement(engine) == [] and held(engine) == staged and staged.progress == 0.0

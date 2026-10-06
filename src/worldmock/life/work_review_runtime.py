@@ -14,7 +14,7 @@ from worldmock.life.action_evidence import (
 from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.models import PendingAction, SubmitWorkActionRequest, SubmitWorkRequest
 from worldmock.life.session_actions import ActionHandlers
-from worldmock.life.state_commit import commit_state
+from worldmock.life.models import validated_payload
 from worldmock.life.work import prepare_work_submission
 from worldmock.life.work_review import (
     WORK_REVIEW_MAX_MODEL_CALLS,
@@ -71,10 +71,9 @@ class WorkReviewCoordinator:
         for attempt in range(1, WORK_REVIEW_MAX_MODEL_CALLS + 1):
             call_id = f"{pending.decision_id}:work-review:{pending.action_id}:attempt:{attempt}"
             request_link = (call_id, attempt, previous_event_id)
-            request_event = commit_state(
-                self.context.store, self.context.state,
-                [_work_review_request_draft(self.context.state.current_time, pending, request_link, prepared.request)],
-            )[0]
+            request_event = self.context.store.commit(
+                validated_payload(self.context.state), [_work_review_request_draft(
+                    self.context.state.current_time, pending, request_link, prepared.request)])[0]
             link = (call_id, request_event.event_id, attempt)
             raw = await self._call_work_reviewer(prepared, pending, link)
             (decision, error, response_event_id) = self._parse_work_reviewer(raw, original, pending, link)
@@ -96,12 +95,12 @@ class WorkReviewCoordinator:
         except asyncio.CancelledError as error:
             logging.error("Work review model request was cancelled")
             draft = _work_review_failure_draft(self.context.state.current_time, pending, link, error)
-            commit_state(self.context.store, self.context.state, [draft])
+            self.context.store.commit(validated_payload(self.context.state), [draft])
             raise
         except Exception as error:
             logging.exception("Work review model request failed")
             draft = _work_review_failure_draft(self.context.state.current_time, pending, link, error)
-            commit_state(self.context.store, self.context.state, [draft])
+            self.context.store.commit(validated_payload(self.context.state), [draft])
             raise
 
     def _parse_work_reviewer(self, raw, prepared, pending, link: tuple[str, str, int]):
@@ -115,8 +114,8 @@ class WorkReviewCoordinator:
         except Exception as caught:
             logging.exception("Work review response parsing failed")
             draft = _work_review_response_draft(self.context.state.current_time, pending, link, (raw, None, caught))
-            commit_state(self.context.store, self.context.state, [draft])
+            self.context.store.commit(validated_payload(self.context.state), [draft])
             raise
         draft = _work_review_response_draft(self.context.state.current_time, pending, link, (raw, decision, error))
-        event = commit_state(self.context.store, self.context.state, [draft])[0]
+        event = self.context.store.commit(validated_payload(self.context.state), [draft])[0]
         return (decision, error, event.event_id)

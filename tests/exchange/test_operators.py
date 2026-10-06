@@ -61,16 +61,11 @@ def test_invalid_modes_categories_and_purchase_inputs_are_rejected():
 
 
 def test_fixed_operators_keep_existing_decimal_settlement_results():
-    """@brief 在共同合法域内，固定规则与原品类算子的精确舍入逐值相同。"""
-    from worldmock.categories import operators as existing
-    from worldmock.categories.rules import TravelFareRule
-    rule = TravelFareRule(
-        rule_id="fare", operator="travel_fare", resource_id="money_fen", conservation="closed", unit="fen",
-        category_id="travel", action="travel:driving", minimum_fen=500, fen_per_meter=0.2,
-    )
-    for price, count in ((1, 1), (800, 3), (123456789, 98765)):
-        assert evaluate_purchase(price, count) == existing.evaluate_purchase(price, count, 1)
-    for distance in (0, 1, 2499.9, 2500, 2500.01, 12345.67):
-        assert evaluate_travel_fare("driving", distance) == existing.evaluate_travel_fare(rule, distance, 1)
-    for fraction in (0, 0.1, 0.333333, 1):
-        assert evaluate_food_energy("meal", fraction) == existing.evaluate_food_energy(600, fraction)
+    """@brief 品类模块退役后用已核对的固定结果守住金额舍入与部分食品摄入。"""
+    for price, count, expected in ((1, 1, 1), (800, 3, 2400), (123456789, 98765, 12193209765585)):
+        assert evaluate_purchase(price, count) == expected
+    for distance, expected in ((0, 500), (1, 500), (2499.9, 500), (2500, 500),
+                               (2500.01, 501), (12345.67, 2470)):
+        assert evaluate_travel_fare("driving", distance) == expected
+    for fraction, expected in ((0, 0), (0.1, 60), (0.333333, 199.9998), (1, 600)):
+        assert evaluate_food_energy("meal", fraction) == expected

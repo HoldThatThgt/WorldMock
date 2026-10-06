@@ -42,7 +42,6 @@ class WorldFacts:
     """@brief 准入判定所需的冻结目录：任务、供给、可持有物与内容（引擎取自规则，投影取自场景）。"""
 
     tasks: Mapping[str, Any]
-    supplies: Mapping[str, Any]
     items: Mapping[str, Any]
     contents: Mapping[str, Any]
 
@@ -122,8 +121,8 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
     if canonical == "work" and object_id in facts.tasks:
         task = facts.tasks[object_id]
         return replace(item, place=task.required_location_id, work_opens=task.available_at)
-    if canonical == "purchase" and action.get("fulfillment") == "pickup" and object_id in facts.supplies:
-        return replace(item, place=facts.supplies[object_id].location_id)
+    if canonical == "purchase" and action.get("fulfillment") == "pickup":
+        return replace(item, place=row["store_id"])
     if canonical == "purchase":
         return replace(item, manual=True)
     if canonical == "chat" and str(object_id).startswith("agent:"):
@@ -131,9 +130,7 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
     if canonical == "consume" and action["label"] == GIVE_WAY:
         return replace(item, holding=True, held_at=row.get("location_id"))
     if canonical == "consume":
-        product = facts.items.get(object_id)
-        return replace(item, holding=True, place=getattr(product, "required_location_id", None) or None,
-                       held_at=row.get("location_id"))
+        return replace(item, holding=True, held_at=row.get("location_id"))
     if canonical == "do":
         return replace(item, site=True)
     return item

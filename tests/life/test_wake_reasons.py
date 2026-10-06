@@ -13,13 +13,7 @@ from pydantic import ValidationError
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  stage_day_plan, start_activity, wake_by_mail, pause_request, report_request)
-from tests.life.test_commerce import _stage_open
-from tests.life.test_day_plan import act, goal
-from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
-from tests.life.test_scheduling import _custom_engine
 from worldmock.life import schedule as schedule_module
-from worldmock.life.activity_control import pending_conclusions
-from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, PlanGoalInput, ReviseDayPlanRequest,
                                    active_activities)
 from worldmock.life.rhythm import (
@@ -35,7 +29,7 @@ NOW = 1000000
 FROZEN = (
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available",
     "task_due_soon", "work_review_result", "commitment_threatened", "reconsideration_interval",
-    "location_hours_change", "person_arrived", "person_left", "activity_infeasible", "rejection_feedback",
+    "person_arrived", "person_left", "activity_infeasible", "rejection_feedback",
     "discovery_result", "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity",
     "plan_reminder_due", "errand_reminder_due", "shift_start", "shift_end", "break_start", "break_end",
 )
@@ -67,9 +61,6 @@ def test_sleep_allowed_reasons_add_only_plan_reminder_due():
     ({"task_newly_visible": True}, ["task_available"]),
     ({"next_task_due_at": NOW + 1800}, ["task_due_soon", "commitment_threatened"]),
     ({"work_review_returned": True}, ["work_review_result"]),
-    ({"has_commitments": True, "location_closing_at": NOW + 900},
-     ["commitment_threatened", "location_hours_change"]),
-    ({"location_just_opened": True}, ["location_hours_change"]),
     ({"people_present_now": {"person"}}, ["person_arrived"]),
     ({"people_present_before": {"person"}}, ["person_left"]),
     ({"discovery_result_ready": True}, ["discovery_result"]),
@@ -83,8 +74,7 @@ def test_concrete_wake_reasons_are_preserved(fields, expected):
 
 @pytest.mark.parametrize("fields", [
     {}, {"planned_end": NOW + 1}, {"next_task_due_at": NOW + 1801},
-    {"next_task_due_at": NOW}, {"has_commitments": True, "location_closing_at": NOW + 901},
-    {"has_commitments": True, "location_closing_at": NOW}, {"location_closing_at": NOW + 900},
+    {"next_task_due_at": NOW},
     {"last_decision_time": NOW - 10799},
     {"has_commitments": True, "last_decision_time": NOW - 5399},
 ])
@@ -107,12 +97,10 @@ def test_custom_intervals_and_earlier_events_remain_effective():
     assert next_decision_time(query.model_copy(update={"has_commitments": True})) == NOW + 600
     assert next_decision_time(query.model_copy(update={"scheduled_arrival_times": (NOW + 10,)})) == NOW + 10
     assert next_decision_time(query.model_copy(update={"felt_band_crossing_times": (NOW + 20,)})) == NOW + 20
-    assert next_decision_time(query.model_copy(update={"location_hours_change_times": (NOW + 30,)})) == NOW + 30
 
 
 @pytest.mark.parametrize("field,deadline,expected", [
     ("next_task_due_at", NOW + 1901, NOW + 101),
-    ("location_closing_at", NOW + 1001, NOW + 101),
 ])
 def test_warning_candidates_are_exact_not_feedback_aligned(field, deadline, expected):
     query = NextDecisionQuery(now=NOW, last_decision_time=NOW, has_commitments=True, **{field: deadline})
@@ -124,7 +112,7 @@ def test_warning_candidates_are_exact_not_feedback_aligned(field, deadline, expe
 def test_sleep_accepts_only_existing_sleep_reasons():
     snapshot = WakeSnapshot(now=NOW, is_asleep=True, has_commitments=True,
                             last_decision_time=NOW - 20000, next_task_due_at=NOW + 100,
-                            location_closing_at=NOW + 100, message_arrived=True)
+                            message_arrived=True)
     assert not evaluate_wake_reasons(snapshot).decision_offered
     assert reasons(is_asleep=True, planned_end=NOW, wake_from_sleep=True, run_start=True) == [
         "planned_end", "wake_from_sleep", "run_start"]
@@ -132,8 +120,7 @@ def test_sleep_accepts_only_existing_sleep_reasons():
     query = NextDecisionQuery(now=NOW, is_asleep=True, planned_end=NOW + 20000,
                               last_decision_time=NOW, has_commitments=True)
     assert next_decision_time(query) == NOW + 20000
-    assert next_decision_time(query.model_copy(update={"next_task_due_at": NOW + 1900,
-        "location_closing_at": NOW + 1000})) == NOW + 20000
+    assert next_decision_time(query.model_copy(update={"next_task_due_at": NOW + 1900})) == NOW + 20000
     assert next_decision_time(NextDecisionQuery(now=NOW)) is None
 
 
@@ -146,6 +133,7 @@ def test_scenario_rejects_idle_interval_shorter_than_regular(engine_factory):
 
 
 def test_commitments_exclude_messages_history_and_completed_activities(engine_factory):
+    from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     now = state.current_time
@@ -221,6 +209,7 @@ def test_game_turn_due_offers_decision_on_an_otherwise_silent_boundary(engine_fa
 
 
 def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_factory):
+    from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     state = engine.context.state.model_copy(deep=True)
     task = engine.context.scenario.tasks[0]
@@ -241,50 +230,12 @@ def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_fa
     assert {"task_due_soon", "commitment_threatened"}.issubset(engine.context.state.agents[1].pending_wake_reasons)
 
 
-@pytest.mark.parametrize("bound_to_location", [False, True])
-def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bound_to_location):
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    from tests.life.test_revision_contract import _commit_staged
-    engine = engine_factory()
-    state = engine.context.state.model_copy(deep=True)
-    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.context.scenario.timezone))
-    closing_minute = local.hour * 60 + local.minute + 17
-    closing = int(local.replace(second=0).timestamp()) + 17 * 60
-    state.pending_events = []
-    task = engine.context.scenario.tasks[0]
-    location_id = task.required_location_id if bound_to_location else state.agents[1].location_id
-    state.agents[1] = state.agents[1].model_copy(update={
-        "location_id": location_id, "visible_task_ids": {task.task_id},
-        "known_task_ids": {task.task_id},
-        "day_plan": DayPlan(day_end=closing + 10000,
-                            goals=[goal("工作", "去别处完成任务", registered=state.current_time)]),
-    })
-    state.opening_exceptions[location_id][local.date().isoformat()] = [(0, closing_minute)]
-    _commit_staged(engine, state)
-    result = act(engine, "closing-wait", "start_activity",
-                 start_activity("等待", "自己"))
-    assert result.status == "in_progress"
-    if bound_to_location:
-        assert engine.scheduling_state().next_event_at.timestamp() == closing - 900
-        advance_next(engine)
-        assert engine.context.state.current_time == closing - 900
-        assert {"location_hours_change", "commitment_threatened"}.issubset(
-            engine.context.state.agents[1].pending_wake_reasons)
-    else:
-        assert engine.scheduling_state().next_event_at.timestamp() != closing - 900
-        step = 0
-        while engine.context.state.current_time < closing:
-            if engine.scheduling_state().ready_agent_ids:
-                step += 1
-                _keep_waiting(engine, f"closing-continue-{step}")
-            else:
-                advance_next(engine)
-        assert "commitment_threatened" not in engine.context.state.agents[1].pending_wake_reasons
 
 
 def _keep_waiting(engine, name: str) -> None:
     """就绪时先给刚结束的活动收尾（第七章「活动一结束就要结束它」），有进行中活动就播报，否则开始下一段等待。"""
+    from tests.life.test_day_plan import act, goal
+    from worldmock.life.activity_control import pending_conclusions
     waiting = pending_conclusions(engine.context.state, 1)
     running = active_activities(engine.context.state, 1)
     if waiting:
@@ -327,6 +278,7 @@ def _task_warning_ids(agent) -> set[str]:
 
 def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
     """第二个任务进入预警窗口时，即使第一项仍未完成也再次提醒。"""
+    from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     first, second = engine.context.scenario.tasks[:2]
     due = int(first.due_at.timestamp())
@@ -353,6 +305,7 @@ def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
 
 def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> None:
     """睡眠区间经过预警时不标记交付，醒来且威胁仍在才标记。"""
+    from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
@@ -375,6 +328,8 @@ def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> Non
 
 def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory) -> None:
     """共同检查点恢复后，持续成立的同一任务威胁不会再次唤醒。"""
+    from tests.life.test_day_plan import act, goal
+    from worldmock.life.engine import LifeEngine
     engine = engine_factory()
     task = engine.context.scenario.tasks[0]
     due = int(task.due_at.timestamp())
@@ -443,61 +398,25 @@ def test_changed_task_deadline_warns_again_and_completed_task_clears_signature(e
     assert "commitment_threatened" not in reasons
 
 
-def test_changed_closing_time_and_new_local_commitment_warn_independently(engine_factory):
-    """同地点闭店时刻改变、同一闭店新增受威胁任务分别触发新提醒。"""
-    from zoneinfo import ZoneInfo
-    engine = engine_factory()
-    first = engine.context.scenario.tasks[0]
-    second = next(task for task in engine.context.scenario.tasks[1:]
-                  if task.required_location_id == first.required_location_id)
-    state = engine.context.state.model_copy(deep=True)
-    agent = state.agents[1]
-    agent.location_id = first.required_location_id
-    agent.last_decision_time = state.current_time
-    agent.visible_task_ids = agent.known_task_ids = {first.task_id}
-    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.context.scenario.timezone))
-    close_minute = local.hour * 60 + local.minute + 10
-    state.opening_exceptions[agent.location_id][local.date().isoformat()] = [(0, close_minute)]
-    state, reasons = _warning_step(engine, state)
-    assert "location_hours_change" in reasons and "commitment_threatened" in reasons
-    old = set(state.agents[1].delivered_warning_signatures)
-    state, reasons = _warning_step(engine, state)
-    assert "location_hours_change" not in reasons and "commitment_threatened" not in reasons
-    state.opening_exceptions[agent.location_id][local.date().isoformat()] = [(0, close_minute + 1)]
-    state, reasons = _warning_step(engine, state)
-    assert "location_hours_change" in reasons and "commitment_threatened" in reasons
-    assert old.isdisjoint(state.agents[1].delivered_warning_signatures)
-    state.agents[1].visible_task_ids.add(second.task_id)
-    state.agents[1].known_task_ids.add(second.task_id)
-    state, reasons = _warning_step(engine, state)
-    assert "location_hours_change" in reasons and "commitment_threatened" in reasons
-    closing = [json.loads(value) for value in state.agents[1].delivered_warning_signatures
-               if json.loads(value)[0] == "closing"]
-    assert len(closing) == 2
-    assert {row[3].split(":")[1] for row in closing} == {first.task_id, second.task_id}
-    state.paid_task_ids.update({first.task_id, second.task_id})
-    state, reasons = _warning_step(engine, state)
-    assert not state.agents[1].delivered_warning_signatures
-    assert "commitment_threatened" not in reasons
 
 
-def test_activity_infeasible_has_no_source_and_threat_only_from_deadline_or_closing():
+def test_activity_infeasible_has_no_source_and_threat_only_from_deadline():
     """activity_infeasible 保留名称但没有来源：快照不再有该字段，全部标志齐开也不产生它。"""
     assert WakeReason.ACTIVITY_INFEASIBLE.value == "activity_infeasible"
     assert "activity_infeasible" not in WakeSnapshot.model_fields
     everything = reasons(planned_end=NOW, felt_bands_now={"appetite": 1}, message_arrived=True,
                          delivery_arrived=True, task_newly_visible=True, work_review_returned=True,
-                         location_just_opened=True, people_present_now={"person"},
+                         people_present_now={"person"},
                          discovery_result_ready=True, wake_from_sleep=True, run_start=True,
                          progress_report_due=True, no_active_activity=True)
     assert "activity_infeasible" not in everything
     assert "commitment_threatened" not in everything
     assert "commitment_threatened" in reasons(next_task_due_at=NOW + 1800)
-    assert "commitment_threatened" in reasons(has_commitments=True, location_closing_at=NOW + 900)
 
 
 def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine_factory):
     """能量为 0 时进行中的观看照常继续：不产生不可行预警，也不构成承诺威胁。"""
+    from tests.life.test_day_plan import act, goal
     engine = engine_factory()
     started = act(engine, "zero-energy-watch", "start_activity",
                   start_activity("接着看", "内容：Sintel"))
@@ -525,6 +444,7 @@ def _assert_rhythm_scheduled(engine) -> None:
 
 def _start_browse(engine, name: str) -> tuple[dict, str]:
     """@brief 开始一次商品目录浏览（浏览是占名额的活动），返回该轮观察与活动身份。"""
+    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
     observed, result = _observed_act(engine, name, "start_activity", start_activity("浏览", "商品目录"))
     assert result.status == "in_progress", result.error_code
     _assert_rhythm_scheduled(engine)
@@ -533,6 +453,7 @@ def _start_browse(engine, name: str) -> tuple[dict, str]:
 
 def _conclude(engine, name: str, activity_id: str) -> dict:
     """@brief 一轮只结束点名的活动，返回该轮观察。"""
+    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
     observed, result = _observed_act(engine, name, "conclude_activity",
                                      conclude_request(activity_name(engine, activity_id)))
     assert result.status == "completed", result.error_code
@@ -543,6 +464,7 @@ def _pinned(engine, observed: dict, browse_id: str) -> list[str]:
     """@brief 浏览结果回灌到观察：该次浏览返回的供给全部呈现，且排在未经浏览返回的供给之前（置顶）；返回置顶的前缀。
 
     直驱引擎没有宿主请求推进进度层截止点，更早的浏览结果仍在近期结果中，一并置顶。"""
+    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
     browsed = {row["supply_id"] for item in engine.context.state.activities.values() if item.kind == ActivityKind.BROWSE
                for row in item.data.get("revealed", {}).get("items", [])}
     order = _supply_order(observed)
@@ -555,6 +477,7 @@ def _pinned(engine, observed: dict, browse_id: str) -> list[str]:
 def _browse_alone_to_its_end(engine) -> str:
     """@brief 独自浏览到计划结束：结束边界以 planned_end 唤醒并置顶结果；收尾后同一秒以 no_active_activity 再决策，
     该轮观察仍置顶同一批结果，并在该轮再开始一次浏览，返回其活动身份。"""
+    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
     _, browse_id = _start_browse(engine, "alone")
     _finish(engine, browse_id, "alone")
     assert engine.context.state.current_time == engine.context.state.activities[browse_id].planned_end_at
@@ -581,6 +504,7 @@ def _end_browse_early(engine, browse_id: str) -> None:
 def _browse_beside_a_wait(engine) -> None:
     """@brief 在进行中的等待旁浏览：浏览先到计划结束，以 planned_end 唤醒并在该边界的观察置顶结果；收尾后等待仍在
     进行，下一次决策按决策节律，不在同一秒或下一秒；等待结束的边界以 planned_end 与 no_active_activity 唤醒。"""
+    from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
     _, browse_id = _start_browse(engine, "beside")
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
@@ -612,6 +536,7 @@ def test_browse_results_return_in_observation_never_as_discovery_result(engine_f
     结果随浏览结束回灌到随后的观察，不另排下一秒。独自浏览到计划结束、本人提前结束、在进行中的等待旁浏览三种情形里，
     决策开始、观察与共同身体结算的唤醒原因都不含它；判定函数仍把置位的标志映射为该原因（闭集保留），
     而节律为每个边界装配的判定输入从不置位。"""
+    from tests.life.test_commerce import _stage_open
     evaluated = []
 
     def recording(snapshot):
@@ -638,6 +563,7 @@ def test_browse_results_return_in_observation_never_as_discovery_result(engine_f
 def test_low_energy_bands_match_the_decision_reference(engine_factory, energy, band):
     """低能量下决策参照快照与唤醒判定传入同一能量与紧急阈值：分级同源，不误报 felt_band_change。
     08:00 昼夜谷底按公式只有「很饿」，两档都只能来自低能量规则。"""
+    from tests.life.test_day_plan import act, goal
     from tests.life.test_energy_feasibility import _stage_morning
 
     engine = engine_factory()
@@ -759,6 +685,7 @@ _REVISE = ReviseDayPlanRequest(goals=[PlanGoalInput(intent_kind="休息", goal="
 
 def _wake_at(engine, moment: int, name: str) -> list[str]:
     """@brief 推进到 moment 的决策机会并返回其唤醒原因；途中的其他机会以修订目标应答（不动播报锚点）。"""
+    from tests.life.test_day_plan import act, goal
     for step in range(32):
         if engine.scheduling_state().ready_agent_ids:
             if engine.context.state.current_time == moment:
@@ -773,6 +700,8 @@ def _wake_at(engine, moment: int, name: str) -> list[str]:
 def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports(tmp_path):
     """播报锚点在开始、对该活动播报与恢复时写入当前时刻，暂停不动锚点；progress_report_due 只由进行中活动距其锚点
     满间隔触发，暂停的活动不再播报（第八章「活动」，第七章「播报与控制都作用于活动」）。"""
+    from tests.life.test_day_plan import act, goal
+    from tests.life.test_scheduling import _custom_engine
     engine = _custom_engine("single-person.json", _report_every_ten_minutes, tmp_path, "report-anchor")
     try:
         stage_day_plan(engine)
@@ -814,6 +743,8 @@ def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_neve
 def test_sleeping_person_gets_no_progress_report_wakeups(tmp_path):
     """睡眠是进行中活动，播报锚点照常到期，但睡眠中的边界不因 progress_report_due 提供决策；醒来时睡眠已结束待收尾，
     也不再为它播报（第八章「活动」，第一章不变项）。"""
+    from tests.life.test_day_plan import act, goal
+    from tests.life.test_scheduling import _custom_engine
     engine = _custom_engine("single-person.json", _report_every_ten_minutes, tmp_path, "report-sleep")
     try:
         stage_day_plan(engine)

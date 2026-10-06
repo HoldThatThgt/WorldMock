@@ -1,6 +1,8 @@
 <a name="personas-人物画像"></a>
 # 人物画像
 
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「习惯的行为核验目标、写出一个能够生活的人、正文与实际世界条件要一致、预览与校验、常见错误、在场景中填写人物」（阶段 3）。
+
 本页命令以 WorldMock 为当前工作目录，场景输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/`。
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
@@ -60,14 +62,16 @@ flowchart LR
 正文里的下班、到家时刻是习惯；场景声明的工作安排是每轮写在环境层的定下的安排，今日计划改不了它，但环境也不因此拒绝人物离岗。
 兴趣对应的素材需要在世界中存在，编译成功也不保证其世界覆盖率合格。
 口味里的内容题材只按词面与场景内容条目的 `genre` 精确匹配，例如电影素材的「悬疑」「喜剧」；「B站视频」这类平台或 App 名
-不是题材，写在正文哪里都匹配不上。匹配不上的内容口味权重为 0，观看只按下限缓解（见[身体规则](rules.md#rules-身体规则)）；
+
 运行照常进行，校验与新建运行会给出输入警告，见[预览与校验](personas.md#personas-预览与校验)。
+
+画像对照真实登记地点、食品、app 与内容名称，习惯按关键词，媒体按五个类型标签与全部 app 名精确匹配；`tastes` 是散文，不产生数值权重。
 
 <a name="personas-在场景中填写人物"></a>
 ## 在场景中填写人物
 
 下面是一个完整 `agents` 数组元素，替换既有场景中的一个人物即可；它不是完整场景文件。
-例子沿用白领场景中的 `agent_id`、住处和任务技能，因此原有任务仍能指向这个人物。
+例子沿用白领场景中的 `agent_id`、住处，原有任务仍能指向这个人物。
 
 ```json
 {
@@ -77,8 +81,6 @@ flowchart LR
   "trait_source_kind": "experiment_assumption",
   "home_location_id": "home",
   "initial_balance_fen": 800000,
-  "skill_levels": {"meeting_analysis": 0.8},
-  "qualifications": [],
   "interaction_menu": null,
   "work_schedule": null,
   "chronotype_midsleep": 3.25,
@@ -118,8 +120,6 @@ flowchart LR
 | `trait_source_kind` | 是 | 固定 `experiment_assumption`，表示实验设定 |
 | `home_location_id` | 是 | 已被场景选中的地点标识 |
 | `initial_balance_fen` | 是 | 非负整数分；`800000` 表示 8000 元 |
-| `skill_levels` | 是 | 技能名到 0–1 数值的映射；须覆盖分配任务所需技能 |
-| `qualifications` | 是 | 资格字符串列表，无资格填 `[]`；不会从职业描述自动推断 |
 | `interaction_menu` | 是 | `null` 表示沿用地点菜单；限制写法见[生活场景](scenarios.md#scenarios-限制人物可以做什么) |
 | `work_schedule` | 是 | `null` 表示这个人物没有任何在岗语义；有固定班次时写对象，写法与校验见[生活场景](scenarios.md#scenarios-声明工作安排)；不会从职业描述或故事里的下班时刻推断 |
 | `chronotype_midsleep` | 否 | 自由日睡眠中点，午夜起的小时数，范围 `[0,24)`，默认 `4.0` |
@@ -128,7 +128,7 @@ flowchart LR
 | `bedtime_window` | 否 | 开始小于 24，结束可到 30，跨度不超过 12 小时；声明晚餐时就寝开始不得早于晚餐结束 |
 | `leave_work_window`、`arrive_home_window` | 否 | 下班与到家窗口，`[开始小时,结束小时]`，范围 0–24，开始小于结束（首版不支持跨午夜）；两者都写时下班开始不晚于到家开始；与午餐、晚餐、就寝的先后不在这里校验；省略时取卡片值，卡片也没有（故事没写固定时刻）时为 null |
 | `contacts` | 否 | 联系人列表，默认 `[]`；同一人物内 `contact_id` 唯一 |
-| `initial_inventory` | 否 | 地点到商品及正数数量的映射，默认 `{}`；数量单位来自商品定义 |
+| `initial_inventory` | 否 | 地点到食品及正数份数的映射，默认 `{}`；只允许登记食品 |
 | `lifestyle_activities` | 否 | `null` 或省略启用全部生活活动；非空列表只启用列出的活动标识，不能用空列表禁用全部 |
 | `health_habits`、`social_style` | 否 | 可保存辅助说明；画像编译只读取正文，重要信息仍需写入 `background_story` |
 | `motivation` | 否 | 独立的结构化动机配置，见[规则配置](rules.md#rules-调整世界规则与人物动机参数)；不是画像编译结果的粘贴位置 |
@@ -154,11 +154,13 @@ flowchart LR
 只有卡片中的关系带亲密度与渠道。
 同世界的另一个自主人物应在 `agents` 里声明，联系人条目不会额外启动一个自主人物。
 
+场景人物不声明技能、资格或偏好权重；职业、消费和饮食喜好用 `background_story` 散文描述。食品持有使用真实 `food_id`，画像不会自动生成食品。
+
 <a name="personas-正文与实际世界条件要一致"></a>
 ## 正文与实际世界条件要一致
 
 正文被提取成卡片后供人物理解身份和偏好：运行时卡片的结构化字段与人物姓名、场景联系人一起渲染成人设层 JSON，
-不含当下处境 `situation`；关系的看法与偏好由人物结束活动时写下的记忆原地更新。身体睡眠常量、饭点、余额、资格、库存和可联系的人，
+不含当下处境 `situation`；关系的看法与偏好由人物结束活动时写下的记忆原地更新。身体睡眠常量、饭点、余额、资格、食品持有和可联系的人，
 则由场景的结构化字段提供；编译卡片不会自动覆盖这些场景字段。
 例如故事写“每天需要九小时睡眠”，就应同时把 `sleep_need_hours` 改成 `9.0`。
 反过来，场景写出的作息字段会覆盖卡片的对应值：人设层的作息与存下的卡片结构取场景值（按上文格点量化），
@@ -184,9 +186,11 @@ flowchart LR
 睡着时错过的提醒在醒来的那一刻一并收到；想在某个时刻起床仍只用当日目标的提醒。个人事务是什么、能记什么，见[生活场景](scenarios.md#scenarios-修改日期与模拟节奏)。
 
 `profile compile` 输出的 `CompiledPersona` 包含 `card`、`big_five`、`world_dynamics`、溯源和警告。卡片结构版本为 3（抽取提示版本 `card-v3`）：时间锚点在起床、出门、午餐、晚餐、就寝之外另有可为 null 的下班 `leave_work` 与到家 `arrive_home`，故事写明固定时刻才有值；旧的结构化卡片因缺这两个必填键被拒，需重新编译。
-当前新建运行使用其中的卡片和由口味计算的内容与游戏口味权重（排序信号，并按下限偏好调节实际缓解），不会把整份产物写回场景，
+
 也不会自动把 `world_dynamics` 替换到现有身体或动机参数。可用的参数调整入口见[规则配置](rules.md#rules-调整世界规则与人物动机参数)。
 不要把输出 JSON 填入 `agents[].motivation`：两者是不同结构。
+
+画像对照真实登记地点、食品、app 与内容名称，习惯按关键词，媒体按五个类型标签与全部 app 名精确匹配；`tastes` 是散文，不产生数值权重。
 
 <a name="personas-预览与校验"></a>
 ## 预览与校验
@@ -230,13 +234,11 @@ worldmock profile validate \
 
 这一步也会调用模型。可执行比例必须至少为 80%；失败时根据缺失项修改表达或补充世界素材，
 素材编写见[世界素材](resources.md#resources-定义地点门店供给与世界素材)。默认覆盖率报告会写在场景旁，示例用 `--coverage-out` 显式指定位置。
-命中规则：习惯反应与生活活动名或场景地名互为子串，饮食喜好与正餐名或可进食商品名互为子串，
-内容题材须与内容语料条目的某个 `genre` 完全相同；媒介须与场景里内容、游戏的品类词（如「电影」「播客」）完全相同，
-或与场景 `phone_simulation_config` 里有执行证据的 App 名完全相同。App 名不以子串给习惯或题材算命中，
-「B站视频」不会因为有「B站」这个 App 而算覆盖。
+覆盖率目标由登记目录与语料确定：习惯反应对生活活动名和地点名按关键词匹配，饮食喜好对食品名称匹配，媒体只精确匹配 `文章`、`图文`、`短视频`、`长视频`、`实况` 五个类型标签及全部 app 名称。
+不读取内容题材或手机配置，不把 app 名子串当作习惯反应命中；`missing[].kind` 仅 `habit_response`、`food_preference`、`media`。阈值 `0.8` 不变，报告缺项、可执行比例与实际目标集，运行低覆盖只警告。
 
 `profile validate` 与 `worldmock validate` 还按新建运行的同一规则计算运行输入警告，逐条写到标准错误流，
-格式为 `Input warning <警告码> (agent <人物编号>): <说明>`；说明里列出核对所用的原值，例如卡片题材与场景最常见的题材。
+格式为 `Input warning <警告码> (agent <人物编号>): <说明>`；说明里列出核对所用的原值，例如实际作息覆盖值和目录绑定目标。
 `worldmock validate` 另把它们列在输出 JSON 的 `input_warnings` 里，见[运行配置](runtime.md#runtime-从校验到新建运行)。
 与人物有关的警告码见下方常见错误。警告本身不让校验失败；覆盖率低于 80% 时校验仍然失败（先写出警告），
 新建运行对同样的卡片只记 `COVERAGE_BELOW_THRESHOLD` 警告，照常运行。
@@ -251,10 +253,8 @@ worldmock profile validate \
 | 故事里有朋友，运行时却无法联系 | 补齐 `contacts` 和渠道；故事不会创建世界对象 |
 | 改了故事中的余额或睡眠，实际数值没变化 | 同步修改对应结构化字段 |
 | 画像编译留下警告（`PERSONA_AGREEMENT_LOW`：三次一致性偏低，或下班、到家时刻与出门、就寝先后冲突而被置为 null）或卡片超过预算 | 缩小矛盾描述，减少重复关系和过多兴趣，再编译检查；下班、到家被置为 null 时，照警告原文把正文里的钟点改成与出门、就寝不冲突的写法 |
-| `PERSONA_COVERAGE_FAILED: executable_ratio=… below 0.8` | 覆盖率不足，校验失败（此前已写出 `COVERAGE_BELOW_THRESHOLD`）；按 `missing` 改写正文或补充世界素材，App 名子串不算命中 |
-| `Input warning TASTE_GENRES_UNMATCHED` 或 `CONTENT_WEIGHTS_ALL_ZERO` | 口味题材与场景内容的 `genre` 对不上（平台名不是题材），或人物没有正文和口味权重，观看只按下限缓解；按说明列出的场景常见题材改写口味，或为内容补题材标签 |
-| `Input warning CONTENT_EMPTY_WITH_MEDIA_TASTES` | 场景没有可看可听的内容，卡片或习惯里却有看、刷、听；补充内容，或从正文删去 |
-| `Input warning GAMES_WITHOUT_TASTE_WEIGHTS` | 人物没有正文，因而没有游戏的口味权重，游戏只按下限缓解；需要口味时补写 `background_story` |
+| `PERSONA_COVERAGE_FAILED: executable_ratio=… below 0.8` | 覆盖率不足，校验失败（此前已写出 `COVERAGE_BELOW_THRESHOLD`）；按 `missing` 改写正文或补充世界素材，习惯不按 app 名子串命中，媒体按完整 app 名和类型标签匹配 |
+| `Input warning CONTENT_EMPTY_WITH_MEDIA_TASTES` | 没有任何 app 绑定内容，卡片或习惯里却有看、刷、听；补充内容，或从正文删去 |
 | `Input warning CARD_FIELD_OVERRIDDEN` | 场景写出的作息与正文抽取的不同，人设层已取场景值；有意如此可以保留，否则让正文与场景一致 |
 | `Input warning CARD_FIELD_CONFLICT` | 场景窗口与卡片其余锚点先后冲突或不在 0.5 小时格点，人设层保留了卡片值；调整该窗口或正文作息 |
 | 旧字段被拒绝 | `occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 和 `entertainment_preferences` 不能作为人物顶层配置；对应内容写入正文 |
@@ -262,9 +262,11 @@ worldmock profile validate \
 详细限制见[人物卡片合同](../CONTRACTS.md#contracts-人格与卡片字段)、
 [画像规格](../dev/SPEC-life-realism.md#spec-life-realism-画像编译)和[人物配置加载器](../../src/worldmock/life/scenario.py)。
 
+运行警告只有六个码；无内容警告的 `details` 为 `media` 与 `habits`，不保留口味或游戏权重字段。覆盖率失败时核对目录食品名、习惯关键词、五个内容标签与全部 app 名。
+
 <a name="personas-习惯的行为核验目标"></a>
 ## 习惯的行为核验目标
 
-每条正式人设习惯以明确的对象、方式、地点、库存与通知夹具验证完整动作链。
-关键词覆盖率不证明行为可执行。运行仍记录覆盖率警告，正式发布另外通过行为门禁；
-做饭必须有真实食材包到正餐的库存转换，人物自述不能创建饭菜。
+每条正式人物习惯以明确食品、方式、地点、app 与通知夹具验证实际动作链；关键词覆盖率不证明行为可执行。画像散文描述偏好，不能创建食品、联系人或 app 绑定。
+覆盖率目标由登记目录与语料确定：习惯反应对生活活动名和地点名按关键词匹配，饮食喜好对食品名称匹配，媒体只精确匹配 `文章`、`图文`、`短视频`、`长视频`、`实况` 五个类型标签及全部 app 名称。
+不读取内容题材或手机配置，不把 app 名子串当作习惯反应命中；`missing[].kind` 仅 `habit_response`、`food_preference`、`media`。阈值 `0.8` 不变，报告缺项、可执行比例与实际目标集，运行低覆盖只警告。

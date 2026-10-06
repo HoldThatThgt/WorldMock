@@ -83,7 +83,7 @@ def combination_issues(request: Any, names: RoutingNames) -> list[RouteIssue]:
 
 def fill_route(verb: str, way: str, written_to: str | None) -> tuple[str | None, str | None]:
     """@brief 候选的本人来源由引擎推导，只有购买或给予接受实名他人。"""
-    destination = written_to if way == GIVE_WAY or (verb == "obtain" and way != "制作") else None
+    destination = written_to if way == GIVE_WAY or verb == "obtain" else None
     return None, destination if destination != "自己" else None
 
 
@@ -117,7 +117,7 @@ def _item_errors(index: int, item: Any, names: RoutingNames) -> list[RouteIssue]
     """@brief 非购买来源必须 null，非转移去向必须 null，给予须实名他人。"""
 
     verb, options = way_verb(item.way), way_options(item.way)
-    purchase = verb == "obtain" and "制作" not in options
+    purchase = verb == "obtain"
     issues = []
     if not purchase and item.from_ is not None:
         issues.append(_issue(index, "from", item.from_, "This way requires from=null.", (None,)))

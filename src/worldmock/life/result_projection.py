@@ -55,8 +55,8 @@ def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str
 def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
     """@brief details：本次新产生的可读事实，按闭集键逐项给出，没有的键不写。"""
     payload = result.get("data") or {}
-    names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
-    places = {item.location_id: item.name for item in scenario.locations}
+    names = {item.food_id: item.name for item in scenario.foods}
+    places = {item.location_id: item.display_name for item in scenario.locations}
     details: dict[str, Any] = {}
     if payload.get("orders"):
         people = _people(scenario)
@@ -66,7 +66,7 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
                                 for order in payload["orders"]]
     if payload.get("given"):
         people = _people(scenario)
-        details["given"] = [{"product": names[item["product_id"]], "quantity": portion_phrase(item["quantity"]),
+        details["given"] = [{"product": names[item["food_id"]], "quantity": portion_phrase(item["quantity"]),
                              "recipient": people[item["recipient_id"]]} for item in payload["given"]]
     if result["status"] == "in_progress":
         details["planned"] = [{"name": item.get("name"), "duration": duration_phrase(item["planned_duration_seconds"])}
@@ -78,9 +78,6 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any
     if arrival is not None:
         details["arrival"] = {"place": places[arrival["location_id"]],
                               "access": "进入" if arrival["access_status"] == "allowed" else "没能进去"}
-    browsed = browse_results(payload)
-    if browsed:
-        details["browse_items"] = browse_labels(browsed, scenario)
     mail = _read_mail(payload, scenario)
     if mail is not None:
         details["mail"] = mail
@@ -94,26 +91,8 @@ def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [payload["activity"]] if "activity" in payload else payload.get("activities", [])
 
 
-def browse_labels(browsed: list[dict[str, Any]], scenario: RuntimeScenario) -> list[str]:
-    """@brief 浏览结果的完整标签「<门店>出售的<商品>」（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：仍只列名称，不另标
-    可得性（可得性在工具层的 available）；门店取场景的地点显示名，写法与工具层商品目标名、指名购买的标签同一来源
-    （object_labels.supply_label），离开浏览地点后可照着按名下单。
-
-    :param browsed: browse_results 取出的浏览结果（各带 items，每行是一条供给的比较行）。
-    """
-    names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
-    places = {item.location_id: item.name for item in scenario.locations}
-    return [supply_label(places[item["location_id"]], names[item["product_id"]])
-            for revealed in browsed for item in revealed.get("items", [])]
 
 
-def browse_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 结果中浏览得到的结果：单项浏览的终态在顶层 browse_result；同一请求的多项活动全部结束后，聚合终态只带各活动
-    快照，浏览结果取其中浏览活动快照完成时揭示的 revealed（进度层的 browse_items 与工具层置顶共用，每项活动只取一次）。"""
-    if "browse_result" in payload:
-        return [payload["browse_result"]]
-    return [row["data"]["revealed"] for row in payload.get("activities", [])
-            if row.get("kind") == "browse" and "revealed" in (row.get("data") or {})]
 
 
 def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, str] | None:
@@ -133,7 +112,7 @@ def _read_mail(payload: dict[str, Any], scenario: RuntimeScenario) -> dict[str, 
 def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],
               timezone_name: str) -> dict[str, Any]:
     """@brief 一个订单的公开事实：商品、份数、付款、送达地点与预计时刻（带时区 ISO）；方式是请求参数，不复述。"""
-    return {"product": names[order["product_id"]], "quantity": portion_phrase(order["quantity"]),
+    return {"product": names[order["food_id"]], "quantity": portion_phrase(order["quantity"]),
             "paid": money_phrase(order["total_price_fen"]), "destination": places[order["destination_id"]],
             "expected_at": iso_time(order["expected_at"], timezone_name)}
 
@@ -145,23 +124,8 @@ def _people(scenario: RuntimeScenario) -> dict[str, str]:
     return people
 
 
-def public_supply_row(row: dict[str, Any]) -> dict[str, Any]:
-    """@brief 保留供给比较和购买字段，来源以可回溯引用呈现，完整声明仍在原始证据。"""
-    result = {key: value for key, value in row.items() if key not in {"source", "quote", "category"}}
-    result["source"] = _source_reference(row["source"])
-    if row["quote"] is not None:
-        quote = row["quote"]
-        result["quote"] = {key: quote[key] for key in ("effective_from", "effective_to")}
-        result["quote_source"] = _source_reference(quote["source"])
-    else:
-        result["quote"] = None
-        result["quote_source"] = None
-    return result
 
 
-def _source_reference(source: dict[str, Any]) -> dict[str, Any]:
-    """@brief 模型只需区分事实和假设并引用来源，许可全文随运行及导出清单保留。"""
-    return {"kind": source["kind"], "reference": source["url"], "fact_cutoff": source["fact_cutoff"]}
 
 
 def _public_review(review: dict[str, Any]) -> dict[str, Any]:

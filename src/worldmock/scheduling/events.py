@@ -30,9 +30,6 @@ class ScheduledKind(StrEnum):
     CALENDAR_FLAG = "calendar_flag"
     BILL_DUE = "bill_due"
     PAYROLL = "payroll"
-    PRICE_CHANGE = "price_change"
-    SUPPLY_QUOTE_CHANGE = "supply_quote_change"
-    PRODUCT_RELEASE = "product_release"
     #: 联系人回复的预排送达（docs/CONTRACTS.md#contracts-worldmock-接口合同「联系人回复」）：到期写入收件箱并以 message_arrival 唤醒。
     MESSAGE_ARRIVAL = "message_arrival"
 

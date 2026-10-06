@@ -1,7 +1,7 @@
 <a name="io-formats-worldmock-产品设计说明书-输入输出格式"></a>
 # WorldMock 产品设计说明书 — 输入输出格式
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「WorldState（世界状态）、AgentState（人物状态）、ActivityState（活动状态）、当前工具请求、查询与错误格式、职责与边界」（阶段 1）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「WorldState（世界状态）、AgentState（人物状态）、ActivityState（活动状态）、当前工具请求、查询与错误格式、职责与边界」（阶段 1）；「1.1 职责与边界」（阶段 3）。
 
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D9 作业），已随代码落地到阶段 1–4<br>
@@ -39,6 +39,8 @@
 
 世界、人物与活动状态由当前严格模型定义，事件、素材、检查点、导出与质量报告归[记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)，LabelKit 产物归[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)。
 环境通过统一七份目录与 `environment_identity` 登记对象和绑定。不存在独立品类契约、交换规则 JSON 或原生对象增量接口；分类、资源定义和算子归 `worldmock.exchange`。字段与登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
+
+食品、店铺与固定价格属于只读目录；实际订单、食品持有和消费属于世界状态与事件，不将店铺库存输出绑定到资源定义。消费请求 `product_id` 保留，事件和核验经历使用 `food_id` 与类别。
 
 <a name="io-formats-与其他模块的关系"></a>
 ### 1.2 与其他模块的关系
@@ -493,3 +495,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「3.2 AgentState」的 `same_moment_stage` 注明 `resume_or_conclude` 与 `conclude_only` 只留在闭集中、现行阶梯不再进入（到达上限时有待收尾进入 `conclude_pending`，没有进行中也没有待收尾时进入 `start_or_resume`）；名额说明改为进行中与待收尾的活动各占一个，暂停的不占，`pause_activity` 让出名额；不新增状态字段，世界结构仍为 9；文件头增该规格修订说明，版本改为 v1.23 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「3.2 AgentState」的 `occupied_resources` 与「3.4 ActivityState」的 `resource_claims` 占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（播客只占 `watch`，其余观看另占 `screen`）；字段形状不变，世界结构仍为 9，带旧占用名的检查点恢复时与注册表核对不符而拒绝 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |

@@ -18,7 +18,6 @@ from tests.profile.conftest import make_card, make_window
 def _targets():
     return CoverageTargets(
         habit_response_keywords=("慢跑", "读几页小说"),
-        content_genres=("悬疑", "纪录片"),
         food_kinds=("川菜", "面食"),
         media_kinds=("长视频", "短视频"),
     )
@@ -29,7 +28,7 @@ def test_full_coverage_passes():
     assert report.passed is True
     assert report.executable_ratio == 1.0
     assert report.missing == ()
-    assert report.total_items == 2 + 2 + 2 + 2  # habits + genres + foods + media
+    assert report.total_items == 2 + 2 + 2  # 习惯、食品与媒介
     require_coverage(report)  # 不抛
 
 
@@ -39,10 +38,10 @@ def test_below_threshold_rejected_with_missing_items():
                                    food_preferences=("川菜", "意式"),
                                    media=("播客", "广播剧")))
     report = validate_coverage(card, _targets())
-    assert report.total_items == 8 and report.covered_items == 4
+    assert report.total_items == 6 and report.covered_items == 3
     assert report.executable_ratio == pytest.approx(0.5, abs=1e-4)
     assert report.passed is False
-    assert [item.value for item in report.missing] == ["武侠", "意式", "播客", "广播剧"]
+    assert [item.value for item in report.missing] == ["意式", "播客", "广播剧"]
     with pytest.raises(PersonaCoverageError, match="PERSONA_COVERAGE_FAILED.*播客"):
         require_coverage(report)
 
@@ -52,7 +51,7 @@ def test_threshold_boundary_passes_at_exactly_80_percent():
     card = make_card(
         habits=(HabitSignature(trigger="下班到家", response="公园慢跑半小时",
                                time_window=make_window(19.0, 20.0)),),
-        tastes=Tastes(content_genres=("悬疑",), food_preferences=("川菜",),
+        tastes=Tastes(content_genres=("悬疑",), food_preferences=("川菜", "面食"),
                       media=("长视频", "未知媒介")))
     report = validate_coverage(card, _targets())
     assert report.total_items == 5 and report.covered_items == 4
@@ -66,7 +65,7 @@ def test_habit_response_keyword_substring_matching():
         trigger="下班到家", response="公园慢跑半小时",
         time_window=make_window(19.0, 20.0)),))
     report = validate_coverage(card, _targets())
-    assert report.covered_items == 1 + 2 + 2 + 2
+    assert report.covered_items == 1 + 2 + 2
     card_miss = make_card(habits=(HabitSignature(
         trigger="下班到家", response="冥想二十分钟",
         time_window=make_window(19.0, 20.0)),))
@@ -82,14 +81,14 @@ def test_app_name_substrings_no_longer_count_as_coverage_hits():
     card = make_card(
         habits=(HabitSignature(trigger="睡前", response="刷B站", time_window=make_window(22.0, 24.0)),),
         tastes=Tastes(content_genres=("B站视频",), food_preferences=("川菜",), media=("B站",)))
-    targets = CoverageTargets(habit_response_keywords=("慢跑",), content_genres=("剧情",), food_kinds=("川菜",),
+    targets = CoverageTargets(habit_response_keywords=("慢跑",), food_kinds=("川菜",),
                               app_names=("B站", "哔哩哔哩"))
 
     report = validate_coverage(card, targets)
 
     assert [(item.kind, item.value) for item in report.missing] == [
-        ("habit_response", "刷B站"), ("content_genre", "B站视频")]
-    assert report.covered_items == 2 and report.executable_ratio == 0.5 and report.passed is False
+        ("habit_response", "刷B站")]
+    assert report.covered_items == 2 and report.executable_ratio == 0.6667 and report.passed is False
     assert validate_coverage(make_card(habits=(), tastes=Tastes(
         content_genres=(), food_preferences=(), media=("哔哩哔哩",))), targets).passed is True
 
@@ -108,3 +107,15 @@ def test_report_serializes_to_coverage_json_shape():
     payload = validate_coverage(make_card(), _targets()).model_dump()
     assert set(payload) == {"schema_version", "total_items", "covered_items",
                             "executable_ratio", "passed", "missing"}
+
+
+def test_content_genres_stay_prose_and_do_not_enter_coverage():
+    """@brief 卡片题材原样保留，但覆盖目标严格拒绝旧题材字段。"""
+    from pydantic import ValidationError
+
+    card = make_card(habits=(), tastes=Tastes(content_genres=("未知散文题材",), food_preferences=(), media=()))
+    report = validate_coverage(card, CoverageTargets())
+    assert card.tastes.content_genres == ("未知散文题材",)
+    assert report.total_items == 0 and report.passed and report.missing == ()
+    with pytest.raises(ValidationError, match="content_genres"):
+        CoverageTargets.model_validate({"content_genres": ["旧题材"]})

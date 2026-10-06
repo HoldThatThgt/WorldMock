@@ -97,20 +97,24 @@ def validate_persona_coverage(scenario_path: Path, *,
     """
 
     from worldmock import run_setup
+    from worldmock.life.semantics import resolve_catalog_dir
+    from worldmock.life.world_setup import load_runtime_scenario
     from worldmock.catalog.loader import load_catalog
-    from worldmock.life.world_setup import load_scenario
     from worldmock.profile import coverage_targets
     from worldmock.profile.coverage import require_coverage, validate_coverage
 
-    scenario = _scenario if _scenario is not None else load_scenario(
-        Path(scenario_path).resolve())[0]
+    if _scenario is None:
+        semantics, _ = load_runtime_scenario(Path(scenario_path).resolve())
+        scenario, catalog = semantics.scenario, semantics.catalog
+    else:
+        scenario = _scenario
+        catalog = load_catalog(resolve_catalog_dir(scenario_path))
     corpus_root = _corpus_root
     if corpus_root is None:
         corpus_root = Path(scenario.corpus_root)
         if not corpus_root.is_absolute():
             corpus_root = Path(scenario_path).resolve().parent / corpus_root
-    catalog_dir = Path(scenario_path).resolve().parent.parent / "catalog"
-    targets = coverage_targets.build_coverage_targets(scenario, load_catalog(catalog_dir), corpus_root)
+    targets = coverage_targets.build_coverage_targets(scenario, catalog, corpus_root)
     compile_story = persona_compiler or _compile_persona
     compiled = {agent.agent_id: compile_story(agent.background_story)
                 for agent in scenario.agents if agent.background_story is not None}

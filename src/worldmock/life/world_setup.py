@@ -188,7 +188,7 @@ def create_world(
     """@brief 完成实际新建装配、输入身份检查和初始资金事务。"""
     from worldmock.footprints.models import EventDraft
     from worldmock.footprints.store import FootprintStore
-    from worldmock.life.state_commit import commit_state, validated_payload
+    from worldmock.life.models import validated_payload
 
     semantics, digest = load_runtime_scenario(scenario_path)
     scenario = semantics.scenario
@@ -207,7 +207,7 @@ def create_world(
         source_kind="scenario",
         data={"kind": "initial_funds_injected", "resource_changes": changes},
     )
-    commit_state(store, state, [injection])
+    store.commit(validated_payload(state), [injection])
     return semantics, digest, corpus_root, store
 
 

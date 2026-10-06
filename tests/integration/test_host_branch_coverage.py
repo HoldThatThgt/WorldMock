@@ -574,45 +574,6 @@ def test_terminate_failed_actor_preserves_double_fault(monkeypatch):
     assert [type(item) for item in caught.value.exceptions] == [ValueError, OSError]
 
 
-def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
-    """新建装配注入口味权重并完成 Society 连接（自定义模块注册真实通过）。"""
-    from types import SimpleNamespace as Namespace
-
-    import worldmock.runtime as runtime
-    from agentsociety2.config import llm_dispatcher
-    from worldmock.life import read_query_runtime
-    from worldmock.life.world_setup import load_scenario
-
-    scenario, _ = load_scenario(SCENARIO)
-    captured = {}
-    monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
-    monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(
-        runtime, "life_env_actor_class",
-        lambda: Namespace(remote=lambda spec: (captured.__setitem__("spec", spec), "actor")[1]))
-    from tests.profile.conftest import make_card
-    from worldmock.profile.models import Tastes
-
-    card = make_card(tastes=Tastes(content_genres=("剧情",), food_preferences=(), media=()))
-    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', lambda agent: card)
-
-    actor, society = _build_society(SimpleNamespace(
-        project_root=ROOT, run_dir=tmp_path / "run", run_id="identity",
-        env_kwargs={"create_options": {"same_second_continuation": True}},
-        scenario_path=SCENARIO, scenario=scenario, workspace_mode="create",
-        start_time=scenario.start_at, same_second_continuation=True))
-    assert actor == "actor"
-    assert society is not None
-    weights = captured["spec"].env_kwargs["LifeEnv"]["create_options"]["agent_taste_weights"]
-    assert set(weights) == {agent.agent_id for agent in scenario.agents}
-    games = {item.game_id for item in scenario.games}
-    for row in weights.values():
-        # 游戏与内容同一算法（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）：正式场景的 TextWorld 游戏
-        # 在题材表里没有声明，权重为 0，实际缓解走下限偏好。
-        assert row and set(row) == {item.item_id for item in scenario.contents} | games
-        assert all(0.0 <= value <= 1.0 for value in row.values())
-        assert any(value == 1.0 for value in row.values())
-        assert games and all(row[game] == 0.0 for game in games)
 
 
 def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):

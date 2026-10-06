@@ -55,7 +55,7 @@ def give(state: WorldState, scenario: RuntimeScenario, agent_id: int, binding: d
     changed = state.model_copy(update={"agents": {**state.agents, agent_id: agent.model_copy(
         update={"inventory": inventory}, deep=True)}}, deep=True)
     changed = add_holding(changed, recipient, present, (product_id, quantity))
-    return changed, {"product_id": product_id, "quantity": quantity, "recipient_id": recipient,
+    return changed, {"food_id": product_id, "quantity": quantity, "recipient_id": recipient,
                      "location_id": present}
 
 
@@ -71,7 +71,7 @@ def handover_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: int
         or any(contact.receive_location_id == here for contact in config.contacts))
     return None if together else Refusal("ACTIVITY_PRECONDITION_UNMET",
                                          "Giving requires the recipient at the same location.",
-                                         "Give the item when both people are together.", ("recipient_present",))
+                                         "Give the item when both people are together.", ())
 
 
 def _presence_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient: str) -> Refusal | None:
@@ -83,4 +83,4 @@ def _presence_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: in
     places = {item.location_id: item.name for item in scenario.locations}
     step = f"Go to {places[where]}." if where is not None else f"Give the item when you are together with {name}."
     return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Giving to {name} requires both people at the same location.",
-                   step, ("recipient_present",))
+                   step, ())

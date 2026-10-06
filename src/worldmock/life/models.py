@@ -7,7 +7,7 @@ from worldmock.life.vocabulary import way_options
 from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
 from worldmock.base_models import StrictModel, FrozenModel, CurvePoint, EfficiencyFactor
-from worldmock.errors import reject_value
+from worldmock.errors import IntegrityError, reject_value
 import logging
 import re
 from datetime import date, datetime
@@ -200,7 +200,6 @@ class ActivityKind(StrEnum):
     PLAY_GAME = "play_game"
     TRAVEL = "travel"
     READ_MAIL = "read_mail"
-    BROWSE = "browse"
     CONSUME = "consume"
     # 生活活动（corpora/lifestyle/）经 lifestyle:<activity_id> 子类型机制提交：
     # kind 统一为 LIFESTYLE，具体条目放在 target_id，MET 按 lifestyle 键查表。
@@ -757,7 +756,6 @@ _TARGETED_ACTIVITY_KINDS = frozenset({
     ActivityKind.WATCH,
     ActivityKind.PLAY_GAME,
     ActivityKind.READ_MAIL,
-    ActivityKind.BROWSE,
     ActivityKind.LIFESTYLE,
 })
 
@@ -1525,3 +1523,19 @@ def _validate_deepseek_object(value: dict[str, Any], path: str) -> None:
         raise ValueError(f"DeepSeek strict object properties are not all required at {path}")
     if value.get("additionalProperties") is not False:
         raise ValueError(f"DeepSeek strict object is not closed at {path}")
+
+
+def validated_payload(state: WorldState) -> dict:
+    """@brief 序列化并按加载口径复校世界状态，域不变量违规即拒绝。
+
+    @param state 待写入的世界状态实例
+    @return 已通过 WorldState.model_validate 复校的 JSON 载荷
+    @exception IntegrityError 五条域不变量任一不成立
+    """
+    payload = state.model_dump(mode="json")
+    try:
+        WorldState.model_validate(payload)
+    except ValueError as error:
+        raise IntegrityError(
+            f"World state invariant violated before persisting: {error}") from error
+    return payload

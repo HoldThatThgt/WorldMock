@@ -18,7 +18,7 @@ models、名称解析与错误合同，models.py 从不导入本模块。
   （唤醒原因 errand_reminder_due）；deliver_reminders 在为清醒人物提供决策机会的边界把全部已到点的事务一并交付，每条
   记下提醒时刻、写一条人物可见的 errand_reminded，事务的其余状态不变。
 - 完成依据与结算（2.4）：evidence_rows 是读取结算证据的唯一一处（动作结果顶层的已送达订单与当面给予、配送送达事件的
-  新入库行、活动进度的食用量与制作产出），settle 每次提交恰好调用一次，按草稿先后把证据累加到同一（结果种类，商品）的
+  新入库行、活动进度的实际食用量），settle 每次提交恰好调用一次，按草稿先后把证据累加到同一（结果种类，商品）的
   未完成事务，达到数量减容差即移出并写办成事件，否则写进展事件；两种事件只经 caused_by 关联证据草稿（2.7）。
 """
 
@@ -248,11 +248,10 @@ def evidence_rows(event_type: str, agent_id: int | None, data: Mapping[str, Any]
       给予，按收货人归属；不读并行开始时逐项结果 activity_results 里的同一订单，也不读受理事件 action_accepted。
     - delivery_arrival 环境事件：本次新送达的入库行 inventory_changes（重复到期的订单不再有入库行），经订单身份取该订单的
       收货人——事件的人物字段是付款人。
-    - activity_progress 的 consumption：食用时每件本区间的实际食用量，制作完整结束时库存转换的产出，都归本人并带结算区间
-      的起点。
-    收货人是联系人时没有行；下单受理、未送达订单、活动开始、制作未完成、目标推进与任何自述都不产生行。
+    - activity_progress 的 consumption：食用时每件本区间的实际食用量，归本人并带结算区间的起点。
+    收货人是联系人时没有行；下单受理、未送达订单、活动开始、目标推进与任何自述都不产生行。
 
-    :param agent_id: 事件的人物字段（只用于活动进度：进食与制作归本人；取得类证据按收货人归属，不看它）。
+    :param agent_id: 事件的人物字段（只用于活动进度：进食归本人；取得类证据按收货人归属，不看它）。
     """
     if event_type == "action_result":
         return [] if data.get("reused") else _handed(data.get("data") or {})
@@ -557,14 +556,14 @@ def _handed(payload: Mapping[str, Any]) -> list[Evidence]:
     orders = payload.get("orders", [])
     handed = [order for order in orders if order["status"] == "delivered"]
     handed += payload.get("given", [])
-    return [row for item in handed for row in _obtained(item["recipient_id"], item["product_id"], item["quantity"])]
+    return [row for item in handed for row in _obtained(item["recipient_id"], item["food_id"], item["quantity"])]
 
 
 def _arrived(data: Mapping[str, Any]) -> list[Evidence]:
     """@brief 配送送达事件里本次新送达的入库行，每行经订单身份取该订单的收货人。"""
     recipients = {order["order_id"]: order["recipient_id"] for order in data.get("orders", [])}
     return [row for change in data.get("inventory_changes", [])
-            for row in _obtained(recipients[change["order_id"]], change["product_id"], change["quantity"])]
+            for row in _obtained(recipients[change["order_id"]], change["food_id"], change["quantity"])]
 
 
 def _obtained(recipient_id: str, product_id: str, quantity: float) -> list[Evidence]:
@@ -575,17 +574,11 @@ def _obtained(recipient_id: str, product_id: str, quantity: float) -> list[Evide
 
 
 def _consumed(agent_id: int, data: Mapping[str, Any]) -> list[Evidence]:
-    """@brief 本人活动进度结算（data 为 activity_progress 的 data）的消费证据：食用时每件本区间大于零的实际食用量；制作完整
-    结束时库存转换的产出（output_quantity 为数字串）。都带本结算区间的起点。"""
+    """@brief 本人活动进度的消费证据：食品本区间大于零的实际份量，带本结算区间的起点。"""
     consumption, start = data["consumption"], data["interval_start"]
     eaten = consumption["items"] if consumption["use_mode"] == "eat" else []
-    rows = [Evidence(agent_id, _EAT, item["product_id"], item["interval_quantity"], start)
-            for item in eaten if item["interval_quantity"] > 0]
-    transform = consumption.get("inventory_transform")
-    if transform is not None:
-        rows.append(Evidence(agent_id, _OBTAIN, transform["output_object_id"], float(transform["output_quantity"]),
-                             start))
-    return rows
+    return [Evidence(agent_id, _EAT, item["food_id"], item["interval_portion"], start)
+            for item in eaten if item["interval_portion"] > 0]
 
 
 def _matched(errands: Mapping[str, ErrandState], row: Evidence) -> ErrandState | None:

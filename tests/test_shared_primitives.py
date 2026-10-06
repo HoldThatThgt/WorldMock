@@ -15,8 +15,8 @@ import pytest
 from pydantic import Field, ValidationError
 
 from worldmock.base_models import CurvePoint, DeepFrozenModel, EfficiencyFactor, FrozenModel
-from worldmock.categories.common import CategoryError
-from worldmock.categories.identity import _read_content_file
+from worldmock.catalog.errors import RegistrationError
+from worldmock.catalog.identity import read_catalog_file
 from worldmock.corpora.manifest import _validate_entry, safe_file
 from worldmock.errors import IntegrityError, ProtocolError, reject_value
 from worldmock.evaluation import behavior_metrics, goal_metrics, workload_metrics
@@ -25,9 +25,8 @@ from worldmock.footprints.timeline_labels import _load_render_day
 from worldmock.footprints.intervals import body_settlements, valid_interval
 from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
 from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days
-from worldmock.life import content, day_planning, map_data, memory_evidence, work_review
+from worldmock.life import content, day_planning, memory_evidence, work_review
 from worldmock.model_feedback import schema_error_details
-from worldmock.profile.coverage_apps import verified_phone_config
 
 
 def _body(start, end, agent=1):
@@ -84,13 +83,13 @@ def _reject_root_contained_reference(root, relative, payload, consumer):
     entry = SimpleNamespace(path=relative, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     operations = {'safe_file': (lambda: safe_file(root, relative, 'consumer path rejected'), 'consumer path rejected'),
                   'corpus': (lambda: _validate_entry(root, entry), 'Corpus entry path is invalid'),
-                  'map': (lambda: map_data._read_file(root, entry), 'Map file path is invalid')}
+                  'catalog': (lambda: read_catalog_file(root, relative), 'ENVIRONMENT_IDENTITY_MISMATCH:.* Catalog file path is invalid')}
     operation, message = operations[consumer]
     with pytest.raises(IntegrityError, match=f'^{message}$'):
         operation()
 
 
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
 def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(tmp_path, consumer):
     root = tmp_path / 'corpus'
     root.mkdir()
@@ -101,12 +100,12 @@ def test_safe_file_consumers_reject_parent_reference_that_resolves_inside_root(t
     assert (root / relative).resolve() == root / 'normal.json'
     normal = SimpleNamespace(path='normal.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     _validate_entry(root, normal)
-    assert map_data._read_file(root, normal) == {'normal': True}
+    assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, relative, payload, consumer)
 
 
 @pytest.mark.parametrize('link_kind', ['file', 'directory'])
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
 def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, monkeypatch, link_kind, consumer):
     root = tmp_path / 'corpus'
     root.mkdir()
@@ -135,11 +134,11 @@ def test_safe_file_consumers_reject_symlink_that_resolves_inside_root(tmp_path, 
     normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(),
                              size_bytes=len(payload))
     _validate_entry(root, normal)
-    assert map_data._read_file(root, normal) == {'normal': True}
+    assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, relative, payload, consumer)
 
 
-@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'map'])
+@pytest.mark.parametrize('consumer', ['safe_file', 'corpus', 'catalog'])
 def test_safe_file_consumers_reject_directory_junction_that_resolves_inside_root(tmp_path, monkeypatch, consumer):
     """Windows 目录联接不是符号链接（is_symlink 为假），但同样是链接组件，即使解析后仍在根内也拒绝。"""
     root = tmp_path / 'corpus'
@@ -163,7 +162,7 @@ def test_safe_file_consumers_reject_directory_junction_that_resolves_inside_root
     normal = SimpleNamespace(path='normal/file.json', sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
     assert safe_file(root, 'normal/file.json', 'consumer path rejected').read_bytes() == payload
     _validate_entry(root, normal)
-    assert map_data._read_file(root, normal) == {'normal': True}
+    assert read_catalog_file(root, normal.path) == payload
     _reject_root_contained_reference(root, 'alias/file.json', payload, consumer)
 
 
@@ -188,16 +187,14 @@ def test_original_safe_file_consumers_reject_symlink_before_hash_or_schema(tmp_p
         original = Path.is_symlink
         monkeypatch.setattr(Path, 'is_symlink', lambda path: path in unavailable or original(path))
     entry = SimpleNamespace(path='content.json', sha256='0'*64, size_bytes=2)
-    scenario = SimpleNamespace(phone_simulation_config='content.json', phone_simulation_config_sha256='0'*64)
-    for operation in (lambda: _validate_entry(root, entry), lambda: map_data._read_file(root, entry),
-                      lambda: verified_phone_config(scenario, root), lambda: content.load_lifestyle_items(root, {})):
+    for operation in (lambda: _validate_entry(root, entry), lambda: content.load_lifestyle_items(root, {})):
         with pytest.raises(IntegrityError, match='path is invalid'):
             operation()
     caplog.clear()
-    with pytest.raises(CategoryError, match='CATALOG_IDENTITY_READ_FAILED'):
-        _read_content_file(root, 'content.json')
+    with pytest.raises(RegistrationError, match='ENVIRONMENT_IDENTITY_MISMATCH'):
+        read_catalog_file(root, 'content.json')
     assert len(caplog.records) == 1
-    assert 'CATALOG_IDENTITY_READ_FAILED' in caplog.records[0].message
+    assert 'ENVIRONMENT_IDENTITY_MISMATCH' in caplog.records[0].message
 
 
 def test_safe_file_rejects_parent_symlink_and_accepts_normal_file(tmp_path, monkeypatch):

@@ -60,10 +60,10 @@ def _local(text: str, timezone: str = _SHANGHAI) -> int:
 
 
 def test_duty_edge_members_follow_errand_reminder_due_and_stay_out_of_sleep() -> None:
-    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，闭集由 21 个增到 25 个；
+    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，营业原因退役后闭集为 24 个；
     DUTY_EDGE_REASONS 就是这四个、按声明次序；四个都不在睡眠允许集合里，睡眠允许集合仍恰为四项。"""
     names = [member.value for member in WakeReason]
-    assert len(names) == 25
+    assert len(names) == 24
     assert names[names.index("errand_reminder_due") + 1:] == ["shift_start", "shift_end", "break_start", "break_end"]
     assert DUTY_EDGE_REASONS == (_START, _END, _BREAK_START, _BREAK_END)
     assert not set(DUTY_EDGE_REASONS) & SLEEP_ALLOWED_REASONS

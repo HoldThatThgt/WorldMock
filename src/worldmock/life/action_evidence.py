@@ -100,8 +100,7 @@ def _activity_terminal_result(activity, occurred_at: int,
                         status=statuses[activity.status], occurred_at=occurred_at,
                         activity_id=activity.activity_id, message=messages[activity.status],
                         error_code=activity.interruption_reason if activity.status == ActivityStatus.FAILED else None,
-                        data={"activity": snapshot, **({"browse_result": activity.data["revealed"]}
-                              if activity.kind == ActivityKind.BROWSE and "revealed" in activity.data else {})})
+                        data={"activity": snapshot})
 
 
 def _activity_terminal_draft(activity, occurred_at: int,

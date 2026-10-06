@@ -160,10 +160,9 @@ _STAGE2_CANDIDATE_TIME_TESTS = [
 #: 新成员、写入校验与冻结名称由阶段 1 登记在同一行。末项为阶段 9 补登：discovery_result 保留在闭集中而不产生，
 #: 浏览结果随浏览结束回灌到随后的观察（第一章规则 6，验收标准测试矩阵「决策节律」行）。
 _STAGE2_WAKE_VOCABULARY_TESTS = [
-    "tests/life/test_wake_reasons.py::test_activity_infeasible_has_no_source_and_threat_only_from_deadline_or_closing",
+    "tests/life/test_wake_reasons.py::test_activity_infeasible_has_no_source_and_threat_only_from_deadline",
     "tests/life/test_wake_reasons.py::test_zero_energy_during_activity_raises_neither_infeasible_nor_threat",
     "tests/life/test_wake_reasons.py::test_engine_schedules_exact_task_warning_and_appends_threat_reason",
-    "tests/life/test_wake_reasons.py::test_engine_schedules_closing_warning_only_for_local_task",
     "tests/life/test_wake_reasons.py::test_browse_results_return_in_observation_never_as_discovery_result",
 ]
 

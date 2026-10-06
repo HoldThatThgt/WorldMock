@@ -24,25 +24,21 @@ from worldmock.life.semantics import ScenarioSemantics
 _LOGGER = logging.getLogger(__name__)
 
 
-def order_requests(state: WorldState, semantics: ScenarioSemantics, supplies: Mapping[str, Any],
+def order_requests(state: WorldState, semantics: ScenarioSemantics,
                    agent_id: int, bindings: list[dict]) -> list[PurchaseOrderRequest]:
-    """@brief 各取得项（已写上去向的绑定行）按收货地拆成的整单请求，保持请求中的先后。
-
-    :raises BusinessRuleError: FULFILLMENT_NOT_SUPPORTED、SUPPLY_QUOTE_UNKNOWN，或送不到收货人那里的
-        ACTIVITY_PRECONDITION_UNMET。
-    """
+    """@brief 将实际食品绑定按收货地点和 app 来源组成请求，每单保持原食品行。"""
     modes = {item["selected_action"].get("fulfillment") for item in bindings}
     if len(modes) != 1 or modes.pop() not in {"pickup", "delivery"}:
         _LOGGER.error("Purchase fulfillment selection is invalid")
         raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
     fulfillment = bindings[0]["selected_action"]["fulfillment"]
-    destinations = [_destination(state, semantics, agent_id, (item, supplies[item["object_id"]]), fulfillment)
-                    for item in bindings]
-    groups: dict[str, list[PurchaseItem]] = {}
-    for binding, destination in zip(bindings, destinations):
-        groups.setdefault(destination, []).append(_item(binding))
-    return [PurchaseOrderRequest(items=tuple(items), fulfillment=fulfillment, destination_id=destination)
-            for destination, items in groups.items()]
+    groups: dict[tuple[str, str | None], list[PurchaseItem]] = {}
+    for binding in bindings:
+        destination = _destination(state, semantics, agent_id, binding, fulfillment)
+        app_id = binding.get("app_id") if fulfillment == "delivery" else None
+        groups.setdefault((destination, app_id), []).append(_item(binding))
+    return [PurchaseOrderRequest(items=tuple(items), fulfillment=fulfillment, destination_id=destination,
+                                  app_id=app_id) for (destination, app_id), items in groups.items()]
 
 
 def merged_result(results: list[ActionResult], answering: str | None) -> ActionResult:
@@ -57,30 +53,23 @@ def merged_result(results: list[ActionResult], answering: str | None) -> ActionR
         data.update({"orders": [order for result in results for order in result.data["orders"]],
                      "total_price_fen": sum(result.data["total_price_fen"] for result in results),
                      "inventory_changes": [row for result in results for row in result.data["inventory_changes"]],
-                     "category_matches": [row for result in results for row in result.data["category_matches"]],
                      "resource_changes": changes})
     if answering is not None:
         data["answering"] = answering
     return results[0].model_copy(update={"data": data})
 
 
-def _destination(state: WorldState, semantics: ScenarioSemantics, agent_id: int, pair: tuple[dict, Any],
+def _destination(state: WorldState, semantics: ScenarioSemantics, agent_id: int, binding: dict,
                  fulfillment: str) -> str:
-    """@brief 一项的收货地：本人到店要在店里；收货人是自己时取当前地点，是别人时取其收货地点并核对送得到。"""
-    binding, supply = pair
-    agent = state.agents[agent_id]
-    valid = (supply.location_id == present_location(state, agent_id) and "pickup" in supply.fulfillment_modes
-             if fulfillment == "pickup" else "delivery" in supply.fulfillment_modes)
+    """@brief 取实际收货人的地点，途中自送和不同处的到店收货明确拒绝。"""
     recipient = binding["recipient_id"]
-    if not valid:
-        _LOGGER.error("Selected supplies cannot use the chosen fulfillment")
-        raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
-    if recipient == agent_identity(agent_id):
-        return agent.location_id
     place = recipient_location(state, semantics.scenario, agent_id, recipient)
-    receivable = place == supply.location_id if fulfillment == "pickup" else place is not None
-    if not receivable:
-        _LOGGER.error("Purchase recipient cannot receive goods from the selected supply")
+    if recipient == agent_identity(agent_id) and place is None:
+        _LOGGER.error("Self delivery has no receiving location during travel")
+        raise guided("ACTIVITY_PRECONDITION_UNMET", "Place the order before departing or after arriving.",
+                      "Wait until you arrive, then place the order.", ("delivery_destination",))
+    if place is None or fulfillment == "pickup" and place != binding["store_id"]:
+        _LOGGER.error("Purchase recipient cannot receive the selected food")
         raise undeliverable(state, semantics.scenario, agent_id, recipient)
     return place
 
@@ -93,14 +82,10 @@ def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int,
     """
     name = person_name(state, scenario, agent_id, recipient_id)
     return guided("ACTIVITY_PRECONDITION_UNMET", f"{name} currently has no eligible receiving location.",
-                  "Receive the item at your current location, then give it in person.", ("recipient_present",))
+                  "Receive the item at your current location, then give it in person.")
 
 
 def _item(binding: dict) -> PurchaseItem:
-    """@brief 一项取得的整单条目：冻结报价版本、单件、收货人与所回应的消息。"""
-    quote = binding.get("quote")
-    if not isinstance(quote, dict) or not quote.get("price_version"):
-        _LOGGER.error("Frozen supply quote is unavailable")
-        raise BusinessRuleError("SUPPLY_QUOTE_UNKNOWN")
-    return PurchaseItem(supply_id=binding["object_id"], quantity=1, price_version=quote["price_version"],
+    """@brief 用实际门店、食品和消息关联形成单件订单行。"""
+    return PurchaseItem(store_id=binding["store_id"], food_id=binding["food_id"], quantity=1,
                         recipient_id=binding["recipient_id"], request_message_id=binding.get("request_message_id"))

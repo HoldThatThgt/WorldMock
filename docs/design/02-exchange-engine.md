@@ -1,7 +1,7 @@
 <a name="exchange-engine-worldmock-产品设计说明书-交换引擎"></a>
 # WorldMock 产品设计说明书 — 交换引擎
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「维护交换规则、注册表登记什么、新增状态资源、对象或语料、修改与删除、查询适用规则、交换规则的加载与准入、系统固定类型与常数、交换对象与资源变化声明、可供性与活动声明、校验交换条件、门店供给的时态与履约判断、资源变化的计算、不同交换的计算依据、校验资源分录、食品交换的规则调用、实现职责与证据入口、当前差距、分阶段验证与完成条件、纯规则与执行职责、项目框架映射、与其他引擎的职责边界」（阶段 1）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「维护交换规则、注册表登记什么、新增状态资源、对象或语料、修改与删除、查询适用规则、交换规则的加载与准入、系统固定类型与常数、交换对象与资源变化声明、可供性与活动声明、校验交换条件、门店供给的时态与履约判断、资源变化的计算、不同交换的计算依据、校验资源分录、食品交换的规则调用、实现职责与证据入口、当前差距、分阶段验证与完成条件、纯规则与执行职责、项目框架映射、与其他引擎的职责边界」（阶段 1）；「返回规则结果」（阶段 3）。
 
 
 > **状态**：DRAFT；接口与行为以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 EX1），已实现<br>
@@ -183,13 +183,12 @@ flowchart LR
 
 **目的：把本次判断、计算与校验的结果交给模拟引擎。**
 结果要清楚区分“允许执行”和“根据已发生事实算出的变化”，不能把预计产出描述为完成结果。
-制作结果必须列明真实消耗、产物与数量；输入和输出的 `inventory_unit=item`，库存资源仍为 `inventory/item`。
-暂停、取消或提前结束不制造半件产物。全部接口拒绝给出英文说明，`items[]` 每项包含
+全部接口拒绝给出英文说明，`items[]` 每项包含
 `path/written/error_code/allowed_values/expected/why/candidates`；`path` 从模型工具调用根开始，保留全部数组下标，
 `why` 写参数、名称或世界前置条件的英文原因。不以笼统失败代替参数诊断，不采用旧 `index/field` 形状。
 可照填候选只用完整 `{tool, arguments, note}` 调用。
-`query_world(name, way, category, from, available_only, offset)` 读取同一冻结权限下的对象与报价事实；category 来自公开可调用索引，
-`from` 与购买请求用同一个来源解析函数（地点显示名或渠道称呼，只匹配供给条目），`available_only` 只读取冻结观察里已求得的动作与工具
+`query_world(name, way, category, from, available_only, offset)` 读取同一冻结权限下的固定食品菜单与价格；category 来自公开可调用索引，
+`from` 与购买请求用同一个来源解析函数（登记店铺显示名或 app 名，只匹配食品条目），`available_only` 只读取冻结观察里已求得的动作与工具
 `available`，不重新求值交换条件，成功仍以受理时的重验为准；以 matches/total_count/next_offset 返回可遍历的每页结果，逐项不再附候选，
 不触发交换求值副作用或呈现留痕。
 
@@ -202,6 +201,8 @@ flowchart LR
 
 模拟引擎消费这些结果，负责执行、安排履约和更新状态。交换引擎没有独立的世界状态，
 也不负责事件排队、时间推进或记录保存。
+
+食品结算结果以固定价格、类别热量、配送费与真实数量为依据；没有独立交换规则 JSON、供给报价或库存结果。实际付款、交付与消费由模拟引擎分别提交。
 
 <a name="exchange-engine-食品交换的规则调用"></a>
 #### 食品交换的规则调用
@@ -253,3 +254,4 @@ flowchart LR
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「可供性与活动声明」的两个活动名额只由进行中与待收尾的活动各占一个，暂停的不占，恢复暂停的活动要有空名额；文件头补修订说明，版本升为 v1.11；版本表并回表外的末两行 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「可供性与活动声明」的占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`，每种动作占自己的名字，只有同一种动作互斥；睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |

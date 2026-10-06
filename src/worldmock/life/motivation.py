@@ -56,11 +56,14 @@ from worldmock.life.content import (
     restarts_from_beginning,
 )
 from worldmock.base_models import FrozenModel
+from worldmock.catalog.models import Catalog
+from worldmock.exchange.constants import FOOD_CONSTANTS
+from worldmock.exchange.operators import delivery_fee_fen, delivery_seconds
+from worldmock.exchange.types import FoodCategory
+from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.life.models import (ActivityKind, ActivityState, AgentState, ContentProgress, TravelMode)
 from worldmock.life.travel import plan_trip
-from worldmock.life.opening_hours import opening_status
 from worldmock.life.retrieval import feasible_kinds
-from worldmock.life.storefront_state import effective_quote
 from worldmock.life.scenario import (
     BodyConfig,
     ContentItemConfig,
@@ -192,15 +195,11 @@ class MotivationContext:
     balance_fen: int
     body: BodyConfig
     home_location_id: str
-    products: tuple[Any, ...]
+    catalog: Catalog
+    location_ids: frozenset[str]
+    menu: InteractionMenu
     lifestyle_items: tuple[LifestyleItem, ...]
     activity_location_kinds: Mapping[str, frozenset[str]]
-    supplies: tuple[Any, ...]
-    supply_stock: Mapping[str, int]
-    supply_quotes: Mapping[str, Any]
-    opening_exceptions: Mapping[str, dict]
-    locations: Mapping[str, Any]
-    graph: Graph
     tasks: tuple[RuntimeWorkTask, ...]
     task_totals: Mapping[str, tuple[int, float]]
     #: 内容候选是品类摘要 + 每品类 top-2 采样（引擎侧 _sample_contents 装配），
@@ -216,17 +215,13 @@ class MotivationContext:
     current_time: int
     end_time: int
     timezone: str
-    purchase_amount: Callable[[str, int, int], int]
-    purchase_pairing_states: Mapping[str, str]
     #: 全量供给目录（不经浏览可见性门控）：浏览候选的存在性依据。
-    catalog_supplies: tuple[Any, ...] = ()
     #: 内容分段边界（item_id -> 各段结束秒）：娱乐候选的分段时长槽依据。
     content_segments: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     #: 品类摘要（kind -> 条目数）：观察 activity_summary 的内容段同源。
     content_category_counts: Mapping[str, int] = field(default_factory=dict)
     #: 确定性口味权重（画像编译 v2 的 taste_weights，item_id -> [0,1]；
     #: 缺省空映射=未接线，条目权重一律 0，不做 0.5 缺省抬升）。
-    taste_weights: Mapping[str, float] = field(default_factory=dict)
     #: 人物启用的生活活动闭集（None=全局启用，与 AgentConfig 语义一致）。
     lifestyle_enabled: tuple[str, ...] | None = None
     #: 近 24 小时各商品已进食次数（product_id -> n）：进食候选降权依据。
@@ -463,6 +458,8 @@ def _enumerate_candidates(context: MotivationContext,
     """
     pool: list[_Candidate] = []
     for family in _AFFORDANCES.families_by_rank():
+        if not any(_AFFORDANCES.kinds[kind].action in context.menu.allowed_actions for kind in family.kinds):
+            continue
         generator = PROTOTYPE_GENERATORS.get(family.generator)
         if generator is None:
             raise IntegrityError(
@@ -471,32 +468,6 @@ def _enumerate_candidates(context: MotivationContext,
     return pool[:MAX_CANDIDATES]
 
 
-def _browse_candidate(context: MotivationContext, params: Mapping) -> _Candidate | None:
-    """@brief 浏览候选：目录中尚有未见过商品时给出（probe_duration_seconds 速览）。
-
-    浏览是工具性动作：browse 之后商品目录对人物可见，进食候选才可
-    枚举——因此只要还有没见过的商品就保持此候选在场。
-    """
-    seen = {supply.supply_id for supply in context.supplies}
-    if not any(supply.supply_id not in seen for supply in context.catalog_supplies):
-        return None
-    duration = min(params["probe_duration_seconds"], MAX_CANDIDATE_SECONDS,
-                   context.end_time - context.current_time)
-    if duration < 60:
-        return None
-    burn = minimum_energy_cost(ActivityKind.BROWSE, duration, context.body)
-    if burn > context.agent.body.energy_kcal:
-        return None
-    hours = duration / 3600
-    return _Candidate(
-        family=FAMILY_BROWSE,
-        summary=f"Browse product catalog for {duration / 60:.0f} min",
-        reason=("Browsing the product catalog shows what nearby markets have on sale; "
-                "food choices become enumerable only after browsing"),
-        duration_seconds=duration,
-        energy_delta=-burn,
-        sleep_deficit_delta=_awake_deficit_delta(context.agent.body, hours),
-        entertainment_delta=_entertainment_accrual(context, hours))
 
 
 def _sleep_candidate(context: MotivationContext, params: Mapping) -> _Candidate | None:
@@ -531,120 +502,77 @@ def _sleep_candidate(context: MotivationContext, params: Mapping) -> _Candidate 
 
 
 def _feasible_food_rows(context: MotivationContext) -> list[tuple[Any, float, float, str]]:
-    """@brief 对持有商品和每条可见供给分别判断进食可行性，不合并门店事实。"""
-    agent = context.agent
-    efficiency = sleep.food_utilization_efficiency(agent.body.sleep_deficit_hours)
+    """@brief 枚举实际持有及固定菜单可得食品，配送价格和等待只取固定规则。"""
+    agent, catalog = context.agent, context.catalog
+    if any(activity.kind == ActivityKind.TRAVEL for activity in context.active_activities):
+        return []
     rows = []
-    for product in context.products:
-        if "eat" not in product.use_modes:
+    efficiency = sleep.food_utilization_efficiency(agent.body.sleep_deficit_hours)
+    for food in catalog.foods.values():
+        constants = FOOD_CONSTANTS[food.category]
+        burn = minimum_energy_cost(ActivityKind.CONSUME, constants.duration_seconds, context.body)
+        if constants.energy_kcal * efficiency <= burn:
             continue
-        burn = minimum_energy_cost(ActivityKind.CONSUME, int(product.use_duration_seconds), context.body)
-        if product.energy_kcal_per_unit * efficiency <= burn:
-            continue
-        holding = float(agent.inventory.get(agent.location_id, {}).get(product.product_id, 0))
-        if holding >= 1:
-            rows.append((product, 0.0, 0.0, product.product_id))
-        for supply in context.supplies:
-            if supply.product_id == product.product_id:
-                row = _food_supply_row(context, product, supply)
-                if row is not None:
-                    rows.append(row)
+        if agent.inventory.get(agent.location_id, {}).get(food.food_id, 0) >= 1:
+            rows.append((food, 0.0, 0.0, food.food_id))
+        for store_id, food_ids in catalog.foods_by_store.items():
+            if food.food_id not in food_ids or store_id not in context.location_ids:
+                continue
+            if store_id == agent.location_id:
+                price, wait = food.price_fen, 0
+            elif catalog.apps_by_store[store_id]:
+                price = food.price_fen + delivery_fee_fen()
+                wait = delivery_seconds(catalog.shortest_m(store_id, agent.location_id))
+            else:
+                continue
+            if price <= context.balance_fen:
+                rows.append((food, float(price), float(wait), f"{store_id}:{food.food_id}"))
     return rows
 
 
-def _food_supply_row(context: MotivationContext, product: Any, supply: Any):
-    """@brief 供给资格、世界报价、营业与履约使用当前冻结事实进行判断。"""
-    if context.purchase_pairing_states[product.product_id] != "defined":
-        return None
-    quote = effective_quote(context.supply_quotes[supply.supply_id], context.current_time)
-    location = context.locations[supply.location_id]
-    qualifications = set(context.agent.qualifications)
-    required = set(location.required_qualifications) | set(supply.required_qualifications)
-    price = context.purchase_amount(product.product_id, quote.price_fen, 1) if quote else None
-    if (price is None or price > context.balance_fen
-            or context.supply_stock[supply.supply_id] < 1 or not required <= qualifications):
-        return None
-    status = opening_status(location, context.current_time, context.timezone,
-                            context.opening_exceptions[location.location_id])
-    if status != "open":
-        return None
-    destination = context.agent.location_id
-    if destination == supply.location_id and "pickup" in supply.fulfillment_modes:
-        wait = 0
-    else:
-        if "delivery" not in supply.fulfillment_modes:
-            return None
-        route = _delivery_route_seconds(context, supply.location_id, destination)
-        wait = supply.delivery_delay_seconds + route
-    return product, float(price), float(wait), supply.supply_id
 
 
 def _eat_candidates(context: MotivationContext) -> list[_Candidate]:
-    """@brief 进食候选：热量门槛/缺口匹配筛选取前三（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
-
-    接受口径：热量不低于 300 kcal 的食品；全部低于门槛时按“最接近缺口的
-    正餐类食品”兜底取一条（目录 use_modes 含 eat 的商品即正餐类候选面）。
-    排序键 = |热量−能量缺口| / 感官饱足权重（近 24 小时已食用 n 次按
-    1/(1+n) 降权，Rolls 1981），再比价格、等待与身份；返回前三名。
-    """
+    """@brief 正餐只取 FoodCategory.MEAL；无可得正餐才选择最接近能量缺口的零食或饮品。"""
     rows = _feasible_food_rows(context)
     if not rows:
         return []
     gap = max(0.0, context.body.maximum_energy_kcal - context.agent.body.energy_kcal)
-    accepted = [row for row in rows if row[0].energy_kcal_per_unit >= MEAL_KCAL_FLOOR]
-    if not accepted:
-        accepted = [min(rows, key=lambda row: (abs(row[0].energy_kcal_per_unit - gap),
-                                               row[0].product_id))]
+    meals = [row for row in rows if row[0].category == FoodCategory.MEAL]
+    accepted = meals or [min(rows, key=lambda row: (abs(FOOD_CONSTANTS[row[0].category].energy_kcal - gap),
+                                                    row[0].food_id, row[3]))]
 
     def rank_key(row: tuple[Any, float, float, str]) -> tuple:
-        product, price, wait, supply_id = row
-        repeats = context.recent_meal_counts.get(product.product_id, 0)
-        return (abs(product.energy_kcal_per_unit - gap) / meal_repeat_weight(repeats),
-                price, wait, supply_id)
+        """@brief 实际类别热量缺口、近一天食用次数与真实费用决定餐候选顺序。"""
+        food, price, wait, identity = row
+        repeats = context.recent_meal_counts.get(food.food_id, 0)
+        return (abs(FOOD_CONSTANTS[food.category].energy_kcal - gap) / meal_repeat_weight(repeats),
+                price, wait, identity)
 
-    return [_eat_candidate(context, row)
-            for row in sorted(accepted, key=rank_key)[:MEAL_CANDIDATE_COUNT]]
+    return [_eat_candidate(context, row) for row in sorted(accepted, key=rank_key)[:MEAL_CANDIDATE_COUNT]]
 
 
-def _eat_candidate(context: MotivationContext,
-                   row: tuple[Any, float, float, str]) -> _Candidate:
-    """@brief 由可行行构造单个进食候选（资源流与英文理由）。"""
-    product, price, wait, supply_id = row
+def _eat_candidate(context: MotivationContext, row: tuple[Any, float, float, str]) -> _Candidate:
+    """@brief 食品候选使用固定类别热量、实际利用效率、身体上限与真实等待。"""
+    food, price, wait, identity = row
     agent = context.agent
-    duration = float(product.use_duration_seconds)
+    constants = FOOD_CONSTANTS[food.category]
+    duration = float(constants.duration_seconds)
     hours = duration / 3600
     efficiency = sleep.food_utilization_efficiency(agent.body.sleep_deficit_hours)
-    raw_gain = product.energy_kcal_per_unit * efficiency
+    gain = max(0.0, min(constants.energy_kcal * efficiency,
+                        context.body.maximum_energy_kcal - agent.body.energy_kcal))
     burn = minimum_energy_cost(ActivityKind.CONSUME, int(duration), context.body)
-    headroom = context.body.maximum_energy_kcal - agent.body.energy_kcal
-    gain = max(0.0, min(raw_gain, headroom))
     energy_delta = gain - burn
     energy_after = max(0.0, agent.body.energy_kcal + energy_delta)
-    efficiency_before = _work_efficiency_snapshot(
-        context.body, agent.body.energy_kcal, agent.body.sleep_deficit_hours,
-        agent.body.entertainment_need)
-    efficiency_after = _work_efficiency_snapshot(
-        context.body, energy_after, agent.body.sleep_deficit_hours,
-        agent.body.entertainment_need)
     prefix = "Eat held" if price == 0 else "Buy and eat"
-    return _Candidate(
-        family=FAMILY_EAT,
-        summary=f"{prefix} {product.product_id} ({supply_id})",
-        reason=(f"Eating {product.product_id} now restores energy "
-                f"{agent.body.energy_kcal:.0f}->{energy_after:.0f} kcal, work efficiency "
-                f"{efficiency_before:.2f}->{efficiency_after:.2f}"),
-        money_now_fen=-price,
-        delay_seconds=wait,
-        duration_seconds=duration,
-        energy_delta=energy_delta,
+    return _Candidate(family=FAMILY_EAT, summary=f"{prefix} {food.food_id} ({identity})",
+        reason=f"Eating {food.food_id} restores energy {agent.body.energy_kcal:.0f}->{energy_after:.0f} kcal",
+        money_now_fen=-price, delay_seconds=wait, duration_seconds=duration, energy_delta=energy_delta,
         sleep_deficit_delta=_awake_deficit_delta(agent.body, hours),
         entertainment_delta=_entertainment_accrual(context, hours))
 
 
-def _delivery_route_seconds(context: MotivationContext, origin: str,
-                            destination: str) -> int:
-    """@brief 配送驾驶时长只从登记图和固定系统规则取得。"""
-    return plan_trip(context.graph, origin, destination, TravelMode.DRIVING).duration_seconds
 
 
 def _continue_candidate(context: MotivationContext, activity: ActivityState) -> _Candidate | None:
@@ -716,8 +644,8 @@ def _entertainment_accrual(context: MotivationContext, hours: float) -> float:
 
 
 def _preference(context: MotivationContext, item_id: str) -> float:
-    """@brief 条目的原始口味权重（taste_weights 查表，缺项 0——不做 0.5 缺省抬升），只用于排序与采样。"""
-    return context.taste_weights.get(item_id, 0.0)
+    """@brief 旧娱乐消费的真实口味读点，随 app 消费者在下一阶段整体退出。"""
+    return context.agent.taste_weights.get(item_id, 0.0)
 
 
 def _entertainment_change(context: MotivationContext, relief_per_hour: float,
@@ -742,7 +670,7 @@ def _travel_candidate(context: MotivationContext, label: str,
     agent = context.agent
     if destination_id == agent.location_id:
         return None
-    plans = [(mode, plan_trip(context.graph, agent.location_id, destination_id, mode)) for mode in TravelMode]
+    plans = [(mode, plan_trip(context.catalog.graph, agent.location_id, destination_id, mode)) for mode in TravelMode]
     feasible = [(mode, trip) for mode, trip in plans if trip.fare_fen <= context.balance_fen]
     if not feasible:
         return None
@@ -854,10 +782,7 @@ def _entertainment_candidates(context: MotivationContext,
     per_kind = min(family.attention_params["per_kind"], ENTERTAINMENT_FAMILY_CAP)
     pool_cap = family.attention_params["pool_cap"]
     ranked = sorted(
-        (item for item in context.contents
-         if profile.attention_prior.get(item.kind, 0) > 0),
-        key=lambda item: (-profile.attention_prior.get(item.kind, 0)
-                          * _preference(context, item.item_id), item.item_id))
+        context.contents, key=lambda item: item.content_id)
     sampled: list = []
     taken_per_kind: dict[str, int] = {}
     for item in ranked:
@@ -959,17 +884,16 @@ def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile
     pool_cap = family.attention_params["pool_cap"]
     met_table = context.body.activity_met
     enabled = context.lifestyle_enabled
-    place = context.locations.get(context.agent.location_id)
+    place = context.catalog.locations.get(context.agent.location_id)
     if place is None:
         return []
     items = [item for item in context.lifestyle_items
              if engine_affordances().met_lookup_key("lifestyle", target_id=item.activity_id) in met_table
-             and feasible_kinds(frozenset(place.location_kinds), context.activity_location_kinds[item.activity_id])
+             and feasible_kinds(frozenset(context.catalog.location_kinds(place.kind)),
+                                context.activity_location_kinds[item.activity_id])
              and (enabled is None or item.activity_id in enabled)]
     ranked = sorted(
-        (item for item in items if profile.attention_prior.get(item.category, 0) > 0),
-        key=lambda item: (-profile.attention_prior.get(item.category, 0)
-                          * _preference(context, item.activity_id), item.activity_id))
+        items, key=lambda item: item.activity_id)
     sampled: list[LifestyleItem] = []
     taken_per_kind: dict[str, int] = {}
     for item in ranked:
@@ -1061,11 +985,6 @@ def _cheapest_route_adapter(context: MotivationContext, profile: MotivationProfi
     return [candidate] if candidate is not None else []
 
 
-def _catalog_visibility_adapter(context: MotivationContext, profile: MotivationProfile,
-                                family: FamilySpec) -> list[_Candidate]:
-    """@brief catalog_visibility 原型：目录速览候选（browse 家族）。"""
-    candidate = _browse_candidate(context, family.generator_params)
-    return [candidate] if candidate is not None else []
 
 
 def _content_menu_adapter(context: MotivationContext, profile: MotivationProfile,
@@ -1095,7 +1014,6 @@ PROTOTYPE_GENERATORS.update(
     cheapest_feasible_meal=_cheapest_feasible_meal_adapter,
     continue_current=_continue_current_adapter,
     cheapest_route=_cheapest_route_adapter,
-    catalog_visibility=_catalog_visibility_adapter,
     content_menu=_content_menu_adapter,
     task_slot=_task_slot_adapter,
 )

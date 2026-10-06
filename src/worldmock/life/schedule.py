@@ -22,7 +22,6 @@ RECONSIDERATION_INTERVAL_SECONDS = 5400
 #: 没有在手承诺时的较长重估间隔。
 IDLE_RECONSIDERATION_INTERVAL_SECONDS = 10800
 #: 当前地点的闭店预警窗口。
-CLOSING_WARNING_SECONDS = 900
 #: 可见工作任务的截止预警窗口。
 TASK_DUE_SOON_SECONDS = 1800
 #: 有序目标清单的容量上限。
@@ -49,7 +48,6 @@ class WakeReason(str, Enum):
     WORK_REVIEW_RESULT = "work_review_result"
     COMMITMENT_THREATENED = "commitment_threatened"
     RECONSIDERATION_INTERVAL = "reconsideration_interval"
-    LOCATION_HOURS_CHANGE = "location_hours_change"
     PERSON_ARRIVED = "person_arrived"
     PERSON_LEFT = "person_left"
     ACTIVITY_INFEASIBLE = "activity_infeasible"
@@ -114,7 +112,7 @@ IntentKind = Literal[
 #: 活动种类对应的评估聚合家族；计划匹配仍使用活动种类本身作为令牌。
 ACTIVITY_KIND_FAMILIES = {
     "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
-    "watch": "entertainment", "play_game": "entertainment", "browse": "entertainment",
+    "watch": "entertainment", "play_game": "entertainment",
     "read_mail": "entertainment", "wait": "rest", "chat": "social", "call": "social",
 }
 #: 冻结生活活动品类对应的聚合家族；评估中的外出并入通勤规则由报告自身声明。
@@ -142,7 +140,7 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
     "工作": frozenset({"work"}),
     "用餐": frozenset({"consume"}),
     "休息": frozenset({"wait", "lifestyle:wellness"}),
-    "娱乐": frozenset({"watch", "play_game", "browse", "lifestyle:hobby"}),
+    "娱乐": frozenset({"watch", "play_game", "lifestyle:hobby"}),
     "社交": frozenset({"chat", "call", "lifestyle:social"}),
     "家务": frozenset({"lifestyle:household", "lifestyle:pet"}),
     "运动": frozenset({"lifestyle:sport"}),
@@ -215,8 +213,6 @@ class WakeSnapshot(BaseModel):
     reconsideration_interval_seconds: int = RECONSIDERATION_INTERVAL_SECONDS
     idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
     has_commitments: bool = False
-    location_closing_at: int | None = None
-    location_just_opened: bool = False
     people_present_now: frozenset[str] = frozenset()
     people_present_before: frozenset[str] = frozenset()
     discovery_result_ready: bool = False
@@ -257,9 +253,7 @@ class NextDecisionQuery(BaseModel):
     reconsideration_interval_seconds: int = RECONSIDERATION_INTERVAL_SECONDS
     idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
     has_commitments: bool = False
-    location_hours_change_times: tuple[int, ...] = ()
     next_task_due_at: int | None = None
-    location_closing_at: int | None = None
     next_progress_report_at: int | None = None
     #: 当日未触发的提醒时刻（睡眠中不剔除，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章）。
     plan_reminder_times: tuple[int, ...] = ()
@@ -342,12 +336,6 @@ def _task_due_soon(now: int, due_at: int | None) -> bool:
     return due_at is not None and due_at - TASK_DUE_SOON_SECONDS <= now < due_at
 
 
-def _closing_soon(now: int, closing_at: int | None) -> bool:
-    """@brief 闭店预警窗口判定：[closing-15min, closing) 内视为即将闭店。"""
-    return (
-        closing_at is not None
-        and closing_at - CLOSING_WARNING_SECONDS <= now < closing_at
-    )
 
 
 def _reconsideration_due(snapshot: WakeSnapshot) -> bool:
@@ -399,13 +387,10 @@ def _event_reasons(snap: WakeSnapshot) -> list[WakeReason]:
         reasons.append(WakeReason.TASK_DUE_SOON)
     if snap.work_review_returned:
         reasons.append(WakeReason.WORK_REVIEW_RESULT)
-    closing_threat = snap.has_commitments and _closing_soon(snap.now, snap.location_closing_at)
-    if _task_due_soon(snap.now, snap.next_task_due_at) or closing_threat:
+    if _task_due_soon(snap.now, snap.next_task_due_at):
         reasons.append(WakeReason.COMMITMENT_THREATENED)
     if _reconsideration_due(snap):
         reasons.append(WakeReason.RECONSIDERATION_INTERVAL)
-    if closing_threat or snap.location_just_opened:
-        reasons.append(WakeReason.LOCATION_HOURS_CHANGE)
     if snap.people_present_now - snap.people_present_before:
         reasons.append(WakeReason.PERSON_ARRIVED)
     if snap.people_present_before - snap.people_present_now:
@@ -461,11 +446,8 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
         candidates.append(
             query.last_decision_time + reconsideration_interval(query)
         )
-    candidates.extend(query.location_hours_change_times)
     if not query.is_asleep and query.next_task_due_at is not None:
         candidates.append(query.next_task_due_at - TASK_DUE_SOON_SECONDS)
-    if not query.is_asleep and query.has_commitments and query.location_closing_at is not None:
-        candidates.append(query.location_closing_at - CLOSING_WARNING_SECONDS)
     if query.next_progress_report_at is not None:
         candidates.append(query.next_progress_report_at)
     candidates.extend(query.plan_reminder_times)

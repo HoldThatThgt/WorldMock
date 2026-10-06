@@ -5,7 +5,7 @@
 validate 在覆盖率低于 80% 时照旧失败（裁决 D4）。
 
 每条警告的形状固定为 {code, agent_id, message, details}：code 取警告码闭集 INPUT_WARNING_CODES；agent_id 为人物编号，
-场景级警告（配送路线、地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
+场景级警告（地点显示名）为 null；message 是给数据集维护者看的一句说明；details 的键按警告码固定（见各函数）。
 场景作息覆盖（apply_scenario_rhythm，裁决 D16）：场景显式声明的作息字段覆盖卡片抽取值，未声明的字段仍取卡片值；
 字段为七项、窗口槽为五个（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-场景作息覆盖  增下班、到家），新槽的卡片值可以是 null。
 """
@@ -14,13 +14,13 @@ from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
 import re
-from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal, NamedTuple, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import Field, ValidationError
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.types import CONTENT_KIND_LABELS
 from worldmock.profile.coverage import COVERAGE_THRESHOLD, PersonaCoverageReport
 from worldmock.profile.models import (
     SLEEP_NEED_MAX_H,
@@ -33,15 +33,11 @@ from worldmock.profile.models import (
 
 #: 运行输入警告码闭集（按规格 1.3 与 8.1 的登记顺序）。
 InputWarningCode = Literal[
-    "TASTE_GENRES_UNMATCHED",
-    "CONTENT_WEIGHTS_ALL_ZERO",
     "CONTENT_EMPTY_WITH_MEDIA_TASTES",
-    "GAMES_WITHOUT_TASTE_WEIGHTS",
     "COVERAGE_BELOW_THRESHOLD",
     "CARD_FIELD_OVERRIDDEN",
     "CARD_FIELD_CONFLICT",
     "PERSONA_AGREEMENT_LOW",
-    "DELIVERY_ROUTE_UNAVAILABLE",
     "LOCATION_NAME_SUSPICIOUS",
 ]
 INPUT_WARNING_CODES: tuple[str, ...] = get_args(InputWarningCode)
@@ -51,8 +47,6 @@ RHYTHM_FIELDS = ("chronotype_midsleep", "sleep_need_hours", "lunch_window", "lea
 #: 场景窗口字段 → 卡片时间锚点的五个槽；插入顺序即落槽顺序（午餐、下班、到家、晚餐、就寝）。
 _WINDOW_SLOTS = {"lunch_window": "lunch", "leave_work_window": "leave_work", "arrive_home_window": "arrive_home",
                  "dinner_window": "dinner", "bedtime_window": "bedtime"}
-#: 警告正文列出的场景内容最常见题材个数。
-TOP_CONTENT_GENRES = 5
 #: 「看、刷、听」：卡片口味或习惯里出现即说明人物有观看或收听的习惯。
 _MEDIA_VERBS = ("看", "刷", "听")
 #: 坐标形态：成对的小数经纬度（如「（31.2, 121.5）」「东经121.50°、北纬31.23°」）或单个带经纬前缀的数值。
@@ -200,8 +194,8 @@ def _overridden(agent_id: int, field: str, values: tuple[Any, Any, Any]) -> dict
     card_value, scenario_value, applied = values
     declared = list(scenario_value) if isinstance(scenario_value, tuple) else scenario_value
     return _warning("CARD_FIELD_OVERRIDDEN", agent_id,
-                    f"场景显式声明的 {field} 覆盖了卡片抽取值：卡片 {_json_text(card_value)}，"
-                    f"场景 {_json_text(declared)}，人设层与卡片结构取 {_json_text(applied)}。",
+                    f"Scenario {field} overrides the extracted card value: card {_json_text(card_value)}, "
+                    f"scenario {_json_text(declared)}, applied {_json_text(applied)}.",
                     field=field, card_value=card_value, scenario_value=declared, applied_value=applied)
 
 
@@ -209,80 +203,35 @@ def _conflict(agent_id: int, field: str, values: tuple[TimeWindow | None, tuple[
     """@brief CARD_FIELD_CONFLICT：场景窗口落不进卡片锚点（顺序冲突或写不成 0.5 小时格点窗口），保留卡片值；
     下班、到家槽的卡片值可以是 null（details.card_value 为 null，正文写 null）。"""
     kept, scenario_value = values
-    why = ("与卡片其余时间锚点的顺序冲突（起床、出门、午餐、晚餐、就寝的起点须非递减；下班不早于出门、"
-           "到家不早于下班或出门，二者都不晚于就寝）" if reason == "anchor_order"
-           else "量化到 0.5 小时格点后不是合法窗口")
+    why = ("conflicts with card anchor order: wake, departure, lunch, dinner and bedtime must be nondecreasing; "
+           "work departure cannot precede departure, home arrival cannot precede either departure, "
+           "and both must not follow bedtime" if reason == "anchor_order"
+           else "is not a valid window after quantization to a half-hour grid")
     return _warning("CARD_FIELD_CONFLICT", agent_id,
-                    f"场景显式声明的 {field} {_json_text(list(scenario_value))}{why}，保留卡片值 "
-                    f"{_json_text(_window_value(kept))}。",
+                    f"Scenario {field} {_json_text(list(scenario_value))} {why}; "
+                    f"keeping card value {_json_text(_window_value(kept))}.",
                     field=field, card_value=_window_value(kept), scenario_value=list(scenario_value), reason=reason)
 
 
-def taste_warnings(agent_id: int, card: PersonaCard | None, contents: Sequence[Mapping[str, Any]],
-                   weights: Mapping[str, float] | None) -> list[dict[str, Any]]:
-    """@brief 口味与内容：TASTE_GENRES_UNMATCHED、CONTENT_WEIGHTS_ALL_ZERO、CONTENT_EMPTY_WITH_MEDIA_TASTES。
+def content_empty_warnings(agent_id: int, card: PersonaCard | None, catalog: Any) -> list[dict[str, Any]]:
+    """@brief 没有任何应用绑定内容且画像有媒体习惯时警告；不读取散文题材或旧内容配置。
 
-    口味只按卡片 content_genres 与内容条目 genre 精确匹配（裁决 D1，题材词表归数据集）；「B站视频」这类平台词无论写在哪个
-    字段都对不上题材，media 不参与匹配，只随正文列出。正文同时列出卡片的 content_genres、media 与场景内容最常见的题材，
-    由数据集决定改卡片还是补题材标签。
-    @param agent_id 人物编号
-    @param card 覆盖前后口味不变的卡片；没有卡片的人物为 None（没有口味权重）
-    @param contents 场景内容条目 [{item_id, genre}]（只含内容，不含游戏）
-    @param weights 实际注入的口味权重（没有卡片时为 None）
-    @return details 键：card_content_genres、card_media、top_content_genres、content_items；
-        CONTENT_EMPTY_WITH_MEDIA_TASTES 为 content_genres、media、habits（带看、刷、听的条目）
+    @param agent_id 人物编号。
+    @param card 人物卡片，没有画像时为 None。
+    @param catalog 真实登记目录，内容绑定已通过登记校验。
+    @return 警告 details 仅含 media 与 habits。
     """
-    genres = list(card.tastes.content_genres) if card is not None else []
-    media = list(card.tastes.media) if card is not None else []
-    if not contents:
-        return _empty_content_warnings(agent_id, card)
-    counts = Counter(genre for row in contents for genre in row.get("genre") or ())
-    top = [genre for genre, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:TOP_CONTENT_GENRES]]
-    details = {"card_content_genres": genres, "card_media": media, "top_content_genres": top,
-               "content_items": len(contents)}
-    tail = f"卡片口味题材 {_listing(genres)}、媒介 {_listing(media)}；场景内容最常见的题材 {_listing(top)}。"
-    found = []
-    if genres and not set(genres) & set(counts):
-        found.append(_warning("TASTE_GENRES_UNMATCHED", agent_id,
-                              "人物口味题材与场景内容的题材没有交集（只按 content_genres 精确匹配，平台词对不上题材）；"
-                              + tail, **details))
-    if all((weights or {}).get(row["item_id"], 0.0) <= 0.0 for row in contents):
-        lead = "人物没有卡片与口味权重" if card is None else "人物的口味权重全为 0"
-        found.append(_warning("CONTENT_WEIGHTS_ALL_ZERO", agent_id,
-                              f"场景有 {len(contents)} 条内容，但{lead}，观看缓解按零权重计；" + tail, **details))
-    return found
-
-
-def _empty_content_warnings(agent_id: int, card: PersonaCard | None) -> list[dict[str, Any]]:
-    """@brief 场景没有内容时：卡片口味题材、带看刷听的媒介或习惯任一存在即 CONTENT_EMPTY_WITH_MEDIA_TASTES。"""
-    if card is None:
+    if card is None or any(catalog.contents_by_app.values()):
         return []
-    genres = list(card.tastes.content_genres)
-    media = [item for item in card.tastes.media if _mentions_media_verb(item)]
+    media = [item for item in card.tastes.media
+             if item in CONTENT_KIND_LABELS.values() or _mentions_media_verb(item)]
     habits = [habit.response for habit in card.habits
               if _mentions_media_verb(habit.response) or _mentions_media_verb(habit.trigger)]
-    if not (genres or media or habits):
+    if not (media or habits):
         return []
     return [_warning("CONTENT_EMPTY_WITH_MEDIA_TASTES", agent_id,
-                     f"场景没有可看、可听的内容，但卡片或习惯里有看、刷、听：口味题材 {_listing(genres)}、"
-                     f"媒介 {_listing(media)}、习惯 {_listing(habits)}。",
-                     content_genres=genres, media=media, habits=habits)]
-
-
-def game_weight_warnings(agent_id: int, game_ids: Sequence[str],
-                         weights: Mapping[str, float] | None) -> list[dict[str, Any]]:
-    """@brief GAMES_WITHOUT_TASTE_WEIGHTS：场景有游戏，但实际注入的口味权重表里没有这些游戏的条目。
-
-    只看显式输入的权重表是否含游戏条目（没有题材声明的游戏权重为 0 仍算已有条目），与权重如何计算无关。
-    @return details 键：games（场景游戏数）、missing_game_ids（权重表缺条目的游戏）
-    """
-    table = weights or {}
-    missing = [game_id for game_id in game_ids if game_id not in table]
-    if not missing:
-        return []
-    return [_warning("GAMES_WITHOUT_TASTE_WEIGHTS", agent_id,
-                     f"场景有 {len(game_ids)} 个游戏，其中 {len(missing)} 个在口味权重表里没有条目，游戏缓解按零权重计。",
-                     games=len(game_ids), missing_game_ids=missing)]
+                     f"No app has bound content, but the persona mentions media use: media {_listing(media)}, "
+                     f"habits {_listing(habits)}.", media=media, habits=habits)]
 
 
 def coverage_warnings(agent_id: int, report: PersonaCoverageReport) -> list[dict[str, Any]]:
@@ -293,10 +242,10 @@ def coverage_warnings(agent_id: int, report: PersonaCoverageReport) -> list[dict
     if report.passed:
         return []
     missing = [{"kind": item.kind, "value": item.value} for item in report.missing]
-    listed = "、".join(f"{item['kind']}={item['value']}" for item in missing)
+    listed = ", ".join(f"{item['kind']}={item['value']}" for item in missing)
     return [_warning("COVERAGE_BELOW_THRESHOLD", agent_id,
-                     f"人物卡片的世界可执行覆盖率 {report.executable_ratio} 低于 {COVERAGE_THRESHOLD}，"
-                     f"未命中：{listed}。",
+                     f"Persona executable coverage {report.executable_ratio} is below {COVERAGE_THRESHOLD}; "
+                     f"missing: {listed}.",
                      executable_ratio=report.executable_ratio, threshold=COVERAGE_THRESHOLD,
                      total_items=report.total_items, covered_items=report.covered_items, missing=missing)]
 
@@ -307,39 +256,8 @@ def agreement_warnings(agent_id: int, compiler_warnings: Sequence[str]) -> list[
     该码泛指画像编译留下的警告，消息不预设原因（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-下班与到家锚点 ）。
     @return details 键：compiler_warning（编译产物 warnings 中的原文）
     """
-    return [_warning("PERSONA_AGREEMENT_LOW", agent_id, f"画像编译留下警告：{text}。", compiler_warning=text)
+    return [_warning("PERSONA_AGREEMENT_LOW", agent_id, f"Persona compilation warning: {text}.", compiler_warning=text)
             for text in compiler_warnings]
-
-
-def delivery_route_warnings(scenario: Any) -> list[dict[str, Any]]:
-    """@brief DELIVERY_ROUTE_UNAVAILABLE：配送供给到声明目的地没有唯一的 reachable 驾车路线（裁决 D19：只警告）。
-
-    与配送结算同一判据：门店就在目的地时不需路线，其余只认唯一一条明确可达的冻结驾车路线；按（门店, 目的地, 路线状态）
-    合并，列出受影响的供给。unreachable、unknown 是地图的合法状态，不拒绝场景。
-    @return details 键：location_id、destination_id、route_status（missing / unreachable / unknown）、supply_ids
-    """
-    statuses: dict[tuple[str, str], list[str]] = {}
-    for route in scenario.routes:
-        if route.mode == "driving":
-            statuses.setdefault((route.origin_id, route.destination_id), []).append(route.status)
-    groups: dict[tuple[str, str, str], list[str]] = {}
-    for supply in scenario.supplies:
-        if "delivery" not in supply.fulfillment_modes:
-            continue
-        for destination in supply.delivery_destination_ids:
-            found = statuses.get((supply.location_id, destination), [])
-            if supply.location_id == destination or found == ["reachable"]:
-                continue
-            status = found[0] if len(found) == 1 else "missing"
-            groups.setdefault((supply.location_id, destination, status), []).append(supply.supply_id)
-    names = {location.location_id: location.name for location in scenario.locations}
-    return [_warning("DELIVERY_ROUTE_UNAVAILABLE", None,
-                     f"门店 {origin}（{names.get(origin, origin)}）到目的地 {destination}"
-                     f"（{names.get(destination, destination)}）没有可达的驾车路线（{status}），"
-                     f"{len(supplies)} 项配送供给送不到：{_listing(sorted(supplies))}。",
-                     location_id=origin, destination_id=destination, route_status=status,
-                     supply_ids=sorted(supplies))
-            for (origin, destination, status), supplies in sorted(groups.items())]
 
 
 def location_name_warnings(scenario: Any) -> list[dict[str, Any]]:
@@ -351,10 +269,10 @@ def location_name_warnings(scenario: Any) -> list[dict[str, Any]]:
     for location in sorted(scenario.locations, key=lambda item: item.location_id):
         patterns = suspicious_name_patterns(location.name)
         if patterns:
-            kinds = "、".join({"coordinates": "坐标", "identifier": "标识形态"}[item] for item in patterns)
+            kinds = ", ".join(patterns)
             found.append(_warning("LOCATION_NAME_SUSPICIOUS", None,
-                                  f"地点 {location.location_id} 的显示名「{location.name}」带{kinds}；人物会照抄显示名，"
-                                  "请改成人物会说的名字（同名地点按路名或楼宇区分）。",
+                                  f"Location {location.location_id} display name '{location.name}' contains {kinds}; "
+                                  "use a natural place name because the person repeats the display name.",
                                   location_id=location.location_id, name=location.name, patterns=patterns))
     return found
 
@@ -380,7 +298,7 @@ def _mentions_media_verb(text: str) -> bool:
 
 def _listing(values: Sequence[str]) -> str:
     """@brief 正文里的列表写法：[甲、乙]，空列表写 [无]。"""
-    return "[" + ("、".join(values) if values else "无") + "]"
+    return "[" + (", ".join(values) if values else "none") + "]"
 
 
 def _json_text(value: Any) -> str:

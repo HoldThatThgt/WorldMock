@@ -1,663 +1,481 @@
 {
- "source": "Minimal read-only copy from WorldMock-Dataset requests/0001-white-collar-lianqiu and requests/0002-business-sales-zhaoming, runs/2026-09-28-4a5b0e6-day (code 4a5b0e6): the compiled persona_card_struct and injected taste_weights from as2/agents/*/AGENT.json, the scenario-declared rhythm from frozen-inputs/scenarios, scenario contents joined to corpus genres, selected location display names and delivery (supply, destination) pairs without a reachable driving route.",
- "white_collar": {
-  "agent_id": 1,
-  "persona_card_struct": {
-   "identity": {
-    "age": 29,
-    "occupation": "软件工程师",
-    "living_arrangement": "独居公寓"
-   },
-   "relationships": [
-    {
-     "name_or_appellation": "母亲",
-     "role": "母亲",
-     "intimacy": 25,
-     "channels": [
-      "电话"
-     ]
+  "source": "Minimal read-only copy from WorldMock-Dataset requests/0001-white-collar-lianqiu and requests/0002-business-sales-zhaoming, runs/2026-09-28-4a5b0e6-day (code 4a5b0e6): the compiled persona_card_struct and injected taste_weights from as2/agents/*/AGENT.json, the scenario-declared rhythm from frozen-inputs/scenarios, scenario contents joined to corpus genres, selected location display names and delivery (supply, destination) pairs without a reachable driving route.",
+  "white_collar": {
+    "agent_id": 1,
+    "persona_card_struct": {
+      "identity": {
+        "age": 29,
+        "occupation": "软件工程师",
+        "living_arrangement": "独居公寓"
+      },
+      "relationships": [
+        {
+          "name_or_appellation": "母亲",
+          "role": "母亲",
+          "intimacy": 25,
+          "channels": [
+            "电话"
+          ]
+        },
+        {
+          "name_or_appellation": "王磊",
+          "role": "同事",
+          "intimacy": 15,
+          "channels": [
+            "微信"
+          ]
+        }
+      ],
+      "time_anchors": {
+        "wake": {
+          "start_hour": 8.0,
+          "end_hour": 8.5
+        },
+        "leave_home": {
+          "start_hour": 8.0,
+          "end_hour": 9.0
+        },
+        "lunch": {
+          "start_hour": 12.0,
+          "end_hour": 13.0
+        },
+        "dinner": {
+          "start_hour": 18.0,
+          "end_hour": 19.0
+        },
+        "bedtime": {
+          "start_hour": 23.5,
+          "end_hour": 24.5
+        }
+      },
+      "chronotype_midsleep": 4.0,
+      "sleep_need_hours": 8.0,
+      "habits": [
+        {
+          "trigger": "早上到办公室",
+          "response": "用瑞幸咖啡App点冰美式送到前台",
+          "time_window": {
+            "start_hour": 8.5,
+            "end_hour": 9.5
+          }
+        },
+        {
+          "trigger": "中午",
+          "response": "用美团外卖点午餐，饭后刷B站",
+          "time_window": {
+            "start_hour": 12.0,
+            "end_hour": 13.5
+          }
+        },
+        {
+          "trigger": "晚上",
+          "response": "用盒马App买第二天食材",
+          "time_window": {
+            "start_hour": 19.0,
+            "end_hour": 22.0
+          }
+        },
+        {
+          "trigger": "睡前",
+          "response": "刷B站",
+          "time_window": {
+            "start_hour": 22.0,
+            "end_hour": 24.0
+          }
+        }
+      ],
+      "tastes": {
+        "content_genres": [
+          "B站视频"
+        ],
+        "food_preferences": [
+          "冰美式咖啡",
+          "番茄炒蛋",
+          "清炒上海青",
+          "米饭"
+        ],
+        "media": [
+          "瑞幸咖啡App",
+          "美团外卖",
+          "B站",
+          "盒马App"
+        ]
+      },
+      "coping": "先深呼吸再处理"
     },
-    {
-     "name_or_appellation": "王磊",
-     "role": "同事",
-     "intimacy": 15,
-     "channels": [
-      "微信"
-     ]
-    }
-   ],
-   "time_anchors": {
-    "wake": {
-     "start_hour": 8.0,
-     "end_hour": 8.5
+    "scenario_rhythm": {
+      "chronotype_midsleep": 4.75,
+      "sleep_need_hours": 8.0,
+      "lunch_window": [
+        12.0,
+        12.5
+      ],
+      "dinner_window": [
+        18.5,
+        19.5
+      ],
+      "bedtime_window": [
+        23.5,
+        24.5
+      ]
     },
-    "leave_home": {
-     "start_hour": 8.0,
-     "end_hour": 9.0
-    },
-    "lunch": {
-     "start_hour": 12.0,
-     "end_hour": 13.0
-    },
-    "dinner": {
-     "start_hour": 18.0,
-     "end_hour": 19.0
-    },
-    "bedtime": {
-     "start_hour": 23.5,
-     "end_hour": 24.5
-    }
-   },
-   "chronotype_midsleep": 4.0,
-   "sleep_need_hours": 8.0,
-   "habits": [
-    {
-     "trigger": "早上到办公室",
-     "response": "用瑞幸咖啡App点冰美式送到前台",
-     "time_window": {
-      "start_hour": 8.5,
-      "end_hour": 9.5
-     }
-    },
-    {
-     "trigger": "中午",
-     "response": "用美团外卖点午餐，饭后刷B站",
-     "time_window": {
-      "start_hour": 12.0,
-      "end_hour": 13.5
-     }
-    },
-    {
-     "trigger": "晚上",
-     "response": "用盒马App买第二天食材",
-     "time_window": {
-      "start_hour": 19.0,
-      "end_hour": 22.0
-     }
-    },
-    {
-     "trigger": "睡前",
-     "response": "刷B站",
-     "time_window": {
-      "start_hour": 22.0,
-      "end_hour": 24.0
-     }
-    }
-   ],
-   "tastes": {
-    "content_genres": [
-     "B站视频"
+    "contents": [
+      {
+        "item_id": "drama-0001",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0002",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0003",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0004",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0005",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0006",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0007",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0008",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0009",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0010",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0011",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0012",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0013",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0014",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0015",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0016",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0017",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0018",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0019",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      },
+      {
+        "item_id": "drama-0020",
+        "genre": [
+          "剧情",
+          "都市情感"
+        ]
+      }
     ],
-    "food_preferences": [
-     "冰美式咖啡",
-     "番茄炒蛋",
-     "清炒上海青",
-     "米饭"
-    ],
-    "media": [
-     "瑞幸咖啡App",
-     "美团外卖",
-     "B站",
-     "盒马App"
-    ]
-   },
-   "coping": "先深呼吸再处理"
-  },
-  "taste_weights": {
-   "drama-0001": 0.0,
-   "drama-0002": 0.0,
-   "drama-0003": 0.0,
-   "drama-0004": 0.0,
-   "drama-0005": 0.0,
-   "drama-0006": 0.0,
-   "drama-0007": 0.0,
-   "drama-0008": 0.0,
-   "drama-0009": 0.0,
-   "drama-0010": 0.0,
-   "drama-0011": 0.0,
-   "drama-0012": 0.0,
-   "drama-0013": 0.0,
-   "drama-0014": 0.0,
-   "drama-0015": 0.0,
-   "drama-0016": 0.0,
-   "drama-0017": 0.0,
-   "drama-0018": 0.0,
-   "drama-0019": 0.0,
-   "drama-0020": 0.0
-  },
-  "scenario_rhythm": {
-   "chronotype_midsleep": 4.75,
-   "sleep_need_hours": 8.0,
-   "lunch_window": [
-    12.0,
-    12.5
-   ],
-   "dinner_window": [
-    18.5,
-    19.5
-   ],
-   "bedtime_window": [
-    23.5,
-    24.5
-   ]
-  },
-  "contents": [
-   {
-    "item_id": "drama-0001",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0002",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0003",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0004",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0005",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0006",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0007",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0008",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0009",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0010",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0011",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0012",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0013",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0014",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0015",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0016",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0017",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0018",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0019",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   },
-   {
-    "item_id": "drama-0020",
-    "genre": [
-     "剧情",
-     "都市情感"
-    ]
-   }
-  ],
-  "location_names": {
-   "home": "东渡悦来城住处场景锚点",
-   "office": "练秋湖研发中心北侧办公场景锚点",
-   "coffee": "模拟咖啡出货点",
-   "lunch": "模拟午餐出货点",
-   "grocery": "模拟生鲜出货点",
-   "campus-stop-east": "E区春笋站（园区内通行）",
-   "campus-stop-plaza": "F区广场站（园区内通行）",
-   "campus-stop-south": "G区红豆站（园区内通行）",
-   "campus-stop-north": "H区贝壳站（园区内通行）",
-   "metro-xicen": "西岑（轨道交通）",
-   "metro-dianshanhu-dadao": "淀山湖大道（轨道交通）",
-   "park-qingxi-countryside": "青西郊野公园（户外活动环境）",
-   "park-dalianhu": "大莲湖修复区（户外活动环境）",
-   "park-rainbow-bridge": "彩虹桥（户外活动环境）",
-   "park-swan-lake": "天鹅湖（户外活动环境）",
-   "park-zhuxi-garden": "珠溪园（户外活动环境）",
-   "plaza-zhujiajiao": "朱家角市民广场（户外活动环境）",
-   "park-dianshan-lake": "淀山湖风景区（户外活动环境）",
-   "town-zhujiajiao": "朱家角古镇旅游区（户外活动环境）",
-   "mall-qingpu-wanda": "青浦万达茂（日常采买）",
-   "market-zhujiajiao": "朱家角菜市场（日常采买）",
-   "supermarket-nonggongshang": "农工商超市（日常采买）",
-   "supermarket-furun": "福润生鲜超市（日常采买）",
-   "convenience-seven-eleven": "7-Eleven（日常采买）",
-   "cafe-starbucks-zhujiajiao": "星巴克（餐饮休闲）",
-   "hospital-zhujiajiao": "青浦区朱家角人民医院（生活服务）",
-   "library-zhujiajiao": "朱家角镇图书馆（生活服务）",
-   "fuel-sinopec-dianshanhu": "中国石化（生活服务）",
-   "merchant-sim-01": "掌柜的店（华为练秋湖店）（模拟地点）",
-   "merchant-sim-02": "西岑大院（模拟地点）",
-   "merchant-sim-03": "百果园（上海西岑科创中心店）（模拟地点）",
-   "merchant-sim-04": "增庆菜馆（炒菜.拌菜.盖饭）（模拟地点）",
-   "merchant-sim-05": "沪上阿姨·精选茶饮（上海青浦西岑地铁站店）（模拟地点）",
-   "merchant-sim-06": "（名称被截断，拌烩面/小炒鸡饭类）（模拟地点）",
-   "merchant-sim-07": "LuxeLurk（模拟地点）",
-   "merchant-sim-08": "OT另茶（上海青浦华为店）（模拟地点）",
-   "merchant-sim-09": "益丰大药房（上海华芯店）（模拟地点）",
-   "supermarket-sim-pupu": "朴朴超市商品入口（模拟）",
-   "supermarket-sim-xiaoxiang": "小象超市商品入口（模拟）",
-   "supermarket-sim-meituan": "美团外卖超市便利入口（模拟）",
-   "supermarket-sim-taobao": "淘宝闪购超市商品入口（原饿了么，模拟）",
-   "activity-sim-wet-market": "社区菜市场（模拟）",
-   "activity-sim-fitness": "综合运动中心（模拟）"
-  },
-  "undeliverable": []
- },
- "business": {
-  "agent_id": 5,
-  "persona_card_struct": {
-   "identity": {
-    "age": 32,
-    "occupation": "科技公司商务销售经理",
-    "living_arrangement": "独居在万科城市公寓"
-   },
-   "relationships": [
-    {
-     "name_or_appellation": "刘洋",
-     "role": "同事、拜访客户搭档",
-     "intimacy": 18,
-     "channels": [
-      "钉钉",
-      "微信"
-     ]
-    },
-    {
-     "name_or_appellation": "张总",
-     "role": "重要客户",
-     "intimacy": 12,
-     "channels": [
-      "电话",
-      "微信"
-     ]
+    "location_names": {
+      "home": "东渡悦来城住处场景锚点",
+      "office": "练秋湖研发中心北侧办公场景锚点",
+      "coffee": "模拟咖啡出货点",
+      "lunch": "模拟午餐出货点",
+      "grocery": "模拟生鲜出货点",
+      "campus-stop-east": "E区春笋站（园区内通行）",
+      "campus-stop-plaza": "F区广场站（园区内通行）",
+      "campus-stop-south": "G区红豆站（园区内通行）",
+      "campus-stop-north": "H区贝壳站（园区内通行）",
+      "metro-xicen": "西岑（轨道交通）",
+      "metro-dianshanhu-dadao": "淀山湖大道（轨道交通）",
+      "park-qingxi-countryside": "青西郊野公园（户外活动环境）",
+      "park-dalianhu": "大莲湖修复区（户外活动环境）",
+      "park-rainbow-bridge": "彩虹桥（户外活动环境）",
+      "park-swan-lake": "天鹅湖（户外活动环境）",
+      "park-zhuxi-garden": "珠溪园（户外活动环境）",
+      "plaza-zhujiajiao": "朱家角市民广场（户外活动环境）",
+      "park-dianshan-lake": "淀山湖风景区（户外活动环境）",
+      "town-zhujiajiao": "朱家角古镇旅游区（户外活动环境）",
+      "mall-qingpu-wanda": "青浦万达茂（日常采买）",
+      "market-zhujiajiao": "朱家角菜市场（日常采买）",
+      "supermarket-nonggongshang": "农工商超市（日常采买）",
+      "supermarket-furun": "福润生鲜超市（日常采买）",
+      "convenience-seven-eleven": "7-Eleven（日常采买）",
+      "cafe-starbucks-zhujiajiao": "星巴克（餐饮休闲）",
+      "hospital-zhujiajiao": "青浦区朱家角人民医院（生活服务）",
+      "library-zhujiajiao": "朱家角镇图书馆（生活服务）",
+      "fuel-sinopec-dianshanhu": "中国石化（生活服务）",
+      "merchant-sim-01": "掌柜的店（华为练秋湖店）（模拟地点）",
+      "merchant-sim-02": "西岑大院（模拟地点）",
+      "merchant-sim-03": "百果园（上海西岑科创中心店）（模拟地点）",
+      "merchant-sim-04": "增庆菜馆（炒菜.拌菜.盖饭）（模拟地点）",
+      "merchant-sim-05": "沪上阿姨·精选茶饮（上海青浦西岑地铁站店）（模拟地点）",
+      "merchant-sim-06": "（名称被截断，拌烩面/小炒鸡饭类）（模拟地点）",
+      "merchant-sim-07": "LuxeLurk（模拟地点）",
+      "merchant-sim-08": "OT另茶（上海青浦华为店）（模拟地点）",
+      "merchant-sim-09": "益丰大药房（上海华芯店）（模拟地点）",
+      "supermarket-sim-pupu": "朴朴超市商品入口（模拟）",
+      "supermarket-sim-xiaoxiang": "小象超市商品入口（模拟）",
+      "supermarket-sim-meituan": "美团外卖超市便利入口（模拟）",
+      "supermarket-sim-taobao": "淘宝闪购超市商品入口（原饿了么，模拟）",
+      "activity-sim-wet-market": "社区菜市场（模拟）",
+      "activity-sim-fitness": "综合运动中心（模拟）"
     }
-   ],
-   "time_anchors": {
-    "wake": {
-     "start_hour": 7.0,
-     "end_hour": 7.5
+  },
+  "business": {
+    "agent_id": 5,
+    "persona_card_struct": {
+      "identity": {
+        "age": 32,
+        "occupation": "科技公司商务销售经理",
+        "living_arrangement": "独居在万科城市公寓"
+      },
+      "relationships": [
+        {
+          "name_or_appellation": "刘洋",
+          "role": "同事、拜访客户搭档",
+          "intimacy": 18,
+          "channels": [
+            "钉钉",
+            "微信"
+          ]
+        },
+        {
+          "name_or_appellation": "张总",
+          "role": "重要客户",
+          "intimacy": 12,
+          "channels": [
+            "电话",
+            "微信"
+          ]
+        }
+      ],
+      "time_anchors": {
+        "wake": {
+          "start_hour": 7.0,
+          "end_hour": 7.5
+        },
+        "leave_home": {
+          "start_hour": 7.5,
+          "end_hour": 8.5
+        },
+        "lunch": {
+          "start_hour": 12.0,
+          "end_hour": 13.0
+        },
+        "dinner": {
+          "start_hour": 18.0,
+          "end_hour": 19.5
+        },
+        "bedtime": {
+          "start_hour": 23.5,
+          "end_hour": 24.5
+        }
+      },
+      "chronotype_midsleep": 4.0,
+      "sleep_need_hours": 7.0,
+      "habits": [
+        {
+          "trigger": "起床后",
+          "response": "查看邮件和钉钉",
+          "time_window": {
+            "start_hour": 7.0,
+            "end_hour": 7.5
+          }
+        },
+        {
+          "trigger": "上午到公司",
+          "response": "用星巴克App下单咖啡",
+          "time_window": {
+            "start_hour": 8.0,
+            "end_hour": 9.5
+          }
+        },
+        {
+          "trigger": "通勤途中",
+          "response": "听科技资讯和商业播客",
+          "time_window": {
+            "start_hour": 7.5,
+            "end_hour": 8.5
+          }
+        },
+        {
+          "trigger": "晚间到家",
+          "response": "点美团外卖吃晚餐",
+          "time_window": {
+            "start_hour": 19.0,
+            "end_hour": 20.0
+          }
+        },
+        {
+          "trigger": "晚间放松",
+          "response": "刷抖音",
+          "time_window": {
+            "start_hour": 21.0,
+            "end_hour": 23.5
+          }
+        }
+      ],
+      "tastes": {
+        "content_genres": [
+          "科技资讯",
+          "商业播客"
+        ],
+        "food_preferences": [],
+        "media": [
+          "抖音",
+          "钉钉",
+          "高德地图",
+          "星巴克App"
+        ]
+      },
+      "coping": "开车兜风或听音乐放松，谈判压力时先深呼吸理清思路再沟通"
     },
-    "leave_home": {
-     "start_hour": 7.5,
-     "end_hour": 8.5
+    "scenario_rhythm": {
+      "chronotype_midsleep": 4.5,
+      "sleep_need_hours": 7.0,
+      "lunch_window": [
+        12.0,
+        13.5
+      ],
+      "dinner_window": [
+        19.5,
+        20.5
+      ],
+      "bedtime_window": [
+        23.5,
+        24.5
+      ]
     },
-    "lunch": {
-     "start_hour": 12.0,
-     "end_hour": 13.0
-    },
-    "dinner": {
-     "start_hour": 18.0,
-     "end_hour": 19.5
-    },
-    "bedtime": {
-     "start_hour": 23.5,
-     "end_hour": 24.5
+    "contents": [],
+    "location_names": {
+      "home": "万科城市花园（七宝）",
+      "office": "上海信息大楼",
+      "client-a": "满松科技园",
+      "lunch": "上海老站（碧云）",
+      "client-b": "张江润和国际总部园",
+      "fuel": "中国石化（金桥路）",
+      "coffee": "星巴克（浦东南路 855 号）",
+      "dinner": "鹅庄台湾美食",
+      "poi-node-11221719092": "肯德基（东经121.503966°、北纬31.236961°）",
+      "poi-way-47280147": "柳园公园",
+      "poi-node-10220959762": "吴茂兴本帮面(东昌路店)",
+      "poi-node-4406658589": "蓝蛙",
+      "poi-node-6036237787": "全家（东经121.506822°、北纬31.234505°）",
+      "poi-node-13019099823": "蜜雪冰城",
+      "poi-node-1174646043": "Passo",
+      "poi-node-8927437056": "全家（东经121.503959°、北纬31.241234°）",
+      "poi-way-40779542": "陆家嘴绿地",
+      "poi-node-8859447405": "麦当劳（东经121.510351°、北纬31.234259°）",
+      "poi-node-6859683285": "ole超市",
+      "poi-way-969466784": "中国石化",
+      "poi-relation-19572042": "锦德市场",
+      "poi-node-11991340957": "一点点",
+      "poi-node-7418811275": "肯德基（东经121.341917°、北纬31.159296°）",
+      "poi-node-11333115244": "稻香源",
+      "poi-node-11991340976": "李有戏重庆老火锅",
+      "poi-node-4670341790": "好德alldays",
+      "poi-node-11494685129": "星巴克（东经121.330944°、北纬31.157219°）",
+      "poi-node-5623628822": "罗森",
+      "poi-node-12836356620": "全家（东经121.604093°、北纬31.247259°）",
+      "poi-way-1475001542": "悦动公园",
+      "poi-node-12803828038": "7-Eleven",
+      "poi-node-12803607121": "大米先生",
+      "poi-node-12806190880": "星巴克（东经121.599454°、北纬31.247877°）",
+      "poi-node-12803598291": "麦当劳（东经121.599760°、北纬31.248081°）",
+      "poi-node-12841196432": "早餐驿站",
+      "poi-node-12836356619": "瑞幸咖啡",
+      "poi-way-302861865": "食茶计",
+      "poi-way-868440473": "涟动公园",
+      "poi-way-1551963883": "AI Loop（东经121.606016°、北纬31.187769°）",
+      "poi-way-833222371": "AI Loop（东经121.606635°、北纬31.187686°）",
+      "poi-way-1551963891": "一尺花园",
+      "poi-way-347592868": "中国石油"
     }
-   },
-   "chronotype_midsleep": 4.0,
-   "sleep_need_hours": 7.0,
-   "habits": [
-    {
-     "trigger": "起床后",
-     "response": "查看邮件和钉钉",
-     "time_window": {
-      "start_hour": 7.0,
-      "end_hour": 7.5
-     }
-    },
-    {
-     "trigger": "上午到公司",
-     "response": "用星巴克App下单咖啡",
-     "time_window": {
-      "start_hour": 8.0,
-      "end_hour": 9.5
-     }
-    },
-    {
-     "trigger": "通勤途中",
-     "response": "听科技资讯和商业播客",
-     "time_window": {
-      "start_hour": 7.5,
-      "end_hour": 8.5
-     }
-    },
-    {
-     "trigger": "晚间到家",
-     "response": "点美团外卖吃晚餐",
-     "time_window": {
-      "start_hour": 19.0,
-      "end_hour": 20.0
-     }
-    },
-    {
-     "trigger": "晚间放松",
-     "response": "刷抖音",
-     "time_window": {
-      "start_hour": 21.0,
-      "end_hour": 23.5
-     }
-    }
-   ],
-   "tastes": {
-    "content_genres": [
-     "科技资讯",
-     "商业播客"
-    ],
-    "food_preferences": [],
-    "media": [
-     "抖音",
-     "钉钉",
-     "高德地图",
-     "星巴克App"
-    ]
-   },
-   "coping": "开车兜风或听音乐放松，谈判压力时先深呼吸理清思路再沟通"
-  },
-  "taste_weights": {},
-  "scenario_rhythm": {
-   "chronotype_midsleep": 4.5,
-   "sleep_need_hours": 7.0,
-   "lunch_window": [
-    12.0,
-    13.5
-   ],
-   "dinner_window": [
-    19.5,
-    20.5
-   ],
-   "bedtime_window": [
-    23.5,
-    24.5
-   ]
-  },
-  "contents": [],
-  "location_names": {
-   "home": "万科城市花园（七宝）",
-   "office": "上海信息大楼",
-   "client-a": "满松科技园",
-   "lunch": "上海老站（碧云）",
-   "client-b": "张江润和国际总部园",
-   "fuel": "中国石化（金桥路）",
-   "coffee": "星巴克（浦东南路 855 号）",
-   "dinner": "鹅庄台湾美食",
-   "poi-node-11221719092": "肯德基（东经121.503966°、北纬31.236961°）",
-   "poi-way-47280147": "柳园公园",
-   "poi-node-10220959762": "吴茂兴本帮面(东昌路店)",
-   "poi-node-4406658589": "蓝蛙",
-   "poi-node-6036237787": "全家（东经121.506822°、北纬31.234505°）",
-   "poi-node-13019099823": "蜜雪冰城",
-   "poi-node-1174646043": "Passo",
-   "poi-node-8927437056": "全家（东经121.503959°、北纬31.241234°）",
-   "poi-way-40779542": "陆家嘴绿地",
-   "poi-node-8859447405": "麦当劳（东经121.510351°、北纬31.234259°）",
-   "poi-node-6859683285": "ole超市",
-   "poi-way-969466784": "中国石化",
-   "poi-relation-19572042": "锦德市场",
-   "poi-node-11991340957": "一点点",
-   "poi-node-7418811275": "肯德基（东经121.341917°、北纬31.159296°）",
-   "poi-node-11333115244": "稻香源",
-   "poi-node-11991340976": "李有戏重庆老火锅",
-   "poi-node-4670341790": "好德alldays",
-   "poi-node-11494685129": "星巴克（东经121.330944°、北纬31.157219°）",
-   "poi-node-5623628822": "罗森",
-   "poi-node-12836356620": "全家（东经121.604093°、北纬31.247259°）",
-   "poi-way-1475001542": "悦动公园",
-   "poi-node-12803828038": "7-Eleven",
-   "poi-node-12803607121": "大米先生",
-   "poi-node-12806190880": "星巴克（东经121.599454°、北纬31.247877°）",
-   "poi-node-12803598291": "麦当劳（东经121.599760°、北纬31.248081°）",
-   "poi-node-12841196432": "早餐驿站",
-   "poi-node-12836356619": "瑞幸咖啡",
-   "poi-way-302861865": "食茶计",
-   "poi-way-868440473": "涟动公园",
-   "poi-way-1551963883": "AI Loop（东经121.606016°、北纬31.187769°）",
-   "poi-way-833222371": "AI Loop（东经121.606635°、北纬31.187686°）",
-   "poi-way-1551963891": "一尺花园",
-   "poi-way-347592868": "中国石油"
-  },
-  "undeliverable": [
-   {
-    "supply_id": "supply-dinner-meal-0001",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0002",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0003",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0004",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0005",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0006",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0007",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0008",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0010",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0011",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0012",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0013",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0014",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0015",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0016",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0017",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0018",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0019",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0020",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0021",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0024",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0025",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0026",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0027",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-dinner-meal-0030",
-    "location_id": "dinner",
-    "destination_id": "home",
-    "route_status": "unknown"
-   },
-   {
-    "supply_id": "supply-coffee-beverage-iced-americano",
-    "location_id": "coffee",
-    "destination_id": "office",
-    "route_status": "unknown"
-   }
-  ]
- }
+  }
 }

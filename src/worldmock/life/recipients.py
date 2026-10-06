@@ -38,7 +38,7 @@ def recipient_location(state: WorldState, scenario: RuntimeScenario, agent_id: i
     :param agent_id: 付款或给予的人物（收货人是联系人时按其通讯录查找）。
     """
     if recipient_id == agent_identity(agent_id):
-        return state.agents[agent_id].location_id
+        return present_location(state, agent_id)
     if recipient_id.startswith("agent:"):
         return present_location(state, int(recipient_id.split(":", 1)[1]))
     return _contact(scenario, agent_id, recipient_id).receive_location_id

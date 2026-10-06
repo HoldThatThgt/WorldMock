@@ -680,17 +680,17 @@ def test_invalid_quality_inputs_are_rejected(events):
 def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     """input_warnings 一节（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告、九）：按警告码闭集与人物统计清单冻结的警告，场景级警告
     另计；清单没有记录（引擎直驱为 null，或旧清单没有这个键）时计数为 null 而不是 0；只报告，不放行。"""
-    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings, game_weight_warnings
+    from worldmock.profile.injection import INPUT_WARNING_CODES, agreement_warnings
 
     scenario_level = {"code": "LOCATION_NAME_SUSPICIOUS", "agent_id": None, "message": "显示名带坐标",
                       "details": {"location_id": "poi", "name": "全家（31.2, 121.5）", "patterns": ["coordinates"]}}
-    warnings = [*game_weight_warnings(1, ("g1",), None), *agreement_warnings(2, ("a", "b")), scenario_level]
+    warnings = [*agreement_warnings(1, ("c",)), *agreement_warnings(2, ("a", "b")), scenario_level]
     events = [_event(1, "run_ended", occurred_at=200)]
 
     section = build_quality_report(events, [], {**_manifest(end=200), "input_warnings": warnings})["input_warnings"]
 
     expected_codes = dict.fromkeys(INPUT_WARNING_CODES, 0)
-    expected_codes.update(GAMES_WITHOUT_TASTE_WEIGHTS=1, PERSONA_AGREEMENT_LOW=2, LOCATION_NAME_SUSPICIOUS=1)
+    expected_codes.update(PERSONA_AGREEMENT_LOW=3, LOCATION_NAME_SUSPICIOUS=1)
     assert section["recorded"] is True and section["warning_count"] == 4
     assert section["code_counts"] == expected_codes and list(section["code_counts"]) == list(INPUT_WARNING_CODES)
     assert section["agent_counts"] == {"1": 1, "2": 2} and section["scenario_warning_count"] == 1

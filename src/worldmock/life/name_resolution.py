@@ -1,7 +1,7 @@
 """@brief 同一冻结观察上的确定性名称、方式和完整请求候选。"""
 
 from __future__ import annotations
-from worldmock.catalog.models import channel_key
+from worldmock.catalog.models import Catalog, channel_key
 from worldmock.life import object_labels
 from worldmock.life import vocabulary
 
@@ -38,10 +38,10 @@ _WAY_KINDS: dict[str, frozenset[str]] = {
     **{way: frozenset({"content", "game"}) for way in _WATCH_WAYS},
     "步行": frozenset({"location"}), "驾车": frozenset({"location"}), "工作": frozenset({"work_task"}),
     "游玩": frozenset({"game"}), "交谈": frozenset({"person"}), "通话": frozenset({"contact"}),
-    "阅读": frozenset({"mail"}), "浏览": frozenset({"catalog"}), "进行": frozenset({"lifestyle"}),
+    "阅读": frozenset({"mail"}), "进行": frozenset({"lifestyle"}),
     "等待": frozenset({"self"}), "到店": frozenset({"supply"}), "远程下单": frozenset({"supply"}),
     "购买": frozenset({"supply"}),
-    "制作": frozenset({"holding"}), "食用": frozenset({"holding"}), "使用": frozenset({"holding"}),
+    "食用": frozenset({"holding"}),
     "给予": frozenset({"holding"}), "睡觉": frozenset({"self"}),
 }
 #: 动词 → 它的方式列在哪些类别上（所写方式不是方式时按动词增补前缀）。
@@ -369,12 +369,12 @@ def _duration_note(note: str | None) -> str | None:
 def _acquisition_candidates(book: NameBook, written: str) -> tuple[Candidate, ...]:
     """@brief 未持有食品的下一步只使用同一冻结观察中可购买或制作的对象。"""
     pool = [target for target in book.targets if target.listed and
-            any(verb == "obtain" or way == "制作" for verb, way in target.offers)]
+            any(verb == "obtain" for verb, way in target.offers)]
     chosen = rank(object_labels.bare_name(written), pool, lambda target: (object_labels.bare_name(target.label),),
                   lambda target: target.feasible)
     candidates = []
     for target in chosen:
-        pair = next(pair for pair in target.offers if pair[0] == "obtain" or pair[1] == "制作")
+        pair = next(pair for pair in target.offers if pair[0] == "obtain")
         candidate = fill_in(target, *pair, None)
         note = candidate.note or "Acquire the item before consuming it."
         candidates.append(Candidate(candidate.tool, candidate.arguments, note))
@@ -494,7 +494,7 @@ def _not_found(book: NameBook, request: Any, index: int) -> Failure:
     if acquisition:
         candidates = _acquisition_candidates(book, item.target)
     reason = f"No known object named {item.target} supports this way; changing spelling cannot create an object."
-    expected = ("A held edible item is required; purchase or make it first." if acquisition and candidates
+    expected = ("A held edible item is required; purchase it first." if acquisition and candidates
                 else "A known object name in the selected way's category is required.")
     error = ErrorItem(("items", index, "target"), item.target, "NAME_NOT_FOUND",
                       expected=expected,
@@ -534,38 +534,33 @@ def _way_failure(target: Target, request: Any, index: int) -> Failure:
 
 
 
-def resolve_source(written: str, places: Mapping[str, str], home: str | None,
-                   channels: Sequence[ChannelRow]) -> SourceMatch | None:
-    """@brief 所写购买来源的范围：购买与查询共用的纯函数，不读世界与环境上下文（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ，
-    docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店  解析规则 1）。地点显示名（精确、无损归一或去掉「地点：」前缀后唯一，w
-    ritten_place；
-    「家」「住处」指住处）是该显示名的地点；否则是渠道称呼（channel_key 比较）时是该渠道的成员门店并记下渠道身份；都不是
-    时为 None。null 来源不归本函数（购买侧是全部门店，查询侧是不按来源筛选）。
+@dataclass(frozen=True, slots=True)
+class SourceMatch:
+    """@brief 目录中的实际来源，地点范围及可空的配送 app 身份。"""
 
-    :param places: 场景全部地点：地点身份 → 显示名。
-    :param home: 本人住处的地点身份；没有时为 None。
-    :param channels: 渠道表（ChannelRow），按声明顺序；先命中的渠道生效。
-    """
+    store_ids: frozenset[str]
+    app_id: str | None
+    name: str
+
+
+def resolve_source(written: str, places: Mapping[str, str], home: str | None,
+                   apps: Mapping[str, tuple[str, tuple[str, ...]]]) -> SourceMatch | None:
+    """@brief 用登记显示名或 app 名解析来源；app 只包含其真实绑定店铺。"""
     place = object_labels.written_place(written, tuple(places.values()), places.get(home))
     if place is not None:
         return SourceMatch(frozenset(identity for identity, name in places.items() if name == place), None, place)
     key = channel_key(written)
-    row = next((item for item in channels if key in {channel_key(name) for name in item[1]}), None)
-    return None if row is None else SourceMatch(frozenset(row[2]), row[0], written)
+    app = next(((identity, name, stores) for identity, (name, stores) in apps.items()
+                if channel_key(name) == key), None)
+    return None if app is None else SourceMatch(frozenset(app[2]), app[0], app[1])
 
 
 def near_source_names(written: str, places: Mapping[str, str], stores: Iterable[str],
-                      channels: Sequence[ChannelRow], feasible: Callable[[frozenset[str]], bool]) -> list[str]:
-    """@brief 与所写来源最相近的至多 3 个来源名（纯函数）：stores 中各门店的显示名（按地点身份排序）与各渠道的第一个称呼
-    （其余称呼也参与比对），按 rank 排名（可行的在前）；一个也不相近时按同一顺序取前几个可行的来源。
-
-    :param places: 地点身份 → 显示名（须含 stores 中的每一处）。
-    :param stores: 可作候选的门店（地点身份，可重复）。
-    :param channels: 渠道表（ChannelRow）；没有称呼的渠道不作候选。
-    :param feasible: 一个来源范围（门店身份集合）是否可行。
-    """
+                      apps: Mapping[str, tuple[str, tuple[str, ...]]],
+                      feasible: Callable[[frozenset[str]], bool]) -> list[str]:
+    """@brief 从登记门店及 app 名选取真实近名来源候选。"""
     entries = [*((places[store], (places[store],), frozenset({store})) for store in sorted(set(stores))),
-               *((row[1][0], tuple(row[1]), frozenset(row[2])) for row in channels if row[1])]
+               *((name, (name,), frozenset(stores)) for name, stores in apps.values())]
     chosen = rank(written, entries, lambda entry: entry[1], lambda entry: feasible(entry[2]))
     return [entry[0] for entry in chosen or [entry for entry in entries if feasible(entry[2])][:MAX_CANDIDATES]]
 
@@ -595,3 +590,8 @@ def _answering(book: NameBook, answering: str | None) -> tuple[str | None, tuple
         return answering, ()
     match = object_labels.resolve_name(answering, book.messages)
     return (match.name, _record(answering, match.name)) if match.name is not None else (answering, ())
+
+
+def delivery_sources(catalog: Catalog) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """@brief 从实际目录 app 及绑定生成购买和冻结查询共同使用的来源事实。"""
+    return {app.app_id: (app.name, catalog.stores_by_app[app.app_id]) for app in catalog.apps.values()}

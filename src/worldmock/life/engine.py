@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from worldmock.errors import IntegrityError
-from worldmock.life.state_commit import validated_payload
+from worldmock.life.models import validated_payload
 from worldmock.life import world_ops
 
 from datetime import datetime
@@ -35,7 +35,6 @@ from worldmock.life.work_review_runtime import WorkReviewCoordinator
 from worldmock.life.world_setup import create_world, open_world
 from worldmock.life.world_ops import meal_windows_by_agent
 from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
-from worldmock.life.state_commit import commit_state
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
@@ -87,7 +86,8 @@ class LifeEngine:
             observed_at=self.context.state.current_time,
             data=stored,
         )
-        data["observation_event_id"] = commit_state(self.context.store, self.context.state, [draft])[0].event_id
+        data["observation_event_id"] = self.context.store.commit(
+            validated_payload(self.context.state), [draft])[0].event_id
         data[CONTINUATION_KEY] = same_second_chain(
             self.context.store, self.context.state, self.observations, context.agent_id, data["observation_event_id"]
         )
@@ -166,10 +166,8 @@ class LifeEngine:
         events = self.context.store.read_events(self.context.store.last_event_seq)
         if any((event.event_type == "run_failed" for event in events)):
             return
-        commit_state(
-            self.context.store, self.context.state,
-            [world_ops._failure_draft(self.context.state.current_time, error, None)],
-        )
+        self.context.store.commit(validated_payload(self.context.state),
+                                  [world_ops._failure_draft(self.context.state.current_time, error, None)])
         self.context.ops.log(self.context.state.current_time, "engine", "error", "RUN_FAILED", f"Run failed: {error}")
 
     def checkpoint(self, agent_snapshots: dict[str, AssetRef]) -> "Checkpoint":

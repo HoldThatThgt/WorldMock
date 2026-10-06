@@ -163,7 +163,7 @@ def _experience_sentences(
     events = store.read_agent_events("activity_progress", agent_id)
     facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=store.last_event_seq)
     context = observations._layer_context(context.state.agents[agent_id], (), [])
-    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("product_id", "")))
+    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("food_id", "")))
     return tuple(
         (experience_sentence(context, fact), fact["source_event_id"])
         for fact in facts
@@ -261,7 +261,7 @@ def _task_rows(context: Any, observations: Any, agent: Any, window: _Window) -> 
 
 def _product_names(context: Any) -> dict[str, str]:
     """@brief 冻结目录里可持有对象的商品身份 → 商品名（个人事务「要办成什么」按它写商品名，与待办层同一张表）。"""
-    return {product_id: item.name for product_id, item in context.rules.items.items()}
+    return {product_id: item.name for product_id, item in context.semantics.catalog.foods.items()}
 
 
 def _inbox_rows(context: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
@@ -283,7 +283,7 @@ def _pending_orders(context: Any, agent_id: int, window: _Window) -> list[dict[s
     """@brief 在途订单及预计送达（state.deliveries 中本人待交付的订单）。"""
     return [
         {
-            "商品": context.rules.products[item.product_id].name,
+            "商品": context.semantics.catalog.foods[item.food_id].name,
             "数量": item.quantity,
             "预计送达": window.when(item.expected_at),
             "送到": _place(context, item.destination_id),

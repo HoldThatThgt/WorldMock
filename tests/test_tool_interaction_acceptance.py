@@ -13,16 +13,15 @@ from tests.tool_interaction_acceptance import BEHAVIOR, MUTATIONS, REPO_ROOT, ru
 
 FEATURE_SOURCES = (
     "src/worldmock/life/world_query.py", "src/worldmock/life/tool_groups.py",
-    "src/worldmock/life/error_contract.py", "src/worldmock/life/inventory_recipe.py",
+    "src/worldmock/life/error_contract.py", "src/worldmock/life/basket.py",
     "src/worldmock/life/request_errors.py",
     "src/worldmock/life/activity_evidence.py", "src/worldmock/life/callable_index.py",
-    "src/worldmock/corpora/storefront.py",
     "src/worldmock/life/models.py", "src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",
     "src/worldmock/catalog/models.py", "src/worldmock/catalog/admission.py",
     "src/worldmock/exchange/types.py", "src/worldmock/exchange/constants.py",
     "src/worldmock/catalog/graph.py", "src/worldmock/life/travel.py", "src/worldmock/life/wayfinding.py",
     "src/worldmock/life/name_resolution.py", "src/worldmock/life/routing.py",
-    "src/worldmock/life/named_purchase.py", "src/worldmock/life/storefront_state.py",
+    "src/worldmock/life/named_purchase.py", "src/worldmock/life/commerce.py",
     "src/worldmock/life/work.py", "src/worldmock/life/observe.py", "src/worldmock/life/progress_layer.py",
     "src/worldmock/life/prompt_schemas.py", "src/worldmock/life/control_items.py",
     "src/worldmock/life/business_feedback.py", "src/worldmock/life/engine.py",

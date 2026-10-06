@@ -43,7 +43,8 @@ from worldmock.life.models import (
 from worldmock.life.observe import ObservationBuilder
 from worldmock.life.rhythm import engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.session_actions import ActionHandlers
-from worldmock.life.state_commit import commit_state, flush_supply_visibility, stage_presentation
+from worldmock.life.models import validated_payload
+from worldmock.life.presentation import stage_presentation
 
 from worldmock.life.engine_context import EngineContext
 from worldmock.life.activity_titles import activity_title, activity_snapshot
@@ -127,9 +128,8 @@ class DecisionCoordinator:
                 "self_note": self._decision_self_note(call.context),
             },
         )
-        event = commit_state(
-            self.context.store, self.context.state, [item for item in (start, draft) if item is not None]
-        )[-1]
+        event = self.context.store.commit(
+            validated_payload(self.context.state), [item for item in (start, draft) if item is not None])[-1]
         pending = PendingAction(
             run_id=call.context.run_id,
             round_id=call.context.round_id,
@@ -160,7 +160,7 @@ class DecisionCoordinator:
         if submitted != set(current.expected_agent_ids):
             raise ProtocolError("Decision round does not contain every expected agent")
         staged = stage_presentation(self.context.state, self.observations.pending_presentation).model_copy(deep=True)
-        staged = flush_supply_visibility(staged, self.observations.pending_visible_supplies)
+        staged = staged
         drafts: list[EventDraft] = flush_decision_starts(self.pending_decision_starts, self.context.state.current_time)
         results = []
         for pending in sorted(current.pending_actions, key=lambda item: item.order):
@@ -191,10 +191,9 @@ class DecisionCoordinator:
         )
         staged = self.observations._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.context.state.version + 1
-        events = commit_state(self.context.store, staged, drafts)
+        events = self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.observations.pending_presentation = {}
-        self.observations.pending_visible_supplies = {}
         self.round = None
         self._ops_committed(round_id, results, events)
         return results
@@ -294,7 +293,7 @@ class DecisionCoordinator:
             )
         )
         drafts.append(_failure_draft(self.context.state.current_time, error, round_id))
-        commit_state(self.context.store, staged, drafts)
+        self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.round = None
         self.context.ops.log(

@@ -53,7 +53,7 @@ class ActivityOrigin:
 #: 到期反馈边界闭集（含生活活动）——自可供性注册表 kinds.*.feedback_boundary 派生
 #: （M1：字面常量已删，注册表即事实）。
 FEEDBACK_ACTIVITY_KINDS = frozenset(
-    ActivityKind(name) for name in engine_affordances().feedback_kinds)
+    ActivityKind(name) for name in engine_affordances().feedback_kinds if name in ActivityKind._value2member_map_)
 
 #: 可供性注册表视图（冻结文件加载一次；资源锁/缓解通道/MET 模板查表用）。
 _AFFORDANCES = engine_affordances()
@@ -273,7 +273,8 @@ def shared_activity_factors(activity: ActivityState, agent: AgentState,
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
     """@brief 从方式和人物内容偏好形成活动结算系数。"""
     met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
-    preference = agent.taste_weights.get(activity.target_id or "", 0)
+    channel = _AFFORDANCES.relief_channel(activity.kind.value)
+    preference = agent.taste_weights.get(activity.target_id or "", 0) if channel != "none" else 0
     relief = entertainment_relief_rate(activity, preference, config)
     skill, tool = _work_factors(activity, agent, config)
     food = _food_energy_rate(activity)
@@ -347,7 +348,8 @@ def _food_energy_rate(activity: ActivityState) -> float:
     if activity.kind != ActivityKind.CONSUME:
         return 0
     value = activity.data.get("food_energy_kcal_per_hour")
-    if not isinstance(value, (int, float)) or value < 0:
+    if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        logging.error("Consume activity food energy rate is invalid: %s", activity.activity_id)
         raise ValueError("consume activity food energy rate is invalid")
     return float(value)
 

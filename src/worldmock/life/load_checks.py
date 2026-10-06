@@ -7,11 +7,6 @@ unique」）抛出。场所类型只认环境层的 PLACE_TYPES，不另建闭�
 名称按人物逐一核对：一个人物可能同时看到的全部对象名称（地点、门店商品、手边与他处持有物、商品目录、内容、游戏、
 本人启用的生活活动、本人受理的工作、同世界其他人物、本人联系人、本人收件的邮件与「自己」）两两不同。
 
-购买渠道从场景钉定的手机配置派生（裁决 S7，profile.coverage_apps.purchase_channels）；配置的身份、结构或执行证据核验
-失败时不派生渠道（新建运行不因手机配置核验失败而失败，与覆盖率同一口径；App 名因此报 SOURCE_NOT_FOUND），另写一条英文
-warning 日志；核验通过的渠道按准入判定：称呼在渠道之间不重复、不等于任何地点的显示名，成员门店是选入的地点并至少有一条
-供给。
-
 人物工作安排的跨引用（docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-工作安排声明 ）同样在这里拒绝：工作地点是所选地点；与场景日历交叉核对，
 只核对落在场景时间窗内的日历日期——补班日必须有班次，春节、病假、事假日必须不当班，加班机会日与聚餐日不作要求；时间窗
 外的例外日期不拒绝。日历是场景级的，对所有声明了工作安排的人物同时生效；班次形状错误留在场景模型的校验器。
@@ -29,10 +24,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.life.content import LifestyleItem, load_lifestyle_items
 from worldmock.exchange.types import LocationKind
-from worldmock.catalog.models import channel_key
-from worldmock.life.object_labels import fold
-from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
-                                          supply_label)
+from worldmock.life.object_labels import SELF_LABEL, mail_name, object_label, remote_holding_label
 
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.work_schedule import shift_on
@@ -44,71 +36,6 @@ _REPORTED_DUPLICATES = 3
 #: 加班机会日与聚餐日不作要求。
 _SHIFT_REQUIRED_DATES = ("makeup_work_dates",)
 _OFF_DUTY_DATES = ("spring_festival_dates", "sick_leave_date", "personal_leave_date")
-
-
-def load_purchase_channels(scenario: RuntimeScenario, corpus_root: Path) -> tuple:
-    """@brief 场景的购买渠道（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）：从钉定的手机配置派生并按准入判定；
-    没有钉定手机配置
-    时没有渠道；配置核验失败时不派生渠道并写一条英文 warning 日志（不使加载失败）。
-
-    :param corpus_root: 场景的语料根（手机配置在其中登记）。
-    :returns: profile.coverage_apps.PurchaseChannel 的元组，按渠道标识排序。
-    :raises IntegrityError: 核验通过的渠道不满足准入（check_channel_admission）。
-    """
-
-    from worldmock.profile.coverage_apps import purchase_channels, verified_phone_config
-
-    try:
-        config = verified_phone_config(scenario, corpus_root)
-    except IntegrityError as error:
-        logging.warning("Phone simulation config failed verification; no purchase channels are derived: %s", error)
-        return ()
-    channels = () if config is None else purchase_channels(config, scenario)
-    check_channel_admission(scenario, channels)
-    return channels
-
-
-def check_channel_admission(scenario: RuntimeScenario, channels) -> None:
-    """@brief 购买渠道的准入（3.3，两种来源相同）：称呼非空，在渠道之间不重复（去掉空白、不分大小写比较），也不等于任何
-    地点的显示名（按同一比较或地点名的无损归一比较）；每个渠道至少一家成员门店，成员门店是场景选入的地点并至少有一条
-    供给。任一不满足即拒绝加载，逐一写明渠道、称呼与地点。"""
-    problems = [*_channel_name_problems(scenario, channels), *_channel_store_problems(scenario, channels)]
-    if problems:
-        message = f"Purchase channels are not admissible: {'; '.join(problems)}"
-        logging.error(message)
-        raise IntegrityError(message)
-
-
-def _channel_name_problems(scenario: RuntimeScenario, channels) -> list[str]:
-    """@brief 渠道称呼的问题：空称呼、跨渠道重复的称呼、与地点显示名相同的称呼。"""
-    problems: list[str] = []
-    owners: dict[str, str] = {}
-    for channel in channels:
-        if not channel.names or any(not name.strip() for name in channel.names):
-            problems.append(f"channel {channel.channel_id} has an empty name")
-        for name in channel.names:
-            owner = owners.setdefault(channel_key(name), channel.channel_id)
-            if owner != channel.channel_id:
-                problems.append(f"name {name!r} is shared by channels {owner} and {channel.channel_id}")
-            problems += [f"channel {channel.channel_id} name {name!r} equals location {item.location_id}"
-                         for item in scenario.locations
-                         if channel_key(name) == channel_key(item.name) or fold(name) == fold(item.name)]
-    return problems
-
-
-def _channel_store_problems(scenario: RuntimeScenario, channels) -> list[str]:
-    """@brief 成员门店的问题：渠道没有成员门店、成员门店不是选入的地点、成员门店没有供给。"""
-    selected = {item.location_id for item in scenario.locations}
-    stocked = {item.location_id for item in scenario.supplies}
-    problems: list[str] = []
-    for channel in channels:
-        if not channel.store_location_ids:
-            problems.append(f"channel {channel.channel_id} has no member store")
-        problems += [f"channel {channel.channel_id} member store {store} is not a selected location"
-                     for store in channel.store_location_ids if store not in selected]
-        problems += [f"channel {channel.channel_id} member store {store} has no supply"
-                     for store in channel.store_location_ids if store in selected and store not in stocked]
-    return problems
 
 
 def check_location_kinds(scenario: RuntimeScenario) -> None:

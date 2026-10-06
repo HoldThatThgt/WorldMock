@@ -79,12 +79,12 @@ def test_overdrawn_work_settles_to_zero_energy_without_error(body_config) -> Non
     assert result.after.sleep_pressure > body.sleep_pressure
 
 
-@pytest.mark.parametrize("kind", [ActivityKind.BROWSE, ActivityKind.WORK, ActivityKind.TRAVEL,
+@pytest.mark.parametrize("kind", [ActivityKind.WORK, ActivityKind.TRAVEL,
                                   ActivityKind.WAIT, ActivityKind.SLEEP])
 def test_every_activity_truncates_at_zero(body_config, kind) -> None:
     """恢复类与非恢复类活动同样以 0 截断；刚好不够或远远不够都不报错。"""
     factors = ActivityFactors(3.5) if kind == ActivityKind.TRAVEL else None
-    cost = minimum_energy_cost(ActivityKind.BROWSE, 60, body_config)
+    cost = minimum_energy_cost(ActivityKind.WAIT, 60, body_config)
     for energy in (math.nextafter(cost - 1e-9, math.inf), cost - 1e-8, 0.0):
         body = BodyState(energy_kcal=max(energy, 0.0), sleep_pressure=0.0, sleep_deficit_hours=0,
                          entertainment_need=0)
@@ -95,12 +95,12 @@ def test_every_activity_truncates_at_zero(body_config, kind) -> None:
 @pytest.mark.parametrize("duration", [901, 902, 1801])
 def test_exact_total_energy_survives_feedback_partition_rounding(body_config, duration: int) -> None:
     """按九百秒反馈分段时，精确总成本不会因累计舍入变成真实不足。"""
-    energy = minimum_energy_cost(ActivityKind.BROWSE, duration, body_config)
+    energy = minimum_energy_cost(ActivityKind.WAIT, duration, body_config)
     body = BodyState(energy_kcal=energy, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     remaining = duration
     while remaining:
         seconds = min(900, remaining)
-        body = settle_body(body, ActivityKind.BROWSE, seconds, body_config).after
+        body = settle_body(body, ActivityKind.WAIT, seconds, body_config).after
         remaining -= seconds
 
     assert 0 <= body.energy_kcal <= 1e-9

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.types import FoodCategory
 from worldmock.footprints.models import Event
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ _PAGE_SIZE = 32
 _COMMON_FIELDS = frozenset({"kind", "agent_id", "activity_id", "source_event_id", "event_seq", "occurred_at"})
 _KIND_FIELDS = {
     "waited": frozenset({"interval_start", "interval_end", "duration_seconds", "reason"}),
-    "consumed": frozenset({"product_id", "location_id", "interval_quantity", "cumulative_quantity",
+    "consumed": frozenset({"food_id", "category", "location_id", "interval_portion", "cumulative_portion",
                            "interval_start", "interval_end"}),
     "arrived": frozenset({"location_id", "access_status"}),
     "played": frozenset({"content_id", "position_before_seconds", "position_after_seconds",
@@ -35,12 +36,12 @@ def validate_verified_experiences(rows: Any, agent_id: int, current_time: int) -
     seen = set()
     for row in rows:
         _validate_fact(row, agent_id, current_time)
-        identity = (row["source_event_id"], row["kind"], row.get("product_id"))
+        identity = (row["source_event_id"], row["kind"], row.get("food_id"))
         if identity in seen:
             _invalid("Observed experience is duplicated")
         seen.add(identity)
         facts.append(dict(row))
-    ordering = lambda item: (item["event_seq"], item["kind"], item.get("product_id", ""))
+    ordering = lambda item: (item["event_seq"], item["kind"], item.get("food_id", ""))
     if facts != sorted(facts, key=ordering):
         _invalid("Observed experiences are out of event order")
     return facts
@@ -83,9 +84,10 @@ def _validate_fact_interval(row: dict[str, Any], current_time: int) -> None:
 
 def _validate_consumed_fact(row: dict[str, Any]) -> None:
     """@brief 校验真实食用份额与已结算地点。"""
-    if any(not isinstance(row[key], str) or not row[key] for key in ("product_id", "location_id")):
-        _invalid("Observed consumption product or location is invalid")
-    quantity, cumulative = row["interval_quantity"], row["cumulative_quantity"]
+    if (any(not isinstance(row[key], str) or not row[key] for key in ("food_id", "location_id"))
+            or row["category"] not in set(FoodCategory)):
+        _invalid("Observed consumption food, category or location is invalid")
+    quantity, cumulative = row["interval_portion"], row["cumulative_portion"]
     if (not _finite_number(quantity) or not _finite_number(cumulative)
             or quantity <= 0 or cumulative < quantity):
         _invalid("Observed consumption quantity is invalid")
@@ -145,7 +147,7 @@ def recent_verified_experiences(store: FootprintStore, agent_id: int, cutoff_seq
             sorted(page, key=lambda item: item.event_seq), agent_id=agent_id, cutoff_seq=cutoff_seq,
         ))
         before = page[-1].event_seq
-    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("product_id", "")))
+    facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("food_id", "")))
     return facts[-5:]
 
 
@@ -207,25 +209,25 @@ def _consumed(event: Event, activity: dict[str, Any]) -> list[dict[str, Any]]:
         _invalid("Consumption location is invalid")
     rows = []
     for item in data["items"]:
-        quantity, cumulative, product_id = _consumption_item(item)
+        quantity, cumulative, food_id, category = _consumption_item(item)
         if quantity > 0:
-            rows.append({**_base(event, "consumed"), "product_id": product_id,
-                         "location_id": location_id, "interval_quantity": quantity,
-                         "cumulative_quantity": cumulative, "interval_start": start, "interval_end": end})
+            rows.append({**_base(event, "consumed"), "food_id": food_id, "category": category,
+                         "location_id": location_id, "interval_portion": quantity,
+                         "cumulative_portion": cumulative, "interval_start": start, "interval_end": end})
     return rows
 
 
-def _consumption_item(item: Any) -> tuple[float, float, str]:
+def _consumption_item(item: Any) -> tuple[float, float, str, str]:
     """@brief 拒绝缺失、负数或累计小于区间量的食用明细。"""
     if not isinstance(item, dict):
         _invalid("Consumption item is invalid")
-    product_id = item.get("product_id")
-    quantity, cumulative = item.get("interval_quantity"), item.get("cumulative_quantity")
-    if (not isinstance(product_id, str) or not product_id
+    food_id, category = item.get("food_id"), item.get("category")
+    quantity, cumulative = item.get("interval_portion"), item.get("cumulative_portion")
+    if (not isinstance(food_id, str) or not food_id or category not in set(FoodCategory)
             or any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
                    for value in (quantity, cumulative)) or cumulative < quantity):
-        _invalid("Consumption quantity or product is invalid")
-    return float(quantity), float(cumulative), product_id
+        _invalid("Consumption portion, food or category is invalid")
+    return float(quantity), float(cumulative), food_id, category
 
 
 def _played(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:

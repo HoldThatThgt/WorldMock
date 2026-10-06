@@ -29,7 +29,7 @@ _NULLABLE_TEXT = {"type": ["string", "null"], "minLength": 1}
 _LINES = {"type": "array", "items": _TEXT}
 
 #: 工具层目标类别闭集（英文值；场景联系人并入 person）。
-TARGET_KINDS = ("location", "product", "person", "content", "game", "catalog", "lifestyle", "task", "activity",
+TARGET_KINDS = ("location", "product", "person", "content", "game", "lifestyle", "task", "activity",
                 "message", "self")
 #: 工具层可列出的方式，不含仅在请求中由系统确定方式的「购买」。
 WAY_LABELS = tuple(way for way in WAYS if way != "购买")

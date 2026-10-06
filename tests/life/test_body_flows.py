@@ -59,7 +59,7 @@ def test_food_intake_records_single_energy_source(body_config) -> None:
     result = apply_food(body, 200, body_config)
     flows = last_flows()
 
-    expected = 200 * interpolate(body_config.food_efficiency_curve, 0)
+    expected = 180
     assert result.food_efficiency == pytest.approx(expected / 200)
     assert len(flows) == 1
     assert flows[0].resource == ENERGY_RESOURCE
@@ -129,7 +129,7 @@ def test_relief_activity_drains_entertainment_need(body_config) -> None:
 def test_plain_awake_activity_accrues_entertainment_source(body_config) -> None:
     """无实际接触的清醒活动按清醒速率累积娱乐需要，是一笔 source。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.2)
-    result = settle_body(body, ActivityKind.BROWSE, 3600, body_config)
+    result = settle_body(body, ActivityKind.WAIT, 3600, body_config)
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
     assert len(flows) == 1
@@ -177,7 +177,7 @@ def test_entertainment_relief_beyond_need_drains_only_the_need(body_config) -> N
 def test_entertainment_accrual_beyond_one_clamps_at_one(body_config) -> None:
     """累积越过娱乐上限时 source 金额截断到余量，期末钉在 1。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.95)
-    result = settle_body(body, ActivityKind.BROWSE, 3600, body_config)
+    result = settle_body(body, ActivityKind.WAIT, 3600, body_config)
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
     assert result.after.entertainment_need == 1
@@ -190,7 +190,6 @@ def test_entertainment_accrual_beyond_one_clamps_at_one(body_config) -> None:
     (ActivityKind.WORK, 0),
     (ActivityKind.SLEEP, 0),
     (ActivityKind.WATCH, 0.21),
-    (ActivityKind.BROWSE, 0),
     (ActivityKind.WAIT, 0),
     (ActivityKind.CONSUME, 0),
 ])
@@ -254,7 +253,7 @@ def test_full_history_replay_matches_incremental_settlement(body_config) -> None
     states = [BodyState(energy_kcal=2350, sleep_pressure=0.0, sleep_deficit_hours=0.5, entertainment_need=0.95)]
     entries: list[FlowEntry] = []
     steps = [
-        (ActivityKind.BROWSE, 3600, None),
+        (ActivityKind.WAIT, 3600, None),
         (ActivityKind.SLEEP, 3600, ActivityFactors(0.95)),
         (ActivityKind.WATCH, 3600, ActivityFactors(1, 0.21)),
     ]

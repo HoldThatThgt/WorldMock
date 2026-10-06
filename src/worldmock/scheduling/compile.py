@@ -44,9 +44,6 @@ def compile_schedule(scenario: RuntimeScenario, start: int, end: int) -> list[Sc
     rows.extend(_calendar_rows(scenario, start, end))
     rows.extend(_bill_rows(scenario, start, end))
     rows.extend(_payroll_rows(scenario, start, end))
-    rows.extend(_quote_change_rows(scenario, start, end))
-    rows.extend(_price_change_rows(scenario, start, end))
-    rows.extend(_product_release_rows(scenario, start, end))
     rows.sort(key=lambda row: (row[0], row[4]))
     return [ScheduledEvent(scheduled_id=row[4], kind=row[2], due_at=row[0], sequence=index,
                            agent_id=row[1], data=row[3]) for index, row in enumerate(rows, start=1)]
@@ -88,37 +85,10 @@ def _payroll_rows(scenario: RuntimeScenario, start: int, end: int):
             for payroll in scenario.payrolls if start < int(payroll.due_at.timestamp()) < end]
 
 
-def _quote_change_rows(scenario: RuntimeScenario, start: int, end: int):
-    """@brief 每个报价生效或失效边界只编译一条完整声明替换事件。"""
-    rows = []
-    for supply in scenario.supplies:
-        boundaries = {int(quote.effective_from.timestamp()) for quote in supply.quotes}
-        boundaries.update(int(quote.effective_to.timestamp()) for quote in supply.quotes
-                          if quote.effective_to is not None)
-        for due in sorted(boundaries):
-            if start < due <= end:
-                rows.append((due, None, ScheduledKind.SUPPLY_QUOTE_CHANGE,
-                             {"supply_id": supply.supply_id}, f"boundary-quote-{supply.supply_id}-{due}"))
-    return rows
 
 
-def _price_change_rows(scenario: RuntimeScenario, start: int, end: int):
-    """@brief 每次显式调价携带供给身份、完整版本和自己的假设来源。"""
-    return [(int(change.due_at.timestamp()), None, ScheduledKind.PRICE_CHANGE,
-             {"supply_id": change.supply_id, "price_version": change.price_version,
-              "amount_fen": change.amount_fen, "source": change.source.model_dump(mode="json")},
-             f"price-{change.change_id}")
-            for change in scenario.price_changes if start < int(change.due_at.timestamp()) < end]
 
 
-def _product_release_rows(scenario: RuntimeScenario, start: int, end: int):
-    """@brief 每次补货只将目标供给库存置为声明数量，并保留假设来源。"""
-    return [(int(release.due_at.timestamp()), None, ScheduledKind.PRODUCT_RELEASE,
-             {"supply_id": release.supply_id, "stock": release.stock,
-              "source": release.source.model_dump(mode="json")},
-             f"release-{release.release_id}")
-            for release in scenario.product_releases
-            if start < int(release.due_at.timestamp()) < end]
 
 
 def datetime_midnight(date_text: str, zone: ZoneInfo) -> datetime:

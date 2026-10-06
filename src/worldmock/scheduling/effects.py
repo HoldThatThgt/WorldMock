@@ -7,14 +7,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from worldmock.errors import IntegrityError
+from worldmock.life.basket import inventory_change
 from worldmock.life.commerce import deliver_order
-from worldmock.life.models import DataSource
 from worldmock.life.models import WorldState
-from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
 from worldmock.life.social import Message
-from worldmock.life.storefront_state import changed_quote, effective_quote, quote_state
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 
@@ -37,12 +35,6 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
         return _bill_due(state, event)
     if event.kind == ScheduledKind.PAYROLL:
         return _payroll(state, event)
-    if event.kind == ScheduledKind.PRICE_CHANGE:
-        return _price_change(state, event, semantics)
-    if event.kind == ScheduledKind.SUPPLY_QUOTE_CHANGE:
-        return _quote_change(state, event, semantics)
-    if event.kind == ScheduledKind.PRODUCT_RELEASE:
-        return _product_release(state, event)
     if event.kind == ScheduledKind.MESSAGE_ARRIVAL:
         return _deliver_message(state, event)
     return _reveal_event(state, event, semantics)
@@ -94,9 +86,7 @@ def _deliver_orders(state: WorldState, event: ScheduledEvent) -> ScheduledOutcom
         changed, order = deliver_order(changed, identity)
         orders.append(order.model_dump(mode="json"))
         if before.status == "pending" and order.status == "delivered":
-            changes.append({"order_id": order.order_id, "supply_id": order.supply_id,
-                            "location_id": order.destination_id, "product_id": order.product_id,
-                            "quantity": order.quantity})
+            changes.append(inventory_change(order))
     return ScheduledOutcome(changed, {"orders": orders, "inventory_changes": changes})
 
 
@@ -130,59 +120,3 @@ def _payroll(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
     data.update(payroll_paid=True,
                 resource_changes={f"account:{employer}": -amount, f"account:{recipient}": amount})
     return ScheduledOutcome(settled, data)
-
-
-def _scheduled_source(event: ScheduledEvent) -> dict:
-    """@brief 显式调价和补货只接受各自的场景假设来源，不继承真实报价标签。"""
-    source = DataSource.model_validate(event.data["source"])
-    if source.kind != "scenario":
-        raise IntegrityError("Scheduled supply changes require a scenario source")
-    return source.model_dump(mode="json")
-
-
-def _price_change(state: WorldState, event: ScheduledEvent,
-                  semantics: ScenarioSemantics) -> ScheduledOutcome:
-    """@brief 按有效声明的时段约束持久化调价，并保留实际前后报价与新来源。"""
-    supply_id = event.data["supply_id"]
-    if supply_id not in state.supply_quotes:
-        raise IntegrityError("Scheduled price change references an unknown supply")
-    previous = effective_quote(state.supply_quotes[supply_id], event.due_at)
-    supply = next(item for item in semantics.scenario.supplies if item.supply_id == supply_id)
-    product = next(item for item in semantics.scenario.products if item.product_id == supply.product_id)
-    quote = changed_quote(previous, supply, event, product)
-    quotes = dict(state.supply_quotes)
-    quotes[supply_id] = quote
-    changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)
-    return ScheduledOutcome(changed, {**event.data, "quote_before": previous.model_dump(mode="json"),
-                                      "quote_after": quote.model_dump(mode="json")})
-
-
-def _quote_change(state: WorldState, event: ScheduledEvent,
-                  semantics: ScenarioSemantics) -> ScheduledOutcome:
-    """@brief 声明边界完整替换当前供给报价，声明间隙明确写入未知。"""
-    supply_id = event.data["supply_id"]
-    if supply_id not in state.supply_quotes:
-        raise IntegrityError("Quote boundary references an unknown supply")
-    supply = next(item for item in semantics.scenario.supplies if item.supply_id == supply_id)
-    before = state.supply_quotes[supply_id]
-    quote = quote_state(quote_at(supply, event.due_at))
-    quotes = dict(state.supply_quotes)
-    quotes[supply_id] = quote
-    changed = state.model_copy(update={"supply_quotes": quotes}, deep=True)
-    return ScheduledOutcome(changed, {
-        **event.data, "quote_before": before.model_dump(mode="json") if before is not None else None,
-        "quote_after": quote.model_dump(mode="json") if quote is not None else None})
-
-
-def _product_release(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
-    """@brief 补货仅替换目标供给库存，保存前后数量及明确的场景来源。"""
-    supply_id = event.data["supply_id"]
-    if supply_id not in state.supply_stock:
-        raise IntegrityError("Scheduled release references an unknown supply")
-    source = _scheduled_source(event)
-    stock = dict(state.supply_stock)
-    before = stock[supply_id]
-    stock[supply_id] = event.data["stock"]
-    changed = state.model_copy(update={"supply_stock": stock}, deep=True)
-    return ScheduledOutcome(changed, {**event.data, "source": source, "stock_before": before,
-                                      "stock_after": stock[supply_id]})

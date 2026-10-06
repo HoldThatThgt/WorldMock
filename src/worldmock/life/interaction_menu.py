@@ -124,7 +124,7 @@ def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
     if len(canonical) == 1:
         return True
     same = canonical[0] == canonical[1] and ways[0] == ways[1]
-    return same and canonical[0] in {"purchase", "consume"} and ways[0] not in {"制作", vocabulary.GIVE_WAY}
+    return same and canonical[0] in {"purchase", "consume"} and ways[0] != vocabulary.GIVE_WAY
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

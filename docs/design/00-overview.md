@@ -1,7 +1,7 @@
 <a name="overview-worldmock-产品设计说明书-概述"></a>
 # WorldMock 产品设计说明书 — 概述
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2）；「地图中的消费行为」（阶段 3）。
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
@@ -66,6 +66,8 @@ flowchart TB
 地图由 WorldMock 生成、Dataset 发布，是合成连通加权图，不表达真实路网、GPS 或交通拥堵。等长最短路取完整路径元组字典序较小者，场景只选择地点，路径可以经过其他目录节点。
 运行和恢复使用清单 `environment_identity`，只读发布图；旧道路资料和库存报价合同由现行图与菜单合同取代。真实名称不证明真实数值，合成输入与实际数字足迹分别留证。
 开发范围见[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)，完整运行与平台结论按真实验收记录判定。
+
+外卖来自店铺 app 绑定，每单只一次付款和一次送达；食品热量与完整食用时长按类别固定，数字足迹保留实际消费份额与身体效率。路途中自送须在出发前或到达后下单。
 
 <a name="overview-系统目标"></a>
 ### 1.3 系统目标
@@ -287,3 +289,4 @@ flowchart TB
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | v1.11 | 2026-10-05 | 按共享规则与可重建环境规格同步 AS2 生命周期与 WorldMock 生活业务职责、Python 3.12、固定模型故障传播、相对交付引用、Windows 核心与重建验收要求及 Linux x86_64/TextWorld 与 aarch64 安装边界；验收要求不代表已经通过 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |

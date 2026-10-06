@@ -1,17 +1,13 @@
 """@brief 人物卡片覆盖率校验：persona_coverage.json 结构（docs/CONTRACTS.md#contracts-worldmock-接口合同「人物卡片覆盖率产出」）。
 
-每条习惯签名的 response 与每个口味条目必须映射到世界中至少一个可执行目标
-或条目（映射目标清单作为输入由调用方给出目录/品类集）；可执行比例低于 80%
-时校验失败并列出缺失项。这一校验防止画像写了播客而世界里没有播客。
-匹配规则（确定性）：口味条目与目标品类集精确相等；习惯 response 与目标
-关键词互为子串（"公园慢跑半小时" 命中关键词 "慢跑"）。App 名只作媒介的精确命中，
-不以子串给习惯或内容题材算命中（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 ：「B站视频」不因应用名「B站」算覆盖）。
+习惯签名、食品偏好与媒介必须映射到登记目录中的可执行目标。内容题材仍保留为画像散文，不参与覆盖率。
+可执行比例低于 80% 时校验失败并列出缺失项。习惯与食品名按双向子串匹配，媒介按内容类型标签或应用名精确匹配。
 """
 
 from __future__ import annotations
 
 from worldmock.base_models import FrozenModel
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from worldmock.errors import IntegrityError
 from worldmock.profile.models import PersonaCard
@@ -26,10 +22,9 @@ class CoverageTargets(FrozenModel):
 
 
     habit_response_keywords: tuple[str, ...] = ()
-    content_genres: tuple[str, ...] = ()
     food_kinds: tuple[str, ...] = ()
     media_kinds: tuple[str, ...] = ()
-    # 有场景执行证据的应用别名：只作媒介条目的精确命中，不参与习惯与内容题材的子串匹配。
+    # 全部登记应用的名称，只作媒介条目的精确命中。
     app_names: tuple[str, ...] = ()
 
 
@@ -62,14 +57,12 @@ def validate_coverage(card: PersonaCard,
     """@brief 校验卡片习惯 response 与口味条目的世界可执行覆盖。
 
     total_items 为 0（无习惯且无口味）时无可校验项：按缺省通过（比例 1.0）。
-    App 名只在媒介条目上精确命中；习惯 response 与内容题材不因含 App 名子串算命中。
+    内容题材不计入分母。App 名只在媒介条目上精确命中。
     """
     checks: list[tuple[str, str, bool]] = []
     for habit in card.habits:
         checks.append(("habit_response", habit.response,
                        _keyword_hit(habit.response, targets.habit_response_keywords)))
-    for genre in card.tastes.content_genres:
-        checks.append(("content_genre", genre, genre in set(targets.content_genres)))
     for food in card.tastes.food_preferences:
         checks.append(("food_preference", food, _keyword_hit(food, targets.food_kinds)))
     for medium in card.tastes.media:

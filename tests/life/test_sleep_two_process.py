@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from tests.life.conftest import context
-from tests.life.test_scheduling import _custom_engine
 from worldmock.life import felt, projection
+from worldmock.exchange.body import BODY_CONSTANTS
 from worldmock.life.body import (ActivityFactors, BoundaryClock, initial_body,
                                  next_shared_body_boundary_seconds, settle_shared_body)
 from worldmock.life.world_setup import _initial_agent
@@ -30,7 +30,6 @@ from worldmock.life.sleep import (
     GRADE_TIRED_MIN,
     GRADE_VERY_SLEEPY_MIN,
     EfficiencyCurvePoint,
-    FOOD_UTILIZATION_CURVE,
     WORK_EFFICIENCY_CURVE,
     SleepinessGrade,
     deficit_after_awake,
@@ -500,8 +499,8 @@ class TestEfficiencyCurves:
     def test_frozen_curve_constants(self):
         assert [p.input_hours for p in WORK_EFFICIENCY_CURVE] == [0.0, 8.0, 16.0, 24.0]
         assert [p.output_factor for p in WORK_EFFICIENCY_CURVE] == [1.0, 1.0, 0.85, 0.65]
-        assert [p.input_hours for p in FOOD_UTILIZATION_CURVE] == [0.0, 8.0, 16.0, 24.0]
-        assert [p.output_factor for p in FOOD_UTILIZATION_CURVE] == [0.90, 0.90, 0.85, 0.80]
+        assert [p.input_value for p in BODY_CONSTANTS.food_efficiency_curve] == [0.0, 8.0, 16.0, 24.0]
+        assert [p.output_value for p in BODY_CONSTANTS.food_efficiency_curve] == [0.90, 0.90, 0.85, 0.80]
 
     def test_interpolate_two_point_curve(self):
         curve = (point(0.0, 1.0), point(10.0, 0.5))
@@ -555,7 +554,8 @@ class TestCurveValidation:
 
     def test_valid_curve_passes_validation(self):
         validate_efficiency_curve(WORK_EFFICIENCY_CURVE)
-        validate_efficiency_curve(FOOD_UTILIZATION_CURVE)
+        validate_efficiency_curve(tuple(point(p.input_value, p.output_value)
+                                        for p in BODY_CONSTANTS.food_efficiency_curve))
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +605,8 @@ class TestInitialBodyFromUsualWake:
 
     def test_lianqiu_midnight_start_first_observation_is_at_least_sleepy(self, tmp_path: Path):
         """练秋湖作息（中点 04:45、睡 8 小时）的 00:00 起点：首个观察的困意为「困」或以上；不读就寝窗口。"""
+        from tests.life.test_scheduling import _custom_engine
+
         def lianqiu(document: dict) -> None:
             document["agents"][0].update(chronotype_midsleep=4.75, sleep_need_hours=8.0,
                                          bedtime_window=[23.5, 24.5])
@@ -660,4 +662,3 @@ class TestSleepinessCrossingPrediction:
         if hour == 0.0:
             # 本机运行的症状：旧近似在 00:00 按惯常作息外推到早上才「有点乏」，从当前压力扫描得到凌晨的实际时刻。
             assert predicted < 5 * 3600
-

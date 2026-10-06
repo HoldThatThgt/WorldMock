@@ -319,7 +319,7 @@ def _work_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
 
 
 def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, float]], int]:
-    """@brief 只读取实际食品使用区间，不给非食品消费制造效率。"""
+    """@brief 只读取实际食品进食区间及其结算利用效率。"""
     samples = []
     missing = 0
     for event in events:
@@ -330,7 +330,7 @@ def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
             continue
         items = consumption.get("items")
         if not isinstance(items, list) or not any(
-            isinstance(item, dict) and _is_positive_number(item.get("interval_quantity")) for item in items
+            isinstance(item, dict) and _is_positive_number(item.get("interval_portion")) for item in items
         ):
             continue
         start, end = event.data.get("interval_start"), event.data.get("interval_end")

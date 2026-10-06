@@ -158,7 +158,7 @@ def test_tool_targets_list_all_other_selected_places_with_both_graph_quotes(tmp_
     route_rows = builder._route_rows(agent)
     projection = ProjectionInputs(state, scenario, agent, extras={"route_rows": route_rows})
     menu = resolve_interaction_menu(scenario, 1, agent.location_id)
-    facts = WorldFacts({}, {}, dict(semantics.catalog.foods), dict(semantics.catalog.contents))
+    facts = WorldFacts(dict(semantics.catalog.work_topics), dict(semantics.catalog.foods), dict(semantics.catalog.contents))
     layer = LayerContext(state, scenario, facts, semantics, 1, {"activities": {}}, [], menu)
     destinations = {item.location_id for item in scenario.locations} - {agent.location_id}
     assert len(destinations) == 6 and len(catalog_rows) == len(route_rows) == 12

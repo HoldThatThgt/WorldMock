@@ -1,7 +1,7 @@
 <a name="rules-调整世界规则与人物动机参数"></a>
 # 调整世界规则与人物动机参数
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约、交换规则、供给与制作边界、检查与发布品类修改、出行时长、食品来源映射说明、配置入口与生效范围、身体规则、在独立目录中调参并验证」（阶段 1）。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约、交换规则、供给与制作边界、检查与发布品类修改、出行时长、食品来源映射说明、配置入口与生效范围、身体规则、在独立目录中调参并验证」（阶段 1）；「活动声明、单个人物的参数、人物映射表」（阶段 3）。
 
 > 更新日期：2026-10-06。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
 > 正式食材配方和发布身份已实现；当前场景结构 6、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
@@ -72,12 +72,10 @@ flowchart LR
 | --- | --- |
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
-| `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配。`content_rate`（观看）为条目费率 × 有效偏好 ÷ 接触次数，`preference_rate`（游戏）为有效偏好 × 目录费率；两个通道都用有效偏好 `f + (1 − f)·w`，游戏的口味权重 `w` 与内容同一算法，没有题材的条目 `w = 0`、按下限 `f` 缓解，见[身体规则](rules.md#rules-身体规则) |
-| `resource_claims` | 占用名 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）：每种动作占自己的名字，只有同一种动作互斥，睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT`；写旧的 `idle`、`eyes`、`ears`、`hands`、`voice` 在加载时拒绝；环境目录副本仍是旧占用名的，因与包资源不一致在装配时拒绝，要按新占用名重新发布 |
+| `resource_claims` | 占用名 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel`（[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第五章「并行准入」占用表）：每种动作占自己的名字，只有同一种动作互斥，睡眠占全部名字，驾车另占除 `watch`、`talk` 以外的八个；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT`；环境目录副本须与包字节一致 |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
 | `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
 | `families.<家族>.candidate` | 已登记生成器及其允许参数；未知生成器或参数会拒绝 |
-| `attention` | 采样限额和需要的注意力键；与人物 `attention_prior` 一致，内容标题直接取场景 `title` |
 | `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`watch`），不是模型看到的五个动词；按名精确归并，每个动作名至多归一个家族 |
 
 例如以下是包内 `families.work` 的声明形状，供理解固定候选生成参数：
@@ -89,8 +87,10 @@ candidate = { generator = "task_slot", max_tasks = 2 }
 它控制内部动机评分为工作候选枚举多少任务，不改变模型提示中的候选呈现上限。
 用户可见候选数量由场景 `candidate_presentation_limit` 等参数控制，见[场景配置](scenarios.md#scenarios-生活场景)。
 
-WorldMock 发布活动声明变更时，需要检查环境资源中的 MET/娱乐缓解键、人物注意力键和工具菜单是否一致。
+WorldMock 发布活动声明变更时，需要检查环境资源中的 MET/娱乐缓解键、固定规则和工具菜单是否一致。
 单纯给 TOML 加一个新类型，并不能实现新的动作执行器。
+
+食品使用固定类别常数、菜单与店铺 app 绑定，没有口味缓解参数或供给约束。现行占用闭集保留到娱乐阶段的最后消费者退役，不通过环境配置另加活动或占用名。
 
 <a name="rules-出行时长"></a>
 ## 出行时长
@@ -135,50 +135,8 @@ discount = 0.9
 <a name="rules-单个人物的参数"></a>
 ### 单个人物的参数
 
-`agents[].motivation` 是场景中的可选对象，当前 `schema_version` 为 `1`。
-它与 `profile compile` 输出的 `CompiledPersona` 版本 `3` 是不同模型，不能整块互换。
-
-| 字段 | 必填与取值 |
-| --- | --- |
-| `big_five` | 必填，恰好五项：`openness`、`conscientiousness`、`extraversion`、`agreeableness`、`neuroticism`；整数 1–10 |
-| `weights` | 必填，恰好 `money_fen`、`energy_kcal`、`sleep_debt_hours`、`entertainment_need`、`goal_task`；有限非负数，总和为 1 |
-| `tau` | 必填正数；内部候选概率的温度 |
-| `beta_present_bias` | 必填，大于 0、小于等于 1 |
-| `loss_aversion` | 必填非空映射；键为前四种资源的子集，值至少为 1 |
-| `comfort` | 必填，恰好 `balance_fen` 与 `energy_kcal`；有限非负数，分别是分和千卡 |
-| `aspiration` | 必填，恰好 `daily_effective_work_seconds`；非负整数秒 |
-| `emotion_sensitivity` | 必填，0–1 |
-| `attention_prior` | 每项 0–1；键必须与注册表 `attention_required` 集合完全一致，不要求总和为 1 |
-| `source` | 可省略或为 `null`；有真实来源才填 `persona_text_sha256`、`model`、`prompt_version`、`consensus` |
-
-以下是可直接放入 `agents[].motivation` 的**完整对象**，它省略可选 `source`，不声称经过模型共识提取：
-
-```json
-{
-  "schema_version": 1,
-  "big_five": {
-    "openness": 5, "conscientiousness": 6, "extraversion": 6,
-    "agreeableness": 4, "neuroticism": 3
-  },
-  "weights": {
-    "money_fen": 0.22, "energy_kcal": 0.15, "sleep_debt_hours": 0.14,
-    "entertainment_need": 0.24, "goal_task": 0.25
-  },
-  "tau": 0.5,
-  "beta_present_bias": 0.65,
-  "loss_aversion": {"money_fen": 1.75, "energy_kcal": 1.25},
-  "comfort": {"balance_fen": 16000, "energy_kcal": 900},
-  "aspiration": {"daily_effective_work_seconds": 21000},
-  "emotion_sensitivity": 0.4,
-  "attention_prior": {
-    "feature_film": 0.1, "news_feed": 0.09, "joke_feed": 0.11,
-    "webnovel_excerpt": 0.1, "drama_series": 0.1,
-    "sport": 0.08, "hobby": 0.07, "outdoor": 0.06, "wellness": 0.05,
-    "household": 0.04, "learning": 0.06, "pet": 0.04,
-    "social": 0.06, "volunteer": 0.04
-  }
-}
-```
+人物差异由 `background_story` 与卡片散文呈现，睡眠需要、时型、餐时与身体初值按场景冻结字段读取；不声明 `attention_prior`、画像排序参数或口味数值权重。
+内部动机仪表与场景人物画像分别负责研究证据和生活决策。改变散文可以改变人物理解，不能改写目录食品价格、热量、app 绑定或世界准入；固定世界规则随 WorldMock 包发布。
 
 <a name="rules-人物映射表"></a>
 ## 人物映射表
@@ -223,9 +181,11 @@ bedtime = "23:00-24:00"
 `load_mapping_config(Path("../WorldMock-Dataset/environment/my-world/persona-mapping.toml"))`，
 再将所得 `config` 传给 `compile_persona`。不通过环境变量或当前目录搜索映射文件。
 实际场景装配要求 `catalog/rules/persona-mapping.toml` 与包资源逐字节一致，不能将另一份映射当成可替换的运行规则。
-当前运行时主要从编译结果接入人物卡片和口味权重，**尚未把整份 `world_dynamics` 自动应用到世界状态**。
+当前运行时主要从编译结果接入人物卡片散文，**尚未把整份 `world_dynamics` 自动应用到世界状态**。
 改变映射表可以改变编译输出，不能据此声称运行中的情绪、社交和邀约参数都已相应改变。
 需要明确人物睡眠与作息时，仍在场景人物字段中填写，详见[人物画像](personas.md#personas-人物画像)。
+
+`tastes` 只映射为卡片散文，不生成候选口味权重、注意力先验或食品价格参数；覆盖率读取登记目录的真实目标名。
 
 <a name="rules-食品来源映射说明"></a>
 ## 食品来源映射说明

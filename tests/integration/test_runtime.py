@@ -1151,75 +1151,12 @@ async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_thr
         await env.close()
 
 
-def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
-    """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
-
-    import worldmock.runtime as runtime_module
-    from worldmock.life.world_setup import load_scenario
-    from worldmock.profile.injection import apply_scenario_rhythm
-    from worldmock.profile.taste import compute_taste_weights
-
-    from tests.profile.conftest import make_card
-    from worldmock.profile.models import Tastes
-    from worldmock.profile.textgen import render_card
-
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-    card = make_card(tastes=Tastes(content_genres=("剧情", "科幻"), food_preferences=(), media=()))
-    compiled: list[int] = []
-
-    def fake_compile(agent):
-        compiled.append(agent.agent_id)
-        return card
-
-    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', fake_compile)
-    genres = {item.item_id: ("剧情",) for item in scenario.contents}
-    full, half, empty = (item.item_id for item in scenario.contents[:3])
-    genres[full], genres[half], genres[empty] = ("剧情", "科幻"), ("剧情", "历史"), ()
-
-    specs = _agent_specs(scenario, content_genres=genres)
-
-    weights = specs[0]["profile"]["taste_weights"]
-    # 游戏与内容同一算法（docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）：游戏按 game_id 查同一张题材表，没有声明的为空。
-    expected = compute_taste_weights(
-        ("剧情", "科幻"),
-        [{"item_id": item.item_id, "genre": genres[item.item_id]}
-         for item in scenario.contents]
-        + [{"item_id": item.game_id, "genre": ()} for item in scenario.games])
-    assert compiled == [1]
-    assert specs[0]["profile"]["persona_card"] == render_card(apply_scenario_rhythm(card, scenario.agents[0]).card)
-    assert weights == expected
-    assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
-    assert scenario.games and all(weights[item.game_id] == 0.0 for item in scenario.games)
 
 
-def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) -> None:
-    """无口味卡片：全内容与游戏目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
-
-    import worldmock.runtime as runtime_module
-    from worldmock.life.world_setup import load_scenario
-
-    from tests.profile.conftest import make_card
-    from worldmock.profile.models import Tastes
-
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
-    card = make_card(tastes=Tastes(content_genres=(), food_preferences=(), media=()))
-    monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', lambda agent: card)
-
-    specs = _agent_specs(scenario, content_genres={item.item_id: ("剧情",)
-                                                   for item in scenario.contents})
-
-    weights = specs[0]["profile"]["taste_weights"]
-    assert set(weights) == ({item.item_id for item in scenario.contents}
-                            | {item.game_id for item in scenario.games})
-    assert weights and all(value == 0.0 for value in weights.values())
 
 
-def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
-    """恢复模式不重算口味权重：人物档案随检查点工作区原样恢复。"""
+def test_agent_specs_restore_mode_never_recompiles_personas(monkeypatch) -> None:
+    """恢复装配不重新编译画像；人物档案由检查点工作区原样恢复。"""
     from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _agent_specs, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
     import worldmock.run_setup as worldmock_run_setup_module
 
@@ -1227,31 +1164,13 @@ def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
     from worldmock.life.world_setup import load_scenario
 
     def forbidden(agent):
-        raise AssertionError("restore path must not compile personas or tastes")
+        raise AssertionError("restore path must not compile personas")
 
     monkeypatch.setattr(worldmock_run_setup_module, '_compile_persona', forbidden)
-    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
+    scenario = load_scenario(ROOT / "tests/fixtures/environment/scenarios/single-person.json")[0]
 
     specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
 
     assert "persona_card" not in specs[0]["profile"]
     assert "persona_card_struct" not in specs[0]["profile"]
     assert "taste_weights" not in specs[0]["profile"]
-
-
-def test_content_genre_catalog_joins_contents_to_corpus_genres() -> None:
-    """装配侧 genre 表：场景内容经 item_id 连接语料条目 genre（无 id 条目缺省空）。"""
-    from worldmock.run_setup import _content_genre_catalog
-    from worldmock.life.world_setup import load_scenario
-
-    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-    scenario, _ = load_scenario(scenario_path)
-
-    genres = _content_genre_catalog(scenario_path, scenario)
-
-    assert genres["movie-0001"] == ("剧情", "历史")
-    # sintel 的身份文件（single 装载）在补入 item_id 与 genre 后成为一条真实条目：
-    # 可观看内容本就该带题材，故它进表而非缺席（旧断言以"无 item_id 即缺席"为前提，已失效）。
-    assert genres["sintel-en-subtitles"] == ("动画", "奇幻")
-    joined = {item.item_id for item in scenario.contents} & set(genres)
-    assert joined

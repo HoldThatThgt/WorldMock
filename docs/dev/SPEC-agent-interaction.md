@@ -1,7 +1,7 @@
 <a name="spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面"></a>
 # 特性规格：数字人交互（会话层、上下文分层与稳定工具面）
 
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「对象与动作选择」、「前置条件前置与前往提醒」、「会话的状态位置」（阶段 2）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「对象与动作选择」、「前置条件前置与前往提醒」、「会话的状态位置」（阶段 2）；「即时查询、完整纠错与紧凑呈现、与既有文档的一致性核对」（阶段 3）。
 
 > 状态：**FROZEN**；2026-09-23 按 issue #1 的运行证据及用户裁决修订；2026-09-24 按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)修订，修订部分已实现并通过离线验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 7、8、12、13、15、16、20–22、24、26 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（「冻结条款修订」第 10、11、13、14、18 行与其 3.5：控制工具改为 `items`、按名调用、指名购买与 `prefer`、名称类拒绝不计轮、公开结果键），修订部分已实现并通过离线验收。
 > 来源：[数字人交互方案](PROPOSAL-agent-interaction.md#proposal-agent-interaction-数字人交互方案)。裁决后本规格取代该提案的全部行为定义。
@@ -399,10 +399,10 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 `available_only` 为严格 JSON 布尔（拒绝字符串、数字与 `null`），不单独构成查询条件；
 `offset` 为严格非负 JSON 整数（拒绝布尔值、数字字符串及浮点数），首批显式写 `0`，不能省略；
 `way` 取现有方式闭集，写「购买」（及其同义写法）等同于同时写「到店」与「远程下单」；`category` 匹配公开 `callable_index` 的类别标签；
-`from` 写地点显示名（含「家」「住处」）或渠道称呼，与购买请求共用同一来源解析，只匹配供给条目，认不出时以 `ARGUMENTS_INVALID` 定位 `from`，
+`from` 写登记店铺显示名或 app 名，与购买请求共用同一来源解析，只匹配食品条目，认不出时以 `ARGUMENTS_INVALID` 定位 `from`，
 并给至多三条换了 `from` 的完整 `query_world` 候选（个人事务与工作安排规格 5.1、5.2、5.5）。
 查询只读取本轮冻结观察、已有私有绑定与可调用索引权限内的完整匹配集合，
-不读未揭示邮件正文、不公开超权限报价或世界库存，不替代耗时浏览的揭示行为。
+不读未揭示邮件正文或他人食品持有；食品查询只读固定菜单，不通过浏览揭示事实。
 `query_world` 的固定返回为 `{matches, total_count, next_offset}`，不新增说明键；`matches` 每项是冻结目标的无损紧凑投影
 （`name, kind, phase, state, contract, actions, tools`，`contract` 仅任务目标有；紧凑规则复用工具层分组已有的实现，只省略 `null` 与空集合，
 保留 `false`、零值与明确的未知原因），不再逐项附完整请求候选——照抄 `name` 与所选动作的 `way` 即可提交，候选只出现在错误合同里；
@@ -444,6 +444,10 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 空字段省略，共同不可用原因提至组级；续接 `changes` 使用同一确定性编码。
 编码必须能无损还原目标、方式、可用性、原因、价格、时长、数量、任务合同和其他工具可用性；
 冻结观察的工具层结构、私有绑定、可调用索引与世界权限不变。紧凑编码不是预算浓缩，不能减少对象或事实。
+
+`query_world(name, way, category, from, available_only, offset)` 六键必填，来源解析为目录店铺或 app，返回固定菜单的紧凑 `{matches, total_count, next_offset}`。
+商品价格固定，类别标签来自食品类别；`available_only` 只按人在店内或店铺绑定 app 判断，不检查报价、营业、库存、配送区域或可见凭据。查询不揭示新世界事实、不推进时间、不占名额，只保存实际模型与 tool 交换证据。
+查询与世界请求不得混批，先整批校验，再按原执行位置返回；有效交互菜单、同秒预算、名称纠错与只读权限保持原合同。
 
 <a name="spec-agent-interaction-决策轮循环与播报节律"></a>
 ## 决策轮循环与播报节律
@@ -722,7 +726,7 @@ flowchart LR
 | `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则` | 业务拒绝后同一秒再决策（同刻上限）、引擎派生执行参数、会话状态和播报原因 |
 | `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像` | 午夜记忆巩固仍不篡改事件与已核验经历；游戏命令回路删除 |
 | `docs/dev/SPEC-labelkit-delivery.md#spec-labelkit-delivery-特性规格数字足迹接入-labelkit` 与 `docs/EXPERIMENT.md#experiment-worldmock-实验设置` | 交付输入采用实际发送给模型的公开请求视图，保留其记忆与自述来源；不得把私有观察或工作评审请求混进样本 |
-| `docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎` | 对象与动作选择、冻结报价、引擎派生时长和资源前置条件、非致命业务拒绝 |
+| `docs/design/04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎` | 对象与动作选择、固定食品价格、引擎派生时长和资源前置条件、非致命业务拒绝 |
 | `docs/design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎` | 会话和公开结果的事件归属、模型请求及交付输入的可重建性、世界结构版本 |
 | `docs/design/06-delivery.md#delivery-worldmock-产品设计说明书-数据交付` | LabelKit 输入只采用实际人物请求的公开视图，私有观察、重复前置状态和独立工作评审请求不混入 |
 | `docs/design/08-configuration.md#configuration-worldmock-产品设计说明书-配置规格` | 保护项改为世界请求工具与只读查询工具，场景已有节律参数的归属 |
@@ -795,3 +799,4 @@ flowchart LR
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订：「决策轮循环与播报节律」唤醒表在事务提醒一行之后增班次与休息时段起止一行（`shift_start`、`shift_end`、`break_start`、`break_end` 依次追加在 `errand_reminder_due` 之后，清醒时精确到点给一次决策机会、活动照常继续、不写事件、不进提示，睡眠中不入候选、不形成静默边界、不叫醒，睡过的不补）；实现要点写明四个成员不在睡眠允许集合内，睡眠过滤的位置为 `src/worldmock/life/schedule.py::evaluate_wake_reasons`，并补四个成员与事务提醒同样在白名单与候选两头把关、不同的是不带交付状态且睡过的不补；「冻结条款修订」第 1 行追加四个成员，连带改动改为新增成员的九处同步点清单并以本行为准，注明调研文档的「唤醒词表的五处同步点」是冻结当时的清单、成员数已过期，质量报告直接读足迹侧词表、不是同步点；文件头补修订说明 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「三级结构与概念边界」活动只在开始地点且有空名额时恢复，进行中与待收尾时占一个名额；「会话与活动的关系」每人两个名额只算进行中与待收尾的活动，暂停的不占、个数不设上限，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额，只有暂停的活动时可以出发，状态图的恢复边补「有空名额」；「稳定工具面」`report_status` 恢复要有空名额，`pause_activity` 暂停让出名额，`conclude_activity` 释放进行中与待收尾活动的名额、暂停的在任何地点都可直接结束；「保护项修订」的受限轮收窄删去 `resume_or_conclude` 与 `conclude_only` 的进入条件，二者留在阶段闭集中、现行阶梯不再进入，`start_or_resume` 写明在没有进行中也没有待收尾的活动时进入；「冻结条款修订」第 2 行原位改写为进行中与待收尾的活动合计 ≤2；「验收台账」会话与活动生命周期一行随之改写，补恢复没有空名额时的拒绝与待办层同文；文件头补修订说明 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
+| `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |

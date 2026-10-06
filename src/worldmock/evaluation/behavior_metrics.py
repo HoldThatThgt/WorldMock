@@ -572,10 +572,10 @@ def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         items = consumption.get("items")
         if not isinstance(items, list):
             continue
-        products = {str(item["product_id"]) for item in items if isinstance(item, dict)
-                    and isinstance(item.get("product_id"), str)
-                    and isinstance(item.get("interval_quantity"), (int, float))
-                    and item["interval_quantity"] > 0}
+        products = {str(item["food_id"]) for item in items if isinstance(item, dict)
+                    and isinstance(item.get("food_id"), str)
+                    and isinstance(item.get("interval_portion"), (int, float))
+                    and item["interval_portion"] > 0}
         if not products:
             continue
         identity = str(event.get("activity_id"))
@@ -587,7 +587,7 @@ def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _meal_diversity(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 只以实际食用活动计算 Simpson 集中度与 24 小时重复率。"""
+    """@brief 只以真实食用活动的食品标识计算 Simpson 集中度与 24 小时重复率。"""
     consumed = _meal_sessions(events)
     product_counts: Counter[str] = Counter()
     for event in consumed:

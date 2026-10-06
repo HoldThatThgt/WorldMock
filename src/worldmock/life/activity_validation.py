@@ -34,8 +34,6 @@ def _target_is_valid(activity: ActivityState, state: WorldState, rules,
         valid = target in rules.games and data.get("game_id") == target
     elif kind == ActivityKind.READ_MAIL:
         valid = target in rules.messages and data.get("message_id") == target
-    elif kind == ActivityKind.BROWSE:
-        valid = target == "product_catalog" and data.get("catalog") == "all_products"
     elif kind == ActivityKind.LIFESTYLE:
         valid = target in rules.activity_location_kinds
     elif kind == ActivityKind.CONSUME:
@@ -61,7 +59,7 @@ def _consume_target_is_valid(activity: ActivityState, rules) -> bool:
     except (KeyError, ValueError):
         return False
     return (bool(request.items) and activity.target_id == request.items[0].product_id
-            and all(item.product_id in rules.items for item in request.items))
+            and all(item.product_id in {food.food_id for food in rules.scenario.foods} for item in request.items))
 
 
 def _travel_target_is_valid(activity: ActivityState, graph) -> bool:

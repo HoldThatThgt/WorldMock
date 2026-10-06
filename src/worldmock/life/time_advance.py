@@ -51,7 +51,6 @@ from worldmock.life.models import (
     WorldState,
     active_activities,
 )
-from worldmock.life.inventory_recipe import apply_inventory_recipe
 from worldmock.life.observe import ObservationBuilder
 from worldmock.life.rhythm import (
     RhythmBoundary,
@@ -62,7 +61,8 @@ from worldmock.life.rhythm import (
     settle_engine_rhythm,
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
-from worldmock.life.state_commit import commit_state, flush_presentation, flush_supply_visibility, stage_presentation
+from worldmock.life.models import validated_payload
+from worldmock.life.presentation import flush_presentation, stage_presentation
 from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.life.work import reveal_work_progress
 from worldmock.scheduling.effects import apply_scheduled_effect
@@ -122,7 +122,7 @@ class TimeAdvanceCoordinator:
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.context.state.current_time
         staged = flush_presentation(stage_presentation(self.context.state, self.observations.pending_presentation))
-        staged = flush_supply_visibility(staged, self.observations.pending_visible_supplies)
+        staged = staged
         staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
         staged = same_moment.reset_same_moment(staged)
         (drafts, results) = self._advance_activities(staged, target_epoch)
@@ -150,10 +150,9 @@ class TimeAdvanceCoordinator:
                 )
             )
         staged.version = self.context.state.version + 1
-        commit_state(self.context.store, staged, drafts)
+        self.context.store.commit(validated_payload(staged), drafts)
         self.context.state = staged
         self.observations.pending_presentation = {}
-        self.observations.pending_visible_supplies = {}
         return results
 
     @property
@@ -172,7 +171,7 @@ class TimeAdvanceCoordinator:
             raise ProtocolError("No midnight rhythm is pending")
         staged = decide_engine_rhythm(self.context, self.context.state.model_copy(deep=True), boundary)
         staged.version = self.context.state.version + 1
-        commit_state(self.context.store, staged, list(boundary.drafts))
+        self.context.store.commit(validated_payload(staged), list(boundary.drafts))
         self.context.state = staged
         self.midnight = None
 
@@ -189,7 +188,7 @@ class TimeAdvanceCoordinator:
             self.context.state, agent_id, request, (sources, causes), self.context.scenario.timezone
         )
         staged.version = self.context.state.version + 1
-        commit_state(self.context.store, staged, [*evidence, draft])
+        self.context.store.commit(validated_payload(staged), [*evidence, draft])
         self.context.state = staged
         return plan
 
@@ -360,35 +359,16 @@ class TimeAdvanceCoordinator:
             (state.agents[agent.agent_id], activity.data["revealed"]) = reveal_mail(
                 activity, agent, self.context.rules.messages
             )
-        elif activity.kind == ActivityKind.BROWSE:
-            (staged, revealed) = self.observations._complete_product_browse(state, agent)
-            (state.agents, state.presentation_state) = (staged.agents, staged.presentation_state)
-            activity.data["revealed"] = revealed
-            evidence["browse_result"] = revealed
         return evidence
 
-    def _apply_consume_effect(
-        self, state: WorldState, activity, completed: bool, before_consumed: dict[str, float]
-    ) -> dict:
-        """@brief 记录本区间实际食用增量和当时的营养利用效率。"""
+    def _apply_consume_effect(self, state: WorldState, activity, completed: bool,
+                              before_consumed: dict[str, float]) -> dict:
+        """@brief 真实 Food 份量进度结算及当前区间消费证据使用同一目录。"""
         agent = state.agents[activity.agent_id]
-        food_efficiency = (
-            sleep_module.food_utilization_efficiency(agent.body.sleep_deficit_hours)
-            if activity.data["request"]["use_mode"] == "eat"
-            else None
-        )
-        if completed and "inventory_recipe" in activity.data:
-            state.agents[activity.agent_id] = apply_inventory_recipe(
-                agent, self.context.rules.items, self.context.semantics.catalog, activity
-            )
-        elif "inventory_recipe" not in activity.data:
-            state.agents[activity.agent_id] = apply_meal_progress(
-                agent, self.context.rules.items, activity, self.context.semantics.body
-            )
+        foods = self.context.semantics.catalog.foods
+        state.agents[activity.agent_id] = apply_meal_progress(agent, foods, activity, self.context.semantics.body)
         state.activities[activity.activity_id] = activity
-        data = _meal_consumption_data(activity, state.agents[activity.agent_id], before_consumed)
-        data["food_efficiency"] = food_efficiency
-        return data
+        return _meal_consumption_data(activity, state.agents[activity.agent_id], before_consumed, foods)
 
     def _process_scheduled(
         self, state: WorldState, target: int
