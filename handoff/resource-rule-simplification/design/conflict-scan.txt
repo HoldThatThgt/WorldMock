@@ -1,0 +1,366 @@
+## docs\CONTRACTS.md
+  UNCITED contracts-worldmock-接口合同 [1]: 品类
+  UNCITED contracts-交互菜单声明与有效菜单 [7]: location_kinds, 品类, 库存, 游戏, 资格
+  UNCITED contracts-day-goal-request [4]: browse, play_game, watch, 营业
+  UNCITED contracts-day-plan-template [1]: 截止
+  UNCITED contracts-个人事务 [3]: 库存, 截止
+  UNCITED contracts-场景联系人 [1]: 可达
+  UNCITED contracts-交谈与通话 [3]: 播客, 游戏, 观看
+  UNCITED contracts-social-errors [1]: 游戏
+  UNCITED contracts-reasoning-return [1]: 截止
+  UNCITED contracts-窗口声明与字段字典编码 [3]: 截止, 评审
+  UNCITED contracts-反事实与重演字段 [1]: 截止
+  UNCITED contracts-运行报告 [1]: 评审
+  UNCITED contracts-labelkit-调用配置 [8]: 分段, 截止, 评审
+## docs\EXPERIMENT.md
+  UNCITED experiment-实验身份与范围 [1]: 营业
+  UNCITED experiment-数据流与依赖 [1]: 截止
+  UNCITED experiment-命令入口 [1]: 截止
+  UNCITED experiment-版本表 [21]: catalog_version, category-, exchange-rules, work_review, 可达, 品类, 场景结构 6, 截止, 报价, 结构 9, 预约
+## docs\VERIFICATION.md
+  UNCITED verification-共享规则与可重建环境特性门禁 [1]: TextWorld
+  UNCITED verification-最终门禁 [2]: 评审
+  UNCITED errands-workday-度量与下游-质量报告 [1]: 截止
+  UNCITED verification-证据层级 [2]: 评审
+  UNCITED verification-真实性评估与结论边界 [15]: 坐标, 截止, 游戏, 评审
+  UNCITED verification-实施顺序 [1]: 品类
+## docs\ARCHITECTURE.md
+  UNCITED architecture-必须达到的行为 [2]: 技能, 游戏
+## docs\INDEX.md
+  UNCITED index-调研证据 [2]: category-, 品类
+## README.md
+  UNCITED readme-安装 [1]: TextWorld
+  UNCITED readme-命令 [3]: 评审
+## docs\dev\implementation-status.md
+  UNCITED implementation-status-同时做两件事开发状态 [2]: 截止, 播客
+  UNCITED implementation-status-layering-and-test-tiers [1]: 结构 6
+  UNCITED implementation-status-共享规则与可重建环境开发状态 [1]: TextWorld
+  UNCITED implementation-status-个人事务与工作安排开发状态 [8]: 世界 9, 品类, 截止, 结构 9, 评审
+  UNCITED implementation-status-工具交互开发状态 [4]: 品类, 报价, 预约
+  UNCITED implementation-status-一日运行保真开发状态 [15]: channel_id, relief_preference, 分段, 可达, 品类, 浏览, 游戏, 观看, 评审, 资格
+  UNCITED implementation-status-人物-prompt-七层开发状态 [8]: work_review, 分段, 截止, 浏览, 评审
+  UNCITED implementation-status-时间与能量开发状态 [2]: 评审
+  UNCITED implementation-status-地图与门店供给开发状态 [4]: 品类, 库存, 报价, 营业
+  UNCITED implementation-status-地图与品类组合的历史结论 [22]: category-, location_kinds, 可达, 品类, 库存, 报价
+  UNCITED implementation-status-候选与呈现本轮新增章的落地状态 [11]: SCHEMA_VERSION = 9, location_kinds, 可见凭据, 可达, 库存, 报价, 曝光, 营业, 资格
+  UNCITED implementation-status-候选特性历史门禁输出原命令与关键行 [4]: location_kinds, 可达, 曝光
+  UNCITED implementation-status-历史静态可达性缺陷记录 [8]: game, genre, subtitle, 可达, 品类
+  UNCITED implementation-status-历史候选呈现工具面指纹 [1]: browse
+  UNCITED implementation-status-已落地的条款口味权重降级为排序信号 [5]: attention_prior, genre, taste_weight, 口味权重
+  UNCITED implementation-status-规格追溯与突变守卫 [4]: 品类, 截止, 报价
+  UNCITED implementation-status-已冻结条款与确定性证据 [3]: 评审
+  UNCITED implementation-status-数据日志与模型接入 [6]: OSRM, game, subtitle, 品类, 工作材料, 评审
+  UNCITED implementation-status-已具备的真实运行证据 [2]: 评审
+  UNCITED implementation-status-项目级真实验收边界 [2]: 可达
+## docs\dev\ANALYSIS-spec-coverage.md
+  UNCITED analysis-spec-coverage-个人事务与工作安排增量映射 [8]: appointment, category_, deadline, opening_, out_of_stock, supplies
+  UNCITED analysis-spec-coverage-人物-prompt-七层增量映射 [13]: deadline, out_of_stock, skill, supplies, work_review
+  UNCITED analysis-spec-coverage-时间与能量增量映射 [18]: Segment, content_kind, deadline, location_kinds, podcast, recipe, skill, submit_work, work_review
+  UNCITED analysis-spec-coverage-分层与测试层次当前映射 [1]: 结构 6
+## docs\dev\coverage-baseline.md
+  UNCITED coverage-baseline-覆盖率门禁口径与基线 [1]: 品类
+  UNCITED coverage-baseline-覆盖率口径 [1]: 评审
+  UNCITED coverage-baseline-当前个人事务与工作安排特性合入后 [2]: TextWorld, 评审
+  UNCITED coverage-baseline-一日运行保真特性合入后的历史基线 [1]: TextWorld
+  UNCITED coverage-baseline-人物-prompt-七层特性合入后的历史基线 [3]: TextWorld, 评审
+  UNCITED coverage-baseline-时间与能量特性合入后的历史基线 [2]: TextWorld, 评审
+  UNCITED coverage-baseline-地图与品类主线组合的历史基线 [1]: 品类
+  UNCITED coverage-baseline-合并地图之前的主线历史基线 [7]: category-, 品类, 库存
+  UNCITED coverage-baseline-版本表 [6]: 品类, 库存
+## docs\dev\SPEC-agent-interaction.md
+  UNCITED spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面 [2]: 品类, 结构 9
+  UNCITED spec-agent-interaction-心智模型 [3]: 报价
+  UNCITED spec-agent-interaction-权威来源与范围裁决 [2]: 品类, 游戏
+  UNCITED spec-agent-interaction-三级结构与概念边界 [1]: 截止
+  UNCITED spec-agent-interaction-会话与活动的关系 [4]: 截止
+  UNCITED spec-agent-interaction-会话字段 [3]: 分段, 截止
+  UNCITED spec-agent-interaction-即时查询完整纠错与紧凑呈现 [3]: 库存, 报价, 浏览
+  UNCITED spec-agent-interaction-上下文分层 [11]: deadline, route_id, work_review, 截止, 报价, 浏览, 评审
+  UNCITED spec-agent-interaction-事件与重建约束 [2]: 截止, 报价
+  UNCITED spec-agent-interaction-实现顺序 [3]: Game, game, playback_speed
+  UNCITED spec-agent-interaction-与既有文档的一致性核对 [5]: 报价, 游戏, 评审
+  UNCITED spec-agent-interaction-版本表 [6]: SKILL, submit_work, 分段, 截止, 游戏
+## docs\dev\SPEC-as2-integration.md
+  UNCITED spec-as2-integration-特性规格agentsociety-2-集成与改动 [2]: 品类, 结构 9
+  UNCITED dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 [1]: 坐标
+## docs\dev\SPEC-category-contract.md
+  UNCITED spec-category-contract-品类契约与交换规则开发规格 [6]: category-, 做饭, 品类, 库存, 配方
+  UNCITED spec-category-contract-共享规则与可重建环境修订 [2]: 品类
+  UNCITED spec-category-contract-产品行为与边界 [8]: 品类, 配方
+  UNCITED spec-category-contract-裁决依据 [6]: category-, 品类, 配方
+  UNCITED spec-category-contract-冻结产物与品类树 [9]: category-, category_, exchange-rules, 品类
+  UNCITED spec-category-contract-属性槽位与对象增量 [14]: category_, objects.jsonl, 品类, 库存, 报价
+  UNCITED spec-category-contract-来源分类与审核证据 [2]: 品类, 配方
+  UNCITED spec-category-contract-配对解析与可触达检查 [7]: category_, 品类, 配方
+  UNCITED spec-category-contract-闭集算子与真实结算 [36]: category_, quote, supplies, 品类, 库存, 报价, 配方
+  UNCITED spec-category-contract-库存转换配方 [29]: recipe, 「制作」, 做饭, 品类, 库存, 配方
+  UNCITED spec-category-contract-新品类细化与发布 [5]: 品类
+  UNCITED spec-category-contract-运行身份与导出 [2]: 品类
+  UNCITED spec-category-contract-文件修改清单 [12]: category_, recipe, resources.jsonl, travel-time, 品类, 库存, 配方
+  UNCITED spec-category-contract-验收与需求台账 [9]: category-, 品类, 库存, 报价, 配方
+  UNCITED spec-category-contract-版本表 [7]: 做饭, 品类, 库存, 报价, 配方
+## docs\dev\SPEC-day-plan-goals.md
+  UNCITED spec-day-plan-goals-当日目标特性开发规格 [1]: 品类
+  UNCITED spec-day-plan-goals-共享规则与可重建环境修订 [1]: 品类
+  UNCITED spec-day-plan-goals-心智模型与范围 [4]: 截止, 营业, 资格, 预约
+  UNCITED spec-day-plan-goals-实际推进与情绪 [2]: 品类
+  UNCITED spec-day-plan-goals-人物可见内容与工具 [1]: 营业
+  UNCITED spec-day-plan-goals-三层度量与质量导出 [1]: 营业
+  UNCITED spec-day-plan-goals-当前工具交互约束 [1]: 预约
+  UNCITED time-and-energy-零点计划与计划提醒-计划与提醒 [2]: work_review, 截止
+  UNCITED dayrun-fidelity-加载校验与当日目标推进-当日目标带大致时刻只有在那前后进行的活动才算推进 [1]: 浏览
+  UNCITED spec-day-plan-goals-验收台账 [2]: 浏览, 游戏
+  UNCITED spec-day-plan-goals-版本表 [1]: 游戏
+## docs\dev\SPEC-dayrun-behavior.md
+  UNCITED spec-dayrun-behavior-共同时间与身体结算 [2]: 截止, 游戏
+  UNCITED spec-dayrun-behavior-事件投影 [4]: 截止, 浏览
+  UNCITED spec-dayrun-behavior-主观记忆与巩固 [1]: 库存
+  UNCITED spec-dayrun-behavior-实现顺序与完整验收 [1]: 预约
+  UNCITED spec-dayrun-behavior-版本表 [15]: browse, play_game, watch, 分段, 播客, 浏览, 游戏, 营业, 观看, 预约
+## docs\dev\SPEC-decision-context.md
+  UNCITED spec-decision-context-特性规格决策上下文与工具结果 [1]: 品类
+  UNCITED spec-decision-context-地点发现与供给比较 [10]: 分段, 可见期, 库存, 报价, 营业, 资格
+  UNCITED spec-decision-context-同秒续接与只读路径 [2]: deadline, 截止
+  UNCITED spec-decision-context-即时查询操作备忘与紧凑结果 [2]: 库存, 浏览
+  UNCITED spec-decision-context-预算与失败 [1]: 可见期
+  UNCITED spec-decision-context-版本表 [5]: 分段, 报价, 营业
+## docs\dev\SPEC-environment-data-ownership.md
+  UNCITED (前言) [1]: 结构 6
+## docs\dev\SPEC-idle-fillers.md
+  UNCITED spec-idle-fillers-系统层 [1]: 游戏
+  UNCITED spec-idle-fillers-班次边界情形 [2]: 游戏
+  UNCITED spec-idle-fillers-文档c [4]: 场景结构 6, 结构 9
+  UNCITED spec-idle-fillers-文档a [1]: 游戏
+  UNCITED spec-idle-fillers-文档基线与记录 [1]: 结构 6
+  UNCITED spec-idle-fillers-实施阶段 [1]: 结构 6
+  UNCITED spec-idle-fillers-配对复跑指标 [2]: 观看
+  UNCITED spec-idle-fillers-版本表 [1]: 场景结构 6
+## docs\dev\SPEC-interaction-menu.md
+  UNCITED spec-interaction-menu-心智模型 [3]: 游戏
+  UNCITED spec-interaction-menu-权威来源与范围裁决 [2]: 游戏, 资格
+  UNCITED spec-interaction-menu-文件修改清单 [1]: 资格
+  UNCITED errands-workday-查询筛选与返回精简-请求 [1]: 品类
+  UNCITED errands-workday-查询筛选与返回精简-只看此刻能做的 [2]: 报价, 营业
+  UNCITED errands-workday-查询筛选与返回精简-错误 [1]: 品类
+  UNCITED errands-workday-查询筛选与返回精简-执行位置与保留约束 [2]: 可见凭据, 可达
+  UNCITED spec-interaction-menu-验收台账 [5]: 品类, 库存, 游戏, 评审, 资格
+  UNCITED spec-interaction-menu-版本表 [8]: 分段, 品类, 浏览, 资格
+  UNCITED spec-interaction-menu-当日目标保护项 [1]: 资格
+## docs\dev\SPEC-labelkit-delivery.md
+  UNCITED spec-labelkit-delivery-产品行为 [4]: 截止, 评审
+  UNCITED spec-labelkit-delivery-设计裁决 [1]: 分段
+  UNCITED spec-labelkit-delivery-确定输入范围与加工责任 [6]: 分段, 截止, 评审
+  UNCITED spec-labelkit-delivery-信息范围与标签 [5]: 截止, 评审
+  UNCITED spec-labelkit-delivery-语义候选与独立评审 [8]: 评审
+  UNCITED spec-labelkit-delivery-语义返工与聚合 [5]: 评审
+  UNCITED spec-labelkit-delivery-编码身份与-trace-绑定 [4]: 截止, 评审
+  UNCITED spec-labelkit-delivery-反事实分支与规则扰动 [1]: 评审
+  UNCITED spec-labelkit-delivery-恢复完整输入与发布 [1]: 评审
+  UNCITED spec-labelkit-delivery-文件修改清单与实施顺序 [3]: 评审
+  UNCITED spec-labelkit-delivery-版本表 [8]: 场景结构 6, 结构 9, 评审
+## docs\dev\SPEC-layering-and-test-tiers.md
+  UNCITED layering-imports [2]: 工作材料, 营业
+  UNCITED layering-tiers [1]: TextWorld
+  UNCITED layering-consistency [2]: 品类, 报价
+## docs\dev\SPEC-life-realism.md
+  UNCITED spec-life-realism-特性规格人物决策与画像 [5]: 可达, 品类, 曝光
+  UNCITED spec-life-realism-产品行为 [7]: category-, 品类
+  UNCITED spec-life-realism-与相邻规格的边界 [2]: 可见期, 字幕
+  UNCITED spec-life-realism-设计裁决 [2]: 品类
+  UNCITED spec-life-realism-单一行动阶段 [1]: 口味权重
+  UNCITED spec-life-realism-记忆合同 [2]: 观看
+  UNCITED spec-life-realism-location_kinds-的运行期强制语义 [5]: location_kinds, 可达, 观看
+  UNCITED spec-life-realism-呈现与导出 [3]: 截止, 游戏, 观看
+  UNCITED spec-life-realism-文件修改清单与实施顺序 [10]: location_kinds, taste_weight, 可达, 品类, 工作材料
+  UNCITED persona-prompt-七层请求-通用格式 [1]: deadline
+  UNCITED persona-prompt-七层请求-工具层的紧凑编码与即时查询 [6]: 可见凭据, 库存, 报价, 浏览, 营业
+  UNCITED persona-prompt-决策回复正文与思考-删除与去重 [7]: material, skill, 可达, 坐标, 库存, 技能
+  UNCITED persona-prompt-进度与记忆的更新-session-与记忆条目 [1]: 截止
+  UNCITED dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改 [1]: 游戏
+  UNCITED tool-interaction-操作备忘与紧凑提示-无损分组 [1]: 资格
+  UNCITED errands-workday-作息补全与工作安排-工作安排声明 [1]: 营业
+  UNCITED spec-life-realism-版本表 [22]: attention_prior, location_kinds, taste_weight, 分段, 口味权重, 可见期, 可达, 品类, 报价, 曝光, 游戏, 预约
+## docs\dev\SPEC-life-runtime.md
+  UNCITED spec-life-runtime-特性规格lifeenv-运行时行为与结算规则 [8]: category-, location_kinds, 品类, 库存, 资格
+  UNCITED spec-life-runtime-状态归属规则 [3]: 截止, 游戏, 营业
+  UNCITED spec-life-runtime-加速 [1]: 倍速
+  UNCITED spec-life-runtime-运行观测 [1]: 观看
+  UNCITED spec-life-runtime-资源表达 [2]: 截止, 观看
+  UNCITED spec-life-runtime-数据进入环境的过程 [4]: 字幕, 游戏, 观看
+  UNCITED spec-life-runtime-结算间隔与续行 [2]: 游戏
+  UNCITED spec-life-runtime-不进入提示的字段 [1]: game
+  UNCITED spec-life-runtime-两条排除纪律 [8]: attention_prior, taste_weight, 口味权重, 库存, 报价, 营业, 资格
+  UNCITED spec-life-runtime-社交最小可行版 [2]: 可达, 游戏
+  UNCITED time-and-energy-决策不耗时时间只在做事时流动-同一秒内的呈现与刚才 [3]: 库存, 浏览, 营业
+  UNCITED time-and-energy-能量不拦人-删除的机制 [1]: 截止
+  UNCITED time-and-energy-能量不拦人-让人物趁早吃 [2]: 游戏, 观看
+  UNCITED time-and-energy-五类生活动作与并行准入-交谈 [1]: 分段
+  UNCITED time-and-energy-会话活动与记忆提示中不出现内部身份-活动的生命周期 [8]: 库存, 截止, 播客
+  UNCITED tool-interaction-工具请求-开始活动 [3]: 库存, 报价
+  UNCITED tool-interaction-工具请求-只读查询 [13]: browse, category , 品类, 库存, 报价, 浏览, 营业
+  UNCITED tool-interaction-每次错误都要足够具体-唯一错误结构 [2]: 品类, 库存
+  UNCITED tool-interaction-每次错误都要足够具体-所有入口必须覆盖 [1]: 品类
+  UNCITED tool-interaction-每次错误都要足够具体-世界事实与候选 [1]: 库存
+  UNCITED errands-workday-个人事务-范围与状态 [2]: 库存, 截止
+  UNCITED errands-workday-个人事务-校验与错误 [1]: 品类
+  UNCITED spec-life-runtime-验收矩阵 [41]: TextWorld, channel_id, deadline, delivery_route, location_kinds, opening_, segment, work_review, 下限缓解, 分段, 可见期, 可达, 字幕, 库存, 截止, 报价, 曝光, 浏览, 游戏, 评审, 购买渠道, 资格, 预约
+  UNCITED spec-life-runtime-版本表 [44]: browse, channel_id, location_kinds, play_game, watch, 下限缓解, 分段, 可见期, 可达, 坐标, 字幕, 工作材料, 截止, 报价, 播客, 曝光, 浏览, 游戏, 观看, 购买渠道, 资格, 预约
+## docs\dev\SPEC-map-and-storefront.md
+  UNCITED spec-map-and-storefront-地图数据集合与门店供给开发规格 [4]: 可见期, 品类, 浏览, 资格
+## docs\dev\SPEC-parallel-activities.md
+  UNCITED spec-parallel-activities-名额情形 [2]: 观看
+  UNCITED spec-parallel-activities-名额落点 [1]: 截止
+  UNCITED spec-parallel-activities-丙第8条 [4]: 做饭, 播客, 浏览, 游戏
+  UNCITED spec-parallel-activities-文档乙 [2]: 游戏, 观看
+  UNCITED spec-parallel-activities-测试 [3]: location_kinds, 截止, 观看
+  UNCITED spec-parallel-activities-门禁与平台 [1]: TextWorld
+  UNCITED spec-parallel-activities-配对复跑 [1]: 观看
+  UNCITED spec-parallel-activities-不在本规格内 [3]: 做饭, 播客
+## docs\dev\SPEC-run-viewer-context.md
+  UNCITED spec-run-viewer-context-版本表 [2]: 分段, 截止
+## docs\dev\SPEC-run-viewer-names.md
+  UNCITED spec-run-viewer-names-版本表 [1]: interaction_bindings
+## docs\dev\SPEC-shared-rules-and-rebuildable-env.md
+  UNCITED shared-rules-摘要安全路径持久写入与错误 [5]: 品类, 工作材料, 游戏
+  UNCITED shared-rules-模型客户端与公共模型 [3]: 品类
+  UNCITED shared-rules-其余已存在的同义规则表 [1]: 品类
+  UNCITED shared-rules-文档原子同步清单 [4]: TextWorld, category-, 品类
+  UNCITED shared-rules-版本表 [2]: 工作材料, 游戏
+## docs\design\00-overview.md
+  UNCITED overview-worldmock-产品设计说明书-概述 [1]: 场景结构 6
+  UNCITED overview-地图中的消费行为 [8]: 库存, 报价, 营业, 资格
+  UNCITED overview-核心原则 [1]: 游戏
+  UNCITED overview-非功能约束 [1]: TextWorld
+  UNCITED overview-版本历史 [3]: TextWorld, 场景结构 6, 预约
+## docs\design\01-architecture.md
+  UNCITED architecture-worldmock-产品设计说明书-总体架构 [1]: 场景结构 6
+  UNCITED design-01-architecture-共享规则与可重建环境修订 [1]: 品类
+  UNCITED architecture-职责与交接 [1]: 预约
+  UNCITED architecture-状态归属与写入边界 [4]: 库存, 报价, 营业
+  UNCITED architecture-事件驱动的时间推进 [1]: 截止
+  UNCITED architecture-数据交付与评估 [1]: 截止
+  UNCITED architecture-版本历史 [9]: 场景结构 6, 结构 9, 预约
+## docs\design\02-exchange-engine.md
+  UNCITED exchange-engine-worldmock-产品设计说明书-交换引擎 [2]: 做饭, 场景结构 6
+  UNCITED design-02-exchange-engine-共享规则与可重建环境修订 [1]: 品类
+  UNCITED exchange-engine-项目框架映射 [2]: 库存, 资格
+  UNCITED exchange-engine-返回规则结果 [3]: category , 库存, 报价
+  UNCITED exchange-engine-版本历史 [11]: browse, delivery_route, play_game, watch, 分段, 可达, 场景结构 6, 报价, 游戏, 配送范围
+## docs\design\03-resource-engine.md
+  UNCITED resource-engine-worldmock-产品设计说明书-资源引擎 [6]: category-, 品类, 场景结构 6, 配方
+  UNCITED design-03-resource-engine-共享规则与可重建环境修订 [1]: 品类
+  UNCITED resource-engine-项目框架映射 [1]: 可达
+  UNCITED resource-engine-职责约定 [2]: 品类, 库存
+  UNCITED resource-engine-准入失败的处理 [2]: 可达, 品类
+  UNCITED resource-engine-资源校验的实现与验收 [3]: 可达, 品类, 曝光
+  UNCITED resource-engine-版本历史 [16]: catalog_version, 做饭, 分段, 可见凭据, 可达, 品类, 场景结构 6, 报价, 结构 9, 资格
+## docs\design\04-simulation-engine.md
+  UNCITED simulation-engine-worldmock-产品设计说明书-模拟引擎 [1]: 场景结构 6
+  UNCITED design-04-simulation-engine-共享规则与可重建环境修订 [1]: 结构 6
+  UNCITED simulation-engine-项目框架映射 [1]: 库存
+  UNCITED simulation-engine-调用并等待人物决策 [4]: 报价, 浏览, 营业, 评审
+  UNCITED simulation-engine-校验与占用安排 [13]: channel_id, 分段, 可见凭据, 库存, 截止, 报价, 游戏, 营业, 观看, 资格
+  UNCITED simulation-engine-一轮运行 [1]: 截止
+  UNCITED simulation-engine-验收重点 [6]: task_available, 截止, 游戏, 资格, 预约
+  UNCITED simulation-engine-版本历史 [19]: channel_id, 分段, 可见期, 场景结构 6, 截止, 报价, 浏览, 结构 9, 营业, 预约
+## docs\design\05-recording-engine.md
+  UNCITED recording-engine-worldmock-产品设计说明书-记录引擎 [6]: 品类, 场景结构 6, 截止, 结构 9
+  UNCITED recording-engine-项目框架映射 [1]: 截止
+  UNCITED recording-engine-职责与模块边界 [2]: 截止
+  UNCITED recording-engine-主题阅读路径 [2]: 截止
+  UNCITED recording-engine-事件字段 [2]: material, 观看
+  UNCITED recording-engine-工具纠错只读查询与当天操作备忘的证据 [15]: appointment, 品类, 截止, 技能, 报价, 浏览, 营业, 预约
+  UNCITED recording-engine-记录生活全过程的验收 [1]: 库存
+  UNCITED recording-engine-事件身份与因果关联 [1]: 观看
+  UNCITED recording-engine-数字足迹存储接口 [1]: 截止
+  UNCITED recording-engine-事务范围 [1]: 游戏
+  UNCITED recording-engine-事件序号严格递增 [1]: 截止
+  UNCITED recording-engine-资金守恒验证 [1]: 资格
+  UNCITED recording-engine-共同检查点接口 [1]: 截止
+  UNCITED recording-engine-保存共同检查点的验收 [1]: 游戏
+  UNCITED recording-engine-恢复行为 [4]: MATERIAL, 截止
+  UNCITED recording-engine-恢复入口边界 [1]: 游戏
+  UNCITED recording-engine-崩溃恢复 [1]: 游戏
+  UNCITED recording-engine-固定截止导出 [1]: 截止
+  UNCITED recording-engine-导出认证 [1]: 截止
+  UNCITED recording-engine-固定截止读取接口 [4]: 截止
+  UNCITED recording-engine-固定截止导出的实现差距 [5]: 截止
+  UNCITED recording-engine-固定截止导出的验收 [2]: 截止
+  UNCITED recording-engine-运行查询与诊断的实现差距 [1]: 浏览
+## docs\design\06-delivery.md
+  UNCITED delivery-三类窗口 [1]: 截止
+  UNCITED delivery-动作窗口提取规则 [5]: 截止, 评审
+  UNCITED delivery-dreaming-窗口提取规则 [2]: 截止
+  UNCITED delivery-事实组装流程 [1]: 评审
+  UNCITED delivery-事实组装实现 [1]: 评审
+  UNCITED delivery-文件清单绑定 [1]: 评审
+## docs\design\07-evaluation.md
+  UNCITED design-07-evaluation-共享规则与可重建环境修订 [1]: 品类
+  UNCITED evaluation-职责与边界 [6]: 评审
+  UNCITED evaluation-与其他模块的关系 [2]: 评审
+  UNCITED evaluation-三层数据模型 [1]: segment
+  UNCITED evaluation-活动activitysession [2]: segment, 分段
+  UNCITED evaluation-两个数据集对比 [1]: 评审
+  UNCITED evaluation-盲评包生成 [9]: Material, material, 评审
+  UNCITED evaluation-六维可判定性 [1]: 评审
+  UNCITED evaluation-评审收据校验 [3]: 评审
+  UNCITED evaluation-解盲与汇总 [1]: 评审
+  UNCITED evaluation-两阶段执行 [3]: 评审
+  UNCITED evaluation-四种结果状态 [1]: 评审
+  UNCITED evaluation-本次结论边界 [2]: 评审
+  UNCITED evaluation-报告结构 [3]: 评审
+  UNCITED evaluation-解读指南 [2]: 评审
+## docs\design\08-configuration.md
+  UNCITED configuration-worldmock-产品设计说明书-配置规格 [1]: 场景结构 6
+  UNCITED configuration-版本历史 [10]: phone_simulation, relief_preference, 品类, 场景结构 6, 结构 9, 购买渠道, 配方, 预约
+## docs\design\09-io-formats.md
+  UNCITED io-formats-worldmock-产品设计说明书-输入输出格式 [3]: 品类, 场景结构 6, 结构 9
+  UNCITED design-09-io-formats-共享规则与可重建环境修订 [1]: 品类
+  UNCITED io-formats-职责与边界 [6]: category-, exchange-rules, 品类, 库存
+  UNCITED io-formats-记录引擎的数据格式 [2]: 截止
+  UNCITED io-formats-版本历史 [19]: browse, channel_id, play_game, watch, 品类, 场景结构 6, 截止, 播客, 浏览, 游戏, 观看, 资格
+## docs\design\README.md
+  UNCITED readme-worldmock-设计文档集 [1]: 场景结构 6
+  UNCITED readme-个人事务与工作安排设计同步 [1]: 品类
+  UNCITED readme-让等待成为例外修订 [4]: 场景结构 6, 结构 9
+  UNCITED readme-同时做两件事修订 [8]: browse, play_game, watch, 场景结构 6, 播客, 结构 9
+  UNCITED readme-地图与门店供给的一致性 [4]: 库存, 报价, 营业, 资格
+  UNCITED readme-文档状态说明 [1]: 评审
+  UNCITED readme-主题展开约定 [1]: 截止
+## docs\design\SUMMARY.md
+  UNCITED summary-worldmock-设计文档集-创建总结 [1]: 场景结构 6
+  UNCITED summary-工具交互设计同步 [2]: 品类
+  UNCITED summary-个人事务与工作安排设计同步 [1]: 品类
+  UNCITED summary-recording-enginemd [1]: 截止
+  UNCITED summary-evaluationmd [1]: 预约
+  UNCITED summary-个人事务与工作安排修订 [2]: 场景结构 6, 结构 9
+  UNCITED summary-让等待成为例外修订 [2]: 场景结构 6, 结构 9
+  UNCITED summary-同时做两件事修订 [3]: 场景结构 6, 播客, 结构 9
+  UNCITED summary-文档评审 [2]: 评审
+## docs\manual\delivery.md
+  UNCITED delivery-自定义训练数据交付 [1]: 评审
+  UNCITED delivery-文件怎么分工 [2]: 评审
+  UNCITED delivery-修改任务提示 [4]: 评审
+  UNCITED delivery-修改生成预算和模型 [2]: 评审
+  UNCITED delivery-正式交付与检查结果 [2]: 评审
+## docs\manual\evaluation.md
+  UNCITED evaluation-自定义评估与盲评输入 [2]: 评审
+  UNCITED evaluation-共享规则与可重建环境修订 [1]: 品类
+  UNCITED evaluation-先分清要编辑的文件 [6]: category_, 评审
+  UNCITED evaluation-从完整示例开始 [4]: category_, 评审
+  UNCITED evaluation-离线验证并准备评审 [6]: 评审
+  UNCITED evaluation-怎样填写评审收据 [18]: 评审
+  UNCITED evaluation-评审后发布 [8]: 评审
+## docs\manual\personas.md
+  UNCITED personas-在场景中填写人物 [11]: qualification, skill, 技能, 播客, 评审, 资格
+## docs\manual\README.md
+  UNCITED readme-修改配置前要知道的约定 [1]: 营业
+## docs\manual\rules.md
+  UNCITED rules-调整世界规则与人物动机参数 [5]: 品类, 场景结构 6, 配方
+  UNCITED rules-活动声明 [14]: attention_prior, browse, content_kind, game, play_game, watch, 口味权重, 品类, 游戏, 观看
+  UNCITED rules-单个人物的参数 [4]: attention_prior, effective_work
+  UNCITED rules-人物映射表 [1]: 口味权重
+## docs\manual\scenarios.md
+  UNCITED scenarios-修改人物身体与账户 [5]: relief_preference, 口味权重, 游戏, 观看
+## tests\fixtures\environment\README.md
+  UNCITED (前言) [1]: 字幕

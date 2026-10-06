@@ -1,0 +1,421 @@
+# Subsystem map: work tasks, materials, reveal, review, acceptance payment, wages, work schedule
+
+Worktree read: `D:/code/WorldMock/.claude/worktrees/rrs` at `35d0b61` on branch `resource-rule-simplification` (first pass at `6df927d`; re-verified after the parallel-activities stages 1–3 and the Windows path hardening landed; proposal baseline `7e1ffab`). Read-only; nothing in the repository was modified. Paths below are repo-relative unless absolute.
+
+Scope as understood: the **work chain** (task catalog → notification → open → start/resume → effective-hours settlement → material reveal → `submit_work` → independent DeepSeek review → contract payment), the **pre-scheduled wage** events, the **work schedule** (`work_schedule`/`duty`/shift edges) and the **progress report** (`progress_report_due` / `report_status`) mechanism the proposal wants to reuse for narrated work progress. The workload evaluation (`workload_metrics.py`) is included because it reads the work chain's settlement fields.
+
+---
+
+## 1. Inventory
+
+### 1.1 Production files in scope (line counts from `wc -l`)
+
+| File | Lines | One-line responsibility |
+| --- | --- | --- |
+| `src/worldmock/life/work.py` | 360 | Work start/resume gates, contract view (`opens/deadline/place/remaining/outlook`), material loading + proportional reveal, submission preconditions, oracle loading, one-shot employer→agent payment. |
+| `src/worldmock/life/work_review.py` | 377 | Independent DeepSeek review: prompt, strict tool schema, parse, identity checks, verbatim-excerpt check (NFKC/han-count), public feedback projection. |
+| `src/worldmock/life/work_review_runtime.py` | 122 | `WorkReviewCoordinator`: runs the review (≤3 protocol attempts) for a pending `submit_work` before round settlement, persists request/response/failure evidence. |
+| `src/worldmock/life/work_schedule.py` | 90 | Pure evaluation of the scenario `work_schedule` against the clock: `shift_on`, `shift_span`, `break_spans`, `duty_status`, `day_arrangement`, `duty`. |
+| `src/worldmock/life/duty_edges.py` | 72 | Shift/break start-end instants as wake facts (`duty_edges`, `edges_at`, `edge_times_after`). |
+| `src/worldmock/life/scenario.py` | 1119 (work parts ≈ 180 lines) | `WorkShift`, `WorkSchedule`, `AgentConfig.work_schedule`/`skill_levels`, `WorkAppointment`, `WorkTaskConfig`, `RuntimeWorkTask`, `runtime_tasks`, `MessageConfig.related_task_id`, `PayrollConfig`, `LifeScenario.progress_report_interval_seconds`, task/message/account cross-checks. |
+| `src/worldmock/life/world_setup.py` | 263 | `_check_work_material` (loads every task's input + oracle before first world save); initial `visible_task_ids`/`known_task_ids`; compiles the schedule. |
+| `src/worldmock/scheduling/events.py` | 48 | `ScheduledKind` closed set incl. `WORK_AVAILABLE`, `TASK_EXPIRED`, `PAYROLL`. |
+| `src/worldmock/scheduling/compile.py` | 126 | `compile_schedule`: one `WORK_AVAILABLE` row per task at `available_at`, one `TASK_EXPIRED` at `due_at`; `_payroll_rows`. |
+| `src/worldmock/scheduling/effects.py` | 188 | `_reveal_event` (mail arrival / work available → `visible_task_ids`), `_payroll` (ledger transfer, refuses on insufficient employer funds without crashing). |
+| `src/worldmock/evaluation/workload_metrics.py` | 461 | Report-only `workload` / `routine_deviation` from footprints: shifts × trips × work progress (`activity_efficiency`) × task settlement (`action_result` with `task_id`+`payment_fen`). |
+
+Other production files that implement current work behavior (not listed in the hints but load-bearing):
+
+| File | Work-related responsibility |
+| --- | --- |
+| `src/worldmock/life/rules.py` | `LifeRules._validate_work` (skill/location/duration/deadline gate), `LifeRules.task`, `self.tasks` index. |
+| `src/worldmock/life/activities.py` | `_advanced_activity` accrues `effective_work_seconds += duration × work_efficiency`; `work_notes_multiplier` tool effect (lines 333-340). |
+| `src/worldmock/life/time_advance.py` | Writes `activity_efficiency` on work `activity_progress` events; calls `reveal_work_progress` and `record_material_reveal` on every work settlement (lines 288-290, 345-355). |
+| `src/worldmock/life/activity_evidence.py` | `record_material_reveal` → `AgentState.material_reveals` (last 64 entries). |
+| `src/worldmock/life/observe.py` | `_visible_task` (public contract + `MeetingMinutes` schema + `material`), `_work_progress_rows`, `_visible_task_rows`, `_task_pool`, `_motivation_evidence` (effective total), `_task_listed`. |
+| `src/worldmock/life/tool_layer.py` | Task target `contract` via `contract_view`; `submit_work` availability via `submission_refusal`; work slot length via `work_start_seconds` (line 453). |
+| `src/worldmock/life/activity_control.py` | `objective_progress` writes 有效工时; `control_refusal` applies `work_start_refusal` to resume (line 313); since parallel-activities stage 1, resume is checked in the order start place → work deadline/contract → free slot (`SESSION_LIMIT_EXCEEDED`) → occupancy. |
+| `src/worldmock/life/session_actions.py` | `_submit_work_action`/`_submit_work` (review gate + `settle_work` + mood pulse), `_resume_cap`, `_report_status` (progress report receiver), `public_work_review`, `validate_work_duration` (line 1247), `work_start_seconds` (line 685). |
+| `src/worldmock/life/models.py` | `MeetingMinutes`, `SubmitWorkRequest`, `SubmitWorkActionRequest`, `ReportStatusRequest`/`ActivityProgressItem`, `AgentState.visible_task_ids/known_task_ids/material_reveals`, `ActivityState.effective_work_seconds/report_anchor_at`, `WorldState.paid_task_ids`. |
+| `src/worldmock/life/semantics.py` | `contract_payment`, `contract_match` (category `work:settle`), `_contract_work_efficiency_factors`, `_schedule_refs` (PAYROLL admission refs). |
+| `src/worldmock/life/action_evidence.py` | `_work_review_request_draft/_response_draft/_failure_draft/_terminal_draft` (purpose `work_review` model evidence). |
+| `src/worldmock/life/result_projection.py` | `_public_review` → `work_review` in public results. |
+| `src/worldmock/life/decision_coordinator.py` | `_OPS_COMPONENTS["submit_work"]="review"`; attaches `public_work_review` on rejection (line 511). |
+| `src/worldmock/life/engine.py` | Owns `WorkReviewCoordinator`; `prepare_pending_work_review(action_id)` (public API, pinned in `tests/fixtures/layering-public-api.json`). |
+| `src/worldmock/life/environment_layer.py` | `_duty` → environment layer `duty`. |
+| `src/worldmock/life/day_plan_inputs.py` | `_duty_arrangement` → midnight-plan input 「上班安排」. |
+| `src/worldmock/life/load_checks.py` | `check_work_schedules` (workplace is a selected location; calendar cross-check). |
+| `src/worldmock/life/rhythm.py` | `_progress_report_due`, `_next_progress_report_at`, `_report_anchor`; task-deadline mood pulse, `_has_commitments` (visible unpaid tasks), `_next_task_due`, `_warning_signatures` (`task_due_soon`), `_commitment_signatures`. |
+| `src/worldmock/life/schedule.py` | `WakeReason.{TASK_AVAILABLE, TASK_DUE_SOON, WORK_REVIEW_RESULT, PROGRESS_REPORT_DUE, SHIFT_START, SHIFT_END, BREAK_START, BREAK_END}`, `DUTY_EDGE_REASONS`. |
+| `src/worldmock/life/motivation.py` | `_work_slot_candidate` (uses `task.pay_fen`, `required_effective_seconds`, skill), aspiration `daily_effective_work_seconds`, `_work_efficiency_snapshot`. |
+| `src/worldmock/life/body.py`, `sleep.py` | `_work_efficiency` (factor product), `sleep.work_efficiency` curve. |
+| `src/worldmock/life/settled_text.py` | `work_line` (「收到新工作」), `activity_sentence` adds 有效工时, `submit_work` 通过/未通过 sentence. |
+| `src/worldmock/life/memory_layer.py`, `progress_layer.py` | `work_available` settled line; task label `工作：<title>` (progress_layer 211). |
+| `src/worldmock/life/guidance.py`, `business_feedback.py`, `felt.py`, `same_moment.py`, `admission.py` | `WORK_*`/`EMPLOYER_FUNDS_INSUFFICIENT` codes; `WORK_REQUIRES_REWORK` → `deliverable` path; mood pulses `work_review_passed/returned`; `work_opens` refusal. |
+| `src/worldmock/catalog/models.py`, `compiler.py`, `admission.py` | Contract object `Acceptance` (`acceptance_required_effective_seconds`, `materials_fully_revealed`, `review_pass_required`), `Efficiency` (`work_efficiency_factors`, `work_notes_multiplier`), `WorkMaterialRequirements` + `_check_work` (≥20 distinct zh `scenario` materials with AMI metadata). |
+| `src/worldmock/categories/rules.py`, `operators.py`, `common.py` | `WorkHourlyRule`/`WorkPieceRule`/`WorkPackageRule`, `evaluate_hourly_pay`/`evaluate_piece_pay`/`evaluate_package_pay`, `Action.WORK_SETTLE`. |
+| `src/worldmock/life/prompt_schemas.py` | Task target requires `contract`; `_tools_for("task", ("submit_work",))`. |
+| `src/worldmock/run_setup.py`, `model_feedback.py`, `model_endpoint.py` | Stage identity `work_review` (`thinking=disabled`, `tool_choice=required`); `tool_arguments(..., work_review=True)`; `IndependentModelClient`. |
+| `src/worldmock/footprints/models.py`, `quality.py` | Wake-reason vocabulary incl. `task_available/task_due_soon/work_review_result/progress_report_due`; `_work_efficiency_samples`. |
+| `src/worldmock/evaluation/public_evidence.py`, `behavior_metrics.py`, `adapters.py` | `submit_work` → `work/submit/task` shape and `_work_result`; `report_status` counted as passive; `purpose="work_review"` excluded from prompt metrics; `effective_work_seconds` field. |
+| `src/worldmock/data/affordances.toml` | `[kinds.work]` (met_key `work`, resource_claims `work` only — parallel-activities stage 2 retired the body-part claims incl. `idle`; only another work activity excludes work, 驾车 also claims `work`), `families.work.habit_members = ["work", "submit_work"]`, `report_status` in `continue` family. |
+| `custom/agents/life_prompt.py` | System-layer rules naming `report_status`/`submit_work`; rule 「工作要在要求的地点做，留意截止时间与已完成的有效工时；工时达标不等于已经提交…」; `TOOL_DESCRIPTIONS["submit_work"]`, `["report_status"]`. |
+| `custom/agents/life_agent.py`, `custom/envs/life_env.py` | `submit_work` task-name validation; `LifeEnv.submit_action` calls `engine.prepare_pending_work_review`. |
+| `scripts/inspect_run.py` | `cmd_workday` (`workday --scenario`). |
+| `tools/run-viewer.html` | Labels for `submit_work`, `work_available`, `task_expired`, `work_review_result`, `WORK_REQUIRES_REWORK`; `case 'submit_work'` rendering. |
+
+### 1.2 Key symbols (path::Name)
+
+Work chain:
+`src/worldmock/life/work.py::WORK_START_MINIMUM_SECONDS` (60), `::COMPLETION_OUTLOOK_SHORT`, `::COMPLETION_OUTLOOK_LATE`, `::WorkOutcome`, `::WorkMetrics`, `::WorkSubmission`, `::validate_work_start`, `::work_start_seconds`, `::work_start_refusal` (single-source owner in `tests/test_single_source.py::OWNERS`), `::work_resume_cap`, `::completion_outlook`, `::task_listed`, `::contract_view`, `::validate_work_duration`, `::load_work_input`, `::visible_work_material`, `::reveal_work_progress`, `::prepare_work_submission`, `::settle_work`, `::load_work_oracle`, `::submission_refusal`, `::work_totals`, `::_load_reference_summary`, `::_load_ami_reference_summary`, `::_pay`.
+`src/worldmock/life/scenario.py::WorkAppointment`, `::WorkTaskConfig`, `::RuntimeWorkTask`, `::runtime_tasks`, `::PayrollConfig`, `::WorkShift`, `::WorkSchedule`, `::_check_catalog_references`, `::_check_times`, `::RuntimeScenario._validate_accounts`.
+`src/worldmock/life/models.py::MeetingMinutes`, `::SubmitWorkRequest`, `::SubmitWorkActionRequest`, `::ReportStatusRequest`, `::ActivityProgressItem`, `::SESSION_SUMMARY_MAX_CHARS` (500).
+`src/worldmock/life/rules.py::LifeRules._validate_work`, `::LifeRules.task`.
+`src/worldmock/life/semantics.py::ScenarioSemantics.contract_payment`, `::contract_match`, `::_contract_work_efficiency_factors`, `::CONTRACT_OBJECT_IDS`.
+
+Review:
+`src/worldmock/life/work_review.py::WORK_REVIEW_PROMPT`, `::WORK_REVIEW_MAX_MODEL_CALLS` (3), `::EXCERPT_MINIMUM_LENGTH`, `::ReferenceAssessment`, `::DeliveryAssessment`, `::WorkReviewResponse`, `::WorkReviewOutputError`, `::WorkReviewDecision`, `::PreparedWorkReview`, `::WorkReviewer`, `::prepare_work_review`, `::prepare_work_review_correction`, `::parse_work_review`, `::review_matches`, `::public_work_review`, `::_excerpt_in_source`, `::_normalize_excerpt`, `::_excerpt_length`, `::_reference_facts`, `::_delivery_paths`.
+`src/worldmock/life/work_review_runtime.py::WorkReviewCoordinator` (`.prepare`, `._call_work_reviewer`, `._parse_work_reviewer`).
+`src/worldmock/life/engine.py::LifeEngine.prepare_pending_work_review`; `src/worldmock/life/session_actions.py::ActionHandlers._submit_work`, `::_submit_work_action`, `::public_work_review`.
+`src/worldmock/life/action_evidence.py::_work_review_request_draft`, `::_work_review_response_draft`, `::_work_review_failure_draft`.
+
+Wages:
+`src/worldmock/scheduling/events.py::ScheduledKind.PAYROLL`, `src/worldmock/scheduling/compile.py::_payroll_rows`, `src/worldmock/scheduling/effects.py::_payroll`, `src/worldmock/life/scenario.py::PayrollConfig`, `src/worldmock/life/semantics.py::_schedule_refs`, `src/worldmock/catalog/admission.py::ScheduleRefKind.PAYROLL`.
+
+Schedule / duty:
+`src/worldmock/life/work_schedule.py::shift_on`, `::shift_span`, `::break_spans`, `::duty_status`, `::day_arrangement`, `::duty`, `::DAY_WORK`, `::DAY_REST`, `::STATUS_*`; `src/worldmock/life/duty_edges.py::duty_edges`, `::edges_at`, `::edge_times_after`; `src/worldmock/life/load_checks.py::check_work_schedules`; `src/worldmock/life/environment_layer.py::_duty`; `src/worldmock/life/day_plan_inputs.py::_duty_arrangement`; `src/worldmock/life/rhythm.py::awake_duty_edge_times`.
+
+Progress report:
+`src/worldmock/life/rhythm.py::_report_anchor`, `::_progress_report_due`, `::_next_progress_report_at`; `src/worldmock/life/schedule.py::WakeReason.PROGRESS_REPORT_DUE`; `src/worldmock/life/session_actions.py::ActionHandlers._report_status`, `::_with_notes`; `src/worldmock/life/activity_control.py::with_note` (sets `report_anchor_at`); `src/worldmock/life/scenario.py::LifeScenario.progress_report_interval_seconds` (default 1800).
+
+Evaluation:
+`src/worldmock/evaluation/workload_metrics.py::TaskSite`, `::AgentWorkday`, `::WorkdayInputs`, `::workday_inputs`, `::workday_reports`, `::_workload`, `::_duty_day`, `::_early_leave`, `::_settled`, `::WORKLOAD_KEYS`.
+
+### 1.3 Who imports these modules (rg over src/, custom/, scripts/, tests/)
+
+- `worldmock.life.work`: `activity_control`, `observe` (`visible_work_material`), `rules` (`validate_work_start`), `session_actions`, `time_advance` (`reveal_work_progress`), `tool_layer`, `work_review` (`WorkSubmission`), `work_review_runtime`, `world_setup` (`load_work_input`, `load_work_oracle`); tests: `tests/life/test_work_contracts.py`, `test_work_review.py`, `test_domain_branch_coverage.py`, `test_shared_rules.py`, `test_wake_reasons.py`, `test_tool_layer.py`, `test_engine_branch_coverage.py`, `tests/test_single_source.py`, `tests/dayrun_fidelity_acceptance.py`, `persona_prompt_acceptance.py`, `errands_workday_acceptance.py`.
+- `worldmock.life.work_review`: `work_review_runtime`, `session_actions`; tests: `test_work_review.py`, `test_work_review_excerpts.py`, `test_work_review_protocol.py`, `test_domain_branch_coverage.py`, `tests/test_shared_model_clients.py`, `tests/integration/test_strict_endpoint.py`, `tests/delivery/test_windows.py`.
+- `worldmock.life.work_review_runtime`: `engine`; `tests/fixtures/layering-acceptance.json` pins `WorkReviewCoordinator`.
+- `worldmock.life.work_schedule`: `duty_edges`, `environment_layer`, `day_plan_inputs`, `load_checks`, `evaluation/workload_metrics`; tests: `test_work_schedule.py`, `test_shift_edges.py`, `test_prompt_layers.py`, `tests/life/work_schedule_fixtures.py`, `errands_workday_acceptance.py`.
+- `worldmock.life.duty_edges`: `rhythm`, `time_advance`, `schedule` (via rhythm); tests: `test_shift_edges.py`, `test_shift_edge_runs.py`, `idle_fillers_acceptance.py`.
+- `worldmock.scheduling.*`: `life/models.py` (re-exports `ScheduledEvent/ScheduledKind`), `life/semantics.py`, `life/world_setup.py`, `life/storefront_state.py`, `life/engine.py`, `life/time_advance.py`, `life/social_actions.py`, `catalog/admission.py` (ScheduleRefKind mirrors), `footprints/models.py`; tests: `tests/life/test_scheduling.py`, `tests/scheduling/test_branch_coverage.py`, `tests/life/test_semantics.py`.
+- `worldmock.evaluation.workload_metrics`: `scripts/inspect_run.py::cmd_workday`; tests: `tests/evaluation/test_workload_metrics.py`, `tests/life/test_workload_report.py`, `errands_workday_acceptance.py`, `idle_fillers_acceptance.py`.
+- `custom/envs/life_env.py` → `engine.prepare_pending_work_review`; `custom/agents/life_agent.py` → `submit_work` name validation; `custom/agents/life_prompt.py` → tool descriptions.
+
+### 1.4 Where progress reports are produced and what the model is asked
+
+- **Trigger.** `src/worldmock/life/rhythm.py::_progress_report_due(agent, state, interval)` returns true when any *active* activity of the person satisfies `now - report_anchor ≥ progress_report_interval_seconds` (`_report_anchor` = `ActivityState.report_anchor_at`, else `started_at`). `_next_progress_report_at` feeds the next-boundary candidates (`schedule.next_decision_time`, `NextDecisionQuery.next_progress_report_at`, `time_advance.TimeAdvanceCoordinator._next_epoch`). `schedule.evaluate_wake_reasons` appends `WakeReason.PROGRESS_REPORT_DUE`; it is **not** in `SLEEP_ALLOWED_REASONS`. Interval comes from `LifeScenario.progress_report_interval_seconds` (default 1800; `engine_rhythm_inputs` passes `context.semantics.document.progress_report_interval_seconds`).
+- **What the model sees.** Nothing specific. Wake reasons do not enter the prompt (`SPEC-idle-fillers` and `SPEC-life-runtime` 决策节律; `observe.py` keeps `wake_reasons` only in private evidence). The model receives an ordinary seven-layer decision request; the only hints are the system-layer rule 「做得久的中途隔一阵也会请一次」 (`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER`, mirrored verbatim in `docs/CONTRACTS.md` `<a name="contracts-model-request">`) and the tool layer listing each active activity target with `tools[] = report_status / pause_activity / conclude_activity`. For a work activity the task target's `contract.remaining` says e.g. 「有效工时还差约 1.5 小时（约 2.5/4 小时）」 and the activity target's `state` says 「已做 X，有效 Y，还剩 Z」 (`activity_control.objective_progress`). **The material body is not in any layer** (`docs/CONTRACTS.md#contracts-可见期与提示预算` row 「工作材料单次揭示上限」; `SPEC-life-runtime#spec-life-runtime-观察投影行为规则` 「工作材料增量」) — only the private observation `tasks[].material` and `AgentState.material_reveals` carry it.
+- **What the model answers.** `report_status` with `items: [{activity_name, summary}]` (1–2 items; `summary` non-blank, ≤ 500 chars, description 「用自己的话写这项活动到此刻的进展」; `models.py::ActivityProgressItem`) plus request-level `errands`. The handler `session_actions.ActionHandlers._report_status` → `_with_notes(..., anchor=True)` → `activity_control.with_note` writes `progress_note`, pushes the previous note into `note_history`, sets `report_anchor_at = now`; a paused activity named here is resumed at its start location (`_resume_at_start_location`, work capped by `work_resume_cap`), and since parallel-activities stage 1 the resume also needs a free slot (checked after the work deadline: `SPEC-parallel-activities#spec-parallel-activities-名额规则` R4, `tests/life/test_paused_slots.py::test_resume_checks_the_work_deadline_before_the_free_slot`). The summary stays in the progress layer as the tool-call parameter for the current session only; it does **not** enter the memory layer (`docs/CONTRACTS.md#contracts-person-tools` line 149; `SPEC-life-realism#persona-prompt-进度与记忆的更新-settled-的写法` and `-self_notes`). `behavior_metrics` counts `report_status` as a passive action. Hourly reports therefore already exist as a decision opportunity, but the **current request gives the model no topic, no hours-done/remaining pair tied to a topic, and no previous narration**; it gives `contract.remaining` in effective-hour terms and the previous note is not re-surfaced (only `progress_note` state, which is not rendered).
+
+---
+
+## 2. Current contracts (by anchor)
+
+### docs/CONTRACTS.md
+- `<a name="contracts-状态归属">` — row 「工作」: state = `task, materials, deadline, deliverable, review_result, contract, payment_status`, changed by task source, delivery action and independent review.
+- `<a name="contracts-person-tools">` — `report_status` request shape (`items[{activity_name, summary}]` + `errands`), its description sentence 「按活动名写下一两项活动的进展…」, `report_status` summary does not enter memory; `submit_work` (`task_name`, `deliverable`), opens when an unpaid visible task exists, refusals `WORK_INCOMPLETE`/`WORK_TASK_IN_PROGRESS`/`WORK_SUBMISSION_LATE`, overdue task listed until local day end, three facts stated separately.
+- `<a name="contracts-day-plan-template">` (scenario constants table) — `progress_report_interval_seconds` positive int, default 1800.
+- `<a name="contracts-工作通知与开放合同">` — `WorkTaskConfig.appointment` mandatory; `available_at` derived from earliest own notification or appointment; every task needs a covering notification; material loader validates input/oracle before first world save; `WORK_AVAILABLE` only at real opening; `contract{opens, deadline, place, remaining, outlook}` only on task targets.
+- `<a name="contracts-工作安排声明">` — field face of `work_schedule` (`workplace_location_id`, `weekly` 0–6, `exceptions`, shift `{starts, ends, breaks}` in minutes, half-open), admissibility message `Work schedules are not admissible:`; effect: fact-only, no new refusals, does not touch task opening/deadline; exceptions for workload metric.
+- `<a name="contracts-request-settlement">` — `submit_work` row: unique visible task name; ownership, progress, deadline, material and duplicate-settlement checks before separate review; in-progress → `WORK_TASK_IN_PROGRESS`; late → `WORK_SUBMISSION_LATE`.
+- `<a name="contracts-活动受理拒绝码">` — `ACTIVITY_DURATION_INVALID` (work start/resume < 60 s to deadline/contract; reason and next-step wording), `WORK_TASK_IN_PROGRESS`, `WORK_SUBMISSION_LATE`, `ACTIVITY_PRECONDITION_UNMET` (office work requires presence; `required_location_id`).
+- `<a name="contracts-closed-request-models">` — `submit_work.task_name` = unique readable title; `submit_work.deliverable` = `summary/decisions/action_items` non-blank; title from `WorkTaskConfig.title`, no fallback to `task_id`; work deliverables may only reference registered visible material.
+- `<a name="contracts-领域枚举">` — `ScheduledKind` closed set (`work_available`, `task_expired`, `payroll`, …); `ActivityKind` includes `work`.
+- `<a name="contracts-seven-layers">` — tool-layer `state` (work activity writes 有效时长, never 「还差」), `contract` five keys only on task targets, `tools[]` (task → `submit_work`), overdue task rules, environment-layer `duty` shape and status closed set, result `work_review` public fields.
+- `<a name="contracts-可见期与提示预算">` — 「工作材料单次揭示上限」 2000 chars per task, material body not in any layer; `public_work_review` field list.
+- `<a name="contracts-model-request">` — verbatim system layer incl. rule 「做得久的中途隔一阵也会请一次」 and the work rule 「工作要在要求的地点做，留意截止时间与已完成的有效工时；工时达标不等于已经提交…」.
+- `<a name="contracts-generation-parameters">` — work review stage: thinking disabled, `tool_choice=required`, single review tool; model-request evidence `purpose="work_review"`.
+- `<a name="contracts-model-identity">` — stage keys exactly `action`, `work_review`.
+- `<a name="contracts-记忆字段">` — settled sentence for `submit_work` 「HH:MM 提交「<任务>」，通过/未通过」 (the only business rejection written as settled).
+
+### docs/dev/SPEC-life-runtime.md
+- `<a name="spec-life-runtime-状态归属规则">` — world owns `work_schedule`; 「工作」 row: task, input material, deadline, deliverable, review, contract, payment status.
+- `<a name="spec-life-runtime-共享时钟">` — next boundary includes work deadline and shift/break edges.
+- `<a name="spec-life-runtime-决策节律结算边界与唤醒条件分离">` — wake table: `task_available`/`task_due_soon` (30 min)/`work_review_result`; `shift_*`/`break_*` semantics; commitments include visible unfinished work tasks.
+- `<a name="spec-life-runtime-并发与占用">` — work parallel with waiting/eating/watching/podcast (「工作与等待、食用、观看、播客 受理」), 「步行与办公室工作 拒绝（目标在场）」; body settled once.
+- `<a name="spec-life-runtime-睡眠不足账与效率曲线">`, `<a name="spec-life-runtime-身体参数与单位">` — work efficiency curve nodes `(0,1.0),(8,1.0),(16,0.85),(24,0.65)`.
+- `<a name="spec-life-runtime-其他体感分级">` — mood pulse 工作验收通过 +0.3.
+- `<a name="spec-life-runtime-转换效率算法">` — 有效工作量 = skill rate × sleep efficiency × energy efficiency × tool effect × time; 计件/计时收入 formulas; `work_notes_multiplier=1.10`.
+- `<a name="spec-life-runtime-具体活动结算">` — 「工作」 row (materials, time, output, review traceable); 「工作质量」: effective work drives progress, model text must still pass content review; 「资金记录」.
+- `<a name="spec-life-runtime-内容提供行为">` — 「工作材料与邮件反馈」, 「任务通知与可用性」, 「工作提交」, 「工作验收」 (independent DeepSeek), 「验收协议」 (3 calls, excerpt check), 「反馈内容」.
+- `<a name="spec-life-runtime-活动组合政策">` — occupancy `work` (「另一项工作」 is the only exclusion; 驾车 and 睡眠 also claim `work`).
+- `<a name="spec-life-runtime-资金与合同">` — both contract kinds pay on accepted delivery; `paid_task_ids` prevents double pay.
+- `<a name="spec-life-runtime-观察投影行为规则">` — 「工作材料增量」 (body not in prompt, count field deleted), review feedback public only, contract only in task target, duty only in environment layer.
+- `<a name="spec-life-runtime-交互菜单的运行边界">` — ineligible submissions never reach review.
+- `<a name="time-and-energy-决策不耗时时间只在做事时流动-规则">` — wake vocabulary order after `progress_report_due`.
+- `<a name="time-and-energy-决策不耗时时间只在做事时流动-拒绝的情绪代价与重估间隔">` — 「可见未完成任务」 means work tasks.
+- `<a name="time-and-energy-能量感知-饥饿在低能量时不失灵">`, `<a name="time-and-energy-能量不拦人-低能量的代价保留不新增惩罚">` — energy lowers work efficiency (800/400 kcal factors).
+- `<a name="time-and-energy-五类生活动作与并行准入-人物选择什么">`, `-并行准入`, `-动作照常列出做错了再说明` — work as `interact` object; office work requires presence; work pairs.
+- `<a name="dayrun-fidelity-结束播报暂停改为一项一个对象">` — `report_status` shape `{items[{activity_name, summary}], errands}`.
+- `<a name="tool-interaction-普通工作与预约活动">` — appointment vs ordinary work; `RuntimeWorkTask.available_at`; materials valid before notification; contract five keys; late/overdue rules.
+- `<a name="spec-life-runtime-验收矩阵">` — rows 「工作与验收」 and 「工作安排与上班安排呈现」.
+
+### docs/dev/SPEC-life-realism.md
+- `<a name="spec-life-realism-产品行为">` — work contract only in tool-layer task target.
+- `<a name="spec-life-realism-动机层">` — deadline/remaining only in `contract`.
+- `<a name="spec-life-realism-当日目标">` — work schedule is not a goal; plan input carries 上班安排 without status.
+- `<a name="spec-life-realism-世界素材品类要求">` — 「工作」 row: ≥20 distinct Chinese input materials over 84 days, assignee required, covering notification; appointment rules; 「工作窗口满足真实截止与合同工时要求」.
+- `<a name="spec-life-realism-画像编译">` — `leave_work`/`arrive_home` anchors; `work_schedule` is not a rhythm field.
+- `<a name="persona-prompt-七层请求-工具层">` — `contract` five keys, `remaining` wording 「有效工时已达标（约 6.4/4 小时）」, `outlook` values, `tools[]`.
+- `<a name="persona-prompt-七层请求-环境层">` — `duty`.
+- `<a name="persona-prompt-进度与记忆的更新-settled-的写法">`, `-self_notes` — `report_status` not written as settled or self_notes.
+- `<a name="dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事">` — 播报和活动结束提供决策机会.
+- `<a name="errands-workday-提示信息分工-系统层第-146-条">` — 播报总结只存在于本段停留或路程.
+- `<a name="errands-workday-作息补全与工作安排">` and its five sub-anchors (`-下班与到家锚点`, `-场景作息覆盖`, `-工作安排声明`, `-环境层-duty`, `-效力呈现事实不新增拒绝`, `-系统层第-114-条与零点计划模板`, `-与工作任务合同的边界`).
+
+### docs/dev/SPEC-as2-integration.md
+- `<a name="persona-prompt-统一修复的程序错误">` — rows 「恢复工作越过合同截止」, 「工时达标与提交状态不一致」, 「逾期工作从观察和工具中消失」.
+- `<a name="dayrun-fidelity-评审模型调用与叙述-中文逐字摘录按字数核对">` — excerpt rule (5 han reject / 6 accept).
+
+### docs/dev/SPEC-agent-interaction.md
+- `<a name="spec-agent-interaction-任务与会话的关系">` — `task_kind="work_task"`, `task_ref=task_id`.
+- `<a name="spec-agent-interaction-决策轮循环与播报节律">` — `progress_report_due` every `progress_report_interval_seconds` from start/resume/last report; table of triggers.
+
+### docs/dev/SPEC-parallel-activities.md (landed between the two passes)
+- `<a name="spec-parallel-activities-占用声明">` — 「工作 | `work` | 另一项工作」 row of the occupancy table; `idle` retired.
+- `<a name="spec-parallel-activities-名额规则">` — R4: resume order 开始地点 → 工作截止与约束 → 空名额 → 占用冲突 (locks that `work_start_refusal` runs before the slot check on resume); R6 retires `idle` etc. and rejects old claims in external catalogs.
+- `<a name="spec-parallel-activities-丙第8条">` — system-layer rule 8 names 工作 as its own kind (「读信、浏览、玩游戏、等待、工作、出行、和人说话各算一种」); the same sentence is in `contracts-model-request` and `LIFE_SYSTEM_LAYER`.
+- `<a name="spec-parallel-activities-测试">` — row 1 registers `tests/life/test_paused_slots.py`, which drives a real work task through pause/resume (imports `test_work_contracts` helpers).
+
+### docs/dev/SPEC-idle-fillers.md
+- `<a name="spec-idle-fillers-班次边界规则">`, `-机制`, `-情形`, `-同步点`, `<a name="spec-idle-fillers-验收台账">` — shift/break edges.
+
+### docs/dev/SPEC-category-contract.md
+- `<a name="spec-category-contract-闭集算子与真实结算">` — 按时/按件/总包计酬 operators (piece count from oracle; package only on acceptance; floor rounding).
+
+### docs/dev/SPEC-interaction-menu.md
+- `<a name="spec-interaction-menu-观察与人物工具">` (`submit_work` opens on work domain), `<a name="spec-interaction-menu-环境执行与拒绝">` (eligibility before review call).
+
+### docs/dev/SPEC-day-plan-goals.md
+- `<a name="time-and-energy-零点计划与计划提醒-输入调用失败与记录">` — stage keys `action`, `work_review`.
+
+### docs/design/*.md
+- `02-exchange-engine.md` `<a name="exchange-engine-不同交换的计算依据">` — 「工作」 row; 「工作报酬按计时、计件或包干合同计算；实际投入充分仍须满足交付验收条件」.
+- `03-resource-engine.md` `<a name="resource-engine-准入边界">` (work materials admission), `<a name="design-resource-engine-current-responsibility">` (world_setup validates work materials).
+- `04-simulation-engine.md` `<a name="simulation-engine-人物所见与可做之事">` (contract only in task target), `<a name="simulation-engine-预排事件">` (work/wages), `<a name="simulation-engine-工作通知与开放时刻">`, `<a name="simulation-engine-将真实结果交还人物">` (review may be prepared during submission), `<a name="design-simulation-engine-current-responsibility">` (`WorkReviewCoordinator`).
+- `05-recording-engine.md` `<a name="recording-engine-事件字段">` (`material_ranges`), `<a name="recording-engine-activity_progress-事件">` (work efficiency evidence), `<a name="recording-engine-工具纠错只读查询与当天操作备忘的证据">` (appointment), `<a name="recording-engine-导出行为">` (timeline 「工作「<任务标题>」」), `<a name="recording-engine-质量报告">` (`purpose=work_review`), `<a name="recording-engine-调试工具">` (`workday`).
+- `07-evaluation.md` `<a name="evaluation-协议门禁gates">` (exclude `purpose="work_review"`), `<a name="evaluation-报告项reports">` (`workload` definition).
+- `08-configuration.md` `<a name="configuration-工作安排声明">`.
+- `09-io-formats.md` `<a name="io-formats-worldstate世界状态">` (`paid_task_ids`), `<a name="io-formats-当前工具请求查询与错误格式">` (appointment), `<a name="io-formats-activitystate活动状态">` (`effective_work_seconds`, `task_kind/task_ref`).
+
+### docs/manual/*.md
+- `resources.md` `<a name="resources-编写内容与工作材料">`, `<a name="resources-工作材料">`, `<a name="resources-编写工作验收答案">` (oracle JSON + reference JSON examples, `piece_count`).
+- `scenarios.md` `<a name="scenarios-声明工作安排">`, `<a name="scenarios-配置工作任务和消息">` (full `tasks[]` field table), `<a name="scenarios-配置日历和预排事件">` (payroll/bills example), `<a name="scenarios-工作通知与目标发布">`.
+- `personas.md` (`skill_levels` must cover assigned task skills; `work_schedule` guidance) — headings only, no work anchor.
+
+### docs/VERIFICATION.md
+- `VERIFICATION.md` `<a name="verification-协议门禁">` (exclude `work_review` purpose), `<a name="verification-报告项report-only">` (`workload` definition), `<a name="verification-测试矩阵">` rows 「工作生产」 and 「工作截止与提交」, `<a name="verification-个人事务与工作安排特性门禁">`, `<a name="errands-workday-度量与下游-行为评估">`.
+
+### docs/EXPERIMENT.md
+- `EXPERIMENT.md` `<a name="experiment-交互菜单与运行身份">` (stage keys), `<a name="experiment-经济参数">` (contract coverage: hourly & piece, independent review, no-funds/late/rework), `<a name="experiment-工作参数">` (work rate = skill level, notes multiplier 1.10, review max 3 calls).
+
+---
+
+## 3. Current formats and fixtures
+
+### 3.1 Scenario JSON (`LifeScenario`, schema_version 6)
+- `tasks[]` (`WorkTaskConfig`): `task_id`, `title`, `assignee_agent_id` (`"agent:<id>"` or `"<id>"`), `contract_kind` (`hourly|piece|package`), `appointment` (`null` or `{starts_at, reason}`), `due_at` (tz-aware), `maximum_duration_seconds`, `pay_fen`, `employer_account_id` (must equal scenario employer), `required_location_id`, `required_skill`, `minimum_skill` (0–1), `required_effective_seconds`, `input_path`, `input_sha256`, `oracle_path`, `oracle_sha256`. Runtime adds `available_at` (`RuntimeWorkTask`, derived).
+- `messages[]`: `message_id`, `thread_id`, `recipient_agent_id`, `sent_at`, `subject` (must contain the full task title when `related_task_id` set), `body`, `related_task_id`, `attachment_sha256`.
+- `agents[].work_schedule`: `null` or `{workplace_location_id, weekly{"0".."6": shift|null}, exceptions{ISO date: shift|null}}`, shift = `{starts, ends, breaks[[a,b],…]}` minutes; `agents[].skill_levels{name: 0–1}`; `leave_work_window`, `arrive_home_window`.
+- `payrolls[]` (`PayrollConfig`): `payroll_id`, `employer_account_id`, `agent_id`, `amount_fen`, `due_at` (strictly inside the window).
+- `progress_report_interval_seconds` (default 1800), `activity_feedback_seconds`, `body.work_notes_multiplier`, `calendar.*` dates used by `check_work_schedules`.
+
+### 3.2 Corpus files (dataset side, read by `work.py`)
+- Work input: UTF-8 text at `input_path` (hash-checked via `corpora/manifest.py::safe_file`).
+- Oracle JSON at `oracle_path`: `{type:"scenario", material_id, source_reference, expected{material_id, decisions[], action_items[]}, piece_count}`; `expected.summary` is filled from the reference file.
+- Reference: either `scenario-work/references/*.reference.json` `{type, material_id, language, summary_sentences[]}` or AMI `*.abssumm.xml` (`<abstract><sentence>`), resolved relative to the first path component of `oracle_path`.
+- `scenario-work/materials.json` `{materials:[{material_id, body, language:"zh", type:"scenario", …}]}` checked by `catalog/admission.py::_check_work` (`WorkMaterialRequirements{min_distinct, language, horizon_days}` from catalog manifest).
+- Catalog contract objects (`category-contract.json` category `contract`): slots `acceptance_required_effective_seconds`, `acceptance_materials_fully_revealed`, `acceptance_review_pass_required`, `work_notes_multiplier`, `work_efficiency_factors`; exchange rules `work_hourly{rate_slot, maximum_duration_slot}`, `work_piece{rate_slot}`, `work_package{amount_slot}` on action `work:settle` (`CONTRACT_OBJECT_IDS` in semantics).
+
+### 3.3 Event / state payloads
+- `ScheduledEvent{scheduled_id, kind, due_at, sequence, agent_id, data}` with `kind=work_available data={task_id}` id `work-<task>-<agent>`; `task_expired data={task_id}` id `expired-<task>`; `payroll data={payroll_id, employer_account_id, agent_id, amount_fen}` id `payroll-<id>` → outcome adds `payroll_paid`, `resource_changes{account:<employer>: -x, account:agent:<id>: +x}`; ledger memo `payroll:settle:<payroll_id>`.
+- `activity_progress` (work): `data.activity_efficiency`, `data.work_material{input_sha256, start_char, end_char, total_chars, text}` (evidence), activity snapshot `effective_work_seconds`, `data.material_position_chars`, `report_anchor_at`, `progress_note`, `note_history`, `task_kind="work_task"`, `task_ref=task_id`.
+- `AgentState.visible_task_ids`, `known_task_ids`, `material_reveals[{task_id, start_char, end_char, chars, occurred_at}]` (≤64), `delivered_warning_signatures` (task deadline warnings), `WorldState.paid_task_ids` (serialized sorted list, schema_version 9).
+- `action_requested/action_result` for `submit_work`: request `{task_name, deliverable{summary, decisions[], action_items[]}}`; completed result `data{task_id, payment_fen, worked_seconds, effective_seconds, work_review{accepted, required_fact_total, required_fact_passed, required_fact_missing, missing_content_categories, required_fact_assessments[], delivery_assessments[]}, category_matches, resource_changes}`; ledger memo `work:settle:<task_id>`; rejection codes `WORK_INCOMPLETE`, `WORK_TASK_IN_PROGRESS`, `WORK_SUBMISSION_LATE`, `WORK_TASK_ALREADY_PAID`, `WORK_REQUIRES_REWORK`, `EMPLOYER_FUNDS_INSUFFICIENT`, `WORK_TASK_NOT_FOUND/NOT_VISIBLE/NOT_AVAILABLE`, `WORK_DURATION_EXCEEDS_CONTRACT`, `WORK_WOULD_MISS_DEADLINE`.
+- `model_request/model_response/failure` with `data.purpose="work_review"`, `call_id="<decision>:work-review:<action>:attempt:<n>"`; `PendingAction.work_review` (serialized `WorkReviewDecision` with `input_sha256`, `oracle_sha256`, `deliverable_sha256`, `prompt_sha256`, `schema_sha256`), `work_review_event_id`.
+- Run manifest `stage_model_identity.stages = {action, work_review}`.
+- Observation private `tasks[]` rows: public contract + `deliverable_schema` (MeetingMinutes JSON schema) + `material` + `worked_seconds/effective_seconds/remaining_contract_seconds`; tool-layer task target `contract{opens, deadline, place, remaining, outlook}`; environment layer `duty{day, hours, place, breaks[], status}`; midnight-plan input 「上班安排」 (same without `status`).
+- Wake reasons (closed vocabulary, `footprints/models.py::WAKE_REASON_NAMES`): `task_available`, `task_due_soon`, `work_review_result`, `progress_report_due`, `shift_start`, `shift_end`, `break_start`, `break_end`.
+- Workload report: `workload.agents.<id>` ten keys (`WORKLOAD_KEYS`), `routine_deviation{tolerance_seconds=progress_report_interval_seconds, agents}`.
+
+### 3.4 Fixture files encoding these shapes
+- `tests/fixtures/environment/scenarios/{single-person,multi-person,multi-person-half-day}.json` — **`tasks: []`, no `payrolls`, every `work_schedule: null`** since commit `5e6c765` (2026-10-05, "separate engine resources from published environment data"); `tests/fixtures/environment/catalog/category-contract.json` still carries the `contract` category with the acceptance/efficiency slots and `tests/fixtures/environment/catalog/affordances.toml` the `kinds.work` entry; `tests/fixtures/environment/corpora/` has no `scenario-work/` or AMI files anymore (README: 「三个引擎装配必需的合同模板」 only).
+- `tests/fixtures/dayrun_work_reviews.json` — frozen real DeepSeek work-review requests/responses (business + white-collar day runs) used by `test_work_review_excerpts.py`.
+- `tests/life/fixtures/work_review_deepseek_responses.json` — frozen review responses (`positive-paraphrase`, hallucination) used by `test_work_review.py::test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucination`.
+- `tests/fixtures/dayrun_truncations.json` — contains a real `submit_work` tool call (deliverable text) for truncation-retry tests.
+- `tests/fixtures/dayrun-biz-timeline.json` — observation `tasks[{task_id, title}]`.
+- `tests/fixtures/viewer-context.json` — task rows with `new_material_chars`, `required_effective_seconds`, `required_skill`, contract `remaining` text.
+- `tests/fixtures/acceptance_requirements.json`, `current-feature-owners.json`, `idle-fillers-acceptance.json`, `layering-acceptance.json`, `layering-public-api.json`, `mutation-symbol-baseline.json` — ledgers (see §4).
+- `tests/life/work_schedule_fixtures.py` — builds `work_schedule` declarations via `engine_factory(mutate=…)`.
+- Important: work-chain tests (`test_work_contracts`, `test_work_review*`, `test_workload_metrics` real-run cases, `test_tool_interaction_runtime`) reference task ids such as `hourly-2026-01-05`, `piece-2026-01-05`, `backend-hourly-2026-01-05`, `task-2026-01-05` that exist only in the external dataset environment; they now require `pytest --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline` (`conftest.py` → `tests/data_paths.select_environment`; `docs/dev/SPEC-environment-data-ownership.md` 「测试输入归属」). That directory is **not present** on this machine (`D:/code/WorldMock-Dataset` has only `requests/`, `execution/`, `tests/`, `tools/`), so the exact production `tasks[]` bytes and `scenario-work/` files could not be inspected here; their shape is as documented in `docs/manual/resources.md#resources-编写工作验收答案` and `scenarios.md#scenarios-配置工作任务和消息`.
+
+---
+
+## 4. Tests that lock the current behavior
+
+### 4.1 Test files (work chain)
+- `tests/life/test_work_contracts.py` — `test_hourly_and_piece_contracts_use_actual_time_and_frozen_piece_count`, `test_work_start_rejects_skill_location_and_deadline_boundaries`, `test_scenario_material_oracles_load_explicit_json_references`, `test_scenario_material_reference_missing_sentences_fail_closed`, `test_li_fan_backend_contracts_settle_with_scenario_materials`, `test_cumulative_work_limit_counts_cancelled_progress_across_restarts`, `test_late_duplicate_and_unfunded_work_stop_before_semantic_payment`, `test_same_task_competition_pays_only_seeded_first_settlement`, `test_resume_plans_the_end_no_later_than_the_contract_deadline`, `test_resume_plans_the_end_within_the_contract_hours_left_after_other_work_on_the_task`, `test_work_ending_at_the_deadline_is_concluded_then_submitted_and_paid_once`, `test_resume_with_less_than_a_minute_to_the_deadline_is_a_business_rejection`, `test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_business_rejection`, `test_a_one_minute_requirement_is_written_as_a_readable_phrase`, `test_a_known_task_keeps_its_contract_when_skill_is_insufficient`, `test_target_met_while_still_working_states_the_three_facts_separately` (also holds the ordered `WakeReason` member table — idle-fillers sync point #5).
+- `tests/life/test_work_review.py` — 24 tests incl. `test_prepared_work_review_is_private_until_round_settlement`, `test_work_material_requires_time_and_paraphrase_can_be_paid`, `test_negated_or_unsupported_minutes_require_rework_without_payment`, `test_incomplete_work_skips_model_review_and_is_business_rejection`, `test_submitting_task_in_progress_is_rejected_with_work_task_in_progress`, `test_review_identity_failure_exhausts_three_calls_and_preserves_responses`, `test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucination`, `test_private_rationale_*` (3), `test_work_review_request_uses_required_strict_contract`, `test_work_reviewer_*` (4), `test_completion_outlook_appears_only_when_the_time_upper_bound_is_short`, `test_paused_work_keeps_progress_and_has_an_independent_todo`.
+- `tests/life/test_work_review_excerpts.py` — 12 tests (han-count excerpt rule; `test_business_day_run_reviews_recomputed`, `test_white_collar_english_reviews_are_unchanged` read `dayrun_work_reviews.json`).
+- `tests/life/test_work_review_protocol.py` — 8 tests (correction once, exhaustion, infrastructure fatal, persistence failure, `test_corrected_review_is_accepted_by_complete_export_quality`).
+- `tests/life/test_domain_branch_coverage.py` — `test_work_candidates_filter_due_and_skill_and_offer_travel_leg`, `test_validate_work_start_*` (2), `test_load_work_input_rejects_*` (2), `test_load_work_oracle_rejects_broken_payloads`, `test_prepare_work_submission_rejects_*` (2), `test_reviewer_call_*` (2), `test_parse_work_review_rejects_wrong_delivery_identities`, `test_public_work_review_rejects_invalid_reference_category`, `test_prepare_work_review_reference_fact_contract`, `test_rules_validate_start_work_duration_and_deadline`.
+- `tests/life/test_engine_branch_coverage.py` — `test_negative_work_factors_are_rejected`, `test_work_task_due_must_follow_availability`, `test_task_deadline_missed_pulses_negative_mood`, `test_visible_task_rows_keep_overdue_tasks_until_the_end_of_their_day`, `test_prepare_pending_work_review_*` (3), `test_submit_work_guards_review_presence_and_identity`, `test_rework_rejection_at_limit_keeps_review_feedback`, `test_dedupe_and_material_and_visibility_helpers_guard_shapes`.
+- `tests/life/test_tool_interaction_runtime.py` — `test_ordinary_work_opens_at_first_notification_and_wrong_place_is_explicit`, `test_work_material_is_validated_before_first_world_save`, `test_mail_reading_keeps_actual_body_and_only_full_task_name`.
+- `tests/life/test_paused_slots.py::test_resume_checks_the_work_deadline_before_the_free_slot` — imports `_DEADLINE`, `_stage_office`, `_start_work`, `_decide_at`, `_pause` from `test_work_contracts` and asserts the refusal text 「Less than one minute remains before the deadline; work cannot start.」 wins over `SESSION_LIMIT_EXCEEDED` (parallel-activities R4).
+- `tests/life/test_tool_layer.py::test_submit_while_working_says_finish_the_work_first`, `::test_overdue_task_stays_listed_and_its_submission_is_refused_alike`; `tests/life/test_prompt_layers.py::test_work_contract_appears_only_in_the_task_target`, `::test_paused_work_does_not_repeat_the_contract_in_the_todo_layer`, `::test_duty_*` (2); `tests/life/test_progress_layer_projection.py::test_work_objective_progress_grows_with_settlement`, `::test_work_review_keeps_only_public_fields`, `::test_recall_reads_task_and_activity_without_identities`; `tests/life/test_memory_layer.py::test_new_work_is_a_world_event_sentence`, `::test_work_hours_and_submission_verdicts_are_settled_sentences`; `tests/life/test_progress_events.py::test_task_deadline_records_due_soon_and_expired_once_each`, `::test_submission_lines_say_passed_or_rework_and_other_failures_write_nothing`; `tests/life/test_grounded_observation.py::test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note`; `tests/life/test_activity_title_embedding.py::test_work_title_is_the_task_title`; `tests/life/test_parallel_admission.py` (2 work rows); `tests/life/test_energy_feasibility.py::test_zero_energy_travel_and_work_are_accepted`; `tests/life/test_shared_rules.py::test_work_refusal_matches_listing_and_admission`; `tests/life/test_motivation.py::test_goal_deficit_lifts_work_candidates`, `::test_no_tasks_no_work_candidates`; `tests/life/test_work_efficiency_factors.py` (10 tests on catalog factors); `tests/life/test_scenario.py::test_task_skill_targets_must_be_declared`, `::test_work_and_message_references_stay_inside_scenario`, `::test_work_window_bounds_and_order_are_rejected`, `::test_work_schedule_*` (4), `::test_every_agent_declares_work_schedule_and_structure_four_is_rejected`; `tests/life/test_wake_reasons.py` (task warning tests + `test_progress_report_due_*` 7 tests + `test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports`, `test_sleeping_person_gets_no_progress_report_wakeups`); `tests/life/test_session_state.py` (task_kind/task_ref, progress_note 500/501); `tests/integration/test_life_agent_protocol.py::test_incomplete_work_stays_submittable_for_business_rejection`; `tests/integration/test_strict_endpoint.py`, `tests/test_shared_model_clients.py` (WorkReviewer/IndependentModelClient); `tests/integration/test_run_manifest.py`, `tests/life/test_restored_model_identity.py` (stage `work_review`); `tests/evaluation/test_adapters.py::test_mail_and_work_deadline_keep_public_facts_without_raw_text_or_failure_inference`; `tests/evaluation/test_behavior_metrics.py`, `tests/footprints/test_quality.py`, `tests/footprints/test_event_fields.py` (wake vocabulary), `tests/footprints/test_validation.py`; `tests/catalog/test_category_admission.py::test_work_materials_below_declared_minimum`, `::test_work_materials_duplicate_rejected`, `::test_work_ami_metadata_retained_enforced`, `::test_task_assignee_agent_id_required`; `tests/delivery/test_windows.py::test_actual_decision_prompt_is_authoritative_and_private_review_never_becomes_target`; `tests/integration/test_activity_schema.py`, `test_seven_layer_request.py`, `test_grounded_targets.py`, `test_host_branch_coverage.py::test_require_task_assignees_rejects_unassigned_tasks`, `test_agent_branch_coverage.py::test_tool_visibility_uses_current_named_tasks_and_activities`; `tests/life/test_world_query_filters.py::test_task_contract_drops_null_in_query_results_and_in_the_prompt_tool_layer`; `tests/test_design_doc_build.py` (compiled design HTML must match chapters).
+
+### 4.2 Wages
+- `tests/life/test_scheduling.py::test_payroll_credits_agent_account`, `::test_payroll_insufficient_employer_refuses_without_crash`, `::test_schedule_refs_cover_new_kinds_in_order`, `::test_work_availability_reaches_only_the_assigned_person`; `tests/scheduling/test_branch_coverage.py::test_payroll_settles_and_refuses_without_crashing`, `::test_mail_and_work_events_extend_agent_visibility`, `::test_task_expired_and_calendar_flag_are_zero_state_passthroughs`.
+
+### 4.3 Work schedule / duty / edges / workload
+- `tests/life/test_work_schedule.py` (16 tests), `tests/life/test_load_checks.py::test_work_schedule_*` (3) + `::test_a_workplace_in_the_map_but_not_selected_by_the_scenario_is_rejected`, `::test_workplace_problems_are_listed_before_calendar_problems`; `tests/life/test_shift_edges.py` (9), `tests/life/test_shift_edge_runs.py` (T1–T20, 20 tests); `tests/life/test_day_planning.py::test_plan_input_carries_the_plan_dates_duty_arrangement_without_status`; `tests/evaluation/test_workload_metrics.py` (33 tests), `tests/life/test_workload_report.py` (5 tests).
+
+### 4.4 Acceptance ledgers (cost of deleting/renaming)
+- `tests/fixtures/acceptance_requirements.json` — `errands-workday` normative requirements 20–27 (作息补全与工作安排 and sub-sections), mutation requirements 40 「所有人物套班次」, 43 「班次并入任务开放判定」, 45 「宿主在人设层重复渲染工作安排」, 验收台账 row 「工作安排加载」; `time-and-energy` table row mentions `WORK_TASK_IN_PROGRESS`; `persona-prompt` 六、统一修复 row 「工时达标与提交状态不一致」; `dayrun-fidelity` 裁决记录 「工作材料正文」; `tool-interaction` notes.
+- `tests/errands_workday_acceptance.py::LEDGER` + `MUTATIONS` — kill lists `_REST_DAY_KILLERS`, `_BREAK_KILLERS`, `_UNSCHEDULED_KILLERS`, `_PLAN_REVISION_DUTY_KILLERS`, `_SUBMISSION_DUTY_KILLERS` (`test_duty_stays_on_duty_after_the_work_is_submitted` — **uses a real `submit_work` + payment**), `_TASK_OPENING_KILLERS`, `_PLAN_INPUT_STATUS_KILLERS`, `_CALENDAR_CHECK_KILLERS`; mutations `everyone_gets_a_shift`, `break_shown_as_on_duty`, `duty_vanishes_after_plan_revision`, `duty_vanishes_after_work_submission`, `shift_gates_task_opening`, `plan_input_carries_duty_status`, `host_renders_work_schedule`, `leave_work_takes_a_default`, `work_anchors_join_wraparound`, `out_of_order_work_anchor_fails_the_card`; sources `_WORK_SOURCE="src/worldmock/life/work.py"`, `_WORK_SCHEDULE_SOURCE`; FEATURE files include `workload_metrics.py`, `work_schedule.py`; workload rows `_WORKLOAD + test_workload_fields_follow_their_definitions_on_a_hand_built_day`, `…test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_scenario_and_cards`, `_WORKLOAD_REPORT + test_workday_command_*` (3).
+- `tests/tool_interaction_acceptance.py` MUTATION rows `work_delay_nine` (`scenario::runtime_tasks.opening`), `work_material_unchecked` (`world_setup._check_work_material`, killer `test_work_material_is_validated_before_first_world_save`), `cross_person_task_leak`, task-visibility rows; `tests/fixtures/mutation-symbol-baseline.json` pins their hashes (`tool:work_delay_nine`, `tool:work_material_unchecked`, `errands:*` listed above).
+- `tests/time_and_energy_acceptance.py` — rows pointing at `test_work_review.py::test_submitting_ready_task_while_working_on_another_reviews_and_pays`, `::test_submitting_task_in_progress_is_rejected_with_work_task_in_progress`, `::test_incomplete_work_skips_model_review_and_is_business_rejection`, `::test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_and_next_step`, `test_engine_branch_coverage.py::test_prepare_pending_work_review_*`, `::test_submit_work_guards_review_presence_and_identity`, `::test_rework_rejection_at_limit_keeps_review_feedback`, `test_work_contracts.py::test_work_start_rejects_skill_location_and_deadline_boundaries`, `::test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_business_rejection`, `::test_target_met_while_still_working_states_the_three_facts_separately`, `test_wake_reasons.py` task warning tests, `test_progress_layer_projection.py::test_work_objective_progress_grows_with_settlement`, `test_domain_branch_coverage.py::test_validate_work_start_en_route_is_not_at_the_workplace`.
+- `tests/shared_rules_acceptance.py` — rows 「开工阻断」/「模块说明」 → `test_shared_rules.py::test_work_refusal_matches_listing_and_admission` (single-source `work_start_refusal`).
+- `tests/idle_fillers_acceptance.py` — `FEATURE_PRODUCTION_FILES` includes `duty_edges.py`, `workload_metrics.py`; `tests/fixtures/idle-fillers-acceptance.json` rows list `test_shift_edges.py::*`, `test_shift_edge_runs.py::t1…t20`, `test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately`, mutation targets `duty_edges.py::duty_edges/edges_at/edge_times_after`, `rhythm.py::awake_duty_edge_times`.
+- `tests/dayrun_fidelity_acceptance.py` / `tests/persona_prompt_acceptance.py` — production-file scan lists include `life/work.py`, `life/work_review.py`.
+- `tests/fixtures/layering-public-api.json` — `LifeEngine.prepare_pending_work_review(self, action_id: str) -> None` pinned; `tests/fixtures/layering-acceptance.json` — `work_review_runtime.py::WorkReviewCoordinator`.
+- `tests/test_single_source.py::OWNERS` — `'life/work.py': ('work_start_refusal',)`.
+- `tests/fixtures/current-feature-owners.json` — entries 「验收：恢复工作越过合同截止」, 「验收：工时达标与提交状态不一致」, 「验收：逾期工作从观察和工具中消失」, 「规范/验收：普通工作与预约活动」, 「验收：八点普通工作通知，八点五十五到公司」, 「验收：提前收到十点预约会议」, 「验收：工作安排加载」, 「验收：上班安排呈现」, 「验收：工作合同边界」, 「验收：工作负荷与作息偏离」, 「规范：作息补全与工作安排-*」, 「变异：班次并入任务开放判定」 etc. (checked by `tests/test_current_feature_owners.py`).
+- `tests/fixtures/viewer-context.json` + `tests/tools/run_viewer.test.cjs` — task rows and labels for `submit_work`/`work_review_result`/`WORK_REQUIRES_REWORK`.
+
+---
+
+## 5. What the proposal changes here
+
+Proposal requirement (第二章「工作只计工时，模型负责描述」; 第三章 差距 「工作依赖材料与独立验收」; 删除清单 「工作输入与答案、提交验收、返工与任务付款链」; 钉住行为 「工作由时间决定：模型声称已完成不能跳过工时；暂停不计时；工资不走材料验收链」; decision item 「工作工时：实际工作秒数 vs 有效工作秒数」).
+
+### 5.1 Dataset/scenario format — REWRITE `WorkTaskConfig`
+- REWRITE `src/worldmock/life/scenario.py::WorkTaskConfig` to the minimal object 「标识、主题、目标工时」 plus the scenario-kept assignment: `task_id`, `title` (= topic, kept as the readable name), `assignee_agent_id`, `appointment` (keep: it is scenario time structure, not material), `due_at`, `required_location_id` (proposal: 「沿用场景的工作地点和班次」), `target_hours_seconds` (new; replaces `required_effective_seconds` as the completion target). DELETE fields `contract_kind`, `pay_fen`, `employer_account_id`, `required_skill`, `minimum_skill`, `maximum_duration_seconds`, `input_path`, `input_sha256`, `oracle_path`, `oracle_sha256`. Old keys must be rejected by `extra="forbid"` (already the FrozenModel default) — no compatibility read. Bump `LifeScenario.schema_version` 6 → 7 and reject 6.
+- Keep `RuntimeWorkTask.available_at` derivation (`runtime_tasks`) and the notification contract (`contracts-工作通知与开放合同`) unchanged; keep `MessageConfig.related_task_id`.
+- DELETE `RuntimeScenario.employer_account_id` validation of tasks (`_validate_accounts` first line) — employer account stays only for `payrolls[]`. DELETE skill cross-check in `_check_catalog_references`; `AgentConfig.skill_levels` becomes unused by work (decide whether to delete it entirely — it is only consumed by `rules._validate_work`, `motivation._work_slot_candidate`, `validate_work_start` and `AgentState.skill_levels`).
+- DELETE catalog contract objects' acceptance/efficiency slots from the environment catalog (`catalog/models.py::Acceptance`, `::Efficiency`, `compiler._acceptance/_efficiency`, `semantics._contract_work_efficiency_factors`, `CONTRACT_OBJECT_IDS`, `category-contract.json` `contract` category, exchange rules `work_hourly/work_piece/work_package`, `categories/rules.py::Work*Rule`, `operators.py::evaluate_*_pay`, `Action.WORK_SETTLE`). This is the exchange-engine side of the same requirement (「分类规则和交换规则在 WorldMock 钉死」); the work subsystem's only call sites are `semantics.contract_payment/contract_match` and `work.prepare_work_submission`. If a body-efficiency factor set is still wanted for fatigue, it must move to a WorldMock constant (proposal: 「身体疲劳仍按系统固定规则产生」), e.g. `src/worldmock/data/*.toml`, not the dataset catalog.
+- DELETE `catalog/admission.py::_check_work`, `WorkMaterialRequirements`, `CATEGORY_WORK_*` codes, and the `scenario-work/` corpus expectation; `corpora/manifest.json` no longer lists work inputs.
+
+### 5.2 Materials, reveal, oracle — DELETE
+- DELETE `work.py::load_work_input`, `visible_work_material`, `reveal_work_progress`, `load_work_oracle`, `_load_reference_summary`, `_load_scenario_reference_summary`, `_load_ami_reference_summary`, `_read_hashed_file`, `_read_regular_file`, `_local_name` (the `xml.etree` import goes with them).
+- DELETE `world_setup._check_work_material` and the `load_runtime_scenario` call.
+- DELETE `time_advance.py` lines 345-355 (work branch calling `reveal_work_progress`/`record_material_reveal`), `activity_evidence.record_material_reveal`, `AgentState.material_reveals`, `ActivityState.data["material_position_chars"]`, observation `tasks[].material`/`deliverable_schema` (`observe._visible_task`), `activity_progress.data.work_material`.
+- DELETE `docs/manual/resources.md` sections `resources-工作材料`, `resources-编写工作验收答案` and the 「工作材料」 row in `resources-编写内容与工作材料`; CONTRACTS `contracts-可见期与提示预算` row 「工作材料单次揭示上限」; SPEC-life-runtime `观察投影行为规则` 「工作材料增量」 paragraph; `contracts-状态归属` 内容接触 row's `material_ranges`; recording-engine `material_ranges`.
+
+### 5.3 Submission, review, acceptance payment — DELETE whole chain
+- DELETE `src/worldmock/life/work_review.py`, `src/worldmock/life/work_review_runtime.py`; `engine.py` `WorkReviewCoordinator` + `prepare_pending_work_review` (public API row in `layering-public-api.json` must be removed, `layering-acceptance.json` entry too); `custom/envs/life_env.py::submit_action` call; `action_evidence._work_review_*` drafts; `decision_coordinator._OPS_COMPONENTS["submit_work"]` and line 512; `session_actions._submit_work_action/_submit_work/public_work_review/_task_binding`; `result_projection._public_review` + `WORK_REVIEW_SUMMARY_FIELDS`; `models.MeetingMinutes`, `SubmitWorkRequest`, `SubmitWorkActionRequest`, `REQUEST_MODELS["submit_work"]`; `prompt_schemas` `_tools_for("task", ("submit_work",))`, `TARGET_TOOLS`; `tool_layer._tool_refusal` submit branch and `_binding_target` task `tools`; `business_feedback` `WORK_REQUIRES_REWORK` path; `settled_text` submit sentence (line 230) and `WORK_REQUIRES_REWORK` memory sentence (`contracts-记忆字段`); `felt.py` pulses `work_review_passed/returned` and `same_moment` mapping; `guidance.py` codes `WORK_INCOMPLETE`, `WORK_REQUIRES_REWORK`, `WORK_TASK_IN_PROGRESS`, `WORK_TASK_ALREADY_PAID`, `WORK_SUBMISSION_LATE`, `EMPLOYER_FUNDS_INSUFFICIENT`, `WORK_DURATION_EXCEEDS_CONTRACT`; `WakeReason.WORK_REVIEW_RESULT` (closed vocabulary: the idle-fillers sync-point rule says members are never renamed/deleted — **the spec must explicitly rule that the vocabulary freeze is lifted for the no-compat redesign**, or keep the member as 「保留名称，当前无触发来源」 like `activity_infeasible`); `run_setup` stage `work_review` (manifest `stage_model_identity.stages` becomes `{action}` only; `validate_manifest_stage_identity` must reject manifests with `work_review`); `model_feedback.tool_arguments(work_review=…)` flag; `WorldState.paid_task_ids`; `work.py::WorkOutcome`, `WorkMetrics`, `WorkSubmission`, `prepare_work_submission`, `settle_work`, `submission_refusal`, `_pay`, `validate_work_duration`; `semantics.contract_payment/contract_match`; `affordances.toml families.work.habit_members` drops `submit_work`; `custom/agents/life_prompt.py` system rule 「工时达标不等于已经提交，提交前先结束正在做的工作，过了截止再提交会被拒绝」 and `TOOL_DESCRIPTIONS["submit_work"]`; `custom/agents/life_agent.py` submit_work validation; `evaluation/public_evidence` `submit_work` shapes and `_work_result`; `tools/run-viewer.html` `case 'submit_work'`, `WORK_REQUIRES_REWORK` label; `scripts/inspect_run.py` nothing (no review commands).
+- Fixtures to DELETE: `tests/fixtures/dayrun_work_reviews.json`, `tests/life/fixtures/work_review_deepseek_responses.json`; tests `test_work_review*.py` (3 files), review parts of `test_domain_branch_coverage.py`, `test_engine_branch_coverage.py`, `tests/test_shared_model_clients.py` (keep `IndependentModelClient` tests via the contact-reply client), `tests/integration/test_strict_endpoint.py` work parts, `tests/delivery/test_windows.py::test_actual_decision_prompt_is_authoritative_and_private_review_never_becomes_target`.
+
+### 5.4 Completion by hours — REWRITE the gate
+- ADD `work.py` (or a renamed `work_topics.py`) minimal API: `work_totals(state, agent_id, task_id) -> worked_seconds` (drop the effective tuple), `completed(task, worked) -> bool` (`worked ≥ target_hours_seconds`), `work_start_seconds(task, worked, now) = min(target - worked, due - now, DERIVED_DURATION_CAP_SECONDS)` (contract maximum disappears; the target itself bounds the slot), `work_start_refusal` (keep 60-second rule, single-source owner), `work_resume_cap(task, worked, now) = min(due - now, target - worked)`, `task_listed` (keep overdue-until-day-end so `outlook` 「已过截止」 still exists), `contract_view` rewritten to `remaining` = 「工时已达标（约 4/4 小时）」/「工时还差约 1.5 小时（约 2.5/4 小时）」 from **elapsed** seconds; `completion_outlook` uses `needed = target - worked`.
+- ADD completion as an environment fact: when a work settlement makes `worked ≥ target` the engine ends the work activity at that instant (`planned_end` boundary is already the slot cap, so completion coincides with `planned_end` when the slot was `target - worked`), writes an `environment_event{kind:"work_completed", task_id}` and adds `task_id` to a `WorldState.completed_task_ids` set (rename of `paid_task_ids`; serialization stays a sorted list). `observe._visible_task_rows/_task_pool/_motivation_evidence/rhythm._has_commitments/_next_task_due/_warning_signatures` switch from `paid_task_ids` to `completed_task_ids`. No model action completes a task (钉住行为 「模型声称已完成不能跳过工时」).
+- `ActivityState.effective_work_seconds`: if decision item 「工作工时」 takes the recommended 实际工作秒数, DELETE the field, `activities._advanced_activity` work branch, `time_advance` `activity_efficiency`, `body._work_efficiency`, `sleep.work_efficiency`, `BodyConfig.work_efficiency_factors`, `work_notes_multiplier` (and `work_notes` active effect), `motivation._work_efficiency_snapshot`, `footprints/quality._work_efficiency_samples`, `workload_metrics.effective_work_seconds` key, `activity_control.objective_progress` 有效 clause, `settled_text.activity_sentence` 有效工时 clause, `adapters` field. If the alternative (有效秒数) is taken, keep all of these and only change the target field name; either way `required_effective_seconds` disappears from the dataset.
+- `rules._validate_work`: keep visibility, opening window, presence at `required_location_id`, deadline; DELETE skill gate and contract-maximum gate (`WORK_DURATION_EXCEEDS_CONTRACT`); keep `WORK_WOULD_MISS_DEADLINE`? — the proposal keeps deadlines (「沿用场景的工作地点和班次」; `due_at` is scenario time structure), so keep.
+- `motivation._work_slot_candidate`: REWRITE to derive `money_deferred_fen` from nothing (no pay on tasks) — simplest is goal progress only (`goal_effective_seconds = slot`), aspiration key `daily_effective_work_seconds` renamed `daily_work_seconds` in `MotivationProfile` (dataset-facing: `catalog/rules/motivation.toml`, scenario `agents[].motivation.aspiration`).
+
+### 5.5 Progress narration — REWRITE the report moment (reuse `progress_report_due` + `report_status`)
+- Keep the trigger exactly as is (`rhythm._progress_report_due`, interval `progress_report_interval_seconds`); the proposal's 「既有进度播报时点」 is this. No new scheduler.
+- ADD to the tool layer's **work activity target** `state` the three facts the proposal asks to pass: topic (already the activity title 「工作：<title>」), 已做时间 and 剩余时间 (from `contract_view.remaining`, moved/duplicated into the activity `state` for work, or keep in task `contract` — spec must say which; today `state` must not write 「还差」, see `contracts-seven-layers`), and the **previous narration** (`ActivityState.progress_note` from the last `report_status`): ADD a tool-layer field on activity targets, e.g. `last_report: str | null` (requires a `prompt_schemas` change and a seven-layers contract row) — or re-surface it in the progress layer, which already keeps the `report_status` tool call with its `summary` for the current session (so for same-session reports nothing new is needed; across a session change the previous note is lost unless `last_report` is added). Smallest correct design: add `last_report` only for `kind == "activity"` work targets, sourced from `progress_note`.
+- `report_status` request stays `{items[{activity_name, summary}], errands}`; `summary` is the 合成工作叙述. ADD a system-layer sentence replacing the deleted submit rule, e.g. 「工作按主题计工时：播报时用自己的话写这段做了什么、做到哪里；写的进度不改变工时，做满目标工时环境会结束它」 (changes `prompt_sha256`; must be registered verbatim in `contracts-model-request`).
+- Record the narration: it is already persisted on the activity (`progress_note`, `note_history`) and in the `action_requested` event; ADD nothing to the footprint schema. Decide whether the work narration should, unlike other `report_status` summaries, enter the memory layer (`self_notes`) after the session — proposal says 「记录合成工作叙述」, current rule says report summaries do not enter memory; recommend keeping the current rule and relying on `note_history` + `conclude_activity` summary for memory.
+- The `work_notes` tool effect and `MeetingMinutes` schema in the observation disappear; `observe._visible_task` returns only the public contract.
+
+### 5.6 Wages — keep as is (ADD nothing)
+- `PayrollConfig`, `_payroll_rows`, `_payroll`, `ScheduleRefKind.PAYROLL`, ledger memo `payroll:settle:<id>` unchanged. The only coupling to delete is the sentence in `spec-life-runtime-资金与合同` that ties pay to accepted delivery, and `EXPERIMENT.md#experiment-经济参数` contract coverage bullets. `employer_account_id` remains a scenario service account for payroll only (`RuntimeScenario.employer_account_id` keeps its role check).
+
+### 5.7 Work schedule, duty, shift edges, workload — keep, with two edits
+- `work_schedule.py`, `duty_edges.py`, `load_checks.check_work_schedules`, `environment_layer._duty`, `day_plan_inputs._duty_arrangement`: unchanged.
+- `workload_metrics.py`: `TaskSite.open_from/appointment_at` keep; `_settled` currently finds the task settlement by `action_result` with `task_id`+`payment_fen` — REWRITE to read the new `work_completed` environment event (or the activity snapshot reaching target). `effective_work_seconds` key follows the decision in 5.4 (delete or keep). `docs/VERIFICATION.md#errands-workday-度量与下游-行为评估` and `design/07-evaluation.md#evaluation-报告项reports` 「到首次付款结清为止」 become 「到工时达标为止」.
+- `docs/dev/SPEC-life-realism.md#errands-workday-作息补全与工作安排-与工作任务合同的边界`: rewrite 「不改变开工、恢复、提交与迟交判定」 → drop 提交/迟交.
+
+### 5.8 Scheduling events
+- Keep `WORK_AVAILABLE` and `TASK_EXPIRED` rows (`compile_schedule` only needs `available_at`, `due_at`, `assignee_agent_id`). `effects._reveal_event` unchanged.
+
+---
+
+## 6. Conflicts with frozen clauses
+
+| Document | Anchor | Gist of the clause the proposal contradicts |
+| --- | --- | --- |
+| docs/CONTRACTS.md | `contracts-状态归属` | 「工作」 state = task, materials, deadline, deliverable, review_result, contract, payment_status; changed by delivery action and independent review. |
+| docs/CONTRACTS.md | `contracts-person-tools` | `submit_work` tool row (opens with unpaid visible task; `WORK_INCOMPLETE`/`WORK_TASK_IN_PROGRESS`/`WORK_SUBMISSION_LATE`); 「提交条件（`submit_work` 的 available/reason）分别说明」. |
+| docs/CONTRACTS.md | `contracts-工作通知与开放合同` | 「首次世界保存和观察前复用现有素材加载器校验输入、摘要和验收来源，不留缺素材回退」; 「素材、地点、技能、工时和截止照常校验」. |
+| docs/CONTRACTS.md | `contracts-request-settlement` | `submit_work` settlement row (ownership, progress, deadline, material, duplicate-settlement checks then separate review). |
+| docs/CONTRACTS.md | `contracts-活动受理拒绝码` | `WORK_TASK_IN_PROGRESS`, `WORK_SUBMISSION_LATE` rows; `ACTIVITY_DURATION_INVALID` wording 「剩余合同不足 60 秒 … 合同上限减已累计」 and next step 「Submit the completed work.」. |
+| docs/CONTRACTS.md | `contracts-closed-request-models` | `submit_work.task_name`/`deliverable` (summary/decisions/action_items); 「工作成果引用只允许已经登记且对人物可见的素材，实际文本交付由宿主保存成新素材」. |
+| docs/CONTRACTS.md | `contracts-seven-layers` | `contract.remaining` is **有效工时** wording; task target `tools[] = submit_work`; overdue task rules name `submit_work`; result 「工作结果另带公开 `work_review`」 and the `work_review` field list. |
+| docs/CONTRACTS.md | `contracts-可见期与提示预算` | 「工作材料单次揭示上限 2000 字符」; 「工作公开评审只取 `public_work_review` 定义的字段」. |
+| docs/CONTRACTS.md | `contracts-model-request` | System-layer rule 「工时达标不等于已经提交，提交前先结束正在做的工作，过了截止再提交会被拒绝」; rule 2 lists `submit_work` among world requests. |
+| docs/CONTRACTS.md | `contracts-generation-parameters` / `contracts-model-identity` | Work review stage (thinking disabled, `tool_choice=required`), `purpose="work_review"`, stage keys exactly `action, work_review`. |
+| docs/CONTRACTS.md | `contracts-记忆字段` | Settled sentence 「HH:MM 提交「<任务>」，通过/未通过」 (only business rejection written as settled). |
+| docs/CONTRACTS.md | `contracts-领域枚举` | Closed wake vocabulary includes `work_review_result` (if the member is removed). |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-状态归属规则` | 「工作」 row: input material, deliverable, review, contract, payment status; 「交付动作与独立验收环节」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-决策节律结算边界与唤醒条件分离` | `work_review_result` trigger 「工作验收结果返回」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-转换效率算法` | 有效工作量 formula with skill rate × efficiencies × tool effect; 计件/计时收入 formulas; `work_notes_multiplier=1.10`. (Conflicts if 实际秒数 is chosen; the efficiency part conflicts regardless with 「不再将效率折扣作为工作主题完成门槛」.) |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-具体活动结算` | 「工作：输入材料、投入时间、产出物和验收可追溯」; 「工作质量：由实际交付物评估 … 模型产出的文本还必须通过内容验收，不能用累计时间替代真实生产结果」; 「任务报酬受合同与雇主资源约束」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-内容提供行为` | Entire 「工作材料与邮件反馈」, 「工作提交」, 「工作验收」, 「验收协议」, 「反馈内容」 blocks; in 「任务通知与可用性」: 「正式任务的输入材料必须在通知前已有效，缺失材料在加载时拒绝」, 「素材 … 照常校验」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-资金与合同` | 「计时与计件两类合同都按实际合格产出结算，交付通过验收是付款条件；重复任务付款由稳定任务标识防止」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-观察投影行为规则` | 「工作验收使用已有公开反馈」; 「工作材料增量 … 材料正文进入哪一层另立规格」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-交互菜单的运行边界` | 「工作提交若不满足领域资格，不得进入独立评审」. |
+| docs/dev/SPEC-life-runtime.md | `time-and-energy-五类生活动作与并行准入-动作照常列出做错了再说明` | 「技能不符（代码中是 `ACTIVITY_PRECONDITION_UNMET`）」 kept as a listed condition. |
+| docs/dev/SPEC-life-runtime.md | `tool-interaction-普通工作与预约活动` | 「工作素材在通知前有效，首次世界保存和观察之前复用既有加载器核验，缺素材拒绝正式构建」; 「素材、技能、工资、地点、工时和真实截止保持原合同」; 「到截止同秒的提交仍按原合同允许；超过截止拒绝」. |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-验收矩阵` | Row 「工作与验收」 (contracts settle by hours/pieces, review protocol, excerpt rule). |
+| docs/dev/SPEC-life-runtime.md | `spec-life-runtime-其他体感分级` | Mood pulse 「工作验收通过 +0.3」. |
+| docs/dev/SPEC-life-realism.md | `spec-life-realism-世界素材品类要求` | 「工作：84 天至少 20 份互不相同、与人物职业匹配的中文输入材料」; 「正式材料在通知前已经有效」; 「邮件到达不公开正文 … 不公开验收答案」; 「工作窗口满足真实截止与合同工时要求」. |
+| docs/dev/SPEC-life-realism.md | `persona-prompt-七层请求-工具层` | `contract.remaining` = 有效工时 wording; `tools[]` includes `submit_work`; 「已知任务即使技能不足也保留合同并写明不可用原因」. |
+| docs/dev/SPEC-life-realism.md | `errands-workday-作息补全与工作安排-与工作任务合同的边界` / `-效力呈现事实不新增拒绝` | 「不改变开工、恢复、提交与迟交判定」; 「前往本人已开放且未结清的工作任务的要求地点」 (未结清 = unpaid). |
+| docs/dev/SPEC-life-realism.md | `spec-life-realism-动机层` (and `MotivationProfile.aspiration`) | aspiration key `daily_effective_work_seconds`; work candidate uses `pay_fen` (「折现报酬」). |
+| docs/dev/SPEC-as2-integration.md | `persona-prompt-统一修复的程序错误` | Rows 「工时达标与提交状态不一致」 (three facts incl. `submit_work`), 「恢复工作越过合同截止」 (contract maximum), 「逾期工作从观察和工具中消失」 (`WORK_SUBMISSION_LATE`). |
+| docs/dev/SPEC-as2-integration.md | `dayrun-fidelity-评审模型调用与叙述-中文逐字摘录按字数核对` | Verbatim excerpt rule for review. |
+| docs/dev/SPEC-category-contract.md | `spec-category-contract-闭集算子与真实结算` | 按时/按件/总包计酬 operators; 「按件计酬：验收 oracle 的实际件数」; 「总包计酬：验收通过才支付」. |
+| docs/dev/SPEC-interaction-menu.md | `spec-interaction-menu-观察与人物工具`, `spec-interaction-menu-环境执行与拒绝` | `submit_work` opens in work domain; 「工作提交在独立工作验收调用前检查领域资格」. |
+| docs/dev/SPEC-day-plan-goals.md | `time-and-energy-零点计划与计划提醒-输入调用失败与记录` | stage keys `action`, `work_review`. |
+| docs/dev/SPEC-idle-fillers.md | `spec-idle-fillers-班次边界规则` | 「名称与次序落地后永久冻结」 for the wake vocabulary (blocks deleting `work_review_result`). |
+| docs/VERIFICATION.md | `verification-测试矩阵` | Rows 「工作生产」 (materials, independent review, rework, piece/hourly) and 「工作截止与提交」 (`WORK_SUBMISSION_LATE`, 合同截止, excerpt rule). |
+| docs/VERIFICATION.md | `verification-协议门禁`, `verification-报告项report-only`, `errands-workday-度量与下游-行为评估` | `purpose="work_review"` exclusions; `workload` 「有效工作秒数」 and 「到首次付款结清为止」. |
+| docs/EXPERIMENT.md | `experiment-经济参数`, `experiment-工作参数`, `experiment-交互菜单与运行身份` | 「计时与计件两种合同类型、不同技能、内容独立验收 … 无资金、延期与返工」; 「工作速率 = 技能等级」, 「工作笔记倍率 1.10」, 「工作评审最大调用次数 3」; stage keys. |
+| docs/design/02-exchange-engine.md | `exchange-engine-不同交换的计算依据` | 「工作报酬按计时、计件或包干合同计算；实际投入充分仍须满足交付验收条件」. |
+| docs/design/03-resource-engine.md | `resource-engine-准入边界`, `design-resource-engine-current-responsibility` | work materials admission; world_setup validates work materials. |
+| docs/design/04-simulation-engine.md | `simulation-engine-工作通知与开放时刻`, `simulation-engine-将真实结果交还人物`, `design-simulation-engine-current-responsibility` | 「不公开验收答案」; 「工作验收可以在提交期间准备」; `WorkReviewCoordinator`. |
+| docs/design/05-recording-engine.md | `recording-engine-事件字段`, `recording-engine-activity_progress-事件`, `recording-engine-质量报告` | `material_ranges`; work efficiency evidence; `purpose=work_review`. |
+| docs/design/07-evaluation.md | `evaluation-协议门禁gates`, `evaluation-报告项reports` | `work_review` exclusion; `effective_work_seconds`, 「到首次付款结清为止」. |
+| docs/design/09-io-formats.md | `io-formats-worldstate世界状态`, `io-formats-activitystate活动状态` | `paid_task_ids`; `effective_work_seconds`. |
+| docs/manual/resources.md | `resources-编写内容与工作材料`, `resources-工作材料`, `resources-编写工作验收答案` | Material/oracle/reference authoring. |
+| docs/manual/scenarios.md | `scenarios-配置工作任务和消息`, `scenarios-工作通知与目标发布` | Task field table (`contract_kind`, `pay_fen`, `required_skill`, `required_effective_seconds`, `input_*`, `oracle_*`); 「素材、技能、工资 … 保持原合同」. |
+| docs/manual/personas.md | heading 人物配置字段表 (`skill_levels` 「须覆盖分配任务所需技能」) | Skill requirement for tasks. |
+
+Also: `docs/design/worldmock-design.html` is the compiled design book (`scripts/build_design_doc.py`, gated by `tests/test_design_doc_build.py`); every chapter edit above must be followed by a rebuild.
+
+---
+
+## 7. Blast radius (outside this subsystem)
+
+- **Test environment binding.** All work-chain tests depend on the external dataset environment via `--environment-root`; the in-repo fixture env has no tasks. Any redesign must ship a new artificial `tasks[]` (topic + hours) in `tests/fixtures/environment/scenarios/*.json` so the engine suite can exercise work without the dataset — or the dataset must publish the new format in `environment/zhangjiang-baseline` first (it is absent on this machine).
+- **Prompt / tool fingerprints.** Removing `submit_work` from native `tools` changes `tool_schema_sha256`; changing the system layer changes `prompt_sha256` (`run_setup`, `contracts-model-request`, `custom/agents/life_prompt.py`, `tests/integration/test_seven_layer_request.py`, `test_activity_schema.py`, `tests/integration/test_tool_description_references.py`). Run-manifest stage keys drop `work_review` → `run_setup.validate_manifest_stage_identity`, `tests/integration/test_run_manifest.py`, `tests/life/test_restored_model_identity.py`, `EXPERIMENT.md`, `SPEC-day-plan-goals.md`.
+- **Public API / layering ledgers.** `tests/fixtures/layering-public-api.json` (`prepare_pending_work_review`), `layering-acceptance.json` (`WorkReviewCoordinator`), `tests/test_layering_acceptance.py`, `tests/test_import_graph.py` (module graph), `tests/test_single_source.py` (`work_start_refusal` owner), `tests/test_current_feature_owners.py` + `current-feature-owners.json` rows, `tests/test_errands_workday_acceptance.py` (mutation rows that use real `submit_work`: `duty_vanishes_after_work_submission` kill test `test_duty_stays_on_duty_after_the_work_is_submitted`), `tests/tool_interaction_acceptance.py` (`work_material_unchecked`, `work_delay_nine`), `tests/fixtures/mutation-symbol-baseline.json`, `tests/time_and_energy_acceptance.py`, `tests/shared_rules_acceptance.py`, `tests/dayrun_fidelity_acceptance.py` / `persona_prompt_acceptance.py` file lists.
+- **World state schema.** Renaming/removing `paid_task_ids`, `material_reveals`, `effective_work_seconds` → `WorldState.schema_version` 9 → 10, `docs/design/09-io-formats.md`, `tests/life/test_state_serialization.py`, `tests/footprints/test_validation.py`, checkpoints/exports of old runs rejected (consistent with 「旧格式直接拒绝」).
+- **Scenario schema.** `LifeScenario.schema_version` 6 → 7 affects every loader, `tests/life/test_scenario.py`, `tests/frozen_inputs.py` digests, `docs/CONTRACTS.md#contracts-冻结地图与场景引用`, `SPEC-environment-data-ownership.md`, dataset scenarios and their `scenario_sha256`.
+- **Catalog / exchange engine.** Deleting contract objects and `work:settle` rules touches `catalog/compiler.py`, `catalog/models.py`, `categories/*`, `semantics.assemble_semantics` (`_contract_work_efficiency_factors` feeds `BodyConfig.work_efficiency_factors`, `work_notes_multiplier` feeds `BodyConfig`), `tests/life/test_work_efficiency_factors.py`, `tests/catalog/*`, `tests/categories/*`, `tests/life/test_category_runtime*.py`, `test_category_semantic_edges.py`, `test_semantics.py`, `tests/fixtures/environment/catalog/{category-contract.json,exchange-rules.json,objects.jsonl}` (the three 「引擎装配必需的合同模板」 objects become unnecessary).
+- **Body / motivation.** `BodyConfig.work_efficiency_factors` (`scenario.py` lines 81-110, `body.py`, `sleep.py`, `motivation.py`), `MotivationProfile.aspiration` key, `catalog/rules/motivation.toml` (packaged resource byte-compared with the environment copy by `world_setup._require_engine_rules`), `tests/life/test_motivation.py`, `test_body*.py`, `test_sleep_two_process.py`.
+- **Evaluation / footprints / viewer.** `footprints/quality.py` efficiency group (`quality.json` schema 4 → 5 if a key disappears), `evaluation/public_evidence.py`, `behavior_metrics.py`, `adapters.py`, `scripts/inspect_run.py workday`, `tools/run-viewer.html` + `tests/tools/run_viewer.test.cjs` + `tests/fixtures/viewer-context.json`, `docs/dev/SPEC-run-viewer-context.md`.
+- **Memory / progress / settled text.** `settled_text.py`, `memory_layer.py`, `progress_layer.py` (task label), `tests/life/test_memory_layer.py`, `test_progress_events.py`, `test_progress_layer_projection.py`.
+- **AS2 host.** `custom/agents/life_agent.py` (`submit_work` validation, `CONTROL_TOOLS`), `custom/envs/life_env.py` tool list, `tests/integration/test_life_agent_protocol.py`, `test_agent_branch_coverage.py`, `test_host_branch_coverage.py::test_require_task_assignees_rejects_unassigned_tasks`.
+- **Parallel activities (landed 2026-10-06).** `tests/life/test_paused_slots.py` and `SPEC-parallel-activities#spec-parallel-activities-名额规则` R4 pin that the work deadline/contract refusal is evaluated before the free-slot check on resume; if `work_start_refusal` is rewritten (contract maximum removed, 60-second rule kept) the refusal text and ordering must stay or that test and R4 must be rewritten together. `affordances.toml [kinds.work].resource_claims = ["work"]` and the 驾车/睡眠 rows that claim `work` are unaffected by the proposal.
+- **Cross-subsystem coordination needed with:** the exchange-engine/catalog redesign (who deletes `contract` category and `work:settle`), the app/notification subsystem (hourly pushes 08:00–22:00 reuse the same `next_decision_time` candidates and `progress_report_due`-style boundary; both add decision opportunities — the spec should state ordering in `WakeReason`), the dataset format subsystem (`tasks[]` + `payrolls[]` + `work_schedule` live in one scenario file; schema bump is shared), and the motivation/body subsystem (efficiency factors).
+
+---
+
+## 8. Open questions for the spec
+
+1. **「工作工时」 decision item** (proposal table: 实际工作秒数 recommended vs 有效工作秒数): rules whether `effective_work_seconds`, `work_efficiency_factors`, `work_notes_multiplier`, `sleep.work_efficiency`, `activity_efficiency` evidence and the workload `effective_work_seconds` key are deleted. The proposal text 「不再将效率折扣作为工作主题完成门槛；身体疲劳仍按系统固定规则产生」 is compatible with both options only if fatigue remains a body rule without a work product.
+2. **Completion semantics.** When `worked ≥ target`, does the environment end the activity (new boundary/`environment_event work_completed`) or merely mark the task done while the activity runs to its planned end? Recommend: the start/resume slot is capped at `target - worked`, so `planned_end` and completion coincide; the completion event is written at that settlement. Must also rule: can a completed topic be worked again (today `paid_task_ids` blocks restart)?
+3. **What survives of the contract view.** `contract{opens, deadline, place, remaining, outlook}` wording (`remaining` from elapsed hours; `outlook` 「到截止前做不完」/「已过截止」) and overdue listing until local day end — keep or drop `due_at` entirely? The proposal keeps 「沿用场景的工作地点和班次」 and says nothing about deadlines; `task_due_soon`/`commitment_threatened`/`TASK_EXPIRED` all depend on `due_at`.
+4. **Skills.** `required_skill`/`minimum_skill`/`AgentConfig.skill_levels`: delete entirely (they only serve work rate and gating) or keep `skill_levels` as persona data with no engine use?
+5. **Wake vocabulary freeze.** `work_review_result` (and the idle-fillers rule 「名称与次序落地后永久冻结」): delete the member under the no-compat rule, or keep it as a reserved name like `activity_infeasible`?
+6. **Narration inputs at the report moment.** Where do 主题、已做时间、剩余时间、上次描述 go: work activity target `state` (currently forbidden to write 「还差」), task `contract`, or a new activity-target field `last_report`? And across a session change, is the previous narration re-surfaced (requires the new field) or not?
+7. **Narration persistence.** Should work `report_status` summaries enter memory `self_notes` (today: no), and should the viewer/export expose them as 「合成工作叙述」 (proposal: 「记录合成工作叙述」)?
+8. **Employer account.** Keep `RuntimeScenario.employer_account_id` as a mandatory service account (payroll only) or let `payrolls[].employer_account_id` reference any declared account? Today `_validate_accounts` requires exactly two service accounts.
+9. **Admission requirement for work topics.** Replace 「84 天至少 20 份 … 中文输入材料」 (`spec-life-realism-世界素材品类要求`) with a topic-count rule, or drop the work row from admission entirely (then `WorkMaterialRequirements` and the catalog manifest key go)?
+10. **Fixture strategy.** Ship artificial `tasks[]`/`payrolls[]`/`work_schedule` in `tests/fixtures/environment/scenarios/*.json` so the engine suite covers work without `--environment-root` (the ownership spec says the artificial env only verifies lifecycle), or keep work regression dataset-bound and require the dataset to publish the new format before merge?
+11. **Mutation ledgers.** Which of the acceptance ledgers (`errands_workday_acceptance.py` rows that use `submit_work`, `tool_interaction_acceptance.py::work_material_unchecked`, `time_and_energy_acceptance.py` review rows, `mutation-symbol-baseline.json`) are rewritten vs. retired, given `tests/test_current_feature_owners.py` and `test_layering_acceptance.py` resolve every registered node.
