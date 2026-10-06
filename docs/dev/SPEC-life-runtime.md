@@ -13,7 +13,8 @@
 > 个人事务、上班安排在七层中的位置，两种进度层记录及其浓缩口径；只读查询的执行位置，`query_world` 六键、筛选与返回；
 > 顺带更正 `report_status` 的 summary 去向、来源写法与可调用索引括注三处既有漂移；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「共享时钟」「决策节律：结算边界与唤醒条件分离」、「决策不耗时：时间只在做事时流动」的「规则」与「不变项」、「个人事务」的「提醒时刻」与「验收矩阵」（阶段 1），以及「个人事务」的「零点计划、修订与只读问答」（阶段 3）。
-> 日期：2026-10-05
+> 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「活动组合政策」、「决策不耗时：时间只在做事时流动」的「规则」与「实现约定」、「并行准入」、「三层结构」、「活动的生命周期」与「验收矩阵」（阶段 1）。
+> 日期：2026-10-06
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
 
@@ -719,8 +720,8 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
   | 食用或使用、生活活动 | `hands` |
   | 交谈、通话 | `voice`、`ears` |
 
-- 每人两个活动名额，进行中、暂停与待收尾的活动各占一个。
-- 暂停及终态释放占用，名额在 `conclude_activity` 后释放；配送和消息仍是独立后台过程。完整声明和边界以
+- 每人两个活动名额，进行中与待收尾的活动各占一个，暂停的不占，暂停的个数不设上限。
+- 暂停及终态释放占用；`pause_activity` 让出名额，进行中与待收尾的名额在 `conclude_activity` 后释放，恢复暂停的活动要有空名额；配送和消息仍是独立后台过程。完整声明和边界以
   [一日行为可信性规格](SPEC-dayrun-behavior.md#spec-dayrun-behavior-同一人物的活动集合)为准。
 
 **活动控制**：
@@ -1188,14 +1189,13 @@ flowchart LR
    名称类拒绝码的闭集见[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 3.4）。达到上限后，若仍不满足规则 2 的结束条件，
    就进入受限轮，至多三轮。每个受限轮只开放一类动作：
    - 有待收尾活动：只开放 `conclude_activity`，每项待收尾活动都可以收尾，一次收尾其中几项也受理，这一阶段持续到没有待收尾活动；
-   - 否则有空名额：开始或恢复一项持续活动（等待始终可选）；瞬时的 `obtain`（到店、远程下单与由系统定方式的「购买」）与其他瞬时的生活动作
-     不在受限轮开放；
-   - 否则（两个名额都被暂停的活动占着）：恢复或结束其中一项。
+   - 没有进行中也没有待收尾的活动：开始或恢复一项持续活动（等待始终可选）；瞬时的 `obtain`（到店、远程下单与由系统定方式的「购买」）与其他瞬时的生活动作
+     不在受限轮开放。暂停的活动不占名额，这时两个名额都空着，阶梯不按名额分流（[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-裁决记录) R2）。
 
    开始或恢复被拒后留在原阶段，被拒的选项在工具层标原因。受限轮不开放的动作照常列在工具层，标 `available=false`，
    `reason` 为同刻限制的拒绝原文（受限轮的判定先于待收尾；未到上限而有待收尾活动时，其余动作的 `reason` 为英文 `Conclude the completed activity <活动> first.`）；原生工具与名称参数不按阶段收窄
-   （人物 Prompt 规格裁决 #26）。形状错误按协议错误在本轮重试，不计轮数。等待只在有空名额时开放，时长取场景
-   `activity_feedback_seconds`（下限 60 秒）；标为可用的收尾、结束与等待都会被受理。交谈对方在同一秒结束交谈造成的
+   （人物 Prompt 规格裁决 #26）。形状错误按协议错误在本轮重试，不计轮数。开始或恢复一支里等待始终开放，时长取场景
+   `activity_feedback_seconds`（下限 60 秒）；标为可用的收尾与等待都会被受理。交谈对方在同一秒结束交谈造成的
    新待收尾（第五章「交谈」），按本条阶梯从收尾一支重新开始，每次至多另加三轮；除此之外，同一秒内的轮数不超过上限加三。
    受限轮用完仍没有进行中活动，或仍有待收尾活动（待收尾活动旁另有进行中活动时同样要在同一秒收尾，不写该事件这一秒便没有上界）时
    （人物 Prompt 规格裁决 #25），环境不替人物造活动：写一条 `environment_event`
@@ -1238,7 +1238,8 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 ### 实现约定
 
 - 人物新增字段 `same_moment_rounds: int`（本秒已进行的决策轮数）与 `same_moment_stage`（受限轮阶段，取值 `open`、
-  `conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`）。受理、业务拒绝、重放各使轮数加一；
+  `conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`；后两个留在闭集中，现行阶梯不再进入它们，
+  世界结构仍为 9）。受理、业务拒绝、重放各使轮数加一；
   时钟推进时两者归零；随世界结构版本 7 保存，阶段闭集删去 `wait_only` 随版本 8。阶段依赖上一受限轮的结果，所以单独保存。
   `start_or_resume` 只接受会产生进行中活动的开始或恢复，工具层把到店购买与远程下单标为不可用。
 - 观察私有证据携带 `same_moment_stage`。工具层据此把受限轮不开放的动作标 `available=false`，`reason` 取与环境受理
@@ -1539,12 +1540,19 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 <a name="time-and-energy-五类生活动作与并行准入-并行准入"></a>
 ### 并行准入
 
-**名额。** 活动名额见第七章：每人两个；进行中、暂停中与待收尾的活动都占名额，`conclude_activity` 之后释放；出行也占
-名额。瞬时的生活动作（发消息、提交成果、到店购买、远程下单、给予）不占名额。开始后所占名额会超过两个时，以
+**名额。** 活动名额见第七章：每人两个；进行中与待收尾的活动占名额，暂停的不占（个数不设上限）；`pause_activity` 让出名额，
+`conclude_activity` 之后释放；出行也占名额。瞬时的生活动作（发消息、提交成果、到店购买、远程下单、给予）不占名额。开始后所占名额会超过两个时，以
 `SESSION_LIMIT_EXCEEDED` 整组拒绝；只剩一个名额却请求开始两项，同样拒绝。该码此前只用于请求数组不合法（`src/worldmock/life/session_actions.py`）；数组
 items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTION_REQUEST_INVALID`。名额是常量 2；数字人交互规格修订 #2 的场景参数
-`max_concurrent_sessions` 从未实现，删除。两个名额都被暂停活动占满时，出行以 `SESSION_LIMIT_EXCEEDED` 拒绝，并提示先
-结束一项。
+`max_concurrent_sessions` 从未实现，删除。
+原因点名占名额的活动：只剩一个名额时为 `Only one activity slot remains because … occupies a slot.`，名额占满时为
+`Both activity slots are occupied by ….`。下一步按被点名的活动能否暂停写（能暂停与 `pause_activity` 同一判定：进行中、不在路上、
+不是交谈或通话）：都能暂停为 `Conclude or pause one of … first.`，都不能为 `Conclude one of … first.`，混合时为
+`Conclude one of …, or pause …, first.`，暂停只点名能暂停的。出发前仍要结束或暂停进行中的活动（`ACTIVITY_PRECONDITION_UNMET`，
+只点名进行中的活动）；只有暂停的活动时可以出发，它们留在原地。
+恢复暂停的活动也要有空名额，依次检查开始地点（`ACTIVITY_PRECONDITION_UNMET`）、工作截止与合同（`ACTIVITY_DURATION_INVALID`）、
+空名额（`SESSION_LIMIT_EXCEEDED`，原因与下一步同上）与占用冲突（`RESOURCE_CONFLICT`）；一个请求里恢复两项时逐项检查，与开始两项的写法一致，
+前一项恢复后即占名额。工具层与待办层的 `available`、`reason` 与受理同文。
 
 **占用**（裁决 #23）。准入保留注册表显式声明的占用交集判定（life-runtime「活动组合政策」的机制
 不变），只重列占用。占用名是内部声明：槽位闭集为 `src/worldmock/catalog/affordances.py` 的 `RESOURCE_CLAIM_SLOTS`
@@ -1679,7 +1687,7 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
 | --- | --- | --- |
 | 当日目标 | 当天想推进的事（第四章） | 零点计划（`plan_day`）生成，人物可修订，次日零点失效 |
 | 会话 | 在一个地点的一段连续停留，或两地之间的一段路。例如「在家（1月5日 00:00 起）」「去张江办公室的路上（1月5日 14:17 起）」「张江办公室（1月5日 14:34 起）」 | 系统：出发时结束当前地点的会话、开始路上的会话；到达时结束路上的会话、开始新地点的会话。人物不手动开始或结束会话 |
-| 活动 | 占一个名额的具体事情：工作、观看、吃饭、出行、睡觉、等待… | 人物开始并结束（`conclude_activity`）；计划结束、提醒结束睡眠、到达或交谈对方结束使活动结束时，世界要求人物当即收尾 |
+| 活动 | 进行中与待收尾时占一个名额的具体事情：工作、观看、吃饭、出行、睡觉、等待… | 人物开始并结束（`conclude_activity`）；计划结束、提醒结束睡眠、到达或交谈对方结束使活动结束时，世界要求人物当即收尾 |
 
 - 会话是组织单位，不是生命周期：它不播报、不暂停，人物不为它写总结。会话结束时，系统从已提交事件派生一条记忆
   （`settled` 与 `self_notes`），由记忆层呈现，不新增持久状态（人物 Prompt 规格第三章，其裁决 #32）。进度层只含当前会话的
@@ -1693,8 +1701,8 @@ items 不合法、项数越界或目标重复（`to` 也相同），改报 `ACTI
   - 想在路上接着听同一个播客，就在出发前结束它，出发时与出行一起重新开始（同一请求的两项）；到了再结束，进门后还可以
     接着听。内容从上次的位置接着放，「接着听」不算新的一次接触：`exposure_count` 只在第一次和从头重看时增加
     （`src/worldmock/life/rules.py::LifeRuleEngine._validate_watch`），否则每重开一次，娱乐缓解都会按接触次数被摊薄（`src/worldmock/life/activities.py`）。
-- 暂停的活动属于它的地点，占着名额；回到该地点时归入那里的新会话并可恢复，活动记录它先后所属的会话（`session_ids`）。
-  在别处恢复以 `ACTIVITY_PRECONDITION_UNMET` 拒绝并点名该地点；人在别处可以直接结束它。
+- 暂停的活动属于它的地点，不占名额；回到该地点时归入那里的新会话，有空名额时可恢复，活动记录它先后所属的会话（`session_ids`）。
+  在别处恢复以 `ACTIVITY_PRECONDITION_UNMET` 拒绝并点名该地点；人在别处可以直接结束它。只有暂停的活动时可以出发，它们留在原地。
 - `recall_task_summary` 可按任务名、当日目标名或活动名回看，名称只取七层中出现的名称（会话名不在七层中出现，不可回看；待办层的个人事务名也不进回看名称，其状态已全量在待办层，见个人事务与工作安排规格 2.3）。
   结果直接在本次 tool 消息返回（首键 `kind` 为 task、goal 或 activity，逐键形状见接口合同「七层字段」），不登记世界请求或进度层事件：任务给 {名称, 截止, 最近自述}；目标给 {目标, 意图, 是否已推进}；活动给 {名称, 地点, 阶段, 客观进度（已做与有效时长）, 自述}；
   都不带身份。回看的 summary 仍在记忆层时不重复正文，结果只写「已在记忆层」与活动名。人物写下的内容是否经核验由系统层规则
@@ -1746,7 +1754,7 @@ stateDiagram-v2
     [*] --> 进行中: start_activity（占一个名额）
     进行中 --> 进行中: report_status（每 30 分钟播报）
     进行中 --> 暂停: pause_activity
-    暂停 --> 进行中: report_status（恢复）
+    暂停 --> 进行中: report_status（恢复，在开始地点且有空名额）
     进行中 --> 待收尾: 计划结束 / 提醒结束睡眠 / 到达或途中结束出行 / 交谈对方结束
     待收尾 --> [*]: 同一秒 conclude_activity（写总结与记忆，释放名额）
     进行中 --> [*]: 人物主动 conclude_activity
@@ -1755,7 +1763,8 @@ stateDiagram-v2
     暂停 --> [*]: 实验截止（truncated，不收尾）
 ```
 
-- **两个名额。** 进行中、暂停中与待收尾的活动各占一个名额；只有 `conclude_activity` 之后名额才释放。
+- **两个名额。** 进行中与待收尾的活动各占一个名额，暂停的不占，暂停的个数不设上限；`pause_activity` 让出名额，
+  进行中与待收尾的活动在 `conclude_activity` 之后释放名额；开始、出行与恢复暂停的活动都要有空名额（第五章「并行准入」）。
 - **待收尾的表示。** `ActivityState` 增加 `concluded_at: int | None`。由世界结束的活动（`completed`、`failed`，以及因
   到达或途中结束出行而记为 `cancelled` 的路上活动；交谈对方结束的交谈记为 `completed`，见第五章「交谈」），在 `concluded_at` 为空时
   就是待收尾（即「刚结束」）；`ActivityStatus` 闭集不变。人物主动结束的活动，在结束时即写 `concluded_at`。`truncated` 的活动不需要收尾。
@@ -1773,13 +1782,14 @@ stateDiagram-v2
   进食时丢弃 `opened` 中未吃的部分，写入活动与结果，不补算摄入，其他份数不动；自然吃完丢弃为 0；实验截止截断时不丢弃。
   收尾结果的 `details.outcome` 逐项写终局（完成、提前结束、失败）与已吃、丢弃、剩余份量，人物写「吃完了」不能覆盖结算结果。
 - **人物也可以主动结束**进行中或暂停的活动，效果同上。
-- **两项都暂停时**，人物没有进行中活动，世界在同一秒请人物决策（第一章）。恢复其中一项即重新有事可做；结束其中一项只
-  释放名额，人物仍在同一秒继续决策，直到有进行中活动。不另设限制。
+- **只有暂停的活动时**，人物没有进行中活动，世界在同一秒请人物决策（第一章）。暂停的活动不占名额，两个名额都空着：
+  恢复其中一项、开始别的活动或出发（暂停的活动留在原地）即重新有事可做；结束暂停的活动不改变名额，人物仍在同一秒继续决策，
+  直到有进行中活动。到达同刻上限后的受限轮一律开放开始或恢复（第一章规则 3）。不另设限制。
 - **播报与控制都作用于活动。** `report_status`、`pause_activity`、`conclude_activity` 的 `items[].activity_name` 逐项点名活动（一日运行保真规格第六章，原为 `task[]`），
   名称是「做什么＋对象＋开始时刻」的可读短语。播报唤醒（`progress_report_due`）只针对进行中的活动；`report_status` 点名
-  暂停的活动即恢复它；工具层 `phase=进行中` 的活动目标只列进行中的活动，暂停的活动只在待办层。三个请求另带请求级必填的 `errands`
+  暂停的活动即恢复它（在开始地点，且要有空名额）；工具层 `phase=进行中` 的活动目标只列进行中的活动，暂停的活动只在待办层。三个请求另带请求级必填的 `errands`
   （与 `items` 平级，可为 `[]`），用来新增、更新或取消个人事务，不点名活动；所以只有本次决策能点名一项活动时才能变更事务：
-  进行中的可播报、暂停或结束；暂停的在其开始地点可用 `report_status`（会恢复它），在任何地点都可用 `conclude_activity`（会结束它）；
+  进行中的可播报、暂停或结束；暂停的在其开始地点可用 `report_status`（会恢复它，要有空名额），在任何地点都可用 `conclude_activity`（会结束它）；
   待收尾的用 `conclude_activity`。空闲、只做瞬时动作（购买、给予、发消息、交工、修订计划）期间没有入口；点名活动的既有效果不因携带事务而改变
   （个人事务与工作安排规格 2.2）。
 
@@ -2606,13 +2616,14 @@ stateDiagram-v2
 在最终源码身份尚未完成门禁时记「本次离线验收待执行」，不能提前写成通过。
 按个人事务与工作安排规格修订的行在对应阶段实现之前另记未实现一档；阶段 1–4 已实现，在最终代码与测试提交 `a7e2fdc` 上通过离线验收，「决策节律」行与该规格新增的四行改记「代码层已验证」。
 [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)改写「决策节律」「工作安排与上班安排呈现」两行（阶段 1），补班次与休息时段起止的判据，证据登记在该规格的验收台账，两行状态为「代码层已验证」。
+[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)改写「同刻决策」一行（阶段 1）：到达上限时没有进行中也没有待收尾的活动一律进入开始或恢复，暂停的活动不占名额；证据见该规格[随实现一起改的测试](SPEC-parallel-activities.md#spec-parallel-activities-测试)。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | 状态归属与生命周期 | 状态类别与修改权限符合 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「LifeEnv 状态字段」章的「状态归属」节；生命周期各接口的签名与行为符合该章的「生命周期」节；已有运行可恢复；未初始化或缺少场景时接口失败关闭 | `tests/integration/test_env_lifecycle_coverage.py` | 代码层已验证 |
 | 共享时钟 | 模型上下文时间与结算时间一致；错误时刻的上下文被拒绝；反馈边界严格向前且不释放占用 | `tests/life/test_engine_feedback.py`、`tests/life/test_engine_round.py` | 代码层已验证 |
 | 决策节律 | 静默边界不产生决策事件；提供决策的边界记录全部实际唤醒原因；睡眠不被重估间隔打断；体感滞回以上一次实际决策为参照；唤醒闭集依次含 `progress_report_due`、`no_active_activity`、`plan_reminder_due`，睡眠允许集合含 `plan_reminder_due`、不含 `no_active_activity`；唤醒闭集在 `plan_reminder_due` 之后含 `errand_reminder_due`，睡眠允许集合不含它，睡眠中到点的个人事务提醒不交付不消耗、在人物醒来的那个边界交付；唤醒闭集在 `errand_reminder_due` 之后依次含 `shift_start`、`shift_end`、`break_start`、`break_end`，睡眠允许集合不含它们、仍恰为四项，清醒人物在班次与休息时段起止的那一秒得到一次决策机会并带对应的名字，同一秒重合的起止各记一次、按枚举顺序与其他原因并列，零点上的起止由零点节律入口判定，睡眠中的人物没有因起止产生的边界、睡过的不补 | `tests/life/test_revision_contract.py`、`tests/life/test_wake_reasons.py`；个人事务提醒见 `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`（闭集与顺序）、`tests/footprints/test_event_fields.py::test_new_wake_reasons_are_accepted_by_validation`（存储词表）与 `tests/life/test_errand_reminder.py` 的 `test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged`、`test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary`、`test_errand_and_goal_reminders_due_together_are_listed_in_enum_order`；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「事务提醒」；班次与休息时段的起止见[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的[验收台账](SPEC-idle-fillers.md#spec-idle-fillers-验收台账)「唤醒词表与同步点」「清醒人物精确到点」「睡眠」「重合、零点与日历」四行（登记在 `tests/fixtures/idle-fillers-acceptance.json`，用例在 `tests/life/test_shift_edges.py` 与 `tests/life/test_shift_edge_runs.py`） | 代码层已验证 |
-| 同刻决策 | 没有进行中活动或有待收尾活动时在同一秒再决策，时钟不推进；同一人物同一秒的轮数受 `max_same_moment_decisions` 约束，达到上限后进入受限轮，收尾、结束与等待不被业务拒绝；有进行中活动时，瞬时动作成功后按决策节律，业务拒绝后同一秒再给一次机会；业务拒绝不产生运行失败；名称类拒绝不计同刻轮数、不施加情绪脉冲，每人每秒至多 2 次，第 3 次起照常计轮 | `tests/life/test_same_moment_decisions.py`；名称类拒绝见 `tests/life/test_name_resolution.py` 的 `test_two_name_rejections_in_one_second_are_free_and_the_third_counts`、`test_a_name_rejection_beside_other_rejections_follows_the_same_count`、`test_host_and_environment_share_one_name_class_closed_set`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「名称类预算」 | 代码层已验证 |
+| 同刻决策 | 没有进行中活动或有待收尾活动时在同一秒再决策，时钟不推进；同一人物同一秒的轮数受 `max_same_moment_decisions` 约束，达到上限后进入受限轮（有待收尾活动时只收尾，没有进行中也没有待收尾的活动时开始或恢复，只有暂停的活动也一样，不再进入 `resume_or_conclude`），收尾与等待不被业务拒绝；有进行中活动时，瞬时动作成功后按决策节律，业务拒绝后同一秒再给一次机会；业务拒绝不产生运行失败；名称类拒绝不计同刻轮数、不施加情绪脉冲，每人每秒至多 2 次，第 3 次起照常计轮 | `tests/life/test_same_moment_decisions.py`；名称类拒绝见 `tests/life/test_name_resolution.py` 的 `test_two_name_rejections_in_one_second_are_free_and_the_third_counts`、`test_a_name_rejection_beside_other_rejections_follows_the_same_count`、`test_host_and_environment_share_one_name_class_closed_set`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「名称类预算」 | 代码层已验证 |
 | 并发与占用 | 颠倒到达顺序不改变结算顺序；种子变化改变竞争顺序且检查点可恢复；异常时不结算该轮未执行的提案 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py` | 代码层已验证 |
 | 运行观测 | 只读查询使用已确认状态且不修改任何运行文件 | `tests/footprints/test_status.py` | 代码层已验证 |
 | 身体语义 | 两过程睡眠阈值与演化逐点符合公式；睡眠不足账与效率曲线的钳制与插值；饥饿、娱乐、社交需要的分级阈值；能量低于 400 kcal 时至少“饿得难受”，低于 100 kcal 为“饿得发慌”；初始睡眠压力按惯常起床时刻反推；困意档界为 0.80、0.93、1.07、1.18 且两份常数一致，档的名称与个数不变；社交账的清醒按本区间共同身体结算的活动集合判定，在边界结束的睡眠不计清醒；睡眠中送达的消息醒来后的第一个边界才计阅读效果；不适脉冲的两小时门槛只判一次 | `tests/life/test_sleep_two_process.py`（`TestSleepinessGradeBands`、`TestWeekdaySteadyStateOnsets`、`TestAnchorTrajectory`）、`tests/life/test_felt_states.py`、`tests/life/test_body.py`；社交账的清醒口径见 `tests/life/test_sleep_billing.py`，脉冲与睡眠中的消息见 `tests/life/test_discomfort_and_sleep_messages.py`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「睡眠计费」「困意档界」「不适脉冲与消息」 | 代码层已验证 |
@@ -2682,3 +2693,4 @@ stateDiagram-v2
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 改写：唤醒闭集在 `errand_reminder_due` 之后依次追加 `shift_start`、`shift_end`、`break_start`、`break_end`，四个都不进睡眠允许集合；「决策节律：结算边界与唤醒条件分离」触发表增班次与休息时段起止一行（清醒人物精确在起止那一秒得到一次决策机会，活动照常继续，不结束、暂停或开始活动，不写事件、不进提示；起止由场景与时钟求值、不存交付状态；睡眠中不入候选、不形成静默边界、不被叫醒，睡过的不补），`plan_reminder_due` 一行写明提醒结束睡眠的边界上人物已清醒、同秒成立的其他原因照常按枚举顺序并列，下一次决策机会增班次与休息时段的起止时刻；「共享时钟」推进规则第 3 条与「决策不耗时」的不变项补清醒人物的起止；规则 6 与「个人事务」的「提醒时刻」把新增成员的程序改为照数字人交互规格「冻结条款修订」第 1 行登记的同步点；验收矩阵「决策节律」「工作安排与上班安排呈现」两行补判据与该规格验收台账的证据，矩阵前言补一句；文件头补修订说明；版本表并回表外的末两行 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订「个人事务」的「零点计划、修订与只读问答」：零点计划不照抄日常作息和事务，天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒（模板第三条），可以为打算执行的事务写一条今天的目标；模板仍不进提示指纹、由代码身份绑定；文件头修订说明补本阶段 |
+| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）改写：「活动组合政策」「并行准入」「三层结构」「活动的生命周期」的名额口径为进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额；「并行准入」删去两个名额都被暂停活动占满时出行一支，写明名额超限的两种原因与按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与一个请求恢复两项时逐项检查，只有暂停的活动时可以出发、它们留在原地；生命周期状态图的恢复边补「在开始地点且有空名额」，「两项都暂停时」一段改为「只有暂停的活动时」；「决策不耗时」规则 3 的阶梯写成有待收尾时只收尾、没有进行中也没有待收尾时开始或恢复，不按名额分流，「实现约定」写明 `resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「验收矩阵」同刻决策一行随之改写；只变 `code_sha256`；文件头补修订说明、日期改为 2026-10-06 |

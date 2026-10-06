@@ -2,8 +2,8 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 IO1），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D9 作业），已随代码落地到阶段 1–4<br>
-> **日期**：2026-10-05
-> **版本**：v1.22
+> **日期**：2026-10-06
+> **版本**：v1.23
 > **目标读者**：算法工程师、开发工程师
 
 > 2026-10-01 按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)修订当前工具请求、查询与错误合同；本次设计已冻结，生产代码已实现，旧验收证据不覆盖新增条款。
@@ -13,6 +13,8 @@
 > 个人事务与工作安排规格首次受影响的发布：阶段 2 世界结构 9，阶段 3 场景结构 5、卡片结构 3。上一条所说「世界结构仍为 8」只描述工具交互特性发布时的身份。
 
 > 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「3.2 AgentState（人物状态）」（阶段 1）；班次与休息时段起止的唤醒不新增状态字段，世界结构仍为 9。
+
+> 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「3.2 AgentState（人物状态）」（阶段 1）；暂停的活动不占名额，受限轮阶段闭集不变，世界结构仍为 9。
 
 <a name="design-09-io-formats-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -254,7 +256,7 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 | `next_decision_at` | int | 是 | 下次决策时间；等于当前时刻即同一秒再决策 |
 | `consecutive_rejections` | int | 是 | 连续业务拒绝次数，受理即归零；只作动机层挫败感的输入，不参与唤醒与冷却 |
 | `same_moment_rounds` | int | 是 | 本秒已进行的决策轮数，ge=0；受理、业务拒绝与重放各加一，名称类拒绝每人每秒前两次不加（第 3 次起照加，一日运行保真规格 3.4），时钟推进归零 |
-| `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`（世界结构版本 8 删去 `wait_only`；开始或恢复被拒后留在原阶段，现行阶梯不再进入 `conclude_only`，它只留在闭集中）；时钟推进复位为 `open` |
+| `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`（世界结构版本 8 删去 `wait_only`；`resume_or_conclude` 与 `conclude_only` 只留在闭集中，现行阶梯不再进入它们：到达同刻上限时有待收尾进入 `conclude_pending`，没有进行中也没有待收尾时进入 `start_or_resume`，开始或恢复被拒后留在原阶段，世界结构仍为 9）；时钟推进复位为 `open` |
 | `pending_wake_reasons` | list[str] | 是 | 本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；人物消息送达而获得同刻机会时记 `message_arrival`；上一轮原因不带入；个人事务的提醒到点记 `errand_reminder_due`，它不在睡眠允许的原因之内，睡眠中不交付也不消耗，睡眠期间到点的在人物醒来的那个边界一并交付；班次与休息时段的起止恰在边界时记对应成员 `shift_start`、`shift_end`、`break_start` 或 `break_end`（同一秒重合的各记一次，按枚举顺序），只对清醒人物，由场景工作安排与世界时钟求值、不另存状态，睡过的起止醒来后不补；已判定而尚未决策的成员照常留在本字段随检查点恢复，不重复、不补发 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
 | `read_message_ids` | set[str] | 是 | 已读邮件 ID 集合：只由阅读动作在读完时写入，睡眠中不写 |
@@ -290,7 +292,7 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 事务不占活动名额，不经 `task_kind` 关联活动。
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
-活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（`completed`、`failed` 或 `cancelled` 而 `concluded_at` 为空；`truncated` 不收尾）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
+活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中与待收尾（`completed`、`failed` 或 `cancelled` 而 `concluded_at` 为空；`truncated` 不收尾）的活动各占一个，暂停的不占，`pause_activity` 让出名额，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
 观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合，`pending_conclusions` 是待收尾活动的控制行；
 每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量；占用名按[时间与能量规格](../dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)
 第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`。
@@ -474,3 +476,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「3.2 AgentState」的 `pending_wake_reasons` 补班次与休息时段的起止恰在边界时记 `shift_start`、`shift_end`、`break_start` 或 `break_end`（同秒重合的各记一次、按枚举顺序），只对清醒人物，由场景工作安排与世界时钟求值、不另存状态，睡过的不补，已判定未决策的成员随检查点恢复；不新增状态字段，世界结构仍为 9；版本表去掉隔开末两行的空行；文件头增该规格修订说明，版本改为 v1.22 |
+| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「3.2 AgentState」的 `same_moment_stage` 注明 `resume_or_conclude` 与 `conclude_only` 只留在闭集中、现行阶梯不再进入（到达上限时有待收尾进入 `conclude_pending`，没有进行中也没有待收尾时进入 `start_or_resume`）；名额说明改为进行中与待收尾的活动各占一个，暂停的不占，`pause_activity` 让出名额；不新增状态字段，世界结构仍为 9；文件头增该规格修订说明，版本改为 v1.23 |

@@ -15,6 +15,8 @@
 
 > 2026-10-05 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「决策轮循环与播报节律」「冻结条款修订」（阶段 1）。
 
+> 2026-10-06 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「三级结构与概念边界」「会话与活动的关系」「稳定工具面」、「保护项修订」的受限轮收窄、「冻结条款修订」第 2 行与「验收台账」（阶段 1）。
+
 <a name="spec-agent-interaction-心智模型"></a>
 ## 心智模型
 
@@ -84,7 +86,7 @@ flowchart TB
 | --- | --- | --- | --- | --- | --- | --- |
 | **任务**（当日目标 `PlanGoal`） | 零点计划 `plan_day`（人物可 `revise_day_plan` 修订） | 系统（跨日失效 `day_end`） | 否 | 环境活动证据（语义不变） | 当日 | `AgentState.day_plan`（冻结，不改） |
 | **会话**（`SessionState`） | 系统（运行开始、出发、到达、途中结束出行） | 系统（出发、到达、途中结束出行、实验截止） | 否 | 无（组织单位：进度层 `events` 只含当前会话，`rejected_today` 保留当天跨会话拒绝备忘，结束的会话派生为记忆层的一条） | 一段地点停留或一段路 | `WorldState.sessions`（**新增**） |
-| **活动**（`ActivityState`） | 人物（`start_activity`） | 系统（计划结束、提醒结束睡眠、到达或途中结束出行、交谈对方结束）或人物（`conclude_activity`）；系统结束的活动须在同一秒收尾 | 是（路上的活动与交谈、通话除外；只在开始地点恢复） | 结算证据 + 模型自述 | 开始至收尾，占一个名额 | `WorldState.activities`（增字段，见「会话字段」） |
+| **活动**（`ActivityState`） | 人物（`start_activity`） | 系统（计划结束、提醒结束睡眠、到达或途中结束出行、交谈对方结束）或人物（`conclude_activity`）；系统结束的活动须在同一秒收尾 | 是（路上的活动与交谈、通话除外；只在开始地点且有空名额时恢复） | 结算证据 + 模型自述 | 开始至收尾，进行中与待收尾时占一个名额 | `WorldState.activities`（增字段，见「会话字段」） |
 
 <a name="spec-agent-interaction-任务与会话的关系"></a>
 ### 任务与会话的关系
@@ -104,10 +106,11 @@ flowchart TB
 <a name="spec-agent-interaction-会话与活动的关系"></a>
 ### 会话与活动的关系
 
-**每人两个名额，进行中、暂停中与待收尾的活动各占一个**；只有 `conclude_activity` 之后名额才释放。
+**每人两个名额，进行中与待收尾的活动各占一个，暂停的不占**（暂停的个数不设上限）；`pause_activity` 让出名额，
+`conclude_activity` 之后进行中与待收尾活动的名额释放；开始、出行与恢复暂停的活动都要有空名额。
 **一个会话是一段地点停留或一段路**，由系统随出发与到达开始和结束，人物不手动开始或结束会话。
 会话结束前，人物要结束或暂停其中仍在进行的活动：出发前须结束或暂停；路上开始的活动在到达或途中结束出行时
-由世界结束，成为待收尾；暂停的活动随地点保留，回到该地点时归入那里的新会话并可恢复。
+由世界结束，成为待收尾；暂停的活动随地点保留，回到该地点时归入那里的新会话，有空名额时可恢复；只有暂停的活动时可以出发。
 
 **一个活动可分多段完成**。「多段」在记录里对应既有的**暂停/恢复语义**，不新增概念：
 一个 `ActivityState` 记录跨多次暂停/恢复累积 `elapsed_seconds`，
@@ -119,7 +122,7 @@ stateDiagram-v2
     [*] --> 进行中: start_activity（占一个名额）
     进行中 --> 进行中: report_status（每 1800 秒播报，带自述）
     进行中 --> 暂停: pause_activity（带自述）
-    暂停 --> 进行中: report_status（带自述，在开始地点恢复）
+    暂停 --> 进行中: report_status（带自述，在开始地点且有空名额时恢复）
     进行中 --> 待收尾: 计划结束 / 提醒结束睡眠 / 到达或途中结束出行 / 交谈对方结束
     待收尾 --> [*]: 同一秒 conclude_activity（带自述，释放名额）
     进行中 --> [*]: 人物主动 conclude_activity
@@ -209,9 +212,9 @@ stateDiagram-v2
 | `start_activity` | 始终可用（同刻上限的受限轮除外） | 必填 `items[{target, way, from, to}]` 一至两项，必填可空 `answering`、`prefer`；含购买项偏好为「最快拿到」或「到手价最低」，无购买项为 `null` | 方式唯一推导内部动作；整组原子受理，旧平行数组与 `actions` 拒绝 |
 | `recall_task_summary` | 查询回合预算允许时 | `task_name: str` | 即时只读回看本人已知的任务、当日目标或活动；不登记世界请求、不计同刻轮数，可与其他查询同批 |
 | `query_world` | 查询回合预算允许时 | 必填 `name: str\|null`、`way: str\|null`、`category: str\|null`、`from: str\|null`、`available_only: bool`、`offset: int`；前四者至少一个非 null 且非 null 不得为空白，`available_only` 不单独构成查询条件，偏移非负 | 查询同一冻结权限内全集；`from` 与 `start_activity` 购买项的 `from` 同名同义、同一来源解析，只匹配供给条目；`available_only=true` 只留已确认此刻可执行的条目；筛选先于排序与切页，按二十项分页，不揭示新世界事实（个人事务与工作安排规格第五章，原为四键） |
-| `report_status` | 有进行中或暂停的活动时 | `items: list[{activity_name, summary}]`（1–2 项；一日运行保真规格第六章，原为等长的 `task[]`、`summary[]`）；另有请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，可为 `[]`，一次至多 4 条，每条八个键全部必填；`change` 取「新增」「更新」「取消」，没有「完成」；个人事务与工作安排规格 2.2，原为只含 `items`） | 各项对应一项活动；播报进行中活动；点名暂停的活动即恢复它，恢复只在开始地点；事务变更与活动状态转换同批校验、同一事务提交 |
-| `pause_activity` | 有进行中活动时 | `items: list[{activity_name, summary}]`（1–2 项）；另有请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，可为 `[]`，一次至多 4 条，每条八个键全部必填；`change` 取「新增」「更新」「取消」，没有「完成」；个人事务与工作安排规格 2.2，原为只含 `items`） | 各项对应一项进行中活动；暂停所选活动，暂停仍占名额；路上的活动不能暂停；事务变更与活动状态转换同批校验、同一事务提交 |
-| `conclude_activity` | 有进行中、暂停或待收尾的活动时 | `items: list[{activity_name, summary, memories, views}]`（1–2 项；`memories` 为普通记忆，没有 `subject`；看法与偏好放 `views`，`about` 写对象，宿主转为存储的 `subject`；两者都必填可为空，合计不超过八条）；另有请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，可为 `[]`，一次至多 4 条，每条八个键全部必填；`change` 取「新增」「更新」「取消」，没有「完成」；个人事务与工作安排规格 2.2，原为只含 `items`） | 各项对应一项活动；结束所选活动并写总结与记忆，释放名额；未选活动保持原状；事务变更与活动状态转换同批校验、同一事务提交 |
+| `report_status` | 有进行中或暂停的活动时 | `items: list[{activity_name, summary}]`（1–2 项；一日运行保真规格第六章，原为等长的 `task[]`、`summary[]`）；另有请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，可为 `[]`，一次至多 4 条，每条八个键全部必填；`change` 取「新增」「更新」「取消」，没有「完成」；个人事务与工作安排规格 2.2，原为只含 `items`） | 各项对应一项活动；播报进行中活动；点名暂停的活动即恢复它，恢复只在开始地点且要有空名额；事务变更与活动状态转换同批校验、同一事务提交 |
+| `pause_activity` | 有进行中活动时 | `items: list[{activity_name, summary}]`（1–2 项）；另有请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，可为 `[]`，一次至多 4 条，每条八个键全部必填；`change` 取「新增」「更新」「取消」，没有「完成」；个人事务与工作安排规格 2.2，原为只含 `items`） | 各项对应一项进行中活动；暂停所选活动，暂停让出名额，恢复要有空名额；路上的活动不能暂停；事务变更与活动状态转换同批校验、同一事务提交 |
+| `conclude_activity` | 有进行中、暂停或待收尾的活动时 | `items: list[{activity_name, summary, memories, views}]`（1–2 项；`memories` 为普通记忆，没有 `subject`；看法与偏好放 `views`，`about` 写对象，宿主转为存储的 `subject`；两者都必填可为空，合计不超过八条）；另有请求级必填 `errands: list[{change, name, outcome, item, quantity, memo, remind_time, reason}]`（与 `items` 平级，可为 `[]`，一次至多 4 条，每条八个键全部必填；`change` 取「新增」「更新」「取消」，没有「完成」；个人事务与工作安排规格 2.2，原为只含 `items`） | 各项对应一项活动；结束所选活动并写总结与记忆，进行中与待收尾活动的名额随之释放，暂停的在任何地点都可直接结束；未选活动保持原状；事务变更与活动状态转换同批校验、同一事务提交 |
 | `submit_work` | 有可见的未付款任务时 | `task_name: str`、`deliverable: MeetingMinutes` | 提交人物撰写的成果，执行现有验收与返工结算；未达标以 `WORK_INCOMPLETE`、正在做的任务以 `WORK_TASK_IN_PROGRESS` 业务拒绝；结果归进度层 |
 | `send_message` | 可联系人物可见时 | `recipient_name: str`、`text: str` | 发送人物撰写的正文，执行现有通讯结算；结果归进度层 |
 | `revise_day_plan` | 当日已有计划时（**含空清单**） | `goals[]`（替换全部未推进目标；每条带必填可空的 `remind_time`、`around_time`） | **修订**当日目标及其提醒；提醒按时间与能量规格第四章保留、换成新提醒或取消 |
@@ -246,7 +249,7 @@ stateDiagram-v2
 宿主与环境对同一冻结观察调用同一校验函数，环境复核失败合并为一次 `ACTION_REQUEST_INVALID`，照常计同刻轮数；
 成功结果在 `details.errands` 给回执 `[{errand, change}]`（`errand` 为事务名称），被拒结果没有该键；
 事务变更不是记忆写入点，不产生 `memory_updated`（个人事务与工作安排规格 2.2、2.3）。
-播报暂停中的活动即在其开始地点恢复它；结束只结束所选活动，未选活动保持原状。
+播报暂停中的活动即在其开始地点恢复它，恢复要有空名额；结束只结束所选活动，未选活动保持原状。
 没有可结束的活动时结束工具业务拒绝。有待收尾活动时做别的（包括只结束其他活动），以 `ACTIVITY_CONCLUSION_REQUIRED`
 业务拒绝并点名先要收尾的活动。
 
@@ -370,11 +373,10 @@ DeepSeek strict 模式**禁用六个 Schema 键**
 后，仍给至多三轮受限轮；环境按观察私有证据 `same_moment_stage` 只受理一类世界请求，工具层把其余动作与工具标为
 `available=false`，`reason` 为同刻限制：
 - `conclude_pending`（有待收尾活动）只受理点名待收尾活动的 `conclude_activity`，每项都可以收尾，一次收尾其中几项也受理，阶段持续到没有待收尾活动；
-- `start_or_resume` 开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单）；
-- `resume_or_conclude`（两个名额都被暂停的活动占着）恢复或结束其中一项；
-- `conclude_only` 只受理结束；阶段闭集保留它，但开始或恢复被拒后留在原阶段，现行阶梯不再进入它。
+- `start_or_resume`（没有进行中也没有待收尾的活动；暂停的活动不占名额，这时两个名额都空着）开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单）；
+- `resume_or_conclude` 与 `conclude_only` 留在阶段闭集中，现行阶梯不再进入它们。
 
-开始或恢复被拒后留在原阶段（名额被占满时进入或留在 `resume_or_conclude`，不再进入 `conclude_only`），被拒的选项在工具层标原因；不再有「启动失败后只准等待」的阶段与升级。受限轮用完仍没有进行中活动，或仍有待收尾活动（例如待收尾活动旁另有进行中活动）时，
+开始或恢复被拒后留在原阶段，被拒的选项在工具层标原因；不再有「启动失败后只准等待」的阶段与升级。受限轮用完仍没有进行中活动，或仍有待收尾活动（例如待收尾活动旁另有进行中活动）时，
 环境不替人物造活动：写一条 `environment_event`（`data.kind=decision_budget_exhausted`，`visibility=system`，带最近的拒绝码），
 设 `next_decision_at = now + activity_feedback_seconds`，时钟可以推进（技术停顿，身体按静息结算），质量报告计数，不记成人物主动等待。
 
@@ -685,7 +687,7 @@ if snap.is_asleep:
 | # | 被修订条款 | 原文 | 修订后 | 连带改动 |
 | --- | --- | --- | --- | --- |
 | 1 | `WakeReason` 冻结词表 | 「唤醒原因是冻结词表，成员不可增删」 | **增加成员** `progress_report_due`，并把条款改为「不可改名、不可删除，新增须走版本表」；时间与能量规格再依次追加 `no_active_activity`、`plan_reminder_due`；个人事务与工作安排规格再追加 `errand_reminder_due`（排在 `plan_reminder_due` 之后，不进睡眠允许集合）；[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)再依次追加 `shift_start`、`shift_end`、`break_start`、`break_end`（排在 `errand_reminder_due` 之后，不进睡眠允许集合） | **新增成员的同步点以本行为准**（与让「等待」成为例外规格「新增成员的同步点」一致）：① `src/worldmock/life/schedule.py::WakeReason`；② `src/worldmock/footprints/models.py::WAKE_REASON_NAMES`（新名字另起一行）；③ `tests/footprints/test_event_fields.py` 的成员表；④ `tests/life/test_wake_reasons.py` 的有序成员表；⑤ `tests/life/test_work_contracts.py` 的有序成员表；⑥ `tools/run-viewer.html` 的唤醒原因标签表；⑦ `tests/tools/run_viewer.test.cjs` 的成员数断言；⑧ `docs/dev/SPEC-life-runtime.md` 的冻结词表与触发表，`docs/design/05-recording-engine.md` 的登记；⑨ 系统层第 7 条向醒着的人列出的事件类别（`docs/CONTRACTS.md#contracts-model-request` 与 `custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER`）：新增成员若给醒着的人带来事件驱动的决策机会，同步核对这一条，改写经规格与提示指纹。漏登足迹侧词表会让带新原因的事件落不了库；质量报告直接读足迹侧词表分桶，不是同步点。[文档影响](research/agent-interaction-document-impact.md)「唤醒词表的五处同步点」节是本规格冻结当时的清单，其中的成员数已过期 |
-| 2 | 活动组合准入 | 「活动准入**仅**按占用交集判定」 | 保留占用交集，**追加**名额上限：进行中、暂停中与待收尾的活动合计 ≤2（常量），超限报 `SESSION_LIMIT_EXCEEDED` | `rules.validate_start`、`interaction_menu`、错误码闭集 |
+| 2 | 活动组合准入 | 「活动准入**仅**按占用交集判定」 | 保留占用交集，**追加**名额上限：进行中与待收尾的活动合计 ≤2（常量；暂停的不占，恢复暂停的活动要有空名额），超限报 `SESSION_LIMIT_EXCEEDED` | `rules.validate_start`、`interaction_menu`、错误码闭集 |
 | 3 | 主观巩固触发 | 「为**三选一**」 | 改为**四选一**，增加「跨过当日 `day_end_seconds` 边界」 | `should_consolidate`、`docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`「记忆合同」、`CONTRACTS` |
 | 4 | 观察投影三段**与不得进入提示的内容** | 「user 消息由 `persona_card`、`scene`、`facts` 三部分组成」+「完整可供性合同不得进入提示」 | **三段划分不变**；只公开逐对象可读 `actions`，私有 `interaction_bindings` 与完整可供性合同仍禁止进入提示。**三段划分已由[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 8 行取代**：system 为系统层，user 为六层 JSON 数组；宿主渲染七层 JSON 与续接 tool 消息时按禁止键表逐键校验，原生 `tools` 是整次运行不变的常量，由测试校验 | `projection.py`、`narration.py`、`CONTRACTS`「观察投影字段」与「禁止进入提示的字段」 |
 | 5 | 决策结果回灌 | `docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果` 规定最近公开结果独立进入事实清单且场景概括最近一条 | 改为 `facts.progress.results` 归进度层；`scene` 不复制结果；私有观察仍可存原始关联证据。**已由人物 Prompt 规格「冻结条款修订」第 4、22 行取代**：结果是进度层 `tool_call.result`，在本 session 内一直保留，session 结束后进入记忆层 | `projection.py`、`result_projection.py`、`docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果`、`CONTRACTS.md` |
@@ -749,7 +751,7 @@ flowchart LR
 
 | 契约点 | 必须通过的验证 |
 | --- | --- |
-| 会话与活动生命周期 | 会话随出发与到达自动切换，人物不手动开始或结束会话；每人两个名额，进行中、暂停中与待收尾的活动各占一个；三个控制工具的 `items[]` 每项以 `activity_name` 点名一项活动并带自己的 `summary`（一日运行保真规格第六章）；播报能在开始地点恢复暂停的活动，暂停与恢复累计活动时段；结束只影响所选活动，暂停的活动可直接结束；自述不改变客观结算字段 |
+| 会话与活动生命周期 | 会话随出发与到达自动切换，人物不手动开始或结束会话；每人两个名额，进行中与待收尾的活动各占一个，暂停的不占；三个控制工具的 `items[]` 每项以 `activity_name` 点名一项活动并带自己的 `summary`（一日运行保真规格第六章）；播报能在开始地点恢复暂停的活动，没有空名额时以 `SESSION_LIMIT_EXCEEDED` 拒绝，待办层恢复的 `reason` 与之同文，暂停与恢复累计活动时段；结束只影响所选活动，暂停的活动可直接结束；自述不改变客观结算字段 |
 | 目标与活动自述 | 每条播报、暂停或结束摘要各自写入所选活动的 `ActivityState.progress_note`；关联当日目标时同一原文也写该目标独立的 `PlanGoal.progress_note`，该原文不进提示，待办层目标行不显示人物自述；整组校验失败不部分写入 |
 | 模型工具 Schema | `start_activity` 只含必填的 `items[{target, way, from, to}]` 一至两项与必填可空的 `answering`、`prefer`，方式唯一推导内部动词，旧 `actions` 字段被拒绝，`from`、`to` 的合法与非法组合分别受理、业务拒绝或按协议纠错，不含内部身份、价格、报价版本、时长、数量、正文和成果；原生工具整次运行不变，不带逐轮名称枚举；`report_status` / `pause_activity` 含 `items[{activity_name, summary}]` 与请求级 `errands[]`，`conclude_activity` 含 `items[{activity_name, summary, memories, views}]` 与请求级 `errands[]`（`errands` 一项由个人事务与工作安排规格增补，按其验收台账「事务变更与原子受理」验证；缺 `errands` 的旧形状直接拒绝），`views` 写入的记忆带 `subject`，`control_items` 只读当前 `items` 形状，旧平行数组直接拒绝；`submit_work` / `send_message` 另有可读名称和原创内容字段 |
 | 名称绑定 | 同名对象由自然语义消歧；所有模型可见对象与动作可被人理解；冻结观察能唯一解析，写得不准的名称无损归一后唯一即受理，仍未知或歧义时以名称类错误给可照填的候选、不替换（一日运行保真规格 3.1）；内部编号不出现在提示、工具参数或公开结果 |
@@ -793,3 +795,4 @@ flowchart LR
 | `2026-10-03-errands-workday-source` | 2026-10-03 | 随个人事务与工作安排规格阶段 4 更正既有漂移：购买来源的合法写法为地点显示名（含住处）与渠道称呼（个人事务与工作安排规格 5.2，实施计划 AI32）。「对象与动作选择」来源与去向段 `obtain` 的 `from` 由「门店名」改为地点显示名（含住处的「家」「住处」写法），依据现行 `purchase_offers.source_scope` 先按全部地点显示名与住处、再按渠道称呼解析；括号内各句不改，行为不变 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AI29、AI30，按[完整提交 d8a41d3718af2ce383ed454dc8b62f65e7a87bd6](https://github.com/HoldThatThgt/WorldMock/commit/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6) 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时漏改而此时补正的条款：没有，按该规格修订的各条与最终代码核对一致。引用行号刷新六处：「会话的状态位置」检查点参与者键集见[当时的校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)、`WORLD_SCHEMA_VERSION` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/models.py)（冻结时先去掉了失准的行号）；「对象与动作选择」`_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/models.py)；「决策轮循环与播报节律」`SLEEP_ALLOWED_REASONS` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/schedule.py)、睡眠过滤见[当时的判定原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/schedule.py)；「事件与重建约束」活动重建比对见[当时的导出校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)、质量报告重算见[当时的质量校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)；「冻结条款修订」第 1 行的未识别分桶见[当时的统计原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/quality.py)。条款正文不改 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订：「决策轮循环与播报节律」唤醒表在事务提醒一行之后增班次与休息时段起止一行（`shift_start`、`shift_end`、`break_start`、`break_end` 依次追加在 `errand_reminder_due` 之后，清醒时精确到点给一次决策机会、活动照常继续、不写事件、不进提示，睡眠中不入候选、不形成静默边界、不叫醒，睡过的不补）；实现要点写明四个成员不在睡眠允许集合内，睡眠过滤的位置为 `src/worldmock/life/schedule.py::evaluate_wake_reasons`，并补四个成员与事务提醒同样在白名单与候选两头把关、不同的是不带交付状态且睡过的不补；「冻结条款修订」第 1 行追加四个成员，连带改动改为新增成员的九处同步点清单并以本行为准，注明调研文档的「唤醒词表的五处同步点」是冻结当时的清单、成员数已过期，质量报告直接读足迹侧词表、不是同步点；文件头补修订说明 |
+| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「三级结构与概念边界」活动只在开始地点且有空名额时恢复，进行中与待收尾时占一个名额；「会话与活动的关系」每人两个名额只算进行中与待收尾的活动，暂停的不占、个数不设上限，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额，只有暂停的活动时可以出发，状态图的恢复边补「有空名额」；「稳定工具面」`report_status` 恢复要有空名额，`pause_activity` 暂停让出名额，`conclude_activity` 释放进行中与待收尾活动的名额、暂停的在任何地点都可直接结束；「保护项修订」的受限轮收窄删去 `resume_or_conclude` 与 `conclude_only` 的进入条件，二者留在阶段闭集中、现行阶梯不再进入，`start_or_resume` 写明在没有进行中也没有待收尾的活动时进入；「冻结条款修订」第 2 行原位改写为进行中与待收尾的活动合计 ≤2；「验收台账」会话与活动生命周期一行随之改写，补恢复没有空名额时的拒绝与待办层同文；文件头补修订说明 |
