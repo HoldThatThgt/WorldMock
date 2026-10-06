@@ -21,6 +21,8 @@ import pytest
 
 from scripts.documentation_refs import section_text
 from agentsociety2.society import DirectToolCall
+from custom.agents.life_agent import life_tool_schema_sha256
+from custom.agents.life_prompt import life_prompt_sha256
 
 import worldmock.runtime as runtime_module
 from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context, drive,
@@ -38,8 +40,9 @@ from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (ActivityStatus, PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest,
-                                   SendMessageActionRequest)
-from worldmock.life.schedule import NextDecisionQuery, PlanGoal, next_decision_time
+                                   SendMessageActionRequest, deepseek_strict_schema)
+from worldmock.life.prompt_schemas import TODO_LAYER_SCHEMA
+from worldmock.life.schedule import ROUTINE_INTENT_KINDS, NextDecisionQuery, PlanGoal, clock_epoch, next_decision_time
 from worldmock.life.settled_text import activity_endings
 from worldmock.runtime import settle_pending_day_plans
 
@@ -580,12 +583,15 @@ def _contract_plan_template() -> str:
 
 
 def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times(engine_factory):
-    """零点计划模板（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事、8.2，裁决 S11、D12；docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-零点计划修订与只读问答）：真实
-    零点计划请求的 system 就是接口合同逐字登记的模板。开头的输入说明末行写明还没办完的个人事务；第五条：人物档案作息里已有
-    的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒，写明哪里不同；第六条：每条目标写大致时刻
-    around_time；第七条：个人事务已在待办里，不必照抄成目标，今天打算去办的可写一条目标说明何时办；第三条的起床、出门提醒
-    不变，模板不要求为就寝写提醒（S2 撤回）。第八条（上班安排，docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6）接在第七条之后。
-    user 输入带人物档案的作息窗口，输出 Schema 要求 around_time。"""
+    """零点计划模板（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事、8.2，裁决 S11、D12；docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-零点计划修订与只读问答；
+    第三、五、六条按 docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板 改写）：真实零点计划请求的 system 就是
+    接口合同逐字登记的模板，仍为八条。开头的输入说明末行写明还没办完的个人事务；第五条：人物档案与背景里天天如此的事（睡觉、
+    起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天与平常不同的安排（写清楚哪里不同）、要办的事与照第三条要提醒
+    的事，清单可以很短；第六条：每条目标写大致时刻 around_time，它只表示大概在那前后、不是开始的钟点，goal 里只给和人约好的
+    事写钟点；第七条：个人事务已在待办里，不必照抄成目标，今天打算去办的可写一条目标说明何时办；第三条：要按时起床的填起床
+    的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，几点去睡也不设提醒（S2 撤回），收尾时写明的起床、
+    出门时刻照旧定提醒，改写前「不需要提醒」时的兜底句不再出现。第八条（上班安排，docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6）
+    接在第七条之后。user 输入带人物档案的作息窗口，输出 Schema 要求 around_time。"""
     engine = engine_factory()
     client = StubPlanDayClient()
     settle_day_plans(engine, client)
@@ -597,12 +603,16 @@ def test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_a
     assert list(items) == ["一", "二", "三", "四", "五", "六", "七", "八"]
     assert opening.split("\n")[2] == ("以及此刻他能看到的待办任务、还没办完的个人事务、收件箱、在途订单、联系人和上一天目标的"
                                       "推进情况。")
-    assert items["五"] == ("五、人物档案的作息里已经有的事（睡觉、起床、上下班、吃饭）不写，除非今天与平常不同或需要提醒；"
-                          "写的时候写清楚哪里不同。")
+    assert items["五"] == ("五、人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标；"
+                          "只写今天与平常不同的安排（写清楚哪里不同）、要办的事，以及照第三条要提醒的事。清单可以很短。")
     assert items["六"].startswith("六、每条目标都写大致时刻 around_time") and "时段的中点" in items["六"]
+    assert "不是开始的钟点" in items["六"] and "goal 里只给和人约好的事写钟点" in items["六"]
     assert items["七"] == "七、个人事务已经记在待办里，不必照抄成目标；今天打算去办的，可以写一条目标说明什么时候办。"
     assert "写零到八条目标" in items["一"]
     assert "几点起床或几点出门的，就给对应的目标定这个时刻的提醒" in items["三"]
+    assert "出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻" in items["三"]
+    assert "几点去睡也不设提醒" in items["三"]
+    assert "不需要提醒就填 null" not in system
     assert "就寝" not in system and "睡前" not in system
     payload = json.loads(request["messages"][1]["content"])
     assert {"午饭时段", "晚饭时段", "就寝时段"} <= set(payload["人物"])
@@ -634,6 +644,72 @@ def test_plan_template_first_line_and_rule_eight_are_the_contract_text(engine_fa
     assert rule_eight == "八、输入里有上班安排的日子，目标不要安排在上班时间离开上班地点，写明的休息时段和工作要求去别处的外出除外。"
     assert [line for line in lines if "上班安排" in line] == [first_line, rule_eight]
     assert "就寝" not in system and "睡前" not in system
+
+
+#: 零点计划写出的四条例行意图目标（意图、文字、大致时刻）：今天与平常不同的作息安排，都不设提醒。
+_ROUTINE_PLANNED = (("睡眠", "今晚看完球赛再睡，比平常晚一些", "23:30"), ("晨间例程", "起床后先下楼跑两圈再洗漱", "07:00"),
+                    ("通勤", "今天改坐公交去公司", "08:30"), ("用餐", "午饭和同事去新开的面馆", "12:15"))
+#: 人物随后修订成的四条例行意图目标（意图、文字、提醒、大致时刻）：换了说法，仍不设提醒。
+_ROUTINE_REVISED = (("睡眠", "球赛改到明天，今晚早点睡", None, "22:30"), ("晨间例程", "起床后不跑步了，直接洗漱", None, "07:00"),
+                    ("通勤", "下雨，改坐地铁去公司", None, "08:15"), ("用餐", "晚饭回家自己煮面", None, "18:30"))
+
+
+def test_routine_goals_without_reminders_are_accepted_by_zero_hour_plan_and_revision(engine_factory):
+    """模板第五条只改模板文字、不进校验器（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板，裁决 D1）：
+    例行意图（睡眠、晨间例程、通勤、用餐，恰为 ROUTINE_INTENT_KINDS）且 remind_time 为 null 的四条目标，经 parse_plan_day
+    原样解析，经零点计划后台任务一次受理并登记（没有附回重试），提醒为空、大致时刻换算为当日绝对时刻；人物随后经
+    revise_day_plan 把四条换成新的说法、仍不设提醒，照常受理。待办层逐条呈现意图、文字、是否已推进、提醒（null）与大致
+    时刻（HH:MM）五键，与改写前同形。"""
+    engine = engine_factory()
+    start, zone = engine.context.state.current_time, engine.context.scenario.timezone
+    goals = [_goal(intent, text, None, around) for intent, text, around in _ROUTINE_PLANNED]
+    assert {goal["intent_kind"] for goal in goals} == ROUTINE_INTENT_KINDS
+    parsed = day_planning.parse_plan_day(plan_day_response(goals), start, zone)
+    assert [goal.model_dump() for goal in parsed.goals] == goals
+    client = StubPlanDayClient(goals=goals)
+
+    assert settle_day_plans(engine, client) == [{"agent_id": 1, "date": "2026-01-05", "goals": 4}]
+
+    errors = [event.data["error"] for event in _plan_events(engine) if event.data.get("phase") == "response"]
+    assert len(client.calls) == 1 and errors == [None]
+    assert [(goal.intent_kind, goal.remind_at, goal.around_at)
+            for goal in engine.context.state.agents[1].day_plan.goals] == [
+        ("睡眠", None, _at(5, 23, 30)), ("晨间例程", None, _at(5, 7)), ("通勤", None, _at(5, 8, 30)),
+        ("用餐", None, _at(5, 12, 15))]
+    _, revised = _decide(engine, "revise-routine", _revise(*_ROUTINE_REVISED))
+    assert revised.status == "completed"
+    assert [(goal.intent_kind, goal.goal, goal.registered_at, goal.remind_at, goal.around_at)
+            for goal in engine.context.state.agents[1].day_plan.goals] == [
+        (intent, text, start, None, clock_epoch(around, start, zone)) for intent, text, _, around in _ROUTINE_REVISED]
+    rows = engine.observe(context(engine, "routine-shown"))["todo_layer"]["day_plan"]["goals"]
+    assert rows == [{"intent_kind": intent, "goal": text, "progressed": False, "remind_time": None,
+                     "around_time": around} for intent, text, _, around in _ROUTINE_REVISED]
+
+
+#: 提醒时刻与大致时刻在两个工具参数 Schema 里的共同形状：HH:MM 或 null。
+_CLOCK_OR_NULL = {"anyOf": [{"pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$", "type": "string"}, {"type": "null"}]}
+
+
+def test_goal_time_schema_and_todo_rendering_stay_and_the_template_is_outside_both_fingerprints(monkeypatch):
+    """模板改写不动字段（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板，裁决 D2）：submit_day_plan 与
+    revise_day_plan 的目标条目 Schema 相同，四键必填，remind_time 与 around_time 都是 HH:MM 或 null；待办层目标仍是五键，
+    两个时刻写 HH:MM 或 null。模板不在 prompt_sha256 与 tool_schema_sha256 之内：把模块常量换成别的文字，零点计划请求
+    随之改变，两个指纹不变（模板只由 code_sha256 绑定）。"""
+    plan_tool = day_planning.prepare_plan_day({}, "deepseek-flash")["tools"][0]["function"]
+    plan_item = plan_tool["parameters"]["properties"]["goals"]["items"]
+    assert plan_tool["strict"] is True
+    assert plan_item == deepseek_strict_schema(ReviseDayPlanRequest)["properties"]["goals"]["items"]
+    assert plan_item["required"] == ["intent_kind", "goal", "remind_time", "around_time"]
+    assert plan_item["properties"]["remind_time"] == {**_CLOCK_OR_NULL, "title": "Remind Time"}
+    assert plan_item["properties"]["around_time"] == {**_CLOCK_OR_NULL, "title": "Around Time"}
+    todo_goal = TODO_LAYER_SCHEMA["properties"]["day_plan"]["oneOf"][1]["properties"]["goals"]["items"]
+    shown = {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"}
+    assert todo_goal["required"] == ["intent_kind", "goal", "progressed", "remind_time", "around_time"]
+    assert (todo_goal["properties"]["remind_time"], todo_goal["properties"]["around_time"]) == (shown, shown)
+    fingerprints = (life_prompt_sha256(), life_tool_schema_sha256())
+    monkeypatch.setattr(day_planning, "PLAN_DAY_PROMPT", "另一份零点计划模板")
+    assert day_planning.prepare_plan_day({}, "deepseek-flash")["messages"][0]["content"] == "另一份零点计划模板"
+    assert (life_prompt_sha256(), life_tool_schema_sha256()) == fingerprints
 
 
 #: 计划输入「上班安排」的休息日取值（与环境层 duty 的休息日同形、不含 status）。
@@ -826,9 +902,10 @@ def test_midnight_plan_inputs_list_only_the_planned_persons_errands(engine_facto
 
 
 def test_wake_time_noted_at_conclusion_still_becomes_a_reminder_that_ends_the_sleep(tmp_path):
-    """模板用例（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 验收）：平常的一天可以是零条目标；作息里已有的事不进计划，但收尾时记下
-    的起床时刻仍按第三条生成提醒——零点计划的输入带这句收尾记录，照模板写出的计划只有这一条与平常不同的起床目标（带提醒与
-    大致时刻），登记后提醒到点结束跨零点的睡眠；计划里没有就寝目标，也没有就寝提醒。"""
+    """模板用例（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-零点计划只写今天与平常不同的事 验收；docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-零点计划模板）：
+    零条目标仍然合法；天天如此的事不写成目标，但收尾时记下的起床时刻仍按第三条生成提醒——零点计划的输入带这句收尾记录，
+    照模板写出的计划只有这一条与平常不同的起床目标（带提醒与大致时刻），登记后提醒到点结束跨零点的睡眠；计划里没有就寝
+    目标，也没有就寝提醒。"""
     engine = _late_engine(tmp_path, "2026-01-05T23:30:00+08:00", "wake-reminder")
     try:
         settle_day_plans(engine)

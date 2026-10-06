@@ -134,8 +134,9 @@ def _contract_system_layers() -> list[dict]:
 async def test_system_layers_are_the_contract_registration_verbatim() -> None:
     """系统层文案与接口合同「请求组成」的登记逐字相同（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 验收台账「系统层与工具」）：真实生活
     决策请求的 system、只读问答的 system 各是合同登记全文的紧凑序列化，键依次为 layer、role、rules；生活决策的 role 与
-    十八条 rules 也与本规格第一章定稿逐字相同（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改：新第 14 条，第 15、16 条改写，
-    第 4、12、18 条补句；docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条：第 1、4、6 条原位改写，唯一合同文案与实际请求共同验证）。"""
+    十八条 rules 与模块常量逐字相同，合同、常量与实际请求三者相等（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改：新第 14 条，第 15、16 条改写，
+    第 4、12、18 条补句；docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条：第 1、4、6 条原位改写，唯一合同文案与实际请求共同验证；
+    docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层：第 7、14、15、16 条原位改写，仍为十八条）。"""
     life, readonly = _contract_system_layers()
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
@@ -154,8 +155,10 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
     """系统层第 14 条（docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改、2.3，裁决 D6、S3、S11）：真实生活决策请求的系统层在第 13 条之后
     写作息默认规则——平常照作息，今日计划写明今天与平常不同的安排时按计划，身体的感觉到更强的一档才改作息；饥饿、困意两条
     顺延为第 15、16 条，按档位与饭点吃、照就寝时间睡；第 4 条补「消息只核验对方说过」，第 18 条补「联系人不会来到身边」
-    （7.3）。四个分句之后追加上班安排一句（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6，收窄裁决 S11）：环境层写了上班安排的
-    日子，那是定下的安排而不是习惯，今日计划改不了它。"""
+    （7.3）。四个分句之后是让「等待」成为例外规格插入的钟点一句（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层）：
+    作息与今日计划里的钟点、around_time 都只是大概，非准点不可的靠目标的提醒时刻；第 14 条以这一句再接上班安排一句结尾
+    （docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6，收窄裁决 S11，逐字不动）：环境层写了上班安排的日子，那是定下的安排
+    而不是习惯，今日计划改不了它。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
     agent, _ = _agent(dispatcher)
@@ -167,7 +170,10 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
     for sentence in ("到了平常的钟点、在平常的地方，就照平常做", "今日计划写明今天与平常不同的安排时，按计划",
                      "身体的感觉没到更强的一档，就不为它改作息", "人设层没写作息，或者今天不在平常的环境里，就按身体的感觉来"):
         assert sentence in rules[13]
-    assert rules[13].endswith("就按身体的感觉来。环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，"
+    assert rules[13].endswith("就按身体的感觉来。作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，"
+                              "到时不一定会请你决策：差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；"
+                              "和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。"
+                              "环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，"
                               "手上的工作交了也还在班上，写明的休息时段和工作要求去别处的外出除外。")
     assert rules[14].startswith("你会饿") and "每个饭点的正餐只吃一次" in rules[14] and "趁早" not in rules[14]
     assert rules[15].startswith("晚上照人设层作息里的就寝时间去睡") and "困了就去睡" not in rules[15]
@@ -176,17 +182,18 @@ async def test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_i
     assert "最接近的候选，不会替你改" in rules[11]
 
 
-#: 系统层第 16 条在个人事务规格之前的原文（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-系统层第-146-条：第 16 条不动，专指当日目标的提醒）。
-_RULE_16 = ("晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，不必因此提早上床；"
-            "很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，就给今日计划的目标写上提醒时刻；"
-            "睡着时只有提醒或睡够了才会醒，早睡也就早醒。")
+#: 系统层第 16 条，随让「等待」成为例外规格改写（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层）：仍专指当日目标的
+#: 提醒，睡着时只有提醒或睡够了才会醒，与第 6 条（事务提醒不叫醒睡着的人）不相抵。
+_RULE_16 = ("晚上照人设层作息里的就寝时间去睡（没写就寝时间，就困了再睡）：有点乏、困是睡前的常态，还没到就寝时间就照常过晚上，"
+            "到了就可以睡，不用撑到某个钟点；很困或撑不住了可以提前，精神还好也可以晚些。想在某个时刻起来，"
+            "就给今日计划的目标写上提醒时刻；睡着时只有提醒或睡够了才会醒，早睡也就早醒。")
 #: 旧第 6 条的延续句（docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-可判定口径 逐字项）：它把 report_status 的 summary 也写成延续载体。
 _RETIRED_SENTENCE = "需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary"
 
 
 
 #: 规格 3.1 定稿的第 1 条里的环境层一句（阶段 2 的写法；docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6 在阶段 3 原位改写它）。
-#: 第 14 条在工作安排之前的全文（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6：现有四个分句逐字保留，只在末尾追加）。
+#: 第 14 条开头的四个分句（前缀；其后依次是插入的钟点一句与上班安排一句）。
 _RULE_14_BEFORE_WORKDAY = ("人设层的作息和习惯是你平常的过法：到了平常的钟点、在平常的地方，就照平常做；今日计划写明今天与"
                            "平常不同的安排时，按计划；身体的感觉没到更强的一档，就不为它改作息。人设层没写作息，或者今天"
                            "不在平常的环境里，就按身体的感觉来。")
@@ -197,9 +204,10 @@ _RULE_14_BEFORE_WORKDAY = ("人设层的作息和习惯是你平常的过法：�
 async def test_rules_1_and_14_state_the_duty_arrangement_verbatim() -> None:
     """系统层第 1、14 条原位改写（docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库 4.6，裁决 P1、W1）：真实生活决策请求的系统层仍是十八条。
     第 1 条只把环境层一句改成规格给出的「环境层是此刻的身体感受、所在地点与今天的上班安排」，其余分句（含阶段 2 改写的
-    待办层一句）与规格 3.1 的定稿逐字相同；第 14 条与规格 4.6 的文本块逐字相同：改写之前的四个分句原样在前，末尾追加
-    「环境层写了上班安排的日子……」一句。三处副本（LIFE_SYSTEM_LAYER、接口合同「请求组成」的登记、人物 Prompt 规格
-    「系统层」定稿）逐字相同；只有这两条提到上班安排。"""
+    待办层一句）与规格 3.1 的定稿逐字相同；第 14 条开头是改写之前的四个分句，之后是让「等待」成为例外规格插入的
+    「作息里的钟点……」一句（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层），再接规格 4.6 的上班安排一句
+    「环境层写了上班安排的日子……」（逐字不动）。两份手写副本（LIFE_SYSTEM_LAYER 与接口合同「请求组成」的登记）与实际
+    请求逐字相同；只有这两条提到上班安排。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
     agent, _ = _agent(dispatcher)
@@ -213,6 +221,8 @@ async def test_rules_1_and_14_state_the_duty_arrangement_verbatim() -> None:
     assert len(rules) == 18 and clause in rules[0] and rules == life["rules"]
     assert rules[13] == rule_14 and rule_14.startswith(_RULE_14_BEFORE_WORKDAY)
     assert rule_14.removeprefix(_RULE_14_BEFORE_WORKDAY) == (
+        "作息里的钟点，和今日计划目标文字里的钟点、around_time，都只是大概的时候，到时不一定会请你决策："
+        "差不多到了就做，早一点晚一点都算照常，不为凑钟点干等；和人约好的事宁早勿晚，非准点不可的要靠目标的提醒时刻。"
         "环境层写了上班安排的日子，那是定下的安排，不是习惯：今日计划改不了它，手上的工作交了也还在班上，"
         "写明的休息时段和工作要求去别处的外出除外。")
     life, _ = _contract_system_layers()
@@ -227,9 +237,9 @@ async def test_rules_1_4_6_divide_errands_summaries_and_memories() -> None:
     没办完的个人事务；第 4 条说事务的文字是人物自己记下的，
     办没办成由环境按实际结算确认、办成或取消的不再列出，结尾仍是消息只核验了对方说过；第 6 条把以后要买到、拿到或吃掉的
     具体东西指向三个控制工具的 errands，说它到提醒时刻只提醒一次、不会叫醒睡着的人，其他延续的打算只写进暂停与收尾的
-    summary（播报的 summary 只留到本段停留或路程结束），想记住的事只记新情况。第 16 条与改写之前逐字节相同，仍说睡着时
-    只有（当日目标的）提醒或睡够了才会醒，与第 6 条不相抵。规则里没有「先看待办」一类的决策次序：除第 1、4、6 条外只有
-    第 12 条（名称照写）提到待办层。"""
+    summary（播报的 summary 只留到本段停留或路程结束），想记住的事只记新情况。第 16 条随让「等待」成为例外规格改写
+    （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层），仍说睡着时只有（当日目标的）提醒或睡够了才会醒、不提事务，
+    与第 6 条不相抵。规则里没有「先看待办」一类的决策次序：除第 1、4、6 条外只有第 12 条（名称照写）提到待办层。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
     agent, _ = _agent(dispatcher)
@@ -251,13 +261,67 @@ async def test_rules_1_4_6_divide_errands_summaries_and_memories() -> None:
     assert [index for index, rule in enumerate(rules) if "待办" in rule] == [0, 3, 5, 11]
 
 
+#: 让「等待」成为例外规格写给人物的新说法（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层）：规则下标 → 只在这一条出现的子串。
+_IDLE_FILLER_PHRASES = {
+    6: ("到时也会请你决策，手上的活动照常进行", "等待只留给几分钟内就有事请你决策的时候"),
+    13: ("到时不一定会请你决策", "不为凑钟点干等"),
+    15: ("不用撑到某个钟点",),
+}
+#: 被这次改写取代的第 15、16 条旧读法：任何一条规则里都不再出现。
+_RETIRED_IDLE_READINGS = ("等平常的饭点", "下单后要等送到", "不必因此提早上床")
+
+
+async def _request_rules() -> list[str]:
+    """一次真实生活决策请求（直接导入的 LifeAgent 经调度器发出）的系统层规则。"""
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
+    agent, _ = _agent(dispatcher)
+    await _run(agent, _observations())
+    return json.loads(dispatcher.requests[0]["messages"][0]["content"])["rules"]
+
+
+@pytest.mark.asyncio
+async def test_rules_7_14_16_say_when_decisions_come_and_that_clock_times_are_approximate() -> None:
+    """系统层第 7、14、16 条的新说法（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层）：真实生活决策请求里，第 7 条说
+    自己下的单送到、提醒到点等事到时也会请人物决策而手上的活动照常进行，等待只留给几分钟内就有事请他决策的时候；第 14 条
+    说作息与计划里的钟点到时不一定会请他决策、不为凑钟点干等；第 16 条说到了就寝时间就可以睡、不用撑到某个钟点。每个
+    说法只出现在它那一条里，请求的规则与模块常量逐字相同。"""
+    rules = await _request_rules()
+    assert len(rules) == 18 and rules == LIFE_SYSTEM_LAYER["rules"]
+    for index, phrases in _IDLE_FILLER_PHRASES.items():
+        for phrase in phrases:
+            assert [number for number, rule in enumerate(rules) if phrase in rule] == [index], phrase
+
+
+@pytest.mark.asyncio
+async def test_retired_meal_delivery_and_bedtime_readings_are_gone_from_the_system_layer() -> None:
+    """被让「等待」成为例外规格取代的旧读法（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-系统层）——第 15 条的「等平常的
+    饭点」「下单后要等送到」与第 16 条的「不必因此提早上床」——不再出现在真实生活决策请求的系统层、模块常量与接口合同
+    「请求组成」的登记里；第 15 条改说正餐留到平常的饭点前后吃、下单的东西送到拿到手才能吃，第 16 条改说还没到就寝时间
+    就照常过晚上。"""
+    rules = await _request_rules()
+    life, _ = _contract_system_layers()
+    for place in (rules, LIFE_SYSTEM_LAYER["rules"], life["rules"]):
+        assert [phrase for phrase in _RETIRED_IDLE_READINGS for rule in place if phrase in rule] == []
+    assert "正餐留到平常的饭点前后吃" in rules[14] and "下单的东西送到、拿到手才能吃" in rules[14]
+    assert "还没到就寝时间就照常过晚上" in rules[15]
+
+
+def test_viewer_fixture_system_layers_are_the_host_system_message() -> None:
+    """查看器夹具 tests/fixtures/viewer-context.json 里行动请求与续接请求两处系统层就是宿主 system_message(False) 的输出，
+    逐字相等（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-测试与夹具）；legacy_ 开头的两处记录的是历史请求，不在比较之列。"""
+    fixture = json.loads((_REPO_ROOT / "tests" / "fixtures" / "viewer-context.json").read_text(encoding="utf-8"))
+    expected = system_message(False)
+    assert [fixture[kind]["messages"][0] for kind in ("action", "continuation")] == [expected, expected]
+    assert sorted(kind for kind in fixture if kind.startswith("legacy_")) == ["legacy_action", "legacy_prelude"]
+
+
 
 def test_the_retired_continuation_sentence_is_gone_everywhere() -> None:
     """旧第 6 条的延续句「需要延续的打算写进 report_status、pause_activity 或 conclude_activity 的 summary」
     （docs/dev/SPEC-life-realism.md#errands-workday-提示信息分工-可判定口径 逐字项）在当前生产请求、合同与汇编中不再出现：LIFE_SYSTEM_LAYER 的规则、接口合同「请求组成」一节
-    （系统层 JSON 块与前后的说明都在其中）、人物 Prompt 规格「系统层」一节（编号列表与它前面的说明）与重新汇编的
-    设计说明书；四处都写着新第 6 条，只把暂停与收尾的 summary 写成延续载体。记录旧运行的测试夹具、版本表与研究材料不在
-    检查范围。"""
+    （系统层 JSON 块与前后的说明都在其中）与重新汇编的设计说明书；三处都写着新第 6 条，只把暂停与收尾的 summary 写成
+    延续载体。记录旧运行的测试夹具、版本表与研究材料不在检查范围。"""
     places = {
         "LIFE_SYSTEM_LAYER": "\n".join(LIFE_SYSTEM_LAYER["rules"]),
         "CONTRACTS.md 请求组成": section_text((_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8"),

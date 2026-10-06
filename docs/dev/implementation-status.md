@@ -24,6 +24,17 @@
 当前追溯见 [规格与实际测试](ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵)。
 真实十二周、三次隔离盲评与 LabelKit 完整自然日交付仍为 NOT-COMPLETE；归档不改变真实复验、配对全天复跑与 strict 端点探针的原状态。
 
+<a name="implementation-status-idle-fillers"></a>
+## 让「等待」成为例外开发状态
+
+[冻结规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止唤醒、
+系统层第 7、14、15、16 条与零点计划模板第三、五、六条已分别随远端提交 `1e4af0a`、`725a741`、`4a9c049` 实施。
+本次整合保留这些行为与逐字合同，当前场景结构因环境归属为 6，正式环境从显式数据仓路径加载。
+旧阶段 4 的第三份旧格式完整日夹具计划未执行；当前完整日沿用环境归属的真实存储、完整导出、原始哈希与时间线全文核验，
+两份历史证明及签名实现保持原字节。阶段 5 的完整收口与配对全天复跑未取得本次完成证据，不能以阶段 1–3 代替。
+本次全量与覆盖率须核对整合后实际源码、测试和外部输入的收据；
+[跨平台完整日提案](PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md)仍为未冻结、未实施方案，历史平台取证不作为当前平台放行。
+
 
 <a name="implementation-status-共享规则与可重建环境开发状态"></a>
 ## 共享规则与可重建环境开发状态
@@ -439,7 +450,8 @@ $ uv run pytest -q
 | `ErrandState` | `errand_id`、`name`、`outcome`、`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id` |
 | 观察事件（不属世界状态） | 待办层增 `errands`，私有绑定增 `errand_bindings`（未完成事务）与 `errand_item_bindings`（全部商品名到商品身份），均列入提示禁键 |
 
-生活场景同一特性升为结构 5：人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，结构 4 的场景按版本拒绝；`catalog_version` 不变。
+生活场景在个人事务与工作安排特性发布时升为结构 5：人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，结构 4 的场景按版本拒绝；`catalog_version` 不变。
+当前因[环境数据归属规格](SPEC-environment-data-ownership.md)使用场景结构 6；结构 5 的旧输入同样拒绝，具体环境从显式的数据仓路径加载。
 
 7→8 的结构变化如下，字段名以 `src/worldmock/life/models.py` 为准，合同见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「领域枚举」节的版本 8 表，逐字段说明见 `docs/design/09-io-formats.md#io-formats-worldmock-产品设计说明书-输入输出格式`「3.1 WorldState（世界状态）」「3.2 AgentState（人物状态）」「3.4 ActivityState（活动状态）」：
 
@@ -525,7 +537,7 @@ $ uv run pytest -q
 
 | 条款 | 当前实现与边界 | 收据 |
 | --- | --- | --- |
-| 能量不阻断 | 能量不拒绝、不停止任何活动：任何能量下活动都能开始、继续与恢复，结算对所有活动集合以 0 为下限截断；原受理闸门、恢复前的能量核验、拒绝码 `INSUFFICIENT_ENERGY` 与可供性及观察中的 `energy_projection` 已从代码删除。进食由饥饿每跨一档唤醒、工具层列出的吃饭途径（手边的食物、在途订单、这里能买的与能送到这里的）与系统层第 15 条引导（按档位与饭点吃：只是「有点想吃」时等平常的饭点，到了「饿」离饭点一小时以内可以提前准备或下单，「很饿」或更饿马上弄吃的；原「饿了趁早弄吃的」已由[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 2.2 改写）；饿时场景的吃饭途径句与常驻生活提示已被[人物 Prompt 七层特性规格](SPEC-life-realism.md#persona-prompt-七层请求)取代 | [时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)「验收台账逐行登记」的「能量不拦人」行（登记用例以 `tests/time_and_energy_acceptance.py` 为准）；原「能量可行性」闸门的 `.work/verification/energy-feasibility-implementation/implementation-receipt.json` 是能量闸门时期的收据，不证明本条 |
+| 能量不阻断 | 能量不拒绝、不停止任何活动：任何能量下活动都能开始、继续与恢复，结算对所有活动集合以 0 为下限截断；原受理闸门、恢复前的能量核验、拒绝码 `INSUFFICIENT_ENERGY` 与可供性及观察中的 `energy_projection` 已从代码删除。进食由饥饿每跨一档唤醒、工具层列出的吃饭途径（手边的食物、在途订单、这里能买的与能送到这里的）与系统层第 15 条引导（按档位与饭点吃：只是「有点想吃」时正餐留到平常的饭点前后，到了「饿」离饭点一小时以内可以提前准备或下单，「很饿」或更饿马上弄吃的；原「饿了趁早弄吃的」已由[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 2.2 改写，「有点想吃」一档的写法已由[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 改写）；饿时场景的吃饭途径句与常驻生活提示已被[人物 Prompt 七层特性规格](SPEC-life-realism.md#persona-prompt-七层请求)取代 | [时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)「验收台账逐行登记」的「能量不拦人」行（登记用例以 `tests/time_and_energy_acceptance.py` 为准）；原「能量可行性」闸门的 `.work/verification/energy-feasibility-implementation/implementation-receipt.json` 是能量闸门时期的收据，不证明本条 |
 | 工作评审协议 | 最多初次加两次输出纠正，原响应先持久化，语义拒绝与基础设施异常不重评 | `.work/verification/work-review-protocol/receipt.json` |
 | 无损模型输入 | 同窗口重复完整字段使用 RFC 6901 单跳字典，最终训练恢复完整输入；逻辑窗口、编码行与实际 trace 分别绑定 | `.work/verification/evidence-encoding/capacity-receipt.json` |
 | 语义合同 | 三任务共享证据、分类及聚合要求，保留不同因果主题，32 条是上限；完整真实语义交付另行验收 | `labelkit-projects/` 三份项目配置与实际请求合同测试 |

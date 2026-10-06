@@ -12,6 +12,7 @@
 > 状态归属增个人事务与工作安排；唤醒闭集追加 `errand_reminder_due`，下一边界与下一次决策机会增个人事务提醒，在手承诺不含个人事务；控制请求携带 `errands`；
 > 个人事务、上班安排在七层中的位置，两种进度层记录及其浓缩口径；只读查询的执行位置，`query_world` 六键、筛选与返回；
 > 顺带更正 `report_status` 的 summary 去向、来源写法与可调用索引括注三处既有漂移；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
+> 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「共享时钟」「决策节律：结算边界与唤醒条件分离」、「决策不耗时：时间只在做事时流动」的「规则」与「不变项」、「个人事务」的「提醒时刻」与「验收矩阵」（阶段 1），以及「个人事务」的「零点计划、修订与只读问答」（阶段 3）。
 > 日期：2026-10-05
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
@@ -109,7 +110,7 @@ sequenceDiagram
 **时间推进规则**：
 1. 先处理当前时刻已到期的通知或活动，再选出需要决策的人物
 2. 人物完成本轮选择后，环境先结算本轮请求
-3. 无人就绪时（每个人物都有进行中活动且都没有待收尾活动，等待与睡眠都算），调度器再计算下一边界：活动完成、内容反馈、通知到达、工作截止、需要重新评估的身体变化、人物选择的等待结束、场景本地零点、当日目标提醒、个人事务提醒（只对清醒的人物，睡眠中的人物不计）或实验结束
+3. 无人就绪时（每个人物都有进行中活动且都没有待收尾活动，等待与睡眠都算），调度器再计算下一边界：活动完成、内容反馈、通知到达、工作截止、需要重新评估的身体变化、人物选择的等待结束、场景本地零点、当日目标提醒、个人事务提醒、班次与休息时段的起止（这两项只对清醒的人物，睡眠中的人物不计）或实验结束
 4. 每次推进严格大于零；即时事件在当前边界按稳定序号处理；同一秒的再决策不推进时钟，轮数受同刻上限约束
 5. 同刻再决策：人物没有进行中活动或有待收尾活动时，在同一模拟秒再获得决策机会，直到有一项进行中活动且没有待收尾活动；适用于运行开始、活动结束、瞬时动作之后与业务拒绝之后。决策本身不消耗模拟时间
 6. 同一人物同一模拟秒的决策轮数以场景参数 `max_same_moment_decisions` 封顶，时钟推进即归零（取值见 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「场景参数」章的「活动节奏与同刻决策上限」节）；达到上限仍不满足第 5 条的结束条件时进入受限轮：每轮只开放一类动作，收尾、结束与等待不会被业务拒绝，阶梯见 `docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动`「一、决策不耗时：时间只在做事时流动」规则 3
@@ -141,10 +142,11 @@ WakeReason = Literal[
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
     "progress_report_due", "no_active_activity", "plan_reminder_due",
     "errand_reminder_due",
+    "shift_start", "shift_end", "break_start", "break_end",
 ]
 ```
 
-睡眠期间仍可提供决策的只有 `planned_end`、`wake_from_sleep`、`run_start` 与 `plan_reminder_due`；`errand_reminder_due` 不进入睡眠允许集合。存储层登记同源的 `WAKE_REASON_NAMES` 词表，与 `life.schedule.WakeReason` 由测试互锁防漂移。
+睡眠期间仍可提供决策的只有 `planned_end`、`wake_from_sleep`、`run_start` 与 `plan_reminder_due`；`errand_reminder_due` 与 `shift_start`、`shift_end`、`break_start`、`break_end` 都不进入睡眠允许集合。存储层登记同源的 `WAKE_REASON_NAMES` 词表，与 `life.schedule.WakeReason` 由测试互锁防漂移。
 
 记录引擎原样保存本次判定，增量字段见[共同身体结算与决策证据](../design/05-recording-engine.md#recording-engine-共同身体结算与决策证据)；
 缺字段时的判定口径见 `docs/VERIFICATION.md#verification-worldmock-验收标准`「协议门禁」。下表把闭集成员对应到触发条件：
@@ -165,8 +167,9 @@ WakeReason = Literal[
 | `wake_from_sleep`、`run_start` | 沿用现有语义 |
 | `progress_report_due` | 本人某项进行中活动距其播报锚点已满播报间隔（`progress_report_interval_seconds`）；只计进行中活动，暂停、待收尾与已收尾的活动不播报；锚点为活动的 `report_anchor_at`，在开始、恢复以及对该活动播报时写入当前时刻 |
 | `no_active_activity` | 边界结算后没有进行中活动的人物必获决策，同刻再决策轮也记它，不进睡眠允许集合 |
-| `plan_reminder_due` | 当日目标的 `remind_time` 到点：同时到期的合并，只计一次，每条提醒只触发一次；非睡眠活动继续进行。睡眠中到点即结束睡眠（`boundary_type` 与 `interruption_reason` 记 `plan_reminder`，按实际时长结算，睡眠成为待收尾），该边界的唤醒原因为 `planned_end`、`wake_from_sleep`、`plan_reminder_due`，睡眠结束后没有其他进行中活动时另含 `no_active_activity`（不按睡眠允许集合过滤）；睡眠的计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发 |
+| `plan_reminder_due` | 当日目标的 `remind_time` 到点：同时到期的合并，只计一次，每条提醒只触发一次；非睡眠活动继续进行。睡眠中到点即结束睡眠（`boundary_type` 与 `interruption_reason` 记 `plan_reminder`，按实际时长结算，睡眠成为待收尾），该边界的唤醒原因含 `planned_end`、`wake_from_sleep`、`plan_reminder_due`，睡眠结束后没有其他进行中活动时另含 `no_active_activity`（不按睡眠允许集合过滤）；人物此时已清醒，同一秒成立的其他原因（例如同秒开始的班次的 `shift_start`）照常按枚举顺序并列；睡眠的计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发 |
 | `errand_reminder_due` | 个人事务的提醒时刻到点：清醒的人物精确在该时刻获得一次决策机会；同一边界到期的多条事务合并为一次机会、本原因只计一次，每条事务各写一条 `environment_event`（`data.kind="errand_reminded"`，人物可见，决策与动作身份为空），与 `plan_reminder_due` 同刻到期时按枚举顺序并列；只提供决策机会，不改变事务状态，进行中的活动继续。不进睡眠允许集合：睡眠中的人物不计入候选、不形成静默边界、不交付也不消耗、不结束睡眠，睡眠期间错过的提醒在人物醒来的那个边界交付、不另起边界；事务办成或取消后不再提醒，更新时写新的提醒时刻重新计一次；只在实际交付决策机会时记账并写事件 |
+| `shift_start`、`shift_end`、`break_start`、`break_end` | 结算边界的那一秒是人物工作安排中某个本地日班次的开始或结束（含前一日写到 24:00、落在当日零点的结束），或该班次某个休息时段的开始或结束，而人物此刻没有在睡：他在这一秒得到一次决策机会，其余什么都不发生——不结束、不暂停、不开始任何活动，活动状态、计划结束时刻与下一次交互时刻都不变，不新增拒绝，不写事件，不新增进度层记录；唤醒原因不进提示，人物看到的变化只有环境层 `duty.status` 与观察时刻。起止时刻由场景工作安排与世界时钟直接求值、不存交付状态，预测与唤醒共用同一事实生成器（`src/worldmock/life/duty_edges.py::duty_edges`）：日期例外优先于每周声明，区间半开，与 `duty.status` 用同一组区间按当地墙钟换算，写作 1440 的止点落在次日当地零点；不当班的日子本身没有起止（前一日写到 24:00 的结束照记），没有工作安排的人物没有这些时刻；当日目标的大致时刻与人设层作息的钟点不触发它。同一秒重合的多个起止各记一次，按枚举顺序并列，并与同一秒的其他原因合为一次机会；恰在起止那一秒因计划结束或提醒醒来的人物判定时已清醒，起止照记、排在已有原因之后。在路上、通话或交谈中同样提供机会；回合制游戏只能在自己的交互边界上暂停或结束，下一次交互时刻不移动。在起止上做完决策后，请求被受理且仍有进行中活动时下一次决策时刻移到下一个候选，被拒或把活动结束时照同刻再决策规则在同一秒再决策，之后的决策都不再带这个名字；同刻决策预算耗尽后的技术停顿期间，本人的起止是时钟边界，记 `no_active_activity` 与对应成员，停顿随之结束。零点上的起止由零点节律入口在零点计划之后判定；运行开始恰在起止上时第一秒只记 `run_start`。不进睡眠允许集合：睡眠中的人物不计入下一边界与下一次决策机会的候选、不形成静默边界、不被叫醒，睡过的起止醒来后不补。检查点恢复与反事实重演不为起止另存状态，按场景与时钟重新求值；已判定而尚未决策的原因随人物状态的 `pending_wake_reasons` 恢复，不重复、不补发。零点上的起止由零点节律入口在零点计划之后判定，零点恰是运行结束时在推进内判定；写到 24:00 而次日休息的班次在 00:00 记 `shift_end`，此时环境层已是次日的 `duty`，看不到「已下班」，如实记录；夏令时跳过的当地时刻按跳变前的偏移换算、重复的取第一次，换算后落到班次之外的休息时段起止照样记 |
 
 **唤醒条件是判定规则，唤醒原因是本次命中的成员**：上表列出全部唤醒条件；某次结算边界实际命中的成员构成该次边界的唤醒原因。只有命中的边界才提供决策机会并记录这些原因。
 
@@ -192,6 +195,7 @@ WakeReason = Literal[
 - 已排定的通知与配送
 - 当日目标提醒（睡眠中也计入）
 - 个人事务提醒时刻（睡眠中不计入）
+- 班次与休息时段的起止时刻（只对声明了工作安排的人物，睡眠中不计入）
 - 进行中活动的播报到期
 - 任务截止与闭店的精确预警边界
 - 当前在手承诺对应的重估间隔到期
@@ -1219,9 +1223,11 @@ flowchart LR
    （`src/worldmock/life/decision_start.py`、`src/worldmock/life/observe.py`）。同刻轮次没有结算区间，不写 `body_settlement`。
    - `no_active_activity` 不进入睡眠允许集合，不改变其他唤醒条件；规则 5 的边界兜底靠它提供决策。
    - 新成员依次追加在 `progress_report_due` 之后：`no_active_activity`、`plan_reminder_due`。个人事务与工作安排规格 2.5 在
-     `plan_reminder_due` 之后再追加 `errand_reminder_due`（事务提醒到点），它不进入睡眠允许集合。新增成员照数字人交互规格
-     「冻结条款修订」第 1 行规定的程序办：同步调度枚举、足迹侧的唤醒原因词表与写入期校验、质量报告的分桶与两处互锁测试，
-     并登记接口合同枚举表、life-runtime 规格的冻结词表与触发表、记录引擎设计；漏登词表会让带新原因的事件落不了库。
+     `plan_reminder_due` 之后再追加 `errand_reminder_due`（事务提醒到点），它不进入睡眠允许集合。
+     [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)在 `errand_reminder_due` 之后再依次追加
+     `shift_start`、`shift_end`、`break_start`、`break_end`（班次与休息时段的起止），四个都不进入睡眠允许集合。
+     新增成员照[数字人交互规格](SPEC-agent-interaction.md#spec-agent-interaction-冻结条款修订)「冻结条款修订」第 1 行登记的同步点办；
+     漏登足迹侧词表会让带新原因的事件落不了库。
    - `rejection_feedback` 只由本条写入，边界判定不再产生它。
    - `discovery_result` 保留在闭集中，当前没有触发来源：浏览已经是活动，结果随浏览结束或在下一次观察时回灌。
 7. **候选时刻修正。** 有进行中活动的人物，下一决策候选以本次决策时刻作为上次决策时刻计算（`last_decision_time` 取
@@ -1309,9 +1315,10 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 <a name="time-and-energy-决策不耗时时间只在做事时流动-不变项"></a>
 ### 不变项
 
-- 睡眠中只接受睡眠允许的唤醒原因；`no_active_activity` 与 `errand_reminder_due` 都不进入 `SLEEP_ALLOWED_REASONS`。
+- 睡眠中只接受睡眠允许的唤醒原因；`no_active_activity`、`errand_reminder_due` 与 `shift_start`、`shift_end`、`break_start`、`break_end`
+  都不进入 `SLEEP_ALLOWED_REASONS`。
 - 静默边界不调用人物决策模型；场景本地零点的 `plan_day` 是运行时后台任务，不经人物，按第四章留证；有进行中活动的人物仍按计划结束、30 分钟播报、
-  体感、事件、提醒与重估间隔获得机会。
+  体感、事件、提醒、班次与休息时段的起止与重估间隔获得机会。
 - 一轮决策一个世界请求（第七章）。
 
 <a name="time-and-energy-能量感知"></a>
@@ -2526,7 +2533,7 @@ stateDiagram-v2
 - 只支持时刻，不支持条件。`remind_time` 换算为绝对时刻：该钟点的今日时刻严格晚于受理时刻取今天，否则取下一本地日（按本地日历换算），所以它总在二十四小时之内。
 - 到点只提供一次决策机会并记一次，不改变事务状态；更新时写新的 `remind_time` 重新计一次；事务完成或取消后不再提醒。没有提醒时刻的事务不另外提供决策机会，只在平常的决策机会里可见。
 - 唤醒原因新增成员 `errand_reminder_due`，追加在 `plan_reminder_due` 之后，**不进入睡眠允许集合**（裁决 E5）。想在某个时刻起床仍只用当日目标的提醒。
-  新增成员按数字人交互规格规定的程序办：同步调度枚举、足迹侧的唤醒原因词表与写入期校验、质量报告的分桶与两处互锁测试，并在生活运行时规格的冻结词表与触发表、记录引擎设计登记；漏登词表会让带新原因的事件落不了库。
+  新增成员按[数字人交互规格](SPEC-agent-interaction.md#spec-agent-interaction-冻结条款修订)「冻结条款修订」第 1 行登记的同步点办。
 - **调度口径。** 清醒人物的未提醒时刻进入下一边界与下一次决策机会的候选，精确在该时刻到点，预测与唤醒共用同一事实生成器；候选只取严格晚于此刻的时刻。睡眠中的人物不计入候选、不形成静默边界、不交付也不消耗。
   每个为清醒人物提供决策机会的边界（含人物刚醒来的那个边界），都把该人物全部已到点未提醒的事务一并交付：`errand_reminder_due` 与该边界的其他原因按枚举顺序并列、只计一次，每条事务各写一条提醒事件。睡眠期间错过的提醒因此在醒来的边界交付，不另起边界；这期间人物没有观察，待办层显示的钟点不会被读错。
 - 事务提醒的候选在下一边界与下一次决策机会两处各自并入、各自按是否在睡过滤；当日目标提醒的候选与到期判定（它会结束睡眠）保持只管当日目标。提醒草稿追加到边界的事件草稿（平常边界与零点边界同理），引擎不为此新增接线。
@@ -2577,7 +2584,8 @@ stateDiagram-v2
 
 - 零点置空当日计划、修订计划与推进目标都不改变事务；零点计划只读取事务，不能创建、更改或终结事务。
 - 零点计划输入包含只读“个人事务”：名称、完成条件、已推进数量、备注与提醒时刻；“待办任务”仍指工作任务。
-- 零点计划不照抄日常作息和事务，只描述今天不同的安排；可以为打算执行的事务写一条今天的目标。
+- 零点计划不照抄日常作息和事务：天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒
+  （模板第三条，按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)改写）；可以为打算执行的事务写一条今天的目标。
 - 模板完整文本唯一登记在 `docs/CONTRACTS.md#contracts-model-request`，从真实请求与合同比较；模板不进提示指纹，由代码身份绑定。
 - 只读问答只带人设层、记忆层与外部问题，不含待办层，因此外部问答不直接读取未完成事务。
 
@@ -2607,12 +2615,13 @@ stateDiagram-v2
 模型运行或真实盲评的记「待真实运行」；已有合同尚未贯通正式输入的记「既有实现缺口」；本次新增行为
 在最终源码身份尚未完成门禁时记「本次离线验收待执行」，不能提前写成通过。
 按个人事务与工作安排规格修订的行在对应阶段实现之前另记未实现一档；阶段 1–4 已实现，在最终代码与测试提交 `a7e2fdc` 上通过离线验收，「决策节律」行与该规格新增的四行改记「代码层已验证」。
+[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)改写「决策节律」「工作安排与上班安排呈现」两行（阶段 1），补班次与休息时段起止的判据，证据登记在该规格的验收台账，两行状态为「代码层已验证」。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | 状态归属与生命周期 | 状态类别与修改权限符合 `docs/CONTRACTS.md#contracts-worldmock-接口合同`「LifeEnv 状态字段」章的「状态归属」节；生命周期各接口的签名与行为符合该章的「生命周期」节；已有运行可恢复；未初始化或缺少场景时接口失败关闭 | `tests/integration/test_env_lifecycle_coverage.py` | 代码层已验证 |
 | 共享时钟 | 模型上下文时间与结算时间一致；错误时刻的上下文被拒绝；反馈边界严格向前且不释放占用 | `tests/life/test_engine_feedback.py`、`tests/life/test_engine_round.py` | 代码层已验证 |
-| 决策节律 | 静默边界不产生决策事件；提供决策的边界记录全部实际唤醒原因；睡眠不被重估间隔打断；体感滞回以上一次实际决策为参照；唤醒闭集依次含 `progress_report_due`、`no_active_activity`、`plan_reminder_due`，睡眠允许集合含 `plan_reminder_due`、不含 `no_active_activity`；唤醒闭集在 `plan_reminder_due` 之后含 `errand_reminder_due`，睡眠允许集合不含它，睡眠中到点的个人事务提醒不交付不消耗、在人物醒来的那个边界交付 | `tests/life/test_revision_contract.py`、`tests/life/test_wake_reasons.py`；个人事务提醒见 `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`（闭集与顺序）、`tests/footprints/test_event_fields.py::test_new_wake_reasons_are_accepted_by_validation`（存储词表）与 `tests/life/test_errand_reminder.py` 的 `test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged`、`test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary`、`test_errand_and_goal_reminders_due_together_are_listed_in_enum_order`；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「事务提醒」 | 代码层已验证 |
+| 决策节律 | 静默边界不产生决策事件；提供决策的边界记录全部实际唤醒原因；睡眠不被重估间隔打断；体感滞回以上一次实际决策为参照；唤醒闭集依次含 `progress_report_due`、`no_active_activity`、`plan_reminder_due`，睡眠允许集合含 `plan_reminder_due`、不含 `no_active_activity`；唤醒闭集在 `plan_reminder_due` 之后含 `errand_reminder_due`，睡眠允许集合不含它，睡眠中到点的个人事务提醒不交付不消耗、在人物醒来的那个边界交付；唤醒闭集在 `errand_reminder_due` 之后依次含 `shift_start`、`shift_end`、`break_start`、`break_end`，睡眠允许集合不含它们、仍恰为四项，清醒人物在班次与休息时段起止的那一秒得到一次决策机会并带对应的名字，同一秒重合的起止各记一次、按枚举顺序与其他原因并列，零点上的起止由零点节律入口判定，睡眠中的人物没有因起止产生的边界、睡过的不补 | `tests/life/test_revision_contract.py`、`tests/life/test_wake_reasons.py`；个人事务提醒见 `tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names`（闭集与顺序）、`tests/footprints/test_event_fields.py::test_new_wake_reasons_are_accepted_by_validation`（存储词表）与 `tests/life/test_errand_reminder.py` 的 `test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged`、`test_a_sleeper_gets_no_boundary_no_delivery_and_no_consumption_and_is_reminded_at_the_wake_boundary`、`test_errand_and_goal_reminders_due_together_are_listed_in_enum_order`；见[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「事务提醒」；班次与休息时段的起止见[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的[验收台账](SPEC-idle-fillers.md#spec-idle-fillers-验收台账)「唤醒词表与同步点」「清醒人物精确到点」「睡眠」「重合、零点与日历」四行（登记在 `tests/fixtures/idle-fillers-acceptance.json`，用例在 `tests/life/test_shift_edges.py` 与 `tests/life/test_shift_edge_runs.py`） | 代码层已验证 |
 | 同刻决策 | 没有进行中活动或有待收尾活动时在同一秒再决策，时钟不推进；同一人物同一秒的轮数受 `max_same_moment_decisions` 约束，达到上限后进入受限轮，收尾、结束与等待不被业务拒绝；有进行中活动时，瞬时动作成功后按决策节律，业务拒绝后同一秒再给一次机会；业务拒绝不产生运行失败；名称类拒绝不计同刻轮数、不施加情绪脉冲，每人每秒至多 2 次，第 3 次起照常计轮 | `tests/life/test_same_moment_decisions.py`；名称类拒绝见 `tests/life/test_name_resolution.py` 的 `test_two_name_rejections_in_one_second_are_free_and_the_third_counts`、`test_a_name_rejection_beside_other_rejections_follows_the_same_count`、`test_host_and_environment_share_one_name_class_closed_set`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「名称类预算」 | 代码层已验证 |
 | 并发与占用 | 颠倒到达顺序不改变结算顺序；种子变化改变竞争顺序且检查点可恢复；异常时不结算该轮未执行的提案 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py` | 代码层已验证 |
 | 运行观测 | 只读查询使用已确认状态且不修改任何运行文件 | `tests/footprints/test_status.py` | 代码层已验证 |
@@ -2638,7 +2647,7 @@ stateDiagram-v2
 | 社交 | 在场可见字段闭合，途中人物不算在场；交谈要求双方同处一地且对方清醒、不在主动游戏，对方对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，同一对人物重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒的收件人在同一秒获得决策机会，睡眠中不唤醒；消息汉字上限边界；交谈与通话的费率与派生时长边界，不因派生值拒绝；联系人策略为闭集且回复至多一次，给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落一条占位回复，联系人回复预排送达、睡眠中过滤；直接消息以全文进入收件人的进度层；发给场景联系人的消息记入发送人的 `outbox`，联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；`receive_location_id` 为空的联系人不能收实物，给予联系人要求本人位于其收货地点；睡眠中送达的消息在醒来后的第一个边界才读 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_same_moment_decisions.py`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py`；睡眠中不读消息见 `tests/life/test_discomfort_and_sleep_messages.py` 的 `test_messages_delivered_during_sleep_are_read_at_the_first_boundary_after_waking`、`test_the_boundary_decision_segment_reads_no_message_while_asleep`、`test_a_round_observed_while_asleep_marks_no_message_read`；见[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「不适脉冲与消息」 | 代码层已验证 |
 | 只读查询转发与故障传播 | 真实 Ray 下回看任务返回结果字典而非远端引用，世界状态与事件序号不变；`query_world` 两入口逐值相等；环境 actor 并发度为 1；决策失败与工具分发失败各有英文日志，异常对象、类型与失败阶段码不变 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账「只读查询转发」「故障传播」；只读查询转发见 `tests/integration/test_read_query_runtime.py` 的 `test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query`、`test_task_recall_crosses_real_ray_without_world_mutation`、`test_unwrapped_actor_read_query_equals_direct_environment_call`、`test_life_env_actor_class_fixes_single_concurrency_without_parameters` 与 `tests/life/test_world_query.py::test_environment_read_query_keeps_world_clock_round_and_store_unchanged`（两入口逐值相等）；故障传播见 `tests/integration/test_host_failure_stages.py` 的 `test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage`、`test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged` 与 `tests/integration/test_life_agent_protocol.py::test_decision_failure_is_logged_once_and_reraised_unchanged` | 代码层已验证 |
 | 个人事务 | 登记与原子受理、名称与错误、跨夜可见、完成依据、结算幂等、提醒、检查点恢复与唯一出现按专属规格逐项验证 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 2 各行；`tests/life/test_errand_requests.py`（变更与原子受理）、`tests/life/test_errand_names.py`（名称与错误）、`tests/life/test_errand_overnight.py`（跨夜可见）、`tests/life/test_errand_completion.py`（完成依据）、`tests/life/test_errand_settlement_idempotence.py`（结算幂等）、`tests/life/test_errand_reminder.py`（提醒）、`tests/integration/test_errand_checkpoint.py::test_a_restored_branch_shows_the_same_todo_layer_and_repeats_nothing`（检查点恢复）、`tests/integration/test_unique_presence_run.py::test_an_errand_full_row_appears_only_in_the_todo_layer`（唯一出现） | 代码层已验证 |
-| 工作安排与上班安排呈现 | 工作安排加载校验；环境层 `duty` 在班前、当班中、休息时段、班后、休息日与无工作安排各状态；修订计划与提交工作后不变；班内离岗照常受理；班次不改变任务开放与截止 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 3 各行；加载校验见 `tests/life/test_load_checks.py` 的 `test_work_schedule_workplace_must_be_a_selected_location`、`test_a_malformed_shift_or_break_is_rejected_by_the_real_loader`、`test_work_schedule_must_agree_with_the_calendar_inside_the_window`；`duty` 各状态与不变性见 `tests/life/test_work_schedule.py` 的 `test_duty_follows_the_clock_through_a_working_day`、`test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly`、`test_people_without_a_schedule_have_no_duty_while_others_keep_theirs`、`test_revising_the_day_plan_does_not_change_duty`、`test_duty_stays_on_duty_after_the_work_is_submitted`、`test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds`、`test_shifts_do_not_change_task_opening_or_deadline` | 代码层已验证 |
+| 工作安排与上班安排呈现 | 工作安排加载校验；环境层 `duty` 在班前、当班中、休息时段、班后、休息日与无工作安排各状态；修订计划与提交工作后不变；班内离岗照常受理；班次不改变任务开放与截止；班次与休息时段的起止当秒 `duty.status` 随之变化并给清醒人物一次决策机会，起止不结束任何活动、不写事件、不新增进度层记录、唤醒原因不进提示，没有工作安排的人物没有因此新增的边界，检查点恢复与反事实分支后起止只触发一次 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 3 各行；班次边界唤醒见[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的[验收台账](SPEC-idle-fillers.md#spec-idle-fillers-验收台账)「不结束活动、不写事件、不进提示」「没有工作安排的人不变」「落库、质量报告与恢复」三行（登记在 `tests/fixtures/idle-fillers-acceptance.json`）；加载校验见 `tests/life/test_load_checks.py` 的 `test_work_schedule_workplace_must_be_a_selected_location`、`test_a_malformed_shift_or_break_is_rejected_by_the_real_loader`、`test_work_schedule_must_agree_with_the_calendar_inside_the_window`；`duty` 各状态与不变性见 `tests/life/test_work_schedule.py` 的 `test_duty_follows_the_clock_through_a_working_day`、`test_rest_days_come_from_weekly_null_and_exception_null_and_an_exception_shift_overrides_weekly`、`test_people_without_a_schedule_have_no_duty_while_others_keep_theirs`、`test_revising_the_day_plan_does_not_change_duty`、`test_duty_stays_on_duty_after_the_work_is_submitted`、`test_leaving_the_workplace_on_duty_is_listed_and_accepted_without_new_event_kinds`、`test_shifts_do_not_change_task_opening_or_deadline` | 代码层已验证 |
 | 世界查询筛选与返回 | 六键必填、四键旧请求被拒；来源与购买解析得到的门店集合逐一相等；可执行筛选在切页之前施加；任意筛选组合沿 `next_offset` 遍历等于完整匹配集，false 与零值保留、无逐项候选；查询只读 | [个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)验收台账阶段 4 各行；`tests/life/test_world_query.py` 的 `test_world_query_requires_every_declared_field`、`test_world_query_rejects_the_retired_four_key_request`、`test_world_query_matches_are_compact_targets_without_candidates`，`tests/life/test_purchase_channels.py::test_query_and_purchase_resolve_each_from_form_to_the_same_stores`，`tests/life/test_world_query_filters.py` 的 `test_available_only_judges_only_the_actions_of_the_written_way`、`test_filtered_traversal_equals_the_complete_match_set_and_counts_after_filtering`、`test_filtered_queries_leave_world_clock_events_credentials_and_presentation_unchanged` | 代码层已验证 |
 | 真实端点集成 | 真实 DeepSeek 端点与完整活动结算的集成测试通过 | 正式运行记录见 `docs/dev/implementation-status.md#implementation-status-worldmock-实现状态` | 待真实运行 |
 
@@ -2679,6 +2688,7 @@ stateDiagram-v2
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码与测试核对）：验收矩阵中由 LR8 改写的同刻决策、身体语义、资源结算、工作与验收、观察投影、统一候选契约、两条排除纪律、两级上限、曝光轮转、随身持有与远程订购、社交十一行重新验收，改记「代码层已验证」，证据位置补实际守卫的测试（名称类预算、睡眠计费、困意档界、不适脉冲与睡眠中的消息、下限缓解与评分器预演、中文摘录、按名调用、浏览结果与可达提示、指名购买的分段匹配与按 `prefer` 选定、地点类资格与相关度、可调用索引、按对象轮转与哈希决胜、购买渠道与订单的 `channel_id`）；「七层请求」原生 `tools` 的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；文件头「定稿不等于已实现」改为修订部分已实现并通过离线验收 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)文档同步作业 RT2–RT24、RT27–RT29，随该规格冻结），修订部分在冻结时未随文实现（阶段 1–4 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：状态归属增「个人事务」行，「世界」行补场景声明的工作安排；唤醒原因闭集在 `plan_reminder_due` 之后追加 `errand_reminder_due`（不进睡眠允许集合），触发表增一行（清醒时精确到点，同一边界多条合并为一次机会、每条事务各写一条提醒事件，睡眠中不形成边界、错过的提醒在醒来的那个边界交付），下一边界与下一次决策机会增个人事务提醒，在手承诺写明不含个人事务、「可见未完成任务」改写为工作任务；同轮竞争处理第 9 条补异常日志与失败阶段码的登记位置；质量报告统计项增个人事务与收尾记忆；活动控制补三个控制请求的 `errands` 与原子受理；「观察投影行为规则」写明事务变更不进进度层参数与 `self_notes`、新增两种进度层记录、事务完整行只在待办层、上班安排只在环境层 `duty`（同秒续接链内不变）且不新增拒绝，`query_world` 改为六键并写明筛选、两种参数错误之外的空页与不再逐项附候选，补只读查询的执行位置；「上下文容量」补两种进度层记录的浓缩口径；顺带更正三处既有漂移：`report_status` 的 summary 不进记忆层，`from` 的写法由「门店名」改为地点显示名（含住处）或渠道称呼，可调用索引括注补第四键 `query_categories`；验收矩阵决策节律行改写，新增只读查询转发与故障传播、个人事务、工作安排与上班安排呈现、世界查询筛选与返回四行，冻结时各记未实现一档并指向该规格的对应阶段；文件头补修订说明，日期改写 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)文档同步作业 RT25，按 `d8a41d3` 的代码与测试核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)；「决策节律：结算边界与唤醒条件分离」删去 `errand_reminder_due` 进入两处代码词表之前的过渡说明（调度枚举 `life.schedule.WakeReason` 与存储层 `WAKE_REASON_NAMES` 现都含它，枚举里排在 `plan_reminder_due` 之后，睡眠允许集合不含它）；验收矩阵「决策节律」行与「只读查询转发与故障传播」「个人事务」「工作安排与上班安排呈现」「世界查询筛选与返回」四行改记「代码层已验证」，证据列补登记到该规格验收台账的测试节点（只读查询转发为 `tests/integration/test_read_query_runtime.py` 中已登记的四个节点）；矩阵前的状态说明随之改写，`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。证据为离线测试；配对全天复跑（该规格阶段 6）未执行，「真实端点集成」行仍为「待真实运行」 |
-
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同 |
+| `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 改写：唤醒闭集在 `errand_reminder_due` 之后依次追加 `shift_start`、`shift_end`、`break_start`、`break_end`，四个都不进睡眠允许集合；「决策节律：结算边界与唤醒条件分离」触发表增班次与休息时段起止一行（清醒人物精确在起止那一秒得到一次决策机会，活动照常继续，不结束、暂停或开始活动，不写事件、不进提示；起止由场景与时钟求值、不存交付状态；睡眠中不入候选、不形成静默边界、不被叫醒，睡过的不补），`plan_reminder_due` 一行写明提醒结束睡眠的边界上人物已清醒、同秒成立的其他原因照常按枚举顺序并列，下一次决策机会增班次与休息时段的起止时刻；「共享时钟」推进规则第 3 条与「决策不耗时」的不变项补清醒人物的起止；规则 6 与「个人事务」的「提醒时刻」把新增成员的程序改为照数字人交互规格「冻结条款修订」第 1 行登记的同步点；验收矩阵「决策节律」「工作安排与上班安排呈现」两行补判据与该规格验收台账的证据，矩阵前言补一句；文件头补修订说明；版本表并回表外的末两行 |
+| `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订「个人事务」的「零点计划、修订与只读问答」：零点计划不照抄日常作息和事务，天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒（模板第三条），可以为打算执行的事务写一条今天的目标；模板仍不进提示指纹、由代码身份绑定；文件头修订说明补本阶段 |

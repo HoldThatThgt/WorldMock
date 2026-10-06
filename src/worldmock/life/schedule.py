@@ -62,6 +62,11 @@ class WakeReason(str, Enum):
     PLAN_REMINDER_DUE = "plan_reminder_due"
     #: 个人事务提醒到点（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）：不进入睡眠允许集合，睡眠中错过的在醒来的边界交付。
     ERRAND_REMINDER_DUE = "errand_reminder_due"
+    #: 班次与休息时段的起止（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）：不进入睡眠允许集合，睡过的醒来后不补。
+    SHIFT_START = "shift_start"
+    SHIFT_END = "shift_end"
+    BREAK_START = "break_start"
+    BREAK_END = "break_end"
 
 
 SLEEP_ALLOWED_REASONS = frozenset(
@@ -69,6 +74,11 @@ SLEEP_ALLOWED_REASONS = frozenset(
      WakeReason.PLAN_REMINDER_DUE}
 )
 """睡眠期间仍可提供决策的唤醒原因：计划结束、唤醒事件与当日目标提醒（docs/dev/SPEC-life-runtime.md#spec-life-runtime-决策节律结算边界与唤醒条件分离 「决策节律」）。"""
+
+DUTY_EDGE_REASONS: tuple[WakeReason, ...] = (
+    WakeReason.SHIFT_START, WakeReason.SHIFT_END, WakeReason.BREAK_START, WakeReason.BREAK_END,
+)
+"""班次与休息时段起止的四个唤醒成员，按声明次序（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）。"""
 
 
 INTENT_KINDS: tuple[str, ...] = (
@@ -219,6 +229,8 @@ class WakeSnapshot(BaseModel):
     plan_reminder_due: bool = False
     #: 有已到点未提醒的个人事务（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）：同时到期的合并为一项。
     errand_reminder_due: bool = False
+    #: 本边界恰好成立的班次与休息时段起止成员（docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）：同一秒重合的各记一次。
+    duty_edges_now: frozenset[WakeReason] = frozenset()
     is_asleep: bool = False
 
 
@@ -253,6 +265,8 @@ class NextDecisionQuery(BaseModel):
     plan_reminder_times: tuple[int, ...] = ()
     #: 未提醒的个人事务提醒时刻（睡眠中剔除，docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）。
     errand_reminder_times: tuple[int, ...] = ()
+    #: 严格晚于当前的班次与休息时段起止时刻（醒睡都照填、睡眠中剔除，docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。
+    duty_edge_times: tuple[int, ...] = ()
     is_asleep: bool = False
 
 
@@ -357,10 +371,19 @@ def reconsideration_interval(query: WakeSnapshot | NextDecisionQuery) -> int:
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
     """@brief 按当前结算边界判定全部唤醒原因。
     规格：docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则。
-    按 WakeReason 声明顺序输出；无命中即静默边界，decision_offered=false、wake_reasons=[]。
-    睡眠期间只保留 SLEEP_ALLOWED_REASONS（含目标提醒，不含边界兜底与事务提醒）。
+    按 WakeReason 声明顺序输出（前半由 _event_reasons、后半由 _clock_reasons 逐项追加）；无命中即静默边界，
+    decision_offered=false、wake_reasons=[]。
+    睡眠期间只保留 SLEEP_ALLOWED_REASONS（含目标提醒，不含边界兜底、事务提醒与班次边界的四个成员）。
     """
     snap = snapshot
+    reasons = _event_reasons(snap) + _clock_reasons(snap)
+    if snap.is_asleep:
+        reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
+    return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
+
+
+def _event_reasons(snap: WakeSnapshot) -> list[WakeReason]:
+    """@brief 唤醒原因的前半（计划结束至发现结果）：活动、体感、到达事件、任务与地点、在场人物，按声明顺序逐项追加。"""
     reasons: list[WakeReason] = []
     if snap.planned_end is not None and snap.now >= snap.planned_end:
         reasons.append(WakeReason.PLANNED_END)
@@ -389,6 +412,14 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.PERSON_LEFT)
     if snap.discovery_result_ready:
         reasons.append(WakeReason.DISCOVERY_RESULT)
+    return reasons
+
+
+def _clock_reasons(snap: WakeSnapshot) -> list[WakeReason]:
+    """@brief 唤醒原因的后半（睡醒至班次边界）：睡醒、运行开始、播报、边界兜底、两种提醒与班次和休息时段的起止，
+    按声明顺序逐项追加；同一秒重合的起止各记一次，按 DUTY_EDGE_REASONS 的次序并列
+    （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界规则 ）。"""
+    reasons: list[WakeReason] = []
     if snap.wake_from_sleep:
         reasons.append(WakeReason.WAKE_FROM_SLEEP)
     if snap.run_start:
@@ -401,9 +432,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.PLAN_REMINDER_DUE)
     if snap.errand_reminder_due:
         reasons.append(WakeReason.ERRAND_REMINDER_DUE)
-    if snap.is_asleep:
-        reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
-    return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
+    reasons.extend(member for member in DUTY_EDGE_REASONS if member in snap.duty_edges_now)
+    return reasons
 
 
 def next_decision_time(query: NextDecisionQuery) -> int | None:
@@ -411,11 +441,13 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
     计算下一决策时刻：各项候选的最小值（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）。
 
     候选=计划结束、体感分级预计跨越、已排定通知与配送、承诺威胁边界、重估间隔
-    到期、地点营业变化、当日未触发的提醒与未提醒的个人事务提醒；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
+    到期、地点营业变化、进行中活动的播报到期、当日未触发的提醒、未提醒的个人事务提醒与清醒人物的班次与休息时段起止
+    （睡眠中剔除）；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
     睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」），is_asleep
     时剔除该项；
     当日目标提醒在睡眠中不剔除（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第四章），个人事务提醒在睡眠中剔除
-    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ）。无任何候选返回 None。游戏模式保持逐回合反馈，不经过本函数。
+    （docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-提醒时刻 ），班次与休息时段的起止同样在睡眠中剔除
+    （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。无任何候选返回 None。游戏模式保持逐回合反馈，不经过本函数。
 
     @param query 各候选时刻的汇总输入
     @return 下一决策时刻（UTC epoch 秒），无候选时为 None
@@ -439,6 +471,8 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
     candidates.extend(query.plan_reminder_times)
     if not query.is_asleep:
         candidates.extend(query.errand_reminder_times)
+    if not query.is_asleep:
+        candidates.extend(query.duty_edge_times)
     future = [moment for moment in candidates if moment > query.now]
     return min(future) if future else None
 

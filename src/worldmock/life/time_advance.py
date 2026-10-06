@@ -56,6 +56,7 @@ from worldmock.life.observe import ObservationBuilder
 from worldmock.life.rhythm import (
     RhythmBoundary,
     apply_engine_rhythm,
+    awake_duty_edge_times,
     decide_engine_rhythm,
     hold_body_settlements,
     settle_engine_rhythm,
@@ -458,11 +459,14 @@ class TimeAdvanceCoordinator:
         return True
 
     def _next_epoch(self) -> int:
-        """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界，含场景本地零点与未触发的提醒（第四章）。"""
+        """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界，含场景本地零点与未触发的提醒（第四章），以及清醒人物
+        的班次与休息时段起止：直接取生成器给出的严格晚于当前的时刻，睡眠中的人物不计入
+        （docs/dev/SPEC-idle-fillers.md#spec-idle-fillers-班次边界机制 ）。"""
         candidates = [
             self.context.state.end_time,
             *reminders.boundary_candidates(self.context.state, self.context.scenario.timezone),
         ]
+        candidates.extend(awake_duty_edge_times(self.context.state, self.context.scenario))
         candidates.extend(
             (item.due_at for item in self.context.state.pending_events if item.due_at > self.context.state.current_time)
         )
