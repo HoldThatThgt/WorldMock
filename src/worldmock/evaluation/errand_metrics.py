@@ -198,9 +198,9 @@ def _accepted_products(events: Sequence[Mapping[str, Any]]) -> dict[int, list[tu
 
 def _referred(data: Mapping[str, Any]) -> frozenset[str]:
     """@brief 一次被受理的请求指向的商品：结果顶层订单的商品（在途的也算，购买已受理），以及受理时活动快照（data.activity、
-    结果的 activity 与并行开始的 activities）里进食请求的商品与制作配方的产出。"""
+    结果的 activity 与并行开始的 activities）里进食请求的食品。"""
     payload = data.get("data") or {}
-    products = {order["product_id"] for order in payload.get("orders", [])}
+    products = {order["food_id"] for order in payload.get("orders", [])}
     for snapshot in (data.get("activity"), payload.get("activity"), *payload.get("activities", [])):
         if isinstance(snapshot, Mapping) and snapshot.get("kind") == "consume":
             products |= _consumed(snapshot.get("data") or {})
@@ -208,11 +208,10 @@ def _referred(data: Mapping[str, Any]) -> frozenset[str]:
 
 
 def _consumed(details: Mapping[str, Any]) -> set[str]:
-    """@brief 消费活动数据指向的商品：使用方式为食用时请求里的各件商品（进食），带库存转换配方时它的产出（制作）。"""
+    """@brief 消费活动数据指向的食品：使用方式为食用时请求里的各件食品。"""
     request = details.get("request") or {}
     eaten = {item["product_id"] for item in request.get("items", [])} if request.get("use_mode") == "eat" else set()
-    recipe = details.get("inventory_recipe")
-    return (eaten | {recipe["output_object_id"]}) if recipe else eaten
+    return eaten
 
 
 def _acted(life: _Errand, accepted: Sequence[tuple[int, int, frozenset[str]]], timezone: str) -> bool:

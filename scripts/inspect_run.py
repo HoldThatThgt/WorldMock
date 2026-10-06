@@ -119,7 +119,7 @@ def _brief(r: dict) -> str:
         return f"{d.get('kind')} {d.get('scheduled_id','')}"
     if t == "activity_progress":
         act = d.get("activity", {})
-        return f"{act.get('kind','?')} → {act.get('status','?')} target={act.get('target_id','')}"
+        return f"{act['name']} → {act['status']}"
     if t == "memory_updated":
         return f"{len(d.get('episode_ids', []))} 条"
     if "resource_changes" in d and d["resource_changes"]:
@@ -551,7 +551,7 @@ def _repeat_orders(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[str, int]:
     for fact in project_purchase_facts(events):
         if fact["fact_kind"] != "purchase":
             continue
-        key = (fact["agent_id"], fact["product_id"], _local_date(fact["created_at"], zone))
+        key = (fact["agent_id"], fact["food_id"], _local_date(fact["created_at"], zone))
         if key in seen:
             repeats[decisions.get(fact["action_id"])] += 1
         seen.add(key)

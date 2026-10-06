@@ -139,7 +139,8 @@ def _single_agent_export(tmp_path):
     ]
     store.commit(store.state, drafts)
     store.commit({**store.state, 'schema_version': WORLD_SCHEMA_VERSION, 'version': 1, 'current_time': 200},
-                 [EventDraft(event_id='fixture-run-end-1', event_type='run_ended', occurred_at=200)])
+                 [EventDraft(event_id='fixture-run-end-1', event_type='run_ended', occurred_at=200,
+                             visibility='system', source_kind='environment')])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     directory = tmp_path / 'export'
@@ -219,7 +220,8 @@ def _replay_export_pair(tmp_path):
 def _finish_export(store, directory):
     """补终态事件与最终检查点后形成正式导出。"""
     store.commit(dict(store.state, version=store.state['version'] + 1, current_time=200),
-                 [EventDraft(event_type='run_ended', occurred_at=200)])
+                 [EventDraft(event_type='run_ended', occurred_at=200,
+                             visibility='system', source_kind='environment')])
     reference = store.assets.put_json({'complete': True}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     export_run(store, point.last_event_seq, directory)
@@ -360,13 +362,18 @@ def test_deliver_success_path_publishes_full_manifest(dataset_tmp_path, monkeypa
     _fake_labelkit_cli(monkeypatch, calls)
     destination = tmp_path / 'delivery'
 
-    manifest = deliver(_single_agent_export(tmp_path), destination, ROOT)
+    source = _single_agent_export(tmp_path)
+    manifest = deliver(source, destination, ROOT)
 
     assert calls == ['action', 'intent', 'dreaming', 'rules']
-    assert manifest['schema_version'] == 2 and manifest['committed'] is True
+    assert manifest['schema_version'] == 3 and manifest['committed'] is True
     assert manifest['run_id'] == 'run' and manifest['source_group_id'] == 'run'
     assert manifest['environment_identity'] == environment_identity(
         load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/multi-person.json')[0])
+    assert manifest['artifacts']['app_usage'] == json.loads((source / 'manifest.json').read_text())['artifacts']['app_usage']
+    assert (destination / 'app-usage.jsonl').read_bytes() == (source / 'app-usage.jsonl').read_bytes()
+    assert 'app-usage.jsonl' in manifest['files']
+    assert 'map_dataset' not in manifest
     assert set(manifest['labelkit']) == {'action', 'intent', 'dreaming', 'rules'}
     for task in SEMANTIC_TASKS:
         receipt = manifest['labelkit'][task]
@@ -995,7 +1002,8 @@ def test_prepare_windows_rejects_export_without_any_task_window(tmp_path):
     store.commit(store.state, [EventDraft(event_type='environment_event', occurred_at=100,
                                           visibility='system', data={'kind': 'silent'})])
     store.commit({**store.state, 'version': 1, 'current_time': 200},
-                 [EventDraft(event_type='run_ended', occurred_at=200)])
+                 [EventDraft(event_type='run_ended', occurred_at=200,
+                             visibility='system', source_kind='environment')])
     reference = store.assets.put_json({'saved': True}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     directory = tmp_path / 'export'

@@ -6,6 +6,8 @@ import json
 import pytest
 
 from tests.delivery.prompt_fixtures import layered_user, six_layers
+from tests.delivery.test_host_delivery_coverage import _funded_store
+from tests.life.purchase_worlds import registered_world
 from worldmock.delivery.evidence_encoding import decode_model_record
 from worldmock.delivery.pipeline import write_model_inputs
 from worldmock.delivery.replay import replay_windows
@@ -14,6 +16,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
+from worldmock.life.run_identity import environment_identity
 
 
 #: 分支中实际行动请求的六层 JSON（进度层带余额被改后的一条结果，便于核对来源）。
@@ -21,35 +24,49 @@ BRANCH_LAYERS = six_layers([{'type': 'tool_call', 'tool': 'start_activity', 'res
 
 
 def finish_export(store, directory):
-    store.commit({'version': store.state['version'] + 1, 'current_time': 200},
-                 [EventDraft(event_type='run_ended', occurred_at=200)])
+    store.commit({**store.state, 'version': store.state['version'] + 1, 'current_time': 200},
+                 [EventDraft(event_type='run_ended', occurred_at=200,
+                             visibility='system', source_kind='environment')])
     reference = store.assets.put_json({'complete': True}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     export_run(store, point.last_event_seq, directory)
 
 
+def _run_manifest(run_id):
+    """@brief 重演夹具的运行身份绑定当前真实人工目录，不用缺字段的旧清单。"""
+    semantics, _ = registered_world()
+    return {'run_id': run_id, 'source_group_id': run_id, 'agent_ids': [1],
+            'model_identity': {'name': 'fixture'}, 'schema_version': 3,
+            'environment_identity': environment_identity(semantics),
+            'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
+
+
 @pytest.fixture
 def pair(tmp_path):
-    manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
-                'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
+    manifest = _run_manifest('parent')
+    parent = _funded_store(tmp_path / 'parent', manifest)
     observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
-                                                       agent_id=1, data={'balance_fen': 800})])[0]
+                                                       agent_id=1, data={'balance_fen': 800,
+                                                                         'verified_experiences': []})])[0]
     ref = parent.assets.put_json({'state': 'parent'}, {'kind': 'fixture'})
     checkpoint = parent.checkpoint(parent.state, {'agent:1': ref, 'life': ref})
     request = {'kind': 'set_balance_fen', 'agent_id': 1, 'balance_fen': 50,
                'hypothesis': 'Less liquidity may reduce purchases.', 'source_event_ids': [observed.event_id]}
     digest = hashlib.sha256(canonical_json({'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
     child = restore_branch(parent, checkpoint.checkpoint_id, tmp_path / 'child', {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
-    child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
+    child.commit({**child.state, 'accounts': {**child.state['accounts'], 'agent:1': 50},
+                  'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
         event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
         caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',
                                            'intervention_kind': 'set_balance_fen', 'hypothesis': request['hypothesis'],
                                            'source_event_ids': request['source_event_ids'],
                                            'intervention_sha256': digest, 'before_balance_fen': 800,
-                                           'after_balance_fen': 50})])
+                                           'after_balance_fen': 50,
+                                           'resource_changes': {'account:agent:1': -750,
+                                                                'account:external:scenario': 750}})])
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
-                                          decision_id='branch-decision', data={'balance_fen': 50}),
+                                          decision_id='branch-decision', data={'balance_fen': 50,
+                                                                               'verified_experiences': []}),
                                EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
                                           decision_id='branch-decision', visibility='system', data={
                                               'phase': 'request', 'request': {
@@ -125,10 +142,7 @@ def test_original_world_cannot_be_mislabeled_as_an_actual_replay(pair):
 
 def test_actual_branch_rejects_unrelated_parent(pair, tmp_path):
     source, replay, _origin, _digest = pair
-    parent = FootprintStore.create(tmp_path / 'unrelated', {
-        'run_id': 'unrelated', 'source_group_id': 'unrelated', 'agent_ids': [1],
-        'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
-    }, {'version': 0, 'current_time': 100})
+    parent = _funded_store(tmp_path / 'unrelated', _run_manifest('unrelated'))
     other = tmp_path / 'other-export'
     finish_export(parent, other)
     parent.close()

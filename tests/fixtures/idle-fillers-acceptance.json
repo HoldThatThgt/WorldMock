@@ -12,7 +12,7 @@
       "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
       "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
       "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
-      "tests/life/test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately",
+      "tests/life/test_work_topics.py::test_actual_engine_eight_hours_emit_own_completion_progress_and_remove_start_target",
       "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
       "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"
     ],
@@ -166,9 +166,7 @@
       "tests/life/test_day_planning.py::test_reminders_wake_once_merge_and_fire_after_the_goal_progressed",
       "tests/life/test_errand_reminder.py::test_an_awake_person_is_reminded_once_exactly_on_time_and_the_errand_is_unchanged",
       "tests/life/test_activity_wake_facts.py::test_an_own_delivery_during_a_wait_offers_a_decision_and_the_wait_goes_on",
-      "tests/life/test_activity_wake_facts.py::test_a_task_opening_during_a_wait_offers_a_decision_and_the_wait_goes_on",
       "tests/life/test_activity_wake_facts.py::test_a_sleeper_gets_no_decision_when_an_own_delivery_arrives",
-      "tests/life/test_activity_wake_facts.py::test_a_sleeper_gets_no_decision_when_a_task_opens",
       "tests/life/test_shift_edge_runs.py::test_t2_each_edge_offers_one_decision_with_its_name_and_moves_the_duty_status",
       "tests/life/test_app_push.py::test_full_push_summary_and_source_discriminator_project_from_committed_event",
       "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"

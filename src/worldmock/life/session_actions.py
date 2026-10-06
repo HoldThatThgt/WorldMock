@@ -198,7 +198,7 @@ class ActionHandlers:
                 changed, pending.agent_id, place_names(self.context.scenario), opened_by_action_id=pending.action_id
             )
         (changed, receipt) = self._apply_errands(changed, pending, changes)
-        result = self._control_result(state, pending, "Activities concluded", requested, selected)
+        result = self._control_result(state, pending, "Activities concluded", selected)
         data = {**result.data, "errands": receipt, "memory_sources": self._memory_sources(pending, requested, selected)}
         outcome = self._conclusion_outcome(changed, pending.agent_id, requested, selected)
         if outcome:
@@ -231,7 +231,7 @@ class ActionHandlers:
             )
         changed = self._with_notes(changed, selected, [item.summary for item in items])
         (changed, receipt) = self._apply_errands(changed, pending, changes)
-        result = self._control_result(state, pending, "Activity paused", requested, selected)
+        result = self._control_result(state, pending, "Activity paused", selected)
         result = result.model_copy(update={"data": {**result.data, "errands": receipt}})
         return (changed, _with_names(result, zip(written, requested)))
 
@@ -296,7 +296,7 @@ class ActionHandlers:
                 resumed.append({"name": name, "planned_duration_seconds": planned})
         changed = self._with_notes(changed, selected, [item.summary for item in items], anchor=True)
         (changed, receipt) = self._apply_errands(changed, pending, changes)
-        result = self._control_result(state, pending, "Activity status reported", requested, selected)
+        result = self._control_result(state, pending, "Activity status reported", selected)
         work = self._reported_work(changed, pending.agent_id, requested, selected)
         data = {**result.data, "errands": receipt, **({"resumed": resumed} if resumed else {}),
                 **({"work": work} if work else {})}
@@ -348,16 +348,16 @@ class ActionHandlers:
         return changes
 
     def _control_result(
-        self, state: WorldState, pending: PendingAction, message: str, names: list[str], selected: list[ActivityState]
+        self, state: WorldState, pending: PendingAction, message: str, selected: list[ActivityState]
     ) -> ActionResult:
-        """@brief 控制动作的结果：逐项的可读活动名与活动身份（私有），供评估逐活动投影。"""
+        """@brief 控制动作只登记实际活动身份供私有逐活动投影；结果不复述请求中的名称。"""
         return ActionResult(
             action_id=pending.action_id,
             agent_id=pending.agent_id,
             status=ActionStatus.COMPLETED,
             occurred_at=state.current_time,
             message=message,
-            data={"task": list(names), "activity_ids": [item.activity_id for item in selected]},
+            data={"activity_ids": [item.activity_id for item in selected]},
         )
 
     def _with_goal_summaries(self, state: WorldState, pairs: list[tuple[ActivityState, str]]) -> WorldState:
@@ -716,12 +716,8 @@ class ActionHandlers:
 
     def _frozen_observation(self, pending: PendingAction) -> dict:
         """@brief 读取当前决策的已提交观察事件，作为名称与报价的唯一解析来源；缺失或不唯一时 OBSERVATION_NOT_FOUND。"""
-        events = self.context.store.read_agent_events("observation", pending.agent_id)
-        matches = [
-            event
-            for event in events
-            if event.decision_id == pending.decision_id and event.occurred_at == pending.observed_at
-        ]
+        matches = self.context.store.read_decision_observations(
+            pending.agent_id, pending.decision_id, pending.observed_at)
         if len(matches) != 1:
             _LOGGER.error("Decision observation is missing or ambiguous")
             raise BusinessRuleError("OBSERVATION_NOT_FOUND")

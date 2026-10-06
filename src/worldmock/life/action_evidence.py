@@ -35,9 +35,8 @@ def _terminal_action_records(state: WorldState, result: ActionResult) -> dict[st
 def _result_draft(pending: PendingAction, result: ActionResult, event_type: str) -> EventDraft:
     """@brief 将动作结果与原请求事件建立直接因果回链。"""
     data = result.model_dump(mode="json")
-    for field in ("resource_changes", "category_matches"):
-        if field in result.data:
-            data[field] = result.data[field]
+    if "resource_changes" in result.data:
+        data["resource_changes"] = result.data["resource_changes"]
     return EventDraft(event_type=event_type, occurred_at=result.occurred_at, agent_id=result.agent_id,
                       decision_id=pending.decision_id, action_id=pending.action_id,
                       activity_id=result.activity_id, caused_by=_pending_causes(pending),

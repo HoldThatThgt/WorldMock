@@ -69,7 +69,7 @@ def test_pause_report_resume_and_conclude_name_the_activity(engine_factory):
     _, paused = _observed_action(engine, "pause-wait", "pause_activity",
                                  pause_request(name, summary="先处理来信"))
     assert paused.status == "completed", paused.error_code
-    assert paused.data == {"task": [name], "activity_ids": [started.activity_id], "errands": []}
+    assert paused.data == {"activity_ids": [started.activity_id], "errands": []}
     activity = engine.context.state.activities[started.activity_id]
     assert activity.status == ActivityStatus.PAUSED and activity.progress_note == "先处理来信"
     assert engine.scheduling_state().ready_agent_ids == (1,)  # 没有进行中活动，同一秒再决策
@@ -133,7 +133,7 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     before = engine.context.state.current_time
     _, rejected = _observed_action(
         engine, "unknown-object", "start_activity",
-        start_request(targets=["不存在的对象"], actions=["interact"], ways=["观看"]))
+        start_request(targets=["不存在的对象"], actions=["interact"], ways=["打开"]))
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
     assert engine.context.state.current_time == before
     assert engine.context.state.agents[1].next_decision_at == engine.context.state.current_time

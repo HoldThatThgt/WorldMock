@@ -22,7 +22,7 @@ _KIND_FIELDS = {
     "consumed": frozenset({"food_id", "category", "location_id", "interval_portion", "cumulative_portion",
                            "interval_start", "interval_end"}),
     "arrived": frozenset({"location_id", "access_status"}),
-    "played": frozenset({"content_id", "position_before_seconds", "position_after_seconds",
+    "played": frozenset({"content_id", "app_id", "position_before_seconds", "position_after_seconds",
                          "interval_start", "interval_end"}),
 }
 
@@ -96,7 +96,7 @@ def _validate_consumed_fact(row: dict[str, Any]) -> None:
 def _validate_played_fact(row: dict[str, Any]) -> None:
     """@brief 校验真实播放内容和正向媒体区间。"""
     start, end = row["position_before_seconds"], row["position_after_seconds"]
-    if (not isinstance(row["content_id"], str) or not row["content_id"]
+    if (any(not isinstance(row[key], str) or not row[key] for key in ("content_id", "app_id"))
             or not _finite_number(start) or not _finite_number(end) or not 0 <= start < end):
         _invalid("Observed playback evidence is invalid")
 
@@ -162,7 +162,7 @@ def _project_event(event: Event) -> list[dict[str, Any]]:
         return [_waited(event, activity)]
     if kind == "consume":
         return _consumed(event, activity)
-    if kind == "watch":
+    if kind == "use_app":
         row = _played(event, activity)
         return [row] if row is not None else []
     if kind == "travel":
@@ -232,12 +232,12 @@ def _consumption_item(item: Any) -> tuple[float, float, str, str]:
 
 def _played(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:
     """@brief 仅以真实前进的媒体位置证明内容接触。"""
-    detail = activity.get("data")
-    reveal = detail.get("revealed") if isinstance(detail, dict) else None
-    content_id = activity.get("target_id")
-    if not isinstance(reveal, dict) or not isinstance(content_id, str) or not content_id:
-        _invalid("Playback progress has no revealed content evidence")
-    start, end = reveal.get("position_before_seconds"), reveal.get("position_after_seconds")
+    del activity
+    content = event.data.get("content")
+    if (not isinstance(content, dict)
+            or any(not isinstance(content.get(key), str) or not content[key] for key in ("content_id", "app_id"))):
+        _invalid("Playback progress has no app content evidence")
+    start, end = content.get("position_before_seconds"), content.get("position_after_seconds")
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in (start, end)):
         _invalid("Playback position is invalid")
     if end < start:
@@ -245,7 +245,7 @@ def _played(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:
     if end == start:
         return None
     interval_start, interval_end = _interval(event)
-    return {**_base(event, "played"), "content_id": content_id,
+    return {**_base(event, "played"), "content_id": content["content_id"], "app_id": content["app_id"],
             "position_before_seconds": start, "position_after_seconds": end,
             "interval_start": interval_start, "interval_end": interval_end}
 

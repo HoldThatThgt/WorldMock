@@ -16,11 +16,13 @@ from custom.agents.life_prompt import life_user_layers, system_message, user_mes
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
                                  start_activity, submit_round, wake_by_mail, start_request)
 from worldmock.delivery.windows import prepare_windows
-from worldmock.footprints.export import export_run
-from worldmock.footprints.models import EventDraft
+from worldmock.footprints.export import export_run, write_jsonl
+from worldmock.footprints.models import Event, EventDraft
 from worldmock.footprints.validation import validate_export
+from worldmock.errors import IntegrityError
 from worldmock.life.models import (PauseActivityRequest, ReportStatusRequest, SendMessageActionRequest,
-                                   StartActivityRequest)
+                                   StartActivityRequest, active_activities)
+from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
 from worldmock.runtime import settle_pending_model_replies
 
@@ -43,6 +45,12 @@ class _StubReplyClient:
         return {"model": self.model_name,
                 "choices": [{"message": {"content": text}}],
                 "usage": {"prompt_tokens": 21, "completion_tokens": 7}}
+
+
+def _model_contact(document):
+    """@brief 本测试明确声明模型回复联系人，人工环境不默认包含任意通讯录。"""
+    document["agents"][0]["contacts"] = [{"contact_id":"contact-chenxi-oldfriend", "salutation":"老友",
+        "relation":"朋友", "closeness":16, "channels":["phone"], "reply_policy":"model"}]
 
 
 def _send_message_to_model_contact(engine, round_id: str) -> None:
@@ -337,7 +345,7 @@ def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:
     """
     stage_day_plan(engine)
     observed = {}
-    _, watch = _round(engine, "watch", "start_activity", lambda seen: _offered(seen, "watch"))
+    _, watch = _round(engine, "watch", "start_activity", lambda seen: _offered(seen, "use_app"))
     ids = {"watch": watch.activity_id}
     _next_opportunity(engine)
     _round(engine, "pause", "pause_activity", _control(ids["watch"], PauseActivityRequest, "先停一下。"))
@@ -391,7 +399,7 @@ def test_person_conclusion_keeps_memories_in_request_and_registers_private_sourc
     assert result.data["data"]["memory_sources"] == [{
         "task": name, "activity_id": ids["wait"], "session_id": waited.session_ids[-1],
         "verified_event_ids": verified}]
-    assert result.data["data"]["activity_ids"] == [ids["wait"]] and result.data["data"]["task"] == [name]
+    assert result.data["data"]["activity_ids"] == [ids["wait"]] and "task" not in result.data["data"]
     assert (waited.status, waited.interruption_reason) == ("cancelled", "agent_cancelled")
     assert waited.concluded_at == result.occurred_at
     terminal = [event for event in _events(engine, "action_result", "action-wait")
@@ -455,7 +463,7 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
 async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_factory) -> None:
     """成功回复：独立调用参数正确、证据在生成时写入；回复预排在 CONTACT_REPLY_DELAY_SECONDS 后送达，到期才进收件箱，
     留 message_arrival 送达记录并以 message_arrival 唤醒清醒的收件人；不改资源（裁决 #21）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_model_contact)
     _send_message_to_model_contact(engine, "npc-reply")
     sent_at = engine.context.state.current_time
     due = sent_at + CONTACT_REPLY_DELAY_SECONDS
@@ -511,7 +519,7 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
 @pytest.mark.asyncio
 async def test_model_npc_reply_transport_failure_propagates(engine_factory) -> None:
     """传输异常按运行故障传播：不吞异常、不留半写状态。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_model_contact)
     _send_message_to_model_contact(engine, "npc-reply-fail")
 
     client = _StubReplyClient(error=OSError("connection reset by peer"))
@@ -526,7 +534,7 @@ async def test_model_npc_reply_transport_failure_propagates(engine_factory) -> N
 @pytest.mark.asyncio
 async def test_model_npc_reply_at_most_once_per_message(engine_factory) -> None:
     """同一消息最多一次回复：二次结算零调用、零重复收件。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_model_contact)
     _send_message_to_model_contact(engine, "npc-reply-once")
 
     client = _StubReplyClient()
@@ -539,3 +547,197 @@ async def test_model_npc_reply_at_most_once_per_message(engine_factory) -> None:
     _wait_until_reply_due(engine, engine.context.state.current_time + CONTACT_REPLY_DELAY_SECONDS)
     inbox_ids = list(engine.context.state.agents[1].inbox)
     assert len(inbox_ids) == len(set(inbox_ids)) == 1
+
+
+def _app_export_window(document):
+    """@brief 显式声明短运行窗口，经真实时钟覆盖整点推送及最长内容的实际完成。"""
+    document["start_at"] = "2026-01-05T07:59:00+08:00"
+    document["end_at"] = "2026-01-05T08:55:00+08:00"
+    document["messages"][0]["sent_at"] = "2026-01-05T08:54:00+08:00"
+    document["payrolls"][0]["due_at"] = "2026-01-05T08:45:00+08:00"
+
+
+def _drive_app_export(engine, target, app_name=None):
+    """@brief 只提交可见当前动作并推进实际排程边界，不改写时钟、内容或推送状态。"""
+    for step in range(300):
+        if engine.context.state.current_time >= target:
+            return
+        if not engine.scheduling_state().ready_agent_ids:
+            advance_next(engine)
+            continue
+        pending = pending_conclusions(engine.context.state, 1)
+        active = active_activities(engine.context.state, 1)
+        if pending:
+            request = ("conclude_activity", conclude_request(*(item.name for item in pending)))
+        elif active:
+            request = ("report_status", ReportStatusRequest(items=[
+                {"activity_name":item.name, "summary":"继续看当前内容。"} for item in active], errands=[]))
+        else:
+            request = ("start_activity", start_activity("等待", "自己") if app_name is None else
+                       start_activity("打开", f"应用：{app_name}"))
+        _, results = submit_round(engine, {1:request}, f"app-export-{target}-{step}")
+        assert results[0].status in {"completed", "in_progress"}
+    raise AssertionError("App export did not reach its actual boundary")
+
+
+@pytest.fixture
+def completed_app_export(engine_factory, tmp_path):
+    """@brief 真实引擎发出推送、人物打开并消费后，以完整共同检查点认证导出。"""
+    engine = engine_factory(mutate=_app_export_window)
+    stage_day_plan(engine)
+    target = min(event.due_at for event in engine.context.state.pending_events if event.kind == "app_push")
+    _drive_app_export(engine, target)
+    push = next(event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+                if event.event_type == "environment_event" and event.data.get("kind") == "app_push"
+                and "push_id" in event.data)
+    _drive_app_export(engine, engine.context.state.end_time, push.data["app"])
+    reference = engine.context.store.assets.put_json({"agent_id":1}, {"kind":"app_export_test"})
+    checkpoint = engine.checkpoint({"agent:1":reference})
+    directory = tmp_path / "app-export"
+    manifest = export_run(engine.context.store, checkpoint.last_event_seq, directory)
+    return directory, engine, manifest, push
+
+
+def test_real_app_export_has_five_source_bound_fact_types_and_exact_quality_sections(completed_app_export):
+    """@brief 五类 app 事实与实际活动、内容、推送逐项相符；同一前缀能认证重算。"""
+    directory, engine, manifest, push = completed_app_export
+    validated, events, activities = validate_export(directory)
+    assert validated == manifest and manifest["schema_version"] == 3
+    assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage"}
+    facts = [json.loads(line) for line in (directory / "app-usage.jsonl").read_text().splitlines()]
+    assert {row["fact_kind"] for row in facts} == {
+        "app_use", "content_consumed", "push_delivered", "push_opened", "push_released"}
+    sources = {event["event_id"]:event for event in events}
+    assert all(row["source_event_id"] in sources for row in facts)
+    for row in (row for row in facts if row["fact_kind"] == "content_consumed"):
+        evidence = sources[row["source_event_id"]]["data"]["content"]
+        assert (row["content_id"], row["app_id"], row["kind"], row["completed"]) == (
+            evidence["content_id"], evidence["app_id"], evidence["kind"], evidence["completed"])
+        assert (row["position_before"], row["position_after"]) == (
+            evidence["position_before_seconds"], evidence["position_after_seconds"])
+    consumed_pin = [row for row in facts if row["fact_kind"] == "content_consumed" and row["push_id"]]
+    assert consumed_pin and {row["push_id"] for row in consumed_pin} == {push.data["push_id"]}
+    assert any(row["completed"] and row["content_id"] == push.data["content_id"] for row in consumed_pin)
+    app_uses = [row for row in facts if row["fact_kind"] == "app_use"]
+    assert len(app_uses) == len({row["activity_id"] for row in app_uses})
+    assert {row["activity_id"] for row in app_uses} == {
+        activity["activity_id"] for activity in activities if activity["activity_type"] == "use_app"}
+    quality = json.loads((directory / "quality.json").read_text())
+    assert quality["schema_version"] == 5
+    assert set(quality["content_contact"]) == {"by_app", "by_kind", "repeat_watch"}
+    assert quality["content_contact"]["by_app"] == {push.data["app_id"]:sum(
+        row["fact_kind"] == "content_consumed" for row in facts)}
+    assert quality["app_pushes"] == {"pushed":1, "opened_in_session":1, "consumed_pinned":1,
+        "released_by_completion":1, "expired_with_session":0, "outside_window_violations":0}
+    assert set(quality["work_topics"]) == {"topics", "completed", "worked_seconds_by_topic", "reports"}
+    assert "work" not in quality["conversion_efficiency"]
+    assert "work_review" not in {row["purpose"] for row in quality["model_usage"]["by_purpose"]}
+    assert manifest["frozen_run_manifest"]["environment_identity"] == engine.context.store.manifest[
+        "environment_identity"]
+
+
+@pytest.mark.parametrize("rehash", [False, True])
+def test_real_app_export_rejects_tampered_or_rehashed_content_facts(completed_app_export, rehash):
+    """@brief 修改内容事实即使重写文件摘要和行数，仍因真实事件重算不一致而拒绝。"""
+    directory, _, manifest, _ = completed_app_export
+    path = directory / "app-usage.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    next(row for row in rows if row["fact_kind"] == "content_consumed")["content_id"] = "invented-content"
+    raw = b"".join(json.dumps(row, ensure_ascii=False, sort_keys=True).encode() + b"\n" for row in rows)
+    path.write_bytes(raw)
+    if rehash:
+        manifest["artifacts"]["app_usage"].update(rows=len(rows), sha256=hashlib.sha256(raw).hexdigest())
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(IntegrityError, match="artifact hash|app usage facts disagree"):
+        validate_export(directory)
+
+
+@pytest.mark.parametrize("kind", ["push", "progress"])
+@pytest.mark.parametrize("field,value", [("source_kind", "model"), ("visibility", "system"),
+                                        ("visibility", "evaluation")])
+def test_real_app_export_rejects_rehashed_events_with_forged_fact_provenance(completed_app_export, kind, field, value):
+    """@brief 真正运行事件改成模型或私有来源，即使事件与经历文件都重算摘要，也不能再认证。"""
+    directory, _, manifest, _ = completed_app_export
+    rows = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+    if kind == "push":
+        forged = next(row for row in rows if row["event_type"] == "environment_event"
+                      and row["data"].get("kind") == "app_push" and "push_id" in row["data"])
+    else:
+        forged = next(row for row in rows if row["event_type"] == "activity_progress" and "content" in row["data"])
+    forged[field] = value
+    for row in rows:
+        Event.model_validate(row)
+    manifest["artifacts"]["events"] = write_jsonl(directory / "events.jsonl", rows)
+    # 模拟连同经历派生文件一起重签的篡改，拒绝必须落在真实来源合同而非遗漏的派生摘要。
+    experiences = [json.loads(line) for line in (directory / "verified-experiences.jsonl").read_text().splitlines()]
+    experiences = [row for row in experiences if row["source_event_id"] != forged["event_id"]]
+    manifest["artifacts"]["verified_experiences"] = write_jsonl(
+        directory / "verified-experiences.jsonl", experiences)
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(IntegrityError, match="agent-visible environment event|invalid provenance or visibility"):
+        validate_export(directory)
+
+
+@pytest.fixture
+def completed_travel_export(engine_factory, tmp_path):
+    """@brief 真正步行到公司并推进完整窗口，认证实际出行、推送和会话到达。"""
+    engine = engine_factory(mutate=_app_export_window)
+    stage_day_plan(engine)
+    _, results = submit_round(engine, {1:("start_activity", start_activity("步行", "地点：公司"))},
+                              "travel-export-start")
+    assert results[0].status == "in_progress"
+    _drive_app_export(engine, engine.context.state.end_time)
+    reference = engine.context.store.assets.put_json({"agent_id":1}, {"kind":"travel_export_test"})
+    checkpoint = engine.checkpoint({"agent:1":reference})
+    directory = tmp_path / "travel-export"
+    manifest = export_run(engine.context.store, checkpoint.last_event_seq, directory)
+    return directory, engine, manifest
+
+
+@pytest.mark.parametrize("fixture", ["completed_app_export", "completed_travel_export"])
+@pytest.mark.parametrize("field,value", [("source_kind", "model"), ("visibility", "system"),
+                                        ("event_type", "model_response")])
+def test_real_export_rejects_rehashed_app_or_travel_snapshot_provenance(request, fixture, field, value):
+    """@brief 真实活动受理快照改成私有或模型事件，即使重签事件文件，也不能投影 app 或会话事实。"""
+    directory, _, manifest, *_ = request.getfixturevalue(fixture)
+    rows = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+    forged = next(row for row in rows if row["event_type"] == "action_accepted"
+                  and row["data"].get("activity", {}).get("kind") in {"use_app", "travel"})
+    forged[field] = value
+    Event.model_validate(forged)
+    manifest["artifacts"]["events"] = write_jsonl(directory / "events.jsonl", rows)
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(IntegrityError, match="agent-visible environment events"):
+        validate_export(directory)
+
+
+def test_real_export_rejects_rehashed_content_injected_into_a_wait_activity(completed_app_export):
+    """@brief 实际等待事件夹带完成轮次也不能制造 repeat_watch 或手机消费，来源真实不等于正文真实。"""
+    directory, _, manifest, _ = completed_app_export
+    rows = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+    content = next(row["data"]["content"] for row in rows if row["event_type"] == "activity_progress"
+                   and "content" in row["data"])
+    waiting = next(row for row in rows if row["event_type"] == "activity_progress"
+                   and row["data"]["activity"]["kind"] == "wait")
+    waiting["data"]["content"] = dict(content, completed_rounds_after=7)
+    Event.model_validate(waiting)
+    manifest["artifacts"]["events"] = write_jsonl(directory / "events.jsonl", rows)
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(IntegrityError, match="Content consumption must belong to a use_app activity"):
+        validate_export(directory)
+
+
+@pytest.mark.parametrize("field,value", [("source_kind", "model"), ("visibility", "agent"),
+                                        ("visibility", "evaluation")])
+def test_real_export_rejects_rehashed_run_end_provenance(completed_app_export, field, value):
+    """@brief 真实运行结束事件重签成模型或人物正文，也不能宣称会话结束并制造过期事实。"""
+    directory, _, manifest, _ = completed_app_export
+    rows = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+    ending = next(row for row in rows if row["event_type"] == "run_ended")
+    assert ending["source_kind"] == "environment" and ending["visibility"] == "system"
+    ending[field] = value
+    Event.model_validate(ending)
+    manifest["artifacts"]["events"] = write_jsonl(directory / "events.jsonl", rows)
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(IntegrityError, match="Run end must be a system-visible environment event"):
+        validate_export(directory)

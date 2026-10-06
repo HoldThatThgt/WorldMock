@@ -19,8 +19,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from typing import Any
 
+from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
 from worldmock.life.activity_evidence import is_eating
@@ -44,6 +46,8 @@ class ActivityFacts:
 
     pauses: PauseIntervals
     endings: Mapping[str, Event]
+    #: 本活动当前尚未看完但确有正向消费的内容，完全由活动进度事件派生。
+    app_progress: Mapping[str, str]
 
 
 def record_lines(context: LayerContext, record: dict, sources: list[Event],
@@ -77,7 +81,7 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
 
 
 def activity_sentence(context: LayerContext, activity: ActivityState,
-                      pauses: Sequence[tuple[int, int]] = ()) -> str:
+                      pauses: Sequence[tuple[int, int]] = (), app_progress: Mapping[str, str] | None = None) -> str:
     """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，进食另写吃掉与丢弃的份数
     （与收尾结果 details.outcome 同一结算事实）。
 
@@ -93,12 +97,41 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
         sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
         discarded = sum(activity.data.get("discarded", {}).values())
         sentence += f"，丢弃 {portion_phrase(discarded)}" if discarded > 0 else ""
+    if activity.kind == ActivityKind.USE_APP:
+        if app_progress is None:
+            logging.error("App activity sentence has no authenticated progress evidence")
+            raise IntegrityError("App activity sentence has no authenticated progress evidence")
+        content = _app_sentence(context, activity, app_progress.get(activity.activity_id))
+        sentence += f"，{content}" if content else ""
     return sentence
 
 
+def _app_sentence(context: LayerContext, activity: ActivityState, advanced_content_id: str | None) -> str:
+    """@brief 按已完成列表与当前真实推进写应用内容；刚抽到但尚未推进的内容不计入经历。"""
+    titles = "".join(f"《{context.rules.contents[row['content_id']].title}》" for row in activity.data["played"])
+    current = context.rules.contents[activity.data["content_id"]]
+    partial = advanced_content_id == current.content_id
+    if not titles and not partial:
+        return ""
+    app = context.rules.apps[activity.target_id].name
+    if not titles:
+        return f"用{app}看了《{current.title}》的一部分"
+    return f"用{app}看了{titles}" + (f"（《{current.title}》看了一部分）" if partial else "")
 
 
-
+def app_progress(events: Iterable[Event], previous: Mapping[str, str]) -> dict[str, str]:
+    """@brief 从认证的本活动消费区间派生当前部分观看；完成时清除，自动抽出的下一项不算消费。"""
+    progress = dict(previous)
+    for event in events:
+        if (event.event_type != "activity_progress" or event.source_kind != "environment"
+                or event.visibility != "agent" or event.data["activity"]["kind"] != "use_app"):
+            continue
+        content = event.data["content"]
+        if content["completed"]:
+            progress.pop(event.activity_id, None)
+        elif content["position_after_seconds"] > content["position_before_seconds"]:
+            progress[event.activity_id] = content["content_id"]
+    return progress
 
 def purchase_sentence(context: LayerContext, order: dict[str, Any], answering: str | None) -> str:
     """@brief 一个订单的句子：「10:20 远程下单牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>（回应王磊 10:15 的消息，
@@ -147,7 +180,9 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
     if fact["kind"] == "consumed":
         names = {item.food_id: item.name for item in scenario.foods}
         return f"{span} 吃了{names[fact['food_id']]}"
-    return f"{span} 使用应用观看了《{context.rules.content_titles[fact['content_id']]}》"
+    app = context.rules.apps[fact["app_id"]].name
+    title = context.rules.contents[fact["content_id"]].title
+    return f"{span} 用{app}看了《{title}》"
 
 
 def activity_endings(events: Iterable[Event]) -> dict[str, Event]:
@@ -170,7 +205,7 @@ def ending_lines(context: LayerContext, facts: ActivityFacts,
                  keep: Callable[[Event], bool]) -> list[tuple[Event, str]]:
     """@brief 结束事件满足 keep 的本人活动各一句（activity_sentence，起止含已恢复的暂停区间），按结束事件的序号排列。"""
     rows = [(event, activity_sentence(context, context.state.activities[activity_id],
-                                      facts.pauses.get(activity_id, ())))
+                                      facts.pauses.get(activity_id, ()), facts.app_progress))
             for activity_id, event in facts.endings.items() if keep(event)]
     return sorted(rows, key=lambda row: row[0].event_seq)
 
@@ -213,7 +248,8 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts
         return [f"{_clock(context, record['occurred_at'])} 给{person}发消息：{record['arguments']['text']}"]
     if tool == "conclude_activity":
         return [] if facts is None else [
-            activity_sentence(context, context.state.activities[activity_id], facts.pauses.get(activity_id, ()))
+            activity_sentence(context, context.state.activities[activity_id], facts.pauses.get(activity_id, ()),
+                              facts.app_progress)
             for activity_id in payload.get("activity_ids", []) if activity_id in facts.endings]
     lines = [purchase_sentence(context, order, payload.get("answering")) for order in payload.get("orders", [])]
     return lines + [give_sentence(context, record["occurred_at"], item) for item in payload.get("given", [])]

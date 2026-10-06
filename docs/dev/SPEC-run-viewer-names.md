@@ -1,6 +1,8 @@
 <a name="spec-run-viewer-names-运行查看器对象名称"></a>
 # 运行查看器对象名称
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地点名称」（阶段 2）与「活动标题、运行内对象名称」（阶段 4）。
 
 > 状态：FROZEN；「活动标题」按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 21 行修订（一日运行保真 RV1），修订部分已实现并通过离线验收（`tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py`、`tests/footprints/test_render_day.py`）；「运行内对象名称」按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 RV1），「运行内对象名称」与「缺失与重新加载」另按查看器实现的独立核对补充三处（商品名称的补缺来源 `data.errand_item_bindings`、事务变更的逐条读取规则、个人事务的缺失提示），两次修订的条款都已实现并通过离线验收：缺 `errands` 键即报错与六种事务事件、事务提醒的中文说法随该规格阶段 2 的代码实现，请求摘要写事务变更、事务事件与事务提醒写事务名称与商品名称由 `1346e0d` 实现，补充的三处与对 `1346e0d` 独立核对后的修正由 `6c81126` 实现（`tests/tools/run_viewer.test.cjs`，经 `tests/tools/test_run_viewer.py` 执行；逐条证据见「版本表」`2026-10-04-errands-viewer` 行）；修订记录见「版本表」；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「运行内对象名称」（阶段 1）。
@@ -77,10 +79,13 @@ app 使用标题取 app 名，当前抽中的内容标题随活动快照追加�
 <a name="spec-run-viewer-names-验证"></a>
 ## 验证
 
-回归测试执行页面实际 JavaScript 和 SQLite 查询，覆盖上述条款、不同人物的稀疏观察、
-同一目标的不同活动标题、仅进展记录、缺失名称、HTML 转义与更换数据库。
-真实运行验证重现“陈曦 14:25 出行”和“陈曦 20:20 看剧”的活动行。
-提交后在干净隔离工作树执行 Uncle Bob 语义变异审查；临时变异仅限查看器源码，逐次恢复。
+页面真实 JavaScript 与 SQLite 用例覆盖不同人物的稀疏观察、同一目标的不同活动标题、进展记录、缺名、
+HTML 转义和更换数据库。名称索引读取 `foods`、`apps`、`contents`、`work_topics`；出行显示起点、终点与
+路径名称，媒体显示“用<app>看《title》”，工作显示主题，不显示内部标识。
+
+最终导出夹具必须断言 `use_app`、方式“打开”、`app_push`“app 推送”和
+`work_topic_completed`“工作主题完成”的标签，并核对唤醒标签 22 项、原生工具标签 11 项。
+不保留目录浏览、观看、游戏、任务评审或任务截止的显示分支。实际通过状态以阶段 7 Node 回执为准。
 
 <a name="spec-run-viewer-names-版本表"></a>
 ## 版本表
@@ -96,3 +101,4 @@ app 使用标题取 app 名，当前抽中的内容标题随活动快照追加�
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订「运行内对象名称」：班次与休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end` 用中文说法「班次开始」「班次结束」「休息时段开始」「休息时段结束」显示，它们没有伴随事件，不带名称，不适用缺失提示；实现为 `tools/run-viewer.html` 的 `WAKE_LABELS` 增四个标签，`tests/tools/run_viewer.test.cjs` 的「decision starts show their wake reasons from the frozen vocabulary」把存储词表的 25 个唤醒原因逐个显示为中文、不输出错误日志（经 `tests/tools/test_run_viewer.py` 执行）；状态行末补修订说明，日期改写 |
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：活动标题改为 app 名与当前内容标题，名称索引直接读取 app 与内容目录，`app_push` 显示为「app 推送」。 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：当前 app、内容、工作主题与出行名称的最终导出验证合同 |

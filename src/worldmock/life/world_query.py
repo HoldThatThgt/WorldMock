@@ -24,7 +24,6 @@ from worldmock.life.purchase_offers import menu_foods
 from worldmock.life.object_labels import resolve_name
 from worldmock.life.vocabulary import way_options
 from worldmock.life.object_labels import supply_label
-from worldmock.life.readable import BROWSE_LABELS
 from worldmock.life.request_errors import argument_report
 from worldmock.life.tool_groups import compact
 

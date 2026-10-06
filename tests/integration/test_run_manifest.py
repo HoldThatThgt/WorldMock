@@ -1,4 +1,4 @@
-"""运行 manifest 阶段 model_identity（stage_model_identity：action 与 work_review）冻结与防篡改测试。"""
+"""运行 manifest 的 action 阶段 model_identity 冻结与防篡改测试。"""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def _run_identity(scenario) -> RunIdentity:
 
 
 async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> None:
-    """生产接线：LifeEnv 新建运行把 action 与 work_review 两个阶段的身份冻结进运行 manifest。"""
+    """生产接线：LifeEnv 新建运行把 action 阶段身份冻结进运行 manifest。"""
     from custom.envs.life_env import LifeEnv
 
     scenario, _ = load_scenario(_SCENARIO)
@@ -83,9 +83,12 @@ async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> N
 
     identity = manifest["stage_model_identity"]
     assert "two_stage_model_identity" not in manifest
-    assert identity["stages"] == {"action": {"thinking": "enabled", "tool_choice": "auto", "max_tokens": 8000,
-                                             "same_second_continuation": True},
-                                  "work_review": {"thinking": "disabled", "tool_choice": "required"}}
+    assert identity["stages"] == {"action": {
+        "thinking": "enabled",
+        "tool_choice": "auto",
+        "max_tokens": 8000,
+        "same_second_continuation": True,
+    }}
     # 与 runtime 单一事实源逐字节一致。
     assert identity == stage_model_identity()
     validate_stage_model_identity(identity)
@@ -129,7 +132,7 @@ def test_retired_stage_is_rejected_even_beside_the_current_stage(keep_current, c
         validate_stage_model_identity(identity)
     unknown = stage_model_identity()
     unknown["stages"]["monologue"] = unknown["stages"].pop("action")
-    with pytest.raises(IntegrityError, match="stages must be exactly action, work_review"):
+    with pytest.raises(IntegrityError, match="stages must be exactly action"):
         validate_stage_model_identity(unknown)
 
 

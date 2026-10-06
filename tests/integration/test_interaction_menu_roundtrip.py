@@ -22,7 +22,7 @@ from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, advance_until_ready, context, pending_names, stage_day_plan, start_arguments)  # noqa: F401
+from tests.life.conftest import (advance_next, advance_until_ready, context, pending_names, report_request, stage_day_plan, start_arguments)  # noqa: F401
 from worldmock.life.vocabulary import WAYS
 from worldmock.life import prompt_capacity
 
@@ -120,10 +120,21 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
+    continuations = []
     for _ in range(16):
         if engine.context.state.agents[first.agent_id].location_id == "office":
             break
-        advance_next(engine)
+        if engine.scheduling_state().ready_agent_ids:
+            continuing = context(engine, f"menu-walk-report-{_}")
+            engine.begin_decision_round([continuing])
+            walking = await environment.observe(continuing)
+            names = [item["name"] for item in walking["tool_layer"]["targets"] if item["kind"] == "activity"]
+            report = report_request(*names, summary="继续走。").model_dump(mode="json")
+            await _decide(environment, continuing, walking, "report_status", report)
+            continuations.append(report)
+            assert engine.commit_decision_round(continuing.round_id)[0].status.value == "completed"
+        else:
+            advance_next(engine)
     assert engine.context.state.agents[first.agent_id].location_id == "office"
     assert advance_until_ready(engine)
 
@@ -152,7 +163,9 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
 
     events = engine.context.store.read_events(engine.context.store.last_event_seq)
     requests = [event for event in events if event.event_type == "action_requested"]
-    assert len(requests) == 2
+    assert len(requests) == 2 + len(continuations)
+    assert all(event.data["tool_name"] == "report_status" for event in requests[1:-1])
     assert requests[0].data["request"] == walk
-    assert requests[1].data["request"] == conclusion
-    assert [item.data["self_note"] for item in requests] == [None, None]
+    assert requests[-1].data["request"] == conclusion
+    assert [event.data["request"] for event in requests] == [walk, *continuations, conclusion]
+    assert [item.data["self_note"] for item in requests] == [None] * len(requests)

@@ -25,17 +25,17 @@ from worldmock.life.models import SessionKind, SessionStatus
 from worldmock.life.sessions import moment_label
 
 _PLACE = "地点：办公室"
-_NEWS = "内容：午间新闻"
+_APP = "应用：抖音"
 
 
 def _prepared() -> LifeAgent:
-    """在正式观察结构中增加可读地点（步行）与内容对象（从没看过：接着看）。"""
+    """在正式观察结构中增加可读地点（步行）与应用对象（打开）。"""
     observed = copy.deepcopy(_observations())
     _add_objects(observed[0]["data"],
                  _visible_object(_PLACE, "location", "office",
                                  _offer("travel", "步行", "travel_to", travel_mode="walking")),
-                 _visible_object(_NEWS, "content", "content-visible",
-                                 _offer("interact", "接着看", "watch")))
+                 _visible_object(_APP, "app", "app-visible",
+                                 _offer("interact", "打开", "use_app")))
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
     return person
@@ -57,16 +57,16 @@ def test_parallel_schema_and_local_pairing_use_readable_items() -> None:
     fields = schema["properties"]["items"]["items"]["properties"]
     assert all("enum" not in fields[name] for name in ("target", "way"))
     assert person.validate_react_decisions([
-        _decision([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"]),
+        _decision([_PLACE, _APP], ["travel", "interact"], ["步行", "打开"]),
     ], False) == ""
-    incomplete = start_arguments([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"])
+    incomplete = start_arguments([_PLACE, _APP], ["travel", "interact"], ["步行", "打开"])
     del incomplete["items"][1]["way"]
     error = person.validate_react_decisions([ReactDecision("", "start_activity", incomplete, "")], False)
     assert error.report.items[0].path == ("tool_calls", 0, "function", "arguments", "items", 1, "way")
     assert error.report.items[0].why == "This required field was omitted."
-    for actions, ways in ((["interact", "travel"], ["接着看", "步行"]), (["travel", "travel"], ["步行", "步行"])):
+    for actions, ways in ((["interact", "travel"], ["打开", "步行"]), (["travel", "travel"], ["步行", "步行"])):
         assert "does not support" in person.validate_react_decisions([
-            _decision([_PLACE, _NEWS], actions, ways),
+            _decision([_PLACE, _APP], actions, ways),
         ], False)
     assert "different recipient" in person.validate_react_decisions([
         _decision([_PLACE, _PLACE], ["travel", "travel"], ["步行", "步行"]),
@@ -74,7 +74,7 @@ def test_parallel_schema_and_local_pairing_use_readable_items() -> None:
 
 
 def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
-    """真实引擎从同一观察原子启动出行与观看：两项活动各占一个名额、按「做什么＋对象＋开始时刻」命名，
+    """真实引擎从同一观察原子启动出行与应用：两项活动各占一个名额、按「做什么＋对象＋开始时刻」命名，
     出发结束运行开始的停留会话，两项活动同属新开始的路上会话（时间与能量规格第七章「会话与活动的字段」）。"""
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -85,12 +85,12 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
                  if row["kind"] == "location" and any(
                      action.get("travel_mode") == "walking" for action in row["actions"]))
     content = next(row for row in observed["interaction_bindings"]
-                   if row["kind"] == "content" and any(
-                       action["canonical_action"] == "watch" for action in row["actions"]))
+                   if row["kind"] == "app" and any(
+                       action["canonical_action"] == "use_app" for action in row["actions"]))
     travel = next(action["label"] for action in place["actions"]
                   if action.get("travel_mode") == "walking")
-    watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "watch")
-    assert travel == "步行" and watch in {"接着看", "接着听"}
+    watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "use_app")
+    assert travel == "步行" and watch == "打开"
     request = start_request(
         targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch])
     before = engine.context.state.model_dump(mode="json")

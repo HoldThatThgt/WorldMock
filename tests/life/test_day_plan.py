@@ -191,23 +191,23 @@ def _ran(kind: str, started: int, **changes) -> dict:
     ("consume", "用餐", at(12), at(10, 20), (at(10, 20), at(10, 45)), at(10, 45)),
     ("consume", "用餐", at(12), at(9, 30), (at(9, 30), at(9, 55)), None),
     # 08:40 的浏览不推进大致时刻为 23:00 的娱乐目标；同一浏览推进不带大致时刻的目标（沿用现行判定）。
-    ("browse", "娱乐", at(23), at(8, 40), (at(8, 40), at(8, 55)), None),
-    ("browse", "娱乐", None, at(8, 40), (at(8, 40), at(8, 55)), at(8, 55)),
+    ("use_app", "娱乐", at(23), at(8, 40), (at(8, 40), at(8, 55)), None),
+    ("use_app", "娱乐", None, at(8, 40), (at(8, 40), at(8, 55)), at(8, 55)),
     # 零点前开始、零点后结算的睡眠不推进大致时刻为 23:30 的睡眠目标；不带大致时刻的照旧推进。
     ("sleep", "睡眠", at(23, 30), -10 * 60, (0, at(0, 30)), None),
     ("sleep", "睡眠", None, -10 * 60, (0, at(0, 30)), at(0, 30)),
     # 零点前开始的睡眠在大致时刻 00:30 的窗口内进行，推进。
     ("sleep", "睡眠", at(0, 30), -10 * 60, (0, at(0, 15)), at(0, 15)),
     # 活动开始得早、这次结算落在窗口内：按活动的进行区间判定，推进。
-    ("watch", "娱乐", at(23), at(20), (at(21, 15), at(21, 45)), at(21, 45)),
+    ("use_app", "娱乐", at(23), at(20), (at(21, 15), at(21, 45)), at(21, 45)),
     # 窗口两端：进行区间与窗口只相接不算交集，多一秒才算。
-    ("watch", "娱乐", at(12), at(10), (at(10), at(10, 30)), None),
-    ("watch", "娱乐", at(12), at(10), (at(10), at(10, 30) + 1), at(10, 30) + 1),
-    ("watch", "娱乐", at(12), at(13, 30), (at(13, 30), at(13, 45)), None),
-    ("watch", "娱乐", at(12), at(13, 30) - 1, (at(13, 30) - 1, at(13, 45)), at(13, 45)),
+    ("use_app", "娱乐", at(12), at(10), (at(10), at(10, 30)), None),
+    ("use_app", "娱乐", at(12), at(10), (at(10), at(10, 30) + 1), at(10, 30) + 1),
+    ("use_app", "娱乐", at(12), at(13, 30), (at(13, 30), at(13, 45)), None),
+    ("use_app", "娱乐", at(12), at(13, 30) - 1, (at(13, 30) - 1, at(13, 45)), at(13, 45)),
     # 窗口越过次日零点的部分不算：结算止点按次日零点裁剪，次日零点之后才开始的不推进。
-    ("watch", "娱乐", at(23, 30), at(23, 50), (at(23, 50), DAY_END + HOUR), DAY_END),
-    ("watch", "娱乐", at(23, 30), DAY_END + 600, (DAY_END + 600, DAY_END + 1200), None),
+    ("use_app", "娱乐", at(23, 30), at(23, 50), (at(23, 50), DAY_END + HOUR), DAY_END),
+    ("use_app", "娱乐", at(23, 30), DAY_END + 600, (DAY_END + 600, DAY_END + 1200), None),
 ])
 def test_progress_with_an_around_time_requires_the_activity_to_run_near_it(kind, intent, around, started, interval,
                                                                             progressed):
@@ -225,7 +225,7 @@ def test_around_time_skips_a_goal_outside_its_window_and_needs_the_actual_start(
     """同家族的前一个目标不在窗口内时照清单顺序匹配下一个；有大致时刻的目标需要活动的实际开始时刻，快照残缺时不推进。"""
     plan = DayPlan(day_end=DAY_END, goals=[goal("娱乐", "睡前刷会儿", 0, around_at=at(23)),
                                            goal("休息", "歇一歇", 0), goal("外出", "散步", 0, around_at=at(9))])
-    browsed = progress_day_plan(plan, _ran("browse", at(8, 40)), at(8, 40), at(8, 55))
+    browsed = progress_day_plan(plan, _ran("use_app", at(8, 40)), at(8, 40), at(8, 55))
     assert [item.progressed_at for item in browsed.goals] == [None, None, None]
     waited = progress_day_plan(plan, _ran("wait", at(8, 40)), at(8, 40), at(8, 55))
     assert [item.progressed_at for item in waited.goals] == [None, at(8, 55), None]
@@ -409,7 +409,7 @@ def test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time(engine
 def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factory):
     """零点边界先按旧计划结算末段、旧计划随即失效，零点计划之后才为新的一天登记（第四章「运行时机」）。"""
     from tests.life.test_revision_contract import _commit_staged
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda document: document.update(end_at="2026-01-06T01:00:00+08:00"))
     now = engine.context.state.current_time
     midnight = day_end_seconds(now, engine.context.scenario.timezone)
     staged = engine.context.state.model_copy(deep=True)

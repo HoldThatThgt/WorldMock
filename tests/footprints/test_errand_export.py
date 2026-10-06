@@ -49,7 +49,7 @@ from worldmock.life.errand_state import CANCELLED_KIND, COMPLETED_KIND, REGISTER
 #: 22:55 收尾写下的三条收尾记忆：一条作息（routine），一条含第二条事务的商品名，一条含第三条事务的名称。
 _MEMORIES = [
     {"type": "routine", "text": "睡前总要先喝点热的再洗漱。", "importance": 0.3, "keywords": ["睡前"]},
-    {"type": "reflection", "text": "冰箱里的素炒什锦食材包已经吃完了。", "importance": 0.5, "keywords": ["冰箱"]},
+    {"type": "reflection", "text": f"冰箱里的{MEAL_NAME}已经吃完了。", "importance": 0.5, "keywords": ["冰箱"]},
     {"type": "goal", "text": "明天下班记得买冰红茶。", "importance": 0.4, "keywords": ["下班"]},
 ]
 #: 当日目标报告每个代码摘要下的四个键（个人事务不改变它）。
@@ -128,7 +128,7 @@ def _lives(events: list[dict]) -> dict[str, tuple[dict, dict | None]]:
 
 def test_an_exported_run_reports_errands_and_recertifies_value_for_value(
         engine_factory, tmp_path) -> None:  # noqa: F811
-    """导出的 quality.json 结构为 4，errand_metrics 与 conclusion_memories 紧随 day_plan_metrics，计数与事件逐条相符：
+    """导出的 quality.json 结构为 5，errand_metrics 与 conclusion_memories 紧随 day_plan_metrics，计数与事件逐条相符：
     记下 3 条（分母），办成 1、取消 1、截止时未完成 1；跨夜 2（零点后取消的与到终点仍未完成的；22:55 之后、零点之前
     送达办成的那条不算）；未完成期间陈曦的每次观察待办层都列着该事务（同期观察数与可见次数相等）；提醒 1 条，提醒后
     同一本地日、办成之前她开始喝同一商品，算作提醒后行动；每条办成事件都有可复核的证据。收尾记忆 3 条：作息 1 条，含
@@ -155,7 +155,7 @@ def test_an_exported_run_reports_errands_and_recertifies_value_for_value(
         "carried_overnight_count": 2, "visible_observation_count": during, "expected_observation_count": during,
         "reminded_errand_count": 1, "acted_after_reminder_count": 1, "completed_without_evidence_count": 0}
     assert quality["conclusion_memories"] == {"total_count": 3, "routine_count": 1, "errand_overlap_count": 2}
-    assert quality["schema_version"] == 4
+    assert quality["schema_version"] == 5
     assert quality["day_plan_metrics"] and all(set(group) == _DAY_PLAN_KEYS
                                                for group in quality["day_plan_metrics"].values())
     assert "errand" not in json.dumps(quality["day_plan_metrics"])

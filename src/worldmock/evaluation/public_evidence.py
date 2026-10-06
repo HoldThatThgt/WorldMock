@@ -23,7 +23,7 @@ _LEGACY_ACTIONS = {
     "navigation": ("travel", "travel", "route"),
 }
 _TARGETED_ACTIONS = {
-    "work": ("work", "work", "task"),
+    "work": ("work", "work", "work_topic"),
     "use_app": ("entertainment", "view", "app"),
     "read": ("work", "read", "message"),
 }
@@ -315,7 +315,7 @@ def _start_shape(action: str | None, label: str, target: Any,
     if action == "consume":
         mode = _mapping(_mapping(activity.get("data")).get("request")).get("use_mode")
         category = "product_use" if mode == "use" or not mode and label in {"使用", "制作"} else "eat"
-        return _Shape(category, "consume", "product", key, {})
+        return _Shape(category, "consume", "food", key, {})
     if action in {"chat", "call"}:
         return _Shape("social", action, "person", key, {})
     return None
@@ -328,7 +328,7 @@ def _control_actions(
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
 ) -> tuple[_Action, ...]:
-    """@brief 按请求 items[] 逐活动投影（旧形状为 task[]）：结果逐项回报的活动身份绑定到导出的真实活动快照。"""
+    """@brief 按请求 items[] 逐活动投影，结果身份绑定到导出的真实活动快照。"""
     selected: list[_Action] = []
     for event in related:
         if event.event_type != "action_result":
@@ -356,9 +356,9 @@ def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> 
     data = _mapping(row.get("data"))
     category = worldmock_activity_category(kind or "", data, activity_map)
     types = {
-        "work": ("work", "task"), "use_app": ("view", "app"), "read_mail": ("read", "message"),
+        "work": ("work", "work_topic"), "use_app": ("view", "app"), "read_mail": ("read", "message"),
         "travel": ("travel", "route"),
-        "consume": ("consume", "product"),
+        "consume": ("consume", "food"),
     }
     mapped = types.get(kind or "")
     if mapped is None or category == "unknown":
@@ -457,7 +457,7 @@ def _world_environment(event: Event) -> PublicEvidence | None:
         shape = _Shape("purchase", interaction, "order", key, _fulfillment(order.get("fulfillment")))
         return _from_event(event, shape, str(state))
     if kind == "work_topic_completed":
-        shape = _Shape("work", "complete", "task", _string(event.data.get("topic_id")), {})
+        shape = _Shape("work", "work", "work_topic", _string(event.data.get("topic_id")), {})
         return _from_event(event, shape, "completed")
     return None
 

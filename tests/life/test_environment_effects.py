@@ -35,21 +35,14 @@ _EFFECTS = {"entertainment": 0.2, "social": 0.1, "health": 0.6}
 
 
 def synthetic_body() -> BodyConfig:
-    """@brief 身体结算使用人工声明的最小有效参数，不读取任何正式环境。"""
+    """@brief 身体运行视图采用当前字段，生活活动效果独立来自人工目录。"""
     return BodyConfig.model_validate({
-        "mass_kg": 65, "initial_energy_kcal": 1800, "maximum_energy_kcal": 2400,
-        "initial_sleep_debt_hours": 0, "basal_kcal_per_hour": 65,
-        "awake_sleep_debt_per_hour": 0.125, "sleep_recovery_per_hour": 0.125,
-        "entertainment_need_per_awake_hour": 0.08, "hunger_threshold_kcal": 800,
-        "emergency_threshold_kcal": 400,
-        "work_efficiency_factors": [{"input_resource": "energy_kcal", "curve": [
-            {"input_value": 0, "output_value": 0.5}, {"input_value": 2400, "output_value": 1.0}]}],
-        "food_efficiency_curve": [{"input_value": 0, "output_value": 1.0},
-                                  {"input_value": 16, "output_value": 0.5}],
-        "activity_met": {"wait": 1.0, "sleep": 1.0, "lifestyle:jogging": 7.0},
-        "entertainment_relief_per_hour": {"watch": 0.3, "play_game": 0.4},
-        "entertainment_relief_preference_floor": 0.5, "work_notes_multiplier": 1.2,
-        "source_kind": "test"})
+        'mass_kg': 65, 'initial_energy_kcal': 1800, 'maximum_energy_kcal': 2400,
+        'initial_sleep_debt_hours': 0, 'initial_entertainment_need': 0.8,
+        'basal_kcal_per_hour': 65, 'entertainment_need_per_awake_hour': 0.08,
+        'hunger_threshold_kcal': 800, 'emergency_threshold_kcal': 400,
+        'activity_met': {'wait': 1.0, 'sleep': 1.0, 'lifestyle:jogging': 7.0},
+        'entertainment_relief_per_hour': {}, 'source_kind': 'test'})
 
 
 def _external_item(root: Path, effects: dict):
@@ -82,14 +75,9 @@ def _running(effects: dict):
 
 def _candidate(item):
     """@brief 构造真实候选上下文并预演当前环境的人工活动。"""
-    context = MotivationContext(
-        agent=_agent(), balance_fen=10000, body=synthetic_body(), home_location_id="home",
-        products=(), lifestyle_items=(item,), activity_location_kinds={}, supplies=(), supply_stock={},
-        supply_quotes={}, opening_exceptions={}, locations={}, routes=(), tasks=(), task_totals={},
-        contents=(), content_progress={}, active_activities=(), habit_events=(), consecutive_rejections=0,
-        max_same_moment_decisions=3, total_effective_seconds=0, current_time=0, end_time=3600,
-        timezone="Asia/Shanghai", planned_travel_seconds=lambda mode, base, departure: base,
-        purchase_amount=lambda product, price, quantity: price * quantity, purchase_pairing_states={})
+    from tests.life.test_motivation import _context
+    context = _context(agent=_agent(), body=synthetic_body(), lifestyle_items=(item,),
+                       activity_location_kinds={}, current_time=0, end_time=3600)
     family = engine_affordances().families["lifestyle"]
     return _lifestyle_candidate(context, item, family, family.generator_params)
 

@@ -33,6 +33,7 @@ from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.life.settled_text import (
     ActivityFacts,
     activity_endings,
+    app_progress,
     ending_lines,
     experience_sentence,
     pause_intervals,
@@ -198,8 +199,9 @@ def _result_sentences(context: Any, observations: Any, agent_id: int, window: _W
                 for item in progress_layer._delivery_records(context, event)
                 for line in record_lines(context, item.record, [event])
             )
-    endings = activity_endings([*store.read_agent_events("activity_progress", agent_id), *environment, *outcomes])
-    facts = ActivityFacts(pause_intervals(environment), endings)
+    progress = store.read_agent_events("activity_progress", agent_id)
+    endings = activity_endings([*progress, *environment, *outcomes])
+    facts = ActivityFacts(pause_intervals(environment), endings, app_progress(progress, {}))
     rows.extend(
         (event.event_seq, text, event.event_id)
         for event, text in ending_lines(context, facts, lambda event: window.covers(event.occurred_at))

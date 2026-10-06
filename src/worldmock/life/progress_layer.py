@@ -79,7 +79,8 @@ def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityF
     records = _session_records(context, store, (started_at, lower))
     request_seq, request_time = _last_request(store, context.agent_id)
     here = None if facts is None else ActivityFacts(facts.pauses, {
-        activity_id: event for activity_id, event in facts.endings.items() if event.event_seq > lower})
+        activity_id: event for activity_id, event in facts.endings.items() if event.event_seq > lower},
+        facts.app_progress)
     meta = [{"protected": _protected(context, item, (request_seq, request_time)),
              "lines": record_lines(context, item.record, list(item.sources), here)} for item in records]
     layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.scenario.timezone),

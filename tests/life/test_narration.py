@@ -41,7 +41,6 @@ class TestFieldBlacklist:
         "motivation_hints",
         "profile.motivation",
         "profile.entertainment_preferences",
-        "game_catalog",
         "activity_snapshot",
         "activities",
         "home_location_id",
@@ -77,7 +76,7 @@ class TestFieldBlacklist:
 
     @pytest.mark.parametrize("internal_key", [
         "session_id", "activity_id", "task_id", "topic_id", "app_id", "food_id", "store_id", "product_id",
-        "supply_id", "order_id", "message_id", "contact_id", "price_version",
+        "order_id", "message_id", "contact_id", "push_id", "trip_id", "path",
         "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id", "errand_id",
     ])
     def test_internal_identity_cannot_hide_inside_a_progress_result(self, internal_key: str) -> None:
@@ -180,7 +179,7 @@ class TestContractListedKeys:
         查询的渠道索引与供给所属门店的 location_id 都在其列。"""
         keys = _contract_listed_keys()
         assert len(keys) >= 55
-        assert {"home_location_id", "world_query_channels", "location_id", "errand_id", "taste_weights"} <= keys
+        assert {"home_location_id", "world_query_channels", "location_id", "errand_id", "food_id", "app_id", "topic_id"} <= keys
         assert keys <= FORBIDDEN_OBSERVATION_KEYS, sorted(keys - FORBIDDEN_OBSERVATION_KEYS)
         for key in sorted(keys):
             with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):

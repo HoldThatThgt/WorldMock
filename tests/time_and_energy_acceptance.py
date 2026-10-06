@@ -187,7 +187,7 @@ _STAGE2_LOCAL_RUN_FIX_TESTS = ['tests/life/test_sleep_two_process.py::TestInitia
 #: 阶段 2 对「无新增故障」行（阶段 7 收尾）的预先登记：能量为 0 与路线费力键渲染。
 _STAGE2_NO_NEW_FAULT_TESTS = [
     "tests/life/test_energy_feasibility.py::test_zero_energy_observation_offers_every_action_without_energy_projection",
-    "tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_supply_expires",
+    "tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_fixed_menu_remains_visible",
 ]
 
 _LOCATION = "tests/life/test_location_sessions.py::"

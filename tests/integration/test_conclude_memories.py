@@ -59,7 +59,10 @@ from tests.integration.test_life_agent_protocol import (
 )
 from tests.integration.test_verified_memory import _runtime
 from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (activity_name, advance_until_ready, context, errand_add, stage_day_plan, start_activity, wake_by_mail, pause_request)  # noqa: F401
+from tests.life.conftest import (
+    activity_name, advance_until_ready, context, errand_add, stage_day_plan, start_activity,
+    wake_by_mail, pause_request, report_request,
+)  # noqa: F401
 from worldmock.errors import IntegrityError
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
 from worldmock.life.control_items import control_items
@@ -433,21 +436,24 @@ def _engine_with_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str]:
     return engine, _environment(engine), started.activity_id
 
 
-def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str, str]:
+def _engine_with_paused_app_and_pending_wait(engine_factory) -> tuple[Any, LifeEnv, str, str]:
     """真实引擎：人物看了五分钟内容后暂停，接着等待到点；此刻有暂停的观看与刚结束、待收尾的等待（只有后者占名额）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    shown = engine.observations._observation_data(engine.context.state.agents[1])
-    content, way = next((row["object"], item["label"]) for row in shown["interaction_bindings"]
-                        if row["kind"] == "content" for item in row["actions"] if item["canonical_action"] == "watch")
-    watch = _settle(engine, "watch", "start_activity", start_activity(way, content))
+    watch = _settle(engine, "open-app", "start_activity", start_activity("打开", "应用：哔哩哔哩"))
     wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     watch_name = activity_name(engine, watch.activity_id)
     paused = _settle(engine, "pause", "pause_activity", pause_request(watch_name, summary="先停一下。"))
     assert paused.status.value == "completed"
     wait = _settle(engine, "wait", "start_activity", start_activity("等待", "自己"))
-    assert advance_until_ready(engine)
+    for index in range(16):
+        assert advance_until_ready(engine)
+        if engine.context.state.activities[wait.activity_id].status.value == "completed":
+            break
+        resumed = _settle(engine, f"wait-report-{index}", "report_status", report_request(
+            activity_name(engine, wait.activity_id), summary="继续等待。"))
+        assert resumed.status.value == "completed"
     assert engine.context.state.activities[wait.activity_id].status.value == "completed"
     return engine, _environment(engine), watch.activity_id, wait.activity_id
 
@@ -519,7 +525,7 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
 @pytest.mark.asyncio
 async def test_conclusion_rejected_at_settlement_keeps_its_memories(_engine_factory, tmp_path) -> None:
     """登记后结算被拒的 conclude_activity（有刚结束的等待却只结束暂停的观看），其记忆仍作为人物自述保留，写入点记为该动作。"""
-    engine, environment, watch_id, wait_id = _engine_with_paused_watch_and_pending_wait(_engine_factory)
+    engine, environment, watch_id, wait_id = _engine_with_paused_app_and_pending_wait(_engine_factory)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
     conclusion = {"items": [
         {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
@@ -551,9 +557,9 @@ async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_e
     触发点只有 activity_conclusion，新建条目只有这一条收尾记忆；事务变更不是记忆写入点，记忆里没有事务的文字。结算以
     ACTIVITY_CONCLUSION_REQUIRED 拒绝，事务变更随整请求一并不生效：人物没有未完成事务，没有任何事务事件，结果没有回执键，
     请求事件原样留着这条变更。"""
-    engine, environment, watch_id, _ = _engine_with_paused_watch_and_pending_wait(_engine_factory)
+    engine, environment, watch_id, _ = _engine_with_paused_app_and_pending_wait(_engine_factory)
     memories = [_memory("那段短剧还没看完，有点惦记。", importance=0.3)]
-    noted = errand_add("补一份食材包", "素炒什锦食材包", memo="下班前下单送到家", remind_time="17:00")
+    noted = errand_add("买一袋薯片", "薯片", memo="下班前下单送到家", remind_time="17:00")
     conclusion = {"items": [
         {"activity_name": activity_name(engine, watch_id), "summary": "不看了。", "memories": memories, "views": []}],
         "errands": [noted]}
@@ -573,7 +579,7 @@ async def test_rejected_conclusion_keeps_its_memories_but_registers_no_errand(_e
     assert [(item["text"], item["source"], item["epistemic_status"]) for item in stored] == [
         (memories[0]["text"], "activity_conclusion", "subjective")]
     assert update.data["created_episode_ids"] == [stored[0]["id"]]
-    assert not any(text in json.dumps(stored, ensure_ascii=False) for text in ("补一份食材包", "下班前下单送到家"))
+    assert not any(text in json.dumps(stored, ensure_ascii=False) for text in ("买一袋薯片", "下班前下单送到家"))
     assert engine.context.state.agents[1].errands == {}
     assert [event for event in engine.context.store.read_agent_events("environment_event", 1)
             if event.data.get("kind") in ERRAND_EVENT_KINDS] == []

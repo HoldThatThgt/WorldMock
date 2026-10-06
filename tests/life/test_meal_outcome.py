@@ -13,6 +13,14 @@ from worldmock.life.models import ActivityStatus, ChangeActivityRequest
 from worldmock.life.sleep import food_utilization_efficiency
 
 
+@pytest.fixture(autouse=True)
+def _clean_flow_buffer():
+    """@brief 每个纯进食用例前后清空分录证据，避免向后续引擎结算泄漏。"""
+    last_flows()
+    yield
+    last_flows()
+
+
 def _opened(initial, quantity, foods, body_config):
     """@brief 以实际正餐类别时长开餐，库存份量转入活动 opened。"""
     request = food_request(quantity=quantity, duration=portion_duration(1200, quantity))

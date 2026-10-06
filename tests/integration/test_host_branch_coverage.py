@@ -1088,31 +1088,40 @@ def test_cli_dispatch_reads_status_and_exports_run(tmp_path, capsys):
     finally:
         store.close()
 
-    manifest = {"schema_version": 1, "run_id": "export-run", "source_group_id": "export-run",
-                "agent_ids": [1], "model_identity": {"name": "fixture"},
-                "window": {"start": 100, "end": 200, "timezone": "UTC"}}
-    export_store = FootprintStore.create(tmp_path / "export-run", manifest,
-                                         {"version": 0, "current_time": 100})
+    from datetime import timedelta
+    from tests.life.conftest import advance_next, stage_day_plan, start_activity, submit_round
+    from tests.life.scenario_fixtures import read_scenario, write_scenario
+
+    document = read_scenario("single-person.json")
+    document["end_at"] = (datetime.fromisoformat(document["start_at"]) + timedelta(seconds=900)).isoformat()
+    document["messages"], document["payrolls"], document["bills"] = [], [], []
+    scenario_path = write_scenario(document, tmp_path / "export-environment")
+    semantics, _ = load_runtime_scenario(scenario_path)
+    export_dir = tmp_path / "export-run"
+    engine = LifeEngine.create(scenario_path, export_dir, current_run_identity(semantics.scenario, "export-run"))
     try:
-        export_store.commit(export_store.state, [
-            EventDraft(event_type="observation", occurred_at=100, agent_id=1,
-                       decision_id="d1", data={"balance_fen": 800}),
-            EventDraft(event_type="action_requested", occurred_at=100, agent_id=1,
-                       decision_id="d1", action_id="a1", data={"tool_name": "wait"}),
-        ])
-        export_store.commit({"version": 1, "current_time": 200},
-                            [EventDraft(event_type="run_ended", occurred_at=200)])
-        reference = export_store.assets.put_json({"saved": True}, {"kind": "fixture"})
-        point = export_store.checkpoint(export_store.state,
-                                        {"agent:1": reference, "life": reference})
+        stage_day_plan(engine, 1)
+        _, started = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "export-wait")
+        assert started[0].status == "in_progress"
+        advance_next(engine)
+        assert engine.context.state.current_time == engine.context.state.end_time
+        events = engine.context.store.read_events(engine.context.store.last_event_seq)
+        ended = next(event for event in events if event.event_type == "run_ended")
+        assert ended.source_kind == "environment" and ended.visibility == "system"
+        requested = next(event for event in events if event.event_type == "action_requested")
+        assert requested.data["tool_name"] == "start_activity"
+        assert requested.data["request"]["items"][0]["way"] == "等待"
+        workspace = write_agent_workspace(tmp_path / "export-agent", initialized=True)
+        reference = snapshot_directory(workspace, engine.context.store.assets)
+        point = engine.checkpoint({"agent:1": reference})
         output = tmp_path / "exported"
         result = cli._dispatch(cli.build_parser().parse_args(
-            ["export", "--run-dir", str(tmp_path / "export-run"), "--cutoff", str(point.last_event_seq),
+            ["export", "--run-dir", str(export_dir), "--cutoff", str(point.last_event_seq),
              "--output", str(output)]))
         assert result["run_id"] == "export-run"
         assert (output / "events.jsonl").is_file()
     finally:
-        export_store.close()
+        engine.close()
 
 
 def test_cli_dispatch_delivers_and_validates(monkeypatch, tmp_path):

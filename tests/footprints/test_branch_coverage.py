@@ -40,6 +40,8 @@ from worldmock.footprints.validation import validate_export
 
 def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None, **fields):
     data = fields.pop("data", {})
+    if event_type == "run_ended":
+        fields.setdefault("visibility", "system")
     return Event(
         event_id=f"event-{sequence}", event_type=event_type,
         occurred_at=100 + sequence if occurred_at is None else occurred_at,
@@ -109,7 +111,7 @@ def _complete_export(tmp_path):
                              decision_id="decision", data={"energy_kcal": 100})
     store.commit(store.state, [observation])
     store.commit({"version": 1, "current_time": 200},
-                 [EventDraft(event_type="run_ended", occurred_at=200)])
+                 [EventDraft(event_type="run_ended", occurred_at=200, visibility="system")])
     reference = store.assets.put_json({"saved": "complete"}, {"kind": "fixture"})
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
     directory = tmp_path / "export"
@@ -194,25 +196,17 @@ def test_action_result_status_buckets_report_missing_and_unrecognized():
 
 
 def test_watch_repeat_report_missing_targets_and_single_session_groups():
-    """只有目标完整、data.repeat 恰为 true 的观看会话计为从头重看；缺目标的会话单独计数，游戏会话不参与。"""
-    activities = [
-        _activity("watch-1", "watch", 60, target_id="show-a"),
-        _activity("watch-2", "watch", 60, target_id=None, data={"repeat": True}),
-        _activity("watch-3", "watch", 60, target_id=""),
-        _activity("watch-4", "watch", 60, target_id="show-a", data={"repeat": "true"}),
-        _activity("watch-5", "watch", 60, target_id="show-a", data=["repeat"]),
-        _activity("game-1", "play_game", 30, target_id="show-a", data={"repeat": True}),
-    ]
-    events = [_event(1, "run_ended", occurred_at=200)]
-    repeats = _run_report(events, activities, _manifest(end=200))["content_contact"]["repeat_watch"]
-    assert repeats["repeated_sessions"] == 0
-    assert repeats["groups"] == []
-    assert repeats["watch_sessions_missing_target"] == 2
-    restarted = _activity("watch-6", "watch", 60, target_id="show-a", data={"repeat": True})
-    repeats = _run_report(events, [*activities, restarted], _manifest(end=200))["content_contact"]["repeat_watch"]
-    assert repeats["repeated_sessions"] == 1
-    assert repeats["groups"] == [{"agent_id": 1, "target_id": "show-a", "sessions": 4, "repeated_sessions": 1,
-                                  "activity_ids": ["watch-6"]}]
+    """@brief 活动声明不产生接触，只有真实消费事件中的已完成轮数产生重复计数。"""
+    from tests.footprints.test_quality import _content_event
+    activities = [_activity('phone-1', 'use_app', 60, target_id='bilibili', data={'repeat': True}),
+                  _activity('phone-2', 'use_app', 60, target_id=None)]
+    end = _event(1, 'run_ended', occurred_at=200)
+    assert _run_report([end], activities, _manifest(end=200))['content_contact']['repeat_watch'] == 0
+    actual = _content_event(1, after=60, rounds=1)
+    report = _run_report([actual], activities, _manifest(end=200))['content_contact']
+    assert report['repeat_watch'] == 1
+    assert report['by_app'] == {'bilibili': 1}
+    assert report['by_kind'] == {'long_video': 1}
 
 
 def test_efficiency_reports_missing_and_partial_samples():
@@ -234,15 +228,12 @@ def test_efficiency_reports_missing_and_partial_samples():
         _event(4, "activity_progress", data={
             "activity": {"kind": "consume"},
             "interval_start": 103, "interval_end": 104,
-            "consumption": {"use_mode": "eat", "items": [{"interval_quantity": 0.5}]},
+            "consumption": {"use_mode": "eat", "items": [{"food_id": "food", "interval_portion": 0.5}]},
         }),
         _event(5, "run_ended", occurred_at=200),
     ]
     efficiency = _run_report(events, [], _manifest(end=200))["conversion_efficiency"]
-    assert efficiency["work"]["sample_count"] == 1
-    assert efficiency["work"]["missing_sample_count"] == 1
-    assert efficiency["work"]["unavailable_or_incomplete_reason"] == "some_efficiency_samples_missing"
-    assert efficiency["work"]["weighted_mean"] is None
+    assert "work" not in efficiency
     assert efficiency["food"]["available"] is False
     assert efficiency["food"]["missing_sample_count"] == 1
     assert efficiency["food"]["unavailable_or_incomplete_reason"] == "all_efficiency_samples_missing"

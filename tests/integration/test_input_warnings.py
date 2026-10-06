@@ -51,14 +51,16 @@ _RHYTHM_KEYS = ["wake", "leave_home", "lunch", "leave_work", "arrive_home", "din
                 "sleep_need"]
 #: 写明下班与到家时刻的背景故事（真实抽取的输入；响应由脚本化会话给出）。
 _WORK_STORY = "陈曦在张江做产品经理，每天六点下班，七点到家。"
+_BACKGROUND_STORY = "陈曦在上海工作和生活，会按自己的作息安排工作、用餐、休息与应用使用。" * 5
 
 
 def _scenario(tmp_path: Path, **declared) -> Path:
-    """正式场景的副本：人物 1 只显式声明给出的作息字段（其余作息字段从文档删去）。"""
+    """正式场景的副本：人物带可编译故事，只显式声明给出的作息字段。"""
     def mutate(document: dict) -> None:
         agent = document["agents"][0]
         for name in _RHYTHM:
             agent.pop(name, None)
+        agent["background_story"] = _BACKGROUND_STORY
         agent.update(declared)
     return _mutated_scenario(SCENARIO, mutate, tmp_path / "scenario")
 
@@ -134,7 +136,7 @@ async def _create_run(tmp_path: Path, monkeypatch, scenario_path: Path, extracti
     monkeypatch.setattr(worldmock_run_setup_module, 'creation_inputs', recording)
     monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
     monkeypatch.setattr(llm_dispatcher, "build_client_for_role", lambda role: role)
-    monkeypatch.setattr(runtime, "life_env_actor_class",
+    monkeypatch.setattr(read_query_runtime, "life_env_actor_class",
                         lambda: SimpleNamespace(remote=lambda spec: (captured.__setitem__("actor", spec), "actor")[1]))
     prepared = runtime._prepare_new_run(runtime.RunRequest(ROOT, scenario_path, tmp_path / "run", "warned", "warned"))
     runtime._build_society(prepared)
@@ -179,8 +181,8 @@ def _validate_root(tmp_path: Path) -> Path:
 
 async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and_quality_report(
         tmp_path, monkeypatch) -> None:
-    """输入警告：新建运行时逐条计算，冻结进清单 input_warnings（清单版本 2）、逐条写一条 runtime 组件的 warn 级 ops 记录，
-    导出后 quality.json（结构版本 3）的 input_warnings 一节按码计数；题材对不上、权重全零、覆盖率低于 80% 与编译一致性
+    """输入警告：新建运行时逐条计算，冻结进结构三清单并逐条写一条 runtime 组件的 warn 级 ops 记录；
+    导出后结构五 quality.json 的 input_warnings 一节按码计数；题材对不上、覆盖率低于 80% 与编译一致性
     偏低都不使创建失败，运行照常推进。"""
     path = _scenario(tmp_path, chronotype_midsleep=4.75)
     created = await _create_run(tmp_path, monkeypatch, path, _extraction(_platform_card(), ("habits",)))
@@ -208,7 +210,7 @@ async def test_run_creation_freezes_input_warnings_into_the_manifest_ops_log_and
     finally:
         await env.close()
     section = quality["input_warnings"]
-    assert quality["schema_version"] == 4 and section["recorded"] is True
+    assert quality["schema_version"] == 5 and section["recorded"] is True
     assert section["warning_count"] == len(warnings)
     assert section["code_counts"] == {code: codes.count(code) for code in INPUT_WARNING_CODES}
     assert section["agent_counts"] == {"1": len(warnings)} and section["scenario_warning_count"] == 0
@@ -222,9 +224,9 @@ async def test_validate_prints_the_same_warnings_the_run_froze(tmp_path, monkeyp
     import worldmock.validation as validation
     from worldmock.cli import main
 
-    covered = make_card(habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步",
+    covered = make_card(habits=(HabitSignature(trigger="下班到家", response="去五里公园散步",
                                                time_window=make_window(19.0, 20.0)),),
-                        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",), media=("电影",)))
+                        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉面",), media=("长视频",)))
     extraction = _extraction(covered, ("coping",))
     compiled = _compiled(extraction)
     path = _scenario(tmp_path, **_WC_RHYTHM)
@@ -458,7 +460,15 @@ async def test_a_demotion_note_is_frozen_as_a_compiler_warning_that_does_not_bla
     compiler = [item for item in frozen if item["code"] == "PERSONA_AGREEMENT_LOW"]
     assert [(item["agent_id"], item["details"]) for item in compiler] == [(1, {"compiler_warning": note})]
     assert compiler[0]["message"] == f"Persona compilation warning: {note}." and "一致性" not in compiler[0]["message"]
-    assert {item["code"] for item in frozen} <= set(INPUT_WARNING_CODES) and len(INPUT_WARNING_CODES) == 10
+    assert set(INPUT_WARNING_CODES) == {
+        "CONTENT_EMPTY_WITH_MEDIA_TASTES",
+        "COVERAGE_BELOW_THRESHOLD",
+        "CARD_FIELD_OVERRIDDEN",
+        "CARD_FIELD_CONFLICT",
+        "PERSONA_AGREEMENT_LOW",
+        "LOCATION_NAME_SUSPICIOUS",
+    }
+    assert {item["code"] for item in frozen} <= set(INPUT_WARNING_CODES)
     assert profile["persona_card_struct"]["time_anchors"]["leave_work"] is None
     assert _persona_layer(profile)["rhythm"]["leave_work"] is None
 
@@ -554,25 +564,55 @@ async def test_scenario_windows_that_each_fit_alone_but_not_together_land_in_slo
     assert (rhythm["leave_work"], rhythm["bedtime"]) == ("22点到22点半", "23点到0点")
 
 
+def _parent_with_card(root: Path, scenario_path: Path, struct: dict, run_id: str):
+    """建立带当前身份、真实场景和指定结构化卡片的可恢复父运行。"""
+    from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
+    from worldmock.footprints.checkpoint import snapshot_directory
+    from worldmock.life.engine import LifeEngine
+    from worldmock.life.world_setup import load_runtime_scenario
+    from worldmock.run_setup import stage_model_identity
+
+    semantics, _ = load_runtime_scenario(scenario_path)
+    engine = LifeEngine.create(
+        scenario_path,
+        root / "parent",
+        current_run_identity(semantics.scenario, run_id),
+        stage_model_identity(),
+    )
+    parent = engine.context.store
+    state = engine.context.state.model_dump(mode="json")
+    agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
+             "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": struct}}
+    workspace = write_agent_workspace(root / "agent", agent_document=agent)
+    snapshots = {
+        "agent:1": snapshot_directory(workspace, parent.assets),
+        "life": parent.assets.put_json({"state_version": state["version"]}, {"kind": "life_checkpoint"}),
+    }
+    return parent, parent.checkpoint(state, snapshots)
+
+
 def test_restore_verifies_the_frozen_card_rhythm_against_the_scenario(tmp_path) -> None:
     """恢复时校验一致：新建运行冻结的（经场景作息覆盖的）结构化卡片照常恢复；作息与场景显式声明不一致的卡片
     （例如直接存了抽取值）阻止分支发布。"""
-    from tests.integration.test_host_branch_coverage import (ResumeRequest, _agent_workspace, _parent_store,
-                                                             _prepare_resume)
+    from worldmock.runtime import ResumeRequest, _prepare_resume
 
-    scenario, _ = load_scenario(SCENARIO)
+    scenario_path = _scenario(tmp_path, chronotype_midsleep=4.75)
+    scenario, _ = load_scenario(scenario_path)
     card = make_card()
     overridden = apply_scenario_rhythm(card, scenario.agents[0]).card
     assert overridden != card
     for name, struct in (("frozen", persona_card_struct(overridden)), ("extracted", persona_card_struct(card))):
-        agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
-                 "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": struct}}
         root = tmp_path / name
         root.mkdir()
-        parent, checkpoint = _parent_store(root, workspace_builder=lambda path, document=agent: _agent_workspace(
-            path, agent_document=document))
+        parent, checkpoint = _parent_with_card(root, scenario_path, struct, f"parent-{name}")
         try:
-            request = ResumeRequest(ROOT, SCENARIO, root / "parent", checkpoint.checkpoint_id, root / "child")
+            request = ResumeRequest(
+                ROOT,
+                scenario_path,
+                root / "parent",
+                checkpoint.checkpoint_id,
+                root / "child",
+            )
             if name == "frozen":
                 assert _prepare_resume(request).workspace_mode == "restored"
             else:

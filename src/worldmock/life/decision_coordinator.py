@@ -202,11 +202,8 @@ class DecisionCoordinator:
 
         没有观察的引擎直驱提交什么也没呈现，返回空集；同一决策同一秒有多条观察是协议错误。
         """
-        matches = [
-            event
-            for event in self.context.store.read_agent_events("observation", pending.agent_id)
-            if event.decision_id == pending.decision_id and event.occurred_at == pending.observed_at
-        ]
+        matches = self.context.store.read_decision_observations(
+            pending.agent_id, pending.decision_id, pending.observed_at)
         if len(matches) > 1:
             raise ProtocolError("Decision observation is ambiguous")
         return frozenset(matches[0].data["presented_message_ids"]) if matches else frozenset()

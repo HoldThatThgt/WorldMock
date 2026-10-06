@@ -2,14 +2,14 @@
 
 一天夹具（multi-person）期末六账户对账参照 tests/resources/test_equivalence_anchor.py
 的模式：把运行足迹中全部携带 resource_changes 的事件改写为 TransferEntry 序列，
-经货币域账本从全零重放，期末六账户必须与引擎实际状态逐分一致，锚点吸收
+经货币域账本从全零重放，期末登记账户必须与引擎实际状态逐分一致，锚点吸收
 -Σ期初注入且 closed 域守恒。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from decimal import Decimal
+from math import ceil
 
 import pytest
 
@@ -33,23 +33,6 @@ from worldmock.resources import ResourceMeta, TransferEntry, audit_closed_domain
 MONEY = "money_fen"
 
 
-def _stage_open(engine) -> None:
-    """把一天夹具移到商家营业时段并保留之后的真实后台事件。"""
-    zone = ZoneInfo(engine.context.scenario.timezone)
-    epoch = int(datetime(2026, 1, 5, 10, 0, tzinfo=zone).timestamp())
-    staged = engine.context.state.model_copy(deep=True)
-    staged.current_time = epoch
-    staged.pending_events = [event for event in staged.pending_events if event.due_at > epoch]
-    for agent_id, agent in staged.agents.items():
-        staged.agents[agent_id] = agent.model_copy(
-            update={"next_decision_at": epoch, "body_settled_at": epoch}, deep=True)
-    staged.version += 1
-    event = EventDraft(event_type="environment_event", occurred_at=epoch, visibility="system",
-                       source_kind="scenario", data={"kind": "test_merchant_open"})
-    engine.context.store.commit(staged.model_dump(mode="json"), [event])
-    engine.context.state = staged
-
-
 def _wait() -> StartActivityRequest:
     """@brief 等待时长由场景反馈间隔派生。"""
     return start_request(targets=["自己"], actions=["interact"], ways=["等待"])
@@ -66,6 +49,10 @@ def _choice(observation: dict, action: str, object_id: str | None = None,
                 continue
             if mode is not None and (offered.get("travel_mode") or offered.get("fulfillment")) != mode:
                 continue
+            if action == "purchase" and mode == "delivery":
+                app = next(item for item in observation["apps"] if item["app_id"] == row["app_id"])
+                return start_request(targets=[row["object"]], actions=[offered["verb"]],
+                                     ways=[offered["label"]], from_=[app["name"]])
             return start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
     raise AssertionError(f"No observed choice for {action}: {object_id}")
 
@@ -82,7 +69,7 @@ def _selected_round(engine, round_id: str, agent_one_action: str,
                    if item.agent_id == 1 else _wait())
         engine.submit_action(DirectToolCall(item, f"action-{round_id}-{item.agent_id}",
                                             "start_activity", request))
-    return sorted(engine.commit_decision_round(round_id), key=lambda item: item.agent_id)
+    return sorted(engine.commit_decision_round(round_id), key=lambda item: item.agent_id), observations
 
 
 def _conclude_round(engine, round_id: str) -> list:
@@ -118,19 +105,21 @@ def _transfer_entries(engine) -> list[TransferEntry]:
 
 
 def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) -> None:
-    """一天夹具注资+购买+车费改道后，期末六账户可从足迹分录逐分重放对账。"""
+    """真实固定菜单直接购买并按图支付车费后，登记账户可从足迹分录逐分重放对账。"""
     engine = engine_factory("multi-person.json")
-    _stage_open(engine)
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
-    assert _selected_round(engine, "browse", "browse")[0].status == "in_progress"
-    advance_next(engine)
-    _conclude_round(engine, "browse-end")
-    purchase = _selected_round(engine, "buy", "purchase", mode="delivery")
-    assert purchase[0].status in {"completed", "in_progress"}, purchase[0].error_code
+    purchase, purchase_observed = _selected_round(engine, "buy", "purchase", "noodle-1:beef-noodles", "delivery")
+    assert purchase[0].status == "completed", purchase[0].error_code
     order = purchase[0].data["orders"][0]
-    supply = next(item for item in engine.context.scenario.supplies if item.supply_id == order["supply_id"])
+    selected = next(row for row in purchase_observed[1]["interaction_bindings"]
+                    if row["object_id"] == "noodle-1:beef-noodles")
+    assert (order["store_id"], order["food_id"], order["app_id"]) == (
+        selected["store_id"], selected["food_id"], selected["app_id"])
+    seller = f"merchant:{order['store_id']}"
+    assert order["seller_account_id"] == seller
     price = order["total_price_fen"]
+    assert price == engine.context.semantics.catalog.foods[order["food_id"]].price_fen + 500
     # 修订决策节律：静默边界不再唤醒；循环推进直到出行发起者获得决策机会
     while 1 not in engine.scheduling_state().ready_agent_ids:
         ready_now = engine.scheduling_state().ready_agent_ids
@@ -139,14 +128,20 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
                 agent_id: ("start_activity", _wait()) for agent_id in ready_now
             }, f"hold-{engine.context.state.current_time}")
         assert advance_until_ready(engine), "agent 1 never regained a decision"
-    travel = _selected_round(engine, "to-office", "travel_to", "office", "driving")
+    origin = engine.context.state.agents[1].location_id
+    meters = engine.context.semantics.catalog.graph.distance_meters(origin, "office")
+    travel, travel_observed = _selected_round(engine, "to-office", "travel_to", "office", "driving")
     assert travel[0].status == "in_progress", travel[0].error_code
+    target = next(row["object"] for row in travel_observed[1]["interaction_bindings"] if row["object_id"] == "office")
+    quoted = next(action for row in travel_observed[1]["tool_layer"]["targets"] if row["name"] == target
+                  for action in row["actions"] if action["way"] == "驾车")
+    fare = int(Decimal(quoted["price"].removesuffix(" 元")) * 100)
+    assert fare == max(500, ceil(Decimal(meters) / 5))
+    assert engine.context.state.activities[travel[0].activity_id].data["travel_payment"]["fare_fen"] == fare
 
     accounts = dict(engine.context.state.accounts)
-    # 修订合同正餐品类新增 merchant:restaurant 商家账户（v2 场景 7 个账本账户）。
     assert set(accounts) == set(engine.context.semantics.accounts)
-    assert {"merchant:haode", "merchant:nonggongshang"} <= accounts.keys()
-    assert "merchant:restaurant" in accounts
+    assert {"merchant:noodle-1", "merchant:noodle-2", "merchant:cafe", "merchant:store"} <= accounts.keys()
     entries = _transfer_entries(engine)
     assert len(entries) >= 1 + 1 + 1, "expected injection + purchase + fare transfers"
 
@@ -161,11 +156,12 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     assert report.real_final_total == report.injection_total == sum(accounts.values())
     assert report.final_total == report.initial_total == 0
 
-    settlement = engine.context.state.accounts[supply.seller_account_id] - \
-        engine.context.semantics.accounts[supply.seller_account_id]
+    settlement = engine.context.state.accounts[seller] - engine.context.semantics.accounts[seller]
     assert settlement == price
     assert engine.context.state.accounts["agent:1"] == (
-        engine.context.semantics.accounts["agent:1"] - price - 555)
+        engine.context.semantics.accounts["agent:1"] - price - fare)
+    transport = engine.context.scenario.transport_account_id
+    assert engine.context.state.accounts[transport] - engine.context.semantics.accounts[transport] == fare
 
 
 def test_initial_injection_matches_semantics_accounts(engine_factory) -> None:

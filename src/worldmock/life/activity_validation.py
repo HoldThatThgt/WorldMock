@@ -64,7 +64,7 @@ def _consume_target_is_valid(activity: ActivityState, rules) -> bool:
     except (KeyError, ValueError):
         return False
     return (bool(request.items) and activity.target_id == request.items[0].product_id
-            and all(item.product_id in {food.food_id for food in rules.scenario.foods} for item in request.items))
+            and all(item.product_id in rules.foods for item in request.items))
 
 
 def _travel_target_is_valid(activity: ActivityState, graph) -> bool:

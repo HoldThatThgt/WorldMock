@@ -313,8 +313,6 @@ def test_no_eligible_app_is_system_visible_without_person_record_or_wake(tmp_pat
 
 @pytest.mark.parametrize("kind,wake,data", [
     ("calendar_flag", "message_arrival", {"date": "2026-01-05", "flags": ["makeup_workday"]}),
-    ("task_expired", "message_arrival", {"task_id": "task-old"}),
-    ("work_available", "task_available", {"task_id": "task-old"}),
     ("bill_due", "message_arrival", {"bill_id": "bill", "account_id": "agent:1",
                                     "payee_account_id": "transport:service", "amount_fen": 1}),
     ("payroll", "message_arrival", {"payroll_id": "payroll", "employer_account_id": "employer:test",

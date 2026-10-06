@@ -250,7 +250,7 @@ def _validate_canonical_manifest(
     """@brief 验证共同交付清单的固定模式。"""
     if manifest.get("committed") is not True:
         raise EvaluationError("invalid_input", "delivery manifest is not committed")
-    version = 2 if source_kind == "worldmock" else 1
+    version = 3 if source_kind == "worldmock" else 1
     if manifest.get("schema_version") != version:
         raise EvaluationError("invalid_input", f"delivery schema_version must be {version}")
     if source_kind == "worldmock" and manifest.get("experiment_completed") is not True:
@@ -275,7 +275,9 @@ def _validate_canonical_manifest(
     if coverage != expected:
         raise EvaluationError("invalid_input", "daily coverage does not match the declared window")
     artifacts = manifest.get("artifacts")
-    required = {"events", "activities", "verified_experiences", "purchases"} if source_kind == "worldmock" else {
+    required = {
+            "events", "activities", "verified_experiences", "purchases", "app_usage"
+        } if source_kind == "worldmock" else {
         "events", "activities"}
     if not isinstance(artifacts, dict) or set(artifacts) != required:
         raise EvaluationError("invalid_input", "delivery artifact set is invalid")

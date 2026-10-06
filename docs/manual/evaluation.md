@@ -1,6 +1,8 @@
 <a name="evaluation-自定义评估与盲评输入"></a>
 # 自定义评估与盲评输入
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 本页命令以 WorldMock 为当前工作目录，场景输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/`。
 
 评估配置决定“比较同一时间段内哪些活动、使用哪些公开参照、请评审判断哪些维度”。
@@ -105,45 +107,50 @@ PY
 <a name="evaluation-修改类别映射和公开参照"></a>
 ## 修改类别映射和公开参照
 
-以下是 `category_mappings` 的**局部示例**；编辑完整配置中的现有映射，保留其他类别：
+`category_mappings.worldmock_activity` 必须显式覆盖当前十种活动类型；下面是完整键集合，值可按评估方案的
+共同类别调整：
+
+完整配置仍保留 `labelkit_sequence_class` 与 `labelkit_pattern` 两组 LabelKit 类别映射；本节只完整列出
+WorldMock 当前十种活动类型。
 
 ```json
 {
-  "labelkit_sequence_class": {"food_order": "purchase", "navigation": "travel"},
-  "labelkit_pattern": {"fitness_habit": "fitness", "social_habit": "social"},
-  "worldmock_activity": {"purchase": "purchase", "travel": "travel", "watch": "entertainment"}
+  "worldmock_activity": {
+    "wait": "rest",
+    "sleep": "sleep",
+    "work": "work",
+    "use_app": "entertainment",
+    "travel": "commute",
+    "read_mail": "communication",
+    "consume": "meal",
+    "lifestyle": "chore",
+    "chat": "social",
+    "call": "social"
+  }
 }
 ```
 
-左侧键必须对应实际输入类别，右侧值表达双方一致的活动含义。
-旧 LabelKit 的 `habit_no_intent` 序列使用 `labelkit_pattern`，其他序列使用 `labelkit_sequence_class`。
-没有映射的类别会记为 `unknown`，不会根据名称猜测。WorldMock 活动的映射不会新增可执行活动。
-`consume` 另有固定处理：按照真实请求的 `use_mode`，`eat` 归入 `eat`，`use` 归入 `product_use`；
-仅修改 `worldmock_activity.consume` 不能覆盖这条语义。
+左侧键必须与实际导出活动类型一致。没有映射的类别记为 `unknown`，不会按名称猜测，也不会新增可执行活动。
+`consume` 仍由真实请求的 `use_mode` 细分：`eat` 归进食，`use` 归非食品使用；单改
+`worldmock_activity.consume` 不能覆盖这条语义。不要添加已退役的观看、目录浏览或游戏类型。
 
-官方参照把同一含义的活动映射到统计领域，例如已有配置中的：
+官方参照把共同活动含义映射到统计领域，例如：
 
 ```json
 {
   "official_domain_map": {
     "sleep": ["personal_essential"],
-    "eat": ["personal_essential"],
+    "meal": ["personal_essential"],
     "work": ["paid_work"],
-    "travel": ["transportation"]
+    "commute": ["transportation"]
   }
 }
 ```
 
-这是**局部片段**。每个数组必须非空且不重复；所有名称都必须出现在
-`official_reference.domains` 中。更新参照数值时同时保留真实的发布机构、调查名称、发布时间、
-采集时间、粒度和原始来源地址。
-
-每个领域必须填写 `label_zh`、`supported_duration_kinds`、`urban` 和 `working_age`。
-后两项都包含非负 `participant_minutes`（参与者每天分钟数）与零到一之间的
-`participation_rate`（参与率，例如 `0.521` 表示百分之五十二点一）。不要把参与率写成百分数整数。
-`supported_duration_kinds` 表示允许比较的时长含义：`world_activity` 是世界活动时长，
-`observed_digital_session` 是旧数字交互会话，`world_internet_session` 是世界互联网会话。
-不能为了补齐图表就把数字交互时长当成全部现实生活时长。
+每个数组必须非空且不重复，名称必须存在于 `official_reference.domains`。更新参照时保留发布机构、调查名称、
+发布时间、采集时间、粒度和原始来源地址。每个领域填写 `label_zh`、`supported_duration_kinds`、`urban` 和
+`working_age`；参与分钟为非负数，参与率在零到一之间。`world_activity` 与 `observed_digital_session` 是不同
+时长语义，不能用数字交互时长代替全部现实生活时长。
 
 <a name="evaluation-绑定真实候选输入"></a>
 ## 绑定真实候选输入

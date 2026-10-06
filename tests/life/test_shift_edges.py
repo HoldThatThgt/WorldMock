@@ -61,10 +61,10 @@ def _local(text: str, timezone: str = _SHANGHAI) -> int:
 
 
 def test_duty_edge_members_follow_errand_reminder_due_and_stay_out_of_sleep() -> None:
-    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，加入应用推送后闭集为 25 个；
+    """四个成员按 shift_start、shift_end、break_start、break_end 追加在 errand_reminder_due 之后，加入应用推送后闭集为 22 个；
     DUTY_EDGE_REASONS 就是这四个、按声明次序；四个都不在睡眠允许集合里，睡眠允许集合仍恰为四项。"""
     names = [member.value for member in WakeReason]
-    assert len(names) == 25
+    assert len(names) == 22
     assert names[names.index("errand_reminder_due") + 1:] == [
         "shift_start", "shift_end", "break_start", "break_end", "app_push"]
     assert DUTY_EDGE_REASONS == (_START, _END, _BREAK_START, _BREAK_END)
@@ -89,14 +89,13 @@ def test_awake_snapshot_with_every_condition_lists_the_declaration_order() -> No
     产出的 activity_infeasible 与 rejection_feedback：两种提醒之后是 shift_start、shift_end、break_start、break_end。"""
     snapshot = WakeSnapshot(
         now=NOW, planned_end=NOW, felt_bands_now={"appetite": 1}, message_arrived=True, delivery_arrived=True,
-        task_newly_visible=True, next_task_due_at=NOW + 1800, work_review_returned=True,
         last_decision_time=NOW - 5400, has_commitments=True,
         people_present_now={"甲"}, people_present_before={"乙"},
         discovery_result_ready=True, wake_from_sleep=True, run_start=True, progress_report_due=True,
         no_active_activity=True, plan_reminder_due=True, errand_reminder_due=True,
         duty_edges_now=frozenset(DUTY_EDGE_REASONS), app_push_arrived=True, is_asleep=False)
     verdict = evaluate_wake_reasons(snapshot)
-    never = {WakeReason.ACTIVITY_INFEASIBLE, WakeReason.REJECTION_FEEDBACK}
+    never = {WakeReason.ACTIVITY_INFEASIBLE, WakeReason.REJECTION_FEEDBACK, WakeReason.COMMITMENT_THREATENED}
     assert verdict.decision_offered
     assert verdict.wake_reasons == [member for member in WakeReason if member not in never]
     assert [member.value for member in verdict.wake_reasons[-6:]] == [

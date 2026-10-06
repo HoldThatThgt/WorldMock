@@ -12,18 +12,10 @@ from worldmock.footprints.models import canonical_json
 
 CODE = "a" * 64
 ZONE = ZoneInfo("Asia/Shanghai")
-#: 外部约束闭集只保留营业、到达准入、路线与工作可用性（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「动作照常列出，
-#: 做错了再说明」：删去 PICKUP_LOCATION_REQUIRED 与工作地点、技能不符的 ACTIVITY_PRECONDITION_UNMET）。
-FROZEN_EXTERNAL_CODES = {
-    "MERCHANT_CLOSED", "MERCHANT_OPENING_UNKNOWN", "LOCATION_ACCESS_DENIED",
-    "WORK_TASK_NOT_AVAILABLE", "WORK_SUBMISSION_LATE",
-    "FROZEN_ROUTE_NOT_FOUND", "ROUTE_UNREACHABLE", "ROUTE_INFORMATION_UNKNOWN",
-    "DELIVERY_ROUTE_NOT_FOUND", "DELIVERY_ROUTE_UNREACHABLE", "DELIVERY_ROUTE_INFORMATION_UNKNOWN",
-}
 #: 人物选了带说明的动作而被拒绝：三个引导性拒绝码、占用冲突与已移出闭集的到店地点码，都计入 other_rejections。
 GUIDED_REJECTION_CODES = (
     "ACTIVITY_PRECONDITION_UNMET", "ACTIVITY_CONCLUSION_REQUIRED", "SESSION_LIMIT_EXCEEDED",
-    "RESOURCE_CONFLICT", "PICKUP_LOCATION_REQUIRED",
+    "RESOURCE_CONFLICT", "SUPPLY_SOURCE_MISMATCH",
 )
 
 
@@ -154,7 +146,7 @@ def test_goal_progress_requires_matching_actual_positive_settlement(change):
         data.update(interval_start=clock(0, 6), interval_end=clock(0, 7))
         settled["progressed_at"] = actual["occurred_at"] = clock(0, 7)
     elif change == "wrong_family":
-        snapshot["kind"] = "watch"
+        snapshot["kind"] = "use_app"
     elif change == "missing_category":
         snapshot["kind"] = "lifestyle"
     elif change == "next_day":
@@ -216,9 +208,9 @@ def test_goal_with_an_around_time_counts_only_activity_that_ran_near_it(started,
     （快照的实际开始时刻至结算止点）须与 [around − 90 分钟, around + 90 分钟] 有正时长交集；08:40 的浏览即使快照声称推进了
     大致时刻为 23:00 的娱乐目标也不计，21:00 开始的观看计入；快照没有开始时刻或开始时刻晚于结算起点时不计。"""
     registered = goal("娱乐", "睡前刷会儿", around_at=clock(0, 23))
-    claimed = dict(registered, progressed_at=interval[1], progress_activity_id="browse")
+    claimed = dict(registered, progressed_at=interval[1], progress_activity_id="use_app")
     events = [plan_result(1, [registered], generated=True),
-              _started(progress(2, *interval, "browse", [claimed], activity_id="browse"), started)]
+              _started(progress(2, *interval, "use_app", [claimed], activity_id="use_app"), started)]
     day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
     assert day["goals"][0]["around_at"] == clock(0, 23)
     assert (day["goals"][0]["status"] == "progressed") is counted and day["progressed_count"] == int(counted)
@@ -296,9 +288,9 @@ def test_report_isolates_runs_agents_days_and_code_groups():
 
 def test_habit_uses_first_settlement_context_two_days_and_weighted_pairs():
     events = [progress(1, clock(), clock(0, 8, 10), activity_id="first"),
-              progress(2, clock(0, 9), clock(0, 9, 10), "watch", activity_id="first"),
+              progress(2, clock(0, 9), clock(0, 9, 10), "use_app", activity_id="first"),
               progress(3, clock(1), clock(1, 8, 10)),
-              progress(4, clock(1, 8, 20), clock(1, 8, 30), "watch"),
+              progress(4, clock(1, 8, 20), clock(1, 8, 30), "use_app"),
               progress(5, clock(0, 9), clock(0, 9, 10), "wait"),
               progress(6, clock(1, 9), clock(1, 9, 10), "wait"),
               progress(7, clock(0, 10), clock(0, 10, 10), "wait")]
@@ -328,8 +320,8 @@ def test_habit_zero_duration_cannot_create_or_claim_first_activity_sample():
     empty_habit = report([empty])["habitual_consistency"]
     assert empty_habit["groups"] == {}
     assert empty_habit["missing_samples"]["no_positive_activity_settlement"] == 1
-    events = [empty, progress(2, clock(0, 9), clock(0, 9, 10), "watch", activity_id="same"),
-              progress(3, clock(1, 9), clock(1, 9, 10), "watch", activity_id="next-day")]
+    events = [empty, progress(2, clock(0, 9), clock(0, 9, 10), "use_app", activity_id="same"),
+              progress(3, clock(1, 9), clock(1, 9, 10), "use_app", activity_id="next-day")]
     habit = report(events)["habitual_consistency"]
     assert set(habit["groups"]) == {"run:1:office:9"}
     group = habit["groups"]["run:1:office:9"]
@@ -359,38 +351,25 @@ def test_missing_lifestyle_category_or_location_does_not_guess_habits():
     assert habit["missing_samples"]["missing_activity_family_or_location"] == 2
 
 
-@pytest.mark.parametrize("code", sorted(FROZEN_EXTERNAL_CODES))
-def test_all_frozen_external_constraint_codes_block_gate_once(code):
-    rejected = event(1, "action_rejected", clock(), {"error_code": code}, action_id="action")
-    result = event(2, "action_result", clock(), {"status": "rejected", "error_code": code}, action_id="action")
-    replay = event(3, "action_rejected", clock(), {"error_code": code, "reused": True}, action_id="action")
-    metrics = report([rejected, result, replay])
-    external = metrics["external_constraints"]
-    assert external["block_count"] == 1 and external["by_error_code"] == {code: 1}
-    assert external["source_event_ids"] == ["e1"] and external["evidence_complete"] is True
-    assert external["observed_action_acceptance_rate"] == 0
-    assert metrics["gates"]["external_constraint_block_count"]["value"] == 1
-    assert metrics["gates"]["external_constraint_block_count"]["pass"] is False
-
-
 def test_external_constraint_actions_are_run_scoped_and_protocol_rejections_are_separate():
     events = [event(1, "action_result", clock(), {"status": "completed"}, action_id="same"),
               event(2, "action_result", clock(), {"status": "cancelled"}, action_id="cancelled"),
               event(3, "action_result", clock(), {"status": "failed", "error_code": "INTERNAL"}, action_id="failed"),
               event(4, "action_rejected", clock(), {"error_code": "BAD_REQUEST"}, action_id="bad"),
               event(5, "action_result", clock(), {"status": "in_progress"}, action_id="pending"),
-              event(1, "action_rejected", clock(), {"error_code": "MERCHANT_CLOSED"},
+              event(1, "action_rejected", clock(), {"error_code": "ACTION_REQUEST_INVALID"},
                     action_id="same", run_id="other")]
     external = report(events)["external_constraints"]
     assert external["terminal_action_count"] == 5
     assert external["observed_action_acceptance_rate"] == 0.6
     assert external["other_rejections"] == {
-        "count": 1, "by_error_code": {"BAD_REQUEST": 1}, "source_event_ids": ["e4"]}
-    assert external["block_count"] == 1
+        "count": 2, "by_error_code": {"ACTION_REQUEST_INVALID":1, "BAD_REQUEST":1},
+        "source_event_ids": ["e1", "e4"]}
+    assert external["block_count"] == 0
 
 
 @pytest.mark.parametrize("fields,data", [
-    ({}, {"error_code": "MERCHANT_CLOSED"}), ({"action_id": "missing"}, {}),
+    ({}, {"error_code": "ACTION_REQUEST_INVALID"}), ({"action_id": "missing"}, {}),
     ({"action_id": "missing"}, {"error_code": ""}),
 ])
 def test_missing_rejection_evidence_fails_closed(fields, data):
@@ -445,7 +424,7 @@ def test_terminal_action_replay_does_not_turn_cancelled_activity_into_rejection(
 
 
 def test_external_constraint_error_vocabulary_is_the_frozen_spec_set():
-    assert EXTERNAL_CONSTRAINT_ERROR_CODES == FROZEN_EXTERNAL_CODES
+    assert EXTERNAL_CONSTRAINT_ERROR_CODES == frozenset()
     assert not EXTERNAL_CONSTRAINT_ERROR_CODES & set(GUIDED_REJECTION_CODES)
 
 
@@ -474,12 +453,18 @@ def test_guided_rejections_count_as_other_rejections_not_external_constraints():
 
 
 @pytest.mark.parametrize("status", ["rejected", "failed"])
-def test_external_constraint_failure_from_action_terminal_without_rejection_event(status):
+def test_terminal_rejections_and_activity_failures_have_distinct_public_counts(status):
+    """@brief 请求被拒与已受理活动失败分开计数；二者都不再制造已删除的外部约束。"""
+    rejected = status == "rejected"
     metrics = report([event(1, "action_result", clock(),
-                            {"status": status, "error_code": "WORK_SUBMISSION_LATE"}, action_id="late")])
-    assert metrics["external_constraints"]["block_count"] == 1
-    assert metrics["external_constraints"]["observed_action_acceptance_rate"] == 0
-    assert metrics["gates"]["external_constraint_block_count"]["pass"] is False
+                            {"status": status, "error_code": "ACTION_REQUEST_INVALID" if rejected else None},
+                            action_id="terminal")])
+    assert metrics["external_constraints"]["block_count"] == 0
+    assert metrics["external_constraints"]["other_rejections"] == {
+        "count":int(rejected), "by_error_code":{"ACTION_REQUEST_INVALID":1} if rejected else {},
+        "source_event_ids":["e1"] if rejected else []}
+    assert metrics["external_constraints"]["observed_action_acceptance_rate"] == int(not rejected)
+    assert metrics["gates"]["external_constraint_block_count"]["pass"] is True
 
 
 def test_habit_does_not_replace_missing_first_settlement_with_later_known_context():

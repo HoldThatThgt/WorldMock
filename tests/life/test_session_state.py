@@ -148,7 +148,7 @@ def test_session_kind_closed_set():
 
 def test_session_task_kind_closed_set():
     """任务关联类型闭集（已移到活动上）恰为三个合法成员。"""
-    assert {k.value for k in SessionTaskKind} == {"goal", "work_task", "none"}
+    assert {k.value for k in SessionTaskKind} == {"goal", "work_topic", "none"}
 
 
 @pytest.mark.parametrize("bad_status", ["running", "done", "pending", "", "paused", "concluded", "aborted"])
@@ -246,18 +246,18 @@ def test_task_kind_goal_with_disagreeing_intent_is_rejected():
         ActivityState.model_validate(_activity(task_kind="goal", task_ref="工作", plan_goal_intent_kind="休息"))
 
 
-def test_task_kind_work_task_requires_task_ref():
-    """task_kind=work_task 时 task_ref=None 被拒绝。"""
+def test_task_kind_work_topic_requires_task_ref():
+    """task_kind=work_topic 时 task_ref=None 被拒绝。"""
     with pytest.raises(ValidationError):
-        ActivityState.model_validate(_activity(task_kind="work_task", task_ref=None))
+        ActivityState.model_validate(_activity(task_kind="work_topic", task_ref=None))
 
 
-def test_task_kind_work_task_with_task_ref_is_valid():
-    """task_kind=work_task 且 task_ref 有值通过验证。"""
+def test_task_kind_work_topic_with_task_ref_is_valid():
+    """task_kind=work_topic 且 task_ref 指向实际主题时通过验证。"""
     activity = ActivityState.model_validate(
-        _activity(task_kind="work_task", task_ref="backend-hourly-2026-01-05"))
-    assert activity.task_kind == SessionTaskKind.WORK_TASK
-    assert activity.task_ref == "backend-hourly-2026-01-05"
+        _activity(task_kind="work_topic", task_ref="quarterly-sales"))
+    assert activity.task_kind == SessionTaskKind.WORK_TOPIC
+    assert activity.task_ref == "quarterly-sales"
 
 
 # ---------------------------------------------------------------------------

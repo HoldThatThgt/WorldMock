@@ -6,13 +6,18 @@ from worldmock.footprints.export import _verified_experience_rows, reconstruct_a
 from worldmock.footprints.models import sha256_json
 import hashlib
 import json
+import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
+from worldmock.exchange.constants import RULES_VERSION
+from worldmock.life.models import WORLD_SCHEMA_VERSION
 from worldmock.footprints.ledger import validate_account_history
 from worldmock.footprints.models import AssetRef, Checkpoint, Event, canonical_json
+from worldmock.footprints.app_usage import project_app_usage
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 
@@ -27,6 +32,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     experiences = _read_artifact(
         root, manifest["artifacts"]["verified_experiences"], "verified-experiences.jsonl")
     purchases = _read_artifact(root, manifest["artifacts"]["purchases"], "purchases.jsonl")
+    app_usage = _read_artifact(root, manifest["artifacts"]["app_usage"], "app-usage.jsonl")
     indexed = _read_artifact(root, manifest["asset_index"], "asset-index.jsonl")
     records = [Event.model_validate(row, strict=True) for row in events]
     checkpoint = _validate_checkpoint(manifest, records)
@@ -40,6 +46,9 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
         raise IntegrityError("Export verified experiences disagree with committed events")
     if project_purchase_facts(events) != purchases:
         raise IntegrityError("Export purchase facts disagree with committed events")
+    if project_app_usage(events) != app_usage:
+        logging.error("Export app usage facts disagree with committed events")
+        raise IntegrityError("Export app usage facts disagree with committed events")
     _validate_quality(root, manifest, records, activities)
     return manifest, events, activities
 
@@ -61,11 +70,15 @@ def _validate_quality(root: Path, manifest: dict, events: list[Event], activitie
 
 def _validate_identity(manifest: dict) -> None:
     """@brief 冻结运行、覆盖范围和提交状态必须与正式清单相符。"""
-    if manifest.get("schema_version") != 2 or manifest.get("committed") is not True:
+    if manifest.get("schema_version") != 3 or manifest.get("committed") is not True:
         raise IntegrityError("Export manifest is not a committed supported version")
     if manifest.get("experiment_completed") is not True:
         raise IntegrityError("Production delivery requires a completed experiment")
     frozen = manifest["frozen_run_manifest"]
+    _validate_run_identity(frozen)
+    if manifest.get("checkpoint", {}).get("state", {}).get("schema_version") != WORLD_SCHEMA_VERSION:
+        logging.error("Export checkpoint world schema does not match the current code")
+        raise IntegrityError("Export checkpoint world schema does not match the current code")
     if manifest["run_id"] != frozen["run_id"] or manifest["source_group_id"] != frozen["source_group_id"]:
         raise IntegrityError("Export run identity disagrees with the frozen manifest")
     zone = ZoneInfo(frozen["window"]["timezone"])
@@ -81,7 +94,7 @@ def _validate_identity(manifest: dict) -> None:
         cursor = datetime.combine(cursor.date() + timedelta(days=1), datetime.min.time(), zone)
     if manifest["daily_coverage"] != days:
         raise IntegrityError("Export day coverage is inconsistent")
-    if set(manifest["artifacts"]) != {"events", "activities", "verified_experiences", "purchases"}:
+    if set(manifest["artifacts"]) != {"events", "activities", "verified_experiences", "purchases", "app_usage"}:
         raise IntegrityError("Export artifact set is invalid")
 
 
@@ -172,3 +185,19 @@ def _validate_assets(root: Path, events: list[Event], checkpoint: Checkpoint, in
         raw = path.read_bytes()
         if len(raw) != reference.size_bytes or hashlib.sha256(raw).hexdigest() != reference.sha256:
             raise IntegrityError("Export source asset content is invalid")
+
+
+def _validate_run_identity(frozen: dict) -> None:
+    """@brief 在读取工件和启动下游前验证当前运行清单及五字段环境身份。"""
+    identity = frozen.get("environment_identity")
+    fields = {"environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
+    valid = frozen.get("schema_version") == 3 and isinstance(identity, dict) and set(identity) == fields
+    if valid:
+        valid = (all(isinstance(identity[key], str) and identity[key].strip()
+                     for key in ("environment_id", "environment_version"))
+                 and type(identity["rules_version"]) is int and identity["rules_version"] == RULES_VERSION
+                 and all(isinstance(identity[key], str) and re.fullmatch(r"[a-f0-9]{64}", identity[key])
+                         for key in ("catalog_content_sha256", "map_sha256")))
+    if not valid:
+        logging.error("Export frozen run manifest or environment identity is invalid")
+        raise IntegrityError("Export frozen run manifest or environment identity is invalid")

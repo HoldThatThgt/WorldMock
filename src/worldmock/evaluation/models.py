@@ -121,6 +121,8 @@ class EvidenceEvent:
     visibility: str = "agent"
     source_kind: str = "environment"
     checkpoint_id: str | None = None
+    interval_start: datetime | None = None
+    interval_end: datetime | None = None
 
     def to_rule_dict(self) -> JsonObject:
         """@brief 返回生产因果检查器的冻结证据投影。"""
@@ -158,6 +160,7 @@ class ActivitySession:
     category: str
     started_at: datetime
     ended_at: datetime
+    elapsed_seconds: float
     status: str
     channels: tuple[str, ...]
     application_category: str | None
@@ -165,15 +168,21 @@ class ActivitySession:
     official_domains: tuple[str, ...]
     caused_by: tuple[str, ...]
     source_pointer: str
-    segments: tuple[tuple[datetime, datetime], ...] | None = None
     source_channels: tuple[str, ...] = ()
 
     @property
     def duration_seconds(self) -> float:
         """@brief 返回非负活动秒数。"""
-        if self.segments is not None:
-            return sum((end - start).total_seconds() for start, end in self.segments)
-        return max(0.0, (self.ended_at - self.started_at).total_seconds())
+        return self.elapsed_seconds
+
+
+def activity_intervals(activity: ActivitySession, events: tuple[EvidenceEvent, ...]) -> tuple:
+    """@brief 世界活动只取认证进度区间，其他输入取权威会话边界；暂停空档不算活动。"""
+    if activity.duration_kind in {"world_activity", "world_internet_session"}:
+        return tuple(sorted((event.interval_start, event.interval_end) for event in events
+                            if event.activity_id == activity.activity_id and event.event_family == "activity_progress"
+                            and event.interval_start is not None and event.interval_end is not None))
+    return ((activity.started_at, activity.ended_at),) if activity.elapsed_seconds > 0 else ()
 
 
 @dataclass(frozen=True)

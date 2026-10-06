@@ -569,8 +569,6 @@ def test_service_refused_pulse_at_most_once_per_second(engine_factory) -> None:
     later = engine.context.state.agents[1].body
     _invalid_start(engine, "pulse-3")
     assert engine.context.state.agents[1].body == apply_mood_pulse(later, "service_refused")
-    assert same_moment.refusal_pulse_key("CATEGORY_PAIRING_NO_EFFECT") is None
-    assert same_moment.refusal_pulse_key("CATEGORY_PAIRING_UNDEFINED") is None
     assert same_moment.refusal_pulse_key("RESOURCE_CONFLICT") == "service_refused"
 
 

@@ -141,7 +141,8 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     assert _activity_target(opened, name)["state"] == "已做不到 1 分钟，还剩约 15 分钟"
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    assert _act(engine, "phase-pause", "pause_activity", pause_request(name, summary="先处理邮件")).status == "completed"
+    paused_result = _act(engine, "phase-pause", "pause_activity", pause_request(name, summary="先处理邮件"))
+    assert paused_result.status == "completed"
     paused = _observe(engine, "phase-paused")
     assert _activity_target(paused, name) is None
     (item,) = paused["todo_layer"]["paused_activities"]
@@ -149,7 +150,8 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     assert "先处理邮件" not in json.dumps([paused["tool_layer"], paused["todo_layer"]], ensure_ascii=False)
     assert progress_calls(paused, "pause_activity")[0]["arguments"] == {
         "items": [{"activity_name": name, "summary": "先处理邮件"}]}
-    assert _act(engine, "phase-resume", "report_status", report_request(name, summary="回到等待")).status == "completed"
+    resumed_result = _act(engine, "phase-resume", "report_status", report_request(name, summary="回到等待"))
+    assert resumed_result.status == "completed"
     assert engine.context.state.activities[activity_id].note_history[-1]["note"] == "先处理邮件"
     resumed = _observe(engine, "phase-resumed")
     assert _activity_target(resumed, name)["phase"] == "进行中" and not resumed["todo_layer"]["paused_activities"]
@@ -158,10 +160,25 @@ def test_progress_rows_follow_pause_resume_end_and_conclusion(engine_factory) ->
     ended = _observe(engine, "phase-ended")
     assert _activity_target(ended, name)["phase"] == "刚结束"
     assert _activity_target(ended, name)["state"] == "按计划结束，已做约 15 分钟"
-    assert _act(engine, "phase-conclude", "conclude_activity", conclude_request(
-        name, summary="等完了")).status == "completed"
+    concluded_result = _act(engine, "phase-conclude", "conclude_activity", conclude_request(name, summary="等完了"))
+    assert concluded_result.status == "completed"
     concluded = _observe(engine, "phase-concluded")
     assert _activity_target(concluded, name) is None and not concluded["todo_layer"]["paused_activities"]
+    for tool, result, observed in (("pause_activity", paused_result, paused),
+                                  ("report_status", resumed_result, resumed),
+                                  ("conclude_activity", concluded_result, concluded)):
+        assert result.data["activity_ids"] == [activity_id]
+        assert "task" not in result.data and "items" not in result.data
+        [stored] = [event for event in engine.context.store.read_agent_events("action_result", 1)
+                    if event.action_id == result.action_id]
+        assert stored.data["data"] == result.data
+        details = progress_calls(observed, tool)[-1]["result"]["details"]
+        assert "task" not in details and "items" not in details and "activity_ids" not in details
+        assert details["errands"] == []
+    assert progress_calls(resumed, "report_status")[-1]["result"]["details"]["planned"] == [
+        {"name": name, "duration": "约 14 分钟"}]
+    assert progress_calls(concluded, "conclude_activity")[-1]["result"]["details"]["outcome"] == concluded_result.data[
+        "outcome"]
 
 
 
@@ -263,7 +280,7 @@ def test_result_details_keep_only_new_readable_facts() -> None:
     unread = {**reading, "data": {}}
     assert public_result({**_result({"activity": unread}), "status": "in_progress", "error_code": None},
                          _scenario())["details"] == {"planned": [{"name": reading["name"], "duration": "约 5 分钟"}]}
-    resumed = {"task": ["工作会议纪要（1月5日 00:00 起）"], "activity_ids": ["internal-activity-3"],
+    resumed = {"activity_ids": ["internal-activity-3"],
                "resumed": [{"name": "工作会议纪要（1月5日 00:00 起）", "planned_duration_seconds": 22_409}]}
     assert public_result({**_result(resumed), "status": "completed", "error_code": None}, _scenario())["details"] == {
         "planned": [{"name": "工作会议纪要（1月5日 00:00 起）", "duration": "约 6 小时"}]}

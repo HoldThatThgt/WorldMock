@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import sys
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
 from worldmock.life.models import StartActivityRequest
+from worldmock.life.world_setup import load_runtime_scenario
+from worldmock.life.run_identity import environment_identity
 from worldmock.profile.coverage import PersonaCoverageError
 from worldmock.profile.models import HabitSignature, Tastes
 from worldmock.profile.coverage_targets import build_coverage_targets
@@ -47,17 +50,30 @@ def _compiler(card):
 def _covered_card():
     """全部命中真实目录目标的卡片（紫薇公园/悬疑/牛肉炒面/电影）。"""
     return make_card(
-        habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步",
+        habits=(HabitSignature(trigger="下班到家", response="去五里公园散步",
                                time_window=make_window(19.0, 20.0)),),
-        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",),
-                      media=("电影",)))
+        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉面",),
+                      media=("长视频",)))
+
+
+def _story_scenario(tmp_path):
+    """@brief 隔离副本明确声明人物故事，画像验证不得借人工环境缺省无故事而空跑。"""
+    root = tmp_path / "environment"
+    shutil.copytree(ENVIRONMENT_ROOT, root)
+    path = root / "scenarios/single-person.json"
+    document = json.loads(path.read_text())
+    document["agents"][0]["background_story"] = (
+        "人物在家里安静休息，常吃牛肉面，下班去五里公园散步，使用哔哩哔哩观看长视频。" * 4)
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    return path
 
 
 @pytest.fixture
 def complete_export(tmp_path):
-    manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
+    manifest = {'schema_version': 3, 'environment_identity': environment_identity(load_runtime_scenario(SCENARIO)[0]),
+                'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1],
                 'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    store = FootprintStore.create(tmp_path / 'run', manifest, {'version': 0, 'current_time': 100})
+    store = FootprintStore.create(tmp_path / 'run', manifest, {'schema_version': 10, 'version': 0, 'current_time': 100})
     observation = EventDraft(event_type='observation', occurred_at=100, agent_id=1, decision_id='decision',
                               data={'energy_kcal': 100})
     model_request = EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
@@ -75,7 +91,7 @@ def complete_export(tmp_path):
                              items=[{'target': '自己', 'way': '等待', 'from': None, 'to': None}],
                              answering=None, prefer=None).model_dump(mode='json')})
     store.commit(store.state, [observation, model_request, request])
-    store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200)])
+    store.commit({'schema_version': 10, 'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     directory = tmp_path / 'export'
@@ -131,17 +147,33 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
     with pytest.raises(IntegrityError): validate_export(complete_export)
 
 
+@pytest.mark.parametrize("alteration", ["version_two", "missing_app_usage", "extra_artifact"])
+def test_export_rejects_retired_version_or_noncurrent_artifact_set(complete_export, alteration):
+    """@brief 当前五文件合同是封闭集合；旧版本、遗漏和额外文件都不能进入下游。"""
+    path = complete_export / "manifest.json"
+    manifest = json.loads(path.read_text())
+    if alteration == "version_two":
+        manifest["schema_version"] = 2
+    elif alteration == "missing_app_usage":
+        manifest["artifacts"].pop("app_usage")
+    else:
+        manifest["artifacts"]["invented"] = dict(manifest["artifacts"]["events"])
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(IntegrityError):
+        validate_export(complete_export)
+
+
 @pytest.mark.requires_labelkit
 def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypatch):
     """validate 全链路通过：品类准入+任务受理+阶段身份+persona_coverage.json。"""
     monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
     coverage_out = tmp_path / "persona_coverage.json"
-    result = validate_project(PROJECT_ROOT, SCENARIO,
+    result = validate_project(PROJECT_ROOT, _story_scenario(tmp_path),
                               persona_compiler=_compiler(_covered_card()),
                               coverage_out=coverage_out)
 
     assert result["valid"] is True
-    assert result["model_identity"] == {"stages": ["action", "work_review"],
+    assert result["model_identity"] == {"stages": ["action"],
                                         "consistent": True}
     report = result["persona_coverage"][0]
     assert report["agent_id"] == 1 and report["passed"] is True
@@ -167,7 +199,7 @@ def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator
     monkeypatch.setattr(worldmock_run_setup_module, 'validate_manifest_stage_identity', lambda manifest=None: seen.append(manifest) or original(manifest))
 
     with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
-        validate_project(PROJECT_ROOT, SCENARIO, persona_compiler=_compiler(_covered_card()),
+        validate_project(PROJECT_ROOT, _story_scenario(tmp_path), persona_compiler=_compiler(_covered_card()),
                          coverage_out=tmp_path / "persona_coverage.json")
     assert seen == [None]
 
@@ -183,33 +215,28 @@ def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch
                       media=("播客", "全息投影")))
 
     with pytest.raises(PersonaCoverageError, match="PERSONA_COVERAGE_FAILED") as caught:
-        validate_project(PROJECT_ROOT, SCENARIO,
+        validate_project(PROJECT_ROOT, _story_scenario(tmp_path),
                          persona_compiler=_compiler(uncovered),
                          coverage_out=tmp_path / "persona_coverage.json")
     assert "播客" in str(caught.value)
 
 
 @pytest.mark.requires_labelkit
-def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
-    """世界素材品类准入纳入启动前校验：任一违例即拒绝。"""
+def test_validate_project_rejects_an_invalid_current_food_registration(tmp_path, monkeypatch):
+    """@brief 当前食品绑定违反真实登记合同，在任何人物启动或画像生成前即拒绝。"""
+    from worldmock.catalog.identity import refresh_manifest_identity
+
     monkeypatch.setattr(worldmock_run_setup_module, "_configure_process", lambda _root: None)
-    import worldmock.validation as validation_module
-
-    class _Violation:
-        code = "CATEGORY_MEALS_MISSING"
-        detail = "meals corpus is absent"
-
-    original = validation_module.validate_world_categories
-    monkeypatch.setattr(validation_module, "validate_world_categories",
-                        lambda catalog, root, locations_path: SimpleNamespace(ok=False,
-                                                              violations=(_Violation(),)))
-    try:
-        with pytest.raises(IntegrityError, match="World category admission rejected"):
-            validate_project(PROJECT_ROOT, SCENARIO,
-                             persona_compiler=_compiler(_covered_card()),
-                             coverage_out=tmp_path / "persona_coverage.json")
-    finally:
-        monkeypatch.setattr(validation_module, "validate_world_categories", original)
+    path = _story_scenario(tmp_path)
+    foods = path.parent.parent / "catalog/foods.json"
+    payload = json.loads(foods.read_text())
+    payload["foods"][0]["store_ids"] = ["unknown-store"]
+    foods.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    refresh_manifest_identity(foods.parent)
+    output = tmp_path / "persona_coverage.json"
+    with pytest.raises(IntegrityError, match="ENVIRONMENT_REF_UNKNOWN"):
+        validate_project(PROJECT_ROOT, path, persona_compiler=_compiler(_covered_card()), coverage_out=output)
+    assert not output.exists()
 
 
 def test_build_coverage_targets_derives_from_catalog_and_corpora():
@@ -221,11 +248,12 @@ def test_build_coverage_targets_derives_from_catalog_and_corpora():
     targets = build_coverage_targets(scenario, load_catalog(ENVIRONMENT_ROOT / "catalog"),
                                      ENVIRONMENT_ROOT / "corpora")
 
-    assert "紫薇公园" in targets.habit_response_keywords
-    assert "悬疑" in targets.content_genres
-    assert "牛肉炒面" in targets.food_kinds
-    assert targets.media_kinds and set(targets.media_kinds) <= {
-        "电影", "剧集", "播客", "网文", "新闻", "段子", "字幕体验", "游戏"}
+    assert "五里公园" in targets.habit_response_keywords
+    assert "安静休息" in targets.habit_response_keywords
+    assert "牛肉面" in targets.food_kinds
+    assert set(targets.media_kinds) == {"文章", "图文", "短视频", "长视频", "实况"}
+    assert set(targets.app_names) == {"哔哩哔哩", "抖音", "饿了么", "美团"}
+    assert "content_genres" not in type(targets).model_fields
     again = build_coverage_targets(scenario, load_catalog(ENVIRONMENT_ROOT / "catalog"),
                                    ENVIRONMENT_ROOT / "corpora")
     assert again == targets
@@ -293,7 +321,7 @@ def test_profile_cli_validate_writes_coverage(tmp_path, monkeypatch, capsys):
     coverage_out = tmp_path / "persona_coverage.json"
     monkeypatch.setattr(validation_module, "_compile_persona",
                         lambda story: SimpleNamespace(card=_covered_card()))
-    code = main(["profile", "validate", "--scenario", str(SCENARIO),
+    code = main(["profile", "validate", "--scenario", str(_story_scenario(tmp_path)),
                  "--coverage-out", str(coverage_out)])
 
     assert code == 0
@@ -301,3 +329,26 @@ def test_profile_cli_validate_writes_coverage(tmp_path, monkeypatch, capsys):
     assert result["scenario_id"]
     document = json.loads(coverage_out.read_text(encoding="utf-8"))
     assert document["agents"][0]["passed"] is True
+
+
+@pytest.mark.parametrize("alteration", ["world_nine", "missing_world", "run_two", "missing_identity",
+                                       "extra_identity", "bad_hash", "bad_rules", "blank_version"])
+def test_current_export_identity_is_required_before_any_consumer(complete_export, alteration):
+    """@brief 当前世界、运行版本和完整环境身份缺一不可，所有下游在读取前拒绝。"""
+    path = complete_export / 'manifest.json'
+    manifest = json.loads(path.read_bytes())
+    frozen = manifest['frozen_run_manifest']
+    if alteration == 'world_nine': manifest['checkpoint']['state']['schema_version'] = 9
+    if alteration == 'missing_world': manifest['checkpoint']['state'].pop('schema_version')
+    if alteration == 'run_two': frozen['schema_version'] = 2
+    if alteration == 'missing_identity': frozen.pop('environment_identity')
+    if alteration == 'extra_identity': frozen['environment_identity']['extra'] = 'invented'
+    if alteration == 'bad_hash': frozen['environment_identity']['map_sha256'] = 'invented'
+    if alteration == 'bad_rules': frozen['environment_identity']['rules_version'] = True
+    if alteration == 'blank_version': frozen['environment_identity']['environment_version'] = ' '
+    path.write_text(json.dumps(manifest), encoding='utf-8')
+    message = 'world schema' if alteration in {'world_nine', 'missing_world'} else 'environment identity'
+    with pytest.raises(IntegrityError, match=message):
+        validate_export(complete_export)
+    with pytest.raises(IntegrityError, match=message):
+        prepare_windows(complete_export)

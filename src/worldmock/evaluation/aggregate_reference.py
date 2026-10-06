@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from worldmock.evaluation.models import ActivitySession, DatasetView, EvaluationScenario, JsonObject
+from worldmock.evaluation.models import ActivitySession, DatasetView, EvaluationScenario, JsonObject, activity_intervals
 
 
 def evaluate_official_reference(
@@ -79,19 +79,12 @@ def _occupied_slots(
     occupied: set[tuple[str, date, int]] = set()
     zone = ZoneInfo(view.window.timezone)
     for activity in activities:
-        for start, end in _segments(activity):
+        for start, end in activity_intervals(activity, view.events):
             for day in view.window.days:
                 day_start = datetime.combine(day, time.min, zone)
                 for index in _overlapping_slots(start, end, day_start):
                     occupied.add((activity.person_id, day, index))
     return occupied
-
-
-def _segments(activity: ActivitySession) -> tuple[tuple[datetime, datetime], ...]:
-    """@brief 返回会话真实运行区间。"""
-    if activity.segments is not None:
-        return activity.segments
-    return ((activity.started_at, activity.ended_at),)
 
 
 def _overlapping_slots(start: datetime, end: datetime, day_start: datetime) -> tuple[int, ...]:

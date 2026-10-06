@@ -1,9 +1,7 @@
 <a name="spec-idle-fillers-让等待成为例外开发规格"></a>
 # 让「等待」成为例外开发规格
 
-> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的最终唤醒和预排闭集。
-
-> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）及 app 内容、推送与唤醒同步点（阶段 4）。
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）、app 内容与推送（阶段 4）、最终唤醒与主题工时（阶段 5）、系统文本（阶段 6）及验收登记（阶段 7）。
 
 > 状态：FROZEN。本文件是本特性的唯一开发规格；阶段 1–3 已实现，门禁与变异证据另行登记。阶段 4 的旧格式第三份完整日夹具计划未执行，当前验收由环境数据归属合同替代；其余验收与配对复跑不得称为已完成。
 > 日期：2026-10-07（整合环境数据归属；原实施基线与裁决来源保留）。
@@ -297,7 +295,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | --- | --- |
 | `docs/CONTRACTS.md#contracts-model-request` | 系统层 JSON 块第 7、14、15、16 条换成定稿文本（先合同后代码，同一提交） |
 | `docs/CONTRACTS.md#contracts-seven-layer-schema` | 分阶段指纹叙述在「旧运行按模型身份与 `code_sha256` 拒绝恢复」之前补一个带链接的独立分句：系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 重钉，`tool_schema_sha256` 不变 |
-| `docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改` | 范围句补「决策机会」；作息一条补：作息与当日目标文字里的钟点、大致时刻都只是大概，目标文字与大致时刻不产生边界，作息本身只有午餐、晚餐时段的起止是结算边界且只在饥饿体感跨档时提供机会，其余钟点不产生事件（场景声明的工作安排不是作息，其班次与休息时段起止见生活运行时规格触发表），系统层写明临近即可去做、略早略晚仍算照常、与人约好的事宁早勿晚、必须准点的事由当日目标的提醒时刻承担；困意一条按 R4：较轻档位不因困意提前上床，就寝时间之前照常度过晚上，到了就寝时间随时可以入睡，不要求撑到某个钟点，作息一条的略早略晚对就寝同样适用；饥饿一条句首补：只是「有点想吃」时正餐留到平常饭点前后，不要求等到饭点；新增一条：系统层第 7 条向人物说明的决策机会以生活运行时规格「决策节律」的触发表为准，活动在这些机会上照常进行、人物可在任一次机会结束它，例外是游戏只在自己的交互边界暂停或结束、人物之间的消息在收件人已达同刻上限时顺延到下一边界；系统层告诉人物空档里照自己的习惯做别的事、等待只用于几分钟内就有决策机会的情形，环境不设等待上限、不替人物选择内容（R12）；验收句补第 7 条所述决策机会（配送、任务开放、班次与休息时段起止）的实际行为 |
+| `docs/dev/SPEC-life-realism.md#dayrun-fidelity-人设与系统层-系统层照作息过日子较强一档才改` | 范围句补「决策机会」；作息一条补：作息与当日目标文字里的钟点、大致时刻都只是大概，目标文字与大致时刻不产生边界，作息本身只有午餐、晚餐时段的起止是结算边界且只在饥饿体感跨档时提供机会，其余钟点不产生事件（场景声明的工作安排不是作息，其班次与休息时段起止见生活运行时规格触发表），系统层写明临近即可去做、略早略晚仍算照常、与人约好的事宁早勿晚、必须准点的事由当日目标的提醒时刻承担；困意一条按 R4：较轻档位不因困意提前上床，就寝时间之前照常度过晚上，到了就寝时间随时可以入睡，不要求撑到某个钟点，作息一条的略早略晚对就寝同样适用；饥饿一条句首补：只是「有点想吃」时正餐留到平常饭点前后，不要求等到饭点；新增一条：系统层第 7 条向人物说明的决策机会以生活运行时规格「决策节律」的触发表为准，活动在这些机会上照常进行、人物可在任一次机会结束它，例外是游戏只在自己的交互边界暂停或结束、人物之间的消息在收件人已达同刻上限时顺延到下一边界；系统层告诉人物空档里照自己的习惯做别的事、等待只用于几分钟内就有决策机会的情形，环境不设等待上限、不替人物选择内容（R12）；验收句补第 7 条所述决策机会（配送、app 推送、班次与休息时段起止）的实际行为 |
 | `docs/dev/SPEC-day-plan-goals.md#spec-day-plan-goals-心智模型与范围` | 「作息是默认…只在较强一档才改」之后补：作息里的钟点、目标文字里的钟点与大致时刻都只是大概，系统层写明临近即可去做、略早略晚都算照常 |
 | `docs/dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-等待与内容接触` | 原句保留，其后补：系统层把「空档里照自己的习惯做别的事、等待只用于几分钟内就有决策机会的时候」作为平常人的过法写给人物；环境仍不设占比上限、不替人物选择内容。2026-10-05 的用户裁决取代早先一日行为设计采纳的「不预设等待越少越好」 |
 | `docs/EXPERIMENT.md#experiment-交互菜单与运行身份` | 在「四键旧请求按缺字段拒绝。」之后补：系统层第 7、14、15、16 条原位改写，改变 `prompt_sha256`，工具面与各层 Schema 不变；实施前后的运行不可合并比较 |
@@ -349,14 +347,14 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 
 | 阶段 | 位置 | 改动 |
 | --- | --- | --- |
-| C 与阶段 4 修订 | `tests/footprints/test_event_fields.py`、`tests/life/test_wake_reasons.py`、`tests/tools/run_viewer.test.cjs` | 有序成员表由阶段 3 的 24 项加入 `app_push` 成为当前 25 项；工作相关名字留到阶段 5，最终再收敛为 22 项 |
+| C 与阶段 4 修订 | `tests/footprints/test_event_fields.py`、`tests/life/test_wake_reasons.py`、`tests/tools/run_viewer.test.cjs` | 有序成员表为最终 22 项，包含 `app_push`；三个旧工作唤醒成员已删除，主题完成按实际工时结束活动并留下本人完成事件与进度证据 |
 | C | `tests/life/test_shift_edges.py`、`tests/life/test_shift_edge_runs.py`（新增） | 前者是生成器与纯函数用例（T16、T17），后者是经真实请求、引擎与 SQLite 的行为用例（T1–T15、T19、T20） |
 | A | `tests/integration/test_seven_layer_request.py::test_rule_14_makes_the_routine_the_default_and_the_day_plan_override_it` | 结尾断言改为以插入句加上班安排一句结尾，四个子串断言不变，说明文字随改 |
 | A | `tests/integration/test_seven_layer_request.py::test_rules_1_and_14_state_the_duty_arrangement_verbatim` | 常量 `_RULE_14_BEFORE_WORKDAY` 仍是前缀，注释改为「第 14 条开头的四个分句（前缀；其后依次是插入的钟点一句与上班安排一句）」；余下部分期望插入句加上班安排一句；说明文字改为四个分句之后是插入的「作息里的钟点…」一句、再接上班安排一句，并更正「三处副本」 |
 | A | `tests/integration/test_seven_layer_request.py::test_rules_1_4_6_divide_errands_summaries_and_memories` | 常量 `_RULE_16` 换成新第 16 条；常量注释与说明文字改为第 16 条随本规格改写，仍说睡着时只有提醒或睡够了才会醒，与第 6 条不相抵 |
 | A | `tests/integration/test_seven_layer_request.py::test_system_layers_are_the_contract_registration_verbatim` | 说明文字补第 7、14、15、16 条的改写 |
 | A | `tests/integration/test_seven_layer_request.py`（新增用例） | 正向断言（「到时也会请你决策，手上的活动照常进行」「等待只留给几分钟内就有事请你决策的时候」「到时不一定会请你决策」「不为凑钟点干等」「不用撑到某个钟点」）与反向断言（「等平常的饭点」「下单后要等送到」「不必因此提早上床」不再出现）；查看器夹具两处系统层与 `custom/agents/life_prompt.py::system_message` 的输出逐字相等 |
-| A | `tests/life/test_activity_wake_facts.py`（新增） | 活动进行中本人订单送达与任务开放：当秒的共同身体结算带 `delivery_arrival` 或 `task_available` 并提供决策，`decision_started` 同带，活动仍在进行；睡着时不给；经真实请求、引擎与 SQLite |
+| A | `tests/life/test_activity_wake_facts.py`、`tests/life/test_app_push.py` | 真实订单送达与 app 推送到期给清醒人物决策机会，手上的活动照常进行；睡着时不给决策，推送保留为 pending；配送经真实请求、引擎与 SQLite，推送经真实预排结算与已提交事件 |
 | A 与阶段 4 修订 | `tests/fixtures/viewer-context.json` | `action` 与 `continuation` 重录 app 推送和 app 内容语义；`legacy_` 开头的历史记录不动 |
 | A | `tests/errands_workday_acceptance.py`、`tests/fixtures/acceptance_requirements.json` | 判据注释、判据文字与 `EXTRA_MUTATIONS` 的说明文字里「第 16 条不动」「第 16 条与改写之前逐字节相同」「第 14 条在四个分句之后追加」「三处副本」「人物 Prompt 规格」等说法随文更正（D12）；一日运行保真台账「系统层」行的「与规格、接口合同逐字相同」改为「与接口合同、实际请求逐字相同」；节点名、变异名与变异原文不改 |
 | B | `tests/life/test_day_planning.py::test_plan_template_is_the_contract_text_and_asks_only_for_differences_with_around_times` | 第五条的逐字断言换成新文本，说明文字随改；新增断言：第三条含「出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻」与「几点去睡也不设提醒」，第六条含「不是开始的钟点」与「goal 里只给和人约好的事写钟点」，模板不含「不需要提醒就填 null」 |
@@ -376,7 +374,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 
 | 契约点 | 阶段 | 必须通过的验证 |
 | --- | --- | --- |
-| 唤醒词表与同步点 | 1 | T16、T18：同步点各处成员一致为 25，四个成员排在 `errand_reminder_due` 之后，睡眠允许集合仍恰为四项 |
+| 唤醒词表与同步点 | 1 | T16、T18：同步点各处成员一致为最终 22 项，四个班次成员排在 `errand_reminder_due` 之后，睡眠允许集合仍恰为四项；主题完成只按实际工作秒数、计划结束与本人完成事件验证 |
 | 清醒人物精确到点 | 1 | T1、T2、T10、T20 |
 | 不结束活动、不写事件、不进提示 | 1 | T3、T11、T12、T13 |
 | 睡眠 | 1 | T4、T5、T19 |
@@ -384,7 +382,7 @@ B 落地后唯一权威文本在 `docs/CONTRACTS.md#contracts-model-request` 的
 | 重合、零点与日历 | 1 | T7、T8、T9、T17 |
 | 落库、质量报告与恢复 | 1 | T14、T15 |
 | 系统层逐字 | 2 | 实际请求、接口合同与模块常量三者相等，十八条；A 一节的既有约束全部通过 |
-| 第 7 条的事实有引擎证据 | 2 | 计划结束与播报、消息、两种提醒的既有用例；配送与任务开放的新增用例；T2 |
+| 第 7 条的事实有引擎证据 | 2 | 计划结束与播报、消息、两种提醒的既有用例；真实配送与 app 推送证据，手上的活动继续、睡着时不请决策；T2 |
 | 旧读法不再出现 | 2 | 反向断言 |
 | 夹具与查看器 | 2 | 查看器夹具两处系统层与宿主系统消息逐字相等；查看器 Node 用例（经 `tests/tools/test_run_viewer.py` 收集）通过 |
 | 模板逐字 | 3 | 实际请求、接口合同与模块常量三者相等，八条；B 的新增断言 |
@@ -415,7 +413,7 @@ C 的行为用例：
 | T15 | 四个名字在质量报告里计入已知原因，两个未识别桶为空，报告结构仍是 4；一份有班次的离线运行（脚本化模型，经真实请求、引擎与 SQLite）经导出、校验与质量报告全程通过 |
 | T16 | 纯函数：四个成员排在 `errand_reminder_due` 之后；睡着时逐个成员都被过滤；清醒（`is_asleep` 为假）而其余标志与命中条件同时成立时，输出是声明次序去掉 `activity_infeasible` 与 `rejection_feedback`；`next_decision_time` 在 `is_asleep` 时不取起止时刻、清醒时取到；`tests/life/test_wake_reasons.py` 既有的逐项命中参数化用例不改而照常通过 |
 | T17 | 生成器：24:00 与 00:00 映射到零点；休息日与无安排为空；例外优先；查询秒恰为某个起止时，严格晚于的结果不含它、首项是下一个起止，恰在的结果含它；夏令时日的起止与 `src/worldmock/life/work_schedule.py::shift_span`、`src/worldmock/life/work_schedule.py::break_spans` 的换算一致：America/New_York 2026-03-08 班次 60–180、休息 120–150，03:00 记 `shift_end` 与 `break_start`，03:30 记 `break_end`，`duty.status` 为已下班 |
-| T18 | 既有互锁用例与查看器的 Node 用例（经 `tests/tools/test_run_viewer.py` 收集），数据扩到 25 |
+| T18 | 既有互锁用例与查看器的 Node 用例（经 `tests/tools/test_run_viewer.py` 收集）守住最终 22 项；真实主题做满实际工时后以计划结束完成，写本人完成事件与进度，移除开始目标 |
 | T19 | 闹钟与班次开始同一秒时起止照记且次序正确；运行开始在起止上时只记 `run_start` |
 | T20 | 同刻决策预算耗尽后的技术性暂停期间，本人的起止结束暂停，原因为 `no_active_activity` 与对应成员 |
 
@@ -528,3 +526,4 @@ C 的行为用例：
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：当前唤醒闭集由阶段 3 的 24 项加入 `app_push` 成为 25 项，app 内容完成取代游戏边界；三个工作名字留到阶段 5，最终表为 22 项 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步最终唤醒与预排闭集，提示规则后续边界保持明确 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 推送时机与剩余系统文本改写，提示身份变化而工具身份保持 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：验收登记保留现行行与守卫，最终唤醒 22 项、睡眠允许四项、真实推送与实际主题工时；删除任务开放和有效工时旧绑定，交付检查现行世界结构 10 并拒绝旧版本；历史裁决原文不变 |

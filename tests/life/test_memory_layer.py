@@ -258,8 +258,10 @@ def test_unfinished_app_self_report_writes_no_purchase_sentence(engine_factory) 
     _walk(engine, "h-walk")
     (entry,) = _memory(engine, "h-road")["earlier_today"]
     ended = engine.context.state.activities[app.activity_id]
+    content = engine.context.rules.contents[ended.data["content_id"]]
     assert entry["settled"] == [_mail_line(engine, mail_at),
-                                f"{name}：{_clock(engine, ended.started_at)}–{_clock(engine, ended.ended_at)}，提前结束"]
+                                f"{name}：{_clock(engine, ended.started_at)}–{_clock(engine, ended.ended_at)}，提前结束，"
+                                f"用抖音看了《{content.title}》的一部分"]
     assert entry["self_notes"] == [{"activity": _short(name), "text": "看完了，还买了薯片。"}]
     assert not [line for line in entry["settled"] if "下单" in line or "付 " in line or "买到" in line]
 

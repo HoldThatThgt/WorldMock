@@ -31,11 +31,10 @@ from worldmock.life.social import (
 
 def _presence(name: str = "李雷", location: str = "办公室",
               family: str = "工作", awake: bool = True,
-              gaming: bool = False, agent_id: str = "a2") -> AgentPresence:
+              agent_id: str = "a2") -> AgentPresence:
     """构造同世界他人在场事实。"""
     return AgentPresence(agent_id=agent_id, name=name, location=location,
-                         activity_family=family, awake=awake,
-                         actively_gaming=gaming)
+                         activity_family=family, awake=awake)
 
 
 def _contact(**overrides) -> Contact:
@@ -77,13 +76,13 @@ def test_people_here_filters_location_and_exposes_closed_fields() -> None:
         assert forbidden not in dumped
 
 
-def test_can_talk_requires_awake_and_not_active_gaming() -> None:
-    """睡眠或主动游戏中的人不可交谈，且在场投影同步反映。"""
+def test_can_talk_requires_awake_and_allows_current_app_activity() -> None:
+    """睡着的人不可交谈；应用使用不虚构已退役的游戏状态。"""
     assert can_talk(_presence())
     assert not can_talk(_presence(awake=False))
-    assert not can_talk(_presence(gaming=True))
-    views = people_here("办公室", [_presence(awake=False), _presence(gaming=True)])
-    assert [view.can_talk for view in views] == [False, False]
+    assert can_talk(_presence(family="使用应用"))
+    views = people_here("办公室", [_presence(awake=False), _presence(family="使用应用")])
+    assert [view.can_talk for view in views] == [False, True]
 
 
 def test_send_message_accepts_300_chars_and_rejects_301() -> None:
@@ -114,13 +113,11 @@ def test_send_message_delivers_to_world_agent_and_contact() -> None:
 
 
 def test_start_chat_rejects_absent_or_unavailable_partner() -> None:
-    """交谈要求共同在场且对方可交谈（睡眠/主动游戏均拒绝）。"""
+    """交谈要求共同在场且对方醒着。"""
     with pytest.raises(ValueError, match="co-presence"):
         start_chat("办公室", _presence(location="家"), 30, _outgoing())
     with pytest.raises(ValueError, match="cannot talk"):
         start_chat("办公室", _presence(awake=False), 30, _outgoing())
-    with pytest.raises(ValueError, match="cannot talk"):
-        start_chat("办公室", _presence(gaming=True), 30, _outgoing())
 
 
 def test_start_chat_registers_foreground_activity_with_invite() -> None:
@@ -209,14 +206,17 @@ def test_model_reply_request_and_finalize_validate_200_chars() -> None:
 
 
 def _people_seen(engine_factory):
-    """双人场景运行开始时人物 1 的真实观察：同处一地的同伴与通讯录联系人都是工具层 person 目标。"""
+    """双人场景运行开始时人物 1 的真实观察：同处同伴与通讯录联系人保持各自身份。"""
     from tests.life.conftest import context, stage_day_plan
 
-    engine = engine_factory("multi-person.json")
+    def contacts(document):
+        document["agents"][0]["contacts"] = [{"contact_id": "test-colleague", "salutation": "同事",
+            "relation": "同事", "closeness": 16, "channels": ["phone", "message"], "reply_policy": "none"}]
+    engine = engine_factory("multi-person.json", mutate=contacts)
     for agent_id in engine.context.state.agents:
         stage_day_plan(engine, agent_id)
     observed = engine.observe(context(engine, "people-seen"))
-    people = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
+    people = [row for row in observed["tool_layer"]["targets"] if row["kind"] in {"person", "contact"}]
     return engine, observed, people
 
 

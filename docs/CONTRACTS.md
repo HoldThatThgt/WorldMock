@@ -1,6 +1,8 @@
 <a name="contracts-worldmock-接口合同"></a>
 # WorldMock 接口合同
 
+> 2026-10-07：按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境数据归属合同、品类契约与目录字段、类别供给的构建合同、营业与报价声明、环境目录文件、环境目录与绑定、地点类词表、CLI 命令接口、环境与检查命令合同、冻结地图与场景引用、持久化当下事实、LifeEnv 状态字段、资源与需求字段、领域枚举、禁止进入提示的字段、模型身份、共同检查点与恢复、持久化结构、交互菜单声明与有效菜单、状态归属」（阶段 1）；「冻结地图与场景引用」、「地图与门店供给合同」（阶段 2）；「地点发现与购买身份、供给结算与事件载荷、活动受理拒绝码、请求字段与结算检查、请求模型的闭集与字面边界、候选与呈现合同、候选对象与来源、排除原因码、排序键与游标、下推返回体、场景常量、派生量字段、可见期与提示预算、运行输入警告、人物卡片覆盖率产出、体感与动机证据、人格与卡片字段、个人事务」（阶段 3）；app 使用、内容与推送（阶段 4）；工作主题、单一行动阶段与最终人物工具面（阶段 5）；「请求组成」的系统层 app 推送、并行、名称、购买来源与主题工时规则及提示指纹（阶段 6）。
 
 
@@ -1623,13 +1625,13 @@ ExclusionReason = Literal[
 内部身份键之列；冻结观察已有地点表与住处身份 `home_location_id`，不再冻结地点与住处的副本）、
 `motivation_hints`、
 完整活动快照（`activity_snapshot`、`activities`），内部身份键 `agent_id`、`activity_id`、`source_event_id`、`event_seq`、`product_id`、
-`location_id`、`destination_id`、`content_id`、`errand_id`（与[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第七章
+`location_id`、`destination_id`、`content_id`、`app_id`、`push_id`、`food_id`、`store_id`、`topic_id`、`errand_id`（与[时间与能量规格](dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)第七章
 「发给模型的内容不含内部身份」一致），以及嵌套的 `profile.motivation` 与
 `profile.entertainment_preferences`。宿主渲染系统层、六层 JSON 与续接 tool 消息时逐键校验（`narration.FORBIDDEN_OBSERVATION_KEYS`）；原生 `tools` 是整次运行不变的常量，
 由测试校验其描述与参数；记忆查询的 tool 消息只含 `{type, text, time, epistemic_status}`。代码中的键表是本段所列的超集，另含动作、事件、会话、任务、路线、
-供给、订单、消息与联系人身份键（`action_id`、`event_id`、`session_id`、`task_id`、`trip_id`、`path`、`supply_id`、`order_id`、`message_id`、`contact_id`）、
-`price_version`、账户与余额键、`resource_changes`、数值身体键（`energy_kcal`、`sleep_pressure`、`sleep_deficit_hours`、`chronotype_midsleep`、`sleep_need_hours`）、
-`taste_weights` 与下文的内部评审键，并拒绝一切以 `_sha256` 结尾的键。地点目标的出行动作只给方式、人读时长、
+供给、订单、消息与联系人身份键（`action_id`、`event_id`、`session_id`、`task_id`、`trip_id`、`path`、`order_id`、`message_id`、`contact_id`）、
+账户与余额键、`resource_changes`、数值身体键（`energy_kcal`、`sleep_pressure`、`sleep_deficit_hours`、`chronotype_midsleep`、`sleep_need_hours`）、
+下文的内部评审键，并拒绝一切以 `_sha256` 结尾的键。地点目标的出行动作只给方式、人读时长、
 票价、费力与可用性，发现结果只提供实际返回地点和供给的公开事实，不能复制全量地图或世界库存。
 路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、门店供给、库存物品使用合同、
 可供性合同、应用目录、全局内容进度、工作进度、邮件头、日历与地点目录）只供生成工具层与
@@ -1640,8 +1642,8 @@ ExclusionReason = Literal[
 每行只含 `product_id`、`name`、`use_modes`、`use_duration_seconds`、`required_location_id`。
 持有数量仍以 `available_inventory` 和人物可见的工具层持有物目标为准，不复制到使用合同。
 宿主据此约束 `consume` 的身份、使用方式、时长和地点。
-`purchase` 读取实际门店 `supplies` 的当前报价与供给库存；商品定义和 `inventory_items` 只提供规格与使用合同，不能为持有物虚构供给、报价或可购买性。
-`consume.items[].quantity` 是请求份数，配方实际输入还要按冻结规则与配对系数缩放。
+购买读取当前目录中食品与门店、app 的固定绑定；价格与配送费用由系统规则计算，不读取报价、营业或供给库存。
+`consume.items[].quantity` 是请求份数；食用只消费实际持有的食品，不存在配方或品类配对系数。
 人物侧保持请求模型的数量范围与数组边界校验，不直接把份数与物品持有量比较；
 实际持有是否足够由环境结算路径检查，拒绝结果写进进度层该调用的结果。
 
@@ -1652,7 +1654,7 @@ ExclusionReason = Literal[
 
 结果投影同样递归禁止内部评审字段（`reference_id`、`reference_assessments`、`oracle`、`oracle_path`、
 `input_path`及评估证据中的 oracle.expected 路径）、摘要字段、完整 `activity`、账户及资源变化字段，以及数值身体状态、
-身体常量与 `taste_weights`。体感分级文字仍可见；不能把禁止的数值换一个嵌套位置重新送入提示。
+身体常量。体感分级文字仍可见；不能把禁止的数值换一个嵌套位置重新送入提示。
 
 世界结构 `10` 的私有事实严格拒绝旧字段，不把旧数据附在新模型上。新目录内部身份 `app_id`、`content_id`、`push_id`、`trip_id`、`path`、`food_id`、`store_id`、`topic_id` 不进入人物可填写的工具参数。旧世界字段按[持久化当下事实](#contracts-持久化当下事实)退役；路线的结构与禁键在阶段 2 原位切换。
 
@@ -2297,7 +2299,15 @@ app 使用的已结算事实句按实际 `played[]` 写「用<app>看了《A》�
 <a name="contracts-labelkit-输入结构与窗口编码"></a>
 ## LabelKit 输入结构与窗口编码
 
-环境事件中只有 `app_push` 具有公开窗口投影，按同一源事件写时刻、应用名、标题和完整摘要；内部内容类型读取 `content_kind`，事件判别键 `kind` 始终为 `app_push`。手机足迹在记录导出阶段从真实 app 使用事实生成。
+人物可见的 `app_push` 源事件公开投影恰为
+`{kind: "app_push", app, kind_label, summary}`；`kind_label` 必须等于
+`CONTENT_KIND_LABELS[source.content_kind]`。源事件的判别键始终是 `kind="app_push"`，
+`content_kind` 只表示内容类型。`{kind: "app_push", pushed: false, session_id}` 是系统结算，
+不进入人物窗口，也不能由交付层补成一次推送。
+
+手机行从认证导出的 `app-usage.jsonl` 读取，以 `fact_kind` 区分 app 使用、内容消费和推送的交付、打开、释放；
+不从当前 app 目录或相邻事件猜测。公开窗口禁键包含 `app_id`、`content_id`、`push_id`、`trip_id`、
+`path`、`food_id`、`store_id` 与 `topic_id`，名称与中文标签只由已认证来源投影。
 
 <a name="contracts-输入结构示例"></a>
 ### 输入结构示例
@@ -2378,20 +2388,38 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 <a name="contracts-labelkit-训练记录与交付格式"></a>
 ## LabelKit 训练记录与交付格式
 
+LabelKit 只接收通过认证的导出清单 3。清单的 `artifacts` 恰好列出 `events`、`activities`、
+`verified_experiences`、`purchases` 与 `app_usage` 五项；对应文件是 `events.jsonl`、
+`activities.jsonl`、`verified-experiences.jsonl`、`purchases.jsonl` 与 `app-usage.jsonl`。
+交付清单结构版本为 3，逐字复制来源运行的 `environment_identity`，并把 `app_usage` 列入来源工件。
+最终检查点的世界结构必须为 10；结构 9 及更早版本在构造窗口前拒绝。
+
+手机训练行只从 `app-usage.jsonl` 与 `purchases.jsonl` 的已提交事实生成，不从提示、当前目录或模型文字补造。
+`app-usage.jsonl` 每行以 `fact_kind` 判别 `app_use`、`content_consumed`、`push_delivered`、
+`push_opened` 或 `push_released`；消费端从 `events.jsonl` 和认证检查点独立重算并逐行核对。
+
 <a name="contracts-交付格式"></a>
 ### 交付格式
 
 | 产物 | 最小字段 |
 | --- | --- |
-| 动作训练记录 | `task`, `input` (允许看到的历史), `target` (下一动作及参数), `provenance` (来源引用), `terminal` / `truncated` |
-| 意图训练记录 | `input` (允许看到的足迹), `target` (意图标签), `evidence_events`, `annotation_source`, `ambiguity_state` |
-| dreaming 训练记录 | `input` (截止时刻的经历), `target` (归纳或反思目标), `hypothesis`, `branch_source` |
-| 规则测试夹具 | `initial_state`, `events` (有序输入), `expected` (预期命中或不命中), `rule_version`, `trigger_time`, `state_assertions`, `provenance` |
-| 交付清单 | `input_hash`, `output_hash`, `schema_version`, `rule_version`, `model_version`, `count`, `rejection_reasons`, `source_groups`, `loader_result` |
+| 动作训练记录 | `task`, `input`（允许看到的历史）, `target`（下一动作及参数）, `provenance`（来源引用）, `terminal` / `truncated` |
+| 意图训练记录 | `input`（允许看到的足迹）, `target`（意图标签）, `evidence_events`, `annotation_source`, `ambiguity_state` |
+| dreaming 训练记录 | `input`（截止时刻的经历）, `target`（归纳或反思目标）, `hypothesis`, `branch_source` |
+| 规则测试夹具 | `initial_state`, `events`（有序输入）, `expected`, `rule_version`, `trigger_time`, `state_assertions`, `provenance` |
+| 交付清单 3 | `schema_version`, `committed`, `run_id`, `environment_identity`, `artifacts`, `files`, `gates`, `consumers` |
 
-标注 Schema 的完整候选只包含 `target`；`task`、`input`、`provenance` 和 `target.facts` 由 WorldMock 在语义评审通过后一次性组装，评审前不复制这些字段，也不向模型暴露原始真值。动作目标保留在原始行的独立 `target` 中，不能发送给模型充当动作前的历史。
+来源导出清单必须为结构 3，五个工件是 `events`、`activities`、`verified_experiences`、
+`purchases` 与 `app_usage`。交付清单逐字复制 `environment_identity` 并列出 `app_usage`；最终检查点
+`WorldState.schema_version` 必须为 10。缺文件、摘要不符、旧世界结构或无法独立重算的事实都在发布前拒绝。
 
-app 推送的窗口公开行来自真实人物可见源事件，不能由模型补造；交付的 app 使用事实与独立重算由阶段 7 实施和验收。
+`purchases.jsonl` 的 `purchase` 行保留 `agent_id`、`order_id`、`food_id`、`store_id`、`app_id`、
+`quantity`、`unit_price_fen`、`delivery_fee_fen`、`total_price_fen`、`fulfillment`、`recipient_id`、
+`request_message_id`、`created_at`、`action_id` 与 `source_event_id`；`order_attempt` 行保留，目录浏览行删除。
+`app-usage.jsonl` 用 `fact_kind` 表示五种 app 事实，手机合成只读这些事实。
+
+标注 Schema 的候选只包含 `target`；`task`、`input`、`provenance` 和 `target.facts` 在语义评审通过后
+一次性组装。动作目标保留在原始行的独立 `target` 中，不能发送给模型充当动作前历史。
 
 <a name="contracts-数据集字段与划分"></a>
 ### 数据集字段与划分
@@ -2590,7 +2618,7 @@ RunPhase = Literal[
 | `worldmock status` | 从已提交数据库汇总 `run_id`、`state_version`、`current_time`、`active_activities`、`event_counts`、`recent_checkpoints`、`runtime`、`token_stats`、`observed_model_usage`、`people` 与 `wall_time` |
 
 操作日志的 `at` 为程序 UTC 时刻；模拟时间戳按场景时区显示，datetime 输入保留其自身时区。
-现有组件常量为 `engine`、`agent_runtime`、`memory`、`review`、`commerce`、`travel`、`push`、`checkpoint`、`runtime`；
+现有组件常量为 `engine`、`agent_runtime`、`memory`、`commerce`、`travel`、`push`、`checkpoint`、`runtime`；
 级别常量为 `info`、`warn`、`error`。当前 `OpsLogger` 不在运行时验证组件或事件码闭集，不能把示例码当成强制 Schema。
 实际埋点包括 `DECISION_ROUND_COMMITTED`、`ACTION_ACCEPTED`、`ACTION_REJECTED`、`FUNDS_CHANGED`、
 `MODEL_EXCHANGE`、`MEMORY_UPDATED` 与 `CHECKPOINT_COMMITTED`，它们和持久事件类型是不同字段。
@@ -2673,3 +2701,4 @@ RunPhase = Literal[
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | app 使用、共享内容进度、会话推送、八项占用与封闭公开 app 结果；删除字幕、游戏与倍速合同 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 工作主题、实际工时累计、单一行动阶段与最终人物工具面；删除工作开放、截止、材料、提交与评审合同 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：导出清单 3、质量报告 5、交付清单 3、app 使用五类事实与运行诊断组件闭集 |

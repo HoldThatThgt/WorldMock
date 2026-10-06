@@ -36,7 +36,7 @@ from worldmock.life.object_labels import START_SUFFIX
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.session_bounds import session_lower
 from worldmock.life.settled_text import (
-    SETTLED_STATUSES, ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
+    SETTLED_STATUSES, ActivityFacts, activity_endings, app_progress, ending_lines, give_sentence, pause_intervals,
     purchase_sentence, record_lines, tool_record,
 )
 from worldmock.life.tool_layer import LayerContext
@@ -72,6 +72,8 @@ class _AgentEvents:
     events: dict[str, list[Event]] = field(default_factory=lambda: {name: [] for name in _EVENT_TYPES})
     seqs: dict[str, list[int]] = field(default_factory=lambda: {name: [] for name in _EVENT_TYPES})
     endings: dict[str, Event] = field(default_factory=dict)
+    #: 当前部分观看只由本人活动的认证进度事件派生，完成后清除。
+    app_progress: dict[str, str] = field(default_factory=dict)
     lowers: dict[str, int] = field(default_factory=dict)
 
 
@@ -186,13 +188,12 @@ def _build(context: LayerContext, store: FootprintStore) -> _Build:
         results.setdefault(event.action_id, event)
     replies = tuple((event.event_seq, results[event.action_id].data["data"]["recipient_id"])
                     for event in _successful(cached, results, "send_message", (0, None)))
-    facts = ActivityFacts(pause_intervals(cached.events["environment_event"]), cached.endings)
+    facts = ActivityFacts(pause_intervals(cached.events["environment_event"]), cached.endings, cached.app_progress)
     return _Build(context, cached, results, replies, facts)
 
 
 def _agent_events(store: FootprintStore, agent_id: int) -> _AgentEvents:
-    """@brief 按 after 增量读取本人事件与活动的结束事件（activity_progress 只取结束事件，不留存）；缓存只作加速，读到的
-    内容与一次全量读取相同。"""
+    """@brief 按 after 增量读取本人事件；活动进度只留下结束事件与当前部分观看的派生结果，缓存与全量读取相同。"""
     cached = _CACHE.setdefault(store, {}).setdefault(agent_id, _AgentEvents())
     last = store.last_event_seq
     if last > cached.last_seq:
@@ -204,6 +205,7 @@ def _agent_events(store: FootprintStore, agent_id: int) -> _AgentEvents:
         endings = activity_endings([*fresh["activity_progress"], *fresh["environment_event"], *fresh["action_result"]])
         for activity_id, event in endings.items():
             cached.endings.setdefault(activity_id, event)
+        cached.app_progress = app_progress(fresh["activity_progress"], cached.app_progress)
         cached.last_seq = last
     return cached
 

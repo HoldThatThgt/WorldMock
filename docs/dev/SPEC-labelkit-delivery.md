@@ -1,6 +1,8 @@
 <a name="spec-labelkit-delivery-特性规格数字足迹接入-labelkit"></a>
 # 特性规格：数字足迹接入 LabelKit
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的单一行动阶段身份。
@@ -264,48 +266,35 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
   与供给条目的私有键 `location_id`（已在禁键内）。
 - **清单。** `stages` 恰为 `action`，`action` 带 `same_second_continuation`；`two_stage_model_identity` 已改名为 `stage_model_identity`，五个入口拒绝带 `work_review` 的清单。
   新建、打开、恢复、从工作区加载与校验五个入口经同一校验函数拒绝含 `decision_statement` 的清单；恢复与重放继承开关。
-- **质量与指标。** 删除 `decision_started_with_decision_statement`、`decision_started_missing_decision_statement`；dreaming 私有事件集等于私有事件集；
-  统计 `decision_budget_exhausted`。观察重复门禁改按（人物，模拟秒）的续接链计：链内复用链首 user 合法，跨秒重复仍失败。
-  一日运行保真规格为 `quality.json` 另增 `input_warnings`、`truncations`、`timeline_labels`、`contact_reply_guard`、`name_rejections` 五节，
-  当前质量报告 `schema_version` 为 4，全部只报告不放行；`OUTPUT_TRUNCATED` 作为协议错误串记录。
-  个人事务与工作安排规格为 `quality.json` 再增 `errand_metrics`、`conclusion_memories` 两个顶层分组，`schema_version` 升到 4（阶段 2 一次升完），
-  全部只报告不放行，既有记忆重复比例门禁的口径与阈值不变；唤醒原因分桶把新增成员 `errand_reminder_due` 计入已知原因，[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)追加的 `shift_start`、`shift_end`、`break_start`、`break_end` 同样计入已知原因（分桶直接读足迹侧词表）；
-  工作负荷 `workload` 与作息偏离 `routine_deviation` 进行为评估的 `reports`（结构标识 `behavior-metrics-1` 不变），不进质量报告。
-- **交付。** 删除交付时的 `render_scene` 重渲染（`src/worldmock/delivery/windows.py`、:171-178）。动作与意图窗口仍以同人物、同决策、
-  动作前最后一次实际行动请求为 prompt 权威（取动作之前最后一份不带 `purpose` 的请求，并核对其工具含该动作的工具名，不满足是完整性故障、不回退到更早的请求；
-  截断重试请求照此被选中，就寝反思请求晚于动作登记、不会被选中），原样保留其中的 assistant `reasoning_content`（所属现行合同），续接请求自然带上本秒前序决策；
-  dreaming 读 `self_note` 与实际请求中的层 JSON，不再读自述与 `scene`。意图与 dreaming 窗口对三个控制工具请求的投影恒不带请求级 `errands`
-  （与 `memories`、`views` 同等对待），动作窗口的目标保留完整请求，观察里的待办层原样进入窗口；缺 `errands` 键的旧控制请求是完整性故障；
-  六种事务事件都不带决策与动作身份，不进入任何窗口的目标与动作结果，含事务提醒与办成记录的导出须能构造动作、意图与 dreaming 三类窗口。
-  交付清单升 2，交付入口按现行世界结构版本设门禁（个人事务与工作安排规格阶段 2 起为 9）。
+- **质量与指标。** `quality.json` 的 `schema_version` 为 5；既有报告组继续保留，阶段 7 新增
+  `content_contact{by_app, by_kind, repeat_watch}`、`app_pushes{pushed, opened_in_session,
+  consumed_pinned, released_by_completion, expired_with_session, outside_window_violations}` 与
+  `work_topics{topics, completed, worked_seconds_by_topic, reports}`。重看按内容在本轮开始前已有完成轮次计数；
+  推送按唯一 `push_id` 与真实 session 状态计数；主题工时取每个人物、主题的累计终值。
+  `model_usage.by_purpose` 不含 `work_review`，`conversion_efficiency` 不含 `work`。
+- **交付。** 动作与意图窗口仍以同人物、同决策、动作前最后一次实际行动请求为 prompt 权威；
+  请求必须不带 `purpose` 且工具包含该动作的工具名，不满足即完整性故障，不回退。意图与 dreaming 对控制请求
+  裁去 `memories`、`views` 与请求级 `errands`，动作目标保留完整请求，观察的待办层原样进入窗口。
+  人物可见 `app_push` 只投影 `{kind: "app_push", app, kind_label, summary}`，`pushed: false` 不投影。
+  交付清单结构 3 复制 `environment_identity`、列出 `app_usage`，并要求最终检查点世界结构 10。
 - **查看器。** 删除自述阶段；system 为 JSON 且 `layer=系统层` 时判为行动请求；首个 user 按顶层数组无损切片，每片可解析且层序正确才分段，
   否则显示为未解析；工具层与进度层按真实字段下钻，`self_note` 标「未经核验」；一次决策的首个请求多于两条消息时判为续接，前序 assistant 按
   `tool_call` 身份匹配来源决策，回传的思考单列；旧运行的自述请求显示为「其他调用·未解析」。
   个人事务与工作安排规格：查看器是 `control_items` 的独立镜像实现，读取控制请求时缺 `errands` 键即报错，不留旧形状读取；
   世界结构 8 的旧运行（含配对复跑的基线臂）用基线提交的查看器查看。
-- **导出。** 新模块 `footprints/purchases.py` 输出 `purchases.jsonl`：`purchase`（取结果顶层与各活动结果的订单，按订单去重，不看整体状态，
-  重放回执不重复计）、`order_attempt`（方式为到店或远程下单的请求，带状态与错误码）、`app_browse`（方式为浏览的活动）。加入导出工件闭集与重算校验；
-  导出清单与质量报告升 2。一日运行保真规格另给购买事实与订单载荷增 `channel_id`（写了渠道称呼时所用的渠道），不进世界状态。
+- **导出。** 导出清单结构 3 的工件恰为 `events`、`activities`、`verified_experiences`、
+  `purchases` 与 `app_usage`。`purchases.jsonl` 的购买事实带 `food_id`、`store_id`、`app_id`、份数、
+  单价、配送费与总价；保留 `order_attempt`，不写目录浏览事实。`app-usage.jsonl` 用 `fact_kind` 写
+  app 使用、内容消费以及推送的交付、打开、释放，消费端从认证来源独立重算。
 - **续接对比（只报告）。** `scripts/inspect_run.py` 新增只读子命令 `continuation`：逐决策给出链位置、请求数、`reasoning_tokens`
   （缺失时报字符数，两者不混算）、协议错误与传输失败（400 单列）、缓存命中与计价成本、话题命中（如咖啡）、工具是否与链首相同、按订单去重后的重复下单、
   链完整性。对比协议：同一提交、同一场景文件、同一模型身份，两臂只有开关不同；`--baseline` 核对两份清单，其余不同即拒绝比较；每臂至少三次白领全天运行，
   另加一次双人半日，交替启动；`2026-09-28-c9a4fc1-day-r3` 带自述阶段，不能作关闭臂。
 - **其他读者。** `scripts/render_day.py` 读取观察键（:99-134），随观察形状改读；零点计划输入改用共享句式（`src/worldmock/life/day_plan_inputs.py`）。
-- **版本。** 世界结构版本由 7 升到 8，只升一次：`DeliveryState.recipient_id`、`request_message_id`，`WorldState.contact_holdings`，
-  `AgentState.outbox`，`ActivityState.paused_at`，`SessionState.opened_by_action_id`，活动数据中的 `opened`，`SameMomentStage` 去掉 `wait_only`，
-  观察形状改变。`prompt_sha256` 与 `tool_schema_sha256` 随模板与工具面改变；生活场景 `Contact` 增 `receive_location_id`（可空），场景与数据集场景同步，
-  这批原有修改未改变 `catalog_version`；2026-10-01 工具交互首次受影响的发布使用目录 `5.0`、品类与规则绑定 `3`、场景 `4`、地图 `3`，世界结构仍为 `8`。一日运行保真规格的系统层 18 条、待办层 `around_time` 与工具层 `callable_index` 再改 `prompt_sha256`，控制工具的 `items`、
-  `revise_day_plan` 的 `around_time` 与 `start_activity` 的 `prefer`、方式「购买」再改 `tool_schema_sha256`；世界结构版本不因它升级。
-  个人事务与工作安排规格：阶段 1（运行修复）只变 `code_sha256`。世界结构版本由 8 升到 9，只升一次（阶段 2，人物状态增未完成的个人事务 `AgentState.errands`；
-  版本 8 的检查点与导出按版本拒绝，不迁移）；场景结构由 4 升到 5（阶段 3，人物配置增必填可空的 `work_schedule` 与可选的 `leave_work_window`、`arrive_home_window`，
-  当时三份场景的 `scenario_sha256` 随之改变）；卡片结构由 2 升到 3、抽取提示 `card-v3`（阶段 3）；质量报告结构由 3 升到 4（阶段 2）。
-  系统层第 1、4、6 条与待办层、进度层 Schema（阶段 2），系统层第 1、14 条与人设层、环境层 Schema（阶段 3）各改一次 `prompt_sha256`；
-  三个控制工具的 `errands` 及用途句、字段说明（阶段 2）与 `query_world` 六键及用途句（阶段 4）各改一次 `tool_schema_sha256`；
-  `submit_reflection` 与反思文案不进这两个指纹，由 `code_sha256` 绑定。地图 3、目录 5.3、品类合同与规则绑定 3、导出清单 2、运行清单 2、
-  行为评估结构标识 `behavior-metrics-1` 与 AS2 锁定摘要不变。
-  [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次边界唤醒（阶段 1）只改变 `code_sha256`：`prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4、当前场景结构 6、交付清单与 AS2 锁定摘要都不变。
-  [让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的系统层第 7、14、15、16 条原位改写（阶段 2，仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变；`tool_schema_sha256`、世界结构 9 与当前场景结构 6 不变；零点计划模板第三、五、六条的改写（阶段 3）只改变 `code_sha256`。
-  [同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)的系统层第 8 条原位改写（阶段 3，仍为十八条）再改一次 `prompt_sha256`，`code_sha256` 随之改变；`tool_schema_sha256`、世界结构 9 与当前场景结构 6 不变。
+- **版本。** 世界结构为 10，场景结构为 7，运行清单、导出清单均为 3，质量报告为 5，
+  交付清单为 3。运行清单的 `stages` 恰为 `{action}`，带 `work_review` 的清单拒绝；环境身份是
+  `{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`。
+  结构版本入口只接受当前版本，不迁移、不双读。系统层最终改写只改变实际提示与代码身份，工具模板身份保持阶段 5 的最终值。
 
 剩余系统规则已按冻结合同同步：推送时机、并行活动、名称、购买来源与工作主题。
 这次改写只更新最终 `prompt_sha256` 与代码身份，`tool_schema_sha256` 沿用工作阶段已验收的工具面；
@@ -316,17 +305,17 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 <a name="dayrun-fidelity-下游与质量报告"></a>
 ## 下游与质量报告
 
-| 位置 | 变化 |
+| 位置 | 阶段 7 的现行合同 |
 | --- | --- |
-| 运行清单 | 新键 `input_warnings`（1.3；接口合同「模型身份」:1258-1268 的清单内容表同步）；`prompt_sha256`、`tool_schema_sha256` 重钉；清单版本升级 |
-| `quality.json` | 新节 `input_warnings`、`truncations`（次数、浪费 token、思考 token）、`timeline_labels`（英文种类名与标识形态计数）、`contact_reply_guard`（命中、重试、兜底计数）、`name_rejections`（名称类拒绝计数，与协议错误分开）；`schema_version` 由 2 升 3（`src/worldmock/footprints/quality.py`），分组表在记录引擎设计「质量报告」（`design/05-recording-engine.md:783-785`）登记；全部只报告不放行 |
-| 事件 | `model_npc_reply.data` 增 `attempts[]`、`guard_applied`；`action_result.data.orders[]` 增 `channel_id`；`action_result.data` 增 `resolved`、`notes`、`items`；`OUTPUT_TRUNCATED` 作为协议错误串记录 |
-| 世界状态 | 不升版：`channel_id` 不进 `DeliveryState`；`f` 在场景层；`branch_label` 属地图文件结构 |
-| 导出 | `purchases.jsonl` 增 `channel_id`；时间线按 7.4 渲染 |
-| 查看器 | `tools/run-viewer.html` 经 `control_items` 只读当前控制工具形状；显示 `input_warnings` |
-| 实验假设 | `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「实验假设声明」登记：下限偏好 `f=0.5`（敏感区间 0.3–0.7）、困意档界的 KSS 标定（斜率 7.6）、「饿」时提前一小时（30–120 分钟）、名称类拒绝每秒 2 次、目标大致时刻的判定容差 ±90 分钟（60–120） |
-| 数据集仓库 | `prepare_labelkit_input.py` 改用同一归一规则裁掉记忆与看法；`simulate_phone.py` 优先读 `channel_id`；只写接口，改动在数据集仓库单独提交 |
+| 运行与世界 | 运行清单结构 3 带五字段 `environment_identity`；最终检查点世界结构 10，旧结构在交付前拒绝 |
+| 导出 | 导出清单 3 列 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage` 五项 |
+| 购买 | `purchases.jsonl` 的订单用 `food_id`、`store_id`、`app_id` 和固定金额字段；保留 `order_attempt`，删除目录浏览事实 |
+| app 使用 | `app-usage.jsonl` 以 `fact_kind` 写 `app_use`、`content_consumed`、`push_delivered`、`push_opened`、`push_released` |
+| 质量 | `quality.json` 结构 5，新增 `content_contact`、`app_pushes`、`work_topics`；不含工作评审用途或工作转换效率 |
+| 交付 | 交付清单 3 复制 `environment_identity`、列出 `app_usage`，手机合成只读 app 使用和购买事实 |
+| 窗口 | 人物可见推送投影恰为 `{kind: "app_push", app, kind_label, summary}`；`pushed: false` 不投影 |
 
+这些结构是阶段 7 的放行要求；测试、重算和标准层是否通过由同一源码身份下的实际回执证明，本文不预写通过结论。
 
 <a name="spec-labelkit-delivery-验收矩阵"></a>
 ## 验收矩阵
@@ -352,6 +341,7 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | 训练保存与划分无泄漏 | 真实加载器逐记录核对原值并保留缺失与空值的区别和高精度浮点；来源连通组只进一个 split；外部字段与篡改被拒 | `tests/delivery/test_training.py` 的 `test_real_dataset_loading_preserves_all_facts_and_separates_answer`、`test_shared_source_connects_different_declared_groups_into_one_split`、`test_run_identity_keeps_disjoint_event_windows_in_one_split`、`test_high_precision_floats_round_trip_through_real_dataset_loader`；`tests/delivery/test_host_delivery_coverage.py` 的 `test_training_rejects_empty_records_and_foreign_fields`、`test_training_rejects_loader_and_disk_tampering` | 复跑通过 |
 | 交付清单与失败边界 | 清单绑定每个门禁与消费者文件；来源导出与重演导出摘要绑定；失败不创建成品且不运行模型；重复目标与符号链接被拒 | `tests/delivery/test_publication.py` 的 `test_manifest_inventory_binds_every_gate_and_consumer_file`；`tests/delivery/test_host_delivery_coverage.py` 的 `test_deliver_success_path_publishes_full_manifest`、`test_deliver_success_path_binds_counterfactual_replay_export`、`test_deliver_rejects_existing_destination_and_duplicate_replay`、`test_file_inventory_rejects_symbolic_artifacts` | 复跑通过 |
 | 命令行与输入组合边界 | 语义任务与规则任务各自拒绝错误的输入组合；不支持或空的模型输入被拒 | `tests/delivery/test_host_delivery_coverage.py` 的 `test_run_labelkit_rejects_wrong_input_combinations`、`test_write_model_inputs_rejects_unsupported_or_empty_inputs` | 复跑通过 |
+| 阶段 7 导出、重算、质量与交付 | 导出清单 3 的五个工件与 `app-usage.jsonl` 五种 `fact_kind` 可从认证来源独立重算；质量报告 5 含三个新节；交付清单 3 复制 `environment_identity`；人物可见推送投影四键，`pushed: false` 不投影；世界 10 通过、结构 9 拒绝 | `tests/footprints/test_export.py`、`tests/footprints/test_validation.py`、`tests/footprints/test_quality.py`、`tests/delivery/test_publication.py`、`tests/delivery/test_windows.py` | 阶段 7 实际回执待登记 |
 
 本轮复跑实测（2026-09-18）：`uv run pytest -q -p no:cacheprovider tests/delivery/` → 200 passed in 16.12s；`uv run pytest -q -p no:cacheprovider tests/footprints/test_validation.py` → 22 passed in 2.42s。
 
@@ -382,3 +372,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：`app_push` 成为唯一具有公开投影的环境事件；其余窗口选择、个人事务与来源核验规则保持不变。 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步单一行动阶段身份 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：导出清单 3、质量报告 5、交付清单 3 与 app 使用手机来源 |

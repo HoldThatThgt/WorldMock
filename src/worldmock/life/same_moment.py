@@ -30,9 +30,8 @@ from worldmock.life.rhythm import is_asleep, read_new_messages
 from worldmock.life.schedule import WakeReason
 from worldmock.life.social_actions import PARTNER_ENDED
 
-#: 两种品类配对说明不施加脉冲，其余业务拒绝都是服务拒绝。
+#: 当前业务拒绝都产生服务拒绝脉冲。
 SERVICE_REFUSED = "service_refused"
-_NO_PULSE_CODES = frozenset({"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"})
 #: 每人每模拟秒至多几次名称类拒绝不计同刻轮数、不施加情绪脉冲（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-名称类拒绝不计同刻轮数 ；实验假设，登记在
 #: docs/EXPERIMENT.md#experiment-worldmock-实验设置「活动节奏与同刻决策上限」）；超出的照常计轮、照常施加脉冲。
 FREE_NAME_REJECTIONS_PER_SECOND = 2
@@ -235,8 +234,6 @@ def require_stage_action(stage: SameMomentStage, request_kind: str) -> None:
 def refusal_pulse_key(error_code: str) -> str | None:
     """@brief 业务拒绝码对应的情绪脉冲键：品类配对说明不施加，其余记 service_refused；免计的
     名称类拒绝（3.4）是否施加由 rejection_pulse 判定。"""
-    if error_code in _NO_PULSE_CODES:
-        return None
     return SERVICE_REFUSED
 
 

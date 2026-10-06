@@ -154,31 +154,20 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     ctx = context(engine, "discover")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    # 内容窗口直接列出可读交互对象，品类数量另行保留为环境事实。
-    assert "content_catalog" not in observed
-    assert observed["activity_summary"]["subtitle_experience"] == 1
-    assert observed["activity_summary"]["feature_film"] == 90
-    assert observed["activity_summary"]["foods"] == len(engine.context.scenario.supplies)
-    # game_catalog 全表与完整路线不进入任何一层（黑名单/坐标几何）；游戏身份经工具层窗口揭示，地点是工具层的
-    # location 目标（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求「工具层」）。
-    assert "game_catalog" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
-    places = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location"]
-    destinations = {row["name"].removeprefix("地点：") for row in places}
-    # C23 POI 路由扩容后，观察报价的路线集合改按冻结路线推导（原硬编码三点
-    # 快照失效——home 起点的 8 个 POI 目的地已随 OSRM 冻结路由进入报价）。
-    location_names = {item.location_id: item.name for item in engine.context.scenario.locations}
-    expected_destinations = {location_names[route.destination_id] for route in engine.context.scenario.routes
-                             if route.origin_id == "home"}
-    assert destinations == expected_destinations
-    # 可达集按冻结路线推导（observe._reachable_places 只列当前地点的路线终点）。
-    routed = {route.destination_id for route in engine.context.scenario.routes
-              if route.origin_id == "home"}
-    names = {item.name for item in engine.context.scenario.locations
-             if item.location_id in routed}
-    assert destinations == names  # 目标名用展示名
-    assert all(row["state"] in {"开着", "关着", "开放时间不明"} for row in places)
-    assert all(action["duration"] for row in places for action in row["actions"])
-    assert all(item["duration_seconds"] > 0 for item in observed["routes"])
+    assert 'content_catalog' not in observed
+    assert set(observed['tool_layer']['callable_index']) == {'goods', 'lifestyle', 'query_categories'}
+    from collections import Counter
+    food_counts = Counter(food.category.value for food in engine.context.semantics.catalog.foods.values())
+    assert set(food_counts) <= set(observed['activity_summary'])
+    assert all(observed['activity_summary'][kind] > 0 for kind in food_counts)
+    assert 'game_catalog' not in json.dumps(observed['tool_layer'], ensure_ascii=False)
+    places = [row for row in observed['tool_layer']['targets'] if row['kind'] == 'location']
+    destinations = {row['name'].removeprefix('地点：') for row in places}
+    catalog = engine.context.semantics.catalog
+    expected = {item.display_name for identity, item in catalog.locations.items() if identity != 'home'}
+    assert destinations == expected
+    assert all(action['duration'] for row in places for action in row['actions'])
+    assert all(item['duration_seconds'] > 0 for item in observed['routes'])
     request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_activity", request))
     engine.commit_decision_round("discover")
@@ -187,11 +176,10 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
 @pytest.mark.parametrize(
     ("label", "kind", "verb", "way"),
     (
-        ("watch", "content", "interact", "接着看"),
-        ("game", "game", "interact", "游玩"),
+        ("app", "app", "interact", "打开"),
         ("travel", "location", "travel", "驾车"),
     ),
-    ids=("watch", "game", "travel"),
+    ids=("app", "travel"),
 )
 def test_first_round_accepts_discovered_content_game_and_route(
     engine_factory, label, kind, verb, way,

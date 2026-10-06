@@ -2,6 +2,8 @@
 
 import pytest
 
+from tests.life.conftest import stage_day_plan, start_activity
+from tests.life.test_location_sessions import _round, _until_ended
 from worldmock.errors import IntegrityError
 from worldmock.footprints.experiences import (
     project_verified_experiences,
@@ -37,11 +39,12 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
         _progress("wait", "other-wait", agent_id=2),
         _progress("consume", "food-1", consumption={
             "use_mode": "eat", "location_id": "restaurant",
-            "items": [{"product_id": "rice", "interval_quantity": 0.3, "cumulative_quantity": 0.3}],
+            "items": [{"food_id": "rice", "category": "meal", "interval_portion": 0.3, "cumulative_portion": 0.3}],
         }),
-        _progress("watch", "watch-1", activity={
-            "target_id": "podcast", "data": {"revealed": {
-                "position_before_seconds": 0, "position_after_seconds": 10}},
+        _progress("use_app", "app-1", activity={"target_id": "bilibili"}, content={
+            "content_id": "c-article", "app_id": "bilibili", "kind": "article",
+            "position_before_seconds": 0, "position_after_seconds": 10,
+            "completed": False, "completed_rounds_after": 0,
         }),
         _progress("travel", "travel-1", activity={
             "status": "completed", "destination_id": "office", "location_id": "home",
@@ -59,29 +62,33 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
     assert [row["kind"] for row in recent] == ["waited", "consumed", "played", "arrived"]
     assert [row["source_event_id"] for row in recent] == [event.event_id for event in committed if event.agent_id == 1]
     assert validate_verified_experiences(recent, 1, 100) == recent
+    played = next(row for row in recent if row["kind"] == "played")
+    assert (played["content_id"], played["app_id"], played["position_before_seconds"],
+            played["position_after_seconds"]) == ("c-article", "bilibili", 0, 10)
+    assert "revealed" not in played and "target_id" not in played
 
 
 def test_consumed_intervals_are_increments_and_projection_is_idempotent(store):
     first = _progress("consume", "food-1", consumption={
         "use_mode": "eat", "location_id": "restaurant",
-        "items": [{"product_id": "rice", "interval_quantity": 0.3, "cumulative_quantity": 0.3}],
+        "items": [{"food_id": "rice", "category": "meal", "interval_portion": 0.3, "cumulative_portion": 0.3}],
     })
     second = _progress("consume", "food-1", consumption={
         "use_mode": "eat", "location_id": "restaurant",
-        "items": [{"product_id": "rice", "interval_quantity": 0.2, "cumulative_quantity": 0.5}],
+        "items": [{"food_id": "rice", "category": "meal", "interval_portion": 0.2, "cumulative_portion": 0.5}],
     })
     events = store.commit(store.state, [first, second])
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=2)
-    assert [row["interval_quantity"] for row in facts] == [0.3, 0.2]
-    assert sum(row["interval_quantity"] for row in facts) == 0.5
+    assert [row["interval_portion"] for row in facts] == [0.3, 0.2]
+    assert sum(row["interval_portion"] for row in facts) == 0.5
     assert project_verified_experiences(events + events[-1:], agent_id=1, cutoff_seq=2) == facts
 
 
 def test_missing_settlement_evidence_is_an_error_not_a_guessed_fact(store):
     event = store.commit(store.state, [_progress("consume", "food-1", consumption={
-        "use_mode": "eat", "location_id": "restaurant", "items": [{"product_id": "rice"}],
+        "use_mode": "eat", "location_id": "restaurant", "items": [{"food_id": "rice"}],
     })])[0]
-    with pytest.raises(IntegrityError, match="quantity"):
+    with pytest.raises(IntegrityError, match="portion"):
         project_verified_experiences([event], agent_id=1, cutoff_seq=1)
 
 
@@ -113,7 +120,7 @@ def test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff(store
         project_verified_experiences(events, agent_id=1, cutoff_seq=1)
     with pytest.raises(IntegrityError, match="ordered"):
         project_verified_experiences(list(reversed(events)), agent_id=1, cutoff_seq=2)
-    changed = events[0].model_copy(update={"data": {"activity": {"kind": "watch"}}})
+    changed = events[0].model_copy(update={"data": {"activity": {"kind": "use_app"}}})
     with pytest.raises(IntegrityError, match="conflicts"):
         project_verified_experiences([events[0], changed], agent_id=1, cutoff_seq=2)
     untrusted = events[0].model_copy(update={"source_kind": "model"})
@@ -136,16 +143,16 @@ def test_recent_reader_returns_no_experience_from_another_person(store):
 
 def test_zero_playback_and_unfinished_travel_do_not_become_completed_facts(store):
     events = store.commit(store.state, [
-        _progress("watch", "watch", activity={
-            "target_id": "podcast", "data": {"revealed": {
-                "position_before_seconds": 10, "position_after_seconds": 10}},
+        _progress("use_app", "app", activity={"target_id": "bilibili"}, content={
+            "content_id": "c-article", "app_id": "bilibili", "kind": "article",
+            "position_before_seconds": 10, "position_after_seconds": 10,
+            "completed": False, "completed_rounds_after": 0,
         }),
         _progress("travel", "route", activity={"status": "active", "destination_id": "office"}),
     ])
     assert project_verified_experiences(events, agent_id=1, cutoff_seq=2) == []
     backwards = events[0].model_copy(update={"data": {
-        **events[0].data, "activity": {"kind": "watch", "target_id": "podcast", "data": {
-            "revealed": {"position_before_seconds": 10, "position_after_seconds": 9}}},
+        **events[0].data, "content": {**events[0].data["content"], "position_after_seconds": 9},
     }})
     with pytest.raises(IntegrityError, match="backwards"):
         project_verified_experiences([backwards], agent_id=1, cutoff_seq=2)
@@ -186,3 +193,28 @@ def test_recent_window_returns_latest_five_before_cutoff_with_more_history(store
     assert [row["activity_id"] for row in facts] == [f"own-{index}" for index in range(count - 5, count)]
     assert [row["source_event_id"] for row in facts] == [event.event_id for event in own[-5:]]
     assert [row["event_seq"] for row in facts] == list(range(count - 4, count + 1))
+
+
+def test_actual_engine_app_progress_projects_the_consumed_content_and_app(engine_factory):
+    """真实宿主自动接续内容后，经历仍引用该区间消费的内容而不是已抽出的下一项。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, started = _round(engine, "verified-app", "start_activity", start_activity("打开", "应用：抖音"))
+    assert started.status.value == "in_progress"
+    _until_ended(engine, started.activity_id, "verified-app")
+    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    sources = [event for event in events if event.event_type == "activity_progress"
+               and event.activity_id == started.activity_id and event.data["content"]["position_after_seconds"]
+               > event.data["content"]["position_before_seconds"]]
+    assert sources and any(source.data["content"]["completed"] for source in sources)
+    facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.context.store.last_event_seq)
+    played = [fact for fact in facts if fact["kind"] == "played"]
+    assert len(played) == len(sources)
+    for fact, source in zip(played, sources, strict=True):
+        content = source.data["content"]
+        assert fact["source_event_id"] == source.event_id and fact["app_id"] == "douyin"
+        assert fact["content_id"] == content["content_id"]
+        assert fact["position_before_seconds"] == content["position_before_seconds"]
+        assert fact["position_after_seconds"] == content["position_after_seconds"]
+    assert any(source.data["activity"]["data"]["content_id"] != source.data["content"]["content_id"]
+               for source in sources)

@@ -24,7 +24,7 @@ def test_export_uses_cutoff_and_excludes_pause_from_duration(tmp_path):
         event_type='activity_progress', occurred_at=200, activity_id='work',
         data={'activity': activity, 'interval_start': 190, 'interval_end': 200})])
     store.commit({'version': 3, 'current_time': 300}, [EventDraft(
-        event_type='run_ended', occurred_at=300)])
+        event_type='run_ended', occurred_at=300, visibility='system')])
     manifest = export_run(store, 2, tmp_path / 'export')
     rows = [json.loads(line) for line in (tmp_path / 'export' / 'activities.jsonl').read_text().splitlines()]
     assert rows[0]['segments'] == [{'started_at': 100, 'ended_at': 110}, {'started_at': 190, 'ended_at': 200}]
@@ -64,7 +64,7 @@ def test_clock_end_without_successful_final_checkpoint_is_not_complete(tmp_path)
     store = FootprintStore.create(tmp_path / 'run', {
         'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
-    store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200)])
+    store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     assert export_run(store, 1, tmp_path / 'unsaved')['experiment_completed'] is False
     ref = store.assets.put_json({'snapshot': 'saved'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': ref, 'life': ref})
@@ -94,7 +94,7 @@ def test_event_after_final_checkpoint_invalidates_completion(tmp_path):
     store = FootprintStore.create(tmp_path / 'run', {
         'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
     }, {'version': 0, 'current_time': 100})
-    store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200)])
+    store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
     ref = store.assets.put_json({'snapshot': 'saved'}, {'kind': 'fixture'})
     store.checkpoint(store.state, {'agent:1': ref, 'life': ref})
     store.commit(store.state, [EventDraft(event_type='observation', occurred_at=200)])

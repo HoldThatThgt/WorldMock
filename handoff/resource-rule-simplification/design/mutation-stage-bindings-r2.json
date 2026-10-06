@@ -1,0 +1,1665 @@
+{
+  "schema_version": 1,
+  "purpose": "把 r2 快照中的 59 行生产变异拆到分句级，并绑定具名契约、行为最早归属阶段和最早可真实执行的杀手 T。",
+  "source_snapshot": {
+    "head": "694cb55e6b9da958521031ae689db49dc654aff2",
+    "spec_sha256": "48a6ba2f6f154cab8ac7e57bb02f57328dc4bf9083c5b322fcf5cf19f4c48f77",
+    "report": "handoff/resource-rule-simplification/design/critique-coverage-r2.md",
+    "mutation_rows": 59,
+    "mutation_clauses": 71,
+    "behavior_cases": "T1-T56",
+    "note": "作者修订期间的只读 r2 输入快照；本文件不要求后续 SPEC SHA 保持不变。"
+  },
+  "semantics": {
+    "behavior_owner_stage": "生产行为首次由实施阶段拥有的阶段；不能被更晚的集成测试抬高。",
+    "earliest_runnable_killer_stage": "可直接调用真实生产边界杀死该分句的最早阶段。",
+    "stage_killers": "只列可在 earliest_runnable_killer_stage 执行的 T；更晚集成杀手另列。",
+    "recommended_row_stage": "同一行所有分句同阶段时给整数；分句跨阶段时为 null，必须拆行或让登记支持分句阶段。",
+    "no_fake_green": "阶段 1-4 禁止构造 EngineContext、调用 LifeEngine.create/engine_factory、导入未闭合的完整 runtime 链、在测试内重写算法或使用空壳入口。杀手必须调用 production_boundary 指定的真实纯函数、真实 Catalog/WorldState 请求边界或真实提交边界。若该边界在所属阶段不能导入并执行，earliest_runnable_killer_stage 必须写真实集成波次阶段，不能换成假实现。",
+    "wave_completion": "阶段 1-4 的物理 owner 提交不加入 STAGES_DONE；阶段 5 在阶段 1-5 全部到期基线与变异通过后一次加入 1-5。owner stage 不因波次关闭时点而抬高。"
+  },
+  "execution_profiles": {
+    "pure_production_boundary": {
+      "life_engine_required": false,
+      "allowed": "严格模型、纯算子、目录加载/准入、身份校验、CLI 纯校验或静态闭集的真实生产入口"
+    },
+    "component_production_boundary": {
+      "life_engine_required": false,
+      "allowed": "真实生产函数或方法，加最小真实 Catalog、WorldState、FootprintStore 与序列化往返",
+      "forbidden": "EngineContext 构造、LifeEngine.create、engine_factory、测试内复制生产算法、伪造结算函数"
+    },
+    "life_engine_integration": {
+      "life_engine_required": true,
+      "available_from_stage": 5,
+      "allowed": "阶段 5 首个真实 LifeEngine 持久化闭环及其真实时间推进"
+    },
+    "integration_wave_runtime_boundary": {
+      "life_engine_required": false,
+      "available_from_stage": 5,
+      "allowed": "阶段 5 可导入的真实宿主恢复入口、真实 FootprintStore 与检查点",
+      "forbidden": "只调用身份 helper、伪造恢复入口或绕过 runtime._prepare_resume"
+    },
+    "static_contract_boundary": {
+      "life_engine_required": false,
+      "allowed": "生产常量、注册表、Schema、提示文本、模型身份校验的直接断言"
+    },
+    "artifact_production_boundary": {
+      "life_engine_required": false,
+      "allowed": "阶段 7 真实导出、校验或交付生产入口；输入可来自已完成的阶段 5 运行夹具"
+    },
+    "production_entry_unit": {
+      "life_engine_required": false,
+      "allowed": "阶段 8 新增生产脚本入口的窄单元边界；完整日作为独立上游验收"
+    }
+  },
+  "rows": [
+    {
+      "mutation": "加载器接受目录食品行里的 `kcal` 字段并用它覆盖类别热量",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T5",
+        "T27"
+      ],
+      "recommended_action": "keep_stage_replace_killers",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "加载器接受目录食品行里的 `kcal` 字段并用它覆盖类别热量",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T5"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.loader 的严格食品模型与 load_catalog 路径",
+          "later_integration_killers": [],
+          "note": "按父任务裁决，这一变异只证明环境字段拒绝；T27 不应进入该 SourceMutation.tests。"
+        }
+      ],
+      "excluded_declared_killers": [
+        "T27"
+      ]
+    },
+    {
+      "mutation": "`RULES_VERSION` 不符时只记警告不拒绝",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T5"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "`RULES_VERSION` 不符时只记警告不拒绝",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T5"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.admission 的 rules_version 拒绝路径",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "清单未列出的旧文件被静默忽略",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T5"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "清单未列出的旧文件被静默忽略",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T5"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.admission 的清单外文件扫描",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "`\"all\"` 展开到全部地点（含住宅）",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T6"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "`\"all\"` 展开到全部地点（含住宅）",
+          "contract": "同类店铺同商品（同类店铺同商品）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T6"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.loader/admission 的 FOOD_STORE_KINDS 展开",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "同类绑定不一致时把绑定扩散到另一家而不拒绝",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T6"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "同类绑定不一致时把绑定扩散到另一家而不拒绝",
+          "contract": "同类店铺同商品（同类店铺同商品）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T6"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.admission 的同类菜单一致性校验",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "没有绑定的 app 被接受",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T7"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "没有绑定的 app 被接受",
+          "contract": "环境登记与错误码",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T7"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.admission 的 APP_UNBOUND 校验",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "不连通的图被接受；自环被接受",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T9"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "不连通的图被接受",
+          "contract": "地图生成连通且字节稳定（地图连通且长度可计时）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T9"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.admission 的图连通性校验",
+          "later_integration_killers": []
+        },
+        {
+          "text": "自环被接受",
+          "contract": "地图生成连通且字节稳定（地图连通且长度可计时）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T9"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.admission 的 MAP_EDGE_INVALID 校验",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "生成器额外边数改为 n 条；长度下限改为 1 米",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T8"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "生成器额外边数改为 n 条",
+          "contract": "地图生成连通且字节稳定（地图连通且长度可计时）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T8"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.mapgen 的额外边抽取",
+          "later_integration_killers": []
+        },
+        {
+          "text": "长度下限改为 1 米",
+          "contract": "地图生成连通且字节稳定（地图连通且长度可计时）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T8"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.mapgen 的边长生成",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "`--check` 与 `validate --environment` 不比对重生成结果",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T9"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "`--check` 与 `validate --environment` 不比对重生成结果",
+          "contract": "地图生成连通且字节稳定（地图连通且长度可计时）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T9"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.mapgen 检查入口与 worldmock.validation 的环境校验分支",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "最短路等长时取完整路径元组字典序较大的路径，或依赖边插入次序",
+      "declared_stage_r2": 2,
+      "declared_killers_r2": [
+        "T10"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 2,
+      "clauses": [
+        {
+          "text": "最短路等长时取完整路径元组字典序较大的路径，或依赖边插入次序",
+          "contract": "最短路与完整路径决胜",
+          "behavior_owner_stage": 2,
+          "earliest_runnable_killer_stage": 2,
+          "stage_killers": [
+            "T10"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.catalog.graph 的 shortest_paths/path/distance_meters",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "退役占用名 `watch` 被接受",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T11"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "退役占用名 `watch` 被接受",
+          "contract": "占用闭集与包资源",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T11"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.catalog.affordances 的占用名解析与包资源校验",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "结构 9 的世界状态被接受",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T15"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "结构 9 的世界状态被接受",
+          "contract": "场景 7 与世界 10 的拒绝边界",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T15"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "WorldState 严格模型及打开、恢复、重放入口共用的结构版本校验",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "恢复时不核对 `environment_identity`",
+      "declared_stage_r2": 1,
+      "declared_killers_r2": [
+        "T16"
+      ],
+      "recommended_action": "keep_owner_stage_run_killer_at_stage_5",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "恢复时不核对 `environment_identity`",
+          "contract": "场景 7 与世界 10 的拒绝边界",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T16"
+          ],
+          "execution_profile": "integration_wave_runtime_boundary",
+          "production_boundary": "worldmock.runtime._prepare_resume 对 require_environment_identity 的真实调用",
+          "later_integration_killers": [],
+          "note": "SourceMutation 必须删除恢复 caller 的调用；直接测试 require_environment_identity 或 open_environment_validated_store 杀不死 caller omission。runtime 顶层完整宿主链到阶段 5 才可诚实导入。"
+        }
+      ]
+    },
+    {
+      "mutation": "出行时长改为向下取整；驾车车费下限去掉",
+      "declared_stage_r2": 2,
+      "declared_killers_r2": [
+        "T17"
+      ],
+      "recommended_action": "move_to_stage_1",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "出行时长改为向下取整",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T2"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.exchange.operators.travel_seconds",
+          "later_integration_killers": [
+            "T17"
+          ],
+          "note": "算子在 exchange 阶段 1 已建立；T17 只保留阶段 2 的图上集成复验。"
+        },
+        {
+          "text": "驾车车费下限去掉",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T2"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.exchange.operators.evaluate_travel_fare",
+          "later_integration_killers": [
+            "T17"
+          ],
+          "note": "500 分下限是阶段 1 固定算子合同。"
+        }
+      ]
+    },
+    {
+      "mutation": "目标为当前地点的出行被受理",
+      "declared_stage_r2": 2,
+      "declared_killers_r2": [
+        "T18"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 2,
+      "clauses": [
+        {
+          "text": "目标为当前地点的出行被受理",
+          "contract": "出行按图计时计费",
+          "behavior_owner_stage": 2,
+          "earliest_runnable_killer_stage": 2,
+          "stage_killers": [
+            "T18"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.activity_validation/admission 的同地点出行拒绝入口",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "出行事件与活动行把 `trip_id` 写成 `route_id`；活动数据丢掉 `path`",
+      "declared_stage_r2": 2,
+      "declared_killers_r2": [
+        "T20"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 2,
+      "clauses": [
+        {
+          "text": "出行事件与活动行把 `trip_id` 写成 `route_id`",
+          "contract": "位置记录与地图一致（位置记录与地图一致）",
+          "behavior_owner_stage": 2,
+          "earliest_runnable_killer_stage": 2,
+          "stage_killers": [
+            "T20"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.travel 与 evaluation.public_evidence 的出行事实构造",
+          "later_integration_killers": []
+        },
+        {
+          "text": "活动数据丢掉 `path`",
+          "contract": "位置记录与地图一致（位置记录与地图一致）",
+          "behavior_owner_stage": 2,
+          "earliest_runnable_killer_stage": 2,
+          "stage_killers": [
+            "T20"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.travel 的 ActivityState 出行数据构造",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "外卖只在店铺与收货地相邻时受理（重新启用配送范围）",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T23"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "外卖只在店铺与收货地相邻时受理（重新启用配送范围）",
+          "contract": "全地图外卖（全地图外卖）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T23"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.purchase_offers/basket 的图上全地点配送准入",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "送达事件在恢复后再送一次（重复送达）",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T23"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "送达事件在恢复后再送一次（重复送达）",
+          "contract": "全地图外卖（全地图外卖）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T23"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.scheduling.effects 的送达效果与已处理事件幂等边界",
+          "later_integration_killers": [],
+          "note": "杀手必须直接序列化 WorldState 并对真实送达效果重放；阶段 3 不得调用 engine_factory。"
+        }
+      ]
+    },
+    {
+      "mutation": "配送费付给 `transport:service` 而不是商家",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T23"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "配送费付给 `transport:service` 而不是商家",
+          "contract": "全地图外卖（全地图外卖）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T23"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.commerce/basket 的单笔商家转账",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "无 app 的店铺可以经其他 app 下单",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T24"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "无 app 的店铺可以经其他 app 下单",
+          "contract": "app 与店铺绑定有效（app 与店铺绑定有效）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T24"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.purchase_offers/admission 的店铺 app 资格",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "未绑定该店的 app 下单被受理",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T24"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "未绑定该店的 app 下单被受理",
+          "contract": "app 与店铺绑定有效（app 与店铺绑定有效）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T24"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.purchase_offers/admission 的 APP_NOT_BOUND 路径",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "路途中给自己下外卖被受理并送到出发地",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T25"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "路途中给自己下外卖被受理并送到出发地",
+          "contract": "全地图外卖（全地图外卖）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T25"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.basket/admission 的 delivery_destination 前置条件",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "同店同食品两行被合并而不拒绝",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T26"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "同店同食品两行被合并而不拒绝",
+          "contract": "全地图外卖（全地图外卖）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T26"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.basket 的 ORDER_DUPLICATE_ITEM 原子拒绝",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "饮品热量改为 200 千卡；分两次吃第二次重复计满一份",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T27"
+      ],
+      "recommended_action": "split_by_clause_stage",
+      "recommended_row_stage": null,
+      "clauses": [
+        {
+          "text": "饮品热量改为 200 千卡",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T1",
+            "T2"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.exchange.constants.FOOD_CONSTANTS 与 evaluate_food_energy",
+          "later_integration_killers": [
+            "T27"
+          ],
+          "note": "饮品固定热量在 exchange 阶段 1 已拥有；T27 是阶段 3 进食集成复验。"
+        },
+        {
+          "text": "分两次吃第二次重复计满一份",
+          "contract": "食品热量固定（食品热量固定）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T27"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life 的 opened/consumed 份额结算与 activity_effects",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "商品 `state` 不写类别与热量",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T28"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "商品 `state` 不写类别与热量",
+          "contract": "食品热量固定（食品热量固定）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T28"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.projection/tool_layer 的食品目标 state",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "零食计入正餐候选",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T29"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "零食计入正餐候选",
+          "contract": "食品热量固定（食品热量固定）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T29"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.motivation 的正餐候选分类",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "到店购买行写了 app",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T30"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "到店购买行写了 app",
+          "contract": "购买足迹与画像",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T30"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.footprints.purchases 的购买事实行构造",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "警告闭集多出 `TASTE_GENRES_UNMATCHED`",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T31"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "警告闭集多出 `TASTE_GENRES_UNMATCHED`",
+          "contract": "购买足迹与画像",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T31"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.profile.injection 的运行输入警告闭集",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "指名购买把无绑定 app 当作成功来源",
+      "declared_stage_r2": 3,
+      "declared_killers_r2": [
+        "T32"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 3,
+      "clauses": [
+        {
+          "text": "指名购买把无绑定 app 当作成功来源",
+          "contract": "app 与店铺绑定有效（app 与店铺绑定有效）",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T32"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.name_resolution/purchase_offers 的 app 来源解析",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "抽取从全部内容而不是该 app 绑定的内容里抽",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T33"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "抽取从全部内容而不是该 app 绑定的内容里抽",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T33"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.rules 的 use_app 内容选择生产分支",
+          "later_integration_killers": [],
+          "note": "阶段 4 杀手调用真实 LifeRuleEngine/Catalog 规则分支；不得构造 EngineContext，或用测试内复制的抽取函数、engine_factory。"
+        }
+      ]
+    },
+    {
+      "mutation": "空内容 app 的打开被受理并抽到别的 app 的内容",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T33"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "空内容 app 的打开被受理并抽到别的 app 的内容",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T33"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.rules/admission 的 APP_CONTENT_EMPTY 生产分支",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "内容进度按 app 分开存（换 app 从 0 开始）",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T34"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "内容进度按 app 分开存（换 app 从 0 开始）",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T34"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "AgentState.content_progress 与 use_app 起始位置生产分支",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "看完的内容从进度池排除（不再抽到）",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T34"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "看完的内容从进度池排除（不再抽到）",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T34"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.rules 的候选选择与 ContentProgress.completed_rounds",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "内容结束后不抽下一条、活动空转到计划结束；暂停恢复时重抽",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T35"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "内容结束后不抽下一条、活动空转到计划结束",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T35"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.activities._advanced_activity 的内容接续",
+          "later_integration_killers": []
+        },
+        {
+          "text": "暂停恢复时重抽",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T35"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.session_actions/activity_control 的 use_app 恢复分支",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "推送网格包含 22:00；网格按 UTC 而不是场景时区",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T36"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "推送网格包含 22:00",
+          "contract": "时间窗口精确（时间窗口精确）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T36"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.scheduling.compile 的 app_push 本地小时网格",
+          "later_integration_killers": []
+        },
+        {
+          "text": "网格按 UTC 而不是场景时区",
+          "contract": "时间窗口精确（时间窗口精确）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T36"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.scheduling.compile 的 ZoneInfo 墙钟换算",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "同 session 同 app 第二次推送被允许",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T36"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "同 session 同 app 第二次推送被允许",
+          "contract": "时间窗口精确（时间窗口精确）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T36"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.scheduling.effects 的 eligible app 与 SessionState.app_pushes",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "没有合格 app 时仍写人物可见的推送记录",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T36"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "没有合格 app 时仍写人物可见的推送记录",
+          "contract": "时间窗口精确（时间窗口精确）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T36"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.scheduling.effects 的 pushed:false 系统可见结果",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "打开 app 时不优先推送内容；在另一个 app 完成不解除推送",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T37"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "打开 app 时不优先推送内容",
+          "contract": "推送与消费关联（推送与消费关联）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T37"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.rules 的 session push 优先选择",
+          "later_integration_killers": []
+        },
+        {
+          "text": "在另一个 app 完成不解除推送",
+          "contract": "推送与消费关联（推送与消费关联）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T37"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.activities 的跨 app 内容完成与 push release",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "session 切换后旧 session 的推送仍可命中",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T37"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "session 切换后旧 session 的推送仍可命中",
+          "contract": "推送与消费关联（推送与消费关联）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T37"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.sessions/current_session 与到达、出发 session 切换",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "推送在睡眠中唤醒人物",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T37"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "推送在睡眠中唤醒人物",
+          "contract": "推送与消费关联（推送与消费关联）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T37"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.scheduling.effects 的 ScheduledOutcome 与睡眠唤醒过滤",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "抽取推进 `random_state`（恢复后序列不同）",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T38"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "抽取推进 `random_state`（恢复后序列不同）",
+          "contract": "随机和状态可恢复（随机和状态可恢复）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T38"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "B-30 抽取生产分支与 WorldState 序列化往返",
+          "later_integration_killers": [],
+          "note": "使用真实抽取函数和真实 WorldState 往返；阶段 4 不调用 LifeEngine.create。"
+        }
+      ]
+    },
+    {
+      "mutation": "推送事件在提交后才弹出（恢复后重发）",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T38"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "推送事件在提交后才弹出（恢复后重发）",
+          "contract": "随机和状态可恢复（随机和状态可恢复）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T38"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "TimeAdvanceCoordinator._process_scheduled 的弹出、效果、提交顺序",
+          "later_integration_killers": [],
+          "note": "杀手必须故障注入真实提交边界并恢复真实 WorldState；不得用测试内模拟队列。"
+        }
+      ]
+    },
+    {
+      "mutation": "`app_push` 进入睡眠允许集合；最终足迹侧词表缺 `app_push`",
+      "declared_stage_r2": 5,
+      "declared_killers_r2": [
+        "T39"
+      ],
+      "recommended_action": "split_by_clause_stage",
+      "recommended_row_stage": null,
+      "clauses": [
+        {
+          "text": "`app_push` 进入睡眠允许集合",
+          "contract": "推送与消费关联（推送与消费关联）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T37"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.schedule.SLEEP_ALLOWED_REASONS 与睡眠唤醒过滤",
+          "later_integration_killers": []
+        },
+        {
+          "text": "最终足迹侧词表缺 `app_push`",
+          "contract": "最终唤醒词表",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T39"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "worldmock.footprints.models.WAKE_REASON_NAMES 的阶段 5 最终闭集",
+          "later_integration_killers": [],
+          "note": "这一分句守的是删完工作成员后的最终闭集，因此归阶段 5；若只变异阶段 4 的 app_push 插入点，应另作阶段 4 成员存在性变异。"
+        }
+      ]
+    },
+    {
+      "mutation": "缓解速率乘以口味因子；驾车一行不占 `use_app`",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T40"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "缓解速率乘以口味因子",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T40"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.activities 的 content_entertainment_relief_rate",
+          "later_integration_killers": []
+        },
+        {
+          "text": "驾车一行不占 `use_app`",
+          "contract": "娱乐只从所选 app 取内容（娱乐只从所选 app 取内容）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T40"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.catalog.affordances 与并发准入的驾车占用行",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "`app_push` 记录只写摘要前 20 字",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T41"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "`app_push` 记录只写摘要前 20 字",
+          "contract": "推送与消费关联（推送与消费关联）",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T41"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.life.progress_layer/result_projection 的 app_push 记录",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "方式表加回「游玩」→（`interact`, `play`）",
+      "declared_stage_r2": 4,
+      "declared_killers_r2": [
+        "T42",
+        "T11"
+      ],
+      "recommended_action": "keep_stage_narrow_primary_killer",
+      "recommended_row_stage": 4,
+      "clauses": [
+        {
+          "text": "方式表加回「游玩」→（`interact`, `play`）",
+          "contract": "游戏链退出",
+          "behavior_owner_stage": 4,
+          "earliest_runnable_killer_stage": 4,
+          "stage_killers": [
+            "T42"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "worldmock.life.vocabulary.ACTION_WAYS/WAYS 与退役游戏动作解析",
+          "later_integration_killers": [
+            "T11"
+          ],
+          "note": "T11 只有其阶段 4 最终闭集节点可作补充杀手；不得把阶段 1 的七占用名节点伪装成已删除游戏方式。"
+        }
+      ]
+    },
+    {
+      "mutation": "暂停的工作活动继续累计工时；并行进食计入工时",
+      "declared_stage_r2": 5,
+      "declared_killers_r2": [
+        "T44"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 5,
+      "clauses": [
+        {
+          "text": "暂停的工作活动继续累计工时",
+          "contract": "工作由时间决定（工作由时间决定）",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T44"
+          ],
+          "execution_profile": "life_engine_integration",
+          "production_boundary": "阶段 5 LifeEngine 时间推进与 work 活动结算",
+          "later_integration_killers": []
+        },
+        {
+          "text": "并行进食计入工时",
+          "contract": "工作由时间决定（工作由时间决定）",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T44"
+          ],
+          "execution_profile": "life_engine_integration",
+          "production_boundary": "阶段 5 LifeEngine 并行活动的 work elapsed 结算",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "`report_status` 写「已完成」即把主题标记完成",
+      "declared_stage_r2": 5,
+      "declared_killers_r2": [
+        "T45"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 5,
+      "clauses": [
+        {
+          "text": "`report_status` 写「已完成」即把主题标记完成",
+          "contract": "工作由时间决定（工作由时间决定）",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T45"
+          ],
+          "execution_profile": "life_engine_integration",
+          "production_boundary": "阶段 5 report_status 生产入口与 work progress 派生",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "累计满目标后活动不结束、不写完成事件",
+      "declared_stage_r2": 5,
+      "declared_killers_r2": [
+        "T46"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 5,
+      "clauses": [
+        {
+          "text": "累计满目标后活动不结束、不写完成事件",
+          "contract": "工作由时间决定（工作由时间决定）",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T46"
+          ],
+          "execution_profile": "life_engine_integration",
+          "production_boundary": "阶段 5 work 结算、planned_end 与 work_topic_completed 事件",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "已完成的主题仍列在工具层并可再开始",
+      "declared_stage_r2": 5,
+      "declared_killers_r2": [
+        "T46"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 5,
+      "clauses": [
+        {
+          "text": "已完成的主题仍列在工具层并可再开始",
+          "contract": "工作由时间决定（工作由时间决定）",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T46"
+          ],
+          "execution_profile": "life_engine_integration",
+          "production_boundary": "阶段 5 observe/tool_layer 与 work_start_refusal",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "阶段身份接受 `work_review`",
+      "declared_stage_r2": 5,
+      "declared_killers_r2": [
+        "T47"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 5,
+      "clauses": [
+        {
+          "text": "阶段身份接受 `work_review`",
+          "contract": "工作面与阶段身份",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T47"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "worldmock.run_setup 的 stage_model_identity 校验",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "第 7 条「有 app 推送」改回「有工作可以开始做了」",
+      "declared_stage_r2": 6,
+      "declared_killers_r2": [
+        "T49"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 6,
+      "clauses": [
+        {
+          "text": "第 7 条「有 app 推送」改回「有工作可以开始做了」",
+          "contract": "系统层逐字",
+          "behavior_owner_stage": 6,
+          "earliest_runnable_killer_stage": 6,
+          "stage_killers": [
+            "T49"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "custom.agents.life_prompt 的系统层第 7 条",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "第 12 条的娱乐句移到第 13 条",
+      "declared_stage_r2": 6,
+      "declared_killers_r2": [
+        "T49"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 6,
+      "clauses": [
+        {
+          "text": "第 12 条的娱乐句移到第 13 条",
+          "contract": "系统层逐字",
+          "behavior_owner_stage": 6,
+          "earliest_runnable_killer_stage": 6,
+          "stage_killers": [
+            "T49"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "custom.agents.life_prompt 的系统层第 12/13 条",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "第 17 条改回「留意截止时间与已完成的有效工时」",
+      "declared_stage_r2": 6,
+      "declared_killers_r2": [
+        "T49"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 6,
+      "clauses": [
+        {
+          "text": "第 17 条改回「留意截止时间与已完成的有效工时」",
+          "contract": "系统层逐字",
+          "behavior_owner_stage": 6,
+          "earliest_runnable_killer_stage": 6,
+          "stage_killers": [
+            "T49"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "custom.agents.life_prompt 的系统层第 17 条",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "工具面保留 `submit_work`",
+      "declared_stage_r2": 6,
+      "declared_killers_r2": [
+        "T50"
+      ],
+      "recommended_action": "move_to_stage_5",
+      "recommended_row_stage": 5,
+      "clauses": [
+        {
+          "text": "工具面保留 `submit_work`",
+          "contract": "工具面与 Schema",
+          "behavior_owner_stage": 5,
+          "earliest_runnable_killer_stage": 5,
+          "stage_killers": [
+            "T47",
+            "T50"
+          ],
+          "execution_profile": "static_contract_boundary",
+          "production_boundary": "REQUEST_MODELS、_TOOL_MODELS、TOOL_DESCRIPTIONS 与稳定工具面",
+          "later_integration_killers": [],
+          "note": "按父任务裁决，submit_work 退役行为归阶段 5；T50 的工具/Schema 分句移到阶段 5，提示分句仍由阶段 6 的 T49 证明。"
+        }
+      ]
+    },
+    {
+      "mutation": "`app-usage.jsonl` 不写 `content_consumed` 事实；`purchases.jsonl` 丢掉 `app_id`",
+      "declared_stage_r2": 7,
+      "declared_killers_r2": [
+        "T52"
+      ],
+      "recommended_action": "split_by_clause_stage",
+      "recommended_row_stage": null,
+      "clauses": [
+        {
+          "text": "`app-usage.jsonl` 不写 `content_consumed` 事实",
+          "contract": "app 足迹来自真实动作（app 足迹来自真实动作）",
+          "behavior_owner_stage": 7,
+          "earliest_runnable_killer_stage": 7,
+          "stage_killers": [
+            "T52"
+          ],
+          "execution_profile": "artifact_production_boundary",
+          "production_boundary": "worldmock.footprints.export 的 app_usage 事实构造与 validate_export",
+          "later_integration_killers": []
+        },
+        {
+          "text": "`purchases.jsonl` 丢掉 `app_id`",
+          "contract": "购买足迹与画像",
+          "behavior_owner_stage": 3,
+          "earliest_runnable_killer_stage": 3,
+          "stage_killers": [
+            "T30"
+          ],
+          "execution_profile": "component_production_boundary",
+          "production_boundary": "worldmock.footprints.purchases 的购买行构造",
+          "later_integration_killers": [
+            "T52"
+          ],
+          "note": "阶段 3 直接测试真实购买行构造；阶段 7 T52 只作导出清单集成复验。SourceMutation 不应等到 export 编排层。"
+        }
+      ]
+    },
+    {
+      "mutation": "交付门禁接受结构 9 的导出",
+      "declared_stage_r2": 7,
+      "declared_killers_r2": [
+        "T54"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 7,
+      "clauses": [
+        {
+          "text": "交付门禁接受结构 9 的导出",
+          "contract": "app 足迹来自真实动作（app 足迹来自真实动作）",
+          "behavior_owner_stage": 7,
+          "earliest_runnable_killer_stage": 7,
+          "stage_killers": [
+            "T54"
+          ],
+          "execution_profile": "artifact_production_boundary",
+          "production_boundary": "worldmock.delivery.pipeline/validation 的世界结构门禁",
+          "later_integration_killers": []
+        }
+      ]
+    },
+    {
+      "mutation": "`scripts.freeze_rrs_baseline::freeze_matching_baseline` 跳过两个候选的相等检查，直接写第一份",
+      "declared_stage_r2": 8,
+      "declared_killers_r2": [
+        "T55"
+      ],
+      "recommended_action": "keep",
+      "recommended_row_stage": 8,
+      "clauses": [
+        {
+          "text": "`scripts.freeze_rrs_baseline::freeze_matching_baseline` 跳过两个候选的相等检查，直接写第一份",
+          "contract": "完整日基线",
+          "behavior_owner_stage": 8,
+          "earliest_runnable_killer_stage": 8,
+          "stage_killers": [
+            "T55"
+          ],
+          "execution_profile": "production_entry_unit",
+          "production_boundary": "scripts.freeze_rrs_baseline.freeze_matching_baseline",
+          "later_integration_killers": [],
+          "note": "SourceMutation.tests 只选择冻结函数的一致、失配与旧字节不变节点；完整日双跑是同一 T55 的上游验收，不是杀死此变异的必要成本。"
+        }
+      ]
+    },
+    {
+      "mutation": "`evaluate_food_energy` 不看食品类别，始终按 `meal` 计算",
+      "declared_stage_r2": 8,
+      "declared_killers_r2": [
+        "T27",
+        "T56"
+      ],
+      "recommended_action": "move_to_stage_1",
+      "recommended_row_stage": 1,
+      "clauses": [
+        {
+          "text": "`evaluate_food_energy` 不看食品类别，始终按 `meal` 计算",
+          "contract": "分类与规则归系统（分类与规则归系统）",
+          "behavior_owner_stage": 1,
+          "earliest_runnable_killer_stage": 1,
+          "stage_killers": [
+            "T2"
+          ],
+          "execution_profile": "pure_production_boundary",
+          "production_boundary": "worldmock.exchange.operators.evaluate_food_energy",
+          "later_integration_killers": [
+            "T27"
+          ],
+          "note": "按父任务裁决，exchange 阶段 1 的 T2 是早期杀手；T27 是阶段 3 集成复验，T56 只检登记结构，不能作为行为杀手。"
+        }
+      ],
+      "excluded_declared_killers": [
+        "T56"
+      ]
+    }
+  ],
+  "stage_relationship_findings": [
+    {
+      "mutation": "出行时长改为向下取整；驾车车费下限去掉",
+      "r2_declared_stage": 2,
+      "required_change": "整行移到阶段 1，以 T2 杀死；T17 留作阶段 2 图上集成复验。",
+      "reason": "travel_seconds 与 evaluate_travel_fare 都在 exchange/operators.py 的阶段 1 固定算子中建立。"
+    },
+    {
+      "mutation": "饮品热量改为 200 千卡；分两次吃第二次重复计满一份",
+      "r2_declared_stage": 3,
+      "required_change": "拆行：饮品常数归阶段 1/T1、T2；重复计份归阶段 3/T27。",
+      "reason": "两个分句分别属于固定常数与进食结算，行为最早阶段不同。"
+    },
+    {
+      "mutation": "`app_push` 进入睡眠允许集合；最终足迹侧词表缺 `app_push`",
+      "r2_declared_stage": 5,
+      "required_change": "拆行：睡眠唤醒语义归阶段 4/T37；删完工作成员后的最终足迹闭集归阶段 5/T39。",
+      "reason": "推送睡眠规则在 app 阶段已拥有，最终 22 成员闭集要等阶段 5。"
+    },
+    {
+      "mutation": "工具面保留 `submit_work`",
+      "r2_declared_stage": 6,
+      "required_change": "移到阶段 5，以 T47 和移到阶段 5 的 T50 工具/Schema 分句杀死。",
+      "reason": "submit_work 模型、描述和稳定工具面在工作阶段退出。"
+    },
+    {
+      "mutation": "`app-usage.jsonl` 不写 `content_consumed` 事实；`purchases.jsonl` 丢掉 `app_id`",
+      "r2_declared_stage": 7,
+      "required_change": "拆行：app_usage 归阶段 7/T52；购买行 app_id 归阶段 3/T30，T52 只作后续导出复验。",
+      "reason": "购买事实行由阶段 3 的 footprints.purchases 拥有，不能等阶段 7 export 编排。"
+    },
+    {
+      "mutation": "`evaluate_food_energy` 不看食品类别，始终按 `meal` 计算",
+      "r2_declared_stage": 8,
+      "required_change": "移到阶段 1，以 T2 杀死；T27 只作阶段 3 集成复验，T56 不作行为杀手。",
+      "reason": "这是唯一把阶段 1 生产行为直接自报为阶段 8 的现有行。"
+    },
+    {
+      "mutation": "加载器接受目录食品行里的 `kcal` 字段并用它覆盖类别热量",
+      "r2_declared_stage": 1,
+      "required_change": "阶段保持 1，SourceMutation.tests 只用 T5，移除 T27。",
+      "reason": "该行证明严格输入拒绝，不证明运行时进食结算。"
+    },
+    {
+      "mutation": "恢复时不核对 `environment_identity`",
+      "r2_declared_stage": 1,
+      "required_change": "行为 owner 保持阶段 1；SourceMutation 的最早真实 killer stage 写 5，并删除 runtime._prepare_resume 的真实调用。",
+      "reason": "直接测试身份 helper 不能杀死恢复 caller omission；阶段 1-4 的 runtime 完整导入链尚未闭合。"
+    }
+  ],
+  "stage_8_audit": {
+    "correctly_stage_8": [
+      "`scripts.freeze_rrs_baseline::freeze_matching_baseline` 跳过两个候选的相等检查，直接写第一份"
+    ],
+    "incorrectly_deferred_to_stage_8": [
+      "`evaluate_food_energy` 不看食品类别，始终按 `meal` 计算"
+    ],
+    "no_other_stage_8_deferrals_in_r2_rows": true
+  },
+  "engine_integration_boundary": {
+    "stages_1_to_4": "除恢复 caller 变异外，登记杀手均绑定到真实纯边界或组件边界；不调用 LifeEngine.create 或 engine_factory。STAGES_DONE 在这些物理 owner 提交期间保持空。",
+    "stage_5": "先执行恢复 caller 的 T16，再执行 T44-T46 的真实 LifeEngine 时间与完成语义；阶段 1-5 的全部到期杀手通过后，STAGES_DONE 从空集合原子变为 1-5。T47/T50 的身份与工具闭集仍可走静态生产边界。",
+    "stage_6_to_8_progression": "随后只允许前缀闭合地加入 6、7、8；任何阶段 6-8 完成但缺少 1-5，或阶段 1-4 的部分完成集合，均由守卫拒绝。",
+    "impossible_literal_requirements": [
+      "r2 的 T15 把 WorldState 纯模型拒绝、打开/恢复/重放和交付写成一个阶段 1 整体：纯模型 killer 在阶段 1，打开/恢复/重放集成在阶段 5，交付只由阶段 7 的 T54 验证。",
+      "r2 的 T16 把清单身份、真实恢复 caller 和 EngineContext.validate 写成一个阶段 1 整体：身份数据可在阶段 1 构造，恢复 caller 与 EngineContext 集成都在阶段 5。"
+    ],
+    "enforcement": "若实现时任一阶段 2-4 production_boundary 不能在不创建 LifeEngine 的情况下导入和执行，必须把 earliest_runnable_killer_stage 写为 5 并在波次关闭前执行，不能用 fake/stub 获绿。"
+  }
+}

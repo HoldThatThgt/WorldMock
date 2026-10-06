@@ -10,10 +10,10 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import ActivityOrigin, require_location_kinds, start_activity
 from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
 from worldmock.life.rules import LifeRuleEngine
-from worldmock.life.world_setup import load_scenario
+from worldmock.life.world_setup import load_runtime_scenario
 
 SCENARIO = ENVIRONMENT_ROOT / 'scenarios/single-person.json'
-HOME_ACTIVITY = 'wellness-morning-wash'
+HOME_ACTIVITY = 'quiet-rest'
 
 
 def _agent(location_id):
@@ -30,14 +30,13 @@ def _request(activity_id=HOME_ACTIVITY):
 
 
 def _rules():
-    scenario, _ = load_scenario(SCENARIO)
-    return LifeRuleEngine(scenario, (ENVIRONMENT_ROOT / 'corpora'))
+    semantics, _ = load_runtime_scenario(SCENARIO)
+    return LifeRuleEngine(semantics.scenario, semantics.catalog, ENVIRONMENT_ROOT / 'corpora')
 
 
 def test_lifestyle_requirements_come_from_the_selected_corpus():
     rules = _rules()
-    assert rules.activity_location_kinds[HOME_ACTIVITY] == frozenset({'home'})
-    assert rules.activity_location_kinds['3d-printing'] == frozenset({'home', 'venue'})
+    assert rules.activity_location_kinds == {HOME_ACTIVITY: frozenset({'home'})}
 
 
 @pytest.mark.parametrize('place, needed', [({'home'}, {'home'}), ({'outdoor', 'fitness'}, {'fitness'}),
@@ -56,7 +55,7 @@ def test_missing_or_mismatched_environment_is_not_an_anywhere_default(place, nee
 def test_authoritative_start_gate_uses_current_map_location():
     rules = _rules()
     with pytest.raises(BusinessRuleError, match='ELIGIBILITY_LOCATION_KIND_MISMATCH'):
-        rules.validate_start(_agent('poi-1868478037'), _request(), 100, 'poi-1868478037')
+        rules.validate_start(_agent('office'), _request(), 100, 'office')
     rules.validate_start(_agent('home'), _request(), 100, 'home')
 
 

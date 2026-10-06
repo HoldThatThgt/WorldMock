@@ -29,7 +29,7 @@ def _pending(tool_name: str = "start_activity", request: dict | None = None) -> 
     """构造与冻结观察对应的最小动作身份。"""
     return SimpleNamespace(
         action_id="action-current", agent_id=1, decision_id="decision-current",
-        observed_at=100, requested_event_id="request-current", work_review_event_id=None,
+        observed_at=100, requested_event_id="request-current",
         reused=False, tool_name=tool_name, request=request or {},
     )
 
@@ -42,7 +42,11 @@ class _MessageHarness(ActionHandlers):
         self.bindings = bindings
         self.context.scenario = SimpleNamespace(locations=(), routes=(), agents=(
             SimpleNamespace(agent_id=1, contacts=()), SimpleNamespace(agent_id=2, contacts=())))
-        self.context.rules = SimpleNamespace(tasks={})
+        from tests.data_paths import ENVIRONMENT_ROOT
+        from worldmock.life.world_setup import load_runtime_scenario
+
+        self.context.semantics = load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
+        self.context.rules = SimpleNamespace(work_topics={})
         self.context.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
                                              2: SimpleNamespace(agent_id=2)}, activities={}, current_time=100)
 

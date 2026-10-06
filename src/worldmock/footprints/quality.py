@@ -16,6 +16,7 @@ from worldmock.errors import IntegrityError
 from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
 from worldmock.evaluation.goal_metrics import day_plan_metrics
 from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
+from worldmock.footprints.app_usage import app_usage_quality
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
     WAKE_REASON_NAMES,
@@ -34,7 +35,6 @@ from worldmock.life.models import ActionStatus
 _ACTION_STATUSES = tuple(status.value for status in ActionStatus)
 _ACTIVITY_STATUSES = ("active", "paused", "completed", "cancelled", "failed", "truncated")
 _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
-_CONTENT_TYPES = {"use_app", "read_mail"}
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 #: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
 _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
@@ -57,7 +57,7 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 4：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
+    报告结构 5：个人事务与工作安排规格的两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics
     （docs/VERIFICATION.md#errands-workday-度量与下游-质量报告 ）；三者读同一份事件字典，按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
@@ -68,7 +68,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "run_id": manifest["run_id"],
         "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
         "event_range": {
@@ -80,7 +80,8 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "run_outcome": _run_outcome(events),
         "actions": _action_quality(events),
         "activities": _activity_quality(activities, events),
-        "content_contact": _content_quality(activities),
+        **app_usage_quality(rows, manifest["window"]["timezone"]),
+        "work_topics": _work_quality(events, activities),
         "conversion_efficiency": _efficiency_quality(events),
         "decision_rhythm": _decision_rhythm_quality(events),
         "memory_references": _memory_quality(events),
@@ -223,37 +224,35 @@ def _person_elapsed_seconds(events: list[Event]) -> dict[str, int]:
     return dict(sorted(totals.items()))
 
 
-def _content_quality(activities: list[dict]) -> dict:
-    """@brief 汇总实际内容会话时长，并按人物与内容识别重复观看。"""
-    rows = [row for row in activities if row.get("activity_type") in _CONTENT_TYPES]
-    summaries = {kind: _contact_summary([row for row in rows if row.get("activity_type") == kind])
-                 for kind in sorted(_CONTENT_TYPES)}
-    overall = _contact_summary(rows)
-    return {
-        "content_activity_types": sorted(_CONTENT_TYPES),
-        "session_count": len(rows),
-        "contact_seconds": overall["contact_seconds"],
-        "known_contact_seconds": overall["known_contact_seconds"],
-        "duration_complete": overall["duration_complete"],
-        "sessions_missing_duration": overall["sessions_missing_duration"],
-        "by_activity_type": summaries,
-    }
-
-
-def _contact_summary(rows: list[dict]) -> dict:
-    """@brief 对一组内容会话报告已知时长和完整性。"""
-    durations = [row["elapsed_seconds"] for row in rows if _is_nonnegative_number(row.get("elapsed_seconds"))]
-    complete = len(durations) == len(rows)
-    known = sum(durations) if durations else (0 if not rows else None)
-    return {
-        "sessions": len(rows),
-        "contact_seconds": sum(durations) if complete else None,
-        "known_contact_seconds": known,
-        "duration_complete": complete,
-        "sessions_missing_duration": len(rows) - len(durations),
-    }
-
-
+def _work_quality(events: list[Event], activities: list[dict]) -> dict:
+    """@brief 工时只加权威活动时长，完成只认真实主题完成事件，播报只认唯一成功回执。"""
+    totals: Counter[str] = Counter()
+    topics: set[tuple[int, str]] = set()
+    for activity in activities:
+        if activity.get("activity_type") != "work":
+            continue
+        topic = activity.get("target_id")
+        if topic is None:
+            continue
+        topics.add((activity["agent_id"], topic))
+        if activity.get("status") != "failed":
+            totals[topic] += activity["elapsed_seconds"]
+    completed: set[tuple[int, str]] = set()
+    reported: set[str] = set()
+    reports = 0
+    for event in events:
+        if event.event_type == "observation":
+            topics.update((event.agent_id, row["topic_id"]) for row in event.data.get("work_topics", []))
+        if event.event_type == "environment_event" and event.data.get("kind") == "work_topic_completed":
+            pair = (event.agent_id, event.data["topic_id"])
+            topics.add(pair)
+            completed.add(pair)
+        if (event.event_type == "action_result" and event.action_id not in reported
+                and event.data.get("status") == "completed"):
+            reported.add(event.action_id)
+            reports += len(event.data.get("data", {}).get("work", []))
+    return {"topics": len(topics), "completed": len(completed),
+            "worked_seconds_by_topic": dict(sorted(totals.items())), "reports": reports}
 
 
 def _efficiency_quality(events: list[Event]) -> dict:
@@ -752,7 +751,7 @@ def _usage_by_model(usage: list[dict]) -> list[dict]:
 
 
 def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
-    """@brief 按请求用途分列：人物决策（无 purpose）、工作验收与零点计划 plan_day 各自的请求、响应与已知 token。"""
+    """@brief 按请求用途分列：人物决策（无 purpose）与零点计划 plan_day 各自的请求、响应与已知 token。"""
     counts = Counter(event.data.get("purpose") or _DECISION_PURPOSE for event in requests)
     groups: dict[str, list[dict]] = defaultdict(list)
     for item in usage:

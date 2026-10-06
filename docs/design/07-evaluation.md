@@ -1,6 +1,8 @@
 <a name="evaluation-worldmock-产品设计说明书-行为评估"></a>
 # WorldMock 产品设计说明书 — 行为评估
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的按实际工作秒数计算的报告项。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「门店选择与供给假设的比较边界」（阶段 3）。
@@ -111,6 +113,16 @@ flowchart TB
 
 **背书**：门禁阈值来自 `docs/VERIFICATION.md#verification-worldmock-验收标准` §协议门禁，源码为唯一依据。
 
+阶段 7 的认证导出还必须通过质量报告结构 5 的结构与重算检查：
+
+| 质量键 | 必须由真实事实重算的内容 |
+| --- | --- |
+| `content_contact` | `by_app`、`by_kind`、`repeat_watch`；重看只在本轮开始前已完成至少一轮时计数 |
+| `app_pushes` | `pushed`、`opened_in_session`、`consumed_pinned`、`released_by_completion`、`expired_with_session`、`outside_window_violations`；按唯一 `push_id` 和真实 session 转换计数 |
+| `work_topics` | `topics`、`completed`、`worked_seconds_by_topic`、`reports`；工时取每个人物、主题的累计终值，不重复求和各进度快照 |
+
+`model_usage.by_purpose` 不含 `work_review`，`conversion_efficiency` 不含 `work`。这些键属于认证质量报告，
+不能用缺失值、模型文字或当前状态猜测；执行结果以阶段 7 的实际门禁回执登记。
 <a name="evaluation-报告项reports"></a>
 ### 2.2 报告项（Reports）
 
@@ -269,72 +281,67 @@ $$
 ```python
 @dataclass(frozen=True)
 class PublicEvidence:
-    """公开结构证据，剥离原文和私有身份"""
     occurred_at: datetime
-    category: str  # 活动类别（闭集）
-    interaction: str  # 交互类型（闭集）
-    object_type: str  # 对象类型（闭集）
-    state: str | None  # 状态（闭集或 None）
-    object_key: str | None  # 匿名对象引用
-    attributes: Mapping[str, str]  # 额外闭集属性
-    source_event_ids: tuple[str, ...]  # 原始事件指针
-    session_key: str | None  # 会话标识（用于折叠重复）
+    category: str
+    interaction: str
+    object_type: str
+    state: str | None
+    object_key: str | None
+    attributes: Mapping[str, str]
+    source_event_ids: tuple[str, ...]
 ```
 
-**闭集公开值**：
-
-- `interaction`: order, travel, check_in, view, play, consume, notify, arrive, ...
-- `object_type`: order, route, workplace, content, game, product, task, message, ...
-- `state`: requested, started, completed, received, paid, delivered, cancelled, failed, ...
+公开证据只取认证源事件能证明的闭集值。当前 WorldMock 的 app 活动使用 `interaction="use_app"`；
+内容完成和推送状态来自 `app-usage.jsonl` 与对应来源事件，不使用 `view`、`play` 或游戏终局。
+出行证据的 `object_type="route"`，`object_key` 取活动的 `trip_id`，路径、方式与到达状态必须由真实活动和
+结算事件证明。工作证据按 `topic_id` 与 `work_topic_completed` 表示主题累计及完成，不构造任务评审或截止事实。
+无法映射的类别使用 `unknown`，缺失字段保留为缺失，不按名称或相邻时刻补值。
 
 <a name="evaluation-活动activitysession"></a>
 #### 活动（ActivitySession）
 
-代码名 `ActivitySession` 沿用，与地点会话无关。
+代码名 `ActivitySession` 沿用，与地点会话无关。WorldMock 适配器只接受认证导出的当前活动行，
+LabelKit 适配器只接受其真实上游会话格式；两条来源分支不是旧 WorldMock 格式的兼容读取。
 
 ```python
 @dataclass(frozen=True)
 class ActivitySession:
-    """一项活动，可能跨多个时间段"""
     activity_id: str
+    person_id: str
+    category: str
     started_at: datetime
     ended_at: datetime
-    category: str  # 活动类别（十类闭集）
-    status: str  # 终态：completed, interrupted, ongoing
-    segments: tuple[tuple[datetime, datetime], ...] | None  # 分段区间
+    elapsed_seconds: float
+    status: str
+    channels: tuple[str, ...]
+    application_category: str | None
+    duration_kind: str
+    official_domains: tuple[str, ...]
+    caused_by: tuple[str, ...]
+    source_pointer: str
+    source_channels: tuple[str, ...]
 ```
 
-**十类活动家族**：
-`sleep`, `morning_routine`, `commute`, `work`, `meal`, `rest`, `entertainment`, `social`, `chore`, `exercise`
+`elapsed_seconds` 逐字取冻结活动行并与认证事件核对，不用 `ended_at - started_at` 把暂停空档算进活动。
+占用格和盲评区间由规范 `EvidenceEvent` 中 `activity_progress.data.interval_start`、`interval_end` 的实际推进区间
+构造；相同 `activity_id` 的多段推进保持同一活动身份。`ActivitySession` 不保存或重建 `segments` 字段。
 
 <a name="evaluation-适配器职责"></a>
 ### 3.2 适配器职责
 
-适配器负责将来源数据（Legacy 或 WorldMock）转换为共同模型：
+适配器把两个真实上游格式转换为共同模型，来源分支显式分开：
 
-**Legacy 适配器**（`labelkit_public_evidence`）：
-- 读取 `actionInfo`（声明）和 `stream` 事件（结构事实）
-- 使用 `owner_sequence_id` 建立事件到序列的连接
-- 投影 `appUsageEvent`、`screenMemoryEvent`、`notificationEvent` 等
-- **不推断业务终态**：`actionInfo` 只证明声明，不证明完成
+- LabelKit 适配器读取 `actionInfo` 与 `stream`，用 `owner_sequence_id` 建立序列关系；声明只证明声明，
+  不能证明订单、到达、内容完成或其他业务终态。
+- WorldMock 适配器只读取导出清单 3 的 `events`、`activities`、`purchases` 与 `app_usage`，并核对来源事件指针。
+  `start_activity.items[]` 逐项绑定结果中的当前活动快照；`report_status`、`pause_activity` 与
+  `conclude_activity` 按 `items[].activity_name` 绑定当前活动身份。
+- `use_app` 由真实 app 活动与内容进度投影；推送的交付、打开、内容消费和完成释放分别取五种 app 使用事实。
+  出行对象键只取 `trip_id`，订单、付款和履约保持三种独立状态，工作累计取真实主题进度与完成事件。
+- `recall_task_summary` 与 `query_world` 是查询证据，不投影成活动或世界状态变化。
 
-**WorldMock 适配器**（`worldmock_public_evidence`）：
-- 读取 `action_requested`、`action_result`、`environment_event`
-- 使用 `action_id` 回链请求与结果
-- `start_activity.items[]` 的每项含可读 `target`、`way`、`from`、`to`；请求不再含 `actions[]` 或旧平行数组。
-  内部动作从冻结绑定和结果事实解析，不能仅从方式的文字猜测；细分交互取结果中
-  活动快照的 `kind`；同一请求启动两项活动时，按结果中对应顺序的 `data.activities[]` 快照投影两项证据，
-  不把另一项动作的结果或付款记到本项
-- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `items[].activity_name` 逐活动投影，
-  活动身份取结果逐项回报的 `activity_ids`；从真实活动快照读取对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
-- 区分订单、付款、履约三个独立状态
-- `recall_task_summary` 与 `query_world` 只作为查询证据，不投影活动或世界请求；查询失败按英文 `items[].path`、
-  `allowed_values` 和 `expected` 留证，查询结果不得代替真实受理或完成。
-
-**不变量**：
-- 一个原始事件可产生多条共同证据：双活动分别成条，实际付款另成条；每条保留来源事件指针
-- 无法映射的类别使用 `unknown`，不猜测
-- 一方不支持的字段标为 `null`，不填造
+一个原始事件可以产生多条共同证据，但每条都保留来源事件指针。无法映射的类别写 `unknown`，一方不支持的
+字段保持缺失；适配器拒绝已退役的 WorldMock 请求形状和游戏、目录浏览、任务评审字段，不设置兼容读取。
 
 <a name="evaluation-两个数据集对比"></a>
 ### 3.3 两个数据集对比
@@ -895,3 +902,4 @@ flowchart LR
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步按实际工作秒数计算的报告项，版本号不变 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：当前 app、出行和工作主题证据，冻结活动行与真实推进区间；版本保持 v1.17 |

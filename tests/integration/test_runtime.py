@@ -939,8 +939,8 @@ async def test_life_env_step_plans_midnight_before_the_step_checkpoint(tmp_path,
         engine.close()
 
 
-def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) -> Path:
-    """从新建运行的检查点恢复子分支（planned 为假时取计划尚未生成的初始检查点），返回子运行目录。"""
+def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) -> tuple[Path, Path]:
+    """从真实检查点恢复子分支，返回子运行目录与经哈希核验的原始场景路径。"""
     from tests.life.conftest import settle_day_plans
 
     engine, _context, _DecisionContext, _DirectToolCall = _npc_delivery_engine(tmp_path)
@@ -953,7 +953,9 @@ def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) 
         checkpoint = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
         child = tmp_path / ("planned-child" if planned else "child")
         restore_branch(engine.context.store, checkpoint.checkpoint_id, child, metadata).close()
-        return child
+        scenario_path = tmp_path / "scenario" / "scenarios" / SCENARIO.name
+        assert hashlib.sha256(scenario_path.read_bytes()).hexdigest() == engine.context.state.scenario_sha256
+        return child, scenario_path
     finally:
         engine.close()
 
@@ -964,7 +966,7 @@ async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeyp
     from custom.envs.life_env import LifeEnv
 
     scenario = ENVIRONMENT_ROOT / "scenarios/single-person.json"
-    child = _resume_branch(tmp_path, planned=False)
+    child, scenario = _resume_branch(tmp_path, planned=False)
     client = _plan_day_client(monkeypatch)
     env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
@@ -976,9 +978,9 @@ async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeyp
     finally:
         await env.close()
     (tmp_path / "second").mkdir()
-    planned_child = _resume_branch(tmp_path / "second", planned=True)
+    planned_child, planned_scenario = _resume_branch(tmp_path / "second", planned=True)
     _forbid_plan_day_client(monkeypatch)
-    again = LifeEnv(scenario_path=str(scenario), run_dir=str(planned_child), open_existing=True)
+    again = LifeEnv(scenario_path=str(planned_scenario), run_dir=str(planned_child), open_existing=True)
     await again.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     await again.close()
 
@@ -988,10 +990,10 @@ async def test_counterfactual_init_waits_for_the_intervention_checkpoint(tmp_pat
     """反事实分支的 init 不执行零点计划（在干预检查点之后执行），不构造客户端。"""
     from custom.envs.life_env import LifeEnv
 
-    child = _resume_branch(tmp_path, planned=False,
+    child, scenario = _resume_branch(tmp_path, planned=False,
                            metadata={"branch_kind": "counterfactual", "intervention_sha256": "a" * 64})
     _forbid_plan_day_client(monkeypatch)
-    env = LifeEnv(scenario_path=str(ENVIRONMENT_ROOT / "scenarios/single-person.json"), run_dir=str(child), open_existing=True)
+    env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:
         assert env.engine.context.state.agents[1].day_plan is None
@@ -1004,14 +1006,14 @@ async def test_plan_day_failure_during_resume_init_is_registered_before_raising(
     """普通恢复中零点计划失败：init 先经 engine.fail_run 登记运行故障再抛出（AS2 的故障登记范围之外）。"""
     from custom.envs.life_env import LifeEnv
 
-    child = _resume_branch(tmp_path, planned=False)
+    child, scenario = _resume_branch(tmp_path, planned=False)
 
     class FailingClient(_RecordingPlanDayClient):
         async def call(self, request):
             raise ConnectionError("plan day transport down")
 
     monkeypatch.setattr(runtime_module, "PlanDayClient", FailingClient)
-    env = LifeEnv(scenario_path=str(ENVIRONMENT_ROOT / "scenarios/single-person.json"), run_dir=str(child), open_existing=True)
+    env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
     with pytest.raises(ConnectionError, match="transport down"):
         await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
     try:

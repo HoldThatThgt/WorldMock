@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import logging
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -11,10 +12,13 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 
 from worldmock.evaluation.errors import EvaluationError
+from worldmock.errors import IntegrityError
+from worldmock.footprints.app_usage import validate_app_event_source
 from worldmock.footprints.models import Event
 from worldmock.evaluation.io import read_jsonl
 from worldmock.evaluation.models import (
     ActivitySession,
+    activity_intervals,
     DatasetView,
     DayRecord,
     EvaluationScenario,
@@ -310,6 +314,7 @@ def _labelkit_activities(
                 category,
                 min(starts),
                 max(ends),
+                (max(ends) - min(starts)).total_seconds(),
                 "observed",
                 channels,
                 _optional_text(row.get("bundleName")),
@@ -317,7 +322,6 @@ def _labelkit_activities(
                 tuple(sorted(domains)),
                 (),
                 f"{row['_meta']['source'].get('file', '')}#sequence={sequence_id}",
-                ((min(starts), max(ends)),),
                 source_channels,
             )
         )
@@ -355,6 +359,7 @@ def _adapt_canonical(root: Path, scenario: EvaluationScenario, source_kind: str)
     activities = _adapt_world_activities(activity_rows, delivery, scenario)
     activity_index = {item.activity_id: item for item in activities}
     events = _adapt_world_events(event_rows, delivery, scenario, activity_index)
+    _validate_activity_intervals(activities, events)
     _validate_world_links(events, activities, delivery)
     if source_kind == "worldmock":
         _validate_world_completion(events, scenario, delivery)
@@ -379,6 +384,16 @@ def _adapt_canonical(root: Path, scenario: EvaluationScenario, source_kind: str)
         validation,
         public,
     )
+
+
+def _validate_activity_intervals(activities: list[ActivitySession], events: list[EvidenceEvent]) -> None:
+    """@brief 导出累计秒数必须等于认证进度区间之和，不能用暂停跨度填补空档。"""
+    for activity in activities:
+        intervals = activity_intervals(activity, tuple(events))
+        actual = sum((end - start).total_seconds() for start, end in intervals)
+        if abs(actual - activity.elapsed_seconds) > 1e-6:
+            logging.error("WorldMock activity elapsed time disagrees with progress evidence: %s", activity.activity_id)
+            raise EvaluationError("time_mismatch", "WorldMock activity elapsed time disagrees with progress evidence")
 
 
 def _validate_public_window(
@@ -436,6 +451,7 @@ def _adapt_world_event(
     source_channel = _WORLD_SOURCE_CHANNELS[parsed.event_type]
     channel = _world_common_channel(parsed, activity)
     category = activity.category if activity else "unknown"
+    interval = _world_interval(parsed)
     return EvidenceEvent(
         delivery.dataset_id,
         parsed.event_id,
@@ -458,7 +474,24 @@ def _adapt_world_event(
         parsed.visibility,
         parsed.source_kind,
         _optional_text(parsed.data.get("checkpoint_id")),
+        *interval,
     )
+
+
+def _world_interval(event: Event) -> tuple[datetime | None, datetime | None]:
+    """@brief 只有真实活动进度具有结算区间，结束时刻不能冒充开始时刻。"""
+    try:
+        validate_app_event_source(event.model_dump())
+    except IntegrityError as exc:
+        raise EvaluationError("invalid_input", str(exc)) from exc
+    if event.event_type != "activity_progress":
+        return None, None
+    start = parse_utc_seconds(event.data.get("interval_start"), "WorldMock interval_start")
+    end = parse_utc_seconds(event.data.get("interval_end"), "WorldMock interval_end")
+    if end <= start:
+        logging.error("WorldMock activity progress interval must be positive")
+        raise EvaluationError("invalid_time", "WorldMock activity progress interval must be positive")
+    return start, end
 
 
 def parse_world_event(row: JsonObject) -> Event:
@@ -553,6 +586,7 @@ def _adapt_world_activity(
         category,
         started,
         ended,
+        elapsed,
         _text(row.get("status"), f"activity line {line_number} status"),
         channels,
         None,
@@ -560,7 +594,6 @@ def _adapt_world_activity(
         tuple(sorted(domains)),
         _string_list(row.get("source_event_ids"), f"activity line {line_number} source_event_ids"),
         f"{delivery.activity_path}:{line_number}",
-        segments,
         tuple(sorted(resources)),
     )
 
@@ -570,14 +603,18 @@ def _require_activity_fields(row: JsonObject, line_number: int) -> None:
     required = {
         "activity_id", "agent_id", "activity_type", "status", "started_at", "planned_end_at",
         "ended_at", "elapsed_seconds", "boundary_type", "interruption_reason", "resource_claims",
-        "last_settled_at", "planned_duration_seconds", "effective_work_seconds",
+        "last_settled_at", "planned_duration_seconds",
         "media_position_seconds", "route_progress_meters", "next_interaction_at", "target_id",
-        "destination_id", "travel_mode", "playback_speed", "data", "segments", "source_event_ids",
+        "destination_id", "travel_mode", "data", "source_event_ids",
     }
     missing = sorted(required - row.keys())
     if missing:
         fields = ", ".join(missing)
         raise EvaluationError("invalid_input", f"activity line {line_number} is missing fields: {fields}")
+    retired = {"effective_work_seconds", "playback_speed"} & row.keys()
+    if retired:
+        logging.error("WorldMock activity contains retired fields: %s", sorted(retired))
+        raise EvaluationError("invalid_input", f"WorldMock activity contains retired fields: {sorted(retired)}")
     _optional_text(row.get("boundary_type"))
     _optional_text(row.get("interruption_reason"))
     _string_list(row.get("source_event_ids"), f"activity line {line_number} source_event_ids")
@@ -700,9 +737,9 @@ def _build_day(
     zone = ZoneInfo(scenario.window.timezone)
     start = datetime.combine(value, time.min, zone)
     end = start + timedelta(days=1)
-    day_activities = [item for item in activities if _activity_overlaps(item, start, end)]
+    day_activities = [item for item in activities if _activity_overlaps(item, start, end, events)]
     day_events = [item for item in events if start <= item.occurred_at.astimezone(zone) < end]
-    slots = tuple(_slot_category(start, index, day_activities) for index in range(144))
+    slots = tuple(_slot_category(start, index, day_activities, events) for index in range(144))
     return DayRecord(
         value,
         scenario.calendar_class(value),
@@ -713,11 +750,12 @@ def _build_day(
     )
 
 
-def _slot_category(start: datetime, index: int, activities: list[ActivitySession]) -> str:
+def _slot_category(start: datetime, index: int, activities: list[ActivitySession], events: tuple) -> str:
     """@brief 按最大重叠选择一个十分钟格的确定类别。"""
     slot_start = start + timedelta(minutes=index * 10)
     slot_end = slot_start + timedelta(minutes=10)
-    ranked = [(_overlap_seconds(item, slot_start, slot_end), item.category, item.activity_id) for item in activities]
+    ranked = [(_overlap_seconds(item, slot_start, slot_end, events), item.category, item.activity_id)
+              for item in activities]
     eligible = [item for item in ranked if item[0] > 0]
     if not eligible:
         return "none"
@@ -725,21 +763,15 @@ def _slot_category(start: datetime, index: int, activities: list[ActivitySession
     return best[1]
 
 
-def _overlap_seconds(activity: ActivitySession, start: datetime, end: datetime) -> float:
+def _overlap_seconds(activity: ActivitySession, start: datetime, end: datetime, events: tuple) -> float:
     """@brief 计算活动与时间格的重叠秒数。"""
-    segments = (
-        activity.segments
-        if activity.segments is not None
-        else ((activity.started_at, activity.ended_at),)
-    )
+    segments = activity_intervals(activity, events)
     return sum(_interval_overlap(left, right, start, end) for left, right in segments)
 
 
-def _activity_overlaps(activity: ActivitySession, start: datetime, end: datetime) -> bool:
+def _activity_overlaps(activity: ActivitySession, start: datetime, end: datetime, events: tuple) -> bool:
     """@brief 判断活动的实际区间是否与自然日重叠。"""
-    if activity.segments is not None:
-        return any(left < end and right > start for left, right in activity.segments)
-    return activity.started_at < end and activity.ended_at >= start
+    return any(left < end and right > start for left, right in activity_intervals(activity, events))
 
 
 def _interval_overlap(left: datetime, right: datetime, start: datetime, end: datetime) -> float:

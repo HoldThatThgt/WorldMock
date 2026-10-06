@@ -40,8 +40,16 @@ def _sample_id(sample: dict) -> str:
     return f"{tag}-{sample['event_seq']}"
 
 
+def _with_model_friend(document: dict) -> None:
+    """@brief 本模块显式声明用于回复守卫的远程联系人，不依赖正式数据的人物。"""
+    agent = next(item for item in document["agents"] if item["agent_id"] == 1)
+    agent["contacts"] = [{"contact_id": _FRIEND, "salutation": "老友", "relation": "朋友", "closeness": 16,
+                          "channels": ["messaging"], "reply_policy": "model", "receive_location_id": None}]
+
+
 def _with_model_colleague(document: dict) -> None:
     """@brief 场景副本里给人物 1 加 model 策略的同事联系人王磊，收货地点是办公室。"""
+    _with_model_friend(document)
     agent = next(item for item in document["agents"] if item["agent_id"] == 1)
     agent["contacts"].append({"contact_id": _COLLEAGUE, "salutation": "王磊", "relation": "同事", "closeness": 16,
                               "channels": ["workplace-IM"], "reply_policy": "model", "receive_location_id": "office"})
@@ -147,7 +155,7 @@ def test_samples_cover_every_category_and_the_fallback_passes() -> None:
 async def test_overreach_reply_is_retried_once_in_the_same_settlement(engine_factory, sample) -> None:
     """越界回复命中后在同一次结算内重试一次：重试请求是原请求附被拦下的回复与纠正，其余参数不变；只写一条回复事件，
     attempts 记两次尝试的请求、回复与命中类别，重试通过时不用兜底句（guard_applied 为 false）。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_with_model_friend)
     sent_at = _send(engine, "guard-retry")
     harmless = HARMLESS[0]["reply"]
     client = _ScriptedReplies(sample["reply"], harmless)
@@ -168,7 +176,7 @@ async def test_overreach_reply_is_retried_once_in_the_same_settlement(engine_fac
 
 async def test_fallback_reply_appears_only_when_both_attempts_hit(engine_factory) -> None:
     """首次不命中就不重试也不用兜底句；首次与重试都命中时用固定兜底句，事件带 guard_applied。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_with_model_friend)
     _send(engine, "guard-clean")
     clean = _ScriptedReplies(HARMLESS[1]["reply"])
     await settle_pending_model_replies(engine, client=clean)
@@ -212,7 +220,7 @@ async def test_reply_request_carries_sender_name_now_presence_and_receive_locati
 
 async def test_each_incoming_message_gets_one_reply_event_even_after_a_retry(engine_factory) -> None:
     """重试仍只写一条回复事件，幂等键仍是来信的消息身份：再结算零调用、零事件。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_with_model_friend)
     _send(engine, "guard-once")
     [message_id] = list(engine.context.state.agents[1].outbox)
     client = _ScriptedReplies(OVERREACH[1]["reply"], HARMLESS[2]["reply"])
@@ -227,7 +235,7 @@ async def test_each_incoming_message_gets_one_reply_event_even_after_a_retry(eng
 
 async def test_quality_report_counts_guard_hits_retries_and_fallbacks(engine_factory, tmp_path: Path) -> None:
     """导出的 quality.json 的 contact_reply_guard：命中按尝试计、类别按尝试计，重试与兜底按回复计。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_with_model_friend)
     _send(engine, "quality-retry")
     await settle_pending_model_replies(engine, client=_ScriptedReplies(OVERREACH[0]["reply"], HARMLESS[3]["reply"]))
     _send(engine, "quality-fallback")

@@ -1,6 +1,8 @@
 <a name="spec-life-realism-特性规格人物决策与画像"></a>
 # 特性规格：人物决策与画像
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 2026-10-07：按资源与规则引擎简化规格同步剩余系统规则、最终提示身份与查看器（阶段 6）。
 
 > 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的人物可见的工作主题与累计。
@@ -506,7 +508,11 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
   生活活动、app 使用、工作、通话与交谈都有标题，种类名取 `src/worldmock/life/readable.py` 的中文种类表（单一来源），
   不出现 `call`、`work` 等英文种类名与 `task-` 一类内部标识形态，质量报告另查时间线标签（[一日运行保真规格](SPEC-life-runtime.md#dayrun-fidelity-身体与需要) 7.4）
 - `verified-experiences.jsonl` 从已提交事件的固定截止完整前缀导出，摘要绑定并由消费端重算；
-  观察每轮只在私有证据中保存本人最近五条，不再写成句子发给模型。等待、原因未知的等待、真实内容接触与人物经过时间并集分别报告
+  观察每轮只在私有证据中保存本人最近五条，不再写成句子发给模型。`played` 只记录 `use_app` 的真实
+  `app_id`、`content_id` 与前后位置；目录展示、只打开 app 和模型文字不算内容消费
+- `app-usage.jsonl` 以 `fact_kind` 分开记录 `app_use`、`content_consumed`、`push_delivered`、
+  `push_opened`、`push_released`；手机行只从这些认证事实投影
+- 工作时间线与评估读取 `topic_id`、真实累计工时、播报和 `work_topic_completed`，不构造任务截止、提交或评审事实
 - `tools/run-viewer.html` 增加同一投影的“一天”视图
 - 盲评记录为每条活动补上地点与同伴，同伴以匿名引用给出
 - 动作与意图窗口仍以同人物、同决策、动作前最后一次实际行动请求为 prompt 权威，原样保留其中的 `reasoning_content`；
@@ -1325,3 +1331,4 @@ system 为只读系统层；user 为人设层与记忆层两个对象组成的 J
 | `2026-10-06-rrs-app` | 2026-10-07 | 阶段 4：娱乐目标统一为 app；内容以五类、摘要、时长和 app 绑定准入；工具层、进度层与素材可达性改为 app 内容和 app 推送协议 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题、目标工时与人物可见累计 |
 | `2026-10-06-rrs-prompt` | 2026-10-07 | 剩余系统规则与提示身份、当前 app 和工作主题查看器；工具身份保持已验收形状 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：时间线、app 内容状态与工作主题累计的导出事实 |

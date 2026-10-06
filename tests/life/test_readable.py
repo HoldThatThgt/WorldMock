@@ -55,18 +55,17 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
 
 def test_count_phrase_and_content_category_labels_for_the_callable_index() -> None:
     """工具层可调用索引的品类计数写成「N 个」（数字与量词之间一个空格，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-只列名称的可调用索引 ）；内容品类的中文名
-    取 BROWSE_LABELS，覆盖场景内容品类闭集的每一个值（游戏会话为「游戏」）。"""
-    from worldmock.life.readable import BROWSE_LABELS, count_phrase
+    取 CONTENT_KIND_LABELS，覆盖当前内容品类闭集。"""
+    from worldmock.life.readable import count_phrase
     from worldmock.exchange.types import CONTENT_KIND_LABELS
 
     assert [count_phrase(count) for count in (1, 3, 90, 110)] == ["1 个", "3 个", "90 个", "110 个"]
-    assert BROWSE_LABELS == {"foods": "食品目录"}
     assert CONTENT_KIND_LABELS["short_video"] == "短视频"
 
 
 def test_chinese_kind_tables_have_a_single_source() -> None:
     """中文种类表只在 readable 定义（docs/dev/SPEC-as2-integration.md#dayrun-fidelity-评审模型调用与叙述-时间线只出现中文名称 ）：环境层的 PLACE_TYPES、ACTION_PHRASES 与实际
-    消费方的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表的值都是不带英文字母的中文，英文键
+    消费方的 TRAVEL_WAYS 就是这里的对象；活动种类表覆盖 ActivityKind 的全部取值；各表使用中文，应用动作保留冻结的 app 字样，英文键
     合成 ENGLISH_KIND_NAMES。"""
     import re
 
@@ -80,6 +79,15 @@ def test_chinese_kind_tables_have_a_single_source() -> None:
     assert tool_layer.ACTIVITY_DOING_LABELS is readable.ACTIVITY_DOING_LABELS
     assert set(readable.ACTIVITY_KIND_LABELS) == {kind.value for kind in ActivityKind}
     tables = (readable.ACTIVITY_KIND_LABELS, readable.ACTIVITY_DOING_LABELS, readable.PLACE_TYPES,
-              readable.ACTION_PHRASES, readable.TRAVEL_WAYS, readable.BROWSE_LABELS)
-    assert all(re.fullmatch(r"[一-鿿]+", label) for table in tables for label in table.values())
+              readable.ACTION_PHRASES, readable.TRAVEL_WAYS)
+    assert all(re.fullmatch(r"[一-鿿]+", label) or (table is readable.ACTION_PHRASES and label == "用手机 app")
+               for table in tables for label in table.values())
     assert readable.ENGLISH_KIND_NAMES == {key for table in tables for key in table}
+
+
+def test_app_public_labels_are_the_exact_current_phone_phrases():
+    """@brief 单一中文词表与冻结手机活动名称逐字一致。"""
+    from worldmock.life.readable import ACTIVITY_KIND_LABELS, ACTIVITY_DOING_LABELS, ACTION_PHRASES
+    assert ACTIVITY_KIND_LABELS['use_app'] == '用手机'
+    assert ACTIVITY_DOING_LABELS['use_app'] == '刷手机'
+    assert ACTION_PHRASES['use_app'] == '用手机 app'

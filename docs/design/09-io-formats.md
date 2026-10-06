@@ -1,6 +1,8 @@
 <a name="io-formats-worldmock-产品设计说明书-输入输出格式"></a>
 # WorldMock 产品设计说明书 — 输入输出格式
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作活动状态格式。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「WorldState（世界状态）、AgentState（人物状态）、ActivityState（活动状态）、当前工具请求、查询与错误格式、职责与边界」（阶段 1）；「1.1 职责与边界」（阶段 3）。
@@ -380,9 +382,14 @@ JSON 解析失败定位参数对象、附行列与必要闭集；未知工具定
 <a name="io-formats-labelkit-交付格式"></a>
 ## LabelKit 交付格式
 
-训练记录、字段字典、来源连通组与规则夹具由[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义处理流程，
-字段和磁盘产物见[LabelKit 训练记录与交付格式](../CONTRACTS.md#contracts-labelkit-训练记录与交付格式)。
-原始足迹导出和 LabelKit 训练样本分别按所属合同解析，不能把训练字段附会为持久事件字段。
+LabelKit 只接收交付清单结构 3。清单逐字复制来源运行的五字段 `environment_identity`，在来源工件中列出
+`events`、`activities`、`verified_experiences`、`purchases` 与 `app_usage`，并绑定每个消费文件及门禁结果。
+交付入口读取导出最终检查点，`WorldState.schema_version` 必须为 10；结构 9 及更早版本直接拒绝，不迁移、不双读。
+
+手机行只由 `app-usage.jsonl` 的五种 `fact_kind` 与 `purchases.jsonl.app_id` 投影。人物可见的 app 推送公开行为
+`{kind: "app_push", app, kind_label, summary}`；系统可见 `pushed: false` 没有公开行。训练记录、字段字典、
+来源连通组与规则夹具由[数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)定义加工流程；
+不得把训练字段附会成持久事件字段。
 
 <a name="io-formats-通用校验说明"></a>
 ## 通用校验说明
@@ -493,3 +500,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作活动状态格式，版本号不变 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：交付清单 3、环境身份、app 使用工件与世界结构 10 门禁；版本保持 v1.24 |

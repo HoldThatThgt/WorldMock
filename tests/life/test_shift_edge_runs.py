@@ -762,7 +762,7 @@ def test_t15_the_four_names_are_known_wake_reasons_in_the_quality_report() -> No
 
 def test_t15_an_offline_run_with_a_shift_exports_validates_and_reports(engine_factory, tmp_path) -> None:
     """两人场景只给人物 1 声明 22:10–23:50、休息 22:40–23:10，22:04 起两人照常过日子（脚本化的决策经真实请求、引擎与
-    SQLite）直到运行终点，提交共同检查点并认证导出：校验通过，quality.json 结构为 4，四个名字在结算与 decision_started
+    SQLite）直到运行终点，提交共同检查点并认证导出：校验通过，quality.json 结构为 5，四个名字在结算与 decision_started
     两处各计一次，两个未识别分桶为空，从导出的事件逐值重算出相同的报告。"""
     engine = _engine(engine_factory, declare(0, shift=_NIGHT), scenario="multi-person.json")
     _clock(engine, _moment(engine, "22:04"))
@@ -772,7 +772,7 @@ def test_t15_an_offline_run_with_a_shift_exports_validates_and_reports(engine_fa
     assert export_run(engine.context.store, checkpoint.last_event_seq, export_dir)["experiment_completed"] is True
     manifest, events, activities = validate_export(export_dir)
     quality = json.loads((export_dir / "quality.json").read_text(encoding="utf-8"))
-    assert quality["schema_version"] == 4
+    assert quality["schema_version"] == 5
     rhythm = quality["decision_rhythm"]
     for bucket in ("wake_reason_counts", "decision_started_wake_reason_counts"):
         assert {name: rhythm[bucket].get(name) for name in _NAMES} == dict.fromkeys(_NAMES, 1)

@@ -137,12 +137,12 @@ BEHAVIOUR_CASES: dict[str, tuple[str, ...]] = {
             _PURE + "test_date_exceptions_override_the_weekly_shift",
             _T17_STRICT,
             _PURE + "test_dst_day_edges_match_shift_and_break_spans"),
-    # T18：九处同步点的现行应用唤醒词表、睡眠过滤和查看器 Node 行为互锁，工作成员在工作阶段退役。
+    # T18：九处同步点的最终唤醒词表、睡眠过滤、真实主题完成和查看器 Node 行为互锁。
     'T18': ("tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
             "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
             "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
             "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
-            "tests/life/test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately",
+            "tests/life/test_work_topics.py::test_actual_engine_eight_hours_emit_own_completion_progress_and_remove_start_target",
             "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
             "tests/life/test_app_push.py::test_sleep_stores_push_without_wake_and_existing_activity_is_unchanged"),
     'T19': (_RUNS + "test_t19_an_alarm_at_the_shift_start_keeps_the_edge_after_the_reminder",

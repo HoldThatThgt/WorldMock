@@ -437,13 +437,12 @@ def _content_contact_minutes(events: list[dict[str, Any]]) -> dict[str, Any]:
     """@brief 只计真实前进的媒体位置，不把等待或浏览目录算内容接触。"""
     per_agent: dict[str, float] = {}
     for event in _activity_progress_events(events):
-        if _snapshot(event).get("kind") != "watch":
+        if _snapshot(event).get("kind") != "use_app":
             continue
-        detail = _snapshot(event).get("data")
-        revealed = detail.get("revealed") if isinstance(detail, dict) else None
-        if not isinstance(revealed, dict):
+        content = event.get("data", {}).get("content")
+        if not isinstance(content, dict):
             continue
-        before, after = revealed.get("position_before_seconds"), revealed.get("position_after_seconds")
+        before, after = content.get("position_before_seconds"), content.get("position_after_seconds")
         if isinstance(before, (int, float)) and isinstance(after, (int, float)) and after > before:
             agent = str(event.get("agent_id"))
             per_agent[agent] = per_agent.get(agent, 0.0) + _interval_minutes(event)

@@ -1,6 +1,8 @@
 <a name="recording-engine-worldmock-产品设计说明书-记录引擎"></a>
 # WorldMock 产品设计说明书 — 记录引擎
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 5 的工作主题证据与质量报告。
 
 > 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）；「地图与门店供给证据」、「地图与供给的恢复身份」、「检查点创建」、「持久化结构」、「必须保存的内容」（阶段 2）；「事件字段、事件类型、事件正文、活动进度、已核验经历、共同身体结算与决策证据」（阶段 4，app 使用与推送）。
@@ -903,46 +905,29 @@ flowchart TD
 <a name="recording-engine-导出行为"></a>
 ### 导出行为
 
-导出以一次冻结的截止事件及其对应状态为输入，原始运行保持只读。
-下游只读取导出的快照，不读取持续追加的数据库或可变工作区。
-固定截止支持稳定读取，不等于当前已有任意区间的增量发布接口。
+导出以冻结的截止事件和对应状态为输入，原始运行保持只读。`export_run` 先在临时目录写出、重算并校验，
+最后写清单并原子发布；失败不留下成功清单。导出清单 `schema_version` 为 3，`artifacts` 恰好包含五项：
 
-导出入口为 `export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict`，
-对外使用 `worldmock export`，参数以[命令行合同](../CONTRACTS.md#contracts-cli)为准。
-目标目录必须不存在；先在临时目录写出并校验素材与主文件，最后写清单并原子发布。
-失败清理本次临时目录，记录英文错误并传播，不留下成功清单。
-
-| 导出文件 | 内容与清单绑定 |
+| 工件 | 文件与事实 |
 | --- | --- |
-| `events.jsonl` | 截止范围内的持久事件，按原始身份和序号排列 |
-| `activities.jsonl` | 从截止事件重建活动与实际区间，暂停时长不计作活动；主动结束、暂停、恢复与实验截止的截断也逐活动写活动快照（同源两项的聚合终态不带快照，不据它重建），导出的活动与最终检查点逐项一致 |
-| `verified-experiences.jsonl` | 按固定截止前缀重建的全部人物已核验经历（见「已核验经历与主观记忆」），消费端从 `events.jsonl` 独立重算并逐行核对 |
-| `asset-index.jsonl`、`assets/<sha256>` | 事件及完整最终检查点引用的素材索引与原始字节 |
-| `purchases.jsonl` | 从截止事件投影的购买事实，每行首键 `fact_kind`，依次为全部 `purchase`、全部 `order_attempt`、全部 `app_browse`：`purchase` 取结果顶层与各活动结果的订单，按订单去重，与整体状态无关，重放回执不重复计，字段 `agent_id`、`order_id`、`product_id`、`supply_id`、`quantity`、`total_price_fen`、`fulfillment`、`recipient_id`、`request_message_id`、`channel_id`（订单载荷的渠道标识，不是经渠道买的与旧运行没有这一列的订单为 `null`）、`created_at`、`action_id`、`source_event_id`；`order_attempt` 为方式是到店、远程下单或「购买」的非重放请求（所写方式按宿主与环境同一张方式同义表 `name_resolution.WAY_SYNONYMS` 归一：「外卖」「自取」「买」这类同义写法与原词一样计入，指向别的方式的写法不计），字段 `agent_id`、`action_id`、`request_event_id`、`way`（请求中第一个下单方式，照请求所写的方式归一后记到店、远程下单或「购买」，如「外卖」记「远程下单」；写「购买」的记「购买」而不是系统定下的方式）、`status`、`error_code`（取该动作首个结算结果，尚无结果为 `null`）、`occurred_at`；`app_browse` 为方式是浏览的活动，字段 `agent_id`、`activity_id`、`started_at`、`status`、`source_event_id`（取截止前最后一次快照）。属于导出工件闭集，消费端从 `events.jsonl` 独立重算并逐行核对 |
-| `quality.json` | 从同批冻结事件和活动确定性计算的质量报告 |
-| `timeline/<agent>-<date>.md` | 按人物和日期呈现的时间线，只写中文名称：种类名取 `src/worldmock/life/readable.py` 的中文种类表，对象名取活动快照的标题（工作、通话、交谈也有标题）或名称索引，不写英文种类名与内部标识（见「调试工具」）；当前截止与消费端认证缺口见「固定截止导出的实现差距」 |
-| `manifest.json` | 运行身份、截止、来源、覆盖、完成状态、各文件摘要与冻结运行清单 |
+| `events` | `events.jsonl`，截止前缀内的持久事件，保留原始身份、顺序与因果引用 |
+| `activities` | `activities.jsonl`，从活动快照重建的冻结活动；出行保留起点、终点、`path`、距离、`route_progress_meters`、`destination_id` 与 `travel_mode`，app 使用保留 `media_position_seconds`；不含 `effective_work_seconds` 或 `playback_speed` |
+| `verified_experiences` | `verified-experiences.jsonl`，等待、消费、到达与实际 app 内容播放经历，由事件独立重算 |
+| `purchases` | `purchases.jsonl`，`fact_kind` 为 `purchase` 或 `order_attempt`；没有目录浏览事实 |
+| `app_usage` | `app-usage.jsonl`，`fact_kind` 为 `app_use`、`content_consumed`、`push_delivered`、`push_opened` 或 `push_released` |
 
-活动开始时固定 `location_id`，导出活动记录保留该地点，结算不改写；出行活动的 `location_id` 是出发地，
-`destination_id` 是目的地。并行活动分别保留各自的开始地点与执行区间。
+`purchase` 行为 `{agent_id, order_id, food_id, store_id, app_id, quantity, unit_price_fen,
+delivery_fee_fen, total_price_fen, fulfillment, recipient_id, request_message_id, created_at, action_id,
+source_event_id}`。`app_use` 行为 `{agent_id, activity_id, app_id, started_at, ended_at, status,
+source_event_id}`；`content_consumed` 行为 `{agent_id, activity_id, app_id, content_id, kind,
+position_before, position_after, completed, push_id, source_event_id}`；三种推送事实都为
+`{agent_id, push_id, app_id, content_id, session_id, occurred_at, source_event_id}`。
 
-| 导出清单字段 | 含义 |
-| --- | --- |
-| `schema_version`、`committed`、`run_id` | 格式版本（为 2，随 `purchases.jsonl` 升版）、已发布标志与所属运行 |
-| `source_group_id`、`source_run_ids` | 同源组与截止事件实际涉及的来源运行 |
-| `cutoff_event_seq`、`window`、`daily_coverage` | 截止序号、实际覆盖时间窗与日期 |
-| `experiment_completed` | 是否达到完整实验终态；发布成功与实验完成分别判定 |
-| `artifacts.events`、`artifacts.activities`、`artifacts.verified_experiences`、`artifacts.purchases`、`asset_index` | JSONL 的 `path`、`rows` 与 `sha256`；`artifacts` 恰好是这四个键，多出或缺少都被校验拒绝 |
-| `quality_report` | 报告的 `path`、`size_bytes` 与 `sha256` |
-| `timeline` | 每个投影的 `agent_id`、`date`、`path`、`size_bytes` 与 `sha256` |
-| `frozen_run_manifest` | 原始冻结运行清单，包含地图集合版本、摘要、逐来源许可及通知 |
-| `checkpoint` | 仅完整实验导出包含最终共同检查点及素材引用 |
-
-JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序、固定分隔符、禁止 NaN 和无穷值。
-足迹导出的事件行就是持久事件，不包成 LabelKit 训练样本。
-训练记录、规则夹具与字段字典属于交付阶段，不属于原始足迹文件格式。
-地图和门店供给来源声明延伸到交付清单。来源署名不能替代具体公开使用方式下的许可判断；
-本项目不以一个共享条款布尔值裁决数据库许可兼容，也不把场景价格和库存标成真实门店事实。
+清单逐项写文件路径、行数与摘要，`frozen_run_manifest` 保留五字段 `environment_identity`；完整实验导出另带
+最终共同检查点。素材索引、素材字节、`quality.json` 与按人物日期生成的时间线是清单认证的辅助产物，
+不扩充五项 `artifacts` 闭集。JSONL 每行是独立完整 JSON 对象，使用 UTF-8、排序键和固定分隔符，
+禁止 NaN 与无穷值。消费端从 `events.jsonl` 与认证检查点独立重算购买、app 使用、推送状态和质量报告，
+任一不一致都拒绝。
 
 <a name="recording-engine-完整性验证"></a>
 ### 完整性验证
@@ -1111,7 +1096,6 @@ python3 scripts/inspect_run.py runs/white-collar body --agent 0
 python3 scripts/inspect_run.py runs/white-collar flows --tail 20
 python3 scripts/inspect_run.py runs/white-collar rerun
 python3 scripts/inspect_run.py runs/white-collar continuation --topic 咖啡 --baseline runs/white-collar-off
-python3 scripts/inspect_run.py runs/white-collar workday --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json
 python3 scripts/inspect_run.py runs/white-collar queries
 python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --date 2026-01-05 --out runs/white-collar
 ```
@@ -1133,12 +1117,6 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 开关取清单 `stage_model_identity.stages.action.same_second_continuation`；清单没有阶段身份（特性之前的运行）时为 `null`，不能作任何一臂。
 `--baseline` 先核对两份清单：去掉运行身份键（`run_id`、`source_group_id`、`source_run_ids`）与续接开关后必须完全相同，且两臂开关不同，
 否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
-`workday --scenario <场景文件>` 只读给出[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-行为评估) 6.2 的工作负荷与作息偏离，
-以 JSON 打印 `{run_id, workload, routine_deviation, notes}`（字段见[行为评估设计「报告项」](07-evaluation.md#evaluation-报告项reports)）：
-班次、任务的预约与要求地点、住处与播报间隔取自 `--scenario` 指向的场景文件，其摘要须等于运行清单的 `scenario_sha256`，不符即以英文错误
-退出、不打印任何内容；覆盖后的下班与到家窗口取自运行目录里各人物工作区 `as2/agents/agent_<四位编号>/AGENT.json` 的结构化卡片
-（`persona_card_struct` 的 `time_anchors`），工作区没有结构化卡片的人物窗口按 null 计并在 `notes` 写一条说明，事件里出现而场景里没有的
-人物两项都为 null 并写说明。不解析提示文本；只报告，不作门禁。
 `queries` 只读按运行给出[个人事务与工作安排规格](../VERIFICATION.md#errands-workday-度量与下游-查询成本只报告) 6.3 的查询成本，以 JSON 打印
 `{run_id, calls, failures, returned_chars, filtered_calls, empty_after_filter, model_calls_to_purchase, reflection_retries}`：查询调用数、
 失败数、返回字符数、带筛选（`from` 或 `available_only`）的调用数、筛选后为空的次数、从首次查询到购买结算的模型调用数，以及反思校验
@@ -1151,12 +1129,10 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 反思校验重试按消息多于原始两条识别。决策 token 用量取质量报告既有的模型用量分组，协议错误取 `continuation` 报告，对照运行同时报告，
 本子命令不另设这些键；降低返回量不能以购买失败为代价。只报告，不作门禁。
 日程工具读取已发生事件，`--out DIR` 将投影写入 `DIR/timeline/<agent>-<date>.md`，不把输出目录再写成 `DIR/timeline`。
-时间线每行的活动只写中文：种类名取 `readable.py` 的中文种类表（活动种类、出行方式、浏览目录，与环境层、交互菜单同表，单一来源）；
-对象名先取引擎写在活动快照上的标题（生活活动名、内容或游戏标题、工作的任务标题、通话的联系人称谓、交谈的对象姓名），
-再取渲染器按观察与动作结果建立的名称索引（品名、地名、邮件主题、内容标题、生活活动名、任务标题、联系人与人物的姓名，同一标识先出现者胜）；
-工作写「工作「<任务标题>」」，通话写「和<称谓>通话」，交谈写「和<姓名>交谈」。解析不到名称时只写中文种类名，不写英文种类名，
-也不写内部标识或其片段。渲染器的 `name_index` 与 `day_rows` 也接受已排序的事件正文，质量报告的时间线标签检查用同一实现投影。
-中文时间线用于阅读，英文日志用于故障定位，投影不能充当人物当时的观察。
+时间线名称索引恰含 `foods`、`locations`、`messages`、`apps`、`contents`、`work_topics`、`people`；
+媒体行写“用<app>看《title》”，工作行写工作主题，出行行显示实际起点、终点和路径名称。缺名时只写中文活动种类，
+不写英文种类名、内部标识或其片段。`name_index` 与 `day_rows` 接受已排序事件，质量报告使用同一投影检查标签。
+中文时间线用于阅读，英文日志用于故障定位；投影不能充当人物当时的观察。
 运行查看器 `tools/run-viewer.html` 在浏览器本地只读解析拖入或选择的 `footprints.sqlite`；同一 run 目录的 `manifest.json`（运行清单，或
 导出清单中的 `frozen_run_manifest`，以库中世界状态的 `run_id` 认定）一起拖入或选择时，总览列出清单冻结的运行输入警告 `input_warnings`
 （人物的警告按人物编号在前、场景级在后，逐条给警告码与 `message`；为 `null` 或清单没有这个键时写明未计算，空列表写明没有警告），
@@ -1167,6 +1143,11 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 （`shift_start`「班次开始」、`shift_end`「班次结束」、`break_start`「休息时段开始」、`break_end`「休息时段结束」），这四个原因没有伴随事件，
 只显示中文说法。查看器里 `query_world` 请求的显示分支在
 真实运行下不可达（只读查询不登记为世界动作），不计入本特性的验收。
+
+最终标签表包含 `use_app`“用手机”、方式“打开”、`app_push`“app 推送”和
+`work_topic_completed`“工作主题完成”，不保留已退役的浏览、观看、游戏、工作评审或任务截止标签。
+唤醒标签闭集为 22 项，原生工具标签为 11 项；实际 Node 用例和导出重算结果另由阶段 7 回执登记。
+
 
 <a name="recording-engine-完整性诊断边界"></a>
 ### 完整性诊断边界
@@ -1265,3 +1246,4 @@ flowchart LR
 | `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 | `2026-10-06-rrs-app` | 2026-10-07 | app 内容接触的 `data.content` 与 `played[]`、`app_push` 环境事件、公开 `app_content` 结果；阶段 4 唤醒词表仍为 25 项，工作事件留到阶段 5；版本保持 v1.6 |
 | `2026-10-06-rrs-work` | 2026-10-07 | 同步工作主题证据与质量报告，保留特性版本 v1.6 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：导出清单 3、五个工件、app 使用事实与最终查看器标签；版本保持 v1.6 |

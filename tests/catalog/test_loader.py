@@ -1,6 +1,7 @@
 """@brief 人工目录登记往返和严格旧格式拒绝的行为证明。"""
 
 import sys
+import subprocess
 
 import pytest
 
@@ -52,5 +53,8 @@ def test_channel_key_keeps_exact_name_identity():
 
 def test_catalog_load_does_not_import_complete_engine():
     """@brief 目录加载保持纯边界，不把完整运行器带入收集期。"""
-    assert "worldmock.life.engine" not in sys.modules
-    assert "agentsociety2.society" not in sys.modules
+    script = "import sys; import worldmock.catalog.loader; "
+    script += "assert 'worldmock.life.engine' not in sys.modules; "
+    script += "assert 'agentsociety2.society' not in sys.modules"
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr

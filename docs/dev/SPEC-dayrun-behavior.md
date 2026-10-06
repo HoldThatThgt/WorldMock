@@ -1,6 +1,8 @@
 <a name="spec-dayrun-behavior-一日行为可信性特性开发规格"></a>
 # 一日行为可信性特性开发规格
 
+> 2026-10-07：按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)同步阶段 7 的记录、导出、交付与评估合同。
+
 > 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「餐馆的实际进食路径、唯一状态与资源准入」（阶段 3）；「等待与内容接触、人物入口与独立控制、共同时间与身体结算、持续活动与必要唤醒、唯一状态与资源准入」（阶段 4，app 使用与推送）；删除旧音频揭示正文。
 
 > 状态：FROZEN，已实现并通过本特性离线验收；所有条款同批交付，无特性延期项。
@@ -198,25 +200,22 @@ flowchart LR
 <a name="spec-dayrun-behavior-事件投影"></a>
 ### 事件投影
 
-记录引擎从本人已提交且不超过明确截止序号的事件生成 `verified_experiences`。
-每条携带 kind、agent_id、activity_id、source_event_id、event_seq、occurred_at 及种类载荷。
-观察 data.verified_experiences 只提供本人在当前 observation 事件之前已提交的最近五条，
-按 event_seq 正序展示；本轮冻结 observation_event_id 绑定该窗口的截止。
-带身份的结构行只留在私有观察，作为记忆写入证据；已核验经历不再写成句子发给模型，
-已结束 session 的结算事实由记忆层的 `settled` 句表达（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)第三章）。
-完整截止前缀用于离线投影与导出，不把完整历史复制到每轮观察。
-模型没有写入口；动作请求、受理、自述及模型反思均不能生成已核验经历。
+记录引擎从本人已提交且不超过明确截止序号的事件生成 `verified_experiences`。每条携带 `kind`、
+`agent_id`、`activity_id`、`source_event_id`、`event_seq`、`occurred_at` 及种类载荷。观察中的私有证据只保留
+当前 observation 之前本人最近五条并按 `event_seq` 正序排列；完整截止前缀用于离线导出，不复制进每轮提示。
+模型、自述和反思都没有事实写入口。
 
 | 经历 | 来源与内容 |
 | --- | --- |
-| waited | 等待活动实际正时长区间；没有已核验原因时为空 |
-| consumed | eat 的正实际消费增量，保留商品、地点、数量和区间；中途消费不称整餐完成；结束进食时丢弃的开吃份量不是消费 |
-| arrived | 真实路线到达的已提交结果；保留实际地点、活动和到达时刻 |
-| played | 真实播放的内容身份与正向媒体区间；等待、目录浏览或开始播放不算已播放 |
+| `waited` | 等待活动的真实正时长区间；没有已核验原因时为空 |
+| `consumed` | 食品的实际增量、地点、份数和区间；累计量不能冒充区间增量 |
+| `arrived` | 出行活动按 `trip_id`、实际路径和到达结算生成的地点事实 |
+| `played` | `use_app` 的真实内容增量，含 `content_id`、`app_id`、前后位置；目录展示或只打开 app 不算消费 |
 
-消费事件的 `interval_quantity` 必须为本区间增量，累计量另存 `cumulative_quantity`。
-禁止把累计量冒充区间增量后重复求和。投影重复读取、暂停恢复及检查点分支均幂等，
-不同人物不串记录；应存在而畸形的结算字段报错并记录日志，不猜测缺失事实。
+离线导出另生成 `app-usage.jsonl`。每行以 `fact_kind` 区分 `app_use`、`content_consumed`、
+`push_delivered`、`push_opened`、`push_released`；打开由首次带 `pinned_by_push_id` 的真实 app 活动证明，
+释放由内容完成和对应 session 的推送状态证明。没有合格 app 的 `pushed: false` 系统结算不生成手机事实。
+离线投影不生成目录浏览或游戏事实。重复读取、暂停恢复与检查点分支保持幂等，畸形结算字段拒绝而不猜测。
 
 <a name="spec-dayrun-behavior-主观记忆与巩固"></a>
 ### 主观记忆与巩固
@@ -344,3 +343,4 @@ flowchart LR
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订「唯一状态与资源准入」：占用名改为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥，睡眠与一切互斥，驾车只能再听播客或和人说话；占用表随之换新；受理的组合增工作与等待，观看与游戏、读信、浏览、交谈、通话、生活活动，食用与生活活动、读信、浏览，读信、浏览与游戏两两之间；拒绝的组合只剩驾车与八种动作、睡眠与任何动作和同一种的两件 |
 | `2026-10-06-rrs-store` | 2026-10-07 | 食品、店铺 app 来源、固定价格与单订单结算；类别消费、六个输入警告和目录覆盖率，删除本阶段退役正文 |
 | `2026-10-06-rrs-app` | 2026-10-07 | 人物只选择 app，环境抽取内容并维护全局进度；推送与静默内容完成进入边界；占用闭集改为八个名字；删除旧音频来源与揭示正文 |
+| `2026-10-06-rrs-record` | 2026-10-07 | 阶段 7：已核验 app 内容经历与 app 使用五类离线事实 |
