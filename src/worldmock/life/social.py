@@ -395,4 +395,4 @@ CHAT_MET = 1.5
 CALL_MET = 1.3
 
 
-SOCIAL_RESOURCE_CLAIMS = frozenset({"voice", "ears"})
+SOCIAL_RESOURCE_CLAIMS = frozenset({"talk"})

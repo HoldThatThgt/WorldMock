@@ -158,7 +158,7 @@ def test_arbitrary_expression_evaluator_is_removed(semantics) -> None:
 def test_admission_refs_cover_accounts_and_objects(semantics) -> None:
     """准入引用包含对象闭集与角色账户绑定。"""
     refs = semantics.refs
-    assert (refs.catalog_major, refs.catalog_minor) == (5, 4)
+    assert (refs.catalog_major, refs.catalog_minor) == (5, 5)
     roles = {account.role for account in refs.accounts}
     assert {"buyer", "traveler", "worker", "merchant:grocery", "merchant:general",
             "employer:zhangjiang", "transport:service", "external:scenario"} <= roles

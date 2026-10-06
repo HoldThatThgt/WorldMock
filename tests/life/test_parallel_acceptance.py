@@ -8,7 +8,7 @@ from tests.life.conftest import stage_day_plan
 from tests.life.test_parallel_activities import _advance_with_decisions, _start_pair, _start_pair_with_choices
 from worldmock.catalog.affordances import default_affordances
 
-#: 所选动作的内部标准动作 → 注册表活动类型（占用按类型声明，docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章占用表）。
+#: 所选动作的内部标准动作 → 注册表活动类型（占用按类型声明，每种动作占自己的名字，docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明）。
 _KINDS = {"wait": "wait", "do": "lifestyle", "travel_to": "travel", "sleep": "sleep", "play": "play_game"}
 
 
@@ -22,9 +22,10 @@ def _registry_claims(engine, choice: tuple[dict, dict]) -> frozenset[str]:
     return view.resource_claims(_KINDS[action["canonical_action"]], travel_mode=action["travel_mode"])
 
 
-@pytest.mark.parametrize("partner", ["wait", "do", "travel_to"])
+@pytest.mark.parametrize("partner", ["wait", "do", "travel_to", "play"])
 def test_watch_can_share_time_with_compatible_activity(engine_factory, partner: str) -> None:
-    """观看（眼睛、耳朵）与等待（idle）、生活活动（手）或步行（出行、idle）的占用不相交，可同轮启动并保留独立身份。"""
+    """观看（watch、screen）与等待（wait）、生活活动（lifestyle）、步行（travel）或游戏（play_game）不是同一种动作，
+    占用不相交，可同轮启动并保留独立身份（同时做两件事规格「乙」：观看与游戏不再互斥）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     result, choices = _start_pair_with_choices(engine, "watch", partner, f"watch-{partner}")
@@ -36,14 +37,14 @@ def test_watch_can_share_time_with_compatible_activity(engine_factory, partner: 
     assert all(item.status == "active" for item in activities)
     assert len(result.data["activities"]) == 2
     watch, other = (_registry_claims(engine, choice) for choice in choices)
-    assert watch == {"eyes", "ears"} and not watch & other
+    assert watch == {"watch", "screen"} and not watch & other
     assert {frozenset(item.resource_claims) for item in activities} == {watch, other}
 
 
-@pytest.mark.parametrize(("partner", "overlap"), [pytest.param("sleep", {"eyes", "ears"}, id="sleep"),
-                                                  pytest.param("play", {"eyes"}, id="play")])
+@pytest.mark.parametrize(("partner", "overlap"), [pytest.param("sleep", {"watch", "screen"}, id="sleep"),
+                                                  pytest.param("watch", {"watch", "screen"}, id="watch")])
 def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, partner: str, overlap: set[str]) -> None:
-    """观看与睡眠（全部占用）或游戏（眼睛、手）的注册表占用相交：整组以 RESOURCE_CONFLICT 拒绝并写明原因与下一步，
+    """观看与睡眠（全部占用）或另一段观看（同一种）的注册表占用相交：整组以 RESOURCE_CONFLICT 拒绝并写明原因与下一步，
     不留下首项活动；会话只剩运行开始的停留会话且未改动（第五章「并行准入」、第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)

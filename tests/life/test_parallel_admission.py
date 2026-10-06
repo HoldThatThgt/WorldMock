@@ -230,7 +230,7 @@ def test_work_with_eating_watching_or_podcast_is_accepted_and_settles_one_shared
 
 
 def _conflict_case(engine_factory, case: str):
-    """@brief 占用冲突四例：两段观看、观看与游戏、两条出行，交谈与通话（多人场景）。"""
+    """@brief 占用冲突四例，都是同一种动作：两段观看、观看与播客、两条出行，交谈与通话（多人场景）。"""
     if case == "chat_call":
         engine = _engine(engine_factory, "multi-person.json")
         observed = _observe(engine, "pair-preview")
@@ -240,16 +240,28 @@ def _conflict_case(engine_factory, case: str):
     videos = [(row["object"], "interact", "接着看") for row in observed["interaction_bindings"]
               if row["kind"] == "content" and row["actions"][0]["label"] == "接着看"]
     pairs = {"two_watches": (videos[0], videos[1]),
+             "watch_podcast": (videos[0], _choice(observed, "接着听")),
              "watch_game": (videos[0], _choice(observed, "游玩", kind="game")),
              "two_trips": (_choice(observed, "步行", object_id="office"), _choice(observed, "驾车", object_id="market"))}
     return (engine, *pairs[case])
 
 
-@pytest.mark.parametrize("case", ["two_watches", "watch_game", "two_trips", "chat_call"])
+@pytest.mark.parametrize("case", ["two_watches", "watch_podcast", "two_trips", "chat_call"])
 def test_overlapping_pairs_are_resource_conflicts(engine_factory, case) -> None:
-    """两段观看、观看与游戏、交谈与通话、两条出行的占用相交，以 RESOURCE_CONFLICT 整组拒绝（组合表第五行）。"""
+    """同一种的两件（两段观看、观看与播客、交谈与通话、两条出行）占用相交，以 RESOURCE_CONFLICT 整组拒绝（组合表）。"""
     engine, first, second = _conflict_case(engine_factory, case)
     _rejected(engine, "pair", _request(first, second), _CONFLICT)
+
+
+def test_watch_with_game_is_accepted_now_that_only_the_same_kind_conflicts(engine_factory) -> None:
+    """观看与游戏不是同一种动作，占用（watch、screen 与 play_game）不相交，同一请求开始两项都受理
+    （同时做两件事规格「乙」；此前两者都占眼睛而互斥）。"""
+    engine, video, game = _conflict_case(engine_factory, "watch_game")
+    started = _act(engine, "pair", "start_activity", _request(video, game))
+    assert started.status == "in_progress", (started.error_code, started.message)
+    running = active_activities(engine.context.state, 1)
+    assert sorted(item.kind.value for item in running) == ["play_game", "watch"]
+    assert not set.intersection(*(set(item.resource_claims) for item in running))
 
 
 def _driving(engine: LifeEngine, name: str, way: str = "驾车", destination: str | None = None) -> None:
@@ -361,11 +373,11 @@ def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None
     origin = engine.context.state.agents[1].location_id
     assert during["interaction_menu"] == resolve_interaction_menu(engine.context.scenario, 1, origin).model_dump(mode="json")
     context_ = admission.Context(state=engine.context.state, agent_id=1, place_names={})
-    eat = admission.Item(canonical="consume", way="食用", label="食用牛奶", claims=frozenset({"hands"}), holding=True)
+    eat = admission.Item(canonical="consume", way="食用", label="食用牛奶", claims=frozenset({"consume"}), holding=True)
     assert admission.group_refusal(context_, [eat]).code == _CONFLICT
     walking = [item for item in engine.context.state.activities.values() if item.kind == ActivityKind.TRAVEL][0]
     staged = engine.context.state.model_copy(deep=True)
-    staged.activities[walking.activity_id] = walking.model_copy(update={"resource_claims": {"travel", "idle"}})
+    staged.activities[walking.activity_id] = walking.model_copy(update={"resource_claims": {"travel"}})
     staged.activities[walking.activity_id].travel_mode = None
     refusal = admission.group_refusal(admission.Context(state=staged, agent_id=1, place_names={}), [eat])
     assert refusal.code == "PRODUCT_NOT_HELD" and refusal.reason == "Held items cannot be used during travel."

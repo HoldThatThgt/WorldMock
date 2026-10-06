@@ -1203,15 +1203,15 @@ def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> No
 
 
 def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
-    """交谈与观看整组开始被拒（都占 ears，RESOURCE_CONFLICT）时，交谈邀请随整组撤回：对方收件箱不变，同秒与其后的
-    边界都不以 message_arrival 唤醒对方。"""
+    """交谈与通话是同一种动作，整组开始被拒（都占 talk，RESOURCE_CONFLICT）时，交谈邀请随整组撤回：对方收件箱不变，
+    同秒与其后的边界都不以 message_arrival 唤醒对方；交谈与观看不是同一种，同一请求照常受理（同时做两件事规格「乙」）。"""
     engine = engine_factory("multi-person.json")
     now = _both_waiting(engine, woken=(1,))
     _act(engine, "paired-end-wait", *_end_wait(engine, 1))
     inbox = dict(engine.context.state.agents[2].inbox)
-    content, way = _content(engine, "paired-content")
-    request = start_request(targets=[_person_name(engine, 1, 2), content], actions=["interact", "interact"],
-                                   ways=["交谈", way])
+    contact, call = _pick(engine.observe(context(engine, "paired-contact")), "call", kind="contact")
+    request = start_request(targets=[_person_name(engine, 1, 2), contact], actions=["interact", "interact"],
+                                   ways=["交谈", call])
     rejected = _act(engine, "paired-start", "start_activity", request)
     assert rejected.status == "rejected" and rejected.error_code == "RESOURCE_CONFLICT"
     partner = engine.context.state.agents[2]
@@ -1223,6 +1223,12 @@ def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
     advance_next(engine)
     assert engine.context.state.current_time == now + 30 and engine.scheduling_state().ready_agent_ids == (1,)
     assert engine.context.state.agents[2].inbox == inbox and engine.context.state.agents[2].pending_wake_reasons == []
+    _act(engine, "paired-watch-end-wait", *_end_wait(engine, 1))
+    content, way = _content(engine, "paired-content")
+    accepted = _act(engine, "paired-watch-start", "start_activity", start_request(
+        targets=[_person_name(engine, 1, 2), content], actions=["interact", "interact"], ways=["交谈", way]))
+    assert accepted.status == "in_progress", (accepted.error_code, accepted.message)
+    assert sorted(item.kind.value for item in active_activities(engine.context.state, 1)) == ["chat", "watch"]
 
 
 @pytest.mark.asyncio

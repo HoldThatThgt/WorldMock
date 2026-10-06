@@ -56,9 +56,11 @@ CONTRACT_REASONS = (
     "ELIGIBILITY_DISABLED",
     "ROTATION_DEFERRED",
 )
-#: 占用表（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）中睡眠与驾车两行：睡眠占全部七个槽位。
-SLEEP_CLAIMS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
-DRIVING_CLAIMS = frozenset({"travel", "idle", "eyes", "hands"})
+#: 占用表（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明）中睡眠与驾车两行：睡眠占全部十一个名字，驾车另占除 watch、talk 以外的八个。
+SLEEP_CLAIMS = frozenset({
+    "wait", "work", "watch", "screen", "play_game", "read_mail", "browse", "consume", "lifestyle", "talk", "travel"})
+DRIVING_CLAIMS = frozenset({
+    "travel", "wait", "work", "screen", "play_game", "read_mail", "browse", "consume", "lifestyle"})
 
 
 def _dump(value):
@@ -402,7 +404,7 @@ class TestExclusionDiscipline:
         assert [item.object_id for item in page.retained] == ["podcast-1"]
         assert {item.object_id: item.reason for item in page.excluded} == dict.fromkeys(
             ("food-1", "movie-0001", "trip-1", "task-1", "game-1"), "ELIGIBILITY_RESOURCE_CONFLICT")
-        listening = recall(_inputs(sources=sources, occupied_resources=frozenset({"ears"})))
+        listening = recall(_inputs(sources=sources, occupied_resources=frozenset({"watch"})))
         assert {item.object_id for item in listening.excluded} == {"movie-0001", "podcast-1"}
 
     def test_energy_is_not_an_exclusion_fact(self) -> None:

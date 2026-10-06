@@ -18,10 +18,11 @@ def _met(note: str | None) -> bool:
     return note is None or note.startswith(("全长", "还剩"))
 
 
-def _choice(observation: dict, action: str) -> tuple[dict, dict]:
-    """@brief 从真实观察中取一个条件已满足的对象行与所选动作（内部标准动作为 action，出行只取步行）。"""
+def _choice(observation: dict, action: str, taken: frozenset[str] = frozenset()) -> tuple[dict, dict]:
+    """@brief 从真实观察中取一个条件已满足的对象行与所选动作（内部标准动作为 action，出行只取步行）；
+    taken 中的对象不再取（同一动作选两次时取两个不同对象）。"""
     return next((row, choice)
-                for row in observation["interaction_bindings"]
+                for row in observation["interaction_bindings"] if row["object_id"] not in taken
                 for choice in row["actions"] if choice["canonical_action"] == action and _met(choice["note"])
                 and (action != "travel_to" or choice["travel_mode"] == "walking")
                 and (action != "watch" or choice["label"] not in _LISTEN_WAYS))
@@ -32,7 +33,8 @@ def _start_pair_with_choices(engine, first: str, second: str, round_id: str):
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    choices = [_choice(observed, action) for action in (first, second)]
+    head = _choice(observed, first)
+    choices = [head, _choice(observed, second, frozenset({head[0]["object_id"]}) if second == first else frozenset())]
     request = start_request(targets=[row["object"] for row, _ in choices],
                                    actions=[choice["verb"] for _, choice in choices],
                                    ways=[choice["label"] for _, choice in choices])

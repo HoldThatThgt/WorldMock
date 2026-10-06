@@ -3,7 +3,7 @@
 @file build_catalog.py
 @note 输入为已冻结的场景快照、食品白名单、原始食品记录及语料；不读取 scenarios/。
       正式输出为 5 个资源、172 个对象（121 食品、30 正餐、8 耐用品、9 食材、1 服务、3 合同）
-      与绑定品类契约、闭集交换规则和世界素材品类要求的 5.4 目录清单；
+      与绑定品类契约、闭集交换规则和世界素材品类要求的 5.5 目录清单；
       全部输出以 LF 换行写出，目录内容摘要与检出方式无关（.gitattributes 的 catalog/** eol=lf）。
       数值来源必须逐项覆盖；生成器不执行任意文本公式。
 
@@ -902,7 +902,7 @@ def manifest_base() -> dict:
     """@brief 构造不含内容摘要的清单声明：目录版本与世界素材品类要求。"""
     return {
         "version_major": 5,
-        "version_minor": 4,
+        "version_minor": 5,
         "category_requirements": CATEGORY_REQUIREMENTS,
     }
 

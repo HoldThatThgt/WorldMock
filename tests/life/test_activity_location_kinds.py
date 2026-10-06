@@ -85,13 +85,13 @@ def test_resume_location_gate_rechecks_the_current_location():
 
 
 def test_location_admission_returns_activity_resource_claims():
-    """生活活动的占用是 hands（第五章「并行准入」占用表）。"""
+    """生活活动的占用是 lifestyle（第五章「并行准入」占用表，每种动作占自己的名字）。"""
     rules = _rules()
     agent = _agent('home')
     rules.validate_start(agent, _request(), 100, 'home')
     person, activity = start_activity(agent, _request(), 100, ActivityOrigin('a', 'd', 'e'), rules.scenario.body)
     assert person == agent
-    assert activity.resource_claims == {'hands'}
+    assert activity.resource_claims == {'lifestyle'}
 
 
 def test_accepted_location_starts_real_activity():

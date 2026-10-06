@@ -430,11 +430,13 @@ def test_social_actions_partner_presence_rejects_unknown_partner() -> None:
 
 
 def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(engine_factory) -> None:
-    """交谈、通话占用说与听（voice、ears）；正在看的视频占 eyes、ears，引擎按 ears 的交集逐项拒绝
-    （docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」占用表）。"""
+    """交谈、通话同占 talk：正在进行的通话与新的交谈、通话按 talk 的交集逐项拒绝；正在看的视频占 watch、screen，
+    与交谈、通话不是同一种，照常受理（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明）。"""
     busy = _agent()
-    watch = _activity(resource_claims={"eyes", "ears"})
-    state = _social_state(busy, activities={watch.activity_id: watch})
+    talking = _activity(activity_id="talking", kind=ActivityKind.CALL, resource_claims={"talk"})
+    watch = _activity(resource_claims={"watch", "screen"})
+    state = _social_state(busy, activities={talking.activity_id: talking})
+    watching = _social_state(busy, activities={watch.activity_id: watch})
     state.agents[2] = _agent(agent_id=2, location_id="home")
     request = StartSocialActivityRequest(kind="chat", partner_id="agent:2",
                                          duration_minutes=10)
@@ -444,9 +446,10 @@ def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(eng
     call = start_call(busy, contact, request, _origin(), CURRENT)
     engine = engine_factory()
     for started in (chat, call):
-        assert started.activity.resource_claims == SOCIAL_RESOURCE_CLAIMS == {"voice", "ears"}
+        assert started.activity.resource_claims == SOCIAL_RESOURCE_CLAIMS == {"talk"}
         with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
             engine.actions._require_available_resources(state, busy.agent_id, started.activity.resource_claims)
+        engine.actions._require_available_resources(watching, busy.agent_id, started.activity.resource_claims)
 
 
 def _chat(activity_id: str, agent_id: int, partner: int, **overrides) -> ActivityState:
@@ -662,9 +665,9 @@ def test_change_activity_pause_at_game_feedback_boundary() -> None:
 
 
 def test_change_activity_resume_conflicts_with_occupied_resources(engine_factory) -> None:
-    """恢复前引擎校验同人的活动占用交集（两段观看都占 eyes、ears），冲突时暂停进度不变。"""
-    paused = _activity(status=ActivityStatus.PAUSED, resource_claims={"eyes", "ears"})
-    active = _activity(activity_id="occupied", resource_claims={"eyes", "ears"})
+    """恢复前引擎校验同人的活动占用交集（两段观看都占 watch、screen），冲突时暂停进度不变。"""
+    paused = _activity(status=ActivityStatus.PAUSED, resource_claims={"watch", "screen"})
+    active = _activity(activity_id="occupied", resource_claims={"watch", "screen"})
     state = _world(_agent(), activities={"a1": paused, "occupied": active})
     engine = engine_factory()
     with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):

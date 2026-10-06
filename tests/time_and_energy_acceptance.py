@@ -439,7 +439,7 @@ _FIVE_VERBS_TESTS = [
     _MENU_INVARIANTS + "test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private",
     _MENU_INVARIANTS + "test_merged_selection_combines_one_order_or_one_meal_only",
     _MENU_INVARIANTS + "test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions",
-    _SHADOW + "test_claim_slots_are_the_seven_spec_slots_and_retired_names_are_rejected",
+    _SHADOW + "test_claim_slots_are_the_eleven_kind_names_and_retired_names_are_rejected",
     _SHADOW + "test_conditional_claims_reject_unknown_dimension_and_undeclared_content_kind",
     _SHADOW + "test_resource_claims_match_activities",
     _SHADOW + "test_habit_routes_cover_every_way",

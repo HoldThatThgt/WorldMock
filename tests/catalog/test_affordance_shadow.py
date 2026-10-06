@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ from worldmock.life.activities import (
     resource_claims,
 )
 from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
+from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
 from worldmock.life.vocabulary import WAYS
 from worldmock.life.models import ActivityKind, StartActivityRequest, TravelMode
 from worldmock.life.motivation import (
@@ -97,22 +99,30 @@ EXPECTED_HABIT_ROUTES = [
     ("submit_work", None, "work"),
     ("nonexistent_tool", None, None),
 ]
-#: 占用表（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」）：键为（活动类型, 出行方式, 内容品类）。
+#: 占用名闭集：每种动作占自己的名字（docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明）。
+ALL_CLAIM_SLOTS = frozenset({
+    "wait", "work", "watch", "screen", "play_game", "read_mail", "browse", "consume", "lifestyle", "talk",
+    "travel"})
+#: 退役的占用名：时间与能量规格之前的槽位名，与同时做两件事规格退役的五个身体部位名（hands 两次退役，只列一次）。
+RETIRED_CLAIM_NAMES = ("position", "attention", "device", "vehicle", "idle", "eyes", "ears", "hands", "voice")
+#: 占用表（docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-并行准入 按同时做两件事规格重列）：
+#: 键为（活动类型, 出行方式, 内容品类）；只有同一种、睡眠与驾车（除播客与说话）相交。
 EXPECTED_RESOURCE_CLAIMS = {
-    ("wait", None, None): {"idle"},
-    ("sleep", None, None): {"idle", "travel", "eyes", "ears", "hands", "voice", "work"},
-    ("work", None, None): {"work", "idle"},
-    ("watch", None, "feature_film"): {"eyes", "ears"},
-    ("watch", None, "joke_feed"): {"eyes", "ears"},
-    ("watch", None, "game_session"): {"eyes", "ears"},
-    ("watch", None, "podcast_episode"): {"ears"},
-    ("play_game", None, None): {"eyes", "hands"},
-    ("travel", "driving", None): {"travel", "idle", "eyes", "hands"},
-    ("travel", "walking", None): {"travel", "idle"},
-    ("read_mail", None, None): {"eyes", "hands"},
-    ("browse", None, None): {"eyes", "hands"},
-    ("consume", None, None): {"hands"},
-    ("lifestyle", None, None): {"hands"},
+    ("wait", None, None): {"wait"},
+    ("sleep", None, None): set(ALL_CLAIM_SLOTS),
+    ("work", None, None): {"work"},
+    ("watch", None, "feature_film"): {"watch", "screen"},
+    ("watch", None, "joke_feed"): {"watch", "screen"},
+    ("watch", None, "game_session"): {"watch", "screen"},
+    ("watch", None, "podcast_episode"): {"watch"},
+    ("play_game", None, None): {"play_game"},
+    ("travel", "driving", None): {
+        "travel", "wait", "work", "screen", "play_game", "read_mail", "browse", "consume", "lifestyle"},
+    ("travel", "walking", None): {"travel"},
+    ("read_mail", None, None): {"read_mail"},
+    ("browse", None, None): {"browse"},
+    ("consume", None, None): {"consume"},
+    ("lifestyle", None, None): {"lifestyle"},
 }
 
 
@@ -308,7 +318,7 @@ def test_habit_routing_rejects_retired_parallel_array_requests(request_body: dic
 
 @pytest.mark.parametrize("kind_value,mode,content_kind", sorted(EXPECTED_RESOURCE_CLAIMS, key=str))
 def test_resource_claims_match_activities(view, kind_value, mode, content_kind) -> None:
-    """@brief L5：占用查表 == activities.resource_claims == 第五章占用表（逐类型；观看按内容品类，播客只占 ears）。"""
+    """@brief L5：占用查表 == activities.resource_claims == 第五章占用表（逐类型；观看按内容品类，播客只占 watch）。"""
     expected = EXPECTED_RESOURCE_CLAIMS[(kind_value, mode, content_kind)]
     assert view.resource_claims(kind_value, travel_mode=mode, content_kind=content_kind) == frozenset(expected)
     travel_mode = TravelMode(mode) if mode is not None else None
@@ -316,26 +326,64 @@ def test_resource_claims_match_activities(view, kind_value, mode, content_kind) 
     assert resource_claims(request, content_kind) == expected
 
 
-@pytest.mark.parametrize("retired", ["position", "attention", "device", "vehicle"])
-def test_claim_slots_are_the_seven_spec_slots_and_retired_names_are_rejected(tmp_path, retired) -> None:
-    """@brief 占用槽位闭集是第五章占用表的七个；旧槽位名写在槽位列表、base 或条件追加里都在加载期拒绝。"""
-    assert RESOURCE_CLAIM_SLOTS == {"idle", "travel", "eyes", "ears", "hands", "voice", "work"}
+@pytest.mark.parametrize("retired", RETIRED_CLAIM_NAMES)
+def test_claim_slots_are_the_eleven_kind_names_and_retired_names_are_rejected(tmp_path, retired) -> None:
+    """@brief 占用槽位闭集是每种动作自己的十一个名字（交谈、通话的 talk 在内）；退役的槽位名写在槽位列表、
+    base 或条件追加里都在加载期拒绝。"""
+    assert RESOURCE_CLAIM_SLOTS == ALL_CLAIM_SLOTS
     assert set().union(*EXPECTED_RESOURCE_CLAIMS.values()) == RESOURCE_CLAIM_SLOTS
+    assert SOCIAL_RESOURCE_CLAIMS == {"talk"}
+    assert retired not in RESOURCE_CLAIM_SLOTS
     declarations = {
         f'resource_claims = ["{retired}"]': "resource_claims must be within",
         f'resource_claims = {{ base = ["{retired}"] }}': "resource_claims base must be within",
-        ('resource_claims = { base = ["idle"], conditional = '
+        ('resource_claims = { base = ["wait"], conditional = '
          f'[{{ when = "mode:driving", add = ["{retired}"] }}] }}'): "conditional add must be within",
     }
     for declaration, match in declarations.items():
         _load_rejects(tmp_path, MINIMAL_TOML.replace("resource_claims = []", declaration), match)
 
 
+def _claim_rows(view) -> list[tuple[str, str, frozenset[str]]]:
+    """@brief 逐对核对的行（行名, 种, 占用）：观看分视频与播客两行，出行分驾车与步行两行，交谈与通话一行。"""
+    rows = [("chat_or_call", "talk", frozenset(SOCIAL_RESOURCE_CLAIMS))]
+    for kind in sorted(view.kinds):
+        if kind == "watch":
+            rows += [(f"watch:{content}", kind, view.resource_claims(kind, content_kind=content))
+                     for content in ("feature_film", "podcast_episode")]
+        elif kind == "travel":
+            rows += [(f"travel:{mode}", kind, view.resource_claims(kind, travel_mode=mode))
+                     for mode in ("driving", "walking")]
+        else:
+            rows.append((kind, kind, view.resource_claims(kind)))
+    return rows
+
+
+def _expect_overlap(left: tuple[str, str, frozenset[str]], right: tuple[str, str, frozenset[str]]) -> bool:
+    """@brief 规格乙：同一种、睡眠与任何动作、驾车与播客和说话以外的动作才互斥。"""
+    hands_free = {"watch:podcast_episode", "chat_or_call"}
+    driving = [row for row in (left, right) if row[0] == "travel:driving"]
+    others = [row for row in (left, right) if row[0] != "travel:driving"]
+    return (left[1] == right[1] or "sleep" in (left[1], right[1])
+            or bool(driving) and all(row[0] not in hands_free for row in others))
+
+
+def test_only_the_same_kind_sleep_and_driving_share_claims(view) -> None:
+    """@brief 逐对核对十三行（含与自身成对）：占用相交当且仅当同一种、一方是睡眠，或一方是驾车而另一方不是播客、交谈或通话。"""
+    rows = _claim_rows(view)
+    assert len(rows) == 13
+    pairs = list(itertools.combinations_with_replacement(rows, 2))
+    assert len(pairs) == 91
+    for left, right in pairs:
+        overlap = left[2] & right[2]
+        assert bool(overlap) is _expect_overlap(left, right), (left[0], right[0], sorted(overlap))
+
+
 def test_conditional_claims_reject_unknown_dimension_and_undeclared_content_kind(tmp_path) -> None:
     """@brief 条件占用只接受 mode:<出行方式> 与已声明的 content_kind:<品类>，拼写错误在加载期拒绝。"""
     base = MINIMAL_TOML.replace(
         "resource_claims = []",
-        'resource_claims = { base = ["idle"], conditional = [{ when = "WHEN", add = ["eyes"] }] }')
+        'resource_claims = { base = ["wait"], conditional = [{ when = "WHEN", add = ["screen"] }] }')
     _load_rejects(tmp_path, base.replace("WHEN", "weather:rain"), "conditional when")
     _load_rejects(tmp_path, base.replace("WHEN", "mode:flying"), "conditional when")
     _load_rejects(tmp_path, base.replace("WHEN", "content_kind:"), "conditional when")

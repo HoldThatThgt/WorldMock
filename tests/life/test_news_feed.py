@@ -341,7 +341,7 @@ def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_pos
         engine_factory, item_id: str, mark: tuple[str, int] | None, way: str, restart: bool) -> None:
     """内容对象的方式随进度（第八章「呈现」）：没看完的（含从没看过）为「接着看」，工具层动作的 duration 写剩余时长
     （从没看过为全长），受理时长为剩余、从上次位置接着放；看完或剩余不足 60 秒的为「从头再看」，duration 写全长，受理
-    时长为全长、从 0 起放并记 repeat；播客对应「接着听」「从头再听」，只占耳朵。"""
+    时长为全长、从 0 起放并记 repeat；播客对应「接着听」「从头再听」，只占 watch，其余内容另占 screen。"""
     engine = engine_factory()
     stage_day_plan(engine)
     item = next(entry for entry in engine.context.scenario.contents if entry.item_id == item_id)
@@ -358,7 +358,7 @@ def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_pos
     assert activity.planned_duration_seconds == remaining
     assert (activity.data["repeat"], activity.data["start_position_seconds"]) == (restart, position)
     assert activity.data["content_kind"] == item.kind
-    assert activity.resource_claims == ({"ears"} if item.kind == "podcast_episode" else {"eyes", "ears"})
+    assert activity.resource_claims == ({"watch"} if item.kind == "podcast_episode" else {"watch", "screen"})
 
 
 @pytest.mark.parametrize(("progress", "way", "settled"), [

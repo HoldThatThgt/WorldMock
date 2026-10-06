@@ -35,9 +35,15 @@ RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
 TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
 ATTENTION_KINDS = frozenset({"none", "content_kind"})
-#: 占用槽位闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第五章「并行准入」占用表）：各活动显式声明，引擎不暗中添加；
-#: 同一人物进行中活动的占用交集非空即 RESOURCE_CONFLICT。
-RESOURCE_CLAIM_SLOTS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
+#: 占用槽位闭集（docs/dev/SPEC-life-runtime.md#time-and-energy-五类生活动作与并行准入-并行准入 占用表，按
+#: docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明 重列）：每种动作占自己的名字，
+#: 各活动显式声明，引擎不暗中添加；同一人物进行中活动的占用交集非空即 RESOURCE_CONFLICT，所以只有同一种动作互斥。
+#: screen 只用来让驾车拒绝播客以外的内容；旧的身体部位名（idle、eyes、ears、hands、voice）与更早退役的名字
+#: 一样不在闭集内，加载期拒绝。
+RESOURCE_CLAIM_SLOTS = frozenset({
+    "wait", "work", "watch", "screen", "play_game", "read_mail", "browse", "consume", "lifestyle", "talk",
+    "travel",
+})
 #: 条件占用的维度：mode:<出行方式> 与 content_kind:<内容品类>（后者须是某家族声明的内容品类）。
 _CLAIM_CONDITION_DIMENSIONS = frozenset({"mode", "content_kind"})
 #: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
