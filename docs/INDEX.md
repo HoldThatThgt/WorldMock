@@ -2,7 +2,7 @@
 # WorldMock 文档入口
 
 > 状态：文档集整体处于实现中——此前确定性基线已有验收，新特性以各自实施台账为准，三项真实验收（正式十二周运行、三次隔离盲评、LabelKit 完整自然日交付）未完成。
-> 日期：2026-10-05
+> 日期：2026-10-06
 > 范围：文档地图、按任务阅读路径、权威层级与文件归属。本文件不定义任何接口与行为，只回答「该读哪一份」。
 
 <a name="index-共享规则与可重建环境"></a>
@@ -77,6 +77,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [让「等待」成为例外提案](dev/PROPOSAL_2026-10-05_IDLE_FILLERS.md) | 2026-10-04 五人共享世界运行的 43 次等待（按 `9cca694` 核对）：多数等的是到点没有决策机会的钟点，其余等的事到点会请人物决策而人物不知道；A 系统层第 7、14、15、16 条原位改写，B 零点计划模板第三、五、六条改写，C 班次与休息时段起止的四个唤醒原因；列出定稿文本、被改写的现行条款、指纹与完整日基线的影响、验收台账与变异清单、配对复跑指标，已收敛为冻结规格[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)，本文只保留运行证据、原因链与取舍依据 | 已裁决 |
 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 系统层第 7、14、15、16 条原位改写、零点计划模板第三、五、六条改写与班次和休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`；裁决记录、各阶段的现行文档改写、测试与夹具、验收台账与变异登记（`tests/fixtures/idle-fillers-acceptance.json`、`tests/idle_fillers_acceptance.py`）、门禁与平台、配对复跑指标；条款随阶段 1–4 提交逐阶段实现，阶段 1（班次与休息时段起止的唤醒）、阶段 2（系统层第 7、14、15、16 条）与阶段 3（零点计划模板第三、五、六条）已实现 | FROZEN |
 | [完整日行为基线跨平台一致提案](dev/PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md) | 完整日用例在 Windows 上对 macOS 生成的现行夹具不符（按 `0184c97` 在 Windows 上实测，按 `b83292f` 与 macOS 导出逐条比较）：四处原因已全部定位并经确认实验复现——工作区快照归档次序、工作区文本文件换行、`AGENT.json` 路径分隔符，以及 macOS 数学库在一个难舍入参数上不正确舍入的 `exp`（进入 `sleep_pressure` 与 `sleepiness` 的末位）；前三处的修复在 POSIX 上是空操作，数学库须改用标准库 `decimal` 的正确舍入实现，因而要在 Windows 与 macOS 上生成一份新夹具，旧夹具改为绑定生成时的规范化代码 | 未冻结提案 |
+| [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，目录 5.5（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成 | FROZEN |
 | [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
 | [个人事务与工作安排规格](archive/errands-workday/SPEC-errands-workday.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护 | 归档 |
@@ -227,6 +228,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 实现或审查一日运行保真（已冻结、已实现）：睡眠与社交账、下限缓解与输入警告、困意档界、系统层守作息、按名调用与指名购买（含请求级 `prefer` 与方式「购买」）、错误合同、呈现与可调用索引、控制工具改形、截断与联系人守卫、加载校验与目标大致时刻 | `docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要` | 「裁决记录」取已定裁决，3.5「收敛」取购买请求的定稿，「冻结条款修订」取被改写的冻结条款，「文档同步作业」「文件修改清单」（实施台账）取各阶段作业与影响面，`docs/VERIFICATION.md#verification-worldmock-验收标准`「一日运行保真特性门禁」取门禁，`docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`「一日运行保真增量映射」取验收台账逐行到测试的追溯，`docs/archive/dayrun-fidelity/dayrun-fidelity-verification.md` 取验收证据（源码身份、门禁、突变审查与 strict 端点探针）；设计依据与运行证据见已裁决的 `docs/archive/dayrun-fidelity/PROPOSAL-dayrun-fidelity.md`，数据集侧见 WorldMock-Dataset 的 `PROPOSAL_2026-09-29_DATASET_FIXES.md` 与 `RUN_REPORT_2026-09-29.md` |
 | 实现或审查个人事务与工作安排（已冻结、已实现）：运行修复入库、个人事务、提示信息分工、下班与到家作息、场景工作安排、查询筛选 | `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库` | 「裁决记录」取已定裁决，「冻结条款修订」取被改写的冻结条款，`docs/archive/errands-workday/errands-workday-implementation-plan.md`（实施台账）取逐文档的文档同步作业、逐阶段的文件修改清单与被钉点，规格「实施计划」「验收台账」取阶段、身份与验收，`docs/VERIFICATION.md#verification-worldmock-验收标准`「个人事务与工作安排特性门禁」取门禁，`docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`「个人事务与工作安排增量映射」取验收台账逐行到测试的追溯，`docs/archive/errands-workday/errands-workday-verification.md` 取验收证据（源码身份、门禁与突变审查）；评审逐条结论见 `docs/archive/errands-workday/2026-10-02-errands-workday-design-review.md`，设计背景与运行证据见已裁决的提案 |
 | 实现或审查让「等待」成为例外（已冻结）：系统层第 7、14、15、16 条、零点计划模板第三、五、六条、班次与休息时段起止的唤醒 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 「裁决记录」取已定裁决，「现行文档原位改写」取各阶段的文档改写，「验收台账」与 `tests/fixtures/idle-fillers-acceptance.json` 取验收与变异登记，「门禁与平台」取各门禁的执行平台；运行证据与取舍依据见已裁决的提案 |
+| 实现或审查同时做两件事（已冻结）：暂停的活动不占名额、只有同一种动作互斥、系统层第 8 条 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | 「随实现一起改的测试」「验收」与 `docs/CONTRACTS.md#contracts-model-request` |
 | 找某个文件归谁管、代码在哪 | 本文件「文件归属」 | `docs/ARCHITECTURE.md#architecture-worldmock-架构设计` 看该模块的职责边界 |
 
 <a name="index-权威层级"></a>
@@ -409,3 +411,4 @@ flowchart TB
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）实现后：文档地图里一日行为、人物规格、当日目标、LabelKit 交付四行中由该规格阶段 2 修订的部分（等待与内容接触补系统层写给人物的过法；系统层的作息、饥饿、困意与决策机会；钟点只是大概；系统层改写的指纹叙述）改为修订条款已实现，各行由阶段 3 修订的部分仍写随阶段 3 提交实现；该规格一行注明阶段 2 已实现 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）实现后：文档地图里生活运行时、人物规格、当日目标、LabelKit 交付四行中由该规格阶段 3 修订的部分（零点计划修订一节的写法；零点计划的写法与提醒；零点计划模板改写的指纹叙述）改为修订条款已实现；该规格一行注明阶段 3 已实现 |
 | `2026-10-05-cross-platform-baseline-proposal` | 2026-10-05 | 文档地图「特性规格与提案」登记未冻结提案：完整日行为基线跨平台一致（快照归档次序、工作区文本换行、工作区路径分隔符与平台数学库四处原因；2026-10-06 按 macOS 导出修订）。它不改变行为；按「权威层级」，裁决之前任何代码、测试与验收结论不得依赖其内容 |
+| `2026-10-06-parallel-activities-freeze` | 2026-10-06 | 文档地图「特性规格与提案」登记冻结规格[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)（`FROZEN`），「按任务读」加实现与审查入口；被它修订的现行文档在各阶段提交时注明 |
