@@ -1,30 +1,10 @@
 """@brief 新环境目录纯测试的真实文件构造与重新发布工具。"""
 
 import json
-import shutil
 from pathlib import Path
 
-import pytest
-
 from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.catalog.loader import load_catalog
 from worldmock.footprints.models import canonical_json
-
-ARTIFICIAL_CATALOG = Path(__file__).resolve().parents[1] / "fixtures" / "environment" / "catalog"
-
-
-@pytest.fixture
-def catalog_dir(tmp_path: Path) -> Path:
-    """@brief 复制真实人工目录，允许测试独立制造登记反例。"""
-    target = tmp_path / "catalog"
-    shutil.copytree(ARTIFICIAL_CATALOG, target)
-    return target
-
-
-@pytest.fixture
-def loaded_catalog(catalog_dir: Path):
-    """@brief 通过生产加载器登记真实人工目录。"""
-    return load_catalog(catalog_dir)
 
 
 def read_payload(directory: Path, name: str) -> dict:

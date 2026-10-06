@@ -2,11 +2,25 @@
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from scripts import fresh_check as fresh
+
+
+def test_quick_collection_resolves_catalog_fixtures_across_mixed_selectors():
+    command = [sys.executable, "-m", "pytest", *fresh.QUICK_TESTS, "--collect-only", "--fixtures-per-test",
+               "-q", "--environment-profile", "dev", "-p", "no:cacheprovider"]
+    result = subprocess.run(command, cwd=Path(__file__).resolve().parents[1], capture_output=True,
+                            text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    header = "fixtures used by test_catalog_registers_artificial_objects_and_indexes"
+    assert header in result.stdout
+    block = result.stdout.partition(header)[2].split("fixtures used by ", 1)[0]
+    names = {line.partition(" -- ")[0].strip() for line in block.splitlines() if " -- " in line}
+    assert {"catalog_dir", "loaded_catalog"} <= names
 
 
 def test_fresh_checkout_disables_submodules_ssh_and_pip_cache(tmp_path, monkeypatch):

@@ -3,13 +3,31 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
+from worldmock.catalog.loader import load_catalog
+
+from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.frozen_inputs import FrozenInputs
 from tests.tier_support import TIERS, classify, selected, source_dependencies
+
+
+@pytest.fixture
+def catalog_dir(tmp_path: Path) -> Path:
+    """@brief 复制真实人工目录，允许测试独立制造登记反例。"""
+    target = tmp_path / "catalog"
+    shutil.copytree(ARTIFICIAL_ENVIRONMENT_ROOT / "catalog", target)
+    return target
+
+
+@pytest.fixture
+def loaded_catalog(catalog_dir: Path):
+    """@brief 通过生产加载器登记真实人工目录。"""
+    return load_catalog(catalog_dir)
 
 
 @pytest.fixture(scope="session")
