@@ -316,6 +316,12 @@ def test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs() ->
         if path.suffix == ".py":
             assert not stub_functions(ast.parse(text)), relative
     assert registration.RECEIPTS == REPO_ROOT / ".work/rrs/mutation-receipts"
+    removed = {"src/worldmock/life/models.py": {"DataSource", "OpeningInterval", "_require_source_aware"},
+               "src/worldmock/life/rules.py": {"content"}}
+    for relative, names in removed.items():
+        definitions = {node.name for node in ast.walk(ast.parse((REPO_ROOT / relative).read_text(encoding="utf-8")))
+                       if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))}
+        assert not names.intersection(definitions), f"retired production symbols remain: {relative}"
 
 
 def test_mutation_rows_have_exact_contracts_stages_and_due_coverage() -> None:

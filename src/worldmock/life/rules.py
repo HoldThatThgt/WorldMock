@@ -6,7 +6,7 @@ from pathlib import Path
 import logging
 
 from worldmock.errors import BusinessRuleError, PreconditionError
-from worldmock.catalog.models import App, Catalog, Content, WorkTopic
+from worldmock.catalog.models import App, Catalog, WorkTopic
 from worldmock.life.content import load_content_titles
 from worldmock.life.activities import require_location_kinds
 from worldmock.life.retrieval import item_kinds
@@ -96,10 +96,6 @@ class LifeRuleEngine:
                 logging.error("Work topic is not assigned to this agent: %s", topic_id)
                 raise BusinessRuleError("WORK_TOPIC_NOT_FOUND")
         return self.work_topics[topic_id]
-
-    def content(self, content_id: str) -> Content:
-        """@brief 取得一个已经登记的内容。"""
-        return self.contents[content_id]
 
     def app(self, app_id: str | None) -> App:
         """@brief 取得一个已经登记的 app，否则明确拒绝。"""

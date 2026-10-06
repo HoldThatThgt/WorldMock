@@ -412,32 +412,45 @@ def test_a_reminder_delivered_with_the_arrival_stays_out_of_the_new_stay_session
 
 
 def test_open_errands_do_not_change_the_reconsideration_interval(engine_factory) -> None:
-    """未完成事务不改变人物已有工作主题所决定的重估间隔，也不增加提醒候选时刻。"""
-    engine = engine_factory(mutate=_short_intervals)
-    zone = engine.context.scenario.timezone
-    stage_day_plan(engine)
-    start = engine.context.state.current_time
-    waited = act(engine, "wait", routed(WAIT_ITEM))
-    assert engine.context.state.agents[1].next_decision_at == start + 600
-    assert advance_until_ready(engine) and engine.context.state.current_time == start + 600
-    noted = engine.context.state.current_time
-    _, result = _act(engine, "note", "report_status", report_request(
-        activity_name(engine, waited.activity_id), summary="接着等。", errands=[errand_add("买牛奶", SNACK_NAME)]))
-    assert result.status == "completed"
-    agent = engine.context.state.agents[1]
-    assert agent.errands
-    assert errands.reminder_times(agent, noted) == ()
-    assert reminders.boundary_candidates(engine.context.state, zone) == [moment(engine, "2026-01-06 00:00")]
-    state = engine.context.state.model_copy(deep=True)
-    control = state.model_copy(deep=True)
-    control.agents[1] = control.agents[1].model_copy(update={"errands": {}})
-    _, actual = apply_decision_rhythm(replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0))
-    _, without_errand = apply_decision_rhythm(
-        replace(engine_rhythm_inputs(engine.context, control), interval_seconds=0)
-    )
-    assert actual[1].next_decision_at == without_errand[1].next_decision_at == agent.next_decision_at
-    next_at = agent.next_decision_at
-    assert advance_until_ready(engine) and engine.context.state.current_time == next_at
+    """未完成事务不改变工作或空闲重估间隔，也不增加提醒候选时刻。"""
+    for assigned_work, interval in ((True, 600), (False, 1200)):
+        def configure(document: dict) -> None:
+            """保留常规工作场景，并声明真正没有工作主题的空闲人物。"""
+            _short_intervals(document)
+            if not assigned_work:
+                document["agents"][0]["work_topic_ids"] = []
+                document["agents"][0]["work_schedule"] = None
+                # 白天与低娱乐需要让重估早于体感跨档，隔离事务是否制造在手承诺。
+                document["start_at"] = "2026-01-05T09:00:00+08:00"
+                document["body"]["initial_entertainment_need"] = 0.2
+
+        engine = engine_factory(mutate=configure)
+        zone = engine.context.scenario.timezone
+        stage_day_plan(engine)
+        start = engine.context.state.current_time
+        waited = act(engine, "wait", routed(WAIT_ITEM))
+        assert engine.context.state.agents[1].next_decision_at == start + interval
+        assert advance_until_ready(engine) and engine.context.state.current_time == start + interval
+        noted = engine.context.state.current_time
+        _, result = _act(engine, "note", "report_status", report_request(
+            activity_name(engine, waited.activity_id), summary="接着等。", errands=[errand_add("买牛奶", SNACK_NAME)]))
+        assert result.status == "completed"
+        agent = engine.context.state.agents[1]
+        assert agent.errands
+        if not assigned_work:
+            assert agent.next_decision_at == noted + interval
+        assert errands.reminder_times(agent, noted) == ()
+        assert reminders.boundary_candidates(engine.context.state, zone) == [moment(engine, "2026-01-06 00:00")]
+        state = engine.context.state.model_copy(deep=True)
+        control = state.model_copy(deep=True)
+        control.agents[1] = control.agents[1].model_copy(update={"errands": {}})
+        _, actual = apply_decision_rhythm(replace(engine_rhythm_inputs(engine.context, state), interval_seconds=0))
+        _, without_errand = apply_decision_rhythm(
+            replace(engine_rhythm_inputs(engine.context, control), interval_seconds=0)
+        )
+        assert actual[1].next_decision_at == without_errand[1].next_decision_at == agent.next_decision_at
+        next_at = agent.next_decision_at
+        assert advance_until_ready(engine) and engine.context.state.current_time == next_at
 
 
 def test_partial_progress_after_the_reminder_does_not_remind_again(engine_factory) -> None:

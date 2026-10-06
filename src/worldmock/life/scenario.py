@@ -400,9 +400,7 @@ class LifeScenario(DeepFrozenModel):
         """@brief 校验身份、人物地点、菜单、账户、时区与保留事件的跨引用。"""
         if self.idle_reconsideration_interval_seconds < self.reconsideration_interval_seconds:
             _invalid("idle reconsideration interval must not be shorter than regular interval")
-        _check_candidate_constants(
-            self.candidate_presentation_limit, self.rotation_quota_ratio, self.rotation_stale_seconds
-        )
+        _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio)
         _aware(self.start_at, "start_at")
         _aware(self.end_at, "end_at")
         zone = _zone(self.timezone)
@@ -494,20 +492,15 @@ def _check_event_sections(document: LifeScenario, zone: ZoneInfo) -> None:
             _invalid("payroll references an undeclared employer or person")
 
 
-def _check_candidate_constants(presentation_limit: int, quota_ratio: float, stale_seconds: int) -> None:
+def _check_candidate_constants(presentation_limit: int, quota_ratio: float) -> None:
     """@brief 候选常量必须让轮转名额与判定阈值都真的生效。
 
     单次呈现上限与换新比例的组合下界：`floor(上限 × 比例)` 至少 1，否则轮转
     名额恒为零，"长期未呈现的对象一定会被轮到"这条纪律无法成立（同一次呈现里
-    名额被排序键挤占，也是同一类失败）。`allow_inf_nan=False` 在字段层已拒绝
-    `NaN` 与无穷，这里只再确认比例落在开区间下界之上。
+    名额被排序键挤占，也是同一类失败）。字段层负责比例及换新阈值各自的范围。
     """
-    if not math.isfinite(quota_ratio) or quota_ratio <= 0 or quota_ratio >= 1:
-        _invalid("rotation_quota_ratio must be a finite value in (0, 1)")
     if math.floor(presentation_limit * quota_ratio) < 1:
         _invalid("candidate_presentation_limit and rotation_quota_ratio leave no rotation quota")
-    if stale_seconds <= 0:
-        _invalid("rotation_stale_seconds must be positive")
 
 
 def _aware(value: datetime, field_name: str) -> None:

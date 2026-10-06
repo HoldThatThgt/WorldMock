@@ -7,10 +7,9 @@ from worldmock.life.vocabulary import way_options
 from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
 from worldmock.base_models import StrictModel, FrozenModel
-from worldmock.errors import IntegrityError, reject_value
+from worldmock.errors import IntegrityError
 import logging
 import re
-from datetime import date, datetime
 from enum import StrEnum
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
@@ -48,46 +47,6 @@ _LOGGER = logging.getLogger(__name__)
 
 
 
-
-
-def _require_source_aware(value: datetime) -> None:
-    """@brief 来源与时态声明的时刻必须明确时区。"""
-    if value.tzinfo is None or value.utcoffset() is None:
-        reject_value("Map timestamps must be timezone-aware")
-
-
-class DataSource(FrozenModel):
-    """@brief 一份事实或场景假设的来源、许可与适用边界。"""
-
-    kind: Literal["fact", "scenario"]
-    url: str = Field(pattern=r"\S")
-    retrieved_at: datetime
-    license: str = Field(pattern=r"\S")
-    notice: str = Field(pattern=r"\S")
-    fact_cutoff: date
-    applicability: str = Field(pattern=r"\S")
-
-    @model_validator(mode="after")
-    def validate_source(self) -> "DataSource":
-        """@brief 来源取得时间必须明确时区。"""
-        _require_source_aware(self.retrieved_at)
-        if self.fact_cutoff > self.retrieved_at.date():
-            reject_value("Source fact cutoff cannot follow retrieval date")
-        return self
-
-
-class OpeningInterval(FrozenModel):
-    """@brief 当地自然日起算的营业分钟区间；结束超过午夜表示跨日。"""
-
-    opens: int = Field(ge=0, lt=1440)
-    closes: int = Field(gt=0, le=2880)
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "OpeningInterval":
-        """@brief 营业区间必须正向且最多延续二十四小时。"""
-        if not self.opens < self.closes <= self.opens + 1440:
-            reject_value("Opening interval must be positive and at most one day")
-        return self
 
 
 def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
@@ -722,16 +681,9 @@ def _validate_session_collection(state: WorldState) -> None:
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
     """@brief 从唯一注册表和社交活动声明恢复每项权威资源占用。"""
     if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-
         return set(SOCIAL_RESOURCE_CLAIMS)
-
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
-    try:
-        return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode,
-))
-    except (KeyError, ValueError) as error:
-        _LOGGER.error("World activity kind or travel mode has no resource declaration")
-        raise ValueError("world activity resource declaration is invalid") from error
+    return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode))
 
 
 _TARGETED_ACTIVITY_KINDS = frozenset({
