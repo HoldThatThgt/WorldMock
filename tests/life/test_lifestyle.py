@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from pathlib import Path
 
@@ -26,57 +28,22 @@ from worldmock.life.world_setup import load_scenario
 from tests.life.conftest import advance_next, context, stage_day_plan, start_request
 from tests.life.test_parallel_activities import _advance_with_decisions
 
-ROOT = Path(__file__).resolve().parents[2]
-ITEMS_PATH = ROOT / "corpora/lifestyle/items.json"
-CATEGORIES = {"sport", "hobby", "learning", "household", "social",
-              "wellness", "pet", "volunteer", "outdoor"}
-
-
+ROOT = Path(__file__).resolve().parents[1] / "fixtures/environment"
+ITEMS_PATH = ENVIRONMENT_ROOT / "corpora/lifestyle/items.json"
 def _items() -> list[dict]:
+    """@brief 只读取人工最小环境的活动声明。"""
     return json.loads(ITEMS_PATH.read_text(encoding="utf-8"))["items"]
 
 
-def test_lifestyle_catalog_integrity() -> None:
-    """目录条数、身份、品类、中文文案与 MET 溯源全部封闭合规。"""
-    items = _items()
-    assert 180 <= len(items) <= 200
-    ids = [item["activity_id"] for item in items]
-    names = [item["name_zh"] for item in items]
-    assert len(set(ids)) == len(ids)
-    assert len(set(names)) == len(names)
-    for item in items:
-        # 目录 v2 富化：time_window/location_kinds/needs_partner/effects 四字段
-        # （admission._check_lifestyle 的 v2 口径）。
-        assert set(item) == {"activity_id", "name_zh", "category",
-                             "typical_duration_minutes", "description_zh",
-                             "met_value", "source", "time_window",
-                             "location_kinds", "needs_partner", "effects"}
-        assert item["category"] in CATEGORIES
-        assert item["name_zh"].strip() and item["description_zh"].strip()
-        assert 5 <= item["typical_duration_minutes"] <= 1440
-        assert 1.0 <= item["met_value"] <= 16.0
-        assert "Compendium 2011" in item["source"]
+def test_lifestyle_catalog_matches_declared_activity_met() -> None:
+    """@brief 人工环境的活动条目由当前语料加载，并与当前身体 MET 身份一致。"""
+    from worldmock.life.content import load_lifestyle_items
 
-
-def test_lifestyle_catalog_covers_all_categories() -> None:
-    """九个品类都有条目，目录不是单品类退化集。"""
-    present = {item["category"] for item in _items()}
-    assert present == CATEGORIES
-
-
-def test_catalog_activity_met_carries_lifestyle_keys() -> None:
-    """目录 energy_kcal 的 activity_met 精确携带全部 lifestyle:<id> 键。"""
-    by_id = {}
-    for line in (ROOT / "catalog/resources.jsonl").read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            entry = json.loads(line)
-            by_id[entry["resource_id"]] = entry
-    met = by_id["energy_kcal"]["drain_rules"]["activity_met"]
-    expected = {f"lifestyle:{item['activity_id']}": item["met_value"] for item in _items()}
-    lifestyle = {key: value for key, value in met.items() if key.startswith("lifestyle:")}
-    assert lifestyle == expected
-    base = {key for key in met if not key.startswith("lifestyle:")}
-    assert len(base) == 10
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
+    items = load_lifestyle_items(ENVIRONMENT_ROOT / "corpora", scenario.body.activity_met)
+    expected = {key.removeprefix("lifestyle:") for key in scenario.body.activity_met if key.startswith("lifestyle:")}
+    assert items and {item.activity_id for item in items} == expected
+    assert all(set(item.effects) == {"entertainment", "social", "health"} for item in items)
 
 
 def test_lifestyle_model_request_only_selects_readable_object_and_action() -> None:
@@ -169,7 +136,7 @@ def test_scenario_admission_rejects_unknown_lifestyle_declaration() -> None:
     from worldmock.life.scenario import AgentConfig
     from worldmock.life.semantics import _check_lifestyle_declarations
 
-    scenario, _ = load_scenario(ROOT / "scenarios/multi-person.json")
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
     body = scenario.body.model_copy(update={"activity_met": {"lifestyle:yoga": 2.5}})
     agent = scenario.agents[0].model_copy(
         update={"lifestyle_activities": ("yoga", "not-in-catalog")})
@@ -183,7 +150,7 @@ def test_scenario_admission_rejects_unknown_lifestyle_declaration() -> None:
 
 def test_agent_config_lifestyle_validation() -> None:
     """场景文档校验：空列表与重复 id 直接拒绝。"""
-    scenario, _ = load_scenario(ROOT / "scenarios/multi-person.json")
+    scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json")
     payload = scenario.agents[0].model_dump(mode="python")
 
     def revived(value):
@@ -204,7 +171,7 @@ class TestLifestyleRelief:
     """@brief lifestyle effects 结算：娱乐走分录（事件留痕），社交/健康直接落账。"""
 
     def _relief_fixture(self):
-        scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
+        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
         agent = AgentState(agent_id=1, name="T", location_id="home",
                            body_settled_at=0,
                            balance_account_id="agent:1", next_decision_at=0,
@@ -217,7 +184,8 @@ class TestLifestyleRelief:
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
             target_id="jogging", origin_action_id="a", origin_decision_id="d",
-            origin_request_event_id="e")
+            origin_request_event_id="e",
+            data={"effects": {"entertainment": 0.2, "social": 0.1, "health": 0.6}})
         return scenario.body, agent, activity
 
     def test_jogging_fills_entertainment_pool_with_flow_entries(self):
@@ -226,7 +194,7 @@ class TestLifestyleRelief:
         body, agent, activity = self._relief_fixture()
         last_flows()  # 分录按读取边界累积，本用例只验收随后这次结算。
         advance = advance_activity(activity, agent, 1800, body)
-        _fun_rate, _social_rate, _health_rate = lifestyle_relief_rates("jogging")
+        _fun_rate, _social_rate, _health_rate = lifestyle_relief_rates(activity.data["effects"])
         assert _fun_rate > 0
         assert advance.settlement.after.entertainment_need == pytest.approx(
             0.5 - _fun_rate * 0.5)
@@ -238,7 +206,7 @@ class TestLifestyleRelief:
         # effects.social 与 effects.health：社交需要下降、情绪正向脉冲（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「动机层」）。
         body, agent, activity = self._relief_fixture()
         advance = advance_activity(activity, agent, 1800, body)
-        _fun_rate, social_rate, health_rate = lifestyle_relief_rates("jogging")
+        _fun_rate, social_rate, health_rate = lifestyle_relief_rates(activity.data["effects"])
         assert social_rate > 0 and health_rate > 0
         assert advance.agent.body.social_need == pytest.approx(max(0.0, 0.6 - social_rate * 0.5))
         assert advance.agent.body.mood_valence > 0.0
@@ -250,7 +218,7 @@ class TestLifestyleRelief:
         from worldmock.life.activities import activity_factors
 
         engine = engine_factory()
-        scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
+        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")
         assert engine.context.semantics.body == scenario.body  # 引擎语义体即场景身体配置
         activity = ActivityState(
             activity_id="a-jog", agent_id=1, location_id=engine.context.state.agents[1].location_id,
@@ -258,15 +226,17 @@ class TestLifestyleRelief:
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
             target_id="jogging", origin_action_id="a", origin_decision_id="d",
-            origin_request_event_id="e")
+            origin_request_event_id="e",
+            data={"effects": {"entertainment": 0.2, "social": 0.1, "health": 0.6}})
         factors = activity_factors(activity, engine.context.state.agents[1], engine.context.semantics.body)
         assert factors.entertainment_relief_per_hour == pytest.approx(
-            lifestyle_relief_rates("jogging")[0])
+            lifestyle_relief_rates(activity.data["effects"])[0])
 
 
 def test_scenario_files_load_with_lifestyle_wiring() -> None:
-    """三份正式场景在新目录与 MET 表下仍完整加载。"""
-    for name in ("multi-person.json", "multi-person-half-day.json", "white-collar-12-weeks.json"):
-        scenario, _ = load_scenario(ROOT / "scenarios" / name)
+    """三份人工环境在新结构与活动目录下完整加载。"""
+    for name in ("multi-person.json", "multi-person-half-day.json", "single-person.json"):
+        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios" / name)
         lifestyle_keys = {key for key in scenario.body.activity_met if key.startswith("lifestyle:")}
-        assert len(lifestyle_keys) >= 180
+        assert lifestyle_keys
+        assert scenario.schema_version == 6

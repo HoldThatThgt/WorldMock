@@ -12,6 +12,21 @@
 [原提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md)保留为历史分析。
 [验收记录](dev/shared-rules-and-rebuildable-env-verification.md)集中登记实现、测试与变异证据。
 
+<a name="index-环境数据归属"></a>
+## 环境数据归属
+
+[环境数据归属规格](dev/SPEC-environment-data-ownership.md)定义双仓职责；实施与最终验收仍须核对对应收据。
+WorldMock-Dataset 在 `environment/zhangjiang-baseline/` 发布语料、目录和场景，并维护数据制作工具。
+WorldMock 安装包提供引擎和固定通用规则，通过显式场景路径加载环境；引擎仓只保留人工最小测试环境。
+
+```mermaid
+flowchart LR
+    D[WorldMock-Dataset：来源与制作工具] --> E[冻结环境：corpora、catalog、scenarios]
+    E -->|显式场景路径| W[WorldMock：加载与模拟]
+    P[WorldMock 安装包：固定通用规则] --> W
+    W --> R[运行记录、检查点与导出]
+```
+
 <a name="index-这是什么"></a>
 ## 这是什么
 
@@ -53,7 +68,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [人物画像](manual/personas.md#personas-人物画像) | 编写背景故事、作息、关系与人物初值，预览和校验卡片 |
 | [生活场景](manual/scenarios.md#scenarios-生活场景) | 自定义日期、人数、账户、菜单、任务、消息及预排事件 |
 | [世界素材](manual/resources.md#resources-定义地点门店供给与世界素材) | 准备地图、门店供给、商品、内容、语料和目录输入 |
-| [规则配置](manual/rules.md#rules-调整世界规则与人物动机参数) | 编写品类与交换规则，调整身体、动机和画像映射 |
+| [规则配置](manual/rules.md#rules-调整世界规则与人物动机参数) | 编写环境品类与交换规则，调整身体、交通和人物参数，理解包内固定通用规则 |
 | [运行配置](manual/runtime.md#runtime-运行配置) | 模型凭据、新建运行、恢复和反事实干预文件 |
 | [数据生成](manual/delivery.md#delivery-自定义训练数据交付) | LabelKit 项目、生成设置与规则测试数据 |
 | [真实性评估](manual/evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、人工参照和评审输入 |
@@ -75,9 +90,11 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | [代码分层、文档测试解耦与测试分层提案](dev/PROPOSAL_2026-10-04_LAYERING_AND_TEST_TIERS.md) | 2026-10-04 可维护性评估第 1–3 项（按 `94595ca` 实测）：完整导入图（含函数内导入）的 17 处回边、无环守卫与 `LifeEngine` 拆分；现行文档的行号引用改为符号引用、突变锚点改为符号作用域、源码文本钉改为结构检查、已验收特性的增量规格合并后归档；按实测耗时把测试分成快速、标准与全量三层；不改变行为 | 未冻结提案 |
 | [共享规则单一归宿与可重建环境提案](dev/PROPOSAL_2026-10-04_SHARED_RULES_AND_REBUILDABLE_ENV.md) | 2026-10-04 历史分析（按 `94595ca` 实测）；已收敛为共享规则与可重建环境冻结规格，原机器状态不作为当前实现事实 | 未冻结提案 |
 | [让「等待」成为例外提案](dev/PROPOSAL_2026-10-05_IDLE_FILLERS.md) | 2026-10-04 五人共享世界运行的 43 次等待（按 `9cca694` 核对）：多数等的是到点没有决策机会的钟点，其余等的事到点会请人物决策而人物不知道；A 系统层第 7、14、15、16 条原位改写，B 零点计划模板第三、五、六条改写，C 班次与休息时段起止的四个唤醒原因；列出定稿文本、被改写的现行条款、指纹与完整日基线的影响、验收台账与变异清单、配对复跑指标，已收敛为冻结规格[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)，本文只保留运行证据、原因链与取舍依据 | 已裁决 |
-| [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 系统层第 7、14、15、16 条原位改写、零点计划模板第三、五、六条改写与班次和休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`；裁决记录、各阶段的现行文档改写、测试与夹具、验收台账与变异登记（`tests/fixtures/idle-fillers-acceptance.json`、`tests/idle_fillers_acceptance.py`）、门禁与平台、配对复跑指标；条款随阶段 1–4 提交逐阶段实现，阶段 1（班次与休息时段起止的唤醒）、阶段 2（系统层第 7、14、15、16 条）与阶段 3（零点计划模板第三、五、六条）已实现 | FROZEN |
-| [完整日行为基线跨平台一致提案](dev/PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md) | 完整日用例在 Windows 上对 macOS 生成的现行夹具不符（按 `0184c97` 在 Windows 上实测，按 `b83292f` 与 macOS 导出逐条比较）：四处原因已全部定位并经确认实验复现——工作区快照归档次序、工作区文本文件换行、`AGENT.json` 路径分隔符，以及 macOS 数学库在一个难舍入参数上不正确舍入的 `exp`（进入 `sleep_pressure` 与 `sleepiness` 的末位）；前三处的修复在 POSIX 上是空操作，数学库须改用标准库 `decimal` 的正确舍入实现，因而要在 Windows 与 macOS 上生成一份新夹具，旧夹具改为绑定生成时的规范化代码 | 未冻结提案 |
-| [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，目录 5.5（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成；阶段 1（暂停的活动不占名额）、阶段 2（只有同一种动作互斥）与阶段 3（系统层第 8 条）已实现 | FROZEN |
+| [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格) | 系统层第 7、14、15、16 条原位改写、零点计划模板第三、五、六条改写与班次和休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end`；裁决记录、各阶段的现行文档改写、测试与夹具、验收台账与变异登记（`tests/fixtures/idle-fillers-acceptance.json`、`tests/idle_fillers_acceptance.py`）、门禁与平台、配对复跑指标；阶段 1（班次与休息时段起止的唤醒）、阶段 2（系统层第 7、14、15、16 条）与阶段 3（零点计划模板第三、五、六条）已实现；旧第三份完整日夹具计划未执行，由现行结构 6 工件核验替代；门禁与配对复跑按各自实际收据判定 | FROZEN |
+| [完整日行为基线跨平台一致提案](dev/PROPOSAL_2026-10-05_CROSS_PLATFORM_DAY_BASELINE.md) | 完整日用例在 Windows 上对 macOS 生成的现行夹具不符（按 `0184c97` 在 Windows 上实测，按 `b83292f` 与 macOS 导出逐条比较）：四处原因已全部定位并经确认实验复现——工作区快照归档次序、工作区文本文件换行、`AGENT.json` 路径分隔符，以及 macOS 数学库在一个难舍入参数上不正确舍入的 `exp`（进入 `sleep_pressure` 与 `sleepiness` 的末位）；前三处的修复在 POSIX 上是空操作，数学库须改用标准库 `decimal` 的正确舍入实现，提议在 Windows 与 macOS 上用同一份当前结构 6 外部输入生成新证明，现存两份历史夹具与签名实现保持原字节；方案未实施 | 未冻结提案 |
+| [环境数据归属规格](dev/SPEC-environment-data-ownership.md) | 正式环境与制作工具归数据仓；通用规则归引擎包；场景结构 6、环境标题与活动效果、显式环境加载及人工测试夹具 | FROZEN |
+| [以 app 为入口的资源与规则引擎简化提案](dev/PROPOSAL_2026-10-06_RESOURCE_AND_RULE_SIMPLIFICATION.md) | 原文需求、随机加权地图、同类店铺同商品、全地图外卖、三类食品、app 娱乐与推送、主题工时工作、系统固定规则及双仓替换验收；本次仅设计 | 未冻结提案 |
+| [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格) | GitHub issue #4 的正式修复：暂停的活动不占两个并行名额、恢复要有空名额、同刻受限轮不再按名额分流（甲）；只有同一种动作互斥，占用名改为每种动作自己的名字，改的是引擎包资源 `src/worldmock/data/affordances.toml`，仍带旧占用名的已发布环境须按新占用名重新发布（乙）；系统层第 8 条原位改写（丙）；裁决记录、各阶段的现行文档改写、随实现一起改的测试、验收、门禁与平台、配对复跑指标与不在本规格内的待裁决事项；条款随阶段 1–3 提交逐阶段实现，完整日基线在 POSIX 平台另行生成；阶段 1（暂停的活动不占名额）、阶段 2（只有同一种动作互斥）与阶段 3（系统层第 8 条）已实现 | FROZEN |
 | [共享规则与可重建环境规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-特性规格共享规则单一归宿与可重建环境) | 共享规则、固定源码、引导和平台要求；与分层与测试层次规格共同使用唯一 full runner | FROZEN |
 | [共享规则与可重建环境验收记录](dev/shared-rules-and-rebuildable-env-verification.md) | 合并前具体被测身份的实现、完整门禁、平台重建和独立源码变异证据；不证明新主线合并后的代码 | 验收记录 |
 | [个人事务与工作安排规格](archive/errands-workday/SPEC-errands-workday.md) | 历史增量规格；现行行为正文见 `docs/dev/SPEC-as2-integration.md#errands-workday-运行修复入库`，提示与工具说明见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`，验收登记由 `tests/fixtures/acceptance_requirements.json` 与相应 Python 登记维护 | 归档 |
@@ -131,7 +148,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/category-contract-files.md` | 对照开发基线逐文件核对真实 Git diff 与功能责任 | 实施台账 |
 | `docs/dev/category-contract-bob-review.md` | 独立语义突变、原始证据及修复复审结果 | 审查记录 |
 | `docs/dev/PROPOSAL-category-contract.md` | 品类契约提案裁决记录；规范已收敛到对应 SPEC | 已裁决 |
-| `docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格` | 地图唯一来源、地点发现、独立门店供给、营业与报价时态、原子购买、自提配送、恢复和完整验收；挑店可交给系统（`prefer`）、`branch_label`、配送路线只警告与浏览结果完整标签由一日运行保真规格修订，修订条款已实现；`query_world` 六键、来源与可执行筛选由个人事务与工作安排规格修订，修订条款已实现；冻结输入与身份的现行目录 5.5（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现 | FROZEN |
+| `docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格` | 地图唯一来源、地点发现、独立门店供给、营业与报价时态、原子购买、自提配送、恢复和完整验收；挑店可交给系统（`prefer`）、`branch_label`、配送路线只警告与浏览结果完整标签由一日运行保真规格修订，修订条款已实现；`query_world` 六键、来源与可执行筛选由个人事务与工作安排规格修订，修订条款已实现；冻结输入与身份里仍带旧占用名的已发布环境在加载时被拒（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现 | FROZEN |
 | `docs/dev/PROPOSAL-map-and-storefront.md` | 已裁决的地图与门店供给心智模型、采纳机制和审查基线差距；行为以开发规格为准 | 调研证据 |
 | `docs/dev/ANALYSIS-map-model.md` | 原始问题与已纠正的历史判断，连接现行开发规格和研究证据 | 调研证据 |
 | `docs/dev/research/map-and-storefront-feasibility.md` | 商品与供给、路线方式、营业、AS2 复用和许可的一手资料核验 | 调研证据 |
@@ -318,10 +335,11 @@ flowchart TB
 | `src/worldmock/life/` | 生活规则、身体、活动、社交、叙述 |
 | `src/worldmock/footprints/` | 事件存储、检查点与导出 |
 | `src/worldmock/profile/` | 人物卡片编译 |
-| `src/worldmock/corpora/` | 语料整理 |
+| `src/worldmock/corpora/` | 通用语料清单、地图与门店供给加载校验 |
+| `src/worldmock/data/` | 固定活动闭集、动机算法参数和人物映射包资源 |
 | `src/worldmock/delivery/` | LabelKit 交付 |
 | `src/worldmock/evaluation/` | 行为指标与协议门禁 |
-| `src/worldmock/catalog/` | 可供性注册表 |
+| `src/worldmock/catalog/` | 目录加载、校验与固定活动声明解析 |
 
 <a name="index-测试"></a>
 ### 测试
@@ -333,17 +351,18 @@ flowchart TB
 | `tests/integration/` | 跨模块集成与协议 |
 | `tests/delivery/` | LabelKit 交付行为 |
 | `tests/evaluation/` | 行为指标与协议门禁 |
-| `tests/catalog/` | 可供性注册表与目录数据 |
+| `tests/catalog/` | 固定活动声明与人工目录的加载行为 |
+| `tests/fixtures/environment/` | 引擎最小端到端的人工环境，不复制正式世界 |
 
 <a name="index-场景与配置"></a>
 ### 场景与配置
 
 | 路径 | 职责 |
 | --- | --- |
-| `scenarios/` | 实验场景定义 |
+| `WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/` | 数据仓的实验场景；单人物文件为 `single-person.json` |
 | `docs/manual/` | 当前可用配置的用户编写手册与校验示例 |
-| `corpora/` | 固化语料素材 |
-| `catalog/` | 目录注册表 |
+| `WorldMock-Dataset/environment/zhangjiang-baseline/corpora/` | 数据仓的固化语料、地图和来源 |
+| `WorldMock-Dataset/environment/zhangjiang-baseline/catalog/` | 数据仓的资源、商品、品类与环境系数 |
 | `labelkit-projects/` | LabelKit 项目配置 |
 
 <a name="index-状态与变更约定"></a>
@@ -411,5 +430,6 @@ flowchart TB
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）实现后：文档地图里一日行为、人物规格、当日目标、LabelKit 交付四行中由该规格阶段 2 修订的部分（等待与内容接触补系统层写给人物的过法；系统层的作息、饥饿、困意与决策机会；钟点只是大概；系统层改写的指纹叙述）改为修订条款已实现，各行由阶段 3 修订的部分仍写随阶段 3 提交实现；该规格一行注明阶段 2 已实现 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | [让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）实现后：文档地图里生活运行时、人物规格、当日目标、LabelKit 交付四行中由该规格阶段 3 修订的部分（零点计划修订一节的写法；零点计划的写法与提醒；零点计划模板改写的指纹叙述）改为修订条款已实现；该规格一行注明阶段 3 已实现 |
 | `2026-10-05-cross-platform-baseline-proposal` | 2026-10-05 | 文档地图「特性规格与提案」登记未冻结提案：完整日行为基线跨平台一致（快照归档次序、工作区文本换行、工作区路径分隔符与平台数学库四处原因；2026-10-06 按 macOS 导出修订）。它不改变行为；按「权威层级」，裁决之前任何代码、测试与验收结论不得依赖其内容 |
+| 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-parallel-activities-freeze` | 2026-10-06 | 文档地图「特性规格与提案」登记冻结规格[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)（`FROZEN`），「按任务读」加实现与审查入口；被它修订的现行文档在各阶段提交时注明 |
 | `2026-10-06-parallel-activities-record` | 2026-10-06 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1–3 实现后：文档地图里生活运行时、数字人交互、人物规格、一日行为、地图与门店供给、LabelKit 交付六行注明被该规格修订的部分与阶段，写修订条款已实现；该规格一行注明阶段 1–3 已实现 |

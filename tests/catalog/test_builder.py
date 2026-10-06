@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.categories.conftest import raw_object
+from tests.catalog.admission_fixtures import category_requirements
 from worldmock.categories import refresh_manifest_identity
 from worldmock.catalog import (
     CatalogEntryKind,
@@ -25,7 +26,7 @@ def test_add_object_preserves_manifest_identity_and_contract_fields(catalog_dir:
     """新增同品类对象只追加 raw 行并完整刷新清单身份。"""
     manifest_path = catalog_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    requirements = json.loads(Path("catalog/manifest.json").read_text(encoding="utf-8"))["category_requirements"]
+    requirements = category_requirements()
     manifest["category_requirements"] = requirements
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)

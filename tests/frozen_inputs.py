@@ -1,4 +1,4 @@
-"""@brief 测试会话复用已验证的正式输入；每个世界仍取得独立的可变场景与存储。"""
+"""@brief 测试会话复用已验证的人工输入；每个世界仍取得独立的可变场景与存储。"""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ def input_digest(path):
 
 
 class FrozenInputs:
-    """@brief 每个 pytest 进程的会话缓存，仅供正式场景的 engine_factory 使用。"""
+    """@brief 每个 pytest 进程的会话缓存，仅供人工场景的 engine_factory 使用。"""
 
     def __init__(self):
         self.records = {}
@@ -164,7 +164,7 @@ class FrozenInputs:
         for cues in subtitles.values():
             assert_deeply_immutable(cues)
         value = {"semantics": semantics, "digest": digest, "manifest": manifest, "subtitles": subtitles,
-                 "titles": rules.load_content_titles(semantics.scenario.contents, root),
+                 "titles": rules.load_content_titles(semantics.scenario.contents),
                  "lifestyle": engine_context.load_lifestyle_items(root, semantics.scenario.body.activity_met)}
         assert_deeply_immutable(value["lifestyle"])
         value["object_sha256"] = object_digest(value)
@@ -181,7 +181,7 @@ class FrozenInputs:
             patch.setattr(world_setup, "load_runtime_scenario", lambda candidate: (semantics, value["digest"]))
             patch.setattr(world_setup, "load_manifest", lambda root, expected: value["manifest"])
             patch.setattr(rules, "load_subtitles", lambda item, root: value["subtitles"][item.item_id])
-            patch.setattr(rules, "load_content_titles", lambda items, root: dict(value["titles"]))
+            patch.setattr(rules, "load_content_titles", lambda items: dict(value["titles"]))
             patch.setattr(engine_context, "load_lifestyle_items", lambda root, met: value["lifestyle"])
             yield
 

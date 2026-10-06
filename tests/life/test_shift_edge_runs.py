@@ -77,7 +77,7 @@ _AGENT_KEYS = frozenset({
     "taste_weights", "visible_message_ids", "visible_supply_ids", "visible_task_ids"})
 
 
-def _engine(engine_factory, *declarations, scenario: str = "white-collar-12-weeks.json") -> LifeEngine:
+def _engine(engine_factory, *declarations, scenario: str = "single-person.json") -> LifeEngine:
     """@brief 依次用 declare(...) 返回的改写函数改写场景副本建立引擎（没有声明时用正式场景），每个人物登记空计划。"""
     def mutate(document: dict) -> None:
         """@brief 把全部声明写进场景副本。"""
@@ -720,7 +720,7 @@ def test_t13_an_around_time_is_still_not_a_boundary(engine_factory) -> None:
 def _branches(engine: LifeEngine, checkpoint, tmp_path, observation_id: str) -> list[LifeEngine]:
     """@brief 从检查点恢复的普通分支与反事实分支（后者在首个决策前提交一次余额干预），用引擎创建时那份改写后的场景文件
     打开。"""
-    scenario = tmp_path / "scenario-0" / "scenarios" / "white-collar-12-weeks.json"
+    scenario = tmp_path / "scenario-0" / "scenarios" / "single-person.json"
     restore_branch(engine.context.store, checkpoint.checkpoint_id, tmp_path / "resumed").close()
     resumed = LifeEngine.open(scenario, tmp_path / "resumed")
     intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=123_456,

@@ -1,31 +1,38 @@
-"""@brief NASA 官方播客素材身份与完整段落揭示回归。"""
+"""@brief 人工音轨和时间轴验证播客身份及完整段落揭示合同。"""
 
 from __future__ import annotations
 
 import hashlib
-import json
-import subprocess
-import sys
+import io
+import wave
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from worldmock.corpora.manifest import load_manifest
 from worldmock.errors import IntegrityError
 from worldmock.life.content import load_subtitles, reveal_watch
 from worldmock.life.models import ActivityState, AgentState, BodyState
 from worldmock.life.scenario import ContentItemConfig
-from worldmock.life.world_setup import load_scenario
-
-ROOT = Path("corpora")
-ITEM_ID = "podcast-nasa-space-habitat-excerpt"
 
 
-def _item() -> ContentItemConfig:
-    """@brief 从正式语料条目取得真实播客配置。"""
-    scenario, _ = load_scenario("scenarios/white-collar-12-weeks.json")
-    return next(item for item in scenario.contents if item.item_id == ITEM_ID)
+def _item(root: Path) -> ContentItemConfig:
+    """@brief 用标准 WAV 文件和两段人工字幕构造真实可校验音轨。"""
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        writer.writeframes(b"\0\0" * 160000)
+    timeline = b"1\n00:00:00,000 --> 00:00:10,000\nFirst paragraph\n\n2\n00:00:10,000 --> 00:00:20,000\nSecond paragraph\n"
+    (root / "audio.wav").write_bytes(audio.getvalue())
+    (root / "timeline.srt").write_bytes(timeline)
+    return ContentItemConfig.model_validate({
+        "item_id": "test-podcast", "title": "Artificial podcast", "kind": "podcast_episode",
+        "duration_seconds": 20, "timeline_path": "timeline.srt",
+        "timeline_sha256": hashlib.sha256(timeline).hexdigest(),
+        "audio_path": "audio.wav", "audio_sha256": hashlib.sha256(audio.getvalue()).hexdigest(),
+        "entertainment_relief_per_hour": 0.3, "experience_label": "Artificial audio"})
 
 
 def _agent() -> AgentState:
@@ -47,33 +54,10 @@ def _activity(item: ContentItemConfig) -> ActivityState:
                          data={"start_position_seconds": 0, "exposure_count": 1})
 
 
-def test_official_audio_and_anchor_projection_are_frozen() -> None:
-    """@brief 来源页、实际音轨、原始锚点与归零时间轴沿同一清单闭合。"""
-    manifest = load_manifest(ROOT)
-    indexed = {entry.path: entry for entry in manifest.entries}
-    identity = json.loads((ROOT / "podcasts/nasa-space-habitat.identity.json").read_text())
-    item = _item()
-    cues = load_subtitles(item, ROOT)
-    assert item.kind == "podcast_episode" and item.duration_seconds == 786
-    assert identity["original_audio_url"].endswith("/ep24_space_habitat.mp3")
-    assert identity["source_page_url"].startswith("https://www.nasa.gov/podcasts/")
-    assert identity["source_start_seconds"] == 112 and identity["source_end_seconds"] == 898
-    assert len(identity["source_anchors"]) == 70
-    assert identity["segment_count"] == len(cues) == 62
-    assert cues[0].start_seconds == 0 and cues[-1].end_seconds == 786
-    for relative, digest in ((item.timeline_path, item.timeline_sha256),
-                             (item.audio_path, item.audio_sha256)):
-        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
-        assert indexed[relative].sha256 == digest
-    result = subprocess.run([sys.executable, "scripts/build_nasa_podcast.py", "--check"],
-                            capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
-
-
-def test_podcast_paragraph_is_revealed_only_after_its_official_end_anchor() -> None:
+def test_podcast_paragraph_is_revealed_only_after_its_declared_end_anchor(tmp_path: Path) -> None:
     """@brief 未听完整段落不揭示文字，跨过锚点才揭示一次。"""
-    item = _item()
-    cues = load_subtitles(item, ROOT)
+    item = _item(tmp_path)
+    cues = load_subtitles(item, tmp_path)
     first = cues[0]
     activity = _activity(item)
     agent = _agent()
@@ -95,26 +79,24 @@ def test_podcast_paragraph_is_revealed_only_after_its_official_end_anchor() -> N
 
 def test_podcast_requires_real_audio_and_rejects_corrupt_audio(tmp_path: Path) -> None:
     """@brief 缺失或篡改真实音轨不能降级为只有转写文字的伪播客。"""
-    item = _item()
+    item = _item(tmp_path)
     with pytest.raises(IntegrityError, match="path is invalid"):
-        load_subtitles(item, tmp_path)
-    folder = tmp_path / "podcasts"
-    folder.mkdir()
-    (folder / "nasa-space-habitat.excerpt.mp3").write_bytes(b"fake")
+        load_subtitles(item, tmp_path / "missing")
+    (tmp_path / item.audio_path).write_bytes(b"corrupt audio")
     with pytest.raises(IntegrityError, match="audio hash mismatch"):
         load_subtitles(item, tmp_path)
 
 
-def test_podcast_audio_identity_is_required_and_exclusive() -> None:
-    """@brief 官方播客须同时钉住本地音轨与哈希，其他内容不得借用音轨身份。"""
-    official = _item().model_dump(mode="json")
-    assert ContentItemConfig.model_validate(official).item_id == ITEM_ID
+def test_podcast_audio_identity_is_required_and_exclusive(tmp_path: Path) -> None:
+    """@brief 环境声明的播客须同时钉住本地音轨与哈希，其他内容不得借用音轨身份。"""
+    declared = _item(tmp_path).model_dump(mode="json")
+    assert ContentItemConfig.model_validate(declared).item_id == "test-podcast"
     for missing in ("audio_path", "audio_sha256"):
-        invalid = {**official, missing: None}
+        invalid = {**declared, missing: None}
         with pytest.raises(ValidationError, match="podcast episode requires audio path and SHA-256"):
             ContentItemConfig.model_validate(invalid)
 
-    non_podcast = {**official, "kind": "feature_film"}
+    non_podcast = {**declared, "kind": "feature_film"}
     with pytest.raises(ValidationError, match="non-podcast content cannot declare podcast audio"):
         ContentItemConfig.model_validate(non_podcast)
     non_podcast.update(audio_path=None, audio_sha256=None)

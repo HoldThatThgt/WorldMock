@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.vocabulary import way_options
 from worldmock.life.vocabulary import NAMED_PURCHASE_WAYS
 
@@ -790,7 +790,7 @@ def _expected_activity_claims(activity: ActivityState) -> set[str]:
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
     content_kind = activity.data.get("content_kind") if activity.kind == ActivityKind.WATCH else None
     try:
-        return set(default_affordances().resource_claims(activity.kind.value, travel_mode=mode,
+        return set(engine_affordances().resource_claims(activity.kind.value, travel_mode=mode,
                                                          content_kind=content_kind))
     except (KeyError, ValueError) as error:
         _LOGGER.error("World activity kind or travel mode has no resource declaration")

@@ -253,6 +253,14 @@ def test_gate_uses_the_current_interpreter_and_the_shared_full_runner(monkeypatc
     assert calls[-1][0] == (*gate.TEST_COMMAND[:-1], "3")
 
 
+def test_coverage_entrypoint_forwards_the_explicit_environment_to_the_full_runner(monkeypatch):
+    """@brief 覆盖入口必须把调用方指定的环境交给实际全量测试入口。"""
+    calls = []
+    monkeypatch.setattr(gate.subprocess, "call", lambda command, **kwargs: calls.append(command) or 7)
+    assert gate.main(["--environment-root", "../dataset/environment", "--shards", "3"]) == 7
+    assert calls == [(*gate.TEST_COMMAND[:-1], "3", "--environment-root", "../dataset/environment")]
+
+
 def test_missing_coverage_json_fails_closed(tmp_path, monkeypatch):
     """@brief 覆盖数据缺失不能读取旧结果或返回成功。"""
     assert gate.main(["--from-json", str(tmp_path / "missing.json")]) == 1
@@ -325,6 +333,24 @@ def test_from_json_binds_complete_receipts_and_frozen_inputs(full_run_files):
     assert report["shards"] == 1
     assert report["evidence_manifest"]["source_sha256"] == summary["source_sha256"]
     assert report["evidence_manifest"]["collection_sha256"] == summary["collection_sha256"]
+
+
+def test_coverage_receipts_require_the_same_external_environment_bytes(full_run_files):
+    """@brief 外部环境的全量回执不能套到默认环境或修改后的外部环境上。"""
+    from scripts import run_tests
+
+    directory, _, summary, _ = full_run_files
+    environment = gate.REPO_ROOT / "environment"
+    for name in ("catalog", "corpora", "scenarios"):
+        (environment / name).mkdir(parents=True)
+        (environment / name / "input.json").write_text(name, encoding="utf-8")
+    summary["source_sha256"] = run_tests.source_digest(environment)
+    _bind_artifacts(directory, summary)
+    command = ["--from-json", str(directory / "coverage.json"), "--environment-root", str(environment)]
+    assert gate.main(command) == 0
+    assert gate.main(command[:-2]) == 1
+    (environment / "corpora/input.json").write_text("changed", encoding="utf-8")
+    assert gate.main(command) == 1
 
 
 @pytest.mark.parametrize("damage", ["skipped", "failed", "setup_error", "empty", "missing_receipt",

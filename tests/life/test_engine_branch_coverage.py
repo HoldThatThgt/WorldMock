@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import asyncio
 import json
 import math
@@ -68,13 +70,13 @@ from worldmock.runtime import settle_pending_day_plans
 @pytest.fixture(scope="module")
 def body_config() -> BodyConfig:
     """读取正式冻结身体参数（65kg/1600/2400/800/400）。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 @pytest.fixture(scope="module")
 def formal() -> LifeScenario:
     """读取正式场景文档作为负例模板。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0]
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
 
 
 def _act(engine, round_id: str, tool_name: str, request, agent_id: int = 1):
@@ -551,7 +553,7 @@ def test_agent_with_single_meal_window_is_valid() -> None:
 
 def test_product_config_rejects_use_mode_and_serving_disagreements() -> None:
     """商品用餐方式唯一合法、食品份量字段一致且非空白。"""
-    runtime = load_scenario("scenarios/white-collar-12-weeks.json")[0]
+    runtime = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     template = next(item for item in runtime.products if "eat" in item.use_modes)
     payload = template.model_dump()
 
@@ -648,7 +650,7 @@ def test_schedule_sections_reject_each_invalid_shape(engine_factory) -> None:
 
 def test_runtime_scenario_rejects_interval_route_and_account_shapes(engine_factory) -> None:
     """运行时场景：窗口失序、路线键重复与账户角色覆盖拒绝。"""
-    scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
 
     def revalidate(message, **updates):
         staged = scenario.model_copy(update=updates)
@@ -666,7 +668,7 @@ def test_runtime_scenario_rejects_interval_route_and_account_shapes(engine_facto
 
 def test_parse_scenario_document_rejects_missing_invalid_and_mismatched(tmp_path) -> None:
     """缺失文件、非法 JSON 与语料清单失配均失败关闭。"""
-    formal_path = Path("scenarios/white-collar-12-weeks.json")
+    formal_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     with pytest.raises(IntegrityError, match="missing or is a symbolic link"):
         parse_scenario_document(tmp_path / "absent.json")
     garbage = tmp_path / "garbage.json"
@@ -1166,7 +1168,7 @@ def test_apply_counterfactual_requires_strict_model_and_valid_branch(engine_fact
                      "intervention_sha256": _digest(intervention),
                      "parent_checkpoint_id": "checkpoint-forged"})
     (branch_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    forged = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), branch_dir)
+    forged = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", branch_dir)
     try:
         with pytest.raises(ProtocolError, match="creation evidence is invalid"):
             forged.apply_counterfactual(intervention)
@@ -1207,7 +1209,7 @@ def test_runtime_identity_validation_rejects_each_mismatch(engine_factory) -> No
 
 def test_run_identity_disagreements_rejected_at_create(tmp_path) -> None:
     """运行身份与冻结场景人物/窗口/时区不一致在创建即拒绝。"""
-    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario_path = ENVIRONMENT_ROOT / "scenarios/single-person.json"
     scenario, _ = load_scenario(scenario_path)
     with pytest.raises(IntegrityError, match="agent ids disagree"):
         LifeEngine.create(scenario_path, tmp_path / "run-agents",

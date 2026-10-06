@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -181,7 +183,7 @@ def test_every_frozen_habit_has_a_complete_explicit_native_fixture():
     assert expected == actual and len(expected) == 9
     assert len(CASES) == len({row["name"] for row in CASES})
     assert all(row["chain"] and row["preconditions"] for row in CASES)
-    scenario = json.loads(Path(FIXTURE["scenario"]).read_text(encoding="utf-8"))
+    scenario = json.loads((ENVIRONMENT_ROOT / FIXTURE["scenario"]).read_text(encoding="utf-8"))
     personas = {agent["agent_id"]: agent for agent in scenario["agents"]}
     for row in CASES:
         assert all(step["kind"] and step.get("object_id", step.get("items")) for step in row["chain"])

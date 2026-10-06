@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -281,9 +283,9 @@ def test_real_observation_content_progress_titles(engine_factory) -> None:
     engine.begin_decision_round([observed_context])
     observation = engine.observe(observed_context)
     progress = observation["content_progress"]
-    movies = json.loads(Path("corpora/movies/items.json").read_text(encoding="utf-8"))
+    movies = json.loads((ENVIRONMENT_ROOT / "corpora/movies/items.json").read_text(encoding="utf-8"))
     movie_title = next(row["title"] for row in movies if row["item_id"] == "movie-0001")
-    identity = json.loads(Path("corpora/sintel/media-identity.json").read_text(encoding="utf-8"))
+    identity = json.loads((ENVIRONMENT_ROOT / "corpora/sintel/media-identity.json").read_text(encoding="utf-8"))
 
     assert progress["movie-0001"]["title"] == movie_title
     assert progress["sintel-en-subtitles"]["title"] == identity["title"]

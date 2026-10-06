@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,7 +21,7 @@ from worldmock.evaluation.models import PublicEvidence
 from worldmock.evaluation.scenario import load_scenario
 
 
-FORMAL_SCENARIO = Path(__file__).parents[2] / "scenarios/evaluation.json"
+FORMAL_SCENARIO = ENVIRONMENT_ROOT / "scenarios/evaluation.json"
 
 
 def test_required_metrics_run_on_arbitrary_one_day_window(evaluation_fixture) -> None:

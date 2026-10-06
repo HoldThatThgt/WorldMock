@@ -16,7 +16,7 @@ FEATURE_SOURCES = (
     "src/worldmock/life/error_contract.py", "src/worldmock/life/inventory_recipe.py",
     "src/worldmock/life/request_errors.py",
     "src/worldmock/life/activity_evidence.py", "src/worldmock/life/callable_index.py",
-    "src/worldmock/corpora/storefront.py", "src/worldmock/corpora/storefront_build.py",
+    "src/worldmock/corpora/storefront.py",
     "src/worldmock/life/models.py", "src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",
     "src/worldmock/life/map_models.py", "src/worldmock/life/map_data.py",
     "src/worldmock/life/name_resolution.py", "src/worldmock/life/routing.py",

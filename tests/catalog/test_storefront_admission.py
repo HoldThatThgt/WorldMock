@@ -1,17 +1,22 @@
 """@brief 商品与供给分离后的目录结构和账户准入验证。"""
 
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
+from tests.categories.conftest import raw_object, rules_document
 from worldmock.catalog.admission import ScenarioAccountRef, ScenarioCatalogRefs
-from worldmock.catalog import load_catalog
 from worldmock.catalog.models import ExchangeObject, ObjectDeclaration
+from worldmock.categories.rules import PurchaseTransferRule
 
 
 def product():
-    return load_catalog(Path("catalog")).objects["item-umbrella"].model_dump(mode="json")
+    """@brief 返回无门店价格或库存声明的人工耐用品视图。"""
+    return {
+        "object_id": "umbrella", "name": "Umbrella", "category_id": "product", "object_kind": "product",
+        "attributes": {"effect": "durable", "consumable": False, "use_modes": ["use"]},
+        "effect": "durable", "consumable": False, "use_modes": ["use"], "edges": [],
+        "provenance": raw_object()["provenance"], "version": 1,
+    }
 
 
 def test_durable_product_has_no_fake_purchase_or_exchange_edge():
@@ -37,7 +42,7 @@ def test_product_cannot_smuggle_a_purchase_price_edge():
 
 
 def test_raw_product_cannot_embed_any_exchange_edge():
-    raw = load_catalog(Path("catalog")).raw_objects["item-umbrella"].model_dump(mode="json")
+    raw = raw_object("umbrella", "product")
     with pytest.raises(ValidationError, match="edges"):
         ObjectDeclaration.model_validate({**raw, "edges": []})
 
@@ -58,6 +63,6 @@ def test_implicit_service_role_still_requires_unique_account():
 
 
 def test_purchase_rule_rejects_the_removed_product_price_slot():
-    rule = load_catalog(Path("catalog")).exchange_rules.require("purchase-product")
+    rule = PurchaseTransferRule.model_validate(rules_document()["rules"][0])
     with pytest.raises(ValidationError, match="price_slot"):
         type(rule).model_validate({**rule.model_dump(mode="json"), "price_slot": "price_fen"})

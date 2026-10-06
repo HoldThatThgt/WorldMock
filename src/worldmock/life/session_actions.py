@@ -1262,6 +1262,9 @@ class ActionHandlers:
             (route, _) = travel_context
             (changed_state, payment) = pay_travel_fare(state, self.context.scenario, pending.agent_id, route)
             data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
+        if request.activity_type == ActivityKind.LIFESTYLE:
+            item = next(item for item in self.context.lifestyle_items if item.activity_id == request.target_id)
+            data["effects"] = dict(item.effects)
         activity.data.update(data)
         if request.activity_type == ActivityKind.WATCH:
             activity.media_position_seconds = data["start_position_seconds"]

@@ -1,5 +1,7 @@
 """门店供给整单结算、履约与原子性行为验收。"""
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +25,7 @@ def epoch(text):
 @pytest.fixture
 def storefront_case():
     """从正式冻结地图与目录组装真实领域语义和隔离世界。"""
-    semantics, digest = load_runtime_scenario(Path('scenarios/white-collar-12-weeks.json'))
+    semantics, digest = load_runtime_scenario(ENVIRONMENT_ROOT / 'scenarios/single-person.json')
     scenario = semantics.scenario
     now = epoch('2026-01-05T12:00:00+08:00')
     agent = AgentState(agent_id=1, name='测试人物', location_id='home', balance_account_id='agent:1',

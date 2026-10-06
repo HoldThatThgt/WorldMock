@@ -808,7 +808,7 @@ STATUS_ONLY: dict[str, str] = {
 
 #: 本特性新增或改动的生产文件：撰写时由 `git diff --name-only --diff-filter=AM 26d626b -- src custom scripts tools` 得出后
 #: 冻结（26d626b 是本特性规格初稿的提交，代码与 4a5b0e6 相同）；另一会话的设计文档汇编提交（14a6cfe、185cad7）新增的
-#: scripts/build_design_doc.py 不属于本特性，不列入。延期标记扫描逐个检查这些文件的全文。
+#: scripts/build_design_doc.py 不属于本特性，不列入。环境制作源码已归属数据仓，扫描仅检查仍属引擎的文件。
 FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/agents/life_agent.py",
     "custom/agents/life_feedback.py",
@@ -818,7 +818,6 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "custom/envs/life_env.py",
     "scripts/probe_deepseek_strict.py",
     "scripts/render_day.py",
-    "src/worldmock/corpora/map_prepare.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/goal_metrics.py",
     "src/worldmock/evaluation/public_evidence.py",

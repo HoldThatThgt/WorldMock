@@ -3,6 +3,8 @@ validation 拒绝分支与 opslog 边界。模型客户端全部打桩，零真�
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.run_setup as worldmock_run_setup_module
 
 import asyncio
@@ -34,7 +36,7 @@ from worldmock.run_setup import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 
 
 @pytest.fixture(autouse=True)
@@ -1073,10 +1075,10 @@ def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agent
 
     plain = load_scenario(SCENARIO)[0].agents[0].model_copy(update={"background_story": None})
     scenario = SimpleNamespace(
-        scenario_id="probe", corpus_root=str(ROOT / "corpora"), agents=[plain],
+        scenario_id="probe", corpus_root=str(ENVIRONMENT_ROOT / "corpora"), agents=[plain],
         locations=(), contents=(), games=(), routes=(), supplies=(), phone_simulation_config=None)
     document = validate_persona_coverage(
-        SCENARIO, _scenario=scenario, _corpus_root=ROOT / "corpora",
+        SCENARIO, _scenario=scenario, _corpus_root=ENVIRONMENT_ROOT / "corpora",
         coverage_out=tmp_path / "persona_coverage.json")
     assert document["agents"] == [] and document["input_warnings"] == []
     assert json.loads((tmp_path / "persona_coverage.json").read_text())["threshold"] == 0.8
@@ -1204,18 +1206,11 @@ def test_cli_dispatch_reads_status_and_exports_run(tmp_path, capsys):
         export_store.close()
 
 
-def test_cli_dispatch_delivers_validate_and_prepares_corpora(monkeypatch, tmp_path):
-    """deliver/validate/prepare-corpora 分支连接真实生产模块（协作者打桩）。"""
+def test_cli_dispatch_delivers_and_validates(monkeypatch, tmp_path):
+    """交付和校验分支连接真实生产模块，制作环境数据不再是引擎命令。"""
     from worldmock import cli
     from worldmock import validation as validation_module
     from worldmock.delivery import pipeline as pipeline_module
-    import sys
-    from types import ModuleType
-
-    fetch_module = ModuleType('worldmock.corpora.fetch')
-    fetch_module.prepare_corpora = lambda output: SimpleNamespace(model_dump=lambda **_k: {'entries': 3})
-    monkeypatch.setitem(sys.modules, 'worldmock.corpora.fetch', fetch_module)
-
     monkeypatch.setattr(pipeline_module, "deliver",
                         lambda export, output, root, replays: {"committed": True})
     result = cli._dispatch(cli.build_parser().parse_args(
@@ -1228,9 +1223,8 @@ def test_cli_dispatch_delivers_validate_and_prepares_corpora(monkeypatch, tmp_pa
         ["validate", "--scenario", str(SCENARIO)]))
     assert result == {"valid": True}
 
-    result = cli._dispatch(cli.build_parser().parse_args(
-        ["prepare-corpora", "--output", str(tmp_path / "corpora")]))
-    assert result == {"entries": 3}
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["prepare-corpora", "--output", str(tmp_path / "corpora")])
 
 
 def test_cli_run_command_writes_receipt_and_final_status(monkeypatch, tmp_path):

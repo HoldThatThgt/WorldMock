@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import hashlib
 import json
 import shutil
@@ -32,11 +34,11 @@ def _locked_fake_as2(monkeypatch, tmp_path_factory):
 
 def _fixture(tmp_path):
     project = tmp_path / "project"
-    shutil.copytree(ROOT / "catalog", project / "catalog")
+    shutil.copytree(ENVIRONMENT_ROOT / "catalog", project / "catalog")
     scenarios = project / "scenarios"
     scenarios.mkdir()
-    document = json.loads((ROOT / "scenarios/multi-person-half-day.json").read_text(encoding="utf-8"))
-    document["corpus_root"] = str(ROOT / "corpora")
+    document = json.loads((ENVIRONMENT_ROOT / "scenarios/multi-person-half-day.json").read_text(encoding="utf-8"))
+    document["corpus_root"] = str(ENVIRONMENT_ROOT / "corpora")
     path = scenarios / "scene.json"
     path.write_text(json.dumps(document), encoding="utf-8")
     return path, project / "catalog"

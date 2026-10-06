@@ -48,10 +48,9 @@ def test_quick_check_runs_the_frozen_scope_and_actual_identity(tmp_path, monkeyp
     result = fresh.quick_check(tmp_path, "release", fresh.check_environment())
     assert result["scope"] == "quick" and result["code_sha256"] == "a" * 64
     assert result["checks"] == list(fresh.QUICK_TESTS)
-    assert {"tests/life/test_shared_rules.py", "tests/test_single_source.py", "tests/test_coverage_gate.py"} <= {
+    assert {"tests/catalog/test_engine_package_resources.py", "tests/test_single_source.py", "tests/test_coverage_gate.py"} <= {
         item for item in calls[0]}
-    if fresh.sys.platform.startswith("linux"):
-        assert calls[1][-1] == "tests/corpora/test_textworld_runtime.py"
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("mutation", ["code_sha256", "source_commit", "passed"])

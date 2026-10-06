@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import copy
 import logging
 import os
@@ -45,7 +47,7 @@ from custom.agents.life_agent import (
 from custom.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
 from custom.agents.life_memory_store import WorldMockMemoryStore
 from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.engine_context import affordance_contract
 from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, ReportStatusRequest, StartActivityRequest, deepseek_strict_schema
@@ -66,7 +68,7 @@ _BASE_ACTION_NAMES = set(REQUEST_MODELS) - {"recall_task_summary"}
 _READ_QUERY_NAMES = _MEMORY_TOOL_NAMES | {"query_world", "recall_task_summary"}
 
 #: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
-_AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
+_AFFORDANCE_CONTRACT = affordance_contract(engine_affordances())
 
 _OBSERVED_AT = datetime(2026, 1, 5, tzinfo=timezone.utc)
 _NOW_EPOCH = int(_OBSERVED_AT.timestamp())
@@ -363,6 +365,19 @@ def test_session_names_are_not_recall_names() -> None:
     assert agent.validate_react_decisions([recall(_TASK)], False) == ""
     assert agent.validate_react_decisions([recall(_HOME_SESSION)], False) == (
         f"NAME_NOT_FOUND: The name {_HOME_SESSION} is not known.")
+
+
+def test_affordance_registry_fingerprint_reads_packaged_rule_bytes(monkeypatch, tmp_path) -> None:
+    """@brief 源码目录没有正式环境时，规则指纹仍严格绑定实际引擎包资源的原始字节。"""
+    import hashlib
+    from importlib.resources import files
+
+    import custom.agents.life_agent as life_agent_module
+
+    expected = hashlib.sha256(files("worldmock.data").joinpath("affordances.toml").read_bytes()).hexdigest()
+    monkeypatch.setattr(life_agent_module, "__file__", str(tmp_path / "custom" / "agents" / "life_agent.py"))
+    assert not (tmp_path / "catalog").exists()
+    assert life_agent_module.affordance_registry_sha256() == expected
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -1158,7 +1173,7 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
     from worldmock.life.world_setup import load_scenario
     from worldmock.run_setup import _agent_specs
 
-    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
     config = _agent_specs(scenario, persona_compiler=lambda _: None)[0]["config"]
     responses = [_ModelResponse(f"bad-{index}", "invented_game", "{}") for index in range(12)]
     responses.append(_ModelResponse("action", "start_activity",

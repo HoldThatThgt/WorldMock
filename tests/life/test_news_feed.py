@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
-from pathlib import Path
 
 import pytest
 from agentsociety2.society import DirectToolCall
@@ -12,10 +13,8 @@ from tests.life.conftest import (activity_name, advance_next, bring_to_window, c
                                  context, pause_request, report_request, stage_day_plan, wake_by_mail,
                                  start_request)
 from tests.life.test_day_planning import _decide
-from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
 from worldmock.life.readable import duration_phrase
-from worldmock.life.content import load_subtitles
 from worldmock.life.observe import _content_catalog
 from worldmock.life.models import active_activities, ContentProgress
 from worldmock.life.world_setup import load_scenario
@@ -23,7 +22,7 @@ from worldmock.life.world_setup import load_scenario
 FEED_ID = "news-feed"
 FEED_RATE = 0.25
 FEED_PREFERENCE = 0.6
-SCENARIOS = ("multi-person.json", "white-collar-12-weeks.json")
+SCENARIOS = ("multi-person.json", "single-person.json")
 
 
 def _feed_relief_rate(body) -> float:
@@ -35,7 +34,7 @@ def _feed_relief_rate(body) -> float:
 
 def _items() -> list[dict]:
     """读取冻结的信息流条目。"""
-    return json.loads(Path("corpora/feed/items.json").read_text(encoding="utf-8"))
+    return json.loads((ENVIRONMENT_ROOT / "corpora/feed/items.json").read_text(encoding="utf-8"))
 
 
 def _act(engine, round_id: str, tool_name: str, request):
@@ -73,68 +72,27 @@ def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
         assert conclude_pending(engine, f"wait-{n}-end").status == "completed"
 
 
-def test_feed_corpus_freeze_matches_manifest_and_timeline() -> None:
-    """冻结的 1000 条信息流与 manifest 哈希和时间轴逐条一致。"""
-    manifest = load_manifest(Path("corpora"))
-    paths = {entry.path for entry in manifest.entries}
-    assert {"feed/items.json", "feed/news-feed.srt"} <= paths
-    feed_entries = {entry.purpose for entry in manifest.entries if entry.path.startswith("feed/")}
-    assert feed_entries == {"feed"}
-    items = _items()
-    assert len(items) == 1000
-    assert [item["item_id"] for item in items] == [f"feed-{n:04d}" for n in range(1, 1001)]
-    for item in items:
-        chars = len(item["title"]) + len(item["body"])
-        # 信息流纳入内容品类准入（CONTENT_CORPORA）后逐条补齐元数据三字段。
-        assert set(item) == {"item_id", "title", "body", "category",
-                             "estimated_read_seconds", "genre", "language", "age_rating"}
-        assert len(item["title"]) >= 8
-        assert len(item["body"]) >= 30
-        assert 150 <= chars <= 300
-        assert item["estimated_read_seconds"] == round(chars / 5)
-        assert 30 <= item["estimated_read_seconds"] <= 60
-    scenario, _ = load_scenario("scenarios/white-collar-12-weeks.json")
-    feed = next(item for item in scenario.contents if item.item_id == FEED_ID)
-    cues = load_subtitles(feed, Path("corpora"))
-    assert len(cues) == len(items)
-    assert cues[-1].end_seconds == feed.duration_seconds
-    assert feed.duration_seconds == sum(item["estimated_read_seconds"] for item in items)
-    for cue, item in zip(cues, items):
-        assert cue.text == f'{item["title"]}\n{item["body"]}'
-        assert cue.end_seconds - cue.start_seconds == item["estimated_read_seconds"]
-
-
 def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factory) -> None:
-    """两份场景都把信息流接入 contents，人物目录可见碎片化条目。"""
+    """内容条目经真实加载后，目录原样投影场景字段与实际字幕分段。"""
     for name in SCENARIOS:
-        scenario, _ = load_scenario(f"scenarios/{name}")
+        scenario, _ = load_scenario(ENVIRONMENT_ROOT / "scenarios" / name)
         feed = next(item for item in scenario.contents if item.item_id == FEED_ID)
         assert feed.kind == "news_feed"
-        assert feed.timeline_path == "feed/news-feed.srt"
-        assert feed.entertainment_relief_per_hour == FEED_RATE
-        assert feed.experience_label == "casual_news_feed_scroll"
-        # docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」：随机偏好浮点删除——场景人物不再携带任何偏好浮点键。
-        doc = json.loads(Path(f"scenarios/{name}").read_text(encoding="utf-8"))
-        assert all("entertainment_preferences" not in agent for agent in doc["agents"])
     engine = engine_factory()
-    # 完整目录供引擎形成轮转展示窗口；这里锁定两个基线条目的分段元数据。
     agent = engine.context.state.agents[1]
     catalog = _content_catalog(engine.context.scenario, engine.context.rules.subtitles,
                                engine.context.rules.content_titles, agent.content_progress)
-    feed_catalog = [row for row in catalog if row["kind"] == "news_feed"]
-    sintel_catalog = [row for row in catalog if row["kind"] == "subtitle_experience"]
-    expected_entries = [
-        {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
-         "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
-         "experience_label": "subtitle_experience", "title": "Sintel",
-         "segments_total": 26, "typical_segment_seconds": 24.2},
-        {"item_id": FEED_ID, "kind": "news_feed",
-         "duration_seconds": 38032, "entertainment_relief_per_hour": FEED_RATE,
-         "experience_label": "casual_news_feed_scroll", "title": "中文新闻流（1000 条标题+摘要）",
-         "segments_total": 1000, "typical_segment_seconds": 38.0},
-    ]
-    assert expected_entries[1] in feed_catalog
-    assert expected_entries[0] in sintel_catalog
+    assert {row["item_id"] for row in catalog} == {item.item_id for item in engine.context.scenario.contents}
+    for item in engine.context.scenario.contents:
+        row = next(entry for entry in catalog if entry["item_id"] == item.item_id)
+        cues = engine.context.rules.subtitles[item.item_id]
+        assert row == {
+            "item_id": item.item_id, "kind": item.kind, "duration_seconds": item.duration_seconds,
+            "entertainment_relief_per_hour": item.entertainment_relief_per_hour,
+            "experience_label": item.experience_label, "title": item.title,
+            "segments_total": len(cues),
+            "typical_segment_seconds": round(item.duration_seconds / len(cues), 1),
+        }
 
 
 def _seed_feed_taste(engine) -> None:

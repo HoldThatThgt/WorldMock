@@ -118,16 +118,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="WorldMock static reachability check")
     parser.add_argument("--scenario", type=Path, default=None,
                         help="scenario file whose contents[] entries are also checked")
-    parser.add_argument("--corpora", type=Path, default=REPO_ROOT / "corpora",
-                        help="corpora root (default: repository corpora/)")
+    parser.add_argument("--corpora", type=Path, required=True,
+                        help="explicit corpora root")
+    parser.add_argument("--locations", required=True,
+                        help="locations JSON path relative to the corpora root")
     parser.add_argument("--threshold", type=int, default=DEFAULT_RETRIEVAL_INDEX_THRESHOLD,
                         help="retrieval_index_threshold recorded in the index-path report")
     arguments = parser.parse_args()
     corpora_root = arguments.corpora.resolve()
+    if not corpora_root.is_dir():
+        parser.error(f"corpora root does not exist or is not a directory: {arguments.corpora}")
+    relative = Path(arguments.locations)
+    if relative.is_absolute() or ".." in relative.parts or not (corpora_root / relative).is_file():
+        parser.error("locations must name an existing file relative to the corpora root")
     entries = corpus_entries(corpora_root)
     if arguments.scenario is not None:
         entries = entries + scenario_entries(arguments.scenario.resolve())
-    payload = reachability_report(entries, tuple(place_kinds(corpora_root).values()),
+    payload = reachability_report(entries, tuple(place_kinds(corpora_root, arguments.locations).values()),
                                   arguments.threshold)
     print(json.dumps({key: value for key, value in payload.items() if key != "entries"},
                      ensure_ascii=False, indent=2, sort_keys=True))

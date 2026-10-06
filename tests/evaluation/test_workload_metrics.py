@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -341,7 +343,7 @@ def test_workday_inputs_take_shifts_tasks_home_windows_and_interval_from_the_sce
         task = next(item for item in document["tasks"] if item["task_id"] == "backend-piece-2026-01-05")
         task.update(assignee_agent_id="2", appointment={"starts_at": "2026-01-05T15:00:00+08:00", "reason": "现场"})
 
-    path = _mutated_scenario(Path("scenarios/multi-person.json"), mutate, tmp_path / "scenario")
+    path = _mutated_scenario(ENVIRONMENT_ROOT / "scenarios/multi-person.json", mutate, tmp_path / "scenario")
     document, _ = parse_scenario_document(path)
     card = {"time_anchors": {"leave_work": {"start_hour": 18.0, "end_hour": 18.5}, "arrive_home": None}}
     inputs = workday_inputs(document, {1: card})

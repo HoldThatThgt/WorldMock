@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from worldmock.life.content import restarts_from_beginning
-from worldmock.life.durations import capped_duration_seconds, content_duration_seconds
+from worldmock.life.durations import capped_duration_seconds, content_remaining_seconds
 from worldmock.life.vocabulary import CONTENT_WAYS, WAYS
 from worldmock.life.interaction_menu import binding_action
 from worldmock.life.object_labels import object_label
@@ -73,7 +73,7 @@ def _content_rows(context: LayerContext) -> list[dict[str, Any]]:
         restart = restarts_from_beginning(position, item.duration_seconds)
         way = CONTENT_WAYS[(item.kind == "podcast_episode", restart)]
         kind = "game" if item.kind == GAME_CATEGORY else "content"
-        seconds = content_duration_seconds(item, progress)
+        seconds = content_remaining_seconds(item, progress)
         rows.append(_row(context, (object_label(kind, title), kind, item.item_id), way, duration_phrase(seconds)))
     return rows
 

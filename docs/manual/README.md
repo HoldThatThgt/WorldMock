@@ -1,6 +1,8 @@
 <a name="readme-用户配置手册"></a>
 # 用户配置手册
 
+WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结果。
+以下命令在 WorldMock 根目录执行，WorldMock-Dataset 与它位于同一父目录；环境路径均显式传入。
 先按[运行配置](runtime.md#runtime-准备环境)建立并激活 WorldMock 环境；本手册的 `python` 和 `worldmock` 命令均在该环境中执行。
 
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
@@ -16,9 +18,9 @@
 | 你想改变什么 | 阅读页面 | 主要输入 |
 | --- | --- | --- |
 | 人物是谁、习惯和兴趣、作息（含下班与到家）、联系人、睡眠需要 | [人物画像](personas.md#personas-人物画像) | 场景的 `agents`，画像正文 |
-| 模拟日期、人数、余额、工作安排、任务、消息、账单、允许的行动 | [生活场景](scenarios.md#scenarios-生活场景) | `scenarios/*.json` |
+| 模拟日期、人数、余额、工作安排、任务、消息、账单、允许的行动 | [生活场景](scenarios.md#scenarios-生活场景) | `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/*.json` |
 | 地点、路线、门店、商品、内容、生活活动和语料 | [世界素材](resources.md#resources-定义地点门店供给与世界素材) | 地图输入、语料文件、目录构建输入 |
-| 品类、交换规则、身体规则、动机和画像映射 | [规则配置](rules.md#rules-调整世界规则与人物动机参数) | `catalog/` 下的 JSON、JSONL、TOML |
+| 品类、交换规则、身体参数、动机和画像映射 | [规则配置](rules.md#rules-调整世界规则与人物动机参数) | Dataset 环境的 `catalog/` 与场景人物参数；通用算法规则由引擎包维护 |
 | 模型凭据、新建运行、恢复和反事实条件 | [运行配置](runtime.md#runtime-运行配置) | 私密凭据、命令参数、干预 JSON |
 | 把足迹加工成训练数据与规则测试数据 | [数据生成](delivery.md#delivery-自定义训练数据交付) | `labelkit-projects/` |
 | 评估数据、统计设置、人工参照与盲评 | [真实性评估](evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、评审文件 |
@@ -26,8 +28,9 @@
 ```mermaid
 flowchart LR
     PERSON[人物画像] --> SCENE[生活场景]
-    WORLD[地图、商品与内容] --> SCENE
-    RULES[品类与规则] --> SCENE
+    WORLD[Dataset：地图、商品与内容] --> SCENE
+    RULES[Dataset：品类与环境系数] --> SCENE
+    PACKAGE[WorldMock 包：固定通用规则] --> CHECK
     SCENE --> CHECK[离线检查与模型校验]
     KEY[模型凭据] --> RUN[新建运行]
     CHECK --> RUN
@@ -39,9 +42,9 @@ flowchart LR
 <a name="readme-创建自己的第一个场景"></a>
 ## 创建自己的第一个场景
 
-命令均在仓库根目录执行，环境安装见[运行配置](runtime.md#runtime-运行配置)。
-先沿用仓库已有地图、素材和规则，复制一个生活场景，再修改人物；需要扩展世界时再读对应页面。
-以下脚本从白领场景创建一天的场景文件，保留截止时刻落在当天的任务和有关消息，过滤窗口外预排事件。
+命令均在 WorldMock 根目录执行，环境安装见[运行配置](runtime.md#runtime-运行配置)。
+先沿用 Dataset 发布的地图、素材和环境规则，复制一个生活场景，再修改人物；需要扩展世界时再读对应页面。
+以下脚本从单人物场景创建一天的场景文件，保留截止时刻落在当天的任务和有关消息，过滤窗口外预排事件。
 它只写新配置，不调用模型，也不启动模拟。
 
 ```bash
@@ -50,8 +53,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-source = Path("scenarios/white-collar-12-weeks.json")
-target = Path("scenarios/my-persona-day.json")
+source = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json")
+target = Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json")
 scene = json.loads(source.read_text(encoding="utf-8"))
 scene["scenario_id"] = "my-persona-day"
 scene["end_at"] = "2026-01-06T00:00:00+08:00"
@@ -89,7 +92,7 @@ python - <<'PY'
 from pathlib import Path
 from worldmock.life.world_setup import load_scenario
 
-scene, digest = load_scenario(Path("scenarios/my-persona-day.json"))
+scene, digest = load_scenario(Path("../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json"))
 print(scene.scenario_id, len(scene.agents), digest)
 PY
 ```
@@ -99,8 +102,8 @@ PY
 
 ```bash
 worldmock validate \
-  --scenario scenarios/my-persona-day.json \
-  --coverage-out /tmp/my-persona-day-coverage.json
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --coverage-out .work/my-persona-day-coverage.json
 ```
 
 校验会把运行输入警告逐条写到标准错误流（`Input warning <警告码> (agent <人物编号>): <说明>`），并列在输出 JSON 的
@@ -111,7 +114,7 @@ worldmock validate \
 
 ```bash
 worldmock run \
-  --scenario scenarios/my-persona-day.json \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
   --output runs/my-persona-day
 ```
 
@@ -121,18 +124,22 @@ worldmock run \
 <a name="readme-文件放在哪里"></a>
 ## 文件放在哪里
 
-当前加载方式依赖目录位置。推荐保持下面的布局：
+保持一个环境内 `scenarios/`、`catalog/`、`corpora/` 并列；推荐保持下面的双仓布局：
 
 ```text
-WorldMock/
-├── scenarios/                 # 自定义场景与评估配置
-├── catalog/                   # 场景同一项目下的冻结目录与规则
-├── corpora/                   # 语料及地图快照
-├── labelkit-projects/          # 数据生成项目
-└── runs/                      # 程序生成的运行结果
+project/
+├── WorldMock/
+│   ├── src/worldmock/data/     # 引擎包的固定通用规则
+│   ├── labelkit-projects/      # 数据生成项目
+│   └── runs/                  # 程序生成的运行结果
+└── WorldMock-Dataset/
+    └── environment/zhangjiang-baseline/
+        ├── scenarios/         # 正式及自定义场景
+        ├── catalog/           # 具体环境的目录与系数
+        └── corpora/           # 语料、地图与来源快照
 ```
 
-场景从自身目录的上一级寻找 `catalog/`，所以不能把一个场景文件随意复制到其他目录后就期待原样运行。
+加载器在场景文件上两级的环境根目录下寻找 `catalog/`，所以不能把一个场景文件随意复制到其他目录后就期待原样运行。
 `corpus_root` 相对场景文件所在目录解析；地图、任务和内容文件继续相对语料根目录解析。
 命令的 `--output` 相对当前工作目录解析。
 

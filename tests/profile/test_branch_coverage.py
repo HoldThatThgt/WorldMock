@@ -1,11 +1,12 @@
 """@brief C4f 分支覆盖补测：textgen/mapper/models/compile/extractor。
 
-渲染空习惯/空口味卡片、映射路径解析分支、模型格点拒绝、编译入口反例与
+渲染空习惯/空口味卡片、映射包资源读取、模型格点拒绝、编译入口反例与
 提取层 HTTP 非 200 重试（requests 全程打桩）。
 """
 
 from __future__ import annotations
 
+from importlib.resources import files
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +15,7 @@ from tests.profile.conftest import make_card, make_payload
 from worldmock.errors import WorldMockError
 from worldmock.profile import extractor
 from worldmock.profile.compile import LegacyTemplateFieldError, compile_persona
-from worldmock.profile.mapper import default_mapping_path, load_mapping_config
+from worldmock.profile.mapper import load_mapping_config
 from worldmock.profile.models import (
     BigFiveProfile,
     HabitSignature,
@@ -75,21 +76,34 @@ def test_tastes_rejects_blank_entries():
 # ---------------------------------------------------------------------------
 
 
-def test_default_mapping_path_honors_environment_override(monkeypatch):
-    monkeypatch.setenv("WORLDMOCK_PERSONA_MAPPING", "/custom/mapping.toml")
-    assert default_mapping_path() is not None
-    import pathlib
-    assert default_mapping_path() == pathlib.Path("/custom/mapping.toml")
+def test_default_mapping_ignores_removed_environment_override(monkeypatch):
+    """@brief 旧环境变量不能改变引擎的通用人物映射规则。"""
+    monkeypatch.setenv("WORLDMOCK_PERSONA_MAPPING", "missing-persona-mapping.toml")
+    assert load_mapping_config()["version"] == 2
 
 
-def test_default_mapping_path_fails_closed_when_no_candidate_exists(monkeypatch,
-                                                                    tmp_path):
-    import worldmock.profile.mapper as mapper
-    monkeypatch.delenv("WORLDMOCK_PERSONA_MAPPING", raising=False)
+def test_default_mapping_ignores_working_directory_rules(monkeypatch, tmp_path):
+    """@brief 当前目录存在同名规则时仍从引擎包读取，不进行路径搜索。"""
+    directory = tmp_path / "catalog/rules"
+    directory.mkdir(parents=True)
+    (directory / "persona-mapping.toml").write_text("version = 0\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(mapper, "RULES_PATH", "rules/definitely-missing.toml")
-    with pytest.raises(FileNotFoundError, match="persona mapping config not found"):
-        default_mapping_path()
+    assert load_mapping_config()["version"] == 2
+
+
+def test_default_mapping_fails_when_package_rule_is_missing(monkeypatch, tmp_path, caplog):
+    """@brief 包规则缺失立即报错并记录日志，不读取当前目录内的规则。"""
+    import worldmock.profile.mapper as mapper
+
+    directory = tmp_path / "catalog/rules"
+    directory.mkdir(parents=True)
+    text = files("worldmock.data").joinpath("persona-mapping.toml").read_text(encoding="utf-8")
+    (directory / "persona-mapping.toml").write_text(text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mapper, "files", lambda package: tmp_path / "missing-package")
+    with pytest.raises(FileNotFoundError, match="persona-mapping.toml"):
+        load_mapping_config()
+    assert "Failed to load persona mapping rules" in caplog.text
 
 
 def test_map_world_dynamics_accepts_explicit_config():

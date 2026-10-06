@@ -15,6 +15,11 @@
 跨模块字段与调用合同见[接口合同](../CONTRACTS.md#contracts-worldmock-接口合同)，文档权威归属见[文档入口](../INDEX.md#index-worldmock-文档入口)。
 职责划分不代表对应实现已经拆成独立服务，也不构成实现完成或真实运行验收。
 
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
+
 <a name="design-01-architecture-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
 
@@ -340,8 +345,8 @@ flowchart LR
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
 | 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../custom/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物规格](../dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像) |
-| 资源引擎 | [目录定义与加载](../../src/worldmock/catalog)、[语料整理](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
-| 交换引擎 | [规则声明](../../catalog)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
+| 资源引擎 | [目录定义与加载](../../src/worldmock/catalog)、[通用语料加载](../../src/worldmock/corpora)、[内容读取](../../src/worldmock/life/content.py)及检索、呈现模块 | [资源引擎](03-resource-engine.md#resource-engine-worldmock-产品设计说明书-资源引擎) |
+| 交换引擎 | [固定活动声明](../../src/worldmock/data/affordances.toml)及 Dataset 环境交换规则、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md#exchange-engine-worldmock-产品设计说明书-交换引擎) |
 | 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md#simulation-engine-worldmock-产品设计说明书-模拟引擎) |
 | 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎) |
 | 数据交付与评估 | [交付模块](../../src/worldmock/delivery)、[评估模块](../../src/worldmock/evaluation) | [数据交付](06-delivery.md#delivery-worldmock-产品设计说明书-数据交付)、[行为评估](07-evaluation.md#evaluation-worldmock-产品设计说明书-行为评估) |
@@ -380,14 +385,14 @@ Python、AgentSociety 2、LabelKit、SQLite 与模型服务的版本和运行绑
 个人事务与工作安排规格按阶段发布，各结构只在首次触及形状的阶段升一次：个人事务阶段把未完成事务写进人物状态，
 世界结构升 9、质量报告结构升 4，三个控制请求增必填的 `errands`；旧检查点与缺 `errands` 的旧控制请求按版本或缺字段拒绝，
 不创建迁移或兼容读取路径。工作安排阶段场景结构升 5（人物配置增必填可空的 `work_schedule` 与可选的下班、到家窗口），卡片结构升 3、抽取提示为 `card-v3`；
-旧场景按版本拒绝，旧结构化卡片因缺下班、到家两个必填键被拒；仓库三份场景同批显式写出 `work_schedule`，`scenario_sha256` 随之改变。
+旧场景按版本拒绝，旧结构化卡片因缺下班、到家两个必填键被拒；当时三份场景同批显式写出 `work_schedule`，`scenario_sha256` 随之改变。
 查询阶段只更新 `tool_schema_sha256` 与 `code_sha256`；旧四键查询请求按缺字段拒绝。
 [让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)的班次与休息时段起止唤醒只更新 `code_sha256`：
-`prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 都不变，没有声明工作安排的场景行为不变。
-同一规格的系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 与 `code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 不变；
+`prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 6 都不变，没有声明工作安排的场景行为不变。
+同一规格的系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 与 `code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 6 不变；
 改写之前的运行按身份拒绝恢复与重放，不创建兼容读取路径；零点计划模板第三、五、六条的改写只更新 `code_sha256`。
 [同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 让暂停的活动不再占名额，只更新 `code_sha256`：
-`prompt_sha256`、`tool_schema_sha256`、目录摘要、世界结构 9（受限轮阶段闭集仍为五个值）、质量报告结构 4 与场景结构 5 都不变；落地前后的运行不可合并比较。
+`prompt_sha256`、`tool_schema_sha256`、目录摘要、世界结构 9（受限轮阶段闭集仍为五个值）、质量报告结构 4 与场景结构 6 都不变；落地前后的运行不可合并比较。
 
 ```mermaid
 flowchart LR
@@ -484,9 +489,11 @@ flowchart TD
 | v1.10 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D1-20、D1-21）：`query_world` 六键请求、来源与可执行筛选、结果不附候选；查询阶段只更新工具与代码身份，写在「状态与记录」分阶段段落的段末（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入）；文件头修订行改为已落地阶段 1、2 与阶段 4 |
 | v1.11 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D1-15–D1-19）：模拟引擎职责补上班安排求值；场景配置补工作安排与作息覆盖；状态与记录写明场景结构 5、卡片结构 3 与旧场景、旧卡片的拒绝；行为评估另读工作安排与作息窗口；「状态与记录」分阶段段落里工作安排阶段一句排在个人事务阶段与查询阶段之间；文件头修订行改为已落地阶段 1–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.12 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D1-27）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「3.3 事件驱动的时间推进」的边界清单补清醒人物的班次与休息时段起止，起止只在当秒给声明了该工作安排、此刻清醒的人物一次决策机会，活动照常继续，睡眠中的人物不计入它们的边界候选、不形成静默边界，睡过的起止不补；「6.2 状态与记录」分阶段身份补班次边界唤醒只更新 `code_sha256`，两个提示指纹、世界结构 9、质量报告结构 4 与场景结构 5 不变；版本表去掉隔开末两行的空行；文件头增该规格修订行，版本改为 v1.14 |
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2 同步：「6.2 状态与记录」分阶段身份补系统层第 7、14、15、16 条原位改写（仍为十八条）使 `prompt_sha256` 与 `code_sha256` 随之改变，`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 不变，改写之前的运行按身份拒绝恢复与重放、不创建兼容读取路径；文件头修订行补「6.2 状态与记录」（阶段 2） |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 同步：「6.2 状态与记录」分阶段身份补零点计划模板第三、五、六条的改写只更新 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、世界结构 9、质量报告结构 4 与场景结构 5 不变；文件头修订行改为按节注明阶段，「6.2 状态与记录」补阶段 3 |
-| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「2.3 状态归属与写入边界」的两个活动名额只由进行中与待收尾的活动各占一个，暂停的不占，恢复暂停的活动要有空名额；「6.2 状态与记录」分阶段身份补该阶段只更新 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录摘要、世界结构 9、质量报告结构 4 与场景结构 5 不变；文件头补修订说明，版本升为 v1.15 |
+| 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
+| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1 同步：「2.3 状态归属与写入边界」的两个活动名额只由进行中与待收尾的活动各占一个，暂停的不占，恢复暂停的活动要有空名额；「6.2 状态与记录」分阶段身份补该阶段只更新 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录摘要、世界结构 9、质量报告结构 4 与场景结构 6 不变；文件头补修订说明，版本升为 v1.15 |

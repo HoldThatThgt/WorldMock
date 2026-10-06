@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import re
 from dataclasses import replace
@@ -43,7 +45,7 @@ def test_blind_packets_are_deterministic_and_hide_source_identity(evaluation_fix
 
 
 def test_formal_item_selection_covers_twelve_weeks_and_every_special_date() -> None:
-    scenario = load_scenario(Path(__file__).parents[2] / "scenarios/evaluation.json")
+    scenario = load_scenario(ENVIRONMENT_ROOT / "scenarios/evaluation.json")
     empty = DatasetView("test", "test", "test", scenario.window, (), (), (), {}, {})
     support = {"shared_categories": [], "shared_channels": []}
 

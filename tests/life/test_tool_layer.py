@@ -12,6 +12,8 @@ validate_react_decisions 都返回空串（列出即可提交），并经宿主�
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import worldmock.life.engine_context as worldmock_life_engine_context_module
 
 import json
@@ -287,12 +289,12 @@ def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path)
         """第二款游戏改用第一款的名称。"""
         document["games"][1]["title"] = document["games"][0]["title"]
 
-    games = json.loads(Path("scenarios/white-collar-12-weeks.json").read_text(encoding="utf-8"))["games"]
+    games = json.loads((ENVIRONMENT_ROOT / "scenarios/single-person.json").read_text(encoding="utf-8"))["games"]
     with pytest.raises(IntegrityError) as failure:
-        _custom_engine("white-collar-12-weeks.json", mutate, tmp_path / "load", "repeated-names")
+        _custom_engine("single-person.json", mutate, tmp_path / "load", "repeated-names")
     assert str(failure.value) == (f"Agent 1 would see non-unique object labels: '游戏：{games[0]['title']}' from "
                                   f"game:{games[0]['game_id']}, game:{games[1]['game_id']}")
-    engine = _custom_engine("white-collar-12-weeks.json", lambda document: None, tmp_path / "runtime", "runtime-names")
+    engine = _custom_engine("single-person.json", lambda document: None, tmp_path / "runtime", "runtime-names")
     try:
         stage_day_plan(engine)
         # 两款都在本轮游戏窗口里的游戏改成同名（窗口顺序由排序键与轮转决定，改名不改变顺序）。
@@ -389,7 +391,7 @@ def test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admissio
         """首个任务的截止改为 17:30。"""
         document["tasks"][0]["due_at"] = work_contracts._DEADLINE
 
-    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "late-resume")
+    engine = _custom_engine("single-person.json", mutate, tmp_path, "late-resume")
     try:
         work_contracts._stage_office(engine, work_contracts._clock("17:20:00"))
         work_id = work_contracts._start_work(engine, "late-start")
@@ -599,7 +601,7 @@ def test_overdue_task_stays_listed_and_its_submission_is_refused_alike(tmp_path,
         """首个任务的截止改为 17:30。"""
         document["tasks"][0]["due_at"] = work_contracts._DEADLINE
 
-    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "overdue")
+    engine = _custom_engine("single-person.json", mutate, tmp_path, "overdue")
     try:
         work_contracts._stage_office(engine, work_contracts._clock("17:30:01"))
         observed = engine.observe(context(engine, "overdue-seen"))

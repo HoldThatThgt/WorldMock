@@ -8,6 +8,8 @@ report_anchor_at、session_ids、name 与从会话移来的任务关联和自述
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from pathlib import Path
 
 import pytest
@@ -470,7 +472,7 @@ def test_run_with_version_7_world_state_is_rejected_on_open(engine_factory):
     run_dir = engine.context.store.run_dir
     engine.close()
     with pytest.raises(ValidationError, match="schema_version") as caught:
-        LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+        LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     _assert_only_schema_version_mismatch(caught.value)
 
 
@@ -498,7 +500,7 @@ def test_run_with_version_8_world_state_is_rejected_on_open(engine_factory):
     run_dir = engine.context.store.run_dir
     engine.close()
     with pytest.raises(ValidationError, match="schema_version") as caught:
-        LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+        LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
     _assert_only_schema_version_mismatch(caught.value)
 
 

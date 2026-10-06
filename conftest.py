@@ -28,12 +28,20 @@ def pytest_addoption(parser):
     group.addoption("--worldmock-manifest")
     group.addoption("--worldmock-selected")
     group.addoption("--worldmock-receipt")
+    group.addoption("--environment-root", type=Path, help="explicit published environment for behavior regression")
 
 
 def pytest_configure(config):
     """@brief 初始化本进程回执；标记在 pyproject.toml 中统一声明。"""
     config._worldmock_collected = []
     config._worldmock_reports = {}
+    if config.getoption("--environment-root") is not None:
+        from tests.data_paths import select_environment
+
+        try:
+            select_environment(config.getoption("--environment-root"))
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from error
 
 
 def pytest_collection_modifyitems(config, items):

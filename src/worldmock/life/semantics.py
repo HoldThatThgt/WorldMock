@@ -46,7 +46,7 @@ from worldmock.categories import (
     evaluate_purchase,
     evaluate_travel_fare,
 )
-from worldmock.catalog.affordances import AffordanceView, default_affordances
+from worldmock.catalog.affordances import AffordanceView, engine_affordances
 from worldmock.errors import IntegrityError
 from worldmock.life.map_data import select_map
 from worldmock.life.map_models import MapDataset
@@ -93,7 +93,7 @@ EXTERNAL_ROLE_PREFIX = "external:"
 #: 引擎会按键读取的封闭 MET 键集合（body 结算按活动名查表）——自可供性
 #: 注册表 kinds.*.met_key 派生（M1：字面常量已删，注册表即事实；含
 #: travel:{mode} 模板的封闭展开域 travel:driving/travel:walking）。
-_AFFORDANCES = default_affordances()
+_AFFORDANCES = engine_affordances()
 ENGINE_ACTIVITY_MET_KEYS = _AFFORDANCES.met_closed_keys
 #: 娱乐缓解表键集（wait 走被动缓解：边等边刷手机/听点什么，结算在 body.py
 #: 的 wait 分支）——自注册表 relief.channel ≠ none 的活动类型派生。
@@ -137,7 +137,7 @@ class ScenarioSemantics:
     motivation_transforms: MotivationTransforms | None = None
     #: 可供性注册表派生视图（assemble_semantics 按场景目录加载并挂入；
     #: 下游各层经 semantics 访问，不直接读注册表文件）。
-    affordances: AffordanceView = field(default_factory=default_affordances)
+    affordances: AffordanceView = field(default_factory=engine_affordances)
     #: 购买渠道（profile.coverage_apps.PurchaseChannel，
     #: docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店 ）
     #: ：load_runtime_scenario 从
@@ -280,7 +280,7 @@ def assemble_semantics(
     """
 
     validate_assortments(map_dataset, catalog)
-    view = default_affordances() if affordances is None else affordances
+    view = engine_affordances() if affordances is None else affordances
     pinned = (document.catalog_version.major, document.catalog_version.minor)
     loaded = (catalog.version_major, catalog.version_minor)
     if pinned != loaded:
@@ -481,7 +481,7 @@ def _runtime_payload(
     locations, routes, supplies = select_map(dataset, document)
     return RuntimeScenario.model_validate(
         {
-            "schema_version": 5, "map_dataset": dataset, "scenario_id": document.scenario_id,
+            "schema_version": 6, "map_dataset": dataset, "scenario_id": document.scenario_id,
             "timezone": document.timezone, "start_at": document.start_at, "end_at": document.end_at,
             "random_seed": document.random_seed,
             "activity_feedback_seconds": document.activity_feedback_seconds,
@@ -779,7 +779,7 @@ def _activity_met_map(values, label: str, view: AffordanceView) -> dict[str, flo
 
 def _check_lifestyle_declarations(document: LifeScenario, body: BodyConfig, view: AffordanceView | None = None) -> None:
     """@brief 人物声明启用的生活活动必须存在于目录 MET 表（fail-closed）。"""
-    prefix = (default_affordances() if view is None else view).met_open_prefixes[0]
+    prefix = (engine_affordances() if view is None else view).met_open_prefixes[0]
     known = {key[len(prefix) :] for key in body.activity_met if key.startswith(prefix)}
     for agent in document.agents:
         if agent.lifestyle_activities is None:

@@ -22,8 +22,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="worldmock", description="Auditable AS2 life simulation")
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[2])
     commands = parser.add_subparsers(dest="command", required=True)
-    prepare = commands.add_parser("prepare-corpora", help="fetch and validate the frozen source corpus")
-    prepare.add_argument("--output", type=Path, required=True)
     validate = commands.add_parser("validate", help="validate scenario, corpus, dependencies, and delivery contracts")
     validate.add_argument("--scenario", type=Path, required=True)
     validate.add_argument("--coverage-out", type=Path,
@@ -123,9 +121,6 @@ def _dispatch(arguments) -> dict:
         from worldmock.validation import validate_project
         return validate_project(arguments.project_root, arguments.scenario,
                                 coverage_out=arguments.coverage_out)
-    if command == "prepare-corpora":
-        from worldmock.corpora.fetch import prepare_corpora
-        return prepare_corpora(arguments.output).model_dump(mode="json")
     if command == "profile":
         return _profile_command(arguments)
     if command == "category":

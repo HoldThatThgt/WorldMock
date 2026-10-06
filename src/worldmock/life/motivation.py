@@ -36,7 +36,7 @@ from pydantic import Field
 from worldmock.catalog.affordances import (
     FamilySpec,
     PROTOTYPE_GENERATORS,
-    default_affordances,
+    engine_affordances,
 )
 from worldmock.errors import IntegrityError
 from worldmock.life import sleep
@@ -72,7 +72,7 @@ from worldmock.life.scenario import (
 
 #: 可供性注册表视图（冻结文件加载一次；家族闭集、习惯归并路由、枚举序、
 #: 候选生成器原型与采样参数全部经它派生——M1 起注册表即事实）。
-_AFFORDANCES = default_affordances()
+_AFFORDANCES = engine_affordances()
 
 #: 候选家族名（习惯项的归一键）。
 FAMILY_CONTINUE = "continue"
@@ -734,7 +734,7 @@ def _continue_candidate(context: MotivationContext, activity: ActivityState) -> 
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
     if remaining < 60:
         return None
-    key = default_affordances().met_lookup_key(activity.kind.value, travel_mode=activity.travel_mode,
+    key = engine_affordances().met_lookup_key(activity.kind.value, travel_mode=activity.travel_mode,
                                                target_id=activity.target_id)
     met = context.body.activity_met[key]
     burn = minimum_energy_cost(activity.kind, remaining, context.body, met)
@@ -832,7 +832,7 @@ def _travel_candidate(context: MotivationContext, label: str,
         route.mode.value, route.duration_seconds, context.current_time))
     if duration < 60:
         return None
-    met = context.body.activity_met[default_affordances().met_lookup_key("travel", travel_mode=route.mode)]
+    met = context.body.activity_met[engine_affordances().met_lookup_key("travel", travel_mode=route.mode)]
     burn = minimum_energy_cost(ActivityKind.TRAVEL, duration, context.body, met)
     if burn > agent.body.energy_kcal:
         return None
@@ -1045,7 +1045,7 @@ def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile
     if place is None:
         return []
     items = [item for item in context.lifestyle_items
-             if default_affordances().met_lookup_key("lifestyle", target_id=item.activity_id) in met_table
+             if engine_affordances().met_lookup_key("lifestyle", target_id=item.activity_id) in met_table
              and feasible_kinds(frozenset(place.location_kinds), context.activity_location_kinds[item.activity_id])
              and (enabled is None or item.activity_id in enabled)]
     ranked = sorted(
@@ -1072,7 +1072,7 @@ def _lifestyle_candidate(context: MotivationContext, item: LifestyleItem,
                          family: FamilySpec, params: Mapping) -> _Candidate | None:
     """@brief 单条生活活动候选：时长槽、能量预算与 effects 缓解资源流。"""
     agent = context.agent
-    met = context.body.activity_met[default_affordances().met_lookup_key("lifestyle", target_id=item.activity_id)]
+    met = context.body.activity_met[engine_affordances().met_lookup_key("lifestyle", target_id=item.activity_id)]
     typical = float(item.typical_duration_minutes * 60)
     outer_cap = min(
         maximum_energy_duration_seconds(ActivityKind.LIFESTYLE,
@@ -1087,7 +1087,7 @@ def _lifestyle_candidate(context: MotivationContext, item: LifestyleItem,
     if burn > agent.body.energy_kcal:
         return None
     hours = slot / 3600
-    relief = min(lifestyle_relief_rates(item.activity_id)[0] * hours,
+    relief = min(lifestyle_relief_rates(item.effects)[0] * hours,
                  agent.body.entertainment_need)
     fun_after = agent.body.entertainment_need - relief
     return _Candidate(

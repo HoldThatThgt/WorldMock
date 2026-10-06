@@ -4,11 +4,16 @@
 > 状态：冻结特性合同；独立地图分支与品类主线组合均已通过离线验收。当前结果见 [主线组合验收](research/map-and-storefront-main-verification.md)，原 [独立分支验收](research/map-and-storefront-verification.md) 保留历史身份；项目级三项真实验收未完成。「地点发现与候选呈现」「记录、恢复与交付」「验收台账」中关于发现、暂停活动恢复与提示供给行的条款按 [时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 25 行修订，已随该规格实现并通过离线验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）；修订记录见「版本表」。
 > 「地点发现与候选呈现」「整单购买与履约」「记录、恢复与交付」「验收台账」中关于购买资格、来源标记、到店餐食与供给去重的条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
 > 「产品行为与边界」「冻结输入与身份」「地点发现与候选呈现」「整单购买与履约」「记录、恢复与交付」「验收台账」中关于挑店、同名地点与加载校验、配送路线状态、指名购买、可见期与浏览结果的条款按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（一日运行保真 MS1）；修订部分已实现并通过离线验收，改动的台账行「地图唯一来源」「人物选择边界」「供给候选身份」「自提与配送」四行已改记“通过”。
-> 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「冻结输入与身份」的当前目录版本（阶段 2）。
+> 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「冻结输入与身份」：仍带旧占用名的已发布环境在加载时拒绝（阶段 2）。
 > 日期：2026-10-06
 > 「地点发现与候选呈现」「验收台账」中关于 `query_world` 六键、来源与可执行筛选的条款按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 MS1–MS4、MS11）；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；购买来源写法一处属更正既有表述。
 > 授权：本次任务要求审查提案、修订最终规格并完整实现。本文采用提案的建议产品范围，并纠正已失效的现状与业界判断。
 > 取代：[地图与门店供给提案](PROPOSAL-map-and-storefront.md)中待裁决的数据结构与实现范围。
+
+当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
+及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
+由 WorldMock 包资源提供，环境冻结副本须逐字节一致。当前场景结构为 `6`，单人物文件为 `single-person.json`。
+本文中的新环境放行须另核对本次收据，历史验收数字不证明当前组合已经通过。
 
 <a name="spec-map-and-storefront-产品行为与边界"></a>
 ## 产品行为与边界
@@ -59,11 +64,12 @@ flowchart LR
 运行时价格和库存不得从商品对象推断。
 运行期 `ProductConfig` 继承库存使用定义，保留 `category_id`、`inventory_unit`、规格与使用效果；不把报价或卖方塞回商品。
 
-当前实现使用目录 `5.5`、品类契约与交换规则绑定版本 `3`、地图结构 `3`、场景结构 `5`、世界结构 `9`。
+当前使用品类契约与交换规则绑定版本 `3`、地图结构 `3`、场景结构 `6`、世界结构 `9`；目录版本与摘要由 Dataset 清单绑定。
 本次首次受影响发布目标为目录 `5.0`、品类契约与交换规则绑定版本 `3`、场景结构 `4`、地图结构 `3`；世界结构 `8`
 保持现有字段形状。地图声明新增必填 `random_seed/category_assignment_sha256`，绑定生成种子与分类文件。
 独立阶段只更新受影响产物，料理及后续目录内容变更发布新版本；最终认证记录实际版本和摘要，禁止同版覆盖。
 地图资料版本和文件哈希因新供给变化；旧目录、地图、场景、模板或代码身份直接拒绝，禁止兼容读取和迁移。
+[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列的占用名属于引擎包资源 `src/worldmock/data/affordances.toml`；环境冻结的副本仍声明旧占用名的已发布环境与包资源字节不同，同样在加载时拒绝，须按新占用名重新发布。
 
 地图发布必须验证版本与哈希、坐标边界、时区、来源/许可声明、字段日期、地点与供给唯一性、商品和账户引用、路线端点与方式、路线响应状态及完整选择范围。同一来源的事实时间和模拟日期不同必须显式标记适用限制。过期核对声明、缺必需关系、未知旧字段均拒绝并记录英文错误。
 场景加载（`load_runtime_scenario`）另查所选地点：`kind` 必须属于环境层的地点类型表，越界即拒绝并写明地点与类别；可见标签必须唯一，
@@ -74,7 +80,7 @@ flowchart LR
 ## 按地点类别生成完整供给
 
 地点类别沿用 `LocationConfig.kind` 的现有词表，对象类别沿用品类契约的 `category_id` 与父子关系。
-分类声明保存在冻结 `corpora/zhangjiang-map/category-assignment.json`，同一文件分别声明地点类别准入池和每店实际供给，
+分类声明保存在冻结 Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json`，同一文件分别声明地点类别准入池和每店实际供给，
 不增加另一套地点或对象分类、供给引擎或运行策略层。
 文件恰含必填 `kinds/locations/source`：`kinds` 为现有地点 `kind` 到 `category_id` 数组的准入表，
 `locations` 为逐店声明数组；顶层与逐店 `source` 均复用完整 `DataSource`，不另造来源字符串。
@@ -451,7 +457,7 @@ WC 18:15 的第 3 轮一用完，购买就在受限轮被关闭，原因写得�
 <a name="tool-interaction-地点供给和价格-类别准入与逐店商品集合"></a>
 ### 类别准入与逐店商品集合
 
-同一冻结 `corpora/zhangjiang-map/category-assignment.json` 恰含 kinds、locations、source 三键：
+同一冻结 Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json` 恰含 kinds、locations、source 三键：
 kinds 为 kind 到 category_id 数组的准入表，locations 为逐店声明数组，source 沿用现有 DataSource。
 kind 使用现有 LocationConfig.kind，品类引用现有 category_id 并包含后代，由 is_descendant 判断。
 地点类别只决定允许售卖的范围，不把这个范围的全部对象复制到每一家店。
@@ -567,7 +573,7 @@ MapDataset 必填 random_seed、category_assignment_sha256，哈希同时绑定 
 | 权威文档 | `docs/CONTRACTS.md#contracts-worldmock-接口合同`、`docs/VERIFICATION.md#verification-worldmock-验收标准`、`docs/INDEX.md#index-worldmock-文档入口`、`docs/EXPERIMENT.md#experiment-worldmock-实验设置`、设计目录首页与 overview/architecture/exchange/resource/simulation/recording/configuration/io-formats |
 | 关联规格 | category-contract、life-runtime、life-realism、interaction-menu、decision-context 的购买身份、候选、工具、结构版本与来源条款；implementation-status 与 spec-coverage 台账 |
 | 品类与目录 | `src/worldmock/categories/rules.py`、`operators.py`、`src/worldmock/catalog/compiler.py`；正式契约、交换规则、对象与清单的新版本，保留库存转换与已解析商品使用合同 |
-| 数据与准入 | `corpora/zhangjiang-map/category-assignment.json`、按正式场景种子分别发布的地图供给集合、语料清单、许可通知、目录商品/合同、三份生活场景钉定引用、地图/目录/场景关系验证与准备脚本 |
+| 数据与准入 | Dataset `../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/category-assignment.json`、按正式场景种子分别发布的地图供给集合、语料清单、许可通知、目录商品/合同、数据仓三份生活场景钉定引用与制作工具；引擎验证地图/目录/场景关系 |
 | 运行时 | scenario、semantics、models、commerce、basket、travel、candidates、observe、engine、motivation、rhythm、scheduling、state_commit |
 | 人物边界 | tools 请求注册、LifeEnv、LifeAgent 动态 Schema/校验、interaction_menu、menu_execution、narration/projection |
 | 记录与交付 | 运行清单、footprints 存取与导出、checkpoint/branch、delivery manifest/trace validation 中受影响的身份及来源 |
@@ -590,7 +596,6 @@ MapDataset 必填 random_seed、category_assignment_sha256，哈希同时绑定 
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码与测试核对）：验收台账「地图唯一来源」「自提与配送」（`34a41ee` 重新验收）与「人物选择边界」「供给候选身份」（`e377669` 重新验收）四行改记“通过”，表前说明补各行的证据测试；「冻结输入与身份」的版本事实补地图结构随 `branch_label` 升为 `2`、结构 `1` 的地图加载时拒绝（冻结时漏改）；文件头改为修订部分已实现并通过离线验收 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 MS1–MS5、MS8、MS11），修订部分在冻结时未随文实现（该规格阶段 4 实现后的核对见 `2026-10-04-errands-workday-implemented` 行）：`query_world` 改六键，`from` 与购买共用同一来源解析且只匹配供给条目，`available_only` 只留已确认可执行的条目（未知条目被滤掉但不改写为已知否定），筛选后计数与分页口径；验收台账「只读查询边界」行改写。逐店声明、禁止随机补齐、营业声明的核对日期与来源、付款不等于持有、交付入库、到店取得的物品留在门店等条款不变。补记与更正既有表述：工具交互修订的类别供给、门店定位与四键查询已于 2026-10-01 实现，台账三行状态此前未随实现改记，本次更正，证据见[工具交互验收记录](../archive/tool-interaction/tool-interaction-verification.md)；购买请求 `from` 的合法写法是地点显示名（含「家」「住处」）或渠道称呼，原写「门店名」；文件头补修订说明，日期改写 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 MS9，按 `d8a41d3` 的代码与测试核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)；验收台账「只读查询边界」行改记“通过”，状态格列六键、来源与可执行筛选的证据测试节点，表前说明随之改写；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不变。登记「冻结输入与身份」现行版本事实的两次就地更新（作业 MS6、MS7，当时未入表）：`12a3ccb`（2026-10-03，该规格阶段 2）把世界结构由 `8` 改为 `9`，`b8f5d47`（2026-10-04，该规格阶段 3）把场景结构由 `4` 改为 `5`；目录 `5.3`、品类契约与规则绑定 `3`、地图结构 `3` 不变，首次受影响发布目标一句是工具交互的历史表述，不改。证据为离线测试，配对全天复跑（该规格阶段 6）未执行 |
-
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
 | 共享规则与可重建环境 | 2026-10-05 | 当前目录因可供性声明注释更正按既有字节身份发布 5.4；品类和规则绑定 3、地图结构 3、场景结构 5、世界结构 9 不变；保留历史版本记录 |
-| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 修订「冻结输入与身份」：当前目录随可供性占用声明重列发布为 5.5；品类和规则绑定 3、地图结构 3、场景结构 5、世界结构 9 不变 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 修订「冻结输入与身份」：可供性占用声明在引擎包资源 `src/worldmock/data/affordances.toml` 重列，环境冻结的副本仍声明旧占用名的已发布环境在加载时拒绝，须按新占用名重新发布；品类和规则绑定 3、地图结构 3、场景结构 6、世界结构 9 不变 |

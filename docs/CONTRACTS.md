@@ -5,7 +5,7 @@
 > 本次工具交互合同于 2026-10-01 按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结，已实现；本次生产验收单独记录；既有验收只证明此前版本。
 > 2026-10-02 [个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)冻结：本文件相应条款按[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业随该规格阶段 1–4 的代码逐阶段修订；阶段 1–4 的修订均已实现并通过离线验收（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）；冻结时在「请求组成」加的三处修订指针已随阶段 1、阶段 3 全部删去；修订内容见「版本表」`2026-10-02-errands-workday-freeze`、`2026-10-03-errands-workday-stage-1`、`2026-10-03-errands-workday-stage-1-review`、`2026-10-03-errands-workday-stage-2`、`2026-10-03-errands-workday-stage-4`、`2026-10-03-errands-workday-stage-3`、`2026-10-04-errands-workday-stage-3-review` 与 `2026-10-04-errands-workday-implemented` 各行。
 > 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「工作安排声明」（阶段 1）、「请求组成」与「七层 Schema」（阶段 2）、「请求组成」的零点计划模板（阶段 3）。
-> 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」的目录版本（阶段 2）；「请求组成」与「七层 Schema」（阶段 3）。
+> 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「状态归属」「人物工具与管理接口」、「个人事务」的入口、「请求字段与结算检查」「活动受理拒绝码」「动作状态与动作结果」与「七层字段」的待办层（阶段 1）；「状态归属」的占用名、「交谈与通话」与「活动控制行」的占用，以及「品类契约与目录字段」的占用声明来源与旧占用名环境的拒绝（阶段 2）；「请求组成」与「七层 Schema」（阶段 3）。
 > 范围：LifeEnv 与 LifeAgent 适配接口、数字足迹事件与存储、语料内容目录、LabelKit 输入输出与交付格式、命令行与运行状态。
 > 权威：记录引擎的事件、素材、存储与导出合同统一在[记录引擎设计](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；其余接口签名、字段名、枚举值、Schema、文件格式与命令行参数在本文件定义。其他文档只引用所属合同，代码变更先更新对应合同。
 
@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | `python scripts/bootstrap.py` | `--profile` 取 `release` 或 `dev`，默认 release；`--wheelhouse PATH` 只消费离线制品；`--use-uv` 显式选 uv，缺失报错 | Python 必须 3.12；固定来源先核对，哈希锁安装，源码不解析额外依赖；`.work/environment-receipt.json` 只记相对路径 |
 | `python scripts/fresh_check.py` | `--repository`、`--commit`、`--profile`、`--wheelhouse`、`--output`；`--compare` 读取两份实际平台结果 | 无子模块、无 SSH、无 pip 缓存的新 clone；任一命令失败退出；比较要求同提交、同源码摘要且都通过 |
-| `python scripts/coverage_gate.py` | `--shards N` 映射 worker 数；`--from-json` 核验 collection、summary、worker 选择与完成回执的同一运行身份及覆盖数据摘要 | 唯一入口 `scripts/run_tests.py` 按实测文件权重调度完整文件；当前解释器、进程数据隔离、选择/收集/完成节点多重集精确一致且无重复；全量节点三阶段完整且均 passed；输入字节、运行身份和覆盖摘要匹配，无失败、无跳过、非空、有效收据、分支至少 85%、公共接口零缺口才通过 |
+| `python scripts/coverage_gate.py` | `--shards N` 映射 worker 数；`--environment-root` 显式选择发布环境并绑定实际字节摘要；`--from-json` 核验 collection、summary、worker 选择与完成回执的同一运行身份及覆盖数据摘要 | 唯一入口 `scripts/run_tests.py` 按实测文件权重调度完整文件；当前解释器、进程数据隔离、选择/收集/完成节点多重集精确一致且无重复；全量节点三阶段完整且均 passed；输入字节、运行身份和覆盖摘要匹配，无失败、无跳过、非空、有效收据、分支至少 85%、公共接口零缺口才通过 |
 | 安装 profile | release 缺 Node 或 LabelKit 失败；dev 固定原因标明缺失和对应检查 | dev 缺部件不能产生最终通过收据；Windows 核心与重建证据和 Linux x86_64 TextWorld 证据共同放行 |
 
 Linux 完整环境的架构边界与安装限制以[冻结规格](dev/SPEC-shared-rules-and-rebuildable-env.md#shared-rules-门禁可选部件与操作系统)为准；
@@ -34,6 +34,28 @@ LabelKit 固定制品身份、`node_version`、`missing_components`、`passed`�
 安全路径只接受根内相对普通文件，逐组件拒绝链接和父引用；所属错误构造只在失败时执行一次。
 公共曲线输入与输出均为有限非负数且拒绝布尔；资源名非空白，效率曲线非空。
 浅冻结与品类深冻结按各自语义使用，共同的严格模型仍拒绝未知字段。
+
+<a name="contracts-环境数据归属合同"></a>
+## 环境数据归属合同
+
+按[环境数据归属规格](dev/SPEC-environment-data-ownership.md)执行；完整放行须有本次代码与环境的验收收据。
+WorldMock-Dataset 维护具体世界的来源、地图、商品、内容、场景和制作工具，正式环境位于
+`environment/zhangjiang-baseline/`，其中 `corpora/`、`catalog/`、`scenarios/` 并列，单人物场景为 `single-person.json`。
+WorldMock 维护引擎、结构、加载校验、记录、导出及固定通用规则，不搜索相邻数据仓或隐式默认环境。
+
+| 输入 | 当前合同 |
+| --- | --- |
+| 场景路径 | 调用者显式指定；目录按场景位置解析，`corpus_root` 相对场景目录解析 |
+| 固定通用规则 | 标准库 `importlib.resources` 读取 `worldmock.data` 的 `affordances.toml`、`motivation.toml`、`persona-mapping.toml` |
+| 环境中的通用规则副本 | `catalog/affordances.toml`、`catalog/rules/motivation.toml`、`catalog/rules/persona-mapping.toml` 只绑定冻结身份，场景装配要求逐字节等于包资源；缺失或不同即英文日志并拒绝 |
+| 环境系数与对象 | 身体参数、交通系数、品类和商品具体数据仍由所选环境目录提供 |
+| 人物映射编译 | 缺省使用包资源；显式 `load_mapping_config(path)` 的结果可传给 `compile_persona(config=...)`，不改变实际运行的固定规则 |
+| 引擎测试 | 最小端到端使用人工 `tests/fixtures/environment/`；完整发布环境行为回归显式传 `--environment-root` |
+| 正式数据验收 | 来源、正式数量、固定元数据及可复现重建由 Dataset 执行；引擎保留通用加载与行为断言 |
+| 历史证据 | 已存运行、导出和冻结输入不改写；不提供旧场景兼容、迁移或回退数据源 |
+
+数据采集、地图准备、食品整理、正式目录生成、节目制作和交通校准在 Dataset 执行，
+WorldMock 删除数据准备命令与来源制作器。运行只读已校验的冻结环境。
 
 <a name="contracts-lifeenv-状态字段"></a>
 ## LifeEnv 状态字段
@@ -548,9 +570,9 @@ visible_task_ids 表示本人已知，由本人邮件到达写入；不能把新
   交叉核对只对落在场景时间窗内的日历日期执行（不早于开始时刻的当地日期，且该日当地零点早于结束时刻），时间窗外的例外日期
   不拒绝；场景日历是场景级的，病假、事假日对所有声明了班次的人物同时生效。
 
-场景结构随 `work_schedule` 由 4 升到 5：结构 4 的场景按版本拒绝，缺该字段的场景按缺字段拒绝，不迁移；仓库三份场景同批显式写出
+该字段首次发布时场景结构由 4 升到 5：结构 4 的场景按版本拒绝，缺该字段的场景按缺字段拒绝；当时三份场景同批显式写出
 该字段，首版全部人物为 `null`（只做结构升级，是否给正式十二周场景声明班次是实验条件，另行裁决），它们的 `scenario_sha256`
-随之改变。
+随之改变。当前因环境数据归属使用场景结构 6，结构 5 的旧输入同样按版本拒绝；具体环境由数据仓冻结并显式加载。
 
 **效力与边界。** 工作安排是场景声明、环境求值的事实，不是人物的习惯：零点计划、`revise_day_plan` 与工作提交都不改变它，
 手上的工作交了，`duty` 仍是「当班中」；每轮只在环境层 `duty` 呈现（见「七层字段」），零点计划的输入另有计划日期当天的
@@ -927,11 +949,14 @@ ScheduledKind = Literal[
 商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
-当前版本边界为地图文件结构 3、商品目录 5.5（major 5）、品类契约版本 3、交换规则绑定版本 3、场景结构 5、世界状态结构 9。
+当前版本边界为地图文件结构 3、品类契约版本 3、交换规则绑定版本 3、场景结构 6、世界状态结构 9；
+商品目录的具体版本及摘要以 Dataset 发布清单为准。
 这些版本分别约束不同输入，不能相互替代。地图文件结构随地点字段 `branch_label` 由 1 升到 2，数据集声明与地点、供给、路线三个目录文件
 同用这一版本，结构 1 的地图直接拒绝；仓库地图已按结构 2 重新发布（数据未变，只有结构版本与文件摘要变化），场景结构、世界状态结构与目录版本不变。
 其后随类别供给（见「类别供给的构建合同」）地图结构升到 3、场景结构升到 4、目录升到 5.x、品类契约与规则绑定升到 3，结构 3 以外的地图
-直接拒绝。场景结构随人物配置必填可空的 `work_schedule` 由 4 升到 5（见「工作安排声明」），结构 4 的场景按版本拒绝；含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点、旧结构地图和旧世界状态直接拒绝，
+直接拒绝。场景结构随人物配置必填可空的 `work_schedule` 由 4 升到 5（见「工作安排声明」），结构 4 的场景按版本拒绝。
+环境数据归属修订随内容必填 `title` 把场景结构由 5 升到 6；结构 5 及缺标题内容直接拒绝。
+含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点、旧结构地图和旧世界状态直接拒绝，
 不保留迁移脚本、兼容解析或回退数据源。
 
 <a name="contracts-类别供给的构建合同"></a>
@@ -961,7 +986,7 @@ price_fen=min+((max-min)*percent+50)//100。整数四舍五入，小幅扰动不
 固定扰动不配置，min=max合法；定位差至少十个百分点时同商品高低不逆转，舍入可同价。
 一次写入冻结Quote，观察、查询、购买、恢复不重抽。显式调价受对象范围约束，配送费单列，旧成交价不改写。
 地图种子等于场景random_seed，不同种子发布独立供给，共享地点路线来源但不改实验种子。
-当前实现采用上述合同；正式地图结构 3，目录 5.5，品类契约与规则绑定 3。
+当前实现采用上述合同；正式地图结构 3、场景结构 6、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准。
 
 <a name="contracts-营业与报价声明"></a>
 ### 营业与报价声明
@@ -2181,8 +2206,9 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 ## 品类契约与目录字段
 
 行为规则由 [品类契约规格](dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格) 定义；本节固定文件字段与命令输入。
-当前原生目录为 `5.5`（[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列可供性占用声明后发布；声明旧占用名的目录在解析时拒绝）；品类契约及交换规则的 `contract_version`
-均为 `3`；格式版本与运行结构版本分别校验。
+正式目录由 Dataset 环境清单绑定具体版本与内容摘要；品类契约及交换规则的 `contract_version`
+均为 `3`，场景结构为 `6`；格式版本与运行结构版本分别校验。
+可供性占用声明的唯一来源是引擎包资源 `src/worldmock/data/affordances.toml`；[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列占用名后，环境冻结的副本仍声明旧占用名的已发布环境与包资源字节不同，在加载时拒绝，须按新占用名重新发布。
 原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
 
 | 文件 | 顶层字段 |
@@ -2238,6 +2264,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 <a name="contracts-语料内容目录字段"></a>
 ## 语料内容目录字段
 
+具体语料由 Dataset 发布，下表概括来源与内容身份。场景内容及生活活动的运行字段见后文。
+
 | 字段 | 含义 |
 | --- | --- |
 | `item_id`, `kind` | 稳定内容标识与食品、节目、游戏、工作、邮件、商品、路线等类别 |
@@ -2249,6 +2277,22 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 | `access` | 人物、地点、时间、持有权和前置事件等访问条件 |
 | `evaluation_refs` | 参考答案或评价依据，仅验收端可用 |
 | `usage_rights` | 可用于内部处理、再分发和训练的条件及核对结果 |
+
+<a name="contracts-环境标题与活动效果"></a>
+### 环境标题与活动效果
+
+| 结构或阶段 | 必须提供与实际使用 |
+| --- | --- |
+| `LifeScenario`、`RuntimeScenario.schema_version` | 固定为 `6`；旧结构直接拒绝 |
+| 场景 `ContentItemConfig.title` | 必填非空字符串，去除首尾空白后仍非空；缺失或非法记录英文错误 |
+| 内容标题投影 | `load_content_titles(items)` 直接投影场景条目的 `title`；不按来源专属目录、内部身份或旧映射寻找标题 |
+| 环境 `LifestyleItem.effects` | 必填不可变映射；键恰好为 `entertainment`、`social`、`health`，值是有限数值 `[0, 1]`，不接受布尔、缺项或多项 |
+| 候选预演 | 使用实际 `corpus_root` 载入的活动条目效果，相同活动身份可在不同环境有不同效果 |
+| 活动启动 | 将条目效果复制为 `ActivityState.data["effects"]`，与该活动一起序列化 |
+| 结算与恢复 | 只读活动冻结效果；娱乐、社交缓解和健康相关情绪按既有算法结算，不重新读取全局活动文件；缺冻结效果记录英文错误并拒绝 |
+
+`effects.health` 影响既有情绪结算，不创建新的健康资源。内容元数据仍承担题材、来源与素材准入，
+标题写入场景后以该字段为唯一呈现来源；来源准备和标题填充在 Dataset 完成。
 
 <a name="contracts-lifeagent-人格与记忆字段"></a>
 ## LifeAgent 人格与记忆字段
@@ -2659,7 +2703,6 @@ dreaming 输入读 `action_requested.data.self_note` 与实际请求中的层 JS
 
 | 命令 | 参数 | 行为 |
 | --- | --- | --- |
-| `prepare-corpora` | - | 获取明确来源子集、核对文件、形成规范化目录与来源清单 |
 | `validate` | `scenario_path` | 校验场景、语料、依赖、规则和目标数据合同，不启动人物；结果的 `input_warnings` 列出与新建运行同一组运行输入警告（见「运行输入警告」），并逐条写到标准错误流，覆盖率低于 0.8 失败时也先写出 |
 | `run` | `scenario_path`, `output_dir`，可选 `--same-second-continuation on\|off`（缺省 `on`） | 从明确场景新建运行目录，经 AS2 执行到场景终点；已存在的运行目录不能被覆盖；同秒续接开关冻结进清单 `stages.action.same_second_continuation` 与人物配置（见「思考回传」），`resume`、`replay` 不接受该参数，继承父清单的值 |
 | `resume` | `parent_checkpoint`, `output_dir` | 指定父运行和完整检查点，在新的运行目录恢复；不允许隐式新建 |
@@ -2788,9 +2831,11 @@ RunPhase = Literal[
 | `2026-10-04-errands-workday-stage-3-review` | 2026-10-04 | 按[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库)阶段 3 的复核更正：「人格与卡片字段」`time_anchors` 行写明「首版不支持跨午夜的下班与到家」的判定（窗口终点须不晚于当日 24 点，与场景窗口同一口径；就寝回绕到次日时起点不晚于就寝而越过 24 点的同样不合格），降级说明登记第三种固定英文格式 `<leave_work 或 arrive_home> window <s>..<e> runs past midnight`（每个锚点只取一条）；原实现在就寝回绕到次日时放行 24 点以后的到家；「工作安排声明」的声明例外写明预约任务从约定开始那一天起算，赴约前的路上也算（规格 4.5「含预约任务」）；文件头修订说明行补本行；阶段 3 并入主线（阶段 2、4 之后）时文件头修订说明行改为阶段 1–4 已随代码落地，「冻结地图与场景引用」版本边界句合并为场景结构 5、世界状态结构 9，「七层 Schema」重钉句的阶段 3 分句排在阶段 2 与阶段 4 之间 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[配套实施计划](archive/errands-workday/errands-workday-implementation-plan.md)作业 C72）：按 `d8a41d3` 的代码（生产代码自 `59b81a3` 起到最终代码与测试提交 `a7e2fdc` 没有变化）逐节核对 C01–C66、C77–C79 所涉各节，登记的键名、枚举、上限、事件载荷、英文原因与生成参数取值同代码一致，没有改写条款；补齐以代码为准的英文文案三处：「个人事务」登记事务变更明细的 `expected` 与 `why`（请求模型的交叉约束、字符上限、份数与单次条数的原因，`errands.change_issues` 的六类情形）与环境合并拒绝的改法；「工具交互公开投影」的查询错误登记校验报告的 `reason`、`fix`，方式、品类、偏移三种明细的 `expected` 与 `allowed_values`，各明细的 `why`，以及宿主并批纠错的 `reason`、`fix`；「生成参数」登记就寝反思附回消息的序列化、`INSTRUCTION` 与 `VALIDATION_ERROR` 的写法。确认冻结时加的三处修订指针（C73 系统层、C74 零点计划模板、C75 就寝反思文案）已全部删去，「记忆字段」主观文字句的括注（C77）已删去；文件头修订说明行改为阶段 1–4 的修订均已实现并通过离线验收，链接[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday-freeze` 行里的冻结期状态注记改为指向其后各阶段行与本行。设计说明书随这批实现后文档重新汇编 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步唯一规则归宿、固定源码补丁和平台验收合同；可供性声明注释更正按既有字节身份发布目录 5.4，业务数值及品类契约与规则绑定 3 不变 |
+| `2026-10-05-environment-data-ownership` | 2026-10-05 | 环境与制作工具归 Dataset；通用规则从包资源读取且冻结副本逐字节一致；场景结构 6、必填内容标题与不可变活动效果、启动冻结及恢复合同；删除引擎数据准备命令。最终放行另核对本次实际验收收据 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1（班次与休息时段起止的唤醒）修订「工作安排声明」的效力与边界：班次与休息时段的起止是唤醒原因（`shift_start`、`shift_end`、`break_start`、`break_end`），只给清醒的人物在该时刻一次决策机会，不结束任何活动，不进入睡眠允许集合，不写事件，也不新增进度层记录；通常表现为环境层 `duty.status` 的变化，首尾相接的休息时段没有可见变化；闭集、触发条件与候选口径见生活运行时规格的决策节律；文件头补该规格的修订说明 |
 | `2026-10-05-idle-fillers-a` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 2（系统层第 7、14、15、16 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 7 条说明醒着时活动（等待也一样）一般做满工具层写的时长才再请人物决策、做得久的中途隔一阵也请一次，本人下的单送到、提醒到点、有人联系、有工作可以开始、到了定下的上下班时刻与写明的休息时段起止也会请人物决策而手上的活动照常进行，空下来照自己的习惯做点别的，等待只留给几分钟内就有事请人物决策的时候；第 14 条在上班安排一句之前插入一句：作息里的钟点、今日计划目标文字里的钟点与 `around_time` 都只是大概，到时不一定请人物决策，差不多到了就做、早一点晚一点都算照常，和人约好的事宁早勿晚，非准点不可的靠目标的提醒时刻；第 15 条写只是「有点想吃」时正餐留到平常的饭点前后吃，下单的东西送到、拿到手才能吃；第 16 条写有点乏、困是睡前的常态，还没到就寝时间就照常过晚上、到了就可以睡、不用撑到某个钟点；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3（零点计划模板第三、五、六条）修订「请求组成」的零点计划中文模板（仍为八条，第一、二、四、七、八条与开头四行逐字不变，`src/worldmock/life/day_planning.py::PLAN_DAY_PROMPT` 与之逐字相同）：第三条写 `remind_time` 是到点提醒或叫醒人物的时刻，要按时起床的填起床的时刻，出门去上班、上课、接人、赴约这类要按时到的事填该出门的时刻，一条目标含几件时填最早的，只打算在某个时段做的事填 null，就寝不设提醒；第五条写人物档案与背景里天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天与平常不同的安排（写清哪里不同）、要办的事与照第三条要提醒的事，清单可以很短；第六条写大致时刻只表示大概在那前后，不是开始的钟点，也不提醒人物，goal 里只给和人约好的事写钟点，其余只写时段或先后；本地校验、输出 Schema 与 `around_time` 的字段形状不变，模板仍只由 `code_sha256` 绑定；文件头修订说明补本阶段 |
-| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「状态归属」的活动名额仍为常量 2，进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 与 `conclude_activity` 之后让出名额，恢复要有空名额；受限轮阶段闭集仍为五个值，`resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「人物工具与管理接口」`pause_activity` 暂停让出名额，`report_status` 恢复要有空名额，`conclude_activity` 在任何地点都可直接结束暂停的活动；「个人事务」的入口与「请求字段与结算检查」的名额口径随之改写；「活动受理拒绝码」`SESSION_LIMIT_EXCEEDED` 改为进行中与待收尾的活动占满名额，开始、出行与恢复暂停的活动都可能触发，写明两种原因、按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与缺省原因，删去两个名额都被暂停活动占满时出行一支；「动作状态与动作结果」写明到达上限时没有进行中也没有待收尾的活动一律进入 `start_or_resume`，受限轮不再进入 `resume_or_conclude`；「七层字段」待办层 `paused_activities[].tools` 恢复的不可用原因增名额占满，与受理同文；只变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录、世界结构 9、质量报告结构 4 与场景结构 5 不变；文件头补该规格的修订说明 |
-| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「状态归属」的 `occupied_resources` 占用名重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥；「交谈与通话」改为同占 `talk`，彼此互斥、可与其他种类并行；「活动控制行」的占用名同步；当前目录 5.5（「冻结地图与场景引用」「类别供给的构建合同」「品类契约与目录字段」），声明旧占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 的目录在解析时拒绝；占用声明属于 `catalog/affordances.toml` 的字节，`tool_schema_sha256` 与目录内容摘要随之改变，此前的检查点不能再恢复 |
+| 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
+| `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「状态归属」的活动名额仍为常量 2，进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 与 `conclude_activity` 之后让出名额，恢复要有空名额；受限轮阶段闭集仍为五个值，`resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「人物工具与管理接口」`pause_activity` 暂停让出名额，`report_status` 恢复要有空名额，`conclude_activity` 在任何地点都可直接结束暂停的活动；「个人事务」的入口与「请求字段与结算检查」的名额口径随之改写；「活动受理拒绝码」`SESSION_LIMIT_EXCEEDED` 改为进行中与待收尾的活动占满名额，开始、出行与恢复暂停的活动都可能触发，写明两种原因、按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与缺省原因，删去两个名额都被暂停活动占满时出行一支；「动作状态与动作结果」写明到达上限时没有进行中也没有待收尾的活动一律进入 `start_or_resume`，受限轮不再进入 `resume_or_conclude`；「七层字段」待办层 `paused_activities[].tools` 恢复的不可用原因增名额占满，与受理同文；只变 `code_sha256`，`prompt_sha256`、`tool_schema_sha256`、目录、世界结构 9、质量报告结构 4 与场景结构 6 不变；文件头补该规格的修订说明 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「状态归属」的 `occupied_resources` 占用名重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥；「交谈与通话」改为同占 `talk`，彼此互斥、可与其他种类并行；「活动控制行」的占用名同步；「品类契约与目录字段」写明占用声明属于引擎包资源 `src/worldmock/data/affordances.toml` 的字节，旧占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 在解析时拒绝，`tool_schema_sha256` 随之改变，此前的检查点不能再恢复；测试环境 `tests/fixtures/environment/catalog/` 下的副本逐字节重新同步，仍带旧占用名的已发布环境（WorldMock-Dataset）与包资源字节不同，在加载时拒绝，须按新占用名重新发布 |
 | `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3（系统层第 8 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 8 条说明人物可以同时做两件事，环境只拦同一种的两件（吃、做饭、用东西一种，工具层方式为「进行」的生活活动一种，看和听内容一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各一种），不同种的两件环境不拦、做不做得到由人物照常理判断，想一起吃或喝的两样在同一个 `start_activity` 里写成两项、算一顿，开车时只能再听播客或和人说话、睡觉时不做别的，手上有一件在进行时轮到决策就可以再开始一件、原来那件照常进行；同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位，活动一结束同一时刻先用 `conclude_activity` 收尾；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |

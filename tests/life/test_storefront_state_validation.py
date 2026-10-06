@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import hashlib
 import json
 from pathlib import Path
@@ -50,7 +52,7 @@ def test_open_rejects_invalid_storefront_state_before_exposing_world(engine_fact
     run_dir = engine.context.store.run_dir
     engine.close()
     with pytest.raises((ValidationError, IntegrityError), match=reason):
-        LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+        LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/single-person.json", run_dir)
 
 
 @pytest.mark.parametrize("status,reason", [

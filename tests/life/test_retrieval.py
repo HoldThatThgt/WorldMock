@@ -14,9 +14,7 @@ from pathlib import Path
 import pytest
 
 from worldmock.life.retrieval import (
-    ANYWHERE_KIND,
     FACET_NAMES,
-    LOCATION_KINDS,
     RetrievalEntry,
     RetrievalQuery,
     build_index,
@@ -32,9 +30,6 @@ from worldmock.life.retrieval import (
     reachable,
     search,
 )
-
-CORPORA = Path(__file__).resolve().parents[2] / "corpora"
-
 
 def _entry(object_id: str, genre: tuple[str, ...] = ("剧情",), language: str = "zh",
            duration: int | None = 600, kinds: frozenset[str] = frozenset()) -> RetrievalEntry:
@@ -319,26 +314,6 @@ def test_item_kinds_reads_lifestyle_declarations(tmp_path):
     assert kinds["jogging"] == frozenset({"outdoor", "fitness"})
     assert "gaming" not in kinds
     assert dict(item_kinds(tmp_path / "absent")) == {}
-
-
-def test_real_corpus_partitions_are_reachable():
-    """真实冻结语料：全部内容条目分区键齐备，且各分区在真实地点集下可行。"""
-    entries = tuple(entry_from_content(str(item["item_id"]), "fixture", item)
-                    for relative in ("movies/items.json", "drama/items.json", "podcasts/items.json",
-                                     "novels/items.json",
-                                     "feed/items.json", "jokes/items.json")
-                    for item in json.loads((CORPORA / relative).read_text(encoding="utf-8")))
-    report = reachability_report(entries, tuple(place_kinds(CORPORA, "zhangjiang-map/locations.json").values()))
-    assert report["unreachable"] == []
-    assert report["partition_count"] > 1
-    assert all(row["feasible"] for row in report["partitions"])
-
-
-def test_location_kind_closed_set_matches_lifestyle_corpus():
-    """地点类词表三处逐值一致：本模块闭集 == 语料声明的闭集。"""
-    declared = json.loads(
-        (CORPORA / "lifestyle" / "enrichment.json").read_text(encoding="utf-8"))
-    assert set(LOCATION_KINDS) == set(declared["location_kind_closed_set"])
 
 
 # ---------------------------------------------------------------------------

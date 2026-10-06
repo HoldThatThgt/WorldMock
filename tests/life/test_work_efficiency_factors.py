@@ -7,18 +7,20 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import pytest
 
 from worldmock.life.body import ActivityFactors, apply_food, settle_body
 from worldmock.life.models import ActivityKind, BodyState, CurvePoint, EfficiencyFactor
-from worldmock.life.scenario import BodyConfig
+from worldmock.life.scenario import BodyConfig, parse_scenario_document
 from worldmock.life.world_setup import load_scenario
 
 
 @pytest.fixture(scope="module")
 def body_config() -> BodyConfig:
     """读取正式冻结身体参数（经目录装配，含睡眠债+能量两个因子）。"""
-    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+    return load_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0].body
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +75,9 @@ def test_factors_assembled_from_catalog(body_config) -> None:
     assert factors["sleep_debt_hours"] == [(0.0, 1.0), (8.0, 1.0), (16.0, 0.85), (24.0, 0.65)]
     assert factors["energy_kcal"] == [(0.0, 0.5), (399.9, 0.5), (400.0, 0.8), (800.0, 1.0)]
     # 正式身体数据经当前冻结目录发布，曲线与阈值仍逐项校验。
-    assert body_config.source_kind == "catalog:5.5"
+    document, _ = parse_scenario_document(ENVIRONMENT_ROOT / "scenarios/single-person.json")
+    pin = document.catalog_version
+    assert body_config.source_kind == f"catalog:{pin.major}.{pin.minor}"
 
 
 def test_hungry_band_interval_average_with_skill(body_config) -> None:

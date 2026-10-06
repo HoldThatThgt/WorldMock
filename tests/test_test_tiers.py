@@ -107,7 +107,7 @@ def test_actual_fixture_objects_helpers_and_returned_factories_are_followed_per_
 def test_real_pytest_collection_classifies_each_test_and_actual_fixture_closure(tmp_path):
     source_root = run_tests.ROOT
     (tmp_path / "tests").mkdir()
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py"):
+    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
         shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
     shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\npythonpath = ["src"]\n', "utf-8")
@@ -297,7 +297,7 @@ def test_standard_wall_time_reuses_only_the_same_verified_run(tmp_path, monkeypa
 
     monkeypatch.setattr(run_tests, "ROOT", tmp_path)
     monkeypatch.setattr(run_tests, "run", measure)
-    result = run_tests.standard_reference(Namespace(workers=6, base="HEAD"), records, "source")
+    result = run_tests.standard_reference(Namespace(workers=6, base="HEAD", environment_root=None), records, "source")
     assert result["wall_seconds"] == 10
     assert len(calls) == (damage != "none")
     if calls:
@@ -329,6 +329,40 @@ def test_input_identity_changes_when_source_changes_and_skips_are_reported(tmp_p
     summary = run_tests._summary(Namespace(tier="fast", workers=6), [record], receipt["tests"], [], [], 1)
     assert summary["skipped_nodes"] == [record["nodeid"]]
     assert summary["reference_target_exceeded"] is None
+
+
+def test_external_environment_identity_survives_relocation_and_rejects_changed_bytes(tmp_path, monkeypatch):
+    """@brief 完整回归绑定外部环境内容；换机器路径不改变身份，换文件字节直接拒绝旧结果。"""
+    engine = tmp_path / "engine"
+    engine.mkdir()
+    for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes"):
+        (engine / name).write_text("frozen", encoding="utf-8")
+    environment = tmp_path / "environment"
+    for name in ("catalog", "corpora", "scenarios"):
+        (environment / name).mkdir(parents=True)
+        (environment / name / "input.json").write_text(name, encoding="utf-8")
+    monkeypatch.setattr(run_tests, "ROOT", engine)
+    identity = run_tests.source_digest(environment)
+    assert identity != run_tests.source_digest()
+    moved = tmp_path / "another-machine/environment"
+    shutil.copytree(environment, moved)
+    run_tests.require_unchanged_input(identity, moved)
+    (moved / "corpora/input.json").write_text("changed", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="input changed"):
+        run_tests.require_unchanged_input(identity, moved)
+
+
+@pytest.mark.parametrize("condition", ["missing", "empty"])
+def test_explicit_external_environment_requires_all_three_nonempty_inputs(tmp_path, condition):
+    """@brief 显式外部输入不能丢失目录或只提供空目录来满足回归身份检查。"""
+    for name in ("catalog", "corpora", "scenarios"):
+        (tmp_path / name).mkdir()
+        if name != "corpora":
+            (tmp_path / name / "input.json").write_text(name, encoding="utf-8")
+    if condition == "missing":
+        (tmp_path / "corpora").rmdir()
+    with pytest.raises((FileNotFoundError, ValueError), match=f"is {condition}: corpora"):
+        run_tests.environment_source_digest(tmp_path)
 
 
 @pytest.mark.parametrize("relative", ["requirements/build-lock.txt", "requirements/runtime-lock.txt",
@@ -389,7 +423,7 @@ def test_real_serial_and_parallel_workers_return_identical_complete_nodes(tmp_pa
     """@brief 实测权重交错目录后，串并行均保留局部夹具作用域和完整节点。"""
     source_root = run_tests.ROOT
     (tmp_path / "tests").mkdir()
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py"):
+    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
         shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
     shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
     with (tmp_path / "conftest.py").open("a", encoding="utf-8") as handle:
@@ -433,7 +467,7 @@ def test_real_pytest_rejects_other_run_old_format_or_duplicate_selection(tmp_pat
     """@brief 真实 pytest 在执行前拒绝不属于本轮的选单，不读取旧数组格式。"""
     source_root = run_tests.ROOT
     (tmp_path / "tests").mkdir()
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py"):
+    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
         shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
     shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
     (tmp_path / "tests/test_plain.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
@@ -468,7 +502,7 @@ def test_real_parallel_coverage_is_combined_for_the_current_normal_source(tmp_pa
     source_root = run_tests.ROOT
     for name in ("tests", "scripts", "src/worldmock", "docs/dev"):
         (tmp_path / name).mkdir(parents=True)
-    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py"):
+    for name in ("__init__.py", "tier_support.py", "frozen_inputs.py", "engine_fixture.py", "data_paths.py"):
         shutil.copy2(source_root / "tests" / name, tmp_path / "tests" / name)
     shutil.copy2(source_root / "conftest.py", tmp_path / "conftest.py")
     for name in ("coverage_gate.py", "run_tests.py", "bootstrap_sources.py"):
@@ -495,7 +529,7 @@ def test_real_parallel_coverage_is_combined_for_the_current_normal_source(tmp_pa
     monkeypatch.setattr(run_tests, "ROOT", tmp_path)
     monkeypatch.setattr(run_tests, "DURATIONS", tmp_path / "docs/dev/test-durations.json")
     monkeypatch.setattr(run_tests, "duration_weights", lambda: {})
-    assert run_tests.run(Namespace(tier="full", workers=2, base="HEAD")) == 0
+    assert run_tests.run(Namespace(tier="full", workers=2, base="HEAD", environment_root=None)) == 0
     path = next((tmp_path / ".work/test-runs").glob("*/coverage.json"))
     directory = path.parent
     coverage = json.loads((directory / "coverage.json").read_text(encoding="utf-8"))

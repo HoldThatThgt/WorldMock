@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 from pathlib import Path
 
 import pytest
@@ -320,7 +322,7 @@ def test_scenario_contacts_that_are_same_world_persons_do_not_receive(engine_fac
     """两份多人场景里与同世界人物同名的场景联系人没有收货地点（同世界人物按人物身份收货）：直接配送给通讯录里的
     「李凡」以「李凡 currently has no eligible receiving location.」拒绝，世界不变，没有记入联系人持有。"""
     for name in ("multi-person.json", "multi-person-half-day.json"):
-        scenario, _ = load_scenario(Path("scenarios") / name)
+        scenario, _ = load_scenario((ENVIRONMENT_ROOT / "scenarios") / name)
         people = {item.name for item in scenario.agents}
         duplicates = [contact for item in scenario.agents for contact in item.contacts if contact.salutation in people]
         assert len(duplicates) == 2 and all(contact.receive_location_id is None for contact in duplicates)

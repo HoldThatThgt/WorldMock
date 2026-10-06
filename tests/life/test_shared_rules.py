@@ -1,7 +1,7 @@
 """@brief 共享活动规则跨原有呈现、受理、预估与结算入口的一致性。"""
 
 from dataclasses import replace
-from pathlib import Path
+from tests.data_paths import ENVIRONMENT_ROOT
 from types import SimpleNamespace
 
 import pytest
@@ -99,11 +99,11 @@ def test_declared_sleep_channel_does_not_control_body_sleep_settlement(engine_fa
     from worldmock.life.models import BodyState
 
     engine = engine_factory()
-    registry = affordances.default_affordances()
+    registry = affordances.engine_affordances()
     changed_registry = replace(registry, kinds={**registry.kinds,
                                                 "sleep": replace(registry.kinds["sleep"], sleep_channel="awake")})
-    monkeypatch.setattr(affordances, "default_affordances", lambda: changed_registry)
-    monkeypatch.setattr(body, "default_affordances", lambda: changed_registry)
+    monkeypatch.setattr(affordances, "engine_affordances", lambda: changed_registry)
+    monkeypatch.setattr(body, "engine_affordances", lambda: changed_registry)
     monkeypatch.setattr(activities, "_AFFORDANCES", changed_registry)
     config = engine.context.scenario.body
     before = BodyState(energy_kcal=1600, sleep_pressure=0.6, sleep_deficit_hours=4, entertainment_need=0.3)
@@ -208,7 +208,7 @@ def test_registry_met_key_is_shared_by_preview_and_settlement(monkeypatch):
     registry = SimpleNamespace(met_lookup_key=lambda *args, **kwargs: "declared:watch",
                                relief_channel=original.relief_channel)
     monkeypatch.setattr(activities, "_AFFORDANCES", registry)
-    monkeypatch.setattr(motivation, "default_affordances", lambda: registry)
+    monkeypatch.setattr(motivation, "engine_affordances", lambda: registry)
     activity = _running(ActivityKind.WATCH, "movie-0001", 1800,
                         {"entertainment_relief_per_hour": 0.3, "exposure_count": 1})
     agent = _agent()
@@ -283,8 +283,8 @@ def test_contract_templates_match_scenario_loading_and_resource_mapping(engine_f
         monkeypatch.setitem(CONTRACT_OBJECT_IDS, kind, shared_id)
     catalog = replace(engine.context.semantics.catalog, objects=objects)
     monkeypatch.setattr(world_setup, "load_catalog", lambda _path: catalog)
-    root = Path(__file__).resolve().parents[2]
-    loaded, _ = world_setup.load_runtime_scenario(root / "scenarios/white-collar-12-weeks.json", root / "catalog")
+    loaded, _ = world_setup.load_runtime_scenario(
+        ENVIRONMENT_ROOT / "scenarios/single-person.json", ENVIRONMENT_ROOT / "catalog")
     referenced = {item.object_id for item in loaded.refs.objects}
     assert {CONTRACT_OBJECT_IDS[task.contract_kind] for task in loaded.scenario.tasks} <= referenced
     assert not {"contract-hourly", "contract-piece", "contract-package"} & referenced
@@ -303,7 +303,7 @@ def test_candidate_kind_mapping_drives_real_generation_and_resource_filter(candi
     kinds = ("product", "lifestyle", "content", "game", "task")
     entries = tuple(candidates.CandidateEntry(f"object-{kind}", kind) for kind in kinds)
     registry = SimpleNamespace(resource_claims=lambda kind, **_kwargs: frozenset({f"activity:{kind}"}))
-    monkeypatch.setattr(candidates, "default_affordances", lambda: registry)
+    monkeypatch.setattr(candidates, "engine_affordances", lambda: registry)
     inputs = candidates.CandidateInputs(
         location=None, locations={}, sources={"on_site": entries}, require_location_instance=False,
         local_hour=None, current_time=100, window_end_time=1000,

@@ -61,7 +61,7 @@ def _stage(engine: LifeEngine, agent_id: int = 1, *, location: str | None = None
     engine.context.state = staged
 
 
-def _engine(engine_factory, scenario: str = "white-collar-12-weeks.json", **stage) -> LifeEngine:
+def _engine(engine_factory, scenario: str = "single-person.json", **stage) -> LifeEngine:
     """@brief 登记空计划的运行，并按需预置地点、任务、持有物与门店供给。"""
     engine = engine_factory(scenario)
     for agent_id in engine.context.state.agents:

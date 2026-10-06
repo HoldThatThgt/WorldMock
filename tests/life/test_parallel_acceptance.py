@@ -6,7 +6,7 @@ import pytest
 
 from tests.life.conftest import stage_day_plan
 from tests.life.test_parallel_activities import _advance_with_decisions, _start_pair, _start_pair_with_choices
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 
 #: 所选动作的内部标准动作 → 注册表活动类型（占用按类型声明，每种动作占自己的名字，docs/dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明）。
 _KINDS = {"wait": "wait", "do": "lifestyle", "travel_to": "travel", "sleep": "sleep", "play": "play_game"}
@@ -15,7 +15,7 @@ _KINDS = {"wait": "wait", "do": "lifestyle", "travel_to": "travel", "sleep": "sl
 def _registry_claims(engine, choice: tuple[dict, dict]) -> frozenset[str]:
     """@brief 所选动作按注册表重列的占用：观看按内容品类，出行按出行方式。"""
     row, action = choice
-    view = default_affordances()
+    view = engine_affordances()
     if action["canonical_action"] == "watch":
         contents = {item.item_id: item for item in engine.context.scenario.contents}
         return view.resource_claims("watch", content_kind=contents[row["object_id"]].kind)

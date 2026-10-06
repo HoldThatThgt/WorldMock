@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import hashlib
 from pathlib import Path
 
@@ -202,7 +204,7 @@ def test_seed_changes_competition_order_and_checkpoint_restores_it(engine_factor
     first.checkpoint(snapshots)
     run_dir = first.context.store.run_dir
     first.close()
-    restored = LifeEngine.open(Path("scenarios/multi-person.json"), run_dir)
+    restored = LifeEngine.open(ENVIRONMENT_ROOT / "scenarios/multi-person.json", run_dir)
     try:
         assert restored.scheduling_state().ready_agent_ids == first_order
     finally:

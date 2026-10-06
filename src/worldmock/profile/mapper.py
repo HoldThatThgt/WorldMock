@@ -1,6 +1,6 @@
 """@brief 大五刻度 → 世界层动力学的确定性映射（零 LLM，纯函数）。
 
-映射系数全部来自 catalog/rules/persona-mapping.toml [world_dynamics.*]
+映射系数全部来自引擎包资源 persona-mapping.toml [world_dynamics.*]
 （人工 authored，含 anchored/assumption 溯源标注）；本模块只做读取与线性
 组合 + 格点吸附。同（大五, 配置内容）输入必产生逐字节相同的 WorldDynamics。
 输出只供引擎内部使用（情绪脉冲、社交账本、内部评分器），不进提示。
@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
-import os
+import logging
 import tomllib
+from importlib.resources import files
 from pathlib import Path
 from typing import Mapping
 
@@ -21,7 +22,6 @@ from worldmock.profile.models import (
     quantize,
 )
 
-RULES_PATH = Path("catalog/rules/persona-mapping.toml")
 #: 动力学参数名清单；与 TOML [world_dynamics.*] section 一一对应集中对齐。
 DYNAMICS_FIELDS = (
     "mood_pulse_amplitude", "mood_halflife_minutes", "social_need_growth_per_hour",
@@ -31,26 +31,17 @@ DYNAMICS_FIELDS = (
 DETERMINISTIC_SOURCE_MODEL = "persona-mapping v2 (deterministic, zero-LLM)"
 
 
-def default_mapping_path() -> Path:
-    """@brief 解析 persona-mapping.toml 默认路径：env 覆盖 > 包定位仓库根 > CWD。"""
-    override = os.environ.get("WORLDMOCK_PERSONA_MAPPING")
-    if override:
-        return Path(override)
-    package_root = Path(__file__).resolve().parents[3]
-    candidates = (package_root / RULES_PATH, Path.cwd() / RULES_PATH)
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    raise FileNotFoundError(
-        f"persona mapping config not found at {package_root / RULES_PATH} or {Path.cwd() / RULES_PATH}")
-
-
 def load_mapping_config(path: Path | str | None = None) -> dict:
-    """@brief 读取并结构校验 v2 映射规则表（缺 section/键即失败，不静默缺省）。"""
-    config_path = Path(path) if path is not None else default_mapping_path()
-    with config_path.open("rb") as handle:
-        config = tomllib.load(handle)
-    _validate_config(config)
+    """@brief 读取显式路径或引擎包的 v2 映射规则表，缺声明时直接失败。"""
+    config_resource = (files("worldmock.data").joinpath("persona-mapping.toml")
+                       if path is None else Path(path))
+    try:
+        with config_resource.open("rb") as handle:
+            config = tomllib.load(handle)
+        _validate_config(config)
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, AssertionError):
+        logging.exception("Failed to load persona mapping rules: %s", config_resource)
+        raise
     return config
 
 

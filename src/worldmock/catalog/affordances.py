@@ -15,6 +15,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from functools import lru_cache
+from importlib.resources import as_file, files
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
@@ -75,7 +76,7 @@ PROTOTYPE_GENERATORS: dict[str, Callable[..., list]] = {}
 _KIND_KEYS = frozenset({
     "met_key", "met_key_modes", "energy_floor_exempt", "sleep_channel", "relief",
     "resource_claims", "feedback_boundary", "game_boundary",
-    "unclassified", "action", "target_discovery", "target_corpus",
+    "unclassified", "action", "target_discovery",
 })
 #: families 层允许的字段键。
 _FAMILY_KEYS = frozenset({
@@ -108,18 +109,14 @@ class KindSpec:
     target_discovery: str = "none"
     target_field: str | None = None
     target_id_key: str | None = None
-    target_corpus: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ContentKindSpec:
-    """@brief 一个内容品类的注意力与标题来源声明。"""
+    """@brief 一个内容品类的注意力声明；标题由场景条目提供。"""
 
     name: str
     attention_required: bool
-    title_source: str | None
-    corpus_path: str | None
-    id_key: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,16 +276,6 @@ class AffordanceView:
     # ----- L2 观察层 -----
 
     @property
-    def title_sources(self) -> dict[str, tuple[str, str]]:
-        """@brief 内容条目标题的语料来源（corpus 形态品类；id_key 空串=单记录身份文件）。"""
-        sources: dict[str, tuple[str, str]] = {}
-        for family in self.families.values():
-            for kind in family.content_kinds:
-                if kind.corpus_path is not None:
-                    sources[kind.name] = (kind.corpus_path, kind.id_key or "")
-        return sources
-
-    @property
     def attention_required_kinds(self) -> frozenset[str]:
         """@brief 画像必须声明的注意力键集（attention_required = true）。"""
         return frozenset(kind.name for family in self.families.values()
@@ -300,12 +287,10 @@ class AffordanceView:
 # fail-closed）
 # ---------------------------------------------------------------------------
 
-def load_affordances(path: Path, corpora_root: Path | None = None) -> AffordanceView:
+def load_affordances(path: Path) -> AffordanceView:
     """@brief 解析注册表并执行加载期校验（规则 1-5），返回不可变派生视图。
 
     :param path: affordances.toml 路径。
-    :param corpora_root: 语料根；提供时核对 target_corpus / title_source 语料
-        文件存在（规则 2 的语料存在性半边；字节哈希归语料 manifest 管）。
     :raises IntegrityError: 解析失败或任一规则被违反。
     """
     path = Path(path)
@@ -315,6 +300,8 @@ def load_affordances(path: Path, corpora_root: Path | None = None) -> Affordance
         payload = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise IntegrityError(f"Affordance registry TOML is malformed: {error}") from error
+    except (OSError, UnicodeError) as error:
+        raise IntegrityError(f"Affordance registry cannot be read: {error}") from error
     if payload.get("version") != 1:
         raise IntegrityError("Affordance registry version must be 1")
     unknown_top = set(payload) - {"version", "kinds", "families"}
@@ -333,17 +320,15 @@ def load_affordances(path: Path, corpora_root: Path | None = None) -> Affordance
     view = _build_view(kinds, families)
     _check_habit_coverage(view)
     _check_claim_content_kinds(view)
-    if corpora_root is not None:
-        _check_corpus_references(view, Path(corpora_root))
     return view
 
 
 @lru_cache(maxsize=1)
-def default_affordances() -> AffordanceView:
-    """@brief 仓库默认注册表的缓存视图（catalog/affordances.toml + corpora/ 语料核对）。"""
-    root = Path(__file__).resolve().parents[3]
-    return load_affordances(root / "catalog" / AFFORDANCES_FILE,
-                            corpora_root=root / "corpora")
+def engine_affordances() -> AffordanceView:
+    """@brief 从引擎包资源读取通用闭集并缓存，不读取任何具体环境。"""
+    resource = files("worldmock.data").joinpath(AFFORDANCES_FILE)
+    with as_file(resource) as path:
+        return load_affordances(path)
 
 
 def _reject_unknown(entry_id: str, body: Mapping, allowed: frozenset[str],
@@ -356,6 +341,7 @@ def _reject_unknown(entry_id: str, body: Mapping, allowed: frozenset[str],
 
 
 def _require_bool(entry_id: str, body: Mapping, key: str, default: bool = False) -> bool:
+    """@brief 读取布尔声明并拒绝其他类型。"""
     value = body.get(key, default)
     if not isinstance(value, bool):
         raise IntegrityError(f"Affordance kind {entry_id!r} field {key} must be a boolean")
@@ -367,29 +353,7 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
     if not isinstance(body, dict):
         raise IntegrityError(f"Affordance kind {name!r} must be a table")
     _reject_unknown(name, body, _KIND_KEYS, "kind")
-    met_key = body.get("met_key", name)
-    if not isinstance(met_key, str) or not met_key:
-        raise IntegrityError(f"Affordance kind {name!r} met_key must be a non-empty string")
-    # 占位符检查：模板只允许 {mode} / {item_id}，且至多一个、处于键尾。
-    for placeholder in _MET_PLACEHOLDERS:
-        if placeholder in met_key:
-            if met_key.count(placeholder) != 1 or not met_key.endswith(placeholder):
-                raise IntegrityError(
-                    f"Affordance kind {name!r} met_key {met_key!r} misuses {placeholder}")
-            if any(other in met_key for other in _MET_PLACEHOLDERS - {placeholder}):
-                raise IntegrityError(
-                    f"Affordance kind {name!r} met_key {met_key!r} mixes placeholders")
-    modes = body.get("met_key_modes", [])
-    if "{mode}" in met_key:
-        if not isinstance(modes, list) or not modes:
-            raise IntegrityError(
-                f"Affordance kind {name!r} met_key {{mode}} requires met_key_modes")
-        if any(mode not in TRAVEL_MODES for mode in modes):
-            raise IntegrityError(
-                f"Affordance kind {name!r} met_key_modes must be within {sorted(TRAVEL_MODES)}")
-    elif modes:
-        raise IntegrityError(
-            f"Affordance kind {name!r} declares met_key_modes without a {{mode}} template")
+    met_key, modes = _parse_met_key(name, body)
     sleep_channel = body.get("sleep_channel", "awake")
     if sleep_channel not in SLEEP_CHANNELS:
         raise IntegrityError(f"Affordance kind {name!r} sleep_channel is invalid")
@@ -426,8 +390,35 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         target_discovery=discovery_source,
         target_field=target_field,
         target_id_key=target_id_key,
-        target_corpus=body.get("target_corpus"),
     )
+
+
+def _parse_met_key(name: str, body: Mapping) -> tuple[str, tuple[str, ...]]:
+    """@brief 校验活动代谢查表键的占位符与出行方式闭集。"""
+    met_key = body.get("met_key", name)
+    if not isinstance(met_key, str) or not met_key:
+        raise IntegrityError(f"Affordance kind {name!r} met_key must be a non-empty string")
+    # 占位符检查：模板只允许 {mode} / {item_id}，且至多一个、处于键尾。
+    for placeholder in _MET_PLACEHOLDERS:
+        if placeholder in met_key:
+            if met_key.count(placeholder) != 1 or not met_key.endswith(placeholder):
+                raise IntegrityError(
+                    f"Affordance kind {name!r} met_key {met_key!r} misuses {placeholder}")
+            if any(other in met_key for other in _MET_PLACEHOLDERS - {placeholder}):
+                raise IntegrityError(
+                    f"Affordance kind {name!r} met_key {met_key!r} mixes placeholders")
+    modes = body.get("met_key_modes", [])
+    if "{mode}" in met_key:
+        if not isinstance(modes, list) or not modes:
+            raise IntegrityError(
+                f"Affordance kind {name!r} met_key {{mode}} requires met_key_modes")
+        if any(mode not in TRAVEL_MODES for mode in modes):
+            raise IntegrityError(
+                f"Affordance kind {name!r} met_key_modes must be within {sorted(TRAVEL_MODES)}")
+    elif modes:
+        raise IntegrityError(
+            f"Affordance kind {name!r} declares met_key_modes without a {{mode}} template")
+    return met_key, tuple(modes)
 
 
 def _parse_resource_claims(
@@ -503,6 +494,30 @@ def _parse_family(name: str, body: Mapping,
             or any(kind not in kinds for kind in family_kinds)):
         raise IntegrityError(
             f"Affordance family {name!r} kinds must reference declared kinds")
+    attention_kind, attention_params, content_kinds = _parse_attention(name, body)
+    members = _parse_habit_members(name, body.get("habit_members", []))
+    generator, params = _parse_candidate(name, body.get("candidate"))
+    rank = body.get("enumeration_rank")
+    if rank is not None and (not isinstance(rank, int) or isinstance(rank, bool) or rank < 0):
+        raise IntegrityError(f"Affordance family {name!r} enumeration_rank is invalid")
+    return FamilySpec(
+        name=name,
+        kinds=tuple(family_kinds),
+        attention_kind=attention_kind,
+        attention_params=MappingProxyType(attention_params),
+        habit_members=members,
+        generator=generator,
+        generator_params=MappingProxyType(params),
+        comfort=bool(body.get("comfort", False)),
+        enumeration_rank=rank,
+        unclassified=bool(body.get("unclassified", False)),
+        content_kinds=content_kinds,
+    )
+
+
+def _parse_attention(
+        name: str, body: Mapping) -> tuple[str, dict[str, Any], tuple[ContentKindSpec, ...]]:
+    """@brief 校验家族注意力采样参数与内容品类声明。"""
     attention = body.get("attention")
     if not isinstance(attention, dict) or attention.get("kind") not in ATTENTION_KINDS:
         raise IntegrityError(f"Affordance family {name!r} attention is invalid")
@@ -526,8 +541,11 @@ def _parse_family(name: str, body: Mapping,
     content_kinds = tuple(
         _parse_content_kind(kind_name, kind_body)
         for kind_name, kind_body in content_raw.items())
-    members = _parse_habit_members(name, body.get("habit_members", []))
-    candidate = body.get("candidate")
+    return attention["kind"], attention_params, content_kinds
+
+
+def _parse_candidate(name: str, candidate: Any) -> tuple[str, dict[str, Any]]:
+    """@brief 校验候选生成器原型及其参数，不注册环境来源。"""
     if not isinstance(candidate, dict) or "generator" not in candidate:
         raise IntegrityError(f"Affordance family {name!r} candidate generator is missing")
     generator = candidate["generator"]
@@ -541,22 +559,7 @@ def _parse_family(name: str, body: Mapping,
             f"Affordance family {name!r} generator {generator!r} rejects params "
             f"{sorted(unknown_params)}")
     _check_generator_values(name, generator, params)
-    rank = body.get("enumeration_rank")
-    if rank is not None and (not isinstance(rank, int) or isinstance(rank, bool) or rank < 0):
-        raise IntegrityError(f"Affordance family {name!r} enumeration_rank is invalid")
-    return FamilySpec(
-        name=name,
-        kinds=tuple(family_kinds),
-        attention_kind=attention["kind"],
-        attention_params=MappingProxyType(attention_params),
-        habit_members=members,
-        generator=generator,
-        generator_params=MappingProxyType(params),
-        comfort=bool(body.get("comfort", False)),
-        enumeration_rank=rank,
-        unclassified=bool(body.get("unclassified", False)),
-        content_kinds=content_kinds,
-    )
+    return generator, params
 
 
 def _parse_habit_members(name: str, raw: Any) -> tuple[str, ...]:
@@ -590,34 +593,14 @@ def _check_generator_values(name: str, generator: str, params: Mapping[str, Any]
 
 
 def _parse_content_kind(name: str, body: Mapping) -> ContentKindSpec:
-    """@brief 解析内容品类子条目：注意力要求 + 标题来源。"""
+    """@brief 解析内容品类子条目的注意力要求，拒绝环境来源声明。"""
     if not isinstance(body, dict):
         raise IntegrityError(f"Affordance content kind {name!r} must be a table")
-    _reject_unknown(name, body, frozenset({"attention_required", "title_source"}),
-                    "content kind")
+    _reject_unknown(name, body, frozenset({"attention_required"}), "content kind")
     if not isinstance(body.get("attention_required"), bool):
         raise IntegrityError(
             f"Affordance content kind {name!r} attention_required must be a boolean")
-    source = body.get("title_source")
-    if source is None:
-        raise IntegrityError(f"Affordance content kind {name!r} title_source is missing")
-    if isinstance(source, str):
-        if source != "self_label":
-            raise IntegrityError(
-                f"Affordance content kind {name!r} title_source {source!r} is invalid")
-        return ContentKindSpec(name, body["attention_required"], source, None, None)
-    if not isinstance(source, dict) or set(source) - {"corpus_path", "id_key"}:
-        raise IntegrityError(
-            f"Affordance content kind {name!r} title_source is malformed")
-    corpus_path = source.get("corpus_path")
-    if not isinstance(corpus_path, str) or not corpus_path:
-        raise IntegrityError(
-            f"Affordance content kind {name!r} title_source corpus_path is missing")
-    id_key = source.get("id_key")
-    if id_key is not None and not isinstance(id_key, str):
-        raise IntegrityError(
-            f"Affordance content kind {name!r} title_source id_key is invalid")
-    return ContentKindSpec(name, body["attention_required"], None, corpus_path, id_key)
+    return ContentKindSpec(name, body["attention_required"])
 
 
 def _build_view(kinds: Mapping[str, KindSpec],
@@ -659,18 +642,3 @@ def _check_claim_content_kinds(view: AffordanceView) -> None:
             if dimension == "content_kind" and value not in declared:
                 raise IntegrityError(
                     f"Affordance kind {spec.name!r} conditional content kind {value!r} is not declared")
-
-
-def _check_corpus_references(view: AffordanceView, corpora_root: Path) -> None:
-    """@brief 规则 2（语料半边）：target_corpus 与标题语料文件必须存在。"""
-    for spec in view.kinds.values():
-        if spec.target_corpus is not None and not (corpora_root / spec.target_corpus).is_file():
-            raise IntegrityError(
-                f"Affordance kind {spec.name!r} target_corpus {spec.target_corpus!r} "
-                f"is missing under {corpora_root}")
-    for family in view.families.values():
-        for kind in family.content_kinds:
-            if kind.corpus_path is not None and not (corpora_root / kind.corpus_path).is_file():
-                raise IntegrityError(
-                    f"Affordance content kind {kind.name!r} corpus {kind.corpus_path!r} "
-                    f"is missing under {corpora_root}")

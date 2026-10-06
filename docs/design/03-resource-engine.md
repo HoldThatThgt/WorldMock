@@ -3,10 +3,10 @@
 
 > **状态**：DRAFT，整合设计；接口与行为仍以冻结合同和规格为准；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RS1），已实现\
 > **日期**：2026-10-06
-> **版本**：v1.14\
+> **版本**：v1.15\
 > **工具交互修订**：类别完整供给、冻结价格范围及真实食材配方设计已冻结，已实现；本次生产验收单独记录；以[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)为本次合同。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D3 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）；该规格阶段 1 不改本文。
-> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「构建与版本」的当前目录版本（阶段 2）。
+> **同时做两件事修订**：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「构建与版本」的可供性占用声明（阶段 2）。
 > **范围**：资源定义、内容与语料、目录发布、来源校验、检索和提供
 
 资源引擎管理资源定义、对象属性、内容与固化语料，回答“有哪些资源、来自哪里、如何查询和读取”。
@@ -17,6 +17,11 @@
 [品类契约规格](../dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。餐馆与音频的本次行为以
 [一日行为规格](../dev/SPEC-dayrun-behavior.md#spec-dayrun-behavior-一日行为可信性特性开发规格)为准。
 本文只定义资源数据的准备、发布、校验、查询和读取职责。
+
+具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
+正式环境为 `environment/zhangjiang-baseline/`；WorldMock 提供引擎及包内固定通用规则。
+本章的 `catalog/`、`corpora/`、`scenarios/` 指外部环境目录，命令以 WorldMock 为当前工作目录并显式传路径。
+当前场景结构 6，内容标题必填，活动效果随环境加载并在启动时冻结；新组合放行另核对实际收据。
 
 <a name="design-03-resource-engine-共享规则与可重建环境修订"></a>
 ## 共享规则与可重建环境修订
@@ -99,8 +104,8 @@ flowchart LR
 
 运行消费已固化的本地语料。外部抓取、清洗和转换在准备阶段完成；
 运行中不在线补齐缺失素材，也不让模型编造来源事实。
-现有 [prepare_corpora](../../src/worldmock/corpora/fetch.py) 在临时目录整理、生成并校验清单后发布，
-拒绝覆盖已存在的目标；它只准备代码中声明的固定素材子集，不能据此重建仓库全部语料。
+采集、清洗、转换和正式语料发布由 Dataset 制作工具负责；WorldMock 不提供来源准备器。
+引擎用实际清单核验文件和引用，不能用摘要正确代替来源与重建验收。
 不同数据集提供不同字段时，先用稳定身份建立关联，再按明确映射组合。
 缺少关联依据不能靠名称相似度推断为同一物品；缺失必需字段应在准入阶段暴露。
 
@@ -127,7 +132,7 @@ flowchart LR
 <a name="resource-engine-语料清单与文件身份"></a>
 ### 语料清单与文件身份
 
-[corpora/manifest.json](../../corpora/manifest.json) 的实际结构由
+corpora/manifest.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/manifest.json`） 的实际结构由
 [CorpusManifest](../../src/worldmock/corpora/manifest.py) 定义：
 
 | 层级 | 字段 | 含义 |
@@ -145,7 +150,7 @@ flowchart LR
 
 | 事项 | 当前承载与要求 |
 | --- | --- |
-| 准备与发布 | [corpora/fetch.py](../../src/worldmock/corpora/fetch.py)负责固定素材子集的准备、校验和发布，不代表能重建仓库全部语料 |
+| 准备与发布 | Dataset 制作工具负责来源整理、构建和发布；正式来源、数量与可复现重建在数据仓验收 |
 | 清单与来源 | [corpora/manifest.py](../../src/worldmock/corpora/manifest.py)承载文件身份与来源模型 |
 | 来源归档差距 | 部分目录来源记录仍标有 `evidence snapshot pending`，不能把来源标签当作证据文件已经归档 |
 | 验收 | 核对固定文件、来源、许可与转换依据；用重复身份、路径越界、大小和哈希漂移反例验证清单校验。相关用例见 [tests/corpora](../../tests/corpora) |
@@ -193,7 +198,7 @@ flowchart LR
 ### 可计量资源定义
 
 [资源定义模型](../../src/worldmock/catalog/models.py)与
-[资源注册表](../../catalog/resources.jsonl)是字段来源。
+资源注册表（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/resources.jsonl`）是字段来源。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -319,21 +324,10 @@ flowchart LR
     A --> P[发布冻结数据集合]
 ```
 
-[地图准备入口](../../scripts/prepare_map.py)只在准备阶段联网；验证全部文件和引用后才发布暂存结果，
-失败不能覆盖已有发布物。运行模拟仅消费冻结文件。来源结构、许可通知、可信截止日和适用范围须原样保留，
-新道路事实保存自身取得时间；供给假设不能随路线重新取得而变成真实零售资料。
-当前准备入口要求三个参数，命令在仓库根目录执行：
-
-```sh
-python scripts/prepare_map.py --source-root corpora \
-  --destination experiments/map-release-20260105 --random-seed 20260105
-```
-
-源根目录包含 `zhangjiang-map/20260105/dataset.json`，商品目录使用其相邻 `catalog/`；
-目标目录必须不存在。另一正式种子使用 `20260106` 和独立新目标目录。
-发布的 [20260105 地图](../../corpora/zhangjiang-map/20260105/dataset.json)与
-[20260106 地图](../../corpora/zhangjiang-map/20260106/dataset.json)共享地点、路线和类别来源，
-分别冻结各自种子报价，不能跨种子复用。
+地图准备与道路重新取得在 Dataset 执行，操作以数据仓工具说明为准；验证文件和引用后发布新环境身份，
+失败不能覆盖已有发布物。运行模拟仅消费冻结文件，来源结构、许可通知、可信截止日和适用范围须原样保留。
+新道路事实保存自身取得时间，供给假设不能随路线重新取得而变成真实零售资料。
+正式种子分别冻结独立报价；不同种子可以共享地点、路线和类别来源，不能复用另一种子的供给身份。
 
 地图准备按出行方式解析冻结品类配对，以 `TravelFareRule` 和 `evaluate_travel_fare` 计算费用，
 与运行时共享闭集语义，不重新引入文本费率公式。准备器仍负责冻结道路资料，不拥有交换规则。
@@ -361,42 +355,36 @@ python scripts/prepare_map.py --source-root corpora \
 
 | 文件或目录 | 保存内容 | 维护入口 |
 | --- | --- | --- |
-| [catalog/manifest.json](../../catalog/manifest.json) | 主次版本、`category_requirements`、契约版本及契约、规则、目录内容摘要 | 目录生成器与受验证的发布入口 |
-| [catalog/resources.jsonl](../../catalog/resources.jsonl) | 可计量资源定义 | 目录生成器 |
-| [catalog/objects.jsonl](../../catalog/objects.jsonl) | 身份、品类、属性增量、来源与对象版本；不含内联交换规则 | 目录生成器与构建原语 |
-| [catalog/category-contract.json](../../catalog/category-contract.json) | 品类树、槽位、共享值与配对状态 | 品类维护与审核发布 |
-| [catalog/exchange-rules.json](../../catalog/exchange-rules.json) | 引用品类的闭集交换规则 | 交换引擎维护与审核发布 |
-| [catalog/rules/off-foods.mapping.toml](../../catalog/rules/off-foods.mapping.toml) | 食品来源字段映射 | 人工维护 |
-| [corpora/manifest.json](../../corpora/manifest.json) 与 [corpora](../../corpora) | 文件身份、元数据、正文、时间轴及来源证据 | 离线整理与固化 |
-| [catalog/overrides/tombstones.jsonl](../../catalog/overrides/tombstones.jsonl) | 目录条目的退役记录 | 当前生成器输出空文件；构建原语支持追加 |
+| catalog/manifest.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/manifest.json`） | 主次版本、`category_requirements`、契约版本及契约、规则、目录内容摘要 | 目录生成器与受验证的发布入口 |
+| catalog/resources.jsonl（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/resources.jsonl`） | 可计量资源定义 | 目录生成器 |
+| catalog/objects.jsonl（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/objects.jsonl`） | 身份、品类、属性增量、来源与对象版本；不含内联交换规则 | 目录生成器与构建原语 |
+| catalog/category-contract.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/category-contract.json`） | 品类树、槽位、共享值与配对状态 | 品类维护与审核发布 |
+| catalog/exchange-rules.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json`） | 引用品类的闭集交换规则 | 交换引擎维护与审核发布 |
+| catalog/rules/off-foods.mapping.toml（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/rules/off-foods.mapping.toml`） | 食品来源字段映射 | 人工维护 |
+| corpora/manifest.json（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/manifest.json`） 与 corpora（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora`） | 文件身份、元数据、正文、时间轴及来源证据 | 离线整理与固化 |
+| catalog/overrides/tombstones.jsonl（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/overrides/tombstones.jsonl`） | 目录条目的退役记录 | 当前生成器输出空文件；构建原语支持追加 |
 
 `catalog/manifest.json` 不保存语料文件清单，也没有通用 `defaults` 对象。
 `corpora/manifest.json` 不负责定义资源单位、活动规则或闭集交换规则。
 资源引擎按调用方指定的两份清单加载数据，不混用版本字段。
-内容加载所需的来源映射目前也存放在 [affordances.toml](../../catalog/affordances.toml) 中；
-资源引擎只消费相关映射，活动和工具声明的设计仍由交换引擎承载。
+固定活动与候选声明由[包资源](../../src/worldmock/data/affordances.toml)提供，环境目录的副本仅绑定冻结身份，
+必须逐字节一致。来源专属标题映射、目标语料映射和发现映射已删除；内容名称直接投影场景必填 `title`。
+生活活动 `effects` 必填 entertainment/social/health 三键，从实际语料根载入，启动复制到活动状态，推进与恢复只读冻结值。
 
 <a name="resource-engine-构建与版本"></a>
 ### 构建与版本
 
 下列命令使用[运行配置](../manual/runtime.md#runtime-使用已安装的环境)中已经激活的 WorldMock 环境。
 
-[目录生成器](../../scripts/build_catalog.py)读取已有固定快照、语料与规则，生成资源、对象、
-目录清单和空墓碑文件；不会从当前场景反推定义，也不会覆写人工维护的规则表。
-
-```sh
-python scripts/build_catalog.py --check
-```
-
-该检查验证资源和对象数目、静态数值来源覆盖，以及生成结果与在库目录逐字节相同；
-不证明场景行为、素材质量或全部运行结果正确。
-生成器负责正式数据再现，[目录构建原语](../../src/worldmock/catalog/builder.py)负责对象追加与退役；
-`worldmock category check/refine/publish` 提供品类检查、细化影响分析和新目录原子发布。
+正式目录生成与可复现检查在 Dataset 执行，来源、对象数目和许可由数据仓验收；具体操作见数据仓制作工具说明。
+[目录构建原语](../../src/worldmock/catalog/builder.py)负责通用对象追加与退役；
+`worldmock category check/refine/publish` 提供品类检查、细化影响分析和新目录原子发布，
 命令输入和输出见[接口合同](../CONTRACTS.md#contracts-cli)。
 
 调用方以 `catalog_version.major/minor` 指定目录；条目使用自己的整数 `version`。
-当前目录为 `5.5`（可供性占用声明按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)重列后发布），品类契约和交换规则绑定版本为 `3`；生活场景结构为 `5`（人物配置增必填可空的 `work_schedule`）、地图结构为 `3`，
-世界状态结构为 `9`（个人事务与工作安排规格阶段 2：人物状态增未完成的个人事务）。目录共 172 个对象，正式场景完整选择 168 件可购买商品与每种子 431 条独立供给。
+目录的具体版本和摘要由 Dataset 清单绑定，品类契约和交换规则绑定版本为 `3`；生活场景结构为 `6`、地图结构为 `3`，
+世界状态结构为 `9`（个人事务与工作安排规格阶段 2：人物状态增未完成的个人事务）。正式对象全集、商品选择与逐种子供给数量在 Dataset 验收，引擎验证所选环境的实际完整性。
+可供性占用声明按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-占用声明)在[包资源](../../src/worldmock/data/affordances.toml)中重列，其字节由 `tool_schema_sha256` 绑定；仓库人工测试环境 `tests/fixtures/environment/` 的副本逐字节同步、清单的目录内容摘要随之刷新，仍带旧占用名副本的外部发布环境在装配时被拒绝，要由 WorldMock-Dataset 按新占用名重新发布。
 完整供给阶段已按目录 `5.0` 独立验收并冻结，真实料理及后续目录内容修改按现行规则发布为新版本。
 当前生产身份取自正式清单；旧输入和检查点通过版本、内容、模板与代码身份直接拒绝。
 
@@ -683,7 +671,7 @@ sequenceDiagram
 | v1.10 | 2026-10-03 | 同步个人事务与工作安排规格阶段 4（实施计划 D3-04、D3-05、D3-06、D3-11）：`query_world` 改六键，来源筛选与购买同一解析，可执行筛选归模拟引擎，筛选先于切页、`total_count` 为筛选后总数，结果不附候选，除两种参数错误外无匹配为空页；可调用索引更正为四键并写明 `query_categories`（筛选不改变其计数口径）；指名购买来源的写法更正为地点显示名；每页大小改写为取场景参数；文件头修订行改为已落地阶段 2 与阶段 4（阶段 4 与阶段 2 并行开发，在阶段 2 之后并入） |
 | v1.11 | 2026-10-03 | 同步个人事务与工作安排规格阶段 3（实施计划 D3-03）：版本事实改为生活场景结构 5（人物配置增必填可空的 `work_schedule`；目录保持 5.3），世界状态结构照阶段 2 为 9；文件头修订行改为已落地阶段 2–4（阶段 3 在自己的分支上开发，在阶段 2、4 之后并入） |
 | v1.12 | 2026-10-04 | 个人事务与工作安排规格实现后文档（实施计划 D3-10）：文件头修订行注明已实现并链接个人事务与工作安排验收记录（证据为离线测试，规格阶段 6 的配对全天复跑未执行）；正文不变 |
-
+| 环境数据归属 | 2026-10-05 | 按环境数据归属规格同步双仓职责、包内通用规则与显式环境路径；场景结构 6、必填标题和冻结活动效果按正文说明，最终验收另记实际收据 |
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | 共享规则与可重建环境 | 2026-10-05 | 同步规则归属、源码重建与验收合同；目录按可供性声明注释的字节身份发布 5.4，业务数值与品类契约、规则绑定版本不变，历史发布记录保留原版本 |
-| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「构建与版本」的当前目录改为 5.5，可供性占用声明重列后发布，品类契约与规则绑定 3、场景结构 5、地图结构 3、世界结构 9 不变 |
+| `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 同步：「构建与版本」补可供性占用声明在包资源 `src/worldmock/data/affordances.toml` 中重列，字节由 `tool_schema_sha256` 绑定，测试环境副本逐字节同步并刷新目录内容摘要，仍带旧占用名副本的外部发布环境在装配时被拒绝、要由 WorldMock-Dataset 按新占用名重新发布；品类契约与规则绑定 3、场景结构 6、地图结构 3、世界结构 9 不变；文件头增该规格修订行，版本升为 v1.15；版本表去掉隔开末三行的空行 |

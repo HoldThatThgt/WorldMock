@@ -1,6 +1,8 @@
 """真实门店动作、逐供给呈现凭据和共同检查点恢复的合同验证。"""
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import copy
@@ -33,7 +35,7 @@ from worldmock.scheduling.events import ScheduledKind
 PRODUCT = "food-6923644266066"
 STORE = "poi-3538682402"
 SUPPLY = f"supply-{STORE}-{PRODUCT}"
-SCENARIO = Path("scenarios/white-collar-12-weeks.json")
+SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
 def _price_source():

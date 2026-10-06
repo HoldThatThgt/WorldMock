@@ -22,7 +22,7 @@ from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.life.projection import visible_supplies
 from worldmock.life.readable import clock_phrase, iso_time
 
-SCENARIO = "white-collar-12-weeks.json"
+SCENARIO = "single-person.json"
 RESTAURANT = "poi-3538682404"
 MEAL = "meal-0018"
 SUPPLY = "supply-poi-3538682404-meal-0018"

@@ -3,6 +3,7 @@
 
 WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，
 再交给 LabelKit 生产模型训练数据与规则引擎测试数据。
+WorldMock-Dataset 提供具体环境的数据与制作工具；WorldMock 提供引擎及安装包内的固定通用规则。
 
 <a name="readme-文档导航"></a>
 ## 文档导航
@@ -37,7 +38,9 @@ WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日�
 ```mermaid
 flowchart LR
     A[DeepSeek 人物与记忆] --> B[AS2 决策轮]
-    B --> C[LifeEnv 生活与内容]
+    B --> C[WorldMock：LifeEnv 生活与内容]
+    I[WorldMock-Dataset：冻结环境] -->|显式场景路径| C
+    J[WorldMock 安装包：通用规则] --> C
     C --> D[SQLite 事件与共同检查点]
     D --> E[固定足迹导出]
     E --> F[LabelKit 语义加工]
@@ -80,7 +83,9 @@ DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-正式实验使用 `scenarios/white-collar-12-weeks.json`，覆盖上海时区的 2026-01-05 至 2026-03-30，共 84 天。
+正式环境位于 WorldMock-Dataset 的 `environment/zhangjiang-baseline/`，包含 `corpora/`、`catalog/` 和 `scenarios/`。
+从 WorldMock 根目录使用 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json`，
+该单人物实验覆盖上海时区的 2026-01-05 至 2026-03-30，共 84 天。场景结构为 `6`，内容标题与生活活动效果均由环境显式提供。
 人物自行选择行动；日历控制可用机会，不能将规定动作序列冒充模型决策。
 
 运行输出位于 `runs/`。事件数据库与内容素材保留实际来源；模型调用、行为结果、共同检查点、
@@ -89,16 +94,30 @@ DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件
 <a name="readme-命令"></a>
 ## 命令
 
+以下命令在 WorldMock 根目录执行，两个仓库位于同一父目录：
+
 ```sh
-worldmock validate --scenario scenarios/white-collar-12-weeks.json
-worldmock run --scenario scenarios/white-collar-12-weeks.json --output runs/white-collar
+worldmock validate --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json
+worldmock run \
+  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json \
+  --output runs/white-collar
 worldmock status --run-dir runs/white-collar
 worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/final
 worldmock deliver --export runs/white-collar/exports/final --output runs/white-collar/delivery
 ```
 
-`resume` 必须显式提供父运行、检查点和新的输出目录。`prepare-corpora --output` 重新获取固定来源；
-运行时只读已校验快照，不访问在线路线服务。
+`resume` 必须显式提供父运行、检查点和新的输出目录。数据采集、地图准备和正式目录构建由 WorldMock-Dataset 维护，
+按数据仓的说明发布冻结环境。运行时只读已校验快照，不访问在线路线服务。
+
+引擎最小端到端测试使用人工夹具 `tests/fixtures/environment/`。验证 Dataset 环境下的完整行为回归时显式选择环境：
+
+```sh
+python scripts/run_tests.py --tier full --workers 4 \
+  --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline
+```
+
+双仓归属、发布与验收要求见[环境数据归属规格](docs/dev/SPEC-environment-data-ownership.md)；
+本次整理的最终放行以实际门禁收据为准。
 
 `replay` 还需 `--intervention` 指向严格的假设条件文件，在新分支中实际重演；`deliver --replay-export`
 可接收该分支的完整导出，把实际分支结果与普通反事实想象分别标明。

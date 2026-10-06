@@ -1,3 +1,5 @@
+
+from tests.data_paths import ENVIRONMENT_ROOT
 import json
 import os
 from pathlib import Path
@@ -16,7 +18,7 @@ from worldmock.life.world_setup import load_scenario
 from worldmock.run_setup import _agent_specs
 
 
-SCENARIO = Path(__file__).resolve().parents[2] / 'scenarios/white-collar-12-weeks.json'
+SCENARIO = ENVIRONMENT_ROOT / 'scenarios/single-person.json'
 TRAITS = ('trait_source_kind',)
 
 

@@ -33,6 +33,8 @@
 种类的中文说法以 `src/worldmock/life/readable.py` 的中文种类表为单一来源；活动表与时间线不出现 `call`、`work` 等英文种类名，
 也不出现 `task-` 一类内部标识形态。
 请求中的目标可通过本次运行记录的目标名称关联。
+内容名称直接取运行所冻结的场景 `contents[].title`，标题必填且非空；来源标题整理在 Dataset 完成，
+不再由引擎读取来源专属标题映射，归属见[环境数据归属规格](SPEC-environment-data-ownership.md)。
 短剧台词选段必须保留原始描述，不猜测剧名，不将字幕段数推断为剧集集数。
 
 <a name="spec-run-viewer-names-运行内对象名称"></a>

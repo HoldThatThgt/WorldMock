@@ -65,21 +65,20 @@ BEHAVIOR = {
         'tests/life/test_tool_protocol.py::test_route_errors_return_null_only_and_all_independent_fields',
     ),
     '类别供给': (
-        'tests/corpora/test_storefront_release.py::test_complete_assortments_have_real_stock_and_distinct_menus',
+        'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_and_required_richness',
+        'tests/corpora/test_storefront_release.py::test_assortment_excludes_unselected_same_category_products',
         'tests/corpora/test_storefront_release.py::test_every_published_product_can_really_be_bought_at_its_store',
         (
-            'tests/corpora/test_storefront_release.py::test_repeated_menus_are_rejected_even_with'
-            '_valid_complete_supplies'
+            'tests/corpora/test_storefront_release.py::test_restaurant_menu_pairs_require_distinct_dishes'
         ),
-        'tests/corpora/test_storefront_release.py::test_selected_store_must_keep_every_declared_supply',
+        'tests/corpora/test_storefront_release.py::test_loaded_store_must_keep_every_declared_supply',
     ),
     '地点定价': (
         (
-            'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_order_i'
-            'ndependent_and_positioned'
+            'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_and_respects_fixed_prices'
         ),
-        'tests/corpora/test_storefront_release.py::test_different_scenario_seeds_have_independently_frozen_quotes',
-        'tests/corpora/test_storefront_release.py::test_out_of_range_frozen_quote_is_rejected',
+        'tests/corpora/test_storefront_release.py::test_frozen_quotes_require_positive_ordered_integer_bounds',
+        'tests/corpora/test_storefront_release.py::test_convenience_price_positions_exceed_supermarket_positions',
         'tests/life/test_storefront_schedule.py::test_price_change_bounds_are_atomic_and_preserve_orders',
     ),
     '购买与食用': (
@@ -221,10 +220,7 @@ MUTATIONS += (
         'return frozenset(expanded | set(assortment.object_ids))',
         'return frozenset(obj.object_id for obj in catalog.objects.values() if obj.object_kind.value == "product")',
         (
-            (
-                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_real_stock_'
-                'and_distinct_menus'
-            ),
+            'tests/corpora/test_storefront_release.py::test_assortment_excludes_unselected_same_category_products',
         ),
     ),
     SourceMutation(
@@ -234,8 +230,7 @@ MUTATIONS += (
         '    pass',
         (
             (
-                'tests/corpora/test_storefront_release.py::test_repeated_menus_are_rejected_even_with'
-                '_valid_complete_supplies'
+                'tests/corpora/test_storefront_release.py::test_restaurant_menu_pairs_require_distinct_dishes'
             ),
         ),
     ),
@@ -246,8 +241,8 @@ MUTATIONS += (
         'return frozenset(sorted(expanded | set(assortment.object_ids))[:20])',
         (
             (
-                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_real_stock_'
-                'and_distinct_menus'
+                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_'
+                'and_required_richness'
             ),
         ),
     ),
@@ -258,8 +253,8 @@ MUTATIONS += (
         'return ancestor_id == category_id',
         (
             (
-                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_real_stock_'
-                'and_distinct_menus'
+                'tests/corpora/test_storefront_release.py::test_complete_assortments_have_actual_stock_'
+                'and_required_richness'
             ),
         ),
     ),
@@ -270,8 +265,7 @@ MUTATIONS += (
         'percent = 50 + digest_integer % 11 - 5',
         (
             (
-                'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_order_i'
-                'ndependent_and_positioned'
+                'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_and_respects_fixed_prices'
             ),
         ),
     ),
@@ -282,8 +276,7 @@ MUTATIONS += (
         'return upper + 1',
         (
             (
-                'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_order_i'
-                'ndependent_and_positioned'
+                'tests/corpora/test_storefront_release.py::test_price_formula_is_reproducible_and_respects_fixed_prices'
             ),
         ),
     ),
@@ -293,7 +286,7 @@ MUTATIONS += (
         'if not supply.quotes or any(not lower <= quote.price_fen <= upper for quote in supply.quotes):',
         'if not supply.quotes:',
         (
-            'tests/corpora/test_storefront_release.py::test_out_of_range_frozen_quote_is_rejected',
+            'tests/corpora/test_storefront_release.py::test_invalid_frozen_supply_is_rejected',
         ),
     ),
     SourceMutation(
@@ -302,7 +295,7 @@ MUTATIONS += (
         'if supply_ids != expected:',
         'if False:',
         (
-            'tests/corpora/test_storefront_release.py::test_selected_store_must_keep_every_declared_supply',
+            'tests/corpora/test_storefront_release.py::test_loaded_store_must_keep_every_declared_supply',
         ),
     ),
     SourceMutation(
@@ -338,7 +331,7 @@ MUTATIONS += (
         'if lower is not None and upper is not None and lower > upper:',
         'if False:',
         (
-            'tests/corpora/test_storefront_release.py::test_effective_price_range_rejects_reversed_object_override',
+            'tests/corpora/test_storefront_release.py::test_price_ranges_inherit_and_preserve_explicit_overrides',
         ),
     ),
     SourceMutation(

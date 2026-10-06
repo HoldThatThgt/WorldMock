@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import json
 import math
 import shutil
@@ -30,10 +32,9 @@ from tests.life.conftest import advance_next, context, start_activity
 from agentsociety2.society import DirectToolCall
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios/white-collar-12-weeks.json"
-CATALOG = ROOT / "catalog"
-FACTORS = ROOT / "catalog/snapshots/traffic/weekday-hour-factors.json"
-CALIBRATE = ROOT / "scripts/calibrate_traffic.py"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios/single-person.json"
+CATALOG = ENVIRONMENT_ROOT / "catalog"
+FACTORS = ENVIRONMENT_ROOT / "catalog/snapshots/traffic/weekday-hour-factors.json"
 
 
 def _epoch(hour: int, minute: int = 0) -> int:
@@ -50,7 +51,7 @@ def table() -> dict:
 @pytest.fixture(scope="module")
 def semantics():
     document, _ = parse_scenario_document(SCENARIO)
-    return assemble_semantics(document, load_catalog(CATALOG), load_map_dataset(ROOT / "corpora", document.map_dataset))
+    return assemble_semantics(document, load_catalog(CATALOG), load_map_dataset(ENVIRONMENT_ROOT / "corpora", document.map_dataset))
 
 
 def test_factor_lookup_matches_the_snapshot_table_for_every_hour(semantics, table) -> None:
@@ -204,19 +205,11 @@ def test_observation_quotes_the_factored_duration(engine_factory) -> None:
     assert hour == 0  # 首轮在场景起点（夜间小时）折算生效
 
 
-def test_calibrate_rerun_is_byte_identical() -> None:
-    """标定脚本可重跑：锚点快照 → 系数表字节一致（--check 门禁）。"""
-    completed = subprocess.run([sys.executable, str(CALIBRATE), "--check"],
-                               capture_output=True, text=True, cwd=ROOT)
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "byte-identical" in completed.stdout
-
-
 def test_rule_branches_agree_with_the_snapshot_table(table) -> None:
     """规则文件 24+1 分支与系数表 JSON 数值一致（规则与快照不脱钩）。"""
     document, _ = parse_scenario_document(SCENARIO)
     factors = assemble_semantics(
-        document, load_catalog(CATALOG), load_map_dataset(ROOT / "corpora", document.map_dataset)
+        document, load_catalog(CATALOG), load_map_dataset(ENVIRONMENT_ROOT / "corpora", document.map_dataset)
     ).travel_time_profile.factors
     assert set(factors) == {"walking"} | {f"driving_{hour:02d}" for hour in range(24)}
     assert factors["walking"] == 1.0

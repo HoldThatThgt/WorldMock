@@ -8,6 +8,8 @@
 """
 
 from __future__ import annotations
+
+from tests.data_paths import ENVIRONMENT_ROOT
 from worldmock.footprints.checkpoint import restore_branch
 
 import copy
@@ -47,7 +49,7 @@ from worldmock.life.prompt_capacity import ProgressBudget, fit_request  # noqa: 
 from worldmock.life.world_setup import load_scenario
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+SCENARIO = ENVIRONMENT_ROOT / "scenarios" / "single-person.json"
 #: 上一决策修订今日计划（瞬时请求，人物同一秒再决策）；思考里提到咖啡。
 _PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None, "around_time": None}]}
 _WAIT = start_arguments(["自己"], ["interact"], ["等待"])

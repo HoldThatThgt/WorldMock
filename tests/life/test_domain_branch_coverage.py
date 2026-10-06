@@ -9,10 +9,13 @@ rules/content/work/work_review/game/travel/semantics/motivation/social
 
 from __future__ import annotations
 
+from tests.data_paths import ENVIRONMENT_ROOT
+
 import asyncio
 from collections.abc import Mapping
 import hashlib
 import json
+import re
 from dataclasses import replace
 from datetime import datetime
 from functools import lru_cache
@@ -21,6 +24,7 @@ from types import MappingProxyType, SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from pydantic import ValidationError
 
 from worldmock.catalog import (
     Catalog,
@@ -29,6 +33,8 @@ from worldmock.catalog import (
     load_catalog,
 )
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
+from worldmock.categories.models import PairingDeclaration
+from worldmock.categories.rules import WorkPieceRule
 from worldmock.life import felt, social
 from worldmock.life.activities import (
     ActivityOrigin,
@@ -72,7 +78,7 @@ from worldmock.life.models import (
     TravelMode,
     WorldState,
 )
-from worldmock.catalog.affordances import default_affordances
+from worldmock.catalog.affordances import engine_affordances
 from worldmock.life.motivation import (
     MotivationContext,
     MotivationTransforms,
@@ -238,7 +244,7 @@ def _location(location_id="market", opens=0, closes=1440) -> LocationConfig:
 
 
 def _life_scenario(products=(), routes=(), locations=(), timezone=TIMEZONE) -> RuntimeScenario:
-    return RuntimeScenario.model_construct(products=tuple(products), routes=tuple(routes),
+    return RuntimeScenario.model_construct(schema_version=6, products=tuple(products), routes=tuple(routes),
                                             locations=tuple(locations), supplies=(), timezone=timezone)
 
 
@@ -641,15 +647,15 @@ def test_change_activity_speed_rejected_for_non_watch_activity() -> None:
 
 def test_advance_lifestyle_without_social_or_health_effects_skips_relief() -> None:
     """无社交/健康效应的生活活动只走常规结算，不落额外缓解。"""
-    from worldmock.life.activities import lifestyle_effects
-    zero = next(item_id for item_id, effects in lifestyle_effects().items()
-                if effects.get("social", 0.0) <= 0 and effects.get("health", 0.0) <= 0)
     body = _body().model_copy(update={
-        "activity_met": {**_body().activity_met, f"lifestyle:{zero}": 1.5}})
-    activity = _activity(kind=ActivityKind.LIFESTYLE, target_id=zero)
-    result = advance_activity(activity, _agent(), 300, body)
+        "activity_met": {**_body().activity_met, "lifestyle:walk": 1.5}})
+    activity = _activity(kind=ActivityKind.LIFESTYLE, target_id="walk",
+                         data={"effects": {"entertainment": 0.2, "social": 0.0, "health": 0.0}})
+    restored = ActivityState.model_validate_json(activity.model_dump_json())
+    result = advance_activity(restored, _agent(), 300, body)
     assert result.completed is False
     assert result.agent.body.social_need == _agent().body.social_need
+    assert result.agent.body.entertainment_need == pytest.approx(0.5 - 0.1 / 12)
 
 
 def test_change_activity_pause_at_game_feedback_boundary() -> None:
@@ -771,7 +777,7 @@ def _context(**overrides) -> MotivationContext:
 
 def test_motivation_transform_scales_cover_all_resources() -> None:
     """归一尺度闭集覆盖五类资源键。"""
-    transforms = load_motivation_transforms(PROJECT_ROOT / "catalog" / "rules")
+    transforms = load_motivation_transforms(ENVIRONMENT_ROOT / "catalog" / "rules")
     assert transforms is not None
     scales = {resource: transforms.scale_of(resource)
               for resource in ("money_fen", "energy_kcal", "sleep_debt_hours",
@@ -841,6 +847,7 @@ def test_continue_candidate_covers_travel_lifestyle_and_consume_flows() -> None:
     lifestyle_body = _body().model_copy(update={
         "activity_met": {**_body().activity_met, "lifestyle:jog": 2.0}})
     lifestyle = _activity(kind=ActivityKind.LIFESTYLE, target_id="jog",
+                          data={"effects": {"entertainment": 0.2, "social": 0.0, "health": 0.0}},
                           planned_end_at=3600, planned_duration_seconds=3600)
     assert _continue_candidate(_context(body=lifestyle_body), lifestyle) is not None
     consume = _activity(kind=ActivityKind.CONSUME,
@@ -941,11 +948,11 @@ def test_work_candidates_filter_due_and_skill_and_offer_travel_leg() -> None:
 def test_entertainment_candidates_skip_items_shorter_than_a_minute() -> None:
     """短于一分钟的内容条目不出观看候选（min 会话槽约束）。"""
     tiny = ContentItemConfig.model_validate({
-        "item_id": "tiny", "kind": "feature_film", "duration_seconds": 10,
+        "item_id": "tiny", "title": "Tiny film", "kind": "feature_film", "duration_seconds": 10,
         "timeline_path": "t.srt", "timeline_sha256": "d" * 64,
         "entertainment_relief_per_hour": 0.3, "experience_label": "Movie"})
     agent = _agent(taste_weights={"tiny": 0.8})
-    family = next(item for item in default_affordances().families_by_rank()
+    family = next(item for item in engine_affordances().families_by_rank()
                   if item.name == "entertainment")
     context = _context(agent=agent, contents=(tiny,), taste_weights={"tiny": 0.8})
     assert _entertainment_candidates(context, _profile(), family) == []
@@ -965,7 +972,7 @@ def test_load_lifestyle_items_rejects_broken_catalogs(tmp_path) -> None:
     """生活目录闭集校验：缺 items/坏行/重复 id/身份不匹配逐项 fail-closed。"""
     good_row = {"activity_id": "walk", "name_zh": "散步", "category": "wellness",
                 "typical_duration_minutes": 30, "description_zh": "走走",
-                "met_value": 2.0}
+                "met_value": 2.0, "effects": {"entertainment": 0.2, "social": 0.0, "health": 0.0}}
     _write(tmp_path, "lifestyle/items.json", json.dumps({"items": [good_row]}).encode())
     items = load_lifestyle_items(tmp_path, {"lifestyle:walk": 2.0})
     assert [item.activity_id for item in items] == ["walk"]
@@ -986,7 +993,7 @@ def test_load_lifestyle_items_rejects_broken_catalogs(tmp_path) -> None:
 
 def _content_item(timeline_sha256: str) -> ContentItemConfig:
     return ContentItemConfig.model_validate({
-        "item_id": "c1", "kind": "news_feed", "duration_seconds": 600,
+        "item_id": "c1", "title": "Test news", "kind": "news_feed", "duration_seconds": 600,
         "timeline_path": "tl.srt", "timeline_sha256": timeline_sha256,
         "entertainment_relief_per_hour": 0.2, "experience_label": "News"})
 
@@ -1011,17 +1018,17 @@ def test_load_subtitles_rejects_hash_mismatch_and_broken_timelines(tmp_path) -> 
     assert [cue.text for cue in cues] == ["hello", "world"]
 
 
-def test_load_content_titles_rejects_blank_or_missing_titles(tmp_path) -> None:
-    """可读标题是模型对象名称的必需来源；缺失或空白时失败关闭。"""
-    item = ContentItemConfig.model_construct(
-        item_id="c1", kind="feature_film", duration_seconds=600,
-        timeline_path="t.srt", timeline_sha256="d" * 64,
-        entertainment_relief_per_hour=0.2, experience_label="X")
-    _write(tmp_path, "titles.json",
-           json.dumps([{"id": "c1", "title": "   "}, {"id": "c2", "title": "有名"}]).encode())
-    sources = {"feature_film": ("titles.json", "id")}
-    with pytest.raises(IntegrityError, match="title"):
-        load_content_titles((item,), tmp_path, sources)
+def test_content_configuration_rejects_blank_or_missing_titles() -> None:
+    """@brief 内容声明必须提供非空标题，已验证标题直接用于呈现。"""
+    item = _content_item("d" * 64)
+    assert load_content_titles((item,)) == {"c1": "Test news"}
+    blank = {**item.model_dump(), "title": "   "}
+    with pytest.raises(ValidationError, match="content title must be a nonempty string"):
+        ContentItemConfig.model_validate(blank)
+    missing = item.model_dump()
+    del missing["title"]
+    with pytest.raises(ValidationError, match="Field required"):
+        ContentItemConfig.model_validate(missing)
 
 
 def test_load_subtitles_rejects_escaped_path(tmp_path) -> None:
@@ -1157,7 +1164,18 @@ def test_prepare_work_submission_rejects_piece_oracle_without_count(
     state = _world(agent, accounts={"employer:1": 10 ** 9})
     state.activities["w1"] = done
     scenario = _life_scenario().model_copy(update={"tasks": (task,)})
-    semantics = replace(_semantics(), scenario=scenario)
+    rule = WorkPieceRule.model_validate({
+        "rule_id": "test-work-piece", "category_id": "contract", "action": "work:settle",
+        "operator": "work_piece", "resource_id": "money_fen", "unit": "fen",
+        "conservation": "closed", "rate_slot": "work_rate_fen"})
+    base = _semantics()
+    pairing = PairingDeclaration.model_validate({
+        "actor_category_id": "person", "target_category_id": "contract", "action": "work:settle",
+        "state": "defined", "rule_id": rule.rule_id, "coefficient": 1})
+    contract = replace(base.catalog.category_contract, pairings=(*base.catalog.category_contract.pairings, pairing))
+    rules = replace(base.catalog.exchange_rules, rules={**base.catalog.exchange_rules.rules, rule.rule_id: rule})
+    catalog = replace(base.catalog, category_contract=contract, exchange_rules=rules)
+    semantics = replace(base, scenario=scenario, catalog=catalog)
     request = SubmitWorkRequest.model_construct(
         task_id="task-piece",
         deliverable=SimpleNamespace(model_dump=lambda **_k: {}))
@@ -1495,11 +1513,16 @@ def test_rules_lookup_helpers_reject_unknown_ids(engine_factory) -> None:
     assert rules.product(real_product).product_id == real_product
     with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_FOUND"):
         rules.product("missing-product")
-    real_task = engine.context.scenario.tasks[0].task_id
+    task = _work_task()
+    rules.tasks = {task.task_id: task}
+    real_task = task.task_id
     assert rules.task(real_task).task_id == real_task
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_FOUND"):
         rules.task("missing-task")
-    real_game = engine.context.scenario.games[0].game_id
+    game = GameConfig(game_id="test-game", title="Test game", seed=1, game_path="game.json",
+                      game_sha256="1" * 64, walkthrough_sha256="2" * 64)
+    rules.games = {game.game_id: game}
+    real_game = game.game_id
     assert rules.game(real_game).game_id == real_game
     with pytest.raises(BusinessRuleError, match="GAME_NOT_FOUND"):
         rules.game("missing-game")
@@ -1513,7 +1536,8 @@ def test_rules_validate_start_work_duration_and_deadline(engine_factory) -> None
     """工作启动：超出合同最大工时/会错过截止分别拒绝。"""
     engine = engine_factory()
     rules = engine.context.rules
-    task = engine.context.scenario.tasks[0]
+    task = _work_task()
+    rules.tasks = {task.task_id: task}
     agent = engine.context.state.agents[1].model_copy(update={
         "visible_task_ids": {task.task_id},
         "location_id": task.required_location_id,
@@ -1551,13 +1575,13 @@ def test_rules_validate_start_browse_target_must_be_catalog(engine_factory) -> N
 
 @lru_cache(maxsize=1)
 def _semantics() -> ScenarioSemantics:
-    return load_runtime_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    return load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json")[0]
 
 
 def test_load_runtime_scenario_wraps_catalog_load_failures(tmp_path) -> None:
     """完整加载把目录装载错误包装为 IntegrityError（fail-closed）。"""
     with pytest.raises(IntegrityError, match="Catalog load failed"):
-        load_runtime_scenario(Path("scenarios/white-collar-12-weeks.json"),
+        load_runtime_scenario(ENVIRONMENT_ROOT / "scenarios/single-person.json",
                               catalog_dir=tmp_path / "missing-catalog")
 
 
@@ -1573,6 +1597,14 @@ def _travel_time_catalog(sem, mutate) -> Catalog:
     return replace(sem.catalog, travel_time_rules_bytes=content)
 
 
+def _travel_factor(data: bytes, key: str, value: str | None) -> bytes:
+    """变异完整数值分支，不依赖当前环境对该小时标定的具体浮点值。"""
+    replacement = "" if value is None else f"{key} = {value}"
+    changed, count = re.subn(rf"(?m)^{re.escape(key)}\s*=.*$", replacement, data.decode("utf-8"))
+    assert count == 1, "Travel factor mutation must change exactly one declared branch"
+    return changed.encode("utf-8")
+
+
 def _objects_catalog(sem, mutate) -> Catalog:
     data = {key: _thaw(value.model_dump()) for key, value in sem.catalog.objects.items()}
     mutate(data)
@@ -1580,7 +1612,9 @@ def _objects_catalog(sem, mutate) -> Catalog:
     return replace(sem.catalog, objects=MappingProxyType(rebuilt))
 
 
-MILK = "food-6923644266066"
+def _food_product_id(sem: ScenarioSemantics) -> str:
+    """从测试显式环境选择有真实消费能量边的商品。"""
+    return next(item.product_id for item in sem.scenario.products if item.energy_kcal_per_unit > 0)
 
 
 def test_travel_fare_rejects_an_unknown_mode() -> None:
@@ -1598,9 +1632,9 @@ def _at_hour(hour: int) -> int:
     ("mutate", "match"),
     (
         (lambda data: b"", "unsupported shape"),
-        (lambda data: data.replace(b"driving_05 = 1.00\n", b""), "closed branch set"),
-        (lambda data: data.replace(b"driving_05 = 1.00", b'driving_05 = "fast"'), "not numeric"),
-        (lambda data: data.replace(b"driving_05 = 1.00", b"driving_05 = 9.0"), "outside"),
+        (lambda data: _travel_factor(data, "driving_05", None), "closed branch set"),
+        (lambda data: _travel_factor(data, "driving_05", '"fast"'), "not numeric"),
+        (lambda data: _travel_factor(data, "driving_05", "9.0"), "outside"),
     ),
 )
 def test_travel_time_profile_rejects_missing_nonnumeric_or_out_of_bounds(
@@ -1615,9 +1649,9 @@ def test_travel_time_profile_rejects_missing_nonnumeric_or_out_of_bounds(
 @pytest.mark.parametrize(
     ("mutate", "match"),
     (
-        (lambda data: data.replace(b"walking = 1.0\n", b""), "closed branch set"),
-        (lambda data: data.replace(b"walking = 1.0", b"walking = 2.0"), "must be 1.0"),
-        (lambda data: data.replace(b"driving_13 = 1.22\n", b""), "closed branch set"),
+        (lambda data: _travel_factor(data, "walking", None), "closed branch set"),
+        (lambda data: _travel_factor(data, "walking", "2.0"), "must be 1.0"),
+        (lambda data: _travel_factor(data, "driving_13", None), "closed branch set"),
     ),
 )
 def test_assembly_rejects_travel_time_shape_drift(mutate, match) -> None:
@@ -1702,17 +1736,18 @@ def test_assembly_rejects_object_drift(mutate, match) -> None:
 def test_assembly_rejects_duplicate_consume_edges() -> None:
     """同一商品两条消费边即拒绝（热量来源必须唯一）。"""
 
-    def mutate(data):
-        _duplicate_edge(data, MILK, "consume")
-
     sem = _semantics()
+    def mutate(data):
+        _duplicate_edge(data, _food_product_id(sem), "consume")
+
     with pytest.raises(IntegrityError, match="multiple consume edges"):
         assemble_semantics(sem.document, _objects_drifted(sem, mutate), map_dataset=sem.scenario.map_dataset)
 
 
 def test_product_definition_rejects_purchase_price_edges() -> None:
     """商品定义不得重新携带门店购买价格，旧购买边直接拒绝。"""
-    data = _semantics().catalog.objects[MILK].model_dump(mode="json")
+    sem = _semantics()
+    data = sem.catalog.objects[_food_product_id(sem)].model_dump(mode="json")
     data["edges"].append({"type": "transfer", "on": "purchase",
                           "from": "agent:1", "to": "merchant:g", "amount_fen": 100, "resource": "money_fen"})
     with pytest.raises(ValueError, match="purchase price edges"):
@@ -1722,23 +1757,23 @@ def test_product_definition_rejects_purchase_price_edges() -> None:
 def test_assembly_rejects_unknown_or_mistyped_product_references() -> None:
     """商品引用：目录外对象与非商品对象都拒绝。"""
     sem = _semantics()
-    base = next(item for item in sem.document.products if item.product_id == MILK)
+    base = sem.document.products[0]
     unknown = base.model_copy(update={"product_id": "missing-object"})
     with pytest.raises(IntegrityError, match="not in the catalog"):
         assemble_semantics(sem.document.model_copy(update={"products": (unknown,)}),
-                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
+                           load_catalog((ENVIRONMENT_ROOT / "catalog")), map_dataset=sem.scenario.map_dataset)
     mistyped = base.model_copy(update={"product_id": "travel-service"})
     with pytest.raises(IntegrityError, match="not a product"):
         assemble_semantics(sem.document.model_copy(update={"products": (mistyped,)}),
-                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
+                           load_catalog((ENVIRONMENT_ROOT / "catalog")), map_dataset=sem.scenario.map_dataset)
 
 
 def test_product_reference_rejects_storefront_stock_fields() -> None:
     """商品引用只负责商品身份，库存只能作为供给事实声明。"""
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        ProductReference.model_validate({"product_id": MILK, "stock": 5})
+        ProductReference.model_validate({"product_id": "test-product", "stock": 5})
     sem = _semantics()
-    product = next(item for item in sem.scenario.products if item.product_id == MILK)
+    product = sem.scenario.products[0]
     assert not {"stock", "initial_stock", "price_fen", "price_version", "merchant_account_id"} & type(product).model_fields.keys()
 
 
@@ -1759,14 +1794,18 @@ def test_assembly_requires_unique_role_account_binding() -> None:
     employer_role = next(item.role for item in sem.document.accounts
                          if item.role.startswith("employer"))
     trimmed = tuple(item for item in sem.document.accounts if item.role != employer_role)
-    with pytest.raises(IntegrityError, match="not declared"):
-        assemble_semantics(sem.document.model_copy(update={"accounts": trimmed}),
-                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
+    with pytest.raises(IntegrityError, match="exactly one employer account"):
+        assemble_semantics(sem.document.model_copy(update={"accounts": trimmed, "tasks": ()}),
+                           load_catalog((ENVIRONMENT_ROOT / "catalog")), map_dataset=sem.scenario.map_dataset)
 
 
 def test_assembly_with_agentless_document_fails_closed() -> None:
-    """无人物文档在运行时场景校验处失败关闭（引用闭集仍遍历空集）。"""
+    """@brief 清除人物后仍引用该人物的邮件必须在运行场景组装时拒绝。"""
     sem = _semantics()
-    with pytest.raises(IntegrityError):
-        assemble_semantics(sem.document.model_copy(update={"agents": ()}),
-                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
+    message = MessageConfig(message_id="test-mail", thread_id="test-thread", recipient_agent_id=1,
+                            sent_at=sem.document.start_at, subject="Test subject", body="Test body")
+    document = sem.document.model_copy(update={
+        "agents": (), "messages": (message,), "tasks": (), "payrolls": (), "bills": ()})
+    with pytest.raises(IntegrityError, match="unknown agent"):
+        assemble_semantics(document, load_catalog(ENVIRONMENT_ROOT / "catalog"),
+                           map_dataset=sem.scenario.map_dataset)

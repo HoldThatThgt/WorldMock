@@ -19,7 +19,7 @@ flowchart LR
     A[甲 名额<br/>暂停的不占，恢复要有空位] --> B[乙 占用声明<br/>每种动作只占自己的名字]
     B --> C[丙 系统层第 8 条<br/>写清能拦什么、要自己判断什么]
     C --> D[记录<br/>实现状态与文档入口]
-    D -.-> E[完整日基线<br/>POSIX，另行生成]
+    D -.-> E[完整回归<br/>发布环境重新发布后运行]
 ```
 
 环境不判断跨种组合合不合情理（issue 待裁决 8，用户裁定先只改第 8 条措辞）；两个名额仍是常量 2；交谈与通话仍不能暂停，路上的活动仍不能暂停。
@@ -44,11 +44,11 @@ flowchart LR
 | R3 | 名额超限的下一步按被点名活动能否暂停写：都能暂停写 `Conclude or pause one of … first.`，都不能写 `Conclude one of … first.`，混合时写 `Conclude one of …, or pause …, first.`；能否暂停与 `pause_activity` 的判定同源（进行中、不在路上、不是交谈或通话）。`RESOURCE_CONFLICT` 等别处的下一步不改 |
 | R4 | 恢复暂停的活动依次检查：开始地点、工作截止与约束、空名额、占用冲突；没有空名额以 `SESSION_LIMIT_EXCEEDED` 拒绝，原因点名进行中的活动。一个请求里恢复多项时逐项检查，与开始两项的写法一致 |
 | R5 | 「同一种」的粒度按试验分支：睡眠与一切互斥；驾车一行与旧表等价（只能再听播客或和人说话）；生活活动整体算一种；食用、制作、使用同算一种（issue 待裁决 3、10） |
-| R6 | 旧的身体部位占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 退役，解析时与此前退役的名字一样拒绝；按旧词表发布的场景目录（含数据集各请求自带的目录）随目录新版本重新发布，这是数据集一侧的工作 |
-| R7 | 目录版本由 5.4 升到 5.5，清单身份刷新 |
+| R6 | 旧的身体部位占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 退役，解析时与此前退役的名字一样拒绝；仍带旧占用名的外部环境目录（WorldMock-Dataset 发布的正式环境与各请求自带的目录）加载时被拒绝，要随新占用名重新发布，这是数据集一侧的工作 |
+| R7 | 正式目录、场景与语料由 WorldMock-Dataset 发布，不在本仓库，目录版本由发布方决定；引擎的占用声明是包资源 `src/worldmock/data/affordances.toml`，仓库人工测试环境里的副本与它逐字节相同，随之同步并刷新测试环境目录的清单身份（冻结时写的「目录由 5.4 升到 5.5」在与引擎资源分离后的 `main` 合流时改为本条） |
 | R8 | 第 8 条取第三次试验（`afebabb`）的文字，全文见「丙」；第 7 条不改，它属于[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)，等待的默认时长与第 7 条的定稿另议（issue 待裁决 2、5） |
 | R9 | 本修复不设独立的验收登记与变异登记，证据由「随实现一起改的测试」与「门禁与平台」给出；含义已不成立的既有用例改名，并同步登记它们的既有台账，其余原位改断言 |
-| R10 | 完整日签名随乙、丙变化，新夹具必须在 POSIX 平台生成；它排在让「等待」成为例外阶段 4 的夹具合入之后，作为阶段 5 另行完成，不在本分支执行 |
+| R10 | 与把引擎资源和发布环境分开的 `main` 合流后，完整日不再与冻结签名逐字节比较，而是逐字段核对实际存储（[环境数据归属规格](SPEC-environment-data-ownership.md)），本修复不需要新的完整日夹具；完整回归要用 `--environment-root` 指向发布环境，仍带旧占用名的发布环境重新发布之后才能运行（阶段 5） |
 
 <a name="spec-parallel-activities-甲名额"></a>
 ## 甲：暂停的活动不占名额
@@ -121,10 +121,10 @@ flowchart LR
 
 | 位置 | 改动 |
 | --- | --- |
-| `catalog/affordances.toml` | 十种动作类型的 `resource_claims` 与文件头的占用名说明按上表 |
+| `src/worldmock/data/affordances.toml` | 十种动作类型的 `resource_claims` 与文件头的占用名说明按上表 |
 | `src/worldmock/catalog/affordances.py` | `RESOURCE_CLAIM_SLOTS` 换成十一个名字；五个身体部位名与此前退役的名字一样被拒绝 |
 | `src/worldmock/life/social.py` | `SOCIAL_RESOURCE_CLAIMS` 改为 `talk` |
-| `catalog/manifest.json`、`scripts/build_catalog.py`、`scenarios/*.json`、`catalog/README.md` | 目录 5.5（R7）；清单身份由 `scripts/build_catalog.py` 刷新 |
+| `tests/fixtures/environment/catalog/affordances.toml`、`tests/fixtures/environment/catalog/manifest.json` | 测试环境的占用声明副本与包资源逐字节同步，清单的目录内容摘要随之刷新（R7） |
 
 准入（`src/worldmock/life/admission.py`）、恢复核对（`src/worldmock/life/models.py`）、候选与观察证据都把占用当作不透明的名字，不改。
 
@@ -144,15 +144,15 @@ flowchart LR
 <a name="spec-parallel-activities-身份与基线"></a>
 ## 身份、版本与完整日基线
 
-| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | `catalog_content_sha256` | 世界结构 9、质量报告 4、场景 5 |
+| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | `catalog_content_sha256` | 世界结构 9、质量报告 4、场景 6 |
 | --- | --- | --- | --- | --- | --- |
 | 甲 | 不变 | 不变 | 变 | 不变 | 不变 |
-| 乙 | 不变 | 变（绑定 `catalog/affordances.toml` 的字节） | 变 | 变（目录 5.5） | 不变 |
+| 乙 | 不变 | 变（绑定 `src/worldmock/data/affordances.toml` 的字节） | 变 | 测试环境副本变；外部环境由发布方重新发布 | 不变 |
 | 丙 | 变 | 不变 | 变 | 不变 | 不变 |
 
 乙落地后，此前的检查点与运行不能再恢复或重放：活动的占用随世界状态保存，恢复时与注册表逐项核对，旧名字以「world activity resource claims disagree with the registry」拒绝。甲、丙落地前后的运行不可合并比较。没有测试、夹具或现行文档钉着指纹的字面值；`catalog/manifest.json` 的目录摘要由清单用例核对。
 
-完整日签名覆盖导出事件、清单与检查点：乙改变检查点里的占用与工具层的拒绝原因，丙改变请求事件里的系统层全文。新夹具在 POSIX 平台由两次独立运行生成（阶段 5，R10），沿用让「等待」成为例外阶段 4 的生成办法；与它比较的基准是那份夹具，允许变化的项为事件、清单与检查点。在本机（Windows）完整日用例本来就因既有平台差异失败，不作为阶段判据。
+完整日用例逐字段核对实际存储与导出，不比较冻结签名（R10）；它需要完整世界，以 `--environment-root` 指向发布环境运行，仍带旧占用名的发布环境加载时被拒，要等数据集一侧按新占用名重新发布。
 
 <a name="spec-parallel-activities-现行文档"></a>
 ## 现行文档原位改写
@@ -182,11 +182,10 @@ flowchart LR
 | --- | --- |
 | `docs/dev/SPEC-life-runtime.md`「活动组合政策」的占用表、「并行准入」的占用段与占用表、同时发生的组合表、通话的占用 | 换成「乙」的表与闭集；同时发生表里观看与游戏改为受理，同种的两件仍拒绝 |
 | `docs/dev/SPEC-dayrun-behavior.md` 占用名与占用表、拒绝的组合清单 | 同上 |
-| `docs/CONTRACTS.md`「状态归属」的占用名、「交谈与通话」、「活动控制行」、目录版本 | 十一个占用名；交谈与通话占 `talk`；目录 5.5 |
-| `docs/design/02-exchange-engine.md`、`03-resource-engine.md`、`08-configuration.md`、`09-io-formats.md`、`README.md`、`SUMMARY.md` | 占用名与目录版本 |
+| `docs/CONTRACTS.md`「状态归属」的占用名、「交谈与通话」、「活动控制行」 | 十一个占用名；交谈与通话占 `talk` |
+| `docs/design/02-exchange-engine.md`、`03-resource-engine.md`、`08-configuration.md`、`09-io-formats.md`、`README.md`、`SUMMARY.md` | 占用名；仍带旧占用名的外部环境要重新发布 |
 | `docs/manual/rules.md`「活动声明」 | 占用名 |
-| `docs/EXPERIMENT.md` 地图与门店供给的实验身份、交互菜单与运行身份 | 目录 5.5；占用声明改变 `tool_schema_sha256` 与目录摘要 |
-| `catalog/README.md` | 目录 5.5，旧占用名的目录按身份拒绝 |
+| `docs/EXPERIMENT.md`「交互菜单与运行身份」 | 占用声明改变 `tool_schema_sha256`；仍带旧占用名的外部环境要重新发布 |
 
 <a name="spec-parallel-activities-文档丙"></a>
 ### 阶段 3（丙）
@@ -212,7 +211,7 @@ flowchart LR
 | 1 | `tests/life/test_paused_slots.py`（新增） | 经真实请求、引擎与 SQLite：一项暂停时开始两项受理；两项进行时恢复被拒并点名两项、待办层同一原因，结束一项后恢复受理、第三项再被拒；只有暂停的活动时出发受理且它们留在原地；暂停的活动在别处可直接结束；恢复的检查次序（工作截止先于名额、名额先于占用冲突）；下一步的三种写法（含通话不可暂停）；两项暂停到同刻上限后开始被受理 |
 | 2 | `tests/catalog/test_affordance_shadow.py` | 期望占用表换新；闭集断言为十一个名字，九个退役名字（此前退役的四个与五个身体部位名）都被拒绝；新增逐对核对：只有同种、睡眠一行与驾车一行有交集 |
 | 2 | `tests/life/test_news_feed.py`、`tests/life/test_parallel_acceptance.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_domain_branch_coverage.py`、`tests/life/test_state_serialization.py`、`tests/life/test_grounded_observation.py`、`tests/life/test_candidates.py`、`tests/life/test_parallel_admission.py`、`tests/life/test_same_moment_decisions.py` | 旧占用名换新；断言跨种组合被拒的三个用例改为同种组合，另加跨种受理的断言 |
-| 2 | `tests/catalog/test_catalog_data.py`、`tests/life/test_semantics.py`、`tests/life/test_work_efficiency_factors.py` | 目录 5.5 |
+| 2 | `tests/fixtures/environment/catalog/affordances.toml`、`tests/catalog/test_engine_package_resources.py` | 测试环境副本与包资源逐字节同步；包资源的观看占用断言换新 |
 | 3 | `tests/integration/test_life_agent_protocol.py`、`tests/fixtures/viewer-context.json` | 见「丙」；查看器夹具 `action` 与 `continuation` 两处系统层换新，`legacy_` 开头的两处不动 |
 | 3 | `tests/integration/test_seven_layer_request.py`（新增断言） | 第 8 条含「暂停的不算」「恢复暂停的活动要有空位」「环境只拦同一种的两件」，不再含「进行中、暂停与刚结束的都算」 |
 
@@ -226,7 +225,7 @@ flowchart LR
 | 暂停的活动仍可结束 | 1 | `tests/life/test_paused_slots.py`；既有的在别处结束用例 |
 | 同刻阶梯不再按名额分流 | 1 | 改写后的同刻决策、工具层与预算用例 |
 | 只有同一种互斥 | 2 | 逐对核对用例；跨种受理与同种拒绝的引擎用例；驾车与睡眠的既有用例照常通过 |
-| 退役占用名被拒、目录身份刷新 | 2 | 闭集用例；`python scripts/build_catalog.py --check`；清单用例 |
+| 退役占用名被拒、测试环境副本同步 | 2 | 闭集用例；包资源字节绑定用例与测试环境的完整加载 |
 | 系统层逐字 | 3 | 实际请求、接口合同与模块常量三者相等，十八条；既有约束全部通过；查看器 Node 用例 |
 | 既有登记与变异不回退 | 1–3 | 既有特性的登记守卫；个人事务与让「等待」成为例外的变异执行（未变异时杀手节点全部通过） |
 | 文档与汇编 | 1–4 | 设计说明书汇编 `--check`、文档门禁、风格门禁、导入图与单一来源守卫 |
@@ -241,7 +240,7 @@ flowchart LR
 | 2 乙 | 先合同与规格（阶段 2 表），再目录、代码、清单与测试；各自一个提交 | `docs:`、`feat(catalog):` |
 | 3 丙 | 合同与模块常量同一提交，连同夹具、测试与阶段 3 表 | `feat(prompt):` |
 | 4 记录 | 实现状态与 INDEX | `docs:` |
-| 5 基线 | POSIX 平台生成新的完整日夹具（R10），在让「等待」成为例外阶段 4 合入之后 | `test:`，不在本分支 |
+| 5 完整回归 | 数据集一侧按新占用名重新发布环境之后，以 `--environment-root` 运行完整层（含完整日）与覆盖率门禁（R10） | 不产生代码；结果记入实现状态 |
 
 每个代码提交前，以针对文件的 pytest 运行该阶段改动与新增的测试文件、直接相关的测试文件和既有特性的登记守卫；设计汇编 `--check`。
 
@@ -286,3 +285,5 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 | --- | --- | --- |
 | `2026-10-06-parallel-activities-freeze` | 2026-10-06 | 按 issue #4 的用户裁定 D1–D3 冻结；实施取舍 R1–R10 沿用试验分支或 issue 的正式修复范围 |
 | `2026-10-06-parallel-activities-record` | 2026-10-06 | 阶段 1–3 实现后更正计数：退役的占用名是九个（此前退役的 `position`、`attention`、`device`、`vehicle` 与五个身体部位名），不是十个 |
+| `2026-10-06-parallel-activities-reconcile` | 2026-10-06 | 与把引擎资源和发布环境分开的 `main` 合流：占用声明的落点改为包资源 `src/worldmock/data/affordances.toml` 与测试环境副本；目录版本不再由本仓库决定（R6、R7、乙的落点、身份表、阶段 2 的文档与测试行、验收行随之改写） |
+| `2026-10-06-parallel-activities-baseline-scope` | 2026-10-06 | 合流后完整日改为逐字段核对实际存储，R10、身份一节与阶段 5 由「POSIX 平台生成新夹具」改为「发布环境重新发布后运行完整回归」；场景结构随环境数据归属规格为 6 |
