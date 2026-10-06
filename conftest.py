@@ -8,8 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.catalog.loader import load_catalog
-
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.frozen_inputs import FrozenInputs
@@ -27,6 +25,8 @@ def catalog_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def loaded_catalog(catalog_dir: Path):
     """@brief 通过生产加载器登记真实人工目录。"""
+    from worldmock.catalog.loader import load_catalog
+
     return load_catalog(catalog_dir)
 
 
