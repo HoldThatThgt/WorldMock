@@ -86,6 +86,16 @@ def _validate_entry(root: Path, entry: CorpusEntry) -> None:
 
 
 
+def relative_declaration(relative: str) -> bool:
+    """@brief 声明非空，且在两种路径语法下都不带盘符或根、不含父引用。
+
+    锚点是盘符加根；Windows 上无盘符的 "/x"、"\\x" 不算绝对路径，但同样不是根以内的相对声明。
+    """
+    declared, windows = Path(relative), PureWindowsPath(relative)
+    return bool(relative) and not (declared.anchor or windows.anchor
+                                   or ".." in declared.parts or ".." in windows.parts)
+
+
 def safe_file(root: Path, relative: str, message: str,
               error_factory: Callable[[str], Exception] = IntegrityError) -> Path:
     """@brief 校验根以内的相对普通文件，拒绝带盘符或根的声明、父引用与所有符号链接组件。
@@ -98,10 +108,7 @@ def safe_file(root: Path, relative: str, message: str,
     """
     base = Path(root).resolve()
     declared = Path(relative)
-    windows = PureWindowsPath(relative)
-    # 锚点是盘符加根；Windows 上无盘符的 "/x"、"\x" 不算绝对路径，但同样不是根以内的相对声明。
-    if (not relative or declared.anchor or windows.anchor
-            or ".." in declared.parts or ".." in windows.parts):
+    if not relative_declaration(relative):
         raise error_factory(message)
     # 一次拼接，再自下而上检查根以内的每一级；按声明组件数限步，不靠走到根来停。
     candidate = base / declared

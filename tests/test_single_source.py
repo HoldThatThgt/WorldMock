@@ -14,7 +14,7 @@ OWNERS = {
     'errors.py': ('reject_value',),
     'footprints/models.py': ('canonical_json', 'sha256_json', 'is_sha256'),
     'footprints/assets.py': ('atomic_write',),
-    'corpora/manifest.py': ('safe_file',),
+    'corpora/manifest.py': ('safe_file', 'relative_declaration'),
     'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
     'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
     'life/models.py': ('DERIVED_DURATION_CAP_SECONDS', 'CONSUME_DURATION_CAP_SECONDS'),
