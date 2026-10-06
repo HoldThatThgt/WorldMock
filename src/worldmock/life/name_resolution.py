@@ -1,6 +1,7 @@
 """@brief 同一冻结观察上的确定性名称、方式和完整请求候选。"""
 
 from __future__ import annotations
+from worldmock.catalog.models import channel_key
 from worldmock.life import object_labels
 from worldmock.life import vocabulary
 
@@ -531,33 +532,6 @@ def _way_failure(target: Target, request: Any, index: int) -> Failure:
 
 
 
-def channel_key(name: str) -> str:
-    """@brief 渠道称呼（App 名）的比较写法（docs/dev/SPEC-map-and-storefront.md#dayrun-fidelity-按名调用与指名购买-购买渠道app-名解析为成员门店  解析规则 1）：去
-    掉全部空白、不分大小写，
-    其余逐字比较（不做全半角与括号归一）。"""
-    return "".join(name.split()).casefold()
-
-
-
-
-
-
-#: 渠道表的一行：（渠道身份，称呼，成员门店）。购买侧取自场景语义的购买渠道，查询侧取自冻结观察的渠道索引。
-ChannelRow = tuple[str, Sequence[str], Sequence[str]]
-
-
-@dataclass(frozen=True, slots=True)
-class SourceMatch:
-    """@brief 所写来源解析出的范围（docs/dev/SPEC-interaction-menu.md#errands-workday-查询筛选与返回精简-来源解析 ）。
-
-    :param store_ids: 范围内的门店（地点身份）；同一显示名的几处地点都在内。
-    :param channel_id: 来源是渠道称呼时该渠道的身份，否则为 None。
-    :param name: 范围的可读说法：地点显示名，或所写的渠道称呼。
-    """
-
-    store_ids: frozenset[str]
-    channel_id: str | None
-    name: str
 
 
 def resolve_source(written: str, places: Mapping[str, str], home: str | None,

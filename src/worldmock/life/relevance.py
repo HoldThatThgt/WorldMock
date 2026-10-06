@@ -21,8 +21,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from worldmock.errors import IntegrityError
-from worldmock.life.candidates import CANDIDATE_ACTIVITY_KINDS
-from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES, activity_family
 
 #: 目录时间窗覆盖此刻的相关度。
 TIME_WINDOW_POINTS = 2
@@ -43,6 +41,8 @@ class RelevanceFacts:
 
 def intent_families(intents: Iterable[str]) -> frozenset[str]:
     """@brief 一组意图对应的活动家族并集（零点计划推进判定所用的同一张表；表外意图没有家族）。"""
+    from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
+
     return frozenset(family for intent in intents for family in INTENT_ACTIVITY_FAMILIES.get(intent, ()))
 
 
@@ -53,6 +53,9 @@ def goal_families(goals: Iterable[Any] | None) -> frozenset[str]:
 
 def entry_family(kind: str, category: str | None) -> str | None:
     """@brief 候选条目的活动家族：生活活动为「lifestyle:<品类>」，其余按候选类别对应的活动类型。"""
+    from worldmock.life.candidates import CANDIDATE_ACTIVITY_KINDS
+    from worldmock.life.schedule import activity_family
+
     return activity_family({"kind": CANDIDATE_ACTIVITY_KINDS[kind].value, "category": category})
 
 

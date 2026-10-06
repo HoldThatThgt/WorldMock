@@ -1,6 +1,8 @@
 <a name="runtime-运行配置"></a>
 # 运行配置
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「准备环境、使用已安装的环境、从校验到新建运行、从检查点恢复、常见错误」（阶段 1）。
+
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步就寝反思的严格工具与校验重试（阶段 1）、个人事务与检查点恢复（阶段 2）、查询六键（阶段 4）。
 
@@ -28,6 +30,8 @@ python scripts/bootstrap.py --profile release
 但不能取得完整通过。`--use-uv` 只在显式指定时使用 uv，缺少 uv 即失败。
 `--wheelhouse` 指定离线依赖及固定源码制品目录，禁止联网补缺；制品或哈希不符即失败。
 环境收据写入 `.work/environment-receipt.json`，记录 Python、锁、源码摘要和缺失部件，路径均相对项目。
+
+依赖安装与仿真环境分开准备。重制发布环境使用七份目录 JSON、生活活动与联系人邮件语料、结构 7 场景；先运行 `worldmock validate --environment experiments/published-environment` 检查实际输入，不从安装位置寻找正式世界。
 
 <a name="runtime-使用已安装的环境"></a>
 ### 使用已安装的环境
@@ -65,18 +69,20 @@ Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立�
 
 ```bash
 python scripts/run_tests.py --tier full --workers 4 \
-  --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline
+  --environment-root experiments/published-environment
 ```
 完整发布环境的覆盖率门禁使用相同显式路径，并绑定外部环境的实际字节摘要：
 
 ```bash
 python scripts/coverage_gate.py --shards 4 \
-  --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline
+  --environment-root experiments/published-environment
 ```
 
 不要求 uv；`--shards` 映射同一 full runner 的 worker 数。
 `--from-json` 只接受同一运行身份下的完整收集、worker 选择和完成回执及其覆盖摘要；
 全量节点三阶段必须完整且全部 passed，重复、跳过、旧绿色证据或输入字节变化均不能通过。
+
+激活后可直接运行 `worldmock environment generate-map --locations experiments/my-world/catalog/locations.json --seed 7 --output experiments/my-world/catalog/map.json [--check]` 与 `worldmock validate --environment experiments/my-world`。这两个纯环境命令不急切加载完整 AS2/LifeEngine 链。
 
 <a name="runtime-填写模型凭据"></a>
 ## 填写模型凭据
@@ -144,7 +150,7 @@ AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI �
 
 ```mermaid
 flowchart LR
-    CONFIG[编辑自己的场景] --> OFFLINE[离线加载检查]
+    CONFIG[编辑自己的场景] --> OFFLINE[目录、语料、规则副本与全部场景检查]
     OFFLINE --> VALIDATE[完整校验；会调用画像模型]
     VALIDATE --> RUN[新目录开始运行]
     RUN --> STATUS[查看状态]
@@ -154,11 +160,12 @@ flowchart LR
 离线检查见[入门流程](README.md#readme-创建自己的第一个场景)。实际命令如下：
 
 ```bash
+worldmock validate --environment experiments/my-world
 worldmock validate \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --scenario experiments/my-world/scenarios/my-persona-day.json \
   --coverage-out .work/my-persona-day-coverage.json
 worldmock run \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --scenario experiments/my-world/scenarios/my-persona-day.json \
   --output runs/my-persona-day
 worldmock status --run-dir runs/my-persona-day
 ```
@@ -191,6 +198,8 @@ worldmock export \
 导出文件、检查点、运行身份及状态文件由程序管理；用户输入文件不应放进这些生成物里。
 产物格式见[记录引擎](../design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)。
 
+环境命令返回每个失败的码和英文原因，任何失败非零退出；项目校验仍执行原有完整检查。新格式最小引擎运行在阶段 5 完成，此处流程不以目录检查通过替代真实运行验收。
+
 <a name="runtime-从检查点恢复"></a>
 ## 从检查点恢复
 
@@ -199,7 +208,7 @@ worldmock export \
 
 ```bash
 worldmock resume \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/my-persona-day.json \
+  --scenario experiments/my-world/scenarios/my-persona-day.json \
   --parent runs/my-persona-day \
   --checkpoint CHECKPOINT_ID \
   --output runs/my-persona-day-resumed
@@ -212,8 +221,10 @@ worldmock resume \
 已触发的提醒不再触发；检查点里当天还没有计划的人物，恢复后在首次决策之前由零点计划补上，这一步会调用模型。
 反事实分支按同一规则在应用干预之后补上。
 未完成的个人事务（含已累计量与是否已提醒）也来自检查点，恢复后待办层与原运行逐字节相同，不重复记下、不重复完成、不重复提醒；
-世界结构 8 的旧检查点按版本拒绝。
+世界结构 9 及更早的旧检查点按版本拒绝。
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
+
+恢复还核对 `environment_identity` 五字段：environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。不符报 `Runtime environment identity mismatch`。订单、食品持有、内容进度与会话推送随检查点保存，推送和内容运行往返在阶段 4 验证，完整宿主恢复在阶段 5 验证。
 
 <a name="runtime-编写反事实干预文件"></a>
 ## 编写反事实干预文件
@@ -277,6 +288,15 @@ worldmock replay \
 | `Model identity stage decision_statement is retired` | 运行清单仍含旧的决策自述阶段键，由旧版本代码创建；这样的运行不能打开、恢复或重放，改为新建运行 |
 
 命令参数以[命令入口](../../src/worldmock/cli.py)为准；更多数据生成与评估步骤见对应手册页。
+
+| 新环境错误 | 检查什么 |
+| --- | --- |
+| `Runtime environment identity mismatch` | 使用匹配父运行的环境与规则字节；新条件新建运行 |
+| `RULES_VERSION_MISMATCH` | 用当前引擎规则版本重新发布环境 |
+| `ENVIRONMENT_IDENTITY_MISMATCH` | 核对实际文件、清单与环境版本，不能只改声明摘要 |
+| `MAP_NOT_REGENERATED` | 生成器、种子、地点清单和已发布图逐字节一致 |
+
+全部登记码见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。
 
 <a name="runtime-工具交互的运行检查"></a>
 ## 工具交互的运行检查

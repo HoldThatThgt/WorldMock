@@ -22,6 +22,7 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.bootstrap_sources import file_sha256
+from scripts.bootstrap_environment import required_python_version, require_python_identity
 DURATIONS = ROOT / "docs/dev/test-durations.json"
 INPUT_ROOTS = ("src/worldmock", "custom/agents", "custom/envs", "tests", "scripts", "docs",
                "requirements", "patches", "labelkit-projects")
@@ -75,7 +76,7 @@ def environment_source_digest(environment_root):
 
 def source_digest(environment_root=None):
     """@brief 绑定本次源码、测试、设计和冻结输入的真实字节，生成的计时与覆盖报告不进入输入。"""
-    paths = {ROOT / name for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes")}
+    paths = {ROOT / name for name in ("conftest.py", "pyproject.toml", "uv.lock", ".gitattributes", ".python-version")}
     for name in INPUT_ROOTS:
         paths.update(path for path in (ROOT / name).rglob("*") if path.is_file())
     digest = hashlib.sha256()
@@ -105,7 +106,11 @@ def collection_digest(records):
 
 def environment(workers):
     """@brief 记录可比较的当前解释器、机器和进程数。"""
+    identity = {"implementation": platform.python_implementation(), "version": platform.python_version()}
+    require_python_identity(identity, required_python_version(ROOT))
     return {"python": platform.python_version(), "platform": platform.platform(),
+            "python_implementation": identity["implementation"],
+            "python_version_file_sha256": file_sha256(ROOT / ".python-version"),
             "cpu_count": os.cpu_count(), "workers": workers}
 
 

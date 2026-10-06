@@ -1,6 +1,9 @@
 <a name="index-worldmock-文档入口"></a>
 # WorldMock 文档入口
 
+> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「特性规格与提案」（阶段 1）。
+
+
 > 状态：文档集整体处于实现中——此前确定性基线已有验收，新特性以各自实施台账为准，三项真实验收（正式十二周运行、三次隔离盲评、LabelKit 完整自然日交付）未完成。
 > 日期：2026-10-07
 > 范围：文档地图、按任务阅读路径、权威层级与文件归属。本文件不定义任何接口与行为，只回答「该读哪一份」。
@@ -143,12 +146,12 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/research/white-collar-dayrun-root-cause-2026-09-28.md` | 白领全天模拟重复下单、给予、进食与强制等待的运行证据与根因分析 | 调研证据 |
 | `docs/dev/research/decision-context-proposal-2026-09-20.md` | 决策上下文 2026-09-20 已裁决的心智模型与取舍记录原文；行为与开发验收由 `docs/dev/SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果` 承载 | 归档 |
 | `docs/dev/PROPOSAL-interaction-menu.md` | 交互菜单的原始问题、方案比较与取舍记录；行为与验收由 `docs/dev/SPEC-interaction-menu.md#spec-interaction-menu-特性规格交互菜单` 承载 | 调研证据 |
-| `docs/dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格` | 品类树、属性增量、三态配对、闭集交换、库存转换、细化发布和运行内容身份；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，随阶段 1 提交实现 | FROZEN |
-| `docs/dev/category-contract-verification.md` | 品类契约逐要求实施、测试与独立突变证据 | 实施台账 |
-| `docs/dev/category-contract-main-verification.md` | 合入决策上下文主分支、模型库存路径补修、全仓门禁与独立复验 | 验收记录 |
-| `docs/dev/category-contract-files.md` | 对照开发基线逐文件核对真实 Git diff 与功能责任 | 实施台账 |
-| `docs/dev/category-contract-bob-review.md` | 独立语义突变、原始证据及修复复审结果 | 审查记录 |
-| `docs/dev/PROPOSAL-category-contract.md` | 品类契约提案裁决记录；规范已收敛到对应 SPEC | 已裁决 |
+| `docs/archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格` | 品类树、属性增量、三态配对、闭集交换、库存转换、细化发布和运行内容身份；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，随阶段 1 提交实现 | 归档 |
+| `docs/archive/category-contract/category-contract-verification.md` | 品类契约逐要求实施、测试与独立突变证据 | 归档 |
+| `docs/archive/category-contract/category-contract-main-verification.md` | 合入决策上下文主分支、模型库存路径补修、全仓门禁与独立复验 | 归档 |
+| `docs/archive/category-contract/category-contract-files.md` | 对照开发基线逐文件核对真实 Git diff 与功能责任 | 归档 |
+| `docs/archive/category-contract/category-contract-bob-review.md` | 独立语义突变、原始证据及修复复审结果 | 归档 |
+| `docs/archive/category-contract/PROPOSAL-category-contract.md` | 品类契约提案裁决记录；规范已收敛到对应 SPEC | 归档 |
 | `docs/dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格` | 地图唯一来源、地点发现、独立门店供给、营业与报价时态、原子购买、自提配送、恢复和完整验收；挑店可交给系统（`prefer`）、`branch_label`、配送路线只警告与浏览结果完整标签由一日运行保真规格修订，修订条款已实现；`query_world` 六键、来源与可执行筛选由个人事务与工作安排规格修订，修订条款已实现；冻结输入与身份里仍带旧占用名的已发布环境在加载时被拒（阶段 2）由[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订，修订条款已实现；由[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订对应条款，随阶段 2、3 提交实现 | FROZEN |
 | `docs/dev/PROPOSAL-map-and-storefront.md` | 已裁决的地图与门店供给心智模型、采纳机制和审查基线差距；行为以开发规格为准 | 调研证据 |
 | `docs/dev/ANALYSIS-map-model.md` | 原始问题与已纠正的历史判断，连接现行开发规格和研究证据 | 调研证据 |
@@ -438,3 +441,4 @@ flowchart TB
 | `2026-10-06-parallel-activities-freeze` | 2026-10-06 | 文档地图「特性规格与提案」登记冻结规格[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)（`FROZEN`），「按任务读」加实现与审查入口；被它修订的现行文档在各阶段提交时注明 |
 | `2026-10-06-parallel-activities-record` | 2026-10-06 | [同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1–3 实现后：文档地图里生活运行时、数字人交互、人物规格、一日行为、地图与门店供给、LabelKit 交付六行注明被该规格修订的部分与阶段，写修订条款已实现；该规格一行注明阶段 1–3 已实现 |
 | `2026-10-06-rrs-freeze` | 2026-10-07 | 登记资源与规则引擎简化规格为 FROZEN、提案为已裁决，注明被修订规格的真实实施阶段并增加阅读与权威入口；全部阻断关闭，实现和平台通过状态仍由实际台账与回执证明 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

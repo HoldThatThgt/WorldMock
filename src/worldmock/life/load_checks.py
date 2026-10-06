@@ -18,7 +18,7 @@ warning 日志；核验通过的渠道按准入判定：称呼在渠道之间不
 """
 
 from __future__ import annotations
-from worldmock.profile.coverage_apps import purchase_channels, verified_phone_config
+
 
 import logging
 from collections import defaultdict
@@ -27,13 +27,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
-from worldmock.life.content import LifestyleItem, load_content_titles, load_lifestyle_items
-from worldmock.life.environment_layer import PLACE_TYPES
-from worldmock.life.name_resolution import channel_key
+from worldmock.life.content import LifestyleItem, load_lifestyle_items
+from worldmock.exchange.types import LocationKind
+from worldmock.catalog.models import channel_key
 from worldmock.life.object_labels import fold
 from worldmock.life.object_labels import (CATALOG_LABEL, SELF_LABEL, mail_name, object_label, remote_holding_label,
                                           supply_label)
-from worldmock.life.presentation import GAME_CATEGORY
+
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.work_schedule import shift_on
 
@@ -55,6 +55,8 @@ def load_purchase_channels(scenario: RuntimeScenario, corpus_root: Path) -> tupl
     :returns: profile.coverage_apps.PurchaseChannel 的元组，按渠道标识排序。
     :raises IntegrityError: 核验通过的渠道不满足准入（check_channel_admission）。
     """
+
+    from worldmock.profile.coverage_apps import purchase_channels, verified_phone_config
 
     try:
         config = verified_phone_config(scenario, corpus_root)
@@ -114,10 +116,10 @@ def check_location_kinds(scenario: RuntimeScenario) -> None:
 
     kind 是交互菜单与环境层的场所分类，与活动环境 location_kinds 不是同一个概念。
     """
-    outside = [f"{item.location_id} kind {item.kind!r}" for item in scenario.locations if item.kind not in PLACE_TYPES]
+    outside = [f"{item.location_id} kind {item.kind!r}" for item in scenario.locations if item.kind not in LocationKind]
     if outside:
         message = (f"Selected locations use kinds that are not place types: {'; '.join(outside)};"
-                   f" allowed kinds: {', '.join(sorted(PLACE_TYPES))}")
+                   f" allowed kinds: {', '.join(sorted(LocationKind))}")
         logging.error(message)
         raise IntegrityError(message)
 
@@ -201,42 +203,36 @@ def check_visible_labels(scenario: RuntimeScenario, corpus_root: Path) -> None:
 def visible_object_labels(scenario: RuntimeScenario, corpus_root: Path) -> dict[int, dict[str, list[str]]]:
     """@brief 每个人物可能同时看到的全部对象名称及其来源（人物 → 名称 → 来源列表，来源形如 location:<身份>）。
 
-    名称写法与观察投影同一来源（object_labels）；内容与游戏标题、生活活动名称取自语料，与引擎运行时装载的是同一份。
+    地点使用登记的显示名，食品与应用来自登记目录，生活活动名称来自真实语料。
     """
-    titles = load_content_titles(scenario.contents)
     lifestyle = load_lifestyle_items(corpus_root, scenario.body.activity_met)
-    shared = _world_labels(scenario, titles)
+    shared = _world_labels(scenario)
     return {agent.agent_id: _group(shared + _agent_labels(scenario, agent, lifestyle)) for agent in scenario.agents}
 
 
 def _check_place_names(scenario: RuntimeScenario) -> None:
-    """@brief 所选地点的显示名（运行时地点的 name）唯一；重名且无法以分店标签区分即拒绝，逐一写明重名与地点。"""
+    """@brief 所选地点的 display_name 唯一；重名且无法以分店标签区分即拒绝，逐一写明重名与地点。"""
     places: dict[str, list[str]] = defaultdict(list)
     for location in scenario.locations:
-        places[location.name].append(location.location_id)
+        places[location.display_name].append(location.location_id)
     shared = [f"{name!r} ({', '.join(sorted(identities))})"
               for name, identities in sorted(places.items()) if len(identities) > 1]
     if shared:
         message = (f"Selected locations share display names: {'; '.join(shared)};"
-                   " declare distinct branch_label values in the map")
+                   " declare distinct branch_label values in the registered locations")
         logging.error(message)
         raise IntegrityError(message)
 
 
-def _world_labels(scenario: RuntimeScenario, titles: dict[str, str]) -> list[tuple[str, str]]:
-    """@brief 与人物无关的对象名称及其来源：地点、门店商品、手边与他处持有物、商品目录、内容与游戏。"""
-    places = {item.location_id: item.name for item in scenario.locations}
-    products = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
+def _world_labels(scenario: RuntimeScenario) -> list[tuple[str, str]]:
+    """@brief 注册地点、食品和应用的可读对象名称。"""
+    places = {item.location_id: item.display_name for item in scenario.locations}
+    foods = {item.food_id: item.name for item in scenario.foods}
     labels = [(object_label("location", name), f"location:{identity}") for identity, name in places.items()]
-    labels += [(supply_label(places[item.location_id], products[item.product_id]), f"supply:{item.supply_id}")
-               for item in scenario.supplies]
-    labels += [(object_label("holding", name), f"product:{identity}") for identity, name in products.items()]
-    labels += [(remote_holding_label(name, place), f"product:{identity}@{location}")
-               for identity, name in products.items() for location, place in places.items()]
-    labels.append((CATALOG_LABEL, "catalog:product_catalog"))
-    labels += [(object_label("game" if item.kind == GAME_CATEGORY else "content", titles[item.item_id]),
-                f"content:{item.item_id}") for item in scenario.contents]
-    labels += [(object_label("game", item.title), f"game:{item.game_id}") for item in scenario.games]
+    labels += [(object_label("holding", name), f"food:{identity}") for identity, name in foods.items()]
+    labels += [(remote_holding_label(name, place), f"food:{identity}@{location}")
+               for identity, name in foods.items() for location, place in places.items()]
+    labels += [(f"应用：{item.name}", f"app:{item.app_id}") for item in scenario.apps]
     return labels
 
 
@@ -244,8 +240,9 @@ def _agent_labels(scenario: RuntimeScenario, agent, lifestyle: tuple[LifestyleIt
     """@brief 一个人物才会看到的对象名称及其来源：本人受理的工作、启用的生活活动、同世界其他人物、本人联系人、
     本人收件的场景邮件与「自己」。"""
     enabled = None if agent.lifestyle_activities is None else set(agent.lifestyle_activities)
-    labels = [(object_label("work_task", item.title), f"task:{item.task_id}") for item in scenario.tasks
-              if item.assignee_agent_id == f"agent:{agent.agent_id}"]
+    assigned = set(agent.work_topic_ids)
+    labels = [(object_label("work_task", item.topic), f"topic:{item.topic_id}") for item in scenario.work_topics
+              if item.topic_id in assigned]
     labels += [(object_label("lifestyle", item.name), f"lifestyle:{item.activity_id}") for item in lifestyle
                if enabled is None or item.activity_id in enabled]
     labels += [(object_label("person", other.name), f"agent:{other.agent_id}") for other in scenario.agents

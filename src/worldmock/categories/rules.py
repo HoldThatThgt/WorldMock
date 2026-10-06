@@ -1,9 +1,11 @@
 """@brief 封闭交换规则的严格模型与契约绑定校验。"""
 
 from __future__ import annotations
+from worldmock.base_models import DeepFrozenModel, require_finite_number
 
 from dataclasses import dataclass
 from enum import StrEnum
+from worldmock.resources.models import Conservation
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, Mapping
 
@@ -12,11 +14,8 @@ from pydantic import Field, StrictInt, field_validator, model_validator
 from worldmock.categories.common import (
     Action,
     CategoryError,
-    Conservation,
-    DeepFrozenModel,
     ReviewRecord,
     SourceRecord,
-    require_finite_number,
 )
 from worldmock.categories.models import CategoryContract
 from worldmock.categories.provenance import NUMERIC_SOURCE_METADATA_ROOTS, validate_numeric_sources

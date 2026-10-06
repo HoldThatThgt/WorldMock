@@ -28,7 +28,7 @@ AFFORDANCES_FILE = "affordances.toml"
 #: 内部标准动作闭集（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「对象与动作选择」）：交互菜单、习惯归并、
 #: 证据与本注册表的
 #: kinds.*.action 共用这一份声明；它不是人物词表，人物所见的五个动词与方式经私有绑定映射回这里的内部名。
-START_ACTIVITY_ACTIONS = frozenset({
+_PACKAGE_START_ACTIVITY_ACTIONS = frozenset({
     "travel_to", "work", "browse", "purchase", "consume", "watch", "play",
     "chat", "call", "read", "do", "wait", "sleep",
 })
@@ -49,7 +49,7 @@ RESOURCE_CLAIM_SLOTS = frozenset({
 _CLAIM_CONDITION_DIMENSIONS = frozenset({"mode", "content_kind"})
 #: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
 #: 的动作全集，外加会话进展自述这一个独立工具名。
-HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
+HABIT_ACTIONS = _PACKAGE_START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
 #: 出行方式闭集（与 life.models.TravelMode 一致；"{mode}" 模板的合法展开域）。
 TRAVEL_MODES = frozenset({"driving", "walking"})
 #: 结算通道可引用的资源注册表 id（catalog/resources.jsonl 的四类资源）。
@@ -362,7 +362,7 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         raise IntegrityError(f"Affordance kind {name!r} relief channel is invalid")
     claims, conditional = _parse_resource_claims(name, body.get("resource_claims", []))
     action = body.get("action", "none")
-    if action != "none" and action not in START_ACTIVITY_ACTIONS:
+    if action != "none" and action not in _PACKAGE_START_ACTIVITY_ACTIONS:
         raise IntegrityError(f"Affordance kind {name!r} action is invalid")
     discovery_source, target_field, target_id_key = _parse_target_discovery(name, body)
     if relief.get("channel", "none") == "content_rate" and discovery_source not in (

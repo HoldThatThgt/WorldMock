@@ -16,7 +16,7 @@ DOCUMENT_REFERENCE = re.compile(r"(?<![\w/])((?:docs/)?[\w./-]+\.md)(?:#([\w.-]+
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 CODE_BASELINE = re.compile(r"^> 代码基线：`?([0-9a-f]{40})`?[。；\s]*$")
 ARCHIVE_BASELINE = re.compile(r"^> 归档基线：`?([0-9a-f]{40})`?[。；\s]*$")
-REFERENCE_BASELINE = re.compile(r"^> 引用出处：`([\w./-]+)` @ `([0-9a-f]{40})`$")
+REFERENCE_BASELINE = re.compile(r"^> 引用出处：`([\w./-]+(?:::[\w.]+)?)` @ `([0-9a-f]{40})`$")
 
 
 def archive_snapshot(text: str) -> tuple[list[str], str]:

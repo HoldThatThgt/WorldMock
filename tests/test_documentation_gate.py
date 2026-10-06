@@ -78,6 +78,36 @@ def test_definitions_resolve_classes_nested_functions_and_assignments(tmp_path):
     assert gate.find_problems(tmp_path) == []
 
 
+def test_retained_ruling_resolves_only_its_declared_historical_definition(tmp_path):
+    """@brief 旧裁决原文按真实提交定位，精确旧定义声明不能遮住现行引用错误。"""
+    _plant(tmp_path, "src/worldmock/x.py", "class Old:\n pass\nclass Current:\n pass\n")
+    commit = _commit(tmp_path)
+    _plant(tmp_path, "src/worldmock/x.py", "class Current:\n pass\n")
+    header = f"> 引用出处：`src/worldmock/x.py::Old` @ `{commit}`\n\n"
+    body = "`src/worldmock/x.py::Old` `src/worldmock/x.py::Current`\n"
+    _plant(tmp_path, "docs/rule.md", header + body)
+    assert gate.find_problems(tmp_path) == []
+    _plant(tmp_path, "docs/rule.md", header + body + "`src/worldmock/x.py::Missing`\n")
+    assert any("source definition does not exist" in item.message for item in gate.find_problems(tmp_path))
+
+
+@pytest.mark.parametrize("change", ["short_commit", "missing_commit", "missing_symbol", "duplicate"])
+def test_historical_ruling_definition_requires_exact_real_provenance(tmp_path, change):
+    """@brief 短提交、缺失提交、伪造定义与重复出处都不能让旧裁决静默通过。"""
+    _plant(tmp_path, "src/worldmock/x.py", "class Old:\n pass\n")
+    commit = _commit(tmp_path)
+    reference = "src/worldmock/x.py::Old"
+    if change == "short_commit":
+        commit = commit[:7]
+    elif change == "missing_commit":
+        commit = "0" * 40
+    elif change == "missing_symbol":
+        reference = "src/worldmock/x.py::Missing"
+    header = f"> 引用出处：`{reference}` @ `{commit}`\n"
+    _plant(tmp_path, "docs/rule.md", header * (2 if change == "duplicate" else 1) + f"\n`{reference}`\n")
+    assert gate.find_problems(tmp_path)
+
+
 @pytest.mark.parametrize("source", [
     "from elsewhere import Foo\nAlias = Foo\n",
     "import elsewhere\nAlias = elsewhere.Foo\n",

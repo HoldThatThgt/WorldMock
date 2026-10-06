@@ -1,8 +1,10 @@
 <a name="spec-parallel-activities-同时做两件事开发规格"></a>
 # 同时做两件事开发规格
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「身份、版本与完整日基线」（阶段 1）。
+
 > 状态：FROZEN。本文件是本修复的唯一开发规格；条款随阶段 1–3 的提交逐阶段生效，某阶段落地之前，当前行为与提示文本仍以所属正文与接口合同为准。
-> 日期：2026-10-06。
+> 日期：2026-10-07。
 > 代码基线：183326cc68bda388403df61709e7fcd50abb35c9。
 > 来源：[GitHub issue #4](https://github.com/HoldThatThgt/WorldMock/issues/4)（运行证据、三次本地试验 `efa50f8`、`4f39246`、`afebabb` 的改动与配对复跑读数、待裁决清单）；本文按 issue 里的用户裁定与对现行合同、规格、设计和代码的逐条核对收敛，试验分支不在本仓库，本文不依赖它的代码。
 > 范围：甲 暂停的活动不占并行名额；乙 只有同一种动作互斥；丙 系统层第 8 条原位改写。只落 issue 里已裁定或已给方向的部分，其余待裁决事项见「不在本规格内」。
@@ -144,7 +146,7 @@ flowchart LR
 <a name="spec-parallel-activities-身份与基线"></a>
 ## 身份、版本与完整日基线
 
-| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | `catalog_content_sha256` | 世界结构 9、质量报告 4、场景 6 |
+| 部分 | `prompt_sha256` | `tool_schema_sha256` | `code_sha256` | `catalog_content_sha256` | 世界结构 10、质量报告 5、场景 6 |
 | --- | --- | --- | --- | --- | --- |
 | 甲 | 不变 | 不变 | 变 | 不变 | 不变 |
 | 乙 | 不变 | 变（绑定 `src/worldmock/data/affordances.toml` 的字节） | 变 | 测试环境副本变；外部环境由发布方重新发布 | 不变 |
@@ -153,6 +155,8 @@ flowchart LR
 乙落地后，此前的检查点与运行不能再恢复或重放：活动的占用随世界状态保存，恢复时与注册表逐项核对，旧名字以「world activity resource claims disagree with the registry」拒绝。甲、丙落地前后的运行不可合并比较。没有测试、夹具或现行文档钉着指纹的字面值；`catalog/manifest.json` 的目录摘要由清单用例核对。
 
 完整日用例逐字段核对实际存储与导出，不比较冻结签名（R10）；它需要完整世界，以 `--environment-root` 指向发布环境运行，仍带旧占用名的发布环境加载时被拒，要等数据集一侧按新占用名重新发布。
+
+资源与规则引擎简化规格允许同场景同种子的两次真实新格式完整日产出一致后冻结第三份基线；两份历史基线 JSON 保持字节。该规格移动 `tool_schema_sha256`、`prompt_sha256` 与 `code_sha256`，重设计前的检查点由世界结构 10 和占用核对拒绝，不能用旧证明宣称新运行通过。
 
 <a name="spec-parallel-activities-现行文档"></a>
 ## 现行文档原位改写
@@ -287,3 +291,4 @@ issue #4 的下列待裁决事项不由本规格决定，现行行为不变：�
 | `2026-10-06-parallel-activities-record` | 2026-10-06 | 阶段 1–3 实现后更正计数：退役的占用名是九个（此前退役的 `position`、`attention`、`device`、`vehicle` 与五个身体部位名），不是十个 |
 | `2026-10-06-parallel-activities-reconcile` | 2026-10-06 | 与把引擎资源和发布环境分开的 `main` 合流：占用声明的落点改为包资源 `src/worldmock/data/affordances.toml` 与测试环境副本；目录版本不再由本仓库决定（R6、R7、乙的落点、身份表、阶段 2 的文档与测试行、验收行随之改写） |
 | `2026-10-06-parallel-activities-baseline-scope` | 2026-10-06 | 合流后完整日改为逐字段核对实际存储，R10、身份一节与阶段 5 由「POSIX 平台生成新夹具」改为「发布环境重新发布后运行完整回归」；场景结构随环境数据归属规格为 6 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

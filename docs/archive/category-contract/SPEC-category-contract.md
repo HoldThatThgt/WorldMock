@@ -1,3 +1,8 @@
+> 代码基线：7e1ffab3b49971922069c0c1fa400ffcbb075beb
+> 归档基线：bc42d02496fb13d4889363cfd10c3d223176454c
+> 原始路径：`docs/dev/SPEC-category-contract.md`
+> 归档说明：此提交仅定位归档原文快照，不是审查执行证明；原始执行记录与未执行事实按原文保留。
+
 <a name="spec-category-contract-品类契约与交换规则开发规格"></a>
 # 品类契约与交换规则开发规格
 

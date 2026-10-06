@@ -87,7 +87,8 @@ def baseline_problems(root: Path, path: Path, text: str) -> tuple[str | None, li
             return None, [Problem(source, 1, "historical reference requires one full commit for its exact path")]
         target, target_commit = match.groups()
         seen_sources.add(target)
-        if not full_commit_exists(root, target_commit) or historical_content(root, target_commit, target) is None:
+        if not full_commit_exists(root, target_commit) or historical_content(root, target_commit,
+                                                                           target.split("::", 1)[0]) is None:
             return None, [Problem(source, 1, f"historical reference source does not exist: {target}")]
     if archive:
         origin = next((match.group(1) for line in header
@@ -161,15 +162,41 @@ def historical_source_problem(root: Path, commit: str | None, target: str) -> st
     return None
 
 
-def symbol_problem(root: Path, target: str, symbol: str) -> str | None:
+def symbol_problem(root: Path, target: str, symbol: str, commit: str | None = None) -> str | None:
     """@brief 符号引用只接受声明处的词法限定名，不接受旧址再导出。"""
     path = root / target
-    if not path.is_file():
-        return f"source file does not exist: {target}"
+    if commit is not None:
+        content = historical_content(root, commit, target)
+        if content is None:
+            return f"historical source does not exist: {target}"
+    else:
+        if not path.is_file():
+            return f"source file does not exist: {target}"
+        content = path.read_text(encoding="utf-8")
     qualified = symbol.replace("::", ".")
-    if qualified not in definition_names(path.read_text(encoding="utf-8")):
+    if qualified not in definition_names(content):
         return f"source definition does not exist: {target}::{symbol}"
     return None
+
+
+def declared_symbol_problems(root: Path, source: str, header: list[str]) -> list[Problem]:
+    """@brief 当前文档保留的旧裁决定义必须有唯一完整提交出处，不能放行其他现行引用。"""
+    problems, seen = [], set()
+    for line in header:
+        if not line.startswith("> 引用出处：") or "::" not in line:
+            continue
+        match = REFERENCE_BASELINE.fullmatch(line)
+        if match is None:
+            problems.append(Problem(source, 1, "historical symbol requires one full commit source"))
+            continue
+        reference, commit = match.groups()
+        target, symbol = reference.split("::", 1)
+        if reference in seen or not full_commit_exists(root, commit):
+            problems.append(Problem(source, 1, "historical symbol source is duplicate or commit does not exist"))
+        elif problem := symbol_problem(root, target, symbol, commit):
+            problems.append(Problem(source, 1, problem))
+        seen.add(reference)
+    return problems
 
 
 def document_problems(root: Path, path: Path, history: set[Path]) -> list[Problem]:
@@ -182,6 +209,7 @@ def document_problems(root: Path, path: Path, history: set[Path]) -> list[Proble
     problems.extend(anchor_problems(path, root, text))
     reference_path, document_commit = path, commit
     header, _ = archive_snapshot(text)
+    problems.extend(declared_symbol_problems(root, source, header))
     reference_sources = {match.group(1): match.group(2) for line in header
                          if (match := REFERENCE_BASELINE.fullmatch(line))}
     if historical:
@@ -196,7 +224,7 @@ def document_problems(root: Path, path: Path, history: set[Path]) -> list[Proble
             problems.append(Problem(source, number, "current document contains a source line reference"))
         if not historical:
             for target, symbol in SOURCE_REFERENCE.findall(line):
-                if problem := symbol_problem(root, target, symbol):
+                if problem := symbol_problem(root, target, symbol, reference_sources.get(target + "::" + symbol)):
                     problems.append(Problem(source, number, problem))
         elif any(CODE_BASELINE.fullmatch(line) for line in header):
             local_line = re.sub(r"\[[^\]]*\]\(https?://[^)]+\)", "", line)

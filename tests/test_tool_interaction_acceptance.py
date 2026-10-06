@@ -18,6 +18,8 @@ FEATURE_SOURCES = (
     "src/worldmock/life/activity_evidence.py", "src/worldmock/life/callable_index.py",
     "src/worldmock/corpora/storefront.py",
     "src/worldmock/life/models.py", "src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",
+    "src/worldmock/catalog/models.py", "src/worldmock/catalog/admission.py",
+    "src/worldmock/exchange/types.py", "src/worldmock/exchange/constants.py",
     "src/worldmock/life/map_models.py", "src/worldmock/life/map_data.py",
     "src/worldmock/life/name_resolution.py", "src/worldmock/life/routing.py",
     "src/worldmock/life/named_purchase.py", "src/worldmock/life/storefront_state.py",
@@ -61,13 +63,14 @@ def test_tool_interaction_sources_have_no_deferred_or_empty_implementation():
 def test_tool_interaction_declared_interface_contains_only_new_parameters():
     """新模型字段闭合；旧参数不存在于生产接口。"""
     from worldmock.life.models import StartActivityRequest
-    from worldmock.life.scenario import WorkTaskConfig
+    from worldmock.catalog.models import WorkTopic
+    from worldmock.life.scenario import LifeScenario
     from worldmock.life.world_query import QueryWorldRequest
 
     assert set(StartActivityRequest.model_fields) == {"items", "answering", "prefer"}
     assert set(QueryWorldRequest.model_fields) == {"name", "way", "category", "from_", "available_only", "offset"}
-    assert "appointment" in WorkTaskConfig.model_fields
-    assert {"available_at", "availability_kind", "appointment_reason"}.isdisjoint(WorkTaskConfig.model_fields)
+    assert set(WorkTopic.model_fields) == {"topic_id", "topic", "target_hours"}
+    assert {"tasks", "map_dataset", "catalog_version"}.isdisjoint(LifeScenario.model_fields)
 
 
 @pytest.fixture(scope="session")

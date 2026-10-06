@@ -56,16 +56,19 @@ def _input_tree(tmp_path):
     (tmp_path / "scenarios").mkdir()
     (tmp_path / "catalog").mkdir()
     (tmp_path / "corpora").mkdir()
-    (tmp_path / "catalog/rules.json").write_text("rules", encoding="utf-8")
-    for name in ("manifest.json", "map.json", "phone.json", "subtitle.srt"):
+    for name in ("manifest.json", "map.json", "foods.json", "contents.json"):
+        (tmp_path / "catalog" / name).write_text(name, encoding="utf-8")
+    (tmp_path / "corpora/lifestyle").mkdir()
+    (tmp_path / "corpora/lifestyle/items.json").write_text("items", encoding="utf-8")
+    for name in ("manifest.json",):
         (tmp_path / "corpora" / name).write_text(name, encoding="utf-8")
     path = tmp_path / "scenarios/formal.json"
     path.write_text(json.dumps({"corpus_root": "../corpora"}), encoding="utf-8")
     return path
 
 
-@pytest.mark.parametrize("file", ["catalog/rules.json", "corpora/manifest.json", "corpora/map.json",
-                                 "corpora/phone.json", "corpora/subtitle.srt"])
+@pytest.mark.parametrize("file", ["catalog/manifest.json", "catalog/map.json", "catalog/foods.json",
+                                 "catalog/contents.json", "corpora/manifest.json", "corpora/lifestyle/items.json"])
 def test_cache_key_changes_for_real_bytes_outside_the_scenario(tmp_path, file):
     path = _input_tree(tmp_path)
     original = input_digest(path)
@@ -78,7 +81,7 @@ def test_cache_key_changes_for_real_bytes_outside_the_scenario(tmp_path, file):
 def test_cache_key_includes_relative_file_names_and_file_set(tmp_path):
     path = _input_tree(tmp_path)
     original = input_digest(path)
-    (tmp_path / "corpora/map.json").rename(tmp_path / "corpora/renamed.json")
+    (tmp_path / "catalog/map.json").rename(tmp_path / "catalog/renamed.json")
     renamed = input_digest(path)
     assert renamed != original
     (tmp_path / "corpora/extra.json").write_text("extra", encoding="utf-8")
@@ -91,7 +94,7 @@ def test_cache_hit_reuses_same_bytes_and_changed_input_reloads(tmp_path, monkeyp
     monkeypatch.setattr(cache, "_load", lambda candidate: calls.append(candidate) or {"data": len(calls)})
     first = cache.record(path)
     assert cache.record(path) is first
-    (tmp_path / "catalog/rules.json").write_text("changed", encoding="utf-8")
+    (tmp_path / "catalog/foods.json").write_text("changed", encoding="utf-8")
     assert cache.record(path) is not first
     assert len(calls) == 2
 
@@ -108,7 +111,7 @@ def test_session_guard_rejects_mutated_cached_object_and_source(tmp_path):
     with pytest.raises(AssertionError, match="Cached object changed"):
         cache.verify()
     value["nested"]["value"].pop()
-    (tmp_path / "corpora/map.json").write_text("changed", encoding="utf-8")
+    (tmp_path / "catalog/map.json").write_text("changed", encoding="utf-8")
     with pytest.raises(AssertionError, match="Cached source input changed"):
         cache.verify()
 

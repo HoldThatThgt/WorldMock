@@ -17,7 +17,7 @@ from scripts.documentation_refs import explicit_anchors, section_text
 from scripts.documentation_owners import owner_problem
 from tests import rrs_acceptance as registration
 from tests.acceptance_guard import DEFERRAL, NODE_ID, acceptance_section, resolve_problem, stub_functions
-from tests.mutation_runner import REPO_ROOT, mutated_source, source_location
+from tests.mutation_runner import CHILD_ENTRY, REPO_ROOT, RunSettings, mutated_source, run_behavior, source_location
 
 SPEC = "docs/dev/SPEC-resource-and-rule-simplification.md"
 LEDGER_ANCHOR = "spec-rrs-验收台账"
@@ -241,6 +241,24 @@ def test_registered_owner_and_due_integration_nodes_are_collectable(tmp_path) ->
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_stage_one_pure_collection_does_not_import_the_complete_engine(tmp_path) -> None:
+    """@brief 场景、状态和身份节点的真实收集检查已加载模块，不以静态导入位置冒充隔离。"""
+    nodes = {node for case in registration.BEHAVIOUR_CASES.values() if case["owner_stage"] == "1"
+             for node in case["owner_nodes"]}
+    arguments = ["--collect-only", *sorted(nodes), "-q", "--environment-profile", "dev", "-p", "no:cacheprovider",
+                 "--basetemp", str(tmp_path / "collect")]
+    script = (
+        "import sys,pytest; result=pytest.main(" + repr(arguments) + "); assert result==0; "
+        "forbidden={'worldmock.life.engine','worldmock.life.rules','worldmock.life.games',"
+        "'worldmock.life.read_query_runtime','custom.envs.life_env'}; "
+        "assert not forbidden.intersection(sys.modules); "
+        "assert not any(name.startswith('agentsociety2.society') for name in sys.modules)"
+    )
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT,
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_feature_file_lists_are_real_relative_and_have_no_deferral_or_stubs() -> None:
     """@brief 四个生产根与测试清单只保存现有文件，不允许延期标记和空壳函数。"""
     production, tests = registration.FEATURE_PRODUCTION_FILES, registration.FEATURE_TEST_FILES
@@ -271,6 +289,30 @@ def test_registered_mutations_have_real_production_anchors_and_behavior_killers(
     ledger = _ledger()
     names = _check_mutation_rows(registration.MUTATION_ROWS, ledger, registration.STAGES_DONE)
     _check_mutation_definitions(names, ledger, registration.BEHAVIOUR_CASES, registration.MUTATIONS)
+
+
+@pytest.fixture(scope="session")
+def rrs_mutation_baseline(tmp_path_factory):
+    """@brief 当前所有真实行为杀手先在独立解释器中通过，再执行源码变异。"""
+    nodes = tuple(dict.fromkeys(node for mutation in registration.MUTATIONS for node in mutation.tests))
+    options = ("-q", "--environment-profile", "dev", "-p", "no:cacheprovider")
+    directory = tmp_path_factory.mktemp("rrs-mutation-baseline")
+    result = run_behavior((*nodes, *options), directory, None,
+                          RunSettings(CHILD_ENTRY, registration.RECEIPTS, 600))
+    assert result["exit_code"] == 0, result["stdout"] + result["stderr"]
+    return result
+
+
+@pytest.mark.parametrize("mutation", registration.MUTATIONS, ids=lambda mutation: mutation.name)
+def test_resource_rule_source_mutation_is_killed(mutation, rrs_mutation_baseline, tmp_path):
+    """@brief 有效变异须由实际行为断言杀死，语法、导入、收集错误不能计为证据。"""
+    options = ("-q", "--environment-profile", "dev", "-p", "no:cacheprovider")
+    result = run_behavior((*mutation.tests, *options), tmp_path, mutation,
+                          RunSettings(CHILD_ENTRY, registration.RECEIPTS, 180))
+    assert result["original_sha256"] != result["mutated_sha256"]
+    assert result["exit_code"] == 1, result["stdout"] + result["stderr"]
+    assert "FAILED " in result["stdout"] and "ERROR collecting" not in result["stdout"]
+    assert "ImportError" not in result["stdout"] + result["stderr"]
 
 
 @pytest.mark.parametrize("done", [{"1"}, {"1", "2", "3", "4"}, {"5"}, {"1", "2", "3", "4", "5", "7"},

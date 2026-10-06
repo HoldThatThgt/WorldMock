@@ -1,8 +1,10 @@
 <a name="coverage-baseline-覆盖率门禁口径与基线"></a>
 # 覆盖率门禁口径与基线
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）。
+
 > 状态：现行机器门禁报告登记实际被测身份与结果；既有特性结果保留原来源，不作为其它提交的通过结论
-> 日期：2026-10-05
+> 日期：2026-10-07
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md#analysis-spec-coverage-规格测试用例覆盖率追溯矩阵`
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。唯一测试运行入口为 `scripts/run_tests.py`；覆盖率门禁负责 full runner 的完整性核验与覆盖判定，不另建执行器。
@@ -221,8 +223,8 @@ python scripts/run_tests.py --tier full --workers 4
 交互菜单与品类、库存和决策上下文在该固定提交的合并结果见
 [主线合并验收](research/interaction-menu-main-verification.md)。
 地图与门店供给的独立历史门禁保存在 [地图特性验收](research/map-and-storefront-verification.md)，不覆盖上表记录；当前组合的独立完整门禁见本节前表。
-品类契约原分支逐项证据记录在 `docs/dev/category-contract-verification.md`；
-其先前 3166 项测试与模型库存补修结果继续保留在 `docs/dev/category-contract-main-verification.md`。
+品类契约原分支逐项证据记录在 `docs/archive/category-contract/category-contract-verification.md`；
+其先前 3166 项测试与模型库存补修结果继续保留在 `docs/archive/category-contract/category-contract-main-verification.md`。
 
 <a name="coverage-baseline-版本表"></a>
 ## 版本表
@@ -243,3 +245,4 @@ python scripts/run_tests.py --tier full --workers 4
 | `2026-09-29-dayrun-fidelity` | 2026-09-29 | 基线记录按一日运行保真特性合入后的最终代码 `1478436` 重新生成的报告改写（一日运行保真实现后文档，随[验收记录](../archive/dayrun-fidelity/dayrun-fidelity-verification.md)）：4,987 passed、0 failed、7 skipped（覆盖率下六个分片合计，没有另跑不带覆盖率的一次调用），分支 95.05%（7916/8328），未覆盖公共接口 0，报告随 `b7f85f9` 提交；取代 `9a5f508` 上未通过的首次门禁（未覆盖公共接口 6），其数字在「基线记录」首节留一句；原「当前：人物 Prompt 七层特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态、日期与首段改写 |
 | `2026-10-04-errands-workday` | 2026-10-04 | 基线记录按个人事务与工作安排特性合入后的最终代码与测试提交 `a7e2fdc` 重新生成的报告改写（个人事务与工作安排实现后文档，随[验收记录](../archive/errands-workday/errands-workday-verification.md)；该特性的实施计划没有单列这一作业）：5,851 passed、0 failed、7 skipped（隔离 worktree 上带覆盖率的十二个分片合计），分支 95.15%（8520/8954），未覆盖公共接口 0，报告随该特性的实现后文档提交，`command` 字段记实际执行的分片命令；取代 `04249f1` 上未通过的预跑（未覆盖公共接口 13），其数字在「基线记录」首节留一句；原「当前：一日运行保真特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态、日期与首段改写 |
 | `2026-10-04-errands-workday-branch-head` | 2026-10-04 | 基线记录首节按分支头 `964de50` 上重新生成的报告改写（最终门禁在实现后文档与两个运行查看器提交 `1346e0d`、`6c81126` 之后重跑，随[验收记录](../archive/errands-workday/errands-workday-verification.md)「全量门禁与覆盖率」）：5,851 passed、0 failed、7 skipped（隔离 worktree 上带覆盖率的十二个分片合计，墙钟 4792 秒），分支 95.15%（8520/8954），未覆盖公共接口 0，`snapshot_id` 为 `64abe7a3-eeaf-4eb6-beba-a35939d02131`，报告随记录这次运行的文档提交；取代 `a7e2fdc` 的报告（`8613139`），其数字与报告身份在「基线记录」首节留一句；首段改写，其余各节不变 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

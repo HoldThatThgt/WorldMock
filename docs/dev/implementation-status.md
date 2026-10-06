@@ -1,8 +1,10 @@
 <a name="implementation-status-worldmock-实现状态"></a>
 # WorldMock 实现状态
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）。
+
 > 状态：个人事务与工作安排特性已在特性分支 `feat/errands-workday` 实现并通过离线验收，并已合入 main（自 `3b4afe5` 起，合并提交 `e54c37b`；阶段 6 配对全天复跑与 strict 端点探针未执行）；工具交互特性已在 main 实现（`3b4afe5`），验收见其验收记录；一日运行保真特性已实现并通过离线验收，经 `938e289` 合入 main（阶段 7 真实复验未执行）；人物 Prompt 七层特性已实现并通过离线验收，经 `4a5b0e6` 合入 main（阶段 7 真实复验未执行）；时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
-> 日期：2026-10-06（增量修订；既有验收记录保留各自基线）
+> 日期：2026-10-07（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md#contracts-worldmock-接口合同` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md#verification-worldmock-验收标准` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md#coverage-baseline-覆盖率门禁口径与基线`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
@@ -317,7 +319,7 @@ VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤�
 品类契约与决策上下文已整合，合并复核发现的模型库存使用缺口也已补修。
 该次被测源码 `35c1dfa9789010ff2845435900871cda616ded52` 的完整门禁为 **3166 passed、零跳过**，
 分支覆盖率 **96.67%**，未覆盖公共接口 **0**；补修的六项独立语义突变全部 killed。
-来源、文件范围和原始证据见[合并验证记录](category-contract-main-verification.md)。
+来源、文件范围和原始证据见[合并验证记录](../archive/category-contract/category-contract-main-verification.md)。
 下面各特性段落保留各自独立开发时的验收快照，也不能替代当前地图与品类组合门禁。
 
 决策上下文特性以 [冻结规格](SPEC-decision-context.md#spec-decision-context-特性规格决策上下文与工具结果) 为本次完整开发范围；
@@ -329,9 +331,9 @@ AS2 `e4155095` 的全量测试 **448 passed**。六十种源码反例最终均�
 人物 Prompt 七层规格修订了该规格的心智模型、唯一命名、上下文与阶段相互独立、登记确认、场景信息、预算与失败及只读路径（人物 Prompt 规格「冻结条款修订」#2–#7、#27）：决策自述阶段删除，`scene`、`facts` 分入七层，同秒相邻决策改为续接；上面的数字属于 `f8a55e2` 的旧实现，现行行为见「人物 Prompt 七层开发状态」。
 
 品类契约独立特性从 `426af3bfe3d7e507b749f286e08857e697c2ac2f` 在隔离分支
-`codex/category-contract` 开发。冻结规格为 [SPEC-category-contract.md](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)，
+`codex/category-contract` 开发。冻结规格为 [SPEC-category-contract.md](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)，
 实施、测试、独立 Bob 审查与实际文件清单统一记入
-[品类契约验证台账](category-contract-verification.md)。正式目录采用原生增量对象与闭集交换规则，
+[品类契约验证台账](../archive/category-contract/category-contract-verification.md)。正式目录采用原生增量对象与闭集交换规则，
 该次三份生活场景绑定目录 `3.0`，当时 163 个对象的业务含义保持原样；本次组合目录使用新身份 `4.0`。
 本次离线确定性验证不等于下面三项项目级真实验收已经完成。
 

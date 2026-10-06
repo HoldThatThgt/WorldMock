@@ -33,7 +33,7 @@ from worldmock.scheduling.events import ScheduledEvent
 #: 版本 8（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「版本」）新增 SessionState.opened_by_action_id 与
 #: ActivityState.paused_at，观察改为七层数据；版本 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）新增只存未完成个人事务的
 #: AgentState.errands。
-WORLD_SCHEMA_VERSION = 9
+WORLD_SCHEMA_VERSION = 10
 
 #: 普通活动的派生时长上限。
 DERIVED_DURATION_CAP_SECONDS = 86400
@@ -393,10 +393,6 @@ class AgentState(StrictModel):
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
     skill_levels: dict[str, float] = Field(default_factory=dict)
-    qualifications: tuple[str, ...] = ()
-    # 内容口味权重（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「画像编译」）：卡片口味 x 条目 genre[] 的确定性匹配，
-    # 取代已删除的随机偏好浮点；引擎路径在卡片持久化入库前为空映射（缺项 0）。
-    taste_weights: dict[str, float] = Field(default_factory=dict)
     body: BodyState
     inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)
@@ -412,7 +408,6 @@ class AgentState(StrictModel):
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
     visible_task_ids: set[str] = Field(default_factory=set)
-    visible_supply_ids: set[str] = Field(default_factory=set)
     # 决策节律簿记（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「决策节律：结算边界与唤醒条件分离」）
     # ：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
@@ -435,9 +430,6 @@ class AgentState(StrictModel):
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
-    # 供给可见期按实际呈现记账；商品身份不能授权另一门店的供给。
-    supply_browsed_at: dict[str, int] = Field(default_factory=dict)
-    supply_browsed_location: dict[str, str] = Field(default_factory=dict)
     # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则「观察投影行为规则」）：
     # 自上次决策以来新读到的区间，单次 ≤2000 字符。
     material_reveals: list[dict[str, Any]] = Field(default_factory=list)
@@ -447,7 +439,6 @@ class AgentState(StrictModel):
         "read_message_ids",
         "visible_message_ids",
         "visible_task_ids",
-        "visible_supply_ids",
         "known_task_ids",
         "delivered_warning_signatures",
         "plan_submitted_dates",
@@ -549,28 +540,28 @@ def _validate_task_reference(kind: SessionTaskKind, reference: str | None, inten
 
 
 class DeliveryState(StrictModel):
-    """@brief 购买后等待履约的订单状态。"""
+    """@brief 注册食品购买后的固定价订单和图上履约证据。"""
 
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
-    product_id: str = Field(min_length=1)
-    supply_id: str = Field(min_length=1)
-    location_id: str = Field(min_length=1)
+    food_id: str = Field(min_length=1)
+    store_id: str = Field(min_length=1)
+    app_id: str | None
     seller_account_id: str = Field(min_length=1)
-    price_version: str = Field(min_length=1)
-    route_id: str | None
-    source: dict[str, Any]
     quantity: int = Field(gt=0)
+    unit_price_fen: int = Field(gt=0)
+    delivery_fee_fen: int = Field(ge=0)
+    total_price_fen: int = Field(ge=0)
     destination_id: str = Field(min_length=1)
     fulfillment: FulfillmentKind
-    created_at: int = Field(ge=0)
-    expected_at: int = Field(gt=0)
-    status: Literal["pending", "ready", "delivered", "cancelled"]
-    total_price_fen: int = Field(ge=0)
-    # 收货人（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第五章「来源与去向」）：同世界人物为 agent:<id>，联系人为联系人身份；
-    # 付款人仍是 agent_id。request_message_id 为 answering 关联的直接消息。
     recipient_id: str = Field(min_length=1)
     request_message_id: str | None = None
+    created_at: int = Field(ge=0)
+    expected_at: int = Field(ge=0)
+    status: Literal["pending", "ready", "delivered", "cancelled"]
+    path: tuple[str, ...]
+    distance_meters: int = Field(ge=0)
+    prep_seconds: int = Field(ge=0)
 
 
 class StoredAction(StrictModel):
@@ -613,40 +604,13 @@ class DecisionRoundState(StrictModel):
     pending_actions: list[PendingAction] = Field(default_factory=list)
 
 
-class SupplyQuoteState(StrictModel):
-    """@brief 保存本次实际生效的门店报价和来源，恢复时不重新推断初值。"""
-
-    price_fen: int = Field(gt=0)
-    price_version: str = Field(pattern=r"\S")
-    effective_from: int = Field(ge=0)
-    effective_to: int | None = Field(ge=0)
-    source: dict[str, Any]
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "SupplyQuoteState":
-        """@brief 拒绝空或倒置的报价生效区间。"""
-        if self.effective_to is not None and self.effective_to <= self.effective_from:
-            _LOGGER.error("Supply quote effective interval is invalid")
-            raise ValueError("supply quote effective interval is invalid")
-
-
-        try:
-            DataSource.model_validate(self.source)
-        except ValueError as error:
-            _LOGGER.error("Supply quote source is invalid: %s", error)
-            raise ValueError("supply quote source is invalid") from error
-        return self
-
-
 class SameMomentPresentation(StrictModel):
     """@brief 一个人物本秒的呈现暂存（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第一章「同一秒内的呈现与「刚才」」）。
 
-    stamps 为本秒各轮实际呈现的对象→时刻，时钟推进时才并入 presentation_state；pinned_supply_ids 为本秒首轮
-    置顶的浏览结果，同一秒后续各轮继续置顶。
+    stamps 为本秒各轮实际呈现的对象到时刻映射，时钟推进时才并入 presentation_state。
     """
 
     stamps: dict[str, int]
-    pinned_supply_ids: tuple[str, ...] = ()
 
 
 class WorldState(StrictModel):
@@ -663,9 +627,6 @@ class WorldState(StrictModel):
     content_manifest_sha256: str = Field(min_length=64, max_length=64)
     agents: dict[int, AgentState]
     accounts: dict[str, int]
-    supply_stock: dict[str, int]
-    supply_quotes: dict[str, SupplyQuoteState | None]
-    opening_exceptions: dict[str, dict[str, list[tuple[int, int]]]]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
@@ -694,12 +655,6 @@ class WorldState(StrictModel):
             raise ValueError("world current time exceeds experiment end")
         if any(value < 0 for value in self.accounts.values()):
             raise ValueError("world account balance cannot be negative")
-        if any(value < 0 for value in self.supply_stock.values()):
-            _LOGGER.error("World supply stock cannot be negative")
-            raise ValueError("world supply stock cannot be negative")
-        if self.supply_stock.keys() != self.supply_quotes.keys():
-            _LOGGER.error("World supply stock and quote identities differ")
-            raise ValueError("world supply stock and quote identities differ")
         for agent_id, agent in self.agents.items():
             if agent_id != agent.agent_id:
                 raise ValueError("world agent mapping identity mismatch")
@@ -708,10 +663,8 @@ class WorldState(StrictModel):
                 raise ValueError("agent body settlement is ahead of world time")
             if any(quantity < 0 for inventory in agent.inventory.values() for quantity in inventory.values()):
                 raise ValueError("agent inventory quantity cannot be negative")
-            _validate_supply_visibility(agent, self)
         _validate_activity_collection(self)
         _validate_session_collection(self)
-        _validate_opening_exceptions(self.opening_exceptions)
         return self
 
 
@@ -797,36 +750,6 @@ def _expected_activity_claims(activity: ActivityState) -> set[str]:
         raise ValueError("world activity resource declaration is invalid") from error
 
 
-def _validate_supply_visibility(agent: AgentState, state: WorldState) -> None:
-    """@brief 每条可见供给必须有自己的呈现时刻与地点，不得借另一条供给延长有效期。"""
-    identities = set(agent.visible_supply_ids)
-    if (identities != set(agent.supply_browsed_at) or identities != set(agent.supply_browsed_location)
-            or not identities <= state.supply_stock.keys()
-            or any(not 0 <= value <= state.current_time for value in agent.supply_browsed_at.values())
-            or not set(agent.supply_browsed_location.values()) <= state.opening_exceptions.keys()):
-        _LOGGER.error("Supply visibility records have inconsistent identities or timestamps")
-        raise ValueError("supply visibility records are inconsistent")
-
-
-def _validate_opening_exceptions(exceptions: dict) -> None:
-    """@brief 恢复时核验日期和营业分钟区间，不接受损坏或互相矛盾的世界事实。"""
-
-
-    try:
-        for dates in exceptions.values():
-            for key, intervals in dates.items():
-                if date.fromisoformat(key).isoformat() != key:
-                    raise ValueError("opening exception date must use canonical ISO format")
-                values = [
-                    OpeningInterval(opens=start, closes=end) for start, end in intervals]
-                ordered = sorted(values, key=lambda item: item.opens)
-                if any(left.closes > right.opens for left, right in zip(ordered, ordered[1:])):
-                    raise ValueError("opening exception intervals overlap")
-    except ValueError as error:
-        _LOGGER.error("World opening exceptions are invalid: %s", error)
-        raise ValueError("world opening exceptions are invalid") from error
-
-
 _TARGETED_ACTIVITY_KINDS = frozenset({
     ActivityKind.WORK,
     ActivityKind.WATCH,
@@ -894,11 +817,11 @@ class ChangeActivityRequest(FrozenModel):
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 一笔订单中明确选定的门店供给、数量、收货人与所回应的消息（没有时为 None）。"""
+    """@brief 同一订单明确选择的店铺、食品、数量和收货人。"""
 
-    supply_id: str = Field(pattern=r"\S")
+    store_id: str = Field(pattern=r"\S")
+    food_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
-    price_version: str = Field(pattern=r"\S")
     recipient_id: str = Field(pattern=r"\S")
     request_message_id: str | None = None
 
@@ -921,6 +844,7 @@ class PurchaseOrderRequest(FrozenModel):
     ]
     fulfillment: Literal["delivery", "pickup"]
     destination_id: str = Field(pattern=r"\S")
+    app_id: str | None
 
 
 class ConsumeItem(FrozenModel):

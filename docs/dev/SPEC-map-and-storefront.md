@@ -1,6 +1,10 @@
 <a name="spec-map-and-storefront-地图数据集合与门店供给开发规格"></a>
 # 地图数据集合与门店供给开发规格
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「裁决原文的定义出处」（阶段 1）；该出处只定位原始定义，不证明历史执行。
+
+> 引用出处：`src/worldmock/life/scenario.py::LifeScenario.phone_simulation_config` @ `bc42d02496fb13d4889363cfd10c3d223176454c`
+
 > 状态：冻结特性合同；独立地图分支与品类主线组合均已通过离线验收。当前结果见 [主线组合验收](research/map-and-storefront-main-verification.md)，原 [独立分支验收](research/map-and-storefront-verification.md) 保留历史身份；项目级三项真实验收未完成。「地点发现与候选呈现」「记录、恢复与交付」「验收台账」中关于发现、暂停活动恢复与提示供给行的条款按 [时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)「冻结条款修订」第 25 行修订，已随该规格实现并通过离线验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）；修订记录见「版本表」。
 > 「地点发现与候选呈现」「整单购买与履约」「记录、恢复与交付」「验收台账」中关于购买资格、来源标记、到店餐食与供给去重的条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
 > 「产品行为与边界」「冻结输入与身份」「地点发现与候选呈现」「整单购买与履约」「记录、恢复与交付」「验收台账」中关于挑店、同名地点与加载校验、配送路线状态、指名购买、可见期与浏览结果的条款按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（一日运行保真 MS1）；修订部分已实现并通过离线验收，改动的台账行「地图唯一来源」「人物选择边界」「供给候选身份」「自提与配送」四行已改记“通过”。
@@ -599,3 +603,4 @@ MapDataset 必填 random_seed、category_assignment_sha256，哈希同时绑定 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 五项已验收增量行为并回所属正文；提示唯一文本、机器验收登记与稳定引用同步，历史过程归档 |
 | 共享规则与可重建环境 | 2026-10-05 | 当前目录因可供性声明注释更正按既有字节身份发布 5.4；品类和规则绑定 3、地图结构 3、场景结构 5、世界结构 9 不变；保留历史版本记录 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2 修订「冻结输入与身份」：可供性占用声明在引擎包资源 `src/worldmock/data/affordances.toml` 重列，环境冻结的副本仍声明旧占用名的已发布环境在加载时拒绝，须按新占用名重新发布；品类和规则绑定 3、地图结构 3、场景结构 6、世界结构 9 不变 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 仅登记已退役手机配置字段的精确历史定义出处，原始裁决正文逐字保留；其他源码引用仍按当前工作树核验 |

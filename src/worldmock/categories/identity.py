@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from worldmock.categories.common import CategoryError
+from worldmock.catalog.identity import _update_frame
 
 _CONTENT_FILES = (
     "resources.jsonl",
@@ -117,12 +118,6 @@ def _read_content_file(directory: Path, relative: str) -> bytes:
         raise CategoryError("CATALOG_IDENTITY_READ_FAILED", f"{path}: {error}") from error
 
 
-def _update_frame(digest: Any, relative: str, content: bytes) -> None:
-    """@brief 向摘要写入路径、NUL、八字节长度与原始内容。"""
-    digest.update(relative.encode("utf-8"))
-    digest.update(b"\0")
-    digest.update(len(content).to_bytes(8, "big"))
-    digest.update(content)
 
 
 def _manifest_payload(directory: Path) -> dict[str, Any]:

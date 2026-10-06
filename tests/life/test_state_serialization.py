@@ -29,9 +29,6 @@ def _world_state() -> WorldState:
         read_message_ids={"mail-z", "mail-a"},
         visible_message_ids={"visible-z", "visible-a"},
         visible_task_ids={"task-z", "task-a"},
-        visible_supply_ids={"product-z", "product-a"},
-        supply_browsed_at={"product-z": 1, "product-a": 1},
-        supply_browsed_location={"product-z": "home", "product-a": "home"},
     )
     activity = ActivityState(
         activity_id="activity-1",
@@ -60,8 +57,6 @@ def _world_state() -> WorldState:
         content_manifest_sha256="b" * 64,
         agents={1: agent},
         accounts={"agent:1": 0},
-        supply_stock={"product-z": 0, "product-a": 0},
-        supply_quotes={"product-z": None, "product-a": None}, opening_exceptions={"home": {}},
         activities={activity.activity_id: activity},
         paid_task_ids={"paid-z", "paid-a"},
         presentation_state={1: {"product-z": 1_700_000_000, "product-a": 1_700_000_600}},
@@ -79,7 +74,6 @@ def _set_arrays(payload: dict) -> list[list[str]]:
         agent["read_message_ids"],
         agent["visible_message_ids"],
         agent["visible_task_ids"],
-        agent["visible_supply_ids"],
         activity["resource_claims"],
         payload["paid_task_ids"],
     ]

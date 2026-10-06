@@ -159,11 +159,8 @@ LEDGER: dict[str, list[str]] = {
         _PREVIEW + "test_zero_rate_content_previews_awake_accrual_like_the_engine",
         _PREVIEW + "test_continue_watch_without_relief_evidence_is_rejected",
         "tests/integration/test_host_branch_coverage.py::test_build_society_create_mode_injects_taste_weights",
-        _SCENARIO + "test_relief_preference_floor_field_states_value_meaning_and_hypothesis",
-        _SCENARIO + "test_relief_preference_floor_is_registered_once_in_the_experiment_hypotheses",
-        _SCENARIO + "test_relief_preference_floor_defaults_to_half_without_changing_scenario_files",
-        _SCENARIO + "test_declared_relief_preference_floor_is_assembled_into_body_config",
-        _SCENARIO + "test_relief_preference_floor_outside_the_open_unit_interval_is_rejected",
+        "tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants",
+        _SCENARIO + "test_structure_seven_rejects_body_and_message_retired_fields",
     ],
     "输入警告": [
         _INJECTION + "test_the_warning_code_set_is_the_closed_ten",
@@ -518,14 +515,14 @@ LEDGER: dict[str, list[str]] = {
     ],
     "加载校验": [
         _LOAD + name for name in (
-            "test_location_kind_outside_the_place_types_is_rejected_at_load",
-            "test_same_named_locations_that_cannot_be_told_apart_are_rejected_at_load",
-            "test_branch_label_equal_to_another_name_suffix_is_still_a_duplicate",
+            "test_registered_location_kind_must_belong_to_the_fixed_set",
+            "test_registered_duplicate_location_display_names_are_rejected",
+            "test_registered_branch_label_cannot_duplicate_another_full_name",
             "test_duplicate_object_labels_are_rejected_at_load",
-            "test_branch_labels_make_same_named_locations_load_and_distinguishable_in_the_prompt",
-            "test_branch_labels_are_checked_as_part_of_the_display_name",
+            "test_registered_branch_labels_make_selected_locations_distinguishable",
+            "test_registered_branch_labels_are_normalized_as_part_of_the_full_name",
             "test_existing_map_without_branch_labels_loads_unchanged",
-            "test_projection_labels_are_the_load_time_labels",
+            "test_visible_labels_include_registered_apps_foods_and_places",
         )
     ] + [
         _MAP + "test_old_map_structure_version_is_rejected",
@@ -646,9 +643,8 @@ RULINGS: dict[str, list[str]] = {
         _RELIEF + "test_single_and_shared_paths_settle_the_same_net_effect",
         _RELIEF + "test_committed_body_settlement_relieves_without_accrual",
         _RELIEF + "test_watching_from_full_need_reaches_the_lower_band_in_the_specified_time",
-        _SCENARIO + "test_relief_preference_floor_defaults_to_half_without_changing_scenario_files",
-        _SCENARIO + "test_declared_relief_preference_floor_is_assembled_into_body_config",
-        _SCENARIO + "test_relief_preference_floor_is_registered_once_in_the_experiment_hypotheses",
+        "tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants",
+        _SCENARIO + "test_structure_seven_rejects_body_and_message_retired_fields",
     ],
     "D4": [
         _WARNINGS + "test_validate_still_fails_below_the_coverage_threshold_after_printing_the_warnings",
@@ -730,8 +726,8 @@ RULINGS: dict[str, list[str]] = {
         _SEVEN + "test_system_layers_are_the_contract_registration_verbatim",
     ],
     "D19": [
-        _LOAD + "test_branch_labels_make_same_named_locations_load_and_distinguishable_in_the_prompt",
-        _LOAD + "test_same_named_locations_that_cannot_be_told_apart_are_rejected_at_load",
+        _LOAD + "test_registered_branch_labels_make_selected_locations_distinguishable",
+        _LOAD + "test_registered_duplicate_location_display_names_are_rejected",
         _WARNINGS + "test_map_problems_are_frozen_as_scenario_warnings_and_creation_still_succeeds",
         WARNING_CODE_TESTS["LOCATION_NAME_SUSPICIOUS"],
         WARNING_CODE_TESTS["DELIVERY_ROUTE_UNAVAILABLE"],

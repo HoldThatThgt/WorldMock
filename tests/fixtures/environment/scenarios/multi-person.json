@@ -1,36 +1,47 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "scenario_id": "multi-person-test",
   "timezone": "Asia/Shanghai",
-  "start_at": "2026-01-01T08:00:00+08:00",
-  "end_at": "2026-01-01T12:00:00+08:00",
+  "start_at": "2026-01-05T00:00:00+08:00",
+  "end_at": "2026-01-06T00:00:00+08:00",
   "random_seed": 7,
   "activity_feedback_seconds": 900,
   "rotation_stale_seconds": 3600,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "e85627f5f971b2db2809adfaefcdb5cbdcbe2803378a2c3a9275725af61518c0",
-  "catalog_version": {
-    "major": 3,
-    "minor": 0
-  },
+  "corpus_manifest_sha256": "3fad5c73aff84d1b2b4c1647bf6f77a0bb289e3bf34e6bd5ef16cf18680f03c2",
   "accounts": [
     {
-      "account_id": "employer",
+      "account_id": "merchant:noodle-1",
+      "money_fen": 0,
+      "role": "merchant:noodle-1"
+    },
+    {
+      "account_id": "merchant:noodle-2",
+      "money_fen": 0,
+      "role": "merchant:noodle-2"
+    },
+    {
+      "account_id": "merchant:cafe",
+      "money_fen": 0,
+      "role": "merchant:cafe"
+    },
+    {
+      "account_id": "merchant:store",
+      "money_fen": 0,
+      "role": "merchant:store"
+    },
+    {
+      "account_id": "employer:test",
       "money_fen": 10000,
       "role": "employer:test"
     },
     {
-      "account_id": "transport",
+      "account_id": "transport:service",
       "money_fen": 0,
       "role": "transport:service"
     },
     {
-      "account_id": "merchant",
-      "money_fen": 0,
-      "role": "merchant"
-    },
-    {
-      "account_id": "scenario",
+      "account_id": "external:scenario",
       "money_fen": 0,
       "role": "external:scenario"
     }
@@ -48,18 +59,51 @@
       "trait_source_kind": "experiment_assumption",
       "home_location_id": "home",
       "initial_balance_fen": 10000,
-      "skill_levels": {},
-      "qualifications": [],
       "lifestyle_activities": [
         "quiet-rest"
       ],
       "interaction_menu": null,
-      "work_schedule": null,
+      "work_schedule": {
+        "workplace_location_id": "office",
+        "weekly": {
+          "0": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "1": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "2": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "3": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "4": {
+            "breaks": [],
+            "starts": 540,
+            "ends": 1080
+          },
+          "5": null,
+          "6": null
+        },
+        "exceptions": {}
+      },
       "initial_inventory": {
         "home": {
-          "milk": 2.0
+          "chips": 1.0
         }
-      }
+      },
+      "work_topic_ids": [
+        "topic-sales"
+      ]
     },
     {
       "agent_id": 2,
@@ -67,8 +111,6 @@
       "trait_source_kind": "experiment_assumption",
       "home_location_id": "home",
       "initial_balance_fen": 10000,
-      "skill_levels": {},
-      "qualifications": [],
       "lifestyle_activities": [
         "quiet-rest"
       ],
@@ -76,62 +118,158 @@
       "work_schedule": null,
       "initial_inventory": {
         "home": {
-          "milk": 2.0
+          "chips": 1.0
         }
-      }
+      },
+      "work_topic_ids": []
     }
   ],
-  "map_dataset": {
-    "path": "artificial-map/dataset.json",
-    "sha256": "46494e3817e875bc5ca01b284d9b7cc07f8f96cba10242155e6a6d111d71b96a",
-    "dataset_id": "artificial-test-map",
-    "version": 1
-  },
   "locations": [
     {
+      "location_id": "cafe"
+    },
+    {
       "location_id": "home"
+    },
+    {
+      "location_id": "noodle-1"
+    },
+    {
+      "location_id": "noodle-2"
+    },
+    {
+      "location_id": "office"
+    },
+    {
+      "location_id": "park"
+    },
+    {
+      "location_id": "store"
     }
   ],
   "interaction_menus_by_location_kind": {
     "home": {
       "allowed_actions": [
-        "browse",
         "call",
         "chat",
         "consume",
         "do",
-        "play",
         "purchase",
         "read",
         "sleep",
         "travel_to",
+        "use_app",
         "wait",
-        "watch",
+        "work"
+      ]
+    },
+    "office": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
+        "work"
+      ]
+    },
+    "park": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
+        "work"
+      ]
+    },
+    "fitness": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
+        "work"
+      ]
+    },
+    "restaurant": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
+        "work"
+      ]
+    },
+    "cafe": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
+        "work"
+      ]
+    },
+    "convenience_store": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
+        "work"
+      ]
+    },
+    "supermarket": {
+      "allowed_actions": [
+        "call",
+        "chat",
+        "consume",
+        "do",
+        "purchase",
+        "read",
+        "sleep",
+        "travel_to",
+        "use_app",
+        "wait",
         "work"
       ]
     }
   },
-  "products": [
-    {
-      "product_id": "milk"
-    }
-  ],
-  "supplies": [],
-  "tasks": [],
   "messages": [],
-  "contents": [
-    {
-      "item_id": "test-content",
-      "title": "人工测试内容",
-      "kind": "subtitle_experience",
-      "duration_seconds": 600,
-      "timeline_path": "content/test.srt",
-      "timeline_sha256": "24351c56d170060418c5485860deb7805a91dd3ad1991070763a973e3f9f4c9e",
-      "entertainment_relief_per_hour": 0.2,
-      "experience_label": "Human-authored test content"
-    }
-  ],
-  "games": [],
   "calendar": {
     "spring_festival_dates": [],
     "makeup_work_dates": [],
@@ -139,5 +277,18 @@
     "sick_leave_date": "2026-02-01",
     "personal_leave_date": "2026-02-02",
     "social_dinner_date": "2026-02-03"
-  }
+  },
+  "environment": {
+    "environment_id": "artificial-test",
+    "environment_version": "1"
+  },
+  "payrolls": [
+    {
+      "payroll_id": "test-payroll",
+      "employer_account_id": "employer:test",
+      "agent_id": 1,
+      "amount_fen": 10000,
+      "due_at": "2026-01-05T10:00:00+08:00"
+    }
+  ]
 }

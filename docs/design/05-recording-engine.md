@@ -1,8 +1,11 @@
 <a name="recording-engine-worldmock-产品设计说明书-记录引擎"></a>
 # WorldMock 产品设计说明书 — 记录引擎
 
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）。
+
+
 > **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）<br>
-> **日期**：2026-10-06
+> **日期**：2026-10-07
 > **版本**：v1.6
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
@@ -578,7 +581,7 @@ run/
 `catalog_content_sha256`。LifeEngine 在创建、打开、恢复或重放的副作用之前核对当前目录与该身份；
 同版本异内容拒绝执行。检查点已有的 `manifest_sha256` 覆盖这些字段，
 足迹导出的 `frozen_run_manifest` 原样保留它们，不从导出时的目录重建。
-字段含义见[品类接口合同](../CONTRACTS.md#contracts-品类契约与目录字段)，行为见[品类契约规格](../dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
+字段含义见[品类接口合同](../CONTRACTS.md#contracts-品类契约与目录字段)，行为见[品类契约规格](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
 
 运行清单冻结的 `code_sha256` 覆盖 `src`、`custom`、`pyproject.toml`、`uv.lock` 与实际导入的 AS2 包
 （包目录内除 `__pycache__` 外的全部文件，标签与安装位置无关）。AS2 包目录缺失、为空或与固定补丁源码摘要
@@ -1257,3 +1260,4 @@ flowchart LR
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](../dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 同步：「共同身体结算与决策证据」登记 `errand_reminder_due` 之后的四个成员 `shift_start`、`shift_end`、`break_start`、`break_end`（清醒人物恰在班次或休息时段起止那一秒得到决策机会时记入，写进共同身体结算与 `decision_started` 并经同一闭集校验，同秒重合的各记一次、按枚举顺序并列；不写事件、不另存状态，按场景与时钟重新求值，已判定未决策的原因随人物状态恢复；不在睡眠允许的原因之内，睡过的不补），`errand_reminder_due` 的位置改写为排在 `plan_reminder_due` 之后；「事件正文与资源证据」`environment_event` 行补起止不写事件、只记于唤醒原因；「调试工具」补四个唤醒原因的中文标签；文件头增该规格修订说明；版本表去掉隔开末两行的空行；日期改写，版本号不变 |
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-windows-path-safety` | 2026-10-06 | 「恢复行为」补人物工作区快照与恢复的成员规则：快照不进入符号链接与目录联接，快照与恢复按同一组检查核对成员；恢复先核对全部成员再展开，名字须能在任何平台上原样保存、互不重名，写入时遇到别名拒绝，归档损坏同样拒绝 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

@@ -386,18 +386,6 @@ MUTATIONS += (
         ),
     ),
     SourceMutation(
-        'wrong_notification_recipient',
-        'worldmock.life.scenario::_check_catalog_references',
-        'if message.recipient_agent_id != recipient:',
-        'if False:',
-        (
-            (
-                'tests/life/test_tool_interaction_runtime.py::test_notification_coverage_checks_every'
-                '_notice[wrong_recipient]'
-            ),
-        ),
-    ),
-    SourceMutation(
         'cross_person_task_leak',
         'worldmock.scheduling.effects::_reveal_event',
         (
@@ -497,15 +485,6 @@ MUTATIONS += (
                 'tests/life/test_tool_interaction_runtime.py::test_appointment_wakes_only_at_real_ope'
                 'ning_and_never_wakes_sleep'
             ),
-        ),
-    ),
-    SourceMutation(
-        'work_material_unchecked',
-        'worldmock.life.world_setup::load_runtime_scenario',
-        '    _check_work_material(semantics.scenario, root)',
-        '    pass',
-        (
-            'tests/life/test_tool_interaction_runtime.py::test_work_material_is_validated_before_first_world_save',
         ),
     ),
     SourceMutation(

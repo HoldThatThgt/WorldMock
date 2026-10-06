@@ -14,6 +14,14 @@ import logging
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
+
+
+class Conservation(StrEnum):
+    """@brief 算子声明的开放或封闭守恒域。"""
+
+    OPEN = "open"
+    CLOSED = "closed"
 
 
 ACCOUNT_KIND = "account"

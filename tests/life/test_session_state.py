@@ -17,8 +17,6 @@ from pydantic import ValidationError
 
 from tests.life.conftest import stage_day_plan, start_activity, submit_round
 from worldmock.footprints.models import EventDraft
-from worldmock.life.engine import LifeEngine
-from worldmock.life.activities import change_activity
 from worldmock.life.models import (
     WORLD_SCHEMA_VERSION,
     ActivityState,
@@ -104,7 +102,7 @@ def _ended_activity(status: str, **overrides) -> dict:
 def test_world_schema_version_is_8():
     """WORLD_SCHEMA_VERSION 当前为 9（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ：新增个人事务的人物状态，世界结构由 8 升为 9，
     只升一次）。用例名沿用版本 8 时的登记（时间与能量台账登记了这个节点），断言随结构版本更新。"""
-    assert WORLD_SCHEMA_VERSION == 9
+    assert WORLD_SCHEMA_VERSION == 10
 
 
 def test_session_opened_by_action_id_is_optional_and_nonblank():
@@ -119,6 +117,8 @@ def test_session_opened_by_action_id_is_optional_and_nonblank():
 
 def test_activity_paused_at_is_written_on_pause_and_cleared_on_resume():
     """ActivityState.paused_at 缺省为 None；暂停写入当前时刻，恢复清空（待办层按它排序）。"""
+    from worldmock.life.activities import change_activity
+
     active = ActivityState.model_validate(_activity())
     assert active.paused_at is None
     agent = AgentState.model_construct(agent_id=1)
@@ -415,7 +415,7 @@ def test_concluded_at_before_ended_at_is_rejected():
 def _minimal_world_state_dict(**overrides) -> dict:
     """构造最小合法 WorldState 字典（无代理、无库存）。"""
     base: dict = {
-        "schema_version": 9,
+        "schema_version": 10,
         "version": 0,
         "current_time": 1000,
         "end_time": 2000,
@@ -425,9 +425,6 @@ def _minimal_world_state_dict(**overrides) -> dict:
         "content_manifest_sha256": "b" * 64,
         "agents": {},
         "accounts": {},
-        "supply_stock": {},
-        "supply_quotes": {},
-        "opening_exceptions": {},
         "random_seed": 42,
         "random_state": "state",
     }
@@ -435,10 +432,10 @@ def _minimal_world_state_dict(**overrides) -> dict:
     return base
 
 
-def test_world_state_schema_version_9_is_valid():
-    """schema_version=9 的 WorldState 通过验证。"""
+def test_world_state_schema_version_10_is_valid():
+    """@brief 结构十的最小世界状态通过验证。"""
     ws = WorldState.model_validate(_minimal_world_state_dict())
-    assert ws.schema_version == 9
+    assert ws.schema_version == 10
 
 
 #: 人物提示七层之前的世界结构版本；其检查点必须以版本不符拒绝。
@@ -462,6 +459,8 @@ def test_world_state_schema_version_7_is_rejected():
 
 def test_run_with_version_7_world_state_is_rejected_on_open(engine_factory):
     """已落盘的版本 7 世界状态在重新打开运行时以版本不符拒绝，不迁移（docs/dev/SPEC-life-realism.md#persona-prompt-七层请求 第七章「版本」）。"""
+    from worldmock.life.engine import LifeEngine
+
     engine = engine_factory()
     payload = engine.context.state.model_dump(mode="json")
     payload["schema_version"] = _VERSION_7_WORLD_SCHEMA
@@ -488,6 +487,8 @@ def test_world_state_schema_version_8_is_rejected():
 def test_run_with_version_8_world_state_is_rejected_on_open(engine_factory):
     """已落盘的版本 8 世界状态（人物状态里没有 errands 键，与版本 8 写出的检查点同形）在重新打开运行时以版本不符拒绝，
     不迁移、不补字段（docs/dev/SPEC-life-runtime.md#errands-workday-个人事务-事件检查点与恢复 ）。"""
+    from worldmock.life.engine import LifeEngine
+
     engine = engine_factory()
     payload = engine.context.state.model_dump(mode="json")
     payload["schema_version"] = _VERSION_8_WORLD_SCHEMA
@@ -583,3 +584,30 @@ def test_world_state_rejects_inconsistent_session_entries(engine_factory, corrup
         payload["sessions"]["session-renamed"] = payload["sessions"].pop(session_id)
     with pytest.raises(ValidationError, match="session identity, owner or activities are invalid"):
         WorldState.model_validate(payload)
+
+
+def test_world_state_schema_version_9_is_rejected():
+    """@brief 世界十直接拒绝上一版结构九。"""
+    with pytest.raises(ValidationError) as caught:
+        WorldState.model_validate(_minimal_world_state_dict(schema_version=9))
+    _assert_only_schema_version_mismatch(caught.value)
+
+
+@pytest.mark.parametrize("field", ["supply_stock", "supply_quotes", "opening_exceptions"])
+def test_world_state_rejects_retired_supply_fields(field):
+    """@brief 世界十不保留旧供给或营业状态字段。"""
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        WorldState.model_validate(_minimal_world_state_dict(**{field: {}}))
+
+
+@pytest.mark.parametrize("field", ["qualifications", "taste_weights", "visible_supply_ids",
+                                   "supply_browsed_at", "supply_browsed_location_id"])
+def test_agent_state_rejects_retired_supply_and_qualification_fields(field):
+    """@brief 人物状态不保留旧资格、口味或供给浏览字段。"""
+    from worldmock.life.models import BodyState
+
+    payload = dict(agent_id=1, name="Alice", location_id="home", balance_account_id="agent:1",
+                   body=BodyState(energy_kcal=500, sleep_pressure=0, sleep_deficit_hours=0,
+                                  entertainment_need=0), body_settled_at=1, next_decision_at=1)
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        AgentState.model_validate({**payload, field: {}})

@@ -23,7 +23,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[2])
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate scenario, corpus, dependencies, and delivery contracts")
-    validate.add_argument("--scenario", type=Path, required=True)
+    validation_source = validate.add_mutually_exclusive_group(required=True)
+    validation_source.add_argument("--scenario", type=Path)
+    validation_source.add_argument("--environment", type=Path, help="validate a published environment directory")
     validate.add_argument("--coverage-out", type=Path,
                           help="write persona_coverage.json here (default: beside the scenario)")
     for name in ("run", "resume", "replay"):
@@ -50,9 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     deliver.add_argument("--replay-export", type=Path, action="append", default=[])
     _profile_arguments(commands)
     _evaluation_arguments(commands)
-    from worldmock.categories.cli import add_category_arguments
-    add_category_arguments(commands)
+    _environment_arguments(commands)
     return parser
+
+
+def _environment_arguments(commands) -> None:
+    """@brief 环境发布命令只生成或逐字节检查已声明地点的地图。"""
+    environment = commands.add_parser("environment", help="generate and verify published environment data")
+    operations = environment.add_subparsers(dest="environment_command", required=True)
+    generate = operations.add_parser("generate-map", help="generate the deterministic map for registered places")
+    generate.add_argument("--locations", type=Path, required=True)
+    generate.add_argument("--seed", type=int, required=True)
+    generate.add_argument("--output", type=Path, required=True)
+    generate.add_argument("--check", action="store_true", help="compare existing output without writing it")
 
 
 def _evaluation_arguments(commands) -> None:
@@ -96,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = _dispatch(arguments)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        if arguments.command == "validate" and arguments.environment is not None:
+            return 0 if result["valid"] else 1
         return 0
     except KeyboardInterrupt:
         logging.error("WorldMock command interrupted")
@@ -118,15 +132,35 @@ def _dispatch(arguments) -> dict:
         from worldmock.delivery.pipeline import deliver
         return deliver(arguments.export, arguments.output, arguments.project_root, tuple(arguments.replay_export))
     if command == "validate":
-        from worldmock.validation import validate_project
+        from worldmock.validation import validate_environment, validate_project
+        if arguments.environment is not None:
+            return validate_environment(arguments.environment)
         return validate_project(arguments.project_root, arguments.scenario,
                                 coverage_out=arguments.coverage_out)
     if command == "profile":
         return _profile_command(arguments)
-    if command == "category":
-        from worldmock.categories.cli import run_category_command
-        return run_category_command(arguments)
+    if command == "environment":
+        return _environment_command(arguments)
     return _evaluate_command(arguments)
+
+
+def _environment_command(arguments) -> dict:
+    """@brief 地点输入经真实严格模型，地图发布和检查走同一个生产生成器。"""
+    from worldmock.catalog.errors import RegistrationError
+    from worldmock.catalog.loader import parse_catalog_model
+    from worldmock.catalog.mapgen import generate_map, publish_map
+    from worldmock.catalog.models import LocationsFile
+
+    try:
+        payload = json.loads(arguments.locations.read_bytes())
+    except (UnicodeError, json.JSONDecodeError) as error:
+        logging.error("Location document is invalid: %s", error)
+        raise RegistrationError("ENVIRONMENT_KIND_INVALID") from error
+    locations = parse_catalog_model(payload, LocationsFile)
+    graph = generate_map([place.location_id for place in locations.locations], arguments.seed)
+    publish_map(graph, arguments.output, check=arguments.check)
+    return {"valid": True, "checked": arguments.check, "output": str(arguments.output),
+            "nodes": len(graph.nodes), "edges": len(graph.edges), "seed": graph.seed}
 
 
 def _profile_command(arguments) -> dict:

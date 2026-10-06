@@ -234,9 +234,20 @@ def test_explicit_uv_missing_and_wrong_python_are_errors(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="explicitly requested"):
         environment.create_environment(tmp_path / ".venv", True)
     monkeypatch.setattr(environment.sys, "version_info", (3, 13))
-    monkeypatch.setattr(environment.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="(3, 13)"))
-    with pytest.raises(RuntimeError, match="Python 3.12 is required"):
-        environment.python312()
+    monkeypatch.setattr(environment.subprocess, "check_output",
+                        lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.13.0"}))
+    with pytest.raises(RuntimeError, match="CPython 3.12.13 is required"):
+        environment.python_command()
+
+
+@pytest.mark.parametrize("identity", [{"implementation": "CPython", "version": "3.12.12"},
+                                      {"implementation": "PyPy", "version": "3.12.13"}])
+def test_bootstrap_rejects_wrong_patch_or_implementation(monkeypatch, identity):
+    """@brief 地图生成与双跑基线要求精确补丁版本以及 CPython 实现。"""
+    monkeypatch.setattr(environment.sys, "version_info", (3, 13, 0))
+    monkeypatch.setattr(environment.subprocess, "check_output", lambda *args, **kwargs: json.dumps(identity))
+    with pytest.raises(RuntimeError, match="CPython 3.12.13 is required"):
+        environment.python_command()
 
 
 def test_bootstrap_checks_source_before_installs_and_uses_two_environments(tmp_path, monkeypatch):
@@ -266,7 +277,9 @@ def test_dev_offline_missing_labelkit_remains_a_nonpassing_environment(tmp_path,
     monkeypatch.setattr(entry, "install_requirements", lambda *args: None)
     monkeypatch.setattr(entry, "install_source", lambda *args: None)
     (tmp_path / "requirements/lock.txt").write_text("")
-    monkeypatch.setattr(environment.subprocess, "check_output", lambda *args, **kwargs: "Python 3.12.13")
+    (tmp_path / ".python-version").write_text("3.12.13\n")
+    monkeypatch.setattr(environment.subprocess, "check_output",
+                        lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.12.13"}))
     monkeypatch.setattr(environment, "component_status",
                         lambda root: {"node_version": "v24", "missing_components": ["LabelKit"]})
     receipt = entry.bootstrap(tmp_path, "dev", wheelhouse=tmp_path / "wheelhouse")

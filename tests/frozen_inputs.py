@@ -72,7 +72,7 @@ def clone_semantics(semantics):
         if field.name not in copied:
             assert_deeply_immutable(getattr(semantics, field.name))
     document, scenario, body, accounts = deepcopy(
-        (semantics.document, semantics.scenario, semantics.body, semantics.accounts))
+        (semantics.document, semantics.scenario, semantics.body, dict(semantics.accounts)))
     return replace(semantics, document=document, scenario=scenario, body=body, accounts=accounts)
 
 
@@ -152,19 +152,15 @@ class FrozenInputs:
         return self.records[key]
 
     def _load(self, path):
-        """@brief 真实装配与清单校验只执行一次，随后冻结字幕并保存缓存对象摘要。"""
-        from worldmock.life import engine_context, rules, world_setup
+        """@brief 真实目录与生活活动装配只执行一次，并保存完整缓存对象摘要。"""
+        from worldmock.life import engine_context, world_setup
 
         semantics, digest = world_setup.load_runtime_scenario(path)
         clone_semantics(semantics)
         root = (Path(path).resolve().parent / semantics.scenario.corpus_root).resolve()
         manifest = world_setup.load_manifest(root, semantics.scenario.corpus_manifest_sha256)
         assert_deeply_immutable(manifest)
-        subtitles = {item.item_id: rules.load_subtitles(item, root) for item in semantics.scenario.contents}
-        for cues in subtitles.values():
-            assert_deeply_immutable(cues)
-        value = {"semantics": semantics, "digest": digest, "manifest": manifest, "subtitles": subtitles,
-                 "titles": rules.load_content_titles(semantics.scenario.contents),
+        value = {"semantics": semantics, "digest": digest, "manifest": manifest,
                  "lifestyle": engine_context.load_lifestyle_items(root, semantics.scenario.body.activity_met)}
         assert_deeply_immutable(value["lifestyle"])
         value["object_sha256"] = object_digest(value)
@@ -173,15 +169,13 @@ class FrozenInputs:
     @contextmanager
     def use(self, path):
         """@brief 只在工厂创建期间接入缓存，直接生产新建、打开与恢复仍执行真实加载器。"""
-        from worldmock.life import engine_context, rules, world_setup
+        from worldmock.life import engine_context, world_setup
 
         value = self.record(path)
         semantics = clone_semantics(value["semantics"])
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(world_setup, "load_runtime_scenario", lambda candidate: (semantics, value["digest"]))
             patch.setattr(world_setup, "load_manifest", lambda root, expected: value["manifest"])
-            patch.setattr(rules, "load_subtitles", lambda item, root: value["subtitles"][item.item_id])
-            patch.setattr(rules, "load_content_titles", lambda items: dict(value["titles"]))
             patch.setattr(engine_context, "load_lifestyle_items", lambda root, met: value["lifestyle"])
             yield
 

@@ -1,6 +1,8 @@
 <a name="scenarios-生活场景"></a>
 # 生活场景
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「看懂场景的组成、修改日期与模拟节奏、限制人物可以做什么、配置日历和预排事件、校验自己的场景、选择起点与文件位置」（阶段 1）。
+
 > 2026-10-01：[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)已冻结并已实现；本手册描述当前程序实际读取的配置。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步个人事务与提醒（阶段 2）。
 > 2026-10-03：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)同步场景结构 5 的工作安排（阶段 3）。
@@ -22,55 +24,34 @@
 | `multi-person.json` | 多人物与按人分配工作 |
 | `multi-person-half-day.json` | 短时段、多人、没有工作任务的生活观察 |
 
-这些文件均位于 WorldMock-Dataset 的 `environment/zhangjiang-baseline/scenarios/`。
-本页命令在 WorldMock 根目录执行；新场景放在 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
+人工入口位于 `tests/fixtures/environment/scenarios/`；正式环境路径由 Dataset 重制发布决定。
+本页命令在 WorldMock 根目录执行，自定义场景放在完整环境的 `experiments/my-world/scenarios/` 下。解析器用场景的上两级目录定位 `catalog/`，
 场景中的 `corpus_root` 则相对场景所在目录解析。不要把场景移动到 `scenarios/custom/` 等更深目录而不调整整个项目布局。
-`schema_version` 当前为 `6`：每个人物须显式写 `work_schedule`（对象或 `null`），
-每条 `contents[]` 须显式写非空 `title`；多余字段和旧结构的输入都严格拒绝。标题由引擎直接呈现，
+`schema_version` 当前为 `7`：每个人物须显式写 `work_schedule`（对象或 `null`），
+内容标题与摘要直接从目录 `contents.json` 提供；多余字段和旧结构的输入都严格拒绝。标题由引擎直接呈现，
 不再按来源元数据另找名称；生活活动的三项效果由所选语料根提供，见[生活活动](resources.md#resources-编写生活活动)。
 
 <a name="scenarios-看懂场景的组成"></a>
 ## 看懂场景的组成
 
 ```mermaid
-flowchart TB
-    SCENE[场景] --> PEOPLE[人物、工作安排与身体初值]
-    SCENE --> TIME[时间窗与日历]
-    SCENE --> WORLD[地图、商品、供给和素材引用]
-    SCENE --> EVENTS[任务、消息、工资、账单与供给变化]
-    SCENE --> MENU[地点与人物的交互菜单]
-    PEOPLE --> LOAD[校验身份、时间、单位和相互引用]
-    TIME --> LOAD
-    WORLD --> LOAD
-    EVENTS --> LOAD
-    MENU --> LOAD
+flowchart LR
+    E[七份目录与语料] --> P[场景环境标识与版本钉]
+    P --> S[人物、时间、地点与初值]
+    S --> V[真实加载和统一登记]
 ```
 
-以下字段均为顶层配置。表中“必填数组”即使没有条目也应保留 `[]`，不能直接删掉字段。
-
-| 字段组 | 必填情况与用途 |
+| 字段组 | 场景结构 7 |
 | --- | --- |
-| `schema_version`、`scenario_id`、`timezone`、`start_at`、`end_at`、`random_seed` | 必填；格式版本、场景身份、时间与随机种子 |
-| `activity_feedback_seconds`、`rotation_stale_seconds` | 必填；反馈间隔与长期未呈现阈值 |
-| `corpus_root`、`corpus_manifest_sha256`、`catalog_version`、`map_dataset` | 必填；语料、目录版本和地图身份 |
-| `accounts` | 必填非空数组；商家、雇主、出行服务和外部账户 |
-| `body`、`agents`、`interaction_menus_by_location_kind` | 必填；身体初值、人物和每个地点类的菜单；每个人物条目另须显式写 `work_schedule`，见[声明工作安排](scenarios.md#scenarios-声明工作安排) |
-| `locations`、`products`、`supplies` | 必填数组；选中的地点、商品与门店供给 |
-| `tasks`、`messages`、`contents`、`games` | 必填数组；工作、通知与可接触素材 |
-| `calendar` | 必填；特殊日期与生活情境 |
-| `bills`、`payrolls`、`price_changes`、`product_releases` | 可省略，默认空数组；显式预排事件 |
-| `recipe_output_bindings` | 可省略，默认 `{}`；有库存配方时把输出品类绑定到输出对象 |
-| `phone_simulation_config`、`phone_simulation_config_sha256` | 可省略，默认 `null`，两者同写或同省；语料根内手机配置的相对路径与 SHA-256，购买渠道与画像覆盖率的 App 名都取自它 |
+| 身份和时间 | `schema_version: 7`、scenario_id、timezone、start_at、end_at、random_seed |
+| 环境与语料 | `environment{environment_id, environment_version}`、corpus_root、corpus_manifest_sha256 |
+| 人物 | 画像、节律、工作安排、联系人、interaction_menu、work_topic_ids、initial_inventory |
+| 身体初值 | mass_kg、initial_energy_kcal、initial_sleep_debt_hours、initial_entertainment_need |
+| 世界选择 | `locations[]{location_id}`；对象与图来自目录，不能复制到场景 |
+| 账户与事件 | accounts、messages、calendar、bills、payrolls；人物账户由 initial_balance_fen 建立 |
+| 交互菜单 | 显式八个 LocationKind 的菜单，人物菜单必填可为 null |
 
-购买渠道就是手机配置里的购买 App：称呼取 `app_display_names` 中该 App 的显示名，成员门店是 `purchase_apps_by_seller` 映射到它的
-卖家有供给的所选地点。人物在 `from` 写 App 称呼（去掉空白、不分大小写比较）时只在成员门店里买，几家都能服务时按请求的 `prefer`
-选定一家，订单记下 App 标识 `channel_id`；渠道没有自己的送达时长和服务范围，送达仍按选定门店的备货加路线，
-见[世界素材](resources.md#resources-编写门店供给与商品)。
-配置文件要登记进语料清单，场景钉定的 SHA-256 与清单一致；配置的 `scenario_id`、`timezone` 与场景相同，`agent_id` 是场景中的人物。
-不钉定就没有渠道，`from` 写 App 名以 `SOURCE_NOT_FOUND` 拒绝；配置核验失败（身份、结构、场景身份或执行证据不符）时同样没有渠道：
-加载照常并写一条 warning 日志，`worldmock validate` 则以同一原因失败。加载时另查渠道准入：称呼在渠道之间不重复，也不等于任何所选
-地点的显示名；每个渠道至少一家成员门店，成员门店是所选地点并至少有一条供给；不满足即拒绝加载，报错见[校验自己的场景](scenarios.md#scenarios-校验自己的场景)。
-现成场景都没有钉定手机配置。
+有工作主题的人物必须声明 work_schedule，已选食品店铺必须有 `merchant:<location_id>` 账户。初始食品持有按地点和食品身份给份数。删除旧 catalog_version、map_dataset、products、supplies、tasks、contents、games、调价、补货、配方和手机配置字段；旧结构直接拒绝。
 
 <a name="scenarios-修改日期与模拟节奏"></a>
 ## 修改日期与模拟节奏
@@ -91,14 +72,13 @@ flowchart TB
   "candidate_presentation_limit": 20,
   "candidate_pool_limit": 1000,
   "rotation_quota_ratio": 0.15,
-  "rotation_stale_seconds": 604800,
-  "retrieval_index_threshold": 1000
+  "rotation_stale_seconds": 604800
 }
 ```
 
 起止时刻必须带时区偏移，并与 `timezone` 在该日期的实际偏移一致。结束晚于开始，运行窗口左闭右开。
-缩短场景时，任务、消息和预排事件也需要一起调整；首页脚本展示了完整做法。
-扩大或移动时间窗时，还要检查地图、路线与报价的有效期，不能只换日期数字。
+缩短场景时，工作安排、消息、工资账单和预排事件也需要一起调整；首页脚本展示了完整做法。
+扩大或移动时间窗时，同步检查工作安排、日历与工资账单；环境图和食品价格不带营业或报价有效期。
 
 | 参数 | 单位与约束 | 如何理解 |
 | --- | --- | --- |
@@ -111,7 +91,6 @@ flowchart TB
 | `candidate_pool_limit` | 默认 1000，范围 1–100000 | 候选池上限 |
 | `rotation_quota_ratio` | 默认 0.15，严格在 0 与 1 之间 | 为轮换呈现预留的比例；呈现上限乘比例向下取整必须至少为 1 |
 | `rotation_stale_seconds` | 必填，范围 1–31536000 秒 | 多久未出现的对象进入长期未呈现判定 |
-| `retrieval_index_threshold` | 默认 1000，范围 1–100000 | 切换检索索引策略的规模阈值 |
 
 呈现窗口只决定人物本轮看到哪些对象，不是资格上限：没有列出的生活活动、内容和商品，人物写出名称也能调用，受理照常核验。
 窗口内先按口味权重乘注意力排序，再按相关度：生活活动的时间窗覆盖此刻 +2，对应当日计划里尚未推进的目标 +2，
@@ -189,7 +168,7 @@ flowchart TB
 <a name="scenarios-限制人物可以做什么"></a>
 ## 限制人物可以做什么
 
-地点菜单在 `interaction_menus_by_location_kind` 中填写；键恰好覆盖已选地点的所有 `kind`，
+地点菜单在 `interaction_menus_by_location_kind` 中填写；键恰好覆盖八个内置 `LocationKind`，
 不允许缺项、多项或通配键。每个人物必须显式写 `interaction_menu`，不额外限制时写 `null`。
 
 ```mermaid
@@ -224,6 +203,8 @@ flowchart LR
 每人两个名额，进行中与刚结束待收尾的活动各占一个，暂停的活动不占；结束或暂停活动后让出名额，恢复暂停的活动要有空名额；
 引擎按注册表占用与准入事实（目标在场与实际地点、出行方式、物品状态）整体核验，能量不参与。
 菜单控制动作权限；画像偏好只影响选择和排序。
+
+场景结构 7 的菜单先使用当前动作闭集；app 活动在阶段 4 切换时同时更新菜单为新 `START_ACTIVITY_ACTIONS`。地点活动环境由固定类型派生，生活活动条目仍声明自己的 location_kinds，不通过菜单替代地点资格。
 
 <a name="scenarios-声明工作安排"></a>
 ## 声明工作安排
@@ -332,7 +313,7 @@ flowchart LR
 
 日历日期定义情境和机会，不给人物写行动脚本。声明了 `work_schedule` 的人物另与日历交叉核对，只核对落在场景时间窗内的日历日期：补班日必须有班次，春节、病假、事假日必须不当班，加班机会日不要求班次。短场景可保留模板中落在窗口外的日期。
 
-账单、工资、调价和补货属于明确预排的世界事件，`due_at` 必须严格晚于场景开始、严格早于场景结束。
+账单与工资属于明确预排的世界事件，`due_at` 必须严格晚于场景开始、严格早于场景结束。
 下面是向既有场景增加一次工资和账单的局部片段；示例沿用模板账户：
 
 ```json
@@ -340,7 +321,7 @@ flowchart LR
   "payrolls": [
     {
       "payroll_id": "my-salary",
-      "employer_account_id": "employer:zhangjiang",
+      "employer_account_id": "employer:test",
       "agent_id": 1,
       "amount_fen": 500000,
       "due_at": "2026-01-05T09:00:00+08:00"
@@ -359,46 +340,31 @@ flowchart LR
 ```
 
 事件标识各自唯一，金额为正整数分；账单付款与收款账户不能相同，所需账户必须存在。
-调价 `price_changes` 使用 `change_id`、`supply_id`、`price_version`、`amount_fen`、`due_at`、`source`；
-`source.kind` 必须为 `scenario`。补货 `product_releases` 使用 `release_id`、`supply_id`、`stock`、`due_at`、`source`，
-同样要求 `source.kind` 为 `scenario`；
-`stock` 是设置后的非负整数库存，不是本次增加量。
-两者都引用门店供给 `supply_id`，不是商品 `product_id`；来源结构和商品供给见[世界素材](resources.md#resources-定义地点门店供给与世界素材)。
+
+场景结构 7 不接受调价或补货字段；食品价格由环境统一发布，店铺全天服务。
 
 <a name="scenarios-校验自己的场景"></a>
 ## 校验自己的场景
 
-先按[入门流程](README.md#readme-创建自己的第一个场景)调用 `load_scenario` 做离线检查，
-再用 `worldmock validate` 核对依赖、语料与人物卡片覆盖率。完整校验会调用模型。
-`validate` 还逐条打印运行输入警告 `Input warning <警告码> (agent <编号>): <说明>`，同一组警告列在结果的 `input_warnings` 中，
-新建运行时冻结进运行清单。警告不让校验或新建运行失败（覆盖率低于 80% 时 `validate` 照旧失败），
-警告码见[接口合同](../CONTRACTS.md#contracts-运行输入警告)。
+先检查整个环境，再做项目依赖与人物覆盖校验：
 
-| 错误或现象 | 处理方法 |
+```bash
+worldmock validate --environment experiments/my-world
+worldmock validate --scenario experiments/my-world/scenarios/single-person.json
+```
+
+环境命令不启动人物或完整引擎，真实加载全部场景并检查目录、图字节、语料与包资源副本；项目命令保留 AS2、LabelKit、依赖、阶段身份和 0.8 覆盖率检查。
+
+| 登记失败 | 应修正的事实 |
 | --- | --- |
-| `Scenario validation failed` | 查看异常链中的具体字段；排除旧字段、类型错误与跨引用错误 |
-| `Scenario corpus manifest identity is invalid` | 核对 `corpus_root` 与清单真实哈希；不要只改哈希掩盖素材损坏 |
-| `work task is outside the scenario interval` | 同步调整任务通知、预约和截止时间，或移除窗口外任务和有关消息 |
-| `interaction menu location kinds must exactly match declared location kinds` | 根据已选地点的实际 `kind` 补齐或删除菜单键 |
-| `work_schedule` 被拒（缺字段、工作地点不是所选地点、班次或休息时段非法、时间窗内的日期与日历不一致；地点与日历两类以 `Work schedules are not admissible: …` 列出） | 每个人物都显式写 `work_schedule`，没有固定班次写 `null`；按报错里的人物、日期与字段改正，见[声明工作安排](scenarios.md#scenarios-声明工作安排) |
-| `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#resources-编写地点与营业时间) |
-| `Selected locations share display names` | 同名地点在地图中写互不相同的 `branch_label` |
-| `Agent <编号> would see non-unique object labels` | 同一人物会同时看到两个相同的名称，例如两项工作同名、两位联系人同称谓；改掉其中一个 |
-| `Purchase channels are not admissible: …`，其后逐条列出 `name '<称呼>' is shared by channels <App 标识> and <App 标识>`、`channel <App 标识> name '<称呼>' equals location <地点标识>` 或 `channel <App 标识> has an empty name` | App 称呼在渠道之间去掉空白、不分大小写后重复，与所选地点的显示名相同，或为空；改手机配置 `app_display_names` 里的称呼并更新它在语料清单和场景里的 SHA-256，或改地点显示名 |
-| `Purchase channels are not admissible: …`，其后逐条列出 `channel <App 标识> member store <地点标识> has no supply`、`channel <App 标识> member store <地点标识> is not a selected location` 或 `channel <App 标识> has no member store` | 成员门店必须是所选地点并至少有一条供给；核对 `purchase_apps_by_seller` 里的卖家账户在场景 `supplies` 中的门店 |
-| 日志 `Phone simulation config failed verification; no purchase channels are derived: <原因>`；`worldmock validate` 以同一原因失败 | 手机配置核验失败，本次没有渠道：核对配置路径、语料清单登记与场景钉定的 SHA-256，配置的 `scenario_id`、`timezone`、`agent_id`，每条 App 映射都能执行（购买 App 的卖家有有货的供给，观看 App 要场景有内容，驾车 App 要有可达的驾车路线），每个 App 都有不重复的非空称呼 |
-| `candidate_presentation_limit and rotation_quota_ratio leave no rotation quota` | 调整二者，保证乘积向下取整至少为 1 |
-| 旧场景含 `max_consecutive_rejections` 被拒（未知字段） | 删掉该键（同刻上限取缺省 3），或改写为 `max_same_moment_decisions` |
-| 警告 `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO` | 卡片口味题材与内容 `genre` 按字面精确匹配，平台名不是题材；改画像正文的口味写法，或给内容补同一套题材词；没写 `background_story` 的人物没有口味权重，也报后者 |
-| 警告 `CONTENT_EMPTY_WITH_MEDIA_TASTES` | 场景没有内容，卡片却有口味题材，或媒介、习惯里有看、刷、听；补 `contents`，或确认人物本就没有可看的内容 |
-| 警告 `GAMES_WITHOUT_TASTE_WEIGHTS` | 场景有游戏，人物却没有口味权重（没写 `background_story`）；游戏缓解按下限偏好计 |
-| 警告 `COVERAGE_BELOW_THRESHOLD`、`PERSONA_AGREEMENT_LOW` | 卡片的世界覆盖率低于 80%，或画像编译留下了警告（三次一致性偏低，或下班、到家锚点因先后冲突降级为 null；原文在 `details.compiler_warning`）；见[人物画像](personas.md#personas-预览与校验) |
-| 警告 `CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT` | 场景显式写的作息字段覆盖了卡片抽取值，有意为之即可；冲突时保留卡片值，让场景窗口与卡片其余时刻按起床、出门、午餐、晚餐、就寝排序，`leave_work_window`、`arrive_home_window` 另须满足下班不早于出门、到家不早于下班（没有下班时不早于出门）且二者不晚于就寝；卡片在新槽为 null 时冲突就保留 null；卡片抽取的下班、到家时刻也参与核对，场景就寝窗口早于它们时把下班、到家窗口也写进场景 |
-| 警告 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` | 配送门店到声明目的地没有可达驾车路线，或地点显示名带坐标、标识形态；见[世界素材](resources.md#resources-验证修改) |
-| 修改配置后不能恢复旧运行 | 用新目录新建运行；恢复不是应用新配置的入口 |
+| ENVIRONMENT_PIN_MISMATCH | 场景环境标识和版本与清单一致 |
+| ENVIRONMENT_REF_UNKNOWN / WORK_TOPIC_UNKNOWN | 引用真实登记对象或主题 |
+| FOOD_BINDING_KIND_INCONSISTENT | 同类店铺完全相同菜单 |
+| MERCHANT_ACCOUNT_MISSING | 给每个已选食品店铺声明 merchant 账户 |
+| WORK_SCHEDULE_REQUIRED | 有工作主题的人物声明工作安排 |
+| MAP_NOT_REGENERATED | 用实际地点清单和种子重新生成并发布图 |
 
-字段的最终边界见[场景加载器](../../src/worldmock/life/scenario.py)、
-[交互菜单合同](../CONTRACTS.md#contracts-交互菜单声明与有效菜单)和[运行配置](runtime.md#runtime-运行配置)。
+完整码与英文原因见[环境目录文件](../CONTRACTS.md#contracts-环境目录文件)。严格场景结构 7 拒绝旧字段，不通过补齐或 warning 放行。
 
 <a name="scenarios-工作通知与目标发布"></a>
 ## 工作通知与目标发布

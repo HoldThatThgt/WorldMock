@@ -8,17 +8,19 @@ import shutil
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from agentsociety2.society import DecisionContext, DirectToolCall  # noqa: E402
 from tests.frozen_inputs import relative_corpus  # noqa: E402
 
-from worldmock.life.engine import LifeEngine  # noqa: E402
-from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
+if TYPE_CHECKING:
+    from agentsociety2.society import DecisionContext
+    from worldmock.life.engine import LifeEngine
+
 
 
 
@@ -27,6 +29,8 @@ from worldmock.life.models import ModelIdentity, RunIdentity  # noqa: E402
 
 def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:
     """形成指向当前已提交世界的宿主上下文。"""
+    from agentsociety2.society import DecisionContext
+
     observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.scenario.timezone))
     return DecisionContext(engine.context.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
                            agent_id, observed, engine.context.state.version)
@@ -199,6 +203,8 @@ def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
 
 def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], round_id: str):
     """按全部就绪人物创建并提交一个真实决策轮。"""
+    from agentsociety2.society import DirectToolCall
+
     ready = engine.scheduling_state().ready_agent_ids
     contexts = [context(engine, round_id, agent_id) for agent_id in ready]
     engine.begin_decision_round(contexts)
@@ -354,6 +360,8 @@ def pending_names(observed: dict) -> list[str]:
 
 def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     """单个就绪人物当秒给全部待收尾活动收尾（第七章「活动一结束就要结束它」），返回本轮动作结果。"""
+    from agentsociety2.society import DirectToolCall
+
     decision = context(engine, round_id, agent_id)
     engine.begin_decision_round([decision])
     names = pending_names(engine.observe(decision))

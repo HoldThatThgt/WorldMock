@@ -579,18 +579,18 @@ _WORK_ANCHOR_TESTS = [
 ]
 
 _WORK_SCHEDULE_LOADS = "tests/life/test_load_checks.py::"
-_STRUCTURE_FIVE = "tests/life/test_scenario.py::test_every_agent_declares_work_schedule_and_structure_four_is_rejected"
+_SCENARIO_STRUCTURE = "tests/life/test_scenario.py::test_structure_seven_rejects_old_scenario_version[4]"
 #: 「工作安排加载」：每个人物显式声明 work_schedule 或 null、缺键与场景结构 4 经真实入口被拒；工作地点不是所选地点、时段
 #: 与休息时段非法、时间窗内与场景日历不一致都经真实的 load_runtime_scenario 被拒（顶层明细写明人物、日期与字段，形状
 #: 错误的原因在异常链里），时间窗外的日期、加班机会日与 null 的人物不核对。场景模型校验器逐条拒绝的用例是补充证据。
 _WORK_SCHEDULE_LOAD_TESTS = [
-    _STRUCTURE_FIVE,
+    _SCENARIO_STRUCTURE,
     _WORK_SCHEDULE_LOADS + "test_work_schedule_workplace_must_be_a_selected_location",
-    _WORK_SCHEDULE_LOADS + "test_a_malformed_shift_or_break_is_rejected_by_the_real_loader",
+    _WORK_SCHEDULE_LOADS + "test_real_loader_rejects_malformed_work_shift_and_break",
+    "tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected",
     _WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",
     _WORK_SCHEDULE_LOADS + "test_overtime_dates_and_dates_outside_the_window_are_not_checked",
     _WORK_SCHEDULE_LOADS + "test_a_null_work_schedule_is_not_cross_checked_and_others_still_are",
-    "tests/life/test_scenario.py::test_work_schedule_shape_errors_are_rejected",
 ]
 
 _WORK_SCHEDULE = "tests/life/test_work_schedule.py::"
@@ -930,7 +930,7 @@ _SCENARIO_SOURCE = "src/worldmock/life/scenario.py"
 #: 工作安排加载两个变异的杀手（都在主进程内经真实加载入口）：加载时不做日历交叉核对，时间窗内与日历不一致的工作安排
 #: 照常加载；场景结构 4 被放行，版本写回 4 的场景经 parse_scenario_document 与 load_scenario 照常加载。
 _CALENDAR_CHECK_KILLERS = (_WORK_SCHEDULE_LOADS + "test_work_schedule_must_agree_with_the_calendar_inside_the_window",)
-_STRUCTURE_FOUR_KILLERS = (_STRUCTURE_FIVE,)
+_STRUCTURE_FOUR_KILLERS = (_SCENARIO_STRUCTURE,)
 _WORK_SCHEDULE_MODULE = "worldmock.life.work_schedule"
 _WORK_SCHEDULE_SOURCE = "src/worldmock/life/work_schedule.py"
 _ENVIRONMENT_LAYER_MODULE = "worldmock.life.environment_layer"
@@ -1695,8 +1695,8 @@ MUTATIONS: tuple[SourceMutation, ...] = (
     SourceMutation(
         "scenario_structure_four_admitted",
         'worldmock.life.scenario::LifeScenario',
-        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[6]\n',
-        '    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""\n\n    schema_version: Literal[4, 6]\n',
+        "    schema_version: Literal[7]\n",
+        "    schema_version: Literal[4, 7]\n",
         _STRUCTURE_FOUR_KILLERS,
     ),
     SourceMutation(

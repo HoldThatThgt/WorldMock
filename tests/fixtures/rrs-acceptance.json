@@ -2,26 +2,114 @@
   "分类与规则归系统（分类与规则归系统）": {
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-固定规则与常数",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/exchange/test_types.py::test_fixed_type_sets_and_labels",
+      "tests/exchange/test_constants.py::test_fixed_constants_and_immutable_food_table",
+      "tests/exchange/test_constants.py::test_body_constants_and_resource_metas",
+      "tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones",
+      "tests/exchange/test_operators.py::test_food_energy_uses_category_and_fraction",
+      "tests/exchange/test_operators.py::test_travel_and_delivery_round_up_with_fare_minimum",
+      "tests/exchange/test_operators.py::test_decimal_precision_does_not_change_settlement",
+      "tests/exchange/test_operators.py::test_fixed_operators_keep_existing_decimal_settlement_results",
+      "tests/catalog/test_loader.py::test_catalog_rejects_retired_object_fields",
+      "tests/catalog/test_admission.py::test_registration_rejects_every_retired_file",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values[rules_version-2]"
+    ],
+    "implementation": [
+      "src/worldmock/exchange/constants.py::RULES_VERSION",
+      "src/worldmock/exchange/body.py::BODY_CONSTANTS",
+      "src/worldmock/exchange/types.py::LocationKind",
+      "src/worldmock/exchange/operators.py::evaluate_food_energy",
+      "src/worldmock/exchange/operators.py::evaluate_travel_fare"
+    ]
   },
   "环境登记与错误码": {
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-注册校验与错误",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample",
+      "tests/catalog/test_admission.py::test_registration_rejects_manifest_values",
+      "tests/catalog/test_admission.py::test_registration_rejects_missing_manifest_file_entry",
+      "tests/catalog/test_admission.py::test_registration_rejects_file_identity_drift",
+      "tests/catalog/test_admission.py::test_registration_rejects_duplicate_identity",
+      "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_nonfinite_work_target",
+      "tests/catalog/test_admission.py::test_registration_rejects_unbound_app",
+      "tests/test_cli.py::test_generate_map_command_writes_the_real_library_bytes",
+      "tests/test_cli.py::test_generate_map_check_preserves_matching_and_mismatched_output",
+      "tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch",
+      "tests/test_validation.py::test_validate_environment_command_accepts_the_actual_artificial_environment",
+      "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished",
+      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[affordances.toml]",
+      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[rules/motivation.toml]",
+      "tests/test_validation.py::test_validate_environment_rejects_republished_engine_rule_byte_changes[rules/persona-mapping.toml]",
+      "tests/test_validation.py::test_validate_environment_reports_corpus_failure_for_every_affected_scenario",
+      "tests/test_validation.py::test_validate_environment_checks_every_scenario_after_a_scenario_failure",
+      "tests/test_validation.py::test_validate_environment_rejects_no_scenarios",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_registration_counterexamples",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[rules_version-RULES_VERSION_MISMATCH]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[retired-ENVIRONMENT_STALE_FILE]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unlisted-ENVIRONMENT_FILE_UNLISTED]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[identity-ENVIRONMENT_IDENTITY_MISMATCH]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[unbound-APP_UNBOUND]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[small_map-MAP_TOO_SMALL]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[self_edge-MAP_EDGE_INVALID]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_manifest_and_graph_counterexamples[disconnected-MAP_DISCONNECTED]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[pin-ENVIRONMENT_PIN_MISMATCH]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[topic-WORK_TOPIC_UNKNOWN]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[merchant-MERCHANT_ACCOUNT_MISSING]",
+      "tests/test_validation.py::test_validate_environment_command_rejects_real_scenario_references[schedule-WORK_SCHEDULE_REQUIRED]"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/admission.py::validate_manifest",
+      "src/worldmock/catalog/admission.py::validate_registration",
+      "src/worldmock/catalog/errors.py::RegistrationError",
+      "src/worldmock/cli.py::_environment_command",
+      "src/worldmock/cli.py::_environment_arguments",
+      "src/worldmock/validation.py::validate_environment",
+      "src/worldmock/validation.py::_validate_environment_scenarios"
+    ]
   },
   "同类店铺同商品（同类店铺同商品）": {
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-店铺食品与外卖",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes",
+      "tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/admission.py::_check_foods",
+      "src/worldmock/catalog/loader.py::_catalog_view"
+    ]
   },
   "地图生成连通且字节稳定（地图连通且长度可计时）": {
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境格式",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/catalog/test_mapgen.py::test_map_generation_is_deterministic_and_seeded",
+      "tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity",
+      "tests/catalog/test_mapgen.py::test_map_matches_frozen_artificial_seed",
+      "tests/catalog/test_mapgen.py::test_sorted_nodes_independent_tree_stream_and_length_assignment",
+      "tests/catalog/test_mapgen.py::test_map_edge_counts_length_bounds_and_connectivity[7]",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map",
+      "tests/catalog/test_admission.py::test_registration_rejects_too_small_map",
+      "tests/catalog/test_mapgen.py::test_map_check_rejects_changed_bytes_without_rewriting",
+      "tests/catalog/test_mapgen.py::test_runtime_catalog_does_not_regenerate_map",
+      "tests/test_cli.py::test_generate_map_check_uses_the_real_cli_dispatch",
+      "tests/test_validation.py::test_validate_environment_rejects_map_bytes_even_when_manifest_is_republished",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map[disconnected]",
+      "tests/catalog/test_admission.py::test_registration_rejects_invalid_map[self]"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/mapgen.py::generate_map",
+      "src/worldmock/catalog/mapgen.py::require_regenerated_map",
+      "src/worldmock/catalog/admission.py::validate_map",
+      "src/worldmock/cli.py::_environment_command",
+      "src/worldmock/cli.py::_environment_arguments",
+      "src/worldmock/validation.py::validate_environment",
+      "src/worldmock/validation.py::_validate_environment_scenarios"
+    ]
   },
   "最短路与完整路径决胜": {
     "stage": "2",
@@ -32,8 +120,15 @@
   "包资源身份与原子发布": {
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-环境目录文件",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/catalog/test_engine_package_resources.py::test_artificial_rule_snapshots_equal_engine_package",
+      "tests/catalog/test_engine_package_resources.py::test_changed_rule_snapshot_is_rejected_after_identity_refresh",
+      "tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/loader.py::require_engine_rules",
+      "src/worldmock/catalog/identity.py::refresh_manifest_identity"
+    ]
   },
   "占用闭集与并行准入": {
     "stage": "4",
@@ -44,8 +139,39 @@
   "场景 7 与世界 10 的拒绝边界": {
     "stage": "1",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-状态事件检查点与导出",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_scenario.py::test_structure_seven_rejects_each_retired_scenario_field",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_agent_fields",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_body_and_message_retired_fields",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_old_scenario_version",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_menu_actions",
+      "tests/life/test_scenario.py::test_structure_seven_rejects_retired_menu_kinds",
+      "tests/life/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid",
+      "tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced",
+      "tests/life/test_scenario.py::test_initial_inventory_shape_rejects_invalid_holdings",
+      "tests/life/test_load_checks.py::test_real_loader_rejects_registration_counterexamples",
+      "tests/life/test_semantics.py::test_energy_thresholds_come_from_worldmock_body_constants",
+      "tests/life/test_semantics.py::test_registered_objects_and_body_instances_are_preserved",
+      "tests/life/test_semantics.py::test_initial_agent_preserves_declared_body_needs",
+      "tests/life/test_session_state.py::test_world_state_schema_version_10_is_valid",
+      "tests/life/test_session_state.py::test_world_state_schema_version_9_is_rejected",
+      "tests/life/test_session_state.py::test_world_state_rejects_retired_supply_fields",
+      "tests/life/test_session_state.py::test_agent_state_rejects_retired_supply_and_qualification_fields",
+      "tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set",
+      "tests/integration/test_environment_identity.py::test_loaded_environment_identity_is_five_exact_file_bound_values",
+      "tests/integration/test_environment_identity.py::test_environment_identity_requires_every_frozen_value",
+      "tests/integration/test_environment_identity.py::test_environment_identity_rejects_retired_run_manifest_versions",
+      "tests/integration/test_run_manifest.py::test_run_manifest_structure_three_freezes_environment_identity"
+    ],
+    "implementation": [
+      "src/worldmock/life/scenario.py::LifeScenario",
+      "src/worldmock/life/scenario.py::BodyInstanceConfig",
+      "src/worldmock/life/models.py::WorldState",
+      "src/worldmock/life/world_setup.py::load_runtime_scenario",
+      "src/worldmock/life/world_setup.py::_run_manifest",
+      "src/worldmock/life/run_identity.py::environment_identity",
+      "src/worldmock/life/run_identity.py::require_environment_identity"
+    ]
   },
   "出行按图计时计费": {
     "stage": "2",

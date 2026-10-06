@@ -10,7 +10,7 @@ RULES = {
     ),
     '原子写': (
         'tests/test_shared_primitives.py::test_atomic_publication_order_and_failed_replace_cleanup',
-        'tests/catalog/test_loader.py::test_manifest_identity_publication_failure_keeps_previous_bytes',
+        'tests/catalog/test_identity.py::test_catalog_identity_publication_is_atomic',
     ),
     '故障日志': ('tests/test_shared_primitives.py::test_value_error_rejection_logs_once_and_preserves_message',),
     '活动时长': (
@@ -41,13 +41,14 @@ RULES = {
     '社交活动家族': ('tests/life/test_shared_rules.py::test_social_family_advances_the_social_goal',),
     '邮件头': ('tests/life/test_shared_rules.py::test_mail_headers_match_content_revelation_and_observation',),
     '社交资源分录': ('tests/life/test_shared_body.py::test_shared_activity_factors_use_social_met_and_declared_factors',),
-    '合同对象集合': ('tests/life/test_shared_rules.py::test_contract_templates_match_scenario_loading_and_resource_mapping',),
+    '环境登记身份': ('tests/catalog/test_loader.py::test_catalog_registers_artificial_objects_and_indexes',),
     '独立模型客户端': ('tests/test_shared_model_clients.py::test_original_clients_share_single_call_serialization_and_request_isolation',),
     '纠正消息': ('tests/test_shared_model_clients.py::test_three_corrections_keep_original_tools_budgets_and_channel_echo',),
-    '品类与目录错误': ('tests/test_shared_primitives.py::test_original_safe_file_consumers_reject_symlink_before_hash_or_schema',),
+    '环境登记错误': ('tests/catalog/test_admission.py::test_registration_rejects_minimal_object_counterexample',),
     '公共枚举': ('tests/test_single_source.py::test_production_shared_rules_have_one_owner_and_no_business_clones',),
-    '严格模型': ('tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction',),
-    '曲线与效率因子': ('tests/test_shared_primitives.py::test_curve_models_shared_by_life_and_catalog_reject_invalid_numbers',),
+    '严格模型': ('tests/test_shared_primitives.py::test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction',
+              'tests/exchange/test_models.py::test_deep_model_freezes_nested_containers_and_serializes',),
+    '曲线与效率因子': ('tests/test_shared_primitives.py::test_curve_models_shared_by_body_and_life_reject_invalid_numbers',),
 }
 
 ENVIRONMENT = {

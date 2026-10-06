@@ -1,15 +1,7 @@
 """@brief 配置进程、冻结运行身份与准备人物输入的唯一职责。"""
 from __future__ import annotations
-from worldmock.profile import injection
-from worldmock.profile.coverage import validate_coverage
 from worldmock.catalog.loader import load_catalog
 from worldmock.life.semantics import resolve_catalog_dir
-from worldmock.profile.coverage_apps import verified_app_names
-from worldmock.profile.coverage_targets import build_coverage_targets
-from worldmock.profile.textgen import render_card
-from worldmock.profile.compile import compile_persona
-from worldmock.profile.taste import compute_taste_weights
-from worldmock.catalog.admission import CONTENT_CORPORA
 import hashlib
 import importlib.util
 import json
@@ -24,8 +16,6 @@ from worldmock.errors import IntegrityError
 from worldmock.life.models import ModelIdentity
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from worldmock.profile.injection import apply_scenario_rhythm
-from worldmock.profile.models import PersonaCard, persona_card_struct
 from worldmock.footprints.models import RETIRED_DECISION_STATEMENT
 
 logger = logging.getLogger(__name__)
@@ -294,6 +284,10 @@ def input_warnings(scenario_path: Path, scenario: RuntimeScenario, compiled: Map
     人物：场景作息覆盖（CARD_FIELD_OVERRIDDEN / CARD_FIELD_CONFLICT）、口味与内容（按实际注入的口味权重）、游戏权重条目、
     世界可执行覆盖率（与 validate 同一目标集，低于 80% 只警告）与画像编译留下的警告；场景：配送路线与地点显示名。
     """
+    from worldmock.profile import injection
+    from worldmock.profile.coverage import validate_coverage
+    from worldmock.profile.injection import apply_scenario_rhythm
+
 
     genres = _content_genre_catalog(scenario_path, scenario)
     contents = tuple({"item_id": item.item_id, "genre": tuple(genres.get(item.item_id) or ())}
@@ -321,6 +315,9 @@ def _coverage_targets(scenario_path: Path, scenario: RuntimeScenario) -> Any:
     按没有应用别名计算，覆盖率因此低于 80% 时照常记 COVERAGE_BELOW_THRESHOLD，另写一条英文 warning 日志
     （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-运行输入警告 「运行路径永不因警告失败」）；validate 用自己的目标集，照旧因同一核验失败。
     """
+    from worldmock.profile.coverage_apps import verified_app_names
+    from worldmock.profile.coverage_targets import build_coverage_targets
+
 
     root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
     try:
@@ -348,6 +345,9 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
     persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 CompiledPersona、PersonaCard 或 None，
     不触发真实模型调用）。
     """
+    from worldmock.profile.injection import apply_scenario_rhythm
+    from worldmock.profile.models import PersonaCard, persona_card_struct
+
     entries = _taste_entries(scenario, content_genres)
     specs = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
@@ -374,6 +374,8 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
 
 def _render_card(card: Any) -> str:
     """@brief 编译卡片的渲染文本（记忆巩固与反思的人物段）。"""
+    from worldmock.profile.textgen import render_card
+
 
     return render_card(card)
 
@@ -383,6 +385,8 @@ def _compile_persona(agent: Any) -> Any:
 
     编译警告（三次一致性低于 2/3 的字段、下班与到家锚点的降级说明）经输入警告 PERSONA_AGREEMENT_LOW 逐条透传，不再丢弃。
     """
+    from worldmock.profile.compile import compile_persona
+
     if agent.background_story is None:
         return None
 
@@ -392,6 +396,8 @@ def _compile_persona(agent: Any) -> Any:
 def _compiled_parts(result: Any) -> tuple[PersonaCard | None, tuple[str, ...]]:
     """@brief 编译结果 → (卡片, 编译警告)：CompiledPersona 与带 card 的对象取其卡片与 warnings；
     测试桩可直接给 PersonaCard（没有编译警告）或 None（没有背景故事）。"""
+    from worldmock.profile.models import PersonaCard, persona_card_struct
+
     if result is None:
         return None, ()
     if isinstance(result, PersonaCard):
@@ -420,6 +426,8 @@ def _card_taste_weights(card: Any, entries: tuple[dict, ...]) -> dict[str, float
     游戏条目与内容条目同算（精确交集 / 条目题材数），键为 game_id；没有题材声明的游戏权重为 0.0
     （docs/dev/SPEC-life-runtime.md#dayrun-fidelity-身体与需要-下限缓解与累积口径 ，裁决 S1）。
     """
+    from worldmock.profile.taste import compute_taste_weights
+
 
     return compute_taste_weights(card.tastes.content_genres, entries)
 
@@ -432,6 +440,8 @@ def _content_genre_catalog(scenario_path: Path,
     @param scenario 组装后的运行时场景
     @return 场景内容目录的 genre 查找表（条目缺失 genre 视为空口味）
     """
+    from worldmock.catalog.admission import CONTENT_CORPORA
+
 
     root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
     genres: dict[str, tuple[str, ...]] = {}

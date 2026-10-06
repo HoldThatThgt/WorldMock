@@ -1,6 +1,8 @@
 <a name="shared-rules-特性规格共享规则单一归宿与可重建环境"></a>
 # 特性规格：共享规则单一归宿与可重建环境
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「活动规则、共享规则、防漂移守卫、新机器检查、文档原子同步清单、摘要、安全路径、持久写入与错误」（阶段 1）。
+
 > 状态：FROZEN；2026-10-05。冻结描述要求，实现和验收证据分别登记。
 > 2026-10-06 修订「共享规则」的「安全文件」一行（Windows 路径加固），见版本表。
 > 基线：`2cf230115f4084aef2376e9d77bc976efbed43ea`。
@@ -42,15 +44,17 @@ flowchart LR
 <a name="shared-rules-共享规则"></a>
 ## 共享规则
 
+共享规则的当前归属表由下列各节维护。环境错误归 `catalog.errors.RegistrationError`，环境身份归 `catalog.identity`，固定分类、常数与算子归 `worldmock.exchange`；登记与运行消费者复用唯一定义。历史共享规则验收记录保持原始被测提交。
+
 <a name="shared-rules-摘要安全路径持久写入与错误"></a>
 ### 摘要、安全路径、持久写入与错误
 
 | 规则名称 | 唯一归宿与冻结行为 | 必须验证的调用边界 |
 | --- | --- | --- |
-| 规范 JSON 摘要 | `footprints.models.canonical_json` 和 `sha256_json`；UTF-8、键排序、紧凑分隔符、拒绝 NaN 与无穷值 | 候选、请求、工作验收的结构化值、品类身份、交付 trace 使用相同字节；工作验收纯字符串仍哈希原文，这是独立输入合同 |
+| 规范 JSON 摘要 | `footprints.models.canonical_json` 和 `sha256_json`；UTF-8、键排序、紧凑分隔符、拒绝 NaN 与无穷值 | 候选、请求、工作验收的结构化值、环境目录身份、交付 trace 使用相同字节；工作验收纯字符串仍哈希原文，这是独立输入合同 |
 | SHA-256 形式 | `footprints.models.is_sha256`；仅小写十六进制 64 字符 | 原先业务函数与直接正则匹配调用相同谓词；字段 Schema 保留既有模式；非字符串不能通过 |
-| 安全文件 | `corpora.manifest`；声明须是只用 `/` 分隔的根内相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、`..` 与反斜杠，以及任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、Windows 禁用字符与数据流冒号、控制字符、孤立代理码点、超过 255 字节）；解析前检查根以内每个组件的符号链接与目录联接，拒绝越界和非普通文件 | 语料、地图、应用覆盖、内容、品类身份、工作材料、出行响应与文字游戏的原有入口；工作区快照与恢复的成员名使用同一声明规则；错误文案与构造函数由所属入口传入，只在失败时构造一次，不改变错误分类 |
-| 原子写 | `footprints.assets.atomic_write`；只写字节，创建父目录、同目录临时文件、文件 fsync、os.replace，POSIX 同步父目录；Windows 按平台能力执行文件同步与替换 | 素材、内容 manifest、品类身份等写入；临时文件失败清理，异常转换为所属模块错误；JSON 文件使用 LF |
+| 安全文件 | `corpora.manifest`；声明须是只用 `/` 分隔的根内相对路径：拒绝绝对路径（含 Windows 上无盘符的根路径）、`..` 与反斜杠，以及任一平台不能原样保存的名字（以点或空格结尾、Windows 设备名、Windows 禁用字符与数据流冒号、控制字符、孤立代理码点、超过 255 字节）；解析前检查根以内每个组件的符号链接与目录联接，拒绝越界和非普通文件 | 语料清单、七份目录、包资源副本与环境目录身份的实际入口；退役业务消费者随所属阶段删除；工作区快照与恢复的成员名使用同一声明规则；错误文案与构造函数由所属入口传入，只在失败时构造一次，不改变错误分类 |
+| 原子写 | `footprints.assets.atomic_write`；只写字节，创建父目录、同目录临时文件、文件 fsync、os.replace，POSIX 同步父目录；Windows 按平台能力执行文件同步与替换 | 素材、内容 manifest、环境目录身份等写入；临时文件失败清理，异常转换为所属模块错误；JSON 文件使用 LF |
 | 故障日志 | `WorldMockError` 构造已经记录错误，删除额外先记日志再抛出的包装 | 同一故障只生成一条构造日志；稳定英文错误内容与异常因果链保留；普通声明 ValueError 的日志拒绝共用 `errors.reject_value` |
 
 安全路径校验顺序固定为声明路径、符号链接、解析边界、普通文件、文件身份。
@@ -63,7 +67,7 @@ flowchart LR
 | --- | --- | --- |
 | 活动时长 | `life.durations` 推导；上限归 `life.models`，一般活动封顶 86400 秒、消费时长范围 60–14400 秒且越界拒绝 | 工具层、会话动作、按名调用清单的同一状态输入得到同一秒数；会话动作仍在逐项状态变化后重新检查 |
 | 开工阻断 | `life.work.work_start_refusal` | 工具层与受理层复用同一原因和下一步 |
-| 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用路线选择与时长；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
+| 出行时长 | `life.travel.planned_travel` | 工具层、受理层与引擎校验复用图最短路与固定速度时长（阶段 2 接入）；动作处理的 `_start_travel_action` 与 `_travel_start_context` 仍检查请求与路线不符，保留 `ROUTE_DURATION_MISMATCH` |
 | 缓解速率 | `life.activities` 的速率函数；MET 键从包内固定活动声明读取；生活活动效果来自环境并在启动时冻结 | 预估与结算相同；继续内容缺少、布尔、非整数或小于一的 `exposure_count` 均明确报错，不默认接触一次；预估的既有资格拒绝处理仍保留 |
 | 候选种类 | `life.candidates` | 删除无人使用的 `presentation.ACTIVITY_OF_KIND`；其它生产调用直接使用唯一映射 |
 | 活动家族 | `life.schedule.activity_family` | 生产受理缺生活活动仍以 `LIFESTYLE_ACTIVITY_NOT_FOUND` 拒绝；离线缺品类返回未知，计划不猜测进度、相关度不给家族加分、评估保留缺证和未归类统计 |
@@ -75,8 +79,7 @@ flowchart LR
 游戏轨迹内容按观看（WATCH）的内容时长规则处理并受一般活动上限约束；TextWorld 游戏按场景反馈间隔处理，不增加游戏轨迹内容的 PLAY_GAME 入口。
 函数移动时同步修订 monkeypatch 测试，使测试确实替换新的权威调用点。
 可供性声明中声称 `sleep_channel` 已控制身体结算的旧注释改为当前未启用的语义。
-该文件字节进入目录内容身份，因此按既有发布合同将目录次版本从 5.3 升为 5.4，同步生成器、清单、场景引用和当前文档。
-只修订说明，不改变资源、对象、身体数值或交换规则；品类与规则绑定版本仍为 3，历史运行不重写。
+三份包 TOML 副本逐字节绑定新目录清单；目录只登记对象、绑定与图，规则常数归 `worldmock.exchange` 并由 `RULES_VERSION` 绑定。历史运行不重写，app 缓解与工作消费者在所属后续阶段切换。
 
 <a name="shared-rules-事件区间日期记忆与评估"></a>
 ### 事件区间、日期、记忆与评估
@@ -92,7 +95,7 @@ flowchart LR
 | 社交活动家族 | `life.schedule.activity_family` | 行为指标的 chat/call 家族与计划、目标、相关度一致 |
 | 邮件头 | `life.content.mail_headers` | 观察与内容呈现共用相同邮件字段提取 |
 | 社交资源分录 | 身体与社交动作读取同一个分录应用函数 | 原有资源守恒、双方身体结算和失败分类不变 |
-| 合同对象集合 | 目录的唯一合同对象集合 | 场景加载与资源映射直接读取同一集合 |
+| 环境登记身份 | `catalog.identity` 的清单文件表与框架化目录摘要 | 加载、环境检查、运行清单和恢复使用同一五字段环境身份 |
 
 <a name="shared-rules-模型客户端与公共模型"></a>
 ### 模型客户端与公共模型
@@ -101,8 +104,8 @@ flowchart LR
 | --- | --- | --- |
 | 独立模型客户端 | `model_endpoint` 共用客户端实现，联系人、零点计划和工作验收保留各自业务类 | 身份校验、零内部协议重试和响应序列化共用；业务名称决定现行英文错误文案 |
 | 纠正消息 | 共用 `correction_message`、Schema 错误格式与工具参数提取实现 | 保留已有通道的回显、指令、请求工具与重试预算；工作验收反馈按合同登记，三条请求逐次验证 |
-| 品类与目录错误 | `categories.common.CategoryError` 的稳定错误码错误实现 | 目录和品类直接使用 CategoryError，删除 CatalogError，不保留第二个类或别名；评估与资源错误保留已规定的不同基类与消息形状，分别增加必需错误日志，不为合并而改变语义 |
-| 公共枚举 | `categories.common` 的来源与守恒枚举 | 目录直接导入使用；删除重复枚举定义 |
+| 环境登记错误 | `catalog.errors.RegistrationError` 的稳定码和英文原因 | 统一登记器、目录加载、环境 CLI 与场景准入复用；评估与资源错误保留各自语义和错误日志，不引入兼容类 |
+| 公共枚举 | `worldmock.exchange.types` 的固定地点、食品、内容与摘要来源闭集；资源守恒保留既有所属定义 | 目录与运行消费者直接导入唯一定义，不复制词表 |
 | 严格模型 | `worldmock.base_models` 的基础模型 | 仅字段冻结与 extra=forbid 的基础模型统一；品类的深度冻结模型明确命名，保留递归冻结语义；不同 LineageEntry 不合并 |
 | 曲线与效率因子 | 唯一公共模型 | 曲线输入和输出均为有限非负数，拒绝布尔；资源名至少含一个非空白字符，曲线非空；life 与 catalog 使用同一模型 |
 
@@ -127,6 +130,8 @@ flowchart LR
 普通模块 logger、类型声明、不同作用域的协议钩子和单纯导入绑定不作为业务克隆。
 必须列明这些语义排除，不能为遗漏的业务克隆增加例外。已知业务克隆清单在验收时必须为空。
 守卫用临时样例证明新增克隆、复制常量表和错误归宿确实失败，而非只测试当前仓库能通过。
+
+阶段 1 的 `tests/test_single_source.py::OWNERS` 登记 `FOOD_CONSTANTS`、`CONTENT_RELIEF_PER_HOUR`、`PLACE_KIND_ENVIRONMENTS`、`TARGET_LABELS`、`START_ACTIVITY_ACTIONS`、`BODY_CONSTANTS` 及现行唯一归属，原二十项保持。`QUICK_TESTS` 到阶段 4 才改为新目录、交换规则与 app 纯测试，不在本阶段提前声明该快速集合已经替换。
 
 <a name="shared-rules-可重建环境"></a>
 ## 可重建环境
@@ -218,6 +223,8 @@ CI 在 Ubuntu x86_64 与 Windows 执行同一路径，checkout 不初始化子�
 快速检查涵盖共享规则、AS2 专用测试、身份与引导本身；Linux x86_64 的语料边界另执行对应实际测试。
 CI 比较两系统代码摘要，不能只分别检查摘要格式。
 
+阶段 1 的 `tests/test_single_source.py::OWNERS` 登记 `FOOD_CONSTANTS`、`CONTENT_RELIEF_PER_HOUR`、`PLACE_KIND_ENVIRONMENTS`、`TARGET_LABELS`、`START_ACTIVITY_ACTIONS`、`BODY_CONSTANTS` 及现行唯一归属，原二十项保持。`QUICK_TESTS` 到阶段 4 才改为新目录、交换规则与 app 纯测试，不在本阶段提前声明该快速集合已经替换。
+
 <a name="shared-rules-文档原子同步清单"></a>
 ## 文档原子同步清单
 
@@ -229,7 +236,7 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/design/00-overview.md` | AS2 与宿主业务职责、固定 Python 3.12 与模型故障传播、相对交付引用、Windows 核心与重建验收及 Linux x86_64 TextWorld 必需门禁与锁定 aarch64 安装限制 |
 | `docs/design/01-architecture.md` | 唯一共享规则归宿与生成依赖来源 |
 | `docs/design/02-exchange-engine.md` | 活动时长、预估和结算、社交分录共用规则 |
-| `docs/design/03-resource-engine.md` | 路径安全、公共曲线、效率与品类模型 |
+| `docs/design/03-resource-engine.md` | 路径安全、严格环境登记、固定身体常数与只读目录模型 |
 | `docs/design/04-simulation-engine.md` | AS2 补丁、WorldMock 记忆归属、模型客户端和活动家族 |
 | `docs/design/05-recording-engine.md` | 规范 JSON、原子写、整数区间、本地日与实际字节身份 |
 | `docs/design/06-delivery.md` | trace 摘要与固定 LabelKit 独立环境 |
@@ -241,8 +248,8 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | `docs/dev/SPEC-life-realism.md` | 记忆规则实现归 WorldMock；人物 Prompt 已并入的七层请求与 LifeAgent 续接职责保持，阈值与语义不改变 |
 | `docs/dev/SPEC-life-runtime.md` | 已并入时间与能量、一日运行保真及工具交互的现行正文：时长推导、预估结算、中文名称和纠正预算；固定源码来源与实际字节身份 |
 | `docs/dev/SPEC-layering-and-test-tiers.md` | 共享规则由实际职责对象直接消费；统一 full runner、实测文件权重调度、节点恰一次和同次收据核验 |
-| `docs/dev/SPEC-map-and-storefront.md` | 当前目录发布为 5.4，保留地图、场景及世界结构边界与历史发布版本 |
-| `docs/dev/SPEC-life-runtime.md`、`SPEC-category-contract.md`、`SPEC-labelkit-delivery.md` | 曲线、模型冻结、资源日志与制品安装来源 |
+| `docs/dev/SPEC-map-and-storefront.md` | 当前目录七份 JSON 与 RULES_VERSION 身份，地图消费者随阶段 2 切换；历史发布版本保留在记录 |
+| `docs/dev/SPEC-life-runtime.md`、`SPEC-resource-and-rule-simplification.md`、`SPEC-labelkit-delivery.md` | 固定规则、环境登记身份、模型冻结、资源日志与制品安装来源 |
 | `docs/ARCHITECTURE.md`、`docs/EXPERIMENT.md` | 共享规则职责、固定源码补丁、宿主记忆与最终运行身份 |
 | `README.md`、`docs/manual/runtime.md` | 替换安装步骤，记录 Python、Node、profile、离线和新机器检查 |
 | `docs/manual/README.md`、`personas.md`、`delivery.md`、`scenarios.md` | 入口说明激活后的命令环境，画像命令删除隐式 uv，LabelKit 使用独立已安装 CLI；场景手册区分历史与当前目录身份 |
@@ -272,3 +279,4 @@ CI 比较两系统代码摘要，不能只分别检查摘要格式。
 | 主分支分层整合 | 2026-10-05 | 按主分支现行文档归属整合共享规则，历史增量规格保持归档；统一测试入口、权重分片及同次收据精确核验，合并后证据独立登记 |
 | 门禁独立复核 | 2026-10-05 | 明确同次运行身份和覆盖摘要绑定、真实输入范围、阶段全部通过及选择/收集/完成多重集恰一次 |
 | `2026-10-06-windows-path-safety` | 2026-10-06 | 「安全文件」补 Windows 下的声明规则：无盘符的根路径算绝对路径，反斜杠与任一平台不能原样保存的名字一并拒绝，目录联接与符号链接同样拒绝；工作区快照与恢复的成员名使用同一声明规则；消费者补列工作材料、出行响应与文字游戏；文件头增本次修订行；版本表去掉隔开末两行的空行 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

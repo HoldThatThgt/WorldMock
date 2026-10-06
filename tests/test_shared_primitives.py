@@ -14,8 +14,8 @@ from types import SimpleNamespace
 import pytest
 from pydantic import Field, ValidationError
 
-from worldmock.base_models import CurvePoint, EfficiencyFactor, FrozenModel
-from worldmock.categories.common import CategoryError, DeepFrozenModel
+from worldmock.base_models import CurvePoint, DeepFrozenModel, EfficiencyFactor, FrozenModel
+from worldmock.categories.common import CategoryError
 from worldmock.categories.identity import _read_content_file
 from worldmock.corpora.manifest import _validate_entry, safe_file
 from worldmock.errors import IntegrityError, ProtocolError, reject_value
@@ -239,11 +239,12 @@ def test_atomic_publication_order_and_failed_replace_cleanup(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize('invalid', [True, False, float('nan'), float('inf'), -1])
-def test_curve_models_shared_by_life_and_catalog_reject_invalid_numbers(invalid):
-    from worldmock.catalog.models import CurvePoint as CatalogCurve
+def test_curve_models_shared_by_body_and_life_reject_invalid_numbers(invalid):
+    from worldmock.exchange.body import BODY_CONSTANTS
     from worldmock.life.models import CurvePoint as LifeCurve
-    assert CatalogCurve is LifeCurve is CurvePoint
-    for model in (CatalogCurve, LifeCurve):
+    assert LifeCurve is CurvePoint
+    assert all(isinstance(point, CurvePoint) for point in BODY_CONSTANTS.food_efficiency_curve)
+    for model in (CurvePoint, LifeCurve):
         for key in ('input_value', 'output_value'):
             with pytest.raises(ValidationError):
                 model(**{'input_value': 1, 'output_value': 1, key: invalid})

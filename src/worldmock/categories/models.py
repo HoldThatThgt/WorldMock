@@ -1,6 +1,7 @@
 """@brief 品类契约的原始文档模型与冻结解析视图。"""
 
 from __future__ import annotations
+from worldmock.base_models import DeepFrozenModel, require_finite_number
 from worldmock.categories.common import CategoryError
 
 from dataclasses import dataclass
@@ -11,11 +12,9 @@ from pydantic import Field, StrictBool, StrictInt, field_validator, model_valida
 from worldmock.categories.common import (
     Action,
     CategoryKind,
-    DeepFrozenModel,
     PairingState,
     ReviewRecord,
     SourceRecord,
-    require_finite_number,
 )
 
 

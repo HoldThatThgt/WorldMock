@@ -15,7 +15,7 @@ from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
 from worldmock.base_models import FrozenModel
-from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.exchange.types import START_ACTIVITY_ACTIONS
 
 #: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面「保护项修订」）：每份菜单必须保留，
 #: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。

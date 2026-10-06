@@ -7,7 +7,9 @@ from decimal import Decimal, MAX_EMAX, MIN_EMIN, ROUND_CEILING, ROUND_FLOOR, loc
 import math
 from typing import Any
 
-from worldmock.categories.common import CategoryError, require_finite_number
+from worldmock.categories.common import CategoryError
+from worldmock.base_models import require_finite_number
+from worldmock.exchange.operators import _multiply_exact
 from worldmock.categories.rules import InventoryTransformRule, TravelFareRule
 
 
@@ -128,11 +130,6 @@ def scale_inventory_recipe(
     )
 
 
-def _multiply_exact(values: tuple[Decimal, ...]) -> Decimal:
-    """@brief 按操作数的总有效位数精确相乘，并隔离调用方 Decimal 上下文。"""
-    precision = sum(len(value.as_tuple().digits) for value in values)
-    with localcontext(prec=precision, Emax=MAX_EMAX, Emin=MIN_EMIN, clamp=0):
-        return math.prod(values, start=Decimal(1))
 
 
 def _decimal_non_negative(value: Any, label: str) -> Decimal:

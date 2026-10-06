@@ -1,6 +1,8 @@
 <a name="readme-用户配置手册"></a>
 # 用户配置手册
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「文件放在哪里、按你想改变的事情选择入口」（阶段 1）。
+
 WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结果。
 以下命令在 WorldMock 根目录执行，WorldMock-Dataset 与它位于同一父目录；环境路径均显式传入。
 先按[运行配置](runtime.md#runtime-准备环境)建立并激活 WorldMock 环境；本手册的 `python` 和 `worldmock` 命令均在该环境中执行。
@@ -18,9 +20,9 @@ WorldMock-Dataset 提供具体世界，WorldMock 执行这个世界并记录结�
 | 你想改变什么 | 阅读页面 | 主要输入 |
 | --- | --- | --- |
 | 人物是谁、习惯和兴趣、作息（含下班与到家）、联系人、睡眠需要 | [人物画像](personas.md#personas-人物画像) | 场景的 `agents`，画像正文 |
-| 模拟日期、人数、余额、工作安排、任务、消息、账单、允许的行动 | [生活场景](scenarios.md#scenarios-生活场景) | `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/*.json` |
-| 地点、路线、门店、商品、内容、生活活动和语料 | [世界素材](resources.md#resources-定义地点门店供给与世界素材) | 地图输入、语料文件、目录构建输入 |
-| 品类、交换规则、身体参数、动机和画像映射 | [规则配置](rules.md#rules-调整世界规则与人物动机参数) | Dataset 环境的 `catalog/` 与场景人物参数；通用算法规则由引擎包维护 |
+| 模拟日期、人数、余额、工作安排、主题、消息、账单、允许的行动 | [生活场景](scenarios.md#scenarios-生活场景) | `experiments/my-world/scenarios/*.json` |
+| 地点、生成图、店铺、食品、内容、生活活动和语料 | [世界素材](resources.md#resources-定义地点门店供给与世界素材) | 七份目录 JSON、生活活动和联系人邮件语料 |
+| 人物动机、身体初值和画像映射 | [规则配置](rules.md#rules-调整世界规则与人物动机参数) | 场景人物参数与明确画像编译；固定规则与常数由引擎包维护 |
 | 模型凭据、新建运行、恢复和反事实条件 | [运行配置](runtime.md#runtime-运行配置) | 私密凭据、命令参数、干预 JSON |
 | 把足迹加工成训练数据与规则测试数据 | [数据生成](delivery.md#delivery-自定义训练数据交付) | `labelkit-projects/` |
 | 评估数据、统计设置、人工参照与盲评 | [真实性评估](evaluation.md#evaluation-自定义评估与盲评输入) | 评估配置、评审文件 |
@@ -124,24 +126,16 @@ worldmock run \
 <a name="readme-文件放在哪里"></a>
 ## 文件放在哪里
 
-保持一个环境内 `scenarios/`、`catalog/`、`corpora/` 并列；推荐保持下面的双仓布局：
+保持 `catalog/`、`corpora/`、`scenarios/` 在同一环境根内并列：
 
 ```text
-project/
-├── WorldMock/
-│   ├── src/worldmock/data/     # 引擎包的固定通用规则
-│   ├── labelkit-projects/      # 数据生成项目
-│   └── runs/                  # 程序生成的运行结果
-└── WorldMock-Dataset/
-    └── environment/zhangjiang-baseline/
-        ├── scenarios/         # 正式及自定义场景
-        ├── catalog/           # 具体环境的目录与系数
-        └── corpora/           # 语料、地图与来源快照
+experiments/my-world/
+├── catalog/       # 七份 JSON 与三份包规则副本
+├── corpora/       # 生活活动、联系人、邮件及清单
+└── scenarios/     # 结构 7，钉住环境标识与版本
 ```
 
-加载器在场景文件上两级的环境根目录下寻找 `catalog/`，所以不能把一个场景文件随意复制到其他目录后就期待原样运行。
-`corpus_root` 相对场景文件所在目录解析；地图、任务和内容文件继续相对语料根目录解析。
-命令的 `--output` 相对当前工作目录解析。
+具体正式环境和制作工具由 Dataset 维护，重制后的路径由其发布决定。WorldMock 提供固定规则和真实生成、检查命令；场景上两级解析环境目录，corpus_root 相对场景位置解析，输出相对当前工作目录解析。移动场景时复制完整环境并保留环境钉，不能依赖相邻仓库搜索。
 
 <a name="readme-修改配置前要知道的约定"></a>
 ## 修改配置前要知道的约定

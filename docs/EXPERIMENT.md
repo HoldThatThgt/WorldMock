@@ -1,12 +1,15 @@
 <a name="experiment-worldmock-实验设置"></a>
 # WorldMock 实验设置
 
+> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境发布与运行身份、经济参数、能量感知标签、身体初始值、效率曲线、需求状态、实验假设声明」（阶段 1）。
+
+
 > 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料、样本划分与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）。按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、13、25 行修订（一日运行保真 EXP1）：两个指纹再变、困意档界、娱乐与社交口径、名称类拒绝、轮转上界按分区，并登记该规格的实验假设；登记的实验假设与口径已随实现生效，两个指纹的变化（含工具层 `callable_index` 使 `prompt_sha256`、`start_activity` 的 `prefer` 与方式「购买」使 `tool_schema_sha256` 再变）已随实现落地。
 > 工具交互修订：按[工具交互规格](dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结目标实验身份；本次修订已实现，发布身份与行为、变异证据见[工具交互验收记录](archive/tool-interaction/tool-interaction-verification.md)。
 > 个人事务与工作安排修订：按[个人事务与工作安排规格](VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 1、5、7、11、14、15、16、17 行修订（个人事务与工作安排 EX2–EX18）：工作安排作为场景声明的事实、各阶段指纹与结构版本的目标身份、就寝反思的身份绑定、事务提醒进入决策边界、个人事务容量上限登记为实验假设。登记的实验假设、口径与各阶段的指纹、结构版本变化已随实现落地（证据见[个人事务与工作安排验收记录](archive/errands-workday/errands-workday-verification.md)）：阶段 1（运行修复入库，只改变 `code_sha256`）、阶段 2（个人事务与提示分工：世界结构 `9`、质量报告结构 `4`，两个指纹改变）、阶段 3（作息与工作安排：场景结构 `5`、卡片结构 `3`，`prompt_sha256` 与当时三份场景的 `scenario_sha256` 改变）与阶段 4（查询筛选与返回精简：只改变 `tool_schema_sha256` 与 `code_sha256`）。
 > 让「等待」成为例外修订：按[让「等待」成为例外规格](dev/SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「交互菜单与运行身份」「决策点节奏」（阶段 1）与「交互菜单与运行身份」（阶段 2、3）。
 > 同时做两件事修订：按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「交互菜单与运行身份」「地图与门店供给的实验身份」（阶段 2）；「交互菜单与运行身份」（阶段 3）。
-> 日期：2026-10-06
+> 日期：2026-10-07
 > 范围：单人物 84 天正式实验，上海张江白领，时区 Asia/Shanghai。
 > 接口签名、字段与目录结构见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`；行为规则见 `docs/dev/SPEC-*.md`；验收门禁见 `docs/VERIFICATION.md#verification-worldmock-验收标准`。
 
@@ -28,17 +31,9 @@
 <a name="experiment-环境发布与运行身份"></a>
 ### 环境发布与运行身份
 
-本页的输入路径以 WorldMock 为当前工作目录，WorldMock-Dataset 为同一父目录下的相邻仓库。
-具体环境由 Dataset 的 `environment/zhangjiang-baseline/` 发布；WorldMock 源码仓不预制正式环境，
-只保留人工最小测试环境。完整环境行为回归显式选择发布目录，正式数据来源、数量和重建验收在 Dataset 完成。
-
-当前场景结构为 `6`，内容 `title` 必填非空；生活活动的 `effects` 必须恰含 `entertainment`、`social`、`health`，
-均为有限数值 0–1。标题由场景直接呈现，活动效果从实际环境条目载入、启动时冻结到活动状态，推进与恢复只读冻结值。
-身体、交通、品类及具体商品系数仍由环境绑定；活动闭集、动机算法参数及人物映射的唯一来源是 WorldMock 包资源，
-环境冻结的通用规则副本必须与包逐字节一致。显式映射文件可供画像编译研究，不能替换运行规则。
-
-本次双仓整理的放行仍以[环境数据归属规格](dev/SPEC-environment-data-ownership.md)要求的实际收据为准，
-历史模型运行、导出与冻结输入不改写，也不因此成为当前代码的新运行证明。
+环境由 Dataset 发布，WorldMock 源码仓只保留重写的人工环境。正式来源、数量与重建验收在 Dataset 完成，完整回归显式传重制后的 `--environment-root`。
+运行身份为 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`；场景结构 7 使用环境标识和版本钉。目录只提供对象与绑定，系统分类、身体、出行与交换常数来自 `worldmock.exchange`。
+生活活动效果仍来自实际条目并在启动时冻结；标题与摘要来自 `contents.json`，真实与合成来源明确标记。包 TOML 副本逐字节一致；历史模型运行、导出和冻结输入不改写，不能作为当前代码的新运行证明。
 
 <a name="experiment-时间窗与日历情境"></a>
 ## 时间窗与日历情境
@@ -225,6 +220,8 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 
 初始睡眠压力的反推见 `docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动`「作息初值」：起点落在惯常睡眠时段内或接近它时，人物以困倦开始。
 
+体重、初始能量和睡眠债为场景初值；上限、基础耗能与身体演化常数来自 `worldmock.exchange.body.BODY_CONSTANTS`，来源为 `worldmock:<RULES_VERSION>`，环境不能覆盖。
+
 <a name="experiment-两过程睡眠"></a>
 ### 两过程睡眠
 
@@ -245,62 +242,46 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 
 | 曲线 | 输入 | 节点 | 插值 |
 | --- | --- | --- | --- |
-| 工作效率 | `sleep_deficit_hours` | (0, 1.0)、(8, 1.0)、(16, 0.85)、(24, 0.65) | 线性 |
 | 食品利用效率 | `sleep_deficit_hours` | (0, 0.90)、(8, 0.90)、(16, 0.85)、(24, 0.80) | 线性 |
-| 工作效率（能量） | `energy_kcal` | (0, 0.5)、(399.9, 0.5)、(400, 0.8)、(800, 1.0) | 线性 |
+
+食品利用效率与能量上限保留为 WorldMock 身体常数，来源 `worldmock:<RULES_VERSION>`。工作主题按真实秒数积累，相关运行消费者在阶段 5 切换，不把有效工时或计酬曲线作为新环境参数。
 
 <a name="experiment-需求状态"></a>
 ### 需求状态
 
 | 需求 | 范围 | 变化 |
 | --- | --- | --- |
-| 饥饿阈值 | - | 800 kcal 为饥饿，400 kcal 为紧急；低于 400 kcal 时至少「饿得难受」，不受昼夜项与餐时项影响；低于 100 kcal 为「饿得发慌」 |
+| 饥饿阈值 | - | WorldMock `BODY_CONSTANTS` 的 800 kcal 为饥饿、400 kcal 为紧急；低于 400 kcal 时至少「饿得难受」，不受昼夜项与餐时项影响；低于 100 kcal 为「饿得发慌」 |
 | 娱乐需要 | [0, 1] | 清醒每小时 +0.08，有缓解的活动进行时不累积；按有效偏好 `f + (1 − f)·w` 和实际接触时长减少，不喜欢的内容也有下限缓解（下限偏好 `f` 见「实验假设声明」） |
 | 社交需要 | [0, 1] | 清醒每小时 +0.04，清醒按本区间共同身体结算所用的活动集合判定（在边界结束的睡眠不计清醒）；交谈、通话与共同用餐按明确规则减少；睡眠中不读消息 |
 
 人物读到的是体感分级而非数值——分级只描述状态，不替人物挑动作；接触次数与效果一并写进足迹。增减规则与留痕口径见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「场景与身体规则」。
 
+本节身体常数来自 `worldmock.exchange.body`；app 按类型缓解在阶段 4 原位切换，当前不提前宣称新娱乐运行机制已经完成。
+
 <a name="experiment-能量感知标签"></a>
 ### 能量感知标签
 
-| 标签 | 取值 | 依据 |
-| --- | --- | --- |
-| 商品热量 | 食品每份热量按 5 进位取整到 10 千卡；不足 5 千卡写「几乎不含热量」 | 实验假设 |
-| 路线费力 | 按出行方式的 MET 分三档：< 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」 | 实验假设 |
+| 标签 | 取值与来源 |
+| --- | --- |
+| 食品热量 | 按 `FoodCategory` 每份固定：零食 200、饮品 100、正餐 600 千卡；`FOOD_CONSTANTS` |
+| 出行费力 | 按身体常数中的出行 MET 分档，保留既有体感呈现 |
 
-标签只给可读事实，不给身体数值；呈现规则见 `docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动`「商品热量与路线费力」。
+标签仅给可读事实，人物不读取身体准确数值。食品常数与实际摄入、身体利用效率分别留证，不用真实营养数据掩盖固定仿真假设。
 
 <a name="experiment-经济参数"></a>
 ### 经济参数
 
-| 账户 | 初始余额 | 币种 |
-| --- | --- | --- |
-| 人物 | 800000 | 分（CNY） |
-| 雇主 | 4000000 | 分（CNY） |
-| 商家 A | 10000000 | 分（CNY） |
-| 商家 B | 10000000 | 分（CNY） |
-| 交通服务 | 10000000 | 分（CNY） |
+| 量 | 当前仿真假设 |
+| --- | --- |
+| 人物与外部账户初值 | 场景显式声明，人物账户由 `initial_balance_fen` 建立 |
+| 食品价格 | `foods.json.price_fen` 正整数分，同食品全店同价 |
+| 驾车车费 | `max(500, ceil(Decimal("0.2") × 图距离米))` 分；步行 0 |
+| 配送费 | 500 分/单，货款与配送费同一笔付给 `merchant:<store_id>` |
+| 配送时间 | 备餐 600 秒加 `ceil(图距离米 / 5.0)` 秒 |
+| 出行时间 | 步行 1.2 米/秒，驾车 7.0 米/秒，向上取整 |
 
-工作合同（结算与计酬口径见 `docs/dev/SPEC-life-runtime.md#spec-life-runtime-特性规格lifeenv-运行时行为与结算规则`「资金与合同」）：
-
-- 主合同按工作包计酬，一个验收通过的包 60000 分。
-- 工作机会每个工作日发放一次，单个机会的上限是八小时。
-- 场景按人物声明的工作安排与机会发放相互独立：不参与任务开放时刻的编译，不改变开工、恢复、提交与迟交判定，不延长或缩短截止；班前到岗可以开工，班后可以继续做未到截止的任务；班次与任务工时的差距只由行为评估的工作负荷如实报告。
-- 补充场景的覆盖面要求：计时与计件两种合同类型、不同技能、内容独立验收，以及无资金、延期与返工三种边界。
-
-每项合同必须至少有一封关联通知；每封非空 `related_task_id` 邮件均引用存在任务，收件人为该任务受派人物。
-正式素材在通知前有效。输入 `appointment` 必填，普通工作为 null，
-真实预约为 `{starts_at, reason}`，两键必填，时刻带时区且原因非空。输入删除 `available_at`、`availability_kind`、`appointment_reason`。
-普通工作的内部 `RuntimeWorkTask.available_at` 从最早本人关联通知 `sent_at` 编译，到要求地点即可开始，不再等上班钟点；
-预约的内部开放时刻取 `starts_at`，最早关联通知不得晚于它；后续提醒可以在开始之后送达且不改变开放时刻。
-提前通知只使任务可知，真实约定时刻才开放。
-运行开始前已送达的通知与已开放事实在首次观察前一并初始化；合同截止必须晚于运行起点及开放时刻。
-该特性不添加前序任务依赖配置，也不把尚未准备好的材料伪装成预约等待。
-
-地图冻结路线实例的 `fare_fen` 与 `fare_source_kind=scenario`，场景选择引用后准入要求金额与
-`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json` 的 `travel_fare` 闭集算子求值一致。
-当前 driving 最低 500 分、每米 0.2 分；walking 费率为零。数值来源、系数与取整规则统一归
-[品类契约规格](dev/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)和[接口合同](CONTRACTS.md#contracts-品类契约与目录字段)。
+费用与速度常数归 `worldmock.exchange`，由 `RULES_VERSION = 1` 绑定。无工作包、计时或计件交换；工作主题进度与工资账单由所属行为阶段接入。数值是仿真假设，不能当作具体真实门店的报价事实。
 
 <a name="experiment-工作参数"></a>
 ### 工作参数
@@ -447,6 +428,18 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 - 个人事务的容量上限：每人未完成事务至多 8 条，一次请求至多 4 条变更，名称至多 30 字符，备注与取消原因各至多 120 字符，数量 1 至 9；
   待办层不浓缩，上限由校验执行，不静默截取、不自动合并（[个人事务与工作安排规格](dev/SPEC-as2-integration.md#errands-workday-运行修复入库) 2.1）。
 
+| 简化规格新增假设 | 当前值或生效边界 |
+| --- | --- |
+| 食品类别常数 | snack 200 千卡/300 秒，drink 100 千卡/180 秒，meal 600 千卡/1200 秒 |
+| 出行速度与车费 | 步行 1.2、驾车 7.0 米/秒；驾车至少 500 分、每米 0.2 分向上取整 |
+| 配送 | 5.0 米/秒、备餐 600 秒、500 分/单 |
+| 地图生成器 | 至少两节点，先树后补 ⌊(n−1)/2⌋ 边，边长 200–2000 米，规则版本 1 |
+| 推送窗口 | 值与实际推送证据在阶段 4 登记 |
+| app 使用时长 | 值与实际活动证据在阶段 4 登记 |
+| 按内容类型缓解 | 值与实际身体结算证据在阶段 4 登记 |
+
+这些数值以 `RULES_VERSION` 冻结，依据见[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-常数表)。
+
 <a name="experiment-验收范围与外部参照"></a>
 ## 验收范围与外部参照
 
@@ -495,3 +488,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md#contracts
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「交互菜单与运行身份」补一段：可供性占用声明重列为只有同一种动作互斥，`tool_schema_sha256` 绑定引擎包资源 `src/worldmock/data/affordances.toml` 的字节而与 `code_sha256` 一起改变，`prompt_sha256` 与各结构版本不变，此前的检查点与运行不能再恢复或重放；「地图与门店供给的实验身份」补一句：环境冻结的副本须与包资源逐字节一致，仍带旧占用名的已发布环境在加载时拒绝，须由 Dataset 按新占用名重新发布 |
 | `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3（系统层第 8 条）修订：「交互菜单与运行身份」写明系统层第 8 条原位改写（仍为 18 条）改变 `prompt_sha256`，工具面与各层 Schema 不变、`tool_schema_sha256` 不变，该改写实施前后的运行不可合并比较；文件头补该规格的修订说明 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

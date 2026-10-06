@@ -1,6 +1,9 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
+> 按[资源与规则引擎简化规格](docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「实验与数据、命令」（阶段 1）。
+
+
 WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，
 再交给 LabelKit 生产模型训练数据与规则引擎测试数据。
 WorldMock-Dataset 提供具体环境的数据与制作工具；WorldMock 提供引擎及安装包内的固定通用规则。
@@ -83,9 +86,9 @@ DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-正式环境位于 WorldMock-Dataset 的 `environment/zhangjiang-baseline/`，包含 `corpora/`、`catalog/` 和 `scenarios/`。
-从 WorldMock 根目录使用 `../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json`，
-该单人物实验覆盖上海时区的 2026-01-05 至 2026-03-30，共 84 天。场景结构为 `6`，内容标题与生活活动效果均由环境显式提供。
+正式环境由 WorldMock-Dataset 重制发布，路径由数据仓决定，`corpora/`、`catalog/`、`scenarios/` 并列。
+目录为七份 JSON 与三份包 TOML 副本，场景结构为 `7`，使用环境标识和版本钉。
+内容标题与摘要来自目录，生活活动效果来自语料；系统分类、身体和交换常数由 WorldMock 固定规则包提供。
 人物自行选择行动；日历控制可用机会，不能将规定动作序列冒充模型决策。
 
 运行输出位于 `runs/`。事件数据库与内容素材保留实际来源；模型调用、行为结果、共同检查点、
@@ -94,12 +97,15 @@ DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件
 <a name="readme-命令"></a>
 ## 命令
 
-以下命令在 WorldMock 根目录执行，两个仓库位于同一父目录：
+以下命令在 WorldMock 根目录执行，显式选择数据仓发布或人工编辑的环境根：
 
 ```sh
-worldmock validate --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json
+worldmock environment generate-map --locations experiments/published-environment/catalog/locations.json \
+  --seed 7 --output experiments/published-environment/catalog/map.json --check
+worldmock validate --environment experiments/published-environment
+worldmock validate --scenario experiments/published-environment/scenarios/single-person.json
 worldmock run \
-  --scenario ../WorldMock-Dataset/environment/zhangjiang-baseline/scenarios/single-person.json \
+  --scenario experiments/published-environment/scenarios/single-person.json \
   --output runs/white-collar
 worldmock status --run-dir runs/white-collar
 worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/final
@@ -113,7 +119,7 @@ worldmock deliver --export runs/white-collar/exports/final --output runs/white-c
 
 ```sh
 python scripts/run_tests.py --tier full --workers 4 \
-  --environment-root ../WorldMock-Dataset/environment/zhangjiang-baseline
+  --environment-root experiments/published-environment
 ```
 
 双仓归属、发布与验收要求见[环境数据归属规格](docs/dev/SPEC-environment-data-ownership.md)；
@@ -127,3 +133,5 @@ python scripts/run_tests.py --tier full --workers 4 \
 
 真实性评估分两阶段：`evaluate` 提供双方数据、配置和新目录以生成固定统计及盲评包；
 评审完成后，只传同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。不能把模型评审称为真人评审。
+
+环境检查已提供真实目录与全部场景加载，完整新格式 LifeEngine 运行在资源与规则引擎简化阶段 5 闭合；检查通过不替代运行、恢复、足迹与交付的实际证据。

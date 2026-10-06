@@ -1,6 +1,10 @@
 <a name="spec-life-runtime-特性规格lifeenv-运行时行为与结算规则"></a>
 # 特性规格：LifeEnv 运行时行为与结算规则
 
+> 引用出处：`src/worldmock/catalog/models.py::DrainRules` @ `bc42d02496fb13d4889363cfd10c3d223176454c`
+
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「来源与准入、身体参数与单位、场景与身体规则、饥饿在低能量时不失灵」（阶段 1）。
+
 > 状态：FROZEN——条款已裁决并冻结；按[时间与能量规格](../VERIFICATION.md#verification-incremental-evidence)修订 2–11 与修订 30 改写，
 > 受影响条款已在最终源码 `ef13dc5` 上重新验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）。「候选契约与呈现规则」章九行中八行已有代码层证据，
 > 审查基线的地点侧 `location_kinds` 输入缺口由地图特性完整处理，最终通过状态以新规格的生产入口证据为准。
@@ -14,7 +18,7 @@
 > 顺带更正 `report_status` 的 summary 去向、来源写法与可调用索引括注三处既有漂移；修订部分已实现并通过离线验收（证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「共享时钟」「决策节律：结算边界与唤醒条件分离」、「决策不耗时：时间只在做事时流动」的「规则」与「不变项」、「个人事务」的「提醒时刻」与「验收矩阵」（阶段 1），以及「个人事务」的「零点计划、修订与只读问答」（阶段 3）。
 > 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)修订「活动组合政策」、「决策不耗时：时间只在做事时流动」的「规则」与「实现约定」、「并行准入」、「三层结构」、「活动的生命周期」与「验收矩阵」（阶段 1）；「活动组合政策」的占用、「社交最小可行版」的通话占用、「并行准入」的占用与同时发生的组合（阶段 2）。
-> 日期：2026-10-06
+> 日期：2026-10-07
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
 
@@ -22,7 +26,7 @@
 
 类型、签名、枚举和结果字段见 `docs/CONTRACTS.md#contracts-worldmock-接口合同`。人物决策与画像条款见 `docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像`。
 品类继承、有向三态配对、闭集金额计算、使用完成时的库存转换与运行内容身份由
-[品类契约规格](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)统一定义；这些规则接入本规格已有的动作、活动与提交路径。
+[品类契约规格](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)统一定义；这些规则接入本规格已有的动作、活动与提交路径。
 
 当前环境归属按[环境数据归属规格](SPEC-environment-data-ownership.md)执行：具体 `corpora/`、`catalog/`、`scenarios/`
 及制作工具由 WorldMock-Dataset 维护，正式环境为 `environment/zhangjiang-baseline/`；通用活动、动机与人物映射
@@ -547,20 +551,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 <a name="spec-life-runtime-来源与准入"></a>
 ### 来源与准入
 
-| 内容 | 首选来源 | 进入环境的方式 | 缺口与限制 |
-| --- | --- | --- | --- |
-| 食品 | Open Food Facts 产品库 | 食品目录、营养、份量与可消耗商品 | 份量和每百克标注需统一；缺字段不能随意补成事实 |
-| 食价 | Open Prices | 带地点、日期、币种和单位的价格依据 | 不能直接当作当前中国外卖报价 |
-| 电视节目 | LongTVQA+、TVQA | 节目目录、剧情片段、字幕与可用媒体 | LongTVQA+ 的字幕片段标记不是逐句时间轴；需核对原字幕或媒体时长 |
-| 游戏目录 | Steam Games Dataset | 简介、类型、历史价格、选择依据 | 聚合游玩统计不能直接当作单次活动时长 |
-| 游戏反馈 | Microsoft TextWorld | 游戏实例、玩家动作、局面、进度和输赢 | 初版代表文字游戏；游戏回合到生活时间的映射需明确 |
-| 工作记录 | AMIsum、AMI-ME | 会议、议题、发言时间；整理纪要、提取待办等任务 | 需补充合同、截止时间和独立验收；不能代表全部职业 |
-| 邮件 | Enron 邮件集 | 收件箱、线程、日程与工作请求 | 人物和时间需一致改写；部分原始版本不含附件 |
-| 购物 | Amazon Reviews 2023 | 商品描述、属性、评论、历史价格与选择 | 库存、使用效果、配送和耐用性需场景规则；评论不是人物已发生的体验 |
-| 导航 | OpenStreetMap 与 OSRM；高德路径规划为备选来源 | 道路路径、距离、方式和预计耗时 | 静态速度不等于实时拥堵；道路不可达必须如实返回 |
-| 出行与生活校验 | GeoLife、ATUS | 出行形态和时间使用的外部参照 | 样本人群、地区和年代有限，不能直接推断目标人口行为 |
-
-内容取得不足、格式错误或哈希错误必须明确失败，不能更换来源、放宽必需字段或用模型补成来源事实。冻结清单的构成与运行前的核验门槛见 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「内容与语料绑定」；清单未通过全量核验时拒绝启动。
+具体世界的 app、作品和工作主题使用真实名称；内容摘要可以是真实或合成，分别记录 `summary_source{kind, url, notice}`。真实摘要必须有来源 URL，合成摘要标明合成；价格、时长、图长度与其他数值是声明的仿真假设，不能冒充外部服务事实。
+七份环境目录由清单绑定并经 `catalog.admission` 唯一登记。`corpora/manifest.json` 的哈希只绑定生活活动以及联系人、邮件语料；内容标题和摘要在 `contents.json`，不再靠字幕、音轨、游戏或工作材料作为登记输入。
+运行只读已校验环境，完整身体、出行、食品、app 与工作行为按资源与规则引擎简化规格各阶段闭合，历史执行证据不改写。
 
 <a name="spec-life-runtime-内容目录契约"></a>
 ### 内容目录契约
@@ -668,12 +661,14 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 <a name="spec-life-runtime-场景与身体规则"></a>
 ## 场景与身体规则
 
+场景结构 7 的身体输入只保留初值；身体演化读取 `worldmock.exchange.body.BODY_CONSTANTS`，结算来源 `worldmock:<RULES_VERSION>`。食品效率和能量上限保留，环境目录不提供资源定义或身体系数。
+
 <a name="spec-life-runtime-身体参数与单位"></a>
 ### 身体参数与单位
 
 场景校验强制每项身体与活动参数带单位、来源类型与取值区间；初始取值按实验假设处理，此后只随时间与动作规则变化。不能把「为了更像人」的运行后指标反馈成秘密行动脚本。
 
-**正式身体参数**：
+**WorldMock 固定身体参数**（`worldmock.exchange.body.BODY_CONSTANTS`，`source_kind = worldmock:<RULES_VERSION>`）：
 - 体重 65 kg
 - 初始能量 1600 kcal、上限 2400 kcal
 - 初始睡眠不足零小时
@@ -706,6 +701,8 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 重复接触的次数与效果都落在数字足迹里
 
 **所有系数作为实验假设记录；真实人类生理有效性不是既得结论。**
+
+身体演化常数的唯一来源是 WorldMock 包，环境不能用资源目录覆盖。场景只给体重、初始能量、睡眠债与娱乐需要。食品每份热量和完整时长由 `FoodCategory` 常数求值，800/400 千卡阈值是 WorldMock 常数。
 
 <a name="spec-life-runtime-活动组合政策"></a>
 ### 活动组合政策
@@ -783,7 +780,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 ### 资金与合同
 
 币种、账户初始余额、合同实例金额与工作机会时长、交通服务账户和路线实例由 `docs/EXPERIMENT.md#experiment-worldmock-实验设置`「场景参数」章说明。
-品类费率、计酬槽位与算法统一由 环境 `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json` 的闭集规则定义，行为归[品类契约规格](SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
+品类费率、计酬槽位与算法统一由 环境 `../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json` 的闭集规则定义，行为归[品类契约规格](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
 本节判定资金结算行为：
 
 - 计时与计件两类合同都按实际合格产出结算，交付通过验收是付款条件
@@ -1356,6 +1353,8 @@ AS2 调度已支持同刻多轮：`society.step` 在有人就绪时执行决策�
 - 能量同时压低工作效率；这一事实只写进系统层规则（人物 Prompt 规格第一章「系统层」），不给数值。
 - `body_observation`（`src/worldmock/life/body.py`）与只为它存在的 `body.felt_levels`、`body.felt_values`都没有生产调用方，一并删除；同时删除 `ScenarioSemantics.alert_codes`。目录 `alert_rules`
   仍是 800、400 的来源。`scripts/inspect_run.py` 改读 `body.values` 与 `body.levels`。
+
+本节 800/400 千卡阈值由 `worldmock.exchange.body.BODY_CONSTANTS` 唯一定义，来源为 `worldmock:<RULES_VERSION>`；场景与环境目录不能另设阈值。
 
 <a name="time-and-energy-能量感知-商品热量与路线费力"></a>
 ### 商品热量与路线费力
@@ -2718,3 +2717,4 @@ stateDiagram-v2
 | `2026-10-05-idle-fillers-b` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 3 修订「个人事务」的「零点计划、修订与只读问答」：零点计划不照抄日常作息和事务，天天如此的事（睡觉、起床、上下班、吃饭、休息、每天的消遣）不写成目标，只写今天不同的安排、要办的事与要按时起床或出门的提醒（模板第三条），可以为打算执行的事务写一条今天的目标；模板仍不进提示指纹、由代码身份绑定；文件头修订说明补本阶段 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）改写：「活动组合政策」「并行准入」「三层结构」「活动的生命周期」的名额口径为进行中与待收尾的活动各占一个，暂停的不占、个数不设上限，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额；「并行准入」删去两个名额都被暂停活动占满时出行一支，写明名额超限的两种原因与按被点名活动能否暂停分三种写法的下一步、恢复的检查次序（开始地点、工作截止与合同、空名额、占用冲突）与一个请求恢复两项时逐项检查，只有暂停的活动时可以出发、它们留在原地；生命周期状态图的恢复边补「在开始地点且有空名额」，「两项都暂停时」一段改为「只有暂停的活动时」；「决策不耗时」规则 3 的阶梯写成有待收尾时只收尾、没有进行中也没有待收尾时开始或恢复，不按名额分流，「实现约定」写明 `resume_or_conclude` 与 `conclude_only` 留在闭集中、现行阶梯不再进入，世界结构仍为 9；「验收矩阵」同刻决策一行随之改写；只变 `code_sha256`；文件头补修订说明、日期改为 2026-10-06 |
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「活动组合政策」与「并行准入」的占用重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥，睡眠与一切互斥，驾车只能再听播客或和人说话，`screen` 只用来让驾车拒绝播客以外的内容；旧的 `idle`、`eyes`、`ears`、`hands`、`voice` 与此前退役的名字一样在解析时拒绝；「社交最小可行版」的通话与交谈同占 `talk`；同时发生的组合表里观看与游戏、读信、浏览、交谈、通话、生活活动，食用与生活活动、读信、浏览，读信、浏览与游戏两两之间，等待与工作、步行改为受理，同种的两件仍以 `RESOURCE_CONFLICT` 拒绝，步行与办公室工作仍按目标在场拒绝 |
+| `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |

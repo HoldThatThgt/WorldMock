@@ -1,26 +1,22 @@
 <a name="rules-调整世界规则与人物动机参数"></a>
 # 调整世界规则与人物动机参数
 
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「品类契约、交换规则、供给与制作边界、检查与发布品类修改、出行时长、食品来源映射说明、配置入口与生效范围、身体规则、在独立目录中调参并验证」（阶段 1）。
+
 > 更新日期：2026-10-06。[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)中的构建价格范围、完整类别供给、
 > 正式食材配方和发布身份已实现；当前场景结构 6、品类契约与规则绑定 3，目录身份以 Dataset 环境清单为准；下班与到家锚点、卡片结构 3 见[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)，画像映射表不变。
 > 2026-10-06：按[同时做两件事规格](../dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)同步「活动声明」的占用名（阶段 2）；仍带旧占用名副本的外部环境在装配时被拒绝，要由 WorldMock-Dataset 按新占用名重新发布。
 
-要改变人物的初始状态，先改[场景](scenarios.md#scenarios-生活场景)；要改变“商品怎样起效、行为怎样耗能、出行怎样计时”，
-再修改这里的规则。规则在加载时冻结，修改文件不会改变已经运行的世界。
-本页命令都在 WorldMock 根目录执行，输入显式位于 `../WorldMock-Dataset/environment/zhangjiang-baseline/`。
-具体环境的身体、交通、品类和商品数据由 Dataset 维护；固定活动闭集、动机算法参数及人物映射由 WorldMock 包维护。
+人物初值、节律与动机在[场景](scenarios.md#scenarios-生活场景)调整；对象和绑定在[环境目录](resources.md#resources-定义地点门店供给与世界素材)调整。
+分类、身体、食品、出行与交换常数由 WorldMock 包固定，研究规则变化需修改其唯一定义并发布规则版本。
+本页命令使用显式相对环境根，修改只影响新的运行输入。
 
 ```mermaid
 flowchart LR
-    C[品类契约] --> O[解析商品继承属性]
-    X[闭集交换规则] --> O
-    O --> E[购买、使用、合同与出行结算]
-    A[活动声明] --> B[活动受理、资源占用与身体结算]
-    R[资源定义] --> B
-    T[出行时长表] --> E
-    M[通用动机变换] --> I[内部动机评分]
-    P[人物 motivation] --> I
-    Q[人物映射表] --> K[画像编译结果]
+    W[WorldMock 固定类型与常数] --> R[按版本发布系统规则]
+    S[场景动机、初值与人物映射] --> V[校验新环境与场景]
+    R --> V
+    V --> E[新的真实运行]
 ```
 
 <a name="rules-共享规则与可重建环境修订"></a>
@@ -33,202 +29,33 @@ flowchart LR
 <a name="rules-配置入口与生效范围"></a>
 ## 配置入口与生效范围
 
-| 文件或字段 | 可调整内容 | 实际加载方式 |
+| 入口 | 可调整的内容 | 生效边界 |
 | --- | --- | --- |
-| `catalog/category-contract.json` | 品类继承、槽位约束、共享值、品类配对 | 随场景所用目录加载，版本与规则绑定 |
-| `catalog/exchange-rules.json` | 已实现算子的字段与系数所引用的规则 | 随目录加载；不支持表达式或自定义算子代码 |
-| 引擎包 `worldmock.data/affordances.toml` | 固定活动闭集、占用资源、候选生成声明 | 通过包资源读取；环境目录的同名副本只绑定冻结身份，字节必须一致 |
-| `catalog/rules/travel-time.toml` | 驾车各小时的时长倍数 | 先被目录读取为不可变字节，再由运行场景解析 |
-| 引擎包 `worldmock.data/motivation.toml` | 跨人物的评分变换、归一化与习惯参数 | 环境的 `catalog/rules/motivation.toml` 是包资源冻结副本，加载须逐字节一致 |
-| `agents[].motivation` | 单个人物的内部评分参数 | 从场景加载，当前结构版本为 `1` |
-| 引擎包 `worldmock.data/persona-mapping.toml` | 画像编译中的大五映射和缺省时间锚点 | 编译默认读取包资源；显式文件只供明确传参的编译，运行冻结副本须与包一致 |
-| `catalog/rules/off-foods.mapping.toml` | 已冻结食品来源的映射说明 | 纳入目录内容身份；当前没有执行该 TOML 的导入器 |
-| `catalog/resources.jsonl` 与合同品类属性 | 身体耗能、睡眠债、娱乐需要、效率曲线 | 目录生成结果；具体来源见[身体规则](rules.md#rules-身体规则) |
+| 场景 `agents[].motivation` | 单个人物的动机参数 | 新运行加载时冻结 |
+| 人物映射文件 | 显式画像编译所用映射 | 只影响该次明确传参的编译；运行规则副本仍等于包资源 |
+| 场景参数 | 身体初值、节律、工作安排、菜单、初始食品持有 | 严格场景结构 7；不能改引擎闭集或常数 |
 
-场景默认目录位置是“场景文件上两级目录下的 `catalog/`”。`catalog_version` 仅检查版本，不能选择路径。
-目录清单会绑定规则文件的原始字节；改注释也需要刷新身份。通用规则副本若与包不一致，即使目录摘要已刷新也会拒绝场景装配。
-新建一个 TOML 文件、添加一个算子名或活动类型，不会自动新增引擎能力。
+分类、身体演化、食品热量、速度、车费、配送和地图生成常数归 `worldmock.exchange`，由 `RULES_VERSION` 绑定。包内 `affordances.toml`、`motivation.toml`、`persona-mapping.toml` 是唯一通用规则来源；环境副本只用于冻结身份，字节不符即拒绝。规则维护需修改 WorldMock 的定义和测试并升 `RULES_VERSION`，不通过环境 JSON 注册公式。
 
 <a name="rules-品类契约"></a>
 ## 品类契约
 
-先考虑把商品挂在已有品类下。只有现有品类确实无法表达共同属性或配对时，才新增品类。
-完整文件从当前品类契约（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/category-contract.json`）复制；不要从一个局部片段覆盖整个文件。
 
-| 字段 | 必填与约束 | 用户应如何使用 |
-| --- | --- | --- |
-| `format_version` | 必填，当前为 `1` | 格式协议版本，不用来表示实验修订 |
-| `contract_version` | 必填正整数 | 发布新的品类契约时递增；交换规则必须绑定同一版本 |
-| `categories` | 必填非空列表 | 每个节点有唯一 `category_id`、`name`，可指定一个 `parent_id` |
-| `kind` | 根节点要建立可解析的类型 | 只支持 `entity`、`person`、`product`、`service`、`contract`；子类不能改变祖先类型 |
-| `slots` | 属性槽定义 | 每槽有 `schema`、可选 `required` 和 `unit`；继承后的约束共同生效 |
-| `values` | 可省略以继承 | `absolute` 直接赋值，`relative` 加数值，`proportional` 乘数值；同一层同一槽只能选一种 |
-| `pairings` | 有向动作配对列表 | 明确人物品类对目标品类执行某个动作的规则或无效果证据 |
-| `sources`、`review` | 必填 | 记录数值来源和实际审核证据；不要填写未发生的审核 |
-
-以下是一个 `categories[]` 中的**完整节点**，演示当前乳品类别如何进一步限制食品热量密度：
-
-```json
-{
-  "category_id": "food-dairy",
-  "name": "Dairy",
-  "parent_id": "food",
-  "kind": "product",
-  "slots": {
-    "energy_density_kcal_per_100": {
-      "schema": {"type": "number", "minimum": 30, "maximum": 120},
-      "required": true,
-      "unit": "kcal/100g-or-100ml"
-    }
-  },
-  "values": {"absolute": {}, "relative": {}, "proportional": {}}
-}
-```
-
-它已存在于正式契约，不要再追加同名节点。修改约束会影响所有后代商品，
-不能只检查某一个新商品是否能解析。数值限制同样需要在顶层 `sources` 中有准确覆盖。
-
-配对动作是闭集：`purchase`、`consume:eat`、`consume:use`、`work:settle`、`travel:walking`、`travel:driving`。
-把手边物品交给别人（给予）沿用内部动作 `consume`，只转移持有、不增加任何人的摄入，不新增配对动作，这个闭集不变。
-下面是一条完整配对：
-
-```json
-{
-  "actor_category_id": "person",
-  "target_category_id": "food",
-  "action": "consume:eat",
-  "state": "defined",
-  "rule_id": "consume-food",
-  "coefficient": 1
-}
-```
-
-| 配对状态 | 应当表达什么 | 字段要求 |
-| --- | --- | --- |
-| `defined` | 已定义效果 | 必须有已有 `rule_id` 和显式非负有限 `coefficient`，包括有意设为零的情况 |
-| `no_effect` | 经审核确认没有效果 | 不得有规则或系数，必须有 `review` |
-| `undefined` | 尚未定义 | 不得有规则或系数；不能把它当作自动无效果 |
-
-`review` 要求 `reviewer`、`reviewer_type`、`evidence`、`reason`、`authorization`；
-审核者类型只接受 `human` 或 `delegated_agent`。
-来源记录要求 `source_id`、`type`、`producer`、`source`、`paths`，可附 `artifact`、`method`、`note`。
-`type` 为 `fact`、`anchored`、`assumption`、`scenario`；`producer` 为 `human`、`data_source`、`model`。
-数值使用绝对 JSON Pointer 标明来源范围，必须恰好覆盖一次。模型产出不能直接标成 `fact`。
 
 <a name="rules-交换规则"></a>
 ## 交换规则
 
-`exchange-rules.json`（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/exchange-rules.json`） 顶层要求
-`format_version: 1`、`contract_version`、`rules`、`sources`、`review`。
-每条规则共有 `rule_id`、`category_id`、`action`、`resource_id`、`unit`、`conservation`、`operator`。
-规则的目标品类和动作必须与引用它的配对一致。
 
-| 已实现算子 | 额外字段 | 应用与单位 |
-| --- | --- | --- |
-| `purchase_transfer` | `from_role`、`to_role` | 买方到商家转账；货币资源为 `money_fen`、单位 `fen`、封闭守恒 |
-| `food_energy_source` | `energy_slot`、`duration_slot` | 从商品槽取每份热量与使用时长；`energy_kcal`、`kcal`、开放资源 |
-| `durable_use` | 可选 `effect_slot` | 使用耐用品；库存资源单位 `item` |
-| `travel_fare` | `minimum_fen`、`fen_per_meter` | 最低车费（非负整数分）、每米费率（非负有限数值） |
-| `work_hourly` | `rate_slot`、`maximum_duration_slot` | 按小时费率和实际工作秒数结算，上限由合同绑定 |
-| `work_piece` | `rate_slot` | 按验收件数结算 |
-| `work_package` | `amount_slot` | 验收通过后支付总包金额 |
-| `inventory_transform` | `input_category_id`、`output_category_id`、正数 `input_quantity/output_quantity`、`inventory_unit` | 库存转换；封闭资源要求输入输出数量相同；场景需显式输出对象绑定 |
-
-以下是**一条完整现有购买规则**：
-
-```json
-{
-  "rule_id": "purchase-product",
-  "category_id": "product",
-  "action": "purchase",
-  "resource_id": "money_fen",
-  "unit": "fen",
-  "conservation": "closed",
-  "operator": "purchase_transfer",
-  "from_role": "buyer",
-  "to_role": "merchant"
-}
-```
-
-实际购买价格取[门店供给](resources.md#resources-编写门店供给与商品)，再乘购买数量与品类配对系数，最终向上取整为分。
-调整某家店的价格应改供给；调整同一类商品的统一交换系数才改配对。
-现行格式的 `purchase_price_fen_min/purchase_price_fen_max` 只是对象构建边界，不是交易用的 `price_slot`。
-两端通过现有品类槽位和对象差异解析，同币种正整数分、最小值不大于最大值，两端相等合法，每个数值须有来源。
-离线构建对 `[random_seed, location_id, object_id]` 使用
-`json.dumps(..., ensure_ascii=False, separators=(',', ':'))` 后编码为 UTF-8，取 SHA-256 摘要的无符号大端整数 `h`，
-逐店price_position_percent为有来源的整数5至95，固定 `jitter = h % 11 - 5`，
-以 `min + ((max - min) * (price_position_percent + jitter) + 50) // 100` 生成一次独立报价，观察和交换求值不抽价。
-不为每商品独立抽整个范围，不新增扰动配置；本正式地图中的门店按同一地区比较，
-所有便利店定位至少高于地图内普通超市10个百分点，不新增地区字段，
-同商品报价不得更低，整数舍入同价合法，这是有来源的场景假设。
-全部冻结报价及未来调价都须在范围内；订单仍保存实际成交价，不因之后调价重算已付款。
-规则只接受这些算子，不能写 `expression`、Python 表达式或嵌套公式。
 
 <a name="rules-供给与制作边界"></a>
 ### 供给与制作边界
 
-完整供给分类文件为 `corpora/zhangjiang-map/category-assignment.json`，按现有地点kind和品类树定义完整准入池；
-同一文件恰含必填 `kinds/locations/source`，全部地图kind包括不售卖地点的空数组均显式声明；
-逐店恰含必填 `location_id/category_ids/object_ids/price_position_percent/source`，顶层与逐店来源沿用完整 `DataSource`。
-实际供给为逐店类别及全部后代对象与显式对象并集，全体仍须在kind准入池内，重合不重复，缺逐店声明拒绝。
-准入池不是每店菜单，不全量复制到所有门店；包装食品店选择适用食品子类，不自动售卖所有餐馆正餐。
-分类声明是固定数据，不是运行配置层，禁止遗漏时默认补齐、随机只抽几件或跨类别供应一切商品。
-地图结构升为 3，必填 `random_seed/category_assignment_sha256`；地图和场景种子必须相等，
-白领与多人场景分别发布并钉定各自种子的供给，语料清单共同钉定分类文件。
-真实卖方、库存、资格和履约仍显式声明；对象不携带门店实际报价或供给库存。
-正式场景 `products/supplies` 显式包含选中门店全部声明商品及生成供给，加载和正式验收核对实际集合，
-缺项拒绝，不自动选择或补齐旧稀疏列表。
-正式场景还须满足[丰富度和餐馆菜单差异验收](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-按地点类别生成完整供给)，
-素材不足或未知拒绝发布，不随机补齐；菜单所需子类或明确对象必须有来源，不从店名猜菜系。
 
-正式做饭复用已存在的 `inventory_transform`，一份食材包作为单输入对象转换为一个已发布正餐对象，
-`recipe_output_bindings` 明确绑定输出对象，双方 `inventory_unit=item`，库存资源仍为 `inventory/item`，不新增多材料算子。
-制作完成才扣输入并入库输出，之后食用才产生食品能量；暂停、取消或提前结束不制造半件产物。
-原料 `ingredient` 是此次新增的真实品类分支，必须有来源、对象和规则；无产出做饭活动直接删除重复绑定。
-工具交互首次发布采用目录 5.0、品类与规则绑定 3、场景 4、地图 3（当时世界状态为 8），正式目录的当前身份以 Dataset 清单为准；旧输入直接拒绝，不提供迁移或兼容。
-这些正式数据与生成行为已实现，没有为它们增加 `category check/refine/publish` 的参数或运行开关。
 
 <a name="rules-检查与发布品类修改"></a>
 ### 检查与发布品类修改
 
-现有目录可直接离线检查：
 
-```bash
-worldmock category check --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog
-```
-
-查询某组配对时，先保存以下**完整文件**为 `experiments/worldmock-pairings.json`：
-
-```json
-[
-  {"actor_category_id": "person", "target_category_id": "food-dairy", "action": "consume:eat"}
-]
-```
-
-```bash
-worldmock category check --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog --queries experiments/worldmock-pairings.json
-```
-
-检查报告可以包含 `undefined`；它本身不代表场景准入已通过。
-更改品类归属时，现有 `category refine` 可比较候选目录，`category publish` 在新目录中校验后原子发布：
-
-```bash
-worldmock category refine \
-  --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog --candidate ../WorldMock-Dataset/environment/candidate/catalog \
-  --parent-category food
-
-worldmock category publish \
-  --catalog ../WorldMock-Dataset/environment/zhangjiang-baseline/catalog --candidate ../WorldMock-Dataset/environment/candidate/catalog \
-  --output ../WorldMock-Dataset/environment/my-world/catalog \
-  --assignments experiments/worldmock-assignments.json \
-  --scenario ../WorldMock-Dataset/environment/my-world/scenarios/my-life.json
-```
-
-这些命令需要先准备完整候选目录和场景，不是空目录初始化命令。
-`assignments` 是明确确认的 `{"对象身份": "目标品类身份"}` 映射，无归属变化时为 `{}`。
-候选的契约版本和目录版本都必须递增，规则版本同步；所有目标场景应钉定候选目录版本。
-同一对象改挂品类要追加下一对象版本，不能跳过确认。可重复 `--scenario` 检查多个场景；输出目录必须不存在。
-发布不会改写原目录，也不会自动让运行命令找到 `../WorldMock-Dataset/environment/my-world/catalog`，还需按场景目录布局放置。
 
 <a name="rules-活动声明"></a>
 ## 活动声明
@@ -268,24 +95,7 @@ WorldMock 发布活动声明变更时，需要检查环境资源中的 MET/娱�
 <a name="rules-出行时长"></a>
 ## 出行时长
 
-`travel-time.toml` 顶层必须恰好有 `version: 1`、`factors`、`provenance`。
-`factors` 必须完整保留 `walking` 与 `driving_00` 至 `driving_23`；所有值是 1–5 的有限数值，`walking` 固定为 `1.0`。
 
-以下是 `[factors]` 中的**局部片段**，表示上午八点出发的驾车时长为基础路线时长的 1.85 倍：
-
-```toml
-driving_08 = 1.85
-```
-
-按场景时区取**出发小时**，计划秒数向上取整。这张表当前对所有日期使用同一小时表，
-文件名或来源中的“工作日”不代表已有周末分支。改表不会改车费，车费属于交换规则。
-
-`provenance.factors` 必须有 `type`、`producer`、`source`、`artifact`、`method`、`paths`，
-且 `paths` 恰好为 `["/factors"]`。如果修改了系数，来源说明也要对应新的依据。
-当前交通锚点和生成方法见交通快照说明（`../WorldMock-Dataset/environment/zhangjiang-baseline/catalog/snapshots/traffic/README.md`）。
-
-交通锚点校准和输出复核在 Dataset 的制作工具中执行，操作见数据仓说明。
-自定义实验表若有意偏离锚点，不能再声称它是原校准产物。
 
 <a name="rules-动机评分"></a>
 ## 动机评分
@@ -420,92 +230,22 @@ bedtime = "23:00-24:00"
 <a name="rules-食品来源映射说明"></a>
 ## 食品来源映射说明
 
-`off-foods.mapping.toml` 当前是对已冻结 Open Food Facts 白名单结果的来源说明。
-目录身份会计入它，构建脚本会检查它存在，但并不执行文件里的字段映射或表达式。
-因此修改它不会自动抓取食品、增加商品、换算热量或更新份量。
 
-实际正式目录由 Dataset 的构建工具读取冻结食品语料、白名单和品类映射生成。
-食品定制入口及商品原始模型见[资源与素材](resources.md#resources-新增商品对象)。
-文件里保留的旧映射措辞不代表当前支持对象 `edges`、动态公式或缺失营养数据时的自动推断。
 
 <a name="rules-身体规则"></a>
 ## 身体规则
 
-当前没有独立的 `body-rules.toml` 或统一“身体配置文件”。它们分布在以下已实际加载的位置：
-
-| 想改变的身体因素 | 权威位置 | 单位或约束 |
-| --- | --- | --- |
-| 体重、初始能量、初始睡眠债 | 场景 `body` | 千克、千卡、小时；见场景手册的初值限制 |
-| 最大能量、饥饿与紧急阈值 | `resources.jsonl` 的 `energy_kcal.bounds/alert_rules` | 千卡；100 < 紧急阈值 < 饥饿阈值 ≤ 上限（100 为代码常量 `APPETITE_STARVING_KCAL`，不满足时加载拒绝）；紧急阈值同时是饥饿「至少饿得难受」的下限，能量低于 100 千卡时显示「饿得发慌」 |
-| 基础代谢、活动 MET | 能量资源的 `drain_rules` | 千卡/小时、活动强度；参与实际耗能；出行方式的 MET（`travel:<方式>`）决定路线标签：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」 |
-| 睡眠需要与昼夜节律 | 人物 `sleep_need_hours`、`chronotype_midsleep` | 当前两过程睡眠算法消费这些人物参数；起点困意由这两项按惯常起床时刻反推，见[人物画像](personas.md#personas-在场景中填写人物) |
-| 目录中的睡眠变化率 | `sleep_debt_hours.drain_rules` | 仍要求正数并装配，但 `awake_sleep_debt_per_hour`、`sleep_recovery_per_hour` 不能覆盖当前睡眠算法 |
-| 目录中的 `food_efficiency_curve` | 能量资源的 `drain_rules` | 仍要求合法曲线并装配，但实际食品利用率由睡眠模型计算，不读取这张目录曲线 |
-| 娱乐需要增长、活动缓解率 | `entertainment_need.drain_rules` | 0–1 的每小时变化率；缓解键与活动声明匹配；有缓解的活动进行时娱乐需要只按缓解下降，不再按清醒速率增长 |
-| 口味不合时的缓解下限 | 场景 `body.entertainment_relief_preference_floor` | 下限偏好 `f`，开区间 (0, 1)，缺省 `0.5`；观看与游戏的实际缓解为缓解速率 × (`f + (1 − f)·w`)，`w` 是口味权重，候选排序仍用 `w`；实验假设，见[实验假设声明](../EXPERIMENT.md#experiment-实验假设声明)；目录不含此键，改它不涉及目录版本 |
-| 工作效率因子、笔记倍率 | 合同品类解析后的属性 | 所有合同模板需一致；曲线必须能合法插值 |
-
-身体参数与生活活动 MET 的数据输入由 Dataset 维护，构建器发布对应资源目录；
-引擎加载所选环境的身体系数，同时要求活动 MET 键与该环境活动条目一致。
-工作效率则由合同品类属性解析。把运行期 `BodyConfig` 的完整字段直接塞进场景 `body` 会因未知字段被拒绝。
-
-当前[睡眠模型](../../src/worldmock/life/sleep.py)冻结了两过程时间常数、睡眠不足账的增长与恢复算法、
-食品利用率曲线和困意分级；这些没有文件配置入口。实际睡眠不足账名为 `sleep_deficit_hours`，
-场景输入和目录部分字段仍使用 `sleep_debt_hours` 字样，不表示存在两份可以分别调节的睡眠状态。
-工作效率曲线的睡眠输入最终读取这份睡眠不足账；食品利用率则直接调用睡眠模型。
-困意分级的下界是「有点乏」0.80、「困」0.93、「很困」1.07、「撑不住」1.18（困意 1 即模型自身的入睡条件），
-按 KSS（卡罗林斯卡困倦量表）等价刻度标定，属实验假设，见[实验假设声明](../EXPERIMENT.md#experiment-实验假设声明)。
+身体演化读取 `worldmock.exchange.body.BODY_CONSTANTS`，`source_kind = worldmock:<RULES_VERSION>`。能量上限 2400 千卡，基础消耗 65 千卡/小时，饥饿和紧急阈值 800/400 千卡；食品利用效率曲线仍按睡眠不足求值。场景只提供体重、初始能量、初始睡眠债与初始娱乐需要。
+食品每份固定热量与完整时长：零食 200 千卡/300 秒、饮品 100 千卡/180 秒、正餐 600 千卡/1200 秒。食用实际份量与共同身体结算分别留证；初值和常数不是人物能读取的准确身体数值，人物仍只接收体感分级。
 
 <a name="rules-在独立目录中调参并验证"></a>
 ## 在独立目录中调参并验证
 
-下面是完整离线示例：复制 Dataset 的完整环境，在新场景里改人物初始能量，再经真实加载器校验。
-它保留包资源的通用规则副本，不调用模型，也不启动模拟；目标目录须不存在。
+复制完整环境到 `experiments/my-world/`，调整场景初值、人物动机或明确的画像映射参数，更新场景的环境钉。环境对象或绑定发生变化时先刷新目录身份，再执行：
 
 ```bash
-python - <<'PYCODE'
-import json
-import shutil
-from pathlib import Path
-from worldmock.life.world_setup import load_runtime_scenario
-
-source = Path("../WorldMock-Dataset/environment/zhangjiang-baseline")
-root = Path("../WorldMock-Dataset/environment/rules-demo")
-shutil.copytree(source, root)
-scenario_path = root / "scenarios/single-person.json"
-scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
-scenario["scenario_id"] = "rules-demo"
-scenario["body"]["initial_energy_kcal"] = 1400
-scenario_path.write_text(json.dumps(scenario, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-semantics, _ = load_runtime_scenario(scenario_path)
-assert semantics.scenario.body.initial_energy_kcal == 1400
-print("Custom environment body parameters are valid")
-PYCODE
+worldmock validate --environment experiments/my-world
+worldmock validate --scenario experiments/my-world/scenarios/single-person.json
 ```
 
-这个初值是实验假设，正式实验须登记取值理由。场景初值改变不涉及目录发布；身体规则、品类、商品或交通系数
-改变则需在 Dataset 发布新的目录身份。`refresh_manifest_identity` 只重新计算摘要，不证明数据正确；
-发布仍须通过实际加载及相应行为验收。只读检查这份环境目录：
-
-```bash
-worldmock category check --catalog ../WorldMock-Dataset/environment/rules-demo/catalog
-```
-
-正式运行前继续执行[资源文件校验](resources.md#resources-验证修改)和完整项目校验；
-`worldmock validate` 在有背景故事时会调用模型，详见[运行配置](runtime.md#runtime-运行配置)。
-
-| 常见错误 | 原因与处理 |
-| --- | --- |
-| `CATALOG_CONTENT_IDENTITY_MISMATCH` | 修改了目录文件但未刷新 `manifest.json` |
-| `EXCHANGE_CONTRACT_VERSION_MISMATCH` | 品类和交换规则绑定了不同契约版本 |
-| `PAIRING_RULE_MISMATCH` | 配对与所指规则的动作或目标品类不一致 |
-| `motivation weights must sum to one` | 人物五项资源权重未归一 |
-| `motivation attention_prior keys must equal...` | 人物注意力键与注册表不完整对应 |
-| `Travel time profile must declare the closed branch set` | 少了小时、增加了未支持方式或写了表达式 |
-| 解析成功但实验行为没变化 | 检查实际加载目录、参数消费者和当前生效范围；内部评分或未接入的编译字段不保证改变决策 |
-
-字段的最终依据是[品类模型](../../src/worldmock/categories/models.py)、[交换规则模型](../../src/worldmock/categories/rules.py)、
-[活动声明加载器](../../src/worldmock/catalog/affordances.py)、[场景语义装配](../../src/worldmock/life/semantics.py)
-和[画像映射器](../../src/worldmock/profile/mapper.py)。
-
-[返回配置手册](README.md#readme-用户配置手册) · [场景配置](scenarios.md#scenarios-生活场景) · [人物画像](personas.md#personas-人物画像) · [资源与素材](resources.md#resources-定义地点门店供给与世界素材)
+环境命令校验全部场景、图字节、语料与包规则副本；项目命令保留 AS2、LabelKit、依赖和覆盖率检查。规则常数的研究必须在 WorldMock 中改唯一常数定义并升级 `RULES_VERSION`，重新发布环境，不覆盖旧运行输入。

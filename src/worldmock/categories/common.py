@@ -8,7 +8,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from pydantic import Field, model_validator
+from worldmock.base_models import DeepFrozenModel as _DeepFrozenModel
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,25 +29,6 @@ class CategoryError(ValueError):
         super().__init__(f"{code}: {message}")
 
 
-class DeepFrozenModel(BaseModel):
-    """@brief 拒绝未知字段并禁止字段重新绑定的模型基类。"""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @model_validator(mode="after")
-    def freeze_containers(self) -> "DeepFrozenModel":
-        """@brief 递归冻结模型字段内的映射与序列。"""
-        for field_name in type(self).model_fields:
-            value = getattr(self, field_name)
-            frozen = _freeze_container(value)
-            if frozen is not value:
-                object.__setattr__(self, field_name, frozen)
-        return self
-
-    @field_serializer("*", mode="wrap", check_fields=False)
-    def serialize_containers(self, value: Any, handler: Any) -> Any:
-        """@brief 序列化前还原只读容器为 Pydantic 支持的结构。"""
-        return handler(_thaw_container(value))
 
 
 class Action(StrEnum):
@@ -78,11 +60,6 @@ class CategoryKind(StrEnum):
     CONTRACT = "contract"
 
 
-class Conservation(StrEnum):
-    """@brief 算子声明的开放或封闭守恒域。"""
-
-    OPEN = "open"
-    CLOSED = "closed"
 
 
 class ProvenanceType(StrEnum):
@@ -109,7 +86,7 @@ class ReviewerType(StrEnum):
     DELEGATED_AGENT = "delegated_agent"
 
 
-class SourceRecord(DeepFrozenModel):
+class SourceRecord(_DeepFrozenModel):
     """@brief 一份来源记录，可覆盖一个或多个 JSON Pointer 子树。"""
 
     source_id: str = Field(pattern=r"\S")
@@ -136,7 +113,7 @@ class SourceRecord(DeepFrozenModel):
         return self
 
 
-class ReviewRecord(DeepFrozenModel):
+class ReviewRecord(_DeepFrozenModel):
     """@brief 品类结构或规则发布的一份可审计审核记录。"""
 
     reviewer: str = Field(pattern=r"\S")
@@ -144,36 +121,3 @@ class ReviewRecord(DeepFrozenModel):
     evidence: str = Field(pattern=r"\S")
     reason: str = Field(pattern=r"\S")
     authorization: str = Field(pattern=r"\S")
-
-
-def require_finite_number(value: Any, label: str) -> int | float:
-    """@brief 要求输入为非布尔有限 JSON 数值。
-
-    :param value: 待检查的值。
-    :param label: 错误信息中的字段名。
-    :returns: 原始整数或浮点数。
-    :raises CategoryError: 值不是有限 JSON 数值。
-    """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise CategoryError("CATEGORY_NUMBER_INVALID", f"{label} must be a JSON number")
-    if isinstance(value, float) and not math.isfinite(value):
-        raise CategoryError("CATEGORY_NUMBER_INVALID", f"{label} must be finite")
-    return value
-
-
-def _freeze_container(value: Any) -> Any:
-    """@brief 递归冻结原始声明中的容器，保留 Pydantic 模型实例。"""
-    if isinstance(value, Mapping):
-        return MappingProxyType({key: _freeze_container(item) for key, item in value.items()})
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_container(item) for item in value)
-    return value
-
-
-def _thaw_container(value: Any) -> Any:
-    """@brief 把只读容器还原为可序列化的普通容器。"""
-    if isinstance(value, Mapping):
-        return {key: _thaw_container(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return tuple(_thaw_container(item) for item in value)
-    return value
