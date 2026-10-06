@@ -1,7 +1,7 @@
 <a name="contracts-worldmock-接口合同"></a>
 # WorldMock 接口合同
 
-> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境数据归属合同、品类契约与目录字段、类别供给的构建合同、营业与报价声明、环境目录文件、环境目录与绑定、地点类词表、CLI 命令接口、环境与检查命令合同、冻结地图与场景引用、持久化当下事实、LifeEnv 状态字段、资源与需求字段、领域枚举、禁止进入提示的字段、模型身份、共同检查点与恢复、持久化结构、交互菜单声明与有效菜单、状态归属」（阶段 1）。
+> 按[资源与规则引擎简化规格](dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「环境数据归属合同、品类契约与目录字段、类别供给的构建合同、营业与报价声明、环境目录文件、环境目录与绑定、地点类词表、CLI 命令接口、环境与检查命令合同、冻结地图与场景引用、持久化当下事实、LifeEnv 状态字段、资源与需求字段、领域枚举、禁止进入提示的字段、模型身份、共同检查点与恢复、持久化结构、交互菜单声明与有效菜单、状态归属」（阶段 1）；「冻结地图与场景引用」、「地图与门店供给合同」（阶段 2）。
 
 
 > 状态：FROZEN；2026-09-27 按[人物 Prompt 规格](VERIFICATION.md#verification-incremental-evidence)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](archive/persona-prompt/persona-prompt-verification.md)）；修订内容见「版本表」`2026-09-27-persona-prompt-freeze`、`2026-09-27-persona-prompt` 与 `2026-09-28-persona-prompt-implemented` 三行。2026-09-29 按[一日运行保真规格](VERIFICATION.md#verification-incremental-evidence)的【同】作业 C1–C19 修订，修订部分已实现并通过离线验收；修订内容见「版本表」`2026-09-29-dayrun-fidelity` 行。
@@ -934,14 +934,25 @@ ScheduledKind = Literal[
 <a name="contracts-地图与门店供给合同"></a>
 ## 地图与门店供给合同
 
-本节定义 [地图与门店供给规格](dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格) 的字段面。记录正文和恢复材料由
-[记录引擎](design/05-recording-engine.md#recording-engine-worldmock-产品设计说明书-记录引擎)定义；实现与验收状态独立记录。
+本节定义随机地图、场景选择与共享菜单的字段面。地图是环境目录发布的连通加权无向图，出行依据图最短距离；记录正文和恢复材料由记录引擎定义，实现与验收结果独立记录。
+地点和食品定义不在场景内复制，菜单由目录绑定一次派生。
 
 <a name="contracts-冻结地图与场景引用"></a>
 ### 冻结地图与场景引用
 
-场景结构为 `7`，使用 `environment{environment_id, environment_version}` 钉住正在加载的目录清单，钉不符以 `ENVIRONMENT_PIN_MISMATCH` 拒绝。`locations[]` 只包含 `location_id`；`catalog_version`、`map_dataset`、对象、供给、内容与任务旧字段按未知字段拒绝。
-地图位于 `catalog/map.json`，由环境发布并纳入目录身份。地图查询与出行消费者的切换在阶段 2 完成，本阶段不提前声明图查询已接通。世界结构 `10`、运行清单 `3`；旧场景结构 6、世界结构 9 与旧清单不双读、不迁移。
+场景结构为 `7`，使用 `environment{environment_id, environment_version}` 钉住目录清单；钉不符以 `ENVIRONMENT_PIN_MISMATCH` 拒绝。`locations[]` 只包含 `location_id`，不得复制坐标、路线、对象或供给。
+
+| `catalog/map.json` 字段 | 合同 |
+| --- | --- |
+| `schema_version`、`generator_rule_version` | 均为 `1` |
+| `seed` | 整数，决定生成器的规范字节 |
+| `nodes` | 全目录地点身份，排序且无重复 |
+| `edges` | `{a, b, length_m}`；`a < b`，按 `(a, b)` 排序，无重复；距离为正整数米 |
+
+WorldMock 生成图，Dataset 发布图并刷新清单身份。登记校验节点、边与连通性；`generate-map --check` 与 `validate --environment` 重生成逐字节核对，运行与恢复只读发布图。
+最短路等长时比较完整地点标识路径元组，取字典序较小者，路径可以经过未被场景选中的节点。
+私有观察只保存 `routes[{trip_id, origin_id, destination_id, mode, distance_meters, duration_seconds, fare_fen}]` 与 `locations[{location_id, name, kind}]`，没有路线坐标、几何或道路状态。
+世界结构 `10`、运行清单 `3`；旧场景、世界与清单直接拒绝。恢复核对五字段 `environment_identity`。
 
 <a name="contracts-类别供给的构建合同"></a>
 ### 类别供给的构建合同
@@ -1024,7 +1035,7 @@ ScheduledKind = Literal[
 
 一次配送使用单个 `delivery_arrival` 事件，其 `order_ids` 列表引用整单全部项目。结果的 `orders` 保存各项实际交付状态，
 `inventory_changes` 仅记录本次新增数量；重复到期不再增加库存且该列表为空。订单保留 `supply_id/product_id/location_id/`
-`seller_account_id/price_version/route_id/source` 与金额，另记唯一的收货人 `recipient_id`（`agent:<id>` 或联系人身份）与
+`seller_account_id/price_version/trip_id/source` 与金额，另记唯一的收货人 `recipient_id`（`agent:<id>` 或联系人身份）与
 `answering` 关联的 `request_message_id`（不关联为 null）；付款人仍是执行人物。送达只入收货人的持有：同世界人物入其库存，
 仍以目的地和商品身份合并；联系人入 `WorldState.contact_holdings`。购买受理结果 `action_result.data.orders[]` 的每个订单另记
 `channel_id`：`from` 解析为购买渠道（含完整标签配包含其门店的渠道）时是该渠道的 App 标识，否则为 `null`；它只在订单载荷与导出的
@@ -1732,7 +1743,7 @@ ExclusionReason = Literal[
 「发给模型的内容不含内部身份」一致），以及嵌套的 `profile.motivation` 与
 `profile.entertainment_preferences`。宿主渲染系统层、六层 JSON 与续接 tool 消息时逐键校验（`narration.FORBIDDEN_OBSERVATION_KEYS`）；原生 `tools` 是整次运行不变的常量，
 由测试校验其描述与参数；记忆查询的 tool 消息只含 `{type, text, time, epistemic_status}`。代码中的键表是本段所列的超集，另含动作、事件、会话、任务、路线、
-供给、订单、消息与联系人身份键（`action_id`、`event_id`、`session_id`、`task_id`、`route_id`、`supply_id`、`order_id`、`message_id`、`contact_id`）、
+供给、订单、消息与联系人身份键（`action_id`、`event_id`、`session_id`、`task_id`、`trip_id`、`path`、`supply_id`、`order_id`、`message_id`、`contact_id`）、
 `price_version`、账户与余额键、`resource_changes`、数值身体键（`energy_kcal`、`sleep_pressure`、`sleep_deficit_hours`、`chronotype_midsleep`、`sleep_need_hours`）、
 `taste_weights` 与下文的内部评审键，并拒绝一切以 `_sha256` 结尾的键。地点目标的出行动作只给方式、人读时长、
 票价、费力与可用性，发现结果只提供实际返回地点和供给的公开事实，不能复制全量地图或世界库存。
@@ -2783,3 +2794,4 @@ RunPhase = Literal[
 | `2026-10-06-parallel-activities-claims` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 2（乙）修订：「状态归属」的 `occupied_resources` 占用名重列为 `wait`、`work`、`watch`、`screen`、`play_game`、`read_mail`、`browse`、`consume`、`lifestyle`、`talk`、`travel` 十一个，每种动作占自己的名字，只有同一种动作互斥；「交谈与通话」改为同占 `talk`，彼此互斥、可与其他种类并行；「活动控制行」的占用名同步；「品类契约与目录字段」写明占用声明属于引擎包资源 `src/worldmock/data/affordances.toml` 的字节，旧占用名 `idle`、`eyes`、`ears`、`hands`、`voice` 在解析时拒绝，`tool_schema_sha256` 随之改变，此前的检查点不能再恢复；测试环境 `tests/fixtures/environment/catalog/` 下的副本逐字节重新同步，仍带旧占用名的已发布环境（WorldMock-Dataset）与包资源字节不同，在加载时拒绝，须按新占用名重新发布 |
 | `2026-10-06-parallel-activities-rule8` | 2026-10-06 | 按[同时做两件事规格](dev/SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 3（系统层第 8 条）修订「请求组成」的生活决策系统层（仍为十八条，`custom/agents/life_prompt.py::LIFE_SYSTEM_LAYER` 与之逐字相同）：第 8 条说明人物可以同时做两件事，环境只拦同一种的两件（吃、做饭、用东西一种，工具层方式为「进行」的生活活动一种，看和听内容一种，读信、浏览、玩游戏、等待、工作、出行、和人说话各一种），不同种的两件环境不拦、做不做得到由人物照常理判断，想一起吃或喝的两样在同一个 `start_activity` 里写成两项、算一顿，开车时只能再听播客或和人说话、睡觉时不做别的，手上有一件在进行时轮到决策就可以再开始一件、原来那件照常进行；同时进行的最多两项，刚结束还没收尾的也算，暂停的不算，恢复暂停的活动要有空位，活动一结束同一时刻先用 `conclude_activity` 收尾；「七层 Schema」的分阶段指纹叙述补该阶段使 `prompt_sha256` 重钉、`tool_schema_sha256` 不变；文件头修订说明补本阶段 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |

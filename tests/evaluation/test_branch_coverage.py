@@ -960,10 +960,7 @@ def test_canonical_manifest_contract_enforcement(
 
 
 def test_canonical_asset_index_rejects_duplicate_identities(tmp_path: Path) -> None:
-    def _duplicate(m: dict) -> None:
-        pass
-
-    fixture, _ = _canonical_case(tmp_path, _duplicate)
+    fixture = make_evaluation_fixture(tmp_path)
     index_path = fixture.worldmock_root / "asset-index.jsonl"
     rows = [json.loads(line) for line in index_path.read_text(encoding="utf-8").splitlines()]
     rows.append(dict(rows[0]))
@@ -1866,7 +1863,7 @@ def test_start_travel_projects_route_identity_mode_and_payment() -> None:
                            {"status": "completed",
                             "data": {"activity": {"kind": "travel", "status": "completed",
                                                   "travel_mode": "walking",
-                                                  "data": {"route_id": "route-private"}},
+                                                  "data": {"trip_id": "route-private"}},
                                      "resource_changes": {"account:traveler": -100}}},
                            "travel-action")
     evidence = worldmock_public_evidence([parse_world_event(row) for row in [request, result]], [], {})
@@ -1918,7 +1915,7 @@ def test_parallel_start_keeps_supported_evidence_when_other_action_has_no_public
     result = _public_event(
         2, "action_result",
         {"status": "accepted", "data": {"activities": [
-            {"kind": "travel", "status": "active", "travel_mode": "walking", "data": {"route_id": "route-1"}},
+            {"kind": "travel", "status": "active", "travel_mode": "walking", "data": {"trip_id": "route-1"}},
             {"kind": "wait", "status": "active", "data": {}},
         ]}},
         "parallel-action",
@@ -2058,7 +2055,7 @@ def test_activity_shapes_use_real_targets_and_closed_categories() -> None:
     assert public._activity_shape(
         {"activity_type": "browse", "data": {}, "target_id": "t"}, {}) is None
     travel = public._activity_shape(
-        {"activity_type": "travel", "data": {"route_id": "route-9"}, "travel_mode": "transit"},
+        {"activity_type": "travel", "data": {"trip_id": "route-9"}, "travel_mode": "transit"},
         {"travel": "travel"},
     )
     assert (travel.category, travel.interaction, travel.object_key) == ("travel", "travel", "route-9")

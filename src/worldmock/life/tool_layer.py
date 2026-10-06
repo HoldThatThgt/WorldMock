@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from worldmock.catalog.affordances import engine_affordances
 from worldmock.categories import Action
@@ -24,11 +24,9 @@ from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.control_items import CONTROL_TOOLS
 from worldmock.life.durations import content_remaining_seconds, derived_activity_duration
-from worldmock.life.discovery import DiscoveryContext, place_row
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
 from worldmock.life.vocabulary import GIVE_WAY
 from worldmock.life.interaction_menu import InteractionMenu
-from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
 from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityStatus, ConsumeItem, ConsumeRequest,
                                    CONSUME_DURATION_CAP_SECONDS, DERIVED_DURATION_CAP_SECONDS,
                                    PurchaseItem, PurchaseOrderRequest, SameMomentStage, WorldState,
@@ -36,7 +34,6 @@ from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivitySt
 from worldmock.life.opening_hours import opening_status
 from worldmock.life.projection import food_energy_label, route_effort
 from worldmock.life.readable import ACTIVITY_DOING_LABELS, clock_phrase, duration_phrase, money_phrase, portion_phrase
-from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.storefront_state import current_quote
@@ -44,12 +41,13 @@ from worldmock.life.travel import planned_travel
 from worldmock.life.work import (contract_view, submission_refusal, validate_work_start, work_start_refusal,
                                  work_start_seconds, work_totals)
 
+if TYPE_CHECKING:
+    from worldmock.life.rules import LifeRuleEngine
+
 #: 私有绑定类别 → 工具层目标类别（场景联系人并入 person，邮件为 message，工作任务为 task）。
 BINDING_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
                  "catalog": "catalog", "content": "content", "game": "game", "lifestyle": "lifestyle",
                  "person": "person", "contact": "person", "mail": "message", "self": "self"}
-#: 地点开放情况的说法。
-_OPENING_STATES = {"open": "开着", "closed": "关着", "unknown": "开放时间不明"}
 #: 供给来源类型的说法（DataSource.kind：事实或场景假设）。
 _SOURCE_KINDS = {"fact": "事实", "scenario": "场景假设"}
 @dataclass(frozen=True, slots=True)
@@ -130,11 +128,11 @@ def _stage_refusal(context: LayerContext, candidate: Candidate) -> Refusal | Non
 
 
 def _admission_context(context: LayerContext) -> admission.Context:
-    """@brief 准入判定的世界、可读名称（地点名、本轮活动名）与冻结路线（下一步只指向可达地点），与受理一致。"""
+    """@brief 准入判定使用与受理相同的世界、可读名称和登记图。"""
     return admission.Context(state=context.state, agent_id=context.agent_id,
-                             place_names={item.location_id: item.name for item in context.scenario.locations},
+                             place_names={item.location_id: item.display_name for item in context.scenario.locations},
                              activity_names=context.names["activities"], tasks=context.rules.tasks,
-                             routes=context.scenario.routes)
+                             graph=context.semantics.catalog.graph)
 
 
 def _world_facts(context: LayerContext) -> admission.WorldFacts:
@@ -164,20 +162,18 @@ def _start_refusal(context: LayerContext, binding: dict, action: dict) -> Refusa
 
 
 def _travel_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
-    """@brief 出行：派生的计划时长在域内且不短于一分钟，余额够付路费。"""
+    """@brief 出行：派生时长为一秒至一天，余额够付固定车费。"""
     agent = context.state.agents[context.agent_id]
     route, duration = _route(context, binding["object_id"], action["travel_mode"])
     if not 1 <= duration <= DERIVED_DURATION_CAP_SECONDS:
         return refusal_for_code("ROUTE_DURATION_INVALID")
-    if duration < 60:
-        return refusal_for_code("ACTIVITY_TOO_SHORT")
     if context.state.accounts[agent.balance_account_id] < route.fare_fen:
         return refusal_for_code("INSUFFICIENT_TRAVEL_FUNDS")
     return None
 
 
 def _route(context: LayerContext, destination_id: str, mode: str):
-    """@brief 从人物当前地点到目的地的冻结路线（与受理同一路线选择）。"""
+    """@brief 从登记图计算人物当前位置到目的地的行程，与受理使用同一入口。"""
     draft = ActivityStartParams(activity_type=ActivityKind.TRAVEL, planned_duration_seconds=1,
                                 destination_id=destination_id, travel_mode=mode)
     return planned_travel(context.scenario, context.semantics, context.state.agents[context.agent_id].location_id,
@@ -254,7 +250,7 @@ def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refus
     fulfillment = action["fulfillment"]
     present = admission.present_location(state, context.agent_id)
     valid = (supply.location_id == present and "pickup" in supply.fulfillment_modes if fulfillment == "pickup"
-             else "delivery" in supply.fulfillment_modes and agent.location_id in supply.delivery_destination_ids)
+             else "delivery" in supply.fulfillment_modes)
     if not valid:
         return refusal_for_code("FULFILLMENT_NOT_SUPPORTED")
     quote = current_quote(state, supply.supply_id)
@@ -282,6 +278,8 @@ def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refus
 def _consume_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
     """@brief 食用、使用与制作：按份量折算的时长、使用方式、品类规则与地点，再核对手边是否持有（食用有就行，不足一份
     也可以吃；使用要一件；配方另核输入）。份量与时长和受理共用 basket.meal_portion。"""
+    from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
+
     agent, products = context.state.agents[context.agent_id], context.rules.items
     product = products.get(binding["object_id"])
     if product is None:
@@ -422,11 +420,11 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
 
 
 def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
-    """@brief 出行的路费（免费不写）、按出发时刻折算的时长与费力程度。"""
+    """@brief 出行的固定车费、图上行程时长与费力程度。"""
     route, seconds = _route(context, row["object_id"], action["travel_mode"])
     key = engine_affordances().met_lookup_key("travel", travel_mode=action["travel_mode"])
     effort = route_effort(context.semantics.body.activity_met[key])
-    return {"price": money_phrase(route.fare_fen) if route.fare_fen > 0 else None,
+    return {"price": money_phrase(route.fare_fen),
             "duration": duration_phrase(seconds), "note": f"费力程度：{effort}"}
 
 
@@ -438,9 +436,8 @@ def _purchase_facts(context: LayerContext, row: dict, action: dict) -> dict:
         agent = context.state.agents[context.agent_id]
         expected = delivery_expected_at(context.semantics, context.rules.supplies[row["object_id"]],
                                         agent.location_id, context.state.current_time)
-        if expected is not None:
-            when = clock_phrase(expected, context.state.current_time, context.scenario.timezone)
-            facts["note"] = f"预计 {when} 送到"
+        when = clock_phrase(expected, context.state.current_time, context.scenario.timezone)
+        facts["note"] = f"预计 {when} 送到"
     return facts
 
 
@@ -461,14 +458,8 @@ def _facts_seconds(context: LayerContext, row: dict, action: dict) -> int | None
 
 
 def _state(context: LayerContext, row: dict) -> str | None:
-    """@brief 目标此刻的可读状态：地点开放情况、持有份数与热量、食品热量、内容看过与否、在场的人在做什么、邮件已读与否。"""
+    """@brief 目标此刻的可读状态：持有份数与热量、食品热量、内容看过与否、在场的人在做什么、邮件已读与否。"""
     kind = row["kind"]
-    if kind == "location":
-        location = next(item for item in context.scenario.locations if item.location_id == row["object_id"])
-        agent = context.state.agents[context.agent_id]
-        status = place_row(DiscoveryContext(context.state, context.scenario, context.semantics, agent),
-                           location)["opening_status"]
-        return _OPENING_STATES[status]
     if kind in {"supply", "holding"}:
         return _product_state(context, row)
     if kind in {"content", "game"} and row["object_id"] in context.rules.contents:

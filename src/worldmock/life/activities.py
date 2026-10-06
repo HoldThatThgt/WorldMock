@@ -103,8 +103,9 @@ def require_location_kinds(place_location_kinds: frozenset[str], needed: frozens
 
 def start_activity(agent: AgentState, request: ActivityStartParams, now: int, origin: ActivityOrigin,
                    config: BodyConfig) -> tuple[AgentState, ActivityState]:
-    """@brief 受理一个主活动（最短 60 秒）；能量不参与受理（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动「能量不拦人」）。"""
-    if request.planned_duration_seconds < 60:
+    """@brief 出行最短一秒，其他主活动最短一分钟；能量不参与受理。"""
+    minimum_seconds = 1 if request.activity_type == ActivityKind.TRAVEL else 60
+    if request.planned_duration_seconds < minimum_seconds:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     suffix = f":{origin.activity_ordinal:04d}" if origin.activity_ordinal > 1 else ""
     activity_id = f"activity-{origin.action_id}{suffix}"

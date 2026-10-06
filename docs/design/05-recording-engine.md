@@ -1,7 +1,7 @@
 <a name="recording-engine-worldmock-产品设计说明书-记录引擎"></a>
 # WorldMock 产品设计说明书 — 记录引擎
 
-> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）。
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「归档引用」（阶段 1）；「地图与门店供给证据」、「地图与供给的恢复身份」、「检查点创建」、「持久化结构」、「必须保存的内容」（阶段 2）。
 
 
 > **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；按一日运行保真规格同步（一日运行保真 RE1–RE6），已实现；按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D5 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）<br>
@@ -141,6 +141,8 @@ flowchart TB
 | 后台任务 | 零点计划 `plan_day` 的请求与响应（`purpose="plan_day"`）、生成的计划与提醒及其来源；须能与人物决策区分 |
 | 记忆阶段调用 | 就寝反思的模型请求与响应：请求不带 `purpose`、思考由 AS2 记忆调度关闭，`tools` 恰为一个 `strict` 的 `submit_reflection`，`tool_choice="required"`；响应恰好一次该工具调用，`message.content` 不读取。本地校验不通过时在原始消息之后附回一条 user 消息（上一次不合法的工具调用、英文校验错误与重新提交的指令；总是基于原始消息，不逐次累积）重新请求，首次之外至多三次（连同首次至多四次模型调用）；每次尝试是 AS2 记忆调度下的一次独立模型调用，请求与响应照常留证、各自计入模型用量，校验错误随下一次请求的附回消息留证，耗尽时最后一次错误写进运行故障原因；没有可反思的主观记忆时不调用模型。`submit_reflection` 不属于人物工具面，不写 `action_requested`，须能与行动请求区分 |
 | 动作执行 | 工具名、参数、返回、接受或拒绝、实际进度、中断与最终结果 |
+| 图上出行 | `trip_id`、起点、终点、`path`、`distance_meters`、图上进度、车费付款与到达；不生成坐标或轨迹 |
+| 恢复输入 | 世界结构 10 的完整快照，以及冻结清单五字段 `environment_identity` 和对应清单摘要 |
 | 状态变化 | 变化前后的状态版本、发生原因、资金变化、身体结算与环境自主事件 |
 | 记忆更新 | 实际写入的记忆、记忆版本、来源事件与工作区快照；提示中的记忆层条目是构建提示时从已提交事件与世界状态派生的视图，不新增持久状态；构建结果随观察事件保存（`memory_layer`），并写进人物工作区的只读问答快照 `life_prompt_snapshot.json` |
 | 个人事务 | 人物在 `report_status`、`pause_activity`、`conclude_activity` 的请求级 `errands` 里新增、更新、取消的事务，环境按结算证据累计与确认办成的事实，以及实际交付的提醒：各写一条 `environment_event`（六个 `data.kind` 见「事件正文与资源证据」）；未完成事务随世界状态与共同检查点保存，终态、原因与证据只在事件里。事务是人物记下的打算，不是世界事实，不改变余额、库存、身体、订单与验收，也不是记忆写入 |
@@ -307,12 +309,13 @@ EventType = Literal[
 
 | 证据 | 保存内容与可见性 |
 | --- | --- |
-| 地图身份 | 运行使用的集合身份、版本、摘要及逐来源许可与通知；运行清单和导出清单一并保留 |
+| 环境与图身份 | 五字段 `environment_identity`，含规则版本、目录摘要与图摘要；冻结清单和检查点共同绑定 |
 | 发现请求 | `start_activity` 的可读浏览对象与方式、私有绑定中的实际筛选、宿主绑定动作身份与观察版本；登记不回显，不包含未结算结果 |
-| 发现结果 | 实际返回的有序地点与供给、道路状态、路线身份/分时耗时/费用、营业与资格、原始报价和版本、购买系数及一份实际金额、库存、履约、来源及假设标记 |
+| 地点与出行比较 | 实际返回地点、最短距离、步行与驾车时长及费用；路径与距离来自当时的发布图 |
+| 出行执行 | `trip_id`、`origin_id`、`destination_id`、`path`、`distance_meters` 与实际图上进度；`travel_payment` 使用同一 `trip_id`，到达写实际地点 |
 | 比较与选择 | 观察实际呈现的可读供给与公开事实；模型请求使用可读名称，内部事件经冻结绑定保留当时可见的 `supply_id`、`product_id` |
 | 购买与交付 | 供给、商品、地点、卖方、实际报价版本、数量、行 `total_price_fen` 与整单合计、收货人与所回应的消息、履约目的地（收货人的收货地点）、准备/运输依据及来源；受理结果 `action_result.data.orders[]` 的每个订单另记 `channel_id`（`from` 解析为购买渠道时的 App 标识，否则 `null`），它不进世界状态的订单，导出的 `purchases.jsonl` 同一列；付款人是执行人物，送达只入收货人的持有；付款和交付分别记录 |
-| 世界变化 | 按供给的库存与报价、营业例外、交付队列、人物可见供给与轮转随状态提交，拒绝不写购买副作用 |
+| 世界变化 | 世界结构 10 的订单、待配送、持有与呈现状态随状态提交；拒绝不写副作用，不保存供给库存、报价或营业例外 |
 
 发现沿用 `action_requested`、`action_accepted`/`action_rejected` 和 `action_result` 事件，
 耗时发现的世界动作登记保留；新增的 `query_world` 只查同一冻结观察的已知事实，不登记发现动作或揭示新事实。返回结果保存当时快照，导出不得用当前目录重建历史。
@@ -345,10 +348,8 @@ EventType = Literal[
 离开浏览地点后人物照这些标签按名下单，可见凭据不因此放宽。
 原始观察和结算证据不采用这种省略。
 公开 `excluded` 按全部非身份属性分组为 `object_ids`，完整事件仍逐项保存，不损失任何排除事实。
-到达访问失败的终态结果包含 `error_code=LOCATION_ACCESS_DENIED`；公开 `arrival` 保存实际地点、
-`access_status`、缺少的资格和来源，原始活动仍保留已完成的路线进度及其来源。
-失败不能抹去已支付的交通费，也不能只留下“活动失败”而不告诉人物到达位置与拒绝原因。
-
+出行完成保留已支付车费与实际到达地点，公开路线证据的 `object_type="route"` 关联 `trip_id`。私有图路径不进入模型请求；查看器使用运行内地点名称显示起点、终点与路径。
+记录没有坐标、路线几何或轨迹，不能从图上进度伪造 GPS。
 
 <a name="recording-engine-activity_progress-事件"></a>
 ##### activity_progress 事件
@@ -577,11 +578,8 @@ run/
 观察事件里，不新增一份与场景身份重复的菜单版本清单。
 记录引擎仅持有检查点封存的不可变快照。
 
-运行清单冻结 `category_contract_version`、`category_contract_sha256`、`exchange_rules_sha256`、
-`catalog_content_sha256`。LifeEngine 在创建、打开、恢复或重放的副作用之前核对当前目录与该身份；
-同版本异内容拒绝执行。检查点已有的 `manifest_sha256` 覆盖这些字段，
-足迹导出的 `frozen_run_manifest` 原样保留它们，不从导出时的目录重建。
-字段含义见[品类接口合同](../CONTRACTS.md#contracts-品类契约与目录字段)，行为见[品类契约规格](../archive/category-contract/SPEC-category-contract.md#spec-category-contract-品类契约与交换规则开发规格)。
+运行清单结构 `3` 冻结五字段 `environment_identity`：环境身份、环境版本、规则版本、目录内容摘要与图摘要。创建、打开、恢复或重放在副作用前核对同一身份，同版本异内容拒绝执行。
+检查点已有 `manifest_sha256` 覆盖这些字段，足迹导出的 `frozen_run_manifest` 原样保留实际身份，不从导出时的目录重建。字段见[环境身份合同](../CONTRACTS.md#contracts-model-identity)。
 
 运行清单冻结的 `code_sha256` 覆盖 `src`、`custom`、`pyproject.toml`、`uv.lock` 与实际导入的 AS2 包
 （包目录内除 `__pycache__` 外的全部文件，标签与安装位置无关）。AS2 包目录缺失、为空或与固定补丁源码摘要
@@ -759,14 +757,9 @@ flowchart TD
 
 检查点事件与检查点记录同事务提交，世界状态必须等于当前已提交状态，不增加世界版本。
 
-世界结构版本为 `9`（`WorldState.schema_version`）；版本不符的旧状态（含版本 8）直接拒绝，不迁移。
-检查点封存版本 8 的新字段：地点会话的 `opened_by_action_id`、活动的 `paused_at` 与进食活动数据中的开吃份量 `opened`、
-订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox`；受限轮阶段不再有 `wait_only`。
-检查点封存版本 9 的新字段：每个人物的未完成个人事务 `errands`（事务身份到 `ErrandState`：`errand_id`、`name`、`outcome`、
-`product_id`、`quantity`、`progress`、`memo`、`registered_at`、`remind_at`、`reminded_at`、`origin_action_id`、`origin_event_id`）。
-只保存未完成事务，办成或取消的事务移出状态，终态、原因与证据只在事件里。恢复、重放与反事实分支据此判定：已记下的不重复记下，
-已移出的不重复完成，已提醒的不再提醒；恢复后待办层逐字节相同。事务不放进 `DayPlan`：零点置空计划、`revise_day_plan` 与目标推进
-都不改动它，零点计划的输入只读它。
+世界结构版本为 `10`（`WorldState.schema_version`），旧状态直接拒绝。完整快照保存人物身体、余额、食品持有、联系人持有、活动、会话、订单、待配送、未完成个人事务、呈现状态、内容进度与会话推送，以及时钟、随机状态和已处理事件。
+出行活动数据包含 `trip_id`、`path`、`distance_meters`、`travel_payment` 与 `arrival`；旧路线身份、坐标和轨迹不保存。环境身份由冻结清单的五字段 `environment_identity` 与检查点清单摘要共同绑定。
+未完成事务随人物状态保存，终态、原因和证据留在事件里。恢复不重复记下、完成或提醒；个人事务不放进 `DayPlan`，零点计划与目标推进不改动它。
 同秒续接的缓冲不另存：恢复后由环境从已提交的模型证据重建，普通恢复可以继续续接，反事实分支在分支起点一律断链。
 检查点封存的世界状态必须包含每个人物的同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`：
 受限轮阶段依赖上一受限轮的结果，从检查点恢复后在同一秒按原阶段继续；还须包含按人物暂存的本秒呈现留痕
@@ -798,12 +791,9 @@ flowchart TD
 <a name="recording-engine-地图与供给的恢复身份"></a>
 ### 地图与供给的恢复身份
 
-旧状态直接拒绝（结构版本见[检查点创建](05-recording-engine.md#recording-engine-检查点创建)），不迁移、不从旧商品字段重建供给。
-共同检查点必须封存 `supply_stock`、`supply_quotes`、`opening_exceptions`、人物 `qualifications`、
-`visible_supply_ids`、`supply_browsed_at`、`supply_browsed_location` 与 `presentation_state`。
-待配送、已处理动作和已交付物品与上述状态共同恢复，调价后恢复不得回到初始报价。
-地图内容、版本或摘要与冻结运行身份不一致时，打开、恢复和分支均拒绝；分支不改父运行。
-
+共同检查点封存世界结构 `10` 的订单、待配送、持有、呈现状态、内容进度与会话推送。图与目录定义只读，恢复不从初始目录覆盖已提交状态，也不重新生成图。
+运行清单结构 `3` 保存 `environment_identity{environment_id, environment_version, rules_version, catalog_content_sha256, map_sha256}`，检查点的 `manifest_sha256` 钉同一清单。打开、恢复和反事实分支逐字段核对当前身份，差异即拒绝，分支不改父运行。
+旧状态和旧清单直接拒绝，世界不再保存供给库存、报价、营业例外、资格或可见供给字段；实际恢复消费者在共同集成波次验收。
 
 <a name="recording-engine-保存共同检查点的验收"></a>
 ### 保存共同检查点的验收
@@ -1261,3 +1251,4 @@ flowchart LR
 | 环境归属与等待行为整合 | 2026-10-06 | 保留已实施的班次唤醒、系统层与零点计划文本；现行场景结构 6 与显式数据仓输入，完整日核验实际工件，历史两份证明不改；跨平台方案仍未实施 |
 | `2026-10-06-windows-path-safety` | 2026-10-06 | 「恢复行为」补人物工作区快照与恢复的成员规则：快照不进入符号链接与目录联接，快照与恢复按同一组检查核对成员；恢复先核对全部成员再展开，名字须能在任何平台上原样保存、互不重名，写入时遇到别名拒绝，归档损坏同样拒绝 |
 | `2026-10-06-rrs-rules` | 2026-10-07 | 阶段 1：固定规则与 RULES_VERSION、七份环境目录、真实环境命令和五字段运行身份；旧品类合同归档，后续消费者按阶段闭合 |
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |

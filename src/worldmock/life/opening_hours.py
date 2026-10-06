@@ -6,18 +6,17 @@ from datetime import date, datetime, timedelta
 from typing import Mapping, Sequence
 from zoneinfo import ZoneInfo
 
-from worldmock.life.map_models import LocationConfig, OpeningCalendar, QuoteConfig, SupplyConfig
 from worldmock.life.models import OpeningInterval
 
 OpeningOverrides = Mapping[str, Sequence[tuple[int, int]]]
 
 
-def quote_at(supply: SupplyConfig, now: int) -> QuoteConfig | None:
+def quote_at(supply, now: int):
     """@brief 返回时刻适用的唯一供给报价；未定义区间返回空。"""
     return next((item for item in supply.quotes if _effective(item, now)), None)
 
 
-def opening_status(location: LocationConfig, now: int, timezone_name: str,
+def opening_status(location, now: int, timezone_name: str,
                    overrides: OpeningOverrides | None = None) -> str:
     """@brief 按当地时区与日期例外计算 open、closed 或 unknown。"""
     calendar = next((item for item in location.opening_calendars if _effective(item, now)), None)
@@ -36,7 +35,7 @@ def opening_status(location: LocationConfig, now: int, timezone_name: str,
     return "open" if not explicit and _contains(before, previous, now, zone) else "closed"
 
 
-def next_opening_change(location: LocationConfig, now: int, timezone_name: str,
+def next_opening_change(location, now: int, timezone_name: str,
                         overrides: OpeningOverrides | None = None) -> int | None:
     """@brief 返回营业状态下一次真正变化的事件时刻，不产生周期轮询。"""
     zone = ZoneInfo(timezone_name)
@@ -60,7 +59,7 @@ def _effective(declaration, now: int) -> bool:
             and (declaration.effective_to is None or now < declaration.effective_to.timestamp()))
 
 
-def _intervals(calendar: OpeningCalendar, day: date,
+def _intervals(calendar, day: date,
                overrides: OpeningOverrides | None) -> tuple[tuple[OpeningInterval, ...], bool]:
     """@brief 世界例外优先于冻结例外，冻结例外优先于每周日历。"""
     key = day.isoformat()
@@ -78,7 +77,7 @@ def _contains(intervals: tuple[OpeningInterval, ...], day: date, now: int, zone:
                < (midnight + timedelta(minutes=item.closes)).timestamp() for item in intervals)
 
 
-def _calendar_boundaries(calendar: OpeningCalendar, now: int, zone: ZoneInfo,
+def _calendar_boundaries(calendar, now: int, zone: ZoneInfo,
                          overrides: OpeningOverrides | None) -> set[int]:
     """@brief 从每周周期、日期例外与有效期边界生成有限的营业事件候选。"""
     today = datetime.fromtimestamp(now, zone).date()

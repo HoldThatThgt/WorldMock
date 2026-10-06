@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 
 from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.catalog.graph import Graph
 from worldmock.life.content import SubtitleCue, load_content_titles, load_subtitles, restarts_from_beginning
 from worldmock.life.activities import require_location_kinds
 from worldmock.life.retrieval import item_kinds
@@ -17,16 +18,17 @@ from worldmock.life.scenario import (
     LifeScenario,
     RuntimeWorkTask,
 )
-from worldmock.life.travel import route_for
+from worldmock.life.travel import plan_trip, travel_activity_data
 from worldmock.life.work import validate_work_start
 
 
 class LifeRuleEngine:
     """@brief 使用有类型 Python 函数组装状态转换，不实现通用表达式语言。"""
 
-    def __init__(self, scenario: LifeScenario, corpus_root: Path):
+    def __init__(self, scenario: LifeScenario, corpus_root: Path, graph: Graph):
         """@brief 绑定已经全量校验的场景和内容目录。"""
         self.scenario = scenario
+        self.graph = graph
         self.corpus_root = Path(corpus_root).resolve()
         self.products = {item.product_id: item for item in scenario.products}
         self.items = {item.product_id: item
@@ -66,7 +68,8 @@ class LifeRuleEngine:
                 raise BusinessRuleError("BROWSE_TARGET_NOT_FOUND")
             return {"catalog": "all_products"}
         if kind == ActivityKind.TRAVEL:
-            return {"route_id": route_for(self.scenario, agent.location_id, request).route_id}
+            return travel_activity_data(plan_trip(self.graph, agent.location_id,
+                                                  request.destination_id, request.travel_mode))
         return {}
 
     def _validate_work(self, agent: AgentState, request: ActivityStartParams, now: int, present: str | None) -> dict:

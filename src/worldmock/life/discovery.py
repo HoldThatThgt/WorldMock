@@ -6,8 +6,8 @@ from worldmock.life.projection import visible_supplies
 from dataclasses import dataclass
 from typing import Any
 
-from worldmock.life.opening_hours import opening_status
 from worldmock.life.storefront_state import current_quote
+from worldmock.life.travel import plan_trip
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,19 +21,8 @@ class DiscoveryContext:
 
 
 def place_row(context: DiscoveryContext, location) -> dict:
-    """@brief 地点分类、营业、访问资格和来源均作为事实呈现。"""
-    required = set(location.required_qualifications)
-    missing = sorted(required - set(context.agent.qualifications))
-    status = opening_status(location, context.state.current_time, context.scenario.timezone,
-                            context.state.opening_exceptions.get(location.location_id))
-    return {"location_id": location.location_id, "name": location.name,
-            "kind": location.kind, "business_kind": location.business_kind,
-            "location_kinds": list(location.location_kinds),
-            "opening_status": status,
-            "access_allowed": not missing, "required_qualifications": sorted(required),
-            "missing_qualifications": missing,
-            "source": location.source.model_dump(mode="json"),
-            "scenario_assumption": location.source.kind == "scenario"}
+    """@brief 地点发现只呈现登记地点的身份、名称和类型。"""
+    return {"location_id": location.location_id, "name": location.display_name, "kind": location.kind}
 
 
 def supply_row(context: DiscoveryContext, supply) -> dict:
@@ -58,7 +47,6 @@ def supply_row(context: DiscoveryContext, supply) -> dict:
             "quote_status": "known" if quote else "unknown",
             "quote": quote.model_dump(mode="json") if quote else None, "current_stock": stock,
             "fulfillment_modes": list(supply.fulfillment_modes),
-            "delivery_destination_ids": list(supply.delivery_destination_ids),
             "delivery_delay_seconds": supply.delivery_delay_seconds,
             "opening_status": place["opening_status"], "access_allowed": place["access_allowed"],
             "required_qualifications": sorted(supply.required_qualifications),
@@ -74,32 +62,11 @@ def supply_row(context: DiscoveryContext, supply) -> dict:
 
 
 def route_row(context: DiscoveryContext, destination_id: str, mode: str) -> dict:
-    """@brief 只使用已准入的道路记录；当前位置无需虚构一段路线。"""
-    if destination_id == context.agent.location_id:
-        return {"route_id": None, "origin_id": destination_id, "destination_id": destination_id,
-                "mode": mode, "status": "reachable", "distance_meters": 0, "duration_seconds": 0,
-                "fare_fen": 0, "reason": "already_at_destination", "source": None}
-    route = next(item for item in context.scenario.routes
-                 if item.origin_id == context.agent.location_id and item.destination_id == destination_id
-                 and item.mode.value == mode)
-    fields = {"route_id", "origin_id", "destination_id", "mode", "status", "distance_meters",
-              "duration_seconds", "fare_fen", "reason", "source", "routing_instance", "routing_profile"}
-    row = route.model_dump(mode="json", include=fields)
-    row["free_flow_duration_seconds"] = route.duration_seconds
-    if route.status == "reachable":
-        row["duration_seconds"] = context.semantics.travel_planned_seconds(
-            mode, route.duration_seconds, context.state.current_time)
-        row["travel_time_factor"] = context.semantics.travel_time_factor(mode, context.state.current_time)
-    return row
-
-
-def range_status(route: dict, maximum_seconds: int | None) -> str:
-    """@brief 道路范围只比较真实预计时长，不把资料未知解释为超范围。"""
-    if route["status"] != "reachable":
-        return route["status"]
-    if maximum_seconds is None:
-        return "unrestricted"
-    return "inside" if route["duration_seconds"] <= maximum_seconds else "outside"
+    """@brief 从登记图生成完整行程，时长与车费使用固定系统规则。"""
+    trip = plan_trip(context.semantics.catalog.graph, context.agent.location_id, destination_id, mode)
+    return {"trip_id": trip.trip_id, "path": list(trip.path), "origin_id": trip.origin_id,
+            "destination_id": trip.destination_id, "mode": mode, "distance_meters": trip.distance_meters,
+            "duration_seconds": trip.duration_seconds, "fare_fen": trip.fare_fen}
 
 
 def stage_visible_supplies(state, agent_id: int, supply_ids: set[str], scenario):

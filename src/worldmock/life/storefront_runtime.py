@@ -8,7 +8,7 @@ from worldmock.life.engine_context import EngineContext
 from worldmock.errors import BusinessRuleError
 from worldmock.life import projection
 from worldmock.life.basket import purchase_order
-from worldmock.life.models import ActionResult, ActionStatus, ActivityStatus
+from worldmock.life.models import ActionResult, ActionStatus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,21 +58,3 @@ class StorefrontRuntime:
             },
         )
         return outcome.state, result
-
-
-def record_arrival_access(activity, agent, scenario) -> None:
-    """@brief 到达保留位置事实并重新检查进入资格，失败不撤销已完成的旅行。"""
-    if activity.status != ActivityStatus.COMPLETED:
-        return
-    location = next(item for item in scenario.locations if item.location_id == agent.location_id)
-    missing = sorted(set(location.required_qualifications) - set(agent.qualifications))
-    activity.data["arrival"] = {
-        "location_id": agent.location_id,
-        "access_status": "denied" if missing else "allowed",
-        "missing_qualifications": missing,
-        "source": location.source.model_dump(mode="json"),
-    }
-    if missing:
-        _LOGGER.error("Arrival access denied for location %s", location.location_id)
-        activity.status = ActivityStatus.FAILED
-        activity.interruption_reason = "LOCATION_ACCESS_DENIED"

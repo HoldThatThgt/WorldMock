@@ -63,8 +63,7 @@ from worldmock.life.rhythm import (
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
 from worldmock.life.state_commit import commit_state, flush_presentation, flush_supply_visibility, stage_presentation
-from worldmock.life.storefront_runtime import record_arrival_access
-from worldmock.life.travel import update_travel
+from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.life.work import reveal_work_progress
 from worldmock.scheduling.effects import apply_scheduled_effect
 
@@ -329,9 +328,9 @@ class TimeAdvanceCoordinator:
         agent = state.agents[activity.agent_id]
         evidence = {}
         if activity.kind == ActivityKind.TRAVEL:
-            route = next((item for item in self.context.scenario.routes if item.route_id == activity.data["route_id"]))
-            (activity, agent) = update_travel(activity, route, agent)
-            record_arrival_access(activity, agent, self.context.scenario)
+            trip = persisted_trip(self.context.semantics.catalog.graph, activity)
+            (activity, agent) = update_travel(activity, trip, agent)
+            record_arrival(activity, agent)
             state.activities[activity.activity_id] = activity
             state.agents[agent.agent_id] = agent
         if activity.kind == ActivityKind.WATCH:

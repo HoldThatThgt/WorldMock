@@ -24,7 +24,6 @@ from tests.life.test_commerce import _browse  # noqa: E402
 from worldmock.life.basket import delivery_expected_at  # noqa: E402
 from worldmock.life.guidance import refusal_for_code  # noqa: E402
 from worldmock.life.readable import clock_phrase  # noqa: E402
-from worldmock.life.wayfinding import shortest_paths  # noqa: E402
 
 _MILK, _NOODLES = "纯牛奶", "牛肉炒面"
 _MARKET_NAME = "张江日用集市与配送取货点（冻结场景锚点）"
@@ -373,7 +372,7 @@ def test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route
     for supply in milk.values():
         _retarget(engine, supply.supply_id, tuple(spot for spot in supply.delivery_destination_ids if spot != _PARK))
     place(engine, 1, _PARK)
-    paths = shortest_paths(engine.context.scenario.routes, _PARK)
+    paths = engine.context.semantics.catalog.graph.shortest_paths(_PARK)
     nearest = min(milk, key=lambda store: paths[store][0])
     assert nearest not in {min(milk), max(milk, key=lambda store: paths[store][0])}
     _, error, system = decide(engine, "system-several", _buy((_MILK, "购买", None)))

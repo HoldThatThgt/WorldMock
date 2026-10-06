@@ -62,7 +62,6 @@ _GUARD = "tests/life/test_contact_reply_guard.py::"
 _RENDER = "tests/footprints/test_render_day.py::"
 _TITLES = "tests/life/test_activity_title_embedding.py::"
 _LOAD = "tests/life/test_load_checks.py::"
-_MAP = "tests/life/test_map_dataset.py::"
 _AROUND = "tests/life/test_goal_around_time.py::"
 _GOAL_METRICS = "tests/evaluation/test_goal_metrics.py::"
 _GOAL_EXPORT = ("tests/footprints/test_goal_export.py::"
@@ -107,7 +106,6 @@ _SIMPLER_PURCHASE = [
     _STAGES + "test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_store",
     _STAGES + "test_goods_sold_by_several_stores_point_to_the_store_with_the_shortest_route",
     _GIVING + "test_system_purchase_for_someone_goes_in_store_only_when_they_are_there",
-    _GIVING + "test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first",
     _GIVING + "test_system_purchase_for_someone_of_goods_sold_only_in_store_cannot_reach_them",
     _STAGES + "test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed",
     "tests/integration/test_storefront_tools.py::test_model_chooses_named_offer_and_fulfillment_without_echoing_quote",
@@ -279,9 +277,7 @@ LEDGER: dict[str, list[str]] = {
         _STAGES + "test_a_way_the_matching_store_does_not_offer_is_fulfillment_not_supported",
         _ERRORS + "test_named_item_candidates_use_a_way_the_supply_supports",
         _NAMED + "test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids",
-        _NAMED + "test_remote_orders_no_selling_store_can_deliver_say_so_like_listed_ones",
         _REPLAY + "test_goods_that_cannot_reach_the_receiving_place_say_why_and_where_the_store_delivers",
-        _GIVING + "test_named_remote_order_for_someone_it_cannot_reach_says_why_like_a_listed_one",
         _NAMED + "test_label_scope_decides_before_the_way_and_names_the_mismatch",
         _STAGES + "test_the_name_stage_is_judged_before_the_source",
         _STAGES + "test_an_unservable_source_offers_the_same_goods_that_can_be_served_elsewhere",
@@ -420,12 +416,8 @@ LEDGER: dict[str, list[str]] = {
             "test_unreachable_places_stay_unlisted_while_the_hint_explains_them",
         )
     ] + [
-        _WAYFINDING + "test_go_step_points_only_to_places_reachable_from_here",
-        _WAYFINDING + "test_delivery_step_lists_reachable_served_places_then_a_via_then_nowhere",
-        _WAYFINDING + "test_delivery_step_skips_places_without_a_working_delivery_route",
-        _WAYFINDING + "test_delivery_codes_keep_exact_default_reasons_and_current_place_reasons",
-        _GIVING + "test_remote_order_for_someone_outside_the_delivery_area_is_a_destination_refusal",
-        _GIVING + "test_remote_order_for_someone_without_a_delivery_route_is_a_route_refusal",
+        _WAYFINDING + "test_go_step_directly_names_the_destination_even_for_a_multi_hop_path",
+        _WAYFINDING + "test_discovery_quotes_the_same_graph_trip_without_old_route_fields",
         "tests/life/test_prompt_layers.py::test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only",
         "tests/life/test_tool_layer.py::test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them",
     ],
@@ -525,9 +517,6 @@ LEDGER: dict[str, list[str]] = {
             "test_visible_labels_include_registered_apps_foods_and_places",
         )
     ] + [
-        _MAP + "test_old_map_structure_version_is_rejected",
-        _MAP + "test_branch_label_must_be_nonblank_when_declared",
-        _MAP + "test_selected_locations_use_display_names_and_the_map_keeps_branch_labels",
         "tests/life/test_tool_layer.py::test_repeated_readable_object_names_fail_closed_before_any_binding",
         _WARNINGS + "test_map_problems_are_frozen_as_scenario_warnings_and_creation_still_succeeds",
         WARNING_CODE_TESTS["DELIVERY_ROUTE_UNAVAILABLE"],
@@ -781,7 +770,6 @@ RULINGS: dict[str, list[str]] = {
         _STAGES + "test_system_purchase_that_can_neither_pick_up_nor_deliver_names_the_nearest_store",
         _STAGES + "test_system_purchase_next_step_names_the_nearest_store_that_sells_it_in_store",
         _GIVING + "test_system_purchase_for_someone_goes_in_store_only_when_they_are_there",
-        _GIVING + "test_system_purchase_for_someone_it_cannot_reach_says_to_buy_for_oneself_first",
         _STAGES + "test_system_purchase_is_accepted_for_listed_and_named_goods_and_never_listed",
         _STAGES + "test_system_purchase_and_a_null_from_each_skip_only_their_own_stage",
         _SCHEMA + "test_start_activity_uses_readable_frozen_objects_and_paired_actions",
@@ -840,8 +828,6 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/guidance.py",
     "src/worldmock/life/interaction_menu.py",
     "src/worldmock/life/load_checks.py",
-    "src/worldmock/life/map_data.py",
-    "src/worldmock/life/map_models.py",
     "src/worldmock/life/memory_evidence.py",
     "src/worldmock/life/memory_layer.py",
     "src/worldmock/life/models.py",

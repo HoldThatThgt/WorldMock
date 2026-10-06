@@ -114,8 +114,16 @@
   "最短路与完整路径决胜": {
     "stage": "2",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/catalog/test_graph.py::test_full_path_lexicographic_tie_ignores_discovery_and_edge_order",
+      "tests/catalog/test_graph.py::test_hand_calculated_paths_and_same_place_zero",
+      "tests/catalog/test_graph.py::test_catalog_routes_through_an_unselected_intermediate_location",
+      "tests/catalog/test_graph.py::test_catalog_graph_does_not_recreate_published_edges"
+    ],
+    "implementation": [
+      "src/worldmock/catalog/graph.py::Graph.shortest_paths",
+      "src/worldmock/catalog/models.py::Catalog.shortest_m"
+    ]
   },
   "包资源身份与原子发布": {
     "stage": "1",
@@ -176,14 +184,44 @@
   "出行按图计时计费": {
     "stage": "2",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_travel_graph.py::test_plan_uses_full_graph_fixed_speed_and_fare",
+      "tests/life/test_travel_graph.py::test_request_duration_is_recomputed_from_the_published_graph",
+      "tests/life/test_travel_cost.py::test_route_quote_is_paid_once_into_the_declared_transport_account",
+      "tests/life/test_travel_cost.py::test_unaffordable_departure_changes_no_account",
+      "tests/life/test_travel_cost.py::test_walking_records_zero_fare_without_inventing_a_payment",
+      "tests/life/test_travel_graph.py::test_same_place_travel_is_a_precondition_rejection",
+      "tests/life/test_travel_graph.py::test_unselected_place_is_not_a_destination_but_remains_a_path_node",
+      "tests/life/test_travel_graph.py::test_tool_targets_list_all_other_selected_places_with_both_graph_quotes",
+      "tests/life/test_travel_graph.py::test_minimum_length_driving_trip_is_quoted_accepted_and_initialized",
+      "tests/life/test_wayfinding.py::test_discovery_quotes_the_same_graph_trip_without_old_route_fields",
+      "tests/life/test_travel_graph.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified",
+      "tests/life/test_travel_graph.py::test_persisted_travel_evidence_drift_is_rejected",
+      "tests/life/test_location_sessions.py::test_graph_departure_and_arrival_switch_real_sessions_without_engine"
+    ],
+    "implementation": [
+      "src/worldmock/life/travel.py::plan_trip",
+      "src/worldmock/life/travel.py::planned_travel",
+      "src/worldmock/life/travel.py::pay_travel_fare",
+      "src/worldmock/life/travel.py::persisted_trip",
+      "src/worldmock/life/travel.py::update_travel",
+      "src/worldmock/life/tool_layer.py::_travel_check",
+      "src/worldmock/life/activities.py::start_activity",
+      "src/worldmock/life/sessions.py::begin_transit"
+    ]
   },
   "位置记录与地图一致（位置记录与地图一致）": {
     "stage": "2",
     "spec": "docs/dev/SPEC-resource-and-rule-simplification.md#spec-rrs-地图与出行",
-    "tests": [],
-    "implementation": []
+    "tests": [
+      "tests/life/test_travel_graph.py::test_travel_activity_evidence_uses_trip_and_full_path",
+      "tests/evaluation/test_adapters.py::test_graph_travel_result_projects_trip_identity_and_full_path"
+    ],
+    "implementation": [
+      "src/worldmock/life/travel.py::travel_activity_data",
+      "src/worldmock/life/observe.py::_location_catalog",
+      "src/worldmock/evaluation/public_evidence.py::worldmock_public_evidence"
+    ]
   },
   "全地图外卖（全地图外卖）": {
     "stage": "3",

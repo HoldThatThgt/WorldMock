@@ -8,7 +8,7 @@ from __future__ import annotations
 from worldmock.life import vocabulary
 
 from worldmock.errors import reject_value
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -53,7 +53,7 @@ def resolve_interaction_menu(scenario: Any, agent_id: int, location_id: str) -> 
     agent = _unique_item(scenario.agents, "agent_id", agent_id, "agent")
     location = _unique_item(scenario.locations, "location_id", location_id, "location")
     menus = getattr(scenario, "interaction_menus_by_location_kind", None)
-    if not isinstance(menus, dict):
+    if not isinstance(menus, Mapping):
         raise IntegrityError("Interaction menu location mapping is unavailable")
     location_menu = menus.get(location.kind)
     if not isinstance(location_menu, InteractionMenu):

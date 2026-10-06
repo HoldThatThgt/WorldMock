@@ -1,4 +1,4 @@
-"""@brief 严格目录加载、唯一登记校验和非图索引冻结。"""
+"""@brief 严格目录加载、唯一登记校验，以及完整图和非图索引冻结。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from worldmock.base_models import DeepFrozenModel
 from worldmock.catalog.admission import validate_manifest, validate_registration
 from worldmock.catalog.errors import RegistrationError
+from worldmock.catalog.graph import Graph
 from worldmock.catalog.identity import read_catalog_file, read_manifest_payload
 from worldmock.catalog.models import (
     AppsFile, Catalog, CatalogData, CatalogManifest, ContentsFile, FoodsFile, LocationsFile, MapGraph, WorkTopicsFile,
@@ -93,6 +94,7 @@ def _catalog_view(directory: Path, manifest: CatalogManifest, data: CatalogData)
         contents=MappingProxyType({row.content_id: row for row in data.contents}),
         work_topics=MappingProxyType({row.topic_id: row for row in data.work_topics}),
         map_data=data.map_data, map_sha256=hashlib.sha256(read_catalog_file(directory, "map.json")).hexdigest(),
+        graph=Graph(data.map_data),
         menus_by_kind=MappingProxyType(menus), foods_by_store=MappingProxyType(foods_by_store),
         stores_by_app=MappingProxyType({app.app_id: tuple(place.location_id for place in data.locations
             if app.app_id in place.app_ids) for app in data.apps}),

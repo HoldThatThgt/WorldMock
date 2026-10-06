@@ -308,8 +308,8 @@ def _start_shape(action: str | None, label: str, target: Any,
     activity = _related_activity(related, index)
     key = _string(activity.get("target_id")) or _string(target)
     if action == "travel_to":
-        route = _string(_mapping(activity.get("data")).get("route_id"))
-        return _Shape("travel", "travel", "route", route,
+        trip = _string(_mapping(activity.get("data")).get("trip_id"))
+        return _Shape("travel", "travel", "route", trip,
                       _travel_mode(activity.get("travel_mode")))
     if action in _TARGETED_ACTIONS:
         category, interaction, object_type = _TARGETED_ACTIONS[action]
@@ -377,7 +377,7 @@ def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> 
 def _activity_object_key(kind: str, row: Mapping[str, Any], data: Mapping[str, Any]) -> str | None:
     """@brief 选择活动确实保存的对象身份。"""
     if kind == "travel":
-        return _string(data.get("route_id"))
+        return _string(data.get("trip_id"))
     return _string(row.get("target_id"))
 
 

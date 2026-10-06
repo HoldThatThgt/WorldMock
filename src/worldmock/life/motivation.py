@@ -30,6 +30,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field
 
@@ -38,6 +39,7 @@ from worldmock.catalog.affordances import (
     PROTOTYPE_GENERATORS,
     engine_affordances,
 )
+from worldmock.catalog.graph import Graph
 from worldmock.errors import IntegrityError
 from worldmock.life import sleep
 from worldmock.life.activities import (content_entertainment_relief_rate, entertainment_relief_rate,
@@ -54,19 +56,15 @@ from worldmock.life.content import (
     restarts_from_beginning,
 )
 from worldmock.base_models import FrozenModel
-from worldmock.life.models import (ActivityKind, ActivityState, AgentState, ContentProgress)
-from worldmock.life.map_models import SupplyConfig
-from worldmock.life.models import SupplyQuoteState
+from worldmock.life.models import (ActivityKind, ActivityState, AgentState, ContentProgress, TravelMode)
+from worldmock.life.travel import plan_trip
 from worldmock.life.opening_hours import opening_status
 from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.storefront_state import effective_quote
 from worldmock.life.scenario import (
     BodyConfig,
     ContentItemConfig,
-    LocationConfig,
     MotivationProfile,
-    ProductConfig,
-    RouteConfig,
     RuntimeWorkTask,
 )
 
@@ -194,15 +192,15 @@ class MotivationContext:
     balance_fen: int
     body: BodyConfig
     home_location_id: str
-    products: tuple[ProductConfig, ...]
+    products: tuple[Any, ...]
     lifestyle_items: tuple[LifestyleItem, ...]
     activity_location_kinds: Mapping[str, frozenset[str]]
-    supplies: tuple[SupplyConfig, ...]
+    supplies: tuple[Any, ...]
     supply_stock: Mapping[str, int]
-    supply_quotes: Mapping[str, SupplyQuoteState | None]
+    supply_quotes: Mapping[str, Any]
     opening_exceptions: Mapping[str, dict]
-    locations: Mapping[str, LocationConfig]
-    routes: tuple[RouteConfig, ...]
+    locations: Mapping[str, Any]
+    graph: Graph
     tasks: tuple[RuntimeWorkTask, ...]
     task_totals: Mapping[str, tuple[int, float]]
     #: 内容候选是品类摘要 + 每品类 top-2 采样（引擎侧 _sample_contents 装配），
@@ -218,11 +216,10 @@ class MotivationContext:
     current_time: int
     end_time: int
     timezone: str
-    planned_travel_seconds: Callable[[str, int, int], int]
     purchase_amount: Callable[[str, int, int], int]
     purchase_pairing_states: Mapping[str, str]
     #: 全量供给目录（不经浏览可见性门控）：浏览候选的存在性依据。
-    catalog_supplies: tuple[SupplyConfig, ...] = ()
+    catalog_supplies: tuple[Any, ...] = ()
     #: 内容分段边界（item_id -> 各段结束秒）：娱乐候选的分段时长槽依据。
     content_segments: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     #: 品类摘要（kind -> 条目数）：观察 activity_summary 的内容段同源。
@@ -533,7 +530,7 @@ def _sleep_candidate(context: MotivationContext, params: Mapping) -> _Candidate 
         comfort_type=True)
 
 
-def _feasible_food_rows(context: MotivationContext) -> list[tuple[ProductConfig, float, float, str]]:
+def _feasible_food_rows(context: MotivationContext) -> list[tuple[Any, float, float, str]]:
     """@brief 对持有商品和每条可见供给分别判断进食可行性，不合并门店事实。"""
     agent = context.agent
     efficiency = sleep.food_utilization_efficiency(agent.body.sleep_deficit_hours)
@@ -555,7 +552,7 @@ def _feasible_food_rows(context: MotivationContext) -> list[tuple[ProductConfig,
     return rows
 
 
-def _food_supply_row(context: MotivationContext, product: ProductConfig, supply: SupplyConfig):
+def _food_supply_row(context: MotivationContext, product: Any, supply: Any):
     """@brief 供给资格、世界报价、营业与履约使用当前冻结事实进行判断。"""
     if context.purchase_pairing_states[product.product_id] != "defined":
         return None
@@ -575,12 +572,9 @@ def _food_supply_row(context: MotivationContext, product: ProductConfig, supply:
     if destination == supply.location_id and "pickup" in supply.fulfillment_modes:
         wait = 0
     else:
-        if "delivery" not in supply.fulfillment_modes or destination not in supply.delivery_destination_ids:
+        if "delivery" not in supply.fulfillment_modes:
             return None
-        route = _delivery_route_seconds(context, supply.location_id, destination,
-                                        context.current_time + supply.delivery_delay_seconds)
-        if route is None:
-            return None
+        route = _delivery_route_seconds(context, supply.location_id, destination)
         wait = supply.delivery_delay_seconds + route
     return product, float(price), float(wait), supply.supply_id
 
@@ -602,7 +596,7 @@ def _eat_candidates(context: MotivationContext) -> list[_Candidate]:
         accepted = [min(rows, key=lambda row: (abs(row[0].energy_kcal_per_unit - gap),
                                                row[0].product_id))]
 
-    def rank_key(row: tuple[ProductConfig, float, float, str]) -> tuple:
+    def rank_key(row: tuple[Any, float, float, str]) -> tuple:
         product, price, wait, supply_id = row
         repeats = context.recent_meal_counts.get(product.product_id, 0)
         return (abs(product.energy_kcal_per_unit - gap) / meal_repeat_weight(repeats),
@@ -613,7 +607,7 @@ def _eat_candidates(context: MotivationContext) -> list[_Candidate]:
 
 
 def _eat_candidate(context: MotivationContext,
-                   row: tuple[ProductConfig, float, float, str]) -> _Candidate:
+                   row: tuple[Any, float, float, str]) -> _Candidate:
     """@brief 由可行行构造单个进食候选（资源流与英文理由）。"""
     product, price, wait, supply_id = row
     agent = context.agent
@@ -648,16 +642,9 @@ def _eat_candidate(context: MotivationContext,
 
 
 def _delivery_route_seconds(context: MotivationContext, origin: str,
-                            destination: str, departure_at: int) -> int | None:
-    """@brief 取商家到目的地的冻结驾驶配送路线时长（无路线则不可配送）。"""
-    if origin == destination:
-        return 0
-    matches = [item for item in context.routes if item.origin_id == origin
-               and item.destination_id == destination and item.mode.value == "driving"
-               and item.status == "reachable"]
-    if len(matches) != 1:
-        return None
-    return context.planned_travel_seconds("driving", matches[0].duration_seconds, departure_at)
+                            destination: str) -> int:
+    """@brief 配送驾驶时长只从登记图和固定系统规则取得。"""
+    return plan_trip(context.graph, origin, destination, TravelMode.DRIVING).duration_seconds
 
 
 def _continue_candidate(context: MotivationContext, activity: ActivityState) -> _Candidate | None:
@@ -751,21 +738,19 @@ def _entertainment_delta(context: MotivationContext, activity: ActivityState,
 
 def _travel_candidate(context: MotivationContext, label: str,
                       destination_id: str) -> _Candidate | None:
-    """@brief 出行候选：当前位置出发、报价可负担路线中的最低票价一条。"""
+    """@brief 出行候选：登记图上可负担行程中选择最低票价的方式。"""
     agent = context.agent
     if destination_id == agent.location_id:
         return None
-    feasible = [item for item in context.routes
-                if item.origin_id == agent.location_id and item.destination_id == destination_id
-                and item.status == "reachable" and item.fare_fen <= context.balance_fen]
+    plans = [(mode, plan_trip(context.graph, agent.location_id, destination_id, mode)) for mode in TravelMode]
+    feasible = [(mode, trip) for mode, trip in plans if trip.fare_fen <= context.balance_fen]
     if not feasible:
         return None
-    route = min(feasible, key=lambda item: (item.fare_fen, item.route_id))
-    duration = int(context.planned_travel_seconds(
-        route.mode.value, route.duration_seconds, context.current_time))
+    mode, trip = min(feasible, key=lambda item: (item[1].fare_fen, item[0].value))
+    duration = trip.duration_seconds
     if duration < 60:
         return None
-    met = context.body.activity_met[engine_affordances().met_lookup_key("travel", travel_mode=route.mode)]
+    met = context.body.activity_met[engine_affordances().met_lookup_key("travel", travel_mode=mode)]
     burn = minimum_energy_cost(ActivityKind.TRAVEL, duration, context.body, met)
     if burn > agent.body.energy_kcal:
         return None
@@ -773,10 +758,10 @@ def _travel_candidate(context: MotivationContext, label: str,
     minutes = duration / 60
     return _Candidate(
         family=FAMILY_TRAVEL,
-        summary=f"Travel to {label} ({destination_id}) by {route.mode.value}",
-        reason=(f"Traveling to {label} by {route.mode.value} takes {minutes:.0f} min"
-                f" and costs {route.fare_fen} fen"),
-        money_now_fen=-float(route.fare_fen),
+        summary=f"Travel to {label} ({destination_id}) by {mode.value}",
+        reason=(f"Traveling to {label} by {mode.value} takes {minutes:.0f} min"
+                f" and costs {trip.fare_fen} fen"),
+        money_now_fen=-float(trip.fare_fen),
         duration_seconds=duration,
         energy_delta=-burn,
         sleep_deficit_delta=_awake_deficit_delta(context.agent.body, hours),

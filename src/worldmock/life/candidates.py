@@ -45,7 +45,7 @@ from typing import Any, Literal
 from worldmock.catalog.affordances import engine_affordances
 from worldmock.footprints.models import sha256_json
 from worldmock.life.models import ActivityKind, DERIVED_DURATION_CAP_SECONDS
-from worldmock.life.scenario import LocationConfig
+from worldmock.catalog.models import Location
 
 #: 候选类别闭集（docs/CONTRACTS.md#contracts-worldmock-接口合同「候选与呈现合同」的「候选对象与来源」）。
 CandidateKind = Literal["product", "lifestyle", "content", "game", "task"]
@@ -120,7 +120,7 @@ class LocationView:
     maximum_seconds: int = DERIVED_DURATION_CAP_SECONDS
 
     @classmethod
-    def from_config(cls, config: LocationConfig, status: str) -> "LocationView":
+    def from_config(cls, config: Location, status: str) -> "LocationView":
         """@brief 地点活动环境取显式声明，营业状态取统一日历解释结果。"""
         return cls(location_id=config.location_id,
                    location_kinds=frozenset(config.location_kinds), opening_status=status)

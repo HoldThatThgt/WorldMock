@@ -20,6 +20,12 @@ FOUNDATION = frozenset({
 })
 # 运行配置尚未初始化前不能导入的重依赖与命令行启动边界。
 DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {
+    ('worldmock.life.observe', 'ObservationBuilder._layer_data', 'worldmock.life.environment_layer'): '出行纯观察不提前装载完整环境层',
+    ('worldmock.life.observe', 'ObservationBuilder._recipe_product_ids', 'worldmock.life.inventory_recipe'): '配方消费者按真实行为保留到食品阶段',
+    ('worldmock.life.storefront_state', 'changed_quote', 'worldmock.life.models'): '报价消费者按真实行为保留到食品阶段',
+    ('worldmock.life.storefront_state', 'expected_supply_quotes', 'worldmock.scheduling.compile'): '报价核验按实际调用加载后续排程消费者',
+    ('worldmock.life.storefront_state', 'quote_state', 'worldmock.life.models'): '报价消费者按真实行为保留到食品阶段',
+    ('worldmock.life.tool_layer', '_consume_check', 'worldmock.life.inventory_recipe'): '配方消费者按真实行为保留到食品阶段',
     ('worldmock.life.relevance', 'entry_family', 'worldmock.life.candidates'): '纯清单加载不导入候选执行模块',
     ('worldmock.life.relevance', 'entry_family', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
     ('worldmock.life.relevance', 'intent_families', 'worldmock.life.schedule'): '纯清单加载不导入活动执行模块',
@@ -525,7 +531,6 @@ def test_unknown_dynamic_import_targets_or_object_proxies_fail_closed(tmp_path, 
     ("worldmock.life.interaction_menu", {"WAYS", "PURCHASE_WAYS", "GIVE_WAY", "VERB_WAY_SEPARATOR"}),
     ("worldmock.life.name_resolution", {"way_options", "way_verb", "HOME_WORDS", "_keys", "bare_name",
                                        "resolve_name", "names_store", "written_place"}),
-    ("worldmock.life.map_models", {"DataSource", "OpeningInterval"}),
     ("worldmock.life.social_actions", {"CHAT_MET", "CALL_MET", "SOCIAL_RESOURCE_CLAIMS"}),
     ("worldmock.life.engine", {"_failure_draft", "affordance_contract", "AFFORDANCE_CONTRACT_KEYS"}),
     ("worldmock.runtime", {"MAX_REACT_TURNS", "_configure_process", "_model_identity", "stage_model_identity",

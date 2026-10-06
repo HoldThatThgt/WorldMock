@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 from worldmock.errors import PreconditionError
 from worldmock.life.discovery import DiscoveryContext, supply_row
 from worldmock.life.error_contract import MAX_CANDIDATES, NAME_REJECTION_CODES, ErrorItem, activity_candidate
-from worldmock.life.guidance import (DELIVERY_DESTINATION_REASON, DELIVERY_ROUTE_REASON, Refusal, default_reason,
+from worldmock.life.guidance import (Refusal, default_reason,
                                      items_refusal, refusal_for_code)
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, binding_action
 from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
@@ -48,7 +48,7 @@ from worldmock.life.order_routing import undeliverable
 from worldmock.life.purchase_offers import (DELIVERY_WAY, PICKUP_WAY, Offer, SourceScope, choose, handed_over,
                                             near_sources, nearest_store, offers, order_key, serves, source_scope)
 from worldmock.life.readable import clock_phrase, money_phrase
-from worldmock.life.wayfinding import UNREACHABLE_STORE_STEP, delivery_route_code, delivery_step, go_step
+from worldmock.life.wayfinding import go_step
 
 if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
@@ -298,89 +298,34 @@ def _unserved(context: LayerContext, ask: PurchaseAsk, kept: Sequence, matches: 
     店里时才能在店里交给他，下一步同远程下单送给别人：先送到自己这里再当面给）——说哪家送不到哪里（_undelivered）。"""
     pickable = [supply for supply in kept if "pickup" in supply.fulfillment_modes]
     if ask.way == PICKUP_WAY or (ask.way == SYSTEM_PURCHASE_WAY and ask.recipient_id is None and pickable):
-        reason, step, unmet = _unreached(context, ask, kept, pickable)
+        reason, step, unmet = _unreached(context, pickable)
     else:
-        deliverable = [supply for supply in kept if "delivery" in supply.fulfillment_modes]
-        reason, step, unmet = _undelivered(context, ask, deliverable)
+        reason, step, unmet = _undelivered(context, ask)
     return _refusal(_UNMET, _Item("target", ask.written, _served_specs(context, ask, matches)), reason,
                     step, unmet)
 
 
-def _unreached(context: LayerContext, ask: PurchaseAsk, kept: Sequence,
-               pickable: Sequence) -> tuple[str, str, tuple[str, ...]]:
+def _unreached(context: LayerContext, pickable: Sequence) -> tuple[str, str, tuple[str, ...]]:
     """@brief 人不在能到店买它的出售门店里时的（原因，下一步，未满足条件）：下一步去从当前地点出发路线最短的那家能到店买的
-    门店（wayfinding.go_step：此地直达「去<门店>」，经别处「可经<第一站>前往<门店>」，到不了「这里去不了那家店」）；到店写
-    要人在哪家店，「购买」写「不在出售它的门店里，也送不到<收货地>」并另记送不到的原因类别。
+    门店（登记图查询后直接提示前往门店）；到店写
+    要人在哪家店。
 
     :param pickable: 范围内支持到店的同名供给（到店时即 kept）。
     """
-    places = {item.location_id: item.name for item in context.scenario.locations}
+    places = {item.location_id: item.display_name for item in context.scenario.locations}
     origin = context.state.agents[context.agent_id].location_id
     nearest = nearest_store(context, (supply.location_id for supply in pickable))
-    step = go_step(context.scenario.routes, places, origin, nearest, UNREACHABLE_STORE_STEP)
-    if ask.way == SYSTEM_PURCHASE_WAY:
-        gap = _delivery_gap(context, ask, kept)
-        return (f"The caller is not at a selling store and delivery cannot reach {ask.receiver}.",
-                step, ("required_location_id", gap))
+    step = go_step(context.semantics.catalog.graph, places, origin, nearest)
     several = len({supply.location_id for supply in pickable}) > 1
     reason = (f"Pickup requires the caller at a selling store; the nearest is {places[nearest]}." if several
               else f"Pickup requires the caller at {places[nearest]}.")
     return reason, step, ("required_location_id",)
 
 
-def _undelivered(context: LayerContext, ask: PurchaseAsk, deliverable: Sequence) -> tuple[str, str, tuple[str, ...]]:
-    """@brief 远程下单送不到收货地时的（原因，下一步，未满足条件）：只有一家出售门店时与非指名的远程下单同一说法
-    （_undeliverable）；几家都送不到时原因写「出售它的门店都送不到<收货地>」，下一步送给自己时只指向路线最短的那家能送达、且
-    此地可达的地点，送给别人时先送到自己这里再当面给。送给别人的「购买」范围内的供给都只能到店（收货人又不在店里）时，与到店
-    买给不在店里的人同一说法（order_routing.undeliverable：「暂时送不到<名>那里」）。
-
-    :param deliverable: 范围内支持配送的同名供给；为空只会是送给别人的「购买」。
-    """
-    if not deliverable:
-        error = undeliverable(context.state, context.scenario, context.agent_id, ask.recipient_id)
-        return error.public_reason, error.suggested["next_step"], tuple(error.unmet)
-    stores = {supply.location_id for supply in deliverable}
-    if len(stores) == 1:
-        return _undeliverable(context, ask, deliverable[0])
-    nearest = nearest_store(context, stores)
-    return (f"No selling store can deliver to {ask.receiver}.", _delivery_next_step(context, ask, deliverable, nearest),
-            (_delivery_gap(context, ask, deliverable),))
-
-
-def _undeliverable(context: LayerContext, ask: PurchaseAsk, supply) -> tuple[str, str, tuple[str, ...]]:
-    """@brief 只有一家出售门店、远程下单却送不到收货地时的（原因，下一步，未满足条件），与非指名的远程下单同一说法
-    （docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）：送给自己时为「这里不在这家店的配送范围内」（delivery_destination）或「
-    这家店
-    到这里没有能走的配送路线」（delivery_route），下一步只指向那家店能送达、且从此地可达的地点；送给别人时把解析出的供给
-    交给 order_routing.undeliverable，「这里」换成收货人那里，下一步先送到自己这里再当面给。"""
-    if ask.recipient_id is not None:
-        error = undeliverable(context.state, context.scenario, context.agent_id, ask.recipient_id, supply)
-        return error.public_reason, error.suggested["next_step"], tuple(error.unmet)
-    gap = _delivery_gap(context, ask, (supply,))
-    reason = DELIVERY_ROUTE_REASON if gap == "delivery_route" else DELIVERY_DESTINATION_REASON
-    return reason, _delivery_next_step(context, ask, (supply,), supply.location_id), (gap,)
-
-
-def _delivery_gap(context: LayerContext, ask: PurchaseAsk, kept: Sequence) -> str:
-    """@brief 送不到的原因类别：收货地在某条供给的配送范围内而配送路线走不通时为 delivery_route，否则为
-    delivery_destination（docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性  的两个未满足条件）。"""
-    destination = ask.destination_id
-    covered = [supply for supply in kept if destination is not None and destination in supply.delivery_destination_ids]
-    if any(delivery_route_code(context.scenario.routes, supply.location_id, destination) is not None
-           for supply in covered):
-        return "delivery_route"
-    return "delivery_destination"
-
-
-def _delivery_next_step(context: LayerContext, ask: PurchaseAsk, kept: Sequence, nearest: str) -> str:
-    """@brief 远程下单送不到时的下一步：送给自己时只指向那家店能送达、且从此地可达的地点（wayfinding.delivery_step）；送给
-    别人时先送到自己这里再当面给。"""
-    if ask.recipient_id is not None:
-        return "Deliver to the caller first, then give the item in person."
-    supply = next(item for item in kept if item.location_id == nearest)
-    places = {item.location_id: item.name for item in context.scenario.locations}
-    here = context.state.agents[context.agent_id].location_id
-    return delivery_step(context.scenario.routes, places, here, nearest, supply.delivery_destination_ids)
+def _undelivered(context: LayerContext, ask: PurchaseAsk) -> tuple[str, str, tuple[str, ...]]:
+    """@brief 收货人没有收货地点或到店不在场时，沿用实际收货人的拒绝与当面转交提示。"""
+    error = undeliverable(context.state, context.scenario, context.agent_id, ask.recipient_id)
+    return error.public_reason, error.suggested["next_step"], tuple(error.unmet)
 
 
 def _served_specs(context: LayerContext, ask: PurchaseAsk, matches: Sequence) -> tuple[dict, ...]:

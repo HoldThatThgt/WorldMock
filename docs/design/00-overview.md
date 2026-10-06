@@ -1,12 +1,14 @@
 <a name="overview-worldmock-产品设计说明书-概述"></a>
 # WorldMock 产品设计说明书 — 概述
 
+> 按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地图中的消费行为」（阶段 2）。
+
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）<br>
 > **工具交互修订**：按[工具交互规格](../dev/SPEC-life-runtime.md#tool-interaction-工具请求)冻结本次设计；本次修订已实现，既有验收不覆盖新行为。
 > **个人事务与工作安排修订**：按[个人事务与工作安排规格](../dev/SPEC-as2-integration.md#errands-workday-运行修复入库)分阶段同步（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md) D0 作业），已实现（离线验收，证据见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)）。
 > **共享规则与可重建环境修订**：按[冻结规格](../dev/SPEC-shared-rules-and-rebuildable-env.md)同步框架职责、固定依赖与平台验收要求；实际证据见[本特性验收记录](../dev/shared-rules-and-rebuildable-env-verification.md)。
-> **日期**：2026-10-05
-> **版本**：v1.12
+> **日期**：2026-10-07
+> **版本**：v1.13
 > **目标读者**：开发工程师、算法工程师、测试工程师、产品经理
 
 具体环境及制作工具按[环境数据归属规格](../dev/SPEC-environment-data-ownership.md)归 WorldMock-Dataset，
@@ -59,14 +61,11 @@ flowchart TB
 <a name="overview-地图中的消费行为"></a>
 ### 地图中的消费行为
 
-数字人可以发现地点、比较同一商品在不同门店的报价和道路路程，自行选择到店或配送。
-地图数据集合属于资源引擎；营业、资格和交易判断属于交换引擎；当前报价、库存及营业例外由模拟引擎维护；
-记录引擎保存实际看见的信息和发生的结果。四个引擎保持原职责，不增加地图服务层。
-工具交互按错误接口、任务、供给价格、料理、查询、操作备忘与紧凑呈现形成独立端到端阶段，
-先跑通当前节点再扩展，每阶段按实际改变发布身份并完成行为与独立变异门禁；不把四种数据版本捆绑一次发布。
-各阶段通过条件见[工具交互特性门禁](../VERIFICATION.md#verification-工具交互特性门禁)，当前生产闭环已实现，不保留双格式兼容。
-真实地点不证明真实门店供给，价格、库存与营业假设必须在比较事实和来源中可见。
-开发范围和完整验收以 [地图与门店供给规格](../dev/SPEC-map-and-storefront.md#spec-map-and-storefront-地图数据集合与门店供给开发规格) 为准。
+数字人比较地点和图上最短距离，自主选择到店或配送。同类食品店铺共享菜单，食品全店同价；不同距离和履约时间仍形成真实的选择条件，系统不替人物选店。
+资源引擎统一登记具体环境的对象、绑定与发布图；交换引擎提供固定速度、费用和公式；模拟引擎执行图上出行或配送；记录引擎保存实际看见的信息、完整路径、距离、付款与到达。四个引擎保持原职责。
+地图由 WorldMock 生成、Dataset 发布，是合成连通加权图，不表达真实路网、GPS 或交通拥堵。等长最短路取完整路径元组字典序较小者，场景只选择地点，路径可以经过其他目录节点。
+运行和恢复使用清单 `environment_identity`，只读发布图；旧道路资料和库存报价合同由现行图与菜单合同取代。真实名称不证明真实数值，合成输入与实际数字足迹分别留证。
+开发范围见[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)，完整运行与平台结论按真实验收记录判定。
 
 <a name="overview-系统目标"></a>
 ### 1.3 系统目标
@@ -287,3 +286,4 @@ flowchart TB
 
 | `2026-10-05-layering-and-test-tiers` | 2026-10-05 | 当前职责对象与依赖方向、五项行为正文归属、固定历史来源和稳定引用；业务与持久合同保持不变 |
 | v1.11 | 2026-10-05 | 按共享规则与可重建环境规格同步 AS2 生命周期与 WorldMock 生活业务职责、Python 3.12、固定模型故障传播、相对交付引用、Windows 核心与重建验收要求及 Linux x86_64/TextWorld 与 aarch64 安装边界；验收要求不代表已经通过 |
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |

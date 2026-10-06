@@ -1,6 +1,10 @@
 <a name="spec-interaction-menu-特性规格交互菜单"></a>
 # 特性规格：交互菜单
 
+> 引用出处：`src/worldmock/life/admission.py::_delivery_refusal` @ `55e6a0f4c6ed6a015e334b01513767eefc227880`
+
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「浏览结果与提示看可达性」、「地图地点与发现工具」（阶段 2）。
+
 > 状态：FROZEN；2026-09-20，依据现有运行入口、并发独立审查和业界机制核查裁决。
 > 部分条款按[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；修订记录见「版本表」。
 > 「地图地点与发现工具」与「观察与人物工具」中关于按名调用、指名购买与控制工具参数形状的条款按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（2026-09-29，一日运行保真 IM1）；修订部分已实现并通过离线验收。
@@ -94,8 +98,7 @@ flowchart LR
 <a name="spec-interaction-menu-地图地点与发现工具"></a>
 ## 地图地点与发现工具
 
-地图与门店供给特性中，场景只选择地点身份，菜单地点类来自冻结地图中被选地点的 `kind`。
-`business_kind` 表示经营业态，`location_kinds` 表示活动环境，均不能替代菜单分类。
+地图与门店供给特性中，场景只选择地点身份，菜单地点类来自目录中被选地点的 `kind`。活动环境由固定映射派生，地点不另声明 `business_kind` 或 `location_kinds`。地点发现从全目录发布图读取最短距离，路径可经过未被选择的节点。
 商品目录浏览是 `interact` 的浏览对象，正式场景和人物菜单仍以 `browse` 动作限制。
 只读 `query_world` 读取已经冻结公开的供给不额外要求 `browse` 菜单，指名购买本已允许的商品可查同等公开事实；
 真实耗时浏览仍须 `browse` 准入，查询不能揭示未知供给、给 `data.supplies` 或工具层目标添加条目或可见凭据。
@@ -272,17 +275,12 @@ flowchart LR
 
 **设计。**
 
-- 浏览结果列**完整标签**「<门店>出售的<商品>」而不是裸商品名：仍是「只列名称」（人物 Prompt 规格「唯一出现原则」:141、接口合同 :766、地图与门店规格 :119），
-  不另标可得性（可得性在工具层的 `available`）。结果进入进度层，session 结束后随 `settled` 进记忆层。
-- 下一步提示先检查可达性与配送路线：不可达时用英文说明经由哪里可以到（如 `Travel via 满松科技园 to reach the store.`），没有可达的就说 `The store cannot be reached from your current location.`。
-- 「送达地不对」和「配送路线缺失」分成两个原因：`ACTIVITY_PRECONDITION_UNMET` 的 `unmet` 取 `delivery_destination` 或 `delivery_route`，原因句各写一句
-  （接口合同 :270 与时间与能量规格 :978 的固定句「暂时送不到这里」改写；地图与门店规格 :484「履约不支持、路径不可达、资料未知必须可区分」是依据）。
-- **可见性绑定不放宽**（裁决 D17）：地图与门店供给提案 :75 已裁决「直接下钻和有时长浏览只授权实际窗口」，地图与门店规格 :86-90、接口合同 :897 与 life-runtime :722-724
-  的 1800 秒与离开呈现地点失效不变；离开后人物凭进度层、记忆层里带店名的浏览结果按名下单（第三章）。提案「商品可见性不只绑定在浏览地点」列为另一选项。
-- **不可达的路线不列出**（裁决 S9）：`src/worldmock/life/projection.py` 只列 `reachable` 路线是人物 Prompt 规格「工具层」:199「永久不能满足的不列」与时间与能量规格 :583
-  的规定，不改；去不了的地点由被拒时的 `reason`、`next_step` 与本节的下一步提示说明。提案「照常列出并标 `available=false`」列为另一选项。
+- 浏览结果保留完整标签「<门店>出售的<食品>」，进度层记录实际返回名称，不生成额外世界事实。
+- 地点发现查询发布图，当前地点到任何其他目录地点都有最短路；需要前往时只写 `Go to <place>.`。
+- 外卖覆盖全地图，没有配送区域或配送路线缺失原因，不生成中转地点提示。
+- 可见性和浏览结果归属仍按各自合同处理；图只提供距离与路径，不改变同一决策只能提交一个世界请求的边界。
 
-**验收。** 浏览结果为完整标签；离开浏览地点后同名商品仍可按名下单；下一步提示只指向从当前地点可达的地点；两种配送原因各一例。
+**验收。** 地点提示使用完整地点名称，只有 `Go to <place>.` 句式；等长路径按冻结完整路径决胜；配送不返回区域或不可达原因。
 
 <a name="errands-workday-查询筛选与返回精简"></a>
 ## 查询筛选与返回精简
@@ -391,7 +389,7 @@ flowchart LR
 | `2026-09-29-dayrun-fidelity-implemented` | 2026-09-29 | 一日运行保真规格实现后（按 `e377669` 的代码核对）：文件头改为修订部分（按名调用、指名购买的 `from` 约束、分段匹配、方式「购买」与请求级 `prefer`、控制工具参数形状）已实现并通过离线验收；「观察与人物工具」原生工具的例外补输出截断后的那次重试同样去掉记忆查询工具（该规格 7.2，冻结时漏改）；条款正文不变 |
 | `2026-10-02-errands-workday` | 2026-10-02 | 按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订，修订部分在冻结时未随文实现（该规格阶段 1（就寝反思的后台严格工具）、阶段 2（控制工具的 `errands`）、阶段 4（`query_world` 六键）实现后的核对见 `2026-10-04-errands-workday-implemented` 行；逐条作业见[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)的文档同步作业 IM1–IM6）。改动：文件头；「观察与人物工具」`query_world` 行改六键并写来源与可执行筛选，三个控制工具行增请求级 `errands`（不受地点菜单剪裁）。顺带更正既有漂移：只读问答不开放 `query_world`；最后一个回合与截断重试去掉的是全部查询工具；`prompt_sha256` 绑定两份系统层与七层 Schema、`tool_schema_sha256` 只绑定人物工具面，后台严格工具由 `code_sha256` 绑定。工作安排不进入交互菜单，菜单声明、交集与拒绝条款不变 |
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 IM7，按 `d8a41d3` 的代码核对）：文件头改为修订部分（就寝反思的后台严格工具、控制工具的请求级 `errands`、`query_world` 六键）已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行；条款正文不改 |
-
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
 <a name="spec-interaction-menu-当日目标保护项"></a>
 ## 当日目标保护项
 

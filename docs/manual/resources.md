@@ -1,7 +1,7 @@
 <a name="resources-定义地点门店供给与世界素材"></a>
 # 定义地点、门店供给与世界素材
 
-> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）。
+> 2026-10-07：按[资源与规则引擎简化规格](../dev/SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「先完成一个最小修改：减少一家门店的初始库存、编写门店供给与商品、完整类别供给与冻结价格、当前供给字段与发布注意事项、新增商品对象、真实制作后再食用、定义地点、门店供给与世界素材、先找到应该修改的文件、哪些路径可以换、输入与生成文件、修改后更新文件身份、验证修改」（阶段 1）；「编写地点」、「名称真实、数值合成」（阶段 2）。
 
 环境目录说明“这个世界有什么”，规则由 WorldMock 包提供。编辑店铺类型、食品、app 绑定与内容，再按地点生成地图、刷新身份并检查整个环境。运行只读已发布快照；修改不改变已经运行的世界。
 
@@ -61,85 +61,32 @@ worldmock environment generate-map   --locations experiments/my-world/catalog/lo
 
 
 <a name="resources-编写地点与营业时间"></a>
-## 编写地点与营业时间
+## 编写地点
 
-地图主文件声明身份、版本、坐标系、时区、边界、生成种子以及三个子文件的路径与哈希。
-完整模板见种子 20260105 地图（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/20260105/dataset.json`）、
-种子 20260106 地图（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/20260106/dataset.json`）和共享地点（`../WorldMock-Dataset/environment/zhangjiang-baseline/corpora/zhangjiang-map/locations.json`）。
-地图声明与地点、供给、路线文件均使用 `schema_version: 3`，声明必填 `random_seed/category_assignment_sha256`；
-种子必须与场景一致，类别声明的字节哈希必须匹配，旧结构直接拒绝。
+在 `catalog/locations.json` 编写地点。每行恰有五个字段，场景只选择 `location_id`，不复制定义。
 
-| 地点字段 | 必填与取值 | 含义和关联 |
+| 地点字段 | 必填与取值 | 含义 |
 | --- | --- | --- |
-| `location_id`、`name` | 必填非空字符串；身份唯一 | 场景、路线、供给、人物住处和任务地点用这个身份关联；`name` 是人物看到并照抄的名称 |
-| `branch_label` | 可选非空字符串，缺省 `null` | 分店标签：显示名为「名称（branch_label）」，提示、事件与导出都用显示名；所选地点的显示名必须互不相同，同名地点靠它区分 |
-| `kind` | 必填，只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一 | 对应场景 `interaction_menus_by_location_kind` 的键，也是人物看到的场所类型（家、办公室、商户、餐馆、便利店、超市、菜市场、健身房、公园）；场景选中的地点用了其他值即加载拒绝；改类别要同步菜单 |
-| `business_kind` | 必填字符串 | 地点业态说明，与活动环境不同 |
-| `longitude`、`latitude` | 必填有限数值，WGS84 经度/纬度 | 还必须落在地图 `bounds` 内 |
-| `location_kinds` | 必填非空列表，无重复 | 只允许 `home`、`office`、`outdoor`、`fitness`、`venue`；地点不能写 `anywhere` |
-| `opening_calendars` | 必填列表，可为空 | 为空表示没有营业时间声明；不能理解为全天营业 |
-| `required_qualifications` | 必填字符串列表，可为空 | 进入地点需要人物持有的资格 |
-| `brand` | 必填，可为 `null` | 有可靠品牌身份时才填 `brand_id`、`name`、`source` |
-| `source` | 必填来源对象 | 区分事实和实验假设，见下文 |
-| `affordances` | 必填对象 | 保留现有住所、办公室等世界素材要求；任意新增键不会自动创造运行能力 |
+| `location_id` | 非空字符串，唯一 | 目录、图、场景、人物住处与工作地点的关联身份 |
+| `name` | 非空字符串 | 人物看到并照抄的名称 |
+| `branch_label` | 字符串或 `null`，显式必填 | 分店标签；有标签时显示为「名称（标签）」 |
+| `kind` | `home`、`office`、`park`、`fitness`、`restaurant`、`cafe`、`convenience_store`、`supermarket` | 八个固定类型，决定菜单分类并派生活动环境 |
+| `app_ids` | 排序且无重复的 app 身份列表，可为空 | 仅食品店铺类型可绑定 app；空列表只允许到店 |
 
-显示名要写人物会说的店名或地名；同名分店用 `branch_label` 区分，例如「全家（东昌路店）」，不要把坐标或内部标识写进名称。
-显示名（连同分店标签）带坐标（如「31.2, 121.5」）或标识形态（如「sim-01」「poi-node-1」）时，
-新建运行与 `worldmock validate` 报输入警告 `LOCATION_NAME_SUSPICIOUS`，场景照常加载。
-
-营业日历中 `weekly` 必须包含字符串键 `"0"` 至 `"6"`，依次对应周一至周日。
-每日区间用当地零点起算的**分钟数**：`540` 是 09:00，`1320` 是 22:00。
-一天可有多个不重叠区间；`[]` 表示明确休息。`exceptions` 用 `YYYY-MM-DD` 日期覆盖当天周计划。
-
-以下是一个日历对象中的**局部片段**，不能独立替代完整日历：
-
-```json
-{
-  "weekly": {
-    "0": [{"opens": 540, "closes": 1320}],
-    "1": [{"opens": 540, "closes": 1320}],
-    "2": [{"opens": 540, "closes": 1320}],
-    "3": [{"opens": 540, "closes": 1320}],
-    "4": [{"opens": 540, "closes": 1320}],
-    "5": [{"opens": 600, "closes": 1200}],
-    "6": []
-  },
-  "exceptions": {"2026-01-01": []}
-}
-```
-
-跨午夜营业可写 `{"opens": 1200, "closes": 1560}`，表示当晚 20:00 到次日 02:00。
-单个区间必须正向且不超过一天，相邻两天的跨日区间也不能重叠。
+显示名写人物会说的地名或店名，同名分店用 `branch_label` 区分；显示名须唯一，不能与「应用：<name>」标签冲突。没有经纬度、营业日历、资格或自定义活动环境字段。
+地点修改后，用 `worldmock environment generate-map --locations catalog/locations.json --seed INT --output catalog/map.json` 生成全目录图，再由 Dataset 刷新清单并发布新环境版本。`--check` 逐字节核对现有文件，不写输出；运行只读发布图。
 
 <a name="resources-来源与有效期"></a>
-### 来源与有效期
+### 名称真实、数值合成
 
-地点和供给的 `source` 都要求 `kind`、`url`、`retrieved_at`、`license`、`notice`、`fact_cutoff`、`applicability`。
-`kind` 只接受 `fact` 或 `scenario`；人为设定的价格、库存、营业时间写 `scenario`。
-来源取得时间必须带时区，且不晚于地图的 `prepared_at`；事实截止日期不能晚于取得日期。
-
-营业日历和报价额外要求 `effective_from`、`effective_to`、`reviewed_on`、`still_valid_on` 和自己的 `source`。
-`effective_to: null` 表示未声明截止；同一对象的有效期不能重叠。
-地图发布日必须处于核对日与有效日之间。历史模拟日期和资料取得日期可以不同，但要在 `applicability` 中如实解释。
+地点、店铺和 app 名称保持真实名称语义，具体对象、绑定与来源由 Dataset 发布。距离、速度、食品营养、费用和配送时间属于明确的合成模拟数值，不能冒充真实路网或实时门店数据。
+WorldMock 生成随机连通加权图并提供固定规则，Dataset 保存图种子、生成规则版本和规范字节；目录与规则身份进入运行清单。图不含道路许可、路由响应、坐标或资料有效期。
+内容摘要按目录自己的来源合同维护，语料文件继续经清单验证；不把名称真实性推成数值真实性。
 
 <a name="resources-添加地点时还要补路线"></a>
 ### 添加地点时还要补路线
 
-每个场景选中的**有向地点对 × 地图出行方式**都必须有一条路线记录。
-`walking` 对应 `foot` 路由配置，`driving` 对应 `car`；不能只写单向路线。
 
-| 路线状态 | 必须提供 |
-| --- | --- |
-| `reachable` | 正距离（米）、正时长（秒）、非负车费（分），以及带几何和实际出行方式的冻结成功响应 |
-| `unreachable` | 冻结的 `NoRoute` 响应；不能填写距离、时长或车费 |
-| `unknown` | 非空 `reason`；不能声称已有响应，也不能填写可达指标 |
-
-基础时长来自冻结响应；实际计划时长还乘[出行时长规则](rules.md#rules-出行时长)。
-路线车费必须与当前交换规则重新计算的金额一致。
-
-地图采集和路线重新取得由 Dataset 的制作工具执行。新版本须按环境种子发布完整逐店供给、
-冻结路线响应和逐层文件身份，并同步场景选择；WorldMock 只加载已发布快照。
-新增地点前先补齐该地点涉及的显式路线状态，再按数据仓说明发布，不能由运行时在线补路线。
 
 <a name="resources-编写门店供给与商品"></a>
 ## 编写门店供给与商品

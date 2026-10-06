@@ -1,7 +1,6 @@
 """@brief 管理门店供给的初始事实、当前报价、来源与恢复不变量。"""
 
 from __future__ import annotations
-from worldmock.scheduling.compile import compile_schedule
 from worldmock.scheduling.events import ScheduledKind
 
 import logging
@@ -9,20 +8,21 @@ from typing import TYPE_CHECKING
 
 from worldmock.errors import IntegrityError
 from worldmock.life.models import DataSource
-from worldmock.life.models import SupplyQuoteState, WorldState
+from worldmock.life.models import WorldState
 from worldmock.life.opening_hours import quote_at
 
 if TYPE_CHECKING:
-    from worldmock.life.map_models import SupplyConfig
     from worldmock.scheduling.events import ScheduledEvent
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def quote_state(declaration) -> SupplyQuoteState | None:
+def quote_state(declaration):
     """@brief 将适用声明转换为持久化报价，未定义区间保留空值。"""
     if declaration is None:
         return None
+    from worldmock.life.models import SupplyQuoteState
+
     end = declaration.effective_to
     return SupplyQuoteState(
         price_fen=declaration.price_fen, price_version=declaration.price_version,
@@ -40,12 +40,12 @@ def initial_supply_state(scenario, now: int) -> dict:
     }
 
 
-def current_quote(state: WorldState, supply_id: str) -> SupplyQuoteState | None:
+def current_quote(state: WorldState, supply_id: str):
     """@brief 观察、比较与结算共用世界中的实际报价，过期或尚未生效返回未知。"""
     return effective_quote(state.supply_quotes[supply_id], state.current_time)
 
 
-def effective_quote(quote: SupplyQuoteState | None, now: int) -> SupplyQuoteState | None:
+def effective_quote(quote, now: int):
     """@brief 对只读世界切片执行与权威报价完全相同的半开时段判断。"""
     if quote is None or now < quote.effective_from:
         return None
@@ -54,9 +54,10 @@ def effective_quote(quote: SupplyQuoteState | None, now: int) -> SupplyQuoteStat
     return quote
 
 
-def changed_quote(previous: SupplyQuoteState | None, supply: SupplyConfig,
-                  event: ScheduledEvent, product) -> SupplyQuoteState:
+def changed_quote(previous, supply, event: ScheduledEvent, product):
     """@brief 调价投影与恢复核验共用版本、来源和声明边界规则，不修改输入状态。"""
+    from worldmock.life.models import SupplyQuoteState
+
     previous = effective_quote(previous, event.due_at)
     if previous is None:
         _fail("Scheduled price change requires an effective quote declaration")
@@ -76,8 +77,9 @@ def changed_quote(previous: SupplyQuoteState | None, supply: SupplyConfig,
         source=source.model_dump(mode="json"))
 
 
-def expected_supply_quotes(scenario, now: int) -> dict[str, SupplyQuoteState | None]:
+def expected_supply_quotes(scenario, now: int) -> dict:
     """@brief 从运行起点按真实预排顺序推导报价，用于核验而不覆盖持久化世界。"""
+    from worldmock.scheduling.compile import compile_schedule
 
     start = int(scenario.start_at.timestamp())
     supplies = {item.supply_id: item for item in scenario.supplies}
@@ -96,31 +98,14 @@ def expected_supply_quotes(scenario, now: int) -> dict[str, SupplyQuoteState | N
     return quotes
 
 
-def map_provenance(scenario) -> dict:
-    """@brief 运行与导出保留固定地图版本、文件身份和来源通知。"""
-    dataset = scenario.map_dataset
-    return {
-        "dataset_id": dataset.dataset_id, "version": dataset.version,
-        "random_seed": dataset.random_seed,
-        "category_assignment_sha256": dataset.category_assignment_sha256,
-        "coordinate_system": dataset.coordinate_system, "timezone": dataset.timezone,
-        "prepared_at": dataset.prepared_at.isoformat(), "source": dataset.source.model_dump(mode="json"),
-        "locations_file": dataset.locations_file.model_dump(mode="json"),
-        "supplies_file": dataset.supplies_file.model_dump(mode="json"),
-        "routes_file": dataset.routes_file.model_dump(mode="json"),
-    }
-
-
 def validate_storefront_state(state: WorldState, scenario, manifest: dict) -> None:
-    """@brief 打开和恢复要求地图、库存、报价及人物可见供给与冻结身份一致。"""
+    """@brief 打开和恢复核对既有库存、报价及人物可见供给，环境身份由运行身份入口核对。"""
     supplies = {item.supply_id for item in scenario.supplies}
     places = {item.location_id for item in scenario.locations}
     if set(state.supply_stock) != supplies or set(state.supply_quotes) != supplies:
         _fail("Runtime supply identities disagree with the frozen map")
     if set(state.opening_exceptions) != places:
         _fail("Runtime opening exception locations disagree with the frozen map")
-    if manifest.get("map_dataset") != map_provenance(scenario):
-        _fail("Runtime map identity mismatch")
     if state.supply_quotes != expected_supply_quotes(scenario, state.current_time):
         _fail("Runtime supply quotes disagree with the declared quote timeline")
     products = {item.product_id: item for item in scenario.products}

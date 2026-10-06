@@ -28,7 +28,6 @@ def test_catalog_registers_artificial_objects_and_indexes(loaded_catalog):
     assert catalog.location_kinds("park") == ("outdoor",)
     assert catalog.work_topics["topic-sales"].target_seconds == 28800
     assert catalog.foods["beef-noodles"].price_fen == 2800
-    assert not hasattr(catalog, "shortest_m")
     with pytest.raises(TypeError):
         catalog.apps["fake"] = catalog.apps["douyin"]
 

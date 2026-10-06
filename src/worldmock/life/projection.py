@@ -292,7 +292,7 @@ def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[
     if row["kind"] == "location":
         return [binding_action(TRAVEL_WAYS[route["mode"]], "travel_to", travel_mode=route["mode"])
                 for route in inputs.extras.get("route_rows", [])
-                if route["destination"] == row["object_id"] and route["status"] == "reachable"]
+                if route["destination"] == row["object_id"]]
     if row["kind"] == "holding":
         product = next(item for item in (*inputs.scenario.products, *inputs.scenario.inventory_items)
                        if item.product_id == row["object_id"])

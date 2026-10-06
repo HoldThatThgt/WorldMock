@@ -16,7 +16,6 @@ from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ContractKind
 
 PERSON_CATEGORY_ID = "person"
-TRAVEL_OBJECT_ID = "travel-service"
 CONTRACT_OBJECT_IDS = {
     ContractKind.HOURLY: "contract-hourly",
     ContractKind.PIECE: "contract-piece",
@@ -147,7 +146,6 @@ def _initial_pairs(document: Any, catalog: Any) -> list[ReachablePair]:
         pairs.extend(ReachablePair(obj.category_id, action, f"holding:{object_id}")
                      for action in _consume_actions(obj))
     pairs.extend(_task_pairs(document, catalog))
-    pairs.extend(_route_pairs(document, catalog))
     return pairs
 
 
@@ -161,11 +159,6 @@ def _task_pairs(document: Any, catalog: Any) -> list[ReachablePair]:
     return pairs
 
 
-def _route_pairs(document: Any, catalog: Any) -> list[ReachablePair]:
-    """@brief 把每种已配置路线方式纳入启动前准入。"""
-    target = _require_object(catalog, TRAVEL_OBJECT_ID, "travel service")
-    return [ReachablePair(target.category_id, Action(f"travel:{route.mode.value}"),
-                          f"route:{route.route_id}") for route in document.routes]
 
 
 def _consume_actions(obj: Any) -> tuple[Action, ...]:

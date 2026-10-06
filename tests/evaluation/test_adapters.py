@@ -432,7 +432,7 @@ def test_parallel_travel_and_watch_project_two_actual_activities() -> None:
         "status": "in_progress",
         "data": {"activities": [
             {"kind": "travel", "target_id": "park-private", "travel_mode": "driving",
-             "status": "active", "data": {"route_id": "route-private"}},
+             "status": "active", "data": {"trip_id": "route-private"}},
             {"kind": "watch", "target_id": "feed-private", "status": "active", "data": {}},
         ], "activity_results": [
             {"resource_changes": {"account:traveler": -100, "account:transit": 100}},
@@ -486,6 +486,38 @@ def _public_event(
         state_version_after=sequence,
     )
     return event.model_dump(mode="json")
+
+
+def test_graph_travel_result_projects_trip_identity_and_full_path():
+    """@brief 生产图计划的真实活动快照进入事件和公开证据，不调用导出。"""
+    from tests.life.test_travel_graph import travel_case
+    from worldmock.footprints.timeline_labels import _load_render_day
+    from worldmock.life.activity_titles import TitleIndex, activity_snapshot
+    from worldmock.life.observe import _location_catalog
+    from worldmock.life.world_setup import load_runtime_scenario
+
+    _, _, state, trip = travel_case("driving")
+    snapshot = activity_snapshot(state.activities["travel-1"], TitleIndex({}, {}, {}, {}, {}), ())
+    request = _public_event(1, "action_requested", {"tool_name": "start_activity", "request": {
+        "items": [{"target": "地点：公司", "way": "驾车", "from": None, "to": None}],
+        "answering": None, "prefer": None}}, "action-1")
+    result = _public_event(2, "action_result", {"status": "in_progress", "data": {
+        "activity": snapshot, "resource_changes": {"account:agent:1": -trip.fare_fen,
+                                                    "account:transport:service": trip.fare_fen}}}, "action-1")
+    semantics, _ = load_runtime_scenario(Path(__file__).resolve().parents[1] /
+                                        "fixtures/environment/scenarios/single-person.json")
+    observation = _public_event(3, "observation", {"locations": _location_catalog(semantics.scenario)})
+    names = _load_render_day().name_index([observation])
+    assert names["locations"]["home"] == "家" and names["locations"]["office"] == "公司"
+    assert snapshot["location_id"] == "home" and snapshot["destination_id"] == "office"
+    assert snapshot["data"]["path"] == ["home", "noodle-1", "office"]
+    assert snapshot["data"]["distance_meters"] == 3274
+    artifact = json.dumps([request, result, observation, names])
+    assert not any(key in artifact for key in ("route_id", "longitude", "latitude", "coordinate", "trajectory"))
+    evidence = worldmock_public_evidence([parse_world_event(row) for row in (request, result)], [], {})
+    assert {(row.category, row.state, row.object_type, row.object_key) for row in evidence} == {
+        ("travel", "requested", "route", trip.trip_id), ("travel", "started", "route", trip.trip_id),
+        ("travel", "paid", "route", trip.trip_id)}
 
 
 def _refresh_artifact_hash(root: Path, name: str, raw: bytes, rows: int) -> None:

@@ -46,7 +46,7 @@ from worldmock.life.models import (
 from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
 from worldmock.life.schedule import RemindTimeInvalid, day_plan_expired, registered_goals, revise_day_plan
 from worldmock.life.storefront_runtime import StorefrontRuntime
-from worldmock.life.travel import pay_travel_fare, planned_travel
+from worldmock.life.travel import pay_travel_fare, planned_travel, require_travel_duration
 from worldmock.life.work import (
     load_work_input,
     prepare_work_submission,
@@ -1051,7 +1051,7 @@ class ActionHandlers:
             place_names=place_names(self.context.scenario),
             activity_names=names or {},
             tasks=self.context.rules.tasks,
-            routes=self.context.scenario.routes,
+            graph=self.context.semantics.catalog.graph,
         )
 
     @property
@@ -1226,16 +1226,12 @@ class ActionHandlers:
         )
 
     def _travel_start_context(self, state: WorldState, agent, request: ActivityStartParams):
-        """@brief 在扣款前完成路线与品类规则复查。"""
+        """@brief 在扣款前按唯一发布图复查计划时长。"""
         if request.activity_type != ActivityKind.TRAVEL:
             return None
-        route, expected = planned_travel(
+        return require_travel_duration(
             self.context.scenario, self.context.semantics, agent.location_id, request, state.current_time
         )
-        match = self.context.semantics.travel_match(route.mode.value)
-        if request.planned_duration_seconds != expected:
-            raise BusinessRuleError("ROUTE_DURATION_MISMATCH")
-        return (route, match)
 
     def _start(
         self, state: WorldState, pending: PendingAction, request: ActivityStartParams
@@ -1259,8 +1255,9 @@ class ActionHandlers:
         changed_state = state
         payment = None
         if travel_context is not None:
-            (route, _) = travel_context
-            (changed_state, payment) = pay_travel_fare(state, self.context.scenario, pending.agent_id, route)
+            (changed_state, payment) = pay_travel_fare(
+                state, self.context.scenario, pending.agent_id, travel_context
+            )
             data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         if request.activity_type == ActivityKind.LIFESTYLE:
             item = next(item for item in self.context.lifestyle_items if item.activity_id == request.target_id)
@@ -1272,8 +1269,6 @@ class ActionHandlers:
         result_data = {"activity": activity_snapshot(activity, self.context.titles, self.context.lifestyle_items)}
         if payment is not None:
             result_data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
-        if travel_context is not None:
-            result_data["category_matches"] = match_rows((travel_context[1],))
         result = ActionResult(
             action_id=pending.action_id,
             agent_id=agent.agent_id,

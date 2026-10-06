@@ -6,6 +6,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from worldmock.life.engine import LifeEngine
+
 from tests.data_paths import ENVIRONMENT_ROOT
 from dataclasses import replace
 
@@ -13,18 +18,14 @@ import json
 from pathlib import Path
 
 import pytest
-from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
 from tests.life.conftest import (advance_next, advance_until_ready, context, progress_calls, stage_day_plan,
                                  target_actions, target_tools, tool_targets, wake_by_mail, start_request,
                                  conclude_request, pause_request, report_request)
-from tests.life.test_export_integration import _stage_final_interval
 from worldmock.errors import BusinessRuleError, ProtocolError
-from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, sessions
-from worldmock.life.engine import LifeEngine
 from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTaskSummaryRequest, SessionKind,
                                    SessionStatus, StartActivityRequest, active_activities)
@@ -32,8 +33,38 @@ from worldmock.life.models import (ActivityRequestItem, ActivityStatus, RecallTa
 _FORMAL = ENVIRONMENT_ROOT / "scenarios/single-person.json"
 
 
+def test_graph_departure_and_arrival_switch_real_sessions_without_engine():
+    """@brief 真实世界模型的出发与到达转换可直接验证，完整引擎接线留给集成阶段。"""
+    from tests.life.test_travel_graph import travel_case
+    from worldmock.life.travel import record_arrival, update_travel
+
+    catalog, _, state, trip = travel_case()
+    names = {identity: place.display_name for identity, place in catalog.locations.items()}
+    state = sessions.open_stay(state, 1, names)
+    state = sessions.begin_transit(state, 1, "office", names, opened_by_action_id="action-1")
+    transit = sessions.current_session(state, 1)
+    assert transit.kind == SessionKind.TRANSIT and transit.origin_id == "home"
+    assert transit.destination_id == "office" and state.agents[1].location_id == "home"
+    state = sessions.assign(state, transit.session_id, ["travel-1"])
+    done_at = 1000 + trip.duration_seconds
+    completed = state.activities["travel-1"].model_copy(update={"elapsed_seconds": trip.duration_seconds,
+        "last_settled_at": done_at, "status": ActivityStatus.COMPLETED, "ended_at": done_at})
+    activity, agent = update_travel(completed, trip, state.agents[1])
+    record_arrival(activity, agent)
+    agent = agent.model_copy(update={"body_settled_at": done_at})
+    state = state.model_copy(update={"current_time": done_at, "activities": {"travel-1": activity}, "agents": {1: agent}})
+    state, ended = sessions.end_transit(state, 1, names)
+    assert ended == [] and sessions.current_session(state, 1).location_id == "office"
+    assert state.sessions[transit.session_id].status == SessionStatus.ENDED
+    assert state.activities["travel-1"].location_id == "home"
+    from worldmock.life.models import WorldState
+
+    assert WorldState.model_validate_json(state.model_dump_json()).agents[1].location_id == "office"
+
+
 def _round(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1):
     """@brief 单人物按真实顺序观察、登记并结算一轮，返回（本轮观察, 结果）。"""
+    from agentsociety2.society import DirectToolCall
     decision = context(engine, name, agent_id)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
@@ -193,6 +224,7 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     """当日没有计划时一觉醒来：睡眠是工具层刚结束的活动目标，待办层的今日计划为 null（当日计划由零点后台任务生成，
     第四章）；结束它可用，别的动作都标「先给刚结束的<睡眠>收尾」，conclude_activity 点名这段睡眠并被受理
     （第七章「活动一结束就要结束它」）。"""
+    from agentsociety2.society import DirectToolCall
     engine = engine_factory()
     slept = _start(engine, "no-plan-sleep", ("自己", "sleep", "睡觉"))
     assert advance_until_ready(engine, limit=200)
@@ -538,6 +570,7 @@ def test_arrival_denied_fails_travel_and_starts_stay_at_destination(engine_facto
 
 def test_experiment_end_ends_every_session_without_conclusion(engine_factory) -> None:
     """实验截止时所有会话结束；进行中的活动按 truncated 处理，不要求收尾。"""
+    from tests.life.test_export_integration import _stage_final_interval
     engine = engine_factory()
     _stage_final_interval(engine, 600)
     stage_day_plan(engine)
@@ -553,6 +586,7 @@ def test_experiment_end_ends_every_session_without_conclusion(engine_factory) ->
 
 def _final_export(engine: LifeEngine, directory: Path) -> tuple[dict[str, dict], dict[str, dict]]:
     """@brief 实验截止后在最终检查点导出，返回（导出的活动行, 最终检查点的活动快照）。"""
+    from worldmock.footprints.export import export_run
     agent_ref = engine.context.store.assets.put_json({"agent_id": 1}, {"kind": "location_sessions_final_export"})
     checkpoint = engine.checkpoint({"agent:1": agent_ref})
     manifest = export_run(engine.context.store, checkpoint.last_event_seq, directory)
@@ -567,6 +601,7 @@ def test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_
     """同一请求开始的两项中一项暂停，另一项仍在进行（或已由人物结束、另开了一段等待）时跑到实验截止：每项被截断的
     活动（含暂停的）写一条带截断快照、回链开始请求的 activity_truncated；同源两项的聚合终态不带快照，导出的
     activities.jsonl 仍逐行等于最终检查点（第八章「活动」）。"""
+    from tests.life.test_export_integration import _stage_final_interval
     engine = engine_factory()
     _stage_final_interval(engine, 600)
     stage_day_plan(engine)
@@ -735,6 +770,7 @@ def test_recall_of_content_started_with_a_walk_names_the_road(engine_factory) ->
 
 def test_sessions_and_pending_conclusion_survive_reopen(engine_factory) -> None:
     """地点会话与待收尾随世界状态保存；重开后仍须在同一秒收尾。"""
+    from worldmock.life.engine import LifeEngine
     engine = engine_factory()
     stage_day_plan(engine)
     travel = _depart(engine, "reopen-depart")
@@ -754,6 +790,7 @@ def test_sessions_and_pending_conclusion_survive_reopen(engine_factory) -> None:
 
 def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory, tmp_path: Path) -> None:
     """暂停、恢复与结束逐活动各写一条带快照、含本次请求事件的 environment_event；导出的活动与最终检查点逐项一致。"""
+    from worldmock.footprints.export import export_run
     engine = engine_factory()
     stage_day_plan(engine)
     first, second = _two_parallel(engine, "records")

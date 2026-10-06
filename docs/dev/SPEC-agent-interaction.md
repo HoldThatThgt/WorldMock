@@ -1,6 +1,8 @@
 <a name="spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面"></a>
 # 特性规格：数字人交互（会话层、上下文分层与稳定工具面）
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「对象与动作选择」、「前置条件前置与前往提醒」、「会话的状态位置」（阶段 2）。
+
 > 状态：**FROZEN**；2026-09-23 按 issue #1 的运行证据及用户裁决修订；2026-09-24 按[时间与能量规格](SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动)修订，修订部分已实现并通过离线验收（证据见[时间与能量验收记录](../archive/time-and-energy/time-and-energy-verification.md)）；2026-09-27 按人物 Prompt 规格修订（[人物 Prompt 规格](SPEC-life-realism.md#persona-prompt-七层请求)「冻结条款修订」第 7、8、12、13、15、16、20–22、24、26 行），修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](../archive/persona-prompt/persona-prompt-verification.md)）；2026-09-29 按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)修订（「冻结条款修订」第 10、11、13、14、18 行与其 3.5：控制工具改为 `items`、按名调用、指名购买与 `prefer`、名称类拒绝不计轮、公开结果键），修订部分已实现并通过离线验收。
 > 来源：[数字人交互方案](PROPOSAL-agent-interaction.md#proposal-agent-interaction-数字人交互方案)。裁决后本规格取代该提案的全部行为定义。
 > 字段与 Schema 由 [接口合同](../CONTRACTS.md#contracts-worldmock-接口合同) 承载；设计职责由既有设计文档承载。
@@ -142,7 +144,7 @@ stateDiagram-v2
 | 项 | 值 |
 | --- | --- |
 | 字段 | `WorldState.sessions: dict[str, SessionState]`，带 `default_factory` |
-| 结构版本 | `WORLD_SCHEMA_VERSION` **5 → 6**（本规格引入会话）；时间与能量规格升为 **7**（地点会话与活动新增字段）；人物 Prompt 规格升为 **8**（观察改为七层数据）；个人事务与工作安排规格阶段 2 升为 **9**（`AgentState.errands`，只升一次，版本 8 的检查点与导出按版本拒绝）。定义在 `src/worldmock/life/models.py::AgentState.errands`，`WorldState.schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值** |
+| 结构版本 | `WORLD_SCHEMA_VERSION` **5 → 6**（本规格引入会话）；时间与能量规格升为 **7**（地点会话与活动新增字段）；人物 Prompt 规格升为 **8**（观察改为七层数据）；个人事务与工作安排规格阶段 2 升为 **9**（`AgentState.errands`，只升一次，版本 8 的检查点与导出按版本拒绝）。资源与规则引擎简化规格整体升为 **10**，旧结构直接拒绝；定义在 `src/worldmock/life/models.py::AgentState.errands`，`WorldState.schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值** |
 | 场景声明 | **不需要**（会话是运行期生成物，同 `activities` / `deliveries`） |
 | 旧检查点 | **拒绝加载**：`schema_version` 是 `Literal[WORLD_SCHEMA_VERSION]` 且**无默认值**；**不提供迁移或降级读取路径**，既有运行目录的检查点一律视为作废，需重跑而非恢复 |
 
@@ -308,7 +310,7 @@ flowchart LR
 
 | 动作 | 不由模型填写的执行参数 |
 | --- | --- |
-| 前往 | 由所选目的地与方式解析冻结路线，使用路线精确秒数和票价；展示分钟数仅供阅读 |
+| 前往 | 由所选目的地与方式查询发布图，时长为 ceil(最短距离 ÷ 方式速度)，费用按固定规则；展示分钟数仅供阅读 |
 | 工作 | 时长取剩余合同秒数、距截止秒数与活动允许上限中的最小值；距截止与剩余合同都不少于 60 秒才开工；恢复同样受截止约束，计划时长取距截止与合同上限减已累计中的较小值，不足 60 秒以 `ACTIVITY_DURATION_INVALID` 业务拒绝；30 分钟播报边界可在活动进行中唤醒 |
 | 观看 | 「接着看」取剩余内容秒数；已看完或剩余不足 60 秒时为「从头再看」，取完整内容时长；超过 86400 秒按 86400 秒受理；速度固定为 1 倍 |
 | 游戏内容 | 取内容剩余时长，超过 86400 秒按 86400 秒受理；场景游戏取场景 `activity_feedback_seconds` |
@@ -505,7 +507,7 @@ if snap.is_asleep:
 工作场景输入只保留显式必填的 `appointment`：普通工作写 `null`，真实预约写 `{starts_at, reason}`；
 删除输入 `available_at`、`availability_kind`、`appointment_reason`。内部 `RuntimeWorkTask.available_at`
 由最早发给本人且关联该任务的邮件 `sent_at` 或预约 `starts_at` 派生，不写回输入、不增加检查点字段。
-普通工作收到通知后，在地点及既有截止、技能、素材条件满足时即可开始；任务的 `contract.opens` 使用同一派生时刻。
+普通工作收到通知后，在地点及既有截止、素材条件满足时即可开始；任务的 `contract.opens` 使用同一派生时刻。
 每封 `related_task_id` 非空的邮件都必须关联已存在的任务，且收件人必须是该任务受派人；另外，每个任务都至少有一封本人关联邮件。
 预约只要求最早本人关联通知的 `sent_at <= appointment.starts_at`，后续合法提醒可晚于预约开始，不改变内部 `available_at`。
 邮件到达不公开正文；阅读结果保留实际所读正文，仅不重复任务合同时间、地点或验收答案。
@@ -516,10 +518,6 @@ if snap.is_asleep:
 | 前置条件 | 判定处 | 在提示中的位置 |
 | --- | --- | --- |
 | 必需地点 `required_location_id` | `src/worldmock/life/work.py` `ACTIVITY_PRECONDITION_UNMET`（`unmet` 含 `required_location_id`） | 工具层 task 目标的工作动作：人不在该地点时 `available=false`，`reason` 点名地点 |
-| 必需技能与门槛 | `src/worldmock/life/work.py` `ACTIVITY_PRECONDITION_UNMET`（`unmet` 含 `required_skill`） | 技能不够的工作运行内不能满足，不列为目标 |
-| 合同最长时长 | `src/worldmock/life/work.py` `WORK_DURATION_EXCEEDS_CONTRACT` | task 目标的 `contract`（截止、有效工时的达标情况与前景）与工作动作的 `duration` |
-| 地点营业状态 | `src/worldmock/life/basket.py` | 地点目标的 `state` |
-| 地点资格 `required_qualifications` | `src/worldmock/life/basket.py` `LOCATION_ACCESS_DENIED` | 对应动作的 `available`、`reason` |
 
 能量不是前置条件（时间与能量规格第三章）。
 场景声明的工作安排也不是前置条件：环境层 `duty` 只是环境求值的事实呈现，不改变任何动作的 `available`，不新增拒绝，班内离岗照常列出、照常受理；
@@ -535,8 +533,8 @@ if snap.is_asleep:
 **呈现规则**：
 - 工具层 task 目标呈现任务名称与 `contract`（截止 `deadline`、有效工时的达标情况 `remaining`、前景 `outlook`），
   工作动作的可用性写在 `available`、`reason`；不呈现任务或地点内部身份；
-- 冻结观察的工具层 `targets` 照常列出运行内可能满足条件的对象与动作，不按人物当前状态剪裁；永久不能满足的（没有路线、技能不够）不列；
-  条件未满足的动作 `available=false`，`reason` 是环境受理时的拒绝原文，前置地点在 `reason` 中点名；不另写场景前往句。
+- 冻结观察的工具层 `targets` 照常列出运行内可能满足条件的对象与动作，不按人物当前状态剪裁；发布图连通，其他已选地点均列出步行与驾车；不能执行的动作保留所属合同的原因；
+  条件未满足的动作 `available=false`，`reason` 是环境受理时的拒绝原文，前置地点在 `reason` 中点名；需要前往时只写 `Go to <place>.`，地点名称来自目录，不能生成多跳或配送区域提示。
 
 <a name="spec-agent-interaction-游戏简化"></a>
 ## 游戏简化
@@ -796,3 +794,4 @@ flowchart LR
 | `2026-10-04-errands-workday-implemented` | 2026-10-04 | 个人事务与工作安排规格实现后文档（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 AI29、AI30，按[完整提交 d8a41d3718af2ce383ed454dc8b62f65e7a87bd6](https://github.com/HoldThatThgt/WorldMock/commit/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6) 的代码核对）：文件头改为修订部分已实现并通过离线验收，链接[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)（证据是离线测试；该规格阶段 6 的配对全天复跑只报告，没有执行）；`2026-10-02-errands-workday` 行里的冻结期状态注记改为指向本行。冻结时漏改而此时补正的条款：没有，按该规格修订的各条与最终代码核对一致。引用行号刷新六处：「会话的状态位置」检查点参与者键集见[当时的校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)、`WORLD_SCHEMA_VERSION` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/models.py)（冻结时先去掉了失准的行号）；「对象与动作选择」`_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/models.py)；「决策轮循环与播报节律」`SLEEP_ALLOWED_REASONS` 见[当时的定义原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/schedule.py)、睡眠过滤见[当时的判定原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/life/schedule.py)；「事件与重建约束」活动重建比对见[当时的导出校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)、质量报告重算见[当时的质量校验原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/validation.py)；「冻结条款修订」第 1 行的未识别分桶见[当时的统计原文](https://github.com/HoldThatThgt/WorldMock/blob/d8a41d3718af2ce383ed454dc8b62f65e7a87bd6/src/worldmock/footprints/quality.py)。条款正文不改 |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订：「决策轮循环与播报节律」唤醒表在事务提醒一行之后增班次与休息时段起止一行（`shift_start`、`shift_end`、`break_start`、`break_end` 依次追加在 `errand_reminder_due` 之后，清醒时精确到点给一次决策机会、活动照常继续、不写事件、不进提示，睡眠中不入候选、不形成静默边界、不叫醒，睡过的不补）；实现要点写明四个成员不在睡眠允许集合内，睡眠过滤的位置为 `src/worldmock/life/schedule.py::evaluate_wake_reasons`，并补四个成员与事务提醒同样在白名单与候选两头把关、不同的是不带交付状态且睡过的不补；「冻结条款修订」第 1 行追加四个成员，连带改动改为新增成员的九处同步点清单并以本行为准，注明调研文档的「唤醒词表的五处同步点」是冻结当时的清单、成员数已过期，质量报告直接读足迹侧词表、不是同步点；文件头补修订说明 |
 | `2026-10-06-parallel-activities-slots` | 2026-10-06 | 按[同时做两件事规格](SPEC-parallel-activities.md#spec-parallel-activities-同时做两件事开发规格)阶段 1（暂停的活动不占名额）修订：「三级结构与概念边界」活动只在开始地点且有空名额时恢复，进行中与待收尾时占一个名额；「会话与活动的关系」每人两个名额只算进行中与待收尾的活动，暂停的不占、个数不设上限，`pause_activity` 让出名额，开始、出行与恢复暂停的活动都要有空名额，只有暂停的活动时可以出发，状态图的恢复边补「有空名额」；「稳定工具面」`report_status` 恢复要有空名额，`pause_activity` 暂停让出名额，`conclude_activity` 释放进行中与待收尾活动的名额、暂停的在任何地点都可直接结束；「保护项修订」的受限轮收窄删去 `resume_or_conclude` 与 `conclude_only` 的进入条件，二者留在阶段闭集中、现行阶梯不再进入，`start_or_resume` 写明在没有进行中也没有待收尾的活动时进入；「冻结条款修订」第 2 行原位改写为进行中与待收尾的活动合计 ≤2；「验收台账」会话与活动生命周期一行随之改写，补恢复没有空名额时的拒绝与待办层同文；文件头补修订说明 |
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |

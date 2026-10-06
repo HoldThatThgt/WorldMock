@@ -80,7 +80,7 @@ class EngineContext:
         from worldmock.life.rules import LifeRuleEngine
 
         self.corpus_root = Path(self.corpus_root).resolve()
-        self.rules = LifeRuleEngine(self.scenario, self.corpus_root)
+        self.rules = LifeRuleEngine(self.scenario, self.corpus_root, self.semantics.catalog.graph)
         self.affordance_contract = affordance_contract(self.semantics.affordances)
         self.lifestyle_items = load_lifestyle_items(self.corpus_root, self.scenario.body.activity_met)
         names = {item.activity_id: item.name for item in self.lifestyle_items}

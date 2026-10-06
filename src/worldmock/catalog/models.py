@@ -9,6 +9,7 @@ from typing import Annotated, Literal, Mapping
 from pydantic import Field, StrictInt
 
 from worldmock.base_models import DeepFrozenModel
+from worldmock.catalog.graph import Graph
 from worldmock.exchange.types import (
     ContentKind, FoodCategory, LocationKind, PLACE_KIND_ENVIRONMENTS, SummarySourceKind,
 )
@@ -196,6 +197,8 @@ class Catalog:
     map_data: MapGraph
     #: 发布图原始字节摘要。
     map_sha256: str
+    #: 完整环境图的确定性最短路查询。
+    graph: Graph
     #: 每种食品店铺类型拥有的食品身份。
     menus_by_kind: Mapping[LocationKind, tuple[str, ...]]
     #: 每个地点拥有的食品身份，非食品地点为空。
@@ -210,3 +213,7 @@ class Catalog:
     def location_kinds(self, kind: LocationKind | str) -> tuple[str, ...]:
         """@brief 从地点类型派生生活活动的环境类型。"""
         return (PLACE_KIND_ENVIRONMENTS[LocationKind(kind)],)
+
+    def shortest_m(self, origin: str, destination: str) -> int:
+        """@brief 返回完整登记图上的距离，未选中间地点仍参与寻路。"""
+        return self.graph.distance_meters(origin, destination)

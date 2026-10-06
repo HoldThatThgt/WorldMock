@@ -290,15 +290,6 @@ MUTATIONS += (
         ),
     ),
     SourceMutation(
-        'selection_incomplete_allowed',
-        'worldmock.life.map_data::select_map',
-        'if supply_ids != expected:',
-        'if False:',
-        (
-            'tests/corpora/test_storefront_release.py::test_loaded_store_must_keep_every_declared_supply',
-        ),
-    ),
-    SourceMutation(
         'reprice_bound_check_removed',
         'worldmock.life.storefront_state::changed_quote',
         '    validate_price_bounds(event.data["amount_fen"], product)',

@@ -28,7 +28,6 @@ from worldmock.life.basket import delivery_expected_at
 from worldmock.life.vocabulary import PURCHASE_WAYS, SYSTEM_PURCHASE_WAY
 from worldmock.life.name_resolution import near_source_names, resolve_source
 from worldmock.life.storefront_state import current_quote
-from worldmock.life.wayfinding import shortest_paths
 
 if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
@@ -151,15 +150,10 @@ def landed_price(context: LayerContext, supply: Any) -> int | None:
 
 
 def nearest_store(context: LayerContext, location_ids: Iterable[str]) -> str:
-    """@brief 从当前地点出发路线最短的门店（人物的 location_id，途中为出发地；可达路线图上的总路程，到不了的排在最后，
-    同长按地点身份）。"""
+    """@brief 按登记图总米数选择最近门店，同长按地点身份。"""
     origin = context.state.agents[context.agent_id].location_id
-    paths = shortest_paths(context.scenario.routes, origin)
-
-    def distance(identity: str) -> float:
-        """@brief 从当前地点到该门店的路程秒数（就在那里为 0，到不了为无穷）。"""
-        return 0 if identity == origin else paths[identity][0] if identity in paths else math.inf
-    return min(sorted(set(location_ids)), key=lambda identity: (distance(identity), identity))
+    graph = context.semantics.catalog.graph
+    return min(set(location_ids), key=lambda identity: (graph.distance_meters(origin, identity), identity))
 
 
 def _pickups(context: LayerContext, supplies: Sequence[Any]) -> list[Offer]:
@@ -178,8 +172,7 @@ def _deliveries(context: LayerContext, supplies: Sequence[Any], destination_id: 
         if "delivery" not in supply.fulfillment_modes:
             continue
         expected = delivery_expected_at(context.semantics, supply, destination_id, context.state.current_time)
-        if expected is not None:
-            rows.append(Offer(supply, DELIVERY_WAY, expected, landed_price(context, supply), expected))
+        rows.append(Offer(supply, DELIVERY_WAY, expected, landed_price(context, supply), expected))
     return rows
 
 

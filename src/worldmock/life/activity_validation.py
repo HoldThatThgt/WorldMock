@@ -6,22 +6,22 @@ import logging
 
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ActivityKind, ActivityState, ConsumeRequest, WorldState
+from worldmock.life.travel import persisted_trip
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def validate_activity_targets(state: WorldState, rules, scenario) -> None:
     """@brief 用冻结场景与内容目录核对全部持久活动目标。"""
-    routes = {route.route_id: route for route in scenario.routes}
     people = {person.agent_id: person for person in scenario.agents}
     for activity in state.activities.values():
-        if not _target_is_valid(activity, state, rules, routes, people):
+        if not _target_is_valid(activity, state, rules, rules.graph, people):
             _LOGGER.error("Persisted activity target is invalid: %s", activity.activity_id)
             raise IntegrityError("Persisted activity target is invalid")
 
 
 def _target_is_valid(activity: ActivityState, state: WorldState, rules,
-                     routes: dict, people: dict) -> bool:
+                     graph, people: dict) -> bool:
     """@brief 各活动类型只接受自身权威目标和冻结来源身份。"""
     kind = activity.kind
     target = activity.target_id
@@ -41,7 +41,7 @@ def _target_is_valid(activity: ActivityState, state: WorldState, rules,
     elif kind == ActivityKind.CONSUME:
         valid = _consume_target_is_valid(activity, rules)
     elif kind == ActivityKind.TRAVEL:
-        valid = _travel_target_is_valid(activity, routes)
+        valid = _travel_target_is_valid(activity, graph)
     elif kind == ActivityKind.CHAT:
         valid = (target is None and data.get("partner_id") in
                  {f"agent:{agent_id}" for agent_id in state.agents if agent_id != activity.agent_id})
@@ -64,9 +64,12 @@ def _consume_target_is_valid(activity: ActivityState, rules) -> bool:
             and all(item.product_id in rules.items for item in request.items))
 
 
-def _travel_target_is_valid(activity: ActivityState, routes: dict) -> bool:
-    """@brief 出行目的地、方式和路线身份均须来自同一冻结路线。"""
-    route = routes.get(activity.data.get("route_id"))
-    return (activity.target_id is None and route is not None
-            and route.destination_id == activity.destination_id
-            and route.mode == activity.travel_mode)
+def _travel_target_is_valid(activity: ActivityState, graph) -> bool:
+    """@brief 持久出行的原始起点、终点、方式、路径及米数必须属于同一发布图。"""
+    if activity.target_id is not None:
+        return False
+    try:
+        persisted_trip(graph, activity)
+    except (IntegrityError, KeyError, ValueError):
+        return False
+    return True

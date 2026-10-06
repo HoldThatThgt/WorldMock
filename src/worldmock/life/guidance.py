@@ -21,10 +21,6 @@ from worldmock.life.error_contract import ErrorItem, items_fix
 
 #: 没有专门说明的业务拒绝的通用原因（兜底句；会被抛出的码都另有默认原因）。
 
-#: 远程下单的送达地不在该供给的配送范围内（unmet=delivery_destination，docs/dev/SPEC-interaction-menu.md#dayrun-fidelity-呈现与浏览-浏览结果与提示看可达性 ）。
-DELIVERY_DESTINATION_REASON = "The current place is outside this store's delivery area."
-#: 送达地在配送范围内、门店到送达地的配送路线却缺失（未知或不可达，unmet=delivery_route）。
-DELIVERY_ROUTE_REASON = "No usable delivery route connects this store to the current place."
 #: 抛出处没有写明原因时按错误码取的原因（只写世界事实，不含内部身份）。
 _DEFAULT_REASONS = {
     'ACTIVITY_DURATION_INVALID': 'The derived activity duration is outside the allowed range.',
@@ -35,10 +31,6 @@ _DEFAULT_REASONS = {
     'PRODUCT_NOT_HELD': 'The caller has no available quantity of this object at the required location.',
     'PRODUCT_USE_LOCATION_REQUIRED': 'This object can only be used at its inventory location.',
     'FULFILLMENT_NOT_SUPPORTED': 'The supply does not support the requested fulfillment way.',
-    'DELIVERY_DESTINATION_NOT_SUPPORTED': "The receiving place is outside this store's delivery area.",
-    'DELIVERY_ROUTE_NOT_FOUND': 'No delivery route connects this store to the receiving place.',
-    'DELIVERY_ROUTE_UNREACHABLE': 'The delivery route to the receiving place is unreachable.',
-    'DELIVERY_ROUTE_INFORMATION_UNKNOWN': 'The delivery route to the receiving place is unknown.',
     'INSUFFICIENT_FUNDS': "The caller's available balance is below the actual purchase total.",
     'INSUFFICIENT_TRAVEL_FUNDS': "The caller's available balance is below the route fare.",
     'OUT_OF_STOCK': 'This supply has no remaining stock for the requested quantity.',
@@ -84,11 +76,7 @@ _DEFAULT_REASONS = {
     'GAME_NOT_FOUND': 'The named game is unknown.',
     'BROWSE_TARGET_NOT_FOUND': 'No browsable product catalog exists at this place.',
     'LIFESTYLE_ACTIVITY_NOT_FOUND': 'The named lifestyle activity is unknown.',
-    'FROZEN_ROUTE_NOT_FOUND': 'No frozen route supports this destination and travel way.',
-    'ROUTE_UNREACHABLE': 'The requested route is unreachable.',
-    'ROUTE_INFORMATION_UNKNOWN': 'The requested route information is unknown.',
-    'ROUTE_DURATION_MISMATCH': 'The persisted route duration differs from the frozen route.',
-    'LOCATION_TRACK_WINDOW_INVALID': 'The trip start and end times are invalid.',
+    'ROUTE_DURATION_MISMATCH': 'The requested travel duration differs from the published graph.',
     'WORK_TASK_NOT_FOUND': 'The named work task is unknown.',
     'WORK_TASK_NOT_VISIBLE': 'The work task has not been disclosed to this person.',
     'WORK_TASK_NOT_AVAILABLE': 'The work task has not opened or its contract window has ended.',
@@ -168,7 +156,6 @@ _DEFAULT_FIXES = {
     'GAME_NOT_FOUND': 'Use an exact published game name.',
     'BROWSE_TARGET_NOT_FOUND': 'Use a browsable catalog offered at the current place.',
     'LIFESTYLE_ACTIVITY_NOT_FOUND': 'Use an exact published lifestyle activity name.',
-    'FROZEN_ROUTE_NOT_FOUND': 'Use an offered place and supported travel way.',
     'WORK_TASK_NOT_FOUND': 'Use an exact known work task name.',
     'WORK_TASK_NOT_VISIBLE': 'Select a disclosed work task.',
     'FULFILLMENT_NOT_SUPPORTED': 'Use an offered purchase way or 购买.',

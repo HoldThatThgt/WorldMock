@@ -1,6 +1,8 @@
 <a name="proposal-agent-interaction-数字人交互方案"></a>
 # 数字人交互方案
 
+> 引用出处：`src/worldmock/life/map_models.py::LocationConfig` @ `55e6a0f4c6ed6a015e334b01513767eefc227880`
+
 > 状态：**已裁决并冻结（FROZEN）**，2026-09-22。行为定义已收敛到 [数字人交互特性规格](SPEC-agent-interaction.md#spec-agent-interaction-特性规格数字人交互会话层上下文分层与稳定工具面)；
 > 本文件保留心智模型、逐条对账与取舍依据，不再承载实现要求。
 > **注意**：该规格已于 2026-09-22 **提交冻结（FROZEN）**，行为定义以该规格为准。原先阻断冻结的 3 项已全部裁决，其显式修订的四条既有冻结条款随本次冻结生效。

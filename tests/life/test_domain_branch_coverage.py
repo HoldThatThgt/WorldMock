@@ -116,13 +116,7 @@ from worldmock.life.semantics import ScenarioSemantics, assemble_semantics
 from worldmock.life.world_setup import load_runtime_scenario
 from worldmock.life.social import SOCIAL_RESOURCE_CLAIMS
 from worldmock.life.social_actions import advance_social, end_partner_chats, partner_presence, shared_chat_seconds, social_activity_change, start_call, start_chat
-from worldmock.life.travel import (
-    LocationTrackRequest,
-    route_for,
-    sample_location_track,
-    update_travel,
-    validate_routes,
-)
+from worldmock.life.travel import update_travel
 from worldmock.life.work import (
     load_work_input,
     load_work_oracle,
@@ -1410,95 +1404,26 @@ def test_game_path_rejects_escape(tmp_path) -> None:
 # travel：路线校验与定位轨迹（`docs/CONTRACTS.md#contracts-worldmock-接口合同`「请求字段与结算检查」的「启动活动」行）
 # ---------------------------------------------------------------------------
 
-def test_route_for_requires_unique_frozen_route() -> None:
-    """起点-终点-方式三元组必须命中唯一冻结路线。"""
-    scenario = _life_scenario(routes=[_route("r1", "home", "office", "driving")])
-    request = ActivityStartParams(activity_type=ActivityKind.TRAVEL,
-                                   planned_duration_seconds=600,
-                                   destination_id="office", travel_mode="walking")
-    with pytest.raises(BusinessRuleError, match="FROZEN_ROUTE_NOT_FOUND"):
-        route_for(scenario, "home", request)
-    matched = route_for(scenario, "home", request.model_copy(
-        update={"travel_mode": "driving"}))
-    assert matched.route_id == "r1"
 
 
-def _response_route(tmp_path: Path, payload: dict, *, sha: str | None = None,
-                    path: str | None = None) -> RouteConfig:
-    relative = path or "routes/a.json"
-    _write(tmp_path, relative, json.dumps(payload).encode())
-    return _route(response_path=relative, response_sha256=sha or _sha(
-        json.dumps(payload).encode()))
 
 
-def test_validate_routes_rejects_identity_and_measurement_drift(tmp_path) -> None:
-    """路线文件身份与 OSRM 距离/时长逐项核验。"""
-    good = _response_route(tmp_path, {"code": "Ok", "routes": [
-        {"distance": 3000, "duration": 600}]})
-    validate_routes(_life_scenario(routes=[good]), tmp_path)
-    with pytest.raises(IntegrityError, match="hash mismatch"):
-        validate_routes(_life_scenario(routes=[
-            _response_route(tmp_path, {"code": "Ok", "routes": [
-                {"distance": 3000, "duration": 600}]}, sha="0" * 64)]), tmp_path)
-    invalid = b"not JSON"
-    _write(tmp_path, "routes/invalid.json", invalid)
-    with pytest.raises(IntegrityError, match="response is invalid"):
-        validate_routes(_life_scenario(routes=[
-            _route(response_path="routes/invalid.json", response_sha256=_sha(invalid))]), tmp_path)
-    with pytest.raises(IntegrityError, match="not successful"):
-        validate_routes(_life_scenario(routes=[
-            _response_route(tmp_path, {"code": "NoRoute", "routes": [
-                {"distance": 3000, "duration": 600}]})]), tmp_path)
-    with pytest.raises(IntegrityError, match="distance mismatch"):
-        validate_routes(_life_scenario(routes=[
-            _response_route(tmp_path, {"code": "Ok", "routes": [
-                {"distance": 4000, "duration": 600}]})]), tmp_path)
-    with pytest.raises(IntegrityError, match="duration mismatch"):
-        validate_routes(_life_scenario(routes=[
-            _response_route(tmp_path, {"code": "Ok", "routes": [
-                {"distance": 3000, "duration": 999}]})]), tmp_path)
 
 
 def test_update_travel_moves_location_only_on_arrival() -> None:
     """按完成比例推进距离，到达前不改变人物地点。"""
-    route = _route(destination="office")
-    midway = _activity(kind=ActivityKind.TRAVEL, elapsed_seconds=300)
-    changed_activity, same_agent = update_travel(midway, route, _agent())
-    assert changed_activity.route_progress_meters == pytest.approx(1500.0)
+    from tests.life.test_travel_graph import travel_case
+
+    _, _, state, trip = travel_case()
+    midway = state.activities["travel-1"].model_copy(update={"elapsed_seconds": 100})
+    changed_activity, same_agent = update_travel(midway, trip, state.agents[1])
+    assert changed_activity.route_progress_meters == pytest.approx(trip.distance_meters * 100 / trip.duration_seconds)
     assert same_agent.location_id == "home"
-    done = _activity(kind=ActivityKind.TRAVEL, elapsed_seconds=600)
-    _, arrived = update_travel(done, route, _agent())
+    done = midway.model_copy(update={"elapsed_seconds": trip.duration_seconds})
+    _, arrived = update_travel(done, trip, state.agents[1])
     assert arrived.location_id == "office"
 
 
-def test_location_track_rejects_broken_geometry_and_paths(tmp_path) -> None:
-    """定位轨迹：坏几何/缺几何/越界路径/符号链接逐项拒绝；好输入可重放。"""
-    good = _response_route(tmp_path, {"code": "Ok", "routes": [
-        {"distance": 3000, "duration": 600,
-         "geometry": {"type": "LineString", "coordinates": [[121.4, 31.2], [121.5, 31.3]]}}]},
-        path="routes/track.json")
-    request = LocationTrackRequest(agent_id=1, route=good, departure_epoch=1000,
-                                   arrival_epoch=1000 + 3600, sample_interval_seconds=600)
-    events = sample_location_track(request, tmp_path)
-    assert len(events) == 5
-    replayed = sample_location_track(request, tmp_path)
-    assert [event.event_id for event in replayed] == [event.event_id for event in events]
-    invalid = _response_route(tmp_path, {"broken": True}, path="routes/bad.json")
-    with pytest.raises(IntegrityError, match="response is invalid"):
-        sample_location_track(LocationTrackRequest(
-            agent_id=1, route=invalid, departure_epoch=1000, arrival_epoch=4600,
-            sample_interval_seconds=600), tmp_path)
-    missing = _response_route(tmp_path, {"code": "Ok", "routes": [
-        {"geometry": {"type": "Point", "coordinates": [1, 2]}}]}, path="routes/none.json")
-    with pytest.raises(IntegrityError, match="geometry is missing"):
-        sample_location_track(LocationTrackRequest(
-            agent_id=1, route=missing, departure_epoch=1000, arrival_epoch=4600,
-            sample_interval_seconds=600), tmp_path)
-    escaped = good.model_copy(update={"response_path": "../secret.json"})
-    with pytest.raises(IntegrityError, match="path is invalid"):
-        sample_location_track(LocationTrackRequest(
-            agent_id=1, route=escaped, departure_epoch=1000, arrival_epoch=4600,
-            sample_interval_seconds=600), tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1592,17 +1517,8 @@ def _resources_catalog(sem, mutate) -> Catalog:
     return replace(sem.catalog, resources=MappingProxyType(rebuilt))
 
 
-def _travel_time_catalog(sem, mutate) -> Catalog:
-    content = mutate(sem.catalog.travel_time_rules_bytes.replace(b"\r\n", b"\n"))
-    return replace(sem.catalog, travel_time_rules_bytes=content)
 
 
-def _travel_factor(data: bytes, key: str, value: str | None) -> bytes:
-    """变异完整数值分支，不依赖当前环境对该小时标定的具体浮点值。"""
-    replacement = "" if value is None else f"{key} = {value}"
-    changed, count = re.subn(rf"(?m)^{re.escape(key)}\s*=.*$", replacement, data.decode("utf-8"))
-    assert count == 1, "Travel factor mutation must change exactly one declared branch"
-    return changed.encode("utf-8")
 
 
 def _objects_catalog(sem, mutate) -> Catalog:
@@ -1619,47 +1535,20 @@ def _food_product_id(sem: ScenarioSemantics) -> str:
 
 def test_travel_fare_rejects_an_unknown_mode() -> None:
     """出行费率只接受冻结动作集合中的出行方式。"""
-    sem = _semantics()
-    with pytest.raises(IntegrityError, match="has no category action"):
-        sem.travel_fare("biking", 100)
+    from tests.life.test_travel_graph import travel_case
+    from worldmock.life.travel import plan_trip
+
+    catalog, _, _, _ = travel_case()
+    with pytest.raises(ValueError, match="outside the fixed set"):
+        plan_trip(catalog.graph, "home", "office", "biking")
 
 
 def _at_hour(hour: int) -> int:
     return int(datetime(2026, 1, 5, hour, 0, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
 
 
-@pytest.mark.parametrize(
-    ("mutate", "match"),
-    (
-        (lambda data: b"", "unsupported shape"),
-        (lambda data: _travel_factor(data, "driving_05", None), "closed branch set"),
-        (lambda data: _travel_factor(data, "driving_05", '"fast"'), "not numeric"),
-        (lambda data: _travel_factor(data, "driving_05", "9.0"), "outside"),
-    ),
-)
-def test_travel_time_profile_rejects_missing_nonnumeric_or_out_of_bounds(
-        mutate, match) -> None:
-    """分时数值表缺席、缺分支、非数值与越界逐项拒绝。"""
-    sem = _semantics()
-    with pytest.raises(IntegrityError, match=match):
-        assemble_semantics(sem.document, _travel_time_catalog(sem, mutate),
-                           map_dataset=sem.scenario.map_dataset)
 
 
-@pytest.mark.parametrize(
-    ("mutate", "match"),
-    (
-        (lambda data: _travel_factor(data, "walking", None), "closed branch set"),
-        (lambda data: _travel_factor(data, "walking", "2.0"), "must be 1.0"),
-        (lambda data: _travel_factor(data, "driving_13", None), "closed branch set"),
-    ),
-)
-def test_assembly_rejects_travel_time_shape_drift(mutate, match) -> None:
-    """组装准入：分时数值表形状漂移逐项拒绝。"""
-    sem = _semantics()
-    with pytest.raises(IntegrityError, match=match):
-        assemble_semantics(sem.document, _travel_time_catalog(sem, mutate),
-                           map_dataset=sem.scenario.map_dataset)
 
 
 @pytest.mark.parametrize(

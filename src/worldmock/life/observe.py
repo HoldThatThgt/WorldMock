@@ -41,18 +41,16 @@ from worldmock.life import (
     relevance,
     request_linking,
 )
-from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
+from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation, TravelMode
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
-from worldmock.life.inventory_recipe import is_inventory_recipe
 from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import task_listed, work_totals
 from worldmock.life.result_projection import browse_results, public_supply_row
 from worldmock.life.content import mail_headers
-from worldmock.life.environment_layer import environment_layer
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 
@@ -135,6 +133,8 @@ class ObservationBuilder:
         """@brief 环境侧构建的层数据与私有配套：工具层（附只列名称的可调用索引 index）、记忆层（memory，由已提交事件派生）
         与看法偏好，全文已呈现的消息含进度层与记忆层两处；answering 可关联的直接消息（message_bindings）只含进度层
         message_arrival 与记忆层中未回复的，按收到先后。"""
+        from worldmock.life.environment_layer import environment_layer
+
         view = progress_layer.progress_view(context, self.context.store, memory.facts)
         presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
         answerable = [*memory.open_message_ids, *view.presented_message_ids]
@@ -212,6 +212,8 @@ class ObservationBuilder:
 
     def _recipe_product_ids(self, agent) -> frozenset[str]:
         """@brief 人物各地持有物中 consume:use 规则是库存转换配方的物品（交互对象层据此列 obtain 的「制作」）。"""
+        from worldmock.life.inventory_recipe import is_inventory_recipe
+
         held = {
             product_id
             for holding in agent.inventory.values()
@@ -393,7 +395,7 @@ class ObservationBuilder:
             if item not in self.context.state.paid_task_ids and self._task_listed(item)
         ]
         data["routes"] = _route_catalog(
-            self.context.scenario.routes, self.context.state, agent.agent_id, self.context.semantics
+            self.context.scenario, self.context.state, agent.agent_id, self.context.semantics
         )
         data["game_catalog"] = _game_catalog(self.context.scenario)
         data["browse_targets"] = list(BROWSE_TARGETS)
@@ -453,27 +455,19 @@ class ObservationBuilder:
         return rows
 
     def _route_rows(self, agent) -> list[dict]:
-        """@brief 地点目标的出行方式来源：当前地点出发的每条冻结路线的目的地、方式与状态（只有可达路线列出行动作；
-        路费、时长与费力由工具层按同一路线写进动作）。"""
-        rows = _route_catalog(self.context.scenario.routes, self.context.state, agent.agent_id, self.context.semantics)
-        return [{"destination": row["destination_id"], "mode": row["mode"], "status": row["status"]} for row in rows]
+        """@brief 地点目标的出行方式来自登记图，工具层使用相同行程计算路费、时长与费力。"""
+        rows = _route_catalog(self.context.scenario, self.context.state, agent.agent_id, self.context.semantics)
+        return [{"destination": row["destination_id"], "mode": row["mode"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
-        """@brief 场景句只列实际可达地点，营业未知保持为未知；含 location_id 供交互对象层使用。"""
-        destination_ids = {
-            route.destination_id
-            for route in self.context.scenario.routes
-            if route.origin_id == agent.location_id and route.status == "reachable"
-        }
+        """@brief 场景句列出登记连通图中场景所选的其他地点，只包含身份、名称和类型。"""
+        destination_ids = set(self.context.semantics.catalog.graph.shortest_paths(agent.location_id))
+        destination_ids.remove(agent.location_id)
         context = self._discovery_context(agent)
-        rows = [
+        return [
             discovery.place_row(context, location)
             for location in self.context.scenario.locations
             if location.location_id in destination_ids
-        ]
-        return [
-            {"location_id": row["location_id"], "name": row["name"], "opening_status": row["opening_status"]}
-            for row in rows
         ]
 
     def _activity_rows(self, agent) -> dict:
@@ -596,7 +590,7 @@ class ObservationBuilder:
             ), supply_stock=self.context.state.supply_stock, supply_quotes=self.context.state.supply_quotes,
             opening_exceptions=self.context.state.opening_exceptions,
             locations={item.location_id: item for item in self.context.scenario.locations},
-            routes=self.context.scenario.routes, tasks=tuple(tasks),
+            graph=self.context.semantics.catalog.graph, tasks=tuple(tasks),
             task_totals={task.task_id: totals(self.context.state, agent.agent_id, task.task_id) for task in tasks},
             contents=_sample_contents(self.context.scenario.contents, profile, weights),
             content_category_counts={
@@ -610,7 +604,6 @@ class ObservationBuilder:
             current_time=now,
             end_time=self.context.state.end_time,
             timezone=self.context.scenario.timezone,
-            planned_travel_seconds=self.context.semantics.travel_planned_seconds,
             purchase_amount=self.context.semantics.purchase_amount,
             purchase_pairing_states={
                 item.product_id: self.context.semantics.purchase_pairing(item.product_id).state.value
@@ -881,32 +874,13 @@ class ObservationBuilder:
         return staged.model_copy(update={"agents": agents}, deep=True)
 
 
-def _route_catalog(routes: tuple, state, agent_id: int, semantics) -> list[dict]:
-    """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级；路线与恢复都不查能量）。"""
-    agent, now = state.agents[agent_id], state.current_time
-    fields = {
-        "route_id",
-        "origin_id",
-        "destination_id",
-        "mode",
-        "status",
-        "reason",
-        "distance_meters",
-        "duration_seconds",
-        "fare_fen",
-        "fare_source_kind",
-    }
-    result = []
-    for item in routes:
-        if item.origin_id != agent.location_id:
-            continue
-        data = item.model_dump(mode="json", include=fields)
-        data.update(free_flow_duration_seconds=item.duration_seconds)
-        if item.status == "reachable":
-            planned = semantics.travel_planned_seconds(item.mode.value, item.duration_seconds, now)
-            data.update(duration_seconds=planned, travel_time_factor=semantics.travel_time_factor(item.mode.value, now))
-        result.append(data)
-    return result
+def _route_catalog(scenario, state, agent_id: int, semantics) -> list[dict]:
+    """@brief 返回当前地点到场景所选地点的完整图行程，各方式均使用固定计时计费。"""
+    agent = state.agents[agent_id]
+    context = discovery.DiscoveryContext(state, scenario, semantics, agent)
+    destinations = sorted(item.location_id for item in scenario.locations if item.location_id != agent.location_id)
+    return [discovery.route_row(context, destination, mode.value)
+            for destination in destinations for mode in TravelMode]
 
 
 def _paused_activity_observation(activity) -> dict:
@@ -933,9 +907,9 @@ def _calendar_context(scenario, epoch: int) -> dict:
 
 
 def _location_catalog(scenario) -> list[dict]:
-    """@brief 返回人物能够规划到达和营业条件的地点目录（事件级）。"""
-    fields = {"location_id", "name", "kind", "business_kind", "location_kinds", "longitude", "latitude"}
-    return [item.model_dump(mode="json", include=fields) for item in scenario.locations]
+    """@brief 事件级地点目录只保存登记地点的身份、名称与类型。"""
+    return [{"location_id": item.location_id, "name": item.display_name, "kind": item.kind.value}
+            for item in scenario.locations]
 
 
 def _game_catalog(scenario) -> list[dict]:

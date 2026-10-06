@@ -621,7 +621,7 @@ def _reject_identity_keys(value: Any) -> None:
     forbidden = {
         "model", "provider", "path", "run_id", "dataset_id", "source", "source_pointer", "key",
         "object_key", "event_id", "activity_id", "message_id", "thread_id", "task_id", "product_id",
-        "order_id", "route_id", "person_id", "agent_id", "decision_id", "action_id", "memory", "body",
+        "order_id", "trip_id", "person_id", "agent_id", "decision_id", "action_id", "memory", "body",
         "caption", "content", "subject", "raw_text",
     }
     if isinstance(value, dict):

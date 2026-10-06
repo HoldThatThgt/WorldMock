@@ -560,6 +560,8 @@ class DeliveryState(StrictModel):
     expected_at: int = Field(ge=0)
     status: Literal["pending", "ready", "delivered", "cancelled"]
     path: tuple[str, ...]
+    #: 到店无行程；配送使用图上现有出行方式的稳定行程身份。
+    trip_id: str | None
     distance_meters: int = Field(ge=0)
     prep_seconds: int = Field(ge=0)
 

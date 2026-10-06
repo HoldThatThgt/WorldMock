@@ -4,13 +4,13 @@ from __future__ import annotations
 from worldmock.life.commerce import held_quantity as commerce_held
 
 from dataclasses import dataclass
+from typing import Any
 
 from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError
 from worldmock.life.body import apply_food
 from worldmock.life.category_contract import RuntimeCategoryRule, match_rows, require_runtime_rule
 from worldmock.life.commerce import add_holding
-from worldmock.life.map_models import RouteConfig, SupplyConfig
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
@@ -20,15 +20,15 @@ from worldmock.life.models import (
     FulfillmentKind,
     PurchaseOrderRequest,
     ScheduledEvent,
-    SupplyQuoteState,
+    TravelMode,
     WorldState,
 )
 from worldmock.life.opening_hours import opening_status
-from worldmock.life.scenario import BodyConfig, InventoryItemConfig, RuntimeScenario
+from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
 from worldmock.life.storefront_state import current_quote
-from worldmock.life.wayfinding import delivery_route_code
+from worldmock.life.travel import Trip, plan_trip
 from worldmock.scheduling.events import ScheduledKind
 
 
@@ -48,8 +48,8 @@ class OrderOutcome:
 class _OrderRow:
     """@brief 一项已经通过报价、库存和资格检查的门店供给。"""
 
-    supply: SupplyConfig
-    quote: SupplyQuoteState
+    supply: Any
+    quote: Any
     quantity: int
     total_price_fen: int
     category_match: RuntimeCategoryRule
@@ -59,11 +59,11 @@ class _OrderRow:
 
 @dataclass(frozen=True, slots=True)
 class _Fulfillment:
-    """@brief 整单共用的创建时刻、交付时刻和运输路线。"""
+    """@brief 整单共用的创建时刻、交付时刻和图上行程。"""
 
     created_at: int
     expected_at: int
-    route: RouteConfig | None
+    trip: Trip | None
 
 
 def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
@@ -170,45 +170,24 @@ def _order_fulfillment(state: WorldState, semantics: ScenarioSemantics,
         return _Fulfillment(state.current_time, state.current_time, None)
     plan = plan_delivery(semantics, tuple(row.supply for row in rows), request.destination_id,
                          state.current_time)
-    return _Fulfillment(state.current_time, plan.expected_at, plan.route)
+    return _Fulfillment(state.current_time, plan.expected_at, plan.trip)
 
 
-def plan_delivery(semantics: ScenarioSemantics, supplies: tuple[SupplyConfig, ...],
+def plan_delivery(semantics: ScenarioSemantics, supplies: tuple[Any, ...],
                   destination_id: str, now: int) -> _Fulfillment:
-    """@brief 纯函数：整单最慢备货后出发，加出发时刻的驾车规划时长即预计送达时刻。
+    """@brief 整单最慢备货后出发，加登记图的驾车行程时长即预计送达时刻。
 
     购买结算、观察投影与吃饭途径句共用这一算法（docs/dev/SPEC-life-runtime.md#time-and-energy-决策不耗时时间只在做事时流动 第八章「呈现」）。
-    送达地不在任一供给的可配送目的地时以 DELIVERY_DESTINATION_NOT_SUPPORTED 拒绝；道路缺失、
-    不可达或未知时按 `_delivery_route` 的业务拒绝码拒绝。
     """
-    if any(destination_id not in supply.delivery_destination_ids for supply in supplies):
-        raise BusinessRuleError("DELIVERY_DESTINATION_NOT_SUPPORTED")
     departure = now + max(supply.delivery_delay_seconds for supply in supplies)
-    route = _delivery_route(semantics.scenario, supplies[0].location_id, destination_id)
-    duration = (semantics.travel_planned_seconds("driving", route.duration_seconds, departure)
-                if route is not None else 0)
-    return _Fulfillment(now, departure + duration, route)
+    trip = plan_trip(semantics.catalog.graph, supplies[0].location_id, destination_id, TravelMode.DRIVING)
+    return _Fulfillment(now, departure + trip.duration_seconds, trip)
 
 
-def delivery_expected_at(semantics: ScenarioSemantics, supply: SupplyConfig,
-                         destination_id: str, now: int) -> int | None:
-    """@brief 单项供给现在下单送到指定地点的预计送达时刻；送不到这里（目的地不支持、道路未知或不可达）时为 None。"""
-    try:
-        return plan_delivery(semantics, (supply,), destination_id, now).expected_at
-    except BusinessRuleError:
-        return None
-
-
-def _delivery_route(scenario: RuntimeScenario, origin: str, destination: str) -> RouteConfig | None:
-    """@brief 同地点无道路行程，其余配送只允许明确可达的冻结驾车路线（判定与准入共用 wayfinding.delivery_route_code，
-    拒绝码即其结果）。"""
-    code = delivery_route_code(scenario.routes, origin, destination)
-    if code is not None:
-        raise BusinessRuleError(code)
-    if origin == destination:
-        return None
-    return next(route for route in scenario.routes if route.origin_id == origin
-                and route.destination_id == destination and route.mode.value == "driving")
+def delivery_expected_at(semantics: ScenarioSemantics, supply,
+                         destination_id: str, now: int) -> int:
+    """@brief 单项供给可送到登记图上每个地点，预计时刻使用同一行程计划。"""
+    return plan_delivery(semantics, (supply,), destination_id, now).expected_at
 
 
 def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: PurchaseOrderRequest,
@@ -222,14 +201,17 @@ def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: Purch
     for index, row in enumerate(rows, start=1):
         supply = row.supply
         identity = f"{agent_id}-{state.current_time}-{len(state.deliveries) + index}"
-        route = fulfillment.route
+        trip = fulfillment.trip
         orders.append(DeliveryState(
             order_id=f"order-{identity}", agent_id=agent_id, product_id=supply.product_id,
             supply_id=supply.supply_id, location_id=supply.location_id,
             seller_account_id=supply.seller_account_id, price_version=row.quote.price_version,
-            route_id=route.route_id if route is not None else None,
-            source={"supply": supply.source.model_dump(mode="json"), "quote": row.quote.source,
-                    "route": route.source.model_dump(mode="json") if route is not None else None},
+            trip_id=trip.trip_id if trip is not None else None,
+            path=trip.path if trip is not None else (supply.location_id,),
+            distance_meters=trip.distance_meters if trip is not None else 0,
+            prep_seconds=fulfillment.expected_at - fulfillment.created_at - (
+                trip.duration_seconds if trip is not None else 0),
+            source={"supply": supply.source.model_dump(mode="json"), "quote": row.quote.source},
             quantity=row.quantity, destination_id=request.destination_id, fulfillment=request.fulfillment,
             created_at=fulfillment.created_at, expected_at=fulfillment.expected_at,
             status="delivered" if fulfillment.expected_at == fulfillment.created_at else "pending",
@@ -270,7 +252,7 @@ def portion_duration(full_seconds: int, portion: float) -> int:
     return max(60, round(full_seconds * portion))
 
 
-def meal_portion(product: InventoryItemConfig, use_mode: str, held: float) -> tuple[float, int]:
+def meal_portion(product: Any, use_mode: str, held: float) -> tuple[float, int]:
     """@brief 一件持有物本次的份量与时长：食用取 min(1, 持有) 并按份量折算时长，使用为一份与目录时长。
 
     受理、工具层的数量与时长共用这一口径；持有为零时食用份量为 0（由调用方以 PRODUCT_NOT_HELD 拒绝）。
@@ -295,7 +277,7 @@ def open_meal(agent: AgentState, request: ConsumeRequest) -> tuple[AgentState, d
     return agent, opened
 
 
-def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> int:
+def meal_duration(products: dict[str, Any], request: ConsumeRequest) -> int:
     """@brief 多件进食时长取各件按份量折算后的最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md#spec-life-realism-特性规格人物决策与画像「商务与进食」）。"""
     durations = []
     for item in request.items:
@@ -311,7 +293,7 @@ def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequ
     return max(durations)
 
 
-def validate_meal_use(agent: AgentState, products: dict[str, InventoryItemConfig],
+def validate_meal_use(agent: AgentState, products: dict[str, Any],
                       request: ConsumeRequest) -> None:
     """@brief 校验配方与普通使用共享的件数、使用方式和地点条件。"""
     if not 1 <= len(request.items) <= 3:
@@ -336,7 +318,7 @@ def validate_meal_inventory(agent: AgentState, request: ConsumeRequest) -> None:
             raise BusinessRuleError("PRODUCT_NOT_HELD")
 
 
-def meal_food_rate(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> float:
+def meal_food_rate(products: dict[str, Any], request: ConsumeRequest) -> float:
     """@brief 进食活动按目录热量合计形成的每小时净可用热量（进度结算输入）。"""
     if request.use_mode != "eat":
         return 0.0
@@ -345,7 +327,7 @@ def meal_food_rate(products: dict[str, InventoryItemConfig], request: ConsumeReq
     return total * 3600 / request.duration_seconds
 
 
-def apply_meal_progress(agent: AgentState, products: dict[str, InventoryItemConfig],
+def apply_meal_progress(agent: AgentState, products: dict[str, Any],
                         activity: ActivityState, config: BodyConfig) -> AgentState:
     """@brief 按实际进度逐件累加已用份量、热量与效果。
 
@@ -380,7 +362,7 @@ def _meal_target(activity: ActivityState, product_id: str, quantity: float, prev
     return previous.get(product_id, 0.0)
 
 
-def _apply_item_delta(agent: AgentState, product: InventoryItemConfig, quantity: float,
+def _apply_item_delta(agent: AgentState, product: Any, quantity: float,
                       config: BodyConfig, from_stock: bool = True) -> AgentState:
     """@brief 原子投影单件商品份量、效果和食品热量（效果与热量累加）；食用的份量已在开吃时移出库存（from_stock 为假）。"""
     inventory = (change_inventory(agent, product.product_id, -quantity)

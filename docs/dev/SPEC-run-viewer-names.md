@@ -1,6 +1,8 @@
 <a name="spec-run-viewer-names-运行查看器对象名称"></a>
 # 运行查看器对象名称
 
+> 按[资源与规则引擎简化规格](SPEC-resource-and-rule-simplification.md#spec-rrs-资源与规则引擎简化开发规格)修订「地点名称」、「运行内对象名称」（阶段 2）。
+
 > 状态：FROZEN；「活动标题」按[一日运行保真规格](../VERIFICATION.md#verification-incremental-evidence)「冻结条款修订」第 21 行修订（一日运行保真 RV1），修订部分已实现并通过离线验收（`tests/life/test_activity_title_embedding.py`、`tests/life/test_timeline_labels.py`、`tests/footprints/test_render_day.py`）；「运行内对象名称」按[个人事务与工作安排规格](../VERIFICATION.md#verification-incremental-evidence)修订（[实施计划](../archive/errands-workday/errands-workday-implementation-plan.md)作业 RV1），「运行内对象名称」与「缺失与重新加载」另按查看器实现的独立核对补充三处（商品名称的补缺来源 `data.errand_item_bindings`、事务变更的逐条读取规则、个人事务的缺失提示），两次修订的条款都已实现并通过离线验收：缺 `errands` 键即报错与六种事务事件、事务提醒的中文说法随该规格阶段 2 的代码实现，请求摘要写事务变更、事务事件与事务提醒写事务名称与商品名称由 `1346e0d` 实现，补充的三处与对 `1346e0d` 独立核对后的修正由 `6c81126` 实现（`tests/tools/run_viewer.test.cjs`，经 `tests/tools/test_run_viewer.py` 执行；逐条证据见「版本表」`2026-10-04-errands-viewer` 行）；修订记录见「版本表」；按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)修订「运行内对象名称」（阶段 1）。
 > 日期：2026-10-05
 > 验收记录：[查看器名称验收](run-viewer-names-verification.md)（修订前的行为）。
@@ -24,6 +26,8 @@
 出行活动、出行请求和配送目的地必须使用实际地点名称，包括自定义名称的家、公司和市场。
 最后一个人物的观察不得抹掉此前已记录的名称。
 
+出行使用 `trip_id` 关联实际起点、终点与 `path` 中的地点；查看器按同一运行内名称索引显示完整路径名称与 `distance_meters`。缺失名称按现有缺名合同提示，不生成坐标或轨迹。
+
 <a name="spec-run-viewer-names-活动标题"></a>
 ## 活动标题
 
@@ -40,12 +44,12 @@
 <a name="spec-run-viewer-names-运行内对象名称"></a>
 ## 运行内对象名称
 
-名称索引累计本次运行所有观察中的商品名称、邮件主题、`data.tasks` 中的任务标题，以及浏览受理结果
+名称索引从本次运行冻结的 `foods`、`apps` 和地点定义读取食品、app 与地点名称，累计实际观察中的邮件主题、工作主题标题，以及浏览受理结果
 `data.data.items` 中的内容标题和生活活动名称。电影、短剧、小说、游戏、商品和生活活动
 均使用已记录的名称，不依赖编号前缀拼接“剧集 #0007”等替代名称。
 `data.interaction_bindings` 中对象身份与可读对象名称的绑定只补充缺失名称，不能覆盖活动标题或目录名称。
 `data.errand_item_bindings` 中商品身份与商品名的绑定同样只补充缺失名称，排在 `data.interaction_bindings` 之后：
-个人事务可以指目录里的任一商品，`data.products` 只列此刻看得到或持有的，事务快照里的商品名由这份绑定补上。
+个人事务可以指目录里的任一商品，食品观察只列此刻呈现或持有的，事务快照里的商品名由这份绑定补上。
 活动表、时间线请求/受理/进展和经济流水共用这些名称；原始事件与 SQL 数据保持原样。
 
 个人事务的名称取自记录本身：控制请求的 `errands[].name` 与个人事务事件载荷里的事务快照。
@@ -92,3 +96,4 @@
 | `2026-10-04-errands-viewer` | 2026-10-04 | 查看器补齐个人事务条款（`1346e0d`）与对该提交独立核对后的修正（`6c81126`）。**条款补充**（核对时把真实引擎写出的行载入查看器发现，原条款没有覆盖）：①「运行内对象名称」的名称索引增 `data.errand_item_bindings`（商品身份到商品名）为只补缺的来源，排在 `data.interaction_bindings` 之后——引擎的 `data.products` 只列此刻看得到或持有的商品，事务却可以指目录里的任一商品，按原条款列举的来源，人在家里记下的事务，其事件会对运行已记有名称的商品显示缺失提示并输出错误日志；②请求级 `errands` 的每条变更与 `control_errands` 同一规则读取（须是对象、八个键齐全，只查键在不在、不查值的类型），条目级的出入与缺 `errands` 键同等对待，报错、整库不加载，种类与名称照请求所写显示；③「缺失与重新加载」补个人事务的缺失提示“名称缺失（个人事务）”（空白或与事务内部身份相同的名称无效，括号里写对象种类而不写编号，英文错误日志写事件序号），唤醒原因 `errand_reminder_due` 找不到同一人物同一时刻、排在该决策之前的事务提醒事件时在原因说法之后显示同一提示并输出英文错误日志。**实现与证据**（`tools/run-viewer.html`；`tests/tools/run_viewer.test.cjs`，经 `tests/tools/test_run_viewer.py` 执行）：控制请求摘要在活动名、summary 与收尾的记忆条数之后写各条事务变更的种类与名称（「control request summaries write each errand change kind and name after the activity summaries」）；`controlErrands` 的八个键与顺序对照 `src/worldmock/life/control_items.py` 的 `_ERRAND_KEYS`（「errand changes are read by the same rule as control_errands: eight keys present, values as written」）；缺 `errands` 键、`errands` 不是列表与条目级的出入都经建索引这一步（页面加载数据库的入口）报错，三个控制工具逐个断言（「a control request that is not in the current shape fails the timeline index instead of being summarised」）；六种个人事务事件逐个显示中文说法、快照里的事务名称与商品名称（「errand events show their Chinese wording, the errand name and the recorded product, never the errand identity」）；只记在 `data.errand_item_bindings` 的商品名称补进索引、不覆盖其他来源、空白与等同编号的名称无效、更换数据库后清空（「errand products are named from the errand item bindings when the run lists them nowhere else」「errand item bindings only fill names the run records nowhere else and never an empty or identity name」）；商品与事务的缺失提示、事务内部身份只用于判定名称是否有效而不留在页面索引里（「an errand product without a recorded name is reported as missing and an errand is never named by its identity」）；唤醒原因写所提醒事务的名称，没有对应提醒事件或快照缺名时显示缺失提示（「the errand reminder wake reason names the errands reminded for that person at that moment」「decision starts show their wake reasons from the frozen vocabulary」）。`tests/tools/` 两个 Node 文件共 75 个用例通过。`2026-10-04-errands-workday-implemented` 行登记的两句出入至此消除；文件头据此改写 |
 | `2026-10-04-errands-viewer-recorded` | 2026-10-04 | 登记查看器个人事务条款的实现提交，条款正文不变：`2026-10-04-errands-viewer` 行里的「本行所在提交」改写为提交号 `6c81126`；文件头写明各条款由哪个提交实现（缺键报错与中文说法随个人事务与工作安排规格阶段 2 的代码，请求摘要与事务事件、事务提醒的名称为 `1346e0d`，补充的三处与修正为 `6c81126`）；`2026-10-04-errands-workday-implemented` 行补一句指向 `2026-10-04-errands-viewer` 行。出入的发现与补齐经过见[个人事务与工作安排验收记录](../archive/errands-workday/errands-workday-verification.md)：三处出入由 `a7e2fdc` 最终全量运行之后的实现后文档核对查出，其后以查看器测试补齐；登记本行时在 `6c81126` 的查看器代码与测试上重新执行，`node --test tests/tools/run_viewer.test.cjs tests/tools/run_viewer_context.test.cjs` 为 75 个用例全部通过（两个文件各 48 个与 27 个），`tests/tools/test_run_viewer.py` 为 1 passed |
 | `2026-10-05-idle-fillers-c` | 2026-10-05 | 按[让「等待」成为例外规格](SPEC-idle-fillers.md#spec-idle-fillers-让等待成为例外开发规格)阶段 1 修订「运行内对象名称」：班次与休息时段起止的四个唤醒原因 `shift_start`、`shift_end`、`break_start`、`break_end` 用中文说法「班次开始」「班次结束」「休息时段开始」「休息时段结束」显示，它们没有伴随事件，不带名称，不适用缺失提示；实现为 `tools/run-viewer.html` 的 `WAKE_LABELS` 增四个标签，`tests/tools/run_viewer.test.cjs` 的「decision starts show their wake reasons from the frozen vocabulary」把存储词表的 25 个唤醒原因逐个显示为中文、不输出错误日志（经 `tests/tools/test_run_viewer.py` 执行）；状态行末补修订说明，日期改写 |
+| `2026-10-06-rrs-map` | 2026-10-07 | 随机连通加权图、最短距离出行与环境恢复身份；对应正文按资源与规则引擎简化规格地图阶段修订 |
