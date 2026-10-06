@@ -58,10 +58,38 @@ def test_sha256_format_is_strict(value, valid):
     assert is_sha256(value) is valid
 
 
-@pytest.mark.parametrize('relative', ['../outside', '/outside', 'C:\\outside', 'C:outside', 'a/../outside', '.'])
-def test_safe_file_rejects_declared_path_before_access(tmp_path, relative):
+@pytest.mark.parametrize('relative', ['../outside', '/outside', '\\outside', 'C:\\outside', 'C:outside',
+                                      '\\\\server\\share\\outside', 'a/../outside', ''])
+def test_safe_file_rejects_declared_path_before_access(tmp_path, monkeypatch, relative):
+    """带盘符或根（含 Windows 上无盘符的根路径）、含父引用或为空的声明，在检查链接与文件之前就被拒绝。"""
+    def accessed(path):
+        raise AssertionError(f'declared path was accessed before rejection: {path}')
+
+    monkeypatch.setattr(Path, 'is_symlink', accessed)
+    monkeypatch.setattr(Path, 'is_file', accessed)
     with pytest.raises(IntegrityError, match='consumer path rejected'):
         safe_file(tmp_path, relative, 'consumer path rejected')
+
+
+def test_safe_file_rejects_the_root_itself_at_the_boundary(tmp_path):
+    with pytest.raises(IntegrityError, match='consumer path rejected'):
+        safe_file(tmp_path, '.', 'consumer path rejected')
+
+
+@pytest.mark.parametrize('relative', ['a/C:/b.txt', 'a/C:b.txt', 'zz/Q:/C:../top.txt', 'zz/Q:/C:b.txt'])
+def test_safe_file_checks_drive_shaped_components_as_names_inside_the_root(tmp_path, monkeypatch, relative):
+    """中间组件形似盘符时仍按根内的一个名字检查：链接检查只落在根以内，也不会借盘符相对路径改指根内别的文件。"""
+    root = tmp_path / 'corpus'
+    (root / 'a').mkdir(parents=True)
+    (root / 'a' / 'b.txt').write_bytes(b'b')
+    (root / 'top.txt').write_bytes(b'top')
+    monkeypatch.chdir(root / 'a')
+    checked = []
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, 'is_symlink', lambda path: checked.append(path) or original(path))
+    with pytest.raises(IntegrityError, match='consumer path rejected'):
+        safe_file(root, relative, 'consumer path rejected')
+    assert checked and all(root.resolve() in path.parents for path in checked)
 
 
 def _reject_root_contained_reference(root, relative, payload, consumer):
